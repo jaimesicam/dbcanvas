@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -183,13 +185,24 @@ func TestK3DObjTextual(t *testing.T) {
 }
 
 func TestCertManagerManifestURL(t *testing.T) {
-	url := certManagerManifestURL(certManagerVersion)
+	version := certManagerResolveVersion("")
+	url := certManagerManifestURL(version)
 	if !strings.HasPrefix(url, "https://github.com/cert-manager/cert-manager/releases/download/v") ||
 		!strings.HasSuffix(url, "/cert-manager.yaml") {
 		t.Errorf("not the release manifest: %s", url)
 	}
-	if !strings.Contains(url, certManagerVersion) {
-		t.Errorf("the pinned version is not in the URL: %s", url)
+	if !strings.Contains(url, version) {
+		t.Errorf("the resolved version is not in the URL: %s", url)
+	}
+	// What the frame asks for wins; an empty ask resolves, and never reaches the URL as "".
+	if got := certManagerResolveVersion("v1.19.0"); got != "v1.19.0" {
+		t.Errorf("an explicit version was not honoured: %q", got)
+	}
+	if got := certManagerResolveVersion("  "); got == "" || got != version {
+		t.Errorf("blank should resolve like empty, got %q want %q", got, version)
+	}
+	if !strings.HasPrefix(version, "v") {
+		t.Errorf("cert-manager releases are v-prefixed; resolved %q", version)
 	}
 	// The webhook probe must be a Certificate — it is only there to make the API server call
 	// cert-manager's validating webhook — and it must never be applied for real.
@@ -198,16 +211,86 @@ func TestCertManagerManifestURL(t *testing.T) {
 	}
 }
 
-// The version the canvas prints on the checkbox and the version the deploy installs must be the
-// same string. They live in two languages, and "cert-manager v1.21.1" on a form that installed
-// something else is worse than saying nothing at all.
-func TestCertManagerVersionMatchesTheCanvas(t *testing.T) {
+// The canvas used to print a cert-manager version it had hardcoded, and this test existed to
+// keep that copy equal to the Go one. The frame picks a release now, so the rule is the stronger
+// one that made the copy unnecessary: the canvas offers the catalog and hardcodes nothing.
+//
+// A reintroduced constant is the failure worth catching. It would not be wrong on the day it was
+// written — it would drift the first time `make versions` found a newer release, and print a
+// version the deploy did not install.
+func TestTheCanvasDoesNotHardcodeACertManagerVersion(t *testing.T) {
 	js, err := os.ReadFile("web/src/pages/StackDesigner.jsx")
 	if err != nil {
 		t.Skip("StackDesigner.jsx not readable")
 	}
-	want := "export const CERT_MANAGER_VERSION = '" + certManagerVersion + "'"
-	if !strings.Contains(string(js), want) {
-		t.Errorf("StackDesigner.jsx does not carry %s — expected the line %q", certManagerVersion, want)
+	src := string(js)
+	if strings.Contains(src, "CERT_MANAGER_VERSION") {
+		t.Error("StackDesigner.jsx hardcodes a cert-manager version again; the picker reads the catalog")
+	}
+	// It reads the same catalog entry images/versions.sh fills and versions.go namespaces.
+	if !strings.Contains(src, "chart:cert-manager") {
+		t.Error("StackDesigner.jsx does not read the chart:cert-manager catalog entry")
+	}
+	// And the field the picker writes is the one the deploy reads (see k3d.go).
+	if !strings.Contains(src, "k3dCertManagerVer") {
+		t.Error("StackDesigner.jsx does not set k3dCertManagerVer")
+	}
+}
+
+// The picker's contract, which is the operator picker's: blank means the catalog's newest,
+// resolved to that exact release at deploy so a redeployed stack installs the same one.
+func TestCertManagerVersionResolution(t *testing.T) {
+	cat := loadChartCatalog()
+	e, ok := cat[certManagerChart]
+	if !ok || e.Latest == "" || len(e.Versions) == 0 {
+		t.Skip("no cert-manager chart catalog here; run `make versions`")
+	}
+
+	if got := certManagerResolveVersion(""); got != e.Latest {
+		t.Errorf("blank resolved to %q, want the catalog's latest %q", got, e.Latest)
+	}
+	// An older release the catalog knows is honoured, which is the whole point of the picker.
+	older := ""
+	for _, v := range e.Versions {
+		if v != e.Latest {
+			older = v
+			break
+		}
+	}
+	if older != "" {
+		if got := certManagerResolveVersion(older); got != older {
+			t.Errorf("asked for %q, resolved to %q", older, got)
+		}
+	}
+
+	// And validation: a frame that installs cert-manager may ask for a release the catalog
+	// knows, or none; anything else is an error before the deploy rather than a 404 during it.
+	// A client on a dead socket keeps this hermetic, the way TestK3DFrameIssuesCNPGVersion
+	// does: k3dFrameIssues asks the engine for host resources, and HostResources returns
+	// zeroes on any error, which makes it skip that check.
+	a := &App{docker: NewDocker(filepath.Join(t.TempDir(), "absent.sock"))}
+	frame := func(ver string) designFrame {
+		return designFrame{Type: "k3d", Label: "k3d-00", K3DCertManager: true, K3DCertManagerVer: ver, K3DCPUs: 4, K3DMemoryGB: 6}
+	}
+	hasCertIssue := func(f designFrame) bool {
+		for _, i := range a.k3dFrameIssues(context.Background(), f, 1, loadOperatorCatalog()) {
+			if strings.Contains(i.Message, "cert-manager") {
+				return true
+			}
+		}
+		return false
+	}
+	if hasCertIssue(frame("")) {
+		t.Error("blank is the default and must validate")
+	}
+	if hasCertIssue(frame(e.Latest)) {
+		t.Errorf("%s is in the catalog and must validate", e.Latest)
+	}
+	if !hasCertIssue(frame("v0.0.0-nope")) {
+		t.Error("an unknown release should be refused before the deploy")
+	}
+	// An unticked frame carries no cert-manager version worth checking.
+	if hasCertIssue(designFrame{Type: "k3d", Label: "k3d-00", K3DCertManagerVer: "v0.0.0-nope", K3DCPUs: 4, K3DMemoryGB: 6}) {
+		t.Error("a frame that does not install cert-manager should not be judged on its version")
 	}
 }

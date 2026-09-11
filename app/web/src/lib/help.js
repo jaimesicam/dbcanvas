@@ -169,6 +169,12 @@ export const HELP = {
   k8sChartVersion:
     'The Helm chart release to install the operator from. Leave it at the default unless you are reproducing ' +
     'behaviour specific to an older operator.',
+  k8sCertManagerVersion:
+    'Which cert-manager release to install. "latest" is the newest one `make versions` found, and it is resolved ' +
+    'to that exact release when the frame deploys — so a stack you redeploy next month installs the same ' +
+    'cert-manager, not whatever is newest then. Pick a specific one when you are reproducing a cluster that runs ' +
+    'it: cert-manager is what issues the cluster\'s certificates once the operator finds it, so its version is ' +
+    'part of the behaviour you are trying to reproduce.',
   k8sNamespace:
     'The Kubernetes namespace the database resources are created in. Handy to change when you want two clusters ' +
     'from the same operator side by side.',

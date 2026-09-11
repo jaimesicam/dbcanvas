@@ -71,13 +71,17 @@ func TestInstallCertManagerOnRealCluster(t *testing.T) {
 		t.Error("the webhook probe passed on a cluster with no cert-manager — it is not a check")
 	}
 
+	// "" is what a frame carries when the canvas did not pick a release, so this covers the
+	// resolution too: it must land on the catalog's newest, or the fallback when there is no
+	// catalog here — never on the empty string it was handed.
 	var log []string
-	ver, err := a.installCertManager(ctx, serverID, func(s string) { log = append(log, s); t.Log(s) })
+	want := certManagerResolveVersion("")
+	ver, err := a.installCertManager(ctx, serverID, "", func(s string) { log = append(log, s); t.Log(s) })
 	if err != nil {
 		t.Fatalf("installCertManager: %v", err)
 	}
-	if ver != certManagerVersion {
-		t.Errorf("installed %q, expected the pinned %q", ver, certManagerVersion)
+	if ver != want {
+		t.Errorf("installed %q, expected %q", ver, want)
 	}
 	if !a.certManagerPresent(ctx, serverID) {
 		t.Error("cert-manager reports absent right after installing it")
@@ -89,8 +93,8 @@ func TestInstallCertManagerOnRealCluster(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read the controller image: %v", err)
 	}
-	if !strings.Contains(out, certManagerVersion) {
-		t.Errorf("the controller runs %q, expected %s", out, certManagerVersion)
+	if !strings.Contains(out, ver) {
+		t.Errorf("the controller runs %q, expected %s", out, ver)
 	}
 	// And the claim that matters for the ordering: a Certificate is admitted, so an operator
 	// starting now would find a cert-manager that works.

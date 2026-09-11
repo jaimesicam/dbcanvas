@@ -880,10 +880,6 @@ function nextMemberName(usedSet, prefix) {
 }
 
 // Per-frame-type presentation: accent color and the description line.
-// CERT_MANAGER_VERSION mirrors the pin in app/k3dcertmanager.go — the release a ticked frame
-// installs. Shown rather than hidden: "cert-manager is on it" is not a useful answer when the
-// question is which one.
-export const CERT_MANAGER_VERSION = 'v1.21.1'
 
 const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb', innodb: '#0891b2', mariadbrepl: '#c0765a', mariadbgalera: '#a85d43', mysqlcerepl: '#00758f', mysqlceinnodb: '#005d72', psmdb: '#10b981', psmrs: '#059669', patroni: '#336791', repmgr: '#0e7490', spock: '#dc2626', valkeycluster: '#7c3aed', k3d: '#326ce5' }
 
@@ -3195,7 +3191,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
     const frame = {
       id: fid, type: 'k3d', label: nextNamedCluster(frames, 'k3d'), x: fx, y: fy, w: 0, h: 0,
       k3dNodes: 1, k3dCpus: 4, k3dMemoryGb: 8, k3dK3sVersion: '',
-      k3dOperator: '', k3dOperatorVer: '', k3dNamespace: 'default',
+      k3dOperator: '', k3dOperatorVer: '', k3dCertManagerVer: '', k3dNamespace: 'default',
       k3dProxy: 'haproxy', k3dExposePxc: 'clusterip', k3dExposeHaproxy: 'loadbalancer', k3dExposeProxysql: 'loadbalancer',
       k3dSharding: false, k3dExposeReplset: 'clusterip', k3dExposeMongos: 'loadbalancer',
       k3dExposePg: 'clusterip', k3dExposePgbouncer: 'loadbalancer',
@@ -7950,6 +7946,10 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
   const chartVersions = ops?.[chartKey]?.versions || []
   const chartLatest = ops?.[chartKey]?.latest || ''
   const pgMajors = ops?.[pgo ? 'image:crunchy-postgres' : 'image:cnpg-postgresql']?.versions || []
+  // cert-manager is a chart entry too, though what the deploy does with it is fetch that
+  // release's manifest — its chart version and its app version are the same tag.
+  const cmVersions = ops?.['chart:cert-manager']?.versions || []
+  const cmLatest = ops?.['chart:cert-manager']?.latest || ''
   const versions = helmOp ? chartVersions : (ops?.[op]?.versions || [])
   const latest = helmOp ? chartLatest : (ops?.[op]?.latest || '')
   // A sharded MongoDB cluster is 9 pods (replica set + config servers + mongos), not 3 — and so is an
@@ -8044,7 +8044,7 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
             checked={!!f.k3dCertManager}
             onChange={(e) => patchFrame(f.id, { k3dCertManager: e.target.checked })} />
           <span>
-            Install cert-manager <span className="font-mono text-xs">{CERT_MANAGER_VERSION}</span>
+            Install cert-manager
             <span className="block text-xs text-muted">
               Applied and waited for <em>before</em> the operator, which is the only order that works: an
               operator that reconciles first finds no cert-manager and issues its own self-signed
@@ -8052,6 +8052,28 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
             </span>
           </span>
         </label>
+        {/* Only once it is ticked: an untickable version is a control that answers a question
+            nobody asked. Same shape as the operator picker below — blank means the catalog's
+            newest, resolved at deploy (certManagerResolveVersion in app/k3dcertmanager.go), and
+            named here so "latest" is never the only thing you know about a lab. */}
+        {f.k3dCertManager && (
+          <Field label="cert-manager version" help={HELP.k8sCertManagerVersion}
+            hint="From `make versions`, which reads the releases charts.jetstack.io publishes. Pick one to reproduce a cluster that runs it.">
+            {cmVersions.length ? (
+              <select className={`${inputCls} ${lock}`} value={f.k3dCertManagerVer || ''} disabled={deployed}
+                onChange={(e) => patchFrame(f.id, { k3dCertManagerVer: e.target.value })}>
+                <option value="">latest{cmLatest ? ` (${cmLatest})` : ''}</option>
+                {cmVersions.map((v) => <option key={v} value={v}>{v}</option>)}
+              </select>
+            ) : (
+              /* No catalog yet (`make versions` never run). The deploy still has a fallback, so
+                 a blank here installs something rather than failing. */
+              <input className={`${inputCls} ${lock}`} value={f.k3dCertManagerVer || ''} disabled={deployed}
+                placeholder="latest — run `make versions` to list them"
+                onChange={(e) => patchFrame(f.id, { k3dCertManagerVer: e.target.value })} />
+            )}
+          </Field>
+        )}
       </div>
 
       <div className="space-y-2 rounded-lg border border-dashed p-2">

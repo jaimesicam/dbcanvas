@@ -507,11 +507,16 @@ type designFrame struct {
 	// because it changes what the operator does rather than what it is: the Percona operators
 	// look for cert-manager when they reconcile, and one that starts first and finds none
 	// self-signs the cluster's certificates instead — a choice a later install does not undo.
-	// See k3dcertmanager.go; the release is pinned there.
-	K3DCertManager bool   `json:"k3dCertManager"`
-	K3DOperator    string `json:"k3dOperator"`    // "" | "pxc" | "ps" | "psmdb" | "pg" | "cnpg" | "pgo"
-	K3DOperatorVer string `json:"k3dOperatorVer"` // "" = the catalog's latest
-	K3DNamespace   string `json:"k3dNamespace"`   // namespace the operator + CR are installed into
+	// See k3dcertmanager.go.
+	K3DCertManager bool `json:"k3dCertManager"`
+	// Which cert-manager release, "" = the catalog's latest — the same contract as
+	// K3DOperatorVer below. A lab that reproduces a customer's cluster often has to
+	// reproduce their cert-manager too, and "whatever is newest" is not a version you
+	// can compare two deploys against.
+	K3DCertManagerVer string `json:"k3dCertManagerVer"`
+	K3DOperator       string `json:"k3dOperator"`    // "" | "pxc" | "ps" | "psmdb" | "pg" | "cnpg" | "pgo"
+	K3DOperatorVer    string `json:"k3dOperatorVer"` // "" = the catalog's latest
+	K3DNamespace      string `json:"k3dNamespace"`   // namespace the operator + CR are installed into
 	// The proxy in front of the database. cr.yaml ships HAProxy enabled and the alternative disabled;
 	// they are mutually exclusive, so choosing one disables the other. PXC: haproxy | proxysql.
 	// PS: haproxy | router (MySQL Router understands group replication only).

@@ -33,10 +33,15 @@ import (
 // a binary to the image.
 
 const (
-	// The cert-manager release installed. Pinned like metalLBVersion above it, and for the same
-	// reason: the manifest and what the app expects of it have to agree, and a lab that quietly
-	// installs something different next month is not a lab you can compare against last month's.
-	certManagerVersion = "v1.21.1"
+	// The cert-manager release installed when the canvas asks for no particular one and the
+	// catalog cannot answer either — `make versions` never run, or run without a network.
+	//
+	// It is a fallback now rather than the pin it used to be: the frame carries a version
+	// (K3DCertManagerVer) and an empty one resolves to the newest release in versions.yaml,
+	// the same contract the operator picker has. What has not changed is why a version is
+	// written down at all — a lab that quietly installs something different next month is not
+	// a lab you can compare against last month's — only that the canvas now chooses which.
+	certManagerFallbackVersion = "v1.21.1"
 	// The single-file install the project publishes — CRDs, namespace, RBAC, and the three
 	// deployments, in one manifest.
 	certManagerManifestFmt = "https://github.com/cert-manager/cert-manager/releases/download/%s/cert-manager.yaml"
@@ -82,15 +87,39 @@ spec:
     kind: Issuer
 `)
 
+// certManagerResolveVersion turns the frame's choice into the release to install: what the
+// canvas asked for, or the newest the catalog knows, or the built-in fallback.
+//
+// The catalog entry is the Helm chart's, from charts.jetstack.io (images/versions.sh), and it is
+// used here for a manifest URL instead — which works because cert-manager's chart version IS its
+// app version, tag for tag. That is true of cert-manager and not of charts in general: the
+// CloudNativePG chart's 0.29.0 carries operator 1.30.x, which is why that one has a picker of its
+// own that says "chart version" rather than pretending the two are the same thing.
+func certManagerResolveVersion(want string) string {
+	if v, ok := loadChartCatalog().resolveChartVersion(certManagerChart, want); ok && v != "" {
+		return v
+	}
+	// The catalog refused it, which for a chart means it knows the chart and not that version.
+	// Install it anyway: k3dFrameIssues already fails a deploy that asks for one, so reaching
+	// here means somebody bypassed the canvas, and a 404 from GitHub says more than a silent
+	// downgrade to a release they did not choose.
+	if v := strings.TrimSpace(want); v != "" {
+		return v
+	}
+	return certManagerFallbackVersion
+}
+
 // installCertManager applies the release and returns once cert-manager can serve. The version it
-// installed is returned so the node's panel can say which one is on the cluster.
-func (a *App) installCertManager(ctx context.Context, serverID string, logln func(string)) (string, error) {
-	url := certManagerManifestURL(certManagerVersion)
+// installed is returned so the node's panel can say which one is on the cluster — which is not
+// always the one asked for, since an empty request resolves to the catalog's latest.
+func (a *App) installCertManager(ctx context.Context, serverID, want string, logln func(string)) (string, error) {
+	version := certManagerResolveVersion(want)
+	url := certManagerManifestURL(version)
 	manifest, err := httpGetBytes(ctx, url)
 	if err != nil {
 		return "", fmt.Errorf("fetch the cert-manager manifest: %w", err)
 	}
-	logln(fmt.Sprintf("cert-manager %s — applying %s (%d KiB)", certManagerVersion, url, len(manifest)/1024))
+	logln(fmt.Sprintf("cert-manager %s — applying %s (%d KiB)", version, url, len(manifest)/1024))
 	// Server-side apply: the CRDs in this manifest are far past the 256KiB ceiling on the
 	// last-applied-configuration annotation that a client-side apply would try to write.
 	if err := a.kubectlApplyServerSide(ctx, serverID, "", manifest); err != nil {
@@ -109,7 +138,7 @@ func (a *App) installCertManager(ctx context.Context, serverID string, logln fun
 		return "", err
 	}
 	logln("cert-manager: the webhook is admitting Certificates — the operator will use it for TLS")
-	return certManagerVersion, nil
+	return version, nil
 }
 
 // waitCertManagerWebhook dry-runs a Certificate until the webhook answers, or gives up.

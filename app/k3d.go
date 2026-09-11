@@ -371,6 +371,15 @@ func (a *App) k3dFrameIssues(ctx context.Context, f designFrame, members int, op
 		}
 	}
 
+	// cert-manager's release is a chart version too, and checked the same way: an empty one is
+	// the catalog's latest, and no catalog at all accepts anything (the deploy has a fallback).
+	// Only worth saying when the frame actually installs it.
+	if f.K3DCertManager {
+		if _, ok := loadChartCatalog().resolveChartVersion(certManagerChart, f.K3DCertManagerVer); !ok {
+			out = append(out, issue{Level: "error", Message: "K3D cluster " + name + " requests an unknown cert-manager version " + f.K3DCertManagerVer + " — pick one from the list, or run `make versions`"})
+		}
+	}
+
 	// Debugging the operator is wired up per operator (k3dDebuggableOperator), and its host port
 	// is fixed rather than auto-assigned — both are things a design can ask for and not get, so
 	// both are said here rather than discovered in a deploy log. The port checks apply only when
@@ -909,7 +918,7 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 		// later does not undo. See k3dcertmanager.go.
 		if frame.K3DCertManager {
 			pr.phase("Installing cert-manager", 58)
-			ver, err := a.installCertManager(ctx, serverID, pr.logln)
+			ver, err := a.installCertManager(ctx, serverID, frame.K3DCertManagerVer, pr.logln)
 			if err != nil {
 				// Not fatal — the cluster is up, and an operator with no cert-manager issues
 				// its own certificates rather than failing. Said loudly, and left out of the

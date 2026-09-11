@@ -348,8 +348,13 @@ or `cluster-admin` cluster-wide), then copy that user's own kubeconfig and confi
 can and can't do.
 
 **cert-manager, ticked at design time.** A Kubernetes frame has a **Cluster add-ons** box with one
-option in it: install cert-manager (a pinned release — the canvas prints which) before the
-operator. It is a design-time choice rather than something to do afterwards, because what it
+option in it: install cert-manager before the operator. Ticking it reveals a version picker, the
+same shape as the operator's: *latest* is the newest release `make versions` found on
+charts.jetstack.io, and it is resolved to that exact release when the frame deploys — so a stack
+redeployed next month installs the cert-manager you deployed, not whatever is newest then. Pick an
+older one to reproduce a cluster that runs it; cert-manager is what issues the database's
+certificates once the operator finds it, so its version is part of the behaviour under test.
+It is a design-time choice rather than something to do afterwards, because what it
 changes is what the *operator* does on its first reconcile: with cert-manager on the cluster the
 four Percona operators ask it for the database's TLS certificates — a real Issuer, renewal, a CA
 the pods trust — and without it they quietly generate a self-signed set of their own. Installing
