@@ -404,6 +404,22 @@ export const HELP = {
     'Tear down every container and volume in this stack. The design stays on the canvas, so you can redeploy it — ' +
     'but the data inside the nodes is gone.',
   uiResetView: 'Recentre the canvas at 100%, for when you have panned or zoomed somewhere you cannot find your way back from.',
+  // --- Kubernetes States ---------------------------------------------------
+  k8sStates:
+    'A live board of every object in a Kubernetes cluster, sampled on a timer. A card is red when the object itself ' +
+    'says it is broken — a Failed pod, a container in CrashLoopBackOff, a Lost claim, a custom resource in error — ' +
+    'and the property row that says so is red inside it. A value that changed since the last sample is lit for a few ' +
+    'seconds and shows what it changed from, which is how a failover or a rolling restart becomes something you can ' +
+    'watch rather than reconstruct. An object that disappears is kept, greyed out, until you dismiss it. ' +
+    'The same board can be drawn from a pt-k8s-debug-collector capture kept by Diagnostics, or from a cluster-dump ' +
+    'uploaded from your machine — a cluster this installation has never seen reads exactly the same, and two ' +
+    'captures can be compared against each other.',
+  k8sStatesPin:
+    'Keep this object\'s detail on screen while you click through the others. Pinned details keep updating and keep ' +
+    'highlighting their changes, so you can watch a custom resource and the pod it is restarting at the same time.',
+  k8sStatesWatch:
+    'Open this cluster on the Kubernetes States canvas — every pod, workload, claim, service and custom resource on ' +
+    'one board, with what is broken in red and what just changed lit up.',
   uiSaveState: 'The canvas saves itself a moment after every change; this says whether the last one has landed.',
   uiTTL: 'When this stack tears itself down automatically. Set when the stack was created.',
   uiStackStatus: 'Whether this design has been deployed, and whether its containers are still up.',

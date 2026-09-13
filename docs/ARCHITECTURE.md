@@ -100,16 +100,24 @@ An installation targets **exactly one platform**. `DOCKER_PLATFORM` selects it,
 never more than one architecture of a node image on disk, which is why nothing in the
 designer asks you to pick one.
 
-## The version catalogue
+## The image matrix and the version catalogue
 
-`versions.yaml` is a catalogue, not a lockfile: `make versions` (`images/versions.sh`) runs
-the built images and asks each package manager what it can actually install, then records it.
-The designer's version pickers are populated from that file, so every version offered is one
-that the image in front of you can install today.
+Two generated files, written by two commands that never overwrite each other's work:
 
-The same file carries Helm chart versions, operator tags, k3s releases and the image tags
-chart-installed operators are pointed at. Each section names how it was discovered and how to
-refresh it.
+- `images.yaml` — what `make images` (`images/build.sh`) built here: one entry per OS × version
+  for the single platform this installation targets. The OS pickers read this.
+- `versions.yaml` — a catalogue, not a lockfile: `make versions` (`images/versions.sh`) runs each
+  of those images and asks its package manager what it can actually install, then records it. The
+  version pickers read this, so every version offered is one that the image in front of you can
+  install today. The same file carries Helm chart versions, operator tags, k3s releases and the
+  image tags chart-installed operators are pointed at; each section names how it was discovered
+  and how to refresh it.
+
+They are two files because they cost two very different things to produce. Rebuilding an image
+is routine; probing every repository on every image takes hours. When both lived in one file,
+`make images` overwrote the catalog each time — so `make install` had to re-probe what it had
+just deleted, and a first run took hours nobody had asked for. Now `make install` builds images
+and starts, using the catalog committed to the repo, and `make versions` is run deliberately.
 
 ## A stack is a design, then a deployment
 
@@ -145,7 +153,7 @@ were added later.
 | Users, sessions, stacks, designs, deployments, notifications | SQLite (`DB_PATH`, a Docker volume at `/data`) |
 | Generated credentials for a deployed node | The deployment row, shown in the node's panel |
 | What a deploy actually applied (K8s manifests) | Archived on the cluster's first node, numbered in apply order |
-| Node images and the version catalogue | The Docker image store and `versions.yaml` |
+| Node images and the version catalogue | The Docker image store, `images.yaml` and `versions.yaml` |
 
 Everything a stack needs is derived from the design plus `.env` at deploy time, so a redeploy
 re-reads both. Passwords are not stored per-node on the canvas.
@@ -189,7 +197,7 @@ Two terminals (Docker is still required for provisioning stacks):
 
 ```sh
 # terminal 1 — Go API + SQLite (needs the Docker socket to provision stacks)
-cd app && APP_PORT=8080 DB_PATH=./dbcanvas.db VERSIONS_FILE=../versions.yaml go run .
+cd app && APP_PORT=8080 DB_PATH=./dbcanvas.db VERSIONS_FILE=../versions.yaml IMAGES_FILE=../images.yaml go run .
 
 # terminal 2 — Vite dev server (proxies /api → :8080)
 cd app/web && npm install && npm run dev

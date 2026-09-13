@@ -23,6 +23,11 @@ creating container instances. Record every **successful** build in
 `versions.yaml` at the repo root; that file is the source of truth for the
 picker (combo box) implemented in a later entry.
 
+> **Amended by §381.** The build record now goes to **`images.yaml`**, not
+> `versions.yaml`. Everything below is otherwise unchanged — same matrix, same
+> tolerated failures, same per-entry fields — but `make images` no longer touches the
+> version catalog, which is why `make install` no longer has to rebuild it.
+
 **Matrix.** Five base images × two Docker platforms:
 
 | OS family | Base images | Platforms |
@@ -428,6 +433,11 @@ offer real choices:
 image records from `make images` and adds/refreshes the version data. It is the
 single source of truth the app reads at runtime.
 
+> **Amended by §381.** The two are now separate files: `make versions` reads the image
+> matrix out of `images.yaml` and owns `versions.yaml` alone. "Preserves the image
+> records" became "does not have to" — there is nothing of `make images` in the file it
+> writes, and nothing of `make versions` in the file `make images` writes.
+
 ### Files added
 
 ```
@@ -542,7 +552,8 @@ The app reads the §3 catalog at runtime (the build context is `./app`, so
 - **`docker-compose.yml`**: bind-mount `./versions.yaml:/etc/dbcanvas/versions.yaml:ro`
   and set `VERSIONS_FILE=/etc/dbcanvas/versions.yaml`. Re-run `make versions` on
   the host to refresh what the pickers offer (no rebuild needed; the app reads
-  the file per request).
+  the file per request). (§381 adds a second mount, `./images.yaml` at
+  `/etc/dbcanvas/images.yaml` with `IMAGES_FILE`, read by the OS pickers.)
 - **`app/versions.go`**: parses **only** the `pmm:` block by hand (the format is
   fixed and we emit it — no YAML dependency added). `versionsFilePath()` tries
   `VERSIONS_FILE`, then `/etc/dbcanvas/versions.yaml`, then `versions.yaml` /
@@ -23020,3 +23031,483 @@ DSN on `:5000` and the read DSN on `:5001`, same host and credentials, under eac
 variable names — the names `configFromEnv` actually reads). The image was rebuilt so the option is
 live. Not verified by deploying a stack — the host that would have run it was hitting the inotify
 exhaustion described in §377 at the time, so the sim was exercised directly instead.
+
+---
+
+## 381. `make install` stopped rebuilding the version catalog it had just deleted — `Makefile`, `images/{build,versions}.sh`, `images.yaml` (new), `versions.yaml`, `app/versions.go`, `app/{versions_catalog,charts,compose}_test.go`, `docker-compose.yml`, `docs/{GETTING_STARTED,CONFIGURATION,ARCHITECTURE}.md`
+
+`make install` was taking people upwards of **three hours**, and almost all of it was
+`make versions`: a throwaway container per image, then `dnf search --showduplicates` or
+`apt-cache madison` against Percona, MariaDB and MySQL repositories for every product on
+every image, plus the Docker Hub and Helm index queries for PMM, the operators, the charts
+and k3s. On a cold cache, from the wrong side of the planet, that is an afternoon.
+
+The reason it was in `install` at all is §1: `images/build.sh` wrote **`versions.yaml`**.
+Not a section of it — the whole file, from a header down. So `make images` deleted every
+version list `make versions` had ever discovered, and `install` had to run the probe
+afterwards to put back what it had just thrown away. The cost was structural, not
+incidental: the two commands shared one file, and the cheap one clobbered the expensive
+one's output.
+
+**Two files, one owner each.**
+
+| File | Written by | Holds | Read by |
+| --- | --- | --- | --- |
+| `images.yaml` | `make images` (`images/build.sh`) | one entry per OS × version for the selected platform: `os`, `version`, `platform`, `arch`, `tag`, `base`, `built_at` | the OS pickers (`loadImagesCatalog`) |
+| `versions.yaml` | `make versions` (`images/versions.sh`) | per image, what installs on it (`percona_server`, `percona_xtradb_cluster`, `mariadb`, `mysql_community`, `spock`, …), then `pmm`, `pdps`, `operators`, `charts`, `chart_images`, `k3s` | every version picker |
+
+`versions.sh` now reads its image matrix from `images.yaml` and writes `versions.yaml`
+only; `build.sh` writes `images.yaml` and says, at the end, that the catalog is untouched.
+Each image entry in `versions.yaml` keeps `os`/`version`/`platform`/`arch` (how the app
+matches a node to its versions) and `tag` (how `carry_section` finds the block to carry
+forward under `ONLY=`), but drops `base` and `built_at` — build facts, which now live in
+the file about builds. The header keeps `versions_generated_at` and gains
+`images_generated_at`, copied from `images.yaml`, so a reader can see at a glance that a
+catalog predates the images it describes.
+
+`make install` is therefore `images install-extras compose`, and the pickers are populated
+on the first page load from the `versions.yaml` committed to the repo — which no longer
+goes stale the moment somebody builds an image.
+
+**The app reads both.** `loadImageCatalog` is one parser over an `images:` block, and both
+files have one of the same shape; the *section* being asked for decides which file it opens.
+The empty section is the image list itself (`loadImagesCatalog`) → `images.yaml`; every named
+section is a version map → `versions.yaml`. `imagesFilePath()` mirrors `versionsFilePath()`
+(`IMAGES_FILE`, then `/etc/dbcanvas/images.yaml`, then repo-relative), with one addition: when
+there is no `images.yaml` anywhere it falls back to `versionsFilePath()`, because an
+installation that predates this split has its image entries inside `versions.yaml` and its OS
+pickers should keep working until the next `make images`. The same fallback covers an
+`images.yaml` that exists but lists nothing — every build failed, or it is the stand-in below —
+since entries in `versions.yaml` at least describe images that were built at some point.
+`docker-compose.yml` mounts the new file read-only beside the old one and sets `IMAGES_FILE`.
+
+A consequence worth naming: the OS matrix and the version lists can now disagree, and that is
+the normal state between a build and the next probe. An image built today appears in the OS
+pickers immediately and has no version lists until `make versions` runs — which is better than
+the old behaviour in both directions, since it used to mean *every* image had no version lists.
+
+**`make env` now materializes a missing catalog file** before compose can. A bind mount whose
+source does not exist is created by the Docker daemon as a **directory**, after which the
+pickers are empty forever and nothing says why (the failure mode CONFIGURATION.md already
+documented for `versions.yaml`). One more file is one more chance to hit it, so `env` drops an
+`images: []` stand-in for either file if it is missing; `make images` / `make versions`
+overwrite it.
+
+### Verified
+
+`go build`/`vet`/`gofmt` clean. Four tests pin the split: the OS matrix comes from
+`images.yaml` including an image the catalog has never seen, the version maps come from
+`versions.yaml` and offer nothing for that image, and with no `images.yaml` — or an empty one —
+the OS pickers fall back to the entries in `versions.yaml`. The two fixture helpers
+(`writeVersionsFile`, `composeCatalogFixture`) now set `IMAGES_FILE` as well — without it the
+generic catalog reached past the fixture to the repo's own file. `TestOperatorCatalog`, which
+reads the real `../versions.yaml`, still passes, and a scratch run against the real pair
+reproduced the pre-split numbers exactly: 7 images generic, 5 per-product (Debian excluded by
+`productOSFamily`), 33 Percona Server 8.0 minors on OL8, PMM latest 3.9.1, 44 PDPS repos, 4
+operators, 4 charts, 2 chart image sets. The repo's `versions.yaml` was split into the two
+files mechanically, so no version list changed. Not verified: a full `make images` /
+`make versions` run — both need a Docker daemon and the second is the three hours this entry
+is about; the generators' parsing halves (`parse_entries` over the new `images.yaml`,
+`carry_section` over the new `versions.yaml`) were exercised directly instead.
+
+---
+
+## 382. Kubernetes States — a cluster as a board that keeps what died — `app/k3dstates.go` (new), `app/k3dstates_test.go` (new), `app/api_routes.go`, `app/web/src/pages/K8sStates.jsx` (new), `app/web/src/lib/k8sStates.js` (new), `app/web/src/lib/stackApi.js`, `app/web/src/pages/K3DManager.jsx`, `app/web/src/components/Icons.jsx`, `app/web/src/App.jsx`, `app/web/src/lib/help.js`, `app/web/smoke/{render,browser}.jsx`, `docs/KUBERNETES_STATES.md` (new), `docs/{README,GETTING_STARTED,STACKS,API_REFERENCE}.md`
+
+Every Kubernetes view in DBCanvas so far answers a question you already knew to ask: what is
+the custom resource (§366), what are the Secrets (§373), what happened in this capture
+(§330's Operator Summary). None of them is any use in the minutes when a failover is running
+and the question is simply *what is moving*. For that people do what they have always done —
+`watch kubectl get pods` in one window and `kubectl describe` in another — and the thing that
+window cannot do is the whole problem: **when an object disappears it takes its evidence with
+it**. The pod that was crash-looping thirty seconds ago is not in the list any more, and there
+is nothing to click.
+
+So: a board. One column per kind, one card per object, sampled on a timer, and three
+behaviours a `watch` cannot have.
+
+**Red means the object says it is broken.** Not "something nearby looks odd", and never
+inferred from events. A `Failed` pod, a container in `CrashLoopBackOff` or `ImagePullBackOff`,
+a container that exited non-zero, a `Lost` claim, a `NotReady` node, a custom resource in
+`error`, a `Ready` condition that is `False`, a workload with zero ready replicas. Everything
+mid-flight is amber (`Pending`, `ContainerCreating`, `Terminating`, ready 2/3, restarts > 0, a
+LoadBalancer with no address), and everything that finished on purpose is grey. That last one
+is the rule that decides whether the page is usable at all: a Percona lab cluster is mostly
+completed backup pods, and a board that calls `Succeeded` a failure teaches people to ignore
+red within a minute. It is also the rule the first test run caught me breaking — `toneDone`
+ranks *below* `toneOK`, so an object that started at `toneOK` could never fall to "done", and
+every finished pod came out green. Objects now start with **no** tone and take the worst of
+their own properties.
+
+**The properties are toned one by one, and the coloured ones lead.** The card says the pod is
+broken; the row says it is the `database` container and the reason is `CrashLoopBackOff`. Four
+rows fit on a card, so which four is a decision: red first, then amber, then the rest, then
+`+n more`. Restarts are deliberately amber and not red — a pod that crashed an hour ago and has
+been up since is not broken now, and the container row below says whether it still is.
+
+**What changed is lit, and says what it changed from.** `Ready 2/3 (was 3/3)` is a failover,
+readable without reading. This is the half that has to live in the browser, because it is a
+property of the *series* of samples rather than of any one of them: `lib/k8sStates.js` folds a
+sample into the model, comparing property by property, carrying previous highlights forward
+(at a 5s poll with a 12s highlight most changes are still lit when the next sample lands, and
+dropping them would make a change visible for a single frame) and stamping `firstSeen` so a new
+object arrives with a flash of its own.
+
+**And what disappeared is kept.** An object missing from a sample is not removed: it is marked
+gone, in place, in the last state it was ever in, with its name struck through, until it is
+dismissed. It keeps its original time of death across later samples, and it survives the
+*only what is wrong* filter — filtering for trouble must not hide the evidence. Tombstones are
+per-session by design (a browser tab's memory, cleared when you switch clusters), because they
+are about what *you* have not looked at yet, not about the cluster.
+
+**Sampling, not watching.** Three `kubectl get`s per sample inside the k3s server node: the
+built-in kinds in one call (`nodes,pods,statefulsets,deployments,jobs,persistentvolumeclaims,services -A`,
+verified below as a single valid invocation, cluster-scoped Nodes mixed with namespaced kinds
+and all), the operator's custom resources in a second, and events in a third. Only the first is
+required — a cluster with no operator has no CRs to list and a cluster whose event TTL expired
+has no events, and both are reported in `warnings` rather than emptying the board. A watch
+would close the gap where an object is created and deleted between two samples, at the cost of
+a long-lived connection to lose and re-establish on every cluster restart; three plain GETs
+recover on their own, and at 2s the gap is small. ReplicaSets are left out (a Deployment already
+says what its replicas are doing, and a cluster keeps a dead one per revision), as are Secrets
+and ConfigMaps (no status to watch — §373 is their panel).
+
+**Events explain a red, they never cause one.** Warnings only, five per object, newest first,
+attached by `involvedObject.uid` and by address when an event carries no uid. A healthy pod with
+two failed liveness probes an hour ago stays green and still shows them.
+
+The custom-resource reader is a vocabulary rather than a schema: find the word that says what
+state it is in (`state`, `status`, `phase`), tone it against a list of words operators actually
+use, flatten the scalars beside it one level (`postgres.ready 3` is the row somebody watches
+during a PG failover) and show any condition that is not True. That covers all four Percona
+operators, CloudNativePG and Crunchy without knowing anything about them, and an operator this
+file has never heard of still gets a card.
+
+The page is a NAV entry (`Kanban` icon — the sidebar's rule is that neighbours may not share
+one, and Operator Summary already has `Kubernetes`), reachable also from a cluster's server
+node panel through the existing handoff mechanism. Pan and zoom are the Stack Designer's own
+`zoomAt` and pointer drag. Polling goes through `usePolling`, so a board behind another tab
+costs nothing, and a second one-second clock runs *only while something is still lit*, so
+highlights fade even at a one-minute sample rate.
+
+### Verified
+
+`go build`/`vet`/`gofmt` clean; 17 Go tests over the rules (each judgement that could make the
+board lie has one: crash-loop names its container, a completed pod is done not bad, a
+terminating pod is not green, a `False` Ready condition is red, an event never repaints a
+healthy object). `npm run build` and both smoke suites pass, including 12 new render checks over
+the model and the cards — a changed property remembers what it changed from and fades on its
+own, an unchanged one is never lit, a deleted object is kept and keeps its time of death, a
+tombstone survives the problems filter, and a card renders in every tone. `K8sStates` is in the
+browser mount list too, which is the only check that its three effects survive StrictMode's
+double invocation.
+
+**Verified against a real cluster, but not the intended one.** The installation's own K3D stack
+was destroyed by its owner mid-session, so a throwaway `rancher/k3s` container stood in: a pod
+on a bad image, a pod exiting 3, a Job that completes, and a PVC on a storage class that does
+not exist. Its real `kubectl` output through the real parser produced exactly the intended
+judgements — `lab/badimage` red with `app=ErrImagePull`, `lab/dies` red with `app=Error (exit 3)`,
+the finished pod and its Job grey, the unbindable claim amber with a `ProvisioningFailed`
+warning attached, and every kube-system pod green *despite* carrying `Unhealthy` and
+`FailedCreatePodSandBox` warnings from its own startup, which is rule 1 working. What that run
+could not exercise is a Percona custom resource on a live cluster (the CR reader is covered by
+tests over the real status shapes) and the browser half against a moving cluster: highlights,
+tombstones and pinning are covered by the smoke checks and by the stubbed browser mount, not by
+a human watching a failover. The app image was rebuilt and restarted, so the page is live at
+`/#k8s-states` for whoever has a cluster up next.
+
+---
+
+## 383. The states board was a letterbox, and a pod is several logs — `app/k3dstates.go`, `app/k3dstates_test.go`, `app/api_routes.go`, `app/main.go`, `app/web/src/pages/K8sStates.jsx`, `app/web/src/lib/{k8sStates,stackApi,help}.js`, `app/web/src/App.jsx`, `app/web/smoke/{browser.jsx,vite.config.js}`, `docs/{KUBERNETES_STATES,API_REFERENCE}.md`
+
+Three things came back from §382 meeting a real cluster and a real user.
+
+**The board had no height.** The page asked for `h-full`, which resolves to nothing in a
+parent that has no height of its own — and the shell's tab wrapper is a plain `<div>` inside
+a scrolling `<main>`. So the whole canvas collapsed to the height of one row of cards, with
+the rest of the window empty below it. The fix is opt-in rather than blanket: a NAV entry can
+now say `fill: true` and the shell gives that tab's wrapper `h-full`. Imposing it on every
+page would cap the long ones — Log Summary, the API reference — at the window instead of
+letting `<main>` scroll them. The toolbar was the other half of the squeeze: `inputCls`
+carries `w-full`, which is right for a form and wrong for a toolbar, so every select spanned
+the window and the header stacked five rows deep. There is now a `selectCls` without it, one
+toolbar row, and a **Fill the window** button (Esc to leave) for when the board wants
+everything.
+
+**A pane is one object seen one way, and any of them can be pinned.** §382 pinned *objects*;
+what people actually want to keep on screen is a pod's **log** — and a pod is several logs,
+one per container, which is the whole difficulty. So a pin is now `{key, view}` with view in
+`state | logs | yaml`, and the rail holds however many of those you like: the custom
+resource's state and the crashing container's log, side by side, both live. Switching a
+pinned pane's tab moves that pane in place (`movePaneView` — it neither unpins nor clones,
+and collapses onto an existing pin rather than duplicating it). The rail's width is dragged,
+and any pane can fill the page.
+
+The log pane opens on the container **worth** reading: `sortContainers`/`defaultContainer`
+order by the same tone the card uses, so a six-container Percona pod opens on whichever one
+is unhealthy, and on a healthy pod on the first real container rather than an init container
+that finished half an hour ago. `--previous` is offered once something has restarted, because
+it is the only log a `CrashLoopBackOff` has anything in. Both new endpoints build their argv
+through pure, tested functions: these are argv and not a shell, so there is no quoting to get
+wrong — and none to save you either, since a "name" of `--all-containers` is a flag kubectl
+would honour.
+
+**And the CR reader was wrong about a real PXC cluster.** Sampling the live one showed a
+healthy cluster in amber. Two causes, both now tests:
+
+- `{type: tls, status: enabled}`. The Percona operators use `conditions` as a *transition
+  log* with arbitrary words in `status`, not as the True/False/Unknown of the API
+  conventions — so "anything that is not True is at least a warning" painted `tls: enabled`
+  amber, and would have painted every such condition amber forever. True is now skipped
+  (the headline state is the current answer, not the log of how it got there), False is
+  judged by what the condition is about, and any other word is judged by the vocabulary —
+  which for a word this file does not know means no colour at all.
+- `s3.bucket: backup` on a *finished* backup. Toning any value that looks like a state word
+  meant the name of this lab's bucket turned a succeeded backup amber. A value is now only
+  toned when its **key** says it holds a state (`state`, `status`, `phase`, or a nested
+  `…​.status`), which keeps `pxc.status: ready` green and leaves bucket names alone.
+
+After both, the same cluster reads 37 green and 2 grey, which is what it is.
+
+**One more bug, found by the live test and worth the paragraph it costs.** Every log read
+came back HTTP 200 with an empty body. The response map contained `"tail": tail` — and after
+a refactor moved the local `tail` into the argv builder, that name still resolved: to
+`tail()`, a helper function in `vagrant.go`. It compiled, `json.Encode` then failed on a func
+value, and because `writeJSON` discarded the encoder's error the failure was silent in the
+server and invisible in the browser, where the pane said "No log lines" about a pod that was
+talking. `k3dLogArgs` now returns the number as well as the argv so the name cannot be
+captured again, and `writeJSON` logs an encode failure — it cannot turn one into a 500, the
+status line is already out, but it must not swallow it either.
+
+### Verified
+
+`go build`/`vet`/`gofmt` clean, the Go suite's states tests (now 24, including the two real
+PXC status shapes above and the flag-shaped names the argv builders must refuse) pass, both
+smoke suites pass.
+
+**Against the live PXC cluster on this installation**, through the real HTTP endpoints: the
+sample reads 39 objects across 4 namespaces with no false amber; each of `k3d-00-pxc-0`'s
+four containers (`pxc-init`, `logrotate`, `logs`, `pxc`) returns its own log, init container
+included; `--previous` on a container that never restarted comes back as a readable note
+rather than an error box; and the manifest endpoint returns 14 KB of YAML with no
+`managedFields`.
+
+**The layout is now checked in a real browser.** `smoke/browser.jsx` grew a stylesheet — it
+had none, so every Tailwind class in it was inert and no layout could be measured, which is
+precisely why a letterbox shipped. With the app's own CSS loaded, the new check mounts the
+page in a 700px container and fails if the page takes less than 600 of them or the board less
+than 300. Confirmed to fail (227px) with the height classes removed, and to pass with them.
+
+---
+
+## 384. The states board reads a cluster-dump too — `app/k3dstatesdump.go` (new), `app/k3dstates_test.go`, `app/api_routes.go`, `app/web/src/pages/K8sStates.jsx`, `app/web/src/lib/{k8sStates,stackApi,help}.js`, `app/web/smoke/{render,browser}.jsx`, `docs/{KUBERNETES_STATES,OPERATOR_SUMMARY,API_REFERENCE}.md`
+
+The board (§382, §383) watches a cluster that is up. The question was whether it could also
+read a **pt-k8s-debug-collector cluster-dump** — one kept by a cluster's Diagnostics tab, or
+one uploaded from a host — and the answer turned out to be nearly free, for a reason worth
+writing down: `kubectl get -o json` and the collector's `<namespace>/<resource>.yaml` are the
+same objects in two encodings. The files are Kubernetes Lists, their items carry their own
+`kind` (checked against a real capture, not assumed), and `sigs.k8s.io/yaml` — already a
+dependency for Operator Summary — converts them to JSON on the way in. So `k3dStateOf` and
+every rule behind it apply unchanged: the same pods come out red for the same reasons, with
+the same toned rows and the same warning events hanging off them. `k3dstatesdump.go` is
+mostly a walk over the archive's file names.
+
+**What an archive cannot be, said on the board rather than left to be discovered.** A
+capture is ONE INSTANT: nothing is changing and nothing has disappeared, so the sample-rate
+control is not offered for one and a warning says why the board is still. There are NO
+SERVICES — the collector writes no `services.yaml`, and a column missing because nothing
+collected it looks exactly like a column missing because the cluster has none. And a pod has
+ONE LOG, not one per container.
+
+That last one turns into the nicest part of this entry. The collector writes
+`<namespace>/<pod>/logs.txt` (the pod's default container) **and everything it pulled off the
+container's disk** — on a PXC pod that is `var/lib/mysql/mysqld-error.log`, `grastate.dat`,
+the xtrabackup logs and `summary.txt`. So the log pane's picker, which lists containers for a
+live pod, lists *files* for a capture, and the server says which mode it is in by returning
+`files`. Reading a capture is therefore sometimes better than reading the cluster it came
+from: `kubectl logs` would never have given you the mysqld error log.
+
+**Comparing two captures falls out of the model.** §382's merge already turns a series of
+samples into highlights and tombstones, and two captures are two samples a long way apart. A
+`compare` checkbox keeps the board when the source changes, so loading Monday's capture and
+then Tuesday's lights what changed, with the old value beside it, and leaves a tombstone for
+what is in the first and not the second. Off by default: the usual case is "show me this
+capture", and a board silently holding another cluster's objects would be a lie.
+
+**Uploads are held in memory, not written to disk**, and this is a permission argument rather
+than a storage one. A kept capture belongs to a stack, and `ownsDumpStack` is what decides who
+may read it. An uploaded archive belongs to nobody — it may be a customer's cluster this
+installation has never seen — so there is no stack to hang permission from, and writing it
+into the dumps directory would make it look like a capture of something here. It is held
+against the uploader's own user id for an hour, three at a time, and the panes address it by
+token. A page left open past the hour is told the archive is gone, which is a better failure
+than an installation slowly filling its disk with other people's clusters.
+
+The three sources are one identifier — `live:8/frame-x`, `dump:12`, `upload:<token>` — because
+it has to survive a `<select>`, and one `api` object: `k8sArchiveApi` has the same two methods
+the panes call on a live cluster, pointed at the archive endpoints. Nothing below the source
+picker knows which kind of thing it is drawing. Captures are listed through Operator Summary's
+existing `/api/opsummary/dumps` rather than a second endpoint of our own — it is the same
+question, and two answers to it would be two places to keep the ownership rule right.
+
+### Verified
+
+`go build`/`vet`/`gofmt` clean; five new Go tests over a synthetic archive built in-test
+(tar+gzip, the collector's real shapes) covering the board, the YAML lookup, the pod-file
+listing, the per-user upload cache and a tarball that is not a cluster-dump; two new render
+checks; both smoke suites pass.
+
+**End to end against a real capture of the live PXC cluster**, taken through the app's own
+Diagnostics: 532 KiB, 165 files. The board built from it is the same 30 objects the live
+sample shows, with the same tones (26 green, 4 grey), the same containers per pod and the same
+`Unhealthy` events attached. Uploading that same archive from the host produced an identical
+board; the CR's YAML came back byte-identical to the live cluster's 5423 bytes; and the log
+pane listed nine kept files for `k3d-00-pxc-0`, including the 68 KiB `mysqld-error.log`.
+
+**Not verified:** a dump from an operator this file has never seen (the CR reader is generic
+and tested, but every collector archive here is a Percona one), and an archive large enough to
+matter for the in-memory hold — `opArchiveLimit` still governs the uncompressed size, and the
+per-user cap is three.
+
+---
+
+## 385. Reading the collector instead of guessing at its output — `app/k3dstatesdump.go`, `app/k3dstates.go`, `app/k3dstates_test.go`, `app/api_routes.go`, `app/web/src/pages/K8sStates.jsx`, `app/web/src/lib/{k8sStates,stackApi}.js`, `app/web/smoke/render.jsx`, `docs/{KUBERNETES_STATES,API_REFERENCE}.md`
+
+§384 taught the board to read a cluster-dump, and it read one — one *example*, whose file
+names became a table of five kinds. Asked what else was in the archive I answered with an
+inventory of that example and offered to add three more kinds, which is the wrong shape of
+answer: a hand-maintained list of interesting file names will always be behind whatever the
+collector actually writes. So this entry starts by reading
+`percona-toolkit/src/go/pt-k8s-debug-collector` and works from what it does.
+
+**What the collector does.** It discovers every resource the API server serves
+(`ServerPreferredResources`, minus a deny-list), lists each one, drops the empty ones, strips
+`managedFields`/`resourceVersion`/`uid`/`creationTimestamp`, and writes the rest as Kubernetes
+Lists — namespaced ones to `<ns>/<resource>.yaml`, cluster-scoped to `cluster-scope/`. It
+writes **one log per container** (`<ns>/<pod>/<container>.log`, init containers included), a
+`summary.txt` per database pod (`pt-mysql-summary`, `pt-mongodb-summary`, or pg_gather run
+through `psql`), each TLS secret's certificate decoded with `openssl x509 -noout -text` at
+`<ns>/<secret-name>`, secrets themselves as single objects at `<ns>/secrets/<name>.yaml`, and
+its own failures at `errors.txt`. Per operator it also pulls files out of the containers
+(`resources.go`): for PXC `mysqld-error.log`, **`innobackup.backup/move/prepare.log`**,
+`grastate.dat`, `gvwstate.dat`, `auto.cnf`; for PG `pg_log/`, **`pgbackrest_log/`**, and the
+output of `pgbackrest info` and `patronictl list`. Those innobackup and pgBackRest files are
+the backup logs — the thing that prompted this entry, and the thing `kubectl logs` cannot give
+you at all.
+
+**So the reader stopped having a list.** `k3dReadArchiveLayout` walks the archive once and
+classifies every path: resource Lists (any `*.yaml` not inside a pod directory), the event
+Lists among them, each pod's kept files, and everything else. Every object in every resource
+file becomes a card, by the same rules a live cluster gets — which is how a capture of an
+operator this code has never heard of comes out complete. Three things that only reading the
+source would have caught:
+
+- **Pod directories are recognised by name, not by shape.** `<ns>/secrets/` is a directory
+  under a namespace too, and a prefix match hands its files to a pod's Logs pane. The pod
+  names come from each namespace's `pods.yaml` first, and the classification follows.
+- **Secrets are single objects, not Lists.** A List reader returns nothing for them, so every
+  capture's secrets were invisible. `k3dArchiveItems` falls back to the whole document.
+- **There are two layouts in the wild.** This installation's collector writes `logs.txt` per
+  pod and cluster-scoped resources at the root; the current source writes `<container>.log`
+  per container and `cluster-scope/`. Both read, and the Logs pane says which it is looking at
+  rather than telling you "one log per pod" about a capture that has one per container.
+
+**The live half moved to match**, because a board that shows PersistentVolumes from a capture
+and not from the cluster is a board that lies about the cluster. `make`-side there is no cost:
+one more comma in the same `kubectl get`. Live now samples ReplicaSets, CronJobs,
+PersistentVolumes and PodDisruptionBudgets as well, with rules for each — a **Released** PV is
+a claim's outage seen from the other end, a **suspended** CronJob is why there has been no
+backup since Tuesday, and `disruptionsAllowed: 0` is why an operator's rolling restart is
+sitting there doing nothing. What stays out of the live sample is what has no status to watch
+(RBAC, ConfigMaps, Secrets, StorageClasses): sampling those every five seconds would be a
+great deal of kubectl for an inventory that does not change. A capture has them anyway, so
+they are on the board there, for free.
+
+**Which made the board too big, and that is a display problem.** A real cluster's capture is
+930 objects, 834 of them ClusterRoles and ClusterRoleBindings. Rather than dropping them —
+the thing this entry exists to stop doing — the noisy kinds start **folded**: the chip shows
+the count, one click unfolds, *show all* unfolds everything, and a kind you unfolded stays
+unfolded when the board reloads. `k3dStatelessKinds` is the other half: an object with no
+`status` at all is an inventory card rather than an amber "no status", because a board of
+amber Roles is what teaches people to ignore amber. A custom resource with no status still
+warns — there it means the operator has not touched it.
+
+**And the archive is now browsable in full.** *Capture files* lists every file with its kind,
+its owner and its size, and shows any of them: the certificates, `summary.txt`, the backup
+logs, `errors.txt`. The answer to "is there anything in this capture the board is not showing
+me" is no, and that is now checkable rather than asserted.
+
+### Verified
+
+`go build`/`vet`/`gofmt` clean; the Go suite is unchanged against baseline, with five new
+tests — both collector layouts, every file in an archive reachable and path traversal refused,
+statusless kinds neutral, the PV/CronJob/PDB rules, and a Secret's card proving no key name or
+value reaches the board. Two new render checks (the fold defaults and their stickiness, the
+file browser). Both smoke suites pass.
+
+**Against this installation's real capture** (532 KiB, 165 files, taken through Diagnostics):
+the board went from 30 objects over 8 kinds to **930 over 17** — every object in the archive —
+and the file tree accounts for all 165 files (115 resource Lists, 6 event Lists, 40 pod files,
+3 certificates, `errors.txt`). `k3d-00-pxc-0`'s Logs pane now opens on its log and ranks
+`innobackup.backup.log` and `innobackup.move.log` above the rest of `var/lib/mysql`. The live
+board of the same cluster went from 39 to 52 objects. The capture shows 18 PersistentVolumes
+where the cluster now has 3 — fifteen were reclaimed in the hour between them, which is a fair
+demonstration of why a capture is worth reading at all.
+
+**Not verified:** a capture from a current collector (this installation's is the older layout,
+so the `<container>.log` half is covered by a synthetic archive rather than a real one), and
+PG's `pg_log/`/`pgbackrest_log/` paths, which need a capture of a PG cluster — the live PG
+stack was destroyed earlier in the session.
+
+## 386. A capture's pod files were unreachable from the pod — `app/k3dstatesdump.go`, `app/k3dstates_test.go`, `app/web/src/pages/K8sStates.jsx`, `app/web/src/lib/{k8sStates,stackApi}.js`, `app/web/smoke/render.jsx`, `docs/KUBERNETES_STATES.md`, `app/api_routes.go`, `app/api_routes_test.go`
+
+§385 ended by saying the answer to "is there anything in this capture the board is not showing
+me" is now no. It was no through *Capture files*, and yes through the pod. Open a pod on an
+uploaded cluster-dump and the Logs pane said **"no such file in this capture"** — forever,
+whatever you clicked — while `logs.txt`, `summary.txt` and `var/lib/mysql/mysqld-error.log`
+sat in the archive beside it. The backup logs §385 was written to reach were reachable from
+the file browser and not from the pod they belong to.
+
+**The pane was asking in the wrong language.** `LogBody` opens on the pod's *worst container*,
+which is the right answer for a live cluster and the pane had no way to know it was not
+looking at one. So the first request against an archive was `file=pxc` — a container name — the
+archive holds files, and the server answered `404 no such file in this capture`. A 404 carries
+no body, so the reply that would have told the pane which files *do* exist never arrived: the
+picker kept offering containers, every one of them 404'd, and there was no way out of it from
+inside the pane. One wrong first question, and the whole pod was closed.
+
+**The source decides the dialect, not the reply.** `k8sArchiveApi` now carries `archive: true`,
+so a pane knows which vocabulary it speaks before it has asked anything, and `defaultLogTarget`
+asks a capture for *nothing* and lets the reply name a file. The pane also resets itself when
+the board switches between a live cluster and a capture under a pinned pane, because a
+container name means nothing to an archive and a file name means nothing to `kubectl`.
+
+**And the server stopped answering with a dead end**, which is the half that matters for
+anything else that ever asks it wrongly. `k3dArchivePickPodFile` tries exact, then `pxc` →
+`pxc.log` (the per-container layout, the same question in a different dialect), then a bare
+name → its nested path, and otherwise returns the pod's **first file with a note saying so**.
+The file list rides along in every one of those cases. A capture can refuse to have a file; it
+must never refuse to say what it has.
+
+**Two red tests that predate all of this**, found while running the suite and fixed because a
+red suite on `main` is how a real failure gets ignored: `Node images` was never added to
+`apiGroupOrder` (so `/api/images` rendered last, under no heading), and
+`POST /api/images/{id}/build` was never added to the admin-only allowlist that
+`TestAdminRoutesUnchanged` guards. It is intended — a build runs on the host's Docker daemon,
+which is the installation rather than anybody's stack — so it is now written down as intended.
+
+### Verified
+
+The bug reproduced through the real upload and logs handlers before anything was touched
+(`file=pxc` → 404; `file=` → 200 with all three files), and
+`TestALogPaneOnACaptureAlwaysLearnsWhatTheCaptureKept` — which drives the same two handlers —
+fails without the fix with exactly that 404. `TestPickingAPodsFileForgivesTheLiveBoardsVocabulary`
+covers the pick table including the older one-log-per-pod layout and a pod the capture kept
+nothing for. A new render check pins that a capture is never asked for a container name and
+that the controls only a running container has — `previous`, follow, the tail length — are gone
+with it. `gofmt` clean, both smoke suites pass, and the archive Go tests are green.
+
+**Not verified:** the same path against a capture from a *current* collector, for the reason
+§385 gives — this installation's collector writes the older layout, so the `<container>.log`
+half of the pick is covered by a synthetic archive rather than a real one.

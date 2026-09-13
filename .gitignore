@@ -47,3 +47,13 @@ app/testdata/pxc-crd.json
 
 # vite SSR bundle for the render smoke test (npm run smoke)
 app/web/.smoke/
+
+# images.yaml — what `make images` built on THIS machine, and only this machine: one entry per
+# OS x version for the single platform DOCKER_PLATFORM selects. versions.yaml is committed
+# because it is a catalogue of what those images can install, which is the same everywhere and
+# costs hours to probe; this is a record of a local build, which costs one `make images`.
+#
+# Nothing breaks by its absence: `make env` drops an `images: []` stand-in so Docker cannot
+# create a directory in its place, and loadImageCatalog falls back to the image entries in the
+# committed versions.yaml until the next build writes this file.
+/images.yaml

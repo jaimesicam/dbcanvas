@@ -15,11 +15,11 @@ often enough to be worth writing down. For what the product *does*, see the
 
 | Command | What it does |
 | --- | --- |
-| `make install` | The first run: `images`, then `versions`, then the optional images, then `compose`. Safe to re-run. The optional half is built tolerantly — anything that fails is reported and skipped, and DBCanvas still starts. |
+| `make install` | The first run: `images`, then the optional images, then `compose`. Safe to re-run. The optional half is built tolerantly — anything that fails is reported and skipped, and DBCanvas still starts. It does **not** run `make versions` — the repo ships a `versions.yaml` and nothing here overwrites it, so the pickers are populated the moment DBCanvas comes up. |
 | `make compose` | Create `.env` if missing, build the app image and start it. Enough on its own once the node images exist. |
 | `make images` | Build what every stack needs: the operating-system bases (the systemd images, one per OS × the one platform this installation targets) and the pre-baked **Intranet** on top of the Oracle Linux 9 base — the DNS and CA the rest of a stack is built against, so it is not an optional image. Slow — this is the long part of `make install`. If only the Intranet fails (it is the one build here that reaches Percona's repos), the bases still stand, DBCanvas still starts, and you can retry with `make intranet-image` or from the Build button a Validate offers. |
 | `make extra-images` | Build everything *optional* that sits on top of the bases: the pre-baked Ubuntu VNC image, the K3D diagnostics collector, the Big Hole FTDC viewer, and the six demo applications. (It re-checks the Intranet too — a cached no-op once it exists.) `make install` builds these as well; this is the target for rebuilding them on their own, and unlike the install it fails if any of them fails. Kept separate from `make images` because these fetch from npm, GitHub and Percona's repos, so they fail for reasons that are not about your machine. **An admin can build any but the demo apps from the web interface instead**, at the point a Validate says one is missing. |
-| `make versions` | Run the built images and record what each can actually install into `versions.yaml`. This is what fills the designer's version pickers. |
+| `make versions` | Run the built images and record what each can actually install into `versions.yaml`. This is what fills the designer's version pickers. **Slow** — a container and a pile of repository queries per image, hours rather than minutes — so it is not part of `make install`. Run it when you want versions released since the last probe, or after building an OS image that was not in the matrix before. `ONLY=percona` / `ONLY=upstream` re-probes one group and keeps the other's recorded versions. |
 | `make up` / `make down` | Start / stop the app without rebuilding. |
 | `make restart` | `down`, then `compose`. |
 | `make logs` | Follow the app's logs. |
@@ -64,9 +64,15 @@ Bumping it is the whole release process as far as the app is concerned: edit `VE
 an entry to `whatsNewNotes` in `app/whatsnew.go` and the matching prose to the README's
 *What's new* section (a test fails if those two disagree), and rebuild.
 
-> **`make images` rewrites `versions.yaml`.** It discards the enrichment `make versions`
-> adds, which is why `make install` runs them in that order (and runs the optional images
-> after both). If you run `make images` on its own, run `make versions` after it.
+> **Two generated files, two jobs.** `make images` writes `images.yaml` (the base images this
+> installation has built); `make versions` writes `versions.yaml` (what can be installed on
+> them, plus the PMM, operator, Helm chart and k3s catalogs). Neither overwrites the other, so
+> `make images` is safe to re-run and `make versions` — the slow one — is run only when you
+> want the catalog refreshed. Both are mounted read-only into the container.
+>
+> It used to be one file, written by `make images` and enriched by `make versions`, which meant
+> every image build threw the catalog away and `make install` had to spend hours re-probing to
+> get it back. That is why `make versions` is no longer part of `make install`.
 
 ## `.env`
 
@@ -122,7 +128,8 @@ by the compose publish binding, not by `APP_HOST` inside the container.
 **Advanced (rarely changed)** — set by `docker-compose.yml` or handy for local dev:
 `DB_PATH` (SQLite file, default `dbcanvas.db`; the container uses a `/data` volume),
 `DOCKER_SOCK` (Docker socket, default `/var/run/docker.sock`), `VERSIONS_FILE` (path to the
-`versions.yaml` catalog), and `SPOCK_REF` (the pgEdge/spock git ref built for Spock clusters,
+`versions.yaml` catalog), `IMAGES_FILE` (path to the `images.yaml` image matrix; falls back to
+`VERSIONS_FILE` when absent), and `SPOCK_REF` (the pgEdge/spock git ref built for Spock clusters,
 default `v5.0.10`).
 
 **Hybrid (Vagrant) tuning** — environment variables read only when the vagrant backend is
@@ -169,20 +176,25 @@ one admin, name one with `-user`.
 
 ### A minor version is missing from a node's version list
 
-The version pickers don't guess — they read [`versions.yaml`](../versions.yaml), a catalog built
-in two passes:
+The version pickers don't guess — they read two generated files, each written by its own pass
+and never by the other:
 
 - **`make images`** builds the `dbcanvas-systemd:*` base images (Oracle Linux 8/9/10, Ubuntu
-  22.04/24.04, Debian 12/13) and records the image matrix. The Debian bases are offered on the
-  **Linux Client** only — it installs nothing, so no product's package path is exercised there;
-  every other node type picks from Oracle Linux and Ubuntu. The images built *from* those bases
-  — `dbcanvas-vnc` and the rest — are `make extra-images` (`dbcanvas-intranet` is baked by
-  `make images` itself); none of them is a selectable instance, so none is recorded in
-  `versions.yaml`.
-- **`make versions`** starts a throwaway container per image and asks that OS's own package
-  manager what it can actually install (`dnf search --showduplicates` / `apt-cache madison`),
-  writing the result back per image, keyed by major series. It also refreshes the PMM, Percona
-  operator and k3s tag lists from the registries.
+  22.04/24.04, Debian 12/13) and records the image matrix in
+  [`images.yaml`](../images.yaml) — which is what the **OS** pickers offer. The Debian bases are
+  offered on the **Linux Client** only — it installs nothing, so no product's package path is
+  exercised there; every other node type picks from Oracle Linux and Ubuntu. The images built
+  *from* those bases — `dbcanvas-vnc` and the rest — are `make extra-images`
+  (`dbcanvas-intranet` is baked by `make images` itself); none of them is a selectable instance,
+  so none is recorded.
+- **`make versions`** starts a throwaway container per image in `images.yaml` and asks that OS's
+  own package manager what it can actually install (`dnf search --showduplicates` /
+  `apt-cache madison`), writing the result to [`versions.yaml`](../versions.yaml) per image,
+  keyed by major series — which is what the **version** pickers offer. It also refreshes the
+  PMM, Percona operator, Helm chart and k3s tag lists from the registries.
+
+Because they are separate files, an image you have just built shows up in the OS pickers
+straight away; only its version lists wait for the next `make versions`.
 
 So a point release published *after* your last run simply isn't in the file yet:
 
@@ -224,13 +236,17 @@ Still empty? Check these, in order:
 - **The series really has no packages for that OS.** `make versions` records an empty list
   rather than inventing one — Percona Server 5.7 on Oracle Linux 10 and PXC 8.0 on Oracle
   Linux 10 are genuinely empty, not a probe that failed.
-- **`versions.yaml` got mounted as a directory.** If the file was missing when the container was
-  first created, Docker helpfully created an empty *directory* at that path and the catalog will
-  stay empty forever. Confirm with `ls -ld versions.yaml`, then `make down && make compose` to
-  recreate the container against the real file.
+- **`versions.yaml` or `images.yaml` got mounted as a directory.** If either file was missing
+  when the container was first created, Docker helpfully created an empty *directory* at that
+  path and the catalog will stay empty forever. Confirm with `ls -ld versions.yaml images.yaml`,
+  then `make down && make compose` to recreate the container against the real files. (`make env`
+  now drops an empty stand-in for a missing one before compose can, so this should only affect
+  containers created earlier.)
 - **Running on the host** (hybrid or dev), make sure `VERSIONS_FILE` points at the repo's
-  `versions.yaml`. If no catalog file is found at all, the database pickers come up **empty**
-  (only PMM and k3s have built-in fallbacks).
+  `versions.yaml` and `IMAGES_FILE` at its `images.yaml`. If no catalog file is found at all, the
+  database pickers come up **empty** (only PMM and k3s have built-in fallbacks); with no
+  `images.yaml` anywhere, the OS pickers fall back to the image entries inside `versions.yaml`,
+  which is how an installation from before the split keeps working.
 
 A node that was *already deployed* keeps the version it deployed with; the new list applies to
 the next node you add or redeploy.

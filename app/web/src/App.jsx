@@ -11,6 +11,7 @@ import { notifApi, relTime } from './lib/notifApi.js'
 
 import Dashboard from './pages/Dashboard.jsx'
 import OperatorSummary from './pages/OperatorSummary.jsx'
+import K8sStates from './pages/K8sStates.jsx'
 import StackDesigner from './pages/StackDesigner.jsx'
 import DataGenerator from './pages/DataGenerator.jsx'
 import QueryRunner from './pages/QueryRunner.jsx'
@@ -42,6 +43,11 @@ export const NAV = [
   { id: 'log-summary', label: 'Log Summary', icon: 'Logs', page: LogSummary, hint: "Several nodes' logs on one timeline — the good, the warning and the bad" },
   { id: 'ftdc-summary', label: 'FTDC Summary', icon: 'Monitor', page: FTDCSummary, hint: "MongoDB's diagnostic.data — the black box every mongod already writes" },
   { id: 'operator-summary', label: 'Operator Summary', icon: 'Kubernetes', page: OperatorSummary, hint: 'A pt-k8s-debug-collector cluster-dump, distilled — what is not running, and what the operator says about it' },
+  // Beside Operator Summary deliberately: that page reads a capture of a cluster after the
+  // fact, this one watches a live one. Same subject, opposite tense.
+  // fill: this page is a board with a rail beside it, so it wants the height of the
+  // workspace rather than the height of its own content — see <main> below.
+  { id: 'k8s-states', label: 'Kubernetes States', icon: 'Kanban', page: K8sStates, fill: true, hint: 'A live board of every object in a Kubernetes cluster — red for what is broken, lit for what just changed' },
   // Tagged experimental, so it is in the menu only where EXPERIMENTAL is on (see
   // lib/experimental.js). Its scenarios are LLM-written and still moving, which is
   // what the label used to say and the flag now decides.
@@ -284,7 +290,11 @@ function Workspace() {
             const Page = meta.page
             const on = t.key === activeKey
             return (
-              <div key={t.key} className={on ? 'animate-fade-in' : 'hidden'} aria-hidden={!on}>
+              // A page opts into filling the workspace with `fill` on its NAV entry. Only
+              // opt-in: `h-full` is an exact height, so imposing it on every page would cap
+              // the long ones (Log Summary, the API reference) instead of letting <main>
+              // scroll them.
+              <div key={t.key} className={`${on ? 'animate-fade-in' : 'hidden'}${meta.fill ? ' h-full' : ''}`} aria-hidden={!on}>
                 <PageVisibleProvider visible={on}>
                   <Page />
                 </PageVisibleProvider>

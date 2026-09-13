@@ -442,6 +442,15 @@ export const Icon = {
       <path d="M6 6l12 12M18 6L6 18" />
     </Svg>
   ),
+  // A drawing pin, for the Kubernetes States canvas: pinning an object's detail keeps it
+  // on screen while you click through everything else. Head, shaft, point — the shape
+  // everything from a map app to a text editor uses for "keep this".
+  Pin: (p) => (
+    <Svg {...p}>
+      <path d="M9 4h6M10 4v6l-3 3.5h10L14 10V4" />
+      <path d="M12 13.5V20" />
+    </Svg>
+  ),
   // The Operator Debugger's own set. A debugger's controls are a vocabulary people
   // already know from every IDE, so these are deliberately the familiar shapes rather
   // than something novel: continue is a play triangle, pause two bars, and the three

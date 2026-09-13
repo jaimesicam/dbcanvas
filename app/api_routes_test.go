@@ -101,6 +101,9 @@ func TestAdminRoutesUnchanged(t *testing.T) {
 		"DELETE /api/users/{id}":        true,
 		"GET /api/admin/tokens":         true, // added with API tokens
 		"DELETE /api/admin/tokens/{id}": true, // added with API tokens
+		// Building an image runs a build on the host's Docker daemon, which is the
+		// installation itself rather than anybody's stack. Admin, deliberately.
+		"POST /api/images/{id}/build": true,
 	}
 	got := map[string]bool{}
 	for _, rt := range apiRoutes() {

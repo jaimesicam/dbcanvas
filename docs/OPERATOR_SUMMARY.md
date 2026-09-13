@@ -9,6 +9,11 @@ different in kind. A pt-stalk capture is a time series and the answer is a shape
 cluster-dump is a single instant and the answer is a sentence: *this pod is crash-looping,
 that custom resource never went ready, the operator has been failing to reconcile for an hour.*
 
+The same archives can be drawn as a board rather than read as a report:
+[**Kubernetes States**](KUBERNETES_STATES.md) takes a kept capture or an uploaded
+`cluster-dump` and lays every object out as a card, red for what was broken at the moment of
+the capture — and can diff two captures against each other.
+
 ## Where the archive comes from
 
 Three ways, and the third is the one that matters most:

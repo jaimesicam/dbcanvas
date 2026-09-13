@@ -4,7 +4,15 @@
 # versions installable on each (OS × platform), and record them in
 # versions.yaml at the repo root.
 #
-# For every image listed in versions.yaml we spin up a throwaway container and,
+# Two files, two jobs: `make images` writes images.yaml (what was built), this
+# writes versions.yaml (what can be installed on it). This script reads the image
+# matrix out of images.yaml and never writes it, so rebuilding an image no longer
+# throws the catalog away — which is why `make install` does not run this at all.
+# It is slow (a container and several repository queries per image, hours on a cold
+# cache), so it is run deliberately: after building an OS image that is new, or when
+# the pickers should offer versions released since the last probe.
+#
+# For every image listed in images.yaml we spin up a throwaway container and,
 # using the percona-release manager that is already baked into the image, ask
 # the package manager which percona-server-server builds are available:
 #
@@ -28,43 +36,54 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT/versions.yaml"
+IMAGES="$ROOT/images.yaml"
 
-if [ ! -f "$OUT" ]; then
-  echo "ERROR: $OUT not found — run 'make images' first." >&2
-  exit 1
+if [ ! -f "$IMAGES" ]; then
+  # An installation from before images.yaml existed has its image entries in
+  # versions.yaml itself; read the matrix from there rather than refusing to run.
+  if [ -f "$OUT" ] && grep -qE '^  - os:' "$OUT"; then
+    echo "==> no ${IMAGES}; reading the image matrix from ${OUT} (run 'make images' to create it)" >&2
+    IMAGES="$OUT"
+  else
+    echo "ERROR: $IMAGES not found — run 'make images' first." >&2
+    exit 1
+  fi
 fi
+
+# The versions.yaml being replaced, read for the values this run does not measure
+# (see carry_section and ONLY). /dev/null on a first run, which reads as "nothing
+# recorded yet" everywhere it is used.
+PREV="$OUT"
+[ -f "$PREV" ] || PREV=/dev/null
 
 ts() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
 
 # Only probe/record the single platform selected by DOCKER_PLATFORM (see
-# platform.sh). Image entries on the other platform are dropped from
-# versions.yaml — `make images` is what puts them back — so the host never
-# probes (or advertises) an architecture it does not target.
+# platform.sh). Image entries on the other platform are skipped — they stay in
+# images.yaml, they just get no catalog here — so the host never probes (or
+# advertises) an architecture it does not target.
 # shellcheck source=platform.sh
 . "$(dirname "${BASH_SOURCE[0]}")/platform.sh"
 PLATFORM="$(resolve_platform "$ROOT")" || exit 1
 echo "==> selected platform: ${PLATFORM}" >&2
 
-# Pull the header values we want to preserve across the rewrite.
-IMAGE_PREFIX="$(grep -E '^image_prefix:' "$OUT" | head -1 | sed -E 's/^image_prefix:[[:space:]]*//')"
-GENERATED_AT="$(grep -E '^generated_at:' "$OUT" | head -1 | sed -E 's/^generated_at:[[:space:]]*//')"
-[ -n "$IMAGE_PREFIX" ] || IMAGE_PREFIX="dbcanvas-systemd"
+# When the images were built, recorded here too so a reader can tell at a glance
+# whether the catalog predates the images it describes.
+GENERATED_AT="$(grep -E '^generated_at:' "$IMAGES" | head -1 | sed -E 's/^generated_at:[[:space:]]*//')"
 [ -n "$GENERATED_AT" ] || GENERATED_AT="$(ts)"
 
-# ---- parse existing image entries: os \t version \t platform \t arch \t tag \t base \t built_at ----
+# ---- parse the image matrix out of images.yaml: os \t version \t platform \t arch \t tag ----
 parse_entries() {
   awk '
     function val(s){ sub(/^[^:]*:[[:space:]]*/,"",s); gsub(/"/,"",s); return s }
-    function emit(){ if(seen) print os"\t"version"\t"platform"\t"arch"\t"tag"\t"base"\t"built }
+    function emit(){ if(seen) print os"\t"version"\t"platform"\t"arch"\t"tag }
     /^  - os:/      { emit(); seen=1; os=val($0); next }
     /^    version:/ { version=val($0); next }
     /^    platform:/{ platform=val($0); next }
     /^    arch:/    { arch=val($0); next }
     /^    tag:/     { tag=val($0); next }
-    /^    base:/    { base=val($0); next }
-    /^    built_at:/{ built=val($0); next }
     END           { emit() }
-  ' "$OUT"
+  ' "$IMAGES"
 }
 
 # ---- ONLY: probe a subset of the upstreams ----
@@ -96,7 +115,7 @@ if [ -n "$ONLY" ]; then
 fi
 
 # carry_section <tag> <product-key>: reprint one product's existing block for one
-# image, verbatim, from the versions.yaml being replaced. Returns 1 when the image
+# image, verbatim, from the versions.yaml being replaced ($PREV). Returns 1 when the image
 # or the product is not in the old file (a newly built image, or a product recorded
 # for the first time), which tells the caller to emit an empty map instead.
 carry_section() {
@@ -107,7 +126,7 @@ carry_section() {
     inimg && found && /^    [a-z_]+:/ { exit }
     inimg && found { print }
     END { exit !found }
-  ' "$OUT"
+  ' "$PREV"
 }
 
 # ---- in-container probe scripts, one per OS family ----
@@ -635,15 +654,14 @@ TMP="$(mktemp)"
 trap 'rm -f "$TMP"' EXIT
 
 {
-  echo "# Generated by \`make images\` and enriched by \`make versions\`. Do not edit by"
-  echo "# hand — regenerate instead. Each image lists the Percona Server and Percona"
-  echo "# XtraDB Cluster versions installable on it (per OS, per platform), keyed by"
-  echo "# major series, newest first; the trailing 'pmm' section lists the PMM3 server"
-  echo "# image versions selectable for a PMM node."
+  echo "# Generated by \`make versions\`. Do not edit by hand — regenerate instead."
+  echo "# What each image built by \`make images\` can actually install: the Percona,"
+  echo "# MariaDB and MySQL Community versions available on it (per OS, per platform),"
+  echo "# keyed by major series, newest first, followed by the PMM, operator, Helm"
+  echo "# chart and k3s catalogs. The images themselves are images.yaml."
   echo "# Re-run image discovery: make images   Re-run version discovery: make versions"
-  echo "generated_at: ${GENERATED_AT}"
+  echo "images_generated_at: ${GENERATED_AT}"
   echo "versions_generated_at: $(ts)"
-  echo "image_prefix: ${IMAGE_PREFIX}"
   echo "images:"
 } >"$TMP"
 
@@ -655,10 +673,10 @@ echo "    spock: ${spock_n} PG major series (Oracle Linux only)" >&2
 count=0
 skipped=0
 first_tag=""
-while IFS=$'\t' read -r os version platform arch tag base built; do
+while IFS=$'\t' read -r os version platform arch tag; do
   [ -n "$tag" ] || continue
-  # Not the platform this install targets: drop the entry entirely (do not probe
-  # it, do not re-emit it into versions.yaml).
+  # Not the platform this install targets: skip the entry entirely (do not probe
+  # it, do not emit it into versions.yaml).
   if [ "$platform" != "$PLATFORM" ]; then
     echo "==> skipping ${tag} (${platform}) — DOCKER_PLATFORM is ${PLATFORM}" >&2
     skipped=$((skipped + 1))
@@ -792,13 +810,14 @@ while IFS=$'\t' read -r os version platform arch tag base built; do
   }
 
   {
+    # os/version/arch identify the image to the app's pickers; tag is what
+    # carry_section matches on. base and built_at are build facts and stay in
+    # images.yaml — this file is only about what installs on the image.
     echo "  - os: ${os}"
     echo "    version: \"${version}\""
     echo "    platform: ${platform}"
     echo "    arch: ${arch}"
     echo "    tag: ${tag}"
-    echo "    base: ${base}"
-    echo "    built_at: ${built}"
     emit_group percona  percona_server         "8.0" "$ps80"  "8.4" "$ps84"  "9.7" "$ps97"  "5.7" "$ps57"
     emit_group percona  percona_xtradb_cluster "8.0" "$pxc80" "8.4" "$pxc84"
     emit_group percona  proxysql               "2"   "$psql2" "3"   "$psql3"
@@ -814,10 +833,10 @@ done < <(parse_entries)
 
 if [ "$count" -eq 0 ]; then
   if [ "$skipped" -gt 0 ]; then
-    echo "ERROR: no ${PLATFORM} image entries in ${OUT} (skipped ${skipped} on another platform)." >&2
+    echo "ERROR: no ${PLATFORM} image entries in ${IMAGES} (skipped ${skipped} on another platform)." >&2
     echo "       Run 'make images' to build them for ${PLATFORM}, or change DOCKER_PLATFORM in .env." >&2
   else
-    echo "ERROR: no image entries found in ${OUT}; run 'make images' first." >&2
+    echo "ERROR: no image entries found in ${IMAGES}; run 'make images' first." >&2
   fi
   exit 1
 fi
@@ -856,7 +875,7 @@ if want_probe percona; then
   echo "==> discovering PDPS repositories from percona-release (${first_tag})" >&2
   pdps_repos="$(pdps_discover "$first_tag")"
 else
-  pdps_repos="$(awk '/^pdps:/{f=1;next} f && /^  - /{gsub(/^  - "|"$/,""); print; next} f{exit}' "$OUT")"
+  pdps_repos="$(awk '/^pdps:/{f=1;next} f && /^  - /{gsub(/^  - "|"$/,""); print; next} f{exit}' "$PREV")"
   echo "==> keeping recorded PDPS repositories (ONLY=${ONLY})" >&2
 fi
 pdps_n=$(printf '%s' "$pdps_repos" | grep -c . || true)

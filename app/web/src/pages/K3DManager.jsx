@@ -431,7 +431,20 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
           {cfg.grafanaUrl && <KV k="Grafana dashboard" help={DEP_HELP['Grafana dashboard']} v={cfg.grafanaDashboard || 'none installed'} />}
           {cfg.manifestDir && <KV k="Manifests" help={DEP_HELP.Manifests} v={cfg.manifestDir} mono />}
           <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
-          <Button variant="outline" size="sm" className="mt-2 w-full"
+          {/* The live view of this cluster. Here rather than as another tab because it is a
+              whole canvas — every object in the cluster at once — and this panel is a column.
+              Server nodes only: the canvas samples through the server's kubectl, which is the
+              only node that has one. */}
+          {isServer && frame && (
+            <Button variant="outline" size="sm" className="mt-2 w-full" title={HELP.k8sStatesWatch}
+              onClick={() => {
+                sendHandoff('dbcanvas.statesTarget', `${stackId}/${frame.id}`)
+                location.hash = 'k8s-states'
+              }}>
+              <Icon.Kubernetes size={16} /> Watch Kubernetes states
+            </Button>
+          )}
+          <Button variant="outline" size="sm" className="w-full"
             onClick={() => openTerminal({ stackId, nodeId, title: `${cfg.hostname} · root` })}>
             <Icon.Nodes size={16} /> Open root console
           </Button>

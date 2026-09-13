@@ -19,8 +19,11 @@ services:
       DB_PATH: /data/dbcanvas.db
       # Domain used to configure deployed stacks (Intranet: LDAP/mail/DNS/CA).
       DOMAIN: ${DOMAIN:-example.net}
-      # Catalog of installable versions (produced by `make versions`).
+      # Catalog of installable versions (produced by `make versions`) and the list of
+      # base images that exist here (produced by `make images`). Two files because
+      # `make images` runs often and `make versions` takes hours.
       VERSIONS_FILE: /etc/dbcanvas/versions.yaml
+      IMAGES_FILE: /etc/dbcanvas/images.yaml
       # Default DB users created on deployed Percona XtraDB Cluster nodes.
       APP_PASSWORD: ${APP_PASSWORD:-app_password}
       REPL_PASSWORD: ${REPL_PASSWORD:-repl_password}
@@ -92,6 +95,10 @@ services:
       # produced by `make versions`. Mounted read-only; re-run `make versions`
       # on the host to refresh what the version pickers offer.
       - ./versions.yaml:/etc/dbcanvas/versions.yaml:ro
+      # The base images this installation has built, produced by `make images` —
+      # what the OS pickers offer. Separate from the catalog above so that
+      # rebuilding images does not discard hours of version probing.
+      - ./images.yaml:/etc/dbcanvas/images.yaml:ro
       # Stack Designer drives Docker on the host to deploy/manage stack
       # containers (Docker-out-of-Docker). The app talks to this socket via the
       # Engine API using only the Go stdlib — no docker CLI in the image.

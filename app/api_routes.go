@@ -111,7 +111,7 @@ const (
 // missing from this list still renders, after the ones that are in it.
 var apiGroupOrder = []string{
 	gAuth, gPrefs, gUsers, gTokens, gMeta,
-	gStacks, gTemplates, gCatalog, gNodes, gClusters, gLabs,
+	gStacks, gTemplates, gCatalog, gImages, gNodes, gClusters, gLabs,
 	gDataGen, gQueryRun, gBench, gStockSim,
 	gPkt, gLog, gFTDC, gStalk, gOpSum, gCaptures, gDebug, gGDB,
 	gDash, gNotif,
@@ -712,6 +712,30 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "The operator's own CRD as a form model, plus the live custom resource — what the cr.yaml editor is built from."},
 		{Method: "POST", Path: "/api/stacks/{id}/frames/{fid}/k3d/cr", Group: gK3D, Handler: m((*App).handleK3DCRPatch),
 			Summary: "Apply a merge patch to the cluster's custom resource, server-side dry-run first. `dryRun` validates without changing anything."},
+		// Kubernetes States: one sample of everything the cluster is doing, for the canvas
+		// that watches it change (k3dstates.go). Polled, so it is a plain GET rather than a
+		// stream — see the file header for why three kubectl calls beat a watch here.
+		{Method: "GET", Path: "/api/k3d/states/targets", Group: gK3D, Handler: m((*App).handleK3DStateTargets),
+			Summary: "Every running Kubernetes cluster the caller can watch on the Kubernetes States canvas."},
+		{Method: "GET", Path: "/api/stacks/{id}/frames/{fid}/k3d/states", Group: gK3D, Handler: m((*App).handleK3DStates),
+			Summary: "One sample of every object in a Kubernetes cluster — its state, its properties and the warnings against it."},
+		// The same board, built from a pt-k8s-debug-collector cluster-dump instead of a live
+		// cluster (k3dstatesdump.go) — a capture kept by Diagnostics, or an archive uploaded
+		// from a host. The archive-backed panes take ?dump=<id> or ?upload=<token>.
+		{Method: "POST", Path: "/api/k8sstates/dumps/{did}", Group: gK3D, ReadOnly: true, Handler: m((*App).handleK3DStatesFromDump),
+			Summary: "Build the Kubernetes States board from a kept pt-k8s-debug-collector capture."},
+		{Method: "POST", Path: "/api/k8sstates/upload", Group: gK3D, Media: mediaMultipart, Handler: m((*App).handleK3DStatesUpload),
+			Summary: "Build the Kubernetes States board from an uploaded cluster-dump archive."},
+		{Method: "GET", Path: "/api/k8sstates/archive/manifest", Group: gK3D, Handler: m((*App).handleK3DStateArchiveManifest),
+			Summary: "One object's YAML, read out of a kept capture or an uploaded cluster-dump."},
+		{Method: "GET", Path: "/api/k8sstates/archive/logs", Group: gK3D, Handler: m((*App).handleK3DStateArchiveLogs),
+			Summary: "A pod's log and the other files a cluster-dump kept for it."},
+		{Method: "GET", Path: "/api/k8sstates/archive/files", Group: gK3D, Handler: m((*App).handleK3DStateArchiveFiles),
+			Summary: "Every file in a cluster-dump — what it is, what it belongs to, and its contents."},
+		{Method: "GET", Path: "/api/stacks/{id}/frames/{fid}/k3d/states/logs", Group: gK3D, Handler: m((*App).handleK3DStateLogs),
+			Summary: "Tail one container's log, or the log of the run that died before this one."},
+		{Method: "GET", Path: "/api/stacks/{id}/frames/{fid}/k3d/states/manifest", Group: gK3D, Handler: m((*App).handleK3DStateManifest),
+			Summary: "One Kubernetes object as YAML, exactly as `kubectl get -o yaml` prints it."},
 		{Method: "GET", Path: "/api/stacks/{id}/frames/{fid}/k3d/objects", Group: gK3D, Handler: m((*App).handleK3DObjects),
 			Summary: "The Secrets or ConfigMaps of one namespace — names, types and key names, never values."},
 		{Method: "GET", Path: "/api/stacks/{id}/frames/{fid}/k3d/object", Group: gK3D, Handler: m((*App).handleK3DObject),

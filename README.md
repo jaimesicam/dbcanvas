@@ -160,9 +160,80 @@ yourself.
 
 ## What's new
 
-### 0.0.4
+### 0.0.5
 
 <details open>
+<summary><b>Kubernetes States — a cluster as a board that keeps what died</b></summary>
+
+A new page beside **Operator Summary**, and the opposite tense: that one reads a capture after the
+fact, this one watches a cluster now. One column per kind, one card per object, and three things a
+table cannot do.
+
+**It colours what is wrong.** A card is red because the object says it is broken — a `Failed` pod, a
+container in `CrashLoopBackOff`, a `NotReady` node, a workload with zero ready replicas — and the
+property row that caused the colour is red inside it. A completed backup pod is *finished*, not
+failed, because a board full of red is a board nobody looks at.
+
+**It lights what moved.** A value that changed since the last sample stays lit for a few seconds and
+says what it changed from: `Ready 2/3 (was 3/3)` is a failover, visible without reading anything.
+
+**It keeps what died.** An object missing from a sample is not removed — it stays where it was,
+greyed and dashed, until you dismiss it, because the pod that vanished while you were looking at
+another card is the one you needed to see.
+
+Beside the board is a rail of panes: an object's **State**, a container's **Logs** (opening on
+whichever container is unhealthy, and able to read `--previous` — the only log a `CrashLoopBackOff`
+has anything in), and its **YAML**. Any of them can be **pinned**, so the custom resource's state
+and the crashing container's log stay on screen while you click through everything else. Reach it
+from the menu, or from **Watch Kubernetes states** on a Kubernetes server node.
+[Kubernetes States →](docs/KUBERNETES_STATES.md)
+</details>
+
+<details>
+<summary><b>The same board reads a pt-k8s-debug-collector cluster-dump</b></summary>
+
+Point it at a capture kept by **Diagnostics**, or **upload a cluster-dump** from your machine — a
+customer's cluster this installation has never seen reads exactly the same, because the collector's
+YAML and `kubectl`'s JSON are the same objects in two encodings. Every rule above applies unchanged:
+the same pods come out red for the same reasons, with the same warning events hanging off them.
+
+Every object in the archive becomes a card, including the kinds a live sample leaves alone, so a
+capture of an operator DBCanvas has never heard of still comes out complete — the noisy ones start
+folded with their count on a chip rather than dropped. A pod offers **what the collector kept for
+it**, which is a great deal more than `kubectl logs` would have given you: the logs,
+`pt-mysql-summary`'s output, and on a PXC pod the **`innobackup.*.log` backup logs** or on a PG pod
+**pgBackRest's own**. **Capture files** lists every file in the archive — certificates and all — so
+the answer to *"is there anything in here the board is not showing me"* is no.
+
+And it says what a capture cannot be. A cluster-dump is **one instant**: nothing is changing and
+nothing has disappeared, and the board says so rather than implying otherwise. It reports what the
+collector itself failed to collect, from the archive's own `errors.txt`. Tick **compare** before
+loading a second capture and the whole thing becomes a diff of the first — what changed is lit, what
+is gone is a tombstone. Uploads are held **in memory, for an hour, for the account that uploaded
+them**, and never written to disk.
+[Kubernetes States →](docs/KUBERNETES_STATES.md)
+</details>
+
+<details>
+<summary><b><code>make install</code> no longer re-probes every repository it just deleted</b></summary>
+
+A first run took people upwards of three hours, and most of it was spent rebuilding a catalog it had
+thrown away seconds earlier. `make images` wrote `versions.yaml`, so every image rebuild discarded
+everything `make versions` had probed — and `make install` had to run the probe again to get back
+what it had just deleted.
+
+The two files are now separate: **`images.yaml` is what was built**, **`versions.yaml` is what is
+installable on it**, and neither overwrites the other. `make install` no longer runs the probe at
+all, so the catalog committed to this repo survives and the version pickers are populated the moment
+DBCanvas comes up. Run `make versions` deliberately — when you want minors released since the last
+probe, or have built an OS image that was not there before. An installation that predates the split
+keeps working: its image entries are still read out of `versions.yaml` until the next `make images`.
+[Getting started →](docs/GETTING_STARTED.md)
+</details>
+
+### 0.0.4
+
+<details>
 <summary><b>The Stock Market Sim can split its reads to HAProxy's read port</b></summary>
 
 Every simulator resolved an **HAProxy** target to one endpoint — the write port — so a Patroni or

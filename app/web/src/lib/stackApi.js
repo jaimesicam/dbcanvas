@@ -319,6 +319,62 @@ export function mongoApi(id, fid) {
 
 // K3D cluster (frame) management. `fid` is the design frame id. A copyable admin kubeconfig, plus
 // Kubernetes RBAC users (a client-cert `User` bound to a built-in ClusterRole) for RBAC testing.
+// The Kubernetes States board has three sources, and after the sample is fetched it does not
+// care which: a live cluster (k3dApi(...).states), a pt-k8s-debug-collector capture kept by
+// Diagnostics, or an archive uploaded from a host. The last two return the same shape from
+// app/k3dstatesdump.go, so the page swaps the loader and nothing else changes.
+//
+// Captures are listed by the Operator Summary endpoint rather than a second one of our own:
+// it is the same list — every kept cluster-dump the caller owns — and two endpoints answering
+// that question would be two places to keep the ownership rule right.
+export const k8sStateDumps = () =>
+  request('GET', '/api/opsummary/dumps').then((r) => r?.dumps || [])
+export const k8sStateFromDump = (did) => request('POST', `/api/k8sstates/dumps/${did}`)
+export const k8sStateUpload = (file, opts) => {
+  const form = new FormData()
+  form.append('file', file)
+  return uploadForm('/api/k8sstates/upload', form, opts)
+}
+
+// k8sArchiveApi has the same two methods the pane bodies call on a live cluster, pointed at
+// an archive instead. `container` carries the FILE for an archive — a capture keeps one log
+// per pod plus whatever it pulled off disk, so the picker's choices are files, and the reply
+// lists them in `files`.
+export function k8sArchiveApi(src) {
+  const q = src?.upload ? `upload=${encodeURIComponent(src.upload)}` : `dump=${encodeURIComponent(src?.dump ?? '')}`
+  return {
+    // `archive` is how a pane knows which dialect it is speaking before it has asked anything.
+    // A log pane opens on a live pod's worst CONTAINER, which is a name no capture has — so
+    // without this it opened an archive by asking for "pxc", was told there is no such file,
+    // and never got the list that would have shown it logs.txt, summary.txt and the rest.
+    archive: true,
+    stateLogs: ({ namespace, name, container }) => request('GET',
+      `/api/k8sstates/archive/logs?${q}&namespace=${encodeURIComponent(namespace || '')}`
+      + `&name=${encodeURIComponent(name)}${container ? `&file=${encodeURIComponent(container)}` : ''}`),
+    stateManifest: ({ kind, namespace, name }) => request('GET',
+      `/api/k8sstates/archive/manifest?${q}&kind=${encodeURIComponent(kind)}`
+      + `&namespace=${encodeURIComponent(namespace || '')}&name=${encodeURIComponent(name)}`),
+  }
+}
+
+// k8sArchiveFiles: the capture's own file tree, and any one file out of it. The board draws
+// every object in the archive, so this is what makes the *rest* of it reachable too — the
+// per-pod logs, pt-mysql-summary's output, the decoded TLS certificates, and errors.txt,
+// which is the collector saying what it could not collect.
+export function k8sArchiveFiles(src) {
+  const q = src?.upload ? `upload=${encodeURIComponent(src.upload)}` : `dump=${encodeURIComponent(src?.dump ?? '')}`
+  return {
+    list: () => request('GET', `/api/k8sstates/archive/files?${q}`),
+    read: (path) => request('GET', `/api/k8sstates/archive/files?${q}&path=${encodeURIComponent(path)}`),
+  }
+}
+
+// k3dStateTargets: every running Kubernetes cluster the caller can watch, across their
+// stacks. Unlike the debugger's target list there is no gate — watching a cluster is a read
+// of its own API server, so anything that is up can be watched.
+export const k3dStateTargets = () =>
+  request('GET', '/api/k3d/states/targets').then((r) => r?.targets || [])
+
 export function k3dApi(id, fid) {
   const base = `/api/stacks/${id}/frames/${fid}/k3d`
   return {
@@ -338,6 +394,21 @@ export function k3dApi(id, fid) {
     // fresh backup of its source and replaces its data, so it is a deliberate action.
     replication: () => request('GET', `${base}/replication`),
     reseed: () => request('POST', `${base}/replication/reseed`),
+    // Kubernetes States (app/k3dstates.go): one sample of every object in the cluster —
+    // its tone, its summary, its toned properties and the warnings against it. Safe to
+    // poll; it is three `kubectl get`s and writes nothing. What the canvas does with a
+    // series of samples — highlight changes, keep tombstones — is lib/k8sStates.js.
+    states: () => request('GET', `${base}/states`),
+    // One container's log, and one object's YAML — the two panes the states canvas can pin
+    // beside a card. Both read-only; `previous` is the log of the run that died, which is
+    // the only log a CrashLoopBackOff has anything in.
+    stateLogs: ({ namespace, name, container, tail, previous }) => request('GET',
+      `${base}/states/logs?namespace=${encodeURIComponent(namespace || '')}&name=${encodeURIComponent(name)}`
+      + `${container ? `&container=${encodeURIComponent(container)}` : ''}`
+      + `${tail ? `&tail=${tail}` : ''}${previous ? '&previous=1' : ''}`),
+    stateManifest: ({ kind, namespace, name }) => request('GET',
+      `${base}/states/manifest?kind=${encodeURIComponent(kind)}&namespace=${encodeURIComponent(namespace || '')}`
+      + `&name=${encodeURIComponent(name)}`),
     // The custom resource editor (app/k3dcrform.go). `cr` returns the operator's own CRD as a
     // form model plus the live spec; `crPatch` sends a merge patch, always server-side dry-run
     // first — pass dryRun to check a change without applying it.

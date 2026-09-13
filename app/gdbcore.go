@@ -70,7 +70,7 @@ func gdbMountRoot() string {
 // gdbCleanHostPath validates one of the two host paths a node asks to mount.
 //
 // It cannot check that the path *exists*: DBCanvas talks to the daemon over a socket and does not
-// share its filesystem (docker-compose mounts only /data, versions.yaml and the socket), so a host
+// share its filesystem (docker-compose mounts only /data, the two catalog files and the socket), so a host
 // path is a string this process can never stat. gdbProbeMounts answers existence later, from the
 // daemon's side. What is checkable here is shape and confinement, and both are worth refusing
 // early — a design that fails validation costs nothing, a deploy that fails costs minutes.

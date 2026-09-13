@@ -58,6 +58,16 @@ import K8sObjectEditor, {
   objectPatchOf, patchCount, reviewText, isMultiline, sizeLabel,
 } from '../src/pages/K8sObjectEditor.jsx'
 import { K8sBackupManager, sizeLabel as bkSizeLabel, whenLabel, crumbsOf } from '../src/pages/K8sBackupManager.jsx'
+import K8sStates, {
+  StateCard, StatePane, StateBody, LogBody, YamlBody, ToneLegend, PropRow, CaptureFiles,
+  visibleProps, shortName, toneOf, viewsFor, sizeLabel as stSizeLabel,
+} from '../src/pages/K8sStates.jsx'
+import {
+  mergeStates, emptyModel, dismissGone, dismissAllGone, filterStates, groupByKind,
+  countTones, isHighlighted, changeNote, isFresh, targetKey, parseTargetKey, HIGHLIGHT_MS,
+  paneId, samePane, movePaneView, sortContainers, defaultContainer, defaultLogTarget,
+  sourceId, parseSourceId, isLive, SOURCE_LIVE, hiddenByDefault, countKinds, SECONDARY_KINDS,
+} from '../src/lib/k8sStates.js'
 import PacketInspector, {
   Timeline as PktTimeline, RangeControls as PktRangeControls, Filters as PktFilters,
   PacketList as PktList, PacketDetails as PktDetails, SummaryStrip as PktSummary,
@@ -2253,6 +2263,299 @@ func (r *ReconcilePerconaXtraDBCluster) Reconcile(ctx context.Context, request r
 }
 `,
 }
+
+// ---------------------------------------------------------------- Kubernetes States
+//
+// The page draws whatever the model says, so the checks worth having are about the model:
+// what counts as a change, what happens to an object that disappears, and that a card
+// renders in every tone including the one the server never sends (a tombstone).
+
+const ksSample = (objects, capturedAt = '2026-09-12T10:00:00Z') => ({ objects, capturedAt })
+const ksPod = (name, tone, props, extra = {}) => ({
+  uid: `u-${name}`, kind: 'Pod', namespace: 'pg', name, tone, summary: `${tone} pod`,
+  props, ...extra,
+})
+
+check('k8s states: a first sample is all new', () => {
+  const m = mergeStates(emptyModel(), ksSample([ksPod('db-0', 'ok', [{ key: 'Ready', value: '3/3' }])]), 1000)
+  if (m.objects.length !== 1) throw new Error('object lost')
+  if (!isFresh(m.objects[0], 1000)) throw new Error('a new object should arrive lit')
+  if (Object.keys(m.objects[0].changed).length !== 0) throw new Error('nothing changed yet — there was nothing to change from')
+  return 'ok'
+})
+
+check('k8s states: a changed property remembers what it changed from', () => {
+  const first = mergeStates(emptyModel(), ksSample([ksPod('db-0', 'ok', [{ key: 'Ready', value: '3/3' }])]), 1000)
+  const second = mergeStates(first, ksSample([ksPod('db-0', 'warn', [{ key: 'Ready', value: '2/3' }])]), 2000)
+  const o = second.objects[0]
+  if (!isHighlighted(o, 'Ready', 2000)) throw new Error('the changed row is not lit')
+  if (changeNote(o, 'Ready', 2000) !== 'was 3/3') throw new Error(`note = ${changeNote(o, 'Ready', 2000)}`)
+  if (o.firstSeen !== 1000) throw new Error('firstSeen must survive a sample')
+  if (o.toneChangedAt !== 2000) throw new Error('a tone change is worth its own timestamp')
+  // And it fades on its own, without another sample.
+  if (isHighlighted(o, 'Ready', 2000 + HIGHLIGHT_MS + 1)) throw new Error('the highlight never faded')
+  return 'ok'
+})
+
+check('k8s states: an unchanged property is not lit', () => {
+  const p = [{ key: 'Ready', value: '3/3' }]
+  const first = mergeStates(emptyModel(), ksSample([ksPod('db-0', 'ok', p)]), 1000)
+  const second = mergeStates(first, ksSample([ksPod('db-0', 'ok', p)]), 2000)
+  if (isHighlighted(second.objects[0], 'Ready', 2000)) throw new Error('nothing changed, nothing should be lit')
+  return 'ok'
+})
+
+check('k8s states: a deleted object is kept until dismissed', () => {
+  const first = mergeStates(emptyModel(), ksSample([
+    ksPod('db-0', 'ok', [{ key: 'Ready', value: '3/3' }]),
+    ksPod('db-1', 'bad', [{ key: 'Phase', value: 'Failed', tone: 'bad' }]),
+  ]), 1000)
+  const second = mergeStates(first, ksSample([ksPod('db-0', 'ok', [{ key: 'Ready', value: '3/3' }])]), 2000)
+  if (second.objects.length !== 2) throw new Error('the deleted object was dropped')
+  const gone = second.objects.find((o) => o.name === 'db-1')
+  if (!gone.gone || toneOf(gone) !== 'gone') throw new Error('a deleted object must be marked, not merely kept')
+  // It survives further samples that still do not mention it.
+  const third = mergeStates(second, ksSample([ksPod('db-0', 'ok', [{ key: 'Ready', value: '3/3' }])]), 3000)
+  if (third.objects.length !== 2 || third.objects.find((o) => o.name === 'db-1').gone !== 2000) {
+    throw new Error('the tombstone must keep its original time of death')
+  }
+  const after = dismissGone(third, gone.key)
+  if (after.objects.length !== 1) throw new Error('dismiss did not remove the tombstone')
+  // A live object cannot be dismissed — the canvas would then disagree with the cluster.
+  if (dismissGone(after, after.objects[0].key).objects.length !== 1) throw new Error('a live object was dismissed')
+  if (dismissAllGone(third).objects.length !== 1) throw new Error('dismissAllGone')
+  return 'ok'
+})
+
+check('k8s states: filters, grouping and counts', () => {
+  const objs = mergeStates(emptyModel(), ksSample([
+    ksPod('db-0', 'ok', [{ key: 'Ready', value: '3/3' }]),
+    ksPod('db-1', 'bad', [{ key: 'Phase', value: 'Failed', tone: 'bad' }]),
+    { uid: 'u-svc', kind: 'Service', namespace: 'kube-system', name: 'kube-dns', tone: 'ok', summary: 'ClusterIP', props: [] },
+  ]), 1000).objects
+  if (filterStates(objs, { namespace: 'pg' }).length !== 2) throw new Error('namespace filter')
+  // Kind visibility is an EXCLUDE set: everything is on the board and the noisy kinds are
+  // folded away, rather than an include set that decides what you are allowed to see.
+  if (filterStates(objs, { hidden: new Set(['Pod']) }).length !== 1) throw new Error('kind filter')
+  if (filterStates(objs, { hidden: new Set() }).length !== 3) throw new Error('an empty hidden set hides nothing')
+  if (filterStates(objs, { query: 'failed' }).length !== 1) throw new Error('a query should search property values')
+  if (filterStates(objs, { problems: true }).length !== 1) throw new Error('problems filter')
+  const cols = groupByKind(objs)
+  if (cols.length !== 2 || cols[0].kind !== 'Pod' || cols[0].objects.length !== 2) throw new Error('grouping')
+  const counts = countTones(objs)
+  if (counts.ok !== 2 || counts.bad !== 1) throw new Error(`counts = ${JSON.stringify(counts)}`)
+  return 'ok'
+})
+
+check('k8s states: a tombstone survives the problems filter', () => {
+  const first = mergeStates(emptyModel(), ksSample([ksPod('db-1', 'ok', [])]), 1000)
+  const second = mergeStates(first, ksSample([]), 2000)
+  if (filterStates(second.objects, { problems: true }).length !== 1) {
+    throw new Error('filtering for trouble must not hide the object that disappeared')
+  }
+  return 'ok'
+})
+
+check('k8s states: a card shows the bad rows first and counts the rest', () => {
+  const obj = mergeStates(emptyModel(), ksSample([ksPod('db-1', 'bad', [
+    { key: 'Phase', value: 'Running' },
+    { key: 'Node', value: 'k3d-server-0' },
+    { key: 'Pod IP', value: '10.42.0.9' },
+    { key: 'Restarts', value: '12', tone: 'warn' },
+    { key: 'database', value: 'CrashLoopBackOff', tone: 'bad' },
+  ])]), 1000).objects[0]
+  const shown = visibleProps(obj)
+  if (shown[0].key !== 'database' || shown[1].key !== 'Restarts') {
+    throw new Error(`the coloured rows must lead: ${shown.map((p) => p.key).join(',')}`)
+  }
+  const html = renderToString(<StateCard obj={obj} now={1000} selected={false} pinned={false}
+    onSelect={noop} onPin={noop} onDismiss={noop} />)
+  if (!html.includes('CrashLoopBackOff')) throw new Error('the reason is missing from the card')
+  if (!html.includes('+1 more')) throw new Error('the hidden rows are not counted')
+  return html
+})
+
+check('k8s states: a card renders in every tone, tombstone included', () => {
+  for (const tone of ['ok', 'warn', 'bad', 'done']) {
+    const obj = mergeStates(emptyModel(), ksSample([ksPod(`p-${tone}`, tone, [{ key: 'Phase', value: tone, tone }])]), 1000).objects[0]
+    renderToString(<StateCard obj={obj} now={1000} selected onSelect={noop} onPin={noop} onDismiss={noop} />)
+  }
+  const first = mergeStates(emptyModel(), ksSample([ksPod('p-gone', 'ok', [])]), 1000)
+  const dead = mergeStates(first, ksSample([]), 2000).objects[0]
+  const html = renderToString(<StateCard obj={dead} now={2000} pinned onSelect={noop} onPin={noop} onDismiss={noop} />)
+  if (!html.includes('deleted')) throw new Error('a tombstone should say so')
+  return html
+})
+
+check('k8s states: the pane shows every row and its warnings', () => {
+  const obj = mergeStates(emptyModel(), ksSample([ksPod('db-1', 'bad', [
+    { key: 'Phase', value: 'Running' },
+    { key: 'database', value: 'CrashLoopBackOff', tone: 'bad' },
+  ], { owner: 'StatefulSet/db', events: [{ reason: 'BackOff', message: 'Back-off restarting failed container', count: 9 }] })]), 1000).objects[0]
+  const html = renderToString(<StatePane obj={obj} view="state" now={1000} pinned
+    onView={noop} onPin={noop} onDismiss={noop} onClose={noop} />)
+  for (const want of ['StatefulSet/db', 'BackOff', 'Back-off restarting failed container', '×9']) {
+    if (!html.includes(want)) throw new Error(`pane is missing ${want}`)
+  }
+  // A pod offers three views; everything else offers two, because only a pod has logs.
+  if (viewsFor(obj).map((v) => v.id).join(',') !== 'state,logs,yaml') throw new Error('pod views')
+  if (viewsFor({ kind: 'Service' }).map((v) => v.id).join(',') !== 'state,yaml') throw new Error('non-pod views')
+  return html
+})
+
+check('k8s states: the pane of nothing renders nothing rather than throwing', () => {
+  const html = renderToString(<div>{StatePane({ obj: null })}</div>)
+  return html || 'ok'
+})
+
+check('k8s states: a log pane opens on the container that is unhealthy', () => {
+  const containers = [
+    { name: 'pgbouncer', tone: 'ok' },
+    { name: 'database', tone: 'bad', restarts: 12 },
+    { name: 'init-db', init: true, tone: 'done' },
+  ]
+  if (defaultContainer(containers) !== 'database') {
+    throw new Error(`opened on ${defaultContainer(containers)} — the broken one is the one to read`)
+  }
+  if (sortContainers(containers)[0].name !== 'database') throw new Error('picker order')
+  // All healthy: the first real container, never an init one that has already finished.
+  const healthy = [{ name: 'init-db', init: true, tone: 'done' }, { name: 'database', tone: 'ok' }, { name: 'logs', tone: 'ok' }]
+  if (defaultContainer(healthy) !== 'database') throw new Error(`healthy pod opened on ${defaultContainer(healthy)}`)
+  // A single-container pod reports none: '' lets kubectl pick, which is the right answer.
+  if (defaultContainer([]) !== '') throw new Error('a pod with no container list')
+  return 'ok'
+})
+
+check('k8s states: log and YAML panes render before their first read', () => {
+  const obj = mergeStates(emptyModel(), ksSample([ksPod('db-1', 'bad', [], {
+    containers: [{ name: 'database', tone: 'bad', restarts: 3 }, { name: 'logs', tone: 'ok' }],
+  })]), 1000).objects[0]
+  // api is null: SSR runs no effects, so this is the shape of the pane before any fetch.
+  const log = renderToString(<StatePane obj={obj} view="logs" now={1000} api={null} tick={0}
+    onView={noop} onPin={noop} onDismiss={noop} />)
+  if (!log.includes('database')) throw new Error('the container picker is missing')
+  if (!log.includes('previous')) throw new Error('a restarted container must offer --previous')
+  const yaml = renderToString(<StatePane obj={obj} view="yaml" now={1000} api={null} tick={0}
+    onView={noop} onPin={noop} onDismiss={noop} />)
+  if (!yaml.includes('read-only')) throw new Error('the YAML pane must say it does not write')
+  // A container that has never restarted has no previous log to offer.
+  const steady = mergeStates(emptyModel(), ksSample([ksPod('db-2', 'ok', [], {
+    containers: [{ name: 'database', tone: 'ok' }],
+  })]), 1000).objects[0]
+  if (renderToString(<LogBody obj={steady} api={null} tick={0} />).includes('previous')) {
+    throw new Error('--previous offered on a container that never restarted')
+  }
+  renderToString(<YamlBody obj={steady} api={null} tick={0} />)
+  renderToString(<StateBody obj={steady} now={1000} />)
+  return log
+})
+
+check('k8s states: a log pane on a capture asks for a file, not a container', () => {
+  const obj = mergeStates(emptyModel(), ksSample([ksPod('cluster1-pxc-0', 'bad', [], {
+    containers: [{ name: 'pxc', tone: 'bad', restarts: 9 }, { name: 'logs', tone: 'ok' }],
+  })]), 1000).objects[0]
+  // Live: the pane opens on the container worth reading. A capture has no containers, so it
+  // opens on nothing and lets the reply name one of the files the collector kept — asking for
+  // 'pxc' instead was answered with "no such file in this capture", and logs.txt, summary.txt
+  // and var/lib/mysql/mysqld-error.log stayed invisible.
+  if (defaultLogTarget(obj, false) !== 'pxc') throw new Error(`live opened on ${defaultLogTarget(obj, false)}`)
+  if (defaultLogTarget(obj, true) !== '') throw new Error('a capture was asked for a container name')
+  // And the controls that only mean something against a running container are gone with it.
+  const archive = { archive: true, stateLogs: async () => ({}) }
+  const html = renderToString(<LogBody obj={obj} api={archive} tick={0} />)
+  for (const gone of ['previous', 'follow', '200 lines']) {
+    if (html.includes(gone)) throw new Error(`a capture offered ${gone}, which only a running container has`)
+  }
+  if (!renderToString(<LogBody obj={obj} api={null} tick={0} />).includes('previous')) {
+    throw new Error('the live pane lost --previous')
+  }
+  return html
+})
+
+check('k8s states: pins are panes, not objects', () => {
+  const a = { key: 'u1', view: 'state' }
+  const aLogs = { key: 'u1', view: 'logs' }
+  const b = { key: 'u2', view: 'logs' }
+  if (paneId(a) === paneId(aLogs)) throw new Error('two views of one object are two panes')
+  if (!samePane(a, { key: 'u1', view: 'state' }) || samePane(a, aLogs)) throw new Error('samePane')
+  // Switching a pinned pane's view moves it in place — it neither unpins nor clones.
+  let pins = [a, b]
+  pins = movePaneView(pins, a, aLogs)
+  if (pins.length !== 2 || paneId(pins[0]) !== paneId(aLogs)) throw new Error(`moved to ${JSON.stringify(pins)}`)
+  // Switching onto a view that is already pinned collapses the two rather than duplicating.
+  pins = movePaneView([aLogs, b], b, aLogs)
+  if (pins.length !== 1) throw new Error('a duplicate pin was created')
+  // A pane that is not pinned is not added by switching its view.
+  if (movePaneView([b], a, aLogs).length !== 1) throw new Error('switching an unpinned pane pinned it')
+  return 'ok'
+})
+
+check('k8s states: legend and helpers', () => {
+  if (shortName('a'.repeat(50)).length !== 34) throw new Error('shortName')
+  if (shortName('short') !== 'short') throw new Error('a short name must not be touched')
+  if (targetKey({ stackId: 8, frameId: 'f1' }) !== '8/f1') throw new Error('targetKey')
+  if (parseTargetKey('8/f1').stackId !== 8) throw new Error('parseTargetKey')
+  if (parseTargetKey('nonsense') !== null) throw new Error('a malformed key must not resolve')
+  renderToString(<PropRow obj={{ changed: {} }} prop={{ key: 'Ready', value: '3/3', tone: 'warn' }} now={0} wide />)
+  return renderToString(<ToneLegend counts={countTones([])} />)
+})
+
+check('k8s states: the noisy kinds start folded, and stay where you put them', () => {
+  // A real capture has 468 ClusterRoles and two StatefulSets. Everything is on the board;
+  // what differs is what is in front of you when it opens.
+  const first = hiddenByDefault(['Pod', 'StatefulSet', 'ClusterRole', 'ConfigMap', 'PerconaXtraDBCluster'])
+  if (!first.hidden.has('ClusterRole') || !first.hidden.has('ConfigMap')) throw new Error('RBAC and config should start folded')
+  if (first.hidden.has('Pod') || first.hidden.has('PerconaXtraDBCluster')) throw new Error('a database person came to look at these')
+  // Turning one on and reloading the same source must not turn it off again.
+  const shown = new Set(first.hidden); shown.delete('ClusterRole')
+  const again = hiddenByDefault(['Pod', 'ClusterRole', 'ConfigMap'], first.seen, shown)
+  if (again.hidden.has('ClusterRole')) throw new Error('a kind you turned on was folded again')
+  // A kind that turns up later still arrives folded.
+  const later = hiddenByDefault(['Pod', 'Secret'], first.seen, shown)
+  if (!later.hidden.has('Secret')) throw new Error('a newly seen noisy kind should arrive folded')
+  const counts = countKinds([{ kind: 'Pod' }, { kind: 'Pod' }, { kind: 'Secret' }])
+  if (counts.get('Pod') !== 2 || counts.get('Secret') !== 1) throw new Error('chip counts')
+  return 'ok'
+})
+
+check('k8s states: the capture file browser lists what the collector kept', () => {
+  const html = renderToString(<CaptureFiles source={{ kind: 'dump', id: '2' }} onClose={noop} />)
+  if (!html.includes('Capture files')) throw new Error('no header')
+  if (stSizeLabel(0) !== '0 B' || stSizeLabel(900) !== '900 B' || stSizeLabel(68273) !== '67 KiB'
+      || stSizeLabel(5 << 20) !== '5.0 MiB') {
+    throw new Error(`sizeLabel: ${stSizeLabel(68273)}`)
+  }
+  return html
+})
+
+check('k8s states: three sources, one identifier', () => {
+  const live = parseSourceId(sourceId(SOURCE_LIVE, '8/frame-x'))
+  if (!live || live.stackId !== 8 || live.frameId !== 'frame-x') throw new Error(`live = ${JSON.stringify(live)}`)
+  if (!isLive(live)) throw new Error('a live source must be polled')
+  const dump = parseSourceId(sourceId('dump', 12))
+  if (dump.kind !== 'dump' || dump.id !== '12') throw new Error(`dump = ${JSON.stringify(dump)}`)
+  if (isLive(dump)) throw new Error('a capture is one instant — polling it reads the same file forever')
+  // An upload token is opaque and may contain anything a hex token contains.
+  if (parseSourceId('upload:abc123').id !== 'abc123') throw new Error('upload')
+  for (const bad of ['', 'live:', 'nonsense', 'live:8', 'other:1']) {
+    if (parseSourceId(bad) !== null) throw new Error(`${bad} resolved`)
+  }
+  return 'ok'
+})
+
+check('k8s states: a log pane from a capture offers files, not containers', () => {
+  const obj = mergeStates(emptyModel(), ksSample([ksPod('db-1', 'bad', [], {
+    containers: [{ name: 'pxc', tone: 'bad', restarts: 9 }],
+  })]), 1000).objects[0]
+  // The server says "this is an archive" by returning `files`; SSR runs no effects, so this
+  // renders the pre-read shape and the archive shape is checked through the model instead.
+  const html = renderToString(<StatePane obj={obj} view="logs" now={1000} api={null} tick={0}
+    onView={noop} onPin={noop} onDismiss={noop} />)
+  if (!html.includes('pxc')) throw new Error('the live picker lost its container')
+  return html
+})
+
+check('K8sStates page (before the first sample)', () => renderToString(<K8sStates />))
 
 check('OperatorDebugger page (before the socket opens)', () => renderToString(<OperatorDebugger />))
 check('operator debugger: header', () =>

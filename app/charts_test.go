@@ -7,7 +7,9 @@ import (
 )
 
 // writeVersionsFile points VERSIONS_FILE at a synthetic catalog, so these tests do not depend on
-// what `make versions` last discovered.
+// what `make versions` last discovered. IMAGES_FILE is pointed at the same file: the generic image
+// catalog reads images.yaml (see loadImagesCatalog), and leaving it unset would let these tests
+// pick up the repo's real one.
 func writeVersionsFile(t *testing.T, body string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "versions.yaml")
@@ -15,6 +17,7 @@ func writeVersionsFile(t *testing.T, body string) {
 		t.Fatal(err)
 	}
 	t.Setenv("VERSIONS_FILE", path)
+	t.Setenv("IMAGES_FILE", path)
 }
 
 const testVersionsYAML = `image_prefix: dbcanvas-systemd

@@ -10,13 +10,17 @@
 // "@xterm/xterm/css/xterm.css" gets rewritten into a path inside the JS stub.
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 import { fileURLToPath } from 'node:url'
 
 const js = fileURLToPath(new URL('./xterm-stub.js', import.meta.url))
 const css = fileURLToPath(new URL('./empty.css', import.meta.url))
 
 export default defineConfig({
-  plugins: [react()],
+  // Tailwind is here for the BROWSER half (npm run smoke:browser): without a stylesheet
+  // every class is inert, so a page's layout cannot be checked at all — which is how the
+  // states board went out as a letterbox. The SSR half never renders CSS and is unaffected.
+  plugins: [react(), tailwindcss()],
   resolve: {
     alias: [
       { find: /^@xterm\/xterm\/css\/.*$/, replacement: css },

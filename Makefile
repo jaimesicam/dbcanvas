@@ -15,16 +15,24 @@ CLI_PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 
 ## install: everything a first run needs — every image DBCanvas can build (the OS
 ## bases and the Intranet, then the optional ones on top: the VNC desktop, the K3D
-## collector, the Big Hole FTDC viewer and the six demo apps), the version
-## catalog those bases yield, then DBCanvas itself. Safe to re-run; `make compose`
-## alone is enough once the images exist.
+## collector, the Big Hole FTDC viewer and the six demo apps), then DBCanvas itself.
+## Safe to re-run; `make compose` alone is enough once the images exist.
+##
+## `make versions` is deliberately NOT part of this. It starts a container and queries
+## every Percona, MariaDB, MySQL, Helm and registry endpoint for each image, which took
+## people upwards of three hours — and it was here only because `make images` used to
+## overwrite versions.yaml, so a first run had to re-probe what it had just deleted. The
+## two files are now separate (images.yaml = what was built, versions.yaml = what is
+## installable), so the catalog committed to this repo survives `make images` and the
+## pickers are populated the moment DBCanvas comes up. Run `make versions` when you want
+## it refreshed — newly released minors, or an OS image that was not in the matrix before.
 ##
 ## The optional half runs through install-extras rather than extra-images so that a
 ## failure in somebody else's npm registry, GitHub or Percona repo cannot stop a
 ## first run from ending with DBCanvas up: what failed is reported here, said again
 ## at Validate by the node that needs it, and can be retried from the web interface
 ## or the per-image target. `make extra-images` on its own still fails loudly.
-install: images versions install-extras compose
+install: images install-extras compose
 
 ## install-extras: the optional images, built the way `make install` wants them —
 ## every one of them, and a failure reported rather than fatal. Not the target to
@@ -50,9 +58,14 @@ compose: env
 	@echo "  View logs:    make logs"
 	@echo "  Stop:         make down"
 
-## env: materialize .env from .env.example (only if missing)
+## env: materialize .env from .env.example (only if missing), and make sure the two
+## generated catalogs exist as files. Docker bind-mounts them into the container, and a
+## bind mount whose source is missing is created by the daemon as a *directory* — after
+## which every picker is empty until someone notices. An empty stand-in is recoverable;
+## `make images` / `make versions` overwrite it.
 env:
 	@test -f .env || { cp .env.example .env && echo "Created .env from .env.example"; }
+	@for f in images.yaml versions.yaml; do 	  test -e $$f || { echo "images: []" >$$f; 	    echo "Created empty $$f — run 'make images' (and 'make versions') to fill it"; }; 	done
 
 ## build: build the image only
 build: env
@@ -114,8 +127,11 @@ cli-test:
 	cd cli && go build ./... && go vet ./... && go test ./...
 
 ## images: what every stack needs — the operating-system bases (systemd images for
-## each OS × the one platform this installation targets, recorded in versions.yaml)
+## each OS × the one platform this installation targets, recorded in images.yaml)
 ## and the pre-baked Intranet, baked onto the Oracle Linux 9 base.
+##
+## It writes images.yaml and nothing else: versions.yaml, the catalog of what those
+## bases can install, is `make versions` and is left alone here.
 ##
 ## The Intranet is here rather than in extra-images because it is not an extra: it is
 ## the DNS and the CA the rest of a stack is built against, so a canvas with no
@@ -182,7 +198,13 @@ k8scollector-image:
 bighole-image:
 	bash images/service.sh bighole
 
-## versions: probe built images for installable Percona Server versions → versions.yaml
+## versions: probe the images in images.yaml for the versions installable on each,
+## plus the PMM, operator, Helm chart and k3s catalogs → versions.yaml. SLOW (a
+## container and a pile of repository queries per image — hours, not minutes), which
+## is why `make install` does not run it: the repo ships a versions.yaml, and
+## `make images` no longer overwrites it. Run this when the pickers should offer
+## versions released since the last probe, or after building a new OS image.
+## ONLY=percona / ONLY=upstream re-probes one group and keeps the other as recorded.
 versions:
 	bash images/versions.sh
 

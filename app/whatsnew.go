@@ -37,6 +37,57 @@ type releaseNote struct {
 // expanded, and the tests assume the ordering.
 var whatsNewNotes = []releaseNote{
 	{
+		Version: "0.0.5",
+		Date:    "2026-09-13",
+		Title:   "Kubernetes States — a cluster as a board that keeps what died",
+		Body: "A new page beside Operator Summary, and the opposite tense: that one reads a capture " +
+			"after the fact, this one watches a cluster now. One column per kind, one card per object, " +
+			"and three things a table cannot do. A card is red because the object says it is broken, " +
+			"with the row that caused the colour red inside it. A value that changed since the last " +
+			"sample is lit and says what it changed from — \"Ready 2/3 (was 3/3)\" is a failover, " +
+			"visible without reading anything. And an object that disappears is not removed: it stays " +
+			"where it was, greyed and dashed, until you dismiss it, because the pod that vanished while " +
+			"you were looking at another card is the one you needed to see. Beside the board is a rail " +
+			"of panes — an object's State, a container's Logs, its YAML — and any of them can be pinned, " +
+			"so the custom resource's state and the crashing container's log stay on screen while you " +
+			"click through everything else.",
+		Doc: "docs/KUBERNETES_STATES.md",
+	},
+	{
+		Version: "0.0.5",
+		Date:    "2026-09-13",
+		Title:   "The same board reads a pt-k8s-debug-collector cluster-dump",
+		Body: "Point it at a capture kept by Diagnostics, or upload a cluster-dump from your machine — " +
+			"a customer's cluster this installation has never seen reads exactly the same, because the " +
+			"collector's YAML and kubectl's JSON are the same objects in two encodings. Every object in " +
+			"the archive becomes a card, including the kinds a live sample leaves alone, so a capture of " +
+			"an operator DBCanvas has never heard of still comes out complete. A pod offers what the " +
+			"collector kept for it, which is more than kubectl logs would ever have given you: the logs, " +
+			"pt-mysql-summary's output, and PXC's innobackup backup logs or pgBackRest's own. Capture " +
+			"files lists every file in the archive so nothing is hidden, the board says plainly that a " +
+			"capture is one instant and reports what the collector itself failed to collect, and ticking " +
+			"compare before loading a second capture turns the whole thing into a diff of the first. " +
+			"Uploads are held in memory for an hour, for the account that uploaded them, and never " +
+			"written to disk.",
+		Doc: "docs/KUBERNETES_STATES.md",
+	},
+	{
+		Version: "0.0.5",
+		Date:    "2026-09-13",
+		Title:   "make install no longer re-probes every repository it just deleted",
+		Body: "A first run took people upwards of three hours, and most of it was spent rebuilding a " +
+			"catalog it had thrown away seconds earlier: `make images` wrote versions.yaml, so every " +
+			"image rebuild discarded everything `make versions` had probed, and `make install` had to " +
+			"run the probe again to get it back. The two files are now separate — images.yaml is what " +
+			"was built, versions.yaml is what is installable on it — and neither overwrites the other. " +
+			"`make install` no longer runs the probe at all: the catalog committed to the repo survives, " +
+			"so the version pickers are populated the moment DBCanvas comes up. Run `make versions` " +
+			"deliberately, when you want minors released since the last probe or have built an OS image " +
+			"that was not there before. An installation that predates the split keeps working: its image " +
+			"entries are still read out of versions.yaml until the next `make images`.",
+		Doc: "docs/GETTING_STARTED.md",
+	},
+	{
 		Version: "0.0.4",
 		Date:    "2026-09-11",
 		Title:   "The Stock Market Sim can split its reads to HAProxy's read port",

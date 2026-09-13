@@ -567,6 +567,15 @@ dbcanvas api GET /api/catalog/ps | jq '.["oraclelinux-9"]'
 | To do this | API | CLI |
 | --- | --- | --- |
 | Get an admin kubeconfig | `GET …/frames/{fid}/k3d/kubeconfig` | `dbcanvas api GET …/k3d/kubeconfig` |
+| List the clusters you can watch live | `GET /api/k3d/states/targets` | `dbcanvas api GET /api/k3d/states/targets` |
+| Sample every object's state at once | `GET …/frames/{fid}/k3d/states` | `dbcanvas api GET …/k3d/states` |
+| Tail one container's log (or the run that died) | `GET …/k3d/states/logs?namespace=&name=&container=&previous=1` | `dbcanvas api GET '…/k3d/states/logs?namespace=pxc&name=cluster1-pxc-0&container=pxc'` |
+| Read one object as YAML | `GET …/k3d/states/manifest?kind=&namespace=&name=` | `dbcanvas api GET '…/k3d/states/manifest?kind=Pod&namespace=pxc&name=cluster1-pxc-0'` |
+| Build the states board from a kept capture | `POST /api/k8sstates/dumps/{did}` | `dbcanvas api POST /api/k8sstates/dumps/2` |
+| Build it from an uploaded cluster-dump | `POST /api/k8sstates/upload` (multipart) | — |
+| Read an object's YAML out of an archive | `GET /api/k8sstates/archive/manifest?dump=2&kind=&namespace=&name=` | `dbcanvas api GET '/api/k8sstates/archive/manifest?dump=2&kind=Pod&namespace=pxc&name=cluster1-pxc-0'` |
+| Read a pod's kept files out of an archive | `GET /api/k8sstates/archive/logs?dump=2&namespace=&name=&file=` | `dbcanvas api GET '/api/k8sstates/archive/logs?dump=2&namespace=pxc&name=cluster1-pxc-0'` |
+| List every file in a cluster-dump, or read one | `GET /api/k8sstates/archive/files?dump=2&path=` | `dbcanvas api GET '/api/k8sstates/archive/files?dump=2'` |
 | List the RBAC users made for testing | `GET …/frames/{fid}/k3d/users` | `dbcanvas api GET …/k3d/users` |
 | Create one with a role | `POST …/frames/{fid}/k3d/users` | `dbcanvas api POST …/k3d/users --data '{"username":"dev","role":"view"}'` |
 | Delete one | `POST …/frames/{fid}/k3d/users/delete` | `dbcanvas api POST …/k3d/users/delete` |

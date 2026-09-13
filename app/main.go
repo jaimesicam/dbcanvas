@@ -168,8 +168,16 @@ func deployTimeout() time.Duration {
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	if v != nil {
-		json.NewEncoder(w).Encode(v)
+	if v == nil {
+		return
+	}
+	// The status line is already sent, so a marshalling failure cannot be turned into a 500
+	// — but it must not be silent either. An unmarshallable value (a func captured into a
+	// response map by an unlucky variable name, which is exactly how this line came to be
+	// written) otherwise leaves the caller holding "HTTP 200, zero bytes" and the server
+	// with nothing to say about it.
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		log.Printf("writeJSON: %v", err)
 	}
 }
 

@@ -9,6 +9,9 @@
 // stubbed so nothing leaves the process, and records anything React or the browser
 // reports. Failures land in the DOM and in document.title, so a headless
 // --dump-dom is enough to read them — no devtools protocol needed.
+// The app's own stylesheet: layout checks below measure real heights, and a Tailwind class
+// with no CSS behind it measures nothing.
+import '../src/index.css'
 import { createRoot } from 'react-dom/client'
 import { StrictMode, Component } from 'react'
 import { PageVisibleProvider } from '../src/lib/usePolling.jsx'
@@ -20,6 +23,7 @@ import LogSummary from '../src/pages/LogSummary.jsx'
 import FTDCSummary from '../src/pages/FTDCSummary.jsx'
 import StalkSummary from '../src/pages/StalkSummary.jsx'
 import PacketInspector from '../src/pages/PacketInspector.jsx'
+import K8sStates from '../src/pages/K8sStates.jsx'
 import { ContextMenu, podMenuEntries } from '../src/pages/StackDesigner.jsx'
 import { Help } from '../src/components/Tooltip.jsx'
 import { SettingsCtx } from '../src/settings/SettingsProvider.jsx'
@@ -46,7 +50,26 @@ const gdbTarget = {
   binary: '/sysroot/mysqld', binaryFrom: 'mounted', buildId: '3f2a9c', hasSymbols: true,
   coreDir: '/srv/coredumps/db7/cores', libDir: '/srv/coredumps/db7/libs', status: 'ready',
 }
+const statesTarget = { stackId: 8, frameId: 'f1', stackName: 'lab', label: 'k3d-00', operator: 'pg', namespace: 'pg' }
+const statesSample = {
+  capturedAt: '2026-09-12T10:00:00Z', namespaces: ['pg'], kinds: ['Pod', 'PerconaPGCluster'], warnings: [],
+  objects: [
+    { uid: 'u1', kind: 'Pod', namespace: 'pg', name: 'k3d-00-instance1-b6hr-0', tone: 'bad', summary: '5/6 Running',
+      props: [{ key: 'Phase', value: 'Running', tone: 'warn' }, { key: 'database', value: 'CrashLoopBackOff', tone: 'bad' }],
+      containers: [{ name: 'database', tone: 'bad', restarts: 7 }, { name: 'logs', tone: 'ok' }],
+      events: [{ reason: 'BackOff', message: 'Back-off restarting failed container', count: 4 }] },
+    { uid: 'u2', kind: 'PerconaPGCluster', namespace: 'pg', name: 'k3d-00', tone: 'ok', summary: 'ready',
+      props: [{ key: 'State', value: 'ready', tone: 'ok' }, { key: 'postgres.ready', value: '3' }] },
+  ],
+}
+
 const payloadFor = (url) => {
+  if (url.includes('/k3d/states/targets')) return { targets: [statesTarget] }
+  // The states board also offers kept captures as a source, so the mount fetches them.
+  if (url.includes('/opsummary/dumps')) return { dumps: [{ id: 2, cluster: 'k3d-00-s9', capturedAt: '2026-09-12T15:39:39Z' }] }
+  if (url.includes('/k3d/states/logs')) return { text: '2026-09-12T10:00:00Z starting\n', container: 'pxc', readAt: '2026-09-12T10:00:00Z' }
+  if (url.includes('/k3d/states/manifest')) return { yaml: 'apiVersion: v1\nkind: Pod\n', readAt: '2026-09-12T10:00:00Z' }
+  if (url.includes('/k3d/states')) return statesSample
   if (url.includes('/k3d/debug/targets')) return { targets: [dbgTarget] }
   if (url.includes('/gdb/targets')) return { targets: [gdbTarget] }
   if (url.includes('/cores')) return { cores: [] }
@@ -95,6 +118,10 @@ const PAGES = [
   ['FTDCSummary', FTDCSummary],
   ['StalkSummary', StalkSummary],
   ['PacketInspector', PacketInspector],
+  // The states canvas polls on a timer and draws from a live sample, so mounting it here is
+  // the only check that its effects — the poll, the highlight clock, the wheel listener —
+  // survive StrictMode's double invocation.
+  ['K8sStates', K8sStates],
 ]
 
 // Mounted the way App mounts a tab: inside the terminal + page-visible providers,
@@ -267,6 +294,41 @@ async function driveTooltipSwitch() {
 }
 driveTooltipSwitch().catch((err) => record('tooltip switch', err))
 
+// ---------------------------------------------------------------- the states board fills
+//
+// The board went out as a letterbox: the page asks for h-full, and in a parent with no
+// height of its own that resolves to nothing, so the whole canvas collapsed to the height of
+// one row of cards. Nothing in an SSR render can see that — heights only exist in a browser
+// — so the check is here: give the page a container of a known height and measure what the
+// board actually got.
+let fillDone = false
+async function driveBoardFill() {
+  const host = document.createElement('div')
+  host.id = 'states-fill'
+  host.style.height = '700px'
+  document.body.appendChild(host)
+  createRoot(host).render(
+    <StrictMode>
+      <PageVisibleProvider visible>
+        <Boundary name="K8sStatesFill"><K8sStates /></Boundary>
+      </PageVisibleProvider>
+    </StrictMode>,
+  )
+  await new Promise((r) => setTimeout(r, 600))
+  const page = host.firstElementChild
+  if (!page) throw new Error('nothing rendered')
+  if (page.getBoundingClientRect().height < 600) {
+    throw new Error(`the page took ${Math.round(page.getBoundingClientRect().height)}px of a 700px container`)
+  }
+  // The board is the scrolling surface the cards sit on; it must take what is left over
+  // after the toolbar rather than only as much as its content needs.
+  const board = host.querySelector('.overflow-hidden')
+  const h = board ? board.getBoundingClientRect().height : 0
+  if (h < 300) throw new Error(`the board is ${Math.round(h)}px tall inside a 700px page`)
+  fillDone = true
+}
+driveBoardFill().catch((err) => record('states board fill', err))
+
 // Give effects, their microtasks and the stubbed fetches a turn, then report.
 setTimeout(() => {
   const blank = PAGES.filter(([name]) => (document.getElementById(`page-${name}`)?.textContent || '').trim() === '')
@@ -278,6 +340,9 @@ setTimeout(() => {
   }
   if (!tipsDone && !failures.some((f) => f.startsWith('tooltip switch'))) {
     record('tooltip switch', new Error('never finished — did the hover stop opening a bubble?'))
+  }
+  if (!fillDone && !failures.some((f) => f.startsWith('states board fill'))) {
+    record('states board fill', new Error('never finished — did the page stop rendering?'))
   }
   if (failures.length === 0 && blank.length === 0) {
     out.textContent = 'ALL PAGES MOUNTED'

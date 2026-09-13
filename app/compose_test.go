@@ -98,6 +98,7 @@ func composeCatalogFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("VERSIONS_FILE", path)
+	t.Setenv("IMAGES_FILE", path) // the generic catalog reads images.yaml; same fixture serves both
 	// The fixture is amd64 only; platformArch() follows DOCKER_PLATFORM.
 	t.Setenv("DOCKER_PLATFORM", "linux/amd64")
 }

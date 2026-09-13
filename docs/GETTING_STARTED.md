@@ -34,23 +34,27 @@ git clone https://github.com/jaimesicam/dbcanvas.git && cd dbcanvas
 make install
 ```
 
-`make install` does three things: builds the node images — the operating-system bases and
-everything layered on them, from the Intranet to the demo applications — records what each of
-them can install (the version pickers read this), and starts DBCanvas at
-**http://localhost:8080**.
+`make install` does two things: builds the node images — the operating-system bases and
+everything layered on them, from the Intranet to the demo applications — and starts DBCanvas at
+**http://localhost:8080**. The version pickers are filled from the catalog that ships with the
+repo (`versions.yaml`), so they work from the first page load.
 
 **The first run takes a while** — it is building operating-system images with systemd in
 them, then the images on top. Later runs are just `make compose`, which is quick. An image
 that fails to build does not stop the install: it is reported, DBCanvas starts anyway, and
 the node types that need it say so when you validate a stack.
 
+What the install deliberately does *not* do is re-probe every package repository for version
+lists. That is `make versions`, it takes hours, and nothing in the install overwrites what it
+produced — run it when you want versions released since the catalog was last built.
+
 | Command | What it does |
 | --- | --- |
-| `make install` | Full first-time setup: every image, version catalog, start. |
+| `make install` | Full first-time setup: every image, then start. |
 | `make compose` | Rebuild the app and start it. The everyday command. |
 | `make up` / `make down` | Start / stop without rebuilding. |
 | `make logs` | Follow the application log. |
-| `make versions` | Re-probe the repositories for new database versions. |
+| `make versions` | Re-probe the repositories for new database versions. Slow (hours) and optional — not part of `make install`. |
 | `make extra-images` | Rebuild the optional images (VNC, tool and demo images) on their own. |
 
 Every setting has a working default. **Before exposing DBCanvas beyond your own machine,
@@ -78,6 +82,7 @@ The sidebar is grouped by what you are trying to do.
 | **Database Stacks** | Where you design, deploy and operate everything. This is the main screen. |
 | **Data Generator**, **Query Runner**, **Benchmark** | Put data and load on what you built. |
 | **Packet Inspector**, **Log Summary**, **Stalk Summary**, **FTDC Summary** | Find out what happened. |
+| **Kubernetes States** | Watch a Kubernetes cluster live — what is broken, and what just changed. |
 | **Operator Debugger**, **Core Dump Analyzer**, **Operator Summary** | The deep end — step through a Kubernetes operator, read a crashed server's core dump, or distil a `pt-k8s-debug-collector` cluster-dump. |
 | **Settings**, **Manage Users** | Your preferences; and, for admins, who may sign in. |
 
@@ -264,6 +269,7 @@ the one you operate rather than watch — it will drive a Kubernetes operator's 
 | [**Log Summary**](LOG_SUMMARY.md) | Several nodes' logs on one timeline, sorted into the good, the warning and the bad. |
 | [**Packet Inspector**](PACKET_INSPECTOR.md) | Capture on a node and decode MySQL, PostgreSQL, MongoDB or Valkey off the wire — what the client actually sent, not what you think it sent. |
 | [**Stalk Summary**](STALK_SUMMARY.md) / [**FTDC Summary**](FTDC_SUMMARY.md) | Turn a pt-stalk archive or MongoDB's own diagnostic data into charts and a verdict. |
+| [**Kubernetes States**](KUBERNETES_STATES.md) | A Kubernetes cluster as a live board — every pod, workload, claim and custom resource, red when it says it is broken and lit when it changes. Deleted objects stay until you dismiss them. |
 
 ## Saving a topology for next time
 
@@ -309,7 +315,8 @@ something else on the machine — another stack, or something outside DBCanvas. 
 `0` and let Docker choose.
 
 **A version is missing from a picker.** The lists come from `make versions`, which probes the
-repositories. Re-run it to pick up newly published builds — see
+repositories and is not run by `make install`. Run it to pick up builds published since the
+catalog in the repo was made — see
 [Troubleshooting](CONFIGURATION.md#troubleshooting) for the case where a specific minor never
 appears.
 

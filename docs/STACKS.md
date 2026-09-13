@@ -286,6 +286,13 @@ worth knowing: pgBackRest speaks S3 only over TLS, so its backups need a Seaweed
 on** — the designer warns you when it isn't, because without it the cluster silently keeps the
 operator's own PVC backup repo and the bucket stays empty.)
 
+**Watch it while it runs.** A running cluster can be opened on the
+[**Kubernetes States**](KUBERNETES_STATES.md) board — every pod, workload, claim, service and
+custom resource as a card, red when the object itself says it is broken, lit for a few seconds
+when one of its numbers changes, and kept in place when it is deleted until you dismiss it. It
+is the view to have open while a failover runs or an operator rolls a StatefulSet; the button
+is on the **server** node's panel, or pick the cluster from the sidebar page.
+
 **Step through the operator itself.** A frame running any of the **four Percona operators** can
 be deployed with the operator running under **Delve**: tick *Run the operator under Delve*, and
 DBCanvas rebuilds the operator from that release's own source with the optimiser off and runs it
