@@ -3692,6 +3692,21 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
           })
         }
         actions.push({ label: 'File manager', help: MENU_HELP.fileManager, fn: () => setFileMgr({ nodeId: id, label: node?.label || 'node' }) })
+        // Sample Client Code is a Linux Client action: it writes a project onto the node and
+        // installs runtimes on it, which is a thing to do to a disposable jump box and
+        // not to a database server. The page itself is where the choosing happens, so
+        // this hands it the node and switches to it — the same handoff the Core Dump
+        // Analyzer's button uses.
+        if (node?.type === 'linuxclient') {
+          actions.push({
+            label: 'Sample Client Code',
+            help: MENU_HELP.sampleCode,
+            fn: () => {
+              sendHandoff('dbcanvas.sampleCodeNode', `${stack.id}/${id}`)
+              location.hash = 'sample-code'
+            },
+          })
+        }
         // A SeaweedFS node has a second one, a layer up: its buckets are an object store,
         // not a filesystem, so the node's own files (volume needles) are never what you
         // want from it. The buckets are.
@@ -6446,7 +6461,7 @@ function LinuxClientManager({ dep, onDeleteNode, stackId }) {
           ? "Set up for core-dump analysis. Its terminal is still a plain shell if you want gdb by hand."
           : tools.length
             ? "A jump box with the Kubernetes client tools on it. Open its terminal and point them at a cluster."
-            : "No product installed. Open this node's terminal to install and run clients against the stack."}
+            : "No product installed — but Sample Client Code will put a runnable client program on it, install whatever that program needs, and run it against any database in this stack."}
       </p>
       {!!tools.length && (
         <div className="rounded-lg border border-accent/30 bg-accent/10 px-3 py-2 text-[11px] leading-snug text-muted">
@@ -6459,6 +6474,12 @@ function LinuxClientManager({ dep, onDeleteNode, stackId }) {
           <span className="font-mono">~/.kube/config</span> here.
         </div>
       )}
+      <Button size="sm" className="w-full" onClick={() => {
+        sendHandoff('dbcanvas.sampleCodeNode', `${stackId}/${dep.nodeId}`)
+        location.hash = 'sample-code'
+      }}>
+        <Icon.Terminal size={15} /> Sample Client Code
+      </Button>
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
         <InfoRow label="Image" help={HELP.depImage}><span className="font-mono text-xs">{cfg.image || ''}</span></InfoRow>
         <InfoRow label="Host" help={HELP.depHost}><span className="font-mono text-xs">{cfg.fqdn || cfg.hostname}</span></InfoRow>

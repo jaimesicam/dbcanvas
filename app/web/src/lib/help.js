@@ -601,6 +601,7 @@ export const MENU_HELP = {
   start: 'Starts a stopped node back up. Published host ports are re-assigned on start, so the panel\'s addresses may change.',
   restart: 'Restarts the container — the quick way to make a config change you just wrote take effect.',
   deleteNode: 'Removes the node from the canvas, and tears down its container if it is deployed. The data goes with it.',
+  sampleCode: 'Generate a runnable client program for any database in this stack and run it from this node. Pick an endpoint, a language and a client library, and DBCanvas writes the project with the real host, port, account, password and TLS settings already in it \u2014 then installs the runtime, the driver and any native client it needs, and runs it, showing every command it used.',
 }
 
 // TOOL_HELP — the tools that act on a deployed stack rather than design it: the query
@@ -634,6 +635,14 @@ export const TOOL_HELP = {
   dgFKSample: 'How many parent rows to draw foreign keys from. A small sample concentrates children on a few parents — skewed data, which is what real data looks like.',
   dgSeed: 'Fixes the random sequence, so the same settings produce the same data twice. 0 picks a new one each run.',
   dgOnError: 'Stop at the first failed batch instead of continuing. Leave it off to fill what can be filled; turn it on when a failure means the run is meaningless.',
+
+  // Sample Client Code
+  scNode: 'The Linux Client the project is written to and run on. It is a disposable host, which is why DBCanvas is willing to install runtimes and drivers on it \u2014 and why the packages it installs are worth reading rather than worrying about. Only endpoints in this node\u2019s own stack are offered: the generated code resolves them by DNS name, which works from inside that stack and nowhere else.',
+  scTarget: 'Which endpoint to connect to. Not only the database nodes: a cluster as a whole, a proxy\u2019s write port and its read port separately, and the MySQL Router ports a Group Replication cluster publishes \u2014 every address an application in this stack could actually use. Generating the same example against a read port and watching the write fail is one of the more instructive things you can do here.',
+  scClient: 'The language and the library. Only the ones that speak the selected endpoint\u2019s engine are listed, so an impossible combination is absent rather than merely discouraged. Two libraries for one language is deliberate: pointing two drivers at one server is the honest way to tell a driver problem from a server problem.',
+  scScenario: 'What the program does once it is connected. Connection Test stops after asking the server what it is; the single-operation examples seed a row so the operation has something to work on; Full CRUD is the complete program. Every one of them uses the same customers model across every engine, so the same behaviour can be compared language by language.',
+  scTLS: 'How the generated client is told to treat TLS. The default is what DBCanvas derived from how this endpoint was actually deployed \u2014 a node with a stack-CA certificate can be verified by name, one with only its own self-signed material can be encrypted but not identified, and a server that is not listening for TLS at all gets plaintext. Override it when you have changed the server since deploying. Each client spells the same choice its own way, and the generated code uses that client\u2019s spelling.',
+  scClientCert: 'Present a client certificate as well, for mutual TLS. The list is what the Intranet CA has issued (its Certificates tab issues one per database username). DBCanvas copies the certificate and key from the Intranet onto this Linux Client alongside the project \u2014 the private key goes from node to node through the app and never reaches your browser \u2014 and the generated code points at them in whichever form that driver wants.',
 
   // Packet Inspector
   piCaptureFile: 'A capture to decode. DBCanvas parses the protocol itself, so you get statements and replies rather than hex.',

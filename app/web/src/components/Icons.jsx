@@ -74,6 +74,32 @@ export const Icon = {
       <line x1="12" y1="18" x2="12" y2="21" />
     </Svg>
   ),
+
+  // Stalk Summary: a trace crossing a dashed threshold.
+  //
+  // pt-stalk is not a chart tool, it is an alarm — it watches a variable and captures only once
+  // that variable crosses a limit. So the threshold is the icon, and the dashes are the one thing
+  // no other glyph in this set uses, which is what keeps it apart from Monitor's trace-in-a-screen
+  // three rows above it.
+  Trigger: (p) => (
+    <Svg {...p}>
+      <line x1="3" y1="8" x2="21" y2="8" strokeDasharray="3 3" />
+      <path d="M3 18h3l2.5-8 3 11 2.5-6H21" />
+    </Svg>
+  ),
+  // FTDC Summary: a metric over a ticked baseline.
+  //
+  // The opposite idea to Trigger above, and the reason the two pages should not look alike:
+  // nothing fires and nothing is asked for. Every mongod writes diagnostic.data once a second
+  // whether anyone wanted it or not, so the ticks — regular, unbroken, going off both edges —
+  // are the point rather than the curve above them.
+  Timeline: (p) => (
+    <Svg {...p}>
+      <path d="M4 12l3-4 3 5 3-6 3 4 3-2" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+      <path d="M3 18v2M7.5 18v2M12 18v2M16.5 18v2M21 18v2" />
+    </Svg>
+  ),
   // Labs: a lab flask, for the experimental hands-on scenarios feature.
   Flask: (p) => (
     <Svg {...p}>
@@ -529,6 +555,19 @@ export const Icon = {
       <polyline points="8 6 3 12 8 18" />
       <polyline points="16 6 21 12 16 18" />
       <path d="M13.5 4.5l-3 15" />
+    </Svg>
+  ),
+  // A shell prompt in a window, for Sample Client Code.
+  //
+  // Not the </> above, which the API page already has and which means "source" in the abstract.
+  // This feature's subject is narrower and better served by a prompt: code that is written onto
+  // a host, prepared there, and run there. Two pages side by side in the sidebar both wearing
+  // </> is a collision a user has to read the label to resolve.
+  Terminal: (p) => (
+    <Svg {...p}>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <polyline points="7 9.5 10 12 7 14.5" />
+      <line x1="12.5" y1="15" x2="17" y2="15" />
     </Svg>
   ),
   // A key, for API tokens.

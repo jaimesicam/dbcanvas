@@ -99,6 +99,7 @@ const (
 	gDebug     = "Operator Debugger"
 	gGDB       = "Core Dump Analyzer"
 	gAIO       = "All in One"
+	gSample    = "Sample Client Code"
 	gStockSim  = "Stock Market Sim"
 	gLedgerSim = "Ledger Sim"
 	gImages    = "Node images"
@@ -113,7 +114,7 @@ const (
 var apiGroupOrder = []string{
 	gAuth, gPrefs, gUsers, gTokens, gMeta,
 	gStacks, gTemplates, gCatalog, gImages, gNodes, gClusters, gLabs,
-	gDataGen, gQueryRun, gBench, gStockSim, gLedgerSim,
+	gDataGen, gQueryRun, gBench, gSample, gStockSim, gLedgerSim,
 	gPkt, gLog, gFTDC, gStalk, gOpSum, gCaptures, gDebug, gGDB,
 	gDash, gNotif,
 	gFS, gCerts, gMail, gLDAP, gSamba, gK3D, gAIO, gSeaweed, gOpenBao,
@@ -787,6 +788,22 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "Annotate the custom resource to force a reconcile, so a breakpoint in `Reconcile` is actually reached."},
 
 		// --- Core Dump Analyzer -------------------------------------------------
+		// --- sample code ---------------------------------------------------------
+		{Method: "GET", Path: "/api/samplecode/catalog", Group: gSample, Handler: m((*App).handleSampleCodeCatalog),
+			Summary: "Every sample DBCanvas can generate — database, language, client library and scenario — with the dependencies and licences each one implies."},
+		{Method: "GET", Path: "/api/samplecode/nodes", Group: gSample, Handler: m((*App).handleSampleCodeNodes),
+			Summary: "Every running Linux Client a sample can be generated onto, across the caller's stacks."},
+		{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/samplecode/targets", Group: gSample, Handler: m((*App).handleSampleCodeTargets),
+			Summary: "The database endpoints in this Linux Client's stack — nodes, cluster endpoints, routers and proxies — with the TLS posture DBCanvas derived for each."},
+		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/samplecode/generate", Group: gSample, ReadOnly: true, Handler: m((*App).handleSampleCodeGenerate),
+			Summary: "Render one sample against one endpoint: the project files, the command that runs it, and the packages it will need. Changes nothing on the node."},
+		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/samplecode/runs", Group: gSample, Handler: m((*App).handleSampleCodeRun),
+			Summary: "Save the project onto the Linux Client, prepare its environment, run it, or reset its directory. Returns at once; poll the job for progress."},
+		{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/samplecode/runs/{jid}", Group: gSample, Handler: m((*App).handleSampleCodeJob),
+			Summary: "A live snapshot of one Sample Client Code job: every command it ran, what each said, and how it ended."},
+		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/samplecode/runs/{jid}/stop", Group: gSample, Handler: m((*App).handleSampleCodeStop),
+			Summary: "Stop a running Sample Client Code job. The step already in flight finishes; nothing after it starts."},
+
 		{Method: "GET", Path: "/api/gdb/targets", Group: gGDB, Handler: m((*App).handleGDBTargets),
 			Summary: "The Linux Client nodes deployed as core-dump analysis hosts."},
 		{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/gdb/cores", Group: gGDB, Handler: m((*App).handleGDBCores),

@@ -559,8 +559,8 @@ command -v openssl >/dev/null 2>&1 || { echo "openssl not installed in this imag
 mkdir -p "$DIR"
 cp -f "$CA" "$DIR/ca.crt"
 openssl req -newkey rsa:2048 -nodes -keyout "$DIR/server.key" -out /tmp/s.csr -subj "/O=DBCanvas/CN=$FQDN" >/dev/null
-openssl x509 -req -in /tmp/s.csr -CA "$CA" -CAkey "$CAKEY" -CAcreateserial -out "$DIR/server.crt" -not_after "$END" >/dev/null
+` + serverCertExtScript + `openssl x509 -req -in /tmp/s.csr -CA "$CA" -CAkey "$CAKEY" -CAcreateserial -out "$DIR/server.crt" -extfile /tmp/dbca-san.ext -not_after "$END" >/dev/null
 chown postgres:postgres "$DIR/ca.crt" "$DIR/server.crt" "$DIR/server.key"
 chmod 600 "$DIR/server.key"
 chmod 644 "$DIR/ca.crt" "$DIR/server.crt"
-rm -f /tmp/dbca-ca.crt /tmp/dbca-ca.key /tmp/s.csr /tmp/dbca-ca.srl`
+rm -f /tmp/dbca-ca.crt /tmp/dbca-ca.key /tmp/s.csr /tmp/dbca-san.ext /tmp/dbca-ca.srl`

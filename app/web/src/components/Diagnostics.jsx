@@ -155,7 +155,7 @@ export function PTStalkCard({ stackId, nodeId }) {
             <button
               onClick={() => { sendHandoff('vs.target', JSON.stringify({ stackId, nodeId })); location.hash = 'stalk-summary' }}
               className="inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium text-fg transition hover:bg-surface2">
-              <Icon.Monitor size={15} /> Stalk Summary
+              <Icon.Trigger size={15} /> Stalk Summary
             </button>
           </div>
         </div>

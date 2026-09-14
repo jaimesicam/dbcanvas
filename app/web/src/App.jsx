@@ -19,6 +19,7 @@ import Benchmark from './pages/Benchmark.jsx'
 import PacketInspector from './pages/PacketInspector.jsx'
 import OperatorDebugger from './pages/OperatorDebugger.jsx'
 import CoreDumpAnalyzer from './pages/CoreDumpAnalyzer.jsx'
+import SampleCode from './pages/SampleCode.jsx'
 import StalkSummary from './pages/StalkSummary.jsx'
 import LogSummary from './pages/LogSummary.jsx'
 import FTDCSummary from './pages/FTDCSummary.jsx'
@@ -36,12 +37,13 @@ export const NAV = [
   { id: 'data-generator', label: 'Data Generator', icon: 'Table', page: DataGenerator, hint: 'Generate test data for stack tables' },
   { id: 'queryrun', label: 'Query Runner', icon: 'Database', page: QueryRunner, hint: 'Run parallel queries with processlist gating' },
   { id: 'benchmark', label: 'Benchmark', icon: 'Monitor', page: Benchmark, hint: 'OLTP/OLAP/RW/RO throughput + latency' },
+  { id: 'sample-code', label: 'Sample Client Code', icon: 'Terminal', page: SampleCode, hint: 'Runnable client code for a deployment on your canvas — pick an endpoint, a language and a driver, and DBCanvas installs what it needs and runs it' },
   { id: 'packet-inspector', label: 'Packet Inspector', icon: 'Packet', page: PacketInspector, hint: 'tcpdump on a database node, decoded packet by packet — MySQL, PostgreSQL, MongoDB, Valkey' },
   { id: 'operator-debugger', label: 'Operator Debugger', icon: 'Bug', page: OperatorDebugger, hint: 'Step through a Kubernetes operator under Delve — breakpoints, stack, variables' },
   { id: 'core-dump', label: 'Core Dump Analyzer', icon: 'CoreDump', page: CoreDumpAnalyzer, hint: "Read a crashed server's core dump — threads, stack and arguments, without touching the server" },
-  { id: 'stalk-summary', label: 'Stalk Summary', icon: 'Monitor', page: StalkSummary, hint: 'Charts from a pt-stalk archive' },
+  { id: 'stalk-summary', label: 'Stalk Summary', icon: 'Trigger', page: StalkSummary, hint: 'Charts from a pt-stalk archive' },
   { id: 'log-summary', label: 'Log Summary', icon: 'Logs', page: LogSummary, hint: "Several nodes' logs on one timeline — the good, the warning and the bad" },
-  { id: 'ftdc-summary', label: 'FTDC Summary', icon: 'Monitor', page: FTDCSummary, hint: "MongoDB's diagnostic.data — the black box every mongod already writes" },
+  { id: 'ftdc-summary', label: 'FTDC Summary', icon: 'Timeline', page: FTDCSummary, hint: "MongoDB's diagnostic.data — the black box every mongod already writes" },
   { id: 'operator-summary', label: 'Operator Summary', icon: 'Kubernetes', page: OperatorSummary, hint: 'A pt-k8s-debug-collector cluster-dump, distilled — what is not running, and what the operator says about it' },
   // Beside Operator Summary deliberately: that page reads a capture of a cluster after the
   // fact, this one watches a live one. Same subject, opposite tense.

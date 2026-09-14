@@ -7,6 +7,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
+	"strings"
 	"testing"
 	"time"
 )
@@ -124,3 +125,32 @@ var errMismatch = &mismatchErr{}
 type mismatchErr struct{}
 
 func (*mismatchErr) Error() string { return "cert/key public keys differ" }
+
+// TestServerCertScriptsCarrySANs pins the fix a generated Go sample found: a certificate whose
+// only identity is its Common Name cannot be verified by Go's crypto/x509 at all (and has not
+// been since Go 1.15), so every server certificate DBCanvas signs inside a container has to carry
+// a subjectAltName. psql and psycopg fall back to the CN and hid this for years.
+func TestServerCertScriptsCarrySANs(t *testing.T) {
+	scripts := map[string]string{
+		"pgCertScript":      pgCertScript,
+		"patroniCertScript": patroniCertScript,
+		"pxcCertScript":     pxcCertScript,
+		"aioCertScript":     aioCertScript,
+		"mongoCertScript":   mongoCertScript,
+	}
+	for name, script := range scripts {
+		if !strings.Contains(script, "subjectAltName=DNS:") {
+			t.Errorf("%s signs a server certificate with no subjectAltName — a Go client cannot verify it", name)
+		}
+		if !strings.Contains(script, "-extfile") {
+			t.Errorf("%s does not pass its extensions to openssl x509", name)
+		}
+	}
+	// And the shared block names both the FQDN and the short hostname, because a client
+	// inside the stack network may have connected by either.
+	for _, want := range []string{"DNS:$FQDN", "${FQDN%%.*}", "extendedKeyUsage=serverAuth"} {
+		if !strings.Contains(serverCertExtScript, want) {
+			t.Errorf("the shared extension block does not contain %q", want)
+		}
+	}
+}

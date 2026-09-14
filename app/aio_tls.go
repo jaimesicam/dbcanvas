@@ -173,7 +173,7 @@ command -v openssl >/dev/null 2>&1 || { echo "openssl not installed in this imag
 install -d -m 0750 -o "$OWNER" -g "$GROUP" "$DIR"
 cp -f "$CA" "$DIR/ca.pem"
 openssl req -newkey rsa:2048 -nodes -keyout "$DIR/server-key.pem" -out /tmp/s-$$.csr -subj "/O=DBCanvas/CN=$FQDN" >/dev/null
-openssl x509 -req -in /tmp/s-$$.csr -CA "$CA" -CAkey "$CAKEY" -CAcreateserial -out "$DIR/server-cert.pem" -not_after "$END" >/dev/null
+` + serverCertExtScript + `openssl x509 -req -in /tmp/s-$$.csr -CA "$CA" -CAkey "$CAKEY" -CAcreateserial -out "$DIR/server-cert.pem" -extfile /tmp/dbca-san.ext -not_after "$END" >/dev/null
 openssl req -newkey rsa:2048 -nodes -keyout "$DIR/client-key.pem" -out /tmp/c-$$.csr -subj "/O=DBCanvas/CN=$FQDN-client" >/dev/null
 openssl x509 -req -in /tmp/c-$$.csr -CA "$CA" -CAkey "$CAKEY" -CAcreateserial -out "$DIR/client-cert.pem" -not_after "$END" >/dev/null
 # MongoDB wants the key and certificate in ONE file; the others want them apart.
@@ -184,7 +184,7 @@ chown -R "$OWNER:$GROUP" "$DIR"
 chmod 600 "$DIR"/*-key.pem
 [ -f "$DIR/server.pem" ] && chmod 600 "$DIR/server.pem"
 chmod 644 "$DIR/ca.pem" "$DIR/server-cert.pem" "$DIR/client-cert.pem"
-rm -f /tmp/s-$$.csr /tmp/c-$$.csr
+rm -f /tmp/s-$$.csr /tmp/c-$$.csr /tmp/dbca-san.ext
 exit 0`
 
 // aioCertWireMySQL appends the ssl-* block to the instance's own my.cnf. TLS is

@@ -377,6 +377,14 @@ kubeconfig — the clusters deploy at the same time as the client — so take on
 node's **Kubeconfig** tab, or a role-scoped one from its **Users** tab, which is the more interesting
 thing to test with.
 
+**Sample Client Code.** A deployed **Linux Client** has a **Sample Client Code** action — in its panel and in
+its right-click menu — that generates a runnable client program for any database in the stack and
+runs it there. Pick an endpoint (a node, a cluster, HAProxy's write or read port, a MySQL Router
+port), a language and a client library, and an example from Connection Test to Full CRUD; the
+generated project carries the deployment's real host, port, account, password and TLS settings, and
+DBCanvas installs the runtime, the driver and any native client it needs before running it — showing
+every command it used. See [Sample Client Code](SAMPLE_CODE.md).
+
 **Read a core dump from somewhere else.** A **Linux Client** node can be deployed as a core-dump
 analysis host: give it a host directory holding a `mysqld` core file and another holding the
 crashed server's `mysqld` plus everything `ldd` listed for it, pick the Percona Server or PXC

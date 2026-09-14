@@ -47,6 +47,7 @@ How to use each part of DBCanvas. For installing and configuring it, see
 
 | Guide | What it covers |
 | --- | --- |
+| [Sample Client Code](SAMPLE_CODE.md) | Runnable client code for a deployment on your canvas — pick an endpoint, a language and a driver, and DBCanvas installs what it needs and runs it. |
 
 ## Automate it
 

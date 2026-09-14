@@ -18,6 +18,7 @@ import { PageVisibleProvider } from '../src/lib/usePolling.jsx'
 import { TerminalProvider } from '../src/terminal/TerminalProvider.jsx'
 import OperatorDebugger from '../src/pages/OperatorDebugger.jsx'
 import CoreDumpAnalyzer from '../src/pages/CoreDumpAnalyzer.jsx'
+import SampleCode from '../src/pages/SampleCode.jsx'
 import OperatorSummary from '../src/pages/OperatorSummary.jsx'
 import LogSummary from '../src/pages/LogSummary.jsx'
 import FTDCSummary from '../src/pages/FTDCSummary.jsx'
@@ -63,7 +64,50 @@ const statesSample = {
   ],
 }
 
+// Sample Client Code mounts with a node, an endpoint and a generated project already in hand —
+// which is the state where its effects actually do something (the dependent selects snap,
+// and the generate request fires on every change to the selection).
+const sampleNode = {
+  stackId: 1, stackName: 'lab', nodeId: 'lc1', label: 'linuxclient1',
+  fqdn: 'linuxclient1.example.net', os: 'oraclelinux', osVersion: '9', targets: 1,
+}
+const sampleTarget = {
+  id: 'ps1', label: 'ps-01', engine: 'mysql', kind: 'ps', product: 'Percona Server for MySQL',
+  major: '8.4', host: 'ps-01.example.net', port: 3306, user: 'app', database: 'dbcanvas',
+  role: 'primary', tls: { mode: 'verify', ca: '/etc/pki/ca-trust/source/anchors/dbcanvas-ca.crt', why: 'signed by the stack CA' },
+}
+const sampleCatalog = {
+  scenarios: [{ id: 'crud', label: 'Full CRUD', blurb: 'Create, read, update and delete in sequence.' }],
+  databases: [{
+    id: 'mysql', label: 'MySQL family', blurb: '',
+    clients: [{
+      id: 'python/mysql-connector', language: 'python', languageLabel: 'Python',
+      client: 'mysql-connector', label: 'mysql-connector-python', summary: "Oracle's own Python driver.",
+      runtime: 'python', scenarios: ['crud'], requires: ['Python 3 (with pip and venv)'],
+      deps: [{ manager: 'pip', name: 'mysql-connector-python', license: 'GPL-2.0-only WITH Universal-FOSS-Exception-1.0', url: 'https://example.invalid' }],
+    }],
+  }],
+}
+const sampleGenerated = {
+  sample: 'mysql/python/mysql-connector/crud',
+  title: 'Python — mysql-connector-python · Full CRUD',
+  explain: 'This example uses Python mysql-connector-python to connect to ps-01 over TLS.',
+  target: sampleTarget, dir: '/root/dbcanvas-samples/mysql-python-mysql-connector-crud',
+  files: [{ name: 'crud.py', lang: 'python', body: 'import mysql.connector\n' }],
+  plan: { dir: '/root/dbcanvas-samples/x', system: [], deps: [], prepare: [], run: { show: 'python crud.py' } },
+  runCmd: '/root/dbcanvas-samples/.venv/bin/python crud.py',
+  deps: sampleCatalog.databases[0].clients[0].deps,
+  requires: ['Python 3 (with pip and venv)'],
+}
+
 const payloadFor = (url) => {
+  // Before /stacks: a node-scoped Sample Client Code path contains both.
+  if (url.includes('/samplecode/catalog')) return sampleCatalog
+  if (url.includes('/samplecode/nodes')) return { nodes: [sampleNode] }
+  if (url.includes('/samplecode/targets')) {
+    return { targets: [sampleTarget], clientCerts: ['alice'], os: 'oraclelinux', caPath: sampleTarget.tls.ca }
+  }
+  if (url.includes('/samplecode/generate')) return sampleGenerated
   if (url.includes('/k3d/states/targets')) return { targets: [statesTarget] }
   // The states board also offers kept captures as a source, so the mount fetches them.
   if (url.includes('/opsummary/dumps')) return { dumps: [{ id: 2, cluster: 'k3d-00-s9', capturedAt: '2026-09-12T15:39:39Z' }] }
@@ -113,6 +157,10 @@ class Boundary extends Component {
 const PAGES = [
   ['OperatorDebugger', OperatorDebugger],
   ['CoreDumpAnalyzer', CoreDumpAnalyzer],
+  // Sample Client Code's mount chain is four dependent fetches deep — nodes, then that node's
+  // endpoints, then a generate for the selection the snapping effects settled on — and
+  // every one of them runs in an effect, which SSR never executes.
+  ['SampleCode', SampleCode],
   ['OperatorSummary', OperatorSummary],
   ['LogSummary', LogSummary],
   ['FTDCSummary', FTDCSummary],

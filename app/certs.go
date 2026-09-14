@@ -87,3 +87,28 @@ func parseCA(caCertPEM, caKeyPEM []byte) (*x509.Certificate, crypto.PrivateKey, 
 	}
 	return nil, nil, fmt.Errorf("parse CA key: unsupported format")
 }
+
+// serverCertExtScript writes the X.509 extensions every in-container server certificate needs,
+// into /tmp/dbca-san.ext, for `openssl x509 -req -extfile`.
+//
+// It exists because of one line in a generated sample's output:
+//
+//	x509: certificate relies on legacy Common Name field, use SANs instead
+//
+// Go's crypto/x509 has refused to match a hostname against a certificate's Common Name since Go
+// 1.15, and it is not alone — it is RFC 6125's position, and where OpenSSL and libpq still fall
+// back to CN they are the outliers rather than the rule. A DBCanvas server certificate signed with
+// `-subj "/O=DBCanvas/CN=$FQDN"` and nothing else therefore verifies from psql and psycopg and
+// *cannot* be verified from a Go program at all. That was found by generating a Go sample against
+// a TLS-enabled PostgreSQL node and running it (see IMPLEMENTATION.md §390).
+//
+// $FQDN is the node's DNS name; the short hostname is the same name without its domain, which is
+// what a client inside the stack network may equally well have connected by. signTLSCert does the
+// same thing for the images that ship no openssl.
+const serverCertExtScript = `cat >/tmp/dbca-san.ext <<DBCAEXT
+basicConstraints=CA:FALSE
+keyUsage=digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth,clientAuth
+subjectAltName=DNS:$FQDN,DNS:${FQDN%%.*}
+DBCAEXT
+`

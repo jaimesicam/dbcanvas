@@ -23774,3 +23774,271 @@ that matter` builds a token expiring in exactly 30 days and asserts "30 days lef
 rounds to 29 whenever the render lands a moment later. It failed once in three runs on a
 clean tree as well.
 
+---
+
+## 390. Sample Client Code — the client half of a deployment, written against the deployment — `app/samplecode.go`, `app/samplecode_{env,targets,gen,api}.go`, `app/samplecode_{mysql,postgres,mongodb,valkey}.go` (all new), `app/samplecode_{,targets_,dump_}test.go` (new), `app/{api_routes,apimeta}.go`, `app/{certs,pg,patroni,pxc,aio_tls}.go`, `app/certs_test.go`, `app/web/src/pages/SampleCode.jsx` (new), `app/web/src/lib/sampleApi.js` (new), `app/web/src/{App.jsx,pages/StackDesigner.jsx,lib/help.js}`, `app/web/smoke/{render,browser}.jsx`, `docs/SAMPLE_CODE.md` (new), `docs/{README,STACKS,API_REFERENCE}.md`, `README.md`
+
+A stack answers "what does this database do". The question underneath it — *how do I talk to
+it from an application* — could only be answered by leaving DBCanvas, finding a driver's
+quickstart, and editing every value in it. Every one of those values is already here. The
+host is a name the Intranet publishes; the port is 3306, or 5000 because the endpoint is
+HAProxy's write port, or 6446 because it is a MySQL Router; the account is not root, because
+root cannot connect over TCP at all; the password came out of `.env`; and the TLS arguments
+are four more lines spelled differently by every driver.
+
+**So the feature does the edit instead of the person.** Pick an endpoint, a language and a
+client library, and get a project whose connection details are the ones the stack actually
+has — on a Linux Client that DBCanvas then prepares and runs it on.
+
+### Four axes, and the registry is data
+
+A sample is addressed as **database/language/client/scenario** — `mysql/java/hikari/crud` —
+and that is the whole indexing scheme. Twenty-three clients across four engines and five
+languages, six scenarios each: 138 samples from 23 templates. Adding PHP + PDO is one
+`scClient` struct and one template; the picker, the dependency plan, the licence list and the
+generated project all follow from it, and the page does not change.
+
+**The client list is filtered by the endpoint's engine**, so an irrelevant combination is not
+disabled — it is absent. A client is registered against exactly one database, which is what
+makes that true structurally rather than by a rule somewhere.
+
+Two Python drivers for MySQL, and two Java options, are deliberate. Pointing two drivers at
+one server is the only honest way to tell a driver problem from a server problem — the
+question a support engineer is actually handed, and the one §388 built a whole node around.
+
+### The endpoints are derived, not listed
+
+`scStackTargets` walks the design and the deployments, and what it finds is wider than the
+node list, because an application connects to more things than nodes: every running database
+node **and every cluster member**; a replica set as a whole, with its member list and set
+name; a Valkey cluster's seeds; HAProxy's write port *and* its read port as two endpoints;
+ProxySQL's client port; the 6446/6447 a Group Replication cluster publishes on every member;
+and each instance inside an All-in-One node (through `aioTargetableInstances`, the same three
+helpers the Query Runner and the Benchmark already use).
+
+Generating the same example against HAProxy's read port and watching the write fail is the
+shortest demonstration in the app of why those are two endpoints and not one.
+
+Credentials come from the deployment's own secrets: the **application** account on MySQL, not
+root and not admin — root@localhost cannot connect over TCP, and an application connecting as
+a superuser is the thing a sample should not be teaching. PostgreSQL uses the superuser
+because a DBCanvas node provisions no other role, and the generated code says so in a comment
+rather than modelling something to copy.
+
+### TLS is derived from how the endpoint was actually deployed
+
+Not a checkbox, and not a guess:
+
+- a MySQL or PostgreSQL node deployed with a generated certificate → **verify**, because the
+  certificate is signed by the stack CA and `trustIntranetCA` already put that CA in this
+  Linux Client's trust store — so the chain *and* the hostname can be checked;
+- a MySQL node without one → **require**: the server generated its own certificate at
+  initialization, so the connection can be encrypted but the server cannot be identified;
+- PostgreSQL without one → **off**, because it is not listening for TLS;
+- **MongoDB → off even when a certificate was issued**, because `mongoApplyCert` deliberately
+  does not enable cluster TLS (it is an all-members-at-once operator step), and a default that
+  claimed otherwise would be a lie about the deployment. The page says so, and the choice can
+  be overridden by whoever turned it on.
+
+Then each client is given *its own* spelling: `ssl_verify_identity`, `check_hostname`,
+`rejectUnauthorized`, a registered `tls.Config`, `sslmode=verify-full`, `sslMode=VERIFY_IDENTITY`
+with a PKCS#12 truststore, `--ssl-mode`, `--tlsCAFile`, `--cacert`. Generating one spelling for
+all of them is the specific mistake this feature exists not to make.
+
+The JVM is the one that needs help: it will not read a PEM certificate authority, so a Java
+sample that verifies gets a `keytool` step building a truststore beside the source — and
+pgJDBC, which *does* read a PEM, deliberately gets no pointless keystore. Mutual TLS inverts
+it: pgJDBC is the one that cannot read a PEM private key, so it gets an `openssl pkcs8`
+conversion nothing else needs.
+
+Client certificates come from the Intranet's own store (`dbCertDir`) and go straight to the
+Linux Client. **The private key never passes through the browser** — it is the one piece of
+data in this feature that should not, and the three forms the drivers disagree about
+(`client-cert.pem` + `client-key.pem`, the concatenated `client.pem` MongoDB wants, and the
+PKCS#12 the JVM wants) are written on the node.
+
+### sample requirement → dependency resolver → distribution package installer
+
+A sample declares `python3` and `mysql-connector-python`. It never says `dnf` and never says
+`apt-get`, because a Linux Client is any of six base images and a sample that knew which one
+it was running on would need rewriting the first time a seventh appeared. `scSysPackages` is
+the only thing in the feature that knows a package manager exists.
+
+Runtimes and native clients come from the package manager; library dependencies come from the
+ecosystem's own tool. The native database clients come from Percona's repositories **at the
+series the target runs** — `psClientProduct`, `ppgProduct`, `psmdbRepo`, the same helpers the
+products' own nodes use — so the `psql` installed for a PostgreSQL 17 endpoint is the 17
+client, and on EL it is found at `/usr/pgsql-17/bin` where it is not on PATH.
+
+**Check before you install.** Every step carries a check that is cheap and true —
+`command -v node`, an import inside the virtualenv, a directory in `node_modules` — and a step
+whose check passes is reported as installed and skipped. A second run installs nothing, and
+the ecosystems' caches sit above any one project (`/root/dbcanvas-samples/.venv`, the Go
+module cache, `~/.m2`) so a *different* sample reuses them. **Reset** removes one project
+directory and none of the caches.
+
+A virtualenv rather than the system Python is not stylistic: Debian and Ubuntu mark their
+system Python externally managed (PEP 668) and `pip install` refuses to write to it, so the
+obvious command fails on three of the six base images.
+
+**And none of it is hidden.** Every command is echoed into the job log before it runs, with
+its output after it. That is not verbosity: on a lab host, "what did it install, and what
+would I have typed" is the thing being taught.
+
+### What is not built
+
+No Spring Boot, no Hibernate, no framework scaffolding, no Git integration, no application
+hosting. A single source file where one will do, a minimal project where dependencies are
+needed. JDBC is a database access option here and HikariCP a pooling option layered on it —
+not the architecture of the feature.
+
+### Licensing, which decided several things
+
+DBCanvas is **GPL-3.0-only**, and the rule this feature is built on is that **installing a
+dependency at run time is not incorporating its source**:
+
+- **Nothing is vendored.** pip, npm, Go modules and Maven fetch every dependency from its own
+  ecosystem onto the lab node. No third-party driver source or binary enters this repository,
+  and nothing about a package's licence changes because DBCanvas installed it.
+- **Every template is original**, written against the drivers' documented public APIs. Copying
+  an upstream quickstart would put third-party code in this repo under terms to be reasoned
+  about file by file; original code against a published API has no such problem.
+- **Every dependency records its licence and upstream URL** in the registry, a test enforces
+  that both are present, and the page shows them *before* anything is installed.
+- **mysql-connector-python and Connector/J are GPL-2.0-only** — not compatible with GPLv3 on
+  their own, usable through Oracle's Universal FOSS Exception, and that is written down in the
+  registry, on the page and in `docs/SAMPLE_CODE.md`. It is also why **PyMySQL** (MIT) is
+  offered beside the first one, exactly as §388 offered MariaDB Connector/J beside the second.
+- **slf4j-simple (MIT), not Logback**, for HikariCP's binding — Logback is EPL-1.0/LGPL-2.1
+  dual and EPL-1.0 is GPL-incompatible. The same trap §388 documented.
+- **The generated projects are granted outright.** This feature's own source is GPL-3.0-only
+  like the rest of DBCanvas, but `docs/SAMPLE_CODE.md` states an explicit exception for what it
+  *writes*: the sample projects carry no licence, no obligation and no notice, and a test fails
+  if one creeps back in. Three lines of copyleft above `cur.execute("SELECT VERSION()")` was
+  most of a short sample, buried the warning that a real password is in the file, and asserted a
+  great deal over the minimum expression of "connect and insert a row" — which is the opposite
+  of what a quickstart is for. Bison and GCC's runtime library carry output exceptions for the
+  same reason. The banner is now four lines: where it came from, what it was built against, and
+  that warning. No notice is attached to anything third-party either.
+
+### A certificate fix this feature forced — `app/{certs,pg,patroni,pxc,aio_tls}.go`
+
+The first generated **Go** sample run against a TLS-enabled PostgreSQL node did not connect:
+
+```
+x509: certificate relies on legacy Common Name field, use SANs instead
+```
+
+DBCanvas signs its in-container server certificates with `-subj "/O=DBCanvas/CN=$FQDN"` and
+nothing else. Go's `crypto/x509` has refused to match a hostname against a Common Name since
+Go 1.15, and it is not the outlier — that is RFC 6125's position; OpenSSL and libpq still
+falling back to CN is what hid this. So a DBCanvas PostgreSQL or MySQL node could be verified
+from `psql` and from psycopg and **could not be verified from a Go program at all**, and had
+not been able to for as long as those nodes have existed.
+
+`serverCertExtScript` (in `certs.go`, beside `signTLSCert`, which already did this correctly
+for the images with no openssl) now adds `subjectAltName=DNS:$FQDN,DNS:${FQDN%%.*}` to the
+four scripts that sign a database server certificate: standalone PostgreSQL, Patroni/repmgr/
+Spock, the whole MySQL family, and every All-in-One instance. MongoDB already had it.
+`TestServerCertScriptsCarrySANs` pins all five. Verified by re-issuing on the live nodes
+(`DNS:pg-01.example.net, DNS:pg-01`) and watching the same Go sample connect.
+
+**Nodes deployed before this keep their old certificate** until it is re-issued from the
+node's certificate tab — which is in `docs/SAMPLE_CODE.md`, next to the error message. The
+Samba, Intranet and PMM certificates have the same shape and are **not** changed here: they
+are not endpoints a sample connects to, and each has its own verification surface.
+
+### Verified
+
+**End to end, on a live DBCanvas**, against a stack deployed for it: Intranet, Percona Server
+8.4 and Percona Distribution for PostgreSQL 17 (both with stack-CA certificates), Percona
+Server for MongoDB 8.0, Valkey 9.1.2, and a Linux Client on Oracle Linux 9 that started with
+nothing on it.
+
+**All twenty-three clients were generated, prepared and run, and all twenty-three exited 0**
+— Python, Node.js, Go, Java and the native client for each of the four engines, including
+JDBC and JDBC + HikariCP for both SQL families. The Linux Client began with no Python, no
+Node, no Go, no JDK, no Maven and no database client; every one of those was installed by the
+feature, from the distribution's packages and Percona's repositories, with every command in
+the log. MySQL and PostgreSQL ran over **verify-full TLS** against the stack CA already in the
+node's trust store; one sample was also run with **mutual TLS**, its certificate and key
+copied from the Intranet's CA store onto the node (the key never passing through the browser).
+`save`, `prepare`, `run` and `reset` were each exercised, as were the refusals — a MySQL
+driver pointed at a MongoDB endpoint, an endpoint id that no longer exists, an unknown client,
+and a client certificate on a plaintext connection — and a genuine runtime failure (TLS asked
+for where the server is not listening for it), which the job reports as the program's own
+non-zero exit with the driver's own error, not as a DBCanvas failure.
+
+**The live run found six bugs that no amount of rendering would have.** They are worth listing,
+because each is a different way for "it compiles" to be the wrong question:
+
+1. **`scScenario` had no JSON tags**, so the catalogue served `ID`/`Label`/`Blurb` and the
+   Example picker would have been empty in the browser. Found on the first live request;
+   `TestSampleCodeCatalogueSerialisesForThePage` now pins every key the page reads.
+2. **`psql` prints the command tag after the rows**, so `$(psql -Atc "INSERT … RETURNING id")`
+   captured `3\nINSERT 0 1` and the next statement was built from a broken id. `-q` and
+   `ON_ERROR_STOP=1`, in one array the whole script uses.
+3. **The Go dependency check was wrong twice.** "Does go.sum exist" passed while go.mod had
+   been rewritten under it (`go run .` then failed with *updates to go.mod needed*), and
+   `go list -mod=readonly ./...` passed on a project with **no go.sum at all**, because
+   without `-deps` it never looks at the imports. The resolve now simply runs — documented as
+   the one step with no check, because DBCanvas rewrites `go.mod` on every save and `go mod
+   tidy` against a warm cache costs nothing.
+4. **The npm check could not see a version change.** `[ -d node_modules/mongodb ]` was true,
+   so pinning the driver down in the registry changed nothing on the node. `npm ls --depth=0`
+   compares the installed tree against `package.json` and exits non-zero when they disagree.
+5. **The MongoDB Node driver 7 requires Node 20.19**, which is newer than Oracle Linux 9
+   packages; npm installs it anyway (engines is advisory) and the first connection dies inside
+   the driver with `crypto is not defined`. Pinned to the 6.x line, which every base image's
+   Node satisfies.
+6. **Two Java samples logged nothing but complaints about logging.** HikariCP 6.x and
+   valkey-java both bring slf4j-api **1.7** transitively, and a 1.7 API with a 2.0 binding
+   finds no provider; the MongoDB driver warned that it had no binding at all. slf4j-api
+   2.0.19 is now declared explicitly beside the binding in every Java sample that needs one.
+   (`UnifiedJedis` also has no `info(String)` — INFO is a server command and goes through
+   `sendCommand` — and `client.exists(key)` answers a boolean there where every other client
+   answers a count; both were caught earlier, by compiling against the real jars.)
+
+**Offline, and thoroughly, because "it rendered" is not "it compiles".**
+`TestSampleCodeDump` writes every sample in the registry to a directory; the whole registry
+was dumped in all three TLS postures, with and without a client certificate — 1,548 files —
+and put through real toolchains:
+
+- **180 Python files** through `python3 -m py_compile`, **180 JavaScript files** through
+  `node --check`, **144 shell scripts** through `bash -n`, every `pom.xml` and `package.json`
+  parsed: all clean.
+- **144 generated Go projects** through `go mod tidy && go vet ./...` against the real modules
+  (go-sql-driver/mysql 1.10.0, pgx 5.10.0, mongo-driver 1.17.9, go-redis 9.22.0): all clean.
+- **216 generated Java classes** compiled with `javac` 25 against the real driver jars —
+  Connector/J 9.3.0, pgJDBC 42.7.7, HikariCP 6.3.0, mongodb-driver-sync 5.5.1, valkey-java
+  5.5.0, commons-pool2, slf4j-api: all clean.
+
+That pass found two real bugs in the Valkey Java sample — `UnifiedJedis` has no
+`info(String)` (INFO is a server command and goes through `sendCommand`), and `JedisCluster`
+needs commons-pool2 on the classpath, which Maven resolves transitively and a hand-built
+classpath does not. Both are fixed; neither would have been visible from a rendering test. The
+whole sweep was run again after the live fixes, on the changed templates as well: clean.
+
+Also: `gofmt` and `go vet` clean, the new Go tests pass (registry consistency, every
+sample × scenario × TLS posture rendered and placeholder-free, the per-distribution installer,
+the "everything is checked so nothing installs twice" rule, TLS derivation and override, the
+Java trust-material dispatch, and endpoint enumeration over a synthetic stack holding a
+standalone node, a PXC cluster behind HAProxy, a Patroni cluster, a replica set, a Valkey
+cluster and a Group Replication frame). The frontend builds and both smoke suites pass, with
+the page mounted in a real browser — its mount chain is four dependent fetches deep. The full
+`go test ./app` failure set is unchanged from `main`: 213 failures on this branch and the same
+213 in a worktree at HEAD, compared name by name. All of them are the environment rather than
+the code — `testdata/` fixtures that are not in the repository (FTDC, `opsummary`), the
+template sanitizer's standing complaint about `mcaAdminPassword`, and one script test that
+runs a `sed -i` on the host and so fails on macOS.
+
+**Not verified.** A Kubernetes (K3D) endpoint, an All-in-One instance, and the cluster-shaped
+endpoints — a replica set, a Valkey cluster, HAProxy's two ports, ProxySQL, the MySQL Router
+ports — were exercised only through `scStackTargets` against a synthetic stack in
+`samplecode_targets_test.go`, not against deployed clusters: the verification stack held one
+standalone node per engine. MariaDB and MySQL Community were not deployed either, though they
+are the same wire protocol and the same drivers as the Percona Server that was. Debian and
+Ubuntu Linux Clients were not used — the package lists for them come from the products' own
+install scripts in this repository and from `valkeyPackages`, and every EL one was proved by
+running it. And the page itself was driven through its API rather than clicked: its render
+path is covered by both smoke suites, including a mount in a real browser.

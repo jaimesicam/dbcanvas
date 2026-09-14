@@ -39,6 +39,7 @@ var paramDoc = map[string]string{
 	"user":     "The database username the certificate was issued for.",
 	"username": "The Kubernetes RBAC username.",
 	"stepId":   "The lab step's id.",
+	"jid":      "A Sample Client Code job id, as returned when the job was started.",
 }
 
 // paramDocByPrefix overrides paramDoc for route families where a wildcard name is

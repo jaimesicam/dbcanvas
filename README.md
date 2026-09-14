@@ -114,6 +114,7 @@ yourself.
 | [**Data Generator**](docs/DATA_GENERATOR.md) | Fill tables with realistic data, at the scale it takes to see a problem. |
 | [**Query Runner**](docs/QUERY_RUNNER.md) | Run SQL across nodes in parallel, gated on the processlist. |
 | [**Benchmark**](docs/BENCHMARK.md) | OLTP, OLAP, read-write and read-only workloads, with throughput and latency. |
+| [**Sample Client Code**](docs/SAMPLE_CODE.md) | Runnable client code for a deployment on the canvas — pick an endpoint, a language and a driver; DBCanvas installs what it needs and runs it. |
 | [**Packet Inspector**](docs/PACKET_INSPECTOR.md) | Capture on a node and decode MySQL, PostgreSQL, MongoDB and Valkey off the wire. |
 | [**Log Summary**](docs/LOG_SUMMARY.md) | Several nodes' logs on one timeline, split into the good, the warning and the bad. |
 | [**Stalk Summary**](docs/STALK_SUMMARY.md) | Turn a pt-stalk capture into charts, and say which variables to change. |
@@ -122,7 +123,7 @@ yourself.
 | [**Operator Debugger**](docs/OPERATOR_DEBUGGER.md) | Step through the Kubernetes operator itself — breakpoints, stack and variables, no IDE. |
 | [**Core Dump Analyzer**](docs/CORE_DUMP_ANALYZER.md) | Read a `mysqld` core dump from another server — threads, stack, arguments. |
 | [**All in One**](docs/ALL_IN_ONE.md) | Many database instances in one node, for when you need versions side by side. |
-| [**HTTP API**](docs/API.md) | Every one of the 228 endpoints, with tokens you create and expire yourself. |
+| [**HTTP API**](docs/API.md) | Every one of the 273 endpoints, with tokens you create and expire yourself. |
 | [**`dbcanvas-cli`**](docs/CLI.md) | Sign in once, then compose, deploy and drive stacks from your terminal. |
 
 ## Documentation

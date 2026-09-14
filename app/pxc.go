@@ -1151,13 +1151,13 @@ command -v openssl >/dev/null 2>&1 || { echo "openssl not installed in this imag
 cp -f "$CA" "$DIR/ca.pem"
 # Errors are intentionally NOT discarded so a failure surfaces in the deploy log.
 openssl req -newkey rsa:2048 -nodes -keyout "$DIR/server-key.pem" -out /tmp/s.csr -subj "/O=DBCanvas/CN=$FQDN" >/dev/null
-openssl x509 -req -in /tmp/s.csr -CA "$CA" -CAkey "$CAKEY" -CAcreateserial -out "$DIR/server-cert.pem" -not_after "$END" >/dev/null
+` + serverCertExtScript + `openssl x509 -req -in /tmp/s.csr -CA "$CA" -CAkey "$CAKEY" -CAcreateserial -out "$DIR/server-cert.pem" -extfile /tmp/dbca-san.ext -not_after "$END" >/dev/null
 openssl req -newkey rsa:2048 -nodes -keyout "$DIR/client-key.pem" -out /tmp/c.csr -subj "/O=DBCanvas/CN=$FQDN-client" >/dev/null
 openssl x509 -req -in /tmp/c.csr -CA "$CA" -CAkey "$CAKEY" -CAcreateserial -out "$DIR/client-cert.pem" -not_after "$END" >/dev/null
 chown mysql:mysql "$DIR/ca.pem" "$DIR/server-cert.pem" "$DIR/server-key.pem" "$DIR/client-cert.pem" "$DIR/client-key.pem"
 chmod 600 "$DIR/server-key.pem" "$DIR/client-key.pem"
 chmod 644 "$DIR/ca.pem" "$DIR/server-cert.pem" "$DIR/client-cert.pem"
-rm -f /tmp/dbca-ca.crt /tmp/dbca-ca.key /tmp/s.csr /tmp/c.csr /tmp/dbca-ca.srl
+rm -f /tmp/dbca-ca.crt /tmp/dbca-ca.key /tmp/s.csr /tmp/c.csr /tmp/dbca-san.ext /tmp/dbca-ca.srl
 CNF=${CNF:-/etc/my.cnf}
 LOGERR=${LOGERR:-/var/log/mysqld.log}
 grep -q '^ssl-ca=' "$CNF" 2>/dev/null || cat >> "$CNF" <<EOF

@@ -30,7 +30,7 @@ longer one.
 
 **Building** · [Stacks](#stacks) · [Templates](#templates) · [Nodes](#nodes) · [Clusters & backups](#clusters--backups) · [Version catalogues](#version-catalogues) · [Kubernetes frames](#kubernetes-frames) · [All in One](#all-in-one)
 
-**Running load** · [Data Generator](#data-generator) · [Query Runner](#query-runner) · [Benchmark](#benchmark) · [Stock Market Sim](#stock-market-sim) · [Ledger Sim](#ledger-sim)
+**Running load** · [Data Generator](#data-generator) · [Query Runner](#query-runner) · [Benchmark](#benchmark) · [Sample Client Code](#sample-client-code) · [Stock Market Sim](#stock-market-sim) · [Ledger Sim](#ledger-sim)
 
 **Finding out what happened** · [Packet Inspector](#packet-inspector) · [Log Summary](#log-summary) · [FTDC Summary](#ftdc-summary) · [Stalk Summary](#stalk-summary) · [Diagnostic captures](#diagnostic-captures) · [Operator Debugger](#operator-debugger) · [Core Dump Analyzer](#core-dump-analyzer)
 
@@ -773,6 +773,38 @@ canvas cannot guess:
 | To do this | API | CLI |
 | --- | --- | --- |
 | Test a hand-entered database connection from inside the stack network | `POST …/nodes/{nid}/stocksim/test` | `dbcanvas api POST …/stocksim/test --data '{…}'` |
+
+## Sample Client Code
+
+Generate a runnable client program for a deployment on the canvas, install what it
+needs on a Linux Client, and run it. See [Sample Client Code](SAMPLE_CODE.md).
+
+| To do this | API | CLI |
+| --- | --- | --- |
+| Every sample, with its dependencies and licences | `GET /api/samplecode/catalog` | `dbcanvas api GET /api/samplecode/catalog` |
+| Which Linux Clients can run one | `GET /api/samplecode/nodes` | `dbcanvas api GET /api/samplecode/nodes` |
+| The endpoints in that node's stack | `GET …/nodes/{nid}/samplecode/targets` | `dbcanvas api GET …/samplecode/targets` |
+| Render a sample (changes nothing) | `POST …/nodes/{nid}/samplecode/generate` | `dbcanvas api POST …/samplecode/generate -d '{…}'` |
+| Save / prepare / run / reset it | `POST …/nodes/{nid}/samplecode/runs` | `dbcanvas api POST …/samplecode/runs -d '{…}'` |
+| Follow the job | `GET …/samplecode/runs/{jid}` | `dbcanvas api GET …/samplecode/runs/{jid}` |
+| Stop it | `POST …/samplecode/runs/{jid}/stop` | `dbcanvas api POST …/samplecode/runs/{jid}/stop` |
+
+A sample is addressed as **database/language/client/scenario** — `mysql/java/hikari/crud`
+— and the body of `generate` and `runs` is the same four fields:
+
+```json
+{ "sample": "mysql/java/hikari/crud", "target": "ps1", "tls": "verify", "action": "run" }
+```
+
+`target` is an endpoint id from `…/samplecode/targets`; `tls` is `off`, `require` or
+`verify`, and omitting it keeps whatever DBCanvas derived from the deployment. `action`
+is `save`, `prepare`, `run` or `reset`, and only `runs` takes it.
+
+The job's log is the transcript: every check, every command before it runs, its output,
+and the program's own exit code. A non-zero exit is the program's answer, not a DBCanvas
+failure — the job reports `ran: true` with the code.
+
+---
 
 ## Ledger Sim
 

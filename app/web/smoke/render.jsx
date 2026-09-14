@@ -97,6 +97,7 @@ import {
   curlFor, cliFor, matches as epMatches, samplePath, expiryText, relDate,
   METHOD_TONE, SCOPE_TEXT, MEDIA_TEXT, MEDIA_LABEL, TOKEN_STATE_TONE, EXPIRY_CHOICES,
 } from '../src/lib/apiApi.js'
+import SampleCode, { JobLog } from '../src/pages/SampleCode.jsx'
 import CoreDumpAnalyzer, {
   Header as GdbHeader, NoTargets as GdbNoTargets, CrashSummary as GdbSummary,
   CoreList as GdbCores, ThreadList as GdbThreads, Backtrace as GdbStack,
@@ -2737,6 +2738,38 @@ const gdbCoresFx = [
     resolved: 3, missing: ['/lib64/libssl.so.1.1', '/lib64/libcrypto.so.1.1'] },
 ]
 
+// Sample Client Code renders before any of its fetches land — the state every page starts in, and
+// the one where a .map over a null list would throw.
+// Wrapped in the terminal provider the way App mounts it: the page offers "Open terminal"
+// for the Linux Client it is generating onto, so it consumes that context.
+check('SampleCode page (before the node list lands)', () =>
+  renderToString(<TerminalProvider><SampleCode /></TerminalProvider>))
+check('SampleCode: a job transcript', () =>
+  renderToString(<JobLog job={{
+    action: 'run', status: 'done', exit: 0, ran: true, message: 'ran successfully',
+    log: [
+      { kind: 'step', text: 'Preparing environment' },
+      { kind: 'ok', text: 'python3: installed' },
+      { kind: 'info', text: 'mysql-connector-python: missing' },
+      { kind: 'cmd', text: '/root/dbcanvas-samples/.venv/bin/pip install mysql-connector-python' },
+      { kind: 'out', text: 'Successfully installed mysql-connector-python-26.7.0' },
+      { kind: 'ok', text: 'Environment ready.' },
+      { kind: 'step', text: 'Running mysql-connector-python' },
+      { kind: 'out', text: 'Connected to ps-01.example.net:3306 - MySQL 8.4.0-1' },
+      { kind: 'ok', text: 'Finished — exit 0.' },
+    ],
+  }} />))
+// A failed run is not a DBCanvas failure: the exit code and the program's own stderr are
+// the answer, and the transcript has to render that shape too.
+check('SampleCode: a job that exited non-zero', () =>
+  renderToString(<JobLog job={{
+    action: 'run', status: 'error', exit: 1, ran: true, message: 'exit 1',
+    log: [
+      { kind: 'step', text: 'Running mysql2' },
+      { kind: 'err', text: 'Error: The MySQL server is running with the --super-read-only option' },
+      { kind: 'fail', text: 'the sample exited 1 — its output above is the reason' },
+    ],
+  }} />))
 check('CoreDumpAnalyzer page (before the socket opens)', () => renderToString(<CoreDumpAnalyzer />))
 check('core dump: header', () =>
   renderToString(<GdbHeader targets={[gdbTargetFx]} value="1/lc1" onChange={noop}
