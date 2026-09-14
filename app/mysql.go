@@ -710,17 +710,7 @@ func (a *App) mysqlPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	}
 	a.ensureRsyslog(ctx, id, frame.OS, pr.logln)
 
-	cnf := mysqlMyCnf(frame, host)
-	dir, base := pxcCnfDir(frame.OS)
-	if err := a.engCtx(ctx).CopyFile(ctx, id, dir, base, 0o644, []byte(cnf)); err != nil {
-		return pr.fail("write %s: %v", pxcCnfPath(frame.OS), err)
-	}
-	if debian {
-		if err := a.runStep(ctx, id, pxcDebianIncludeCnf, nil, pr.logln); err != nil {
-			return pr.fail("include my.cnf: %v", err)
-		}
-	}
-	return nil
+	return a.mysqlWriteNodeCnf(ctx, id, frame.OS, mysqlMyCnf(frame, host), pr)
 }
 
 // mysqlMyCnf renders /etc/my.cnf for a MySQL replication node. read_only is NOT

@@ -558,17 +558,8 @@ func (a *App) pxcPrepareNode(ctx context.Context, st Stack, frame designFrame, n
 
 	// garbd nodes are configured later; regular nodes get their my.cnf now.
 	if !arbiter {
-		cnf := pxcMyCnf(frame, n, host, domain, clusterAddr)
-		dir, base := pxcCnfDir(frame.OS)
-		if err := a.engCtx(ctx).CopyFile(ctx, id, dir, base, 0o644, []byte(cnf)); err != nil {
-			return pr.fail("write %s: %v", pxcCnfPath(frame.OS), err)
-		}
-		// On Debian, ensure our file is included last so it wins over the package
-		// defaults (otherwise the empty cluster address bootstraps every node alone).
-		if isDebianOS(frame.OS) {
-			if err := a.runStep(ctx, id, pxcDebianIncludeCnf, nil, pr.logln); err != nil {
-				return pr.fail("include my.cnf: %v", err)
-			}
+		if err := a.mysqlWriteNodeCnf(ctx, id, frame.OS, pxcMyCnf(frame, n, host, domain, clusterAddr), pr); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -580,6 +571,78 @@ func pxcCnfDir(os string) (string, string) {
 		return "/etc/mysql", "dbcanvas.cnf"
 	}
 	return "/etc", "my.cnf"
+}
+
+// mysqlWriteNodeCnf writes a rendered mysqld config to the OS-correct path and, on
+// Debian/Ubuntu, makes it authoritative. Shared by every MySQL-family frame (PXC,
+// Percona Server replication, MySQL Community, group replication / InnoDB Cluster)
+// so they cannot drift apart.
+//
+// On RHEL the file *is* /etc/my.cnf and there is nothing else to do. Debian splits
+// the config across `!includedir` drop-ins, and the percona-xtradb-cluster-server
+// package ships a *populated* one — /etc/mysql/mysql.conf.d/mysqld.cnf with
+// `server-id=1`, `wsrep_cluster_name=pxc-cluster`, `wsrep_node_name=pxc-cluster-node-1`
+// and an empty `wsrep_cluster_address=gcomm://`. Two things then have to happen:
+//
+//   - the trailing `!include` (pxcDebianIncludeCnf), so our file is read last, and
+//   - commenting the vendor's copy of every option we set (pxcDebianDisableVendorCnf).
+//
+// The second is not redundant. Ordering alone leaves two contradictory values on
+// disk: anything that reads the config rather than the running server — an operator
+// grepping /etc, a config collector, pt-config-diff — sees `pxc-cluster-node-1`, and
+// if the include is ever lost (an alternatives switch, a hand edit) the vendor
+// defaults take over silently and every node bootstraps its own one-node cluster
+// with server-id 1. Only keys the config we just wrote actually sets are disabled,
+// so nothing is left unset.
+func (a *App) mysqlWriteNodeCnf(ctx context.Context, id, nodeOS, cnf string, pr *pxcProg) error {
+	dir, base := pxcCnfDir(nodeOS)
+	if err := a.engCtx(ctx).CopyFile(ctx, id, dir, base, 0o644, []byte(cnf)); err != nil {
+		return pr.fail("write %s: %v", pxcCnfPath(nodeOS), err)
+	}
+	if !isDebianOS(nodeOS) {
+		return nil
+	}
+	if err := a.runStep(ctx, id, pxcDebianIncludeCnf, nil, pr.logln); err != nil {
+		return pr.fail("include my.cnf: %v", err)
+	}
+	keys := mysqlCnfOptionKeys(cnf)
+	if len(keys) == 0 {
+		return nil
+	}
+	if err := a.runStep(ctx, id, pxcDebianDisableVendorCnf, []string{"KEYS=" + strings.Join(keys, " ")}, pr.logln); err != nil {
+		return pr.fail("disable vendor my.cnf settings: %v", err)
+	}
+	return nil
+}
+
+// mysqlCnfOptionKeys lists the option names an option file sets, deduplicated and
+// in first-seen order (the same option can appear in both [client] and [mysqld]).
+// Section headers, comments and blank lines are skipped, and only the part before
+// the first '=' is taken — a value may itself contain '=' (wsrep_provider_options).
+func mysqlCnfOptionKeys(cnf string) []string {
+	var keys []string
+	seen := map[string]bool{}
+	for _, line := range strings.Split(cnf, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") || strings.HasPrefix(line, "[") || strings.HasPrefix(line, "!") {
+			continue
+		}
+		i := strings.Index(line, "=")
+		if i <= 0 {
+			continue
+		}
+		k := strings.TrimSpace(line[:i])
+		// Anything exotic is left alone rather than interpolated into the sed
+		// expression the disable script builds.
+		if k == "" || seen[k] || strings.IndexFunc(k, func(r rune) bool {
+			return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-' || r == '.')
+		}) >= 0 {
+			continue
+		}
+		seen[k] = true
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // pxcRootMyCnf renders /root/.my.cnf so the unix root user can run `mysql` without
@@ -883,10 +946,57 @@ pin_install "$PKG" >/dev/null`
 // Debian's /etc/mysql/my.cnf so our settings are read last and win over the
 // package's includedirs (whose empty wsrep_cluster_address would otherwise make
 // every node bootstrap its own single-node cluster).
+//
+// /etc/mysql/my.cnf is not a plain file: mysql-common registers it with
+// update-alternatives (my.cnf.fallback at priority 100, the server package's
+// /etc/mysql/mysql.cnf at 300), so the path is a symlink into /etc/alternatives.
+// Appending through it edits whichever candidate is selected *today* — the include
+// is therefore written into every candidate, so removing or downgrading the server
+// package (which switches the alternative) cannot silently strip our config.
 const pxcDebianIncludeCnf = `set -e
+add_include() {
+  [ -f "$1" ] || return 0
+  grep -q '/etc/mysql/dbcanvas.cnf' "$1" || printf '\n!include /etc/mysql/dbcanvas.cnf\n' >> "$1"
+}
 MYCNF=/etc/mysql/my.cnf
-[ -e "$MYCNF" ] || : > "$MYCNF"
-grep -q '/etc/mysql/dbcanvas.cnf' "$MYCNF" || printf '\n!include /etc/mysql/dbcanvas.cnf\n' >> "$MYCNF"`
+if [ -e "$MYCNF" ]; then
+  add_include "$(readlink -f "$MYCNF")"
+else
+  # No my.cnf at all (never seen with the Percona/MySQL packages, but a broken
+  # alternatives link must not leave the node with an unread config): create it as
+  # a plain file rather than writing through a dangling symlink.
+  rm -f "$MYCNF"
+  printf '!include /etc/mysql/dbcanvas.cnf\n' > "$MYCNF"
+fi
+for alt in $(update-alternatives --list my.cnf 2>/dev/null || true); do add_include "$alt"; done`
+
+// pxcDebianDisableVendorCnf comments out, in the packages' own !includedir drop-ins,
+// every option DBCanvas sets in /etc/mysql/dbcanvas.cnf (passed in as $KEYS).
+//
+// pxcDebianIncludeCnf already makes dbcanvas.cnf win at runtime, but PXC's
+// /etc/mysql/mysql.conf.d/mysqld.cnf ships a full identity block — server-id=1,
+// wsrep_cluster_name=pxc-cluster, wsrep_node_name=pxc-cluster-node-1,
+// wsrep_cluster_address=gcomm:// — that stays on disk contradicting it. Leaving it
+// there misleads anyone reading the config instead of the running server, and turns
+// any future loss of the include into a silent split cluster. Percona Server and
+// MySQL Community ship a benign drop-in (pid-file/socket/datadir/log-error) and are
+// tidied by the same pass.
+//
+// Option names are matched with '-' and '_' interchangeable (MySQL treats them as
+// the same option) and anchored on the '=', so server-id does not match
+// server-id-bits. Re-running is a no-op: a commented line no longer matches.
+const pxcDebianDisableVendorCnf = `set -e
+MARK='# dbcanvas: set in /etc/mysql/dbcanvas.cnf --'
+for f in /etc/mysql/conf.d/*.cnf /etc/mysql/mysql.conf.d/*.cnf /etc/mysql/percona-xtradb-cluster.conf.d/*.cnf; do
+  [ -f "$f" ] || continue
+  for k in $KEYS; do
+    re=$(printf '%s' "$k" | sed -e 's/\./\\./g' -e 's/[-_]/[-_]/g')
+    sed -i -E "s|^([[:space:]]*)(${re}[[:space:]]*=)|\1${MARK} \2|" "$f"
+  done
+  n=$(grep -Fc "$MARK" "$f" 2>/dev/null || true)
+  # || true: a drop-in with nothing to disable must not trip set -e.
+  [ "${n:-0}" -gt 0 ] && echo "$f: $n vendor setting(s) commented out (dbcanvas.cnf is authoritative)" || true
+done`
 
 // pxcBootstrapScript bootstraps the cluster on the first node and sets up users.
 // (systemctl start blocks until mysqld signals ready, so no extra wait is needed.)

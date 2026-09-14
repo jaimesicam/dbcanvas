@@ -338,15 +338,8 @@ func (a *App) innodbPrepareNode(ctx context.Context, st Stack, frame designFrame
 
 	// my.cnf: full GR block for raw group replication; base only for InnoDB Cluster
 	// (MySQL Shell configures GR itself).
-	cnf := innodbMyCnf(frame, host, domain, groupName, seedList, mode)
-	dir, base := pxcCnfDir(frame.OS)
-	if err := a.engCtx(ctx).CopyFile(ctx, id, dir, base, 0o644, []byte(cnf)); err != nil {
-		return pr.fail("write %s: %v", pxcCnfPath(frame.OS), err)
-	}
-	if debian {
-		if err := a.runStep(ctx, id, pxcDebianIncludeCnf, nil, pr.logln); err != nil {
-			return pr.fail("include my.cnf: %v", err)
-		}
+	if err := a.mysqlWriteNodeCnf(ctx, id, frame.OS, innodbMyCnf(frame, host, domain, groupName, seedList, mode), pr); err != nil {
+		return err
 	}
 
 	pr.phase("Starting mysqld + base setup", 55)

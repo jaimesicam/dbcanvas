@@ -100,6 +100,7 @@ const (
 	gGDB       = "Core Dump Analyzer"
 	gAIO       = "All in One"
 	gStockSim  = "Stock Market Sim"
+	gLedgerSim = "Ledger Sim"
 	gImages    = "Node images"
 	gTokens    = "API tokens"
 	gMeta      = "API metadata"
@@ -112,7 +113,7 @@ const (
 var apiGroupOrder = []string{
 	gAuth, gPrefs, gUsers, gTokens, gMeta,
 	gStacks, gTemplates, gCatalog, gImages, gNodes, gClusters, gLabs,
-	gDataGen, gQueryRun, gBench, gStockSim,
+	gDataGen, gQueryRun, gBench, gStockSim, gLedgerSim,
 	gPkt, gLog, gFTDC, gStalk, gOpSum, gCaptures, gDebug, gGDB,
 	gDash, gNotif,
 	gFS, gCerts, gMail, gLDAP, gSamba, gK3D, gAIO, gSeaweed, gOpenBao,
@@ -435,6 +436,14 @@ func buildAPIRoutes() []apiRoute {
 		// stack's network — see handleStockSimTest.
 		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/stocksim/test", Group: gStockSim, ReadOnly: true, Handler: m((*App).handleStockSimTest),
 			Summary: "Test a hand-entered database connection from inside the stack network before deploying with it."},
+
+		// --- Ledger Sim ---------------------------------------------------------
+		// Same shape as the Stock Market Sim's check and for the same reason, but the
+		// answer comes from the JDBC image itself: the drivers, the URL composition
+		// and the per-driver TLS mapping all live there, and a Go reimplementation
+		// would be answering a different question. See handleLedgerSimTest.
+		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/ledgersim/test", Group: gLedgerSim, ReadOnly: true, Handler: m((*App).handleLedgerSimTest),
+			Summary: "Test a hand-entered JDBC connection, with the chosen driver, from inside the stack network before deploying with it."},
 
 		// --- Samba AD DC --------------------------------------------------------
 		{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/samba/users", Group: gSamba, Handler: m((*App).handleSambaUsers),

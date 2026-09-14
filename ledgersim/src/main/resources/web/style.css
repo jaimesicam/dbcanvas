@@ -1,0 +1,106 @@
+/* Ledger Sim dashboard.
+   Shares the sibling sims' token block and class vocabulary (.panel, .stat-grid,
+   .stat-tile, .badge, .dot, .banner, .controls, .data-table, .hint, .hidden) so
+   the dashboards look like one family. --accent differs per sim; this one is the
+   amber the canvas node uses.
+
+   Status is never carried by colour alone: the balance check and the connection
+   dot both pair their colour with a glyph, and every counter is a number. */
+:root {
+  --bg: #0b0f17; --panel: #131a26; --panel2: #1a2333; --border: #263047;
+  --fg: #e6ecf5; --muted: #8b9bb4; --accent: #f59e0b;
+  --ok: #2ecc71; --warn: #f1c40f; --bad: #e74c3c;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+}
+code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+header {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 20;
+}
+header h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+.spacer { flex: 1; }
+
+.badge {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px;
+  border-radius: 999px; background: var(--panel2); border: 1px solid var(--border);
+  font-size: 12px; color: var(--muted);
+}
+.badge strong { color: var(--fg); font-weight: 600; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.dot.ok { background: var(--ok); }
+.dot.bad { background: var(--bad); }
+
+.tag {
+  font-size: 11px; padding: 2px 8px; border-radius: 999px; vertical-align: middle;
+  background: rgba(245,158,11,.15); color: var(--accent); border: 1px solid var(--accent);
+}
+
+.controls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+button, .btn {
+  background: var(--panel2); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #1a1205; font-weight: 600; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+
+main { padding: 16px 20px 48px; display: flex; flex-direction: column; gap: 16px; max-width: 1200px; }
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
+.panel h2 { margin: 0 0 12px; font-size: 14px; font-weight: 600; }
+.panel h3 { margin: 20px 0 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.hint { color: var(--muted); font-size: 12px; font-weight: 400; }
+.hidden { display: none !important; }
+
+.banner { margin: 0 20px; padding: 10px 14px; border-radius: 8px; font-size: 13px;
+  background: rgba(231,76,60,.12); border: 1px solid var(--bad); color: #ffd9d4; }
+
+.url-block { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+.url { display: block; word-break: break-all; font-size: 13px; color: var(--fg); margin: 4px 0 8px; }
+.muted-url { display: inline; color: var(--muted); font-size: 12px; }
+
+.notes { margin: 12px 0 0; padding-left: 18px; color: var(--muted); font-size: 12px; }
+.notes li { margin: 4px 0; }
+.notes:empty { display: none; }
+
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px 14px; margin-top: 12px; }
+.form-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.form-grid label.check { flex-direction: row; align-items: center; gap: 8px; }
+input, select {
+  background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 8px; font-size: 13px; width: 100%;
+}
+input[type=checkbox] { width: auto; }
+input.wide { width: 100%; margin-top: 6px; }
+input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.stat-tile { background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+.stat-label { display: block; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
+.stat-value { display: block; font-size: 20px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.stat-value.ok { color: var(--ok); }
+.stat-value.bad { color: var(--bad); }
+
+.data-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+.data-table th, .data-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.data-table th { color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: .4px; }
+.data-table td { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; word-break: break-word; }
+.data-table td.src-auto { color: var(--muted); }
+.data-table td.src-user { color: var(--accent); }
+
+.result { background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px; font-size: 12px; white-space: pre-wrap; word-break: break-word; margin-top: 12px; }
+.result.ok { border-color: var(--ok); }
+.result.bad { border-color: var(--bad); }
+
+@media (max-width: 640px) {
+  main { padding: 12px; }
+  header { padding: 10px 12px; }
+  .banner { margin: 0 12px; }
+}

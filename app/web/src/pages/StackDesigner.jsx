@@ -654,6 +654,26 @@ export const NODE_TYPES = {
       ssLockContention: 'off', ssScanQueries: 0, ssWritePressure: 'off',
     },
   },
+  // The Stock Market Sim's JDBC sibling. Same two-mode connection story, but what
+  // it varies is the *client*: which JDBC driver, which URL properties, which
+  // HikariCP settings, which isolation level. Amber rather than teal so the two
+  // are not mistaken for each other on a canvas that holds both.
+  ledgersim: {
+    label: 'Ledger Sim',
+    slug: 'ledgersim',
+    sub: 'JDBC + HikariCP order/payment ledger on MySQL or PostgreSQL',
+    color: '#f59e0b',
+    icon: 'Flask',
+    singleton: false,
+    ports: true,
+    osOptions: [{ id: 'ledgersim', label: 'dbcanvas-ledgersim' }],
+    defaults: {
+      lsMode: 'linked', lsEngine: 'mysql', lsDriver: 'mysql-connector-j',
+      lsTLS: 'prefer', lsDatabase: 'ledgersim', lsPoolMode: 'pooled', lsThreads: 0, lsPoolMax: 0,
+      lsIsolation: '', lsRevenueShards: 8, lsDeadlockShare: 0, lsHotShare: 0,
+      lsCustomers: 0, lsStartPaused: false,
+    },
+  },
 }
 
 // SIM_NODE_TYPES are the application simulators: the nodes that exist to put load on
@@ -662,7 +682,7 @@ export const NODE_TYPES = {
 // database they drive — which is why the line gets a caption of its own ("app
 // connection"), and why the two panels that merely *display* data (Big Hole,
 // MClusterAdmin) are not in here: they carry no connector at all.
-export const SIM_NODE_TYPES = new Set(['stocksim', 'airlinesim', 'carsim', 'hotelsim', 'trafficsim', 'marketchaos'])
+export const SIM_NODE_TYPES = new Set(['stocksim', 'ledgersim', 'airlinesim', 'carsim', 'hotelsim', 'trafficsim', 'marketchaos'])
 
 // isReplEdge distinguishes the two kinds of line the canvas draws with one edge list: a
 // cross-cluster replication link ('async' / 'bidir'), and everything else — an
@@ -2734,6 +2754,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
       if (n.type === 'carsim') return 'carsim'
       if (n.type === 'marketchaos') return 'marketchaos'
       if (n.type === 'stocksim') return 'stocksim'
+      if (n.type === 'ledgersim') return 'ledgersim'
       return null
     }
     const f = refs.current.frames.find((x) => x.id === id)
@@ -2881,6 +2902,10 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
     // simply never uses this rule.
     if (SS_LINKABLE_KINDS.has(k1) && k2 === 'stocksim') return createFlow(e1, e2, { singleOutgoing: true })
     if (SS_LINKABLE_KINDS.has(k2) && k1 === 'stocksim') return createFlow(e2, e1, { singleOutgoing: true })
+    // Ledger Sim links the same way over the JDBC subset of those kinds — one
+    // node drives exactly one database, for the same reason.
+    if (LS_LINKABLE_KINDS.has(k1) && k2 === 'ledgersim') return createFlow(e1, e2, { singleOutgoing: true })
+    if (LS_LINKABLE_KINDS.has(k2) && k1 === 'ledgersim') return createFlow(e2, e1, { singleOutgoing: true })
     // ProxySQL node ↔ ProxySQL node: a chained proxy. This used to open a modal
     // asking which way SQL traffic flows, but the answer was never read — the
     // backend BFSs the association graph undirected precisely so a ProxySQL behind
@@ -3808,6 +3833,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
       // "(experimental)" over all six.
       { label: 'Unoptimized MySQL Challenge', type: 'marketchaos', onClick: () => addNode('marketchaos'), experimental: true },
       { label: 'Stock Market Sim', type: 'stocksim', onClick: () => addNode('stocksim') },
+      { label: 'Ledger Sim', type: 'ledgersim', onClick: () => addNode('ledgersim') },
     ] },
   ], showExperimental(system))
 
@@ -7762,6 +7788,346 @@ function StockSimForm({ node: n, nodes, frames, edges, stackId, patchNode, delet
 // node's *data* as well as the node. Dropping has to happen first: once the
 // container is gone its API is unreachable, and the data lives in a database
 // dbcanvas may not otherwise have credentials for.
+// ---------------------------------------------------------------- Ledger Sim
+
+// LS_ENGINES / LS_DRIVERS mirror ledgerSimEngines and ledgerSimDrivers in
+// app/ledgersim.go, which in turn mirror Engine and DriverKind in the image.
+// The list is shorter than the Stock Market Sim's because JDBC is: there is no
+// driver worth shipping for MongoDB or Valkey, and offering them here would
+// promise something the JVM cannot load.
+const LS_ENGINES = [
+  { id: 'mysql', label: 'MySQL / Percona Server / PXC', port: 3306 },
+  { id: 'postgres', label: 'PostgreSQL', port: 5432 },
+]
+
+// Two drivers for the MySQL family is the point of this node, not a redundancy:
+// pointing each at one server in turn is the only honest way to tell a driver
+// problem from a server problem. The licence is shown because dbcanvas is
+// GPL-3.0 and which driver ships is a licensing question first — Connector/J is
+// GPLv2-only and combinable here only through Oracle's Universal FOSS Exception,
+// while MariaDB Connector/J reaches the same servers under plain LGPL.
+const LS_DRIVERS = {
+  mysql: [
+    { id: 'mysql-connector-j', label: 'MySQL Connector/J', scheme: 'jdbc:mysql', license: 'GPL-2.0 WITH Universal-FOSS-Exception-1.0' },
+    { id: 'mariadb-connector-j', label: 'MariaDB Connector/J', scheme: 'jdbc:mariadb', license: 'LGPL-2.1-or-later' },
+  ],
+  postgres: [
+    { id: 'pgjdbc', label: 'pgJDBC', scheme: 'jdbc:postgresql', license: 'BSD-2-Clause' },
+  ],
+}
+
+const LS_ISOLATIONS = [
+  { id: '', label: 'Driver default (MySQL: REPEATABLE READ, PostgreSQL: READ COMMITTED)' },
+  { id: 'TRANSACTION_READ_UNCOMMITTED', label: 'READ UNCOMMITTED' },
+  { id: 'TRANSACTION_READ_COMMITTED', label: 'READ COMMITTED' },
+  { id: 'TRANSACTION_REPEATABLE_READ', label: 'REPEATABLE READ' },
+  { id: 'TRANSACTION_SERIALIZABLE', label: 'SERIALIZABLE' },
+]
+
+// LS_LINK_TYPES is SS_LINK_TYPES minus the targets JDBC cannot speak to. The
+// Kubernetes frame stays: which of the six operators it runs is not known until
+// deploy, so a MongoDB operator behind a k3d link is refused there, in a
+// sentence, rather than being un-drawable here for a reason nobody can see.
+export const LS_LINK_TYPES = Object.fromEntries(
+  Object.entries(SS_LINK_TYPES).filter(([k]) => !['psm', 'valkey', 'psmrs', 'psmdb', 'valkeycluster'].includes(k)),
+)
+const LS_LINKABLE_KINDS = new Set(Object.keys(LS_LINK_TYPES))
+
+// lsDriverFor mirrors ledgerSimDriverFor: a driver that cannot speak the engine
+// is a stale form value, so agree with what the backend will actually use.
+// Mirrors ledgerSimThreads: the default has to be the same number the warning
+// above quotes, or the sentence is wrong for anyone who left the field blank.
+function ledgerSimThreadsOf (n) {
+  return n.lsThreads > 0 ? n.lsThreads : 8
+}
+
+function lsDriverFor (engine, driver) {
+  const list = LS_DRIVERS[engine] || []
+  if (!list.length) return ''
+  return list.some((d) => d.id === driver) ? driver : list[0].id
+}
+
+// lsPreviewUrl is the URL shape only — the driver's auto-derived properties are
+// deliberately not reproduced here. They differ per driver and per TLS mode, and
+// a second implementation on the canvas is one that drifts from the image; the
+// dashboard shows the real URL, with every property and why it is there.
+function lsPreviewUrl (engine, driver, host, port, database) {
+  const d = (LS_DRIVERS[engine] || []).find((x) => x.id === driver)
+  const scheme = d ? d.scheme : 'jdbc:mysql'
+  const p = Number(port) || (LS_ENGINES.find((e) => e.id === engine)?.port ?? 3306)
+  return `${scheme}://${host || '<host>'}:${p}/${database || 'ledgersim'}`
+}
+
+function LedgerSimForm ({ node: n, nodes, frames, edges, stackId, patchNode, deleteNode, dep, deployed }) {
+  const mode = n.lsMode === 'manual' ? 'manual' : 'linked'
+  const engine = LS_ENGINES.some((e) => e.id === n.lsEngine) ? n.lsEngine : 'mysql'
+  const driver = lsDriverFor(engine, n.lsDriver)
+  const [test, setTest] = useState(null)
+  const [testing, setTesting] = useState(false)
+
+  // The same undirected edge walk stockSimTarget does, over the JDBC subset.
+  const linkedTarget = (() => {
+    for (const e of edges) {
+      const other = e.from.node === n.id ? e.to.node : (e.to.node === n.id ? e.from.node : null)
+      if (!other) continue
+      const db = nodes.find((x) => x.id === other && LS_LINK_TYPES[x.type] && !x.frameId)
+      if (db) return { kind: db.type, label: db.label }
+      const fr = frames.find((x) => x.id === other && LS_LINK_TYPES[x.type])
+      if (fr) return { kind: fr.type, label: fr.label, operator: fr.k3dOperator || '' }
+    }
+    return null
+  })()
+
+  const linkedEngine = ssLinkEngine(linkedTarget)
+  const effectiveEngine = mode === 'manual' ? engine : (linkedEngine || engine)
+  const effectiveDriver = lsDriverFor(effectiveEngine, n.lsDriver)
+  const driverDef = (LS_DRIVERS[effectiveEngine] || []).find((d) => d.id === effectiveDriver)
+  // A linked target JDBC has no driver for. Said here as well as at deploy so it
+  // is visible while the line is being drawn, not only after Deploy fails.
+  const linkUnsupported = mode === 'linked' && linkedTarget && linkedEngine &&
+    !LS_ENGINES.some((e) => e.id === linkedEngine)
+
+  async function runTest () {
+    setTesting(true)
+    setTest(null)
+    try {
+      setTest(await stackApi.ledgersimTest(stackId, n.id, {
+        engine, driver, host: n.lsHost || '', port: Number(n.lsPort) || 0,
+        user: n.lsUser || '', password: n.lsPassword || '',
+        database: n.lsDatabase || 'ledgersim', tls: n.lsTLS || 'prefer',
+        params: n.lsParams || '', jdbcUrl: n.lsJdbcUrl || '',
+      }))
+    } catch (err) {
+      setTest({ ok: false, message: err.message || String(err) })
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Ledger Sim</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+      <p className="text-xs text-muted">
+        An order-and-payment ledger driven over JDBC with a HikariCP pool. The driver, the URL
+        properties and the pool are all editable on its dashboard while it runs — this form only
+        sets where it starts.
+      </p>
+
+      <Field label="Label" help={HELP.label}>
+        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+      </Field>
+
+      <Field label="Connection" help={HELP.lsMode}>
+        <select className={inputCls} value={mode} onChange={(e) => patchNode(n.id, { lsMode: e.target.value })}>
+          <option value="linked">Linked to a database on the canvas</option>
+          <option value="manual">Manual — a database anywhere</option>
+        </select>
+      </Field>
+
+      {mode === 'linked' && (
+        <div className="rounded-lg bg-surface2 px-3 py-2 text-xs">
+          {linkedTarget
+            ? <>Linked to <span className="font-mono">{linkedTarget.label}</span> ({LS_LINK_TYPES[linkedTarget.kind]})</>
+            : <span className="text-muted">Draw a line from this node to a MySQL-family or PostgreSQL database, cluster or router.</span>}
+          {linkUnsupported && (
+            <p className="mt-1 text-warn">
+              That target is {linkedEngine}, which has no JDBC driver here. Use a Stock Market Sim node for it.
+            </p>
+          )}
+        </div>
+      )}
+
+      {mode === 'manual' && (
+        <>
+          <Field label="Engine" help={HELP.lsEngine}>
+            <select className={inputCls} value={engine}
+              onChange={(e) => patchNode(n.id, { lsEngine: e.target.value, lsDriver: lsDriverFor(e.target.value, n.lsDriver) })}>
+              {LS_ENGINES.map((e) => <option key={e.id} value={e.id}>{e.label}</option>)}
+            </select>
+          </Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Host" help={HELP.lsHost}>
+              <input className={inputCls} value={n.lsHost || ''} placeholder="db.example.net"
+                onChange={(e) => patchNode(n.id, { lsHost: e.target.value })} />
+            </Field>
+            <Field label="Port" help={HELP.lsPort}>
+              <input className={inputCls} type="number" value={n.lsPort || ''}
+                placeholder={String(LS_ENGINES.find((e) => e.id === engine)?.port ?? 3306)}
+                onChange={(e) => patchNode(n.id, { lsPort: Number(e.target.value) || 0 })} />
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="User" help={HELP.lsUser}>
+              <input className={inputCls} value={n.lsUser || ''} onChange={(e) => patchNode(n.id, { lsUser: e.target.value })} />
+            </Field>
+            <Field label="Password" help={HELP.lsPassword}>
+              <input className={inputCls} type="password" value={n.lsPassword || ''}
+                onChange={(e) => patchNode(n.id, { lsPassword: e.target.value })} />
+            </Field>
+          </div>
+        </>
+      )}
+
+      <Field label="JDBC driver" help={HELP.lsDriver}>
+        <select className={inputCls} value={effectiveDriver}
+          onChange={(e) => patchNode(n.id, { lsDriver: e.target.value })}>
+          {(LS_DRIVERS[effectiveEngine] || []).map((d) => (
+            <option key={d.id} value={d.id}>{d.label}</option>
+          ))}
+        </select>
+      </Field>
+      {driverDef && <p className="-mt-1 text-xs text-muted">Licence: {driverDef.license}</p>}
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Database" help={HELP.lsDatabase}>
+          <input className={inputCls} value={n.lsDatabase || ''} placeholder="ledgersim"
+            onChange={(e) => patchNode(n.id, { lsDatabase: e.target.value })} />
+        </Field>
+        <Field label="TLS" help={HELP.lsTLS}>
+          <select className={inputCls} value={n.lsTLS || 'prefer'} onChange={(e) => patchNode(n.id, { lsTLS: e.target.value })}>
+            <option value="disable">disable</option>
+            <option value="prefer">prefer</option>
+            <option value="require">require</option>
+          </select>
+        </Field>
+      </div>
+
+      <div className="rounded-lg bg-surface2 px-3 py-2">
+        <div className="text-xs text-muted">URL shape</div>
+        <code className="block break-all font-mono text-xs">
+          {(n.lsJdbcUrl || '').trim() ||
+            lsPreviewUrl(effectiveEngine, effectiveDriver,
+              mode === 'manual' ? n.lsHost : (linkedTarget?.label || ''),
+              n.lsPort, n.lsDatabase)}
+        </code>
+        <p className="mt-1 text-xs text-muted">
+          The driver's own properties (TLS mode, timezone, key retrieval) are added by the image and
+          shown, with the reason for each, on the dashboard.
+        </p>
+      </div>
+
+      <details className="rounded-lg bg-surface2 px-3 py-2">
+        <summary className="cursor-pointer text-xs font-semibold">Advanced</summary>
+        <div className="mt-2 space-y-2">
+          <Field label="Extra driver properties" help={HELP.lsParams}>
+            <input className={inputCls} value={n.lsParams || ''} placeholder="socketTimeout=30000&amp;tcpKeepAlive=true"
+              onChange={(e) => patchNode(n.id, { lsParams: e.target.value })} />
+          </Field>
+          <Field label="JDBC URL override" help={HELP.lsJdbcUrl}>
+            <input className={inputCls} value={n.lsJdbcUrl || ''} placeholder="jdbc:mysql://host:3306/ledgersim?…"
+              onChange={(e) => patchNode(n.id, { lsJdbcUrl: e.target.value })} />
+          </Field>
+          <Field label="Connections" help={HELP.lsPoolMode}>
+            <select className={inputCls} value={n.lsPoolMode || 'pooled'}
+              onChange={(e) => patchNode(n.id, { lsPoolMode: e.target.value })}>
+              <option value="pooled">Pooled — HikariCP</option>
+              <option value="direct">Direct — a new connection per transaction</option>
+            </select>
+          </Field>
+          {n.lsPoolMode === 'direct' && (
+            <p className="-mt-1 text-xs text-muted">
+              No pool: every transaction opens a connection and closes it. {ledgerSimThreadsOf(n)} workers
+              means up to {ledgerSimThreadsOf(n)} open at once — check the server's max_connections.
+              Switchable on the dashboard too, so one node can measure both.
+            </p>
+          )}
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Pool max" help={HELP.lsPoolMax}>
+              <input className={`${inputCls} ${n.lsPoolMode === 'direct' ? 'opacity-50' : ''}`} type="number"
+                value={n.lsPoolMax || ''} placeholder="10" disabled={n.lsPoolMode === 'direct'}
+                onChange={(e) => patchNode(n.id, { lsPoolMax: Number(e.target.value) || 0 })} />
+            </Field>
+            <Field label="Worker threads" help={HELP.lsThreads}>
+              <input className={inputCls} type="number" value={n.lsThreads || ''} placeholder="8"
+                onChange={(e) => patchNode(n.id, { lsThreads: Number(e.target.value) || 0 })} />
+            </Field>
+          </div>
+          <Field label="Isolation level" help={HELP.lsIsolation}>
+            <select className={inputCls} value={n.lsIsolation || ''} onChange={(e) => patchNode(n.id, { lsIsolation: e.target.value })}>
+              {LS_ISOLATIONS.map((i) => <option key={i.id} value={i.id}>{i.label}</option>)}
+            </select>
+          </Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Revenue shards" help={HELP.lsRevenueShards}>
+              <input className={inputCls} type="number" min="1" max="8" value={n.lsRevenueShards || ''} placeholder="8"
+                onChange={(e) => patchNode(n.id, { lsRevenueShards: Number(e.target.value) || 0 })} />
+            </Field>
+            <Field label="Deadlock share" help={HELP.lsDeadlockShare}>
+              <input className={inputCls} type="number" min="0" max="1" step="0.05" value={n.lsDeadlockShare || ''} placeholder="0"
+                onChange={(e) => patchNode(n.id, { lsDeadlockShare: Number(e.target.value) || 0 })} />
+            </Field>
+          </div>
+          <label className="flex items-center gap-2 text-xs">
+            <input type="checkbox" checked={!!n.lsStartPaused}
+              onChange={(e) => patchNode(n.id, { lsStartPaused: e.target.checked })} />
+            Deploy without starting the workload
+          </label>
+        </div>
+      </details>
+
+      {mode === 'manual' && (
+        <>
+          <Button variant="secondary" size="sm" className="w-full" disabled={testing} onClick={runTest}>
+            {testing ? 'Testing…' : 'Test connection'}
+          </Button>
+          {test && (
+            <div className={`rounded-lg px-3 py-2 text-xs ${test.ok ? 'bg-ok/10 text-ok' : 'bg-danger/10 text-danger'}`}>
+              <span className="font-mono">{test.ok ? '✓ ' : '✗ '}{test.message}</span>
+            </div>
+          )}
+        </>
+      )}
+
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+function LedgerSimManager ({ dep, onDeleteNode }) {
+  const cfg = dep?.config || {}
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Ledger Sim</span>
+        <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
+      </div>
+      <SimDashboardLink port={cfg.httpPort} />
+      <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
+        <InfoRow label="Internal URL" help={HELP.depInternalURL}>
+          <span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8094</span>
+        </InfoRow>
+        <InfoRow label="Connected to" help={HELP.depLinkedTo}>
+          <span className="font-mono text-xs">{cfg.targetName} ({SS_TARGET_KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span>
+        </InfoRow>
+        <InfoRow label="Driver" help={HELP.lsDriver}><span className="font-mono text-xs">{cfg.driver}</span></InfoRow>
+        <InfoRow label="Driver licence" help={HELP.lsDriver}><span className="font-mono text-xs">{cfg.driverLicense}</span></InfoRow>
+        <InfoRow label="Database" help={HELP.benchDatabase}><span className="font-mono text-xs">{cfg.engine} / {cfg.database}</span></InfoRow>
+        <InfoRow label="Connections" help={HELP.lsPoolMode}>
+          <span className="font-mono text-xs">{cfg.poolMode === 'direct' ? 'direct — no pool' : `HikariCP, max ${cfg.poolMax}`}</span>
+        </InfoRow>
+        <InfoRow label="Workers" help={HELP.depThreads}><span className="font-mono text-xs">{cfg.threads}</span></InfoRow>
+        <InfoRow label="Isolation" help={HELP.lsIsolation}><span className="font-mono text-xs">{cfg.isolation || 'driver default'}</span></InfoRow>
+      </div>
+      {/* Deliberately labelled as the starting point: the dashboard can change the
+          driver, the URL and the pool without redeploying, so this record would
+          otherwise read as current truth and quietly stop being it. */}
+      <div className="rounded-lg bg-surface2 px-3 py-2">
+        <div className="text-xs text-muted">Deployed pointing at</div>
+        <code className="block break-all font-mono text-xs">{cfg.jdbcUrl}</code>
+        <p className="mt-1 text-xs text-muted">Change it on the dashboard — it applies to the running pool.</p>
+      </div>
+      <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
 function StockSimManager({ dep, onDeleteNode }) {
   const cfg = dep?.config || {}
   const [dropping, setDropping] = useState(false)
@@ -11444,6 +11810,12 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <StockSimManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <StockSimForm node={n} nodes={nodes} frames={frames} edges={edges} stackId={stackId} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+    }
+    if (n.type === 'ledgersim') {
+      if (dep && dep.state === 'running') {
+        return <LedgerSimManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <LedgerSimForm node={n} nodes={nodes} frames={frames} edges={edges} stackId={stackId} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
     return (
       <div className="space-y-3">

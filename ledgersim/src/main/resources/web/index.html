@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ledger Sim</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <h1>Ledger Sim</h1>
+  <span class="badge"><span class="dot" id="conn-dot"></span><span id="conn-text">connecting</span></span>
+  <span class="badge">engine <strong id="hdr-engine">—</strong></span>
+  <span class="badge">driver <strong id="hdr-driver">—</strong></span>
+  <span class="badge">target <strong id="hdr-target">—</strong></span>
+  <span class="badge">connections <strong id="hdr-mode">—</strong></span>
+  <span class="badge">pool gen <strong id="hdr-gen">—</strong></span>
+  <span class="spacer"></span>
+  <div class="controls">
+    <button id="btn-run">Start</button>
+  </div>
+</header>
+
+<div id="banner-error" class="banner hidden"></div>
+
+<main>
+
+  <!-- The connection panel is first because it is the reason this simulator
+       exists: what DBCanvas detected, what is actually in force, and every
+       property in between, all editable against the running workload. -->
+  <section class="panel" id="panel-connection">
+    <h2>JDBC connection <span class="tag hidden" id="conn-modified">modified</span></h2>
+
+    <div class="url-block">
+      <label class="hint" for="url-effective">Effective URL</label>
+      <code id="url-effective" class="url">—</code>
+      <div class="hint" id="url-detected-wrap">
+        detected at deploy: <code id="url-detected" class="url muted-url">—</code>
+      </div>
+    </div>
+
+    <ul class="notes" id="conn-notes"></ul>
+
+    <div class="form-grid">
+      <label>Engine
+        <select id="f-engine"></select>
+      </label>
+      <label>Driver
+        <select id="f-driver"></select>
+      </label>
+      <label>Host(s) <span class="hint">comma-separated for a multi-host URL</span>
+        <input id="f-host" type="text" autocomplete="off">
+      </label>
+      <label>Port
+        <input id="f-port" type="number" min="0" max="65535">
+      </label>
+      <label>Database
+        <input id="f-database" type="text" autocomplete="off">
+      </label>
+      <label>User
+        <input id="f-user" type="text" autocomplete="off">
+      </label>
+      <label>Password <span class="hint">blank leaves it unchanged</span>
+        <input id="f-password" type="password" autocomplete="new-password" placeholder="unchanged">
+      </label>
+      <label>TLS
+        <select id="f-tls">
+          <option value="disable">disable</option>
+          <option value="prefer">prefer</option>
+          <option value="require">require</option>
+        </select>
+      </label>
+    </div>
+
+    <h3>Driver properties <span class="hint">auto-derived unless overridden; an empty value removes one</span></h3>
+    <table class="data-table" id="props-table">
+      <thead><tr><th>Property</th><th>Value</th><th>Source</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="controls">
+      <input id="prop-key" type="text" placeholder="property" autocomplete="off">
+      <input id="prop-val" type="text" placeholder="value" autocomplete="off">
+      <button id="btn-prop-add">Add / override</button>
+    </div>
+
+    <h3>Raw URL override</h3>
+    <p class="hint">Used verbatim when set. Every field above becomes advisory — the escape hatch
+      for a URL shape this panel does not model.</p>
+    <input id="f-url-override" type="text" class="wide" autocomplete="off"
+           placeholder="jdbc:mysql://host:3306/ledgersim?…">
+
+    <h3>Connections</h3>
+    <div class="form-grid">
+      <label>Mode
+        <select id="p-mode">
+          <option value="pooled">Pooled — HikariCP</option>
+          <option value="direct">Direct — a new connection per transaction</option>
+        </select>
+      </label>
+    </div>
+    <p class="hint" id="mode-hint"></p>
+
+    <h3 id="pool-settings-heading">HikariCP pool</h3>
+    <div class="form-grid" id="pool-grid">
+      <label>maximumPoolSize <input id="p-maximumPoolSize" type="number" min="1"></label>
+      <label>minimumIdle <span class="hint">-1 tracks max</span><input id="p-minimumIdle" type="number" min="-1"></label>
+      <label>connectionTimeout ms <input id="p-connectionTimeoutMs" type="number" min="250"></label>
+      <label>idleTimeout ms <input id="p-idleTimeoutMs" type="number" min="0"></label>
+      <label>maxLifetime ms <input id="p-maxLifetimeMs" type="number" min="0"></label>
+      <label>keepaliveTime ms <input id="p-keepaliveTimeMs" type="number" min="0"></label>
+      <label>validationTimeout ms <input id="p-validationTimeoutMs" type="number" min="250"></label>
+      <label>leakDetectionThreshold ms <input id="p-leakDetectionThresholdMs" type="number" min="0"></label>
+      <label>transactionIsolation <select id="p-transactionIsolation"></select></label>
+      <label>connectionInitSql <input id="p-connectionInitSql" type="text" autocomplete="off"></label>
+      <label class="check"><input id="p-autoCommit" type="checkbox"> autoCommit</label>
+      <label class="check"><input id="p-readOnly" type="checkbox"> readOnly</label>
+    </div>
+
+    <div class="controls">
+      <button id="btn-test">Test connection</button>
+      <button id="btn-apply" class="primary">Apply</button>
+      <button id="btn-reset">Reset to detected</button>
+    </div>
+    <pre id="test-result" class="result hidden"></pre>
+  </section>
+
+  <section class="panel">
+    <h2>Connections <span class="tag" id="conn-mode-tag">pooled</span></h2>
+    <div class="stat-grid" id="pool-stats">
+      <div class="stat-tile"><span class="stat-label">active</span><span class="stat-value" id="m-active">—</span></div>
+      <div class="stat-tile"><span class="stat-label">idle</span><span class="stat-value" id="m-idle">—</span></div>
+      <div class="stat-tile"><span class="stat-label">total</span><span class="stat-value" id="m-total">—</span></div>
+      <div class="stat-tile"><span class="stat-label">awaiting</span><span class="stat-value" id="m-awaiting">—</span></div>
+    </div>
+    <div class="stat-grid hidden" id="direct-stats">
+      <div class="stat-tile"><span class="stat-label">opened</span><span class="stat-value" id="m-opened">—</span></div>
+      <div class="stat-tile"><span class="stat-label">connect cost</span><span class="stat-value" id="m-connect">—</span></div>
+      <div class="stat-tile"><span class="stat-label">of each txn</span><span class="stat-value" id="m-connect-share">—</span></div>
+      <div class="stat-tile"><span class="stat-label">failed</span><span class="stat-value" id="m-connect-fail">—</span></div>
+    </div>
+    <p class="hint" id="pool-hint">Threads waiting on a connection is the number to watch: a non-zero
+      <em>awaiting</em> with an idle database means the pool, not the server, is the queue.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Workload</h2>
+    <div class="form-grid">
+      <label>threads <input id="w-threads" type="number" min="1" max="256"></label>
+      <label>rate/s <span class="hint">0 = unthrottled</span><input id="w-ratePerSec" type="number" min="0"></label>
+      <label>isolation <select id="w-isolation"></select></label>
+      <label>lines per order <input id="w-linesPerOrder" type="number" min="1" max="200"></label>
+      <label>revenue shards <span class="hint">1 = every txn on one row</span><input id="w-revenueShards" type="number" min="1" max="8"></label>
+      <label>hot-account share <span class="hint">0–1</span><input id="w-hotAccountShare" type="number" min="0" max="1" step="0.05"></label>
+      <label>hot accounts <input id="w-hotAccountCount" type="number" min="1"></label>
+      <label>deadlock share <span class="hint">0–1, reversed lock order</span><input id="w-deadlockShare" type="number" min="0" max="1" step="0.05"></label>
+      <label>lock wait s <span class="hint">0 = server default</span><input id="w-lockWaitSeconds" type="number" min="0"></label>
+      <label>max retries <input id="w-maxRetries" type="number" min="0" max="20"></label>
+      <label>weight place <input id="w-weightPlace" type="number" min="0"></label>
+      <label>weight settle <input id="w-weightSettle" type="number" min="0"></label>
+      <label>weight refund <input id="w-weightRefund" type="number" min="0"></label>
+      <label>weight read <input id="w-weightRead" type="number" min="0"></label>
+      <label>customers <span class="hint">applies on reseed</span><input id="w-customers" type="number" min="1"></label>
+    </div>
+    <div class="controls">
+      <button id="btn-workload-apply" class="primary">Apply knobs</button>
+      <button id="btn-seed">Reseed accounts</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Throughput <span class="hint">counters restart whenever the connection is re-applied</span></h2>
+    <div class="stat-grid">
+      <div class="stat-tile"><span class="stat-label">commits/s</span><span class="stat-value" id="m-tps">—</span></div>
+      <div class="stat-tile"><span class="stat-label">window</span><span class="stat-value" id="m-window">—</span></div>
+      <div class="stat-tile"><span class="stat-label">p50</span><span class="stat-value" id="m-p50">—</span></div>
+      <div class="stat-tile"><span class="stat-label">p95</span><span class="stat-value" id="m-p95">—</span></div>
+      <div class="stat-tile"><span class="stat-label">p99</span><span class="stat-value" id="m-p99">—</span></div>
+      <div class="stat-tile"><span class="stat-label">deadlocks</span><span class="stat-value" id="m-deadlocks">—</span></div>
+      <div class="stat-tile"><span class="stat-label">lock timeouts</span><span class="stat-value" id="m-locktimeouts">—</span></div>
+      <div class="stat-tile"><span class="stat-label">retries</span><span class="stat-value" id="m-retries">—</span></div>
+      <div class="stat-tile"><span class="stat-label">errors</span><span class="stat-value" id="m-errors">—</span></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Ledger</h2>
+    <div class="stat-grid">
+      <div class="stat-tile"><span class="stat-label">accounts</span><span class="stat-value" id="d-accounts">—</span></div>
+      <div class="stat-tile"><span class="stat-label">orders</span><span class="stat-value" id="d-orders">—</span></div>
+      <div class="stat-tile"><span class="stat-label">order lines</span><span class="stat-value" id="d-lines">—</span></div>
+      <div class="stat-tile"><span class="stat-label">postings</span><span class="stat-value" id="d-entries">—</span></div>
+      <div class="stat-tile"><span class="stat-label">balance check</span><span class="stat-value" id="d-balance">—</span></div>
+    </div>
+    <p class="hint">Every posting is written as a matched debit and credit, so the balance check
+      is zero on a correct ledger. A non-zero total means a transaction was observed half-applied.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Recent failures</h2>
+    <table class="data-table" id="errors-table">
+      <thead><tr><th>when</th><th>op</th><th>SQLState</th><th>vendor</th><th>message</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <p class="hint">SQLState and the vendor code are kept unparaphrased: the same event reads
+      differently through each driver, and that difference is usually the answer.</p>
+  </section>
+
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

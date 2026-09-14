@@ -1063,7 +1063,10 @@ bugs, all fixed by making the provisioner OS-aware:
   (Debian's package config defaults to `127.0.0.1`, which would block the published
   host port and cross-node access) and uses an OS-aware **error-log path**
   (`/var/log/mysql/error.log` on Debian — apparmor only permits `/var/log/mysql`;
-  `pxcLogError`).
+  `pxcLogError`). **Amended by §387:** the ordering still holds, but it is no longer
+  the only defence — the vendor drop-in's copy of every option DBCanvas sets is
+  commented out as well, and the `!include` now goes into every `update-alternatives`
+  candidate for `my.cnf`.
 - **Root password was not applied.** The bootstrap script only handled RHEL's
   *temporary password* logged to the error log. Debian/Ubuntu leaves
   `root@localhost` on **auth_socket** (no password), so that path was skipped and
@@ -23511,3 +23514,263 @@ with it. `gofmt` clean, both smoke suites pass, and the archive Go tests are gre
 **Not verified:** the same path against a capture from a *current* collector, for the reason
 §385 gives — this installation's collector writes the older layout, so the `<container>.log`
 half of the pick is covered by a synthetic archive rather than a real one.
+
+---
+
+## 387. Two node names on one Debian node — `app/pxc.go`, `app/{mysql,mysqlce,innodb}.go`, `app/mysqlcnf_test.go` (new)
+
+`egrep -r wsrep_node_name /etc` on a running Ubuntu PXC node answers twice, and the two
+answers disagree:
+
+```
+/etc/mysql/dbcanvas.cnf:wsrep_node_name=pxc03
+/etc/mysql/mysql.conf.d/mysqld.cnf:wsrep_node_name=pxc-cluster-node-1
+```
+
+**The server was right.** §8 appends `!include /etc/mysql/dbcanvas.cnf` to the end of
+`/etc/mysql/my.cnf`, after the two `!includedir` lines, so DBCanvas's file is read last
+and last wins: on the live ubuntu-22.04 cluster all three nodes report their own
+`wsrep_node_name`, `wsrep_cluster_name=pxc-cluster-00` and a real gcomm list. Nothing was
+actually overridden.
+
+**Being right at runtime is not the same as being right on disk.** What
+`percona-xtradb-cluster-server` ships in `mysql.conf.d/mysqld.cnf` is not a couple of
+paths — it is a complete, wrong *identity*: `server-id=1`, `wsrep_cluster_name=pxc-cluster`,
+`wsrep_node_name=pxc-cluster-node-1`, and `wsrep_cluster_address=gcomm://`. Everything that
+reads the configuration instead of the server — an engineer grepping `/etc`, a config
+collector, `pt-config-diff` — reads that one. And it is one file edit away from being the
+*only* answer: lose the trailing `!include` and every node bootstraps its own single-node
+cluster as server-id 1, silently, which is the exact failure §8 was written to stop.
+
+**So the vendor's copy is now retired rather than out-voted.** `mysqlWriteNodeCnf` (new,
+`app/pxc.go`) is the single path every MySQL-family frame writes its config through — PXC,
+Percona Server replication and standalone, MySQL Community, group replication / InnoDB
+Cluster — replacing five hand-copied versions of the same six lines. On RHEL it writes
+`/etc/my.cnf` and stops. On Debian it writes `/etc/mysql/dbcanvas.cnf`, appends the
+`!include`, and then runs `pxcDebianDisableVendorCnf` over `conf.d/`, `mysql.conf.d/` and
+`percona-xtradb-cluster.conf.d/`, commenting each shadowed line with
+`# dbcanvas: set in /etc/mysql/dbcanvas.cnf -- …`.
+
+**It disables exactly what it replaces, and nothing else.** The key list is not a constant:
+`mysqlCnfOptionKeys` reads it back out of the config that was just written, so a vendor
+default can never be switched off with nothing to take its place. Names match with `-` and
+`_` interchangeable (MySQL treats them as one option) and anchor on the `=`, so `server-id`
+does not swallow `server-id-bits`; keys carrying anything but `[A-Za-z0-9_.-]` are skipped
+rather than interpolated into the `sed` expression. The PXC settings DBCanvas has no opinion
+about — `wsrep_slave_threads=8`, `wsrep_log_conflicts`, `binlog_expire_logs_seconds` — stay.
+Re-running changes nothing, which matters because `runStep` retries.
+
+**`/etc/mysql/my.cnf` is also not a file.** `mysql-common` registers it with
+`update-alternatives` (`my.cnf.fallback` at priority 100, the server package's
+`/etc/mysql/mysql.cnf` at 300), so it is a symlink into `/etc/alternatives` and appending
+through it edits whichever candidate is selected *today*. `pxcDebianIncludeCnf` now writes
+the include into **every** candidate, so removing or downgrading the server package cannot
+quietly take DBCanvas's configuration out of the read path. The old
+`[ -e "$MYCNF" ] || : > "$MYCNF"` is gone too: through a dangling alternatives link that
+would have truncated the target instead of creating the file.
+
+### Verified
+
+Against the live ubuntu-22.04 PXC stack (`pxc01`/`pxc02`/`pxc03`, 8.0). First the premise:
+all three nodes already reported the right `wsrep_node_name`, so the bug as filed was the
+file, not the server. Then the fix on `pxc03` — `my_print_defaults mysqld client` before and
+after resolves, last-wins, to a **byte-identical** effective configuration; the only
+difference in the raw output is the disappearance of the fourteen shadowed duplicates. The
+node was then restarted and came back **Synced** in a 3-member cluster with
+`wsrep_node_name=pxc03`, `server-id=50082766`, `bind-address=0.0.0.0`. Both scripts were
+also run twice against a pristine PXC `/etc/mysql` tree (real `update-alternatives`
+registration) in a throwaway container: the include lands in `mysql.cnf` *and*
+`my.cnf.fallback`, fourteen lines are commented, `server-id-bits=32` and the three
+unopinionated `wsrep_*`/`binlog_*` settings are untouched, and the second pass is a no-op.
+`app/mysqlcnf_test.go` covers the key extraction (sections, comments, a value containing
+`=`, an option in two sections, unsafe names) and asserts that the PXC and replication
+configs really do set every option their vendor drop-in hardcodes. Full `go test ./app`
+failure set is unchanged from `main`.
+
+**Not verified:** Debian proper (only Ubuntu 22.04 was available here) and the MySQL
+Community and group-replication frames on Debian — their vendor drop-in was read out of the
+`.deb` (`pid-file`, `socket`, `datadir`, `log-error` only, all four set by DBCanvas) rather
+than from a deployed node. MariaDB is untouched: it writes a `zz-`-prefixed drop-in into the
+last `includedir` instead of using this path.
+
+---
+
+## 388. Ledger Sim — the simulator for the client half — `ledgersim/` (new), `app/ledgersim.go` (new), `app/ledgersim_test.go` (new), `app/{intranet,api_routes,templates}.go`, `app/web/src/pages/StackDesigner.jsx`, `app/web/src/lib/{help,stackApi}.js`, `images/apps.sh`, `Makefile`, `docs/{STACKS,API_REFERENCE}.md`
+
+Six simulators, and all six answer the same question: what does this database do under
+load. None of them can answer the one a support engineer is actually handed — *it works
+from the CLI but not from the app*. That sentence is almost never about the server. It is
+about which driver, which URL properties, which pool settings, which isolation level; and
+a Go simulator on `database/sql` has none of those facts to get wrong.
+
+**So this one is a JDBC client, and that is the whole design.** An order-and-payment
+ledger — accounts, orders, order lines, and a matched debit and credit for every movement —
+driven over JDBC by a HikariCP pool on Eclipse Temurin. The domain is chosen for what it
+makes observable rather than for novelty: because every posting is double-entry,
+`SUM(amount_minor)` over the ledger is **zero at rest**, so a transaction seen
+half-applied is a number on the dashboard rather than a thing you have to go looking for.
+
+**Three drivers ship, and two of them speak to the same servers.** MySQL Connector/J,
+MariaDB Connector/J and pgJDBC. That is not redundancy — pointing two drivers at one
+server and watching them disagree is the only honest way to separate a driver problem
+from a server problem, so the driver is a per-node choice *and* swappable on the dashboard
+without redeploying. Verified against one Percona Server 8.0.46 with
+`caching_sha2_password`: Connector/J 9.3.0 and MariaDB Connector/J 3.5.3 both
+authenticated, each composing its own URL shape, and the live swap between them kept the
+workload running.
+
+**The URL is composed, shown, and explained.** `JdbcUrl` derives the driver properties
+DBCanvas would set and `JdbcUrl.notes` states, in words, every one that is not a 1:1
+translation — that `allowPublicKeyRetrieval=true` is there so `caching_sha2_password` can
+authenticate over an unencrypted connection (and that dropping it reproduces the failure a
+customer reports); that `targetServerType=primary` is set once several hosts are given,
+because without it pgJDBC may settle on a standby and every write fails read-only; and
+that **MariaDB Connector/J has no opportunistic TLS mode at all**, so `prefer` becomes
+`sslMode=disable` rather than silently forcing TLS on. "Connect over TLS" is one intent
+with three spellings and, between the two MySQL drivers, three different sets of available
+meanings. Getting that wrong is a support case, not a typo.
+
+**Then all of it is editable against the running pool**, which is the half that makes it a
+tool rather than a demo. `PoolManager.apply` builds a candidate, proves it with one real
+connection and one real statement, and only then moves the live reference; the superseded
+pool is closed on a delay so transactions already in flight finish on the connection they
+started on. A configuration that cannot connect is refused with the driver's own SQLState
+and **nothing changes** — verified by applying a wrong password to a pool doing 200k
+commits and watching the count keep climbing while the reply came back `28P01`.
+
+**Two bugs the live run found, both worth recording.** HikariCP signals a failed pool
+start with `PoolInitializationException`, a *RuntimeException* — so the first wrong
+password produced an empty response and a `fetch()` that rejected with nothing to show.
+`PoolManager` now unwraps it to the `SQLException` underneath (which is where the SQLState
+lives), and every handler is wrapped so an unchecked exception is a 500 with a body rather
+than a closed connection. Separately, metrics were being reset on an engine change (a new
+`Workload`) but *not* on a driver swap — which would have blended two drivers into one
+histogram, in the one comparison this node exists to make. Every successful
+reconfiguration now starts a fresh window, and the window is on the panel.
+
+**And one gap the end-to-end deploy found.** A JDBC URL names a database that must already
+exist; linked to a Patroni cluster the node sat in a retry loop on
+`FATAL: database "ledgersim" does not exist`. `Bootstrap` now connects to a database that
+always exists (`postgres`, or none on MySQL) and creates the real one first, best-effort —
+a user without the privilege gets the real connection error, which is the more useful one,
+and a node pointed at an existing database is never blocked by a privilege it does not need.
+
+**Linked-mode resolution is stocksim's, not a second copy of it.** `waitStockSimTarget`
+already resolves every standalone node, cluster frame, router and Kubernetes operator down
+to a host, a port and credentials; `ledgerSimLinkedEnv` translates that result into JDBC
+environment and nothing else. So this node reaches everything the Stock Market Sim
+reaches, minus the two engines JDBC has no business speaking to — and a link to one of
+those is refused, on the canvas and again at deploy, with a sentence naming the sim that
+*can* do it rather than a missing-driver stack trace.
+
+### Licensing, because it decided the design
+
+DBCanvas is **GPL-3.0-only**, and for a Java image that is a constraint, not a footnote:
+
+- **Eclipse Temurin, never Oracle JDK.** Temurin is GPL-2.0 **WITH Classpath-exception-2.0**,
+  and the exception is exactly what lets a GPLv3 program link the class library. Oracle's
+  NFTC permits redistribution only when no fee is charged — a further restriction on a
+  downstream recipient, which GPLv3 §10 does not allow us to impose, on a binary we would
+  be shipping inside the image.
+- **MySQL Connector/J is GPL-2.0-only**, which alone is *incompatible* with GPLv3. It is
+  usable here through Oracle's **Universal FOSS Exception 1.0**, and that is written down
+  in `ledgersim/NOTICE`, in `ledgerSimDriverLicenses`, in the node panel, and pinned by a
+  test — because it is precisely the kind of fact that gets lost. **MariaDB Connector/J**
+  (LGPL-2.1-**or-later**, so usable as LGPL-3.0) is the route to the same servers for
+  anyone who would rather not rely on that exception.
+- **slf4j-simple (MIT), not Logback.** Logback is EPL-1.0/LGPL-2.1 dual, and EPL-1.0 is
+  GPL-incompatible — the easiest accidental violation available to a Java project, so the
+  `pom.xml` header says so where someone adding a logger would read it.
+- pgJDBC is BSD-2-Clause; HikariCP and Jackson are Apache-2.0. The HTTP server is the
+  JDK's own `com.sun.net.httpserver`: six routes do not need a framework, and it is one
+  fewer dependency to audit.
+
+### Verified
+
+End to end through DBCanvas itself, on a rebuilt app, against the live `postgres` stack: a
+Ledger Sim node added to the design, linked to the **Patroni cluster frame**, validated
+(`All checks passed`), deployed, and up — `jdbc:postgresql://patroni01.example.net:5432/ledgersim?sslmode=prefer&ApplicationName=ledgersim`,
+pool at the configured max of 12 with 6 workers, `TRANSACTION_READ_COMMITTED` and 4 revenue
+shards as set on the canvas, 40,198 commits, **18 real deadlocks all recovered by retry**,
+zero unrecovered errors, and the balance check at zero. No credential reached the
+non-secret config the node panel renders. Before that, directly: Percona Server 18.6
+PostgreSQL and Percona Server 8.0.46 MySQL, both MySQL drivers, the live
+engine-*and*-driver switch from PostgreSQL/pgJDBC to MySQL/Connector-J (schema created,
+seeded, workload resumed, balance still zero), the refusal paths (wrong password →
+`28P01` with the pool untouched; `pgjdbc` asked to speak MySQL → rejected by name), and
+`-testconn` / `-healthcheck` in both directions. `gofmt` clean, `go vet` clean, the new Go
+tests pass, the frontend builds and both smoke suites pass, and the full `go test ./app`
+failure set is unchanged from `main`. The test node, its containers and its databases were
+removed afterwards.
+
+**Not verified:** a MySQL-family *linked* target (the PXC stack on this host had been
+destroyed by the time the Go side existed, so the MySQL half was exercised against a
+standalone Percona Server container rather than through `waitStockSimTarget`); a
+Kubernetes frame target; and the dashboard in a browser — its render path was exercised
+through the API it polls, not by loading the page.
+
+---
+
+## 389. Ledger Sim can run with no pool, which is what makes the pool measurable — `ledgersim/src/main/java/dev/dbcanvas/ledgersim/conn/{PoolSpec,PoolManager}.java`, `ledgersim/src/main/java/dev/dbcanvas/ledgersim/{Main,LedgerApp}.java`, `ledgersim/src/main/java/dev/dbcanvas/ledgersim/http/Api.java`, `ledgersim/src/main/resources/web/{index.html,app.js}`, `app/{ledgersim,intranet}.go`, `app/ledgersim_test.go`, `app/web/src/pages/StackDesigner.jsx`, `app/web/src/lib/help.js`, `docs/STACKS.md`
+
+"What if I don't want to use the pool." A fair question with an awkward answer: HikariCP is
+not a switch, it is the code path — you get a connection from it or you do not — so §388
+shipped a node that could only demonstrate one half of its own subject. The un-pooled path
+existed in the image but only on the Test-connection probe, where it does one connection
+and exits.
+
+**So direct is now a mode of the workload, and deliberately not a degraded one.** Plenty of
+real applications connect this way on purpose or by architecture — short-lived CLI jobs,
+cron, the classic PHP request model, most serverless handlers — and the only way to make
+"use a connection pool" an engineering claim rather than a slogan is to run the *identical*
+workload both ways against the *same* server and read the difference off. `PoolSpec.mode`
+is `pooled` or `direct`; `PoolManager.connection()` branches on it, and in direct mode
+`close()` genuinely closes, because that is the behaviour being measured.
+
+**The numbers, from switching one running sim live** (Percona Server 8.0.46, 8 workers,
+30s each way):
+
+| | transactions | connections opened | p50 | connect cost |
+| --- | --- | --- | --- | --- |
+| pooled (max 10) | 23,365 | **1** | 8.19 ms | — |
+| direct | 6,097 | **6,091** | 65.54 ms | 26.75 ms |
+
+3.8× the throughput, and the connect is ~40% of every transaction in direct mode. That is
+the pool, stated as a measurement.
+
+**What the panel shows had to change with it**, because the two modes have genuinely
+different things to say. Pooled reports what the pool is holding — active, idle, total,
+awaiting. Direct has no pool to ask, so it reports what the mode costs: connections opened,
+average connect time, and **its share of each transaction**, which is the number that makes
+the comparison land. There is deliberately no active/idle in direct mode: counting in-flight
+connections would mean wrapping every `Connection` to intercept `close()`, and a reflection
+proxy on the hot path would tax precisely the latency the two modes are being compared on. A
+number that distorts the measurement is worse than no number, and the code says so.
+
+**Two things the canvas now refuses to let happen quietly.** An unrecognised mode is an
+error rather than a fallback — a typo that silently ran the other experiment would make
+every figure on the dashboard mean something else. And a direct-mode node warns before
+deploy when its worker count is high, because with no pool the worker count *is* the
+connection count, and against a server with a modest `max_connections` that is an outage
+rather than a slow benchmark. The "workers will queue on a smaller pool" note is
+correspondingly suppressed in direct mode, where there is no pool to queue on.
+
+### Verified
+
+Both directions on one running sim without redeploying (generation 1 → 2 → 3), and from a
+cold start with `POOL_MODE=direct`: the startup line reads
+`connections: DIRECT, one per transaction`, the config and runtime modes agree, 2,130
+connections opened for 2,126 commits — one per transaction, as intended — zero errors, and
+the double-entry balance check still zero. The A/B figures above are from the live switch.
+New Go tests cover the mode normalisation, the validation error, the `max_connections`
+warning and the suppression of the pool-size advice; all 14 Ledger Sim tests pass, `gofmt`
+and `go vet` are clean, and the frontend builds.
+
+**Not verified:** direct mode through a *deployed* canvas node — the mode was exercised
+through the image (both from the environment and through the apply endpoint) rather than by
+deploying a second node with the box ticked. Also worth noting: `app/web` has a **pre-existing
+flaky smoke check** unrelated to any of this — `api page: expiry is described in the units
+that matter` builds a token expiring in exactly 30 days and asserts "30 days left", which
+rounds to 29 whenever the render lands a moment later. It failed once in three runs on a
+clean tree as well.
+

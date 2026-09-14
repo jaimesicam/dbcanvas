@@ -30,7 +30,7 @@ longer one.
 
 **Building** · [Stacks](#stacks) · [Templates](#templates) · [Nodes](#nodes) · [Clusters & backups](#clusters--backups) · [Version catalogues](#version-catalogues) · [Kubernetes frames](#kubernetes-frames) · [All in One](#all-in-one)
 
-**Running load** · [Data Generator](#data-generator) · [Query Runner](#query-runner) · [Benchmark](#benchmark) · [Stock Market Sim](#stock-market-sim)
+**Running load** · [Data Generator](#data-generator) · [Query Runner](#query-runner) · [Benchmark](#benchmark) · [Stock Market Sim](#stock-market-sim) · [Ledger Sim](#ledger-sim)
 
 **Finding out what happened** · [Packet Inspector](#packet-inspector) · [Log Summary](#log-summary) · [FTDC Summary](#ftdc-summary) · [Stalk Summary](#stalk-summary) · [Diagnostic captures](#diagnostic-captures) · [Operator Debugger](#operator-debugger) · [Core Dump Analyzer](#core-dump-analyzer)
 
@@ -773,6 +773,27 @@ canvas cannot guess:
 | To do this | API | CLI |
 | --- | --- | --- |
 | Test a hand-entered database connection from inside the stack network | `POST …/nodes/{nid}/stocksim/test` | `dbcanvas api POST …/stocksim/test --data '{…}'` |
+
+## Ledger Sim
+
+The JDBC simulator. Like the Stock Market Sim it is configured by deploying and linking
+it, and for the same reason has exactly one endpoint — but the check is a JDBC one, so
+it also takes the **driver**, and answers with that driver's own version string and
+`SQLState`:
+
+| To do this | API | CLI |
+| --- | --- | --- |
+| Test a hand-entered JDBC connection, with the chosen driver, from inside the stack network | `POST …/nodes/{nid}/ledgersim/test` | `dbcanvas api POST …/ledgersim/test --data '{…}'` |
+
+The answer comes from the sim image itself, run once in a throwaway container: the
+drivers, the URL composition and the per-driver TLS mapping all live there, and a
+reimplementation in the server would be answering a different question.
+
+Everything else about a deployed Ledger Sim node — its JDBC URL, the driver, the
+HikariCP settings and the workload knobs — is changed on **its own dashboard**, which
+applies to the running pool rather than needing a redeploy. That is a deliberate split:
+the canvas decides where a node starts, and the dashboard is where the client-side
+experiment happens.
 
 ---
 

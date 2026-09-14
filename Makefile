@@ -11,7 +11,7 @@ VERSION ?= $(shell cat VERSION 2>/dev/null || echo dev)
 # app/clidownload.go, which is what the API page offers for download.
 CLI_PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 
-.PHONY: install install-extras compose env build up down logs restart clean images extra-images versions smoke cli cli-test trafficsim-image hotelsim-image airlinesim-image carsim-image marketchaos-image stocksim-image intranet-image vnc-image
+.PHONY: install install-extras compose env build up down logs restart clean images extra-images versions smoke cli cli-test trafficsim-image hotelsim-image airlinesim-image carsim-image marketchaos-image stocksim-image ledgersim-image intranet-image vnc-image
 
 ## install: everything a first run needs — every image DBCanvas can build (the OS
 ## bases and the Intranet, then the optional ones on top: the VNC desktop, the K3D
@@ -244,3 +244,10 @@ marketchaos-image:
 ## can also be pointed at a database outside the stack entirely.
 stocksim-image:
 	bash images/apps.sh stocksim
+
+## ledgersim-image: build the Ledger Sim demo app image — the JDBC one. A shaded
+## jar (HikariCP + MySQL Connector/J + MariaDB Connector/J + pgJDBC) on an Eclipse
+## Temurin JRE, not a Go binary, so this target is the slow one and needs Maven
+## Central rather than the Go proxy. A Ledger Sim node needs this image.
+ledgersim-image:
+	bash images/apps.sh ledgersim

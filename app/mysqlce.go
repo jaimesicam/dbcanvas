@@ -527,17 +527,7 @@ func (a *App) mysqlcePrepareNode(ctx context.Context, st Stack, frame designFram
 	if err := a.mysqlceInstall(ctx, frame, id, false, false, pr); err != nil {
 		return err
 	}
-	cnf := mysqlMyCnf(frame, host)
-	dir, base := pxcCnfDir(frame.OS)
-	if err := a.engCtx(ctx).CopyFile(ctx, id, dir, base, 0o644, []byte(cnf)); err != nil {
-		return pr.fail("write %s: %v", pxcCnfPath(frame.OS), err)
-	}
-	if isDebianOS(frame.OS) {
-		if err := a.runStep(ctx, id, pxcDebianIncludeCnf, nil, pr.logln); err != nil {
-			return pr.fail("include my.cnf: %v", err)
-		}
-	}
-	return nil
+	return a.mysqlWriteNodeCnf(ctx, id, frame.OS, mysqlMyCnf(frame, host), pr)
 }
 
 // mysqlceInnoDBPrepareNode is the InnoDB/GR counterpart: it additionally installs
@@ -562,15 +552,8 @@ func (a *App) mysqlceInnoDBPrepareNode(ctx context.Context, st Stack, frame desi
 	if err := a.mysqlceInstall(ctx, frame, id, mode == "innodbcluster", frame.MySQLRouter, pr); err != nil {
 		return err
 	}
-	cnf := innodbMyCnf(frame, host, domain, groupName, seedList, mode)
-	dir, base := pxcCnfDir(frame.OS)
-	if err := a.engCtx(ctx).CopyFile(ctx, id, dir, base, 0o644, []byte(cnf)); err != nil {
-		return pr.fail("write %s: %v", pxcCnfPath(frame.OS), err)
-	}
-	if isDebianOS(frame.OS) {
-		if err := a.runStep(ctx, id, pxcDebianIncludeCnf, nil, pr.logln); err != nil {
-			return pr.fail("include my.cnf: %v", err)
-		}
+	if err := a.mysqlWriteNodeCnf(ctx, id, frame.OS, innodbMyCnf(frame, host, domain, groupName, seedList, mode), pr); err != nil {
+		return err
 	}
 	major := mysqlceMajorOf(frame.MySQLCEMajor)
 	pr.phase("Initializing MySQL", 55)

@@ -242,6 +242,67 @@ type designNode struct {
 	// them in rotation, which is what makes table_open_cache misses measurable.
 	// SSTempTables is "off" | "memory" | "disk" and runs an intraday rollup
 	// shaped to build a large intermediate result, forced either way.
+	// ---- Ledger Sim (Type=="ledgersim") ----
+	//
+	// The JDBC sibling of the Stock Market Sim above. Same two connection modes
+	// ("linked" resolves a drawn line, "manual" takes what is typed here and may
+	// point outside the stack), but the fields below describe a *JDBC client*
+	// rather than a database endpoint, because that is what this node exists to
+	// vary. See app/ledgersim.go.
+	//
+	// LSDriver is the one that matters: MySQL Connector/J and MariaDB
+	// Connector/J both speak to the MySQL family, and pointing each at one
+	// server in turn is how a driver problem is told apart from a server
+	// problem. LSJdbcURL is the escape hatch — handed to the driver verbatim and
+	// beating every other field — and it applies in linked mode too, which is
+	// how a node linked to a cluster can be aimed at one member of it.
+	// LSPassword is stored the way RootPassword and SSPassword already are;
+	// provisionLedgerSim moves it into the deployment's secrets so it never
+	// reaches the non-secret config the node panel renders.
+	LSMode     string `json:"lsMode"`   // "" | "linked" | "manual"
+	LSEngine   string `json:"lsEngine"` // "mysql" | "postgres" — JDBC has no business with the other two
+	LSDriver   string `json:"lsDriver"` // "mysql-connector-j" | "mariadb-connector-j" | "pgjdbc"
+	LSHost     string `json:"lsHost"`
+	LSPort     int    `json:"lsPort"` // 0 → the engine default (3306/5432)
+	LSUser     string `json:"lsUser"`
+	LSPassword string `json:"lsPassword"`
+	LSDatabase string `json:"lsDatabase"` // "" → "ledgersim"
+	LSTLS      string `json:"lsTLS"`      // "disable" | "prefer" | "require", mapped per driver
+	LSParams   string `json:"lsParams"`   // extra driver properties, "a=1&b=2", appended verbatim
+	LSJdbcURL  string `json:"lsJdbcUrl"`  // full JDBC URL override
+	LSLabel    string `json:"lsLabel"`    // display name for the dashboard header
+	// The client-side knobs. LSPoolMax is HikariCP's maximumPoolSize and
+	// LSThreads the worker count: a pool smaller than the worker count is a
+	// queue, which is a legitimate thing to demonstrate and a confusing thing to
+	// hit by accident, so ledgerSimIssues says so rather than correcting it.
+	// LSIsolation is a java.sql.Connection constant name, blank for the driver's
+	// own default — which is itself worth being able to choose, since MySQL and
+	// PostgreSQL do not agree on it.
+	// LSPoolMode is "pooled" (HikariCP, the default) or "direct" — a fresh
+	// connection per transaction, closed after it. Direct is not a degraded
+	// setting but the other half of the comparison: plenty of real applications
+	// connect that way (short-lived jobs, the classic PHP request model, most
+	// serverless handlers), and running the identical workload both ways against
+	// one server is what turns "use a connection pool" into a measurement.
+	LSPoolMode  string `json:"lsPoolMode"`
+	LSThreads   int    `json:"lsThreads"`
+	LSPoolMax   int    `json:"lsPoolMax"`
+	LSIsolation string `json:"lsIsolation"`
+	LSCustomers int    `json:"lsCustomers"`
+	// LSRevenueShards is the contention knob: every order credits one of these
+	// accounts, so 1 serialises every transaction in the system on a single row
+	// and 8 spreads it. LSDeadlockShare is the share of transactions that take
+	// their two row locks in the opposite order, which produces real
+	// engine-detected deadlocks rather than a description of them. LSHotShare
+	// aims that share of traffic at a handful of accounts.
+	LSRevenueShards int     `json:"lsRevenueShards"`
+	LSDeadlockShare float64 `json:"lsDeadlockShare"`
+	LSHotShare      float64 `json:"lsHotShare"`
+	// LSStartPaused deploys the node without starting the workload, for when the
+	// point is to configure the connection first and watch what the first
+	// transactions do.
+	LSStartPaused bool `json:"lsStartPaused"`
+
 	SSIdleTxn     string `json:"ssIdleTxn"`
 	SSExtraTables int    `json:"ssExtraTables"`
 	SSTempTables  string `json:"ssTempTables"`
@@ -1233,6 +1294,13 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 				out = append(out, stockSimLoadIssues(n, engine)...)
 				out = append(out, stockSimLabIssues(n, engine)...)
 			}
+		case "ledgersim":
+			// Two shapes rather than stocksim's three — an All in One instance is
+			// reached the same way any other host is, so it needs no third mode.
+			// The engine is resolved inside ledgerSimIssues because in linked mode
+			// it belongs to the node on the other end of the line, and JDBC cannot
+			// speak to two of the engines that line may land on.
+			out = append(out, ledgerSimIssues(doc, n)...)
 		default:
 			others++
 		}
@@ -2025,6 +2093,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionMarketChaos(st, n, doc)
 		case "stocksim":
 			a.provisionStockSim(st, n, doc)
+		case "ledgersim":
+			a.provisionLedgerSim(st, n, doc)
 		case "aio":
 			a.provisionAIO(st, n, doc)
 		}

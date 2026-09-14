@@ -193,6 +193,65 @@ the DBCanvas source, so they need a checkout and `make <name>-image`.
   schema; on Valkey there is no size target and no working set, because its tick history is a
   length-capped stream that writing to does not enlarge and that holds no cold data to read.
   This one is a working application rather than a tuning puzzle: it has CRUD and a report.
+- **Ledger Sim** — the same idea one layer up: not "what does this database do under load", but
+  **how the application is connected to it**. An order-and-payment ledger — accounts, orders,
+  order lines and a real double-entry posting for every movement — driven over **JDBC** by a
+  **HikariCP** pool, on a JVM (Eclipse Temurin) rather than a Go binary. It exists because
+  "it works from the CLI but not from the app" is nearly always a *client* fact, and none of
+  those facts exist in the other simulators.
+  The image ships **three drivers** — **MySQL Connector/J**, **MariaDB Connector/J** and
+  **pgJDBC** — and both MySQL ones speak to the same servers, which is the point: pointing each
+  at one server in turn is the only honest way to tell a driver problem from a server problem.
+  The driver is a per-node choice *and* can be swapped on the dashboard while the workload runs.
+  DBCanvas detects the target the usual two ways — a drawn line to any MySQL-family or PostgreSQL
+  node, cluster frame, router or Kubernetes frame, or a **manual connection** to a database
+  outside the stack, with the same **Test connection** button — and the sim composes the JDBC URL
+  from what it was given. The dashboard then shows **that URL**, every driver property it derived
+  and **why** (`allowPublicKeyRetrieval=true` so `caching_sha2_password` can authenticate without
+  TLS; `targetServerType=primary` when several hosts were given, or pgJDBC may settle on a standby
+  and every write fails read-only; and the fact that MariaDB Connector/J has **no** opportunistic
+  TLS mode, so `prefer` becomes `sslMode=disable` rather than silently forcing TLS on), and lets
+  every part of it be edited and re-applied against the live pool — host list, database, TLS,
+  individual properties, or the whole URL verbatim. A configuration that cannot connect is
+  **refused with the driver's own SQLState and nothing changes**; the pool that was working is
+  still working. Every successful change starts a fresh measurement window, so "swap the driver
+  and compare p95" is a real comparison rather than two drivers blended into one histogram.
+  **Or no pool at all.** A node can be set to **direct** mode — a fresh connection per
+  transaction, opened and closed around it — which is how a great many real applications
+  connect, from cron jobs and short-lived CLI tools to the classic PHP request model and most
+  serverless handlers. It is not a degraded setting but the other half of the experiment: the
+  same workload, the same server, switchable on the dashboard without redeploying, so "use a
+  connection pool" becomes a number instead of advice. Measured on a lab Percona Server
+  8.0.46, 8 workers, switched live: **pooled did 23,365 transactions in 30s opening one
+  connection** (p50 8.19 ms); **direct did 6,097 opening 6,091** (p50 65.54 ms, of which
+  26.75 ms was the connect itself — about 40% of every transaction spent on TCP, TLS,
+  authentication and session setup). In direct mode the pool panel shows what that mode
+  costs instead of what a pool holds: connections opened, average connect time, and its share
+  of each transaction. The pool settings are greyed out and labelled as inert, because they
+  are. The designer also warns before deploy if a direct-mode node has enough workers to
+  threaten the server's `max_connections`, since with no pool the worker count *is* the
+  connection count.
+  The **HikariCP** settings are first-class and equally live — `maximumPoolSize`, `minimumIdle`,
+  `connectionTimeout`, `idleTimeout`, `maxLifetime`, `keepaliveTime`, `leakDetectionThreshold`,
+  `autoCommit`, `readOnly`, `connectionInitSql` and the pool's transaction isolation — because
+  pool misconfiguration is one of the most common things behind "the database is slow" that turns
+  out not to be the database. The pool panel shows active, idle, total and **threads awaiting a
+  connection**, which is the number that distinguishes a slow server from a queue in front of a
+  fast one. On the workload side: the **isolation level** (blank means the driver default, which
+  MySQL and PostgreSQL do not agree on), **revenue shards** — every order credits one of these
+  accounts, so 1 serialises every transaction in the system on a single row and 8 spreads it — a
+  **hot-account share**, and a **deadlock share** that makes that fraction of transactions take
+  their two row locks in the opposite order, producing real engine-detected deadlocks rather than
+  a description of them. Deadlocks, lock timeouts, retries and errors are counted separately, so
+  you can see how much of the throughput is real work and how much is the same work done again,
+  and recent failures are listed with their **SQLState and vendor code unparaphrased** — the same
+  event reads differently through each driver, and that difference is usually the answer. Because
+  every posting is a matched debit and credit, the dashboard's **balance check** is zero on a
+  correct ledger: a non-zero total means a transaction was observed half-applied.
+  JDBC is the limit of it — there is no driver here for MongoDB or Valkey, and a line drawn to one
+  is refused with a sentence pointing at the Stock Market Sim instead. Needs
+  `make ledgersim-image`, which is the slow one: it builds a shaded jar from Maven Central rather
+  than a Go binary.
 - **All in One** — one container running **many** database instances side by side, instead of
   one product per node. Add features to it from a menu (Percona Server, PS replication, InnoDB
   Cluster / Group Replication, PXC, PostgreSQL, repmgr, Patroni, Spock, PSMDB standalone /

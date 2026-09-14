@@ -125,6 +125,7 @@ export const stackApi = {
   // deploying with it. Returns { ok, message } — message is the sim binary's
   // own one-line verdict, shown to the user verbatim.
   stocksimTest: (id, nid, conn) => request('POST', `/api/stacks/${id}/nodes/${nid}/stocksim/test`, conn),
+  ledgersimTest: (id, nid, conn) => request('POST', `/api/stacks/${id}/nodes/${nid}/ledgersim/test`, conn),
   pmmCatalog: () => request('GET', '/api/catalog/pmm'),
   pxcCatalog: () => request('GET', '/api/catalog/pxc'),
   proxysqlCatalog: () => request('GET', '/api/catalog/proxysql'),

@@ -1,0 +1,42 @@
+Ledger Sim — part of DBCanvas
+Copyright (C) 2026 the DBCanvas authors
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License, version 3, as published by the
+Free Software Foundation. See the LICENSE file at the root of the DBCanvas
+repository for the full text.
+
+--------------------------------------------------------------------------
+Third-party components distributed in this image
+--------------------------------------------------------------------------
+
+Eclipse Temurin (OpenJDK) — the JRE this program runs on
+    GPL-2.0-only WITH Classpath-exception-2.0
+    https://openjdk.org/legal/gplv2+ce.html
+    The Classpath Exception is what permits this GPLv3 program to link against
+    the class library without the GPLv2 propagating to it.
+
+    NOTE: Oracle JDK is deliberately NOT used. It is distributed under the
+    Oracle No-Fee Terms and Conditions, which permit redistribution only when
+    no fee is charged. That is a further restriction on a downstream
+    recipient's rights, which GPLv3 section 10 does not permit us to impose.
+
+HikariCP                    Apache-2.0
+MySQL Connector/J           GPL-2.0-only WITH Universal-FOSS-Exception-1.0
+    https://oss.oracle.com/licenses/universal-foss-exception/
+    GPLv2-only and GPLv3 are not compatible on their own. The Universal FOSS
+    Exception is the grant that permits this driver to be used and distributed
+    as part of a larger work under another OSI-approved/FSF-free licence,
+    which GPL-3.0-only is.
+MariaDB Connector/J         LGPL-2.1-or-later
+    Taken under the "or later" option as LGPL-3.0, which is GPLv3-compatible.
+    Speaks MySQL 8+ including caching_sha2_password, so it is the driver to
+    reach for if the Universal FOSS Exception is not a route you want to rely on.
+pgJDBC (org.postgresql)     BSD-2-Clause
+SLF4J API + slf4j-simple    MIT
+    slf4j-simple, not Logback: Logback is EPL-1.0/LGPL-2.1 dual-licensed and
+    EPL-1.0 is GPL-incompatible.
+Jackson Databind            Apache-2.0
+
+Each dependency's own licence text is preserved inside its jar and in the
+META-INF of the shaded artifact.

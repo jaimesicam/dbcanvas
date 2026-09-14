@@ -57,6 +57,7 @@ var templateSecretKeys = map[string]bool{
 	"vncPassword":   true, // Ubuntu VNC desktop
 	"secretKey":     true, // SeaweedFS S3 AWS_SECRET_ACCESS_KEY
 	"ssPassword":    true, // Stock Market Sim, manual connection mode
+	"lsPassword":    true, // Ledger Sim, manual connection mode
 	"ssDSN":         true, // …and its raw-DSN override, which embeds one
 }
 

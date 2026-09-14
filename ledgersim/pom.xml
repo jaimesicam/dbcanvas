@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Ledger Sim — DBCanvas's JDBC/HikariCP application simulator.
+
+  Dependency licences are load-bearing here: DBCanvas is GPL-3.0-only, so every
+  jar that ends up in the shaded artifact has to be combinable with GPLv3. See
+  NOTICE for the per-artifact record. Two rules follow from that and must not be
+  quietly broken by a later "just add a library":
+
+    - No EPL. In particular NOT Logback (EPL-1.0 / LGPL-2.1 dual) — EPL-1.0 is
+      GPL-incompatible. slf4j-simple (MIT) is the binding, deliberately.
+    - No Oracle JDK. The runtime image is Eclipse Temurin (GPL-2.0 WITH
+      Classpath-exception-2.0); Oracle's NFTC restricts redistribution to
+      no-fee, which GPLv3 §10 does not allow us to pass downstream.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>dev.dbcanvas</groupId>
+  <artifactId>ledgersim</artifactId>
+  <version>1.0.0</version>
+  <packaging>jar</packaging>
+  <name>Ledger Sim</name>
+  <licenses>
+    <license>
+      <name>GNU General Public License v3.0 only</name>
+      <url>https://www.gnu.org/licenses/gpl-3.0.txt</url>
+    </license>
+  </licenses>
+
+  <properties>
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <hikaricp.version>6.3.0</hikaricp.version>
+    <mysql.version>9.3.0</mysql.version>
+    <mariadb.version>3.5.3</mariadb.version>
+    <pgjdbc.version>42.7.7</pgjdbc.version>
+    <slf4j.version>2.0.17</slf4j.version>
+    <jackson.version>2.19.0</jackson.version>
+  </properties>
+
+  <dependencies>
+    <!-- Apache-2.0 -->
+    <dependency>
+      <groupId>com.zaxxer</groupId>
+      <artifactId>HikariCP</artifactId>
+      <version>${hikaricp.version}</version>
+    </dependency>
+
+    <!-- GPL-2.0 WITH Universal-FOSS-Exception-1.0 — the exception is what makes
+         this combinable with GPLv3; see NOTICE. -->
+    <dependency>
+      <groupId>com.mysql</groupId>
+      <artifactId>mysql-connector-j</artifactId>
+      <version>${mysql.version}</version>
+    </dependency>
+
+    <!-- LGPL-2.1-or-later (usable as LGPL-3.0, hence GPLv3-compatible) -->
+    <dependency>
+      <groupId>org.mariadb.jdbc</groupId>
+      <artifactId>mariadb-java-client</artifactId>
+      <version>${mariadb.version}</version>
+    </dependency>
+
+    <!-- BSD-2-Clause -->
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <version>${pgjdbc.version}</version>
+    </dependency>
+
+    <!-- MIT. slf4j-simple, NOT logback — see the header. -->
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+      <version>${slf4j.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-simple</artifactId>
+      <version>${slf4j.version}</version>
+    </dependency>
+
+    <!-- Apache-2.0 -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>${jackson.version}</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <finalName>ledgersim</finalName>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>3.6.0</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals><goal>shade</goal></goals>
+            <configuration>
+              <createDependencyReducedPom>false</createDependencyReducedPom>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                  <mainClass>dev.dbcanvas.ledgersim.Main</mainClass>
+                </transformer>
+                <!-- The drivers register themselves through META-INF/services;
+                     without this the shaded jar keeps only the last one and
+                     DriverManager then cannot see the other two. -->
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheNoticeResourceTransformer"/>
+              </transformers>
+              <filters>
+                <filter>
+                  <artifact>*:*</artifact>
+                  <excludes>
+                    <exclude>META-INF/*.SF</exclude>
+                    <exclude>META-INF/*.DSA</exclude>
+                    <exclude>META-INF/*.RSA</exclude>
+                    <exclude>module-info.class</exclude>
+                  </excludes>
+                </filter>
+              </filters>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

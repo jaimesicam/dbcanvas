@@ -9,9 +9,13 @@
 #   dbcanvas-carsim:latest         PostgreSQL Car Rental Lab
 #   dbcanvas-marketchaos:latest    "Unoptimized MySQL Challenge" stock exchange
 #   dbcanvas-stocksim:latest       Stock Market Sim (CRUD + reports)
+#   dbcanvas-ledgersim:latest      Ledger Sim (JDBC + HikariCP)
 #
-# Each is a Go binary with its frontend embedded — no systemd, no OS matrix, one tag
-# apiece — which is why they are not in versions.yaml and not built per OS. A node of
+# Each is a single-binary service with its frontend embedded — no systemd, no OS
+# matrix, one tag apiece — which is why they are not in versions.yaml and not built
+# per OS. Ledger Sim is the one that is not a Go binary: it is a shaded jar on an
+# Eclipse Temurin JRE, because JDBC and HikariCP are the whole point of it. Its
+# build is therefore slower and pulls from Maven Central rather than the Go proxy. A node of
 # one of these types refuses to deploy without its image (see app/trafficsim.go and
 # friends), so they are built by `make images` along with everything else a node needs.
 #
@@ -29,7 +33,7 @@ ROOT="$(cd "$IMAGES_DIR/.." && pwd)"
 PLATFORM="$(resolve_platform "$ROOT")" || exit 1
 
 # name → build context, in the order they are built.
-APPS=(trafficsim hotelsim airlinesim carsim marketchaos stocksim)
+APPS=(trafficsim hotelsim airlinesim carsim marketchaos stocksim ledgersim)
 
 declare -a BUILT=() FAILED=()
 
