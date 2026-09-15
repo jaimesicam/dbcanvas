@@ -425,6 +425,16 @@ export function k3dApi(id, fid) {
     object: (kind, namespace, name) => request('GET',
       `${base}/object?kind=${encodeURIComponent(kind)}&namespace=${encodeURIComponent(namespace)}&name=${encodeURIComponent(name)}`),
     objectPatch: (body) => request('POST', `${base}/object`, body),
+    // Logical replicas of a Percona PostgreSQL cluster (app/k3dlogrepl.go). `logicalReplicas` is
+    // read-only and safe to poll. The three mutating calls all rewrite spec.logicalReplicas: a
+    // replica cannot be edited in place, so the only verbs are add, reseed and remove — and
+    // remove always destroys the replica's volume.
+    logicalReplicas: () => request('GET', `${base}/logicalreplicas`),
+    logicalReplicaAdd: (body) => request('POST', `${base}/logicalreplicas`, body),
+    logicalReplicaRemove: (name) => request('POST', `${base}/logicalreplicas/remove`, { name }),
+    logicalReplicaReseed: (name) => request('POST', `${base}/logicalreplicas/reseed`, { name }),
+    logicalReplicaBootstrapLog: (name) => request('GET',
+      `${base}/logicalreplicas/bootstraplog?name=${encodeURIComponent(name)}`),
     // Backups and restores (app/k3dbackup.go). `backups` lists both tables and the store they go
     // to; the mutating calls each apply one custom resource and archive the manifest they applied
     // under the operator's deploy/backup, and hand that manifest back so the panel can show what

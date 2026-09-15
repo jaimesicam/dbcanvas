@@ -562,6 +562,34 @@ type designFrame struct {
 	// sidecar to every instance pod. Off by default — it is four more containers.
 	K3DPGOMonitoring  bool   `json:"k3dPgoMonitoring"`
 	K3DPGOPromVersion string `json:"k3dPgoPromVersion"` // kube-prometheus-stack chart version; "" → latest
+	// Percona Operator for PostgreSQL 3.1.0 and newer (K3DOperator=="pg"). All three are spec
+	// sections the CRD simply did not have before 3.1.0, so an older operator rejects the whole
+	// cr.yaml rather than ignoring them — hence the hard version gate in k3dPGFeatureIssues.
+	//
+	// Logical replicas are spec.logicalReplicas: read-only replicas fed by logical replication
+	// rather than by Patroni's streaming, each its own pod and PVC. 0 = none.
+	K3DPGLogicalReplicas  int    `json:"k3dPgLogicalReplicas"`
+	K3DPGLogicalStorageGB int    `json:"k3dPgLogicalStorageGb"` // per-replica PVC size in GiB; 0 → 1
+	K3DPGLogicalBootstrap string `json:"k3dPgLogicalBootstrap"` // "" | pgbackrest (default) | pg_basebackup
+	// Which databases the replicas subscribe to, comma-separated. Empty — the default — becomes
+	// `databases: []` in the custom resource, which is the CRD's own "every non-template database
+	// except postgres", resolved by the operator at bootstrap. See pgLogicalDatabases.
+	K3DPGLogicalDatabases string `json:"k3dPgLogicalDatabases"`
+	// Persistent logging is spec.logcollector — a fluent-bit sidecar plus logrotate that keeps
+	// PostgreSQL's server log as rotated files on the data volume instead of only in the pod's
+	// stdout. Spelled as a NEGATIVE because cr.yaml ships it enabled: the zero value has to keep
+	// the operator's own default, or a design saved before this option would turn logging off.
+	K3DPGNoLogCollector bool `json:"k3dPgNoLogCollector"`
+	// Transparent data encryption is spec.extensions.pg_tde, keyed to an OpenBao node on the
+	// canvas (OpenBaoNodeID below). pg_tde has no local keyring — the CRD refuses the custom
+	// resource outright if encryption is asked for without a vault — so this is only an option
+	// at all when the stack carries an OpenBao node. K3DPGTDEWal additionally encrypts the WAL.
+	K3DPGTDE    bool `json:"k3dPgTde"`
+	K3DPGTDEWal bool `json:"k3dPgTdeWal"`
+	// The OpenBao node the cluster's principal key lives on. Named and shaped exactly like the
+	// designNode field of the same name (see dbvault.go): one OpenBao per stack, and the cluster
+	// gets its own KV v2 mount and a token scoped to it.
+	OpenBaoNodeID string `json:"openbaoNodeId"`
 	// Point-in-time recovery, PXC operator only (`backup.pitr` — the binlog collector). It needs
 	// an S3 store, so it rides on SeaweedFSNodeID; K3DPITRBucket is which of that node's buckets
 	// the *binlogs* go to, and giving them their own is the point — two clusters uploading
@@ -919,6 +947,50 @@ func intranetImage(arch string) string {
 
 // --- validation ---
 
+// runningFrames is the set of frame IDs whose member nodes are ALL already deployed and running
+// — which is exactly the set handleDeployStack's provision gate skips ("(re)provision a frame
+// unless all its member nodes are already running").
+//
+// Validation uses it to decide whether a finding about a frame can still block a deploy. It can
+// only ever be right to block on something the deploy is about to do: a frame that will not be
+// touched cannot be fixed by refusing the deploy, and refusing takes every *other* frame down
+// with it — a new cluster somebody is adding to the same canvas stops being deployable because of
+// a rule that became true for an old one. A deployed frame's settings are locked in the designer
+// too, so there is nothing the user could change in response.
+//
+// Best-effort by design: if the deployments cannot be read, nothing is marked running and every
+// check keeps its stricter level.
+func (a *App) runningFrames(st Stack, doc designDoc) map[string]bool {
+	deps, err := a.store.ListDeployments(st.ID)
+	if err != nil {
+		return nil
+	}
+	up := map[string]bool{}
+	for _, d := range deps {
+		if d.State == DeployRunning {
+			up[d.NodeID] = true
+		}
+	}
+	out := map[string]bool{}
+	for _, f := range doc.Frames {
+		members, live := 0, 0
+		for _, n := range doc.Nodes {
+			// A frame's members carry its own type (pxc/psmdb/k3d/…), the same test the
+			// provision gate uses; anything else inside the frame is not a member.
+			if n.FrameID == f.ID && n.Type == f.Type {
+				members++
+				if up[n.ID] {
+					live++
+				}
+			}
+		}
+		if members > 0 && members == live {
+			out[f.ID] = true
+		}
+	}
+	return out
+}
+
 func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 	var out []issue
 	if err := a.engCtx(ctx).Ping(ctx); err != nil {
@@ -1132,6 +1204,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			}
 			out = append(out, dirAuthIssues(n, dirNodes)...)
 			out = append(out, oidcIssues(n, keycloakIDs, keycloakSSL)...)
+			out = append(out, vaultIssues(n, openbaoIDs)...)
 		case "seaweedfs":
 			others++
 			buckets := seaweedBuckets(n)
@@ -1616,6 +1689,9 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 	// --- K3D cluster frames (1-3 k3s nodes; see k3d.go) ---
 	k3dNames := map[string]int{}
 	opCat := loadOperatorCatalog()
+	// Which frames a deploy would skip, so a check that can only become true after a frame was
+	// built does not block the rest of the stack. See runningFrames.
+	running := a.runningFrames(st, doc)
 	for _, f := range doc.Frames {
 		if f.Type != "k3d" {
 			continue
@@ -1630,6 +1706,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		out = append(out, a.k3dFrameIssues(ctx, f, members, opCat)...)
 		out = append(out, seaweedBucketIssues("K3D cluster "+f.Label, f.SeaweedFSNodeID, f.SeaweedFSBucket, doc)...)
 		out = append(out, k3dBackupIssues(f, doc)...)
+		out = append(out, k3dPGFeatureIssues(f, doc, opCat, running[f.ID])...)
 	}
 	for name, c := range k3dNames {
 		if c > 1 && name != "" {

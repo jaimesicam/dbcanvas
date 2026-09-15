@@ -12,7 +12,8 @@ import { DEP_HELP } from '../lib/help.js'
 // "Unseal & Token" carries the only copy of what `bao operator init` printed: OpenBao shows the
 // five unseal keys and the root token once and never again, so they are stored with the
 // deployment and surfaced here. "Clients" is the reason the node exists: copy-paste setup for
-// Percona Server for MySQL (component_keyring_vault), Percona Server for MongoDB
+// Percona Server for MySQL (component_keyring_vault), Percona Distribution for PostgreSQL
+// (pg_tde), Percona Server for MongoDB
 // (security.vault) and the bao CLI itself.
 
 const TABS = [
@@ -184,15 +185,25 @@ bao status`} />
             ))}
           </div>
           <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] leading-snug text-muted">
-            Percona Server for MongoDB supports <span className="font-medium">KV v2 only</span>, so there is no
-            v1 MongoDB mount. Percona Server for MySQL works with either version — and each server instance
-            needs its <span className="font-medium">own</span> secret path.
+            Percona Server for MongoDB and <span className="font-mono">pg_tde</span> both support{' '}
+            <span className="font-medium">KV v2 only</span>, so there is no v1 mount for either. Percona Server for
+            MySQL works with either version — and each server instance needs its{' '}
+            <span className="font-medium">own</span> secret path.
+            <span className="mt-1 block">
+              The PostgreSQL policy carries one extra rule the others do not need:{' '}
+              <span className="font-mono">read</span> on <span className="font-mono">sys/mounts/&lt;mount&gt;</span>.
+              pg_tde checks there that the mount really is KV v2 when a provider is registered; without the rule
+              that check silently degrades to a warning.
+            </span>
           </div>
           <Code label="Mint a token for a database (root console)" text={`# MySQL (KV v2 mount; mysql-v1 works too)
 bao token create -policy=mysql-v2 -period=768h -field=token
 
 # MongoDB (KV v2 — the only version PSMDB supports)
-bao token create -policy=mongodb-v2 -period=768h -field=token`} />
+bao token create -policy=mongodb-v2 -period=768h -field=token
+
+# PostgreSQL (KV v2 — the only version pg_tde supports)
+bao token create -policy=postgresql-v2 -period=768h -field=token`} />
         </div>
       )}
 
@@ -202,12 +213,13 @@ bao token create -policy=mongodb-v2 -period=768h -field=token`} />
 }
 
 // ClientsTab — copy-paste setup for the clients: the bao CLI, Percona Server for MySQL (the
-// keyring component on 8.4, the keyring plugin on 5.7/8.0 — the component does not exist there)
-// and Percona Server for MongoDB (security.vault). Rendered against this node's real addr.
+// keyring component on 8.4, the keyring plugin on 5.7/8.0 — the component does not exist there),
+// Percona Distribution for PostgreSQL (pg_tde) and Percona Server for MongoDB (security.vault).
+// Rendered against this node's real addr.
 //
-// These are the manual path. A ps/psm node can instead tick "Encrypt with OpenBao" in the
-// designer and DBCanvas performs exactly these steps at deploy (see app/dbvault.go) — the
-// snippets deliberately use the same files it does.
+// These are the manual path. A ps/psm/pg node can instead tick "Encrypt with OpenBao" in the
+// designer and DBCanvas performs exactly these steps at deploy (see app/dbvault.go and
+// app/pgtde.go) — the snippets deliberately use the same files it does.
 //
 // Nothing here copies a certificate: a stack has exactly one CA (the Intranet CA) and every node
 // already carries it in its trust store, so vault_ca / serverCAFile just point at that file.
@@ -274,6 +286,48 @@ mysql -e "SELECT PLUGIN_NAME, PLUGIN_STATUS FROM information_schema.plugins WHER
 # 3) Encrypt:
 mysql -e "CREATE TABLE db.t (id INT PRIMARY KEY) ENCRYPTION='Y';"`
 
+  const postgres = `# 1) On the OpenBao node — a token limited to one policy, and this server's OWN mount.
+#    pg_tde speaks KV v2 only: it reads <url>/v1/<mount>/data/<key> and refuses any other engine.
+bao secrets enable -path=postgresql-pg01 -version=2 kv
+bao policy write postgresql-pg01 /etc/openbao.d/policy-postgresql-v2.hcl   # edit the mount inside first
+bao token create -policy=postgresql-pg01 -field=token
+
+# 2) On the PostgreSQL node — the package. From PPG 17.7 pg_tde is its own package; up to 17.6 it
+#    is already inside percona-postgresql17-server and there is nothing to install.
+percona-release setup -y ppg-18
+dnf -y install percona-pg_tde18        # percona-pg_tde17 on 17.7+; skip on <= 17.6
+
+# 3) The token file — pg_tde is given a PATH, not the token, and reads it as postgres:
+install -d -o postgres -g postgres -m 0700 /etc/pg_tde
+printf '%s' '<token from step 1>' > /etc/pg_tde/vault.token
+chown postgres:postgres /etc/pg_tde/vault.token && chmod 0600 /etc/pg_tde/vault.token
+
+# 4) pg_tde needs shared memory, so it loads at startup:
+echo "shared_preload_libraries = 'pg_tde'" >> ${'$'}PGDATA/postgresql.conf
+systemctl restart postgresql-18
+
+# 5) The extension, then the key provider and a default principal key. template1 as well as
+#    postgres — that is what makes every database created afterwards inherit it.
+psql -U postgres -d template1 -c 'CREATE EXTENSION IF NOT EXISTS pg_tde;'
+psql -U postgres -d postgres  -c 'CREATE EXTENSION IF NOT EXISTS pg_tde;'
+psql -U postgres -d postgres <<'SQL'
+SELECT pg_tde_add_global_key_provider_vault_v2(
+  'openbao',
+  '${addr}',
+  'postgresql-pg01',
+  '/etc/pg_tde/vault.token'${tls ? `,
+  '${CA}'` : ''}
+);
+SELECT pg_tde_create_key_using_global_key_provider('pg01-principal', 'openbao');
+SELECT pg_tde_set_default_key_using_global_key_provider('pg01-principal', 'openbao');
+SQL
+
+# 6) Encrypt. Per table:
+psql -U postgres -c "CREATE TABLE t (id int) USING tde_heap;"
+psql -U postgres -c "SELECT pg_tde_is_encrypted('t');"        # -> t
+#    …or make it the default for the whole cluster (every database needs the extension first):
+psql -U postgres -c "ALTER SYSTEM SET default_table_access_method = 'tde_heap';" && systemctl reload postgresql-18`
+
   const mongo = `# 1) On the OpenBao node — a token limited to the MongoDB policy (KV v2 only):
 bao token create -policy=mongodb-v2 -field=token
 
@@ -315,7 +369,16 @@ mongosh --eval 'db.serverStatus().encryptionAtRest'   # -> encryptionEnabled: tr
       </div>
       <Code label="bao CLI (this node, or any node in the stack)" text={cli} />
       <Code label="Percona Server for MySQL — component (8.4) or plugin (5.7 / 8.0)" text={mysql} />
+      <Code label="Percona Distribution for PostgreSQL — pg_tde global key provider (17 / 18)" text={postgres} />
       <Code label="Percona Server for MongoDB — security.vault (KV v2)" text={mongo} />
+      <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] leading-snug text-muted">
+        PostgreSQL is the one engine here whose keyring is not a config file — a key provider is registered by
+        calling a SQL function, so the server has to be running first. Percona builds{' '}
+        <span className="font-mono">pg_tde</span> for PostgreSQL <span className="font-medium">17 and 18</span> only.
+        WAL encryption is a separate switch (<span className="font-mono">pg_tde.wal_encrypt</span>) and needs{' '}
+        <span className="font-mono">pg_tde_archive_decrypt</span> in <span className="font-mono">archive_command</span>,
+        so it does not mix with stock pgBackRest archiving.
+      </div>
       <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] leading-snug text-muted">
         MongoDB writes its master key at first start, so encryption can only be turned on with an empty
         <span className="font-mono"> dbPath</span> — enabling it on a server that already holds data means

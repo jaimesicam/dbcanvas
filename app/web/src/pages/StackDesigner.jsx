@@ -300,6 +300,7 @@ export const NODE_TYPES = {
       os: 'oraclelinux', osVersion: '9', pgMajor: '16', pgVersion: '',
       rootPassword: '', pmmNodeId: '', useProxy: false,
       usePgBackRest: false, seaweedfsNodeId: '',
+      enableVault: false, openbaoNodeId: '',
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
       exportEnabled: false, exportHostPort: 0,
     },
@@ -3223,6 +3224,9 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
       k3dSharding: false, k3dExposeReplset: 'clusterip', k3dExposeMongos: 'loadbalancer',
       k3dExposePg: 'clusterip', k3dExposePgbouncer: 'loadbalancer',
       k3dPgoInstances: 2, k3dPgoStorageGb: 1, k3dPgoVersion: '',
+      k3dPgLogicalReplicas: 0, k3dPgLogicalStorageGb: 1, k3dPgLogicalBootstrap: 'pgbackrest',
+      k3dPgLogicalDatabases: '',
+      k3dPgNoLogCollector: false, k3dPgTde: false, k3dPgTdeWal: false, openbaoNodeId: '',
       k3dClusterType: 'group-replication', k3dExposeMysql: 'clusterip', k3dExposeRouter: 'loadbalancer',
       k3dPmmTokenTtlValue: 365, k3dPmmTokenTtlUnit: 'days',
       k3dDebug: false, k3dDebugPort: 40000, k3dDebugNoPublish: false,
@@ -5132,23 +5136,35 @@ function DirectoryAuthFields({ node: n, nodes, patchNode, deployed, kerberos, ld
   )
 }
 
+// pgTdeMajorOk mirrors pgTDEMajorOK in app/pgtde.go: Percona builds pg_tde for PostgreSQL 17
+// and 18 only. Unlike the Keycloak pins above, ticking encryption does NOT move the node onto a
+// supported major — the PostgreSQL version is usually the point of the node, so the toggle stays
+// off until the version agrees rather than quietly changing it underneath.
+const PG_TDE_MAJORS = ['17', '18']
+const pgTdeMajorOk = (n) => PG_TDE_MAJORS.includes(n.pgMajor || '16')
+
 // VaultFields renders the "Data-at-rest encryption" block shared by the standalone Percona
-// Server and PSMDB forms: a toggle + an OpenBao-node picker. How the engine is wired depends on
-// its version, which is worth saying out loud here — the keyring_vault *component* only exists
-// from Percona Server 8.4; 5.7 and 8.0 use the keyring_vault *plugin*.
+// Server, PSMDB and PostgreSQL forms: a toggle + an OpenBao-node picker. How the engine is wired
+// depends on its version, which is worth saying out loud here — the keyring_vault *component*
+// only exists from Percona Server 8.4; 5.7 and 8.0 use the keyring_vault *plugin*; and
+// PostgreSQL uses pg_tde, which is not a config file at all but a SQL-registered key provider.
 // OpenBao is a per-stack singleton, so there is nothing to pick: the toggle links the node to
 // the one OpenBao on the canvas (and clears the link when turned off).
 function VaultFields({ node: n, nodes, patchNode, deployed }) {
   const bao = nodes.find((x) => x.type === 'openbao')
-  const none = deployed || !bao
+  const isPg = n.type === 'pg'
+  const pgOk = !isPg || pgTdeMajorOk(n)
+  const none = deployed || !bao || !pgOk
   const maj = n.psMajor || '8.0'
-  const method = n.type === 'psm'
-    ? 'mongod security.vault (KV v2)'
-    : maj === '8.4'
-      ? 'component_keyring_vault (KV v2)'
-      : maj === '5.7'
-        ? 'keyring_vault plugin (KV v1 — 5.7 predates the v2 API)'
-        : 'keyring_vault plugin (KV v2)'
+  const method = isPg
+    ? 'pg_tde, as a global key provider (vault_v2, KV v2)'
+    : n.type === 'psm'
+      ? 'mongod security.vault (KV v2)'
+      : maj === '8.4'
+        ? 'component_keyring_vault (KV v2)'
+        : maj === '5.7'
+          ? 'keyring_vault plugin (KV v1 — 5.7 predates the v2 API)'
+          : 'keyring_vault plugin (KV v2)'
   return (
     <div className="space-y-2 rounded-lg border border-dashed p-2">
       <div className="text-xs font-medium text-muted">Data-at-rest encryption</div>
@@ -5161,6 +5177,35 @@ function VaultFields({ node: n, nodes, patchNode, deployed }) {
         <span>Encrypt with OpenBao</span><Help text={HELP.vault} />
       </label>
       {!bao && <p className="text-xs text-muted">Add the OpenBao node to key encryption to it.</p>}
+      {isPg && !pgOk && (
+        <p className="text-xs text-muted">
+          Encryption at rest for PostgreSQL is <span className="font-mono">pg_tde</span>, which Percona builds for
+          PostgreSQL {PG_TDE_MAJORS.join(' and ')} only — this node is on {n.pgMajor || '16'}. Change the PostgreSQL
+          major above to turn it on.
+        </p>
+      )}
+      {n.enableVault && bao && isPg && (
+        <p className="text-xs text-muted">
+          At deploy DBCanvas installs <span className="font-mono">percona-pg_tde{n.pgMajor || '18'}</span> (from
+          PPG 17.7 it is a package of its own; before that it is inside the server), preloads{' '}
+          <span className="font-mono">pg_tde</span>, writes the OpenBao token to a postgres-owned file, registers the
+          provider with <span className="font-mono">pg_tde_add_global_key_provider_vault_v2()</span> and sets a
+          default principal key. The extension is created in <span className="font-mono">template1</span> as well as{' '}
+          <span className="font-mono">postgres</span>, and{' '}
+          <span className="font-mono">default_table_access_method</span> becomes{' '}
+          <span className="font-mono">tde_heap</span> — so tables created here are encrypted without asking. A
+          database made from <span className="font-mono">template0</span> still needs its own{' '}
+          <span className="font-mono">CREATE EXTENSION pg_tde</span>.
+        </p>
+      )}
+      {n.enableVault && bao && isPg && (
+        <p className="text-xs text-muted">
+          WAL encryption (<span className="font-mono">pg_tde.wal_encrypt</span>) is not turned on: it needs{' '}
+          <span className="font-mono">pg_tde_archive_decrypt</span> in{' '}
+          <span className="font-mono">archive_command</span>, which conflicts with the pgBackRest archiving this
+          node sets up. Table data is encrypted either way.
+        </p>
+      )}
       {n.enableVault && bao && (
         <>
           <p className="text-xs text-muted">
@@ -5625,6 +5670,8 @@ function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }
 
       <KeycloakOidcFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} label="OAuth login with Keycloak (pg_oidc_validator)" pin={PG_OIDC_PIN}
         blocked={n.ldapAuth ? 'PostgreSQL cannot do LDAP and Keycloak OIDC at once — turn off LDAP above to use Keycloak SSO.' : ''} />
+
+      <VaultFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} />
 
       {!deployed && <p className="text-xs text-muted">A single read/write PostgreSQL instance (no replication). Access links and credentials appear here after deploy.</p>}
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
@@ -8381,6 +8428,20 @@ const K3D_EXPOSE_OPTIONS = [
 // K3DFrameForm edits a K3D cluster frame: size, the CPU/memory budget for the whole cluster, and
 // what to install on it. CPU/memory are a *total*, split across the nodes — which is why the hints
 // warn in terms of the cluster, not the node.
+// cmpDottedVersions orders two dotted numeric versions the way compareVersions does in
+// app/version.go: segment by segment as integers, a missing segment counting as zero, any
+// non-numeric suffix ignored. String comparison is not good enough for the job it is used for
+// here — "3.10.0" < "3.2.0" lexically, which would hide a feature from the release that has it.
+function cmpDottedVersions(a, b) {
+  const seg = (v, i) => parseInt(String(v).split('.')[i] ?? '0', 10) || 0
+  const n = Math.max(String(a).split('.').length, String(b).split('.').length)
+  for (let i = 0; i < n; i++) {
+    const d = seg(a, i) - seg(b, i)
+    if (d !== 0) return d < 0 ? -1 : 1
+  }
+  return 0
+}
+
 function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, deployed, replRole = '' }) {
   const lock = deployed ? 'opacity-70' : ''
   const count = frameNodes.length
@@ -8419,6 +8480,14 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
   const cmLatest = ops?.['chart:cert-manager']?.latest || ''
   const versions = helmOp ? chartVersions : (ops?.[op]?.versions || [])
   const latest = helmOp ? chartLatest : (ops?.[op]?.latest || '')
+  // The Percona Operator for PostgreSQL grew spec.logicalReplicas, spec.logcollector and
+  // spec.extensions.pg_tde in 3.1.0. An older CRD has no such field, so the API server would
+  // reject the whole cr.yaml and create nothing — which is why these are hidden rather than
+  // merely disabled below that release, and why the backend refuses them too (k3dPGFeatureIssues).
+  // A blank version means the catalog's latest, the same thing the deploy will resolve.
+  const pgVer = op === 'pg' ? (f.k3dOperatorVer || latest) : ''
+  const pg310 = op === 'pg' && !!pgVer && cmpDottedVersions(pgVer, '3.1.0') >= 0
+  const baoNode = nodes.find((x) => x.type === 'openbao')
   // A sharded MongoDB cluster is 9 pods (replica set + config servers + mongos), not 3 — and so is an
   // async Percona Server cluster (MySQL + Orchestrator + HAProxy).
   const psAsync = op === 'ps' && f.k3dClusterType === 'async'
@@ -8815,6 +8884,125 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
                 {K3D_EXPOSE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
               </select>
             </Field>
+            {/* The three features the operator grew in 3.1.0. Hidden rather than disabled on an
+                older release: the CRD has no such field, so writing one makes the API server
+                reject the whole cr.yaml and create no cluster at all. */}
+            {pg310 ? (
+              <div className="space-y-2 rounded-lg border border-dashed p-2">
+                <div className="text-xs font-medium text-muted">Operator 3.1.0 features</div>
+
+                {/* The operator mounts the pg_tde credentials into the instance pods but not into
+                    the logical-replica bootstrap job, so the restored replica cannot start. Said
+                    here as well as in validation because the failure is late and expensive: the
+                    cluster comes up healthy and only the replicas are broken. */}
+                {(f.k3dPgLogicalReplicas || 0) > 0 && !!f.k3dPgTde && (
+                  <p className="text-xs text-danger">
+                    Logical replicas and transparent data encryption cannot be used together on this operator: the
+                    pg_tde credentials are not mounted into the logical-replica bootstrap job, so the restored replica
+                    dies on <span className="font-mono">could not open file &quot;/pgconf/tde/token&quot;</span> and the
+                    operator marks it broken. The cluster itself is unaffected — turn one of the two off.
+                  </p>
+                )}
+
+                <Field label="Logical replicas" help={HELP.k8sLogicalReplicas}
+                  hint="spec.logicalReplicas — read-only replicas fed by logical replication rather than by Patroni&rsquo;s streaming, each its own pod and PVC. 0 = none.">
+                  <input type="number" min="0" max="3" className={`${inputCls} ${lock}`} disabled={deployed}
+                    value={f.k3dPgLogicalReplicas || 0}
+                    onChange={(e) => patchFrame(f.id, { k3dPgLogicalReplicas: Number(e.target.value) })} />
+                </Field>
+                {(f.k3dPgLogicalReplicas || 0) > 0 && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="Storage (GiB per replica)" help={HELP.storageGiB}>
+                      <input type="number" min="1" max="512" className={`${inputCls} ${lock}`} disabled={deployed}
+                        value={f.k3dPgLogicalStorageGb || 1}
+                        onChange={(e) => patchFrame(f.id, { k3dPgLogicalStorageGb: Number(e.target.value) })} />
+                    </Field>
+                    <Field label="Seeded by" help={HELP.k8sLogicalBootstrap}
+                      hint="How a replica gets its first copy before it starts streaming.">
+                      <select className={`${inputCls} ${lock}`} value={f.k3dPgLogicalBootstrap || 'pgbackrest'} disabled={deployed}
+                        onChange={(e) => patchFrame(f.id, { k3dPgLogicalBootstrap: e.target.value })}>
+                        <option value="pgbackrest">pgBackRest — from the backup repository (default)</option>
+                        <option value="pg_basebackup">pg_basebackup — straight off the primary</option>
+                      </select>
+                    </Field>
+                  </div>
+                )}
+                {(f.k3dPgLogicalReplicas || 0) > 0 && (
+                  <Field label="Databases" help={HELP.k8sLogicalDatabases}
+                    hint="Comma-separated. Leave it blank for every non-template database except postgres, resolved when the replica bootstraps.">
+                    <input className={`${inputCls} ${lock}`} value={f.k3dPgLogicalDatabases ?? ''} disabled={deployed}
+                      placeholder="all databases"
+                      onChange={(e) => patchFrame(f.id, { k3dPgLogicalDatabases: e.target.value })} />
+                  </Field>
+                )}
+                {(f.k3dPgLogicalReplicas || 0) > 0 && !!(f.k3dPgLogicalDatabases || '').trim() && (
+                  <p className="text-xs text-muted">
+                    Every database named here must already exist when the replica bootstraps — the operator does not
+                    create one, and a replica pointed at a database that is not there stays unready. Blank is safer on
+                    a frame you are designing before the application has run.
+                  </p>
+                )}
+
+                <label className="flex items-start gap-2 text-sm">
+                  <input type="checkbox" className="mt-1" disabled={deployed}
+                    checked={!f.k3dPgNoLogCollector}
+                    onChange={(e) => patchFrame(f.id, { k3dPgNoLogCollector: !e.target.checked })} />
+                  <span>
+                    Persistent logging
+                    <span className="block text-xs text-muted">
+                      <span className="font-mono">spec.logcollector</span> — a fluent-bit sidecar and logrotate that
+                      keep PostgreSQL&rsquo;s server log and pgBackRest&rsquo;s client log as rotated files on the data
+                      volume. Off, the log lives only in the pod&rsquo;s stdout, where a restart loses it. On by
+                      default, which is what the operator ships.
+                    </span>
+                  </span>
+                </label>
+
+                <label className={`flex items-start gap-2 text-sm ${baoNode ? '' : 'opacity-70'}`}>
+                  <input type="checkbox" className="mt-1" disabled={deployed || !baoNode}
+                    checked={!!f.k3dPgTde}
+                    onChange={(e) => patchFrame(f.id, {
+                      k3dPgTde: e.target.checked,
+                      k3dPgTdeWal: e.target.checked ? f.k3dPgTdeWal : false,
+                      openbaoNodeId: e.target.checked ? (baoNode?.id ?? '') : '',
+                    })} />
+                  <span>
+                    Transparent data encryption (pg_tde)
+                    <span className="block text-xs text-muted">
+                      <span className="font-mono">spec.extensions.pg_tde</span>, keyed to{' '}
+                      {baoNode
+                        ? <>the <span className="font-mono">{baoNode.label}</span> node</>
+                        : <>an OpenBao node</>}. The cluster gets its own KV v2 mount and a token scoped to it, and
+                      verifies OpenBao with the Intranet CA. pg_tde has no local keyring, so without an OpenBao node
+                      the CRD refuses the cluster outright — and it cannot be turned on later without re-creating
+                      the data.
+                    </span>
+                  </span>
+                </label>
+                {!baoNode && <p className="text-xs text-muted">Add an OpenBao node to key encryption to it.</p>}
+                {!!f.k3dPgTde && baoNode && (
+                  <label className="flex items-start gap-2 pl-6 text-sm">
+                    <input type="checkbox" className="mt-1" disabled={deployed}
+                      checked={!!f.k3dPgTdeWal}
+                      onChange={(e) => patchFrame(f.id, { k3dPgTdeWal: e.target.checked })} />
+                    <span>
+                      Encrypt the write-ahead log too
+                      <span className="block text-xs text-muted">
+                        <span className="font-mono">walEncryption</span>. Without it the tables are encrypted but the
+                        WAL that carries their changes — and the pgBackRest archive built from it — is not.
+                      </span>
+                    </span>
+                  </label>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-muted">
+                Logical replicas, persistent logging and transparent data encryption need operator{' '}
+                <span className="font-mono">3.1.0</span> or newer{pgVer ? <> — this frame pins <span className="font-mono">{pgVer}</span></> : ''}.
+                Their <span className="font-mono">cr.yaml</span> sections do not exist on an older CRD, so asking for
+                one there is rejected outright rather than ignored.
+              </p>
+            )}
             <p className="text-xs text-muted">
               pgBackRest speaks S3 only over TLS, so backups need a SeaweedFS node with <span className="font-medium">TLS
               on</span>. Without one the cluster keeps the operator's own PVC backup repo.

@@ -8,10 +8,11 @@ import (
 	"time"
 )
 
-// dbvault.go — data-at-rest encryption for the standalone Percona Server (ps) and Percona Server
-// for MongoDB (psm) nodes, keyed by an OpenBao node in the same stack (openbao.go).
+// dbvault.go — data-at-rest encryption for the standalone Percona Server (ps), Percona Server
+// for MongoDB (psm) and Percona Distribution for PostgreSQL (pg) nodes, keyed by an OpenBao node
+// in the same stack (openbao.go).
 //
-// The three client integrations differ by engine and version:
+// The client integrations differ by engine and version:
 //
 //   - Percona Server 8.4 → the **keyring_vault component**: a global manifest (mysqld.my) beside
 //     the mysqld binary, and component_keyring_vault.cnf in plugin_dir (where the server resolves
@@ -20,6 +21,10 @@ import (
 //     before 8.4): early-plugin-load=keyring_vault.so + keyring_vault_config=<conf> in my.cnf.
 //   - PSMDB → mongod.conf `security.vault`. Encryption is written at the *first* mongod start,
 //     so this is staged into mongod.conf before the server ever runs (mongoPrepareNode).
+//   - PostgreSQL 17 / 18 → **pg_tde**, registered from SQL rather than from a config file:
+//     pg_tde_add_global_key_provider_vault_v2() names the mount and a FILE holding the token.
+//     See pgtde.go — it is the one engine here whose keyring is set up after the server is
+//     already running, because registering a provider takes a psql connection.
 //
 // KV version follows what the client can actually speak: the 5.7 plugin predates KV v2, so that
 // node gets a KV v1 mount; 8.0/8.4 and PSMDB get KV v2 (the only version PSMDB supports at all).
@@ -72,21 +77,32 @@ type vaultInfo struct {
 	TokenFile  string `json:"tokenFile"`  // PSMDB only (MySQL carries the token inside its conf)
 }
 
-// vaultIssues validates a ps/psm node's OpenBao selection.
+// vaultIssues validates a ps/psm/pg node's OpenBao selection.
 func vaultIssues(n designNode, openbaoIDs map[string]bool) []issue {
 	if !n.EnableVault {
 		return nil
 	}
 	label := nodeKindLabel(n.Type)
+	var out []issue
 	if !openbaoIDs[n.OpenBaoNodeID] {
-		return []issue{{Level: "error", Message: label + " node " + n.Label + " has data-at-rest encryption enabled but is not linked to an OpenBao node — add an OpenBao node and select it"}}
+		out = append(out, issue{Level: "error", Message: label + " node " + n.Label + " has data-at-rest encryption enabled but is not linked to an OpenBao node — add an OpenBao node and select it"})
 	}
-	return nil
+	// PostgreSQL's encryption is pg_tde, and pg_tde exists for exactly two majors. This is an
+	// error rather than a silent no-op because the package simply is not in the repository for
+	// the others — the deploy would install PostgreSQL, fail to find pg_tde and stop.
+	if n.Type == "pg" && !pgTDEMajorOK(n.PGMajor) {
+		out = append(out, issue{Level: "error", Message: label + " node " + n.Label + " has data-at-rest encryption enabled, which is pg_tde — Percona builds it for PostgreSQL " +
+			strings.Join(pgTDEMajors, " and ") + " only, and this node is on " + ppgMajorOf(n.PGMajor) + ". Change the PostgreSQL major, or turn encryption off"})
+	}
+	return out
 }
 
 // vaultMountFor returns the node's dedicated KV mount and the engine version to create it with.
 // Only Percona Server 5.7 is stuck on KV v1: its keyring_vault plugin predates the v2 API.
 func vaultMountFor(n designNode, host string) (mount, kv, version string) {
+	if n.Type == "pg" {
+		return "postgresql-" + host, "kv-v2", "2"
+	}
 	if n.Type == "psm" {
 		return "mongodb-" + host, "kv-v2", "2"
 	}

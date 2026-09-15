@@ -47,7 +47,10 @@ const (
 // openbaoMounts are the KV secrets engines created at deploy, each with a matching policy
 // (openbaoPolicy). Percona Server for MySQL's keyring_vault component speaks KV v1 or v2, so it
 // gets one of each. Percona Server for MongoDB supports **only KV v2** — there is deliberately
-// no mongodb-v1: a mount PSMDB can never authenticate against is a trap, not an option.
+// no mongodb-v1: a mount PSMDB can never authenticate against is a trap, not an option. pg_tde is
+// the same story for the same reason: its vault_v2 keyring reads and writes
+// <url>/v1/<mount>/data/<key> and refuses a mount whose `sys/mounts` info says anything but
+// KV version 2 ("The only supported vault engine type is Key/Value version \"2\"").
 var openbaoMounts = []struct {
 	Path    string // mount path, also the policy name
 	KV      string // "kv" (v1) | "kv-v2"
@@ -57,6 +60,7 @@ var openbaoMounts = []struct {
 	{"mysql-v1", "kv", "Percona Server for MySQL", "1"},
 	{"mysql-v2", "kv-v2", "Percona Server for MySQL", "2"},
 	{"mongodb-v2", "kv-v2", "Percona Server for MongoDB", "2"},
+	{"postgresql-v2", "kv-v2", "Percona Distribution for PostgreSQL", "2"},
 }
 
 // openbaoConfig is the non-secret profile shown for a deployed OpenBao node.
@@ -137,18 +141,30 @@ func openbaoHCL(fqdn string, tls bool) string {
 // silently lose one) — see the Percona "Using Vault to store the master key" docs. The MySQL
 // keyring_vault component both reads and writes keys, so it gets full capabilities on data and
 // metadata; MongoDB follows Percona's documented policy exactly.
+//
+// PostgreSQL gets MySQL's full capabilities plus one path neither of the others needs:
+// **sys/mounts/<mount>**. pg_tde's keyring validates a provider the moment it is registered by
+// reading GET /v1/sys/mounts/<mount> to check the engine really is KV v2 (keyring_vault.c,
+// validate()). A token without that read still works — the check downgrades to a WARNING — but it
+// downgrades silently, which turns "you pointed pg_tde at a KV v1 mount" from an error at
+// registration into a failure much later. The read is on one mount's own metadata and grants
+// nothing else.
 func openbaoPolicy(mount, kv, engine string) string {
-	mysql := strings.Contains(engine, "MySQL")
+	postgres := strings.Contains(engine, "PostgreSQL")
+	fullAccess := strings.Contains(engine, "MySQL") || postgres
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s — KV %s mount %q (DBCanvas)\n", engine, map[string]string{"kv": "v1", "kv-v2": "v2"}[kv], mount)
 	if kv == "kv" {
 		fmt.Fprintf(&b, "path \"%s/*\" {\n  capabilities = [\"create\", \"read\", \"update\", \"delete\", \"list\"]\n}\n", mount)
 		return b.String()
 	}
-	if mysql {
+	if fullAccess {
 		fmt.Fprintf(&b, "path \"%s/data/*\" {\n  capabilities = [\"create\", \"read\", \"update\", \"delete\", \"list\"]\n}\n", mount)
 		fmt.Fprintf(&b, "path \"%s/metadata/*\" {\n  capabilities = [\"create\", \"read\", \"update\", \"delete\", \"list\"]\n}\n", mount)
 		fmt.Fprintf(&b, "path \"%s/config\" {\n  capabilities = [\"read\"]\n}\n", mount)
+		if postgres {
+			fmt.Fprintf(&b, "path \"sys/mounts/%s\" {\n  capabilities = [\"read\"]\n}\n", mount)
+		}
 		return b.String()
 	}
 	fmt.Fprintf(&b, "path \"%s/data/*\" {\n  capabilities = [\"create\", \"read\", \"update\", \"delete\"]\n}\n", mount)

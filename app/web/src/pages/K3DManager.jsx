@@ -11,6 +11,7 @@ import { HELP, TOOL_HELP, DEP_HELP } from '../lib/help.js'
 import { CRFormEditor } from './CRFormEditor.jsx'
 import { K8sObjectEditor } from './K8sObjectEditor.jsx'
 import { K8sBackupManager } from './K8sBackupManager.jsx'
+import { K8sLogicalReplicas } from './K8sLogicalReplicas.jsx'
 
 // K3DManager — a running k3s node of a K3D cluster frame.
 //
@@ -78,6 +79,10 @@ const TABS = [
   // Only ever shown for a PXC-operator cluster that is one end of a replication link on the
   // canvas — it is the one operator whose custom resource can replicate from another cluster.
   { id: 'replication', label: 'Replication' },
+  // Logical replicas of a Percona PostgreSQL cluster (app/k3dlogrepl.go). Everything interesting
+  // about the feature happens after the cluster exists — add one to a running cluster, find out
+  // why it is stuck, reseed it after a failover broke its slot — so it is a tab, not a frame knob.
+  { id: 'logicalreplicas', label: 'Logical replicas' },
   { id: 'diag', label: 'Diagnostics' },
 ]
 
@@ -85,6 +90,17 @@ const TABS = [
 // ones, which is where k3dCRDNames in app/k3dcrform.go stops too. CloudNativePG and Crunchy PGO
 // are Helm-installed and were never a cr.yaml DBCanvas rewrote.
 const CR_EDITABLE = new Set(['pxc', 'ps', 'psmdb', 'pg'])
+
+// spec.logicalReplicas arrived in Percona Operator for PostgreSQL 3.1.0, so the tab is offered
+// only for a cluster actually running that or newer — on an older one every action it exposes
+// would be rejected by the API server. cfg.operatorVer is what is INSTALLED, resolved at deploy,
+// so there is no "latest" to interpret here. Mirrors pgHasClusterFeatures in app/k3dpg.go.
+const PG_LOGICAL_REPLICAS = (cfg) => {
+  const v = String(cfg.operatorVer || '')
+  if (!v) return false
+  const seg = (i) => parseInt(v.split('.')[i] ?? '0', 10) || 0
+  return seg(0) > 3 || (seg(0) === 3 && seg(1) >= 1)
+}
 
 const ROLE_HELP = {
   view: 'read-only, this namespace',
@@ -351,7 +367,8 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
           && (t.id !== 'data' || isServer)
           && (t.id !== 'cr' || CR_EDITABLE.has(cfg.operator))
           && (t.id !== 'backup' || (CR_EDITABLE.has(cfg.operator) && isServer))
-          && (t.id !== 'replication' || (cfg.operator === 'pxc' && isServer))).map((t) => (
+          && (t.id !== 'replication' || (cfg.operator === 'pxc' && isServer))
+          && (t.id !== 'logicalreplicas' || (cfg.operator === 'pg' && PG_LOGICAL_REPLICAS(cfg) && isServer))).map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
             className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${tab === t.id ? 'bg-surface text-fg shadow' : 'text-muted'}`}>
             {t.label}
@@ -395,6 +412,18 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
           {cfg.operator && !isCNPG && <KV k={isMongo ? 'Expose · replica set' : 'Expose · database'} help={HELP.k8sExpose} v={exposeDb} />}
           {cfg.operator && !isCNPG && (!isMongo || cfg.sharding) && (
             <KV k={isMongo ? 'Expose · mongos' : isPG ? 'Expose · pgBouncer' : 'Expose · proxy'} help={HELP.k8sExpose} v={exposeFront} />
+          )}
+          {/* The Percona PostgreSQL operator's 3.1.0 features, and only when the cluster has
+              them: on an older operator these rows would all read "off", which is true of every
+              cluster below 3.1.0 and tells nobody anything. */}
+          {cfg.operator && isPG && !!cfg.pgLogicalReplicas && (
+            <KV k="Logical replicas" help={DEP_HELP['Logical replicas']} v={cfg.pgLogicalReplicas} />
+          )}
+          {cfg.operator && isPG && !!cfg.pgTde && (
+            <KV k="Encryption at rest" help={DEP_HELP['Encryption at rest']} v={cfg.pgTde} mono />
+          )}
+          {cfg.operator && isPG && cfg.pgLogCollector && (
+            <KV k="Persistent logging" help={DEP_HELP['Persistent logging']} v="fluent-bit + logrotate" />
           )}
           <KV k="Backups" help={DEP_HELP.Backups} v={cfg.backupRepo || 'none'} />
           {/* Only when there is something to say: an operator with no PITR configured would
@@ -495,6 +524,7 @@ kubectl get svc -n ${ns}`} />
       {tab === 'cr' && <CRFormEditor stackId={stackId} frame={frame} isServer={isServer} />}
       {tab === 'data' && <K8sObjectEditor stackId={stackId} frame={frame} isServer={isServer} />}
       {tab === 'backup' && <K8sBackupManager stackId={stackId} frame={frame} isServer={isServer} />}
+      {tab === 'logicalreplicas' && <K8sLogicalReplicas stackId={stackId} frame={frame} isServer={isServer} />}
 
       {tab === 'diag' && (
         frame

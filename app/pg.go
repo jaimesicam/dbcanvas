@@ -63,9 +63,13 @@ type pgConfig struct {
 	DataDir      string `json:"dataDir,omitempty"`
 	GenerateCert bool   `json:"generateCert"`
 	UseProxy     bool   `json:"useProxy"`
-	MonitoredBy  string `json:"monitoredBy"` // PMM node FQDN, if any
-	Ports        []int  `json:"ports"`
-	ExportPort   int    `json:"exportPort"` // published host port for 5432 (0 = none)
+	// Data-at-rest encryption (pg_tde) keyed to an OpenBao node. Same field and same shape as
+	// the Percona Server and PSMDB nodes carry, so the panels describe it the same way; empty
+	// when the node is not encrypted. See pgtde.go.
+	Vault       vaultInfo `json:"vault"`
+	MonitoredBy string    `json:"monitoredBy"` // PMM node FQDN, if any
+	Ports       []int     `json:"ports"`
+	ExportPort  int       `json:"exportPort"` // published host port for 5432 (0 = none)
 }
 
 // pgServiceName / pgConfDir are OS-aware: on EL the packaged unit is
@@ -320,6 +324,24 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 		if err := a.runStep(ctx, id, pgSetPasswordScript, []string{"SUPERPW=" + sec.SuperPassword}, pr.logln); err != nil {
 			pr.fail("set superuser password: %v", err)
 			return
+		}
+
+		// ---- data-at-rest encryption (pg_tde → OpenBao) ----
+		// After the server is up, not before it starts: unlike MySQL's keyring and MongoDB's
+		// security.vault, a pg_tde key provider is registered by calling a SQL function. Before
+		// the pgBackRest stanza so the initial full backup is taken of an encrypted cluster.
+		if n.EnableVault {
+			info, verr := a.applyPGVault(ctx, st, n, id, host, confDir, service, pr)
+			if verr != nil {
+				// Fatal, like the Percona Server node's keyring. A node that reports encryption
+				// it does not have is worse than a node that failed to deploy, and pg_tde cannot
+				// be added to data that was already written unencrypted without rewriting it.
+				pr.fail("configure pg_tde: %v", verr)
+				return
+			}
+			cfg.Vault = info
+			cfgJSON, _ = json.Marshal(cfg)
+			a.persistConfigKey(st, n.ID, "vault", info)
 		}
 
 		// ---- pgBackRest stanza + initial full backup ----

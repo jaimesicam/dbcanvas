@@ -178,6 +178,24 @@ export const HELP = {
   k8sNamespace:
     'The Kubernetes namespace the database resources are created in. Handy to change when you want two clusters ' +
     'from the same operator side by side.',
+  k8sLogicalReplicas:
+    'Extra read-only replicas the Percona Operator for PostgreSQL feeds by LOGICAL replication — a publication on ' +
+    'the primary and a subscription on each replica — rather than by the physical streaming that Patroni manages ' +
+    'between the instances. They are not HA: a logical replica is never promoted and never joins the failover ' +
+    'group, so this is for reading, for an analytics consumer, or for watching what logical replication does when ' +
+    'you break it. Each one is a pod with its own volume, on top of the instances, the pgBackRest repo host and ' +
+    'pgBouncer — which is why the count is capped at 3 on a k3d budget. Operator 3.1.0 and newer.',
+  k8sLogicalDatabases:
+    'Which databases each logical replica subscribes to. Leave it blank \u2014 the default \u2014 and the custom ' +
+    'resource carries an empty list, which the operator reads as "every non-template database except postgres" and ' +
+    'resolves when the replica bootstraps. That is usually what you want on a lab frame, because the cluster is ' +
+    'designed before the application has created anything. Name databases here only when they will definitely exist ' +
+    'by then: the operator does not create a missing one, it leaves the replica unready. The same list applies to ' +
+    'every replica.',
+  k8sLogicalBootstrap:
+    'How a logical replica gets its initial copy of the data before it starts streaming changes. pgBackRest ' +
+    'restores it from the cluster\'s backup repository, which keeps the load off the primary. pg_basebackup takes ' +
+    'it straight from the primary, which needs no backup to exist yet but does make the primary do the work.',
   k8sPoolMode:
     'How aggressively pgBouncer reuses backend connections. Session pooling hands a client one backend for the ' +
     'life of its connection and is always safe. Transaction pooling returns the backend between transactions — far ' +
@@ -729,6 +747,16 @@ export const DEP_HELP = {
   'Grafana service': 'The Kubernetes Service in front of Grafana, and how it is exposed.',
   'Grafana SMTP': 'Where Grafana sends alert mail — the Intranet node\'s mail server, so alerts land in its webmail.',
   Backups: 'The backup tool configured for this node and where it writes.',
+  'Logical replicas':
+    'How many read-only logical replicas the cluster runs (spec.logicalReplicas). They are fed by logical ' +
+    'replication from the primary and are never promoted \u2014 they are not part of the failover group.',
+  'Encryption at rest':
+    'The pg_tde key provider this cluster was created with: the OpenBao node holding its principal key, and the ' +
+    'KV v2 mount minted for it. Encryption is established when the cluster is created and cannot be turned on ' +
+    'afterwards without re-creating the data.',
+  'Persistent logging':
+    'The spec.logcollector sidecars are running, so PostgreSQL\'s server log and pgBackRest\'s client log are kept ' +
+    'as rotated files on the data volume rather than only in the pod\'s stdout.',
   'Point-in-time recovery': 'The operator\'s binlog collector (spec.backup.pitr): binary logs uploaded continuously, so a restore can land between backups. On the replica end of a replication link it starts switched off — the seed restore replaces the GTID history the collector would be uploading — and DBCanvas turns it on once replication is running.',
   'Backups (PBM)': 'Percona Backup for MongoDB, and the S3 bucket it targets. Run and restore backups from this node\'s Backups tab.',
   'Barman backups': 'Barman\'s backup store for this cluster.',

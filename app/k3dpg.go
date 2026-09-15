@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // k3dpg.go — the Percona Operator for PostgreSQL (PGO) on a K3D cluster.
@@ -33,7 +35,112 @@ type pgOptions struct {
 	ExposePGBouncer string //
 	PMMHost         string // "" = leave PMM disabled
 	S3              *crS3  // nil = keep the shipped PVC repo
+	// The three cluster features the operator grew in 3.1.0. Every one of them is a spec section
+	// that simply does not exist on an older CRD, so installPGOperator leaves all of them unset
+	// below that release — see pgHasClusterFeatures.
+	LogicalReplicas  int      // spec.logicalReplicas: how many read-only logical replicas; 0 = none
+	LogicalStorageGB int      // each replica's dataVolumeClaimSpec size
+	LogicalBootstrap string   // pgbackrest | pg_basebackup
+	LogicalDatabases []string // which databases each replica subscribes to; empty = the CRD's "all"
+	LogCollector     *bool    // spec.logcollector.enabled; nil = keep whatever cr.yaml ships
+	TDE              *pgTDE   // spec.extensions.pg_tde; nil = no encryption at rest
 }
+
+// pgTDE is spec.extensions.pg_tde — pg_tde keyed to the stack's OpenBao node.
+//
+// There is no local-keyring mode to fall back on: the CRD carries a CEL rule ("vault is required
+// for enabling pg_tde") that refuses the whole custom resource if pg_tde.enabled is set without a
+// vault, so a cluster either gets a key store or it gets no encryption at all.
+type pgTDE struct {
+	WALEncryption bool   // also encrypt the write-ahead log
+	VaultHost     string // OpenBao's API address — https://<fqdn>:8200
+	MountPath     string // the KV v2 mount minted for this cluster (pg_tde's vault_mount_path)
+	Secret        string // the Secret holding `token` (and `ca.crt` when OpenBao serves TLS)
+	CAKey         string // "ca.crt", or "" when the OpenBao node runs plaintext
+}
+
+// pgFeatures310 is the operator release that introduced spec.logicalReplicas, spec.logcollector
+// and spec.extensions.pg_tde. Nothing about them degrades gracefully on an older one: the CRD has
+// no such field, so the API server rejects the *entire* cr.yaml with a strict-decoding error and
+// the cluster is never created — which is why this gate is checked at validation (k3dPGFeatureIssues)
+// as well as here.
+const pgFeatures310 = "3.1.0"
+
+// pgHasClusterFeatures reports whether an operator version understands the pgFeatures310 sections.
+// An empty version is "unknown", not "newest": it means the catalog could not resolve what will
+// actually be installed, and guessing wrong here costs the whole cr.yaml.
+func pgHasClusterFeatures(operatorVer string) bool {
+	v := strings.TrimSpace(operatorVer)
+	return v != "" && compareVersions(v, pgFeatures310) >= 0
+}
+
+// ------------------------------------------------------------------ 3.1.0 frame knobs
+
+// pgLogicalReplicas is how many logical replicas spec.logicalReplicas asks for. Capped at 3: each
+// one is a StatefulSet pod with its own PVC on top of the instances, the repo host and pgBouncer.
+func pgLogicalReplicas(f designFrame) int {
+	if f.K3DPGLogicalReplicas <= 0 {
+		return 0
+	}
+	return clampInt(f.K3DPGLogicalReplicas, 1, 3)
+}
+
+// pgLogicalStorageGB is each logical replica's dataVolumeClaimSpec size. The CRD requires the
+// claim, so there is no "leave it to the operator" — 1 GiB is the same default the instances get.
+func pgLogicalStorageGB(f designFrame) int {
+	if f.K3DPGLogicalStorageGB > 0 {
+		return clampInt(f.K3DPGLogicalStorageGB, 1, 512)
+	}
+	return 1
+}
+
+// pgLogicalBootstrap is how a logical replica is seeded before it starts streaming: from the
+// pgBackRest repository (the CRD's own default) or with pg_basebackup straight off the primary.
+func pgLogicalBootstrap(f designFrame) string {
+	if strings.TrimSpace(f.K3DPGLogicalBootstrap) == "pg_basebackup" {
+		return "pg_basebackup"
+	}
+	return "pgbackrest"
+}
+
+// pgLogicalDatabases is which databases the replicas subscribe to, parsed from the frame's
+// comma-separated list.
+//
+// Empty is the interesting value and the default: an empty `databases` array is the CRD's own
+// "every non-template database except postgres", resolved by the operator at bootstrap against
+// whatever the cluster actually holds. That is the only sensible default for a lab, because the
+// frame is designed before the application has created anything — and naming a database that
+// does not exist yet does not degrade, it leaves the replica permanently unready.
+//
+// Duplicates are dropped rather than passed through: `databases` is a set as far as the operator
+// is concerned, and a repeated name would only show up as a confusing diff against the applied CR.
+func pgLogicalDatabases(f designFrame) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, db := range strings.Split(f.K3DPGLogicalDatabases, ",") {
+		db = strings.TrimSpace(db)
+		if db == "" || seen[db] {
+			continue
+		}
+		seen[db] = true
+		out = append(out, db)
+	}
+	return out
+}
+
+// pgLogCollector is whether the fluent-bit sidecar + logrotate run — "persistent logging", which
+// keeps PostgreSQL's server log as rotated files on the data volume instead of only in the pod's
+// stdout, where a restart loses it.
+//
+// The frame spells this as a NEGATIVE (K3DPGNoLogCollector) on purpose: 3.1.0's cr.yaml ships
+// logcollector enabled, so the zero value has to mean "on" or every design saved before this
+// option would quietly turn logging off on its next deploy.
+func pgLogCollector(f designFrame) bool { return !f.K3DPGNoLogCollector }
+
+// pgTDEMount is the cluster's own KV v2 mount on the OpenBao node, named the way dbvault.go names
+// the standalone engines' (mysql-<host> / mongodb-<host>). One mount per cluster, never shared:
+// two clusters writing principal keys into one mount is how you lose both.
+func pgTDEMount(cluster string) string { return "postgresql-" + cluster }
 
 // pgShippedName is the cluster name Percona's cr.yaml and secrets.yaml ship with.
 const pgShippedName = "cluster1"
@@ -97,11 +204,25 @@ func pgTransform(src string, o pgOptions) string {
 			if o.ExposePostgres != "" {
 				out = append(out, crIndent("expose:\n  type: "+o.ExposePostgres, 2)...)
 			}
+			// logicalReplicas and extensions ship entirely commented out, so like the users block
+			// above they are inserted here rather than rewritten in place.
+			if o.LogicalReplicas > 0 {
+				out = append(out, crIndent(pgLogicalReplicasBlock(o.LogicalReplicas, o.LogicalStorageGB, o.LogicalBootstrap, o.LogicalDatabases), 2)...)
+			}
+			if o.TDE != nil {
+				out = append(out, crIndent(pgTDEBlock(o.TDE), 2)...)
+			}
 
 		// The connection pooler in front of the database.
 		case p == "spec.proxy.pgBouncer" && o.ExposePGBouncer != "":
 			out = append(out, ln)
 			out = append(out, crIndent("expose:\n  type: "+o.ExposePGBouncer, 6)...)
+
+		// Persistent logging. This is the one 3.1.0 knob that rewrites a line instead of inserting
+		// a block: cr.yaml ships spec.logcollector ACTIVE and enabled, so the only reason to touch
+		// it is to turn the fluent-bit sidecar off.
+		case p == "spec.logcollector.enabled" && o.LogCollector != nil:
+			out = append(out, strings.Repeat(" ", ind)+"enabled: "+strconv.FormatBool(*o.LogCollector))
 
 		// Every CPU/memory request — but never a volume claim's size (crPVC knows PostgreSQL's
 		// dataVolumeClaimSpec and volumeClaimSpec as well as the other two operators' PVCs).
@@ -145,6 +266,72 @@ func pgUsersBlock(cluster string) string {
 - name: %s
   databases:
   - %s`, cluster, cluster)
+}
+
+// pgLogicalReplicasBlock renders spec.logicalReplicas: n read-only replicas fed by logical
+// replication from the primary, each with its own PVC and its own Service.
+//
+// `databases` is emitted for every replica, empty unless the frame named some. An EMPTY ARRAY is
+// not the same as leaving the key out: `[]` is the CRD's own "every non-template database except
+// postgres", resolved at bootstrap, and it is what the operator's own cr.yaml documents. It is
+// also written in flow style deliberately — a block sequence with no items is not YAML.
+func pgLogicalReplicasBlock(n, storageGB int, bootstrap string, databases []string) string {
+	var b strings.Builder
+	b.WriteString("logicalReplicas:\n")
+	for i := 1; i <= n; i++ {
+		fmt.Fprintf(&b, "- name: replica%d\n", i)
+		if len(databases) == 0 {
+			b.WriteString("  databases: []\n")
+		} else {
+			b.WriteString("  databases:\n")
+			for _, db := range databases {
+				fmt.Fprintf(&b, "  - %s\n", db)
+			}
+		}
+		b.WriteString("  bootstrapMethod: " + bootstrap + "\n")
+		b.WriteString("  dataVolumeClaimSpec:\n")
+		b.WriteString("    accessModes:\n")
+		b.WriteString("    - ReadWriteOnce\n")
+		fmt.Fprintf(&b, "    resources:\n      requests:\n        storage: %dGi\n", storageGB)
+	}
+	return strings.TrimSuffix(b.String(), "\n")
+}
+
+// pgTDEBlock renders spec.extensions.pg_tde against the stack's OpenBao node.
+//
+// mountPath is the KV *mount*, not a path inside it: the operator hands it to
+// pg_tde_add_global_key_provider_vault_v2 as vault_mount_path and the extension builds
+// /v1/<mount>/data/... itself. caSecret is omitted when OpenBao serves plain HTTP — there is
+// nothing to verify, and pointing at a key that the Secret does not carry fails the pod.
+func pgTDEBlock(t *pgTDE) string {
+	var b strings.Builder
+	b.WriteString("extensions:\n  pg_tde:\n    enabled: true\n")
+	if t.WALEncryption {
+		b.WriteString("    walEncryption: true\n")
+	}
+	b.WriteString("    vault:\n")
+	fmt.Fprintf(&b, "      host: %s\n", t.VaultHost)
+	fmt.Fprintf(&b, "      mountPath: %s\n", t.MountPath)
+	fmt.Fprintf(&b, "      tokenSecret:\n        name: %s\n        key: token\n", t.Secret)
+	if t.CAKey != "" {
+		fmt.Fprintf(&b, "      caSecret:\n        name: %s\n        key: %s\n", t.Secret, t.CAKey)
+	}
+	return strings.TrimSuffix(b.String(), "\n")
+}
+
+// pgTDEVaultSecret is the Secret pg_tde reads its OpenBao credentials from: the scoped token, and
+// the Intranet CA when OpenBao serves TLS. Written as a manifest rather than through
+// `kubectl create secret --from-literal` because the CA is a multi-line PEM.
+func pgTDEVaultSecret(name, token, caPEM string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "apiVersion: v1\nkind: Secret\nmetadata:\n  name: %s\ntype: Opaque\nstringData:\n  token: %s\n", name, token)
+	if caPEM != "" {
+		b.WriteString("  ca.crt: |\n")
+		for _, ln := range strings.Split(strings.TrimRight(caPEM, "\n"), "\n") {
+			b.WriteString("    " + ln + "\n")
+		}
+	}
+	return b.String()
 }
 
 // pgBackRestRepo is the pgBackRest repository the operator's cr.yaml ships and DBCanvas keeps —
@@ -218,6 +405,64 @@ stringData:
 }
 
 // ---------------------------------------------------------------- the PG operator
+
+// pgProvisionTDE gives the cluster a key store on the stack's OpenBao node and returns the
+// spec.extensions.pg_tde configuration that points at it.
+//
+// The shape is dbvault.go's, because it is the same problem the standalone Percona Server and
+// PSMDB nodes already solved: the cluster gets its OWN KV v2 mount and a token scoped to it (never
+// the root token — the operator's own e2e test uses root, DBCanvas does not), and it verifies
+// OpenBao with the one CA in the stack. What is different is only how the credentials are
+// delivered: a Secret in the operator's namespace instead of a file on a node.
+//
+// Reachability comes free: k3s' CoreDNS forwards the stack's domain to the Intranet DNS
+// (corednsCustomConfigMap), so a pod resolves the OpenBao node by the same FQDN every other node
+// uses, over the stack network.
+func (a *App) pgProvisionTDE(ctx context.Context, st Stack, frame designFrame, serverID string, cfg *k3dConfig, pr *pxcProg) (*pgTDE, error) {
+	pr.phase("Provisioning pg_tde key store", 85)
+	baoCfg, rootToken, baoCID, err := a.waitOpenBaoReady(ctx, st.ID, frame.OpenBaoNodeID, deployTimeout())
+	if err != nil {
+		return nil, err
+	}
+	mount := pgTDEMount(cfg.ClusterName)
+	token, err := a.provisionVaultMount(ctx, baoCID, baoCfg, rootToken, mount, "kv-v2", "Percona Operator for PostgreSQL", pr.logln)
+	if err != nil {
+		return nil, err
+	}
+
+	// The CA, only when there is TLS to verify. An OpenBao node with SSL off serves plain HTTP,
+	// pg_tde has nothing to check, and a caSecret key that the Secret does not carry stops the
+	// instance pods from starting at all.
+	caPEM, caKey := "", ""
+	if baoCfg.TLS {
+		intranetID := a.intranetContainerID(ctx, st)
+		if intranetID == "" {
+			return nil, fmt.Errorf("OpenBao at %s serves TLS but the stack has no Intranet to take the CA from", baoCfg.Addr)
+		}
+		if err := a.waitIntranetCAReady(ctx, intranetID, 120*time.Second); err != nil {
+			return nil, fmt.Errorf("wait for the Intranet CA: %w", err)
+		}
+		ca, err := a.readIntranetFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt")
+		if err != nil || len(ca) == 0 {
+			return nil, fmt.Errorf("read the Intranet CA: %w", err)
+		}
+		caPEM, caKey = string(ca), "ca.crt"
+	} else {
+		pr.logln("pg_tde → " + baoCfg.Addr + " over plain HTTP: the OpenBao node has SSL off, so the principal key crosses the stack network unencrypted")
+	}
+
+	secret := cfg.ClusterName + "-pgtde-vault"
+	if err := a.kubectlApply(ctx, serverID, cfg.Namespace, []byte(pgTDEVaultSecret(secret, token, caPEM))); err != nil {
+		return nil, fmt.Errorf("create the pg_tde vault secret: %w", err)
+	}
+	return &pgTDE{
+		WALEncryption: frame.K3DPGTDEWal,
+		VaultHost:     baoCfg.Addr,
+		MountPath:     mount,
+		Secret:        secret,
+		CAKey:         caKey,
+	}, nil
+}
 
 func (a *App) installPGOperator(ctx context.Context, st Stack, frame designFrame, doc designDoc, serverID string, cfg *k3dConfig, pr *pxcProg) error {
 	tarball, err := a.k3dFetchOperator(ctx, serverID, k3dOperatorRepos["pg"], cfg, pr)
@@ -315,6 +560,49 @@ func (a *App) installPGOperator(ctx context.Context, st Stack, frame designFrame
 	}
 	// PMM 3: the sidecar authenticates with a service token, from the cluster's own PMM secret.
 	opts.PMMHost = a.k3dPMMToken(ctx, st, frame, doc, serverID, cfg.ClusterName+"-pmm-secret", "PMM_SERVER_TOKEN", cfg, pr)
+
+	// ---- the 3.1.0 cluster features ----
+	//
+	// Guarded by the operator version rather than by the checkbox alone: below 3.1.0 these spec
+	// sections do not exist, and writing one would have the API server reject the whole cr.yaml
+	// instead of ignoring the field. Validation says so before a deploy ever starts
+	// (k3dPGFeatureIssues); this is the belt to that braces, for a design that reached here anyway.
+	if pgHasClusterFeatures(cfg.OperatorVer) {
+		if n := pgLogicalReplicas(frame); n > 0 {
+			opts.LogicalReplicas = n
+			opts.LogicalStorageGB = pgLogicalStorageGB(frame)
+			opts.LogicalBootstrap = pgLogicalBootstrap(frame)
+			opts.LogicalDatabases = pgLogicalDatabases(frame)
+			cfg.PGLogicalReplicas = n
+			dbs := "every non-template database except postgres"
+			if len(opts.LogicalDatabases) > 0 {
+				dbs = strings.Join(opts.LogicalDatabases, ", ")
+			}
+			pr.logln(fmt.Sprintf("logical replicas: %d × %d GiB, seeded by %s, subscribing to %s",
+				n, opts.LogicalStorageGB, opts.LogicalBootstrap, dbs))
+		}
+		on := pgLogCollector(frame)
+		opts.LogCollector = &on
+		cfg.PGLogCollector = on
+		if !on {
+			pr.logln("persistent logging off: no fluent-bit sidecar, so the server log lives only in the pod's stdout")
+		}
+		if frame.K3DPGTDE {
+			tde, terr := a.pgProvisionTDE(ctx, st, frame, serverID, cfg, pr)
+			if terr != nil {
+				// Fatal, unlike backups or PMM. Those degrade to a cluster with one feature
+				// missing; this one degrades to a cluster that says it is encrypted and is not,
+				// and pg_tde cannot be turned on afterwards without re-creating the data.
+				return fmt.Errorf("transparent data encryption: %w", terr)
+			}
+			opts.TDE = tde
+			cfg.PGTDE = "OpenBao " + tde.VaultHost + " (KV v2 mount " + tde.MountPath + ")"
+			if tde.WALEncryption {
+				cfg.PGTDE += " + WAL"
+			}
+			pr.logln("pg_tde keyed to " + tde.VaultHost + ", mount " + tde.MountPath)
+		}
+	}
 
 	newCR := pgTransform(string(raw), opts)
 	if err := a.engCtx(ctx).CopyFile(ctx, serverID, cfg.OperatorSrc+"/deploy", "cr.yaml", 0o644, []byte(newCR)); err != nil {

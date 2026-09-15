@@ -307,14 +307,36 @@ group→role mapping means `SHOW GRANTS` gains `accounting` at connection time (
 `SET ROLE`). The link must be encrypted — a Unix socket, or TCP with `--ssl-mode=REQUIRED`.
 
 **Data-at-rest encryption (OpenBao).** Add an **OpenBao** node (a Vault-compatible secrets
-manager, one per stack) and tick *Encrypt with OpenBao* on a Percona Server or PSMDB node. At
-deploy the node is initialized and unsealed for you — its **5 unseal keys and root token** appear
-in the node's properties, since OpenBao prints them exactly once — and the database is wired to it
-as its keyring: `component_keyring_vault` on Percona Server 8.4, the `keyring_vault` **plugin** on
-5.7/8.0 (the component does not exist before 8.4), and `security.vault` on PSMDB. Each database
-gets its own KV mount and a token scoped to it, and verifies OpenBao with the Intranet CA every
-node already trusts. OpenBao seals itself on every restart, so its panel shows the live seal state
-and can replay the stored keys with one click.
+manager, one per stack) and tick *Encrypt with OpenBao* on a Percona Server, PSMDB or PostgreSQL
+node. At deploy the node is initialized and unsealed for you — its **5 unseal keys and root token**
+appear in the node's properties, since OpenBao prints them exactly once — and the database is wired
+to it as its keyring: `component_keyring_vault` on Percona Server 8.4, the `keyring_vault` **plugin**
+on 5.7/8.0 (the component does not exist before 8.4), `security.vault` on PSMDB, and **`pg_tde`** on
+PostgreSQL. Each database gets its own KV mount and a token scoped to it, and verifies OpenBao with
+the Intranet CA every node already trusts. OpenBao seals itself on every restart, so its panel shows
+the live seal state and can replay the stored keys with one click.
+
+PostgreSQL is the odd one, and worth knowing about before you tick the box:
+
+- **It is `pg_tde`, so it needs PostgreSQL 17 or 18** — the only majors Percona builds the extension
+  for. The checkbox stays off on any other major and says why rather than quietly moving the node,
+  because the PostgreSQL version is usually the point of the node.
+- **The keyring is not a config file.** MySQL and MongoDB read theirs at startup; a pg_tde key
+  provider is *registered from SQL*
+  (`pg_tde_add_global_key_provider_vault_v2`), so this step runs after the server is already up.
+  The OpenBao token is written to a postgres-owned file, because pg_tde is given a path rather than
+  the token itself.
+- **From Percona Distribution for PostgreSQL 17.7 the extension is its own package**
+  (`percona-pg_tde17` / `percona-pg_tde18`); up to 17.6 it is inside the server package. DBCanvas
+  installs it when the repository has it and checks for the extension either way.
+- **Tables here are encrypted without asking.** The extension is created in `template1` as well as
+  `postgres`, and `default_table_access_method` becomes `tde_heap` — so every database made from the
+  default template inherits it. (A database created from `template0` needs its own
+  `CREATE EXTENSION pg_tde` first.) The deploy proves this end to end before the node reports as
+  encrypted: it creates a real `tde_heap` table and checks `pg_tde_is_encrypted`.
+- **WAL encryption is not turned on.** `pg_tde.wal_encrypt` is supported only with
+  `pg_tde_archive_decrypt` in `archive_command` and `pg_tde_restore_encrypt` in `restore_command`,
+  which the node's pgBackRest archiving does not use. Table data is encrypted either way.
 
 **Kubernetes with the Percona operators.** Add a **K3D Cluster** frame and pick a Percona operator —
 all four are supported: **PXC**, **MySQL (Percona Server)**, **MongoDB** and **PostgreSQL**. DBCanvas runs
@@ -344,6 +366,44 @@ DBCanvas deploys, so the root password is the one you already know. (PostgreSQL 
 worth knowing: pgBackRest speaks S3 only over TLS, so its backups need a SeaweedFS node with **TLS
 on** — the designer warns you when it isn't, because without it the cluster silently keeps the
 operator's own PVC backup repo and the bucket stays empty.)
+
+**Percona Operator for PostgreSQL 3.1.0 and newer** adds three more knobs, which the designer shows
+only when the frame pins a version that has them — on an older release their `cr.yaml` sections do
+not exist, so asking for one is rejected outright by the API server rather than ignored, and the
+cluster is never created at all:
+
+- **Logical replicas** (`spec.logicalReplicas`) — up to three extra read-only replicas fed by
+  *logical* replication from the primary rather than by the physical streaming Patroni manages
+  between the instances. They never get promoted and never join the failover group, so they are for
+  reading, for an analytics consumer, or for watching what logical replication does when you break
+  it. Each is a pod with its own volume, seeded either from the pgBackRest repository or with
+  `pg_basebackup` straight off the primary. **Databases** is blank by default, which writes
+  `databases: []` — the operator's own "every non-template database except `postgres`", resolved
+  when the replica bootstraps. That is the right default for a frame designed before the
+  application has created anything; name databases explicitly only when they will certainly exist
+  by then, because the operator does not create a missing one, it leaves the replica unready.
+- **Persistent logging** (`spec.logcollector`) — a fluent-bit sidecar and logrotate that keep
+  PostgreSQL's server log and pgBackRest's client log as rotated files on the data volume. On by
+  default, which is what the operator ships; turn it off and the log lives only in the pod's stdout,
+  where a restart loses it.
+- **Transparent data encryption** (`spec.extensions.pg_tde`) — encryption at rest, optionally
+  including the write-ahead log. It needs a key store: add an **OpenBao** node to the canvas and the
+  cluster gets its own KV v2 mount on it and a token scoped to that mount, verifying OpenBao with
+  the Intranet CA every node already trusts. pg_tde has no local keyring — the CRD refuses a cluster
+  that asks for encryption without a vault — so the designer errors when there is no OpenBao node,
+  and like every encryption-at-rest choice it cannot be turned on afterwards without re-creating
+  the data.
+
+**Logical replicas and encryption cannot be combined on this operator.** The operator mounts the
+pg_tde credentials into the instance pods but not into the logical-replica bootstrap job, so the
+job restores the data directory, `pg_createsubscriber` starts the restored standby, and PostgreSQL
+dies on `could not open file "/pgconf/tde/token" for "vault_token"` — the replica is then marked
+`broken` and nothing retries it. The cluster itself is healthy throughout, which is what makes this
+worth catching early, so the designer refuses the combination rather than letting you find out
+afterwards. There is no workaround in the custom resource: a `logicalReplicas` entry has no
+`volumes` field to add the secret with, and both bootstrap methods go through
+`pg_createsubscriber`. (WAL encryption is not the trigger — it fails with `pg_tde.wal_encrypt` off
+too.)
 
 **Watch it while it runs.** A running cluster can be opened on the
 [**Kubernetes States**](KUBERNETES_STATES.md) board — every pod, workload, claim, service and

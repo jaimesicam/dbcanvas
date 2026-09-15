@@ -107,15 +107,19 @@ func TestOpenBaoMounts(t *testing.T) {
 			t.Errorf("mount %s: PSMDB only supports KV v2, got %q", m.Path, m.KV)
 		}
 	}
-	for _, want := range []string{"mysql-v1", "mysql-v2", "mongodb-v2"} {
+	for _, want := range []string{"mysql-v1", "mysql-v2", "mongodb-v2", "postgresql-v2"} {
 		if !seen[want] {
 			t.Errorf("missing KV mount %q", want)
 		}
 	}
-	if seen["mongodb-v1"] {
-		t.Error("mongodb-v1 must not exist: PSMDB supports KV v2 only")
+	// Neither PSMDB nor pg_tde can authenticate against a KV v1 mount, so neither gets one: a
+	// mount an engine can never use is a trap, not an option.
+	for _, never := range []string{"mongodb-v1", "postgresql-v1"} {
+		if seen[never] {
+			t.Errorf("%s must not exist: that engine supports KV v2 only", never)
+		}
 	}
-	if len(openbaoMounts) != 3 {
-		t.Errorf("expected 3 KV mounts, got %d", len(openbaoMounts))
+	if len(openbaoMounts) != 4 {
+		t.Errorf("expected 4 KV mounts, got %d", len(openbaoMounts))
 	}
 }

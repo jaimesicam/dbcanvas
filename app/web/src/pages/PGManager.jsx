@@ -7,6 +7,7 @@ import { PGGatherCard } from '../components/Diagnostics.jsx'
 import DbLoginGuide from '../components/DbLoginGuide.jsx'
 import OidcLoginGuide from '../components/OidcLoginGuide.jsx'
 import PGCertTab from '../components/PGCertTab.jsx'
+import VaultGuide from '../components/VaultGuide.jsx'
 import { SecretValue } from '../components/Secret.jsx'
 import { Help } from '../components/Tooltip.jsx'
 import { DEP_HELP } from '../lib/help.js'
@@ -17,6 +18,7 @@ const TABS = [
   { id: 'dirlogin', label: 'Directory Login' },
   { id: 'sso', label: 'Keycloak SSO' },
   { id: 'cert', label: 'Certificate' },
+  { id: 'encryption', label: 'Encryption' },
   { id: 'backup', label: 'Backup' },
   { id: 'diag', label: 'Diagnostics' },
 ]
@@ -81,7 +83,7 @@ export default function PGManager({ stackId, nodeId, dep, onDeleteNode }) {
       </div>
 
       <div className="flex flex-wrap gap-1 rounded-lg bg-surface2 p-1">
-        {TABS.filter((t) => (t.id !== 'backup' || hasBackup) && (t.id !== 'dirlogin' || cfg.dirAuth?.enabled) && (t.id !== 'sso' || cfg.oidc?.enabled)).map((t) => (
+        {TABS.filter((t) => (t.id !== 'backup' || hasBackup) && (t.id !== 'dirlogin' || cfg.dirAuth?.enabled) && (t.id !== 'sso' || cfg.oidc?.enabled) && (t.id !== 'encryption' || cfg.vault?.enabled)).map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
@@ -97,6 +99,7 @@ export default function PGManager({ stackId, nodeId, dep, onDeleteNode }) {
       {tab === 'dirlogin' && <DbLoginGuide engine="pg" info={cfg.dirAuth} />}
       {tab === 'sso' && <OidcLoginGuide engine="pg" info={cfg.oidc} secrets={sec} />}
       {tab === 'cert' && <PGCertTab stackId={stackId} nodeId={nodeId} />}
+      {tab === 'encryption' && <VaultGuide engine="pg" info={cfg.vault} />}
       {tab === 'backup' && hasBackup && <BackupTab stackId={stackId} nodeId={nodeId} cfg={cfg} />}
       {tab === 'diag' && <PGGatherCard stackId={stackId} nodeId={nodeId} defaultDb={cfg.database} />}
     </div>
@@ -113,6 +116,7 @@ function Overview({ cfg, dep, onDeleteNode }) {
       <KV k="Role" help={DEP_HELP.Role} v="standalone (read/write)" />
       <KV k="pgBackRest" help={DEP_HELP.pgBackRest} v={cfg.usePgBackRest ? (cfg.backupRepo || 'enabled') : 'disabled'} />
       <KV k="TLS" help={DEP_HELP.TLS} v={cfg.generateCert ? 'Intranet-CA cert' : 'off'} />
+      {cfg.vault?.enabled && <KV k="Encryption at rest" help={DEP_HELP['Encryption at rest']} v={`OpenBao · ${cfg.vault.mount}`} mono />}
       <KV k="Monitored by" help={DEP_HELP['Monitored by']} v={cfg.monitoredBy || 'none'} mono />
       <KV k="Host port (5432)" help={DEP_HELP['Host port (5432)']} v={cfg.exportPort ? String(cfg.exportPort) : 'not published'} mono />
       <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />

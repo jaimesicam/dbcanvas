@@ -136,6 +136,13 @@ type k3dConfig struct {
 	// PG: the primary Postgres Service and the pgBouncer pool in front of it.
 	ExposePG        string `json:"exposePg"`
 	ExposePGBouncer string `json:"exposePgbouncer"`
+	// PG 3.1.0 and newer. Recorded rather than re-derived from the frame for the same reason
+	// CertManager above is: these are what the cluster GOT, and on an operator too old for them
+	// the frame's checkboxes and the cluster disagree. PGTDE is a sentence ("" = not encrypted)
+	// because the interesting part is which key store, not merely that there is one.
+	PGTDE             string `json:"pgTde"`
+	PGLogicalReplicas int    `json:"pgLogicalReplicas"`
+	PGLogCollector    bool   `json:"pgLogCollector"`
 	// CloudNativePG (Operator=="cnpg"): the cluster's shape, how to reach it, and where the
 	// generated application password lives. The password itself is deliberately not here —
 	// k3dConfig is the non-secret profile.
@@ -454,6 +461,134 @@ func (a *App) k3dFrameIssues(ctx context.Context, f designFrame, members int, op
 	return out
 }
 
+// k3dPGFeatureIssues validates the three cluster features the Percona Operator for PostgreSQL
+// grew in 3.1.0: spec.logicalReplicas, spec.logcollector and spec.extensions.pg_tde.
+//
+// The version gate is an error rather than a warning because of *how* an older operator fails.
+// Its CRD has no such field, so the API server rejects the entire custom resource with a strict
+// decoding error and no cluster is created at all — the deploy does not come up with one feature
+// missing, it comes up with nothing. Saying "that needs 3.1.0" on the canvas is the difference
+// between a design somebody can fix and a deploy log reading `unknown field "spec.logicalReplicas"`.
+//
+// Like k3dBackupIssues this lives outside k3dFrameIssues because it needs the design: pg_tde has
+// no local keyring, and the CRD refuses encryption without a vault, so TDE is only an option at
+// all when the canvas carries an OpenBao node.
+//
+// `deployed` is whether this frame's members are all already running, and it decides ERROR vs
+// WARNING for everything below. Every finding here is about what cr.yaml will say at deploy time,
+// and a running frame is not deployed again (handleDeployStack skips a frame whose members are
+// all up) — so for one of those an error would block the whole stack, including unrelated frames
+// somebody is trying to add, over a cr.yaml nothing is going to re-apply. It would also be
+// unactionable: a deployed frame's settings are locked in the designer. This matters because
+// these rules can become true *after* a frame was built — the pg_tde/logical-replicas conflict
+// below was added to a codebase that had already deployed clusters with both.
+func k3dPGFeatureIssues(f designFrame, doc designDoc, opCat OperatorCatalog, deployed bool) []issue {
+	if f.Type != "k3d" {
+		return nil
+	}
+	lvl, tail := "error", ""
+	if deployed {
+		lvl, tail = "warning", " (this cluster is already running, so nothing here is re-applied — destroy the frame to change it)"
+	}
+	wanted := []string{}
+	if pgLogicalReplicas(f) > 0 {
+		wanted = append(wanted, "logical replicas")
+	}
+	// Only when it was explicitly turned OFF: the knob is a negative, so an untouched frame is
+	// indistinguishable from one that never had the option — and "off" is what an operator below
+	// 3.1.0 does anyway, which makes the default the one setting worth staying quiet about.
+	if f.K3DPGNoLogCollector {
+		wanted = append(wanted, "persistent logging")
+	}
+	if f.K3DPGTDE {
+		wanted = append(wanted, "transparent data encryption")
+	}
+	if len(wanted) == 0 {
+		return nil
+	}
+	name, asked := f.Label, strings.Join(wanted, ", ")
+
+	// Wrong operator: the settings are simply not read. Worth saying — a frame switched from the
+	// Percona operator to CloudNativePG or Crunchy keeps them, and silence would look like they
+	// still apply.
+	if f.K3DOperator != "pg" {
+		return []issue{{Level: "warning", Message: "K3D cluster " + name + " has " + asked +
+			" set, which only the Percona Operator for PostgreSQL has — this cluster runs " +
+			orDefault(k3dOperatorLabel(f.K3DOperator), "no operator") + ", and the settings are ignored"}}
+	}
+
+	var out []issue
+	ver, ok := opCat.resolveOperatorVersion("pg", f.K3DOperatorVer)
+	switch {
+	case !ok:
+		// An unresolvable version is already an error of its own (k3dFrameIssues), so this only
+		// adds what that one cannot know: these options are the reason it matters here.
+		out = append(out, issue{Level: lvl, Message: "K3D cluster " + name + " asks for " + asked +
+			", which needs a known operator version to check against " + pgFeatures310 + " — pick one from the list, or run `make versions`" + tail})
+	case !pgHasClusterFeatures(ver):
+		out = append(out, issue{Level: lvl, Message: "K3D cluster " + name + " asks for " + asked +
+			", which the Percona Operator for PostgreSQL only has from " + pgFeatures310 + " — this frame pins " + ver +
+			", whose CRD has no such field, so it would reject the whole cr.yaml and create no cluster at all. " +
+			"Choose " + pgFeatures310 + " or newer, or turn the option off" + tail})
+	}
+
+	// pg_tde's key store. There is no local keyring to fall back on: the CRD carries a CEL rule
+	// ("vault is required for enabling pg_tde") that refuses the custom resource outright.
+	if f.K3DPGTDE {
+		hasBao := false
+		for _, n := range doc.Nodes {
+			if n.Type == "openbao" && (f.OpenBaoNodeID == "" || n.ID == f.OpenBaoNodeID) {
+				hasBao = true
+				break
+			}
+		}
+		if !hasBao {
+			out = append(out, issue{Level: lvl, Message: "K3D cluster " + name +
+				" has transparent data encryption on but no OpenBao node to keep the principal key in — pg_tde has no local keyring, " +
+				"and the CRD refuses the cluster without a vault. Add an OpenBao node and select it" + tail})
+		}
+	}
+
+	// Logical replicas and pg_tde do not compose in 3.1.0, and the way they fail is expensive to
+	// discover: the CR is accepted, the cluster comes up healthy, and only the replicas break.
+	//
+	// The operator projects the pg_tde credentials (the `pg-tde` volume, mounted at /pgconf/tde)
+	// into the instance pods and NOT into the logical-replica bootstrap Job. That job restores a
+	// pg_tde-enabled data directory and then runs pg_createsubscriber, which starts the restored
+	// standby — and the startup process dies on
+	//
+	//	FATAL: could not open file "/pgconf/tde/token" for "vault_token": No such file or directory
+	//
+	// after which the operator marks the replica `state: broken` / `reason: BootstrapFailed` and
+	// nothing retries it. Observed on 3.1.0 with PostgreSQL 18.6; walEncryption is NOT the
+	// trigger — the restored postgresql.conf had pg_tde.wal_encrypt = 'off' and it still failed,
+	// because shared_preload_libraries carries pg_tde and its key provider config points at that
+	// token path regardless.
+	//
+	// There is no way to fix this from the custom resource: a logicalReplicas entry has no
+	// volumes/volumeMounts field to add the secret with (the CRD allows only affinity,
+	// bootstrapMethod, dataVolumeClaimSpec, databases, expose, the probes, metadata, name,
+	// priorityClassName, resources and tolerations), and both bootstrap methods go through
+	// pg_createsubscriber. So the two options are genuinely exclusive, which is why this is an
+	// error rather than a warning: a warning would let somebody deploy a cluster whose replicas
+	// are already dead.
+	if pgLogicalReplicas(f) > 0 && f.K3DPGTDE {
+		msg := "K3D cluster " + name +
+			" asks for logical replicas and transparent data encryption together, which the Percona Operator for PostgreSQL " +
+			"cannot do yet: it does not mount the pg_tde credentials into the logical-replica bootstrap job, so the restored " +
+			"replica fails to start (`could not open file \"/pgconf/tde/token\"`) and the operator marks it broken. " +
+			"The cluster itself is fine — turn one of the two off"
+		if deployed {
+			msg = "K3D cluster " + name + "'s logical replicas are broken and cannot recover: the Percona Operator for " +
+				"PostgreSQL does not mount the pg_tde credentials into the logical-replica bootstrap job, so the restored " +
+				"replica failed to start (`could not open file \"/pgconf/tde/token\"`). The cluster itself is fine. " +
+				"To fix it, destroy this frame and redeploy it with either logical replicas or encryption, not both"
+		}
+		out = append(out, issue{Level: lvl, Message: msg})
+	}
+	return out
+}
+
 // k3dBackupIssues warns when a frame's backup target cannot actually be used by the operator it
 // runs. Today that is one case, and it is a quiet one: **pgBackRest speaks S3 only over TLS**, so the
 // PostgreSQL operator cannot back up to a SeaweedFS node with plain HTTP. installPGOperator does the
@@ -717,6 +852,13 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 		base.ExposePG = k3dExposeOf(frame.K3DExposePG, frame.K3DExpose)
 		base.ExposePGBouncer = k3dExposeOf(frame.K3DExposePGBouncer, frame.K3DExpose)
 		base.Expose = base.ExposePG
+		// The 3.1.0 features, seeded from the design so the cards say something before the
+		// operator is installed. installPGOperator overwrites them with what it actually applied
+		// — including setting them back to zero on an operator too old to have them.
+		if pgHasClusterFeatures(operatorVer) {
+			base.PGLogicalReplicas = pgLogicalReplicas(frame)
+			base.PGLogCollector = pgLogCollector(frame)
+		}
 	}
 	if operator == "pgo" {
 		base.ExposePG = k3dExposeOf(frame.K3DExposePG, frame.K3DExpose)

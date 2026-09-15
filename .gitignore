@@ -26,6 +26,16 @@ app/testdata/cr.yaml
 # schema pruner is what it does to the real 1.4 MB schema — a hand-written fixture would only
 # prove the pruner works on fixtures.
 app/testdata/pxc-crd.json
+# The PostgreSQL operator's deploy/cr.yaml and deploy/secrets.yaml, fetched the same way and for
+# the same reason: the four pgTransform tests are only worth anything against the real file, and
+# after 3.1.0 that file is what carries logicalReplicas, logcollector and extensions.pg_tde.
+#
+#   curl -sL -o app/testdata/cr-pg.yaml \
+#     https://raw.githubusercontent.com/percona/percona-postgresql-operator/v3.1.0/deploy/cr.yaml
+#   curl -sL -o app/testdata/secrets-pg.yaml \
+#     https://raw.githubusercontent.com/percona/percona-postgresql-operator/v3.1.0/deploy/secrets.yaml
+app/testdata/cr-pg.yaml
+app/testdata/secrets-pg.yaml
 
 # Screenshot-capture tooling — maintainer-only, kept out of the repo.
 # The generated screenshots (docs/screenshots/*.png) ARE committed; only the

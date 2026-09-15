@@ -582,3 +582,148 @@ func TestK3DStackIDFromContainer(t *testing.T) {
 		t.Errorf("stackIDFromName(dbcanvas node) = %d, want 2", got)
 	}
 }
+
+// The three Percona PostgreSQL 3.1.0 options are version-gated as an ERROR, not a warning: on an
+// older CRD the API server rejects the whole cr.yaml, so the cluster is not created at all.
+func TestK3DPGFeatureIssuesGateOn310(t *testing.T) {
+	cat := OperatorCatalog{"pg": {Latest: "3.1.0", Versions: []string{"3.1.0", "3.0.0", "2.9.0"}}}
+	bao := designDoc{Nodes: []designNode{{ID: "b1", Type: "openbao", Label: "bao-01"}}}
+	empty := designDoc{}
+
+	// Nothing asked for → nothing said, whatever the version.
+	plain := designFrame{Type: "k3d", Label: "k3d-00", K3DOperator: "pg", K3DOperatorVer: "2.9.0"}
+	if iss := k3dPGFeatureIssues(plain, empty, cat, false); len(iss) != 0 {
+		t.Fatalf("a frame using none of the 3.1.0 options must be silent, got %v", iss)
+	}
+
+	// Asked for on 3.0.0 → error, naming the pinned version.
+	old := plain
+	old.K3DOperatorVer, old.K3DPGLogicalReplicas = "3.0.0", 2
+	iss := k3dPGFeatureIssues(old, empty, cat, false)
+	if len(iss) != 1 || iss[0].Level != "error" {
+		t.Fatalf("logical replicas on 3.0.0 must be an error, got %v", iss)
+	}
+	if !strings.Contains(iss[0].Message, "3.0.0") || !strings.Contains(iss[0].Message, "3.1.0") {
+		t.Errorf("the error must name both versions: %q", iss[0].Message)
+	}
+
+	// The same options on 3.1.0 are fine.
+	ok := old
+	ok.K3DOperatorVer = "3.1.0"
+	if iss := k3dPGFeatureIssues(ok, empty, cat, false); len(iss) != 0 {
+		t.Errorf("3.1.0 must accept logical replicas, got %v", iss)
+	}
+	// A blank version is the catalog's latest, which is 3.1.0 here.
+	blank := old
+	blank.K3DOperatorVer = ""
+	if iss := k3dPGFeatureIssues(blank, empty, cat, false); len(iss) != 0 {
+		t.Errorf("a blank version resolves to latest (3.1.0), got %v", iss)
+	}
+
+	// Persistent logging counts only when it was explicitly turned OFF — the knob is a negative,
+	// so an untouched frame must not be dragged into the gate.
+	logOff := plain
+	logOff.K3DPGNoLogCollector = true
+	if iss := k3dPGFeatureIssues(logOff, empty, cat, false); len(iss) != 1 || iss[0].Level != "error" {
+		t.Errorf("persistent logging turned off on 2.9.0 must be an error, got %v", iss)
+	}
+
+	// Another operator ignores all of it — worth a warning, not an error.
+	wrong := ok
+	wrong.K3DOperator = "cnpg"
+	iss = k3dPGFeatureIssues(wrong, empty, cat, false)
+	if len(iss) != 1 || iss[0].Level != "warning" {
+		t.Fatalf("a non-Percona PostgreSQL operator must warn, got %v", iss)
+	}
+
+	// pg_tde has no local keyring: without an OpenBao node the CRD refuses the cluster.
+	tde := designFrame{Type: "k3d", Label: "k3d-01", K3DOperator: "pg", K3DOperatorVer: "3.1.0", K3DPGTDE: true}
+	iss = k3dPGFeatureIssues(tde, empty, cat, false)
+	if len(iss) != 1 || iss[0].Level != "error" || !strings.Contains(iss[0].Message, "OpenBao") {
+		t.Fatalf("TDE with no OpenBao node must be an error naming it, got %v", iss)
+	}
+	if iss := k3dPGFeatureIssues(tde, bao, cat, false); len(iss) != 0 {
+		t.Errorf("TDE with an OpenBao node on the canvas is fine, got %v", iss)
+	}
+	// …and it has to be the node the frame actually points at.
+	pinned := tde
+	pinned.OpenBaoNodeID = "gone"
+	if iss := k3dPGFeatureIssues(pinned, bao, cat, false); len(iss) != 1 {
+		t.Errorf("a frame pinned to a missing OpenBao node must be an error, got %v", iss)
+	}
+}
+
+// Logical replicas and pg_tde are mutually exclusive on 3.1.0: the operator does not mount the
+// pg_tde credentials into the logical-replica bootstrap job, so the restored replica dies on
+// `could not open file "/pgconf/tde/token"` and is marked broken. Observed on a real cluster —
+// see the comment in k3dPGFeatureIssues.
+func TestK3DPGFeatureIssuesRejectsLogicalReplicasWithTDE(t *testing.T) {
+	cat := OperatorCatalog{"pg": {Latest: "3.1.0", Versions: []string{"3.1.0"}}}
+	doc := designDoc{Nodes: []designNode{{ID: "b1", Type: "openbao", Label: "bao-01"}}}
+	base := designFrame{Type: "k3d", Label: "k3d-00", K3DOperator: "pg", K3DOperatorVer: "3.1.0", OpenBaoNodeID: "b1"}
+
+	// Either one alone is fine.
+	lr := base
+	lr.K3DPGLogicalReplicas = 2
+	if iss := k3dPGFeatureIssues(lr, doc, cat, false); len(iss) != 0 {
+		t.Fatalf("logical replicas alone are fine, got %v", iss)
+	}
+	tde := base
+	tde.K3DPGTDE = true
+	if iss := k3dPGFeatureIssues(tde, doc, cat, false); len(iss) != 0 {
+		t.Fatalf("encryption alone is fine, got %v", iss)
+	}
+
+	// Together they are an error — not a warning: the cluster deploys and the replicas are
+	// already dead, which is exactly the outcome a warning would let through.
+	both := base
+	both.K3DPGLogicalReplicas, both.K3DPGTDE = 2, true
+	iss := k3dPGFeatureIssues(both, doc, cat, false)
+	if len(iss) != 1 || iss[0].Level != "error" {
+		t.Fatalf("logical replicas + encryption must be one error, got %v", iss)
+	}
+	if !strings.Contains(iss[0].Message, "/pgconf/tde/token") {
+		t.Errorf("the error must name the failure it prevents: %q", iss[0].Message)
+	}
+
+	// walEncryption is not the trigger — the restored postgresql.conf had it off and the
+	// bootstrap still failed — so the check must not depend on it.
+	noWAL := both
+	noWAL.K3DPGTDEWal = false
+	if len(k3dPGFeatureIssues(noWAL, doc, cat, false)) != 1 {
+		t.Error("the conflict is pg_tde itself, not WAL encryption")
+	}
+}
+
+// A frame that is already running is one the deploy will skip, so nothing k3dPGFeatureIssues
+// finds about it may block: otherwise a rule added after that frame was built takes the whole
+// stack down with it, including an unrelated new cluster on the same canvas. The finding is still
+// reported — as a warning — because it is the explanation for why that cluster is broken.
+func TestK3DPGFeatureIssuesDoNotBlockAnAlreadyRunningFrame(t *testing.T) {
+	cat := OperatorCatalog{"pg": {Latest: "3.1.0", Versions: []string{"3.1.0", "3.0.0"}}}
+	doc := designDoc{Nodes: []designNode{{ID: "b1", Type: "openbao", Label: "bao-01"}}}
+	broken := designFrame{Type: "k3d", Label: "k3d-00", K3DOperator: "pg", K3DOperatorVer: "3.1.0",
+		OpenBaoNodeID: "b1", K3DPGLogicalReplicas: 2, K3DPGTDE: true}
+
+	// Not yet deployed: an error, because refusing the deploy is what stops it being built.
+	if iss := k3dPGFeatureIssues(broken, doc, cat, false); len(iss) != 1 || iss[0].Level != "error" {
+		t.Fatalf("an undeployed frame must error, got %v", iss)
+	}
+	// Already running: the same finding, as a warning, worded as the diagnosis it now is.
+	iss := k3dPGFeatureIssues(broken, doc, cat, true)
+	if len(iss) != 1 || iss[0].Level != "warning" {
+		t.Fatalf("a running frame must not block a deploy, got %v", iss)
+	}
+	if !strings.Contains(iss[0].Message, "destroy this frame") {
+		t.Errorf("the warning must say how to fix it: %q", iss[0].Message)
+	}
+
+	// The version gate downgrades the same way — it is equally unactionable once deployed.
+	old := designFrame{Type: "k3d", Label: "k3d-00", K3DOperator: "pg", K3DOperatorVer: "3.0.0", K3DPGLogicalReplicas: 2}
+	if iss := k3dPGFeatureIssues(old, doc, cat, false); len(iss) != 1 || iss[0].Level != "error" {
+		t.Fatalf("an undeployed frame on 3.0.0 must error, got %v", iss)
+	}
+	if iss := k3dPGFeatureIssues(old, doc, cat, true); len(iss) != 1 || iss[0].Level != "warning" {
+		t.Fatalf("a running frame on 3.0.0 must warn, got %v", iss)
+	}
+}
