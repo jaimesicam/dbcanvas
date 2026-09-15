@@ -29,6 +29,7 @@ How to use each part of DBCanvas. For installing and configuring it, see
 | --- | --- |
 | [Data Generator](DATA_GENERATOR.md) | Realistic test data, at the scale it takes to see a problem. |
 | [Query Runner](QUERY_RUNNER.md) | Parallel SQL across nodes, gated on the processlist. |
+| [Database Explorer](DATABASE_EXPLORER.md) | Browse schemas, collections and keys; run SQL, MongoDB queries and Valkey commands; read results as tables, documents or charts — and read PMM's own internal databases safely. |
 | [Benchmark](BENCHMARK.md) | OLTP, OLAP, read-write and read-only workloads with throughput and latency. |
 
 ## Find out what happened

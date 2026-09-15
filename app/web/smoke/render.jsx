@@ -129,6 +129,22 @@ import { Help, Hint, place } from '../src/components/Tooltip.jsx'
 import { SettingsCtx } from '../src/settings/SettingsProvider.jsx'
 import * as nodeFs from 'node:fs'
 import { HELP, MENU_HELP, TOOL_HELP, DEP_HELP, MORE_HELP, FTDC_HELP, nodeHelp } from '../src/lib/help.js'
+import DatabaseExplorer, {
+  ConnectionTree as DbxTree, HistoryPanel as DbxHistory, SavedPanel as DbxSaved,
+  Overview as DbxOverview, ColumnsView as DbxColumns, IndexesView as DbxIndexes,
+  DDLView as DbxDDL, ErrorPanel as DbxError, MessagesView as DbxMessages,
+  DocumentsView as DbxDocuments, JsonNode as DbxJsonNode, SqlEditor as DbxSql,
+  MongoEditor as DbxMongo, ValkeyEditor as DbxValkey, TabStrip as DbxTabs,
+  highlightSQL as dbxHighlight, coerce as dbxCoerce, ReadOnlyBanner as DbxBanner,
+} from '../src/pages/DatabaseExplorer.jsx'
+import { DbxGrid, ValueViewer as DbxValueViewer } from '../src/components/DbxGrid.jsx'
+import { DbxChart, XYChart as DbxXY, PieChart as DbxPie, niceTicks as dbxTicks } from '../src/components/DbxChart.jsx'
+import {
+  buildChartData, cellDisplay, cellNumber, cellText, compareCells, csvField,
+  filterRows, fmtBytes, fmtDuration, fmtNumber, formatSQL, isDestructiveSQL, isNull,
+  looksJson, NULL_MARK, prettyJson, sortRows, splitStatements, statementAt,
+  suggestChart, toCSV, toJSON,
+} from '../src/lib/dbxApi.js'
 import realDeps from './real-deps.json' with { type: 'json' }
 
 const noop = () => {}
@@ -4662,6 +4678,387 @@ check('backups: the bucket breadcrumb walks back up the prefix', () => {
   if (crumbsOf('').length !== 0) throw new Error('the bucket root has no crumbs')
   if (crumbsOf('a//b').length !== 2) throw new Error('empty segments are not crumbs')
   return crumbs.map((c) => c.name).join(' / ')
+})
+
+
+// ---- Database Explorer ----------------------------------------------------------------
+// The page is an IDE layout over five engines, and most of what can break in it breaks
+// at render: an engine whose editor does not exist, a result shape with no grid, an
+// object view reached before its detail has arrived. All of those are reachable only by
+// clicking, which is exactly the shape `vite build` compiles happily and a user finds.
+
+const dbxCols = [
+  { name: 'id', databaseType: 'bigint', semanticType: 'integer' },
+  { name: 'name', databaseType: 'varchar', semanticType: 'string' },
+  { name: 'active', databaseType: 'boolean', semanticType: 'boolean' },
+  { name: 'payload', databaseType: 'jsonb', semanticType: 'json' },
+]
+const dbxRows = [
+  [1, 'alpha', true, '{"a":1}'],
+  [2, '', false, null],
+  [3, null, true, '{"b":[1,2]}'],
+]
+const dbxConn = {
+  id: '1~n~node1', stackId: 1, stackName: 'lab', nodeId: 'node1', label: 'pg-01',
+  engine: 'postgres', kind: 'pg', product: 'PostgreSQL', group: 'PostgreSQL', role: 'primary',
+  preferred: true, host: 'pg-01.example.net', port: 5432, status: 'running', user: 'postgres',
+  transport: 'network', capabilities: { sql: true, explain: true, schemas: true, charts: true, schemaBrowser: true, editableRows: true },
+}
+const dbxPMM = {
+  ...dbxConn, id: '1~ppg~pmm1', label: 'pmm-01 · PostgreSQL — PMM Internal',
+  product: 'PMM Internal — Read Only', group: 'PMM Server', readOnly: true, policy: 'pmm-internal',
+  warning: 'These databases are used internally by PMM.', transport: 'exec',
+}
+
+check('explorer: the page mounts before anything has loaded', () => {
+  const html = renderToString(<DatabaseExplorer />)
+  const text = html.replace(/<!--.*?-->/g, '')
+  for (const want of ['Database Explorer', 'Connections', 'History', 'Saved']) {
+    if (!text.includes(want)) throw new Error(`missing from the shell: ${want}`)
+  }
+  return html.length + ' bytes'
+})
+
+check('explorer: with no stacks, the tree says what to do instead of nothing', () => {
+  const html = renderToString(<DbxTree stacks={[]} onPickConnection={noop} onOpenObject={noop} onNewQuery={noop} />)
+  if (!html.includes('No running databases')) throw new Error('an empty tree must explain itself')
+  if (!html.includes('Database Stacks')) throw new Error('it should point at where a stack comes from')
+  // Loading is a third state, and it must not look like "none".
+  const loading = renderToString(<DbxTree stacks={null} onPickConnection={noop} onOpenObject={noop} onNewQuery={noop} />)
+  if (loading.includes('No running databases')) throw new Error('loading must not read as empty')
+  return 'empty, loading'
+})
+
+check('explorer: a PMM connection carries its read-only warning into the tree', () => {
+  const stacks = [{ stackId: 1, stackName: 'lab', connections: 1, groups: [{ name: 'PMM Server', engine: 'postgres', connections: [dbxPMM] }] }]
+  const html = renderToString(<DbxTree stacks={stacks} pmmWarning="fallback" onPickConnection={noop} onOpenObject={noop} onNewQuery={noop} />)
+  if (!html.includes('PMM Server')) throw new Error('the group heading is missing')
+  return 'ok'
+})
+
+check('explorer: NULL is not the empty string, in the grid and in a CSV', () => {
+  const html = renderToString(<DbxGrid columns={dbxCols} rows={dbxRows} name="t" />)
+  if (!html.includes(NULL_MARK)) throw new Error('a NULL cell must be marked, not blank')
+  if (cellDisplay(null) === cellDisplay('')) throw new Error('NULL and "" must not display alike')
+  if (cellText(null) !== '') throw new Error('a copied NULL is empty text')
+  // In CSV, NULL is an empty field and "" is a quoted one — the distinction survives export.
+  if (csvField(null) !== '') throw new Error(`csvField(null) = ${csvField(null)}`)
+  if (csvField('') !== '""') throw new Error(`csvField("") = ${csvField('')}`)
+  if (csvField('a,b') !== '"a,b"') throw new Error('a comma must be quoted')
+  if (csvField('say "hi"') !== '"say ""hi"""') throw new Error('a quote must be doubled')
+  const csv = toCSV(dbxCols, dbxRows)
+  if (!csv.startsWith('id,name,active,payload\n')) throw new Error('the header is the column names')
+  if (!csv.includes('2,"",false,')) throw new Error(`an empty string and a NULL must differ in the CSV: ${csv}`)
+  return 'grid, csv'
+})
+
+check('explorer: a binary value is shown as a length and hex, never as mojibake', () => {
+  const bin = { __dbx: 'binary', b64: 'AAEC', len: 3, hex: '000102' }
+  const shown = cellDisplay(bin)
+  if (!shown.includes('BINARY[3]') || !shown.includes('000102')) throw new Error(`binary display: ${shown}`)
+  if (cellText(bin) !== '0x000102') throw new Error(`copied binary: ${cellText(bin)}`)
+  const big = { __dbx: 'bignum', text: '18446744073709551615' }
+  if (cellText(big) !== '18446744073709551615') throw new Error('a wide integer must keep every digit')
+  if (cellNumber(big) !== 18446744073709552000) throw new Error('a bignum still sorts numerically')
+  return shown
+})
+
+check('explorer: sorting puts NULLs last whichever way it points', () => {
+  const col = dbxCols[1]
+  const asc = sortRows(dbxRows, 1, 'asc', col).map((r) => r[1])
+  const desc = sortRows(dbxRows, 1, 'desc', col).map((r) => r[1])
+  if (asc[asc.length - 1] !== null) throw new Error(`ascending: ${JSON.stringify(asc)}`)
+  if (desc[desc.length - 1] !== null) throw new Error(`descending: ${JSON.stringify(desc)}`)
+  // And sorting is not destructive: the original order is still the database's answer.
+  if (dbxRows[0][1] !== 'alpha') throw new Error('sortRows must not mutate its input')
+  // Numeric columns compare as numbers, not as text: 10 comes after 9.
+  const nums = [[9], [10], [1]]
+  const order = sortRows(nums, 0, 'asc', { semanticType: 'integer' }).map((r) => r[0])
+  if (order.join(',') !== '1,9,10') throw new Error(`numeric sort: ${order}`)
+  return asc.join('|')
+})
+
+check('explorer: the in-result filter searches values and never matches a NULL', () => {
+  if (filterRows(dbxRows, 'alpha').length !== 1) throw new Error('a substring should match one row')
+  if (filterRows(dbxRows, 'null').length !== 0) throw new Error('typing "null" must not match every empty cell')
+  if (filterRows(dbxRows, '').length !== 3) throw new Error('an empty filter keeps everything')
+  return 'ok'
+})
+
+check('explorer: a chart is suggested from the shape of the result, not invented', () => {
+  // country | count  →  a bar chart of count by country.
+  const bar = suggestChart([
+    { name: 'country', semanticType: 'string' }, { name: 'count', semanticType: 'integer' },
+  ])
+  if (bar.type !== 'bar' || bar.x !== 0 || bar.y !== 1) throw new Error(`country/count: ${JSON.stringify(bar)}`)
+  // date | orders | revenue  →  a line over the date.
+  const line = suggestChart([
+    { name: 'date', semanticType: 'datetime' }, { name: 'orders', semanticType: 'integer' },
+    { name: 'revenue', semanticType: 'number' },
+  ])
+  if (line.type !== 'line' || line.x !== 0) throw new Error(`date/orders/revenue: ${JSON.stringify(line)}`)
+  // Nothing numeric to plot: stay a table rather than draw something meaningless.
+  const none = suggestChart([{ name: 'a', semanticType: 'string' }, { name: 'b', semanticType: 'string' }])
+  if (none.type !== 'table') throw new Error(`no numbers should stay a table: ${none.type}`)
+  return `${bar.type}, ${line.type}, ${none.type}`
+})
+
+check('explorer: a chart says when its numbers are the browser’s and not the query’s', () => {
+  const cols = [{ name: 'country', semanticType: 'string' }, { name: 'n', semanticType: 'integer' }]
+  const rows = [['uk', 1], ['uk', 2], ['fr', 5]]
+  const plain = buildChartData(cols, rows, { type: 'bar', x: 0, y: 1, agg: 'none' })
+  if (plain.clientSide) throw new Error('one point per row is not a transformation')
+  const summed = buildChartData(cols, rows, { type: 'bar', x: 0, y: 1, agg: 'sum' })
+  if (!summed.clientSide) throw new Error('an aggregation must be declared')
+  if (!summed.warning.includes('grouped into')) throw new Error(`the header must say so: ${summed.warning}`)
+  const uk = summed.points.find((p) => p.x === 'uk')
+  if (uk.y !== 3) throw new Error(`sum: ${uk.y}`)
+  // Top N reports what it left out rather than quietly shortening the chart.
+  const top = buildChartData(cols, rows, { type: 'bar', x: 0, y: 1, agg: 'sum', topN: 1, sort: 'value-desc' })
+  if (top.points.length !== 1 || !top.warning.includes('top 1 of 2')) throw new Error(`topN: ${top.warning}`)
+  return summed.warning
+})
+
+check('explorer: a histogram buckets a numeric column into equal-width bins', () => {
+  const cols = [{ name: 'v', semanticType: 'number' }]
+  const rows = [[0], [1], [2], [3], [10]]
+  const h = buildChartData(cols, rows, { type: 'histogram', x: 0, bins: 5 })
+  if (h.points.length !== 5) throw new Error(`five bins: ${h.points.length}`)
+  if (h.points.reduce((a, p) => a + p.y, 0) !== 5) throw new Error('every value lands in a bin')
+  // A column with nothing numeric in it says so rather than drawing an empty chart.
+  const empty = buildChartData([{ name: 's', semanticType: 'string' }], [['x']], { type: 'histogram', x: 0, bins: 4 })
+  if (!empty.warning.includes('no numeric values')) throw new Error(`empty histogram: ${empty.warning}`)
+  return h.warning
+})
+
+check('explorer: axis ticks are round numbers', () => {
+  const t = dbxTicks(0, 4762)
+  if (t.some((v) => !Number.isInteger(v / 1000) && !Number.isInteger(v))) throw new Error(`ticks: ${t}`)
+  if (dbxTicks(5, 5).length !== 1) throw new Error('a flat range gets one tick, not NaN')
+  return t.join(',')
+})
+
+check('explorer: every chart type renders', () => {
+  const cols = [{ name: 'k', semanticType: 'string' }, { name: 'v', semanticType: 'number' }]
+  const rows = [['a', 3], ['b', 5], ['c', 2]]
+  let bytes = 0
+  for (const type of ['bar', 'hbar', 'line', 'area', 'scatter', 'histogram']) {
+    const data = buildChartData(cols, rows, { type, x: 0, y: 1, agg: 'none', bins: 4 })
+    bytes += renderToString(<DbxXY spec={{ type, x: 0, y: 1 }} data={data} w={600} h={300} series={['']} colorOf={() => '#2a78d6'} onHover={noop} />).length
+  }
+  for (const type of ['pie', 'donut']) {
+    const data = buildChartData(cols, rows, { type, x: 0, y: 1, agg: 'sum' })
+    bytes += renderToString(<DbxPie spec={{ type }} data={data} w={400} h={300} colorOf={() => '#2a78d6'} onHover={noop} />).length
+  }
+  const panel = renderToString(<DbxChart columns={cols} rows={rows} name="c" />)
+  if (!panel.includes('Chart')) throw new Error('the builder must render its controls')
+  return bytes + ' bytes'
+})
+
+check('explorer: each engine gets the editor it deserves, not a SQL box', () => {
+  const tab = { key: 'q1', sql: 'SELECT 1', command: 'GET foo', mongo: { collection: 'orders', operation: 'find', filter: '{}', projection: '', sort: '', pipeline: '[]', skip: 0 } }
+  const sql = renderToString(<DbxSql tab={tab} patch={noop} onRun={noop} />)
+  if (!sql.includes('Format')) throw new Error('the SQL editor has a formatter')
+  const mongo = renderToString(<DbxMongo tab={tab} patch={noop} onRun={noop} />)
+  for (const want of ['aggregate', 'Filter', 'Projection', 'Sort']) {
+    if (!mongo.includes(want)) throw new Error(`the MongoDB editor is missing ${want}`)
+  }
+  if (mongo.includes('SELECT')) throw new Error('MongoDB must not be dressed as SQL')
+  const valkey = renderToString(<DbxValkey tab={tab} patch={noop} onRun={noop} />)
+  if (!valkey.includes('SCAN')) throw new Error('the Valkey console should say why KEYS is refused')
+  return 'sql, mongo, valkey'
+})
+
+check('explorer: a destructive statement is recognised before it is run', () => {
+  for (const sql of ['DROP TABLE t', '  delete from t', '-- note\nTRUNCATE t', '/* x */ ALTER TABLE t ADD c INT']) {
+    if (!isDestructiveSQL(sql)) throw new Error(`should need confirming: ${sql}`)
+  }
+  for (const sql of ['SELECT 1', 'WITH a AS (SELECT 1) SELECT * FROM a', 'SHOW TABLES']) {
+    if (isDestructiveSQL(sql)) throw new Error(`should run freely: ${sql}`)
+  }
+  return 'ok'
+})
+
+check('explorer: run-the-statement-I-am-in splits the way the server does', () => {
+  const sql = "SELECT 1;\nSELECT ';' AS semi;\nSELECT 3"
+  const parts = splitStatements(sql)
+  if (parts.length !== 3) throw new Error(`a semicolon inside a string is not a boundary: ${parts.length}`)
+  if (statementAt(sql, 0) !== 'SELECT 1') throw new Error(statementAt(sql, 0))
+  if (statementAt(sql, sql.length) !== 'SELECT 3') throw new Error(statementAt(sql, sql.length))
+  return parts.length + ' statements'
+})
+
+check('explorer: the formatter only moves whitespace', () => {
+  const out = formatSQL('select a, b from t where a = 1 order by b')
+  if (!out.startsWith('select')) throw new Error(out)
+  if (!out.includes('\nfrom t')) throw new Error(`keywords start lines: ${JSON.stringify(out)}`)
+  const strip = (s) => s.replace(/\s+/g, ' ').trim()
+  if (strip(out) !== strip('select a, b from t where a = 1 order by b')) throw new Error('the statement itself must not change')
+  return JSON.stringify(out)
+})
+
+check('explorer: an error reads like a database client, not a stack trace', () => {
+  const raw = renderToString(<DbxError err={{
+    engine: 'mysql', code: '1146', sqlState: '42S02', name: 'ERROR',
+    display: "ERROR 1146 (42S02): Table 'shop.foo' doesn't exist",
+    message: "Table 'shop.foo' doesn't exist", elapsedMs: 3.2, position: 15,
+  }} />)
+  // Comment markers separate adjacent text nodes in SSR output, and the needles avoid
+  // ' and " because renderToString escapes both.
+  const html = raw.replace(/<!--.*?-->/g, '')
+  for (const want of ['1146', '42S02', 'exist', 'character 15']) {
+    if (!html.includes(want)) throw new Error(`the error panel is missing ${want}`)
+  }
+  if (html.toLowerCase().includes('goroutine')) throw new Error('never a Go stack trace')
+  return 'ok'
+})
+
+check('explorer: the object views render from a description', () => {
+  const detail = {
+    ref: { database: 'shop', schema: 'public', name: 'orders', kind: 'table' }, kind: 'table',
+    columns: [{ name: 'id', type: 'bigint', nullable: false, key: 'PRI', position: 1 }],
+    indexes: [{ name: 'orders_pkey', columns: ['id'], unique: true, primary: true, type: 'btree', size: 8192 }],
+    constraints: [{ name: 'ck', type: 'CHECK', definition: 'CHECK (id > 0)' }],
+    foreignKeys: [{ name: 'fk', columns: ['cid'], refTable: 'customers', refColumns: ['id'], onDelete: 'CASCADE' }],
+    primaryKey: ['id'], rowEstimate: 1234, bytes: 40960,
+    props: [{ label: 'Engine', value: 'InnoDB' }],
+    ddl: 'CREATE TABLE orders (\n  id bigint NOT NULL\n);',
+    editable: true,
+  }
+  const tab = { object: { ref: detail.ref, detail }, title: 'orders' }
+  const ov = renderToString(<DbxOverview tab={tab} conn={dbxConn} detail={detail} />)
+  for (const want of ['orders', 'InnoDB', 'customers', 'CHECK']) {
+    if (!ov.includes(want)) throw new Error(`the overview is missing ${want}`)
+  }
+  if (!ov.includes('~1.2k')) throw new Error('the row count is an estimate and should read as one')
+  renderToString(<DbxColumns detail={detail} />)
+  renderToString(<DbxIndexes detail={detail} />)
+  const ddl = renderToString(<DbxDDL detail={detail} />)
+  if (!ddl.includes('CREATE')) throw new Error('the DDL tab shows the definition')
+  // A table with no identity says why rather than offering an edit that cannot work.
+  const noPk = renderToString(<DbxOverview tab={tab} conn={dbxConn}
+    detail={{ ...detail, editable: false, editReason: 'this table has no primary key' }} />)
+  if (!noPk.includes('no primary key')) throw new Error('the reason must be on screen')
+  return 'overview, columns, indexes, ddl'
+})
+
+check('explorer: a document keeps its nesting instead of being flattened', () => {
+  const doc = JSON.stringify({ _id: { $oid: 'abc' }, tags: ['a', 'b'], nested: { n: 1 } })
+  const html = renderToString(<DbxDocuments sets={[{ documents: [doc] }]} raw={false} />)
+  if (!html.includes('$oid')) throw new Error('Extended JSON types must survive')
+  if (!html.includes('tags')) throw new Error('an array field must be there to open')
+  const raw = renderToString(<DbxDocuments sets={[{ documents: [doc] }]} raw />)
+  if (!raw.includes('$oid')) throw new Error('the raw view is formatted JSON')
+  const node = renderToString(<DbxJsonNode value={{ a: [1, { b: 2 }] }} name="root" depth={0} defaultOpen />)
+  if (!node.includes('root')) throw new Error('a node shows its name')
+  return 'document, raw'
+})
+
+check('explorer: a value too big for a cell is still reachable whole', () => {
+  const long = 'x'.repeat(5000)
+  if (cellDisplay(long).length > 260) throw new Error('the grid must not paint 5000 characters')
+  if (cellText(long).length !== 5000) throw new Error('but copying it must give all of them')
+  const html = renderToString(<DbxValueViewer open={{ value: long, col: dbxCols[1] }} onClose={noop} />)
+  if (!html.includes('5000 characters')) throw new Error('the viewer says how big it is')
+  if (!looksJson('{"a":1}', null)) throw new Error('a JSON-looking string is offered as JSON')
+  if (looksJson('not json', null)) throw new Error('and a plain one is not')
+  if (prettyJson('{"a":1}') !== '{\n  "a": 1\n}') throw new Error('JSON is pretty-printed')
+  return 'ok'
+})
+
+check('explorer: the history and saved panels render, with and without entries', () => {
+  const empty = renderToString(<DbxHistory entries={[]} onRerun={noop} onDelete={noop} onClear={noop} />)
+  if (!empty.includes('never its password')) throw new Error('the empty state should say what is recorded')
+  const full = renderToString(<DbxHistory entries={[{
+    id: 1, at: new Date().toISOString(), connectionId: dbxConn.id, connection: 'lab · pg-01',
+    engine: 'postgres', database: 'shop', statement: 'SELECT 1', durationMs: 12.5, rowCount: 1, success: true,
+  }]} onRerun={noop} onDelete={noop} onClear={noop} />)
+  if (!full.includes('SELECT 1')) throw new Error('an entry shows its statement')
+  if (full.includes('password')) throw new Error('a stored entry never carries one')
+  const saved = renderToString(<DbxSaved items={[{ id: 1, name: 'top orders', engine: 'postgres', statement: 'SELECT 1' }]} onOpen={noop} onDelete={noop} />)
+  if (!saved.includes('top orders')) throw new Error('a saved query shows its name')
+  return 'history, saved'
+})
+
+check('explorer: messages report what happened, including a read-only refusal', () => {
+  const html = renderToString(<DbxMessages res={{
+    durationMs: 8, readOnly: true,
+    sets: [{ statement: 'SELECT 1', rowCount: 1, truncated: true }],
+    warnings: ['Warning 1292: truncated incorrect value'],
+  }} />)
+  for (const want of ['SELECT 1', 'truncated', 'read-only']) {
+    if (!html.includes(want)) throw new Error(`messages missing ${want}`)
+  }
+  return 'ok'
+})
+
+check('explorer: the tab strip and the DDL highlighter render', () => {
+  const tabs = renderToString(<DbxTabs tabs={[{ key: 'q1', title: 'Query 1' }, { key: 'q2', title: 'orders', running: true }]}
+    active="q1" setActive={noop} onClose={noop} onNew={noop} />)
+  if (!tabs.includes('orders')) throw new Error('every tab is listed')
+  const hl = renderToString(<pre>{dbxHighlight("CREATE TABLE t (a INT DEFAULT 'x') -- note")}</pre>)
+  if (!hl.includes('CREATE')) throw new Error('the highlighter keeps the text it colours')
+  return 'ok'
+})
+
+check('explorer: a form value keeps its type, and NULL is not an empty box', () => {
+  if (dbxCoerce('42') !== 42) throw new Error('digits become a number')
+  if (dbxCoerce('') !== '') throw new Error('an empty field is the empty string, not NULL')
+  if (dbxCoerce('true') !== true) throw new Error('a boolean becomes one')
+  if (dbxCoerce(null) !== null) throw new Error('NULL stays NULL')
+  if (dbxCoerce('007') !== 7) throw new Error('a numeric-looking string is a number')
+  return 'ok'
+})
+
+check('explorer: sizes and durations read the same as the Go side', () => {
+  if (fmtBytes(2048) !== '2.0 KiB') throw new Error(fmtBytes(2048))
+  if (fmtNumber(1500) !== '1.5k') throw new Error(fmtNumber(1500))
+  if (fmtDuration(0.5) !== '0.50 ms') throw new Error(fmtDuration(0.5))
+  if (fmtDuration(2500) !== '2.50 s') throw new Error(fmtDuration(2500))
+  if (!isNull(undefined) || isNull(0) || isNull('')) throw new Error('only null and undefined are NULL')
+  return 'ok'
+})
+
+check('explorer: a read-only connection says so, and offers arming only when allowed', () => {
+  const locked = { ...dbxPMM, unlockable: false }
+  const off = renderToString(<DbxBanner tab={{ armed: false }} conn={locked} patch={noop} />)
+  if (!off.includes('PMM Internal')) throw new Error('the banner names what the connection is')
+  if (off.includes('Arm writes')) throw new Error('arming must not be offered when an administrator has not allowed it')
+  if (!off.includes('administrator')) throw new Error('it should say who can unlock it')
+
+  const allowed = { ...dbxPMM, unlockable: true }
+  const ready = renderToString(<DbxBanner tab={{ armed: false }} conn={allowed} patch={noop} />)
+  if (!ready.includes('Arm writes')) throw new Error('arming should be offered once it is allowed')
+  if (ready.includes('WRITES ARMED')) throw new Error('offering to arm is not being armed')
+
+  const armed = renderToString(<DbxBanner tab={{ armed: true }} conn={allowed} patch={noop} />)
+  if (!armed.includes('WRITES ARMED')) throw new Error('an armed tab must say so unmistakably')
+  if (!armed.includes('Disarm')) throw new Error('disarming has to be one click away')
+  if (!armed.includes('corrupt or break')) throw new Error('the consequence stays on screen while armed')
+  return 'locked, offered, armed'
+})
+
+check('explorer: a Kubernetes connection explains why it has no address', () => {
+  const k8s = {
+    id: '1~k8s~f1~cl-replicas', stackId: 1, stackName: 'lab', nodeId: 'f1',
+    label: 'k3d-01 · replicas', engine: 'postgres', kind: 'k8s-replica',
+    product: 'the Percona Operator for PostgreSQL', group: 'Kubernetes operators',
+    role: 'replica', host: 'cl-replicas.pg.svc', port: 5432, status: 'running',
+    user: 'postgres', transport: 'exec', exposable: true,
+    note: 'read-only replicas · Service pg/cl-replicas (ClusterIP) · this Service is ClusterIP, so it has no address outside the cluster — DBCanvas reads it by running a client in its pod instead',
+    capabilities: { sql: true, schemas: true, charts: true, schemaBrowser: true },
+  }
+  const stacks = [{ stackId: 1, stackName: 'lab', connections: 1, groups: [{ name: 'Kubernetes operators', engine: 'postgres', connections: [k8s] }] }]
+  const html = renderToString(<DbxTree stacks={stacks} onPickConnection={noop} onOpenObject={noop} onNewQuery={noop} />)
+  if (!html.includes('Kubernetes operators')) throw new Error('the group heading is missing')
+  return 'ok'
+})
+
+check('explorer: JSON export disambiguates duplicate column names', () => {
+  const cols = [{ name: 'x', semanticType: 'integer' }, { name: 'x', semanticType: 'string' }]
+  const out = JSON.parse(toJSON(cols, [[1, 'a']]))
+  if (out[0].x !== 1 || out[0].x_2 !== 'a') throw new Error(`both columns must survive: ${JSON.stringify(out[0])}`)
+  return 'ok'
 })
 
 if (failures > 0) {

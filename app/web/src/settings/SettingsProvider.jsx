@@ -26,6 +26,9 @@ const DEFAULTS = {
 const SYSTEM_DEFAULTS = {
   maxUploadBytes: 4 * 1024 * 1024 * 1024, maxTokenDays: 90,
   sshForwarding: { enabled: false }, experimental: false,
+  // Off until the server says otherwise, so a page rendered before the settings
+  // land never offers to write to a PMM database.
+  internalWrites: false,
 }
 // Exported for the render checks, which need to mount a component under a chosen
 // preference — `tooltips: 'off'` is only observable through the context, and the

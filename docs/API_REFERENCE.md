@@ -30,7 +30,7 @@ longer one.
 
 **Building** · [Stacks](#stacks) · [Templates](#templates) · [Nodes](#nodes) · [Clusters & backups](#clusters--backups) · [Version catalogues](#version-catalogues) · [Kubernetes frames](#kubernetes-frames) · [All in One](#all-in-one)
 
-**Running load** · [Data Generator](#data-generator) · [Query Runner](#query-runner) · [Benchmark](#benchmark) · [Sample Client Code](#sample-client-code) · [Stock Market Sim](#stock-market-sim) · [Ledger Sim](#ledger-sim)
+**Running load** · [Data Generator](#data-generator) · [Query Runner](#query-runner) · [Database Explorer](#database-explorer) · [Benchmark](#benchmark) · [Sample Client Code](#sample-client-code) · [Stock Market Sim](#stock-market-sim) · [Ledger Sim](#ledger-sim)
 
 **Finding out what happened** · [Packet Inspector](#packet-inspector) · [Log Summary](#log-summary) · [FTDC Summary](#ftdc-summary) · [Stalk Summary](#stalk-summary) · [Diagnostic captures](#diagnostic-captures) · [Operator Debugger](#operator-debugger) · [Core Dump Analyzer](#core-dump-analyzer)
 
@@ -747,6 +747,59 @@ dbcanvas query run --stack pxc-lab --nodes pxc-01,pxc-02,pxc-03 \
 ```
 
 `--sql @file.sql` reads the statement from a file, which is easier than quoting.
+
+## Database Explorer
+
+Browse and query the databases DBCanvas deployed — MySQL, PostgreSQL, MongoDB, Valkey
+and ClickHouse, including PMM Server's internal PostgreSQL and Query Analytics store.
+See [Database Explorer](DATABASE_EXPLORER.md).
+
+A connection is named by an opaque id from the first call. **No endpoint here takes a
+host, a user or a password, and none returns one** — the id is re-resolved against your
+own stacks and re-authorized on every request, and the credentials never leave the
+server.
+
+| To do this | API | CLI |
+| --- | --- | --- |
+| Every database you may reach, by stack and engine | `GET /api/dbexplorer/connections` | `dbcanvas api GET /api/dbexplorer/connections` |
+| One connection, with the version read from the server | `GET /api/dbexplorer/connections/{cid}` | *(UI)* |
+| Its databases (or Valkey keyspaces) | `GET /api/dbexplorer/connections/{cid}/databases` | *(UI)* |
+| Its schemas, where the engine has them | `GET /api/dbexplorer/connections/{cid}/schemas?database=` | *(UI)* |
+| One level of the object tree | `GET /api/dbexplorer/connections/{cid}/objects?database=&schema=&folder=&cursor=&filter=` | *(UI)* |
+| Describe one object — columns, indexes, keys, size, DDL | `GET /api/dbexplorer/connections/{cid}/object?database=&schema=&name=&kind=` | *(UI)* |
+| Its first page of rows, documents or values | `GET /api/dbexplorer/connections/{cid}/viewdata?database=&name=&kind=&limit=` | *(UI)* |
+| Run SQL, a MongoDB query, or a Valkey command | `POST /api/dbexplorer/query` | `dbcanvas api POST /api/dbexplorer/query` |
+| Cancel one of your in-flight queries | `POST /api/dbexplorer/cancel` | *(UI)* |
+| Insert, edit or delete one row — or preview the statement | `POST /api/dbexplorer/mutate` | *(UI)* |
+| Your query history | `GET /api/dbexplorer/history` | `dbcanvas api GET /api/dbexplorer/history` |
+| Delete one entry / clear the lot | `DELETE /api/dbexplorer/history/{hid}` · `DELETE /api/dbexplorer/history` | *(UI)* |
+| Saved queries | `GET`/`POST /api/dbexplorer/saved` · `DELETE /api/dbexplorer/saved/{sid}` | *(UI)* |
+| Give a Kubernetes database an address the load tools can dial | `POST /api/dbexplorer/expose` | *(UI)* |
+| Remove that Service again | `POST /api/dbexplorer/unexpose` | *(UI)* |
+
+The object listing is one level per call — the tree is expanded lazily, and Valkey's
+`cursor` is a `SCAN` cursor you hand back to continue.
+
+```sh
+# The connection ids, then a query against one of them.
+CID=$(dbcanvas api GET /api/dbexplorer/connections |
+      jq -r '.stacks[0].groups[0].connections[0].id')
+
+dbcanvas api POST /api/dbexplorer/query --data "$(jq -n --arg c "$CID" \
+  '{connectionId:$c, database:"shop", sql:"SELECT country, count(*) FROM orders GROUP BY 1", limit:500}')"
+```
+
+Connections include the databases a Kubernetes operator deployed inside a K3D frame.
+A LoadBalancer or NodePort Service is dialled directly; a ClusterIP one is read by
+running the database's own client in its pod. `expose` adds a Service *beside* the
+operator's own so the Query Runner and Benchmark can dial it too, and never modifies
+anything the operator owns.
+
+Every result is capped — 500 rows by default, 50,000 at most — and every query has a
+timeout (30 s by default, 300 s at most). A PMM connection is read-only at the
+*database* as well as in the application: PostgreSQL runs it inside `BEGIN READ ONLY`
+and ClickHouse with `readonly=2`, so a write is refused by the server with SQLSTATE
+25006 or error 164 even if it got past the application's own classifier.
 
 ## Benchmark
 

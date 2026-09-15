@@ -60,6 +60,21 @@ Live headline (TPS or QPS by profile), transaction latency p50/p95/p99, and a
 per-statement-type breakdown (count, errors, avg/p95/p99). Finished runs appear under
 **History** (this server session).
 
+## Kubernetes clusters
+
+> [!NOTE]
+> Operator targets are new and need more testing: verified against Percona PostgreSQL
+> Operator clusters, written-but-unverified for PXC, Percona Server, PSMDB,
+> CloudNativePG and Crunchy PGO.
+
+A database an operator deployed inside a K3D frame is a benchmark target like any
+other — its address and credentials come from the cluster and its Secrets. Only
+endpoints with a real address are offered (a LoadBalancer or a NodePort Service): the
+benchmark opens many connections and times them, so the `kubectl exec` route the
+[Database Explorer](DATABASE_EXPLORER.md#kubernetes-clusters) uses for a ClusterIP
+Service is no use here — it would measure the process rather than the database. Use
+**Expose for tools** on that connection in the Explorer to give it one.
+
 ## Notes & limits
 
 - Only `bench_`-prefixed tables are ever created or dropped, so the tool can share a

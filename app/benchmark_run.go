@@ -74,6 +74,9 @@ type benchRun struct {
 	// dbPort is 0 for a classic node (the engine's default) and the instance's
 	// slot port for an All-in-One target, which never uses a default.
 	dbPort int
+	// k8s is set when the target is a database inside a Kubernetes cluster: its
+	// address is a Service's, not a container's, so there is nothing to resolve.
+	k8s *k8sDialTarget
 
 	cancel context.CancelFunc
 
@@ -214,7 +217,7 @@ func (run *benchRun) execute(ctx context.Context) {
 		}
 	}
 
-	_, dsn, err := run.app.dialNodeDSNPort(ctx, run.cfg.StackID, run.nodeContainerID, run.engine, run.dbUser, run.dbPass, run.cfg.Database, run.dbPort)
+	_, dsn, err := run.app.benchDSN(ctx, run, run.cfg.Database)
 	if err != nil {
 		run.fail(err.Error())
 		return

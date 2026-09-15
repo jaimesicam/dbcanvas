@@ -292,6 +292,72 @@ function TokenLifetime() {
   )
 }
 
+// InternalWrites unlocks the databases the Database Explorer otherwise exposes
+// read-only: PMM Server's own PostgreSQL and its Query Analytics ClickHouse.
+//
+// It is here rather than in the Explorer because of what it is — a decision about the
+// whole installation, made once and knowingly — and it is deliberately not the only
+// lock: a query tab still has to be armed for writes before one is sent. What the
+// setting buys is that "what happens to PMM when its inventory is wrong" becomes a
+// scenario you can test at all, without it ever becoming one you reach by accident.
+export function InternalWrites() {
+  const { system, saveSystem } = useSettings()
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
+  const on = !!system.internalWrites
+
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [armed, setArmed] = useState(false)
+
+  useEffect(() => {
+    if (!armed) return undefined
+    const t = setTimeout(() => setArmed(false), 4000)
+    return () => clearTimeout(t)
+  }, [armed])
+
+  const apply = async (next) => {
+    setErr(''); setBusy(true)
+    try {
+      await saveSystem({ internalWrites: next })
+    } catch (e) {
+      setErr(e.message)
+    } finally {
+      setBusy(false)
+      setArmed(false)
+    }
+  }
+
+  return (
+    <Row
+      title="Writes to internal databases"
+      hint="Whether the Database Explorer may write to PMM Server's own PostgreSQL and ClickHouse. Instance-wide, and off by default."
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+          on ? 'bg-danger/15 text-danger' : 'bg-muted/15 text-muted'}`}>
+          {on ? <Icon.StatusWarn size={13} /> : <Icon.Check size={13} />}
+          {on ? 'Writes allowed' : 'Read only'}
+        </span>
+        <Help text={HELP.internalWrites} />
+        {isAdmin && (on
+          ? <Button variant="subtle" onClick={() => apply(false)} disabled={busy}>{busy ? 'Saving…' : 'Make read-only again'}</Button>
+          : armed
+            ? <Button variant="danger" onClick={() => apply(true)} disabled={busy}>{busy ? 'Saving…' : 'Yes — allow writes'}</Button>
+            : <Button variant="outline" onClick={() => setArmed(true)} disabled={busy}>Allow writes…</Button>)}
+      </div>
+      {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
+      <div className={`text-xs ${on ? 'text-danger' : 'text-muted'}`}>
+        {on
+          ? 'PMM\u2019s internal databases can be written to from the Database Explorer, once a query tab is armed for it. Modifying PMM internal data may corrupt or break the PMM installation \u2014 which is the point when you are testing that, and a hazard the rest of the time.'
+          : isAdmin
+            ? 'PMM\u2019s internal PostgreSQL and ClickHouse are exposed for inspection only, and the databases themselves refuse writes on those sessions. Turn this on to test what a broken PMM inventory does; turn it off again afterwards.'
+            : 'Set by an administrator. PMM\u2019s internal databases are read-only for you.'}
+      </div>
+    </Row>
+  )
+}
+
 // TabLimit is how many pages the main window will keep open at once.
 //
 // A draft plus an explicit Save, like the two instance-wide rows below, rather
@@ -540,6 +606,8 @@ export default function Settings() {
       <UploadLimit />
 
       <TokenLifetime />
+
+      <InternalWrites />
 
       <Row title="Theme" hint="The colour palette. Applied now and whenever you sign in, on any browser.">
         <div className="grid gap-2 sm:grid-cols-3">

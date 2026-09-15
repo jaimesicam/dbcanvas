@@ -25,6 +25,7 @@ import FTDCSummary from '../src/pages/FTDCSummary.jsx'
 import StalkSummary from '../src/pages/StalkSummary.jsx'
 import PacketInspector from '../src/pages/PacketInspector.jsx'
 import K8sStates from '../src/pages/K8sStates.jsx'
+import DatabaseExplorer from '../src/pages/DatabaseExplorer.jsx'
 import { ContextMenu, podMenuEntries } from '../src/pages/StackDesigner.jsx'
 import { Help } from '../src/components/Tooltip.jsx'
 import { SettingsCtx } from '../src/settings/SettingsProvider.jsx'
@@ -100,7 +101,53 @@ const sampleGenerated = {
   requires: ['Python 3 (with pip and venv)'],
 }
 
+// The Database Explorer's mount chain is dependent fetches all the way down —
+// connections, then the opened connection's databases, then that database's schemas
+// and objects — and every one runs in an effect. A stub that answered [] would mount
+// an empty tree and check nothing, so this is the shape the server actually returns.
+const dbxConnection = {
+  id: '1~n~pg1', stackId: 1, stackName: 'lab', nodeId: 'pg1', label: 'pg-01',
+  engine: 'postgres', kind: 'pg', product: 'PostgreSQL', version: '16', group: 'PostgreSQL',
+  role: 'primary', preferred: true, host: 'pg-01.example.net', port: 5432, status: 'running',
+  user: 'postgres', transport: 'network',
+  capabilities: { sql: true, explain: true, schemas: true, charts: true, schemaBrowser: true, editableRows: true, queryCancel: true, multiResult: true },
+}
+const dbxPMM = {
+  ...dbxConnection, id: '1~ppg~pmm1', label: 'pmm-01 · PostgreSQL — PMM Internal',
+  product: 'PMM Internal — Read Only', group: 'PMM Server', readOnly: true,
+  policy: 'pmm-internal', transport: 'exec',
+  warning: 'These databases are used internally by PMM. Modifying PMM internal data may corrupt or break the PMM installation.',
+  capabilities: { ...dbxConnection.capabilities, editableRows: false },
+}
+
 const payloadFor = (url) => {
+  if (url.includes('/dbexplorer/connections') && url.includes('/databases')) {
+    return { nodes: [{ id: 'shop', name: 'shop', kind: 'database', hasChildren: true, bytes: 40960 }] }
+  }
+  if (url.includes('/dbexplorer/connections') && url.includes('/schemas')) {
+    return { nodes: [{ id: 'public', name: 'public', kind: 'schema', hasChildren: true }] }
+  }
+  if (url.includes('/dbexplorer/connections') && url.includes('/objects')) {
+    return { nodes: [{ id: 'orders', name: 'orders', kind: 'table', folder: 'Tables', hasChildren: true, rows: 1234 }], folders: ['Tables', 'Views'], more: false }
+  }
+  if (url.includes('/dbexplorer/connections')) {
+    return {
+      pmmWarning: dbxPMM.warning,
+      stacks: [{
+        stackId: 1, stackName: 'lab', connections: 2,
+        groups: [
+          { name: 'PostgreSQL', engine: 'postgres', connections: [dbxConnection] },
+          { name: 'PMM Server', engine: 'postgres', connections: [dbxPMM] },
+        ],
+      }],
+    }
+  }
+  if (url.includes('/dbexplorer/history')) {
+    return [{ id: 1, at: '2026-09-12T10:00:00Z', connectionId: dbxConnection.id, connection: 'lab · pg-01', engine: 'postgres', database: 'shop', statement: 'SELECT 1', durationMs: 4.2, rowCount: 1, success: true }]
+  }
+  if (url.includes('/dbexplorer/saved')) {
+    return [{ id: 1, name: 'top orders', engine: 'postgres', statement: 'SELECT 1', createdAt: '2026-09-12T10:00:00Z' }]
+  }
   // Before /stacks: a node-scoped Sample Client Code path contains both.
   if (url.includes('/samplecode/catalog')) return sampleCatalog
   if (url.includes('/samplecode/nodes')) return { nodes: [sampleNode] }
@@ -170,6 +217,10 @@ const PAGES = [
   // the only check that its effects — the poll, the highlight clock, the wheel listener —
   // survive StrictMode's double invocation.
   ['K8sStates', K8sStates],
+  // The Explorer mounts an IDE layout over a lazily-expanded tree: the connection
+  // list, then a connection's databases, then that database's schemas and objects,
+  // each fetched from an effect that SSR never runs.
+  ['DatabaseExplorer', DatabaseExplorer],
 ]
 
 // Mounted the way App mounts a tab: inside the terminal + page-visible providers,

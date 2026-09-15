@@ -509,6 +509,12 @@ export const HELP = {
     'filters and its half-built canvas, which is the whole reason switching tabs is instant. At the ' +
     'limit a page does not open and the window tells you, rather than closing one of yours to make ' +
     'room: a tab can be running a benchmark. Lowering it does not close anything already open.',
+  internalWrites:
+    'DBCanvas exposes PMM Server\u2019s own PostgreSQL (its inventory) and ClickHouse (Query Analytics) ' +
+    'read-only, and the databases enforce that themselves \u2014 PostgreSQL inside a READ ONLY transaction, ' +
+    'ClickHouse with readonly=2. This lifts that for the whole installation, which is what you need to test ' +
+    'how PMM behaves when its own data is wrong. It is not the only lock: a Database Explorer tab must still ' +
+    'be armed for writes before one is sent, so a tab left open from before cannot write by pressing Run.',
   maxTokenDays:
     'The longest lifetime anyone who is not an administrator may give an API token. Asking for longer ' +
     'gets this value rather than an error, so lowering it never breaks the create form. It does not ' +

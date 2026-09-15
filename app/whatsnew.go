@@ -37,6 +37,54 @@ type releaseNote struct {
 // expanded, and the tests assume the ordering.
 var whatsNewNotes = []releaseNote{
 	{
+		Version: "0.0.7",
+		Date:    "2026-09-15",
+		Title:   "Database Explorer — a database client for the stack you already deployed",
+		Body: "A browser-based client for the databases on your canvas, and the point of it is that " +
+			"you never tell it anything: DBCanvas provisioned them, so it already holds the address, " +
+			"the port, the account and the password, and it reaches them over the stack's own network " +
+			"with no port published to your host. MySQL, PostgreSQL, MongoDB, Valkey and ClickHouse, " +
+			"with an adapter each rather than one shape forced on all five — MongoDB has a find and an " +
+			"aggregation editor and keeps its documents nested, Valkey has a key browser that pages " +
+			"with SCAN and a viewer per data type, and the SQL engines get an editor, an Explain and a " +
+			"result grid that shows NULL as something other than an empty string, keeps a wide integer's " +
+			"digits, and does not fall over on fifty thousand rows. Any result with a number in it can " +
+			"become a chart, and the chart says so when the numbers on it are the browser's rather than " +
+			"the query's.",
+		Doc: "docs/DATABASE_EXPLORER.md",
+	},
+	{
+		Version: "0.0.7",
+		Date:    "2026-09-15",
+		Title:   "PMM Server's own PostgreSQL and Query Analytics, read-only",
+		Body: "A PMM Server carries two databases that are worth reading and normally invisible: " +
+			"pmm-managed's inventory, and the ClickHouse behind Query Analytics. Both listen on " +
+			"127.0.0.1 inside the container, so DBCanvas reaches them by running their own clients in " +
+			"there and asking for machine-readable output rather than the tables they print by default. " +
+			"They are read-only, and read-only at the database rather than by a keyword filter: " +
+			"PostgreSQL runs inside a READ ONLY transaction and refuses a write with SQLSTATE 25006, " +
+			"ClickHouse runs with readonly=2 and refuses one with error 164 — and refuses to lift that " +
+			"setting on itself. An administrator can unlock writes for the installation when a scenario " +
+			"needs them, and even then a query tab has to be armed for it, so a tab left open from " +
+			"before cannot write into PMM by pressing Run.",
+		Doc: "docs/DATABASE_EXPLORER.md",
+	},
+	{
+		Version: "0.0.7",
+		Date:    "2026-09-15",
+		Title:   "The four database tools can target Kubernetes operator clusters",
+		Body: "The databases a Percona, CloudNativePG or Crunchy operator deployed inside a K3D frame " +
+			"are now targets for the Database Explorer, the Data Generator, the Query Runner and the " +
+			"Benchmark. Nothing is read off the canvas: the Services, the pods and the credentials come " +
+			"from the cluster and the operator's own Secrets. A LoadBalancer Service is dialled directly " +
+			"— MetalLB's address is on the stack's own subnet — and a ClusterIP one, which is the " +
+			"operator default and has no address outside the cluster at all, is read by running the " +
+			"database's client inside its pod. The two load tools need a real socket, so for them there " +
+			"is Expose for tools: a Service added beside the operator's own, never over it, and removed " +
+			"again as easily. This is new and wants more use before it is trusted — see the guide.",
+		Doc: "docs/DATABASE_EXPLORER.md",
+	},
+	{
 		Version: "0.0.5",
 		Date:    "2026-09-13",
 		Title:   "Kubernetes States — a cluster as a board that keeps what died",

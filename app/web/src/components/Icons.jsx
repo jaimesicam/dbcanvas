@@ -228,6 +228,18 @@ export const Icon = {
       <line x1="11" y1="9" x2="11" y2="20" />
     </Svg>
   ),
+  // Explorer — a table with a magnifier over its corner. It has to read as "look
+  // inside a table" at 18px in the sidebar, which is why the glass overlaps the grid
+  // rather than sitting beside it: two separate shapes that size just look like noise.
+  Explorer: (p) => (
+    <Svg {...p}>
+      <path d="M21 10V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h6" />
+      <line x1="3" y1="9" x2="21" y2="9" />
+      <line x1="10" y1="9" x2="10" y2="20" />
+      <circle cx="16.5" cy="16.5" r="3.5" />
+      <line x1="19.1" y1="19.1" x2="21.5" y2="21.5" />
+    </Svg>
+  ),
   Kanban: (p) => (
     <Svg {...p}>
       <rect x="3" y="3" width="5" height="18" rx="1.5" />

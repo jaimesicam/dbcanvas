@@ -71,10 +71,13 @@ type qrQuery struct {
 	// own HTTP response when the app attaches to a stack network for the first time.
 	stackID         int64
 	nodeContainerID string
-	dbUser          string
-	dbPass          string
-	database        string
-	dbPort          int // 0 = the engine default; non-zero for an All-in-One instance
+	// k8s is set when the target is a database inside a Kubernetes cluster, whose
+	// address is already known and has no container of ours behind it.
+	k8s      *k8sDialTarget
+	dbUser   string
+	dbPass   string
+	database string
+	dbPort   int // 0 = the engine default; non-zero for an All-in-One instance
 
 	executed  int64 // atomic
 	errs      int64 // atomic
@@ -202,8 +205,55 @@ func (a *App) dialNodeDSNPort(ctx context.Context, stackID int64, containerID, e
 	return "pgx", dsn, nil
 }
 
+// dialAddrDSN builds a driver DSN for a target whose address is already known — a
+// Kubernetes Service, where there is no container of DBCanvas's to inspect because the
+// database is a pod behind a LoadBalancer or a NodePort.
+//
+// The stack network still has to be joined: a MetalLB address is carved out of the
+// stack's own subnet and a NodePort is on a k3s node container, so both are reachable
+// from the app only once it is attached — which is the same disruptive step every
+// other dial defers to run time for the same reason.
+func (a *App) dialAddrDSN(ctx context.Context, stackID int64, engine, user, pass, database, addr string, port int, sslmode string) (string, string, error) {
+	if err := a.joinStackForDial(ctx, a.docker, networkName(stackID)); err != nil {
+		return "", "", fmt.Errorf("join stack network: %v", err)
+	}
+	hostPort := fmt.Sprintf("%s:%d", addr, port)
+	if engine == "mysql" {
+		return "mysql", qrMySQLDSN(user, pass, hostPort, database), nil
+	}
+	db := database
+	if db == "" {
+		db = "postgres"
+	}
+	if sslmode == "" {
+		// A PostgreSQL operator terminates TLS on every Service and refuses a
+		// plaintext client outright, so `prefer` would fail where `require` works.
+		sslmode = "prefer"
+	}
+	dsn := (&url.URL{
+		Scheme:   "postgres",
+		User:     url.UserPassword(user, pass),
+		Host:     hostPort,
+		Path:     "/" + db,
+		RawQuery: "sslmode=" + sslmode + "&connect_timeout=10",
+	}).String()
+	return "pgx", dsn, nil
+}
+
 // dial resolves the query's connection at run start (off the HTTP handler).
 func (run *qrRun) dial(ctx context.Context, q *qrQuery) error {
+	if q.k8s != nil {
+		db := q.database
+		if db == "" {
+			db = q.k8s.Database
+		}
+		driver, dsn, err := run.app.dialAddrDSN(ctx, q.stackID, q.engine, q.k8s.User, q.k8s.Pass, db, q.k8s.Addr, q.k8s.Port, q.k8s.TLS)
+		if err != nil {
+			return err
+		}
+		q.driver, q.dsn = driver, dsn
+		return nil
+	}
 	driver, dsn, err := run.app.dialNodeDSNPort(ctx, q.stackID, q.nodeContainerID, q.engine, q.dbUser, q.dbPass, q.database, q.dbPort)
 	if err != nil {
 		return err

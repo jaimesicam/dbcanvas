@@ -35,6 +35,21 @@ type dbConn struct {
 	// defaults would reach the wrong one — or nothing at all.
 	Args []string
 	Bin  string // absolute client binary ("" = whatever is on PATH)
+	// Prefix runs the client somewhere other than directly in ContainerID. A database
+	// an operator deployed lives in a pod, so its prefix is `kubectl exec …` and
+	// ContainerID is the k3s server container that has kubectl and the kubeconfig —
+	// which is how the Data Generator reaches a cluster it did not create without
+	// every query helper below having to know Kubernetes exists.
+	Prefix []string
+	// Env is extra environment for every client invocation. A Kubernetes connection
+	// needs KUBECONFIG, because its "client" is really kubectl and k3s keeps the
+	// admin kubeconfig somewhere kubectl does not look by default.
+	Env []string
+	// ExecUser is the OS account the client runs as. PostgreSQL's local `peer` auth is
+	// why a node's psql runs as `postgres`; inside a pod there is no such switch to
+	// make (the container already is that user) and asking for one fails, so a
+	// Kubernetes connection leaves it empty.
+	ExecUser string
 	// Port matters only for the network-dialed engine (MongoDB); the exec-based
 	// ones select their server through Args. 0 = the engine's default.
 	Port int
@@ -46,7 +61,24 @@ func (c dbConn) client(name string) []string {
 	if c.Bin != "" {
 		bin = c.Bin + "/" + name
 	}
-	return append([]string{bin}, c.Args...)
+	argv := append([]string{bin}, c.Args...)
+	if len(c.Prefix) > 0 {
+		return append(append([]string{}, c.Prefix...), argv...)
+	}
+	return argv
+}
+
+// pgExecUser is the account psql runs as. "postgres" on a node DBCanvas deployed,
+// because the image's local rule is peer auth; empty inside a pod, where the
+// container is already running as the right user and `su` is not available.
+func (c dbConn) pgExecUser() string {
+	if len(c.Prefix) > 0 {
+		return ""
+	}
+	if c.ExecUser != "" {
+		return c.ExecUser
+	}
+	return "postgres"
 }
 
 // engine returns the connection's provisioning engine. Set by dbConnFor for the
@@ -70,6 +102,9 @@ func engineForType(t string) string {
 }
 
 func (a *App) dbConnFor(st Stack, target string) (dbConn, bool) {
+	if _, ok := k8sSplitTarget(target); ok {
+		return a.k8sDBConn(st, target)
+	}
 	nid, inst := aioSplitTarget(target)
 	dep, err := a.store.GetDeployment(st.ID, nid)
 	if err != nil || dep.ContainerID == "" || dep.State != DeployRunning {
@@ -137,10 +172,10 @@ func (a *App) queryJSON(ctx context.Context, c dbConn, db, sql string, out any) 
 	if c.Engine == "mysql" {
 		res, err = c.engine().ExecInput(ctx, c.ContainerID, "",
 			append(c.client("mysql"), "-u", c.Super, "-N", "--raw", "-B"),
-			[]string{"MYSQL_PWD=" + c.Password}, []byte(sql))
+			append([]string{"MYSQL_PWD=" + c.Password}, c.Env...), []byte(sql))
 	} else {
-		res, err = c.engine().ExecAs(ctx, c.ContainerID, "postgres",
-			append(c.client("psql"), "-U", c.Super, "-d", db, "-tAqc", sql), nil)
+		res, err = c.engine().ExecAs(ctx, c.ContainerID, c.pgExecUser(),
+			append(c.client("psql"), "-U", c.Super, "-d", db, "-tAqc", sql), c.Env)
 	}
 	if err != nil {
 		return err
@@ -163,10 +198,10 @@ func (a *App) execSQL(ctx context.Context, c dbConn, db, sql string) error {
 	if c.Engine == "mysql" {
 		res, err = c.engine().ExecInput(ctx, c.ContainerID, "",
 			append(c.client("mysql"), "-u", c.Super, "-D", db),
-			[]string{"MYSQL_PWD=" + c.Password}, []byte(sql))
+			append([]string{"MYSQL_PWD=" + c.Password}, c.Env...), []byte(sql))
 	} else {
-		res, err = c.engine().ExecInput(ctx, c.ContainerID, "postgres",
-			append(c.client("psql"), "-v", "ON_ERROR_STOP=1", "-U", c.Super, "-d", db, "-q", "-f", "-"), nil, []byte(sql))
+		res, err = c.engine().ExecInput(ctx, c.ContainerID, c.pgExecUser(),
+			append(c.client("psql"), "-v", "ON_ERROR_STOP=1", "-U", c.Super, "-d", db, "-q", "-f", "-"), c.Env, []byte(sql))
 	}
 	if err != nil {
 		return err
@@ -244,6 +279,8 @@ func (a *App) handleDataGenConnections(w http.ResponseWriter, r *http.Request) {
 				Label: n.Label, Engine: engine, Type: n.Type,
 			})
 		}
+		// The databases an operator deployed inside this stack's Kubernetes frames.
+		out = append(out, a.k8sDataGenConnections(context.Background(), st)...)
 	}
 	writeJSON(w, http.StatusOK, out)
 }

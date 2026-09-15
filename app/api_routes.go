@@ -83,6 +83,7 @@ const (
 	gSamba     = "Samba AD DC"
 	gDataGen   = "Data Generator"
 	gQueryRun  = "Query Runner"
+	gExplorer  = "Database Explorer"
 	gPkt       = "Packet Inspector"
 	gLog       = "Log Summary"
 	gFTDC      = "FTDC Summary"
@@ -114,7 +115,7 @@ const (
 var apiGroupOrder = []string{
 	gAuth, gPrefs, gUsers, gTokens, gMeta,
 	gStacks, gTemplates, gCatalog, gImages, gNodes, gClusters, gLabs,
-	gDataGen, gQueryRun, gBench, gSample, gStockSim, gLedgerSim,
+	gDataGen, gQueryRun, gExplorer, gBench, gSample, gStockSim, gLedgerSim,
 	gPkt, gLog, gFTDC, gStalk, gOpSum, gCaptures, gDebug, gGDB,
 	gDash, gNotif,
 	gFS, gCerts, gMail, gLDAP, gSamba, gK3D, gAIO, gSeaweed, gOpenBao,
@@ -507,6 +508,48 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "Stop a query run and kill the statements it started."},
 		{Method: "GET", Path: "/api/queryrun/history", Group: gQueryRun, Handler: m((*App).handleQueryRunHistory),
 			Summary: "Your previous query runs."},
+
+		// --- Database Explorer --------------------------------------------------
+		// A connection is named by an opaque id and nothing else: there is no
+		// endpoint here that takes a host, a user or a password, and every one of
+		// them re-resolves the id against the caller's own stacks before it acts.
+		// See app/dbexplorer_discover.go.
+		{Method: "GET", Path: "/api/dbexplorer/connections", Group: gExplorer, Handler: m((*App).handleDexConnections),
+			Summary: "Every database DBCanvas has deployed that you may reach, grouped by stack and engine, with no credentials in the answer."},
+		{Method: "GET", Path: "/api/dbexplorer/connections/{cid}", Group: gExplorer, Handler: m((*App).handleDexConnectionInfo),
+			Summary: "One connection, with the server version read from the database itself."},
+		{Method: "GET", Path: "/api/dbexplorer/connections/{cid}/databases", Group: gExplorer, Handler: m((*App).handleDexDatabases),
+			Summary: "The databases (or Valkey keyspaces) on a connection."},
+		{Method: "GET", Path: "/api/dbexplorer/connections/{cid}/schemas", Group: gExplorer, Handler: m((*App).handleDexSchemas),
+			Summary: "The schemas in a database, for the engines that have a schema level."},
+		{Method: "GET", Path: "/api/dbexplorer/connections/{cid}/objects", Group: gExplorer, Handler: m((*App).handleDexObjects),
+			Summary: "One level of the object tree: tables, views, collections or keys, paged and filtered."},
+		{Method: "GET", Path: "/api/dbexplorer/connections/{cid}/object", Group: gExplorer, Handler: m((*App).handleDexObjectDetail),
+			Summary: "One object described: columns, indexes, constraints, foreign keys, size and DDL."},
+		{Method: "GET", Path: "/api/dbexplorer/connections/{cid}/viewdata", Group: gExplorer, Handler: m((*App).handleDexViewData),
+			Summary: "The first page of an object's rows, documents or values, bounded by the result limit."},
+		{Method: "POST", Path: "/api/dbexplorer/query", Group: gExplorer, Handler: m((*App).handleDexQuery),
+			Summary: "Run SQL, a MongoDB find or aggregation, or a Valkey command, and return one engine-neutral result."},
+		{Method: "POST", Path: "/api/dbexplorer/cancel", Group: gExplorer, ReadOnly: true, Handler: m((*App).handleDexCancel),
+			Summary: "Cancel one of your in-flight Database Explorer queries."},
+		{Method: "POST", Path: "/api/dbexplorer/mutate", Group: gExplorer, Handler: m((*App).handleDexMutate),
+			Summary: "Insert, update or delete one row, document or key — or preview the statement without running it."},
+		{Method: "POST", Path: "/api/dbexplorer/expose", Group: gExplorer, Handler: m((*App).handleDexExpose),
+			Summary: "Give a Kubernetes database an address the Query Runner and Benchmark can dial, by adding a Service beside the operator's own."},
+		{Method: "POST", Path: "/api/dbexplorer/unexpose", Group: gExplorer, Handler: m((*App).handleDexUnexpose),
+			Summary: "Remove the Service DBCanvas added for the tools, leaving the cluster as it was."},
+		{Method: "GET", Path: "/api/dbexplorer/history", Group: gExplorer, Handler: m((*App).handleDexHistory),
+			Summary: "Your Database Explorer query history: what ran, where, how long it took and whether it worked."},
+		{Method: "DELETE", Path: "/api/dbexplorer/history", Group: gExplorer, Handler: m((*App).handleDexClearHistory),
+			Summary: "Clear your whole Database Explorer query history."},
+		{Method: "DELETE", Path: "/api/dbexplorer/history/{hid}", Group: gExplorer, Handler: m((*App).handleDexDeleteHistory),
+			Summary: "Delete one entry from your Database Explorer query history."},
+		{Method: "GET", Path: "/api/dbexplorer/saved", Group: gExplorer, Handler: m((*App).handleDexSavedList),
+			Summary: "Your saved Database Explorer queries and snippets."},
+		{Method: "POST", Path: "/api/dbexplorer/saved", Group: gExplorer, Handler: m((*App).handleDexSaveQuery),
+			Summary: "Save a query or snippet under a name, with the engine it is written for."},
+		{Method: "DELETE", Path: "/api/dbexplorer/saved/{sid}", Group: gExplorer, Handler: m((*App).handleDexDeleteSaved),
+			Summary: "Delete one of your saved Database Explorer queries."},
 
 		// --- Packet Inspector ---------------------------------------------------
 		// Ranges are query parameters on the list/timeline endpoints, so the timeline

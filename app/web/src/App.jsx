@@ -15,6 +15,7 @@ import K8sStates from './pages/K8sStates.jsx'
 import StackDesigner from './pages/StackDesigner.jsx'
 import DataGenerator from './pages/DataGenerator.jsx'
 import QueryRunner from './pages/QueryRunner.jsx'
+import DatabaseExplorer from './pages/DatabaseExplorer.jsx'
 import Benchmark from './pages/Benchmark.jsx'
 import PacketInspector from './pages/PacketInspector.jsx'
 import OperatorDebugger from './pages/OperatorDebugger.jsx'
@@ -35,6 +36,11 @@ export const NAV = [
   { id: 'dashboard', label: 'Dashboard', icon: 'Dashboard', page: Dashboard, hint: 'Widgets & live charts' },
   { id: 'stack-designer', label: 'Database Stacks', icon: 'Stacks', page: StackDesigner, hint: 'Design & deploy stacks' },
   { id: 'data-generator', label: 'Data Generator', icon: 'Table', page: DataGenerator, hint: 'Generate test data for stack tables' },
+  // Beside the Query Runner deliberately, and doing the opposite job: that page runs
+  // one statement many times to see what contention does, this one runs many
+  // statements once to see what the data says. fill: an IDE layout wants the height
+  // of the workspace rather than the height of its own content — see <main> below.
+  { id: 'database-explorer', label: 'Database Explorer', icon: 'Explorer', page: DatabaseExplorer, fill: true, hint: 'Browse schemas, collections and keys; run SQL, MongoDB queries and Valkey commands; inspect results as tables, documents or charts' },
   { id: 'queryrun', label: 'Query Runner', icon: 'Database', page: QueryRunner, hint: 'Run parallel queries with processlist gating' },
   { id: 'benchmark', label: 'Benchmark', icon: 'Monitor', page: Benchmark, hint: 'OLTP/OLAP/RW/RO throughput + latency' },
   { id: 'sample-code', label: 'Sample Client Code', icon: 'Terminal', page: SampleCode, hint: 'Runnable client code for a deployment on your canvas — pick an endpoint, a language and a driver, and DBCanvas installs what it needs and runs it' },

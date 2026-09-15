@@ -40,6 +40,9 @@ var paramDoc = map[string]string{
 	"username": "The Kubernetes RBAC username.",
 	"stepId":   "The lab step's id.",
 	"jid":      "A Sample Client Code job id, as returned when the job was started.",
+	"cid":      "A Database Explorer connection id, as returned by GET /api/dbexplorer/connections. It is an opaque token that is re-resolved and re-authorized on every request.",
+	"hid":      "A Database Explorer history entry's numeric id.",
+	"sid":      "A saved Database Explorer query's numeric id.",
 }
 
 // paramDocByPrefix overrides paramDoc for route families where a wildcard name is

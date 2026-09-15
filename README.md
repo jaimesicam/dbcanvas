@@ -113,6 +113,7 @@ yourself.
 | [**Stacks**](docs/STACKS.md) | Design on a canvas, deploy, and manage every node from its own panel — terminal, files, credentials, certificates, replication. |
 | [**Data Generator**](docs/DATA_GENERATOR.md) | Fill tables with realistic data, at the scale it takes to see a problem. |
 | [**Query Runner**](docs/QUERY_RUNNER.md) | Run SQL across nodes in parallel, gated on the processlist. |
+| [**Database Explorer**](docs/DATABASE_EXPLORER.md) | Browse schemas, collections and keys; run SQL, MongoDB queries and Valkey commands; inspect results as tables, documents or charts — including read-only access to PMM's internal PostgreSQL and ClickHouse data. |
 | [**Benchmark**](docs/BENCHMARK.md) | OLTP, OLAP, read-write and read-only workloads, with throughput and latency. |
 | [**Sample Client Code**](docs/SAMPLE_CODE.md) | Runnable client code for a deployment on the canvas — pick an endpoint, a language and a driver; DBCanvas installs what it needs and runs it. |
 | [**Packet Inspector**](docs/PACKET_INSPECTOR.md) | Capture on a node and decode MySQL, PostgreSQL, MongoDB and Valkey off the wire. |
@@ -123,7 +124,7 @@ yourself.
 | [**Operator Debugger**](docs/OPERATOR_DEBUGGER.md) | Step through the Kubernetes operator itself — breakpoints, stack and variables, no IDE. |
 | [**Core Dump Analyzer**](docs/CORE_DUMP_ANALYZER.md) | Read a `mysqld` core dump from another server — threads, stack, arguments. |
 | [**All in One**](docs/ALL_IN_ONE.md) | Many database instances in one node, for when you need versions side by side. |
-| [**HTTP API**](docs/API.md) | Every one of the 273 endpoints, with tokens you create and expire yourself. |
+| [**HTTP API**](docs/API.md) | Every one of the 294 endpoints, with tokens you create and expire yourself. |
 | [**`dbcanvas-cli`**](docs/CLI.md) | Sign in once, then compose, deploy and drive stacks from your terminal. |
 
 ## Documentation
@@ -160,6 +161,84 @@ yourself.
 ---
 
 ## What's new
+
+### 0.0.7
+
+<details open>
+<summary><b>Database Explorer — a database client for the stack you already deployed</b></summary>
+
+A browser-based client for the databases on your canvas, and the point of it is that you never tell
+it anything. DBCanvas provisioned them, so it already holds the address, the port, the account and
+the password, and it reaches them over the stack's own Docker network — **no port has to be
+published to your host, and there is no connection dialog**.
+
+**Five engines, five adapters.** MySQL (Percona Server, PXC, MySQL Community, MariaDB, and the
+HAProxy / ProxySQL / MySQL Router endpoints in front of them), PostgreSQL (Patroni, repmgr, Spock),
+MongoDB, Valkey and ClickHouse. The tree offers the endpoint a client should actually use —
+HAProxy's write port rather than one PXC member, `mongos` rather than a shard, the replica set
+rather than a member — with the members listed underneath, because connecting to one on purpose is
+most of what a lab is for.
+
+**MongoDB is not dressed up as SQL.** A find has a filter, a projection and a sort; an aggregation
+is a pipeline; inputs are Extended JSON so `{"_id": {"$oid": …}}` means what it says. Results travel
+twice — as documents with their nesting intact, and as a flattened table so the grid, the chart and
+the exports work — and the flattening never replaces the documents.
+
+**Valkey browses with `SCAN`, never `KEYS`,** with a viewer per data type (hash, list, set, sorted
+set, stream) and a console that renders a reply structurally instead of dumping protocol. Typing
+`KEYS` gets a refusal that explains itself.
+
+**A result grid built for looking at data.** `NULL` is visibly not the empty string — a distinction
+that survives sorting, filtering and both exports. Binary is a length and a hex head, not mojibake.
+A `BIGINT UNSIGNED` past 2⁵³ keeps every digit. Fifty thousand rows scroll like fifty. Every result
+is capped, every query has a timeout, and Cancel stops the work at the database.
+
+**And a chart from any result with a number in it** — bar, line, area, pie, scatter, histogram —
+which says so in its header when the numbers on it are the browser's grouping rather than the
+query's. [Database Explorer →](docs/DATABASE_EXPLORER.md)
+</details>
+
+<details>
+<summary><b>PMM Server's own PostgreSQL and Query Analytics, read-only</b></summary>
+
+A PMM Server carries two databases that are extremely useful and normally invisible: `pmm-managed`'s
+inventory — every node, service and agent PMM believes exists — and the ClickHouse behind Query
+Analytics. Both listen on `127.0.0.1` inside the container, so DBCanvas reaches them by running
+their own clients in there and asking for machine-readable output rather than the decorated tables
+they print by default.
+
+**Read-only at the database, not by a keyword filter.** PostgreSQL runs every statement inside
+`BEGIN READ ONLY` and refuses a write with SQLSTATE `25006`; ClickHouse runs with `readonly=2`,
+refuses one with error `164`, and refuses to modify that setting on itself. DBCanvas also declines
+the statement before sending it, which gives a better message and is defence in depth — it is
+deliberately not the control.
+
+**Writable when a scenario needs it.** An administrator can allow writes to the internal databases
+for the installation, and even then a query tab must be armed for it, with a red banner while it is.
+A tab left open from before the setting changed cannot write into PMM by pressing Run.
+[PMM Server →](docs/DATABASE_EXPLORER.md#pmm-server)
+</details>
+
+<details>
+<summary><b>The four database tools can target Kubernetes operator clusters</b></summary>
+
+The databases a Percona, CloudNativePG or Crunchy operator deployed inside a K3D frame are now
+targets for the **Database Explorer**, the **Data Generator**, the **Query Runner** and the
+**Benchmark**. Nothing is read off the canvas: the Services, the pods and the credentials come from
+the cluster itself and the operator's own Secrets.
+
+A **LoadBalancer** Service is dialled directly — MetalLB's address comes out of the stack's own
+Docker subnet — and a **ClusterIP** one, which is the operator default and has no address outside
+the cluster at all, is read by running the database's client inside its pod. The Query Runner and
+the Benchmark open many connections and time them, so for them there is **Expose for tools**: a
+Service added *beside* the operator's own, never over it, and removed again as easily.
+
+> [!NOTE]
+> This one is new and wants more use before it is trusted. It has been exercised against Percona
+> PostgreSQL Operator clusters; the PXC, PS, PSMDB, CloudNativePG and Crunchy paths are written from
+> each operator's own conventions but have not been run against a live cluster of each.
+> [Kubernetes clusters →](docs/DATABASE_EXPLORER.md#kubernetes-clusters)
+</details>
 
 ### 0.0.5
 

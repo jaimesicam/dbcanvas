@@ -21,6 +21,9 @@ import (
 const (
 	settingMaxUploadBytes = "maxUploadBytes"
 	settingMaxTokenDays   = "maxTokenDays"
+	// settingInternalWrites unlocks writes to the databases DBCanvas exposes
+	// read-only — PMM Server's own PostgreSQL and ClickHouse. See the field below.
+	settingInternalWrites = "internalWrites"
 )
 
 const (
@@ -58,8 +61,28 @@ const (
 // update handler ignores them on the way in and re-derives them on the way out, so
 // a client echoing the whole object back can neither set them nor lose them.
 type SystemSettings struct {
-	MaxUploadBytes int64                `json:"maxUploadBytes"`
-	MaxTokenDays   int                  `json:"maxTokenDays"`
+	MaxUploadBytes int64 `json:"maxUploadBytes"`
+	MaxTokenDays   int   `json:"maxTokenDays"`
+	// InternalWrites allows the Database Explorer to write to the databases it
+	// otherwise exposes read-only: PMM Server's internal PostgreSQL and its Query
+	// Analytics ClickHouse.
+	//
+	// Off by default, and deliberately an instance-wide administrator setting
+	// rather than something any user can flip. The databases behind it are the
+	// monitoring system's own, and a stray UPDATE in one is how a PMM installation
+	// stops working — so turning it on is a decision somebody makes for the whole
+	// installation, once, knowingly.
+	//
+	// It is necessary all the same: a lab exists to break things in, and "what
+	// happens to PMM when its inventory is wrong" is a scenario you cannot test
+	// from a read-only connection. What it buys is that the answer is never
+	// reached by accident.
+	//
+	// Turning it on is not sufficient on its own. A Database Explorer tab must also
+	// be armed for writes explicitly before one is sent (dexQueryRequest.AllowWrites),
+	// so a tab left open from before the setting changed cannot write into a PMM
+	// database because somebody pressed Run.
+	InternalWrites bool                 `json:"internalWrites"`
 	SSHForwarding  SSHForwardingSetting `json:"sshForwarding"`
 	Experimental   bool                 `json:"experimental"`
 }
@@ -126,6 +149,11 @@ func (a *App) systemSettings(appUser string) SystemSettings {
 	if v, err := a.store.AppSetting(settingMaxTokenDays); err == nil && v != "" {
 		s.MaxTokenDays = maxTokenDaysFromSetting(v)
 	}
+	// Anything but an explicit "1" is off, so a hand-edited or half-written row
+	// fails closed rather than unlocking a PMM database.
+	if v, err := a.store.AppSetting(settingInternalWrites); err == nil {
+		s.InternalWrites = v == "1"
+	}
 	s = s.normalize()
 	s.SSHForwarding = sshForwardingSetting(appUser)
 	s.Experimental = experimentalEnabled()
@@ -137,6 +165,12 @@ func (a *App) maxUploadBytes() int64 { return a.systemSettings("").MaxUploadByte
 
 // maxTokenDays is the configured ceiling on a non-admin API token's lifetime.
 func (a *App) maxTokenDays() int { return a.systemSettings("").MaxTokenDays }
+
+// internalWritesAllowed reports whether an administrator has unlocked writes to
+// the internal databases. Read on every request that could write to one — never
+// cached — so revoking it takes effect on the next query rather than the next
+// restart.
+func (a *App) internalWritesAllowed() bool { return a.systemSettings("").InternalWrites }
 
 func (a *App) handleGetSystemSettings(w http.ResponseWriter, r *http.Request) {
 	u, ok := a.currentUser(r)
@@ -160,6 +194,14 @@ func (a *App) handleUpdateSystemSettings(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := a.store.SetAppSetting(settingMaxTokenDays, strconv.Itoa(s.MaxTokenDays)); err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to save settings")
+		return
+	}
+	internal := "0"
+	if s.InternalWrites {
+		internal = "1"
+	}
+	if err := a.store.SetAppSetting(settingInternalWrites, internal); err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to save settings")
 		return
 	}

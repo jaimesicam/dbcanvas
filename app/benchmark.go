@@ -89,6 +89,11 @@ func (a *App) handleBenchTargets(w http.ResponseWriter, r *http.Request) {
 // router — a config/shard member would reject writes with "not master".
 func (a *App) listBenchTargets(u User) []qrTarget {
 	out := a.listSQLTargets(u)
+	// Plus the operator-deployed databases a driver can reach — see k8sqrtarget.go
+	// for why only those, and why they are not in listSQLTargets itself.
+	kctx, kcancel := context.WithTimeout(context.Background(), 60*time.Second)
+	out = append(out, a.listK8sSQLTargets(kctx, u)...)
+	kcancel()
 	stacks, _ := a.store.ListStacks(u.ID, u.Role == RoleAdmin)
 	for _, s := range stacks {
 		st, err := a.store.GetStack(s.ID)
@@ -191,14 +196,30 @@ func (a *App) handleBenchStart(w http.ResponseWriter, r *http.Request) {
 		cfg.Seed = time.Now().UnixNano()
 	}
 
-	engine, containerID, label, user, pass, port, err := a.resolveNodeCredsPort(u, cfg.StackID, cfg.NodeID)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
+	var run *benchRun
+	if _, isK8s := k8sSplitTarget(cfg.NodeID); isK8s {
+		// A database an operator deployed: resolved through the cluster rather than
+		// through a deployment row, because DBCanvas did not create it.
+		rctx, rcancel := context.WithTimeout(r.Context(), 60*time.Second)
+		e, err := a.k8sResolveTarget(rctx, u, cfg.StackID, cfg.NodeID)
+		rcancel()
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		dt := e.dialTarget()
+		run = newBenchRun(a, u.ID, cfg, e.Engine, "", dt.Label, dt.User, dt.Pass)
+		run.k8s = &dt
+	} else {
+		engine, containerID, label, user, pass, port, err := a.resolveNodeCredsPort(u, cfg.StackID, cfg.NodeID)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		run = newBenchRun(a, u.ID, cfg, engine, containerID, label, user, pass)
+		// Non-zero only for an All-in-One instance, which never uses a default port.
+		run.dbPort = port
 	}
-	run := newBenchRun(a, u.ID, cfg, engine, containerID, label, user, pass)
-	// Non-zero only for an All-in-One instance, which never uses a default port.
-	run.dbPort = port
 	ctx, cancel := context.WithCancel(context.Background())
 	run.cancel = cancel
 	benchRegister(run)
@@ -267,13 +288,27 @@ func clampInt(v, lo, hi int) int {
 	return v
 }
 
+// benchDSN is the connection string for this run's target, whichever kind it is: a
+// node DBCanvas deployed (resolve its container's address) or a database inside a
+// Kubernetes cluster (the Service address is already known).
+func (a *App) benchDSN(ctx context.Context, run *benchRun, database string) (string, string, error) {
+	if run.k8s != nil {
+		db := database
+		if db == "" {
+			db = run.k8s.Database
+		}
+		return a.dialAddrDSN(ctx, run.cfg.StackID, run.engine, run.k8s.User, run.k8s.Pass, db, run.k8s.Addr, run.k8s.Port, run.k8s.TLS)
+	}
+	return a.dialNodeDSNPort(ctx, run.cfg.StackID, run.nodeContainerID, run.engine, run.dbUser, run.dbPass, database, run.dbPort)
+}
+
 // ------------------------------------------------------- create database / schema
 
 // benchCreateDatabase creates cfg.Database if missing, over a maintenance connection
 // (MySQL: no default db; Postgres: the "postgres" db — CREATE DATABASE can't run in a
 // transaction). The name is a validated identifier, so interpolation is safe.
 func (a *App) benchCreateDatabase(ctx context.Context, run *benchRun) error {
-	_, dsn, err := a.dialNodeDSN(ctx, run.cfg.StackID, run.nodeContainerID, run.engine, run.dbUser, run.dbPass, "")
+	_, dsn, err := a.benchDSN(ctx, run, "")
 	if err != nil {
 		return err
 	}

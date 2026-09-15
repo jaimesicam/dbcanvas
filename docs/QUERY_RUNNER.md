@@ -19,6 +19,27 @@ Open it from the sidebar (**Query Runner**) or at `#queryrun`.
   network, so no host port publishing is needed). Passwords are never shown in the
   browser. MySQL uses the network `admin@'%'` account; PostgreSQL uses the superuser.
 
+## Kubernetes clusters
+
+> [!NOTE]
+> Operator targets are new and need more testing: verified against Percona PostgreSQL
+> Operator clusters, written-but-unverified for PXC, Percona Server, PSMDB,
+> CloudNativePG and Crunchy PGO.
+
+Databases deployed by a Kubernetes operator inside a K3D frame appear in the **Server**
+dropdown too, alongside the canvas nodes — `k3d-01 · pgBouncer (the Percona Operator for
+PostgreSQL)` and the like. Their addresses and credentials come from the cluster and its
+Secrets, so there is still nothing to type.
+
+Only endpoints the runner can really dial are listed: a Service of type LoadBalancer
+(MetalLB gives it an address on the stack's own subnet) or NodePort. A ClusterIP
+Service — the operator default — has no address outside the cluster, and a load tool
+cannot use the `kubectl exec` route the Database Explorer falls back on, because a
+process per statement would measure the process rather than the database. Use
+**Expose for tools** on that connection in the
+[Database Explorer](DATABASE_EXPLORER.md#expose-for-tools), which adds a Service beside
+the operator's own without touching it.
+
 ## Building a run
 
 Each **query card** has:

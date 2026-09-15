@@ -70,6 +70,31 @@ One JSON-returning query per concern (all via `psql -tAqc`, unmarshalled in Go):
 _(roadmap)_ CHECK constraints (`pg_get_constraintdef`), composite FKs, chunk interval /
 compression settings, existing time range, index list.
 
+## 4b. Kubernetes operator clusters
+
+> [!NOTE]
+> Operator targets are new and need more testing. Verified against Percona PostgreSQL
+> Operator clusters; other PostgreSQL operators are written from their own conventions
+> but have not been run against a live cluster of each.
+
+A PostgreSQL cluster deployed by an operator inside a K3D frame appears in the
+connection list alongside the canvas nodes. Everything above works on it unchanged:
+the generator runs `psql` inside the cluster's own pod, through `kubectl exec` on the
+k3s server container, instead of in a node container — so introspection, preview and
+generation all behave the same whether the Service is ClusterIP or has an address.
+
+Only the endpoint that takes writes is offered (the primary), because pointing an
+INSERT at a replica or a pooler fails in a way that reads like a DBCanvas fault rather
+than like what it is.
+
+MySQL and MongoDB operator clusters are **not** offered here. That is a limit of how
+the generator reaches a database, not of what it can generate: its MySQL path pipes the
+password through `MYSQL_PWD`, and `kubectl exec` carries no environment from the
+caller, so a MySQL cluster would need the password on a command line inside the pod.
+Those clusters are still reachable from the
+[Database Explorer](DATABASE_EXPLORER.md#kubernetes-clusters), the Query Runner and the
+Benchmark.
+
 ## 5. MySQL/PXC metadata inspection
 
 Sourced from `information_schema` via the `mysql` client (auth as root through `MYSQL_PWD`),

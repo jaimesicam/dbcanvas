@@ -16,6 +16,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // qrAppContainerID identifies the app's own container for the Docker network API.
@@ -264,7 +265,13 @@ func (a *App) handleQueryRunTargets(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	writeJSON(w, http.StatusOK, a.listSQLTargets(u))
+	// The nodes on the canvas, plus the databases an operator deployed inside a
+	// Kubernetes frame that a driver can actually reach. The second list is separate
+	// because the Packet Inspector shares listSQLTargets and cannot capture on a
+	// Service — see k8sqrtarget.go.
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+	writeJSON(w, http.StatusOK, append(a.listSQLTargets(u), a.listK8sSQLTargets(ctx, u)...))
 }
 
 type qrRunRequest struct {
@@ -333,6 +340,11 @@ func (a *App) qrBuildQuery(u User, spec qrQuerySpec) (*qrQuery, error) {
 	if spec.TimeLimitS > 3600 {
 		spec.TimeLimitS = 3600
 	}
+	// A database inside a Kubernetes cluster resolves through its own path: there is
+	// no deployment row for it, because the operator made it rather than DBCanvas.
+	if _, isK8s := k8sSplitTarget(spec.NodeID); isK8s {
+		return a.qrBuildK8sQuery(u, spec)
+	}
 	// Shared with the Benchmark, and the single place that understands a composite
 	// "<nodeId>#<inst>" target — so the Query Runner gained All-in-One instances
 	// without growing a second copy of this resolution.
@@ -357,6 +369,45 @@ func (a *App) qrBuildQuery(u User, spec qrQuerySpec) (*qrQuery, error) {
 		dbUser:          dbUser,
 		dbPass:          dbPass,
 		dbPort:          port,
+	}
+	if spec.Gate.Enabled {
+		if spec.Gate.PollMs < 100 {
+			q.spec.Gate.PollMs = 1000
+		}
+		re, err := regexp.Compile(spec.Gate.Pattern)
+		if err != nil {
+			return nil, fmt.Errorf("invalid gate pattern: %v", err)
+		}
+		q.re = re
+	}
+	return q, nil
+}
+
+// qrBuildK8sQuery is qrBuildQuery for a database inside a Kubernetes cluster. The
+// validation is the same — ownership, a running target, a supported engine — asked of
+// the cluster instead of a deployment row.
+func (a *App) qrBuildK8sQuery(u User, spec qrQuerySpec) (*qrQuery, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	e, err := a.k8sResolveTarget(ctx, u, spec.StackID, spec.NodeID)
+	if err != nil {
+		return nil, err
+	}
+	if e.Engine == "mongodb" {
+		return nil, fmt.Errorf("the Query Runner is SQL-only; use the Benchmark for MongoDB")
+	}
+	driver := "pgx"
+	if e.Engine == "mysql" {
+		driver = "mysql"
+	}
+	dt := e.dialTarget()
+	q := &qrQuery{
+		spec: spec, label: dt.Label, engine: e.Engine, status: "pending",
+		token:    qrMarker + "-" + qrNewID(),
+		stackID:  spec.StackID,
+		database: spec.Database,
+		driver:   driver,
+		k8s:      &dt,
 	}
 	if spec.Gate.Enabled {
 		if spec.Gate.PollMs < 100 {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -38,6 +39,11 @@ type User struct {
 // Store wraps the SQLite database.
 type Store struct {
 	db *sql.DB
+	// dexReady records that the Database Explorer's two tables have been created in
+	// *this* database. They are made on first use rather than at startup, so an
+	// installation that never opens the page pays nothing for it. Per-store rather
+	// than package-level: see dexEnsureTables.
+	dexReady atomic.Bool
 }
 
 // OpenStore opens (and migrates) the SQLite database at path.

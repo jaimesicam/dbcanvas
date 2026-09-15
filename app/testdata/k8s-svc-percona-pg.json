@@ -1,0 +1,158 @@
+{
+ "items": [
+  {
+   "metadata": {
+    "name": "k3d-01-ha",
+    "namespace": "pg"
+   },
+   "spec": {
+    "clusterIP": "10.43.32.204",
+    "ports": [
+     {
+      "name": "postgres",
+      "port": 5432,
+      "protocol": "TCP",
+      "targetPort": "postgres"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "metadata": {
+    "name": "k3d-01-ha-config",
+    "namespace": "pg"
+   },
+   "spec": {
+    "clusterIP": "None",
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "metadata": {
+    "name": "k3d-01-lr-dude",
+    "namespace": "pg"
+   },
+   "spec": {
+    "clusterIP": "10.43.193.141",
+    "ports": [
+     {
+      "name": "postgres",
+      "port": 5432,
+      "protocol": "TCP",
+      "targetPort": "postgres"
+     }
+    ],
+    "selector": {
+     "pgv2.percona.com/logical-replica": "dude",
+     "postgres-operator.crunchydata.com/cluster": "k3d-01"
+    },
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "metadata": {
+    "name": "k3d-01-pgbouncer",
+    "namespace": "pg"
+   },
+   "spec": {
+    "clusterIP": "10.43.78.138",
+    "ports": [
+     {
+      "name": "pgbouncer",
+      "nodePort": 32215,
+      "port": 5432,
+      "protocol": "TCP",
+      "targetPort": "pgbouncer"
+     }
+    ],
+    "selector": {
+     "postgres-operator.crunchydata.com/cluster": "k3d-01",
+     "postgres-operator.crunchydata.com/role": "pgbouncer"
+    },
+    "type": "LoadBalancer"
+   },
+   "status": {
+    "loadBalancer": {
+     "ingress": [
+      {
+       "ip": "172.20.255.238",
+       "ipMode": "VIP"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "metadata": {
+    "name": "k3d-01-pods",
+    "namespace": "pg"
+   },
+   "spec": {
+    "clusterIP": "None",
+    "selector": {
+     "postgres-operator.crunchydata.com/cluster": "k3d-01"
+    },
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "metadata": {
+    "name": "k3d-01-primary",
+    "namespace": "pg"
+   },
+   "spec": {
+    "clusterIP": "None",
+    "ports": [
+     {
+      "name": "postgres",
+      "port": 5432,
+      "protocol": "TCP",
+      "targetPort": "postgres"
+     }
+    ],
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "metadata": {
+    "name": "k3d-01-replicas",
+    "namespace": "pg"
+   },
+   "spec": {
+    "clusterIP": "10.43.48.151",
+    "ports": [
+     {
+      "name": "postgres",
+      "port": 5432,
+      "protocol": "TCP",
+      "targetPort": "postgres"
+     }
+    ],
+    "selector": {
+     "postgres-operator.crunchydata.com/cluster": "k3d-01",
+     "postgres-operator.crunchydata.com/role": "replica"
+    },
+    "type": "ClusterIP"
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  }
+ ]
+}
