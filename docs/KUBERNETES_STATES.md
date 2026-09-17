@@ -9,6 +9,8 @@ to have open while a failover runs, while an operator rolls a StatefulSet, while
 job goes through — the minutes when the question is not "what is wrong with this object"
 but "what is moving".
 
+![Kubernetes States — one card per object, grouped by kind, red for what is broken and lit for what just changed](screenshots/kubernetes-states.png)
+
 ## Opening it
 
 - **Kubernetes States** in the sidebar, then pick a source.

@@ -47,11 +47,25 @@ type mongoCtx struct {
 
 // ------------------------------------------------------------------- lifecycle
 
-func (run *benchRun) executeMongo(ctx context.Context) {
-	conn := dbConn{ContainerID: run.nodeContainerID, Engine: "mongodb",
+// mongoConn is the connection this run dials, by the route its target has.
+//
+// A node on the canvas is a container, and its address is looked up from one. A
+// database an operator deployed is a pod behind a Service with no container of its
+// own, so its address travels on the connection instead — the same split the SQL
+// engines make here between dialNodeDSNPort and dialAddrDSN.
+func (run *benchRun) mongoConn() dbConn {
+	c := dbConn{ContainerID: run.nodeContainerID, Engine: "mongodb",
 		Super: run.dbUser, Password: run.dbPass, StackID: run.cfg.StackID,
 		eng: run.app.dialEngine(run.cfg.StackID, run.nodeContainerID)}
-	client, closer, err := run.app.mongoClientFor(ctx, conn)
+	if run.k8s != nil {
+		c.Addr, c.Port = run.k8s.Addr, run.k8s.Port
+		c.eng = run.app.docker // a k3d cluster is always Docker, even in a hybrid stack
+	}
+	return c
+}
+
+func (run *benchRun) executeMongo(ctx context.Context) {
+	client, closer, err := run.app.mongoClientFor(ctx, run.mongoConn())
 	if err != nil {
 		run.fail(err.Error())
 		return

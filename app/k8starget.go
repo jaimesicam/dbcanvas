@@ -571,6 +571,23 @@ var k8sTiers = []struct {
 	{"-rs0", k8sTier{Kind: "member", Role: "primary", Preferred: true, Label: "replica set rs0"}},
 }
 
+// k8sPodNameSelector is the label a Service uses to address exactly one pod of a
+// StatefulSet. Kubernetes sets it on every StatefulSet pod, so a Service selecting on
+// it is by construction a single member's own endpoint — which is more precise than
+// reading the Service's name, and holds for any operator and any replica set name.
+const k8sPodNameSelector = "statefulset.kubernetes.io/pod-name"
+
+// k8sServiceEngine is the port that carries a database on this Service, and the engine
+// speaking on it.
+func k8sServiceEngine(s k8sTargetSvc) (engine string, port int) {
+	for _, p := range s.Spec.Ports {
+		if e := k8sPortEngine(p.Name, p.Port); e != "" {
+			return e, p.Port
+		}
+	}
+	return "", 0
+}
+
 // k8sPortEngine maps a Service port to the engine speaking on it. The named port is
 // preferred where the operator sets one; the number is the fallback.
 func k8sPortEngine(name string, port int) string {
@@ -617,6 +634,15 @@ func k8sClassifyService(s k8sTargetSvc, cfg k3dConfig) (k8sEndpoint, bool) {
 	if strings.HasSuffix(name, k8sExposeSuffix) {
 		return k8sEndpoint{}, false
 	}
+	// A Service that selects one StatefulSet pod by name is not a tier — it is a
+	// single member published on its own, which is how a replica set with no router
+	// in front of it is reached. It has to be recognised before the suffix table,
+	// because a member's Service is its tier's name with an ordinal after it
+	// ("<cluster>-rs0-0") and no suffix in that table matches that.
+	if pod := s.Spec.Selector[k8sPodNameSelector]; pod != "" {
+		return k8sMemberService(s, cfg, pod)
+	}
+
 	var tier k8sTier
 	var matched string
 	for _, t := range k8sTiers {
@@ -627,15 +653,7 @@ func k8sClassifyService(s k8sTargetSvc, cfg k3dConfig) (k8sEndpoint, bool) {
 	if matched == "" {
 		return k8sEndpoint{}, false
 	}
-	// The port that carries the database, and the engine on it.
-	var engine string
-	var port int
-	for _, p := range s.Spec.Ports {
-		if e := k8sPortEngine(p.Name, p.Port); e != "" {
-			engine, port = e, p.Port
-			break
-		}
-	}
+	engine, port := k8sServiceEngine(s)
 	if engine == "" {
 		return k8sEndpoint{}, false
 	}
@@ -651,6 +669,44 @@ func k8sClassifyService(s k8sTargetSvc, cfg k3dConfig) (k8sEndpoint, bool) {
 	}
 	if tier.App {
 		e.Kind += "-app"
+	}
+	return e, true
+}
+
+// k8sMemberService classifies a Service that publishes one StatefulSet pod.
+//
+// Every member is offered, not just the one that can take writes. With expose enabled
+// the operator gives each pod its own Service and MetalLB gives each of those its own
+// address, so a secondary is reachable from outside the cluster exactly as the primary
+// is — and it answers reads there, because every MongoDB path in DBCanvas dials with
+// directConnection=true, which stops the driver rediscovering the set and landing on
+// in-cluster pod DNS that does not resolve from here. A write sent to the wrong member
+// is refused by the server with NotWritablePrimary, which is a clear answer rather than
+// an obscure failure, so there is nothing to protect the user from by hiding it.
+//
+// Role stays "member" rather than being resolved to primary or secondary. Which member
+// is primary changes on failover and this listing is cached (k8sEndpointTTL), so a
+// stored role would go stale and state something untrue; the tools that need to know
+// ask the server when they connect.
+func k8sMemberService(s k8sTargetSvc, cfg k3dConfig, pod string) (k8sEndpoint, bool) {
+	engine, port := k8sServiceEngine(s)
+	if engine == "" {
+		return k8sEndpoint{}, false
+	}
+	// The pod name without the cluster prefix the label already carries, so a picker
+	// shows "rs0-0" and "rs0-1" rather than the cluster's name three times over.
+	label := strings.TrimPrefix(pod, cfg.ClusterName+"-")
+	if label == "" {
+		label = pod
+	}
+	e := k8sEndpoint{
+		Engine: engine, Kind: "member", Service: s.Metadata.Name, Label: label,
+		Role: "member", Port: port, SvcType: s.Spec.Type,
+		Selector: s.Spec.Selector, TargetPort: port,
+		Note: "one member, reached directly — writes are refused unless it is the primary",
+	}
+	if engine == dexPostgres {
+		e.TLS = "require"
 	}
 	return e, true
 }

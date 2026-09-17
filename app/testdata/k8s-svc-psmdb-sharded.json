@@ -1,0 +1,218 @@
+{
+ "items": [
+  {
+   "metadata": {
+    "name": "k3d-04-cfg",
+    "namespace": "psmdb",
+    "labels": {
+     "app.kubernetes.io/instance": "k3d-04",
+     "app.kubernetes.io/managed-by": "percona-server-mongodb-operator",
+     "app.kubernetes.io/name": "percona-server-mongodb",
+     "app.kubernetes.io/part-of": "percona-server-mongodb",
+     "app.kubernetes.io/replset": "cfg"
+    },
+    "annotations": {}
+   },
+   "spec": {
+    "type": "ClusterIP",
+    "clusterIP": "None",
+    "selector": {
+     "app.kubernetes.io/instance": "k3d-04",
+     "app.kubernetes.io/managed-by": "percona-server-mongodb-operator",
+     "app.kubernetes.io/name": "percona-server-mongodb",
+     "app.kubernetes.io/part-of": "percona-server-mongodb",
+     "app.kubernetes.io/replset": "cfg"
+    },
+    "ports": [
+     {
+      "name": "mongodb",
+      "port": 27017,
+      "nodePort": 0,
+      "protocol": "TCP"
+     }
+    ]
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "metadata": {
+    "name": "k3d-04-mongos",
+    "namespace": "psmdb",
+    "labels": {
+     "app.kubernetes.io/component": "mongos",
+     "app.kubernetes.io/instance": "k3d-04",
+     "app.kubernetes.io/managed-by": "percona-server-mongodb-operator",
+     "app.kubernetes.io/name": "percona-server-mongodb",
+     "app.kubernetes.io/part-of": "percona-server-mongodb"
+    },
+    "annotations": {}
+   },
+   "spec": {
+    "type": "LoadBalancer",
+    "clusterIP": "10.43.123.35",
+    "selector": {
+     "app.kubernetes.io/component": "mongos",
+     "app.kubernetes.io/instance": "k3d-04",
+     "app.kubernetes.io/managed-by": "percona-server-mongodb-operator",
+     "app.kubernetes.io/name": "percona-server-mongodb",
+     "app.kubernetes.io/part-of": "percona-server-mongodb"
+    },
+    "ports": [
+     {
+      "name": "mongos",
+      "port": 27017,
+      "nodePort": 32180,
+      "protocol": "TCP"
+     }
+    ]
+   },
+   "status": {
+    "loadBalancer": {
+     "ingress": [
+      {
+       "ip": "172.20.255.238",
+       "ipMode": "VIP"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "metadata": {
+    "name": "k3d-04-rs0",
+    "namespace": "psmdb",
+    "labels": {
+     "app.kubernetes.io/instance": "k3d-04",
+     "app.kubernetes.io/managed-by": "percona-server-mongodb-operator",
+     "app.kubernetes.io/name": "percona-server-mongodb",
+     "app.kubernetes.io/part-of": "percona-server-mongodb",
+     "app.kubernetes.io/replset": "rs0"
+    },
+    "annotations": {}
+   },
+   "spec": {
+    "type": "ClusterIP",
+    "clusterIP": "None",
+    "selector": {
+     "app.kubernetes.io/instance": "k3d-04",
+     "app.kubernetes.io/managed-by": "percona-server-mongodb-operator",
+     "app.kubernetes.io/name": "percona-server-mongodb",
+     "app.kubernetes.io/part-of": "percona-server-mongodb",
+     "app.kubernetes.io/replset": "rs0"
+    },
+    "ports": [
+     {
+      "name": "mongodb",
+      "port": 27017,
+      "nodePort": 0,
+      "protocol": "TCP"
+     }
+    ]
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "metadata": {
+    "name": "k3d-04-rs0-0",
+    "namespace": "psmdb",
+    "labels": {
+     "app.kubernetes.io/component": "external-service",
+     "app.kubernetes.io/instance": "k3d-04",
+     "app.kubernetes.io/managed-by": "percona-server-mongodb-operator",
+     "app.kubernetes.io/name": "percona-server-mongodb",
+     "app.kubernetes.io/part-of": "percona-server-mongodb",
+     "app.kubernetes.io/replset": "rs0"
+    },
+    "annotations": {}
+   },
+   "spec": {
+    "type": "ClusterIP",
+    "clusterIP": "10.43.243.87",
+    "selector": {
+     "statefulset.kubernetes.io/pod-name": "k3d-04-rs0-0"
+    },
+    "ports": [
+     {
+      "name": "mongodb",
+      "port": 27017,
+      "nodePort": 0,
+      "protocol": "TCP"
+     }
+    ]
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "metadata": {
+    "name": "k3d-04-rs0-1",
+    "namespace": "psmdb",
+    "labels": {
+     "app.kubernetes.io/component": "external-service",
+     "app.kubernetes.io/instance": "k3d-04",
+     "app.kubernetes.io/managed-by": "percona-server-mongodb-operator",
+     "app.kubernetes.io/name": "percona-server-mongodb",
+     "app.kubernetes.io/part-of": "percona-server-mongodb",
+     "app.kubernetes.io/replset": "rs0"
+    },
+    "annotations": {}
+   },
+   "spec": {
+    "type": "ClusterIP",
+    "clusterIP": "10.43.227.239",
+    "selector": {
+     "statefulset.kubernetes.io/pod-name": "k3d-04-rs0-1"
+    },
+    "ports": [
+     {
+      "name": "mongodb",
+      "port": 27017,
+      "nodePort": 0,
+      "protocol": "TCP"
+     }
+    ]
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  },
+  {
+   "metadata": {
+    "name": "k3d-04-rs0-2",
+    "namespace": "psmdb",
+    "labels": {
+     "app.kubernetes.io/component": "external-service",
+     "app.kubernetes.io/instance": "k3d-04",
+     "app.kubernetes.io/managed-by": "percona-server-mongodb-operator",
+     "app.kubernetes.io/name": "percona-server-mongodb",
+     "app.kubernetes.io/part-of": "percona-server-mongodb",
+     "app.kubernetes.io/replset": "rs0"
+    },
+    "annotations": {}
+   },
+   "spec": {
+    "type": "ClusterIP",
+    "clusterIP": "10.43.125.142",
+    "selector": {
+     "statefulset.kubernetes.io/pod-name": "k3d-04-rs0-2"
+    },
+    "ports": [
+     {
+      "name": "mongodb",
+      "port": 27017,
+      "nodePort": 0,
+      "protocol": "TCP"
+     }
+    ]
+   },
+   "status": {
+    "loadBalancer": {}
+   }
+  }
+ ]
+}

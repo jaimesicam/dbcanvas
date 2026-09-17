@@ -114,25 +114,42 @@ func (e k8sEndpoint) dialTarget() k8sDialTarget {
 
 // ---------------------------------------------------------------- Data Generator
 
-// k8sDataGenConnections are the operator databases the Data Generator can fill.
+// k8sDataGenUsable reports whether the Data Generator can fill this endpoint, and is
+// the single rule both the listing and the re-resolve below go through — a target
+// offered in one and refused by the other is a bug waiting to be filed.
 //
-// PostgreSQL only, and that is a limit of how the generator reaches a database rather
-// than of what it can generate: its PostgreSQL path runs psql inside the container and
-// its MySQL path pipes a password through MYSQL_PWD, and `kubectl exec` does not carry
-// an environment from the caller — so a MySQL cluster would need the password on a
-// command line inside the pod, which is not a trade worth making silently. An operator
-// MySQL or MongoDB cluster is still reachable from the Database Explorer, the Query
-// Runner and the Benchmark.
+// Two routes, because the generator has two. Its SQL engines run a client inside the
+// container, so PostgreSQL needs the exec route and the endpoint that takes writes: a
+// replica or a pooler would fail in a way that looks like a DBCanvas fault rather than
+// like pointing an INSERT at a read-only endpoint. MySQL is left out because its
+// client takes the password through MYSQL_PWD and `kubectl exec` carries no
+// environment from the caller, so a cluster would need the password on a command line
+// inside the pod — not a trade worth making silently.
+//
+// MongoDB does not exec at all: datagen_mongo.go dials with the driver over the stack
+// network, exactly as the Query Runner and the Benchmark do. So what it needs is an
+// address, not a pod, and the exec route's limits never applied to it. A config server
+// is excluded because it is not where application data goes; a member is offered the
+// way a replica-set node on the canvas is, and has to be the primary when the job runs
+// — the server says so plainly (NotWritablePrimary) if it is not.
+func k8sDataGenUsable(e k8sEndpoint) bool {
+	if strings.HasSuffix(e.Kind, "-app") {
+		return false
+	}
+	switch e.Engine {
+	case dexPostgres:
+		return e.Execable() && e.Role == "primary"
+	case dexMongoDB:
+		return e.Reachable() && e.Kind != "config"
+	}
+	return false
+}
+
+// k8sDataGenConnections are the operator databases the Data Generator can fill.
 func (a *App) k8sDataGenConnections(ctx context.Context, st Stack) []dgConnection {
 	out := []dgConnection{}
 	for _, e := range a.k8sStackEndpoints(ctx, st) {
-		if e.Engine != dexPostgres || !e.Execable() {
-			continue
-		}
-		// One connection per cluster, not per tier: the generator writes, so only the
-		// endpoint that takes writes is worth offering, and a replica or a pooler
-		// would fail in a way that looks like a DBCanvas fault.
-		if e.Role != "primary" || strings.HasSuffix(e.Kind, "-app") {
+		if !k8sDataGenUsable(e) {
 			continue
 		}
 		out = append(out, dgConnection{
@@ -145,10 +162,14 @@ func (a *App) k8sDataGenConnections(ctx context.Context, st Stack) []dgConnectio
 	return out
 }
 
-// k8sDBConn builds the Data Generator's connection for an operator database. The
-// client runs inside the database's own pod, reached by kubectl on the k3s server
-// container — so every psql invocation the generator already makes works unchanged,
-// with a prefix in front of it.
+// k8sDBConn builds the Data Generator's connection for an operator database, by the
+// route that endpoint's engine uses.
+//
+// For PostgreSQL the client runs inside the database's own pod, reached by kubectl on
+// the k3s server container — so every psql invocation the generator already makes
+// works unchanged, with a prefix in front of it. For MongoDB there is no client to
+// run: the address travels on the connection and the driver dials it, which is the
+// same thing mongoClientFor does for a node on the canvas once it has resolved one.
 func (a *App) k8sDBConn(st Stack, target string) (dbConn, bool) {
 	id, ok := k8sSplitTarget(target)
 	if !ok {
@@ -157,19 +178,19 @@ func (a *App) k8sDBConn(st Stack, target string) (dbConn, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	for _, e := range a.k8sStackEndpoints(ctx, st) {
-		if e.ID() != id || !e.Execable() || e.Engine != dexPostgres {
+		if e.ID() != id || !k8sDataGenUsable(e) {
 			continue
 		}
-		return dbConn{
-			ContainerID: e.ServerID,
-			Engine:      e.Engine,
-			Super:       e.User,
-			Password:    e.Pass,
-			StackID:     st.ID,
-			eng:         a.docker, // a k3d cluster is always Docker, even in a hybrid stack
-			Prefix:      e.k8sExecArgv(nil),
-			Env:         []string{"KUBECONFIG=" + k3dKubeconfig},
-		}, true
+		// A k3d cluster is always Docker, even in a hybrid stack.
+		c := dbConn{Engine: e.Engine, Super: e.User, Password: e.Pass, StackID: st.ID, eng: a.docker}
+		if e.Engine == dexMongoDB {
+			c.Addr, c.Port = e.Addr, e.Port
+			return c, true
+		}
+		c.ContainerID = e.ServerID
+		c.Prefix = e.k8sExecArgv(nil)
+		c.Env = []string{"KUBECONFIG=" + k3dKubeconfig}
+		return c, true
 	}
 	return dbConn{}, false
 }

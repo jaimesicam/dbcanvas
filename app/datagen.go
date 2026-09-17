@@ -53,6 +53,11 @@ type dbConn struct {
 	// Port matters only for the network-dialed engine (MongoDB); the exec-based
 	// ones select their server through Args. 0 = the engine's default.
 	Port int
+	// Addr is the address to dial, set when there is no container to resolve one
+	// from. A database an operator deployed is a pod behind a Service, and the
+	// Service's own address — a MetalLB LoadBalancer IP, or a k3s node with a
+	// NodePort — is on the stack's subnet already, so it is dialled as it stands.
+	Addr string
 }
 
 // client returns the argv prefix for this connection's CLI.

@@ -24042,3 +24042,252 @@ Ubuntu Linux Clients were not used — the package lists for them come from the 
 install scripts in this repository and from `valkeyPackages`, and every EL one was proved by
 running it. And the page itself was driven through its API rather than clicked: its render
 path is covered by both smoke suites, including a mount in a real browser.
+
+---
+
+## 391. Every member of an operator's replica set, and the tools that could not dial one — `app/k8starget.go`, `app/k8sqrtarget.go`, `app/k8starget_test.go`, `app/{datagen,datagen_mongo,benchmark_mongo,queryrun}.go`, `app/web/src/lib/datagenApi.js`, `app/testdata/k8s-svc-psmdb-{replicaset,sharded}.json` (new)
+
+**The report.** Two PSMDB clusters on one canvas; one visible to every database tool, the
+other visible to none. The invisible one was exposed exactly as documented —
+`k3dExposeReplset: loadbalancer` — and MetalLB had given its three members
+172.20.255.246/.247/.248, all of which accept TCP 27017 from the stack's subnet.
+
+**The cause is one line of name-matching.** `k8sClassifyService` identified a Service by
+matching its name against the suffix table in `k8sTiers`. A sharded cluster publishes
+`<cr>-mongos`, which matches `-mongos`. A replica set with no router publishes **one Service
+per pod** — `k3d-03-rs0-0`, `-1`, `-2` — and `strings.HasSuffix("k3d-03-rs0-0", "-rs0")` is
+false. The only Service that *would* match `-rs0` is the headless one, already rejected for
+having no address of its own. So the cluster fell through both gates and produced nothing, in
+**every** exposure mode: in ClusterIP mode the operator still names them `<cr>-rs0-<N>`, so
+there was not even an exec route or an "Expose for tools" button to reach for.
+
+**A Service is now recognised by the pod it selects, not by the shape of its name.**
+Kubernetes sets `statefulset.kubernetes.io/pod-name` on every StatefulSet pod, so a Service
+selecting on it *is* a single member's endpoint by construction. That is exact, needs no
+knowledge of an operator's naming, and holds for a replica set called anything at all — which
+a regular expression over `-rs<N>-<M>` would not.
+
+**Every member is offered, not only the one that takes writes.** Verified against the live
+clusters rather than argued: a direct connection to a secondary's own LoadBalancer address
+authenticates and serves reads (`admin, config, local, stocksim`, ten collections), because
+every MongoDB path here already dials with `directConnection=true` — which is also what stops
+the driver rediscovering the set and landing on in-cluster pod DNS that does not resolve from
+the app. A write to that secondary is refused with `(NotWritablePrimary) not primary`, which
+is a clear answer rather than an obscure failure, so there was nothing to protect anyone from
+by hiding it.
+
+**Role is recorded as `member`, never as primary.** The primary moved between two checks
+during this work — `rs0-2` to `rs0-0` — and the endpoint list is cached for 20 s
+(`k8sEndpointTTL`). A stored "primary" would be a confidently wrong answer often enough to
+matter; the tools that need to know ask the server when they connect.
+
+### The three tools that still could not use it
+
+1. **The Query Runner listed targets it would refuse.** `handleQueryRunTargets` appended
+   `listK8sSQLTargets`, which deliberately includes MongoDB because the Benchmark shares that
+   list — but the Query Runner rejects MongoDB at Run (`queryrun.go`, "the Query Runner is
+   SQL-only"). The canvas-node path had always filtered it; the Kubernetes path had not, so
+   the picker offered a target whose only possible outcome was that refusal. Filtered at the
+   Query Runner's own call site, leaving the Benchmark's list alone.
+
+2. **The Data Generator excluded MongoDB on an exec-shaped rule.** `k8sDataGenConnections`
+   required `Execable() && Engine == postgres`, justified by `MYSQL_PWD` not surviving
+   `kubectl exec` — true for MySQL, and never applicable to MongoDB, whose generator backend
+   (`datagen_mongo.go`) dials with the Go driver over the stack network exactly as the Query
+   Runner and Benchmark do. What it needs is an address, not a pod. `k8sDataGenUsable` now
+   branches per engine and is the single rule both the listing and `k8sDBConn` go through, so
+   a target cannot be offered in one and refused by the other.
+
+3. **The Benchmark could never dial an operator's MongoDB at all** — including the `mongos`
+   that was already visible, so this predates the rest. `executeMongo` built its `dbConn` from
+   `run.nodeContainerID`, which is empty for a Service, and `mongoClientFor` then failed in
+   `ContainerIP` with *"could not resolve node address on the stack network"*. The SQL path
+   beside it had always handled this correctly (`dialAddrDSN`). `dbConn` gains `Addr` — the
+   address to dial when there is no container to resolve one from — and `benchRun.mongoConn()`
+   sets it, extracted so the split between the two routes is testable.
+
+### The bug that made the Data Generator fix invisible
+
+With all of the above done, the Data Generator still showed no collections **in the UI**,
+while every API call worked. `datagenApi.js` interpolated the node id into the URL path
+unencoded, and a Kubernetes target id is `k8s:<frame>/<service>` — the slash made two extra
+path segments, the request matched no route, **the SPA fallback answered it with
+`index.html` and HTTP 200**, and the wrapper's `JSON.parse` failed into `catch { data = null }`
+without throwing because `res.ok` was true. The page got `null` and rendered an empty list:
+no error, no collections. The same bug hits All-in-One targets, whose ids are
+`<node>#<instance>` — `#` starts a fragment the server never sees.
+
+`encodeURIComponent` on both path segments fixes it. Separately, that wrapper now **throws on
+a 2xx that is not JSON** rather than returning `null`: swallowing it is what made a routing
+miss look like an empty database, and is why the backend fix appeared to do nothing.
+
+**Verified on the reporter's own stack.** Database Explorer 1 → 4 connections; all three
+members browse, including a secondary. Data Generator 0 → 4. Benchmark 4 k8s targets, ~22k
+qps direct and ~8.8k through the mongos (the router's extra hop). Query Runner 0, correctly:
+both clusters are MongoDB. Five hundred documents generated into a scratch collection through
+the mongos and through the primary, refused on the secondary.
+
+**Fixtures are the Service lists of both live clusters**, captured with `kubectl get svc -o
+json` and trimmed, in the spirit `k8starget_test.go` already states: the thing worth testing
+is what the classifier does to what an operator actually creates.
+
+**Not verified.** Only MongoDB operator clusters were on the canvas, so the PXC, PS and
+PostgreSQL operator paths were exercised through the fixtures and the existing tests, not
+against deployed clusters. NodePort exposure was not exercised — every endpoint here was a
+LoadBalancer with a MetalLB address. And two reporting weaknesses were found and left alone,
+both pre-existing and engine-agnostic: a multi-threaded generate job with `stopOnError`
+surfaces the *other* thread's cancellation rather than the cause (`incomplete read of message
+header: context canceled` instead of `NotWritablePrimary`), and `inserted` counts a batch
+before it is known to have succeeded, so the refused secondary reported 10 rows written when
+the collection held none.
+
+---
+
+## 392. Sample Client Code on seven Linux releases — `app/samplecode_env.go`, `app/samplecode_api.go`, `app/samplecode_mysql.go`, `app/samplecode_test.go`
+
+**The sweep.** §390 shipped this feature with EL nodes only and said so under *Not verified*.
+Running the whole registry on every supported base image — 23 samples × 7 releases = **161
+programs**, the `connect` scenario against a deployed Percona Server, PostgreSQL, PSMDB and
+Valkey — produced **127 passes and 34 failures**, distributed very unevenly:
+
+| | OL8 | OL9 | OL10 | Ubuntu 22.04 | Ubuntu 24.04 | Debian 12 | Debian 13 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| before | 8/23 | 23/23 | 23/23 | 10/23 | 22/23 | 19/23 | 22/23 |
+| after | **23/23** | 23/23 | 23/23 | **23/23** | **23/23** | **23/23** | **23/23** |
+
+**One structural cause under almost all of it.** `linuxClientConfig` records the OS *family*
+and drops the *release* — it is used only to pick a base image — so the environment plan could
+not tell Oracle Linux 8 from 10, or Ubuntu 22.04 from 24.04, and handed them the same package
+list. Compounding it, every `Check` asked whether a binary **existed**, which a too-old runtime
+satisfies; the failure then surfaced much later, inside a build, as something that did not look
+like an environment problem at all.
+
+The release now reaches the plan as `scOS{ID, Version}`, read from the **design node** rather
+than the deployment config so a Linux Client deployed before this mattered still answers. Every
+version-dependent decision reads it, and every check asks the question the build will ask.
+
+### The eight failures, each of which had to be reproduced before it could be fixed
+
+1. **EL8 modular filtering hid Percona's own clients.** `dnf install percona-server-client`
+   answers *"All matches were filtered out by modular filtering"* while the rpm sits in an
+   enabled repository, because the default `mysql` module stream filters it. Same for
+   `postgresql`. `scModules{Disable: …}` now clears them first.
+2. **EL8's Python is 3.6** and the current `mysql-connector-python` wheel will not import on it
+   (`from __future__ import annotations` — *"future feature annotations is not defined"*).
+   `python3.11` is installed and named explicitly (`scPythonBin`), and the virtualenv check now
+   rejects one built from a too-old interpreter rather than only testing that it exists.
+3. **EL8's Node is 10** and Ubuntu 22.04's is 12. mysql2, `pg` and the MongoDB driver all use
+   optional chaining, so npm installs them without complaint — their `engines` still says
+   `>= 8.0` — and `require` throws `SyntaxError: Unexpected token .`. EL8 switches to the
+   `nodejs:20` stream; the check now asks node to **parse `?.`**, which is the real requirement.
+4. **The JDK check passed on a JDK that could not build.** `command -v javac` is true of the
+   Java 11 that Ubuntu 22.04's `default-jdk` and EL8 both install, and the build then dies at
+   *"release version 17 not supported"*. Two layers: the check is now `javac --release 17`, and —
+   because the OpenJDK RPMs register through alternatives at **priority 1**, so installing
+   java-21 on EL8 leaves `/usr/bin/javac` on java-11 — every Java step resolves `JAVA_HOME` to
+   the newest installed JDK that can compile at that release instead of trusting `$PATH`.
+5. **EL8's Maven is 3.5.4**, below the 3.6.3 that `maven-compiler-plugin` 3.14 requires. The
+   obvious fix made it worse and is worth recording: the `maven:3.8` stream exists, but its
+   packages symlink the jars in `/usr/share/maven/lib` into the **maven-resolver rpm from the
+   3.5 stream**, which no `module enable`, `distro-sync` or `module switch-to` replaces — Maven
+   then starts and dies on `NoSuchMethodError` inside its own resolver, and
+   `/usr/share/maven/lib/guava-27.1-jre.jar` is a dangling symlink. That was reverted and the
+   node restored. The generated pom pins `maven-compiler-plugin` 3.8.1 and `exec-maven-plugin`
+   3.1.0 instead, which run on 3.5.4 and cost nothing: the `<release>` level decides the
+   bytecode, not the plugin version.
+6. **The drivers require Go 1.24** — `go-sql-driver/mysql` declares `go 1.24.0` in its own
+   `go.mod`, so an older toolchain refuses the module outright and no edit to *our* `go.mod`
+   helps. Ubuntu 22.04 (1.18) and 24.04 (1.22) install the versioned `golang-1.24` package,
+   whose bin directory is outside `$PATH` and is prepended for the build and run steps.
+7. **`GOTOOLCHAIN=auto` fails closed on a lab node.** Ubuntu 24.04's Go 1.22 tried to fetch
+   1.24 and got *"toolchain not available"*; with a current toolchain on disk the question
+   never arises.
+8. **Debian 13 has no Percona MySQL client repository** (apt: *"Unable to locate package
+   percona-server-client"*). `mariadb-client` provides the same `mysql` command and is the
+   fallback — which exposed a second bug immediately: MariaDB's client rejects `--ssl-mode`
+   (*"unknown variable 'ssl-mode'"*), so the generated script now asks the client which
+   spelling it speaks and uses `--ssl` / `--ssl-verify-server-cert` when it is the MariaDB one.
+
+### Two releases their own archives cannot serve
+
+Ubuntu 22.04 carries Node 12 on every channel; Debian 12 carries Go 1.19 with no versioned
+`golang-1.2x` packages and nothing newer in backports. Both are below what the drivers require
+and neither is going to change, so **`scTarball` installs that one runtime from the project
+that publishes it** — Node.js 22.23.2 from `nodejs.org/dist`, Go 1.27.1 from `go.dev/dl`.
+
+On the terms this file already sets for third-party code: the version is pinned, the
+**SHA-256 is pinned per architecture and checked before anything is unpacked**, the
+architecture is resolved on the node (a stack on an aarch64 host runs x86_64 clients under
+emulation), the licence is recorded beside the URL, and **no repository is added** — verified
+after the fact: no NodeSource source on the Ubuntu node, and Debian 12's `golang-go 1.19` is
+still installed and untouched. Binaries are linked into `/usr/local/bin`, which precedes
+`/usr/bin` in the default `PATH` on all seven images, so nothing downstream knows the runtime
+arrived differently. A test asserts the other five releases return **no** tarball, so this
+cannot quietly spread.
+
+**Verified** by re-running the full 161 after every round and comparing name by name: 161/161,
+no regressions against the original sweep. `go test ./app`'s failure set is unchanged from
+`main` — 213 either way, all pre-existing missing `testdata/` fixtures. Frontend smoke is
+unchanged too (one pre-existing failure, `polling: every page that polls goes through the
+shared hook`).
+
+**Not verified.** Only the `connect` scenario was run on the matrix; the other five exercise
+the same environment plan and differ afterwards, in SQL the offline dump pass in §390 already
+compiled. mTLS was not exercised — the stack had no Intranet-issued client certificates — and
+neither were the cluster-shaped endpoints, an All-in-One instance, or a Kubernetes endpoint as
+a *sample* target. arm64 was not exercised: every node here is x86_64, so the arm64 halves of
+the two pinned checksums are transcribed from upstream's index rather than proved by an install.
+
+---
+
+## 393. 0.0.8 — three features get their picture — `app/web/scripts/screenshots.mjs` (not in the repo), `docs/screenshots/{kubernetes-states,sample-code,database-explorer}.png` (new), `docs/{KUBERNETES_STATES,SAMPLE_CODE,DATABASE_EXPLORER}.md`, `README.md`, `VERSION`, `app/whatsnew.go`
+
+**Three of the newest features had no screenshot.** Kubernetes States (§383–386), Sample
+Client Code (§390) and the Database Explorer all shipped with prose only, and the capture
+tooling §334 built — Playwright, with normalisation and redaction — is gitignored
+maintainer-only and was not in this clone. The `.gitignore` comment is exact about the
+arrangement and it held: *"The generated screenshots (docs/screenshots/\*.png) ARE committed;
+only the machinery that produces them is ignored."*
+
+So `app/web/scripts/` was rebuilt, smaller: headless Chrome over the DevTools Protocol, no
+Playwright and no Chromium download. `--screenshot` alone cannot do this — every page worth
+capturing is behind a session cookie and each one fetches its data after mount — so the script
+logs in over the API, sets the cookie with `Network.setCookie`, sets 1600×H at
+`deviceScaleFactor: 2` to match the existing 3200-wide images, and waits per shot.
+
+**Redaction was kept, because these images get published.** §334's reason has not changed: the
+tool reads the repo's `.env`, collects every `*_PASSWORD`/`*_SECRET`/`*_TOKEN`/`*_KEY` value of
+six characters or more, and replaces each occurrence in the DOM — text nodes and input values —
+immediately before the shutter. It earned its place on the first run: the Sample Client Code
+page renders a generated project whose `CONFIG` block carries the deployment's real password,
+and it sat **one line below the fold**. A crop is not a control; a layout change moves it back
+into frame. One occurrence is redacted in that shot.
+
+**The determinism machinery of §334 was not rebuilt**, and that is a real loss to record: these
+three images are not byte-reproducible, so a re-capture of an unchanged page is a diff rather
+than a no-op. It was not needed to *produce* them and is the obvious next thing if re-shooting
+becomes routine again.
+
+### Two bugs in the capture itself, both found by looking at the output
+
+1. **Clearing the tab state produced three pictures of the Dashboard.** The app remembers its
+   open tabs, so without a reset every shot after the first carries the previous ones' tab
+   strip. The first attempt loaded `#dashboard`, called `localStorage.clear()` **in the page**,
+   then navigated and reloaded — but by then the app was mounted, and it wrote its tab state
+   back on the way out, so the reload restored *that*. Every shot came back as the Dashboard.
+   Clearing through `Storage.clearDataForOrigin` before the app ever mounts is the fix.
+2. **The Database Explorer's own shot was a tree beside an empty result pane**, which says
+   little about what the page is for. It now picks a connection, a database, types a query and
+   runs it, so the shot shows 500 rows with their column types. The selects and the editor are
+   React-controlled, so each write goes through the native value setter and then dispatches the
+   event React listens for — assigning `.value` updates the DOM and not the component. The data
+   is 500 rows the **Data Generator** made into the sample code's own `customers` schema, so the
+   screenshot is two features rather than lorem ipsum.
+
+The lesson worth writing down: both were visible in the PNGs and invisible in the script's log,
+which reported "wrote …" for a Dashboard as cheerfully as for the right page. A capture tool's
+output is the image, so the image is what has to be read back.
+
+**0.0.8** follows the rule in `version.go` — bump `VERSION` in the same change that adds the
+What's New note for it — with three notes covering §391, §392 and this entry, and matching
+prose in the README's *What's new* section, which `whatsnew_test.go` checks for drift.

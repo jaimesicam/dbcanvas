@@ -682,15 +682,20 @@ const scMavenPOM = `<?xml version="1.0" encoding="UTF-8"?>
 
   <build>
     <plugins>
+      <!-- These two are pinned to the newest releases that still run on Maven 3.5, which is
+           what EL8 ships and cannot be upgraded from: its maven:3.8 module stream installs a
+           launcher whose jars symlink into the 3.5-era maven-resolver rpm, and the result
+           cannot start at all. A newer compiler plugin buys nothing here - the release level
+           below is what decides the bytecode - and costs every EL8 node. -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
-        <version>3.14.1</version>
+        <version>3.8.1</version>
       </plugin>
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>exec-maven-plugin</artifactId>
-        <version>3.5.0</version>
+        <version>3.1.0</version>
       </plugin>
     </plugins>
   </build>
@@ -959,16 +964,32 @@ TABLE={{.Table | sq}}
 # node could read it out of ps.
 export MYSQL_PWD={{.Target.Password | sq}}
 
-MYSQL=(mysql --protocol=TCP --host="$HOST" --port="$PORT" --user="$USER" --batch --skip-column-names
+# --ssl-mode is Oracle's and Percona's spelling. MariaDB's client, which is what some
+# distributions provide under the name mysql, rejects it outright ("unknown variable 'ssl-mode'") and
+# spells the same intent --ssl / --ssl-verify-server-cert. Asking the client which it speaks is
+# the only way a script can be right on both.
+if mysql --help 2>/dev/null | grep -q -- --ssl-mode; then
 {{- if .Verify}}
   # VERIFY_IDENTITY checks the chain and the hostname; the CA is the stack's own, already
   # installed in this node's trust store.
-  --ssl-mode=VERIFY_IDENTITY --ssl-ca={{.CA | sq}}
+  TLS=(--ssl-mode=VERIFY_IDENTITY --ssl-ca={{.CA | sq}})
 {{- else if .Encrypted}}
-  --ssl-mode=REQUIRED
+  TLS=(--ssl-mode=REQUIRED)
 {{- else}}
-  --ssl-mode=DISABLED
+  TLS=(--ssl-mode=DISABLED)
 {{- end}}
+else
+{{- if .Verify}}
+  TLS=(--ssl --ssl-verify-server-cert --ssl-ca={{.CA | sq}})
+{{- else if .Encrypted}}
+  TLS=(--ssl)
+{{- else}}
+  TLS=(--skip-ssl)
+{{- end}}
+fi
+
+MYSQL=(mysql --protocol=TCP --host="$HOST" --port="$PORT" --user="$USER" --batch --skip-column-names
+  "${TLS[@]}"
 {{- if .MTLS}}
   --ssl-cert={{.ClientCert | sq}} --ssl-key={{.ClientKey | sq}}
 {{- end}}

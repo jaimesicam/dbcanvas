@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -65,18 +66,91 @@ const scStorePass = "changeit"
 // clients come from Percona's repositories, and *which* repository depends on the series the
 // target runs — a psql from the PostgreSQL 17 distribution and one from 13 are different packages
 // in different repos, and on EL they are not even on PATH in the same place.
+// scOS is the node's distribution *and* its release. The release is not decoration: one
+// "oraclelinux" covers EL8, which pins Python 3.6 and Node 10 behind module streams, and EL10,
+// which ships neither problem. Every version-dependent decision below reads this rather than
+// guessing from the family name.
+type scOS struct {
+	ID      string // oraclelinux | rocky | almalinux | debian | ubuntu
+	Version string // "8", "9", "10", "22.04", "24.04", "12", "13"
+}
+
+// Debian reports whether this is an apt distribution.
+func (o scOS) Debian() bool { return isDebianOS(o.ID) }
+
+// Major is the leading integer of the release ("22.04" is 22, "8" is 8), or 0 when the release
+// was not recorded — in which case every version test below answers "no special case", which is
+// the right default for a node whose version DBCanvas does not know.
+func (o scOS) Major() int {
+	n := 0
+	for _, r := range o.Version {
+		if r < '0' || r > '9' {
+			break
+		}
+		n = n*10 + int(r-'0')
+	}
+	return n
+}
+
+// EL reports whether this is Enterprise Linux at exactly this major release.
+func (o scOS) EL(major int) bool { return !o.Debian() && o.Major() == major }
+
+// Is reports whether this is the named distribution at exactly this release.
+func (o scOS) Is(id, version string) bool { return o.ID == id && o.Version == version }
+
+// scModules is the EL module streams to change before installing.
+//
+// EL8 is the only release that needs this, and it needs it for two unrelated reasons. A default
+// stream *filters the repository*: with the `mysql` module at its default, dnf reports Percona's
+// own percona-server-client as "no matching package" even though it is right there in an enabled
+// repository ("All matches were filtered out by modular filtering"). And a default stream *pins a
+// runtime*: nodejs:10 and python36 are what EL8 offers until something says otherwise, and both
+// are too old for the current drivers.
+type scModules struct {
+	Disable []string // streams to get out of the way of a third-party package of the same name
+	Enable  []string // "name:stream" to switch to, replacing whatever is enabled now
+}
+
+// scTarball is an upstream binary release installed straight from the project that publishes
+// it, for the one case the distribution cannot answer: a release whose archive has no build of a
+// runtime new enough to compile the current drivers, and no versioned package either. Ubuntu
+// 22.04 carries Node 12 and nothing newer; Debian 12 carries Go 1.19 and nothing newer, backports
+// included. Both are below what the drivers require, and neither is going to change.
+//
+// This is a download, not a repository: no third-party apt or yum source is added to the node,
+// nothing outside the named archive is installed, and the URL is the project's own. The version
+// is pinned and the SHA-256 of each architecture's archive is pinned beside it, so the install
+// either produces exactly the reviewed bytes or fails — the same standard scDep sets for the
+// libraries a sample resolves, applied to the runtime under it.
+type scTarball struct {
+	Name    string            // what is being installed, for the log
+	Version string            // pinned
+	URL     string            // %s is replaced by the archive's architecture token
+	Arch    map[string]string // uname -m -> the token this project uses in its filenames
+	SHA256  map[string]string // uname -m -> the archive's checksum
+	Dir     string            // where it unpacks to
+	Strip   int               // tar --strip-components
+	Bins    []string          // binaries to link into /usr/local/bin, which is already on PATH
+	License string
+}
+
 type scSysPkg struct {
 	ID    string
 	Label string
 	// Check is a shell test: exit 0 means the package is already usable. It tests the *tool*,
 	// not the package database, because "the rpm is installed" and "the command runs" are
 	// different statements and only the second one matters here.
-	Check func(nodeOS string, t scTarget) string
-	// Packages is what to install, per OS family.
-	Packages func(nodeOS string, t scTarget) []string
-	// Alt is a second list to try when Packages fails, for the one case where a package name
-	// genuinely differs between releases of the same family (the JDK on EL8 vs EL9+).
-	Alt func(nodeOS string, t scTarget) []string
+	Check func(os scOS, t scTarget) string
+	// Packages is what to install, per OS family and release.
+	Packages func(os scOS, t scTarget) []string
+	// Alt is a second list to try when Packages fails, for a package name that genuinely differs
+	// between releases of the same family (the JDK on EL8 vs EL9+).
+	Alt func(os scOS, t scTarget) []string
+	// Modules are the EL module streams to change first. Nil everywhere but EL8.
+	Modules func(os scOS) scModules
+	// Tarball is the upstream release to install instead, on the releases whose own archive
+	// has nothing new enough. Nil everywhere else, which is almost everywhere.
+	Tarball func(os scOS) *scTarball
 	// Repo is the percona-release product to enable before installing, or "" for the distro's
 	// own repositories.
 	Repo func(t scTarget) string
@@ -92,10 +166,21 @@ var scSysPackages = map[string]scSysPkg{
 		ID: "python3", Label: "Python 3 (with pip and venv)",
 		// ensurepip is what `python3 -m venv` needs and what Debian splits into python3-venv.
 		// Testing for the interpreter alone passes on a node where the virtualenv cannot be made.
-		Check: func(string, scTarget) string { return `python3 -c "import venv, ensurepip"` },
-		Packages: func(nodeOS string, _ scTarget) []string {
-			if isDebianOS(nodeOS) {
+		//
+		// The interpreter tested is the one the virtualenv will be built from, which on EL8 is
+		// not `python3`: that name is Python 3.6 there, and a current driver wheel refuses to
+		// import on it ("future feature annotations is not defined"). scPythonBin picks it.
+		Check: func(os scOS, _ scTarget) string {
+			return scPythonBin(os) + ` -c "import venv, ensurepip"`
+		},
+		Packages: func(os scOS, _ scTarget) []string {
+			if os.Debian() {
 				return []string{"python3", "python3-pip", "python3-venv"}
+			}
+			if os.EL(8) {
+				// EL8's python3 is 3.6 and its python36 module stream is what holds it there.
+				// 3.11 is a separate package rather than a stream, so it installs beside it.
+				return []string{"python3.11", "python3.11-pip"}
 			}
 			return []string{"python3", "python3-pip"}
 		},
@@ -103,35 +188,90 @@ var scSysPackages = map[string]scSysPkg{
 	},
 	"nodejs": {
 		ID: "nodejs", Label: "Node.js (with npm)",
-		Check:    func(string, scTarget) string { return `command -v node >/dev/null && command -v npm >/dev/null` },
-		Packages: func(string, scTarget) []string { return []string{"nodejs", "npm"} },
-		License:  "MIT", URL: "https://nodejs.org/",
+		// Node has to be new enough to *parse* the drivers, which is a stricter test than
+		// "node exists". mysql2, pg and the MongoDB driver all use optional chaining, so on
+		// Node 10 (EL8) and Node 12 (Ubuntu 22.04) they fail at require time with
+		// "SyntaxError: Unexpected token ." — after npm installed them without complaint,
+		// because their package.json engines field still says >= 8. Asking the interpreter to
+		// parse the syntax is the honest check.
+		Check: func(scOS, scTarget) string {
+			return `command -v node >/dev/null && command -v npm >/dev/null && node -e "const o={};o?.x" >/dev/null 2>&1`
+		},
+		Packages: func(scOS, scTarget) []string { return []string{"nodejs", "npm"} },
+		// EL8 defaults to nodejs:10 and stays there until the stream is switched.
+		Modules: func(os scOS) scModules {
+			if os.EL(8) {
+				return scModules{Enable: []string{"nodejs:20"}}
+			}
+			return scModules{}
+		},
+		// Ubuntu 22.04's archive has Node 12 and nothing else, on any channel.
+		Tarball: func(os scOS) *scTarball {
+			if os.Is("ubuntu", "22.04") {
+				return &scNodeUpstream
+			}
+			return nil
+		},
+		License: "MIT", URL: "https://nodejs.org/",
 	},
 	"golang": {
 		ID: "golang", Label: "Go toolchain",
-		Check: func(string, scTarget) string { return `command -v go >/dev/null` },
-		Packages: func(nodeOS string, _ scTarget) []string {
-			if isDebianOS(nodeOS) {
+		// The drivers' own go.mod files require Go 1.24, so "go exists" is not the question —
+		// go-sql-driver/mysql declares `go 1.24.0` and an older toolchain refuses the module
+		// outright ("go.mod file indicates go 1.21, but maximum version supported by tidy is
+		// 1.19"). GOTOOLCHAIN would paper over it from 1.21 onwards, but it needs to reach
+		// proxy.golang.org to do so and fails closed on a lab node that cannot
+		// ("toolchain not available"), so the toolchain on disk has to be new enough itself.
+		Check: func(scOS, scTarget) string { return scGoAtLeast(scGoMinMajor, scGoMinMinor) },
+		Packages: func(os scOS, _ scTarget) []string {
+			if os.Debian() {
+				// Debian and Ubuntu both carry versioned golang-1.NN metapackages beside the
+				// unversioned one, and on the releases whose golang-go is too old that is the
+				// only way to a current toolchain from the distribution's own archive.
+				if v := scDebianGoPackage(os); v != "" {
+					return []string{v}
+				}
 				return []string{"golang-go"}
 			}
 			return []string{"golang"}
+		},
+		Alt: func(os scOS, _ scTarget) []string {
+			if os.Debian() {
+				return []string{"golang-go"}
+			}
+			return nil
+		},
+		// Debian 12 has golang-go 1.19, no versioned golang-1.2x packages, and no newer Go in
+		// backports either — the only route to a toolchain the drivers accept is upstream's.
+		Tarball: func(os scOS) *scTarball {
+			if os.Is("debian", "12") {
+				return &scGoUpstream
+			}
+			return nil
 		},
 		License: "BSD-3-Clause", URL: "https://go.dev/",
 	},
 	"jdk": {
 		ID: "jdk", Label: "JDK (OpenJDK)",
-		Check: func(string, scTarget) string { return `command -v javac >/dev/null` },
-		Packages: func(nodeOS string, _ scTarget) []string {
-			if isDebianOS(nodeOS) {
-				return []string{"default-jdk"}
+		// The generated pom compiles at release 17, so the check asks javac whether it can do
+		// that rather than whether it exists. `command -v javac` passes on the JDK 11 that
+		// Ubuntu 22.04's default-jdk and EL8's default both install, and the build then dies
+		// much later with "release version 17 not supported".
+		Check: func(scOS, scTarget) string { return scJavaCapable },
+		Packages: func(os scOS, _ scTarget) []string {
+			if os.Debian() {
+				// default-jdk is 11 on Ubuntu 22.04, which is below the release level above.
+				// Naming the version wanted is what makes this right on every release.
+				return []string{"openjdk-21-jdk"}
 			}
 			return []string{"java-21-openjdk-devel"}
 		},
-		// EL8 has no java-21 package; 17 is the LTS it ships. Tried only if the first list
-		// fails, so a node that has 21 gets 21.
-		Alt: func(nodeOS string, _ scTarget) []string {
-			if isDebianOS(nodeOS) {
-				return nil
+		// EL8 has no java-21 package, and Debian 12 has no openjdk-21. 17 is the LTS both
+		// ship, and it is exactly the release level the pom asks for. Tried only if the first
+		// list fails, so a node that has 21 gets 21.
+		Alt: func(os scOS, _ scTarget) []string {
+			if os.Debian() {
+				return []string{"openjdk-17-jdk"}
 			}
 			return []string{"java-17-openjdk-devel"}
 		},
@@ -139,20 +279,43 @@ var scSysPackages = map[string]scSysPkg{
 	},
 	"maven": {
 		ID: "maven", Label: "Apache Maven",
-		Check:    func(string, scTarget) string { return `command -v mvn >/dev/null` },
-		Packages: func(string, scTarget) []string { return []string{"maven"} },
+		// Whatever the distribution ships. EL8's is 3.5.4 and there is no moving it: the
+		// maven:3.8 stream exists, but its packages symlink the jars in /usr/share/maven/lib
+		// into the maven-resolver rpm from the 3.5 stream, which no module switch replaces —
+		// Maven then starts and dies on a NoSuchMethodError inside its own resolver. The
+		// generated pom pins plugins that run on 3.5 instead, which costs nothing (the release
+		// level decides the bytecode, not the plugin version) and works on every node.
+		Check:    func(scOS, scTarget) string { return `command -v mvn >/dev/null` },
+		Packages: func(scOS, scTarget) []string { return []string{"maven"} },
 		License:  "Apache-2.0", URL: "https://maven.apache.org/",
 	},
 	"openssl": {
 		ID: "openssl", Label: "OpenSSL command line",
-		Check:    func(string, scTarget) string { return `command -v openssl >/dev/null` },
-		Packages: func(string, scTarget) []string { return []string{"openssl"} },
+		Check:    func(scOS, scTarget) string { return `command -v openssl >/dev/null` },
+		Packages: func(scOS, scTarget) []string { return []string{"openssl"} },
 		License:  "Apache-2.0", URL: "https://www.openssl.org/",
 	},
 	"mysql-client": {
 		ID: "mysql-client", Label: "mysql (Percona Server client)",
-		Check:    func(string, scTarget) string { return `command -v mysql >/dev/null` },
-		Packages: func(string, scTarget) []string { return []string{"percona-server-client"} },
+		Check:    func(scOS, scTarget) string { return `command -v mysql >/dev/null` },
+		Packages: func(scOS, scTarget) []string { return []string{"percona-server-client"} },
+		// Percona had not published this repository for Debian 13 (trixie) when this was
+		// written, and apt says only "Unable to locate package". mariadb-client speaks the
+		// same wire protocol and installs the same `mysql` command, which is what the sample
+		// actually invokes.
+		Alt: func(os scOS, _ scTarget) []string {
+			if os.Debian() {
+				return []string{"mariadb-client"}
+			}
+			return nil
+		},
+		// EL8's mysql module hides percona-server-client behind modular filtering.
+		Modules: func(os scOS) scModules {
+			if os.EL(8) {
+				return scModules{Disable: []string{"mysql"}}
+			}
+			return scModules{}
+		},
 		// Same repository the ProxySQL node uses for the same binary — the series the target
 		// runs, so the client is never older than the server it is pointed at.
 		Repo:    func(t scTarget) string { return psClientProduct(psMajorOf(scMajorOr(t.Major, "8.0"))) },
@@ -162,33 +325,40 @@ var scSysPackages = map[string]scSysPkg{
 		ID: "psql-client", Label: "psql (Percona Distribution for PostgreSQL client)",
 		// On EL the client lands under /usr/pgsql-NN/bin and is not on PATH; on Debian it is.
 		// Both are accepted, and the generated script resolves it the same way.
-		Check: func(nodeOS string, t scTarget) string {
-			return `command -v psql >/dev/null || [ -x ` + scPgBinDir(nodeOS, t) + `/psql ]`
+		Check: func(os scOS, t scTarget) string {
+			return `command -v psql >/dev/null || [ -x ` + scPgBinDir(os.ID, t) + `/psql ]`
 		},
-		Packages: func(nodeOS string, t scTarget) []string {
+		Packages: func(os scOS, t scTarget) []string {
 			m := ppgMajorOf(scMajorOr(t.Major, "17"))
-			if isDebianOS(nodeOS) {
+			if os.Debian() {
 				return []string{"percona-postgresql-client-" + m}
 			}
 			return []string{"percona-postgresql" + m}
+		},
+		// Same modular filtering as the MySQL client, under EL8's postgresql module.
+		Modules: func(os scOS) scModules {
+			if os.EL(8) {
+				return scModules{Disable: []string{"postgresql"}}
+			}
+			return scModules{}
 		},
 		Repo:    func(t scTarget) string { return ppgProduct(scMajorOr(t.Major, "17")) },
 		License: "PostgreSQL", URL: "https://www.percona.com/postgresql",
 	},
 	"mongosh": {
 		ID: "mongosh", Label: "mongosh (MongoDB Shell)",
-		Check:    func(string, scTarget) string { return `command -v mongosh >/dev/null` },
-		Packages: func(string, scTarget) []string { return []string{"percona-mongodb-mongosh"} },
+		Check:    func(scOS, scTarget) string { return `command -v mongosh >/dev/null` },
+		Packages: func(scOS, scTarget) []string { return []string{"percona-mongodb-mongosh"} },
 		Repo:     func(t scTarget) string { return psmdbRepo(scMajorOr(t.Major, "8.0")) },
 		License:  "Apache-2.0", URL: "https://github.com/mongodb-js/mongosh",
 	},
 	"valkey-cli": {
 		ID: "valkey-cli", Label: "valkey-cli",
-		Check: func(string, scTarget) string { return `command -v valkey-cli >/dev/null` },
-		Packages: func(nodeOS string, _ scTarget) []string {
+		Check: func(scOS, scTarget) string { return `command -v valkey-cli >/dev/null` },
+		Packages: func(os scOS, _ scTarget) []string {
 			// Debian splits the CLI tools out of the server package; EL bundles them.
 			// Same split valkeyPackages documents for the Valkey node itself.
-			if isDebianOS(nodeOS) {
+			if os.Debian() {
 				return []string{"percona-valkey-tools"}
 			}
 			return []string{"percona-valkey"}
@@ -224,6 +394,125 @@ func scMajorOr(major, def string) string {
 }
 
 // scPgBinDir is where the Percona PostgreSQL client binaries land on this node's OS.
+// scGoUpstream and scNodeUpstream are the pinned upstream releases installed on the two
+// distributions whose own archives cannot reach the minimum. Versions and checksums were taken
+// from each project's own published index (go.dev/dl/?mode=json, nodejs.org/dist/SHASUMS256.txt).
+//
+// Go is licensed BSD-3-Clause and Node.js MIT; DBCanvas installs them here and redistributes
+// neither, exactly as it treats the libraries in scDep.
+var scGoUpstream = scTarball{
+	Name: "Go", Version: "1.27.1",
+	URL:  "https://go.dev/dl/go1.27.1.linux-%s.tar.gz",
+	Arch: map[string]string{"x86_64": "amd64", "aarch64": "arm64"},
+	SHA256: map[string]string{
+		"x86_64":  "63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445",
+		"aarch64": "3450b45a3f9ee8568792736a5c5e70a1f2e9b36c35a8f74958c03e51d7d92bec",
+	},
+	Dir: "/usr/local/go", Strip: 1, Bins: []string{"go", "gofmt"},
+	License: "BSD-3-Clause",
+}
+
+// Node 22 is an active LTS and the same major Oracle Linux 10 ships, so a sample behaves the
+// same on both rather than differing by which node it happened to run on.
+var scNodeUpstream = scTarball{
+	Name: "Node.js", Version: "22.23.2",
+	URL:  "https://nodejs.org/dist/v22.23.2/node-v22.23.2-linux-%s.tar.xz",
+	Arch: map[string]string{"x86_64": "x64", "aarch64": "arm64"},
+	SHA256: map[string]string{
+		"x86_64":  "d60acfe00a2932254bb0ad20e01b0d74397a0875595de719654b214f4b03f307",
+		"aarch64": "fff4078c5def658577f92c88db7db3bc0072924bfb93fe52c1e744a54e94abb8",
+	},
+	Dir: "/usr/local/node", Strip: 1, Bins: []string{"node", "npm", "npx"},
+	License: "MIT",
+}
+
+// scGoMinMajor/scGoMinMinor is the Go the generated projects need, which is set by the drivers
+// rather than by the samples: go-sql-driver/mysql declares `go 1.24.0` in its own go.mod, and a
+// module cannot be built by a toolchain older than the one it requires.
+const (
+	scGoMinMajor = 1
+	scGoMinMinor = 24
+)
+
+// scJavaRelease is the --release the generated pom compiles at, and so the minimum JDK.
+const scJavaRelease = "17"
+
+// scJavaCapable is a shell test for "a JDK that can compile at scJavaRelease exists here".
+//
+// It looks past $PATH deliberately. The OpenJDK RPMs register their javac through alternatives
+// at priority 1, so installing java-21 on EL8 leaves /usr/bin/javac pointing at the java-11 that
+// was already there — the JDK is present and the naive check still fails.
+const scJavaCapable = `for _j in /usr/lib/jvm/*/bin/javac; do ` +
+	`[ -x "$_j" ] && "$_j" --release ` + scJavaRelease + ` -version >/dev/null 2>&1 && exit 0; done; ` +
+	`command -v javac >/dev/null && javac --release ` + scJavaRelease + ` -version >/dev/null 2>&1`
+
+// scJavaHome is the prelude every Java step runs: it points JAVA_HOME and $PATH at the newest
+// installed JDK that can compile at scJavaRelease, which is what Maven reads to choose a
+// compiler. Without it a node with both java-11 and java-21 builds with whichever one
+// alternatives happens to favour, and on EL8 that is the one that cannot.
+const scJavaHome = `for _j in $(ls -d /usr/lib/jvm/*/bin/javac 2>/dev/null | sort -V); do
+  "$_j" --release ` + scJavaRelease + ` -version >/dev/null 2>&1 && JAVA_HOME="${_j%/bin/javac}"
+done
+if [ -n "$JAVA_HOME" ]; then export JAVA_HOME; PATH="$JAVA_HOME/bin:$PATH"; export PATH; fi
+`
+
+// scTarballEnv is the archive's description as the install script reads it. The architecture is
+// resolved on the node rather than here, because the app and the Linux Client it is installing on
+// are not always the same one — a stack on an aarch64 host runs x86_64 nodes under emulation.
+func scTarballEnv(tb *scTarball) []string {
+	var url, sum string
+	for uname, token := range tb.Arch {
+		url += uname + "=" + fmt.Sprintf(tb.URL, token) + " "
+		sum += uname + "=" + tb.SHA256[uname] + " "
+	}
+	return []string{
+		"TB_NAME=" + tb.Name, "TB_VERSION=" + tb.Version,
+		"TB_URLS=" + strings.TrimSpace(url), "TB_SHA256S=" + strings.TrimSpace(sum),
+		"TB_DIR=" + tb.Dir, "TB_STRIP=" + strconv.Itoa(tb.Strip),
+		"TB_BINS=" + strings.Join(tb.Bins, " "),
+	}
+}
+
+// scGoAtLeast is a shell test for the Go toolchain's own version. `go version` prints
+// "go version go1.22.2 linux/amd64"; the third field without its "go" prefix is what is compared,
+// numerically and field by field, so 1.9 does not read as newer than 1.24.
+func scGoAtLeast(major, minor int) string {
+	return fmt.Sprintf(`command -v go >/dev/null && go version 2>/dev/null | `+
+		`awk '{sub(/^go/,"",$3); split($3,v,"."); exit !(v[1]>%d || (v[1]==%d && v[2]>=%d))}'`,
+		major, major, minor)
+}
+
+// scDebianGoPackage is the versioned Go metapackage to ask for on a Debian or Ubuntu release
+// whose unversioned golang-go is older than the drivers need, or "" when golang-go is fine.
+//
+// The versioned packages install outside $PATH (/usr/lib/go-1.24/bin), which scGoPath puts back.
+func scDebianGoPackage(os scOS) string {
+	switch {
+	case os.Is("ubuntu", "22.04"), // golang-go is 1.18
+		os.Is("ubuntu", "24.04"): // golang-go is 1.22
+		return "golang-1.24"
+	}
+	return ""
+}
+
+// scGoPath is PATH with the versioned Go's bin directory in front, for the releases where that
+// is where the current toolchain lives. Harmless where the directory does not exist.
+func scGoPath(os scOS) string {
+	if v := scDebianGoPackage(os); v != "" {
+		return "/usr/lib/go-" + strings.TrimPrefix(v, "golang-") + "/bin:/usr/local/bin:/usr/bin:/bin"
+	}
+	return ""
+}
+
+// scPythonBin is the interpreter a virtualenv is built from. EL8's `python3` is 3.6, which is
+// below what the current driver wheels support, so 3.11 is installed and named explicitly there.
+func scPythonBin(os scOS) string {
+	if os.EL(8) {
+		return "python3.11"
+	}
+	return "python3"
+}
+
 func scPgBinDir(nodeOS string, t scTarget) string {
 	return pgBinDir(nodeOS, ppgMajorOf(scMajorOr(t.Major, "17")))
 }
@@ -305,11 +594,52 @@ if [ -n "$PROXY" ]; then export http_proxy="$PROXY" https_proxy="$PROXY" HTTP_PR
 if [ -n "$REPO" ]; then
   percona-release enable "$REPO" >/dev/null 2>&1 || percona-release setup -y "$REPO" >/dev/null 2>&1 || true
 fi
+for m in $MOD_DISABLE; do
+  echo "dnf -y module disable $m"
+  dnf -y module disable "$m" || true
+done
+for m in $MOD_ENABLE; do
+  echo "dnf -y module reset ${m%%:*} && dnf -y module enable $m"
+  dnf -y module reset "${m%%:*}" || true
+  dnf -y module enable "$m" || true
+  # Enabling a stream does not move the packages already installed from the old one, and a
+  # half-switched module is worse than either: EL8's maven:3.8 arrives with a launcher that
+  # expects guava 27 while guava20 from maven:3.5 is still what is installed, leaving
+  # /usr/share/maven/lib/guava-27.1-jre.jar a dangling symlink and every build dying on
+  # "NoClassDefFoundError: com/google/common/collect/ImmutableList". distro-sync is what
+  # Red Hat documents to reconcile the two, and it only runs when a stream actually changed.
+  echo "dnf -y distro-sync"
+  dnf -y distro-sync || true
+done
 if ! dnf -y install $PKGS; then
   [ -n "$ALT" ] || exit 1
   echo "falling back to: $ALT"
   dnf -y install $ALT
 fi`
+
+// scInstallTarball fetches one upstream release, checks it against the pinned digest, and links
+// its binaries into /usr/local/bin — which is ahead of /usr/bin in the default PATH on every base
+// image here, so nothing downstream has to know this runtime arrived differently from a package.
+//
+// The digest is checked before anything is unpacked, and a node whose architecture is not in the
+// pinned set is refused rather than silently given the wrong build.
+const scInstallTarball = `set -e
+if [ -n "$PROXY" ]; then export http_proxy="$PROXY" https_proxy="$PROXY" HTTP_PROXY="$PROXY" HTTPS_PROXY="$PROXY"; fi
+arch=$(uname -m)
+TB_URL=""; TB_SHA256=""
+for kv in $TB_URLS; do [ "${kv%%=*}" = "$arch" ] && TB_URL="${kv#*=}"; done
+for kv in $TB_SHA256S; do [ "${kv%%=*}" = "$arch" ] && TB_SHA256="${kv#*=}"; done
+[ -n "$TB_URL" ] && [ -n "$TB_SHA256" ] || { echo "no pinned $TB_NAME build for $arch"; exit 1; }
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+echo "downloading $TB_URL"
+curl -fsSL --retry 3 -o "$tmp/archive" "$TB_URL"
+echo "$TB_SHA256  $tmp/archive" | sha256sum -c -
+rm -rf "$TB_DIR"
+mkdir -p "$TB_DIR"
+tar -C "$TB_DIR" --strip-components="$TB_STRIP" -xf "$tmp/archive"
+for b in $TB_BINS; do ln -sf "$TB_DIR/bin/$b" "/usr/local/bin/$b"; done
+echo "installed $TB_NAME $TB_VERSION in $TB_DIR"`
 
 const scInstallDebian = `set -e
 export DEBIAN_FRONTEND=noninteractive
@@ -325,7 +655,7 @@ if ! apt-get install -y --no-install-recommends $PKGS; then
 fi`
 
 // scBuildPlan turns a resolved sample into the ordered work the node has to do.
-func scBuildPlan(c scClient, g scGen, nodeOS string, useProxy bool) scPlan {
+func scBuildPlan(c scClient, g scGen, os scOS, useProxy bool) scPlan {
 	plan := scPlan{Dir: g.Dir, Files: c.Files(g)}
 	proxy := ""
 	if useProxy {
@@ -345,27 +675,54 @@ func scBuildPlan(c scClient, g scGen, nodeOS string, useProxy bool) scPlan {
 		if !ok {
 			continue
 		}
-		pkgs := strings.Join(p.Packages(nodeOS, g.Target), " ")
+		pkgs := strings.Join(p.Packages(os, g.Target), " ")
 		alt := ""
 		if p.Alt != nil {
-			alt = strings.Join(p.Alt(nodeOS, g.Target), " ")
+			alt = strings.Join(p.Alt(os, g.Target), " ")
 		}
 		repo := ""
 		if p.Repo != nil {
 			repo = p.Repo(g.Target)
 		}
+		var mods scModules
+		if p.Modules != nil {
+			mods = p.Modules(os)
+		}
+		var tb *scTarball
+		if p.Tarball != nil {
+			tb = p.Tarball(os)
+		}
 		script := scInstallRHEL
 		show := "dnf -y install " + pkgs
-		if isDebianOS(nodeOS) {
+		if os.Debian() {
 			script, show = scInstallDebian, "apt-get install -y "+pkgs
+			mods = scModules{} // module streams are an EL idea
+		}
+		env := []string{"PKGS=" + pkgs, "ALT=" + alt, "REPO=" + repo, "PROXY=" + proxy,
+			"MOD_DISABLE=" + strings.Join(mods.Disable, " "),
+			"MOD_ENABLE=" + strings.Join(mods.Enable, " ")}
+		if tb != nil {
+			// The distribution has nothing new enough, so the package manager is not
+			// consulted at all — installing its too-old build first would only leave two
+			// runtimes on the node and the wrong one on PATH.
+			script = scInstallTarball
+			show = "curl -fsSL " + fmt.Sprintf(tb.URL, "$(arch)") +
+				" | sha256sum -c | tar -C " + tb.Dir + " -x   # " + tb.Name + " " + tb.Version +
+				", " + tb.License + ", checksum pinned"
+			env = append(scTarballEnv(tb), "PROXY="+proxy)
+		}
+		if len(mods.Enable) > 0 {
+			show = "dnf -y module enable " + strings.Join(mods.Enable, " ") + " && " + show
+		}
+		if len(mods.Disable) > 0 {
+			show = "dnf -y module disable " + strings.Join(mods.Disable, " ") + " && " + show
 		}
 		if repo != "" {
 			show = "percona-release enable " + repo + " && " + show
 		}
 		plan.System = append(plan.System, scStep{
 			ID: "sys:" + id, Label: p.Label, Kind: "system",
-			Check: p.Check(nodeOS, g.Target), Cmd: script, Show: show,
-			Env: []string{"PKGS=" + pkgs, "ALT=" + alt, "REPO=" + repo, "PROXY=" + proxy},
+			Check: p.Check(os, g.Target), Cmd: script, Show: show, Env: env,
 		})
 	}
 
@@ -377,16 +734,32 @@ func scBuildPlan(c scClient, g scGen, nodeOS string, useProxy bool) scPlan {
 			"HTTP_PROXY="+proxy, "HTTPS_PROXY="+proxy,
 			"no_proxy=localhost,127.0.0.1,."+envOr("DOMAIN", "example.net"))
 	}
-	plan.Deps = append(plan.Deps, scDepSteps(c, g, env)...)
+	plan.Deps = append(plan.Deps, scDepSteps(c, g, os, env)...)
 
 	// 3. Anything that has to exist beside the source before it will run. Only Java needs this,
 	//    and only for TLS: the JVM reads trust material out of a keystore, never a PEM.
 	plan.Prepare = scPrepareSteps(c, g)
 
 	// 4. The program itself.
+	runEnv := env
+	if c.Runtime == scRuntimeGo {
+		// `go run` has to find the same toolchain `go mod tidy` used, and on the releases
+		// where that is a versioned package it is not the one on the default PATH.
+		runEnv = append(append([]string{}, env...), "HOME=/root")
+		if p := scGoPath(os); p != "" {
+			runEnv = append(runEnv, "PATH="+p)
+		}
+	}
+	runCmd := c.Run(g)
+	if c.Runtime == scRuntimeJava {
+		// Classes compiled at release 17 will not load on an 11 runtime
+		// (UnsupportedClassVersionError), so the program runs under the same JDK that
+		// compiled it rather than whatever alternatives points at.
+		runCmd = scJavaHome + runCmd
+	}
 	plan.Run = scStep{
 		ID: "run", Label: "Run " + c.Label, Kind: "run",
-		Cmd: c.Run(g), Show: c.Run(g), Dir: g.Dir, Env: env,
+		Cmd: runCmd, Show: c.Run(g), Dir: g.Dir, Env: runEnv,
 	}
 	return plan
 }
@@ -395,15 +768,21 @@ func scBuildPlan(c scClient, g scGen, nodeOS string, useProxy bool) scPlan {
 // the project's node_modules, `go mod tidy` against the module cache, Maven into ~/.m2. Each one
 // is the tool the ecosystem expects a developer to use, and each one is skipped when its own check
 // says the work is already done.
-func scDepSteps(c scClient, g scGen, env []string) []scStep {
+func scDepSteps(c scClient, g scGen, os scOS, env []string) []scStep {
 	var out []scStep
 	switch c.Runtime {
 	case scRuntimePython:
+		// The interpreter is named rather than assumed: on EL8 `python3` is 3.6 and the
+		// virtualenv has to be built from the 3.11 installed beside it, or every wheel
+		// resolved into it is the last one that still supported 3.6.
+		py := scPythonBin(os)
 		out = append(out, scStep{
 			ID: "venv", Label: "Python virtualenv", Kind: "dep",
-			Check: "[ -x " + scVenv + "/bin/python ]",
-			Cmd:   "set -e\npython3 -m venv " + scVenv,
-			Show:  "python3 -m venv " + scVenv,
+			// Not just "does the virtualenv exist" — one built from the wrong interpreter has
+			// to be rebuilt, and a node upgraded from EL8's 3.6 would otherwise keep it.
+			Check: "[ -x " + scVenv + "/bin/python ] && " + scVenv + `/bin/python -c "import sys; sys.exit(sys.version_info < (3, 8))"`,
+			Cmd:   "set -e\nrm -rf " + scVenv + "\n" + py + " -m venv " + scVenv,
+			Show:  py + " -m venv " + scVenv,
 			Env:   env,
 		})
 		for _, d := range c.Deps {
@@ -459,11 +838,17 @@ func scDepSteps(c scClient, g scGen, env []string) []scStep {
 		// against a warm module cache is under a second and downloads nothing. The cache
 		// lives under $HOME/go and survives a Reset, so the second sample needing the same
 		// driver reads it from disk.
+		goEnv := append([]string{"GOTOOLCHAIN=auto", "HOME=/root"}, env...)
+		if p := scGoPath(os); p != "" {
+			// A versioned golang-1.NN package installs outside $PATH, so without this the
+			// `go` found here is still the distribution's older unversioned one.
+			goEnv = append(goEnv, "PATH="+p)
+		}
 		out = append(out, scStep{
 			ID: "gomod", Label: "Go modules", Kind: "dep",
 			Cmd:  "set -e\ngo mod tidy",
 			Show: "go mod tidy", Dir: g.Dir,
-			Env: append([]string{"GOTOOLCHAIN=auto", "HOME=/root"}, env...),
+			Env: goEnv,
 		})
 	case scRuntimeJava:
 		out = append(out, scStep{
@@ -471,7 +856,7 @@ func scDepSteps(c scClient, g scGen, env []string) []scStep {
 			// Maven's own cache is ~/.m2; target/classes is this project's compiled output and
 			// the cheapest true statement that both have happened.
 			Check: "[ -d target/classes ]",
-			Cmd:   "set -e\nmvn -B -q compile",
+			Cmd:   "set -e\n" + scJavaHome + "mvn -B -q compile",
 			Show:  "mvn -B compile", Dir: g.Dir,
 			Env: append([]string{"HOME=/root"}, env...),
 		})
@@ -512,7 +897,7 @@ func scPrepareSteps(c scClient, g scGen) []scStep {
 		out = append(out, scStep{
 			ID: "truststore", Label: "PKCS#12 truststore from the DBCanvas CA", Kind: "prepare",
 			Check: "[ -f truststore.p12 ]",
-			Cmd: "set -e\nkeytool -importcert -noprompt -alias dbcanvas -file " + g.CA +
+			Cmd: "set -e\n" + scJavaHome + "keytool -importcert -noprompt -alias dbcanvas -file " + g.CA +
 				" -keystore truststore.p12 -storetype PKCS12 -storepass " + scStorePass,
 			Show: "keytool -importcert -alias dbcanvas -file " + g.CA + " -keystore truststore.p12 -storetype PKCS12",
 			Dir:  g.Dir,

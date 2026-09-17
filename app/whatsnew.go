@@ -37,6 +37,55 @@ type releaseNote struct {
 // expanded, and the tests assume the ordering.
 var whatsNewNotes = []releaseNote{
 	{
+		Version: "0.0.8",
+		Date:    "2026-09-17",
+		Title:   "Every member of an operator's replica set, not just the one in front",
+		Body: "A MongoDB cluster an operator deployed without a router was invisible to all four " +
+			"database tools, however it was exposed. Its members are published one Service per pod " +
+			"— k3d-03-rs0-0, -1, -2 — and the name-matching that recognises an operator's Services " +
+			"had no pattern for that, so a replica set with three LoadBalancer addresses on the " +
+			"stack's own subnet contributed nothing, while a sharded cluster beside it was visible " +
+			"through its mongos. A Service is now recognised by the pod it selects rather than by " +
+			"the shape of its name, which holds for any operator and any replica set name. Every " +
+			"member is offered, not only the one that can take writes: a secondary answers reads on " +
+			"its own address exactly as the primary does, and a write sent to the wrong one is " +
+			"refused by the server in as many words. Which member is primary is not recorded, " +
+			"because it changes on failover and a cached answer would be a confident wrong one.",
+		Doc: "docs/DATABASE_EXPLORER.md",
+	},
+	{
+		Version: "0.0.8",
+		Date:    "2026-09-17",
+		Title:   "The Data Generator and the Benchmark reach operator MongoDB",
+		Body: "Both tools could see an operator's MongoDB and neither could use it. The Data " +
+			"Generator required the exec route and so offered PostgreSQL only — a limit that came " +
+			"from how its SQL engines run a client inside the pod, and never applied to its MongoDB " +
+			"backend, which dials with the driver over the stack network like every other load tool " +
+			"here. The Benchmark built its MongoDB connection from a container id, which a Service " +
+			"does not have, so every run died in preparation with \"could not resolve node address\". " +
+			"Both now take the address off the endpoint. The Query Runner, which is SQL-only and " +
+			"says so, no longer lists MongoDB endpoints it would refuse at Run.",
+		Doc: "docs/DATA_GENERATOR.md",
+	},
+	{
+		Version: "0.0.8",
+		Date:    "2026-09-17",
+		Title:   "Sample Client Code runs on every supported Linux release",
+		Body: "Twenty-three samples across seven base images is a hundred and sixty-one programs, " +
+			"and a third of them did not compile or connect. Almost all of it came from one thing: " +
+			"the environment plan knew the distribution but not the release, so Oracle Linux 8 and " +
+			"10 were handed the same package list, and every check asked whether a binary existed " +
+			"rather than whether it was new enough. EL8's module streams hid Percona's own clients " +
+			"behind modular filtering and pinned Python at 3.6 and Node at 10; Ubuntu 22.04's " +
+			"default JDK is 11 while the generated pom compiles at 17; the drivers' own go.mod files " +
+			"require Go 1.24, which is newer than Debian 12 or Ubuntu 22.04 ship. The plan now reads " +
+			"the release, and every check asks the question the build will ask — whether javac can " +
+			"target 17, whether node can parse the syntax the drivers use. Where a distribution " +
+			"cannot answer at all, the runtime comes from the project that publishes it, pinned to a " +
+			"version and a SHA-256 per architecture, with no third-party repository added to the node.",
+		Doc: "docs/SAMPLE_CODE.md",
+	},
+	{
 		Version: "0.0.7",
 		Date:    "2026-09-15",
 		Title:   "Database Explorer — a database client for the stack you already deployed",

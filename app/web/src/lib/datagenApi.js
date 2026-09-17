@@ -15,6 +15,11 @@ async function request(method, path, body) {
     try {
       data = JSON.parse(text)
     } catch {
+      // A 2xx that is not JSON means the request never reached the API — the SPA
+      // fallback served index.html for a path that matched no route. Swallowing it
+      // as null shows an empty picker and no error, which reads like an empty
+      // database rather than like a bug.
+      if (res.ok) throw new Error(`Unexpected non-JSON response from ${path}`)
       data = null
     }
   }
@@ -27,7 +32,14 @@ async function request(method, path, body) {
   return data
 }
 
-const base = (sid, nid) => `/api/datagen/stacks/${sid}/nodes/${nid}`
+// A target id is not always a bare canvas token. A database an operator deployed in a
+// Kubernetes frame is "k8s:<frame>/<service>" and an All-in-One instance is
+// "<node>#<instance>" — a slash makes extra path segments and a '#' starts a fragment
+// the server never sees, so an unencoded id silently requests something else. That
+// request then matches no route, falls through to the SPA's index.html, and arrives
+// back here as 200 with HTML in it.
+const base = (sid, nid) =>
+  `/api/datagen/stacks/${encodeURIComponent(sid)}/nodes/${encodeURIComponent(nid)}`
 
 export const datagenApi = {
   connections: () => request('GET', '/api/datagen/connections'),

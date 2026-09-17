@@ -7,6 +7,8 @@ Open it from the sidebar (**Sample Client Code**) or at `#sample-code`. A deploy
 node also has a **Sample Client Code** button in its panel and the same entry in its right-click
 menu, both of which open the page on that node.
 
+![Sample Client Code — an endpoint, a driver and an example, generated against the real deployment and run on a Linux Client](screenshots/sample-code.png)
+
 ## The problem it replaces
 
 You have a cluster running. The next question is always the same one: *how do I talk to it

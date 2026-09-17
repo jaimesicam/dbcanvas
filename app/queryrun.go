@@ -271,7 +271,17 @@ func (a *App) handleQueryRunTargets(w http.ResponseWriter, r *http.Request) {
 	// Service — see k8sqrtarget.go.
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
-	writeJSON(w, http.StatusOK, append(a.listSQLTargets(u), a.listK8sSQLTargets(ctx, u)...))
+	out := a.listSQLTargets(u)
+	for _, t := range a.listK8sSQLTargets(ctx, u) {
+		// listK8sSQLTargets is shared with the Benchmark, which does dial MongoDB.
+		// This tool does not, and refuses one at Run — so offering it here would put
+		// a target in the picker whose only possible outcome is that refusal.
+		if t.Engine == "mongodb" {
+			continue
+		}
+		out = append(out, t)
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 type qrRunRequest struct {

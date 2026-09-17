@@ -300,19 +300,33 @@ func TestSampleCodeJDBCAndHikari(t *testing.T) {
 // The one rule that keeps a sample portable: a sample names packages, and only the resolver knows
 // what a package manager is.
 func TestSampleCodeInstallsPerDistribution(t *testing.T) {
-	cases := []struct{ os, want, notWant string }{
-		{"oraclelinux", "dnf -y install", "apt-get"},
-		{"ubuntu", "apt-get install -y", "dnf"},
-		{"debian", "apt-get install -y", "dnf"},
+	cases := []struct {
+		os            scOS
+		want, notWant string
+	}{
+		{scOS{"oraclelinux", "9"}, "dnf -y install", "apt-get"},
+		{scOS{"ubuntu", "24.04"}, "apt-get install -y", "dnf"},
+		{scOS{"debian", "12"}, "apt-get install -y", "dnf"},
 	}
 	for _, c := range scClients {
 		g := scNewGen(scSampleID(c.Database, c.Language, c.ID, "crud"), c, scScenarios[5], scTestTarget(c.Database), "oraclelinux", "")
 		for _, tc := range cases {
 			plan := scBuildPlan(c, g, tc.os, false)
 			if len(plan.System) == 0 {
-				t.Errorf("%s/%s on %s: nothing to install, not even a runtime", c.Database, c.ID, tc.os)
+				t.Errorf("%s/%s on %s: nothing to install, not even a runtime", c.Database, c.ID, tc.os.ID)
 			}
 			for _, s := range plan.System {
+				// The documented exception: a release whose archive has no build new enough
+				// installs that one runtime from the project that publishes it. It is still
+				// not a package manager of its own — no repository is added to the node — so
+				// the rule below holds for everything else in the plan.
+				if strings.Contains(s.Show, "curl -fsSL") {
+					if !strings.Contains(s.Show, "checksum pinned") {
+						t.Errorf("%s/%s on %s: step %q downloads without a pinned checksum",
+							c.Database, c.ID, tc.os, s.Label)
+					}
+					continue
+				}
 				if !strings.Contains(s.Show, tc.want) {
 					t.Errorf("%s/%s on %s: step %q does not use %q", c.Database, c.ID, tc.os, s.Label, tc.want)
 				}
@@ -333,7 +347,7 @@ func TestSampleCodeInstallsPerDistribution(t *testing.T) {
 func TestSampleCodeEveryStepIsCheckedExceptTheRun(t *testing.T) {
 	for _, c := range scClients {
 		g := scNewGen(scSampleID(c.Database, c.Language, c.ID, "crud"), c, scScenarios[5], scTestTarget(c.Database), "ubuntu", "alice")
-		plan := scBuildPlan(c, g, "ubuntu", false)
+		plan := scBuildPlan(c, g, scOS{"ubuntu", "24.04"}, false)
 		for _, s := range append(append(append([]scStep{}, plan.System...), plan.Deps...), plan.Prepare...) {
 			// The Go module resolve is the documented exception: DBCanvas rewrites go.mod
 			// on every save, so no check can survive it — and `go mod tidy` against a warm
@@ -359,7 +373,7 @@ func TestSampleCodeEveryStepIsCheckedExceptTheRun(t *testing.T) {
 func TestSampleCodePlanCarriesTheProxy(t *testing.T) {
 	c, _ := scFindClient(scMySQL, "python", "mysql-connector")
 	g := scNewGen("mysql/python/mysql-connector/crud", c, scScenarios[5], scTestTarget(scMySQL), "oraclelinux", "")
-	plan := scBuildPlan(c, g, "oraclelinux", true)
+	plan := scBuildPlan(c, g, scOS{"oraclelinux", "9"}, true)
 	var sawSystem, sawDep bool
 	for _, s := range plan.System {
 		for _, e := range s.Env {
@@ -489,7 +503,7 @@ func TestSampleCodeTLSSyntaxIsPerDriver(t *testing.T) {
 		// The CA reaches the client either directly, as a path in the generated code, or —
 		// on the JVM, which will not read a PEM — through the truststore the prepare step
 		// builds from exactly that path. Both count; neither being true does not.
-		plan := scBuildPlan(c, g, "oraclelinux", false)
+		plan := scBuildPlan(c, g, scOS{"oraclelinux", "9"}, false)
 		viaPrepare := false
 		for _, s := range plan.Prepare {
 			if strings.Contains(s.Cmd, scCAPath("oraclelinux")) {
@@ -508,7 +522,7 @@ func TestSampleCodeJavaTrustMaterial(t *testing.T) {
 	mysql, _ := scFindClient(scMySQL, "java", "jdbc")
 	g := scNewGen("mysql/java/jdbc/crud", mysql, scScenarios[5],
 		scApplyTLSChoice(scTestTarget(scMySQL), scTLSVerify, "oraclelinux"), "oraclelinux", "")
-	plan := scBuildPlan(mysql, g, "oraclelinux", false)
+	plan := scBuildPlan(mysql, g, scOS{"oraclelinux", "9"}, false)
 	if len(plan.Prepare) != 1 || !strings.Contains(plan.Prepare[0].Show, "keytool") {
 		t.Errorf("Connector/J with verify should build a truststore, got %+v", plan.Prepare)
 	}
@@ -516,14 +530,14 @@ func TestSampleCodeJavaTrustMaterial(t *testing.T) {
 	pg, _ := scFindClient(scPostgres, "java", "jdbc")
 	gp := scNewGen("postgres/java/jdbc/crud", pg, scScenarios[5],
 		scApplyTLSChoice(scTestTarget(scPostgres), scTLSVerify, "oraclelinux"), "oraclelinux", "")
-	if steps := scBuildPlan(pg, gp, "oraclelinux", false).Prepare; len(steps) != 0 {
+	if steps := scBuildPlan(pg, gp, scOS{"oraclelinux", "9"}, false).Prepare; len(steps) != 0 {
 		t.Errorf("pgJDBC reads a PEM CA directly and needs no keystore, got %+v", steps)
 	}
 
 	// Mutual TLS is the case where pgJDBC does need a conversion: it will not read a PEM key.
 	gpm := scNewGen("postgres/java/jdbc/crud", pg, scScenarios[5],
 		scApplyTLSChoice(scTestTarget(scPostgres), scTLSVerify, "oraclelinux"), "oraclelinux", "alice")
-	steps := scBuildPlan(pg, gpm, "oraclelinux", false).Prepare
+	steps := scBuildPlan(pg, gpm, scOS{"oraclelinux", "9"}, false).Prepare
 	if len(steps) != 1 || !strings.Contains(steps[0].Show, "pkcs8") {
 		t.Errorf("pgJDBC with a client certificate should convert the key to PKCS#8 DER, got %+v", steps)
 	}
@@ -695,5 +709,167 @@ func TestSampleCodeCatalogueSerialisesForThePage(t *testing.T) {
 	}
 	if tls, _ := tgt["tls"].(map[string]any); tls["mode"] == nil || tls["why"] == nil {
 		t.Errorf("the TLS posture does not serialise its mode and its reason: %v", tgt["tls"])
+	}
+}
+
+// scPlanStep is the installed step for one package id, for the assertions below.
+func scPlanStep(t *testing.T, os scOS, database, clientID, pkgID string) scStep {
+	t.Helper()
+	for _, c := range scClients {
+		if c.Database != database || c.Language+"/"+c.ID != clientID {
+			continue
+		}
+		g := scNewGen(scSampleID(c.Database, c.Language, c.ID, "connect"), c, scScenarios[0],
+			scTestTarget(c.Database), os.ID, "")
+		for _, s := range scBuildPlan(c, g, os, false).System {
+			if s.ID == "sys:"+pkgID {
+				return s
+			}
+		}
+		t.Fatalf("%s/%s on %s %s: no %s step in the plan", database, clientID, os.ID, os.Version, pkgID)
+	}
+	t.Fatalf("no such client %s/%s", database, clientID)
+	return scStep{}
+}
+
+// A release is not a family. Every case here was a real failure on a real node before the plan
+// could tell EL8 from EL10, or Ubuntu 22.04 from 24.04.
+func TestSampleCodePlansForTheReleaseNotJustTheFamily(t *testing.T) {
+	el8 := scOS{"oraclelinux", "8"}
+	el9 := scOS{"oraclelinux", "9"}
+
+	// EL8's python3 is 3.6, and a current driver wheel will not import on it.
+	if s := scPlanStep(t, el8, scMySQL, "python/pymysql", "python3"); !strings.Contains(s.Show, "python3.11") {
+		t.Errorf("EL8 python: %q, want python3.11", s.Show)
+	}
+	if s := scPlanStep(t, el9, scMySQL, "python/pymysql", "python3"); strings.Contains(s.Show, "python3.11") {
+		t.Errorf("EL9 python should be the distribution's own python3, got %q", s.Show)
+	}
+
+	// EL8 defaults to nodejs:10, which cannot parse optional chaining — so the drivers install
+	// cleanly and then fail at require time.
+	if s := scPlanStep(t, el8, scMySQL, "node/mysql2", "nodejs"); !strings.Contains(s.Show, "module enable nodejs:20") {
+		t.Errorf("EL8 node: %q, want the nodejs:20 stream", s.Show)
+	}
+	if s := scPlanStep(t, el9, scMySQL, "node/mysql2", "nodejs"); strings.Contains(s.Show, "module enable") {
+		t.Errorf("EL9 needs no module switch, got %q", s.Show)
+	}
+
+	// EL8's mysql/postgresql module streams hide Percona's client packages entirely.
+	if s := scPlanStep(t, el8, scMySQL, "shell/mysql", "mysql-client"); !strings.Contains(s.Show, "module disable mysql") {
+		t.Errorf("EL8 mysql client: %q, want the mysql module disabled", s.Show)
+	}
+	if s := scPlanStep(t, el8, scPostgres, "shell/psql", "psql-client"); !strings.Contains(s.Show, "module disable postgresql") {
+		t.Errorf("EL8 psql client: %q, want the postgresql module disabled", s.Show)
+	}
+	if s := scPlanStep(t, el9, scMySQL, "shell/mysql", "mysql-client"); strings.Contains(s.Show, "module disable") {
+		t.Errorf("EL9 has no modular filtering to work around, got %q", s.Show)
+	}
+
+	// Ubuntu 22.04's golang-go is 1.18 and its default-jdk is 11 — both below what the drivers
+	// and the generated pom need, and both fixable from the distribution's own archive.
+	u22 := scOS{"ubuntu", "22.04"}
+	if s := scPlanStep(t, u22, scMySQL, "go/database-sql", "golang"); !strings.Contains(s.Show, "golang-1.24") {
+		t.Errorf("Ubuntu 22.04 Go: %q, want the versioned golang-1.24", s.Show)
+	}
+	if s := scPlanStep(t, u22, scMySQL, "java/jdbc", "jdk"); !strings.Contains(s.Show, "openjdk-21-jdk") {
+		t.Errorf("Ubuntu 22.04 JDK: %q, want a JDK that can compile --release 17", s.Show)
+	}
+
+	// Debian 13 had no Percona MySQL client repository; mariadb-client provides the same
+	// `mysql` command the sample actually runs.
+	d13 := scOS{"debian", "13"}
+	if s := scPlanStep(t, d13, scMySQL, "shell/mysql", "mysql-client"); !strings.Contains(s.Env[1], "mariadb-client") {
+		t.Errorf("Debian 13 mysql client has no fallback: %v", s.Env)
+	}
+}
+
+// The checks have to ask the question the build will ask, not an easier one.
+func TestSampleCodeChecksAssertVersionsNotJustPresence(t *testing.T) {
+	os := scOS{"ubuntu", "22.04"}
+	if s := scPlanStep(t, os, scMySQL, "java/jdbc", "jdk"); !strings.Contains(s.Check, "--release "+scJavaRelease) {
+		// `command -v javac` passes on the JDK 11 Ubuntu 22.04 installs by default, and the
+		// build then dies with "release version 17 not supported".
+		t.Errorf("jdk check is %q, want it to ask javac for the release the pom compiles at", s.Check)
+	}
+	if s := scPlanStep(t, os, scMySQL, "go/database-sql", "golang"); !strings.Contains(s.Check, "go version") {
+		t.Errorf("golang check is %q, want it to compare the toolchain version", s.Check)
+	}
+	if s := scPlanStep(t, os, scMySQL, "node/mysql2", "nodejs"); !strings.Contains(s.Check, "?.") {
+		t.Errorf("nodejs check is %q, want it to parse the syntax the drivers use", s.Check)
+	}
+}
+
+// The generated pom has to build with the oldest Maven any supported node ships, because on EL8
+// that is the only Maven there is — its maven:3.8 stream installs a launcher that cannot start.
+func TestSampleCodePomBuildsWithTheOldestShippedMaven(t *testing.T) {
+	for _, c := range scClients {
+		if c.Runtime != scRuntimeJava {
+			continue
+		}
+		g := scNewGen(scSampleID(c.Database, c.Language, c.ID, "connect"), c, scScenarios[0],
+			scTestTarget(c.Database), "oraclelinux", "")
+		var pom string
+		for _, f := range c.Files(g) {
+			if strings.HasSuffix(f.Name, "pom.xml") {
+				pom = f.Body
+			}
+		}
+		if pom == "" {
+			t.Errorf("%s/%s: no pom.xml", c.Database, c.ID)
+			continue
+		}
+		// 3.14.1 requires Maven 3.6.3 and fails the build on EL8 with
+		// "requires Maven version 3.6.3"; 3.8.1 is the newest that still runs on 3.5.
+		if strings.Contains(pom, "<version>3.14.1</version>") {
+			t.Errorf("%s/%s: pins a maven-compiler-plugin that EL8's Maven cannot run", c.Database, c.ID)
+		}
+		if !strings.Contains(pom, "maven-compiler-plugin") || !strings.Contains(pom, "exec-maven-plugin") {
+			t.Errorf("%s/%s: pom lost a plugin", c.Database, c.ID)
+		}
+	}
+}
+
+// The two releases that cannot be served from their own archive, and the terms on which they are
+// served from upstream instead: pinned version, pinned digest per architecture, no repository.
+func TestSampleCodeUpstreamRuntimesArePinnedAndVerified(t *testing.T) {
+	for _, tc := range []struct {
+		os   scOS
+		pkg  string
+		want scTarball
+	}{
+		{scOS{"ubuntu", "22.04"}, "nodejs", scNodeUpstream}, // jammy has Node 12 and nothing else
+		{scOS{"debian", "12"}, "golang", scGoUpstream},      // bookworm has Go 1.19, backports included
+	} {
+		p := scSysPackages[tc.pkg]
+		tb := p.Tarball(tc.os)
+		if tb == nil {
+			t.Fatalf("%s %s: %s has no upstream fallback", tc.os.ID, tc.os.Version, tc.pkg)
+		}
+		if tb.Version == "" || len(tb.Arch) == 0 {
+			t.Errorf("%s: version or architectures unpinned", tc.pkg)
+		}
+		for uname := range tb.Arch {
+			if len(tb.SHA256[uname]) != 64 {
+				t.Errorf("%s: no SHA-256 pinned for %s — the download would be unverifiable", tc.pkg, uname)
+			}
+		}
+		if !strings.HasPrefix(tb.URL, "https://") {
+			t.Errorf("%s: %q is not an https upstream", tc.pkg, tb.URL)
+		}
+		if tb.License == "" {
+			t.Errorf("%s: no licence recorded, which scDep requires of every other third party", tc.pkg)
+		}
+	}
+
+	// And nowhere else: every other release is served by its own distribution.
+	for _, os := range []scOS{{"oraclelinux", "8"}, {"oraclelinux", "9"}, {"oraclelinux", "10"},
+		{"ubuntu", "24.04"}, {"debian", "13"}} {
+		for _, id := range []string{"nodejs", "golang"} {
+			if tb := scSysPackages[id].Tarball(os); tb != nil {
+				t.Errorf("%s %s: %s would be downloaded although the distribution ships one",
+					os.ID, os.Version, id)
+			}
+		}
 	}
 }

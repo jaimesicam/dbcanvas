@@ -73,9 +73,16 @@ func (a *App) mongoClientFor(ctx context.Context, c dbConn) (*mongo.Client, func
 	if err := a.joinStackForDial(ctx, eng, netName); err != nil {
 		return nil, nil, fmt.Errorf("join stack network: %v", err)
 	}
-	ip, err := eng.ContainerIP(ctx, c.ContainerID, netName)
-	if err != nil || ip == "" {
-		return nil, nil, fmt.Errorf("could not resolve node address on the stack network")
+	// A Kubernetes endpoint carries its own address and has no container to resolve
+	// one from. Joining the stack network above is still what makes it reachable:
+	// MetalLB's pool is carved out of that same subnet.
+	ip := c.Addr
+	if ip == "" {
+		var err error
+		ip, err = eng.ContainerIP(ctx, c.ContainerID, netName)
+		if err != nil || ip == "" {
+			return nil, nil, fmt.Errorf("could not resolve node address on the stack network")
+		}
 	}
 	// An All-in-One instance never listens on 27017, so the port travels with the
 	// connection; 0 means a classic node and its default.

@@ -7,6 +7,8 @@ results as tables, documents or charts.
 
 Open it from the sidebar (**Database Explorer**) or at `#database-explorer`.
 
+![The Database Explorer — every database on the canvas in one tree, with an editor and results beside it](screenshots/database-explorer.png)
+
 The thing that makes it different from a database client you would install is that you
 never tell it anything. It already knows: DBCanvas provisioned every node on your
 canvas, so it holds the address, the port, the account and the password, and it reaches

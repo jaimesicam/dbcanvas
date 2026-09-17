@@ -414,3 +414,200 @@ func TestK8sDataGenOffersOnlyTheEndpointThatTakesWrites(t *testing.T) {
 		t.Errorf("a stack with no clusters should contribute nothing, got %v", got)
 	}
 }
+
+// ---------------------------------------------------------------- MongoDB members
+//
+// Both fixtures below are the Service lists of live PSMDB clusters, captured the same
+// way the PostgreSQL one was. They are the pair that exposed the bug: a sharded
+// cluster was visible through its mongos while a plain replica set beside it was
+// invisible to every tool, because its members are published one Service per pod and
+// nothing in k8sTiers matches "<cluster>-rs0-0".
+
+func TestK8sOffersEveryMemberOfAnExposedReplicaSet(t *testing.T) {
+	svcs := loadSvcFixture(t, "k8s-svc-psmdb-replicaset.json")
+	cfg := k3dConfig{Operator: "psmdb", ClusterName: "k3d-03", Namespace: "psmdb"}
+
+	got := map[string]k8sEndpoint{}
+	for _, s := range svcs {
+		if e, ok := k8sClassifyService(s, cfg); ok {
+			got[s.Metadata.Name] = e
+		}
+	}
+
+	// A replica set with no router in front of it is still a set of databases. Before
+	// per-pod Services were recognised this cluster classified to nothing at all, so
+	// it reached neither the Explorer, the Query Runner, the Benchmark nor the
+	// Data Generator.
+	if len(got) == 0 {
+		t.Fatal("an exposed replica set contributed no endpoints at all")
+	}
+
+	// Each member is published on its own address, and every one of them is offered:
+	// a secondary answers reads there exactly as the primary does.
+	for _, want := range []struct {
+		svc, label, addr string
+	}{
+		{"k3d-03-rs0-0", "rs0-0", "172.20.255.246"},
+		{"k3d-03-rs0-1", "rs0-1", "172.20.255.247"},
+		{"k3d-03-rs0-2", "rs0-2", "172.20.255.248"},
+	} {
+		e, ok := got[want.svc]
+		if !ok {
+			t.Errorf("%s was not recognised; classified: %v", want.svc, keysOf(got))
+			continue
+		}
+		if e.Engine != dexMongoDB || e.Port != 27017 {
+			t.Errorf("%s: engine=%q port=%d", want.svc, e.Engine, e.Port)
+		}
+		if e.Label != want.label {
+			// The cluster's name is already on the label the caller builds, so a
+			// member carries only what distinguishes it from its siblings.
+			t.Errorf("%s: label=%q, want %q", want.svc, e.Label, want.label)
+		}
+		if e.Kind != "member" || e.Role != "member" {
+			t.Errorf("%s: kind=%q role=%q, want member/member", want.svc, e.Kind, e.Role)
+		}
+		if e.Preferred {
+			// Which member is primary moves on failover and this listing is cached,
+			// so nothing here may claim to be the one to use.
+			t.Errorf("%s is marked preferred, but no member is known to be primary", want.svc)
+		}
+		if e.credKey() != "admin" {
+			t.Errorf("%s: credKey=%q, want admin", want.svc, e.credKey())
+		}
+		addr, port, why := k8sAddressOf(svcOf(t, svcs, want.svc), e.Port, "")
+		if addr != want.addr || port != 27017 {
+			t.Errorf("%s: addr=%q:%d why=%q, want %s:27017", want.svc, addr, port, why, want.addr)
+		}
+	}
+
+	// The headless Service publishes pod DNS and has no address of its own; it is not
+	// a fourth endpoint.
+	if e, ok := got["k3d-03-rs0"]; ok {
+		t.Errorf("the headless Service was offered as an endpoint: %+v", e)
+	}
+}
+
+func TestK8sShardedClusterIsStillEnteredThroughMongos(t *testing.T) {
+	svcs := loadSvcFixture(t, "k8s-svc-psmdb-sharded.json")
+	cfg := k3dConfig{Operator: "psmdb", ClusterName: "k3d-04", Namespace: "psmdb"}
+
+	got := map[string]k8sEndpoint{}
+	for _, s := range svcs {
+		if e, ok := k8sClassifyService(s, cfg); ok {
+			got[s.Metadata.Name] = e
+		}
+	}
+
+	mongos, ok := got["k3d-04-mongos"]
+	if !ok {
+		t.Fatalf("the router was not recognised; classified: %v", keysOf(got))
+	}
+	if !mongos.Preferred || mongos.Kind != "mongos" {
+		t.Errorf("mongos: kind=%q preferred=%v — the router is the way into a sharded cluster",
+			mongos.Kind, mongos.Preferred)
+	}
+	if addr, _, _ := k8sAddressOf(svcOf(t, svcs, "k3d-04-mongos"), mongos.Port, ""); addr != "172.20.255.238" {
+		t.Errorf("mongos addr=%q, want 172.20.255.238", addr)
+	}
+
+	// This cluster's shard members are ClusterIP, so they are recognised but have no
+	// address — the difference between "not a database" and "a database with no way
+	// in" is what lets the Explorer offer to expose one.
+	shard, ok := got["k3d-04-rs0-0"]
+	if !ok {
+		t.Fatalf("a ClusterIP shard member was not recognised; classified: %v", keysOf(got))
+	}
+	if shard.Reachable() {
+		t.Errorf("a ClusterIP member reported an address: %+v", shard)
+	}
+	if len(shard.Selector) == 0 {
+		t.Error("a member with no selector cannot be given a companion Service (k8sexpose.go)")
+	}
+	_, _, why := k8sAddressOf(svcOf(t, svcs, "k3d-04-rs0-0"), shard.Port, "")
+	if !strings.Contains(why, "ClusterIP") {
+		t.Errorf("the absence of an address is unexplained: %q", why)
+	}
+
+	for _, headless := range []string{"k3d-04-rs0", "k3d-04-cfg"} {
+		if e, ok := got[headless]; ok {
+			t.Errorf("headless %s was offered as an endpoint: %+v", headless, e)
+		}
+	}
+}
+
+// svcOf returns one Service from a fixture by name.
+func svcOf(t *testing.T, svcs []k8sTargetSvc, name string) k8sTargetSvc {
+	t.Helper()
+	for _, s := range svcs {
+		if s.Metadata.Name == name {
+			return s
+		}
+	}
+	t.Fatalf("fixture has no Service %q", name)
+	return k8sTargetSvc{}
+}
+
+func TestK8sDataGenTakesTheRouteEachEngineActuallyUses(t *testing.T) {
+	// The generator's SQL engines run a client in the pod; its MongoDB backend dials
+	// with the driver over the stack network. So "can it be filled?" is a different
+	// question per engine, and answering it with one rule for all three is what kept
+	// a reachable mongos out of the picker.
+	pod := func(e k8sEndpoint) k8sEndpoint { e.Pod, e.ServerID = "p-0", "srv"; return e }
+	net := func(e k8sEndpoint) k8sEndpoint { e.Addr, e.Port = "172.20.255.246", 27017; return e }
+
+	for _, tc := range []struct {
+		name string
+		ep   k8sEndpoint
+		want bool
+	}{
+		{"postgres primary in a pod", pod(k8sEndpoint{Engine: dexPostgres, Kind: "primary", Role: "primary"}), true},
+		{"postgres primary with no pod", k8sEndpoint{Engine: dexPostgres, Kind: "primary", Role: "primary"}, false},
+		{"postgres replica", pod(k8sEndpoint{Engine: dexPostgres, Kind: "replica", Role: "replica"}), false},
+		{"pgbouncer knows only the app roles", pod(k8sEndpoint{Engine: dexPostgres, Kind: "pgbouncer-app", Role: "primary"}), false},
+		// MYSQL_PWD cannot cross kubectl exec, and the alternative is the password on
+		// a command line inside the pod.
+		{"mysql, however it is reached", net(pod(k8sEndpoint{Engine: dexMySQL, Kind: "haproxy", Role: "primary"})), false},
+
+		{"mongos with an address", net(k8sEndpoint{Engine: dexMongoDB, Kind: "mongos", Role: "router"}), true},
+		{"a replica set member with an address", net(k8sEndpoint{Engine: dexMongoDB, Kind: "member", Role: "member"}), true},
+		// Reachable is the whole requirement for MongoDB: a pod it cannot dial is no
+		// use, because there is no mongosh invocation to fall back to.
+		{"a ClusterIP member", pod(k8sEndpoint{Engine: dexMongoDB, Kind: "member", Role: "member"}), false},
+		{"a config server holds no application data", net(k8sEndpoint{Engine: dexMongoDB, Kind: "config", Role: "config"}), false},
+	} {
+		if got := k8sDataGenUsable(tc.ep); got != tc.want {
+			t.Errorf("%s: usable=%v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestK8sBenchmarkDialsTheServiceNotAContainer(t *testing.T) {
+	// A Kubernetes target has no container of its own, so a connection built from
+	// run.nodeContainerID resolves nothing and the run dies in preparation with
+	// "could not resolve node address on the stack network". The address has to come
+	// off the endpoint, the way the SQL engines already take it.
+	app := newTestApp(t)
+	cfg := benchConfig{StackID: 7, Database: "probe", Workload: "crud"}
+
+	run := newBenchRun(app, 1, cfg, "mongodb", "", "k3d-03 · rs0-0", "databaseAdmin", "pw")
+	dt := k8sEndpoint{Engine: dexMongoDB, Addr: "172.20.255.246", Port: 27017,
+		User: "databaseAdmin", Pass: "pw"}.dialTarget()
+	run.k8s = &dt
+
+	c := run.mongoConn()
+	if c.Addr != "172.20.255.246" || c.Port != 27017 {
+		t.Errorf("addr=%q port=%d, want 172.20.255.246:27017", c.Addr, c.Port)
+	}
+	if c.Super != "databaseAdmin" || c.Password != "pw" {
+		t.Errorf("credentials did not reach the connection: user=%q", c.Super)
+	}
+
+	// A node on the canvas still resolves its address from its container, and must
+	// not be handed a bare address it would dial instead.
+	node := newBenchRun(app, 1, cfg, "mongodb", "abc123", "mongo-1", "admin", "pw")
+	if got := node.mongoConn(); got.Addr != "" || got.ContainerID != "abc123" {
+		t.Errorf("a canvas node should dial through its container, got addr=%q container=%q",
+			got.Addr, got.ContainerID)
+	}
+}

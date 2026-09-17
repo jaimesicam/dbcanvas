@@ -162,6 +162,10 @@ func (a *App) scBuild(ctx context.Context, st Stack, dep Deployment, req scReque
 	var cfg linuxClientConfig
 	json.Unmarshal(dep.Config, &cfg)
 	nodeOS := cfg.OS
+	// The release, not just the family. It is read from the design rather than the deployment
+	// config because that is where it has always been recorded, so a node deployed before this
+	// mattered still answers — and an empty answer only costs the version-specific cases.
+	osInfo := scOS{ID: nodeOS, Version: scNodeOSVersion(st, dep.NodeID)}
 
 	target, err := a.scFindTarget(st, req.Target, nodeOS)
 	if err != nil {
@@ -179,7 +183,7 @@ func (a *App) scBuild(ctx context.Context, st Stack, dep Deployment, req scReque
 	}
 
 	g := scNewGen(req.Sample, c, scenario, target, nodeOS, req.ClientCert)
-	return c, g, scBuildPlan(c, g, nodeOS, cfg.UseProxy), nil
+	return c, g, scBuildPlan(c, g, osInfo, cfg.UseProxy), nil
 }
 
 // scExplain is the short paragraph under the picker: what this example does, and what DBCanvas
@@ -687,4 +691,14 @@ func (a *App) scWriteProject(ctx context.Context, st Stack, dep Deployment, job 
 		job.add("ok", "wrote "+plan.Dir+"/"+f.name+" (client certificate for "+clientCertUser+")")
 	}
 	return nil
+}
+
+// scNodeOSVersion is the release of the Linux Client this sample runs on, from the design.
+func scNodeOSVersion(st Stack, nodeID string) string {
+	for _, n := range buildDoc(st).Nodes {
+		if n.ID == nodeID {
+			return n.OSVersion
+		}
+	}
+	return ""
 }
