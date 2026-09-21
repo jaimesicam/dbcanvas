@@ -2,8 +2,9 @@ package main
 
 // ftdc_charts_test.go — the charts and the capture header added after the anatomy pass.
 //
-// The fixture is 374 seconds of a real Percona Server for MongoDB 8.0.28-12 replica-set
-// PRIMARY under load: two chunks lifted out of a 5,218-sample capture, keeping the type-0
+// The fixture is 254 seconds of a real Percona Server for MongoDB 8.0.28-12 replica-set
+// PRIMARY under load (re-captured for §40x): three chunks lifted from a live "psmrs" member
+// driven hard enough to genuinely queue on its execution tickets, keeping the type-0
 // metadata document with them. It is the smallest thing that exercises all five of the new
 // charts, because every one of them needs something the standalone fixture next door does
 // not have — a replica set, 8.0's queues.execution counters, opWorkingTime, netstat, and
@@ -15,7 +16,7 @@ import (
 	"testing"
 )
 
-const ftdcRSFixture = "testdata/ftdc-rs/metrics.2026-08-18T14-48-51Z-00000"
+const ftdcRSFixture = "testdata/ftdc-rs/metrics.2026-09-21T16-57-14Z-00000"
 
 func ftdcLoadRS(t *testing.T) *fdModel {
 	t.Helper()

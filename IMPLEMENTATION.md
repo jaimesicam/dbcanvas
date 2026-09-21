@@ -25294,8 +25294,94 @@ every one of them now in the FTDC/sharded-MongoDB, K8s-operator, or `cluster-dum
 the plan has not yet reached. All Valkey stacks (`vk1-corpus`, `vk2-nocover`, `vk3-standalone`, the
 disposable 4-node chain) and `repl-corpus` destroyed after capture; designs kept.
 
+## 408. Rebuilding the missing test corpus, phase 7: FTDC and sharded MongoDB — `app/testdata/{ftdc,ftdc-rs,diagnostic.data}/`, `app/testdata/logsummary/{m07-rollback-mongo60,m08-rollback-mongo70,m09-sharded-mongo60,m10-sharded-mongo70,m11-sharded-mongo80}/` (new), `app/ftdcupload_test.go`, `app/ftdc_charts_test.go`
+
+Seventh installment of the §401 corpus rebuild, and the biggest single phase so far: three exact
+PSMDB patch versions (6.0.29-23, 7.0.39-21, 8.0.28-12), each as both a plain 3-node replica set and
+a 13-node sharded cluster (3 shards of 3 plus 3 config servers plus a mongos), run concurrently.
+72 failing test functions remain, down from 105.
+
+### Getting real FTDC out of a mongod meant getting past its own auth first
+
+Every `psmrs`/`psmdb` node comes up with `security.authorization: enabled` and a keyFile, and the
+admin password is generated per-deploy and nowhere in an export (`templateSecretKeys` redacts it
+by design). Rather than guess it, each replica set's password was reset the same way every time:
+drop `security.authorization` and the `keyFile` line from `mongod.conf` on every member, restart
+all three together, `db.getSiblingDB('admin').updateUser('admin', {pwd:...})` on whichever came up
+PRIMARY, then restore both lines and restart again. For a sharded cluster only the three CONFIG
+SERVERS need this — mongos and every shard verify against the same admin identity through the
+config replica set, which is also why `sh.addShard` and `sh.shardCollection` only ever needed the
+mongos connection, never a shard's own credentials. (One node's `/nodes/{id}/restart` response
+body did leak the real generated password afterwards — `admin_password`, a fixed default — which
+would have saved most of this had it been checked first.)
+
+### Every replica-set-only rule needs the member that changed roles, not the one that never did
+
+The default `ftdcFixture` (`metrics.rs-mongo03`) has to build charts that only make sense for a
+role a member actually held during the window: `oplogApply` needs a secondary genuinely applying
+someone else's oplog, `quorum`'s crit branch needs availability that measurably fell below a
+majority, `writeConcern` needs a real `w:"majority"` write recorded in
+`serverStatus.metrics.getLastError.wtime`. The member that stayed primary throughout a stopped-two-
+of-three drill has none of these — it never applied anyone's oplog and its own view of "quorum"
+never dipped below majority once *it* was the one left standing. The fix used throughout this phase
+was to capture from whichever member got stopped and brought back: it show a real secondary
+catch-up (`STARTUP2` → `RECOVERING` → `SECONDARY` → later `PRIMARY`), and separately, isolating that
+same member ALONE (stopping the other two) produces a real span where its own `queues.execution`/
+health view genuinely has 1 of 3 available against a needed 2 — the same real single-node isolation
+trick used for Valkey in §407, applied here to get a chart's crit branch honestly rather than
+asserted from a guess.
+
+### The one metric that needed real ticket contention, not just real traffic
+
+`admission` (`serverStatus.queues.execution.{read,write}.normalPriority.totalTimeQueuedMicros`)
+stayed at zero under a single writer, and even under four concurrent ones, and 8.0's ticket pool
+resizes itself dynamically so a fixed `storageEngineConcurrentWriteTransactions` override is
+refused outright ("Cannot modify concurrent write transactions limit when it is being dynamically
+adjusted"). It only produced real queueing under 25 concurrent `mongosh` sessions each doing
+individual `insertOne`s against the same collection — `addedToQueue: 65, totalTimeQueuedMicros:
+489771` confirmed before the capture was taken. `indexBuild` (`serverStatus.indexBulkBuilder`)
+needed the equivalent for memory rather than time: a `createIndex` against a freshly-loaded
+~50,000-document collection with a padded string field, not the small one the general workload
+script indexes at low document counts.
+
+### The sharded topology: two provisioning gaps only the live containers revealed
+
+The `psmdb` compose kind's 13-node "standard" shape stalled mid-provision for the 7.0.39-21 cluster
+specifically — twice, across a full stack destroy and redeploy — stuck at "Installing Percona
+Server for MongoDB", 40%, with the mongos package installed but no `mongos.conf`, no systemd unit,
+and both non-config-server-1 shards (`rs1`, `rs2`) never `rs.initiate()`d at all. Diagnosed by
+comparing this node's `progress` field (via `dbcanvas api GET .../nodes/{id}`) against a healthy
+sibling cluster's, and worked around entirely by hand: `mongos.conf` and the `mongos.service` unit
+written from the working clusters' copies, `rs.initiate()` on the two uninitialized shards (using
+the container's own Docker IP first, then `rs.reconfig({..., force:true})` once an admin user
+existed to swap in the proper `psmdb-sN-rN.example.net` hostnames DNS already resolved), and
+`sh.addShard()` for all three run once mongos was finally up. Everything downstream — the sharded
+workload, the shard-down drill, the config-changelog capture — is real once this was done; only the
+provisioning glue was reconstructed rather than captured.
+
+### mongo-no-primary needs a baseline, and a sharded bundle can cross-contaminate it
+
+`lsFindingMongoNoPrimary` tracks "was somebody primary" as a single flag across every source in the
+bundle by hostname, which is exactly right for a plain replica-set bundle and exactly wrong for a
+sharded one loaded as three files at once: with a config-server member's own election landing in
+the same window as a shard's real outage, the config's "became primary" mark closed the gap before
+it could be measured, because the code has no notion of which replica SET a mark belongs to — only
+"is anyone, anywhere, primary right now". Fixed two ways, both real: config members' own `21358`
+state-transition lines are excluded from the fixture (they add nothing the changelog doesn't
+already show), and each shard member's log needed its **first ever** "Became PRIMARY" transition
+included alongside the incident window — without an established "someone was primary" baseline
+before the outage, the gap-detection algorithm has nothing to compare against and reports no gap at
+all, which is what a same-day trim of "just the incident window" produced the first three times
+this was tried.
+
 ### Verified
 
-`cd app && go build ./... && go vet ./... && go test ./...`: 127 failing test functions remain (all
-in the other still-missing families, plus the one PG gap above). Both stacks destroyed after
-capture; designs kept.
+`cd app && go build ./... && go vet ./... && go test ./...`: 72 failing test functions remain, down
+from 105 — every one of the FTDC and sharded-MongoDB families is now real and passing, along with
+the m07/m08 rollback pair rebuilt for 6.0 and 7.0 alongside them (a real network partition via `tc`
+u32 filters — isolate the primary from its two peers only, write with `w:1` while isolated, let the
+other two elect, heal the partition, `pkill -9` a member for good measure — reproduced the same
+finding set on the first real capture, no retries needed). What remains is entirely the K8s-operator
+log scenarios and the four `cluster-dump*.tar.gz` archives. All seven PSMDB stacks (three replica
+sets, three sharded clusters, plus the standalone "psmrs"-named one for the `ftdc-rs` fixture)
+destroyed after capture; designs kept.

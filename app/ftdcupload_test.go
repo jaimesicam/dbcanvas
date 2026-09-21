@@ -129,7 +129,10 @@ func TestFTDCUploadOneMetricsFile(t *testing.T) {
 // next should know this case exists before deciding the parser is at fault.
 func TestFTDCUploadYoungNumberedFileHasNoSamples(t *testing.T) {
 	app, cookie := ftdcAuthed(t)
-	const young = "metrics.2026-08-16T05-21-36Z-00000"
+	// Real name from a re-capture (§40x): a PSMDB 8.0.28-12 member's diagnostic.data
+	// directory, its numbered file caught mid-flight at the exact moment it held only the
+	// metadata document — one poll before the first flush landed.
+	const young = "metrics.2026-09-21T16-31-07Z-00000"
 	rec := ftdcPost(t, app, cookie, ftdcTestDir, []string{young})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("want 400 for a numbered file written before the first flush, got %d: %s", rec.Code, rec.Body.String())
