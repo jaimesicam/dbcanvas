@@ -1,0 +1,437 @@
+2026-09-21T12:05:06Z UTC - mysqld got signal 11 ;
+Most likely, you have hit a bug, but this error can also be caused by malfunctioning hardware.
+BuildID[sha1]=b16be44a0ecd47f98e367748845406df83127735
+Server Version: 8.0.46-38.1 Percona XtraDB Cluster (GPL), Release rel38, Revision 947005d, WSREP version 26.1.4.3, wsrep_26.1.4.3
+
+Thread pointer: 0x0
+Attempting backtrace. You can use the following information to find out
+where mysqld died. If you see no messages after this, something went
+terribly wrong...
+stack_bottom = 0 thread_stack 0x100000
+ #0 0x799a013c5c5f <unknown>
+ #1 0x799a0148961f <unknown>
+ #2 0xe1a564 <unknown>
+ #3 0xbb702f <unknown>
+ #4 0x799a013b060f <unknown>
+ #5 0x799a013b06bf <unknown>
+ #6 0x9d0bb4 <unknown>
+ #7 0xffffffffffffffff <unknown>
+You may download the Percona XtraDB Cluster operations manual by visiting
+https://www.percona.com/mysql/software/percona-xtradb-cluster/. You may find information
+in the manual which will help you identify the cause of the crash.
+Log of wsrep recovery (--wsrep-recover):
+ INFO: WSREP: Running position recovery with --log_error='/var/lib/mysql/wsrep_recovery_verbose.oHsgTH' --pid-file='/var/lib/mysql/-recover.pid'
+ INFO: WSREP: Recovered position 05b12755-b5b1-11f1-8fa0-4a0371720019:6929
+2026-09-21T12:05:06.000000Z 0 [System] [MY-013951] [Server] 2026-09-21T12:05:06Z UTC - mysqld got signal 11 ;
+2026-09-21T12:05:06.000001Z 0 [System] [MY-013951] [Server] Most likely, you have hit a bug, but this error can also be caused by malfunctioning hardware.
+2026-09-21T12:05:06.000002Z 0 [System] [MY-013951] [Server] BuildID[sha1]=b16be44a0ecd47f98e367748845406df83127735
+2026-09-21T12:05:06.000003Z 0 [System] [MY-013951] [Server] Server Version: 8.0.46-38.1 Percona XtraDB Cluster (GPL), Release rel38, Revision 947005d, WSREP version 26.1.4.3, wsrep_26.1.4.3
+2026-09-21T12:05:06.000004Z 0 [System] [MY-013951] [Server] Thread pointer: 0x0
+2026-09-21T12:05:06.000005Z 0 [System] [MY-013951] [Server] Attempting backtrace. You can use the following information to find out
+2026-09-21T12:05:06.000006Z 0 [System] [MY-013951] [Server] where mysqld died. If you see no messages after this, something went
+2026-09-21T12:05:06.000007Z 0 [System] [MY-013951] [Server] terribly wrong...
+2026-09-21T12:05:06.000008Z 0 [System] [MY-013951] [Server] stack_bottom = 0 thread_stack 0x100000
+2026-09-21T12:05:06.000009Z 0 [System] [MY-013951] [Server]  #0 0x799a013c5c5f <unknown>
+2026-09-21T12:05:06.000010Z 0 [System] [MY-013951] [Server]  #1 0x799a0148961f <unknown>
+2026-09-21T12:05:06.000011Z 0 [System] [MY-013951] [Server]  #2 0xe1a564 <unknown>
+2026-09-21T12:05:06.000012Z 0 [System] [MY-013951] [Server]  #3 0xbb702f <unknown>
+2026-09-21T12:05:06.000013Z 0 [System] [MY-013951] [Server]  #4 0x799a013b060f <unknown>
+2026-09-21T12:05:06.000014Z 0 [System] [MY-013951] [Server]  #5 0x799a013b06bf <unknown>
+2026-09-21T12:05:06.000015Z 0 [System] [MY-013951] [Server]  #6 0x9d0bb4 <unknown>
+2026-09-21T12:05:06.000016Z 0 [System] [MY-013951] [Server]  #7 0xffffffffffffffff <unknown>
+2026-09-21T12:05:06.000017Z 0 [System] [MY-013951] [Server] You may download the Percona XtraDB Cluster operations manual by visiting
+2026-09-21T12:05:06.000018Z 0 [System] [MY-013951] [Server] https://www.percona.com/mysql/software/percona-xtradb-cluster/. You may find information
+2026-09-21T12:05:06.000019Z 0 [System] [MY-013951] [Server] in the manual which will help you identify the cause of the crash.
+2026-09-21T12:05:06.000020Z 0 [System] [MY-013951] [Server] Log of wsrep recovery (--wsrep-recover):
+2026-09-21T12:05:06.000021Z 0 [System] [MY-013951] [Server]  INFO: WSREP: Running position recovery with --log_error='/var/lib/mysql/wsrep_recovery_verbose.oHsgTH' --pid-file='/var/lib/mysql/-recover.pid'
+2026-09-21T12:05:06.000022Z 0 [System] [MY-013951] [Server]  INFO: WSREP: Recovered position 05b12755-b5b1-11f1-8fa0-4a0371720019:6929
+2026-09-21T12:05:39.538277Z 0 [Warning] [MY-011070] [Server] 'binlog_format' is deprecated and will be removed in a future release.
+2026-09-21T12:05:39.539289Z 0 [Warning] [MY-010097] [Server] Insecure configuration for --secure-log-path: Current value does not restrict location of generated files. Consider setting it to a valid, non-empty path.
+2026-09-21T12:05:39.539616Z 0 [System] [MY-010116] [Server] /usr/sbin/mysqld (mysqld 8.0.46-38.1) starting as process 10372
+2026-09-21T12:05:39.541005Z 0 [System] [MY-013951] [Server] A backtrace was processed and added to the main error-log in the appropriate format.
+2026-09-21T12:05:39.541114Z 0 [Note] [MY-000000] [Galera] Loading provider /usr/lib64/galera4/libgalera_smm.so initial position: 05b12755-b5b1-11f1-8fa0-4a0371720019:6929
+2026-09-21T12:05:39.541123Z 0 [Note] [MY-000000] [Galera] wsrep_load(): loading provider library '/usr/lib64/galera4/libgalera_smm.so'
+2026-09-21T12:05:39.541424Z 0 [Note] [MY-000000] [Galera] wsrep_load(): Galera 4.27(a6b54d8) by Codership Oy <info@codership.com> (modified by Percona <https://percona.com/>) loaded successfully.
+2026-09-21T12:05:39.541431Z 0 [Note] [MY-000000] [Galera] Resolved symbol 'wsrep_node_isolation_mode_set_v1'
+2026-09-21T12:05:39.541434Z 0 [Note] [MY-000000] [Galera] Resolved symbol 'wsrep_certify_v1'
+2026-09-21T12:05:39.541449Z 0 [Note] [MY-000000] [Galera] CRC-32C: using 64-bit x86 acceleration.
+2026-09-21T12:05:39.541562Z 0 [Note] [MY-000000] [Galera] Found saved state: 05b12755-b5b1-11f1-8fa0-4a0371720019:-1, safe_to_bootstrap: 0
+2026-09-21T12:05:39.541610Z 0 [Note] [MY-000000] [Galera] GCache DEBUG: opened preamble:
+Version: 2
+UUID: 05b12755-b5b1-11f1-8fa0-4a0371720019
+Seqno: -1 - -1
+Offset: -1
+Synced: 0
+EncVersion: 1
+Encrypted: 0
+MasterKeyConst UUID: 0b8a7777-b5b1-11f1-ad06-5ff259a83853
+MasterKey UUID: 00000000-0000-0000-0000-000000000000
+MasterKey ID: 0
+2026-09-21T12:05:39.541614Z 0 [Note] [MY-000000] [Galera] Recovering GCache ring buffer: version: 2, UUID: 05b12755-b5b1-11f1-8fa0-4a0371720019, offset: -1
+2026-09-21T12:05:39.541651Z 0 [Note] [MY-000000] [Galera] GCache::RingBuffer initial scan... 0.0% (0/134217752 bytes) complete.
+2026-09-21T12:05:39.576567Z 0 [Note] [MY-000000] [Galera] GCache::RingBuffer initial scan... 100.0% (134217752/134217752 bytes) complete.
+2026-09-21T12:05:39.576661Z 0 [Note] [MY-000000] [Galera] Recovering GCache ring buffer: found gapless sequence 2-6929
+2026-09-21T12:05:39.576690Z 0 [Note] [MY-000000] [Galera] GCache::RingBuffer unused buffers scan... 0.0% (0/43775592 bytes) complete.
+2026-09-21T12:05:39.576794Z 0 [Note] [MY-000000] [Galera] GCache::RingBuffer unused buffers scan... 100.0% (43775592/43775592 bytes) complete.
+2026-09-21T12:05:39.576798Z 0 [Note] [MY-000000] [Galera] Recovering GCache ring buffer: found 15/6943 locked buffers
+2026-09-21T12:05:39.576801Z 0 [Note] [MY-000000] [Galera] Recovering GCache ring buffer: free space: 90445232/134217728
+2026-09-21T12:05:39.579880Z 0 [Note] [MY-000000] [Galera] Passing config to GCS: allocator.disk_pages_encryption = no; allocator.encryption_cache_page_size = 32K; allocator.encryption_cache_size = 16777216; base_dir = /var/lib/mysql/; base_host = pxc-2.example.net; base_port = 4567; cert.log_conflicts = no; cert.optimistic_pa = no; debug = no; evs.auto_evict = 0; evs.causal_keepalive_period = PT1S; evs.debug_log_mask = 0x1; evs.delay_margin = PT1S; evs.delayed_keep_period = PT30S; evs.inactive_check_period = PT0.5S; evs.inactive_timeout = PT15S; evs.info_log_mask = 0; evs.join_retrans_period = PT1S; evs.keepalive_period = PT1S; evs.max_install_timeouts = 3; evs.send_window = 10; evs.stats_report_period = PT1M; evs.suspect_timeout = PT5S; evs.use_aggregate = true; evs.user_send_window = 4; evs.version = 1; evs.view_forget_timeout = PT24H; gcache.dir = /var/lib/mysql/; gcache.encryption = no; gcache.encryption_cache_page_size = 32K; gcache.encryption_cache_size = 16777216; gcache.freeze_purge_at_seqno = -1; gcache.keep_pages_count = 0; gcache.keep_pages_size = 0; gcache.mem_size = 0; gcache.name = galera.cache; gcache.page_size = 128M; gcache.recover = yes; gcache.size = 128M; gcomm.thread_prio = ; gcs.check_appl_proto = 1; gcs.fc_auto_evict_threshold = 0.75; gcs.fc_auto_evict_window = 0; gcs.fc_debug = 0; gcs.fc_factor = 1.0; gcs.fc_limit = 100; gcs.fc_master_slave = no; gcs.fc_single_primary = no; gcs.max_packet_size = 64500; gcs.max_throttle = 0.25; gcs.recv_q_hard_limit = 9223372036854775807; gcs.recv_q_soft_limit = 0.25; gcs.sync_donor = no; gmcast.mcast_ttl = 1; gmcast.peer_timeout = PT3S; gmcast.segment = 0; gmcast.time_wait = PT5S; gmcast.version = 0; pc.announce_timeout = PT3S; pc.checksum = false; pc.ignore_quorum = false; pc.ignore_sb = false; pc.linger = PT20S; pc.npvo = false; pc.recovery = true; pc.version = 0; pc.wait_prim = true; pc.wait_prim_timeout = PT30S; pc.wait_restored_prim_timeout = PT0S; pc.weight = 1; protonet.backend = asio; protonet.version = 0; repl.causal_read_timeout = PT30S; repl.commit_order = 3; repl.key_format = FLAT8; repl.max_ws_size = 2147483647; repl.proto_max = 11; socket.checksum = 2; socket.recv_buf_size = auto; socket.send_buf_size = auto; 
+2026-09-21T12:05:39.592193Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:39.592259Z 0 [Note] [MY-000000] [Galera] ####### Assign initial position for certification: 05b12755-b5b1-11f1-8fa0-4a0371720019:6929, protocol version: -1
+2026-09-21T12:05:39.592300Z 0 [Note] [MY-000000] [WSREP] Starting replication
+2026-09-21T12:05:39.592307Z 0 [Note] [MY-000000] [Galera] Connecting with bootstrap option: 0
+2026-09-21T12:05:39.592311Z 0 [Note] [MY-000000] [Galera] Setting GCS initial position to 05b12755-b5b1-11f1-8fa0-4a0371720019:6929
+2026-09-21T12:05:39.592343Z 0 [Note] [MY-000000] [Galera] protonet asio version 0
+2026-09-21T12:05:39.592364Z 0 [Note] [MY-000000] [Galera] Using CRC-32C for message checksums.
+2026-09-21T12:05:39.592369Z 0 [Note] [MY-000000] [Galera] backend: asio
+2026-09-21T12:05:39.592441Z 0 [Note] [MY-000000] [Galera] gcomm thread scheduling priority set to other:0 
+2026-09-21T12:05:39.592594Z 0 [Note] [MY-000000] [Galera] Restoring primary-component from disk successful
+2026-09-21T12:05:39.602775Z 0 [Note] [MY-000000] [Galera] GMCast version 0
+2026-09-21T12:05:39.603704Z 0 [Note] [MY-000000] [Galera] (0b8c435c-9e4b, 'tcp://0.0.0.0:4567') listening at tcp://0.0.0.0:4567
+2026-09-21T12:05:39.603717Z 0 [Note] [MY-000000] [Galera] (0b8c435c-9e4b, 'tcp://0.0.0.0:4567') multicast: , ttl: 1
+2026-09-21T12:05:39.603838Z 0 [Note] [MY-000000] [Galera] EVS version 1
+2026-09-21T12:05:39.603872Z 0 [Note] [MY-000000] [Galera] gcomm: connecting to group 'pxc-cluster-01', peer 'pxc-1.example.net:,pxc-2.example.net:,pxc-3.example.net:'
+2026-09-21T12:05:39.603887Z 0 [Note] [MY-000000] [Galera] pc.wait_restored_prim_timeout is set to 0. The server will wait indefinitely to reach PC. If this is undesirable, consider setting pc.wait_restored_prim_timeout.
+2026-09-21T12:05:39.604339Z 0 [Note] [MY-000000] [Galera] (0b8c435c-9e4b, 'tcp://0.0.0.0:4567') Found matching local endpoint for a connection, blacklisting address tcp://172.22.0.3:4567
+2026-09-21T12:05:39.604482Z 0 [Note] [MY-000000] [Galera] (0b8c435c-9e4b, 'tcp://0.0.0.0:4567') connection established to 05b04892-a96b tcp://172.22.0.4:4567
+2026-09-21T12:05:39.604595Z 0 [Note] [MY-000000] [Galera] (0b8c435c-9e4b, 'tcp://0.0.0.0:4567') connection established to 92eda7b2-afb5 tcp://172.22.0.5:4567
+2026-09-21T12:05:40.104786Z 0 [Note] [MY-000000] [Galera] EVS version upgrade 0 -> 1
+2026-09-21T12:05:40.104819Z 0 [Note] [MY-000000] [Galera] declaring 05b04892-a96b at tcp://172.22.0.4:4567 stable
+2026-09-21T12:05:40.104822Z 0 [Note] [MY-000000] [Galera] declaring 92eda7b2-afb5 at tcp://172.22.0.5:4567 stable
+2026-09-21T12:05:40.104829Z 0 [Note] [MY-000000] [Galera] PC protocol upgrade 0 -> 1
+2026-09-21T12:05:40.104933Z 0 [Note] [MY-000000] [Galera] Node 05b04892-a96b state primary
+2026-09-21T12:05:40.105118Z 0 [Note] [MY-000000] [Galera] Current view of cluster as seen by this node
+view (view_id(PRIM,05b04892-a96b,33)
+memb {
+	05b04892-a96b,0
+	0b8c435c-9e4b,0
+	92eda7b2-afb5,0
+	}
+joined {
+	}
+left {
+	}
+partitioned {
+	}
+)
+2026-09-21T12:05:40.105127Z 0 [Note] [MY-000000] [Galera] Save the discovered primary-component to disk
+2026-09-21T12:05:40.110887Z 0 [Note] [MY-000000] [Galera] clear restored view
+2026-09-21T12:05:40.604275Z 0 [Note] [MY-000000] [Galera] gcomm: connected
+2026-09-21T12:05:40.604373Z 0 [Note] [MY-000000] [Galera] Changing maximum packet size to 64500, resulting msg size: 32636
+2026-09-21T12:05:40.604477Z 0 [Note] [MY-000000] [Galera] Shifting CLOSED -> OPEN (TO: 0)
+2026-09-21T12:05:40.604484Z 0 [Note] [MY-000000] [Galera] Opened channel 'pxc-cluster-01'
+2026-09-21T12:05:40.604545Z 0 [Note] [MY-000000] [Galera] New COMPONENT: primary = yes, bootstrap = no, my_idx = 1, memb_num = 3
+2026-09-21T12:05:40.604562Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: Waiting for state UUID.
+2026-09-21T12:05:40.604589Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: sent state msg: c355b092-b5b4-11f1-b534-9ba78ea412dd
+2026-09-21T12:05:40.604597Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: c355b092-b5b4-11f1-b534-9ba78ea412dd from 0 (pxc-1)
+2026-09-21T12:05:40.604616Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: c355b092-b5b4-11f1-b534-9ba78ea412dd from 2 (pxc-3)
+2026-09-21T12:05:40.604694Z 1 [Note] [MY-000000] [WSREP] Starting rollbacker thread 1
+2026-09-21T12:05:40.604787Z 2 [Note] [MY-000000] [WSREP] Starting applier thread 2
+2026-09-21T12:05:40.604902Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: c355b092-b5b4-11f1-b534-9ba78ea412dd from 1 (pxc-2)
+2026-09-21T12:05:40.604917Z 0 [Note] [MY-000000] [Galera] Quorum results:
+	version    = 6,
+	component  = PRIMARY,
+	conf_id    = 32,
+	members    = 2/3 (primary/total),
+	act_id     = 6930,
+	last_appl. = 6848,
+	protocols  = 6/11/4 (gcs/repl/appl),
+	vote policy= 0,
+	group UUID = 05b12755-b5b1-11f1-8fa0-4a0371720019
+2026-09-21T12:05:40.604955Z 0 [Note] [MY-000000] [Galera] Flow-control interval: [173, 173]
+2026-09-21T12:05:40.604957Z 0 [Note] [MY-000000] [Galera] Shifting OPEN -> PRIMARY (TO: 6931)
+2026-09-21T12:05:40.605050Z 2 [Note] [MY-000000] [Galera] ####### processing CC 6931, local, ordered
+2026-09-21T12:05:40.605068Z 2 [Note] [MY-000000] [Galera] Maybe drain monitors from 6929 upto current CC event 6931 upto:6929
+2026-09-21T12:05:40.605072Z 2 [Note] [MY-000000] [Galera] Drain monitors from 6929 up to 6929
+2026-09-21T12:05:40.605076Z 2 [Note] [MY-000000] [Galera] Process first view: 05b12755-b5b1-11f1-8fa0-4a0371720019 my uuid: 0b8c435c-b5b1-11f1-9e4b-5f6447038d6e
+2026-09-21T12:05:40.605085Z 2 [Note] [MY-000000] [Galera] Server pxc-2 connected to cluster at position 05b12755-b5b1-11f1-8fa0-4a0371720019:6931 with ID 0b8c435c-b5b1-11f1-9e4b-5f6447038d6e
+2026-09-21T12:05:40.605090Z 2 [Note] [MY-000000] [WSREP] Server status change disconnected -> connected
+2026-09-21T12:05:40.605101Z 2 [Note] [MY-000000] [WSREP] wsrep_notify_cmd is not defined, skipping notification.
+2026-09-21T12:05:40.605130Z 2 [Note] [MY-000000] [Galera] ####### My UUID: 0b8c435c-b5b1-11f1-9e4b-5f6447038d6e
+2026-09-21T12:05:40.605136Z 2 [Note] [MY-000000] [Galera] Cert index reset to 00000000-0000-0000-0000-000000000000:-1 (proto: 11), state transfer needed: yes
+2026-09-21T12:05:40.605189Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:40.605222Z 2 [Note] [MY-000000] [Galera] ####### Assign initial position for certification: 00000000-0000-0000-0000-000000000000:-1, protocol version: -1
+2026-09-21T12:05:40.605236Z 2 [Note] [MY-000000] [Galera] State transfer required: 
+	Group state: 05b12755-b5b1-11f1-8fa0-4a0371720019:6931
+	Local state: 05b12755-b5b1-11f1-8fa0-4a0371720019:6929
+2026-09-21T12:05:40.605240Z 2 [Note] [MY-000000] [WSREP] Server status change connected -> joiner
+2026-09-21T12:05:40.605243Z 2 [Note] [MY-000000] [WSREP] wsrep_notify_cmd is not defined, skipping notification.
+2026-09-21T12:05:40.605382Z 0 [Note] [MY-000000] [WSREP] Initiating SST/IST transfer on JOINER side (wsrep_sst_xtrabackup-v2 --role 'joiner' --address 'pxc-2.example.net' --datadir '/var/lib/mysql/' --basedir '/usr/' --plugindir '/usr/lib64/mysql/plugin/' --defaults-file '/etc/my.cnf' --defaults-group-suffix '' --parent '10372' --mysqld-version '8.0.46-38.1'  --binlog 'binlog' )
+2026-09-21T12:05:41.019885Z 2 [Note] [MY-000000] [WSREP] Prepared SST request: xtrabackup-v2|pxc-2.example.net:4444/xtrabackup_sst//1
+2026-09-21T12:05:41.019928Z 2 [Note] [MY-000000] [Galera] Check if state gap can be serviced using IST
+2026-09-21T12:05:41.019937Z 2 [Note] [MY-000000] [Galera] ####### IST uuid:05b12755-b5b1-11f1-8fa0-4a0371720019 f: 6930, l: 6931, STRv: 3
+2026-09-21T12:05:41.019974Z 2 [Note] [MY-000000] [Galera] IST receiver addr using tcp://pxc-2.example.net:4568
+2026-09-21T12:05:41.020481Z 2 [Note] [MY-000000] [Galera] Prepared IST receiver for 6930-6931, listening at: tcp://172.22.0.3:4568, waiting for connection to: tcp://pxc-2.example.net:4568
+2026-09-21T12:05:41.026342Z 0 [Note] [MY-000000] [Galera] Member 1.0 (pxc-2) requested state transfer from '*any*'. Selected 2.0 (pxc-3)(SYNCED) as donor.
+2026-09-21T12:05:41.026362Z 0 [Note] [MY-000000] [Galera] Shifting PRIMARY -> JOINER (TO: 6931)
+2026-09-21T12:05:41.026395Z 2 [Note] [MY-000000] [Galera] Requesting state transfer: success, donor: 2
+2026-09-21T12:05:41.804164Z 0 [Note] [MY-000000] [WSREP-SST] xtrabackup_ist received from donor: Running IST
+2026-09-21T12:05:41.804197Z 0 [Note] [MY-000000] [WSREP-SST] Running post-processing...........
+2026-09-21T12:05:41.806068Z 0 [Note] [MY-000000] [WSREP-SST] Skipping mysql_upgrade (ist)
+2026-09-21T12:05:41.806156Z 0 [Note] [MY-000000] [WSREP-SST] ...........post-processing done
+2026-09-21T12:05:41.807056Z 0 [Note] [MY-000000] [WSREP-SST] Galera co-ords from recovery: 05b12755-b5b1-11f1-8fa0-4a0371720019:6929
+2026-09-21T12:05:41.811866Z 3 [Note] [MY-000000] [Galera] Processing SST received
+2026-09-21T12:05:41.811898Z 3 [Note] [MY-000000] [WSREP] Server status change joiner -> initializing
+2026-09-21T12:05:41.811906Z 3 [Note] [MY-000000] [WSREP] wsrep_notify_cmd is not defined, skipping notification.
+2026-09-21T12:05:41.816624Z 4 [System] [MY-013576] [InnoDB] InnoDB initialization has started.
+2026-09-21T12:05:42.231222Z 4 [System] [MY-013577] [InnoDB] InnoDB initialization has ended.
+2026-09-21T12:05:42.280619Z 0 [Note] [MY-000000] [Galera] 2.0 (pxc-3): State transfer to 1.0 (pxc-2) complete.
+2026-09-21T12:05:42.280954Z 0 [Note] [MY-000000] [Galera] Member 2.0 (pxc-3) synced with group.
+2026-09-21T12:05:42.315088Z 4 [Note] [MY-000000] [WSREP] wsrep_init_schema_and_SR (nil)
+2026-09-21T12:05:42.356471Z 4 [System] [MY-000000] [WSREP] PXC upgrade completed successfully
+2026-09-21T12:05:42.600176Z 0 [Warning] [MY-010068] [Server] CA certificate ca.pem is self signed.
+2026-09-21T12:05:42.600206Z 0 [System] [MY-013602] [Server] Channel mysql_main configured to support TLS. Encrypted connections are now supported for this channel.
+2026-09-21T12:05:42.624005Z 0 [Note] [MY-000000] [WSREP] Initialized wsrep sidno 2
+2026-09-21T12:05:42.624032Z 0 [Note] [MY-000000] [Galera] Server initialized
+2026-09-21T12:05:42.624037Z 0 [Note] [MY-000000] [WSREP] Server status change initializing -> initialized
+2026-09-21T12:05:42.624044Z 0 [Note] [MY-000000] [WSREP] wsrep_notify_cmd is not defined, skipping notification.
+2026-09-21T12:05:42.624148Z 3 [Note] [MY-000000] [Galera] Recovered position from storage: 05b12755-b5b1-11f1-8fa0-4a0371720019:6929
+2026-09-21T12:05:42.625182Z 0 [System] [MY-011323] [Server] X Plugin ready for connections. Bind-address: '::' port: 33060, socket: /var/lib/mysql/mysqlx.sock
+2026-09-21T12:05:42.625251Z 0 [System] [MY-010931] [Server] /usr/sbin/mysqld: ready for connections. Version: '8.0.46-38.1'  socket: '/var/lib/mysql/mysql.sock'  port: 3306  Percona XtraDB Cluster (GPL), Release rel38, Revision 947005d, WSREP version 26.1.4.3.
+2026-09-21T12:05:42.625301Z 3 [Note] [MY-000000] [Galera] Recovered view from SST:
+  id: 05b12755-b5b1-11f1-8fa0-4a0371720019:6929
+  status: primary
+  protocol_version: 4
+  capabilities: MULTI-MASTER, CERTIFICATION, PARALLEL_APPLYING, REPLAY, ISOLATION, PAUSE, CAUSAL_READ, INCREMENTAL_WS, UNORDERED, PREORDERED, STREAMING, NBO
+  final: no
+  own_index: -1
+  members(3):
+	0: 05b04892-b5b1-11f1-a96b-8aa549a99b9b, pxc-1
+	1: 0b8c435c-b5b1-11f1-9e4a-5f6447038d6e, pxc-2
+	2: 92eda7b2-b5b4-11f1-afb5-3f5c406eeb62, pxc-3
+
+2026-09-21T12:05:42.625314Z 3 [Note] [MY-000000] [WSREP] wsrep_notify_cmd is not defined, skipping notification.
+2026-09-21T12:05:42.625385Z 12 [Note] [MY-000000] [WSREP] Recovered cluster id 05b12755-b5b1-11f1-8fa0-4a0371720019
+2026-09-21T12:05:42.636300Z 3 [Note] [MY-000000] [Galera] SST received: 05b12755-b5b1-11f1-8fa0-4a0371720019:6929
+2026-09-21T12:05:42.636342Z 3 [System] [MY-000000] [WSREP] SST completed
+2026-09-21T12:05:42.636365Z 2 [Note] [MY-000000] [Galera]  str_proto_ver_: 3 sst_seqno_: 6929 cc_seqno: 6931 req->ist_len(): 76
+2026-09-21T12:05:42.636386Z 2 [Note] [MY-000000] [Galera] Installed new state from SST: 05b12755-b5b1-11f1-8fa0-4a0371720019:6929
+2026-09-21T12:05:42.641566Z 2 [Note] [MY-000000] [Galera] Receiving IST: 2 writesets, seqnos 6930-6931
+2026-09-21T12:05:42.641627Z 0 [Note] [MY-000000] [Galera] ####### IST applying starts with 6930
+2026-09-21T12:05:42.641724Z 0 [Note] [MY-000000] [Galera] ####### IST current seqno initialized to 6849
+2026-09-21T12:05:42.641752Z 0 [Note] [MY-000000] [Galera] Receiving IST... 0.0% (0/83 events) complete.
+2026-09-21T12:05:42.641757Z 0 [Note] [MY-000000] [Galera] IST preload starting at 6849
+2026-09-21T12:05:42.641790Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:42.641827Z 0 [Note] [MY-000000] [Galera] ####### Assign initial position for certification: 00000000-0000-0000-0000-000000000000:6848, protocol version: 6
+2026-09-21T12:05:42.642127Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 6907, must_apply: 0, preload: true
+2026-09-21T12:05:42.642149Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-09-21T12:05:42.642153Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 6906 -> 6907
+2026-09-21T12:05:42.642185Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:42.642223Z 0 [Note] [MY-000000] [Galera] Recording CC from preload: 6907
+2026-09-21T12:05:42.642229Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from preload: 6849
+2026-09-21T12:05:42.642232Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from preload: 2
+2026-09-21T12:05:42.642249Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 6908, must_apply: 0, preload: true
+2026-09-21T12:05:42.642257Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-09-21T12:05:42.642261Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 6907 -> 6908
+2026-09-21T12:05:42.642283Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:42.642308Z 0 [Note] [MY-000000] [Galera] Recording CC from preload: 6908
+2026-09-21T12:05:42.642313Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from preload: 6849
+2026-09-21T12:05:42.642316Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from preload: 2
+2026-09-21T12:05:42.642330Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 6909, must_apply: 0, preload: true
+2026-09-21T12:05:42.642340Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-09-21T12:05:42.642344Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 6908 -> 6909
+2026-09-21T12:05:42.642361Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:42.642387Z 0 [Note] [MY-000000] [Galera] Recording CC from preload: 6909
+2026-09-21T12:05:42.642400Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from preload: 6849
+2026-09-21T12:05:42.642403Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from preload: 2
+2026-09-21T12:05:42.642422Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 6910, must_apply: 0, preload: true
+2026-09-21T12:05:42.642432Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-09-21T12:05:42.642435Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 6909 -> 6910
+2026-09-21T12:05:42.642462Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:42.642484Z 0 [Note] [MY-000000] [Galera] Recording CC from preload: 6910
+2026-09-21T12:05:42.642489Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from preload: 6849
+2026-09-21T12:05:42.642492Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from preload: 2
+2026-09-21T12:05:42.642514Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 6911, must_apply: 0, preload: true
+2026-09-21T12:05:42.642523Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-09-21T12:05:42.642527Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 6910 -> 6911
+2026-09-21T12:05:42.642573Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:42.642613Z 0 [Note] [MY-000000] [Galera] Recording CC from preload: 6911
+2026-09-21T12:05:42.642625Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from preload: 6849
+2026-09-21T12:05:42.642630Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from preload: 2
+2026-09-21T12:05:42.642661Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 6912, must_apply: 0, preload: true
+2026-09-21T12:05:42.642673Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-09-21T12:05:42.642676Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 6911 -> 6912
+2026-09-21T12:05:42.642698Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:42.642721Z 0 [Note] [MY-000000] [Galera] Recording CC from preload: 6912
+2026-09-21T12:05:42.642730Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from preload: 6849
+2026-09-21T12:05:42.642734Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from preload: 2
+2026-09-21T12:05:42.642750Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 6913, must_apply: 0, preload: true
+2026-09-21T12:05:42.642759Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-09-21T12:05:42.642763Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 6912 -> 6913
+2026-09-21T12:05:42.642787Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:42.642812Z 0 [Note] [MY-000000] [Galera] Recording CC from preload: 6913
+2026-09-21T12:05:42.642818Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from preload: 6849
+2026-09-21T12:05:42.642821Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from preload: 2
+2026-09-21T12:05:42.642829Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 6914, must_apply: 0, preload: true
+2026-09-21T12:05:42.642837Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-09-21T12:05:42.642839Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 6913 -> 6914
+2026-09-21T12:05:42.642863Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:42.642896Z 0 [Note] [MY-000000] [Galera] Recording CC from preload: 6914
+2026-09-21T12:05:42.642907Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from preload: 6849
+2026-09-21T12:05:42.642910Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from preload: 2
+2026-09-21T12:05:42.642928Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 6915, must_apply: 0, preload: true
+2026-09-21T12:05:42.642939Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-09-21T12:05:42.642942Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 6914 -> 6915
+2026-09-21T12:05:42.642962Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:42.642987Z 0 [Note] [MY-000000] [Galera] Recording CC from preload: 6915
+2026-09-21T12:05:42.642994Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from preload: 6849
+2026-09-21T12:05:42.642997Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from preload: 2
+2026-09-21T12:05:42.643020Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 6916, must_apply: 0, preload: true
+2026-09-21T12:05:42.643029Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-09-21T12:05:42.643033Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 6915 -> 6916
+2026-09-21T12:05:42.643053Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:42.643081Z 0 [Note] [MY-000000] [Galera] Recording CC from preload: 6916
+2026-09-21T12:05:42.643089Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from preload: 6849
+2026-09-21T12:05:42.643096Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from preload: 2
+2026-09-21T12:05:42.643116Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 6917, must_apply: 0, preload: true
+2026-09-21T12:05:42.643126Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-09-21T12:05:42.643129Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 6916 -> 6917
+2026-09-21T12:05:42.643148Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:42.643166Z 0 [Note] [MY-000000] [Galera] Recording CC from preload: 6917
+2026-09-21T12:05:42.643171Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from preload: 6849
+2026-09-21T12:05:42.643174Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from preload: 2
+2026-09-21T12:05:42.643189Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 6918, must_apply: 0, preload: true
+2026-09-21T12:05:42.643197Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-09-21T12:05:42.643201Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 6917 -> 6918
+2026-09-21T12:05:42.643233Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:42.643284Z 0 [Note] [MY-000000] [Galera] Recording CC from preload: 6918
+2026-09-21T12:05:42.643290Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from preload: 6849
+2026-09-21T12:05:42.643293Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from preload: 2
+2026-09-21T12:05:42.643308Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 6919, must_apply: 0, preload: true
+2026-09-21T12:05:42.643317Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-09-21T12:05:42.643321Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 6918 -> 6919
+2026-09-21T12:05:42.643339Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:42.643367Z 0 [Note] [MY-000000] [Galera] Recording CC from preload: 6919
+2026-09-21T12:05:42.643376Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from preload: 6849
+2026-09-21T12:05:42.643379Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from preload: 2
+2026-09-21T12:05:42.643395Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 6920, must_apply: 0, preload: true
+2026-09-21T12:05:42.643405Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-09-21T12:05:42.643408Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 6919 -> 6920
+2026-09-21T12:05:42.643429Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:42.643461Z 0 [Note] [MY-000000] [Galera] Recording CC from preload: 6920
+2026-09-21T12:05:42.643470Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from preload: 6849
+2026-09-21T12:05:42.643473Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from preload: 2
+2026-09-21T12:05:42.643491Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 6921, must_apply: 0, preload: true
+2026-09-21T12:05:42.643501Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-09-21T12:05:42.643505Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 6920 -> 6921
+2026-09-21T12:05:42.643527Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:42.643584Z 0 [Note] [MY-000000] [Galera] Recording CC from preload: 6921
+2026-09-21T12:05:42.643593Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from preload: 6849
+2026-09-21T12:05:42.643596Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from preload: 2
+2026-09-21T12:05:42.643613Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 6922, must_apply: 0, preload: true
+2026-09-21T12:05:42.643622Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-09-21T12:05:42.643626Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 6921 -> 6922
+2026-09-21T12:05:42.643652Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:42.643679Z 0 [Note] [MY-000000] [Galera] Recording CC from preload: 6922
+2026-09-21T12:05:42.643696Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from preload: 6849
+2026-09-21T12:05:42.643699Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from preload: 2
+2026-09-21T12:05:42.643735Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 6923, must_apply: 0, preload: true
+2026-09-21T12:05:42.643746Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-09-21T12:05:42.643750Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 6922 -> 6923
+2026-09-21T12:05:42.643773Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:42.643804Z 0 [Note] [MY-000000] [Galera] Recording CC from preload: 6923
+2026-09-21T12:05:42.643812Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from preload: 6849
+2026-09-21T12:05:42.643815Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from preload: 2
+2026-09-21T12:05:42.643832Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 6924, must_apply: 0, preload: true
+2026-09-21T12:05:42.643841Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-09-21T12:05:42.643848Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 6923 -> 6924
+2026-09-21T12:05:42.643869Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:42.643900Z 0 [Note] [MY-000000] [Galera] Recording CC from preload: 6924
+2026-09-21T12:05:42.643911Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from preload: 6849
+2026-09-21T12:05:42.643914Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from preload: 2
+2026-09-21T12:05:42.643935Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 6925, must_apply: 0, preload: true
+2026-09-21T12:05:42.643946Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-09-21T12:05:42.643950Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 6924 -> 6925
+2026-09-21T12:05:42.643971Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:42.643999Z 0 [Note] [MY-000000] [Galera] Recording CC from preload: 6925
+2026-09-21T12:05:42.644005Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from preload: 6849
+2026-09-21T12:05:42.644008Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from preload: 2
+2026-09-21T12:05:42.644023Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 6926, must_apply: 0, preload: true
+2026-09-21T12:05:42.644032Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-09-21T12:05:42.644036Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 6925 -> 6926
+2026-09-21T12:05:42.644121Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:42.644167Z 0 [Note] [MY-000000] [Galera] Recording CC from preload: 6926
+2026-09-21T12:05:42.644174Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from preload: 6849
+2026-09-21T12:05:42.644177Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from preload: 2
+2026-09-21T12:05:42.644193Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 6927, must_apply: 0, preload: true
+2026-09-21T12:05:42.644202Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-09-21T12:05:42.644206Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 6926 -> 6927
+2026-09-21T12:05:42.644226Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:42.644253Z 0 [Note] [MY-000000] [Galera] Recording CC from preload: 6927
+2026-09-21T12:05:42.644260Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from preload: 6849
+2026-09-21T12:05:42.644262Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from preload: 2
+2026-09-21T12:05:42.644280Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 6928, must_apply: 0, preload: true
+2026-09-21T12:05:42.644291Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-09-21T12:05:42.644295Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 6927 -> 6928
+2026-09-21T12:05:42.644316Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:42.644343Z 0 [Note] [MY-000000] [Galera] Recording CC from preload: 6928
+2026-09-21T12:05:42.644348Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from preload: 6849
+2026-09-21T12:05:42.644352Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from preload: 2
+2026-09-21T12:05:42.644366Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 6929, must_apply: 0, preload: true
+2026-09-21T12:05:42.644375Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-09-21T12:05:42.644378Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 6928 -> 6929
+2026-09-21T12:05:42.644398Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:42.644422Z 0 [Note] [MY-000000] [Galera] Recording CC from preload: 6929
+2026-09-21T12:05:42.644426Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from preload: 6849
+2026-09-21T12:05:42.644430Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from preload: 2
+2026-09-21T12:05:42.644495Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 6930, must_apply: 1, preload: true
+2026-09-21T12:05:42.644507Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-09-21T12:05:42.644511Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 6929 -> 6930
+2026-09-21T12:05:42.644532Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:42.644562Z 0 [Note] [MY-000000] [Galera] Recording CC from ist: 6930
+2026-09-21T12:05:42.644567Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from ist: 6849
+2026-09-21T12:05:42.644570Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from ist: 2
+2026-09-21T12:05:42.644629Z 0 [Note] [MY-000000] [Galera] ####### Passing IST CC 6931, must_apply: 1, preload: true
+2026-09-21T12:05:42.644637Z 2 [Note] [MY-000000] [Galera] ================================================
+View:
+  id: 05b12755-b5b1-11f1-8fa0-4a0371720019:6930
+  status: primary
+  protocol_version: 4
+  capabilities: MULTI-MASTER, CERTIFICATION, PARALLEL_APPLYING, REPLAY, ISOLATION, PAUSE, CAUSAL_READ, INCREMENTAL_WS, UNORDERED, PREORDERED, STREAMING, NBO
+  final: no
+  own_index: -1
+  members(2):
+	0: 05b04892-b5b1-11f1-a96b-8aa549a99b9b, pxc-1
+	1: 92eda7b2-b5b4-11f1-afb5-3f5c406eeb62, pxc-3
+=================================================
+2026-09-21T12:05:42.644653Z 2 [Note] [MY-000000] [WSREP] wsrep_notify_cmd is not defined, skipping notification.
+2026-09-21T12:05:42.671399Z 0 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-09-21T12:05:42.671428Z 0 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 6930 -> 6931
+2026-09-21T12:05:42.671465Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:42.671498Z 0 [Note] [MY-000000] [Galera] Recording CC from ist: 6931
+2026-09-21T12:05:42.671502Z 0 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from ist: 6849
+2026-09-21T12:05:42.671505Z 0 [Note] [MY-000000] [Galera] Min available from gcache for CC from ist: 2
+2026-09-21T12:05:42.671572Z 2 [Note] [MY-000000] [Galera] ================================================
+View:
+  id: 05b12755-b5b1-11f1-8fa0-4a0371720019:6931
+  status: primary
+  protocol_version: 4
+  capabilities: MULTI-MASTER, CERTIFICATION, PARALLEL_APPLYING, REPLAY, ISOLATION, PAUSE, CAUSAL_READ, INCREMENTAL_WS, UNORDERED, PREORDERED, STREAMING, NBO
+  final: no
+  own_index: 1
+  members(3):
+	0: 05b04892-b5b1-11f1-a96b-8aa549a99b9b, pxc-1
+	1: 0b8c435c-b5b1-11f1-9e4b-5f6447038d6e, pxc-2
+	2: 92eda7b2-b5b4-11f1-afb5-3f5c406eeb62, pxc-3
+=================================================
+2026-09-21T12:05:42.671584Z 2 [Note] [MY-000000] [WSREP] Server status change initialized -> joined
+2026-09-21T12:05:42.671587Z 2 [Note] [MY-000000] [WSREP] wsrep_notify_cmd is not defined, skipping notification.
+2026-09-21T12:05:42.671593Z 2 [Note] [MY-000000] [WSREP] wsrep_notify_cmd is not defined, skipping notification.
+2026-09-21T12:05:42.671603Z 0 [Note] [MY-000000] [Galera] Receiving IST... 100.0% (83/83 events) complete.
+2026-09-21T12:05:42.687930Z 2 [Note] [MY-000000] [Galera] Draining apply monitors after IST up to 6931
+2026-09-21T12:05:42.697362Z 2 [Note] [MY-000000] [Galera] IST received: 05b12755-b5b1-11f1-8fa0-4a0371720019:6931
+2026-09-21T12:05:42.702266Z 2 [Note] [MY-000000] [Galera] Recording CC from sst: 6931
+2026-09-21T12:05:42.702285Z 2 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from sst: 6849
+2026-09-21T12:05:42.702290Z 2 [Note] [MY-000000] [Galera] Min available from gcache for CC from sst: 2
+2026-09-21T12:05:42.702525Z 0 [Note] [MY-000000] [Galera] 1.0 (pxc-2): State transfer from 2.0 (pxc-3) complete.
+2026-09-21T12:05:42.702549Z 0 [Note] [MY-000000] [Galera] SST leaving flow control
+2026-09-21T12:05:42.702553Z 0 [Note] [MY-000000] [Galera] Shifting JOINER -> JOINED (TO: 6931)
+2026-09-21T12:05:42.702583Z 0 [Note] [MY-000000] [Galera] Processing event queue:... 0.0% (0/0 events) complete.
+2026-09-21T12:05:42.702811Z 0 [Note] [MY-000000] [Galera] Member 1.0 (pxc-2) synced with group.
+2026-09-21T12:05:42.702826Z 0 [Note] [MY-000000] [Galera] Processing event queue:... 100.0% (1/1 events) complete.
+2026-09-21T12:05:42.702835Z 0 [Note] [MY-000000] [Galera] Shifting JOINED -> SYNCED (TO: 6931)
+2026-09-21T12:05:42.702861Z 2 [Note] [MY-000000] [Galera] Server pxc-2 synced with group
+2026-09-21T12:05:42.702875Z 2 [Note] [MY-000000] [WSREP] Server status change joined -> synced
+2026-09-21T12:05:42.702878Z 2 [Note] [MY-000000] [WSREP] Synchronized with group, ready for connections
+2026-09-21T12:05:42.702881Z 2 [Note] [MY-000000] [WSREP] wsrep_notify_cmd is not defined, skipping notification.
+2026-09-21T12:05:43.104643Z 0 [Note] [MY-000000] [Galera] (0b8c435c-9e4b, 'tcp://0.0.0.0:4567') turning message relay requesting off

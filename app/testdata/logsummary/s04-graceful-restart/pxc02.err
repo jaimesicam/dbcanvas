@@ -1,0 +1,154 @@
+2026-09-21T11:46:36.308602Z 0 [Note] [MY-000000] [Galera] declaring 05b04892-a969 at tcp://172.22.0.4:4567 stable
+2026-09-21T11:46:36.308665Z 0 [Note] [MY-000000] [Galera] forgetting 1d2fff94-b4c8 (tcp://172.22.0.5:4567)
+2026-09-21T11:46:36.308734Z 0 [Note] [MY-000000] [Galera] Node 05b04892-a969 state primary
+2026-09-21T11:46:36.311883Z 0 [Note] [MY-000000] [Galera] Current view of cluster as seen by this node
+view (view_id(PRIM,05b04892-a969,6)
+memb {
+	05b04892-a969,0
+	0b8c435c-9e49,0
+	}
+joined {
+	}
+left {
+	}
+partitioned {
+	1d2fff94-b4c8,0
+	}
+)
+2026-09-21T11:46:36.311904Z 0 [Note] [MY-000000] [Galera] Save the discovered primary-component to disk
+2026-09-21T11:46:36.314794Z 0 [Note] [MY-000000] [Galera] forgetting 1d2fff94-b4c8 (tcp://172.22.0.5:4567)
+2026-09-21T11:46:36.314817Z 0 [Note] [MY-000000] [Galera] New COMPONENT: primary = yes, bootstrap = no, my_idx = 1, memb_num = 2
+2026-09-21T11:46:36.314832Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: Waiting for state UUID.
+2026-09-21T11:46:36.315077Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: sent state msg: 1993ca3c-b5b2-11f1-a429-53b2d423ac97
+2026-09-21T11:46:36.315206Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: 1993ca3c-b5b2-11f1-a429-53b2d423ac97 from 0 (pxc-1)
+2026-09-21T11:46:36.315216Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: 1993ca3c-b5b2-11f1-a429-53b2d423ac97 from 1 (pxc-2)
+2026-09-21T11:46:36.315221Z 0 [Note] [MY-000000] [Galera] Quorum results:
+	version    = 6,
+	component  = PRIMARY,
+	conf_id    = 5,
+	members    = 2/2 (primary/total),
+	act_id     = 1902,
+	last_appl. = 1853,
+	protocols  = 6/11/4 (gcs/repl/appl),
+	vote policy= 0,
+	group UUID = 05b12755-b5b1-11f1-8fa0-4a0371720019
+2026-09-21T11:46:36.315264Z 0 [Note] [MY-000000] [Galera] Flow-control interval: [141, 141]
+2026-09-21T11:46:36.315311Z 2 [Note] [MY-000000] [Galera] ####### processing CC 1903, local, ordered
+2026-09-21T11:46:36.315324Z 2 [Note] [MY-000000] [Galera] Maybe drain monitors from 1902 upto current CC event 1903 upto:1902
+2026-09-21T11:46:36.315327Z 2 [Note] [MY-000000] [Galera] Drain monitors from 1902 up to 1902
+2026-09-21T11:46:36.315332Z 2 [Note] [MY-000000] [Galera] ####### My UUID: 0b8c435c-b5b1-11f1-9e49-5f6447038d6e
+2026-09-21T11:46:36.315335Z 2 [Note] [MY-000000] [Galera] Skipping cert index reset
+2026-09-21T11:46:36.315337Z 2 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-09-21T11:46:36.315341Z 2 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 1902 -> 1903
+2026-09-21T11:46:36.315388Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T11:46:36.319637Z 2 [Note] [MY-000000] [Galera] ================================================
+View:
+  id: 05b12755-b5b1-11f1-8fa0-4a0371720019:1903
+  status: primary
+  protocol_version: 4
+  capabilities: MULTI-MASTER, CERTIFICATION, PARALLEL_APPLYING, REPLAY, ISOLATION, PAUSE, CAUSAL_READ, INCREMENTAL_WS, UNORDERED, PREORDERED, STREAMING, NBO
+  final: no
+  own_index: 1
+  members(2):
+	0: 05b04892-b5b1-11f1-a969-8aa549a99b9b, pxc-1
+	1: 0b8c435c-b5b1-11f1-9e49-5f6447038d6e, pxc-2
+=================================================
+2026-09-21T11:46:36.319666Z 2 [Note] [MY-000000] [WSREP] wsrep_notify_cmd is not defined, skipping notification.
+2026-09-21T11:46:36.329112Z 2 [Note] [MY-000000] [Galera] Recording CC from group: 1903
+2026-09-21T11:46:36.329131Z 2 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from group: 1854
+2026-09-21T11:46:36.329135Z 2 [Note] [MY-000000] [Galera] Min available from gcache for CC from group: 2
+2026-09-21T11:46:39.023693Z 0 [Note] [MY-000000] [Galera] (0b8c435c-9e49, 'tcp://0.0.0.0:4567') connection established to 1b314e74-8677 tcp://172.22.0.5:4567
+2026-09-21T11:46:39.023721Z 0 [Note] [MY-000000] [Galera] remote endpoint tcp://172.22.0.5:4567 changed identity 1d2fff94-b5b1-11f1-b4c8-56a4ef85f237 -> 1b314e74-b5b2-11f1-8677-7fd5a18a40bf
+2026-09-21T11:46:39.524044Z 0 [Note] [MY-000000] [Galera] declaring 05b04892-a969 at tcp://172.22.0.4:4567 stable
+2026-09-21T11:46:39.524128Z 0 [Note] [MY-000000] [Galera] declaring 1b314e74-8677 at tcp://172.22.0.5:4567 stable
+2026-09-21T11:46:39.524256Z 0 [Note] [MY-000000] [Galera] Node 05b04892-a969 state primary
+2026-09-21T11:46:39.524609Z 0 [Note] [MY-000000] [Galera] Current view of cluster as seen by this node
+view (view_id(PRIM,05b04892-a969,7)
+memb {
+	05b04892-a969,0
+	0b8c435c-9e49,0
+	1b314e74-8677,0
+	}
+joined {
+	}
+left {
+	}
+partitioned {
+	}
+)
+2026-09-21T11:46:39.524628Z 0 [Note] [MY-000000] [Galera] Save the discovered primary-component to disk
+2026-09-21T11:46:39.527372Z 0 [Note] [MY-000000] [Galera] New COMPONENT: primary = yes, bootstrap = no, my_idx = 1, memb_num = 3
+2026-09-21T11:46:39.527390Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: Waiting for state UUID.
+2026-09-21T11:46:39.530113Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: sent state msg: 1b7ececa-b5b2-11f1-a1e2-1f8b55014ba0
+2026-09-21T11:46:39.530851Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: 1b7ececa-b5b2-11f1-a1e2-1f8b55014ba0 from 1 (pxc-2)
+2026-09-21T11:46:39.530867Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: 1b7ececa-b5b2-11f1-a1e2-1f8b55014ba0 from 0 (pxc-1)
+2026-09-21T11:46:40.024437Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: 1b7ececa-b5b2-11f1-a1e2-1f8b55014ba0 from 2 (pxc-3)
+2026-09-21T11:46:40.024461Z 0 [Note] [MY-000000] [Galera] Quorum results:
+	version    = 6,
+	component  = PRIMARY,
+	conf_id    = 6,
+	members    = 2/3 (primary/total),
+	act_id     = 1903,
+	last_appl. = 1853,
+	protocols  = 6/11/4 (gcs/repl/appl),
+	vote policy= 0,
+	group UUID = 05b12755-b5b1-11f1-8fa0-4a0371720019
+2026-09-21T11:46:40.024485Z 0 [Note] [MY-000000] [Galera] Flow-control interval: [173, 173]
+2026-09-21T11:46:40.024560Z 2 [Note] [MY-000000] [Galera] ####### processing CC 1904, local, ordered
+2026-09-21T11:46:40.024587Z 2 [Note] [MY-000000] [Galera] Maybe drain monitors from 1903 upto current CC event 1904 upto:1903
+2026-09-21T11:46:40.024592Z 2 [Note] [MY-000000] [Galera] Drain monitors from 1903 up to 1903
+2026-09-21T11:46:40.024599Z 2 [Note] [MY-000000] [Galera] ####### My UUID: 0b8c435c-b5b1-11f1-9e49-5f6447038d6e
+2026-09-21T11:46:40.024603Z 2 [Note] [MY-000000] [Galera] Skipping cert index reset
+2026-09-21T11:46:40.024607Z 2 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-09-21T11:46:40.024613Z 2 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 1903 -> 1904
+2026-09-21T11:46:40.024666Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T11:46:40.028330Z 2 [Note] [MY-000000] [Galera] ================================================
+View:
+  id: 05b12755-b5b1-11f1-8fa0-4a0371720019:1904
+  status: primary
+  protocol_version: 4
+  capabilities: MULTI-MASTER, CERTIFICATION, PARALLEL_APPLYING, REPLAY, ISOLATION, PAUSE, CAUSAL_READ, INCREMENTAL_WS, UNORDERED, PREORDERED, STREAMING, NBO
+  final: no
+  own_index: 1
+  members(3):
+	0: 05b04892-b5b1-11f1-a969-8aa549a99b9b, pxc-1
+	1: 0b8c435c-b5b1-11f1-9e49-5f6447038d6e, pxc-2
+	2: 1b314e74-b5b2-11f1-8677-7fd5a18a40bf, pxc-3
+=================================================
+2026-09-21T11:46:40.028359Z 2 [Note] [MY-000000] [WSREP] wsrep_notify_cmd is not defined, skipping notification.
+2026-09-21T11:46:40.038876Z 2 [Note] [MY-000000] [Galera] Recording CC from group: 1904
+2026-09-21T11:46:40.038902Z 2 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from group: 1854
+2026-09-21T11:46:40.038907Z 2 [Note] [MY-000000] [Galera] Min available from gcache for CC from group: 2
+2026-09-21T11:46:40.458304Z 0 [Note] [MY-000000] [Galera] Member 2.0 (pxc-3) requested state transfer from '*any*'. Selected 1.0 (pxc-2)(SYNCED) as donor.
+2026-09-21T11:46:40.458328Z 0 [Note] [MY-000000] [Galera] Shifting SYNCED -> DONOR/DESYNCED (TO: 1904)
+2026-09-21T11:46:40.458364Z 2 [Note] [MY-000000] [Galera] Detected STR version: 1, req_len: 145, req: STRv1
+2026-09-21T11:46:40.458387Z 2 [Note] [MY-000000] [Galera] IST request: 05b12755-b5b1-11f1-8fa0-4a0371720019:1902-1904|tcp://pxc-3.example.net:4568
+2026-09-21T11:46:40.458391Z 2 [Note] [MY-000000] [Galera] IST seqno 1854 found and locked in gcache
+2026-09-21T11:46:40.458397Z 2 [Note] [MY-000000] [WSREP] Server status change synced -> donor
+2026-09-21T11:46:40.458407Z 2 [Note] [MY-000000] [WSREP] wsrep_notify_cmd is not defined, skipping notification.
+2026-09-21T11:46:40.458555Z 0 [Note] [MY-000000] [WSREP] Initiating SST/IST transfer on DONOR side (wsrep_sst_xtrabackup-v2 --role 'donor' --address 'pxc-3.example.net:4444/xtrabackup_sst//1' --socket '/var/lib/mysql/mysql.sock' --datadir '/var/lib/mysql/' --basedir '/usr/' --plugindir '/usr/lib64/mysql/plugin/' --defaults-file '/etc/my.cnf' --defaults-group-suffix '' --mysqld-version '8.0.46-38.1'  --binlog 'binlog' --gtid '05b12755-b5b1-11f1-8fa0-4a0371720019:1902'  --bypass)
+2026-09-21T11:46:40.479897Z 2 [Note] [MY-000000] [WSREP] DONOR thread signaled with 0
+2026-09-21T11:46:40.480670Z 0 [Note] [MY-000000] [Galera] async IST sender starting to serve tcp://pxc-3.example.net:4568 sending 1854-1904, preload starts from 1854
+2026-09-21T11:46:40.480820Z 0 [Note] [MY-000000] [Galera] IST sender 1854 -> 1904
+2026-09-21T11:46:40.480922Z 0 [Note] [MY-000000] [Galera] IST sender served all writesets. Unlocking GCache.
+2026-09-21T11:46:40.480930Z 0 [Note] [MY-000000] [Galera] IST sender sent EOF. Waiting for joiner to close the connection
+2026-09-21T11:46:40.693590Z 14 [Warning] [MY-013712] [Server] No suitable 'keyring_component_metadata_query' service implementation found to fulfill the request.
+2026-09-21T11:46:40.698044Z 0 [Note] [MY-000000] [WSREP-SST] Bypassing SST. Can work it through IST
+2026-09-21T11:46:41.674869Z 0 [Note] [MY-000000] [Galera] IST sender finished waiting for connection close
+2026-09-21T11:46:41.674970Z 0 [Note] [MY-000000] [Galera] async IST sender served
+2026-09-21T11:46:41.687596Z 0 [Note] [MY-000000] [Galera] 2.0 (pxc-3): State transfer from 1.0 (pxc-2) complete.
+2026-09-21T11:46:41.687832Z 0 [Note] [MY-000000] [Galera] Member 2.0 (pxc-3) synced with group.
+2026-09-21T11:46:41.703545Z 0 [Note] [MY-000000] [Galera] SST sent: 05b12755-b5b1-11f1-8fa0-4a0371720019:1902
+2026-09-21T11:46:41.703596Z 0 [Note] [MY-000000] [WSREP] Server status change donor -> joined
+2026-09-21T11:46:41.703603Z 0 [Note] [MY-000000] [WSREP] wsrep_notify_cmd is not defined, skipping notification.
+2026-09-21T11:46:41.704175Z 0 [Note] [MY-000000] [Galera] 1.0 (pxc-2): State transfer to 2.0 (pxc-3) complete.
+2026-09-21T11:46:41.704201Z 0 [Note] [MY-000000] [Galera] Shifting DONOR/DESYNCED -> JOINED (TO: 1904)
+2026-09-21T11:46:41.704238Z 0 [Note] [MY-000000] [Galera] Processing event queue:... 0.0% (0/0 events) complete.
+2026-09-21T11:46:41.704588Z 0 [Note] [MY-000000] [Galera] Member 1.0 (pxc-2) synced with group.
+2026-09-21T11:46:41.704607Z 0 [Note] [MY-000000] [Galera] Processing event queue:... 100.0% (1/1 events) complete.
+2026-09-21T11:46:41.704611Z 0 [Note] [MY-000000] [Galera] Shifting JOINED -> SYNCED (TO: 1904)
+2026-09-21T11:46:41.704654Z 2 [Note] [MY-000000] [Galera] Server pxc-2 synced with group
+2026-09-21T11:46:41.704670Z 2 [Note] [MY-000000] [WSREP] Server status change joined -> synced
+2026-09-21T11:46:41.704678Z 2 [Note] [MY-000000] [WSREP] Synchronized with group, ready for connections
+2026-09-21T11:46:41.704681Z 2 [Note] [MY-000000] [WSREP] wsrep_notify_cmd is not defined, skipping notification.
+2026-09-21T11:46:42.264760Z 0 [Note] [MY-000000] [Galera] (0b8c435c-9e49, 'tcp://0.0.0.0:4567') turning message relay requesting off

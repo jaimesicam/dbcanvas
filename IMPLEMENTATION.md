@@ -24903,3 +24903,78 @@ effort as the original ~80 sessions.
 
 `go build`, `go vet`, `go test ./...` (**211** failing test functions remain, all fixture-corpus
 gaps, tracked above) green otherwise.
+
+## 402. Rebuilding the missing test corpus, phase 1: Galera/PXC — `app/testdata/logsummary/{s01-bootstrap,s03-crash-kill9,s04-graceful-restart,s05a-ftwrl-desync,s05b-flow-control,s06-network-partition,s07-sst-rejoin,s08-crash-signal11}/` (new), `app/logsummary_galera.go`
+
+First installment of rebuilding the corpus §401 found missing. A real 3-node PXC 8.0.46 cluster
+(matching the version §253 originally used), deployed with `dbcanvas stack compose` against this
+machine's own running DBCanvas instance, put through the same eight scenarios §253 recorded —
+bootstrap, `kill -9` under load, a graceful `systemctl restart`, a 50-second FTWRL desync, a
+flow-control stall, a 52-second network partition, a full-SST rejoin, and a real SIGSEGV — each
+captured, trimmed, and checked against the existing tests before moving to the next.
+
+**All 24 fixture files pass every test that reads them** (`TestLogSummaryRecognisesPXC` through
+`TestLogSummarySignal11`, plus the corpus-wide crash-evidence and noise-filter invariants) with no
+test changes needed for seven of the eight scenarios. The failing-test count dropped from 211 to
+188 — this family alone accounts for 23 of the 212 originally-failing functions once its
+cross-checks in other files (`TestGRLeavesGaleraAlone`, `TestGRDoesNotStealAsyncReplication`) are
+counted too.
+
+### Reproducing the write load
+
+`benchmark run` (the CLI's sysbench wrapper) turned out unreliable for a sustained flood — its
+`--wait` flag reports "no id" even when the job started fine server-side, and short OLTP runs
+finished in ~1s regardless of the requested duration. Real, controllable write pressure came from
+a small stored procedure (`CREATE PROCEDURE repro.flood(IN n INT) ... WHILE i < n DO INSERT ...`)
+called via `setsid mysql -e 'CALL repro.flood(n);' &` — one client connection looping server-side,
+no per-statement process-spawn overhead, easy to background and kill.
+
+### s05b's flow control needed a slow disk, not a slow network
+
+`tc netem delay`/`rate` on the member's whole interface added latency to every round trip but
+never built an apply backlog — Galera's flow control triggers on the *receiving* node's apply
+queue, not on network transport, so a uniformly slow link just makes every write proportionally
+slower without ever queuing. What worked: `gcs.fc_limit=1` on the target member plus a genuine
+**disk write-bandwidth cap** (1 MB/s) on its container, from the host side —
+`[[docker-blkio-throttle-gotchas]]`'s cgroup-write method, via a throwaway `--privileged
+--cgroupns=host` helper container, since this box has no passwordless sudo for a direct host-side
+`io.max` write. That produced a real, measured stall (78 flow-control receives, 1.29s paused) and
+the exact `Flow-control interval: [2, 2]` line the test needs, logged only on the throttled member
+— matching the fixture's shape of zero lines on the other two nodes.
+
+### s06 needed two distinct real failures in one capture, and the second corrected the catalogue
+
+The partition fixture's five requirements split cleanly: isolating a member with `tc netem loss
+100%` on its own interface for ~35s produces the quorum-split, membership-disagreement and
+`Peer went quiet` evidence on its own (docker exec runs through the container runtime, not the
+network namespace under test, so the node stays diagnosable while "cut off"). But the fixture also
+needs the isolated node to actually **abort** — and a plain `kill -9`-while-isolated never crashes
+it; Galera just demotes it to OPEN and leaves it retrying forever, indefinitely, which is itself
+useful to know (a prior guess assumed isolation alone would eventually kill the process; it does
+not, in this build).
+
+Real self-abort turned out to need a **state-transfer request whose donor disappears mid-transfer**
+— reproduced by forcing a full SST (delete `grastate.dat` before restart, which forces the SST
+path deterministically rather than the much-faster IST) and killing the selected donor's mysqld
+15-20 seconds into the transfer, timed by grepping the log for `Selected ... as donor` between
+attempts rather than guessing an interval. That produced a real, different message than the
+catalogue expected: PXC 8.0.46 logs `Donor <uuid> is no longer in the group. State transfer cannot
+be completed, need to abort.` — not the `Will never receive state. Need to abort.` the existing
+rule matched (which is IST's wording for the same event; this build's SST path phrases it
+differently). `logsummary_galera.go`'s crash rule now matches either line under the same label,
+since they are the same operator-facing event on two different code paths — the same kind of
+correction §253 made for `left`/`partitioned` when a real capture disagreed with a first guess.
+
+Getting there took several failed timing attempts worth recording: IST (the fast path, used when
+the joiner's history hasn't diverged far from the group's) completes in 1-5 seconds even under
+network throttling, too fast to interrupt reactively between tool calls: only a forced *SST*
+(xtrabackup copying the whole dataset, observed to take ~15-20 real seconds) gives a reliable
+window to kill the donor mid-transfer.
+
+### Verified
+
+`cd app && go build ./... && go vet ./... && go test ./...`: 188 failing test functions remain (all
+in other still-missing families — Group Replication, MongoDB, PostgreSQL, Valkey, K8s operators,
+FTDC, cluster-dump archives), down from 211. The PXC stack was destroyed after capture
+(`dbcanvas stack destroy`) — the design is kept, so it can be redeployed if another Galera
+scenario is needed later.

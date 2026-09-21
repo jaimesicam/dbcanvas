@@ -396,7 +396,15 @@ var lsGaleraRules = []lsRule{
 		class: lsClassCrash, sev: lsSevBad, label: "mysqld terminated",
 		means:  "The server process ended here. Anything after this line is from a different run of mysqld.",
 		enrich: func(_ lsRecord, e *lsEvent) { e.State = lsStateDown }},
-	{substr: []string{"Will never receive state. Need to abort."},
+	// Two real, differently-worded lines for the same event: a donor that disappears
+	// mid-transfer. "Will never receive state" is IST's wording; "is no longer in the
+	// group. State transfer cannot be completed" is what PXC 8.0.46 logs when the donor
+	// drops during SST instead — caught by literally killing the donor mid-SST rather
+	// than assumed. Both mean the same thing to an operator, so one rule, one label.
+	{substr: []string{
+		"Will never receive state. Need to abort.",
+		"is no longer in the group. State transfer cannot be completed, need to abort.",
+	},
 		class: lsClassCrash, sev: lsSevBad, label: "Aborting: will never receive state",
 		means: "The node asked for a state transfer and the donor went away before it arrived, so it gave up and aborted. The service is down and will not come back on its own — it needs to be started again."},
 	// The crash handler's own block. lsCrashHeader is what makes this line a record at

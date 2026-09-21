@@ -1,0 +1,18 @@
+2026-09-21T11:46:59.333387Z 13 [Note] [MY-000000] [Galera] Desyncing and pausing the provider
+2026-09-21T11:46:59.333838Z 0 [Note] [MY-000000] [Galera] Member 2.0 (pxc-3) desyncs itself from group
+2026-09-21T11:46:59.333855Z 0 [Note] [MY-000000] [Galera] Shifting SYNCED -> DONOR/DESYNCED (TO: 1904)
+2026-09-21T11:46:59.333902Z 13 [Note] [MY-000000] [Galera] pause
+2026-09-21T11:46:59.336717Z 13 [Note] [MY-000000] [Galera] Provider paused at 05b12755-b5b1-11f1-8fa0-4a0371720019:1904 (6)
+2026-09-21T11:46:59.336743Z 13 [Note] [MY-000000] [Galera] Provider paused at: 1904
+2026-09-21T11:46:59.336747Z 13 [Note] [MY-000000] [WSREP] Server paused at: 1904
+2026-09-21T11:47:49.337503Z 13 [Note] [MY-000000] [Galera] Resuming and resyncing the provider
+2026-09-21T11:47:49.337532Z 13 [Note] [MY-000000] [Galera] resume
+2026-09-21T11:47:49.340416Z 13 [Note] [MY-000000] [Galera] resuming provider at 6
+2026-09-21T11:47:49.340439Z 13 [Note] [MY-000000] [Galera] Provider resumed.
+2026-09-21T11:47:49.340758Z 0 [Note] [MY-000000] [Galera] Member 2.0 (pxc-3) resyncs itself to group.
+2026-09-21T11:47:49.340777Z 0 [Note] [MY-000000] [Galera] Shifting DONOR/DESYNCED -> JOINED (TO: 1904)
+2026-09-21T11:47:49.340805Z 0 [Note] [MY-000000] [Galera] Processing event queue:... 0.0% (0/0 events) complete.
+2026-09-21T11:47:49.341020Z 0 [Note] [MY-000000] [Galera] Member 2.0 (pxc-3) synced with group.
+2026-09-21T11:47:49.341034Z 0 [Note] [MY-000000] [Galera] Processing event queue:... 100.0% (1/1 events) complete.
+2026-09-21T11:47:49.341038Z 0 [Note] [MY-000000] [Galera] Shifting JOINED -> SYNCED (TO: 1904)
+2026-09-21T11:47:49.341072Z 2 [Note] [MY-000000] [Galera] Server pxc-3 synced with group

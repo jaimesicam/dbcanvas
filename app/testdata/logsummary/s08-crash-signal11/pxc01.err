@@ -1,0 +1,137 @@
+2026-09-21T12:05:06.776752Z 0 [Note] [MY-000000] [Galera] (05b04892-a96b, 'tcp://0.0.0.0:4567') turning message relay requesting on, nonlive peers: tcp://172.22.0.3:4567 
+2026-09-21T12:05:07.795998Z 0 [Note] [MY-000000] [Galera] (05b04892-a96b, 'tcp://0.0.0.0:4567') reconnecting to 0b8c435c-9e4a (tcp://172.22.0.3:4567), attempt 0
+2026-09-21T12:05:07.796259Z 0 [Note] [MY-000000] [Galera] Failed to establish connection: Connection refused
+2026-09-21T12:05:09.296334Z 0 [Note] [MY-000000] [Galera] Failed to establish connection: Connection refused
+2026-09-21T12:05:10.796473Z 0 [Note] [MY-000000] [Galera] Failed to establish connection: Connection refused
+2026-09-21T12:05:11.406865Z 0 [Note] [MY-000000] [Galera] declaring node with index 1 suspected, timeout PT5S (evs.suspect_timeout)
+2026-09-21T12:05:11.406898Z 0 [Note] [MY-000000] [Galera] evs::proto(05b04892-a96b, OPERATIONAL, view_id(REG,05b04892-a96b,31)) suspecting node: 0b8c435c-9e4a
+2026-09-21T12:05:11.406901Z 0 [Note] [MY-000000] [Galera] evs::proto(05b04892-a96b, OPERATIONAL, view_id(REG,05b04892-a96b,31)) suspected node without join message, declaring inactive
+2026-09-21T12:05:11.906977Z 0 [Note] [MY-000000] [Galera] declaring node with index 1 inactive (evs.inactive_timeout) 
+2026-09-21T12:05:12.296747Z 0 [Note] [MY-000000] [Galera] Failed to establish connection: Connection refused
+2026-09-21T12:05:12.407371Z 0 [Note] [MY-000000] [Galera] declaring 92eda7b2-afb5 at tcp://172.22.0.5:4567 stable
+2026-09-21T12:05:12.407558Z 0 [Note] [MY-000000] [Galera] Node 05b04892-a96b state primary
+2026-09-21T12:05:12.407668Z 0 [Note] [MY-000000] [Galera] Current view of cluster as seen by this node
+view (view_id(PRIM,05b04892-a96b,32)
+memb {
+	05b04892-a96b,0
+	92eda7b2-afb5,0
+	}
+joined {
+	}
+left {
+	}
+partitioned {
+	0b8c435c-9e4a,0
+	}
+)
+2026-09-21T12:05:12.407681Z 0 [Note] [MY-000000] [Galera] Save the discovered primary-component to disk
+2026-09-21T12:05:12.415590Z 0 [Note] [MY-000000] [Galera] forgetting 0b8c435c-9e4a (tcp://172.22.0.3:4567)
+2026-09-21T12:05:12.415609Z 0 [Note] [MY-000000] [Galera] (05b04892-a96b, 'tcp://0.0.0.0:4567') turning message relay requesting off
+2026-09-21T12:05:12.415608Z 0 [Note] [MY-000000] [Galera] New COMPONENT: primary = yes, bootstrap = no, my_idx = 0, memb_num = 2
+2026-09-21T12:05:12.415690Z 0 [Note] [MY-000000] [Galera] STATE_EXCHANGE: sent state UUID: b2d3b845-b5b4-11f1-8612-2f9f06908f66
+2026-09-21T12:05:12.421265Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: sent state msg: b2d3b845-b5b4-11f1-8612-2f9f06908f66
+2026-09-21T12:05:12.421412Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: b2d3b845-b5b4-11f1-8612-2f9f06908f66 from 0 (pxc-1)
+2026-09-21T12:05:12.421529Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: b2d3b845-b5b4-11f1-8612-2f9f06908f66 from 1 (pxc-3)
+2026-09-21T12:05:12.421542Z 0 [Note] [MY-000000] [Galera] Quorum results:
+	version    = 6,
+	component  = PRIMARY,
+	conf_id    = 31,
+	members    = 2/2 (primary/total),
+	act_id     = 6929,
+	last_appl. = 6848,
+	protocols  = 6/11/4 (gcs/repl/appl),
+	vote policy= 0,
+	group UUID = 05b12755-b5b1-11f1-8fa0-4a0371720019
+2026-09-21T12:05:12.421594Z 0 [Note] [MY-000000] [Galera] Flow-control interval: [141, 141]
+2026-09-21T12:05:12.421637Z 1 [Note] [MY-000000] [Galera] ####### processing CC 6930, local, ordered
+2026-09-21T12:05:12.421647Z 1 [Note] [MY-000000] [Galera] Maybe drain monitors from 6929 upto current CC event 6930 upto:6929
+2026-09-21T12:05:12.421650Z 1 [Note] [MY-000000] [Galera] Drain monitors from 6929 up to 6929
+2026-09-21T12:05:12.421654Z 1 [Note] [MY-000000] [Galera] ####### My UUID: 05b04892-b5b1-11f1-a96b-8aa549a99b9b
+2026-09-21T12:05:12.421656Z 1 [Note] [MY-000000] [Galera] Skipping cert index reset
+2026-09-21T12:05:12.421659Z 1 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-09-21T12:05:12.421662Z 1 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 6929 -> 6930
+2026-09-21T12:05:12.421697Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:12.431609Z 1 [Note] [MY-000000] [Galera] ================================================
+View:
+  id: 05b12755-b5b1-11f1-8fa0-4a0371720019:6930
+  status: primary
+  protocol_version: 4
+  capabilities: MULTI-MASTER, CERTIFICATION, PARALLEL_APPLYING, REPLAY, ISOLATION, PAUSE, CAUSAL_READ, INCREMENTAL_WS, UNORDERED, PREORDERED, STREAMING, NBO
+  final: no
+  own_index: 0
+  members(2):
+	0: 05b04892-b5b1-11f1-a96b-8aa549a99b9b, pxc-1
+	1: 92eda7b2-b5b4-11f1-afb5-3f5c406eeb62, pxc-3
+=================================================
+2026-09-21T12:05:12.431634Z 1 [Note] [MY-000000] [WSREP] wsrep_notify_cmd is not defined, skipping notification.
+2026-09-21T12:05:12.446829Z 1 [Note] [MY-000000] [Galera] Recording CC from group: 6930
+2026-09-21T12:05:12.446854Z 1 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from group: 6849
+2026-09-21T12:05:12.446858Z 1 [Note] [MY-000000] [Galera] Min available from gcache for CC from group: 1
+2026-09-21T12:05:15.297096Z 0 [Note] [MY-000000] [Galera]  cleaning up 0b8c435c-9e4a (tcp://172.22.0.3:4567)
+2026-09-21T12:05:39.604384Z 0 [Note] [MY-000000] [Galera] (05b04892-a96b, 'tcp://0.0.0.0:4567') connection established to 0b8c435c-9e4b tcp://172.22.0.3:4567
+2026-09-21T12:05:40.104783Z 0 [Note] [MY-000000] [Galera] declaring 0b8c435c-9e4b at tcp://172.22.0.3:4567 stable
+2026-09-21T12:05:40.104813Z 0 [Note] [MY-000000] [Galera] declaring 92eda7b2-afb5 at tcp://172.22.0.5:4567 stable
+2026-09-21T12:05:40.104986Z 0 [Note] [MY-000000] [Galera] Node 05b04892-a96b state primary
+2026-09-21T12:05:40.105119Z 0 [Note] [MY-000000] [Galera] Current view of cluster as seen by this node
+view (view_id(PRIM,05b04892-a96b,33)
+memb {
+	05b04892-a96b,0
+	0b8c435c-9e4b,0
+	92eda7b2-afb5,0
+	}
+joined {
+	}
+left {
+	}
+partitioned {
+	}
+)
+2026-09-21T12:05:40.105130Z 0 [Note] [MY-000000] [Galera] Save the discovered primary-component to disk
+2026-09-21T12:05:40.110924Z 0 [Note] [MY-000000] [Galera] New COMPONENT: primary = yes, bootstrap = no, my_idx = 0, memb_num = 3
+2026-09-21T12:05:40.111008Z 0 [Note] [MY-000000] [Galera] STATE_EXCHANGE: sent state UUID: c355b092-b5b4-11f1-b534-9ba78ea412dd
+2026-09-21T12:05:40.111339Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: sent state msg: c355b092-b5b4-11f1-b534-9ba78ea412dd
+2026-09-21T12:05:40.111501Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: c355b092-b5b4-11f1-b534-9ba78ea412dd from 0 (pxc-1)
+2026-09-21T12:05:40.111514Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: c355b092-b5b4-11f1-b534-9ba78ea412dd from 2 (pxc-3)
+2026-09-21T12:05:40.604978Z 0 [Note] [MY-000000] [Galera] STATE EXCHANGE: got state msg: c355b092-b5b4-11f1-b534-9ba78ea412dd from 1 (pxc-2)
+2026-09-21T12:05:40.605005Z 0 [Note] [MY-000000] [Galera] Quorum results:
+	version    = 6,
+	component  = PRIMARY,
+	conf_id    = 32,
+	members    = 2/3 (primary/total),
+	act_id     = 6930,
+	last_appl. = 6848,
+	protocols  = 6/11/4 (gcs/repl/appl),
+	vote policy= 0,
+	group UUID = 05b12755-b5b1-11f1-8fa0-4a0371720019
+2026-09-21T12:05:40.605027Z 0 [Note] [MY-000000] [Galera] Flow-control interval: [173, 173]
+2026-09-21T12:05:40.605059Z 1 [Note] [MY-000000] [Galera] ####### processing CC 6931, local, ordered
+2026-09-21T12:05:40.605077Z 1 [Note] [MY-000000] [Galera] Maybe drain monitors from 6930 upto current CC event 6931 upto:6930
+2026-09-21T12:05:40.605080Z 1 [Note] [MY-000000] [Galera] Drain monitors from 6930 up to 6930
+2026-09-21T12:05:40.605084Z 1 [Note] [MY-000000] [Galera] ####### My UUID: 05b04892-b5b1-11f1-a96b-8aa549a99b9b
+2026-09-21T12:05:40.605087Z 1 [Note] [MY-000000] [Galera] Skipping cert index reset
+2026-09-21T12:05:40.605090Z 1 [Note] [MY-000000] [Galera] REPL Protocols: 11 (6)
+2026-09-21T12:05:40.605094Z 1 [Note] [MY-000000] [Galera] ####### Adjusting cert position: 6930 -> 6931
+2026-09-21T12:05:40.605142Z 0 [Note] [MY-000000] [Galera] Service thread queue flushed.
+2026-09-21T12:05:40.615931Z 1 [Note] [MY-000000] [Galera] ================================================
+View:
+  id: 05b12755-b5b1-11f1-8fa0-4a0371720019:6931
+  status: primary
+  protocol_version: 4
+  capabilities: MULTI-MASTER, CERTIFICATION, PARALLEL_APPLYING, REPLAY, ISOLATION, PAUSE, CAUSAL_READ, INCREMENTAL_WS, UNORDERED, PREORDERED, STREAMING, NBO
+  final: no
+  own_index: 0
+  members(3):
+	0: 05b04892-b5b1-11f1-a96b-8aa549a99b9b, pxc-1
+	1: 0b8c435c-b5b1-11f1-9e4b-5f6447038d6e, pxc-2
+	2: 92eda7b2-b5b4-11f1-afb5-3f5c406eeb62, pxc-3
+=================================================
+2026-09-21T12:05:40.615978Z 1 [Note] [MY-000000] [WSREP] wsrep_notify_cmd is not defined, skipping notification.
+2026-09-21T12:05:40.633716Z 1 [Note] [MY-000000] [Galera] Recording CC from group: 6931
+2026-09-21T12:05:40.633744Z 1 [Note] [MY-000000] [Galera] Lowest cert index boundary for CC from group: 6849
+2026-09-21T12:05:40.633748Z 1 [Note] [MY-000000] [Galera] Min available from gcache for CC from group: 1
+2026-09-21T12:05:41.026378Z 0 [Note] [MY-000000] [Galera] Member 1.0 (pxc-2) requested state transfer from '*any*'. Selected 2.0 (pxc-3)(SYNCED) as donor.
+2026-09-21T12:05:42.280677Z 0 [Note] [MY-000000] [Galera] 2.0 (pxc-3): State transfer to 1.0 (pxc-2) complete.
+2026-09-21T12:05:42.280912Z 0 [Note] [MY-000000] [Galera] Member 2.0 (pxc-3) synced with group.
+2026-09-21T12:05:42.702526Z 0 [Note] [MY-000000] [Galera] 1.0 (pxc-2): State transfer from 2.0 (pxc-3) complete.
+2026-09-21T12:05:42.702819Z 0 [Note] [MY-000000] [Galera] Member 1.0 (pxc-2) synced with group.
+2026-09-21T12:05:42.800283Z 0 [Note] [MY-000000] [Galera] (05b04892-a96b, 'tcp://0.0.0.0:4567') turning message relay requesting off
