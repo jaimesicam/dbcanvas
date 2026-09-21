@@ -1,0 +1,891 @@
+2026-09-21 13:57:38.061 UTC [2691] LOG:  starting PostgreSQL 16.15 - Percona Distribution on x86_64-pc-linux-gnu, compiled by gcc (GCC) 14.2.1 20250110 (Red Hat 14.2.1-13), 64-bit
+2026-09-21 13:57:38.061 UTC [2691] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-09-21 13:57:38.064 UTC [2691] LOG:  listening on Unix socket "/run/postgresql/.s.PGSQL.5432"
+2026-09-21 13:57:38.069 UTC [2691] LOG:  listening on Unix socket "/tmp/.s.PGSQL.5432"
+2026-09-21 13:57:38.072 UTC [2696] LOG:  database system was shut down at 2026-09-21 13:57:35 UTC
+2026-09-21 13:57:38.072 UTC [2697] FATAL:  the database system is starting up
+2026-09-21 13:57:38.075 UTC [2699] FATAL:  the database system is starting up
+2026-09-21 13:57:38.080 UTC [2691] LOG:  database system is ready to accept connections
+2026-09-21 13:57:39.392 UTC [2694] LOG:  checkpoint starting: force wait
+2026-09-21 13:57:39.768 UTC [2694] LOG:  checkpoint complete: wrote 7 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.339 s, sync=0.010 s, total=0.377 s; sync files=6, longest=0.004 s, average=0.002 s; distance=9028 kB, estimate=9028 kB; lsn=0/2000060, redo lsn=0/2000028
+2026-09-21 13:57:39.768 UTC [2694] LOG:  checkpoint starting: force wait
+2026-09-21 13:57:39.788 UTC [2694] LOG:  checkpoint complete: wrote 0 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.005 s, sync=0.001 s, total=0.020 s; sync files=0, longest=0.000 s, average=0.000 s; distance=0 kB, estimate=8125 kB; lsn=0/2000110, redo lsn=0/20000D8
+2026-09-21 13:57:44.707 UTC [2727] ERROR:  replication slot "pat_2" does not exist
+2026-09-21 13:57:44.707 UTC [2727] STATEMENT:  START_REPLICATION SLOT "pat_2" 0/3000000 TIMELINE 1
+2026-09-21 13:57:44.713 UTC [2728] ERROR:  replication slot "pat_2" does not exist
+2026-09-21 13:57:44.713 UTC [2728] STATEMENT:  START_REPLICATION SLOT "pat_2" 0/3000000 TIMELINE 1
+2026-09-21 13:57:44.721 UTC [2729] ERROR:  replication slot "pat_3" does not exist
+2026-09-21 13:57:44.721 UTC [2729] STATEMENT:  START_REPLICATION SLOT "pat_3" 0/4000000 TIMELINE 1
+2026-09-21 13:57:44.727 UTC [2730] ERROR:  replication slot "pat_3" does not exist
+2026-09-21 13:57:44.727 UTC [2730] STATEMENT:  START_REPLICATION SLOT "pat_3" 0/4000000 TIMELINE 1
+2026-09-21 14:00:03.002 UTC [2694] LOG:  checkpoint starting: immediate force wait
+2026-09-21 14:00:03.041 UTC [2694] LOG:  checkpoint complete: wrote 41 buffers (0.3%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.003 s, sync=0.013 s, total=0.040 s; sync files=10, longest=0.003 s, average=0.002 s; distance=33057 kB, estimate=33057 kB; lsn=0/4048840, redo lsn=0/4048808
+2026-09-21 14:00:03.042 UTC [2691] LOG:  received fast shutdown request
+2026-09-21 14:00:03.044 UTC [2691] LOG:  aborting any active transactions
+2026-09-21 14:00:03.044 UTC [2719] FATAL:  terminating connection due to administrator command
+2026-09-21 14:00:03.044 UTC [2705] FATAL:  terminating connection due to administrator command
+2026-09-21 14:00:03.045 UTC [2691] LOG:  background worker "logical replication launcher" (PID 2702) exited with exit code 1
+2026-09-21 14:00:03.046 UTC [2694] LOG:  shutting down
+2026-09-21 14:00:03.060 UTC [2694] LOG:  checkpoint starting: shutdown immediate
+2026-09-21 14:00:03.080 UTC [2694] LOG:  checkpoint complete: wrote 0 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.025 s; sync files=0, longest=0.000 s, average=0.000 s; distance=0 kB, estimate=29752 kB; lsn=0/40488B8, redo lsn=0/40488B8
+2026-09-21 14:00:03.083 UTC [2691] LOG:  database system is shut down
+2026-09-21 14:00:06.435 UTC [3112] LOG:  starting PostgreSQL 16.15 - Percona Distribution on x86_64-pc-linux-gnu, compiled by gcc (GCC) 14.2.1 20250110 (Red Hat 14.2.1-13), 64-bit
+2026-09-21 14:00:06.435 UTC [3112] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-09-21 14:00:06.438 UTC [3112] LOG:  listening on Unix socket "/run/postgresql/.s.PGSQL.5432"
+2026-09-21 14:00:06.442 UTC [3112] LOG:  listening on Unix socket "/tmp/.s.PGSQL.5432"
+2026-09-21 14:00:06.445 UTC [3117] LOG:  database system was shut down at 2026-09-21 14:00:03 UTC
+2026-09-21 14:00:06.445 UTC [3118] FATAL:  the database system is starting up
+2026-09-21 14:00:06.446 UTC [3117] LOG:  entering standby mode
+2026-09-21 14:00:06.449 UTC [3120] FATAL:  the database system is starting up
+2026-09-21 14:00:06.456 UTC [3117] LOG:  consistent recovery state reached at 0/4048930
+2026-09-21 14:00:06.456 UTC [3117] LOG:  invalid record length at 0/4048930: expected at least 24, got 0
+2026-09-21 14:00:06.456 UTC [3112] LOG:  database system is ready to accept read-only connections
+2026-09-21 14:00:06.464 UTC [3121] LOG:  fetching timeline history file for timeline 2 from primary server
+2026-09-21 14:00:06.469 UTC [3121] LOG:  started streaming WAL from primary at 0/4000000 on timeline 1
+2026-09-21 14:00:06.470 UTC [3121] LOG:  replication terminated by primary server
+2026-09-21 14:00:06.470 UTC [3121] DETAIL:  End of WAL reached on timeline 1 at 0/4048930.
+2026-09-21 14:00:06.470 UTC [3117] LOG:  new target timeline is 2
+2026-09-21 14:00:06.470 UTC [3121] LOG:  restarted WAL streaming at 0/4000000 on timeline 2
+2026-09-21 14:00:06.484 UTC [3117] LOG:  redo starts at 0/4048930
+2026-09-21 14:00:27.595 UTC [3121] FATAL:  could not receive data from WAL stream: server closed the connection unexpectedly
+		This probably means the server terminated abnormally
+		before or while processing the request.
+2026-09-21 14:00:27.595 UTC [3117] LOG:  invalid record length at 0/4048AF8: expected at least 24, got 0
+2026-09-21 14:00:27.597 UTC [3125] FATAL:  could not connect to the primary server: connection to server at "pat-2.example.net" (172.22.0.5), port 5432 failed: Connection refused
+		Is the server running on that host and accepting TCP/IP connections?
+2026-09-21 14:00:27.597 UTC [3117] LOG:  waiting for WAL to become available at 0/4048B10
+2026-09-21 14:00:32.602 UTC [3126] FATAL:  could not connect to the primary server: connection to server at "pat-2.example.net" (172.22.0.5), port 5432 failed: Connection refused
+		Is the server running on that host and accepting TCP/IP connections?
+2026-09-21 14:00:32.602 UTC [3117] LOG:  waiting for WAL to become available at 0/4048B10
+2026-09-21 14:00:37.609 UTC [3129] LOG:  started streaming WAL from primary at 0/4000000 on timeline 2
+2026-09-21 14:01:10.799 UTC [3129] FATAL:  could not receive data from WAL stream: server closed the connection unexpectedly
+		This probably means the server terminated abnormally
+		before or while processing the request.
+2026-09-21 14:01:10.799 UTC [3117] LOG:  invalid record length at 0/4048BA8: expected at least 24, got 0
+2026-09-21 14:01:10.801 UTC [3154] FATAL:  could not connect to the primary server: connection to server at "pat-2.example.net" (172.22.0.5), port 5432 failed: Connection refused
+		Is the server running on that host and accepting TCP/IP connections?
+2026-09-21 14:01:10.801 UTC [3117] LOG:  waiting for WAL to become available at 0/4048BC0
+2026-09-21 14:01:15.805 UTC [3155] FATAL:  could not connect to the primary server: connection to server at "pat-2.example.net" (172.22.0.5), port 5432 failed: Connection refused
+		Is the server running on that host and accepting TCP/IP connections?
+2026-09-21 14:01:15.805 UTC [3117] LOG:  waiting for WAL to become available at 0/4048BC0
+2026-09-21 14:01:20.811 UTC [3156] FATAL:  could not connect to the primary server: connection to server at "pat-2.example.net" (172.22.0.5), port 5432 failed: Connection refused
+		Is the server running on that host and accepting TCP/IP connections?
+2026-09-21 14:01:20.811 UTC [3117] LOG:  waiting for WAL to become available at 0/4048BC0
+2026-09-21 14:01:25.814 UTC [3157] FATAL:  could not connect to the primary server: connection to server at "pat-2.example.net" (172.22.0.5), port 5432 failed: Connection refused
+		Is the server running on that host and accepting TCP/IP connections?
+2026-09-21 14:01:25.814 UTC [3117] LOG:  waiting for WAL to become available at 0/4048BC0
+2026-09-21 14:01:30.819 UTC [3182] FATAL:  could not connect to the primary server: connection to server at "pat-2.example.net" (172.22.0.5), port 5432 failed: Connection refused
+		Is the server running on that host and accepting TCP/IP connections?
+2026-09-21 14:01:30.819 UTC [3117] LOG:  waiting for WAL to become available at 0/4048BC0
+2026-09-21 14:01:35.824 UTC [3183] FATAL:  could not connect to the primary server: connection to server at "pat-2.example.net" (172.22.0.5), port 5432 failed: Connection refused
+		Is the server running on that host and accepting TCP/IP connections?
+2026-09-21 14:01:35.824 UTC [3117] LOG:  waiting for WAL to become available at 0/4048BC0
+2026-09-21 14:01:37.462 UTC [3117] LOG:  received promote request
+2026-09-21 14:01:37.462 UTC [3117] LOG:  redo done at 0/4048B70 system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 90.97 s
+2026-09-21 14:01:37.465 UTC [3117] LOG:  selected new timeline ID: 3
+2026-09-21 14:01:37.588 UTC [3117] LOG:  archive recovery complete
+2026-09-21 14:01:37.592 UTC [3115] LOG:  checkpoint starting: force
+2026-09-21 14:01:37.594 UTC [3112] LOG:  database system is ready to accept connections
+2026-09-21 14:01:37.627 UTC [3115] LOG:  checkpoint complete: wrote 3 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.008 s, sync=0.003 s, total=0.036 s; sync files=2, longest=0.002 s, average=0.002 s; distance=0 kB, estimate=0 kB; lsn=0/4048C10, redo lsn=0/4048BD8
+2026-09-21 14:01:54.499 UTC [2962] LOG:  starting PostgreSQL 16.15 - Percona Distribution on x86_64-pc-linux-gnu, compiled by gcc (GCC) 14.2.1 20250110 (Red Hat 14.2.1-13), 64-bit
+2026-09-21 14:01:54.499 UTC [2962] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-09-21 14:01:54.502 UTC [2962] LOG:  listening on Unix socket "/run/postgresql/.s.PGSQL.5432"
+2026-09-21 14:01:54.507 UTC [2962] LOG:  listening on Unix socket "/tmp/.s.PGSQL.5432"
+2026-09-21 14:01:54.510 UTC [2967] LOG:  database system was interrupted while in recovery at log time 2026-09-21 14:01:37 UTC
+2026-09-21 14:01:54.510 UTC [2967] HINT:  If this has occurred more than once some data might be corrupted and you might need to choose an earlier recovery target.
+2026-09-21 14:01:54.511 UTC [2968] FATAL:  the database system is starting up
+2026-09-21 14:01:54.514 UTC [2970] FATAL:  the database system is starting up
+2026-09-21 14:01:55.384 UTC [2967] LOG:  entering standby mode
+2026-09-21 14:01:55.384 UTC [2967] LOG:  starting backup recovery with redo LSN 0/4048AF8, checkpoint LSN 0/4048AF8, on timeline ID 2
+2026-09-21 14:01:55.390 UTC [2967] LOG:  redo starts at 0/4048B70
+2026-09-21 14:01:55.392 UTC [2967] LOG:  completed backup recovery with redo LSN 0/4048AF8 and end LSN 0/4048CC0
+2026-09-21 14:01:55.392 UTC [2967] LOG:  consistent recovery state reached at 0/4048CC0
+2026-09-21 14:01:55.392 UTC [2967] LOG:  invalid record length at 0/4048CC0: expected at least 24, got 0
+2026-09-21 14:01:55.393 UTC [2962] LOG:  database system is ready to accept read-only connections
+2026-09-21 14:01:55.400 UTC [2971] LOG:  started streaming WAL from primary at 0/4000000 on timeline 3
+2026-09-21 14:02:48.534 UTC [2971] LOG:  replication terminated by primary server
+2026-09-21 14:02:48.534 UTC [2971] DETAIL:  End of WAL reached on timeline 3 at 0/407ADB8.
+2026-09-21 14:02:48.534 UTC [2971] FATAL:  could not send end-of-streaming message to primary: server closed the connection unexpectedly
+		This probably means the server terminated abnormally
+		before or while processing the request.
+	no COPY in progress
+2026-09-21 14:02:48.534 UTC [2967] LOG:  invalid record length at 0/407ADB8: expected at least 24, got 0
+2026-09-21 14:02:48.536 UTC [2998] FATAL:  could not connect to the primary server: connection to server at "pat-1.example.net" (172.22.0.3), port 5432 failed: Connection refused
+		Is the server running on that host and accepting TCP/IP connections?
+2026-09-21 14:02:48.536 UTC [2967] LOG:  waiting for WAL to become available at 0/407ADD0
+2026-09-21 14:02:53.547 UTC [2999] LOG:  started streaming WAL from primary at 0/4000000 on timeline 3
+2026-09-21 14:04:50.606 UTC [2999] LOG:  replication terminated by primary server
+2026-09-21 14:04:50.606 UTC [2999] DETAIL:  End of WAL reached on timeline 3 at 0/407ADB8.
+2026-09-21 14:04:50.606 UTC [2999] LOG:  fetching timeline history file for timeline 4 from primary server
+2026-09-21 14:04:50.618 UTC [2967] LOG:  new target timeline is 4
+2026-09-21 14:04:50.618 UTC [2999] LOG:  restarted WAL streaming at 0/4000000 on timeline 4
+Started PostgreSQL high-availability manager.
+2026-09-21 13:57:37,399 INFO: Using default value thread_stack_size = 524288
+2026-09-21 13:57:37,405 INFO: Patroni global thread_pool_size = 5
+2026-09-21 13:57:37,461 INFO: Selected new etcd server http://pat-2.example.net:2379
+2026-09-21 13:57:37,467 INFO: No PostgreSQL configuration items changed, nothing to reload.
+2026-09-21 13:57:37,468 INFO: REST API thread_pool_size = 5
+2026-09-21 13:57:37,515 INFO: Lock owner: None; I am pat-2
+2026-09-21 13:57:37,563 INFO: waiting for leader to bootstrap
+2026-09-21 13:57:39,327 INFO: Lock owner: pat-1; I am pat-2
+2026-09-21 13:57:39,373 INFO: trying to bootstrap from leader 'pat-1'
+2026-09-21 13:57:43,074 INFO: replica has been created using basebackup
+2026-09-21 13:57:43,074 INFO: bootstrapped from leader 'pat-1'
+2026-09-21 13:57:43.255 UTC [2687] LOG:  redirecting log output to logging collector process
+2026-09-21 13:57:43.255 UTC [2687] HINT:  Future log output will appear in directory "log".
+2026-09-21 13:57:43,256 INFO: postmaster pid=2687
+localhost:5432 - rejecting connections
+localhost:5432 - rejecting connections
+localhost:5432 - rejecting connections
+2026-09-21 13:57:44,469 INFO: establishing a new patroni heartbeat connection to postgres
+2026-09-21 13:57:44,474 INFO: establishing a new patroni heartbeat connection to postgres
+localhost:5432 - accepting connections
+2026-09-21 13:57:45,284 INFO: Lock owner: pat-1; I am pat-2
+2026-09-21 13:57:45,284 INFO: establishing a new patroni heartbeat connection to postgres
+2026-09-21 13:57:45,461 INFO: no action. I am (pat-2), a secondary, and following a leader (pat-1)
+2026-09-21 13:57:47,564 INFO: establishing a new patroni restapi connection to postgres
+2026-09-21 13:57:49,347 INFO: no action. I am (pat-2), a secondary, and following a leader (pat-1)
+2026-09-21 13:57:59,381 INFO: no action. I am (pat-2), a secondary, and following a leader (pat-1)
+2026-09-21 13:58:09,838 INFO: no action. I am (pat-2), a secondary, and following a leader (pat-1)
+2026-09-21 13:58:19,838 INFO: no action. I am (pat-2), a secondary, and following a leader (pat-1)
+2026-09-21 13:58:29,834 INFO: no action. I am (pat-2), a secondary, and following a leader (pat-1)
+2026-09-21 13:58:39,839 INFO: no action. I am (pat-2), a secondary, and following a leader (pat-1)
+2026-09-21 13:58:49,835 INFO: no action. I am (pat-2), a secondary, and following a leader (pat-1)
+2026-09-21 13:58:59,840 INFO: no action. I am (pat-2), a secondary, and following a leader (pat-1)
+2026-09-21 13:59:09,395 INFO: no action. I am (pat-2), a secondary, and following a leader (pat-1)
+2026-09-21 13:59:19,835 INFO: no action. I am (pat-2), a secondary, and following a leader (pat-1)
+2026-09-21 13:59:29,834 INFO: no action. I am (pat-2), a secondary, and following a leader (pat-1)
+2026-09-21 13:59:39,834 INFO: no action. I am (pat-2), a secondary, and following a leader (pat-1)
+2026-09-21 13:59:49,836 INFO: no action. I am (pat-2), a secondary, and following a leader (pat-1)
+2026-09-21 13:59:59,833 INFO: no action. I am (pat-2), a secondary, and following a leader (pat-1)
+2026-09-21 14:00:04,193 INFO: no action. I am (pat-2), a secondary, and following a leader (pat-1)
+2026-09-21 14:00:04,283 INFO: Cleaning up failover key after acquiring leader lock...
+2026-09-21 14:00:04,379 INFO: promoted self to leader by acquiring session lock
+server promoting
+2026-09-21 14:00:04,379 INFO: Lock owner: pat-2; I am pat-2
+2026-09-21 14:00:04,502 INFO: updated leader lock during promote
+2026-09-21 14:00:05,569 INFO: no action. I am (pat-2), the leader with the lock
+2026-09-21 14:00:05,709 INFO: no action. I am (pat-2), the leader with the lock
+2026-09-21 14:00:15,712 INFO: no action. I am (pat-2), the leader with the lock
+2026-09-21 14:00:25,614 INFO: no action. I am (pat-2), the leader with the lock
+2026-09-21 14:00:35,570 WARNING: Postgresql is not running.
+2026-09-21 14:00:35,571 INFO: Lock owner: pat-2; I am pat-2
+2026-09-21 14:00:35,615 INFO: pg_controldata:
+  pg_control version number: 1300
+  Catalog version number: 202307071
+  Database system identifier: 7687987404233054842
+  Database cluster state: in production
+  pg_control last modified: Mon Sep 21 14:00:05 2026
+  Latest checkpoint location: 0/4048A48
+  Latest checkpoint's REDO location: 0/4048A10
+  Latest checkpoint's REDO WAL file: 000000020000000000000004
+  Latest checkpoint's TimeLineID: 2
+  Latest checkpoint's PrevTimeLineID: 2
+  Latest checkpoint's full_page_writes: on
+  Latest checkpoint's NextXID: 0:744
+  Latest checkpoint's NextOID: 16389
+  Latest checkpoint's NextMultiXactId: 1
+  Latest checkpoint's NextMultiOffset: 0
+  Latest checkpoint's oldestXID: 723
+  Latest checkpoint's oldestXID's DB: 1
+  Latest checkpoint's oldestActiveXID: 744
+  Latest checkpoint's oldestMultiXid: 1
+  Latest checkpoint's oldestMulti's DB: 1
+  Latest checkpoint's oldestCommitTsXid: 0
+  Latest checkpoint's newestCommitTsXid: 0
+  Time of latest checkpoint: Mon Sep 21 14:00:05 2026
+  Fake LSN counter for unlogged rels: 0/3E8
+  Minimum recovery ending location: 0/0
+  Min recovery ending loc's timeline: 0
+  Backup start location: 0/0
+  Backup end location: 0/0
+  End-of-backup record required: no
+  wal_level setting: replica
+  wal_log_hints setting: on
+  max_connections setting: 200
+  max_worker_processes setting: 8
+  max_wal_senders setting: 10
+  max_prepared_xacts setting: 0
+  max_locks_per_xact setting: 64
+  track_commit_timestamp setting: off
+  Maximum data alignment: 8
+  Database block size: 8192
+  Blocks per segment of large relation: 131072
+  WAL block size: 8192
+  Bytes per WAL segment: 16777216
+  Maximum length of identifiers: 64
+  Maximum columns in an index: 32
+  Maximum size of a TOAST chunk: 1996
+  Size of a large-object chunk: 2048
+  Date/time type storage: 64-bit integers
+  Float8 argument passing: by value
+  Data page checksum version: 1
+  Mock authentication nonce: 386323f5da4485ff6b3d325493ab1f0dfe8fd140c6de43e3b9e1121300e994cb
+2026-09-21 14:00:35,668 INFO: starting primary after failure
+2026-09-21 14:00:35,669 INFO: closed patroni connections to postgres
+2026-09-21 14:00:35,840 INFO: postmaster pid=2812
+2026-09-21 14:00:35.842 UTC [2812] LOG:  redirecting log output to logging collector process
+2026-09-21 14:00:35.842 UTC [2812] HINT:  Future log output will appear in directory "log".
+localhost:5432 - rejecting connections
+localhost:5432 - rejecting connections
+localhost:5432 - accepting connections
+2026-09-21 14:00:36,865 INFO: Lock owner: pat-2; I am pat-2
+2026-09-21 14:00:36,865 INFO: establishing a new patroni heartbeat connection to postgres
+2026-09-21 14:00:37,012 INFO: no action. I am (pat-2), the leader with the lock
+2026-09-21 14:00:46,957 INFO: no action. I am (pat-2), the leader with the lock
+2026-09-21 14:00:57,008 INFO: no action. I am (pat-2), the leader with the lock
+2026-09-21 14:01:06,911 INFO: no action. I am (pat-2), the leader with the lock
+patroni.service: Main process exited, code=killed, status=9/KILL
+patroni.service: Failed with result 'signal'.
+patroni.service: Unit process 2814 (postgres) remains running after unit stopped.
+patroni.service: Unit process 2821 (postgres) remains running after unit stopped.
+patroni.service: Unit process 2823 (postgres) remains running after unit stopped.
+patroni.service: Unit process 2826 (postgres) remains running after unit stopped.
+patroni.service: Unit process 2827 (postgres) remains running after unit stopped.
+patroni.service: Unit process 2828 (postgres) remains running after unit stopped.
+patroni.service: Consumed 1.138s CPU time, 151.6M memory peak.
+Started PostgreSQL high-availability manager.
+2026-09-21 14:01:51,666 INFO: Using default value thread_stack_size = 524288
+2026-09-21 14:01:51,671 INFO: Patroni global thread_pool_size = 5
+2026-09-21 14:01:51,725 INFO: Selected new etcd server http://pat-1.example.net:2379
+2026-09-21 14:01:51,770 INFO: No PostgreSQL configuration items changed, nothing to reload.
+2026-09-21 14:01:51,772 INFO: REST API thread_pool_size = 5
+2026-09-21 14:01:51,821 WARNING: Postgresql is not running.
+2026-09-21 14:01:51,821 INFO: Lock owner: pat-1; I am pat-2
+2026-09-21 14:01:51,821 INFO: pg_controldata:
+  pg_control version number: 1300
+  Catalog version number: 202307071
+  Database system identifier: 7687987404233054842
+  Database cluster state: in production
+  pg_control last modified: Mon Sep 21 14:00:36 2026
+  Latest checkpoint location: 0/4048AF8
+  Latest checkpoint's REDO location: 0/4048AF8
+  Latest checkpoint's REDO WAL file: 000000020000000000000004
+  Latest checkpoint's TimeLineID: 2
+  Latest checkpoint's PrevTimeLineID: 2
+  Latest checkpoint's full_page_writes: on
+  Latest checkpoint's NextXID: 0:744
+  Latest checkpoint's NextOID: 16389
+  Latest checkpoint's NextMultiXactId: 1
+  Latest checkpoint's NextMultiOffset: 0
+  Latest checkpoint's oldestXID: 723
+  Latest checkpoint's oldestXID's DB: 1
+  Latest checkpoint's oldestActiveXID: 0
+  Latest checkpoint's oldestMultiXid: 1
+  Latest checkpoint's oldestMulti's DB: 1
+  Latest checkpoint's oldestCommitTsXid: 0
+  Latest checkpoint's newestCommitTsXid: 0
+  Time of latest checkpoint: Mon Sep 21 14:00:36 2026
+  Fake LSN counter for unlogged rels: 0/3E8
+  Minimum recovery ending location: 0/0
+  Min recovery ending loc's timeline: 0
+  Backup start location: 0/0
+  Backup end location: 0/0
+  End-of-backup record required: no
+  wal_level setting: replica
+  wal_log_hints setting: on
+  max_connections setting: 200
+  max_worker_processes setting: 8
+  max_wal_senders setting: 10
+  max_prepared_xacts setting: 0
+  max_locks_per_xact setting: 64
+  track_commit_timestamp setting: off
+  Maximum data alignment: 8
+  Database block size: 8192
+  Blocks per segment of large relation: 131072
+  WAL block size: 8192
+  Bytes per WAL segment: 16777216
+  Maximum length of identifiers: 64
+  Maximum columns in an index: 32
+  Maximum size of a TOAST chunk: 1996
+  Size of a large-object chunk: 2048
+  Date/time type storage: 64-bit integers
+  Float8 argument passing: by value
+  Data page checksum version: 1
+  Mock authentication nonce: 386323f5da4485ff6b3d325493ab1f0dfe8fd140c6de43e3b9e1121300e994cb
+2026-09-21 14:01:51,873 INFO: doing crash recovery in a single user mode
+2026-09-21 14:01:52,797 WARNING: Postgresql is not running.
+2026-09-21 14:01:52,797 INFO: Lock owner: pat-1; I am pat-2
+2026-09-21 14:01:52,798 INFO: pg_controldata:
+  pg_control version number: 1300
+  Catalog version number: 202307071
+  Database system identifier: 7687987404233054842
+  Database cluster state: shut down
+  pg_control last modified: Mon Sep 21 14:01:52 2026
+  Latest checkpoint location: 0/5000028
+  Latest checkpoint's REDO location: 0/5000028
+  Latest checkpoint's REDO WAL file: 000000020000000000000005
+  Latest checkpoint's TimeLineID: 2
+  Latest checkpoint's PrevTimeLineID: 2
+  Latest checkpoint's full_page_writes: on
+  Latest checkpoint's NextXID: 0:744
+  Latest checkpoint's NextOID: 16389
+  Latest checkpoint's NextMultiXactId: 1
+  Latest checkpoint's NextMultiOffset: 0
+  Latest checkpoint's oldestXID: 723
+  Latest checkpoint's oldestXID's DB: 1
+  Latest checkpoint's oldestActiveXID: 0
+  Latest checkpoint's oldestMultiXid: 1
+  Latest checkpoint's oldestMulti's DB: 1
+  Latest checkpoint's oldestCommitTsXid: 0
+  Latest checkpoint's newestCommitTsXid: 0
+  Time of latest checkpoint: Mon Sep 21 14:01:52 2026
+  Fake LSN counter for unlogged rels: 0/3E8
+  Minimum recovery ending location: 0/0
+  Min recovery ending loc's timeline: 0
+  Backup start location: 0/0
+  Backup end location: 0/0
+  End-of-backup record required: no
+  wal_level setting: replica
+  wal_log_hints setting: on
+  max_connections setting: 200
+  max_worker_processes setting: 8
+  max_wal_senders setting: 10
+  max_prepared_xacts setting: 0
+  max_locks_per_xact setting: 64
+  track_commit_timestamp setting: off
+  Maximum data alignment: 8
+  Database block size: 8192
+  Blocks per segment of large relation: 131072
+  WAL block size: 8192
+  Bytes per WAL segment: 16777216
+  Maximum length of identifiers: 64
+  Maximum columns in an index: 32
+  Maximum size of a TOAST chunk: 1996
+  Size of a large-object chunk: 2048
+  Date/time type storage: 64-bit integers
+  Float8 argument passing: by value
+  Data page checksum version: 1
+  Mock authentication nonce: 386323f5da4485ff6b3d325493ab1f0dfe8fd140c6de43e3b9e1121300e994cb
+2026-09-21 14:01:52,798 INFO: Lock owner: pat-1; I am pat-2
+2026-09-21 14:01:52,801 INFO: Local timeline=2 lsn=0/5000028
+2026-09-21 14:01:52,811 INFO: primary_timeline=3
+2026-09-21 14:01:52,811 INFO: primary: history=1	0/4048930	no recovery target specified
+2	0/4048BA8	no recovery target specified
+2026-09-21 14:01:52,857 INFO: running pg_rewind from pat-1
+2026-09-21 14:01:52,880 INFO: running pg_rewind from dbname=postgres user=postgres host=pat-1.example.net port=5432 target_session_attrs=read-write
+2026-09-21 14:01:54,270 INFO: pg_rewind exit code=0
+2026-09-21 14:01:54,270 INFO:  stdout=
+2026-09-21 14:01:54,270 INFO:  stderr=pg_rewind: servers diverged at WAL location 0/4048BA8 on timeline 2
+pg_rewind: rewinding from last common checkpoint at 0/4048AF8 on timeline 2
+pg_rewind: Done!
+2026-09-21 14:01:54,270 WARNING: Postgresql is not running.
+2026-09-21 14:01:54,270 INFO: Lock owner: pat-1; I am pat-2
+2026-09-21 14:01:54,271 INFO: pg_controldata:
+  pg_control version number: 1300
+  Catalog version number: 202307071
+  Database system identifier: 7687987404233054842
+  Database cluster state: in archive recovery
+  pg_control last modified: Mon Sep 21 14:01:53 2026
+  Latest checkpoint location: 0/4048C10
+  Latest checkpoint's REDO location: 0/4048BD8
+  Latest checkpoint's REDO WAL file: 000000030000000000000004
+  Latest checkpoint's TimeLineID: 3
+  Latest checkpoint's PrevTimeLineID: 3
+  Latest checkpoint's full_page_writes: on
+  Latest checkpoint's NextXID: 0:744
+  Latest checkpoint's NextOID: 16389
+  Latest checkpoint's NextMultiXactId: 1
+  Latest checkpoint's NextMultiOffset: 0
+  Latest checkpoint's oldestXID: 723
+  Latest checkpoint's oldestXID's DB: 1
+  Latest checkpoint's oldestActiveXID: 744
+  Latest checkpoint's oldestMultiXid: 1
+  Latest checkpoint's oldestMulti's DB: 1
+  Latest checkpoint's oldestCommitTsXid: 0
+  Latest checkpoint's newestCommitTsXid: 0
+  Time of latest checkpoint: Mon Sep 21 14:01:37 2026
+  Fake LSN counter for unlogged rels: 0/3E8
+  Minimum recovery ending location: 0/4048CC0
+  Min recovery ending loc's timeline: 3
+  Backup start location: 0/0
+  Backup end location: 0/0
+  End-of-backup record required: no
+  wal_level setting: replica
+  wal_log_hints setting: on
+  max_connections setting: 200
+  max_worker_processes setting: 8
+  max_wal_senders setting: 10
+  max_prepared_xacts setting: 0
+  max_locks_per_xact setting: 64
+  track_commit_timestamp setting: off
+  Maximum data alignment: 8
+  Database block size: 8192
+  Blocks per segment of large relation: 131072
+  WAL block size: 8192
+  Bytes per WAL segment: 16777216
+  Maximum length of identifiers: 64
+  Maximum columns in an index: 32
+  Maximum size of a TOAST chunk: 1996
+  Size of a large-object chunk: 2048
+  Date/time type storage: 64-bit integers
+  Float8 argument passing: by value
+  Data page checksum version: 1
+  Mock authentication nonce: 386323f5da4485ff6b3d325493ab1f0dfe8fd140c6de43e3b9e1121300e994cb
+2026-09-21 14:01:54,271 INFO: Lock owner: pat-1; I am pat-2
+2026-09-21 14:01:54,316 INFO: starting as a secondary
+2026-09-21 14:01:54.499 UTC [2962] LOG:  redirecting log output to logging collector process
+2026-09-21 14:01:54.499 UTC [2962] HINT:  Future log output will appear in directory "log".
+2026-09-21 14:01:54,503 INFO: postmaster pid=2962
+localhost:5432 - rejecting connections
+localhost:5432 - rejecting connections
+localhost:5432 - accepting connections
+2026-09-21 14:01:55,523 INFO: Lock owner: pat-1; I am pat-2
+2026-09-21 14:01:55,523 INFO: establishing a new patroni heartbeat connection to postgres
+2026-09-21 14:01:55,645 INFO: no action. I am (pat-2), a secondary, and following a leader (pat-1)
+2026-09-21 14:01:58,613 INFO: no action. I am (pat-2), a secondary, and following a leader (pat-1)
+2026-09-21 14:02:08,661 INFO: no action. I am (pat-2), a secondary, and following a leader (pat-1)
+2026-09-21 14:02:19,105 INFO: no action. I am (pat-2), a secondary, and following a leader (pat-1)
+2026-09-21 14:02:27,090 ERROR: watchprefix failed: <Unavailable error: 'error reading from server: EOF', code: 14>
+2026-09-21 14:02:27,091 ERROR: Request to server http://pat-1.example.net:2379 failed: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/kv/range (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7b080>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:27,091 INFO: Reconnection allowed, looking for another server.
+2026-09-21 14:02:27,091 INFO: Retrying on http://pat-3.example.net:2379
+2026-09-21 14:02:27,092 INFO: Selected new etcd server http://pat-3.example.net:2379
+2026-09-21 14:02:27,093 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86a80>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:29,061 INFO: Lock owner: pat-1; I am pat-2
+2026-09-21 14:02:29,066 ERROR: Request to server http://pat-3.example.net:2379 failed: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/lease/keepalive (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c87020>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:29,066 INFO: Reconnection allowed, looking for another server.
+2026-09-21 14:02:29,066 INFO: Retrying on http://pat-2.example.net:2379
+2026-09-21 14:02:29,066 ERROR: Request to server http://pat-2.example.net:2379 failed: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/lease/keepalive (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c87320>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:29,066 INFO: Reconnection allowed, looking for another server.
+2026-09-21 14:02:29,066 INFO: Retrying on http://pat-1.example.net:2379
+2026-09-21 14:02:29,067 ERROR: Request to server http://pat-1.example.net:2379 failed: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/lease/keepalive (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9dd90>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:29,067 INFO: Reconnection allowed, looking for another server.
+2026-09-21 14:02:29,067 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9cec0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:29,068 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9c3e0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:29,068 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9c3b0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:29,600 ERROR: Request to server http://pat-3.example.net:2379 failed: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/lease/keepalive (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9c7a0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:29,600 INFO: Reconnection allowed, looking for another server.
+2026-09-21 14:02:29,600 INFO: Retrying on http://pat-2.example.net:2379
+2026-09-21 14:02:29,600 ERROR: Request to server http://pat-2.example.net:2379 failed: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/lease/keepalive (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7b6e0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:29,600 INFO: Reconnection allowed, looking for another server.
+2026-09-21 14:02:29,600 INFO: Retrying on http://pat-1.example.net:2379
+2026-09-21 14:02:29,601 ERROR: Request to server http://pat-1.example.net:2379 failed: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/lease/keepalive (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c87290>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:29,601 INFO: Reconnection allowed, looking for another server.
+2026-09-21 14:02:29,601 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86de0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:29,602 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7b5f0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:29,602 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c851f0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:30,144 ERROR: Request to server http://pat-3.example.net:2379 failed: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/lease/keepalive (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c85d30>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:30,144 INFO: Reconnection allowed, looking for another server.
+2026-09-21 14:02:30,144 INFO: Retrying on http://pat-2.example.net:2379
+2026-09-21 14:02:30,145 ERROR: Request to server http://pat-2.example.net:2379 failed: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/lease/keepalive (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9c4a0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:30,145 INFO: Reconnection allowed, looking for another server.
+2026-09-21 14:02:30,145 INFO: Retrying on http://pat-1.example.net:2379
+2026-09-21 14:02:30,145 ERROR: Request to server http://pat-1.example.net:2379 failed: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/lease/keepalive (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9c080>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:30,145 INFO: Reconnection allowed, looking for another server.
+2026-09-21 14:02:30,146 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9cad0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:30,146 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9cc50>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:30,147 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9db80>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:30,888 ERROR: Request to server http://pat-3.example.net:2379 failed: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/lease/keepalive (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7b2c0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:30,889 INFO: Reconnection allowed, looking for another server.
+2026-09-21 14:02:30,889 INFO: Retrying on http://pat-2.example.net:2379
+2026-09-21 14:02:30,889 ERROR: Request to server http://pat-2.example.net:2379 failed: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/lease/keepalive (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86990>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:30,890 INFO: Reconnection allowed, looking for another server.
+2026-09-21 14:02:30,890 INFO: Retrying on http://pat-1.example.net:2379
+2026-09-21 14:02:30,890 ERROR: Request to server http://pat-1.example.net:2379 failed: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/lease/keepalive (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c87b90>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:30,890 INFO: Reconnection allowed, looking for another server.
+2026-09-21 14:02:30,891 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c869c0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:30,892 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c87980>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:30,893 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c868a0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:32,414 ERROR: Request to server http://pat-3.example.net:2379 failed: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/lease/keepalive (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9c500>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:32,415 INFO: Reconnection allowed, looking for another server.
+2026-09-21 14:02:32,415 INFO: Retrying on http://pat-2.example.net:2379
+2026-09-21 14:02:32,415 ERROR: Request to server http://pat-2.example.net:2379 failed: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/lease/keepalive (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9ca10>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:32,415 INFO: Reconnection allowed, looking for another server.
+2026-09-21 14:02:32,415 INFO: Retrying on http://pat-1.example.net:2379
+2026-09-21 14:02:32,417 ERROR: Request to server http://pat-1.example.net:2379 failed: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/lease/keepalive (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9c800>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:32,417 INFO: Reconnection allowed, looking for another server.
+2026-09-21 14:02:32,418 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9c230>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:32,419 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9c8c0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:32,420 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c84920>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:33,831 ERROR: Request to server http://pat-3.example.net:2379 failed: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/lease/keepalive (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c85f10>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:33,831 INFO: Reconnection allowed, looking for another server.
+2026-09-21 14:02:33,831 INFO: Retrying on http://pat-2.example.net:2379
+2026-09-21 14:02:33,833 ERROR: Request to server http://pat-2.example.net:2379 failed: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/lease/keepalive (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c873e0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:33,833 INFO: Reconnection allowed, looking for another server.
+2026-09-21 14:02:33,833 INFO: Retrying on http://pat-1.example.net:2379
+2026-09-21 14:02:33,833 ERROR: Request to server http://pat-1.example.net:2379 failed: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/lease/keepalive (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c85d30>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:33,833 INFO: Reconnection allowed, looking for another server.
+2026-09-21 14:02:33,834 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7bfb0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:33,835 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7b2f0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:33,836 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9c290>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:35,468 ERROR: Request to server http://pat-3.example.net:2379 failed: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/lease/keepalive (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9de20>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:35,468 INFO: Reconnection allowed, looking for another server.
+2026-09-21 14:02:35,468 INFO: Retrying on http://pat-2.example.net:2379
+2026-09-21 14:02:35,470 ERROR: Request to server http://pat-2.example.net:2379 failed: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/lease/keepalive (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9c0b0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:35,470 INFO: Reconnection allowed, looking for another server.
+2026-09-21 14:02:35,470 INFO: Retrying on http://pat-1.example.net:2379
+2026-09-21 14:02:35,471 ERROR: Request to server http://pat-1.example.net:2379 failed: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/lease/keepalive (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9e600>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:35,471 INFO: Reconnection allowed, looking for another server.
+2026-09-21 14:02:35,473 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9d490>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:35,475 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86600>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:35,475 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c85d30>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:36,014 ERROR: watchprefix failed: <Unavailable error: 'error reading from server: EOF', code: 14>
+2026-09-21 14:02:36,015 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c87a10>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:36,016 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c875c0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:36,016 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86240>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:36,016 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:02:36,687 ERROR: Request to server http://pat-3.example.net:2379 failed: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/lease/keepalive (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86bd0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:36,687 INFO: Reconnection allowed, looking for another server.
+2026-09-21 14:02:36,687 INFO: Retrying on http://pat-2.example.net:2379
+2026-09-21 14:02:36,688 ERROR: Request to server http://pat-2.example.net:2379 failed: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/lease/keepalive (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7b110>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:36,688 INFO: Reconnection allowed, looking for another server.
+2026-09-21 14:02:36,689 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9d6d0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:36,689 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9ce30>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:36,690 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9c5c0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:36,690 ERROR:
+Traceback (most recent call last):
+  File "/usr/lib/python3.12/site-packages/patroni/dcs/etcd.py", line 569, in handle_etcd_exceptions
+    retval = func(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/site-packages/patroni/dcs/etcd3.py", line 951, in touch_member
+    self.refresh_lease()
+  File "/usr/lib/python3.12/site-packages/patroni/dcs/etcd3.py", line 833, in refresh_lease
+    return self.retry(self._do_refresh_lease)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/site-packages/patroni/dcs/etcd.py", line 553, in retry
+    return retry(method, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/site-packages/patroni/utils.py", line 763, in __call__
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/site-packages/patroni/dcs/etcd3.py", line 821, in _do_refresh_lease
+    if self._lease and not self._client.lease_keepalive(self._lease, retry=retry):
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/site-packages/patroni/dcs/etcd3.py", line 218, in wrapper
+    return self.handle_auth_errors(func, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/site-packages/patroni/dcs/etcd3.py", line 431, in handle_auth_errors
+    return func(self, *args, retry=retry, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/site-packages/patroni/dcs/etcd3.py", line 468, in lease_keepalive
+    return self.call_rpc('/lease/keepalive', {'ID': ID}, retry).get('result', {}).get('TTL')
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/site-packages/patroni/dcs/etcd3.py", line 748, in call_rpc
+    ret = super(PatroniEtcd3Client, self).call_rpc(method, fields, retry)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/site-packages/patroni/dcs/etcd3.py", line 376, in call_rpc
+    return self.api_execute(self.version_prefix + method, self._MPOST, fields)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/site-packages/patroni/dcs/etcd.py", line 353, in api_execute
+    raise ex
+  File "/usr/lib/python3.12/site-packages/patroni/dcs/etcd.py", line 335, in api_execute
+    return self._do_http_request(retry, machines_cache, request_executor, method, path, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/site-packages/patroni/dcs/etcd.py", line 305, in _do_http_request
+    raise etcd.EtcdConnectionFailed('No more machines in the cluster')
+etcd.EtcdConnectionFailed: No more machines in the cluster
+2026-09-21 14:02:36,692 INFO: no action. I am (pat-2), a secondary, and following a leader (pat-1)
+2026-09-21 14:02:37,019 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7be60>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:37,020 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7bdd0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:37,021 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86b10>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:37,021 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:02:38,023 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c87b30>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:38,025 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86900>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:38,026 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86ab0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:38,026 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:02:39,029 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c869f0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:39,031 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2d96d80>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:39,032 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9c4a0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:39,032 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:02:40,034 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2d96d80>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:40,035 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86ea0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:40,036 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c845f0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:40,036 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:02:41,040 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86d50>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:41,041 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c87980>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:41,043 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86240>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:41,043 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:02:42,046 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7bda0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:42,047 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7baa0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:42,048 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9cdd0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:42,048 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:02:43,050 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9cb00>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:43,051 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7b2c0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:43,051 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7b050>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:43,051 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:02:44,052 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86900>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:44,053 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86bd0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:44,053 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86840>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:44,054 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:02:45,055 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86c90>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:45,055 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86fc0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:45,056 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9c0e0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:45,056 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:02:46,057 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9c980>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:46,058 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9c140>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:46,058 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c877a0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:46,058 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:02:47,060 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86e70>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:47,061 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86b40>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:47,061 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c870b0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:47,061 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:02:48,063 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c841d0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:48,064 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7be30>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:48,065 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7b6e0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:48,065 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:02:49,061 ERROR: Exceeded retry deadline
+2026-09-21 14:02:49,061 ERROR: Error communicating with DCS
+2026-09-21 14:02:49,062 INFO: DCS is not accessible
+2026-09-21 14:02:49,063 WARNING: Loop time exceeded, rescheduling immediately.
+2026-09-21 14:02:49,066 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9c4a0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:49,067 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9c320>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:49,068 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7bfe0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:49,068 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:02:50,069 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7b110>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:50,070 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c85100>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:50,070 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c850a0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:50,071 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:02:51,073 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c873e0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:51,074 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c869c0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:51,075 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c85d90>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:51,075 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:02:52,077 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9d2e0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:52,079 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9d6a0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:52,080 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9cec0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:52,080 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:02:53,082 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c87b30>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:53,083 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86ff0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:53,084 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c85940>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:53,084 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:02:54,086 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c87b90>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:54,086 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c851f0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:54,087 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7ae70>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:54,087 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:02:55,089 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7b1d0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:55,089 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9d1f0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:55,090 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9d250>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:55,090 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:02:56,093 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e22720>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:56,095 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c85f10>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:56,095 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c84560>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:56,095 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:02:57,097 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c873e0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:57,097 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c861e0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:57,098 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7bda0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:57,098 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:02:58,100 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7bd10>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:58,101 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9d550>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:58,102 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9d250>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:58,102 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:02:59,064 ERROR: Exceeded retry deadline
+2026-09-21 14:02:59,064 ERROR: Error communicating with DCS
+2026-09-21 14:02:59,065 INFO: DCS is not accessible
+2026-09-21 14:02:59,066 WARNING: Loop time exceeded, rescheduling immediately.
+2026-09-21 14:02:59,105 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9d9d0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:59,106 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7bbf0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:59,106 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c85df0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:02:59,106 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:03:00,108 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c84680>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:00,109 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86d50>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:00,109 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86f60>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:00,109 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:03:01,111 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c874a0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:01,113 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c85a60>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:01,114 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9d7f0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:01,114 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:03:02,118 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9d790>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:02,120 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2d97fb0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:02,120 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86de0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:02,120 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:03:03,123 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86900>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:03,124 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c85a30>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:03,125 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c87aa0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:03,125 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:03:04,129 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e454f0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:04,131 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7b050>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:04,132 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9da00>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:04,132 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:03:05,135 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9d790>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:05,136 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9c8f0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:05,138 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7bef0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:05,138 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:03:06,141 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7b230>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:06,143 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86840>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:06,144 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c85220>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:06,144 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:03:07,146 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86d50>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:07,148 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c87a10>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:07,149 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e22720>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:07,149 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:03:08,151 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9d250>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:08,153 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9c770>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:08,154 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9cb60>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:08,154 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:03:09,067 ERROR: Exceeded retry deadline
+2026-09-21 14:03:09,067 ERROR: Error communicating with DCS
+2026-09-21 14:03:09,069 INFO: DCS is not accessible
+2026-09-21 14:03:09,070 WARNING: Loop time exceeded, rescheduling immediately.
+2026-09-21 14:03:09,156 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c84920>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:09,158 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c85130>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:09,159 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86a80>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:09,159 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:03:10,162 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c87b90>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:10,164 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7ae70>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:10,165 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7b6e0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:10,165 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:03:11,168 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9c4a0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:11,169 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9c560>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:11,171 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9ce60>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:11,171 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:03:12,173 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c87350>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:12,174 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c87020>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:12,175 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c85220>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:12,175 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:03:13,178 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c84410>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:13,180 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c851f0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:13,181 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7b710>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:13,181 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:03:14,185 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7b5f0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:14,186 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9c9b0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:14,187 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9e8a0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:14,188 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:03:15,191 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7af90>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:15,193 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7b2c0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:15,194 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a36e99a0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:15,194 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:03:16,195 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c871d0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:16,196 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86d80>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:16,197 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86b10>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:16,197 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:03:17,199 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86960>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:17,200 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c87110>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:17,201 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9cb60>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:17,201 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:03:19,070 ERROR: Exceeded retry deadline
+2026-09-21 14:03:19,070 ERROR: Error communicating with DCS
+2026-09-21 14:03:19,071 INFO: DCS is not accessible
+2026-09-21 14:03:19,073 WARNING: Loop time exceeded, rescheduling immediately.
+2026-09-21 14:03:21,536 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: ReadTimeoutError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Read timed out. (read timeout=3.3328788513329832)")
+2026-09-21 14:03:21,538 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c87290>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:21,540 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c85df0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:21,540 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:03:25,878 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: ReadTimeoutError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Read timed out. (read timeout=3.3326018863347904)")
+2026-09-21 14:03:25,879 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86990>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:25,880 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e22720>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:25,880 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:03:29,073 ERROR: Exceeded retry deadline
+2026-09-21 14:03:29,073 ERROR: Error communicating with DCS
+2026-09-21 14:03:29,075 INFO: DCS is not accessible
+2026-09-21 14:03:29,076 WARNING: Loop time exceeded, rescheduling immediately.
+2026-09-21 14:03:30,216 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: ReadTimeoutError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Read timed out. (read timeout=3.332699623331185)")
+2026-09-21 14:03:30,217 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7bfb0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:30,218 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9cf80>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:30,218 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:03:34,557 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: ReadTimeoutError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Read timed out. (read timeout=3.33277398533149)")
+2026-09-21 14:03:34,559 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7b800>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:34,560 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2d96d80>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:34,560 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:03:38,900 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: ReadTimeoutError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Read timed out. (read timeout=3.33124765533042)")
+2026-09-21 14:03:38,902 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c85ee0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:38,903 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c85220>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:38,903 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:03:39,076 ERROR: Exceeded retry deadline
+2026-09-21 14:03:39,076 ERROR: Error communicating with DCS
+2026-09-21 14:03:39,078 INFO: DCS is not accessible
+2026-09-21 14:03:39,079 WARNING: Loop time exceeded, rescheduling immediately.
+2026-09-21 14:03:43,242 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: ReadTimeoutError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Read timed out. (read timeout=3.331913202332847)")
+2026-09-21 14:03:43,244 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9cd70>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:43,245 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9c8f0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:43,245 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:03:47,585 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: ReadTimeoutError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Read timed out. (read timeout=3.3322790613322772)")
+2026-09-21 14:03:47,586 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86ab0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:47,587 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c840b0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:47,587 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:03:49,080 ERROR: Exceeded retry deadline
+2026-09-21 14:03:49,080 ERROR: Error communicating with DCS
+2026-09-21 14:03:49,081 INFO: DCS is not accessible
+2026-09-21 14:03:49,082 WARNING: Loop time exceeded, rescheduling immediately.
+2026-09-21 14:03:51,924 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: ReadTimeoutError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Read timed out. (read timeout=3.3322812293311777)")
+2026-09-21 14:03:51,925 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7bcb0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:51,926 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7b710>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:51,926 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:03:56,266 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: ReadTimeoutError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Read timed out. (read timeout=3.3321751983324552)")
+2026-09-21 14:03:56,267 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9d8b0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:56,269 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7b110>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:03:56,269 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:03:59,083 ERROR: Exceeded retry deadline
+2026-09-21 14:03:59,083 ERROR: Error communicating with DCS
+2026-09-21 14:03:59,085 INFO: DCS is not accessible
+2026-09-21 14:03:59,086 WARNING: Loop time exceeded, rescheduling immediately.
+2026-09-21 14:04:00,608 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: ReadTimeoutError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Read timed out. (read timeout=3.3323837733308515)")
+2026-09-21 14:04:00,610 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86f60>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:04:00,611 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c87500>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:04:00,611 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:04:04,950 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: ReadTimeoutError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Read timed out. (read timeout=3.3327694253324203)")
+2026-09-21 14:04:04,952 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c85220>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:04:04,953 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9c080>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:04:04,953 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:04:09,086 ERROR: Exceeded retry deadline
+2026-09-21 14:04:09,086 ERROR: Error communicating with DCS
+2026-09-21 14:04:09,088 INFO: DCS is not accessible
+2026-09-21 14:04:09,089 WARNING: Loop time exceeded, rescheduling immediately.
+2026-09-21 14:04:09,291 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: ReadTimeoutError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Read timed out. (read timeout=3.3329259653340464)")
+2026-09-21 14:04:09,293 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9c320>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:04:09,294 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86810>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:04:09,294 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:04:13,634 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: ReadTimeoutError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Read timed out. (read timeout=3.3320169473348265)")
+2026-09-21 14:04:13,636 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c873e0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:04:13,637 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c877d0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:04:13,637 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:04:17,976 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: ReadTimeoutError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Read timed out. (read timeout=3.3320018723328153)")
+2026-09-21 14:04:17,977 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7b9b0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:04:17,978 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9cd70>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:04:17,978 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:04:19,090 ERROR: Exceeded retry deadline
+2026-09-21 14:04:19,090 ERROR: Error communicating with DCS
+2026-09-21 14:04:19,093 INFO: DCS is not accessible
+2026-09-21 14:04:19,094 WARNING: Loop time exceeded, rescheduling immediately.
+2026-09-21 14:04:22,315 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: ReadTimeoutError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Read timed out. (read timeout=3.3324018493343224)")
+2026-09-21 14:04:22,318 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a357b470>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:04:22,319 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c87200>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:04:22,319 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:04:26,657 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: ReadTimeoutError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Read timed out. (read timeout=3.332853428333086)")
+2026-09-21 14:04:26,660 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c857f0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:04:26,661 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c869f0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:04:26,662 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:04:29,095 ERROR: Exceeded retry deadline
+2026-09-21 14:04:29,095 ERROR: Error communicating with DCS
+2026-09-21 14:04:29,097 INFO: DCS is not accessible
+2026-09-21 14:04:29,099 WARNING: Loop time exceeded, rescheduling immediately.
+2026-09-21 14:04:31,000 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: ReadTimeoutError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Read timed out. (read timeout=3.331837137332817)")
+2026-09-21 14:04:31,003 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7bb90>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:04:31,005 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9db50>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:04:31,005 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:04:35,345 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: ReadTimeoutError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Read timed out. (read timeout=3.332268799332572)")
+2026-09-21 14:04:35,347 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2e7bb90>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:04:35,348 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2d96d80>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:04:35,348 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:04:39,099 ERROR: Exceeded retry deadline
+2026-09-21 14:04:39,099 ERROR: Error communicating with DCS
+2026-09-21 14:04:39,100 INFO: DCS is not accessible
+2026-09-21 14:04:39,102 WARNING: Loop time exceeded, rescheduling immediately.
+2026-09-21 14:04:39,686 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: ReadTimeoutError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Read timed out. (read timeout=3.331936613330375)")
+2026-09-21 14:04:39,687 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c871a0>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:04:39,688 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c86a80>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:04:39,688 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:04:44,024 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: ReadTimeoutError("HTTPConnectionPool(host='pat-1.example.net', port=2379): Read timed out. (read timeout=3.331797290332664)")
+2026-09-21 14:04:44,026 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9c080>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:04:44,027 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c9e810>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:04:44,027 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:04:48,290 ERROR: Failed to get list of machines from http://pat-1.example.net:2379/v3: ProtocolError('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))
+2026-09-21 14:04:48,291 ERROR: Failed to get list of machines from http://pat-2.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-2.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c87b90>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:04:48,292 ERROR: Failed to get list of machines from http://pat-3.example.net:2379/v3: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/cluster/member/list (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c85f40>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:04:48,292 ERROR: KVCache.run EtcdConnectionFailed('No more machines in the cluster')
+2026-09-21 14:04:49,102 ERROR: Exceeded retry deadline
+2026-09-21 14:04:49,102 ERROR: Error communicating with DCS
+2026-09-21 14:04:49,103 INFO: DCS is not accessible
+2026-09-21 14:04:49,104 WARNING: Loop time exceeded, rescheduling immediately.
+2026-09-21 14:04:50,319 ERROR: Request to server http://pat-3.example.net:2379 failed: MaxRetryError("HTTPConnectionPool(host='pat-3.example.net', port=2379): Max retries exceeded with url: /v3/kv/range (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x78c4a2c84410>: Failed to establish a new connection: [Errno 111] Connection refused'))")
+2026-09-21 14:04:50,319 INFO: Reconnection allowed, looking for another server.
+2026-09-21 14:04:50,319 INFO: Retrying on http://pat-1.example.net:2379
+2026-09-21 14:04:50,320 INFO: Selected new etcd server http://pat-1.example.net:2379
+2026-09-21 14:04:50,419 INFO: no action. I am (pat-2), a secondary, and following a leader (pat-1)
+2026-09-21 14:04:50,637 INFO: no action. I am (pat-2), a secondary, and following a leader (pat-1)
+2026-09-21 14:04:51,570 INFO: Lock owner: pat-1; I am pat-2
+2026-09-21 14:04:51,576 INFO: Local timeline=4 lsn=0/407AED0
+2026-09-21 14:04:51,673 INFO: no action. I am (pat-2), a secondary, and following a leader (pat-1)
+2026-09-21 14:05:02,071 INFO: Lock owner: pat-1; I am pat-2
+2026-09-21 14:05:02,075 INFO: Local timeline=4 lsn=0/407AED0
+2026-09-21 14:05:02,084 INFO: primary_timeline=4
+2026-09-21 14:05:02,129 INFO: no action. I am (pat-2), a secondary, and following a leader (pat-1)

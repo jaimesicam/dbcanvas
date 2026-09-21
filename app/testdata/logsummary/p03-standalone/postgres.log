@@ -1,0 +1,7 @@
+2026-09-21 14:07:01.380 UTC [2546] LOG:  starting PostgreSQL 16.15 - Percona Distribution on x86_64-pc-linux-gnu, compiled by gcc (GCC) 14.2.1 20250110 (Red Hat 14.2.1-13), 64-bit
+2026-09-21 14:07:01.380 UTC [2546] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-09-21 14:07:01.380 UTC [2546] LOG:  listening on IPv6 address "::", port 5432
+2026-09-21 14:07:01.382 UTC [2546] LOG:  listening on Unix socket "/run/postgresql/.s.PGSQL.5432"
+2026-09-21 14:07:01.388 UTC [2546] LOG:  listening on Unix socket "/tmp/.s.PGSQL.5432"
+2026-09-21 14:07:01.392 UTC [2550] LOG:  database system was shut down at 2026-09-21 14:06:59 UTC
+2026-09-21 14:07:01.396 UTC [2546] LOG:  database system is ready to accept connections

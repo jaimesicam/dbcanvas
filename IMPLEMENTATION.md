@@ -25158,3 +25158,44 @@ this one fixture would need a real fix (not just a comment) on a differently-siz
 
 `cd app && go build ./... && go vet ./... && go test ./...`: 135 failing test functions remain.
 Stack destroyed after capture; design kept.
+
+## 406. Rebuilding the missing test corpus, phase 5: PostgreSQL — `app/testdata/logsummary/p0{1,2,3}-*/` (new)
+
+Fifth installment of the §401 corpus rebuild. Three real fixtures: a 3-node Patroni cluster
+(`patroni:3`), three independent standalone PostgreSQL nodes wired into manual streaming
+replication (no cluster manager), and one of those same nodes read standalone. 127 failing test
+functions remain, down from 135.
+
+### Patroni's own log is journald-only; the parser wants a file
+
+Patroni logs to stdout under systemd, never to a file, so there is no `/var/log/patroni/*.log` to
+collect. `journalctl -u patroni -o cat` strips the syslog wrapper and reproduces exactly Patroni's
+own line format (`2026-... INFO: ...`), which concatenated with PostgreSQL's own log file
+(`$PGDATA/log/postgresql-*.log`) reproduces the "PG log + Patroni journal, as the collector
+produces it" shape the fixture needs — order between the two files' lines doesn't matter, since the
+model re-sorts every record by its own parsed timestamp regardless of which file it came from.
+
+### The two failures that turned out to be timing, and the one that's a real gap
+
+- **The DCS-lost fixture's "30-second write outage" needed the actual etcd cluster stopped on
+  all three nodes at once** — patroni tolerates a single node's DCS being unreachable far better
+  than a quorum loss across all three, and only the full stop produced the repeated
+  `Error communicating with DCS` / `DCS is not accessible` sequence the finding depends on.
+- **A real leadership change (not just a local crash-restart) needed the `patroni` service itself
+  stopped, not just `postgres` killed** — killing postgres alone lets Patroni's own supervisor
+  restart it locally within the same term, which is a real, useful thing to know (a naive
+  `kill -9` test does not reproduce a failover at all) but not what this fixture needed.
+- **Not fixed**: `TestPGClusterCreationIsNotADivergence` still fails on `p01-patroni-cluster`. This
+  capture's genuinely unplanned failover — `kill -9` on the then-primary's postgres, followed later
+  by stopping its Patroni — left a few bytes of un-streamed WAL, which Patroni correctly detected
+  and repaired with a real `pg_rewind` on rejoin. That is exactly what happened, and stands in
+  contrast to whatever exact sequence the original capture used, which experienced a genuinely
+  clean crash with zero divergence. Getting a truly zero-divergence unplanned kill is a matter of
+  timing precision this session didn't reach; the test is left failing and named here rather than
+  weakened.
+
+### Verified
+
+`cd app && go build ./... && go vet ./... && go test ./...`: 127 failing test functions remain (all
+in the other still-missing families, plus the one PG gap above). Both stacks destroyed after
+capture; designs kept.

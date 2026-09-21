@@ -1,0 +1,29 @@
+2026-09-21 14:12:27.837 UTC [2995] LOG:  replication terminated by primary server
+2026-09-21 14:12:27.837 UTC [2995] DETAIL:  End of WAL reached on timeline 1 at 0/80000D8.
+2026-09-21 14:12:27.837 UTC [2995] FATAL:  could not send end-of-streaming message to primary: server closed the connection unexpectedly
+		This probably means the server terminated abnormally
+		before or while processing the request.
+	no COPY in progress
+2026-09-21 14:12:27.838 UTC [2994] LOG:  invalid record length at 0/80000D8: expected at least 24, got 0
+2026-09-21 14:12:27.840 UTC [3018] FATAL:  could not connect to the primary server: connection to server at "pg1.example.net" (172.23.0.3), port 5432 failed: Connection refused
+		Is the server running on that host and accepting TCP/IP connections?
+2026-09-21 14:12:27.840 UTC [2994] LOG:  waiting for WAL to become available at 0/80000F0
+2026-09-21 14:12:32.840 UTC [3019] FATAL:  could not connect to the primary server: connection to server at "pg1.example.net" (172.23.0.3), port 5432 failed: Connection refused
+		Is the server running on that host and accepting TCP/IP connections?
+2026-09-21 14:12:32.841 UTC [2994] LOG:  waiting for WAL to become available at 0/80000F0
+2026-09-21 14:12:37.846 UTC [3020] FATAL:  could not connect to the primary server: connection to server at "pg1.example.net" (172.23.0.3), port 5432 failed: Connection refused
+		Is the server running on that host and accepting TCP/IP connections?
+2026-09-21 14:12:37.846 UTC [2994] LOG:  waiting for WAL to become available at 0/80000F0
+2026-09-21 14:12:42.848 UTC [3021] FATAL:  could not connect to the primary server: connection to server at "pg1.example.net" (172.23.0.3), port 5432 failed: Connection refused
+		Is the server running on that host and accepting TCP/IP connections?
+2026-09-21 14:12:42.848 UTC [2994] LOG:  waiting for WAL to become available at 0/80000F0
+2026-09-21 14:12:47.856 UTC [3087] FATAL:  could not connect to the primary server: connection to server at "pg1.example.net" (172.23.0.3), port 5432 failed: Connection refused
+		Is the server running on that host and accepting TCP/IP connections?
+2026-09-21 14:12:47.856 UTC [2994] LOG:  waiting for WAL to become available at 0/80000F0
+2026-09-21 14:12:49.751 UTC [2994] LOG:  received promote request
+2026-09-21 14:12:49.751 UTC [2994] LOG:  redo done at 0/8000060 system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 38.88 s
+2026-09-21 14:12:49.760 UTC [2994] LOG:  selected new timeline ID: 2
+2026-09-21 14:12:49.900 UTC [2994] LOG:  archive recovery complete
+2026-09-21 14:12:49.906 UTC [2992] LOG:  checkpoint starting: force
+2026-09-21 14:12:49.907 UTC [2990] LOG:  database system is ready to accept connections
+2026-09-21 14:12:49.924 UTC [2992] LOG:  checkpoint complete: wrote 3 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.005 s, sync=0.002 s, total=0.019 s; sync files=2, longest=0.001 s, average=0.001 s; distance=32768 kB, estimate=32768 kB; lsn=0/8000140, redo lsn=0/8000108
