@@ -19,8 +19,10 @@ import (
 // rest are standbys cloned from it, and `repmgrd` on every node provides automatic
 // failover. It mirrors the Patroni frame's options (catalog OS/version/arch,
 // superuser password, PMM, Squid proxy, Intranet-CA TLS) but uses repmgr instead of
-// Patroni/etcd and, for backups, **Barman cloud** (barman-cloud-backup /
-// -wal-archive) pushing to a SeaweedFS S3 node instead of pgBackRest. Quorum-style
+// Patroni/etcd. Backups go to a SeaweedFS S3 node with **either engine** — pgBackRest,
+// as the standalone and Patroni clusters use, or **Barman cloud** (barman-cloud-backup /
+// -wal-archive), which is the one that works against a plain-HTTP store. See
+// repmgrpgbackrest.go for the choice and what differs between them. Quorum-style
 // guidance: 3–7 nodes. Each node exposes PostgreSQL on 5432 (publishable to the host).
 
 // barmanSeaweedIssues validates the SeaweedFS node backing Barman for a repmgr frame
@@ -41,17 +43,24 @@ func barmanSeaweedIssues(who, seaweedNodeID string, doc designDoc) []issue {
 
 // repmgrConfig is the non-secret profile shown for a deployed repmgr node.
 type repmgrConfig struct {
-	Cluster    string `json:"cluster"`
-	Image      string `json:"image"`
-	OS         string `json:"os"`
-	Hostname   string `json:"hostname"`
-	FQDN       string `json:"fqdn"`
-	PGMajor    string `json:"pgMajor"`
-	PGVersion  string `json:"pgVersion"`
-	Role       string `json:"role"`   // primary | standby (initial; repmgr may fail over)
-	NodeID     int    `json:"nodeId"` // repmgr node_id
-	UseBarman  bool   `json:"useBarman"`
-	BackupRepo string `json:"backupRepo"` // e.g. "Barman → SeaweedFS S3 (bucket/prefix)" when enabled
+	Cluster   string `json:"cluster"`
+	Image     string `json:"image"`
+	OS        string `json:"os"`
+	Hostname  string `json:"hostname"`
+	FQDN      string `json:"fqdn"`
+	PGMajor   string `json:"pgMajor"`
+	PGVersion string `json:"pgVersion"`
+	Role      string `json:"role"`   // primary | standby (initial; repmgr may fail over)
+	NodeID    int    `json:"nodeId"` // repmgr node_id
+	UseBarman bool   `json:"useBarman"`
+	// BackupEngine is which tool backs this cluster up ("barman" | "pgbackrest" | ""). The
+	// panel needs it to pick which set of commands to show: the two share a bucket and a
+	// Backup now button and share nothing else.
+	BackupEngine string `json:"backupEngine,omitempty"`
+	// BackupStanza is the pgBackRest stanza every one of its commands takes (pgBackRest only —
+	// Barman's equivalent is BackupServer below).
+	BackupStanza string `json:"backupStanza,omitempty"`
+	BackupRepo   string `json:"backupRepo"` // e.g. "Barman → SeaweedFS S3 (bucket/prefix)" when enabled
 	// The resolved Barman destination, so the panel can name the bucket this cluster
 	// actually backs up to (the frame picks one of the SeaweedFS node's buckets) and
 	// print barman-cloud commands that run as they stand.
@@ -179,6 +188,21 @@ func barmanArchiveCommand(label string, sw seaweedConfig) string {
 
 // repmgrRecordBackupTarget writes the resolved Barman destination into every member's config.
 func (a *App) repmgrRecordBackupTarget(st Stack, members []designNode, frame designFrame, sw seaweedConfig) {
+	// pgBackRest's destination is the repository, not a URL its commands take: every one of
+	// them names the stanza and reads the endpoint out of /etc/pgbackrest/pgbackrest.conf. So
+	// the bucket is recorded (the panel names where the objects land) and the barman-shaped
+	// fields are left empty rather than filled with values no pgbackrest command would accept.
+	if repmgrBackupEngine(frame) == "pgbackrest" {
+		kv := map[string]any{
+			"backupRepo":   fmt.Sprintf("pgBackRest → SeaweedFS S3 (%s/pgbackrest)", sw.Bucket),
+			"backupBucket": sw.Bucket,
+			"backupStanza": repmgrStanza(frame.Label),
+		}
+		for _, n := range members {
+			a.persistConfigKeys(st, n.ID, kv)
+		}
+		return
+	}
 	kv := map[string]any{
 		"backupRepo":     barmanRepoLabel(frame.Label, sw),
 		"backupBucket":   sw.Bucket,
@@ -232,9 +256,12 @@ func (a *App) provisionRepmgrFrame(st Stack, frame designFrame, doc designDoc) {
 			}
 		}
 	}
-	backupRepo := ""
-	if frame.UseBarman {
+	backupRepo, backupEngine := "", repmgrBackupEngine(frame)
+	switch backupEngine {
+	case "barman":
 		backupRepo = "Barman → SeaweedFS S3"
+	case "pgbackrest":
+		backupRepo = "pgBackRest → SeaweedFS S3"
 	}
 
 	// node_id is the 1-based member index (stable while labels are stable). Member 0
@@ -250,6 +277,7 @@ func (a *App) provisionRepmgrFrame(st Stack, frame designFrame, doc designDoc) {
 			Hostname: host, FQDN: fqdnOf(host, domain),
 			PGMajor: major, PGVersion: frame.PGVersion, Role: role, NodeID: i + 1,
 			UseBarman: frame.UseBarman, BackupRepo: backupRepo,
+			BackupEngine: backupEngine, BackupStanza: repmgrStanza(frame.Label),
 			Service: pgServiceName(frame.OS, major), DataDir: pgDataDir(frame.OS, major),
 			GenerateCert: frame.GenerateCert, UseProxy: frame.UseProxy, MonitoredBy: monitoredBy,
 			Ports:      []int{patroniPGPort},
@@ -276,12 +304,16 @@ func (a *App) provisionRepmgrFrame(st Stack, frame designFrame, doc designDoc) {
 			return
 		}
 
-		// Barman needs the SeaweedFS node up so its S3 config/secret are readable.
+		// Either backup engine needs the SeaweedFS node up so its S3 config/secret are readable.
 		var swCfg seaweedConfig
 		var swSec seaweedSecrets
-		if frame.UseBarman {
+		if repmgrUsesBackups(frame) {
+			store := "Barman store"
+			if backupEngine == "pgbackrest" {
+				store = "pgBackRest repository"
+			}
 			for _, n := range members {
-				a.pxcNewProg(st.ID, n.ID).phase("Waiting for SeaweedFS (Barman store)", 8)
+				a.pxcNewProg(st.ID, n.ID).phase("Waiting for SeaweedFS ("+store+")", 8)
 			}
 			c, s, werr := a.waitSeaweedBucket(ctx, st.ID, frame.SeaweedFSNodeID, frame.SeaweedFSBucket, deployTimeout())
 			if werr != nil {
@@ -356,8 +388,24 @@ func (a *App) provisionRepmgrFrame(st Stack, frame designFrame, doc designDoc) {
 			}
 		}
 
-		// ---- Phase 5: initial Barman backup on the primary (best-effort) ----
-		if frame.UseBarman {
+		// ---- Phase 5: initial backup on the primary (best-effort, either engine) ----
+		// pgBackRest needs its stanza created before anything can be pushed to the repository,
+		// and the primary is where that happens: the stanza records the primary's own data
+		// directory and PostgreSQL has to be running for stanza-create to read it.
+		if repmgrBackupEngine(frame) == "pgbackrest" {
+			pr := a.pxcNewProg(st.ID, primary.ID)
+			pr.phase("Creating pgBackRest stanza + initial backup", 90)
+			dep, _ := a.store.GetDeployment(st.ID, primary.ID)
+			env := []string{"STANZA=" + repmgrStanza(frame.Label)}
+			if err := a.runStep(ctx, dep.ContainerID, patroniBackupScript, env, pr.logln); err != nil {
+				// Non-fatal, like Barman's below: the cluster is up and replicating, and a
+				// failed first backup is recoverable with the Backup now button.
+				pr.logln("initial pgBackRest backup failed: " + err.Error())
+			} else {
+				pr.logln("pgBackRest stanza created + initial full backup taken")
+			}
+		}
+		if frame.UseBarman && repmgrBackupEngine(frame) == "barman" {
 			pr := a.pxcNewProg(st.ID, primary.ID)
 			pr.phase("Taking initial Barman backup", 90)
 			dep, _ := a.store.GetDeployment(st.ID, primary.ID)
@@ -486,6 +534,32 @@ func (a *App) repmgrPrepareNode(ctx context.Context, st Stack, frame designFrame
 		}
 	}
 
+	// pgBackRest (when chosen) — installed on every node, like Barman below and for the same
+	// reason: after a failover whichever member is primary has to archive WAL, and every member
+	// has to be able to restore. The config is written here too, before PostgreSQL starts, so
+	// the first archive-push the primary attempts already has a repository to push to.
+	if repmgrBackupEngine(frame) == "pgbackrest" {
+		pr.phase("Installing pgBackRest", 46)
+		pbrScript := repmgrPgBackRestInstallRHEL
+		if debian {
+			pbrScript = repmgrPgBackRestInstallDebian
+		}
+		if err := a.runStep(ctx, id, pbrScript, []string{"VER=" + frame.PGVersion}, pr.logln); err != nil {
+			return pr.fail("install pgbackrest: %v", err)
+		}
+		if err := a.runStep(ctx, id, patroniPgBackRestDirsScript, nil, pr.logln); err != nil {
+			return pr.fail("prepare pgbackrest dirs: %v", err)
+		}
+		// The same generator Patroni and standalone PostgreSQL use: to pgBackRest a repmgr
+		// member is one PostgreSQL with one data directory and one stanza, which is exactly
+		// what that config describes.
+		conf := patroniPgBackRestConf(frame.Label, frame.OS, major, swCfg, swSec)
+		if err := a.engCtx(ctx).CopyFile(ctx, id, "/etc/pgbackrest", "pgbackrest.conf", 0o644, []byte(conf)); err != nil {
+			return pr.fail("write pgbackrest.conf: %v", err)
+		}
+		pr.logln("pgbackrest.conf written (stanza " + repmgrStanza(frame.Label) + ", repo " + swCfg.Bucket + "/pgbackrest)")
+	}
+
 	// Barman cloud utilities + AWS credentials (when enabled) — installed on every
 	// node so any node can archive WAL after a failover.
 	if frame.UseBarman {
@@ -591,7 +665,12 @@ func (a *App) repmgrSetupPrimary(ctx context.Context, st Stack, frame designFram
 		}
 	}
 	confEnv := []string{"CONFDIR=" + confDir, "DATADIR=" + dataDir, "REPLUSER=" + sec.ReplUser}
-	if frame.UseBarman {
+	if repmgrBackupEngine(frame) == "pgbackrest" {
+		// Set on the primary only. `repmgr standby clone` copies the primary's configuration,
+		// so the standbys inherit archive_command and a member promoted by a switchover or a
+		// failover is already archiving without anything being re-applied.
+		confEnv = append(confEnv, "ARCHIVE_CMD="+repmgrPgBackRestArchiveCommand(frame.Label))
+	} else if frame.UseBarman {
 		confEnv = append(confEnv, "ARCHIVE_CMD="+barmanArchiveCommand(frame.Label, swCfg))
 	}
 	if frame.GenerateCert {
@@ -720,14 +799,31 @@ func (a *App) handleRepmgrBackup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "repmgr cluster not found")
 		return
 	}
-	if !frame.UseBarman {
-		writeErr(w, http.StatusBadRequest, "Barman backup is not enabled for this cluster")
+	engine := repmgrBackupEngine(frame)
+	if engine == "" {
+		writeErr(w, http.StatusBadRequest, "backups are not enabled for this cluster")
 		return
 	}
 	ctx := r.Context()
 	cid := a.repmgrPrimaryContainer(ctx, st, frame, doc)
 	if cid == "" {
 		writeErr(w, http.StatusConflict, "no running primary found for this cluster")
+		return
+	}
+	// pgBackRest reads the repository out of /etc/pgbackrest/pgbackrest.conf, written at
+	// deploy, so the command needs nothing but the stanza — and no SeaweedFS round trip to
+	// build it. stanza-create runs first and is a no-op when it already exists, which covers
+	// the cluster whose initial backup failed and is being retried from the button.
+	if engine == "pgbackrest" {
+		env := []string{"STANZA=" + repmgrStanza(frame.Label)}
+		if res, err := a.engCtx(ctx).Exec(ctx, cid, []string{"bash", "-c", patroniBackupNowScript}, env); err != nil {
+			writeErr(w, http.StatusInternalServerError, "pgBackRest backup failed: "+err.Error())
+			return
+		} else if res.Code != 0 {
+			writeErr(w, http.StatusInternalServerError, "pgBackRest backup failed: "+lastLines(res.Stderr+res.Stdout, 300))
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "engine": "pgbackrest"})
 		return
 	}
 	// The SeaweedFS config (bucket/endpoint) is needed to build the backup command.

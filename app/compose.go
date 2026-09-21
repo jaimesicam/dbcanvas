@@ -320,6 +320,12 @@ var composeLinks = []composeLink{
 				case "patroni":
 					f.UsePgBackRest = true
 				case "repmgr":
+					// Barman, not pgBackRest, although the frame now offers both. compose's
+					// job is the shortest spec that works, and pgBackRest's S3 client is
+					// HTTPS-only — so defaulting to it would make `--node repmgr,backup
+					// --node seaweedfs` fail validation on a store that compose built with
+					// its own defaults. Ask for pgBackRest in the designer, or set
+					// usePgBackRest on the frame directly.
 					f.UseBarman = true
 				case "psmrs", "psmdb":
 					f.EnablePBM = true

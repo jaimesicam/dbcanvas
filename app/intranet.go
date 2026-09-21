@@ -1902,8 +1902,24 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		} else if members%2 == 0 {
 			out = append(out, issue{Level: "warning", Message: "repmgr cluster " + f.Label + ": an odd number of members keeps a clear quorum on a split network"})
 		}
-		if f.UseBarman {
+		// One backup engine at a time. Both set is not a design anybody types on purpose — it
+		// comes of ticking pgBackRest on a frame that already had Barman — and it cannot be
+		// honoured: archive_command is a single setting, so one of the two would silently win
+		// and the cluster would archive with a tool the panel does not think it is using.
+		if f.UseBarman && f.UsePgBackRest {
+			out = append(out, issue{Level: "error", Message: "repmgr cluster " + f.Label +
+				" has both Barman and pgBackRest enabled — PostgreSQL has one archive_command, so pick one"})
+		}
+		switch repmgrBackupEngine(f) {
+		case "barman":
 			out = append(out, barmanSeaweedIssues("repmgr cluster "+f.Label, f.SeaweedFSNodeID, doc)...)
+			out = append(out, seaweedBucketIssues("repmgr cluster "+f.Label, f.SeaweedFSNodeID, f.SeaweedFSBucket, doc)...)
+		case "pgbackrest":
+			// The same rule the Patroni frame has, and the same function: pgBackRest's S3
+			// client is HTTPS-only, so a plain-HTTP store is an error rather than a cluster
+			// whose every backup fails. Barman has no such requirement, which is exactly the
+			// trade-off between the two engines here.
+			out = append(out, pgBackRestSeaweedIssues("repmgr cluster "+f.Label, f.SeaweedFSNodeID, doc)...)
 			out = append(out, seaweedBucketIssues("repmgr cluster "+f.Label, f.SeaweedFSNodeID, f.SeaweedFSBucket, doc)...)
 		}
 		img := pxcImage(f.OS, f.OSVersion, f.Arch)

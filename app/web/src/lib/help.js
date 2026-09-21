@@ -204,6 +204,14 @@ export const HELP = {
   k8sPgBouncerPods:
     'How many pooler pods to run. More than one gives the pooler itself redundancy; it does not increase how many ' +
     'backends PostgreSQL will accept.',
+  repmgrBackupEngine:
+    'Which tool archives WAL and takes the base backups. pgBackRest is what the standalone and ' +
+    'Patroni PostgreSQL clusters here use, so it is the one to pick if you want to compare like ' +
+    'with like — but its S3 client only speaks HTTPS, so the SeaweedFS node needs S3 TLS turned ' +
+    'on. barman-cloud is boto3 underneath and works against a plain-HTTP store, which makes it ' +
+    'the simpler one to stand up. Either way PostgreSQL has a single archive_command, so it is ' +
+    'one or the other, and the choice cannot be changed without redeploying the cluster.',
+
   k8sTopology:
     'A replica set is three mongod pods and is enough for high availability. Sharding adds three config servers ' +
     'and three mongos routers on top — the shape you need to demonstrate a shard key, chunk balancing, or a ' +

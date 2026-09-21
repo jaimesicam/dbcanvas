@@ -67,7 +67,9 @@ export default function RepmgrManager({ stackId, nodeId, frame, dep, onDeleteNod
   const [tab, setTab] = useState('overview')
   const cfg = dep.config || {}
   const sec = dep.secrets || {}
-  const hasBackup = !!cfg.useBarman
+  // Either engine gets the tab. useBarman alone is what clusters deployed before pgBackRest was
+  // an option carry, so it stays part of the test rather than being replaced by it.
+  const hasBackup = !!cfg.backupEngine || !!cfg.useBarman
 
   return (
     <div className="space-y-3">
@@ -147,12 +149,17 @@ function Creds({ cfg, sec }) {
 function BackupTab({ stackId, frameId, cfg }) {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState(null)
+  // Which engine this cluster was deployed with. Older clusters predate the field and were all
+  // Barman, so an absent value means Barman rather than "unknown".
+  const engine = cfg.backupEngine || 'barman'
+  const pgbr = engine === 'pgbackrest'
+  const label = pgbr ? 'pgBackRest' : 'Barman'
   async function runBackup() {
     setBusy(true)
     setMsg(null)
     try {
       await repmgrApi(stackId, frameId).backup()
-      setMsg({ tone: 'success', text: 'Barman backup completed.' })
+      setMsg({ tone: 'success', text: `${label} backup completed.` })
     } catch (e) {
       setMsg({ tone: 'danger', text: e.message || 'Backup failed.' })
     } finally {
@@ -162,15 +169,27 @@ function BackupTab({ stackId, frameId, cfg }) {
   return (
     <div className="space-y-3 text-sm">
       <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
-        Barman cloud (<span className="font-mono">barman-cloud-backup</span> / <span className="font-mono">-wal-archive</span>)
-        ships WAL + base backups to <span className="font-mono">{cfg.backupRepo || 'the SeaweedFS S3 bucket'}</span>.
-        WAL is archived continuously from the primary; the initial base backup runs at deploy, and the button
-        takes another on demand (on whichever member is primary now).
+        {pgbr ? (
+          <>
+            pgBackRest (<span className="font-mono">archive-push</span> / <span className="font-mono">backup</span>)
+            ships WAL + base backups to <span className="font-mono">{cfg.backupRepo || 'the SeaweedFS S3 bucket'}</span>.
+          </>
+        ) : (
+          <>
+            Barman cloud (<span className="font-mono">barman-cloud-backup</span> / <span className="font-mono">-wal-archive</span>)
+            ships WAL + base backups to <span className="font-mono">{cfg.backupRepo || 'the SeaweedFS S3 bucket'}</span>.
+          </>
+        )}
+        {' '}WAL is archived continuously from the primary; the initial base backup runs at deploy, and the button
+        takes another on demand (on whichever member is primary now). A switchover carries the archiving with it —
+        the standbys inherit <span className="font-mono">archive_command</span> when they clone.
       </div>
       <div className="space-y-1 text-xs">
         <KV k="Bucket" v={cfg.backupBucket} />
-        <KV k="Endpoint" v={cfg.backupEndpoint} />
-        <KV k="Server (stanza)" v={cfg.backupServer} />
+        {pgbr ? <KV k="Stanza" v={cfg.backupStanza} /> : <>
+          <KV k="Endpoint" v={cfg.backupEndpoint} />
+          <KV k="Server (stanza)" v={cfg.backupServer} />
+        </>}
       </div>
       <Button size="sm" className="w-full" disabled={busy} onClick={runBackup}>
         <Icon.Arrow size={15} /> {busy ? 'Backing up…' : 'Backup now'}
@@ -180,7 +199,7 @@ function BackupTab({ stackId, frameId, cfg }) {
           {msg.text}
         </div>
       )}
-      <BackupGuide engine="barman" cfg={cfg} nodeLabel={cfg.cluster} />
+      <BackupGuide engine={engine} cfg={cfg} nodeLabel={cfg.cluster} />
     </div>
   )
 }

@@ -3377,7 +3377,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
       id: fid, type: 'repmgr', label: nextNamedCluster(frames, 'repmgr-cluster'), x: fx, y: fy, w: 0, h: 0,
       os: 'oraclelinux', osVersion: '9', pgMajor: '16', pgVersion: '',
       rootPassword: '', pmmNodeId: '', useProxy: false,
-      useBarman: false, seaweedfsNodeId: '',
+      useBarman: false, usePgBackRest: false, seaweedfsNodeId: '',
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
     }
     const used = new Set(nodes.filter((n) => n.type === 'repmgr').map((n) => n.label))
@@ -10484,12 +10484,29 @@ function RepmgrFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame,
         </select>
       </Field>
 
-      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
-        <input type="checkbox" checked={!!f.useBarman} disabled={deployed} onChange={(e) => patchFrame(f.id, { useBarman: e.target.checked })} />
-        <span>Use Barman (SeaweedFS S3) for backups</span><Help text={HELP.seaweedfsBackup} />
-      </label>
-      {f.useBarman && (
-        <Field label="SeaweedFS node (S3 backup storage)" help={HELP.seaweedfsBackup} hint={seaweedNodes.length ? 'WAL archive + base backups land here via barman-cloud (works over HTTP or HTTPS).' : 'Add a SeaweedFS node to the stack first.'}>
+      {/* One engine, not two checkboxes: PostgreSQL has a single archive_command, so the two
+          are genuinely exclusive and a select says so better than a pair that can both be on. */}
+      <Field label="Backups" help={HELP.repmgrBackupEngine}
+        hint="WAL archiving plus base backups to a SeaweedFS S3 node. pgBackRest is what the standalone and Patroni clusters use; barman-cloud is the alternative, and the only one that works over plain HTTP.">
+        <select className={`${inputCls} ${lock}`} disabled={deployed}
+          value={f.usePgBackRest ? 'pgbackrest' : (f.useBarman ? 'barman' : 'none')}
+          onChange={(e) => patchFrame(f.id, {
+            usePgBackRest: e.target.value === 'pgbackrest',
+            useBarman: e.target.value === 'barman',
+            seaweedfsNodeId: e.target.value === 'none' ? '' : f.seaweedfsNodeId,
+          })}>
+          <option value="none">none</option>
+          <option value="pgbackrest">pgBackRest — needs S3 TLS</option>
+          <option value="barman">Barman cloud — works over HTTP</option>
+        </select>
+      </Field>
+      {(f.useBarman || f.usePgBackRest) && (
+        <Field label="SeaweedFS node (S3 backup storage)" help={HELP.seaweedfsBackup}
+          hint={seaweedNodes.length
+            ? (f.usePgBackRest
+              ? 'WAL archive + base backups land here via pgBackRest. Its S3 client is HTTPS-only, so this node needs S3 TLS on.'
+              : 'WAL archive + base backups land here via barman-cloud (works over HTTP or HTTPS).')
+            : 'Add a SeaweedFS node to the stack first.'}>
           <select className={`${inputCls} ${lock}`} value={f.seaweedfsNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { seaweedfsNodeId: e.target.value })}>
             <option value="">select a SeaweedFS node…</option>
             {seaweedNodes.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}

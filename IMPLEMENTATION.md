@@ -24628,3 +24628,85 @@ scripts make the nologin fix boot-persistent and assert afterwards, that repmgr.
 four service commands with the OS's own unit name, and that the sudoers entry is scoped, checked
 with `visudo -cf` and moved into place atomically — a malformed file in `/etc/sudoers.d` breaks
 sudo for every user on the node, including the root shell somebody would use to fix it.
+
+## 397. A repmgr cluster picks its backup engine — `app/repmgrpgbackrest.go` (new), `app/repmgr.go`, `app/intranet.go`, `app/compose.go`, `app/api_routes.go`, `app/repmgrssh_test.go`, `app/web/src/pages/{StackDesigner,RepmgrManager}.jsx`, `app/web/src/lib/help.js`, `docs/STACKS.md`
+
+A repmgr cluster could only back up with barman-cloud, which is an odd place for the choice to
+have been made. Every other PostgreSQL kind DBCanvas deploys — standalone and Patroni — uses
+pgBackRest, so the one cluster type whose entire subject is controlled failover was also the one
+where the backup tool differed from everything you would compare it against. The two are
+genuinely different tools worth having both of; this makes it a frame setting.
+
+**Almost none of it is new code, and that is the point.** `patroniPgBackRestConf`,
+`patroniPgBackRestDirsScript`, `patroniBackupScript`, `patroniBackupNowScript` and
+`patroniStanza` were already shared between Patroni and standalone PostgreSQL — the "patroni" in
+those names is history, not scope — and to pgBackRest a repmgr member is the same shape as a
+standalone node: one PostgreSQL, one data directory, one stanza. So the new file is the selector,
+the archive command and the two things that genuinely differ.
+
+**The package comes from a different repository.** Patroni installs Percona PostgreSQL and takes
+`percona-pgbackrest`; the repmgr frame is PGDG throughout (repmgr is not in Percona's repo, which
+is why the whole frame uses PGDG), and PGDG's package is plain `pgbackrest`. Installing Percona's
+build on a PGDG node pulls a second PostgreSQL in behind it — so this is one of the cases where
+reusing the neighbouring engine's install step would have been the wrong kind of sharing. It goes
+through `pin_install` for §379's reason: pgbackrest's own dependencies must not pull the node's
+PostgreSQL up a minor.
+
+**TLS is not optional, and that is the whole trade.** barman-cloud is boto3 and speaks plain HTTP,
+so a Barman repmgr cluster works against any SeaweedFS node. pgBackRest's S3 client is HTTPS-only.
+That is the same rule the Patroni frame already has, enforced by the same `pgBackRestSeaweedIssues`
+— an error rather than a warning, because the alternative is a cluster that deploys, reports a
+repository, and fails every backup.
+
+### One engine, not two booleans
+
+`UseBarman` and `UsePgBackRest` already existed on `designFrame` (the second was Patroni's), so
+the field work was nil — but both can be set, and validation refuses it: PostgreSQL has a single
+`archive_command`, so one would silently win and the cluster would archive with a tool the panel
+does not think it is using. `repmgrBackupEngine` still *resolves* rather than trusting that
+validation ran, preferring pgBackRest, because a frame with both is a Barman frame somebody has
+since ticked pgBackRest on. The designer renders it as a select rather than a pair of checkboxes,
+which is the honest shape for a choice that is genuinely exclusive.
+
+`compose` deliberately keeps wiring repmgr's `backup` option to **Barman**. Its job is the
+shortest spec that works, and it builds its SeaweedFS node with plain HTTP — so defaulting to
+pgBackRest would make `--node repmgr,backup --node seaweedfs` fail validation on a store compose
+created itself. The comment says so at the call site, because "why is this one different" is the
+question it invites.
+
+### What the panel had to learn
+
+`repmgrConfig` gained `BackupEngine` and `BackupStanza`, and `repmgrRecordBackupTarget` now
+branches: pgBackRest's destination is a *repository*, not a URL its commands take — every one of
+them names the stanza and reads the endpoint out of `/etc/pgbackrest/pgbackrest.conf` — so the
+barman-shaped fields (`backupEndpoint`, `backupS3Url`, `backupServer`) are left empty rather than
+filled with values no `pgbackrest` invocation would accept. The Backup tab picks its engine from
+the config and hands the same string to `BackupGuide`, which already had both sets of commands
+from §377; a cluster deployed before this field existed has no `backupEngine` and falls back to
+Barman, which is what it is.
+
+The on-demand backup endpoint is still `POST …/frames/{fid}/barman/backup`. It runs whichever
+engine the frame was designed with now, and the path is left alone on purpose: it is published,
+and the CLI and anything scripted against it would break. The route summary says what it actually
+does.
+
+### Verified
+
+On a three-node Oracle Linux 9 cluster (PostgreSQL 18) against a TLS SeaweedFS node:
+
+| | |
+| --- | --- |
+| validation, plain-HTTP store | refused: *pgBackRest requires the SeaweedFS node … to have S3 TLS enabled* |
+| validation, both engines on | refused: *PostgreSQL has one archive_command, so pick one* |
+| after deploy | stanza `repmgr-cluster-01` `status: ok`, one full backup, WAL archive range 000000010000000000000001–06 |
+| `archive_command` | `pgbackrest --stanza=repmgr-cluster-01 archive-push %p`, and **present on both standbys** — inherited through `standby clone` |
+| **after a switchover** | an incremental taken from the *new* primary lands on timeline 2 and references the old primary's full backup |
+| Backup now | `{"engine":"pgbackrest","status":"ok"}`, a third backup in the repository |
+
+That switchover row is the one worth keeping: it is where this feature and §396's meet, and it is
+the reason `archive_command` is set once on the primary rather than per member.
+
+The Go tests cover what a deploy cannot re-check cheaply: that both engines set resolves to one
+rather than configuring two, that the archive command keeps its `%p` (a command without it
+archives nothing and still exits 0) and agrees with the stanza the config generator writes, and
+that neither install script reaches for `percona-pgbackrest` on a PGDG node.

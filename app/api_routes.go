@@ -743,8 +743,11 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "Run an on-demand pgBackRest backup on a standalone PostgreSQL node."},
 		{Method: "POST", Path: "/api/stacks/{id}/frames/{fid}/pbm/backup", Group: gClusters, Handler: m((*App).handleMongoPBMBackup),
 			Summary: "Run an on-demand PBM backup on a MongoDB replica set or sharded cluster."},
+		// The path says barman because that was the only engine a repmgr cluster had when it was
+		// added; it now runs whichever the frame was designed with. Kept as it is rather than
+		// renamed — it is a published endpoint, and the CLI and any script using it would break.
 		{Method: "POST", Path: "/api/stacks/{id}/frames/{fid}/barman/backup", Group: gClusters, Handler: m((*App).handleRepmgrBackup),
-			Summary: "Run an on-demand Barman cloud backup on a repmgr cluster's primary."},
+			Summary: "Run an on-demand backup on a repmgr cluster's primary, with whichever engine it was deployed with (pgBackRest or Barman cloud)."},
 
 		// --- Kubernetes frames --------------------------------------------------
 		{Method: "GET", Path: "/api/stacks/{id}/frames/{fid}/k3d/kubeconfig", Group: gK3D, Handler: m((*App).handleK3DKubeconfig),

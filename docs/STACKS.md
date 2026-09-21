@@ -863,8 +863,25 @@ point in time. They are built from that deployment's own facts: the stanza, the 
 unit and the data directory are already filled in, so each one can be pasted into the node's root
 console as it stands. Standalone PostgreSQL and Patroni get the **pgBackRest** set (with Patroni's
 restore going through `patronictl`, because Patroni owns PostgreSQL and `systemctl` would be undone
-under you); repmgr gets the **barman-cloud** set. The Kubernetes operators are not included — there
-a backup is a custom resource, not a command.
+under you); repmgr gets whichever of the two its frame was built with. The Kubernetes operators are
+not included — there a backup is a custom resource, not a command.
+
+**A repmgr cluster picks its backup engine.** The frame's **Backups** setting offers *pgBackRest*
+or *Barman cloud*, and the trade is one line: pgBackRest is what the standalone and Patroni
+clusters here use, so it is the one to choose if you want to compare like with like — but its S3
+client only speaks HTTPS, so the SeaweedFS node needs **S3 TLS on**. barman-cloud is boto3
+underneath and works against a plain-HTTP store, which makes it the quicker one to stand up. The
+designer refuses a pgBackRest cluster pointed at a plain-HTTP store rather than deploying one
+whose every backup fails, and refuses both engines at once — PostgreSQL has a single
+`archive_command`, so one would silently win. It is a deploy-time choice: changing it means
+rebuilding the cluster.
+
+Either engine survives a switchover without anything being re-applied. The archive command is set
+on the primary, and `repmgr standby clone` copies the primary's configuration to the standbys — so
+whichever member is promoted is already archiving to the same repository, and an incremental
+backup taken from the new primary references the full backup the old one took. (`dbcanvas stack
+compose` still wires repmgr to Barman when you ask for `backup`, because it builds its SeaweedFS
+node with plain HTTP; pick pgBackRest in the designer.)
 
 **Operating a repmgr cluster.** Every repmgr member gets a **repmgr** tab: the commands for looking
 at the cluster, checking it, and changing who is primary — built from that member's own facts, so

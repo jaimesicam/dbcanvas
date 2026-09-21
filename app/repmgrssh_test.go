@@ -174,3 +174,64 @@ func TestRepmgrPeersOf(t *testing.T) {
 		t.Errorf("peers of member 0 = %+v", got)
 	}
 }
+
+// A repmgr cluster can back up with either engine, and they are exclusive because PostgreSQL has
+// one archive_command. Both set is not a design anybody types on purpose — it comes of ticking
+// pgBackRest on a frame that already had Barman — so it resolves rather than configuring two.
+func TestRepmgrBackupEngine(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		barman, pgbr bool
+		want         string
+	}{
+		{"neither", false, false, ""},
+		{"barman", true, false, "barman"},
+		{"pgbackrest", false, true, "pgbackrest"},
+		{"both — the newer, explicit choice wins", true, true, "pgbackrest"},
+	} {
+		f := designFrame{Type: "repmgr", UseBarman: tc.barman, UsePgBackRest: tc.pgbr}
+		if got := repmgrBackupEngine(f); got != tc.want {
+			t.Errorf("%s: engine = %q, want %q", tc.name, got, tc.want)
+		}
+		if got := repmgrUsesBackups(f); got != (tc.want != "") {
+			t.Errorf("%s: repmgrUsesBackups = %v", tc.name, got)
+		}
+	}
+}
+
+// The archive command and the stanza have to agree with each other and with the config the
+// deploy writes, or WAL goes somewhere the backups cannot find it.
+func TestRepmgrPgBackRestArchiveCommand(t *testing.T) {
+	cmd := repmgrPgBackRestArchiveCommand("repmgr-cluster-01")
+	if cmd != "pgbackrest --stanza=repmgr-cluster-01 archive-push %p" {
+		t.Errorf("archive_command = %q", cmd)
+	}
+	// %p must survive into postgresql.conf — PostgreSQL substitutes the WAL path there, and a
+	// command without it archives nothing while still exiting 0.
+	if !strings.Contains(cmd, "%p") {
+		t.Error("archive_command must carry the WAL-path placeholder")
+	}
+	// The stanza is the one the config generator and the Backup tab use.
+	if repmgrStanza("repmgr-cluster-01") != patroniStanza("repmgr-cluster-01") {
+		t.Error("the repmgr stanza must match the one patroniPgBackRestConf writes")
+	}
+}
+
+// The repmgr frame is PGDG, so its pgBackRest is PGDG's `pgbackrest`. Percona's build is for
+// Percona PostgreSQL and drags a second server in behind it on a PGDG node.
+func TestRepmgrPgBackRestInstallsThePGDGPackage(t *testing.T) {
+	for name, script := range map[string]string{
+		"RHEL":   repmgrPgBackRestInstallRHEL,
+		"Debian": repmgrPgBackRestInstallDebian,
+	} {
+		if strings.Contains(script, "percona-pgbackrest") {
+			t.Errorf("%s: must not install Percona's build on a PGDG node", name)
+		}
+		if !strings.Contains(script, "pin_install pgbackrest") {
+			t.Errorf("%s: pgbackrest must be pinned so it cannot pull PostgreSQL up a minor", name)
+		}
+		if !strings.Contains(script, "command -v pgbackrest") {
+			t.Errorf("%s: the install must fail loudly rather than leave a cluster that cannot archive", name)
+		}
+	}
+}
