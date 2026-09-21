@@ -1,0 +1,3 @@
+2026-09-21T12:51:41.321522Z 0 [System] [MY-011503] [Repl] Plugin group_replication reported: 'Group membership changed to gr0-3:3306, gr0-1:3306, gr0-2:3306 on view 17899940108384242:21.'
+2026-09-21T12:51:42.222137Z 0 [Warning] [MY-011499] [Repl] Plugin group_replication reported: 'Members removed from the group: gr0-2:3306'
+2026-09-21T12:51:42.222245Z 0 [System] [MY-011503] [Repl] Plugin group_replication reported: 'Group membership changed to gr0-3:3306, gr0-1:3306 on view 17899940108384242:22.'

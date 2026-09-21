@@ -1,0 +1,2 @@
+2026-09-21T12:34:52.414255Z 0 [System] [MY-011503] [Repl] Plugin group_replication reported: 'Group membership changed to gr0-3:3306, gr0-1:3306, gr0-2:3306 on view 17899940108384242:5.'
+2026-09-21T12:34:52.597550Z 0 [System] [MY-011492] [Repl] Plugin group_replication reported: 'The member with address gr0-2:3306 was declared online within the replication group.'

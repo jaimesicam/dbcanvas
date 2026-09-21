@@ -1,0 +1,28 @@
+2026-09-21T12:55:02.065005Z 11 [System] [MY-013587] [Repl] Plugin group_replication reported: 'Plugin 'group_replication' is starting.'
+2026-09-21T12:55:02.065405Z 11 [System] [MY-011565] [Repl] Plugin group_replication reported: 'Setting super_read_only=ON.'
+2026-09-21T12:55:02.092101Z 13 [System] [MY-010597] [Repl] 'CHANGE REPLICATION SOURCE TO FOR CHANNEL 'group_replication_applier' executed'. Previous state source_host='<NULL>', source_port= 0, source_log_file='', source_log_pos= 4, source_bind=''. New state source_host='<NULL>', source_port= 0, source_log_file='', source_log_pos= 4, source_bind=''.
+2026-09-21T12:55:02.129313Z 14 [System] [MY-014081] [Repl] Plugin group_replication reported: 'The Group Replication certifier broadcast thread (THD_certifier_broadcast) started.'
+2026-09-21T12:55:02.867630Z 11 [System] [MY-011511] [Repl] Plugin group_replication reported: 'This server is working as secondary member with primary member address gr0-1:3306.'
+2026-09-21T12:55:02.867731Z 0 [System] [MY-011565] [Repl] Plugin group_replication reported: 'Setting super_read_only=ON.'
+2026-09-21T12:55:02.867782Z 0 [Warning] [MY-013469] [Repl] Plugin group_replication reported: 'This member will start distributed recovery using clone. It is due to the number of missing transactions being higher than the configured threshold of 1.'
+2026-09-21T12:55:03.868107Z 11 [System] [MY-014010] [Repl] Plugin group_replication reported: 'Plugin 'group_replication' has been started.'
+2026-09-21T12:55:03.868787Z 0 [System] [MY-013471] [Repl] Plugin group_replication reported: 'Distributed recovery will transfer data using: Cloning from a remote group donor.'
+2026-09-21T12:55:03.869165Z 0 [System] [MY-011503] [Repl] Plugin group_replication reported: 'Group membership changed to gr0-3:3306, gr0-1:3306, gr0-2:3306 on view 17899940108384242:27.'
+2026-09-21T12:55:03.869456Z 26 [System] [MY-011566] [Repl] Plugin group_replication reported: 'Setting super_read_only=OFF.'
+2026-09-21T12:55:03.896453Z 27 [Warning] [MY-013460] [InnoDB] Clone removing all user data for provisioning: Started
+2026-09-21T12:55:03.988277Z 27 [Warning] [MY-013460] [InnoDB] Clone removing all user data for provisioning: Finished
+2026-09-21T12:55:07.238244Z 0 [System] [MY-011504] [Repl] Plugin group_replication reported: 'Group membership changed: This member has left the group.'
+2026-09-21T12:55:09.244876Z 0 [System] [MY-011650] [Repl] Plugin group_replication reported: 'Plugin 'group_replication' is stopping.'
+2026-09-21T12:55:09.246195Z 0 [System] [MY-014082] [Repl] Plugin group_replication reported: 'The Group Replication certifier broadcast thread (THD_certifier_broadcast) stopped.'
+2026-09-21T12:55:09.246435Z 0 [System] [MY-011651] [Repl] Plugin group_replication reported: 'Plugin 'group_replication' has been stopped.'
+2026-09-21T12:55:10.688157Z 0 [System] [MY-010910] [Server] /usr/sbin/mysqld: Shutdown complete (mysqld 8.0.46-37)  Percona Server (GPL), Release 37, Revision 39e2b60e.
+2026-09-21T12:55:11.286870Z 0 [Warning] [MY-011070] [Server] 'binlog_format' is deprecated and will be removed in a future release.
+2026-09-21T12:55:11.287796Z 0 [Warning] [MY-010097] [Server] Insecure configuration for --secure-log-path: Current value does not restrict location of generated files. Consider setting it to a valid, non-empty path.
+2026-09-21T12:55:11.287837Z 0 [System] [MY-010116] [Server] /usr/sbin/mysqld (mysqld 8.0.46-37) starting as process 2412
+2026-09-21T12:55:11.297097Z 1 [System] [MY-013576] [InnoDB] InnoDB initialization has started.
+2026-09-21T12:55:11.924302Z 1 [System] [MY-013577] [InnoDB] InnoDB initialization has ended.
+2026-09-21T12:55:12.060664Z 0 [Warning] [MY-010068] [Server] CA certificate ca.pem is self signed.
+2026-09-21T12:55:12.060686Z 0 [System] [MY-013602] [Server] Channel mysql_main configured to support TLS. Encrypted connections are now supported for this channel.
+2026-09-21T12:55:12.073258Z 0 [Warning] [MY-010604] [Repl] Neither --relay-log nor --relay-log-index were used; so replication may break when this MySQL server acts as a replica and has his hostname changed!! Please use '--relay-log=gr0-2-relay-bin' to avoid this problem.
+2026-09-21T12:55:12.140197Z 0 [System] [MY-011323] [Server] X Plugin ready for connections. Bind-address: '::' port: 33060, socket: /var/lib/mysql/mysqlx.sock
+2026-09-21T12:55:12.140250Z 0 [System] [MY-010931] [Server] /usr/sbin/mysqld: ready for connections. Version: '8.0.46-37'  socket: '/var/lib/mysql/mysql.sock'  port: 3306  Percona Server (GPL), Release 37, Revision 39e2b60e.

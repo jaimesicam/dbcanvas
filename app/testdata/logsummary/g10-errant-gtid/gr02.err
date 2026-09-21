@@ -1,0 +1,10 @@
+2026-09-21T12:51:39.758176Z 102 [System] [MY-013587] [Repl] Plugin group_replication reported: 'Plugin 'group_replication' is starting.'
+2026-09-21T12:51:39.758501Z 102 [System] [MY-011565] [Repl] Plugin group_replication reported: 'Setting super_read_only=ON.'
+2026-09-21T12:51:39.798989Z 104 [System] [MY-010597] [Repl] 'CHANGE REPLICATION SOURCE TO FOR CHANNEL 'group_replication_applier' executed'. Previous state source_host='<NULL>', source_port= 0, source_log_file='', source_log_pos= 4, source_bind=''. New state source_host='<NULL>', source_port= 0, source_log_file='', source_log_pos= 4, source_bind=''.
+2026-09-21T12:51:39.824892Z 105 [System] [MY-014081] [Repl] Plugin group_replication reported: 'The Group Replication certifier broadcast thread (THD_certifier_broadcast) started.'
+2026-09-21T12:51:41.328177Z 0 [ERROR] [MY-011526] [Repl] Plugin group_replication reported: 'This member has more executed transactions than those present in the group. Local transactions: a25786b5-b5b8-11f1-838e-8648493e5ebf:1 > Group transactions: 431c1883-e5ba-4284-b35a-34f15f7093b4:1-27082'
+2026-09-21T12:51:41.328207Z 0 [ERROR] [MY-011522] [Repl] Plugin group_replication reported: 'The member contains transactions not present in the group. The member will now exit the group.'
+2026-09-21T12:51:41.328235Z 0 [System] [MY-011503] [Repl] Plugin group_replication reported: 'Group membership changed to gr0-3:3306, gr0-1:3306, gr0-2:3306 on view 17899940108384242:21.'
+2026-09-21T12:51:44.367175Z 0 [System] [MY-011504] [Repl] Plugin group_replication reported: 'Group membership changed: This member has left the group.'
+2026-09-21T12:51:44.373626Z 0 [System] [MY-014082] [Repl] Plugin group_replication reported: 'The Group Replication certifier broadcast thread (THD_certifier_broadcast) stopped.'
+2026-09-21T12:51:44.373826Z 102 [System] [MY-011566] [Repl] Plugin group_replication reported: 'Setting super_read_only=OFF.'

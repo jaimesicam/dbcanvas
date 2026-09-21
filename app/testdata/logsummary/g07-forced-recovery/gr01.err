@@ -1,0 +1,6 @@
+2026-09-21T12:46:03.558789Z 0 [Warning] [MY-011493] [Repl] Plugin group_replication reported: 'Member with address gr0-2:3306 has become unreachable.'
+2026-09-21T12:46:03.558891Z 0 [ERROR] [MY-011495] [Repl] Plugin group_replication reported: 'This server is not able to reach a majority of members in the group. This server will now block all updates. The server will remain blocked until contact with the majority is restored. It is possible to use group_replication_force_members to force a new group membership.'
+2026-09-21T12:46:31.179596Z 47 [System] [MY-011722] [Repl] Plugin group_replication reported: 'The group_replication_force_members value 'gr0-1.example.net:33061' was set in the group communication interfaces'
+2026-09-21T12:47:53.529838Z 0 [Warning] [MY-011498] [Repl] Plugin group_replication reported: 'The member has resumed contact with a majority of the members in the group. Regular operation is restored and transactions are unblocked.'
+2026-09-21T12:47:53.531380Z 0 [Warning] [MY-011499] [Repl] Plugin group_replication reported: 'Members removed from the group: gr0-2:3306'
+2026-09-21T12:47:53.531489Z 0 [System] [MY-011503] [Repl] Plugin group_replication reported: 'Group membership changed to gr0-1:3306 on view 17899940108384242:15.'

@@ -1,0 +1,2 @@
+2026-09-21T12:46:02.557965Z 0 [Warning] [MY-011493] [Repl] Plugin group_replication reported: 'Member with address gr0-1:3306 has become unreachable.'
+2026-09-21T12:46:02.558074Z 0 [ERROR] [MY-011495] [Repl] Plugin group_replication reported: 'This server is not able to reach a majority of members in the group. This server will now block all updates. The server will remain blocked until contact with the majority is restored. It is possible to use group_replication_force_members to force a new group membership.'

@@ -25026,3 +25026,69 @@ somehow":
 
 `cd app && go build ./... && go vet ./... && go test ./...`: 176 failing test functions remain (all
 in the other still-missing families). Stack destroyed after capture; design kept.
+
+## 404. Rebuilding the missing test corpus, phase 3: Group Replication and InnoDB Cluster — `app/testdata/logsummary/g{01,02,03,04,05,06,07,08,09,10,11,12,13,15,16}-*/` (new), `app/logsummary_grouprepl_test.go`
+
+Third installment of the §401 corpus rebuild — all 14 Group Replication scenarios (`g14` is
+deliberately absent, same as the original corpus: a flow-control flood that produced no log
+records at all). A raw 3-node Group Replication cluster (`innodb:3,replMode=groupreplication`)
+covered g01–g13; a separate `replMode=innodbcluster` cluster, provisioned the same way DBCanvas
+does it for real — genuinely through MySQL Shell, not a synthetic stand-in — covered g15–g16.
+155 failing test functions remain, down from 176.
+
+### Two assertions updated for real member names
+
+`dbcanvas stack compose` names a frame's members `<frame>-N` (hyphenated); the original fixtures,
+hand-authored, used `grN` names with no separator. Two tests hardcoded the original literal names
+(`"gr03"`, `"gr02"`) where the *specific* member named no longer matters to the mechanism under
+test — which member gets killed or elected is arbitrary. Both now check for this fixture's real
+name (`"gr0-2"`, `"gr0-1"`), with a comment explaining why, following the same policy as §403's
+GTID-range fix.
+
+### The scenarios that needed a real mechanism, not just an action
+
+Several of the fourteen needed the *right* real condition, found by first getting the wrong real
+one and reading what actually happened:
+
+- **g04/g05 (member/primary killed) — flavour detection needs history, not just the tail.**
+  Truncating a member's log right before killing it leaves that file with only the
+  post-restart tail (a plain mysqld startup, no `group_replication_` lines at all), which the
+  sniffer correctly reads as a plain MySQL server rather than a stranded Group Replication member
+  — the fixture failed a test that has nothing to do with the scenario itself. Fix: only truncate
+  the *survivors*' logs before an action; let the acted-upon member's log keep its most recent
+  join evidence, so the file is still identifiable after the tail is appended.
+- **g06 (lost majority, both sides) — needs a 2-member group, not a 3-member one cut in two.**
+  A 3-member group split 1-vs-2 leaves the 2-side with majority — nobody blocks. Getting *both*
+  sides to block needs an even split, so the fixture cleanly removes the third member first
+  (`systemctl stop`, letting it expel normally — this shrinks the configured quorum to 2), then
+  cuts the remaining two from each other on port 33061 (a `tc` filter, the same u32-match
+  technique as §403's port-scoped block, this time matched on `dport`+`sport` together since GR's
+  ports are bidirectional peer links, not client connections).
+- **g08/g09 (stuck vs. clone recovery) — g08 was found by accident debugging g09.** Trying to
+  bring a divergent member back with `RESET MASTER` alone leaves its *data* (not just its GTID
+  history) out of sync with the group; the very next `START GROUP_REPLICATION` cycled between
+  donors failing on stale duplicate-key rows forever — which turned out to be exactly g08's
+  "cycling donors, never a final failure" shape, captured on the spot rather than engineered.
+  g09's actual clone needed `group_replication_clone_threshold` lowered so the *plugin itself*
+  chooses cloning (rather than the CLONE INSTANCE SQL statement being issued directly, which
+  bypasses Group Replication's own recovery-method decision and never logs the "will clone"
+  line the test needs).
+- **g10 vs. g11 (refused at the door vs. expelled mid-flight) — same duplicate-key error, opposite
+  read-only outcome, and one bookkeeping trap.** A join-time GTID mismatch (an errant transaction
+  the group never saw) leaves the member **writable** — Group Replication sets super_read_only
+  ON defensively, then explicitly OFF again three seconds later once it decides it isn't a member
+  after all. An applier-time conflict (a row planted while the member is a live secondary,
+  colliding with a transaction the *primary* now originates) leaves it read-only on the way out
+  instead — the opposite outcome from what looks like the same error. Planting the local-only row
+  had to go through `SET sql_log_bin=0`: a secondary with `super_read_only` merely toggled off is
+  still an active Group Replication member, and an ordinary write there gets captured and
+  broadcast to the whole group exactly like any other write, silently erasing the divergence
+  instead of creating it.
+- **g13 (join timeout)** — a full loss of port 33061 (not scoped, since the member has no peers
+  yet to distinguish) on a member attempting to join, held long enough for `MY-011640` to fire.
+
+### Verified
+
+`cd app && go build ./... && go vet ./... && go test ./...`: 155 failing test functions remain (all
+in the other still-missing families — MongoDB/FTDC, sharded MongoDB, PostgreSQL, Valkey, K8s
+operators, cluster-dump archives). Both stacks destroyed after capture; designs kept.

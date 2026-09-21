@@ -180,8 +180,9 @@ func TestGRPrimaryFailover(t *testing.T) {
 	if !strings.Contains(f.Detail, "after it stopped answering") {
 		t.Errorf("the write outage was not measured: %s", f.Detail)
 	}
-	// The new primary must be named, and it must not be the one that died.
-	if !strings.Contains(f.Detail, "gr02") {
+	// The new primary must be named, and it must not be the one that died. "gr0-1" is
+	// this fixture's real elected member (see the g04 fixture's comment on naming).
+	if !strings.Contains(f.Detail, "gr0-1") {
 		t.Errorf("the elected primary is not named: %s", f.Detail)
 	}
 }
@@ -235,7 +236,11 @@ func TestGRNeverRejoined(t *testing.T) {
 	if f.Sev != lsSevBad {
 		t.Errorf("severity %q, want bad", f.Sev)
 	}
-	if !strings.Contains(f.Detail, "gr03") {
+	// "gr0-2" is this fixture's real stranded member — a `dbcanvas stack compose`-built
+	// group names its members "<frame>-N" (hyphenated), unlike the original hand-authored
+	// "gr0N" scheme this test used to check for. Which member gets killed is arbitrary to
+	// the mechanism under test; the name only has to be traceable to the real capture.
+	if !strings.Contains(f.Detail, "gr0-2") {
 		t.Errorf("the stranded member is not named: %s", f.Detail)
 	}
 	// And the state must not read as healthy for the rest of the window.

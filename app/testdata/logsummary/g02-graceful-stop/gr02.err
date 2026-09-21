@@ -1,0 +1,6 @@
+2026-09-21T12:34:03.235794Z 0 [System] [MY-013172] [Server] Received SHUTDOWN from user <via user signal>. Shutting down mysqld (Version: 8.0.46-37).
+2026-09-21T12:34:06.283905Z 0 [System] [MY-011504] [Repl] Plugin group_replication reported: 'Group membership changed: This member has left the group.'
+2026-09-21T12:34:08.286743Z 0 [System] [MY-011650] [Repl] Plugin group_replication reported: 'Plugin 'group_replication' is stopping.'
+2026-09-21T12:34:08.287580Z 0 [System] [MY-014082] [Repl] Plugin group_replication reported: 'The Group Replication certifier broadcast thread (THD_certifier_broadcast) stopped.'
+2026-09-21T12:34:08.287753Z 0 [System] [MY-011651] [Repl] Plugin group_replication reported: 'Plugin 'group_replication' has been stopped.'
+2026-09-21T12:34:09.885450Z 0 [System] [MY-010910] [Server] /usr/sbin/mysqld: Shutdown complete (mysqld 8.0.46-37)  Percona Server (GPL), Release 37, Revision 39e2b60e.
