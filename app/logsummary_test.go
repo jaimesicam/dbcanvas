@@ -975,8 +975,11 @@ func TestLogSummaryBinlogPurged(t *testing.T) {
 	if e.Sev != lsSevBad {
 		t.Errorf("severity %q, want bad", e.Sev)
 	}
-	// The missing GTID range is what says how far gone it is.
-	if !strings.Contains(e.Message, "missing") || !strings.Contains(e.Message, ":2053-4545") {
+	// The missing GTID range is what says how far gone it is. ":5-6" is this fixture's
+	// real range (two purged transactions) — it will differ if the fixture is ever
+	// recaptured, since it comes straight from whatever the source's own GTID sequence
+	// happened to be, not a value the test can pin independently of the corpus.
+	if !strings.Contains(e.Message, "missing") || !strings.Contains(e.Message, ":5-6") {
 		t.Errorf("the missing GTID range was not extracted: %q", e.Message)
 	}
 	if !strings.Contains(e.Meaning, "rebuilt") {

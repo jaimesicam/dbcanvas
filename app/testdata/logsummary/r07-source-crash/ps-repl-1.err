@@ -1,0 +1,58 @@
+2026-09-21T12:17:19Z UTC - mysqld got signal 11 ;
+Most likely, you have hit a bug, but this error can also be caused by malfunctioning hardware.
+BuildID[sha1]=adfceb7b3acc5cc1126c37d071f78f559e630655
+Server Version: 8.0.46-37 Percona Server (GPL), Release 37, Revision 39e2b60e
+
+Thread pointer: 0x0
+Attempting backtrace. You can use the following information to find out
+where mysqld died. If you see no messages after this, something went
+terribly wrong...
+stack_bottom = 0 thread_stack 0x100000
+ #0 0x716cc6f7ac5f <unknown>
+ #1 0x716cc703e61f <unknown>
+ #2 0xdff632 <unknown>
+ #3 0xba2547 <unknown>
+ #4 0x716cc6f6560f <unknown>
+ #5 0x716cc6f656bf <unknown>
+ #6 0x9b4104 <unknown>
+ #7 0xffffffffffffffff <unknown>
+Please help us make Percona Server better by reporting any
+bugs at https://bugs.percona.com/
+
+You may download the Percona Server operations manual by visiting
+http://www.percona.com/software/percona-server/. You may find information
+in the manual which will help you identify the cause of the crash.
+2026-09-21T12:17:19.000000Z 0 [System] [MY-013951] [Server] 2026-09-21T12:17:19Z UTC - mysqld got signal 11 ;
+2026-09-21T12:17:19.000001Z 0 [System] [MY-013951] [Server] Most likely, you have hit a bug, but this error can also be caused by malfunctioning hardware.
+2026-09-21T12:17:19.000002Z 0 [System] [MY-013951] [Server] BuildID[sha1]=adfceb7b3acc5cc1126c37d071f78f559e630655
+2026-09-21T12:17:19.000003Z 0 [System] [MY-013951] [Server] Server Version: 8.0.46-37 Percona Server (GPL), Release 37, Revision 39e2b60e
+2026-09-21T12:17:19.000004Z 0 [System] [MY-013951] [Server] Thread pointer: 0x0
+2026-09-21T12:17:19.000005Z 0 [System] [MY-013951] [Server] Attempting backtrace. You can use the following information to find out
+2026-09-21T12:17:19.000006Z 0 [System] [MY-013951] [Server] where mysqld died. If you see no messages after this, something went
+2026-09-21T12:17:19.000007Z 0 [System] [MY-013951] [Server] terribly wrong...
+2026-09-21T12:17:19.000008Z 0 [System] [MY-013951] [Server] stack_bottom = 0 thread_stack 0x100000
+2026-09-21T12:17:19.000009Z 0 [System] [MY-013951] [Server]  #0 0x716cc6f7ac5f <unknown>
+2026-09-21T12:17:19.000010Z 0 [System] [MY-013951] [Server]  #1 0x716cc703e61f <unknown>
+2026-09-21T12:17:19.000011Z 0 [System] [MY-013951] [Server]  #2 0xdff632 <unknown>
+2026-09-21T12:17:19.000012Z 0 [System] [MY-013951] [Server]  #3 0xba2547 <unknown>
+2026-09-21T12:17:19.000013Z 0 [System] [MY-013951] [Server]  #4 0x716cc6f6560f <unknown>
+2026-09-21T12:17:19.000014Z 0 [System] [MY-013951] [Server]  #5 0x716cc6f656bf <unknown>
+2026-09-21T12:17:19.000015Z 0 [System] [MY-013951] [Server]  #6 0x9b4104 <unknown>
+2026-09-21T12:17:19.000016Z 0 [System] [MY-013951] [Server]  #7 0xffffffffffffffff <unknown>
+2026-09-21T12:17:19.000017Z 0 [System] [MY-013951] [Server] Please help us make Percona Server better by reporting any
+2026-09-21T12:17:19.000018Z 0 [System] [MY-013951] [Server] bugs at https://bugs.percona.com/
+2026-09-21T12:17:19.000019Z 0 [System] [MY-013951] [Server] You may download the Percona Server operations manual by visiting
+2026-09-21T12:17:19.000020Z 0 [System] [MY-013951] [Server] http://www.percona.com/software/percona-server/. You may find information
+2026-09-21T12:17:19.000021Z 0 [System] [MY-013951] [Server] in the manual which will help you identify the cause of the crash.
+2026-09-21T12:17:20.064285Z 0 [Warning] [MY-011070] [Server] 'binlog_format' is deprecated and will be removed in a future release.
+2026-09-21T12:17:20.065411Z 0 [Warning] [MY-010097] [Server] Insecure configuration for --secure-log-path: Current value does not restrict location of generated files. Consider setting it to a valid, non-empty path.
+2026-09-21T12:17:20.065456Z 0 [System] [MY-010116] [Server] /usr/sbin/mysqld (mysqld 8.0.46-37) starting as process 5528
+2026-09-21T12:17:20.067152Z 0 [System] [MY-013951] [Server] A backtrace was processed and added to the main error-log in the appropriate format.
+2026-09-21T12:17:20.071989Z 1 [System] [MY-013576] [InnoDB] InnoDB initialization has started.
+2026-09-21T12:17:20.590779Z 1 [System] [MY-013577] [InnoDB] InnoDB initialization has ended.
+2026-09-21T12:17:20.742363Z 0 [System] [MY-010229] [Server] Starting XA crash recovery...
+2026-09-21T12:17:20.749474Z 0 [System] [MY-010232] [Server] XA crash recovery finished.
+2026-09-21T12:17:20.837061Z 0 [Warning] [MY-010068] [Server] CA certificate ca.pem is self signed.
+2026-09-21T12:17:20.837083Z 0 [System] [MY-013602] [Server] Channel mysql_main configured to support TLS. Encrypted connections are now supported for this channel.
+2026-09-21T12:17:20.861809Z 0 [System] [MY-011323] [Server] X Plugin ready for connections. Bind-address: '::' port: 33060, socket: /var/lib/mysql/mysqlx.sock
+2026-09-21T12:17:20.861874Z 0 [System] [MY-010931] [Server] /usr/sbin/mysqld: ready for connections. Version: '8.0.46-37'  socket: '/var/lib/mysql/mysql.sock'  port: 3306  Percona Server (GPL), Release 37, Revision 39e2b60e.

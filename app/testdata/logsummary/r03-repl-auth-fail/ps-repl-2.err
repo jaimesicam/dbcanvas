@@ -1,0 +1,1 @@
+2026-09-21T12:14:08.517548Z 19 [ERROR] [MY-010584] [Repl] Replica I/O for channel '': Error reconnecting to source 'repl@ps-repl-1.example.net:3306'. This was attempt 2/86400, with a delay of 60 seconds between attempts. Message: Access denied for user 'repl'@'ps-repl-2.example.net' (using password: YES), Error_code: MY-001045

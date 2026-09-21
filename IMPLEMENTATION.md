@@ -24978,3 +24978,51 @@ in other still-missing families — Group Replication, MongoDB, PostgreSQL, Valk
 FTDC, cluster-dump archives), down from 211. The PXC stack was destroyed after capture
 (`dbcanvas stack destroy`) — the design is kept, so it can be redeployed if another Galera
 scenario is needed later.
+
+## 403. Rebuilding the missing test corpus, phase 2: MySQL asynchronous replication — `app/testdata/logsummary/{r02-dupkey-conflict,r03-repl-auth-fail,r04-binlog-purged,r06-stop-start-replica,r07-source-crash,r08-replica-crash,r09-source-unreachable}/` (new), `app/logsummary_test.go`
+
+Second installment of the §401 corpus rebuild. A real 3-node Percona Server 8.0.46 GTID
+replication topology (`dbcanvas stack compose ... 'ps-repl:3,replMode=async,gtid'`, matching
+§256's version), one source and two replicas, put through seven of the eight original async
+scenarios (`r05-replica-lag` — a table lock silently holding a replica behind — was left out of
+this pass; nothing currently references it by name). 176 failing test functions remain, down from
+188.
+
+### One assertion updated: a purged-GTID range can't be pinned across recaptures
+
+`TestLogSummaryBinlogPurged` hardcoded the exact missing-GTID range from the original capture
+(`:2053-4545`). A fresh capture's range depends on this run's own transaction sequence — there is
+no way to reproduce that exact number without reproducing the exact history that produced it — so
+the assertion now checks this fixture's real range (`:5-6`, from two purged transactions), with a
+comment saying why it will differ again if the fixture is ever rebuilt a third time. Every other
+assertion in this family held without changes, because they check labels, finding IDs, and
+substrings like "1045"/"60 days" rather than exact reconstructible values.
+
+### Getting "connecting" vs "reconnecting" and "connecting" vs a real error right
+
+Two scenarios needed the replication topology in a *specific* prior state, not just "broken
+somehow":
+
+- **r03 (auth failure)** needs the catalogue's `"Replica cannot connect to its source"` label,
+  which only fires on the literal string `Error connecting to source` — MySQL's wording for an
+  I/O thread's *first* connection attempt. Rotating the password and killing an already-running
+  replica's connection produces `Error reconnecting to source` instead (a different rule, a
+  different label), because that replica had already connected once. The fix was a `STOP REPLICA
+  IO_THREAD; START REPLICA IO_THREAD` on a replica that hadn't yet reconnected since the password
+  change, so its next attempt is a fresh connect, not a reconnect.
+- **r09 (silent reconnect)** needs *zero* bad-severity records — the whole point of the fixture is
+  that `slave_net_timeout` blocks silently. A full-interface `netem loss 100%` (the technique that
+  worked for the Galera partition fixtures) also blocks DNS, and a replica whose hostname lookup
+  fails during the outage logs a real `Error reconnecting ... Unknown MySQL server host` — a
+  loud failure, not a silent one. The fix was a **port-scoped** loss filter
+  (`tc qdisc add ... prio` + a child `netem loss 100%` + `tc filter ... u32 match ip dport 3306
+  0xffff`), leaving DNS and every other port alone. A second wrinkle: MySQL's own 60-second retry
+  timer occasionally raced the moment the filter was removed and produced one real connection
+  refusal before succeeding — worked around by removing the filter and immediately forcing
+  `STOP REPLICA IO_THREAD; START REPLICA IO_THREAD` myself, rather than waiting for the automatic
+  retry to land in an uncertain window.
+
+### Verified
+
+`cd app && go build ./... && go vet ./... && go test ./...`: 176 failing test functions remain (all
+in the other still-missing families). Stack destroyed after capture; design kept.
