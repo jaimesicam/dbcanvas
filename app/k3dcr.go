@@ -102,6 +102,15 @@ type crOptions struct {
 	SourceChannel string
 	// PITR is the binlog collector — nil leaves `backup.pitr` as cr.yaml ships it, disabled.
 	PITR *crPITR
+	// VaultSecret is the Secret holding keyring_vault.conf ("" = no encryption at rest). It is
+	// written to `spec.vaultSecretName`, which cr.yaml ships commented out.
+	//
+	// Setting it is belt to the Secret's braces rather than the mechanism: the operator defaults
+	// vaultSecretName to `<cluster>-vault` and mounts it whether or not the key is set, and the
+	// PXC image turns encryption on because the mounted file exists. What the line buys is that
+	// the cr.yaml left in /root says the cluster is encrypted — silence there would read as a
+	// cluster that is not. See k3dvault.go.
+	VaultSecret string
 }
 
 // crExposeFor is the Service type for a section, or "" when that section should be left as shipped.
@@ -243,6 +252,15 @@ func crTransform(src string, o crOptions) string {
 				out = append(out, crIndent(block, 4)...)
 				inserted["replicationChannels"] = true
 			}
+			continue
+		}
+
+		// vaultSecretName. Unlike every other rewrite here this one UNCOMMENTS the shipped line
+		// rather than inserting a block: it is a single scalar at the top of spec, the shipped
+		// value is a placeholder rather than an example carrying keys we do not want, and turning
+		// it on in place keeps the file reading like the one Percona ships.
+		if commented && ind == 2 && strings.HasPrefix(body, "vaultSecretName:") && o.VaultSecret != "" {
+			out = append(out, "  vaultSecretName: "+o.VaultSecret)
 			continue
 		}
 

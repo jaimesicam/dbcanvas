@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // k3dpg.go — the Percona Operator for PostgreSQL (PGO) on a K3D cluster.
@@ -435,18 +434,10 @@ func (a *App) pgProvisionTDE(ctx context.Context, st Stack, frame designFrame, s
 	// instance pods from starting at all.
 	caPEM, caKey := "", ""
 	if baoCfg.TLS {
-		intranetID := a.intranetContainerID(ctx, st)
-		if intranetID == "" {
-			return nil, fmt.Errorf("OpenBao at %s serves TLS but the stack has no Intranet to take the CA from", baoCfg.Addr)
+		if caPEM, err = a.k3dIntranetCA(ctx, st, baoCfg.Addr); err != nil {
+			return nil, err
 		}
-		if err := a.waitIntranetCAReady(ctx, intranetID, 120*time.Second); err != nil {
-			return nil, fmt.Errorf("wait for the Intranet CA: %w", err)
-		}
-		ca, err := a.readIntranetFile(ctx, intranetID, "/etc/pki/dbcanvas/ca.crt")
-		if err != nil || len(ca) == 0 {
-			return nil, fmt.Errorf("read the Intranet CA: %w", err)
-		}
-		caPEM, caKey = string(ca), "ca.crt"
+		caKey = k3dVaultCAKey
 	} else {
 		pr.logln("pg_tde → " + baoCfg.Addr + " over plain HTTP: the OpenBao node has SSL off, so the principal key crosses the stack network unencrypted")
 	}

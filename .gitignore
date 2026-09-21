@@ -20,6 +20,15 @@ dist/
 # so a directory rule here would silently defeat the negation above and make the whole log corpus
 # uncommittable again — the exact bug that line was added to fix.
 app/testdata/cr.yaml
+# The MongoDB and Percona Server operators' cr.yaml, fetched the same way and for the same reason —
+# psmdbTransform and psTransform are only worth testing against the file they exist to rewrite:
+#
+#   curl -sL -o app/testdata/cr-psmdb.yaml \
+#     https://raw.githubusercontent.com/percona/percona-server-mongodb-operator/v1.23.0/deploy/cr.yaml
+#   curl -sL -o app/testdata/cr-ps.yaml \
+#     https://raw.githubusercontent.com/percona/percona-server-mysql-operator/v1.2.0/deploy/cr.yaml
+app/testdata/cr-psmdb.yaml
+app/testdata/cr-ps.yaml
 # The same for the operator's CustomResourceDefinition, captured from a running cluster with
 # `kubectl get crd perconaxtradbclusters.pxc.percona.com -o json` (IMPLEMENTATION.md). The custom
 # resource editor's tests build their form from it, because the thing worth testing about a

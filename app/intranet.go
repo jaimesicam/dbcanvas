@@ -586,6 +586,19 @@ type designFrame struct {
 	// at all when the stack carries an OpenBao node. K3DPGTDEWal additionally encrypts the WAL.
 	K3DPGTDE    bool `json:"k3dPgTde"`
 	K3DPGTDEWal bool `json:"k3dPgTdeWal"`
+	// Data-at-rest encryption for the PXC and MongoDB operators, keyed to the same OpenBao node
+	// (OpenBaoNodeID below) — PXC's keyring_vault, PSMDB's security.vault. See k3dvault.go.
+	//
+	// One field for two operators because a frame runs one operator at a time and the question
+	// is the same one: encrypt the data files, with the key in the stack's vault. PostgreSQL
+	// keeps K3DPGTDE above rather than joining them — pg_tde carries a WAL sub-option and a hard
+	// CRD version gate that neither of these has, and folding it in would put three operators'
+	// worth of conditions behind one checkbox.
+	//
+	// Deploy-time by nature: encryption is established when the database initialises its data
+	// directory, so a cluster that starts unencrypted cannot be encrypted later without
+	// re-creating the data.
+	K3DVaultEncryption bool `json:"k3dVaultEncryption"`
 	// The OpenBao node the cluster's principal key lives on. Named and shaped exactly like the
 	// designNode field of the same name (see dbvault.go): one OpenBao per stack, and the cluster
 	// gets its own KV v2 mount and a token scoped to it.
@@ -1707,6 +1720,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		out = append(out, seaweedBucketIssues("K3D cluster "+f.Label, f.SeaweedFSNodeID, f.SeaweedFSBucket, doc)...)
 		out = append(out, k3dBackupIssues(f, doc)...)
 		out = append(out, k3dPGFeatureIssues(f, doc, opCat, running[f.ID])...)
+		out = append(out, k3dVaultIssues(f, doc, opCat, running[f.ID])...)
 	}
 	for name, c := range k3dNames {
 		if c > 1 && name != "" {

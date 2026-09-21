@@ -3227,6 +3227,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
       k3dPgLogicalReplicas: 0, k3dPgLogicalStorageGb: 1, k3dPgLogicalBootstrap: 'pgbackrest',
       k3dPgLogicalDatabases: '',
       k3dPgNoLogCollector: false, k3dPgTde: false, k3dPgTdeWal: false, openbaoNodeId: '',
+      k3dVaultEncryption: false,
       k3dClusterType: 'group-replication', k3dExposeMysql: 'clusterip', k3dExposeRouter: 'loadbalancer',
       k3dPmmTokenTtlValue: 365, k3dPmmTokenTtlUnit: 'days',
       k3dDebug: false, k3dDebugPort: 40000, k3dDebugNoPublish: false,
@@ -8488,6 +8489,43 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
   const pgVer = op === 'pg' ? (f.k3dOperatorVer || latest) : ''
   const pg310 = op === 'pg' && !!pgVer && cmpDottedVersions(pgVer, '3.1.0') >= 0
   const baoNode = nodes.find((x) => x.type === 'openbao')
+  // Data-at-rest encryption for the PXC and MongoDB operators, keyed to the stack's OpenBao node.
+  // MongoDB's `spec.secrets.vault` only exists from operator 1.13.0; PXC's `vaultSecretName` is in
+  // every version the catalog offers, so only one of the two is version-gated. Hidden rather than
+  // disabled below that release, for the reason the pg 3.1.0 options are: on an older CRD the
+  // field does not exist, and the cluster would come up unencrypted while the panel said
+  // otherwise. The backend refuses it too (k3dVaultIssues).
+  const psmdbVer = op === 'psmdb' ? (f.k3dOperatorVer || latest) : ''
+  const canEncrypt = op === 'pxc' || (op === 'psmdb' && !!psmdbVer && cmpDottedVersions(psmdbVer, '1.13.0') >= 0)
+  const encryptionAtRest = canEncrypt ? (
+    <>
+      <label className={`flex items-start gap-2 text-sm ${baoNode ? '' : 'opacity-70'}`}>
+        <input type="checkbox" className="mt-1" disabled={deployed || !baoNode}
+          checked={!!f.k3dVaultEncryption}
+          onChange={(e) => patchFrame(f.id, {
+            k3dVaultEncryption: e.target.checked,
+            openbaoNodeId: e.target.checked ? (baoNode?.id ?? '') : '',
+          })} />
+        <span>
+          Data-at-rest encryption
+          <span className="block text-xs text-muted">
+            {op === 'pxc'
+              ? <><span className="font-mono">spec.vaultSecretName</span> — the keyring_vault plugin, keyed to </>
+              : <><span className="font-mono">spec.secrets.vault</span> — mongod&rsquo;s <span className="font-mono">security.vault</span>, keyed to </>}
+            {baoNode
+              ? <>the <span className="font-mono">{baoNode.label}</span> node</>
+              : <>an OpenBao node</>}. The cluster gets its own KV v2 mount and a token scoped to it,
+            and verifies OpenBao with the Intranet CA.{' '}
+            {op === 'pxc'
+              ? <>Tables, undo log and redo log are all encrypted — the PXC image turns them on together.</>
+              : <>The replica set and the config servers get separate keys.</>}{' '}
+            It cannot be turned on later without re-creating the data.
+          </span>
+        </span>
+      </label>
+      {!baoNode && <p className="text-xs text-muted">Add an OpenBao node to key encryption to it.</p>}
+    </>
+  ) : null
   // A sharded MongoDB cluster is 9 pods (replica set + config servers + mongos), not 3 — and so is an
   // async Percona Server cluster (MySQL + Orchestrator + HAProxy).
   const psAsync = op === 'ps' && f.k3dClusterType === 'async'
@@ -8804,6 +8842,7 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
                 </select>
               </Field>
             )}
+            {encryptionAtRest}
           </>
         )}
         {op === 'ps' && (
@@ -8868,6 +8907,7 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
                 </select>
               </Field>
             )}
+            {encryptionAtRest}
           </>
         )}
         {op === 'pg' && (

@@ -422,6 +422,12 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
           {cfg.operator && isPG && !!cfg.pgTde && (
             <KV k="Encryption at rest" help={DEP_HELP['Encryption at rest']} v={cfg.pgTde} mono />
           )}
+          {/* PXC and MongoDB keep theirs in their own field — same row, different CR section.
+              Only when there is something to say: a row reading "off" would be true of most
+              clusters and tell nobody anything. */}
+          {cfg.operator && !!cfg.vaultEncryption && (
+            <KV k="Encryption at rest" help={DEP_HELP['Encryption at rest']} v={cfg.vaultEncryption} mono />
+          )}
           {cfg.operator && isPG && cfg.pgLogCollector && (
             <KV k="Persistent logging" help={DEP_HELP['Persistent logging']} v="fluent-bit + logrotate" />
           )}

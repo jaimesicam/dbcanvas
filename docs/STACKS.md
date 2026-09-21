@@ -405,6 +405,37 @@ afterwards. There is no workaround in the custom resource: a `logicalReplicas` e
 `pg_createsubscriber`. (WAL encryption is not the trigger — it fails with `pg_tde.wal_encrypt` off
 too.)
 
+**Data-at-rest encryption on PXC and MongoDB** works the same way and from the same OpenBao node —
+tick *Data-at-rest encryption* on the frame. The cluster gets its own KV v2 mount and a token
+scoped to that mount (never OpenBao's root token, which is what the operators' own examples use),
+and verifies OpenBao with the Intranet CA. What differs is only where the operator reads it from:
+
+- **PXC** — a Secret named by `spec.vaultSecretName`, holding the `keyring_vault.conf` the image's
+  entrypoint looks for. Finding that file is *what turns encryption on*: the entrypoint then loads
+  the keyring_vault plugin and sets `default_table_encryption`, `innodb_undo_log_encrypt` and
+  `innodb_redo_log_encrypt` together, so tables, undo log and redo log are all covered.
+- **MongoDB** — two halves that have to agree, which is why the designer writes both:
+  `spec.secrets.vault` names the Secret, and each replica set's `configuration` carries mongod's
+  `security.vault` block pointing at the files inside it. Write only one and the operator falls
+  back to a local key file. A sharded cluster's replica set and config servers get **separate
+  keys** in the same mount — they are separate WiredTiger deployments, and one shared key path has
+  whichever starts second overwrite the first's. It needs operator **1.13.0 or newer**
+  (`spec.secrets.vault` does not exist below that), so the option is hidden on older releases the
+  way the PostgreSQL ones are; PXC has had `vaultSecretName` since 1.7.0, which is the oldest
+  version the catalog offers.
+
+Neither can be turned on afterwards — the database establishes encryption when it creates its data
+files — so it is a design-time choice, and a deploy that cannot reach the key store fails rather
+than quietly bringing up an unencrypted cluster.
+
+One detail worth knowing, because it decides the *format* of what DBCanvas writes rather than
+anything you choose: **PXC 8.4 reads its keyring as the `component_keyring_vault` component and
+8.0 as the `keyring_vault` plugin**, and the operator feeds both from the same Secret key — copying
+it verbatim into the component's config, which parses it as JSON. So the file is rendered per
+server version, read from the `spec.pxc.image` tag in the operator release's own `cr.yaml`. Get it
+wrong and the pods crash-loop on `Keyring configuration JSON parse error` before the cluster ever
+forms, which is why a release whose image DBCanvas cannot read refuses the deploy instead.
+
 **Watch it while it runs.** A running cluster can be opened on the
 [**Kubernetes States**](KUBERNETES_STATES.md) board — every pod, workload, claim, service and
 custom resource as a card, red when the object itself says it is broken, lit for a few seconds

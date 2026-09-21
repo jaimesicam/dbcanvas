@@ -24291,3 +24291,139 @@ output is the image, so the image is what has to be read back.
 **0.0.8** follows the rule in `version.go` — bump `VERSION` in the same change that adds the
 What's New note for it — with three notes covering §391, §392 and this entry, and matching
 prose in the README's *What's new* section, which `whatsnew_test.go` checks for drift.
+
+## 394. Data-at-rest encryption for the PXC and MongoDB operators — `app/k3dvault.go` (new), `app/k3dvault_test.go` (new), `app/{k3d,k3dcr,k3dpsmdb,k3dpg,intranet}.go`, `app/web/src/pages/{StackDesigner,K3DManager}.jsx`, `docs/STACKS.md`, `.gitignore`
+
+The PostgreSQL operator has had encryption at rest since §377's neighbourhood — `spec.extensions.pg_tde`
+keyed to an OpenBao node on the canvas, its own KV v2 mount, a token scoped to that mount. The other
+two Percona operators that *have* a vault integration did not, and the asymmetry was visible in the
+designer: a checkbox on the PostgreSQL frame and nothing on PXC's or MongoDB's.
+
+This adds it, as one design-time field (`K3DVaultEncryption`) reusing the same `OpenBaoNodeID`, and
+reusing dbvault.go's renderers whole — the standalone `ps` and `psm` nodes solved the same problem
+and the operators want the same files, just delivered as a Secret instead of written onto a node.
+PostgreSQL keeps its own knob rather than joining them: pg_tde carries a WAL sub-option and a hard
+CRD gate that neither of these has, and folding three operators' conditions behind one checkbox
+buys nothing.
+
+**Each operator was read out of its own source, not its documentation.** Both contracts are things
+the docs state loosely and the code states exactly:
+
+- **PXC** — `spec.vaultSecretName` names a Secret with a `keyring_vault.conf` key, which the
+  operator mounts at `/etc/mysql/vault-keyring-secret`. `CheckNSetDefaults` defaults the field to
+  `<cluster>-vault` and mounts it whether or not the key is set, so the Secret's *name* is what
+  turns encryption on; the line is written into cr.yaml anyway, because a file in `/root` that does
+  not mention encryption reads as a cluster that has none.
+- **PSMDB** — two halves that must agree, and the operator keys off each separately.
+  `spec.secrets.vault` names the Secret (mounted at `/etc/mongodb-vault`, and only when encryption
+  is enabled), while `MongoConfiguration.VaultEnabled()` reads each replica set's `configuration`
+  for a `security.vault` section and is what suppresses the operator's own
+  `--enableEncryption --encryptionKeyFile` arguments. Write one without the other and the cluster
+  comes up on a local key file. The shape is Percona's own `e2e-tests/data-at-rest-encryption`,
+  including the detail that matters most: rs0 and the config servers get **separate key paths**,
+  because they are separate WiredTiger deployments and one shared path has whichever starts second
+  overwrite the first's master key.
+
+Deliberately absent: PXC's `percona.com/issue-vault-token` annotation, which looks like the thing to
+set and is the opposite — it makes the operator stop reconciling ("wait for token issuing") until a
+human removes it, for people who create the Secret *after* the cluster. DBCanvas creates it before
+cr.yaml, so the annotation would only hang the deploy.
+
+### The bug that only a real deploy could find
+
+The first PXC cluster crash-looped every database pod:
+
+	[ERROR] Component component_keyring_vault reported: 'Keyring configuration JSON parse error: Invalid value. (0)'
+	[ERROR] [InnoDB] Check keyring fail, please check the keyring is loaded.
+
+The config had been written in the keyring_vault **plugin's** `key = value` format, on the strength
+of percona-docker's `percona-xtradb-cluster-8.4/dockerdir/entrypoint.sh`, which does use the plugin.
+That file is not what runs. The **operator** ships its own `/pxc-entrypoint.sh` and the init
+container puts it in the datadir, and it branches on the server version:
+
+```sh
+vault_secret="/etc/mysql/vault-keyring-secret/keyring_vault.conf"
+if [ -f "$vault_secret" ]; then
+  if [[ $MYSQL_VERSION =~ ^(5\.7|8\.0)$ ]]; then          # the PLUGIN
+    sed -i "/\[mysqld\]/a early-plugin-load=keyring_vault.so" $CFG
+    sed -i "/\[mysqld\]/a keyring_vault_config=$vault_secret" $CFG
+  fi
+…
+  if [[ $MYSQL_VERSION == '8.4' ]]; then                  # the COMPONENT
+    echo -n '{ "components": "file://component_keyring_vault" }' >/var/lib/mysql/mysqld.my
+    cp ${vault_secret} /var/lib/mysql/component_keyring_vault.cnf
+```
+
+One Secret key, two incompatible formats, chosen by the *database* version — which operator 1.20.0
+pins at 8.4.8. This is the same split dbvault.go already handles for a standalone Percona Server
+node (the plugin is gone from 8.4, the component does not exist before it), so the fix is to pick
+with the same predicate, `mysqlModernMajor`, and render with the same two functions.
+
+**The version had to come from somewhere, and there is only one place that states it.** The frame
+has no picker for the database — only for the operator — and each operator release ships its own
+matched image, so `crPXCImageMajor` reads the tag off `spec.pxc.image` in that release's own
+cr.yaml. Same move as `forcePathStyle`: ask the file you already downloaded. Anchored on the `pxc`
+section, because cr.yaml carries a dozen `image:` lines. When it cannot be read the deploy is
+**refused** rather than guessed — wrong either way is a crash loop, and a deploy that stops is
+recoverable where a cluster that never starts is a support case.
+
+### CoreDNS never read the config it was given
+
+Then the MongoDB cluster failed, and the error pointed nowhere near the cause:
+
+	F STORAGE  Data-at-Rest Encryption Error  {"error":{"what":"Can't create encryption key
+	           database","reason":"Bad HTTP response from API server: Couldn't resolve host name"}}
+
+`coredns-custom` was present and correct, the Intranet answered `bao-01.example.net` perfectly, and
+a pod got NXDOMAIN ten minutes later. k3s' Corefile ends with a top-level
+`import /etc/coredns/custom/*.server`, and **CoreDNS expands that glob when it parses the Corefile —
+at startup.** The `reload` plugin then watches the Corefile's own content, which never changes. On
+every new cluster the ConfigMap is created afterwards, so the glob matched nothing at boot and the
+file that appears later is never read; CoreDNS goes on logging `No files matching import glob
+pattern` and every name in the stack's domain stays NXDOMAIN. Restarting CoreDNS fixed it instantly.
+
+So `restartCoreDNS` now rolls the deployment and waits for it, right after the ConfigMap is applied
+and before MetalLB, the operator and the cluster — all of which resolve names through it. This is a
+pre-existing bug, not one this change introduced: pg_tde has the same dependency and the comment in
+`pgProvisionTDE` saying "reachability comes free" was describing a race it happened to win. It is
+logged rather than fatal, because in-cluster names still work without it.
+
+Both findings share a shape worth naming: **the upstream file that is published is not always the
+one that runs**, and the failure surfaces in a subsystem that has nothing to do with the cause —
+a keyring format error reported by InnoDB, a DNS failure reported by WiredTiger.
+
+### Verified
+
+End to end on a live stack (Intranet + OpenBao + a one-node k3d cluster), both operators, by
+deploying rather than by reading the generated YAML:
+
+| | PXC 1.20.0 (server 8.4.8) | PSMDB 1.23.0 |
+| --- | --- | --- |
+| cluster | 3 pods + 3 HAProxy, `ready` | rs0, 3 pods, `ready` **first try** after the DNS fix |
+| the CR | one active `vaultSecretName: k3d-01-vault` | `secrets.vault` **and** rs0's `security.vault` |
+| the Secret | valid component JSON, `secret_mount_point_version: AUTO` | `token`, no stray `ca.crt` on a plaintext OpenBao |
+| the engine says | `component_keyring_vault` **Active** | `Master encryption key has been created on the key management facility`, `Encryption keys DB is initialized successfully` |
+| the data | `enctest/t` `ENCRYPTION=Y`; canary **absent** from `t.ibd`, readable from a *different* member | canary **absent** from every `.wt`; no `k3d-01-mongodb-encryption-key` Secret |
+| OpenBao holds | `DefaultMasterKey` + per-tablespace `INNODBKEY` in `mysql-k3d-01` | one key at `mongodb-k3d-01/k3d-01-rs0` |
+
+The two engine log lines are the ones Percona's own e2e test greps for, and the missing
+`…-mongodb-encryption-key` Secret is its other assertion — from 1.23.0 the operator stops
+generating the local key when `secrets.vault` is set.
+
+`k3dvault_test.go` pins the parts a deploy cannot re-check cheaply: that the component config is
+**valid JSON** and the plugin config is not (the crash loop, as an assertion), that
+`crPXCImageMajor` reads the `pxc` section's own image and returns empty rather than guessing, that
+a sharded PSMDB gets two `enableEncryption` blocks with distinct key paths and an unsharded one
+gets a single block, that a plaintext OpenBao produces `disableTLSForTesting` and no `serverCAFile`,
+and every branch of `k3dVaultIssues` — no OpenBao node, the 1.13.0 gate on `spec.secrets.vault`
+(below it the field does not exist and the cluster would come up unencrypted while the panel said
+otherwise), and the wrong-operator warning that points a PostgreSQL frame at pg_tde instead.
+
+The PSMDB transform also gained `crDuplicateWarning`, which PXC's has had since the expose blocks:
+cr.yaml documents `secrets.vault` as a commented line a few rows below the active one this writes,
+and uncommenting it — the obvious thing to do when reading the file in `/root` — would put two
+`vault` keys in one map. Found by reading the generated file rather than by a test.
+
+Last, `.gitignore` now names `app/testdata/cr-psmdb.yaml` and `cr-ps.yaml`. Both were already read
+by tests and neither was declared, so `git add -A` would have swept two verbatim upstream files into
+the repo — the exact thing the `cr.yaml` entry above them was added to prevent.

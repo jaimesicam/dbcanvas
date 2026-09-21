@@ -143,6 +143,10 @@ type k3dConfig struct {
 	PGTDE             string `json:"pgTde"`
 	PGLogicalReplicas int    `json:"pgLogicalReplicas"`
 	PGLogCollector    bool   `json:"pgLogCollector"`
+	// PXC / PSMDB: data-at-rest encryption keyed to the stack's OpenBao node ("" = not
+	// encrypted). A sentence for the same reason PGTDE is one — what a reader wants is which key
+	// store holds the master key, not merely that encryption happened. See k3dvault.go.
+	VaultEncryption string `json:"vaultEncryption"`
 	// CloudNativePG (Operator=="cnpg"): the cluster's shape, how to reach it, and where the
 	// generated application password lives. The password itself is deliberately not here —
 	// k3dConfig is the non-secret profile.
@@ -1050,6 +1054,11 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 		pr.phase("Wiring cluster DNS to the Intranet", 45)
 		if err := a.kubectlApply(ctx, serverID, "", corednsCustomConfigMap(domain, intranetIP)); err != nil {
 			pr.logln("CoreDNS forward to the Intranet skipped: " + err.Error())
+		} else if err := a.restartCoreDNS(ctx, serverID); err != nil {
+			// Not fatal: in-cluster names still resolve, and a pod that needs a stack name may
+			// still get one once kubelet happens to resync the volume. Said out loud because the
+			// symptom lands far away — a database pod failing to reach the OpenBao node.
+			pr.logln("CoreDNS restart failed, so *." + domain + " may not resolve from pods: " + err.Error())
 		} else {
 			pr.logln("CoreDNS forwards *." + domain + " to the Intranet DNS (" + intranetIP + ")")
 		}
@@ -1253,8 +1262,39 @@ func (a *App) kubectlApply(ctx context.Context, serverID, ns string, manifest []
 
 // ---------------------------------------------------------------- CoreDNS + MetalLB
 
+// restartCoreDNS rolls the CoreDNS deployment and waits for it, which is what actually makes a
+// freshly-applied coredns-custom ConfigMap take effect.
+//
+// Applying the ConfigMap alone is NOT enough, despite reading like it should be. k3s' Corefile
+// ends with a top-level `import /etc/coredns/custom/*.server`, and CoreDNS expands that glob when
+// it parses the Corefile — at startup. The `reload` plugin then watches the Corefile's own
+// content, which never changes. So on a cluster where the glob matched nothing at boot (every new
+// one: the ConfigMap is created afterwards), the new file appears in the mounted volume and is
+// never read. CoreDNS keeps logging `No files matching import glob pattern` and every name in the
+// stack's domain stays NXDOMAIN.
+//
+// Observed on a live deploy: coredns-custom present and correct, the Intranet answering
+// bao-01.example.net perfectly, and a pod getting NXDOMAIN ten minutes later. Restarting CoreDNS
+// fixed it immediately. The symptom surfaces far from the cause — a database pod that cannot
+// reach the OpenBao node fails with a storage-engine error, not a DNS one:
+//
+//	F STORAGE  Data-at-Rest Encryption Error  {"error":{"what":"Can't create encryption key
+//	           database","reason":"Bad HTTP response from API server: Couldn't resolve host name"}}
+//
+// so the deploy is made deterministic here rather than left to chance.
+func (a *App) restartCoreDNS(ctx context.Context, serverID string) error {
+	if _, err := a.kubectl(ctx, serverID, "-n", "kube-system", "rollout", "restart", "deployment/coredns"); err != nil {
+		return err
+	}
+	// Waited for, not fired and forgotten: everything after this point — MetalLB, the operator,
+	// the cluster — resolves names through it.
+	_, err := a.kubectl(ctx, serverID, "-n", "kube-system", "rollout", "status", "deployment/coredns", "--timeout=120s")
+	return err
+}
+
 // corednsCustomConfigMap forwards the stack's domain to the Intranet DNS. k3s's CoreDNS imports
-// /etc/coredns/custom/*.server, so a ConfigMap is all it takes — the shipped Corefile is untouched.
+// /etc/coredns/custom/*.server — but only re-reads that glob at startup, so applying this
+// ConfigMap must be followed by restartCoreDNS. The shipped Corefile is untouched.
 func corednsCustomConfigMap(domain, intranetIP string) []byte {
 	return []byte(fmt.Sprintf(`apiVersion: v1
 kind: ConfigMap
@@ -1863,6 +1903,31 @@ func (a *App) installPXCOperator(ctx context.Context, st Stack, frame designFram
 	opts.PITR = a.k3dPITROptions(ctx, st, frame, cfg, opts.S3, pr)
 	// PMM 3's pmm-client sidecars authenticate with a service token, not a password.
 	opts.PMMHost = a.k3dPMMToken(ctx, st, frame, doc, serverID, cfg.ClusterName+"-secrets", "pmmservertoken", cfg, pr)
+
+	// Data-at-rest encryption. Fatal if it fails, unlike backups or PMM: those degrade to a
+	// cluster with one feature missing, this one degrades to a cluster that reports itself
+	// encrypted and is not — and InnoDB cannot be encrypted after the fact without rebuilding
+	// the tablespaces.
+	if k3dVaultOn(frame) {
+		// Which server series this release runs decides the keyring config FORMAT, and the two
+		// are not interchangeable — the wrong one crash-loops every database pod before the
+		// cluster forms. Refuse rather than guess: a deploy that stops here is recoverable, a
+		// cluster that never starts is a support case.
+		major := crPXCImageMajor(string(raw))
+		if major == "" {
+			return fmt.Errorf("data-at-rest encryption: cannot tell which Percona XtraDB Cluster series "+
+				"operator %s runs (no spec.pxc.image in its cr.yaml), and the keyring configuration format "+
+				"depends on it — deploy without encryption, or use another operator version", cfg.OperatorVer)
+		}
+		v, verr := a.k3dProvisionVault(ctx, st, frame, serverID, major, cfg, pr)
+		if verr != nil {
+			return fmt.Errorf("data-at-rest encryption: %w", verr)
+		}
+		opts.VaultSecret = v.Secret
+		cfg.VaultEncryption = v.Method + " → OpenBao " + v.VaultHost + " (KV v2 mount " + v.Mount + ")"
+		pr.logln("encryption at rest: " + v.Method + " keyed to " + v.VaultHost + ", mount " + v.Mount +
+			" (secret " + v.Secret + ")")
+	}
 
 	newCR := crTransform(string(raw), opts)
 	// Keep /root in sync with what was actually applied — the source is there to be read.

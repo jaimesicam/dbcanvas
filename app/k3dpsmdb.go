@@ -33,6 +33,11 @@ type psmdbOptions struct {
 	ExposeMongos  string //
 	PMMHost       string // "" = leave PMM disabled
 	S3            *crS3  // nil = no backup storage
+	// Vault is data-at-rest encryption keyed to the stack's OpenBao node (nil = unencrypted).
+	// It is written in two places that must agree — `spec.secrets.vault` names the credentials
+	// Secret, and each replica set's `configuration` carries the mongod `security.vault` block
+	// that reads the files out of it. See k3dvault.go.
+	Vault *k3dVault
 }
 
 // psmdbTransform rewrites the operator's cr.yaml for a small k3d cluster. Like crTransform it is
@@ -44,6 +49,10 @@ func psmdbTransform(src string, o psmdbOptions) string {
 	pvc := newCRPVC()
 	path := newYPath()
 	commentTo := -1 // >=0: commenting out a resources block until a line dedents to this indent
+	// vaultInserted is whether `secrets.vault` has been written, so the shipped commented-out
+	// example of the same key further down the block can be marked when we reach it — see the
+	// crDuplicateWarning rule below.
+	vaultInserted := false
 
 	for _, ln := range lines {
 		ind, commented, body := crLine(ln)
@@ -64,6 +73,17 @@ func psmdbTransform(src string, o psmdbOptions) string {
 		key := path.update(ind, commented, body)
 		p := path.String()
 
+		// The shipped `#    vault: my-cluster-name-vault`, a few lines below the active one this
+		// transform inserted into the same `secrets:` block. Marking it is crTransform's
+		// crDuplicateWarning rule, and it is here for the same reason: uncommenting that line is
+		// the obvious thing to do when you open cr.yaml in /root, and it would put two `vault`
+		// keys in one map — non-strict decoding takes the last one, `--server-side` rejects the
+		// document, and either way the file stops saying what it does.
+		if commented && vaultInserted && ind == 4 && strings.HasPrefix(body, "vault:") {
+			out = append(out, crDuplicateWarning("vault"))
+			out = append(out, ln)
+			continue
+		}
 		if commented || body == "" {
 			out = append(out, ln)
 			continue
@@ -79,6 +99,25 @@ func psmdbTransform(src string, o psmdbOptions) string {
 
 		case strings.HasPrefix(p, "spec.secrets.") && o.Name != "" && strings.Contains(body, psmdbShippedName):
 			out = append(out, strings.Repeat(" ", ind)+strings.ReplaceAll(body, psmdbShippedName, o.Name))
+
+		// Encryption, half one: the credentials Secret. Inserted at the top of `secrets:` rather
+		// than uncommented, because the shipped `#    vault: my-cluster-name-vault` sits below
+		// keys this transform rewrites and a comment is not a line we can edit in place here.
+		case p == "spec.secrets" && o.Vault != nil:
+			out = append(out, ln)
+			out = append(out, "    vault: "+o.Vault.Secret)
+			vaultInserted = true
+
+		// Encryption, half two: the mongod configuration, once per data-bearing replica set.
+		// `size:` is the anchor because it is the first uncommented key of each of them and the
+		// shipped `configuration:` is commented out — mongos is deliberately not included, since
+		// a router stores no data and has no key to fetch.
+		case p == "spec.replsets.size" && o.Vault != nil:
+			out = append(out, ln)
+			out = append(out, crIndent(psmdbVaultConfiguration(o.Vault, o.Name+"-rs0"), ind)...)
+		case p == "spec.sharding.configsvrReplSet.size" && o.Vault != nil && o.Sharding:
+			out = append(out, ln)
+			out = append(out, crIndent(psmdbVaultConfiguration(o.Vault, o.Name+"-cfg"), ind)...)
 
 		// A 1–3 node cluster cannot place one pod per node.
 		case key == "antiAffinityTopologyKey":
@@ -312,6 +351,34 @@ func (a *App) installPSMDBOperator(ctx context.Context, st Stack, frame designFr
 	// PMM 3's pmm-client sidecars authenticate with a service token, which PSMDB reads from the
 	// users secret under PMM_SERVER_TOKEN (that key is also what selects the PMM 3 sidecar).
 	opts.PMMHost = a.k3dPMMToken(ctx, st, frame, doc, serverID, cfg.ClusterName+"-secrets", "PMM_SERVER_TOKEN", cfg, pr)
+
+	// Data-at-rest encryption. Fatal if it fails, for the reason installPXCOperator gives: a
+	// cluster that says it is encrypted and is not is worse than one that failed to deploy, and
+	// WiredTiger establishes encryption when it creates the data files — never afterwards.
+	//
+	// Gated on the operator version as well as the checkbox. Validation already refuses a design
+	// below psmdbVaultMinVer (k3dVaultIssues); this is the belt to that braces, for a design that
+	// reached here anyway — writing `secrets.vault` into a CRD that has no such field would leave
+	// the cluster unencrypted with every other sign saying otherwise.
+	if k3dVaultOn(frame) && psmdbHasVault(cfg.OperatorVer) {
+		// No server major: mongod reads `security.vault` from its configuration the same way in
+		// every version, so unlike PXC there is no format to choose between.
+		v, verr := a.k3dProvisionVault(ctx, st, frame, serverID, "", cfg, pr)
+		if verr != nil {
+			return fmt.Errorf("data-at-rest encryption: %w", verr)
+		}
+		opts.Vault = v
+		cfg.VaultEncryption = v.Method + " → OpenBao " + v.VaultHost + " (KV v2 mount " + v.Mount + ")"
+		keys := cfg.ClusterName + "-rs0"
+		if cfg.Sharding {
+			keys += " and " + cfg.ClusterName + "-cfg"
+		}
+		pr.logln("encryption at rest: " + v.Method + " keyed to " + v.VaultHost + ", mount " + v.Mount +
+			" (keys " + keys + ", secret " + v.Secret + ")")
+	} else if k3dVaultOn(frame) {
+		pr.logln("data-at-rest encryption skipped: operator " + cfg.OperatorVer +
+			" has no spec.secrets.vault (added in " + psmdbVaultMinVer + ") — the cluster is NOT encrypted")
+	}
 
 	newCR := psmdbTransform(string(raw), opts)
 	if err := a.engCtx(ctx).CopyFile(ctx, serverID, cfg.OperatorSrc+"/deploy", "cr.yaml", 0o644, []byte(newCR)); err != nil {
