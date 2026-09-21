@@ -25194,6 +25194,106 @@ model re-sorts every record by its own parsed timestamp regardless of which file
   timing precision this session didn't reach; the test is left failing and named here rather than
   weakened.
 
+## 407. Rebuilding the missing test corpus, phase 6: Valkey, plus a phase-2 gap — `app/testdata/logsummary/{v01-cluster-failover,v02-cluster-nocover,v03-standalone-repl,r05-replica-lag}/` (new), `app/logsummary_valkey_test.go`
+
+Sixth installment of the §401 corpus rebuild, and a fix for one fixture (`r05-replica-lag`) missed
+in §403. Three real Valkey Cluster/replication topologies plus one small MySQL async-replication
+capture the §403 pass never built even though `logsummary_valkey_test.go`'s isolation check has
+named it since that phase landed. 105 failing test functions remain, down from 127.
+
+### v01's manual cluster repair had a real bug, and it was disguising a different failure
+
+`valkey-cluster:6` builds six independent single-node masters, not three shards of two; turning
+that into 3×2 needs a hand repair (`CLUSTER DELSLOTS`/`ADDSLOTS`/`REPLICATE`, per
+`[[docker-blkio-throttle-gotchas]]`'s sibling note on this pattern). The first attempt only ever
+assigned slots 0–8191 — half the keyspace — so `cluster_state` could never read `ok` for the rest
+of that stack's life, election or no election. `TestValkeyRoleLetterDrivesTheStateTrack`'s "one
+second after the election, the winner reads PRIMARY" check failed against this capture not because
+the election was wrong, but because the cluster never left CLUSTERDOWN at all. Diagnosing this
+needed the live containers: `CLUSTER NODES` on every member showing `cluster_slots_ok:8192`
+against a total of 16384 was the tell. Fixed by rebuilding the cluster with `CLUSTER SETSLOT
+<slot> NODE <id>` looped over the full missing range (plain `ADDSLOTS` on the new owner is refused
+as "already busy" — the losing owner's `DELSLOTS` doesn't propagate slot *removal* through gossip,
+only `SETSLOT`'s forced claim does) before repeating the failover capture.
+
+Even with full coverage, a real single-replica automatic failover reaches "quorum-reached FAIL"
+and "election won" about 10ms apart — too close for the test's "CLUSTERDOWN a full second before
+the election, PRIMARY a second after" assertions to land on either side of a real boundary.
+Reproduced properly with a real, if unusual, technique: `CONFIG SET cluster-replica-no-failover
+yes` on the replica before killing the primary, which lets CLUSTERDOWN persist for as long as
+wanted while the replica is blocked from acting on it, then `CONFIG SET ... no` to let the already-
+queued election proceed a few seconds later. Real Valkey mechanics throughout — the delay is
+just relocated to a point a human operator could just as easily have paused it.
+
+### The four-line catalogue-completeness chase
+
+`TestValkeyCatalogueIsGroundedInTheCorpus` requires every catalogue rule either matched in the
+corpus or named in an `uncaptured` map with a reason. Of nine unmatched rules, five were closed
+with small, cheap, real actions against the already-live stacks: `BGREWRITEAOF` (AOF rewrite),
+`CONFIG SET save "1 1"` plus one write (the periodic "N changes in M seconds. Saving..." line),
+`CONFIG SET cluster-replica-no-failover` on a stopped-primary shard's OTHER replica calling
+`CLUSTER FAILOVER FORCE` before a majority of primaries could vote (the two-primary chain's
+"Currently unable to failover" / "Needed quorum:" lines — a real live contested election, not
+staged), and `CONFIG SET repl-backlog-ttl 2` with no replica connected ("Replication backlog
+freed"). The remaining four were tried against real infrastructure and verified genuinely
+unreachable on this build rather than assumed so: `databases 4` in a cluster-mode node's config
+was accepted with no warning at all (this build does not enforce Redis Cluster's classic
+single-database rule); `maxclients` set above the container's systemd-fixed `LimitNOFILE` produces
+a *different*, unmatched warning ("reduced to N to compensate for low ulimit") because the process
+has no capability to raise a hard limit systemd set; and a real 4-node chain topology (A meets B,
+B meets C, C meets D, no direct A–C/A–D/B–D link) never produced a distinct "no inbound link" MEET
+or a downstream unreachability relay — this build's gossiped node info alone was enough to open a
+direct link. All four are named in `uncaptured` with the verified reason, not silently exempted.
+
+### v02 and v03
+
+`v02-cluster-nocover` is dbcanvas's own `valkey-cluster:3` default shape — three independent
+masters, no replicas — read through plain `journalctl -u valkey@dbcanvas` (no `-o cat`) rather than
+v01's bare stdout, matching the fixture comment's "read through journalctl exactly as the collector
+reads it" and exercising the journald-prefix parsing path the systemd-record regex needs. Stopping
+one shard's only member for a real 30 seconds (`systemctl stop`, then `start` after timing the
+window against a live `date -u`) produces a clean formation-vs-outage pair: the transient
+"currently down" lines every node writes while first meeting each other, and the real
+`Marking node ... as failing (quorum reached)` / 23-second-later `Clear FAIL state: ... nobody is
+serving its slots after some time` bracket the test's discriminator needs.
+
+`v03-standalone-repl` is two hand-wired plain `valkey` nodes (no Cluster) with `REPLICAOF` and a
+`masterauth` set before the first connect, so the very first sync is the "no cached primary"
+bootstrap the file's other tests treat as ordinary. A real `pkill -9 valkey-server` on the primary
+is invisible in Valkey's own log by design; systemd's `Main process exited, code=killed,
+status=9/KILL` is the only record, which is the whole premise of `vk-killed`. The auto-restart
+loses the in-memory replication backlog, so the replica's next reconnect gets a genuine "Partial
+resynchronization not accepted: Replication ID mismatch" and a second, avoidable full resync —
+Valkey 9.1.2 turned out to always synthesize a "cached primary" from a node's own prior state even
+on its very first-ever `REPLICAOF`, so the classic "no cached primary" message this rule's sibling
+describes never actually fires on this build either; not asserted against, so not a problem, just
+worth knowing. `REPLICAOF NO ONE` on the replica while the restarted primary was independently
+confirmed reachable (`PING` succeeded in the same breath) gives a real two-primaries moment for
+`vk-manual-promotion`'s bad-severity branch. The persistence failure is `chmod 500` on the data
+directory followed by `BGSAVE`: the forked child's real `Failed opening the temp RDB file ... for
+saving: Permission denied` is the only place "Permission denied" appears — `rdb_last_bgsave_status`
+reads `err` from the client side and the log never says `MISCONF`, which is `vk-invisible`'s and
+`vk-persistence-failed`'s whole point. `maxmemory 8mb` plus a 40,000-key `valkey-benchmark` write
+burst produced 16,993 real evictions and, as expected, zero log records of any kind.
+
+### r05-replica-lag, filling a phase-3 gap
+
+`logsummary_valkey_test.go`'s isolation check has read `r05-replica-lag` since §403 landed; §403's
+own fixture list never included it. Built the same way as its `r0*` siblings — redeployed
+`repl-corpus` (PS 8.0.46-37 GTID, one source, two replicas) — by holding `LOCK TABLE ... READ` open
+on one replica (a plain write lock is refused under `super_read_only`; a read lock isn't and still
+blocks the replication SQL thread applying to that table) while a stored procedure looped 6,000
+inserts on the source, then releasing the lock once `Seconds_Behind_Source` read 57. All three
+error logs are byte-for-byte unchanged from before the lock — MySQL genuinely has nothing to say
+about replication lag, which is the fixture's entire point.
+
+### Verified
+
+`cd app && go build ./... && go vet ./... && go test ./...`: 105 failing test functions remain —
+every one of them now in the FTDC/sharded-MongoDB, K8s-operator, or `cluster-dump*.tar.gz` families
+the plan has not yet reached. All Valkey stacks (`vk1-corpus`, `vk2-nocover`, `vk3-standalone`, the
+disposable 4-node chain) and `repl-corpus` destroyed after capture; designs kept.
+
 ### Verified
 
 `cd app && go build ./... && go vet ./... && go test ./...`: 127 failing test functions remain (all

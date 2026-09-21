@@ -1,0 +1,75 @@
+Sep 21 14:55:37 vkb systemd[1]: Starting Valkey instance: dbcanvas...
+Sep 21 14:55:37 vkb valkey-server[272]: 272:M 21 Sep 2026 14:55:37.203 # WARNING Memory overcommit must be enabled! Without it, a background save or replication may fail under low memory condition. Being disabled, it can also cause failures without low memory condition, see https://github.com/jemalloc/jemalloc/issues/1328. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.
+Sep 21 14:55:37 vkb valkey-server[272]: 272:M 21 Sep 2026 14:55:37.203 * Supervised by systemd. Please make sure you set appropriate values for TimeoutStartSec and TimeoutStopSec in your service unit.
+Sep 21 14:55:37 vkb valkey-server[272]: 272:M 21 Sep 2026 14:55:37.203 * oO0OoO0OoO0Oo Valkey is starting oO0OoO0OoO0Oo
+Sep 21 14:55:37 vkb valkey-server[272]: 272:M 21 Sep 2026 14:55:37.203 * Valkey version=9.1.2, bits=64, commit=00000000, modified=1, pid=272, just started
+Sep 21 14:55:37 vkb valkey-server[272]: 272:M 21 Sep 2026 14:55:37.203 * Configuration loaded
+Sep 21 14:55:37 vkb valkey-server[272]: 272:M 21 Sep 2026 14:55:37.233 * monotonic clock: X86 TSC @ 2918.79 ticks/us
+Sep 21 14:55:37 vkb valkey-server[272]: 272:M 21 Sep 2026 14:55:37.234 * Running mode=standalone, port=6379.
+Sep 21 14:55:37 vkb valkey-server[272]: 272:M 21 Sep 2026 14:55:37.234 * Static Module 'lua' successfully loaded
+Sep 21 14:55:37 vkb valkey-server[272]: 272:M 21 Sep 2026 14:55:37.234 * Server initialized
+Sep 21 14:55:37 vkb valkey-server[272]: 272:M 21 Sep 2026 14:55:37.237 * Creating AOF base file appendonly.aof.1.base.rdb on server start
+Sep 21 14:55:37 vkb valkey-server[272]: 272:M 21 Sep 2026 14:55:37.241 * Creating AOF incr file appendonly.aof.1.incr.aof on server start
+Sep 21 14:55:37 vkb valkey-server[272]: 272:M 21 Sep 2026 14:55:37.241 * Ready to accept connections tcp
+Sep 21 14:55:37 vkb systemd[1]: Started Valkey instance: dbcanvas.
+Sep 21 14:55:48 vkb valkey-server[272]: 272:S 21 Sep 2026 14:55:48.798 * Before turning into a replica, using my own primary parameters to synthesize a cached primary: I may be able to synchronize with the new primary with just a partial transfer.
+Sep 21 14:55:48 vkb valkey-server[272]: 272:S 21 Sep 2026 14:55:48.798 * Connecting to PRIMARY 172.24.0.3:6379
+Sep 21 14:55:48 vkb valkey-server[272]: 272:S 21 Sep 2026 14:55:48.798 * PRIMARY <-> REPLICA sync started
+Sep 21 14:55:48 vkb valkey-server[272]: 272:S 21 Sep 2026 14:55:48.798 * REPLICAOF 172.24.0.3:6379 enabled (user request from 'id=5 addr=127.0.0.1:41384 laddr=127.0.0.1:6379 fd=10 name=*redacted* user=*redacted* lib-name= lib-ver=')
+Sep 21 14:55:48 vkb valkey-server[272]: 272:S 21 Sep 2026 14:55:48.798 * Non blocking connect for SYNC fired the event.
+Sep 21 14:55:48 vkb valkey-server[272]: 272:S 21 Sep 2026 14:55:48.798 * Primary replied to PING, replication can continue...
+Sep 21 14:55:48 vkb valkey-server[272]: 272:S 21 Sep 2026 14:55:48.798 * Trying a partial resynchronization (request d3da381fa32e53cf27b0eb6271a420b27ff75bcc:1).
+Sep 21 14:55:53 vkb valkey-server[272]: 272:S 21 Sep 2026 14:55:53.840 * Full resync from primary: 5422a48ee65f5df232039d1c5a3ae0e8cd7c03e0:0
+Sep 21 14:55:53 vkb valkey-server[272]: 272:S 21 Sep 2026 14:55:53.841 * Replica main thread creating Bio thread to save RDB to disk
+Sep 21 14:55:53 vkb valkey-server[272]: 272:S 21 Sep 2026 14:55:53.841 * Replica bio thread: PRIMARY <-> REPLICA sync: receiving streamed RDB from primary with EOF to disk
+Sep 21 14:55:53 vkb valkey-server[272]: 272:S 21 Sep 2026 14:55:53.844 * Replica bio thread: Done downloading RDB
+Sep 21 14:55:54 vkb valkey-server[272]: 272:S 21 Sep 2026 14:55:54.323 * Replica main thread detected RDB download completion in Bio thread
+Sep 21 14:55:54 vkb valkey-server[272]: 272:S 21 Sep 2026 14:55:54.324 * Loading the RDB and finalizing primary-replica sync...
+Sep 21 14:55:54 vkb valkey-server[272]: 272:S 21 Sep 2026 14:55:54.335 * Discarding previously cached primary state.
+Sep 21 14:55:54 vkb valkey-server[272]: 272:S 21 Sep 2026 14:55:54.335 * PRIMARY <-> REPLICA sync: Loading DB in memory
+Sep 21 14:55:54 vkb valkey-server[272]: 272:S 21 Sep 2026 14:55:54.335 * Cleaning slot migration log in anticipation of a load operation.
+Sep 21 14:55:54 vkb valkey-server[272]: 272:S 21 Sep 2026 14:55:54.335 * RDB signature and version check passed. Flushing old data
+Sep 21 14:55:54 vkb valkey-server[272]: 272:S 21 Sep 2026 14:55:54.335 * Loading RDB produced by Valkey version 9.1.2
+Sep 21 14:55:54 vkb valkey-server[272]: 272:S 21 Sep 2026 14:55:54.335 * RDB age 1 seconds
+Sep 21 14:55:54 vkb valkey-server[272]: 272:S 21 Sep 2026 14:55:54.335 * RDB memory usage when created 0.98 Mb
+Sep 21 14:55:54 vkb valkey-server[272]: 272:S 21 Sep 2026 14:55:54.335 * Done loading RDB, keys loaded: 0, keys expired: 0, all fields expired hashes: 0.
+Sep 21 14:55:54 vkb valkey-server[272]: 272:S 21 Sep 2026 14:55:54.335 * PRIMARY <-> REPLICA sync: Finished with success
+Sep 21 14:55:54 vkb valkey-server[272]: 272:S 21 Sep 2026 14:55:54.343 * Removing the history file appendonly.aof.1.incr.aof in the background
+Sep 21 14:55:54 vkb valkey-server[272]: 272:S 21 Sep 2026 14:55:54.343 * Removing the history file appendonly.aof.1.base.rdb in the background
+Sep 21 14:55:54 vkb valkey-server[272]: 272:S 21 Sep 2026 14:55:54.350 * Reused RDB file from primary sync as AOF base file: appendonly.aof.2.base.rdb
+Sep 21 14:56:39 vkb valkey-server[272]: 272:S 21 Sep 2026 14:56:39.866 * Connection with primary lost.
+Sep 21 14:56:39 vkb valkey-server[272]: 272:S 21 Sep 2026 14:56:39.866 * Caching the disconnected primary state.
+Sep 21 14:56:39 vkb valkey-server[272]: 272:S 21 Sep 2026 14:56:39.866 * Reconnecting to PRIMARY 172.24.0.3:6379
+Sep 21 14:56:39 vkb valkey-server[272]: 272:S 21 Sep 2026 14:56:39.866 * PRIMARY <-> REPLICA sync started
+Sep 21 14:56:39 vkb valkey-server[272]: 272:S 21 Sep 2026 14:56:39.866 # Error condition on socket for SYNC: Connection refused
+Sep 21 14:56:40 vkb valkey-server[272]: 272:S 21 Sep 2026 14:56:40.746 * Connecting to PRIMARY 172.24.0.3:6379
+Sep 21 14:56:40 vkb valkey-server[272]: 272:S 21 Sep 2026 14:56:40.746 * PRIMARY <-> REPLICA sync started
+Sep 21 14:56:40 vkb valkey-server[272]: 272:S 21 Sep 2026 14:56:40.746 * Non blocking connect for SYNC fired the event.
+Sep 21 14:56:40 vkb valkey-server[272]: 272:S 21 Sep 2026 14:56:40.747 * Primary replied to PING, replication can continue...
+Sep 21 14:56:40 vkb valkey-server[272]: 272:S 21 Sep 2026 14:56:40.747 * Trying a partial resynchronization (request 5422a48ee65f5df232039d1c5a3ae0e8cd7c03e0:85).
+Sep 21 14:56:45 vkb valkey-server[272]: 272:S 21 Sep 2026 14:56:45.037 * Full resync from primary: b6b5463f15d9e8fca8e0e7953493d87859d9a2d1:14
+Sep 21 14:56:45 vkb valkey-server[272]: 272:S 21 Sep 2026 14:56:45.038 * Replica main thread creating Bio thread to save RDB to disk
+Sep 21 14:56:45 vkb valkey-server[272]: 272:S 21 Sep 2026 14:56:45.038 * Replica bio thread: PRIMARY <-> REPLICA sync: receiving streamed RDB from primary with EOF to disk
+Sep 21 14:56:45 vkb valkey-server[272]: 272:S 21 Sep 2026 14:56:45.038 * Replica bio thread: Done downloading RDB
+Sep 21 14:56:45 vkb valkey-server[272]: 272:S 21 Sep 2026 14:56:45.788 * Replica main thread detected RDB download completion in Bio thread
+Sep 21 14:56:45 vkb valkey-server[272]: 272:S 21 Sep 2026 14:56:45.788 * Loading the RDB and finalizing primary-replica sync...
+Sep 21 14:56:45 vkb valkey-server[272]: 272:S 21 Sep 2026 14:56:45.803 * Discarding previously cached primary state.
+Sep 21 14:56:45 vkb valkey-server[272]: 272:S 21 Sep 2026 14:56:45.803 * PRIMARY <-> REPLICA sync: Loading DB in memory
+Sep 21 14:56:45 vkb valkey-server[272]: 272:S 21 Sep 2026 14:56:45.803 * Cleaning slot migration log in anticipation of a load operation.
+Sep 21 14:56:45 vkb valkey-server[272]: 272:S 21 Sep 2026 14:56:45.803 * RDB signature and version check passed. Flushing old data
+Sep 21 14:56:45 vkb valkey-server[272]: 272:S 21 Sep 2026 14:56:45.803 * Loading RDB produced by Valkey version 9.1.2
+Sep 21 14:56:45 vkb valkey-server[272]: 272:S 21 Sep 2026 14:56:45.803 * RDB age 0 seconds
+Sep 21 14:56:45 vkb valkey-server[272]: 272:S 21 Sep 2026 14:56:45.803 * RDB memory usage when created 1.00 Mb
+Sep 21 14:56:45 vkb valkey-server[272]: 272:S 21 Sep 2026 14:56:45.803 * Done loading RDB, keys loaded: 0, keys expired: 0, all fields expired hashes: 0.
+Sep 21 14:56:45 vkb valkey-server[272]: 272:S 21 Sep 2026 14:56:45.803 * PRIMARY <-> REPLICA sync: Finished with success
+Sep 21 14:56:45 vkb valkey-server[272]: 272:S 21 Sep 2026 14:56:45.811 * Removing the history file appendonly.aof.2.incr.aof in the background
+Sep 21 14:56:45 vkb valkey-server[272]: 272:S 21 Sep 2026 14:56:45.811 * Removing the history file appendonly.aof.2.base.rdb in the background
+Sep 21 14:56:45 vkb valkey-server[272]: 272:S 21 Sep 2026 14:56:45.818 * Reused RDB file from primary sync as AOF base file: appendonly.aof.3.base.rdb
+Sep 21 14:56:52 vkb valkey-server[272]: 272:M 21 Sep 2026 14:56:52.631 * Connection with primary lost.
+Sep 21 14:56:52 vkb valkey-server[272]: 272:M 21 Sep 2026 14:56:52.631 * Caching the disconnected primary state.
+Sep 21 14:56:52 vkb valkey-server[272]: 272:M 21 Sep 2026 14:56:52.631 * Discarding previously cached primary state.
+Sep 21 14:56:52 vkb valkey-server[272]: 272:M 21 Sep 2026 14:56:52.631 * Setting secondary replication ID to b6b5463f15d9e8fca8e0e7953493d87859d9a2d1, valid up to offset: 29. New replication ID is ef1b8dc759f23c5d0baa2ac9340588ad2dec1a24
+Sep 21 14:56:52 vkb valkey-server[272]: 272:M 21 Sep 2026 14:56:52.631 * PRIMARY MODE enabled (user request from 'id=12 addr=127.0.0.1:58028 laddr=127.0.0.1:6379 fd=10 name=*redacted* user=*redacted* lib-name= lib-ver=')
+Sep 21 14:57:06 vkb valkey-server[272]: 272:M 21 Sep 2026 14:57:06.488 * Background saving started by pid 418
+Sep 21 14:57:06 vkb valkey-server[418]: 418:C 21 Sep 2026 14:57:06.489 # Failed opening the temp RDB file temp-418.rdb (in server root dir /var/lib/valkey/data) for saving: Permission denied
+Sep 21 14:57:06 vkb valkey-server[272]: 272:M 21 Sep 2026 14:57:06.585 # Background saving error

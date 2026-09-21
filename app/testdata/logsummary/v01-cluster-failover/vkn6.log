@@ -1,0 +1,42 @@
+Sep 21 14:40:47 vk-6 systemd[1]: Starting Valkey instance: dbcanvas...
+Sep 21 14:40:47 vk-6 valkey-server[271]: 271:M 21 Sep 2026 14:40:47.632 # WARNING Memory overcommit must be enabled! Without it, a background save or replication may fail under low memory condition. Being disabled, it can also cause failures without low memory condition, see https://github.com/jemalloc/jemalloc/issues/1328. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.
+Sep 21 14:40:47 vk-6 valkey-server[271]: 271:M 21 Sep 2026 14:40:47.632 * Supervised by systemd. Please make sure you set appropriate values for TimeoutStartSec and TimeoutStopSec in your service unit.
+Sep 21 14:40:47 vk-6 valkey-server[271]: 271:M 21 Sep 2026 14:40:47.632 * oO0OoO0OoO0Oo Valkey is starting oO0OoO0OoO0Oo
+Sep 21 14:40:47 vk-6 valkey-server[271]: 271:M 21 Sep 2026 14:40:47.632 * Valkey version=9.1.2, bits=64, commit=00000000, modified=1, pid=271, just started
+Sep 21 14:40:47 vk-6 valkey-server[271]: 271:M 21 Sep 2026 14:40:47.632 * Configuration loaded
+Sep 21 14:40:47 vk-6 valkey-server[271]: 271:M 21 Sep 2026 14:40:47.663 * monotonic clock: X86 TSC @ 2918.79 ticks/us
+Sep 21 14:40:47 vk-6 valkey-server[271]: 271:M 21 Sep 2026 14:40:47.663 * Running mode=cluster, port=6379.
+Sep 21 14:40:47 vk-6 valkey-server[271]: 271:M 21 Sep 2026 14:40:47.663 * No cluster configuration found, I'm 4245cbd0f7e6a6de638ce48aa574ad461b709018
+Sep 21 14:40:47 vk-6 valkey-server[271]: 271:M 21 Sep 2026 14:40:47.669 * Static Module 'lua' successfully loaded
+Sep 21 14:40:47 vk-6 valkey-server[271]: 271:M 21 Sep 2026 14:40:47.669 * Server initialized
+Sep 21 14:40:47 vk-6 valkey-server[271]: 271:M 21 Sep 2026 14:40:47.671 * Creating AOF base file appendonly.aof.1.base.rdb on server start
+Sep 21 14:40:47 vk-6 valkey-server[271]: 271:M 21 Sep 2026 14:40:47.676 * Creating AOF incr file appendonly.aof.1.incr.aof on server start
+Sep 21 14:40:47 vk-6 valkey-server[271]: 271:M 21 Sep 2026 14:40:47.676 * Ready to accept connections tcp
+Sep 21 14:44:26 vk-6 valkey-server[271]: 271:S 21 Sep 2026 14:44:26.461 * Node cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379) is now a replica of node 181d7d0c8a805c1bbd945aa2217556e678d2016a (172.22.0.7:6379) in shard 2639d01915bcc05694fb70aa1688afc95c1104d7
+Sep 21 14:44:26 vk-6 valkey-server[271]: 271:S 21 Sep 2026 14:44:26.493 * Clear FAIL state for node cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379): replica is reachable again.
+Sep 21 14:44:36 vk-6 valkey-server[271]: 271:S 21 Sep 2026 14:44:36.251 * Reconfiguring node cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379) as primary for shard 2639d01915bcc05694fb70aa1688afc95c1104d7
+Sep 21 14:44:36 vk-6 valkey-server[271]: 271:S 21 Sep 2026 14:44:36.251 * Mismatch in topology information for sender node cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379) in shard 2639d01915bcc05694fb70aa1688afc95c1104d7
+Sep 21 14:44:36 vk-6 valkey-server[271]: 271:S 21 Sep 2026 14:44:36.260 * Node 181d7d0c8a805c1bbd945aa2217556e678d2016a (172.22.0.7:6379) is now a replica of node cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379) in shard 2639d01915bcc05694fb70aa1688afc95c1104d7
+Sep 21 14:59:45 vk-6 valkey-server[271]: 271:S 21 Sep 2026 14:59:45.662 * Connection with primary lost.
+Sep 21 14:59:45 vk-6 valkey-server[271]: 271:S 21 Sep 2026 14:59:45.662 * Caching the disconnected primary state.
+Sep 21 14:59:45 vk-6 valkey-server[271]: 271:S 21 Sep 2026 14:59:45.662 * Reconnecting to PRIMARY 172.22.0.5:6379
+Sep 21 14:59:45 vk-6 valkey-server[271]: 271:S 21 Sep 2026 14:59:45.662 * PRIMARY <-> REPLICA sync started
+Sep 21 14:59:45 vk-6 valkey-server[271]: 271:S 21 Sep 2026 14:59:45.662 # Error condition on socket for SYNC: Connection refused
+Sep 21 14:59:46 vk-6 valkey-server[271]: 271:S 21 Sep 2026 14:59:46.615 * Connecting to PRIMARY 172.22.0.5:6379
+Sep 21 14:59:46 vk-6 valkey-server[271]: 271:S 21 Sep 2026 14:59:46.615 * PRIMARY <-> REPLICA sync started
+Sep 21 14:59:46 vk-6 valkey-server[271]: 271:S 21 Sep 2026 14:59:46.615 # Error condition on socket for SYNC: Connection refused
+Sep 21 14:59:47 vk-6 valkey-server[271]: 271:S 21 Sep 2026 14:59:47.622 * Connecting to PRIMARY 172.22.0.5:6379
+Sep 21 14:59:47 vk-6 valkey-server[271]: 271:S 21 Sep 2026 14:59:47.622 * PRIMARY <-> REPLICA sync started
+Sep 21 14:59:47 vk-6 valkey-server[271]: 271:S 21 Sep 2026 14:59:47.622 # Error condition on socket for SYNC: Connection refused
+Sep 21 14:59:47 vk-6 valkey-server[271]: 271:S 21 Sep 2026 14:59:47.769 * Forced failover user request accepted (user request from 'id=10 addr=127.0.0.1:38376 laddr=127.0.0.1:6379 fd=14 name=*redacted* user=*redacted* lib-name= lib-ver=').
+Sep 21 14:59:47 vk-6 valkey-server[271]: 271:S 21 Sep 2026 14:59:47.769 * Start of election delayed for 0 milliseconds (rank #0, primary rank #0, offset 1344).
+Sep 21 14:59:47 vk-6 valkey-server[271]: 271:S 21 Sep 2026 14:59:47.769 * Starting a failover election for epoch 9, node config epoch is 3
+Sep 21 14:59:47 vk-6 valkey-server[271]: 271:S 21 Sep 2026 14:59:47.781 * Currently unable to failover: Waiting for votes, but majority still not reached.
+Sep 21 14:59:47 vk-6 valkey-server[271]: 271:S 21 Sep 2026 14:59:47.781 * Needed quorum: 2. Number of votes received so far: 1
+Sep 21 14:59:47 vk-6 valkey-server[271]: 271:S 21 Sep 2026 14:59:47.785 * Failover election won: I'm the new primary.
+Sep 21 14:59:47 vk-6 valkey-server[271]: 271:S 21 Sep 2026 14:59:47.785 * configEpoch set to 9 after successful failover
+Sep 21 14:59:47 vk-6 valkey-server[271]: 271:S 21 Sep 2026 14:59:47.785 * Setting myself to primary in shard d95406d2ec265d0af9806fc160d22c74343d08d1 after failover; my old primary is bbac3b50876d0bf7be166df7f1c42494a9d5aaec (172.22.0.5:6379)
+Sep 21 14:59:47 vk-6 valkey-server[271]: 271:S 21 Sep 2026 14:59:47.785 * Reconfiguring node 4245cbd0f7e6a6de638ce48aa574ad461b709018 (172.22.0.8:6379) as primary for shard d95406d2ec265d0af9806fc160d22c74343d08d1
+Sep 21 14:59:47 vk-6 valkey-server[271]: 271:M 21 Sep 2026 14:59:47.785 * Discarding previously cached primary state.
+Sep 21 14:59:47 vk-6 valkey-server[271]: 271:M 21 Sep 2026 14:59:47.785 * Setting secondary replication ID to d3f29d56eb7c31fe92ff2cdb4668f81f903ac840, valid up to offset: 1345. New replication ID is 8583c55de2985da1a517dd59ba9043ad440c2d1c
+Sep 21 14:59:52 vk-6 valkey-server[271]: 271:M 21 Sep 2026 14:59:52.555 * Marking node bbac3b50876d0bf7be166df7f1c42494a9d5aaec (172.22.0.5:6379) as failing (quorum reached).

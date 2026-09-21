@@ -231,7 +231,10 @@ func TestValkeyLevelIsNotSeverity(t *testing.T) {
 			if e.Sev != lsSevInfo {
 				t.Errorf("%q is boilerplate on every healthy start and is reported %q", e.Label, e.Sev)
 			}
-			if e.Level != "WARNING" {
+			// "Supervised by systemd" is real Valkey 9.1.2's one exception: unlike the other
+			// three boilerplate hints, this build writes it at `*` (NOTE), not `#` — checked
+			// live against the corpus rather than assumed.
+			if e.Label != "Supervised by systemd" && e.Level != "WARNING" {
 				t.Errorf("%q should be at Valkey's warning level in the corpus, got %q", e.Label, e.Level)
 			}
 		}
@@ -852,9 +855,25 @@ func TestValkeyCatalogueIsGroundedInTheCorpus(t *testing.T) {
 		"Host: transparent huge pages are enabled":   true, // the corpus hosts have THP off
 		"systemd: the server died on a signal":       true, // the corpus kill is SIGKILL, matched by its own rule
 		"systemd: the server dumped core":            true,
-		"A replica disconnected":                     true,
-		"systemd: sending SIGKILL":                   true,
-		"Could not write the snapshot file":          false, // present; listed to show the map is read
+		// Verified live against Valkey 9.1.2 rather than assumed: a cluster-mode node given
+		// "databases 4" in its config accepted it with no warning and no enforcement — the
+		// classic Redis Cluster behaviour this rule catalogues does not hold on this build.
+		"Cluster mode forces one database": true,
+		// Verified live: this build's systemd unit fixes a hard RLIMIT_NOFILE the process has
+		// no capability to raise. Asking for more clients than that ceiling allows produces a
+		// different, unmatched warning ("maxclients has been reduced to N to compensate for
+		// low ulimit") rather than the success-path "Increased maximum..." this rule expects.
+		"Host limit adjusted at start": true,
+		// Tried against a real 4-node chain topology (A meets B, B meets C, C meets D, no
+		// direct A–C/A–D/B–D link) expecting gossip to force a peer to MEET a node it only
+		// knows about second-hand. On this build the gossiped node info alone was enough to
+		// open a direct link — no distinct "no inbound link" MEET, and so no downstream peer
+		// ever needed to relay an unreachability report either.
+		"Re-establishing a link to a peer":        true,
+		"Another node reports a peer unreachable": true,
+		"A replica disconnected":                  true,
+		"systemd: sending SIGKILL":                true,
+		"Could not write the snapshot file":       false, // present; listed to show the map is read
 	}
 	var missing []string
 	for _, r := range append(append([]lsRule{}, lsValkeyRules...), lsValkeySystemdRules...) {

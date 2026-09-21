@@ -1,0 +1,17 @@
+2026-09-21T15:08:59.642299Z 0 [System] [MY-013169] [Server] /usr/sbin/mysqld (mysqld 8.0.46-37) initializing of server in progress as process 4917
+2026-09-21T15:08:59.649839Z 1 [System] [MY-013576] [InnoDB] InnoDB initialization has started.
+2026-09-21T15:09:00.660180Z 1 [System] [MY-013577] [InnoDB] InnoDB initialization has ended.
+2026-09-21T15:09:02.511106Z 6 [Warning] [MY-010453] [Server] root@localhost is created with an empty password ! Please consider switching off the --initialize-insecure option.
+2026-09-21T15:09:08.238013Z 0 [Warning] [MY-011070] [Server] 'binlog_format' is deprecated and will be removed in a future release.
+2026-09-21T15:09:08.240156Z 0 [Warning] [MY-010097] [Server] Insecure configuration for --secure-log-path: Current value does not restrict location of generated files. Consider setting it to a valid, non-empty path.
+2026-09-21T15:09:08.240201Z 0 [System] [MY-010116] [Server] /usr/sbin/mysqld (mysqld 8.0.46-37) starting as process 4993
+2026-09-21T15:09:08.249538Z 1 [System] [MY-013576] [InnoDB] InnoDB initialization has started.
+2026-09-21T15:09:08.602433Z 1 [System] [MY-013577] [InnoDB] InnoDB initialization has ended.
+2026-09-21T15:09:08.878696Z 0 [Warning] [MY-010068] [Server] CA certificate ca.pem is self signed.
+2026-09-21T15:09:08.878719Z 0 [System] [MY-013602] [Server] Channel mysql_main configured to support TLS. Encrypted connections are now supported for this channel.
+2026-09-21T15:09:08.899781Z 0 [System] [MY-011323] [Server] X Plugin ready for connections. Bind-address: '::' port: 33060, socket: /var/lib/mysql/mysqlx.sock
+2026-09-21T15:09:08.899913Z 0 [System] [MY-010931] [Server] /usr/sbin/mysqld: ready for connections. Version: '8.0.46-37'  socket: '/var/lib/mysql/mysql.sock'  port: 3306  Percona Server (GPL), Release 37, Revision 39e2b60e.
+2026-09-21T15:09:09.223037Z 17 [Warning] [MY-010604] [Repl] Neither --relay-log nor --relay-log-index were used; so replication may break when this MySQL server acts as a replica and has his hostname changed!! Please use '--relay-log=ps-repl-2-relay-bin' to avoid this problem.
+2026-09-21T15:09:09.239934Z 17 [System] [MY-010597] [Repl] 'CHANGE REPLICATION SOURCE TO FOR CHANNEL '' executed'. Previous state source_host='', source_port= 3306, source_log_file='', source_log_pos= 4, source_bind=''. New state source_host='ps-repl-1.example.net', source_port= 3306, source_log_file='', source_log_pos= 4, source_bind=''.
+2026-09-21T15:09:09.261059Z 19 [Warning] [MY-010897] [Repl] Storing MySQL user name or password information in the connection metadata repository is not secure and is therefore not recommended. Please consider using the USER and PASSWORD connection options for START REPLICA; see the 'START REPLICA Syntax' in the MySQL Manual for more information.
+2026-09-21T15:09:09.288851Z 19 [System] [MY-014002] [Repl] Replica receiver thread for channel '': connected to source 'repl@ps-repl-1.example.net:3306' with server_uuid=5f913716-b5ce-11f1-a212-4e5acbc1b3eb, server_id=74864963. Starting GTID-based replication.

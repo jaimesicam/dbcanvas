@@ -1,0 +1,92 @@
+267:M 21 Sep 2026 14:43:37.281 * Node 1747564ada6fbd480640d988a6b1a92daa81c742 (172.22.0.3:6379) is now a replica of node c2117664dbd98ee471e31b5a909aecaadbe3df1d (172.22.0.6:6379) in shard e88adec66709c1a9deb681df6d7a049c8dcff94b
+267:M 21 Sep 2026 14:43:37.469 * Node 4245cbd0f7e6a6de638ce48aa574ad461b709018 (172.22.0.8:6379) is no longer primary of shard 8b21244b089180170739347e749dd680aa9e4e41; removed all 0 slot(s) it used to own
+267:M 21 Sep 2026 14:43:37.469 * Node 4245cbd0f7e6a6de638ce48aa574ad461b709018 (172.22.0.8:6379) is now part of shard d95406d2ec265d0af9806fc160d22c74343d08d1
+267:M 21 Sep 2026 14:43:37.469 * Node 4245cbd0f7e6a6de638ce48aa574ad461b709018 (172.22.0.8:6379) is now a replica of node bbac3b50876d0bf7be166df7f1c42494a9d5aaec (172.22.0.5:6379) in shard d95406d2ec265d0af9806fc160d22c74343d08d1
+267:M 21 Sep 2026 14:43:42.986 * Starting BGSAVE for SYNC with target: replicas sockets using: normal sync
+267:M 21 Sep 2026 14:43:42.987 * Background RDB transfer started by pid 3257 to pipe through parent process
+3257:C 21 Sep 2026 14:43:42.988 * Fork CoW for RDB: current 0 MB, peak 0 MB, average 0 MB
+267:M 21 Sep 2026 14:43:42.988 * Diskless rdb transfer, done reading from pipe, 1 replicas still up.
+267:M 21 Sep 2026 14:43:43.087 * Background RDB transfer terminated with success
+267:M 21 Sep 2026 14:43:43.087 * Streamed RDB transfer with replica 172.22.0.7:6379 succeeded (socket). Waiting for REPLCONF ACK from replica to enable streaming
+267:M 21 Sep 2026 14:43:43.087 * Synchronization with replica 172.22.0.7:6379 succeeded
+267:signal-handler (1790001837) Received SIGTERM scheduling shutdown...
+Stopping Valkey instance: dbcanvas...
+267:M 21 Sep 2026 14:43:57.785 * User requested shutdown...
+267:M 21 Sep 2026 14:43:57.785 * 1 of 1 replicas are in sync when shutting down.
+267:M 21 Sep 2026 14:43:57.785 * Calling fsync() on the AOF file.
+267:M 21 Sep 2026 14:43:57.786 * Saving the final RDB snapshot before exiting.
+267:M 21 Sep 2026 14:43:57.790 * DB saved on disk
+267:M 21 Sep 2026 14:43:57.790 * Saving the cluster configuration file before exiting.
+267:M 21 Sep 2026 14:43:57.794 * Module lua unloaded
+267:M 21 Sep 2026 14:43:57.794 # Valkey is now ready to exit, bye bye...
+valkey@dbcanvas.service: Deactivated successfully.
+Stopped Valkey instance: dbcanvas.
+valkey@dbcanvas.service: Consumed 1.271s CPU time.
+Starting Valkey instance: dbcanvas...
+3280:M 21 Sep 2026 14:44:26.422 # WARNING Memory overcommit must be enabled! Without it, a background save or replication may fail under low memory condition. Being disabled, it can also cause failures without low memory condition, see https://github.com/jemalloc/jemalloc/issues/1328. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.
+3280:M 21 Sep 2026 14:44:26.422 * Supervised by systemd. Please make sure you set appropriate values for TimeoutStartSec and TimeoutStopSec in your service unit.
+3280:M 21 Sep 2026 14:44:26.422 * oO0OoO0OoO0Oo Valkey is starting oO0OoO0OoO0Oo
+3280:M 21 Sep 2026 14:44:26.422 * Valkey version=9.1.2, bits=64, commit=00000000, modified=1, pid=3280, just started
+3280:M 21 Sep 2026 14:44:26.422 * Configuration loaded
+3280:M 21 Sep 2026 14:44:26.453 * monotonic clock: X86 TSC @ 2918.28 ticks/us
+3280:M 21 Sep 2026 14:44:26.453 * Running mode=cluster, port=6379.
+3280:M 21 Sep 2026 14:44:26.453 * Node configuration loaded, I'm cabac9796ea8b58e81525b5cf273d5b8a7cb5186
+3280:M 21 Sep 2026 14:44:26.454 * Static Module 'lua' successfully loaded
+3280:M 21 Sep 2026 14:44:26.454 * Server initialized
+3280:M 21 Sep 2026 14:44:26.454 * Cleaning slot migration log in anticipation of a load operation.
+3280:M 21 Sep 2026 14:44:26.454 * Reading RDB base file on AOF loading...
+3280:M 21 Sep 2026 14:44:26.455 * Loading RDB produced by Valkey version 9.1.2
+3280:M 21 Sep 2026 14:44:26.455 * RDB age 235 seconds
+3280:M 21 Sep 2026 14:44:26.455 * RDB memory usage when created 2.64 Mb
+3280:M 21 Sep 2026 14:44:26.455 * RDB is base AOF
+3280:M 21 Sep 2026 14:44:26.455 * Done loading RDB, keys loaded: 0, keys expired: 0, all fields expired hashes: 0.
+3280:M 21 Sep 2026 14:44:26.455 * DB loaded from base file appendonly.aof.1.base.rdb: 0.000 seconds
+3280:M 21 Sep 2026 14:44:26.455 * DB loaded from append only file: 0.000 seconds
+3280:M 21 Sep 2026 14:44:26.455 * Opening AOF incr file appendonly.aof.1.incr.aof on server start
+3280:M 21 Sep 2026 14:44:26.455 * Ready to accept connections tcp
+Started Valkey instance: dbcanvas.
+3280:M 21 Sep 2026 14:44:26.456 * Reconfiguring node 181d7d0c8a805c1bbd945aa2217556e678d2016a (172.22.0.7:6379) as primary for shard 2639d01915bcc05694fb70aa1688afc95c1104d7
+3280:M 21 Sep 2026 14:44:26.456 * Mismatch in topology information for sender node 181d7d0c8a805c1bbd945aa2217556e678d2016a (172.22.0.7:6379) in shard 2639d01915bcc05694fb70aa1688afc95c1104d7
+3280:M 21 Sep 2026 14:44:26.456 * Configuration change detected. Reconfiguring myself as a replica of node 181d7d0c8a805c1bbd945aa2217556e678d2016a (172.22.0.7:6379) in shard 2639d01915bcc05694fb70aa1688afc95c1104d7
+3280:S 21 Sep 2026 14:44:26.456 * Before turning into a replica, using my own primary parameters to synthesize a cached primary: I may be able to synchronize with the new primary with just a partial transfer.
+3280:S 21 Sep 2026 14:44:26.456 * Connecting to PRIMARY 172.22.0.7:6379
+3280:S 21 Sep 2026 14:44:26.456 * PRIMARY <-> REPLICA sync started
+3280:S 21 Sep 2026 14:44:26.456 * Cluster state changed: ok
+3280:S 21 Sep 2026 14:44:26.461 * Non blocking connect for SYNC fired the event.
+3280:S 21 Sep 2026 14:44:26.467 * Primary replied to PING, replication can continue...
+3280:S 21 Sep 2026 14:44:26.467 * Trying a partial resynchronization (request 77ced887791416db78ddd173105adb876357de42:1).
+3280:S 21 Sep 2026 14:44:31.214 * Full resync from primary: 0d7ecced34828240ab303a691b177df353d55acd:28
+3280:S 21 Sep 2026 14:44:31.215 * Replica main thread creating Bio thread to save RDB to disk
+3280:S 21 Sep 2026 14:44:31.215 * Replica bio thread: PRIMARY <-> REPLICA sync: receiving streamed RDB from primary with EOF to disk
+3280:S 21 Sep 2026 14:44:31.215 * Replica bio thread: Done downloading RDB
+3280:S 21 Sep 2026 14:44:31.374 * Replica main thread detected RDB download completion in Bio thread
+3280:S 21 Sep 2026 14:44:31.374 * Loading the RDB and finalizing primary-replica sync...
+3280:S 21 Sep 2026 14:44:31.380 * Discarding previously cached primary state.
+3280:S 21 Sep 2026 14:44:31.380 * PRIMARY <-> REPLICA sync: Loading DB in memory
+3280:S 21 Sep 2026 14:44:31.380 * Cleaning slot migration log in anticipation of a load operation.
+3280:S 21 Sep 2026 14:44:31.380 * RDB signature and version check passed. Flushing old data
+3280:S 21 Sep 2026 14:44:31.380 * Loading RDB produced by Valkey version 9.1.2
+3280:S 21 Sep 2026 14:44:31.380 * RDB age 0 seconds
+3280:S 21 Sep 2026 14:44:31.380 * RDB memory usage when created 3.04 Mb
+3280:S 21 Sep 2026 14:44:31.380 * Done loading RDB, keys loaded: 0, keys expired: 0, all fields expired hashes: 0.
+3280:S 21 Sep 2026 14:44:31.380 * PRIMARY <-> REPLICA sync: Finished with success
+3280:S 21 Sep 2026 14:44:31.384 * Removing the history file appendonly.aof.1.incr.aof in the background
+3280:S 21 Sep 2026 14:44:31.384 * Removing the history file appendonly.aof.1.base.rdb in the background
+3280:S 21 Sep 2026 14:44:31.388 * Reused RDB file from primary sync as AOF base file: appendonly.aof.2.base.rdb
+3280:S 21 Sep 2026 14:44:36.238 * Manual failover user request accepted (user request from 'id=9 addr=127.0.0.1:36518 laddr=127.0.0.1:6379 fd=11 name=*redacted* user=*redacted* lib-name= lib-ver=').
+3280:S 21 Sep 2026 14:44:36.239 * Received replication offset for paused primary manual failover: 42
+3280:S 21 Sep 2026 14:44:36.239 * All primary replication stream processed, manual failover can start.
+3280:S 21 Sep 2026 14:44:36.239 * Start of election delayed for 0 milliseconds (rank #0, primary rank #0, offset 42).
+3280:S 21 Sep 2026 14:44:36.239 * Starting a failover election for epoch 8, node config epoch is 7
+3280:S 21 Sep 2026 14:44:36.245 * Failover election won: I'm the new primary.
+3280:S 21 Sep 2026 14:44:36.245 * configEpoch set to 8 after successful failover
+3280:S 21 Sep 2026 14:44:36.245 * Setting myself to primary in shard 2639d01915bcc05694fb70aa1688afc95c1104d7 after failover; my old primary is 181d7d0c8a805c1bbd945aa2217556e678d2016a (172.22.0.7:6379)
+3280:S 21 Sep 2026 14:44:36.245 * Reconfiguring node cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379) as primary for shard 2639d01915bcc05694fb70aa1688afc95c1104d7
+3280:M 21 Sep 2026 14:44:36.245 * Connection with primary lost.
+3280:M 21 Sep 2026 14:44:36.245 * Caching the disconnected primary state.
+3280:M 21 Sep 2026 14:44:36.245 * Discarding previously cached primary state.
+3280:M 21 Sep 2026 14:44:36.245 * Setting secondary replication ID to 0d7ecced34828240ab303a691b177df353d55acd, valid up to offset: 43. New replication ID is 0472bbadcccef3aaa37f7232f84370b5b0b30747
+3280:M 21 Sep 2026 14:44:36.246 * Mismatch in topology information for sender node 181d7d0c8a805c1bbd945aa2217556e678d2016a (172.22.0.7:6379) in shard 2639d01915bcc05694fb70aa1688afc95c1104d7
+3280:M 21 Sep 2026 14:44:36.260 * Node 181d7d0c8a805c1bbd945aa2217556e678d2016a (172.22.0.7:6379) is now a replica of node cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379) in shard 2639d01915bcc05694fb70aa1688afc95c1104d7
+3280:M 21 Sep 2026 14:44:36.267 * Replica 172.22.0.7:6379 asks for synchronization
+3280:M 21 Sep 2026 14:44:36.267 * Partial resynchronization request from 172.22.0.7:6379 accepted. Sending 0 bytes of backlog starting from offset 43.

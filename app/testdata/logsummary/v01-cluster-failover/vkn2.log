@@ -1,0 +1,36 @@
+Starting Valkey instance: dbcanvas...
+267:M 21 Sep 2026 14:40:39.919 # WARNING Memory overcommit must be enabled! Without it, a background save or replication may fail under low memory condition. Being disabled, it can also cause failures without low memory condition, see https://github.com/jemalloc/jemalloc/issues/1328. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.
+267:M 21 Sep 2026 14:40:39.919 * Supervised by systemd. Please make sure you set appropriate values for TimeoutStartSec and TimeoutStopSec in your service unit.
+267:M 21 Sep 2026 14:40:39.919 * oO0OoO0OoO0Oo Valkey is starting oO0OoO0OoO0Oo
+267:M 21 Sep 2026 14:40:39.919 * Valkey version=9.1.2, bits=64, commit=00000000, modified=1, pid=267, just started
+267:M 21 Sep 2026 14:40:39.919 * Configuration loaded
+267:M 21 Sep 2026 14:40:39.950 * monotonic clock: X86 TSC @ 2918.28 ticks/us
+267:M 21 Sep 2026 14:40:39.950 * Running mode=cluster, port=6379.
+267:M 21 Sep 2026 14:40:39.951 * No cluster configuration found, I'm c2117664dbd98ee471e31b5a909aecaadbe3df1d
+267:M 21 Sep 2026 14:40:39.957 * Static Module 'lua' successfully loaded
+267:M 21 Sep 2026 14:40:39.958 * Server initialized
+267:M 21 Sep 2026 14:40:39.961 * Creating AOF base file appendonly.aof.1.base.rdb on server start
+267:M 21 Sep 2026 14:40:39.965 * Creating AOF incr file appendonly.aof.1.incr.aof on server start
+267:M 21 Sep 2026 14:40:39.965 * Ready to accept connections tcp
+267:M 21 Sep 2026 14:43:37.469 * Node 4245cbd0f7e6a6de638ce48aa574ad461b709018 (172.22.0.8:6379) is now a replica of node bbac3b50876d0bf7be166df7f1c42494a9d5aaec (172.22.0.5:6379) in shard d95406d2ec265d0af9806fc160d22c74343d08d1
+267:M 21 Sep 2026 14:43:42.342 * Starting BGSAVE for SYNC with target: replicas sockets using: normal sync
+267:M 21 Sep 2026 14:43:42.343 * Background RDB transfer started by pid 3050 to pipe through parent process
+3050:C 21 Sep 2026 14:43:42.343 * Fork CoW for RDB: current 0 MB, peak 0 MB, average 0 MB
+267:M 21 Sep 2026 14:43:42.343 * Diskless rdb transfer, done reading from pipe, 1 replicas still up.
+267:M 21 Sep 2026 14:43:42.410 * Background RDB transfer terminated with success
+267:M 21 Sep 2026 14:43:42.410 * Streamed RDB transfer with replica 172.22.0.3:6379 succeeded (socket). Waiting for REPLCONF ACK from replica to enable streaming
+267:M 21 Sep 2026 14:43:42.410 * Synchronization with replica 172.22.0.3:6379 succeeded
+267:M 21 Sep 2026 14:44:05.412 * Marking node cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379) as failing (quorum reached).
+267:M 21 Sep 2026 14:44:05.412 # Cluster state changed: fail
+267:M 21 Sep 2026 14:44:05.412 # Cluster is currently down: At least one hash slot is not served by any available node. Please check the 'cluster-require-full-coverage' configuration.
+267:M 21 Sep 2026 14:44:15.843 * Failover auth granted to 181d7d0c8a805c1bbd945aa2217556e678d2016a (172.22.0.7:6379) for epoch 7
+267:M 21 Sep 2026 14:44:15.913 * Reconfiguring node 181d7d0c8a805c1bbd945aa2217556e678d2016a (172.22.0.7:6379) as primary for shard 2639d01915bcc05694fb70aa1688afc95c1104d7
+267:M 21 Sep 2026 14:44:15.913 * Mismatch in topology information for sender node 181d7d0c8a805c1bbd945aa2217556e678d2016a (172.22.0.7:6379) in shard 2639d01915bcc05694fb70aa1688afc95c1104d7
+267:M 21 Sep 2026 14:44:15.913 * Cluster state changed: ok
+267:M 21 Sep 2026 14:44:26.455 * Mismatch in topology information for sender node cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379) in shard 2639d01915bcc05694fb70aa1688afc95c1104d7
+267:M 21 Sep 2026 14:44:26.461 * Node cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379) is now a replica of node 181d7d0c8a805c1bbd945aa2217556e678d2016a (172.22.0.7:6379) in shard 2639d01915bcc05694fb70aa1688afc95c1104d7
+267:M 21 Sep 2026 14:44:26.545 * Clear FAIL state for node cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379): replica is reachable again.
+267:M 21 Sep 2026 14:44:36.239 * Failover auth granted to cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379) for epoch 8
+267:M 21 Sep 2026 14:44:36.251 * Reconfiguring node cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379) as primary for shard 2639d01915bcc05694fb70aa1688afc95c1104d7
+267:M 21 Sep 2026 14:44:36.251 * Mismatch in topology information for sender node cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379) in shard 2639d01915bcc05694fb70aa1688afc95c1104d7
+267:M 21 Sep 2026 14:44:36.260 * Node 181d7d0c8a805c1bbd945aa2217556e678d2016a (172.22.0.7:6379) is now a replica of node cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379) in shard 2639d01915bcc05694fb70aa1688afc95c1104d7

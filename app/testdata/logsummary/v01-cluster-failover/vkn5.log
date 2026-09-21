@@ -1,0 +1,190 @@
+Starting Valkey instance: dbcanvas...
+272:M 21 Sep 2026 14:40:50.857 # WARNING Memory overcommit must be enabled! Without it, a background save or replication may fail under low memory condition. Being disabled, it can also cause failures without low memory condition, see https://github.com/jemalloc/jemalloc/issues/1328. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.
+272:M 21 Sep 2026 14:40:50.857 * Supervised by systemd. Please make sure you set appropriate values for TimeoutStartSec and TimeoutStopSec in your service unit.
+272:M 21 Sep 2026 14:40:50.857 * oO0OoO0OoO0Oo Valkey is starting oO0OoO0OoO0Oo
+272:M 21 Sep 2026 14:40:50.857 * Valkey version=9.1.2, bits=64, commit=00000000, modified=1, pid=272, just started
+272:M 21 Sep 2026 14:40:50.857 * Configuration loaded
+272:M 21 Sep 2026 14:40:50.888 * monotonic clock: X86 TSC @ 2918.79 ticks/us
+272:M 21 Sep 2026 14:40:50.888 * Running mode=cluster, port=6379.
+272:M 21 Sep 2026 14:40:50.889 * No cluster configuration found, I'm 181d7d0c8a805c1bbd945aa2217556e678d2016a
+272:M 21 Sep 2026 14:40:50.896 * Static Module 'lua' successfully loaded
+272:M 21 Sep 2026 14:40:50.896 * Server initialized
+272:M 21 Sep 2026 14:40:50.899 * Creating AOF base file appendonly.aof.1.base.rdb on server start
+272:M 21 Sep 2026 14:40:50.903 * Creating AOF incr file appendonly.aof.1.incr.aof on server start
+272:M 21 Sep 2026 14:40:50.903 * Ready to accept connections tcp
+Started Valkey instance: dbcanvas.
+272:M 21 Sep 2026 14:40:52.914 # Cluster is currently down: I am part of a minority partition.
+272:M 21 Sep 2026 14:40:53.061 # Cluster is currently down: At least one hash slot is not served by any available node. Please check the 'cluster-require-full-coverage' configuration.
+272:M 21 Sep 2026 14:40:53.064 * configEpoch set to 4 via CLUSTER SET-CONFIG-EPOCH
+272:M 21 Sep 2026 14:40:53.065 * Cluster meet 172.22.0.4:6379 (user request from 'id=4 addr=172.22.0.4:46604 laddr=172.22.0.7:6379 fd=12 name=*redacted* user=*redacted* lib-name= lib-ver=').
+272:M 21 Sep 2026 14:40:53.174 * IP address for this node updated to 172.22.0.7
+272:M 21 Sep 2026 14:40:53.174 * Successfully completed handshake with cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379)
+272:M 21 Sep 2026 14:40:53.174 * Mismatch in topology information for sender node cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379) in shard 72b16542369bcc4c6696e07830b3e5720b61f628
+272:M 21 Sep 2026 14:40:53.921 * Mismatch in topology information for sender node 4245cbd0f7e6a6de638ce48aa574ad461b709018 (172.22.0.8:6379) in shard fd36a646e138885bf559ac0fa9fabe24b4dcda4a
+272:M 21 Sep 2026 14:40:53.928 * Mismatch in topology information for sender node bbac3b50876d0bf7be166df7f1c42494a9d5aaec (172.22.0.5:6379) in shard 1fdb3fc0fd8ace9ae6683688e90c6de4e8b77e99
+272:M 21 Sep 2026 14:40:53.928 * Mismatch in topology information for sender node 1747564ada6fbd480640d988a6b1a92daa81c742 (172.22.0.3:6379) in shard 8d4d74b4e54cb2893c0a081c55bf9c823f2056c9
+272:M 21 Sep 2026 14:40:54.022 * Mismatch in topology information for sender node c2117664dbd98ee471e31b5a909aecaadbe3df1d (172.22.0.6:6379) in shard f45693a3597fc0786e8c896be987beba7a2fba55
+272:M 21 Sep 2026 14:40:58.048 * Cluster state changed: ok
+272:M 21 Sep 2026 14:41:23.062 # Cluster state changed: fail
+272:M 21 Sep 2026 14:41:23.062 # Cluster is currently down: At least one hash slot is not served by any available node. Please check the 'cluster-require-full-coverage' configuration.
+272:M 21 Sep 2026 14:42:49.437 * Cluster state changed: ok
+272:M 21 Sep 2026 14:43:01.202 # Cluster state changed: fail
+272:M 21 Sep 2026 14:43:01.202 # Cluster is currently down: At least one hash slot is not served by any available node. Please check the 'cluster-require-full-coverage' configuration.
+272:M 21 Sep 2026 14:43:01.607 * Mismatch in topology information for sender node cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379) in shard 2639d01915bcc05694fb70aa1688afc95c1104d7
+272:M 21 Sep 2026 14:43:11.557 * Mismatch in topology information for sender node cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379) in shard 2639d01915bcc05694fb70aa1688afc95c1104d7
+272:M 21 Sep 2026 14:43:12.518 * Mismatch in topology information for sender node cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379) in shard 2639d01915bcc05694fb70aa1688afc95c1104d7
+272:M 21 Sep 2026 14:43:13.665 * Mismatch in topology information for sender node cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379) in shard 2639d01915bcc05694fb70aa1688afc95c1104d7
+272:M 21 Sep 2026 14:43:14.729 * Mismatch in topology information for sender node cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379) in shard 2639d01915bcc05694fb70aa1688afc95c1104d7
+272:M 21 Sep 2026 14:43:15.673 * Mismatch in topology information for sender node 1747564ada6fbd480640d988a6b1a92daa81c742 (172.22.0.3:6379) in shard 319c8f74e1e1534453935a540729956276efd15c
+272:M 21 Sep 2026 14:43:16.677 * Mismatch in topology information for sender node 1747564ada6fbd480640d988a6b1a92daa81c742 (172.22.0.3:6379) in shard 319c8f74e1e1534453935a540729956276efd15c
+272:M 21 Sep 2026 14:43:17.148 * Mismatch in topology information for sender node 1747564ada6fbd480640d988a6b1a92daa81c742 (172.22.0.3:6379) in shard 319c8f74e1e1534453935a540729956276efd15c
+272:M 21 Sep 2026 14:43:17.540 * Mismatch in topology information for sender node cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379) in shard 2639d01915bcc05694fb70aa1688afc95c1104d7
+272:M 21 Sep 2026 14:43:17.540 * Cluster state changed: ok
+272:M 21 Sep 2026 14:43:18.583 * Mismatch in topology information for sender node c2117664dbd98ee471e31b5a909aecaadbe3df1d (172.22.0.6:6379) in shard e88adec66709c1a9deb681df6d7a049c8dcff94b
+272:M 21 Sep 2026 14:43:19.505 * Mismatch in topology information for sender node c2117664dbd98ee471e31b5a909aecaadbe3df1d (172.22.0.6:6379) in shard e88adec66709c1a9deb681df6d7a049c8dcff94b
+272:M 21 Sep 2026 14:43:19.687 * Mismatch in topology information for sender node 1747564ada6fbd480640d988a6b1a92daa81c742 (172.22.0.3:6379) in shard 319c8f74e1e1534453935a540729956276efd15c
+272:M 21 Sep 2026 14:43:20.564 * Mismatch in topology information for sender node 1747564ada6fbd480640d988a6b1a92daa81c742 (172.22.0.3:6379) in shard 319c8f74e1e1534453935a540729956276efd15c
+272:M 21 Sep 2026 14:43:20.690 * Mismatch in topology information for sender node 1747564ada6fbd480640d988a6b1a92daa81c742 (172.22.0.3:6379) in shard 319c8f74e1e1534453935a540729956276efd15c
+272:M 21 Sep 2026 14:43:22.597 * Mismatch in topology information for sender node c2117664dbd98ee471e31b5a909aecaadbe3df1d (172.22.0.6:6379) in shard e88adec66709c1a9deb681df6d7a049c8dcff94b
+272:M 21 Sep 2026 14:43:22.597 * Mismatch in topology information for sender node 4245cbd0f7e6a6de638ce48aa574ad461b709018 (172.22.0.8:6379) in shard 8b21244b089180170739347e749dd680aa9e4e41
+272:M 21 Sep 2026 14:43:22.698 * Mismatch in topology information for sender node bbac3b50876d0bf7be166df7f1c42494a9d5aaec (172.22.0.5:6379) in shard d95406d2ec265d0af9806fc160d22c74343d08d1
+272:M 21 Sep 2026 14:43:23.066 * Mismatch in topology information for sender node bbac3b50876d0bf7be166df7f1c42494a9d5aaec (172.22.0.5:6379) in shard d95406d2ec265d0af9806fc160d22c74343d08d1
+272:M 21 Sep 2026 14:43:23.567 * Mismatch in topology information for sender node 4245cbd0f7e6a6de638ce48aa574ad461b709018 (172.22.0.8:6379) in shard 8b21244b089180170739347e749dd680aa9e4e41
+272:M 21 Sep 2026 14:43:24.705 * Mismatch in topology information for sender node bbac3b50876d0bf7be166df7f1c42494a9d5aaec (172.22.0.5:6379) in shard d95406d2ec265d0af9806fc160d22c74343d08d1
+272:M 21 Sep 2026 14:43:25.507 * Mismatch in topology information for sender node 4245cbd0f7e6a6de638ce48aa574ad461b709018 (172.22.0.8:6379) in shard 8b21244b089180170739347e749dd680aa9e4e41
+272:M 21 Sep 2026 14:43:25.580 * Mismatch in topology information for sender node bbac3b50876d0bf7be166df7f1c42494a9d5aaec (172.22.0.5:6379) in shard d95406d2ec265d0af9806fc160d22c74343d08d1
+272:M 21 Sep 2026 14:43:25.678 * Mismatch in topology information for sender node 4245cbd0f7e6a6de638ce48aa574ad461b709018 (172.22.0.8:6379) in shard 8b21244b089180170739347e749dd680aa9e4e41
+272:M 21 Sep 2026 14:43:26.711 * Mismatch in topology information for sender node bbac3b50876d0bf7be166df7f1c42494a9d5aaec (172.22.0.5:6379) in shard d95406d2ec265d0af9806fc160d22c74343d08d1
+272:M 21 Sep 2026 14:43:28.095 * Mismatch in topology information for sender node bbac3b50876d0bf7be166df7f1c42494a9d5aaec (172.22.0.5:6379) in shard d95406d2ec265d0af9806fc160d22c74343d08d1
+272:M 21 Sep 2026 14:43:28.516 * Mismatch in topology information for sender node 4245cbd0f7e6a6de638ce48aa574ad461b709018 (172.22.0.8:6379) in shard 8b21244b089180170739347e749dd680aa9e4e41
+272:M 21 Sep 2026 14:43:29.596 * Mismatch in topology information for sender node 4245cbd0f7e6a6de638ce48aa574ad461b709018 (172.22.0.8:6379) in shard 8b21244b089180170739347e749dd680aa9e4e41
+272:M 21 Sep 2026 14:43:30.612 * Mismatch in topology information for sender node bbac3b50876d0bf7be166df7f1c42494a9d5aaec (172.22.0.5:6379) in shard d95406d2ec265d0af9806fc160d22c74343d08d1
+272:S 21 Sep 2026 14:43:37.108 * Connecting to PRIMARY 172.22.0.4:6379
+272:S 21 Sep 2026 14:43:37.109 * PRIMARY <-> REPLICA sync started
+272:S 21 Sep 2026 14:43:37.109 * Non blocking connect for SYNC fired the event.
+272:S 21 Sep 2026 14:43:37.109 * Primary replied to PING, replication can continue...
+272:S 21 Sep 2026 14:43:37.118 * Partial resynchronization not possible (no cached primary)
+272:S 21 Sep 2026 14:43:37.281 * Node 1747564ada6fbd480640d988a6b1a92daa81c742 (172.22.0.3:6379) is no longer primary of shard 319c8f74e1e1534453935a540729956276efd15c; removed all 0 slot(s) it used to own
+272:S 21 Sep 2026 14:43:37.281 * Node 1747564ada6fbd480640d988a6b1a92daa81c742 (172.22.0.3:6379) is now part of shard e88adec66709c1a9deb681df6d7a049c8dcff94b
+272:S 21 Sep 2026 14:43:37.281 * Node 1747564ada6fbd480640d988a6b1a92daa81c742 (172.22.0.3:6379) is now a replica of node c2117664dbd98ee471e31b5a909aecaadbe3df1d (172.22.0.6:6379) in shard e88adec66709c1a9deb681df6d7a049c8dcff94b
+272:S 21 Sep 2026 14:43:37.469 * Node 4245cbd0f7e6a6de638ce48aa574ad461b709018 (172.22.0.8:6379) is no longer primary of shard 8b21244b089180170739347e749dd680aa9e4e41; removed all 0 slot(s) it used to own
+272:S 21 Sep 2026 14:43:37.469 * Node 4245cbd0f7e6a6de638ce48aa574ad461b709018 (172.22.0.8:6379) is now part of shard d95406d2ec265d0af9806fc160d22c74343d08d1
+272:S 21 Sep 2026 14:43:37.469 * Node 4245cbd0f7e6a6de638ce48aa574ad461b709018 (172.22.0.8:6379) is now a replica of node bbac3b50876d0bf7be166df7f1c42494a9d5aaec (172.22.0.5:6379) in shard d95406d2ec265d0af9806fc160d22c74343d08d1
+272:S 21 Sep 2026 14:43:42.986 * Full resync from primary: 3de6fc2f281596e10802788aaca151b173d9609a:14
+272:S 21 Sep 2026 14:43:42.987 * Replica main thread creating Bio thread to save RDB to disk
+272:S 21 Sep 2026 14:43:42.988 * Replica bio thread: PRIMARY <-> REPLICA sync: receiving streamed RDB from primary with EOF to disk
+272:S 21 Sep 2026 14:43:42.988 * Replica bio thread: Done downloading RDB
+272:S 21 Sep 2026 14:43:43.887 * Replica main thread detected RDB download completion in Bio thread
+272:S 21 Sep 2026 14:43:43.887 * Loading the RDB and finalizing primary-replica sync...
+272:S 21 Sep 2026 14:43:43.896 * PRIMARY <-> REPLICA sync: Loading DB in memory
+272:S 21 Sep 2026 14:43:43.896 * Cleaning slot migration log in anticipation of a load operation.
+272:S 21 Sep 2026 14:43:43.896 * RDB signature and version check passed. Flushing old data
+272:S 21 Sep 2026 14:43:43.896 * Loading RDB produced by Valkey version 9.1.2
+272:S 21 Sep 2026 14:43:43.896 * RDB age 1 seconds
+272:S 21 Sep 2026 14:43:43.896 * RDB memory usage when created 2.97 Mb
+272:S 21 Sep 2026 14:43:43.896 * Done loading RDB, keys loaded: 0, keys expired: 0, all fields expired hashes: 0.
+272:S 21 Sep 2026 14:43:43.896 * PRIMARY <-> REPLICA sync: Finished with success
+272:S 21 Sep 2026 14:43:43.901 * Removing the history file appendonly.aof.1.incr.aof in the background
+272:S 21 Sep 2026 14:43:43.901 * Removing the history file appendonly.aof.1.base.rdb in the background
+272:S 21 Sep 2026 14:43:43.905 * Reused RDB file from primary sync as AOF base file: appendonly.aof.2.base.rdb
+272:S 21 Sep 2026 14:43:57.795 * Connection with primary lost.
+272:S 21 Sep 2026 14:43:57.795 * Caching the disconnected primary state.
+272:S 21 Sep 2026 14:43:57.795 * Reconnecting to PRIMARY 172.22.0.4:6379
+272:S 21 Sep 2026 14:43:57.795 * PRIMARY <-> REPLICA sync started
+272:S 21 Sep 2026 14:43:57.795 # Error condition on socket for SYNC: Connection refused
+272:S 21 Sep 2026 14:43:58.012 * Connecting to PRIMARY 172.22.0.4:6379
+272:S 21 Sep 2026 14:43:58.012 * PRIMARY <-> REPLICA sync started
+272:S 21 Sep 2026 14:43:58.012 # Error condition on socket for SYNC: Connection refused
+272:S 21 Sep 2026 14:43:59.020 * Connecting to PRIMARY 172.22.0.4:6379
+272:S 21 Sep 2026 14:43:59.020 * PRIMARY <-> REPLICA sync started
+272:S 21 Sep 2026 14:43:59.020 # Error condition on socket for SYNC: Connection refused
+272:S 21 Sep 2026 14:44:00.027 * Connecting to PRIMARY 172.22.0.4:6379
+272:S 21 Sep 2026 14:44:00.027 * PRIMARY <-> REPLICA sync started
+272:S 21 Sep 2026 14:44:00.027 # Error condition on socket for SYNC: Connection refused
+272:S 21 Sep 2026 14:44:01.034 * Connecting to PRIMARY 172.22.0.4:6379
+272:S 21 Sep 2026 14:44:01.034 * PRIMARY <-> REPLICA sync started
+272:S 21 Sep 2026 14:44:01.034 # Error condition on socket for SYNC: Connection refused
+272:S 21 Sep 2026 14:44:02.040 * Connecting to PRIMARY 172.22.0.4:6379
+272:S 21 Sep 2026 14:44:02.040 * PRIMARY <-> REPLICA sync started
+272:S 21 Sep 2026 14:44:02.040 # Error condition on socket for SYNC: Connection refused
+272:S 21 Sep 2026 14:44:03.048 * Connecting to PRIMARY 172.22.0.4:6379
+272:S 21 Sep 2026 14:44:03.048 * PRIMARY <-> REPLICA sync started
+272:S 21 Sep 2026 14:44:03.048 # Error condition on socket for SYNC: Connection refused
+272:S 21 Sep 2026 14:44:03.148 * NODE cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379) possibly failing.
+272:S 21 Sep 2026 14:44:04.054 * Connecting to PRIMARY 172.22.0.4:6379
+272:S 21 Sep 2026 14:44:04.054 * PRIMARY <-> REPLICA sync started
+272:S 21 Sep 2026 14:44:04.054 # Error condition on socket for SYNC: Connection refused
+272:S 21 Sep 2026 14:44:05.060 * Connecting to PRIMARY 172.22.0.4:6379
+272:S 21 Sep 2026 14:44:05.060 * PRIMARY <-> REPLICA sync started
+272:S 21 Sep 2026 14:44:05.060 # Error condition on socket for SYNC: Connection refused
+272:S 21 Sep 2026 14:44:05.412 * FAIL message received from bbac3b50876d0bf7be166df7f1c42494a9d5aaec (172.22.0.5:6379) about cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379)
+272:S 21 Sep 2026 14:44:05.412 # Cluster state changed: fail
+272:S 21 Sep 2026 14:44:05.412 # Cluster is currently down: At least one hash slot is not served by any available node. Please check the 'cluster-require-full-coverage' configuration.
+272:S 21 Sep 2026 14:44:06.067 * Connecting to PRIMARY 172.22.0.4:6379
+272:S 21 Sep 2026 14:44:06.067 * PRIMARY <-> REPLICA sync started
+272:S 21 Sep 2026 14:44:06.067 # Error condition on socket for SYNC: Connection refused
+272:S 21 Sep 2026 14:44:07.074 * Connecting to PRIMARY 172.22.0.4:6379
+272:S 21 Sep 2026 14:44:07.074 * PRIMARY <-> REPLICA sync started
+272:S 21 Sep 2026 14:44:07.074 # Error condition on socket for SYNC: Connection refused
+272:S 21 Sep 2026 14:44:08.081 * Connecting to PRIMARY 172.22.0.4:6379
+272:S 21 Sep 2026 14:44:08.081 * PRIMARY <-> REPLICA sync started
+272:S 21 Sep 2026 14:44:08.081 # Error condition on socket for SYNC: Connection refused
+272:S 21 Sep 2026 14:44:09.088 * Connecting to PRIMARY 172.22.0.4:6379
+272:S 21 Sep 2026 14:44:09.088 * PRIMARY <-> REPLICA sync started
+272:S 21 Sep 2026 14:44:09.088 # Error condition on socket for SYNC: Connection refused
+272:S 21 Sep 2026 14:44:10.096 * Connecting to PRIMARY 172.22.0.4:6379
+272:S 21 Sep 2026 14:44:10.096 * PRIMARY <-> REPLICA sync started
+272:S 21 Sep 2026 14:44:10.096 # Error condition on socket for SYNC: Connection refused
+272:S 21 Sep 2026 14:44:11.102 * Connecting to PRIMARY 172.22.0.4:6379
+272:S 21 Sep 2026 14:44:11.102 * PRIMARY <-> REPLICA sync started
+272:S 21 Sep 2026 14:44:11.102 # Error condition on socket for SYNC: Connection refused
+272:S 21 Sep 2026 14:44:12.109 * Connecting to PRIMARY 172.22.0.4:6379
+272:S 21 Sep 2026 14:44:12.109 * PRIMARY <-> REPLICA sync started
+272:S 21 Sep 2026 14:44:12.109 # Error condition on socket for SYNC: Connection refused
+272:S 21 Sep 2026 14:44:13.115 * Connecting to PRIMARY 172.22.0.4:6379
+272:S 21 Sep 2026 14:44:13.116 * PRIMARY <-> REPLICA sync started
+272:S 21 Sep 2026 14:44:13.116 # Error condition on socket for SYNC: Connection refused
+272:S 21 Sep 2026 14:44:14.124 * Connecting to PRIMARY 172.22.0.4:6379
+272:S 21 Sep 2026 14:44:14.124 * PRIMARY <-> REPLICA sync started
+272:S 21 Sep 2026 14:44:14.124 # Error condition on socket for SYNC: Connection refused
+272:S 21 Sep 2026 14:44:15.131 * Connecting to PRIMARY 172.22.0.4:6379
+272:S 21 Sep 2026 14:44:15.131 * PRIMARY <-> REPLICA sync started
+272:S 21 Sep 2026 14:44:15.131 # Error condition on socket for SYNC: Connection refused
+272:S 21 Sep 2026 14:44:15.836 * This is the best ranked replica and can initiate the election immediately.
+272:S 21 Sep 2026 14:44:15.836 * Start of election delayed for 0 milliseconds (rank #0, primary rank #0, offset 28).
+272:S 21 Sep 2026 14:44:15.836 * Starting a failover election for epoch 7, node config epoch is 1
+272:S 21 Sep 2026 14:44:15.848 * Failover election won: I'm the new primary.
+272:S 21 Sep 2026 14:44:15.848 * configEpoch set to 7 after successful failover
+272:S 21 Sep 2026 14:44:15.848 * Setting myself to primary in shard 2639d01915bcc05694fb70aa1688afc95c1104d7 after failover; my old primary is cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379)
+272:S 21 Sep 2026 14:44:15.848 * Reconfiguring node 181d7d0c8a805c1bbd945aa2217556e678d2016a (172.22.0.7:6379) as primary for shard 2639d01915bcc05694fb70aa1688afc95c1104d7
+272:M 21 Sep 2026 14:44:15.848 * Discarding previously cached primary state.
+272:M 21 Sep 2026 14:44:15.848 * Setting secondary replication ID to 3de6fc2f281596e10802788aaca151b173d9609a, valid up to offset: 29. New replication ID is 0d7ecced34828240ab303a691b177df353d55acd
+272:M 21 Sep 2026 14:44:15.848 * Cluster state changed: ok
+272:M 21 Sep 2026 14:44:26.455 * Mismatch in topology information for sender node cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379) in shard 2639d01915bcc05694fb70aa1688afc95c1104d7
+272:M 21 Sep 2026 14:44:26.461 * Node cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379) is now a replica of node 181d7d0c8a805c1bbd945aa2217556e678d2016a (172.22.0.7:6379) in shard 2639d01915bcc05694fb70aa1688afc95c1104d7
+272:M 21 Sep 2026 14:44:26.467 * Replica 172.22.0.4:6379 asks for synchronization
+272:M 21 Sep 2026 14:44:26.467 * Partial resynchronization not accepted: Replication ID mismatch (Replica asked for '77ced887791416db78ddd173105adb876357de42', my replication IDs are '0d7ecced34828240ab303a691b177df353d55acd' and '3de6fc2f281596e10802788aaca151b173d9609a')
+272:M 21 Sep 2026 14:44:26.467 * Delay next BGSAVE for diskless SYNC
+272:M 21 Sep 2026 14:44:26.492 * Clear FAIL state for node cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379): replica is reachable again.
+272:M 21 Sep 2026 14:44:31.214 * Starting BGSAVE for SYNC with target: replicas sockets using: normal sync
+272:M 21 Sep 2026 14:44:31.214 * Background RDB transfer started by pid 421 to pipe through parent process
+421:C 21 Sep 2026 14:44:31.215 * Fork CoW for RDB: current 0 MB, peak 0 MB, average 0 MB
+272:M 21 Sep 2026 14:44:31.215 * Diskless rdb transfer, done reading from pipe, 1 replicas still up.
+272:M 21 Sep 2026 14:44:31.316 * Background RDB transfer terminated with success
+272:M 21 Sep 2026 14:44:31.316 * Streamed RDB transfer with replica 172.22.0.4:6379 succeeded (socket). Waiting for REPLCONF ACK from replica to enable streaming
+272:M 21 Sep 2026 14:44:31.316 * Synchronization with replica 172.22.0.4:6379 succeeded
+272:M 21 Sep 2026 14:44:36.238 * Manual failover requested by replica cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379).
+272:M 21 Sep 2026 14:44:36.239 * Failover auth granted to cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379) for epoch 8
+272:M 21 Sep 2026 14:44:36.246 * Connection with replica 172.22.0.4:6379 lost.
+272:M 21 Sep 2026 14:44:36.251 * Reconfiguring node cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379) as primary for shard 2639d01915bcc05694fb70aa1688afc95c1104d7
+272:M 21 Sep 2026 14:44:36.251 * Mismatch in topology information for sender node cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379) in shard 2639d01915bcc05694fb70aa1688afc95c1104d7
+272:M 21 Sep 2026 14:44:36.251 * Configuration change detected. Reconfiguring myself as a replica of node cabac9796ea8b58e81525b5cf273d5b8a7cb5186 (172.22.0.4:6379) in shard 2639d01915bcc05694fb70aa1688afc95c1104d7
+272:S 21 Sep 2026 14:44:36.251 * Before turning into a replica, using my own primary parameters to synthesize a cached primary: I may be able to synchronize with the new primary with just a partial transfer.
+272:S 21 Sep 2026 14:44:36.251 * Connecting to PRIMARY 172.22.0.4:6379
+272:S 21 Sep 2026 14:44:36.251 * PRIMARY <-> REPLICA sync started
+272:S 21 Sep 2026 14:44:36.260 * Non blocking connect for SYNC fired the event.
+272:S 21 Sep 2026 14:44:36.267 * Primary replied to PING, replication can continue...
+272:S 21 Sep 2026 14:44:36.267 * Trying a partial resynchronization (request 0d7ecced34828240ab303a691b177df353d55acd:43).
+272:S 21 Sep 2026 14:44:36.267 * Successful partial resynchronization with primary.
+272:S 21 Sep 2026 14:44:36.267 * Primary replication ID changed to 0472bbadcccef3aaa37f7232f84370b5b0b30747
+272:S 21 Sep 2026 14:44:36.267 * PRIMARY <-> REPLICA sync: Primary accepted a Partial Resynchronization.
