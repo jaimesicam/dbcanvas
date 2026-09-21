@@ -24848,3 +24848,58 @@ get the new behaviour.
 
 It is first in the list because the dialog opens the top entry expanded, which is the one piece of
 placement that actually decides whether a note is read.
+
+## 401. What `go test ./...` actually needs — one real bug, and a missing 80-session fixture corpus — `app/templates.go`
+
+Ran the full suite before changing anything. `cli/`: `go build ./... && go vet ./... && go test
+./...` clean. `app/`: build/vet clean (once `web/dist/` exists at all — `//go:embed all:web/dist`
+in `main.go` fails a bare `go build` in a fresh checkout otherwise; `dist/` is gitignored and
+normally comes from `npm run build` or `make compose`'s Docker step — worth remembering next time
+this trips someone up). `go test ./...` failed **212 of ~1,406 test functions** (278 subtests).
+Every one of the 212 traced to exactly one of two causes.
+
+**The real bug**: `TestTemplateSanitizerCoversEverySecretField` caught `mcaAdminPassword` and
+`mcaReadonlyPassword` (the MClusterAdmin panel's per-stack MongoDB admin/read-only credentials,
+`app/intranet.go:389-390` and `app/mongodb.go:85`) missing from `templateSecretKeys`
+(`app/templates.go:54-61`) — every other secret-shaped design field is blanked on template export,
+these two were added when MCA support landed and never wired into the sanitizer. Exporting or
+sharing any template with an MClusterAdmin node carried a live MongoDB admin password with it.
+Fixed: two lines added to `templateSecretKeys`, same style as the existing entries.
+
+**Not a bug — a missing corpus.** The other 211 failing test functions all fail
+`open testdata/...: no such file or directory` against `app/testdata/ftdc/`, `app/testdata/ftdc-rs/`,
+`app/testdata/diagnostic.data/`, `app/testdata/cluster-dump*.tar.gz`, and roughly 65
+`app/testdata/logsummary/<scenario>/` directories spanning Galera/PXC, MySQL async replication,
+Group Replication/InnoDB Cluster, MongoDB (standalone, replica-set, sharded, three versions), PG
+(Patroni/streaming/three K8s operators), Valkey, and four more K8s operators (PXC/PSMDB/PG/PS).
+None of this is gitignored by name or pattern, and `git log --all` shows it has **never been
+committed** in this checkout's 27-commit history — unlike the operator `cr.yaml`/CRD fixtures
+(`app/testdata/cr.yaml` etc.), which *are* deliberately gitignored with a documented `curl` fetch
+recipe and whose tests `t.Skipf` gracefully when absent.
+
+The corpus has no such skip and no fetch recipe because it isn't fetchable: per the tests' own
+comments (`app/ftdc_test.go:17-24`) these are deliberately **real** captures — *"a synthetic
+fixture would be worse than no fixture here"* — pulled from live Percona/PXC/PSMDB/PostgreSQL/
+Valkey stacks and live K8s operator clusters while a specific named failure scenario (`kill -9`,
+network partition, forced election, mid-backup capture, PITR restore...) was run against them.
+Sessions §253–264, §300–305 and §356 record exactly this being built by hand, one live deployment
+at a time, across roughly 80 of this project's then-400 sessions. This checkout's 27-commit git
+history vs. that 400+-session log matches the "rebuild = SCAFFOLD.md then IMPLEMENTATION.md"
+pattern this project already uses periodically — the source tree gets regenerated from the two
+spec/history docs, but that process has no way to regenerate hand-captured binary fixtures, so the
+corpus simply never came back after the last rebuild.
+
+Rebuilding it for real means redoing what those 80 sessions did — not a code change. Three Explore
+passes over every test file that references it produced a precise, scenario-by-scenario contract
+(exact topology, exact action, exact assertions each fixture must satisfy) rather than "any capture
+will do": several of the ~80 scenarios need engineered real conditions — a timed quorum outage
+inside an FTDC capture window, an index build that spills to disk under memory pressure, real TCP
+retransmits, three exact PSMDB patch versions each redeployed as a 13-node sharded cluster, K8s
+operator logs with specific measured timing gaps. That work is tracked as a phased rebuild (Galera/
+PXC, async replication, Group Replication, MongoDB replica set + FTDC, MongoDB sharded, PostgreSQL,
+Valkey, K8s operators + cluster-dump archives — each its own deployment, its own IMPLEMENTATION.md
+entry, and its own commit) rather than one entry, since it is realistically the same order of
+effort as the original ~80 sessions.
+
+`go build`, `go vet`, `go test ./...` (**211** failing test functions remain, all fixture-corpus
+gaps, tracked above) green otherwise.

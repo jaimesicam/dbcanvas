@@ -59,6 +59,9 @@ var templateSecretKeys = map[string]bool{
 	"ssPassword":    true, // Stock Market Sim, manual connection mode
 	"lsPassword":    true, // Ledger Sim, manual connection mode
 	"ssDSN":         true, // …and its raw-DSN override, which embeds one
+
+	"mcaAdminPassword":    true, // MClusterAdmin panel, MongoDB admin credential
+	"mcaReadonlyPassword": true, // …and its read-only credential
 }
 
 // templateHostKeys are fields that name something about *this* Docker host. A
