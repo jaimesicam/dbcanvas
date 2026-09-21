@@ -37,6 +37,102 @@ type releaseNote struct {
 // expanded, and the tests assume the ordering.
 var whatsNewNotes = []releaseNote{
 	{
+		Version: "0.0.9",
+		Date:    "2026-09-21",
+		Title:   "Upgrading to 0.0.9 — rebuild the Stock Market Sim and the Oracle Linux 10 image",
+		Body: "Two of this release's fixes live inside images rather than in DBCanvas itself, so " +
+			"`git pull` alone does not deliver them. Run `make stocksim-image` for the Stock Market " +
+			"Sim: following a cluster's primary and the new App health panel are compiled into that " +
+			"app, and a node deployed from the old image keeps the old behaviour. Run `make images` " +
+			"— or rebuild the Oracle Linux 10 base alone — for the EL10 fix: the distro's " +
+			"perl-DBD-MySQL was dragging the distro's MySQL libraries into the image, which is what " +
+			"stopped Percona Server and PXC installing there, and the repair is a line in the " +
+			"Dockerfile. Everything else takes effect on restart. Nodes already deployed are not " +
+			"changed by any of this: redeploy the ones you want the new behaviour on.",
+		Doc: "docs/GETTING_STARTED.md",
+	},
+	{
+		Version: "0.0.9",
+		Date:    "2026-09-21",
+		Title:   "Data-at-rest encryption for the PXC and MongoDB operators",
+		Body: "The PostgreSQL operator could encrypt at rest and the other two could not, which was " +
+			"an odd place for the line to fall. Both now offer it from the same OpenBao node on the " +
+			"canvas, with their own KV v2 mount and a token scoped to it — never OpenBao's root " +
+			"token, which is what both operators' own examples use. PXC gets a Secret holding " +
+			"keyring_vault.conf; MongoDB gets the two halves the operator keys off separately, and " +
+			"a sharded cluster's replica set and config servers get separate keys, because they are " +
+			"separate WiredTiger deployments and one shared key path has whichever starts second " +
+			"overwrite the first's. The keyring file's format follows the SERVER version, not the " +
+			"operator: PXC 8.4 reads it as the component's JSON and 8.0 as the plugin's key=value, " +
+			"and the wrong one crash-loops every pod before the cluster forms.",
+		Doc: "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.9",
+		Date:    "2026-09-21",
+		Title:   "A repmgr cluster you can actually switch over, and a tab that tells you how",
+		Body: "`repmgr standby switchover` is the one repmgr operation that is not a database " +
+			"operation — it stops PostgreSQL on the other machine — so it shells out to SSH, and a " +
+			"cluster without it stopped at \"unable to connect via SSH to host …, user\". Every " +
+			"repmgr cluster now gets its own keypair at deploy, with the public half in every " +
+			"member's authorized_keys including its own, so switchover works in whichever direction " +
+			"you choose; repmgr.conf gets the matching ssh_options and the service commands that " +
+			"make it stop PostgreSQL with systemctl rather than the pg_ctl systemd would undo. " +
+			"Underneath was a second fault: the base images trim the systemd unit whose only job is " +
+			"removing /run/nologin, so PAM refused every non-root login for the life of the " +
+			"container. Each member also gets a repmgr tab — cluster show, node check, the " +
+			"switchover dry run before the real one, promote/follow/rejoin and repmgrd control — " +
+			"with the config path, the binary and the peer list already filled in.",
+		Doc: "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.9",
+		Date:    "2026-09-21",
+		Title:   "A repmgr cluster picks its backup engine",
+		Body: "repmgr could only back up with barman-cloud, which was an odd place for the choice to " +
+			"be made: every other PostgreSQL kind here uses pgBackRest, so the one cluster type " +
+			"whose subject is controlled failover was also the one whose backup tool differed from " +
+			"everything you would compare it against. The frame now offers either, and the trade is " +
+			"one line — pgBackRest is what the standalone and Patroni clusters use, but its S3 " +
+			"client only speaks HTTPS, so the SeaweedFS node needs S3 TLS on; barman-cloud works " +
+			"against a plain-HTTP store. Both engines at once is refused, because PostgreSQL has a " +
+			"single archive_command and one would silently win. Either survives a switchover: the " +
+			"standbys inherit the archive command when they clone, so an incremental taken from the " +
+			"new primary references the full backup the old one took.",
+		Doc: "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.9",
+		Date:    "2026-09-21",
+		Title:   "Percona Server installs on Oracle Linux 10",
+		Body: "It did not, and for two unrelated reasons with one symptom. The base image was " +
+			"carrying the distro's MySQL: percona-toolkit needs perl(DBD::mysql), the EL10 Percona " +
+			"Toolkit repo does not build it, so dnf took the distro's build — which links " +
+			"libmysqlclient and drags mysql8.4-libs in behind it, deadlocking every Percona Server " +
+			"and PXC 8.4 or 9.7 install. Separately, Percona's own 8.0 el10 build still carries " +
+			"unversioned Obsoletes on mariadb-server and friends, which on EL10 resolve to the " +
+			"renamed mariadb11.8 packages and collide over /var/lib/mysql. The first is fixed in " +
+			"the image and needs `make images`; the second at install time, for EL10 only. PXC does " +
+			"not need the second — there is no PXC 8.0 el10 build to hit it.",
+		Doc: "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.9",
+		Date:    "2026-09-21",
+		Title:   "The Stock Market Sim follows a cluster's primary, and says when it is stuck",
+		Body: "Pointed straight at a repmgr or Patroni cluster, the sim was given the member that " +
+			"happened to be primary at deploy. After a switchover it reconnected to that same host " +
+			"— now a read-only standby — and every write failed while every read kept working, so " +
+			"the dashboard drew a live-looking market that had not written a row in an hour. Its " +
+			"DSN now names every member and asks for the one accepting writes, and the store drops " +
+			"its pooled connections if it ever finds itself on a standby. The dashboard gained an " +
+			"App health panel for the same reason the failure went unnoticed: writes/s and reads/s, " +
+			"an error count with when it last happened and a button to clear it, and a stalled " +
+			"flag that turns red within ten seconds whatever the cause. The simulation's writes are " +
+			"counted apart from backfill's bulk history, which otherwise buries them.",
+		Doc: "docs/STACKS.md",
+	},
+	{
 		Version: "0.0.8",
 		Date:    "2026-09-17",
 		Title:   "Every member of an operator's replica set, not just the one in front",

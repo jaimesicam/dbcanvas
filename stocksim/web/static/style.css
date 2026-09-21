@@ -60,6 +60,20 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   font-size: 13px;
 }
 .banner.warn { background: rgba(241, 196, 15, .1); border-color: var(--warn); color: #ffe28a; }
+/* The warn banner is a row now — message, then when it happened, then Dismiss — so the button
+   stays on the right however long the error text is. */
+.banner-row { display: flex; align-items: center; gap: 10px; }
+.banner-row .hint { white-space: nowrap; }
+.btn.small { padding: 2px 9px; font-size: 12px; }
+
+/* App health: a row of figures that wraps rather than scrolling, since there are only a few
+   and they are read at a glance. */
+.stat-row { display: flex; flex-wrap: wrap; gap: 10px 26px; }
+.stat-cell { display: flex; flex-direction: column; gap: 2px; }
+.stat-cell .k { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.stat-cell .v { font-size: 18px; font-variant-numeric: tabular-nums; }
+.stat-cell .v.bad { color: var(--bad); }
+.stat-cell .v.warn { color: var(--warn); }
 .hidden { display: none !important; }
 
 main { padding: 16px 20px 48px; max-width: 1500px; margin: 0 auto; }

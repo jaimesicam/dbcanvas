@@ -66,6 +66,7 @@ async function fetchState() {
     renderWorkingSet(state.workingSet)
     renderRetention(state.retention)
     renderLab(state.lab)
+    renderHealth(state.health)
     renderKPIs(state)
     renderTicker(state.ticker || [])
     renderAgents(state.agents || [])
@@ -142,11 +143,89 @@ function showError(msg) {
   b.classList.toggle('hidden', !msg)
 }
 
+// ago turns a timestamp into "just now" / "14s ago" / "3m ago". The unit matters more than the
+// precision here: the question the banner has to answer is whether this is still happening.
+function ago(iso) {
+  if (!iso) return ''
+  const secs = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000))
+  if (secs < 5) return 'just now'
+  if (secs < 60) return secs + 's ago'
+  if (secs < 3600) return Math.round(secs / 60) + 'm ago'
+  return Math.round(secs / 3600) + 'h ago'
+}
+
 function renderBanners(s) {
   showError(s.error || '')
   const w = $('#banner-warn')
-  w.textContent = s.warning ? 'Last background error — ' + s.warning : ''
-  w.classList.toggle('hidden', !s.warning)
+  const le = (s.health || {}).lastError
+  if (!le) {
+    w.classList.add('hidden')
+    return
+  }
+  $('#banner-warn-text').textContent = 'Last background error — ' + (le.where ? le.where + ': ' : '') + le.message
+  // The count is what separates one blip from a fault that is failing every second, so it is
+  // shown whenever there is more than one.
+  const times = le.count > 1 ? ' · ' + le.count + '\u00d7' : ''
+  $('#banner-warn-when').textContent = ago(le.at) + times
+  $('#banner-warn-when').title = le.at
+    ? 'Last at ' + le.at + (le.firstAt && le.firstAt !== le.at ? ', first at ' + le.firstAt : '')
+    : ''
+  w.classList.remove('hidden')
+}
+
+// fmtRate keeps a five- or six-figure rate readable — backfill and working-set reads both run
+// into the hundreds of thousands, where two decimal places are noise.
+function fmtRate(n) {
+  if (n >= 1000) return Math.round(n).toLocaleString()
+  return n.toFixed(1)
+}
+
+// renderHealth answers "is this app working", which is a different question from what every
+// other panel on the page answers. Writes are listed first because they are what stops:
+// a read-only standby, a full disk or a lock storm all leave reads working.
+function renderHealth(h) {
+  h = h || {}
+  const cell = (k, v, tone) =>
+    '<div class="stat-cell"><span class="k">' + k + '</span>' +
+    '<span class="v' + (tone ? ' ' + tone : '') + '">' + v + '</span></div>'
+
+  const stalled = !!h.stalled
+  const errs = h.errors || 0
+  const ago = h.lastWriteAgoSeconds ?? 0
+  const cells = [
+    // The simulation's own writes. Backfill is a separate cell below, never added in: it runs
+    // orders of magnitude faster, so mixing them made this a reading of the bulk loader.
+    cell('sim writes/s', (h.writesPerSec ?? 0).toFixed(1), stalled ? 'bad' : ''),
+    cell('reads/s', fmtRate(h.readsPerSec ?? 0)),
+  ]
+  if ((h.backfillRowsPerSec ?? 0) > 0) {
+    cells.push(cell('backfill rows/s', fmtRate(h.backfillRowsPerSec)))
+  }
+  cells.push(cell('errors', errs, errs > 0 ? 'warn' : ''))
+  // "last write" is only worth a tile once it is saying something. While the simulation is
+  // writing it reads 0s ago forever, which is four characters of noise on every dashboard.
+  if (stalled || ago >= 3) {
+    cells.push(cell('last write', ago + 's ago', stalled ? 'bad' : 'warn'))
+  }
+  $('#health-stats').innerHTML = cells.join('')
+
+  const v = $('#health-verdict')
+  if (stalled) {
+    v.textContent = 'stalled — no write has completed for ' + h.stalledForSeconds + 's'
+    v.className = 'hint bad'
+  } else if (errs > 0) {
+    v.textContent = 'running, with errors'
+    v.className = 'hint warn'
+  } else {
+    v.textContent = 'healthy'
+    v.className = 'hint'
+  }
+  // The explanation only appears when it is needed. A healthy panel is four numbers.
+  $('#health-note').textContent = stalled
+    ? 'The simulation is running but nothing is being written. A database that has become a ' +
+      'read-only standby is the usual cause — reads keep working, which is why the rest of this ' +
+      'page still looks alive.'
+    : ''
 }
 
 function renderHeader(s) {
@@ -741,6 +820,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('[data-level]').forEach((b) => {
     b.onclick = () => control('/api/control/level', { level: b.dataset.level })
   })
+
+  $('#btn-clear-errors').onclick = () => control('/api/control/clear-errors')
 
   $('#btn-new-security').onclick = () => openSecurityForm(null)
   $('#btn-new-portfolio').onclick = () => openPortfolioForm(null)

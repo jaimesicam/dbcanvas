@@ -72,8 +72,8 @@ var reservedDatabases = map[string]bool{
 // everything else, which is what lets an unusual managed-cloud connection
 // string work without this app needing to model its dialect.
 type Config struct {
-	Engine   string
-	DSN      string // full driver-native DSN/URI; when set, beats the fields below
+	Engine string
+	DSN    string // full driver-native DSN/URI; when set, beats the fields below
 	// ReadDSN is an optional second endpoint for read-only traffic — the read port
 	// of a proxy in front of a replicated cluster. Empty means every statement goes
 	// to DSN, which is what a single server, a multi-master cluster, or a proxy that

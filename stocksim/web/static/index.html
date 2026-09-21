@@ -26,13 +26,33 @@
 </header>
 
 <div id="banner-error" class="banner hidden"></div>
-<div id="banner-warn" class="banner warn hidden"></div>
+<!-- The background-error banner. It carries when the failure last happened and how many times,
+     because the message alone could not tell a blip at start-up from a fault happening right
+     now — and a Dismiss button, because an error you cannot clear stops being read. -->
+<div id="banner-warn" class="banner warn hidden">
+  <div class="banner-row">
+    <span id="banner-warn-text"></span>
+    <span class="spacer"></span>
+    <span class="hint" id="banner-warn-when"></span>
+    <button class="btn small" id="btn-clear-errors" title="Clear the recorded error. It comes straight back if it is still happening.">Dismiss</button>
+  </div>
+</div>
 
 <main>
   <section class="panel hidden" id="seed-panel">
     <h2>Preparing database</h2>
     <div class="progress-track"><div class="progress-fill" id="seed-fill" style="width:0%"></div></div>
     <p class="hint" id="seed-step" style="margin:8px 0 0"></p>
+  </section>
+
+  <!-- App health: is this simulator actually working? Separate from the panels below, which
+       say what it is doing. A standby serves reads perfectly well, so writes/s is the number
+       that falls first — and "stalled" is true within seconds whatever the cause, including the
+       ones that produce no error at all. -->
+  <section class="panel" id="health-panel">
+    <h2>App health<span class="spacer"></span><span class="hint" id="health-verdict"></span></h2>
+    <div class="stat-row" id="health-stats"></div>
+    <p class="hint" id="health-note" style="margin:8px 0 0"></p>
   </section>
 
   <!-- Only shown once a size target is actually in play; a deployment that is

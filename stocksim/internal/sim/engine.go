@@ -99,6 +99,8 @@ type Engine struct {
 	Threads int
 
 	counters counters
+	// health turns those counters into rates and a stall clock — see health.go.
+	health healthSampler
 
 	level     atomic.Value // string
 	running   atomic.Bool
@@ -106,7 +108,7 @@ type Engine struct {
 
 	mu         sync.RWMutex
 	seed       SeedProgress
-	lastErr    string
+	lastErr    *ErrorInfo
 	agentsUp   bool
 	backfill   BackfillStatus
 	workingSet WorkingSetStatus
@@ -187,23 +189,69 @@ func (e *Engine) Seed() SeedProgress {
 	return e.seed
 }
 
+// ErrorInfo is the most recent background failure, with enough around it to judge whether it
+// still matters.
+//
+// The message alone was not enough, and the banner it fed was actively misleading: it stayed on
+// screen forever with no way to tell a failure from thirty seconds ago from one at start-up an
+// hour earlier, and no way to dismiss it once the cause was fixed. So it carries when it last
+// happened, when it first happened, and how many times — which is the difference between "it
+// blipped once while the database restarted" and "it is failing every second right now".
+type ErrorInfo struct {
+	Where   string    `json:"where"`   // the agent and step, e.g. "backfill: measure"
+	Message string    `json:"message"` // the error itself
+	At      time.Time `json:"at"`      // when it last happened
+	FirstAt time.Time `json:"firstAt"` // when this run of failures started
+	Count   int64     `json:"count"`   // how many since the counter was last cleared
+}
+
+// Text is the one-line form the banner shows.
+func (e ErrorInfo) Text() string { return e.Where + ": " + e.Message }
+
 // noteErr records the most recent background failure for the dashboard's
 // banner. Agents keep running: a database that is briefly unreachable should
 // produce a visible warning and then recover, not a dead simulation.
+//
+// Repeats of the same failure fold into one entry rather than replacing it, so Count and FirstAt
+// describe the episode instead of only its latest instant. A *different* failure starts a new
+// episode — the newest problem is the one worth reading.
 func (e *Engine) noteErr(where string, err error) {
 	if err == nil {
 		return
 	}
 	e.counters.errors.Add(1)
+	now := time.Now().UTC()
 	e.mu.Lock()
-	e.lastErr = where + ": " + err.Error()
-	e.mu.Unlock()
+	defer e.mu.Unlock()
+	if e.lastErr != nil && e.lastErr.Where == where && e.lastErr.Message == err.Error() {
+		e.lastErr.At, e.lastErr.Count = now, e.lastErr.Count+1
+		return
+	}
+	e.lastErr = &ErrorInfo{Where: where, Message: err.Error(), At: now, FirstAt: now, Count: 1}
 }
 
-func (e *Engine) lastError() string {
+func (e *Engine) lastError() *ErrorInfo {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	return e.lastErr
+	if e.lastErr == nil {
+		return nil
+	}
+	cp := *e.lastErr
+	return &cp
+}
+
+// ClearErrors dismisses the recorded failure and zeroes the error counter.
+//
+// Deliberately a user action rather than a timeout: an error that ages out on its own is one
+// somebody can miss entirely, and one that never goes away stops being read. Clearing says "I
+// have seen this" — and because noteErr starts a fresh episode on the next failure, a problem
+// that is still happening comes straight back with a current timestamp, which is exactly how you
+// tell a fixed fault from a live one.
+func (e *Engine) ClearErrors() {
+	e.counters.errors.Store(0)
+	e.mu.Lock()
+	e.lastErr = nil
+	e.mu.Unlock()
 }
 
 // StartAgents launches the background goroutines. Called after seeding
@@ -277,7 +325,7 @@ func (e *Engine) Reset(ctx context.Context) error {
 	e.Clock.ResetToday()
 	e.counters = counters{}
 	e.mu.Lock()
-	e.lastErr = ""
+	e.lastErr = nil
 	e.mu.Unlock()
 
 	base := e.baseCtx

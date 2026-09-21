@@ -24710,3 +24710,141 @@ The Go tests cover what a deploy cannot re-check cheaply: that both engines set 
 rather than configuring two, that the archive command keeps its `%p` (a command without it
 archives nothing and still exits 0) and agrees with the stanza the config generator writes, and
 that neither install script reaches for `percona-pgbackrest` on a PGDG node.
+
+## 398. The Stock Market Sim was pinned to the member that used to be primary — `app/stocksim.go`, `app/stocksim_target_test.go`, `stocksim/internal/store/postgres.go`, `stocksim/internal/store/readsplit_test.go`
+
+Reported as a question — *if stocksim is connected to a repmgr cluster directly, attempt a
+switchover and tell me what we can fix* — and the answer was worth the trip, because the failure
+is one a lab is supposed to be able to show you and this one hid it.
+
+Wired straight to a repmgr frame, the sim's DSN named a single host: whichever member was primary
+at deploy. `repmgr standby switchover` stops PostgreSQL on the old primary, so the sim's
+connections die and it redials — **straight back to the same host**, which is now a read-only
+standby. Measured on a live three-node cluster: trades climbing 189 → 223, then frozen at 262
+forever, eight idle connections on the standby and none at all on the new primary.
+
+**The quiet is the problem.** Reads work perfectly against a standby, so `/api/state` kept
+answering, the dashboard kept drawing a market, and `/healthz` kept returning 200. Every write was
+failing with `SQLSTATE 25006 cannot execute INSERT in a read-only transaction`, and the engine
+recorded that in a counter and a `lastErr` string it never logged. The only visible symptom was an
+`updatedAt` that had stopped, which nobody reads.
+
+**The fix is libpq's own.** For repmgr and Patroni targets the DSN now names every member and asks
+for the writer:
+
+	postgres://postgres:***@repmgr-1:5432,repmgr-2:5432,repmgr-3:5432/postgres?…&target_session_attrs=read-write
+
+Proven against the running cluster before any code was written — `psql` with that DSN connected to
+the new primary and reported `pg_is_in_recovery() = f`. Standalone and HAProxy targets are
+untouched: a single host stays single, and a proxy already *is* the indirection. MySQL is untouched
+too, its DSN dialect having no equivalent.
+
+Built by hand rather than through `url.URL`, which percent-escapes the commas in a multi-host
+authority and hands libpq one absurd hostname.
+
+**And a backstop in the sim.** A multi-host DSN only helps a *new* connection, so a primary that
+demotes without dropping connections would leave the pool on a standby until `ConnMaxLifetime`
+expired it — five minutes of a simulator that looks broken, in a lab where somebody has just run
+the switchover deliberately and is watching. The store now checks the invariant directly: every
+five seconds, `SELECT pg_is_in_recovery()` on the write pool, and if it is on a standby the pooled
+connections are dropped so the next one redials. `SetMaxIdleConns(0)` and back is the only thing
+`database/sql` exposes that closes connections on demand.
+
+A test caught a real bug in the guard for that: it first keyed off `len(cc.Fallbacks) > 0`, but
+pgx also uses fallbacks for TLS negotiation, so `sslmode=prefer` gives **every** single-host DSN
+one — and the follower would have started on every standalone PostgreSQL node, chasing a primary
+that cannot move. It counts distinct hosts now, which is the question it was always asking.
+
+### Verified
+
+| | before | after |
+| --- | --- | --- |
+| across a switchover | frozen at 262 trades | 41 → 106 → 140 → 177, no stall |
+| connections | 8 idle on the standby, 0 on the primary | 0 on the old, 7 on the new |
+| `healthz` | 200 throughout | unchanged (see §399 for why that is the wrong place to fix it) |
+
+Honest about what carried it: the clean switchover stops the old primary, so the connections drop
+and the **DSN** does the work. The follower goroutine did not need to fire, and could not be made
+to in any repmgr path — every one of them restarts PostgreSQL. It is a backstop, and it says so.
+
+## 399. The sim could not tell you it was stuck — `stocksim/internal/sim/health.go` (new), `stocksim/internal/sim/health_test.go` (new), `stocksim/internal/sim/{engine,snapshot}.go`, `stocksim/internal/api/http.go`, `stocksim/web/static/{index.html,app.js,style.css}`
+
+Out of §398: the dashboard could say a great deal about what the simulation was *doing* and almost
+nothing about whether any of it was still happening. Asked for directly — a timestamp on the
+errors, a way to clear them, and reads/writes per second — and the third one turned out to have a
+bug worth more than the feature.
+
+**Errors carry time now.** The banner was a bare string with no way to tell a blip at start-up
+from a fault happening this second, and no way to dismiss it once the cause was fixed. It is an
+`ErrorInfo` — `at`, `firstAt`, `count` — and repeats of the same failure fold into one episode
+rather than replacing it, so the count describes the run and not merely its latest instant. A
+*different* failure starts a new episode, because the newest problem is the one worth reading.
+
+**Dismiss is a control action**, `POST /api/control/clear-errors`, not a client-side hide that
+would come back on the next poll. Deliberately a user action rather than a timeout: an error that
+ages out is one somebody can miss entirely, and one that never goes away stops being read. And
+because a fresh failure starts a new episode, a fault that is *still* happening reappears within
+seconds with a current timestamp — clearing is the test, not just the tidying.
+
+**The App health panel**: writes/s, reads/s, errors, and `stalled` — running but no write
+completed in ten seconds. That last one is the signal §398 needed: it is true within seconds
+whatever the cause, and it does not depend on an error having been recorded at all. Ten seconds is
+generous on purpose, because backfill and retention work in bursts and a tighter threshold would
+spend its life crying wolf on an idle-but-healthy simulation.
+
+### The bug the user found by reading one number
+
+Shipped, and the report came back: *it says last write is 0s ago in my deployment*. It was telling
+the truth — that deployment was writing 134,000 rows a second — and the truth was the bug:
+
+	backfill rows written : 5,848,000
+	health writes total   : 5,856,539
+
+**99.85% of "writes" was backfill.** Folding the bulk history loader in with the simulation did
+three harmful things at once. It made writes/s a reading of the loader. It meant `last write` could
+never leave 0s, so it could never warn about anything. And worst, it meant **a stalled simulation
+was invisible behind a running backfill** — which defeats the entire purpose of the panel. There
+was a fourth waiting: backfill finishing normally drops that number four orders of magnitude and
+looks exactly like a failure.
+
+So the two streams are counted apart. `writes/s` is the simulation — price ticks, orders created
+and filled, each counted only after the store call returned clean — and backfill gets its own
+figure beside it. The stall clock keys off the simulation alone. Measured after the split:
+`sim writes/s = 53` next to `backfill rows/s = 109,820`, where there had been one number of
+110,000 with the simulation invisible inside it.
+
+`last write` also stopped being a permanent tile. It appears at three seconds or when stalled;
+while things are healthy it read `0s ago` forever, which is four characters of noise on every
+dashboard — and was what made the whole thing worth a second look.
+
+### Verified
+
+Against a throwaway PostgreSQL rather than the reporter's own stacks:
+
+| | |
+| --- | --- |
+| healthy | `sim writes/s 33 · reads/s 20 · errors 0`, no stall tile |
+| backfill on | `sim writes/s 53` beside `backfill rows/s 109,820` — separated |
+| database stopped | writes/s → 0, last write 5→10→15→20s, **stalled at 10s**, errors climbing with live timestamps |
+| restarted | writes/s back to ~33, stalled false, error count frozen |
+| Dismiss | `errors 0`, `lastError null`, banner gone |
+
+`/healthz` still returns 200 while stalled, deliberately. It is the container's liveness probe, and
+failing it would have Docker restart the sim mid-switchover — which is worse than a stale page. The
+`stalled` flag is where this signal belongs.
+
+## 400. 0.0.9 — `VERSION`, `app/whatsnew.go`, `README.md`
+
+Six notes: the four operator and repmgr entries (§394, §395, §396, §397) and the two Stock Market
+Sim ones (§398, §399).
+
+The first note is an **upgrade note**, which is new here and earns its place by being the only one
+that will cost somebody an afternoon if it is missed. Two of this release's fixes live inside
+images rather than in DBCanvas, so `git pull && make compose` does not deliver them: the sim's
+primary-following and its health panel are compiled into `dbcanvas-stocksim`, and the EL10 repair
+is a line in `images/rhel.Dockerfile`. `make stocksim-image` and `make images` respectively, and
+the note says plainly that nodes already deployed are unchanged — redeploy the ones that should
+get the new behaviour.
+
+It is first in the list because the dialog opens the top entry expanded, which is the one piece of
+placement that actually decides whether a note is read.

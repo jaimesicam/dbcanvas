@@ -65,6 +65,10 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("POST /api/control/pause", h.controlAction(func() { h.Engine.Pause() }))
 	mux.HandleFunc("POST /api/control/resume", h.controlAction(func() { h.Engine.Resume() }))
 	mux.HandleFunc("POST /api/control/level", h.handleLevel)
+	// Dismissing the error banner is a control action like any other: it changes engine state
+	// (the counter and the recorded failure), so it is a POST and it goes through the same
+	// wrapper, not a client-side hide that would come straight back on the next poll.
+	mux.HandleFunc("POST /api/control/clear-errors", h.controlAction(func() { h.Engine.ClearErrors() }))
 	mux.HandleFunc("POST /api/control/reset", h.controlActionCtx(h.Engine.Reset))
 	mux.HandleFunc("POST /api/control/seed", h.controlActionCtx(h.Engine.Reseed))
 	mux.HandleFunc("POST /api/control/wipe", h.handleWipe)

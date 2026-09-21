@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // The routing rule has to be safe by default: a context nobody marked reads from the
@@ -60,5 +62,47 @@ func TestReadDBRoutesOnlyMarkedReadsToTheReplica(t *testing.T) {
 	}
 	if got := (&mysqlStore{db: w}).readDB(marked); got != w {
 		t.Error("mysql: a deployment with no read endpoint sent a read somewhere else")
+	}
+}
+
+// The write pool must follow the primary, and the follower only exists when the DSN says where
+// else to look. A single-host DSN has nowhere to go, so starting a goroutine to notice would be
+// pure churn — and on a deployment deliberately pointed at a standby it would never stop.
+func TestPgFollowPrimaryOnlyWithFallbacks(t *testing.T) {
+	multi := "postgres://u:p@a.example.net:5432,b.example.net:5432,c.example.net:5432/db?target_session_attrs=read-write"
+	cc, err := pgx.ParseConfig(multi)
+	if err != nil {
+		t.Fatalf("parse multi-host dsn: %v", err)
+	}
+	// pgx turns the extra hosts into Fallbacks and uses them on every new connection — but it
+	// ALSO uses fallbacks for TLS negotiation, so their count is not the number of servers.
+	// pgDistinctHosts is what openPostgres branches on, and this is why.
+	if got := pgDistinctHosts(cc); got != 3 {
+		t.Errorf("want 3 distinct hosts from a 3-host DSN, got %d (fallbacks: %d)", got, len(cc.Fallbacks))
+	}
+	if cc.Host != "a.example.net" {
+		t.Errorf("first host = %q", cc.Host)
+	}
+	// And the attribute that makes it pick the writer rather than the first host that answers.
+	if cc.ValidateConnect == nil {
+		t.Error("target_session_attrs=read-write must install a connection validator")
+	}
+
+	single, err := pgx.ParseConfig("postgres://u:p@only.example.net:5432/db")
+	if err != nil {
+		t.Fatalf("parse single dsn: %v", err)
+	}
+	// The case the follower must NOT start for. Note it still has a fallback — sslmode
+	// negotiation — which is exactly the trap pgDistinctHosts exists to avoid.
+	if got := pgDistinctHosts(single); got != 1 {
+		t.Errorf("a single-host DSN must have 1 distinct host, got %d", got)
+	}
+	prefer, err := pgx.ParseConfig("postgres://u:p@only.example.net:5432/db?sslmode=prefer")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := pgDistinctHosts(prefer); got != 1 {
+		t.Errorf("sslmode=prefer must not look like a second server, got %d hosts (fallbacks: %d)",
+			got, len(prefer.Fallbacks))
 	}
 }

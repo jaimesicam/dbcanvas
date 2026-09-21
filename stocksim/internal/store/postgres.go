@@ -65,6 +65,9 @@ type pgStore struct {
 	database string // the database actually connected to
 	schema   string // the schema the tables actually live in
 	owned    bool   // true when database == name, i.e. we got a database of our own
+	// stopFollow closes the primary-follower goroutine (nil when it is not running —
+	// see pgFollowPrimary for when that is).
+	stopFollow chan struct{}
 }
 
 func openPostgres(ctx context.Context, c Config) (Store, error) {
@@ -96,6 +99,19 @@ func openPostgres(ctx context.Context, c Config) (Store, error) {
 	// connections under load is fork() traffic, not just a handshake.
 	db.SetMaxIdleConns(pool)
 	st := &pgStore{db: db, name: c.Database, database: database, schema: schema, owned: owned}
+	// A clustered target's primary moves — that is what the cluster is for — and the pool does
+	// not notice, so follow it. Only when the DSN actually names another *host* to go to.
+	//
+	// Counting distinct hosts, not len(cc.Fallbacks): pgx also uses fallbacks for TLS
+	// negotiation, so `sslmode=prefer` gives even a single-host DSN one — and every standalone
+	// PostgreSQL node this app connects to would otherwise get a follower goroutine chasing a
+	// primary that cannot move.
+	if n := pgDistinctHosts(cc); n > 1 {
+		st.stopFollow = make(chan struct{})
+		go st.followPrimary(pool)
+		log.Printf("stocksim: write endpoint is a %d-member cluster — following the primary "+
+			"(the DSN asks for the read-write member, and the pool is dropped if it ends up on a standby)", n)
+	}
 	// The read pool is the same database and the same schema — only the endpoint
 	// differs — so it is built from the resolved DSN with the host swapped, never
 	// from ReadDSN's own path. A read endpoint pointed at a different database
@@ -332,10 +348,74 @@ func pgDatabaseOf(dsn string) string {
 func (s *pgStore) Engine() string   { return EnginePostgres }
 func (s *pgStore) Database() string { return s.name }
 func (s *pgStore) Close() error {
+	if s.stopFollow != nil {
+		close(s.stopFollow)
+		s.stopFollow = nil
+	}
 	if s.ro != nil {
 		s.ro.Close()
 	}
 	return s.db.Close()
+}
+
+// pgDistinctHosts counts the different servers a parsed config can reach. pgx flattens both
+// host lists and TLS negotiation into the same Fallbacks slice, so the length of that slice
+// answers a different question than "is there more than one server here".
+func pgDistinctHosts(cc *pgx.ConnConfig) int {
+	seen := map[string]bool{cc.Host: true}
+	for _, f := range cc.Fallbacks {
+		seen[f.Host] = true
+	}
+	return len(seen)
+}
+
+// followPrimary keeps the write pool on whichever member of a clustered target is currently
+// the primary.
+//
+// The problem it solves is quiet, which is what makes it worth code. When a repmgr or Patroni
+// cluster switches its primary over, the pool's connections to the old one stay open and
+// perfectly healthy — the server is up, it has simply become a standby. Reads keep working, so
+// the dashboard still draws; every write fails with SQLSTATE 25006 ("cannot execute INSERT in a
+// read-only transaction") and the sim stops making progress while reporting itself healthy.
+//
+// A multi-host DSN (host1,host2,host3 + target_session_attrs=read-write) is what lets a *new*
+// connection find the new primary, and database/sql would get there on its own once
+// ConnMaxLifetime expired the old ones — but that is five minutes of a simulator that looks
+// broken, in a lab where somebody has just run the switchover deliberately and is watching.
+//
+// So the invariant is checked directly rather than inferred from a failed write: the write pool
+// must not be sitting on a server in recovery. Asking costs one cheap query a few seconds apart,
+// needs no error plumbing through the three dozen statements that write, and catches the case
+// even when nothing has tried to write yet.
+func (s *pgStore) followPrimary(pool int) {
+	const every = 5 * time.Second
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-s.stopFollow:
+			return
+		case <-t.C:
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), every)
+		var inRecovery bool
+		err := s.db.QueryRowContext(ctx, "SELECT pg_is_in_recovery()").Scan(&inRecovery)
+		cancel()
+		if err != nil || !inRecovery {
+			continue
+		}
+		// We are on a standby. Drop the pooled connections so the next one redials and the
+		// DSN's target_session_attrs picks the member that now accepts writes.
+		//
+		// SetMaxIdleConns(0) is the only thing database/sql exposes that closes connections on
+		// demand: it shuts the idle ones immediately, and any still checked out are closed when
+		// they are returned rather than being put back. Restoring the ceiling afterwards leaves
+		// the pool exactly as it was configured.
+		s.db.SetMaxIdleConns(0)
+		s.db.SetMaxIdleConns(pool)
+		log.Printf("stocksim: the write endpoint became a standby (a failover or switchover) — " +
+			"dropped the pooled connections so they redial the new primary")
+	}
 }
 
 // Location spells out which of pgStore's two layouts is in effect. This is the

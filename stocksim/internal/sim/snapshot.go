@@ -35,8 +35,13 @@ type Snapshot struct {
 	// Lab is the state of the three deliberately-pathological knobs.
 	Lab       LabStatus `json:"lab"`
 	UptimeSec int64     `json:"uptimeSeconds"`
-	Error     string    `json:"error,omitempty"`
-	Warning   string    `json:"warning,omitempty"`
+	// Health is whether the app itself is working — rates, a stall clock and the error record.
+	// Distinct from Error below, which is this request failing to read the database at all.
+	Health HealthStatus `json:"health"`
+	Error  string       `json:"error,omitempty"`
+	// Warning is the last background failure as one line, kept for anything reading the old
+	// shape; Health.LastError carries the same thing with its timestamps.
+	Warning string `json:"warning,omitempty"`
 }
 
 // TickerRow is one security as the dashboard grid shows it — the derived
@@ -92,6 +97,7 @@ func (e *Engine) BuildSnapshot(ctx context.Context) Snapshot {
 		Retention:  e.Retention(),
 		Lab:        e.Lab(),
 		Seed:       e.Seed(),
+		Health:     e.Health(),
 		UptimeSec:  e.UptimeSeconds(),
 		Agents:     []store.AgentHeartbeat{},
 		Ticker:     []TickerRow{},
@@ -132,7 +138,9 @@ func (e *Engine) BuildSnapshot(ctx context.Context) Snapshot {
 	}
 	// A background failure that has since recovered is a warning, not an
 	// error: the page stays live and simply says something went wrong.
-	snap.Warning = e.lastError()
+	if le := snap.Health.LastError; le != nil {
+		snap.Warning = le.Text()
+	}
 	return snap
 }
 

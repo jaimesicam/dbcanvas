@@ -816,16 +816,36 @@ func (a *App) provisionStockSim(st Stack, n designNode, doc designDoc) {
 //
 // readPort 0 means no split: exactly the single-DSN environment every target produced
 // before the option existed, which is what keeps an untouched node's deploy unchanged.
-func stockSimSQLEnv(engine, user, pass, host string, port, readPort int) []string {
+func stockSimSQLEnv(engine, user, pass, host string, port, readPort int, failover ...string) []string {
 	dsn := func(p int) string {
 		if engine == "mysql" {
 			return fmt.Sprintf("%s:%s@tcp(%s:%d)/?tls=false", user, pass, host, p)
 		}
-		return (&url.URL{
-			Scheme: "postgres", User: url.UserPassword(user, pass),
-			Host: fmt.Sprintf("%s:%d", host, p), Path: "/postgres",
-			RawQuery: "sslmode=prefer&connect_timeout=10",
-		}).String()
+		// Every member, not just the one that is primary today. libpq's URI format takes a
+		// comma-separated host list and `target_session_attrs=read-write` makes the client try
+		// them in turn until one accepts a read-write session — which is the primary, whichever
+		// member that is now. Without it the DSN names the member that happened to be primary
+		// at deploy, and a switchover leaves the sim pointed at a read-only standby: writes fail
+		// with SQLSTATE 25006 while reads keep working, so nothing looks broken.
+		//
+		// Built by hand rather than through url.URL, which percent-escapes the commas in a
+		// multi-host authority and produces a DSN libpq reads as one absurd hostname.
+		hostList := fmt.Sprintf("%s:%d", host, p)
+		query := "sslmode=prefer&connect_timeout=10"
+		if len(failover) > 0 {
+			var b strings.Builder
+			for i, h := range failover {
+				if i > 0 {
+					b.WriteByte(',')
+				}
+				fmt.Fprintf(&b, "%s:%d", h, p)
+			}
+			hostList = b.String()
+			// Only with somewhere to fail over to: on a single-host DSN this would merely add a
+			// round trip, and on a standalone node it would refuse to connect at all.
+			query += "&target_session_attrs=read-write"
+		}
+		return "postgres://" + url.UserPassword(user, pass).String() + "@" + hostList + "/postgres?" + query
 	}
 	prefix := "POSTGRES"
 	if engine == "mysql" {
@@ -990,6 +1010,9 @@ func (a *App) stockSimPostgresTarget(ctx context.Context, st Stack, hosts map[st
 		s        pgSecrets
 		name     = nodeLabel(doc, targetID)
 		err      error
+		// failover is every member of a clustered target, for the multi-host DSN. Empty for a
+		// standalone node and for an HAProxy target — the proxy already is the indirection.
+		failover []string
 	)
 	frame := frameByID(doc, targetID)
 	if frame.ID != "" {
@@ -1000,11 +1023,16 @@ func (a *App) stockSimPostgresTarget(ctx context.Context, st Stack, hosts map[st
 	case "pg":
 		h, s, err = a.waitPgNodeRunning(ctx, st.ID, targetID, hosts, domain, timeout)
 
+	// Patroni and repmgr both move their primary — by failover, or because somebody ran a
+	// switchover, which is the whole point of having the cluster. So every member goes into the
+	// DSN and the driver picks the one accepting writes; `h` stays the current primary because
+	// it is what the panel reports and what the read-split uses.
 	case "patroni":
 		var fqdns []string
 		fqdns, s, err = a.waitPatroniRunning(ctx, st.ID, frame, doc, domain, timeout)
 		if err == nil {
 			h = a.leaderOrFirst(ctx, st, frame, doc, hosts, domain, fqdns, a.patroniLeaderContainer(ctx, st, frame, doc))
+			failover = fqdns
 		}
 
 	case "repmgr":
@@ -1012,6 +1040,7 @@ func (a *App) stockSimPostgresTarget(ctx context.Context, st Stack, hosts map[st
 		fqdns, s, err = a.waitRepmgrRunning(ctx, st.ID, frame, doc, domain, timeout)
 		if err == nil {
 			h = a.leaderOrFirst(ctx, st, frame, doc, hosts, domain, fqdns, a.repmgrPrimaryContainer(ctx, st, frame, doc))
+			failover = fqdns
 		}
 
 	case "spock":
@@ -1058,7 +1087,7 @@ func (a *App) stockSimPostgresTarget(ctx context.Context, st Stack, hosts map[st
 	// name onto the read DSN from the one it resolved on the writer (pgOpenRead), because
 	// which database it ends up using is decided there.
 	return stockSimResolved{
-		env:     stockSimSQLEnv("postgres", s.SuperUser, s.SuperPassword, h, port, readPort),
+		env:     stockSimSQLEnv("postgres", s.SuperUser, s.SuperPassword, h, port, readPort, failover...),
 		secrets: stockSimSecrets{User: s.SuperUser, Password: s.SuperPassword},
 		engine:  "postgres", kind: kind, displayName: name,
 		host: h, port: port, readPort: readPort,
