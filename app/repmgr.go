@@ -69,6 +69,50 @@ type repmgrConfig struct {
 	MonitoredBy  string `json:"monitoredBy"`
 	Ports        []int  `json:"ports"`
 	ExportPort   int    `json:"exportPort"`
+	// What the repmgr tab builds its commands out of. Every one of these is knowable from the
+	// OS and major, and every one of them is something a person otherwise has to look up before
+	// they can type a single repmgr command: the config file is per-major and not where the
+	// documentation says, and the binary is not on postgres's PATH on the EL images.
+	RepmgrConf string `json:"repmgrConf,omitempty"` // /etc/repmgr/<major>/repmgr.conf
+	RepmgrBin  string `json:"repmgrBin,omitempty"`  // <pg_bindir>/repmgr
+	// Peers are the cluster's other members, so the panel can print a switchover naming a real
+	// node instead of a placeholder. Node name and FQDN because repmgr wants the first and ssh
+	// the second.
+	Peers []repmgrPeer `json:"peers,omitempty"`
+}
+
+// repmgrPeer is one other member of the same cluster, as the panel needs to name it.
+type repmgrPeer struct {
+	NodeName string `json:"nodeName"`
+	FQDN     string `json:"fqdn"`
+	NodeID   int    `json:"nodeId"`
+	Role     string `json:"role"` // the role at deploy time; repmgr may have changed it since
+}
+
+// repmgrPeersOf is every member of the cluster except the one at index `self`, in member order,
+// as the panel needs to name them. Node names follow the same rule the cluster was built with —
+// node_id is the 1-based member index, node_name is the hostname — so this stays consistent with
+// what repmgr.conf says without reading it back off the node.
+//
+// The roles are the ones the cluster was *deployed* with. repmgrd may have failed over since,
+// and the panel says so rather than implying these are live: the command that answers "who is
+// primary now" is `repmgr cluster show`, which is the first thing the tab offers.
+func repmgrPeersOf(members []designNode, hosts map[string]string, domain string, self int) []repmgrPeer {
+	var out []repmgrPeer
+	for i, n := range members {
+		if i == self {
+			continue
+		}
+		role := "standby"
+		if i == 0 {
+			role = "primary"
+		}
+		out = append(out, repmgrPeer{
+			NodeName: hosts[n.ID], FQDN: fqdnOf(hosts[n.ID], domain),
+			NodeID: i + 1, Role: role,
+		})
+	}
+	return out
 }
 
 // pgHome is the postgres OS user's home directory (where barman-cloud reads AWS
@@ -208,7 +252,10 @@ func (a *App) provisionRepmgrFrame(st Stack, frame designFrame, doc designDoc) {
 			UseBarman: frame.UseBarman, BackupRepo: backupRepo,
 			Service: pgServiceName(frame.OS, major), DataDir: pgDataDir(frame.OS, major),
 			GenerateCert: frame.GenerateCert, UseProxy: frame.UseProxy, MonitoredBy: monitoredBy,
-			Ports: []int{patroniPGPort},
+			Ports:      []int{patroniPGPort},
+			RepmgrConf: pgRepmgrConfPath(major),
+			RepmgrBin:  pgBinDir(frame.OS, major) + "/repmgr",
+			Peers:      repmgrPeersOf(members, hosts, domain, i),
 		}
 		cfgJSON, _ := json.Marshal(cfg)
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
@@ -270,6 +317,16 @@ func (a *App) provisionRepmgrFrame(st Stack, frame designFrame, doc designDoc) {
 			return
 		}
 		a.reconcileStackDNS(ctx, st.ID)
+
+		// ---- Phase 1.5: SSH between members, for `repmgr standby switchover` ----
+		// After DNS, because the verification dials a member by its FQDN; before the primary is
+		// initialised, so a node that fails here is reported alongside the rest of its setup
+		// rather than after the cluster looks finished. Never fatal — see repmgrWireSSH.
+		fqdns := make(map[string]string, len(members))
+		for _, n := range members {
+			fqdns[n.ID] = fqdnOf(hosts[n.ID], domain)
+		}
+		a.repmgrWireSSH(ctx, st, frame, members, fqdns, major)
 
 		// ---- Phase 2: initialise + register the primary (member 0) ----
 		primary := members[0]
@@ -766,6 +823,25 @@ func repmgrConf(nodeID int, host, fqdn string, frame designFrame, sec pgSecrets)
 	fmt.Fprintf(&b, "reconnect_attempts=6\n")
 	fmt.Fprintf(&b, "reconnect_interval=10\n")
 	fmt.Fprintf(&b, "monitoring_history=yes\n")
+	// Switchover's two halves. ssh_options is what repmgr appends to the `ssh -o Batchmode=yes
+	// … /bin/true` probe it runs before doing anything, and the service_* commands are what it
+	// runs in place of its built-in pg_ctl — locally, and on the other node over that same SSH
+	// connection. Both are set whatever the cluster size, so a node added to a one-node frame
+	// later needs no config change; repmgrssh.go is what makes them usable.
+	//
+	// pg_ctl is the wrong tool here and silently so: PostgreSQL is a systemd unit on these
+	// images, so a `pg_ctl stop` during switchover is undone by systemd restarting the service
+	// underneath repmgr, and the demotion appears to hang rather than to fail.
+	fmt.Fprintf(&b, "ssh_options='%s'\n", repmgrSSHOptions)
+	unit := pgServiceName(frame.OS, major)
+	for _, sc := range []struct{ key, verb string }{
+		{"service_start_command", "start"},
+		{"service_stop_command", "stop"},
+		{"service_restart_command", "restart"},
+		{"service_reload_command", "reload"},
+	} {
+		fmt.Fprintf(&b, "%s='sudo /usr/bin/systemctl %s %s'\n", sc.key, sc.verb, unit)
+	}
 	return b.String()
 }
 

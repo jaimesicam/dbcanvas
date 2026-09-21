@@ -866,6 +866,34 @@ restore going through `patronictl`, because Patroni owns PostgreSQL and `systemc
 under you); repmgr gets the **barman-cloud** set. The Kubernetes operators are not included — there
 a backup is a custom resource, not a command.
 
+**Operating a repmgr cluster.** Every repmgr member gets a **repmgr** tab: the commands for looking
+at the cluster, checking it, and changing who is primary — built from that member's own facts, so
+each one pastes into its root console as it stands. `repmgr` is not on the postgres user's PATH on
+the Oracle Linux images and its config file is per-major (`/etc/repmgr/18/repmgr.conf`), which is
+two things to look up before you can type anything; the tab has both filled in. It covers
+`cluster show` and `cluster event`, `node status` and `node check`, switchover (the `--dry-run`
+first, and always with `--siblings-follow`), the manual `standby promote` / `standby follow` /
+`node rejoin` for when the primary is already gone, and starting and stopping repmgrd so you can
+drive a failover by hand and watch it. It also lists the other members with their node ids and
+hostnames, because a switchover names one.
+
+**Switchover needs SSH, and the deploy sets it up.** `repmgr standby switchover` is the one repmgr
+operation that is not a database operation: it has to stop PostgreSQL on the *other* machine, and
+there is no SQL for that. So repmgr shells out — `ssh -o Batchmode=yes … /bin/true` as the
+`postgres` user — and a cluster without it stops at `ERROR: unable to connect via SSH to host …,
+user ""` before doing anything. Each repmgr cluster is therefore given a keypair of its own at
+deploy time, with the public half in every member's `authorized_keys` including its own, so
+switchover works in whichever direction you choose. `repmgr.conf` gets the matching `ssh_options`,
+and the four `service_*_command` settings so repmgr stops PostgreSQL with `systemctl` rather than
+its built-in `pg_ctl` — which systemd would simply undo — plus a sudoers entry letting `postgres`
+run those four `systemctl` calls and nothing else.
+
+This is done for **repmgr clusters only**. No other node type gets an SSH server, a key or a
+sudoers file, and the base images are untouched: everything above is installed by the repmgr
+frame's own deploy. Replication, cloning, backups and repmgrd's automatic failover never needed
+any of it — switchover is the only thing that does, which is why a cluster built before this
+still works and still cannot switch over.
+
 A **TLS** SeaweedFS store works for both. pgBackRest requires it; barman-cloud does not, and used to
 fail against one — `SSL validation failed … CERTIFICATE_VERIFY_FAILED` — because barman-cloud is
 boto3, and botocore verifies against its own bundled CA list rather than the system trust store the

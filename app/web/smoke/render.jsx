@@ -51,6 +51,7 @@ import MySQLManager from '../src/pages/MySQLManager.jsx'
 import OidcLoginGuide from '../src/components/OidcLoginGuide.jsx'
 import SeaweedFSManager from '../src/pages/SeaweedFSManager.jsx'
 import BackupGuide, { PgBackRestGuide, BarmanGuide } from '../src/components/BackupGuide.jsx'
+import RepmgrGuide from '../src/components/RepmgrGuide.jsx'
 import CRFormEditor, {
   crPatch, changedPaths, yamlish, matchField, getAt, setAt, delAt,
 } from '../src/pages/CRFormEditor.jsx'
@@ -555,6 +556,41 @@ check('BackupGuide (barman): every command names the endpoint, bucket and server
     if (!html.includes(want)) throw new Error(`the barman guide omits ${want}`)
   }
   if (html.includes('undefined') || html.includes('&lt;bucket&gt;')) throw new Error('a placeholder survived into a command')
+  return html
+})
+
+// The repmgr tab exists because every value these commands need was already in the panel and
+// printed nowhere: the per-major config path, the binary that is not on postgres's PATH, and
+// which peer a switchover would name.
+check('RepmgrGuide: every command carries this cluster\'s own config, binary and peer', () => {
+  const cfg = {
+    cluster: 'repmgr-cluster-01', hostname: 'repmgr03', nodeId: 3, role: 'standby',
+    pgMajor: '17', service: 'postgresql-17',
+    repmgrConf: '/etc/repmgr/17/repmgr.conf', repmgrBin: '/usr/pgsql-17/bin/repmgr',
+    peers: [
+      { nodeId: 1, nodeName: 'repmgr01', fqdn: 'repmgr01.example.net', role: 'primary' },
+      { nodeId: 2, nodeName: 'repmgr02', fqdn: 'repmgr02.example.net', role: 'standby' },
+    ],
+  }
+  const html = renderToString(<RepmgrGuide cfg={cfg} nodeLabel="repmgr03" />)
+  for (const want of [
+    // Every repmgr call is the full path plus this node's own config file.
+    'runuser -u postgres -- /usr/pgsql-17/bin/repmgr -f /etc/repmgr/17/repmgr.conf cluster show',
+    'node check', 'cluster event --limit=20', 'daemon status',
+    // The dry run has to be offered before the real switchover, and --siblings-follow on both.
+    'standby switchover --siblings-follow --dry-run',
+    'standby switchover --siblings-follow',
+    // A rejoin names the peer that was primary, not a placeholder.
+    "host=repmgr01.example.net user=repmgr dbname=repmgr",
+    '--force-rewind',
+    // The peer table, and the unit spelled for this major.
+    'repmgr02.example.net', 'repmgr-17',
+  ]) {
+    if (!html.includes(want)) throw new Error(`the repmgr guide omits ${want}`)
+  }
+  if (html.includes('undefined') || html.includes('&lt;peer&gt;') || html.includes('&lt;new-primary&gt;')) {
+    throw new Error('a placeholder survived into a command')
+  }
   return html
 })
 

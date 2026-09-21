@@ -24506,3 +24506,125 @@ error.
 The pair is worth remembering together: **two bugs with one symptom, one fixed in the image and
 one at install time**, and the version that was reported (8.4) was only ever affected by the one
 that had nothing to do with versions.
+
+## 396. A repmgr cluster you can actually switch over, and a tab that tells you how — `app/repmgrssh.go` (new), `app/repmgrssh_test.go` (new), `app/repmgr.go`, `app/web/src/components/RepmgrGuide.jsx` (new), `app/web/src/pages/RepmgrManager.jsx`, `app/web/smoke/render.jsx`, `docs/STACKS.md`
+
+Reported from a deployed cluster, and it is the whole feature in three lines:
+
+	$ repmgr -f /etc/repmgr/17/repmgr.conf standby switchover --siblings-follow --dry-run
+	NOTICE: checking switchover on node "repmgr03" (ID: 3) in --dry-run mode
+	WARNING: unable to connect to remote host "repmgr01.example.net" via SSH
+	ERROR: unable to connect via SSH to host "repmgr01.example.net", user ""
+
+Everything else about the cluster worked. Streaming replication, cloning and repmgrd's automatic
+failover are all PostgreSQL-protocol operations, so a repmgr frame has always been healthy and
+has always failed over on its own. **Switchover is the one repmgr operation that is not a
+database operation** — it has to stop PostgreSQL on the *other* machine, and there is no SQL for
+that — so repmgr shells out, and a lab whose point is rehearsing controlled failover could not
+rehearse the controlled one.
+
+### What repmgr actually requires, read out of repmgr rather than guessed
+
+The check behind that error is four lines of C (`repmgr-client.c`, `test_ssh_connection`), and
+every requirement falls out of it:
+
+```c
+ssh -o Batchmode=yes <ssh_options> <host> /bin/true
+```
+
+`Batchmode=yes` means **no prompts of any kind** — not for a password, not to accept a host key —
+so the connection has to be key-based *and* the host key already trusted, or it fails without
+asking. And the empty `user ""` in the error is not a missing setting: it is repmgr's
+`--remote-user` command-line option, unset, which makes ssh use the OS user repmgr runs as. That
+is `postgres`, not root, because repmgr.conf is postgres-owned and repmgr must run as the data
+directory's owner. So postgres is the account that needs the key, the login shell and the sudo
+rights.
+
+Passing the check only gets as far as the part where repmgr stops the old primary. On these
+images PostgreSQL is a systemd unit, so repmgr's built-in `pg_ctl stop` fallback is wrong and
+silently so — systemd restarts the service underneath it and the demotion appears to hang rather
+than fail. `repmgr.conf` therefore also gets the four `service_*_command` settings, which repmgr
+runs verbatim, locally and over that same SSH connection; hence the scoped sudoers entry, since
+a `systemctl stop` from a non-root user is otherwise a password prompt and Batchmode has already
+ruled those out.
+
+One keypair per cluster, with the public half in **every** member's own `authorized_keys`,
+including its own. Not redundant: switchover runs in whichever direction the operator picks, so
+every ordered pair has to work — a cluster of three that can only SSH one way fails the half of
+the exercise somebody tries second.
+
+### The bug underneath the bug
+
+With sshd running, keys installed, permissions right and repmgr.conf correct, it still failed.
+The reason was two layers down:
+
+	"System is booting up. Unprivileged users are not permitted to log in yet.
+	 Please come back later. For technical details, see pam_nologin(8)."
+
+The systemd base images trim `multi-user.target.wants` to almost nothing (images/*.Dockerfile),
+and one of the units that goes with it is **systemd-user-sessions.service**, whose entire job is
+deleting `/run/nologin` once boot finishes. It never runs, the file written at boot stays
+forever, and PAM refuses every non-root login for the life of the container. ssh reports that as
+`Connection closed`; repmgr reports it as `unable to connect via SSH` — so nothing in either
+message points at a file that says exactly what is wrong, in a log nobody has opened.
+
+The unit is `static`, with no `[Install]` section, so `systemctl enable` cannot restore it — it
+is normally pulled in by multi-user.target, which is the link the image removed.
+`systemctl add-wants` re-creates exactly that link, under `/etc`, so it survives the container
+restart that gives `/run` a fresh tmpfs and brings the file back. The script starts the unit as
+well, so the deploy works now rather than after a restart, and **asserts** `/run/nologin` is gone
+afterwards, because silence was what made this expensive.
+
+### The repmgr tab
+
+The same argument as §377's backup guide, which it follows deliberately: the panel already knew
+every value these commands need and printed none of them. `repmgr` is not on postgres's PATH on
+the EL images, its config is per-major (`/etc/repmgr/18/repmgr.conf`), and a switchover names a
+peer — three things to look up before typing anything, in a tool whose job is removing exactly
+that friction. `repmgrConfig` gained the config path, the binary and the peer list (node id, name
+and FQDN), and every command in the tab is rendered from them.
+
+Ordered the way somebody needs them rather than the way the manual has them: look at the cluster
+(`cluster show`, `cluster event`), check it (`node status`, `node check`), then change it — the
+switchover `--dry-run` before the real one, both with `--siblings-follow`, because without it the
+other standbys keep following the old primary and drop out of the cluster. The manual
+`standby promote` / `standby follow` / `node rejoin --force-rewind` come after, marked, for when
+the primary is already gone; then starting and stopping repmgrd, so the failover can be driven by
+hand and watched. The peer table carries a caveat rather than a claim: the roles shown are the
+ones the cluster was *deployed* with, and `cluster show` is the authority on what they are now.
+
+### Scoped to repmgr, deliberately
+
+No other node type gets an SSH server, a key or a sudoers file, and **the base images are
+untouched** — every package here is installed by the repmgr frame's own deploy, and the two call
+sites are both in `repmgr.go`. A stack's Intranet node sitting beside three repmgr members has no
+`/etc/sudoers.d/repmgr`, which is the check worth keeping in mind if this is ever tempting to
+hoist into the image for convenience.
+
+It is also never fatal. A cluster whose SSH setup fails is a working cluster that cannot do
+switchover, so each failure is logged against its own node and the deploy carries on — with the
+sudoers failure logged separately, because that one passes the SSH check and then dies at the
+point of stopping PostgreSQL, which is a far more confusing place to land.
+
+### Verified
+
+On a three-node Oracle Linux 9 cluster (PostgreSQL 18), by running the command from the report:
+
+| | |
+| --- | --- |
+| before | `ERROR: unable to connect via SSH to host "repmgr-1.example.net", user ""` |
+| dry run, after | every check passes, ending `prerequisites for executing STANDBY SWITCHOVER are met` |
+| the shutdown it would run | `sudo /usr/bin/systemctl stop postgresql-18` — the configured command, not `pg_ctl` |
+| real switchover | `repmgr-3` promoted, `repmgr-1` demoted and re-attached, `STANDBY FOLLOW successfully executed on all reachable sibling nodes` |
+| and back again | switched over a second time in the opposite direction |
+| after `docker restart` | `/run/nologin` still absent, `systemd-user-sessions` active, switchover prerequisites still met |
+| a clean deploy | all of the above with no hand-patching, from `make build` |
+
+The Go tests cover the parts a deploy cannot re-check cheaply: that the keypair round-trips
+through `golang.org/x/crypto/ssh` as a loadable private key whose public half is the
+`authorized_keys` line (a mismatch would authorise a key nobody holds), that `ssh_options` accepts
+a first-contact host key but does **not** disable host-key checking outright, that both install
+scripts make the nologin fix boot-persistent and assert afterwards, that repmgr.conf carries the
+four service commands with the OS's own unit name, and that the sudoers entry is scoped, checked
+with `visudo -cf` and moved into place atomically — a malformed file in `/etc/sudoers.d` breaks
+sudo for every user on the node, including the root shell somebody would use to fix it.
