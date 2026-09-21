@@ -1,0 +1,81 @@
+2026/09/21 22:43:46 [entrypoint] starting `pbm-agent`
+2026-09-21T22:43:46.000+0000 I 
+                    %                        _____
+                   %%%                      |  __ \
+                 ###%%%%%%%%%%%%*           | |__) |__ _ __ ___ ___  _ __   __ _
+                ###  ##%%      %%%%         |  ___/ _ \ '__/ __/ _ \| '_ \ / _` |
+              ####     ##%       %%%%       | |  |  __/ | | (_| (_) | | | | (_| |
+             ###        ####      %%%       |_|   \___|_|  \___\___/|_| |_|\__,_|
+           ,((###         ###     %%%         _____                       _
+          (((( (###        ####  %%%%        / ____|                     | |
+         (((     ((#         ######         | (___   __ _ _   _  __ _  __| |
+       ((((       (((#        ####           \___ \ / _` | | | |/ _` |/ _` |
+      /((          ,(((        *###          ____) | (_| | |_| | (_| | (_| |
+    ////             (((         ####       |_____/ \__, |\__,_|\__,_|\__,_|
+   ///                ((((        ####                 | |
+ /////////////(((((((((((((((((########                |_|   Join @ squad.percona.com/mongodb
+
+** Join Percona Squad! **
+Participate in monthly SWAG raffles, get early access to new product features,
+invite-only ”ask me anything” sessions with database performance experts.
+
+Interested? Fill in the form at squad.percona.com/mongodb
+2026-09-21T22:43:46.000+0000 I log options: log-path=/dev/stderr, log-level:D, log-json:false
+2026-09-21T22:43:46.000+0000 I pbm-agent:
+Version:   2.15.0
+Platform:  linux/amd64
+GitCommit: 15c9f217f91bc518b81ad901abe9331227e5c615
+GitBranch: release-2.15.0
+BuildTime: 2026-06-10_09:58_UTC
+GoVersion: go1.25.11
+2026-09-21T22:43:46.000+0000 I starting PITR routine
+2026-09-21T22:43:46.000+0000 I node: rs0/my-cluster-name-rs0-0.my-cluster-name-rs0.default.svc.cluster.local:27017
+2026-09-21T22:43:46.000+0000 I conn level ReadConcern: majority; WriteConcern: majority
+2026-09-21T22:43:46.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:43:46.000+0000 I listening for the commands
+2026-09-21T22:44:01.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:44:21.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:44:36.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:44:56.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:45:11.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:45:31.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:45:51.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:46:06.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:46:26.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:46:46.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:47:01.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:47:21.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:47:41.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:47:56.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:48:11.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:48:31.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:48:46.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:49:06.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:49:26.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:49:46.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:50:06.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:50:26.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:50:36.000+0000 I got command backup [name: 2026-09-21T22:50:35Z, compression: gzip (level: default)] <ts: 1790031035>, opid: 6ab1b4bb88b9abb7ec8c2811
+2026-09-21T22:50:36.000+0000 I got epoch {1790015554 2}
+2026-09-21T22:50:36.000+0000 D [backup/2026-09-21T22:50:35Z] skip after nomination, probably started by another node
+2026-09-21T22:51:01.000+0000 D [pitr] waiting for cluster ready status
+2026-09-21T22:51:11.000+0000 D [pitr] waiting pitr nomination
+2026-09-21T22:51:13.000+0000 D [pitr] start_catchup
+2026-09-21T22:51:13.000+0000 I [pitr] streaming started from 2026-09-21 22:50:41 +0000 UTC / 1790031041
+2026-09-21T22:51:13.000+0000 D [pitr] start_ok
+2026-09-21T22:54:28.000+0000 I [pitr] got done signal, stopping
+2026-09-21T22:54:28.000+0000 D [pitr] uploading "pbmPitr/rs0/20260921/20260921225041-6.20260921225428-2.oplog.gz" [size hint: -1 (unknown); part size: 10485760 (10.00MB)]
+2026-09-21T22:54:28.000+0000 I [pitr] created chunk 2026-09-21T22:50:41 - 2026-09-21T22:54:28
+2026-09-21T22:54:28.000+0000 I [pitr] pausing/stopping with last_ts 2026-09-21 22:54:28 +0000 UTC
+2026-09-21T22:54:31.000+0000 I got command restore [name: 2026-09-21T22:54:31.208720188Z, snapshot: 2026-09-21T22:50:35Z] <ts: 1790031271>, opid: 6ab1b5a788b9abb7ec8c2905
+2026-09-21T22:54:31.000+0000 I got epoch {1790031269 6}
+2026-09-21T22:54:31.000+0000 D [restore/2026-09-21T22:54:31.208720188Z] waiting for PITR config disabled and OpLock released
+2026-09-21T22:54:36.000+0000 I [restore/2026-09-21T22:54:31.208720188Z] PITR slicer stopped
+2026-09-21T22:54:36.000+0000 I [restore/2026-09-21T22:54:31.208720188Z] backup: 2026-09-21T22:50:35Z
+2026-09-21T22:54:36.000+0000 I [restore/2026-09-21T22:54:31.208720188Z] recovery started
+2026-09-21T22:54:36.000+0000 I [restore/2026-09-21T22:54:31.208720188Z] This node is not the primary. Check pbm agent on the primary for restore progress
+2026-09-21T22:54:58.000+0000 D [pitr] waiting for cluster ready status
+2026-09-21T22:55:14.000+0000 D [pitr] waiting pitr nomination
+2026-09-21T22:55:16.000+0000 D [pitr] start_catchup
+2026-09-21T22:55:16.000+0000 D [pitr] setting RS error status for err: catchup: no backup found after the restored 2026-09-21T22:50:35Z, a new backup is required to resume PITR
+2026-09-21T22:55:16.000+0000 E [pitr] init: catchup: no backup found after the restored 2026-09-21T22:50:35Z, a new backup is required to resume PITR

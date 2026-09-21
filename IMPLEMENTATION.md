@@ -25385,3 +25385,119 @@ finding set on the first real capture, no retries needed). What remains is entir
 log scenarios and the four `cluster-dump*.tar.gz` archives. All seven PSMDB stacks (three replica
 sets, three sharded clusters, plus the standalone "psmrs"-named one for the `ftdc-rs` fixture)
 destroyed after capture; designs kept.
+
+## 409. Rebuilding the missing test corpus, phase 8: the PXC and PSMDB K8s operators — `app/testdata/logsummary/{k01-bootstrap,k04-pod-kill,k06-netem-partition,k07-smart-update,k14-final,km01-bootstrap,km04-primary-kill,km05-partition,km06-unschedulable,km09-pitr-broken,km11-final}/` (new)
+
+Eighth installment of the §401 corpus rebuild, and the first against Kubernetes rather than plain
+Docker: a real PXC operator 1.20.0 cluster (`cluster1`, PXC 8.4.8-8.1, three members behind HAProxy,
+PITR-enabled backups to SeaweedFS) and a real PSMDB operator 1.23.0 cluster (`my-cluster-name`,
+percona-server-mongodb 8.0.26-11, three-member replica set, PBM 2.15.0), both on k3d/k3s v1.36,
+driven through every scenario their own test files name and captured with `kubectl logs`/`kubectl
+exec`/`kubectl get -o jsonpath` rather than the bulk `pt-k8s-debug-collector` archive, which turned
+out to be the wrong tool for anything except the PXC members' own error logs (see below). 23 failing
+test functions remain, down from 72 — every `k*`/`km*` fixture the two operator test files reference
+now passes; only the `cluster-dump*.tar.gz` opsummary archives and one unrelated pre-existing
+PostgreSQL failure (`TestPGClusterCreationIsNotADivergence`, not touched this phase) remain.
+
+### No `tc`, no NetworkPolicy CNI — so a partition has to come from inside the database
+
+Neither the pod nor the k3d server container carrying it has a `tc` binary, and the default flannel
+CNI installed by k3d enforces no NetworkPolicy, so the two usual ways to fake a network partition in
+this project's Docker-only labs (`netLossPct`, a `DROP` policy) don't exist here. Both operators
+needed their own real substitute, and they are not the same substitute:
+
+- **PXC (`k06-netem-partition`)**: Galera has a real, first-class self-isolation command —
+  `SET GLOBAL wsrep_provider_options='gmcast.isolate=1';` — run against the member to be cut off.
+  It genuinely leaves the group, and because the pod's liveness probe is a wsrep-state exec script,
+  kubelet kills the container 3 failed probes later — `restartCount` went 0→1 within about 55
+  seconds. The container's own `mysqld-error.log` afterward reads exactly like a deliberate stop
+  (`Received SHUTDOWN from user <via user signal>` / `Shifting SYNCED -> OPEN`), which is the whole
+  point of `TestLivenessProbeKillIsNotACleanStop`: it is not distinguishable from one without the
+  surrounding Kubernetes context.
+- **PSMDB (`km05-partition`)**: mongod has no equivalent self-isolation switch, and its own liveness
+  probe only asks whether the process answers — so unlike PXC, a partitioned secondary is never
+  killed. The node (the k3d server container) does have `iptables` on its `PATH`, though nothing in
+  it is CNI-aware, so four rules against the pod's own IP (`FORWARD`/`INPUT`/`OUTPUT`, both
+  directions) blocked it completely for the corpus's real 3m46s window. `rs.status()` on a healthy
+  peer showed the member drop to `health: 0` within about 20 seconds (one missed heartbeat cycle)
+  and recover the instant the four rules were removed — no restart at all, `restartCount` stayed 0
+  on the `mongod` container the whole time (only the unrelated `pmm-client` sidecar bounced twice,
+  chasing its own lost metrics connection).
+
+### The PXC and PSMDB operators needed opposite kinds of help to reach their broken states
+
+`k07-smart-update`'s `TestTuningAdviceReadsTheTunedCluster` needs real `FC: queue size` debug
+records — which `gcs.fc_debug=1` only ever writes during a member's own join, and only when there is
+a real backlog for it to report on. The first capture, taken after patching the CR at rest, showed
+none: an idle three-node cluster's IST after a restart replays two transactions and finishes before
+a single flow-control check fires. Fixed by running a background write loop against a healthy member
+and *then* force-deleting each of the other two in turn under that load — SST/IST now had real
+throughput to report on, and each rejoin logged 5–7 real `FC: queue size` records.
+
+`km06-unschedulable`'s blocked rollout needed the opposite: not more load, but a genuinely wrong
+merge patch. `spec.replsets` is a list, and a `kubectl patch --type=merge` supplying a new `rs0`
+object without an `affinity` key does not merge one field into the existing object — it replaces the
+whole list entry, silently dropping `antiAffinityTopologyKey: none` and reverting to the operator's
+strict per-node default. On this project's always-single-node k3d clusters that leaves the next
+member the rollout tries to reschedule permanently `Pending` (`0/1 nodes are available: 1 node(s)
+didn't match pod anti-affinity rules`), and the operator re-logs `can't start/continue 'SmartUpdate'`
+on every reconcile — 1,854 of them by the time the fixture was captured, none of which say the
+cluster is stuck. Reverting the same field the same way (a full merge-patch replete with every
+previously-explicit `affinity: {antiAffinityTopologyKey: none}`) unblocked it in under 20 seconds.
+
+### A stalled PITR needed two backups and a restore in the right order — and the operator's own gap detector needed a genuine hole, not an invalidated cache
+
+`km09-pitr-broken`'s finding text — `no backup found after the restored 2026-09-21T22:50:35Z, a new
+backup is required to resume PITR` — is PBM's own real refusal, produced by: enable
+`spec.backup.pitr.enabled`, take a full backup, let the nominated agent start streaming, then run a
+plain `PerconaServerMongoDBRestore` from that same backup. The restore stops the slicer while it
+runs and never restarts it on its own; the next PITR cycle finds no backup *after* the timeline it
+was told to resume from and gives up with exactly that sentence, while `spec.backup.pitr.enabled`
+stays `true` and the CR keeps reporting `ready` the whole time — the refusal exists nowhere but this
+one agent's own log.
+
+The PXC operator's `k14-final` needed a different kind of gap: `Gap detected in the binary logs`
+only fires when the collector's *cached* GTID position can no longer be found in the source binlogs
+at all — not merely reset. Setting `binlog_expire_logs_seconds=1` and purging on a single member did
+nothing, because the collector transparently switches its source to whichever member still has the
+oldest binlog available; the same purge run against all three members simultaneously, in a tight
+loop racing the collector's 60-second upload cycle, produced the real `ERROR: Couldn't find the
+binlog that contains GTID set` / `ERROR: Gap detected in the binary logs` pair on both the collector
+pod's own stdout and the operator's structured log (`missingGTIDSet`, `latestBackup`) inside about
+two minutes.
+
+### Two restores, one plain and one point-in-time, needed the PITR restore CR's own storage block filled in by hand
+
+A `PerconaXtraDBClusterRestore` with `spec.pitr.type: date` and only `spec.backupName` set fails
+validation with `restore job envs: no bucket in storage` — the PITR replay path reads its S3
+configuration from `spec.pitr.backupSource`, not from the named backup's own storage the way a plain
+restore does, and the operator does not fill it in automatically. Copying the referenced backup's
+own `.status.s3`/`.status.destination`/`.status.storageName` block into `spec.pitr.backupSource`
+by hand made the second attempt succeed, replaying binary logs up to the requested second and
+correctly leaving out a marker row inserted one second after it — the PITR restore was exact to the
+target. The equivalent PSMDB restore (`spec.pitr.date`) needed no such patch, but does reject a
+plain ISO-8601 timestamp; it wants literally `YYYY-MM-DD HH:MM:SS`.
+
+### PSMDB's logical restore runs IN PLACE, and the corpus proves what that costs
+
+Unlike a PXC restore — which the operator scales to zero — a PSMDB restore leaves every pod running
+and connectable throughout. Driving a real point-in-time restore while a write loop kept inserting
+into the same collection left the database serving live writes into a dataset PBM was simultaneously
+dropping, re-creating from the dump and replaying the oplog on top of; the collection's document
+count after the restore includes rows written by that load generator, none of which were ever in the
+backup and none of which the restore removed. This is `psmdb-restore-writable`'s whole premise, and
+it reproduced on the first real attempt once the write loop was left running across the restore
+rather than stopped before triggering it.
+
+### Verified
+
+`cd app && go build ./... && go vet ./... && go test ./...`: 23 failing test functions remain, down
+from 72. Both operators' entire log-fixture set (`k01`, `k04`, `k06`, `k07`, `k14` for PXC; `km01`,
+`km04`, `km05`, `km06`, `km09`, `km11` for PSMDB) passes every test in
+`logsummary_pxcop_test.go`/`logsummary_psmdbop_test.go`. What remains: the four `cluster-dump*.tar.gz`
+opsummary archives (`cluster-dump.tar.gz`'s synthetic broken-workload cluster plus real
+`cluster-dump-{pxc,psmdb,pg}.tar.gz` captures — `cluster-dump-partial.tar.gz` was already built) and
+the one pre-existing `TestPGClusterCreationIsNotADivergence` failure, unrelated to this phase and not
+investigated here. The `cluster1` (PXC) and `my-cluster-name` (PSMDB) K8s stacks were left running
+rather than destroyed, since the next phase's `cluster-dump-{pxc,psmdb}.tar.gz` captures reuse them
+directly.

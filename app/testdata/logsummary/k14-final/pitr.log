@@ -1,0 +1,32 @@
+2026/09/21 19:53:47 initializing collector
+2026/09/21 19:53:48 PXC Node: 2026/09/21 19:53:47 Peer finder enter
+2026/09/21 19:53:47 Determined Domain to be default.svc.cluster.local
+2026/09/21 19:53:47 Peer list updated
+was []
+now [cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local cluster1-pxc-1.cluster1-pxc.default.svc.cluster.local cluster1-pxc-2.cluster1-pxc.default.svc.cluster.local]
+2026/09/21 19:53:47 execing: /opt/percona/get-pxc-state.sh with stdin: cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+cluster1-pxc-1.cluster1-pxc.default.svc.cluster.local
+cluster1-pxc-2.cluster1-pxc.default.svc.cluster.local
+2026/09/21 19:53:47 
+2026/09/21 19:53:48 PXC Node: cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local:wsrep_ready:ON:wsrep_connected:ON:wsrep_local_state_comment:Synced:wsrep_cluster_status:Primary:wsrep_cluster_size:3
+2026/09/21 19:53:48 connecting to cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+2026/09/21 19:53:48 installing binlog UDF component
+2026/09/21 19:53:48 running binlog collector
+2026/09/21 19:53:49 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+2026/09/21 19:53:49 WARNING: cache file gtid-binlog-cache.json not found
+2026/09/21 19:53:49 WARNING: ignoring timeout to populate the cache, this might take some time...
+2026/09/21 19:53:49 binlog.000031 (238 bytes) [E:No]: 
+2026/09/21 19:53:49 binlog.000032 (238 bytes) [E:No]: 
+2026/09/21 19:53:49 binlog.000033 (282 bytes) [E:No]: 74585750-b5f3-11f1-9ba5-b360c2b86351:19
+2026/09/21 19:53:49 binlog.000034 (238 bytes) [E:No]: 
+2026/09/21 19:53:49 updating binlog cache
+2026/09/21 19:53:49 last uploaded GTID set: 74585750-b5f3-11f1-9ba5-b360c2b86351:19-20
+2026/09/21 19:53:49 checking binlog.000034 () against last uploaded set
+2026/09/21 19:53:49 checking binlog.000033 (74585750-b5f3-11f1-9ba5-b360c2b86351:19) against last uploaded set
+2026/09/21 19:53:49 checking binlog.000032 () against last uploaded set
+2026/09/21 19:53:49 checking binlog.000031 () against last uploaded set
+2026/09/21 19:53:49 ERROR: Couldn't find the binlog that contains GTID set: 74585750-b5f3-11f1-9ba5-b360c2b86351:19-20
+2026/09/21 19:53:49 ERROR: Gap detected in the binary logs. Binary logs will be uploaded anyway, but full backup needed for consistent recovery.
+2026/09/21 19:53:49 last uploaded binlog: 
+2026/09/21 19:53:49 starting to process binlog with name binlog.000033
+2026/09/21 19:53:49 successfully wrote binlog file binlog.000033 to storage with name binlog_1790020233_000033_9cd7d9f986d6b5cb928d4d24ab12d909

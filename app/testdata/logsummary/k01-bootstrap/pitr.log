@@ -1,0 +1,963 @@
+++ id -u
+++ id -g
++ install -o 2 -g 2 -m 0755 -D /pitr /opt/percona/pitr
+++ id -u
+++ id -g
++ install -o 2 -g 2 -m 0755 -D /peer-list /opt/percona/peer-list
+++ id -u
+++ id -g
++ install -o 2 -g 2 -m 0755 -D /backup/lib/pxc/get-pxc-state.sh /opt/percona/get-pxc-state.sh
+2026/09/21 18:35:16 initializing collector
+2026/09/21 18:35:17 PXC Node: 2026/09/21 18:35:16 Peer finder enter
+2026/09/21 18:35:16 Determined Domain to be default.svc.cluster.local
+2026/09/21 18:35:16 Peer list updated
+was []
+now [cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local cluster1-pxc-1.cluster1-pxc.default.svc.cluster.local cluster1-pxc-2.cluster1-pxc.default.svc.cluster.local]
+2026/09/21 18:35:16 execing: /opt/percona/get-pxc-state.sh with stdin: cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+cluster1-pxc-1.cluster1-pxc.default.svc.cluster.local
+cluster1-pxc-2.cluster1-pxc.default.svc.cluster.local
+2026/09/21 18:35:16 
+2026/09/21 18:35:17 PXC Node: cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local:wsrep_ready:ON:wsrep_connected:ON:wsrep_local_state_comment:Synced:wsrep_cluster_status:Primary:wsrep_cluster_size:3
+2026/09/21 18:35:17 connecting to cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+2026/09/21 18:35:17 installing binlog UDF component
+2026/09/21 18:35:17 file://component_binlog_utils_udf is already installed
+2026/09/21 18:35:17 running binlog collector
+2026/09/21 18:35:19 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+2026/09/21 18:35:19 WARNING: cache file gtid-binlog-cache.json not found
+2026/09/21 18:35:19 WARNING: ignoring timeout to populate the cache, this might take some time...
+2026/09/21 18:35:19 binlog.000001 (1985 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:1-5
+2026/09/21 18:35:19 binlog.000002 (2870 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:6-16
+2026/09/21 18:35:19 binlog.000003 (622 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:35:19 updating binlog cache
+2026/09/21 18:35:19 last uploaded binlog: 
+2026/09/21 18:35:19 starting to process binlog with name binlog.000001
+2026/09/21 18:35:19 successfully wrote binlog file binlog.000001 to storage with name binlog_1790015474_000001_651464d3c7448c4431901bc37e868c1c
+2026/09/21 18:35:19 starting to process binlog with name binlog.000002
+2026/09/21 18:35:19 successfully wrote binlog file binlog.000002 to storage with name binlog_1790015503_000002_b6b0813de2c297f7195def9ef89f0b9b
+2026/09/21 18:35:19 starting to process binlog with name binlog.000003
+2026/09/21 18:35:19 successfully wrote binlog file binlog.000003 to storage with name binlog_1790015575_000003_2fc1c73a8ac8d2bd6027784cac082a69
+2026/09/21 18:36:21 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+2026/09/21 18:36:21 binlog.000001 (1985 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:1-5
+2026/09/21 18:36:21 binlog.000002 (2870 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:6-16
+2026/09/21 18:36:21 binlog.000003 (666 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:36:21 no cache entry for binlog.000004
+2026/09/21 18:36:21 binlog.000004 (198 bytes) [E:No]: 
+2026/09/21 18:36:21 updating binlog cache
+2026/09/21 18:36:21 last uploaded GTID set: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:36:21 checking binlog.000004 () against last uploaded set
+2026/09/21 18:36:21 checking binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18) against last uploaded set
+2026/09/21 18:36:21 last uploaded end marker a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:18 found in binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18)
+2026/09/21 18:36:21 last uploaded binlog: binlog.000003
+2026/09/21 18:36:21 no binlogs to upload after filter
+2026/09/21 18:37:22 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+2026/09/21 18:37:22 binlog.000001 (1985 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:1-5
+2026/09/21 18:37:22 binlog.000002 (2870 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:6-16
+2026/09/21 18:37:22 binlog.000003 (666 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:37:22 binlog.000004 (242 bytes) [E:No]: 
+2026/09/21 18:37:22 no cache entry for binlog.000005
+2026/09/21 18:37:22 binlog.000005 (198 bytes) [E:No]: 
+2026/09/21 18:37:22 updating binlog cache
+2026/09/21 18:37:22 last uploaded GTID set: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:37:22 checking binlog.000005 () against last uploaded set
+2026/09/21 18:37:22 checking binlog.000004 () against last uploaded set
+2026/09/21 18:37:22 checking binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18) against last uploaded set
+2026/09/21 18:37:22 last uploaded end marker a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:18 found in binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18)
+2026/09/21 18:37:22 last uploaded binlog: binlog.000003
+2026/09/21 18:37:22 no binlogs to upload after filter
+2026/09/21 18:38:23 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+2026/09/21 18:38:23 binlog.000001 (1985 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:1-5
+2026/09/21 18:38:23 binlog.000002 (2870 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:6-16
+2026/09/21 18:38:23 binlog.000003 (666 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:38:23 binlog.000004 (242 bytes) [E:No]: 
+2026/09/21 18:38:23 binlog.000005 (242 bytes) [E:No]: 
+2026/09/21 18:38:23 no cache entry for binlog.000006
+2026/09/21 18:38:23 binlog.000006 (198 bytes) [E:No]: 
+2026/09/21 18:38:23 updating binlog cache
+2026/09/21 18:38:23 last uploaded GTID set: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:38:23 checking binlog.000006 () against last uploaded set
+2026/09/21 18:38:23 checking binlog.000005 () against last uploaded set
+2026/09/21 18:38:23 checking binlog.000004 () against last uploaded set
+2026/09/21 18:38:23 checking binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18) against last uploaded set
+2026/09/21 18:38:23 last uploaded end marker a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:18 found in binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18)
+2026/09/21 18:38:23 last uploaded binlog: binlog.000003
+2026/09/21 18:38:23 no binlogs to upload after filter
+2026/09/21 18:39:24 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+2026/09/21 18:39:24 binlog.000001 (1985 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:1-5
+2026/09/21 18:39:24 binlog.000002 (2870 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:6-16
+2026/09/21 18:39:24 binlog.000003 (666 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:39:24 binlog.000004 (242 bytes) [E:No]: 
+2026/09/21 18:39:24 binlog.000005 (242 bytes) [E:No]: 
+2026/09/21 18:39:24 binlog.000006 (242 bytes) [E:No]: 
+2026/09/21 18:39:24 no cache entry for binlog.000007
+2026/09/21 18:39:24 binlog.000007 (198 bytes) [E:No]: 
+2026/09/21 18:39:24 updating binlog cache
+2026/09/21 18:39:24 last uploaded GTID set: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:39:24 checking binlog.000007 () against last uploaded set
+2026/09/21 18:39:24 checking binlog.000006 () against last uploaded set
+2026/09/21 18:39:24 checking binlog.000005 () against last uploaded set
+2026/09/21 18:39:24 checking binlog.000004 () against last uploaded set
+2026/09/21 18:39:24 checking binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18) against last uploaded set
+2026/09/21 18:39:24 last uploaded end marker a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:18 found in binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18)
+2026/09/21 18:39:24 last uploaded binlog: binlog.000003
+2026/09/21 18:39:24 no binlogs to upload after filter
+2026/09/21 18:40:25 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+2026/09/21 18:40:26 binlog.000001 (1985 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:1-5
+2026/09/21 18:40:26 binlog.000002 (2870 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:6-16
+2026/09/21 18:40:26 binlog.000003 (666 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:40:26 binlog.000004 (242 bytes) [E:No]: 
+2026/09/21 18:40:26 binlog.000005 (242 bytes) [E:No]: 
+2026/09/21 18:40:26 binlog.000006 (242 bytes) [E:No]: 
+2026/09/21 18:40:26 binlog.000007 (242 bytes) [E:No]: 
+2026/09/21 18:40:26 no cache entry for binlog.000008
+2026/09/21 18:40:26 binlog.000008 (198 bytes) [E:No]: 
+2026/09/21 18:40:26 updating binlog cache
+2026/09/21 18:40:26 last uploaded GTID set: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:40:26 checking binlog.000008 () against last uploaded set
+2026/09/21 18:40:26 checking binlog.000007 () against last uploaded set
+2026/09/21 18:40:26 checking binlog.000006 () against last uploaded set
+2026/09/21 18:40:26 checking binlog.000005 () against last uploaded set
+2026/09/21 18:40:26 checking binlog.000004 () against last uploaded set
+2026/09/21 18:40:26 checking binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18) against last uploaded set
+2026/09/21 18:40:26 last uploaded end marker a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:18 found in binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18)
+2026/09/21 18:40:26 last uploaded binlog: binlog.000003
+2026/09/21 18:40:26 no binlogs to upload after filter
+2026/09/21 18:41:27 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+2026/09/21 18:41:27 binlog.000001 (1985 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:1-5
+2026/09/21 18:41:27 binlog.000002 (2870 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:6-16
+2026/09/21 18:41:27 binlog.000003 (666 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:41:27 binlog.000004 (242 bytes) [E:No]: 
+2026/09/21 18:41:27 binlog.000005 (242 bytes) [E:No]: 
+2026/09/21 18:41:27 binlog.000006 (242 bytes) [E:No]: 
+2026/09/21 18:41:27 binlog.000007 (242 bytes) [E:No]: 
+2026/09/21 18:41:27 binlog.000008 (242 bytes) [E:No]: 
+2026/09/21 18:41:27 no cache entry for binlog.000009
+2026/09/21 18:41:27 binlog.000009 (198 bytes) [E:No]: 
+2026/09/21 18:41:27 updating binlog cache
+2026/09/21 18:41:27 last uploaded GTID set: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:41:27 checking binlog.000009 () against last uploaded set
+2026/09/21 18:41:27 checking binlog.000008 () against last uploaded set
+2026/09/21 18:41:27 checking binlog.000007 () against last uploaded set
+2026/09/21 18:41:27 checking binlog.000006 () against last uploaded set
+2026/09/21 18:41:27 checking binlog.000005 () against last uploaded set
+2026/09/21 18:41:27 checking binlog.000004 () against last uploaded set
+2026/09/21 18:41:27 checking binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18) against last uploaded set
+2026/09/21 18:41:27 last uploaded end marker a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:18 found in binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18)
+2026/09/21 18:41:27 last uploaded binlog: binlog.000003
+2026/09/21 18:41:27 no binlogs to upload after filter
+2026/09/21 18:42:28 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+2026/09/21 18:42:28 binlog.000001 (1985 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:1-5
+2026/09/21 18:42:28 binlog.000002 (2870 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:6-16
+2026/09/21 18:42:28 binlog.000003 (666 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:42:28 binlog.000004 (242 bytes) [E:No]: 
+2026/09/21 18:42:28 binlog.000005 (242 bytes) [E:No]: 
+2026/09/21 18:42:28 binlog.000006 (242 bytes) [E:No]: 
+2026/09/21 18:42:28 binlog.000007 (242 bytes) [E:No]: 
+2026/09/21 18:42:28 binlog.000008 (242 bytes) [E:No]: 
+2026/09/21 18:42:28 binlog.000009 (242 bytes) [E:No]: 
+2026/09/21 18:42:28 no cache entry for binlog.000010
+2026/09/21 18:42:28 binlog.000010 (198 bytes) [E:No]: 
+2026/09/21 18:42:28 updating binlog cache
+2026/09/21 18:42:28 last uploaded GTID set: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:42:28 checking binlog.000010 () against last uploaded set
+2026/09/21 18:42:28 checking binlog.000009 () against last uploaded set
+2026/09/21 18:42:28 checking binlog.000008 () against last uploaded set
+2026/09/21 18:42:28 checking binlog.000007 () against last uploaded set
+2026/09/21 18:42:28 checking binlog.000006 () against last uploaded set
+2026/09/21 18:42:28 checking binlog.000005 () against last uploaded set
+2026/09/21 18:42:28 checking binlog.000004 () against last uploaded set
+2026/09/21 18:42:28 checking binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18) against last uploaded set
+2026/09/21 18:42:28 last uploaded end marker a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:18 found in binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18)
+2026/09/21 18:42:28 last uploaded binlog: binlog.000003
+2026/09/21 18:42:28 no binlogs to upload after filter
+2026/09/21 18:43:29 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+2026/09/21 18:43:29 binlog.000001 (1985 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:1-5
+2026/09/21 18:43:29 binlog.000002 (2870 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:6-16
+2026/09/21 18:43:29 binlog.000003 (666 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:43:29 binlog.000004 (242 bytes) [E:No]: 
+2026/09/21 18:43:29 binlog.000005 (242 bytes) [E:No]: 
+2026/09/21 18:43:29 binlog.000006 (242 bytes) [E:No]: 
+2026/09/21 18:43:29 binlog.000007 (242 bytes) [E:No]: 
+2026/09/21 18:43:29 binlog.000008 (242 bytes) [E:No]: 
+2026/09/21 18:43:29 binlog.000009 (242 bytes) [E:No]: 
+2026/09/21 18:43:29 binlog.000010 (242 bytes) [E:No]: 
+2026/09/21 18:43:29 no cache entry for binlog.000011
+2026/09/21 18:43:29 binlog.000011 (198 bytes) [E:No]: 
+2026/09/21 18:43:29 updating binlog cache
+2026/09/21 18:43:29 last uploaded GTID set: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:43:29 checking binlog.000011 () against last uploaded set
+2026/09/21 18:43:29 checking binlog.000010 () against last uploaded set
+2026/09/21 18:43:29 checking binlog.000009 () against last uploaded set
+2026/09/21 18:43:29 checking binlog.000008 () against last uploaded set
+2026/09/21 18:43:29 checking binlog.000007 () against last uploaded set
+2026/09/21 18:43:29 checking binlog.000006 () against last uploaded set
+2026/09/21 18:43:29 checking binlog.000005 () against last uploaded set
+2026/09/21 18:43:29 checking binlog.000004 () against last uploaded set
+2026/09/21 18:43:29 checking binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18) against last uploaded set
+2026/09/21 18:43:29 last uploaded end marker a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:18 found in binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18)
+2026/09/21 18:43:29 last uploaded binlog: binlog.000003
+2026/09/21 18:43:29 no binlogs to upload after filter
+2026/09/21 18:44:30 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+2026/09/21 18:44:30 binlog.000001 (1985 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:1-5
+2026/09/21 18:44:30 binlog.000002 (2870 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:6-16
+2026/09/21 18:44:30 binlog.000003 (666 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:44:30 binlog.000004 (242 bytes) [E:No]: 
+2026/09/21 18:44:30 binlog.000005 (242 bytes) [E:No]: 
+2026/09/21 18:44:30 binlog.000006 (242 bytes) [E:No]: 
+2026/09/21 18:44:30 binlog.000007 (242 bytes) [E:No]: 
+2026/09/21 18:44:30 binlog.000008 (242 bytes) [E:No]: 
+2026/09/21 18:44:30 binlog.000009 (242 bytes) [E:No]: 
+2026/09/21 18:44:30 binlog.000010 (242 bytes) [E:No]: 
+2026/09/21 18:44:30 binlog.000011 (242 bytes) [E:No]: 
+2026/09/21 18:44:30 no cache entry for binlog.000012
+2026/09/21 18:44:30 binlog.000012 (198 bytes) [E:No]: 
+2026/09/21 18:44:30 updating binlog cache
+2026/09/21 18:44:30 last uploaded GTID set: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:44:30 checking binlog.000012 () against last uploaded set
+2026/09/21 18:44:30 checking binlog.000011 () against last uploaded set
+2026/09/21 18:44:30 checking binlog.000010 () against last uploaded set
+2026/09/21 18:44:30 checking binlog.000009 () against last uploaded set
+2026/09/21 18:44:30 checking binlog.000008 () against last uploaded set
+2026/09/21 18:44:30 checking binlog.000007 () against last uploaded set
+2026/09/21 18:44:30 checking binlog.000006 () against last uploaded set
+2026/09/21 18:44:30 checking binlog.000005 () against last uploaded set
+2026/09/21 18:44:30 checking binlog.000004 () against last uploaded set
+2026/09/21 18:44:30 checking binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18) against last uploaded set
+2026/09/21 18:44:30 last uploaded end marker a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:18 found in binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18)
+2026/09/21 18:44:30 last uploaded binlog: binlog.000003
+2026/09/21 18:44:30 no binlogs to upload after filter
+2026/09/21 18:45:32 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+2026/09/21 18:45:32 binlog.000001 (1985 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:1-5
+2026/09/21 18:45:32 binlog.000002 (2870 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:6-16
+2026/09/21 18:45:32 binlog.000003 (666 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:45:32 binlog.000004 (242 bytes) [E:No]: 
+2026/09/21 18:45:32 binlog.000005 (242 bytes) [E:No]: 
+2026/09/21 18:45:32 binlog.000006 (242 bytes) [E:No]: 
+2026/09/21 18:45:32 binlog.000007 (242 bytes) [E:No]: 
+2026/09/21 18:45:32 binlog.000008 (242 bytes) [E:No]: 
+2026/09/21 18:45:32 binlog.000009 (242 bytes) [E:No]: 
+2026/09/21 18:45:32 binlog.000010 (242 bytes) [E:No]: 
+2026/09/21 18:45:32 binlog.000011 (242 bytes) [E:No]: 
+2026/09/21 18:45:32 binlog.000012 (242 bytes) [E:No]: 
+2026/09/21 18:45:32 no cache entry for binlog.000013
+2026/09/21 18:45:32 binlog.000013 (198 bytes) [E:No]: 
+2026/09/21 18:45:32 updating binlog cache
+2026/09/21 18:45:32 last uploaded GTID set: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:45:32 checking binlog.000013 () against last uploaded set
+2026/09/21 18:45:32 checking binlog.000012 () against last uploaded set
+2026/09/21 18:45:32 checking binlog.000011 () against last uploaded set
+2026/09/21 18:45:32 checking binlog.000010 () against last uploaded set
+2026/09/21 18:45:32 checking binlog.000009 () against last uploaded set
+2026/09/21 18:45:32 checking binlog.000008 () against last uploaded set
+2026/09/21 18:45:32 checking binlog.000007 () against last uploaded set
+2026/09/21 18:45:32 checking binlog.000006 () against last uploaded set
+2026/09/21 18:45:32 checking binlog.000005 () against last uploaded set
+2026/09/21 18:45:32 checking binlog.000004 () against last uploaded set
+2026/09/21 18:45:32 checking binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18) against last uploaded set
+2026/09/21 18:45:32 last uploaded end marker a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:18 found in binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18)
+2026/09/21 18:45:32 last uploaded binlog: binlog.000003
+2026/09/21 18:45:32 no binlogs to upload after filter
+2026/09/21 18:46:33 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+2026/09/21 18:46:33 binlog.000001 (1985 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:1-5
+2026/09/21 18:46:33 binlog.000002 (2870 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:6-16
+2026/09/21 18:46:33 binlog.000003 (666 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:46:33 binlog.000004 (242 bytes) [E:No]: 
+2026/09/21 18:46:33 binlog.000005 (242 bytes) [E:No]: 
+2026/09/21 18:46:33 binlog.000006 (242 bytes) [E:No]: 
+2026/09/21 18:46:33 binlog.000007 (242 bytes) [E:No]: 
+2026/09/21 18:46:33 binlog.000008 (242 bytes) [E:No]: 
+2026/09/21 18:46:33 binlog.000009 (242 bytes) [E:No]: 
+2026/09/21 18:46:33 binlog.000010 (242 bytes) [E:No]: 
+2026/09/21 18:46:33 binlog.000011 (242 bytes) [E:No]: 
+2026/09/21 18:46:33 binlog.000012 (242 bytes) [E:No]: 
+2026/09/21 18:46:33 binlog.000013 (242 bytes) [E:No]: 
+2026/09/21 18:46:33 no cache entry for binlog.000014
+2026/09/21 18:46:33 binlog.000014 (198 bytes) [E:No]: 
+2026/09/21 18:46:33 updating binlog cache
+2026/09/21 18:46:33 last uploaded GTID set: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:46:33 checking binlog.000014 () against last uploaded set
+2026/09/21 18:46:33 checking binlog.000013 () against last uploaded set
+2026/09/21 18:46:33 checking binlog.000012 () against last uploaded set
+2026/09/21 18:46:33 checking binlog.000011 () against last uploaded set
+2026/09/21 18:46:33 checking binlog.000010 () against last uploaded set
+2026/09/21 18:46:33 checking binlog.000009 () against last uploaded set
+2026/09/21 18:46:33 checking binlog.000008 () against last uploaded set
+2026/09/21 18:46:33 checking binlog.000007 () against last uploaded set
+2026/09/21 18:46:33 checking binlog.000006 () against last uploaded set
+2026/09/21 18:46:33 checking binlog.000005 () against last uploaded set
+2026/09/21 18:46:33 checking binlog.000004 () against last uploaded set
+2026/09/21 18:46:33 checking binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18) against last uploaded set
+2026/09/21 18:46:33 last uploaded end marker a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:18 found in binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18)
+2026/09/21 18:46:33 last uploaded binlog: binlog.000003
+2026/09/21 18:46:33 no binlogs to upload after filter
+2026/09/21 18:47:34 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+2026/09/21 18:47:34 binlog.000001 (1985 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:1-5
+2026/09/21 18:47:34 binlog.000002 (2870 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:6-16
+2026/09/21 18:47:34 binlog.000003 (666 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:47:34 binlog.000004 (242 bytes) [E:No]: 
+2026/09/21 18:47:34 binlog.000005 (242 bytes) [E:No]: 
+2026/09/21 18:47:34 binlog.000006 (242 bytes) [E:No]: 
+2026/09/21 18:47:34 binlog.000007 (242 bytes) [E:No]: 
+2026/09/21 18:47:34 binlog.000008 (242 bytes) [E:No]: 
+2026/09/21 18:47:34 binlog.000009 (242 bytes) [E:No]: 
+2026/09/21 18:47:34 binlog.000010 (242 bytes) [E:No]: 
+2026/09/21 18:47:34 binlog.000011 (242 bytes) [E:No]: 
+2026/09/21 18:47:34 binlog.000012 (242 bytes) [E:No]: 
+2026/09/21 18:47:34 binlog.000013 (242 bytes) [E:No]: 
+2026/09/21 18:47:34 binlog.000014 (242 bytes) [E:No]: 
+2026/09/21 18:47:34 no cache entry for binlog.000015
+2026/09/21 18:47:34 binlog.000015 (198 bytes) [E:No]: 
+2026/09/21 18:47:34 updating binlog cache
+2026/09/21 18:47:34 last uploaded GTID set: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:47:34 checking binlog.000015 () against last uploaded set
+2026/09/21 18:47:34 checking binlog.000014 () against last uploaded set
+2026/09/21 18:47:34 checking binlog.000013 () against last uploaded set
+2026/09/21 18:47:34 checking binlog.000012 () against last uploaded set
+2026/09/21 18:47:34 checking binlog.000011 () against last uploaded set
+2026/09/21 18:47:34 checking binlog.000010 () against last uploaded set
+2026/09/21 18:47:34 checking binlog.000009 () against last uploaded set
+2026/09/21 18:47:34 checking binlog.000008 () against last uploaded set
+2026/09/21 18:47:34 checking binlog.000007 () against last uploaded set
+2026/09/21 18:47:34 checking binlog.000006 () against last uploaded set
+2026/09/21 18:47:34 checking binlog.000005 () against last uploaded set
+2026/09/21 18:47:34 checking binlog.000004 () against last uploaded set
+2026/09/21 18:47:34 checking binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18) against last uploaded set
+2026/09/21 18:47:34 last uploaded end marker a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:18 found in binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18)
+2026/09/21 18:47:34 last uploaded binlog: binlog.000003
+2026/09/21 18:47:34 no binlogs to upload after filter
+2026/09/21 18:48:35 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+2026/09/21 18:48:35 binlog.000001 (1985 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:1-5
+2026/09/21 18:48:35 binlog.000002 (2870 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:6-16
+2026/09/21 18:48:35 binlog.000003 (666 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:48:35 binlog.000004 (242 bytes) [E:No]: 
+2026/09/21 18:48:35 binlog.000005 (242 bytes) [E:No]: 
+2026/09/21 18:48:35 binlog.000006 (242 bytes) [E:No]: 
+2026/09/21 18:48:35 binlog.000007 (242 bytes) [E:No]: 
+2026/09/21 18:48:35 binlog.000008 (242 bytes) [E:No]: 
+2026/09/21 18:48:35 binlog.000009 (242 bytes) [E:No]: 
+2026/09/21 18:48:35 binlog.000010 (242 bytes) [E:No]: 
+2026/09/21 18:48:35 binlog.000011 (242 bytes) [E:No]: 
+2026/09/21 18:48:35 binlog.000012 (242 bytes) [E:No]: 
+2026/09/21 18:48:35 binlog.000013 (242 bytes) [E:No]: 
+2026/09/21 18:48:35 binlog.000014 (242 bytes) [E:No]: 
+2026/09/21 18:48:35 binlog.000015 (242 bytes) [E:No]: 
+2026/09/21 18:48:35 no cache entry for binlog.000016
+2026/09/21 18:48:35 binlog.000016 (198 bytes) [E:No]: 
+2026/09/21 18:48:35 updating binlog cache
+2026/09/21 18:48:35 last uploaded GTID set: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:48:35 checking binlog.000016 () against last uploaded set
+2026/09/21 18:48:35 checking binlog.000015 () against last uploaded set
+2026/09/21 18:48:35 checking binlog.000014 () against last uploaded set
+2026/09/21 18:48:35 checking binlog.000013 () against last uploaded set
+2026/09/21 18:48:35 checking binlog.000012 () against last uploaded set
+2026/09/21 18:48:35 checking binlog.000011 () against last uploaded set
+2026/09/21 18:48:35 checking binlog.000010 () against last uploaded set
+2026/09/21 18:48:35 checking binlog.000009 () against last uploaded set
+2026/09/21 18:48:35 checking binlog.000008 () against last uploaded set
+2026/09/21 18:48:35 checking binlog.000007 () against last uploaded set
+2026/09/21 18:48:35 checking binlog.000006 () against last uploaded set
+2026/09/21 18:48:35 checking binlog.000005 () against last uploaded set
+2026/09/21 18:48:35 checking binlog.000004 () against last uploaded set
+2026/09/21 18:48:35 checking binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18) against last uploaded set
+2026/09/21 18:48:35 last uploaded end marker a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:18 found in binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18)
+2026/09/21 18:48:35 last uploaded binlog: binlog.000003
+2026/09/21 18:48:35 no binlogs to upload after filter
+2026/09/21 18:49:36 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+2026/09/21 18:49:36 binlog.000001 (1985 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:1-5
+2026/09/21 18:49:36 binlog.000002 (2870 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:6-16
+2026/09/21 18:49:36 binlog.000003 (666 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:49:36 binlog.000004 (242 bytes) [E:No]: 
+2026/09/21 18:49:36 binlog.000005 (242 bytes) [E:No]: 
+2026/09/21 18:49:36 binlog.000006 (242 bytes) [E:No]: 
+2026/09/21 18:49:36 binlog.000007 (242 bytes) [E:No]: 
+2026/09/21 18:49:36 binlog.000008 (242 bytes) [E:No]: 
+2026/09/21 18:49:36 binlog.000009 (242 bytes) [E:No]: 
+2026/09/21 18:49:36 binlog.000010 (242 bytes) [E:No]: 
+2026/09/21 18:49:36 binlog.000011 (242 bytes) [E:No]: 
+2026/09/21 18:49:36 binlog.000012 (242 bytes) [E:No]: 
+2026/09/21 18:49:36 binlog.000013 (242 bytes) [E:No]: 
+2026/09/21 18:49:36 binlog.000014 (242 bytes) [E:No]: 
+2026/09/21 18:49:36 binlog.000015 (242 bytes) [E:No]: 
+2026/09/21 18:49:36 binlog.000016 (242 bytes) [E:No]: 
+2026/09/21 18:49:36 no cache entry for binlog.000017
+2026/09/21 18:49:36 binlog.000017 (198 bytes) [E:No]: 
+2026/09/21 18:49:36 updating binlog cache
+2026/09/21 18:49:36 last uploaded GTID set: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:49:36 checking binlog.000017 () against last uploaded set
+2026/09/21 18:49:36 checking binlog.000016 () against last uploaded set
+2026/09/21 18:49:36 checking binlog.000015 () against last uploaded set
+2026/09/21 18:49:36 checking binlog.000014 () against last uploaded set
+2026/09/21 18:49:36 checking binlog.000013 () against last uploaded set
+2026/09/21 18:49:36 checking binlog.000012 () against last uploaded set
+2026/09/21 18:49:36 checking binlog.000011 () against last uploaded set
+2026/09/21 18:49:36 checking binlog.000010 () against last uploaded set
+2026/09/21 18:49:36 checking binlog.000009 () against last uploaded set
+2026/09/21 18:49:36 checking binlog.000008 () against last uploaded set
+2026/09/21 18:49:36 checking binlog.000007 () against last uploaded set
+2026/09/21 18:49:36 checking binlog.000006 () against last uploaded set
+2026/09/21 18:49:36 checking binlog.000005 () against last uploaded set
+2026/09/21 18:49:36 checking binlog.000004 () against last uploaded set
+2026/09/21 18:49:36 checking binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18) against last uploaded set
+2026/09/21 18:49:36 last uploaded end marker a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:18 found in binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18)
+2026/09/21 18:49:36 last uploaded binlog: binlog.000003
+2026/09/21 18:49:36 no binlogs to upload after filter
+2026/09/21 18:50:38 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+2026/09/21 18:50:38 binlog.000001 (1985 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:1-5
+2026/09/21 18:50:38 binlog.000002 (2870 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:6-16
+2026/09/21 18:50:38 binlog.000003 (666 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:50:38 binlog.000004 (242 bytes) [E:No]: 
+2026/09/21 18:50:38 binlog.000005 (242 bytes) [E:No]: 
+2026/09/21 18:50:38 binlog.000006 (242 bytes) [E:No]: 
+2026/09/21 18:50:38 binlog.000007 (242 bytes) [E:No]: 
+2026/09/21 18:50:38 binlog.000008 (242 bytes) [E:No]: 
+2026/09/21 18:50:38 binlog.000009 (242 bytes) [E:No]: 
+2026/09/21 18:50:38 binlog.000010 (242 bytes) [E:No]: 
+2026/09/21 18:50:38 binlog.000011 (242 bytes) [E:No]: 
+2026/09/21 18:50:38 binlog.000012 (242 bytes) [E:No]: 
+2026/09/21 18:50:38 binlog.000013 (242 bytes) [E:No]: 
+2026/09/21 18:50:38 binlog.000014 (242 bytes) [E:No]: 
+2026/09/21 18:50:38 binlog.000015 (242 bytes) [E:No]: 
+2026/09/21 18:50:38 binlog.000016 (242 bytes) [E:No]: 
+2026/09/21 18:50:38 binlog.000017 (242 bytes) [E:No]: 
+2026/09/21 18:50:38 no cache entry for binlog.000018
+2026/09/21 18:50:38 binlog.000018 (198 bytes) [E:No]: 
+2026/09/21 18:50:38 updating binlog cache
+2026/09/21 18:50:38 last uploaded GTID set: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:50:38 checking binlog.000018 () against last uploaded set
+2026/09/21 18:50:38 checking binlog.000017 () against last uploaded set
+2026/09/21 18:50:38 checking binlog.000016 () against last uploaded set
+2026/09/21 18:50:38 checking binlog.000015 () against last uploaded set
+2026/09/21 18:50:38 checking binlog.000014 () against last uploaded set
+2026/09/21 18:50:38 checking binlog.000013 () against last uploaded set
+2026/09/21 18:50:38 checking binlog.000012 () against last uploaded set
+2026/09/21 18:50:38 checking binlog.000011 () against last uploaded set
+2026/09/21 18:50:38 checking binlog.000010 () against last uploaded set
+2026/09/21 18:50:38 checking binlog.000009 () against last uploaded set
+2026/09/21 18:50:38 checking binlog.000008 () against last uploaded set
+2026/09/21 18:50:38 checking binlog.000007 () against last uploaded set
+2026/09/21 18:50:38 checking binlog.000006 () against last uploaded set
+2026/09/21 18:50:38 checking binlog.000005 () against last uploaded set
+2026/09/21 18:50:38 checking binlog.000004 () against last uploaded set
+2026/09/21 18:50:38 checking binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18) against last uploaded set
+2026/09/21 18:50:38 last uploaded end marker a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:18 found in binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18)
+2026/09/21 18:50:38 last uploaded binlog: binlog.000003
+2026/09/21 18:50:38 no binlogs to upload after filter
+2026/09/21 18:51:39 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+2026/09/21 18:51:39 binlog.000001 (1985 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:1-5
+2026/09/21 18:51:39 binlog.000002 (2870 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:6-16
+2026/09/21 18:51:39 binlog.000003 (666 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:51:39 binlog.000004 (242 bytes) [E:No]: 
+2026/09/21 18:51:39 binlog.000005 (242 bytes) [E:No]: 
+2026/09/21 18:51:39 binlog.000006 (242 bytes) [E:No]: 
+2026/09/21 18:51:39 binlog.000007 (242 bytes) [E:No]: 
+2026/09/21 18:51:39 binlog.000008 (242 bytes) [E:No]: 
+2026/09/21 18:51:39 binlog.000009 (242 bytes) [E:No]: 
+2026/09/21 18:51:39 binlog.000010 (242 bytes) [E:No]: 
+2026/09/21 18:51:39 binlog.000011 (242 bytes) [E:No]: 
+2026/09/21 18:51:39 binlog.000012 (242 bytes) [E:No]: 
+2026/09/21 18:51:39 binlog.000013 (242 bytes) [E:No]: 
+2026/09/21 18:51:39 binlog.000014 (242 bytes) [E:No]: 
+2026/09/21 18:51:39 binlog.000015 (242 bytes) [E:No]: 
+2026/09/21 18:51:39 binlog.000016 (242 bytes) [E:No]: 
+2026/09/21 18:51:39 binlog.000017 (242 bytes) [E:No]: 
+2026/09/21 18:51:39 binlog.000018 (242 bytes) [E:No]: 
+2026/09/21 18:51:39 no cache entry for binlog.000019
+2026/09/21 18:51:39 binlog.000019 (198 bytes) [E:No]: 
+2026/09/21 18:51:39 updating binlog cache
+2026/09/21 18:51:39 last uploaded GTID set: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:51:39 checking binlog.000019 () against last uploaded set
+2026/09/21 18:51:39 checking binlog.000018 () against last uploaded set
+2026/09/21 18:51:39 checking binlog.000017 () against last uploaded set
+2026/09/21 18:51:39 checking binlog.000016 () against last uploaded set
+2026/09/21 18:51:39 checking binlog.000015 () against last uploaded set
+2026/09/21 18:51:39 checking binlog.000014 () against last uploaded set
+2026/09/21 18:51:39 checking binlog.000013 () against last uploaded set
+2026/09/21 18:51:39 checking binlog.000012 () against last uploaded set
+2026/09/21 18:51:39 checking binlog.000011 () against last uploaded set
+2026/09/21 18:51:39 checking binlog.000010 () against last uploaded set
+2026/09/21 18:51:39 checking binlog.000009 () against last uploaded set
+2026/09/21 18:51:39 checking binlog.000008 () against last uploaded set
+2026/09/21 18:51:39 checking binlog.000007 () against last uploaded set
+2026/09/21 18:51:39 checking binlog.000006 () against last uploaded set
+2026/09/21 18:51:39 checking binlog.000005 () against last uploaded set
+2026/09/21 18:51:39 checking binlog.000004 () against last uploaded set
+2026/09/21 18:51:39 checking binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18) against last uploaded set
+2026/09/21 18:51:39 last uploaded end marker a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:18 found in binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18)
+2026/09/21 18:51:39 last uploaded binlog: binlog.000003
+2026/09/21 18:51:39 no binlogs to upload after filter
+2026/09/21 18:52:40 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+2026/09/21 18:52:40 binlog.000001 (1985 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:1-5
+2026/09/21 18:52:40 binlog.000002 (2870 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:6-16
+2026/09/21 18:52:40 binlog.000003 (666 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:52:40 binlog.000004 (242 bytes) [E:No]: 
+2026/09/21 18:52:40 binlog.000005 (242 bytes) [E:No]: 
+2026/09/21 18:52:40 binlog.000006 (242 bytes) [E:No]: 
+2026/09/21 18:52:40 binlog.000007 (242 bytes) [E:No]: 
+2026/09/21 18:52:40 binlog.000008 (242 bytes) [E:No]: 
+2026/09/21 18:52:40 binlog.000009 (242 bytes) [E:No]: 
+2026/09/21 18:52:40 binlog.000010 (242 bytes) [E:No]: 
+2026/09/21 18:52:40 binlog.000011 (242 bytes) [E:No]: 
+2026/09/21 18:52:40 binlog.000012 (242 bytes) [E:No]: 
+2026/09/21 18:52:40 binlog.000013 (242 bytes) [E:No]: 
+2026/09/21 18:52:40 binlog.000014 (242 bytes) [E:No]: 
+2026/09/21 18:52:40 binlog.000015 (242 bytes) [E:No]: 
+2026/09/21 18:52:40 binlog.000016 (242 bytes) [E:No]: 
+2026/09/21 18:52:40 binlog.000017 (242 bytes) [E:No]: 
+2026/09/21 18:52:40 binlog.000018 (242 bytes) [E:No]: 
+2026/09/21 18:52:40 binlog.000019 (242 bytes) [E:No]: 
+2026/09/21 18:52:40 no cache entry for binlog.000020
+2026/09/21 18:52:40 binlog.000020 (198 bytes) [E:No]: 
+2026/09/21 18:52:40 updating binlog cache
+2026/09/21 18:52:40 last uploaded GTID set: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:52:40 checking binlog.000020 () against last uploaded set
+2026/09/21 18:52:40 checking binlog.000019 () against last uploaded set
+2026/09/21 18:52:40 checking binlog.000018 () against last uploaded set
+2026/09/21 18:52:40 checking binlog.000017 () against last uploaded set
+2026/09/21 18:52:40 checking binlog.000016 () against last uploaded set
+2026/09/21 18:52:40 checking binlog.000015 () against last uploaded set
+2026/09/21 18:52:40 checking binlog.000014 () against last uploaded set
+2026/09/21 18:52:40 checking binlog.000013 () against last uploaded set
+2026/09/21 18:52:40 checking binlog.000012 () against last uploaded set
+2026/09/21 18:52:40 checking binlog.000011 () against last uploaded set
+2026/09/21 18:52:40 checking binlog.000010 () against last uploaded set
+2026/09/21 18:52:40 checking binlog.000009 () against last uploaded set
+2026/09/21 18:52:40 checking binlog.000008 () against last uploaded set
+2026/09/21 18:52:40 checking binlog.000007 () against last uploaded set
+2026/09/21 18:52:40 checking binlog.000006 () against last uploaded set
+2026/09/21 18:52:40 checking binlog.000005 () against last uploaded set
+2026/09/21 18:52:40 checking binlog.000004 () against last uploaded set
+2026/09/21 18:52:40 checking binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18) against last uploaded set
+2026/09/21 18:52:40 last uploaded end marker a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:18 found in binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18)
+2026/09/21 18:52:40 last uploaded binlog: binlog.000003
+2026/09/21 18:52:40 no binlogs to upload after filter
+2026/09/21 18:53:41 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+2026/09/21 18:53:41 binlog.000001 (1985 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:1-5
+2026/09/21 18:53:41 binlog.000002 (2870 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:6-16
+2026/09/21 18:53:41 binlog.000003 (666 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:53:41 binlog.000004 (242 bytes) [E:No]: 
+2026/09/21 18:53:41 binlog.000005 (242 bytes) [E:No]: 
+2026/09/21 18:53:41 binlog.000006 (242 bytes) [E:No]: 
+2026/09/21 18:53:41 binlog.000007 (242 bytes) [E:No]: 
+2026/09/21 18:53:41 binlog.000008 (242 bytes) [E:No]: 
+2026/09/21 18:53:41 binlog.000009 (242 bytes) [E:No]: 
+2026/09/21 18:53:41 binlog.000010 (242 bytes) [E:No]: 
+2026/09/21 18:53:41 binlog.000011 (242 bytes) [E:No]: 
+2026/09/21 18:53:41 binlog.000012 (242 bytes) [E:No]: 
+2026/09/21 18:53:41 binlog.000013 (242 bytes) [E:No]: 
+2026/09/21 18:53:41 binlog.000014 (242 bytes) [E:No]: 
+2026/09/21 18:53:41 binlog.000015 (242 bytes) [E:No]: 
+2026/09/21 18:53:41 binlog.000016 (242 bytes) [E:No]: 
+2026/09/21 18:53:41 binlog.000017 (242 bytes) [E:No]: 
+2026/09/21 18:53:41 binlog.000018 (242 bytes) [E:No]: 
+2026/09/21 18:53:41 binlog.000019 (242 bytes) [E:No]: 
+2026/09/21 18:53:41 binlog.000020 (242 bytes) [E:No]: 
+2026/09/21 18:53:41 no cache entry for binlog.000021
+2026/09/21 18:53:41 binlog.000021 (198 bytes) [E:No]: 
+2026/09/21 18:53:41 updating binlog cache
+2026/09/21 18:53:41 last uploaded GTID set: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:53:41 checking binlog.000021 () against last uploaded set
+2026/09/21 18:53:41 checking binlog.000020 () against last uploaded set
+2026/09/21 18:53:41 checking binlog.000019 () against last uploaded set
+2026/09/21 18:53:41 checking binlog.000018 () against last uploaded set
+2026/09/21 18:53:41 checking binlog.000017 () against last uploaded set
+2026/09/21 18:53:41 checking binlog.000016 () against last uploaded set
+2026/09/21 18:53:41 checking binlog.000015 () against last uploaded set
+2026/09/21 18:53:41 checking binlog.000014 () against last uploaded set
+2026/09/21 18:53:41 checking binlog.000013 () against last uploaded set
+2026/09/21 18:53:41 checking binlog.000012 () against last uploaded set
+2026/09/21 18:53:41 checking binlog.000011 () against last uploaded set
+2026/09/21 18:53:41 checking binlog.000010 () against last uploaded set
+2026/09/21 18:53:41 checking binlog.000009 () against last uploaded set
+2026/09/21 18:53:41 checking binlog.000008 () against last uploaded set
+2026/09/21 18:53:41 checking binlog.000007 () against last uploaded set
+2026/09/21 18:53:41 checking binlog.000006 () against last uploaded set
+2026/09/21 18:53:41 checking binlog.000005 () against last uploaded set
+2026/09/21 18:53:41 checking binlog.000004 () against last uploaded set
+2026/09/21 18:53:41 checking binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18) against last uploaded set
+2026/09/21 18:53:41 last uploaded end marker a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:18 found in binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18)
+2026/09/21 18:53:41 last uploaded binlog: binlog.000003
+2026/09/21 18:53:41 no binlogs to upload after filter
+2026/09/21 18:54:42 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+2026/09/21 18:54:42 binlog.000001 (1985 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:1-5
+2026/09/21 18:54:42 binlog.000002 (2870 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:6-16
+2026/09/21 18:54:42 binlog.000003 (666 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:54:42 binlog.000004 (242 bytes) [E:No]: 
+2026/09/21 18:54:42 binlog.000005 (242 bytes) [E:No]: 
+2026/09/21 18:54:42 binlog.000006 (242 bytes) [E:No]: 
+2026/09/21 18:54:42 binlog.000007 (242 bytes) [E:No]: 
+2026/09/21 18:54:42 binlog.000008 (242 bytes) [E:No]: 
+2026/09/21 18:54:42 binlog.000009 (242 bytes) [E:No]: 
+2026/09/21 18:54:42 binlog.000010 (242 bytes) [E:No]: 
+2026/09/21 18:54:42 binlog.000011 (242 bytes) [E:No]: 
+2026/09/21 18:54:42 binlog.000012 (242 bytes) [E:No]: 
+2026/09/21 18:54:42 binlog.000013 (242 bytes) [E:No]: 
+2026/09/21 18:54:42 binlog.000014 (242 bytes) [E:No]: 
+2026/09/21 18:54:42 binlog.000015 (242 bytes) [E:No]: 
+2026/09/21 18:54:42 binlog.000016 (242 bytes) [E:No]: 
+2026/09/21 18:54:42 binlog.000017 (242 bytes) [E:No]: 
+2026/09/21 18:54:42 binlog.000018 (242 bytes) [E:No]: 
+2026/09/21 18:54:42 binlog.000019 (242 bytes) [E:No]: 
+2026/09/21 18:54:42 binlog.000020 (242 bytes) [E:No]: 
+2026/09/21 18:54:42 binlog.000021 (242 bytes) [E:No]: 
+2026/09/21 18:54:42 no cache entry for binlog.000022
+2026/09/21 18:54:42 binlog.000022 (198 bytes) [E:No]: 
+2026/09/21 18:54:42 updating binlog cache
+2026/09/21 18:54:42 last uploaded GTID set: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:54:42 checking binlog.000022 () against last uploaded set
+2026/09/21 18:54:42 checking binlog.000021 () against last uploaded set
+2026/09/21 18:54:42 checking binlog.000020 () against last uploaded set
+2026/09/21 18:54:42 checking binlog.000019 () against last uploaded set
+2026/09/21 18:54:42 checking binlog.000018 () against last uploaded set
+2026/09/21 18:54:42 checking binlog.000017 () against last uploaded set
+2026/09/21 18:54:42 checking binlog.000016 () against last uploaded set
+2026/09/21 18:54:42 checking binlog.000015 () against last uploaded set
+2026/09/21 18:54:42 checking binlog.000014 () against last uploaded set
+2026/09/21 18:54:42 checking binlog.000013 () against last uploaded set
+2026/09/21 18:54:42 checking binlog.000012 () against last uploaded set
+2026/09/21 18:54:42 checking binlog.000011 () against last uploaded set
+2026/09/21 18:54:42 checking binlog.000010 () against last uploaded set
+2026/09/21 18:54:42 checking binlog.000009 () against last uploaded set
+2026/09/21 18:54:42 checking binlog.000008 () against last uploaded set
+2026/09/21 18:54:42 checking binlog.000007 () against last uploaded set
+2026/09/21 18:54:42 checking binlog.000006 () against last uploaded set
+2026/09/21 18:54:42 checking binlog.000005 () against last uploaded set
+2026/09/21 18:54:42 checking binlog.000004 () against last uploaded set
+2026/09/21 18:54:42 checking binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18) against last uploaded set
+2026/09/21 18:54:42 last uploaded end marker a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:18 found in binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18)
+2026/09/21 18:54:42 last uploaded binlog: binlog.000003
+2026/09/21 18:54:42 no binlogs to upload after filter
+2026/09/21 18:55:44 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+2026/09/21 18:55:44 binlog.000001 (1985 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:1-5
+2026/09/21 18:55:44 binlog.000002 (2870 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:6-16
+2026/09/21 18:55:44 binlog.000003 (666 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:55:44 binlog.000004 (242 bytes) [E:No]: 
+2026/09/21 18:55:44 binlog.000005 (242 bytes) [E:No]: 
+2026/09/21 18:55:44 binlog.000006 (242 bytes) [E:No]: 
+2026/09/21 18:55:44 binlog.000007 (242 bytes) [E:No]: 
+2026/09/21 18:55:44 binlog.000008 (242 bytes) [E:No]: 
+2026/09/21 18:55:44 binlog.000009 (242 bytes) [E:No]: 
+2026/09/21 18:55:44 binlog.000010 (242 bytes) [E:No]: 
+2026/09/21 18:55:44 binlog.000011 (242 bytes) [E:No]: 
+2026/09/21 18:55:44 binlog.000012 (242 bytes) [E:No]: 
+2026/09/21 18:55:44 binlog.000013 (242 bytes) [E:No]: 
+2026/09/21 18:55:44 binlog.000014 (242 bytes) [E:No]: 
+2026/09/21 18:55:44 binlog.000015 (242 bytes) [E:No]: 
+2026/09/21 18:55:44 binlog.000016 (242 bytes) [E:No]: 
+2026/09/21 18:55:44 binlog.000017 (242 bytes) [E:No]: 
+2026/09/21 18:55:44 binlog.000018 (242 bytes) [E:No]: 
+2026/09/21 18:55:44 binlog.000019 (242 bytes) [E:No]: 
+2026/09/21 18:55:44 binlog.000020 (242 bytes) [E:No]: 
+2026/09/21 18:55:44 binlog.000021 (242 bytes) [E:No]: 
+2026/09/21 18:55:44 binlog.000022 (242 bytes) [E:No]: 
+2026/09/21 18:55:44 no cache entry for binlog.000023
+2026/09/21 18:55:44 binlog.000023 (198 bytes) [E:No]: 
+2026/09/21 18:55:44 updating binlog cache
+2026/09/21 18:55:44 last uploaded GTID set: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:55:44 checking binlog.000023 () against last uploaded set
+2026/09/21 18:55:44 checking binlog.000022 () against last uploaded set
+2026/09/21 18:55:44 checking binlog.000021 () against last uploaded set
+2026/09/21 18:55:44 checking binlog.000020 () against last uploaded set
+2026/09/21 18:55:44 checking binlog.000019 () against last uploaded set
+2026/09/21 18:55:44 checking binlog.000018 () against last uploaded set
+2026/09/21 18:55:44 checking binlog.000017 () against last uploaded set
+2026/09/21 18:55:44 checking binlog.000016 () against last uploaded set
+2026/09/21 18:55:44 checking binlog.000015 () against last uploaded set
+2026/09/21 18:55:44 checking binlog.000014 () against last uploaded set
+2026/09/21 18:55:44 checking binlog.000013 () against last uploaded set
+2026/09/21 18:55:44 checking binlog.000012 () against last uploaded set
+2026/09/21 18:55:44 checking binlog.000011 () against last uploaded set
+2026/09/21 18:55:44 checking binlog.000010 () against last uploaded set
+2026/09/21 18:55:44 checking binlog.000009 () against last uploaded set
+2026/09/21 18:55:44 checking binlog.000008 () against last uploaded set
+2026/09/21 18:55:44 checking binlog.000007 () against last uploaded set
+2026/09/21 18:55:44 checking binlog.000006 () against last uploaded set
+2026/09/21 18:55:44 checking binlog.000005 () against last uploaded set
+2026/09/21 18:55:44 checking binlog.000004 () against last uploaded set
+2026/09/21 18:55:44 checking binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18) against last uploaded set
+2026/09/21 18:55:44 last uploaded end marker a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:18 found in binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18)
+2026/09/21 18:55:44 last uploaded binlog: binlog.000003
+2026/09/21 18:55:44 no binlogs to upload after filter
+2026/09/21 18:56:45 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+2026/09/21 18:56:45 binlog.000001 (1985 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:1-5
+2026/09/21 18:56:45 binlog.000002 (2870 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:6-16
+2026/09/21 18:56:45 binlog.000003 (666 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:56:45 binlog.000004 (242 bytes) [E:No]: 
+2026/09/21 18:56:45 binlog.000005 (242 bytes) [E:No]: 
+2026/09/21 18:56:45 binlog.000006 (242 bytes) [E:No]: 
+2026/09/21 18:56:45 binlog.000007 (242 bytes) [E:No]: 
+2026/09/21 18:56:45 binlog.000008 (242 bytes) [E:No]: 
+2026/09/21 18:56:45 binlog.000009 (242 bytes) [E:No]: 
+2026/09/21 18:56:45 binlog.000010 (242 bytes) [E:No]: 
+2026/09/21 18:56:45 binlog.000011 (242 bytes) [E:No]: 
+2026/09/21 18:56:45 binlog.000012 (242 bytes) [E:No]: 
+2026/09/21 18:56:45 binlog.000013 (242 bytes) [E:No]: 
+2026/09/21 18:56:45 binlog.000014 (242 bytes) [E:No]: 
+2026/09/21 18:56:45 binlog.000015 (242 bytes) [E:No]: 
+2026/09/21 18:56:45 binlog.000016 (242 bytes) [E:No]: 
+2026/09/21 18:56:45 binlog.000017 (242 bytes) [E:No]: 
+2026/09/21 18:56:45 binlog.000018 (242 bytes) [E:No]: 
+2026/09/21 18:56:45 binlog.000019 (242 bytes) [E:No]: 
+2026/09/21 18:56:45 binlog.000020 (242 bytes) [E:No]: 
+2026/09/21 18:56:45 binlog.000021 (242 bytes) [E:No]: 
+2026/09/21 18:56:45 binlog.000022 (242 bytes) [E:No]: 
+2026/09/21 18:56:45 binlog.000023 (242 bytes) [E:No]: 
+2026/09/21 18:56:45 no cache entry for binlog.000024
+2026/09/21 18:56:45 binlog.000024 (198 bytes) [E:No]: 
+2026/09/21 18:56:45 updating binlog cache
+2026/09/21 18:56:45 last uploaded GTID set: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:56:45 checking binlog.000024 () against last uploaded set
+2026/09/21 18:56:45 checking binlog.000023 () against last uploaded set
+2026/09/21 18:56:45 checking binlog.000022 () against last uploaded set
+2026/09/21 18:56:45 checking binlog.000021 () against last uploaded set
+2026/09/21 18:56:45 checking binlog.000020 () against last uploaded set
+2026/09/21 18:56:45 checking binlog.000019 () against last uploaded set
+2026/09/21 18:56:45 checking binlog.000018 () against last uploaded set
+2026/09/21 18:56:45 checking binlog.000017 () against last uploaded set
+2026/09/21 18:56:45 checking binlog.000016 () against last uploaded set
+2026/09/21 18:56:45 checking binlog.000015 () against last uploaded set
+2026/09/21 18:56:45 checking binlog.000014 () against last uploaded set
+2026/09/21 18:56:45 checking binlog.000013 () against last uploaded set
+2026/09/21 18:56:45 checking binlog.000012 () against last uploaded set
+2026/09/21 18:56:45 checking binlog.000011 () against last uploaded set
+2026/09/21 18:56:45 checking binlog.000010 () against last uploaded set
+2026/09/21 18:56:45 checking binlog.000009 () against last uploaded set
+2026/09/21 18:56:45 checking binlog.000008 () against last uploaded set
+2026/09/21 18:56:45 checking binlog.000007 () against last uploaded set
+2026/09/21 18:56:45 checking binlog.000006 () against last uploaded set
+2026/09/21 18:56:45 checking binlog.000005 () against last uploaded set
+2026/09/21 18:56:45 checking binlog.000004 () against last uploaded set
+2026/09/21 18:56:45 checking binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18) against last uploaded set
+2026/09/21 18:56:45 last uploaded end marker a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:18 found in binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18)
+2026/09/21 18:56:45 last uploaded binlog: binlog.000003
+2026/09/21 18:56:45 no binlogs to upload after filter
+2026/09/21 18:57:46 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+2026/09/21 18:57:46 binlog.000001 (1985 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:1-5
+2026/09/21 18:57:46 binlog.000002 (2870 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:6-16
+2026/09/21 18:57:46 binlog.000003 (666 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:57:46 binlog.000004 (242 bytes) [E:No]: 
+2026/09/21 18:57:46 binlog.000005 (242 bytes) [E:No]: 
+2026/09/21 18:57:46 binlog.000006 (242 bytes) [E:No]: 
+2026/09/21 18:57:46 binlog.000007 (242 bytes) [E:No]: 
+2026/09/21 18:57:46 binlog.000008 (242 bytes) [E:No]: 
+2026/09/21 18:57:46 binlog.000009 (242 bytes) [E:No]: 
+2026/09/21 18:57:46 binlog.000010 (242 bytes) [E:No]: 
+2026/09/21 18:57:46 binlog.000011 (242 bytes) [E:No]: 
+2026/09/21 18:57:46 binlog.000012 (242 bytes) [E:No]: 
+2026/09/21 18:57:46 binlog.000013 (242 bytes) [E:No]: 
+2026/09/21 18:57:46 binlog.000014 (242 bytes) [E:No]: 
+2026/09/21 18:57:46 binlog.000015 (242 bytes) [E:No]: 
+2026/09/21 18:57:46 binlog.000016 (242 bytes) [E:No]: 
+2026/09/21 18:57:46 binlog.000017 (242 bytes) [E:No]: 
+2026/09/21 18:57:46 binlog.000018 (242 bytes) [E:No]: 
+2026/09/21 18:57:46 binlog.000019 (242 bytes) [E:No]: 
+2026/09/21 18:57:46 binlog.000020 (242 bytes) [E:No]: 
+2026/09/21 18:57:46 binlog.000021 (242 bytes) [E:No]: 
+2026/09/21 18:57:46 binlog.000022 (242 bytes) [E:No]: 
+2026/09/21 18:57:46 binlog.000023 (242 bytes) [E:No]: 
+2026/09/21 18:57:46 binlog.000024 (242 bytes) [E:No]: 
+2026/09/21 18:57:46 no cache entry for binlog.000025
+2026/09/21 18:57:46 binlog.000025 (198 bytes) [E:No]: 
+2026/09/21 18:57:46 updating binlog cache
+2026/09/21 18:57:46 last uploaded GTID set: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:57:46 checking binlog.000025 () against last uploaded set
+2026/09/21 18:57:46 checking binlog.000024 () against last uploaded set
+2026/09/21 18:57:46 checking binlog.000023 () against last uploaded set
+2026/09/21 18:57:46 checking binlog.000022 () against last uploaded set
+2026/09/21 18:57:46 checking binlog.000021 () against last uploaded set
+2026/09/21 18:57:46 checking binlog.000020 () against last uploaded set
+2026/09/21 18:57:46 checking binlog.000019 () against last uploaded set
+2026/09/21 18:57:46 checking binlog.000018 () against last uploaded set
+2026/09/21 18:57:46 checking binlog.000017 () against last uploaded set
+2026/09/21 18:57:46 checking binlog.000016 () against last uploaded set
+2026/09/21 18:57:46 checking binlog.000015 () against last uploaded set
+2026/09/21 18:57:46 checking binlog.000014 () against last uploaded set
+2026/09/21 18:57:46 checking binlog.000013 () against last uploaded set
+2026/09/21 18:57:46 checking binlog.000012 () against last uploaded set
+2026/09/21 18:57:46 checking binlog.000011 () against last uploaded set
+2026/09/21 18:57:46 checking binlog.000010 () against last uploaded set
+2026/09/21 18:57:46 checking binlog.000009 () against last uploaded set
+2026/09/21 18:57:46 checking binlog.000008 () against last uploaded set
+2026/09/21 18:57:46 checking binlog.000007 () against last uploaded set
+2026/09/21 18:57:46 checking binlog.000006 () against last uploaded set
+2026/09/21 18:57:46 checking binlog.000005 () against last uploaded set
+2026/09/21 18:57:46 checking binlog.000004 () against last uploaded set
+2026/09/21 18:57:46 checking binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18) against last uploaded set
+2026/09/21 18:57:46 last uploaded end marker a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:18 found in binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18)
+2026/09/21 18:57:46 last uploaded binlog: binlog.000003
+2026/09/21 18:57:46 no binlogs to upload after filter
+2026/09/21 18:58:47 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+2026/09/21 18:58:47 binlog.000001 (1985 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:1-5
+2026/09/21 18:58:47 binlog.000002 (2870 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:6-16
+2026/09/21 18:58:47 binlog.000003 (666 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:58:47 binlog.000004 (242 bytes) [E:No]: 
+2026/09/21 18:58:47 binlog.000005 (242 bytes) [E:No]: 
+2026/09/21 18:58:47 binlog.000006 (242 bytes) [E:No]: 
+2026/09/21 18:58:47 binlog.000007 (242 bytes) [E:No]: 
+2026/09/21 18:58:47 binlog.000008 (242 bytes) [E:No]: 
+2026/09/21 18:58:47 binlog.000009 (242 bytes) [E:No]: 
+2026/09/21 18:58:47 binlog.000010 (242 bytes) [E:No]: 
+2026/09/21 18:58:47 binlog.000011 (242 bytes) [E:No]: 
+2026/09/21 18:58:47 binlog.000012 (242 bytes) [E:No]: 
+2026/09/21 18:58:47 binlog.000013 (242 bytes) [E:No]: 
+2026/09/21 18:58:47 binlog.000014 (242 bytes) [E:No]: 
+2026/09/21 18:58:47 binlog.000015 (242 bytes) [E:No]: 
+2026/09/21 18:58:47 binlog.000016 (242 bytes) [E:No]: 
+2026/09/21 18:58:47 binlog.000017 (242 bytes) [E:No]: 
+2026/09/21 18:58:47 binlog.000018 (242 bytes) [E:No]: 
+2026/09/21 18:58:47 binlog.000019 (242 bytes) [E:No]: 
+2026/09/21 18:58:47 binlog.000020 (242 bytes) [E:No]: 
+2026/09/21 18:58:47 binlog.000021 (242 bytes) [E:No]: 
+2026/09/21 18:58:47 binlog.000022 (242 bytes) [E:No]: 
+2026/09/21 18:58:47 binlog.000023 (242 bytes) [E:No]: 
+2026/09/21 18:58:47 binlog.000024 (242 bytes) [E:No]: 
+2026/09/21 18:58:47 binlog.000025 (242 bytes) [E:No]: 
+2026/09/21 18:58:47 no cache entry for binlog.000026
+2026/09/21 18:58:47 binlog.000026 (198 bytes) [E:No]: 
+2026/09/21 18:58:47 updating binlog cache
+2026/09/21 18:58:47 last uploaded GTID set: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:58:47 checking binlog.000026 () against last uploaded set
+2026/09/21 18:58:47 checking binlog.000025 () against last uploaded set
+2026/09/21 18:58:47 checking binlog.000024 () against last uploaded set
+2026/09/21 18:58:47 checking binlog.000023 () against last uploaded set
+2026/09/21 18:58:47 checking binlog.000022 () against last uploaded set
+2026/09/21 18:58:47 checking binlog.000021 () against last uploaded set
+2026/09/21 18:58:47 checking binlog.000020 () against last uploaded set
+2026/09/21 18:58:47 checking binlog.000019 () against last uploaded set
+2026/09/21 18:58:47 checking binlog.000018 () against last uploaded set
+2026/09/21 18:58:47 checking binlog.000017 () against last uploaded set
+2026/09/21 18:58:47 checking binlog.000016 () against last uploaded set
+2026/09/21 18:58:47 checking binlog.000015 () against last uploaded set
+2026/09/21 18:58:47 checking binlog.000014 () against last uploaded set
+2026/09/21 18:58:47 checking binlog.000013 () against last uploaded set
+2026/09/21 18:58:47 checking binlog.000012 () against last uploaded set
+2026/09/21 18:58:47 checking binlog.000011 () against last uploaded set
+2026/09/21 18:58:47 checking binlog.000010 () against last uploaded set
+2026/09/21 18:58:47 checking binlog.000009 () against last uploaded set
+2026/09/21 18:58:47 checking binlog.000008 () against last uploaded set
+2026/09/21 18:58:47 checking binlog.000007 () against last uploaded set
+2026/09/21 18:58:47 checking binlog.000006 () against last uploaded set
+2026/09/21 18:58:47 checking binlog.000005 () against last uploaded set
+2026/09/21 18:58:47 checking binlog.000004 () against last uploaded set
+2026/09/21 18:58:47 checking binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18) against last uploaded set
+2026/09/21 18:58:47 last uploaded end marker a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:18 found in binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18)
+2026/09/21 18:58:47 last uploaded binlog: binlog.000003
+2026/09/21 18:58:47 no binlogs to upload after filter
+2026/09/21 18:59:49 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+2026/09/21 18:59:49 binlog.000001 (1985 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:1-5
+2026/09/21 18:59:49 binlog.000002 (2870 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:6-16
+2026/09/21 18:59:49 binlog.000003 (666 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:59:49 binlog.000004 (242 bytes) [E:No]: 
+2026/09/21 18:59:49 binlog.000005 (242 bytes) [E:No]: 
+2026/09/21 18:59:49 binlog.000006 (242 bytes) [E:No]: 
+2026/09/21 18:59:49 binlog.000007 (242 bytes) [E:No]: 
+2026/09/21 18:59:49 binlog.000008 (242 bytes) [E:No]: 
+2026/09/21 18:59:49 binlog.000009 (242 bytes) [E:No]: 
+2026/09/21 18:59:49 binlog.000010 (242 bytes) [E:No]: 
+2026/09/21 18:59:49 binlog.000011 (242 bytes) [E:No]: 
+2026/09/21 18:59:49 binlog.000012 (242 bytes) [E:No]: 
+2026/09/21 18:59:49 binlog.000013 (242 bytes) [E:No]: 
+2026/09/21 18:59:49 binlog.000014 (242 bytes) [E:No]: 
+2026/09/21 18:59:49 binlog.000015 (242 bytes) [E:No]: 
+2026/09/21 18:59:49 binlog.000016 (242 bytes) [E:No]: 
+2026/09/21 18:59:49 binlog.000017 (242 bytes) [E:No]: 
+2026/09/21 18:59:49 binlog.000018 (242 bytes) [E:No]: 
+2026/09/21 18:59:49 binlog.000019 (242 bytes) [E:No]: 
+2026/09/21 18:59:49 binlog.000020 (242 bytes) [E:No]: 
+2026/09/21 18:59:49 binlog.000021 (242 bytes) [E:No]: 
+2026/09/21 18:59:49 binlog.000022 (242 bytes) [E:No]: 
+2026/09/21 18:59:49 binlog.000023 (242 bytes) [E:No]: 
+2026/09/21 18:59:49 binlog.000024 (242 bytes) [E:No]: 
+2026/09/21 18:59:49 binlog.000025 (242 bytes) [E:No]: 
+2026/09/21 18:59:49 binlog.000026 (242 bytes) [E:No]: 
+2026/09/21 18:59:49 no cache entry for binlog.000027
+2026/09/21 18:59:49 binlog.000027 (198 bytes) [E:No]: 
+2026/09/21 18:59:49 updating binlog cache
+2026/09/21 18:59:49 last uploaded GTID set: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 18:59:49 checking binlog.000027 () against last uploaded set
+2026/09/21 18:59:49 checking binlog.000026 () against last uploaded set
+2026/09/21 18:59:49 checking binlog.000025 () against last uploaded set
+2026/09/21 18:59:49 checking binlog.000024 () against last uploaded set
+2026/09/21 18:59:49 checking binlog.000023 () against last uploaded set
+2026/09/21 18:59:49 checking binlog.000022 () against last uploaded set
+2026/09/21 18:59:49 checking binlog.000021 () against last uploaded set
+2026/09/21 18:59:49 checking binlog.000020 () against last uploaded set
+2026/09/21 18:59:49 checking binlog.000019 () against last uploaded set
+2026/09/21 18:59:49 checking binlog.000018 () against last uploaded set
+2026/09/21 18:59:49 checking binlog.000017 () against last uploaded set
+2026/09/21 18:59:49 checking binlog.000016 () against last uploaded set
+2026/09/21 18:59:49 checking binlog.000015 () against last uploaded set
+2026/09/21 18:59:49 checking binlog.000014 () against last uploaded set
+2026/09/21 18:59:49 checking binlog.000013 () against last uploaded set
+2026/09/21 18:59:49 checking binlog.000012 () against last uploaded set
+2026/09/21 18:59:49 checking binlog.000011 () against last uploaded set
+2026/09/21 18:59:49 checking binlog.000010 () against last uploaded set
+2026/09/21 18:59:49 checking binlog.000009 () against last uploaded set
+2026/09/21 18:59:49 checking binlog.000008 () against last uploaded set
+2026/09/21 18:59:49 checking binlog.000007 () against last uploaded set
+2026/09/21 18:59:49 checking binlog.000006 () against last uploaded set
+2026/09/21 18:59:49 checking binlog.000005 () against last uploaded set
+2026/09/21 18:59:49 checking binlog.000004 () against last uploaded set
+2026/09/21 18:59:49 checking binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18) against last uploaded set
+2026/09/21 18:59:49 last uploaded end marker a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:18 found in binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18)
+2026/09/21 18:59:49 last uploaded binlog: binlog.000003
+2026/09/21 18:59:49 no binlogs to upload after filter
+2026/09/21 19:00:50 reading binlogs from pxc with hostname= cluster1-pxc-0.cluster1-pxc.default.svc.cluster.local
+2026/09/21 19:00:50 binlog.000001 (1985 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:1-5
+2026/09/21 19:00:50 binlog.000002 (2870 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:6-16
+2026/09/21 19:00:50 binlog.000003 (666 bytes) [E:No]: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 19:00:50 binlog.000004 (242 bytes) [E:No]: 
+2026/09/21 19:00:50 binlog.000005 (242 bytes) [E:No]: 
+2026/09/21 19:00:50 binlog.000006 (242 bytes) [E:No]: 
+2026/09/21 19:00:50 binlog.000007 (242 bytes) [E:No]: 
+2026/09/21 19:00:50 binlog.000008 (242 bytes) [E:No]: 
+2026/09/21 19:00:50 binlog.000009 (242 bytes) [E:No]: 
+2026/09/21 19:00:50 binlog.000010 (242 bytes) [E:No]: 
+2026/09/21 19:00:50 binlog.000011 (242 bytes) [E:No]: 
+2026/09/21 19:00:50 binlog.000012 (242 bytes) [E:No]: 
+2026/09/21 19:00:50 binlog.000013 (242 bytes) [E:No]: 
+2026/09/21 19:00:50 binlog.000014 (242 bytes) [E:No]: 
+2026/09/21 19:00:50 binlog.000015 (242 bytes) [E:No]: 
+2026/09/21 19:00:50 binlog.000016 (242 bytes) [E:No]: 
+2026/09/21 19:00:50 binlog.000017 (242 bytes) [E:No]: 
+2026/09/21 19:00:50 binlog.000018 (242 bytes) [E:No]: 
+2026/09/21 19:00:50 binlog.000019 (242 bytes) [E:No]: 
+2026/09/21 19:00:50 binlog.000020 (242 bytes) [E:No]: 
+2026/09/21 19:00:50 binlog.000021 (242 bytes) [E:No]: 
+2026/09/21 19:00:50 binlog.000022 (242 bytes) [E:No]: 
+2026/09/21 19:00:50 binlog.000023 (242 bytes) [E:No]: 
+2026/09/21 19:00:50 binlog.000024 (242 bytes) [E:No]: 
+2026/09/21 19:00:50 binlog.000025 (242 bytes) [E:No]: 
+2026/09/21 19:00:50 binlog.000026 (242 bytes) [E:No]: 
+2026/09/21 19:00:50 binlog.000027 (242 bytes) [E:No]: 
+2026/09/21 19:00:50 no cache entry for binlog.000028
+2026/09/21 19:00:50 binlog.000028 (198 bytes) [E:No]: 
+2026/09/21 19:00:50 updating binlog cache
+2026/09/21 19:00:50 last uploaded GTID set: a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18
+2026/09/21 19:00:50 checking binlog.000028 () against last uploaded set
+2026/09/21 19:00:50 checking binlog.000027 () against last uploaded set
+2026/09/21 19:00:50 checking binlog.000026 () against last uploaded set
+2026/09/21 19:00:50 checking binlog.000025 () against last uploaded set
+2026/09/21 19:00:50 checking binlog.000024 () against last uploaded set
+2026/09/21 19:00:50 checking binlog.000023 () against last uploaded set
+2026/09/21 19:00:50 checking binlog.000022 () against last uploaded set
+2026/09/21 19:00:50 checking binlog.000021 () against last uploaded set
+2026/09/21 19:00:50 checking binlog.000020 () against last uploaded set
+2026/09/21 19:00:50 checking binlog.000019 () against last uploaded set
+2026/09/21 19:00:50 checking binlog.000018 () against last uploaded set
+2026/09/21 19:00:50 checking binlog.000017 () against last uploaded set
+2026/09/21 19:00:50 checking binlog.000016 () against last uploaded set
+2026/09/21 19:00:50 checking binlog.000015 () against last uploaded set
+2026/09/21 19:00:50 checking binlog.000014 () against last uploaded set
+2026/09/21 19:00:50 checking binlog.000013 () against last uploaded set
+2026/09/21 19:00:50 checking binlog.000012 () against last uploaded set
+2026/09/21 19:00:50 checking binlog.000011 () against last uploaded set
+2026/09/21 19:00:50 checking binlog.000010 () against last uploaded set
+2026/09/21 19:00:50 checking binlog.000009 () against last uploaded set
+2026/09/21 19:00:50 checking binlog.000008 () against last uploaded set
+2026/09/21 19:00:50 checking binlog.000007 () against last uploaded set
+2026/09/21 19:00:50 checking binlog.000006 () against last uploaded set
+2026/09/21 19:00:50 checking binlog.000005 () against last uploaded set
+2026/09/21 19:00:50 checking binlog.000004 () against last uploaded set
+2026/09/21 19:00:50 checking binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18) against last uploaded set
+2026/09/21 19:00:50 last uploaded end marker a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:18 found in binlog.000003 (a03cbb41-b5ea-11f1-9d7d-2e5da738cae9:17-18)
+2026/09/21 19:00:50 last uploaded binlog: binlog.000003
+2026/09/21 19:00:50 no binlogs to upload after filter

@@ -1,0 +1,153 @@
+2026/09/21 18:31:58 [entrypoint] starting `pbm-agent`
+2026-09-21T18:32:28.000+0000 E Exit: connect to PBM: create mongo connection: ping: server selection error: context deadline exceeded, current topology: { Type: Unknown, Servers: [{ Addr: localhost:27017, Type: RSGhost, Average RTT: 683254 }, ] }
+2026/09/21 18:32:28 [entrypoint] `pbm-agent` exited with code 1
+2026/09/21 18:32:28 [entrypoint] restart in 5 sec
+2026/09/21 18:32:33 [entrypoint] starting `pbm-agent`
+2026-09-21T18:32:34.000+0000 E Exit: connect to the node: ping: connection() error occurred during connection handshake: auth error: sasl conversation error: unable to authenticate using mechanism "SCRAM-SHA-1": (AuthenticationFailed) Authentication failed.
+2026/09/21 18:32:34 [entrypoint] `pbm-agent` exited with code 1
+2026/09/21 18:32:34 [entrypoint] restart in 5 sec
+2026/09/21 18:32:39 [entrypoint] starting `pbm-agent`
+2026-09-21T18:32:39.000+0000 I 
+                    %                        _____
+                   %%%                      |  __ \
+                 ###%%%%%%%%%%%%*           | |__) |__ _ __ ___ ___  _ __   __ _
+                ###  ##%%      %%%%         |  ___/ _ \ '__/ __/ _ \| '_ \ / _` |
+              ####     ##%       %%%%       | |  |  __/ | | (_| (_) | | | | (_| |
+             ###        ####      %%%       |_|   \___|_|  \___\___/|_| |_|\__,_|
+           ,((###         ###     %%%         _____                       _
+          (((( (###        ####  %%%%        / ____|                     | |
+         (((     ((#         ######         | (___   __ _ _   _  __ _  __| |
+       ((((       (((#        ####           \___ \ / _` | | | |/ _` |/ _` |
+      /((          ,(((        *###          ____) | (_| | |_| | (_| | (_| |
+    ////             (((         ####       |_____/ \__, |\__,_|\__,_|\__,_|
+   ///                ((((        ####                 | |
+ /////////////(((((((((((((((((########                |_|   Join @ squad.percona.com/mongodb
+
+** Join Percona Squad! **
+Participate in monthly SWAG raffles, get early access to new product features,
+invite-only ”ask me anything” sessions with database performance experts.
+
+Interested? Fill in the form at squad.percona.com/mongodb
+2026-09-21T18:32:39.000+0000 I log options: log-path=/dev/stderr, log-level:D, log-json:false
+2026-09-21T18:32:39.000+0000 I pbm-agent:
+Version:   2.15.0
+Platform:  linux/amd64
+GitCommit: 15c9f217f91bc518b81ad901abe9331227e5c615
+GitBranch: release-2.15.0
+BuildTime: 2026-06-10_09:58_UTC
+GoVersion: go1.25.11
+2026-09-21T18:32:39.000+0000 I starting PITR routine
+2026-09-21T18:32:39.000+0000 I node: rs0/my-cluster-name-rs0-2.my-cluster-name-rs0.default.svc.cluster.local:27017
+2026-09-21T18:32:39.000+0000 I conn level ReadConcern: majority; WriteConcern: majority
+2026-09-21T18:32:39.000+0000 I listening for the commands
+2026-09-21T18:32:39.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:32:54.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:33:14.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:33:29.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:33:44.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:34:04.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:34:24.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:34:39.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:34:59.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:35:19.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:35:34.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:35:54.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:36:14.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:36:29.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:36:44.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:37:04.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:37:19.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:37:34.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:37:54.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:38:14.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:38:29.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:38:49.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:39:04.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:39:19.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:39:39.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:39:54.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:40:09.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:40:29.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:40:44.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:40:59.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:41:19.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:41:39.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:41:59.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:42:14.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:42:29.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:42:44.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:43:04.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:43:19.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:43:39.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:43:59.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:44:19.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:44:34.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:44:54.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:45:14.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:45:29.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:45:49.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:46:04.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:46:19.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:46:39.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:46:59.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:47:14.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:47:29.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:47:49.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:48:04.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:48:24.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:48:39.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:48:59.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:49:19.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:49:39.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:49:59.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:50:19.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:50:34.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:50:54.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:51:09.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:51:29.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:51:44.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:51:59.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:52:19.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:52:39.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:52:59.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:53:14.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:53:34.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:53:49.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:54:09.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:54:24.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:54:44.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:54:59.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:55:19.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:55:39.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:55:59.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:56:19.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:56:34.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:56:54.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:57:14.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:57:29.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:57:49.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:58:09.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:58:24.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:58:44.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:58:59.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:59:14.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:59:29.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T18:59:44.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T19:00:04.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T19:00:19.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T19:00:39.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T19:00:54.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T19:01:14.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T19:01:29.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T19:01:49.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T19:02:09.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T19:02:24.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T19:02:39.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T19:02:54.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T19:03:14.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T19:03:34.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T19:03:54.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T19:04:14.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T19:04:29.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T19:04:49.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T19:05:04.000+0000 W [agentCheckup] storage is not initialized

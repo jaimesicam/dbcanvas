@@ -1,0 +1,54 @@
+2026/09/21 22:42:26 [entrypoint] starting `pbm-agent`
+2026-09-21T22:42:26.000+0000 I 
+                    %                        _____
+                   %%%                      |  __ \
+                 ###%%%%%%%%%%%%*           | |__) |__ _ __ ___ ___  _ __   __ _
+                ###  ##%%      %%%%         |  ___/ _ \ '__/ __/ _ \| '_ \ / _` |
+              ####     ##%       %%%%       | |  |  __/ | | (_| (_) | | | | (_| |
+             ###        ####      %%%       |_|   \___|_|  \___\___/|_| |_|\__,_|
+           ,((###         ###     %%%         _____                       _
+          (((( (###        ####  %%%%        / ____|                     | |
+         (((     ((#         ######         | (___   __ _ _   _  __ _  __| |
+       ((((       (((#        ####           \___ \ / _` | | | |/ _` |/ _` |
+      /((          ,(((        *###          ____) | (_| | |_| | (_| | (_| |
+    ////             (((         ####       |_____/ \__, |\__,_|\__,_|\__,_|
+   ///                ((((        ####                 | |
+ /////////////(((((((((((((((((########                |_|   Join @ squad.percona.com/mongodb
+
+** Join Percona Squad! **
+Participate in monthly SWAG raffles, get early access to new product features,
+invite-only ”ask me anything” sessions with database performance experts.
+
+Interested? Fill in the form at squad.percona.com/mongodb
+2026-09-21T22:42:26.000+0000 I log options: log-path=/dev/stderr, log-level:D, log-json:false
+2026-09-21T22:42:26.000+0000 I pbm-agent:
+Version:   2.15.0
+Platform:  linux/amd64
+GitCommit: 15c9f217f91bc518b81ad901abe9331227e5c615
+GitBranch: release-2.15.0
+BuildTime: 2026-06-10_09:58_UTC
+GoVersion: go1.25.11
+2026-09-21T22:42:26.000+0000 I starting PITR routine
+2026-09-21T22:42:26.000+0000 I node: rs0/my-cluster-name-rs0-2.my-cluster-name-rs0.default.svc.cluster.local:27017
+2026-09-21T22:42:26.000+0000 I conn level ReadConcern: majority; WriteConcern: majority
+2026-09-21T22:42:26.000+0000 I listening for the commands
+2026-09-21T22:42:26.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:42:41.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:42:56.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:43:16.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:43:31.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:43:46.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:44:06.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:44:26.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:44:41.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:45:01.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:45:16.000+0000 W [agentCheckup] storage is not initialized
+2026-09-21T22:46:26.000+0000 E [pitr] init: get conf: get: timed out while checking out a connection from connection pool: context deadline exceeded; total connections: 3, maxPoolSize: 100, idle connections: 0, wait duration: 29.999955777s
+2026/09/21 22:46:56 [ERROR] writing log: db: server selection error: context deadline exceeded, current topology: { Type: ReplicaSetNoPrimary, Servers: [{ Addr: my-cluster-name-rs0-0.my-cluster-name-rs0.default.svc.cluster.local:27017, Type: Unknown, Last error: dial tcp: lookup my-cluster-name-rs0-0.my-cluster-name-rs0.default.svc.cluster.local on 10.43.0.10:53: read udp 10.42.0.13:54673->10.43.0.10:53: i/o timeout }, { Addr: my-cluster-name-rs0-1.my-cluster-name-rs0.default.svc.cluster.local:27017, Type: Unknown, Last error: dial tcp: lookup my-cluster-name-rs0-1.my-cluster-name-rs0.default.svc.cluster.local on 10.43.0.10:53: read udp 10.42.0.13:34683->10.43.0.10:53: i/o timeout }, { Addr: my-cluster-name-rs0-2.my-cluster-name-rs0.default.svc.cluster.local:27017, Type: RSSecondary, Tag sets: nodeName=k3d-my-cluster-name-s27-server-0,serviceName=my-cluster-name,podName=my-cluster-name-rs0-2, Average RTT: 402832 }, ] }, <nil>, entry: 2026-09-21T22:46:26.000+0000 E [pitr] init: get conf: get: timed out while checking out a connection from connection pool: context deadline exceeded; total connections: 3, maxPoolSize: 100, idle connections: 0, wait duration: 29.999955777s
+2026-09-21T22:48:11.000+0000 E [pitr] init: get conf: get: server selection error: context deadline exceeded, current topology: { Type: ReplicaSetNoPrimary, Servers: [{ Addr: my-cluster-name-rs0-0.my-cluster-name-rs0.default.svc.cluster.local:27017, Type: Unknown, Last error: dial tcp: lookup my-cluster-name-rs0-0.my-cluster-name-rs0.default.svc.cluster.local on 10.43.0.10:53: read udp 10.42.0.13:60281->10.43.0.10:53: i/o timeout }, { Addr: my-cluster-name-rs0-1.my-cluster-name-rs0.default.svc.cluster.local:27017, Type: Unknown, Last error: dial tcp: lookup my-cluster-name-rs0-1.my-cluster-name-rs0.default.svc.cluster.local on 10.43.0.10:53: read udp 10.42.0.13:41027->10.43.0.10:53: i/o timeout }, { Addr: my-cluster-name-rs0-2.my-cluster-name-rs0.default.svc.cluster.local:27017, Type: RSSecondary, Tag sets: nodeName=k3d-my-cluster-name-s27-server-0,serviceName=my-cluster-name,podName=my-cluster-name-rs0-2, Average RTT: 453485 }, ] }
+2026/09/21 22:48:41 [ERROR] writing log: db: server selection error: context deadline exceeded, current topology: { Type: ReplicaSetNoPrimary, Servers: [{ Addr: my-cluster-name-rs0-0.my-cluster-name-rs0.default.svc.cluster.local:27017, Type: Unknown, Last error: dial tcp: lookup my-cluster-name-rs0-0.my-cluster-name-rs0.default.svc.cluster.local on 10.43.0.10:53: read udp 10.42.0.13:48597->10.43.0.10:53: i/o timeout }, { Addr: my-cluster-name-rs0-1.my-cluster-name-rs0.default.svc.cluster.local:27017, Type: Unknown, Last error: dial tcp: lookup my-cluster-name-rs0-1.my-cluster-name-rs0.default.svc.cluster.local: i/o timeout }, { Addr: my-cluster-name-rs0-2.my-cluster-name-rs0.default.svc.cluster.local:27017, Type: RSSecondary, Tag sets: nodeName=k3d-my-cluster-name-s27-server-0,podName=my-cluster-name-rs0-2,serviceName=my-cluster-name, Average RTT: 437227 }, ] }, <nil>, entry: 2026-09-21T22:48:11.000+0000 E [pitr] init: get conf: get: server selection error: context deadline exceeded, current topology: { Type: ReplicaSetNoPrimary, Servers: [{ Addr: my-cluster-name-rs0-0.my-cluster-name-rs0.default.svc.cluster.local:27017, Type: Unknown, Last error: dial tcp: lookup my-cluster-name-rs0-0.my-cluster-name-rs0.default.svc.cluster.local on 10.43.0.10:53: read udp 10.42.0.13:60281->10.43.0.10:53: i/o timeout }, { Addr: my-cluster-name-rs0-1.my-cluster-name-rs0.default.svc.cluster.local:27017, Type: Unknown, Last error: dial tcp: lookup my-cluster-name-rs0-1.my-cluster-name-rs0.default.svc.cluster.local on 10.43.0.10:53: read udp 10.42.0.13:41027->10.43.0.10:53: i/o timeout }, { Addr: my-cluster-name-rs0-2.my-cluster-name-rs0.default.svc.cluster.local:27017, Type: RSSecondary, Tag sets: nodeName=k3d-my-cluster-name-s27-server-0,serviceName=my-cluster-name,podName=my-cluster-name-rs0-2, Average RTT: 453485 }, ] }
+2026-09-21T22:49:41.000+0000 E [pitr] init: get conf: get: server selection error: context deadline exceeded, current topology: { Type: ReplicaSetNoPrimary, Servers: [{ Addr: my-cluster-name-rs0-0.my-cluster-name-rs0.default.svc.cluster.local:27017, Type: Unknown, Last error: dial tcp: lookup my-cluster-name-rs0-0.my-cluster-name-rs0.default.svc.cluster.local on 10.43.0.10:53: read udp 10.42.0.13:38974->10.43.0.10:53: i/o timeout }, { Addr: my-cluster-name-rs0-1.my-cluster-name-rs0.default.svc.cluster.local:27017, Type: Unknown, Last error: dial tcp: lookup my-cluster-name-rs0-1.my-cluster-name-rs0.default.svc.cluster.local: i/o timeout }, { Addr: my-cluster-name-rs0-2.my-cluster-name-rs0.default.svc.cluster.local:27017, Type: RSSecondary, Tag sets: podName=my-cluster-name-rs0-2,serviceName=my-cluster-name,nodeName=k3d-my-cluster-name-s27-server-0, Average RTT: 450738 }, ] }
+2026-09-21T22:49:30.000+0000 E [agentCheckup] set status: write into db: server selection error: context deadline exceeded, current topology: { Type: ReplicaSetNoPrimary, Servers: [{ Addr: my-cluster-name-rs0-0.my-cluster-name-rs0.default.svc.cluster.local:27017, Type: Unknown, Last error: dial tcp: lookup my-cluster-name-rs0-0.my-cluster-name-rs0.default.svc.cluster.local on 10.43.0.10:53: read udp 10.42.0.13:38974->10.43.0.10:53: i/o timeout }, { Addr: my-cluster-name-rs0-1.my-cluster-name-rs0.default.svc.cluster.local:27017, Type: Unknown, Last error: dial tcp: lookup my-cluster-name-rs0-1.my-cluster-name-rs0.default.svc.cluster.local on 10.43.0.10:53: read udp 10.42.0.13:49908->10.43.0.10:53: i/o timeout }, { Addr: my-cluster-name-rs0-2.my-cluster-name-rs0.default.svc.cluster.local:27017, Type: RSSecondary, Tag sets: podName=my-cluster-name-rs0-2,serviceName=my-cluster-name,nodeName=k3d-my-cluster-name-s27-server-0, Average RTT: 450738 }, ] }
+2026-09-21T22:49:41.000+0000 E listening commands: watch the cmd stream: server selection error: context deadline exceeded, current topology: { Type: ReplicaSetNoPrimary, Servers: [{ Addr: my-cluster-name-rs0-0.my-cluster-name-rs0.default.svc.cluster.local:27017, Type: Unknown, Last error: dial tcp: lookup my-cluster-name-rs0-0.my-cluster-name-rs0.default.svc.cluster.local on 10.43.0.10:53: read udp 10.42.0.13:38974->10.43.0.10:53: i/o timeout }, { Addr: my-cluster-name-rs0-1.my-cluster-name-rs0.default.svc.cluster.local:27017, Type: Unknown, Last error: dial tcp: lookup my-cluster-name-rs0-1.my-cluster-name-rs0.default.svc.cluster.local on 10.43.0.10:53: read udp 10.42.0.13:49908->10.43.0.10:53: i/o timeout }, { Addr: my-cluster-name-rs0-2.my-cluster-name-rs0.default.svc.cluster.local:27017, Type: RSSecondary, Tag sets: podName=my-cluster-name-rs0-2,serviceName=my-cluster-name,nodeName=k3d-my-cluster-name-s27-server-0, Average RTT: 450738 }, ] }
+2026-09-21T22:49:41.000+0000 W [agentCheckup] detected possible parallel agent for the node: expected last heartbeat to be 1790030939.1, actual is 1790030719.1
+2026-09-21T22:49:41.000+0000 W [agentCheckup] storage is not initialized
