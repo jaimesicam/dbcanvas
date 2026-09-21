@@ -47,7 +47,11 @@ package main
 // repo's format (RPM `16.4-1`, DEB `16.4-1.…`); the RHEL matcher globs `-<VER>*`, the Debian
 // matcher resolves the exact `apt-cache madison` version containing VER.
 const pinInstallRHEL = `pin_install() {
-  local specs=() pinned=() p d deps avail
+  local specs=() pinned=() excl=() p d deps avail
+  # EXCL is an optional comma-separated dnf --exclude glob list, set by a caller whose
+  # repository fights with a distro package that is not otherwise held back. Only one
+  # caller sets it today; see mysqlDistroExcludes for the case and why it is not global.
+  [ -n "${EXCL:-}" ] && excl=(--exclude="$EXCL")
   for p in "$@"; do
     if [ -n "$VER" ] && [ -n "$(dnf -q repoquery "${p}-${VER}*" 2>/dev/null)" ]; then
       specs+=("${p}-${VER}*")
@@ -71,7 +75,7 @@ const pinInstallRHEL = `pin_install() {
       done
     fi
   fi
-  dnf -y -q install "${specs[@]}"
+  dnf -y -q "${excl[@]}" install "${specs[@]}"
 }
 pin_present() {
   local p

@@ -24427,3 +24427,82 @@ and uncommenting it — the obvious thing to do when reading the file in `/root`
 Last, `.gitignore` now names `app/testdata/cr-psmdb.yaml` and `cr-ps.yaml`. Both were already read
 by tests and neither was declared, so `git add -A` would have swept two verbatim upstream files into
 the repo — the exact thing the `cr.yaml` entry above them was added to prevent.
+
+## 395. Percona Server would not install on Oracle Linux 10, twice — `images/rhel.Dockerfile`, `app/install_pin.go`, `app/mysql.go`, `app/install_pin_test.go`
+
+Started as "install Percona Server 8.4 on Oracle Linux 10", which is one sentence and two
+unrelated bugs. They present as the same thing — dnf refuses the transaction and the node never
+provisions — and neither fix helps the other's case, which is why chasing the first one did not
+end the work.
+
+**EL10 renamed its MySQL and MariaDB packages**, from `mysql-*`/`mariadb-*` to `mysql8.4-*` and
+`mariadb11.8-*`. Everything below follows from that rename meeting packaging that predates it.
+
+### One: the base image was carrying the distro's MySQL
+
+`percona-toolkit` hard-requires `perl(DBD::mysql)`, and on EL10 the `pt` repo does not build it —
+so dnf took `perl-DBD-MySQL-0:5.007-4.el10` from `ol10_appstream`, which links
+`libmysqlclient.so.24` and therefore drags `mysql8.4-libs` + `mysql8.4-common` into the image.
+That sits there harmlessly until a node installs a database. Then:
+`percona-server-server` Obsoletes `mysql8.4-common < 99`, `mysql8.4-libs` Requires
+`mysql8.4-common` at its exact version, and dnf cannot satisfy both — *"cannot install the best
+candidate for the job"*. Every Percona Server and PXC node at 8.4 or 9.7 on EL10 failed to
+provision, and the reason was baked into the image hours earlier.
+
+`percona-release enable tools release` is the whole fix. Percona's own
+`perl-DBD-MySQL-1:5.013-3` has no `libmysqlclient` dependency at all (statically linked) and its
+epoch 1 beats the distro's 0, so the distro MySQL never enters the image. EL9 was never affected
+because its `pt` repo carries `perl-DBD-MySQL` itself; EL8's `tools` repo has no build, so the
+line is a no-op there.
+
+### Two: Percona's own 8.0 el10 build still obsoletes the old names
+
+Percona updated the 8.4 and 9.7 builds to Obsolete the new spellings. **The 8.0 el10 build was
+not updated** — it still carries unversioned Obsoletes on `mariadb-server`, `mariadb-backup`,
+`mariadb-connector-c-config` and friends. On EL10 those names are provided by `mariadb11.8-*`, so
+dnf5 resolves the obsoletes by pulling that entire stack into the transaction, where it collides
+with the packages being installed:
+
+	file /var/lib/mysql conflicts between attempted installs of
+	percona-server-server-8.0.45-36.1.el10.x86_64 and mariadb11.8-server-3:11.8.8-1.el10_2.x86_64
+
+This one cannot be fixed in the image — nothing is installed, dnf pulls it in at resolution time —
+so `pin_install` grew an optional `EXCL`, a comma-separated `--exclude` glob list, and
+`mysqlDistroExcludes` sets it to `mariadb11.8*,mysql8.4*` on EL10 alone. Excluding `mariadb11.8*`
+by itself only moves the same conflict to `mysql8.4*`, so both go. Not conditioned on 8.0: those
+packages are unwanted on a Percona Server node under any series, and a version test would be a
+second thing to keep in step with Percona's packaging.
+
+**Why PXC is not wired to it**, which is the first question the shared helper invites: the catalog
+offers PXC on EL10 at 8.4 only — Percona publishes no 8.0 el10 build — so the stale obsoletes
+cannot arise there. PXC's EL10 problem was bug one, and that is fixed in the image. The comment
+now says so, because the obvious "fix" for the asymmetry is to wire `EXCL` into `pxc.go` and that
+would be wrong.
+
+`EXCL` is deliberately not a `pin_install` default. The **mariadb** node kind installs
+`mariadb11.8-*` on purpose, and a global exclude would break the one thing on EL10 that wants
+those packages.
+
+### Verified
+
+Against the real repositories in the real image, and then by deploying:
+
+| | |
+| --- | --- |
+| the image | `tools-release` enabled, `perl-DBD-MySQL-5.013-3` (Percona's), **no `mysql8.4-*` present** |
+| PS 8.4 on OEL10 | deploys; `percona-server-{server,client,shared}-8.4.11-11.1.el10`, `mysqld` active |
+| PS 8.0 on OEL10 | deploys; `…-8.0.45-36.1.el10`, `mysqld` active |
+| PS 8.0 **without** the excludes | still fails, same file conflict — the exclude is load-bearing |
+| PXC 8.4 on OEL10 | transaction resolves clean (`tsflags=test`), which it did not before bug one |
+
+Neither node ended up with a single `mysql8.4-*` or `mariadb11.8-*` package.
+
+`install_pin_test.go` gains the two rules worth holding: that the excludes are EL10-only (empty on
+EL8, EL9 and every Debian), and that they stay out of the shared helper — the MariaDB scripts must
+never carry `mariadb11.8*`, and `pin_install` must read the list from `EXCL` and apply it only
+when it is non-empty, since an unset variable expanding to a bare `--exclude=` is itself a dnf
+error.
+
+The pair is worth remembering together: **two bugs with one symptom, one fixed in the image and
+one at install time**, and the version that was reported (8.4) was only ever affected by the one
+that had nothing to do with versions.

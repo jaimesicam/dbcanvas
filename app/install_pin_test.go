@@ -98,3 +98,59 @@ func TestPackagesInstalledBesideAnEngineArePinnedToIt(t *testing.T) {
 		}
 	}
 }
+
+// Oracle Linux 10 renamed its MySQL and MariaDB packages, and Percona's el10 build of Percona
+// Server 8.0 still carries unversioned Obsoletes on the old spellings (mariadb-server,
+// mariadb-backup, …). On EL10 those names are provided by mariadb11.8-*, so dnf5 pulls that whole
+// stack into the transaction and the install dies on a file conflict:
+//
+//	file /var/lib/mysql conflicts between attempted installs of
+//	percona-server-server-8.0.45-36.1.el10.x86_64 and mariadb11.8-server-3:11.8.8-1.el10_2.x86_64
+//
+// Reproduced against the real repositories in the real image, and gone with the excludes.
+func TestDistroExcludesAreEL10Only(t *testing.T) {
+	const want = "mariadb11.8*,mysql8.4*"
+	if got := mysqlDistroExcludes("oraclelinux", "10"); got != want {
+		t.Errorf("Oracle Linux 10 = %q, want %q", got, want)
+	}
+	// Excluding mariadb11.8* alone only moves the conflict to mysql8.4*, so both have to go.
+	for _, pkg := range []string{"mariadb11.8*", "mysql8.4*"} {
+		if !strings.Contains(mysqlDistroExcludes("oraclelinux", "10"), pkg) {
+			t.Errorf("EL10 excludes must cover %s", pkg)
+		}
+	}
+	// Nowhere else. EL8/EL9 never had the renamed packages, and Debian is a different resolver
+	// with a different problem — an exclude there would be a guess.
+	for _, tc := range []struct{ os, ver string }{
+		{"oraclelinux", "9"}, {"oraclelinux", "8"},
+		{"debian", "12"}, {"ubuntu", "24.04"}, {"debian", "10"},
+	} {
+		if got := mysqlDistroExcludes(tc.os, tc.ver); got != "" {
+			t.Errorf("%s %s = %q, want empty", tc.os, tc.ver, got)
+		}
+	}
+}
+
+// The excludes are one caller's, deliberately, and must not drift into pin_install's defaults:
+// the MariaDB node kind installs mariadb11.8-* on purpose, and a global exclude would break the
+// one thing on EL10 that wants those packages.
+func TestDistroExcludesStayOutOfTheSharedHelper(t *testing.T) {
+	for _, name := range []string{"MariaDB (RHEL)", "MariaDB (Debian)"} {
+		if strings.Contains(engineInstallScripts[name], "mariadb11.8*") {
+			t.Errorf("%s must not exclude the packages it exists to install", name)
+		}
+	}
+	// pin_install reads EXCL from the environment rather than hard-coding a list, so a script
+	// that does not set it is unaffected.
+	if !strings.Contains(pinInstallRHEL, `${EXCL:-}`) {
+		t.Error("the RHEL helper no longer takes its exclude list from EXCL")
+	}
+	if !strings.Contains(pinInstallRHEL, `"${excl[@]}" install`) {
+		t.Error("the RHEL helper builds an exclude list but never passes it to dnf")
+	}
+	// And the exclusion is empty unless a caller sets EXCL: an unset variable must not become
+	// `--exclude=`, which dnf rejects.
+	if !strings.Contains(pinInstallRHEL, `[ -n "${EXCL:-}" ] && excl=(--exclude="$EXCL")`) {
+		t.Error("EXCL must be applied only when it is non-empty")
+	}
+}

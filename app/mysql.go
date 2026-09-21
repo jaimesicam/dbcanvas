@@ -553,6 +553,42 @@ func psServerPackagesOptional(os, major string) []string {
 	return []string{"percona-server-shared-compat"}
 }
 
+// mysqlDistroExcludes is the dnf --exclude list (EXCL, read by pin_install) that keeps
+// Oracle Linux 10's own MySQL and MariaDB out of a Percona Server transaction. Empty
+// everywhere else, and that is deliberate.
+//
+// EL10 renamed the distro packages — mysql8.4-*, mariadb11.8-* — and Percona updated the
+// 8.4 and 9.7 builds to Obsolete the new spellings. The 8.0 el10 build was not updated:
+// it still carries unversioned Obsoletes on mariadb-server, mariadb-backup,
+// mariadb-connector-c-config and friends. On EL10 those names are provided by the
+// mariadb11.8-* packages, and dnf5 resolves the obsoletes by pulling that whole stack
+// into the transaction, which then dies on a file conflict:
+//
+//	file /usr/bin/mysql conflicts between attempted installs of
+//	mariadb11.8-3:11.8.8-1.el10_2.x86_64 and percona-server-client-8.0.45-36.1.el10.x86_64
+//
+// Excluding mariadb11.8* alone just moves the same conflict to mysql8.4*, so both go. The
+// packages are not wanted on a Percona Server node under any series, so this is not
+// conditioned on 8.0 — a version test would be a second thing to keep in step with
+// Percona's packaging, and 8.4/9.7 install identically with the excludes in place
+// (verified on Oracle Linux 10.2).
+//
+// It must NOT become a global pin_install default: the mariadb node kind installs
+// mariadb11.8-* on purpose, and excluding them there would break it.
+//
+// PXC is the asymmetry a reader will ask about, since it shares pin_install and is not wired
+// to this. It does not need it: the catalog offers PXC on EL10 at 8.4 only — Percona publishes
+// no 8.0 el10 build — so the stale unversioned Obsoletes above cannot arise there. What did
+// break PXC 8.4 on EL10 was the other half of this, the distro perl-DBD-MySQL dragging
+// mysql8.4-libs into the base image (images/rhel.Dockerfile), and that is fixed in the image
+// rather than per engine.
+func mysqlDistroExcludes(os, osVersion string) string {
+	if isDebianOS(os) || osVersion != "10" {
+		return ""
+	}
+	return "mariadb11.8*,mysql8.4*"
+}
+
 // psAuthPlugin is the authentication plugin used for accounts DBCanvas sets a password
 // on. 8.0+ default to caching_sha2_password; 5.7 predates it, so it uses the classic
 // mysql_native_password (also why 5.7 links need no GET_SOURCE_PUBLIC_KEY handshake).
@@ -679,6 +715,7 @@ func (a *App) mysqlPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	if err := a.runStep(ctx, id, instScript, []string{
 		"PRODUCT=" + psClientProduct(psMajor), "REPO=" + psRepoName(psMajor),
 		"PKGS=" + psPkgs, "OPT=" + strings.Join(psServerPackagesOptional(frame.OS, psMajor), " "),
+		"EXCL=" + mysqlDistroExcludes(frame.OS, frame.OSVersion),
 		"VER=" + frame.PSVersion}, pr.logln); err != nil {
 		return pr.fail("install %s: %v", psPkgs, err)
 	}
