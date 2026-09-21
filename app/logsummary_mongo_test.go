@@ -35,8 +35,13 @@ func TestMongoRecognisesAReplicaSet(t *testing.T) {
 			t.Errorf("%s: flavour %q, want %q", s.Name, s.Flavour, lsFlavourMongoRS)
 		}
 		// The member names its own host in "Found self in config", which is a luxury the
-		// Galera and Group Replication catalogues do not have.
-		if !strings.HasPrefix(s.Node, "mongo0") {
+		// Galera and Group Replication catalogues do not have. "rs0-" is this fixture's
+		// real node prefix — `dbcanvas stack compose` ties a psmrs frame's member
+		// hostnames to the same frame name that becomes the replica set's own
+		// replSetName, and the accompanying FTDC fixtures need that name to be
+		// literally "rs0" (baked into their captured metadata document), so the frame
+		// is named "rs0" rather than the original hand-authored "mongo0".
+		if !strings.HasPrefix(s.Node, "rs0-") {
 			t.Errorf("%s: node %q — the member's own name was not found", s.Name, s.Node)
 		}
 	}
@@ -185,14 +190,17 @@ func TestMongoNoPrimaryIsMeasured(t *testing.T) {
 	}
 	// The measured gap has to be the real one, and the real one is knowable from outside
 	// the log: the default electionTimeoutMillis is 10 seconds, so a killed primary costs
-	// about that before anybody can stand. This fixture measures 9.6s.
+	// about that before anybody can stand. This fixture (recaptured — see the node-name
+	// comment above) measures 9.2s; the exact figure moves a little with each real
+	// capture's own timing, which is the point of asserting a magnitude rather than
+	// trusting the finding blindly.
 	//
 	// It measured 39.6s until a live run exposed why. A member's own transition is keyed by
 	// the source name and a peer's by the host out of the record; those two spellings were
 	// not being normalised to one, so the election that ended the gap was filed against a
 	// different member than the one that had lost the role, and the gap ran to the end of
 	// the window. An assertion on the magnitude is what makes that class of bug fail here.
-	if !strings.Contains(f.Title, "9.6s") {
+	if !strings.Contains(f.Title, "9.2s") {
 		t.Errorf("want a gap of about one election timeout, got %q", f.Title)
 	}
 	if f.Sev != lsSevWarn {
@@ -234,7 +242,7 @@ func TestMongoMemberDownUsesTheHeartbeatSpan(t *testing.T) {
 	if f == nil {
 		t.Fatal("no member-down finding")
 	}
-	if !strings.Contains(f.Detail, "mongo02") {
+	if !strings.Contains(f.Detail, "rs0-2") {
 		t.Errorf("the unreachable member is not named: %s", f.Detail)
 	}
 	// The repeats must be collapsed, or one dead member buries the whole file.
@@ -258,7 +266,7 @@ func TestMongoInitialSync(t *testing.T) {
 	if f == nil {
 		t.Fatal("no initial-sync finding")
 	}
-	if !strings.Contains(f.Detail, "mongo01") {
+	if !strings.Contains(f.Detail, "rs0-1") {
 		t.Errorf("the resyncing member is not named: %s", f.Detail)
 	}
 }
@@ -336,7 +344,7 @@ func TestMongoSameIncidentOnEveryVersion(t *testing.T) {
 				if s.Flavour != lsFlavourMongoRS {
 					t.Errorf("%s: flavour %q on %s", s.Name, s.Flavour, v.name)
 				}
-				if !strings.HasPrefix(s.Node, "mongo0") {
+				if !strings.HasPrefix(s.Node, "rs0-") {
 					t.Errorf("%s: the member did not name itself on %s (got %q)", s.Name, v.name, s.Node)
 				}
 			}

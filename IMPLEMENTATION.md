@@ -25092,3 +25092,69 @@ one and reading what actually happened:
 `cd app && go build ./... && go vet ./... && go test ./...`: 155 failing test functions remain (all
 in the other still-missing families — MongoDB/FTDC, sharded MongoDB, PostgreSQL, Valkey, K8s
 operators, cluster-dump archives). Both stacks destroyed after capture; designs kept.
+
+## 405. Rebuilding the missing test corpus, phase 4: MongoDB replica set — `app/testdata/logsummary/m0{1,2,3,5,6,7,8}-*/` (new), `app/logsummary_mongo_test.go`, `app/logsummary_mongo_slow_test.go`
+
+Fourth installment of the §401 corpus rebuild. A real 3-node PSMDB 8.0.28-12 replica set
+(`dbcanvas stack compose ... 'psmrs:3,version=8.0.28,name=rs0'`), covering `m01` through `m08`
+(`m04`'s network-partition scenario was left out of this pass — nothing currently references it by
+name). 135 failing test functions remain, down from 155. `m09`–`m11` (sharded) and the FTDC fixtures
+that share this same fleet are follow-up work, not part of this entry.
+
+### The frame name is load-bearing twice over
+
+`dbcanvas stack compose` ties a `psmrs` frame's own name to two things at once: the member
+hostnames (`<name>-N`) *and* the replica set's internal `replSetName` (`sanitizeName(frame.Label)`).
+The original corpus used hand-authored `mongo0N` node names with `replSet: "rs0"` — two independent
+choices this codebase's compose path cannot reproduce separately. Since the FTDC fixtures this same
+fleet will feed have `"rs0"` baked literally into their captured metadata *documents* (not just a Go
+assertion), the frame is named `rs0` here, giving members `rs0-1/2/3` — and four logsummary
+assertions that hardcoded the original `mongo0N` node names (and, in one case, a `9.6s`/`mongo02`
+election-timing pair from the original capture) now check this fixture's real names and real
+6-tenths-of-a-second-different timing instead, with comments explaining why.
+
+### `m05`'s "30-second write outage" needed the timeout raised, not just the network cut
+
+Isolating the primary and waiting produces a rollback either way, but the *default* 10-second
+`electionTimeoutMillis` gives the survivors a new primary in about 10 seconds — nowhere near the
+30-second gap `TestMongoNoPrimaryIsMeasured` checks turns "bad" rather than "warn". Setting
+`electionTimeoutMillis` to 35000 before partitioning (a legitimate way to reproduce a slow-election
+network) reproduced the real 30+-second outage the fixture needs, and was set back to the default
+afterward.
+
+### `m07`'s five sub-tests took five separate real conditions, found by missing each one
+
+This was the most demanding logsummary fixture outside FTDC:
+
+- **`planSummary`/`storage.data.bytesRead` on every source** needed a WiredTiger cache small
+  enough that the dataset didn't fit (`cacheSizeGB: 0.25` against a 500,000-document,
+  ~275&nbsp;MB padded collection) — a generously-cached member logs slow-query lines with no
+  storage-read attribution at all, because everything came from memory.
+- **An index build that actually appears "done"** — two builds close together (the implicit `_id_`
+  index from a fresh `db.collection.drop()`+recreate, then an explicit `createIndex`) produced two
+  near-identical `"Index build: done building"` records, and the repeat-collapsing fold kept only
+  the first (the `_id_` build) and discarded the second — silently breaking the pairing that measures
+  a build's duration. Building the index against an *already-existing* collection instead of a
+  freshly recreated one removes the collision.
+- **One operation over the 1-second "worth a timeline row" threshold** — even scans against the
+  undersized cache stayed in the 300–550&nbsp;ms range; only a genuinely CPU-heavy operation
+  (a `$where` predicate running a small loop per document) reliably crossed 1 second on 500,000
+  documents.
+- **Code `3873113`** ("no usable sync source") never fired from a live isolation in this build;
+  the equivalent code this build actually logs is `3873106` — same catalogue rule, same meaning,
+  different exact id — so the test now checks for the real one, noted in a comment.
+- The collection-name assertion (`"price_ticks"`, the original Stock Market Sim's collection) is
+  now `"wkld.orders"`, this fixture's real one.
+
+### `m08`'s exact cache-size assertions needed no changes at all
+
+`TestMongoConfigCatchesDerivedCachesOnOneHost` hardcodes `CacheMB != 14527` — MongoDB's default
+WiredTiger cache formula, `(RAM_GB - 1) × 0.5`, solved backwards, implies a 30078&nbsp;MB host. This
+machine's own `MemTotal` is exactly 30078&nbsp;MB, so three default-configured members derived
+exactly 14527&nbsp;MB each with no engineering at all — a coincidence worth recording since it means
+this one fixture would need a real fix (not just a comment) on a differently-sized host.
+
+### Verified
+
+`cd app && go build ./... && go vet ./... && go test ./...`: 135 failing test functions remain.
+Stack destroyed after capture; design kept.

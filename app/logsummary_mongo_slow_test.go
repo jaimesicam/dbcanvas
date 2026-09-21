@@ -137,7 +137,10 @@ func TestMongoIndexBuildFindingMeasuresTheBuild(t *testing.T) {
 	if f.Until <= f.At {
 		t.Errorf("build has no duration: %v → %v", f.At, f.Until)
 	}
-	if !strings.Contains(f.Detail, "price_ticks") {
+	// "wkld.orders" is this fixture's real indexed collection — the original capture's
+	// workload was the Stock Market Sim driving a "price_ticks" collection; this one is a
+	// hand-driven insert+index workload against a plain "orders" collection instead.
+	if !strings.Contains(f.Detail, "wkld.orders") {
 		t.Errorf("the collection being indexed is not named: %q", f.Detail)
 	}
 }
@@ -147,7 +150,12 @@ func TestMongoIndexBuildFindingMeasuresTheBuild(t *testing.T) {
 func TestMongoNewRulesClassify(t *testing.T) {
 	b := lsLoadScenario(t, "m07-workload")
 	want := map[string]string{
-		"3873113": "sync source", // could not find one
+		// mongod logs several distinct ids for "no usable sync source" depending on the
+		// exact reason (SyncSourceResolver vs. OplogFetcher, no viable candidate vs. one
+		// too far behind); the catalogue groups them under one meaning
+		// (logsummary_mongo.go's "No usable sync source" rule), and this fixture's real
+		// isolated-secondary capture produced 3873106 rather than the original 3873113.
+		"3873106": "sync source", // could not find one
 		"22572":   "pool",        // dropped pooled connections
 		"20438":   "index build", // registering
 		"20345":   "index build", // done
