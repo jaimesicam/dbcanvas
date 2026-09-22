@@ -1,0 +1,22 @@
+2026-09-21 18:55:19,482 INFO: Using default value thread_stack_size = 524288
+2026-09-21 18:55:19,497 INFO: Patroni global thread_pool_size = 5
+/usr/local/lib/python3.12/site-packages/urllib3/_request_methods.py:182: FutureWarning: URLs without a scheme (ie 'https://') are deprecated and will raise an error in urllib3 v3.0. To avoid this FutureWarning ensure all URLs start with 'https://' or 'http://'. Read more in this issue: https://github.com/urllib3/urllib3/issues/2920
+  return self.urlopen(method, url, **extra_kw)
+2026-09-21 18:55:19,596 INFO: No PostgreSQL configuration items changed, nothing to reload.
+2026-09-21 18:55:19,598 INFO: REST API thread_pool_size = 5
+2026-09-21 18:55:19,604 INFO: Lock owner: None; I am k3d-pgo-instance1-x84j-0
+2026-09-21 18:55:19,625 INFO: trying to bootstrap a new cluster
+2026-09-21 18:55:19,625 INFO: Running custom bootstrap script: mv "/pgdata/pg17_bootstrap" "/pgdata/pg17"
+2026-09-21 18:55:19.873 UTC [103] LOG:  pgaudit extension initialized
+2026-09-21 18:55:19.882 UTC [103] LOG:  redirecting log output to logging collector process
+2026-09-21 18:55:19.882 UTC [103] HINT:  Future log output will appear in directory "/pgdata/logs/postgres".
+2026-09-21 18:55:19,884 INFO: postmaster pid=103
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - accepting connections
+2026-09-21 18:55:20,907 INFO: establishing a new patroni heartbeat connection to postgres
+2026-09-21 18:55:20,927 INFO: running post_bootstrap
+server signaled
+2026-09-21 18:55:21,951 INFO: establishing a new patroni heartbeat connection to postgres
+2026-09-21 18:55:21,981 INFO: initialized a new cluster
+2026-09-21 18:55:31,978 INFO: no action. I am (k3d-pgo-instance1-x84j-0), the leader with the lock

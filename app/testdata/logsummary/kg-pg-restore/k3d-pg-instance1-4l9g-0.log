@@ -1,0 +1,18 @@
+2026-09-21 18:53:54,735 INFO: No PostgreSQL configuration items changed, nothing to reload.
+2026-09-21 18:53:54,736 INFO: REST API thread_pool_size = 5
+2026-09-21 18:53:54,739 INFO: Lock owner: None; I am k3d-pg-instance1-4l9g-0
+2026-09-21 18:53:54,756 INFO: trying to bootstrap a new cluster
+2026-09-21 18:53:54,756 INFO: Running custom bootstrap script: mv "/pgdata/pg18_bootstrap" "/pgdata/pg18"
+2026-09-21 18:53:54.999 UTC [94] LOG:  pgaudit extension initialized
+2026-09-21 18:53:55.011 UTC [94] LOG:  redirecting log output to logging collector process
+2026-09-21 18:53:55.011 UTC [94] HINT:  Future log output will appear in directory "log".
+2026-09-21 18:53:55,014 INFO: postmaster pid=94
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - accepting connections
+2026-09-21 18:53:56,039 INFO: establishing a new patroni heartbeat connection to postgres
+2026-09-21 18:53:56,057 INFO: running post_bootstrap
+server signaled
+2026-09-21 18:53:57,078 INFO: establishing a new patroni heartbeat connection to postgres
+2026-09-21 18:53:57,110 INFO: initialized a new cluster
+2026-09-21 18:53:59,091 INFO: establishing a new patroni restapi connection to postgres

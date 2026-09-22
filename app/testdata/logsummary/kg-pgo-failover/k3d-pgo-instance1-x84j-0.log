@@ -1,0 +1,82 @@
+2026-09-21 18:32:27,853 INFO: Using default value thread_stack_size = 524288
+2026-09-21 18:32:27,886 INFO: Patroni global thread_pool_size = 5
+/usr/local/lib/python3.12/site-packages/urllib3/_request_methods.py:182: FutureWarning: URLs without a scheme (ie 'https://') are deprecated and will raise an error in urllib3 v3.0. To avoid this FutureWarning ensure all URLs start with 'https://' or 'http://'. Read more in this issue: https://github.com/urllib3/urllib3/issues/2920
+  return self.urlopen(method, url, **extra_kw)
+2026-09-21 18:32:28,056 INFO: No PostgreSQL configuration items changed, nothing to reload.
+2026-09-21 18:32:28,062 INFO: REST API thread_pool_size = 5
+2026-09-21 18:32:28,072 WARNING: Postgresql is not running.
+2026-09-21 18:32:28,072 INFO: Lock owner: k3d-pgo-instance1-x84j-0; I am k3d-pgo-instance1-x84j-0
+2026-09-21 18:32:28,087 INFO: pg_controldata:
+  pg_control version number: 1700
+  Catalog version number: 202406281
+  Database system identifier: 7688056284921573462
+  Database cluster state: shut down
+  pg_control last modified: Mon Sep 21 18:32:25 2026
+  Latest checkpoint location: 0/9000028
+  Latest checkpoint's REDO location: 0/9000028
+  Latest checkpoint's REDO WAL file: 000000010000000000000009
+  Latest checkpoint's TimeLineID: 1
+  Latest checkpoint's PrevTimeLineID: 1
+  Latest checkpoint's full_page_writes: on
+  Latest checkpoint's NextXID: 0:767
+  Latest checkpoint's NextOID: 16424
+  Latest checkpoint's NextMultiXactId: 1
+  Latest checkpoint's NextMultiOffset: 0
+  Latest checkpoint's oldestXID: 730
+  Latest checkpoint's oldestXID's DB: 1
+  Latest checkpoint's oldestActiveXID: 0
+  Latest checkpoint's oldestMultiXid: 1
+  Latest checkpoint's oldestMulti's DB: 1
+  Latest checkpoint's oldestCommitTsXid: 0
+  Latest checkpoint's newestCommitTsXid: 0
+  Time of latest checkpoint: Mon Sep 21 18:32:25 2026
+  Fake LSN counter for unlogged rels: 0/3E8
+  Minimum recovery ending location: 0/0
+  Min recovery ending loc's timeline: 0
+  Backup start location: 0/0
+  Backup end location: 0/0
+  End-of-backup record required: no
+  wal_level setting: logical
+  wal_log_hints setting: on
+  max_connections setting: 100
+  max_worker_processes setting: 8
+  max_wal_senders setting: 10
+  max_prepared_xacts setting: 0
+  max_locks_per_xact setting: 64
+  track_commit_timestamp setting: off
+  Maximum data alignment: 8
+  Database block size: 8192
+  Blocks per segment of large relation: 131072
+  WAL block size: 8192
+  Bytes per WAL segment: 16777216
+  Maximum length of identifiers: 64
+  Maximum columns in an index: 32
+  Maximum size of a TOAST chunk: 1996
+  Size of a large-object chunk: 2048
+  Date/time type storage: 64-bit integers
+  Float8 argument passing: by value
+  Data page checksum version: 1
+  Mock authentication nonce: 2422fded93f6f34ef90117f2171d170e163746296c894e5df9cb4eb1c85d4b7e
+
+2026-09-21 18:32:28,087 INFO: Lock owner: k3d-pgo-instance1-x84j-0; I am k3d-pgo-instance1-x84j-0
+2026-09-21 18:32:28,115 INFO: starting as readonly because i had the session lock
+2026-09-21 18:32:28.547 UTC [107] LOG:  pgaudit extension initialized
+2026-09-21 18:32:28,573 INFO: postmaster pid=107
+/tmp/postgres:5432 - no response
+2026-09-21 18:32:28.613 UTC [107] LOG:  redirecting log output to logging collector process
+2026-09-21 18:32:28.613 UTC [107] HINT:  Future log output will appear in directory "/pgdata/logs/postgres".
+/tmp/postgres:5432 - accepting connections
+/tmp/postgres:5432 - accepting connections
+2026-09-21 18:32:29,617 INFO: Lock owner: k3d-pgo-instance1-x84j-0; I am k3d-pgo-instance1-x84j-0
+2026-09-21 18:32:29,617 INFO: establishing a new patroni heartbeat connection to postgres
+2026-09-21 18:32:29,680 INFO: promoted self to leader because I had the session lock
+server promoting
+2026-09-21 18:32:30,709 INFO: no action. I am (k3d-pgo-instance1-x84j-0), the leader with the lock
+2026-09-21 18:32:40,706 INFO: no action. I am (k3d-pgo-instance1-x84j-0), the leader with the lock
+2026-09-21 18:32:50,726 INFO: no action. I am (k3d-pgo-instance1-x84j-0), the leader with the lock
+2026-09-21 18:33:00,693 INFO: no action. I am (k3d-pgo-instance1-x84j-0), the leader with the lock
+2026-09-21 18:33:10,698 INFO: no action. I am (k3d-pgo-instance1-x84j-0), the leader with the lock
+2026-09-21 18:33:20,692 INFO: no action. I am (k3d-pgo-instance1-x84j-0), the leader with the lock
+2026-09-21 18:33:30,702 INFO: no action. I am (k3d-pgo-instance1-x84j-0), the leader with the lock
+2026-09-21 18:33:40,693 INFO: no action. I am (k3d-pgo-instance1-x84j-0), the leader with the lock
+2026-09-21 18:33:50,692 INFO: no action. I am (k3d-pgo-instance1-x84j-0), the leader with the lock

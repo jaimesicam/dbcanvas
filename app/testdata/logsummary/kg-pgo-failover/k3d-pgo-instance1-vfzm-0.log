@@ -1,0 +1,91 @@
+2026-09-21 18:24:52,623 INFO: Using default value thread_stack_size = 524288
+2026-09-21 18:24:52,631 INFO: Patroni global thread_pool_size = 5
+/usr/local/lib/python3.12/site-packages/urllib3/_request_methods.py:182: FutureWarning: URLs without a scheme (ie 'https://') are deprecated and will raise an error in urllib3 v3.0. To avoid this FutureWarning ensure all URLs start with 'https://' or 'http://'. Read more in this issue: https://github.com/urllib3/urllib3/issues/2920
+  return self.urlopen(method, url, **extra_kw)
+2026-09-21 18:24:53,063 INFO: No PostgreSQL configuration items changed, nothing to reload.
+2026-09-21 18:24:53,065 INFO: REST API thread_pool_size = 5
+2026-09-21 18:24:53,071 INFO: Lock owner: None; I am k3d-pgo-instance1-vfzm-0
+2026-09-21 18:24:53,095 INFO: failed to acquire initialize lock
+2026-09-21 18:24:56,058 INFO: Lock owner: k3d-pgo-instance1-x84j-0; I am k3d-pgo-instance1-vfzm-0
+2026-09-21 18:24:56,059 INFO: trying to bootstrap from leader 'k3d-pgo-instance1-x84j-0'
+2026-09-21 18:24:58,869 INFO: replica has been created using basebackup
+2026-09-21 18:24:58,870 INFO: bootstrapped from leader 'k3d-pgo-instance1-x84j-0'
+2026-09-21 18:24:59.168 UTC [88] LOG:  pgaudit extension initialized
+2026-09-21 18:24:59.180 UTC [88] LOG:  redirecting log output to logging collector process
+2026-09-21 18:24:59.180 UTC [88] HINT:  Future log output will appear in directory "/pgdata/logs/postgres".
+2026-09-21 18:24:59,186 INFO: postmaster pid=88
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - accepting connections
+2026-09-21 18:25:01,222 INFO: Lock owner: k3d-pgo-instance1-x84j-0; I am k3d-pgo-instance1-vfzm-0
+2026-09-21 18:25:01,222 INFO: establishing a new patroni heartbeat connection to postgres
+2026-09-21 18:25:01,249 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:25:03,662 INFO: establishing a new patroni restapi connection to postgres
+2026-09-21 18:25:06,063 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:25:16,072 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:25:26,062 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:25:36,051 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:25:46,052 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:25:56,068 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:26:06,054 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:26:16,073 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:26:26,050 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:26:36,054 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:26:46,050 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:26:56,052 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:27:06,049 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:27:16,051 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:27:26,073 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:27:36,064 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:27:46,048 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:27:56,047 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:28:06,050 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:28:16,064 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:28:26,047 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:28:36,047 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:28:46,050 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:28:56,047 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:29:06,050 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:29:16,047 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:29:26,047 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:29:36,047 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:29:46,047 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:29:56,050 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:30:06,048 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:30:16,086 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:30:26,047 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:30:36,049 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:30:46,051 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:30:56,053 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:31:06,055 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:31:16,050 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:31:26,050 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:31:36,048 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:31:46,048 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:31:56,101 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:32:06,047 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:32:16,073 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+server signaled
+2026-09-21 18:32:26,649 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:32:28,215 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:32:29,641 INFO: Lock owner: k3d-pgo-instance1-x84j-0; I am k3d-pgo-instance1-vfzm-0
+2026-09-21 18:32:29,665 INFO: Local timeline=1 lsn=0/90000A0
+server signaled
+2026-09-21 18:32:29,694 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:32:30,693 INFO: Lock owner: k3d-pgo-instance1-x84j-0; I am k3d-pgo-instance1-vfzm-0
+2026-09-21 18:32:30,699 INFO: Local timeline=1 lsn=0/90000A0
+2026-09-21 18:32:30,701 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:32:40,693 INFO: Lock owner: k3d-pgo-instance1-x84j-0; I am k3d-pgo-instance1-vfzm-0
+2026-09-21 18:32:40,702 INFO: Local timeline=2 lsn=0/9002068
+2026-09-21 18:32:40,721 INFO: primary_timeline=2
+2026-09-21 18:32:40,739 INFO: Local timeline=2 lsn=0/9002068
+2026-09-21 18:32:40,757 INFO: primary_timeline=2
+2026-09-21 18:32:40,773 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:32:50,711 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:33:00,696 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:33:10,702 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:33:20,695 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:33:30,706 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:33:40,695 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)
+2026-09-21 18:33:50,693 INFO: no action. I am (k3d-pgo-instance1-vfzm-0), a secondary, and following a leader (k3d-pgo-instance1-x84j-0)

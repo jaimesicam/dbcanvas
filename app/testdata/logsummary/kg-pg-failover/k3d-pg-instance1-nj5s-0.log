@@ -1,0 +1,87 @@
+2026-09-21 18:24:23,052 INFO: No PostgreSQL configuration items changed, nothing to reload.
+2026-09-21 18:24:23,054 INFO: REST API thread_pool_size = 5
+2026-09-21 18:24:23,069 INFO: Lock owner: None; I am k3d-pg-instance1-nj5s-0
+2026-09-21 18:24:23,172 INFO: failed to acquire initialize lock
+2026-09-21 18:24:29,408 INFO: Lock owner: k3d-pg-instance1-4l9g-0; I am k3d-pg-instance1-nj5s-0
+2026-09-21 18:24:29,409 INFO: trying to bootstrap from leader 'k3d-pg-instance1-4l9g-0'
+2026-09-21 18:24:32,701 INFO: replica has been created using basebackup
+2026-09-21 18:24:32,702 INFO: bootstrapped from leader 'k3d-pg-instance1-4l9g-0'
+2026-09-21 18:24:32.981 UTC [103] LOG:  pgaudit extension initialized
+2026-09-21 18:24:32.998 UTC [103] LOG:  redirecting log output to logging collector process
+2026-09-21 18:24:32.998 UTC [103] HINT:  Future log output will appear in directory "log".
+2026-09-21 18:24:33,014 INFO: postmaster pid=103
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - rejecting connections
+/tmp/postgres:5432 - accepting connections
+2026-09-21 18:24:36,055 INFO: Lock owner: k3d-pg-instance1-4l9g-0; I am k3d-pg-instance1-nj5s-0
+2026-09-21 18:24:36,055 INFO: establishing a new patroni heartbeat connection to postgres
+2026-09-21 18:24:36,085 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:24:39,402 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:24:47,034 INFO: establishing a new patroni restapi connection to postgres
+2026-09-21 18:24:49,430 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:24:59,433 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:25:09,424 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:25:19,424 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:25:29,425 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:25:39,405 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:25:49,470 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:25:59,405 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:26:09,430 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:26:19,404 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:26:29,435 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:26:39,403 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:26:49,402 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:26:59,414 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:27:09,415 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:27:19,417 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:27:29,402 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:27:39,401 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:27:49,401 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:27:59,401 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:28:09,434 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:28:19,406 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:28:29,403 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:28:39,400 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:28:49,403 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:28:59,403 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:29:09,401 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:29:19,401 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:29:29,400 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:29:39,401 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:29:49,401 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:29:59,401 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:30:09,420 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:30:19,421 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:30:29,421 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:30:39,406 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:30:49,400 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:30:59,402 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:31:09,430 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:31:19,401 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:31:29,405 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:31:39,401 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:31:49,400 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:31:59,400 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:32:09,401 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:32:19,400 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+server signaled
+2026-09-21 18:32:29,986 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:32:34,605 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:32:36,176 INFO: Lock owner: k3d-pg-instance1-4l9g-0; I am k3d-pg-instance1-nj5s-0
+2026-09-21 18:32:36,187 INFO: Local timeline=1 lsn=0/B0000A0
+server signaled
+2026-09-21 18:32:36,211 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:32:37,232 INFO: Lock owner: k3d-pg-instance1-4l9g-0; I am k3d-pg-instance1-nj5s-0
+2026-09-21 18:32:37,239 INFO: Local timeline=2 lsn=0/B0001A8
+2026-09-21 18:32:37,267 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:32:47,233 INFO: Lock owner: k3d-pg-instance1-4l9g-0; I am k3d-pg-instance1-nj5s-0
+2026-09-21 18:32:47,239 INFO: Local timeline=2 lsn=0/B0001A8
+2026-09-21 18:32:47,254 INFO: primary_timeline=2
+2026-09-21 18:32:47,257 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:32:57,303 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:33:07,235 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:33:17,236 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:33:27,238 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)
+2026-09-21 18:33:37,262 INFO: no action. I am (k3d-pg-instance1-nj5s-0), a secondary, and following a leader (k3d-pg-instance1-4l9g-0)

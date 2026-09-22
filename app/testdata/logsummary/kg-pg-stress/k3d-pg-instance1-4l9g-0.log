@@ -1,0 +1,417 @@
+2026-09-21 18:24:28.277 UTC [110] LOG:  starting PostgreSQL 18.3 - Percona Server for PostgreSQL 18.3.1 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 11.5.0 20240719 (Red Hat 11.5.0-11.0.2), 64-bit
+2026-09-21 18:24:28.278 UTC [110] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-09-21 18:24:28.278 UTC [110] LOG:  listening on IPv6 address "::", port 5432
+2026-09-21 18:24:28.284 UTC [110] LOG:  listening on Unix socket "/tmp/postgres/.s.PGSQL.5432"
+2026-09-21 18:24:28.294 UTC [118] LOG:  database system was shut down at 2026-09-21 18:24:24 UTC
+2026-09-21 18:24:28.304 UTC [110] LOG:  database system is ready to accept connections
+2026-09-21 18:24:29.453 UTC [116] LOG:  checkpoint starting: force wait
+2026-09-21 18:24:29.586 P00  ERROR: [103]: unable to find a valid repository:
+                                    repo1: [FileMissingError] unable to load info file '/pgbackrest/k3d-pg/repo1/archive/db/archive.info' or '/pgbackrest/k3d-pg/repo1/archive/db/archive.info.copy':
+                                    FileMissingError: unable to open missing file '/pgbackrest/k3d-pg/repo1/archive/db/archive.info' for read
+                                    FileMissingError: unable to open missing file '/pgbackrest/k3d-pg/repo1/archive/db/archive.info.copy' for read
+                                    HINT: archive.info cannot be opened but is required to push/get WAL segments.
+                                    HINT: is archive_command configured correctly in postgresql.conf?
+                                    HINT: has a stanza-create been performed?
+                                    HINT: use --no-archive-check to disable archive checks during backup if you have an alternate archiving scheme.
+2026-09-21 18:24:30.677 UTC [116] LOG:  checkpoint complete: wrote 12 buffers (0.1%), wrote 4 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=1.113 s, sync=0.028 s, total=1.225 s; sync files=12, longest=0.012 s, average=0.003 s; distance=8859 kB, estimate=8859 kB; lsn=0/2000080, redo lsn=0/2000028
+2026-09-21 18:24:30.677 UTC [116] LOG:  checkpoint starting: force wait
+2026-09-21 18:24:30.705 UTC [116] LOG:  checkpoint complete: wrote 0 buffers (0.0%), wrote 0 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.010 s, sync=0.001 s, total=0.028 s; sync files=0, longest=0.000 s, average=0.000 s; distance=0 kB, estimate=7973 kB; lsn=0/2000150, redo lsn=0/20000F8
+2026-09-21 18:24:31.022 P00  ERROR: [103]: unable to find a valid repository:
+                                    repo1: [FileMissingError] unable to load info file '/pgbackrest/k3d-pg/repo1/archive/db/archive.info' or '/pgbackrest/k3d-pg/repo1/archive/db/archive.info.copy':
+                                    FileMissingError: unable to open missing file '/pgbackrest/k3d-pg/repo1/archive/db/archive.info' for read
+                                    FileMissingError: unable to open missing file '/pgbackrest/k3d-pg/repo1/archive/db/archive.info.copy' for read
+                                    HINT: archive.info cannot be opened but is required to push/get WAL segments.
+                                    HINT: is archive_command configured correctly in postgresql.conf?
+                                    HINT: has a stanza-create been performed?
+                                    HINT: use --no-archive-check to disable archive checks during backup if you have an alternate archiving scheme.
+pg_waldump: error: could not read file "000000010000000000000002.00000028.backup": read 338 of 8192
+pg_waldump: error: could not read file "000000010000000000000002.000000F8.backup": read 338 of 8192
+2026-09-21 18:24:56.941 UTC [402] FATAL:  password authentication failed for user "monitor"
+2026-09-21 18:24:56.941 UTC [402] DETAIL:  Role "monitor" does not exist.
+	Connection matched file "/pgdata/pg18/pg_hba.conf" line 7: "host all "monitor" "127.0.0.0/8" scram-sha-256"
+2026-09-21 18:24:56.944 UTC [403] FATAL:  password authentication failed for user "monitor"
+2026-09-21 18:24:56.944 UTC [403] DETAIL:  Role "monitor" does not exist.
+	Connection matched file "/pgdata/pg18/pg_hba.conf" line 7: "host all "monitor" "127.0.0.0/8" scram-sha-256"
+2026-09-21 18:24:56.947 UTC [404] FATAL:  password authentication failed for user "monitor"
+2026-09-21 18:24:56.947 UTC [404] DETAIL:  Role "monitor" does not exist.
+	Connection matched file "/pgdata/pg18/pg_hba.conf" line 7: "host all "monitor" "127.0.0.0/8" scram-sha-256"
+2026-09-21 18:24:56.950 UTC [405] FATAL:  password authentication failed for user "monitor"
+2026-09-21 18:24:56.950 UTC [405] DETAIL:  Role "monitor" does not exist.
+	Connection matched file "/pgdata/pg18/pg_hba.conf" line 7: "host all "monitor" "127.0.0.0/8" scram-sha-256"
+2026-09-21 18:25:01.345 UTC [116] LOG:  checkpoint starting: force wait
+2026-09-21 18:27:00.170 UTC [116] LOG:  checkpoint complete: wrote 1182 buffers (7.2%), wrote 2 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=118.440 s, sync=0.367 s, total=118.826 s; sync files=427, longest=0.003 s, average=0.001 s; distance=49151 kB, estimate=49151 kB; lsn=0/6020528, redo lsn=0/5000028
+2026-09-21 18:53:55.011 UTC [94] LOG:  starting PostgreSQL 18.3 - Percona Server for PostgreSQL 18.3.1 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 11.5.0 20240719 (Red Hat 11.5.0-11.0.2), 64-bit
+2026-09-21 18:53:55.012 UTC [94] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-09-21 18:53:55.012 UTC [94] LOG:  listening on IPv6 address "::", port 5432
+2026-09-21 18:53:55.017 UTC [94] LOG:  listening on Unix socket "/tmp/postgres/.s.PGSQL.5432"
+2026-09-21 18:53:55.024 UTC [102] LOG:  database system was shut down at 2026-09-21 18:53:40 UTC
+2026-09-21 18:53:55.025 UTC [103] FATAL:  the database system is starting up
+2026-09-21 18:53:55.029 UTC [105] FATAL:  the database system is starting up
+2026-09-21 18:53:55.032 UTC [94] LOG:  database system is ready to accept connections
+pg_waldump: error: could not read file "00000003.history": read 32 of 8192
+2026-09-21 18:53:56.078 UTC [94] LOG:  received SIGHUP, reloading configuration files
+2026-09-21 18:56:06.690 UTC [94] LOG:  received SIGHUP, reloading configuration files
+2026-09-21 18:56:06.691 UTC [94] LOG:  parameter "log_lock_waits" changed to "on"
+2026-09-21 18:56:06.691 UTC [94] LOG:  parameter "log_min_duration_statement" changed to "100"
+2026-09-21 18:56:06.691 UTC [94] LOG:  parameter "log_temp_files" changed to "0"
+2026-09-21 18:56:06.691 UTC [94] LOG:  parameter "max_wal_size" changed to "64MB"
+2026-09-21 18:56:06.691 UTC [94] LOG:  parameter "shared_buffers" cannot be changed without restarting the server
+2026-09-21 18:56:06.691 UTC [94] LOG:  parameter "work_mem" changed to "64kB"
+2026-09-21 18:56:06.691 UTC [94] LOG:  configuration file "/pgdata/pg18/postgresql.conf" contains errors; unaffected changes were applied
+2026-09-21 18:56:07.693 UTC [250] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp250.0", size 91008
+2026-09-21 18:56:07.693 UTC [250] STATEMENT:  SELECT name, pg_catalog.current_setting(name), unit, vartype FROM pg_catalog.pg_settings WHERE pg_catalog.lower(name) != ALL(ARRAY['archive_cleanup_command','pause_at_recovery_target','primary_conninfo','primary_slot_name','promote_trigger_file','recovery_end_command','recovery_min_apply_delay','recovery_target','recovery_target_action','recovery_target_inclusive','recovery_target_lsn','recovery_target_name','recovery_target_time','recovery_target_timeline','recovery_target_xid','restore_command','standby_mode','trigger_file','hot_standby']) AND pending_restart
+2026-09-21 18:56:09.250 UTC [1250] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp1250.0", size 90931
+2026-09-21 18:56:09.250 UTC [1250] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:56:14.244 UTC [1271] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp1271.0", size 90931
+2026-09-21 18:56:14.244 UTC [1271] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:56:19.119 UTC [100] LOG:  checkpoint starting: immediate force wait
+2026-09-21 18:56:19.171 UTC [100] LOG:  checkpoint complete: wrote 51 buffers (0.3%), wrote 4 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.009 s, sync=0.031 s, total=0.053 s; sync files=37, longest=0.003 s, average=0.001 s; distance=16384 kB, estimate=16384 kB; lsn=0/9000080, redo lsn=0/9000028
+2026-09-21 18:56:19.172 UTC [94] LOG:  received fast shutdown request
+2026-09-21 18:56:19.174 UTC [94] LOG:  aborting any active transactions
+2026-09-21 18:56:19.174 UTC [411] FATAL:  terminating connection due to administrator command
+2026-09-21 18:56:19.174 UTC [323] FATAL:  terminating connection due to administrator command
+2026-09-21 18:56:19.174 UTC [250] FATAL:  terminating connection due to administrator command
+2026-09-21 18:56:19.176 UTC [94] LOG:  background worker "logical replication launcher" (PID 109) exited with exit code 1
+2026-09-21 18:56:19.176 UTC [100] LOG:  shutting down
+2026-09-21 18:56:19.199 UTC [100] LOG:  checkpoint starting: shutdown immediate
+2026-09-21 18:56:19.232 UTC [1332] FATAL:  the database system is shutting down
+2026-09-21 18:56:19.233 UTC [1333] FATAL:  the database system is shutting down
+2026-09-21 18:56:19.234 UTC [1334] FATAL:  the database system is shutting down
+2026-09-21 18:56:19.238 UTC [100] LOG:  checkpoint complete: wrote 0 buffers (0.0%), wrote 0 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.017 s, sync=0.001 s, total=0.043 s; sync files=0, longest=0.000 s, average=0.000 s; distance=16384 kB, estimate=16384 kB; lsn=0/A000028, redo lsn=0/A000028
+2026-09-21 18:56:19.372 UTC [1335] FATAL:  the database system is shutting down
+2026-09-21 18:56:19.372 UTC [1336] FATAL:  the database system is shutting down
+2026-09-21 18:56:19.538 UTC [94] LOG:  database system is shut down
+2026-09-21 18:56:20.434 UTC [1348] LOG:  starting PostgreSQL 18.3 - Percona Server for PostgreSQL 18.3.1 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 11.5.0 20240719 (Red Hat 11.5.0-11.0.2), 64-bit
+2026-09-21 18:56:20.434 UTC [1348] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-09-21 18:56:20.434 UTC [1348] LOG:  listening on IPv6 address "::", port 5432
+2026-09-21 18:56:20.439 UTC [1348] LOG:  listening on Unix socket "/tmp/postgres/.s.PGSQL.5432"
+2026-09-21 18:56:20.446 UTC [1356] LOG:  database system was shut down at 2026-09-21 18:56:19 UTC
+2026-09-21 18:56:20.451 UTC [1348] LOG:  database system is ready to accept connections
+2026-09-21 18:56:24.245 UTC [1382] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp1382.0", size 90925
+2026-09-21 18:56:24.245 UTC [1382] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:56:29.240 UTC [1431] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp1431.0", size 90925
+2026-09-21 18:56:29.240 UTC [1431] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:56:32.254 UTC [1354] LOG:  checkpoints are occurring too frequently (12 seconds apart)
+2026-09-21 18:56:32.254 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:56:32.335 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:56:33.158 UTC [1354] LOG:  checkpoint complete: wrote 106 buffers (1.3%), wrote 4 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.524 s, sync=0.188 s, total=0.905 s; sync files=35, longest=0.108 s, average=0.006 s; distance=34848 kB, estimate=34848 kB; lsn=0/F0C7090, redo lsn=0/C2081C0
+2026-09-21 18:56:33.158 UTC [1354] LOG:  checkpoints are occurring too frequently (1 second apart)
+2026-09-21 18:56:33.158 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:56:33.158 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:56:33.729 UTC [1354] LOG:  checkpoint complete: wrote 137 buffers (1.7%), wrote 0 SLRU buffers; 0 WAL file(s) added, 1 removed, 1 recycled; write=0.501 s, sync=0.027 s, total=0.571 s; sync files=2, longest=0.025 s, average=0.014 s; distance=48216 kB, estimate=48216 kB; lsn=0/11568708, redo lsn=0/F11E548
+2026-09-21 18:56:33.729 UTC [1354] LOG:  checkpoints are occurring too frequently (0 seconds apart)
+2026-09-21 18:56:33.729 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:56:33.729 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:56:34.110 UTC [1354] LOG:  checkpoint complete: wrote 172 buffers (2.1%), wrote 0 SLRU buffers; 0 WAL file(s) added, 1 removed, 1 recycled; write=0.302 s, sync=0.004 s, total=0.381 s; sync files=2, longest=0.003 s, average=0.002 s; distance=39696 kB, estimate=47364 kB; lsn=0/1392C4C0, redo lsn=0/117E26F8
+2026-09-21 18:56:34.110 UTC [1354] LOG:  checkpoints are occurring too frequently (1 second apart)
+2026-09-21 18:56:34.110 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:56:34.110 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:56:34.245 UTC [1519] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp1519.0", size 90925
+2026-09-21 18:56:34.245 UTC [1519] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:56:34.647 UTC [1354] LOG:  checkpoint complete: wrote 235 buffers (2.9%), wrote 0 SLRU buffers; 0 WAL file(s) added, 1 removed, 1 recycled; write=0.422 s, sync=0.025 s, total=0.537 s; sync files=2, longest=0.024 s, average=0.013 s; distance=37268 kB, estimate=46355 kB; lsn=0/15DF8248, redo lsn=0/13C477E0
+2026-09-21 18:56:34.647 UTC [1354] LOG:  checkpoints are occurring too frequently (0 seconds apart)
+2026-09-21 18:56:34.647 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:56:34.648 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:56:34.733 UTC [1441] LOG:  duration: 2719.438 ms  statement: copy pgbench_accounts from stdin with (freeze on)
+2026-09-21 18:56:34.741 UTC [1515] LOG:  duration: 493.106 ms  statement: 
+				SELECT
+					current_database() datname,
+					schemaname,
+					relname,
+					seq_scan,
+					seq_tup_read,
+					idx_scan,
+					idx_tup_fetch,
+					n_tup_ins,
+					n_tup_upd,
+					n_tup_del,
+					n_tup_hot_upd,
+					n_live_tup,
+					n_dead_tup,
+					n_mod_since_analyze,
+					COALESCE(last_vacuum, '1970-01-01Z') as last_vacuum,
+					COALESCE(last_autovacuum, '1970-01-01Z') as last_autovacuum,
+					COALESCE(last_analyze, '1970-01-01Z') as last_analyze,
+					COALESCE(last_autoanalyze, '1970-01-01Z') as last_autoanalyze,
+					vacuum_count,
+					autovacuum_count,
+					analyze_count,
+					autoanalyze_count,
+					pg_total_relation_size(relid) as total_size,
+					total_vacuum_time,
+					total_autovacuum_time,
+					total_analyze_time,
+					total_autoanalyze_time
+				FROM pg_stat_user_tables;
+2026-09-21 18:56:34.958 UTC [1441] LOG:  duration: 207.272 ms  statement: vacuum analyze pgbench_accounts
+2026-09-21 18:56:35.437 UTC [1354] LOG:  checkpoint complete: wrote 325 buffers (4.0%), wrote 0 SLRU buffers; 0 WAL file(s) added, 2 removed, 1 recycled; write=0.713 s, sync=0.028 s, total=0.791 s; sync files=8, longest=0.013 s, average=0.004 s; distance=38628 kB, estimate=45582 kB; lsn=0/182A2BC0, redo lsn=0/16200910
+2026-09-21 18:56:35.437 UTC [1354] LOG:  checkpoints are occurring too frequently (1 second apart)
+2026-09-21 18:56:35.437 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:56:35.438 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:56:35.644 UTC [1441] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp1441.1.fileset/0.0", size 8192
+2026-09-21 18:56:35.644 UTC [1441] STATEMENT:  alter table pgbench_accounts add primary key (aid)
+2026-09-21 18:56:35.644 UTC [1441] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp1441.1.fileset/1.0", size 8192
+2026-09-21 18:56:35.644 UTC [1441] STATEMENT:  alter table pgbench_accounts add primary key (aid)
+2026-09-21 18:56:35.680 UTC [1441] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp1441.0.fileset/0.0", size 19513344
+2026-09-21 18:56:35.680 UTC [1441] STATEMENT:  alter table pgbench_accounts add primary key (aid)
+2026-09-21 18:56:35.682 UTC [1441] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp1441.0.fileset/1.0", size 20586496
+2026-09-21 18:56:35.682 UTC [1441] STATEMENT:  alter table pgbench_accounts add primary key (aid)
+2026-09-21 18:56:35.689 UTC [1441] LOG:  duration: 721.349 ms  statement: alter table pgbench_accounts add primary key (aid)
+2026-09-21 18:56:39.244 UTC [1680] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp1680.0", size 90925
+2026-09-21 18:56:39.244 UTC [1680] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:56:42.425 UTC [1354] LOG:  checkpoint complete: wrote 972 buffers (11.9%), wrote 2 SLRU buffers; 0 WAL file(s) added, 1 removed, 1 recycled; write=6.818 s, sync=0.106 s, total=6.988 s; sync files=35, longest=0.008 s, average=0.004 s; distance=39437 kB, estimate=44967 kB; lsn=0/1A747950, redo lsn=0/18883EB8
+2026-09-21 18:56:42.425 UTC [1354] LOG:  checkpoints are occurring too frequently (7 seconds apart)
+2026-09-21 18:56:42.425 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:56:42.425 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:56:43.854 UTC [1354] LOG:  checkpoint complete: wrote 3001 buffers (36.6%), wrote 5 SLRU buffers; 0 WAL file(s) added, 1 removed, 1 recycled; write=1.253 s, sync=0.100 s, total=1.429 s; sync files=22, longest=0.013 s, average=0.005 s; distance=32286 kB, estimate=43699 kB; lsn=0/1C7D1560, redo lsn=0/1A80B790
+2026-09-21 18:56:43.854 UTC [1354] LOG:  checkpoints are occurring too frequently (1 second apart)
+2026-09-21 18:56:43.854 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:56:43.854 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:56:44.283 UTC [1748] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp1748.0", size 90925
+2026-09-21 18:56:44.283 UTC [1748] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:56:45.336 UTC [1354] LOG:  checkpoint complete: wrote 3964 buffers (48.4%), wrote 6 SLRU buffers; 0 WAL file(s) added, 1 removed, 1 recycled; write=1.363 s, sync=0.044 s, total=1.483 s; sync files=11, longest=0.019 s, average=0.004 s; distance=33113 kB, estimate=42641 kB; lsn=0/1E67F7B0, redo lsn=0/1C861ED0
+2026-09-21 18:56:45.336 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:56:45.336 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:56:45.336 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:56:45.986 UTC [1695] LOG:  duration: 105.228 ms  statement: UPDATE pgbench_branches SET bbalance = bbalance + -2296 WHERE bid = 9;
+2026-09-21 18:56:46.023 UTC [1699] LOG:  duration: 130.169 ms  statement: UPDATE pgbench_branches SET bbalance = bbalance + -2997 WHERE bid = 9;
+2026-09-21 18:56:47.280 UTC [1693] LOG:  duration: 160.609 ms  statement: UPDATE pgbench_branches SET bbalance = bbalance + 4473 WHERE bid = 14;
+2026-09-21 18:56:47.351 UTC [1354] LOG:  checkpoint complete: wrote 3684 buffers (45.0%), wrote 6 SLRU buffers; 0 WAL file(s) added, 1 removed, 1 recycled; write=1.880 s, sync=0.038 s, total=2.015 s; sync files=10, longest=0.007 s, average=0.004 s; distance=31663 kB, estimate=41543 kB; lsn=0/205502D8, redo lsn=0/1E74DCE8
+2026-09-21 18:56:47.351 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:56:47.351 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:56:47.351 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:56:49.212 UTC [1354] LOG:  checkpoint complete: wrote 3561 buffers (43.5%), wrote 6 SLRU buffers; 0 WAL file(s) added, 1 removed, 1 recycled; write=1.716 s, sync=0.043 s, total=1.861 s; sync files=11, longest=0.008 s, average=0.004 s; distance=31399 kB, estimate=40529 kB; lsn=0/225DDA60, redo lsn=0/205F7A20
+2026-09-21 18:56:49.212 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:56:49.212 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:56:49.212 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:56:49.252 UTC [1891] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp1891.0", size 90925
+2026-09-21 18:56:49.252 UTC [1891] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:56:50.672 UTC [1354] LOG:  checkpoint complete: wrote 3859 buffers (47.1%), wrote 6 SLRU buffers; 0 WAL file(s) added, 1 removed, 1 recycled; write=1.341 s, sync=0.032 s, total=1.461 s; sync files=9, longest=0.008 s, average=0.004 s; distance=33394 kB, estimate=39815 kB; lsn=0/24439270, redo lsn=0/226943E0
+2026-09-21 18:56:50.672 UTC [1354] LOG:  checkpoints are occurring too frequently (1 second apart)
+2026-09-21 18:56:50.672 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:56:50.672 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:56:50.939 UTC [1702] LOG:  duration: 111.339 ms  statement: UPDATE pgbench_branches SET bbalance = bbalance + 2101 WHERE bid = 3;
+2026-09-21 18:56:52.124 UTC [1354] LOG:  checkpoint complete: wrote 3649 buffers (44.5%), wrote 7 SLRU buffers; 0 WAL file(s) added, 1 removed, 1 recycled; write=1.310 s, sync=0.054 s, total=1.453 s; sync files=10, longest=0.012 s, average=0.006 s; distance=31280 kB, estimate=38962 kB; lsn=0/2631B2F0, redo lsn=0/245207B8
+2026-09-21 18:56:52.124 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:56:52.124 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:56:52.124 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:56:53.679 UTC [1354] LOG:  checkpoint complete: wrote 3624 buffers (44.2%), wrote 6 SLRU buffers; 0 WAL file(s) added, 1 removed, 1 recycled; write=1.450 s, sync=0.032 s, total=1.555 s; sync files=9, longest=0.008 s, average=0.004 s; distance=31493 kB, estimate=38215 kB; lsn=0/282A6B90, redo lsn=0/263E1F78
+2026-09-21 18:56:53.679 UTC [1354] LOG:  checkpoints are occurring too frequently (1 second apart)
+2026-09-21 18:56:53.679 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:56:53.679 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:56:54.257 UTC [1978] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp1978.0", size 90925
+2026-09-21 18:56:54.257 UTC [1978] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:56:55.132 UTC [1354] LOG:  checkpoint complete: wrote 3641 buffers (44.4%), wrote 6 SLRU buffers; 0 WAL file(s) added, 1 removed, 1 recycled; write=1.366 s, sync=0.026 s, total=1.453 s; sync files=10, longest=0.006 s, average=0.003 s; distance=32117 kB, estimate=37605 kB; lsn=0/2A0C5D98, redo lsn=0/2833F670
+2026-09-21 18:56:55.132 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:56:55.132 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:56:55.132 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:56:57.288 UTC [1708] LOG:  duration: 106.837 ms  statement: UPDATE pgbench_branches SET bbalance = bbalance + 3217 WHERE bid = 9;
+2026-09-21 18:56:57.291 UTC [1711] LOG:  duration: 105.977 ms  statement: UPDATE pgbench_branches SET bbalance = bbalance + 4027 WHERE bid = 9;
+2026-09-21 18:56:57.292 UTC [1354] LOG:  checkpoint complete: wrote 3478 buffers (42.5%), wrote 7 SLRU buffers; 0 WAL file(s) added, 1 removed, 1 recycled; write=1.972 s, sync=0.032 s, total=2.161 s; sync files=9, longest=0.013 s, average=0.004 s; distance=30930 kB, estimate=36938 kB; lsn=0/2C010730, redo lsn=0/2A174030
+2026-09-21 18:56:57.292 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:56:57.292 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:56:57.292 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:56:59.085 UTC [1354] LOG:  checkpoint complete: wrote 3625 buffers (44.3%), wrote 6 SLRU buffers; 0 WAL file(s) added, 0 removed, 1 recycled; write=1.697 s, sync=0.035 s, total=1.793 s; sync files=10, longest=0.007 s, average=0.004 s; distance=31740 kB, estimate=36418 kB; lsn=0/2DF1D180, redo lsn=0/2C073228
+2026-09-21 18:56:59.108 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:56:59.108 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:56:59.108 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:56:59.251 UTC [2114] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp2114.0", size 90925
+2026-09-21 18:56:59.251 UTC [2114] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:57:00.025 UTC [2127] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp2127.0", size 90290
+2026-09-21 18:57:00.025 UTC [2127] STATEMENT:  SELECT /* agent='pgstatstatements' */ "pg_stat_statements"."userid", "pg_stat_statements"."dbid", "pg_stat_statements"."queryid", "pg_stat_statements"."query", "pg_stat_statements"."calls", "pg_stat_statements"."rows", "pg_stat_statements"."shared_blks_hit", "pg_stat_statements"."shared_blks_read", "pg_stat_statements"."shared_blks_dirtied", "pg_stat_statements"."shared_blks_written", "pg_stat_statements"."local_blks_hit", "pg_stat_statements"."local_blks_read", "pg_stat_statements"."local_blks_dirtied", "pg_stat_statements"."local_blks_written", "pg_stat_statements"."temp_blks_read", "pg_stat_statements"."temp_blks_written", "pg_stat_statements"."total_exec_time", "pg_stat_statements"."shared_blk_read_time", "pg_stat_statements"."shared_blk_write_time", "pg_stat_statements"."local_blk_read_time", "pg_stat_statements"."local_blk_write_time" FROM "pg_stat_statements" WHERE queryid IS NOT NULL AND query IS NOT NULL
+2026-09-21 18:57:00.665 UTC [1354] LOG:  checkpoint complete: wrote 3479 buffers (42.5%), wrote 6 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.387 s, sync=0.082 s, total=1.557 s; sync files=13, longest=0.025 s, average=0.007 s; distance=32393 kB, estimate=36015 kB; lsn=0/2FF253A8, redo lsn=0/2E015788
+2026-09-21 18:57:00.683 UTC [1354] LOG:  checkpoints are occurring too frequently (1 second apart)
+2026-09-21 18:57:00.683 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:00.683 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:02.365 UTC [1354] LOG:  checkpoint complete: wrote 3390 buffers (41.4%), wrote 7 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.528 s, sync=0.076 s, total=1.682 s; sync files=22, longest=0.008 s, average=0.004 s; distance=32735 kB, estimate=35687 kB; lsn=0/31F2E358, redo lsn=0/3000D5A8
+2026-09-21 18:57:02.369 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:57:02.369 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:02.369 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:04.020 UTC [1354] LOG:  checkpoint complete: wrote 3545 buffers (43.3%), wrote 7 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.536 s, sync=0.033 s, total=1.651 s; sync files=9, longest=0.008 s, average=0.004 s; distance=32762 kB, estimate=35395 kB; lsn=0/33ECFCA0, redo lsn=0/3200C0E8
+2026-09-21 18:57:04.043 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:57:04.043 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:04.043 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:04.280 UTC [2194] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp2194.0", size 90925
+2026-09-21 18:57:04.280 UTC [2194] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:57:05.899 UTC [1354] LOG:  checkpoint complete: wrote 3345 buffers (40.8%), wrote 7 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.714 s, sync=0.048 s, total=1.856 s; sync files=11, longest=0.008 s, average=0.005 s; distance=32762 kB, estimate=35132 kB; lsn=0/35E65B40, redo lsn=0/3400ACB0
+2026-09-21 18:57:05.998 UTC [1354] LOG:  checkpoints are occurring too frequently (1 second apart)
+2026-09-21 18:57:05.998 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:05.998 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:07.906 UTC [1354] LOG:  checkpoint complete: wrote 3434 buffers (41.9%), wrote 7 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.796 s, sync=0.036 s, total=1.909 s; sync files=10, longest=0.009 s, average=0.004 s; distance=32779 kB, estimate=34896 kB; lsn=0/37EEE590, redo lsn=0/3600DC78
+2026-09-21 18:57:07.927 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:57:07.927 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:07.927 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:09.302 UTC [2339] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp2339.0", size 90925
+2026-09-21 18:57:09.302 UTC [2339] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:57:09.748 UTC [1354] LOG:  checkpoint complete: wrote 3378 buffers (41.2%), wrote 7 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.687 s, sync=0.062 s, total=1.822 s; sync files=12, longest=0.015 s, average=0.006 s; distance=32804 kB, estimate=34687 kB; lsn=0/39E9EB20, redo lsn=0/38016DE0
+2026-09-21 18:57:09.780 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:57:09.780 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:09.780 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:11.362 UTC [1354] LOG:  checkpoint complete: wrote 3326 buffers (40.6%), wrote 7 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.479 s, sync=0.035 s, total=1.582 s; sync files=9, longest=0.008 s, average=0.004 s; distance=32724 kB, estimate=34491 kB; lsn=0/3BE39CC0, redo lsn=0/3A00BF00
+2026-09-21 18:57:11.415 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:57:11.415 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:11.415 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:13.215 UTC [1354] LOG:  checkpoint complete: wrote 3304 buffers (40.3%), wrote 8 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.679 s, sync=0.035 s, total=1.801 s; sync files=9, longest=0.009 s, average=0.004 s; distance=32795 kB, estimate=34321 kB; lsn=0/3DEEE8D8, redo lsn=0/3C012BA0
+2026-09-21 18:57:13.242 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:57:13.242 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:13.242 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:14.250 UTC [2424] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp2424.0", size 90925
+2026-09-21 18:57:14.250 UTC [2424] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:57:14.968 UTC [1354] LOG:  checkpoint complete: wrote 3301 buffers (40.3%), wrote 7 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.591 s, sync=0.056 s, total=1.726 s; sync files=10, longest=0.013 s, average=0.006 s; distance=32795 kB, estimate=34169 kB; lsn=0/3FE75650, redo lsn=0/3E019AB0
+2026-09-21 18:57:15.019 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:57:15.019 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:15.019 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:16.419 UTC [1706] LOG:  duration: 101.953 ms  statement: UPDATE pgbench_branches SET bbalance = bbalance + 1670 WHERE bid = 1;
+2026-09-21 18:57:17.328 UTC [1354] LOG:  checkpoint complete: wrote 3124 buffers (38.1%), wrote 7 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=2.206 s, sync=0.034 s, total=2.309 s; sync files=9, longest=0.008 s, average=0.004 s; distance=32754 kB, estimate=34027 kB; lsn=0/41EC72C8, redo lsn=0/40016690
+2026-09-21 18:57:17.353 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:57:17.353 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:17.353 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:19.249 UTC [2549] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp2549.0", size 90925
+2026-09-21 18:57:19.249 UTC [2549] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:57:19.293 UTC [1354] LOG:  checkpoint complete: wrote 3239 buffers (39.5%), wrote 7 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.836 s, sync=0.045 s, total=1.941 s; sync files=9, longest=0.011 s, average=0.005 s; distance=32784 kB, estimate=33903 kB; lsn=0/43F3AF50, redo lsn=0/4201A9B8
+2026-09-21 18:57:19.319 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:57:19.319 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:19.319 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:21.036 UTC [1354] LOG:  checkpoint complete: wrote 3045 buffers (37.2%), wrote 7 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.588 s, sync=0.051 s, total=1.718 s; sync files=11, longest=0.012 s, average=0.005 s; distance=32692 kB, estimate=33782 kB; lsn=0/45EA10E8, redo lsn=0/44007D20
+2026-09-21 18:57:21.074 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:57:21.074 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:21.074 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:22.872 UTC [1354] LOG:  checkpoint complete: wrote 3145 buffers (38.4%), wrote 8 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.672 s, sync=0.047 s, total=1.798 s; sync files=9, longest=0.011 s, average=0.006 s; distance=32791 kB, estimate=33683 kB; lsn=0/47E20200, redo lsn=0/4600DCC0
+2026-09-21 18:57:22.937 UTC [1354] LOG:  checkpoints are occurring too frequently (1 second apart)
+2026-09-21 18:57:22.937 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:22.937 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:24.249 UTC [2634] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp2634.0", size 90925
+2026-09-21 18:57:24.249 UTC [2634] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:57:24.916 UTC [1354] LOG:  checkpoint complete: wrote 3045 buffers (37.2%), wrote 9 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.875 s, sync=0.038 s, total=1.980 s; sync files=10, longest=0.007 s, average=0.004 s; distance=32798 kB, estimate=33594 kB; lsn=0/49DFDD38, redo lsn=0/48015688
+2026-09-21 18:57:24.991 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:57:24.991 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:24.991 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:27.316 UTC [1354] LOG:  checkpoint complete: wrote 3001 buffers (36.6%), wrote 7 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=2.209 s, sync=0.036 s, total=2.326 s; sync files=8, longest=0.009 s, average=0.005 s; distance=32773 kB, estimate=33512 kB; lsn=0/4BE88428, redo lsn=0/4A016E00
+2026-09-21 18:57:27.361 UTC [1354] LOG:  checkpoints are occurring too frequently (3 seconds apart)
+2026-09-21 18:57:27.361 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:27.361 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:29.249 UTC [2777] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp2777.0", size 90925
+2026-09-21 18:57:29.249 UTC [2777] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:57:29.600 UTC [1354] LOG:  checkpoint complete: wrote 3039 buffers (37.1%), wrote 7 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=2.101 s, sync=0.039 s, total=2.240 s; sync files=9, longest=0.008 s, average=0.005 s; distance=32723 kB, estimate=33433 kB; lsn=0/4DE8F428, redo lsn=0/4C00BDA8
+2026-09-21 18:57:29.651 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:57:29.651 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:29.651 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:31.551 UTC [1354] LOG:  checkpoint complete: wrote 2849 buffers (34.8%), wrote 8 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.777 s, sync=0.060 s, total=1.901 s; sync files=11, longest=0.012 s, average=0.006 s; distance=32820 kB, estimate=33372 kB; lsn=0/4FE7C5E8, redo lsn=0/4E018EE0
+2026-09-21 18:57:31.613 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:57:31.613 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:31.613 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:33.535 UTC [1354] LOG:  checkpoint complete: wrote 3072 buffers (37.5%), wrote 8 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.799 s, sync=0.038 s, total=1.922 s; sync files=10, longest=0.009 s, average=0.004 s; distance=32761 kB, estimate=33311 kB; lsn=0/51E68478, redo lsn=0/50017438
+2026-09-21 18:57:33.577 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:57:33.577 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:33.577 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:34.248 UTC [2855] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp2855.0", size 90925
+2026-09-21 18:57:34.248 UTC [2855] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:57:35.386 UTC [1354] LOG:  checkpoint complete: wrote 2988 buffers (36.5%), wrote 8 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.690 s, sync=0.034 s, total=1.810 s; sync files=8, longest=0.008 s, average=0.005 s; distance=32726 kB, estimate=33252 kB; lsn=0/53DF3388, redo lsn=0/5200CFC0
+2026-09-21 18:57:35.495 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:57:35.495 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:35.495 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:37.730 UTC [1354] LOG:  checkpoint complete: wrote 2735 buffers (33.4%), wrote 7 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=2.116 s, sync=0.040 s, total=2.236 s; sync files=9, longest=0.008 s, average=0.005 s; distance=32746 kB, estimate=33202 kB; lsn=0/55DE44F8, redo lsn=0/54007A68
+2026-09-21 18:57:37.799 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:57:37.799 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:37.799 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:39.251 UTC [2984] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp2984.0", size 90925
+2026-09-21 18:57:39.251 UTC [2984] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:57:39.701 UTC [1354] LOG:  checkpoint complete: wrote 2941 buffers (35.9%), wrote 8 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.785 s, sync=0.035 s, total=1.902 s; sync files=8, longest=0.008 s, average=0.005 s; distance=32795 kB, estimate=33161 kB; lsn=0/57E5A720, redo lsn=0/5600EA20
+2026-09-21 18:57:39.761 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:57:39.761 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:39.761 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:41.596 UTC [1354] LOG:  checkpoint complete: wrote 2852 buffers (34.8%), wrote 8 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.682 s, sync=0.069 s, total=1.836 s; sync files=12, longest=0.013 s, average=0.006 s; distance=32730 kB, estimate=33118 kB; lsn=0/59EF6178, redo lsn=0/580052D8
+2026-09-21 18:57:41.618 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:57:41.618 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:41.619 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:43.414 UTC [1354] LOG:  checkpoint complete: wrote 2891 buffers (35.3%), wrote 8 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.689 s, sync=0.037 s, total=1.796 s; sync files=10, longest=0.008 s, average=0.004 s; distance=32791 kB, estimate=33085 kB; lsn=0/5BEF3768, redo lsn=0/5A00B288
+2026-09-21 18:57:43.439 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:57:43.439 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:43.439 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:44.249 UTC [3062] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp3062.0", size 90925
+2026-09-21 18:57:44.249 UTC [3062] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:57:45.328 UTC [1354] LOG:  checkpoint complete: wrote 2805 buffers (34.2%), wrote 9 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.777 s, sync=0.043 s, total=1.889 s; sync files=9, longest=0.009 s, average=0.005 s; distance=32755 kB, estimate=33052 kB; lsn=0/5DE55548, redo lsn=0/5C0081A0
+2026-09-21 18:57:45.406 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:57:45.406 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:45.406 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:45.931 UTC [1693] LOG:  duration: 107.135 ms  statement: UPDATE pgbench_branches SET bbalance = bbalance + -2199 WHERE bid = 17;
+2026-09-21 18:57:47.629 UTC [1354] LOG:  checkpoint complete: wrote 2764 buffers (33.7%), wrote 7 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=2.040 s, sync=0.048 s, total=2.224 s; sync files=10, longest=0.012 s, average=0.005 s; distance=32817 kB, estimate=33029 kB; lsn=0/5FE10538, redo lsn=0/5E014728
+2026-09-21 18:57:47.723 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:57:47.723 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:47.723 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:49.246 UTC [3186] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp3186.0", size 90925
+2026-09-21 18:57:49.246 UTC [3186] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:57:49.570 UTC [1354] LOG:  checkpoint complete: wrote 2876 buffers (35.1%), wrote 8 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.710 s, sync=0.048 s, total=1.848 s; sync files=9, longest=0.014 s, average=0.006 s; distance=32755 kB, estimate=33001 kB; lsn=0/61DC5008, redo lsn=0/600114B8
+2026-09-21 18:57:49.711 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:57:49.711 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:49.711 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:51.457 UTC [1354] LOG:  checkpoint complete: wrote 2719 buffers (33.2%), wrote 8 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.603 s, sync=0.045 s, total=1.747 s; sync files=9, longest=0.011 s, average=0.005 s; distance=32785 kB, estimate=32980 kB; lsn=0/63E891A0, redo lsn=0/620158C8
+2026-09-21 18:57:51.513 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:57:51.513 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:51.513 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:53.379 UTC [1354] LOG:  checkpoint complete: wrote 2794 buffers (34.1%), wrote 7 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.685 s, sync=0.046 s, total=1.866 s; sync files=8, longest=0.014 s, average=0.006 s; distance=32749 kB, estimate=32957 kB; lsn=0/65E17ED8, redo lsn=0/64010FC0
+2026-09-21 18:57:53.456 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:57:53.456 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:53.456 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:54.246 UTC [3264] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp3264.0", size 90925
+2026-09-21 18:57:54.246 UTC [3264] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:57:55.218 UTC [1354] LOG:  checkpoint complete: wrote 2843 buffers (34.7%), wrote 8 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.604 s, sync=0.050 s, total=1.763 s; sync files=9, longest=0.013 s, average=0.006 s; distance=32748 kB, estimate=32936 kB; lsn=0/67DBDE80, redo lsn=0/6600C210
+2026-09-21 18:57:55.338 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:57:55.338 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:55.338 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:55.881 UTC [1698] LOG:  duration: 165.205 ms  statement: UPDATE pgbench_branches SET bbalance = bbalance + -2307 WHERE bid = 17;
+2026-09-21 18:57:57.626 UTC [1354] LOG:  checkpoint complete: wrote 2623 buffers (32.0%), wrote 8 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=2.157 s, sync=0.046 s, total=2.288 s; sync files=8, longest=0.013 s, average=0.006 s; distance=32808 kB, estimate=32923 kB; lsn=0/69E6FC58, redo lsn=0/68016320
+2026-09-21 18:57:57.695 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:57:57.695 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:57.695 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:57:59.250 UTC [3399] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp3399.0", size 90925
+2026-09-21 18:57:59.250 UTC [3399] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:57:59.704 UTC [1354] LOG:  checkpoint complete: wrote 2848 buffers (34.8%), wrote 9 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.798 s, sync=0.096 s, total=2.009 s; sync files=10, longest=0.017 s, average=0.010 s; distance=32752 kB, estimate=32906 kB; lsn=0/6BF47840, redo lsn=0/6A012370
+2026-09-21 18:57:59.704 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:57:59.704 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:57:59.704 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:58:00.015 UTC [2127] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp2127.1", size 90290
+2026-09-21 18:58:00.015 UTC [2127] STATEMENT:  SELECT /* agent='pgstatstatements' */ "pg_stat_statements"."userid", "pg_stat_statements"."dbid", "pg_stat_statements"."queryid", "pg_stat_statements"."query", "pg_stat_statements"."calls", "pg_stat_statements"."rows", "pg_stat_statements"."shared_blks_hit", "pg_stat_statements"."shared_blks_read", "pg_stat_statements"."shared_blks_dirtied", "pg_stat_statements"."shared_blks_written", "pg_stat_statements"."local_blks_hit", "pg_stat_statements"."local_blks_read", "pg_stat_statements"."local_blks_dirtied", "pg_stat_statements"."local_blks_written", "pg_stat_statements"."temp_blks_read", "pg_stat_statements"."temp_blks_written", "pg_stat_statements"."total_exec_time", "pg_stat_statements"."shared_blk_read_time", "pg_stat_statements"."shared_blk_write_time", "pg_stat_statements"."local_blk_read_time", "pg_stat_statements"."local_blk_write_time" FROM "pg_stat_statements" WHERE queryid IS NOT NULL AND query IS NOT NULL
+2026-09-21 18:58:01.262 UTC [1354] LOG:  checkpoint complete: wrote 2797 buffers (34.1%), wrote 7 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.378 s, sync=0.061 s, total=1.559 s; sync files=9, longest=0.012 s, average=0.007 s; distance=32754 kB, estimate=32891 kB; lsn=0/6DE73708, redo lsn=0/6C00EBA8
+2026-09-21 18:58:01.322 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:58:01.322 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:58:01.322 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:58:03.202 UTC [1354] LOG:  checkpoint complete: wrote 2444 buffers (29.8%), wrote 7 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.688 s, sync=0.074 s, total=1.880 s; sync files=19, longest=0.011 s, average=0.004 s; distance=32784 kB, estimate=32880 kB; lsn=0/6FE217F8, redo lsn=0/6E012E40
+2026-09-21 18:58:03.290 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:58:03.290 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:58:03.290 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:58:04.243 UTC [3468] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp3468.0", size 90925
+2026-09-21 18:58:04.243 UTC [3468] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:58:05.151 UTC [1354] LOG:  checkpoint complete: wrote 2768 buffers (33.8%), wrote 8 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.702 s, sync=0.039 s, total=1.861 s; sync files=9, longest=0.011 s, average=0.005 s; distance=32742 kB, estimate=32866 kB; lsn=0/71D6C340, redo lsn=0/7000C8A8
+2026-09-21 18:58:05.283 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:58:05.283 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:58:05.283 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:58:05.714 UTC [1698] LOG:  duration: 106.620 ms  statement: UPDATE pgbench_branches SET bbalance = bbalance + 2070 WHERE bid = 5;
+2026-09-21 18:58:07.535 UTC [1354] LOG:  checkpoint complete: wrote 2642 buffers (32.3%), wrote 8 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=2.092 s, sync=0.063 s, total=2.253 s; sync files=10, longest=0.012 s, average=0.007 s; distance=32806 kB, estimate=32860 kB; lsn=0/73E118B0, redo lsn=0/72016480
+2026-09-21 18:58:07.626 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:58:07.626 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:58:07.626 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:58:09.253 UTC [3598] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp3598.0", size 90925
+2026-09-21 18:58:09.253 UTC [3598] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:58:09.622 UTC [1354] LOG:  checkpoint complete: wrote 2754 buffers (33.6%), wrote 8 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.833 s, sync=0.052 s, total=1.996 s; sync files=10, longest=0.013 s, average=0.006 s; distance=32728 kB, estimate=32847 kB; lsn=0/75D9B478, redo lsn=0/7400C7A8
+2026-09-21 18:58:09.747 UTC [1354] LOG:  checkpoints are occurring too frequently (2 seconds apart)
+2026-09-21 18:58:09.747 UTC [1354] HINT:  Consider increasing the configuration parameter "max_wal_size".
+2026-09-21 18:58:09.747 UTC [1354] LOG:  checkpoint starting: wal
+2026-09-21 18:58:11.424 UTC [1706] LOG:  duration: 122.038 ms  statement: UPDATE pgbench_branches SET bbalance = bbalance + -1575 WHERE bid = 1;
+2026-09-21 18:58:11.559 UTC [1354] LOG:  checkpoint complete: wrote 2613 buffers (31.9%), wrote 8 SLRU buffers; 0 WAL file(s) added, 0 removed, 2 recycled; write=1.671 s, sync=0.040 s, total=1.812 s; sync files=8, longest=0.009 s, average=0.005 s; distance=32745 kB, estimate=32837 kB; lsn=0/77DD8ED0, redo lsn=0/76006D28
+2026-09-21 18:58:14.241 UTC [3641] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp3641.0", size 90925
+2026-09-21 18:58:14.241 UTC [3641] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:58:19.246 UTC [3714] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp3714.0", size 90925
+2026-09-21 18:58:19.246 UTC [3714] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:58:24.243 UTC [3726] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp3726.0", size 90925
+2026-09-21 18:58:24.243 UTC [3726] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:58:29.247 UTC [3769] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp3769.0", size 90925
+2026-09-21 18:58:29.247 UTC [3769] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:58:34.242 UTC [3786] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp3786.0", size 90925
+2026-09-21 18:58:34.242 UTC [3786] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:58:39.242 UTC [3827] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp3827.0", size 90925
+2026-09-21 18:58:39.242 UTC [3827] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:58:44.243 UTC [3845] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp3845.0", size 90925
+2026-09-21 18:58:44.243 UTC [3845] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');
+2026-09-21 18:58:49.241 UTC [3887] LOG:  temporary file: path "base/pgsql_tmp/pgsql_tmp3887.0", size 90925
+2026-09-21 18:58:49.241 UTC [3887] STATEMENT:  SELECT name, setting, COALESCE(unit, ''), short_desc, vartype FROM pg_settings WHERE vartype IN ('bool', 'integer', 'real') AND name NOT IN ('sync_commit_cancel_wait', 'google_dataplex.max_messages');

@@ -1,0 +1,1 @@
+Error from server (BadRequest): container "database" in pod "k3d-pg-instance1-v45b-0" is waiting to start: PodInitializing

@@ -1,0 +1,78 @@
+2026-09-21 18:32:34,569 INFO: No PostgreSQL configuration items changed, nothing to reload.
+2026-09-21 18:32:34,572 INFO: REST API thread_pool_size = 5
+2026-09-21 18:32:34,578 WARNING: Postgresql is not running.
+2026-09-21 18:32:34,578 INFO: Lock owner: k3d-pg-instance1-4l9g-0; I am k3d-pg-instance1-4l9g-0
+2026-09-21 18:32:34,589 INFO: pg_controldata:
+  pg_control version number: 1800
+  Catalog version number: 202506291
+  Database system identifier: 7688056157142495325
+  Database cluster state: shut down
+  pg_control last modified: Mon Sep 21 18:32:25 2026
+  Latest checkpoint location: 0/B000028
+  Latest checkpoint's REDO location: 0/B000028
+  Latest checkpoint's REDO WAL file: 00000001000000000000000B
+  Latest checkpoint's TimeLineID: 1
+  Latest checkpoint's PrevTimeLineID: 1
+  Latest checkpoint's full_page_writes: on
+  Latest checkpoint's NextXID: 0:787
+  Latest checkpoint's NextOID: 16517
+  Latest checkpoint's NextMultiXactId: 1
+  Latest checkpoint's NextMultiOffset: 0
+  Latest checkpoint's oldestXID: 744
+  Latest checkpoint's oldestXID's DB: 1
+  Latest checkpoint's oldestActiveXID: 0
+  Latest checkpoint's oldestMultiXid: 1
+  Latest checkpoint's oldestMulti's DB: 1
+  Latest checkpoint's oldestCommitTsXid: 752
+  Latest checkpoint's newestCommitTsXid: 786
+  Time of latest checkpoint: Mon Sep 21 18:32:24 2026
+  Fake LSN counter for unlogged rels: 0/3E8
+  Minimum recovery ending location: 0/0
+  Min recovery ending loc's timeline: 0
+  Backup start location: 0/0
+  Backup end location: 0/0
+  End-of-backup record required: no
+  wal_level setting: logical
+  wal_log_hints setting: on
+  max_connections setting: 100
+  max_worker_processes setting: 8
+  max_wal_senders setting: 10
+  max_prepared_xacts setting: 0
+  max_locks_per_xact setting: 64
+  track_commit_timestamp setting: on
+  Maximum data alignment: 8
+  Database block size: 8192
+  Blocks per segment of large relation: 131072
+  WAL block size: 8192
+  Bytes per WAL segment: 16777216
+  Maximum length of identifiers: 64
+  Maximum columns in an index: 32
+  Maximum size of a TOAST chunk: 1996
+  Size of a large-object chunk: 2048
+  Date/time type storage: 64-bit integers
+  Float8 argument passing: by value
+  Data page checksum version: 1
+  Default char data signedness: signed
+  Mock authentication nonce: ea16ac0531d6bc1809ef737fccf6d97d35e614318429db36cf4b7eb785a86535
+
+2026-09-21 18:32:34,590 INFO: Lock owner: k3d-pg-instance1-4l9g-0; I am k3d-pg-instance1-4l9g-0
+2026-09-21 18:32:34,698 INFO: starting as readonly because i had the session lock
+2026-09-21 18:32:35.091 UTC [99] LOG:  pgaudit extension initialized
+2026-09-21 18:32:35,105 INFO: postmaster pid=99
+/tmp/postgres:5432 - no response
+2026-09-21 18:32:35.145 UTC [99] LOG:  redirecting log output to logging collector process
+2026-09-21 18:32:35.145 UTC [99] HINT:  Future log output will appear in directory "log".
+/tmp/postgres:5432 - accepting connections
+/tmp/postgres:5432 - accepting connections
+2026-09-21 18:32:36,148 INFO: Lock owner: k3d-pg-instance1-4l9g-0; I am k3d-pg-instance1-4l9g-0
+2026-09-21 18:32:36,148 INFO: establishing a new patroni heartbeat connection to postgres
+2026-09-21 18:32:36,218 INFO: promoted self to leader because I had the session lock
+server promoting
+2026-09-21 18:32:37,251 INFO: no action. I am (k3d-pg-instance1-4l9g-0), the leader with the lock
+2026-09-21 18:32:39,615 INFO: establishing a new patroni restapi connection to postgres
+2026-09-21 18:32:47,232 INFO: no action. I am (k3d-pg-instance1-4l9g-0), the leader with the lock
+2026-09-21 18:32:57,260 INFO: no action. I am (k3d-pg-instance1-4l9g-0), the leader with the lock
+2026-09-21 18:33:07,233 INFO: no action. I am (k3d-pg-instance1-4l9g-0), the leader with the lock
+2026-09-21 18:33:17,234 INFO: no action. I am (k3d-pg-instance1-4l9g-0), the leader with the lock
+2026-09-21 18:33:27,235 INFO: no action. I am (k3d-pg-instance1-4l9g-0), the leader with the lock
+2026-09-21 18:33:37,254 INFO: no action. I am (k3d-pg-instance1-4l9g-0), the leader with the lock

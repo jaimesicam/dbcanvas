@@ -25386,15 +25386,69 @@ log scenarios and the four `cluster-dump*.tar.gz` archives. All seven PSMDB stac
 sets, three sharded clusters, plus the standalone "psmrs"-named one for the `ftdc-rs` fixture)
 destroyed after capture; designs kept.
 
-## 409. Rebuilding the missing test corpus, phase 8: the PXC and PSMDB K8s operators — `app/testdata/logsummary/{k01-bootstrap,k04-pod-kill,k06-netem-partition,k07-smart-update,k14-final,km01-bootstrap,km04-primary-kill,km05-partition,km06-unschedulable,km09-pitr-broken,km11-final}/` (new)
+## 409. Rebuilding the missing test corpus, phase 8: the three PostgreSQL operators and the PS operator — `app/testdata/logsummary/{kg-pg-failover,kg-pg-restore,kg-pg-stress,kg-pgo-failover,kg-pgo-restore,kg-cnpg-failover,kg-cnpg-backup,kg-cnpg-restore,ko-ps-primary-kill,ko-cnpg-pitr}/` (new)
 
-Eighth installment of the §401 corpus rebuild, and the first against Kubernetes rather than plain
-Docker: a real PXC operator 1.20.0 cluster (`cluster1`, PXC 8.4.8-8.1, three members behind HAProxy,
-PITR-enabled backups to SeaweedFS) and a real PSMDB operator 1.23.0 cluster (`my-cluster-name`,
+Eighth installment of the §401 corpus rebuild: three real Postgres operator deployments side by
+side on one k3d cluster — Percona Operator for PostgreSQL 3.0.0 (zap logs, Patroni), Crunchy PGO
+(logfmt, Patroni), and CloudNativePG (JSON, no Patroni, its own instance manager) — plus a fourth
+stack for the Percona Server operator (`ps`), which the log-summary catalogue treats as a source of
+its own precisely because it says almost nothing: no failover narration in its log at all, with a
+Kubernetes `Events` capture as the only real evidence a primary ever moved.
+
+### Two Postgres backup tools disagree about which side of TLS they need, and one SeaweedFS node can't satisfy both
+
+CNPG's `barman-cloud` plugin performs strict TLS certificate verification against S3 and rejects a
+self-signed SeaweedFS certificate outright (`SSL: CERTIFICATE_VERIFY_FAILED`); Percona PG's and
+Crunchy PGO's `pgBackRest`, on the other stack, requires TLS to even attempt an S3 connection at all
+(DBCanvas's own `stack validate` says so directly: "pgBackRest speaks S3 only over TLS"). No single
+SeaweedFS node satisfies both, so the design carries two: one `tls: true` for the pgBackRest-based
+operators, a second `tls: false` ("sw-plain") for CNPG, with CNPG's `ObjectStore` CRD and its
+credentials `Secret` hand-patched to point at the second endpoint — DBCanvas's own K3D provisioning
+has no built-in way to wire a second store to one CNPG cluster. The pre-fix broken state (real WAL
+archiving failures against the wrong endpoint) was kept as the `kg-cnpg-backup` fixture on purpose,
+matching exactly what `TestCNPGWALArchiveFailureIsReported` needs, before the fix was applied and a
+second, working capture taken for the restore-family fixtures.
+
+### CNPG never restores in place, and its own recovery target needs a manual nudge to become reachable
+
+`Cluster.spec.bootstrap.recovery` with a `recoveryTarget.targetTime` creates a genuinely NEW `Cluster`
+object rather than restoring the original — the source cluster is never touched and keeps serving
+throughout, which is the whole point of `TestCNPGPointInTimeRecovery`'s check that no `pgop-restore`
+finding is produced (that finding belongs to the two operators that do restore in place). The first
+real recovery attempt failed with "recovery ended before configured recovery target was reached"
+because the WAL segment holding the target timestamp had not rolled over yet; calling
+`pg_switch_wal()` immediately after marking the target time, then waiting for `archived_count` to
+advance before starting the recovery, succeeded on the next attempt.
+
+### An operator that says nothing needs Kubernetes' own Events as a log source
+
+The Percona Server (`ps`) operator's log narrates almost none of a real primary-kill event — no
+failover language, nothing about which member is now primary — which is the corpus's point:
+`TestK8sEventsAreASourceOfTheirOwn` and `TestK8sEventsCarryTheKillReason` need a real
+`kubectl get events -o json` capture recognised as its own log-summary source (`lsSniffK8sEvents`),
+carrying the one fact nothing else in the bundle states — that kubelet, not the operator, killed the
+container — with a real non-empty `Peer` naming which pod.
+
+### Verified
+
+`cd app && go build ./... && go vet ./... && go test ./...`: every test in
+`logsummary_pgop_test.go` and `logsummary_psop_test.go` passes against these fixtures. This phase's
+stacks were torn down together with the PXC/PSMDB phase that follows it in this log, both having
+been left running across a context-window boundary within the same continuous effort; see §410's
+own "Verified" section for the actual teardown and the combined failing-count accounting, since this
+phase's fixtures were already on disk (built in an earlier part of this same session) but not yet
+committed until now, alongside it.
+
+## 410. Rebuilding the missing test corpus, phase 9: the PXC and PSMDB K8s operators — `app/testdata/logsummary/{k01-bootstrap,k04-pod-kill,k06-netem-partition,k07-smart-update,k14-final,km01-bootstrap,km04-primary-kill,km05-partition,km06-unschedulable,km09-pitr-broken,km11-final}/` (new)
+
+Ninth installment of the §401 corpus rebuild, continuing straight on from §409 on Kubernetes: a real
+PXC operator 1.20.0 cluster (`cluster1`, PXC 8.4.8-8.1, three members behind HAProxy, PITR-enabled
+backups to SeaweedFS) and a real PSMDB operator 1.23.0 cluster (`my-cluster-name`,
 percona-server-mongodb 8.0.26-11, three-member replica set, PBM 2.15.0), both on k3d/k3s v1.36,
 driven through every scenario their own test files name and captured with `kubectl logs`/`kubectl
 exec`/`kubectl get -o jsonpath` rather than the bulk `pt-k8s-debug-collector` archive, which turned
-out to be the wrong tool for anything except the PXC members' own error logs (see below). 23 failing
+out to be the wrong tool for anything except the PXC members' own error logs (see below). Combined
+with §409, 23 failing
 test functions remain, down from 72 — every `k*`/`km*` fixture the two operator test files reference
 now passes; only the `cluster-dump*.tar.gz` opsummary archives and one unrelated pre-existing
 PostgreSQL failure (`TestPGClusterCreationIsNotADivergence`, not touched this phase) remain.
@@ -25501,3 +25555,72 @@ the one pre-existing `TestPGClusterCreationIsNotADivergence` failure, unrelated 
 investigated here. The `cluster1` (PXC) and `my-cluster-name` (PSMDB) K8s stacks were left running
 rather than destroyed, since the next phase's `cluster-dump-{pxc,psmdb}.tar.gz` captures reuse them
 directly.
+
+## 411. Rebuilding the missing test corpus, phase 10: the four `cluster-dump*.tar.gz` opsummary archives — `app/testdata/cluster-dump{,-pxc,-psmdb,-pg}.tar.gz` (new), `app/opsummary_test.go`
+
+Tenth and final installment of the §401 corpus rebuild. Three of the four archives came from real
+`pt-k8s-debug-collector` runs against clusters this phase already had standing (the PXC operator
+cluster relabeled to `k3d-00` so its secret/backup names would match the corpus's hardcoded strings,
+the PSMDB cluster reused as-is, and the already-committed PG operator 3.0.0 stack from an earlier
+session). The fourth — the base `cluster-dump.tar.gz`, whose whole premise is three deliberately
+broken workloads next to a real PXC custom resource — needed a cluster built for nothing else: a
+bare k3d frame with no operator auto-provisioned by DBCanvas, into which the PXC 1.20.0 operator was
+installed by hand from its public release bundle. All five K8s stacks (`k8s-pxc`, `k8s-psmdb`,
+`k8s-pg`, `k8s-ps-cnpg`, and the new `k8s-demo`) destroyed after capture; designs kept. 1 failing test
+function remains, down from 23 — the pre-existing, unrelated `TestPGClusterCreationIsNotADivergence`.
+
+### A backup finishes faster than the collector can catch it running
+
+`cluster-dump-pxc.tar.gz` needs a `PerconaXtraDBClusterBackup` genuinely `Running` at the instant
+`pt-k8s-debug-collector` reads it, and the first two real attempts both lost the race: xtrabackup
+against an empty schema finishes in under 30 seconds, while the collector's own sweep of the cluster
+takes 60–75. Loading roughly 7 GiB into a scratch table first (in under-2GiB chunks — Galera's
+`repl.max_ws_size` rejects a single multi-gigabyte `INSERT ... SELECT`) stretched the backup past the
+collector's own runtime, and the third attempt caught it mid-transfer for real.
+
+### A bare k3d cluster needs its operator's RBAC widened by hand, namespace by namespace
+
+DBCanvas's own K3D provisioning always deploys an operator scoped to `WATCH_NAMESPACE:
+metadata.namespace` (its own), which is invisible until something tries to use a CR outside it: the
+hand-installed PXC operator for the base fixture silently reconciled nothing at all for a CR placed
+in `demo-db`, with no error anywhere until `WATCH_NAMESPACE` was pointed at `demo-db` and the
+operator's own `Role` (namespace-scoped, not a `ClusterRole`) started throwing real 403s trying to
+list `PerconaXtraDBClusterBackup` there. A `RoleBinding` granting the operator's ServiceAccount
+`cluster-admin`, but only inside `demo-db`, fixed both at once without touching the Role the operator
+shipped with.
+
+### `crVersion` is not just a status field the operator echoes back
+
+Setting `spec.crVersion: 1.15.0` next to a real `percona/percona-xtradb-cluster:8.4.8-8.1` image —
+the version this project's operator install actually ships — produced a genuinely broken mysqld:
+`unknown variable 'extra_port=33062'`, because crVersion selects an internal my.cnf template and
+1.15.0's has since drifted from what 8.4 accepts. `crVersion: 1.20.0` (matching the running operator)
+was used instead, and the fixture's expected version was updated to match — the field is real and
+read correctly, it just cannot honestly claim an old value while running a new image.
+
+### A StatefulSet resize doesn't touch ordinal 0 first, and the operator drops "ready" rather than reporting a fraction
+
+The base fixture's unschedulable pxc member was meant to be `cluster1-pxc-0`, matching the
+project's own convention of naming the "obviously broken" thing after the lowest ordinal. Live
+verification found the opposite is what a real Kubernetes StatefulSet actually does: a spec change
+to an already-`OrderedReady` StatefulSet resizes existing pods highest-ordinal-first, so bumping
+`pxc.resources.requests.memory` to 200Gi after all three members were healthy left `cluster1-pxc-0`
+and `cluster1-pxc-1` running untouched and stranded `cluster1-pxc-2` — the actual real capture, and
+what the fixture's assertions now say. The same capture also settled a second guess: once any member
+of the StatefulSet fails to schedule, the operator's `status.pxc` drops its `ready` key entirely
+rather than reporting a partial count, which unmarshals to Go's zero value — `0/3`, not `1/3`.
+
+### A capture-time race the corpus never needed to win: catching two crash-looping pods in two different states
+
+The pre-existing assertion assumed the fixture would show one `crasher-*` pod caught mid-crash
+(`Error`) and the other between restarts (briefly `Running`, i.e. `Restarting`) — a nicer-looking but
+unnecessary demonstration. Reading the test's own logic shows it only requires each crasher's reason
+to be one of the three valid crash states and the count to be 2; it does not require a mix. Both were
+captured as `Error` on the final real archive, and no assertion needed to change.
+
+### Verified
+
+`cd app && go build ./... && go vet ./... && go test ./...`: 1 failing test function remains,
+`TestPGClusterCreationIsNotADivergence` — pre-existing, from the PostgreSQL/Patroni phase (§406),
+unrelated to any operator or opsummary work and not investigated in this session. Every other test
+in the entire suite passes, closing out the full §401 corpus rebuild across all nine phases.

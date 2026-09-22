@@ -1,0 +1,430 @@
+apiVersion: v1
+items:
+- apiVersion: postgresql.cnpg.io/v1
+  kind: Cluster
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"postgresql.cnpg.io/v1","kind":"Cluster","metadata":{"annotations":{},"name":"k3d-cnpg2","namespace":"default"},"spec":{"instances":3,"plugins":[{"isWALArchiver":true,"name":"barman-cloud.cloudnative-pg.io","parameters":{"barmanObjectName":"k3d-cnpg2-store"}}],"storage":{"size":"1Gi"}}}
+    creationTimestamp: "2026-09-21T18:24:37Z"
+    generation: 1
+    name: k3d-cnpg2
+    namespace: default
+    resourceVersion: "3872"
+    uid: dd8dc0f3-820e-4507-a5d7-0451abbbadf7
+  spec:
+    affinity:
+      podAntiAffinityType: preferred
+    bootstrap:
+      initdb:
+        database: app
+        encoding: UTF8
+        localeCType: C
+        localeCollate: C
+        owner: app
+    enablePDB: true
+    enableSuperuserAccess: false
+    failoverDelay: 0
+    imageName: ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie
+    instances: 3
+    logLevel: info
+    maxSyncReplicas: 0
+    minSyncReplicas: 0
+    monitoring:
+      customQueriesConfigMap:
+      - key: queries
+        name: cnpg-default-monitoring
+      disableDefaultQueries: false
+      enablePodMonitor: false
+    plugins:
+    - enabled: true
+      isWALArchiver: true
+      name: barman-cloud.cloudnative-pg.io
+      parameters:
+        barmanObjectName: k3d-cnpg2-store
+    postgresGID: 26
+    postgresUID: 26
+    postgresql:
+      parameters:
+        archive_mode: "on"
+        archive_timeout: 5min
+        dynamic_shared_memory_type: posix
+        full_page_writes: "on"
+        log_destination: csvlog
+        log_directory: /controller/log
+        log_filename: postgres
+        log_rotation_age: "0"
+        log_rotation_size: "0"
+        log_truncate_on_rotation: "false"
+        logging_collector: "on"
+        max_parallel_workers: "32"
+        max_replication_slots: "32"
+        max_worker_processes: "32"
+        shared_memory_type: mmap
+        shared_preload_libraries: ""
+        ssl_max_protocol_version: TLSv1.3
+        ssl_min_protocol_version: TLSv1.3
+        wal_keep_size: 512MB
+        wal_level: logical
+        wal_log_hints: "on"
+        wal_receiver_timeout: 5s
+        wal_sender_timeout: 5s
+      syncReplicaElectionConstraint:
+        enabled: false
+    primaryUpdateMethod: restart
+    primaryUpdateStrategy: unsupervised
+    probes:
+      liveness:
+        isolationCheck:
+          connectionTimeout: 1000
+          enabled: true
+          requestTimeout: 1000
+    replicationSlots:
+      highAvailability:
+        enabled: true
+        slotPrefix: _cnpg_
+      synchronizeReplicas:
+        enabled: true
+      updateInterval: 30
+    resources: {}
+    smartShutdownTimeout: 180
+    startDelay: 3600
+    stopDelay: 1800
+    storage:
+      resizeInUseVolumes: true
+      size: 1Gi
+    switchoverDelay: 3600
+  status:
+    availableArchitectures:
+    - goArch: amd64
+      hash: 582a4e35fb052c39d3402794de5f6602a56cdc8cc4b92ce7abbe41a51a0bbc13
+    - goArch: arm64
+      hash: e61cf87bb9c89f1bca69d41367fd9a5c5c02e3eb7491922560984d03f85ecff0
+    certificates:
+      clientCASecret: k3d-cnpg2-ca
+      expirations:
+        k3d-cnpg2-ca: 2026-12-20 18:20:13 +0000 UTC
+        k3d-cnpg2-replication: 2026-12-20 18:20:13 +0000 UTC
+        k3d-cnpg2-server: 2026-12-20 18:20:13 +0000 UTC
+      replicationTLSSecret: k3d-cnpg2-replication
+      serverAltDNSNames:
+      - k3d-cnpg2-rw
+      - k3d-cnpg2-rw.default
+      - k3d-cnpg2-rw.default.svc
+      - k3d-cnpg2-rw.default.svc.cluster.local
+      - k3d-cnpg2-r
+      - k3d-cnpg2-r.default
+      - k3d-cnpg2-r.default.svc
+      - k3d-cnpg2-r.default.svc.cluster.local
+      - k3d-cnpg2-ro
+      - k3d-cnpg2-ro.default
+      - k3d-cnpg2-ro.default.svc
+      - k3d-cnpg2-ro.default.svc.cluster.local
+      serverCASecret: k3d-cnpg2-ca
+      serverTLSSecret: k3d-cnpg2-server
+    cloudNativePGCommitHash: 4b5e244a7
+    cloudNativePGOperatorHash: 582a4e35fb052c39d3402794de5f6602a56cdc8cc4b92ce7abbe41a51a0bbc13
+    conditions:
+    - lastTransitionTime: "2026-09-21T18:27:36Z"
+      message: Cluster is Ready
+      reason: ClusterIsReady
+      status: "True"
+      type: Ready
+    - lastTransitionTime: "2026-09-21T18:25:18Z"
+      message: Cluster has been bootstrapped
+      reason: BootstrapCompleted
+      status: "True"
+      type: Initialized
+    - lastTransitionTime: "2026-09-21T18:26:16Z"
+      message: A single, unique system ID was found across reporting instances.
+      reason: Unique
+      status: "True"
+      type: ConsistentSystemID
+    - lastTransitionTime: "2026-09-21T18:43:29Z"
+      message: Continuous archiving is working
+      reason: ContinuousArchivingSuccess
+      status: "True"
+      type: ContinuousArchiving
+    - lastTransitionTime: "2026-09-21T18:43:46Z"
+      message: Backup was successful
+      reason: LastBackupSucceeded
+      status: "True"
+      type: LastBackupSucceeded
+    configMapResourceVersion:
+      metrics:
+        cnpg-default-monitoring: "1292"
+    currentPrimary: k3d-cnpg2-1
+    currentPrimaryTimestamp: "2026-09-21T18:26:15.013011Z"
+    healthyPVC:
+    - k3d-cnpg2-1
+    - k3d-cnpg2-2
+    - k3d-cnpg2-3
+    image: ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie
+    instanceNames:
+    - k3d-cnpg2-1
+    - k3d-cnpg2-2
+    - k3d-cnpg2-3
+    instances: 3
+    instancesReportedState:
+      k3d-cnpg2-1:
+        ip: 10.42.0.16
+        isPrimary: true
+        timeLineID: 1
+      k3d-cnpg2-2:
+        ip: 10.42.0.19
+        isPrimary: false
+        timeLineID: 1
+      k3d-cnpg2-3:
+        ip: 10.42.0.22
+        isPrimary: false
+        timeLineID: 1
+    instancesStatus:
+      healthy:
+      - k3d-cnpg2-1
+      - k3d-cnpg2-2
+      - k3d-cnpg2-3
+    lastFailedBackup: "2026-09-21T18:36:43Z"
+    managedRolesStatus: {}
+    operatorCertificateFingerprint: 32907b2112a26325cb962001f0b56f6e11a53e0cd7b387f2f20564918aa13b35
+    pgDataImageInfo:
+      image: ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie
+      majorVersion: 18
+    phase: Cluster in healthy state
+    pluginStatus:
+    - capabilities:
+      - TYPE_RECONCILER_HOOKS
+      - TYPE_LIFECYCLE_SERVICE
+      - TYPE_INSTANCE_SIDECAR_INJECTION
+      name: barman-cloud.cloudnative-pg.io
+      version: 0.14.0
+    poolerIntegrations:
+      pgBouncerIntegration: {}
+    pvcCount: 3
+    readService: k3d-cnpg2-r
+    readyInstances: 3
+    secretsResourceVersion:
+      applicationSecretVersion: "1261"
+      clientCaSecretVersion: "1258"
+      replicationSecretVersion: "1260"
+      serverCaSecretVersion: "1258"
+      serverSecretVersion: "1259"
+    selector: cnpg.io/cluster=k3d-cnpg2,cnpg.io/podRole=instance
+    switchReplicaClusterStatus: {}
+    systemID: "7688056531999989785"
+    targetPrimary: k3d-cnpg2-1
+    targetPrimaryTimestamp: "2026-09-21T18:25:17.806355Z"
+    timelineID: 1
+    topology:
+      instances:
+        k3d-cnpg2-1: {}
+        k3d-cnpg2-2: {}
+        k3d-cnpg2-3: {}
+      nodesUsed: 1
+      successfullyExtracted: true
+    writeService: k3d-cnpg2-rw
+- apiVersion: postgresql.cnpg.io/v1
+  kind: Cluster
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"postgresql.cnpg.io/v1","kind":"Cluster","metadata":{"annotations":{},"name":"k3d-cnpg2-pitr","namespace":"default"},"spec":{"bootstrap":{"recovery":{"recoveryTarget":{"targetTime":"2026-09-21 18:43:55.098952+00"},"source":"k3d-cnpg2-store"}},"externalClusters":[{"name":"k3d-cnpg2-store","plugin":{"name":"barman-cloud.cloudnative-pg.io","parameters":{"barmanObjectName":"k3d-cnpg2-store","serverName":"k3d-cnpg2"}}}],"imageName":"ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie","instances":1,"storage":{"size":"1Gi"}}}
+    creationTimestamp: "2026-09-21T18:47:16Z"
+    generation: 1
+    name: k3d-cnpg2-pitr
+    namespace: default
+    resourceVersion: "4702"
+    uid: 4fca327b-f714-47ef-8d53-61f9955b7187
+  spec:
+    affinity:
+      podAntiAffinityType: preferred
+    bootstrap:
+      recovery:
+        database: app
+        owner: app
+        recoveryTarget:
+          targetTime: 2026-09-21 18:43:55.098952+00
+        source: k3d-cnpg2-store
+    enablePDB: true
+    enableSuperuserAccess: false
+    externalClusters:
+    - name: k3d-cnpg2-store
+      plugin:
+        enabled: true
+        isWALArchiver: false
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: k3d-cnpg2-store
+          serverName: k3d-cnpg2
+    failoverDelay: 0
+    imageName: ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie
+    instances: 1
+    logLevel: info
+    maxSyncReplicas: 0
+    minSyncReplicas: 0
+    monitoring:
+      customQueriesConfigMap:
+      - key: queries
+        name: cnpg-default-monitoring
+      disableDefaultQueries: false
+      enablePodMonitor: false
+    postgresGID: 26
+    postgresUID: 26
+    postgresql:
+      parameters:
+        archive_mode: "on"
+        archive_timeout: 5min
+        dynamic_shared_memory_type: posix
+        full_page_writes: "on"
+        log_destination: csvlog
+        log_directory: /controller/log
+        log_filename: postgres
+        log_rotation_age: "0"
+        log_rotation_size: "0"
+        log_truncate_on_rotation: "false"
+        logging_collector: "on"
+        max_parallel_workers: "32"
+        max_replication_slots: "32"
+        max_worker_processes: "32"
+        shared_memory_type: mmap
+        shared_preload_libraries: ""
+        ssl_max_protocol_version: TLSv1.3
+        ssl_min_protocol_version: TLSv1.3
+        wal_keep_size: 512MB
+        wal_level: logical
+        wal_log_hints: "on"
+        wal_receiver_timeout: 5s
+        wal_sender_timeout: 5s
+      syncReplicaElectionConstraint:
+        enabled: false
+    primaryUpdateMethod: restart
+    primaryUpdateStrategy: unsupervised
+    probes:
+      liveness:
+        isolationCheck:
+          connectionTimeout: 1000
+          enabled: true
+          requestTimeout: 1000
+    replicationSlots:
+      highAvailability:
+        enabled: true
+        slotPrefix: _cnpg_
+      synchronizeReplicas:
+        enabled: true
+      updateInterval: 30
+    resources: {}
+    smartShutdownTimeout: 180
+    startDelay: 3600
+    stopDelay: 1800
+    storage:
+      resizeInUseVolumes: true
+      size: 1Gi
+    switchoverDelay: 3600
+  status:
+    availableArchitectures:
+    - goArch: amd64
+      hash: 582a4e35fb052c39d3402794de5f6602a56cdc8cc4b92ce7abbe41a51a0bbc13
+    - goArch: arm64
+      hash: e61cf87bb9c89f1bca69d41367fd9a5c5c02e3eb7491922560984d03f85ecff0
+    certificates:
+      clientCASecret: k3d-cnpg2-pitr-ca
+      expirations:
+        k3d-cnpg2-pitr-ca: 2026-12-20 18:42:16 +0000 UTC
+        k3d-cnpg2-pitr-replication: 2026-12-20 18:42:16 +0000 UTC
+        k3d-cnpg2-pitr-server: 2026-12-20 18:42:16 +0000 UTC
+      replicationTLSSecret: k3d-cnpg2-pitr-replication
+      serverAltDNSNames:
+      - k3d-cnpg2-pitr-rw
+      - k3d-cnpg2-pitr-rw.default
+      - k3d-cnpg2-pitr-rw.default.svc
+      - k3d-cnpg2-pitr-rw.default.svc.cluster.local
+      - k3d-cnpg2-pitr-r
+      - k3d-cnpg2-pitr-r.default
+      - k3d-cnpg2-pitr-r.default.svc
+      - k3d-cnpg2-pitr-r.default.svc.cluster.local
+      - k3d-cnpg2-pitr-ro
+      - k3d-cnpg2-pitr-ro.default
+      - k3d-cnpg2-pitr-ro.default.svc
+      - k3d-cnpg2-pitr-ro.default.svc.cluster.local
+      serverCASecret: k3d-cnpg2-pitr-ca
+      serverTLSSecret: k3d-cnpg2-pitr-server
+    cloudNativePGCommitHash: 4b5e244a7
+    cloudNativePGOperatorHash: 582a4e35fb052c39d3402794de5f6602a56cdc8cc4b92ce7abbe41a51a0bbc13
+    conditions:
+    - lastTransitionTime: "2026-09-21T18:47:19Z"
+      message: Cluster has been bootstrapped
+      reason: BootstrapCompleted
+      status: "True"
+      type: Initialized
+    - lastTransitionTime: "2026-09-21T18:47:48Z"
+      message: A single, unique system ID was found across reporting instances.
+      reason: Unique
+      status: "True"
+      type: ConsistentSystemID
+    - lastTransitionTime: "2026-09-21T18:47:57Z"
+      message: Cluster is Ready
+      reason: ClusterIsReady
+      status: "True"
+      type: Ready
+    - lastTransitionTime: "2026-09-21T18:47:48Z"
+      message: Continuous archiving is working
+      reason: ContinuousArchivingSuccess
+      status: "True"
+      type: ContinuousArchiving
+    configMapResourceVersion:
+      metrics:
+        cnpg-default-monitoring: "1292"
+    currentPrimary: k3d-cnpg2-pitr-1
+    currentPrimaryTimestamp: "2026-09-21T18:47:47.979715Z"
+    healthyPVC:
+    - k3d-cnpg2-pitr-1
+    image: ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie
+    instanceNames:
+    - k3d-cnpg2-pitr-1
+    instances: 1
+    instancesReportedState:
+      k3d-cnpg2-pitr-1:
+        ip: 10.42.0.29
+        isPrimary: true
+        timeLineID: 2
+    instancesStatus:
+      healthy:
+      - k3d-cnpg2-pitr-1
+    managedRolesStatus: {}
+    operatorCertificateFingerprint: 32907b2112a26325cb962001f0b56f6e11a53e0cd7b387f2f20564918aa13b35
+    pgDataImageInfo:
+      image: ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie
+      majorVersion: 18
+    phase: Cluster in healthy state
+    pluginStatus:
+    - capabilities:
+      - TYPE_RECONCILER_HOOKS
+      - TYPE_LIFECYCLE_SERVICE
+      - TYPE_INSTANCE_SIDECAR_INJECTION
+      name: barman-cloud.cloudnative-pg.io
+      version: 0.14.0
+    poolerIntegrations:
+      pgBouncerIntegration: {}
+    pvcCount: 1
+    readService: k3d-cnpg2-pitr-r
+    readyInstances: 1
+    secretsResourceVersion:
+      applicationSecretVersion: "4477"
+      clientCaSecretVersion: "4474"
+      replicationSecretVersion: "4476"
+      serverCaSecretVersion: "4474"
+      serverSecretVersion: "4475"
+    selector: cnpg.io/cluster=k3d-cnpg2-pitr,cnpg.io/podRole=instance
+    switchReplicaClusterStatus: {}
+    systemID: "7688056531999989785"
+    targetPrimary: k3d-cnpg2-pitr-1
+    targetPrimaryTimestamp: "2026-09-21T18:47:18.895390Z"
+    timelineID: 2
+    topology:
+      instances:
+        k3d-cnpg2-pitr-1: {}
+      nodesUsed: 1
+      successfullyExtracted: true
+    writeService: k3d-cnpg2-pitr-rw
+kind: List
+metadata:
+  resourceVersion: ""
