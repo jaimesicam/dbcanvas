@@ -450,6 +450,17 @@ func (a *App) provisionOpenBao(st Stack, n designNode, doc designDoc) {
 		}
 		a.pointResolverAtIntranet(ctx, id, intranetIP, domain)
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployProvisioning, Config: cfgJSON, Secrets: secJSON})
+		// Publish this node's own name NOW, not at the end of provisioning.
+		//
+		// api_addr in openbao.hcl is the FQDN, and the client this provisioning uses next — `bao
+		// status`, `bao operator init`, every mount — reaches the server through it. Until the
+		// Intranet zone has an A record for this host, all of that fails to resolve, and the
+		// only reason it ever worked is that some *other* node's provisioning happened to
+		// reconcile DNS first. That made a stack of nothing but an Intranet and an OpenBao node
+		// unable to finish, and it deadlocks outright now that a database keyed to OpenBao waits
+		// for it before starting its own server: the database waits for OpenBao, OpenBao waits
+		// for a DNS record that only the database's own provisioning would have published.
+		a.reconcileStackDNS(ctx, st.ID)
 
 		pr.phase("Waiting for systemd", 25)
 		if err := a.engCtx(ctx).WaitSystemd(ctx, id, 90*time.Second); err != nil {

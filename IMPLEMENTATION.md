@@ -25656,3 +25656,160 @@ that anchor — the real four-minute-later rewind stays present and correctly se
 `cd app && go build ./... && go vet ./... && go test ./...`: every test in the suite passes. Zero
 failing test functions remain — the full missing-fixture corpus rebuild (§401 through this entry) is
 complete.
+
+## 413. Data-at-rest encryption for PXC clusters and Percona Server replication — `app/{dbvault,pxc,mysql,mysqlce,openbao,compose,intranet}.go`, `StackDesigner`, `MySQLManager`, `VaultGuide`, `docs/STACKS.md`
+
+The standalone Percona Server node could keep its keyring in OpenBao and a cluster could not, which
+is the wrong way round: a three-node cluster is where a keyring deployment stops being a checkbox
+and starts having rules. Both MySQL-family cluster frames — PXC (`pxc`) and Percona Server
+replication (`mysql`) — now carry the same *Encrypt with OpenBao* tick, on the frame, covering
+every member.
+
+### One mount per server, inside a cluster as much as outside one
+
+Percona's wording is unambiguous, and it is a rule rather than advice: *"Each `secret_mount_point`
+must serve only one Percona Server instance. Multiple servers that share a `secret_mount_point`
+write to the same Vault namespace"* — permanent key loss and cross-server key disclosure are the
+two named consequences. So `mysqlVaultMount` gives every member its own `mysql-<host>` mount and a
+token scoped to it, exactly as `dbvault.go` already did per standalone node.
+
+That works in a cluster because **keys are never what travels between members**. Write-sets and
+binlog events carry rows; each server encrypts what it writes under a master key of its own; and a
+PXC joiner's SST re-encrypts the donor's tablespace keys under a key it generates for itself
+(which is also why `wsrep_sst_method` has to stay `xtrabackup-v2` — PXC aborts an **rsync** SST
+outright on a node configured with `component_keyring_vault`, because rsync has no re-encryption
+step).
+
+### Staged before the first start, not applied after it
+
+`applyMySQLVault` used to install the keyring on a *running* server and restart it. For a cluster
+member that is not a slower way to the same place: a PXC member that restarts leaves the cluster
+and rejoins, an IST at best and a full SST at worst, in the middle of the deploy that just built
+it. So the whole path was turned around — `prepareMySQLVault` mints the mount and token and writes
+the keyring files while the container is being prepared, and returns the `[mysqld]` lines the
+node's config must carry (`mysqlVaultOptions`). The server's *first* start has a keyring.
+
+Two things fell out of that inversion:
+
+- **The options now land in the file the server actually reads.** The old script appended
+  `early-plugin-load` to `/etc/my.cnf`, which is right on Oracle Linux and is a file nothing reads
+  on Ubuntu — Debian-family packages split the config across `!includedir` drop-ins, and
+  `mysqlWriteNodeCnf` already knows this. A standalone Percona Server 8.0 node on Ubuntu with
+  encryption ticked could not have worked; it now does, because the options go through the same
+  renderer as everything else.
+- **`default_table_encryption=ON`**, the same decision the PostgreSQL path makes with
+  `tde_heap`: a cluster that was asked to encrypt its data encrypts the tables somebody creates on
+  it, without an `ENCRYPTION='Y'` clause on every statement.
+
+The standalone node was moved onto the same path rather than left on its own — it already reaches
+`mysqlPrepareNode` through a synthetic frame, so it was one field, and two ways to configure one
+engine's keyring is the drift this file spends most of its length regretting.
+
+### Proving it rather than asserting it
+
+`verifyMySQLVault` runs once each member is up: the component's `keyring_component_status` or the
+plugin's `information_schema.plugins`, and then — on the one member that can write, the PXC
+bootstrap node or the replication primary — a real `CREATE TABLE … ENCRYPTION='Y'`, dropped
+immediately. The status query alone is not enough: a wrong mount or a dead token loads perfectly
+and fails at the first key. The probe table carries a primary key because `pxc_strict_mode`
+refuses one without.
+
+### Cluster traffic, which turned out not to be optional
+
+`pxcMyCnf` has always set `pxc_encrypt_cluster_traffic=OFF` — the stack network is isolated, and
+client TLS is a separate per-node concern. With a keyring that is not a position PXC allows. Its
+own SST script checks, and stops:
+
+    FATAL: keyring component is enabled but transit channel is unencrypted.
+    Enable encryption for SST traffic
+
+The first member bootstrapped happily; the second requested state, the donor's
+`wsrep_sst_xtrabackup-v2` exited 22 within two seconds, and the joiner looped on *"Will never
+receive state. Need to abort."* An encrypted cluster with this off is a one-member cluster,
+permanently.
+
+So an encrypted frame now gets cluster TLS, and the shape of it is forced twice over:
+
+- **One certificate for the cluster, not one per node.** Percona: *"all nodes must use identical
+  key and certificate files"*. The existing `pxcApplyCert` produces exactly what cannot be used
+  here, so `pxcClusterSSL` signs a single certificate — every member's FQDN in its SANs — on the
+  **Intranet** node, and `pxcClusterSSLScript` stages the same five files on every member. Signing
+  there rather than per node also keeps the CA's private key on the host that owns it, which the
+  per-node path copies out and deletes.
+- **Outside the data directory.** `/etc/mysql/pxc-ssl`, not `/var/lib/mysql`, because a joiner's
+  datadir has to be empty for its first start and is then replaced wholesale by SST — and these
+  files have to survive both, since they are what the transfer itself is encrypted with.
+
+`[sst]` is written last in the config, after the keyring options: it ends `[mysqld]`, so anything
+placed after it silently becomes an SST option. Per-node certificates are skipped on an encrypted
+cluster, with a line in the deploy log saying why.
+
+### Three bugs the live deploy found
+
+None of these were visible from the code.
+
+1. **OpenBao deadlocked against the databases waiting for it.** `api_addr` in `openbao.hcl` is the
+   node's FQDN, and every client call its own provisioning makes goes through it — but the node
+   published its DNS record only at the *end* of provisioning, so it depended on some other node
+   reconciling the zone first. That was survivable while nothing waited for OpenBao. Now that a
+   database stages its keyring before starting, it was a deadlock: the database waited for
+   OpenBao, and OpenBao waited for a record only the database's own provisioning would publish.
+   Symptom in the log: `attempt 1/10 failed … bao status`, ten times, then a failed deploy. Fixed
+   by publishing the record as soon as the container exists — which also repairs a stack of
+   nothing but an Intranet and an OpenBao node, which could never have finished.
+2. **`find … -print -quit` chose the debug build's directory.** A PXC node carries three copies of
+   `component_keyring_vault.so`: the server's in `/usr/lib64/mysql/plugin`, the debug build in
+   `plugin/debug/`, and XtraBackup's in `/usr/lib64/xtrabackup/plugin`. The search returned the
+   debug one, the config went there, and the bootstrap died naming the directory it actually
+   wanted: `Keyring configuration doesn't exists: /usr/lib64/mysql/plugin//component_keyring_vault.cnf`.
+   plugin_dir is now asked of the binary (`mysqld --no-defaults --verbose --help`, which prints its
+   compiled-in defaults without starting anything), with a filtered search as the fallback and a
+   check that the chosen directory really holds the component.
+3. **The Debian `/etc/my.cnf` append**, above — pre-existing, and fixed by the inversion rather
+   than patched.
+
+### Surfaces
+
+`vaultFrameIssues` validates the frame's OpenBao link the way `vaultIssues` validates a node's;
+compose grew the `vault` option on the `pxc` and `ps-repl` kinds, applying it to the frame only (a
+member carrying its own copy would be a second source of truth); the designer's `FrameVaultFields`
+states the three things a cluster needs that a node does not; and a member's Encryption tab says
+which key is its own — `MySQLManager` now passes the node type through, so `VaultGuide` can tell a
+standalone server from a cluster member.
+
+MariaDB and MySQL Community frames are deliberately absent: `keyring_vault` is a Percona Server
+component, MariaDB's equivalent is a different plugin with a different key format, and Oracle's
+community packages ship `component_keyring_file` only.
+
+### Verified live
+
+A `tde-lab` stack built with compose — Intranet, OpenBao, a 2-node **PXC 8.4.10** cluster (the
+component route) and a 2-node **Percona Server 8.0.46** replication pair (the plugin route), both
+with `vault: true` — deployed to six running nodes. On that stack:
+
+    keyring, per member          pxc-1/pxc-2: Component_status = Active
+                                 ps-repl-1/2: keyring_vault plugin = ACTIVE
+    its own mount, per member    mysql-pxc-1, mysql-pxc-2, mysql-ps-repl-1, mysql-ps-repl-2
+    cluster traffic (PXC)        wsrep_cluster_size=2, Synced, pxc_encrypt_cluster_traffic=1
+                                 socket.ssl = YES; socket.ssl_ca = /etc/mysql/pxc-ssl/ca.pem
+    default_table_encryption     ON, on all four
+
+`CREATE TABLE tde.cards (id INT PRIMARY KEY, pan VARCHAR(32))` — **no `ENCRYPTION` clause** — on
+the PXC bootstrap node and on the replication primary: `information_schema.innodb_tablespaces`
+reports `ENCRYPTION=Y` on every member, the row is readable on the joiner and on the replica, and
+`grep` finds the card number in neither node's `.ibd` file. The keys are where they should be —
+`bao secrets list` shows the four per-server mounts, and each holds that server's own
+`INNODBKey-<its own server uuid>-10` alongside its `DefaultMasterKey`:
+
+    mysql-pxc-1      DefaultMasterKey0, INNODBKey-896647e8-…, INNODBKey-ee178029-…
+    mysql-pxc-2      DefaultMasterKey0, INNODBKey-16d8a7d4-…, INNODBKey-8dd921b1-…, INNODBKey-f20e8282-…
+    mysql-ps-repl-1  DefaultMasterKey0, INNODBKey-a5ee7133-…
+    mysql-ps-repl-2  INNODBKey-a5ee7890-…
+
+Different UUIDs under different mounts is the design stated out loud: the rows replicate, the keys
+do not.
+
+`cd app && go build ./... && go vet ./... && go test ./...` and `npm run smoke && npm run
+smoke:browser` pass, with the two pre-existing failures this tree already had
+(`TestAIOTLSWiringIsIdempotent`, which uses GNU `sed` syntax on a BSD `sed`, and the
+`K8sLogicalReplicas.jsx` polling check).

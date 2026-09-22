@@ -53,6 +53,29 @@ var whatsNewNotes = []releaseNote{
 	},
 	{
 		Version: "0.0.9",
+		Date:    "2026-09-22",
+		Title:   "Data-at-rest encryption for PXC clusters and Percona Server replication",
+		Body: "The standalone Percona Server node could keep its keyring in OpenBao and a cluster " +
+			"could not, which is backwards — a three-node cluster is where a real keyring deployment " +
+			"is interesting. Tick Encrypt with OpenBao on a PXC or Percona Server replication frame " +
+			"and every member is wired to it: component_keyring_vault on 8.4, the keyring_vault " +
+			"plugin on 8.0, and a KV mount of its own for each server, because Percona is explicit " +
+			"that a secret_mount_point must serve exactly one instance. A PXC cluster encrypts its " +
+			"cluster traffic too — with a keyring configured, PXC's SST script refuses an unencrypted " +
+			"channel, so a keyed cluster without it bootstraps one member and never adds a second — " +
+			"using one certificate from the Intranet CA, identical on every member as PXC requires. " +
+			"The keyring is staged before " +
+			"each member's first start rather than added afterwards — the difference between " +
+			"configuring a cluster and restarting members out of it one at a time — and the deploy " +
+			"proves it: every member is checked for a loaded keyring, and the writable one creates " +
+			"and drops a real encrypted table, which is what stores a master key in OpenBao. Two " +
+			"bugs fell out of doing it that way: the old path appended early-plugin-load to " +
+			"/etc/my.cnf, a file nothing reads on Ubuntu, and OpenBao published its own DNS record " +
+			"only at the end of its provisioning, so a database waiting for it deadlocked against it.",
+		Doc: "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.9",
 		Date:    "2026-09-21",
 		Title:   "Data-at-rest encryption for the PXC and MongoDB operators",
 		Body: "The PostgreSQL operator could encrypt at rest and the other two could not, which was " +

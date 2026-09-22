@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -121,5 +122,43 @@ func TestOpenBaoMounts(t *testing.T) {
 	}
 	if len(openbaoMounts) != 4 {
 		t.Errorf("expected 4 KV mounts, got %d", len(openbaoMounts))
+	}
+}
+
+// OpenBao has to publish its own DNS record before it uses its own name, and this is a test
+// rather than a comment because the deadlock it prevents is invisible until a stack is deployed.
+//
+// api_addr in openbao.hcl is the node's FQDN, and every client call this provisioning makes next
+// — `bao status` while waiting for the listener, `bao operator init`, each mount — goes through
+// it. Until the Intranet zone carries an A record for the host, all of them fail to resolve. The
+// record used to be published only at the END of provisioning, and the only reason that worked is
+// that some other node's provisioning happened to reconcile the zone first.
+//
+// Two stacks break on that. One with nothing but an Intranet and an OpenBao node never finishes.
+// And one where a database is keyed to OpenBao deadlocks outright, because the database now
+// stages its keyring before starting its server (dbvault.go): the database waits for OpenBao,
+// and OpenBao waits for a record only the database's own provisioning would have published.
+func TestOpenBaoPublishesItsDNSBeforeItUsesItsOwnName(t *testing.T) {
+	src, err := os.ReadFile("openbao.go")
+	if err != nil {
+		t.Fatalf("read openbao.go: %v", err)
+	}
+	s := string(src)
+	start := strings.Index(s, "func (a *App) provisionOpenBao(")
+	if start < 0 {
+		t.Fatal("provisionOpenBao is gone — this test needs rewriting, not deleting")
+	}
+	body := s[start:]
+	dns := strings.Index(body, "a.reconcileStackDNS(ctx, st.ID)")
+	service := strings.Index(body, "openbaoServiceScript")
+	if dns < 0 {
+		t.Fatal("provisionOpenBao no longer publishes DNS at all")
+	}
+	if service < 0 {
+		t.Fatal("provisionOpenBao no longer starts the service — this test needs rewriting")
+	}
+	if dns > service {
+		t.Error("OpenBao starts its server before its own name resolves: a database keyed to it " +
+			"waits for OpenBao, and OpenBao waits for a DNS record nothing else will publish")
 	}
 }

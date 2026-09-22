@@ -187,6 +187,36 @@ this** — redeploy the ones you want the new behaviour on.
 </details>
 
 <details>
+<summary><b>Data-at-rest encryption for PXC clusters and Percona Server replication</b></summary>
+
+The standalone Percona Server node could keep its keyring in **OpenBao**; a cluster could not,
+which is backwards — a three-node cluster is where a real keyring deployment is interesting. Tick
+**Encrypt with OpenBao** on a **PXC** frame or a **Percona Server replication** frame and every
+member is wired to it: `component_keyring_vault` on 8.4, the `keyring_vault` plugin on 8.0, and a
+KV mount of its own for each server, because Percona is explicit that a `secret_mount_point` must
+serve exactly one instance. That works inside a cluster because keys are never what travels
+between members — write-sets and binlog events carry rows, and a PXC joiner's SST re-encrypts the
+donor's tablespace keys under a master key it generates for itself.
+
+An encrypted PXC cluster **encrypts its cluster traffic** as well, because PXC does not leave that
+optional: with a keyring configured its SST script refuses an unencrypted channel outright, so a
+keyed cluster without it bootstraps one member and never adds a second. It gets one certificate
+from the Intranet CA — identical on every member, which is what PXC requires — staged before the
+first member starts.
+
+The keyring is **staged before each member's first start** rather than added afterwards, which is
+the difference between configuring a cluster and restarting members out of it one at a time. Two
+bugs fell out of doing it that way: the old path appended `early-plugin-load` to `/etc/my.cnf`,
+a file nothing reads on Ubuntu, and OpenBao only published its own DNS record at the *end* of its
+provisioning — so a stack of nothing but an Intranet and an OpenBao node could never finish, and
+a database waiting for OpenBao deadlocked against it. The deploy also proves the result rather
+than asserting it: every member is checked for a loaded keyring, and the writable one creates and
+drops a real encrypted table, which is the operation that stores a master key in OpenBao.
+
+[Stacks →](docs/STACKS.md)
+</details>
+
+<details>
 <summary><b>Data-at-rest encryption for the PXC and MongoDB operators</b></summary>
 
 The PostgreSQL operator could encrypt at rest and the other two could not, which was an odd place

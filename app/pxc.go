@@ -369,6 +369,23 @@ func (a *App) provisionPXCFrame(st Stack, frame designFrame, doc designDoc) {
 			return
 		}
 
+		// An encrypted cluster needs one certificate that every member carries identically, and
+		// it has to exist before the first member starts — see pxcMyCnf. Minted once, here,
+		// rather than per node: per-node certificates are precisely what PXC cannot use for
+		// cluster traffic.
+		var clusterSSL []string
+		if frame.EnableVault {
+			baseProg.phase("Signing the cluster certificate", 8)
+			clusterSSL, err = a.pxcClusterSSL(ctx, intranetID, frame, gcommHosts)
+			if err != nil {
+				for _, n := range members {
+					a.pxcNewProg(st.ID, n.ID).fail("%v", err)
+				}
+				return
+			}
+			baseProg.logln("cluster certificate signed by the Intranet CA — every member carries the same one")
+		}
+
 		// ---- Phase 1 (parallel): container + install + base config per node ----
 		var wg sync.WaitGroup
 		failed := make(map[string]bool)
@@ -377,7 +394,7 @@ func (a *App) provisionPXCFrame(st Stack, frame designFrame, doc designDoc) {
 			wg.Add(1)
 			go func(n designNode) {
 				defer wg.Done()
-				if err := a.pxcPrepareNode(ctx, st, frame, n, hosts, domain, image, clusterAddr, intranetIP, sec); err != nil {
+				if err := a.pxcPrepareNode(ctx, st, frame, n, hosts, domain, image, clusterAddr, intranetIP, sec, clusterSSL); err != nil {
 					mu.Lock()
 					failed[n.ID] = true
 					mu.Unlock()
@@ -421,9 +438,22 @@ func (a *App) provisionPXCFrame(st Stack, frame designFrame, doc designDoc) {
 			}
 		}
 
-		// ---- Phase 3: monitoring + finalize ----
+		// ---- Phase 3: encryption check, monitoring, finalize ----
 		for _, n := range members {
 			pr := a.pxcNewProg(st.ID, n.ID)
+			// The keyring was staged before each member started; confirm it loaded, and prove it
+			// end to end on the node that bootstrapped — an encrypted table there is a master key
+			// stored in OpenBao, and the write replicates to the rest of the cluster.
+			if frame.EnableVault && n.Role != "arbitrator" {
+				pr.phase("Verifying keyring (OpenBao)", 90)
+				dep, _ := a.store.GetDeployment(st.ID, n.ID)
+				mount, _, _ := mysqlVaultMount(frame.PXCMajor, hosts[n.ID])
+				if err := a.verifyMySQLVault(ctx, dep.ContainerID, frame.OS, frame.PXCMajor, mount,
+					sec.RootPassword, n.ID == regulars[0].ID, pr); err != nil {
+					pr.fail("verify keyring_vault: %v", err)
+					return
+				}
+			}
 			if frame.PMMNodeID != "" {
 				pr.phase("Registering with PMM", 92)
 				pmmUser, pmmPass := "", ""
@@ -452,7 +482,7 @@ func roleOf(n designNode) string {
 
 // pxcPrepareNode creates the node container, points it at the Intranet resolver,
 // installs the PXC packages, and writes the base my.cnf (regular nodes only).
-func (a *App) pxcPrepareNode(ctx context.Context, st Stack, frame designFrame, n designNode, hosts map[string]string, domain, image, clusterAddr, intranetIP string, sec pxcSecrets) error {
+func (a *App) pxcPrepareNode(ctx context.Context, st Stack, frame designFrame, n designNode, hosts map[string]string, domain, image, clusterAddr, intranetIP string, sec pxcSecrets, clusterSSL []string) error {
 	pr := a.pxcNewProg(st.ID, n.ID)
 	host := hosts[n.ID]
 	arbiter := n.Role == "arbitrator"
@@ -558,7 +588,25 @@ func (a *App) pxcPrepareNode(ctx context.Context, st Stack, frame designFrame, n
 
 	// garbd nodes are configured later; regular nodes get their my.cnf now.
 	if !arbiter {
-		if err := a.mysqlWriteNodeCnf(ctx, id, frame.OS, pxcMyCnf(frame, n, host, domain, clusterAddr), pr); err != nil {
+		// Data-at-rest encryption, staged before this member has ever started mysqld — which for
+		// a cluster member is not a convenience but the difference between configuring a keyring
+		// and restarting a node out of the cluster to give it one. Every member gets its own KV
+		// mount; see dbvault.go. An arbitrator runs garbd, which has no datadir and no keyring.
+		vaultOpts := ""
+		if frame.EnableVault {
+			// The cluster's shared TLS material first: it is what the SST channel is encrypted
+			// with, and PXC will not transfer state without it once a keyring is configured.
+			if err := a.runStep(ctx, id, pxcClusterSSLScript, clusterSSL, pr.logln); err != nil {
+				return pr.fail("stage cluster TLS material: %v", err)
+			}
+			prep, err := a.prepareMySQLVault(ctx, st, frame.OpenBaoNodeID, frame.OS, frame.PXCMajor, host, id, pr)
+			if err != nil {
+				return pr.fail("configure keyring_vault: %v", err)
+			}
+			vaultOpts = prep.Options
+			a.persistConfigKey(st, n.ID, "vault", prep.Info)
+		}
+		if err := a.mysqlWriteNodeCnf(ctx, id, frame.OS, pxcMyCnf(frame, n, host, domain, clusterAddr, vaultOpts), pr); err != nil {
 			return err
 		}
 	}
@@ -654,7 +702,7 @@ func pxcRootMyCnf(sec pxcSecrets) []byte {
 
 // pxcMyCnf renders /etc/my.cnf for a regular node (no SSL yet — certs are applied
 // after the node is up so SST does not race the cert files).
-func pxcMyCnf(frame designFrame, n designNode, host, domain, clusterAddr string) string {
+func pxcMyCnf(frame designFrame, n designNode, host, domain, clusterAddr, vaultOptions string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "[client]\nsocket=/var/lib/mysql/mysql.sock\n\n[mysqld]\n")
 	fmt.Fprintf(&b, "server-id=%d\n", pxcServerID(host))
@@ -676,13 +724,40 @@ func pxcMyCnf(frame designFrame, n designNode, host, domain, clusterAddr string)
 	fmt.Fprintf(&b, "binlog_format=ROW\ninnodb_autoinc_lock_mode=2\npxc_strict_mode=ENFORCING\n")
 	// Cluster traffic runs unencrypted on the isolated stack network; client
 	// (3306) TLS is provided separately by the per-node certs when enabled.
-	fmt.Fprintf(&b, "pxc_encrypt_cluster_traffic=OFF\n")
+	//
+	// UNLESS the cluster has a keyring, where it is not a choice. PXC's own SST script refuses
+	// to run — "FATAL: keyring component is enabled but transit channel is unencrypted. Enable
+	// encryption for SST traffic" — so a keyed cluster with this off bootstraps its first member
+	// and can never add a second. The material is one certificate for the whole cluster
+	// (pxcClusterSSL), staged before any member starts, because it is what the transfer itself
+	// is encrypted with.
+	if vaultOptions != "" {
+		fmt.Fprintf(&b, "pxc_encrypt_cluster_traffic=ON\n")
+		fmt.Fprintf(&b, "ssl-ca=%s/ca.pem\nssl-cert=%s/server-cert.pem\nssl-key=%s/server-key.pem\n",
+			pxcSSLDir, pxcSSLDir, pxcSSLDir)
+	} else {
+		fmt.Fprintf(&b, "pxc_encrypt_cluster_traffic=OFF\n")
+	}
 	fmt.Fprintf(&b, "wsrep_provider=%s\n", galeraProvider(frame.OS))
 	fmt.Fprintf(&b, "wsrep_cluster_name=%s\n", frame.Label)
 	fmt.Fprintf(&b, "wsrep_cluster_address=gcomm://%s\n", clusterAddr)
 	fmt.Fprintf(&b, "wsrep_node_name=%s\n", host)
 	fmt.Fprintf(&b, "wsrep_node_address=%s\n", fqdnOf(host, domain))
+	// xtrabackup-v2 rather than rsync, and with a keyring that is not a preference: PXC aborts
+	// an rsync SST outright on a node configured with component_keyring_vault, because rsync
+	// copies the tablespaces without the re-encryption step. XtraBackup re-encrypts the donor's
+	// keys with a transition key, and the joiner re-encrypts them under a master key of its own —
+	// which is also what makes a mount per member work.
 	fmt.Fprintf(&b, "wsrep_sst_method=xtrabackup-v2\n")
+	b.WriteString(vaultOptions)
+	// The [sst] section is last because it ends [mysqld]: anything written after it would be an
+	// SST option rather than a server one. `encrypt=4` is SSL with the server's own certificate
+	// on both ends, which is what makes the keyring's tablespace keys — and the transition key
+	// the joiner re-encrypts them with — private on the wire.
+	if vaultOptions != "" {
+		fmt.Fprintf(&b, "\n[sst]\nencrypt=4\nssl-ca=%s/ca.pem\nssl-cert=%s/server-cert.pem\nssl-key=%s/server-key.pem\n",
+			pxcSSLDir, pxcSSLDir, pxcSSLDir)
+	}
 	return b.String()
 }
 
@@ -710,11 +785,17 @@ func (a *App) pxcBootstrap(ctx context.Context, st Stack, frame designFrame, n d
 	if err := a.engCtx(ctx).CopyFile(ctx, id, "/root", ".my.cnf", 0o600, pxcRootMyCnf(sec)); err != nil {
 		return pr.fail("write /root/.my.cnf: %v", err)
 	}
-	if frame.GenerateCert {
+	if frame.GenerateCert && !frame.EnableVault {
 		pr.phase("Issuing certificate", 80)
 		if err := a.pxcApplyCert(ctx, id, intranetID, fqdnOf(host, domain), "mysql@bootstrap", frame.OS, frame.CertTTLValue, frame.CertTTLUnit, pr.logln, false); err != nil {
 			return pr.fail("%v", err)
 		}
+	} else if frame.GenerateCert {
+		// An encrypted cluster already has a certificate, and it has to be the SAME one on every
+		// member (pxcClusterSSL). Issuing a per-node certificate on top would give each member a
+		// different one, which is what PXC cannot use for cluster traffic — and this cluster's
+		// traffic has to be encrypted, because its SST carries keys.
+		pr.logln("per-node certificates skipped: this cluster uses one shared certificate, which is what encrypted cluster traffic requires")
 	}
 	return nil
 }
@@ -735,11 +816,13 @@ func (a *App) pxcJoin(ctx context.Context, st Stack, frame designFrame, n design
 	if err := a.engCtx(ctx).CopyFile(ctx, id, "/root", ".my.cnf", 0o600, pxcRootMyCnf(sec)); err != nil {
 		return pr.fail("write /root/.my.cnf: %v", err)
 	}
-	if frame.GenerateCert {
+	if frame.GenerateCert && !frame.EnableVault {
 		pr.phase("Issuing certificate", 80)
 		if err := a.pxcApplyCert(ctx, id, intranetID, fqdnOf(host, domain), "mysql", frame.OS, frame.CertTTLValue, frame.CertTTLUnit, pr.logln, false); err != nil {
 			return pr.fail("%v", err)
 		}
+	} else if frame.GenerateCert {
+		pr.logln("per-node certificates skipped: this cluster uses one shared certificate (see the bootstrap node)")
 	}
 	return nil
 }
@@ -1240,3 +1323,113 @@ pmm-admin add mysql --username=pmm --password="$PMM_PW" --socket=/var/lib/mysql/
 // the node from the server (best-effort; used when monitoring is turned off).
 const pxcPMMRemoveScript = `pmm-admin remove mysql "$NODE" >/dev/null 2>&1 || true
 pmm-admin unregister --force >/dev/null 2>&1 || true`
+
+// ---------------------------------------------------------------- cluster TLS, for an encrypted cluster
+
+// pxcSSLDir is where an encrypted cluster's shared TLS material lives.
+//
+// Deliberately NOT the data directory, which is where a single node's certificates go
+// (pxcCertScript). Two reasons, and the second is the one that matters: a joiner's datadir must be
+// empty for its first start and is then replaced wholesale by SST, so anything staged there before
+// the node joins is either in the way or about to be deleted — and these files have to exist
+// before the node starts, because they are what the SST channel itself is encrypted with.
+const pxcSSLDir = "/etc/mysql/pxc-ssl"
+
+// pxcClusterSSLScript writes the shared material a cluster's members all carry, byte for byte.
+const pxcClusterSSLScript = `set -e
+install -d -o mysql -g mysql -m 0750 ` + pxcSSLDir + `
+printf '%s' "$CA"    > ` + pxcSSLDir + `/ca.pem
+printf '%s' "$SCERT" > ` + pxcSSLDir + `/server-cert.pem
+printf '%s' "$SKEY"  > ` + pxcSSLDir + `/server-key.pem
+printf '%s' "$CCERT" > ` + pxcSSLDir + `/client-cert.pem
+printf '%s' "$CKEY"  > ` + pxcSSLDir + `/client-key.pem
+chown mysql:mysql ` + pxcSSLDir + `/*.pem
+chmod 0640 ` + pxcSSLDir + `/server-key.pem ` + pxcSSLDir + `/client-key.pem
+chmod 0644 ` + pxcSSLDir + `/ca.pem ` + pxcSSLDir + `/server-cert.pem ` + pxcSSLDir + `/client-cert.pem
+echo "cluster TLS material staged in ` + pxcSSLDir + `"`
+
+// pxcMintClusterSSLScript signs ONE certificate for a whole cluster, on the Intranet node.
+//
+// It runs there rather than on a database node so the CA's private key never leaves the host that
+// owns it — the per-node path (pxcCertScript) copies it to the node, signs, and deletes it, which
+// is fine for one node and pointless to repeat per member when every member gets the same
+// certificate anyway.
+const pxcMintClusterSSLScript = `set -e
+command -v openssl >/dev/null 2>&1 || { echo "openssl is not installed on the Intranet node"; exit 1; }
+case "$UNIT" in
+  minutes) SECS=$((VALUE*60));;
+  hours)   SECS=$((VALUE*3600));;
+  *)       SECS=$((VALUE*86400));;
+esac
+END=$(date -u -d "+$SECS seconds" +%Y%m%d%H%M%SZ)
+rm -rf "$OUT"; mkdir -p "$OUT"
+cp -f /etc/pki/dbcanvas/ca.crt "$OUT/ca.pem"
+cat >"$OUT/san.ext" <<EXT
+basicConstraints=CA:FALSE
+keyUsage=digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth,clientAuth
+subjectAltName=$SANS
+EXT
+openssl req -newkey rsa:2048 -nodes -keyout "$OUT/server-key.pem" -out "$OUT/s.csr" -subj "/O=DBCanvas/CN=$CN" >/dev/null
+openssl x509 -req -in "$OUT/s.csr" -CA /etc/pki/dbcanvas/ca.crt -CAkey /etc/pki/dbcanvas/ca.key \
+  -CAcreateserial -out "$OUT/server-cert.pem" -extfile "$OUT/san.ext" -not_after "$END" >/dev/null
+openssl req -newkey rsa:2048 -nodes -keyout "$OUT/client-key.pem" -out "$OUT/c.csr" -subj "/O=DBCanvas/CN=$CN-client" >/dev/null
+openssl x509 -req -in "$OUT/c.csr" -CA /etc/pki/dbcanvas/ca.crt -CAkey /etc/pki/dbcanvas/ca.key \
+  -CAcreateserial -out "$OUT/client-cert.pem" -not_after "$END" >/dev/null
+rm -f "$OUT/s.csr" "$OUT/c.csr" "$OUT/san.ext"
+echo "cluster certificate signed for $CN"`
+
+// pxcClusterSSL mints the certificate every member of an encrypted cluster shares, and returns the
+// five files as environment for pxcClusterSSLScript.
+//
+// One certificate for the whole cluster, not one per node, because PXC says so: "all nodes must
+// use identical key and certificate files to ensure a consistent security setup". A per-node
+// certificate — even one signed by the same CA — is what the per-node path already produces, and
+// it is exactly what a cluster cannot use.
+func (a *App) pxcClusterSSL(ctx context.Context, intranetID string, frame designFrame, memberFQDNs []string) ([]string, error) {
+	if err := a.waitIntranetCAReady(ctx, intranetID, 120*time.Second); err != nil {
+		return nil, fmt.Errorf("certificate: %w", err)
+	}
+	ttlValue, ttlUnit := frame.CertTTLValue, frame.CertTTLUnit
+	if ttlValue <= 0 {
+		ttlValue, ttlUnit = 365, "days"
+	}
+	switch ttlUnit {
+	case "minutes", "hours", "days":
+	default:
+		ttlUnit = "days"
+	}
+	// Every member's name is in the certificate, so a client that verifies the hostname reaches
+	// any of them with it — the cluster's own traffic does not care, but somebody connecting with
+	// --ssl-mode=VERIFY_IDENTITY does.
+	sans := []string{}
+	for _, f := range memberFQDNs {
+		sans = append(sans, "DNS:"+f)
+		if short, _, ok := strings.Cut(f, "."); ok {
+			sans = append(sans, "DNS:"+short)
+		}
+	}
+	cn := sanitizeName(frame.Label)
+	out := "/tmp/dbcanvas-pxcssl-" + cn
+	env := []string{
+		"OUT=" + out, "CN=" + cn, "SANS=" + strings.Join(sans, ","),
+		"VALUE=" + strconv.Itoa(ttlValue), "UNIT=" + ttlUnit,
+	}
+	ictx := withEngine(ctx, a.intranetEngine())
+	if _, err := a.execScript(ictx, intranetID, pxcMintClusterSSLScript, env); err != nil {
+		return nil, fmt.Errorf("sign cluster certificate: %w", err)
+	}
+	names := []string{"CA=ca.pem", "SCERT=server-cert.pem", "SKEY=server-key.pem", "CCERT=client-cert.pem", "CKEY=client-key.pem"}
+	files := make([]string, 0, len(names))
+	for _, n := range names {
+		key, file, _ := strings.Cut(n, "=")
+		b, err := a.readContainerFile(ictx, intranetID, out+"/"+file)
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", file, err)
+		}
+		files = append(files, key+"="+string(b))
+	}
+	// The private key does not stay on the CA host a moment longer than it takes to read it.
+	a.execScript(ictx, intranetID, "rm -rf \"$OUT\"", []string{"OUT=" + out})
+	return files, nil
+}

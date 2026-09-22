@@ -308,13 +308,60 @@ group→role mapping means `SHOW GRANTS` gains `accounting` at connection time (
 
 **Data-at-rest encryption (OpenBao).** Add an **OpenBao** node (a Vault-compatible secrets
 manager, one per stack) and tick *Encrypt with OpenBao* on a Percona Server, PSMDB or PostgreSQL
-node. At deploy the node is initialized and unsealed for you — its **5 unseal keys and root token**
+node — or on a **PXC cluster** or **Percona Server replication** frame, where the tick covers
+every member. At deploy the node is initialized and unsealed for you — its **5 unseal keys and root token**
 appear in the node's properties, since OpenBao prints them exactly once — and the database is wired
 to it as its keyring: `component_keyring_vault` on Percona Server 8.4, the `keyring_vault` **plugin**
 on 5.7/8.0 (the component does not exist before 8.4), `security.vault` on PSMDB, and **`pg_tde`** on
 PostgreSQL. Each database gets its own KV mount and a token scoped to it, and verifies OpenBao with
 the Intranet CA every node already trusts. OpenBao seals itself on every restart, so its panel shows
 the live seal state and can replay the stored keys with one click.
+
+**On a cluster** — a PXC frame or a Percona Server replication frame — the tick is on the frame
+and applies to every member, which is what Percona requires: *"Percona XtraDB Cluster strongly
+recommends using the same keyring component type on all cluster nodes"*, and a joiner whose keyring
+does not match its donor's cannot join at all. Four things follow from that, and they are the
+reasons this is a deploy-time decision rather than a switch:
+
+- **Every member gets its own KV mount** (`mysql-<host>`) and its own token. That is not tidiness:
+  *"each `secret_mount_point` must serve only one Percona Server instance"* — sharing one risks
+  overwriting another server's key. It works inside a cluster because keys are never what travels
+  between members: write-sets and binlog events carry rows, each member encrypts what it writes
+  with a master key of its own, and a PXC joiner's SST re-encrypts the donor's tablespace keys
+  under a key it generates for itself.
+- **The keyring is staged before the member's first start**, not applied afterwards. Configuring a
+  keyring on a running member would mean restarting it, and restarting a PXC member means leaving
+  the cluster and rejoining it — an IST at best, a full SST at worst, in the middle of a deploy.
+- **SST stays on `xtrabackup-v2`.** PXC aborts an **rsync** SST outright on a node configured with
+  `component_keyring_vault`, because rsync copies tablespaces with no re-encryption step.
+- **`default_table_encryption=ON`**, so tables created on the cluster are encrypted without an
+  `ENCRYPTION='Y'` clause — the same choice the PostgreSQL path makes with `tde_heap`. An explicit
+  clause still wins in either direction.
+
+**An encrypted PXC cluster also encrypts its cluster traffic**, and that is PXC's rule rather than
+a choice: with a keyring configured, its SST script refuses an unencrypted channel —
+
+    FATAL: keyring component is enabled but transit channel is unencrypted.
+    Enable encryption for SST traffic
+
+— so a keyed cluster without it bootstraps its first member and can never add a second. PXC also
+requires that *"all nodes must use identical key and certificate files"*, which per-node
+certificates are not. So an encrypted cluster gets **one certificate**, signed by the Intranet CA
+and staged on every member before the first one starts (outside the data directory, which a
+joiner's SST replaces wholesale), and `pxc_encrypt_cluster_traffic=ON` with an `[sst]` section that
+uses it. Ticking *Generate per-node certificates* on an encrypted cluster is therefore a no-op, and
+the deploy log says so: the shared certificate covers client TLS as well, with every member's name
+in it.
+
+The deploy proves it rather than asserting it: every member is checked for a loaded keyring
+(`keyring_component_status` / `information_schema.plugins`), and the writable member — the node
+that bootstrapped the cluster, or the replication primary — creates and drops a real encrypted
+table, which is the operation that makes the server store a master key in OpenBao. A member that
+cannot do that fails its deploy instead of coming up unencrypted.
+
+MariaDB and MySQL Community frames do not offer the tick at all: `keyring_vault` is a Percona
+Server component, MariaDB's equivalent is a different plugin with a different key format, and
+Oracle's community packages ship `component_keyring_file` only.
 
 PostgreSQL is the odd one, and worth knowing about before you tick the box:
 

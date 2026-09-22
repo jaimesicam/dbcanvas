@@ -527,7 +527,10 @@ func (a *App) mysqlcePrepareNode(ctx context.Context, st Stack, frame designFram
 	if err := a.mysqlceInstall(ctx, frame, id, false, false, pr); err != nil {
 		return err
 	}
-	return a.mysqlWriteNodeCnf(ctx, id, frame.OS, mysqlMyCnf(frame, host), pr)
+	// No keyring options: keyring_vault is a Percona Server component, and Oracle's community
+	// packages ship component_keyring_file only — so a MySQL Community frame has no OpenBao
+	// option to pass on (see dbvault.go).
+	return a.mysqlWriteNodeCnf(ctx, id, frame.OS, mysqlMyCnf(frame, host, ""), pr)
 }
 
 // mysqlceInnoDBPrepareNode is the InnoDB/GR counterpart: it additionally installs

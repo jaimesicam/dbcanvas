@@ -97,6 +97,36 @@ func vaultIssues(n designNode, openbaoIDs map[string]bool) []issue {
 	return out
 }
 
+// vaultFrameIssues validates a cluster frame's OpenBao selection — the PXC and Percona Server
+// replication frames, whose members are encrypted as a unit (each with its own mount; see
+// mysqlVaultMount).
+func vaultFrameIssues(f designFrame, openbaoIDs map[string]bool) []issue {
+	if !f.EnableVault || !mysqlFamilyVaultFrame(f.Type) {
+		return nil
+	}
+	if !openbaoIDs[f.OpenBaoNodeID] {
+		return []issue{{Level: "error", Message: frameKindLabel(f.Type) + " " + f.Label +
+			" has data-at-rest encryption enabled but is not linked to an OpenBao node — add an OpenBao node and select it"}}
+	}
+	return nil
+}
+
+// mysqlFamilyVaultFrame names the cluster frames that can be keyed to OpenBao. Percona builds
+// keyring_vault for Percona Server and PXC; MariaDB's equivalent is a different plugin with a
+// different key format, and the MySQL Community packages ship no vault keyring at all.
+func mysqlFamilyVaultFrame(t string) bool { return t == "pxc" || t == "mysql" }
+
+// frameKindLabel names a frame the way its form does, for validation messages.
+func frameKindLabel(t string) string {
+	switch t {
+	case "pxc":
+		return "PXC cluster"
+	case "mysql":
+		return "Percona Server replication cluster"
+	}
+	return t
+}
+
 // vaultMountFor returns the node's dedicated KV mount and the engine version to create it with.
 // Only Percona Server 5.7 is stuck on KV v1: its keyring_vault plugin predates the v2 API.
 func vaultMountFor(n designNode, host string) (mount, kv, version string) {
@@ -106,7 +136,24 @@ func vaultMountFor(n designNode, host string) (mount, kv, version string) {
 	if n.Type == "psm" {
 		return "mongodb-" + host, "kv-v2", "2"
 	}
-	if psMajorOf(n.PSMajor) == "5.7" {
+	return mysqlVaultMount(psMajorOf(n.PSMajor), host)
+}
+
+// mysqlVaultMount is the same answer for a MySQL-family server, keyed by its series rather than
+// by a node type — a PXC member and a replication member carry no version of their own (it lives
+// on the frame), and both need this.
+//
+// One mount per SERVER, never per cluster, and that is Percona's rule rather than a preference:
+//
+//	"Each secret_mount_point must serve only one Percona Server instance. Multiple servers that
+//	 share a secret_mount_point write to the same Vault namespace" — with permanent key loss and
+//	 cross-server key disclosure as the two named consequences.
+//
+// It holds for a cluster as much as for two unrelated servers: PXC members each keep their own
+// master key (write-sets replicate data, not keys), and a joiner's SST re-encrypts the donor's
+// tablespace keys with a master key it generates for itself.
+func mysqlVaultMount(major, host string) (mount, kv, version string) {
+	if psMajorOf(major) == "5.7" {
 		return "mysql-" + host, "kv", "1"
 	}
 	return "mysql-" + host, "kv-v2", "2"
@@ -210,109 +257,215 @@ func mysqlKeyringComponentConf(addr, mount, token, caFile string) string {
 	return string(b) + "\n"
 }
 
-// mysqlKeyringPluginScript installs the plugin config, loads the plugin and verifies it is
-// ACTIVE (Percona Server 5.7 / 8.0 — no keyring component exists before 8.4).
+// ---------------------------------------------------------------- staging, before the first start
+
+// The keyring is put in place BEFORE mysqld has ever run, and that is the whole shape of this
+// half of the file.
 //
-// The options go into /etc/my.cnf, NOT a my.cnf.d drop-in: Percona Server's packaged /etc/my.cnf
-// has no `!includedir`, so a drop-in is silently never read (the same trap mysqlDirAuthScript
-// documents). The keyring has to be up before InnoDB opens a tablespace, hence early-plugin-load.
-// The config carries the Vault token, so it is mysql-only 0600 — the plugin refuses a config any
-// other user can read.
-const mysqlKeyringPluginScript = `set -e
+// The obvious alternative — install the server, start it, then add the keyring and restart — is
+// what this used to do, and it is wrong in three separate ways once a cluster is involved:
+//
+//   - **A restart is not free in PXC.** A member that restarts leaves the cluster and rejoins,
+//     which at best is an IST and at worst is a full SST from a donor, in the middle of a deploy
+//     that just finished building the cluster.
+//   - **The keyring has to exist before the data does.** InnoDB writes the master key id into
+//     every encrypted tablespace it creates; a server that initialises its data directory without
+//     a keyring and gets one afterwards is a server whose earlier tablespaces cannot be encrypted
+//     in place. Staging first is also what the PSMDB path does (mongod establishes encryption at
+//     its first start and never again) — the reasons rhyme.
+//   - **The options belong in the node's own config.** The old path appended `early-plugin-load`
+//     to /etc/my.cnf, which is the right file on Oracle Linux and a file nothing reads on
+//     Ubuntu — Debian-family packages split the config across `!includedir` drop-ins. Returning
+//     the options to the caller instead means they land in whichever file mysqlWriteNodeCnf
+//     writes, which is correct on both by construction.
+//
+// So prepareMySQLVault mints the mount and the token, stages the files, and hands back the lines
+// the node's config must carry. verifyMySQLVault then checks — once the server is up — that the
+// keyring is actually loaded, because a keyring that silently did not load is the one failure
+// this whole feature exists to prevent.
+
+// mysqlVaultPrep is what one server needs before it starts: its config lines, and what to record
+// about the arrangement afterwards.
+type mysqlVaultPrep struct {
+	Options string    // extra [mysqld] lines for this node's own config file
+	Info    vaultInfo // persisted to the deployment; drives the manager's Encryption tab
+}
+
+// mysqlVaultOptions renders the [mysqld] lines a node with a keyring needs.
+//
+// `default_table_encryption=ON` is here rather than left to the operator on purpose, and it is
+// the same decision the PostgreSQL path already makes when it sets default_table_access_method to
+// tde_heap: a node that was asked to encrypt its data should encrypt the tables somebody creates
+// on it, without their having to remember `ENCRYPTION='Y'` on every CREATE TABLE. It is a
+// per-schema default, so an explicit clause still wins either way.
+//
+// The plugin route additionally needs the two options that load it. They are `early-plugin-load`
+// because the keyring must be up before InnoDB opens its first tablespace — a keyring loaded at
+// the normal time is a keyring that arrives after the data it was needed for.
+func mysqlVaultOptions(major string) string {
+	var b strings.Builder
+	if !mysqlModernMajor(psMajorOf(major)) {
+		fmt.Fprintf(&b, "early-plugin-load=keyring_vault.so\n")
+		fmt.Fprintf(&b, "keyring_vault_config=%s\n", mysqlKeyringConf)
+	}
+	b.WriteString("default_table_encryption=ON\n")
+	return b.String()
+}
+
+// mysqlKeyringStagePluginScript writes the plugin's config file (Percona Server / PXC 5.7 and
+// 8.0). The my.cnf options are NOT written here — see mysqlVaultOptions.
+//
+// 0600 and mysql-owned because the file carries the Vault token, and because the plugin refuses a
+// config any other user can read.
+//
+// The plugin's own .so is checked for first, for the same reason the component's is: the config
+// it is about to be given is loaded with `early-plugin-load`, and a missing early plugin is a
+// server that will not start at all — a failure with this sentence in front of it is worth more
+// than a mysqld that exits during bootstrap.
+const mysqlKeyringStagePluginScript = `set -e
+find /usr/lib64 /usr/lib -name keyring_vault.so -print -quit 2>/dev/null | grep -q . || {
+  echo "keyring_vault.so is not installed on this node"; exit 1; }
 install -d -o mysql -g mysql -m 0750 ` + mysqlKeyringDir + `
 printf '%s' "$CONF" > ` + mysqlKeyringConf + `
 chown mysql:mysql ` + mysqlKeyringConf + `
 chmod 0600 ` + mysqlKeyringConf + `
-CNF=/etc/my.cnf
-sed -i "/# dbcanvas-keyring-begin/,/# dbcanvas-keyring-end/d" "$CNF"
-cat >> "$CNF" <<EOF
+echo "keyring_vault plugin config staged at ` + mysqlKeyringConf + ` (mount $MOUNT)"`
 
-# dbcanvas-keyring-begin
-[mysqld]
-early-plugin-load=keyring_vault.so
-keyring_vault_config=` + mysqlKeyringConf + `
-# dbcanvas-keyring-end
-EOF
-systemctl restart "$UNIT"
-for i in $(seq 1 30); do mysqladmin ping >/dev/null 2>&1 && break; sleep 2; done
-mysql -N -e "SELECT PLUGIN_STATUS FROM information_schema.plugins WHERE PLUGIN_NAME='keyring_vault'" | grep -q ACTIVE || {
-  echo "keyring_vault plugin is not ACTIVE:"; grep -iE 'keyring|vault' /var/log/mysqld.log 2>/dev/null | tail -10; exit 1; }
-echo "keyring_vault plugin ACTIVE (mount $MOUNT)"`
-
-// mysqlKeyringComponentScript installs the manifest + component config and verifies the component
-// is Active. Percona Server 8.4 only.
+// mysqlKeyringStageComponentScript writes the manifest + component config (8.4 and up, where the
+// plugin no longer exists).
 //
-// The two files do NOT live in the same place. The global manifest (mysqld.my) must sit beside
-// the mysqld binary, but the component reads its configuration from **plugin_dir** — the server
-// resolves `file://component_keyring_vault` there, and looks for <plugin_dir>/component_keyring_vault.cnf.
-// Putting the .cnf next to mysqld instead leaves the component loaded-but-Disabled, and the first
-// encrypted table then kills the server.
-const mysqlKeyringComponentScript = `set -e
+// The two files do NOT live in the same place. The global manifest (mysqld.my) must sit beside the
+// mysqld binary, and the component it names is then configured from **plugin_dir** — the server
+// resolves `file://component_keyring_vault` there and reads
+// <plugin_dir>/component_keyring_vault.cnf. Putting the .cnf next to mysqld instead leaves the
+// component loaded-but-Disabled, and the first encrypted table then kills the server.
+//
+// plugin_dir cannot be read from a running server here — nothing is running yet — so it is asked
+// of the *binary*: `mysqld --verbose --help` prints its compiled-in defaults without starting
+// anything, and that is the same value the server will use at startup.
+//
+// The fallback underneath it is a search for the component's own .so, and its two exclusions are
+// the reason this is not simply a search in the first place. A PXC node carries three copies of
+// component_keyring_vault.so:
+//
+//	/usr/lib64/mysql/plugin/component_keyring_vault.so         <- the one the server loads
+//	/usr/lib64/mysql/plugin/debug/component_keyring_vault.so   <- the debug build, shipped beside it
+//	/usr/lib64/xtrabackup/plugin/component_keyring_vault.so    <- XtraBackup's, for reading a backup
+//
+// and `find … -print -quit` returns the debug one first. That is not a hypothetical: the config
+// went to plugin/debug/, and the bootstrap died with "Keyring configuration doesn't exists:
+// /usr/lib64/mysql/plugin//component_keyring_vault.cnf" — the server naming, in its own error,
+// exactly the directory it expected.
+//
+// Either way the .so is checked for in the directory that was chosen, so a series whose packages
+// do not ship it fails here, with a sentence, instead of at the first encrypted table.
+const mysqlKeyringStageComponentScript = `set -e
 BINDIR=$(dirname "$(readlink -f "$(command -v mysqld)")")
-PLUGIN_DIR=$(mysql -N -e "SELECT @@plugin_dir" 2>/dev/null | tail -1)
-[ -d "$PLUGIN_DIR" ] || { echo "cannot resolve plugin_dir"; exit 1; }
+PLUGIN_DIR=$(mysqld --no-defaults --verbose --help 2>/dev/null | awk '$1=="plugin-dir"{print $2; exit}')
+PLUGIN_DIR=${PLUGIN_DIR%/}
+if [ -z "$PLUGIN_DIR" ] || [ ! -d "$PLUGIN_DIR" ]; then
+  SO=$(find /usr/lib64 /usr/lib -name component_keyring_vault.so \
+         ! -path '*/debug/*' ! -path '*xtrabackup*' -print -quit 2>/dev/null || true)
+  [ -n "$SO" ] || { echo "component_keyring_vault.so is not installed on this node"; exit 1; }
+  PLUGIN_DIR=$(dirname "$SO")
+fi
+[ -f "$PLUGIN_DIR/component_keyring_vault.so" ] || {
+  echo "component_keyring_vault.so is not in $PLUGIN_DIR — this server has no vault keyring to load"; exit 1; }
 printf '%s' "$CONF" > "$PLUGIN_DIR/component_keyring_vault.cnf"
 chown mysql:mysql "$PLUGIN_DIR/component_keyring_vault.cnf"
 chmod 0600 "$PLUGIN_DIR/component_keyring_vault.cnf"
 printf '{ "components": "file://component_keyring_vault" }\n' > "$BINDIR/mysqld.my"
 chmod 0644 "$BINDIR/mysqld.my"
-systemctl restart "$UNIT"
-for i in $(seq 1 30); do mysqladmin ping >/dev/null 2>&1 && break; sleep 2; done
-STATUS=$(mysql -N -e "SELECT STATUS_VALUE FROM performance_schema.keyring_component_status WHERE STATUS_KEY='Component_status'" 2>/dev/null | tail -1)
-[ "$STATUS" = "Active" ] || {
-  echo "component_keyring_vault is not Active (status: ${STATUS:-not loaded}):"
-  grep -iE 'keyring|component' /var/log/mysqld.log 2>/dev/null | tail -5; exit 1; }
-echo "component_keyring_vault Active (manifest $BINDIR/mysqld.my, config $PLUGIN_DIR, mount $MOUNT)"`
+echo "component_keyring_vault staged (manifest $BINDIR/mysqld.my, config $PLUGIN_DIR, mount $MOUNT)"`
 
-// applyMySQLVault wires a standalone Percona Server node to OpenBao as its keyring. 8.4 uses the
-// keyring_vault component; 5.7 and 8.0 use the keyring_vault plugin (no component exists there).
-// Returns the vaultInfo to persist. The node keeps running if this fails — the caller logs it.
-func (a *App) applyMySQLVault(ctx context.Context, st Stack, n designNode, doc designDoc, containerID, host string, pr *pxcProg) (vaultInfo, error) {
-	pr.phase("Configuring keyring (OpenBao)", 88)
-	baoCfg, rootToken, baoCID, err := a.waitOpenBaoReady(ctx, st.ID, n.OpenBaoNodeID, deployTimeout())
+// mysqlKeyringVerifyScript checks the keyring after the server is up, and — on the one node that
+// can write — proves it end to end.
+//
+// The status query is not enough on its own. It says the component or plugin loaded, not that it
+// can reach OpenBao with the token it was given: a wrong mount or an expired token loads fine and
+// fails at the first key. So the writable member also creates an encrypted table, which is the
+// operation that makes the server ask the keyring for a master key and store it. It carries a
+// primary key because PXC's pxc_strict_mode=ENFORCING refuses a table without one, and it is
+// dropped again immediately.
+const mysqlKeyringVerifyScript = `set -e
+export MYSQL_PWD="$ROOT_PW"
+Q() { mysql -u root -N -B -e "$1" 2>/dev/null | tail -1; }
+if [ "$MODE" = "component" ]; then
+  STATUS=$(Q "SELECT STATUS_VALUE FROM performance_schema.keyring_component_status WHERE STATUS_KEY='Component_status'")
+  [ "$STATUS" = "Active" ] || {
+    echo "component_keyring_vault is not Active (status: ${STATUS:-not loaded}):"
+    grep -iE 'keyring|component' "$LOGERR" 2>/dev/null | tail -5; exit 1; }
+  echo "component_keyring_vault Active (mount $MOUNT)"
+else
+  STATUS=$(Q "SELECT PLUGIN_STATUS FROM information_schema.plugins WHERE PLUGIN_NAME='keyring_vault'")
+  [ "$STATUS" = "ACTIVE" ] || {
+    echo "the keyring_vault plugin is not ACTIVE (status: ${STATUS:-not loaded}):"
+    grep -iE 'keyring|vault' "$LOGERR" 2>/dev/null | tail -10; exit 1; }
+  echo "keyring_vault plugin ACTIVE (mount $MOUNT)"
+fi
+if [ "$SMOKE" = "1" ]; then
+  mysql -u root -e "CREATE DATABASE IF NOT EXISTS dbcanvas_tde_check;
+    CREATE TABLE dbcanvas_tde_check.probe (id INT PRIMARY KEY) ENCRYPTION='Y';
+    DROP DATABASE dbcanvas_tde_check;" || {
+    echo "the keyring loaded but could not store a master key — check the token, the mount and the OpenBao policy:"
+    grep -iE 'keyring|vault' "$LOGERR" 2>/dev/null | tail -10; exit 1; }
+  echo "wrote and dropped an encrypted table — the master key round-tripped through OpenBao"
+fi`
+
+// prepareMySQLVault gives one MySQL-family server its own mount, token and keyring files, before
+// mysqld has started. The caller puts prep.Options into the node's config and, once the server is
+// up, calls verifyMySQLVault.
+func (a *App) prepareMySQLVault(ctx context.Context, st Stack, openbaoNodeID, nodeOS, major, host, containerID string, pr *pxcProg) (mysqlVaultPrep, error) {
+	pr.phase("Configuring keyring (OpenBao)", 50)
+	baoCfg, rootToken, baoCID, err := a.waitOpenBaoReady(ctx, st.ID, openbaoNodeID, deployTimeout())
 	if err != nil {
-		return vaultInfo{}, err
+		return mysqlVaultPrep{}, err
 	}
-	mount, kv, kvVersion := vaultMountFor(n, host)
+	mount, kv, kvVersion := mysqlVaultMount(major, host)
 	token, err := a.provisionVaultMount(ctx, baoCID, baoCfg, rootToken, mount, kv, "Percona Server for MySQL", pr.logln)
 	if err != nil {
-		return vaultInfo{}, err
+		return mysqlVaultPrep{}, err
 	}
 
 	// The one CA in the stack, already in this node's trust store — nothing to copy. A
 	// non-TLS OpenBao has no CA to verify at all.
 	caFile := ""
 	if baoCfg.TLS {
-		caFile = caAnchorFor(n.OS)
+		caFile = caAnchorFor(nodeOS)
 	}
-	major := psMajorOf(n.PSMajor)
-	unit := mysqlUnit(n.OS)
+	prep := mysqlVaultPrep{
+		Options: mysqlVaultOptions(major),
+		Info: vaultInfo{
+			Enabled: true, Addr: baoCfg.Addr, OpenBao: baoCfg.FQDN,
+			Mount: mount, KVVersion: kvVersion, CACert: caFile,
+		},
+	}
+	script, conf := mysqlKeyringStagePluginScript, mysqlKeyringPluginConf(baoCfg.Addr, mount, token, caFile, kvVersion)
+	prep.Info.Method, prep.Info.ConfFile = "keyring_vault plugin", mysqlKeyringConf
+	if mysqlModernMajor(psMajorOf(major)) {
+		script, conf = mysqlKeyringStageComponentScript, mysqlKeyringComponentConf(baoCfg.Addr, mount, token, caFile)
+		prep.Info.Method, prep.Info.ConfFile = "component_keyring_vault", "component_keyring_vault.cnf (in plugin_dir)"
+	}
+	if err := a.runStep(ctx, containerID, script, []string{"CONF=" + conf, "MOUNT=" + mount}, pr.logln); err != nil {
+		return mysqlVaultPrep{}, err
+	}
+	pr.logln("keyring: " + prep.Info.Method + " → " + baoCfg.Addr + " (mount " + mount + ", KV v" + kvVersion + ")")
+	return prep, nil
+}
 
-	info := vaultInfo{
-		Enabled: true, Addr: baoCfg.Addr, OpenBao: baoCfg.FQDN,
-		Mount: mount, KVVersion: kvVersion, CACert: caFile,
+// verifyMySQLVault confirms the keyring is live on a server that is now running. smoke asks for
+// the end-to-end check (an encrypted table), which only a writable member can do — the primary of
+// a replication pair, the node that bootstrapped a cluster.
+func (a *App) verifyMySQLVault(ctx context.Context, containerID, nodeOS, major, mount, rootPW string, smoke bool, pr *pxcProg) error {
+	mode := "plugin"
+	if mysqlModernMajor(psMajorOf(major)) {
+		mode = "component"
 	}
-	// 8.4 removed the keyring_vault PLUGIN in favour of the component, and 9.x has
-	// only the component too.
-	if mysqlModernMajor(major) {
-		info.Method = "component_keyring_vault"
-		info.ConfFile = "component_keyring_vault.cnf (in plugin_dir)"
-		conf := mysqlKeyringComponentConf(baoCfg.Addr, mount, token, caFile)
-		if err := a.runStep(ctx, containerID, mysqlKeyringComponentScript,
-			[]string{"CONF=" + conf, "UNIT=" + unit, "MOUNT=" + mount}, pr.logln); err != nil {
-			return vaultInfo{}, err
-		}
-	} else {
-		info.Method = "keyring_vault plugin"
-		info.ConfFile = mysqlKeyringConf
-		conf := mysqlKeyringPluginConf(baoCfg.Addr, mount, token, caFile, kvVersion)
-		if err := a.runStep(ctx, containerID, mysqlKeyringPluginScript,
-			[]string{"CONF=" + conf, "UNIT=" + unit, "MOUNT=" + mount}, pr.logln); err != nil {
-			return vaultInfo{}, err
-		}
+	env := []string{"MODE=" + mode, "MOUNT=" + mount, "ROOT_PW=" + rootPW, "LOGERR=" + pxcLogError(nodeOS)}
+	if smoke {
+		env = append(env, "SMOKE=1")
 	}
-	pr.logln("keyring: " + info.Method + " → " + baoCfg.Addr + " (mount " + mount + ", KV v" + kvVersion + ")")
-	return info, nil
+	return a.runStep(ctx, containerID, mysqlKeyringVerifyScript, env, pr.logln)
 }
 
 // ------------------------------------------------------------------------ PSMDB (MongoDB)

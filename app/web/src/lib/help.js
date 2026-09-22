@@ -100,7 +100,9 @@ export const HELP = {
   vault:
     'Keep the data-at-rest encryption keys in the OpenBao node rather than in a file beside the data. This is the ' +
     'shape a real keyring deployment takes, and it lets you demonstrate what happens to a running database when the ' +
-    'key server goes away.',
+    'key server goes away. On a cluster the tick covers every member, each with a KV mount of its own — Percona ' +
+    'requires a mount to serve exactly one server — and the keyring is put in place before any member first ' +
+    'starts, so nothing has to be restarted into it.',
 
   // --- monitoring & topology ----------------------------------------------
   pmm:

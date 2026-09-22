@@ -53,7 +53,7 @@ func TestMySQLCnfOptionKeysRejectsNonOptionLines(t *testing.T) {
 // conflict — the PXC identity block above all.
 func TestPXCCnfDisablesVendorIdentity(t *testing.T) {
 	frame := designFrame{OS: "ubuntu", Label: "pxc-cluster-00", PXCMajor: "8.0", PXCVersion: "8.0.45-36.1", GTID: true}
-	keys := mysqlCnfOptionKeys(pxcMyCnf(frame, designNode{}, "pxc03", "example.net", "pxc01.example.net"))
+	keys := mysqlCnfOptionKeys(pxcMyCnf(frame, designNode{}, "pxc03", "example.net", "pxc01.example.net", ""))
 	set := map[string]bool{}
 	for _, k := range keys {
 		set[k] = true
@@ -73,7 +73,7 @@ func TestPXCCnfDisablesVendorIdentity(t *testing.T) {
 func TestMySQLReplCnfDisablesVendorPaths(t *testing.T) {
 	frame := designFrame{OS: "debian", PSMajor: "8.0", PSVersion: "8.0.46-37", GTID: true}
 	set := map[string]bool{}
-	for _, k := range mysqlCnfOptionKeys(mysqlMyCnf(frame, "ps01")) {
+	for _, k := range mysqlCnfOptionKeys(mysqlMyCnf(frame, "ps01", "")) {
 		set[k] = true
 	}
 	for _, k := range []string{"pid-file", "socket", "datadir", "log-error", "server-id"} {

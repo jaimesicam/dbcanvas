@@ -603,6 +603,16 @@ type designFrame struct {
 	// designNode field of the same name (see dbvault.go): one OpenBao per stack, and the cluster
 	// gets its own KV v2 mount and a token scoped to it.
 	OpenBaoNodeID string `json:"openbaoNodeId"`
+	// Data-at-rest encryption for the PXC and Percona Server replication frames (Type=="pxc" |
+	// "mysql"), keyed to the same OpenBao node above. Every member gets the keyring — Percona
+	// requires the same keyring type on every node of a cluster, and a replica holds the same
+	// rows as its source — and every member gets a mount of its OWN (mysqlVaultMount), because a
+	// secret_mount_point may serve exactly one server.
+	//
+	// Unlike the K3D flag above this one is staged before the server's first start rather than
+	// applied afterwards: a keyring that arrives later means restarting a member, and restarting
+	// a PXC member means leaving and rejoining the cluster. See dbvault.go.
+	EnableVault bool `json:"enableVault"`
 	// Point-in-time recovery, PXC operator only (`backup.pitr` — the binlog collector). It needs
 	// an S3 store, so it rides on SeaweedFSNodeID; K3DPITRBucket is which of that node's buckets
 	// the *binlogs* go to, and giving them their own is the point — two clusters uploading
@@ -1467,6 +1477,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		if total%2 == 0 && total > 0 {
 			out = append(out, issue{Level: "warning", Message: "PXC cluster " + f.Label + ": an odd number of nodes keeps quorum on a split network"})
 		}
+		out = append(out, vaultFrameIssues(f, openbaoIDs)...)
 	}
 	for name, c := range clusterNames {
 		if c > 1 && name != "" {
@@ -1545,6 +1556,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 				out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
 			}
 		}
+		out = append(out, vaultFrameIssues(f, openbaoIDs)...)
 	}
 	for name, c := range mysqlNames {
 		if c > 1 && name != "" {

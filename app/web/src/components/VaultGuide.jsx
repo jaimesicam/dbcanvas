@@ -4,7 +4,12 @@ import { Icon } from './Icons.jsx'
 // VaultGuide — the "Encryption" tab of a deployed Percona Server / PSMDB / PostgreSQL node that
 // was wired to an OpenBao node at deploy. The keyring is already configured; this says what was
 // configured (so it can be audited) and how to actually use it. Driven by dep.config.vault
-// (vaultInfo in app/dbvault.go); `engine` ∈ {ps, psm, pg}.
+// (vaultInfo in app/dbvault.go); `engine` ∈ {ps, psm, pg, pxc, mysql}.
+//
+// pxc and mysql are cluster MEMBERS and share the ps guide, plus one paragraph they need and a
+// standalone server does not: this member's mount holds this member's master key and nobody
+// else's. It is the question everybody asks of a cluster with a vault in front of it, and the
+// answer is counter-intuitive enough to be worth a sentence — rows replicate, keys do not.
 
 function CopyButton({ text }) {
   const [done, setDone] = useState(false)
@@ -114,7 +119,8 @@ psql -U postgres -c "SELECT count(*) FROM my_table;"`} />
     )
   }
 
-  // ps — Percona Server for MySQL
+  // ps — Percona Server for MySQL, standalone or as a cluster member (pxc / mysql)
+  const member = engine === 'pxc' || engine === 'mysql'
   return (
     <div className="space-y-3">
       <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
@@ -124,12 +130,28 @@ psql -U postgres -c "SELECT count(*) FROM my_table;"`} />
         Master keys live in OpenBao — MySQL will not open an encrypted tablespace while it is sealed or unreachable.
       </div>
       {rows}
+      {member && (
+        <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
+          Every member of this cluster is encrypted, and each has a KV mount of its own —{' '}
+          <span className="font-mono">{info.mount}</span> is this one's. That is Percona's rule (a{' '}
+          <span className="font-mono">secret_mount_point</span> serves exactly one server) and it works because
+          keys are never what travels between members: {engine === 'pxc'
+            ? <>write-sets carry rows, and a joiner's SST re-encrypts the donor's tablespace keys under a master key it generates for itself.</>
+            : <>a replica applies the source's changes and encrypts what it writes with its own master key.</>}
+          {' '}So rotating here rotates this member only, and a member whose OpenBao mount is unreachable is the
+          only one that stops.
+        </div>
+      )}
       <Code label="Confirm the keyring is loaded" text={plugin
         ? `mysql -e "SELECT PLUGIN_NAME, PLUGIN_STATUS FROM information_schema.plugins WHERE PLUGIN_NAME='keyring_vault'"`
         : `mysql -e "SELECT * FROM performance_schema.keyring_component_status"`} />
       <Code label="Encrypt a table (and check)" text={`mysql -e "CREATE DATABASE IF NOT EXISTS enc; CREATE TABLE enc.t (id INT PRIMARY KEY) ENCRYPTION='Y';"
 mysql -e "SELECT NAME, ENCRYPTION FROM information_schema.innodb_tablespaces WHERE NAME LIKE 'enc/%'"`} />
-      <Code label="Encrypt everything new by default" text={`mysql -e "SET PERSIST default_table_encryption=ON;"`} />
+      <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
+        <span className="font-mono">default_table_encryption=ON</span> is already set in this server's config, so a
+        table created here is encrypted without the <span className="font-mono">ENCRYPTION=&apos;Y&apos;</span> clause
+        above. An explicit clause still wins, in either direction.
+      </div>
       <Code label="Rotate the master key" text={`mysql -e "ALTER INSTANCE ROTATE INNODB MASTER KEY;"`} />
     </div>
   )

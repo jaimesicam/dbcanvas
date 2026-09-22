@@ -754,6 +754,40 @@ func TestComposeVaultKerberosAndBackups(t *testing.T) {
 		}
 	})
 
+	// A cluster is keyed as a unit: the flag lands on the FRAME, and every member is encrypted
+	// from it at deploy (each with a mount of its own — see dbvault.go).
+	t.Run("vault keys for a PXC cluster and a replication cluster", func(t *testing.T) {
+		doc, _, _, _ := composeBuild(t, composeSpec{Name: "cv", Nodes: []composeNodeSpec{
+			{Kind: "openbao"},
+			{Kind: "pxc", Count: 3, Version: "8.4", OS: "el9", Vault: true},
+			{Kind: "ps-repl", Count: 2, Version: "8.0", OS: "el9", Vault: true},
+		}})
+		var baoID string
+		for _, n := range doc.Nodes {
+			if n.Type == "openbao" {
+				baoID = n.ID
+			}
+		}
+		for _, ft := range []string{"pxc", "mysql"} {
+			var f designFrame
+			for _, x := range doc.Frames {
+				if x.Type == ft {
+					f = x
+				}
+			}
+			if !f.EnableVault || f.OpenBaoNodeID != baoID {
+				t.Errorf("%s frame vault: enabled=%v bao=%q, want true / %q", ft, f.EnableVault, f.OpenBaoNodeID, baoID)
+			}
+			// The members carry nothing: the frame is where a cluster's settings live, and a
+			// member with its own copy would be a second source of truth to keep in step.
+			for _, n := range doc.Nodes {
+				if n.FrameID == f.ID && n.EnableVault {
+					t.Errorf("%s member %s carries its own vault flag", ft, n.Label)
+				}
+			}
+		}
+	})
+
 	t.Run("kerberos against a Samba AD DC", func(t *testing.T) {
 		doc, _, _, _ := composeBuild(t, composeSpec{Name: "k", Nodes: []composeNodeSpec{
 			{Kind: "sambaad"},

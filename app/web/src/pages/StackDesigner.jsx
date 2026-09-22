@@ -3056,6 +3056,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
       os: 'oraclelinux', osVersion: '9', pxcMajor: '8.0', pxcVersion: '',
       rootPassword: '', pmmNodeId: '', useProxy: false, gtid: true,
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
+      enableVault: false, openbaoNodeId: '',
     }
     const used = new Set(nodes.filter((n) => n.type === 'pxc').map((n) => n.label))
     const newNodes = []
@@ -3115,6 +3116,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
       os: 'oraclelinux', osVersion: '9', psMajor: '8.0', psVersion: '',
       rootPassword: '', pmmNodeId: '', useProxy: false, gtid: true, replMode: 'async',
       generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
+      enableVault: false, openbaoNodeId: '',
     }
     const used = new Set(nodes.filter((n) => n.type === 'mysql').map((n) => n.label))
     const newNodes = []
@@ -4843,6 +4845,8 @@ function PXCFrameForm({ frame: f, stackId, nodes, frameNodes, patchFrame, delete
         </div>
       )}
 
+      <FrameVaultFields frame={f} nodes={nodes} patchFrame={patchFrame} deployed={deployed} />
+
       {(regulars < 3 || total % 2 === 0) && (
         <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
           {regulars < 3 && <div>For HA, use at least 3 regular nodes ({regulars} now).</div>}
@@ -5034,6 +5038,8 @@ function MySQLFrameForm({ frame: f, stackId, nodes, frames, edges, patchFrame, d
         </div>
       )}
 
+      <FrameVaultFields frame={f} nodes={nodes} patchFrame={patchFrame} deployed={deployed} />
+
       {(primaries !== 1 || secondaries === 0) && (
         <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
           {primaries !== 1 && <div>Exactly one node must be the primary ({primaries} now).</div>}
@@ -5220,6 +5226,70 @@ function VaultFields({ node: n, nodes, patchNode, deployed }) {
               it cannot be turned on later without re-creating the data.
             </p>
           )}
+        </>
+      )}
+    </div>
+  )
+}
+
+// FrameVaultFields is VaultFields for a CLUSTER — the PXC and Percona Server replication frames.
+//
+// The question is the same one a standalone node answers, but two things about the answer are
+// not, and both are worth saying on the form rather than in a document nobody opens:
+//
+//   - **Every member is encrypted, and every member gets its own KV mount.** That is Percona's
+//     rule, not a preference — "each secret_mount_point must serve only one Percona Server
+//     instance" — and it holds inside a cluster, because members keep their own master keys and a
+//     joiner re-encrypts what it receives under a key it generates for itself.
+//   - **It is a deploy-time decision.** The keyring is staged before each server's first start, so
+//     that a member is never restarted into one: restarting a PXC member means leaving the
+//     cluster and rejoining it.
+export function FrameVaultFields({ frame: f, nodes, patchFrame, deployed }) {
+  const bao = nodes.find((x) => x.type === 'openbao')
+  const none = deployed || !bao
+  const isPXC = f.type === 'pxc'
+  const maj = (isPXC ? f.pxcMajor : f.psMajor) || '8.0'
+  const method = maj === '8.4' || maj === '9.7'
+    ? 'component_keyring_vault (KV v2)'
+    : 'the keyring_vault plugin (KV v2)'
+  return (
+    <div className="space-y-2 rounded-lg border border-dashed p-2">
+      <div className="text-xs font-medium text-muted">Data-at-rest encryption</div>
+      <label className={`flex items-center gap-2 text-sm ${none ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!f.enableVault} disabled={none}
+          onChange={(e) => patchFrame(f.id, {
+            enableVault: e.target.checked,
+            openbaoNodeId: e.target.checked ? (bao?.id ?? '') : '',
+          })} />
+        <span>Encrypt with OpenBao</span><Help text={HELP.vault} />
+      </label>
+      {!bao && <p className="text-xs text-muted">Add the OpenBao node to key encryption to it.</p>}
+      {f.enableVault && bao && (
+        <>
+          <p className="text-xs text-muted">
+            Every {isPXC ? 'data node' : 'member'} is wired to <span className="font-mono">{bao.label}</span> with{' '}
+            <span className="font-mono">{method}</span>, each with its own KV mount
+            (<span className="font-mono">mysql-&lt;host&gt;</span>) and a token scoped to it — Percona requires a
+            mount to serve one server, inside a cluster as much as outside one.
+            {isPXC && ' An arbitrator runs garbd, which stores no data and needs no keyring.'}
+          </p>
+          {isPXC && (
+            <p className="text-xs text-muted">
+              Cluster traffic is encrypted too, which PXC does not leave optional: with a keyring configured its SST
+              script refuses an unencrypted channel outright, so a cluster without it would bootstrap one member and
+              never add a second. The cluster gets <span className="font-medium text-fg">one certificate</span> from
+              the Intranet CA — identical on every member, as PXC requires — staged before the first member starts,
+              and <span className="font-mono">pxc_encrypt_cluster_traffic</span> comes on with it. Per-node
+              certificates are skipped for the same reason: PXC cannot use a different one per member.
+            </p>
+          )}
+          <p className="text-xs text-muted">
+            The keyring is staged before each server first starts, so no member is restarted to get one, and{' '}
+            <span className="font-mono">default_table_encryption=ON</span> is set — tables created here are
+            encrypted without asking for it. {isPXC
+              ? 'SST stays on xtrabackup-v2, which re-encrypts a joiner\'s copy under its own master key (rsync SST refuses to run at all with a vault keyring).'
+              : 'A replica holds the same rows as its source, so it is encrypted with a key of its own rather than sharing one.'}
+          </p>
         </>
       )}
     </div>
@@ -11785,13 +11855,13 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     // features MariaDB does not offer here and render falsy).
     if (n.type === 'mariadb') {
       if (dep && dep.state === 'running') {
-        return <MySQLManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+        return <MySQLManager stackId={stackId} nodeId={n.id} engine={n.type} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <MariaDBNodeForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} deployed={deployed} />
     }
     if (n.type === 'mysqlce') {
       if (dep && dep.state === 'running') {
-        return <MySQLManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+        return <MySQLManager stackId={stackId} nodeId={n.id} engine={n.type} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <MySQLCENodeForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} deployed={deployed} />
     }
@@ -11803,7 +11873,7 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         // understands it (cluster topology, group name, Router RW/RO ports).
         return n.type === 'mysqlceinnodb'
           ? <InnoDBManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
-          : <MySQLManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+          : <MySQLManager stackId={stackId} nodeId={n.id} engine={n.type} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return (
         <UpstreamMemberForm
@@ -11825,7 +11895,7 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     // MySQL replication member node.
     if (n.type === 'mysql') {
       if (dep && dep.state === 'running') {
-        return <MySQLManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+        return <MySQLManager stackId={stackId} nodeId={n.id} engine={n.type} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <MySQLMemberForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} nodes={nodes} patchNode={patchNode} dep={dep} deployed={deployed} />
     }
@@ -11958,7 +12028,7 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     // Standalone Percona Server node.
     if (n.type === 'ps') {
       if (dep && dep.state === 'running') {
-        return <MySQLManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+        return <MySQLManager stackId={stackId} nodeId={n.id} engine={n.type} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <PerconaServerForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }

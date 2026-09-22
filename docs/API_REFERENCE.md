@@ -293,7 +293,7 @@ holds an id that does not exist until something generates it. Each takes an opti
 | `ldap` | directory authentication | `intranet`, `sambaad` | `ps`, `pg`, `psm`, `valkey`, `valkey-cluster` |
 | `oidc` | Keycloak single sign-on | `keycloak` | `ps`, `pg`, `psm`, `pmm` |
 | `kerberos` | GSSAPI single sign-on | `sambaad` | `pg`, `psm` |
-| `vault` | data-at-rest keys in OpenBao | `openbao` | `ps`, `psm`, `pg` (pg_tde — PostgreSQL 17/18 only) |
+| `vault` | data-at-rest keys in OpenBao | `openbao` | `ps`, `psm`, `pg` (pg_tde — PostgreSQL 17/18 only), `pxc`, `ps-repl` (whole cluster, one KV mount per member) |
 | `backup` | pgBackRest / Barman / PBM → S3 | `seaweedfs` | `pg`, `patroni`, `repmgr`, `psmrs` |
 | `orchestrator` | topology discovery and failover | `orchestrator` | `ps-repl`, `mariadb-repl`, `mysql-repl` |
 

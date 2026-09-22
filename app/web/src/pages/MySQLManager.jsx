@@ -40,7 +40,10 @@ function KV({ k, v, mono, help }) {
   )
 }
 
-export default function MySQLManager({ stackId, nodeId, dep, onDeleteNode }) {
+// engine is the node's own type — "ps" standalone, "pxc" or "mysql" for a cluster member,
+// "mariadb" for the MariaDB family. Only the Encryption tab cares: a member's keyring guide has
+// to say what belongs to this member and what belongs to the cluster (see VaultGuide).
+export default function MySQLManager({ stackId, nodeId, engine = 'ps', dep, onDeleteNode }) {
   const [tab, setTab] = useState('overview')
   const { openTerminal } = useTerminals()
   const cfg = dep.config || {}
@@ -128,7 +131,7 @@ export default function MySQLManager({ stackId, nodeId, dep, onDeleteNode }) {
       )}
       {tab === 'dirlogin' && <DbLoginGuide engine="ps" info={cfg.dirAuth} />}
       {tab === 'sso' && <OidcLoginGuide engine="ps" info={cfg.oidc} secrets={sec} />}
-      {tab === 'encryption' && <VaultGuide engine="ps" info={cfg.vault} />}
+      {tab === 'encryption' && <VaultGuide engine={engine} info={cfg.vault} />}
       {tab === 'diag' && <PTStalkCard stackId={stackId} nodeId={nodeId} />}
     </div>
   )

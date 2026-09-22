@@ -305,8 +305,16 @@ var composeLinks = []composeLink{
 	{Option: "vault", Provides: []string{"openbao"},
 		Missing: `add {"kind":"openbao"} to the spec`,
 		Apply: func(id string, n *designNode, f *designFrame) {
-			if n != nil {
+			// A cluster is encrypted as a unit: the flag is the FRAME's, and every member is
+			// keyed from it at deploy with a KV mount of its own (dbvault.go). A member that
+			// also carried the flag would be a second copy of one setting — and the deploy
+			// reads the frame — so the node branch is for standalone nodes only. Only the two
+			// Percona MySQL frames offer the link at all; see the Links lists in composeKinds.
+			if n != nil && n.FrameID == "" {
 				n.EnableVault, n.OpenBaoNodeID = true, id
+			}
+			if f != nil {
+				f.EnableVault, f.OpenBaoNodeID = true, id
 			}
 		}},
 	{Option: "backup", Provides: []string{"seaweedfs"},
@@ -520,13 +528,13 @@ var composeKinds = []composeKind{
 		Catalog:    "percona_xtradb_cluster",
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) { f.PXCMajor, f.PXCVersion = major, minor },
 		Roles:      func(i, of int) string { return "regular" }, CanCert: true, CanGTID: true, CanExport: true,
-		Links: []string{"monitor"},
+		Links: []string{"monitor", "vault"},
 		About: "Percona XtraDB Cluster. \"count\" is the member count (default 3)."},
 	{Kind: "ps-repl", Type: "mysql", CanShape: true, Scalars: []string{"replMode"}, Frame: true, Members: 3, MinMembers: 2, MaxMembers: 9,
 		Catalog:    "percona_server",
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) { f.PSMajor, f.PSVersion = major, minor },
 		Roles:      primaryFirst, CanCert: true, CanGTID: true, CanExport: true,
-		Links: []string{"monitor", "orchestrator"},
+		Links: []string{"monitor", "orchestrator", "vault"},
 		About: "Percona Server asynchronous replication."},
 	{Kind: "patroni", Type: "patroni", CanShape: true, Frame: true, Members: 3, MinMembers: 2, MaxMembers: 7,
 		Catalog:    "percona_postgresql",

@@ -291,6 +291,18 @@ func (a *App) provisionMySQLFrame(st Stack, frame designFrame, doc designDoc) {
 				}
 				a.pxcPMMExec(ctx, dep.ContainerID, frame.OS, pxcPMMEnv(monitoredBy, pmmUser, pmmPass, sec, n.Label)) // best-effort
 			}
+			// The keyring was staged before this member's first start; confirm it actually
+			// loaded. The end-to-end check (writing an encrypted table) runs on the primary
+			// only — a secondary is super_read_only by now, and the primary's write is the
+			// cluster's proof either way.
+			if frame.EnableVault {
+				pr.phase("Verifying keyring (OpenBao)", 97)
+				mount, _, _ := mysqlVaultMount(frame.PSMajor, hosts[n.ID])
+				if err := a.verifyMySQLVault(ctx, dep.ContainerID, frame.OS, frame.PSMajor, mount, sec.RootPassword, n.ID == primary.ID, pr); err != nil {
+					pr.fail("verify keyring_vault: %v", err)
+					return
+				}
+			}
 			pr.phase("Running", 100)
 			pr.p.Message = "provisioned"
 			pr.save()
@@ -316,6 +328,10 @@ func (a *App) provisionPerconaServer(st Stack, n designNode, doc designDoc) {
 		PSMajor: n.PSMajor, PSVersion: n.PSVersion, GTID: n.GTID,
 		UseProxy: n.UseProxy, GenerateCert: n.GenerateCert,
 		CertTTLValue: n.CertTTLValue, CertTTLUnit: n.CertTTLUnit, PMMNodeID: n.PMMNodeID,
+		// The keyring rides on the synthetic frame like everything else this node configures
+		// through the shared path, so a standalone server and a replication member are wired
+		// by the same code — which is the only way they stay wired the same way.
+		EnableVault: n.EnableVault, OpenBaoNodeID: n.OpenBaoNodeID,
 	}
 	major := psMajorOf(n.PSMajor)
 	image := pxcImage(n.OS, n.OSVersion, n.Arch)
@@ -388,15 +404,16 @@ func (a *App) provisionPerconaServer(st Stack, n designNode, doc designDoc) {
 				pr.logln("Keycloak OIDC skipped: " + err.Error())
 			}
 		}
-		// Data-at-rest encryption: point the keyring at the linked OpenBao node (the component
-		// on 8.4, the plugin on 5.7/8.0). Done last — it restarts mysqld.
+		// Data-at-rest encryption was staged before the server's first start (mysqlPrepareNode);
+		// what is left is to prove it works — the keyring is loaded, and a master key really
+		// round-trips through OpenBao.
 		if n.EnableVault {
-			info, err := a.applyMySQLVault(ctx, st, n, doc, a.containerOf(st.ID, n.ID), host, pr)
-			if err != nil {
-				pr.fail("configure keyring_vault: %v", err)
+			pr.phase("Verifying keyring (OpenBao)", 97)
+			mount, _, _ := mysqlVaultMount(n.PSMajor, host)
+			if err := a.verifyMySQLVault(ctx, a.containerOf(st.ID, n.ID), n.OS, n.PSMajor, mount, sec.RootPassword, true, pr); err != nil {
+				pr.fail("verify keyring_vault: %v", err)
 				return
 			}
-			a.persistConfigKey(st, n.ID, "vault", info)
 		}
 		pr.phase("Running", 100)
 		pr.p.Message = "provisioned"
@@ -747,13 +764,26 @@ func (a *App) mysqlPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	}
 	a.ensureRsyslog(ctx, id, frame.OS, pr.logln)
 
-	return a.mysqlWriteNodeCnf(ctx, id, frame.OS, mysqlMyCnf(frame, host), pr)
+	// Data-at-rest encryption, staged before mysqld has ever started: the keyring files go into
+	// the container now and the options it needs go into the config written below, so the server
+	// comes up with a keyring instead of being restarted into one. See dbvault.go.
+	vaultOpts := ""
+	if frame.EnableVault {
+		prep, err := a.prepareMySQLVault(ctx, st, frame.OpenBaoNodeID, frame.OS, frame.PSMajor, host, id, pr)
+		if err != nil {
+			return pr.fail("configure keyring_vault: %v", err)
+		}
+		vaultOpts = prep.Options
+		a.persistConfigKey(st, n.ID, "vault", prep.Info)
+	}
+
+	return a.mysqlWriteNodeCnf(ctx, id, frame.OS, mysqlMyCnf(frame, host, vaultOpts), pr)
 }
 
 // mysqlMyCnf renders /etc/my.cnf for a MySQL replication node. read_only is NOT
 // set here (it is applied with SET PERSIST on secondaries after replication is
 // configured, so the bootstrap writes are not blocked).
-func mysqlMyCnf(frame designFrame, host string) string {
+func mysqlMyCnf(frame designFrame, host, vaultOptions string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "[client]\nsocket=/var/lib/mysql/mysql.sock\n\n[mysqld]\n")
 	fmt.Fprintf(&b, "server-id=%d\n", mysqlServerID(host))
@@ -773,6 +803,10 @@ func mysqlMyCnf(frame designFrame, host string) string {
 	if psMajorOf(frame.PSMajor) == "5.7" {
 		fmt.Fprintf(&b, "master_info_repository=TABLE\nrelay_log_info_repository=TABLE\n")
 	}
+	// The keyring, when this node has one. It is written here rather than appended to /etc/my.cnf
+	// afterwards because this is the file the server actually reads on both OS families — see
+	// mysqlWriteNodeCnf, and the note at the top of dbvault.go's staging section.
+	b.WriteString(vaultOptions)
 	return b.String()
 }
 

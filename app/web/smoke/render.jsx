@@ -39,6 +39,7 @@ import {
   frameHeaderW, layoutFrame, separateFrames, SIM_NODE_TYPES, frameVersionLabel, frameSubLabel,
   podMenuEntries, POD_SHELLS, POD_CLIENTS,
   Spinner, NodeStatus, nodeConfiguring, configPhaseOf, PITRFields,
+  FrameVaultFields,
 } from '../src/pages/StackDesigner.jsx'
 import { ReplicationView } from '../src/pages/K3DManager.jsx'
 import OperatorSummary, { Verdicts as OpVerdicts, Findings as OpFindings, Workloads as OpWorkloads, Pods as OpPods, CRs as OpCRs, Operators as OpOperators, Deployment as OpDeployment, Images as OpImages, Secrets as OpSecrets, Backups as OpBackups, Certs as OpCerts, Storage as OpStorage, Logs as OpLogs, Galera as OpGalera, PodSummaries as OpPodSummaries, BackupLogs as OpBackupLogs, Extras as OpExtras } from '../src/pages/OperatorSummary.jsx'
@@ -49,6 +50,7 @@ import { TabCount, TabCapNotice, NAV } from '../src/App.jsx'
 import { showExperimental, visible, visibleGroups } from '../src/lib/experimental.js'
 import MySQLManager from '../src/pages/MySQLManager.jsx'
 import OidcLoginGuide from '../src/components/OidcLoginGuide.jsx'
+import VaultGuide from '../src/components/VaultGuide.jsx'
 import SeaweedFSManager from '../src/pages/SeaweedFSManager.jsx'
 import BackupGuide, { PgBackRestGuide, BarmanGuide } from '../src/components/BackupGuide.jsx'
 import RepmgrGuide from '../src/components/RepmgrGuide.jsx'
@@ -615,6 +617,92 @@ check('SeaweedFSManager: the Buckets tab opens the file manager', () => {
 })
 
 // A node without OIDC must not grow the tab (cfg.oidc is simply absent).
+// ---- data-at-rest encryption on a cluster -----------------------------------
+//
+// The tick lives on the FRAME (PXC, Percona Server replication) and covers every member, which
+// is a different shape from the per-node one and has to render as one: the members are not
+// individually configurable, and the form has to say what the deploy will do to all of them.
+
+const baoNodes = [{ id: 'bao1', type: 'openbao', label: 'openbao-01' }]
+
+check('cluster encryption: the frame offers OpenBao only when one is on the canvas', () => {
+  const off = renderToString(<FrameVaultFields frame={{ id: 'f1', type: 'pxc', pxcMajor: '8.0' }}
+    nodes={[]} patchFrame={noop} deployed={false} />)
+  if (!/Add the OpenBao node/.test(off)) throw new Error('with no OpenBao the form does not say what to add')
+  if (!/disabled/.test(off)) throw new Error('the toggle must be disabled with no OpenBao node')
+
+  const on = renderToString(<FrameVaultFields frame={{ id: 'f1', type: 'pxc', pxcMajor: '8.0', enableVault: true, openbaoNodeId: 'bao1' }}
+    nodes={baoNodes} patchFrame={noop} deployed={false} />)
+  // The three facts a cluster needs that a standalone node does not.
+  if (!on.includes('mysql-&lt;host&gt;')) throw new Error('the per-member mount is not explained')
+  if (!/xtrabackup-v2/.test(on)) throw new Error('PXC must say rsync SST cannot be used with a vault keyring')
+  if (!/default_table_encryption=ON/.test(on)) throw new Error('the default-encryption behaviour is not stated')
+  return 'ok'
+})
+
+check('cluster encryption: the version decides component vs plugin, on either frame', () => {
+  const html84 = renderToString(<FrameVaultFields frame={{ id: 'f1', type: 'pxc', pxcMajor: '8.4', enableVault: true, openbaoNodeId: 'bao1' }}
+    nodes={baoNodes} patchFrame={noop} deployed={false} />)
+  if (!/component_keyring_vault/.test(html84)) throw new Error('8.4 must use the keyring component')
+  const html80 = renderToString(<FrameVaultFields frame={{ id: 'f1', type: 'mysql', psMajor: '8.0', enableVault: true, openbaoNodeId: 'bao1' }}
+    nodes={baoNodes} patchFrame={noop} deployed={false} />)
+  if (!/keyring_vault plugin/.test(html80)) throw new Error('8.0 must use the keyring plugin — the component only exists from 8.4')
+  // A replication cluster's members are independent servers, not a Galera group: no SST to talk
+  // about, and the reason each needs its own key is different.
+  if (/xtrabackup-v2/.test(html80)) throw new Error('SST is a PXC concern, not a replication one')
+  if (!/replica/.test(html80)) throw new Error('the replica case is not explained')
+  return 'ok'
+})
+
+const clusterVaultInfo = {
+  enabled: true, method: 'component_keyring_vault', addr: 'https://openbao-01.example.net:8200',
+  openbao: 'openbao-01.example.net', mount: 'mysql-pxc01', kvVersion: '2',
+  confFile: 'component_keyring_vault.cnf (in plugin_dir)', caCert: '/etc/pki/ca-trust/source/anchors/dbcanvas-ca.crt',
+}
+
+check('cluster encryption: a member\'s guide says which key is its own', () => {
+  const pxc = renderToString(<VaultGuide engine="pxc" info={clusterVaultInfo} />)
+  if (!pxc.includes('mysql-pxc01')) throw new Error("the member's own mount is not named")
+  if (!/secret_mount_point/.test(pxc)) throw new Error('the one-mount-per-server rule is not given')
+  if (!/SST/.test(pxc)) throw new Error('a PXC member should say how a joiner gets its keys')
+  const repl = renderToString(<VaultGuide engine="mysql" info={clusterVaultInfo} />)
+  if (/SST/.test(repl)) throw new Error('a replica has no SST')
+  if (!/replica/.test(repl)) throw new Error('the replica case is not explained')
+  // A standalone node has no cluster paragraph at all.
+  const ps = renderToString(<VaultGuide engine="ps" info={clusterVaultInfo} />)
+  if (/Every member of this cluster/.test(ps)) throw new Error('a standalone node was given the cluster paragraph')
+  // And the guide must not tell anyone to set what the deploy already set.
+  if (/SET PERSIST default_table_encryption/.test(ps)) throw new Error('default_table_encryption is already on — the guide should say so, not ask for it')
+  return 'ok'
+})
+
+check('cluster encryption: an encrypted PXC member gets the Encryption tab', () => {
+  const dep = {
+    state: 'running',
+    config: {
+      cluster: 'pxc-cluster-01', role: 'regular', hostname: 'pxc01', fqdn: 'pxc01.example.net',
+      os: 'oraclelinux', serverVersion: '8.4.5-5.1', ports: [3306], vault: clusterVaultInfo,
+    },
+    secrets: {},
+  }
+  const html = renderToString(
+    <TerminalProvider>
+      <MySQLManager stackId={1} nodeId="pxc01" engine="pxc" dep={dep} onDeleteNode={noop} />
+    </TerminalProvider>,
+  )
+  if (!html.includes('Encryption')) throw new Error('the Encryption tab is missing on an encrypted member')
+  if (!html.includes('OpenBao · component_keyring_vault')) throw new Error('the summary row does not name the method')
+  // …and an unencrypted one does not.
+  const plain = renderToString(
+    <TerminalProvider>
+      <MySQLManager stackId={1} nodeId="pxc02" engine="pxc"
+        dep={{ state: 'running', config: { ...dep.config, vault: undefined }, secrets: {} }} onDeleteNode={noop} />
+    </TerminalProvider>,
+  )
+  if (plain.includes('Encryption')) throw new Error('an unencrypted member offers an Encryption tab')
+  return 'ok'
+})
+
 check('MySQLManager: no Keycloak SSO tab without it', () => {
   const dep = { state: 'running', config: { hostname: 'ps2', fqdn: 'ps2.example.net', role: 'standalone' }, secrets: {} }
   const html = renderToString(
