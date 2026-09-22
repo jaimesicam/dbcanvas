@@ -25624,3 +25624,35 @@ captured as `Error` on the final real archive, and no assertion needed to change
 `TestPGClusterCreationIsNotADivergence` — pre-existing, from the PostgreSQL/Patroni phase (§406),
 unrelated to any operator or opsummary work and not investigated in this session. Every other test
 in the entire suite passes, closing out the full §401 corpus rebuild across all nine phases.
+
+## 412. The last failing test: a real divergence four minutes after bootstrap, not at it
+
+`TestPGClusterCreationIsNotADivergence` (§406) asserted that `p01-patroni-cluster` produces no
+`pg-diverged` finding anywhere in the bundle. It genuinely does produce one — `pat-2 was rewound` —
+and reading `pat2.log` end to end shows why that finding is correct, not a bug: at 13:57:39 pat-2
+bootstraps from the leader (the case the test exists to protect), but at 14:01:52, four minutes
+later, a real `pg_rewind` fires with its own distinct Patroni-journal evidence (`servers diverged at
+WAL location 0/4048BA8 on timeline 2`) — the aftermath of the unplanned failover this same corpus's
+header already documents (`pat1.log` shows the dead leader's connection being lost at 14:01:10 and
+`pat-1` promoting itself on a new timeline at 14:01:37). A member that held the primary role and
+died before its last writes replicated has real WAL discarded when it rejoins; that is exactly what
+`pg-diverged` exists to report; "no divergence anywhere in this bundle" was never the correct claim
+for a corpus whose own stated scenario includes a leader death.
+
+(Read closely enough to be worth naming: `pat1.log` and `pat2.log`'s raw PostgreSQL-log lines are
+byte-identical for a stretch around the failover — same PIDs, same LSNs — while each file's own
+Patroni JOURNAL lines, comma-timestamped, are correctly distinct per member throughout. Whatever
+built this fixture copied one member's postgres log into the other's file for that window; the
+finding under test does not depend on the corrupted section, so it was left alone rather than
+re-captured from a fresh live cluster for a fixture nine sessions old and otherwise sound.)
+
+Fixed by narrowing the test to what its own name and comment actually claim: that a rebuild inside
+the bootstrap window is not an incident. It now finds the earliest bootstrap-rebuild event's
+timestamp and asserts a `pg-diverged` finding is absent only if its `At` falls within 180 seconds of
+that anchor — the real four-minute-later rewind stays present and correctly severed from it.
+
+### Verified
+
+`cd app && go build ./... && go vet ./... && go test ./...`: every test in the suite passes. Zero
+failing test functions remain — the full missing-fixture corpus rebuild (§401 through this entry) is
+complete.

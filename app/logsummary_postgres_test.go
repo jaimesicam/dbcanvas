@@ -132,21 +132,27 @@ func TestPGFailoverSeparatesPlannedFromUnplanned(t *testing.T) {
 // leader, so a rebuild during the first minute of a cluster's life is how it is supposed to
 // work — and reporting it as discarded writes would flag every healthy deployment on the day
 // it was built.
+//
+// This same corpus also carries a genuinely later, genuinely bad divergence: the unplanned
+// failover in its own window (see TestPGFailoverSeparatesPlannedFromUnplanned) kills the
+// leader, and when it restarts it has to pg_rewind against the new leader's timeline before
+// it can rejoin — a real pg-diverged finding, correctly bad, about writes that really were
+// discarded. The two are told apart by when they happened, not by whether one exists: a
+// rebuild inside the bootstrap window is not an incident, one four minutes later after a
+// real leader death is.
 func TestPGClusterCreationIsNotADivergence(t *testing.T) {
 	b := lsLoadScenario(t, "p01-patroni-cluster")
-	if f := lsHasFinding(b, "pg-diverged"); f != nil {
-		t.Errorf("the initial bootstrap of two replicas was reported as a divergence: %s", f.Detail)
-	}
-	// The records themselves are still classified and still in the timeline — only the
-	// verdict declines to call them an incident.
-	found := false
+	var bootstrapTS float64
 	for _, e := range b.Events {
-		if e.Label == "Patroni: rebuilding this member from the leader" {
-			found = true
+		if e.Label == "Patroni: rebuilding this member from the leader" && (bootstrapTS == 0 || e.TS < bootstrapTS) {
+			bootstrapTS = e.TS
 		}
 	}
-	if !found {
-		t.Error("the bootstrap records were dropped entirely, which is the other way to be wrong")
+	if bootstrapTS == 0 {
+		t.Fatal("the bootstrap records were dropped entirely, which is the other way to be wrong")
+	}
+	if f := lsHasFinding(b, "pg-diverged"); f != nil && f.At-bootstrapTS < 180 {
+		t.Errorf("the initial bootstrap of two replicas was reported as a divergence: %s", f.Detail)
 	}
 }
 
