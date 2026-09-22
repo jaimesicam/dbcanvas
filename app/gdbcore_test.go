@@ -567,3 +567,80 @@ func TestGDBShellArg(t *testing.T) {
 		}
 	}
 }
+
+// The path in a frame is the COMPILER's, and on a real build it is not a path anything can open.
+// This one is real, from the Percona Server 8.4.5 el8 build: a relative name that walks through a
+// directory (`obj/components/audit_log_filter`) which the debugsource package does not ship. The
+// kernel resolves a path one component at a time, so handing it over as-is fails at that directory
+// even though the `..`s cancel it out — which is exactly why gdb's own `list` cannot find the file
+// either, and why the source pane showed an error where the code should be.
+func TestGDBSourceCandidatesCleansTheCompilersPath(t *testing.T) {
+	const dwarf = "./obj/components/audit_log_filter/../../../percona-server-8.4.5-5/components/" +
+		"audit_log_filter/log_writer/file_handle.cc"
+	roots := []string{
+		"/usr/src/debug/percona-server-8.4.5-5.1.el8.x86_64",
+		"/usr/src/debug/percona-server-8.4.5-5.1.el8.x86_64/percona-server-8.4.5-5",
+	}
+	got := gdbSourceCandidates(dwarf, roots)
+	want := "/usr/src/debug/percona-server-8.4.5-5.1.el8.x86_64/percona-server-8.4.5-5/components/" +
+		"audit_log_filter/log_writer/file_handle.cc"
+	if !sliceHas(got, want) {
+		t.Fatalf("the file on the node is not among the candidates.\nwant: %s\ngot:  %v", want, got)
+	}
+	// Nothing may still contain the directories that cancelled out: a candidate carrying `..`
+	// through a directory that does not exist is a candidate that can only fail.
+	for _, c := range got {
+		if strings.Contains(c, "..") || strings.Contains(c, "/obj/") {
+			t.Errorf("candidate %q was never lexically cleaned", c)
+		}
+	}
+	// Longest suffix first, so a tree holding two files of the same name cannot answer with the
+	// wrong one while the right one is still on the list.
+	full, bare := -1, -1
+	for i, c := range got {
+		if c == want {
+			full = i
+		}
+		if strings.HasSuffix(c, "/file_handle.cc") && strings.Count(c, "/") < strings.Count(want, "/") && bare < 0 {
+			bare = i
+		}
+	}
+	if bare >= 0 && full > bare {
+		t.Errorf("a shorter suffix (%s) is tried before the full path (%s)", got[bare], want)
+	}
+}
+
+// The other shape: an absolute path that was right on the build machine and names nothing here.
+// A toolchain's own C++ headers are the common case, and the node may have the same header
+// somewhere ordinary — or, far more often, not have it at all, which has to end in a sentence
+// rather than in an empty pane.
+func TestGDBSourceCandidatesFallsBackForBuildMachinePaths(t *testing.T) {
+	const dwarf = "/opt/rh/gcc-toolset-12/root/usr/include/c++/12/bits/fs_dir.h"
+	got := gdbSourceCandidates(dwarf, []string{"/usr/src/debug/percona-server-8.4.5-5.1.el8.x86_64"})
+	if len(got) == 0 || got[0] != dwarf {
+		t.Fatalf("the path itself must be tried first, got %v", got)
+	}
+	if !sliceHas(got, "/usr/include/c++/12/bits/fs_dir.h") {
+		t.Errorf("the same header under /usr/include is not looked for: %v", got)
+	}
+	err := gdbNoSourceError(dwarf)
+	if err == nil || !strings.Contains(err.Error(), "standard library header") {
+		t.Errorf("error = %v, want the toolchain-header explanation", err)
+	}
+	// A file from the server's own tree is a different missing thing, and asks for a different
+	// action: install the debugsource package.
+	err = gdbNoSourceError("percona-server-8.4.5-5/sql/signal_handler.cc")
+	if err == nil || !strings.Contains(err.Error(), "debugsource") {
+		t.Errorf("error = %v, want the debugsource explanation", err)
+	}
+}
+
+// Whatever the resolution finds still has to be inside the node's source trees: the point of
+// searching is to find the file, not to widen what the pane may read.
+func TestGDBResolvedSourceStaysInsideTheSourceTrees(t *testing.T) {
+	for _, c := range gdbSourceCandidates("../../../../etc/shadow", []string{"/usr/src/debug/x"}) {
+		if gdbSafeSourcePath(c) == nil && !strings.HasPrefix(c, "/usr/") {
+			t.Errorf("candidate %q escaped the source trees and would be read", c)
+		}
+	}
+}

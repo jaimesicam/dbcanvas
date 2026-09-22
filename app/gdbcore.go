@@ -925,3 +925,140 @@ func gdbSafeSourcePath(p string) error {
 	}
 	return fmt.Errorf("%s is outside the node's source trees", clean)
 }
+
+// ---------------------------------------------------------------- finding the source on the node
+
+// gdbSourceSearchRoots are the places source lives on the node besides the debugsource trees. A
+// frame in a system header names a path that only ever existed on the build machine; the same
+// header, when the node happens to have it, is under /usr/include.
+var gdbSourceSearchRoots = []string{"/usr/include", "/usr/src"}
+
+// gdbSourceCandidates turns the path recorded in the debug information into the paths the file
+// could actually have on this node, best guess first.
+//
+// This is the step that was missing, and it is missing from the command line too — `list` fails
+// there for exactly the same reason. What DWARF records is not a path you can open:
+//
+//	./obj/sql/../../percona-server-8.4.5-5/sql/signal_handler.cc
+//
+// That is a *relative* name (DW_AT_name) meant to be resolved against the compilation directory,
+// and it goes through a directory that no longer exists. Handing it to the kernel — which resolves
+// a path one component at a time — fails at `obj`, even though `obj/sql/../..` cancels out to
+// nothing. gdb's own source path search concatenates and opens, so it fails the same way, and the
+// frame ends up with no `fullname`: a file:line the page could not show.
+//
+// Cleaning the path *lexically* first is what fixes it. path.Clean collapses the `..` before
+// anything touches the filesystem, leaving `percona-server-8.4.5-5/sql/signal_handler.cc`, which
+// is exactly how the debugsource package lays the tree out.
+//
+// The suffix walk after that is for the second shape: an absolute build-machine path, like
+//
+//	/opt/rh/gcc-toolset-12/root/usr/include/c++/12/bits/fs_dir.h
+//
+// which is a compiler's own headers, recorded absolutely because that is where they were. Dropping
+// leading components one at a time and looking for the rest under each root finds the file
+// wherever this node happens to keep it, and finds nothing — rather than the wrong file — when the
+// node does not have it, because the suffixes are tried longest first.
+func gdbSourceCandidates(file string, roots []string) []string {
+	clean := path.Clean(file)
+	seen := map[string]bool{}
+	out := []string{}
+	add := func(p string) {
+		if p == "" || seen[p] {
+			return
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	rel := strings.TrimPrefix(clean, "/")
+	if strings.HasPrefix(clean, "/") {
+		add(clean) // an absolute path that is already right is the common case on a recent build
+	}
+	search := append(append([]string{}, roots...), gdbSourceSearchRoots...)
+	comps := strings.Split(rel, "/")
+	// Longest suffix first: `percona-server-8.4.5-5/sql/signal_handler.cc` before `sql/…` before
+	// the bare basename, so a root holding two files of the same name cannot answer with the
+	// wrong one while the right one is still on the list.
+	for i := 0; i < len(comps); i++ {
+		suffix := strings.Join(comps[i:], "/")
+		for _, r := range search {
+			add(path.Clean(r + "/" + suffix))
+		}
+	}
+	return out
+}
+
+// gdbFindSource asks the node which of the candidates exists, in one exec rather than one per try.
+func (a *App) gdbFindSource(ctx context.Context, id, file string, roots []string) (string, error) {
+	cands := gdbSourceCandidates(file, roots)
+	if len(cands) == 0 {
+		return "", fmt.Errorf("%s has no path this node could hold", file)
+	}
+	var b strings.Builder
+	b.WriteString("for f in")
+	for _, c := range cands {
+		b.WriteString(" " + shellQuote(c))
+	}
+	b.WriteString("; do [ -f \"$f\" ] && { printf '%s\\n' \"$f\"; exit 0; }; done; exit 1\n")
+	res, err := a.engCtx(ctx).Exec(ctx, id, []string{"sh", "-c", b.String()}, nil)
+	if err != nil {
+		return "", fmt.Errorf("look for %s: %w", file, err)
+	}
+	if found := strings.TrimSpace(res.Stdout); found != "" {
+		return found, nil
+	}
+	return "", gdbNoSourceError(file)
+}
+
+// gdbNoSourceError says which of the two ways a source file is missing applies, because they want
+// different actions from the reader.
+func gdbNoSourceError(file string) error {
+	base := path.Base(file)
+	if strings.Contains(file, "/include/c++/") || strings.Contains(file, "gcc-toolset") {
+		return fmt.Errorf("%s is a C++ standard library header from the toolchain the server was "+
+			"built with, which is not installed on this node — the frame's arguments and locals on "+
+			"the right are what this frame has to show", base)
+	}
+	return fmt.Errorf("%s is not on this node — install the debugsource package for this exact "+
+		"version (the node installs it at deploy time when the version matches)", base)
+}
+
+// gdbReadSourceLines reads a small run of lines out of a file on the node — the few around a
+// frame's own line, for the crash summary. The whole-file read above is what the source pane
+// wants; a summary that pulled a megabyte across to show one line would be paying for the pane's
+// job twice.
+func (a *App) gdbReadSourceLines(ctx context.Context, id, file string, from, to int) ([]string, error) {
+	if err := gdbSafeSourcePath(file); err != nil {
+		return nil, err
+	}
+	if from < 1 {
+		from = 1
+	}
+	if to < from {
+		to = from
+	}
+	res, err := a.engCtx(ctx).Exec(ctx, id, []string{"sh", "-c",
+		fmt.Sprintf("sed -n '%d,%dp' %s", from, to, shellQuote(file))}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", file, err)
+	}
+	if res.Code != 0 {
+		return nil, fmt.Errorf("read %s: %s", file, strings.TrimSpace(res.Stderr))
+	}
+	out := strings.Split(strings.TrimRight(res.Stdout, "\n"), "\n")
+	if len(out) == 1 && out[0] == "" {
+		return nil, fmt.Errorf("%s has no line %d", path.Base(file), to)
+	}
+	return out, nil
+}
+
+// gdbKillStrays ends any MI gdb left running in a node by a session that is gone.
+//
+// The pattern is the giveaway and the confinement at once: only a gdb started by this tool speaks
+// --interpreter=mi3, so an operator's own gdb — from the recipe, in their own terminal — is never
+// touched. A failure is ignored: pkill exits non-zero when it matches nothing, which is the
+// ordinary case.
+func (a *App) gdbKillStrays(ctx context.Context, id string) {
+	_, _ = a.engCtx(ctx).Exec(ctx, id, []string{"sh", "-c",
+		`pkill -f 'gdb --interpreter=mi3' 2>/dev/null; exit 0`}, nil)
+}

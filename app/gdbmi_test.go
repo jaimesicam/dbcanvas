@@ -277,3 +277,138 @@ func TestMIClientReleasesWaitersWhenGDBDies(t *testing.T) {
 		t.Fatal("a command after close must fail")
 	}
 }
+
+// The records below are **real**, captured from gdb reading the 819 MB Percona Server 8.4.5 core
+// that crashed in the audit log filter component: `this` in frame 14, opened one level.
+//
+// Two shapes in them are the reason varChildren is not a thin wrapper around -var-list-children:
+//
+//   - `private` is not a member. C++ classes hand their children back grouped by access specifier,
+//     as untyped nodes, and a panel that renders them shows the word "private" where a field should
+//     be and hides six fields behind it.
+//   - The base class IS a member, spelled as its own type name, and its path expression is a cast
+//     rather than a field access. Both have to survive into something the page can ask for again.
+const (
+	miVarCreateFixture = `^done,frame={level="0",addr="0x000079019fb6b735",func="pthread_kill",args=[],` +
+		`from="/lib64/libpthread.so.0"},name="var1",numchild="2",value="0x38f822e0",` +
+		`type="audit_log_filter::log_writer::LogWriter<(audit_log_filter::log_writer::AuditLogHandlerType)0> * const",` +
+		`thread-id="1",has_more="0"`
+	miVarChildrenFixture = `^done,numchild="2",children=[` +
+		`child={name="var1.audit_log_filter::log_writer::LogWriterBase",exp="audit_log_filter::log_writer::LogWriterBase",` +
+		`numchild="1",value="{...}",type="audit_log_filter::log_writer::LogWriterBase",thread-id="1"},` +
+		`child={name="var1.private",exp="private",numchild="6",value="",thread-id="1"}],has_more="0"`
+	miVarBasePathFixture    = `^done,path_expr="(*(class audit_log_filter::log_writer::LogWriterBase*) this)"`
+	miVarPrivateKidsFixture = `^done,numchild="6",children=[` +
+		`child={name="var1.private.m_is_rotating",exp="m_is_rotating",numchild="0",value="false",type="bool",thread-id="1"},` +
+		`child={name="var1.private.m_is_log_empty",exp="m_is_log_empty",numchild="0",value="true",type="bool",thread-id="1"},` +
+		`child={name="var1.private.m_is_opened",exp="m_is_opened",numchild="0",value="false",type="bool",thread-id="1"},` +
+		`child={name="var1.private.m_file_writer",exp="m_file_writer",numchild="1",value="{...}",` +
+		`type="audit_log_filter::log_writer::FileWriterPtr",thread-id="1"},` +
+		`child={name="var1.private.m_file_handle",exp="m_file_handle",numchild="1",value="{...}",` +
+		`type="audit_log_filter::log_writer::FileHandle",thread-id="1"},` +
+		`child={name="var1.private.m_write_lock",exp="m_write_lock",numchild="1",value="{...}",` +
+		`type="std::mutex",thread-id="1"}],has_more="0"`
+	miVarFieldPathFixture = `^done,path_expr="((this)->m_is_rotating)"`
+)
+
+func TestMIVarChildrenOpensAValue(t *testing.T) {
+	cli, fake, _ := newMIFake(t,
+		miVarCreateFixture, miVarChildrenFixture, miVarBasePathFixture,
+		miVarPrivateKidsFixture, miVarFieldPathFixture)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	kids, more, err := cli.varChildren(ctx, "1", 14, "this")
+	if err != nil {
+		t.Fatalf("varChildren: %v", err)
+	}
+	if more {
+		t.Errorf("seven children is not more than the cap")
+	}
+	// One base class plus six fields — and no node called "private", which is an access specifier
+	// and not something anybody can click on.
+	if len(kids) != 7 {
+		t.Fatalf("children = %d, want 7: %+v", len(kids), kids)
+	}
+	for _, k := range kids {
+		if k.Name == "private" || k.Name == "public" || k.Name == "protected" {
+			t.Fatalf("an access specifier was rendered as a member: %+v", k)
+		}
+	}
+	if kids[0].Name != "audit_log_filter::log_writer::LogWriterBase" {
+		t.Errorf("first child = %q, want the base class", kids[0].Name)
+	}
+	if want := "(*(class audit_log_filter::log_writer::LogWriterBase*) this)"; kids[0].Expr != want {
+		t.Errorf("base class expression = %q, want %q", kids[0].Expr, want)
+	}
+	field := kids[1]
+	if field.Name != "m_is_rotating" || field.Value != "false" || field.Type != "bool" {
+		t.Errorf("first field = %+v", field)
+	}
+	// The access it was found under is kept — it is worth showing, it is just not a row.
+	if field.Access != "private" {
+		t.Errorf("access = %q, want private", field.Access)
+	}
+	if want := "((this)->m_is_rotating)"; field.Expr != want {
+		t.Errorf("field expression = %q, want %q — a member has to be re-readable to be openable",
+			field.Expr, want)
+	}
+
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if !strings.Contains(fake.written[0], "-var-create --thread 1 --frame 14 - * \"this\"") {
+		t.Errorf("create = %q — the frame has to be named, or gdb reads the wrong one", fake.written[0])
+	}
+	// The handle is given back. Without this a session leaks one variable object per click.
+	deleted := false
+	for _, line := range fake.written {
+		if strings.Contains(line, "-var-delete var1") {
+			deleted = true
+		}
+	}
+	if !deleted {
+		t.Errorf("the variable object was never deleted: %v", fake.written)
+	}
+}
+
+// gdb's own refusal is the answer worth showing: "Cannot access memory at address 0x0", on a crash
+// stack, is the diagnosis rather than a failed request.
+func TestMIVarChildrenSurfacesGDBRefusal(t *testing.T) {
+	cli, _, _ := newMIFake(t, `^error,msg="-var-create: unable to create variable object"`)
+	_, _, err := cli.varChildren(context.Background(), "1", 13, "nosuchthing")
+	if err == nil || !strings.Contains(err.Error(), "unable to create variable object") {
+		t.Fatalf("error = %v, want gdb's own message", err)
+	}
+}
+
+// $_siginfo is read out of the core's own note, and it is the one fact that says WHICH pointer
+// faulted. The value comes back as a bare address because the expression casts it to void*.
+func TestMISiginfoReadsTheFaultingAddress(t *testing.T) {
+	cli, fake, _ := newMIFake(t, `^done,value="11"`, `^done,value="1"`, `^done,value="0x30"`)
+	si := cli.siginfo(context.Background())
+	if si == nil {
+		t.Fatal("siginfo = nil")
+	}
+	if si.Signo != 11 || si.Code != 1 {
+		t.Errorf("signo/code = %d/%d, want 11/1", si.Signo, si.Code)
+	}
+	if !si.HasAddr || si.Addr != 0x30 {
+		t.Errorf("addr = %#x (has=%v), want 0x30", si.Addr, si.HasAddr)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	// No --thread/--frame: these belong to the inferior, and asking for them in a frame is how you
+	// get "No frame selected" on a core whose threads have not been walked yet.
+	if strings.Contains(fake.written[0], "--frame") {
+		t.Errorf("siginfo was read in a frame: %q", fake.written[0])
+	}
+}
+
+// A core with no siginfo note answers nothing rather than an error: plenty of cores (gcore's, for
+// one) have no signal at all, and that is not a failure to report.
+func TestMISiginfoAbsentIsNotAnError(t *testing.T) {
+	cli, _, _ := newMIFake(t, `^error,msg="No symbol \"_siginfo\" in current context."`)
+	if si := cli.siginfo(context.Background()); si != nil {
+		t.Fatalf("siginfo = %+v, want nil", si)
+	}
+}

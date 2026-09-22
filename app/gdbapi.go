@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/coder/websocket"
@@ -170,6 +171,7 @@ type gdbWSCmd struct {
 	File   string `json:"file,omitempty"`
 	Line   int    `json:"line,omitempty"`
 	On     bool   `json:"on,omitempty"`
+	Levels []int  `json:"levels,omitempty"` // the frames a `bt full` request wants locals for
 }
 
 func (a *App) handleGDBWS(w http.ResponseWriter, r *http.Request) {
@@ -304,8 +306,48 @@ func (a *App) gdbRun(ctx context.Context, sess *gdbSession, tgt gdbTarget, cmd g
 		}
 		return map[string]any{"lines": lines}, nil
 
+	case "threads":
+		// Every thread's stack in one answer — `thread apply all bt`, with each stack's real
+		// depth and its recursion folded. See gdbSession.threadStacks.
+		stacks, err := sess.threadStacks(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"stacks": stacks}, nil
+
+	case "framevars":
+		vars, err := sess.frameVars(ctx, cmd.Thread, cmd.Levels)
+		if err != nil {
+			return nil, err
+		}
+		// JSON object keys are strings, so the frame levels are spelled as such rather than
+		// relying on a client to put an integer key back together.
+		out := map[string]any{}
+		for lv, vs := range vars {
+			out[strconv.Itoa(lv)] = vs
+		}
+		return map[string]any{"frames": out}, nil
+
+	case "children":
+		kids, more, err := sess.children(ctx, cmd.Thread, cmd.Frame, cmd.Expr)
+		if err != nil {
+			return nil, err
+		}
+		if kids == nil {
+			kids = []miChild{}
+		}
+		return map[string]any{"children": kids, "more": more, "expr": cmd.Expr}, nil
+
 	case "source":
-		lines, truncated, err := a.gdbReadSource(ctx, tgt.ContainerID, cmd.File)
+		// What the frame carries is the path the *compiler* recorded, which is not a path on this
+		// node and frequently not even openable as one — see gdbSourceCandidates. Resolving it
+		// here rather than in the browser is the only place it can be done: it takes the list of
+		// source trees this node unpacked, which only the session knows.
+		file, err := sess.sourcePath(ctx, cmd.File)
+		if err != nil {
+			return nil, err
+		}
+		lines, truncated, err := a.gdbReadSource(ctx, tgt.ContainerID, file)
 		if err != nil {
 			return nil, err
 		}
@@ -313,7 +355,13 @@ func (a *App) gdbRun(ctx context.Context, sess *gdbSession, tgt gdbTarget, cmd g
 		// goes across. It stays on the payload because it is what the pane numbers its gutter
 		// from, and a gutter that computes line numbers from an assumption is a gutter that
 		// will be wrong the day the assumption changes.
-		return map[string]any{"lines": lines, "from": 1, "line": cmd.Line, "file": cmd.File, "truncated": truncated}, nil
+		return map[string]any{
+			"lines": lines, "from": 1, "line": cmd.Line,
+			// `file` is what was asked for, so a reply can be matched to the frame that wanted it;
+			// `path` is where it turned out to be, which is what the header shows and what somebody
+			// reading along in their own terminal needs.
+			"file": cmd.File, "path": file, "truncated": truncated,
+		}, nil
 
 	case "console":
 		out, err := sess.console(ctx, cmd.Text)

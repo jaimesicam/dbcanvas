@@ -830,3 +830,120 @@ func TestGDBReadSourceTruncatesOnWholeLines(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------- what was evaluated
+
+// The faulting address is the one fact that says WHICH of a stack's plausible pointers was the
+// one. This is the shape of a null member access: `this` is 0x0, the code had already added a
+// field offset, and the kernel recorded the sum.
+func TestGDBFaultThroughNamesThePointerThatFaulted(t *testing.T) {
+	cli, _, _ := newMIFake(t, `^done,variables=[]`, `^done,variables=[]`)
+	frames := []miFrame{
+		{Level: 5, Func: "temptable::Table::number_of_rows() const", Args: []miVar{
+			{Name: "this", Value: "0x0", Arg: true},
+		}},
+		{Level: 6, Func: "temptable::Handler::records(unsigned long long*)", Args: []miVar{
+			{Name: "this", Value: "0x7f1c000a2e00", Arg: true},
+			{Name: "num_rows", Value: "0x7ffd080f9f90", Arg: true},
+		}},
+	}
+	got := gdbFaultThrough(context.Background(), cli, "1", frames, 0, 0x30)
+	if got == nil {
+		t.Fatal("the faulting address was not attributed to anything")
+	}
+	if got.Name != "this" || got.Frame != 5 || got.Offset != 0x30 {
+		t.Errorf("through = %+v, want this in frame 5 at offset 0x30", got)
+	}
+	if !got.Arg {
+		t.Error("an argument was not reported as one")
+	}
+}
+
+// A pointer well below the faulting address is a different object, and saying "the fault was
+// through this one" about it would be a guess printed as a fact.
+func TestGDBFaultThroughRefusesADistantPointer(t *testing.T) {
+	cli, _, _ := newMIFake(t, `^done,variables=[]`, `^done,variables=[]`)
+	frames := []miFrame{{Level: 0, Func: "f", Args: []miVar{{Name: "buf", Value: "0x7f1c00000000", Arg: true}}}}
+	if got := gdbFaultThrough(context.Background(), cli, "1", frames, 0, 0x7f1c0fffffff); got != nil {
+		t.Errorf("through = %+v, want nothing — that pointer is megabytes away", got)
+	}
+}
+
+// si_addr means an address for a memory fault and something else entirely for SIGABRT, where the
+// same union holds the pid that sent the signal. Reading that as an address would be inventing
+// evidence, so the whole block is skipped.
+func TestGDBFaultDetailOnlyForMemorySignals(t *testing.T) {
+	s := &gdbSession{}
+	if got := s.gdbFaultDetail(context.Background(), nil, "1", nil, "SIGABRT", 0); got != nil {
+		t.Errorf("fault = %+v, want nothing for SIGABRT", got)
+	}
+}
+
+func TestGDBFaultDetailExplainsTheAddress(t *testing.T) {
+	// signo, si_code, si_addr, then the two variable reads gdbFaultThrough makes.
+	cli, _, _ := newMIFake(t, `^done,value="11"`, `^done,value="1"`, `^done,value="0x0"`,
+		`^done,variables=[]`, `^done,variables=[]`)
+	s := &gdbSession{}
+	frames := []miFrame{{Level: 0, Func: "f", Args: []miVar{{Name: "thd", Value: "0x0", Arg: true}}}}
+	got := s.gdbFaultDetail(context.Background(), cli, "1", frames, "SIGSEGV", 0)
+	if got == nil {
+		t.Fatal("fault = nil")
+	}
+	if got.Addr != "0x0" {
+		t.Errorf("addr = %q, want 0x0", got.Addr)
+	}
+	if !strings.Contains(got.Note, "null pointer") {
+		t.Errorf("note = %q, want it to say the pointer was null", got.Note)
+	}
+	if !strings.Contains(got.CodeText, "not mapped") {
+		t.Errorf("codeText = %q, want what SEGV_MAPERR means", got.CodeText)
+	}
+	if got.Through == nil || got.Through.Name != "thd" {
+		t.Errorf("through = %+v, want thd", got.Through)
+	}
+}
+
+// An address that is not a canonical user-space address at all did not come from a pointer that
+// went slightly wrong — it came from something that was never a pointer. 0x2e2e… is eight ASCII
+// full stops read as an address, which is what a string does when a struct's type is wrong or its
+// memory has already been reused.
+func TestGDBFaultDetailRecognisesGarbage(t *testing.T) {
+	cli, _, _ := newMIFake(t, `^done,value="11"`, `^done,value="1"`, `^done,value="0x2e2e2e2e2e2e2e2e"`,
+		`^done,variables=[]`)
+	s := &gdbSession{}
+	got := s.gdbFaultDetail(context.Background(), cli, "1", []miFrame{{Level: 0, Func: "f"}}, "SIGSEGV", 0)
+	if got == nil || !strings.Contains(got.Note, "never a pointer") {
+		t.Errorf("note = %+v, want it to say the value was never a pointer", got)
+	}
+}
+
+// The line of code is only useful next to the state it was reading, and a frame in optimised C++
+// carries thirty locals from callees that were inlined into it. The ones on the line are the ones
+// being evaluated.
+func TestGDBVarsOnLinePicksWhatTheLineReads(t *testing.T) {
+	vars := []miVar{
+		{Name: "this", Type: "const temptable::Table *", Value: "0x0", Arg: true},
+		{Name: "m_rows", Value: "{...}"},
+		{Name: "unrelated_tmp", Value: "42"},
+		{Name: "i", Value: "3"},
+	}
+	got := gdbVarsOnLine([]string{"  size_t Table::number_of_rows() const {", "    return m_rows.size();"}, vars)
+	names := []string{}
+	for _, v := range got {
+		names = append(names, v.Name)
+	}
+	if len(got) != 2 || names[0] != "this" || names[1] != "m_rows" {
+		t.Fatalf("vars = %v, want this and m_rows — `this` is never spelled on the line that "+
+			"dereferences it, and the other locals are not on it", names)
+	}
+	// A line whose operands are all temporaries still has the frame's arguments to show, which is
+	// better than an empty box.
+	got = gdbVarsOnLine([]string{"  return {};"}, vars)
+	if len(got) != 1 || got[0].Name != "this" {
+		t.Errorf("fallback = %+v, want the frame's arguments", got)
+	}
+	// And a line with nothing at all to say says nothing, rather than listing the alphabet.
+	if got := gdbVarsOnLine([]string{"  return 1;"}, []miVar{{Name: "x", Value: "1"}}); got != nil {
+		t.Errorf("vars = %+v, want none", got)
+	}
+}

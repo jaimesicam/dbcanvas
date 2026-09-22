@@ -5,6 +5,7 @@ import { Panel, PanelMaximize, EventLog } from '../components/DebugPanel.jsx'
 import {
   gdbApi, gdbNodeApi, openGDBSession, GDB_STATUS_TONE, GDB_STATUS_TEXT,
   gdbTargetKey, shortFunc, libraryOf, sourceOf, isSystemFrame, formatBytes,
+  canExpand, valueSummary, groupThreadStacks, threadStacksAsText,
 } from '../lib/gdbApi.js'
 import { useHandoff } from '../lib/handoff.js'
 
@@ -37,6 +38,11 @@ import { useHandoff } from '../lib/handoff.js'
 // FRAME_WINDOW mirrors gdbFrameWindow in gdbsess.go — how many frames one request brings back.
 const FRAME_WINDOW = 200
 
+// FULL_WINDOW mirrors gdbFullVarsMax in gdbsess.go — how many frames `bt full` reads locals for.
+// Locals are a round trip per frame and gdb is not fast at them, so the rest of the stack says it
+// was not read rather than waiting for something that is not coming.
+const FULL_WINDOW = 40
+
 export default function CoreDumpAnalyzer() {
   const [targets, setTargets] = useState(null)
   const [key, setKey] = useState('')
@@ -49,7 +55,11 @@ export default function CoreDumpAnalyzer() {
   const [more, setMore] = useState(false)
   const [frameIdx, setFrameIdx] = useState(0)
   const [vars, setVars] = useState([])
-  const [source, setSource] = useState(null)   // { lines, from, line, file, truncated } | { error }
+  const [source, setSource] = useState(null)   // { lines, from, line, file, path, truncated } | { error }
+  const [stackMode, setStackMode] = useState('thread') // 'thread' | 'all'
+  const [stacks, setStacks] = useState(null)   // every thread's stack — `thread apply all bt`
+  const [locals, setLocals] = useState(false)  // the `full` in `bt full`
+  const [frameVars, setFrameVars] = useState({}) // frame level -> that frame's arguments and locals
   const [watch, setWatch] = useState('')
   const [watches, setWatches] = useState([])
   const [cmd, setCmd] = useState('')
@@ -112,6 +122,7 @@ export default function CoreDumpAnalyzer() {
     sessionRef.current?.close()
     sessionRef.current = null
     setState(null); setLog([]); setFrames([]); setVars([]); setWatches([]); setOutput(''); setSource(null)
+    setStacks(null); setFrameVars({})
     if (!target) return undefined
     connect()
 
@@ -180,14 +191,60 @@ export default function CoreDumpAnalyzer() {
 
   useEffect(() => {
     if (status !== 'ready' || !thread) { setFrames([]); return }
+    setFrameVars({})
     loadFrames(thread, 0)
   }, [status, thread]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // `thread apply all bt`, which is the command everybody runs first and the one this page had
+  // no answer to: a stack for every thread, in one reply. It is a round trip per thread on the
+  // server, so it is fetched when the view is opened rather than kept up to date — a core file
+  // does not change, so once is enough.
+  useEffect(() => { setStacks(null) }, [state?.core])
+  useEffect(() => {
+    if (stackMode !== 'all' || status !== 'ready' || stacks) return undefined
+    let live = true
+    setBusy('threads')
+    sessionRef.current?.call({ cmd: 'threads' })
+      .then((r) => { if (live) setStacks(r.stacks || []) })
+      .catch((e) => { if (live) { setErr(e.message); setStacks([]) } })
+      .finally(() => { if (live) setBusy('') })
+    return () => { live = false }
+  }, [stackMode, status, stacks, state?.core]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The `full` in `bt full`: every loaded frame's arguments and locals at once, so a stack can be
+  // read without clicking thirty times to find which frame was holding the bad value.
+  useEffect(() => {
+    if (!locals || status !== 'ready' || !thread || frames.length === 0) return undefined
+    let live = true
+    const levels = frames.slice(0, FULL_WINDOW).map((f) => f.level)
+    // In chunks, top down, rather than one request for forty frames. gdb reads locals one frame
+    // at a time and takes a second or two over each, so a single request is three quarters of a
+    // minute during which every row says "reading…" — while the frames anybody is looking at,
+    // the ones at the top, were ready in the first two seconds.
+    const CHUNK = 8
+    ;(async () => {
+      for (let i = 0; i < levels.length && live; i += CHUNK) {
+        try {
+          const r = await sessionRef.current?.call({ cmd: 'framevars', thread, levels: levels.slice(i, i + CHUNK) })
+          if (!live) return
+          setFrameVars((prev) => ({ ...prev, ...(r?.frames || {}) }))
+        } catch {
+          return // the session went away; the rows keep saying they are waiting, which they are
+        }
+      }
+    })()
+    return () => { live = false }
+  }, [locals, status, thread, frames.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // The selected frame's variables, and the watches, re-read whenever either moves.
   const selected = frames[frameIdx] || null
   useEffect(() => {
     if (status !== 'ready' || !thread || !selected) { setVars([]); return }
     let live = true
+    // null while it is in flight, so the panel can tell "not read yet" from "this frame has
+    // none" — two sentences that look identical as an empty list, and gdb takes seconds over a
+    // frame the first time it is asked.
+    setVars(null)
     sessionRef.current?.call({ cmd: 'variables', thread, frame: selected.level })
       .then((r) => { if (live) setVars(r.variables || []) })
       .catch(() => { if (live) setVars([]) })
@@ -217,17 +274,36 @@ export default function CoreDumpAnalyzer() {
     return () => { live = false }
   }, [status, thread, selected?.level]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const addWatch = () => {
-    const expr = watch.trim()
+  // Watching an expression is also what a click on a variable does, so it is a callback rather
+  // than an event handler on the one input that used to be the only way in.
+  const addWatchExpr = useCallback((raw) => {
+    const expr = (raw || '').trim()
     const s = sessionRef.current
     if (!expr || !s || !selected) return
-    setWatch('')
     setWatches((prev) => [...prev.filter((wv) => wv.expr !== expr), { expr }])
     const settle = (v) => setWatches((prev) => prev.map((wv) => (wv.expr === expr ? v : wv)))
     s.call({ cmd: 'evaluate', thread, frame: selected.level, expr })
       .then((r) => settle({ expr, value: r?.value }))
       .catch((e) => settle({ expr, error: e.message }))
+  }, [thread, selected?.level]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const addWatch = () => {
+    const expr = watch.trim()
+    if (!expr) return
+    setWatch('')
+    addWatchExpr(expr)
   }
+
+  // Opening a value: what is inside this struct, or what does this pointer point at. The reply is
+  // the members and — crucially — the expression that reads each of them, so a member can itself
+  // be opened, watched or evaluated without the page having to keep gdb handles alive.
+  const expand = useCallback((expr, level) => {
+    const s = sessionRef.current
+    if (!s) return Promise.reject(new Error('the gdb session is not open'))
+    const frame = level === undefined ? selected?.level : level
+    if (frame === undefined || frame === null) return Promise.reject(new Error('no frame is selected'))
+    return s.call({ cmd: 'children', thread, frame, expr }).then((r) => r.children || [])
+  }, [thread, selected?.level]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const runConsole = async () => {
     const text = cmd.trim()
@@ -258,7 +334,8 @@ export default function CoreDumpAnalyzer() {
 
       {targets.length === 0 ? <NoTargets /> : (
         <>
-          <CrashSummary state={state} frames={frames} core={cores.find((c) => c.name === state?.core)} />
+          <CrashSummary state={state} frames={frames} core={cores.find((c) => c.name === state?.core)}
+            onExpand={expand} onWatch={addWatchExpr} />
           <GdbRecipe recipe={state?.recipe} />
           <PanelMaximize value={maxPanel} onChange={setMaxPanel}>
             <div className="relative grid h-[calc(100vh-17rem)] min-h-[560px] grid-cols-12 gap-3 overflow-hidden">
@@ -274,12 +351,19 @@ export default function CoreDumpAnalyzer() {
                 <Backtrace
                   frames={frames} selected={frameIdx} onSelect={setFrameIdx}
                   more={more} busy={busy} state={state}
-                  onMore={() => loadFrames(thread, frames.length)} />
+                  onMore={() => loadFrames(thread, frames.length)}
+                  mode={stackMode} onMode={setStackMode}
+                  stacks={stacks} locals={locals} onLocals={setLocals} frameVars={frameVars}
+                  onThread={(id) => {
+                    setStackMode('thread')
+                    call({ cmd: 'backtrace', thread: id, offset: 0 }, 'backtrace')
+                      .then((r) => { if (r) { setFrames(r.frames || []); setMore(!!r.more); setFrameIdx(0) } })
+                  }} />
                 <SourceView source={source} frame={selected} />
               </div>
 
               <div className="col-span-3 flex min-h-0 flex-col gap-3 overflow-y-auto">
-                <FrameVars vars={vars} frame={selected} />
+                <FrameVars vars={vars} frame={selected} onExpand={expand} onWatch={addWatchExpr} />
                 <EvaluateBox
                   value={watch} onChange={setWatch} onAdd={addWatch}
                   watches={watches} onRemove={(expr) => setWatches((p) => p.filter((wv) => wv.expr !== expr))} />
@@ -357,7 +441,7 @@ export function NoTargets() {
 // the frame that names the bug is the first one that belongs to the program. The verdict line next
 // to it is the other half: a backtrace assembled from the wrong libraries is not a worse answer, it
 // is a different program's answer.
-export function CrashSummary({ state, frames, core }) {
+export function CrashSummary({ state, frames, core, onExpand, onWatch }) {
   if (!state || state.status === 'idle') return null
   if (state.status === 'loading') {
     return (
@@ -386,6 +470,8 @@ export function CrashSummary({ state, frames, core }) {
         <>
           <p className="text-sm font-medium text-fg">{v.headline}</p>
           {v.why && <p className="mt-1 text-muted">{v.why}</p>}
+
+          <CrashState state={v.state} fault={v.fault} onExpand={onExpand} onWatch={onWatch} />
 
           {v.query?.text && (
             <div className="mt-2">
@@ -449,6 +535,74 @@ export function CrashSummary({ state, frames, core }) {
             found in the mounted library directory.</span>
         )}
       </p>
+    </div>
+  )
+}
+
+// CrashState is the answer to "what was it evaluating, and what was in it".
+//
+// Everything above this in the banner reasons about frames: which one is the bug, what class of
+// crash it is. This is the evidence underneath that reasoning, and it is the part a backtrace
+// cannot carry at all — the line of code the program was on, and the values that line was reading,
+// side by side.
+//
+// The fault line above it is the kernel's own record, out of the core's siginfo note: the address
+// the program actually touched. A crash stack is full of plausible pointers and that address says
+// which of them it was, which is the difference between "a null pointer somewhere in here" and
+// "it dereferenced `thd`, which was 0x0".
+//
+// Every value is clickable for the same reason it is in the Frame panel: `this = 0x0` ends the
+// question, but `entry = {…}` starts one.
+export function CrashState({ state, fault, onExpand, onWatch }) {
+  if (!state && !fault) return null
+  const before = state?.before || []
+  const firstLine = state ? state.line - before.length : 0
+  return (
+    <div className="mt-2 space-y-2">
+      {fault && (
+        <p className="text-muted">
+          <span className="text-[10px] uppercase tracking-wide">The address it touched</span>{' '}
+          <span className="font-mono text-fg">{fault.addr}</span>
+          {fault.codeText && <> — {fault.codeText}</>}
+          {fault.note && <>. {fault.note}</>}
+          {fault.through && (
+            <>. That is <span className="font-mono text-fg">{fault.through.name}</span>
+              {' '}= <span className="font-mono text-fg">{fault.through.value}</span>
+              {fault.through.offset > 0 && <> plus {fault.through.offset} bytes</>}
+              , {fault.through.arg ? 'an argument of' : 'a local in'}{' '}
+              <span className="font-mono">{shortFunc(fault.through.func)}</span> (frame #{fault.through.frame})
+            </>
+          )}
+        </p>
+      )}
+
+      {state && (
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-muted">
+            What it was evaluating — <span className="font-mono normal-case">{shortFunc(state.func)}</span>,
+            frame #{state.frame}
+            {state.file && <> at <span className="font-mono normal-case">{state.file.slice(state.file.lastIndexOf('/') + 1)}:{state.line}</span></>}
+          </p>
+          {state.text ? (
+            <pre className="mt-1 overflow-x-auto rounded bg-surface2 p-2 font-mono text-[10px] leading-[1.5] text-muted">
+              {before.map((ln, i) => (
+                <div key={i}><span className="mr-2 select-none opacity-50">{firstLine + i}</span>{ln}</div>
+              ))}
+              <div className="text-fg"><span className="mr-2 select-none text-warning">{state.line}</span>{state.text}</div>
+            </pre>
+          ) : state.missing ? (
+            <p className="mt-1 text-muted">{state.missing}</p>
+          ) : null}
+          {state.vars?.length > 0 && (
+            <ul className="mt-1 space-y-0.5">
+              {state.vars.map((v) => (
+                <VarNode key={v.name} node={{ ...v, expr: v.expr || v.name }}
+                  onExpand={onExpand} onWatch={onWatch} />
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -585,16 +739,61 @@ export function ThreadList({ threads, selected, signal, onSelect }) {
 // Backtrace is the middle column: one row per frame, with a repeating cycle folded into a single
 // row carrying its count. Frames in the C runtime are dimmed, because in a crash they are the
 // scaffolding rather than the fault.
-export function Backtrace({ frames, selected, onSelect, more, busy, state, onMore }) {
+export function Backtrace({
+  frames, selected, onSelect, more, busy, state, onMore,
+  mode = 'thread', onMode, stacks, locals, onLocals, frameVars, onThread,
+}) {
   const empty = !frames || frames.length === 0
+  const all = mode === 'all'
+  const [copied, setCopied] = useState(false)
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(threadStacksAsText(stacks || [])) } catch { /* on screen anyway */ }
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
   return (
-    <Panel id="stack" title={state?.core ? `Stack — thread ${state.thread}` : 'Stack'}
+    <Panel id="stack"
+      title={all ? `Every thread${stacks ? ` (${stacks.length})` : ''}` : state?.core ? `Stack — thread ${state.thread}` : 'Stack'}
       className="min-h-0 flex-1"
-      action={<span className="text-[10px] text-muted">{empty ? ''
-        : state?.verdict?.depth ? `${frames.length} of ${state.verdict.depth} frames`
-        : `${frames.length} frame${frames.length === 1 ? '' : 's'}`}</span>}
+      action={(
+        <div className="flex items-center gap-2">
+          {onMode && (
+            <div className="flex overflow-hidden rounded border text-[10px]">
+              {[['thread', 'This thread'], ['all', 'All threads']].map(([m, label]) => (
+                <button key={m} onClick={() => onMode(m)}
+                  className={`px-1.5 py-0.5 transition ${mode === m
+                    ? 'bg-primary/15 font-medium text-primary' : 'text-muted hover:bg-surface2 hover:text-fg'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+          {all ? (
+            <button onClick={copy} title="Copy every stack as text, the way `thread apply all bt` prints it"
+              className="flex items-center gap-1 rounded px-1 py-0.5 text-[10px] text-muted hover:bg-surface2 hover:text-fg">
+              {copied ? <Icon.Check size={12} /> : <Icon.Copy size={12} />}{copied ? 'Copied' : 'Copy'}
+            </button>
+          ) : (
+            <>
+              {onLocals && (
+                <button onClick={() => onLocals(!locals)}
+                  title="Show every frame's arguments and locals, which is what `bt full` adds to `bt`"
+                  className={`rounded border px-1.5 py-0.5 text-[10px] transition ${locals
+                    ? 'border-primary/40 bg-primary/15 text-primary' : 'text-muted hover:bg-surface2 hover:text-fg'}`}>
+                  full
+                </button>
+              )}
+              <span className="text-[10px] text-muted">{empty ? ''
+                : state?.verdict?.depth ? `${frames.length} of ${state.verdict.depth} frames`
+                : `${frames.length} frame${frames.length === 1 ? '' : 's'}`}</span>
+            </>
+          )}
+        </div>
+      )}
       bodyClass="min-h-0 flex-1 overflow-auto p-0">
-      {empty ? (
+      {all ? (
+        <AllThreads stacks={stacks} selected={state?.thread} onThread={onThread} />
+      ) : empty ? (
         <p className="p-3 text-[11px] text-muted">
           Pick a core file on the left. Its threads and their stacks appear once gdb has read it.
         </p>
@@ -603,27 +802,37 @@ export function Backtrace({ frames, selected, onSelect, more, busy, state, onMor
           {frames.map((f, i) => {
             const sys = isSystemFrame(f)
             return (
-              <button key={`${f.level}-${i}`} onClick={() => onSelect(i)}
-                className={`flex w-full items-baseline gap-2 border-b px-3 py-1 text-left ${
-                  i === selected ? 'bg-primary/10' : 'hover:bg-surface2/60'}`}>
-                <span className="w-10 shrink-0 tabular-nums text-muted">#{f.level}</span>
-                <span className={`min-w-0 flex-1 break-all ${sys ? 'text-muted' : 'text-fg'}`} title={f.func}>
-                  {f.func || '??'}
-                  {f.repeat > 1 && (
-                    // The count shown is the *stack's*, not the window's, whenever the analysis
-                    // has one — a pane holding 200 of 1,085 frames sees a cycle repeat 39 times
-                    // and the whole stack sees it repeat 212, and two numbers on one screen that
-                    // disagree is worse than either alone.
-                    <span className="ml-2 rounded bg-warning/20 px-1 text-[10px] text-warning"
-                      title={cycleTotal(state, f) !== f.repeat
-                        ? `${f.repeat} times in the frames loaded here; ${cycleTotal(state, f)} in the whole stack`
-                        : `${f.repeat} consecutive copies of this cycle`}>
-                      ×{cycleTotal(state, f)}
-                    </span>
-                  )}
-                </span>
-                <span className="shrink-0 text-[10px] text-muted">{sourceOf(f)}</span>
-              </button>
+              <div key={`${f.level}-${i}`}>
+                <button onClick={() => onSelect(i)}
+                  className={`flex w-full items-baseline gap-2 border-b px-3 py-1 text-left ${
+                    i === selected ? 'bg-primary/10' : 'hover:bg-surface2/60'}`}>
+                  <span className="w-10 shrink-0 tabular-nums text-muted">#{f.level}</span>
+                  <span className={`min-w-0 flex-1 break-all ${sys ? 'text-muted' : 'text-fg'}`} title={f.func}>
+                    {f.func || '??'}
+                    {f.repeat > 1 && (
+                      // The count shown is the *stack's*, not the window's, whenever the analysis
+                      // has one — a pane holding 200 of 1,085 frames sees a cycle repeat 39 times
+                      // and the whole stack sees it repeat 212, and two numbers on one screen that
+                      // disagree is worse than either alone.
+                      <span className="ml-2 rounded bg-warning/20 px-1 text-[10px] text-warning"
+                        title={cycleTotal(state, f) !== f.repeat
+                          ? `${f.repeat} times in the frames loaded here; ${cycleTotal(state, f)} in the whole stack`
+                          : `${f.repeat} consecutive copies of this cycle`}>
+                        ×{cycleTotal(state, f)}
+                      </span>
+                    )}
+                  </span>
+                  <span className="shrink-0 text-[10px] text-muted">{sourceOf(f)}</span>
+                </button>
+                {locals && (i < FULL_WINDOW
+                  ? <FrameLocals vars={frameVars?.[String(f.level)]} />
+                  : i === FULL_WINDOW
+                    ? <p className="border-b px-3 py-1 pl-14 text-[10px] text-muted">
+                        locals stop here — gdb reads them one frame at a time, so `full` covers the
+                        first {FULL_WINDOW} frames. Select a frame to see all of its state.
+                      </p>
+                    : null)}
+              </div>
             )
           })}
           {more && (
@@ -636,6 +845,116 @@ export function Backtrace({ frames, selected, onSelect, more, busy, state, onMor
         </div>
       )}
     </Panel>
+  )
+}
+
+// FrameLocals is the `full` of `bt full`, under the frame it belongs to.
+//
+// Values are clipped here rather than wrapped: this is the view you scroll to find which frame was
+// holding the bad value, and one std::string printed in full is forty lines of allocator
+// boilerplate between you and the next frame. The full text is in the row's title, and the panel
+// on the right opens it properly.
+export function FrameLocals({ vars }) {
+  if (!vars) {
+    return <p className="border-b px-3 py-1 pl-14 text-[10px] text-muted">reading this frame&apos;s locals…</p>
+  }
+  if (vars.length === 0) {
+    return <p className="border-b px-3 py-1 pl-14 text-[10px] text-muted">no arguments or locals here</p>
+  }
+  return (
+    <div className="space-y-0.5 border-b bg-surface2/40 px-3 py-1 pl-14 text-[10px]">
+      {vars.map((v) => (
+        <div key={v.name} className="flex gap-2">
+          <span className="w-6 shrink-0 text-muted opacity-70">{v.arg ? 'arg' : 'var'}</span>
+          <span className="shrink-0 text-fg">{v.name}</span>
+          <span className="min-w-0 flex-1 truncate text-muted" title={v.value}>
+            {valueSummary(v.value) ? `"${valueSummary(v.value)}"` : v.value}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// AllThreads is `thread apply all bt`, folded.
+//
+// The command prints one stack per thread, which on a real core is sixty stacks and most of them
+// are the same stack: every idle worker in a pool is parked in the same wait, printed over and
+// over. So identical stacks are grouped into one entry with its threads listed next to it, the
+// thread that took the signal comes first, and the biggest groups come next — because a group of
+// forty threads all in the same place is itself a finding, and it is invisible in the wall of
+// text the command produces.
+export function AllThreads({ stacks, selected, onThread }) {
+  const groups = useMemo(() => groupThreadStacks(stacks || []), [stacks])
+  if (!stacks) {
+    return (
+      <p className="p-3 text-[11px] text-muted">
+        Reading every thread&apos;s stack — one request per thread, so this takes a moment on a
+        core with sixty of them.
+      </p>
+    )
+  }
+  if (stacks.length === 0) {
+    return <p className="p-3 text-[11px] text-muted">Open a core file to see its threads.</p>
+  }
+  return (
+    <div className="divide-y font-mono text-[11px]">
+      {groups.map((g) => <ThreadGroup key={g.sig} group={g} selected={selected} onThread={onThread} />)}
+    </div>
+  )
+}
+
+export function ThreadGroup({ group, selected, onThread }) {
+  // The signalled thread's stack is the one anybody opened this view to read, so it is the one
+  // that starts open. The rest are a line each until asked for.
+  const [open, setOpen] = useState(!!group.signal)
+  const st = group.stack
+  const frames = st.frames || []
+  const top = frames.find((f) => !isSystemFrame(f)) || frames[0]
+  return (
+    <div className={group.signal ? 'bg-danger/5' : ''}>
+      <button onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-baseline gap-2 px-3 py-1.5 text-left hover:bg-surface2/60">
+        <Icon.Chevron size={12} className={`shrink-0 text-muted transition-transform ${open ? '' : '-rotate-90'}`} />
+        <span className="shrink-0 tabular-nums text-muted">
+          {group.threads.length === 1 ? `#${st.thread}` : `${group.threads.length}×`}
+        </span>
+        {group.signal && <Badge tone="danger">took the signal</Badge>}
+        <span className="min-w-0 flex-1 truncate text-fg" title={top?.func}>{shortFunc(top?.func)}</span>
+        <span className="shrink-0 text-[10px] text-muted">{st.depth || frames.length} frames</span>
+      </button>
+      {open && (
+        <div className="bg-surface2/30 pb-1">
+          <div className="flex flex-wrap gap-1 px-3 pb-1 pl-7">
+            {group.threads.map((t) => (
+              <button key={t.thread} onClick={() => onThread?.(t.thread)}
+                title={`${t.target || ''}${t.name ? ` — ${t.name}` : ''} · read this thread's whole stack`}
+                className={`rounded px-1.5 py-0.5 text-[10px] transition ${t.thread === selected
+                  ? 'bg-primary/20 text-primary' : 'bg-surface text-muted hover:text-fg'}`}>
+                #{t.thread}{t.name ? ` ${t.name}` : ''}
+              </button>
+            ))}
+          </div>
+          {frames.map((f, i) => (
+            <div key={`${f.level}-${i}`} className="flex items-baseline gap-2 px-3 py-0.5 pl-7">
+              <span className="w-8 shrink-0 tabular-nums text-muted">#{f.level}</span>
+              <span className={`min-w-0 flex-1 truncate ${isSystemFrame(f) ? 'text-muted' : 'text-fg'}`}
+                title={f.func}>
+                {shortFunc(f.func)}
+                {f.repeat > 1 && <span className="ml-2 rounded bg-warning/20 px-1 text-[10px] text-warning">×{f.repeat}</span>}
+              </span>
+              <span className="shrink-0 text-[10px] text-muted">{sourceOf(f)}</span>
+            </div>
+          ))}
+          {st.more && (
+            <p className="px-3 py-1 pl-7 text-[10px] text-muted">
+              deeper frames not loaded — open this thread to read the rest of it
+            </p>
+          )}
+          {st.error && <p className="px-3 py-1 pl-7 text-[10px] text-danger">{st.error}</p>}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -670,22 +989,43 @@ export function SourceView({ source, frame }) {
   // fts0que.cc and a scrollbar.
   const marker = useRef(null)
   useEffect(() => {
-    if (marker.current) marker.current.scrollIntoView({ block: 'center' })
+    const el = marker.current
+    if (!el) return
+    // scrollIntoView would be the obvious call and it is the wrong one: it scrolls *every*
+    // scrollable ancestor, the window included, so clicking a frame quietly scrolled the page and
+    // took the verdict — which is the thing worth reading — off the top of the screen. Only this
+    // pane should move, so the scroll box is found and moved by hand.
+    let box = el.parentElement
+    while (box && !/auto|scroll/.test(getComputedStyle(box).overflowY)) box = box.parentElement
+    if (!box) return
+    box.scrollTop += el.getBoundingClientRect().top - box.getBoundingClientRect().top - box.clientHeight / 2
   }, [source?.file, source?.line, source?.from])
   const count = source?.lines?.length || 0
   return (
     <Panel id="source" title={hasLoc ? sourceOf(frame) : 'Source'} className="h-64 shrink-0"
-      action={frame?.file && <span className="truncate font-mono text-[10px] text-muted" title={frame.file}>
-        {count > 0 && <span className="tabular-nums">{`${count.toLocaleString()} lines · `}</span>}
-        {frame.file.replace(/^.*\/percona-server-[^/]*\//, '')}</span>}
+      action={frame?.file && (
+        // The path shown is where the file actually *is* on the node once it was found, because
+        // that is the one somebody reading along in their own terminal can open. What the debug
+        // information recorded — which is frequently not openable at all — stays in the tooltip.
+        <span className="truncate font-mono text-[10px] text-muted" title={source?.path || frame.file}>
+          {count > 0 && <span className="tabular-nums">{`${count.toLocaleString()} lines · `}</span>}
+          {(source?.path || frame.file).replace(/^.*\/percona-server-[^/]*\//, '')}</span>
+      )}
       bodyClass="min-h-0 flex-1 overflow-auto p-0">
       {!hasLoc ? (
         <p className="p-3 text-[11px] text-muted">
-          This frame has no source location — it is in a library, or in code compiled without debug
-          information. Pick a frame that shows a <span className="font-mono">file:line</span>.
+          This frame has no source location{frame?.from ? <> — it is in <span className="font-mono">{libraryOf(frame.from)}</span>,
+            which has no debug information on this node</> : ' — it was compiled without debug information'}.
+          Pick a frame that shows a <span className="font-mono">file:line</span>.
         </p>
       ) : source?.error ? (
-        <p className="p-3 text-[11px] text-muted">{source.error}</p>
+        // The path in the debug information is the *compiler's*, and it is usually not a path on
+        // this node — see gdbSourceCandidates in app/gdbcore.go. When the search comes back empty
+        // the reason is the useful part, so it is shown as prose rather than as a failure.
+        <div className="space-y-1 p-3 text-[11px] text-muted">
+          <p>{source.error}</p>
+          <p className="break-all font-mono text-[10px] opacity-70">{frame.file}</p>
+        </div>
       ) : !source?.lines ? (
         <p className="p-3 text-[11px] text-muted">Reading {sourceOf(frame)}…</p>
       ) : (
@@ -721,7 +1061,20 @@ export function SourceView({ source, frame }) {
 
 // ---------------------------------------------------------------- right column
 
-export function FrameVars({ vars, frame }) {
+// FrameVars is the selected frame's state, and every value in it can be opened.
+//
+// A printed value is where the panel used to stop, and it is where the question usually starts.
+// `thd = 0x7f1c000a2e00` is not an answer — the answer is what is *in* that THD, and gdb has
+// always been able to say: a variable object walks a value one level at a time, which is how a
+// pointer becomes the object it points at and a struct becomes its fields. Each row here carries
+// the expression that reads it, so opening a member, watching it, or pasting it into the console
+// are the same click.
+//
+// Values are printed raw because gdb's Python pretty-printers are off (auto-load is how a mounted
+// directory becomes code execution), so a std::string arrives as its allocator internals. The
+// readable part — the quoted text inside — is pulled out and shown first; the rest stays, because
+// on a crash stack the internals are sometimes exactly what is wrong.
+export function FrameVars({ vars, frame, onExpand, onWatch }) {
   const args = (vars || []).filter((v) => v.arg)
   const locals = (vars || []).filter((v) => !v.arg)
   return (
@@ -735,35 +1088,121 @@ export function FrameVars({ vars, frame }) {
             {frame.addr}{sourceOf(frame) && <> · {sourceOf(frame)}</>}
             {frame.from && <> · {libraryOf(frame.from)}</>}
           </p>
-          {(vars || []).length === 0 && (
+          {vars === null ? (
+            <p className="text-muted">Reading this frame&apos;s arguments and locals…</p>
+          ) : vars.length === 0 ? (
             <p className="text-muted">
               No arguments or locals here. That is normal for a frame in a library, and for every
               frame when the executable has no separate debug symbols installed.
             </p>
-          )}
-          <VarGroup label="Arguments" vars={args} />
-          <VarGroup label="Locals" vars={locals} />
+          ) : null}
+          <VarGroup label="Arguments" vars={args} onExpand={onExpand} onWatch={onWatch} />
+          <VarGroup label="Locals" vars={locals} onExpand={onExpand} onWatch={onWatch} />
         </div>
       )}
     </Panel>
   )
 }
 
-export function VarGroup({ label, vars }) {
+export function VarGroup({ label, vars, onExpand, onWatch }) {
   if (!vars || vars.length === 0) return null
   return (
     <div>
       <p className="mb-1 text-[10px] uppercase tracking-wide text-muted">{label}</p>
-      <ul className="space-y-1">
+      <ul className="space-y-0.5">
         {vars.map((v) => (
-          <li key={v.name} className="flex items-start gap-2">
-            <span className="shrink-0 font-mono text-fg">{v.name}</span>
-            <span className="min-w-0 flex-1 whitespace-pre-wrap break-all font-mono text-muted">{v.value}</span>
-          </li>
+          <VarNode key={v.name} node={{ ...v, expr: v.expr || v.name }}
+            onExpand={onExpand} onWatch={onWatch} />
         ))}
       </ul>
     </div>
   )
+}
+
+// VarNode is one value, and — when there is something inside it — the way in.
+//
+// Children are fetched on the first open and kept, because a core file is a dead process: what is
+// in that struct cannot change while you are reading it, so re-reading on every toggle would be
+// round trips for nothing.
+export function VarNode({ node, depth = 0, onExpand, onWatch }) {
+  const [open, setOpen] = useState(false)
+  const [kids, setKids] = useState(null)
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const openable = !!node.expr && !!onExpand && (node.children > 0 || canExpand(node))
+
+  const toggle = () => {
+    if (!openable) return
+    if (open) { setOpen(false); return }
+    setOpen(true)
+    if (kids || loading) return
+    setLoading(true)
+    setError('')
+    Promise.resolve(onExpand(node.expr))
+      .then((list) => setKids(list || []))
+      // gdb's own message is the useful one here: "Cannot access memory at address 0x0" on a
+      // crash stack is not a failed request, it is the diagnosis.
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false))
+  }
+
+  const text = valueSummary(node.value)
+  return (
+    <li>
+      <div className="group flex items-start gap-1" style={{ paddingLeft: depth * 12 }}>
+        <button onClick={toggle} disabled={!openable} aria-label={openable ? 'Open this value' : undefined}
+          className={`mt-[3px] shrink-0 ${openable ? 'text-muted hover:text-fg' : 'cursor-default opacity-0'}`}>
+          <Icon.Chevron size={11} className={`transition-transform ${open ? '' : '-rotate-90'}`} />
+        </button>
+        <button onClick={toggle} title={node.type || node.expr}
+          className={`shrink-0 font-mono ${openable ? 'text-fg hover:text-primary' : 'cursor-default text-fg'}`}>
+          {node.name}
+        </button>
+        <span className="min-w-0 flex-1 break-all font-mono text-muted" title={node.value}>
+          {text && <span className="text-fg">&quot;{text}&quot;</span>}
+          {text ? <span className="opacity-60"> {clipValue(node.value)}</span> : clipValue(node.value)}
+        </span>
+        {onWatch && node.expr && (
+          <button onClick={() => onWatch(node.expr)} title="Watch this expression"
+            className="shrink-0 text-muted opacity-0 transition group-hover:opacity-100 hover:text-primary">
+            <Icon.Plus size={11} />
+          </button>
+        )}
+      </div>
+      {open && (
+        <ul className="space-y-0.5">
+          {loading && (
+            // Not a spinner's worth of waiting: opening a value makes gdb read the whole type out
+            // of a gigabyte of debug information, and the first one in a session is routinely
+            // three quarters of a minute. Saying so is the difference between waiting and
+            // clicking again.
+            <li className="py-0.5 text-[10px] text-muted" style={{ paddingLeft: (depth + 1) * 12 }}>
+              reading… gdb expands the whole type the first time it is asked, which is slow on a
+              server binary
+            </li>
+          )}
+          {error && <li className="py-0.5 text-[10px] text-danger" style={{ paddingLeft: (depth + 1) * 12 }}>{error}</li>}
+          {kids && kids.length === 0 && !error && (
+            <li className="py-0.5 text-[10px] text-muted" style={{ paddingLeft: (depth + 1) * 12 }}>
+              nothing inside this one
+            </li>
+          )}
+          {(kids || []).map((k, i) => (
+            <VarNode key={`${k.name}-${i}`} node={k} depth={depth + 1} onExpand={onExpand} onWatch={onWatch} />
+          ))}
+        </ul>
+      )}
+    </li>
+  )
+}
+
+// clipValue keeps one row one row. The whole value is in the title and one click away in the
+// children; a std::string's 300 characters of allocator internals pushing the next variable off
+// the panel is not a reason to scroll.
+const VALUE_CLIP = 140
+export function clipValue(v) {
+  const value = v || ''
+  return value.length > VALUE_CLIP ? `${value.slice(0, VALUE_CLIP)}…` : value
 }
 
 export function EvaluateBox({ value, onChange, onAdd, watches, onRemove }) {

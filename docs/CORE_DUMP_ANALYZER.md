@@ -152,6 +152,16 @@ pane shows, which is what lets it say things a backtrace cannot:
   a nearby argument — so it applies to any crash, not only the ones a "trigger" search is built
   for. On a real crash caused by installing a plugin under `innodb_force_recovery`, the verdict
   showed `install plugin audit_log soname 'audit_log.so'` next to the double free it caused.
+- **Which pointer faulted.** For a memory fault, the kernel wrote the address the program touched
+  into the core's own `siginfo` note, and no backtrace carries it. The verdict prints it, says what
+  it means (`0x0` is a null object; `0x30` is a null object plus a field offset; an address outside
+  the canonical range was never a pointer at all), and then matches it against the faulting frame's
+  own variables — so instead of "a null pointer somewhere in here" you get *"that is `thd`, an
+  argument of `dispatch_command`"*.
+- **What it was evaluating.** The line of source the program was actually on, with the frame's
+  values for the names on that line next to it. `table.h:190` is a coordinate; `return
+  m_rows.size();` with `this = 0x0` underneath it is the explanation. Every value in that block is
+  clickable, the same as in the Frame panel.
 - **What set it off.** For a runaway, it goes and finds the input: the string argument in the
   frame just below the recursion. On the crash this tool was built against that is a 2,748-byte
   `+(+(+(...` query at frame #1068, which is the single most useful thing in the core and is
@@ -166,16 +176,47 @@ in the C runtime are dimmed. A repeating cycle — direct or mutual, up to eight
 is folded into one row with a **×N** badge counting its runs in the *whole* stack, which is
 the only way a stack-exhaustion core is readable at all.
 
+**See every thread at once.** The stack panel's **All threads** tab is `thread apply all bt`, with
+the two things that command cannot do. Identical stacks are folded together — twenty idle workers
+parked in the same wait become one row saying `20×`, which is itself a finding and is invisible in
+the wall of text — and each row carries the thread's *real* depth rather than the number of frames
+printed. Click any thread number to open its whole stack in the other tab; **Copy** hands the
+whole thing back as text for a ticket.
+
+**See every frame's state at once.** **full** (next to the tabs) is the `full` of `bt full`: each
+frame's arguments and locals, listed under the frame itself, so you can scan for the frame holding
+the bad value instead of clicking through thirty of them. Locals are one request per frame and gdb
+is not quick about them, so it covers the top 40 frames and says where it stopped.
+
 **Read the code.** The pane under the stack shows the source of the selected frame — the **whole
 file**, scrolled to the crashing line and highlighting it — which is the reason `*-debugsource` is
-installed. Scroll it as far as you like in either direction: reading a crash means going up to see
+installed. The path the debug information records is the *compiler's*, and on a real build it is
+frequently not a path anything can open:
+`./obj/sql/../../percona-server-8.4.5-5/sql/signal_handler.cc` walks through a directory that only
+existed on the build machine, so the kernel — which resolves a path one component at a time — fails
+on it, and so does gdb's own `list`. DBCanvas cleans that path *lexically* first and then looks for
+what is left under each source tree the node unpacked, longest match first, which is how the file
+turns up where debugsource actually put it. Scroll it as far as you like in either direction: reading a crash means going up to see
 what the function was handed and out to the one above it, so the pane holds the file rather than a
 window around the line. Maximize it (the button in its header) to read it full screen. A frame with
 no `file:line` (a library, or code built without debug information) says which of the two it is.
 
-**Read the frame.** Selecting a frame shows its arguments and locals. A frame inside a
-library has none, and neither does any frame when the executable has no separate debug
-symbols — the panel says which of those it is rather than showing an empty list.
+**Read the frame, and open what is in it.** Selecting a frame shows its arguments and locals, and
+every value that has something inside it can be clicked open: a struct becomes its fields, and a
+pointer becomes the object it points at, one level at a time and as deep as you care to go. So
+`thd = 0x7f1c000a2e00` stops being where the question ends. Each row also carries the expression
+that reads it, so **+** sends it to Evaluate and it can be pasted into the console as-is; a pointer
+that cannot be followed answers with gdb's own sentence, which on a crash stack (`Cannot access
+memory at address 0x0`) is usually the diagnosis rather than an error.
+
+Values are printed the way gdb prints them with its Python pretty-printers off — `auto-load` is
+how a mounted directory turns into code execution, so it stays off — which means a `std::string`
+arrives as its allocator internals. The readable text inside it is pulled out and shown first; the
+rest stays, because on a crash stack the internals are sometimes exactly what is wrong.
+
+A frame inside a library has no arguments or locals, and neither does any frame when the
+executable has no separate debug symbols — the panel says which of those it is rather than
+showing an empty list.
 
 **Evaluate** takes a C expression in the selected frame — `node->type`, `*state`,
 `cr->name` — re-read whenever you change frames.
@@ -214,7 +255,14 @@ wrong for a person. Everything that decides what the backtrace *says* is kept, `
 past-main`/`past-entry` included — without those the bottom of a stack-exhaustion core, which is
 the part that names the bug, is simply cut off.
 
-## Two things worth knowing
+## Three things worth knowing
+
+**Opening a value is slow the first time.** Not the page — gdb. Asking for the members of a C++
+object makes it read the full debug information for that type and everything the type is built
+from, and on a server binary with a gigabyte of DWARF that is tens of seconds, measured at 41
+seconds for one struct on the 8.4.5 core this was tested against. The same type is quick
+afterwards. The panel says what it is waiting for rather than spinning, and a command is allowed
+five minutes before it is given up on.
 
 **A core file is a dead process.** Nothing here can run the program's code: there is no
 continue, no breakpoints, and an expression that would call a function has nothing to call it

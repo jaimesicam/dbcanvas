@@ -181,3 +181,79 @@ export function formatBytes(n) {
   while (v >= 1024 && i < units.length - 1) { v /= 1024; i++ }
   return `${v >= 100 || i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`
 }
+
+// ---------------------------------------------------------------- values
+
+// canExpand is what a value looks like when gdb has something inside it to
+// show: a struct (`{…}`), or a pointer, which gdb's variable objects open into
+// the thing pointed at rather than into the pointer itself.
+//
+// It is a guess, deliberately. -stack-list-variables prints a value but does not
+// say whether it has children, and asking gdb per variable would be one round
+// trip per row of the panel. Guessing wrong in the permissive direction costs an
+// expand that comes back "no members"; guessing wrong in the other direction
+// hides the THD behind a pointer nobody can click.
+export function canExpand(v) {
+  const value = (v?.value || '').trim()
+  if (!value || value === '<optimized out>') return false
+  if (value.startsWith('{') || value.startsWith('@0x')) return true
+  if (/^0x0*$/.test(value)) return false // a null pointer has nothing behind it
+  return /^0x[0-9a-f]+$/i.test(value) || /^\(.*\)\s*0x[0-9a-f]+/i.test(value)
+}
+
+// valueSummary pulls the readable part out of a printed value.
+//
+// With gdb's Python pretty-printers off — they are, because auto-load is how a
+// mounted directory becomes code execution — a std::string prints as forty
+// characters of allocator boilerplate wrapped around the one thing anybody wants:
+// the text. The same is true of a char* and of most of the server's own string
+// types, and all of them put it in the same place, in quotes.
+export function valueSummary(value) {
+  if (!value) return ''
+  const m = /"((?:[^"\\]|\\.){0,200})"/.exec(value)
+  if (!m) return ''
+  const text = m[1]
+  // A one-character match inside a repeat marker ('\000' <repeats 23 times>) is
+  // padding, not content.
+  return text.length > 1 || /^[ -~]$/.test(text) ? text : ''
+}
+
+// stackSignature is what makes sixty threads readable: two threads parked in the
+// same place have the same list of function names, and a core has a lot of those
+// — every idle worker in the pool is one stack, printed twenty times, and
+// `thread apply all bt` prints it twenty times.
+export function stackSignature(stack) {
+  return (stack?.frames || []).map((f) => shortFunc(f.func) || f.addr).join(' < ')
+}
+
+// groupThreadStacks folds the all-threads view into one row per distinct stack.
+// Order is the one a reader wants: the thread that took the signal first, then
+// the biggest groups, which is where a deadlock or a pile-up shows itself.
+export function groupThreadStacks(stacks = []) {
+  const groups = new Map()
+  for (const st of stacks) {
+    const sig = stackSignature(st)
+    const g = groups.get(sig)
+    if (g) { g.threads.push(st); g.signal = g.signal || st.signal }
+    else groups.set(sig, { sig, threads: [st], signal: !!st.signal, stack: st })
+  }
+  return [...groups.values()].sort((a, b) =>
+    (b.signal ? 1 : 0) - (a.signal ? 1 : 0) || b.threads.length - a.threads.length)
+}
+
+// threadStacksAsText renders the all-threads view the way gdb would have, for
+// pasting into a ticket — the one thing the wall of text was actually good for.
+export function threadStacksAsText(stacks = []) {
+  return stacks.map((st) => {
+    const head = `Thread ${st.thread}${st.name ? ` "${st.name}"` : ''} ${st.target || ''}`
+      + (st.signal ? '  <- took the signal' : '')
+      + (st.depth ? `  (${st.depth} frames)` : '')
+    const body = (st.frames || []).map((f) => {
+      const rep = f.repeat > 1 ? `  [x${f.repeat}]` : ''
+      return `#${f.level}  ${f.func || '??'}${sourceOf(f) ? ` at ${sourceOf(f)}` : ''}${rep}`
+    })
+    if (st.more) body.push('  … deeper frames not loaded')
+    if (st.error) body.push(`  ${st.error}`)
+    return [head, ...body].join('\n')
+  }).join('\n\n')
+}

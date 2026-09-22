@@ -103,10 +103,12 @@ import CoreDumpAnalyzer, {
   Header as GdbHeader, NoTargets as GdbNoTargets, CrashSummary as GdbSummary,
   CoreList as GdbCores, ThreadList as GdbThreads, Backtrace as GdbStack,
   FrameVars as GdbVars, EvaluateBox as GdbEval, ConsoleBox as GdbConsole,
-  SourceView as GdbSource, GdbRecipe,
+  SourceView as GdbSource, GdbRecipe, AllThreads as GdbAllThreads,
+  FrameLocals as GdbFrameLocals, CrashState as GdbCrashState, VarNode as GdbVarNode,
 } from '../src/pages/CoreDumpAnalyzer.jsx'
 import {
   crashSummary, shortFunc, sourceOf, isSystemFrame, formatBytes,
+  groupThreadStacks, threadStacksAsText, valueSummary, canExpand,
   GDB_STATUS_TONE, GDB_STATUS_TEXT,
 } from '../src/lib/gdbApi.js'
 import LogSummary, {
@@ -2897,8 +2899,15 @@ check('core dump: frame variables', () =>
     { name: 'node', type: 'fts_ast_node_t *', value: '0x7602d0001234', arg: true },
     { name: 'state', type: 'fts_query_t *', value: '0x7602d0005678' },
   ]} />))
-check('core dump: a frame with no symbols says why', () =>
-  renderToString(<GdbVars frame={gdbFramesFx[0]} vars={[]} />))
+check('core dump: a frame with no symbols says why', () => {
+  const html = renderToString(<GdbVars frame={gdbFramesFx[0]} vars={[]} />)
+  if (!/No arguments or locals/.test(html)) throw new Error('an empty frame does not explain itself')
+  // Not read yet is a different sentence from "there are none", and they look identical as an
+  // empty list — gdb takes seconds over a frame the first time it is asked.
+  const pending = renderToString(<GdbVars frame={gdbFramesFx[0]} vars={null} />)
+  if (!/Reading this frame/.test(pending)) throw new Error('a pending read claims the frame is empty')
+  return 'ok'
+})
 check('core dump: the terminal recipe is offered once a core is open', () => {
   // The line comes from the server (app/gdbcore.go) with this node's own paths in it; what the
   // page owes it is that it is there to copy, and readable when opened.
@@ -2917,6 +2926,157 @@ check('core dump: the terminal recipe is offered once a core is open', () => {
   if (renderToString(<GdbRecipe recipe="" />) !== '') throw new Error('an empty recipe still rendered')
   if (renderToString(<GdbRecipe />) !== '') throw new Error('a missing recipe still rendered')
   return 'collapsed, copyable'
+})
+
+// ---- what `thread apply all bt` becomes here ---------------------------------
+//
+// The command prints one stack per thread and most of them are the same stack — every idle worker
+// in a pool parked in the same wait. The fixture is that shape: the crashed thread, plus three
+// threads with identical stacks that have to fold into one row.
+const gdbStacksFx = [
+  { thread: '1', target: 'Thread 0x7602d8112700 (LWP 9756)', signal: true, depth: 1085, more: true,
+    frames: gdbFramesFx },
+  ...['4', '5', '6'].map((id) => ({
+    thread: id, name: 'ib_io_rd', target: `Thread 0x76 (LWP 97${id}0)`, depth: 3,
+    frames: [
+      { level: 0, addr: '0x7602eb0f7', func: 'pthread_cond_wait', from: '/lib64/libpthread.so.0' },
+      { level: 1, addr: '0x1f0f0f0', func: 'os_event_wait_low(os_event_t, long)', file: '/src/os/os0event.cc', line: 419 },
+      { level: 2, addr: '0x1f0f0f8', func: 'io_handler_thread(ulint)', file: '/src/srv/srv0start.cc', line: 300 },
+    ],
+  })),
+]
+
+check('core dump: every thread at once, with identical stacks folded', () => {
+  const groups = groupThreadStacks(gdbStacksFx)
+  if (groups.length !== 2) throw new Error(`three identical stacks did not fold: ${groups.length} groups`)
+  if (!groups[0].signal) throw new Error('the signalled thread is not first')
+  if (groups[1].threads.length !== 3) throw new Error('the idle threads did not group')
+  const html = renderToString(<GdbAllThreads stacks={gdbStacksFx} selected="1" onThread={noop} />)
+  // The signalled thread's stack is open, because it is the one the view was opened for.
+  if (!html.includes('took the signal')) throw new Error('the signalled thread is not marked')
+  if (!html.includes('_int_malloc')) throw new Error("the signalled thread's frames are not expanded")
+  // And the group of three is one row until asked for.
+  if (!html.includes('3×')) throw new Error('the group does not say how many threads share the stack')
+  // Not yet loaded is a different thing from empty.
+  const loading = renderToString(<GdbAllThreads stacks={null} onThread={noop} />)
+  if (!/Reading every thread/.test(loading)) throw new Error('a pending fetch does not say so')
+  return `${groups.length} groups from ${gdbStacksFx.length} threads`
+})
+
+check('core dump: every stack copies out as text for a ticket', () => {
+  const text = threadStacksAsText(gdbStacksFx)
+  if (!text.includes('Thread 1')) throw new Error('a thread header is missing')
+  if (!text.includes('took the signal')) throw new Error('the signalled thread is not marked in the text')
+  if (!text.includes('#4  fts_query_visitor')) throw new Error('frames are not rendered')
+  if (!text.includes('[x140]')) throw new Error('a collapsed cycle loses its count in the text')
+  return `${text.split('\n').length} lines`
+})
+
+check('core dump: `bt full` puts each frame\'s locals under it', () => {
+  const html = renderToString(<GdbFrameLocals vars={[
+    { name: 'node', type: 'fts_ast_node_t *', value: '0x7602d0001234', arg: true },
+    { name: 'state', type: 'fts_query_t *', value: '0x7602d0005678' },
+  ]} />)
+  if (!html.includes('node')) throw new Error('an argument is missing')
+  if (!html.includes('0x7602d0005678')) throw new Error('a local is missing')
+  // Not loaded yet and nothing to load are different sentences.
+  if (!/reading/.test(renderToString(<GdbFrameLocals />))) throw new Error('a pending read does not say so')
+  if (!/no arguments or locals/.test(renderToString(<GdbFrameLocals vars={[]} />))) {
+    throw new Error('an empty frame does not explain itself')
+  }
+  return 'ok'
+})
+
+check('core dump: the stack panel offers both views and `full`', () => {
+  const html = renderToString(<GdbStack frames={gdbFramesFx} selected={0} onSelect={noop}
+    more={false} busy="" state={gdbStateFx} onMore={noop}
+    mode="thread" onMode={noop} onLocals={noop} locals={false} frameVars={{}} onThread={noop} />)
+  if (!html.includes('All threads')) throw new Error('there is no way to reach the other threads')
+  if (!html.includes('full')) throw new Error('`bt full` is not offered')
+  // In all-threads mode the frames of the selected thread are not what is shown.
+  const all = renderToString(<GdbStack frames={gdbFramesFx} selected={0} onSelect={noop}
+    more={false} busy="" state={gdbStateFx} onMore={noop}
+    mode="all" onMode={noop} stacks={gdbStacksFx} onThread={noop} />)
+  if (!all.includes('os_event_wait_low')) throw new Error('the all-threads view is not rendering stacks')
+  return 'ok'
+})
+
+// ---- values you can open -----------------------------------------------------
+
+check('core dump: a value says what it reads as, and opens when it has something inside', () => {
+  // gdb's pretty-printers are off, so a std::string arrives as its allocator internals with the
+  // text buried in the middle. The text is the part a reader wants first.
+  const raw = '{static npos = 18446744073709551615, _M_dataplus = {_M_p = 0x79018c404470 "audit_file.log"}, '
+    + '_M_string_length = 14}'
+  if (valueSummary(raw) !== 'audit_file.log') throw new Error('the readable part of a std::string is not found')
+  if (valueSummary('<optimized out>') !== '') throw new Error('a value with no text invented one')
+  if (!canExpand({ value: raw })) throw new Error('a struct is not openable')
+  if (!canExpand({ value: '0x38f822e0' })) throw new Error('a pointer is not openable')
+  if (canExpand({ value: '0x0' })) throw new Error('a null pointer offered to open')
+  if (canExpand({ value: '<optimized out>' })) throw new Error('an optimised-out value offered to open')
+
+  const html = renderToString(<GdbVarNode node={{ name: 'file_name', value: raw, expr: 'file_name' }}
+    onExpand={() => Promise.resolve([])} onWatch={noop} />)
+  if (!html.includes('audit_file.log')) throw new Error('the readable value is not shown')
+  if (!html.includes('file_name')) throw new Error('the name is not shown')
+  // A value with nothing inside it gets no chevron to click.
+  const flat = renderToString(<GdbVarNode node={{ name: 'len', value: '14', expr: 'len' }}
+    onExpand={() => Promise.resolve([])} onWatch={noop} />)
+  if (flat.includes('Open this value')) throw new Error('a scalar offered to open')
+  return 'ok'
+})
+
+check('core dump: the frame panel renders values as a tree', () => {
+  const html = renderToString(<GdbVars frame={gdbFramesFx[4]} onExpand={() => Promise.resolve([])} onWatch={noop}
+    vars={[
+      { name: 'oper', type: 'fts_ast_oper_t', value: 'FTS_EXIST', arg: true },
+      { name: 'node', type: 'fts_ast_node_t *', value: '0x7602d0001234', arg: true },
+      { name: 'state', type: 'fts_query_t *', value: '0x7602d0005678' },
+    ]} />)
+  if (!html.includes('Arguments') || !html.includes('Locals')) throw new Error('the two groups are gone')
+  if (!html.includes('Open this value')) throw new Error('a pointer is not openable in the panel')
+  return 'ok'
+})
+
+// ---- what was evaluated ------------------------------------------------------
+
+check('core dump: the summary says what was evaluated and what was in it', () => {
+  const html = renderToString(<GdbCrashState
+    fault={{
+      addr: '0x0', code: 1, codeText: 'the address is not mapped at all',
+      note: 'a null pointer was dereferenced — the object was never there, rather than being wrong',
+      through: { name: 'this', value: '0x0', offset: 0, frame: 6, func: 'temptable::Table::number_of_rows() const', arg: true },
+    }}
+    state={{
+      frame: 6, func: 'temptable::Table::number_of_rows() const',
+      file: '/usr/src/debug/percona-server-8.0.30-22/storage/temptable/include/temptable/table.h',
+      path: '/usr/src/debug/percona-server-8.0.30-22/storage/temptable/include/temptable/table.h',
+      line: 190, text: '    return m_rows.size();', before: ['  size_t Table::number_of_rows() const {'],
+      vars: [{ name: 'this', type: 'const temptable::Table *', value: '0x0', arg: true }],
+    }}
+    onExpand={() => Promise.resolve([])} onWatch={noop} />)
+  if (!html.includes('0x0')) throw new Error('the faulting address is not shown')
+  if (!html.includes('not mapped')) throw new Error('what si_code means is not shown')
+  if (!html.includes('return m_rows.size();')) throw new Error('the line of code is not shown')
+  if (!html.includes('190')) throw new Error('the line number is not shown')
+  if (!html.includes('this')) throw new Error('the state the line was reading is not shown')
+  // Nothing to say is no block at all, rather than an empty one.
+  if (renderToString(<GdbCrashState />) !== '') throw new Error('an empty state still rendered')
+  return 'ok'
+})
+
+check('core dump: a source file that is not on the node says which kind of missing it is', () => {
+  const frame = { level: 12, func: 'std::filesystem::directory_iterator::directory_iterator',
+    file: '/opt/rh/gcc-toolset-12/root/usr/include/c++/12/bits/fs_dir.h', line: 386 }
+  const html = renderToString(<GdbSource frame={frame} source={{
+    error: 'fs_dir.h is a C++ standard library header from the toolchain the server was built with, '
+      + 'which is not installed on this node — the frame\'s arguments and locals on the right are '
+      + 'what this frame has to show',
+  }} />)
+  if (!html.includes('standard library header')) throw new Error('the reason is not explained')
+  // And the path that was looked for is still on screen, because it is the thing to check.
+  if (!html.includes('gcc-toolset-12')) throw new Error('the path it looked for is not shown')
+  return 'ok'
 })
 
 check('core dump: the source of the selected frame is the whole file', () => {

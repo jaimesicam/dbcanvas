@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // gdbmi.go — a client for GDB's machine interface.
@@ -683,4 +684,165 @@ func (c *miClient) stackArguments(ctx context.Context, thread string, low, high 
 		out = append(out, fa)
 	}
 	return out, nil
+}
+
+// ---------------------------------------------------------------- values you can open
+
+// miChild is one member of a value the page asked to open: a struct's field, a base class's
+// subobject, or what a pointer points at.
+//
+// The page addresses values by *expression*, not by gdb's variable-object handle, and the Expr
+// field is what makes that work. gdb's own `-var-info-path-expression` produces an expression that
+// reads this child in the frame it came from — `((base_file_name)._M_dataplus)` — so a value can
+// be expanded, watched, or copied into the Evaluate box without the session having to keep a tree
+// of handles alive for every pane that happens to be open. A core file never changes underneath
+// us, which is what makes re-reading an expression as good as holding a handle to it.
+type miChild struct {
+	Name     string `json:"name"`           // the member's own name, as it is spelled in the source
+	Expr     string `json:"expr,omitempty"` // the expression that reads it; empty = cannot be re-read
+	Type     string `json:"type,omitempty"`
+	Value    string `json:"value,omitempty"`
+	Children int    `json:"children,omitempty"` // how many members it has, for the expand affordance
+	Access   string `json:"access,omitempty"`   // public | private | protected, when C++ said so
+}
+
+// miVarChildMax caps one expansion. A std::vector's variable object has one child per element, and
+// a vector with a million elements in it would otherwise be a million-row reply.
+const miVarChildMax = 500
+
+// varChildren opens one value and returns what is inside it.
+//
+// The mechanism is gdb's variable objects, which is the only thing in MI that can walk a value:
+// -data-evaluate-expression prints a struct as one long string and has no way to say "now give me
+// the third field". A variable object is created for the expression, its children are listed, and
+// it is deleted again — the create/delete pair is per request on purpose, because the alternative
+// is a server-side tree whose lifetime nobody owns.
+//
+// Two shapes of child are not members and have to be handled rather than shown:
+//
+//   - **Access pseudo-children.** A C++ class's children arrive as `public`, `private` and
+//     `protected` nodes with no type, holding the real members. Showing those is showing the
+//     access specifier as if it were a field, so they are descended through and the access they
+//     came from is recorded on the members instead.
+//   - **Pointers.** gdb gives a pointer-to-struct the pointee's members directly, which is what
+//     you want: clicking `thd` opens the THD. A null or unmapped pointer answers with gdb's own
+//     "Cannot access memory at address 0x0", which is not an error to hide — on a crash stack it
+//     is frequently the whole diagnosis.
+func (c *miClient) varChildren(ctx context.Context, thread string, frame int, expr string) ([]miChild, bool, error) {
+	p, err := c.exec(ctx, fmt.Sprintf("-var-create --thread %s --frame %d - * %s", thread, frame, miQuote(expr)))
+	if err != nil {
+		return nil, false, err
+	}
+	root := miStr(p["name"])
+	if root == "" {
+		return nil, false, fmt.Errorf("gdb would not open %s", expr)
+	}
+	// The delete runs on a context of its own: a cancelled request still has to give gdb its
+	// handle back, or a session leaks one variable object per click for as long as it lives.
+	defer func() {
+		delCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+		defer cancel()
+		_, _ = c.exec(delCtx, "-var-delete "+root)
+	}()
+
+	out := []miChild{}
+	more, err := c.collectChildren(ctx, root, "", &out)
+	if err != nil {
+		return nil, false, err
+	}
+	return out, more, nil
+}
+
+// collectChildren lists one variable object's children, descending through C++ access nodes.
+func (c *miClient) collectChildren(ctx context.Context, name, access string, out *[]miChild) (bool, error) {
+	p, err := c.exec(ctx, "-var-list-children --all-values "+name)
+	if err != nil {
+		return false, err
+	}
+	more := false
+	for _, item := range miList(p["children"]) {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		// children=[child={…},child={…}] arrives as single-entry maps, the same shape the frame
+		// list does.
+		if inner, ok := m["child"].(map[string]any); ok {
+			m = inner
+		}
+		exp, typ := miStr(m["exp"]), miStr(m["type"])
+		if typ == "" && (exp == "public" || exp == "private" || exp == "protected") {
+			// Not a member — the access specifier its members are under.
+			if childMore, err := c.collectChildren(ctx, miStr(m["name"]), exp, out); err == nil {
+				more = more || childMore
+			}
+			continue
+		}
+		if len(*out) >= miVarChildMax {
+			more = true
+			break
+		}
+		ch := miChild{Name: exp, Type: typ, Value: miStr(m["value"]), Access: access}
+		ch.Children, _ = strconv.Atoi(miStr(m["numchild"]))
+		ch.Expr = c.pathExpr(ctx, miStr(m["name"]))
+		*out = append(*out, ch)
+	}
+	return more, nil
+}
+
+// pathExpr asks gdb for the expression that reads a child in its own frame. An empty answer — an
+// anonymous union is the case that produces one — means the page can display the value but has
+// nowhere to send a click, which it handles by not offering one.
+func (c *miClient) pathExpr(ctx context.Context, name string) string {
+	p, err := c.exec(ctx, "-var-info-path-expression "+name)
+	if err != nil {
+		return ""
+	}
+	return miStr(p["path_expr"])
+}
+
+// ---------------------------------------------------------------- the signal itself
+
+// miSiginfo is the kernel's own record of the signal, out of the core's NT_SIGINFO note.
+//
+// This is the single most direct piece of evidence a core carries about a memory fault and the
+// command-line recipe never prints it: si_addr is *the address the program touched*. A stack full
+// of plausible pointers becomes one question with an answer — which of them is this? — and the
+// answer is arithmetic rather than judgement. gdb has always been able to say it; `p $_siginfo` is
+// just not something anybody thinks to type.
+type miSiginfo struct {
+	Signo   int    `json:"signo"`
+	Code    int    `json:"code"`
+	Addr    uint64 `json:"addr"`
+	HasAddr bool   `json:"hasAddr"`
+}
+
+// siginfo reads $_siginfo. It is absent from cores written without the note (and from every core
+// on some platforms), so a failure here is "no answer", not an error worth reporting.
+func (c *miClient) siginfo(ctx context.Context) *miSiginfo {
+	signo, err := c.evaluateAnywhere(ctx, "$_siginfo.si_signo")
+	if err != nil {
+		return nil
+	}
+	out := &miSiginfo{}
+	out.Signo, _ = strconv.Atoi(strings.TrimSpace(signo))
+	if code, err := c.evaluateAnywhere(ctx, "$_siginfo.si_code"); err == nil {
+		out.Code, _ = strconv.Atoi(strings.TrimSpace(code))
+	}
+	if addr, err := c.evaluateAnywhere(ctx, "(void *) $_siginfo._sifields._sigfault.si_addr"); err == nil {
+		if v, ok := gdbParsePointer(addr); ok {
+			out.Addr, out.HasAddr = v, true
+		}
+	}
+	return out
+}
+
+// evaluateAnywhere is evaluate without a frame, for the convenience variables ($_siginfo and
+// friends) that belong to the whole inferior rather than to a frame.
+func (c *miClient) evaluateAnywhere(ctx context.Context, expr string) (string, error) {
+	p, err := c.exec(ctx, "-data-evaluate-expression "+miQuote(expr))
+	if err != nil {
+		return "", err
+	}
+	return miStr(p["value"]), nil
 }

@@ -42,6 +42,56 @@ type gdbVerdict struct {
 	Trigger  *gdbTrig  `json:"trigger,omitempty"` // the input that set it off
 	Handler  bool      `json:"handler,omitempty"` // the server's own crash handler ran
 	Query    *gdbQuery `json:"query,omitempty"`   // the SQL that was running, if any thread had one
+	// Fault is the kernel's own account of a memory fault, and State is the line of code it
+	// happened on with the values that line was reading. Together they are the answer to the
+	// question a backtrace never answers: *which* pointer, holding *what*, was evaluated.
+	Fault *gdbFault     `json:"fault,omitempty"`
+	State *gdbStatement `json:"state,omitempty"`
+}
+
+// gdbFault is what the kernel recorded about a memory fault, out of the core's own siginfo note.
+//
+// si_addr is the address the program actually touched. No amount of reading a backtrace produces
+// it, and no command in the recipe prints it — but a crash stack is full of plausible pointers and
+// this is the one fact that says which of them was the one. Matching it against the faulting
+// frame's own variables turns "SIGSEGV somewhere in here" into "it dereferenced `thd`, which was
+// 0x0", which is a sentence you can act on.
+type gdbFault struct {
+	Addr     string       `json:"addr"`               // the address touched, as gdb prints it
+	Code     int          `json:"code,omitempty"`     // si_code
+	CodeText string       `json:"codeText,omitempty"` // what si_code means for this signal
+	Note     string       `json:"note,omitempty"`     // what the address itself says
+	Through  *gdbFaultVar `json:"through,omitempty"`  // the variable that address came from
+}
+
+// gdbFaultVar is the variable whose value explains the faulting address: either it *is* the
+// address, or the address is a field a short distance past it.
+type gdbFaultVar struct {
+	Name   string `json:"name"`
+	Value  string `json:"value"`
+	Offset uint64 `json:"offset,omitempty"` // how far past the variable's own value the fault was
+	Frame  int    `json:"frame"`
+	Func   string `json:"func"`
+	Arg    bool   `json:"arg,omitempty"`
+}
+
+// gdbStatement is the line of source the program was on when it died, with the values it names.
+//
+// A file and a line number are a coordinate, not an explanation. The explanation is the line —
+// `return m_rows.size();` — next to the state it was reading, and that pairing is what turns a
+// stack into a diagnosis. The variables listed are the frame's own, filtered to the ones this line
+// actually mentions, because a frame with forty locals says nothing and the three on this line say
+// everything.
+type gdbStatement struct {
+	Frame   int      `json:"frame"`
+	Func    string   `json:"func"`
+	File    string   `json:"file"`           // as the debug information records it
+	Path    string   `json:"path,omitempty"` // where it turned out to be on this node
+	Line    int      `json:"line"`
+	Text    string   `json:"text"`
+	Before  []string `json:"before,omitempty"` // the two lines above, for a statement that wraps
+	Vars    []miVar  `json:"vars,omitempty"`
+	Missing string   `json:"missing,omitempty"` // why there is no text, when there is none
 }
 
 // gdbQuery is the statement a THD was executing, read directly out of its own m_query_string —
@@ -236,6 +286,39 @@ func (s *gdbSession) diagnose(ctx context.Context, cli *miClient, thread, signal
 				"the recursion was started by %s at frame #%d, working on %s",
 				shortFuncName(v.Trigger.Func), v.Trigger.Frame, v.Trigger.Name))
 		}
+	}
+
+	// What the kernel says the fault was, and the line of code it happened on. Both are after the
+	// classification because both are *about* the frame it picked: the verdict says which frame is
+	// the bug, and these two say what that frame was evaluating when it became one.
+	//
+	// This is the half of a core dump that the recipe cannot reach at all. `thread apply all bt`
+	// ends at the function name; the address the program touched is in the core's siginfo note and
+	// the code it was running is in a file on disk, and nothing joins the two up unless somebody
+	// does it by hand.
+	if fi := gdbFaultFrame(frames); fi >= 0 {
+		v.Fault = s.gdbFaultDetail(ctx, cli, thread, frames, signal, fi)
+		if v.Fault != nil && v.Fault.Through != nil {
+			t := v.Fault.Through
+			where := ""
+			if t.Offset > 0 {
+				where = fmt.Sprintf(", %d bytes into it", t.Offset)
+			}
+			v.Evidence = append(v.Evidence, fmt.Sprintf(
+				"the address the program touched is %s, which is %s = %s in %s%s",
+				v.Fault.Addr, t.Name, t.Value, shortFuncName(t.Func), where))
+		} else if v.Fault != nil {
+			v.Evidence = append(v.Evidence, "the address the program touched is "+v.Fault.Addr)
+		}
+	}
+	stateFrame := v.Culprit
+	if stateFrame == nil || stateFrame.File == "" {
+		if fi := gdbFaultFrame(frames); fi >= 0 {
+			stateFrame = &frames[fi]
+		}
+	}
+	if st := s.gdbStatementAt(ctx, cli, thread, stateFrame); st != nil && (st.Text != "" || len(st.Vars) > 0) {
+		v.State = st
 	}
 
 	// The query, unconditionally — this is not specific to one crash class. Any thread that was
@@ -926,4 +1009,185 @@ func gdbCallerSentence(caller *miFrame) string {
 		return ""
 	}
 	return fmt.Sprintf(" Start at %s%s, one frame down.", shortFuncName(caller.Func), locSuffix(*caller))
+}
+
+// ---------------------------------------------------------------- what was evaluated
+
+// gdbFaultWindow is how far past a pointer a faulting address can be and still be attributed to
+// it. A field offset inside one object; anything further is a different object and attributing it
+// would be a guess dressed as a fact.
+const gdbFaultWindow = 1 << 16
+
+// gdbSigcodes names si_code for the signals where it says something a reader can use.
+var gdbSigcodes = map[string]map[int]string{
+	"SIGSEGV": {1: "the address is not mapped at all", 2: "the address is mapped, but not for that access"},
+	"SIGBUS":  {1: "the address was misaligned", 2: "no physical page backs that address", 3: "a hardware error on that object"},
+	"SIGILL":  {1: "an illegal opcode", 2: "an illegal operand", 6: "a privileged instruction"},
+	"SIGFPE":  {1: "integer divide by zero", 3: "integer overflow", 4: "floating-point divide by zero"},
+}
+
+// gdbFaultDetail reads the kernel's record of the fault and tries to name the variable it came
+// through.
+//
+// Only for the signals where an address means something: SIGABRT carries a pid in the same union,
+// and reading that as a faulting address would be inventing evidence.
+func (s *gdbSession) gdbFaultDetail(ctx context.Context, cli *miClient, thread string, frames []miFrame, signal string, faultIdx int) *gdbFault {
+	switch signal {
+	case "SIGSEGV", "SIGBUS", "SIGILL", "SIGFPE":
+	default:
+		return nil
+	}
+	si := cli.siginfo(ctx)
+	if si == nil || !si.HasAddr {
+		return nil
+	}
+	f := &gdbFault{Addr: fmt.Sprintf("0x%x", si.Addr), Code: si.Code}
+	f.CodeText = gdbSigcodes[signal][si.Code]
+	switch {
+	case si.Addr == 0:
+		f.Note = "a null pointer was dereferenced — the object was never there, rather than being wrong"
+	case si.Addr < 0x1000:
+		f.Note = fmt.Sprintf("a null pointer plus a field offset of %d bytes: the object was null and "+
+			"the code was reading a member of it", si.Addr)
+	case si.Addr>>47 != 0 && si.Addr>>47 != 0x1ffff:
+		f.Note = "the address is not a valid user-space address at all, which means the pointer held " +
+			"something that was never a pointer — uninitialised memory, or a value read through an " +
+			"already-freed object"
+	}
+	f.Through = gdbFaultThrough(ctx, cli, thread, frames, faultIdx, si.Addr)
+	return f
+}
+
+// gdbFaultThrough looks for the variable whose value is the address that faulted.
+//
+// It searches the faulting frame first and its caller second, arguments before locals, and it
+// takes the *closest* pointer at or below the address: a struct's base pointer plus a field offset
+// is the shape of nearly every one of these, and the base pointer is the answer — the field offset
+// is how far into it the code had got.
+func gdbFaultThrough(ctx context.Context, cli *miClient, thread string, frames []miFrame, faultIdx int, addr uint64) *gdbFaultVar {
+	if faultIdx < 0 || faultIdx >= len(frames) {
+		return nil
+	}
+	var best *gdbFaultVar
+	consider := func(fr miFrame, v miVar) {
+		ptr, ok := gdbParsePointer(v.Value)
+		if !ok || ptr > addr || addr-ptr >= gdbFaultWindow {
+			return
+		}
+		// A null pointer and a faulting address of 0x30 are the same bug; a *valid* pointer
+		// 0x30 below the fault is the object the field belongs to. Both are wanted, and the
+		// closest wins.
+		off := addr - ptr
+		if best != nil && best.Offset <= off {
+			return
+		}
+		best = &gdbFaultVar{Name: v.Name, Value: v.Value, Offset: off,
+			Frame: fr.Level, Func: fr.Func, Arg: v.Arg}
+	}
+	for i := faultIdx; i < len(frames) && i <= faultIdx+1; i++ {
+		fr := frames[i]
+		for _, a := range fr.Args {
+			consider(fr, a)
+		}
+		vars, err := cli.variables(ctx, thread, fr.Level)
+		if err != nil {
+			continue
+		}
+		for _, v := range vars {
+			consider(fr, v)
+		}
+	}
+	return best
+}
+
+// gdbCppKeywords are the words on a source line that are never a variable. Without this the
+// statement's variable list is half of C++'s grammar.
+var gdbCppKeywords = map[string]bool{
+	"if": true, "else": true, "for": true, "while": true, "do": true, "switch": true, "case": true,
+	"return": true, "break": true, "continue": true, "const": true, "static": true, "auto": true,
+	"void": true, "int": true, "bool": true, "char": true, "long": true, "short": true, "unsigned": true,
+	"signed": true, "float": true, "double": true, "true": true, "false": true, "nullptr": true,
+	"null": true, "sizeof": true, "new": true, "delete": true, "this": true, "class": true,
+	"struct": true, "template": true, "typename": true, "namespace": true, "using": true,
+	"public": true, "private": true, "protected": true, "virtual": true, "inline": true,
+	"throw": true, "try": true, "catch": true, "noexcept": true, "constexpr": true, "std": true,
+}
+
+var gdbIdentRe = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)
+
+// gdbStatementAt reads the line of source a frame is standing on and pairs it with the frame's
+// own values for the names it mentions.
+//
+// This is the last step of the diagnosis and the one that makes it checkable. Everything above
+// reasons about frames; this shows the reader the actual line of code the program was executing
+// and what the variables on it held, which is either the explanation or the thing that proves the
+// explanation wrong. Both are worth having on screen.
+func (s *gdbSession) gdbStatementAt(ctx context.Context, cli *miClient, thread string, frame *miFrame) *gdbStatement {
+	if frame == nil || frame.File == "" || frame.Line <= 0 {
+		return nil
+	}
+	st := &gdbStatement{Frame: frame.Level, Func: frame.Func, File: frame.File, Line: frame.Line}
+
+	path, err := s.sourcePath(ctx, frame.File)
+	if err != nil {
+		// No source is not no answer: the variables below are still this frame's, and saying why
+		// the line is missing is more use than an empty box.
+		st.Missing = err.Error()
+	} else {
+		st.Path = path
+		from := max(frame.Line-2, 1)
+		if lines, err := s.a.gdbReadSourceLines(ctx, s.tgt.ContainerID, path, from, frame.Line); err == nil && len(lines) > 0 {
+			st.Text = strings.TrimRight(lines[len(lines)-1], " \t")
+			for _, ln := range lines[:len(lines)-1] {
+				st.Before = append(st.Before, strings.TrimRight(ln, " \t"))
+			}
+		}
+	}
+
+	vars, err := cli.variables(ctx, thread, frame.Level)
+	if err != nil {
+		return st
+	}
+	st.Vars = gdbVarsOnLine(append(append([]string{}, st.Before...), st.Text), vars)
+	return st
+}
+
+// gdbVarsOnLine picks the frame's variables that this line of code actually mentions.
+//
+// A frame in optimised C++ routinely carries thirty locals, most of them from callees that were
+// inlined into it and none of which the line in question touches. The three names on the line are
+// the state being evaluated, and showing those next to the line is the whole point; showing all
+// thirty is the panel on the right, which is already there.
+func gdbVarsOnLine(lines []string, vars []miVar) []miVar {
+	named := map[string]bool{}
+	for _, ln := range lines {
+		for _, id := range gdbIdentRe.FindAllString(ln, -1) {
+			if !gdbCppKeywords[id] {
+				named[id] = true
+			}
+		}
+	}
+	out := []miVar{}
+	for _, v := range vars {
+		// `this` is never spelled on the line that dereferences it — `m_rows.size()` is a member
+		// access through it — so it is included whenever the frame has one. It is also the single
+		// most common answer to "what was null".
+		if named[v.Name] || v.Name == "this" {
+			out = append(out, v)
+		}
+	}
+	// A line that mentions nothing the frame has (a header inlined from somewhere else, or a
+	// statement whose operands are all temporaries) is better served by the frame's arguments
+	// than by nothing at all.
+	if len(out) == 0 {
+		for _, v := range vars {
+			if v.Arg {
+				out = append(out, v)
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

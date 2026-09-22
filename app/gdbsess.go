@@ -36,7 +36,14 @@ const (
 	gdbEventLog = 200
 	// How long any one gdb command may take. Loading the core is the slow one and has its own,
 	// longer, budget.
-	gdbCommandTimeout = 2 * time.Minute
+	//
+	// Five minutes rather than the two this started with, because of what opening a *value* costs.
+	// A backtrace is cheap — gdb already has the frames — but `-var-list-children` on a C++ object
+	// makes gdb read the full DWARF for that type and everything it is built from, and on a server
+	// binary with a gigabyte of debug information that is tens of seconds the first time, measured
+	// at 41s for one struct on the 8.4.5 core this was read against. A budget that cuts that off
+	// turns a slow answer into no answer, which is the worse of the two.
+	gdbCommandTimeout = 5 * time.Minute
 	gdbLoadTimeout    = 10 * time.Minute
 )
 
@@ -112,10 +119,15 @@ type gdbSession struct {
 	verdict *gdbVerdict
 	reading string // the object gdb last said it was reading symbols from
 	recipe  string // the terminal equivalent of this session, for copying
-	threads []miThread
-	thread  string
-	allow   bool
-	grace   *time.Timer
+	// Where source lives on this node, resolved once when the core is opened, and the answers
+	// already worked out for the paths the debug information records. Both are per-core: a
+	// different core can be a different build with a different tree unpacked next to it.
+	srcRoots []string
+	srcPaths map[string]string // DWARF path -> the file on this node, "" when there is none
+	threads  []miThread
+	thread   string
+	allow    bool
+	grace    *time.Timer
 
 	submu   sync.Mutex
 	subs    map[int]chan []byte
@@ -321,6 +333,20 @@ func (s *gdbSession) open(ctx context.Context, core string) error {
 	loadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), gdbLoadTimeout)
 	defer cancel()
 
+	// Anything left over from a previous session on this node goes first.
+	//
+	// gdb runs inside the node, on the far side of a docker exec, and an exec does not die when
+	// the process that started it does: restart DBCanvas and the gdb it was driving keeps running,
+	// holding an 800 MB core mapped and a gigabyte of symbols resident, with nothing left that can
+	// talk to it. Three of them accumulated on the sample node in an afternoon, and the only
+	// symptom is that everything gets slow — the next session's queries are competing with two
+	// ghosts for the same page cache. One gdb per node is the design (the session is keyed by
+	// node), so anything else speaking MI in there is by definition orphaned.
+	//
+	// Only the MI ones: a person who ran the recipe in their own terminal is running gdb without
+	// --interpreter=mi3, and their session is not ours to end.
+	s.a.gdbKillStrays(loadCtx, tgt.ContainerID)
+
 	solib := s.a.gdbSolibPath(loadCtx, tgt.ContainerID)
 	// Where debugsource unpacked the code. A recent build's DWARF is absolute and needs none of
 	// this; an older one records a relative path that gdb resolves against exactly this list.
@@ -348,6 +374,7 @@ func (s *gdbSession) open(ctx context.Context, core string) error {
 	s.mu.Lock()
 	s.cli, s.conn, s.core = cli, conn, core
 	s.symbols, s.signal, s.sigText, s.reading, s.verdict = "", "", "", "", nil
+	s.srcRoots, s.srcPaths = srcRoots, map[string]string{}
 	// Built here rather than in the browser because this is where the truth is: the solib path was
 	// just resolved by walking the mount, and a recipe that guessed it would send somebody off to
 	// read a different set of libraries than the page did.
@@ -375,6 +402,7 @@ func (s *gdbSession) open(ctx context.Context, core string) error {
 	}
 	s.logf("info", "%d threads; thread %s took %s", len(threads), current, sig)
 	s.publishState()
+	go s.watch(cli)
 
 	// Then work out what actually happened. It is deliberately *after* the state is published:
 	// reading a 1,000-frame stack takes a moment, and the panes are usable while it runs. A
@@ -390,6 +418,34 @@ func (s *gdbSession) open(ctx context.Context, core string) error {
 		s.publishState()
 	}
 	return nil
+}
+
+// watch reports gdb going away on its own.
+//
+// Without it the session goes on saying "ready" while every command comes back "gdb ended: EOF",
+// which reads as the page being broken rather than as the debugger being gone — and the two want
+// completely different things from the reader. Killed from outside, out of memory, or crashed on a
+// value it could not parse: whichever it was, the answer is to open the core again, and the page
+// can only offer that if it knows.
+//
+// A client that is no longer the session's is one we replaced ourselves (closeClient clears the
+// field before closing it), so that case is silence.
+func (s *gdbSession) watch(cli *miClient) {
+	<-cli.Done()
+	s.mu.Lock()
+	ours := s.cli == cli
+	s.mu.Unlock()
+	if !ours {
+		return
+	}
+	s.closeClient()
+	s.mu.Lock()
+	s.status = "error"
+	s.detail = "gdb is no longer running on the node — open the core again"
+	s.threads, s.thread = nil, ""
+	s.mu.Unlock()
+	s.logf("error", "gdb exited on its own — the session is gone; open the core again")
+	s.publishState()
 }
 
 func (s *gdbSession) signalNow() string {
@@ -755,4 +811,159 @@ func firstLine(s string) string {
 		return s[:i]
 	}
 	return s
+}
+
+// ---------------------------------------------------------------- every thread at once
+
+// gdbThreadStack is one thread's stack in the all-threads view.
+type gdbThreadStack struct {
+	Thread string    `json:"thread"`
+	Name   string    `json:"name,omitempty"`
+	Target string    `json:"target,omitempty"`
+	Depth  int       `json:"depth"`
+	Frames []miFrame `json:"frames"`
+	More   bool      `json:"more"`             // the stack is deeper than the frames here
+	Signal bool      `json:"signal,omitempty"` // this is the thread that took the signal
+	Error  string    `json:"error,omitempty"`
+}
+
+// gdbAllThreadWindow is how many frames each thread contributes to the all-threads view.
+//
+// Not the whole stack, on purpose. The view answers "what was every thread doing", and for that a
+// thread's top frames are the answer — the one stack anybody reads to the bottom is the one that
+// crashed, and selecting a thread loads that properly. A 1,085-frame recursion rendered sixty-one
+// times over is not a more complete answer, it is an unusable one.
+const gdbAllThreadWindow = 40
+
+// threadStacks is `thread apply all bt`, with the two things that command cannot do.
+//
+// The command exists and people run it first, so this is the view the tool owes them. What it adds
+// is what makes the output readable at sixty threads:
+//
+//   - **The real depth of each stack**, from -stack-info-depth, not the number of frames printed.
+//   - **Collapsed recursion**, the same folding the single-thread pane does.
+//
+// The grouping of identical stacks — twenty threads all parked in the same wait — is done on the
+// page rather than here, because which stacks count as "the same" is a display decision and the
+// frames are needed either way.
+func (s *gdbSession) threadStacks(ctx context.Context) ([]gdbThreadStack, error) {
+	s.mu.Lock()
+	threads := append([]miThread(nil), s.threads...)
+	signalled := s.thread
+	s.mu.Unlock()
+	if len(threads) == 0 {
+		return nil, fmt.Errorf("no core file is open")
+	}
+	out := make([]gdbThreadStack, 0, len(threads))
+	err := s.withClient(ctx, func(ctx context.Context, cli *miClient) error {
+		for _, t := range threads {
+			ts := gdbThreadStack{Thread: t.ID, Name: t.Name, Target: t.Target, Signal: t.ID == signalled}
+			frames, err := cli.frames(ctx, t.ID, 0, gdbAllThreadWindow+1)
+			if err != nil {
+				// One unreadable thread is not a failed request: a core with a thread gdb cannot
+				// unwind still has fifty-nine it can, and saying so per row is the honest shape.
+				ts.Error = err.Error()
+				out = append(out, ts)
+				continue
+			}
+			if len(frames) > gdbAllThreadWindow {
+				frames, ts.More = frames[:gdbAllThreadWindow], true
+			}
+			ts.Frames = gdbCollapse(frames)
+			if d, err := cli.stackDepth(ctx, t.ID); err == nil {
+				ts.Depth = d
+			} else {
+				ts.Depth = len(frames)
+			}
+			out = append(out, ts)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ---------------------------------------------------------------- bt full
+
+// gdbFullVarsMax is how many frames one `bt full` request reads locals for.
+//
+// Each frame is its own MI round trip — MI has no "locals for a range of frames" — and on a server
+// binary each of those costs gdb a couple of seconds of DWARF reading. Forty is the most that can
+// be asked for without the answer taking longer than anybody will wait for it, and it is the top
+// forty, which is where a crash is. The page mirrors this number so that the rows it cannot fill
+// say so rather than sitting on "reading…" forever.
+const gdbFullVarsMax = 40
+
+// frameVars reads the arguments and locals of a run of frames — the `full` in `bt full`.
+//
+// One frame at a time is the only way MI offers (-stack-list-variables takes a single frame), but
+// the round trips are local to the node and the answer is what turns a stack into something you
+// can read without clicking thirty times. The reply is keyed by frame level rather than by
+// position, because the pane it fills has collapsed cycles in it and its rows are not levels.
+func (s *gdbSession) frameVars(ctx context.Context, thread string, levels []int) (map[int][]miVar, error) {
+	if len(levels) > gdbFullVarsMax {
+		levels = levels[:gdbFullVarsMax]
+	}
+	out := map[int][]miVar{}
+	err := s.withClient(ctx, func(ctx context.Context, cli *miClient) error {
+		for _, lv := range levels {
+			vars, err := cli.variables(ctx, thread, lv)
+			if err != nil {
+				continue // a frame with no debug information has no locals; that is not an error
+			}
+			if vars == nil {
+				vars = []miVar{}
+			}
+			out[lv] = vars
+		}
+		return nil
+	})
+	return out, err
+}
+
+// children opens one value — see miClient.varChildren.
+func (s *gdbSession) children(ctx context.Context, thread string, frame int, expr string) ([]miChild, bool, error) {
+	var (
+		kids []miChild
+		more bool
+	)
+	err := s.withClient(ctx, func(ctx context.Context, cli *miClient) error {
+		var err error
+		kids, more, err = cli.varChildren(ctx, thread, frame, expr)
+		return err
+	})
+	return kids, more, err
+}
+
+// ---------------------------------------------------------------- source
+
+// sourcePath maps a path out of the debug information to a file on this node, remembering the
+// answer.
+//
+// Worth a cache even though the lookup is one exec: the source pane asks on every frame you click,
+// and a stack walked frame by frame asks for the same handful of files over and over.
+func (s *gdbSession) sourcePath(ctx context.Context, file string) (string, error) {
+	s.mu.Lock()
+	roots := append([]string(nil), s.srcRoots...)
+	hit, known := "", false
+	if s.srcPaths != nil {
+		hit, known = s.srcPaths[file]
+	}
+	tgt := s.tgt
+	s.mu.Unlock()
+	if known {
+		if hit == "" {
+			return "", gdbNoSourceError(file)
+		}
+		return hit, nil
+	}
+	found, err := s.a.gdbFindSource(ctx, tgt.ContainerID, file, roots)
+	s.mu.Lock()
+	if s.srcPaths != nil {
+		s.srcPaths[file] = found // "" records the miss, which is the answer worth not asking twice
+	}
+	s.mu.Unlock()
+	return found, err
 }
