@@ -11,11 +11,30 @@ import { api } from '../lib/api.js'
 // request off the machine. The server also does the version comparison, for the
 // same reason WhatsNew leaves it there.
 
+// How long an answer that needs no action ("Up to date", a failed check) stays on screen. Long
+// enough to be read, short enough that the button is back to being an invitation to ask again.
+// An available update does not fade: it is the one answer somebody has to act on.
+const STATUS_MS = 60_000
+const FADE_MS = 700
+
 export function UpdateCheckButton() {
   const [state, setState] = useState({ phase: 'idle' }) // idle | checking | done | error
   const [open, setOpen] = useState(false)
+  const [fading, setFading] = useState(false)
+
+  const res = state.res
+  const transient = state.phase === 'error' || (state.phase === 'done' && !res?.available)
+
+  useEffect(() => {
+    if (!transient) return
+    setFading(false)
+    const fade = setTimeout(() => setFading(true), STATUS_MS - FADE_MS)
+    const clear = setTimeout(() => setState({ phase: 'idle' }), STATUS_MS)
+    return () => { clearTimeout(fade); clearTimeout(clear) }
+  }, [state, transient])
 
   const check = async () => {
+    setFading(false)
     setState({ phase: 'checking' })
     try {
       const res = await api.checkUpdates()
@@ -26,33 +45,49 @@ export function UpdateCheckButton() {
     }
   }
 
-  const res = state.res
+  const pill = (tone, icon, text, title) => (
+    <span
+      title={title}
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium transition-opacity duration-700 ${tone} ${fading ? 'opacity-0' : 'opacity-100'}`}
+    >
+      {icon}
+      {text}
+    </span>
+  )
+
   let status = null
   if (state.phase === 'error') {
-    status = <span className="text-danger" title={state.error}>Check failed</span>
+    status = pill('bg-danger/15 text-danger', <Icon.StatusCrit size={13} />, "Couldn't reach GitHub", state.error)
   } else if (res?.available) {
     status = (
-      <button onClick={() => setOpen(true)} className="font-medium text-primary hover:underline">
+      <button
+        onClick={() => setOpen(true)}
+        className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 font-medium text-primary hover:bg-primary/25"
+      >
+        <Icon.Sparkles size={13} />
         {res.latest} available
       </button>
     )
   } else if (res?.dev) {
-    status = <span title="This build is unstamped, so it cannot be compared">Dev build · latest is {res.latest}</span>
+    status = pill('bg-muted/15 text-fg', <Icon.StatusInfo size={13} />, `Dev build · latest is ${res.latest}`,
+      'This build is unstamped, so there is no version to compare')
   } else if (res) {
-    status = <span>Up to date</span>
+    status = pill('bg-success/15 text-success', <Icon.StatusOk size={13} />, `Up to date · ${res.current}`,
+      `Nothing newer than ${res.current} on GitHub`)
   }
 
+  const checking = state.phase === 'checking'
   return (
     <span className="inline-flex items-center gap-2 text-xs text-muted">
       {status}
       <button
         onClick={check}
-        disabled={state.phase === 'checking'}
-        className="inline-flex items-center gap-1.5 transition hover:text-fg disabled:opacity-50"
+        disabled={checking}
+        className="inline-flex items-center gap-1.5 transition hover:text-fg disabled:opacity-60"
         title="Check GitHub for a newer DBCanvas"
       >
-        <Icon.Search size={14} />
-        <span>{state.phase === 'checking' ? 'Checking…' : 'Check for updates'}</span>
+        <Icon.Refresh size={14} className={checking ? 'animate-spin' : ''} />
+        <span>{checking ? 'Checking…' : 'Check for updates'}</span>
       </button>
       {open && res?.available && <UpdateDialog res={res} onClose={() => setOpen(false)} />}
     </span>

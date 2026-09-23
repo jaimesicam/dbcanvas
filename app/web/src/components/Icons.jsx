@@ -301,6 +301,15 @@ export const Icon = {
   // the colour and the word, so the reading survives a greyscale print and a
   // colour-blind reader. Their silhouettes are deliberately different at small
   // sizes: a circle, a triangle, an octagon, a bare dot.
+  // Two arrows chasing each other round a circle: "check again". Spun while a check runs.
+  Refresh: (p) => (
+    <Svg {...p}>
+      <path d="M20 11a8 8 0 0 0-14.3-4.9L4 8" />
+      <polyline points="4 3 4 8 9 8" />
+      <path d="M4 13a8 8 0 0 0 14.3 4.9L20 16" />
+      <polyline points="20 21 20 16 15 16" />
+    </Svg>
+  ),
   StatusOk: (p) => (
     <Svg {...p}>
       <circle cx="12" cy="12" r="9" />
