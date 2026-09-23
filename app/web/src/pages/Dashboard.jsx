@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Card, Badge } from '../components/ui.jsx'
 import WhatsNew, { WhatsNewLink, useWhatsNew } from '../components/WhatsNew.jsx'
+import { UpdateCheckButton } from '../components/UpdateCheck.jsx'
 import { dashApi, fmtBytes } from '../lib/dashApi.js'
 import { usePolling } from '../lib/usePolling.jsx'
 import { relTime } from '../lib/notifApi.js'
@@ -67,7 +68,8 @@ export default function Dashboard() {
           <span className={`h-2 w-2 rounded-full ${live ? 'animate-pulse bg-primary' : 'bg-muted'}`} />
           {live ? 'Live · monitoring active' : 'Paused (focus the tab to resume)'}
         </span>
-        <span className="ml-auto">
+        <span className="ml-auto flex flex-wrap items-center gap-3">
+          <UpdateCheckButton />
           <WhatsNewLink data={whatsNew.data} onClick={whatsNew.showAll} />
         </span>
       </div>

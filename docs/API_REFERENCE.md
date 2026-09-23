@@ -312,7 +312,7 @@ prints the whole matrix for your installation.
 **The associations.** A relationship above is a *field*. An association is a **line on
 the canvas**, and it is the half of a design that fields cannot express: the
 provisioners find a ProxySQL's backend and a simulator's database by walking the edge
-graph, never by reading a field. Seven kinds do nothing without one, and an HAProxy
+graph, never by reading a field. Eight kinds do nothing without one, and an HAProxy
 without one cannot even pass validation. `mclusteradmin` is the exception: it takes
 the same kind of line, but works without it.
 
@@ -323,7 +323,8 @@ the same kind of line, but works without it.
 | `trafficsim` | `valkey`, `valkey-cluster` |
 | `hotelsim` | `psm`, `psmrs`, `psmdb` |
 | `airlinesim` | `ps`, `ps-repl`, `pxc`, `proxysql`, `haproxy` |
-| `carsim` | `pg`, `patroni`, `repmgr`, `spock`, `haproxy` |
+| `pgbouncer` | `pg`, `patroni`, `repmgr`, `spock` — exactly one |
+| `carsim` | `pg`, `patroni`, `repmgr`, `spock`, `haproxy`, `pgbouncer` |
 | `marketchaos` | `ps`, `pxc`, `ps-repl`, `haproxy` |
 | `mclusteradmin` | `psm`, `psmrs`, `psmdb` — **optional**: the panel connects to any URI typed into it, and the line only means compose can hand it a ready-made connection string |
 
@@ -355,10 +356,25 @@ against.
 
 **Per-engine choices** — each selects a genuinely different topology or mode rather
 than a tuning detail: `replMode` (`async`|`semisync`, or `innodbcluster`|
-`groupreplication`), `mode` for ProxySQL (`singlewrite`|`loadbal`), `mysqlRouter`,
+`groupreplication`), `mode` for ProxySQL (`singlewrite`|`loadbal`) and for PgBouncer
+(the pool mode: `transaction` by default, `session` or `statement`), `mysqlRouter`,
 `setup` for a sharded PSMDB cluster, `dataset` for MarketChaos, `buckets` and `tls`
 for SeaweedFS, `alertEmail` for Orchestrator, and `certTtl` (`365d`, `2h`, `30m` — a
 short one expires on purpose).
+
+**PgBouncer.** One `pgbouncer` node pools for one PostgreSQL node or one Patroni,
+repmgr or Spock cluster — the `to=` line picks which. Composed, it follows the
+cluster's primary across a failover and authenticates clients with `auth_query`, both
+on by default; `cert` terminates TLS at the pool with a certificate from the Intranet
+CA. Point a Car Rental Sim at it with `to=pgbouncer-01` to put the pool in the load
+path.
+
+```sh
+dbcanvas stack compose pool-lab --ttl 4h \
+  --node 'patroni:3,os=el9' \
+  --node 'pgbouncer,os=el9,mode=transaction,cert' \
+  --node 'carsim,to=pgbouncer-01'
+```
 
 **Clusters with a fixed shape.** Most cluster kinds take `count`. A sharded PSMDB
 cluster does not: its shape is one mongos, a config replica set and exactly three
@@ -1041,6 +1057,20 @@ backtrace.
 `…/gdb/cores` also reports whether the symbols and libraries actually match the core,
 which is the first thing to check and the easiest to get wrong.
 
+The WebSocket takes one JSON command per message, `{"cmd": …}`. Besides `open`,
+`backtrace`, `variables`, `evaluate`, `disassemble`, `source` and `console`, it
+answers:
+
+| `cmd` | Returns |
+| --- | --- |
+| `threads` | every thread's stack at once (`thread apply all bt`), identical stacks folded and each with its real depth |
+| `framevars` | arguments and locals for the frames listed in `levels` of `thread` — `bt full`, a frame at a time |
+| `children` | the members of `expr` in `frame` of `thread`, so a struct or pointer can be opened a level at a time |
+
+`source` resolves the path the compiler recorded against the source trees the node
+unpacked, and returns both: `file` is what was asked for, `path` is where it was found.
+See [Core Dump Analyzer](CORE_DUMP_ANALYZER.md#using-it).
+
 ---
 
 # Managing a node
@@ -1161,9 +1191,19 @@ to container, and objects written here are ordinary S3 objects that `aws s3` see
 | --- | --- | --- |
 | Counters: stacks, nodes, engines, jobs, recent activity | `GET /api/dashboard/summary` | `dbcanvas dashboard` |
 | A live CPU/memory/network/disk sample per node | `GET /api/dashboard/stats` | `dbcanvas dashboard --live` |
+| Is there a newer DBCanvas, and what changed up to it | `GET /api/dashboard/updates` | `dbcanvas updates [--full]` |
 
 `stats` samples Docker on demand and caches for two seconds, so it costs nothing when
 nobody is asking. Polling it from a script is fine; polling it every 100 ms is not.
+
+`updates` is the **Check for updates** button, and it is the only thing in DBCanvas
+that reaches out to GitHub — nothing checks at startup or on a timer. The server
+reads `VERSION` and `app/whatsnew.go` from the repository's `main` branch and answers
+with `current`, `latest`, `available`, and `notes`: the release notes for every
+version after this build up to `latest`, newest first, in the same shape as
+`GET /api/whatsnew`. An unstamped build reports `"dev": true` and never `available`;
+notes that could not be read come back as `notesError` without failing the check. A
+server with no route to `raw.githubusercontent.com` answers `502`.
 
 ## Notifications
 

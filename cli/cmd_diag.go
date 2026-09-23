@@ -462,6 +462,94 @@ func cmdDashboard(args []string) error {
 	return printRaw(raw)
 }
 
+// cmdUpdates asks the server to check GitHub for a newer DBCanvas. The server, not
+// the CLI, makes the request, so the answer is about the installation you are
+// signed in to — not this binary — and it reaches GitHub from wherever that runs.
+func cmdUpdates(args []string) error {
+	fs := flagsFor("updates")
+	full := fs.Bool("full", false, "print each release note's body, not just its title")
+	if err := parse(fs, args); err != nil {
+		return err
+	}
+	c, err := mustClient()
+	if err != nil {
+		return err
+	}
+	var raw []byte
+	if err := c.get("/api/dashboard/updates", &raw); err != nil {
+		return err
+	}
+	if g.json {
+		return printRaw(raw)
+	}
+	var res struct {
+		Current    string `json:"current"`
+		Latest     string `json:"latest"`
+		Available  bool   `json:"available"`
+		Dev        bool   `json:"dev"`
+		NotesError string `json:"notesError"`
+		Notes      []struct {
+			Version string `json:"version"`
+			Date    string `json:"date"`
+			Title   string `json:"title"`
+			Body    string `json:"body"`
+		} `json:"notes"`
+	}
+	if err := jsonUnmarshal(raw, &res); err != nil {
+		return err
+	}
+	fmt.Printf("This installation: %s\n", res.Current)
+	fmt.Printf("Latest on GitHub:  %s\n", res.Latest)
+	switch {
+	case res.Dev:
+		fmt.Println("\nThis is an unstamped dev build, so there is nothing to compare against.")
+		return nil
+	case !res.Available:
+		fmt.Println("\nUp to date.")
+		return nil
+	}
+	fmt.Printf("\nAn update is available. What changed after %s, up to %s:\n", res.Current, res.Latest)
+	if res.NotesError != "" {
+		fmt.Printf("\n  (the release notes could not be read: %s)\n", res.NotesError)
+	}
+	last := ""
+	for _, n := range res.Notes {
+		if n.Version != last {
+			fmt.Printf("\n%s\n", n.Version)
+			last = n.Version
+		}
+		fmt.Printf("  - %s  (%s)\n", n.Title, n.Date)
+		if *full {
+			for _, line := range wrapText(n.Body, 76) {
+				fmt.Printf("      %s\n", line)
+			}
+			fmt.Println()
+		}
+	}
+	fmt.Println("\nUpdate the server with: git pull && make compose")
+	return nil
+}
+
+// wrapText breaks prose into lines of at most width runes, at spaces.
+func wrapText(s string, width int) []string {
+	var lines []string
+	line := ""
+	for _, w := range strings.Fields(s) {
+		if line != "" && len([]rune(line))+1+len([]rune(w)) > width {
+			lines = append(lines, line)
+			line = ""
+		}
+		if line != "" {
+			line += " "
+		}
+		line += w
+	}
+	if line != "" {
+		lines = append(lines, line)
+	}
+	return lines
+}
+
 func cmdNotifications(args []string) error {
 	fs := flagsFor("notifications")
 	readAll := fs.Bool("read-all", false, "mark every notification read instead of listing them")

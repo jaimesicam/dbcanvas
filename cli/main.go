@@ -62,6 +62,7 @@ func init() {
 		{"stalk", "Stalk Summary: run pt-stalk on a node, download and analyse it", cmdStalk},
 		{"ftdc", "FTDC Summary: read a mongod's own diagnostic data", cmdFTDC},
 		{"dashboard", "The dashboard's counters, and the live resource sample", cmdDashboard},
+		{"updates", "Check GitHub for a newer DBCanvas server, and what it would bring", cmdUpdates},
 		{"notifications", "Your notifications; --read-all to clear them", cmdNotifications},
 		{"endpoints", "List the API endpoints this installation serves", cmdEndpoints},
 		{"api", "Call any endpoint directly: dbcanvas api POST /api/stacks/1/deploy", cmdAPI},

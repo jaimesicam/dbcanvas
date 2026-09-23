@@ -1185,3 +1185,30 @@ func TestShellJoinContainsInjection(t *testing.T) {
 		t.Errorf("the shell ran %q, want the literal text back", got)
 	}
 }
+
+// TestUpdatesAsksTheServer: the check is the server's, so the CLI makes exactly one
+// GET to it and never contacts GitHub itself.
+func TestUpdatesAsksTheServer(t *testing.T) {
+	isolateConfig(t)
+	ts := newTestServer(t, func(s *testServer, w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"current": "0.0.9", "latest": "0.0.10", "available": true,
+			"notes": []map[string]string{{"version": "0.0.10", "date": "d", "title": "t", "body": "b"}},
+		})
+	})
+	t.Setenv("DBCANVAS_URL", ts.URL)
+	t.Setenv("DBCANVAS_TOKEN", "dbc_t")
+	if err := cmdUpdates([]string{"--full"}); err != nil {
+		t.Fatalf("updates: %v", err)
+	}
+	if len(ts.requests) != 1 || ts.requests[0] != "GET /api/dashboard/updates" {
+		t.Fatalf("requests were %v", ts.requests)
+	}
+}
+
+func TestWrapText(t *testing.T) {
+	got := wrapText("one two three four", 9)
+	if strings.Join(got, "|") != "one two|three|four" {
+		t.Errorf("wrapText = %q", got)
+	}
+}

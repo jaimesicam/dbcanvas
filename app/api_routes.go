@@ -630,6 +630,8 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "Cheap counters from the store: stacks, nodes, engines, jobs and recent activity."},
 		{Method: "GET", Path: "/api/dashboard/stats", Group: gDash, Handler: m((*App).handleDashboardStats),
 			Summary: "A live CPU, memory, network and disk sample of every running node. Cached for two seconds."},
+		{Method: "GET", Path: "/api/dashboard/updates", Group: gDash, Handler: m((*App).handleUpdateCheck),
+			Summary: "Check GitHub for a newer DBCanvas, with the release notes between this build and it. Only runs when called."},
 
 		// --- notifications ------------------------------------------------------
 		{Method: "GET", Path: "/api/notifications", Group: gNotif, Handler: m((*App).handleListNotifications),

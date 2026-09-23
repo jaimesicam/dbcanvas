@@ -64,7 +64,7 @@ Never hardcode a version string you have not seen in a catalogue response.
 
 ---
 
-## 2. The five things you will be asked to do
+## 2. The six things you will be asked to do
 
 ### A. Spin up a database lab
 
@@ -100,7 +100,7 @@ this node to another one in the spec:
 | `ldap` | directory authentication | `intranet` (added for you) or `sambaad` |
 | `oidc` | Keycloak single sign-on | `keycloak` — the `vnc` desktop it needs is added for you |
 | `kerberos` | GSSAPI single sign-on | `sambaad` |
-| `vault` | data-at-rest keys | `openbao` |
+| `vault` | data-at-rest keys — on `pxc` and `ps-repl` the whole cluster, one KV mount per member | `openbao` |
 | `backup` | pgBackRest / Barman / PBM to S3 | `seaweedfs` |
 | `orchestrator` | topology discovery, failover | `orchestrator` |
 
@@ -109,8 +109,8 @@ one a kind does not have and the error names the kind. Run `dbcanvas stack kinds
 you are unsure — it prints the matrix for that installation.
 
 **`to=` is different, and easy to miss.** A relationship above is a *field*. `to=` is
-an association **line**, and seven kinds do nothing without one — a ProxySQL with no
-backend, a simulator with no database. Compose refuses rather than building those, so
+an association **line**, and eight kinds do nothing without one — a ProxySQL or a
+PgBouncer with no backend, a simulator with no database. Compose refuses rather than building those, so
 you will see the error; the fix is to add the target to the spec, or name it:
 
 ```sh
@@ -124,6 +124,26 @@ The HAProxy needed no `to=` — one legal backend, so compose used it and said s
 plan. MarketChaos needed one, because driving the cluster directly and driving it
 through the proxy are different tests and it will not guess. `dbcanvas stack kinds`
 prints each kind's legal targets in the LINKS TO column.
+
+**PgBouncer is the PostgreSQL pool**, as HAProxy is the TCP balancer: one `pgbouncer`
+node in front of one `pg` node or one Patroni, repmgr or Spock cluster. `mode=` is the
+pool mode (`transaction` by default, `session`, `statement`), `cert` terminates TLS at
+the pool, and compose turns on following the primary across a failover and
+`auth_query`. A Car Rental Sim can drive the cluster through it:
+
+```sh
+dbcanvas stack compose pool-lab --ttl 4h \
+  --node 'patroni:3,os=el9' \
+  --node 'pgbouncer,os=el9,mode=transaction,cert' \
+  --node 'carsim,to=pgbouncer-01'
+```
+
+With two PostgreSQL targets in the spec, the PgBouncer needs `to=` as well.
+
+**Encryption at rest on a cluster is the frame's flag.** `--node 'pxc:3,os=el9,vault'`
+with `--node openbao` keys every member, each with its own KV mount, and turns on
+encrypted cluster traffic, which PXC requires once a keyring is configured. The deploy
+checks every member for a loaded keyring. `ps-repl` keys every member the same way.
 
 **Shaping is how you reproduce an environment, not just a version.** A version string
 cannot express a slow disk or a lossy link, which is what most cluster bugs actually
@@ -235,6 +255,15 @@ dbcanvas ftdc node mongo-lab psmdb-01                            # MongoDB's bla
 Collecting logs from **several** nodes at once is the point — the comparison across
 members is usually where the answer is.
 
+A `mysqld` **core dump** is read in the Core Dump Analyzer, which runs gdb over a
+WebSocket and so is UI-only; send the user there. From the CLI you can check that a
+core-dump host exists and that its symbols match the core:
+
+```sh
+dbcanvas api GET /api/gdb/targets
+dbcanvas api GET /api/stacks/12/nodes/<node-id>/gdb/cores   # ids, not names — see §3
+```
+
 ### E. Get a shell or move a file
 
 ```sh
@@ -247,6 +276,20 @@ dbcanvas node cp repro-1234:pxc-01:/etc/my.cnf repro-1234:pxc-02:/etc/my.cnf   #
 `node console` is interactive and will hang in an automated context — use `node exec`.
 Note that `exec` runs through the console, so **the remote exit status is not
 reported**; check the output, or have the command print a marker.
+
+### F. Check whether the installation is current
+
+```sh
+dbcanvas updates          # this build, the latest on GitHub, and what changed in between
+dbcanvas updates --full   # with each release note's text
+```
+
+This is the dashboard's **Check for updates** button. The *server* asks GitHub, so
+the answer is about the installation you are signed in to, not the CLI binary. It
+is the only thing in DBCanvas that contacts GitHub, and it only does so when called.
+A `dev` build cannot be compared. If the server has no route out, the command
+exits 1 with a 502. Updating is the user's call (`git pull && make compose` on the host). Report
+what is available and do not run the update yourself.
 
 ---
 

@@ -468,6 +468,8 @@ dbcanvas ftdc node my-mongo-lab psmdb-01
 ```sh
 dbcanvas dashboard              # the counters
 dbcanvas dashboard --live       # a live CPU/memory/network sample per node
+dbcanvas updates                # is there a newer DBCanvas? lists what changed up to it
+dbcanvas updates --full         # …with each release note's full text
 dbcanvas notifications
 dbcanvas notifications --read-all
 ```

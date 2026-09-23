@@ -55,4 +55,7 @@ export const api = {
     request('POST', '/api/me/password', { currentPassword, newPassword, revokeTokens }),
   whatsNew: () => request('GET', '/api/whatsnew'),
   markWhatsNewSeen: () => request('POST', '/api/whatsnew/seen'),
+  // Asks the server to check GitHub for a newer build (app/updatecheck.go). Only
+  // ever called from the dashboard's button.
+  checkUpdates: () => request('GET', '/api/dashboard/updates'),
 }
