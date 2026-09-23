@@ -37,22 +37,25 @@ type releaseNote struct {
 // expanded, and the tests assume the ordering.
 var whatsNewNotes = []releaseNote{
 	{
-		Version: "0.0.9",
-		Date:    "2026-09-21",
-		Title:   "Upgrading to 0.0.9 — rebuild the Stock Market Sim and the Oracle Linux 10 image",
-		Body: "Two of this release's fixes live inside images rather than in DBCanvas itself, so " +
-			"`git pull` alone does not deliver them. Run `make stocksim-image` for the Stock Market " +
-			"Sim: following a cluster's primary and the new App health panel are compiled into that " +
-			"app, and a node deployed from the old image keeps the old behaviour. Run `make images` " +
-			"— or rebuild the Oracle Linux 10 base alone — for the EL10 fix: the distro's " +
-			"perl-DBD-MySQL was dragging the distro's MySQL libraries into the image, which is what " +
-			"stopped Percona Server and PXC installing there, and the repair is a line in the " +
-			"Dockerfile. Everything else takes effect on restart. Nodes already deployed are not " +
-			"changed by any of this: redeploy the ones you want the new behaviour on.",
-		Doc: "docs/GETTING_STARTED.md",
+		Version: "0.0.10",
+		Date:    "2026-09-23",
+		Title:   "PgBouncer — connection pooling for the PostgreSQL family",
+		Body: "A PgBouncer node pools for one backend drawn on the canvas: a standalone PostgreSQL " +
+			"node, or a Patroni, repmgr or Spock cluster. It sits beside HAProxy rather than " +
+			"replacing it — HAProxy balances TCP and leaves a hundred clients as a hundred backend " +
+			"processes; PgBouncer terminates the protocol so they share a few dozen server " +
+			"connections. A pooler has no health checks, so the node follows the primary itself: a " +
+			"timer asks the cluster who takes writes and reloads the pool, and a failover never " +
+			"drops a client. Pick the pool mode, the read/write routing and, once the node has a " +
+			"certificate, certificate authentication — at the pool and, with a new ordered pg_hba " +
+			"method list, at the PostgreSQL servers behind it. The Car Rental Sim, the Stock Market " +
+			"Sim and the Ledger Sim can all drive a database through it, and each is warned about " +
+			"the one thing transaction pooling breaks: prepared statements cached per connection. " +
+			"`dbcanvas stack compose` builds it as `pgbouncer`.",
+		Doc: "docs/STACKS.md",
 	},
 	{
-		Version: "0.0.9",
+		Version: "0.0.10",
 		Date:    "2026-09-22",
 		Title:   "Data-at-rest encryption for PXC clusters and Percona Server replication",
 		Body: "The standalone Percona Server node could keep its keyring in OpenBao and a cluster " +
@@ -73,6 +76,73 @@ var whatsNewNotes = []releaseNote{
 			"/etc/my.cnf, a file nothing reads on Ubuntu, and OpenBao published its own DNS record " +
 			"only at the end of its provisioning, so a database waiting for it deadlocked against it.",
 		Doc: "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.10",
+		Date:    "2026-09-23",
+		Title:   "Sample Client Code in C#",
+		Body: "C# joins Python, Node.js, Go, Java and the shell: MySqlConnector for the MySQL family, " +
+			"Npgsql for PostgreSQL, the MongoDB C# Driver and StackExchange.Redis for Valkey, with " +
+			"every scenario and every TLS posture the other languages have, mutual TLS included. " +
+			"The .NET SDK comes from each Linux release's own archive where it has one — .NET 10 " +
+			"on Oracle Linux 8, 9 and 10 and Ubuntu 24.04, .NET 8 on Ubuntu 22.04 — and on Debian, " +
+			"which packages none, from Microsoft's SDK archive with its checksum pinned and no " +
+			"repository added. The generated project targets .NET 8 and rolls forward, so the same " +
+			"project runs on either. Run on all seven releases before it shipped: every client, " +
+			"every scenario.",
+		Doc: "docs/SAMPLE_CODE.md",
+	},
+	{
+		Version: "0.0.10",
+		Date:    "2026-09-23",
+		Title:   "The Core Dump Analyzer shows every thread, opens values, and names the line that faulted",
+		Body: "All threads is `thread apply all bt` with the two things that command cannot do: " +
+			"identical stacks fold together — twenty idle workers in the same wait become one row " +
+			"saying 20× — and each carries its real depth. `full` lists every frame's arguments " +
+			"and locals under it. Values open now: a struct into its fields, a pointer into what " +
+			"it points at, each with the expression to paste into the console. The source pane " +
+			"works on real builds, whose recorded paths run through directories that only existed " +
+			"on the build machine. And the verdict reads the address the process touched from the " +
+			"core itself — null, a null plus a field offset, or never a pointer — matches it to the " +
+			"faulting frame's variables and shows that line of source with their values.",
+		Doc: "docs/CORE_DUMP_ANALYZER.md",
+	},
+	{
+		Version: "0.0.10",
+		Date:    "2026-09-23",
+		Title:   "Check for updates, when you ask and not otherwise",
+		Body: "The dashboard has a Check for updates button, and it is the only thing in DBCanvas " +
+			"that contacts GitHub — nothing checks at startup or on a timer, so an installation " +
+			"nobody clicks it on never makes a request off the machine. When there is a newer " +
+			"version it opens the release notes for every version between this one and the " +
+			"latest, so skipping a release does not hide what was in it. `dbcanvas updates` is the " +
+			"same check from the command line.",
+		Doc: "docs/API_REFERENCE.md",
+	},
+	{
+		Version: "0.0.10",
+		Date:    "2026-09-23",
+		Title:   "Exported templates no longer carry the MongoDB Cluster Admin passwords",
+		Body: "Exporting a template scrubs every secret from the design, and two were missing from " +
+			"the list: the admin and read-only passwords of an MClusterAdmin node, so a template " +
+			"exported from a stack with one carried a live MongoDB password with it. Both are " +
+			"scrubbed now. A template exported before this release may still hold them — if you " +
+			"shared one, change those passwords on the stack it came from.",
+	},
+	{
+		Version: "0.0.9",
+		Date:    "2026-09-21",
+		Title:   "Upgrading to 0.0.9 — rebuild the Stock Market Sim and the Oracle Linux 10 image",
+		Body: "Two of this release's fixes live inside images rather than in DBCanvas itself, so " +
+			"`git pull` alone does not deliver them. Run `make stocksim-image` for the Stock Market " +
+			"Sim: following a cluster's primary and the new App health panel are compiled into that " +
+			"app, and a node deployed from the old image keeps the old behaviour. Run `make images` " +
+			"— or rebuild the Oracle Linux 10 base alone — for the EL10 fix: the distro's " +
+			"perl-DBD-MySQL was dragging the distro's MySQL libraries into the image, which is what " +
+			"stopped Percona Server and PXC installing there, and the repair is a line in the " +
+			"Dockerfile. Everything else takes effect on restart. Nodes already deployed are not " +
+			"changed by any of this: redeploy the ones you want the new behaviour on.",
+		Doc: "docs/GETTING_STARTED.md",
 	},
 	{
 		Version: "0.0.9",

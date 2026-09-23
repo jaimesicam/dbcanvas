@@ -162,28 +162,28 @@ yourself.
 
 ## What's new
 
-### 0.0.9
+### 0.0.10
 
 <details open>
-<summary><b>Upgrading to 0.0.9 — rebuild the Stock Market Sim and the Oracle Linux 10 image</b></summary>
+<summary><b>PgBouncer — connection pooling for the PostgreSQL family</b></summary>
 
-Two of this release's fixes live **inside images** rather than in DBCanvas itself, so `git pull`
-alone does not deliver them:
+A **PgBouncer** node pools for one backend drawn on the canvas: a standalone PostgreSQL node, or a
+**Patroni**, **repmgr** or **Spock** cluster. It sits beside HAProxy rather than replacing it —
+HAProxy balances TCP and leaves a hundred clients as a hundred backend processes; PgBouncer
+terminates the protocol so they share a few dozen server connections.
 
-```sh
-make stocksim-image   # the Stock Market Sim: primary-following and the App health panel
-make images           # the Oracle Linux 10 base: the EL10 MySQL install fix
-```
+A pooler has no health checks, so the node **follows the primary itself**: a timer asks the cluster
+who takes writes — Patroni's REST API, `pg_is_in_recovery()` on repmgr — and reloads the pool, so a
+failover never drops a client. Pick the **pool mode**, the **read/write routing** (a named `_ro`
+pool on a standby, or one pool per Spock member) and, once the node has a certificate,
+**certificate authentication**. PostgreSQL nodes and frames gained an ordered `pg_hba` method list
+to match, so one server can take a certificate and a password at the same time.
 
-The Stock Market Sim's new behaviour is compiled into that app, so a node deployed from the old
-image keeps the old behaviour. The EL10 repair is a line in the Dockerfile — the distro's
-`perl-DBD-MySQL` was dragging the distro's MySQL libraries into the image, which is what stopped
-Percona Server and PXC installing there. Rebuilding only `oraclelinux-10` is enough if you would
-rather not rebuild everything.
+The Car Rental Sim, the Stock Market Sim and the Ledger Sim can all drive a database through the
+pool, and each is warned about the one thing transaction pooling breaks: prepared statements
+cached per connection. `dbcanvas stack compose` builds it as `pgbouncer`.
 
-Everything else takes effect on restart. **Nodes already deployed are not changed by any of
-this** — redeploy the ones you want the new behaviour on.
-[Getting started →](docs/GETTING_STARTED.md)
+[Stacks →](docs/STACKS.md)
 </details>
 
 <details>
@@ -214,6 +214,85 @@ than asserting it: every member is checked for a loaded keyring, and the writabl
 drops a real encrypted table, which is the operation that stores a master key in OpenBao.
 
 [Stacks →](docs/STACKS.md)
+</details>
+
+<details>
+<summary><b>Sample Client Code in C#</b></summary>
+
+C# joins Python, Node.js, Go, Java and the shell: **MySqlConnector** for the MySQL family,
+**Npgsql** for PostgreSQL, the **MongoDB C# Driver** and **StackExchange.Redis** for Valkey — every
+scenario and every TLS posture the other languages have, mutual TLS included.
+
+The .NET SDK comes from each Linux release's own archive where it has one — .NET 10 on Oracle
+Linux 8, 9 and 10 and Ubuntu 24.04, .NET 8 on Ubuntu 22.04 — and on Debian, which packages none,
+from Microsoft's SDK archive with its checksum pinned and no repository added. The generated
+project targets .NET 8 and rolls forward, so the same project runs on either. It was run on all
+seven releases before it shipped: every client, every scenario.
+
+[Sample Client Code →](docs/SAMPLE_CODE.md)
+</details>
+
+<details>
+<summary><b>The Core Dump Analyzer shows every thread, opens values, and names the line that faulted</b></summary>
+
+**All threads** is `thread apply all bt` with the two things that command cannot do: identical
+stacks fold together — twenty idle workers in the same wait become one row saying `20×` — and each
+carries its real depth. **full** lists every frame's arguments and locals under it.
+
+**Values open**: a struct into its fields, a pointer into what it points at, each with the
+expression to paste into the console. The **source pane** works on real builds, whose recorded
+paths run through directories that only existed on the build machine. And the **verdict** reads
+the address the process touched from the core itself — null, a null plus a field offset, or never a
+pointer — matches it to the faulting frame's variables, and shows that line of source with their
+values.
+
+[Core Dump Analyzer →](docs/CORE_DUMP_ANALYZER.md)
+</details>
+
+<details>
+<summary><b>Check for updates, when you ask and not otherwise</b></summary>
+
+The dashboard has a **Check for updates** button, and it is the only thing in DBCanvas that
+contacts GitHub — nothing checks at startup or on a timer, so an installation nobody clicks it on
+never makes a request off the machine. When there is a newer version it opens the release notes for
+every version between this one and the latest, so skipping a release does not hide what was in it.
+`dbcanvas updates` is the same check from the command line.
+
+[API reference →](docs/API_REFERENCE.md)
+</details>
+
+<details>
+<summary><b>Exported templates no longer carry the MongoDB Cluster Admin passwords</b></summary>
+
+Exporting a template scrubs every secret from the design, and two were missing from the list: the
+admin and read-only passwords of an **MClusterAdmin** node, so a template exported from a stack with
+one carried a live MongoDB password with it. Both are scrubbed now. **A template exported before
+this release may still hold them** — if you shared one, change those passwords on the stack it came
+from.
+</details>
+
+### 0.0.9
+
+<details open>
+<summary><b>Upgrading to 0.0.9 — rebuild the Stock Market Sim and the Oracle Linux 10 image</b></summary>
+
+Two of this release's fixes live **inside images** rather than in DBCanvas itself, so `git pull`
+alone does not deliver them:
+
+```sh
+make stocksim-image   # the Stock Market Sim: primary-following and the App health panel
+make images           # the Oracle Linux 10 base: the EL10 MySQL install fix
+```
+
+The Stock Market Sim's new behaviour is compiled into that app, so a node deployed from the old
+image keeps the old behaviour. The EL10 repair is a line in the Dockerfile — the distro's
+`perl-DBD-MySQL` was dragging the distro's MySQL libraries into the image, which is what stopped
+Percona Server and PXC installing there. Rebuilding only `oraclelinux-10` is enough if you would
+rather not rebuild everything.
+
+Everything else takes effect on restart. **Nodes already deployed are not changed by any of
+this** — redeploy the ones you want the new behaviour on.
+[Getting started →](docs/GETTING_STARTED.md)
 </details>
 
 <details>
