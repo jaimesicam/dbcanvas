@@ -84,7 +84,7 @@ export const TLS_MODES = [
 
 // FILE_LANG maps a generated file to the language label shown on its tab.
 export const FILE_LANG = {
-  python: 'Python', javascript: 'JavaScript', go: 'Go', java: 'Java',
+  python: 'Python', javascript: 'JavaScript', go: 'Go', java: 'Java', csharp: 'C#',
   xml: 'XML', json: 'JSON', shell: 'Shell', text: 'Text',
 }
 

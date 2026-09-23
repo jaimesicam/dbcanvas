@@ -127,6 +127,18 @@ var scMySQLClients = []scClient{
 		Run: func(g scGen) string { return scMavenRun },
 	},
 	{
+		Database: scMySQL, Language: "dotnet", ID: "mysqlconnector", Label: "MySqlConnector",
+		Summary: "The async ADO.NET driver most .NET MySQL code uses today — MIT-licensed, fully asynchronous, and the provider Entity Framework's Pomelo MySQL support is built on.",
+		Runtime: scRuntimeDotnet,
+		Deps: []scDep{{
+			Manager: "nuget", Name: "MySqlConnector", Version: "2.6.2",
+			License: "MIT", URL: "https://mysqlconnector.net/",
+			Note: "Chosen over Oracle's MySql.Data (Connector/NET, GPL-2.0 with the Universal FOSS Exception) for the same reason PyMySQL is offered beside mysql-connector-python: no licence exception to reason about.",
+		}},
+		Files: scDotnetFiles(scMySqlConnectorCS),
+		Run:   func(g scGen) string { return scDotnetRun },
+	},
+	{
 		Database: scMySQL, Language: "shell", ID: "mysql", Label: "mysql (command line)",
 		Summary: "The native client, driven from a shell script — the shortest path from this node to a prompt, and the first thing to reach for when a driver disagrees with a server.",
 		Runtime: scRuntimeShell, SysPackages: []string{"mysql-client"},
@@ -1038,4 +1050,130 @@ echo "Rows with that id now: $LEFT"
 {{- end}}
 
 echo "{{.Scenario.Label}} example completed successfully."
+`
+
+// ------------------------------------------------------------------------------- C#
+
+const scMySqlConnectorCS = `{{.Header "// "}}
+
+using MySqlConnector;
+{{- if .Ops.Any}}
+
+const string Database = {{.Database | cs}};
+const string Table = {{.Table | cs}};
+{{- end}}
+
+// Connection settings, straight from the deployment on the canvas.
+var settings = new MySqlConnectionStringBuilder
+{
+    Server = {{.Target.Host | cs}},
+    Port = {{.Target.Port}},
+    UserID = {{.Target.User | cs}},
+    Password = {{.Target.Password | cs}},
+    ConnectionTimeout = 10,
+{{- if .Verify}}
+    // VerifyFull checks the chain against the stack CA and that the certificate names
+    // this host — the CA is already in this node's trust store, and named here as well.
+    SslMode = MySqlSslMode.VerifyFull,
+    SslCa = {{.CA | cs}},
+    // VerifyFull also asks the CA whether the certificate was revoked, and a lab CA
+    // publishes no revocation list — so without this every connection is refused
+    // with RemoteCertificateChainErrors. The chain and the host name are still checked.
+    SkipCertificateRevocationCheck = true,
+{{- else if .Encrypted}}
+    // Encrypted, but not verified: this server has only the certificate it generated
+    // for itself, so there is nothing to check it against.
+    SslMode = MySqlSslMode.Required,
+{{- else}}
+    SslMode = MySqlSslMode.None,
+{{- end}}
+{{- if .MTLS}}
+    // Mutual TLS: the certificate this client presents, issued by the stack CA.
+    SslCert = {{.ClientCert | cs}},
+    SslKey = {{.ClientKey | cs}},
+{{- end}}
+};
+
+// MySqlConnector pools connections behind the scenes; disposing this one returns it.
+await using var conn = new MySqlConnection(settings.ConnectionString);
+await conn.OpenAsync();
+
+await using (var cmd = new MySqlCommand("SELECT VERSION()", conn))
+{
+    Console.WriteLine($"Connected to {settings.Server}:{settings.Port} - MySQL {await cmd.ExecuteScalarAsync()}");
+}
+{{- if .Ops.Schema}}
+
+await using (var cmd = new MySqlCommand("CREATE DATABASE IF NOT EXISTS " + Database, conn))
+{
+    await cmd.ExecuteNonQueryAsync();
+}
+await conn.ChangeDatabaseAsync(Database);
+await using (var cmd = new MySqlCommand(@"{{scCustomersDDLMySQL .Table}}", conn))
+{
+    await cmd.ExecuteNonQueryAsync();
+}
+Console.WriteLine($"Schema ready: {Database}.{Table}");
+{{- end}}
+{{- if or .Ops.Create .Ops.Seed}}
+
+Console.WriteLine("{{if .Ops.Create}}CREATE{{else}}SEED{{end}}");
+long customerId;
+await using (var cmd = new MySqlCommand("INSERT INTO " + Table + " (name, email) VALUES (@name, @email)", conn))
+{
+    cmd.Parameters.AddWithValue("@name", {{scDemoName | cs}});
+    cmd.Parameters.AddWithValue("@email", {{scDemoEmail | cs}});
+    await cmd.ExecuteNonQueryAsync();
+    customerId = cmd.LastInsertedId;
+}
+Console.WriteLine($"Created customer {customerId}: {{scDemoName}}");
+{{- end}}
+{{- if .Ops.Read}}
+
+Console.WriteLine("READ");
+await using (var cmd = new MySqlCommand("SELECT id, name, email, created_at FROM " + Table + " WHERE id = @id", conn))
+{
+    cmd.Parameters.AddWithValue("@id", customerId);
+    await using var rows = await cmd.ExecuteReaderAsync();
+    while (await rows.ReadAsync())
+    {
+        Console.WriteLine($"{rows["id"]} | {rows["name"]} | {rows["email"]} | {rows["created_at"]}");
+    }
+}
+{{- end}}
+{{- if .Ops.Update}}
+
+Console.WriteLine("UPDATE");
+await using (var cmd = new MySqlCommand("UPDATE " + Table + " SET email = @email WHERE id = @id", conn))
+{
+    cmd.Parameters.AddWithValue("@email", {{scDemoNewEmail | cs}});
+    cmd.Parameters.AddWithValue("@id", customerId);
+    Console.WriteLine($"Updated customer {customerId} ({await cmd.ExecuteNonQueryAsync()} row)");
+}
+await using (var cmd = new MySqlCommand("SELECT id, name, email FROM " + Table + " WHERE id = @id", conn))
+{
+    cmd.Parameters.AddWithValue("@id", customerId);
+    await using var rows = await cmd.ExecuteReaderAsync();
+    while (await rows.ReadAsync())
+    {
+        Console.WriteLine($"{rows["id"]} | {rows["name"]} | {rows["email"]}");
+    }
+}
+{{- end}}
+{{- if .Ops.Delete}}
+
+Console.WriteLine("DELETE");
+await using (var cmd = new MySqlCommand("DELETE FROM " + Table + " WHERE id = @id", conn))
+{
+    cmd.Parameters.AddWithValue("@id", customerId);
+    Console.WriteLine($"Deleted customer {customerId} ({await cmd.ExecuteNonQueryAsync()} row)");
+}
+await using (var cmd = new MySqlCommand("SELECT COUNT(*) FROM " + Table + " WHERE id = @id", conn))
+{
+    cmd.Parameters.AddWithValue("@id", customerId);
+    Console.WriteLine($"Rows with that id now: {await cmd.ExecuteScalarAsync()}");
+}
+{{- end}}
+
+Console.WriteLine("{{.Scenario.Label}} example completed successfully.");
 `

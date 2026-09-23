@@ -106,6 +106,17 @@ var scPostgresClients = []scClient{
 		Run: func(g scGen) string { return scMavenRun },
 	},
 	{
+		Database: scPostgres, Language: "dotnet", ID: "npgsql", Label: "Npgsql",
+		Summary: "The .NET data provider for PostgreSQL, and the one Entity Framework Core's PostgreSQL support sits on. It speaks libpq's TLS vocabulary, down to VerifyFull and a root certificate path.",
+		Runtime: scRuntimeDotnet,
+		Deps: []scDep{{
+			Manager: "nuget", Name: "Npgsql", Version: "10.0.3",
+			License: "PostgreSQL", URL: "https://www.npgsql.org/",
+		}},
+		Files: scDotnetFiles(scNpgsqlCS),
+		Run:   func(g scGen) string { return scDotnetRun },
+	},
+	{
 		Database: scPostgres, Language: "shell", ID: "psql", Label: "psql (command line)",
 		Summary: "The native client. Its TLS settings come from the PG* environment variables, which is how libpq itself is configured everywhere.",
 		Runtime: scRuntimeShell, SysPackages: []string{"psql-client"},
@@ -833,4 +844,140 @@ echo "Rows with that id now: $("${RUN[@]}" -d "$DATABASE" -Atc "SELECT COUNT(*) 
 {{- end}}
 
 echo "{{.Scenario.Label}} example completed successfully."
+`
+
+// ------------------------------------------------------------------------------- C#
+
+const scNpgsqlCS = `{{.Header "// "}}
+
+using Npgsql;
+{{- if .Ops.Any}}
+
+const string Database = {{.Database | cs}};
+const string Table = {{.Table | cs}};
+{{- end}}
+
+// Npgsql's connection string keywords. The superuser is the only role a DBCanvas
+// PostgreSQL node provisions — an application of your own would create its own role
+// and grant it what it needs.
+NpgsqlConnectionStringBuilder Settings(string database) => new()
+{
+    Host = {{.Target.Host | cs}},
+    Port = {{.Target.Port}},
+    Username = {{.Target.User | cs}},
+    Password = {{.Target.Password | cs}},
+    Database = database,
+    Timeout = 10,
+{{- if .Verify}}
+    // VerifyFull checks the chain against this CA and that the certificate names this host.
+    SslMode = SslMode.VerifyFull,
+    RootCertificate = {{.CA | cs}},
+{{- else if .Encrypted}}
+    // Require encrypts without checking who answered, as libpq's own require does.
+    SslMode = SslMode.Require,
+{{- else}}
+    SslMode = SslMode.Disable,
+{{- end}}
+{{- if .MTLS}}
+    SslCertificate = {{.ClientCert | cs}},
+    SslKey = {{.ClientKey | cs}},
+{{- end}}
+};
+{{- if .Ops.Schema}}
+
+// CREATE DATABASE cannot run inside a transaction, and cannot be run from the database
+// it is creating — so this is a separate connection to the maintenance database.
+await using (var admin = new NpgsqlConnection(Settings("postgres").ConnectionString))
+{
+    await admin.OpenAsync();
+    await using var find = new NpgsqlCommand("SELECT 1 FROM pg_database WHERE datname = @name", admin);
+    find.Parameters.AddWithValue("name", Database);
+    if (await find.ExecuteScalarAsync() is null)
+    {
+        await using var create = new NpgsqlCommand("CREATE DATABASE \"" + Database + "\"", admin);
+        await create.ExecuteNonQueryAsync();
+        Console.WriteLine($"Created database {Database}");
+    }
+}
+
+await using var conn = new NpgsqlConnection(Settings(Database).ConnectionString);
+{{- else}}
+
+await using var conn = new NpgsqlConnection(Settings("postgres").ConnectionString);
+{{- end}}
+await conn.OpenAsync();
+
+await using (var cmd = new NpgsqlCommand("SELECT version()", conn))
+{
+    var version = (string)(await cmd.ExecuteScalarAsync())!;
+    Console.WriteLine($"Connected to {conn.Host}:{conn.Port} - {version.Split(',')[0]}");
+}
+{{- if .Ops.Schema}}
+
+await using (var cmd = new NpgsqlCommand(@"{{scCustomersDDLPostgres .Table}}", conn))
+{
+    await cmd.ExecuteNonQueryAsync();
+}
+Console.WriteLine($"Schema ready: {Database}.{Table}");
+{{- end}}
+{{- if or .Ops.Create .Ops.Seed}}
+
+Console.WriteLine("{{if .Ops.Create}}CREATE{{else}}SEED{{end}}");
+int customerId;
+await using (var cmd = new NpgsqlCommand("INSERT INTO " + Table + " (name, email) VALUES (@name, @email) RETURNING id", conn))
+{
+    cmd.Parameters.AddWithValue("name", {{scDemoName | cs}});
+    cmd.Parameters.AddWithValue("email", {{scDemoEmail | cs}});
+    customerId = (int)(await cmd.ExecuteScalarAsync())!;
+}
+Console.WriteLine($"Created customer {customerId}: {{scDemoName}}");
+{{- end}}
+{{- if .Ops.Read}}
+
+Console.WriteLine("READ");
+await using (var cmd = new NpgsqlCommand("SELECT id, name, email, created_at FROM " + Table + " WHERE id = @id", conn))
+{
+    cmd.Parameters.AddWithValue("id", customerId);
+    await using var rows = await cmd.ExecuteReaderAsync();
+    while (await rows.ReadAsync())
+    {
+        Console.WriteLine($"{rows.GetInt32(0)} | {rows.GetString(1)} | {rows.GetString(2)} | {rows.GetDateTime(3):O}");
+    }
+}
+{{- end}}
+{{- if .Ops.Update}}
+
+Console.WriteLine("UPDATE");
+await using (var cmd = new NpgsqlCommand("UPDATE " + Table + " SET email = @email WHERE id = @id", conn))
+{
+    cmd.Parameters.AddWithValue("email", {{scDemoNewEmail | cs}});
+    cmd.Parameters.AddWithValue("id", customerId);
+    Console.WriteLine($"Updated customer {customerId} ({await cmd.ExecuteNonQueryAsync()} row)");
+}
+await using (var cmd = new NpgsqlCommand("SELECT id, name, email FROM " + Table + " WHERE id = @id", conn))
+{
+    cmd.Parameters.AddWithValue("id", customerId);
+    await using var rows = await cmd.ExecuteReaderAsync();
+    while (await rows.ReadAsync())
+    {
+        Console.WriteLine($"{rows.GetInt32(0)} | {rows.GetString(1)} | {rows.GetString(2)}");
+    }
+}
+{{- end}}
+{{- if .Ops.Delete}}
+
+Console.WriteLine("DELETE");
+await using (var cmd = new NpgsqlCommand("DELETE FROM " + Table + " WHERE id = @id", conn))
+{
+    cmd.Parameters.AddWithValue("id", customerId);
+    Console.WriteLine($"Deleted customer {customerId} ({await cmd.ExecuteNonQueryAsync()} row)");
+}
+await using (var cmd = new NpgsqlCommand("SELECT COUNT(*) FROM " + Table + " WHERE id = @id", conn))
+{
+    cmd.Parameters.AddWithValue("id", customerId);
+    Console.WriteLine($"Rows with that id now: {await cmd.ExecuteScalarAsync()}");
+}
+{{- end}}
+
+Console.WriteLine("{{.Scenario.Label}} example completed successfully.");
 `

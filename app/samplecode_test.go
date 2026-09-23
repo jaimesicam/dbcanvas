@@ -176,7 +176,7 @@ func TestSampleCodeRegistryIsConsistent(t *testing.T) {
 		seen[key] = true
 
 		switch c.Runtime {
-		case scRuntimePython, scRuntimeNode, scRuntimeGo, scRuntimeJava, scRuntimeShell:
+		case scRuntimePython, scRuntimeNode, scRuntimeGo, scRuntimeJava, scRuntimeDotnet, scRuntimeShell:
 		default:
 			t.Errorf("%s: unknown runtime %q", key, c.Runtime)
 		}
@@ -206,7 +206,7 @@ func TestSampleCodeRegistryIsConsistent(t *testing.T) {
 					t.Errorf("%s: pip dependency %q needs an import name for the installed check", key, d.Name)
 				}
 			case "npm":
-			case "gomod", "maven":
+			case "gomod", "maven", "nuget":
 				if d.Version == "" {
 					t.Errorf("%s: %s dependency %q must be pinned — the manifest needs a version", key, d.Manager, d.Name)
 				}
@@ -483,6 +483,10 @@ func TestSampleCodeTLSSyntaxIsPerDriver(t *testing.T) {
 		{scMongoDB, "python", "pymongo", []string{"tlsCAFile"}},
 		{scMongoDB, "java", "mongodb-driver", []string{"javax.net.ssl.trustStore"}},
 		{scMongoDB, "shell", "mongosh", []string{"--tlsCAFile"}},
+		{scMySQL, "dotnet", "mysqlconnector", []string{"MySqlSslMode.VerifyFull", "SslCa =", "SkipCertificateRevocationCheck = true"}},
+		{scPostgres, "dotnet", "npgsql", []string{"SslMode.VerifyFull", "RootCertificate ="}},
+		{scMongoDB, "dotnet", "mongodb-driver", []string{"CustomRootTrust", "RemoteCertificateNameMismatch"}},
+		{scValkey, "dotnet", "stackexchange-redis", []string{"TrustIssuer("}},
 	}
 	for _, tc := range cases {
 		c, ok := scFindClient(tc.db, tc.lang, tc.client)
@@ -838,8 +842,10 @@ func TestSampleCodeUpstreamRuntimesArePinnedAndVerified(t *testing.T) {
 		pkg  string
 		want scTarball
 	}{
-		{scOS{"ubuntu", "22.04"}, "nodejs", scNodeUpstream}, // jammy has Node 12 and nothing else
-		{scOS{"debian", "12"}, "golang", scGoUpstream},      // bookworm has Go 1.19, backports included
+		{scOS{"ubuntu", "22.04"}, "nodejs", scNodeUpstream},    // jammy has Node 12 and nothing else
+		{scOS{"debian", "12"}, "golang", scGoUpstream},         // bookworm has Go 1.19, backports included
+		{scOS{"debian", "12"}, "dotnet-sdk", scDotnetUpstream}, // Debian packages no .NET at all
+		{scOS{"debian", "13"}, "dotnet-sdk", scDotnetUpstream},
 	} {
 		p := scSysPackages[tc.pkg]
 		tb := p.Tarball(tc.os)
@@ -870,6 +876,69 @@ func TestSampleCodeUpstreamRuntimesArePinnedAndVerified(t *testing.T) {
 				t.Errorf("%s %s: %s would be downloaded although the distribution ships one",
 					os.ID, os.Version, id)
 			}
+		}
+	}
+}
+
+// Every other release ships a .NET SDK from its own archive, so none of them downloads one — and
+// the one that stops at 8 is asked for 8 rather than for a 10 it cannot have.
+func TestSampleCodeDotnetComesFromTheDistributionWhereItCan(t *testing.T) {
+	for _, os := range []scOS{{"oraclelinux", "8"}, {"oraclelinux", "9"}, {"oraclelinux", "10"},
+		{"ubuntu", "22.04"}, {"ubuntu", "24.04"}} {
+		if tb := scSysPackages["dotnet-sdk"].Tarball(os); tb != nil {
+			t.Errorf("%s %s: the .NET SDK would be downloaded although the distribution ships one", os.ID, os.Version)
+		}
+	}
+	if s := scPlanStep(t, scOS{"ubuntu", "22.04"}, scMySQL, "dotnet/mysqlconnector", "dotnet-sdk"); !strings.Contains(s.Show, "dotnet-sdk-8.0") {
+		t.Errorf("Ubuntu 22.04 .NET: %q, want the 8.0 SDK, the newest jammy carries", s.Show)
+	}
+	if s := scPlanStep(t, scOS{"oraclelinux", "9"}, scMySQL, "dotnet/mysqlconnector", "dotnet-sdk"); !strings.Contains(s.Show, "dotnet-sdk-10.0") {
+		t.Errorf("EL9 .NET: %q, want the 10.0 LTS SDK", s.Show)
+	}
+	// The SDK archive keeps `dotnet` at the top of its tree, not under bin/.
+	s := scPlanStep(t, scOS{"debian", "13"}, scMySQL, "dotnet/mysqlconnector", "dotnet-sdk")
+	if !strings.Contains(strings.Join(s.Env, " "), "TB_BINDIR=.") {
+		t.Errorf("Debian .NET tarball links from the wrong directory: %v", s.Env)
+	}
+	if !strings.Contains(s.Check, "--list-sdks") {
+		t.Errorf(".NET check is %q, want it to ask for an SDK, not just the dotnet command", s.Check)
+	}
+}
+
+// The C# project has to build on every SDK a node gets (8 on Ubuntu 22.04, 10 elsewhere) and run
+// on whichever runtime came with it.
+func TestSampleCodeCsprojBuildsOnEverySDK(t *testing.T) {
+	for _, c := range scClients {
+		if c.Runtime != scRuntimeDotnet {
+			continue
+		}
+		g := scNewGen(scSampleID(c.Database, c.Language, c.ID, "connect"), c, scScenarios[0],
+			scTestTarget(c.Database), "oraclelinux", "")
+		var proj string
+		for _, f := range c.Files(g) {
+			if f.Name == scDotnetProject {
+				proj = f.Body
+			}
+		}
+		for _, want := range []string{"<TargetFramework>net8.0</TargetFramework>", "<RollForward>Major</RollForward>",
+			"<UseAppHost>false</UseAppHost>", `Include="` + c.Deps[0].Name + `" Version="` + c.Deps[0].Version + `"`} {
+			if !strings.Contains(proj, want) {
+				t.Errorf("%s/%s: project file lacks %s", c.Database, c.ID, want)
+			}
+		}
+	}
+}
+
+// C# is the one target language whose \x escape is variable-length, so Go's quoting is not safe
+// in it: "\x01a" is one character there, not two.
+func TestSampleCodeCSharpQuoting(t *testing.T) {
+	for in, want := range map[string]string{
+		`pa"ss\word`: `"pa\"ss\\word"`,
+		"\x01a":      `"\u0001a"`,
+		"línea\n":    `"línea\n"`,
+	} {
+		if got := scCSharpQuote(in); got != want {
+			t.Errorf("scCSharpQuote(%q) = %s, want %s", in, got, want)
 		}
 	}
 }

@@ -91,6 +91,17 @@ var scValkeyClients = []scClient{
 		Run: func(g scGen) string { return scMavenRun },
 	},
 	{
+		Database: scValkey, Language: "dotnet", ID: "stackexchange-redis", Label: "StackExchange.Redis",
+		Summary: "The standard .NET RESP client. One ConnectionMultiplexer serves a standalone node or a cluster — given several seeds it discovers the slot map itself.",
+		Runtime: scRuntimeDotnet,
+		Deps: []scDep{{
+			Manager: "nuget", Name: "StackExchange.Redis", Version: "3.3.1",
+			License: "MIT", URL: "https://github.com/StackExchange/StackExchange.Redis",
+		}},
+		Files: scDotnetFiles(scValkeyCS),
+		Run:   func(g scGen) string { return scDotnetRun },
+	},
+	{
 		Database: scValkey, Language: "shell", ID: "valkey-cli", Label: "valkey-cli",
 		Summary: "The native client. Every command below is exactly what the drivers above send.",
 		Runtime: scRuntimeShell, SysPackages: []string{"valkey-cli"},
@@ -684,4 +695,109 @@ echo "Keys with that id now: $("${CLI[@]}" EXISTS "$KEY")"
 {{- end}}
 
 echo "{{.Scenario.Label}} example completed successfully."
+`
+
+// ------------------------------------------------------------------------------- C#
+
+const scValkeyCS = `{{.Header "// "}}
+
+using StackExchange.Redis;
+{{- if .MTLS}}
+using System.Security.Cryptography.X509Certificates;
+{{- end}}
+{{- if .Ops.Any}}
+
+const string CustomerKey = {{.CustomerKey | cs}};
+const string CustomersKey = {{.CustomersKey | cs}};
+const string SeqKey = {{.SeqKey | cs}};
+{{- end}}
+
+var options = new ConfigurationOptions
+{
+    Password = {{.Target.Password | cs}},
+    ConnectTimeout = 10000,
+    // Fail on the first attempt rather than retrying in the background: a lab wants
+    // the error, not a program that waits for a server that is not coming.
+    AbortOnConnectFail = true,
+    // INFO is on the client's list of admin commands, which it refuses to send unless
+    // asked to. The program sends nothing else of the kind.
+    AllowAdmin = true,
+{{- if .Encrypted}}
+    Ssl = true,
+{{- end}}
+};
+{{- if .Cluster}}
+// Cluster mode: the seeds are enough, and the multiplexer learns the slot map from them.
+{{- end}}
+{{- range .Addrs}}
+options.EndPoints.Add({{. | cs}});
+{{- end}}
+{{- if .Verify}}
+// TrustIssuer accepts a chain that ends at this CA and nothing else; the host name is
+// still checked, per endpoint.
+options.TrustIssuer({{.CA | cs}});
+{{- else if .Encrypted}}
+// Encrypted, but the server is not identified.
+options.CertificateValidation += (_, _, _, _) => true;
+{{- end}}
+{{- if .MTLS}}
+// Mutual TLS: the certificate this client presents, issued by the stack CA.
+var clientCertificate = X509Certificate2.CreateFromPemFile({{.ClientCert | cs}}, {{.ClientKey | cs}});
+options.CertificateSelection += (_, _, _, _, _) => clientCertificate;
+{{- end}}
+
+await using var mux = await ConnectionMultiplexer.ConnectAsync(options);
+var db = mux.GetDatabase();
+
+// Both are reported and redis_version (the compatibility number) comes first, so
+// prefer the Valkey one rather than whichever matches first.
+var info = await mux.GetServer(mux.GetEndPoints()[0]).InfoRawAsync("server") ?? "";
+string? Field(string name) => info.Split('\n').Select(l => l.Trim())
+    .FirstOrDefault(l => l.StartsWith(name + ":"))?[(name.Length + 1)..];
+Console.WriteLine($"Connected to {{.Addr}} - Valkey {Field("valkey_version") ?? Field("redis_version") ?? "?"}");
+{{- if .Ops.Schema}}
+
+// Nothing to create but the counter ids come from, and the set that indexes them.
+await db.StringSetAsync(SeqKey, 0, when: When.NotExists);
+Console.WriteLine($"Key space ready: {CustomerKey}* with the index at {CustomersKey}");
+{{- end}}
+{{- if or .Ops.Create .Ops.Seed}}
+
+Console.WriteLine("{{if .Ops.Create}}CREATE{{else}}SEED{{end}}");
+var customerId = await db.StringIncrementAsync(SeqKey);
+var key = CustomerKey + customerId;
+await db.HashSetAsync(key, new HashEntry[]
+{
+    new("id", customerId),
+    new("name", {{scDemoName | cs}}),
+    new("email", {{scDemoEmail | cs}}),
+    new("created_at", DateTime.UtcNow.ToString("O")),
+});
+await db.SetAddAsync(CustomersKey, customerId);
+Console.WriteLine($"Created customer {customerId}: {{scDemoName}}");
+{{- end}}
+{{- if .Ops.Read}}
+
+Console.WriteLine("READ");
+var doc = (await db.HashGetAllAsync(key)).ToStringDictionary();
+Console.WriteLine($"{doc["id"]} | {doc["name"]} | {doc["email"]}");
+{{- end}}
+{{- if .Ops.Update}}
+
+Console.WriteLine("UPDATE");
+await db.HashSetAsync(key, "email", {{scDemoNewEmail | cs}});
+Console.WriteLine($"Updated customer {customerId}");
+var after = (await db.HashGetAllAsync(key)).ToStringDictionary();
+Console.WriteLine($"{after["id"]} | {after["name"]} | {after["email"]}");
+{{- end}}
+{{- if .Ops.Delete}}
+
+Console.WriteLine("DELETE");
+var removed = await db.KeyDeleteAsync(key);
+await db.SetRemoveAsync(CustomersKey, customerId);
+Console.WriteLine($"Deleted customer {customerId} ({(removed ? 1 : 0)} key)");
+Console.WriteLine($"Keys with that id now: {(await db.KeyExistsAsync(key) ? 1 : 0)}");
+{{- end}}
+
+Console.WriteLine("{{.Scenario.Label}} example completed successfully.");
 `

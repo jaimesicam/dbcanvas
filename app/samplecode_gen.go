@@ -148,6 +148,9 @@ var scFuncs = template.FuncMap{
 	// q quotes for Python, JavaScript, Go and Java alike — Go's own string syntax is a subset
 	// all four accept for the characters that occur in a credential.
 	"q": strconv.Quote,
+	// cs quotes for C#. Not strconv.Quote: Go writes a control byte as \x01, and C#'s \x takes
+	// up to four hex digits, so "\x01a" would silently become one character.
+	"cs": scCSharpQuote,
 	// sq single-quotes for a POSIX shell, closing and reopening around any embedded quote.
 	"sq": func(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" },
 	// urlq escapes for a URI's userinfo or query.
@@ -185,6 +188,32 @@ var scFuncs = template.FuncMap{
 		}
 		return strings.Join(out, ", ")
 	},
+}
+
+// scCSharpQuote renders s as a C# regular string literal.
+func scCSharpQuote(s string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range s {
+		switch {
+		case r == '"':
+			b.WriteString(`\"`)
+		case r == '\\':
+			b.WriteString(`\\`)
+		case r == '\n':
+			b.WriteString(`\n`)
+		case r == '\r':
+			b.WriteString(`\r`)
+		case r == '\t':
+			b.WriteString(`\t`)
+		case r < 0x20 || r == 0x7f || r == 0x2028 || r == 0x2029:
+			fmt.Fprintf(&b, `\u%04x`, r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
 }
 
 // scRender renders one template. A template that fails to parse or execute produces a file whose

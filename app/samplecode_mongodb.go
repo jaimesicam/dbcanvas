@@ -96,6 +96,17 @@ var scMongoClients = []scClient{
 		Run: func(g scGen) string { return scMavenRun },
 	},
 	{
+		Database: scMongoDB, Language: "dotnet", ID: "mongodb-driver", Label: "MongoDB C# Driver",
+		Summary: "The official .NET driver, with BsonDocument filters built through Builders<T> rather than a mapped class, so the documents on the wire are the ones in the code.",
+		Runtime: scRuntimeDotnet,
+		Deps: []scDep{{
+			Manager: "nuget", Name: "MongoDB.Driver", Version: "3.12.0",
+			License: "Apache-2.0", URL: "https://github.com/mongodb/mongo-csharp-driver",
+		}},
+		Files: scDotnetFiles(scMongoCS),
+		Run:   func(g scGen) string { return scDotnetRun },
+	},
+	{
 		Database: scMongoDB, Language: "shell", ID: "mongosh", Label: "mongosh",
 		Summary: "The MongoDB Shell, driven from a script. mongosh is a JavaScript runtime, so the sample is the same program the drivers run, one layer closer to the server.",
 		Runtime: scRuntimeShell, SysPackages: []string{"mongosh"},
@@ -610,4 +621,125 @@ print('Documents with that id now: ' + customers.countDocuments({ _id: customerI
 {{- end}}
 
 print('{{.Scenario.Label}} example completed successfully.')
+`
+
+// ------------------------------------------------------------------------------- C#
+
+const scMongoCS = `{{.Header "// "}}
+
+using MongoDB.Bson;
+using MongoDB.Driver;
+{{- if or .Verify .MTLS}}
+using System.Security.Cryptography.X509Certificates;
+{{- end}}
+{{- if .Verify}}
+using System.Net.Security;
+{{- end}}
+{{- if .Ops.Any}}
+
+const string Database = {{.Database | cs}};
+const string Collection = {{.Collection | cs}};
+{{- end}}
+
+// The URI carries the credentials and the shape of the endpoint; TLS is set on the
+// settings object below, because the .NET driver takes no CA file in the URI.
+var settings = MongoClientSettings.FromConnectionString({{.MongoURI | cs}});
+settings.ConnectTimeout = TimeSpan.FromSeconds(10);
+settings.ServerSelectionTimeout = TimeSpan.FromSeconds(10);
+{{- if .Encrypted}}
+settings.UseTls = true;
+{{- if .Verify}}
+// The driver validates through .NET's SslStream, which knows only the system trust
+// store. The callback below checks the chain against the stack CA alone and still
+// refuses a certificate that does not name this host.
+var stackCa = X509Certificate2.CreateFromPem(File.ReadAllText({{.CA | cs}}));
+{{- else}}
+// Encrypted, but the server is not identified.
+settings.AllowInsecureTls = true;
+{{- end}}
+settings.SslSettings = new SslSettings
+{
+    CheckCertificateRevocation = false,
+{{- if .Verify}}
+    ServerCertificateValidationCallback = (_, certificate, _, errors) => IssuedByStackCa(certificate, errors),
+{{- end}}
+{{- if .MTLS}}
+    // Mutual TLS: the certificate this client presents, issued by the stack CA.
+    ClientCertificates = new X509Certificate[]
+    {
+        X509Certificate2.CreateFromPemFile({{.ClientCert | cs}}, {{.ClientKey | cs}}),
+    },
+{{- end}}
+};
+{{- end}}
+
+var client = new MongoClient(settings);
+
+var build = await client.GetDatabase("admin").RunCommandAsync<BsonDocument>(new BsonDocument("buildInfo", 1));
+Console.WriteLine($"Connected to {{.Target.Host}}:{{.Target.Port}} - MongoDB {build["version"]}");
+{{- if .Ops.Schema}}
+
+var customers = client.GetDatabase(Database).GetCollection<BsonDocument>(Collection);
+await customers.Indexes.CreateOneAsync(new CreateIndexModel<BsonDocument>(
+    Builders<BsonDocument>.IndexKeys.Ascending("email"),
+    new CreateIndexOptions { Unique = true }));
+Console.WriteLine($"Collection ready: {Database}.{Collection}");
+{{- end}}
+{{- if or .Ops.Create .Ops.Seed}}
+
+Console.WriteLine("{{if .Ops.Create}}CREATE{{else}}SEED{{end}}");
+var customerId = 1;
+var byId = Builders<BsonDocument>.Filter.Eq("_id", customerId);
+await customers.ReplaceOneAsync(byId,
+    new BsonDocument
+    {
+        ["_id"] = customerId,
+        ["name"] = {{scDemoName | cs}},
+        ["email"] = {{scDemoEmail | cs}},
+        ["created_at"] = DateTime.UtcNow,
+    },
+    new ReplaceOptions { IsUpsert = true });
+Console.WriteLine($"Created customer {customerId}: {{scDemoName}}");
+{{- end}}
+{{- if .Ops.Read}}
+
+Console.WriteLine("READ");
+foreach (var doc in await customers.Find(byId).ToListAsync())
+{
+    Console.WriteLine($"{doc["_id"]} | {doc["name"]} | {doc["email"]}");
+}
+{{- end}}
+{{- if .Ops.Update}}
+
+Console.WriteLine("UPDATE");
+var updated = await customers.UpdateOneAsync(byId, Builders<BsonDocument>.Update.Set("email", {{scDemoNewEmail | cs}}));
+Console.WriteLine($"Updated customer {customerId} ({updated.ModifiedCount} document)");
+var after = await customers.Find(byId).FirstAsync();
+Console.WriteLine($"{after["_id"]} | {after["name"]} | {after["email"]}");
+{{- end}}
+{{- if .Ops.Delete}}
+
+Console.WriteLine("DELETE");
+var deleted = await customers.DeleteOneAsync(byId);
+Console.WriteLine($"Deleted customer {customerId} ({deleted.DeletedCount} document)");
+Console.WriteLine($"Documents with that id now: {await customers.CountDocumentsAsync(byId)}");
+{{- end}}
+
+Console.WriteLine("{{.Scenario.Label}} example completed successfully.");
+{{- if .Verify}}
+
+bool IssuedByStackCa(X509Certificate? certificate, SslPolicyErrors errors)
+{
+    if (certificate is null || errors.HasFlag(SslPolicyErrors.RemoteCertificateNameMismatch))
+    {
+        return false;
+    }
+    using var chain = new X509Chain();
+    chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
+    chain.ChainPolicy.CustomTrustStore.Add(stackCa);
+    // A lab CA publishes no revocation list, so there is nothing to ask.
+    chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+    return chain.Build(new X509Certificate2(certificate));
+}
+{{- end}}
 `

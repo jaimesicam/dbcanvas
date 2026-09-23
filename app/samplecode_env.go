@@ -37,6 +37,7 @@ const (
 	scRuntimeNode   = "node"
 	scRuntimeGo     = "go"
 	scRuntimeJava   = "java"
+	scRuntimeDotnet = "dotnet"
 	scRuntimeShell  = "shell"
 )
 
@@ -131,6 +132,9 @@ type scTarball struct {
 	Dir     string            // where it unpacks to
 	Strip   int               // tar --strip-components
 	Bins    []string          // binaries to link into /usr/local/bin, which is already on PATH
+	// BinDir is where Bins are, relative to Dir: "bin" when empty. The .NET SDK archive keeps
+	// its `dotnet` at the top of the tree, which is "." here.
+	BinDir  string
 	License string
 }
 
@@ -289,6 +293,59 @@ var scSysPackages = map[string]scSysPkg{
 		Packages: func(scOS, scTarget) []string { return []string{"maven"} },
 		License:  "Apache-2.0", URL: "https://maven.apache.org/",
 	},
+	"icu": {
+		ID: "icu", Label: "ICU (International Components for Unicode)",
+		// .NET's globalization calls into libicu at startup and exits with "Couldn't find a
+		// valid ICU package" without it. The distributions' SDK packages depend on it already;
+		// the upstream archive installed on Debian cannot, so it is asked for here, by the
+		// soname-versioned name each release gives it.
+		Check: func(scOS, scTarget) string { return `ldconfig -p | grep -q 'libicuuc\.so'` },
+		Packages: func(os scOS, _ scTarget) []string {
+			if !os.Debian() {
+				return []string{"libicu"}
+			}
+			switch {
+			case os.Is("ubuntu", "22.04"):
+				return []string{"libicu70"}
+			case os.Is("ubuntu", "24.04"):
+				return []string{"libicu74"}
+			case os.Is("debian", "12"):
+				return []string{"libicu72"}
+			}
+			return []string{"libicu76"} // Debian 13, and the guess for a release newer than this list
+		},
+		License: "Unicode-3.0", URL: "https://icu.unicode.org/",
+	},
+	"dotnet-sdk": {
+		ID: "dotnet-sdk", Label: ".NET SDK",
+		// The generated project targets net8.0 and rolls forward to whatever newer runtime is
+		// installed, so any SDK from 8 up builds and runs it. The check asks the SDK list, not
+		// whether `dotnet` exists: a node with only a runtime has the command and cannot build.
+		Check: func(scOS, scTarget) string {
+			return `command -v dotnet >/dev/null && dotnet --list-sdks 2>/dev/null | awk -F. '$1+0>=` +
+				strconv.Itoa(scDotnetMinSDK) + `{f=1} END{exit !f}'`
+		},
+		Packages: func(os scOS, _ scTarget) []string {
+			// Ubuntu 22.04 carries .NET 6, 7 and 8 and nothing newer, so asking it for 10
+			// would only be a guaranteed failure before the fallback.
+			if os.Is("ubuntu", "22.04") {
+				return []string{"dotnet-sdk-8.0"}
+			}
+			// .NET 10 is the current LTS, and Oracle Linux 8, 9 and 10 and Ubuntu 24.04 all
+			// ship it from their own AppStream or archive.
+			return []string{"dotnet-sdk-10.0"}
+		},
+		Alt: func(scOS, scTarget) []string { return []string{"dotnet-sdk-8.0"} },
+		// Debian packages no .NET at all, in any release or in backports. Microsoft's own apt
+		// repository would be a third-party source on the node; the SDK archive is not.
+		Tarball: func(os scOS) *scTarball {
+			if os.ID == "debian" {
+				return &scDotnetUpstream
+			}
+			return nil
+		},
+		License: "MIT", URL: "https://dotnet.microsoft.com/",
+	},
 	"openssl": {
 		ID: "openssl", Label: "OpenSSL command line",
 		Check:    func(scOS, scTarget) string { return `command -v openssl >/dev/null` },
@@ -379,6 +436,8 @@ func scRuntimePackages(runtime string) []string {
 		return []string{"golang"}
 	case scRuntimeJava:
 		return []string{"jdk", "maven"}
+	case scRuntimeDotnet:
+		return []string{"icu", "dotnet-sdk"}
 	}
 	return nil // shell: the native client is declared by the sample itself
 }
@@ -426,6 +485,38 @@ var scNodeUpstream = scTarball{
 	License: "MIT",
 }
 
+// scDotnetUpstream is the .NET SDK for the one family that packages none, Debian. The version and
+// the checksums are from Microsoft's own release index
+// (builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json). The archive holds
+// the SDK and the runtime it ships with, so nothing else is fetched to run a program.
+//
+// The .NET SDK is MIT-licensed; DBCanvas installs it here and redistributes nothing.
+var scDotnetUpstream = scTarball{
+	Name: ".NET SDK", Version: "10.0.401",
+	URL:  "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.401/dotnet-sdk-10.0.401-linux-%s.tar.gz",
+	Arch: map[string]string{"x86_64": "x64", "aarch64": "arm64"},
+	SHA256: map[string]string{
+		"x86_64":  "137268c8ad939c064ff1ee2a6fdf0899d8725377114ea012fbd1ad5fa2550418",
+		"aarch64": "91d3d67f2ed065909bd2e1ba50a37192aff6df15178304939d5b55634d72da6a",
+	},
+	Dir: "/usr/local/dotnet", Strip: 0, Bins: []string{"dotnet"}, BinDir: ".",
+	License: "MIT",
+}
+
+// scDotnetMinSDK is the oldest SDK major that builds the generated project, which targets net8.0.
+const scDotnetMinSDK = 8
+
+// scDotnetProject is the project file every C# sample is built from.
+const scDotnetProject = "DbCanvasSample.csproj"
+
+// scDotnetEnv is what every dotnet step runs with. HOME puts the NuGet cache at
+// /root/.nuget/packages, shared by every C# sample on the node; the rest turns off the first-run
+// banner and the telemetry notice, which would otherwise be the first twenty lines of the log.
+var scDotnetEnv = []string{
+	"HOME=/root", "DOTNET_CLI_TELEMETRY_OPTOUT=1", "DOTNET_NOLOGO=1",
+	"DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1", "DOTNET_GENERATE_ASPNET_CERTIFICATE=false",
+}
+
 // scGoMinMajor/scGoMinMinor is the Go the generated projects need, which is set by the drivers
 // rather than by the samples: go-sql-driver/mysql declares `go 1.24.0` in its own go.mod, and a
 // module cannot be built by a toolchain older than the one it requires.
@@ -469,8 +560,15 @@ func scTarballEnv(tb *scTarball) []string {
 		"TB_NAME=" + tb.Name, "TB_VERSION=" + tb.Version,
 		"TB_URLS=" + strings.TrimSpace(url), "TB_SHA256S=" + strings.TrimSpace(sum),
 		"TB_DIR=" + tb.Dir, "TB_STRIP=" + strconv.Itoa(tb.Strip),
-		"TB_BINS=" + strings.Join(tb.Bins, " "),
+		"TB_BINS=" + strings.Join(tb.Bins, " "), "TB_BINDIR=" + tb.binDir(),
 	}
+}
+
+func (tb *scTarball) binDir() string {
+	if tb.BinDir == "" {
+		return "bin"
+	}
+	return tb.BinDir
 }
 
 // scGoAtLeast is a shell test for the Go toolchain's own version. `go version` prints
@@ -542,6 +640,8 @@ func scManagerLabel(m string) string {
 		return "Go module"
 	case "maven":
 		return "Maven"
+	case "nuget":
+		return "NuGet"
 	}
 	return m
 }
@@ -638,7 +738,7 @@ echo "$TB_SHA256  $tmp/archive" | sha256sum -c -
 rm -rf "$TB_DIR"
 mkdir -p "$TB_DIR"
 tar -C "$TB_DIR" --strip-components="$TB_STRIP" -xf "$tmp/archive"
-for b in $TB_BINS; do ln -sf "$TB_DIR/bin/$b" "/usr/local/bin/$b"; done
+for b in $TB_BINS; do ln -sf "$TB_DIR/${TB_BINDIR:-bin}/$b" "/usr/local/bin/$b"; done
 echo "installed $TB_NAME $TB_VERSION in $TB_DIR"`
 
 const scInstallDebian = `set -e
@@ -750,6 +850,9 @@ func scBuildPlan(c scClient, g scGen, os scOS, useProxy bool) scPlan {
 			runEnv = append(runEnv, "PATH="+p)
 		}
 	}
+	if c.Runtime == scRuntimeDotnet {
+		runEnv = append(append([]string{}, scDotnetEnv...), env...)
+	}
 	runCmd := c.Run(g)
 	if c.Runtime == scRuntimeJava {
 		// Classes compiled at release 17 will not load on an 11 runtime
@@ -859,6 +962,18 @@ func scDepSteps(c scClient, g scGen, os scOS, env []string) []scStep {
 			Cmd:   "set -e\n" + scJavaHome + "mvn -B -q compile",
 			Show:  "mvn -B compile", Dir: g.Dir,
 			Env: append([]string{"HOME=/root"}, env...),
+		})
+	case scRuntimeDotnet:
+		out = append(out, scStep{
+			ID: "nuget", Label: "NuGet packages", Kind: "dep",
+			// project.assets.json is what a restore writes, and DBCanvas rewrites the project
+			// file on every save — so "the restore is newer than the project" is the true
+			// statement, and a changed PackageReference is restored again rather than kept at
+			// the old version.
+			Check: "[ obj/project.assets.json -nt " + scDotnetProject + " ]",
+			Cmd:   "set -e\ndotnet restore",
+			Show:  "dotnet restore", Dir: g.Dir,
+			Env: append(append([]string{}, scDotnetEnv...), env...),
 		})
 	}
 	return out

@@ -26046,3 +26046,79 @@ TLS; a client with no certificate was refused at the handshake. Direct to Postgr
 a certificate and no password authenticated against the `hostssl` rule, and plaintext plus a
 password authenticated against the `host` rule — both rules live on one server at the same
 time, which is the point of the list.
+
+---
+
+## 416. Sample Client Code in C# — `app/samplecode_dotnet.go` (new), `app/samplecode{,_env,_gen,_mysql,_postgres,_mongodb,_valkey,_test,_dump_test}.go`, `app/web/src/lib/sampleApi.js`, `docs/SAMPLE_CODE.md`
+
+**A sixth language, one client per database.** MySqlConnector (MIT), Npgsql (PostgreSQL
+licence), the MongoDB C# Driver (Apache-2.0) and StackExchange.Redis (MIT), each restored from
+nuget.org onto the Linux Client at run time and pinned in the generated `DbCanvasSample.csproj`.
+MySqlConnector rather than Oracle's Connector/NET for the reason PyMySQL sits beside
+mysql-connector-python: no GPL-2.0 exception to reason about. Nothing is vendored; the
+generated projects are granted outright like the other five languages'.
+
+**Where .NET comes from, per release** — probed on all seven base images before a line was
+written:
+
+| | OL8 | OL9 | OL10 | Ubuntu 22.04 | Ubuntu 24.04 | Debian 12 | Debian 13 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| SDK | `dotnet-sdk-10.0` | `dotnet-sdk-10.0` | `dotnet-sdk-10.0` | `dotnet-sdk-8.0` | `dotnet-sdk-10.0` | upstream 10.0.401 | upstream 10.0.401 |
+
+Jammy stops at 8, and Debian packages no .NET at all, so Debian gets the SDK archive from
+`builds.dotnet.microsoft.com` under the `scTarball` rules §392 set: version pinned, SHA-256
+pinned per architecture (both archives downloaded and their SHA-512 matched against
+Microsoft's release index before the SHA-256 was taken), no repository added. The archive keeps
+`dotnet` at the top of its tree, so `scTarball` grew a `BinDir`. ICU is its own step, named by
+each release's soname (`libicu70/72/74/76`), because the archive cannot depend on it.
+
+**One project for SDKs 8 and 10.** `net8.0` with `RollForward=Major` builds on every SDK a node
+gets and runs on the newest runtime present; `UseAppHost=false` starts the program through the
+`dotnet` muxer, since an apphost does not probe `/usr/local/dotnet`. The restore check is
+`obj/project.assets.json -nt DbCanvasSample.csproj` — the project file is rewritten on every
+save, so a changed package version is restored again rather than kept.
+
+**C# needs its own quoting.** `strconv.Quote` writes a control byte as `\x01`, and C#'s `\x`
+takes up to four hex digits; `scCSharpQuote` writes `\u0001` instead.
+
+### Found by running them
+
+1. **StackExchange.Redis refuses `INFO`** unless the multiplexer is in admin mode — every Valkey
+   sample aborted on its first line. `AllowAdmin = true`, with the reason beside it.
+2. **MySqlConnector's `VerifyFull` checks revocation online**, and a lab CA publishes no CRL:
+   the chain fails with `RevocationStatusUnknown`, which surfaced first as *"caching_sha2_password
+   requires a secure connection with a verified server certificate"* (the driver defers the
+   certificate verdict and then will not send the password). Isolated with a bare `X509Chain`
+   on the node — clean with `NoCheck`, failing with `Online`. `SkipCertificateRevocationCheck`,
+   which the driver documents for private CAs; chain and host name are still checked.
+3. **The MongoDB C# Driver takes no CA file.** Verify is a validation callback that builds the
+   chain against the stack CA alone (`CustomRootTrust`) and still refuses a name mismatch.
+
+### Verified
+
+Offline: every C# sample, all six scenarios, in verify+mTLS, verify, require and off, built with
+the .NET 10 SDK — 96/96, no warnings once the Connection Test stopped declaring constants it
+does not use.
+
+Live, a stack with Percona Server 9.7, PostgreSQL 18, PSMDB 8.0 and Valkey 9.1 and one Linux
+Client per release, the clients replaced with fresh containers before the sweep so every
+install ran from a bare node:
+
+| | runs | passed |
+| --- | --- | --- |
+| all 4 clients × 6 scenarios × 7 releases, default TLS (MySQL/PostgreSQL verify, MongoDB/Valkey off) | 168 | 168 |
+| MySQL verify + client certificate, PostgreSQL verify + client certificate | 14 | 14 |
+| MySQL and PostgreSQL `require`; PostgreSQL off | 21 | 21 |
+| MongoDB with `preferTLS` turned on by hand: verify, verify + client certificate, require | 21 | 21 |
+
+Three MongoDB runs first failed with *"Sequence contains no elements"*: seven clients running in
+parallel against one collection, all using `_id: 1`, one deleting between another's update and
+its read-back. Every language's MongoDB sample uses that fixed id; run alone, all three passed.
+An earlier sweep also failed on apt/dnf locks and a half-installed SDK — those were two jobs on
+one node at once (a crashed driver script had left the first running), not a product fault;
+worth knowing that nothing stops two runs on the same node from colliding.
+
+**Not verified.** Valkey with TLS (the node serves none, and has no certificate to serve), a
+Valkey cluster, a replica-set or sharded MongoDB endpoint, and arm64 — every node here is
+x86_64 under emulation, so the aarch64 archive checksum is from Microsoft's index and a local
+download, not an install.

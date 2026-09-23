@@ -33,7 +33,7 @@ import (
 //                      and the upstream URL recorded beside it.
 //
 // The last one is not bookkeeping. DBCanvas is GPL-3.0-only and it does not vendor any of these:
-// pip, npm, Go modules and Maven fetch them onto the lab node at run time, under their own
+// pip, npm, Go modules, Maven and NuGet fetch them onto the lab node at run time, under their own
 // licences, and the generated project files reference them by name and version so the project
 // stays reproducible after the install. Nothing in this feature copies third-party source into
 // this repository, and nothing about a dependency's licence changes because DBCanvas installed it.
@@ -64,6 +64,7 @@ var scLanguages = []struct{ ID, Label, Runtime string }{
 	{"node", "Node.js", scRuntimeNode},
 	{"go", "Go", scRuntimeGo},
 	{"java", "Java", scRuntimeJava},
+	{"dotnet", "C# (.NET)", scRuntimeDotnet},
 	{"shell", "Shell / native client", scRuntimeShell},
 }
 
@@ -125,7 +126,7 @@ func scOpsFor(scenario string) scOps {
 // structure and not only in the prose, because it is the question anyone redistributing a
 // generated project has to answer for themselves.
 type scDep struct {
-	Manager string `json:"manager"` // pip | npm | gomod | maven
+	Manager string `json:"manager"` // pip | npm | gomod | maven | nuget
 	Name    string `json:"name"`    // pip/npm name, Go module path, or group:artifact
 	Version string `json:"version"` // pinned where it goes into a generated manifest
 	Import  string `json:"import"`  // pip only: the module name, for the "is it installed" check
@@ -138,7 +139,7 @@ type scDep struct {
 // the unit a contributor adds.
 type scClient struct {
 	Database string // scMySQL | scPostgres | scMongoDB | scValkey
-	Language string // python | node | go | java | shell
+	Language string // python | node | go | java | dotnet | shell
 	ID       string // "mysql-connector", "hikari", "database-sql", …
 	Label    string // "mysql-connector-python"
 	Summary  string // one sentence: what this client is, and when to reach for it
@@ -157,7 +158,7 @@ type scClient struct {
 // scFile is one file of a generated project.
 type scFile struct {
 	Name string `json:"name"` // relative to the project directory; may contain "/"
-	Lang string `json:"lang"` // for the editor's highlighting: python|javascript|go|java|xml|shell|text
+	Lang string `json:"lang"` // for the editor's highlighting: python|javascript|go|java|csharp|xml|shell|text
 	Body string `json:"body"`
 	// Mode is the file's permission on the node. 0 means 0644; a private key is written 0600.
 	Mode int64 `json:"-"`

@@ -19,6 +19,7 @@ import (
 //	find /tmp/samples -name '*.sh' -exec bash -n {} \;
 //	for d in $(find /tmp/samples -name go.mod -exec dirname {} \;); do (cd $d && go mod tidy && go vet ./...); done
 //	javac -cp <the driver jars> DbCanvasCrud.java
+//	for d in $(find /tmp/samples -name '*.csproj' -exec dirname {} \;); do (cd $d && dotnet build); done
 //
 // Skipped without SCDUMP, so it costs a normal test run nothing. SCTLS and SCMTLS pick the TLS
 // posture, because the TLS branches are where the per-driver differences — and so the mistakes —

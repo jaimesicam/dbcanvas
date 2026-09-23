@@ -66,12 +66,12 @@ by DNS name, which works from inside that stack and nowhere else.
 
 Only the libraries that speak the selected engine are listed.
 
-| Database | Python | Node.js | Go | Java | Shell |
-| --- | --- | --- | --- | --- | --- |
-| MySQL family | mysql-connector-python, PyMySQL | mysql2 | database/sql + go-sql-driver | JDBC, JDBC + HikariCP | `mysql` |
-| PostgreSQL | psycopg 3 | pg | database/sql + pgx | JDBC, JDBC + HikariCP | `psql` |
-| MongoDB | PyMongo | mongodb | mongo-driver | MongoDB Java Driver | `mongosh` |
-| Valkey | valkey-py | iovalkey | go-redis | valkey-java | `valkey-cli` |
+| Database | Python | Node.js | Go | Java | C# (.NET) | Shell |
+| --- | --- | --- | --- | --- | --- | --- |
+| MySQL family | mysql-connector-python, PyMySQL | mysql2 | database/sql + go-sql-driver | JDBC, JDBC + HikariCP | MySqlConnector | `mysql` |
+| PostgreSQL | psycopg 3 | pg | database/sql + pgx | JDBC, JDBC + HikariCP | Npgsql | `psql` |
+| MongoDB | PyMongo | mongodb | mongo-driver | MongoDB Java Driver | MongoDB C# Driver | `mongosh` |
+| Valkey | valkey-py | iovalkey | go-redis | valkey-java | StackExchange.Redis | `valkey-cli` |
 
 The MySQL family covers Percona Server, PXC, MySQL Community and MariaDB — one wire protocol,
 one set of drivers.
@@ -171,6 +171,7 @@ sample reuses them:
 | Node.js | `node_modules` in the project |
 | Go | the module cache under `/root/go` |
 | Java | Maven's `~/.m2` |
+| C# | NuGet's `/root/.nuget/packages` |
 
 A virtualenv rather than the system Python for a reason that is not stylistic: Debian and
 Ubuntu mark their system Python as externally managed (PEP 668) and `pip install` refuses to
@@ -198,13 +199,21 @@ makes it correct on Oracle Linux 8/9/10, Ubuntu 22.04/24.04 and Debian 12/13 wit
 twenty-three samples having to care.
 
 Runtimes and native clients come from the package manager; library dependencies come from the
-ecosystem's own tool (pip, npm, Go modules, Maven). The native database clients come from
+ecosystem's own tool (pip, npm, Go modules, Maven, NuGet). The native database clients come from
 Percona's repositories at the series the *target* runs — so the `psql` installed for a
 PostgreSQL 17 endpoint is the 17 client, not whatever the distribution happens to ship.
 
 If the node was deployed with **Use Intranet proxy (Squid)**, the proxy is exported to pip,
-npm, Go and Maven too. `dnf` and `apt` were already configured for it at deploy; those four
-were not.
+npm, Go, Maven and `dotnet` too. `dnf` and `apt` were already configured for it at deploy; those
+five were not.
+
+**.NET comes from the distribution where it can.** Oracle Linux 8, 9 and 10 and Ubuntu 24.04
+install the .NET 10 SDK from their own AppStream or archive; Ubuntu 22.04 stops at .NET 8 and
+installs that. Debian packages no .NET in any release, so on Debian 12 and 13 the SDK comes
+from Microsoft's own archive — `dotnet-sdk-10.0.401`, pinned and checked against a SHA-256 per
+architecture, exactly as Node on Ubuntu 22.04 and Go on Debian 12 are. No Microsoft package
+repository is added to any node. The generated project targets `net8.0` and rolls forward, so
+the same project builds and runs on an 8-only node and a 10-only one.
 
 ## TLS
 
@@ -241,6 +250,9 @@ code changes with the choice.
 | Connector/J | `sslMode=VERIFY_IDENTITY` and a PKCS#12 truststore |
 | pgJDBC | `sslmode=verify-full` and `sslrootcert` — it reads a PEM directly |
 | MongoDB drivers | `tls` and `tlsCAFile`, or the JVM's truststore properties |
+| MySqlConnector, Npgsql | `SslMode=VerifyFull` with `SslCa` / `RootCertificate` |
+| MongoDB C# Driver | a validation callback that builds the chain against the stack CA alone — the .NET driver takes no CA file |
+| StackExchange.Redis | `TrustIssuer(ca)` |
 | `mysql`, `mongosh`, `valkey-cli` | `--ssl-mode`, `--tlsCAFile`, `--cacert` |
 
 The JVM is the one that needs help: it will not read a PEM certificate authority. When a Java
@@ -261,7 +273,7 @@ browser** — and writes all three forms the drivers ask for between them:
 | | |
 | --- | --- |
 | `client-cert.pem`, `client-key.pem` | what most clients want |
-| `client.pem` | the two concatenated, which is what the MongoDB drivers want |
+| `client.pem` | the two concatenated, which is what the MongoDB drivers want (the C# one reads the two PEM files instead) |
 | `keystore.p12` | built with `openssl pkcs12` for the JVM |
 | `client-key.pk8` | PKCS#8 DER, because pgJDBC will not read a PEM private key |
 
@@ -314,6 +326,7 @@ A minimal, reproducible project — no framework scaffolding:
 | Node.js | `crud.js`, `package.json` |
 | Go | `main.go`, `go.mod` |
 | Java | `pom.xml`, `src/main/java/DbCanvasCrud.java` |
+| C# | `Program.cs`, `DbCanvasSample.csproj` |
 | Shell | `crud.sh` (and `crud.js` for `mongosh`, which is a JavaScript runtime) |
 
 The manifests are generated from the same dependency metadata the installer used, so the
@@ -373,7 +386,7 @@ so is the source of this feature — the registry, the templates and the code th
 places no restrictions on the sample projects this feature generates: use, modify and
 redistribute them as part of your own work, under whatever licence you choose, with no
 obligation to this project. That covers the generated source files and the generated manifests
-(`requirements.txt`, `package.json`, `go.mod`, `pom.xml`).
+(`requirements.txt`, `package.json`, `go.mod`, `pom.xml`, `DbCanvasSample.csproj`).
 
 The exception exists because the alternative is silly. A generated CRUD example is close to the
 minimum expression of "connect to this server and insert a row"; a copyleft notice on top of it
@@ -389,7 +402,7 @@ in them.
 **The drivers keep their own licences.** They are third-party components, and DBCanvas's
 relationship with them is worth stating precisely:
 
-- **DBCanvas installs them; it does not redistribute them.** pip, npm, Go modules and Maven
+- **DBCanvas installs them; it does not redistribute them.** pip, npm, Go modules, Maven and NuGet
   fetch each dependency from its own ecosystem onto the lab node at run time. No third-party
   driver source or binary is vendored into this repository.
 - **Installing a dependency at run time is not the same as incorporating its source.** Nothing
@@ -407,14 +420,16 @@ relationship with them is worth stating precisely:
 | Dependency | Licence |
 | --- | --- |
 | mysql-connector-python, MySQL Connector/J | GPL-2.0-only **WITH** Universal-FOSS-Exception-1.0 |
-| PyMySQL, valkey-py, iovalkey, valkey-java, mysql2, pg, slf4j-api, slf4j-simple | MIT |
+| PyMySQL, valkey-py, iovalkey, valkey-java, mysql2, pg, slf4j-api, slf4j-simple, MySqlConnector, StackExchange.Redis | MIT |
+| Npgsql | PostgreSQL |
 | psycopg 3 | LGPL-3.0 |
 | pgJDBC | BSD-2-Clause |
 | go-sql-driver/mysql | MPL-2.0 |
 | pgx | MIT |
 | go-redis | BSD-2-Clause |
-| PyMongo, MongoDB drivers (Node, Go, Java), HikariCP, mongosh | Apache-2.0 |
+| PyMongo, MongoDB drivers (Node, Go, Java, C#), HikariCP, mongosh | Apache-2.0 |
 | OpenJDK (Temurin or the distribution's build) | GPL-2.0-only **WITH** Classpath-exception-2.0 |
+| .NET SDK (the distribution's build, or Microsoft's archive on Debian) | MIT |
 
 Two of those are worth reading twice:
 
@@ -425,6 +440,8 @@ Two of those are worth reading twice:
   list yet — MariaDB Connector/J (LGPL-2.1-or-later) reaches the same servers and is what the
   Ledger Sim image ships for exactly this reason, and adding it here is one registry entry.
   The same reasoning is written down in `ledgersim/NOTICE`.
+  In C# the MySQL family is served by **MySqlConnector** (MIT) rather than Oracle's
+  Connector/NET (`MySql.Data`, GPL-2.0 with the same exception), for the same reason.
 - **HikariCP logs through SLF4J and needs a binding.** The samples use **slf4j-simple** (MIT),
   with **slf4j-api 2.0.19** declared explicitly beside it — HikariCP 6.x still brings the 1.7 API
   transitively, and a 1.7 API with a 2.0 binding finds no provider and says so on stderr instead
