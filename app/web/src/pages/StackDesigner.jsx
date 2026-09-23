@@ -22,6 +22,7 @@ import OpenBaoManager from './OpenBaoManager.jsx'
 import K3DManager from './K3DManager.jsx'
 import PatroniManager from './PatroniManager.jsx'
 import HAProxyManager from './HAProxyManager.jsx'
+import PgBouncerManager from './PgBouncerManager.jsx'
 import PGManager from './PGManager.jsx'
 import RepmgrManager from './RepmgrManager.jsx'
 import SpockManager from './SpockManager.jsx'
@@ -336,6 +337,37 @@ export const NODE_TYPES = {
     defaults: {
       os: 'oraclelinux', osVersion: '9',
       exportEnabled: false, exportHostPort: 0, pmmNodeId: '', useProxy: false,
+    },
+  },
+  // PgBouncer — a PostgreSQL connection pooler in front of ONE PostgreSQL backend: a
+  // standalone PostgreSQL node, or a Patroni, repmgr or Spock cluster frame (mutually
+  // exclusive). Links to the backend the same way HAProxy does (data flows backend →
+  // pool), but it is the other half of the proxy pair and not a second copy of it:
+  // HAProxy balances TCP across members and leaves N clients as N backend connections;
+  // PgBouncer terminates the PostgreSQL protocol so N clients share a much smaller
+  // pool of server connections. Its options are almost all Postgres-topology-aware —
+  // see PgBouncerForm.
+  pgbouncer: {
+    label: 'PgBouncer',
+    slug: 'pgbouncer',
+    sub: 'PgBouncer — pooling for PostgreSQL, Patroni, repmgr or Spock',
+    color: '#0ea5e9',
+    icon: 'ProxySQL',
+    singleton: false,
+    ports: true,
+    osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
+    defaults: {
+      os: 'oraclelinux', osVersion: '9',
+      pgMajor: '', // "" → follow the linked backend's PostgreSQL series
+      pgbPoolMode: 'transaction', pgbAuthType: 'scram-sha-256', pgbAuthQuery: true,
+      pgbMaxClientConn: 500, pgbDefaultPoolSize: 20, pgbMinPoolSize: 0,
+      pgbReservePoolSize: 0, pgbMaxDbConnections: 0, pgbServerIdleTimeout: 0,
+      pgbIgnoreStartupParams: 'extra_float_digits,options,search_path',
+      pgbServerTLS: 'prefer',
+      pgbRouting: '', pgbDatabase: '',
+      pgbFollowPrimary: true, pgbWatchInterval: 5,
+      generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
+      exportEnabled: false, exportHostPort: 0, useProxy: false,
     },
   },
   // Percona Orchestrator — topology visualization / failure-detection for an async or
@@ -973,7 +1005,7 @@ const ENGINE_SHORT = {
   pxc: 'PXC', ps: 'PS', mysql: 'PS', innodb: 'PS',
   psm: 'PSMDB', psmdb: 'PSMDB', psmrs: 'PSMDB',
   pg: 'PG', patroni: 'PG', repmgr: 'PG', spock: 'PG',
-  proxysql: 'ProxySQL', haproxy: 'HAProxy',
+  proxysql: 'ProxySQL', haproxy: 'HAProxy', pgbouncer: 'PgBouncer',
   valkey: 'Valkey', valkeycluster: 'Valkey',
   pmm: 'PMM', openbao: 'OpenBao', keycloak: 'Keycloak',
   seaweedfs: 'SeaweedFS', sambaad: 'Samba', vnc: 'Ubuntu', watchtower: 'Watchtower', k3d: 'k3s',
@@ -1171,7 +1203,7 @@ const proxyModeOpts = (backendType) => PROXY_MODE_OPTS[backendType === 'mysql' ?
 
 // nodeOSLabel renders a free node's OS line; ProxySQL carries its own os/version
 // (like a PXC frame), other nodes map via their osOptions.
-const nodeOSLabel = (n) => (n.type === 'proxysql' || n.type === 'ps' || n.type === 'pg' || n.type === 'psm' || n.type === 'haproxy' || n.type === 'orchestrator' || n.type === 'vnc' || n.type === 'linuxclient' || n.type === 'valkey' || n.type === 'aio' ? pxcOSLabel(n) : osLabel(n.type, n.os))
+const nodeOSLabel = (n) => (n.type === 'proxysql' || n.type === 'ps' || n.type === 'pg' || n.type === 'psm' || n.type === 'haproxy' || n.type === 'pgbouncer' || n.type === 'orchestrator' || n.type === 'vnc' || n.type === 'linuxclient' || n.type === 'valkey' || n.type === 'aio' ? pxcOSLabel(n) : osLabel(n.type, n.os))
 
 // Auto-numbered per-type labels: a non-singleton node is named "<slug>-NN" with
 // NN zero-padded from 01 and increasing per node type (pmm-01, pmm-02, …, and in
@@ -1930,6 +1962,7 @@ const PALETTE_ALIASES = {
   pg: 'postgres postgresql', patroni: 'postgres postgresql ha', repmgr: 'postgres postgresql ha',
   spock: 'postgres postgresql logical replication',
   proxysql: 'mysql lb load balancer', haproxy: 'lb load balancer',
+  pgbouncer: 'postgres postgresql pool pooler connection pooling pgbouncer',
   orchestrator: 'mysql topology failover failure detection recovery',
   pmm: 'monitoring metrics grafana', openbao: 'vault secrets',
   sambaad: 'ldap active directory domain', keycloak: 'sso oidc identity',
@@ -2740,6 +2773,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
     if (n) {
       if (n.type === 'proxysql' && !n.frameId) return 'proxysql'
       if (n.type === 'haproxy' && !n.frameId) return 'haproxy'
+      if (n.type === 'pgbouncer') return 'pgbouncer'
       if ((n.type === 'pxc' || n.type === 'mysql') && n.frameId) return 'replmember'
       if (n.type === 'valkey') return 'valkey'
       if (n.type === 'trafficsim') return 'trafficsim'
@@ -2831,6 +2865,21 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
     // dest guard) enforces the mutual exclusivity.
     if (k1 === 'backend' && k2 === 'haproxy') return createFlow(e1, e2, { singleOutgoing: true })
     if (k2 === 'backend' && k1 === 'haproxy') return createFlow(e2, e1, { singleOutgoing: true })
+    // Standalone PostgreSQL node, or a Patroni, repmgr or Spock cluster frame →
+    // PgBouncer node. Same shape as the HAProxy rules above — the backend is the
+    // source with singleOutgoing, and PgBouncer's single incoming (the createFlow
+    // dest guard) is what makes "a pool fronts exactly one backend" true. The 'pg'
+    // rule is the one HAProxy has no equivalent of: a pooler in front of a single
+    // server is the most ordinary PgBouncer deployment there is, while a load
+    // balancer in front of one server balances nothing.
+    if (k1 === 'pg' && k2 === 'pgbouncer') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'pg' && k1 === 'pgbouncer') return createFlow(e2, e1, { singleOutgoing: true })
+    if (k1 === 'patroni' && k2 === 'pgbouncer') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'patroni' && k1 === 'pgbouncer') return createFlow(e2, e1, { singleOutgoing: true })
+    if (k1 === 'repmgr' && k2 === 'pgbouncer') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'repmgr' && k1 === 'pgbouncer') return createFlow(e2, e1, { singleOutgoing: true })
+    if (k1 === 'spock' && k2 === 'pgbouncer') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'spock' && k1 === 'pgbouncer') return createFlow(e2, e1, { singleOutgoing: true })
     // Standalone Valkey node OR Valkey Cluster frame → Traffic Sim node (the data
     // source flows to its consumer, same shape as Patroni cluster frame → HAProxy
     // above; a Traffic Sim node links to exactly one target, single incoming).
@@ -2879,6 +2928,11 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
     if (k2 === 'spock' && k1 === 'carsim') return createFlow(e2, e1, { singleOutgoing: true })
     if (k1 === 'haproxy' && k2 === 'carsim') return createFlow(e1, e2, { singleOutgoing: true })
     if (k2 === 'haproxy' && k1 === 'carsim') return createFlow(e2, e1, { singleOutgoing: true })
+    // ...and the same through a PgBouncer pool, which is the other way a
+    // PostgreSQL application reaches these clusters. Its single outgoing edge means
+    // a pool drives one sim, exactly as an HAProxy node does.
+    if (k1 === 'pgbouncer' && k2 === 'carsim') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'pgbouncer' && k1 === 'carsim') return createFlow(e2, e1, { singleOutgoing: true })
     // Standalone Percona Server node, a single PXC member node linked directly
     // ('replmember' — bypasses the cluster frame on purpose, for challenges about
     // an app that never load-balances at all), a PXC/MySQL backend frame, or an
@@ -3829,6 +3883,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
       { label: 'ProxySQL', type: 'proxysql', onClick: () => addNode('proxysql') },
       { label: 'ProxySQL Cluster', type: 'proxysql', onClick: addProxySQLCluster },
       { label: 'HAProxy', type: 'haproxy', onClick: () => addNode('haproxy') },
+      { label: 'PgBouncer', type: 'pgbouncer', onClick: () => addNode('pgbouncer') },
       { label: 'Orchestrator', type: 'orchestrator', onClick: () => addNode('orchestrator') },
     ] },
     { title: 'Monitoring', items: [
@@ -5425,6 +5480,7 @@ const NET_SHAPEABLE = new Set([
   'pxc', 'mariadbgalera', 'ps', 'mysql', 'innodb', 'mysqlce', 'mysqlcerepl',
   'mysqlceinnodb', 'mariadb', 'mariadbrepl', 'patroni', 'pg', 'repmgr', 'spock',
   'psm', 'psmdb', 'psmrs', 'valkey', 'valkeycluster', 'proxysql', 'haproxy',
+  'pgbouncer',
 ])
 
 // NetworkConditionFields edits the per-node network impairment: latency, jitter,
@@ -5722,6 +5778,7 @@ function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }
           </select>
         </div>
       )}
+      <PGHostAuthFields obj={n} patch={patchNode} deployed={deployed} tls={!!n.generateCert} />
 
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
@@ -7122,12 +7179,12 @@ function AirlineSimManager({ dep, onDeleteNode }) {
 }
 
 // CarSimForm edits a (not-yet-deployed) Car Rental Sim node. It resolves its own
-// linked target across all five source shapes: a standalone PostgreSQL node, a
-// Patroni/repmgr/Spock cluster frame (direct), or an HAProxy node — the last one
-// only makes sense once it's itself fronting one of the three cluster kinds, but
+// linked target across all six source shapes: a standalone PostgreSQL node, a
+// Patroni/repmgr/Spock cluster frame (direct), or an HAProxy or PgBouncer node —
+// the proxies only make sense once they are themselves fronting a backend, but
 // that's verified by dbcanvas at deploy time, not here.
 function CarSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep, deployed }) {
-  const CARSIM_KIND_LABEL = { pg: 'PostgreSQL', patroni: 'Patroni Cluster', repmgr: 'repmgr Cluster', spock: 'Spock Cluster', haproxy: 'HAProxy' }
+  const CARSIM_KIND_LABEL = { pg: 'PostgreSQL', patroni: 'Patroni Cluster', repmgr: 'repmgr Cluster', spock: 'Spock Cluster', haproxy: 'HAProxy', pgbouncer: 'PgBouncer' }
   const linkedTarget = (() => {
     for (const e of edges) {
       const other = e.from.node === n.id ? e.to.node : (e.to.node === n.id ? e.from.node : null)
@@ -7138,6 +7195,8 @@ function CarSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep,
       if (backendFrame) return { kind: backendFrame.type, label: backendFrame.label }
       const haproxyNode = nodes.find((x) => x.id === other && x.type === 'haproxy')
       if (haproxyNode) return { kind: 'haproxy', label: haproxyNode.label }
+      const poolNode = nodes.find((x) => x.id === other && x.type === 'pgbouncer')
+      if (poolNode) return { kind: 'pgbouncer', label: poolNode.label }
     }
     return null
   })()
@@ -7163,7 +7222,7 @@ function CarSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep,
       ) : (
         <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
           Not linked. Draw an association line from a standalone PostgreSQL node, a Patroni/repmgr/Spock
-          cluster frame, or an HAProxy node fronting one, to this node.
+          cluster frame, or an HAProxy or PgBouncer node fronting one, to this node.
         </div>
       )}
 
@@ -7180,13 +7239,15 @@ function CarSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep,
 
 // CarSimManager shows a deployed Car Rental Sim node's published dashboard URL
 // and what it's linked to. cfg.targetKind here is the fully-resolved 7-way kind
-// dbcanvas settled on (e.g. "haproxy-spock"), not the coarser 5-way shape
+// dbcanvas settled on (e.g. "haproxy-spock"), not the coarser 6-way shape
 // CarSimForm resolves on the canvas before deploy.
 function CarSimManager({ dep, onDeleteNode }) {
   const cfg = dep?.config || {}
   const TARGET_KIND_LABEL = {
     pg: 'PostgreSQL', patroni: 'Patroni Cluster', repmgr: 'repmgr Cluster', spock: 'Spock Cluster',
     'haproxy-patroni': 'HAProxy → Patroni', 'haproxy-repmgr': 'HAProxy → repmgr', 'haproxy-spock': 'HAProxy → Spock',
+    'pgbouncer-pg': 'PgBouncer → PostgreSQL', 'pgbouncer-patroni': 'PgBouncer → Patroni',
+    'pgbouncer-repmgr': 'PgBouncer → repmgr', 'pgbouncer-spock': 'PgBouncer → Spock',
   }
   return (
     <div className="space-y-3">
@@ -7397,10 +7458,12 @@ export const SS_LINK_TYPES = {
   psmrs: 'PSMDB replica set',
   psmdb: 'PSMDB sharded cluster',
   valkeycluster: 'Valkey cluster',
-  // Routers. Their engine depends on the backend, so SS_LINK_ENGINE leaves
-  // them out and the form reads the engine off the deployed node instead.
+  // Routers. HAProxy's engine depends on the backend, so SS_LINK_ENGINE leaves it
+  // out and the form reads the engine off the deployed node instead; the other two
+  // each speak one protocol and front nothing else, so they are in it.
   haproxy: 'HAProxy',
   proxysql: 'ProxySQL',
+  pgbouncer: 'PgBouncer',
 }
 
 // SS_LINKABLE_KINDS is the same set as endpointKind reports it, for the edge rule.
@@ -7444,6 +7507,7 @@ export const SS_LINK_ENGINE = {
   mysqlcerepl: 'mysql', mysqlceinnodb: 'mysql',
   proxysql: 'mysql',
   pg: 'postgres', patroni: 'postgres', repmgr: 'postgres', spock: 'postgres',
+  pgbouncer: 'postgres',
   psm: 'mongodb', psmrs: 'mongodb', psmdb: 'mongodb',
   valkey: 'valkey', valkeycluster: 'valkey',
 }
@@ -7523,6 +7587,10 @@ const SS_TARGET_KIND_LABEL = {
   'haproxy-patroni': 'HAProxy → Patroni cluster',
   'haproxy-repmgr': 'HAProxy → repmgr cluster',
   'haproxy-spock': 'HAProxy → Spock cluster',
+  'pgbouncer-pg': 'PgBouncer → PostgreSQL',
+  'pgbouncer-patroni': 'PgBouncer → Patroni cluster',
+  'pgbouncer-repmgr': 'PgBouncer → repmgr cluster',
+  'pgbouncer-spock': 'PgBouncer → Spock cluster',
   'proxysql-pxc': 'ProxySQL → PXC cluster',
   'proxysql-mysql': 'ProxySQL → MySQL replication',
   'aio-mysql': 'All in One (MySQL)',
@@ -10367,6 +10435,84 @@ function useSpockCatalog(obj, deployed, patch) {
 // PatroniFrameForm edits a Patroni PostgreSQL cluster frame: catalog OS/version/arch
 // + PG major/minor, superuser password, optional pgBackRest → SeaweedFS S3 backup,
 // PMM/proxy/cert. Members are resizable 3–7 (etcd quorum; odd recommended).
+// PG_HBA_PW are the password-ish methods, of which a node offers exactly one: a
+// plain `host` rule matches every connection, SSL or not, so a second one below the
+// first could never be reached. Certificate authentication is the one that composes
+// with them, because `hostssl` narrows the match to TLS connections.
+const PG_HBA_PW = [
+  { id: 'scram-sha-256', label: 'scram-sha-256 — the default, and what every client here expects' },
+  { id: 'md5', label: 'md5 — the superseded scheme, for demonstrating the upgrade' },
+  { id: 'trust', label: 'trust — no credential at all (lab only)' },
+  { id: '', label: 'none — certificate only, nothing else gets in' },
+]
+
+// pgHbaParse/pgHbaCompose mirror pgHostAuthMethods and pgHostAuthLines in app/pg.go.
+// The form offers the combinations that are reachable; the server parses whatever a
+// hand-edited design or the CLI puts there, and pgHostAuthIssues reports the rest.
+const pgHbaParse = (spec) => {
+  const list = String(spec || 'scram-sha-256').split(',').map((m) => m.trim().toLowerCase()).filter(Boolean)
+  return { cert: list.includes('cert'), pw: list.find((m) => m !== 'cert') ?? '' }
+}
+const pgHbaCompose = ({ cert, pw }) => [...(cert ? ['cert'] : []), ...(pw ? [pw] : [])].join(',') || 'scram-sha-256'
+const pgHbaLines = (spec) => pgHbaParse(spec) && String(spec || 'scram-sha-256').split(',')
+  .map((m) => m.trim().toLowerCase()).filter(Boolean)
+  .map((m) => (m === 'cert' ? 'hostssl all all 0.0.0.0/0 cert' : `host    all all 0.0.0.0/0 ${m}`))
+
+// PGHostAuthFields edits how remote clients authenticate, for a standalone
+// PostgreSQL node or any of the three PostgreSQL cluster frames — one control,
+// because pg_hba is the same file behind all four.
+//
+// It shows the rules it will write, in order, because the order is the whole
+// subtlety: pg_hba is first-match-wins and does not fall through on failure, so
+// `hostssl … cert` has to come above the password rule to be reachable, and a client
+// that arrives over TLS is then required to present a certificate.
+export function PGHostAuthFields({ obj, patch, deployed, tls }) {
+  const cur = pgHbaParse(obj.pgHostAuth)
+  const lock = deployed ? 'opacity-70' : ''
+  const set = (next) => patch(obj.id, { pgHostAuth: pgHbaCompose({ ...cur, ...next }) })
+  const lines = pgHbaLines(pgHbaCompose(cur))
+  return (
+    <details className="col-span-2 rounded-lg border border-border/60 p-2 text-xs" open={cur.cert || cur.pw !== 'scram-sha-256'}>
+      <summary className="cursor-pointer text-muted hover:text-fg">
+        Client authentication (pg_hba)
+        {cur.cert && <span className="ml-2 text-primary">● certificate</span>}
+      </summary>
+      <div className="mt-2 space-y-2">
+        <Field label="Password method" help={HELP.pgHostAuthPw} hint="The rule for clients that do not present a certificate. One only — a plain host rule matches everything below it.">
+          <select className={`${inputCls} ${lock}`} value={cur.pw} disabled={deployed}
+            onChange={(e) => set({ pw: e.target.value })}>
+            {PG_HBA_PW.filter((m) => m.id !== '' || cur.cert).map((m) => (
+              <option key={m.id || 'none'} value={m.id}>{m.label}</option>
+            ))}
+          </select>
+        </Field>
+        <label className={`flex items-start gap-2 text-sm ${deployed || !tls ? 'opacity-70' : ''}`}>
+          <input type="checkbox" className="mt-0.5" checked={cur.cert} disabled={deployed || !tls}
+            onChange={(e) => set({ cert: e.target.checked, pw: e.target.checked ? cur.pw : (cur.pw || 'scram-sha-256') })} />
+          <span>
+            Also accept client certificates<Help text={HELP.pgHostAuthCert} />
+            <span className="block text-[11px] leading-snug text-muted">
+              {tls
+                ? 'Adds a hostssl rule above the password one, so a client arriving over TLS is authenticated by its certificate — whose CN must be the role name — and one arriving without falls through to the password rule.'
+                : 'Needs a certificate to verify against. Tick “Generate certificate from Intranet CA” first.'}
+            </span>
+          </span>
+        </label>
+        <div>
+          <div className="mb-1 text-[11px] text-muted">Written to pg_hba.conf, in this order:</div>
+          <pre className="overflow-x-auto rounded-lg bg-surface2 px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-fg">{lines.join('\n')}</pre>
+        </div>
+        {cur.cert && cur.pw === 'trust' && (
+          <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-[11px] text-warning">
+            A client that skips TLS gets in with no credential at all, which makes the certificate rule above it
+            decorative.
+          </div>
+        )}
+      </div>
+    </details>
+  )
+}
+
 function PatroniFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, deployed }) {
   const imgs = usePPGCatalog(f, deployed, patchFrame)
   const lock = deployed ? 'opacity-70' : ''
@@ -10458,6 +10604,7 @@ function PatroniFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame
           </select>
         </div>
       )}
+      <PGHostAuthFields obj={f} patch={patchFrame} deployed={deployed} tls={!!f.generateCert} />
 
       {(members < 3 || members > 7 || members % 2 === 0) && (
         <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
@@ -10614,6 +10761,7 @@ function RepmgrFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame,
           </select>
         </div>
       )}
+      <PGHostAuthFields obj={f} patch={patchFrame} deployed={deployed} tls={!!f.generateCert} />
 
       {(members < 3 || members > 7 || members % 2 === 0) && (
         <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
@@ -10737,6 +10885,7 @@ function SpockFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, 
           </select>
         </div>
       )}
+      <PGHostAuthFields obj={f} patch={patchFrame} deployed={deployed} tls={!!f.generateCert} />
 
       {(members < 2 || members > 7) && (
         <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
@@ -10885,6 +11034,374 @@ function HAProxyForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep
         </Field>
       )}
 
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// PGB_POOL_MODES / PGB_ROUTING are the two choices that carry the most meaning, so
+// each option ships the sentence that explains what it costs. Kept next to the form
+// rather than in help.js because they are per-option copy, not per-field help.
+const PGB_POOL_MODES = [
+  { id: 'transaction', label: 'transaction — a server connection per transaction',
+    note: 'The one people mean by "pooling": a backend connection is held only for the length of a transaction, so a few dozen of them serve thousands of clients. Session state does not survive — no session-level SET, no LISTEN/NOTIFY, no plain server-side prepared statements.' },
+  { id: 'session', label: 'session — a server connection per client session',
+    note: 'Safe for everything, and the least useful: a connection is held until the client disconnects, so the pool is only saving you the cost of *connecting*. Use it when an application needs session state and you are pooling to avoid connection storms rather than to multiplex.' },
+  { id: 'statement', label: 'statement — a server connection per statement',
+    note: 'Transaction pooling taken further: multi-statement transactions are refused outright. It exists for autocommit-only workloads — the sharding proxies it was written for — and it will break ordinary application code.' },
+]
+const PGB_ROUTING = {
+  rw: { label: 'Writes only — one pool', note: 'A single wildcard pool onto the member that can take writes. Any database name a client asks for lands there.' },
+  'rw-ro': { label: 'Read/write split — wildcard pool + a read-only pool', note: 'The wildcard pool on the writable member, plus a named "<database>_ro" pool on a standby. It is read-only because PostgreSQL refuses writes in recovery, not because PgBouncer checks — which is exactly the failure you want an application to hit in a lab.' },
+  mesh: { label: 'Mesh — one pool per member', note: 'The wildcard pool on one member, plus a named "<database>_<member>" pool for every member. For Spock, where every node is a writer and aiming at a named one is the whole demonstration.' },
+}
+
+// pgbBackendOf resolves what a PgBouncer node is linked to, exactly as
+// pgBouncerBackends does on the server: a standalone PostgreSQL node, or a Patroni,
+// repmgr or Spock cluster frame, reached by one association line. Returns every
+// match, because "linked to two" is a state the form has to be able to describe.
+function pgbBackendsOf(n, nodes, frames, edges) {
+  const out = []
+  const seen = new Set()
+  for (const e of edges) {
+    const other = e.from.node === n.id ? e.to.node : (e.to.node === n.id ? e.from.node : null)
+    if (!other || seen.has(other)) continue
+    const f = frames.find((fr) => fr.id === other && (fr.type === 'patroni' || fr.type === 'repmgr' || fr.type === 'spock'))
+    if (f) { seen.add(other); out.push({ kind: f.type, label: f.label, obj: f }); continue }
+    const pg = nodes.find((x) => x.id === other && x.type === 'pg' && !x.frameId)
+    if (pg) { seen.add(other); out.push({ kind: 'pg', label: pg.label, obj: pg }) }
+  }
+  return out
+}
+
+const PGB_BACKEND_LABEL = { pg: 'PostgreSQL', patroni: 'Patroni cluster', repmgr: 'repmgr cluster', spock: 'Spock cluster' }
+
+// pgbDefaults mirrors pgBouncerDefaults in app/pgbouncer.go: the two options whose
+// sensible value depends on which PostgreSQL topology is behind the pool. The node
+// stores "" for both until somebody chooses, so the form has to resolve them the same
+// way the provisioner will — otherwise the summary describes a pool nobody deployed.
+const pgbRoutingOf = (n, backend) => n.pgbRouting || (backend === 'spock' ? 'mesh' : backend === 'pg' ? 'rw' : 'rw-ro')
+const pgbDatabaseOf = (n, backend) => n.pgbDatabase || (backend === 'spock' ? 'spockdemo' : 'postgres')
+
+// PgBouncerForm edits a (not-yet-running) PgBouncer node. It must be linked to
+// exactly one PostgreSQL backend by an association line; everything below the banner
+// is the pool itself, in three groups — the pool, how it authenticates, and how it
+// relates to the topology behind it (which is the group HAProxy has no equivalent of,
+// because HAProxy re-asks who is primary on every health check and a pooler has to be
+// told).
+export function PgBouncerForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep, deployed }) {
+  const [cat, setCat] = useState(null)
+  useEffect(() => {
+    let alive = true
+    stackApi.imagesCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    return () => { alive = false }
+  }, [])
+  const [ppg, setPpg] = useState(null)
+  useEffect(() => {
+    let alive = true
+    stackApi.ppgCatalog().then((c) => { if (alive) setPpg(c.images || []) }).catch(() => { /* keep defaults */ })
+    return () => { alive = false }
+  }, [])
+  const imgs = cat || []
+  const lock = deployed ? 'opacity-70' : ''
+  const num = (v) => (v === '' ? 0 : Number(v))
+
+  const osFamilies = [...new Set(imgs.map((i) => i.os))].filter((o) => PRODUCT_OS_FAMILIES.includes(o))
+  const osVersions = [...new Set(imgs.filter((i) => i.os === n.os).map((i) => i.osVersion))]
+  useEffect(() => {
+    if (deployed || !imgs.length) return
+    const patch = {}
+    const osVer = osVersions.includes(n.osVersion) ? n.osVersion : (osVersions[0] ?? n.osVersion)
+    if (osVer !== n.osVersion) patch.osVersion = osVer
+    if (Object.keys(patch).length) patchNode(n.id, patch)
+  }, [imgs, n.id, n.os, n.osVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The ppg-NN series percona-pgbouncer is installed from. Left blank it follows the
+  // linked backend, which is what you want every time except when the mismatch is the lab.
+  const ppgEntry = (ppg || []).find((i) => i.os === n.os && i.osVersion === n.osVersion)
+  const pgMajors = ppgEntry ? Object.keys(ppgEntry.versions || {}).filter((m) => (ppgEntry.versions[m] || []).length) : []
+
+  const linked = pgbBackendsOf(n, nodes, frames, edges)
+  const backend = linked.length === 1 ? linked[0] : null
+  const kind = backend?.kind || ''
+  const routing = pgbRoutingOf(n, kind)
+  const database = pgbDatabaseOf(n, kind)
+  const followable = kind && kind !== 'pg'
+  const certAuth = n.pgbAuthType === 'cert'
+  const noAuthQuery = certAuth || n.pgbAuthType === 'trust'
+  const backendMajor = backend ? (backend.obj.pgMajor || '') : ''
+  // Mirrors pgBouncerLinkedSims: the one class of client that cannot be handed a
+  // certificate, because each builds its own connection string at deploy.
+  const linkedSims = edges.flatMap((e) => {
+    const other = e.from.node === n.id ? e.to.node : (e.to.node === n.id ? e.from.node : null)
+    const sim = other && nodes.find((x) => x.id === other && SIM_NODE_TYPES.has(x.type))
+    return sim ? [sim.label] : []
+  })
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">PgBouncer</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+
+      <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
+
+      {linked.length > 1 ? (
+        <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
+          Linked to {linked.length} backends — a pool fronts exactly one. Remove the extra association line
+          ({linked.map((b) => b.label).join(', ')}).
+        </div>
+      ) : backend ? (
+        <div className="rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-xs text-primary">
+          Pools for {PGB_BACKEND_LABEL[kind]} <span className="font-mono font-medium">{backend.label}</span> on
+          port <span className="font-mono">6432</span> — {PGB_ROUTING[routing].label.toLowerCase()}.
+        </div>
+      ) : (
+        <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
+          Not linked. Draw an association line from a PostgreSQL node or a Patroni, repmgr or Spock cluster frame to this PgBouncer node.
+        </div>
+      )}
+
+      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
+        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+      </Field>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="OS" help={HELP.os} hint={deployed ? 'Locked.' : ''}>
+          <select className={`${inputCls} ${lock}`} value={n.os} disabled={deployed} onChange={(e) => patchNode(n.id, { os: e.target.value })}>
+            {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="OS version" help={HELP.osVersion}>
+          <select className={`${inputCls} ${lock}`} value={n.osVersion} disabled={deployed} onChange={(e) => patchNode(n.id, { osVersion: e.target.value })}>
+            {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+      </div>
+
+      <Field label="Percona repository (ppg-NN)" help={HELP.pgbRepo}
+        hint={n.pgMajor ? 'Pinned — deploy will install percona-pgbouncer from this series whatever the backend runs.' : 'Follows the backend, which is what keeps the pooler and the server on one series.'}>
+        <select className={`${inputCls} ${lock}`} value={n.pgMajor || ''} disabled={deployed} onChange={(e) => patchNode(n.id, { pgMajor: e.target.value })}>
+          <option value="">follow the backend{backendMajor ? ` (ppg-${backendMajor})` : ''}</option>
+          {pgMajors.map((m) => <option key={m} value={m}>ppg-{m}</option>)}
+        </select>
+      </Field>
+
+      {/* ---- the pool ---- */}
+      <div className="pt-1 text-xs font-semibold uppercase tracking-wide text-muted">Pool</div>
+
+      <Field label="Pool mode" help={HELP.pgbPoolMode}>
+        <select className={`${inputCls} ${lock}`} value={n.pgbPoolMode || 'transaction'} disabled={deployed}
+          onChange={(e) => patchNode(n.id, { pgbPoolMode: e.target.value })}>
+          {PGB_POOL_MODES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+        </select>
+      </Field>
+      <p className="text-[11px] leading-relaxed text-muted">
+        {(PGB_POOL_MODES.find((m) => m.id === (n.pgbPoolMode || 'transaction')) || PGB_POOL_MODES[0]).note}
+      </p>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="max_client_conn" help={HELP.pgbMaxClientConn} hint="Clients PgBouncer accepts.">
+          <input type="number" min="1" max="100000" className={`${inputCls} ${lock}`} disabled={deployed}
+            value={n.pgbMaxClientConn ?? 500} onChange={(e) => patchNode(n.id, { pgbMaxClientConn: num(e.target.value) })} />
+        </Field>
+        <Field label="default_pool_size" help={HELP.pgbDefaultPoolSize} hint="Server connections per user/database.">
+          <input type="number" min="1" max="10000" className={`${inputCls} ${lock}`} disabled={deployed}
+            value={n.pgbDefaultPoolSize ?? 20} onChange={(e) => patchNode(n.id, { pgbDefaultPoolSize: num(e.target.value) })} />
+        </Field>
+        <Field label="min_pool_size" help={HELP.pgbMinPoolSize} hint="0 = open on demand.">
+          <input type="number" min="0" max="10000" className={`${inputCls} ${lock}`} disabled={deployed}
+            value={n.pgbMinPoolSize ?? 0} onChange={(e) => patchNode(n.id, { pgbMinPoolSize: num(e.target.value) })} />
+        </Field>
+        <Field label="reserve_pool_size" help={HELP.pgbReservePoolSize} hint="0 = no reserve.">
+          <input type="number" min="0" max="10000" className={`${inputCls} ${lock}`} disabled={deployed}
+            value={n.pgbReservePoolSize ?? 0} onChange={(e) => patchNode(n.id, { pgbReservePoolSize: num(e.target.value) })} />
+        </Field>
+        <Field label="max_db_connections" help={HELP.pgbMaxDbConnections} hint="0 = unlimited.">
+          <input type="number" min="0" max="10000" className={`${inputCls} ${lock}`} disabled={deployed}
+            value={n.pgbMaxDbConnections ?? 0} onChange={(e) => patchNode(n.id, { pgbMaxDbConnections: num(e.target.value) })} />
+        </Field>
+        <Field label="server_idle_timeout (s)" help={HELP.pgbServerIdleTimeout} hint="0 = PgBouncer's default (600).">
+          <input type="number" min="0" max="86400" className={`${inputCls} ${lock}`} disabled={deployed}
+            value={n.pgbServerIdleTimeout ?? 0} onChange={(e) => patchNode(n.id, { pgbServerIdleTimeout: num(e.target.value) })} />
+        </Field>
+      </div>
+      {(n.pgbMaxClientConn ?? 500) > 0 && (n.pgbDefaultPoolSize ?? 20) > 0 && (
+        <p className="text-[11px] leading-relaxed text-muted">
+          {`${n.pgbMaxClientConn ?? 500} clients sharing ${n.pgbDefaultPoolSize ?? 20} server connections — a `}
+          {`${Math.max(1, Math.round((n.pgbMaxClientConn ?? 500) / (n.pgbDefaultPoolSize ?? 20)))}:1`}
+          {' reduction in PostgreSQL backend processes, which is the number this node exists to change.'}
+        </p>
+      )}
+
+      <Field label="ignore_startup_parameters" help={HELP.pgbIgnoreStartup}
+        hint="Comma-separated. PgBouncer rejects any startup parameter not listed, and every default here is a driver that otherwise cannot connect.">
+        <input className={`${inputCls} ${lock}`} disabled={deployed}
+          value={n.pgbIgnoreStartupParams ?? ''} placeholder="extra_float_digits,options,search_path"
+          onChange={(e) => patchNode(n.id, { pgbIgnoreStartupParams: e.target.value })} />
+      </Field>
+
+      {/* ---- authentication ---- */}
+      <div className="pt-1 text-xs font-semibold uppercase tracking-wide text-muted">Authentication</div>
+
+      <Field label="auth_type" help={HELP.pgbAuthType}
+        hint={certAuth ? 'The certificate\u2019s CN is the role name, so a certificate is per role.' : 'How clients authenticate to the pool. Every PostgreSQL node here is deployed with scram-sha-256.'}>
+        <select className={`${inputCls} ${lock}`} value={n.pgbAuthType || 'scram-sha-256'} disabled={deployed}
+          onChange={(e) => patchNode(n.id, { pgbAuthType: e.target.value })}>
+          <option value="scram-sha-256">scram-sha-256 — matches the backend</option>
+          <option value="md5">md5 — the old way, for demonstrating the upgrade</option>
+          {/* PgBouncer will not start on cert without a certificate to verify against
+              ("auth_type=cert requires client_tls_sslmode=SSLMODE_VERIFY_FULL"), so the
+              option is only selectable once this node has been given one below. */}
+          <option value="cert" disabled={!n.generateCert}>
+            cert — a client certificate, no password{n.generateCert ? '' : ' (tick “Generate certificate” first)'}
+          </option>
+          <option value="trust">trust — no password at all (lab only)</option>
+        </select>
+      </Field>
+      {certAuth && !n.generateCert && (
+        <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
+          Certificate authentication needs a certificate. Tick <span className="font-medium">Generate certificate from
+          Intranet CA</span> below, or choose another auth type — PgBouncer refuses to start otherwise.
+        </div>
+      )}
+      {certAuth && n.generateCert && (
+        <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-relaxed text-muted">
+          Clients must connect over TLS and present a certificate signed by the Intranet CA; PgBouncer takes the user
+          name from its <span className="font-mono">CN</span>, and a certificate whose CN does not match the user in
+          the connection string is refused. One is minted for <span className="font-mono">postgres</span> at deploy,
+          into <span className="font-mono">/etc/pgbouncer/client/</span>. Two consequences worth knowing before you
+          pick this: the admin console over the unix socket stops working (no TLS there, so no certificate), and an
+          application simulator cannot be driven through this pool at all — it has no way to present one.
+        </div>
+      )}
+      {n.pgbAuthType === 'trust' && (
+        <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
+          Any user name is accepted without a password. Fine for watching a pool fill; never past a lab.
+        </div>
+      )}
+      <label className={`flex items-center gap-2 text-sm ${deployed || noAuthQuery ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.pgbAuthQuery && !noAuthQuery} disabled={deployed || noAuthQuery}
+          onChange={(e) => patchNode(n.id, { pgbAuthQuery: e.target.checked })} />
+        <span>Look roles up in the backend (auth_query)</span><Help text={HELP.pgbAuthQuery} />
+      </label>
+      <p className="text-[11px] leading-relaxed text-muted">
+        {certAuth
+          ? 'Not used under certificate authentication: pg_shadow returns a SCRAM verifier, and a verifier cannot be used to authenticate to the server — so a role looked up that way would be let in at the pool and then fail behind it. Only roles with a plain-text secret in userlist.txt can complete both legs.'
+          : n.pgbAuthQuery && n.pgbAuthType !== 'trust'
+            ? 'Any role that exists in PostgreSQL can connect through the pool, and a password change needs nothing done here — PgBouncer asks pg_shadow.'
+            : 'Only the superuser and the replication role are in userlist.txt, so an application role would have to be added to that file by hand before it could connect.'}
+      </p>
+
+      {/* ---- the topology behind the pool ---- */}
+      <div className="pt-1 text-xs font-semibold uppercase tracking-wide text-muted">Backend topology</div>
+
+      <Field label="Routing" help={HELP.pgbRouting} hint={n.pgbRouting ? '' : `Following the linked backend${kind ? ` (${PGB_BACKEND_LABEL[kind]})` : ''}.`}>
+        <select className={`${inputCls} ${lock}`} value={n.pgbRouting || ''} disabled={deployed}
+          onChange={(e) => patchNode(n.id, { pgbRouting: e.target.value })}>
+          <option value="">follow the backend{kind ? ` — ${routing}` : ''}</option>
+          <option value="rw">{PGB_ROUTING.rw.label}</option>
+          <option value="rw-ro">{PGB_ROUTING['rw-ro'].label}</option>
+          <option value="mesh">{PGB_ROUTING.mesh.label}</option>
+        </select>
+      </Field>
+      <p className="text-[11px] leading-relaxed text-muted">{PGB_ROUTING[routing].note}</p>
+      {kind === 'spock' && routing === 'rw-ro' && (
+        <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
+          Every Spock member is writable, so a “read-only” pool is not read-only. Mesh is the routing that fits multi-master.
+        </div>
+      )}
+      {certAuth && linkedSims.length > 0 && (
+        <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
+          {linkedSims.join(', ')} {linkedSims.length > 1 ? 'are' : 'is'} driven through this pool and cannot present a
+          certificate — the connection is refused at the TLS handshake. Link {linkedSims.length > 1 ? 'them' : 'it'} to
+          the backend directly, or choose another auth type.
+        </div>
+      )}
+      {kind === 'pg' && routing !== 'rw' && (
+        <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
+          A standalone PostgreSQL backend is one server, so every pool here points back at the same place.
+        </div>
+      )}
+
+      <Field label="Pooled database" help={HELP.pgbDatabase}
+        hint={`The named pools are built from this: ${routing === 'rw-ro' ? `${database}_ro` : routing === 'mesh' ? `${database}_<member>` : 'no named pools in this routing'}. The wildcard pool takes any database name.`}>
+        <input className={`${inputCls} ${lock}`} disabled={deployed} value={n.pgbDatabase ?? ''} placeholder={database}
+          onChange={(e) => patchNode(n.id, { pgbDatabase: e.target.value })} />
+      </Field>
+
+      <label className={`flex items-center gap-2 text-sm ${deployed || !followable ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.pgbFollowPrimary} disabled={deployed || !followable}
+          onChange={(e) => patchNode(n.id, { pgbFollowPrimary: e.target.checked })} />
+        <span>Follow the writable member</span><Help text={HELP.pgbFollowPrimary} />
+      </label>
+      <p className="text-[11px] leading-relaxed text-muted">
+        {!kind ? 'Available once this node is linked to a backend.'
+          : kind === 'pg' ? 'A standalone PostgreSQL backend has no role that can move, so there is nothing to follow.'
+          : kind === 'patroni' ? 'A timer asks each member’s Patroni REST API (:8008 /primary) who holds the leader lease and re-points the pool on failover, reloading with SIGHUP so existing clients are not dropped. Without it, a failover leaves the pool aimed at a server in recovery and every write fails.'
+          : kind === 'repmgr' ? 'repmgr has no REST API, so the timer asks each member pg_is_in_recovery() over psql and re-points the pool when the answer changes — the same question repmgr’s own health check asks.'
+          : 'Every Spock member is a writer, so there is no role to follow: the pool stays pinned to one member and the timer only moves it when that member stops answering. Pinning one writer is how you avoid spending the demo on write conflicts.'}
+      </p>
+      {n.pgbFollowPrimary && followable && (
+        <Field label="Probe interval (s)" help={HELP.pgbWatchInterval} hint="How long a failover can leave the pool pointing at the old member.">
+          <input type="number" min="1" max="3600" className={`${inputCls} ${lock}`} disabled={deployed}
+            value={n.pgbWatchInterval ?? 5} onChange={(e) => patchNode(n.id, { pgbWatchInterval: num(e.target.value) })} />
+        </Field>
+      )}
+
+      <Field label="server_tls_sslmode" help={HELP.pgbServerTls} hint="How the pool connects to the backend. The PostgreSQL nodes here listen for TLS only when they were deployed with a certificate.">
+        <select className={`${inputCls} ${lock}`} value={n.pgbServerTLS || 'prefer'} disabled={deployed}
+          onChange={(e) => patchNode(n.id, { pgbServerTLS: e.target.value })}>
+          <option value="prefer">prefer — encrypt if the server offers it</option>
+          <option value="disable">disable — always plaintext</option>
+          <option value="require">require — refuse a plaintext backend</option>
+          <option value="verify-full">verify-full — require, and check the certificate</option>
+        </select>
+      </Field>
+
+      {/* ---- the node ---- */}
+      <div className="pt-1 text-xs font-semibold uppercase tracking-wide text-muted">Node</div>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
+        <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
+      </label>
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.generateCert} disabled={deployed} onChange={(e) => patchNode(n.id, { generateCert: e.target.checked })} />
+        <span>Generate certificate from Intranet CA (terminate TLS at the pool)</span><Help text={HELP.pgbClientTls} />
+      </label>
+      {certAuth && n.generateCert && (
+        <p className="text-[11px] leading-relaxed text-muted">
+          Required by the auth type above, and raised from <span className="font-mono">require</span> to
+          <span className="font-mono"> verify-full</span> so the client certificate is actually validated.
+        </p>
+      )}
+      {n.generateCert && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted">Cert TTL</span>
+          <input type="number" min="1" className={`${inputCls} w-20`} value={n.certTtlValue || 365} onChange={(e) => patchNode(n.id, { certTtlValue: Number(e.target.value) })} />
+          <select className={inputCls} value={n.certTtlUnit || 'days'} onChange={(e) => patchNode(n.id, { certTtlUnit: e.target.value })}>
+            <option value="minutes">minutes</option>
+            <option value="hours">hours</option>
+            <option value="days">days</option>
+          </select>
+        </div>
+      )}
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
+        <span>Export the pool port (6432) to the host</span><Help text={HELP.exportPort} />
+      </label>
+      {n.exportEnabled && (
+        <Field label="Host port" help={HELP.hostPort} hint="0 / empty = random unused port. Must not clash with another node.">
+          <input type="number" min="0" max="65535" className={`${inputCls} ${lock}`} disabled={deployed}
+            value={n.exportHostPort || 0} onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
+        </Field>
+      )}
+
+      {!deployed && <p className="text-xs text-muted">Pool endpoints and the admin-console command appear here after deploy.</p>}
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
         <Icon.Trash size={16} /> Delete node
       </Button>
@@ -11697,7 +12214,7 @@ function loadProps() {
 function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, rebuildMongoCluster, deployOpen, deployments, onDeployMinimize }) {
   const selNode = selected?.kind === 'node' ? nodes.find((n) => n.id === selected.id) : null
   const selDep = selNode ? depByNode[selNode.id] : null
-  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb' || selNode.type === 'psmdb' || selNode.type === 'psmrs' || selNode.type === 'psm' || selNode.type === 'seaweedfs' || selNode.type === 'patroni' || selNode.type === 'haproxy' || selNode.type === 'pg' || selNode.type === 'repmgr' || selNode.type === 'spock' || selNode.type === 'aio' || selNode.type === 'mariadb' || selNode.type === 'mariadbrepl' || selNode.type === 'mariadbgalera' || selNode.type === 'mysqlce' || selNode.type === 'mysqlcerepl' || selNode.type === 'mysqlceinnodb')) || selected?.kind === 'frame'
+  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb' || selNode.type === 'psmdb' || selNode.type === 'psmrs' || selNode.type === 'psm' || selNode.type === 'seaweedfs' || selNode.type === 'patroni' || selNode.type === 'haproxy' || selNode.type === 'pgbouncer' || selNode.type === 'pg' || selNode.type === 'repmgr' || selNode.type === 'spock' || selNode.type === 'aio' || selNode.type === 'mariadb' || selNode.type === 'mariadbrepl' || selNode.type === 'mariadbgalera' || selNode.type === 'mysqlce' || selNode.type === 'mysqlcerepl' || selNode.type === 'mysqlceinnodb')) || selected?.kind === 'frame'
 
   const saved = useRef(loadProps()).current
   const [docked, setDocked] = useState(saved.docked !== false)
@@ -11975,6 +12492,14 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <HAProxyManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <HAProxyForm node={n} nodes={nodes} frames={frames} edges={edges} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+    }
+
+    // PgBouncer node (connection pooler for a PostgreSQL node or cluster).
+    if (n.type === 'pgbouncer') {
+      if (dep && dep.state === 'running') {
+        return <PgBouncerManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <PgBouncerForm node={n} nodes={nodes} frames={frames} edges={edges} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
 
     // Percona Orchestrator node (topology visualization / failure detection). Not

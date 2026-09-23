@@ -40,6 +40,155 @@ func pgBackRestSeaweedIssues(who, seaweedNodeID string, doc designDoc) []issue {
 	return []issue{{Level: "error", Message: who + ": the selected pgBackRest SeaweedFS node is not in the design"}}
 }
 
+// ------------------------------------------------- client authentication (pg_hba)
+//
+// Every PostgreSQL node and cluster frame here used to authenticate remote clients
+// exactly one way — `host all all 0.0.0.0/0 scram-sha-256`, written into four
+// different provisioners. PGHostAuth makes that a list instead, because a server can
+// legitimately offer more than one method at once and a lab is where you would want
+// to show it: a client arriving over TLS with a certificate authenticated by it, and
+// one arriving without falling back to a password.
+//
+// The list is ordered and the order is the whole subtlety. pg_hba is first-match-wins
+// and does **not** fall through on failure: the first rule whose connection type,
+// database, user and address match is the only one that gets to decide, and if
+// authentication fails there the connection is refused rather than retried against
+// the next line. So `cert` has to come before a password method to be reachable at
+// all — a `host all all 0.0.0.0/0 scram-sha-256` above it matches every connection,
+// SSL or not, and everything below it is dead config. pgHostAuthIssues says so.
+
+// pgHostAuthDefault is what every design that predates this field keeps getting.
+const pgHostAuthDefault = "scram-sha-256"
+
+// pgHostAuthMethods parses the list, in order, with the empty value meaning the
+// default. Duplicates are collapsed; anything unrecognised is returned as-is so
+// pgHostAuthIssues can name it rather than silently dropping it.
+func pgHostAuthMethods(spec string) []string {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		spec = pgHostAuthDefault
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, m := range strings.Split(spec, ",") {
+		m = strings.ToLower(strings.TrimSpace(m))
+		if m == "" || seen[m] {
+			continue
+		}
+		seen[m] = true
+		out = append(out, m)
+	}
+	if len(out) == 0 {
+		out = []string{pgHostAuthDefault}
+	}
+	return out
+}
+
+// pgHostAuthKnown is the set the provisioners will write. Deliberately short: these
+// are the methods that mean something for a remote client on a lab network, and one
+// nobody can reach (ldap, pam, gss) would be a picker entry that never works.
+var pgHostAuthKnown = map[string]bool{
+	"scram-sha-256": true, "md5": true, "cert": true, "trust": true, "reject": true,
+}
+
+// pgHostAuthNeedsTLS reports whether a method can only be served over TLS, and so
+// requires the node to have been deployed with a certificate.
+func pgHostAuthNeedsTLS(method string) bool { return method == "cert" }
+
+// pgHostAuthLines renders the pg_hba rules for remote clients, in order.
+//
+// "cert" is written as **hostssl**, which is not decoration: the method needs a
+// client certificate, so a rule that also matched plaintext connections could only
+// ever refuse them. Every other method is `host`, which matches both — which is
+// exactly why one of them below a hostssl rule still catches the clients that did
+// not present a certificate, and why one above it catches everything.
+func pgHostAuthLines(spec string) []string {
+	var out []string
+	for _, m := range pgHostAuthMethods(spec) {
+		if !pgHostAuthKnown[m] {
+			continue
+		}
+		if pgHostAuthNeedsTLS(m) {
+			// `cert` implies clientcert=verify-full in PostgreSQL, so spelling it out
+			// would add nothing but a second thing to keep true.
+			out = append(out, "hostssl all all 0.0.0.0/0 "+m)
+			continue
+		}
+		out = append(out, "host all all 0.0.0.0/0 "+m)
+	}
+	if len(out) == 0 {
+		out = []string{"host all all 0.0.0.0/0 " + pgHostAuthDefault}
+	}
+	return out
+}
+
+// pgHostAuthRequiresClientCert reports whether a client arriving over TLS will be
+// judged by the certificate rule — i.e. `cert` is listed and nothing that matches
+// every connection comes above it.
+//
+// This is the question a *pooler* has to ask about its backend, and it is not the
+// same as "does this node accept certificates". PgBouncer connects over TLS whenever
+// the server offers it, so a backend whose first rule is `hostssl … cert` demands a
+// certificate from the pool itself, and refuses it with "connection requires a valid
+// client certificate" — a failure on the server leg that says nothing about how the
+// pool's own client authenticated. See pgBouncerIssues.
+func pgHostAuthRequiresClientCert(spec string) bool {
+	for _, m := range pgHostAuthMethods(spec) {
+		if !pgHostAuthKnown[m] {
+			continue
+		}
+		if pgHostAuthNeedsTLS(m) {
+			return true
+		}
+		return false // a plain host rule above it matches TLS connections too
+	}
+	return false
+}
+
+// pgHostAuthIssues validates one node or frame's list. `who` names it.
+func pgHostAuthIssues(who, spec string, tls bool) []issue {
+	var out []issue
+	methods := pgHostAuthMethods(spec)
+	for _, m := range methods {
+		if !pgHostAuthKnown[m] {
+			out = append(out, issue{Level: "error", Message: who + ": " + m +
+				" is not a client authentication method DBCanvas writes (scram-sha-256, md5, cert, trust, reject)"})
+			continue
+		}
+		if pgHostAuthNeedsTLS(m) && !tls {
+			out = append(out, issue{Level: "error", Message: who +
+				": certificate authentication needs PostgreSQL to be listening for TLS — tick \"Generate certificate from Intranet CA\", or drop cert from the authentication methods"})
+		}
+		if m == "trust" {
+			out = append(out, issue{Level: "warn", Message: who +
+				": trust accepts any remote client with no credential at all — fine for a lab, never past one"})
+		}
+	}
+	// The consequence of putting cert first, said once and plainly: it is not "this
+	// server also accepts certificates", it is "every client that speaks TLS to this
+	// server must present one". A client that cannot has to connect without TLS to
+	// reach the password rule below it.
+	if pgHostAuthRequiresClientCert(spec) {
+		out = append(out, issue{Level: "warn", Message: who +
+			": with cert first, every client that connects over TLS must present a certificate whose CN is its role — one that cannot has to connect without TLS to reach the rule below"})
+	}
+	// A plain `host` rule matches every connection, SSL or not, so nothing after it
+	// is ever consulted. Saying which rule is dead is more use than saying the list
+	// is wrong.
+	for i, m := range methods {
+		if !pgHostAuthKnown[m] || pgHostAuthNeedsTLS(m) {
+			continue
+		}
+		if i < len(methods)-1 {
+			out = append(out, issue{Level: "warn", Message: who + ": " + m +
+				" matches every connection, so " + strings.Join(methods[i+1:], ", ") +
+				" after it can never be reached — pg_hba is first-match-wins and does not fall through. Put cert first."})
+		}
+		break
+	}
+	return out
+}
+
 // pgConfig is the non-secret profile shown for a deployed standalone PostgreSQL node.
 type pgConfig struct {
 	Image         string `json:"image"`
@@ -299,7 +448,8 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 
 		// ---- configure postgresql.conf + pg_hba.conf ----
 		pr.phase("Configuring PostgreSQL", 62)
-		confEnv := []string{"CONFDIR=" + confDir, "DATADIR=" + dataDir, "STANZA=" + stanza}
+		confEnv := []string{"CONFDIR=" + confDir, "DATADIR=" + dataDir, "STANZA=" + stanza,
+			"HBALINES=" + strings.Join(pgHostAuthLines(n.PGHostAuth), "\n")}
 		if n.UsePgBackRest {
 			confEnv = append(confEnv, "PGBACKREST=1")
 		}
@@ -546,7 +696,7 @@ fi
 grep -q "dbcanvas-remote" "$HBA" 2>/dev/null || {
   {
     echo "# dbcanvas-remote"
-    echo "host all all 0.0.0.0/0 scram-sha-256"
+    printf '%s\n' "$HBALINES"
   } >> "$HBA"
 }
 chown -R postgres:postgres "$CONFDIR" 2>/dev/null || true`

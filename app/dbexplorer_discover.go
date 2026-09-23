@@ -276,6 +276,10 @@ func (a *App) dexStackTargets(ctx context.Context, st Stack) []dexTarget {
 		switch n.Type {
 		case "haproxy":
 			out = append(out, a.dexHAProxyTargets(st, doc, n, dep, hosts, domain, running)...)
+		case "pgbouncer":
+			if t, ok := a.dexPgBouncerTarget(st, doc, n, dep, hosts, domain, running); ok {
+				out = append(out, t)
+			}
 		case "proxysql":
 			if t, ok := a.dexProxySQLTarget(st, doc, n, dep, hosts, domain, running); ok {
 				out = append(out, t)
@@ -509,6 +513,58 @@ func (a *App) dexHAProxyTargets(st Stack, doc designDoc, n designNode, dep Deplo
 		mk("write", "write port", "balanced onto the member that can take writes — the endpoint a client should use", "primary", haproxyWritePort, true),
 		mk("read", "read port", "balanced across the replicas — writes will be refused", "replica", haproxyReadPort, false),
 	}
+}
+
+// dexPgBouncerTarget is a PgBouncer node's wildcard pool, and only that one.
+//
+// The named pools a node may also publish ("<db>_ro", the per-member Spock aliases)
+// are real endpoints and Sample Code offers all of them — but the Explorer is not a
+// connection string, it is a tree you click through, and clicking a database in it
+// opens a *new* connection to that database by name (dexPGNet holds one pool per
+// database). A named PgBouncer pool accepts exactly one name, so every other node in
+// that tree would fail to open. The wildcard pool takes any database name at all,
+// which is what makes it behave like the server it fronts.
+func (a *App) dexPgBouncerTarget(st Stack, doc designDoc, n designNode, dep Deployment, hosts map[string]string, domain string, running func(string) (Deployment, bool)) (dexTarget, bool) {
+	kind, frame, backNode, ok := pgBouncerBackend(doc, n.ID)
+	if !ok {
+		return dexTarget{}, false
+	}
+	// The account is the backend's; the container dialled is the pool's.
+	var mdep Deployment
+	var srcNodeID string
+	if kind == "pg" {
+		d, up := running(backNode.ID)
+		if !up {
+			return dexTarget{}, false
+		}
+		mdep, srcNodeID = d, backNode.ID
+	} else {
+		members := scFrameMembers(doc, frame.ID, running)
+		if len(members) == 0 {
+			return dexTarget{}, false
+		}
+		mdep, _ = running(members[0].ID)
+		srcNodeID = members[0].ID
+	}
+	user, pass, ok := a.dexCredentials(dexPostgres, mdep)
+	if !ok {
+		return dexTarget{}, false
+	}
+	p := scProbe(mdep)
+	return dexTarget{
+		Stack: st, DialNodeID: n.ID, ContainerID: dep.ContainerID,
+		Port: pgBouncerPort, User: user, Pass: pass,
+		Conn: dexConnection{
+			ID:      dexRef{StackID: st.ID, Shape: dexShapePgBounce, Target: n.ID, Extra: "pool"}.String(),
+			StackID: st.ID, StackName: st.Name, NodeID: srcNodeID,
+			Label: n.Label + " · pool", Engine: dexPostgres, Kind: "pgbouncer",
+			Product: "PgBouncer → " + scProductLabel(kind), Version: p.major(),
+			Group: dexGroupPostgres, Role: "proxy", Preferred: true,
+			Host: fqdnOf(hosts[n.ID], domain), Port: pgBouncerPort, Status: "running", User: user,
+			Note:      "pooled onto the member that can take writes — every query here reuses one of a small number of server connections",
+			Transport: "network", Caps: dexCapsFor(dexPostgres, false),
+		},
+	}, true
 }
 
 // dexProxySQLTarget is ProxySQL's client port; the read/write split happens inside

@@ -235,6 +235,14 @@ func stockSimEngineForTarget(doc designDoc, kind, targetID string) string {
 			return stockSimEngineForKind(backKind)
 		}
 		return ""
+	case "pgbouncer":
+		// PgBouncer speaks the PostgreSQL protocol and fronts nothing else — but it
+		// still has to be linked to a backend, so an unlinked pool has no engine and
+		// the validator says so rather than the sim failing at deploy.
+		if _, _, _, ok := pgBouncerBackend(doc, targetID); ok {
+			return "postgres"
+		}
+		return ""
 	case "proxysql":
 		// ProxySQL is a MySQL-protocol proxy and fronts nothing else.
 		return "mysql"
@@ -556,7 +564,7 @@ func stockSimTarget(doc designDoc, startID string) (kind, targetID string, ok bo
 			switch {
 			case stockSimStandaloneTargets[n.Type]:
 				return n.Type, n.ID, true
-			case n.Type == "haproxy", n.Type == "proxysql":
+			case n.Type == "haproxy", n.Type == "proxysql", n.Type == "pgbouncer":
 				return n.Type, n.ID, true
 			}
 		}
@@ -816,7 +824,10 @@ func (a *App) provisionStockSim(st Stack, n designNode, doc designDoc) {
 //
 // readPort 0 means no split: exactly the single-DSN environment every target produced
 // before the option existed, which is what keeps an untouched node's deploy unchanged.
-func stockSimSQLEnv(engine, user, pass, host string, port, readPort int, failover ...string) []string {
+// extra is appended to the PostgreSQL DSN's query string verbatim ("" for none). It
+// exists for one endpoint: a PgBouncer pool, where pgx must stop preparing statements
+// it will not find again on the next transaction — see pgBouncerDSNExtra.
+func stockSimSQLEnv(engine, user, pass, host string, port, readPort int, extra string, failover ...string) []string {
 	dsn := func(p int) string {
 		if engine == "mysql" {
 			return fmt.Sprintf("%s:%s@tcp(%s:%d)/?tls=false", user, pass, host, p)
@@ -845,6 +856,9 @@ func stockSimSQLEnv(engine, user, pass, host string, port, readPort int, failove
 			// round trip, and on a standalone node it would refuse to connect at all.
 			query += "&target_session_attrs=read-write"
 		}
+		if extra != "" {
+			query += "&" + extra
+		}
 		return "postgres://" + url.UserPassword(user, pass).String() + "@" + hostList + "/postgres?" + query
 	}
 	prefix := "POSTGRES"
@@ -871,6 +885,13 @@ type stockSimResolved struct {
 	// statement goes to port. Only an HAProxy target with the split turned on sets
 	// it: it is the one target that publishes a second port meaning "a replica".
 	readPort int
+	// noPrepare says this endpoint does not keep a client on one server connection
+	// between transactions, so server-side prepared statements will not be there on
+	// the next one. Only a PgBouncer pool in transaction or statement mode sets it.
+	// Every client that goes through this resolver has to act on it in its own
+	// dialect — pgx wants default_query_exec_mode=simple_protocol, pgjdbc wants
+	// prepareThreshold=0 — which is why it is a fact here rather than a string.
+	noPrepare bool
 }
 
 // waitStockSimTarget resolves a linked canvas target down to a connectable
@@ -907,6 +928,10 @@ func (a *App) waitStockSimTarget(ctx context.Context, st Stack, hosts map[string
 	if coarseKind == "haproxy" {
 		return stockSimResolved{}, fmt.Errorf(
 			"the linked HAProxy node does not front exactly one database cluster, so there is nothing to connect to — link the cluster frame directly instead")
+	}
+	if coarseKind == "pgbouncer" {
+		return stockSimResolved{}, fmt.Errorf(
+			"the linked PgBouncer node does not pool for exactly one PostgreSQL backend, so there is nothing to connect to — link the node or cluster to it, or link this sim to the backend directly")
 	}
 	return stockSimResolved{}, fmt.Errorf("unresolved Stock Market Sim target %q", coarseKind)
 }
@@ -992,7 +1017,7 @@ func (a *App) stockSimMySQLTarget(ctx context.Context, st Stack, hosts map[strin
 	// Connect as the application user, never root: root@localhost cannot
 	// connect over TCP, which is what every sibling sim learned the hard way.
 	return stockSimResolved{
-		env:     stockSimSQLEnv("mysql", s.AppUser, s.AppPassword, h, port, readPort),
+		env:     stockSimSQLEnv("mysql", s.AppUser, s.AppPassword, h, port, readPort, ""),
 		secrets: stockSimSecrets{User: s.AppUser, Password: s.AppPassword},
 		engine:  "mysql", kind: kind, displayName: name,
 		host: h, port: port, readPort: readPort,
@@ -1011,8 +1036,12 @@ func (a *App) stockSimPostgresTarget(ctx context.Context, st Stack, hosts map[st
 		name     = nodeLabel(doc, targetID)
 		err      error
 		// failover is every member of a clustered target, for the multi-host DSN. Empty for a
-		// standalone node and for an HAProxy target — the proxy already is the indirection.
+		// standalone node and for either proxy — the proxy already is the indirection.
 		failover []string
+		// dsnExtra is connection-string parameters the endpoint itself demands, and
+		// noPrepare the fact behind it. Only a PgBouncer pool sets either.
+		dsnExtra  string
+		noPrepare bool
 	)
 	frame := frameByID(doc, targetID)
 	if frame.ID != "" {
@@ -1074,6 +1103,14 @@ func (a *App) stockSimPostgresTarget(ctx context.Context, st Stack, hosts map[st
 			readPort = haproxyReadPort
 		}
 
+	// A PgBouncer pool. No failover list and no read port: the pool is already the
+	// indirection, and its read/write split is a database name rather than a second
+	// port, so a sim asking for the wildcard pool always lands on the member that can
+	// take writes — through a failover, without reconnecting anywhere else.
+	case "pgbouncer":
+		h, port, s, kind, dsnExtra, name, err = a.pgBouncerSimEndpoint(ctx, st, hosts, doc, domain, targetID, timeout)
+		noPrepare = dsnExtra != ""
+
 	default:
 		return stockSimResolved{}, fmt.Errorf("unresolved PostgreSQL target %q", kind)
 	}
@@ -1087,10 +1124,10 @@ func (a *App) stockSimPostgresTarget(ctx context.Context, st Stack, hosts map[st
 	// name onto the read DSN from the one it resolved on the writer (pgOpenRead), because
 	// which database it ends up using is decided there.
 	return stockSimResolved{
-		env:     stockSimSQLEnv("postgres", s.SuperUser, s.SuperPassword, h, port, readPort, failover...),
+		env:     stockSimSQLEnv("postgres", s.SuperUser, s.SuperPassword, h, port, readPort, dsnExtra, failover...),
 		secrets: stockSimSecrets{User: s.SuperUser, Password: s.SuperPassword},
 		engine:  "postgres", kind: kind, displayName: name,
-		host: h, port: port, readPort: readPort,
+		host: h, port: port, readPort: readPort, noPrepare: noPrepare,
 	}, nil
 }
 

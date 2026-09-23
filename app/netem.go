@@ -224,6 +224,11 @@ func netemPortsFor(nodeType string) []int {
 		return []int{3306, 6032, 6033}
 	case "haproxy":
 		return []int{3306, 5000, 5432}
+	// PgBouncer: the port clients arrive on and the port it forwards to. Both, because
+	// impairing only 6432 models a bad client link while the interesting failure for a
+	// pooler is a slow *backend* — server_login_retry, a pool that cannot refill.
+	case "pgbouncer":
+		return []int{5432, 6432}
 	}
 	return nil
 }

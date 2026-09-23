@@ -362,7 +362,8 @@ func (a *App) spockPrepareNode(ctx context.Context, st Stack, frame designFrame,
 			return pr.fail("%v", err)
 		}
 	}
-	confEnv := []string{"CONFDIR=" + dataDir, "DATADIR=" + dataDir}
+	confEnv := []string{"CONFDIR=" + dataDir, "DATADIR=" + dataDir,
+		"HBALINES=" + strings.Join(pgHostAuthLines(frame.PGHostAuth), "\n")}
 	if frame.GenerateCert {
 		confEnv = append(confEnv, "TLS=1")
 	}
@@ -509,7 +510,9 @@ fi
 grep -q "dbcanvas-remote" "$HBA" 2>/dev/null || {
   {
     echo "# dbcanvas-remote"
-    echo "host all all 0.0.0.0/0 scram-sha-256"
+    printf '%s\n' "$HBALINES"
+    # Mesh replication between members is the frame's own business, not the
+    # operator's choice of client authentication, so it stays on a password.
     echo "host replication all 0.0.0.0/0 scram-sha-256"
   } >> "$HBA"
 }

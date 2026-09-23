@@ -396,7 +396,7 @@ func ledgerSimLinkedEnv(n designNode, r stockSimResolved) (env []string, sec led
 		"DB_USER=" + r.secrets.User,
 		"DB_PASSWORD=" + r.secrets.Password,
 		"DB_TLS=" + ledgerSimTLS(n),
-		"DB_PARAMS=" + strings.TrimSpace(n.LSParams),
+		"DB_PARAMS=" + ledgerSimParams(n, r),
 	}
 	// A URL override still applies in linked mode: the line says which database,
 	// and the override says how to reach it — useful for pointing the driver at
@@ -405,6 +405,27 @@ func ledgerSimLinkedEnv(n designNode, r stockSimResolved) (env []string, sec led
 		env = append(env, "JDBC_URL="+url)
 	}
 	return env, ledgerSimSecrets{User: r.secrets.User, Password: r.secrets.Password}
+}
+
+// ledgerSimParams is the node's own driver parameters, plus the one the endpoint
+// forces. Behind a PgBouncer pool in transaction (or statement) mode a client does
+// not keep the same server connection between transactions, and pgjdbc's default is
+// to switch to a server-side prepared statement after the fifth execution of a
+// statement — which then fails, intermittently and only under load, because that
+// statement was prepared on a connection this transaction did not get.
+// prepareThreshold=0 keeps pgjdbc on unnamed statements, which is what a pooled
+// client should use.
+//
+// The node's own value wins: somebody who typed prepareThreshold in has a reason.
+func ledgerSimParams(n designNode, r stockSimResolved) string {
+	params := strings.TrimSpace(n.LSParams)
+	if !r.noPrepare || r.engine != "postgres" || strings.Contains(params, "prepareThreshold") {
+		return params
+	}
+	if params == "" {
+		return "prepareThreshold=0"
+	}
+	return params + "&prepareThreshold=0"
 }
 
 // provisionLedgerSim records the deployment then brings up the sim container.

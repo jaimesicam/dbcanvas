@@ -50,8 +50,11 @@ var nodeVersionScripts = map[string]string{
 	"repmgr":  "psql --version 2>/dev/null || postgres --version 2>/dev/null",
 	"spock":   "psql --version 2>/dev/null || postgres --version 2>/dev/null",
 	// The rest.
-	"proxysql":      "proxysql --version 2>/dev/null | head -1",
-	"haproxy":       "haproxy -v 2>/dev/null | head -1",
+	"proxysql": "proxysql --version 2>/dev/null | head -1",
+	"haproxy":  "haproxy -v 2>/dev/null | head -1",
+	// "PgBouncer 1.24.1" — the pooler's own version, not the PostgreSQL series it
+	// was built against, which is what the panel shows separately.
+	"pgbouncer":     "pgbouncer --version 2>/dev/null | head -1",
 	"valkey":        "valkey-server --version 2>/dev/null | head -1",
 	"valkeycluster": "valkey-server --version 2>/dev/null | head -1",
 	"openbao":       "bao version 2>/dev/null | head -1",

@@ -299,7 +299,7 @@ func aioDepWith(instances []aioInstanceRuntime) Deployment {
 // the whole contract between the two halves of the feature.
 func TestStockSimSQLEnvSplitsReadsOnlyWhenAsked(t *testing.T) {
 	for _, engine := range []string{"mysql", "postgres"} {
-		single := stockSimSQLEnv(engine, "app", "pw", "hap-01.example.net", haproxyWritePort, 0)
+		single := stockSimSQLEnv(engine, "app", "pw", "hap-01.example.net", haproxyWritePort, 0, "")
 		if len(single) != 2 {
 			t.Errorf("%s: no split should be two variables, got %v", engine, single)
 		}
@@ -309,7 +309,7 @@ func TestStockSimSQLEnvSplitsReadsOnlyWhenAsked(t *testing.T) {
 			}
 		}
 
-		split := stockSimSQLEnv(engine, "app", "pw", "hap-01.example.net", haproxyWritePort, haproxyReadPort)
+		split := stockSimSQLEnv(engine, "app", "pw", "hap-01.example.net", haproxyWritePort, haproxyReadPort, "")
 		if len(split) != 3 {
 			t.Fatalf("%s: a split target should be three variables, got %v", engine, split)
 		}
@@ -340,13 +340,13 @@ func TestStockSimSQLEnvSplitsReadsOnlyWhenAsked(t *testing.T) {
 // The engine decides the variable names, because that is what the sim reads (main.go's
 // configFromEnv). Getting this wrong is a sim that silently ignores the read endpoint.
 func TestStockSimSQLEnvUsesTheEngineVariableNames(t *testing.T) {
-	my := strings.Join(stockSimSQLEnv("mysql", "u", "p", "h", 5000, 5001), " ")
+	my := strings.Join(stockSimSQLEnv("mysql", "u", "p", "h", 5000, 5001, ""), " ")
 	for _, want := range []string{"DB_ENGINE=mysql", "MYSQL_DSN=", "MYSQL_RO_DSN="} {
 		if !strings.Contains(my, want) {
 			t.Errorf("mysql env is missing %q: %s", want, my)
 		}
 	}
-	pg := strings.Join(stockSimSQLEnv("postgres", "u", "p", "h", 5000, 5001), " ")
+	pg := strings.Join(stockSimSQLEnv("postgres", "u", "p", "h", 5000, 5001, ""), " ")
 	for _, want := range []string{"DB_ENGINE=postgres", "POSTGRES_DSN=", "POSTGRES_RO_DSN="} {
 		if !strings.Contains(pg, want) {
 			t.Errorf("postgres env is missing %q: %s", want, pg)
@@ -360,7 +360,7 @@ func TestStockSimSQLEnvUsesTheEngineVariableNames(t *testing.T) {
 // keep working, so nothing looks broken, while every write fails with SQLSTATE 25006.
 func TestStockSimPostgresDSNNamesEveryMember(t *testing.T) {
 	members := []string{"repmgr-1.example.net", "repmgr-2.example.net", "repmgr-3.example.net"}
-	env := stockSimSQLEnv("postgres", "postgres", "pw", members[0], 5432, 0, members...)
+	env := stockSimSQLEnv("postgres", "postgres", "pw", members[0], 5432, 0, "", members...)
 
 	var dsn string
 	for _, e := range env {
@@ -391,7 +391,7 @@ func TestStockSimPostgresDSNNamesEveryMember(t *testing.T) {
 
 	// A standalone target has nowhere to fail over to, and asking for read-write there would
 	// only add a round trip — or refuse a perfectly good single server.
-	single := stockSimSQLEnv("postgres", "postgres", "pw", "pg-01.example.net", 5432, 0)
+	single := stockSimSQLEnv("postgres", "postgres", "pw", "pg-01.example.net", 5432, 0, "")
 	for _, e := range single {
 		if strings.HasPrefix(e, "POSTGRES_DSN=") {
 			if strings.Contains(e, "target_session_attrs") || strings.Contains(e, ",") {
@@ -402,7 +402,7 @@ func TestStockSimPostgresDSNNamesEveryMember(t *testing.T) {
 
 	// MySQL is untouched: its DSN dialect has no equivalent, and its clustered targets front
 	// themselves with a proxy instead.
-	my := stockSimSQLEnv("mysql", "root", "pw", "ps-01.example.net", 3306, 0, members...)
+	my := stockSimSQLEnv("mysql", "root", "pw", "ps-01.example.net", 3306, 0, "", members...)
 	for _, e := range my {
 		if strings.HasPrefix(e, "MYSQL_DSN=") && strings.Contains(e, ",") {
 			t.Errorf("the MySQL DSN must not grow a host list: %s", e)

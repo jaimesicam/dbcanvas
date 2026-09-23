@@ -375,6 +375,93 @@ export const HELP = {
   orchestratorVersion:
     'Which Percona Orchestrator build to install. Leave it at the latest unless you are matching a deployment ' +
     'already in the field.',
+
+  // --- PostgreSQL client authentication (pg_hba) ---------------------------
+  pgHostAuthPw:
+    'The pg_hba rule for clients that do not present a certificate. scram-sha-256 is what every client DBCanvas ' +
+    'generates expects; md5 is the superseded scheme, useful when the upgrade is the demonstration; trust lets any ' +
+    'remote client in with no credential at all. Only one, because a plain `host` rule matches every connection — ' +
+    'SSL or not — so a second one below it could never be reached.',
+  pgHostAuthCert:
+    'Add a `hostssl all all 0.0.0.0/0 cert` rule above the password rule, so a client arriving over TLS is ' +
+    'authenticated by its certificate instead of a password. PostgreSQL takes the role name from the certificate\'s ' +
+    'CommonName, so a certificate is per role and one whose CN does not match the user in the connection string is ' +
+    'refused. It needs the node to be listening for TLS with a CA to verify against, which is what the certificate ' +
+    'tick above provides. Order is not cosmetic: pg_hba is first-match-wins and does not fall through on failure, ' +
+    'so this rule is only reachable above the password one — and a client that does present a certificate is then ' +
+    'judged by it alone.',
+
+  // --- PgBouncer -----------------------------------------------------------
+  pgbRepo:
+    'Which Percona repository (ppg-NN) percona-pgbouncer and the psql client are installed from. Left on "follow ' +
+    'the backend" it takes the series the linked PostgreSQL node or cluster runs, which is what keeps the pooler ' +
+    'and the server on one distribution release. Pin it only when the mismatch is the thing you are demonstrating.',
+  pgbPoolMode:
+    'How long PgBouncer holds a server connection for a client. Transaction pooling is the one that actually ' +
+    'multiplexes — a backend connection is borrowed for a transaction and handed back — and it is why a pooler ' +
+    'exists at all. The price is that nothing session-scoped survives between transactions: session SET, ' +
+    'LISTEN/NOTIFY and plain server-side prepared statements all stop working. Session pooling keeps all of that ' +
+    'and saves only the cost of connecting. Statement pooling refuses multi-statement transactions outright.',
+  pgbMaxClientConn:
+    'How many client connections PgBouncer will accept. This is the number that can be large — it is what lets an ' +
+    'application server farm open thousands of connections without PostgreSQL forking thousands of backends.',
+  pgbDefaultPoolSize:
+    'How many server connections PgBouncer opens per user and database. This is the number that should stay small: ' +
+    'it is the real concurrency PostgreSQL sees, and past a few times the core count more of it makes things slower, ' +
+    'not faster.',
+  pgbMinPoolSize:
+    'Server connections kept open even when idle, so the first client after a quiet period does not pay for a ' +
+    'connection handshake. Zero means the pool opens connections only on demand.',
+  pgbReservePoolSize:
+    'Extra server connections PgBouncer may open for clients that have been waiting. A small safety valve for ' +
+    'bursts; leave it at zero until you have watched clients queue.',
+  pgbMaxDbConnections:
+    'A ceiling on server connections to one database across every pool. Useful when several applications pool ' +
+    'against the same server and you need a total, not a per-pool limit. Zero means no ceiling.',
+  pgbServerIdleTimeout:
+    'How long an unused server connection is kept before PgBouncer closes it. Zero uses PgBouncer\'s own default ' +
+    'of 600 seconds.',
+  pgbIgnoreStartup:
+    'PgBouncer rejects any connection that sends a startup parameter it does not recognise, and several ordinary ' +
+    'PostgreSQL drivers send exactly that: psycopg and asyncpg send extra_float_digits, JDBC sends options, and an ' +
+    'application that puts search_path in its connection string sends the third. Listing them here is what makes ' +
+    'those drivers able to connect at all.',
+  pgbAuthType:
+    'How clients authenticate to the pool. Every PostgreSQL node DBCanvas deploys is configured for scram-sha-256, ' +
+    'so that is the matching choice; md5 is there for demonstrating the older scheme, and trust accepts any user ' +
+    'name with no password at all — a lab convenience and nothing else.',
+  pgbAuthQuery:
+    'Look the connecting role up in the backend\'s pg_shadow instead of requiring it to be listed in ' +
+    'userlist.txt. With this on, any role that exists in PostgreSQL can connect through the pool and a password ' +
+    'change needs nothing done to the pooler. With it off, only the superuser and the replication role are ' +
+    'known, and every application role has to be added to that file by hand.',
+  pgbRouting:
+    'What pools the node publishes. Every pool is the same host and port — the database name in the connection is ' +
+    'what selects one. "Writes only" is a single wildcard pool on the writable member. "Read/write split" adds a ' +
+    'named <database>_ro pool on a standby, which is read-only because PostgreSQL refuses writes in recovery. ' +
+    '"Mesh" adds one pool per member, which is what fits Spock, where every node is a writer and aiming at a ' +
+    'named one is the demonstration.',
+  pgbDatabase:
+    'The database the named pools connect to. The wildcard pool takes whatever database name a client asks for, ' +
+    'so this only decides what <database>_ro and the per-member pools are called and what they open.',
+  pgbFollowPrimary:
+    'A pooler has no health checks: it connects where its config says and keeps doing so. On a Patroni or repmgr ' +
+    'cluster that means a failover leaves the pool pointing at a server that is now in recovery, and every write ' +
+    'fails until somebody edits the config. This installs a timer that asks the cluster who can currently take ' +
+    'writes — Patroni\'s REST API, or pg_is_in_recovery() for repmgr — rewrites the pool\'s backend and reloads ' +
+    'with SIGHUP, which does not drop existing clients. On Spock there is no role to follow, so it only moves the ' +
+    'pool when the pinned member stops answering.',
+  pgbWatchInterval:
+    'How often the backend is probed. It is also the worst case for how long a failover can leave the pool aimed ' +
+    'at the old member, so it trades a little traffic against that window.',
+  pgbServerTls:
+    'How PgBouncer connects to PostgreSQL behind it. The nodes here listen for TLS only when they were deployed ' +
+    'with a certificate, so "prefer" encrypts when it can and connects either way; "require" and "verify-full" ' +
+    'will refuse a backend that has none.',
+  pgbClientTls:
+    'Terminate TLS at the pool: PgBouncer gets its own certificate signed by the Intranet CA and clients connect ' +
+    'to it over TLS. Unlike HAProxy, which passes the connection through under its own hostname, PgBouncer ends ' +
+    'the connection itself — so the certificate carries the pool\'s name and a client can genuinely verify it.',
   simTraders: 'How many trader accounts the generated dataset contains — the cardinality of the dimension most queries join against.',
   simOrders: 'How many orders to generate. This is the big table, and the one that decides whether the dataset fits in memory.',
   simTrades: 'How many executed trades to generate — the fact table the reporting queries aggregate over.',
@@ -589,6 +676,7 @@ const NODE_BLURB = {
   mariadbgalera: 'MariaDB Galera Cluster — synchronous multi-primary, MariaDB\'s equivalent of PXC.',
   proxysql: 'ProxySQL: query-aware routing, read/write splitting, connection pooling and query rules in front of MySQL.',
   haproxy: 'A TCP load balancer in front of a cluster, health-checking members so traffic only reaches the ones that are ready.',
+  pgbouncer: 'A PostgreSQL connection pooler: thousands of client connections sharing a few dozen server ones, in front of a PostgreSQL node or a Patroni, repmgr or Spock cluster.',
   psmdb: 'A sharded Percona Server for MongoDB cluster: shards, config servers and mongos routers.',
   psmrs: 'A Percona Server for MongoDB replica set — three mongod members with automatic elections.',
   psm: 'A standalone Percona Server for MongoDB.',

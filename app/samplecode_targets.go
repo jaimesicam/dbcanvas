@@ -230,6 +230,8 @@ func scProductLabel(nodeType string) string {
 		return "Valkey"
 	case "haproxy":
 		return "HAProxy"
+	case "pgbouncer":
+		return "PgBouncer"
 	case "proxysql":
 		return "ProxySQL"
 	}
@@ -418,6 +420,8 @@ func (a *App) scStackTargets(st Stack, clientOS string) []scTarget {
 		switch n.Type {
 		case "haproxy":
 			out = append(out, a.scHAProxyTargets(st, doc, n, dep, hosts, domain, running)...)
+		case "pgbouncer":
+			out = append(out, a.scPgBouncerTargets(st, doc, n, hosts, domain, running)...)
 		case "proxysql":
 			if t, ok := a.scProxySQLTarget(st, doc, n, hosts, domain, clientOS, running); ok {
 				out = append(out, t)
@@ -613,6 +617,73 @@ func (a *App) scHAProxyTargets(st Stack, doc designDoc, n designNode, dep Deploy
 	r.Label = n.Label + " · read port"
 	r.Note = "balanced across the replicas — writes will be refused"
 	return []scTarget{w, r}
+}
+
+// scPgBouncerTargets are the pools a PgBouncer node publishes. All of them are the same host and
+// the same port — what differs is the database name a client asks for, which is exactly how
+// PgBouncer routing works and is the thing a generated sample makes concrete:
+//
+//	the wildcard pool — any database name, always the member that can take writes
+//	"<db>_ro"         — a standby, on a Patroni or repmgr backend. Writes fail here, on purpose.
+//	"<db>_<member>"   — one per Spock member, because every one of them is a writer
+//
+// The credentials are the backend's own superuser, resolved the same way the provisioner resolves
+// them; the pool authenticates the client itself and then reuses its own server connections.
+func (a *App) scPgBouncerTargets(st Stack, doc designDoc, n designNode, hosts map[string]string, domain string, running func(string) (Deployment, bool)) []scTarget {
+	kind, frame, backNode, ok := pgBouncerBackend(doc, n.ID)
+	if !ok {
+		return nil
+	}
+	// One running backend deployment is what the credentials come from: a frame's first
+	// running member, or the standalone node itself.
+	var mdep Deployment
+	var srcNodeID string
+	if kind == "pg" {
+		d, up := running(backNode.ID)
+		if !up {
+			return nil
+		}
+		mdep, srcNodeID = d, backNode.ID
+	} else {
+		members := scFrameMembers(doc, frame.ID, running)
+		if len(members) == 0 {
+			return nil
+		}
+		mdep, _ = running(members[0].ID) // scFrameMembers only returns running members
+		srcNodeID = members[0].ID
+	}
+	user, pass, ok := a.scCredentials(scPostgres, mdep)
+	if !ok {
+		return nil
+	}
+	opt := pgBouncerDefaults(n, kind)
+	p := scProbe(mdep)
+	base := scTarget{
+		Engine: scPostgres, Product: "PgBouncer → " + scProductLabel(kind), Major: p.major(),
+		Host: fqdnOf(hosts[n.ID], domain), Port: pgBouncerPort, User: user, Password: pass,
+		StackID: st.ID, StackName: st.Name, NodeID: srcNodeID,
+		// Unlike HAProxy, PgBouncer *terminates* the connection, so when the node was
+		// deployed with a certificate it is the pool's own name on it and verifying is
+		// the right thing to do.
+		TLS: scDeriveTLS(scPostgres, n.GenerateCert, n.OS),
+	}
+	if !n.GenerateCert {
+		base.TLS = scTLS{Mode: scTLSOff, Why: "this PgBouncer terminates the connection and was deployed without a certificate, so it is not listening for TLS"}
+	}
+	out := []scTarget{}
+	w := base
+	w.ID, w.Kind, w.Role, w.Database = n.ID+"@pool", "pgbouncer-rw", "primary", scDemoDatabase
+	w.Label = n.Label + " · pool"
+	w.Note = "the wildcard pool — any database name, pooled onto the member that can take writes"
+	out = append(out, w)
+	if opt.PgbRouting == "rw-ro" {
+		r := base
+		r.ID, r.Kind, r.Role, r.Database = n.ID+"@pool-ro", "pgbouncer-ro", "replica", opt.PgbDatabase+"_ro"
+		r.Label = n.Label + " · read-only pool"
+		r.Note = "the " + r.Database + " pool — a standby, so writes will be refused"
+		out = append(out, r)
+	}
+	return out
 }
 
 // scProxySQLTarget is ProxySQL's client port. The read/write split happens inside it, so unlike

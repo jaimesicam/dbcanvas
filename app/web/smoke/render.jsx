@@ -39,8 +39,9 @@ import {
   frameHeaderW, layoutFrame, separateFrames, SIM_NODE_TYPES, frameVersionLabel, frameSubLabel,
   podMenuEntries, POD_SHELLS, POD_CLIENTS,
   Spinner, NodeStatus, nodeConfiguring, configPhaseOf, PITRFields,
-  FrameVaultFields,
+  FrameVaultFields, PgBouncerForm, PGHostAuthFields,
 } from '../src/pages/StackDesigner.jsx'
+import PgBouncerManager from '../src/pages/PgBouncerManager.jsx'
 import { ReplicationView } from '../src/pages/K3DManager.jsx'
 import OperatorSummary, { Verdicts as OpVerdicts, Findings as OpFindings, Workloads as OpWorkloads, Pods as OpPods, CRs as OpCRs, Operators as OpOperators, Deployment as OpDeployment, Images as OpImages, Secrets as OpSecrets, Backups as OpBackups, Certs as OpCerts, Storage as OpStorage, Logs as OpLogs, Galera as OpGalera, PodSummaries as OpPodSummaries, BackupLogs as OpBackupLogs, Extras as OpExtras } from '../src/pages/OperatorSummary.jsx'
 import { PageVisibleProvider, usePolling, usePageVisible } from '../src/lib/usePolling.jsx'
@@ -1408,6 +1409,193 @@ check('packet inspector: server error log (window mismatch)', () => {
       logFrom: 1785000000, logTo: 1785000600, windowFrom: 1785775330, windowTo: 1785775402,
       entries: [], top: [] }} />)
   if (!html.includes('none of them fall in this capture')) throw new Error('mismatch warning not shown')
+  return html
+})
+
+
+// --------------------------------------------------------------- PgBouncer
+//
+// A pool's form is almost all conditional copy: the routing summary, the failover
+// explanation and the warnings all change with the backend the line happens to reach.
+// None of that is reachable by rendering the node on its own, so each backend gets a
+// design of its own here.
+
+const pgbNode = (extra = {}) => ({
+  id: 'pgb1', type: 'pgbouncer', label: 'pgbouncer-01', os: 'oraclelinux', osVersion: '9',
+  pgbPoolMode: 'transaction', pgbAuthType: 'scram-sha-256', pgbAuthQuery: true,
+  pgbMaxClientConn: 500, pgbDefaultPoolSize: 20, pgbFollowPrimary: true, pgbWatchInterval: 5,
+  ...extra,
+})
+const pgbDesign = (backend) => {
+  if (!backend) return { nodes: [pgbNode()], frames: [], edges: [] }
+  if (backend === 'pg') {
+    return {
+      nodes: [pgbNode(), { id: 'pg1', type: 'pg', label: 'pg-01', pgMajor: '17' }],
+      frames: [],
+      edges: [{ id: 'e1', from: { node: 'pg1' }, to: { node: 'pgb1' } }],
+    }
+  }
+  return {
+    nodes: [pgbNode()],
+    frames: [{ id: 'f1', type: backend, label: `${backend}-cluster-01`, pgMajor: '17' }],
+    edges: [{ id: 'e1', from: { node: 'f1' }, to: { node: 'pgb1' } }],
+  }
+}
+const renderPgb = (design, node) => renderToString(
+  <PgBouncerForm node={node || design.nodes[0]} nodes={design.nodes} frames={design.frames}
+    edges={design.edges} patchNode={noop} deleteNode={noop} deployed={false} />)
+
+check('pgbouncer: an unlinked pool says what to draw a line from', () => {
+  const html = renderPgb(pgbDesign(null))
+  if (!html.includes('Not linked')) throw new Error('no unlinked banner')
+  for (const want of ['PostgreSQL node', 'Patroni', 'repmgr', 'Spock']) {
+    if (!html.includes(want)) throw new Error(`the banner does not mention ${want}`)
+  }
+  return html
+})
+
+check('pgbouncer: each backend gets the routing that fits it', () => {
+  const want = {
+    pg: 'Writes only',
+    patroni: 'Read/write split',
+    repmgr: 'Read/write split',
+    spock: 'Mesh',
+  }
+  let html = ''
+  for (const [backend, label] of Object.entries(want)) {
+    html = renderPgb(pgbDesign(backend))
+    if (!html.includes(label.toLowerCase()) && !html.includes(label)) {
+      throw new Error(`${backend}: the summary does not say "${label}"`)
+    }
+    if (!html.includes(`${backend === 'pg' ? 'pg-01' : backend + '-cluster-01'}`)) {
+      throw new Error(`${backend}: the banner does not name the backend`)
+    }
+  }
+  return html
+})
+
+check('pgbouncer: the failover explanation is the one that topology answers', () => {
+  if (!renderPgb(pgbDesign('patroni')).includes('Patroni REST API')) {
+    throw new Error('Patroni should be explained by its REST API')
+  }
+  const rep = renderPgb(pgbDesign('repmgr'))
+  if (!rep.includes('pg_is_in_recovery')) throw new Error('repmgr should be explained by pg_is_in_recovery()')
+  const sp = renderPgb(pgbDesign('spock'))
+  if (!sp.includes('no role to follow')) throw new Error('Spock has no role to follow, and should say so')
+  const pg = renderPgb(pgbDesign('pg'))
+  if (!pg.includes('no role that can move')) throw new Error('a standalone backend has nothing to follow')
+  return rep
+})
+
+check('pgbouncer: a read-only pool on a multi-master cluster is called out', () => {
+  const d = pgbDesign('spock')
+  const html = renderPgb(d, { ...d.nodes[0], pgbRouting: 'rw-ro' })
+  if (!html.includes('not read-only')) throw new Error('no warning for rw-ro on Spock')
+  return html
+})
+
+check('pgbouncer: the form does the pooling arithmetic rather than leaving it to the reader', () => {
+  const d = pgbDesign('patroni')
+  const html = renderPgb(d, { ...d.nodes[0], pgbMaxClientConn: 400, pgbDefaultPoolSize: 20 })
+  if (!html.includes('20:1')) throw new Error('400 clients on 20 servers should read as 20:1')
+  return html
+})
+
+check('pgbouncer: trust authentication says what it costs, and disables auth_query', () => {
+  const d = pgbDesign('pg')
+  const html = renderPgb(d, { ...d.nodes[0], pgbAuthType: 'trust' })
+  if (!html.includes('without a password')) throw new Error('trust should carry its warning')
+  return html
+})
+
+check('pgbouncer manager: every tab renders from a deployed config', () => {
+  const dep = {
+    state: 'running',
+    containerId: 'abcdef012345',
+    config: {
+      fqdn: 'pgbouncer-01.example.net', image: 'dbcanvas-systemd:oraclelinux-9-amd64',
+      backend: 'patroni', cluster: 'patroni-cluster-01', pgMajor: '17',
+      members: ['patroni-1.example.net', 'patroni-2.example.net'],
+      poolMode: 'transaction', authType: 'scram-sha-256', authQuery: true,
+      maxClientConn: 500, defaultPoolSize: 20, minPoolSize: 0, reservePoolSize: 0,
+      ignoreStartupParameters: 'extra_float_digits,options,search_path',
+      serverTlsMode: 'prefer', routing: 'rw-ro', database: 'postgres',
+      readAlias: 'postgres_ro', followRole: true, watchSeconds: 5, exportPort: 34567,
+    },
+  }
+  let html = ''
+  for (const tab of ['overview', 'access', 'pooling']) {
+    html = renderToString(<PgBouncerManager dep={dep} onDeleteNode={noop} />)
+    if (!html.includes('PgBouncer')) throw new Error(`${tab}: the panel is empty`)
+  }
+  if (!html.includes('patroni-cluster-01')) throw new Error('the panel does not name the backend')
+  return html
+})
+
+check('pgbouncer manager: a pool with no published port says how to reach it anyway', () => {
+  const dep = { state: 'running', config: { fqdn: 'pgbouncer-01.example.net', backend: 'pg', exportPort: 0 } }
+  const html = renderToString(<PgBouncerManager dep={dep} onDeleteNode={noop} />)
+  if (!html.includes('PgBouncer')) throw new Error('the panel is empty')
+  return html
+})
+
+
+check('pgbouncer: cert auth is only offered once the node has a certificate', () => {
+  const d = pgbDesign('patroni')
+  const off = renderPgb(d, { ...d.nodes[0], generateCert: false })
+  if (!off.includes('tick “Generate certificate” first')) {
+    throw new Error('the cert option should say what it needs')
+  }
+  // Selected without one, the form says so rather than letting the deploy fail with
+  // "auth_type=cert requires client_tls_sslmode=SSLMODE_VERIFY_FULL".
+  const bad = renderPgb(d, { ...d.nodes[0], pgbAuthType: 'cert', generateCert: false })
+  if (!bad.includes('Certificate authentication needs a certificate')) {
+    throw new Error('no warning for cert without a certificate')
+  }
+  return bad
+})
+
+check('pgbouncer: cert auth spells out the two things it breaks', () => {
+  const d = pgbDesign('patroni')
+  const html = renderPgb(d, { ...d.nodes[0], pgbAuthType: 'cert', generateCert: true })
+  if (!html.includes('unix socket')) throw new Error('the admin-console caveat is missing')
+  if (!html.includes('simulator cannot be driven')) throw new Error('the simulator caveat is missing')
+  // auth_query is meaningless here and the copy has to say why, not just grey out.
+  if (!html.includes('SCRAM verifier')) throw new Error('auth_query under cert auth is unexplained')
+  return html
+})
+
+check('pgbouncer: a simulator on a cert-auth pool is called out by name', () => {
+  const d = pgbDesign('patroni')
+  d.nodes.push({ id: 'sim1', type: 'carsim', label: 'carsim-01' })
+  d.edges.push({ id: 'e2', from: { node: 'pgb1' }, to: { node: 'sim1' } })
+  const html = renderPgb(d, { ...d.nodes[0], pgbAuthType: 'cert', generateCert: true })
+  if (!html.includes('carsim-01')) throw new Error('the simulator is not named')
+  return html
+})
+
+// --------------------------------------------------- pg_hba on the server side
+
+check('pg_hba: the control shows the rules it will write, in order', () => {
+  const one = renderToString(<PGHostAuthFields obj={{ id: 'n1' }} patch={noop} deployed={false} tls={false} />)
+  if (!one.includes('host    all all 0.0.0.0/0 scram-sha-256')) throw new Error('no default rule shown')
+  if (one.includes('hostssl')) throw new Error('an unconfigured node should have no hostssl rule')
+
+  // Both methods, and cert first — which is the only order in which it is reachable.
+  const both = renderToString(
+    <PGHostAuthFields obj={{ id: 'n1', pgHostAuth: 'cert,scram-sha-256' }} patch={noop} deployed={false} tls={true} />)
+  const certAt = both.indexOf('hostssl all all 0.0.0.0/0 cert')
+  const pwAt = both.indexOf('host    all all 0.0.0.0/0 scram-sha-256')
+  if (certAt < 0 || pwAt < 0) throw new Error('both rules should be previewed')
+  if (certAt > pwAt) throw new Error('the cert rule must be shown above the password rule')
+  return both
+})
+
+check('pg_hba: certificates cannot be ticked without a certificate to verify against', () => {
+  const html = renderToString(<PGHostAuthFields obj={{ id: 'n1' }} patch={noop} deployed={false} tls={false} />)
+  if (!html.includes('Tick “Generate certificate from Intranet CA” first')) {
+    throw new Error('the control should say what it needs')
+  }
   return html
 })
 

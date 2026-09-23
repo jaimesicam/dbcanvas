@@ -515,6 +515,13 @@ var composeKinds = []composeKind{
 		// Exactly one: haproxyClusterFrames treats two as ambiguous, not as two pools.
 		EdgeTo: []string{"patroni", "repmgr", "spock", "pxc", "ps-repl"},
 		About:  "HAProxy, in front of one Patroni, repmgr, Spock, PXC or PS replication cluster."},
+	{Kind: "pgbouncer", Type: "pgbouncer", CanShape: true, CanExport: true, CanCert: true,
+		Scalars: []string{"mode"},
+		// The PostgreSQL half of the proxy pair. HAProxy balances TCP across members;
+		// this one terminates the PostgreSQL protocol and pools server connections,
+		// which is the different problem.
+		EdgeTo: []string{"pg", "patroni", "repmgr", "spock"},
+		About:  "PgBouncer (percona-pgbouncer), pooling for one PostgreSQL node or one Patroni, repmgr or Spock cluster. mode= is the pool mode: transaction (default), session or statement. cert=true terminates TLS at the pool."},
 	{Kind: "seaweedfs", Type: "seaweedfs", NoSizing: true, Scalars: []string{"buckets", "tls"}, ImageOnly: true, CanCert: true,
 		About: "SeaweedFS S3, as a backup target."},
 	{Kind: "keycloak", Type: "keycloak", NoSizing: true, Singleton: true, ImageOnly: true, About: "Keycloak, as an OIDC identity provider."},
@@ -652,8 +659,8 @@ var composeKinds = []composeKind{
 		EdgeTo: []string{"ps", "ps-repl", "pxc", "proxysql", "haproxy"},
 		About:  "Airline Sim — a reservation workload on MySQL."},
 	{Kind: "carsim", Type: "carsim", NoSizing: true, ImageOnly: true,
-		EdgeTo: []string{"pg", "patroni", "repmgr", "spock", "haproxy"},
-		About:  "Car Rental Sim — a rental workload on PostgreSQL."},
+		EdgeTo: []string{"pg", "patroni", "repmgr", "spock", "haproxy", "pgbouncer"},
+		About:  "Car Rental Sim — a rental workload on PostgreSQL, directly or through an HAProxy or PgBouncer node."},
 	{Kind: "marketchaos", Type: "marketchaos", NoSizing: true, Scalars: []string{"dataset"}, ImageOnly: true,
 		EdgeTo: []string{"ps", "pxc", "ps-repl", "haproxy"},
 		About:  "MarketChaos — a trading workload on MySQL. dataset= picks the size."},

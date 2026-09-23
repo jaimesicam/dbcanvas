@@ -91,8 +91,8 @@ the DBCanvas source, so they need a checkout and `make <name>-image`.
   namespace of your choosing.
 - **Core** — an **Intranet** node (OpenLDAP, bind DNS, an internal CA, a Squid proxy, and
   Roundcube/Dovecot webmail). One per stack, and the one node that goes on first.
-- **Proxies & HA** — **ProxySQL** (standalone or a cluster), **HAProxy**, and
-  **Orchestrator** (MySQL topology discovery, failure detection and failover).
+- **Proxies & HA** — **ProxySQL** (standalone or a cluster), **HAProxy**, **PgBouncer**
+  (below), and **Orchestrator** (MySQL topology discovery, failure detection and failover).
 - **Monitoring** — **PMM** and **Watchtower**, which rolls a PMM server onto a newer image
   so an upgrade can be demonstrated.
 - **Identity & Secrets** — a **Samba AD DC** (Active Directory, LDAP, Kerberos),
@@ -983,6 +983,96 @@ that a k3s node does not have. The container image is built by `make k8scollecto
 is **linux/amd64 only**: Percona's apt repo publishes `percona-toolkit`, the package carrying
 the collector, for that architecture alone. Each finished capture is kept on disk with a
 timestamp, so a cluster has a history to compare across rather than only its latest.
+
+### PgBouncer — connection pooling for the PostgreSQL family
+
+A **PgBouncer** node runs Percona's `percona-pgbouncer` (out of the same `ppg-NN` repository
+the rest of the PostgreSQL family installs from) in front of **exactly one** PostgreSQL
+backend drawn on the canvas: a standalone **PostgreSQL** node, or a **Patroni**, **repmgr**
+or **Spock** cluster frame. Draw an association line from the backend to the pool — the same
+mutual-exclusivity rule HAProxy has, and Validate refuses a node with none or with two.
+
+It is not a second HAProxy. HAProxy balances TCP and then gets out of the way, so a thousand
+clients are a thousand PostgreSQL backend processes; PgBouncer terminates the PostgreSQL
+protocol, so those thousand clients share a few dozen server connections. Both nodes exist
+because both problems do.
+
+**Pool** — `pool_mode` (transaction, session or statement, each with what it costs written
+next to it), `max_client_conn`, `default_pool_size`, `min_pool_size`, `reserve_pool_size`,
+`max_db_connections`, `server_idle_timeout`, and `ignore_startup_parameters` — whose default
+(`extra_float_digits,options,search_path`) is three real driver failures, since PgBouncer
+rejects any startup parameter it was not told to ignore.
+
+**Authentication** — `auth_type` (`scram-sha-256`, matching what every PostgreSQL node here
+is deployed with; `md5`; `cert`; or `trust`), and **auth_query**, which looks the connecting
+role up in the backend's `pg_shadow` instead of requiring it in `userlist.txt`. With
+auth_query on, any role that exists in PostgreSQL can connect and a password change needs
+nothing done to the pooler.
+
+**`cert`** authenticates clients by certificate instead of password, and is only selectable
+once the node has one — PgBouncer refuses to start otherwise (*auth_type=cert requires
+client_tls_sslmode=SSLMODE_VERIFY_FULL*), so ticking **Generate certificate from Intranet CA**
+is a prerequisite rather than a suggestion. A client certificate for the superuser is minted
+at deploy into `/etc/pgbouncer/client/`; PostgreSQL and PgBouncer both take the role name
+from its `CN`, so a certificate is per role and one whose CN does not match the user in the
+connection string is refused. Three consequences the node's form spells out before you pick
+it: the admin console over the unix socket stops working (no TLS there, so no certificate to
+present), an **application simulator cannot be driven through the pool** at all — it has no
+way to present one, and is refused at the TLS handshake — and `auth_query` does nothing,
+because `pg_shadow` returns a SCRAM *verifier* and a verifier cannot be used to authenticate
+to the server. Only roles with a plain-text secret in `userlist.txt` complete both legs.
+
+**Backend topology** — the options that are aware of what is behind the pool:
+
+| Option | What it does |
+| --- | --- |
+| **Routing** | The pools published. `rw` is a single wildcard pool on the writable member. `rw-ro` adds a named `<database>_ro` pool on a standby (Patroni, repmgr). `mesh` adds one pool per member (Spock, where every node is a writer). Blank follows the linked backend. |
+| **Pooled database** | What the named pools open. The wildcard pool takes any database name. |
+| **Follow the writable member** | A pooler has no health checks. This installs a timer that asks the cluster who can currently take writes — Patroni's REST API (`:8008 /primary`), or `pg_is_in_recovery()` over psql for repmgr — rewrites the backend list and reloads with `SIGHUP`, which does not drop existing clients. On Spock there is no role to follow, so the pool stays pinned to one member and moves only when it stops answering. Ignored on a standalone backend. |
+| **Probe interval** | How long a failover can leave the pool aimed at the old member. |
+| **server_tls_sslmode** | How the pool connects to PostgreSQL behind it. |
+
+Plus the usual node options: OS, the `ppg-NN` repository (blank = follow the backend, which
+keeps the pooler and the server on one distribution release), the Intranet Squid proxy,
+network conditions, VM sizing, an Intranet-CA certificate (PgBouncer *terminates* the
+connection, so the certificate carries the pool's own name and a client can genuinely verify
+it — unlike HAProxy, which passes through under its own hostname), and exporting **6432** to
+the host.
+
+Every pool is that one port: what selects a pool is the **database name** in the connection,
+not a second port. The node's panel spells the connection strings out, and its **Pooling** tab
+has the admin-console commands (`SHOW POOLS`, `SHOW SERVERS`) that show the pool doing its
+job. A running PgBouncer also appears in **Database Explorer** (the wildcard pool) and in
+**Sample Code** (every pool it publishes).
+
+From the CLI, `dbcanvas compose` builds one with `kind=pgbouncer` (`to=` names the backend,
+`mode=` is the pool mode).
+
+### Client authentication on a PostgreSQL node or cluster (pg_hba)
+
+Every PostgreSQL node and every Patroni, repmgr or Spock frame has a **Client authentication**
+control: the password method for clients that present no certificate (`scram-sha-256` by
+default, `md5`, `trust`, or none at all), and a tick to **also accept client certificates**,
+which adds a `hostssl` rule above it. One server, two live methods — a client arriving over
+TLS with a certificate authenticated by it, one arriving without falling through to the
+password rule:
+
+```
+hostssl all all 0.0.0.0/0 cert
+host    all all 0.0.0.0/0 scram-sha-256
+```
+
+The form previews the exact rules, in order, because the order is the whole subtlety.
+`pg_hba` is first-match-wins and does **not** fall through on failure: a plain `host` rule
+matches every connection, SSL or not, so anything below it is dead config, and the certificate
+rule is only reachable above the password one. The flip side is that with `cert` first,
+*every* client that speaks TLS to that server must present a certificate — including a
+connection pooler, which is why a PgBouncer node in front of such a backend is given a client
+certificate of its own for the server leg, and why Validate refuses a pool that has none.
+Certificates need the node to be listening for TLS, so the tick is disabled until its own
+certificate is enabled.
+
+
 
 ## Templates — save a topology, deploy it again
 

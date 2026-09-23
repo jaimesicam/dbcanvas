@@ -878,7 +878,13 @@ func patroniYAML(frame designFrame, host, fqdn string, etcdEndpoints []string, s
 	fmt.Fprintf(&b, "  pg_hba:\n")
 	fmt.Fprintf(&b, "  - local all all trust\n")
 	fmt.Fprintf(&b, "  - host all all 127.0.0.1/32 trust\n")
-	fmt.Fprintf(&b, "  - host all all 0.0.0.0/0 scram-sha-256\n")
+	// The operator's chosen client methods, in order. Patroni writes these into
+	// pg_hba.conf on every member, so one list covers the cluster.
+	for _, line := range pgHostAuthLines(frame.PGHostAuth) {
+		fmt.Fprintf(&b, "  - %s\n", line)
+	}
+	// Patroni clones and streams as the replication user whatever clients do, so
+	// this rule is the frame's own and not the operator's to choose.
 	fmt.Fprintf(&b, "  - host replication %s 0.0.0.0/0 scram-sha-256\n\n", sec.ReplUser)
 
 	fmt.Fprintf(&b, "postgresql:\n")

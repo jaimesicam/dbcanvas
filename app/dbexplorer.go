@@ -142,6 +142,7 @@ const (
 	dexShapeNode     = "n"   // a database node, exactly as deployed
 	dexShapeAIO      = "aio" // one instance inside an All-in-One node
 	dexShapeHAProxy  = "hap" // an HAProxy port in front of a cluster
+	dexShapePgBounce = "pgb" // a PgBouncer pool in front of a PostgreSQL backend
 	dexShapeProxySQL = "psq" // a ProxySQL client port
 	dexShapeRouter   = "rtr" // a MySQL Router port on a Group Replication member
 	dexShapeReplSet  = "rs"  // a MongoDB replica set as a whole
@@ -159,7 +160,8 @@ type dexRef struct {
 	// HAProxy node, the frame of a replica set, the PMM node.
 	Target string
 	// Extra qualifies the shape — an All-in-One instance name, "write"/"read" for
-	// an HAProxy port, "rw"/"ro" for a router port.
+	// an HAProxy port, "rw"/"ro" for a router port, "pool"/"pool-ro" for a
+	// PgBouncer pool.
 	Extra string
 }
 
@@ -185,7 +187,7 @@ func dexParseID(id string) (dexRef, error) {
 		return dexRef{}, fmt.Errorf("malformed connection id")
 	}
 	switch parts[1] {
-	case dexShapeNode, dexShapeAIO, dexShapeHAProxy, dexShapeProxySQL,
+	case dexShapeNode, dexShapeAIO, dexShapeHAProxy, dexShapePgBounce, dexShapeProxySQL,
 		dexShapeRouter, dexShapeReplSet, dexShapeVKC, dexShapePMMPG, dexShapePMMCH,
 		dexShapeK8s:
 	default:

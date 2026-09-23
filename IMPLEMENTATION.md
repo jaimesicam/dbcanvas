@@ -25813,3 +25813,236 @@ do not.
 smoke:browser` pass, with the two pre-existing failures this tree already had
 (`TestAIOTLSWiringIsIdempotent`, which uses GNU `sed` syntax on a BSD `sed`, and the
 `K8sLogicalReplicas.jsx` polling check).
+
+---
+
+## 414. PgBouncer — connection pooling for the PostgreSQL family — `app/pgbouncer.go` (new), `app/{intranet,compose,composebuild,engine,netem,nodeversion,dbexplorer,dbexplorer_discover,samplecode_targets,carsim,stocksim,ledgersim,pktpgha}.go`, `StackDesigner`, `PgBouncerManager` (new), `docs/STACKS.md`
+
+The canvas had one thing to put in front of a PostgreSQL cluster, and it solved the other problem.
+HAProxy balances TCP: it hands a client a connection to a member and gets out of the way, so a
+thousand clients are a thousand PostgreSQL backend *processes*. PostgreSQL forks one per
+connection, and that — not load balancing — is what people actually put a proxy in front of
+PostgreSQL to fix. So there is now a **PgBouncer** node, running Percona's `percona-pgbouncer` out
+of the same `ppg-NN` repository every other PostgreSQL node here installs from, and the two
+proxies sit next to each other in the palette because they answer different questions.
+
+It pools for exactly one backend, drawn as an association line, and the four it accepts are the
+four PostgreSQL shapes the canvas has: a standalone **`pg`** node, or a **`patroni`**, **`repmgr`**
+or **`spock`** cluster frame. Same mutual-exclusivity rule HAProxy has, enforced the same way — a
+single incoming edge on the canvas, and `pgBouncerBackends` refusing zero or two at Validate.
+
+### A pooler has no health checks, and that is the whole problem
+
+This is the difference that decides the design. HAProxy re-asks who is primary on every check, so a
+failover is invisible to it. PgBouncer connects where its config says and keeps doing so: on a
+Patroni cluster, a failover leaves the pool aimed at a server that is now in recovery, and every
+write fails with `25006` until somebody edits `pgbouncer.ini`. A pool that cannot survive a
+failover is not something to put in front of an HA cluster.
+
+So `[databases]` is not in `pgbouncer.ini` at all. It is `%include`d from `databases.ini`, and
+`dbcanvas-pgbouncer-watch` — a oneshot unit on a timer, default every 5s — rewrites *that* file and
+`SIGHUP`s the pooler, which rereads its config without dropping a single client connection. How it
+asks who can take writes is per topology, and each question is the one that topology answers:
+
+| Backend | The question | Why that one |
+| --- | --- | --- |
+| `patroni` | `GET :8008/primary` | The same REST endpoint the HAProxy node health-checks. Authoritative in a way SQL is not: a leader that has lost its DCS lease stops answering `/primary` before PostgreSQL itself notices. |
+| `repmgr` | `pg_is_in_recovery()` over psql | repmgr has no REST API — this is what `repmgrCheckServiceScript` asks on the member itself. |
+| `spock` | *(none)* | Every member is a writer. There is no role, so the pool is pinned to one member and moves only when it stops answering. |
+| `pg` | *(none)* | One server. The watcher is not installed at all, rather than running a timer that can only ever find the same answer. |
+
+It never writes an empty backend list. With no member answering, the last known-good
+`databases.ini` is left exactly as it is: a pool pointing at a server that is down recovers by
+itself when the server comes back, while a pool pointing at nothing needs a human.
+
+The provisioner runs the watcher **once, synchronously**, before starting PgBouncer. That is what
+makes the pool point at the current leader from its first second rather than at whichever member
+happened to be first in the design.
+
+### The read/write split is a database name, not a second port
+
+HAProxy publishes two ports and the port means the role. PgBouncer publishes one — 6432 — and what
+selects a pool is the **database name** in the connection string. `PgbRouting` is therefore the
+option that has to know what is behind it:
+
+- **`rw`** — a wildcard pool on the writable member. Any database name at all lands there.
+- **`rw-ro`** — that, plus a named `<database>_ro` pool on a standby. It is read-only because
+  PostgreSQL refuses writes in recovery, not because PgBouncer checks, which is exactly the failure
+  an application should hit in a lab. The default for Patroni and repmgr.
+- **`mesh`** — that, plus one pool per member. The default for Spock, where every node is a writer
+  and aiming at a *named* one is the demonstration.
+
+Blank follows the linked backend, and `pgBouncerDefaults` is the single place that resolves it —
+called by the provisioner, the validator and the design-time summary alike, so "what this pool will
+actually do" has one answer and the form never has to repeat it.
+
+That asymmetry also decided what the **Database Explorer** offers, which is the wildcard pool and
+nothing else. The Explorer is a tree you click through, and clicking a database in it opens a new
+connection *to that database by name* (`dexPGNet` holds one pool per database). A named PgBouncer
+pool accepts exactly one name, so every other node in that tree would fail to open. Sample Code has
+no such constraint — a connection string is literal — so it offers all of them.
+
+### Every simulator that speaks PostgreSQL, and the one thing they all had to be told
+
+Car Rental Sim, Stock Market Sim and Ledger Sim can all drive a database through a pool, which is
+where a pooler stops being a diagram and starts producing `SHOW POOLS` output worth looking at
+(the Car Rental Sim workload settles at roughly 11 clients on 9 server connections). They share
+`pgBouncerSimEndpoint` rather than each growing a branch, the way they already share
+`waitStockSimTarget`.
+
+They also share a trap. Both Go sims are **pgx** programs, and pgx's default execution mode
+prepares every statement on the server under a generated name and caches it per connection. Under
+transaction pooling that connection is a *different* server connection on the next transaction, so
+the name is not there and the query fails with `prepared statement "stmtcache_1" does not exist` —
+intermittently, under load, which is the worst way to find out. Ledger Sim is pgjdbc, which has the
+same problem five executions later (`prepareThreshold=5`).
+
+So the resolver returns the *fact* — `noPrepare`, meaning this endpoint does not keep a client on
+one server connection between transactions — and each client acts on it in its own dialect:
+`default_query_exec_mode=simple_protocol` for pgx, `prepareThreshold=0` for pgjdbc. A string would
+have forced one dialect on both. Session pooling sets neither, because there a server connection
+*is* held for the session and prepared statements survive.
+
+### The rest of the design options, and why they are not just PgBouncer's manual
+
+`pool_mode`, `max_client_conn`, `default_pool_size`, `min_pool_size`, `reserve_pool_size`,
+`max_db_connections`, `server_idle_timeout`, `auth_type`, `server_tls_sslmode` are PgBouncer's own
+and are exposed as themselves. Two are worth the words they carry in the form:
+
+- **`ignore_startup_parameters`** defaults to `extra_float_digits,options,search_path`. PgBouncer
+  rejects any startup parameter it was not told to ignore, and all three of those are real driver
+  failures — psycopg and asyncpg send the first, JDBC sends the second, and an application with
+  `search_path` in its connection string sends the third. The same three had to be added for the
+  Kubernetes PgBouncer in §297.
+- **`auth_query`**, on by default, looks the connecting role up in the backend's `pg_shadow`
+  instead of requiring it in `userlist.txt`. Without it, every application role has to be copied
+  into that file by hand and re-copied whenever a password changes. `userlist.txt` then holds only
+  the superuser and the replication role — the superuser's own entry being what breaks the
+  chicken-and-egg, since `auth_user` has to authenticate somehow.
+
+TLS is the one place the node differs from HAProxy in the *client's* favour. HAProxy passes the
+connection through under its own hostname, so the backend's certificate cannot be verified against
+it and `scHAProxyTargets` says so. PgBouncer terminates the connection, so the Intranet-CA
+certificate carries the pool's own name and `verify-full` is honest.
+
+### Verified against a running stack
+
+A four-backend stack — a standalone PostgreSQL node, a Patroni cluster, a repmgr cluster and a
+Spock cluster, each with its own pool — with Car Rental Sim on the Patroni pool and Stock Market
+Sim on the standalone one. PgBouncer 1.25.2 from `ppg-16`. A write through the wildcard pool
+reached the leader; `postgres_ro` reached a standby (`pg_is_in_recovery() = t`) and refused an
+`INSERT` with *cannot execute INSERT in a read-only transaction*; `patronictl switchover` moved the
+wildcard pool from `patroni-1` to `patroni-2` and the read-only pool the other way, inside one
+probe interval, with the simulator's 10k transactions continuing across it and zero
+prepared-statement errors.
+
+---
+
+## 415. Certificate authentication, at the pool and at the server it pools for — `app/{pgbouncer,pg,patroni,repmgr,spock,intranet}.go`, `StackDesigner`, `PgBouncerManager`, `docs/STACKS.md`
+
+Two changes that turned out to be one. §414's PgBouncer node offered `scram-sha-256`, `md5`
+and `trust`; it now also offers **`cert`**, and every PostgreSQL node and cluster frame gained
+a **client authentication list** so the server can accept more than one method at once. They
+are in the same entry because the first does not work without the second having been thought
+about, which is not obvious until you watch it fail.
+
+### `auth_type = cert` is not a preference, it is a prerequisite
+
+PgBouncer settles the design itself:
+
+```
+ERROR auth_type=cert requires client_tls_sslmode=SSLMODE_VERIFY_FULL
+FATAL TLS setup failed
+```
+
+So `cert` is selectable only once the node has a certificate, and the form says so on the
+option rather than letting a deploy discover it. With one, `pgBouncerINI` forces
+`client_tls_sslmode = verify-full` — the pool's own certificate is what a client verifies, and
+the Intranet CA is what the client's certificate is verified against.
+
+A client certificate is useless if there is none to hand out, so the provisioner mints one for
+the superuser into `/etc/pgbouncer/client/`. Its `CN` is the role name, because that is where
+PgBouncer reads the user name from; a certificate whose CN does not match the user in the
+connection string is refused (*FATAL: certificate authentication failed*), which is the
+property worth having and worth testing.
+
+Three things stop working under it, and all three are in the form before the choice is made
+rather than in a log afterwards:
+
+- **The admin console over the unix socket.** There is no TLS on a unix socket, so no
+  certificate — `psql -p 6432 -U postgres pgbouncer` answers *certificate authentication
+  failed*. The panel switches to the TLS form of the command.
+- **Application simulators.** Each builds its own connection string at deploy and has no way
+  to present a certificate; it is refused at the handshake with *tlsv13 alert certificate
+  required*. A simulator linked to a cert-auth pool is therefore an error at Validate, naming
+  the simulator, not a node that deploys and then cannot connect.
+- **`auth_query`.** It returns a SCRAM *verifier* from `pg_shadow`, and a verifier cannot be
+  used to authenticate as a client. With no client password to pass through, a role found that
+  way would be let in at the pool and fail behind it — so it is not emitted at all, and only
+  roles with a plain-text secret in `userlist.txt` complete both legs.
+
+### The failure that made this one entry
+
+With cert auth on the pool and `hostssl … cert` on the server, the pool's own connection broke:
+
+```
+login attempt: db=postgres user=postgres tls=TLSv1.3   ← the client leg was fine
+new connection to server … SSL established: TLSv1.3
+WARNING server login failed: FATAL connection requires a valid client certificate
+```
+
+The client authenticated perfectly. What failed was the **server** leg, and for a reason that
+has nothing to do with how the client authenticated: PgBouncer connects to PostgreSQL over TLS
+whenever the server offers it, so it matches the backend's *first* rule — `hostssl all all
+0.0.0.0/0 cert` — and is asked for a certificate it did not have. The message reads like a
+client problem and is not one.
+
+The fix is that the pool presents a client certificate on the server leg too
+(`server_tls_cert_file`/`key_file`/`ca_file`, pointing at the same minted certificate, whose
+CN is the role it connects as). It is minted whenever the node has a certificate at all, not
+only under cert auth, because the leg that needs it is decided by the *backend's* pg_hba and
+not by the pool's own auth type. `pgHostAuthRequiresClientCert` is the question asked, and a
+pool with nothing to present in front of such a backend is a Validate error naming both the
+fix and the escape hatch (`server_tls_sslmode = disable`, which connects in plaintext and
+falls through to the password rule).
+
+This is also why the pool does **not** write into the backend's pg_hba. The backend's
+authentication is the backend's to configure; the pool's job is to be able to satisfy it.
+
+### One server, more than one method
+
+`PGHostAuth` is an ordered comma-separated pg_hba method list on the standalone PostgreSQL
+node and on all three PostgreSQL cluster frames — `""` means `scram-sha-256`, so every design
+that predates the field is unchanged. `pgHostAuthLines` renders it once and all four
+provisioners use it, replacing the `host all all 0.0.0.0/0 scram-sha-256` that had been
+written out four times.
+
+`cert` is rendered as **hostssl**, which is load-bearing rather than tidy: the method needs a
+client certificate, so a rule that also matched plaintext connections could only ever refuse
+them. Every other method is `host`, matching both — which is exactly why one below a hostssl
+rule still catches the clients that did not present a certificate:
+
+```
+hostssl all all 0.0.0.0/0 cert
+host    all all 0.0.0.0/0 scram-sha-256
+```
+
+Order is the whole subtlety and the reason the form previews the rules instead of describing
+them. `pg_hba` is first-match-wins and does **not** fall through on failure: the first rule
+whose connection type, database, user and address match is the only one that decides, and a
+failure there is final. So a plain `host` rule above the cert rule makes it dead config —
+`pgHostAuthIssues` names the rules that can never be reached rather than calling the list
+invalid — and putting `cert` first means every TLS client must present one, which it warns
+about in as many words. The UI offers one password method and an optional certificate rule
+above it, because those are the combinations that are actually reachable; the Go side parses
+whatever a hand-edited design or the CLI puts there and reports the rest.
+
+### Verified
+
+A PostgreSQL 16 node with `cert,scram-sha-256` and a PgBouncer 1.25.2 pool with
+`auth_type=cert` in front of it. Through the pool: a `CN=postgres` certificate and **no
+password in the connection string** returned `current_user = postgres` with the server leg on
+TLS; a client with no certificate was refused at the handshake. Direct to PostgreSQL: TLS plus
+a certificate and no password authenticated against the `hostssl` rule, and plaintext plus a
+password authenticated against the `host` rule — both rules live on one server at the same
+time, which is the point of the list.

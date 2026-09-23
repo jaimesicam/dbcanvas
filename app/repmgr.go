@@ -676,6 +676,7 @@ func (a *App) repmgrSetupPrimary(ctx context.Context, st Stack, frame designFram
 	if frame.GenerateCert {
 		confEnv = append(confEnv, "TLS=1")
 	}
+	confEnv = append(confEnv, "HBALINES="+strings.Join(pgHostAuthLines(frame.PGHostAuth), "\n"))
 	if err := a.runStep(ctx, id, repmgrConfigurePrimaryScript, confEnv, pr.logln); err != nil {
 		return pr.fail("configure primary: %v", err)
 	}
@@ -1085,7 +1086,9 @@ grep -q "dbcanvas-repmgr" "$HBA" 2>/dev/null || {
     echo "host replication $REPLUSER ::/0 scram-sha-256"
     echo "local repmgr $REPLUSER trust"
     echo "host repmgr $REPLUSER 0.0.0.0/0 scram-sha-256"
-    echo "host all all 0.0.0.0/0 scram-sha-256"
+    # repmgr's own replication and metadata connections keep their password rules
+    # above; only the client rule is the operator's to choose.
+    printf '%s\n' "$HBALINES"
   } >> "$HBA"
 }
 chown -R postgres:postgres "$CONFDIR" 2>/dev/null || true`

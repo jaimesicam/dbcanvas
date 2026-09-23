@@ -492,6 +492,17 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 			n.OS, n.OSVersion, n.Arch = "", "", ""
 		}
 		switch kind.Kind {
+		case "pgbouncer":
+			// "mode" is the pool mode here, not ProxySQL's routing mode, so it lands
+			// on the field the PgBouncer provisioner reads rather than on the shared
+			// Mode field a ProxySQL node would be looked up in.
+			n.PgbPoolMode, n.Mode = s.Mode, ""
+			// A pool that cannot follow a failover is not a pool anybody wants in
+			// front of Patroni or repmgr, and the watcher is a no-op on a standalone
+			// backend — so it is on by default here and turned off in the designer,
+			// not the other way round.
+			n.PgbFollowPrimary = true
+			n.PgbAuthQuery = true
 		case "intranet":
 			// Always the first thing on the canvas, where the eye starts.
 			b.pos[n.ID] = [2]float64{composeColX, composeColX}

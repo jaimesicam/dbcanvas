@@ -161,8 +161,52 @@ type designNode struct {
 	PGVersion       string `json:"pgVersion"`       // minor; "" → latest
 	UsePgBackRest   bool   `json:"usePgBackRest"`   // configure pgBackRest → SeaweedFS S3 backup
 	SeaweedFSNodeID string `json:"seaweedfsNodeId"` // SeaweedFS node id backing pgBackRest
+	// PGHostAuth is how remote clients authenticate, as an ordered comma-separated
+	// pg_hba method list ("" → scram-sha-256, which is what every design before this
+	// field had). More than one is the point: "cert,scram-sha-256" authenticates a
+	// TLS client by its certificate and everyone else by password. Order matters and
+	// is not cosmetic — see pgHostAuthLines in app/pg.go. Same field on designFrame
+	// for the three PostgreSQL cluster types.
+	PGHostAuth string `json:"pgHostAuth"`
 	// Which of that node's buckets to use ("" → its first, i.e. the default bucket).
 	SeaweedFSBucket string `json:"seaweedfsBucket"`
+	// PgBouncer node fields (Type=="pgbouncer"; ignored by other types). A connection
+	// pooler in front of exactly one PostgreSQL backend drawn on the canvas — a "pg"
+	// node, or a "patroni", "repmgr" or "spock" cluster frame. Reuses OS/OSVersion/
+	// Arch, PGMajor (which ppg-NN repository percona-pgbouncer comes from — "" follows
+	// the backend), UseProxy, GenerateCert/CertTTL (TLS terminated at the pool) and
+	// ExportEnabled/ExportHostPort above. Every field here is optional: "" / 0 means
+	// the default, and pgBouncerDefaults (app/pgbouncer.go) is where those live, so
+	// the design document never has to carry values nobody chose.
+	//
+	// The first group is PgBouncer's own tuning, the second is what makes the pool
+	// aware of which PostgreSQL topology is behind it.
+	PgbPoolMode            string `json:"pgbPoolMode"`            // "transaction" (default) | "session" | "statement"
+	PgbAuthType            string `json:"pgbAuthType"`            // "scram-sha-256" (default) | "md5" | "trust"
+	PgbAuthQuery           bool   `json:"pgbAuthQuery"`           // look client roles up in the backend's pg_shadow
+	PgbMaxClientConn       int    `json:"pgbMaxClientConn"`       // 0 → 500
+	PgbDefaultPoolSize     int    `json:"pgbDefaultPoolSize"`     // 0 → 20
+	PgbMinPoolSize         int    `json:"pgbMinPoolSize"`         // warm connections kept open
+	PgbReservePoolSize     int    `json:"pgbReservePoolSize"`     // extra connections for a waiting client
+	PgbMaxDBConnections    int    `json:"pgbMaxDbConnections"`    // cap across all pools for one database (0 = none)
+	PgbServerIdleTimeout   int    `json:"pgbServerIdleTimeout"`   // seconds; 0 → PgBouncer's own default
+	PgbIgnoreStartupParams string `json:"pgbIgnoreStartupParams"` // "" → extra_float_digits,options,search_path
+	PgbServerTLS           string `json:"pgbServerTLS"`           // sslmode to the backend: "prefer" (default) | "disable" | "require" | "verify-full"
+	// PgbRouting is the shape of the pool's [databases] section, and it is the option
+	// that has to know what is behind it: "rw" (one pool at the writable member),
+	// "rw-ro" (plus a read-only alias on a standby — Patroni and repmgr), "mesh" (one
+	// alias per member — Spock, where every member is a writer). "" picks the one that
+	// fits the linked backend.
+	PgbRouting string `json:"pgbRouting"`
+	// PgbDatabase is the database the named aliases pool into ("" → postgres, or the
+	// Spock demo database on a Spock backend). The wildcard pool takes any database.
+	PgbDatabase string `json:"pgbDatabase"`
+	// PgbFollowPrimary installs a timer that re-points the pool at whichever member
+	// can currently take writes — Patroni's REST API, repmgr's pg_is_in_recovery(), or
+	// simply the first Spock member still answering — and SIGHUPs PgBouncer when the
+	// answer changes. Ignored on a standalone "pg" backend, which has no role to move.
+	PgbFollowPrimary bool `json:"pgbFollowPrimary"`
+	PgbWatchInterval int  `json:"pgbWatchInterval"` // seconds between probes; 0 → 5
 	// Directory authentication (Type=="ps"|"pg"|"psm"). When LdapAuth is set the engine
 	// is configured at deploy to authenticate against the chosen directory node
 	// (LdapDirNodeID → an "intranet" OpenLDAP or "sambaad" AD node). KerberosAuth
@@ -481,8 +525,11 @@ type designFrame struct {
 	// Patroni PostgreSQL cluster frame config (Type=="patroni"; reuses OS/OSVersion/
 	// Arch, RootPassword (postgres superuser pw), PMMNodeID, UseProxy, GenerateCert/
 	// CertTTL above). Each member co-locates PostgreSQL + Patroni + an etcd member.
-	PGMajor         string `json:"pgMajor"`         // Percona PostgreSQL "13".."18"
-	PGVersion       string `json:"pgVersion"`       // minor (e.g. 16.4); "" → latest
+	PGMajor   string `json:"pgMajor"`   // Percona PostgreSQL "13".."18"
+	PGVersion string `json:"pgVersion"` // minor (e.g. 16.4); "" → latest
+	// PGHostAuth is the cluster's client authentication method list, cluster-wide.
+	// See the identical field on designNode (the standalone case).
+	PGHostAuth      string `json:"pgHostAuth"`
 	UsePgBackRest   bool   `json:"usePgBackRest"`   // configure pgBackRest → SeaweedFS S3 (clone + backup)
 	SeaweedFSNodeID string `json:"seaweedfsNodeId"` // SeaweedFS node id backing pgBackRest/Barman (when enabled)
 	// Which of that node's buckets to use ("" → its first, i.e. the default bucket).
@@ -1225,6 +1272,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 				out = append(out, pgBackRestSeaweedIssues("PostgreSQL node "+n.Label, n.SeaweedFSNodeID, doc)...)
 				out = append(out, seaweedBucketIssues("PostgreSQL node "+n.Label, n.SeaweedFSNodeID, n.SeaweedFSBucket, doc)...)
 			}
+			out = append(out, pgHostAuthIssues("PostgreSQL node "+n.Label, n.PGHostAuth, n.GenerateCert)...)
 			out = append(out, dirAuthIssues(n, dirNodes)...)
 			out = append(out, oidcIssues(n, keycloakIDs, keycloakSSL)...)
 			out = append(out, vaultIssues(n, openbaoIDs)...)
@@ -1260,6 +1308,21 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			} else if len(hf) > 1 {
 				out = append(out, issue{Level: "error", Message: "HAProxy node " + n.Label + " can front only one cluster — remove the extra association (Patroni, repmgr, Spock, PXC, and MySQL replication are mutually exclusive)"})
 			}
+			if n.ExportEnabled && n.ExportHostPort > 0 {
+				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
+			}
+		case "pgbouncer":
+			others++
+			img := pxcImage(n.OS, n.OSVersion, n.Arch)
+			if !seenImg[img] {
+				seenImg[img] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+					out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+				}
+			}
+			// The association rule and every pool option that can only fail at
+			// runtime. See pgBouncerIssues in app/pgbouncer.go.
+			out = append(out, pgBouncerIssues(n, doc)...)
 			if n.ExportEnabled && n.ExportHostPort > 0 {
 				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
 			}
@@ -1874,6 +1937,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			out = append(out, pgBackRestSeaweedIssues("Patroni cluster "+f.Label, f.SeaweedFSNodeID, doc)...)
 			out = append(out, seaweedBucketIssues("Patroni cluster "+f.Label, f.SeaweedFSNodeID, f.SeaweedFSBucket, doc)...)
 		}
+		out = append(out, pgHostAuthIssues("Patroni cluster "+f.Label, f.PGHostAuth, f.GenerateCert)...)
 		img := pxcImage(f.OS, f.OSVersion, f.Arch)
 		if !seenImg[img] {
 			seenImg[img] = true
@@ -1922,6 +1986,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			out = append(out, issue{Level: "error", Message: "repmgr cluster " + f.Label +
 				" has both Barman and pgBackRest enabled — PostgreSQL has one archive_command, so pick one"})
 		}
+		out = append(out, pgHostAuthIssues("repmgr cluster "+f.Label, f.PGHostAuth, f.GenerateCert)...)
 		switch repmgrBackupEngine(f) {
 		case "barman":
 			out = append(out, barmanSeaweedIssues("repmgr cluster "+f.Label, f.SeaweedFSNodeID, doc)...)
@@ -1972,6 +2037,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		} else if members > 7 {
 			out = append(out, issue{Level: "error", Message: "Spock cluster " + f.Label + " allows at most 7 nodes"})
 		}
+		out = append(out, pgHostAuthIssues("Spock cluster "+f.Label, f.PGHostAuth, f.GenerateCert)...)
 		img := pxcImage(f.OS, f.OSVersion, f.Arch)
 		if !seenImg[img] {
 			seenImg[img] = true
@@ -2196,6 +2262,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionValkeyStandalone(st, n, doc)
 		case "haproxy":
 			a.provisionHAProxy(st, n, doc)
+		case "pgbouncer":
+			a.provisionPgBouncer(st, n, doc)
 		case "orchestrator":
 			a.provisionOrchestrator(st, n, doc)
 		case "linuxclient":
@@ -3003,6 +3071,13 @@ func (a *App) refreshPublishedPorts(ctx context.Context, st Stack, nid string, d
 		var cfg spockConfig
 		json.Unmarshal(dep.Config, &cfg)
 		if p, ok := readPort("5432/tcp"); ok {
+			cfg.ExportPort = p
+		}
+		save(cfg)
+	case "pgbouncer":
+		var cfg pgBouncerConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort(fmt.Sprintf("%d/tcp", pgBouncerPort)); ok {
 			cfg.ExportPort = p
 		}
 		save(cfg)

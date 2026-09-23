@@ -33,16 +33,16 @@ type carSimConfig struct {
 	Image      string `json:"image"`
 	Hostname   string `json:"hostname"`
 	FQDN       string `json:"fqdn"`
-	TargetKind string `json:"targetKind"` // pg | patroni | repmgr | spock | haproxy-patroni | haproxy-repmgr | haproxy-spock
+	TargetKind string `json:"targetKind"` // pg | patroni | repmgr | spock | haproxy-{patroni,repmgr,spock} | pgbouncer-{pg,patroni,repmgr,spock}
 	TargetName string `json:"targetName"` // linked node/frame label, for display
 	HTTPPort   int    `json:"httpPort"`   // host port mapped to the container's dashboard port
 }
 
 // carSimTarget resolves the coarse kind ("pg" | "patroni" | "repmgr" | "spock" |
-// "haproxy") and target node/frame id a carsim node is linked to via a drawn
-// edge. Mirrors airlineSimTarget's undirected-edge walk. "haproxy" is resolved
-// further (into its -patroni/-repmgr/-spock variant) once the linked node's own
-// backend is known — see waitCarSimTarget.
+// "haproxy" | "pgbouncer") and target node/frame id a carsim node is linked to via a
+// drawn edge. Mirrors airlineSimTarget's undirected-edge walk. The two proxies are
+// resolved further (into their -pg/-patroni/-repmgr/-spock variant) once the linked
+// node's own backend is known — see waitCarSimTarget.
 func carSimTarget(doc designDoc, startID string) (kind, targetID string, ok bool) {
 	for _, e := range doc.Edges {
 		var other string
@@ -63,6 +63,8 @@ func carSimTarget(doc designDoc, startID string) (kind, targetID string, ok bool
 				return "pg", n.ID, true
 			case n.Type == "haproxy":
 				return "haproxy", n.ID, true
+			case n.Type == "pgbouncer":
+				return "pgbouncer", n.ID, true
 			}
 		}
 		for _, f := range doc.Frames {
@@ -136,7 +138,7 @@ func (a *App) provisionCarSim(st Stack, n designNode, doc designDoc) {
 		}
 
 		pr.phase("Waiting for linked PostgreSQL-family target", 20)
-		targetHost, targetPort, sec, kind, targetName, werr := a.waitCarSimTarget(ctx, st, hosts, doc, domain, coarseKind, targetID, deployTimeout())
+		targetHost, targetPort, sec, kind, targetName, dsnExtra, werr := a.waitCarSimTarget(ctx, st, hosts, doc, domain, coarseKind, targetID, deployTimeout())
 		if werr != nil {
 			pr.fail("%v", werr)
 			return
@@ -149,10 +151,14 @@ func (a *App) provisionCarSim(st Stack, n designNode, doc designDoc) {
 		if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok {
 			a.engCtx(ctx).ContainerRemove(ctx, cid)
 		}
+		query := "sslmode=prefer&connect_timeout=10"
+		if dsnExtra != "" {
+			query += "&" + dsnExtra
+		}
 		dsn := (&url.URL{
 			Scheme: "postgres", User: url.UserPassword(sec.SuperUser, sec.SuperPassword),
 			Host: fmt.Sprintf("%s:%d", targetHost, targetPort), Path: "/postgres",
-			RawQuery: "sslmode=prefer&connect_timeout=10",
+			RawQuery: query,
 		}).String()
 		id, err := a.engCtx(ctx).ContainerCreate(ctx, ContainerSpec{
 			Name: name, Image: carSimImage, Hostname: host,
@@ -195,53 +201,55 @@ func (a *App) provisionCarSim(st Stack, n designNode, doc designDoc) {
 
 // waitCarSimTarget resolves a coarse target (from carSimTarget) all the way down
 // to a connectable host:port and superuser credentials, blocking until that
-// target is actually running. Returns the resolved TargetKind string (one of the
-// 7) and a display name for the deployed node's config.
-func (a *App) waitCarSimTarget(ctx context.Context, st Stack, hosts map[string]string, doc designDoc, domain, coarseKind, targetID string, timeout time.Duration) (host string, port int, sec pgSecrets, kind, displayName string, err error) {
+// target is actually running. Returns the resolved TargetKind string and a display
+// name for the deployed node's config, plus any extra DSN parameters the endpoint
+// needs — which today is only a PgBouncer pool, where pgx has to stop preparing
+// statements it will not find again (see pgBouncerDSNExtra).
+func (a *App) waitCarSimTarget(ctx context.Context, st Stack, hosts map[string]string, doc designDoc, domain, coarseKind, targetID string, timeout time.Duration) (host string, port int, sec pgSecrets, kind, displayName, dsnExtra string, err error) {
 	switch coarseKind {
 	case "pg":
 		h, s, werr := a.waitPgNodeRunning(ctx, st.ID, targetID, hosts, domain, timeout)
 		if werr != nil {
-			return "", 0, pgSecrets{}, "", "", werr
+			return "", 0, pgSecrets{}, "", "", "", werr
 		}
-		return h, patroniPGPort, s, "pg", nodeLabel(doc, targetID), nil
+		return h, patroniPGPort, s, "pg", nodeLabel(doc, targetID), "", nil
 
 	case "patroni":
 		frame := frameByID(doc, targetID)
 		fqdns, s, werr := a.waitPatroniRunning(ctx, st.ID, frame, doc, domain, timeout)
 		if werr != nil {
-			return "", 0, pgSecrets{}, "", "", werr
+			return "", 0, pgSecrets{}, "", "", "", werr
 		}
 		leaderHost := a.leaderOrFirst(ctx, st, frame, doc, hosts, domain, fqdns, a.patroniLeaderContainer(ctx, st, frame, doc))
-		return leaderHost, patroniPGPort, s, "patroni", frame.Label, nil
+		return leaderHost, patroniPGPort, s, "patroni", frame.Label, "", nil
 
 	case "repmgr":
 		frame := frameByID(doc, targetID)
 		fqdns, s, werr := a.waitRepmgrRunning(ctx, st.ID, frame, doc, domain, timeout)
 		if werr != nil {
-			return "", 0, pgSecrets{}, "", "", werr
+			return "", 0, pgSecrets{}, "", "", "", werr
 		}
 		primaryHost := a.leaderOrFirst(ctx, st, frame, doc, hosts, domain, fqdns, a.repmgrPrimaryContainer(ctx, st, frame, doc))
-		return primaryHost, patroniPGPort, s, "repmgr", frame.Label, nil
+		return primaryHost, patroniPGPort, s, "repmgr", frame.Label, "", nil
 
 	case "spock":
 		frame := frameByID(doc, targetID)
 		fqdns, s, werr := a.waitSpockRunning(ctx, st.ID, frame, doc, domain, timeout)
 		if werr != nil {
-			return "", 0, pgSecrets{}, "", "", werr
+			return "", 0, pgSecrets{}, "", "", "", werr
 		}
 		if len(fqdns) == 0 {
-			return "", 0, pgSecrets{}, "", "", fmt.Errorf("associated Spock cluster %s has no running member", frame.Label)
+			return "", 0, pgSecrets{}, "", "", "", fmt.Errorf("associated Spock cluster %s has no running member", frame.Label)
 		}
-		return fqdns[0], patroniPGPort, s, "spock", frame.Label, nil // symmetric peers — any member is a valid write target
+		return fqdns[0], patroniPGPort, s, "spock", frame.Label, "", nil // symmetric peers — any member is a valid write target
 
 	case "haproxy":
 		backFrame, backKind, hok := haproxyBackend(doc, targetID)
 		if !hok || (backKind != "patroni" && backKind != "repmgr" && backKind != "spock") {
-			return "", 0, pgSecrets{}, "", "", fmt.Errorf("Car Rental Sim's linked HAProxy node must front a Patroni, repmgr, or Spock cluster (found %q)", backKind)
+			return "", 0, pgSecrets{}, "", "", "", fmt.Errorf("Car Rental Sim's linked HAProxy node must front a Patroni, repmgr, or Spock cluster (found %q)", backKind)
 		}
 		if !a.waitNodeRunning(st.ID, targetID, timeout) {
-			return "", 0, pgSecrets{}, "", "", fmt.Errorf("linked HAProxy node did not become ready within %s", timeout)
+			return "", 0, pgSecrets{}, "", "", "", fmt.Errorf("linked HAProxy node did not become ready within %s", timeout)
 		}
 		var s pgSecrets
 		var werr error
@@ -254,11 +262,22 @@ func (a *App) waitCarSimTarget(ctx context.Context, st Stack, hosts map[string]s
 			_, s, werr = a.waitSpockRunning(ctx, st.ID, backFrame, doc, domain, timeout)
 		}
 		if werr != nil {
-			return "", 0, pgSecrets{}, "", "", werr
+			return "", 0, pgSecrets{}, "", "", "", werr
 		}
-		return fqdnOf(hosts[targetID], domain), haproxyWritePort, s, "haproxy-" + backKind, nodeLabel(doc, targetID), nil
+		return fqdnOf(hosts[targetID], domain), haproxyWritePort, s, "haproxy-" + backKind, nodeLabel(doc, targetID), "", nil
+
+	case "pgbouncer":
+		// One resolver for both PostgreSQL sims (app/pgbouncer.go): the pool's
+		// wildcard database always lands on the member that can take writes, so
+		// unlike the HAProxy branch above there is no backend-kind switch to do
+		// here beyond what that function already did.
+		h, p, s, k, extra, name, werr := a.pgBouncerSimEndpoint(ctx, st, hosts, doc, domain, targetID, timeout)
+		if werr != nil {
+			return "", 0, pgSecrets{}, "", "", "", werr
+		}
+		return h, p, s, k, name, extra, nil
 	}
-	return "", 0, pgSecrets{}, "", "", fmt.Errorf("unresolved Car Rental Sim target")
+	return "", 0, pgSecrets{}, "", "", "", fmt.Errorf("unresolved Car Rental Sim target")
 }
 
 // leaderOrFirst maps a Patroni/repmgr frame's known-current-leader container id

@@ -47,8 +47,11 @@ import (
 // uses its slot's ports instead (aioPortsFor), which is why the capture request
 // carries a port→role map rather than these constants.
 const (
-	pgClientPort  = patroniPGPort // 5432, and pg.go's standalone port too
-	pgBouncerPort = 6432
+	pgClientPort = patroniPGPort // 5432, and pg.go's standalone port too
+	// pgBouncerPort is pgbouncer.go's — the PgBouncer node's client port, which is
+	// also its admin console's. Named there rather than repeated here for the same
+	// reason as the rest of this block.
+	//
 	// HAProxy in front of a Patroni/repmgr/Spock cluster: writes on 5000 to the
 	// leader, reads round-robin on 5001. Both carry the PostgreSQL protocol.
 	pgProxyRWPort = haproxyWritePort

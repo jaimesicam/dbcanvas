@@ -141,7 +141,7 @@ func (a *App) userBackend(u User) string {
 // container. VM nodes reach the Docker Intranet's DNS/CA over VirtualBox NAT.
 var vagrantVMNode = map[string]bool{
 	"ps": true, "pg": true, "psm": true,
-	"valkey": true, "proxysql": true, "haproxy": true, "linuxclient": true,
+	"valkey": true, "proxysql": true, "haproxy": true, "pgbouncer": true, "linuxclient": true,
 }
 var vagrantVMFrame = map[string]bool{
 	"pxc": true, "mysql": true, "innodb": true, "psmdb": true, "psmrs": true,
