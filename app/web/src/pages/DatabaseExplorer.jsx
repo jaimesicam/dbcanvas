@@ -97,6 +97,15 @@ export default function DatabaseExplorer() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // Refresh re-reads the connections AND everything expanded under them. Each tree node
+  // fetches its children once, on first expand, and keeps what it got — including an
+  // error — so re-reading only the connection list left a failed node failed until the
+  // page was reloaded. treeGen goes into the connection nodes' keys, so they remount and
+  // fetch again; which nodes are open is held by ConnectionTree, which does not remount,
+  // so everything expanded stays expanded.
+  const [treeGen, setTreeGen] = useState(0)
+  const refreshAll = useCallback(() => { setTreeGen((g) => g + 1); return load() }, [load])
   useEffect(() => {
     dbxApi.history(200).then(setHistory).catch(() => {})
     dbxApi.saved().then(setSaved).catch(() => {})
@@ -218,7 +227,7 @@ export default function DatabaseExplorer() {
     <div className="flex h-full min-h-0 flex-col gap-0 overflow-hidden rounded-xl border bg-surface">
       <Header
         conn={conn}
-        onRefresh={load}
+        onRefresh={refreshAll}
         side={side}
         setSide={setSide}
       />
@@ -232,6 +241,7 @@ export default function DatabaseExplorer() {
         <div className="flex min-h-0 shrink-0 flex-col border-r" style={{ width: treeW }}>
           {side === 'tree' && (
             <ConnectionTree
+              gen={treeGen}
               stacks={conns} pmmWarning={pmmWarning}
               onRefresh={load}
               onPickConnection={(c) => patchTab(tab.key, { connectionId: c.id, database: '', schema: '', title: c.label })}
@@ -325,8 +335,8 @@ function Header({ conn, onRefresh, side, setSide }) {
         {pill('history', 'History', <Icon.Timeline size={12} />)}
         {pill('saved', 'Saved', <Icon.Pin size={12} />)}
       </div>
-      <button onClick={onRefresh} className="rounded-md border px-2 py-1 text-xs hover:bg-surface2" title="Re-read the connection list">
-        <Icon.Check size={12} className="inline" /> Refresh
+      <button onClick={onRefresh} className="rounded-md border px-2 py-1 text-xs hover:bg-surface2" title="Re-read the connections, and everything expanded under them">
+        <Icon.Refresh size={12} className="inline" /> Refresh
       </button>
     </div>
   )
@@ -377,7 +387,7 @@ function Splitter({ onDrag, horizontal = false }) {
 
 // ------------------------------------------------------------------ the tree
 
-function ConnectionTree({ stacks, pmmWarning, onPickConnection, onOpenObject, onNewQuery, activeConnId, onRefresh }) {
+function ConnectionTree({ gen, stacks, pmmWarning, onPickConnection, onOpenObject, onNewQuery, activeConnId, onRefresh }) {
   const [open, setOpen] = useState(() => new Set())
   const [filter, setFilter] = useState('')
   const toggle = (id) => setOpen((o) => {
@@ -423,7 +433,7 @@ function ConnectionTree({ stacks, pmmWarning, onPickConnection, onOpenObject, on
                   .filter((c) => !filter || c.label.toLowerCase().includes(filter.toLowerCase()))
                   .map((c) => (
                     <ConnectionNode
-                      key={c.id} conn={c} depth={2} open={open} toggle={toggle}
+                      key={`${c.id}@${gen}`} conn={c} depth={2} open={open} toggle={toggle}
                       onPick={onPickConnection} onOpenObject={onOpenObject} onNewQuery={onNewQuery}
                       active={c.id === activeConnId} pmmWarning={pmmWarning} onRefresh={onRefresh}
                     />
@@ -519,6 +529,7 @@ function ConnectionNode({ conn, depth, open, toggle, onPick, onOpenObject, onNew
   const [err, setErr] = useState('')
   useEffect(() => {
     if (!expanded || dbs) return
+    setErr('')
     dbxApi.databases(conn.id)
       .then((d) => { if (d.error) setErr(d.error.display || d.error.message); else setDbs(d.nodes || []) })
       .catch((e) => setErr(e.message))
@@ -583,6 +594,7 @@ function DatabaseNode({ conn, db, depth, open, toggle, onOpenObject, onNewQuery 
 
   useEffect(() => {
     if (!expanded || kids) return
+    setErr('')
     const p = hasSchemas
       ? dbxApi.schemas(conn.id, db.id).then((d) => ({ kind: 'schema', nodes: d.nodes || [], error: d.error }))
       : dbxApi.objects(conn.id, { database: db.id }).then((d) => ({ kind: 'object', nodes: d.nodes || [], folders: d.folders, cursor: d.cursor, more: d.more, error: d.error }))
@@ -623,6 +635,7 @@ function SchemaNode({ conn, db, schema, depth, open, toggle, onOpenObject }) {
   const [err, setErr] = useState('')
   useEffect(() => {
     if (!expanded || page) return
+    setErr('')
     dbxApi.objects(conn.id, { database: db.id, schema: schema.id })
       .then((d) => { if (d.error) setErr(d.error.display || d.error.message); else setPage(d) })
       .catch((e) => setErr(e.message))
