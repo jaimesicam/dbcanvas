@@ -43,6 +43,11 @@ func (a *App) provisionLinuxClient(st Stack, n designNode, doc designDoc) {
 	}
 	fqdn := fqdnOf(host, domain)
 	image := pxcImage(n.OS, n.OSVersion, n.Arch)
+	// CentOS 7 is pulled rather than built, and has no systemd — see linuxclient_el7.go.
+	el7 := isEL7OS(n.OS)
+	if el7 {
+		image = el7Image()
+	}
 
 	cfg := linuxClientConfig{Image: image, OS: n.OS, Hostname: host, FQDN: fqdn, UseProxy: n.UseProxy}
 	if n.GDBEnabled {
@@ -68,6 +73,14 @@ func (a *App) provisionLinuxClient(st Stack, n designNode, doc designDoc) {
 			return
 		}
 
+		if el7 {
+			pr.phase("Pulling "+image, 20)
+			if err := a.engCtx(ctx).EnsureImage(ctx, el7ImageRepo, el7ImageTag, pullPlatform()); err != nil {
+				pr.fail("pull %s: %v", image, err)
+				return
+			}
+		}
+
 		pr.phase("Creating container", 30)
 		name := containerName(st.ID, n.ID)
 		if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok {
@@ -77,6 +90,9 @@ func (a *App) provisionLinuxClient(st Stack, n designNode, doc designDoc) {
 			Name: name, Image: image, Hostname: host, Privileged: true,
 			Network: networkName(st.ID), Aliases: []string{host},
 			DNS: []string{intranetIP}, DNSSearch: []string{domain},
+		}
+		if el7 {
+			spec.Cmd, spec.Platform = el7Cmd, pullPlatform()
 		}
 		if cfg.gdbNodeConfig.Enabled {
 			// Probe the two host directories *before* creating the node. Docker resolves a bind
@@ -120,16 +136,34 @@ func (a *App) provisionLinuxClient(st Stack, n designNode, doc designDoc) {
 		}
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployProvisioning, Config: cfgJSON})
 
-		pr.phase("Waiting for systemd", 55)
-		if err := a.engCtx(ctx).WaitSystemd(ctx, id, 90*time.Second); err != nil {
-			pr.fail("systemd did not start: %v", err)
-			return
+		if el7 {
+			// No systemd to wait for. The CA goes in first because the bootstrap's first yum is
+			// already HTTPS to the vault — through the Intranet proxy when one is used.
+			a.trustIntranetCA(ctx, st, id, n.OS, pr.logln)
+			pr.phase("Pointing yum at vault.centos.org", 60)
+			proxy := ""
+			if n.UseProxy {
+				proxy = "http://intranet." + domain + ":3128"
+			}
+			if err := a.runStep(ctx, id, el7BootstrapScript, el7BootstrapEnv(proxy), pr.logln); err != nil {
+				pr.fail("prepare CentOS 7: %v", err)
+				return
+			}
+			pr.logln("CentOS 7 is end of life: no systemd on this node, and no updates beyond the vault's frozen 7.9.2009")
+			if n.UseProxy {
+				pr.logln("package egress via Intranet proxy")
+			}
+		} else {
+			pr.phase("Waiting for systemd", 55)
+			if err := a.engCtx(ctx).WaitSystemd(ctx, id, 90*time.Second); err != nil {
+				pr.fail("systemd did not start: %v", err)
+				return
+			}
+			a.trustIntranetCA(ctx, st, id, n.OS, pr.logln)
+			a.ensureDNFIPv4(ctx, id, n.OS, pr.logln)
 		}
 
-		a.trustIntranetCA(ctx, st, id, n.OS, pr.logln)
-		a.ensureDNFIPv4(ctx, id, n.OS, pr.logln)
-
-		if n.UseProxy {
+		if n.UseProxy && !el7 {
 			pr.phase("Configuring package proxy", 75)
 			proxyScript := pkgProxyRHEL
 			if isDebianOS(n.OS) {

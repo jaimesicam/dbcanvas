@@ -250,6 +250,8 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "Percona Distribution for PostgreSQL versions installable per OS."},
 		{Method: "GET", Path: "/api/catalog/spock", Group: gCatalog, Handler: m((*App).handleSpockCatalog),
 			Summary: "Spock (pgEdge multi-master) versions installable per OS."},
+		{Method: "GET", Path: "/api/catalog/pmm2", Group: gCatalog, Handler: m((*App).handlePMM2Catalog),
+			Summary: "The PMM 2 server releases a PMM2 node can deploy (a fixed list — PMM 2 is end of life)."},
 		{Method: "GET", Path: "/api/catalog/images", Group: gCatalog, Handler: m((*App).handleImagesCatalog),
 			Summary: "The systemd base images built on this host, by OS family and platform."},
 		{Method: "GET", Path: "/api/catalog/pdps", Group: gCatalog, Handler: m((*App).handlePDPSCatalog),

@@ -26122,3 +26122,89 @@ worth knowing that nothing stops two runs on the same node from colliding.
 Valkey cluster, a replica-set or sharded MongoDB endpoint, and arm64 — every node here is
 x86_64 under emulation, so the aarch64 archive checksum is from Microsoft's index and a local
 download, not an install.
+
+## 417. `EOL`: CentOS 7 as a Linux Client release, and a PMM2 node — `app/eol.go` (new), `app/linuxclient_el7.go` (new), `app/el7/CentOS-Base.repo` (new), `app/pmm2.go` (new), `app/eol_test.go` (new), `app/{linuxclient,linuxclient_k8s,samplecode_env,samplecode_api,syssettings,versions,intranet,api_routes}.go`, `StackDesigner`, `SampleCode`, `lib/experimental.js`, `.env.example`, `docker-compose.yml`, `docs/{CONFIGURATION,STACKS,SAMPLE_CODE}.md`
+
+**A switch for releases that are finished for good.** `EOL` in `.env`, default `off`, read like
+`EXPERIMENTAL` (on/true/1/yes) and carried on the system settings as `eol`. It is a second tag on the
+same filter — `visible(entries, experimental, eol)` — and independent of the first in both directions.
+Like `EXPERIMENTAL` it only decides what is *offered*: validation does not consult it, so turning it
+off leaves a stack that already has an EOL node deployable.
+
+### CentOS 7 Linux Client
+
+Offered only to the Linux Client, from a separate `eol` list on `/api/catalog/images` so HAProxy and
+All in One (which read the same catalogue) never see it. Validation refuses CentOS on any other node
+type, on the Vagrant backend, at any version but 7, and with core-dump analysis.
+
+**Nothing is built.** The node runs the stock `centos:7` image, pulled for `DOCKER_PLATFORM`. At
+deploy, `el7BootstrapScript` writes the supplied `CentOS-Base.repo` (base/updates/extras on
+`vault.centos.org/7.9.2009`; rewritten to `/altarch/` for aarch64), points the SCL "rh" repo at the
+vault too, puts `ip_resolve=4` and the Intranet proxy in `yum.conf` (there is no `/etc/dnf`), and
+installs `percona-release` from `repo.percona.com/yum/percona-release-latest.noarch.rpm`.
+
+**No systemd, found the hard way.** CentOS 7's systemd 219 predates cgroup v2. As PID 1 on a cgroup
+v2 host (every current Docker host) it neither boots nor exits — `systemctl` answers "Failed to get
+D-Bus connection" forever; `--cgroupns=host` and a `/sys/fs/cgroup` bind did not change that. So PID 1
+is a bash loop that reaps children and exits on SIGTERM (a restart takes 0.17 s), and the
+`WaitSystemd` phase is skipped. Everything DBCanvas does on a Linux Client is an exec.
+
+kubectl/Helm get a `yum` prelude (`lcK8sToolsEL7`); the binaries are static.
+
+### Sample Client Code on CentOS 7
+
+Each runtime probed on a bare `centos:7` before a line was written:
+
+| Needs | CentOS 7 has | Installed instead |
+| --- | --- | --- |
+| Python ≥ 3.8 | 3.6 | `rh-python38` (SCL), run by full path — it carries its own library path |
+| Node.js | none; official ≥ 18 needs glibc 2.28 | Node 22.23.2 **glibc-217** build from unofficial-builds.nodejs.org, SHA-256 pinned, x86_64 only |
+| Go ≥ 1.24 | none | the existing pinned Go 1.27.1 archive (static) |
+| JDK ≥ 17 | 11 | Temurin 21.0.12.1, pinned per arch, under `/usr/lib/jvm` so `scJavaHome` finds it |
+| Maven | 3.0.5 (`exec-maven-plugin` 3.1.0 needs ≥ 3.2.5) | Maven 3.9.16; SHA-512 matched Apache's before the SHA-256 was pinned |
+| `mysql` | — | Percona's last el7 client, 8.0.37 (`ps80`), for every target; `Percona-Server-client-57` for 5.7 |
+| `psql` | — | PPG **13**: the el7 builds of 14/15/16 exist but require `libzstd`, which CentOS 7 never shipped (EPEL) |
+| `mongosh` | — | 2.1.5 from `psmdb-70` (no `psmdb-80` for el7) |
+
+`scInstallEL7` is `yum` with no module streams. `scSysPkg.Repo` now takes the OS. A new
+`scSysPkg.Unsupported` gives the reason a package cannot exist on a release; `scUnsupported` refuses
+such a client before anything installs, and the targets endpoint returns `unsupported`
+(database/language/client → reason) so the picker greys the entry out and snaps past it. Two are
+refused on CentOS 7: **C#** — both the .NET 8.0.425 and 10.0.401 SDK archives die on
+`GLIBCXX_3.4.20/3.4.21 not found` (CentOS 7's libstdc++ is 3.4.19) — and **Valkey's shell client**,
+since Percona publishes no Valkey for el7. `scTarball.urlFor` handles an archive whose URL has no
+`%s` (Maven), which `Sprintf` would have decorated with `%!(EXTRA …)`.
+
+### PMM2
+
+Its own node type, `pmm2`, under Monitoring and tagged `eol`. A version picker and nothing else: every
+association picker and provisioner looks for type `pmm`, so nothing on the canvas can point at it;
+no Watchtower, certificate, SMTP, LDAP or OIDC. Versions are a constant list (`pmm2Versions`,
+2.25.0 → 2.44.1, served at `/api/catalog/pmm2`) — PMM 2 will never release again, so `make versions`
+does not probe it. An unknown version is a validation error.
+
+PMM 2 differs from 3 where it matters: ports 80/443 (published on fixed host ports, kept across
+redeploys), readiness at `http://localhost/v1/readyz`. The admin password (`PMM_ADMIN_PASSWORD`) is
+set with `change-admin-password` where the image has it and `grafana-cli … admin
+reset-admin-password` where it does not — 2.25.0 predates the helper. Both ends of the list were
+brought up and logged into; nothing older is offered because nothing older was checked. `/srv` is a
+named volume (`dbcanvas-pmm2-<stack>-<node>`) removed with the node.
+
+### Verified
+
+Live, one stack on a separate instance (Intranet, CentOS 7 Linux Client, PMM2 2.44.1, PS 8.4, PG 17,
+PSMDB 8.0 — all amd64 under emulation on an arm64 host):
+
+- PMM2: HTTPS console on its published port, `admin`/`PMM_ADMIN_PASSWORD` → 200, a wrong password → 401.
+- CentOS 7 client: vault repos, SCL repo, `percona-release`, Intranet CA, stack DNS; no zombies.
+- Sample Client Code from the CentOS 7 client, Full CRUD: **18/18** offered clients pass (PG 6, MySQL
+  7, MongoDB 5); the three C# clients are refused with the reason.
+
+**Found by running them.** psql 16 would not install (`Requires: libzstd`) → capped at 13. A
+Sample Client Code job that times out leaves its `yum` running on the node, holding the lock, so the
+next job waits behind it — pre-existing (an exec has no cancel; see §416), not fixed here.
+
+**Not verified.** arm64 CentOS 7 (the aarch64 repo rewrite and Temurin's aarch64 checksum are
+unexercised; Node is refused there by design), the Intranet proxy on CentOS 7, the Valkey clients
+from CentOS 7 (no Valkey in the test stack), and PMM 2 releases between 2.25.0 and 2.44.1 other than
+the two ends.

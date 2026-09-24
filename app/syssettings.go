@@ -53,8 +53,8 @@ const (
 // SystemSettings is the instance-wide configuration served to the UI.
 //
 // It carries two kinds of value. MaxUploadBytes is stored and an admin can change
-// it from the settings page. SSHForwarding and Experimental are derived from the
-// environment (SSH_FORWARDING_HOST, EXPERIMENTAL) and are read-only — they ride
+// it from the settings page. SSHForwarding, Experimental and EOL are derived from the
+// environment (SSH_FORWARDING_HOST, EXPERIMENTAL, EOL) and are read-only — they ride
 // along here because the UI already fetches this once and needs both before it
 // draws anything: whether to offer a node's tunnel command, and whether the
 // features tagged experimental are in the menus at all (see experimental.go). The
@@ -85,6 +85,10 @@ type SystemSettings struct {
 	InternalWrites bool                 `json:"internalWrites"`
 	SSHForwarding  SSHForwardingSetting `json:"sshForwarding"`
 	Experimental   bool                 `json:"experimental"`
+	// EOL is whether end-of-life releases are offered (EOL in .env; see eol.go). Derived and
+	// read-only like Experimental, and for the same reason it rides here: the designer needs it
+	// before it draws the node library and the Linux Client's OS picker.
+	EOL bool `json:"eol"`
 }
 
 // SSHForwardingSetting is where the app is reachable over SSH, if the
@@ -157,6 +161,7 @@ func (a *App) systemSettings(appUser string) SystemSettings {
 	s = s.normalize()
 	s.SSHForwarding = sshForwardingSetting(appUser)
 	s.Experimental = experimentalEnabled()
+	s.EOL = eolEnabled()
 	return s
 }
 
@@ -215,6 +220,7 @@ func (a *App) handleUpdateSystemSettings(w http.ResponseWriter, r *http.Request)
 	}
 	s.SSHForwarding = sshForwardingSetting(appUser)
 	s.Experimental = experimentalEnabled()
+	s.EOL = eolEnabled()
 	writeJSON(w, http.StatusOK, s)
 }
 

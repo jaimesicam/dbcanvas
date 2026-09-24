@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from '../components/Icons.jsx'
 import { Card, Button, Badge, Field, ConfirmButton, InfoRow, inputCls } from '../components/ui.jsx'
@@ -8,7 +8,7 @@ import { usePolling } from '../lib/usePolling.jsx'
 import { sendHandoff } from '../lib/handoff.js'
 import { stackApi, templateApi, imageApi, mongoDownloadURL, k8sPods, isBuiltinTemplate, frameApi, TTL_OPTIONS, DEPLOY_TONE, NODE_UPLOAD_DESTS, PRODUCT_OS_FAMILIES } from '../lib/stackApi.js'
 import { kindOf as aioKindOf, familyOf as aioFamilyOf } from '../lib/aioPorts.js'
-import { showExperimental, visibleGroups } from '../lib/experimental.js'
+import { showEOL, showExperimental, visibleGroups } from '../lib/experimental.js'
 import IntranetManager from './IntranetManager.jsx'
 import SambaManager from './SambaManager.jsx'
 import PMMManager from './PMMManager.jsx'
@@ -83,6 +83,21 @@ export const NODE_TYPES = {
     ports: false,
     osOptions: [{ id: 'pmm', label: 'percona/pmm-server' }],
     defaults: { version: '', adminPassword: '', generateCert: false, watchtowerNodeId: '' },
+  },
+  // PMM 2 — end of life, offered only where EOL is on (app/eol.go, app/pmm2.go). Its own
+  // type rather than a version of PMM3 because nothing about the two is shared past the
+  // image name, and deliberately bare: a version, and nothing on the canvas can point at
+  // it — every PMM picker here filters on type 'pmm'.
+  pmm2: {
+    label: 'PMM2',
+    slug: 'pmm2',
+    sub: 'PMM 2 server (end of life)',
+    color: '#64748b',
+    icon: 'Monitor',
+    singleton: false,
+    ports: false,
+    osOptions: [{ id: 'pmm2', label: 'percona/pmm-server' }],
+    defaults: { version: '2.44.1' },
   },
   // PXC nodes live inside a PXC cluster frame (not added from the toolbar
   // directly); this entry only supplies the color/icon used to render them.
@@ -990,7 +1005,7 @@ const osLabel = (type, os) => {
 // pxcOSLabel formats a node/frame's OS compactly for the canvas — "OL9", "Ubuntu 24.04". The
 // cards are small and the OS is the least interesting thing on them; the full name still appears
 // in the node's form.
-const PXC_OS_NAMES = { oraclelinux: 'OL', ubuntu: 'Ubuntu', debian: 'Debian' }
+const PXC_OS_NAMES = { oraclelinux: 'OL', ubuntu: 'Ubuntu', debian: 'Debian', centos: 'CentOS' }
 const pxcOSLabel = (f) => {
   const os = PXC_OS_NAMES[f?.os] || f?.os || ''
   const ver = f?.osVersion || ''
@@ -1007,7 +1022,7 @@ const ENGINE_SHORT = {
   pg: 'PG', patroni: 'PG', repmgr: 'PG', spock: 'PG',
   proxysql: 'ProxySQL', haproxy: 'HAProxy', pgbouncer: 'PgBouncer',
   valkey: 'Valkey', valkeycluster: 'Valkey',
-  pmm: 'PMM', openbao: 'OpenBao', keycloak: 'Keycloak',
+  pmm: 'PMM', pmm2: 'PMM', openbao: 'OpenBao', keycloak: 'Keycloak',
   seaweedfs: 'SeaweedFS', sambaad: 'Samba', vnc: 'Ubuntu', watchtower: 'Watchtower', k3d: 'k3s',
   orchestrator: 'Orchestrator',
 }
@@ -1956,6 +1971,7 @@ const RECENT_MAX = 5
 const PALETTE_ALIASES = {
   valkey: 'redis cache kv', valkeycluster: 'redis cache kv',
   k3d: 'k8s kubernetes k3s cluster',
+  pmm2: 'pmm monitoring eol end of life',
   psmdb: 'mongo mongodb shard', psmrs: 'mongo mongodb replica', psm: 'mongo mongodb',
   pxc: 'galera mysql cluster', ps: 'mysql percona', mysql: 'replication source replica',
   innodb: 'mysql group replication gr',
@@ -1968,7 +1984,7 @@ const PALETTE_ALIASES = {
   sambaad: 'ldap active directory domain', keycloak: 'sso oidc identity',
   seaweedfs: 's3 object storage', vnc: 'desktop gui ubuntu',
   watchtower: 'updates upgrade', intranet: 'dns gateway core',
-  linuxclient: 'client host bare vm jump box test tools',
+  linuxclient: 'client host bare vm jump box test tools centos el7',
   trafficsim: 'demo simulation city map live traffic',
   hotelsim: 'demo simulation hotel reservation booking mongo mongodb',
   mclusteradmin: 'mongodb admin panel administration mca mclusteradmin gui web ui manage replica set sharding balancer oplog users roles',
@@ -3888,6 +3904,8 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
     ] },
     { title: 'Monitoring', items: [
       { label: 'PMM3', type: 'pmm', onClick: () => addNode('pmm') },
+      // End of life: in the library only where EOL is on (lib/experimental.js).
+      { label: 'PMM2', type: 'pmm2', onClick: () => addNode('pmm2'), eol: true },
       { label: 'Watchtower', type: 'watchtower', onClick: () => addNode('watchtower'), off: has('watchtower') },
     ] },
     { title: 'Identity & Secrets', items: [
@@ -3912,7 +3930,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
       { label: 'Stock Market Sim', type: 'stocksim', onClick: () => addNode('stocksim') },
       { label: 'Ledger Sim', type: 'ledgersim', onClick: () => addNode('ledgersim') },
     ] },
-  ], showExperimental(system))
+  ], showExperimental(system), showEOL(system))
 
   // addMenuActions builds the canvas right-click menu from the same paletteGroups
   // the docked library renders, so the two can never drift. Shape: recents first
@@ -6385,20 +6403,121 @@ function VNCManager({ dep, onDeleteNode }) {
   )
 }
 
+// PMM2Form edits a (not-yet-running) PMM 2 node, and the only thing to edit is the release.
+// That is the whole design (app/pmm2.go): PMM 2 is end of life, and this node exists to stand one
+// up at a customer's exact version — not to be wired into the stack, so there are no options for
+// that. The list is fixed, served by the server so the two cannot disagree.
+function PMM2Form({ node: n, patchNode, deleteNode, dep, deployed }) {
+  const [cat, setCat] = useState(null)
+  useEffect(() => {
+    let alive = true
+    stackApi.pmm2Catalog().then((c) => { if (alive) setCat(c) }).catch(() => { /* keep the saved value */ })
+    return () => { alive = false }
+  }, [])
+  const versions = cat?.versions || (n.version ? [n.version] : [])
+  const lock = deployed ? 'opacity-70' : ''
+  useEffect(() => {
+    if (deployed || !cat?.versions?.length) return
+    if (!cat.versions.includes(n.version)) patchNode(n.id, { version: cat.default || cat.versions[0] })
+  }, [cat, n.id, n.version, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">PMM2</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+      <p className="text-xs text-muted">
+        A PMM 2 server, which is end of life (the last release was 2.44.1). It is deployed on its own:
+        no node on the canvas can be pointed at it, and it gets no certificate, SMTP or single sign-on.
+        The admin login is <span className="font-mono">admin</span> / <span className="font-mono">PMM_ADMIN_PASSWORD</span> from .env.
+      </p>
+      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
+        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+      </Field>
+      <Field label="Version" help={HELP.pmm2Version} hint={deployed ? 'Locked — the node is deployed.' : 'percona/pmm-server tag. amd64 only.'}>
+        <select className={`${inputCls} ${lock}`} value={n.version || ''} disabled={deployed}
+          onChange={(e) => patchNode(n.id, { version: e.target.value })}>
+          {versions.map((v) => <option key={v} value={v}>{v}{v === cat?.default ? ' (last release)' : ''}</option>)}
+        </select>
+      </Field>
+      {!deployed && <p className="text-xs text-muted">The console URL appears here after deploy.</p>}
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// PMM2Manager shows a deployed PMM 2 node: where its console is and how to log in. There is
+// nothing to manage past that, by design.
+function PMM2Manager({ dep, onDeleteNode }) {
+  const cfg = dep?.config || {}
+  const sec = dep?.secrets || {}
+  const host = typeof location !== 'undefined' ? location.hostname : 'localhost'
+  const httpsUrl = cfg.httpsPort ? `https://${host}:${cfg.httpsPort}/` : null
+  const httpUrl = cfg.httpPort ? `http://${host}:${cfg.httpPort}/` : null
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">PMM2</span>
+        <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
+      </div>
+      <p className="text-xs text-muted">
+        PMM {cfg.serverVersion || cfg.version} — end of life, and not wired to any other node. To monitor
+        something with it, install a PMM 2 client there and register it by hand.
+      </p>
+      {httpsUrl && (
+        <a href={httpsUrl} target="_blank" rel="noreferrer"
+          className="flex items-center justify-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-sm font-medium text-primary hover:bg-primary/15">
+          <Icon.External size={15} /> Open PMM 2
+        </a>
+      )}
+      <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
+        <InfoRow label="Image" help={HELP.depImage}><span className="font-mono text-xs">{cfg.image}</span></InfoRow>
+        <InfoRow label="Host" help={HELP.depHost}><span className="font-mono text-xs">{cfg.fqdn || cfg.hostname}</span></InfoRow>
+        {httpsUrl && <InfoRow label="HTTPS · 443" help={HELP.depConsole}><span className="font-mono text-xs">{httpsUrl}</span></InfoRow>}
+        {httpUrl && <InfoRow label="HTTP · 80" help={HELP.depConsole}><span className="font-mono text-xs">{httpUrl}</span></InfoRow>}
+        <InfoRow label="Login" help={HELP.depPassword}><span className="font-mono text-xs">{cfg.adminUser || 'admin'}</span></InfoRow>
+        {sec.adminPassword && <InfoRow label="Password" help={HELP.depPassword}><SecretInline value={sec.adminPassword} /></InfoRow>}
+      </div>
+      <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
 // LinuxClientForm edits a (not-yet-running) Linux Client node: any OS/version/arch from
 // the generic images catalog (the same dbcanvas-systemd:* base images every other
 // systemd node type uses), an optional package-manager proxy — and nothing else. No
 // product gets installed and there's no PMM monitoring; it's a bare jump box for
 // reaching the stack's other nodes from its terminal.
 function LinuxClientForm({ node: n, patchNode, deleteNode, dep, deployed, frames = [] }) {
+  const { system } = useSettings()
   const [cat, setCat] = useState(null)
+  const [eolImgs, setEolImgs] = useState([])
   useEffect(() => {
     let alive = true
-    stackApi.imagesCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    stackApi.imagesCatalog().then((c) => {
+      if (!alive) return
+      setCat(c.images || [])
+      setEolImgs(c.eol || [])
+    }).catch(() => { /* keep defaults */ })
     return () => { alive = false }
   }, [])
-  const imgs = cat || []
+  // CentOS 7 comes from the catalogue's separate `eol` list, which the server fills only when EOL
+  // is on (app/linuxclient_el7.go). A node that already says CentOS keeps it in the picker even with
+  // EOL off — the switch decides what is offered, and must not rewrite a design built while it was on.
+  const el7 = n.os === 'centos'
+  const eolOn = showEOL(system)
+  const imgs = useMemo(() => {
+    if (!cat) return []
+    const eol = eolOn ? eolImgs : []
+    const keep = el7 && !eol.some((i) => i.os === 'centos') ? [{ os: 'centos', osVersion: n.osVersion || '7' }] : []
+    return [...cat, ...eol, ...keep]
+  }, [cat, eolImgs, eolOn, el7, n.osVersion])
   const lock = deployed ? 'opacity-70' : ''
+  const OS_NAMES = { centos: 'centos (end of life)' }
 
   const osFamilies = [...new Set(imgs.map((i) => i.os))]
   const osVersions = [...new Set(imgs.filter((i) => i.os === n.os).map((i) => i.osVersion))]
@@ -6432,7 +6551,7 @@ function LinuxClientForm({ node: n, patchNode, deleteNode, dep, deployed, frames
       <div className="grid grid-cols-2 gap-2">
         <Field label="OS" help={HELP.os} hint={deployed ? 'Locked.' : ''}>
           <select className={`${inputCls} ${lock}`} value={n.os} disabled={deployed} onChange={(e) => patchNode(n.id, { os: e.target.value })}>
-            {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
+            {osFamilies.map((o) => <option key={o} value={o}>{OS_NAMES[o] || o}</option>)}
           </select>
         </Field>
         <Field label="OS version" help={HELP.osVersion}>
@@ -6442,6 +6561,16 @@ function LinuxClientForm({ node: n, patchNode, deleteNode, dep, deployed, frames
         </Field>
       </div>
 
+      {el7 && (
+        <p className="rounded-md border border-warning/30 bg-warning/10 px-2 py-1.5 text-[11px] leading-snug text-muted">
+          <span className="font-medium text-fg">CentOS 7 is end of life.</span> The stock{' '}
+          <span className="font-mono">centos:7</span> image, with yum pointed at vault.centos.org and
+          percona-release installed. It runs <span className="font-medium text-fg">without systemd</span> — CentOS 7's
+          cannot start on a cgroup v2 Docker host — so there are no services, just the shell. Sample Client
+          Code works in every language but C#, and not for Valkey's shell client.
+        </p>
+      )}
+
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
@@ -6449,7 +6578,9 @@ function LinuxClientForm({ node: n, patchNode, deleteNode, dep, deployed, frames
 
       <K8sToolFields node={n} patchNode={patchNode} deployed={deployed} frames={frames} />
 
-      <GDBFields node={n} patchNode={patchNode} deployed={deployed} />
+      {/* Core-dump analysis matches debug symbols to the crashed server's own OS; it is not
+          offered on CentOS 7 (validateStack refuses the combination). */}
+      {!el7 && <GDBFields node={n} patchNode={patchNode} deployed={deployed} />}
 
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
         <Icon.Trash size={16} /> Delete node
@@ -12605,6 +12736,13 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <ValkeyManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <ValkeyForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+    }
+    // PMM 2 node — end of life, a version and nothing else.
+    if (n.type === 'pmm2') {
+      if (dep && dep.state === 'running') {
+        return <PMM2Manager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <PMM2Form node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
     // Linux Client node — a bare OS host with no product installed.
     if (n.type === 'linuxclient') {

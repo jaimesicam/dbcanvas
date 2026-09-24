@@ -166,6 +166,11 @@ func (a *App) scBuild(ctx context.Context, st Stack, dep Deployment, req scReque
 	// config because that is where it has always been recorded, so a node deployed before this
 	// mattered still answers — and an empty answer only costs the version-specific cases.
 	osInfo := scOS{ID: nodeOS, Version: scNodeOSVersion(st, dep.NodeID)}
+	// Before the target is even looked up: a client that cannot run on this release is the
+	// answer whatever it would have connected to, and it is the answer that should be read.
+	if why := scUnsupported(c, osInfo); why != "" {
+		return scClient{}, scGen{}, scPlan{}, fmt.Errorf("%s cannot run on this Linux Client: %s", c.Label, why)
+	}
 
 	target, err := a.scFindTarget(st, req.Target, nodeOS)
 	if err != nil {
@@ -351,6 +356,10 @@ func (a *App) handleSampleCodeTargets(w http.ResponseWriter, r *http.Request) {
 		"clientCerts": a.scClientCertNames(r.Context(), st),
 		"os":          cfg.OS,
 		"caPath":      scCAPath(cfg.OS),
+		// The catalogue is global; what this node's release cannot run is not. Keyed
+		// database/language/client and valued with the reason, so the picker can grey an entry
+		// out and say why rather than offer it and fail.
+		"unsupported": scUnsupportedOn(scOS{ID: cfg.OS, Version: scNodeOSVersion(st, dep.NodeID)}),
 	})
 }
 

@@ -89,7 +89,7 @@ func TestLCK8sToolsScriptShape(t *testing.T) {
 		t.Error("the checksum must come from the same release path as the binary")
 	}
 	// Both package-manager preambles install what the body needs.
-	for name, pre := range map[string]string{"RHEL": lcK8sToolsRHEL, "Debian": lcK8sToolsDebian} {
+	for name, pre := range map[string]string{"RHEL": lcK8sToolsRHEL, "Debian": lcK8sToolsDebian, "CentOS 7": lcK8sToolsEL7} {
 		for _, tool := range []string{"curl", "tar", "ca-certificates"} {
 			if !strings.Contains(pre, tool) {
 				t.Errorf("the %s preamble does not install %s", name, tool)

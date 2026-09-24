@@ -21,6 +21,9 @@ COPY app/go.mod app/go.sum ./
 RUN go mod download
 COPY app/*.go ./
 COPY app/cmd/ ./cmd/
+# Embedded into the binary (go:embed in linuxclient_el7.go): the CentOS 7 repo file an EOL
+# Linux Client is pointed at. Not a .go file, so the line above does not bring it.
+COPY app/el7/ ./el7/
 COPY --from=web /web/dist ./web/dist
 # APP_VERSION is stamped in rather than read at runtime: the What's New dialog and
 # the API page both need to say which build this is, and a file the container could

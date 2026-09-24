@@ -1125,7 +1125,25 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		if n.OS == "debian" && n.Type == "linuxclient" && st.Backend == BackendVagrant && a.vagrant != nil {
 			out = append(out, issue{Level: "error", Message: "Linux Client " + n.Label + " is set to Debian, which this stack would provision as a VM — Debian is available on the Docker backend only"})
 		}
-		if n.Type == "linuxclient" && n.GDBEnabled {
+		// CentOS 7 is a Linux Client release and nothing else (linuxclient_el7.go): it is the stock
+		// image with no systemd, which no product's install path could run on. Not checked against
+		// EOL — like EXPERIMENTAL, the switch decides what is offered, and turning it off must not
+		// break a stack that already has one of these on its canvas.
+		if isEL7OS(n.OS) && n.Type != "linuxclient" {
+			out = append(out, issue{Level: "error", Message: "Node " + n.Label + " is set to CentOS 7 — CentOS 7 is available for Linux Client nodes only"})
+		}
+		if isEL7OS(n.OS) && n.Type == "linuxclient" {
+			if st.Backend == BackendVagrant && a.vagrant != nil {
+				out = append(out, issue{Level: "error", Message: "Linux Client " + n.Label + " is set to CentOS 7, which this stack would provision as a VM — CentOS 7 is available on the Docker backend only"})
+			}
+			if n.OSVersion != el7OSVersion {
+				out = append(out, issue{Level: "error", Message: "Linux Client " + n.Label + " is set to CentOS " + n.OSVersion + " — the only CentOS release offered is 7"})
+			}
+			if n.GDBEnabled {
+				out = append(out, issue{Level: "error", Message: "Linux Client " + n.Label + " is set to CentOS 7, which is not offered for core-dump analysis — pick the Oracle Linux release closest to the crashed server"})
+			}
+		}
+		if n.Type == "linuxclient" && n.GDBEnabled && !isEL7OS(n.OS) {
 			out = append(out, a.gdbNodeIssues(n, st)...)
 		}
 		switch n.Type {
@@ -1148,6 +1166,14 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			}
 			out = append(out, oidcIssues(n, keycloakIDs, keycloakSSL)...)
 			out = append(out, dirAuthIssues(n, dirNodes)...)
+		case "pmm2":
+			// A fixed list, not the versions.yaml catalogue: PMM 2 is end of life and will never
+			// have a release to probe for (pmm2.go). An unknown one is an error rather than
+			// PMM 3's warning, because nothing would pull.
+			others++
+			if pmm2Version(n.Version) == "" {
+				out = append(out, issue{Level: "error", Message: "Unknown PMM 2 version " + n.Version + " for node " + n.Label + " — the releases offered are " + pmm2Versions[len(pmm2Versions)-1] + " to " + pmm2Versions[0]})
+			}
 		case "watchtower":
 			watchtower++
 			others++
@@ -2232,6 +2258,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionSambaNode(st, n, doc)
 		case "pmm":
 			a.provisionPMM(st, n, doc)
+		case "pmm2":
+			a.provisionPMM2(st, n, doc)
 		case "proxysql":
 			a.provisionProxySQL(st, n, doc)
 		case "ps":
@@ -2986,6 +3014,16 @@ func (a *App) refreshPublishedPorts(ctx context.Context, st Stack, nid string, d
 			cfg.HTTPSPort = p
 		}
 		save(cfg)
+	case "pmm2":
+		var cfg pmm2Config
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort("80/tcp"); ok {
+			cfg.HTTPPort = p
+		}
+		if p, ok := readPort("443/tcp"); ok {
+			cfg.HTTPSPort = p
+		}
+		save(cfg)
 	// keycloak publishes no host ports — its console is stack-network only and is
 	// reached from the Ubuntu VNC desktop, so there is nothing to re-read here.
 	case "vnc":
@@ -3127,6 +3165,7 @@ func (a *App) removeNodeResources(ctx context.Context, st Stack, d Deployment) {
 			e.ContainerRemove(ctx, d.ContainerID)
 		}
 		e.VolumeRemove(ctx, pmmDataVolume(st.ID, d.NodeID))
+		e.VolumeRemove(ctx, pmm2DataVolume(st.ID, d.NodeID))
 	}
 	a.store.DeleteDeployment(st.ID, d.NodeID)
 }

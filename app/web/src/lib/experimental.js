@@ -21,14 +21,21 @@
 // experimental entry never flashes into a menu it does not belong in.
 export const showExperimental = (system) => system?.experimental === true
 
+// showEOL is the same for the second tag, `eol: true` — releases past their end of
+// life (CentOS 7, PMM 2), offered only where EOL is on in .env (app/eol.go). It is a
+// separate switch rather than more experimental entries because the two say opposite
+// things: an experimental feature is not finished yet, an EOL one is finished for good.
+export const showEOL = (system) => system?.eol === true
+
 // visible keeps the entries an installation should see: everything untagged, plus
-// the tagged ones when `on`.
-export const visible = (entries, on) => (entries || []).filter((e) => !e?.experimental || on)
+// the experimental ones when `on` and the end-of-life ones when `eol`.
+export const visible = (entries, on, eol = false) =>
+  (entries || []).filter((e) => (!e?.experimental || on) && (!e?.eol || eol))
 
 // visibleGroups is the same for a catalog of { title, items } categories. A group
-// can be tagged as a whole, and one whose every item is experimental disappears
-// with them rather than leaving an empty heading behind.
-export const visibleGroups = (groups, on) =>
-  visible(groups, on)
-    .map((g) => ({ ...g, items: visible(g.items, on) }))
+// can be tagged as a whole, and one whose every item is hidden disappears with them
+// rather than leaving an empty heading behind.
+export const visibleGroups = (groups, on, eol = false) =>
+  visible(groups, on, eol)
+    .map((g) => ({ ...g, items: visible(g.items, on, eol) }))
     .filter((g) => g.items.length > 0)

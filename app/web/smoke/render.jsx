@@ -48,7 +48,7 @@ import { PageVisibleProvider, usePolling, usePageVisible } from '../src/lib/useP
 import { openTab, closeTab, tabCounts, clampTabs, TABS_DEFAULT, TABS_MIN, TABS_MAX } from '../src/lib/tabs.js'
 import { mongoDownloadURL } from '../src/lib/stackApi.js'
 import { TabCount, TabCapNotice, NAV } from '../src/App.jsx'
-import { showExperimental, visible, visibleGroups } from '../src/lib/experimental.js'
+import { showEOL, showExperimental, visible, visibleGroups } from '../src/lib/experimental.js'
 import MySQLManager from '../src/pages/MySQLManager.jsx'
 import OidcLoginGuide from '../src/components/OidcLoginGuide.jsx'
 import VaultGuide from '../src/components/VaultGuide.jsx'
@@ -3849,6 +3849,30 @@ check('experimental: tagged features are hidden until an installation asks for t
   // from the same literal, and a filter that ate its input would empty it.
   if (groups[0].items.length !== 2) throw new Error('visibleGroups mutated the catalog')
   return 'nav, groups and items'
+})
+
+check('eol: end-of-life releases are offered only where EOL is on', () => {
+  // EOL (app/eol.go) is the second tag on the same filter. It is independent of
+  // experimental in both directions — one switch must never reveal the other's entries.
+  if (showEOL(undefined) || showEOL({}) || showEOL({ eol: 'on' })) throw new Error('only eol: true is on')
+  if (!showEOL({ eol: true })) throw new Error('eol: true should be on')
+  const groups = [
+    { title: 'Monitoring', items: [{ label: 'PMM3' }, { label: 'PMM2', eol: true }] },
+    { title: 'Old only', items: [{ label: 'Relic', eol: true }] },
+    { title: 'Not ready', items: [{ label: 'Only this', experimental: true }] },
+  ]
+  const labels = (on, eol) => visibleGroups(groups, on, eol).flatMap((g) => g.items.map((i) => i.label)).join(',')
+  if (labels(false, false) !== 'PMM3') throw new Error(`both off shows ${labels(false, false)}`)
+  if (labels(false, true) !== 'PMM3,PMM2,Relic') throw new Error(`eol on shows ${labels(false, true)}`)
+  if (labels(true, false) !== 'PMM3,Only this') throw new Error(`experimental on revealed an EOL entry: ${labels(true, false)}`)
+  // The two-argument form every existing caller uses still hides EOL entries.
+  if (visible([{ label: 'x', eol: true }], true).length !== 0) throw new Error('visible(entries, on) showed an EOL entry')
+
+  // PMM2 is in the real palette, tagged, and the palette passes the switch through.
+  const text = nodeFs.readFileSync(new URL('../src/pages/StackDesigner.jsx', import.meta.url), 'utf8')
+  if (!/label: 'PMM2', type: 'pmm2'[^}]*eol: true/.test(text)) throw new Error('PMM2 is not in the palette with an eol tag')
+  if (!/\], showExperimental\(system\), showEOL\(system\)\)/.test(text)) throw new Error('paletteGroups does not pass the EOL switch')
+  return 'eol and experimental filter independently'
 })
 
 check('menu: a panel is as wide as its longest label, and nothing truncates', () => {

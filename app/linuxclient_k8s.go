@@ -47,6 +47,12 @@ const lcK8sToolsRHEL = `set -e
 dnf -y -q install curl tar ca-certificates bash-completion >/dev/null
 `
 
+// lcK8sToolsEL7 is the same prelude for CentOS 7, which has yum and no dnf. kubectl and Helm are
+// static binaries, so nothing past the download tools differs.
+const lcK8sToolsEL7 = `set -e
+yum -y -q install curl tar ca-certificates bash-completion >/dev/null
+`
+
 const lcK8sToolsDebian = `set -e
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq >/dev/null
@@ -151,6 +157,8 @@ func (a *App) linuxClientInstallK8sTools(ctx context.Context, id string, n desig
 	script := lcK8sToolsRHEL
 	if isDebianOS(n.OS) {
 		script = lcK8sToolsDebian
+	} else if isEL7OS(n.OS) {
+		script = lcK8sToolsEL7
 	}
 	env := []string{
 		"KUBECTL_VERSION=" + map[bool]string{true: version, false: ""}[n.LCKubectl],

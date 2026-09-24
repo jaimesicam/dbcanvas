@@ -127,6 +127,9 @@ export const stackApi = {
   stocksimTest: (id, nid, conn) => request('POST', `/api/stacks/${id}/nodes/${nid}/stocksim/test`, conn),
   ledgersimTest: (id, nid, conn) => request('POST', `/api/stacks/${id}/nodes/${nid}/ledgersim/test`, conn),
   pmmCatalog: () => request('GET', '/api/catalog/pmm'),
+  // PMM 2's releases — a fixed list served by app/pmm2.go, since an end-of-life product
+  // has no new version for `make versions` to find.
+  pmm2Catalog: () => request('GET', '/api/catalog/pmm2'),
   pxcCatalog: () => request('GET', '/api/catalog/pxc'),
   proxysqlCatalog: () => request('GET', '/api/catalog/proxysql'),
   valkeyCatalog: () => request('GET', '/api/catalog/valkey'),

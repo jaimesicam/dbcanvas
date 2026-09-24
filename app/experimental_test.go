@@ -39,11 +39,11 @@ func TestSystemSettingsCarryExperimental(t *testing.T) {
 	app := newTestApp(t)
 
 	t.Setenv(experimentalEnv, "")
-	if app.systemSettings("jaime").Experimental {
+	if app.systemSettings("tester").Experimental {
 		t.Error("settings claim experimental features are on with EXPERIMENTAL unset")
 	}
 	t.Setenv(experimentalEnv, "on")
-	if !app.systemSettings("jaime").Experimental {
+	if !app.systemSettings("tester").Experimental {
 		t.Error("settings do not carry EXPERIMENTAL=on")
 	}
 

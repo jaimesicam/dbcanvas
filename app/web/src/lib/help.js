@@ -109,6 +109,10 @@ export const HELP = {
     'Register this node with a PMM server so it shows up in Percona Monitoring and Management with metrics and ' +
     'Query Analytics. The monitoring user is created on the node for you and the agent is configured at deploy. ' +
     'Add a PMM node to the canvas first; leave it on "none" if you do not need the dashboards.',
+  pmm2Version:
+    'The PMM 2 server release to deploy — an exact percona/pmm-server tag. PMM 2 is end of life, so the list is ' +
+    'fixed rather than refreshed by `make versions`: 2.44.1 was the last release, and 2.25.0 is as far back as ' +
+    'these have been checked to come up.',
   orchestrator:
     'Point an Orchestrator node at this cluster so it discovers the replication topology and can drive failovers ' +
     'from its own web UI. Optional — replication works the same without it.',
@@ -659,6 +663,9 @@ const NODE_BLURB = {
     'A real Active Directory domain controller — LDAP, Kerberos and DNS — for demonstrating AD-backed database ' +
     'authentication and GSSAPI single sign-on. One per stack.',
   pmm: 'A Percona Monitoring and Management server. Point database nodes at it and they register themselves, with metrics and Query Analytics.',
+  pmm2:
+    'A PMM 2 server at the release you pick — end of life, offered because EOL is on. It stands alone: no node ' +
+    'on the canvas can be pointed at it, so register clients by hand if you need them. Separate from PMM3.',
   watchtower: 'Watches for newer images of the nodes it manages and updates them, for demonstrating an upgrade rollout.',
   keycloak: 'An OIDC identity provider, so databases in the stack can do single sign-on instead of holding their own passwords.',
   openbao: 'A key-management server, so a database can keep its data-at-rest encryption keys somewhere other than beside the data.',

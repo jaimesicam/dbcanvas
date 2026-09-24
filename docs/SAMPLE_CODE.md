@@ -195,7 +195,8 @@ sample requirement  →  dependency resolver  →  distribution package installe
 ```
 
 That is the only place in the feature that knows a package manager exists, which is what
-makes it correct on Oracle Linux 8/9/10, Ubuntu 22.04/24.04 and Debian 12/13 without
+makes it correct on Oracle Linux 8/9/10, Ubuntu 22.04/24.04, Debian 12/13 and — with `EOL=on` —
+CentOS 7 ([below](#centos-7)) without
 twenty-three samples having to care.
 
 Runtimes and native clients come from the package manager; library dependencies come from the
@@ -214,6 +215,30 @@ from Microsoft's own archive — `dotnet-sdk-10.0.401`, pinned and checked again
 architecture, exactly as Node on Ubuntu 22.04 and Go on Debian 12 are. No Microsoft package
 repository is added to any node. The generated project targets `net8.0` and rolls forward, so
 the same project builds and runs on an 8-only node and a 10-only one.
+
+### CentOS 7
+
+With `EOL=on`, a Linux Client can run CentOS 7 (see [Stacks](STACKS.md)). It is the hardest release
+here to run a current driver on — glibc 2.17, Python 3.6, OpenJDK 11, Maven 3.0.5, no Node or Go, no
+`dnf` — so the resolver has a column of its own for it, and every entry in it was found by installing
+on a live node:
+
+| Needs | On CentOS 7 |
+| --- | --- |
+| Python ≥ 3.8 | `rh-python38` from Software Collections (the SCL "rh" repo, on the vault) |
+| Node.js | 22.23.2, the Node.js project's **glibc 2.17** build (unofficial-builds.nodejs.org) — pinned, checksum checked; x86_64 only |
+| Go | the same pinned upstream 1.27.1 archive Debian 12 gets (it is statically linked) |
+| JDK 17+ | Eclipse Temurin 21.0.12.1, pinned per architecture, unpacked under `/usr/lib/jvm` |
+| Maven | Apache Maven 3.9.16, pinned (3.0.5 is below what `exec-maven-plugin` accepts) |
+| `mysql` | Percona Server **8.0** client for every target (Percona's last el7 client); `Percona-Server-client-57` for a 5.7 target |
+| `psql` | Percona Distribution for PostgreSQL **13** for any newer target: the 14–16 el7 builds require `libzstd`, which CentOS 7 never shipped (it was EPEL) |
+| `mongosh` | 2.1.5 from `psmdb-70` (there is no `psmdb-80` for el7) |
+
+Two things **cannot** run there, and the picker says so rather than failing halfway through an
+install: **C#**, because the .NET 8 and 10 SDKs both need `GLIBCXX_3.4.21` and CentOS 7's libstdc++
+stops at 3.4.19, and **Valkey's shell client**, because Percona publishes no Valkey for el7. The
+Python, Node.js, Go and Java Valkey clients are offered — their drivers install there, but they have
+not been run against a Valkey from a CentOS 7 node.
 
 ## TLS
 

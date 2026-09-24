@@ -72,8 +72,8 @@ const scStorePass = "changeit"
 // which ships neither problem. Every version-dependent decision below reads this rather than
 // guessing from the family name.
 type scOS struct {
-	ID      string // oraclelinux | rocky | almalinux | debian | ubuntu
-	Version string // "8", "9", "10", "22.04", "24.04", "12", "13"
+	ID      string // oraclelinux | rocky | almalinux | centos | debian | ubuntu
+	Version string // "7", "8", "9", "10", "22.04", "24.04", "12", "13"
 }
 
 // Debian reports whether this is an apt distribution.
@@ -95,6 +95,15 @@ func (o scOS) Major() int {
 
 // EL reports whether this is Enterprise Linux at exactly this major release.
 func (o scOS) EL(major int) bool { return !o.Debian() && o.Major() == major }
+
+// EL7 reports whether this is CentOS 7, the end-of-life release offered with EOL=on
+// (linuxclient_el7.go). It is its own predicate rather than EL(7) because it is true from the family
+// alone — the only CentOS DBCanvas offers is 7, and some callers have only the family to go on.
+//
+// Almost nothing about it is the EL8+ story. There is no dnf and no module streams; glibc is 2.17,
+// which no current Node.js or .NET build runs on; python3 is 3.6 and the JDK stops at 11. What does
+// run there is listed per package below, and every answer in it was found on a live node.
+func (o scOS) EL7() bool { return isEL7OS(o.ID) }
 
 // Is reports whether this is the named distribution at exactly this release.
 func (o scOS) Is(id, version string) bool { return o.ID == id && o.Version == version }
@@ -156,8 +165,13 @@ type scSysPkg struct {
 	// has nothing new enough. Nil everywhere else, which is almost everywhere.
 	Tarball func(os scOS) *scTarball
 	// Repo is the percona-release product to enable before installing, or "" for the distro's
-	// own repositories.
-	Repo func(t scTarget) string
+	// own repositories. It takes the OS because on CentOS 7 the answer is not the target's series:
+	// Percona stopped building for el7 before most of the current ones.
+	Repo func(os scOS, t scTarget) string
+	// Unsupported is why this cannot be installed on a release at all, or "" when it can. A
+	// client that needs something unsupported is refused before anything is installed
+	// (scUnsupported), rather than failing halfway through its environment.
+	Unsupported func(os scOS) string
 	// License and URL describe what is being installed, for the same reason scDep carries them.
 	License string
 	URL     string
@@ -186,6 +200,13 @@ var scSysPackages = map[string]scSysPkg{
 				// 3.11 is a separate package rather than a stream, so it installs beside it.
 				return []string{"python3.11", "python3.11-pip"}
 			}
+			if os.EL7() {
+				// CentOS 7's python3 is 3.6 too, with nothing newer in base. Software
+				// Collections' rh-python38 is the newest Python the release ever got, from the
+				// SCL "rh" repository the node is pointed at when it is deployed. Its interpreter
+				// carries its own library path, so it runs without `scl enable`.
+				return []string{"rh-python38-python", "rh-python38-python-pip"}
+			}
 			return []string{"python3", "python3-pip"}
 		},
 		License: "PSF-2.0", URL: "https://www.python.org/",
@@ -209,10 +230,15 @@ var scSysPackages = map[string]scSysPkg{
 			}
 			return scModules{}
 		},
-		// Ubuntu 22.04's archive has Node 12 and nothing else, on any channel.
+		// Ubuntu 22.04's archive has Node 12 and nothing else, on any channel. CentOS 7 has no
+		// Node at all, and the official builds need glibc 2.28 — it gets the Node.js project's
+		// glibc 2.17 build of the same release.
 		Tarball: func(os scOS) *scTarball {
 			if os.Is("ubuntu", "22.04") {
 				return &scNodeUpstream
+			}
+			if os.EL7() {
+				return &scNodeUpstreamEL7
 			}
 			return nil
 		},
@@ -247,8 +273,10 @@ var scSysPackages = map[string]scSysPkg{
 		},
 		// Debian 12 has golang-go 1.19, no versioned golang-1.2x packages, and no newer Go in
 		// backports either — the only route to a toolchain the drivers accept is upstream's.
+		// CentOS 7 has no Go at all. The upstream toolchain is statically linked, so the same
+		// archive runs on its glibc 2.17.
 		Tarball: func(os scOS) *scTarball {
-			if os.Is("debian", "12") {
+			if os.Is("debian", "12") || os.EL7() {
 				return &scGoUpstream
 			}
 			return nil
@@ -279,6 +307,15 @@ var scSysPackages = map[string]scSysPkg{
 			}
 			return []string{"java-17-openjdk-devel"}
 		},
+		// CentOS 7 stops at java-11-openjdk, below the release level the pom compiles at.
+		// Eclipse Temurin still builds against glibc 2.17, and unpacks under /usr/lib/jvm so
+		// scJavaCapable and scJavaHome find it the way they find a packaged JDK.
+		Tarball: func(os scOS) *scTarball {
+			if os.EL7() {
+				return &scJDKUpstreamEL7
+			}
+			return nil
+		},
 		License: "GPL-2.0-only WITH Classpath-exception-2.0", URL: "https://openjdk.org/",
 	},
 	"maven": {
@@ -291,7 +328,16 @@ var scSysPackages = map[string]scSysPkg{
 		// level decides the bytecode, not the plugin version) and works on every node.
 		Check:    func(scOS, scTarget) string { return `command -v mvn >/dev/null` },
 		Packages: func(scOS, scTarget) []string { return []string{"maven"} },
-		License:  "Apache-2.0", URL: "https://maven.apache.org/",
+		// CentOS 7's is 3.0.5, which is below even what the pom's plugins pin for EL8:
+		// exec-maven-plugin 3.1.0 declares Maven 3.2.5 as its minimum. Apache's own binary
+		// archive is pure Java and runs on any JDK the step above installed.
+		Tarball: func(os scOS) *scTarball {
+			if os.EL7() {
+				return &scMavenUpstream
+			}
+			return nil
+		},
+		License: "Apache-2.0", URL: "https://maven.apache.org/",
 	},
 	"icu": {
 		ID: "icu", Label: "ICU (International Components for Unicode)",
@@ -314,7 +360,8 @@ var scSysPackages = map[string]scSysPkg{
 			}
 			return []string{"libicu76"} // Debian 13, and the guess for a release newer than this list
 		},
-		License: "Unicode-3.0", URL: "https://icu.unicode.org/",
+		Unsupported: scNoDotnetOnEL7,
+		License:     "Unicode-3.0", URL: "https://icu.unicode.org/",
 	},
 	"dotnet-sdk": {
 		ID: "dotnet-sdk", Label: ".NET SDK",
@@ -344,7 +391,8 @@ var scSysPackages = map[string]scSysPkg{
 			}
 			return nil
 		},
-		License: "MIT", URL: "https://dotnet.microsoft.com/",
+		Unsupported: scNoDotnetOnEL7,
+		License:     "MIT", URL: "https://dotnet.microsoft.com/",
 	},
 	"openssl": {
 		ID: "openssl", Label: "OpenSSL command line",
@@ -354,8 +402,15 @@ var scSysPackages = map[string]scSysPkg{
 	},
 	"mysql-client": {
 		ID: "mysql-client", Label: "mysql (Percona Server client)",
-		Check:    func(scOS, scTarget) string { return `command -v mysql >/dev/null` },
-		Packages: func(scOS, scTarget) []string { return []string{"percona-server-client"} },
+		Check: func(scOS, scTarget) string { return `command -v mysql >/dev/null` },
+		Packages: func(os scOS, t scTarget) []string {
+			// On CentOS 7 the 5.7 client is its own package name, as it is in the 5.7 repo
+			// everywhere; every newer target gets the 8.0 client (see Repo).
+			if os.EL7() && psMajorOf(scMajorOr(t.Major, "8.0")) == "5.7" {
+				return []string{"Percona-Server-client-57"}
+			}
+			return []string{"percona-server-client"}
+		},
 		// Percona had not published this repository for Debian 13 (trixie) when this was
 		// written, and apt says only "Unable to locate package". mariadb-client speaks the
 		// same wire protocol and installs the same `mysql` command, which is what the sample
@@ -374,8 +429,16 @@ var scSysPackages = map[string]scSysPkg{
 			return scModules{}
 		},
 		// Same repository the ProxySQL node uses for the same binary — the series the target
-		// runs, so the client is never older than the server it is pointed at.
-		Repo:    func(t scTarget) string { return psClientProduct(psMajorOf(scMajorOr(t.Major, "8.0"))) },
+		// runs, so the client is never older than the server it is pointed at. Except on
+		// CentOS 7, where Percona's last el7 client is 8.0 (8.0.37): there is no ps-84-lts or 9.x
+		// build for el7, and an 8.0 client speaks to both.
+		Repo: func(os scOS, t scTarget) string {
+			m := psMajorOf(scMajorOr(t.Major, "8.0"))
+			if os.EL7() && m != "5.7" {
+				m = "8.0"
+			}
+			return psClientProduct(m)
+		},
 		License: "GPL-2.0-only", URL: "https://www.percona.com/mysql",
 	},
 	"psql-client": {
@@ -386,7 +449,7 @@ var scSysPackages = map[string]scSysPkg{
 			return `command -v psql >/dev/null || [ -x ` + scPgBinDir(os.ID, t) + `/psql ]`
 		},
 		Packages: func(os scOS, t scTarget) []string {
-			m := ppgMajorOf(scMajorOr(t.Major, "17"))
+			m := scPgClientMajor(os.ID, t)
 			if os.Debian() {
 				return []string{"percona-postgresql-client-" + m}
 			}
@@ -399,15 +462,22 @@ var scSysPackages = map[string]scSysPkg{
 			}
 			return scModules{}
 		},
-		Repo:    func(t scTarget) string { return ppgProduct(scMajorOr(t.Major, "17")) },
+		Repo:    func(os scOS, t scTarget) string { return ppgProduct(scPgClientMajor(os.ID, t)) },
 		License: "PostgreSQL", URL: "https://www.percona.com/postgresql",
 	},
 	"mongosh": {
 		ID: "mongosh", Label: "mongosh (MongoDB Shell)",
 		Check:    func(scOS, scTarget) string { return `command -v mongosh >/dev/null` },
 		Packages: func(scOS, scTarget) []string { return []string{"percona-mongodb-mongosh"} },
-		Repo:     func(t scTarget) string { return psmdbRepo(scMajorOr(t.Major, "8.0")) },
-		License:  "Apache-2.0", URL: "https://github.com/mongodb-js/mongosh",
+		// psmdb-80 has no el7 build; psmdb-60 and -70 both carry mongosh 2.1.5 for it, and a
+		// mongosh is not tied to the server's series the way a mysql client is.
+		Repo: func(os scOS, t scTarget) string {
+			if os.EL7() {
+				return "psmdb-70"
+			}
+			return psmdbRepo(scMajorOr(t.Major, "8.0"))
+		},
+		License: "Apache-2.0", URL: "https://github.com/mongodb-js/mongosh",
 	},
 	"valkey-cli": {
 		ID: "valkey-cli", Label: "valkey-cli",
@@ -420,7 +490,13 @@ var scSysPackages = map[string]scSysPkg{
 			}
 			return []string{"percona-valkey"}
 		},
-		Repo:    func(scTarget) string { return "valkey-91" },
+		Repo: func(scOS, scTarget) string { return "valkey-91" },
+		Unsupported: func(os scOS) string {
+			if os.EL7() {
+				return "Percona publishes no Valkey build for CentOS 7, so there is no valkey-cli to install"
+			}
+			return ""
+		},
 		License: "BSD-3-Clause", URL: "https://valkey.io/",
 	},
 }
@@ -503,6 +579,56 @@ var scDotnetUpstream = scTarball{
 	License: "MIT",
 }
 
+// scNodeUpstreamEL7 is the same Node.js release as scNodeUpstream, built by the Node.js project
+// against glibc 2.17 (unofficial-builds.nodejs.org — the project's own build infrastructure for the
+// platforms its release builds dropped). The official Node 18+ archives need glibc 2.28, which is
+// why CentOS 7 cannot use scNodeUpstream. There is no aarch64 build of this flavour, so an arm64
+// CentOS 7 node is refused by the install script rather than handed the wrong binary.
+// Checksum from the release's own SHASUMS256.txt.
+var scNodeUpstreamEL7 = scTarball{
+	Name: "Node.js (glibc 2.17 build)", Version: "22.23.2",
+	URL:  "https://unofficial-builds.nodejs.org/download/release/v22.23.2/node-v22.23.2-linux-%s-glibc-217.tar.xz",
+	Arch: map[string]string{"x86_64": "x64"},
+	SHA256: map[string]string{
+		"x86_64": "333a2c084cbeb3fc8cc026b7cc8eb194cec31803142a0c56e58845eafbfe4495",
+	},
+	Dir: "/usr/local/node", Strip: 1, Bins: []string{"node", "npm", "npx"},
+	License: "MIT",
+}
+
+// scJDKUpstreamEL7 is Eclipse Temurin 21 for CentOS 7, whose own archive stops at JDK 11. Version
+// and checksums are Adoptium's (api.adoptium.net/v3/assets/latest/21/hotspot). It unpacks under
+// /usr/lib/jvm, where scJavaCapable and scJavaHome look for a JDK, so nothing downstream treats it
+// differently from a packaged one.
+//
+// OpenJDK is GPL-2.0 with the Classpath Exception; DBCanvas installs it and redistributes nothing.
+var scJDKUpstreamEL7 = scTarball{
+	Name: "Eclipse Temurin JDK", Version: "21.0.12.1+1",
+	URL:  "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%%2B1/OpenJDK21U-jdk_%s_linux_hotspot_21.0.12.1_1.tar.gz",
+	Arch: map[string]string{"x86_64": "x64", "aarch64": "aarch64"},
+	SHA256: map[string]string{
+		"x86_64":  "ce79869e1307ed8ee1e2baa86a412b1eb5b75d10a01006d788a6f968bcfaee94",
+		"aarch64": "23e37e026f12f3e706f18938ff611db3032d075b09d0879a25d06718c773e223",
+	},
+	Dir: "/usr/lib/jvm/temurin-21", Strip: 1, Bins: []string{"java", "javac", "keytool"},
+	License: "GPL-2.0-only WITH Classpath-exception-2.0",
+}
+
+// scMavenUpstream is Apache Maven's binary archive, for CentOS 7 (whose maven is 3.0.5). Pure Java,
+// so one archive serves every architecture. The SHA-256 was taken after the download matched the
+// SHA-512 Apache publishes beside it.
+var scMavenUpstream = scTarball{
+	Name: "Apache Maven", Version: "3.9.16",
+	URL:  "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz",
+	Arch: map[string]string{"x86_64": "", "aarch64": ""},
+	SHA256: map[string]string{
+		"x86_64":  "80ffca22aed9e8b9713a232f3394fd81d7f20322df75efdb2b047dbd3e3a23bb",
+		"aarch64": "80ffca22aed9e8b9713a232f3394fd81d7f20322df75efdb2b047dbd3e3a23bb",
+	},
+	Dir: "/usr/local/maven", Strip: 1, Bins: []string{"mvn"},
+	License: "Apache-2.0",
+}
+
 // scDotnetMinSDK is the oldest SDK major that builds the generated project, which targets net8.0.
 const scDotnetMinSDK = 8
 
@@ -553,7 +679,7 @@ if [ -n "$JAVA_HOME" ]; then export JAVA_HOME; PATH="$JAVA_HOME/bin:$PATH"; expo
 func scTarballEnv(tb *scTarball) []string {
 	var url, sum string
 	for uname, token := range tb.Arch {
-		url += uname + "=" + fmt.Sprintf(tb.URL, token) + " "
+		url += uname + "=" + tb.urlFor(token) + " "
 		sum += uname + "=" + tb.SHA256[uname] + " "
 	}
 	return []string{
@@ -562,6 +688,15 @@ func scTarballEnv(tb *scTarball) []string {
 		"TB_DIR=" + tb.Dir, "TB_STRIP=" + strconv.Itoa(tb.Strip),
 		"TB_BINS=" + strings.Join(tb.Bins, " "), "TB_BINDIR=" + tb.binDir(),
 	}
+}
+
+// urlFor is the archive's URL for one architecture token. An archive with no %s in its URL is the
+// same file everywhere (Maven is pure Java), and Sprintf would append "%!(EXTRA …)" to it.
+func (tb *scTarball) urlFor(token string) string {
+	if !strings.Contains(strings.ReplaceAll(tb.URL, "%%", ""), "%s") {
+		return strings.ReplaceAll(tb.URL, "%%", "%")
+	}
+	return fmt.Sprintf(tb.URL, token)
 }
 
 func (tb *scTarball) binDir() string {
@@ -608,11 +743,75 @@ func scPythonBin(os scOS) string {
 	if os.EL(8) {
 		return "python3.11"
 	}
+	if os.EL7() {
+		return scPythonEL7
+	}
 	return "python3"
 }
 
+// scPythonEL7 is rh-python38's interpreter. By full path, because Software Collections install
+// under /opt/rh and put nothing on PATH.
+const scPythonEL7 = "/opt/rh/rh-python38/root/usr/bin/python3.8"
+
 func scPgBinDir(nodeOS string, t scTarget) string {
-	return pgBinDir(nodeOS, ppgMajorOf(scMajorOr(t.Major, "17")))
+	return pgBinDir(nodeOS, scPgClientMajor(nodeOS, t))
+}
+
+// scPgClientMajor is the PostgreSQL series whose psql is installed for a target: the target's own
+// everywhere but CentOS 7. Percona's el7 builds go up to 16, but 14, 15 and 16 all require libzstd,
+// which CentOS 7 never shipped (it was an EPEL package) — yum refuses them with "Requires: libzstd".
+// 13 is the newest that installs from the node's own repositories, and a psql 13 speaks the same
+// protocol and SCRAM authentication to 17 and 18; only its \d-style introspection can lag, which
+// the samples do not use.
+func scPgClientMajor(nodeOS string, t scTarget) string {
+	m := ppgMajorOf(scMajorOr(t.Major, "17"))
+	if isEL7OS(nodeOS) {
+		if n, err := strconv.Atoi(m); err == nil && n > scPgEL7Max {
+			return strconv.Itoa(scPgEL7Max)
+		}
+	}
+	return m
+}
+
+// scPgEL7Max is the newest Percona Distribution for PostgreSQL whose el7 psql installs without EPEL.
+const scPgEL7Max = 13
+
+// scNoDotnetOnEL7 is the one reason C# cannot run on CentOS 7, found by running both SDKs there:
+// the .NET 8 and 10 archives both need GLIBCXX_3.4.21 from libstdc++, and CentOS 7 has 3.4.19.
+// Shared by the SDK and ICU so a C# client names it once, whichever it checks first.
+func scNoDotnetOnEL7(os scOS) string {
+	if os.EL7() {
+		return ".NET 8 and later need a newer libstdc++ (GLIBCXX_3.4.21) than CentOS 7 has, so no .NET SDK runs there"
+	}
+	return ""
+}
+
+// scUnsupportedOn is every client that cannot run on a release, keyed database/language/client —
+// the catalogue's own client id (language/client) under its database, because that id alone is not
+// unique (go/database-sql speaks MySQL and PostgreSQL). Valued with the reason. Empty, not nil, on
+// every release but CentOS 7, so the JSON is always an object.
+func scUnsupportedOn(os scOS) map[string]string {
+	out := map[string]string{}
+	for _, c := range scClients {
+		if why := scUnsupported(c, os); why != "" {
+			out[c.Database+"/"+c.Language+"/"+c.ID] = why
+		}
+	}
+	return out
+}
+
+// scUnsupported is why a client cannot run on this node's release at all, or "" when it can: the
+// first reason any package it needs gives. Checked before a plan is built, so the answer is one
+// sentence rather than an install log that fails at step three.
+func scUnsupported(c scClient, os scOS) string {
+	for _, id := range append(scRuntimePackages(c.Runtime), c.SysPackages...) {
+		if p, ok := scSysPackages[id]; ok && p.Unsupported != nil {
+			if why := p.Unsupported(os); why != "" {
+				return why
+			}
+		}
+	}
+	return ""
 }
 
 // scRequirementLabels is what a client needs, in the order the environment log will report it.
@@ -741,6 +940,20 @@ tar -C "$TB_DIR" --strip-components="$TB_STRIP" -xf "$tmp/archive"
 for b in $TB_BINS; do ln -sf "$TB_DIR/${TB_BINDIR:-bin}/$b" "/usr/local/bin/$b"; done
 echo "installed $TB_NAME $TB_VERSION in $TB_DIR"`
 
+// scInstallEL7 is scInstallRHEL for CentOS 7: yum, and no module streams to change (they arrived
+// with EL8). The vault repositories and the SCL one are already configured — the node was pointed
+// at them when it was deployed (el7BootstrapScript).
+const scInstallEL7 = `set -e
+if [ -n "$PROXY" ]; then export http_proxy="$PROXY" https_proxy="$PROXY" HTTP_PROXY="$PROXY" HTTPS_PROXY="$PROXY"; fi
+if [ -n "$REPO" ]; then
+  percona-release enable "$REPO" >/dev/null 2>&1 || percona-release setup -y "$REPO" >/dev/null 2>&1 || true
+fi
+if ! yum -y install $PKGS; then
+  [ -n "$ALT" ] || exit 1
+  echo "falling back to: $ALT"
+  yum -y install $ALT
+fi`
+
 const scInstallDebian = `set -e
 export DEBIAN_FRONTEND=noninteractive
 if [ -n "$PROXY" ]; then export http_proxy="$PROXY" https_proxy="$PROXY" HTTP_PROXY="$PROXY" HTTPS_PROXY="$PROXY"; fi
@@ -782,7 +995,7 @@ func scBuildPlan(c scClient, g scGen, os scOS, useProxy bool) scPlan {
 		}
 		repo := ""
 		if p.Repo != nil {
-			repo = p.Repo(g.Target)
+			repo = p.Repo(os, g.Target)
 		}
 		var mods scModules
 		if p.Modules != nil {
@@ -797,6 +1010,9 @@ func scBuildPlan(c scClient, g scGen, os scOS, useProxy bool) scPlan {
 		if os.Debian() {
 			script, show = scInstallDebian, "apt-get install -y "+pkgs
 			mods = scModules{} // module streams are an EL idea
+		} else if os.EL7() {
+			script, show = scInstallEL7, "yum -y install "+pkgs
+			mods = scModules{} // and an EL8+ one
 		}
 		env := []string{"PKGS=" + pkgs, "ALT=" + alt, "REPO=" + repo, "PROXY=" + proxy,
 			"MOD_DISABLE=" + strings.Join(mods.Disable, " "),
@@ -806,7 +1022,7 @@ func scBuildPlan(c scClient, g scGen, os scOS, useProxy bool) scPlan {
 			// consulted at all — installing its too-old build first would only leave two
 			// runtimes on the node and the wrong one on PATH.
 			script = scInstallTarball
-			show = "curl -fsSL " + fmt.Sprintf(tb.URL, "$(arch)") +
+			show = "curl -fsSL " + tb.urlFor("$(arch)") +
 				" | sha256sum -c | tar -C " + tb.Dir + " -x   # " + tb.Name + " " + tb.Version +
 				", " + tb.License + ", checksum pinned"
 			env = append(scTarballEnv(tb), "PROXY="+proxy)

@@ -80,6 +80,9 @@ services:
       # Whether features that are not finished yet appear in the menus. on/off,
       # default off — on reveals work that is still being fixed. See app/experimental.go.
       EXPERIMENTAL: ${EXPERIMENTAL:-off}
+      # Whether end-of-life releases are offered: CentOS 7 for the Linux Client and
+      # a PMM 2 monitoring node. on/off, default off. See app/eol.go.
+      EOL: ${EOL:-off}
       # The only host directory a Linux Client set up for core-dump analysis may
       # bind-mount from. A bind mount is the one place a path somebody typed reaches
       # the Docker daemon, and the daemon has no sandbox of its own — so this is the

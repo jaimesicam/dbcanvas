@@ -94,13 +94,13 @@ the DBCanvas source, so they need a checkout and `make <name>-image`.
 - **Proxies & HA** — **ProxySQL** (standalone or a cluster), **HAProxy**, **PgBouncer**
   (below), and **Orchestrator** (MySQL topology discovery, failure detection and failover).
 - **Monitoring** — **PMM** and **Watchtower**, which rolls a PMM server onto a newer image
-  so an upgrade can be demonstrated.
+  so an upgrade can be demonstrated. With `EOL=on`, also **PMM2** (below).
 - **Identity & Secrets** — a **Samba AD DC** (Active Directory, LDAP, Kerberos),
   **Keycloak** (OIDC), and **OpenBao** (secrets manager).
 - **Storage & Clients** — **SeaweedFS** (S3 for backups, up to 10 buckets, browsable from
   its panel), an **Ubuntu VNC** desktop, and a **Linux Client** jump box (a bare OS host with
   nothing installed, on any base image the matrix builds — Oracle Linux 8/9/10, Ubuntu
-  22.04/24.04 or Debian 12/13: join the stack's DNS/CA trust, then use its terminal to install
+  22.04/24.04 or Debian 12/13, and CentOS 7 with `EOL=on` (below): join the stack's DNS/CA trust, then use its terminal to install
   and exercise whatever client tools a task needs — or tick *install kubectl* / *install Helm* to
   have them there at deploy, or *use this client for core-dump analysis* and it becomes one, see
   below).
@@ -806,6 +806,27 @@ themselves, so Percona Monitoring & Management comes up already watching the sta
 > container. The panel names them, and gives a root console alongside a `pmm-admin` one.*
 
 ![Percona Monitoring & Management, already watching the services that registered with it](screenshots/pmm-web.png)
+
+**End-of-life releases (`EOL=on`).** Support questions come from systems the vendor stopped
+supporting, so an installation with `EOL=on` in `.env` (see [Configuration](CONFIGURATION.md)) is
+offered two of them. Both are off by default, and turning the switch back off only hides them from
+the pickers — a stack that already has one keeps working.
+
+- **CentOS 7 Linux Client.** Pick `centos (end of life)` / `7` in a Linux Client's OS picker. There is
+  nothing to build: the node runs the stock `centos:7` image, and at deploy DBCanvas replaces its
+  `CentOS-Base.repo` with one pointed at `vault.centos.org` (mirror.centos.org no longer serves
+  CentOS 7), does the same for the Software Collections repository, sets `ip_resolve=4` (and the
+  Intranet proxy, when ticked) in `yum.conf`, and installs `percona-release`. The node has **no
+  systemd** — CentOS 7's systemd 219 cannot run as PID 1 on a cgroup v2 Docker host, which is every
+  current one — so it is a shell and nothing else: the terminal, Sample Client Code and file drops
+  work, services do not. kubectl and Helm install; core-dump analysis is not offered on it. Docker
+  backend only. For what Sample Client Code can run there, see [Sample Client Code](SAMPLE_CODE.md#centos-7).
+- **PMM2.** A PMM 2 server under **Monitoring**, separate from PMM3 — pick the release
+  (2.25.0 to 2.44.1, the last one; a fixed list, since there will be no new ones for
+  `make versions` to find) and deploy. The console is published on HTTPS/HTTP host ports and the
+  login is `admin` / `PMM_ADMIN_PASSWORD`. It is deliberately not integrated with anything: no
+  database node can be pointed at it, and it gets no Intranet certificate, SMTP, LDAP or Keycloak.
+  amd64 only, as PMM 2 never had an arm64 server image.
 
 **MClusterAdmin — a MongoDB administration panel.** A node that runs
 [MClusterAdmin](https://github.com/PrzemekMalkowski/mclusteradmin), a third-party web panel for

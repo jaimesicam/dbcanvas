@@ -26,6 +26,9 @@ const DEFAULTS = {
 const SYSTEM_DEFAULTS = {
   maxUploadBytes: 4 * 1024 * 1024 * 1024, maxTokenDays: 90,
   sshForwarding: { enabled: false }, experimental: false,
+  // EOL (app/eol.go): end-of-life releases — CentOS 7, PMM 2 — stay out of every
+  // picker until the server says this installation offers them.
+  eol: false,
   // Off until the server says otherwise, so a page rendered before the settings
   // land never offers to write to a PMM database.
   internalWrites: false,

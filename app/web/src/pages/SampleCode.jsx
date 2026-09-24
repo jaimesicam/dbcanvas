@@ -38,6 +38,9 @@ export default function SampleCode() {
   const [nodeId, setNodeId] = useState('')
   const [targets, setTargets] = useState([])
   const [certs, setCerts] = useState([])
+  // What this node's release cannot run, keyed database/language/client, with the reason —
+  // empty everywhere but CentOS 7 (app/samplecode_env.go, scUnsupportedOn).
+  const [unsupported, setUnsupported] = useState({})
 
   const [targetId, setTargetId] = useState('')
   const [clientId, setClientId] = useState('') // "language/client"
@@ -64,6 +67,7 @@ export default function SampleCode() {
     return (catalog.databases.find((d) => d.id === target.engine)?.clients) || []
   }, [catalog, target])
   const client = useMemo(() => clients.find((c) => c.id === clientId) || null, [clients, clientId])
+  const whyNot = (c) => (target && c ? unsupported[`${target.engine}/${c.id}`] : '') || ''
 
   // ---- what exists -----------------------------------------------------------
 
@@ -85,13 +89,14 @@ export default function SampleCode() {
 
   // The endpoints belong to the selected node's own stack.
   useEffect(() => {
-    if (!api) { setTargets([]); setCerts([]); return }
+    if (!api) { setTargets([]); setCerts([]); setUnsupported({}); return }
     let alive = true
     api.targets()
       .then((r) => {
         if (!alive) return
         setTargets(r?.targets || [])
         setCerts(r?.clientCerts || [])
+        setUnsupported(r?.unsupported || {})
       })
       .catch((e) => { if (alive) { setTargets([]); setErr(e.message) } })
     return () => { alive = false }
@@ -106,8 +111,12 @@ export default function SampleCode() {
   }, [targets]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!clients.length) { setClientId(''); return }
-    if (!clients.some((c) => c.id === clientId)) setClientId(clients[0].id)
-  }, [clients]) // eslint-disable-line react-hooks/exhaustive-deps
+    // Snap to one this node can run: landing on C# on a CentOS 7 client would open the page on
+    // an error for a choice nobody made.
+    const runnable = clients.filter((c) => !whyNot(c))
+    const cur = clients.find((c) => c.id === clientId)
+    if (!cur || (whyNot(cur) && runnable.length)) setClientId((runnable[0] || clients[0]).id)
+  }, [clients, unsupported]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!client) return
     if (!client.scenarios.includes(scenario)) setScenario(client.scenarios[client.scenarios.length - 1])
@@ -227,12 +236,14 @@ export default function SampleCode() {
               ))}
             </select>
           </Field>
-          <Field label="Client" help={TOOL_HELP.scClient} hint={client?.summary || ''}>
+          <Field label="Client" help={TOOL_HELP.scClient} hint={whyNot(client) || client?.summary || ''}>
             <select className={inputCls} value={clientId} disabled={!clients.length}
               onChange={(e) => setClientId(e.target.value)}>
               {!clients.length && <option value="">—</option>}
               {clients.map((c) => (
-                <option key={c.id} value={c.id}>{c.languageLabel} — {c.label}</option>
+                <option key={c.id} value={c.id} disabled={!!whyNot(c)}>
+                  {c.languageLabel} — {c.label}{whyNot(c) ? ` (not on ${node?.os || 'this OS'} ${node?.osVersion || ''})`.replace(/ \)$/, ')') : ''}
+                </option>
               ))}
             </select>
           </Field>
