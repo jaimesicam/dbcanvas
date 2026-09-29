@@ -28,7 +28,7 @@ import { Comparison, Verdicts, Advisor, ChartCard, KeptCaptures, HeadToHead, Ver
 import {
   frameMemberSub, REPL_FRAME_TYPES,
   NODE_TYPES, CONNECTABLE_FRAMES, SS_LINK_TYPES, SS_LINK_ENGINE,
-  K3D_OPERATOR_LABEL, ssLinkEngine,
+  K3D_OPERATOR_LABEL, K3D_NO_DATABASE, ssLinkEngine,
   insertTemplateDesign, groupTemplates, templateSizeLabel, menuEntriesFor, submenuPos, menuPos, menuWidth,
   MClusterAdminForm, MClusterAdminManager, MCA_DEFAULT_ADMIN_PW, MCA_DEFAULT_RO_PW,
   BuildImageRow,
@@ -1640,6 +1640,7 @@ check('every Stock Market Sim link target maps to an engine', () => {
 // deploy against it — which is precisely the gap this replaced.
 check('every K3D operator maps a Stock Market Sim node to an engine', () => {
   const missing = Object.keys(K3D_OPERATOR_LABEL)
+    .filter((op) => !K3D_NO_DATABASE.has(op))
     .filter((op) => !ssLinkEngine({ kind: 'k3d', operator: op }))
   if (missing.length) throw new Error('no engine for operator: ' + missing.join(', '))
   // ...and a frame with no operator has no database to drive, which the form

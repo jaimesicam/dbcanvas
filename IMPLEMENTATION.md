@@ -26301,3 +26301,63 @@ name`; blank rows are now ignored with one warning, skipped by the sync, and fla
 **Not verified.** Debian 12/13, Oracle Linux 8/10 and 22.04 targets; the ps, psmdb and pg operators
 (same code path as pxc); an apt node under strict mode; images from registries other than Docker
 Hub through the k3s rewrite; the Repository behind the Intranet proxy.
+
+---
+
+## 419. OpenEverest as a K3D operator choice — `app/k3deverest.go` (new), `app/k3deverest_test.go` (new), `app/{k3d,intranet}.go`, `app/stocksim_target_test.go`, `images/versions.sh`, `versions.yaml`, `StackDesigner`, `K3DManager`, `lib/help.js`, `smoke/render.jsx`, `.env.example`, `docker-compose.yml`, `docs/{STACKS,CONFIGURATION}.md`
+
+**A platform, not an operator.** `k3dOperator: "everest"` installs OpenEverest from
+`openeverest.github.io/helm-charts` (chart `openeverest`, release `everest-core`, namespace
+`everest-system` — the chart supports no other) as a k3s HelmChart, like CloudNativePG. It is in
+`k3dChartOperator`, so its version is a chart version from the `charts:` catalog (`openeverest`, added
+to `CHART_PRODUCTS`; prereleases and the 2.0.0-dev line are filtered out as for every chart).
+
+Values: `server.service.type: LoadBalancer` (MetalLB), `server.initialAdminPassword` from
+`EVEREST_PASSWORD`, telemetry off (both levels — the db-namespace subchart has its own key), and
+`dbNamespace.{namespaceOverride,pxc,psmdb,postgresql}` from the frame. `k3dEverestOperators` is the
+selection (`pxc`/`psmdb`/`pg`); empty means all three, the chart's default, and every operator is
+written explicitly so an unticked one is off rather than defaulted on.
+
+Install waits, in order: helm-controller's `helm-install-everest-core` Job (its log tail is the error
+on failure — a bad value or a failed hook says so there, and the chart's hooks are mandatory: the
+operators-installer hook approves the OLM InstallPlans), the `everest-operator` and `everest-server`
+Deployments, the DatabaseEngine CRD, then each chosen DatabaseEngine reaching `installed`. The engine
+wait is not fatal on timeout. What landed is recorded as `everestEngines` ("pxc 1.20.0"), because the
+versions are the chart's catalog's and only knowable afterwards. The password goes into `k3dSecrets`.
+
+**The UI on the host, like PMM's.** The chart's Service takes no `nodePort`, so DBCanvas adds its own
+`everest-host` NodePort Service (fixed 30808 — the publish is decided at `k3d cluster create`, before
+any Service exists, and it is one cluster per frame) and passes `--port
+<CONTAINER_BIND_IP>:<host>:30808/tcp@loadbalancer`. The host port is the previous deployment's
+`everestHostPort` when nothing else has published it since (read before the pending rows overwrite
+the config, and picked after the old cluster is deleted), else `freeHostPort`; the bound port is read
+back from the serverlb container. The panel links `http://<location.hostname>:<port>/`, as PMM's does.
+A cluster created before this has no host port; redeploying it gets one.
+
+No database is created, so `k3dNoDatabaseOperator` (mirrored by `K3D_NO_DATABASE`) exempts it from
+the "every deployable operator has a Stock Market Sim engine" invariant, and it is absent from
+`k3dCRStateOperator` (no readiness wait on a CR). PMM and SeaweedFS on the frame are warnings — Everest
+configures both in its own UI — and the designer hides those pickers. Reserved namespaces
+(`everest-system`, `everest-olm`, `everest-monitoring`) are refused as the DB namespace.
+
+Verified on k3s v1.36.4 with chart 1.16.2, one node, 6 CPU / 10 GiB, pxc + pg: deployed in about three
+minutes (PXC 1.20.0, PG 3.0.0, psmdb correctly not installed), admin login from the stack network
+succeeded, and a 1-node PXC DatabaseCluster created through Everest's API reached `ready` in two
+minutes. The host port (stack 78: 39275 → 30808 on the serverlb) served the UI (HTTP 200) and an admin login, requested from
+`localhost` on the host. Not exercised: psmdb through Everest, multi-node frames, older chart releases, and a
+Repository node (images not in it fall through to upstream, as for every K3D frame).
+
+**1.15.0 is unusable.** Its everest-server answers every UI path with an empty 200 and 404s its own
+`/static` assets (the API works), so the browser shows a blank page. Found on a frame pinned to it;
+confirmed by swapping each release's server image into one cluster — 1.15.1, 1.15.2, 1.16.1 and
+1.16.2 serve the UI (1.13.1/1.14.0 would not run against the newer chart's CRDs, so untested). It is
+dropped from discovery (`chart_broken` in `images/versions.sh`) and from `versions.yaml`, and a design
+pinned to it gets the reason from `everestBrokenVersions` instead of "unknown chart version".
+
+**A renamed frame no longer leaks its cluster.** The cluster name is the frame label, and both the
+pre-create delete and `destroyK3DClusters` only deleted clusters named after the design's *current*
+frames — so a rename left the old cluster (with its serverlb still holding host ports) behind even
+after the stack was deleted. `k3dStackClusters` lists k3d's clusters by the `-s<id>` suffix
+(compared whole: `-s1` is not `-s15`); teardown deletes all of them, and a frame's deploy deletes
+the ones no current frame is named for (`k3dStaleClusters`).
+

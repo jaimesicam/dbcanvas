@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -725,5 +726,18 @@ func TestK3DPGFeatureIssuesDoNotBlockAnAlreadyRunningFrame(t *testing.T) {
 	}
 	if iss := k3dPGFeatureIssues(old, doc, cat, true); len(iss) != 1 || iss[0].Level != "warning" {
 		t.Fatalf("a running frame on 3.0.0 must warn, got %v", iss)
+	}
+}
+
+// A renamed frame leaves a cluster under its old name; only that one is stale. Another stack's
+// clusters are never this stack's, even when the id is a prefix of theirs (-s1 vs -s15).
+func TestK3DStaleClusters(t *testing.T) {
+	doc := designDoc{Frames: []designFrame{{Type: "k3d", Label: "k3d-00"}, {Type: "k3d", Label: "k3d-01"}, {Type: "pxc", Label: "old"}}}
+	existing := []string{"k3d-00-s1", "k3d-01-s1", "k3d-oe-s1", "k3d-00-s15", "k3d-oe-s15", "other"}
+	if got := k3dStaleClusters(existing, 1, doc); !reflect.DeepEqual(got, []string{"k3d-oe-s1"}) {
+		t.Fatalf("stale = %q, want [k3d-oe-s1]", got)
+	}
+	if got := k3dClustersOfStack(existing, 15); !reflect.DeepEqual(got, []string{"k3d-00-s15", "k3d-oe-s15"}) {
+		t.Fatalf("stack 15 = %q", got)
 	}
 }

@@ -415,6 +415,22 @@ worth knowing: pgBackRest speaks S3 only over TLS, so its backups need a Seaweed
 on** — the designer warns you when it isn't, because without it the cluster silently keeps the
 operator's own PVC backup repo and the bucket stays empty.)
 
+**OpenEverest on Kubernetes.** Pick **OpenEverest** as the frame's operator and DBCanvas installs the
+database platform from its Helm chart (`openeverest`, any release `make versions` found), then waits
+for the Percona operators you tick — **MySQL (PXC)**, **MongoDB** and **PostgreSQL**, all three by
+default — to be installed into Everest's database namespace (the frame's namespace, `everest` by
+default) by OLM. Their versions are not yours to pick: each chart release pins the catalog they come
+from, and the node's panel shows what landed (`pxc 1.20.0 · pg 3.0.0` for chart 1.16.2). The frame
+creates **no database** — that is what Everest's UI is for. Like a PMM node's, the UI is published on a
+random host port (on `CONTAINER_BIND_IP`, loopback by default, kept across redeploys), and the node's
+panel has an **Open OpenEverest** button for `http://localhost:<port>/`; other nodes reach it on its
+MetalLB address on the stack network. Sign in as `admin` with `EVEREST_PASSWORD` from `.env`, which
+the panel also shows.
+Backups and PMM are configured inside Everest too — a SeaweedFS node is a backup storage, a PMM node a
+monitoring endpoint — so the frame's own SeaweedFS and PMM pickers are hidden. The platform is about
+ten pods before the first database (server, operator, OLM, monitoring), so give the frame 6 CPU / 10 GiB
+or more.
+
 **Percona Operator for PostgreSQL 3.1.0 and newer** adds three more knobs, which the designer shows
 only when the frame pins a version that has them — on an older release their `cr.yaml` sections do
 not exist, so asking for one is rejected outright by the API server rather than ignored, and the

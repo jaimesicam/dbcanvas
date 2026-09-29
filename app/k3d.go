@@ -61,16 +61,17 @@ var k3dOperatorRepos = map[string]string{
 
 // k3dDeployableOperator is the subset DBCanvas can actually install — the four Percona
 // operators plus the two community PostgreSQL ones, which are Helm-installed (see cnpg.go
-// and k3dpgo.go) rather than unpacked from a release tarball.
+// and k3dpgo.go) rather than unpacked from a release tarball, and OpenEverest, a platform
+// that installs Percona operators of its own choosing underneath it (see k3deverest.go).
 var k3dDeployableOperator = map[string]bool{
-	"pxc": true, "ps": true, "psmdb": true, "pg": true, "cnpg": true, "pgo": true,
+	"pxc": true, "ps": true, "psmdb": true, "pg": true, "cnpg": true, "pgo": true, "everest": true,
 }
 
 // k3dChartOperator maps an operator installed from a Helm chart to its key in the `charts:`
 // catalog — which is where its version comes from, and is not the version of the operator the
 // chart ships (the cloudnative-pg chart 0.29.0 carries operator 1.30.x; the pgo chart's version
 // happens to equal its appVersion, but that is Crunchy's convention, not a rule).
-var k3dChartOperator = map[string]string{"cnpg": cnpgChart, "pgo": pgoChart}
+var k3dChartOperator = map[string]string{"cnpg": cnpgChart, "pgo": pgoChart, "everest": everestChart}
 
 // k3dOperatorLabel names an operator the way its own project does, for messages a user reads.
 func k3dOperatorLabel(op string) string {
@@ -87,6 +88,8 @@ func k3dOperatorLabel(op string) string {
 		return "CloudNativePG"
 	case "pgo":
 		return "Crunchy Postgres for Kubernetes"
+	case "everest":
+		return "OpenEverest"
 	}
 	return op
 }
@@ -243,6 +246,18 @@ type k3dConfig struct {
 	// cannot see as undefined errors all over a workspace that is perfectly fine.
 	DebugGOARCH string `json:"debugGoarch"`
 	DebugStatus string `json:"debugStatus"`
+	// OpenEverest (Operator=="everest"). Namespace above is its DB namespace; Everest itself
+	// runs in everest-system. EverestOperators is what was asked for, EverestEngines what the
+	// DatabaseEngine objects reported as landed ("pxc 1.20.0", or a state if it did not) — the
+	// versions are the chart's catalog's, not DBCanvas's, so they are only knowable afterwards.
+	EverestOperators []string `json:"everestOperators,omitempty"`
+	EverestEngines   []string `json:"everestEngines,omitempty"`
+	EverestURL       string   `json:"everestUrl,omitempty"`     // http://<MetalLB address>:8080, or "pending"
+	EverestService   string   `json:"everestService,omitempty"` // everest-system/everest
+	EverestUser      string   `json:"everestUser,omitempty"`    // the initial admin login
+	// EverestHostPort is where the UI is published on the host (k3d's load balancer → the
+	// everest-host NodePort), 0 = not published. Kept across redeploys, like a PMM node's.
+	EverestHostPort int `json:"everestHostPort,omitempty"`
 }
 
 // k3dSecrets holds the credentials a K3D frame was provisioned with, kept out of k3dConfig
@@ -253,6 +268,9 @@ type k3dSecrets struct {
 	// monitoring enabled). It comes from $GRAFANA_PASSWORD, so it is not generated and not
 	// recoverable from the cluster in any friendlier form than reading the chart's Secret.
 	GrafanaPassword string `json:"grafanaPassword,omitempty"`
+	// EverestPassword is OpenEverest's initial admin password (server.initialAdminPassword),
+	// from $EVEREST_PASSWORD. Changing it in Everest afterwards does not update this.
+	EverestPassword string `json:"everestPassword,omitempty"`
 }
 
 // ---------------------------------------------------------------- the k3d binary
@@ -393,7 +411,10 @@ func (a *App) k3dFrameIssues(ctx context.Context, f designFrame, members int, op
 			// against the chart catalog rather than the Percona operator one. An empty version
 			// means the chart repo's latest; a catalog with no charts (make versions never run)
 			// accepts anything, since helm is the one that ultimately resolves it.
-			if _, ok := loadChartCatalog().resolveChartVersion(chart, f.K3DOperatorVer); !ok {
+			if why, broken := everestBrokenVersions[strings.TrimSpace(f.K3DOperatorVer)]; op == "everest" && broken {
+				out = append(out, issue{Level: "error", Message: "K3D cluster " + name + " pins OpenEverest " +
+					strings.TrimSpace(f.K3DOperatorVer) + ", which cannot be used: " + why + " — pick another chart version"})
+			} else if _, ok := loadChartCatalog().resolveChartVersion(chart, f.K3DOperatorVer); !ok {
 				out = append(out, issue{Level: "error", Message: "K3D cluster " + name + " requests an unknown " + chart + " chart version — pick one from the list, or run `make versions`"})
 			}
 		} else if _, ok := opCat.resolveOperatorVersion(op, f.K3DOperatorVer); !ok {
@@ -435,7 +456,7 @@ func (a *App) k3dFrameIssues(ctx context.Context, f designFrame, members int, op
 	// carry a PMM node. It is ignored at deploy (see provisionK3DFrame), but silently ignoring
 	// it would leave the user expecting monitoring that will never appear. Neither operator is
 	// a Percona product and neither has a pmm-client sidecar to configure.
-	if _, chartInstalled := k3dChartOperator[f.K3DOperator]; chartInstalled && f.PMMNodeID != "" {
+	if _, chartInstalled := k3dChartOperator[f.K3DOperator]; chartInstalled && f.K3DOperator != "everest" && f.PMMNodeID != "" {
 		out = append(out, issue{Level: "warning", Message: "K3D cluster " + name + " has a PMM node selected, which " +
 			k3dOperatorLabel(f.K3DOperator) + " cannot use — it is not a Percona product and ships no pmm-client. " +
 			"Clear it; enable Prometheus/Grafana monitoring on the cluster instead"})
@@ -448,6 +469,8 @@ func (a *App) k3dFrameIssues(ctx context.Context, f designFrame, members int, op
 	if is, ok := pgoExporterIssue(f, name); ok {
 		out = append(out, is)
 	}
+
+	out = append(out, everestFrameIssues(f)...)
 
 	// The CPU/memory budget is for the whole cluster, split across its nodes.
 	cpus, memGB := k3dCPUs(f), k3dMemoryGB(f)
@@ -878,6 +901,13 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 		base.PGOStorageGB = pgoStorageGB(frame)
 		base.PGOPGVersion = pgoPGVersion(frame)
 	}
+	if operator == "everest" {
+		// The frame's namespace is Everest's DB namespace, not where Everest itself runs.
+		base.Namespace = everestDBNamespace(frame)
+		base.EverestOperators = everestChosen(frame)
+		// Read before the pending rows below overwrite the old config.
+		base.EverestHostPort = a.everestPreviousHostPort(st.ID, members[0].ID)
+	}
 	if repo, ok := k3dOperatorRepos[operator]; ok && operator != "" {
 		base.OperatorSrc = fmt.Sprintf("%s/%s-%s", k3dOperatorDir, repo, operatorVer)
 	}
@@ -1009,6 +1039,14 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 		// create over it. Removing it first makes a redeploy idempotent — the same thing every
 		// other provisioner does with "remove the container of this name before creating it".
 		a.runK3D(ctx, nil, "cluster", "delete", cluster)
+		// ...and any cluster of this stack no frame is named for any more: a renamed frame's
+		// old cluster, still holding its host ports. Only this stack's, and never a sibling
+		// frame's — every current frame's name is kept.
+		for _, stale := range k3dStaleClusters(a.k3dStackClusters(ctx, st.ID), st.ID, doc) {
+			if _, err := a.runK3D(ctx, nil, "cluster", "delete", stale); err == nil {
+				pr.logln("deleted k3d cluster " + stale + ", left behind by a frame that has since been renamed or removed")
+			}
+		}
 		// The debugger's host port is fixed (it goes in an IDE's launch.json), so a collision is
 		// possible — and k3d's own failure for it lands halfway through creating the cluster.
 		// Checked after the delete above, or a redeploy would collide with its own predecessor.
@@ -1019,6 +1057,17 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 						k3dDebugHostPort(frame), owner)
 					return
 				}
+			}
+		}
+		// The Everest UI's host port, like the debugger's, can only be published at create.
+		// Picked after the delete, so a redeploy keeps its own port.
+		if operator == "everest" {
+			if hp, err := a.everestPickHostPort(ctx, base.EverestHostPort); err != nil {
+				pr.logln("the Everest UI will not be published on the host: " + err.Error())
+				base.EverestHostPort = 0
+			} else {
+				base.EverestHostPort = hp
+				args = append(args, everestCreateArgs(hp)...)
 			}
 		}
 		if _, err := a.runK3D(ctx, pr.logln, args...); err != nil {
@@ -1165,6 +1214,13 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 				failAll("install the Crunchy Postgres operator: %v", err)
 				return
 			}
+		case "everest":
+			// A platform rather than one operator: it installs the chosen Percona operators
+			// itself, through OLM, and creates no database — see k3deverest.go.
+			if err := a.installEverest(ctx, frame, serverID, &base, pr); err != nil {
+				failAll("install OpenEverest: %v", err)
+				return
+			}
 		}
 
 		// ---- done: record the final config on every member ----
@@ -1172,8 +1228,15 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 		// every member's Deployment alongside the config — the panel is opened on whichever
 		// node the user clicked, not necessarily the server.
 		var secJSON json.RawMessage
+		var sec k3dSecrets
 		if base.GrafanaURL != "" {
-			secJSON, _ = json.Marshal(k3dSecrets{GrafanaPassword: grafanaAdminPassword()})
+			sec.GrafanaPassword = grafanaAdminPassword()
+		}
+		if base.EverestUser != "" {
+			sec.EverestPassword = everestAdminPassword()
+		}
+		if sec != (k3dSecrets{}) {
+			secJSON, _ = json.Marshal(sec)
 		}
 		for i, n := range members {
 			dep, _ := a.store.GetDeployment(st.ID, n.ID)
@@ -1215,17 +1278,77 @@ func (a *App) destroyK3DClusters(ctx context.Context, stackID int64) {
 	if json.Unmarshal(st.Design, &doc) != nil {
 		return
 	}
+	// The frames' current names, and every cluster k3d holds under this stack's suffix: a frame
+	// that was renamed (or removed) since it deployed left a cluster under its OLD name, which
+	// the design no longer mentions and which would otherwise outlive the stack.
+	clusters := map[string]bool{}
 	for _, f := range doc.Frames {
-		if f.Type != "k3d" {
-			continue
+		if f.Type == "k3d" {
+			clusters[k3dClusterName(stackID, f)] = true
 		}
-		cluster := k3dClusterName(stackID, f)
+	}
+	for _, c := range a.k3dStackClusters(ctx, stackID) {
+		clusters[c] = true
+	}
+	for cluster := range clusters {
 		if _, err := a.runK3D(ctx, nil, "cluster", "delete", cluster); err != nil {
 			log.Printf("stack %d: k3d cluster delete %s: %v", stackID, cluster, err)
 			continue
 		}
 		log.Printf("stack %d: k3d cluster %s deleted", stackID, cluster)
 	}
+}
+
+// k3dStackClusters lists the k3d clusters that belong to a stack, by the "-s<id>" suffix
+// k3dClusterName gives every one of them. Empty when k3d cannot be asked.
+func (a *App) k3dStackClusters(ctx context.Context, stackID int64) []string {
+	out, err := a.runK3D(ctx, nil, "cluster", "list", "-o", "json")
+	if err != nil {
+		return nil
+	}
+	var list []struct {
+		Name string `json:"name"`
+	}
+	if json.Unmarshal([]byte(out), &list) != nil {
+		return nil
+	}
+	names := make([]string, 0, len(list))
+	for _, c := range list {
+		names = append(names, c.Name)
+	}
+	return k3dClustersOfStack(names, stackID)
+}
+
+// k3dClustersOfStack keeps the names ending in this stack's suffix. "-s1" must not match
+// "k3d-00-s15", which it does not: the suffix is compared whole.
+func k3dClustersOfStack(names []string, stackID int64) []string {
+	suffix := fmt.Sprintf("-s%d", stackID)
+	var out []string
+	for _, n := range names {
+		if strings.HasSuffix(n, suffix) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// k3dStaleClusters is this stack's clusters that no K3D frame in the design is named for any
+// more — what a frame rename leaves behind. Its load balancer keeps holding host ports (the
+// API, the Everest UI) until it is deleted.
+func k3dStaleClusters(existing []string, stackID int64, doc designDoc) []string {
+	current := map[string]bool{}
+	for _, f := range doc.Frames {
+		if f.Type == "k3d" {
+			current[k3dClusterName(stackID, f)] = true
+		}
+	}
+	var out []string
+	for _, c := range k3dClustersOfStack(existing, stackID) {
+		if !current[c] {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // k3dNodeImage reports the k3s image a node container runs (for the properties panel).

@@ -120,8 +120,9 @@ func TestStockSimEngineForTargetK3D(t *testing.T) {
 		"pxc": "mysql", "ps": "mysql",
 		"psmdb": "mongodb",
 		"pg":    "postgres", "cnpg": "postgres", "pgo": "postgres",
-		// A frame with no operator has no database in it to drive.
-		"": "", "nonsense": "",
+		// A frame with no operator has no database in it to drive, and neither does
+		// OpenEverest's: its databases are created from its own UI.
+		"": "", "nonsense": "", "everest": "",
 	}
 	for op, engine := range want {
 		doc := designDoc{Frames: []designFrame{{ID: "fr", Type: "k3d", Label: "k8s", K3DOperator: op}}}
@@ -134,7 +135,7 @@ func TestStockSimEngineForTargetK3D(t *testing.T) {
 	}
 	// Every operator k3d.go can actually install must be one of them.
 	for op, deployable := range k3dDeployableOperator {
-		if deployable && k3dOperatorEngine(op) == "" {
+		if deployable && !k3dNoDatabaseOperator[op] && k3dOperatorEngine(op) == "" {
 			t.Errorf("operator %q is deployable but a Stock Market Sim node cannot use it", op)
 		}
 	}

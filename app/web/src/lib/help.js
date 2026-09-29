@@ -208,7 +208,9 @@ export const HELP = {
   k8sOperator:
     'Which operator manages the cluster. This is the whole point of a K3D frame — the databases are created as ' +
     'custom resources and reconciled by the operator, exactly as they would be in a real Kubernetes deployment, ' +
-    'rather than being provisioned by DBCanvas.',
+    'rather than being provisioned by DBCanvas. OpenEverest is the exception: it is a database platform that ' +
+    'installs the Percona operators you tick into its own namespace, and its databases are created from its UI ' +
+    'rather than by the frame.',
   k8sChartVersion:
     'The Helm chart release to install the operator from. Leave it at the default unless you are reproducing ' +
     'behaviour specific to an older operator.',
@@ -897,6 +899,13 @@ export const DEP_HELP = {
   'Grafana user': 'The Grafana login. Its password is the row below.',
   'Grafana password': 'Click to reveal and copy. A lab credential — do not reuse it anywhere real.',
   'Grafana service': 'The Kubernetes Service in front of Grafana, and how it is exposed.',
+  'Everest (host)': 'The OpenEverest UI published on the machine running DBCanvas, like a PMM node\'s ports — open it from your browser. The port stays the same across redeploys. If DBCanvas runs on a remote server, tunnel the port over SSH first.',
+  OpenEverest: 'The OpenEverest UI and API on a MetalLB address on the stack network — the address other nodes (the VNC desktop, a client node) use.',
+  'Everest service': 'The Kubernetes Service in front of the Everest server. It is the one to port-forward.',
+  'Everest user': 'The initial Everest login. Its password is the row below.',
+  'Everest password': 'The password Everest was installed with ($EVEREST_PASSWORD). Changing it in Everest afterwards does not update this row.',
+  'Everest operators': 'The Percona operators OpenEverest installed into its database namespace, with the version each DatabaseEngine reported — they come from the catalog the chart release pins, not from DBCanvas.',
+  'DB namespace': 'OpenEverest\'s database namespace: where its operators run and where every database created from its UI goes.',
   'Grafana SMTP': 'Where Grafana sends alert mail — the Intranet node\'s mail server, so alerts land in its webmail.',
   Backups: 'The backup tool configured for this node and where it writes.',
   'Logical replicas':

@@ -990,7 +990,11 @@ function validBucketName(b) {
 
 // The Percona operators a K3D frame can install (PostgreSQL is discovered by `make versions` but
 // not deployable yet).
-export const K3D_OPERATOR_LABEL = { pxc: 'PXC operator', ps: 'MySQL (PS) operator', psmdb: 'MongoDB operator', pg: 'PostgreSQL operator', cnpg: 'CloudNativePG', pgo: 'Crunchy PGO' }
+// K3D_NO_DATABASE is the operator choices that deploy no database of their own. OpenEverest
+// installs operators and leaves creating databases to its UI, so like a frame with no operator
+// there is nothing on it for a sim or a load tool to be pointed at.
+export const K3D_NO_DATABASE = new Set(['everest'])
+export const K3D_OPERATOR_LABEL = { pxc: 'PXC operator', ps: 'MySQL (PS) operator', psmdb: 'MongoDB operator', pg: 'PostgreSQL operator', cnpg: 'CloudNativePG', pgo: 'Crunchy PGO', everest: 'OpenEverest' }
 
 // The operators that can be run under Delve — k3ddebug.go's k3dDebugProfiles, which is the
 // authority (the server warns on a frame that asks for one it cannot give). The two community
@@ -8745,6 +8749,52 @@ function cmpDottedVersions(a, b) {
   return 0
 }
 
+// EVEREST_OPERATORS mirrors everestOperators in app/k3deverest.go: what OpenEverest can install
+// into its database namespace, by frame key.
+const EVEREST_OPERATORS = [
+  { key: 'pxc', label: 'MySQL (Percona XtraDB Cluster)', engine: 'percona-xtradb-cluster-operator' },
+  { key: 'psmdb', label: 'MongoDB (Percona Server for MongoDB)', engine: 'percona-server-mongodb-operator' },
+  { key: 'pg', label: 'PostgreSQL (Percona Distribution for PostgreSQL)', engine: 'percona-postgresql-operator' },
+]
+
+// EverestOperatorsField picks which operators OpenEverest installs. Unset means all three — the
+// chart's own default — so the boxes read as ticked until one is cleared, and the last one
+// cannot be cleared: Everest with no operator can create no database.
+function EverestOperatorsField({ f, patchFrame, deployed }) {
+  const lock = deployed ? 'opacity-70' : ''
+  const chosen = (f.k3dEverestOperators && f.k3dEverestOperators.length)
+    ? f.k3dEverestOperators : EVEREST_OPERATORS.map((o) => o.key)
+  const toggle = (key, on) => {
+    const next = EVEREST_OPERATORS.map((o) => o.key)
+      .filter((k) => (k === key ? on : chosen.includes(k)))
+    if (next.length) patchFrame(f.id, { k3dEverestOperators: next })
+  }
+  return (
+    <div className="space-y-2 rounded-lg border border-dashed p-2">
+      <div className="text-xs font-medium text-muted">Operators OpenEverest installs</div>
+      {EVEREST_OPERATORS.map((o) => {
+        const on = chosen.includes(o.key)
+        const last = on && chosen.length === 1
+        return (
+          <label key={o.key} className={`flex items-start gap-2 text-sm ${lock}`}>
+            <input type="checkbox" className="mt-1" disabled={deployed || last} checked={on}
+              onChange={(e) => toggle(o.key, e.target.checked)} />
+            <span>
+              {o.label}
+              <span className="block font-mono text-xs text-muted">{o.engine}</span>
+            </span>
+          </label>
+        )
+      })}
+      <p className="text-xs text-muted">
+        Installed by OLM from the catalog the chart version pins, so their versions come with it — the
+        node's panel shows what landed. The databases themselves are created in the Everest UI; this frame
+        creates none. The platform is about ten pods before the first database, so give it 6 CPU / 10 GiB or more.
+      </p>
+    </div>
+  )
+}
+
 function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, deployed, replRole = '' }) {
   const lock = deployed ? 'opacity-70' : ''
   const count = frameNodes.length
@@ -8770,10 +8820,13 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
   // a Helm HTTP repo, but the catalog treats both the same way.
   const cnpg = op === 'cnpg'
   const pgo = op === 'pgo'
-  const helmOp = cnpg || pgo
+  // OpenEverest is Helm-installed too, and is a platform rather than one operator: it installs
+  // the Percona operators ticked below through OLM, and creates no database of its own.
+  const everest = op === 'everest'
+  const helmOp = cnpg || pgo || everest
   // The catalog namespaces charts and chart-selected images apart from the Percona operators,
   // because a chart version and an operator version are different kinds of thing.
-  const chartKey = pgo ? 'chart:pgo' : 'chart:cloudnative-pg'
+  const chartKey = pgo ? 'chart:pgo' : everest ? 'chart:openeverest' : 'chart:cloudnative-pg'
   const chartVersions = ops?.[chartKey]?.versions || []
   const chartLatest = ops?.[chartKey]?.latest || ''
   const pgMajors = ops?.[pgo ? 'image:crunchy-postgres' : 'image:cnpg-postgresql']?.versions || []
@@ -8969,6 +9022,7 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
             <option value="pg">Percona Operator for PostgreSQL (PGO)</option>
             <option value="cnpg">CloudNativePG (PostgreSQL)</option>
             <option value="pgo">Crunchy Postgres for Kubernetes (PGO)</option>
+            <option value="everest">OpenEverest (installs Percona operators)</option>
           </select>
         </Field>
         {op && (
@@ -8976,6 +9030,7 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
             {helmOp ? (
               <Field label="Chart version" help={HELP.k8sChartVersion} hint={pgo
                 ? 'PGO Helm chart version, from `make versions` — the tags Crunchy publishes to their OCI registry. Not the GitHub tags: some of those have no published image.'
+                : everest ? 'OpenEverest Helm chart version, from `make versions`. Each release pins the catalog its operators come from, so the operator versions follow from this one.'
                 : 'CloudNativePG Helm chart version, from `make versions`. Not the operator version it ships \u2014 chart 0.29.0 carries operator 1.30.x.'}>
                 {chartVersions.length ? (
                   <select className={`${inputCls} ${lock}`} value={f.k3dOperatorVer || ''} disabled={deployed}
@@ -9000,12 +9055,16 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
               </Field>
             )}
             <Field label="Namespace" help={HELP.k8sNamespace} hint={cnpg ? 'The Cluster CR is created here; the operator itself runs in cnpg-system.'
+              : everest ? 'Everest\u2019s database namespace: the operators ticked below, and every database created from the UI, go here. Everest itself runs in everest-system.'
               : pgo ? 'The operator and the PostgresCluster both run here.'
                 : 'The operator and its cr.yaml are installed here.'}>
               <input className={`${inputCls} ${lock}`} value={f.k3dNamespace ?? op} disabled={deployed}
                 onChange={(e) => patchFrame(f.id, { k3dNamespace: e.target.value })} />
             </Field>
           </>
+        )}
+        {everest && (
+          <EverestOperatorsField f={f} patchFrame={patchFrame} deployed={deployed} />
         )}
         {cnpg && (
           <>
@@ -9420,7 +9479,7 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
             </p>
           </>
         )}
-        {op && !pgo && (
+        {op && !pgo && !everest && (
           <p className="text-xs text-muted">
             Before <span className="font-mono">cr.yaml</span> is applied, every section's CPU/memory requests are
             commented out{op === 'pg'
@@ -9490,15 +9549,28 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
         </div>
       )}
 
-      <Field label="Backups (SeaweedFS)" help={HELP.seaweedfsBackup} hint="Optional — sets the operator's S3 backup storage.">
-        <select className={`${inputCls} ${lock}`} value={f.seaweedfsNodeId || ''} disabled={deployed}
-          onChange={(e) => patchFrame(f.id, { seaweedfsNodeId: e.target.value })}>
-          <option value="">none</option>
-          {swNodes.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
-        </select>
-      </Field>
-      <SeaweedBucketField nodes={nodes} nodeId={f.seaweedfsNodeId} value={f.seaweedfsBucket} deployed={deployed}
-        onChange={(v) => patchFrame(f.id, { seaweedfsBucket: v })} />
+      {/* Everest keeps its own backup storages and monitoring endpoints, set up in its UI, so
+          neither picker applies. A design saved with one is caught by everestFrameIssues. */}
+      {everest ? (
+        <p className="text-xs text-muted">
+          Backups and monitoring are configured inside OpenEverest — add a SeaweedFS node as a{' '}
+          <span className="font-medium">backup storage</span> (its S3 endpoint is{' '}
+          <span className="font-mono">&lt;fqdn&gt;:8333</span>) and a PMM node as a{' '}
+          <span className="font-medium">monitoring endpoint</span> under Settings in the Everest UI.
+        </p>
+      ) : (
+        <>
+          <Field label="Backups (SeaweedFS)" help={HELP.seaweedfsBackup} hint="Optional — sets the operator's S3 backup storage.">
+            <select className={`${inputCls} ${lock}`} value={f.seaweedfsNodeId || ''} disabled={deployed}
+              onChange={(e) => patchFrame(f.id, { seaweedfsNodeId: e.target.value })}>
+              <option value="">none</option>
+              {swNodes.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+            </select>
+          </Field>
+          <SeaweedBucketField nodes={nodes} nodeId={f.seaweedfsNodeId} value={f.seaweedfsBucket} deployed={deployed}
+            onChange={(v) => patchFrame(f.id, { seaweedfsBucket: v })} />
+        </>
+      )}
       {/* Point-in-time recovery is `backup.pitr` in cr.yaml — a binlog collector Deployment
           that uploads binary logs continuously, so a restore can land between backups. PXC
           operator only: it is the only one of the six with this in its custom resource. */}
@@ -9510,7 +9582,7 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
           such sidecar, so the picker is hidden for it rather than offering monitoring that
           would never arrive — CNPG's monitoring is the Prometheus/Grafana option above.
           A design saved before this was hidden is caught by k3dFrameIssues. */}
-      {helmOp ? (
+      {everest ? null : helmOp ? (
         <p className="text-xs text-muted">
           {cnpg
             ? "CloudNativePG has no PMM integration — it isn't a Percona product and ships no pmm-client sidecar. Use the Prometheus + Grafana option above, which installs kube-prometheus-stack with a PostgreSQL dashboard."

@@ -335,6 +335,12 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
   // Crunchy PGO does have the Percona shape (a primary Service plus pgBouncer, and it reuses
   // exposePg/exposePgbouncer), so it keeps those rows and only adds its own status block.
   const isPGO = cfg.operator === 'pgo'
+  // OpenEverest is a platform, not one operator's cluster: there is no database cluster of
+  // DBCanvas's making to describe, only the platform and the operators it installed.
+  const isEverest = cfg.operator === 'everest'
+  // The UI's host port (like a PMM node's), on the host this browser reached DBCanvas at.
+  const everestHostUrl = isEverest && cfg.everestHostPort
+    ? `http://${typeof location !== 'undefined' ? location.hostname : 'localhost'}:${cfg.everestHostPort}/` : null
   // The four operators name the same ideas differently: PXC and PS put a proxy in front of the
   // database, PSMDB has routers (and only when sharded), PostgreSQL has a pgBouncer pool.
   const kind = isMongo ? 'psmdb' : isPG ? 'pg' : isPS ? 'ps' : 'pxc'
@@ -378,6 +384,12 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
 
       {tab === 'overview' && (
         <div className="space-y-2 text-sm">
+          {everestHostUrl && (
+            <a href={everestHostUrl} target="_blank" rel="noreferrer"
+              className="flex items-center justify-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-sm font-medium text-primary hover:bg-primary/15">
+              <Icon.External size={15} /> Open OpenEverest
+            </a>
+          )}
           <KV k="Cluster" help={DEP_HELP.Cluster} v={cfg.cluster} mono />
           <KV k="Role" help={DEP_HELP.Role} v={cfg.role === 'server' ? 'server (control plane)' : 'agent (worker)'} />
           <KV k="FQDN" help={DEP_HELP.FQDN} v={cfg.fqdn} mono />
@@ -389,9 +401,28 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
           {/* What is on the cluster, not what the canvas asked for: the two differ when the
               install failed, and this is the row that would have to say so. */}
           <KV k="cert-manager" help={DEP_HELP['cert-manager']} v={cfg.certManager || 'not installed'} mono />
-          <KV k="Operator" help={DEP_HELP.Operator} v={cfg.operator ? `${cfg.operator.toUpperCase()} ${cfg.operatorVer}` : 'none'} />
-          {cfg.operator && <KV k="Namespace" help={DEP_HELP.Namespace} v={ns} mono />}
-          {cfg.operator && <KV k="Database cluster" help={DEP_HELP['Database cluster']} v={cr} mono />}
+          <KV k="Operator" help={DEP_HELP.Operator} v={cfg.operator ? `${isEverest ? 'OpenEverest' : cfg.operator.toUpperCase()} ${cfg.operatorVer}` : 'none'} />
+          {cfg.operator && <KV k={isEverest ? 'DB namespace' : 'Namespace'} help={isEverest ? DEP_HELP['DB namespace'] : DEP_HELP.Namespace} v={ns} mono />}
+          {cfg.operator && !isEverest && <KV k="Database cluster" help={DEP_HELP['Database cluster']} v={cr} mono />}
+          {isEverest && (
+            <KV k="Operators" help={DEP_HELP['Everest operators']}
+              v={(cfg.everestEngines?.length ? cfg.everestEngines : (cfg.everestOperators || []).map((o) => `${o} pending`)).join(' · ') || '—'} mono />
+          )}
+          {everestHostUrl && (
+            <KV k="Everest (host)" help={DEP_HELP['Everest (host)']} v={
+              <a className="text-accent underline" href={everestHostUrl} target="_blank" rel="noreferrer">{everestHostUrl}</a>
+            } />
+          )}
+          {isEverest && cfg.everestUrl && (
+            <KV k="OpenEverest" help={DEP_HELP.OpenEverest} v={cfg.everestUrl === 'pending' ? 'awaiting a LoadBalancer address' : (
+              <a className="text-accent underline" href={cfg.everestUrl} target="_blank" rel="noreferrer">{cfg.everestUrl}</a>
+            )} />
+          )}
+          {isEverest && cfg.everestService && <KV k="Everest service" help={DEP_HELP['Everest service']} v={cfg.everestService} mono />}
+          {isEverest && cfg.everestUser && <KV k="Everest user" help={DEP_HELP['Everest user']} v={cfg.everestUser} mono />}
+          {isEverest && sec.everestPassword && (
+            <KV k="Everest password" help={DEP_HELP['Everest password']} v={<SecretInline value={sec.everestPassword} />} />
+          )}
           {cfg.operator && isCNPG && <KV k="Status" help={DEP_HELP.Status} v={cfg.cnpgStatus || 'unknown'} />}
           {cfg.operator && isCNPG && <KV k="Instances" help={DEP_HELP.Instances} v={`${cfg.cnpgInstances} · ${cfg.cnpgStorageGb} GiB each`} />}
           {cfg.operator && isCNPG && <KV k="PostgreSQL" help={DEP_HELP.PostgreSQL} v={cfg.cnpgPgVersion || "operator default"} />}
@@ -408,9 +439,9 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
           {cfg.operator && isPGO && <KV k="App role / database" help={DEP_HELP['App role / database']} v={`${cfg.pgoAppUser || '—'} / ${cfg.pgoAppDb || '—'}`} mono />}
           {cfg.operator && isPGO && <KV k="Password in Secret" help={DEP_HELP['Password in Secret']} v={cfg.pgoAppSecret || '—'} mono />}
           {cfg.operator && isPS && <KV k="Replication" help={DEP_HELP.Replication} v={cfg.clusterType === 'async' ? 'Async (Orchestrator)' : 'Group Replication'} />}
-          {cfg.operator && !isCNPG && <KV k={isMongo ? 'Topology' : 'Front end'} help={isMongo ? DEP_HELP.Topology : DEP_HELP.Backend} v={isMongo ? (cfg.sharding ? 'Sharded (rs0 + config servers + mongos)' : 'Replica set (rs0)') : frontEnd} />}
-          {cfg.operator && !isCNPG && <KV k={isMongo ? 'Expose · replica set' : 'Expose · database'} help={HELP.k8sExpose} v={exposeDb} />}
-          {cfg.operator && !isCNPG && (!isMongo || cfg.sharding) && (
+          {cfg.operator && !isCNPG && !isEverest && <KV k={isMongo ? 'Topology' : 'Front end'} help={isMongo ? DEP_HELP.Topology : DEP_HELP.Backend} v={isMongo ? (cfg.sharding ? 'Sharded (rs0 + config servers + mongos)' : 'Replica set (rs0)') : frontEnd} />}
+          {cfg.operator && !isCNPG && !isEverest && <KV k={isMongo ? 'Expose · replica set' : 'Expose · database'} help={HELP.k8sExpose} v={exposeDb} />}
+          {cfg.operator && !isCNPG && !isEverest && (!isMongo || cfg.sharding) && (
             <KV k={isMongo ? 'Expose · mongos' : isPG ? 'Expose · pgBouncer' : 'Expose · proxy'} help={HELP.k8sExpose} v={exposeFront} />
           )}
           {/* The Percona PostgreSQL operator's 3.1.0 features, and only when the cluster has
@@ -431,7 +462,7 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
           {cfg.operator && isPG && cfg.pgLogCollector && (
             <KV k="Persistent logging" help={DEP_HELP['Persistent logging']} v="fluent-bit + logrotate" />
           )}
-          <KV k="Backups" help={DEP_HELP.Backups} v={cfg.backupRepo || 'none'} />
+          {!isEverest && <KV k="Backups" help={DEP_HELP.Backups} v={cfg.backupRepo || 'none'} />}
           {/* Only when there is something to say: an operator with no PITR configured would
               otherwise get a row saying "off", which is true of five of the six. */}
           {!!cfg.pitr && <KV k="Point-in-time recovery" help={DEP_HELP['Point-in-time recovery']} v={cfg.pitr} />}
@@ -444,7 +475,7 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
                 : cfg.debugStatus}
               mono={cfg.debugStatus === 'listening'} />
           )}
-          <KV k="Monitored by" help={DEP_HELP['Monitored by']} v={cfg.monitoredBy} mono />
+          {!isEverest && <KV k="Monitored by" help={DEP_HELP['Monitored by']} v={cfg.monitoredBy} mono />}
           {cfg.monitoredBy && !isCNPG && !isPGO && <KV k="PMM service token" help={DEP_HELP['PMM service token']} v={cfg.pmmToken || 'not created'} />}
           {cfg.grafanaUrl && (
             <KV k="Grafana" help={DEP_HELP.Grafana} v={cfg.grafanaUrl === 'pending' ? 'awaiting a LoadBalancer address' : (
@@ -574,7 +605,39 @@ cd ${cfg.manifestDir || '/root/pgo'} && for f in [0-9]*.yaml; do kubectl apply -
         </div>
       )}
 
-      {tab === 'operator' && cfg.operator && !isPGO && (
+      {/* OpenEverest: the chart, its namespaces, and where the databases come from. */}
+      {tab === 'operator' && isEverest && (
+        <div className="space-y-3">
+          <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
+            <span className="font-medium text-fg">OpenEverest {cfg.operatorVer}</span> is installed from its Helm chart
+            through k3s' helm-controller (release <span className="font-mono">everest-core</span> in{' '}
+            <span className="font-mono">everest-system</span>). The Percona operators were installed by OLM into{' '}
+            <span className="font-mono">{ns}</span>, from the catalog that chart release pins. This frame created no
+            database: sign in to the Everest UI and create one there — it lands in <span className="font-mono">{ns}</span>.
+          </div>
+          <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] leading-snug text-muted">
+            <span className="font-medium text-fg">Two addresses:</span>{' '}
+            {everestHostUrl
+              ? <>from your browser, <a className="text-accent underline" href={everestHostUrl} target="_blank" rel="noreferrer">{everestHostUrl}</a> (a host port on k3d's load balancer, like a PMM node's); </>
+              : <>this cluster was deployed before the UI was published on the host, so redeploy it for a browser address, or port-forward with the kubectl line below; </>}
+            from other nodes, {cfg.everestUrl || 'the MetalLB address'} on the stack network. Backups and PMM are
+            configured in the UI too: a SeaweedFS node is a backup storage, a PMM node a monitoring endpoint.
+          </div>
+          <Code label="What Everest put on the cluster" text={`kubectl get pods -n everest-system     # everest-server, everest-operator
+kubectl get pods -n everest-olm        # OLM and the everest-catalog
+kubectl get databaseengines -n ${ns}   # one per operator, with the version OLM installed
+kubectl get subscription,csv -n ${ns}
+kubectl get databaseclusters -n ${ns}  # what the UI has created`} />
+          <Code label="Reach the UI from your own machine" text={`kubectl -n everest-system port-forward svc/everest 8080:8080
+# then http://localhost:8080 — sign in as ${cfg.everestUser || 'admin'}`} />
+          <Code label="Add an operator later (a helm upgrade)" text={`kubectl -n kube-system edit helmchart everest-core
+# under valuesContent → dbNamespace, set pxc / psmdb / postgresql: true
+kubectl -n kube-system logs -f job/helm-install-everest-core`} />
+          {cfg.manifestDir && <KV k="Manifests" help={DEP_HELP.Manifests} v={cfg.manifestDir} mono />}
+        </div>
+      )}
+
+      {tab === 'operator' && cfg.operator && !isPGO && !isEverest && (
         <div className="space-y-3">
           <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
             The <span className="font-medium text-fg">{cfg.operator.toUpperCase()} operator {cfg.operatorVer}</span> is

@@ -614,6 +614,10 @@ type designFrame struct {
 	K3DCNPGPoolerInstances int    `json:"k3dCnpgPoolerInstances"` // PgBouncer pods (1..5); 0 → 2
 	K3DCNPGPoolerMode      string `json:"k3dCnpgPoolerMode"`      // "session" (CNPG's default) | "transaction"
 	K3DCNPGPoolerExpose    string `json:"k3dCnpgPoolerExpose"`    // "clusterip" (default) | "loadbalancer"
+	// OpenEverest frame field (K3DOperator=="everest"): which Percona operators Everest installs
+	// into its DB namespace (K3DNamespace), from "pxc", "psmdb", "pg". Empty means all three —
+	// the chart's own default, so a frame that says nothing gets what `helm install` gives.
+	K3DEverestOperators []string `json:"k3dEverestOperators,omitempty"`
 	// Crunchy PGO frame fields (K3DOperator=="pgo"; ignored by every other operator).
 	// Backups reuse the frame's SeaweedFSNodeID/SeaweedFSBucket, and the Service types reuse
 	// K3DExposePG / K3DExposePGBouncer below — Crunchy's cluster has the same two tiers as
@@ -697,7 +701,7 @@ type designFrame struct {
 	// reproduce their cert-manager too, and "whatever is newest" is not a version you
 	// can compare two deploys against.
 	K3DCertManagerVer string `json:"k3dCertManagerVer"`
-	K3DOperator       string `json:"k3dOperator"`    // "" | "pxc" | "ps" | "psmdb" | "pg" | "cnpg" | "pgo"
+	K3DOperator       string `json:"k3dOperator"`    // "" | "pxc" | "ps" | "psmdb" | "pg" | "cnpg" | "pgo" | "everest"
 	K3DOperatorVer    string `json:"k3dOperatorVer"` // "" = the catalog's latest
 	K3DNamespace      string `json:"k3dNamespace"`   // namespace the operator + CR are installed into
 	// The proxy in front of the database. cr.yaml ships HAProxy enabled and the alternative disabled;

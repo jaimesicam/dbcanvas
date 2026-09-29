@@ -496,12 +496,21 @@ operator_discover() { hub_tags "$(operator_repo "$1")" '^[0-9]+\.[0-9]+\.[0-9]+$
 # so what matters is the *chart* version, which lives in the repo's index.yaml rather than
 # in any image registry. A chart version is not the operator version it ships: the
 # CloudNativePG chart's 0.29.0 carries operator 1.30.x. Hence a section of its own.
-CHART_PRODUCTS="cloudnative-pg kube-prometheus-stack cert-manager"
+CHART_PRODUCTS="cloudnative-pg kube-prometheus-stack cert-manager openeverest"
 chart_repo_url() {
   case "$1" in
     cloudnative-pg)        echo "https://cloudnative-pg.github.io/charts" ;;
     kube-prometheus-stack) echo "https://prometheus-community.github.io/helm-charts" ;;
     cert-manager)          echo "https://charts.jetstack.io" ;;
+    openeverest)           echo "https://openeverest.github.io/helm-charts" ;;
+  esac
+}
+
+# chart_broken <chart> — releases left out of the catalog because they cannot be used, one per
+# line. Kept in step with everestBrokenVersions in app/k3deverest.go, which says why.
+chart_broken() {
+  case "$1" in
+    openeverest) echo "1.15.0" ;;  # the server serves a blank page instead of the UI
   esac
 }
 
@@ -935,6 +944,8 @@ chart_total=0
 for ch in $CHART_PRODUCTS; do
   ch_url="$(chart_repo_url "$ch")"
   ch_versions="$(chart_versions "$ch_url" "$ch")"
+  ch_broken="$(chart_broken "$ch")"
+  [ -z "$ch_broken" ] || ch_versions="$(printf '%s\n' "$ch_versions" | grep -vxF "$ch_broken" || true)"
   ch_n=$(printf '%s' "$ch_versions" | grep -c . || true)
   ch_latest="$(printf '%s\n' "$ch_versions" | head -1)"
   chart_total=$((chart_total + ch_n))
