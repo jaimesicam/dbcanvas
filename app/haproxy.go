@@ -257,6 +257,10 @@ func (a *App) provisionHAProxy(st Stack, n designNode, doc designDoc) {
 		}
 		a.trustIntranetCA(ctx, st, id, n.OS, logln)
 		a.ensureDNFIPv4(ctx, id, n.OS, logln)
+		if err := a.useRepository(ctx, st, id, n.RepositoryNodeID, logln); err != nil {
+			failNode("%v", err)
+			return
+		}
 
 		debian := isDebianOS(n.OS)
 		if n.UseProxy {

@@ -89,7 +89,7 @@ func (a *App) aioProvisionProxy(ctx context.Context, st Stack, n designNode, doc
 		// node it is already present; installing it here keeps a proxy-only node
 		// working too (the script tolerates an existing install).
 		if err := a.runStep(ctx, id, clientScript,
-			[]string{"PRODUCT=" + psClientProduct(psMajorOf(n.AIOPSMajor))}, pr.logln); err != nil {
+			[]string{"PRODUCT=" + psClientProduct(psMajorOf(n.AIOPSMajor)), "REPO=" + psRepoName(psMajorOf(n.AIOPSMajor))}, pr.logln); err != nil {
 			pr.logln("install percona-server-client: " + err.Error())
 		}
 		pr.logln("proxysql installed")

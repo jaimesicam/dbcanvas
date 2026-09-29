@@ -590,7 +590,7 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 		Type: "psm", Label: n.Label,
 		OS: n.OS, OSVersion: n.OSVersion, Arch: n.Arch,
 		PSMDBMajor: n.PSMDBMajor, PSMDBVersion: n.PSMDBVersion,
-		UseProxy: n.UseProxy, GenerateCert: n.GenerateCert,
+		UseProxy: n.UseProxy, RepositoryNodeID: n.RepositoryNodeID, GenerateCert: n.GenerateCert,
 		CertTTLValue: n.CertTTLValue, CertTTLUnit: n.CertTTLUnit, PMMNodeID: n.PMMNodeID,
 	}
 	image := pxcImage(n.OS, n.OSVersion, n.Arch)
@@ -876,6 +876,9 @@ func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	}
 	a.trustIntranetCA(ctx, st, id, frame.OS, pr.logln)
 	a.ensureDNFIPv4(ctx, id, frame.OS, pr.logln)
+	if err := a.useRepository(ctx, st, id, frame.RepositoryNodeID, pr.logln); err != nil {
+		return pr.fail("%v", err)
+	}
 
 	debian := isDebianOS(frame.OS)
 	if frame.UseProxy {

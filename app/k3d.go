@@ -101,6 +101,12 @@ var k3dExposeTypes = map[string]string{
 // k3dConfig is the non-secret profile stored on every member node of a K3D frame, so any member's
 // properties panel can describe the whole cluster.
 type k3dConfig struct {
+	// Repository is the FQDN of the Repository node the cluster pulls images through and takes
+	// the operator source from ("" → Docker Hub and GitHub). repoStack/repoNode find it again at
+	// install time; they are not persisted, and a cfg read back from JSON simply goes upstream.
+	Repository   string `json:"repository,omitempty"`
+	repoStack    int64
+	repoNode     string
 	Cluster      string `json:"cluster"`      // k3d cluster name (= frame label)
 	Role         string `json:"role"`         // "server" | "agent"
 	Hostname     string `json:"hostname"`     // DBCanvas hostname (also the DNS name)
@@ -875,6 +881,10 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 	if repo, ok := k3dOperatorRepos[operator]; ok && operator != "" {
 		base.OperatorSrc = fmt.Sprintf("%s/%s-%s", k3dOperatorDir, repo, operatorVer)
 	}
+	if frame.RepositoryNodeID != "" {
+		base.Repository = fqdnOf(hosts[frame.RepositoryNodeID], domain)
+		base.repoStack, base.repoNode = st.ID, frame.RepositoryNodeID
+	}
 	for i, n := range members {
 		cfg := base
 		cfg.Role = "agent"
@@ -931,6 +941,32 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 		}
 		pr.logln("k3s image " + k3sImage + " ready for " + k3dPlatform())
 
+		// ---- a Repository node: containerd pulls through its registry ----
+		// k3s reads registries.yaml only when it starts, so it is handed to k3d at create time;
+		// k3d copies it into every node. The endpoint is the Repository's FQDN, which a k3s node
+		// resolves through Docker's embedded DNS (it is a network alias), not the Intranet.
+		var registryArgs []string
+		if frame.RepositoryNodeID != "" {
+			pr.phase("Waiting for the Repository", 12)
+			rcfg, err := a.waitRepository(ctx, st.ID, frame.RepositoryNodeID)
+			if err != nil {
+				failAll("%v", err)
+				return
+			}
+			f, err := os.CreateTemp("", "dbcanvas-registries-*.yaml")
+			if err == nil {
+				_, err = f.WriteString(repoRegistriesYAML(rcfg.FQDN, rcfg.Contents.Images))
+				f.Close()
+				defer os.Remove(f.Name())
+			}
+			if err != nil {
+				failAll("write registries.yaml: %v", err)
+				return
+			}
+			registryArgs = []string{"--registry-config", f.Name()}
+			pr.logln("images pull through the Repository at " + rcfg.FQDN + ":5000 (registries.yaml; upstream for anything it does not hold)")
+		}
+
 		// ---- create the cluster on the stack network ----
 		pr.phase("Creating k3d cluster", 15)
 		// NOTE: k3d's --servers-memory/--agents-memory are deliberately NOT used. They work by
@@ -968,6 +1004,7 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 		if k3dDebugOn(frame) {
 			args = append(args, k3dDebugCreateArgs(frame)...)
 		}
+		args = append(args, registryArgs...)
 		// A previous run (or a failed one) may have left the cluster behind, and k3d refuses to
 		// create over it. Removing it first makes a redeploy idempotent — the same thing every
 		// other provisioner does with "remove the container of this name before creating it".
@@ -1582,9 +1619,14 @@ func k3dCRName(frame designFrame) string {
 func (a *App) k3dFetchOperator(ctx context.Context, serverID, repo string, cfg *k3dConfig, pr *pxcProg) ([]byte, error) {
 	pr.phase("Fetching the operator source", 65)
 	url := fmt.Sprintf(operatorTarballFmt, repo, cfg.OperatorVer)
-	tgz, err := httpGetBytes(ctx, url)
-	if err != nil {
-		return nil, fmt.Errorf("download %s: %w", url, err)
+	tgz, from := a.k3dOperatorFromRepository(ctx, cfg), ""
+	if tgz != nil {
+		from = " (from the Repository at " + cfg.Repository + ")"
+	} else {
+		var err error
+		if tgz, err = httpGetBytes(ctx, url); err != nil {
+			return nil, fmt.Errorf("download %s: %w", url, err)
+		}
 	}
 	tarball, err := gunzip(tgz)
 	if err != nil {
@@ -1596,8 +1638,35 @@ func (a *App) k3dFetchOperator(ctx context.Context, serverID, repo string, cfg *
 	if err := a.engCtx(ctx).PutArchive(ctx, serverID, k3dOperatorDir, tarball); err != nil {
 		return nil, fmt.Errorf("copy the operator source to %s: %w", k3dOperatorDir, err)
 	}
-	pr.logln("operator source in " + cfg.OperatorSrc + " (on the first node)")
+	pr.logln("operator source in " + cfg.OperatorSrc + " (on the first node)" + from)
 	return tarball, nil
+}
+
+// k3dOperatorFromRepository reads the operator's source tarball from the frame's Repository node,
+// or returns nil when there is none or it does not carry this release — the caller then goes to
+// GitHub. It is the same file GitHub serves (the Repository fetched it from there).
+func (a *App) k3dOperatorFromRepository(ctx context.Context, cfg *k3dConfig) []byte {
+	if cfg.repoNode == "" {
+		return nil
+	}
+	rcfg, rdep, ok := a.repositoryFor(cfg.repoStack, cfg.repoNode)
+	if !ok || !rcfg.carriesOperator(cfg.Operator, cfg.OperatorVer) {
+		return nil
+	}
+	rc, err := a.docker.GetArchiveStream(ctx, rdep.ContainerID, fmt.Sprintf("%s/operators/%s/%s/source.tar.gz", repoWWW, cfg.Operator, cfg.OperatorVer))
+	if err != nil {
+		return nil
+	}
+	defer rc.Close()
+	tarball, err := io.ReadAll(io.LimitReader(rc, 256<<20))
+	if err != nil {
+		return nil
+	}
+	tgz, err := tarFile(tarball, "source.tar.gz")
+	if err != nil || len(tgz) == 0 {
+		return nil
+	}
+	return tgz
 }
 
 // k3dApplyBundle creates the namespace and applies deploy/bundle.yaml (CRDs, RBAC and the operator

@@ -261,6 +261,10 @@ func (a *App) provisionValkeyStandalone(st Stack, n designNode, doc designDoc) {
 		}
 		a.trustIntranetCA(ctx, st, id, os, pr.logln)
 		a.ensureDNFIPv4(ctx, id, os, pr.logln)
+		if err := a.useRepository(ctx, st, id, n.RepositoryNodeID, pr.logln); err != nil {
+			pr.fail("%v", err)
+			return
+		}
 
 		if n.UseProxy {
 			pr.phase("Configuring package proxy", 30)
@@ -529,6 +533,9 @@ func (a *App) provisionValkeyClusterFrame(st Stack, frame designFrame, doc desig
 			wg.Add(1)
 			go func(n designNode) {
 				defer wg.Done()
+				if n.RepositoryNodeID == "" {
+					n.RepositoryNodeID = frame.RepositoryNodeID
+				}
 				if err := a.valkeyStartMember(ctx, st, n, hosts[n.ID], intranetIP, domain, baseDN, image, os, debian, pw, useLdap, frame.ValkeyVersion, progs[n.ID]); err != nil {
 					mu.Lock()
 					failed = true
@@ -617,6 +624,9 @@ func (a *App) valkeyStartMember(ctx context.Context, st Stack, n designNode, hos
 	}
 	a.trustIntranetCA(ctx, st, id, os, pr.logln)
 	a.ensureDNFIPv4(ctx, id, os, pr.logln)
+	if err := a.useRepository(ctx, st, id, n.RepositoryNodeID, pr.logln); err != nil {
+		return pr.fail("%v", err)
+	}
 
 	if n.UseProxy {
 		pr.phase("Configuring package proxy", 30)

@@ -42,6 +42,7 @@ import {
   FrameVaultFields, PgBouncerForm, PGHostAuthFields,
 } from '../src/pages/StackDesigner.jsx'
 import PgBouncerManager from '../src/pages/PgBouncerManager.jsx'
+import { RepositoryForm, RepositoryManager, RepositoryPicker, RepoContentEditor, GuideTab as RepoGuide, LogTab as RepoLog } from '../src/pages/Repository.jsx'
 import { ReplicationView } from '../src/pages/K3DManager.jsx'
 import OperatorSummary, { Verdicts as OpVerdicts, Findings as OpFindings, Workloads as OpWorkloads, Pods as OpPods, CRs as OpCRs, Operators as OpOperators, Deployment as OpDeployment, Images as OpImages, Secrets as OpSecrets, Backups as OpBackups, Certs as OpCerts, Storage as OpStorage, Logs as OpLogs, Galera as OpGalera, PodSummaries as OpPodSummaries, BackupLogs as OpBackupLogs, Extras as OpExtras } from '../src/pages/OperatorSummary.jsx'
 import { PageVisibleProvider, usePolling, usePageVisible } from '../src/lib/usePolling.jsx'
@@ -5556,6 +5557,89 @@ check('explorer: JSON export disambiguates duplicate column names', () => {
   if (out[0].x !== 1 || out[0].x_2 !== 'a') throw new Error(`both columns must survive: ${JSON.stringify(out[0])}`)
   return 'ok'
 })
+
+// ------------------------------------------------------------------ Repository node
+
+{
+  const repoNode = {
+    id: 'r1', type: 'repository', label: 'repo-01', os: 'ubuntu', osVersion: '24.04',
+    repoTargets: ['oraclelinux-9', 'ubuntu-24.04'], repoArches: ['amd64'],
+    repoPackages: [{ repo: 'ps-84-lts', versions: ['8.4.5-5.1'], packages: [] }, { repo: 'ppg-17', versions: [], packages: ['percona-postgresql17-server'] }],
+    repoImages: ['percona/pmm-client:3'], repoOperators: [{ kind: 'pxc', version: '1.20.0' }],
+    repoDebug: false, repoStrict: false, useProxy: false,
+  }
+  const repoCfg = {
+    image: 'dbcanvas-systemd:ubuntu-24.04-amd64', hostname: 'repo-01', fqdn: 'repo-01.example.net',
+    httpPort: 32001, registryPort: 32002, targets: ['oraclelinux-9', 'ubuntu-24.04'], arches: ['amd64'],
+    strict: false,
+    added: { packages: [{ repo: 'pxb-84-lts', versions: [], packages: [] }], images: ['busybox:1.36'] },
+    contents: {
+      repos: [
+        { repo: 'ps-84-lts', target: 'oraclelinux-9', arch: 'amd64', family: 'yum', path: '/percona/ps-84-lts/yum/release/9/RPMS/x86_64/', packages: 12, bytes: 912345678, versions: ['8.4.5-5.1'] },
+        { repo: 'ps-84-lts', target: 'ubuntu-24.04', arch: 'amd64', family: 'apt', path: '/percona/ps-84-lts/apt/dists/noble/', packages: 11, bytes: 812345678, versions: ['8.4.5-5.1'] },
+        { repo: 'ppg-17', target: 'ubuntu-24.04', arch: 'amd64', family: 'apt', path: '', packages: 0, bytes: 0, versions: ['latest'], error: 'not published for Ubuntu 24.04 (noble) amd64' },
+      ],
+      images: [
+        { source: 'percona/percona-xtradb-cluster-operator:1.20.0', local: 'percona/percona-xtradb-cluster-operator:1.20.0', from: 'pxc 1.20.0' },
+        { source: 'quay.io/x/y:1', local: 'quay.io/x/y:1', error: 'manifest unknown' },
+      ],
+      operators: [{ kind: 'pxc', version: '1.20.0', path: '/operators/pxc/1.20.0/', images: ['a', 'b'], charts: ['pxc-operator-1.20.0', 'pxc-db-1.20.0'] }],
+      charts: [{ name: 'pxc-operator', version: '1.20.0', appVersion: '1.20.0', file: 'pxc-operator-1.20.0.tgz' }, { name: 'pxc-db', version: '1.20.0', appVersion: '1.20.0', file: 'pxc-db-1.20.0.tgz' }],
+      diskBytes: 1724691356, updatedAt: '2026-09-27T08:00:00Z',
+    },
+    sync: { state: 'error', phase: 'Done', started: '2026-09-27T07:50:00Z', finished: '2026-09-27T08:00:00Z', message: '2 item(s) could not be mirrored — see the log', log: ['08:00:00 ps-84-lts oraclelinux-9 amd64: 12 packages, 870 MiB'] },
+  }
+  const repoDep = { nodeId: 'r1', state: 'running', containerId: 'abcdef1234567890', config: repoCfg }
+  const must = (html, ...want) => {
+    for (const w of want) if (!html.includes(w)) throw new Error(`missing ${JSON.stringify(w)}`)
+    return html
+  }
+
+  check('repository: the design form lists what it will carry', () => must(
+    renderToString(<RepositoryForm node={repoNode} patchNode={noop} deleteNode={noop} dep={null} deployed={false} />),
+    'Repository', 'ps-84-lts', '8.4.5-5.1', 'newest build only', 'percona-postgresql17-server', 'percona/pmm-client:3', 'Strict'))
+  check('repository: a blank row says what to do instead of failing validation later', () => must(
+    renderToString(<RepoContentEditor value={{ packages: [{ repo: '', versions: [], packages: [] }], images: [], operators: [] }} onChange={noop} cat={null} />),
+    'Type a repository name', 'border-danger'))
+  check('repository: a deployed design is locked', () => must(
+    renderToString(<RepositoryForm node={repoNode} patchNode={noop} deleteNode={noop} dep={{ state: 'provisioning' }} deployed />),
+    'disabled', 'provisioning'))
+  check('repository: the editor starts empty and offers to add', () => must(
+    renderToString(<RepoContentEditor value={{ packages: [], images: [], operators: [] }} onChange={noop} cat={null} />),
+    'None yet', 'Add a repository', 'Add an operator release'))
+  check('repository: the running panel shows contents, failures and the browse link', () => must(
+    renderToString(<RepositoryManager stackId={1} nodeId="r1" dep={repoDep} onDeleteNode={noop} />),
+    'Browse the repository', ':32001/', 'repo-01.example.net:5000', 'not published for Ubuntu 24.04', 'manifest unknown', 'How to use', 'Add packages', 'pxc 1.20.0'))
+  for (const g of ['yum', 'apt', 'cr', 'helm', 'mirror']) {
+    check(`repository: the ${g} guide names this node and what it carries`, () => must(
+      renderToString(<RepoGuide cfg={repoCfg} initial={g} />), 'repo-01.example.net'))
+  }
+  check('repository: guides use a carried repository, operator and chart', () => {
+    must(renderToString(<RepoGuide cfg={repoCfg} initial="yum" />), '/percona/ps-84-lts/yum/release/$releasever/RPMS/$basearch/', 'PERCONA-PACKAGING-KEY')
+    must(renderToString(<RepoGuide cfg={repoCfg} initial="apt" />), 'dbcanvas-repo.gpg', '/percona/ps-84-lts/apt')
+    must(renderToString(<RepoGuide cfg={repoCfg} initial="cr" />), '/operators/pxc/1.20.0/cr.local.yaml', 'bundle.local.yaml')
+    must(renderToString(<RepoGuide cfg={repoCfg} initial="helm" />), 'helm repo add dbcanvas http://repo-01.example.net/charts', '--version 1.20.0')
+    return must(renderToString(<RepoGuide cfg={repoCfg} initial="mirror" />), '/dbcanvas/registries.yaml', ':32002/percona/percona-xtradb-cluster-operator:1.20.0')
+  })
+  check('repository: the guide says so when nothing operator-shaped is carried', () => must(
+    renderToString(<RepoGuide cfg={{ ...repoCfg, contents: { repos: [], images: [], operators: [], charts: [] } }} initial="helm" />),
+    'No Helm chart is mirrored yet'))
+  check('repository: the sync log', () => must(renderToString(<RepoLog cfg={repoCfg} />), '870 MiB', 'could not be mirrored'))
+  check('repository: the picker hides until the canvas has a Repository', () => {
+    const none = renderToString(<RepositoryPicker value="" nodes={[{ id: 'p', type: 'pg' }]} deployed={false} onChange={noop} />)
+    if (none !== '') throw new Error('rendered without a Repository on the canvas')
+    return must(renderToString(<RepositoryPicker value="r1" nodes={[repoNode]} deployed={false} onChange={noop} />), 'repo-01', 'none — upstream')
+  })
+  check('repository: a dangling association is shown, not silently dropped', () => must(
+    renderToString(<RepositoryPicker value="gone" nodes={[repoNode]} deployed={false} onChange={noop} />), 'no longer on the canvas'))
+  check('repository: every Percona-installing form offers the picker', () => {
+    const src = nodeFs.readFileSync(new URL('../src/pages/StackDesigner.jsx', import.meta.url), 'utf8')
+    const n = (src.match(/<RepositoryPicker /g) || []).length
+    if (n < 20) throw new Error(`only ${n} forms render RepositoryPicker`)
+    if (!NODE_TYPES.repository || NODE_TYPES.repository.icon !== 'Package') throw new Error('NODE_TYPES.repository missing')
+    return 'ok'
+  })
+}
 
 if (failures > 0) {
   console.error(`\n${failures} render failure(s)`)

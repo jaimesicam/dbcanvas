@@ -317,6 +317,9 @@ func (a *App) spockPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	}
 	a.trustIntranetCA(ctx, st, id, frame.OS, pr.logln)
 	a.ensureDNFIPv4(ctx, id, frame.OS, pr.logln)
+	if err := a.useRepository(ctx, st, id, frame.RepositoryNodeID, pr.logln); err != nil {
+		return pr.fail("%v", err)
+	}
 
 	if frame.UseProxy {
 		if err := a.runStep(ctx, id, pkgProxyRHEL, []string{"PROXY=http://intranet." + domain + ":3128"}, pr.logln); err != nil {

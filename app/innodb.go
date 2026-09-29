@@ -298,6 +298,9 @@ func (a *App) innodbPrepareNode(ctx context.Context, st Stack, frame designFrame
 	}
 	a.trustIntranetCA(ctx, st, id, frame.OS, pr.logln)
 	a.ensureDNFIPv4(ctx, id, frame.OS, pr.logln)
+	if err := a.useRepository(ctx, st, id, frame.RepositoryNodeID, pr.logln); err != nil {
+		return pr.fail("%v", err)
+	}
 
 	debian := isDebianOS(frame.OS)
 	if frame.UseProxy {

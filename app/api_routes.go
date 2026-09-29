@@ -95,6 +95,7 @@ const (
 	gCerts     = "Certificates"
 	gSeaweed   = "SeaweedFS"
 	gOpenBao   = "OpenBao"
+	gRepo      = "Repository"
 	gClusters  = "Clusters"
 	gK3D       = "Kubernetes frames"
 	gDebug     = "Operator Debugger"
@@ -118,7 +119,7 @@ var apiGroupOrder = []string{
 	gDataGen, gQueryRun, gExplorer, gBench, gSample, gStockSim, gLedgerSim,
 	gPkt, gLog, gFTDC, gStalk, gOpSum, gCaptures, gDebug, gGDB,
 	gDash, gNotif,
-	gFS, gCerts, gMail, gLDAP, gSamba, gK3D, gAIO, gSeaweed, gOpenBao,
+	gFS, gCerts, gMail, gLDAP, gSamba, gK3D, gAIO, gSeaweed, gOpenBao, gRepo,
 }
 
 // apiRoute is one endpoint: how it is addressed, who may call it, what it is for,
@@ -252,6 +253,8 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "Spock (pgEdge multi-master) versions installable per OS."},
 		{Method: "GET", Path: "/api/catalog/pmm2", Group: gCatalog, Handler: m((*App).handlePMM2Catalog),
 			Summary: "The PMM 2 server releases a PMM2 node can deploy (a fixed list — PMM 2 is end of life)."},
+		{Method: "GET", Path: "/api/catalog/repository", Group: gCatalog, Handler: m((*App).handleRepositoryCatalog),
+			Summary: "What a Repository node can carry: OS releases, architectures, suggested Percona repositories with their versions, and operator releases."},
 		{Method: "GET", Path: "/api/catalog/images", Group: gCatalog, Handler: m((*App).handleImagesCatalog),
 			Summary: "The systemd base images built on this host, by OS family and platform."},
 		{Method: "GET", Path: "/api/catalog/pdps", Group: gCatalog, Handler: m((*App).handlePDPSCatalog),
@@ -699,6 +702,10 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "One issued client certificate, with the key and the CA chain to install with it."},
 		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/dbcerts/delete", Group: gCerts, Handler: m((*App).handleDBCertDelete),
 			Summary: "Delete an issued client certificate."},
+		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/repository/add", Group: gRepo, Handler: m((*App).handleRepositoryAdd),
+			Summary: "Add packages, images or operator releases to a running Repository node and start mirroring them (202; progress is in the node's config.sync)."},
+		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/repository/sync", Group: gRepo, Handler: m((*App).handleRepositorySync),
+			Summary: "Re-run a Repository node's sync: fetch anything new upstream for what it already carries (202)."},
 		{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/pmm/cert", Group: gCerts, Handler: m((*App).handlePMMCertInfo),
 			Summary: "The PMM server's TLS certificate."},
 		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/pmm/cert", Group: gCerts, Handler: m((*App).handlePMMCertGenerate),

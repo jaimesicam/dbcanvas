@@ -465,6 +465,13 @@ export const Icon = {
       <ellipse cx="12" cy="7" rx="7" ry="2.4" />
     </Svg>
   ),
+  // Repository node: a package crate — what a yum/apt mirror and a registry both hand out.
+  Package: (p) => (
+    <Svg {...p}>
+      <path d="M12 3 20 7.5v9L12 21l-8-4.5v-9L12 3Z" />
+      <path d="M4 7.5 12 12l8-4.5M12 12v9M8 5.25l8 4.5" />
+    </Svg>
+  ),
   // File Manager: a directory entry, a plain file, a symlink, and the dialog's
   // close affordance.
   Folder: (p) => (

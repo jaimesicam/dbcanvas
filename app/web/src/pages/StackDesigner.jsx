@@ -27,6 +27,7 @@ import PGManager from './PGManager.jsx'
 import RepmgrManager from './RepmgrManager.jsx'
 import SpockManager from './SpockManager.jsx'
 import { AllInOneForm, AllInOneManager } from './AllInOne.jsx'
+import { RepositoryForm, RepositoryManager, RepositoryPicker } from './Repository.jsx'
 import {
   MariaDBNodeForm, MariaDBFrameForm, MariaDBGaleraFrameForm,
   MySQLCENodeForm, MySQLCEFrameForm, MySQLCEInnoDBFrameForm,
@@ -88,6 +89,24 @@ export const NODE_TYPES = {
   // type rather than a version of PMM3 because nothing about the two is shared past the
   // image name, and deliberately bare: a version, and nothing on the canvas can point at
   // it — every PMM picker here filters on type 'pmm'.
+  // Repository — a yum/apt mirror of the Percona repositories plus a container registry, holding
+  // only what its design lists (app/repository.go). Nothing links to it with a line: database
+  // nodes, clusters and K3D frames point at it through their own Repository field.
+  repository: {
+    label: 'Repository',
+    slug: 'repo',
+    sub: 'yum/apt mirror + container registry for other nodes',
+    color: '#0d9488',
+    icon: 'Package',
+    singleton: false,
+    ports: false,
+    osOptions: [{ id: 'ubuntu', label: 'Ubuntu 24.04' }],
+    defaults: {
+      osVersion: '24.04', repoTargets: ['oraclelinux-9'], repoArches: [],
+      repoPackages: [], repoImages: [], repoOperators: [],
+      repoDebug: false, repoStrict: false, useProxy: false,
+    },
+  },
   pmm2: {
     label: 'PMM2',
     slug: 'pmm2',
@@ -1024,7 +1043,7 @@ const ENGINE_SHORT = {
   valkey: 'Valkey', valkeycluster: 'Valkey',
   pmm: 'PMM', pmm2: 'PMM', openbao: 'OpenBao', keycloak: 'Keycloak',
   seaweedfs: 'SeaweedFS', sambaad: 'Samba', vnc: 'Ubuntu', watchtower: 'Watchtower', k3d: 'k3s',
-  orchestrator: 'Orchestrator',
+  orchestrator: 'Orchestrator', repository: 'Repository',
 }
 
 // frameDeployedLabel is the same for a cluster frame: the version its members actually deployed
@@ -1972,6 +1991,7 @@ const PALETTE_ALIASES = {
   valkey: 'redis cache kv', valkeycluster: 'redis cache kv',
   k3d: 'k8s kubernetes k3s cluster',
   pmm2: 'pmm monitoring eol end of life',
+  repository: 'mirror yum apt dnf rpm deb registry docker offline air-gapped airgap helm charts packages',
   psmdb: 'mongo mongodb shard', psmrs: 'mongo mongodb replica', psm: 'mongo mongodb',
   pxc: 'galera mysql cluster', ps: 'mysql percona', mysql: 'replication source replica',
   innodb: 'mysql group replication gr',
@@ -3917,6 +3937,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
       { label: 'SeaweedFS', type: 'seaweedfs', onClick: () => addNode('seaweedfs') },
       { label: 'Ubuntu VNC', type: 'vnc', onClick: () => addNode('vnc'), off: has('vnc') },
       { label: 'Linux Client', type: 'linuxclient', onClick: () => addNode('linuxclient') },
+      { label: 'Repository', type: 'repository', onClick: () => addNode('repository') },
     ] },
     { title: 'App Simulators', items: [
       { label: 'Traffic Sim', type: 'trafficsim', onClick: () => addNode('trafficsim') },
@@ -4898,6 +4919,8 @@ function PXCFrameForm({ frame: f, stackId, nodes, frameNodes, patchFrame, delete
         <input type="checkbox" checked={!!f.useProxy} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for egress</span><Help text={HELP.proxy} />
       </label>
+      <RepositoryPicker value={f.repositoryNodeId} nodes={nodes} deployed={deployed}
+        onChange={(id) => patchFrame(f.id, { repositoryNodeId: id })} />
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={f.gtid !== false} onChange={(e) => patchFrame(f.id, { gtid: e.target.checked })} />
         <span>Enable GTID</span><Help text={HELP.gtid} />
@@ -5091,6 +5114,8 @@ function MySQLFrameForm({ frame: f, stackId, nodes, frames, edges, patchFrame, d
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
+      <RepositoryPicker value={f.repositoryNodeId} nodes={nodes} deployed={deployed}
+        onChange={(id) => patchFrame(f.id, { repositoryNodeId: id })} />
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={f.gtid !== false} disabled={deployed} onChange={(e) => patchFrame(f.id, { gtid: e.target.checked })} />
         <span>Enable GTID (required for auto-positioning)</span><Help text={HELP.gtid} />
@@ -5645,6 +5670,8 @@ function PerconaServerForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
+      <RepositoryPicker value={n.repositoryNodeId} nodes={nodes} deployed={deployed}
+        onChange={(id) => patchNode(n.id, { repositoryNodeId: id })} />
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={n.gtid !== false} disabled={deployed} onChange={(e) => patchNode(n.id, { gtid: e.target.checked })} />
         <span>Enable GTID</span><Help text={HELP.gtid} />
@@ -5781,6 +5808,8 @@ function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
+      <RepositoryPicker value={n.repositoryNodeId} nodes={nodes} deployed={deployed}
+        onChange={(id) => patchNode(n.id, { repositoryNodeId: id })} />
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.generateCert} disabled={deployed} onChange={(e) => patchNode(n.id, { generateCert: e.target.checked })} />
         <span>Generate certificate from Intranet CA (PostgreSQL TLS)</span><Help text={HELP.generateCert} />
@@ -6492,7 +6521,7 @@ function PMM2Manager({ dep, onDeleteNode }) {
 // systemd node type uses), an optional package-manager proxy — and nothing else. No
 // product gets installed and there's no PMM monitoring; it's a bare jump box for
 // reaching the stack's other nodes from its terminal.
-function LinuxClientForm({ node: n, patchNode, deleteNode, dep, deployed, frames = [] }) {
+function LinuxClientForm({ node: n, nodes = [], patchNode, deleteNode, dep, deployed, frames = [] }) {
   const { system } = useSettings()
   const [cat, setCat] = useState(null)
   const [eolImgs, setEolImgs] = useState([])
@@ -6575,6 +6604,8 @@ function LinuxClientForm({ node: n, patchNode, deleteNode, dep, deployed, frames
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
+      <RepositoryPicker value={n.repositoryNodeId} nodes={nodes} deployed={deployed}
+        onChange={(id) => patchNode(n.id, { repositoryNodeId: id })} />
 
       <K8sToolFields node={n} patchNode={patchNode} deployed={deployed} frames={frames} />
 
@@ -8606,6 +8637,8 @@ function ValkeyForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }) {
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
+      <RepositoryPicker value={n.repositoryNodeId} nodes={nodes} deployed={deployed}
+        onChange={(id) => patchNode(n.id, { repositoryNodeId: id })} />
 
       <Field label="Monitored by (PMM)" help={HELP.pmm} hint="Optional — installs/registers pmm-client.">
         <select className={`${inputCls} ${lock}`} value={n.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchNode(n.id, { pmmNodeId: e.target.value })}>
@@ -8825,6 +8858,8 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
           {(k3s?.versions || []).map((v) => <option key={v} value={v}>{v}</option>)}
         </select>
       </Field>
+      <RepositoryPicker k3d value={f.repositoryNodeId} nodes={nodes} deployed={deployed}
+        onChange={(id) => patchFrame(f.id, { repositoryNodeId: id })} />
 
       <div className="grid grid-cols-2 gap-2">
         <Field label="CPUs (whole cluster)" help={HELP.cpuLimit}>
@@ -9610,6 +9645,8 @@ function ValkeyClusterFrameForm({ frame: f, nodes, frameNodes, patchFrame, delet
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
+      <RepositoryPicker value={f.repositoryNodeId} nodes={nodes} deployed={deployed}
+        onChange={(id) => patchFrame(f.id, { repositoryNodeId: id })} />
 
       <Field label="Monitored by (PMM)" help={HELP.pmm} hint="Optional — installs/registers pmm-client on each member.">
         <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
@@ -9783,6 +9820,8 @@ function ProxySQLForm({ node: n, nodes, frames, edges, patchNode, deleteNode, de
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for egress</span><Help text={HELP.proxy} />
       </label>
+      <RepositoryPicker value={n.repositoryNodeId} nodes={nodes} deployed={deployed}
+        onChange={(id) => patchNode(n.id, { repositoryNodeId: id })} />
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
         <span>Expose ProxySQL ports to the host (6033 MySQL, 6032 admin)</span><Help text={HELP.exportPort} />
@@ -9928,6 +9967,8 @@ function ProxySQLFrameForm({ frame: f, nodes, frames, edges, patchFrame, deleteF
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
+      <RepositoryPicker value={f.repositoryNodeId} nodes={nodes} deployed={deployed}
+        onChange={(id) => patchFrame(f.id, { repositoryNodeId: id })} />
 
       <p className="text-xs text-muted">Add/remove ProxySQL nodes with the +/- on the frame. Per-node host-port export is set on each node.</p>
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteFrame(f.id)}>
@@ -10054,6 +10095,8 @@ function InnoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed })
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
+      <RepositoryPicker value={f.repositoryNodeId} nodes={nodes} deployed={deployed}
+        onChange={(id) => patchFrame(f.id, { repositoryNodeId: id })} />
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!f.generateCert} disabled={deployed} onChange={(e) => patchFrame(f.id, { generateCert: e.target.checked })} />
         <span>Generate per-node certificates from Intranet CA</span><Help text={HELP.generateCert} />
@@ -10277,6 +10320,8 @@ function MongoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, rebuildClu
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
+      <RepositoryPicker value={f.repositoryNodeId} nodes={nodes} deployed={deployed}
+        onChange={(id) => patchFrame(f.id, { repositoryNodeId: id })} />
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!f.generateCert} disabled={deployed} onChange={(e) => patchFrame(f.id, { generateCert: e.target.checked })} />
         <span>Generate per-node certificates from Intranet CA</span><Help text={HELP.generateCert} />
@@ -10439,6 +10484,8 @@ function PSMRSFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed }) 
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
+      <RepositoryPicker value={f.repositoryNodeId} nodes={nodes} deployed={deployed}
+        onChange={(id) => patchFrame(f.id, { repositoryNodeId: id })} />
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!f.generateCert} disabled={deployed} onChange={(e) => patchFrame(f.id, { generateCert: e.target.checked })} />
         <span>Generate per-node certificates from Intranet CA</span><Help text={HELP.generateCert} />
@@ -10720,6 +10767,8 @@ function PatroniFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
+      <RepositoryPicker value={f.repositoryNodeId} nodes={nodes} deployed={deployed}
+        onChange={(id) => patchFrame(f.id, { repositoryNodeId: id })} />
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!f.generateCert} disabled={deployed} onChange={(e) => patchFrame(f.id, { generateCert: e.target.checked })} />
         <span>Generate per-node certificates from Intranet CA (PostgreSQL TLS)</span><Help text={HELP.generateCert} />
@@ -10877,6 +10926,8 @@ function RepmgrFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame,
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
+      <RepositoryPicker value={f.repositoryNodeId} nodes={nodes} deployed={deployed}
+        onChange={(id) => patchFrame(f.id, { repositoryNodeId: id })} />
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!f.generateCert} disabled={deployed} onChange={(e) => patchFrame(f.id, { generateCert: e.target.checked })} />
         <span>Generate per-node certificates from Intranet CA (PostgreSQL TLS)</span><Help text={HELP.generateCert} />
@@ -11001,6 +11052,8 @@ function SpockFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, 
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
+      <RepositoryPicker value={f.repositoryNodeId} nodes={nodes} deployed={deployed}
+        onChange={(id) => patchFrame(f.id, { repositoryNodeId: id })} />
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!f.generateCert} disabled={deployed} onChange={(e) => patchFrame(f.id, { generateCert: e.target.checked })} />
         <span>Generate per-node certificates from Intranet CA (PostgreSQL TLS)</span><Help text={HELP.generateCert} />
@@ -11154,6 +11207,8 @@ function HAProxyForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
+      <RepositoryPicker value={n.repositoryNodeId} nodes={nodes} deployed={deployed}
+        onChange={(id) => patchNode(n.id, { repositoryNodeId: id })} />
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
         <span>Export ports to the host (write 5000 / read 5001 / stats 7000)</span><Help text={HELP.exportPort} />
@@ -11500,6 +11555,8 @@ export function PgBouncerForm({ node: n, nodes, frames, edges, patchNode, delete
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
+      <RepositoryPicker value={n.repositoryNodeId} nodes={nodes} deployed={deployed}
+        onChange={(id) => patchNode(n.id, { repositoryNodeId: id })} />
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.generateCert} disabled={deployed} onChange={(e) => patchNode(n.id, { generateCert: e.target.checked })} />
         <span>Generate certificate from Intranet CA (terminate TLS at the pool)</span><Help text={HELP.pgbClientTls} />
@@ -11546,7 +11603,7 @@ export function PgBouncerForm({ node: n, nodes, frames, edges, patchNode, delete
 // replication frame optionally points at it via its own "Monitored by
 // (Orchestrator)" picker (see PXCFrameForm / MySQLFrameForm), so there is no
 // linked-cluster banner here.
-function OrchestratorForm({ node: n, patchNode, deleteNode, dep, deployed }) {
+function OrchestratorForm({ node: n, nodes = [], patchNode, deleteNode, dep, deployed }) {
   const [cat, setCat] = useState(null)
   useEffect(() => {
     let alive = true
@@ -11618,6 +11675,8 @@ function OrchestratorForm({ node: n, patchNode, deleteNode, dep, deployed }) {
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
+      <RepositoryPicker value={n.repositoryNodeId} nodes={nodes} deployed={deployed}
+        onChange={(id) => patchNode(n.id, { repositoryNodeId: id })} />
       <p className="text-xs text-muted">The web UI (:3000) is always published to the host, like PMM.</p>
 
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
@@ -11701,6 +11760,8 @@ function PSMStandaloneForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
+      <RepositoryPicker value={n.repositoryNodeId} nodes={nodes} deployed={deployed}
+        onChange={(id) => patchNode(n.id, { repositoryNodeId: id })} />
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.generateCert} disabled={deployed} onChange={(e) => patchNode(n.id, { generateCert: e.target.checked })} />
         <span>Generate certificate from Intranet CA</span><Help text={HELP.generateCert} />
@@ -12345,7 +12406,7 @@ function loadProps() {
 function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, rebuildMongoCluster, deployOpen, deployments, onDeployMinimize }) {
   const selNode = selected?.kind === 'node' ? nodes.find((n) => n.id === selected.id) : null
   const selDep = selNode ? depByNode[selNode.id] : null
-  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb' || selNode.type === 'psmdb' || selNode.type === 'psmrs' || selNode.type === 'psm' || selNode.type === 'seaweedfs' || selNode.type === 'patroni' || selNode.type === 'haproxy' || selNode.type === 'pgbouncer' || selNode.type === 'pg' || selNode.type === 'repmgr' || selNode.type === 'spock' || selNode.type === 'aio' || selNode.type === 'mariadb' || selNode.type === 'mariadbrepl' || selNode.type === 'mariadbgalera' || selNode.type === 'mysqlce' || selNode.type === 'mysqlcerepl' || selNode.type === 'mysqlceinnodb')) || selected?.kind === 'frame'
+  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb' || selNode.type === 'psmdb' || selNode.type === 'psmrs' || selNode.type === 'psm' || selNode.type === 'seaweedfs' || selNode.type === 'patroni' || selNode.type === 'haproxy' || selNode.type === 'pgbouncer' || selNode.type === 'repository' || selNode.type === 'pg' || selNode.type === 'repmgr' || selNode.type === 'spock' || selNode.type === 'aio' || selNode.type === 'mariadb' || selNode.type === 'mariadbrepl' || selNode.type === 'mariadbgalera' || selNode.type === 'mysqlce' || selNode.type === 'mysqlcerepl' || selNode.type === 'mysqlceinnodb')) || selected?.kind === 'frame'
 
   const saved = useRef(loadProps()).current
   const [docked, setDocked] = useState(saved.docked !== false)
@@ -12640,7 +12701,7 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
       if (dep && dep.state === 'running') {
         return <OrchestratorManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
-      return <OrchestratorForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+      return <OrchestratorForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
 
     // All-in-One node: one container, many database instances. Running → the
@@ -12737,6 +12798,13 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
       }
       return <ValkeyForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
+    // Repository node — mirror + registry other nodes install from.
+    if (n.type === 'repository') {
+      if (dep && dep.state === 'running') {
+        return <RepositoryManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <RepositoryForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+    }
     // PMM 2 node — end of life, a version and nothing else.
     if (n.type === 'pmm2') {
       if (dep && dep.state === 'running') {
@@ -12750,7 +12818,7 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <LinuxClientManager dep={dep} stackId={stackId} onDeleteNode={() => deleteNode(n.id)} />
       }
       // frames: the Kubernetes clusters on the canvas decide which kubectl this node installs.
-      return <LinuxClientForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} frames={frames} />
+      return <LinuxClientForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} frames={frames} />
     }
     // Traffic Sim node — the Valkey Traffic Lab live demo app.
     if (n.type === 'trafficsim') {

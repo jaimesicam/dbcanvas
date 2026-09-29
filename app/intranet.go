@@ -432,6 +432,20 @@ type designNode struct {
 	// on it yet.
 	MCAAdminPassword    string `json:"mcaAdminPassword"`
 	MCAReadOnlyPassword string `json:"mcaReadonlyPassword"`
+	// Repository node fields (Type=="repository"; see repository.go). What the mirror carries is
+	// decided here, at design time, to keep it small: OS releases × architectures × the listed
+	// repositories (optionally narrowed to versions and package names), plus container images and
+	// whole operator releases. More can be added once it is running. Reuses UseProxy above.
+	RepoTargets   []string           `json:"repoTargets"`   // "oraclelinux-9", "ubuntu-24.04", … ("" → oraclelinux-9)
+	RepoArches    []string           `json:"repoArches"`    // "amd64" | "arm64" (empty → DOCKER_PLATFORM's)
+	RepoPackages  []repoPkgSpec      `json:"repoPackages"`  // percona-release repositories to carry
+	RepoImages    []string           `json:"repoImages"`    // extra images for the registry
+	RepoOperators []repoOperatorSpec `json:"repoOperators"` // operator releases: manifests, images, charts
+	RepoDebug     bool               `json:"repoDebug"`     // also carry -debuginfo / -dbgsym packages
+	RepoStrict    bool               `json:"repoStrict"`    // nodes using it disable repo.percona.com repositories it does not carry
+	// RepositoryNodeID is the Repository node this node installs Percona packages from (any node
+	// that installs from repo.percona.com; "" → upstream). The frame carries the same field.
+	RepositoryNodeID string `json:"repositoryNodeId"`
 }
 
 // designEdge is a connection drawn on the canvas. The endpoints' Node field holds
@@ -472,10 +486,13 @@ type designFrame struct {
 	RootPassword string `json:"rootPassword"` // "" → auto-generated
 	PMMNodeID    string `json:"pmmNodeId"`    // PMM node that monitors this cluster (optional)
 	UseProxy     bool   `json:"useProxy"`     // route egress via the Intranet Squid proxy
-	GTID         bool   `json:"gtid"`         // enable GTID (default on)
-	GenerateCert bool   `json:"generateCert"` // per-node certs signed by the Intranet CA
-	CertTTLValue int    `json:"certTtlValue"`
-	CertTTLUnit  string `json:"certTtlUnit"`
+	// RepositoryNodeID: the Repository node the members install Percona packages from — or, on a
+	// K3D frame, pull images through (registries.yaml) and take the operator source from.
+	RepositoryNodeID string `json:"repositoryNodeId"`
+	GTID             bool   `json:"gtid"`         // enable GTID (default on)
+	GenerateCert     bool   `json:"generateCert"` // per-node certs signed by the Intranet CA
+	CertTTLValue     int    `json:"certTtlValue"`
+	CertTTLUnit      string `json:"certTtlUnit"`
 	// OrchestratorNodeID is a Percona Orchestrator node that discovers/monitors this
 	// cluster's topology (optional; "" → not monitored). Shared by the async/semi-sync
 	// replication frames ("mysql", "mariadbrepl", "mysqlcerepl" — see
@@ -1174,6 +1191,16 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			if pmm2Version(n.Version) == "" {
 				out = append(out, issue{Level: "error", Message: "Unknown PMM 2 version " + n.Version + " for node " + n.Label + " — the releases offered are " + pmm2Versions[len(pmm2Versions)-1] + " to " + pmm2Versions[0]})
 			}
+		case "repository":
+			others++
+			img := repositoryImage(n.Arch)
+			if !seenImg[img] {
+				seenImg[img] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+					out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+				}
+			}
+			out = append(out, repositoryIssues(n)...)
 		case "watchtower":
 			watchtower++
 			others++
@@ -2122,6 +2149,9 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		}
 	}
 
+	// Nodes and frames that install from a Repository node.
+	out = append(out, repositoryConsumerIssues(doc)...)
+
 	// Export host-port conflicts: within the design, and against ports already
 	// published by other containers (the stack's own containers are excluded so a
 	// redeploy doesn't flag itself).
@@ -2260,6 +2290,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionPMM(st, n, doc)
 		case "pmm2":
 			a.provisionPMM2(st, n, doc)
+		case "repository":
+			a.provisionRepository(st, n, doc)
 		case "proxysql":
 			a.provisionProxySQL(st, n, doc)
 		case "ps":
@@ -3014,6 +3046,16 @@ func (a *App) refreshPublishedPorts(ctx context.Context, st Stack, nid string, d
 			cfg.HTTPSPort = p
 		}
 		save(cfg)
+	case "repository":
+		var cfg repositoryConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort(fmt.Sprintf("%d/tcp", repoHTTPPort)); ok {
+			cfg.HTTPPort = p
+		}
+		if p, ok := readPort(fmt.Sprintf("%d/tcp", repoRegistryPort)); ok {
+			cfg.RegistryPort = p
+		}
+		save(cfg)
 	case "pmm2":
 		var cfg pmm2Config
 		json.Unmarshal(dep.Config, &cfg)
@@ -3166,6 +3208,7 @@ func (a *App) removeNodeResources(ctx context.Context, st Stack, d Deployment) {
 		}
 		e.VolumeRemove(ctx, pmmDataVolume(st.ID, d.NodeID))
 		e.VolumeRemove(ctx, pmm2DataVolume(st.ID, d.NodeID))
+		e.VolumeRemove(ctx, repoDataVolume(st.ID, d.NodeID))
 	}
 	a.store.DeleteDeployment(st.ID, d.NodeID)
 }

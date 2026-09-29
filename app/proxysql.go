@@ -140,19 +140,20 @@ func proxysqlAlias(label string) string {
 // whose association edge points at the backend PXC cluster (the node id for a
 // standalone ProxySQL, the frame id for a cluster member).
 type proxysqlPlan struct {
-	NodeID          string
-	Label           string
-	AssocID         string
-	OS, OSVersion   string
-	Arch            string
-	Major, Version  string
-	Mode            string
-	UseProxy        bool
-	PMMNodeID       string
-	ExportEnabled   bool
-	ExportHostPort  int
-	ProxySQLCluster string     // ProxySQL cluster frame label (members only; "" standalone)
-	Limits          nodeLimits // per-node sizing (zero → Vagrant engine default / no Docker limit)
+	NodeID           string
+	Label            string
+	AssocID          string
+	OS, OSVersion    string
+	Arch             string
+	Major, Version   string
+	Mode             string
+	UseProxy         bool
+	RepositoryNodeID string
+	PMMNodeID        string
+	ExportEnabled    bool
+	ExportHostPort   int
+	ProxySQLCluster  string     // ProxySQL cluster frame label (members only; "" standalone)
+	Limits           nodeLimits // per-node sizing (zero → Vagrant engine default / no Docker limit)
 }
 
 func (p proxysqlPlan) limits() nodeLimits { return p.Limits }
@@ -163,7 +164,7 @@ func (a *App) provisionProxySQL(st Stack, n designNode, doc designDoc) {
 		NodeID: n.ID, Label: n.Label, AssocID: n.ID,
 		OS: n.OS, OSVersion: n.OSVersion, Arch: n.Arch,
 		Major: proxysqlMajorOf(n.ProxySQLMajor), Version: n.ProxySQLVersion,
-		Mode: n.Mode, UseProxy: n.UseProxy, PMMNodeID: n.PMMNodeID,
+		Mode: n.Mode, UseProxy: n.UseProxy, RepositoryNodeID: n.RepositoryNodeID, PMMNodeID: n.PMMNodeID,
 		ExportEnabled: n.ExportEnabled, ExportHostPort: n.ExportHostPort,
 		Limits: n.limits(),
 	})
@@ -435,6 +436,9 @@ func (a *App) proxysqlPrepareMember(ctx context.Context, st Stack, frame designF
 	}
 	a.trustIntranetCA(ctx, st, id, frame.OS, pr.logln)
 	a.ensureDNFIPv4(ctx, id, frame.OS, pr.logln)
+	if err := a.useRepository(ctx, st, id, frame.RepositoryNodeID, pr.logln); err != nil {
+		return pr.fail("%v", err)
+	}
 
 	debian := isDebianOS(frame.OS)
 	if frame.UseProxy {
@@ -456,7 +460,7 @@ func (a *App) proxysqlPrepareMember(ctx context.Context, st Stack, frame designF
 	if err := a.runStep(ctx, id, instScript, []string{"PKG=" + pkg, "VER=" + frame.ProxySQLVersion}, pr.logln); err != nil {
 		return pr.fail("install %s: %v", pkg, err)
 	}
-	if err := a.runStep(ctx, id, clientScript, []string{"PRODUCT=" + psClientProduct(pxcMajor)}, pr.logln); err != nil {
+	if err := a.runStep(ctx, id, clientScript, []string{"PRODUCT=" + psClientProduct(pxcMajor), "REPO=" + psRepoName(pxcMajor)}, pr.logln); err != nil {
 		return pr.fail("install percona-server-client: %v", err)
 	}
 	// Install pmm-client only when the cluster is monitored by a PMM server.
@@ -617,6 +621,10 @@ func (a *App) provisionProxySQLInstance(st Stack, doc designDoc, p proxysqlPlan)
 		}
 		a.trustIntranetCA(ctx, st, id, p.OS, logln)
 		a.ensureDNFIPv4(ctx, id, p.OS, logln)
+		if err := a.useRepository(ctx, st, id, p.RepositoryNodeID, logln); err != nil {
+			failNode("%v", err)
+			return
+		}
 
 		debian := isDebianOS(p.OS)
 
@@ -653,7 +661,7 @@ func (a *App) provisionProxySQLInstance(st Stack, doc designDoc, p proxysqlPlan)
 		// ProxySQL talks to the backend with the mysql client, so the Percona Server
 		// client must be installed first (series matches the backend).
 		setPhase("Installing MySQL client", 58)
-		clientEnv := []string{"PRODUCT=" + psClientProduct(clientSeries)}
+		clientEnv := []string{"PRODUCT=" + psClientProduct(clientSeries), "REPO=" + psRepoName(clientSeries)}
 		if err := a.runStep(ctx, id, clientScript, clientEnv, logln); err != nil {
 			failNode("install percona-server-client: %v", err)
 			return
@@ -862,16 +870,17 @@ apt-get update -qq >/dev/null
 pin_install "$PKG" debianutils`
 
 // proxysqlInstallClient{RHEL,Debian} install the Percona Server mysql client
-// (percona-server-client) used by proxysql-admin to talk to the PXC cluster.
+// (percona-server-client) used by proxysql-admin to talk to the PXC cluster. The
+// repository comes from psRepoRHEL/psRepoDebian so a 9.7 backend, which
+// percona-release cannot enable, takes the hand-written path ($PRODUCT empty,
+// $REPO set).
 const proxysqlInstallClientRHEL = `set -e
-percona-release setup -y "$PRODUCT" >/dev/null 2>&1
-dnf -y -q install percona-server-client >/dev/null`
+` + psRepoRHEL + `dnf -y -q install percona-server-client`
 
 const proxysqlInstallClientDebian = `set -e
 export DEBIAN_FRONTEND=noninteractive
-percona-release setup -y "$PRODUCT" >/dev/null 2>&1
-apt-get update -qq >/dev/null
-apt-get install -y -qq percona-server-client >/dev/null`
+` + psRepoDebian + `apt-get update -qq >/dev/null
+apt-get install -y -qq percona-server-client`
 
 // proxysqlStartScript enables + starts the proxysql service so its admin interface
 // (6032) is reachable (needed before configuring native clustering), then rewrites

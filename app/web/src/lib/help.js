@@ -109,6 +109,43 @@ export const HELP = {
     'Register this node with a PMM server so it shows up in Percona Monitoring and Management with metrics and ' +
     'Query Analytics. The monitoring user is created on the node for you and the agent is configured at deploy. ' +
     'Add a PMM node to the canvas first; leave it on "none" if you do not need the dashboards.',
+  repoTargets:
+    'The OS releases this Repository carries packages for. A node that uses it but runs a release not ticked ' +
+    'here installs from repo.percona.com as usual. Each release is a full copy of what you list below, so tick ' +
+    'only the ones your nodes run.',
+  repoArches:
+    'The CPU architectures to carry packages for, and the platform images are copied for. Blank means the ' +
+    'one this installation builds (DOCKER_PLATFORM).',
+  repoPackages:
+    'Percona repositories to carry, by their repo.percona.com name (ps-84-lts, pxc-80, ppg-17, psmdb-80…). With ' +
+    'no version, only the newest build of each package is fetched. Name versions (the picker offers what the ' +
+    'node pickers offer) to carry exactly those. A package on its own version series, like mysql-shell, keeps its ' +
+    'newest build. Listing package names narrows it further, and the packages they depend on inside the same ' +
+    'repository come along.',
+  repoOperators:
+    'A Percona Kubernetes operator release: its deploy/bundle.yaml, cr.yaml and secrets.yaml (plus copies with ' +
+    'every image pointed at this registry), the source tarball, every image those manifests name, and its two ' +
+    'Helm charts (operator and database) in a chart repository at /charts.',
+  repoImages:
+    'Any other container images to copy into the registry, e.g. percona/pmm-client:3. Docker Hub images keep ' +
+    'their path, so a docker.io mirror finds them. Images from other registries are stored under their host name.',
+  repoDebug:
+    'Also carry the -debuginfo, -debugsource, -dbg and -dbgsym packages. They are most of a repository\'s size ' +
+    'and only needed to read a core dump, so they are off by default.',
+  repoStrict:
+    'Off: a node using this Repository still installs anything it does not carry from repo.percona.com. On: ' +
+    'those upstream Percona repositories are disabled on the node, so an install needing something missing ' +
+    'fails and names it. That is how you find out whether this Repository is complete enough for an air-gapped ' +
+    'site. OS repositories are never touched.',
+  repository:
+    'Install this node\'s Percona packages from a Repository node on the canvas instead of repo.percona.com. ' +
+    'percona-release still configures the repositories; before every dnf or apt run the node rewrites the ones ' +
+    'the Repository carries to point at it. What it does not carry still comes from upstream, unless the ' +
+    'Repository is strict.',
+  repositoryK3D:
+    'Pull this cluster\'s images through a Repository node\'s registry (a containerd mirror in registries.yaml, ' +
+    'with upstream as the fallback), and take the operator source from it when it carries that release. Set at ' +
+    'create time: k3s reads the mirror configuration only when it starts.',
   pmm2Version:
     'The PMM 2 server release to deploy — an exact percona/pmm-server tag. PMM 2 is end of life, so the list is ' +
     'fixed rather than refreshed by `make versions`: 2.44.1 was the last release, and 2.25.0 is as far back as ' +
@@ -662,6 +699,10 @@ const NODE_BLURB = {
   sambaad:
     'A real Active Directory domain controller — LDAP, Kerberos and DNS — for demonstrating AD-backed database ' +
     'authentication and GSSAPI single sign-on. One per stack.',
+  repository:
+    'A yum/apt mirror of the Percona repositories plus a container registry, holding only the repositories, ' +
+    'versions, images and operator releases you list. Nodes and K3D frames install from it through their ' +
+    'Repository field, and its page explains how to use it by hand.',
   pmm: 'A Percona Monitoring and Management server. Point database nodes at it and they register themselves, with metrics and Query Analytics.',
   pmm2:
     'A PMM 2 server at the release you pick — end of life, offered because EOL is on. It stands alone: no node ' +

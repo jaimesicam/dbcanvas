@@ -91,7 +91,7 @@ func (a *App) provisionMySQLCE(st Stack, n designNode, doc designDoc) {
 		OS: n.OS, OSVersion: n.OSVersion, Arch: n.Arch,
 		MySQLCEMajor: major, MySQLCEVersion: n.MySQLCEVersion,
 		PSMajor: major, PSVersion: n.MySQLCEVersion,
-		GTID: n.GTID, UseProxy: n.UseProxy, GenerateCert: n.GenerateCert,
+		GTID: n.GTID, UseProxy: n.UseProxy, RepositoryNodeID: n.RepositoryNodeID, GenerateCert: n.GenerateCert,
 		CertTTLValue: n.CertTTLValue, CertTTLUnit: n.CertTTLUnit, PMMNodeID: n.PMMNodeID,
 	}
 	image := pxcImage(n.OS, n.OSVersion, n.Arch)
@@ -631,6 +631,9 @@ func (a *App) mysqlceContainer(ctx context.Context, st Stack, frame designFrame,
 	}
 	a.trustIntranetCA(ctx, st, id, frame.OS, pr.logln)
 	a.ensureDNFIPv4(ctx, id, frame.OS, pr.logln)
+	if err := a.useRepository(ctx, st, id, frame.RepositoryNodeID, pr.logln); err != nil {
+		return "", pr.fail("%v", err)
+	}
 	if frame.UseProxy {
 		proxyScript := pkgProxyRHEL
 		if isDebianOS(frame.OS) {

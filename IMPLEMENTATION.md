@@ -26208,3 +26208,96 @@ next job waits behind it — pre-existing (an exec has no cancel; see §416), no
 unexercised; Node is refused there by design), the Intranet proxy on CentOS 7, the Valkey clients
 from CentOS 7 (no Valkey in the test stack), and PMM 2 releases between 2.25.0 and 2.44.1 other than
 the two ends.
+
+---
+
+## 418. Repository node: a yum/apt mirror and container registry holding only what the design lists — `app/repository.go` (new), `app/repo_meta.go` (new), `app/repository_test.go` (new), `app/testdata/repository/` (new), `app/{intranet,k3d,api_routes,aio,innodb,haproxy,linuxclient,mongodb,mysql,mysqlce,orchestrator,patroni,pg,pgbouncer,proxysql,pxc,repmgr,spock,valkey}.go`, `web/src/pages/Repository.jsx` (new), `StackDesigner`, `lib/{stackApi,help}.js`, `components/Icons.jsx`, `smoke/render.jsx`, `docs/STACKS.md`
+
+**Mirror the Percona repositories and the operator images, a slice at a time, and let every node
+that installs from repo.percona.com use it.** A `repository` node (Storage & Clients) runs on the
+Ubuntu 24.04 systemd image: nginx on 80 serves `/percona/` (repo.percona.com's own layout), `/charts`
+(a Helm repository), `/operators/<kind>/<ver>/` and an `index.html`, and the distribution's
+`docker-registry` runs on 5000 (also proxied at `/v2/` on 80). Both ports are published. The
+container has the node's FQDN as a Docker network alias as well as a bind record, because k3s nodes
+resolve through Docker's embedded DNS rather than the Intranet.
+
+### What it carries (design + "Add packages")
+
+`repoTargets` (OS releases, default `oraclelinux-9`) × `repoArches` (default DOCKER_PLATFORM's) ×
+`repoPackages` (`{repo, versions[], packages[]}`), plus `repoImages`, `repoOperators` (`{kind,
+version}`), `repoDebug`, `repoStrict`, `useProxy`. `repo_meta.go` reads upstream `repomd.xml` →
+`primary.xml` and Debian `Packages`, and selects per package name: every build for `*`, the builds
+matching a named version (epoch dropped, `-` read as `.`, prefix ending on a component boundary, so
+one spelling selects both RPM `8.4.7-7.1.el9` and Debian `8.4.7-7-1.noble` and `8.4.1` never matches
+`8.4.10`), else the newest build (a package on its own series). A package-name filter (globs) keeps
+the named packages and, transitively, what they require that the same repository provides (RPM
+provides / Debian Provides; alternatives all kept). Debug packages are dropped unless asked for.
+Version order is rpmvercmp and dpkg's comparison, epoch first.
+
+A sync is per repository × target × arch (the yum architecture directory **and** `noarch`, created
+empty when upstream has none, because percona-release writes a section for both): download
+(4-way, skip same-size files, sha256-checked), `createrepo_c --update`; for apt, the upstream
+paragraphs are re-emitted verbatim as `Packages`, then `apt-ftparchive release` and a signature with
+the node's own GPG key (created once, on the data volume). RPMs keep Percona's signatures, so
+consumers' `gpgcheck` is untouched. Operators: the GitHub tag tarball, `bundle.yaml`/`cr.yaml`/
+`secrets.yaml`, `*.local.yaml` with every uncommented `image:` rewritten to `<fqdn>:5000/…`, those
+images (skopeo, single arch or `--multi-arch all`), and the percona-helm-charts `<kind>-operator` /
+`<kind>-db` entries whose appVersion is the release (newest chart), indexed with relative URLs. Each
+failure is recorded against its item and the rest continue. The first sync is part of the deploy;
+later ones (`POST …/repository/add`, `…/repository/sync`, 202) run in the background with their
+state in `config.sync`, and `config.added` survives a redeploy with the data volume
+(`dbcanvas-repo-<stack>-<node>`, removed with the node).
+
+### How other nodes use it
+
+`RepositoryNodeID` on `designNode` and `designFrame` (and `proxysqlPlan`, and copied onto the
+synthetic frames of standalone PS / PSMDB / MySQL CE and onto Valkey cluster members). `useRepository`
+is called right after `ensureDNFIPv4` at every Percona-installing site (not Intranet, MariaDB, OpenBao,
+Samba, VNC): it waits for the Repository to be running, then installs
+`/usr/local/sbin/dbcanvas-repo-rewrite` and `/usr/local/bin/{dnf,yum,apt-get,apt}` wrappers that run
+it before exec'ing the real binary. The script rewrites `repo.percona.com/<repo>/` to the Repository
+only for repositories listed in `/dbcanvas/carried/<yum-N-arch|apt-codename-arch>.txt` (fetched every
+run, cached), comments out their `deb-src`, and swaps `signed-by` to the Repository's key. Strict
+disables the remaining repo.percona.com sections. Doing it at the package-manager layer means no
+provisioner changed how it installs, hand-written repositories (9.7) are covered, and additions reach
+running nodes. A K3D frame gets `--registry-config` (docker.io plus a rewrite per other registry
+host) at `k3d cluster create`, and its operator tarball from the Repository when carried
+(`k3dOperatorFromRepository`, else GitHub).
+
+Validation: the node's own lists; consumers pointing at a missing Repository (error), at one that
+does not carry their OS release or arch (warning, they fall back), and K3D frames whose
+`K3D_PLATFORM` arch the Repository does not copy images for (warning).
+
+### Verified
+
+Live, on a separate instance against this host's Docker (arm64 host, DOCKER_PLATFORM amd64,
+K3D_PLATFORM arm64): Intranet, Repository (el9 + noble, amd64 + arm64, `ps-84-lts` 8.4.7-7.1 narrowed
+to `percona-server-server`, PXC operator 1.20.0), PS on el9 ×2 and on Ubuntu 24.04, and a K3D PXC
+frame, all using it.
+
+- Mirror: 4 RPMs per el9 arch (server, client, shared, ICU data) and 3 debs per noble arch; the
+  operator's 7 images and `pxc-operator-1.20.1` / `pxc-db-1.20.0`. A re-sync skips what is present.
+- el9: nginx access log shows the node fetching `repomd.xml` and the four 8.4.7-7.1 RPMs; installed
+  8.4.7-7.1. Ubuntu: the percona-release line rewritten (Repository key, `deb-src` commented), apt
+  offering only `8.4.7-7-1.noble` from it; installed. XtraBackup came from upstream (fallback).
+- "Add packages" (`pxb-84-lts`, `busybox:1.36`) on the running node; the already-running el9 node's
+  next `dnf` pointed `pxb-84-lts` at the Repository. A bad repository name is refused (400).
+- K3D: `registries.yaml` in the node; operator source "from the Repository"; the PXC cluster came up;
+  a re-pull of `percona/pmm-client:3.8.0` logged manifests and blobs served by the registry (200),
+  and k3s's own system images fell back to docker.io after 404s.
+- Strict: carried `pxb-84-lts` stayed enabled on the mirror; `prel` and `telemetry` were disabled.
+- From the host: `index.html`, the trees, `docker pull localhost:<port>/percona/haproxy:2.8.18-1`;
+  from the stack network: `helm repo add` / `search` / `pull dbcanvas/pxc-db`.
+- 19 Go tests (the selection runs over real ps-84-lts el9/noble metadata in testdata), 15 render
+  checks, the browser mount check.
+
+**Found by running them.** An empty download list ran `fetch_one` once with no arguments (GNU
+`xargs` without `-r`) and failed every yum target whose `noarch` had nothing selected. Errors were
+cut to their last six *characters* (`lastLines` counts characters). The canvas card kept the first
+sync's message after later syncs. All three fixed. A package row added in the form and left
+without a name (the picker's "Other…" entry) refused the whole design with `"" is not a repository
+name`; blank rows are now ignored with one warning, skipped by the sync, and flagged in the form.
+
+**Not verified.** Debian 12/13, Oracle Linux 8/10 and 22.04 targets; the ps, psmdb and pg operators
+(same code path as pxc); an apt node under strict mode; images from registries other than Docker
+Hub through the k3s rewrite; the Repository behind the Intranet proxy.

@@ -326,7 +326,7 @@ func (a *App) provisionPerconaServer(st Stack, n designNode, doc designDoc) {
 		Type: "mysql", Label: n.Label,
 		OS: n.OS, OSVersion: n.OSVersion, Arch: n.Arch,
 		PSMajor: n.PSMajor, PSVersion: n.PSVersion, GTID: n.GTID,
-		UseProxy: n.UseProxy, GenerateCert: n.GenerateCert,
+		UseProxy: n.UseProxy, RepositoryNodeID: n.RepositoryNodeID, GenerateCert: n.GenerateCert,
 		CertTTLValue: n.CertTTLValue, CertTTLUnit: n.CertTTLUnit, PMMNodeID: n.PMMNodeID,
 		// The keyring rides on the synthetic frame like everything else this node configures
 		// through the shared path, so a standalone server and a replication member are wired
@@ -710,6 +710,9 @@ func (a *App) mysqlPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	}
 	a.trustIntranetCA(ctx, st, id, frame.OS, pr.logln)
 	a.ensureDNFIPv4(ctx, id, frame.OS, pr.logln)
+	if err := a.useRepository(ctx, st, id, frame.RepositoryNodeID, pr.logln); err != nil {
+		return pr.fail("%v", err)
+	}
 
 	debian := isDebianOS(frame.OS)
 	if frame.UseProxy {

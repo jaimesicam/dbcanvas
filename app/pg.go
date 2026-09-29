@@ -357,6 +357,10 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 		}
 		a.trustIntranetCA(ctx, st, id, n.OS, pr.logln)
 		a.ensureDNFIPv4(ctx, id, n.OS, pr.logln)
+		if err := a.useRepository(ctx, st, id, n.RepositoryNodeID, pr.logln); err != nil {
+			pr.fail("%v", err)
+			return
+		}
 
 		debian := isDebianOS(n.OS)
 		if n.UseProxy {

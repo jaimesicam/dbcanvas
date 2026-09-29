@@ -103,7 +103,8 @@ the DBCanvas source, so they need a checkout and `make <name>-image`.
   22.04/24.04 or Debian 12/13, and CentOS 7 with `EOL=on` (below): join the stack's DNS/CA trust, then use its terminal to install
   and exercise whatever client tools a task needs — or tick *install kubectl* / *install Helm* to
   have them there at deploy, or *use this client for core-dump analysis* and it becomes one, see
-  below).
+  below), and a **Repository** (a yum/apt mirror and container registry the other nodes install
+  from, below).
 - **App Simulators** — link **Traffic Sim** to a Valkey node/cluster, **Hotel Sim** to a PS
   MongoDB standalone/replica-set/sharded node, **Airline Sim** to a standalone Percona Server
   node, a MySQL replication or PXC cluster, or a ProxySQL/HAProxy node fronting one, **Car
@@ -1094,6 +1095,86 @@ Certificates need the node to be listening for TLS, so the tick is disabled unti
 certificate is enabled.
 
 
+
+### Repository — a yum/apt mirror and a registry, holding only what you list
+
+A **Repository** node mirrors the Percona package repositories and runs a container registry, so
+the stack's database servers and Kubernetes operators install from it rather than from
+repo.percona.com and Docker Hub. That is how you rehearse an air-gapped or mirrored site, and how
+you stop a stack of twelve nodes downloading the same server twelve times.
+
+It carries **what the design lists, not a copy of repo.percona.com**. A whole repository is every
+build ever published, with debug symbols; a Repository holds the slice you name:
+
+- **OS releases and architectures.** Any of Oracle Linux 8/9/10, Ubuntu 22.04/24.04 and Debian
+  12/13, for amd64 and/or arm64. Each one is a full copy of what you list, so tick only what your
+  nodes run.
+- **Package repositories**, by their repo.percona.com name (`ps-84-lts`, `pxc-80`, `ppg-17`,
+  `psmdb-80`, `pxb-84-lts`, `pmm3-client`…; the picker suggests the common ones with the versions the
+  node pickers offer). With no version, only the newest build of each package is fetched. Name
+  versions to carry exactly those: one spelling works for both families, so `8.4.7-7.1` also selects
+  Ubuntu's `8.4.7-7-1.noble`. A package on its own version series (mysql-shell, pgBackRest) keeps its
+  newest build, which is what a pinned install would pick beside it. Optionally narrow it to
+  **package names or globs**. What they depend on inside the same repository comes along;
+  `percona-server-server` brings the client, the shared libraries and the ICU data.
+- **Operator releases** (PXC, PS, PSMDB, PG, any catalogued version): the tag's source tarball,
+  `deploy/bundle.yaml`, `cr.yaml` and `secrets.yaml`, `*.local.yaml` copies with every `image:`
+  pointed at this registry, every image those manifests start, and the release's two Helm charts
+  (operator and database) in a chart repository at `/charts`.
+- **Extra images**, any registry. Docker Hub images keep their path (`percona/…`, `library/…`), so
+  a docker.io mirror finds them. Other registries' images are stored under their host name.
+- **Debug symbols** are off by default: they are most of the bytes, and only a core dump needs them.
+
+**Using it from a node.** Every node and frame that installs from repo.percona.com has a
+**Repository** field (shown once the canvas has one): standalone and replication MySQL, PXC,
+InnoDB Cluster, PostgreSQL, Patroni, repmgr and Spock, MongoDB (standalone, replica set and
+sharded), Valkey, ProxySQL, HAProxy, PgBouncer, Orchestrator and the Linux Client. Nothing about
+how those nodes install changed: `percona-release` still writes its repositories. The node gets
+`/usr/local/sbin/dbcanvas-repo-rewrite` and thin `dnf`/`yum`/`apt-get`/`apt` wrappers that run it
+first. It swaps repo.percona.com for the Repository in whatever `.repo`/`.list` files exist, only for
+the repositories the Repository carries for that node's OS release and architecture, a list it
+re-reads from `/dbcanvas/carried/` every time. So a repository added to a running Repository is used
+by nodes already deployed, on their next install.
+
+- **Fallback (default):** anything it does not carry still comes from upstream. A Percona Server
+  node whose Repository carries `ps-84-lts` but not `pxb-84-lts` gets its server from the mirror and
+  XtraBackup from repo.percona.com.
+- **Strict:** the node disables the Percona repositories the Repository does not carry, so an
+  install that needs something missing fails and says what. That is the test of whether a mirror is
+  complete enough for an air-gapped site. OS repositories are never touched.
+
+RPMs keep Percona's signature, so `gpgcheck` stays on over metadata the Repository regenerated. An
+apt `Release` cannot keep Percona's signature once its index is a subset, so the Repository signs
+its own with a key it creates on first deploy (`/dbcanvas-repo.gpg`, kept on its data volume across
+a redeploy), and a node's rewritten lines trust that key instead.
+
+**Using it from a K3D frame.** The frame's Repository field hands k3d a `registries.yaml` at create
+time (k3s reads it only when it starts): docker.io, and every other registry the Repository holds
+images from, mirrored to its registry. containerd falls back to the real registry for anything the
+mirror lacks, such as k3s's own system images. The operator source is read from the Repository when
+it carries that release. Tick the architecture k3s runs (`K3D_PLATFORM`) on the Repository, or pods
+would be handed images they cannot run; validation warns when they differ.
+
+**The running panel** has four tabs:
+
+- **Overview:** the browse link (the host port for nginx on 80), what it holds per repository, OS
+  release and architecture, operators and images (each failure named), disk use, and *Re-sync from
+  upstream*.
+- **How to use:** copyable steps for yum/dnf, apt, an operator from `cr.yaml`, an operator from
+  Helm, and containerd/Docker, written with this node's names and a repository it actually carries.
+- **Add packages:** the same editor as the design. It downloads more, keeps what is there, and lists
+  what was added since deploy (kept across a redeploy).
+- **Sync log:** the last sync's per-item log.
+
+Its front page (`index.html`) lists everything it holds and links into the autoindexed trees:
+`/percona/` (laid out exactly like repo.percona.com), `/operators/`, `/charts/`, `/dbcanvas/` (the
+carried lists, `manifest.json`, `registries.yaml`) and the registry's `/v2/_catalog`. The registry
+is on port 5000 inside the stack and on a published host port outside it, where `docker pull
+localhost:<port>/percona/…` works without any daemon configuration.
+
+It runs on the Ubuntu 24.04 systemd image, with nginx, the distribution's `docker-registry`,
+`createrepo_c`, `apt-ftparchive` and `skopeo`. The first deploy includes the first sync, and a node
+that uses the Repository waits for it, so a large list makes a slow first deploy.
 
 ## Templates — save a topology, deploy it again
 

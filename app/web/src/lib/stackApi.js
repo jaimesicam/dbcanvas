@@ -130,6 +130,8 @@ export const stackApi = {
   // PMM 2's releases — a fixed list served by app/pmm2.go, since an end-of-life product
   // has no new version for `make versions` to find.
   pmm2Catalog: () => request('GET', '/api/catalog/pmm2'),
+  // What a Repository node can carry (OS releases, suggested repositories + versions, operators).
+  repositoryCatalog: () => request('GET', '/api/catalog/repository'),
   pxcCatalog: () => request('GET', '/api/catalog/pxc'),
   proxysqlCatalog: () => request('GET', '/api/catalog/proxysql'),
   valkeyCatalog: () => request('GET', '/api/catalog/valkey'),
@@ -218,6 +220,16 @@ export function pmmApi(id, nid) {
   return {
     certInfo: () => request('GET', `${base}/pmm/cert`),
     certGenerate: (value, unit) => request('POST', `${base}/pmm/cert`, { value, unit }),
+  }
+}
+
+// Repository node management: add content to a running Repository, or re-sync what it carries.
+// Both return 202 at once; progress is the node's config.sync, which the stack poll refreshes.
+export function repositoryApi(id, nid) {
+  const base = `/api/stacks/${id}/nodes/${nid}/repository`
+  return {
+    add: (body) => request('POST', `${base}/add`, body),
+    sync: () => request('POST', `${base}/sync`),
   }
 }
 
