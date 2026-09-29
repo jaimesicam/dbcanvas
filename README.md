@@ -162,9 +162,65 @@ yourself.
 
 ## What's new
 
-### 0.0.10
+### 0.0.11
 
 <details open>
+<summary><b>OpenEverest on Kubernetes</b></summary>
+
+Pick **OpenEverest** as a K3D frame's operator and DBCanvas installs the database platform from
+its Helm chart, then waits for the Percona operators you tick — **MySQL (PXC)**, **MongoDB** and
+**PostgreSQL**, all three by default — to be installed into Everest's database namespace by OLM.
+Their versions come with the chart release (1.16.2 brings PXC 1.20.0 and PostgreSQL 3.0.0), and the
+node's panel shows what actually landed.
+
+The frame creates **no database** — that is what Everest's UI is for. Like a PMM node's, the UI is
+published on a localhost port and the panel has an **Open OpenEverest** button; sign in as `admin`
+with `EVEREST_PASSWORD`. Backups and PMM are configured inside Everest, as a backup storage and a
+monitoring endpoint. Chart **1.15.0** is left out of the picker: its server serves a blank page
+instead of the UI (1.15.1 and newer are fine).
+
+Also fixed: renaming a K3D frame left its old cluster running — and holding host ports — even after
+the stack was deleted. Both a redeploy and a stack teardown now remove it.
+
+[Stacks →](docs/STACKS.md)
+</details>
+
+<details>
+<summary><b>Repository node — a local mirror of the Percona repositories and the operator images</b></summary>
+
+A **Repository** node (Storage & Clients) mirrors only the slice of repo.percona.com a design
+needs: the OS releases, architectures, repositories, versions and packages you list, plus the
+packages they depend on. It can also carry **Percona operator releases**, **Helm charts** and
+**container images** in a registry of its own.
+
+Point a node or a K3D frame at it and it installs from there instead of the internet. RPMs keep
+Percona's own signatures, so `gpgcheck` is untouched; apt repositories are re-signed with the
+node's own key. A k3s cluster pulls its images through the Repository and falls back upstream for
+anything it does not hold. **Add packages** to a running Repository without redeploying it.
+
+[Stacks →](docs/STACKS.md)
+</details>
+
+<details>
+<summary><b>EOL releases: CentOS 7 for the Linux Client, and a PMM2 node</b></summary>
+
+A new **`EOL`** switch in `.env`, off by default, offers releases past their end of life the way
+`EXPERIMENTAL` offers unfinished ones. It only decides what the pickers show: a stack already built
+with it on keeps deploying after it is turned off.
+
+With it on, the **Linux Client** runs **CentOS 7** — its repositories pointed at vault.centos.org and
+percona-release installed — and Sample Client Code runs there in Python, Node.js, Go and Java, with
+the mysql 8.0, psql 13 and mongosh clients. C# and the Valkey shell client cannot run on CentOS 7, so
+the picker greys them out with the reason rather than failing mid-install.
+
+**PMM2** gets a node of its own under Monitoring, separate from PMM3: releases 2.25.0 to 2.44.1.
+
+[Configuration →](docs/CONFIGURATION.md)
+</details>
+
+### 0.0.10
+
+<details>
 <summary><b>PgBouncer — connection pooling for the PostgreSQL family</b></summary>
 
 A **PgBouncer** node pools for one backend drawn on the canvas: a standalone PostgreSQL node, or a

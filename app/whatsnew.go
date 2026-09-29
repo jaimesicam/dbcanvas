@@ -37,6 +37,48 @@ type releaseNote struct {
 // expanded, and the tests assume the ordering.
 var whatsNewNotes = []releaseNote{
 	{
+		Version: "0.0.11",
+		Date:    "2026-09-29",
+		Title:   "OpenEverest on Kubernetes",
+		Body: "Pick OpenEverest as a K3D frame's operator and DBCanvas installs the database platform " +
+			"from its Helm chart, then waits for the Percona operators you tick — MySQL (PXC), " +
+			"MongoDB and PostgreSQL — to be installed into Everest's database namespace by OLM. Their " +
+			"versions come with the chart release, and the node's panel shows what landed. The frame " +
+			"creates no database: that is what Everest's UI is for, and the panel opens it on a " +
+			"localhost port, the way a PMM node's is; sign in as admin with EVEREST_PASSWORD. " +
+			"Backups and PMM are configured inside Everest. Chart 1.15.0 is left out: its server " +
+			"serves a blank page instead of the UI. Renaming a K3D frame no longer leaves its old " +
+			"cluster running, holding host ports, after the stack is gone.",
+		Doc: "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.11",
+		Date:    "2026-09-29",
+		Title:   "Repository node — a local mirror of the Percona repositories and the operator images",
+		Body: "A Repository node mirrors only the slice of repo.percona.com a design needs — the OS " +
+			"releases, architectures, repositories, versions and packages you list, with the packages " +
+			"they depend on — plus Percona operator releases, Helm charts and container images in a " +
+			"registry of its own. Point a node or a K3D frame at it and it installs from there " +
+			"instead of the internet: RPMs keep Percona's signatures, apt repositories are signed " +
+			"with the node's own key, and a k3s cluster pulls its images through it, falling back " +
+			"upstream for anything it does not hold. Add packages to a running Repository without " +
+			"redeploying it.",
+		Doc: "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.11",
+		Date:    "2026-09-24",
+		Title:   "EOL releases: CentOS 7 for the Linux Client, and a PMM2 node",
+		Body: "A new EOL switch in .env, off by default, offers releases past their end of life the way " +
+			"EXPERIMENTAL offers unfinished ones. It only decides what the pickers show, and never " +
+			"breaks a stack already built with it on. With it on, the Linux Client runs CentOS 7 — " +
+			"repositories pointed at vault.centos.org, percona-release installed — and Sample Client " +
+			"Code runs there in Python, Node.js, Go and Java with the mysql, psql and mongosh " +
+			"clients; C# and the Valkey client cannot run on CentOS 7 and are greyed out with the " +
+			"reason. PMM2 gets a node of its own under Monitoring, releases 2.25.0 to 2.44.1.",
+		Doc: "docs/CONFIGURATION.md",
+	},
+	{
 		Version: "0.0.10",
 		Date:    "2026-09-23",
 		Title:   "PgBouncer — connection pooling for the PostgreSQL family",
