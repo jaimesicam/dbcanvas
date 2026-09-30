@@ -306,8 +306,20 @@ func (d *Docker) NetworkRemove(ctx context.Context, name string) {
 // NetworkConnect attaches a container to a network. Idempotent: a container already
 // on the network is treated as success. Used by the Query Runner to join a stack's
 // network so it can reach that stack's DB nodes over TCP.
+//
+// GwPriority -1 keeps the joined network from ever becoming the container's default
+// gateway. Docker publishes a container's ports on its gateway network, so letting a
+// stack network take the gateway (Docker 28+ picks one by priority, then by name, and
+// "dbcanvas-stack-N" sorts before "dbcanvas_default") restarts the docker-proxy behind
+// :8080 — and that cuts every connection open through it: every user's terminals, the
+// notification stream, uploads in flight. That was the first benchmark, Query Runner
+// run or Explorer connection against a stack, and again when that stack was torn down.
+// A daemon older than 28 ignores the field.
 func (d *Docker) NetworkConnect(ctx context.Context, network, container string) error {
-	resp, err := d.do(ctx, "POST", "/networks/"+url.PathEscape(network)+"/connect", map[string]any{"Container": container})
+	resp, err := d.do(ctx, "POST", "/networks/"+url.PathEscape(network)+"/connect", map[string]any{
+		"Container":      container,
+		"EndpointConfig": map[string]any{"GwPriority": -1},
+	})
 	if err != nil {
 		return err
 	}
