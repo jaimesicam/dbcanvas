@@ -358,6 +358,81 @@ export function InternalWrites() {
   )
 }
 
+// GuestSessions is the switch for shared sessions (app/share.go): whether a stack's
+// owner may share a live session through a link, and the longest a link may last.
+// Instance-wide and off by default — a link admits people who have no account here.
+export function GuestSessions() {
+  const { system, saveSystem } = useSettings()
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
+  const on = !!system.allowGuestSessions
+  const [minutes, setMinutes] = useState(system.maxGuestMinutes ?? 120)
+  const [days, setDays] = useState(system.sessionRetentionDays ?? 90)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  useEffect(() => { setMinutes(system.maxGuestMinutes ?? 120) }, [system.maxGuestMinutes])
+  useEffect(() => { setDays(system.sessionRetentionDays ?? 90) }, [system.sessionRetentionDays])
+
+  const apply = async (patch) => {
+    setErr(''); setBusy(true)
+    try { await saveSystem(patch) } catch (e) { setErr(e.message) } finally { setBusy(false) }
+  }
+  const dirty = Number(minutes) !== system.maxGuestMinutes
+  const daysDirty = Number(days) !== system.sessionRetentionDays
+
+  return (
+    <Row
+      title="Shared sessions"
+      hint="Whether a stack's owner may share a live session with guests through a link, and how long a link may last. Instance-wide, and off by default."
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+          on ? 'bg-primary/15 text-primary' : 'bg-muted/15 text-muted'}`}>
+          {on ? <Icon.Check size={13} /> : <Icon.Close size={13} />}
+          {on ? 'Allowed' : 'Off'}
+        </span>
+        <Help text={HELP.guestSessions} />
+        {isAdmin && (
+          <Button variant={on ? 'subtle' : 'outline'} onClick={() => apply({ allowGuestSessions: !on })} disabled={busy}>
+            {busy ? 'Saving…' : on ? 'Turn off (ends live sessions)' : 'Allow shared sessions'}
+          </Button>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-muted">Longest link</span>
+        <input
+          type="number" min="5" max="120" step="5" disabled={!isAdmin || busy}
+          value={minutes} onChange={(e) => setMinutes(e.target.value)}
+          className="w-20 rounded-lg border bg-bg px-2 py-1 text-sm"
+        />
+        <span className="text-muted">minutes (5 to 120)</span>
+        {isAdmin && dirty && (
+          <Button variant="primary" onClick={() => apply({ maxGuestMinutes: Number(minutes) })} disabled={busy}>Save</Button>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-muted">Keep ended sessions</span>
+        <input
+          type="number" min="0" max="3650" step="1" disabled={!isAdmin || busy}
+          value={days} onChange={(e) => setDays(e.target.value)}
+          className="w-20 rounded-lg border bg-bg px-2 py-1 text-sm"
+        />
+        <span className="text-muted">days (0 keeps them)</span>
+        <Help text={HELP.sessionRetention} />
+        {isAdmin && daysDirty && (
+          <Button variant="primary" onClick={() => apply({ sessionRetentionDays: Math.max(0, Math.round(Number(days) || 0)) })} disabled={busy}>Save</Button>
+        )}
+      </div>
+      {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
+      <div className="text-xs text-muted">
+        {system.publicUrl
+          ? <>Links are built on <span className="font-mono text-fg">{system.publicUrl}</span> (PUBLIC_URL).</>
+          : 'Links use the address your browser is on. Set PUBLIC_URL in .env to the address colleagues use, and APP_HOST to an interface they can reach.'}
+      </div>
+    </Row>
+  )
+}
+
 // TabLimit is how many pages the main window will keep open at once.
 //
 // A draft plus an explicit Save, like the two instance-wide rows below, rather
@@ -608,6 +683,8 @@ export default function Settings() {
       <TokenLifetime />
 
       <InternalWrites />
+
+      <GuestSessions />
 
       <Row title="Theme" hint="The colour palette. Applied now and whenever you sign in, on any browser.">
         <div className="grid gap-2 sm:grid-cols-3">

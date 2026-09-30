@@ -4,6 +4,8 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { Icon } from '../components/Icons.jsx'
 import { useSettings } from '../settings/SettingsProvider.jsx'
+import { useSession } from '../session/SessionProvider.jsx'
+import { shareApi } from '../lib/shareApi.js'
 
 // A top-level terminal manager. Because the provider (and its dock) live above
 // the page switch, xterm instances + their WebSockets stay mounted across
@@ -46,15 +48,16 @@ export function TerminalProvider({ children }) {
     setSessions((ss) => ss.map((s) => (s.id === id ? { ...s, status } : s)))
   }, [])
 
-  // pod, when given, opens the console one layer further in: inside a container of a
-  // pod in the Kubernetes cluster this node runs, rather than in the node itself
-  // ({ namespace, name, container, shell } — see app/k3dpods.go). Same socket, same
-  // protocol; the server decides what to exec.
-  const openTerminal = useCallback(({ stackId, nodeId, title, user, pod }) => {
-    // A fresh session id every call → multiple concurrent terminals per node.
-    const n = ++counter.current
-    const id = `${stackId}:${nodeId}#${n}`
-    const tabTitle = `${title || nodeId} · ${n}`
+  // A shared session (session/SessionProvider.jsx) changes where a terminal comes
+  // from: opened by the driver or the host, it is one shell the whole session sees
+  // (app/shareterm.go), and every browser — the opener's too — attaches to it when
+  // the hub announces it. Outside a session a terminal is this browser's alone.
+  const share = useSession()
+  const shareRef = useRef(share)
+  shareRef.current = share
+
+  // attach creates a session from a socket URL: the xterm, its host div, the dock tab.
+  const attach = useCallback(({ id, title, url, shared }) => {
     const term = new Terminal({
       fontSize: 13, cursorBlink: true, convertEol: false,
       fontFamily: 'ui-monospace, "JetBrains Mono", monospace', theme: XTERM_THEME,
@@ -62,18 +65,7 @@ export function TerminalProvider({ children }) {
     const fit = new FitAddon()
     term.loadAddon(fit)
 
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-    const params = new URLSearchParams()
-    if (user) params.set('user', user)
-    if (pod?.name) {
-      params.set('namespace', pod.namespace || 'default')
-      params.set('pod', pod.name)
-      params.set('container', pod.container || '')
-      params.set('shell', pod.shell || 'auto')
-    }
-    const qs = params.toString()
-    const q = qs ? `?${qs}` : ''
-    const ws = new WebSocket(`${proto}://${location.host}/api/stacks/${stackId}/nodes/${nodeId}/term${q}`)
+    const ws = new WebSocket(url)
     ws.binaryType = 'arraybuffer'
     const enc = new TextEncoder()
 
@@ -92,11 +84,11 @@ export function TerminalProvider({ children }) {
     const host = document.createElement('div')
     host.style.cssText = 'position:absolute;inset:0;padding:4px'
 
-    termsRef.current.set(id, { term, fit, ws, host, opened: false })
+    termsRef.current.set(id, { term, fit, ws, host, opened: false, shared })
     // The user's terminalMode setting decides where the session lands: a dock tab (default) or
     // its own floating window, cascaded like a detached one.
     setSessions((ss) => [...ss, {
-      id, title: tabTitle, status: 'connecting', floating: undocked,
+      id, title, status: 'connecting', floating: undocked, shared: !!shared,
       ...(undocked ? { float: floatRect(ss.filter((s) => s.floating).length) } : {}),
     }])
     if (!undocked) {
@@ -105,7 +97,46 @@ export function TerminalProvider({ children }) {
     }
   }, [setStatus, undocked])
 
-  const closeTerminal = useCallback((id) => {
+  // pod, when given, opens the console one layer further in: inside a container of a
+  // pod in the Kubernetes cluster this node runs, rather than in the node itself
+  // ({ namespace, name, container, shell } — see app/k3dpods.go). Same socket, same
+  // protocol; the server decides what to exec.
+  const openTerminal = useCallback(({ stackId, nodeId, title, user, pod }) => {
+    const sh = shareRef.current
+    if (sh.active) {
+      if (!sh.isDriver && !sh.isHost) {
+        sh.notice('Ask the host for control to open a terminal.')
+        return
+      }
+      sh.openSharedTerm({
+        stackId, nodeId, title: title || nodeId, user,
+        namespace: pod?.name ? (pod.namespace || 'default') : '', pod: pod?.name || '',
+        container: pod?.container || '', shell: pod?.name ? (pod.shell || 'auto') : '',
+      }).catch((e) => sh.notice(e.message))
+      return // the hub's terminal-open opens it here, and everywhere else
+    }
+    // A fresh session id every call → multiple concurrent terminals per node.
+    const n = ++counter.current
+    const id = `${stackId}:${nodeId}#${n}`
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+    const params = new URLSearchParams()
+    if (user) params.set('user', user)
+    if (pod?.name) {
+      params.set('namespace', pod.namespace || 'default')
+      params.set('pod', pod.name)
+      params.set('container', pod.container || '')
+      params.set('shell', pod.shell || 'auto')
+    }
+    const qs = params.toString()
+    const q = qs ? `?${qs}` : ''
+    attach({ id, title: `${title || nodeId} · ${n}`, url: `${proto}://${location.host}/api/stacks/${stackId}/nodes/${nodeId}/term${q}` })
+  }, [attach])
+
+  // Shared terminals a viewer closed for themselves, so the list below does not
+  // reopen them.
+  const dismissed = useRef(new Set())
+
+  const dropTerminal = useCallback((id) => {
     const t = termsRef.current.get(id)
     if (t) {
       if (t._ro) { try { t._ro.disconnect() } catch { /* */ } }
@@ -121,6 +152,37 @@ export function TerminalProvider({ children }) {
       return rest
     })
   }, [])
+
+  // A shared terminal is closed by whoever has control, for everyone. Anyone else —
+  // the host too, while a guest drives — cannot (the server refuses it as well); they
+  // can minimize it to the dock instead.
+  const closeTerminal = useCallback((id) => {
+    const t = termsRef.current.get(id)
+    const sh = shareRef.current
+    if (t?.shared && sh.active) {
+      if (!sh.isDriver) { sh.notice('Only whoever has control can close a shared terminal.'); return }
+      sh.closeSharedTerm(t.shared)
+      return
+    }
+    dropTerminal(id)
+  }, [dropTerminal])
+  // canClose is what the close buttons ask.
+  const canClose = useCallback((s) => !s.shared || !share.active || share.isDriver, [share.active, share.isDriver])
+
+  // The session's shared terminals, kept in step with the hub: a viewer for each one
+  // open, and gone when it closes (or when the session does).
+  useEffect(() => {
+    const open = new Set(share.active ? share.terms.map((t) => t.id) : [])
+    for (const t of share.active ? share.terms : []) {
+      const id = `share:${t.id}`
+      if (!termsRef.current.has(id) && !dismissed.current.has(t.id)) {
+        attach({ id, title: `${t.title} · shared`, url: shareApi.termURL(share.sid, t.id), shared: t.id })
+      }
+    }
+    for (const [id, t] of termsRef.current) {
+      if (t.shared && !open.has(t.shared)) dropTerminal(id)
+    }
+  }, [share.active, share.sid, share.terms, attach, dropTerminal])
 
   const detachTerminal = useCallback((id) => {
     setSessions((ss) => {
@@ -153,7 +215,7 @@ export function TerminalProvider({ children }) {
   }, [sessions, activeId])
 
   const value = {
-    sessions, activeId, open, setActiveId, setOpen, openTerminal, closeTerminal,
+    sessions, activeId, open, setActiveId, setOpen, openTerminal, closeTerminal, canClose,
     detachTerminal, attachTerminal, setFloat, termsRef,
   }
   return (
@@ -165,7 +227,8 @@ export function TerminalProvider({ children }) {
 }
 
 function TerminalLayer() {
-  const { sessions, activeId, open, setActiveId, setOpen, closeTerminal, detachTerminal, attachTerminal, setFloat, termsRef } = useTerminals()
+  const { sessions, activeId, open, setActiveId, setOpen, closeTerminal, canClose, detachTerminal, attachTerminal, setFloat, termsRef } = useTerminals()
+  const closeTitle = (s) => (canClose(s) ? 'Close' : 'Only whoever has control can close a shared terminal')
   const [layout, setLayout] = useState(loadLayout)
   const [menu, setMenu] = useState(null) // { x, y, id } for the right-click context menu
   const areaRef = useRef(null)
@@ -285,7 +348,7 @@ function TerminalLayer() {
               <span className={statusDot(s.status)} />
               <span className="min-w-0 flex-1 truncate text-xs text-fg">{s.title}</span>
               <button title="Dock" onClick={() => attachTerminal(s.id)} className="rounded p-1 text-muted hover:bg-surface hover:text-fg"><Icon.Frame size={13} /></button>
-              <button title="Close" onClick={() => closeTerminal(s.id)} className="rounded px-1.5 text-muted hover:text-danger">✕</button>
+              <button title={closeTitle(s)} disabled={!canClose(s)} onClick={() => closeTerminal(s.id)} className="rounded px-1.5 text-muted hover:text-danger disabled:cursor-not-allowed disabled:opacity-30">✕</button>
             </div>
             <div ref={floatSlot(s.id)} className="relative flex-1 overflow-hidden bg-[#0e1117]" />
             {!f.max && (
@@ -329,7 +392,7 @@ function TerminalLayer() {
                   <span className={statusDot(s.status)} />
                   <span className="max-w-[140px] truncate">{s.title}</span>
                   <button title="Detach into a window" onClick={(e) => { e.stopPropagation(); detachTerminal(s.id) }} className="rounded text-muted hover:text-fg"><Icon.External size={12} /></button>
-                  <button title="Close" onClick={(e) => { e.stopPropagation(); closeTerminal(s.id) }} className="rounded hover:text-danger">✕</button>
+                  <button title={closeTitle(s)} disabled={!canClose(s)} onClick={(e) => { e.stopPropagation(); closeTerminal(s.id) }} className="rounded hover:text-danger disabled:cursor-not-allowed disabled:opacity-30">✕</button>
                 </div>
               ))}
             </div>
@@ -357,7 +420,7 @@ function TerminalLayer() {
               style={{ left: Math.min(menu.x, window.innerWidth - 172), top: Math.min(menu.y, window.innerHeight - 108) }}>
               {!s.floating && item('Maximize', '⛶', run(maximize))}
               {item('Minimize', '—', run(minimize))}
-              {item('Close', '✕', run((x) => closeTerminal(x.id)), true)}
+              {canClose(s) && item('Close', '✕', run((x) => closeTerminal(x.id)), true)}
             </div>
           </>
         )

@@ -655,6 +655,19 @@ export const HELP = {
     'ClickHouse with readonly=2. This lifts that for the whole installation, which is what you need to test ' +
     'how PMM behaves when its own data is wrong. It is not the only lock: a Database Explorer tab must still ' +
     'be armed for writes before one is sent, so a tab left open from before cannot write by pressing Run.',
+  guestSessions:
+    'Lets a stack\u2019s owner share a live session through a link. Whoever opens the link gives a name ' +
+    'and an email and waits in a lobby until the host admits them; admitted guests follow everything the ' +
+    'host does across every tab, and chat. A guest the host gives control to can do anything the host can ' +
+    'in their workspace \u2014 but never reach the host\u2019s account, API tokens or administration. A link ' +
+    'lasts at most the time set here, two hours at most. Turning this off ends every live session at once. ' +
+    'Guests reach DBCanvas at the address in PUBLIC_URL (.env), and APP_HOST must be an interface they can reach.',
+  sessionRetention:
+    'How long the record of an ended shared session is kept: its guests (with the names, emails and ' +
+    'addresses they gave), the chat and event transcript, and the log of what guests changed. After ' +
+    'that it is deleted, checked once an hour; lowering the number deletes what is now too old at once. ' +
+    'A session still running is never deleted, and deleting a stack deletes its sessions whatever this ' +
+    'says. 0 keeps them for as long as the stack exists.',
   maxTokenDays:
     'The longest lifetime anyone who is not an administrator may give an API token. Asking for longer ' +
     'gets this value rather than an error, so lowering it never breaks the create form. It does not ' +

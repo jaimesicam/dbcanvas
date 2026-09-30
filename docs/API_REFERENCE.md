@@ -36,7 +36,7 @@ longer one.
 
 **Managing a node** · [Node file manager](#node-file-manager) · [Certificates](#certificates) · [Intranet mail](#intranet-mail) · [Intranet LDAP](#intranet-ldap) · [Samba AD DC](#samba-ad-dc) · [SeaweedFS](#seaweedfs) · [OpenBao](#openbao)
 
-**Watching** · [Dashboard](#dashboard) · [Notifications](#notifications) · [API metadata](#api-metadata)
+**Watching** · [Dashboard](#dashboard) · [Notifications](#notifications) · [Shared sessions](#shared-sessions) · [API metadata](#api-metadata)
 
 ---
 
@@ -1222,6 +1222,54 @@ server with no route to `raw.githubusercontent.com` answers `502`.
 The stream is `text/event-stream` and stays open; each event's `data` is one
 notification as JSON. It is how a long-running script learns that a deploy finished
 without polling.
+
+## Shared sessions
+
+A stack's owner shares a live session through a link that lasts at most two hours.
+Whoever opens it gives a name and an email and waits in a lobby until the host admits
+them; admitted guests follow the host across every tab and chat, and a guest the host
+gives control to can do anything the host can in the workspace. Off until an
+administrator turns it on (`allowGuestSessions` in `PUT /api/system/settings`).
+An ended session's records — its guests' names, emails and addresses, the
+transcript and the guest actions — are deleted after `sessionRetentionDays`
+(default 90; `0` keeps them until the stack is deleted), checked hourly.
+
+| To do this | API | CLI |
+| --- | --- | --- |
+| Start a session, get its link *(password sign-in only)* | `POST /api/stacks/{id}/share` `{"minutes": 5–120, "hideSecrets": false}` | — |
+| Your sessions (`?live=1` for running ones) | `GET /api/share/sessions` | `dbcanvas api GET /api/share/sessions?live=1` |
+| One session: guests and who has control | `GET /api/share/sessions/{sid}` | `dbcanvas api GET /api/share/sessions/3` |
+| Admit, deny, remove a guest | `POST /api/share/sessions/{sid}/guests/{gid}/admit` · `…/deny` · `…/remove` | `dbcanvas api POST …/guests/5/admit` |
+| Mute or unmute a guest | `POST /api/share/sessions/{sid}/guests/{gid}/mute` `{"muted": true}` | — |
+| Give or take back control | `POST /api/share/sessions/{sid}/control` `{"to": 5}` or `{"to": "host"}` | — |
+| End it now | `POST /api/share/sessions/{sid}/end` | `dbcanvas api POST /api/share/sessions/3/end` |
+| Transcripts filed on a stack | `GET /api/stacks/{id}/share/transcripts` | — |
+| Download a transcript | `GET /api/share/sessions/{sid}/transcript` *(text; `?format=json`)* | `dbcanvas api GET …/transcript --out session.txt` |
+| **Live channel** — presence, follow, chat, control | `GET /api/share/sessions/{sid}/ws` *(websocket)* | — |
+| Shared terminal: open, close, watch | `POST /api/share/sessions/{sid}/terms` · `DELETE …/terms/{tid}` · `GET …/terms/{tid}/ws` | — |
+| The join page, joining, the lobby, leaving *(public)* | `GET /api/join/{token}` · `POST /api/join/{token}` · `GET …/status` · `POST …/leave` | — |
+
+**Browser window.** Right-clicking a link to a node's web UI (PMM, the noVNC
+desktop, a simulator dashboard, webmail — anything on `http://<host>:<published
+port>/`) offers *Open in browser window*; for a guest a plain click does it.
+`POST /api/browse {"url": "http://localhost:32790/vnc.html"}` finds the node that
+publishes that host port, checks it is on one of the caller's stacks, and returns a
+`/_p/<key>/…` address that DBCanvas proxies to the node over the stack network —
+pages, redirects, cookies and websockets — so nothing but DBCanvas's own port needs
+to be reachable. In a shared session a window the driver or the host opens opens
+for everyone, follows the driver as they move around in it, and closes for everyone
+when they close it. A watching guest may look at a proxied page but not post to it or
+open its websockets — except a VNC desktop, which they see live through a view-only
+filter on the server that drops their keyboard, pointer, clipboard and resize
+messages. The guest in control can use every page fully.
+
+A guest is not an account. The guest's browser marks every request as a guest's
+(the `X-DBCanvas-Guest` header, or `?guest=1` on sockets and downloads), and the
+server then treats it as the **host's** request with a `read` scope while the guest
+watches and `write` while they drive — exactly as an API token of that scope. A
+guest never reaches the host's account, tokens, notifications or administration,
+and never inherits admin rights. Every write a guest makes is recorded, with the
+guest's name, in the transcript.
 
 ## API metadata
 

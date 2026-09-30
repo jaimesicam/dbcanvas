@@ -133,6 +133,12 @@ func TestPublicRoutesUnchanged(t *testing.T) {
 		"POST /api/auth/register",
 		"POST /api/auth/login",
 		"POST /api/auth/logout",
+		// A shared-session link: the join page, the lobby and leaving happen before
+		// the guest has any credential but the link itself (share.go).
+		"GET /api/join/{token}",
+		"POST /api/join/{token}",
+		"GET /api/join/{token}/status",
+		"POST /api/join/{token}/leave",
 	}
 	got := map[string]bool{}
 	for _, rt := range apiRoutes() {

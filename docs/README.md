@@ -44,6 +44,12 @@ How to use each part of DBCanvas. For installing and configuring it, see
 | [Operator Debugger](OPERATOR_DEBUGGER.md) | Step through the Kubernetes operator itself — breakpoints, call stack and variables, with no IDE. |
 | [Core Dump Analyzer](CORE_DUMP_ANALYZER.md) | Read a crashed server's `mysqld` core dump — threads, stack and arguments — without touching the server. |
 
+## Work together
+
+| Guide | What it covers |
+| --- | --- |
+| [Shared Sessions](SHARED_SESSIONS.md) | Share a live session through a link — a lobby, following, chat, handing over control — and open node web UIs, VNC included, in a browser window through DBCanvas's own port. |
+
 ## Learn on it
 
 | Guide | What it covers |

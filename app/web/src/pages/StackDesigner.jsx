@@ -43,6 +43,8 @@ import {
 import { useSettings } from '../settings/SettingsProvider.jsx'
 import { useAuth } from '../auth/AuthProvider.jsx'
 import { useRefresh } from '../lib/useRefresh.jsx'
+import { useSession } from '../session/SessionProvider.jsx'
+import ShareDialog from '../components/ShareDialog.jsx'
 
 const NODE_W = 212
 // A node card carries an icon, its name and its status, and nothing else — so it is
@@ -1500,6 +1502,15 @@ export default function StackDesigner() {
   }, [load, loadTemplates])
   useRefresh(() => Promise.all([load(), loadTemplates()]))
 
+  // Follow mode (session/SessionProvider.jsx): the driver says which stack is open,
+  // and everyone following opens the same one — or goes back to the list with them.
+  const session = useSession()
+  useEffect(() => { session.publishFollow({ stackId: openId }) }, [openId]) // eslint-disable-line react-hooks/exhaustive-deps
+  const followStack = session.following && session.follow?.page === 'stack-designer' ? session.follow.stackId : undefined
+  useEffect(() => {
+    if (followStack !== undefined && followStack !== openId) setOpenId(followStack ?? null)
+  }, [followStack]) // eslint-disable-line react-hooks/exhaustive-deps
+
   if (openId != null) {
     return (
       <StackEditor
@@ -2244,12 +2255,51 @@ function loadPalettePrefs() {
 }
 
 function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
+  // In a shared session only the driver's canvas saves. Everyone else's — the host's
+  // too, while a guest drives — is a view of the design that reloads when the driver
+  // changes it: a stale copy that autosaved would take nodes the driver just added
+  // with it (the server tears down whatever a save leaves out).
+  const session = useSession()
+  const locked = session.active && !session.isDriver
+  const lockedRef = useRef(locked)
+  lockedRef.current = locked
+  const [reloadKey, setReloadKey] = useState(0)
+  const [shareOpen, setShareOpen] = useState(false)
   const [stack, setStack] = useState(null)
   const [error, setError] = useState('')
-  const [nodes, setNodes] = useState([])
-  const [edges, setEdges] = useState([])
-  const [frames, setFrames] = useState([])
+  const [nodes, setNodesRaw] = useState([])
+  const [edges, setEdgesRaw] = useState([])
+  const [frames, setFramesRaw] = useState([])
   const [view, setView] = useState({ x: 40, y: 20, z: 1 })
+  // While someone else drives, the design is theirs: this canvas only shows it. The
+  // save is off (below), and so is every edit — each one goes through these three
+  // setters, so a drag, a delete, a menu action or a field in Properties that would
+  // change the design is refused here, with a word to say why. Loads and reloads from
+  // the server use the raw setters. Pan, zoom and selection are not the design and
+  // stay free.
+  const designRef = useRef({ nodes: [], edges: [], frames: [] })
+  designRef.current = { nodes, edges, frames }
+  const lockedNotice = useRef(0)
+  const guarded = (raw, key) => (v) => {
+    if (!lockedRef.current) return raw(v)
+    const cur = designRef.current[key]
+    const next = typeof v === 'function' ? v(cur) : v
+    if (next === cur) return
+    if (Date.now() - lockedNotice.current > 3000) {
+      lockedNotice.current = Date.now()
+      setFlash({ tone: 'err', text: `View only — ${session.controllerName || 'someone else'} has control. Ask for control to change the design.` })
+    }
+  }
+  // refuseLocked stops an edit at its start — before a confirmation dialog offers a
+  // delete the setters would then refuse.
+  const refuseLocked = () => {
+    if (!lockedRef.current) return false
+    setFlash({ tone: 'err', text: `View only — ${session.controllerName || 'someone else'} has control. Ask for control to change the design.` })
+    return true
+  }
+  const setNodes = guarded(setNodesRaw, 'nodes')
+  const setEdges = guarded(setEdgesRaw, 'edges')
+  const setFrames = guarded(setFramesRaw, 'frames')
   // Node palette: docked to the left by default; can be undocked into a floating,
   // resizable panel (drag by its header, resize via the corner handle) and re-docked.
   const [paletteDocked, setPaletteDocked] = useState(true)
@@ -2353,14 +2403,35 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
         fz = r.frames
         nz = r.nodes
       }
-      setNodes(nz)
-      setEdges(ez)
-      setFrames(fz)
+      setNodesRaw(nz)
+      setEdgesRaw(ez)
+      setFramesRaw(fz)
       setView(vw)
       lastSaved.current = JSON.stringify({ nodes: nz, edges: ez, frames: fz, view: vw })
     }).catch((err) => setError(err.message))
     return () => { alive = false }
-  }, [stackId])
+  }, [stackId, reloadKey])
+
+  // The driver saved: a follower re-reads the design. And a follower who becomes the
+  // driver re-reads it once more before their first save, so it saves what is there.
+  useEffect(() => {
+    if (!session.active) return undefined
+    let t = null
+    const on = (e) => {
+      const path = e.detail?.path || ''
+      if (lockedRef.current && path.startsWith(`/api/stacks/${stackId}`)) {
+        clearTimeout(t)
+        t = setTimeout(() => setReloadKey((k) => k + 1), 300)
+      }
+    }
+    addEventListener('dbcanvas:invalidate', on)
+    return () => { clearTimeout(t); removeEventListener('dbcanvas:invalidate', on) }
+  }, [session.active, stackId])
+  const wasLocked = useRef(locked)
+  useEffect(() => {
+    if (wasLocked.current && !locked) setReloadKey((k) => k + 1)
+    wasLocked.current = locked
+  }, [locked])
 
   // poll deployment state (does NOT touch the local design while editing)
   const pollDeployments = async () => {
@@ -2430,7 +2501,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
   // debounced autosave — only when the design actually differs from the last
   // saved snapshot (so the 3s status poll never triggers a save).
   useEffect(() => {
-    if (!stackRef.current) return
+    if (!stackRef.current || lockedRef.current) return
     const cur = JSON.stringify({ nodes, edges, frames, view })
     if (cur === lastSaved.current) return
     setSaveState('saving')
@@ -2442,7 +2513,17 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
       setSaveState('saved')
     }, 600)
     return () => clearTimeout(t)
-  }, [nodes, edges, frames, view])
+  }, [nodes, edges, frames, view, locked])
+
+  // Follow mode: the driver's viewport and selection, published; a follower's, set
+  // from what the driver published.
+  useEffect(() => { session.publishFollow({ view, selected }) }, [view, selected]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const f = session.follow
+    if (!session.following || f?.page !== 'stack-designer' || f.stackId !== stackId) return
+    if (f.view) setView(f.view)
+    setSelected(f.selected ?? null)
+  }, [session.follow, session.following, stackId])
 
   const getWorld = useCallback((cx, cy) => {
     const rect = wrapRef.current.getBoundingClientRect()
@@ -3069,10 +3150,11 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
   // askDelete opens the confirmation modal (used before destroying a *deployed*
   // node/cluster, whose containers + volumes get torn down in real time).
   function askDelete(kind, label, onConfirm, count) {
+    if (refuseLocked()) return // every "delete this deployed thing?" dialog comes through here
     setConfirmDel({ kind, label, count, onConfirm })
   }
   function deleteNode(id) {
-    if (deploying) return
+    if (deploying || refuseLocked()) return
     const node = nodes.find((n) => n.id === id)
     // PS MongoDB sharded-cluster topology is fixed: members can't be removed
     // individually (delete the whole frame to remove the cluster).
@@ -3106,7 +3188,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
     setSelected((s) => (s?.kind === 'edge' && s.id === id ? null : s))
   }
   function deleteFrame(id) {
-    if (deploying) return
+    if (deploying || refuseLocked()) return
     // Confirm when the cluster has deployed members (their containers + volumes go).
     const deployedMembers = nodes.filter((n) => n.frameId === id && depByNode[n.id]).length
     if (deployedMembers > 0) {
@@ -3125,6 +3207,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
     setSelected((s) => (s && (s.id === id) ? null : s))
   }
   function deleteSelected() {
+    if (refuseLocked()) return
     if (selected?.kind === 'node') deleteNode(selected.id)
     else if (selected?.kind === 'edge') deleteEdge(selected.id)
     else if (selected?.kind === 'frame') deleteFrame(selected.id)
@@ -3661,7 +3744,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
   // the canvas (otherwise a just-toggled option — e.g. the cert checkbox — may not
   // have hit the server yet and a stale design gets deployed).
   async function saveNow() {
-    if (!stackRef.current) return
+    if (!stackRef.current || lockedRef.current) return
     const cur = JSON.stringify({ nodes, edges, frames, view })
     if (cur === lastSaved.current) return
     await stackApi.update(stackRef.current.id, stackRef.current.name, { nodes, edges, frames, view })
@@ -3703,6 +3786,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
   }
 
   async function runDeploy() {
+    if (refuseLocked()) return
     setBusy('deploy')
     setIssues(null)
     try {
@@ -3724,6 +3808,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
   }
 
   async function runDestroy() {
+    if (refuseLocked()) return
     setBusy('destroy')
     setIssues(null)
     try {
@@ -4112,6 +4197,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
 
   return (
     <div className="flex h-[78vh] gap-4">
+      {shareOpen && <ShareDialog stack={stack} onClose={() => setShareOpen(false)} />}
       <div className="flex min-w-0 flex-1 flex-col gap-3">
         {/* toolbar */}
         <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-surface px-3 py-2">
@@ -4119,6 +4205,12 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
           <div className="mx-1 h-5 w-px bg-border" />
           <span className="text-sm font-semibold">{stack.name}</span>
           <Hint text={HELP.uiTTL}><Badge tone="primary">{ttlLabel(stack.ttl)}</Badge></Hint>
+          {!session.isGuest && (
+            <Button size="sm" variant={session.active ? 'subtle' : 'outline'} onClick={() => setShareOpen(true)}>
+              <Icon.Share size={15} /> {session.active ? 'Sharing' : 'Share'}
+            </Button>
+          )}
+          {locked && <Badge tone="muted">Following {session.controllerName || 'the driver'} — view only</Badge>}
           <Hint text={HELP.uiStackStatus}><Badge tone={STATUS_TONE[stack.status] || 'muted'}>{stack.status}</Badge></Hint>
           <div className="mx-1 h-5 w-px bg-border" />
           {!libraryColumn && <span className="text-xs text-muted">Right-click the canvas to add a node</span>}
@@ -4128,7 +4220,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
           )}
           <div className="mx-1 h-5 w-px bg-border" />
           <Hint text={HELP.uiInsertTemplate}>
-            <Button size="sm" variant="outline" disabled={!!busy || deploying} onClick={() => setInsertTpl(true)}>
+            <Button size="sm" variant="outline" disabled={!!busy || deploying || locked} onClick={() => setInsertTpl(true)}>
               <Icon.Copy size={15} /> Insert template
             </Button>
           </Hint>
@@ -4144,13 +4236,13 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
             </Button>
           </Hint>
           <Hint text={HELP.uiDeploy}>
-            <Button size="sm" disabled={!!busy || nodes.length === 0} onClick={runDeploy}>
+            <Button size="sm" disabled={!!busy || nodes.length === 0 || locked} onClick={runDeploy}>
               <Icon.Arrow size={15} /> {busy === 'deploy' ? 'Deploying…' : 'Deploy'}
             </Button>
           </Hint>
           {(deployments.length > 0 || stack.status === 'deployed') && (
             <Hint text={HELP.uiDestroy}>
-              <ConfirmButton size="sm" variant="outline" disabled={!!busy} confirmLabel="Destroy — sure?" onConfirm={runDestroy}>
+              <ConfirmButton size="sm" variant="outline" disabled={!!busy || locked} confirmLabel="Destroy — sure?" onConfirm={runDestroy}>
                 <Icon.Trash size={15} /> {busy === 'destroy' ? 'Destroying…' : 'Destroy'}
               </ConfirmButton>
             </Hint>
@@ -4200,6 +4292,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
         <div
           ref={wrapRef}
           onPointerDown={startPan}
+          onPointerMove={(e) => { if (session.active && session.isDriver && wrapRef.current) session.publishCursor({ stackId, ...getWorld(e.clientX, e.clientY) }) }}
           onContextMenu={openAddMenu}
           // Claim file drags for the canvas so a miss lands nowhere instead of
           // making the browser navigate away from the designer to the file.
@@ -4227,6 +4320,15 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
             }}
           />
           <div className="absolute left-0 top-0 origin-top-left" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.z})` }}>
+            {session.active && !session.isDriver && session.cursor?.stackId === stackId && (
+              // The driver's pointer, drawn at their canvas position and kept the same
+              // size whatever the zoom.
+              <div className="pointer-events-none absolute z-30 flex items-start gap-1 origin-top-left"
+                style={{ left: session.cursor.x, top: session.cursor.y, transform: `scale(${1 / view.z})` }}>
+                <Icon.Pointer size={18} className="text-primary" fill="currentColor" />
+                <span className="mt-3 rounded bg-primary px-1.5 py-0.5 text-[11px] font-medium text-primary-fg shadow">{session.controllerName}</span>
+              </div>
+            )}
             <svg className="pointer-events-none absolute left-0 top-0 overflow-visible" width="1" height="1">
               <defs>
                 <marker id="stk-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -4450,6 +4552,8 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
       </div>
 
       <StackProperties
+        locked={locked}
+        lockedBy={session.controllerName}
         selected={selected}
         stackId={stack.id}
         nodes={nodes}
@@ -12481,7 +12585,7 @@ function loadProps() {
   try { return JSON.parse(localStorage.getItem(PROPS_KEY) || '{}') } catch { return {} }
 }
 
-function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, rebuildMongoCluster, deployOpen, deployments, onDeployMinimize }) {
+function StackProperties({ locked, lockedBy, selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, rebuildMongoCluster, deployOpen, deployments, onDeployMinimize }) {
   const selNode = selected?.kind === 'node' ? nodes.find((n) => n.id === selected.id) : null
   const selDep = selNode ? depByNode[selNode.id] : null
   const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb' || selNode.type === 'psmdb' || selNode.type === 'psmrs' || selNode.type === 'psm' || selNode.type === 'seaweedfs' || selNode.type === 'patroni' || selNode.type === 'haproxy' || selNode.type === 'pgbouncer' || selNode.type === 'repository' || selNode.type === 'pg' || selNode.type === 'repmgr' || selNode.type === 'spock' || selNode.type === 'aio' || selNode.type === 'mariadb' || selNode.type === 'mariadbrepl' || selNode.type === 'mariadbgalera' || selNode.type === 'mysqlce' || selNode.type === 'mysqlcerepl' || selNode.type === 'mysqlceinnodb')) || selected?.kind === 'frame'
@@ -12522,7 +12626,18 @@ function StackProperties({ selected, stackId, nodes, edges, frames, depByNode, p
       </button>
     </div>
   )
-  const body = <Body selected={selected} stackId={stackId} nodes={nodes} edges={edges} frames={frames} depByNode={depByNode} patchNode={patchNode} patchFrame={patchFrame} patchEdge={patchEdge} deleteNode={deleteNode} deleteEdge={deleteEdge} deleteFrame={deleteFrame} rebuildMongoCluster={rebuildMongoCluster} />
+  // A disabled fieldset makes every field and button in it read-only in one place,
+  // while someone else has control (the design setters refuse the edit as well).
+  const body = (
+    <fieldset disabled={locked} className="min-w-0">
+      {locked && (
+        <div className="mb-2 rounded-lg bg-surface2 px-2.5 py-1.5 text-xs text-muted">
+          View only — {lockedBy || 'someone else'} has control.
+        </div>
+      )}
+      <Body selected={selected} stackId={stackId} nodes={nodes} edges={edges} frames={frames} depByNode={depByNode} patchNode={patchNode} patchFrame={patchFrame} patchEdge={patchEdge} deleteNode={deleteNode} deleteEdge={deleteEdge} deleteFrame={deleteFrame} rebuildMongoCluster={rebuildMongoCluster} />
+    </fieldset>
+  )
 
   // Docked deployment console lives at the bottom of this column (under Properties).
   const deployConsole = deployOpen && (

@@ -372,6 +372,9 @@ func (a *App) startTokenMaintenance() {
 type principal struct {
 	User  User
 	Token *APIToken
+	// Guest is set when a shared-session guest sent the request; User is then the
+	// host they act as (share.go).
+	Guest *guestPrincipal
 }
 
 type principalKey struct{}
@@ -469,6 +472,12 @@ func effectiveScope(tok APIToken, u User) string {
 func (a *App) requireScope(rt apiRoute, next http.HandlerFunc) http.HandlerFunc {
 	need := routeScope(rt)
 	return func(w http.ResponseWriter, r *http.Request) {
+		// A shared-session guest acts as the host with a read or write scope, so it
+		// is resolved here, beside the token that it resembles (share.go).
+		if isGuestRequest(r) && bearerToken(r) == "" {
+			a.serveGuest(rt, next, w, r)
+			return
+		}
 		if bearerToken(r) == "" {
 			next(w, r)
 			return

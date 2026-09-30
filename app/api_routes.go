@@ -106,6 +106,7 @@ const (
 	gLedgerSim = "Ledger Sim"
 	gImages    = "Node images"
 	gTokens    = "API tokens"
+	gShare     = "Shared sessions"
 	gMeta      = "API metadata"
 )
 
@@ -118,7 +119,7 @@ var apiGroupOrder = []string{
 	gStacks, gTemplates, gCatalog, gImages, gNodes, gClusters, gLabs,
 	gDataGen, gQueryRun, gExplorer, gBench, gSample, gStockSim, gLedgerSim,
 	gPkt, gLog, gFTDC, gStalk, gOpSum, gCaptures, gDebug, gGDB,
-	gDash, gNotif,
+	gDash, gNotif, gShare,
 	gFS, gCerts, gMail, gLDAP, gSamba, gK3D, gAIO, gSeaweed, gOpenBao, gRepo,
 }
 
@@ -135,6 +136,9 @@ type apiRoute struct {
 	// token creation sets it: a token that could mint tokens would be a password
 	// with none of a password's protections (see apitokens.go).
 	NoToken bool
+	// GuestOK lets a shared-session guest reach a route in the Shared sessions group,
+	// every other one of which only the host may call (see guestForbidden in share.go).
+	GuestOK bool
 	Media   mediaKind
 	Handler func(*App) http.HandlerFunc
 }
@@ -906,6 +910,53 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "Every API token on the instance, with its owner. Active ones first."},
 		{Method: "DELETE", Path: "/api/admin/tokens/{id}", Group: gTokens, Auth: authAdmin, Handler: m((*App).handleAdminRevokeToken),
 			Summary: "Revoke anyone's token, and tell them it happened."},
+
+		// --- Browser window ----------------------------------------------------
+		{Method: "POST", Path: "/api/browse", Group: gNodes, ReadOnly: true, Handler: m((*App).handleBrowse),
+			Summary: "Turn a link to a node's web UI (http://host:<published port>/…) into an address served through DBCanvas's own port, for the browser window."},
+
+		// --- Shared sessions ---------------------------------------------------
+		// A host shares a live session through a link; guests act as the host with a
+		// read or write scope (share.go). Only the routes marked GuestOK are reachable
+		// by a guest; the rest manage the session and are the host's alone.
+		{Method: "POST", Path: "/api/stacks/{id}/share", Group: gShare, NoToken: true, Handler: m((*App).handleCreateShare),
+			Summary: "Start a shared session on a stack and return its link, once. Requires a password sign-in."},
+		{Method: "GET", Path: "/api/stacks/{id}/share/transcripts", Group: gShare, Handler: m((*App).handleStackTranscripts),
+			Summary: "The shared sessions filed on a stack, with how long each transcript is."},
+		{Method: "GET", Path: "/api/share/sessions", Group: gShare, Handler: m((*App).handleListShares),
+			Summary: "Your shared sessions, newest first; ?live=1 for the ones still running."},
+		{Method: "GET", Path: "/api/share/sessions/{sid}", Group: gShare, Handler: m((*App).handleGetShare),
+			Summary: "One of your shared sessions: its guests, their states, and who has control."},
+		{Method: "POST", Path: "/api/share/sessions/{sid}/guests/{gid}/admit", Group: gShare,
+			Summary: "Let a guest in from the lobby.", Handler: func(a *App) http.HandlerFunc { return a.handleShareGuestAction("admit")(a) }},
+		{Method: "POST", Path: "/api/share/sessions/{sid}/guests/{gid}/deny", Group: gShare,
+			Summary: "Turn away a guest waiting in the lobby.", Handler: func(a *App) http.HandlerFunc { return a.handleShareGuestAction("deny")(a) }},
+		{Method: "POST", Path: "/api/share/sessions/{sid}/guests/{gid}/remove", Group: gShare,
+			Summary: "Remove a guest from the session; they lose access at once.", Handler: func(a *App) http.HandlerFunc { return a.handleShareGuestAction("remove")(a) }},
+		{Method: "POST", Path: "/api/share/sessions/{sid}/guests/{gid}/mute", Group: gShare,
+			Summary: "Mute or unmute a guest in chat: {\"muted\": true}.", Handler: func(a *App) http.HandlerFunc { return a.handleShareGuestAction("mute")(a) }},
+		{Method: "POST", Path: "/api/share/sessions/{sid}/control", Group: gShare, Handler: m((*App).handleShareControl),
+			Summary: "Give control to a guest, {\"to\": <guest id>}, or take it back, {\"to\": \"host\"}."},
+		{Method: "POST", Path: "/api/share/sessions/{sid}/end", Group: gShare, Handler: m((*App).handleEndShare),
+			Summary: "End a shared session now; every guest is disconnected."},
+		{Method: "GET", Path: "/api/share/sessions/{sid}/transcript", Group: gShare, Media: mediaDownload, Handler: m((*App).handleShareTranscript),
+			Summary: "Download a session's transcript, chat, events and guest actions, as text or ?format=json."},
+		{Method: "GET", Path: "/api/share/sessions/{sid}/ws", Group: gShare, GuestOK: true, Media: mediaWebSocket, Handler: m((*App).handleShareWS),
+			Summary: "The session's live channel: presence, follow, cursor, chat, control and events."},
+		{Method: "POST", Path: "/api/share/sessions/{sid}/terms", Group: gShare, GuestOK: true, Handler: m((*App).handleShareTermOpen),
+			Summary: "Open a terminal on a node that everyone in the session sees. Whoever has control only."},
+		{Method: "DELETE", Path: "/api/share/sessions/{sid}/terms/{tid}", Group: gShare, GuestOK: true, Handler: m((*App).handleShareTermClose),
+			Summary: "Close a shared terminal for everyone. Whoever has control, or the host."},
+		{Method: "GET", Path: "/api/share/sessions/{sid}/terms/{tid}/ws", Group: gShare, GuestOK: true, Media: mediaWebSocket, Handler: m((*App).handleShareTermWS),
+			Summary: "Watch a shared terminal; keystrokes are taken only from whoever has control."},
+		{Method: "GET", Path: "/api/join/{token}", Group: gShare, Auth: authPublic, GuestOK: true, Handler: m((*App).handleJoinInfo),
+			Summary: "What a share link opens: the host, the stack and when it expires. 404 once it has."},
+		{Method: "POST", Path: "/api/join/{token}", Group: gShare, Auth: authPublic, GuestOK: true, Handler: m((*App).handleJoin),
+			Summary: "Join a shared session's lobby with a name and email; sets the guest cookie."},
+		{Method: "GET", Path: "/api/join/{token}/status", Group: gShare, Auth: authPublic, GuestOK: true, Handler: m((*App).handleJoinStatus),
+			Summary: "A guest's place in a session: waiting, admitted, denied, removed or ended."},
+		{Method: "POST", Path: "/api/join/{token}/leave", Group: gShare, Auth: authPublic, GuestOK: true, Handler: m((*App).handleJoinLeave),
+			Summary: "Leave a shared session and forget the guest cookie."},
 
 		// --- What's new ---------------------------------------------------------
 		{Method: "GET", Path: "/api/whatsnew", Group: gPrefs, Handler: m((*App).handleWhatsNew),

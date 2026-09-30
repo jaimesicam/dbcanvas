@@ -73,6 +73,11 @@ services:
       # Host interface that deployed stack nodes bind their published (exported)
       # ports to. Default 127.0.0.1 (loopback only); set 0.0.0.0 for all interfaces.
       CONTAINER_BIND_IP: ${CONTAINER_BIND_IP:-127.0.0.1}
+      # The address colleagues use to reach DBCanvas, which shared-session links are
+      # built on (e.g. http://10.0.4.12:8080, or a forwarded port). Empty uses the
+      # address the host's browser used — wrong when that is localhost. Guests also
+      # need APP_HOST to be an address they can reach, not 127.0.0.1.
+      PUBLIC_URL: ${PUBLIC_URL:-}
       # Where this installation is reachable over SSH, as IP[:port]. The login is
       # optional — without one the command uses the signed-in DBCanvas user's name;
       # user@IP[:port] pins one login for everybody. Set it on a server install and

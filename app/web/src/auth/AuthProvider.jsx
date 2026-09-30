@@ -7,6 +7,9 @@ const AuthContext = createContext(null)
 export function AuthProvider({ children }) {
   const [phase, setPhase] = useState('loading')
   const [user, setUser] = useState(null)
+  // A shared-session guest (app/share.go): who they are, when the status says this
+  // tab is one. user is then the host they act as.
+  const [guest, setGuest] = useState(null)
 
   const refresh = useCallback(async () => {
     try {
@@ -16,6 +19,7 @@ export function AuthProvider({ children }) {
         setPhase('setup')
       } else if (s.authenticated) {
         setUser(s.user)
+        setGuest(s.guest || null)
         setPhase('authed')
       } else {
         setUser(null)
@@ -54,7 +58,7 @@ export function AuthProvider({ children }) {
   }, [refresh])
 
   return (
-    <AuthContext.Provider value={{ phase, user, refresh, setup, login, register, logout }}>
+    <AuthContext.Provider value={{ phase, user, guest, refresh, setup, login, register, logout }}>
       {children}
     </AuthContext.Provider>
   )

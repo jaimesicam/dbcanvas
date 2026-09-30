@@ -236,6 +236,13 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id, id DESC);`
 	db.Exec("ALTER TABLE stacks ADD COLUMN backend TEXT")
 	db.Exec("ALTER TABLE lab_runs ADD COLUMN initial_backup_count INTEGER NOT NULL DEFAULT 0")
 
+	// Shared sessions (share_store.go). Kept in their own constant so the feature's
+	// tables read in one place; created here like every other table.
+	if _, err := db.Exec(shareSchema); err != nil {
+		db.Close()
+		return nil, err
+	}
+
 	return &Store{db: db}, nil
 }
 

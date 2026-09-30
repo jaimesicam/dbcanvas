@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/coder/websocket"
@@ -19,22 +20,10 @@ func (a *App) handleNodeTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ?pod= turns this into a *pod* console: the same protocol and the same exec, one
-	// layer further in — the shell lands inside a container of a pod in the Kubernetes
-	// cluster this node runs, by way of the node's own kubectl (see k3dpods.go).
-	// Resolved before the upgrade, so a malformed request is an HTTP error with a
-	// readable body rather than a socket that opens and immediately closes.
-	ns, pod, container, shell, podConsole, perr := k3dPodConsoleRequest(r)
+	cmd, env, user, status, perr := nodeShellSpec(r, dep)
 	if perr != nil {
-		writeErr(w, http.StatusBadRequest, perr.Error())
+		writeErr(w, status, perr.Error())
 		return
-	}
-	if podConsole {
-		var cfg k3dConfig
-		if json.Unmarshal(dep.Config, &cfg) != nil || cfg.Role != "server" {
-			writeErr(w, http.StatusConflict, "a pod console is opened through a Kubernetes server node")
-			return
-		}
 	}
 
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
@@ -51,25 +40,6 @@ func (a *App) handleNodeTerminal(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(withEngine(context.Background(), a.depEngine(st, dep.NodeID)))
 	defer cancel()
 
-	// Prefer bash, but fall back to sh for minimal images (e.g. the alpine-based
-	// SeaweedFS node) that don't ship bash. Detect with `command -v` first — never
-	// `exec` a possibly-missing binary, since a failed exec makes the shell exit
-	// (the `|| exec sh` is never reached) and the terminal dies blank. `-i` forces
-	// an interactive shell so busybox sh actually prints a prompt.
-	// Optional ?user=<uid|name> override (e.g. user=0 for a root console on images
-	// whose default exec user is unprivileged, like the PMM server which runs as pmm).
-	cmd := []string{"/bin/sh", "-c", "if command -v bash >/dev/null 2>&1; then exec bash -i; else exec /bin/sh -i; fi"}
-	env := []string{"TERM=xterm-256color"}
-	user := r.URL.Query().Get("user")
-	if podConsole {
-		// The exec is still into this container — it is kubectl that crosses into the
-		// pod, reading the cluster's own admin kubeconfig. ?user names a user of the
-		// k3s node's image, which is not the identity anything here runs as, so it is
-		// ignored rather than quietly applied to the wrong side.
-		cmd = k3dPodExecCmd(ns, pod, container, shell)
-		env = append(env, "KUBECONFIG="+k3dKubeconfig)
-		user = ""
-	}
 	stream, err := a.engCtx(ctx).HijackExec(ctx, dep.ContainerID, cmd, env, user)
 	if err != nil {
 		c.Close(websocket.StatusInternalError, "exec failed")
@@ -114,4 +84,48 @@ func (a *App) handleNodeTerminal(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+}
+
+// nodeShellSpec is what a node terminal execs, from the request's query: an
+// interactive shell in the node, or — with ?pod= — a console one layer further in,
+// inside a pod of the Kubernetes cluster the node runs. Shared with the shared-session
+// terminals (shareterm.go), so both open exactly the same shell. The returned status
+// is the HTTP code for err.
+func nodeShellSpec(r *http.Request, dep Deployment) (cmd, env []string, user string, status int, err error) {
+	// ?pod= turns this into a *pod* console: the same protocol and the same exec, one
+	// layer further in — the shell lands inside a container of a pod in the Kubernetes
+	// cluster this node runs, by way of the node's own kubectl (see k3dpods.go).
+	// Resolved before the upgrade, so a malformed request is an HTTP error with a
+	// readable body rather than a socket that opens and immediately closes.
+	ns, pod, container, shell, podConsole, perr := k3dPodConsoleRequest(r)
+	if perr != nil {
+		return nil, nil, "", http.StatusBadRequest, perr
+	}
+	if podConsole {
+		var cfg k3dConfig
+		if json.Unmarshal(dep.Config, &cfg) != nil || cfg.Role != "server" {
+			return nil, nil, "", http.StatusConflict, errors.New("a pod console is opened through a Kubernetes server node")
+		}
+	}
+
+	// Prefer bash, but fall back to sh for minimal images (e.g. the alpine-based
+	// SeaweedFS node) that don't ship bash. Detect with `command -v` first — never
+	// `exec` a possibly-missing binary, since a failed exec makes the shell exit
+	// (the `|| exec sh` is never reached) and the terminal dies blank. `-i` forces
+	// an interactive shell so busybox sh actually prints a prompt.
+	// Optional ?user=<uid|name> override (e.g. user=0 for a root console on images
+	// whose default exec user is unprivileged, like the PMM server which runs as pmm).
+	cmd = []string{"/bin/sh", "-c", "if command -v bash >/dev/null 2>&1; then exec bash -i; else exec /bin/sh -i; fi"}
+	env = []string{"TERM=xterm-256color"}
+	user = r.URL.Query().Get("user")
+	if podConsole {
+		// The exec is still into this container — it is kubectl that crosses into the
+		// pod, reading the cluster's own admin kubeconfig. ?user names a user of the
+		// k3s node's image, which is not the identity anything here runs as, so it is
+		// ignored rather than quietly applied to the wrong side.
+		cmd = k3dPodExecCmd(ns, pod, container, shell)
+		env = append(env, "KUBECONFIG="+k3dKubeconfig)
+		user = ""
+	}
+	return cmd, env, user, 0, nil
 }

@@ -428,6 +428,30 @@ export const Icon = {
       <path d="M21 20c0-2.6-1.4-4.2-3.5-4.8" />
     </Svg>
   ),
+  // Three people and a link between two of them: a session other people are in.
+  Share: (p) => (
+    <Svg {...p}>
+      <circle cx="6" cy="12" r="2.5" />
+      <circle cx="18" cy="6" r="2.5" />
+      <circle cx="18" cy="18" r="2.5" />
+      <line x1="8.2" y1="10.8" x2="15.8" y2="7.2" />
+      <line x1="8.2" y1="13.2" x2="15.8" y2="16.8" />
+    </Svg>
+  ),
+  // A speech bubble: the session chat.
+  Chat: (p) => (
+    <Svg {...p}>
+      <path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H10l-5 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" />
+      <line x1="8" y1="10" x2="16" y2="10" />
+      <line x1="8" y1="13" x2="13" y2="13" />
+    </Svg>
+  ),
+  // A pointer: who is steering the session.
+  Pointer: (p) => (
+    <Svg {...p}>
+      <path d="M5 3l14 7-6 2-2 6z" />
+    </Svg>
+  ),
   Logout: (p) => (
     <Svg {...p}>
       <path d="M14 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4" />

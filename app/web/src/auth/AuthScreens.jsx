@@ -29,7 +29,7 @@ function ThemeSwatches() {
   )
 }
 
-function Shell({ title, subtitle, children }) {
+export function Shell({ title, subtitle, children }) {
   return (
     <div className="relative flex h-full items-center justify-center bg-bg p-4">
       <ThemeSwatches />

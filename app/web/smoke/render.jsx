@@ -47,6 +47,9 @@ import { ReplicationView } from '../src/pages/K3DManager.jsx'
 import OperatorSummary, { Verdicts as OpVerdicts, Findings as OpFindings, Workloads as OpWorkloads, Pods as OpPods, CRs as OpCRs, Operators as OpOperators, Deployment as OpDeployment, Images as OpImages, Secrets as OpSecrets, Backups as OpBackups, Certs as OpCerts, Storage as OpStorage, Logs as OpLogs, Galera as OpGalera, PodSummaries as OpPodSummaries, BackupLogs as OpBackupLogs, Extras as OpExtras } from '../src/pages/OperatorSummary.jsx'
 import { PageVisibleProvider, usePolling, usePageVisible } from '../src/lib/usePolling.jsx'
 import { RefreshProvider, useRefresh } from '../src/lib/useRefresh.jsx'
+import SessionPanel from '../src/components/SessionPanel.jsx'
+import { SessionContext } from '../src/session/SessionProvider.jsx'
+import { guestURL } from '../src/lib/guest.js'
 import { openTab, closeTab, tabCounts, clampTabs, TABS_DEFAULT, TABS_MIN, TABS_MAX } from '../src/lib/tabs.js'
 import { mongoDownloadURL } from '../src/lib/stackApi.js'
 import { TabCount, TabCapNotice, NAV } from '../src/App.jsx'
@@ -4269,6 +4272,39 @@ check('polling: a page that is not on screen never starts a timer', () => {
   renderToString(<PageVisibleProvider visible={true}><Probe /></PageVisibleProvider>)
   if (seen !== true) throw new Error(`provider did not reopen the gate, got ${seen}`)
   return 'default open, provider closes and reopens'
+})
+
+check('shared session: the panel renders for the host and for a guest, and chat is text', () => {
+  const base = {
+    active: true, sid: 7, connected: true, ended: null, link: 'http://10.0.0.5:8080/join/abc', requests: [{ guestId: 2, name: 'Jane' }],
+    presence: { host: { name: 'admin', online: true }, controller: 0, expiresAt: new Date(Date.now() + 3600e3).toISOString(),
+      guests: [{ id: 2, name: 'Jane', email: 'jane@example.com', state: 'admitted', online: true },
+               { id: 3, name: 'Lee', email: 'lee@example.com', state: 'waiting', remoteAddr: '10.0.0.9' }] },
+    messages: [{ id: 1, kind: 'chat', authorKind: 'guest', author: 'Jane', body: '<script>alert(1)</script>', createdAt: new Date().toISOString() },
+               { id: 2, kind: 'action', authorKind: 'guest', author: 'Jane', body: 'Stop a node — POST /x', createdAt: new Date().toISOString() }],
+    follow: null, cursor: null, terms: [], controllerName: 'admin', following: false,
+    setFollowing() {}, publishFollow() {}, publishCursor() {}, sendChat() {}, requestControl() {}, releaseControl() {},
+    takeControl() {}, giveControl() {}, dismissRequest() {}, admit() {}, deny() {}, remove() {}, mute() {}, end() {}, notice() {}, reset() {},
+  }
+  const hostHTML = renderToString(<SessionContext.Provider value={{ ...base, isHost: true, isGuest: false, isDriver: true }}><SessionPanel /></SessionContext.Provider>)
+  for (const want of ['Lobby', 'Admit', 'End session', 'Copy link', 'asked for control', 'Grant']) {
+    if (!hostHTML.includes(want)) throw new Error(`the host panel is missing ${want}`)
+  }
+  if (hostHTML.includes('<script>alert')) throw new Error('a chat message was rendered as HTML')
+  if (!hostHTML.includes('&lt;script&gt;')) throw new Error('a chat message was not shown as text')
+  const guestHTML = renderToString(<SessionContext.Provider value={{ ...base, isHost: false, isGuest: true, isDriver: false, following: true }}><SessionPanel /></SessionContext.Provider>)
+  for (const bad of ['Admit', 'End session', 'Copy link', 'lee@example.com']) {
+    if (guestHTML.includes(bad)) throw new Error(`a guest was shown the host's ${bad}`)
+  }
+  if (!guestHTML.includes('Request control') || !guestHTML.includes('Leave')) throw new Error('a guest cannot ask for control or leave')
+  return 'host controls, guest controls, chat as text'
+})
+
+check('shared session: a guest socket or download is marked as a guest\'s', () => {
+  if (typeof location === 'undefined') return 'no location under SSR; covered by the browser test'
+  const u = guestURL('/api/share/sessions/1/ws')
+  if (!u.includes('guest=1')) throw new Error(u)
+  return u
 })
 
 check('refresh: every page with server data offers the top-bar Refresh', () => {

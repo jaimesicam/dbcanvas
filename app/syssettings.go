@@ -3,8 +3,11 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
 )
 
 // syssettings.go — instance-wide settings, as opposed to settings.go's per-user
@@ -89,6 +92,19 @@ type SystemSettings struct {
 	// read-only like Experimental, and for the same reason it rides here: the designer needs it
 	// before it draws the node library and the Linux Client's OS picker.
 	EOL bool `json:"eol"`
+	// AllowGuestSessions lets a stack's owner share a live session through a link that
+	// admits people without an account (share.go). Off by default: that is a decision
+	// for the installation, made once, by an administrator.
+	AllowGuestSessions bool `json:"allowGuestSessions"`
+	// MaxGuestMinutes is the longest a share link may last, 5 to 120.
+	MaxGuestMinutes int `json:"maxGuestMinutes"`
+	// SessionRetentionDays is how long an ended shared session's records — its guests
+	// with their names, emails and addresses, the transcript, the guest actions — are
+	// kept before they are deleted. 0 keeps them for as long as the stack exists.
+	SessionRetentionDays int `json:"sessionRetentionDays"`
+	// PublicURL is the base share links are built on (PUBLIC_URL in .env), or "" when
+	// links use the address the host's browser used. Derived and read-only.
+	PublicURL string `json:"publicUrl"`
 }
 
 // SSHForwardingSetting is where the app is reachable over SSH, if the
@@ -114,7 +130,8 @@ func sshForwardingSetting(appUser string) SSHForwardingSetting {
 }
 
 func defaultSystemSettings() SystemSettings {
-	return SystemSettings{MaxUploadBytes: defaultMaxUploadBytes, MaxTokenDays: defaultMaxTokenDays}
+	return SystemSettings{MaxUploadBytes: defaultMaxUploadBytes, MaxTokenDays: defaultMaxTokenDays, MaxGuestMinutes: shareMaxMinutes,
+		SessionRetentionDays: defaultShareRetentionDays}
 }
 
 // normalize clamps out-of-range values rather than rejecting them, so a value
@@ -138,6 +155,8 @@ func (s SystemSettings) normalize() SystemSettings {
 	if s.MaxTokenDays > maxMaxTokenDays {
 		s.MaxTokenDays = maxMaxTokenDays
 	}
+	s.MaxGuestMinutes = clampGuestMinutes(strconv.Itoa(s.MaxGuestMinutes))
+	s.SessionRetentionDays = clampRetentionDays(s.SessionRetentionDays)
 	return s
 }
 
@@ -158,7 +177,10 @@ func (a *App) systemSettings(appUser string) SystemSettings {
 	if v, err := a.store.AppSetting(settingInternalWrites); err == nil {
 		s.InternalWrites = v == "1"
 	}
+	s.AllowGuestSessions, s.MaxGuestMinutes = a.guestSessionSettings()
+	s.SessionRetentionDays = a.shareRetentionDays()
 	s = s.normalize()
+	s.PublicURL = strings.TrimRight(strings.TrimSpace(os.Getenv("PUBLIC_URL")), "/")
 	s.SSHForwarding = sshForwardingSetting(appUser)
 	s.Experimental = experimentalEnabled()
 	s.EOL = eolEnabled()
@@ -188,10 +210,18 @@ func (a *App) handleGetSystemSettings(w http.ResponseWriter, r *http.Request) {
 
 // handleUpdateSystemSettings is admin-only (wired through requireAdmin in main.go).
 func (a *App) handleUpdateSystemSettings(w http.ResponseWriter, r *http.Request) {
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	var in SystemSettings
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+	if err != nil || json.Unmarshal(raw, &in) != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
 		return
+	}
+	// 0 is a real answer for retention ("keep forever"), so a body that leaves the
+	// field out keeps what is stored rather than reading as 0.
+	var present map[string]json.RawMessage
+	json.Unmarshal(raw, &present)
+	if _, ok := present["sessionRetentionDays"]; !ok {
+		in.SessionRetentionDays = a.shareRetentionDays()
 	}
 	s := in.normalize()
 	if err := a.store.SetAppSetting(settingMaxUploadBytes, strconv.FormatInt(s.MaxUploadBytes, 10)); err != nil {
@@ -210,6 +240,29 @@ func (a *App) handleUpdateSystemSettings(w http.ResponseWriter, r *http.Request)
 		writeErr(w, http.StatusInternalServerError, "failed to save settings")
 		return
 	}
+	guests := "0"
+	if s.AllowGuestSessions {
+		guests = "1"
+	}
+	if err := a.store.SetAppSetting(settingAllowGuestSessions, guests); err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to save settings")
+		return
+	}
+	if err := a.store.SetAppSetting(settingMaxGuestMinutes, strconv.Itoa(s.MaxGuestMinutes)); err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to save settings")
+		return
+	}
+	if err := a.store.SetAppSetting(settingShareRetentionDays, strconv.Itoa(s.SessionRetentionDays)); err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to save settings")
+		return
+	}
+	// A shorter retention applies now, not at the next pass.
+	a.purgeShareSessions()
+	// Turning guest sessions off ends every live one: the switch means "nobody gets in
+	// through a link", not "nobody new".
+	if !s.AllowGuestSessions {
+		a.endAllShares("revoked")
+	}
 	// Re-derived, never taken from the request: SSH forwarding and the
 	// experimental switch are environment settings, and the response has to keep
 	// carrying them for the client that replaced its whole settings object with
@@ -221,6 +274,7 @@ func (a *App) handleUpdateSystemSettings(w http.ResponseWriter, r *http.Request)
 	s.SSHForwarding = sshForwardingSetting(appUser)
 	s.Experimental = experimentalEnabled()
 	s.EOL = eolEnabled()
+	s.PublicURL = strings.TrimRight(strings.TrimSpace(os.Getenv("PUBLIC_URL")), "/")
 	writeJSON(w, http.StatusOK, s)
 }
 

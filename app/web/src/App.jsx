@@ -8,6 +8,9 @@ import { SettingsProvider, useSettings } from './settings/SettingsProvider.jsx'
 import { Icon } from './components/Icons.jsx'
 import { Badge, Button } from './components/ui.jsx'
 import { TerminalProvider } from './terminal/TerminalProvider.jsx'
+import { SessionProvider, useSession } from './session/SessionProvider.jsx'
+import SessionPanel from './components/SessionPanel.jsx'
+import { BrowserProvider } from './browser/BrowserProvider.jsx'
 import { notifApi, relTime } from './lib/notifApi.js'
 
 import Dashboard from './pages/Dashboard.jsx'
@@ -74,18 +77,31 @@ function initials(name) {
 // components rather than one because a component cannot use a context it renders
 // itself: the tab cap is a per-user setting, and the tab state that enforces it
 // is here.
-export default function App() {
+export default function App({ onSessionEnded }) {
+  // SessionProvider sits above the terminals: in a shared session a terminal is the
+  // session's, not this browser's (terminal/TerminalProvider.jsx).
   return (
     <SettingsProvider>
-      <TerminalProvider>
-        <Workspace />
-      </TerminalProvider>
+      <SessionProvider>
+        <TerminalProvider>
+          {/* Node web UIs in a window, through this port (browser/BrowserProvider.jsx). */}
+          <BrowserProvider>
+            <Workspace onSessionEnded={onSessionEnded} />
+          </BrowserProvider>
+        </TerminalProvider>
+      </SessionProvider>
     </SettingsProvider>
   )
 }
 
-function Workspace() {
-  const { user, logout } = useAuth()
+// A shared-session guest acts as the host but never reaches the host's account: these
+// pages are the host's own (their settings, their API tokens, other users), and the
+// server refuses what they would do (app/share.go), so they are not offered.
+const GUEST_HIDDEN = new Set(['settings', 'api', 'users'])
+
+function Workspace({ onSessionEnded }) {
+  const { user, logout, guest } = useAuth()
+  const session = useSession()
   const { settings, system } = useSettings()
   const isAdmin = user?.role === 'admin'
   // One filtered list, and everything downstream reads it: the sidebar, the tab
@@ -93,6 +109,7 @@ function Workspace() {
   // page is therefore not reachable by #hash either — the lookup falls through to
   // the dashboard — which is the point of hiding it.
   const nav = visible(isAdmin ? [...NAV, ADMIN_NAV] : NAV, showExperimental(system))
+    .filter((n) => !guest || !GUEST_HIDDEN.has(n.id))
 
   // Tabs. A tab is { key, id }: the id says which page, the key is what makes two
   // tabs of the *same* page possible — three benchmarks at once was the case that
@@ -175,6 +192,34 @@ function Workspace() {
     // Closing one is the answer to the warning, so it takes the warning with it.
     setCapped(null)
   }, [tabs, activeKey])
+
+  // Follow mode (session/SessionProvider.jsx). The driver says which page they are
+  // on; everyone following goes there — the same tab if one is open, a new one if not.
+  useEffect(() => { session.publishFollow({ page: active }) }, [active]) // eslint-disable-line react-hooks/exhaustive-deps
+  const followPage = session.following ? session.follow?.page : null
+  useEffect(() => {
+    if (followPage && followPage !== active && nav.some((n) => n.id === followPage)) openTab(followPage)
+  }, [followPage]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When the driver changes something on the server, the tab on screen re-reads it,
+  // through the same Refresh its button runs. Debounced: a deploy is several writes.
+  useEffect(() => {
+    let t = null
+    const on = () => {
+      clearTimeout(t)
+      t = setTimeout(() => { if (activeTab) refreshTab(activeTab.key) }, 400)
+    }
+    addEventListener('dbcanvas:invalidate', on)
+    return () => { clearTimeout(t); removeEventListener('dbcanvas:invalidate', on) }
+  }, [activeTab, refreshTab])
+
+  // A guest's session ending hands the tab back to the closed screen.
+  useEffect(() => {
+    if (guest && session.ended && onSessionEnded) onSessionEnded(session.ended)
+  }, [guest, session.ended, onSessionEnded])
+  const [panelOpen, setPanelOpen] = useState(true)
+  const showPanel = session.active || (session.ended && session.isHost)
+  useEffect(() => { if (session.active) setPanelOpen(true) }, [session.active])
 
   // The notice is transient: it explains one refused click, and a banner that
   // outlives what it is about becomes furniture nobody reads.
@@ -276,6 +321,8 @@ function Workspace() {
           onSearch={() => setPaletteOpen(true)}
           user={user}
           onLogout={logout}
+          guest={guest}
+          session={session}
         />
         {tabs.length > 1 && (
           // The tabs WRAP onto further rows rather than scrolling sideways. With a
@@ -351,6 +398,18 @@ function Workspace() {
         </main>
       </div>
 
+      {showPanel && panelOpen && <SessionPanel onClose={() => setPanelOpen(false)} />}
+      {showPanel && !panelOpen && (
+        <button
+          onClick={() => setPanelOpen(true)}
+          title="Show the shared session"
+          className="fixed bottom-16 right-3 z-30 flex items-center gap-2 rounded-lg border bg-surface px-3 py-2 text-sm shadow-lg hover:bg-surface2"
+        >
+          <Icon.Chat size={16} /> Session
+          {session.messages.length > 0 && <span className="rounded bg-primary/15 px-1.5 text-xs text-primary">{session.messages.length}</span>}
+        </button>
+      )}
+
       {paletteOpen && (
         <CommandPalette
           items={nav}
@@ -417,7 +476,7 @@ export function TabCapNotice({ max, onDismiss }) {
 
 // The Refresh button sits beside the title because it acts on the page the title
 // names, and only appears for a page that has something to re-read.
-function Topbar({ title, hint, onRefresh, refreshing, onSearch, user, onLogout }) {
+function Topbar({ title, hint, onRefresh, refreshing, onSearch, user, onLogout, guest, session }) {
   return (
     <header className="flex h-14 items-center gap-3 border-b bg-surface px-4">
       <div className="min-w-0">
@@ -445,8 +504,23 @@ function Topbar({ title, hint, onRefresh, refreshing, onSearch, user, onLogout }
           <kbd className="hidden rounded bg-surface2 px-1.5 text-xs sm:inline">⌘K</kbd>
         </button>
         <AppearancePicker />
-        <NotificationBell />
-        <AccountMenu user={user} onLogout={onLogout} />
+        {session?.active && (
+          // Who is driving, always in view: in a shared session that is the one fact
+          // everybody needs before they click anything.
+          <span className={`hidden items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs md:flex ${
+            session.isDriver ? 'bg-success/15 text-success' : 'bg-primary/15 text-primary'}`}>
+            <Icon.Share size={14} />
+            {guest ? `Guest of ${session.presence?.host?.name || 'the host'} · ` : 'Shared · '}
+            {session.isDriver ? 'you have control' : `${session.controllerName || '…'} has control`}
+          </span>
+        )}
+        {!guest && <NotificationBell />}
+        {guest
+          ? <span className="flex items-center gap-2 rounded-lg border bg-bg px-2.5 py-1.5 text-sm" title={guest.email}>
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-surface2 text-xs font-semibold">{initials(guest.name)}</span>
+              <span className="hidden sm:inline">{guest.name}</span>
+            </span>
+          : <AccountMenu user={user} onLogout={onLogout} />}
       </div>
     </header>
   )

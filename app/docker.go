@@ -833,6 +833,50 @@ func (d *Docker) ContainerIP(ctx context.Context, id, network string) (string, e
 	return "", nil
 }
 
+// PublishedPort is a container publishing a host port, as the browser proxy
+// (browse.go) needs it: who it is, and which of its own ports is behind the host one.
+type PublishedPort struct {
+	ContainerID   string
+	Name          string
+	ContainerPort int
+}
+
+// ContainerByHostPort finds the running container that publishes hostPort (TCP).
+func (d *Docker) ContainerByHostPort(ctx context.Context, hostPort int) (PublishedPort, bool, error) {
+	filters := fmt.Sprintf(`{"publish":["%d/tcp"],"status":["running"]}`, hostPort)
+	resp, err := d.do(ctx, "GET", "/containers/json?filters="+url.QueryEscape(filters), nil)
+	if err != nil {
+		return PublishedPort{}, false, err
+	}
+	if resp.StatusCode != 200 {
+		return PublishedPort{}, false, errBody("list containers", resp)
+	}
+	var out []struct {
+		ID    string   `json:"Id"`
+		Names []string `json:"Names"`
+		Ports []struct {
+			PrivatePort int    `json:"PrivatePort"`
+			PublicPort  int    `json:"PublicPort"`
+			Type        string `json:"Type"`
+		} `json:"Ports"`
+	}
+	if err := json.Unmarshal(drain(resp), &out); err != nil {
+		return PublishedPort{}, false, err
+	}
+	for _, c := range out {
+		for _, p := range c.Ports {
+			if p.PublicPort == hostPort && p.Type == "tcp" {
+				name := ""
+				if len(c.Names) > 0 {
+					name = strings.TrimPrefix(c.Names[0], "/")
+				}
+				return PublishedPort{ContainerID: c.ID, Name: name, ContainerPort: p.PrivatePort}, true, nil
+			}
+		}
+	}
+	return PublishedPort{}, false, nil
+}
+
 // NetworkSubnet returns the IPv4 CIDR of a user-defined network (e.g.
 // "172.20.0.0/16"), or "" if it has no IPAM subnet.
 func (d *Docker) NetworkSubnet(ctx context.Context, name string) (string, error) {

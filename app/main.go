@@ -78,7 +78,11 @@ func main() {
 	app.startReaper()
 	// Flushes buffered token last-used stamps and reaps long-dead tokens.
 	app.startTokenMaintenance()
+	// Ends expired shared sessions and deletes the ones past their retention.
+	app.startShareReaper()
 
+	// A node's web UI through this port, for the browser window (browse.go).
+	mux.HandleFunc(browsePrefix, app.handleBrowseProxy)
 	mux.Handle("/", spaHandler())
 
 	host := envOr("APP_HOST", "127.0.0.1")
@@ -87,7 +91,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           app.browseFallback(mux),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	log.Printf("DBCanvas listening on %s", addr)
