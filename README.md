@@ -124,7 +124,8 @@ yourself.
 | [**Operator Debugger**](docs/OPERATOR_DEBUGGER.md) | Step through the Kubernetes operator itself — breakpoints, stack and variables, no IDE. |
 | [**Core Dump Analyzer**](docs/CORE_DUMP_ANALYZER.md) | Read a `mysqld` core dump from another server — threads, stack, arguments. |
 | [**All in One**](docs/ALL_IN_ONE.md) | Many database instances in one node, for when you need versions side by side. |
-| [**HTTP API**](docs/API.md) | Every one of the 294 endpoints, with tokens you create and expire yourself. |
+| [**Shared Sessions**](docs/SHARED_SESSIONS.md) | Share a live session through a link: colleagues follow you across every tab, chat, and take control when you hand it to them — terminals and VNC desktops included, through one port. |
+| [**HTTP API**](docs/API.md) | Every one of the 321 endpoints, with tokens you create and expire yourself. |
 | [**`dbcanvas-cli`**](docs/CLI.md) | Sign in once, then compose, deploy and drive stacks from your terminal. |
 
 ## Documentation
@@ -162,9 +163,63 @@ yourself.
 
 ## What's new
 
-### 0.0.11
+### 0.0.12
 
 <details open>
+<summary><b>Shared sessions — work on a stack together, live</b></summary>
+
+Click **Share** on a stack and send the link. Whoever opens it gives a name and an email and
+waits in a **lobby** until you admit them; from then on they **follow** you across every tab —
+the page, the stack, the canvas, your pointer — and **chat** with you in the session panel.
+Give a guest **control** and they can do anything you can in your workspace while everyone
+else watches; take it back with one click. Terminals opened in a session are **shared**, with
+only the driver typing.
+
+Watching is enforced on the server: a watcher reads everything and changes nothing, and never
+reaches your account, your API tokens or administration. A link lasts at most **two hours**;
+the chat, the events and every change a guest made are kept as a **transcript** for 90 days
+(configurable). Off until an administrator turns it on in **Settings → Shared sessions**; set
+`PUBLIC_URL` so links carry an address colleagues can reach.
+
+[Shared Sessions →](docs/SHARED_SESSIONS.md)
+</details>
+
+<details>
+<summary><b>Node web UIs in a browser window, through DBCanvas's own port</b></summary>
+
+**Right-click** any link to a node's web UI — a VNC desktop, PMM, webmail, a simulator
+dashboard — and choose **Open in browser window**. The page opens inside DBCanvas, served
+through its own port, so a guest or anyone on a single SSH tunnel needs no port forward per UI.
+In a shared session the window opens on everyone's screen and follows the driver; a watcher
+sees a VNC desktop live but cannot type or click in it, which the server enforces.
+
+[Shared Sessions →](docs/SHARED_SESSIONS.md)
+</details>
+
+<details>
+<summary><b>A Refresh button on every tab</b></summary>
+
+Tabs stay open, so a page used to load its lists once: a stack deployed from another tab, a
+capture finished on the server or a new core file did not show until you closed the tab or
+reloaded the browser. Every page that reads from the server now has **Refresh** beside its
+title. It re-reads only what came from the server — filters, selections and an unsaved canvas
+stay as they are.
+</details>
+
+<details>
+<summary><b>Fixes: dropped terminals, repmgr on Oracle Linux 9 and 10, and dbcanvas-cli jobs</b></summary>
+
+The first benchmark, Query Runner run or Database Explorer connection against a stack used to
+cut every open terminal — everyone's — and a stack teardown did it again; DBCanvas no longer
+lets a stack network take over its own connections. **repmgr** installs again on Oracle Linux
+9 and 10, after PGDG's repository package started building URLs that Oracle Linux cannot fill
+in. `dbcanvas benchmark run` and `dbcanvas query run` work again: they had been sending shapes
+the server does not accept.
+</details>
+
+### 0.0.11
+
+<details>
 <summary><b>OpenEverest on Kubernetes</b></summary>
 
 Pick **OpenEverest** as a K3D frame's operator and DBCanvas installs the database platform from

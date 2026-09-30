@@ -37,6 +37,50 @@ type releaseNote struct {
 // expanded, and the tests assume the ordering.
 var whatsNewNotes = []releaseNote{
 	{
+		Version: "0.0.12",
+		Date:    "2026-09-30",
+		Title:   "Shared sessions — work on a stack together, live",
+		Body: "Click Share on a stack and send the link. Whoever opens it gives a name and an email and " +
+			"waits in a lobby until you admit them; then they follow you across every tab — the page, the " +
+			"stack, the canvas, your pointer — and chat with you in the session panel. Give a guest control " +
+			"and they can do anything you can in your workspace while everyone else watches; take it back " +
+			"with one click. Terminals opened in a session are shared, with only the driver typing. Watching " +
+			"is enforced on the server, and a guest never reaches your account, your API tokens or " +
+			"administration. A link lasts at most two hours; the transcript is kept for 90 days. Off until " +
+			"an administrator turns it on in Settings; set PUBLIC_URL so links carry an address colleagues " +
+			"can reach.",
+		Doc: "docs/SHARED_SESSIONS.md",
+	},
+	{
+		Version: "0.0.12",
+		Date:    "2026-09-30",
+		Title:   "Node web UIs in a browser window, through DBCanvas's own port",
+		Body: "Right-click any link to a node's web UI — a VNC desktop, PMM, webmail, a simulator dashboard — " +
+			"and choose Open in browser window. The page opens inside DBCanvas, served through its own port, " +
+			"so a guest or anyone on a single SSH tunnel needs no port forward per UI. In a shared session " +
+			"the window opens on everyone's screen and follows the driver; a watcher sees a VNC desktop live " +
+			"but cannot type or click in it.",
+		Doc: "docs/SHARED_SESSIONS.md",
+	},
+	{
+		Version: "0.0.12",
+		Date:    "2026-09-30",
+		Title:   "A Refresh button on every tab",
+		Body: "Every page that reads from the server has Refresh beside its title. Tabs stay open, so a page " +
+			"used to load its lists once — a stack deployed from another tab or a capture finished on the " +
+			"server did not show until you reloaded. Refresh re-reads only what came from the server; " +
+			"filters, selections and an unsaved canvas stay as they are.",
+	},
+	{
+		Version: "0.0.12",
+		Date:    "2026-09-30",
+		Title:   "Fixes: dropped terminals, repmgr on Oracle Linux 9 and 10, and dbcanvas-cli jobs",
+		Body: "The first benchmark, Query Runner run or Database Explorer connection against a stack no longer " +
+			"cuts every open terminal, and neither does tearing the stack down. repmgr installs again on " +
+			"Oracle Linux 9 and 10 after a change in PGDG's repository package. dbcanvas benchmark run and " +
+			"dbcanvas query run work again.",
+	},
+	{
 		Version: "0.0.11",
 		Date:    "2026-09-29",
 		Title:   "OpenEverest on Kubernetes",
