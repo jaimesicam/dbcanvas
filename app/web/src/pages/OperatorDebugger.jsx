@@ -11,6 +11,7 @@ import {
   STATUS_TONE, STATUS_TEXT, goHighlight, TOKEN_CLS, shortFrameName,
 } from '../lib/debugApi.js'
 import { useHandoff } from '../lib/handoff.js'
+import { useRefresh } from '../lib/useRefresh.jsx'
 
 // Operator Debugger — step through a Kubernetes operator from inside DBCanvas.
 //
@@ -69,19 +70,27 @@ export default function OperatorDebugger() {
   const sessionRef = useRef(null)
   const target = useMemo(
     () => (targets || []).find((t) => targetKey(t) === key) || null, [targets, key])
+  // Keyed on the ids rather than the object, so a Refresh — a new targets list, the
+  // same frame in it — does not look like a new target and reload the file list.
   const api = useMemo(
-    () => (target ? debugFrameApi(target.stackId, target.frameId) : null), [target])
+    () => (target ? debugFrameApi(target.stackId, target.frameId) : null),
+    [target?.stackId, target?.frameId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const file = openFile.target === key ? openFile.path : ''
   const setFile = useCallback((path) => setOpenFile({ target: key, path }), [key])
 
   // ---- targets ---------------------------------------------------------------
 
-  useEffect(() => {
-    debugApi.targets()
-      .then(setTargets)
-      .catch((e) => { setErr(e.message); setTargets([]) })
-  }, [])
+  const loadTargets = () => debugApi.targets()
+    .then(setTargets)
+    .catch((e) => { setErr(e.message); setTargets([]) })
+  useEffect(() => { loadTargets() }, [])
+  // The session is a live socket and needs no refresh; what goes stale is the list
+  // of frames to attach to, and the operator's file list.
+  useRefresh(() => Promise.all([
+    loadTargets(),
+    api && api.sources().then((r) => setFiles(r.files || [])).catch(() => {}),
+  ]))
 
   // A node panel's "Open debugger" button leaves the frame it wants here, because
   // a hash route carries no parameters. Held as state rather than consumed inside
@@ -89,6 +98,7 @@ export default function OperatorDebugger() {
   // fetch nor a mount effect, so the selection is resolved against whatever list
   // is loaded, whenever either of them changes.
   const [want, setWant] = useState('')
+  const appliedWant = useRef(null)
   useHandoff('dbcanvas.debugTarget', setWant)
   useEffect(() => {
     // targets is null until the fetch above lands, so this must not assume an array.
@@ -97,10 +107,18 @@ export default function OperatorDebugger() {
     // here and in the Core Dump Analyzer when the selection moved out of the
     // fetch's .then() and into an effect of its own — see smoke/browser.jsx, which
     // mounts these pages in a real browser to catch it.
+    //
+    // A handoff is applied once; after that a new list (a Refresh) keeps the
+    // selected target, and only snaps when that target has gone.
     if (!targets?.length) return
-    const found = targets.find((t) => targetKey(t) === want)
-    setKey(targetKey(found || targets[0]))
-  }, [targets, want])
+    const byKey = (k) => targets.find((t) => targetKey(t) === k)
+    if (want !== appliedWant.current && byKey(want)) {
+      appliedWant.current = want
+      setKey(want)
+      return
+    }
+    if (!byKey(key)) setKey(targetKey(byKey(want) || targets[0]))
+  }, [targets, want]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- the session -----------------------------------------------------------
 

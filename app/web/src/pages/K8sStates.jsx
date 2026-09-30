@@ -17,6 +17,7 @@ import {
   paneId, samePane, defaultContainer, defaultLogTarget, sortContainers, movePaneView,
   sourceId, parseSourceId, SOURCE_LIVE, hiddenByDefault, countKinds,
 } from '../lib/k8sStates.js'
+import { useRefresh } from '../lib/useRefresh.jsx'
 
 // Kubernetes States — a canvas of what a Kubernetes cluster is doing, right now.
 //
@@ -653,18 +654,21 @@ export default function K8sStates() {
   // Opened from a cluster's own panel ("Watch Kubernetes states"), which hands over the target.
   useHandoff('dbcanvas.statesTarget', (raw) => { if (parseTargetKey(raw)) setKey(raw) })
 
-  useEffect(() => {
-    let alive = true
+  const loadSources = (alive = () => true) => Promise.all([
     k3dStateTargets()
       .then((list) => {
-        if (!alive) return
+        if (!alive()) return
         setTargets(list)
         // Open on a live cluster when there is one; a capture is the fallback, and the page
         // is still useful with no cluster at all, which is the point of reading archives.
         setKey((k) => (k ? k : (list[0] ? sourceId(SOURCE_LIVE, targetKey(list[0])) : '')))
       })
-      .catch((e) => alive && setErr(e.message))
-    k8sStateDumps().then((list) => alive && setDumps(list)).catch(() => {})
+      .catch((e) => alive() && setErr(e.message)),
+    k8sStateDumps().then((list) => alive() && setDumps(list)).catch(() => {}),
+  ])
+  useEffect(() => {
+    let alive = true
+    loadSources(() => alive)
     return () => { alive = false }
   }, [])
 
@@ -711,6 +715,10 @@ export default function K8sStates() {
   // Only a live cluster is polled: a capture is one instant and asking again reads the same
   // file for the same answer.
   usePolling(sample, live ? pollMs : 0)
+  // Refresh re-reads the clusters and captures to pick from, and samples a live
+  // cluster now rather than at the next tick — which is also what a paused board
+  // (poll interval off) otherwise has no way to do.
+  useRefresh(() => Promise.all([loadSources(), live && sample()]))
 
   // An archive is loaded once, when it becomes the source.
   useEffect(() => {

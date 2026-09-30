@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth } from './auth/AuthProvider.jsx'
 import { PageVisibleProvider } from './lib/usePolling.jsx'
+import { RefreshProvider, runAll } from './lib/useRefresh.jsx'
 import { openTab as openTabRule, closeTab as closeTabRule, tabCounts, clampTabs } from './lib/tabs.js'
 import { useTheme, LOOKS, THEMES } from './theme/ThemeProvider.jsx'
 import { SettingsProvider, useSettings } from './settings/SettingsProvider.jsx'
@@ -133,8 +134,42 @@ function Workspace() {
     setCapped(next.capped ? { at: Date.now(), max: maxTabs } : null)
   }, [tabs, activeKey, maxTabs])
 
+  // Refresh. Each tab's page registers what "read it again" means for it (see
+  // lib/useRefresh.jsx); the top bar shows one button, for the tab on screen.
+  // The sets live in a ref because registering is not a render; regs is only
+  // there so the button appears and disappears as pages register and withdraw.
+  const refreshers = useRef({})
+  const registerFns = useRef({})
+  const [, setRegs] = useState(0)
+  const [refreshing, setRefreshing] = useState({})
+  const registerFor = (key) => {
+    if (!registerFns.current[key]) {
+      registerFns.current[key] = (fn) => {
+        const set = (refreshers.current[key] ??= new Set())
+        set.add(fn)
+        setRegs((n) => n + 1)
+        return () => {
+          set.delete(fn)
+          setRegs((n) => n + 1)
+        }
+      }
+    }
+    return registerFns.current[key]
+  }
+  const refreshTab = useCallback(async (key) => {
+    const fns = refreshers.current[key]
+    if (!fns?.size) return
+    setRefreshing((r) => ({ ...r, [key]: true }))
+    await runAll(fns)
+    setRefreshing((r) => {
+      const { [key]: _, ...rest } = r
+      return rest
+    })
+  }, [])
+
   const closeTab = useCallback((key) => {
     const next = closeTabRule(tabs, activeKey, key)
+    delete registerFns.current[key]
     setTabs(next.tabs)
     setActiveKey(next.activeKey)
     // Closing one is the answer to the warning, so it takes the warning with it.
@@ -236,6 +271,8 @@ function Workspace() {
         <Topbar
           title={current.label}
           hint={current.hint}
+          onRefresh={refreshers.current[activeTab?.key]?.size ? () => refreshTab(activeTab.key) : null}
+          refreshing={!!refreshing[activeTab?.key]}
           onSearch={() => setPaletteOpen(true)}
           user={user}
           onLogout={logout}
@@ -304,7 +341,9 @@ function Workspace() {
               // scroll them.
               <div key={t.key} className={`${on ? 'animate-fade-in' : 'hidden'}${meta.fill ? ' h-full' : ''}`} aria-hidden={!on}>
                 <PageVisibleProvider visible={on}>
-                  <Page />
+                  <RefreshProvider register={registerFor(t.key)}>
+                    <TabPage Page={Page} />
+                  </RefreshProvider>
                 </PageVisibleProvider>
               </div>
             )
@@ -325,6 +364,14 @@ function Workspace() {
     </div>
   )
 }
+
+// TabPage renders a page once per change of its own, not once per change of the
+// shell's. Pages take no props, so a tab switch, a refresh spinner or a notice
+// in Workspace has nothing to tell the twenty pages mounted behind it — and
+// re-rendering them anyway re-ran any effect keyed on a fresh closure.
+const TabPage = memo(function TabPage({ Page }) {
+  return <Page />
+})
 
 // TabCount is the running total, shown only once it is close enough to matter.
 // Always on, it would be noise at two tabs; the job is to warn BEFORE a click
@@ -368,13 +415,26 @@ export function TabCapNotice({ max, onDismiss }) {
   )
 }
 
-function Topbar({ title, hint, onSearch, user, onLogout }) {
+// The Refresh button sits beside the title because it acts on the page the title
+// names, and only appears for a page that has something to re-read.
+function Topbar({ title, hint, onRefresh, refreshing, onSearch, user, onLogout }) {
   return (
     <header className="flex h-14 items-center gap-3 border-b bg-surface px-4">
       <div className="min-w-0">
         <h2 className="truncate text-sm font-semibold">{title}</h2>
         <p className="truncate text-xs text-muted">{hint}</p>
       </div>
+      {onRefresh && (
+        <button
+          onClick={onRefresh}
+          disabled={refreshing}
+          title="Re-read this page's data from the server — its filters, selections and inputs stay as they are"
+          className="flex shrink-0 items-center gap-1.5 rounded-lg border bg-bg px-2.5 py-1.5 text-xs text-muted hover:text-fg disabled:opacity-60"
+        >
+          <Icon.Refresh size={14} className={refreshing ? 'animate-spin' : ''} />
+          <span className="hidden sm:inline">Refresh</span>
+        </button>
+      )}
       <div className="ml-auto flex items-center gap-2">
         <button
           onClick={onSearch}

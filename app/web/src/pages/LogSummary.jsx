@@ -10,6 +10,7 @@ import {
 } from '../lib/logApi.js'
 import { TOOL_HELP, MORE_HELP } from '../lib/help.js'
 import { useHandoff } from '../lib/handoff.js'
+import { useRefresh } from '../lib/useRefresh.jsx'
 
 // Log Summary — read several database servers' logs as one classified timeline.
 //
@@ -81,12 +82,16 @@ export default function LogSummary() {
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
 
+  const loadTargets = () => logApi.targets()
+    .then((t) => setTargets(Array.isArray(t) ? t : []))
+    .catch((e) => { setErr(`Could not load nodes: ${e.message}`); setTargets([]) })
   useEffect(() => {
-    logApi.targets()
-      .then((t) => setTargets(Array.isArray(t) ? t : []))
-      .catch((e) => { setErr(`Could not load nodes: ${e.message}`); setTargets([]) })
+    loadTargets()
     refreshBundles()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  // The node list and the kept bundles. The open bundle's timeline is fixed once
+  // it is read, so it is not fetched again.
+  useRefresh(() => Promise.all([loadTargets(), refreshBundles()]))
 
   // Operator Summary hands a bundle over here: a cluster-dump's logs are
   // classified by this page's own readers, and the timeline is where they belong.

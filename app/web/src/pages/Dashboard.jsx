@@ -5,6 +5,7 @@ import { UpdateCheckButton } from '../components/UpdateCheck.jsx'
 import { dashApi, fmtBytes } from '../lib/dashApi.js'
 import { usePolling } from '../lib/usePolling.jsx'
 import { relTime } from '../lib/notifApi.js'
+import { useRefresh } from '../lib/useRefresh.jsx'
 
 // Dashboard — store-backed summary counters plus focus-gated live OS stats. The live sample
 // polls only while this page is on screen AND the tab is visible/focused, so there is no
@@ -22,9 +23,9 @@ export default function Dashboard() {
   const [live, setLive] = useState(false)
   const prev = useRef(null) // { at, byName } for rate deltas
 
-  const loadSummary = useCallback(() => { dashApi.summary().then(setSum).catch(() => {}) }, [])
+  const loadSummary = useCallback(() => dashApi.summary().then(setSum).catch(() => {}), [])
   const loadStats = useCallback(() => {
-    dashApi.stats().then((d) => {
+    return dashApi.stats().then((d) => {
       setStats(d)
       const nodes = d.nodes || []
       const now = d.sampledAtSec || Date.now() / 1000
@@ -50,6 +51,7 @@ export default function Dashboard() {
   useEffect(() => { loadSummary() }, [loadSummary])
   usePolling(loadSummary, 15000)
   usePolling(loadStats, 4000, { onActive: setLive })
+  useRefresh(() => Promise.all([loadSummary(), loadStats()]))
 
   const admin = sum?.scope === 'admin'
   const bars = (rows, key, fmt) =>

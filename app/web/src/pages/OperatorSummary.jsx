@@ -3,6 +3,7 @@ import { Card, Button, Badge } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { opSummaryApi } from '../lib/opSummaryApi.js'
 import { useHandoff, sendHandoff } from '../lib/handoff.js'
+import { useRefresh } from '../lib/useRefresh.jsx'
 
 // Operator Summary — read a pt-k8s-debug-collector cluster-dump and say what is
 // wrong with the cluster.
@@ -497,6 +498,8 @@ export default function OperatorSummary() {
   const fileRef = useRef(null)
 
   const reloadDumps = () => opSummaryApi.dumps().then((d) => setDumps(d || [])).catch(() => {})
+
+  useRefresh(reloadDumps)
 
   useEffect(() => {
     reloadDumps()

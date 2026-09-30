@@ -42,6 +42,7 @@ import {
 } from '../lib/canvas.js'
 import { useSettings } from '../settings/SettingsProvider.jsx'
 import { useAuth } from '../auth/AuthProvider.jsx'
+import { useRefresh } from '../lib/useRefresh.jsx'
 
 const NODE_W = 212
 // A node card carries an icon, its name and its status, and nothing else — so it is
@@ -1497,6 +1498,7 @@ export default function StackDesigner() {
     load()
     loadTemplates()
   }, [load, loadTemplates])
+  useRefresh(() => Promise.all([load(), loadTemplates()]))
 
   if (openId != null) {
     return (
@@ -2361,7 +2363,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
   }, [stackId])
 
   // poll deployment state (does NOT touch the local design while editing)
-  usePolling(async () => {
+  const pollDeployments = async () => {
     try {
       const s = await stackApi.get(stackId)
       setDeployments(s.deployments || [])
@@ -2369,7 +2371,11 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
     } catch {
       // ignore transient errors
     }
-  }, 3000)
+  }
+  usePolling(pollDeployments, 3000)
+  // Refresh is the same read, now: the node states, never the design, which may
+  // hold edits that are not saved yet.
+  useRefresh(pollDeployments)
 
   const depByNode = {}
   for (const d of deployments) depByNode[d.nodeId] = d

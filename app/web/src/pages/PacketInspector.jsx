@@ -7,6 +7,7 @@ import {
 } from '../lib/pktApi.js'
 import { TOOL_HELP, MORE_HELP } from '../lib/help.js'
 import { usePolling } from '../lib/usePolling.jsx'
+import { useRefresh } from '../lib/useRefresh.jsx'
 
 // Packet Inspector — run tcpdump on a provisioned MySQL or PostgreSQL node, then read
 // the capture as decoded protocol: queries, responses, latency, and the network
@@ -66,20 +67,30 @@ export default function PacketInspector() {
   const [capFile, setCapFile] = useState(null)
   const [logFile, setLogFile] = useState(null)
 
+  const loadTargets = () => pktApi.targets()
+    .then((t) => {
+      const list = Array.isArray(t) ? t : []
+      setTargets(list)
+      if (list.length && !list.some((x) => pktTargetKey(x) === target)) setTarget(pktTargetKey(list[0]))
+    })
+    .catch((e) => { setErr(`Could not load targets: ${e.message}`); setTargets([]) })
+
   useEffect(() => {
-    pktApi.targets()
-      .then((t) => {
-        const list = Array.isArray(t) ? t : []
-        setTargets(list)
-        if (list.length && !target) setTarget(pktTargetKey(list[0]))
-      })
-      .catch((e) => { setErr(`Could not load targets: ${e.message}`); setTargets([]) })
+    loadTargets()
     refreshCaptures()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const refreshCaptures = useCallback(() => pktApi.list()
     .then((l) => setCaptures(Array.isArray(l) ? l : []))
     .catch(() => {}), [])
+
+  // Refresh re-reads the targets, the list of captures and the open capture's
+  // state. A ready capture's packets never change, so they are not fetched again.
+  useRefresh(() => Promise.all([
+    loadTargets(),
+    refreshCaptures(),
+    capId && pktApi.get(capId).then(setCap).catch(() => {}),
+  ]))
 
   // Poll while a capture is running or decoding.
   const live = cap && (cap.state === 'capturing' || cap.state === 'decoding')

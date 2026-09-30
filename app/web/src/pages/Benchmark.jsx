@@ -5,6 +5,7 @@ import { benchmarkApi, benchTargetKey } from '../lib/benchmarkApi.js'
 import { usePolling } from '../lib/usePolling.jsx'
 import { datagenApi } from '../lib/datagenApi.js'
 import { TOOL_HELP, MORE_HELP } from '../lib/help.js'
+import { useRefresh } from '../lib/useRefresh.jsx'
 
 // Benchmark — load a purpose-built star schema into a chosen database and drive it with
 // one of four workload profiles (OLTP / OLAP / read-write / read-only), reporting
@@ -33,11 +34,12 @@ export default function Benchmark() {
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
 
+  const loadTargets = () => benchmarkApi.targets().then((t) => setTargets(Array.isArray(t) ? t : [])).catch((e) => {
+    setErr(`Could not load targets: ${e.message}. If you just updated, rebuild & restart the backend.`)
+    setTargets([])
+  })
   useEffect(() => {
-    benchmarkApi.targets().then((t) => setTargets(Array.isArray(t) ? t : [])).catch((e) => {
-      setErr(`Could not load targets: ${e.message}. If you just updated, rebuild & restart the backend.`)
-      setTargets([])
-    })
+    loadTargets()
     refreshHistory()
   }, [])
 
@@ -56,11 +58,22 @@ export default function Benchmark() {
   // CRUD: list the tables for the chosen target+database, then introspect the picked table.
   const [tables, setTables] = useState([])
   const [colMeta, setColMeta] = useState(null)
-  useEffect(() => {
-    if (cfg.workload !== 'crud' || !cfg.target || !cfg.database) { setTables([]); return }
+  const loadTables = () => {
+    if (cfg.workload !== 'crud' || !cfg.target || !cfg.database) { setTables([]); return undefined }
     const [sid, nid] = cfg.target.split(':')
-    datagenApi.tables(Number(sid), nid, cfg.database).then((t) => setTables(Array.isArray(t) ? t : [])).catch(() => setTables([]))
-  }, [cfg.workload, cfg.target, cfg.database])
+    return datagenApi.tables(Number(sid), nid, cfg.database).then((t) => setTables(Array.isArray(t) ? t : [])).catch(() => setTables([]))
+  }
+  useEffect(() => { loadTables() }, [cfg.workload, cfg.target, cfg.database])
+
+  // Refresh re-reads the targets, the history and (for CRUD) the table list. The
+  // picked table's columns are left alone: re-reading them resets the filter
+  // columns to the primary key, undoing whatever was chosen.
+  useRefresh(() => Promise.all([
+    loadTargets(),
+    refreshHistory(),
+    loadTables(),
+    runId && benchmarkApi.status(runId).then(setRun).catch(() => {}),
+  ]))
   useEffect(() => {
     if (cfg.workload !== 'crud' || !cfg.table || !cfg.target) { setColMeta(null); return }
     const [sid, nid] = cfg.target.split(':')

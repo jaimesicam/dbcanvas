@@ -4,6 +4,7 @@ import { Card, Button, Badge, Field, inputCls } from '../components/ui.jsx'
 import { datagenApi, genLabel, BSON_TYPES, mongoChoices, defaultGenFor } from '../lib/datagenApi.js'
 import { usePolling } from '../lib/usePolling.jsx'
 import { TOOL_HELP } from '../lib/help.js'
+import { useRefresh } from '../lib/useRefresh.jsx'
 
 // Data Generator — pick a running PostgreSQL/MySQL/MongoDB connection provisioned by Database
 // Stacks, browse to a table (or MongoDB collection), configure a generator per column/field
@@ -47,15 +48,26 @@ export default function DataGenerator() {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
 
-  useEffect(() => {
-    datagenApi
-      .connections()
-      .then((d) => setConns(Array.isArray(d) ? d : []))
-      .catch((e) => {
-        setErr(`Could not load connections: ${e.message}. If you just updated, rebuild & restart the backend.`)
-        setConns([])
-      })
-  }, [])
+  const loadConns = () => datagenApi
+    .connections()
+    .then((d) => setConns(Array.isArray(d) ? d : []))
+    .catch((e) => {
+      setErr(`Could not load connections: ${e.message}. If you just updated, rebuild & restart the backend.`)
+      setConns([])
+    })
+  useEffect(() => { loadConns() }, [])
+
+  // Refresh re-reads the lists down to where the user has got — connections, then
+  // that connection's databases, then that database's tables — and stops short of
+  // the table's columns, which would throw away the generators picked for them.
+  useRefresh(async () => {
+    await loadConns()
+    if (!conn) return
+    try {
+      setDbs((await datagenApi.databases(conn.stackId, conn.nodeId)) || [])
+      if (db) setTables((await datagenApi.tables(conn.stackId, conn.nodeId, db)) || [])
+    } catch (e) { setErr(e.message) }
+  })
 
   async function pickConn(c) {
     setConn(c); setDb(''); setTables([]); setSel(null); setMeta(null); setPreview(null); setJob(null); setErr('')

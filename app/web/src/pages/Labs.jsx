@@ -6,6 +6,7 @@ import { labsApi } from '../lib/labsApi.js'
 import { usePolling } from '../lib/usePolling.jsx'
 import { stackApi, DEPLOY_TONE, TTL_OPTIONS } from '../lib/stackApi.js'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
+import { useRefresh } from '../lib/useRefresh.jsx'
 
 // Labs (experimental) — hands-on scenarios. Starting one provisions a real,
 // disposable stack through the same design-JSON + deploy pipeline Stack
@@ -22,11 +23,15 @@ export default function Labs() {
   const [search, setSearch] = useState('')
   const [collapsedCats, setCollapsedCats] = useState(() => new Set())
 
-  const load = () => {
-    labsApi.list().then(setLabs).catch((e) => setErr(e.message))
-    labsApi.myRuns().then((r) => setMyRuns(Array.isArray(r) ? r : [])).catch(() => {})
-  }
-  useEffect(load, [])
+  const load = () => Promise.all([
+    labsApi.list().then(setLabs).catch((e) => setErr(e.message)),
+    labsApi.myRuns().then((r) => setMyRuns(Array.isArray(r) ? r : [])).catch(() => {}),
+  ])
+  useEffect(() => { load() }, [])
+  useRefresh(() => Promise.all([
+    load(),
+    active && stackApi.get(active.stack.id).then((s) => setActive((a) => (a ? { ...a, stack: s } : a))).catch(() => {}),
+  ]))
 
   // Poll the lab's stack while it deploys (and afterwards, so node status stays fresh).
   usePolling(async () => {

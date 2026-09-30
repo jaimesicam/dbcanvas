@@ -4,6 +4,7 @@ import { Card, Button, Badge, Field, inputCls } from '../components/ui.jsx'
 import { queryrunApi, targetKey } from '../lib/queryrunApi.js'
 import { usePolling } from '../lib/usePolling.jsx'
 import { TOOL_HELP } from '../lib/help.js'
+import { useRefresh } from '../lib/useRefresh.jsx'
 
 // Query Runner — define one or more queries, each pointed at a canvas-provisioned DB
 // node (picked from a dropdown), with per-query load parameters (count / threads /
@@ -42,13 +43,15 @@ export default function QueryRunner() {
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
 
+  const loadTargets = () => queryrunApi.targets().then((t) => setTargets(Array.isArray(t) ? t : [])).catch((e) => {
+    setErr(`Could not load targets: ${e.message}. If you just updated, rebuild & restart the backend.`)
+    setTargets([])
+  })
   useEffect(() => {
-    queryrunApi.targets().then((t) => setTargets(Array.isArray(t) ? t : [])).catch((e) => {
-      setErr(`Could not load targets: ${e.message}. If you just updated, rebuild & restart the backend.`)
-      setTargets([])
-    })
+    loadTargets()
     refreshHistory()
   }, [])
+  useRefresh(() => Promise.all([loadTargets(), refreshHistory()]))
 
   const refreshHistory = () => queryrunApi.history().then((h) => setHistory(Array.isArray(h) ? h : [])).catch(() => {})
 

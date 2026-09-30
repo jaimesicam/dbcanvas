@@ -8,6 +8,7 @@ import {
   canExpand, valueSummary, groupThreadStacks, threadStacksAsText,
 } from '../lib/gdbApi.js'
 import { useHandoff } from '../lib/handoff.js'
+import { useRefresh } from '../lib/useRefresh.jsx'
 
 // Core Dump Analyzer — read a mysqld core dump from another server, here.
 //
@@ -70,22 +71,25 @@ export default function CoreDumpAnalyzer() {
   const sessionRef = useRef(null)
   const target = useMemo(
     () => (targets || []).find((t) => gdbTargetKey(t) === key) || null, [targets, key])
+  // Keyed on the ids rather than the object, so a Refresh — a new targets list, the
+  // same node in it — does not look like a new target and empty the core list.
   const api = useMemo(
-    () => (target ? gdbNodeApi(target.stackId, target.nodeId) : null), [target])
+    () => (target ? gdbNodeApi(target.stackId, target.nodeId) : null),
+    [target?.stackId, target?.nodeId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- targets ---------------------------------------------------------------
 
-  useEffect(() => {
-    gdbApi.targets()
-      .then(setTargets)
-      .catch((e) => { setTargets([]); setErr(e.message) })
-  }, [])
+  const loadTargets = () => gdbApi.targets()
+    .then(setTargets)
+    .catch((e) => { setTargets([]); setErr(e.message) })
+  useEffect(() => { loadTargets() }, [])
 
   // The node panel's "Open analyzer" button leaves the node it wants here, because
   // a hash route carries no parameters. Held as state rather than consumed inside
   // the fetch above: arriving at a tab that is already open re-runs neither the
   // fetch nor a mount effect.
   const [want, setWant] = useState('')
+  const appliedWant = useRef(null)
   useHandoff('dbcanvas.gdbTarget', setWant)
   useEffect(() => {
     // targets is null until the fetch above lands, so this must not assume an array.
@@ -94,10 +98,18 @@ export default function CoreDumpAnalyzer() {
     // here and in the Operator Debugger when the selection moved out of the
     // fetch's .then() and into an effect of its own — see smoke/browser.jsx, which
     // mounts these pages in a real browser to catch it.
+    //
+    // A handoff is applied once; after that a new list (a Refresh) keeps the
+    // selected node, and only snaps when that node has gone.
     if (!targets?.length) return
-    const found = targets.find((t) => gdbTargetKey(t) === want)
-    setKey(gdbTargetKey(found || targets[0] || {}))
-  }, [targets, want])
+    const byKey = (k) => targets.find((t) => gdbTargetKey(t) === k)
+    if (want !== appliedWant.current && byKey(want)) {
+      appliedWant.current = want
+      setKey(want)
+      return
+    }
+    if (!byKey(key)) setKey(gdbTargetKey(byKey(want) || targets[0] || {}))
+  }, [targets, want]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- the session -----------------------------------------------------------
 
@@ -136,13 +148,19 @@ export default function CoreDumpAnalyzer() {
 
   // ---- the core listing ------------------------------------------------------
 
+  const loadCores = () => api?.cores()
+    .then((r) => setCores(r.cores || []))
+    .catch((e) => setErr(`Could not read ${target?.coreDir || 'the core directory'}: ${e.message}`))
   useEffect(() => {
     if (!api) return
     setCores([])
-    api.cores()
-      .then((r) => setCores(r.cores || []))
-      .catch((e) => setErr(`Could not read ${target?.coreDir || 'the core directory'}: ${e.message}`))
+    loadCores()
   }, [api]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Refresh re-reads the nodes and the core directory — a server that crashed
+  // again since the page opened has left a new core there. The open core and the
+  // session on it are left alone: a core file does not change.
+  useRefresh(() => Promise.all([loadTargets(), loadCores()]))
 
   const call = useCallback(async (c, label) => {
     const s = sessionRef.current

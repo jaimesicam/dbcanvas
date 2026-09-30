@@ -8,6 +8,7 @@ import {
   sampleApi, sampleNodeApi, nodeKey, LOG_TONE, LOG_PREFIX, TLS_MODES, FILE_LANG, downloadFile,
 } from '../lib/sampleApi.js'
 import { TOOL_HELP } from '../lib/help.js'
+import { useRefresh } from '../lib/useRefresh.jsx'
 
 // Sample Client Code — a runnable client program for a deployment on the canvas.
 //
@@ -71,21 +72,34 @@ export default function SampleCode() {
 
   // ---- what exists -----------------------------------------------------------
 
-  useEffect(() => {
-    sampleApi.catalog().then(setCatalog).catch((e) => setErr(e.message))
-    sampleApi.nodes().then(setNodes).catch((e) => { setNodes([]); setErr(e.message) })
-  }, [])
+  const loadWhatExists = () => Promise.all([
+    sampleApi.catalog().then(setCatalog).catch((e) => setErr(e.message)),
+    sampleApi.nodes().then(setNodes).catch((e) => { setNodes([]); setErr(e.message) }),
+  ])
+  useEffect(() => { loadWhatExists() }, [])
+  // A fresh node list is a fresh `node` object, so `api` changes and the effect
+  // below re-reads the endpoints on its own.
+  useRefresh(loadWhatExists)
 
   // The node panel's "Sample Client Code" button leaves the Linux Client it wants here. Held as
   // state rather than consumed inside the fetch: arriving at a tab that is already open
   // re-runs no mount effect (see lib/handoff.js).
   const [want, setWant] = useState('')
   useHandoff('dbcanvas.sampleCodeNode', setWant)
+  //
+  // A handoff is applied once; after that a new node list (a Refresh) keeps whatever
+  // node is selected, and only snaps when that node has gone.
+  const appliedWant = useRef(null)
   useEffect(() => {
     if (!nodes?.length) return
-    const found = nodes.find((n) => nodeKey(n) === want)
-    setNodeId(nodeKey(found || nodes[0]))
-  }, [nodes, want])
+    const byKey = (k) => nodes.find((n) => nodeKey(n) === k)
+    if (want !== appliedWant.current && byKey(want)) {
+      appliedWant.current = want
+      setNodeId(want)
+      return
+    }
+    if (!byKey(nodeId)) setNodeId(nodeKey(byKey(want) || nodes[0]))
+  }, [nodes, want]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // The endpoints belong to the selected node's own stack.
   useEffect(() => {

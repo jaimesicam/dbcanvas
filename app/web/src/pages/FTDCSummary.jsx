@@ -9,6 +9,7 @@ import {
   ftdcApi, chartPoints, chartLines, fmtSpan, fmtClock, fmtNum,
   ADVICE_TEXT, ADVICE_FILL, ADVICE_TONE, COMPARE_CHARTS, compareSeries,
 } from '../lib/ftdcApi.js'
+import { useRefresh } from '../lib/useRefresh.jsx'
 
 // FTDC Summary — MongoDB's diagnostic.data, charted.
 //
@@ -63,9 +64,11 @@ export default function FTDCSummary() {
     setDropped(all.length - keep.length)
   }
 
-  useEffect(() => {
-    ftdcApi.nodes().then((n) => setNodes(n || [])).catch(() => {})
-  }, [])
+  const loadNodes = () => ftdcApi.nodes().then((n) => setNodes(n || [])).catch(() => {})
+  useEffect(() => { loadNodes() }, [])
+  // The node list only: the summary on screen is a reading of files, and reading
+  // them again is what the page's own Summarize button is for.
+  useRefresh(loadNodes)
 
 
   async function run(fn) {

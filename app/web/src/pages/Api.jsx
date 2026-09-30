@@ -9,6 +9,7 @@ import {
   apiApi, curlFor, cliFor, matches, samplePath, expiryText, relDate,
   METHOD_TONE, SCOPE_TEXT, MEDIA_TEXT, MEDIA_LABEL, TOKEN_STATE_TONE, EXPIRY_CHOICES,
 } from '../lib/apiApi.js'
+import { useRefresh } from '../lib/useRefresh.jsx'
 
 // Api.jsx — the page that documents the API and hands out the credentials for it.
 //
@@ -29,6 +30,8 @@ export default function Api() {
   // missing icon in the tab bar before anybody opens the page.
   const [isAdmin, setIsAdmin] = useState(false)
   const [tab, setTab] = useState('tokens')
+  // Stable, because Tokens re-reads the list whenever this changes.
+  const onRole = useCallback((r) => setIsAdmin(r === 'admin'), [])
 
   return (
     <div className="space-y-3">
@@ -54,7 +57,7 @@ export default function Api() {
         })}
       </div>
 
-      {tab === 'tokens' && <Tokens isAdmin={isAdmin} onRole={(r) => setIsAdmin(r === 'admin')} />}
+      {tab === 'tokens' && <Tokens isAdmin={isAdmin} onRole={onRole} />}
       {tab === 'endpoints' && <Endpoints />}
       {tab === 'start' && <GettingStarted />}
     </div>
@@ -68,12 +71,11 @@ export function Tokens({ isAdmin, onRole }) {
   const [err, setErr] = useState('')
   const [fresh, setFresh] = useState(null) // the one-time secret, if a token was just made
 
-  const load = useCallback(() => {
-    apiApi.listTokens()
-      .then((d) => { setData(d); if (onRole) onRole(d.role) })
-      .catch((e) => setErr(e.message))
-  }, [onRole])
+  const load = useCallback(() => apiApi.listTokens()
+    .then((d) => { setData(d); if (onRole) onRole(d.role) })
+    .catch((e) => setErr(e.message)), [onRole])
   useEffect(() => { load() }, [load])
+  useRefresh(load)
 
   const revoke = async (id) => {
     try {
@@ -250,10 +252,9 @@ export function TokenTable({ tokens, onRevoke, showOwner = false }) {
 
 export function AdminTokens({ onError }) {
   const [tokens, setTokens] = useState(null)
-  const load = useCallback(() => {
-    apiApi.adminTokens().then((d) => setTokens(d.tokens)).catch((e) => onError(e.message))
-  }, [onError])
+  const load = useCallback(() => apiApi.adminTokens().then((d) => setTokens(d.tokens)).catch((e) => onError(e.message)), [onError])
   useEffect(() => { load() }, [load])
+  useRefresh(load)
 
   const revoke = async (id) => {
     try { await apiApi.adminRevokeToken(id); load() } catch (e) { onError(e.message) }

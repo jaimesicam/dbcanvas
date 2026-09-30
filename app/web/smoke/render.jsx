@@ -46,6 +46,7 @@ import { RepositoryForm, RepositoryManager, RepositoryPicker, RepoContentEditor,
 import { ReplicationView } from '../src/pages/K3DManager.jsx'
 import OperatorSummary, { Verdicts as OpVerdicts, Findings as OpFindings, Workloads as OpWorkloads, Pods as OpPods, CRs as OpCRs, Operators as OpOperators, Deployment as OpDeployment, Images as OpImages, Secrets as OpSecrets, Backups as OpBackups, Certs as OpCerts, Storage as OpStorage, Logs as OpLogs, Galera as OpGalera, PodSummaries as OpPodSummaries, BackupLogs as OpBackupLogs, Extras as OpExtras } from '../src/pages/OperatorSummary.jsx'
 import { PageVisibleProvider, usePolling, usePageVisible } from '../src/lib/usePolling.jsx'
+import { RefreshProvider, useRefresh } from '../src/lib/useRefresh.jsx'
 import { openTab, closeTab, tabCounts, clampTabs, TABS_DEFAULT, TABS_MIN, TABS_MAX } from '../src/lib/tabs.js'
 import { mongoDownloadURL } from '../src/lib/stackApi.js'
 import { TabCount, TabCapNotice, NAV } from '../src/App.jsx'
@@ -4268,6 +4269,38 @@ check('polling: a page that is not on screen never starts a timer', () => {
   renderToString(<PageVisibleProvider visible={true}><Probe /></PageVisibleProvider>)
   if (seen !== true) throw new Error(`provider did not reopen the gate, got ${seen}`)
   return 'default open, provider closes and reopens'
+})
+
+check('refresh: every page with server data offers the top-bar Refresh', () => {
+  // Tabs stay mounted, so a page that loads on mount never loads again: a stack
+  // deployed in another tab, a capture finished on the server, none of it shows
+  // until the tab is closed and reopened. Refresh is the answer, and a page that
+  // forgets to register simply has no button — which looks like nothing, so the
+  // rule is checked rather than remembered. Settings is the one exception: it has
+  // drafts and nothing to re-read that another tab could have changed.
+  const { readFileSync } = nodeFs
+  const except = new Set(['settings', 'database-explorer'])
+  const missing = []
+  for (const n of NAV) {
+    if (except.has(n.id)) continue
+    const file = { 'stack-designer': 'StackDesigner', 'data-generator': 'DataGenerator', queryrun: 'QueryRunner',
+      benchmark: 'Benchmark', 'sample-code': 'SampleCode', 'packet-inspector': 'PacketInspector',
+      'operator-debugger': 'OperatorDebugger', 'core-dump': 'CoreDumpAnalyzer', 'stalk-summary': 'StalkSummary',
+      'log-summary': 'LogSummary', 'ftdc-summary': 'FTDCSummary', 'operator-summary': 'OperatorSummary',
+      'k8s-states': 'K8sStates', labs: 'Labs', api: 'Api', dashboard: 'Dashboard' }[n.id]
+    if (!file) { missing.push(`${n.id} (no file mapped — add it here)`); continue }
+    const text = readFileSync(new URL(`../src/pages/${file}.jsx`, import.meta.url), 'utf8')
+    if (!/useRefresh\(/.test(text)) missing.push(file)
+  }
+  const users = readFileSync(new URL('../src/pages/ManageUsers.jsx', import.meta.url), 'utf8')
+  if (!/useRefresh\(/.test(users)) missing.push('ManageUsers')
+  if (missing.length) throw new Error(`these pages register no refresh: ${missing.join(', ')}`)
+
+  // Outside a provider the hook is inert, so a page renders anywhere.
+  function Probe() { useRefresh(() => { throw new Error('refresh ran during render') }); return <div>p</div> }
+  renderToString(<Probe />)
+  renderToString(<RefreshProvider register={() => () => {}}><Probe /></RefreshProvider>)
+  return 'every NAV page but Settings registers one; inert outside a provider'
 })
 
 check('handoff: no page reads a handoff straight out of sessionStorage', () => {

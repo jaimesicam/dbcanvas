@@ -4,6 +4,7 @@ import { Icon } from '../components/Icons.jsx'
 import TimeChart from '../components/TimeChart.jsx'
 import { stalkApi } from '../lib/stalkApi.js'
 import { useHandoff } from '../lib/handoff.js'
+import { useRefresh } from '../lib/useRefresh.jsx'
 
 // Stalk Summary — upload (or pull from a node) a pt-stalk archive and render it as
 // professional timeline charts. ~90% charts, ~10% text. Every card renders only if its
@@ -31,11 +32,15 @@ export default function StalkSummary() {
   const reloadArchives = () =>
     stalkApi.archives().then((a) => setArchives(a || [])).catch(() => {})
 
+  const loadNodes = () => stalkApi.nodes().then((n) => setNodes(n || [])).catch(() => {})
   useEffect(() => {
-    stalkApi.nodes().then((n) => setNodes(n || [])).catch(() => {})
+    loadNodes()
     reloadArchives()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+  // The lists, not the summary on screen: a capture is read once, and re-reading
+  // it would throw away the comparison and the zoom.
+  useRefresh(() => Promise.all([loadNodes(), reloadArchives()]))
 
   // A node's Diagnostics tab hands a capture over here.
   useHandoff('vs.target', (raw) => {

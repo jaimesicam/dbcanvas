@@ -3,6 +3,7 @@ import { api } from '../lib/api.js'
 import { useAuth } from '../auth/AuthProvider.jsx'
 import { Card, Button, Badge } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
+import { useRefresh } from '../lib/useRefresh.jsx'
 
 const STATUS_TONE = { approved: 'success', pending: 'warning', rejected: 'danger', disabled: 'muted' }
 
@@ -39,6 +40,7 @@ export default function ManageUsers() {
   useEffect(() => {
     load()
   }, [load])
+  useRefresh(load)
 
   async function act(fn, id) {
     setBusyId(id)
