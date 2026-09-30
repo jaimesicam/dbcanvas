@@ -2256,6 +2256,26 @@ func TestAIOTLSWiringIsIdempotent(t *testing.T) {
 		t.Skip("python3 not available (the MongoDB editor needs it)")
 	}
 	dir := t.TempDir()
+	// The scripts run on the nodes, which are Linux, and use GNU sed's `-i` with no
+	// suffix argument. BSD sed (macOS) reads the next word as the suffix and fails, so
+	// off Linux the test puts GNU sed first on PATH when it is installed as gsed
+	// (`brew install gnu-sed`), and skips when it is not — a BSD sed failure says
+	// nothing about the scripts.
+	pathEnv := os.Getenv("PATH")
+	if out, err := exec.Command("sed", "--version").CombinedOutput(); err != nil || !strings.Contains(string(out), "GNU") {
+		gsed, err := exec.LookPath("gsed")
+		if err != nil {
+			t.Skip("the wiring scripts need GNU sed; install gnu-sed (gsed) to run this off Linux")
+		}
+		bin := filepath.Join(dir, "gnubin")
+		if err := os.MkdirAll(bin, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(gsed, filepath.Join(bin, "sed")); err != nil {
+			t.Fatal(err)
+		}
+		pathEnv = bin + string(os.PathListSeparator) + pathEnv
+	}
 
 	cases := []struct {
 		name    string
@@ -2299,7 +2319,7 @@ func TestAIOTLSWiringIsIdempotent(t *testing.T) {
 				cmd := exec.Command("bash", sh)
 				// chown to a vendor user will fail as an ordinary test user; the
 				// scripts tolerate it, and the config edit is what is under test.
-				cmd.Env = append(os.Environ(), tc.env(conf)...)
+				cmd.Env = append(append(os.Environ(), "PATH="+pathEnv), tc.env(conf)...)
 				out, err := cmd.CombinedOutput()
 				if err != nil && !strings.Contains(string(out), "chown") {
 					t.Fatalf("script failed: %v\n%s", err, out)

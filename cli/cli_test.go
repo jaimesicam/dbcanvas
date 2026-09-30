@@ -1212,3 +1212,83 @@ func TestWrapText(t *testing.T) {
 		t.Errorf("wrapText = %q", got)
 	}
 }
+
+// ------------------------------------------------------------- jobs
+
+// labServer answers the lookups every job command makes first — the stack by name,
+// its design — and hands the start request to start.
+func labServer(t *testing.T, start func(w http.ResponseWriter, r *http.Request, body string)) *testServer {
+	return newTestServer(t, func(s *testServer, w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "GET" && r.URL.Path == "/api/stacks":
+			json.NewEncoder(w).Encode([]map[string]any{{"id": 7, "name": "lab"}})
+		case r.Method == "GET" && r.URL.Path == "/api/stacks/7":
+			json.NewEncoder(w).Encode(map[string]any{"id": 7, "name": "lab", "design": map[string]any{
+				"nodes": []map[string]any{{"id": "n-ps-01", "label": "ps-01"}, {"id": "n-ps-02", "label": "ps-02"}},
+			}})
+		default:
+			start(w, r, s.bodies[len(s.bodies)-1]) // record has already read r.Body
+		}
+	})
+}
+
+// The server's reply is {"runId": …} and its fields are durationS, createDb —
+// the CLI said id and duration, so every run failed with "returned no id" and a
+// wait never started.
+func TestBenchmarkRunSpeaksTheServersShape(t *testing.T) {
+	isolateConfig(t)
+	var sent map[string]any
+	ts := labServer(t, func(w http.ResponseWriter, r *http.Request, body string) {
+		if r.URL.Path != "/api/benchmark/runs" {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+			return
+		}
+		json.Unmarshal([]byte(body), &sent)
+		json.NewEncoder(w).Encode(map[string]string{"runId": "abc123"})
+	})
+	t.Setenv("DBCANVAS_URL", ts.URL)
+	t.Setenv("DBCANVAS_TOKEN", "dbc_t")
+	if err := benchRun([]string{"lab", "ps-01", "--duration", "20"}); err != nil {
+		t.Fatalf("benchmark run: %v", err)
+	}
+	if sent["nodeId"] != "n-ps-01" || sent["durationS"] != float64(20) || sent["createDb"] != true || sent["database"] != "dbcanvas_bench" {
+		t.Errorf("sent %v", sent)
+	}
+	if _, old := sent["duration"]; old {
+		t.Errorf("still sends the field the server ignores: %v", sent)
+	}
+}
+
+// The server takes {"queries": [...]}, one per node, and refuses anything else with
+// "at least one query is required".
+func TestQueryRunSendsOneQueryPerNode(t *testing.T) {
+	isolateConfig(t)
+	var sent struct {
+		Queries []map[string]any `json:"queries"`
+	}
+	ts := labServer(t, func(w http.ResponseWriter, r *http.Request, body string) {
+		switch r.URL.Path {
+		case "/api/queryrun/runs":
+			json.Unmarshal([]byte(body), &sent)
+			json.NewEncoder(w).Encode(map[string]string{"runId": "q1"})
+		case "/api/queryrun/runs/q1":
+			json.NewEncoder(w).Encode(map[string]any{"id": "q1", "status": "done"})
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	})
+	t.Setenv("DBCANVAS_URL", ts.URL)
+	t.Setenv("DBCANVAS_TOKEN", "dbc_t")
+	if err := queryRun([]string{"--stack", "lab", "--nodes", "ps-01,ps-02", "--sql", "SELECT 1"}); err != nil {
+		t.Fatalf("query run: %v", err)
+	}
+	if len(sent.Queries) != 2 {
+		t.Fatalf("sent %d queries, want one per node: %+v", len(sent.Queries), sent)
+	}
+	for i, want := range []string{"n-ps-01", "n-ps-02"} {
+		q := sent.Queries[i]
+		if q["nodeId"] != want || q["sql"] != "SELECT 1" || q["stackId"] != float64(7) || q["count"] != float64(1) {
+			t.Errorf("query %d = %v", i, q)
+		}
+	}
+}

@@ -224,11 +224,29 @@ func queryTargets(args []string) error {
 	return printRaw(raw)
 }
 
+// runStarted is the reply to starting a benchmark or a query run. The server says
+// runId; id is read as well so a CLI stays usable against a server of either age.
+type runStarted struct {
+	RunID string `json:"runId"`
+	ID    string `json:"id"`
+}
+
+func (r runStarted) id() string {
+	if r.RunID != "" {
+		return r.RunID
+	}
+	return r.ID
+}
+
 func queryRun(args []string) error {
 	fs := flagsFor("query run")
 	stack := fs.String("stack", "", "the stack the nodes belong to")
 	nodes := fs.String("nodes", "", "comma-separated node ids to run against")
 	sql := fs.String("sql", "", "the statement to run, or @file")
+	database := fs.String("database", "", "the database to run it in (default: the node's own default)")
+	count := fs.Int("count", 1, "executions per node; 0 repeats until --time-limit")
+	threads := fs.Int("threads", 1, "client threads per node")
+	timeLimit := fs.Int("time-limit", 60, "seconds a node may keep running, the cap for --count 0")
 	wait := fs.Bool("wait", true, "wait for the run to finish (default true)")
 	timeout := fs.Duration("timeout", 30*time.Minute, "how long --wait will wait")
 	if err := parse(fs, args); err != nil {
@@ -254,23 +272,32 @@ func queryRun(args []string) error {
 	if err != nil {
 		return err
 	}
-	var started struct {
-		ID string `json:"id"`
-	}
+	var started runStarted
 	ids, err := resolveNodes(c, st.ID, *nodes)
 	if err != nil {
 		return err
 	}
-	if err := c.post("/api/queryrun/runs", map[string]any{
-		"stackId": st.ID,
-		"nodeIds": strings.Split(ids, ","),
-		"sql":     statement,
-	}, &started); err != nil {
+	// The server takes a list of queries, each aimed at one node — the Query Runner's
+	// cards — so --nodes becomes one card per node, all running the same statement.
+	queries := []map[string]any{}
+	for _, id := range strings.Split(ids, ",") {
+		queries = append(queries, map[string]any{
+			"stackId":    st.ID,
+			"nodeId":     id,
+			"database":   *database,
+			"sql":        statement,
+			"count":      *count,
+			"threads":    *threads,
+			"timeLimitS": *timeLimit,
+		})
+	}
+	if err := c.post("/api/queryrun/runs", map[string]any{"queries": queries}, &started); err != nil {
 		return err
 	}
-	if started.ID == "" {
+	if started.id() == "" {
 		return fmt.Errorf("the server started a run but returned no id")
 	}
+	started.ID = started.id()
 	if !*wait {
 		fmt.Printf("Started run %s.\n", started.ID)
 		return nil
@@ -342,6 +369,10 @@ func benchRun(args []string) error {
 	workload := fs.String("workload", "oltp", "oltp, olap, rw or ro")
 	duration := fs.Int("duration", 60, "how long to run, in seconds")
 	threads := fs.Int("threads", 0, "client threads (0 = the server's default)")
+	database := fs.String("database", "dbcanvas_bench", "the database the benchmark tables go in")
+	createDB := fs.Bool("create-db", true, "create the database and load its tables first, as the web UI does")
+	scale := fs.Int("scale", 0, "table size multiplier (0 = the server's default)")
+	warmup := fs.Int("warmup", 0, "seconds of warm-up before measuring")
 	wait := fs.Bool("wait", false, "wait for the run to finish and print the numbers")
 	if err := parse(fs, args); err != nil {
 		return err
@@ -354,23 +385,28 @@ func benchRun(args []string) error {
 		return err
 	}
 	body := map[string]any{
-		"stackId":  st.ID,
-		"nodeId":   node,
-		"workload": *workload,
-		"duration": *duration,
+		"stackId":   st.ID,
+		"nodeId":    node,
+		"workload":  *workload,
+		"durationS": *duration,
+		"database":  *database,
+		"createDb":  *createDB,
+		"warmupS":   *warmup,
 	}
 	if *threads > 0 {
 		body["threads"] = *threads
 	}
-	var started struct {
-		ID string `json:"id"`
+	if *scale > 0 {
+		body["scale"] = *scale
 	}
+	var started runStarted
 	if err := c.post("/api/benchmark/runs", body, &started); err != nil {
 		return err
 	}
-	if started.ID == "" {
+	if started.id() == "" {
 		return fmt.Errorf("the server started a benchmark but returned no id")
 	}
+	started.ID = started.id()
 	fmt.Printf("Running the %s workload on %s for %ds (run %s).\n",
 		*workload, arg(1), *duration, started.ID)
 	if !*wait {
@@ -390,7 +426,7 @@ func benchRun(args []string) error {
 		}
 		jsonUnmarshal(raw, &run)
 		switch run.Status {
-		case "done", "complete", "finished":
+		case "done", "complete", "finished", "stopped": // stopped: somebody pressed Stop; the numbers so far are still the answer
 			return printRaw(raw)
 		case "error", "failed":
 			msg := run.Error

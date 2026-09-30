@@ -355,10 +355,14 @@ func (c OperatorCatalog) resolveOperatorVersion(product, want string) (string, b
 // matches the pmm/k3s fallbacks elsewhere in this file.
 //
 // ok=false therefore means "the catalog knows this chart and that is not one of its versions".
+//
+// want is trimmed first, so a blank field means "latest" here exactly as an empty one does —
+// untrimmed, "  " matched no version and fell through to the caller's hardcoded fallback.
 func (c OperatorCatalog) resolveChartVersion(chart, want string) (string, bool) {
+	want = strings.TrimSpace(want)
 	ov, known := c[chart]
 	if !known || len(ov.Versions) == 0 {
-		return strings.TrimSpace(want), true
+		return want, true
 	}
 	return c.resolveOperatorVersion(chart, want)
 }

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Button, Badge, Field, ConfirmButton, inputCls } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { k3dApi } from '../lib/stackApi.js'
+import { usePolling } from '../lib/usePolling.jsx'
 
 // K8sLogicalReplicas — the "Logical replicas" tab of a Percona Operator for PostgreSQL cluster.
 //
@@ -53,13 +54,14 @@ export function K8sLogicalReplicas({ stackId, frame, isServer }) {
   }
   // Polled: bootstrapping is the state people sit and watch, and it is the one that turns into
   // `broken` without anything else changing on the screen.
+  // Through the shared hook, so a panel on a tab nobody is looking at stops asking.
+  // The effect is for switching frames: polling only restarts on its own gates, and a
+  // different frame should not wait ten seconds to show its replicas.
+  usePolling(load, 10000, { enabled: isServer && !!frame })
   useEffect(() => {
-    if (!isServer || !frame) return
-    load()
-    const t = setInterval(load, 10000)
-    return () => clearInterval(t)
+    if (isServer && frame) load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stackId, frame?.id, isServer])
+  }, [stackId, frame?.id])
 
   if (!isServer) {
     return <div className="rounded-lg bg-surface2 px-3 py-2 text-xs text-muted">
