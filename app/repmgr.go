@@ -988,6 +988,18 @@ fi
 elver=$(rpm -E %rhel)
 arch=$(uname -m)
 dnf -y -q install "https://download.postgresql.org/pub/repos/yum/reporpms/EL-${elver}-${arch}/pgdg-redhat-repo-latest.noarch.rpm" >/dev/null
+# Since pgdg-redhat-repo 42.0-69 the EL9/EL10 repo file builds its URLs as
+# rhel-$releasever_major.$releasever_minor. dnf 4.14+ fills those in itself from the release
+# package's system-release(releasever_minor) provide and ignores /etc/dnf/vars — and Oracle
+# Linux's oraclelinux-release has no such provide, so there the minor is empty, every PGDG URL is
+# rhel-9.-x86_64 (or rhel-10.-), a 404, and the install dies on repo metadata. PGDG's own fallback
+# only covers older dnf, which has no detect_releasevers and does read /etc/dnf/vars. So when dnf
+# detects no minor, the repo file is pointed at the major-version tree (rhel-9, rhel-10), which
+# carries every minor's builds. EL8 keeps an older repo file on rhel-$releasever and is untouched.
+if /usr/libexec/platform-python -c 'import sys, dnf.rpm; sys.exit(0 if dnf.rpm.detect_releasevers("/")[2] is None else 1)' 2>/dev/null \
+   && [ -f /etc/yum.repos.d/pgdg-redhat-all.repo ]; then
+  sed -i 's/\$releasever_major\.\$releasever_minor/$releasever_major/g' /etc/yum.repos.d/pgdg-redhat-all.repo
+fi
 # The OS-bundled postgresql module masks the PGDG packages; disable it first.
 dnf -qy module disable postgresql >/dev/null 2>&1 || true
 pin_install $PKGS`
