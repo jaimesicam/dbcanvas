@@ -4,6 +4,7 @@ import 'rrweb/dist/style.css'
 import { Icon } from '../components/Icons.jsx'
 import { useSession } from './SessionProvider.jsx'
 import { maskSecrets } from '../lib/secretRegistry.js'
+import { startIframeCanvasSampler } from './mirrorCanvas.js'
 
 // Mirror.jsx — "Mirror everything" (app/sharemirror.go).
 //
@@ -76,11 +77,18 @@ export function MirrorRecorder() {
       dataURLOptions: { type: 'image/webp', quality: 0.6 },
       inlineStylesheet: true,
     })
+    // rrweb samples only the top page's canvases; a VNC desktop is a canvas inside a
+    // browser window's iframe, so those are sampled here (session/mirrorCanvas.js).
+    const canvases = startIframeCanvasSampler((e) => {
+      buf.push(e)
+      if (!timer) timer = setTimeout(flush, BATCH_MS)
+    }, { fps: 3, blocked: PRIVATE })
     const unsub = api.current.onMirror((m) => {
-      if (m.t === 'mirror-resync') record.takeFullSnapshot(true)
+      if (m.t === 'mirror-resync') { canvases.resync(); record.takeFullSnapshot(true) }
     })
     return () => {
       unsub()
+      canvases.stop()
       stop?.()
       flush()
     }
