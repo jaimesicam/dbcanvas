@@ -46,6 +46,7 @@ var sealedColumns = []sealedColumn{
 	{"users", "password_hash", `'users.password_hash:' || id`},
 	{"users", "first_name", `'users.first_name:' || id`},
 	{"users", "last_name", `'users.last_name:' || id`},
+	{"users", "email", `'users.email:' || id`},
 	{"stacks", "design_json", `'stacks.design_json:' || id`},
 	{"deployments", "secrets_json", `'deployments.secrets_json:' || stack_id || ':' || node_id`},
 	{"share_guests", "name", `'share_guests.name:' || session_id`},

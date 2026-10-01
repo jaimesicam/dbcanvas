@@ -37,16 +37,16 @@ func TestNamesAreSealedAtRest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := app.store.SetUserProfile(u.ID, Profile{FirstName: "Ada", LastName: "Lovelace", Avatar: "owl"}); err != nil {
+	if err := app.store.SetUserProfile(u.ID, Profile{FirstName: "Ada", LastName: "Lovelace", Email: "ada@example.com", Avatar: "owl"}); err != nil {
 		t.Fatal(err)
 	}
-	var first, last string
-	app.store.db.QueryRow(`SELECT first_name, last_name FROM users WHERE id = ?`, u.ID).Scan(&first, &last)
-	if !strings.HasPrefix(first, "v1:") || !strings.HasPrefix(last, "v1:") || strings.Contains(first+last, "Ada") {
-		t.Errorf("names stored in the clear: %q %q", first, last)
+	var first, last, email string
+	app.store.db.QueryRow(`SELECT first_name, last_name, email FROM users WHERE id = ?`, u.ID).Scan(&first, &last, &email)
+	if !strings.HasPrefix(first, "v1:") || !strings.HasPrefix(last, "v1:") || !strings.HasPrefix(email, "v1:") || strings.Contains(first+last+email, "Ada") {
+		t.Errorf("stored in the clear: %q %q %q", first, last, email)
 	}
 	got, err := app.store.GetUser(u.ID)
-	if err != nil || got.FirstName != "Ada" || got.LastName != "Lovelace" || got.Avatar != "owl" || got.displayName() != "Ada Lovelace" {
+	if err != nil || got.FirstName != "Ada" || got.LastName != "Lovelace" || got.Email != "ada@example.com" || got.Avatar != "owl" || got.displayName() != "Ada Lovelace" {
 		t.Errorf("read back %+v, %v", got, err)
 	}
 	if cu, _, err := app.store.CredByUsername("ada"); err != nil || cu.FirstName != "Ada" {
@@ -60,9 +60,12 @@ func TestProfileValidation(t *testing.T) {
 		req  bool
 		okay bool
 	}{
-		{Profile{FirstName: "Ada", LastName: "Lovelace", Avatar: "fox"}, true, true},
-		{Profile{FirstName: " Ada ", LastName: "Lovelace"}, true, true}, // no avatar: initials
-		{Profile{FirstName: "Ada"}, true, false},                         // a new account needs both names
+		{Profile{FirstName: "Ada", LastName: "Lovelace", Email: "ada@example.com", Avatar: "fox"}, true, true},
+		{Profile{FirstName: " Ada ", LastName: "Lovelace", Email: " ada@example.com "}, true, true}, // no avatar: initials
+		{Profile{FirstName: "Ada", LastName: "Lovelace"}, true, false},                              // a new account needs an email
+		{Profile{FirstName: "Ada", LastName: "Lovelace", Email: "not an address"}, true, false},
+		{Profile{FirstName: "Ada", LastName: "Lovelace", Email: "Ada <ada@example.com>"}, true, false},
+		{Profile{FirstName: "Ada"}, true, false}, // a new account needs both names
 		{Profile{}, false, true},
 		{Profile{FirstName: "Ada", LastName: "L", Avatar: "../etc"}, true, false},
 		{Profile{FirstName: strings.Repeat("a", 61), LastName: "L"}, true, false},
@@ -86,12 +89,22 @@ func TestRegisterTakesAProfile(t *testing.T) {
 	if code := post(`{"username":"grace","password":"password123"}`); code != http.StatusBadRequest {
 		t.Errorf("an account without a name was created: %d", code)
 	}
-	if code := post(`{"username":"grace","password":"password123","firstName":"Grace","lastName":"Hopper","avatar":"rocket"}`); code != http.StatusCreated {
+	if code := post(`{"username":"grace","password":"password123","firstName":"Grace","lastName":"Hopper","avatar":"rocket"}`); code != http.StatusBadRequest {
+		t.Errorf("an account without an email was created: %d", code)
+	}
+	if code := post(`{"username":"grace","password":"password123","firstName":"Grace","lastName":"Hopper","email":"grace@example.com","avatar":"rocket"}`); code != http.StatusCreated {
 		t.Fatalf("register: %d", code)
 	}
 	u, _, _ := app.store.CredByUsername("grace")
-	if u.displayName() != "Grace Hopper" || u.Avatar != "rocket" {
+	if u.displayName() != "Grace Hopper" || u.Avatar != "rocket" || u.Email != "grace@example.com" {
 		t.Errorf("profile not saved: %+v", u)
+	}
+	// One address, one account — whatever its case.
+	if code := post(`{"username":"grace2","password":"password123","firstName":"G","lastName":"H","email":"GRACE@example.com"}`); code != http.StatusConflict {
+		t.Errorf("a second account took the same email: %d", code)
+	}
+	if _, _, err := app.store.CredByUsername("grace2"); err == nil {
+		t.Error("the refused registration left an account behind")
 	}
 }
 
@@ -99,12 +112,20 @@ func TestUpdateProfile(t *testing.T) {
 	app := newTestApp(t)
 	u, _ := app.store.CreateUser("ada", "x", RoleUser, StatusApproved)
 	w := httptest.NewRecorder()
-	r := withPrincipal(httptest.NewRequest("PUT", "/api/me/profile", strings.NewReader(`{"firstName":"Ada","lastName":"King","avatar":"cat"}`)), principal{User: u})
+	r := withPrincipal(httptest.NewRequest("PUT", "/api/me/profile", strings.NewReader(`{"firstName":"Ada","lastName":"King","email":"ada@example.com","avatar":"cat"}`)), principal{User: u})
 	app.handleUpdateProfile(w, r)
 	var got User
 	json.Unmarshal(w.Body.Bytes(), &got)
-	if w.Code != http.StatusOK || got.LastName != "King" || got.Avatar != "cat" {
+	if w.Code != http.StatusOK || got.LastName != "King" || got.Avatar != "cat" || got.Email != "ada@example.com" {
 		t.Errorf("update: %d %s", w.Code, w.Body)
+	}
+	// Someone else's address is refused.
+	bob, _ := app.store.CreateUser("bob", "x", RoleUser, StatusApproved)
+	w = httptest.NewRecorder()
+	r = withPrincipal(httptest.NewRequest("PUT", "/api/me/profile", strings.NewReader(`{"firstName":"Bob","lastName":"B","email":"Ada@Example.com"}`)), principal{User: bob})
+	app.handleUpdateProfile(w, r)
+	if w.Code != http.StatusConflict {
+		t.Errorf("bob took ada's email: %d %s", w.Code, w.Body)
 	}
 }
 
@@ -129,7 +150,7 @@ func TestJoinWithAnAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.app.store.SetUserProfile(grace.ID, Profile{FirstName: "Grace", LastName: "Hopper", Avatar: "rocket"})
+	f.app.store.SetUserProfile(grace.ID, Profile{FirstName: "Grace", LastName: "Hopper", Email: "grace@example.com", Avatar: "rocket"})
 
 	if w := f.joinAccount(t, `{"username":"grace","password":"wrong-password"}`, nil); w.Code != http.StatusUnauthorized {
 		t.Errorf("a wrong password joined: %d", w.Code)
@@ -140,7 +161,7 @@ func TestJoinWithAnAccount(t *testing.T) {
 	}
 	var g ShareGuest
 	json.Unmarshal(w.Body.Bytes(), &g)
-	if g.Name != "Grace Hopper" || g.UserID != grace.ID || g.Account != "grace" || g.Avatar != "rocket" || g.State != guestWaiting {
+	if g.Name != "Grace Hopper" || g.Email != "grace@example.com" || g.UserID != grace.ID || g.Account != "grace" || g.Avatar != "rocket" || g.State != guestWaiting {
 		t.Errorf("guest: %+v", g)
 	}
 	// It is a lobby place, nothing more: no login session is handed out.

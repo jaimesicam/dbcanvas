@@ -51,8 +51,8 @@ account needs before it has one.
 | --- | --- | --- |
 | Ask whether this installation is set up, and who you are | `GET /api/setup/status` | `dbcanvas version` (also prints the server's) |
 | Create the first account — it becomes the administrator | `POST /api/setup` | *(UI only; there is nothing to authenticate with yet)* |
-| Request an account, pending an admin's approval | `POST /api/auth/register` `{"username", "password", "firstName", "lastName", "avatar"}` — both names required | *(UI only)* |
-| Change your name and avatar | `PUT /api/me/profile` `{"firstName", "lastName", "avatar"}` | — |
+| Request an account, pending an admin's approval | `POST /api/auth/register` `{"username", "password", "firstName", "lastName", "email", "avatar"}` — names and email required; one email per account | *(UI only)* |
+| Change your name, email and avatar | `PUT /api/me/profile` `{"firstName", "lastName", "email", "avatar"}` | — |
 | The avatars to choose from | `GET /api/avatars` | — |
 | Sign in and get a session cookie | `POST /api/auth/login` | `dbcanvas login` — then swaps it for a token |
 | Sign out | `POST /api/auth/logout` | `dbcanvas logout` — also revokes the token |

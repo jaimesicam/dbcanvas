@@ -56,7 +56,7 @@ The link opens a join screen with two ways in:
 
 - **I have an account** — a colleague with a DBCanvas account signs in with it, or, when
   their browser is already signed in, joins as that account with one click. You see
-  their own name and avatar, marked **signed in as** their username: their password was
+  their own name, email and avatar, marked **signed in as** their username: their password was
   checked, so it is them. It does not sign their browser in; like any guest they work in
   your workspace, not their own. You cannot join your own session this way.
 - **Join as a guest** — anyone else types a name and an email, both required, neither

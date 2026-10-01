@@ -203,7 +203,7 @@ func buildAPIRoutes() []apiRoute {
 		{Method: "PUT", Path: "/api/me/settings", Group: gPrefs, Handler: m((*App).handleUpdateSettings),
 			Summary: "Replace the caller's UI preferences. Unrecognised values fall back to the defaults."},
 		{Method: "PUT", Path: "/api/me/profile", Group: gPrefs, Handler: m((*App).handleUpdateProfile),
-			Summary: "Change your first name, last name and avatar: {\"firstName\", \"lastName\", \"avatar\"} (an id from GET /api/avatars)."},
+			Summary: "Change your first name, last name, email and avatar: {\"firstName\", \"lastName\", \"email\", \"avatar\"} (an id from GET /api/avatars)."},
 		{Method: "GET", Path: "/api/avatars", Group: gPrefs, Handler: m((*App).handleAvatars),
 			Summary: "The avatar ids an account or a guest may choose."},
 		{Method: "POST", Path: "/api/me/password", Group: gPrefs, NoToken: true, Handler: m((*App).handleChangePassword),

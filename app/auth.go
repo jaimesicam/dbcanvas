@@ -183,6 +183,12 @@ func (a *App) handleSetup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// Checked before the account exists, so a taken address never leaves an account
+	// behind without its profile.
+	if taken, err := a.store.EmailInUse(c.Profile.Email, 0); err != nil || taken {
+		writeErr(w, http.StatusConflict, ErrEmailTaken.Error())
+		return
+	}
 	hash, err := hashPassword(c.Password)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to hash password")
@@ -225,6 +231,12 @@ func (a *App) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := c.Profile.clean(true); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// Checked before the account exists, so a taken address never leaves an account
+	// behind without its profile.
+	if taken, err := a.store.EmailInUse(c.Profile.Email, 0); err != nil || taken {
+		writeErr(w, http.StatusConflict, ErrEmailTaken.Error())
 		return
 	}
 	hash, err := hashPassword(c.Password)

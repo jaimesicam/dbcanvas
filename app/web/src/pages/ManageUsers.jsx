@@ -98,7 +98,7 @@ export default function ManageUsers() {
                             {u.firstName || u.lastName ? fullName(u) : <span className="text-muted">No name yet</span>}
                             {isYou && <span className="ml-1 text-xs text-muted">(you)</span>}
                           </span>
-                          <span className="block text-xs text-muted">{u.username}</span>
+                          <span className="block text-xs text-muted">{u.username}{u.email ? ` · ${u.email}` : ''}</span>
                         </span>
                       </div>
                     </td>

@@ -40,6 +40,7 @@ type User struct {
 	// The profile (profile.go): names sealed at rest, avatar an id from a fixed set.
 	FirstName string `json:"firstName"`
 	LastName  string `json:"lastName"`
+	Email     string `json:"email"`
 	Avatar    string `json:"avatar"`
 }
 
@@ -246,6 +247,11 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id, id DESC);`
 	db.Exec("ALTER TABLE users ADD COLUMN first_name TEXT NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE users ADD COLUMN last_name TEXT NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE users ADD COLUMN avatar TEXT NOT NULL DEFAULT ''")
+	// The email is sealed like the names; email_hash is what keeps two accounts from
+	// sharing one, since a sealed value cannot be compared (profile.go).
+	db.Exec("ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''")
+	db.Exec("ALTER TABLE users ADD COLUMN email_hash TEXT NOT NULL DEFAULT ''")
+	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email_hash) WHERE email_hash != ''")
 	db.Exec("ALTER TABLE stacks ADD COLUMN backend TEXT")
 	db.Exec("ALTER TABLE lab_runs ADD COLUMN initial_backup_count INTEGER NOT NULL DEFAULT 0")
 
@@ -288,7 +294,7 @@ func (s *Store) scanUser(row interface {
 }) (User, error) {
 	var u User
 	var approved sql.NullString
-	if err := row.Scan(&u.ID, &u.Username, &u.Role, &u.Status, &u.CreatedAt, &approved, &u.FirstName, &u.LastName, &u.Avatar); err != nil {
+	if err := row.Scan(&u.ID, &u.Username, &u.Role, &u.Status, &u.CreatedAt, &approved, &u.FirstName, &u.LastName, &u.Avatar, &u.Email); err != nil {
 		return User{}, err
 	}
 	if approved.Valid {
@@ -306,10 +312,13 @@ func (s *Store) openProfile(u User) (User, error) {
 	if u.LastName, err = s.openVal(aadID("users", "last_name", u.ID), u.LastName); err != nil {
 		return User{}, err
 	}
+	if u.Email, err = s.openVal(aadID("users", "email", u.ID), u.Email); err != nil {
+		return User{}, err
+	}
 	return u, nil
 }
 
-const userCols = "id, username, role, status, created_at, approved_at, first_name, last_name, avatar"
+const userCols = "id, username, role, status, created_at, approved_at, first_name, last_name, avatar, email"
 
 // CountUsers returns the total number of user accounts.
 func (s *Store) CountUsers() (int, error) {
@@ -374,7 +383,7 @@ func (s *Store) CredByUsername(username string) (User, string, error) {
 	var u User
 	var approved sql.NullString
 	var hash string
-	if err := row.Scan(&u.ID, &u.Username, &u.Role, &u.Status, &u.CreatedAt, &approved, &u.FirstName, &u.LastName, &u.Avatar, &hash); err != nil {
+	if err := row.Scan(&u.ID, &u.Username, &u.Role, &u.Status, &u.CreatedAt, &approved, &u.FirstName, &u.LastName, &u.Avatar, &u.Email, &hash); err != nil {
 		return User{}, "", err
 	}
 	if approved.Valid {

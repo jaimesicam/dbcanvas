@@ -65,7 +65,7 @@ export function SetupScreen() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
-  const [profile, setProfile] = useState(() => ({ firstName: '', lastName: '', avatar: randomAvatar() }))
+  const [profile, setProfile] = useState(() => ({ firstName: '', lastName: '', email: '', avatar: randomAvatar() }))
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -113,7 +113,7 @@ export function AuthScreen() {
   const [tab, setTab] = useState('signin')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
-  const [profile, setProfile] = useState(() => ({ firstName: '', lastName: '', avatar: randomAvatar() }))
+  const [profile, setProfile] = useState(() => ({ firstName: '', lastName: '', email: '', avatar: randomAvatar() }))
   const [error, setError] = useState('')
   // A shared-session guest who pressed Leave lands here with ?left=1
   // (components/SessionPanel.jsx); say so once, then tidy the address.

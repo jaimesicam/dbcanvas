@@ -34,10 +34,10 @@ export default function Profile() {
   const { user, setUser, logout, refresh } = useAuth()
   // Refresh re-reads the account: a name changed in another tab, a role an admin moved.
   useRefresh(() => refresh())
-  const [p, setP] = useState(() => ({ firstName: user?.firstName || '', lastName: user?.lastName || '', avatar: user?.avatar || '' }))
+  const [p, setP] = useState(() => ({ firstName: user?.firstName || '', lastName: user?.lastName || '', email: user?.email || '', avatar: user?.avatar || '' }))
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState(null) // { tone, text }
-  const dirty = p.firstName !== (user?.firstName || '') || p.lastName !== (user?.lastName || '') || p.avatar !== (user?.avatar || '')
+  const dirty = p.firstName !== (user?.firstName || '') || p.lastName !== (user?.lastName || '') || p.avatar !== (user?.avatar || '') || p.email !== (user?.email || '')
 
   const save = async (e) => {
     e.preventDefault()
@@ -62,6 +62,7 @@ export default function Profile() {
           <div className="truncate text-lg font-semibold">{fullName(user)}</div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
             <span>{user.username}</span>
+            {user.email && <span>· {user.email}</span>}
             <Badge tone={user.role === 'admin' ? 'primary' : 'muted'}>{user.role}</Badge>
             {user.createdAt && <span>· member since {fmtDate(user.createdAt)}</span>}
           </div>
@@ -69,12 +70,12 @@ export default function Profile() {
         <Button variant="outline" size="sm" onClick={logout}><Icon.Logout size={15} /> Sign out</Button>
       </div>
 
-      <Section title="Name and avatar" hint="What colleagues see beside your work, on shared boards and in shared sessions. Your names are stored encrypted.">
+      <Section title="Name, email and avatar" hint="What colleagues see beside your work, on shared boards and in shared sessions. Your name and email are stored encrypted, and no other account can use the same email.">
         <form onSubmit={save} className="space-y-3">
           <ProfileFields value={p} onChange={(v) => { setP(v); setMsg(null) }} />
           <div className="flex items-center gap-2">
             <Button type="submit" disabled={busy || !dirty || !profileComplete(p)}>{busy ? 'Saving…' : 'Save'}</Button>
-            {dirty && <Button type="button" variant="ghost" onClick={() => setP({ firstName: user.firstName || '', lastName: user.lastName || '', avatar: user.avatar || '' })}>Undo changes</Button>}
+            {dirty && <Button type="button" variant="ghost" onClick={() => setP({ firstName: user.firstName || '', lastName: user.lastName || '', email: user.email || '', avatar: user.avatar || '' })}>Undo changes</Button>}
             {msg && <span className={`text-xs ${msg.tone === 'ok' ? 'text-success' : 'text-danger'}`}>{msg.text}</span>}
           </div>
         </form>

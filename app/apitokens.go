@@ -224,7 +224,7 @@ func (s *Store) ListAllAPITokens() ([]APIToken, error) {
 // knowing which of the two it was.
 func (s *Store) APITokenByHash(hash string) (APIToken, User, error) {
 	row := s.db.QueryRow(`SELECT `+apiTokenColsT+`, u.id, u.username, u.role, u.status, u.created_at, u.approved_at,
-		u.first_name, u.last_name, u.avatar
+		u.first_name, u.last_name, u.avatar, u.email
 		FROM api_tokens t JOIN users u ON u.id = t.user_id
 		WHERE t.token_hash = ?`, hash)
 	var t APIToken
@@ -232,7 +232,7 @@ func (s *Store) APITokenByHash(hash string) (APIToken, User, error) {
 	var expires, lastUsed, revoked, approved sql.NullString
 	err := row.Scan(&t.ID, &t.UserID, &t.Name, &t.Prefix, &t.Scope,
 		&t.CreatedAt, &expires, &lastUsed, &revoked,
-		&u.ID, &u.Username, &u.Role, &u.Status, &u.CreatedAt, &approved, &u.FirstName, &u.LastName, &u.Avatar)
+		&u.ID, &u.Username, &u.Role, &u.Status, &u.CreatedAt, &approved, &u.FirstName, &u.LastName, &u.Avatar, &u.Email)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return APIToken{}, User{}, ErrTokenNotFound

@@ -1038,7 +1038,7 @@ func (a *App) handleJoinAccount(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "this is your own session — you host it from DBCanvas itself, not through the link")
 		return
 	}
-	a.enterLobby(w, r, sess, invite, joinIdentity{Name: u.displayName(), UserID: u.ID, Account: u.Username, Avatar: u.Avatar})
+	a.enterLobby(w, r, sess, invite, joinIdentity{Name: u.displayName(), Email: u.Email, UserID: u.ID, Account: u.Username, Avatar: u.Avatar})
 }
 
 // enterLobby files the person in the session's lobby, hands their browser the guest
