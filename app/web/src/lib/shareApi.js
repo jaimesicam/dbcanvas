@@ -43,7 +43,10 @@ export const shareApi = {
   termURL: (sid, tid) => `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/share/sessions/${sid}/terms/${enc(tid)}/ws`,
   // guest, before admission
   joinInfo: (token) => request('GET', `/api/join/${enc(token)}`),
-  join: (token, name, email) => request('POST', `/api/join/${enc(token)}`, { name, email }),
+  join: (token, name, email, avatar) => request('POST', `/api/join/${enc(token)}`, { name, email, avatar }),
+  // As a DBCanvas account: { username, password }, or { useSession: true } for the
+  // one this browser is signed in to (app/share.go, handleJoinAccount).
+  joinAccount: (token, body) => request('POST', `/api/join/${enc(token)}/account`, body),
   joinStatus: (token) => request('GET', `/api/join/${enc(token)}/status`),
   leave: (token) => request('POST', `/api/join/${enc(token)}/leave`),
 }

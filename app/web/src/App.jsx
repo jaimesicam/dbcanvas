@@ -17,6 +17,8 @@ import { WindowManagerProvider, useWindowApi, useTaskbarItem } from './wm/Window
 import { StartButton, DesktopSurface, PageWindows, pageWindowId } from './desktop/Desktop.jsx'
 import { DesktopStatus } from './desktop/Stacks.jsx'
 import { useShellMode, SHELL_MODES } from './lib/shellMode.js'
+import { Avatar, fullName } from './components/Avatar.jsx'
+import { ProfileDialog } from './components/ProfileFields.jsx'
 import { notifApi, relTime } from './lib/notifApi.js'
 
 import Dashboard from './pages/Dashboard.jsx'
@@ -74,10 +76,6 @@ export const NAV = [
   { id: 'settings', label: 'Settings', icon: 'Settings', page: Settings, hint: 'Terminal & appearance preferences' },
 ]
 const ADMIN_NAV = { id: 'users', label: 'Manage Users', icon: 'Users', page: ManageUsers, hint: 'Approve & manage accounts' }
-
-function initials(name) {
-  return (name || '?').trim().slice(0, 2).toUpperCase()
-}
 
 // App mounts the providers and Workspace is what lives inside them. They are two
 // components rather than one because a component cannot use a context it renders
@@ -332,6 +330,7 @@ function Workspace({ onSessionEnded }) {
   )
   const around = (
     <>
+      {!guest && <ProfilePrompt user={user} />}
       {showPanel && panelOpen && <SessionPanel onClose={() => setPanelOpen(false)} />}
       <MirrorRecorder />
       <MirrorView right={showPanel && panelOpen ? '22rem' : 0} onShowPanel={showPanel && !panelOpen ? () => setPanelOpen(true) : null} />
@@ -607,7 +606,7 @@ function Topbar({ title, hint, onRefresh, refreshing, onSearch, user, onLogout, 
         {!guest && <NotificationBell />}
         {guest
           ? <span className="flex items-center gap-2 rounded-lg border bg-bg px-2.5 py-1.5 text-sm" title={guest.email}>
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-surface2 text-xs font-semibold">{initials(guest.name)}</span>
+              <Avatar avatar={guest.avatar} name={guest.name} size={24} />
               <span className="hidden sm:inline">{guest.name}</span>
             </span>
           : <AccountMenu user={user} onLogout={onLogout} />}
@@ -797,29 +796,52 @@ function dotColor(sev) {
 }
 
 function AccountMenu({ user, onLogout }) {
+  const { setUser } = useAuth()
   const [open, setOpen] = useState(false)
+  const [editing, setEditing] = useState(false)
   const ref = useOutsideClose(open, setOpen)
   return (
     <div className="relative" ref={ref}>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary"
-      >
-        {initials(user?.username)}
+      <button onClick={() => setOpen((v) => !v)} title={fullName(user)} className="flex h-9 w-9 items-center justify-center rounded-full">
+        <Avatar avatar={user?.avatar} name={fullName(user)} size={34} />
       </button>
       {open && (
-        <div data-mirror-private className="absolute right-0 z-20 mt-2 w-52 rounded-lg border bg-surface p-2 shadow-xl">
-          <div className="flex items-center justify-between gap-2 px-1 pb-2">
-            <span className="truncate text-sm font-medium">{user?.username}</span>
+        <div data-mirror-private className="absolute right-0 z-20 mt-2 w-60 rounded-lg border bg-surface p-2 shadow-xl">
+          <div className="flex items-center gap-2.5 px-1 pb-2">
+            <Avatar avatar={user?.avatar} name={fullName(user)} size={36} />
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium">{fullName(user)}</div>
+              <div className="truncate text-xs text-muted">{user?.username}</div>
+            </div>
             <Badge tone={user?.role === 'admin' ? 'primary' : 'muted'}>{user?.role}</Badge>
           </div>
+          <Button variant="subtle" size="sm" className="mb-1 w-full" onClick={() => { setOpen(false); setEditing(true) }}>
+            <Icon.Users size={16} /> Edit profile
+          </Button>
           <Button variant="subtle" size="sm" className="w-full" onClick={onLogout}>
             <Icon.Logout size={16} /> Sign out
           </Button>
         </div>
       )}
+      {editing && <ProfileDialog user={user} onSaved={setUser} onClose={() => setEditing(false)} />}
     </div>
   )
+}
+
+// ProfilePrompt asks an account from before profiles (app/profile.go) for its name and
+// avatar, once per browser session: "Later" means later, not every page load.
+function ProfilePrompt({ user }) {
+  const { setUser } = useAuth()
+  const [open, setOpen] = useState(() => {
+    if (!user || user.firstName) return false
+    try { return sessionStorage.getItem('dbcanvas-profile-asked') !== String(user.id) } catch { return true }
+  })
+  if (!open) return null
+  const close = () => {
+    try { sessionStorage.setItem('dbcanvas-profile-asked', String(user.id)) } catch { /* */ }
+    setOpen(false)
+  }
+  return <ProfileDialog user={user} firstTime onSaved={setUser} onClose={close} />
 }
 
 function CommandPalette({ items, onClose, onPick }) {

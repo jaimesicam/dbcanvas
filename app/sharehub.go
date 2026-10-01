@@ -73,6 +73,10 @@ func (a *App) hubFor(sess ShareSession) *shareHub {
 	if h := shareHubs.hubs[sess.ID]; h != nil {
 		return h
 	}
+	// The host is shown by name (profile.go); the row only carries the username.
+	if host, err := a.store.GetUser(sess.HostID); err == nil {
+		sess.HostName = host.displayName()
+	}
 	h := &shareHub{app: a, sess: sess, clients: map[*hubClient]bool{}, terms: map[string]*sharedTerm{},
 		browsers: map[string]*sharedBrowser{}, lastChat: map[int64]time.Time{}, mirror: sess.Mirror}
 	shareHubs.hubs[sess.ID] = h
@@ -207,8 +211,12 @@ func (h *shareHub) presence() map[string]any {
 			people = append(people, person{g, online[g.ID]})
 		}
 	}
+	host := map[string]any{"name": h.sess.HostName, "online": online[0]}
+	if u, err := h.app.store.GetUser(h.sess.HostID); err == nil {
+		host["name"], host["avatar"], host["username"] = u.displayName(), u.Avatar, u.Username
+	}
 	return map[string]any{
-		"t": "presence", "host": map[string]any{"name": h.sess.HostName, "online": online[0]},
+		"t": "presence", "host": host,
 		"guests": people, "controller": controller, "expiresAt": h.sess.ExpiresAt, "hideSecrets": h.sess.HideSecrets,
 		"mirror": mirror,
 	}
@@ -376,7 +384,7 @@ func (a *App) shareCaller(w http.ResponseWriter, r *http.Request) (ShareSession,
 		writeErr(w, http.StatusForbidden, "this is not your session")
 		return ShareSession{}, nil, false
 	}
-	return sess, &hubClient{guestID: 0, name: u.Username}, true
+	return sess, &hubClient{guestID: 0, name: u.displayName()}, true
 }
 
 // handleShareWS is a browser joining the session's live channel.

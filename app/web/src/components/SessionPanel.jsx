@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { Avatar as PersonAvatar } from './Avatar.jsx'
 import { Icon } from './Icons.jsx'
 import { Button } from './ui.jsx'
 import { useDialog } from './Dialog.jsx'
@@ -50,7 +51,10 @@ function tone(name) {
   return AVATAR_TONES[h % AVATAR_TONES.length]
 }
 
-function Avatar({ name, host, size = 'md' }) {
+// Avatar is the person's chosen avatar (components/Avatar.jsx) when they have one, and
+// their initials on a steady colour when not.
+function Avatar({ name, host, size = 'md', avatar }) {
+  if (avatar) return <PersonAvatar avatar={avatar} name={name} size={size === 'sm' ? 24 : 32} />
   const dim = size === 'sm' ? 'h-6 w-6 text-[10px]' : 'h-8 w-8 text-xs'
   return (
     <span className={`flex shrink-0 select-none items-center justify-center rounded-full font-semibold text-white ${dim} ${host ? 'bg-primary' : tone(name)}`} aria-hidden>
@@ -276,9 +280,12 @@ export default function SessionPanel({ onClose }) {
             <div className="font-medium text-muted">Lobby</div>
             {waiting.map((g) => (
               <div key={g.id} className="flex items-center gap-1.5 rounded-md bg-warning/10 px-2 py-1.5">
+                <Avatar name={g.name} size="sm" avatar={g.avatar} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate font-medium">{g.name}</div>
-                  <div className="truncate text-xs text-muted">{g.email} · {g.remoteAddr}</div>
+                  <div className="truncate text-xs text-muted">
+                    {g.account ? <span className="text-success" title="Their password was checked: this is who they say they are">signed in as {g.account}</span> : g.email} · {g.remoteAddr}
+                  </div>
                 </div>
                 <button className="rounded px-1.5 py-0.5 font-medium text-primary hover:bg-primary/15" onClick={() => s.admit(g.id)}>Admit</button>
                 <button className="rounded px-1.5 py-0.5 text-muted hover:bg-surface2" onClick={() => s.deny(g.id)}>Deny</button>
@@ -287,10 +294,10 @@ export default function SessionPanel({ onClose }) {
           </div>
         )}
         <div className="space-y-1">
-          <Person name={p?.host?.name} badge="host" online={p?.host?.online} driving={controller === 0} />
+          <Person name={p?.host?.name} badge="host" online={p?.host?.online} driving={controller === 0} avatar={p?.host?.avatar} />
           {inRoom.map((g) => (
-            <Person key={g.id} name={g.name} sub={s.isHost ? g.email : ''} badge="guest" online={g.online}
-              driving={controller === g.id} muted={g.muted}>
+            <Person key={g.id} name={g.name} sub={s.isHost ? (g.account ? `@${g.account}` : g.email) : ''} badge="guest" online={g.online}
+              driving={controller === g.id} muted={g.muted} avatar={g.avatar} verified={g.account}>
               {s.isHost && (
                 <>
                   {controller !== g.id && <IconBtn title="Give control" onClick={() => s.giveControl(g.id)}><Icon.Pointer size={12} /></IconBtn>}
@@ -342,7 +349,8 @@ export default function SessionPanel({ onClose }) {
           const big = onlyEmoji(m.body)
           return (
             <div key={m.id} className={`flex gap-2 ${first ? 'mt-3' : 'mt-0.5'} ${mine ? 'flex-row-reverse' : ''}`}>
-              <div className="w-8 shrink-0">{first && <Avatar name={m.author} host={host} />}</div>
+              <div className="w-8 shrink-0">{first && <Avatar name={m.author} host={host}
+                avatar={host ? p?.host?.avatar : guests.find((g) => g.id === m.guestId)?.avatar} />}</div>
               <div className={`flex min-w-0 max-w-[85%] flex-col ${mine ? 'items-end' : 'items-start'}`}>
                 {first && (
                   <div className={`mb-0.5 flex items-baseline gap-1.5 ${mine ? 'flex-row-reverse' : ''}`}>
@@ -413,17 +421,18 @@ export default function SessionPanel({ onClose }) {
   )
 }
 
-function Person({ name, sub, badge, online, driving, muted, children }) {
+function Person({ name, sub, badge, online, driving, muted, avatar, verified, children }) {
   return (
     <div className="group flex items-center gap-2 rounded-md px-1 py-1">
       <span className="relative shrink-0">
-        <Avatar name={name} host={badge === 'host'} size="sm" />
+        <Avatar name={name} host={badge === 'host'} size="sm" avatar={avatar} />
         <span className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-surface ${online ? 'bg-success' : 'bg-muted'}`} title={online ? 'online' : 'offline'} />
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1 truncate">
           <span className="truncate font-medium">{name || '…'}</span>
           <span className={`rounded px-1 text-[11px] ${badge === 'host' ? 'bg-primary/15 text-primary' : 'bg-surface2 text-muted'}`}>{badge}</span>
+          {verified && <span className="rounded bg-success/10 px-1 text-[11px] text-success" title={`Signed in with the DBCanvas account ${verified}`}>account</span>}
           {driving && <span className="rounded bg-success/15 px-1 text-[11px] text-success">driving</span>}
           {muted && <span className="rounded bg-warning/15 px-1 text-[11px] text-warning">muted</span>}
         </div>

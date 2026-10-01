@@ -3,6 +3,8 @@ import { useAuth } from './AuthProvider.jsx'
 import { useTheme, THEMES } from '../theme/ThemeProvider.jsx'
 import { Button, Field, inputCls } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
+import { ProfileFields, profileComplete } from '../components/ProfileFields.jsx'
+import { randomAvatar } from '../components/Avatar.jsx'
 
 export function Splash() {
   return (
@@ -33,7 +35,7 @@ export function Shell({ title, subtitle, children }) {
   return (
     <div className="relative flex h-full items-center justify-center bg-bg p-4">
       <ThemeSwatches />
-      <div className="w-full max-w-sm animate-fade-in rounded-2xl border bg-surface p-6 shadow-xl">
+      <div className="w-full max-w-md animate-fade-in rounded-2xl border bg-surface p-6 shadow-xl">
         <div className="mb-5 flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-fg">
             <Icon.Brand size={24} />
@@ -63,6 +65,7 @@ export function SetupScreen() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
+  const [profile, setProfile] = useState(() => ({ firstName: '', lastName: '', avatar: randomAvatar() }))
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -75,7 +78,7 @@ export function SetupScreen() {
     }
     setBusy(true)
     try {
-      await setup(username, password)
+      await setup(username, password, profile)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -87,8 +90,9 @@ export function SetupScreen() {
     <Shell title="Welcome to DBCanvas" subtitle="Create the administrator account">
       <Banner kind="error">{error}</Banner>
       <form onSubmit={onSubmit} className="space-y-3">
+        <ProfileFields value={profile} onChange={setProfile} autoFocus />
         <Field label="Username">
-          <input className={inputCls} value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
+          <input className={inputCls} value={username} onChange={(e) => setUsername(e.target.value)} />
         </Field>
         <Field label="Password" hint="At least 8 characters.">
           <input type="password" className={inputCls} value={password} onChange={(e) => setPassword(e.target.value)} />
@@ -96,7 +100,7 @@ export function SetupScreen() {
         <Field label="Confirm password">
           <input type="password" className={inputCls} value={confirm} onChange={(e) => setConfirm(e.target.value)} />
         </Field>
-        <Button type="submit" size="lg" className="w-full" disabled={busy}>
+        <Button type="submit" size="lg" className="w-full" disabled={busy || !profileComplete(profile)}>
           {busy ? 'Creating…' : 'Create administrator'}
         </Button>
       </form>
@@ -109,6 +113,7 @@ export function AuthScreen() {
   const [tab, setTab] = useState('signin')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [profile, setProfile] = useState(() => ({ firstName: '', lastName: '', avatar: randomAvatar() }))
   const [error, setError] = useState('')
   // A shared-session guest who pressed Leave lands here with ?left=1
   // (components/SessionPanel.jsx); say so once, then tidy the address.
@@ -149,7 +154,7 @@ export function AuthScreen() {
     setSuccess('')
     setBusy(true)
     try {
-      const res = await register(username, password)
+      const res = await register(username, password, profile)
       setSuccess(res.message || 'Account created.')
       setUsername('')
       setPassword('')
@@ -195,13 +200,14 @@ export function AuthScreen() {
         </form>
       ) : (
         <form onSubmit={onRegister} className="space-y-3">
+          <ProfileFields value={profile} onChange={setProfile} autoFocus />
           <Field label="Username" hint="3–32 characters.">
-            <input className={inputCls} value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
+            <input className={inputCls} value={username} onChange={(e) => setUsername(e.target.value)} />
           </Field>
           <Field label="Password" hint="At least 8 characters.">
             <input type="password" className={inputCls} value={password} onChange={(e) => setPassword(e.target.value)} />
           </Field>
-          <Button type="submit" size="lg" className="w-full" disabled={busy}>
+          <Button type="submit" size="lg" className="w-full" disabled={busy || !profileComplete(profile)}>
             {busy ? 'Creating…' : 'Create account'}
           </Button>
           <p className="text-center text-xs text-muted">

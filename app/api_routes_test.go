@@ -137,6 +137,9 @@ func TestPublicRoutesUnchanged(t *testing.T) {
 		// the guest has any credential but the link itself (share.go).
 		"GET /api/join/{token}",
 		"POST /api/join/{token}",
+		// Joining as an account: the password is checked here, and nothing more is
+		// granted than a guest's lobby place (share.go, handleJoinAccount).
+		"POST /api/join/{token}/account",
 		"GET /api/join/{token}/status",
 		"POST /api/join/{token}/leave",
 	}

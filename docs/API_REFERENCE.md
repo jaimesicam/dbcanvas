@@ -51,7 +51,9 @@ account needs before it has one.
 | --- | --- | --- |
 | Ask whether this installation is set up, and who you are | `GET /api/setup/status` | `dbcanvas version` (also prints the server's) |
 | Create the first account — it becomes the administrator | `POST /api/setup` | *(UI only; there is nothing to authenticate with yet)* |
-| Request an account, pending an admin's approval | `POST /api/auth/register` | *(UI only)* |
+| Request an account, pending an admin's approval | `POST /api/auth/register` `{"username", "password", "firstName", "lastName", "avatar"}` — both names required | *(UI only)* |
+| Change your name and avatar | `PUT /api/me/profile` `{"firstName", "lastName", "avatar"}` | — |
+| The avatars to choose from | `GET /api/avatars` | — |
 | Sign in and get a session cookie | `POST /api/auth/login` | `dbcanvas login` — then swaps it for a token |
 | Sign out | `POST /api/auth/logout` | `dbcanvas logout` — also revokes the token |
 
@@ -1249,7 +1251,8 @@ transcript and the guest actions — are deleted after `sessionRetentionDays`
 | Download a transcript | `GET /api/share/sessions/{sid}/transcript` *(text; `?format=json`)* | `dbcanvas api GET …/transcript --out session.txt` |
 | **Live channel** — presence, follow, chat, control | `GET /api/share/sessions/{sid}/ws` *(websocket)* | — |
 | Shared terminal: open, close, watch | `POST /api/share/sessions/{sid}/terms` · `DELETE …/terms/{tid}` · `GET …/terms/{tid}/ws` | — |
-| The join page, joining, the lobby, leaving *(public)* | `GET /api/join/{token}` · `POST /api/join/{token}` · `GET …/status` · `POST …/leave` | — |
+| The join page, joining, the lobby, leaving *(public)* | `GET /api/join/{token}` · `POST /api/join/{token}` `{"name", "email", "avatar"}` · `GET …/status` · `POST …/leave` | — |
+| Join as your DBCanvas account *(public)* | `POST /api/join/{token}/account` `{"username", "password"}` or `{"useSession": true}` — a lobby place only; the browser is not signed in | — |
 
 **Browser window.** Right-clicking a link to a node's web UI (PMM, the noVNC
 desktop, a simulator dashboard, webmail — anything on `http://<host>:<published

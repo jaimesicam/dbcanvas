@@ -4,12 +4,10 @@ import { useAuth } from '../auth/AuthProvider.jsx'
 import { Card, Button, Badge } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { useRefresh } from '../lib/useRefresh.jsx'
+import { Avatar, fullName } from '../components/Avatar.jsx'
 
 const STATUS_TONE = { approved: 'success', pending: 'warning', rejected: 'danger', disabled: 'muted' }
 
-function initials(name) {
-  return (name || '?').trim().slice(0, 2).toUpperCase()
-}
 
 function fmtDate(iso) {
   if (!iso) return '—'
@@ -94,12 +92,13 @@ export default function ManageUsers() {
                   <tr key={u.id} className={`border-b ${u.status === 'pending' ? 'bg-warning/5' : ''}`}>
                     <td className="px-3 py-2.5">
                       <div className="flex items-center gap-2.5">
-                        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
-                          {initials(u.username)}
-                        </span>
-                        <span className="font-medium text-fg">
-                          {u.username}
-                          {isYou && <span className="ml-1 text-xs text-muted">(you)</span>}
+                        <Avatar avatar={u.avatar} name={fullName(u)} size={32} />
+                        <span className="min-w-0">
+                          <span className="block font-medium text-fg">
+                            {u.firstName || u.lastName ? fullName(u) : <span className="text-muted">No name yet</span>}
+                            {isYou && <span className="ml-1 text-xs text-muted">(you)</span>}
+                          </span>
+                          <span className="block text-xs text-muted">{u.username}</span>
                         </span>
                       </div>
                     </td>

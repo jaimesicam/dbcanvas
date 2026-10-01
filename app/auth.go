@@ -25,6 +25,9 @@ const (
 type credentials struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+	// The profile a new account is created with (setup, register — profile.go);
+	// a login ignores it.
+	Profile
 }
 
 // validate enforces username 3–32 chars and password ≥ 8.
@@ -150,7 +153,8 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 		// they really are, so the UI can draw a guest's shell (share.go).
 		if p, ok := principalOf(r); ok && p.Guest != nil {
 			resp["guest"] = map[string]any{"guestId": p.Guest.GuestID, "sessionId": p.Guest.SessionID,
-				"name": p.Guest.Name, "email": p.Guest.Email, "driving": p.Guest.Driving}
+				"name": p.Guest.Name, "email": p.Guest.Email, "driving": p.Guest.Driving,
+				"avatar": p.Guest.Avatar, "account": p.Guest.Account}
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -175,6 +179,10 @@ func (a *App) handleSetup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if err := c.Profile.clean(true); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	hash, err := hashPassword(c.Password)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to hash password")
@@ -187,6 +195,14 @@ func (a *App) handleSetup(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeErr(w, http.StatusInternalServerError, "failed to create user")
+		return
+	}
+	if err := a.store.SetUserProfile(u.ID, c.Profile); err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to save the profile")
+		return
+	}
+	if u, err = a.store.GetUser(u.ID); err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to read the account back")
 		return
 	}
 	a.stampWhatsNewSeen(u.ID)
@@ -207,6 +223,10 @@ func (a *App) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if err := c.Profile.clean(true); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	hash, err := hashPassword(c.Password)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to hash password")
@@ -221,9 +241,13 @@ func (a *App) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "failed to create user")
 		return
 	}
+	if err := a.store.SetUserProfile(nu.ID, c.Profile); err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to save the profile")
+		return
+	}
 	a.stampWhatsNewSeen(nu.ID)
 	a.notify(Notification{Scope: "admin", Type: "user.pending", Severity: "warning",
-		Title: "New account awaiting approval", Body: nu.Username + " registered and needs approval."})
+		Title: "New account awaiting approval", Body: c.Profile.FirstName + " " + c.Profile.LastName + " (" + nu.Username + ") registered and needs approval."})
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"status":  "pending",
 		"message": "Your account was created and is awaiting administrator approval.",

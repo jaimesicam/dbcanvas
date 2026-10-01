@@ -35,8 +35,8 @@ export function AuthProvider({ children }) {
     refresh()
   }, [refresh])
 
-  const setup = useCallback(async (username, password) => {
-    await api.setup(username, password)
+  const setup = useCallback(async (username, password, profile) => {
+    await api.setup(username, password, profile)
     await refresh()
   }, [refresh])
 
@@ -45,8 +45,8 @@ export function AuthProvider({ children }) {
     await refresh()
   }, [refresh])
 
-  const register = useCallback(async (username, password) => {
-    return api.register(username, password)
+  const register = useCallback(async (username, password, profile) => {
+    return api.register(username, password, profile)
   }, [])
 
   const logout = useCallback(async () => {
@@ -58,7 +58,7 @@ export function AuthProvider({ children }) {
   }, [refresh])
 
   return (
-    <AuthContext.Provider value={{ phase, user, guest, refresh, setup, login, register, logout }}>
+    <AuthContext.Provider value={{ phase, user, guest, refresh, setup, login, register, logout, setUser }}>
       {children}
     </AuthContext.Provider>
   )

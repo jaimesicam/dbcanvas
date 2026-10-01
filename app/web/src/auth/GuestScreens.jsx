@@ -6,11 +6,12 @@ import { Button, Field, inputCls } from '../components/ui.jsx'
 import { shareApi } from '../lib/shareApi.js'
 import { joinToken } from '../lib/guest.js'
 import { useDialog } from '../components/Dialog.jsx'
+import { Avatar, AvatarPicker, randomAvatar } from '../components/Avatar.jsx'
 
 // GuestScreens — what a person who opened a share link sees before they are in, and
 // after the session is over (app/share.go).
 //
-//   join     name + email, both required, neither verified
+//   join     sign in with an account (verified), or a name + email (not verified)
 //   lobby    waiting for the host to admit them; the page polls
 //   in       the ordinary app, as the host, with the guest shell (App.jsx)
 //   closed   denied, removed, left, or the session ended
@@ -73,16 +74,26 @@ export function GuestGate() {
   )
 }
 
+// JoinScreen offers two ways in. A colleague with a DBCanvas account signs in with
+// it — or, when this browser is already signed in, joins as that account in one
+// click — and the host sees who they really are. Anyone else joins as a guest with a
+// name, an email and an avatar of their choosing. Either way the host admits them
+// from the lobby, and either way they work in the host's workspace, not their own.
 function JoinScreen({ token, info, onJoined }) {
+  const acct = info?.account
+  const [mode, setMode] = useState(acct && !acct.isHost ? 'account' : 'guest') // guest | account
+  const [other, setOther] = useState(false) // an account other than the signed-in one
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
+  const [avatar, setAvatar] = useState(randomAvatar)
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
-  const submit = async (e) => {
-    e.preventDefault()
+  const run = async (fn) => {
     setErr(''); setBusy(true)
     try {
-      await shareApi.join(token, name.trim(), email.trim())
+      await fn()
       await onJoined()
     } catch (x) {
       setErr(x.message)
@@ -90,23 +101,80 @@ function JoinScreen({ token, info, onJoined }) {
       setBusy(false)
     }
   }
+  const asGuest = (e) => { e.preventDefault(); run(() => shareApi.join(token, name.trim(), email.trim(), avatar)) }
+  const asAccount = (e) => { e.preventDefault(); run(() => shareApi.joinAccount(token, { username: username.trim(), password })) }
+  const asSignedIn = () => run(() => shareApi.joinAccount(token, { useSession: true }))
+  const tab = (id, label) => (
+    <button type="button" onClick={() => { setMode(id); setErr('') }}
+      className={`rounded-md py-1.5 text-sm font-medium transition ${mode === id ? 'bg-surface text-fg shadow' : 'text-muted'}`}>{label}</button>
+  )
   return (
-    <Shell title="Join a shared session" subtitle={`${info?.hostName || 'The host'} is sharing ${info?.stackName ? `“${info.stackName}”` : 'a session'}`}>
-      <form onSubmit={submit} className="space-y-3">
-        <Field label="Your name">
-          <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={80} autoFocus required />
-        </Field>
-        <Field label="Your email">
-          <input className={inputCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={254} required />
-        </Field>
-        <p className="text-xs text-muted">
-          The host sees both before letting you in. The link works until {fmtTime(info?.expiresAt)}.
-        </p>
-        {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
-        <Button type="submit" variant="primary" className="w-full" disabled={busy || !name.trim() || !email.trim()}>
-          {busy ? 'Joining…' : 'Ask to join'}
-        </Button>
-      </form>
+    <Shell title="Join a shared session" subtitle={`${info?.hostName || 'The host'} is sharing ${info?.stackName ? `“${info.stackName}”` : 'their workspace'}`}>
+      {acct?.isHost ? (
+        <div className="mb-3 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-xs text-primary">
+          This is your own session — you host it from DBCanvas itself. <a className="font-medium underline" href="/">Open DBCanvas</a>
+        </div>
+      ) : null}
+      <div className="mb-4 grid grid-cols-2 gap-1 rounded-lg bg-surface2 p-1">
+        {tab('account', 'I have an account')}
+        {tab('guest', 'Join as a guest')}
+      </div>
+      {mode === 'account' ? (
+        acct && !acct.isHost && !other ? (
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 rounded-lg border bg-bg px-3 py-2.5">
+              <Avatar avatar={acct.avatar} name={acct.name} size={40} />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium">{acct.name}</div>
+                <div className="truncate text-xs text-muted">signed in as {acct.username}</div>
+              </div>
+            </div>
+            {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
+            <Button variant="primary" className="w-full" disabled={busy} onClick={asSignedIn}>
+              {busy ? 'Joining…' : `Ask to join as ${acct.name.split(' ')[0] || acct.username}`}
+            </Button>
+            <button type="button" className="w-full text-center text-xs text-muted hover:text-fg" onClick={() => setOther(true)}>
+              Not you? Sign in with another account
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={asAccount} className="space-y-3">
+            <Field label="Username">
+              <input className={inputCls} value={username} onChange={(e) => setUsername(e.target.value)} autoFocus autoComplete="username" />
+            </Field>
+            <Field label="Password">
+              <input className={inputCls} type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
+            </Field>
+            <p className="text-xs text-muted">
+              The host sees your name and avatar, and that it is really you. This joins the session only — it does not sign this browser in.
+            </p>
+            {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
+            <Button type="submit" variant="primary" className="w-full" disabled={busy || !username.trim() || !password}>
+              {busy ? 'Joining…' : 'Sign in and ask to join'}
+            </Button>
+          </form>
+        )
+      ) : (
+        <form onSubmit={asGuest} className="space-y-3">
+          <Field label="Your name">
+            <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={80} autoFocus required />
+          </Field>
+          <Field label="Your email">
+            <input className={inputCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={254} required />
+          </Field>
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2 text-xs font-medium text-muted">Avatar <Avatar avatar={avatar} name={name} size={20} /></div>
+            <AvatarPicker value={avatar} onChange={setAvatar} size={32} />
+          </div>
+          <p className="text-xs text-muted">
+            The host sees your name and email before letting you in. The link works until {fmtTime(info?.expiresAt)}.
+          </p>
+          {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
+          <Button type="submit" variant="primary" className="w-full" disabled={busy || !name.trim() || !email.trim()}>
+            {busy ? 'Joining…' : 'Ask to join'}
+          </Button>
+        </form>
+      )}
     </Shell>
   )
 }

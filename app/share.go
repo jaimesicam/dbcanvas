@@ -154,6 +154,8 @@ type guestPrincipal struct {
 	SessionID   int64
 	Name        string
 	Email       string
+	Avatar      string
+	Account     string
 	HideSecrets bool
 	Driving     bool
 }
@@ -263,7 +265,7 @@ func (a *App) serveGuest(rt apiRoute, next http.HandlerFunc, w http.ResponseWrit
 	if host.Role == RoleAdmin {
 		host.Role = RoleUser
 	}
-	gp := &guestPrincipal{GuestID: g.ID, SessionID: sess.ID, Name: g.Name, Email: g.Email,
+	gp := &guestPrincipal{GuestID: g.ID, SessionID: sess.ID, Name: g.Name, Email: g.Email, Avatar: g.Avatar, Account: g.Account,
 		HideSecrets: sess.HideSecrets, Driving: driving}
 	r = withPrincipal(r, principal{User: host, Guest: gp})
 
@@ -579,7 +581,7 @@ func (a *App) createShare(w http.ResponseWriter, r *http.Request, u User, stackI
 	if stackName != "" {
 		on = " from " + stackName
 	}
-	a.hubFor(sess).event("start", 0, u.Username, fmt.Sprintf("%s started a shared session%s for %d minutes", u.Username, on, in.Minutes))
+	a.hubFor(sess).event("start", 0, u.displayName(), fmt.Sprintf("%s started a shared session%s for %d minutes", u.displayName(), on, in.Minutes))
 	writeJSON(w, http.StatusOK, map[string]any{"session": sess, "url": publicURL(r) + "/join/" + token})
 }
 
@@ -902,37 +904,66 @@ func (a *App) handleJoinInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := map[string]any{"hostName": sess.HostName, "stackName": sess.StackName, "expiresAt": sess.ExpiresAt}
+	if host, err := a.store.GetUser(sess.HostID); err == nil {
+		resp["hostName"], resp["hostAvatar"] = host.displayName(), host.Avatar
+	}
 	if g, ok := a.currentGuestOf(r, sess); ok {
 		resp["guest"] = g
+	}
+	// The account this browser is signed in to, if any, so the join screen can offer
+	// to join as it in one click (handleJoinAccount, useSession).
+	if c, err := r.Cookie(cookieName); err == nil && c.Value != "" {
+		if u, err := a.store.SessionUser(c.Value); err == nil && u.Status == StatusApproved {
+			resp["account"] = map[string]any{"username": u.Username, "name": u.displayName(), "avatar": u.Avatar, "isHost": u.ID == sess.HostID}
+		}
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// handleJoin puts a guest in the lobby and gives their browser its cookie.
-func (a *App) handleJoin(w http.ResponseWriter, r *http.Request) {
+// joinPreflight is what every way into a session's lobby checks first: a live link,
+// the rate limit, and a browser that is already in (answered here, done=true).
+func (a *App) joinPreflight(w http.ResponseWriter, r *http.Request) (sess ShareSession, invite string, done bool) {
 	sess, ok := a.shareByToken(r)
 	if !ok {
 		writeErr(w, http.StatusNotFound, "this link has expired or was never valid")
-		return
+		return sess, "", true
 	}
 	if !joinAllowed(remoteHost(r)) {
 		writeErr(w, http.StatusTooManyRequests, "too many attempts — wait a minute and try again")
-		return
+		return sess, "", true
 	}
-	invite := hashTokenSecret(r.PathValue("token"))
+	invite = hashTokenSecret(r.PathValue("token"))
 	if g, ok := a.currentGuestOf(r, sess); ok {
 		switch {
 		case g.State == guestWaiting || g.State == guestAdmitted:
 			writeJSON(w, http.StatusOK, g) // already in: a double click, or a reload
-			return
+			return sess, invite, true
 		case guestGone(g.State) && g.InviteHash == invite:
 			writeErr(w, http.StatusForbidden, "you are no longer in this session — ask the host for a new invitation link")
-			return
+			return sess, invite, true
 		}
 	}
+	return sess, invite, false
+}
+
+// joinIdentity is who is asking to come in: typed by a guest, or read from the
+// account they signed in with.
+type joinIdentity struct {
+	Name, Email     string
+	UserID          int64
+	Account, Avatar string
+}
+
+// handleJoin is a guest asking to join with a name and an email.
+func (a *App) handleJoin(w http.ResponseWriter, r *http.Request) {
+	sess, invite, done := a.joinPreflight(w, r)
+	if done {
+		return
+	}
 	var in struct {
-		Name  string `json:"name"`
-		Email string `json:"email"`
+		Name   string `json:"name"`
+		Email  string `json:"email"`
+		Avatar string `json:"avatar"`
 	}
 	if err := decode(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
@@ -947,17 +978,83 @@ func (a *App) handleJoin(w http.ResponseWriter, r *http.Request) {
 	case len(email) > shareEmailMax:
 		writeErr(w, http.StatusBadRequest, "that email address is too long")
 		return
+	case !validAvatar(in.Avatar):
+		writeErr(w, http.StatusBadRequest, "unknown avatar")
+		return
 	}
 	if addr, err := mail.ParseAddress(email); err != nil || addr.Address != email {
 		writeErr(w, http.StatusBadRequest, "a valid email address is required")
 		return
 	}
+	a.enterLobby(w, r, sess, invite, joinIdentity{Name: name, Email: email, Avatar: in.Avatar})
+}
+
+// handleJoinAccount is someone with a DBCanvas account joining as themselves: with
+// their username and password, or — useSession — the account this browser is
+// already signed in to. The host still admits them; what changes is that the lobby
+// shows a person the server knows, with their own name and avatar.
+//
+// It does not sign the browser in. The session is the host's workspace, entered
+// through the guest cookie like any guest's, so a password typed here opens a
+// lobby place and nothing else.
+func (a *App) handleJoinAccount(w http.ResponseWriter, r *http.Request) {
+	sess, invite, done := a.joinPreflight(w, r)
+	if done {
+		return
+	}
+	var in struct {
+		Username   string `json:"username"`
+		Password   string `json:"password"`
+		UseSession bool   `json:"useSession"`
+	}
+	if err := decode(r, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	var u User
+	if in.UseSession {
+		c, err := r.Cookie(cookieName)
+		if err != nil || c.Value == "" {
+			writeErr(w, http.StatusUnauthorized, "this browser is not signed in to DBCanvas")
+			return
+		}
+		if u, err = a.store.SessionUser(c.Value); err != nil {
+			writeErr(w, http.StatusUnauthorized, "this browser is not signed in to DBCanvas")
+			return
+		}
+	} else {
+		cu, hash, err := a.store.CredByUsername(strings.TrimSpace(in.Username))
+		if err != nil || !checkPassword(hash, in.Password) {
+			writeErr(w, http.StatusUnauthorized, "invalid username or password")
+			return
+		}
+		u = cu
+	}
+	if u.Status != StatusApproved {
+		writeErr(w, http.StatusForbidden, "that account cannot sign in")
+		return
+	}
+	if u.ID == sess.HostID {
+		writeErr(w, http.StatusConflict, "this is your own session — you host it from DBCanvas itself, not through the link")
+		return
+	}
+	a.enterLobby(w, r, sess, invite, joinIdentity{Name: u.displayName(), UserID: u.ID, Account: u.Username, Avatar: u.Avatar})
+}
+
+// enterLobby files the person in the session's lobby, hands their browser the guest
+// cookie, and tells the host.
+func (a *App) enterLobby(w http.ResponseWriter, r *http.Request, sess ShareSession, invite string, id joinIdentity) {
 	secret, err := newShareToken()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to join")
 		return
 	}
-	g, err := a.store.CreateShareGuest(sess.ID, name, email, hashTokenSecret(secret), remoteHost(r), invite)
+	g, err := a.store.CreateShareGuest(sess.ID, id.Name, id.Email, hashTokenSecret(secret), remoteHost(r), invite)
+	if err == nil && (id.UserID != 0 || id.Avatar != "") {
+		if err = a.store.SetShareGuestIdentity(g.ID, id.UserID, id.Account, id.Avatar); err == nil {
+			g, err = a.store.GetShareGuest(g.ID)
+		}
+	}
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to join")
 		return
@@ -967,12 +1064,16 @@ func (a *App) handleJoin(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteStrictMode, Secure: r.TLS != nil,
 		Expires: sess.expires(), MaxAge: int(time.Until(sess.expires()).Seconds()),
 	})
+	who := g.Email
+	if g.Account != "" {
+		who = "signed in as " + g.Account
+	}
 	h := a.hubFor(sess)
-	h.event("lobby", g.ID, g.Name, fmt.Sprintf("%s (%s, from %s) is waiting in the lobby", g.Name, g.Email, g.RemoteAddr))
+	h.event("lobby", g.ID, g.Name, fmt.Sprintf("%s (%s, from %s) is waiting in the lobby", g.Name, who, g.RemoteAddr))
 	h.broadcastPresence()
 	a.notify(Notification{UserID: sess.HostID, Scope: "user", Type: "share.lobby", Severity: "info",
 		Title:   g.Name + " wants to join your shared session",
-		Body:    fmt.Sprintf("%s (%s) is waiting in the lobby of your shared session.", g.Name, g.Email),
+		Body:    fmt.Sprintf("%s (%s) is waiting in the lobby of your shared session.", g.Name, who),
 		StackID: sess.StackID})
 	writeJSON(w, http.StatusOK, g)
 }

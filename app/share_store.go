@@ -177,6 +177,12 @@ type ShareGuest struct {
 	AdmittedAt *string `json:"admittedAt,omitempty"`
 	LeftAt     *string `json:"leftAt,omitempty"`
 	InviteHash string  `json:"-"`
+	// UserID and Account are set when the person signed in with their DBCanvas
+	// account to join, rather than typing a name: who they are is then known, not
+	// claimed. Avatar is theirs either way (profile.go's ids).
+	UserID  int64  `json:"userId,omitempty"`
+	Account string `json:"account,omitempty"`
+	Avatar  string `json:"avatar,omitempty"`
 }
 
 // Guest states.
@@ -366,13 +372,14 @@ func (s *Store) ExpiredShareSessions(now time.Time) ([]int64, error) {
 	return ids, rows.Err()
 }
 
-const shareGuestCols = `id, session_id, name, email, state, muted, remote_addr, joined_at, admitted_at, left_at, invite_hash`
+const shareGuestCols = `id, session_id, name, email, state, muted, remote_addr, joined_at, admitted_at, left_at, invite_hash, user_id, account, avatar`
 
 func (s *Store) scanShareGuest(row interface{ Scan(...any) error }) (ShareGuest, error) {
 	var g ShareGuest
 	var muted int
 	var adm, left sql.NullString
-	err := row.Scan(&g.ID, &g.SessionID, &g.Name, &g.Email, &g.State, &muted, &g.RemoteAddr, &g.JoinedAt, &adm, &left, &g.InviteHash)
+	err := row.Scan(&g.ID, &g.SessionID, &g.Name, &g.Email, &g.State, &muted, &g.RemoteAddr, &g.JoinedAt, &adm, &left, &g.InviteHash,
+		&g.UserID, &g.Account, &g.Avatar)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ShareGuest{}, errShareNotFound
 	}
@@ -394,6 +401,13 @@ func (s *Store) scanShareGuest(row interface{ Scan(...any) error }) (ShareGuest,
 		g.LeftAt = &left.String
 	}
 	return g, nil
+}
+
+// SetShareGuestIdentity records how a guest joined: their avatar, and the account
+// they signed in with, if they did.
+func (s *Store) SetShareGuestIdentity(id, userID int64, account, avatar string) error {
+	_, err := s.db.Exec(`UPDATE share_guests SET user_id = ?, account = ?, avatar = ? WHERE id = ?`, userID, account, avatar, id)
+	return err
 }
 
 func (s *Store) CreateShareGuest(sessionID int64, name, email, cookieHash, remoteAddr, inviteHash string) (ShareGuest, error) {

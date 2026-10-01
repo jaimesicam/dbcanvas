@@ -37,6 +37,10 @@ type User struct {
 	Status     string  `json:"status"`
 	CreatedAt  string  `json:"createdAt"`
 	ApprovedAt *string `json:"approvedAt,omitempty"`
+	// The profile (profile.go): names sealed at rest, avatar an id from a fixed set.
+	FirstName string `json:"firstName"`
+	LastName  string `json:"lastName"`
+	Avatar    string `json:"avatar"`
 }
 
 // Store wraps the SQLite database.
@@ -239,6 +243,9 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id, id DESC);`
 	// "duplicate column name" error when they already exist).
 	db.Exec("ALTER TABLE deployments ADD COLUMN progress_json TEXT")
 	db.Exec("ALTER TABLE users ADD COLUMN settings_json TEXT")
+	db.Exec("ALTER TABLE users ADD COLUMN first_name TEXT NOT NULL DEFAULT ''")
+	db.Exec("ALTER TABLE users ADD COLUMN last_name TEXT NOT NULL DEFAULT ''")
+	db.Exec("ALTER TABLE users ADD COLUMN avatar TEXT NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE stacks ADD COLUMN backend TEXT")
 	db.Exec("ALTER TABLE lab_runs ADD COLUMN initial_backup_count INTEGER NOT NULL DEFAULT 0")
 
@@ -249,6 +256,9 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id, id DESC);`
 		return nil, err
 	}
 	db.Exec("ALTER TABLE share_guests ADD COLUMN invite_hash TEXT NOT NULL DEFAULT ''")
+	db.Exec("ALTER TABLE share_guests ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0")
+	db.Exec("ALTER TABLE share_guests ADD COLUMN account TEXT NOT NULL DEFAULT ''")
+	db.Exec("ALTER TABLE share_guests ADD COLUMN avatar TEXT NOT NULL DEFAULT ''")
 	if err := migrateShareSessions(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate share_sessions: %w", err)
@@ -268,21 +278,33 @@ func (s *Store) Close() error { return s.db.Close() }
 func nowRFC3339() string { return time.Now().UTC().Format(time.RFC3339) }
 
 // scanUser scans a user row, mapping the nullable approved_at column.
-func scanUser(row interface {
+func (s *Store) scanUser(row interface {
 	Scan(dest ...any) error
 }) (User, error) {
 	var u User
 	var approved sql.NullString
-	if err := row.Scan(&u.ID, &u.Username, &u.Role, &u.Status, &u.CreatedAt, &approved); err != nil {
+	if err := row.Scan(&u.ID, &u.Username, &u.Role, &u.Status, &u.CreatedAt, &approved, &u.FirstName, &u.LastName, &u.Avatar); err != nil {
 		return User{}, err
 	}
 	if approved.Valid {
 		u.ApprovedAt = &approved.String
 	}
+	return s.openProfile(u)
+}
+
+// openProfile unseals a scanned user's names (profile.go).
+func (s *Store) openProfile(u User) (User, error) {
+	var err error
+	if u.FirstName, err = s.openVal(aadID("users", "first_name", u.ID), u.FirstName); err != nil {
+		return User{}, err
+	}
+	if u.LastName, err = s.openVal(aadID("users", "last_name", u.ID), u.LastName); err != nil {
+		return User{}, err
+	}
 	return u, nil
 }
 
-const userCols = "id, username, role, status, created_at, approved_at"
+const userCols = "id, username, role, status, created_at, approved_at, first_name, last_name, avatar"
 
 // CountUsers returns the total number of user accounts.
 func (s *Store) CountUsers() (int, error) {
@@ -335,25 +357,29 @@ func (s *Store) CreateUser(username, hash, role, status string) (User, error) {
 // GetUser fetches a single user by id.
 func (s *Store) GetUser(id int64) (User, error) {
 	row := s.db.QueryRow("SELECT "+userCols+" FROM users WHERE id = ?", id)
-	return scanUser(row)
+	return s.scanUser(row)
 }
 
 // CredByUsername returns the user plus the stored password hash.
 func (s *Store) CredByUsername(username string) (User, string, error) {
 	row := s.db.QueryRow(
-		"SELECT id, username, role, status, created_at, approved_at, password_hash FROM users WHERE username = ?",
+		"SELECT "+userCols+", password_hash FROM users WHERE username = ?",
 		username,
 	)
 	var u User
 	var approved sql.NullString
 	var hash string
-	if err := row.Scan(&u.ID, &u.Username, &u.Role, &u.Status, &u.CreatedAt, &approved, &hash); err != nil {
+	if err := row.Scan(&u.ID, &u.Username, &u.Role, &u.Status, &u.CreatedAt, &approved, &u.FirstName, &u.LastName, &u.Avatar, &hash); err != nil {
 		return User{}, "", err
 	}
 	if approved.Valid {
 		u.ApprovedAt = &approved.String
 	}
-	hash, err := s.openVal(aadID("users", "password_hash", u.ID), hash)
+	u, err := s.openProfile(u)
+	if err != nil {
+		return User{}, "", err
+	}
+	hash, err = s.openVal(aadID("users", "password_hash", u.ID), hash)
 	if err != nil {
 		return User{}, "", err
 	}
@@ -372,7 +398,7 @@ func (s *Store) ListUsers() ([]User, error) {
 	defer rows.Close()
 	users := []User{}
 	for rows.Next() {
-		u, err := scanUser(rows)
+		u, err := s.scanUser(rows)
 		if err != nil {
 			return nil, err
 		}

@@ -52,13 +52,21 @@ transcript.
 
 ## Joining
 
-The link opens a join screen. The guest types a name and an email — both required,
-neither verified: they are labels for you to recognise people by, not an identity.
+The link opens a join screen with two ways in:
+
+- **I have an account** — a colleague with a DBCanvas account signs in with it, or, when
+  their browser is already signed in, joins as that account with one click. You see
+  their own name and avatar, marked **signed in as** their username: their password was
+  checked, so it is them. It does not sign their browser in; like any guest they work in
+  your workspace, not their own. You cannot join your own session this way.
+- **Join as a guest** — anyone else types a name and an email, both required, neither
+  verified (labels to recognise people by, not an identity), and picks an avatar.
 
 ![The join screen a guest sees when they open the link](screenshots/shared-session-join.png)
 
 They wait in the **lobby**. You get a notification and an entry at the top of the
-session panel with their name, email and the address they came from, and **Admit** or
+session panel with their avatar, their name, their email (or the account they signed in
+with) and the address they came from, and **Admit** or
 **Deny**. Nobody sees anything of your workspace before you admit them.
 
 **Leaving is final for that link.** A guest who clicks **Leave** (in the session

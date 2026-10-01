@@ -32,8 +32,10 @@ async function request(method, path, body) {
 
 export const api = {
   status: () => request('GET', '/api/setup/status'),
-  setup: (username, password) => request('POST', '/api/setup', { username, password }),
-  register: (username, password) => request('POST', '/api/auth/register', { username, password }),
+  // profile: { firstName, lastName, avatar } (app/profile.go)
+  setup: (username, password, profile = {}) => request('POST', '/api/setup', { username, password, ...profile }),
+  register: (username, password, profile = {}) => request('POST', '/api/auth/register', { username, password, ...profile }),
+  updateProfile: (profile) => request('PUT', '/api/me/profile', profile),
   login: (username, password) => request('POST', '/api/auth/login', { username, password }),
   logout: () => request('POST', '/api/auth/logout'),
   me: () => request('GET', '/api/me'),
