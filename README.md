@@ -187,9 +187,10 @@ the chat, the events and every change a guest made are kept as a **transcript** 
 <details>
 <summary><b>Node web UIs in a browser window, through DBCanvas's own port</b></summary>
 
-**Right-click** any link to a node's web UI — a VNC desktop, PMM, webmail, a simulator
-dashboard — and choose **Open in browser window**. The page opens inside DBCanvas, served
-through its own port, so a guest or anyone on a single SSH tunnel needs no port forward per UI.
+**Right-click** any link to a node's web UI — PMM, webmail, a simulator dashboard — or the
+node itself on the canvas, and choose **Open in new tab** or **Open in VNC Browser**. For a
+shared-session guest a plain click opens the page in a window inside DBCanvas, served through
+its own port, so they need no port forward per UI.
 In a shared session the window opens on everyone's screen and follows the driver; a watcher
 sees a VNC desktop live but cannot type or click in it, which the server enforces.
 

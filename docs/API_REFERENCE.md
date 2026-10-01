@@ -1252,7 +1252,7 @@ transcript and the guest actions — are deleted after `sessionRetentionDays`
 
 **Browser window.** Right-clicking a link to a node's web UI (PMM, the noVNC
 desktop, a simulator dashboard, webmail — anything on `http://<host>:<published
-port>/`) offers *Open in browser window*; for a guest a plain click does it.
+port>/`) is opened in a browser window by a guest's plain click.
 `POST /api/browse {"url": "http://localhost:32790/vnc.html"}` finds the node that
 publishes that host port, checks it is on one of the caller's stacks, and returns a
 `/_p/<key>/…` address that DBCanvas proxies to the node over the stack network —

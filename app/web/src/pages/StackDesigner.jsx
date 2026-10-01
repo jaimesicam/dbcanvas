@@ -44,6 +44,8 @@ import { useSettings } from '../settings/SettingsProvider.jsx'
 import { useAuth } from '../auth/AuthProvider.jsx'
 import { useRefresh } from '../lib/useRefresh.jsx'
 import { useSession } from '../session/SessionProvider.jsx'
+import { useBrowser } from '../browser/BrowserProvider.jsx'
+import { nodeWebLinks } from '../lib/nodeLinks.js'
 import ShareDialog from '../components/ShareDialog.jsx'
 
 const NODE_W = 212
@@ -2319,7 +2321,8 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
   // Building a missing node image is an admin action (the server enforces it); a
   // non-admin is told which make target does it instead of shown a button that
   // would be refused.
-  const { user: authUser } = useAuth()
+  const { user: authUser, guest } = useAuth()
+  const { openInDesktop } = useBrowser()
   const isAdmin = authUser?.role === 'admin'
   const [busy, setBusy] = useState('') // 'validate' | 'deploy' | ''
   const [configNode, setConfigNode] = useState(null) // node whose profile is shown
@@ -3882,6 +3885,28 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
             empty: 'No pods',
             items: () => podConsoleMenu(id),
           })
+        }
+        // A node with a web UI opens it from here too, the two ways its properties
+        // panel's links do. A guest cannot reach the raw port, so no new tab for them
+        // (the panel's links open a browser window instead), and a VNC node is the
+        // desktop itself.
+        const links = nodeWebLinks(node?.type, dep)
+        if (links.length) {
+          const one = links.length === 1
+          if (!guest) {
+            const tab = (l) => () => window.open(l.url, '_blank', 'noreferrer')
+            actions.push(one
+              ? { label: 'Open in new tab', help: MENU_HELP.openNewTab, fn: tab(links[0]) }
+              : { label: 'Open in new tab', help: MENU_HELP.openNewTab, items: links.map((l) => ({ label: l.label, fn: tab(l) })) })
+          }
+          const vncUp = nodes.some((v) => v.type === 'vnc' && depByNode[v.id]?.state === 'running')
+          if (node?.type !== 'vnc' && !(session.active && session.isGuest && !session.isDriver)) {
+            const desk = (l) => () => openInDesktop(l.url)
+            const help = vncUp ? MENU_HELP.openVncBrowser : 'Add and deploy an Ubuntu VNC node in this stack first.'
+            actions.push(one || !vncUp
+              ? { label: 'Open in VNC Browser', help, disabled: !vncUp, fn: desk(links[0]) }
+              : { label: 'Open in VNC Browser', help, items: links.map((l) => ({ label: l.label, fn: desk(l) })) })
+          }
         }
         actions.push({ label: 'File manager', help: MENU_HELP.fileManager, fn: () => setFileMgr({ nodeId: id, label: node?.label || 'node' }) })
         // Sample Client Code is a Linux Client action: it writes a project onto the node and

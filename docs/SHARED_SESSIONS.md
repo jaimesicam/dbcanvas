@@ -122,11 +122,12 @@ it. Only the driver can close a shared terminal; anyone else can minimize it to 
 
 Every node web UI — a VNC desktop, PMM, webmail, a simulator's dashboard, HAProxy stats,
 SeaweedFS, OpenEverest — is published on a port of its own, which a guest (or anyone
-reaching DBCanvas through one tunnel) cannot reach. **Right-click** any link to one and
-choose **Open in browser window**: the page opens in a window inside DBCanvas, served
-through DBCanvas's own port. For a guest, a plain click does the same.
+reaching DBCanvas through one tunnel) cannot reach. For a guest, a plain click on a link to
+one opens the page in a window inside DBCanvas, served through DBCanvas's own port.
+**Right-clicking** the link — or the node on the canvas — offers **Open in VNC Browser**
+(below) and, for anyone but a guest, **Open in new tab**.
 
-![Right-clicking a node's web link: open it in a browser window, a new tab, or copy it](screenshots/browser-window-menu.png)
+![Right-clicking a node's web link](screenshots/browser-window-menu.png)
 
 The window has back, forward, reload, an address you can edit, **Open in a browser tab**
 (still through DBCanvas), maximize and close. It works outside a session too.
@@ -152,7 +153,7 @@ wouldn't follow you. DBCanvas deliberately does not hand guests your logins for 
 apps instead: every guest would act as you inside them, and their copies would still
 drift apart.
 
-When everyone should see exactly what the driver sees, right-click the link and choose
+When everyone should see exactly what the driver sees, right-click the link (or the node) and choose
 **Open in VNC Browser**. The page opens as a tab in Firefox on the stack's **Ubuntu VNC**
 desktop, and that desktop opens as a shared window. There is one copy of the page and one
 login, which stays inside the desktop: guests only see its pixels, and only the driver's

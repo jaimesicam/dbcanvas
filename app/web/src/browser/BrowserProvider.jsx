@@ -12,8 +12,9 @@ import { useSession } from '../session/SessionProvider.jsx'
 // guest or anyone on one SSH tunnel can use a VNC desktop, PMM or a simulator
 // dashboard with nothing else set up.
 //
-// Right-click any such link for "Open in browser window". For a guest a plain click
-// does the same, because the raw port is exactly what a guest cannot reach.
+// For a guest a plain click on such a link opens it in a browser window, because the
+// raw port is exactly what a guest cannot reach. Right-click offers "Open in VNC
+// Browser" and, for everyone else, "Open in new tab".
 //
 // "Open in VNC Browser" opens the page in Firefox on the stack's VNC desktop instead
 // (app/browsedesk.go) and shows that desktop. A browser window shares only an
@@ -237,7 +238,6 @@ export function BrowserProvider({ children }) {
           <div className="fixed inset-0 z-[70]" onClick={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null) }} />
           <div className="fixed z-[71] min-w-[210px] max-w-[290px] rounded-md border bg-surface py-1 text-sm shadow-xl"
             style={{ left: Math.min(menu.x, innerWidth - 300), top: Math.min(menu.y, innerHeight - 180) }}>
-            <MenuItem icon={<Icon.Monitor size={14} />} onClick={() => { openBrowser(menu.href); setMenu(null) }}>Open in browser window</MenuItem>
             {!viewOnly && (
               <MenuItem icon={<Icon.Share size={14} />} onClick={() => { openInDesktop(menu.href); setMenu(null) }}
                 hint={session.active ? 'One copy on the stack’s desktop — everyone sees what you see' : 'In Firefox on the stack’s VNC desktop'}>
