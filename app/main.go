@@ -56,6 +56,14 @@ func main() {
 	}
 
 	dbPath := envOr("DB_PATH", "dbcanvas.db")
+	// Re-encrypt the database under a fresh key, then exit (encryption.go). Run with the
+	// server stopped: `make rotate-key`.
+	if len(os.Args) > 1 && os.Args[1] == "-rotate-encryption-key" {
+		if err := rotateKey(dbPath); err != nil {
+			log.Fatalf("rotate encryption key: %v", err)
+		}
+		return
+	}
 	useDataTempDir(dbPath)
 	store, err := OpenStore(dbPath)
 	if err != nil {

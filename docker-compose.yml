@@ -17,6 +17,11 @@ services:
       # the publish binding below, not by this value.
       APP_PORT: ${APP_PORT:-8080}
       DB_PATH: /data/dbcanvas.db
+      # The key the database's passwords and secrets are encrypted with, generated on
+      # first start. It lives on its own volume (app-keys) so that a copy of the
+      # database is ciphertext: back the two up separately, and keep both — the
+      # database cannot be read without the key. Rotate it with `make rotate-key`.
+      DBCANVAS_ENCRYPTION_KEY_PATH: /keys/dbcanvas-encryption.key
       # Domain used to configure deployed stacks (Intranet: LDAP/mail/DNS/CA).
       DOMAIN: ${DOMAIN:-example.net}
       # Catalog of installable versions (produced by `make versions`) and the list of
@@ -102,6 +107,7 @@ services:
       - "${APP_HOST:-127.0.0.1}:${APP_PORT:-8080}:${APP_PORT:-8080}"
     volumes:
       - app-data:/data            # SQLite database persists across rebuilds
+      - app-keys:/keys            # its encryption key, kept apart from it
       # Catalog of installable versions (Percona Server per image + PMM3),
       # produced by `make versions`. Mounted read-only; re-run `make versions`
       # on the host to refresh what the version pickers offer.
@@ -124,3 +130,4 @@ services:
 
 volumes:
   app-data:
+  app-keys:

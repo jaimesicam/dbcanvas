@@ -18,7 +18,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
+
+	"dbcanvas/internal/seal"
 
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/sys/unix"
@@ -74,7 +77,11 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("hash the password: %w", err)
 	}
-	if _, err := db.Exec("UPDATE users SET password_hash = ? WHERE id = ?", string(hash), id); err != nil {
+	stored, err := sealHash(db, *dbPath, id, string(hash))
+	if err != nil {
+		return err
+	}
+	if _, err := db.Exec("UPDATE users SET password_hash = ? WHERE id = ?", stored, id); err != nil {
 		return fmt.Errorf("update the password: %w", err)
 	}
 	// Every existing session for this account is dropped. A password reset that leaves a
@@ -96,6 +103,30 @@ func run() error {
 	}
 	fmt.Printf("Sign in as %q with the new password.\n", name)
 	return nil
+}
+
+// sealHash seals the new hash the way the server stores it (app/encryption.go), with
+// the key the database was encrypted with. A database that has never been opened by a
+// server that encrypts has no key yet: the hash goes in as it always did, and that
+// server seals it the first time it starts.
+func sealHash(db *sql.DB, dbPath string, id int64, hash string) (string, error) {
+	var want string
+	err := db.QueryRow("SELECT value FROM app_settings WHERE key = 'encryption_key_id'").Scan(&want)
+	if errors.Is(err, sql.ErrNoRows) || (err != nil && strings.Contains(err.Error(), "no such table")) {
+		return hash, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	kp := seal.KeyPath(dbPath)
+	sl, err := seal.Load(kp)
+	if err != nil {
+		return "", fmt.Errorf("this database is encrypted, and its key could not be read (%v) — set %s to the key file the server uses", err, seal.KeyPathEnv)
+	}
+	if sl.KeyID() != want {
+		return "", fmt.Errorf("the key at %s has id %s, but this database was encrypted with key id %s — set %s to the key file the server uses", kp, sl.KeyID(), want, seal.KeyPathEnv)
+	}
+	return sl.Seal("users.password_hash:"+strconv.FormatInt(id, 10), hash)
 }
 
 // pickAdmin resolves which account to reset: the named one, or the only admin there is.

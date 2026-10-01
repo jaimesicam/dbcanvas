@@ -10,6 +10,8 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
+
+	"dbcanvas/internal/seal"
 )
 
 // Roles and statuses.
@@ -44,9 +46,12 @@ type Store struct {
 	// installation that never opens the page pays nothing for it. Per-store rather
 	// than package-level: see dexEnsureTables.
 	dexReady atomic.Bool
+	// seal encrypts the credential columns (encryption.go, internal/seal).
+	seal *seal.Sealer
 }
 
-// OpenStore opens (and migrates) the SQLite database at path.
+// OpenStore opens (and migrates) the SQLite database at path, with the encryption
+// key that belongs to it (see encryption.go).
 func OpenStore(path string) (*Store, error) {
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -244,7 +249,12 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id, id DESC);`
 	}
 	db.Exec("ALTER TABLE share_guests ADD COLUMN invite_hash TEXT NOT NULL DEFAULT ''")
 
-	return &Store{db: db}, nil
+	s := &Store{db: db}
+	if err := s.setupEncryption(path); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return s, nil
 }
 
 // Close closes the underlying database.
@@ -283,9 +293,16 @@ func (s *Store) CreateUser(username, hash, role, status string) (User, error) {
 	if status == StatusApproved {
 		approved = sql.NullString{String: created, Valid: true}
 	}
-	res, err := s.db.Exec(
-		"INSERT INTO users (username, password_hash, role, status, created_at, approved_at) VALUES (?,?,?,?,?,?)",
-		username, hash, role, status, created, approved,
+	// The hash is sealed to its row, whose id the insert assigns: one transaction
+	// inserts a placeholder and seals into it.
+	tx, err := s.db.Begin()
+	if err != nil {
+		return User{}, err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(
+		"INSERT INTO users (username, password_hash, role, status, created_at, approved_at) VALUES (?,'',?,?,?,?)",
+		username, role, status, created, approved,
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -295,6 +312,16 @@ func (s *Store) CreateUser(username, hash, role, status string) (User, error) {
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
+		return User{}, err
+	}
+	sealed, err := s.sealVal(aadID("users", "password_hash", id), hash)
+	if err != nil {
+		return User{}, err
+	}
+	if _, err := tx.Exec("UPDATE users SET password_hash = ? WHERE id = ?", sealed, id); err != nil {
+		return User{}, err
+	}
+	if err := tx.Commit(); err != nil {
 		return User{}, err
 	}
 	return s.GetUser(id)
@@ -320,6 +347,10 @@ func (s *Store) CredByUsername(username string) (User, string, error) {
 	}
 	if approved.Valid {
 		u.ApprovedAt = &approved.String
+	}
+	hash, err := s.openVal(aadID("users", "password_hash", u.ID), hash)
+	if err != nil {
+		return User{}, "", err
 	}
 	return u, hash, nil
 }
@@ -403,11 +434,12 @@ func (s *Store) SetAppSetting(key, value string) error {
 	return err
 }
 
-// CreateSession stores a session token for a user with an expiry.
+// CreateSession stores a session token for a user with an expiry. Only its hash is
+// kept, so a copy of the database signs nobody in; every lookup hashes the cookie.
 func (s *Store) CreateSession(token string, userID int64, expires time.Time) error {
 	_, err := s.db.Exec(
 		"INSERT INTO sessions (token, user_id, expires_at) VALUES (?,?,?)",
-		token, userID, expires.UTC().Format(time.RFC3339),
+		seal.HashSecret(token), userID, expires.UTC().Format(time.RFC3339),
 	)
 	return err
 }
@@ -418,7 +450,7 @@ func (s *Store) SessionUser(token string) (User, error) {
 	var userID int64
 	var expiresStr string
 	err := s.db.QueryRow(
-		"SELECT user_id, expires_at FROM sessions WHERE token = ?", token,
+		"SELECT user_id, expires_at FROM sessions WHERE token = ?", seal.HashSecret(token),
 	).Scan(&userID, &expiresStr)
 	if err != nil {
 		return User{}, err
@@ -433,7 +465,7 @@ func (s *Store) SessionUser(token string) (User, error) {
 
 // DeleteSession removes a single session token.
 func (s *Store) DeleteSession(token string) error {
-	_, err := s.db.Exec("DELETE FROM sessions WHERE token = ?", token)
+	_, err := s.db.Exec("DELETE FROM sessions WHERE token = ?", seal.HashSecret(token))
 	return err
 }
 
@@ -500,15 +532,30 @@ type Deployment struct {
 // CreateStack inserts a new stack. expiresAt is nil for an infinite TTL.
 func (s *Store) CreateStack(name string, ownerID int64, ttl string, expiresAt *string, design []byte) (Stack, error) {
 	created := nowRFC3339()
-	res, err := s.db.Exec(
-		"INSERT INTO stacks (name, owner_id, ttl, status, created_at, expires_at, design_json) VALUES (?,?,?,?,?,?,?)",
-		name, ownerID, ttl, StackDraft, created, nullStr(expiresAt), string(design),
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Stack{}, err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(
+		"INSERT INTO stacks (name, owner_id, ttl, status, created_at, expires_at, design_json) VALUES (?,?,?,?,?,?,'')",
+		name, ownerID, ttl, StackDraft, created, nullStr(expiresAt),
 	)
 	if err != nil {
 		return Stack{}, err
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
+		return Stack{}, err
+	}
+	sealed, err := s.sealVal(aadID("stacks", "design_json", id), string(design))
+	if err != nil {
+		return Stack{}, err
+	}
+	if _, err := tx.Exec("UPDATE stacks SET design_json = ? WHERE id = ?", sealed, id); err != nil {
+		return Stack{}, err
+	}
+	if err := tx.Commit(); err != nil {
 		return Stack{}, err
 	}
 	return s.GetStack(id)
@@ -559,6 +606,10 @@ func (s *Store) GetStack(id int64) (Stack, error) {
 		st.ExpiresAt = &exp.String
 	}
 	st.Backend = backend.String
+	design, err = s.openVal(aadID("stacks", "design_json", st.ID), design)
+	if err != nil {
+		return Stack{}, err
+	}
 	st.Design = json.RawMessage(design)
 	return st, nil
 }
@@ -573,7 +624,11 @@ func (s *Store) SetStackBackend(id int64, backend string) error {
 
 // UpdateStack updates a stack's name and design.
 func (s *Store) UpdateStack(id int64, name string, design []byte) error {
-	_, err := s.db.Exec("UPDATE stacks SET name = ?, design_json = ? WHERE id = ?", name, string(design), id)
+	sealed, err := s.sealVal(aadID("stacks", "design_json", id), string(design))
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec("UPDATE stacks SET name = ?, design_json = ? WHERE id = ?", name, sealed, id)
 	return err
 }
 
@@ -771,6 +826,14 @@ func (s *Store) DeleteStackTemplate(id int64) error {
 
 // UpsertDeployment inserts or updates a node's runtime record.
 func (s *Store) UpsertDeployment(d Deployment) error {
+	var secrets any // NULL when there are none, as before sealing
+	if len(d.Secrets) > 0 {
+		v, err := s.sealVal(aadDeployment(d.StackID, d.NodeID), string(d.Secrets))
+		if err != nil {
+			return err
+		}
+		secrets = v
+	}
 	_, err := s.db.Exec(
 		`INSERT INTO deployments (stack_id, node_id, container_id, state, config_json, secrets_json)
 		 VALUES (?,?,?,?,?,?)
@@ -778,7 +841,7 @@ func (s *Store) UpsertDeployment(d Deployment) error {
 		   container_id=excluded.container_id, state=excluded.state,
 		   config_json=excluded.config_json, secrets_json=excluded.secrets_json`,
 		d.StackID, d.NodeID, nullStr(strPtr(d.ContainerID)), d.State,
-		nullRaw(d.Config), nullRaw(d.Secrets),
+		nullRaw(d.Config), secrets,
 	)
 	return err
 }
@@ -816,7 +879,11 @@ func (s *Store) ListDeployments(stackID int64) ([]Deployment, error) {
 			d.Config = json.RawMessage(cfg.String)
 		}
 		if sec.Valid {
-			d.Secrets = json.RawMessage(sec.String)
+			v, err := s.openVal(aadDeployment(d.StackID, d.NodeID), sec.String)
+			if err != nil {
+				return nil, err
+			}
+			d.Secrets = json.RawMessage(v)
 		}
 		if prog.Valid {
 			d.Progress = json.RawMessage(prog.String)
@@ -843,7 +910,11 @@ func (s *Store) GetDeployment(stackID int64, nodeID string) (Deployment, error) 
 		d.Config = json.RawMessage(cfg.String)
 	}
 	if sec.Valid {
-		d.Secrets = json.RawMessage(sec.String)
+		v, err := s.openVal(aadDeployment(d.StackID, d.NodeID), sec.String)
+		if err != nil {
+			return Deployment{}, err
+		}
+		d.Secrets = json.RawMessage(v)
 	}
 	if prog.Valid {
 		d.Progress = json.RawMessage(prog.String)

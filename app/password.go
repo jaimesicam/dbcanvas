@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+
+	"dbcanvas/internal/seal"
 )
 
 // password.go — changing your own password.
@@ -41,7 +43,11 @@ type passwordChange struct {
 
 // SetUserPassword replaces an account's password hash.
 func (s *Store) SetUserPassword(id int64, hash string) error {
-	res, err := s.db.Exec("UPDATE users SET password_hash = ? WHERE id = ?", hash, id)
+	sealed, err := s.sealVal(aadID("users", "password_hash", id), hash)
+	if err != nil {
+		return err
+	}
+	res, err := s.db.Exec("UPDATE users SET password_hash = ? WHERE id = ?", sealed, id)
 	if err != nil {
 		return err
 	}
@@ -62,7 +68,7 @@ func (s *Store) DeleteUserSessionsExcept(userID int64, keep string) error {
 	if keep == "" {
 		return s.DeleteUserSessions(userID)
 	}
-	_, err := s.db.Exec("DELETE FROM sessions WHERE user_id = ? AND token != ?", userID, keep)
+	_, err := s.db.Exec("DELETE FROM sessions WHERE user_id = ? AND token != ?", userID, seal.HashSecret(keep))
 	return err
 }
 

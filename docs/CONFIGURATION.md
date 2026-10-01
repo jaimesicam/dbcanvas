@@ -130,6 +130,9 @@ by the compose publish binding, not by `APP_HOST` inside the container.
 
 **Advanced (rarely changed)** — set by `docker-compose.yml` or handy for local dev:
 `DB_PATH` (SQLite file, default `dbcanvas.db`; the container uses a `/data` volume),
+`DBCANVAS_ENCRYPTION_KEY_PATH` (the database's encryption key, default
+`dbcanvas-encryption.key` beside the database; the container uses a `/keys` volume — see
+[The encryption key](#the-encryption-key)),
 `DOCKER_SOCK` (Docker socket, default `/var/run/docker.sock`), `VERSIONS_FILE` (path to the
 `versions.yaml` catalog), `IMAGES_FILE` (path to the `images.yaml` image matrix; falls back to
 `VERSIONS_FILE` when absent), and `SPOCK_REF` (the pgEdge/spock git ref built for Spock clusters,
@@ -162,6 +165,30 @@ signed in can see the limit they are working under.
 Administrators can additionally create a token that **never expires** — deliberately an
 administrator's decision, since DBCanvas drives the Docker daemon.
 
+## The encryption key
+
+Passwords and secrets in the database are encrypted with a key that lives in a file of its
+own, generated the first time DBCanvas starts: `/keys/dbcanvas-encryption.key` on the
+`app-keys` volume, or beside the database on a local run. Upgrading from a version without
+encryption needs nothing — the first start seals what was stored in the clear, and existing
+sign-ins keep working.
+
+**Back the key up, separately from the database.** A copy of the database without its key is
+ciphertext: neither you nor anyone else can read the stacks, node secrets or accounts in it.
+That is the point of keeping them apart, and it is also why `docker compose down -v` (which
+deletes both volumes) loses everything. DBCanvas will not start with a missing or different
+key rather than run with data it cannot read; restore the original key file to fix it.
+
+To re-encrypt everything under a new key:
+
+```sh
+make rotate-key
+```
+
+It stops the app, re-seals every value in one transaction (on any error nothing changes),
+keeps the old key beside the new one as `dbcanvas-encryption.key.old`, and starts the app
+again. Delete the `.old` file once the new key is backed up.
+
 ## Recovering an admin password
 
 The app image ships a reset tool, because its runtime is distroless — no shell, no `sqlite3` —
@@ -173,7 +200,8 @@ docker exec -it dbcanvas-app-1 dbcanvas_reset_password
 
 It names the admin account it is about to change, prompts for a new password and a
 confirmation with the echo off, and signs out that account's existing sessions. With more than
-one admin, name one with `-user`.
+one admin, name one with `-user`. It encrypts the new password hash with the same key the
+server uses, read from `DBCANVAS_ENCRYPTION_KEY_PATH`.
 
 ## Troubleshooting
 

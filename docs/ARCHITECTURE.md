@@ -151,6 +151,7 @@ were added later.
 | What | Where |
 | --- | --- |
 | Users, sessions, stacks, designs, deployments, notifications | SQLite (`DB_PATH`, a Docker volume at `/data`) |
+| The key the database's credentials are encrypted with | Its own file (`DBCANVAS_ENCRYPTION_KEY_PATH`, a Docker volume at `/keys`) |
 | Generated credentials for a deployed node | The deployment row, shown in the node's panel |
 | What a deploy actually applied (K8s manifests) | Archived on the cluster's first node, numbered in apply order |
 | Node images and the version catalogue | The Docker image store, `images.yaml` and `versions.yaml` |
@@ -162,6 +163,14 @@ re-reads both. Passwords are not stored per-node on the canvas.
 
 - **Authentication** is username + password with bcrypt hashes and server-side sessions;
   registration is approval-gated, and an admin approves accounts.
+- **Encryption at rest.** The columns that hold a credential are sealed with AES-256-GCM:
+  the bcrypt hashes, every stack's design (it carries the passwords typed into the canvas),
+  the secrets each deployed node was given, and what shared-session guests typed — their
+  name, email and the chat. Each value is bound to the row it belongs to, so it cannot be
+  copied into another. Login sessions, API tokens, share links and guest cookies are stored
+  only as SHA-256 hashes. The key is 32 random bytes, generated on first start into its own
+  file; the server refuses to start with a key that is not the one the database was sealed
+  with. See [Configuration](CONFIGURATION.md#the-encryption-key).
 - **Locked out?** The app image ships `dbcanvas_reset_password`, because the runtime is
   distroless — no shell, no `sqlite3` — and the database is on a volume only that container
   mounts. See [Configuration](CONFIGURATION.md#recovering-an-admin-password).
