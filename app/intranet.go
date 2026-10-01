@@ -98,7 +98,7 @@ type designNode struct {
 	// "mariadbgalera" members take these from their frame). Reuses OS/OSVersion/Arch,
 	// GTID, RootPassword, PMMNodeID, UseProxy, GenerateCert/CertTTL and export above.
 	// Packages come from mariadb.org, whose repo is per major series.
-	MariaDBMajor   string `json:"mariadbMajor"`   // "10.6" | "10.11" | "11.4" | "11.8"
+	MariaDBMajor   string `json:"mariadbMajor"`   // "10.6" | "10.11" | "11.4" | "11.8" | "12.3"
 	MariaDBVersion string `json:"mariadbVersion"` // minor; "" → latest
 	// MySQL Community node fields (Type=="mysqlce" standalone; "mysqlcerepl" and
 	// "mysqlceinnodb" members take these from their frame). Oracle's community
@@ -514,7 +514,7 @@ type designFrame struct {
 	// MariaDB frame config (Type=="mariadbrepl" replication | "mariadbgalera"
 	// Galera). Reuses OS/OSVersion/Arch, RootPassword, PMMNodeID,
 	// OrchestratorNodeID, UseProxy, GTID, ReplMode, GenerateCert/CertTTL above.
-	MariaDBMajor   string `json:"mariadbMajor"`   // "10.6" | "10.11" | "11.4" | "11.8"
+	MariaDBMajor   string `json:"mariadbMajor"`   // "10.6" | "10.11" | "11.4" | "11.8" | "12.3"
 	MariaDBVersion string `json:"mariadbVersion"` // minor; "" → latest
 	// MySQL Community frame config (Type=="mysqlcerepl" replication |
 	// "mysqlceinnodb" InnoDB Cluster / Group Replication). Reuses the same shared

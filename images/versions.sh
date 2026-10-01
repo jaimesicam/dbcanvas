@@ -233,7 +233,7 @@ EOS
 # skip_if_unavailable=1 matters: not every series exists for every EL release
 # (MySQL 8.0 has no el10 repo, MariaDB has no el10 build before 11.4). Without it
 # one 404 aborts the whole dnf transaction and every later probe returns empty.
-for V in 10.6 10.11 11.4 11.8; do
+for V in 10.6 10.11 11.4 11.8 12.3; do
   cat >"/etc/yum.repos.d/dbc-mariadb-$V.repo" <<EOF
 [dbc-mariadb-$V]
 name=MariaDB $V
@@ -252,6 +252,7 @@ echo '@@MARIADB106@@';  elsearch MariaDB-server | grep -E '^10\.6\.'  | sort -rV
 echo '@@MARIADB1011@@'; elsearch MariaDB-server | grep -E '^10\.11\.' | sort -rV -u
 echo '@@MARIADB114@@';  elsearch MariaDB-server | grep -E '^11\.4\.'  | sort -rV -u
 echo '@@MARIADB118@@';  elsearch MariaDB-server | grep -E '^11\.8\.'  | sort -rV -u
+echo '@@MARIADB123@@';  elsearch MariaDB-server | grep -E '^12\.3\.'  | sort -rV -u
 # MySQL Community. Note the repo path is mysql-8.4-community on yum but the apt
 # component is mysql-8.4-lts — the two are not spelled the same (see debian_probe).
 # The signing key MUST be RPM-GPG-KEY-mysql-2025: the widely-cited -2023 file is the
@@ -359,7 +360,7 @@ DISTRO="$(. /etc/os-release; echo "$ID")"
 curl -fsSL https://mariadb.org/mariadb_release_signing_key.pgp -o /etc/apt/keyrings/dbc-mariadb.pgp 2>/dev/null
 # RPM-GPG-KEY-mysql-2025, not -2023: same key, but the -2023 copy is expired.
 curl -fsSL https://repo.mysql.com/RPM-GPG-KEY-mysql-2025 2>/dev/null | gpg --batch --yes --dearmor -o /etc/apt/keyrings/dbc-mysql.gpg 2>/dev/null
-for V in 10.6 10.11 11.4 11.8; do
+for V in 10.6 10.11 11.4 11.8 12.3; do
   echo "deb [signed-by=/etc/apt/keyrings/dbc-mariadb.pgp] https://mirror.mariadb.org/repo/$V/$DISTRO $CODE main" \
     >"/etc/apt/sources.list.d/dbc-mariadb-$V.list"
 done
@@ -377,6 +378,7 @@ echo '@@MARIADB106@@';  madison mariadb-server | grep -E '^10\.6\..*\+maria'  | 
 echo '@@MARIADB1011@@'; madison mariadb-server | grep -E '^10\.11\..*\+maria' | sort -rV -u
 echo '@@MARIADB114@@';  madison mariadb-server | grep -E '^11\.4\..*\+maria'  | sort -rV -u
 echo '@@MARIADB118@@';  madison mariadb-server | grep -E '^11\.8\..*\+maria'  | sort -rV -u
+echo '@@MARIADB123@@';  madison mariadb-server | grep -E '^12\.3\..*\+maria'  | sort -rV -u
 echo '@@MYSQLCE80@@'; madison mysql-community-server | grep -E '^8\.0\.' | sort -rV -u
 echo '@@MYSQLCE84@@'; madison mysql-community-server | grep -E '^8\.4\.' | sort -rV -u
 echo '@@MYSQLCE97@@'; madison mysql-community-server | grep -E '^9\.7\.' | sort -rV -u
@@ -707,7 +709,7 @@ while IFS=$'\t' read -r os version platform arch tag; do
   pg13="" ; pg14="" ; pg15="" ; pg16="" ; pg17="" ; pg18=""
   vk91=""
   orch=""
-  md106="" ; md1011="" ; md114="" ; md118=""
+  md106="" ; md1011="" ; md114="" ; md118="" ; md123=""
   myc80="" ; myc84="" ; myc97=""
   if [ -n "$probe" ]; then
     if out="$(docker run --rm "$tag" bash -lc "$probe" 2>/dev/null)"; then
@@ -734,6 +736,7 @@ while IFS=$'\t' read -r os version platform arch tag; do
       md1011="$(printf '%s\n' "$out" | section MARIADB1011)"
       md114="$(printf '%s\n' "$out" | section MARIADB114)"
       md118="$(printf '%s\n' "$out" | section MARIADB118)"
+      md123="$(printf '%s\n' "$out" | section MARIADB123)"
       myc80="$(printf '%s\n' "$out" | section MYSQLCE80)"
       myc84="$(printf '%s\n' "$out" | section MYSQLCE84)"
       myc97="$(printf '%s\n' "$out" | section MYSQLCE97)"
@@ -764,10 +767,11 @@ while IFS=$'\t' read -r os version platform arch tag; do
   d1011=$(printf '%s' "$md1011" | grep -c . || true)
   d114=$(printf '%s' "$md114" | grep -c . || true)
   d118=$(printf '%s' "$md118" | grep -c . || true)
+  d123=$(printf '%s' "$md123" | grep -c . || true)
   c80=$(printf '%s' "$myc80" | grep -c . || true)
   c84=$(printf '%s' "$myc84" | grep -c . || true)
   echo "    ps: ${n80}+${n84}+${n57}  pxc: ${px0}+${px4}  proxysql: ${pq2}+${pq3}  psmdb: ${m6}+${m7}+${m8}  ppg: ${g13}+${g14}+${g15}+${g16}+${g17}+${g18}  valkey: ${vk9}  orchestrator: ${orc}" >&2
-  echo "    mariadb: ${d106}+${d1011}+${d114}+${d118}  mysql_community: ${c80}+${c84}" >&2
+  echo "    mariadb: ${d106}+${d1011}+${d114}+${d118}+${d123}  mysql_community: ${c80}+${c84}" >&2
 
   # emit_series <indent-key> <key1> <list1> [<key2> <list2> ...]: emit a major-series
   # map under `key:` with one or more series (e.g. "8.0"/"8.4", "2"/"3", or the three
@@ -834,7 +838,7 @@ while IFS=$'\t' read -r os version platform arch tag; do
     emit_group percona  percona_postgresql     "13" "$pg13" "14" "$pg14" "15" "$pg15" "16" "$pg16" "17" "$pg17" "18" "$pg18"
     emit_group percona  percona_valkey         "9.1" "$vk91"
     emit_group percona  percona_orchestrator   "3"   "$orch"
-    emit_group upstream mariadb                "10.6" "$md106" "10.11" "$md1011" "11.4" "$md114" "11.8" "$md118"
+    emit_group upstream mariadb                "10.6" "$md106" "10.11" "$md1011" "11.4" "$md114" "11.8" "$md118" "12.3" "$md123"
     emit_group upstream mysql_community        "8.0" "$myc80" "8.4" "$myc84" "9.7" "$myc97"
     emit_spock
   } >>"$TMP"

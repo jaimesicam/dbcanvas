@@ -84,7 +84,7 @@ func mariadbUnit() string { return "mariadb" }
 // long-term series that every image in the matrix can install.
 func mariadbMajorOf(major string) string {
 	switch major {
-	case "10.6", "10.11", "11.4", "11.8":
+	case "10.6", "10.11", "11.4", "11.8", "12.3":
 		return major
 	}
 	return "11.4"

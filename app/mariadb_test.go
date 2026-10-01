@@ -14,7 +14,7 @@ import (
 
 func TestMariaDBMajorOf(t *testing.T) {
 	for in, want := range map[string]string{
-		"10.6": "10.6", "10.11": "10.11", "11.4": "11.4", "11.8": "11.8",
+		"10.6": "10.6", "10.11": "10.11", "11.4": "11.4", "11.8": "11.8", "12.3": "12.3",
 		"": "11.4", "9.9": "11.4", "5.5": "11.4",
 	} {
 		if got := mariadbMajorOf(in); got != want {

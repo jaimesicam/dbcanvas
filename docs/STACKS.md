@@ -77,7 +77,7 @@ the DBCanvas source, so they need a checkout and `make <name>-image`.
 - **MySQL (Community)** — Oracle's community builds (8.0 / 8.4) from repo.mysql.com:
   standalone, replication, and **InnoDB Cluster / Group Replication** (MySQL Shell +
   MySQL Router).
-- **MariaDB** — from mariadb.org (10.6 / 10.11 / 11.4 / 11.8): standalone, replication
+- **MariaDB** — from mariadb.org (10.6 / 10.11 / 11.4 / 11.8 / 12.3): standalone, replication
   and **Galera** clusters. MariaDB's GTIDs are `domain-server-seq`, so replication is
   wired with `MASTER_USE_GTID = slave_pos` and the cluster's `gtid_domain_id` is derived
   from its name; Galera state transfers use `mariabackup`.

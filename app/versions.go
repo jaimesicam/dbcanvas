@@ -413,7 +413,7 @@ func loadProxySQLCatalog() []PXCImage { return loadImageCatalog("proxysql") }
 func loadPSCatalog() []PXCImage       { return loadImageCatalog("percona_server") }
 
 // loadMariaDBCatalog parses the per-image `mariadb` section — the MariaDB Server
-// versions installable from mariadb.org, keyed by major series (10.6/10.11/11.4/11.8).
+// versions installable from mariadb.org, keyed by major series (10.6/10.11/11.4/11.8/12.3).
 // Availability is genuinely uneven across the image matrix and the catalog is what
 // keeps the picker honest about it: there is no 10.6 build for EL10 or for Ubuntu
 // noble, so those series come back empty on those images.
