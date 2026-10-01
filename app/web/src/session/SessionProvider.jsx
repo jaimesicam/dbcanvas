@@ -35,7 +35,7 @@ const INERT = {
   active: false, sid: null, me: null, presence: null, messages: [], isDriver: true, isHost: false,
   isGuest: false, following: false, follow: null, cursor: null, terms: [], browsers: [], ended: null, requests: [],
   connected: false, link: '', unread: 0,
-  setFollowing: () => {}, publishFollow: () => {}, publishUI: () => {}, publishCursor: () => {}, sendChat: () => {},
+  publishFollow: () => {}, publishUI: () => {}, publishCursor: () => {}, sendChat: () => {},
   requestControl: () => {}, releaseControl: () => {}, takeControl: async () => {}, giveControl: async () => {},
   admit: async () => {}, deny: async () => {}, remove: async () => {}, mute: async () => {}, end: async () => {},
   start: async () => { throw new Error('no session') }, openSharedTerm: async () => {}, closeSharedTerm: async () => {},
@@ -99,7 +99,6 @@ export function SessionProvider({ children }) {
   const [ended, setEnded] = useState(null)
   const [requests, setRequests] = useState([])
   const [connected, setConnected] = useState(false)
-  const [following, setFollowing] = useState(true)
   const [unread, setUnread] = useState(0)
 
   const wsRef = useRef(null)
@@ -308,17 +307,17 @@ export function SessionProvider({ children }) {
   const mirror = !!presence?.mirror
   const value = useMemo(() => ({
     mirror,
-    // mirroring: this browser shows the driver's screen rather than its own. Follow
-    // off is the way out of it, as it is out of following.
-    mirroring: !!sid && !ended && mirror && !isDriver && following,
+    // mirroring: this browser shows the driver's screen rather than its own.
+    mirroring: !!sid && !ended && mirror && !isDriver,
     setMirror: (on) => hostCall(() => shareApi.setMirror(sid, on)),
     sendMirror: (events) => send({ t: 'mirror', data: events }),
     onMirror: (fn) => { mirrorSubs.current.add(fn); return () => mirrorSubs.current.delete(fn) },
     requestResync: () => send({ t: 'mirror-resync' }),
     active: !!sid && !ended, sid, me, presence, messages, follow, cursor, terms, browsers, ended, requests, connected, link, unread,
-    isDriver: !sid || isDriver, isHost, isGuest, following: following && !isDriver,
+    // Everyone who is not driving follows the driver, always: a viewer who wandered
+    // off on their own was a viewer lost to the session.
+    isDriver: !sid || isDriver, isHost, isGuest, following: !!sid && !isDriver,
     controllerName: controller === 0 ? presence?.host?.name : presence?.guests?.find((g) => g.id === controller)?.name,
-    setFollowing,
     publishFollow, publishUI, publishCursor,
     notice: localNotice,
     markRead: () => setUnread(0),
@@ -364,7 +363,7 @@ export function SessionProvider({ children }) {
     openSharedTerm: (spec) => shareApi.openTerm(sid, spec),
     closeSharedTerm: (tid) => shareApi.closeTerm(sid, tid).catch(() => {}),
   }), [mirror, sid, ended, me, presence, messages, follow, cursor, terms, browsers, requests, connected, link, unread, isDriver, isHost, isGuest,
-    following, controller, publishFollow, publishUI, publishCursor, localNotice, send, hostCall])
+    controller, publishFollow, publishUI, publishCursor, localNotice, send, hostCall])
 
   return <SessionCtx.Provider value={value}>{children}</SessionCtx.Provider>
 }

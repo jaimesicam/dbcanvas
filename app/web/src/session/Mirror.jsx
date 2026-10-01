@@ -20,6 +20,7 @@ import { startIframeCanvasSampler } from './mirrorCanvas.js'
 // socket. MirrorView runs everywhere else: it replays that stream, live and
 // read-only, over the viewer's own workspace. The viewer's own workspace keeps
 // following underneath, so turning the mirror off lands them where the driver is.
+// A viewer cannot step out of it: everyone who is not driving follows.
 //
 // What a guest may not see is kept out at the source, in the driver's browser:
 //   - [data-mirror-private] is recorded as an empty box: the host-only pages
@@ -182,10 +183,6 @@ export function MirrorView({ right = 0, onShowPanel }) {
             <Icon.Chat size={13} className="mr-1 inline" />Session
           </button>
         )}
-        <button onClick={() => s.setFollowing(false)} title="Back to your own view of the workspace. Tick Follow in the session panel to come back."
-          className="rounded px-2 py-0.5 font-medium hover:bg-primary/15">
-          Stop mirroring
-        </button>
       </div>
       <div ref={stage} className="relative min-h-0 flex-1 overflow-hidden bg-black/70">
         {waiting && (

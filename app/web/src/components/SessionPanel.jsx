@@ -14,7 +14,7 @@ import { setSoundsEnabled, soundsEnabled, subscribeSounds } from '../lib/session
 // One panel for the host and the guests, drawn differently by role: the host admits
 // and removes, mutes, gives and takes control, and ends the session; a guest asks for
 // control, hands it back, and leaves. Everybody chats, sees who is here and who
-// drives, and can stop following to look around on their own.
+// drives, and follows them — always: nobody watching can wander off and get lost.
 //
 // Chat is text. Every message is rendered as a React text node — never as HTML — so a
 // guest's "<script>" is shown, not run. Emoji are text too: the picker inserts them at
@@ -222,11 +222,6 @@ export default function SessionPanel({ onClose }) {
           <span className="flex-1">
             <span className="font-medium">{s.isDriver ? 'You have' : `${s.controllerName || '…'} has`}</span> control
           </span>
-          {!s.isDriver && (
-            <label className="flex cursor-pointer items-center gap-1 text-muted">
-              <input type="checkbox" checked={s.following} onChange={(e) => s.setFollowing(e.target.checked)} /> Follow
-            </label>
-          )}
         </div>
         {s.isHost ? (
           <label className="flex cursor-pointer items-start gap-1.5" title="Everyone sees exactly the driver's screen — menus, drags, dialogs, windows — instead of their own copy of the page">
@@ -234,14 +229,14 @@ export default function SessionPanel({ onClose }) {
             <span>
               Mirror everything
               <span className="block text-xs text-muted">
-                {s.mirror ? 'Everyone following sees exactly the driver’s screen.' : 'Show everyone the driver’s screen itself — context menus, drags, dialogs — not just the same page.'}
+                {s.mirror ? 'Everyone sees exactly the driver’s screen.' : 'Show everyone the driver’s screen itself — context menus, drags, dialogs — not just the same page.'}
               </span>
             </span>
           </label>
         ) : s.mirror && (
           <div className="flex items-center gap-1.5 text-xs text-muted">
             <Icon.Monitor size={13} />
-            {s.isDriver ? 'Mirror is on: everyone sees your screen as you see it.' : s.following ? 'Mirroring the driver’s screen.' : 'Mirror is on — tick Follow to see the driver’s screen.'}
+            {s.isDriver ? 'Mirror is on: everyone sees your screen as you see it.' : 'Mirroring the driver’s screen.'}
           </div>
         )}
         <div className="flex flex-wrap gap-1.5">

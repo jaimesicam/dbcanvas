@@ -137,7 +137,7 @@ export default function Kanban() {
     } catch (e) { setErr(e.message) }
   }
   const renameBoard = async (b) => {
-    const name = await ask.prompt({ title: 'Rename board', label: 'Name', initial: b.name, confirmLabel: 'Rename' })
+    const name = await ask.prompt({ title: 'Rename board', label: 'Name', defaultValue: b.name, confirmLabel: 'Rename' })
     if (!name?.trim()) return
     await kanbanApi.updateBoard(b.id, { name: name.trim() }).catch((e) => setErr(e.message))
     loadBoards(); if (b.id === boardId) loadBoard(boardId)
@@ -169,7 +169,7 @@ export default function Kanban() {
     () => kanbanApi.updateColumn(col.id, name, col.wipLimit),
   )
   const setWip = async (col) => {
-    const v = await ask.prompt({ title: `Work-in-progress limit for “${col.name}”`, label: 'Most cards (0 for no limit)', initial: String(col.wipLimit || 0), confirmLabel: 'Set limit' })
+    const v = await ask.prompt({ title: `Work-in-progress limit for “${col.name}”`, label: 'Most cards (0 for no limit)', defaultValue: String(col.wipLimit || 0), confirmLabel: 'Set limit' })
     if (v === null) return
     const n = Math.max(0, Math.min(999, parseInt(v, 10) || 0))
     write((d) => ({ ...d, columns: d.columns.map((c) => (c.id === col.id ? { ...c, wipLimit: n } : c)) }),

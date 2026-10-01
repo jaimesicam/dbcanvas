@@ -86,8 +86,9 @@ their own sign-in in their other tabs — only the guest tab is a guest.
 
 An admitted guest sees DBCanvas as you do and **follows** you: the page you are on, the
 stack you have open, the canvas's position and zoom, the node you selected, and your
-pointer on the canvas. Untick **Follow** in the panel to look around on your own; tick
-it to catch up.
+pointer on the canvas. Following is not optional: everyone who is not driving follows
+the driver all the time, so nobody watching gets lost. To look around on their own, a
+guest asks for control.
 
 ![The same session from a guest's side: following the host, the canvas and the desktop both view only](screenshots/shared-session-guest.png)
 
@@ -98,13 +99,13 @@ covers that.
 
 ### Mirror everything
 
-With it on, everyone who follows sees **exactly the driver's screen**, live, scaled to fit
+With it on, everyone who is not driving sees **exactly the driver's screen**, live, scaled to fit
 beside their own session panel: the right-click menu they opened, the window they are
 dragging, the dialog they filled in, their pointer and their clicks. A strip across the top
-says whose screen it is. It is a picture of the screen, so it cannot be clicked; **Stop
-mirroring** (or unticking **Follow**) goes back to your own view, already on the driver's
-page, and ticking **Follow** brings the mirror back. When control moves, the mirror moves
-to the new driver's screen — the host watching a guest drive sees the guest's.
+says whose screen it is. It is a picture of the screen, so it cannot be clicked; the
+session panel beside it stays yours — chat, **Request control**, **Leave**. When control
+moves, the mirror moves to the new driver's screen — the host watching a guest drive sees
+the guest's.
 
 It is on by default for a new session, and the host switches it in the session panel at
 any time. How it works: the driver's browser records its own page (with

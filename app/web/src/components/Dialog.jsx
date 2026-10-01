@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Icon } from './Icons.jsx'
 import { Button, inputCls } from './ui.jsx'
 
@@ -57,8 +58,12 @@ export function DialogBox({ kind, opts, onDone }) {
     return () => window.removeEventListener('keydown', onKey, true)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-4 animate-fade-in" onMouseDown={cancel}>
+  // At the top of the page, above everything: a question asked from inside a panel or
+  // a window would otherwise sit in that panel's stacking layer — under the windows,
+  // or, for a guest in a shared session, under the mirrored screen (z 9000), where a
+  // Leave that asks "are you sure?" looked like a button that did nothing.
+  const box = (
+    <div className="fixed inset-0 flex items-center justify-center bg-black/40 p-4 animate-fade-in" style={{ zIndex: 9500 }} onMouseDown={cancel}>
       <form
         role={kind === 'prompt' ? 'dialog' : 'alertdialog'} aria-modal="true" aria-label={title}
         className="w-full max-w-sm rounded-2xl border bg-surface p-5 shadow-xl"
@@ -90,4 +95,5 @@ export function DialogBox({ kind, opts, onDone }) {
       </form>
     </div>
   )
+  return typeof document === 'undefined' ? box : createPortal(box, document.body)
 }
