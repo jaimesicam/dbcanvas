@@ -37,6 +37,63 @@ type releaseNote struct {
 // expanded, and the tests assume the ordering.
 var whatsNewNotes = []releaseNote{
 	{
+		Version: "0.0.13",
+		Date:    "2026-10-01",
+		Title:   "DBCanvas is a web desktop",
+		Body: "Every page now opens in a window on a desktop: move it, resize it from any edge, snap it to half " +
+			"or a quarter of the screen, minimize it to the taskbar, or tile and cascade the lot. The sidebar " +
+			"became a Start menu, grouped and searchable, and the desktop has an icon for every page and every " +
+			"stack — double-click a stack for a folder of its nodes, with a right-click for a node's console " +
+			"and web UIs. Terminals, node web UIs and the file managers are windows too. Appearance → Layout → " +
+			"Classic brings back the sidebar and tabs.",
+		Doc: "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.13",
+		Date:    "2026-10-01",
+		Title:   "Shared sessions: the whole app, and Mirror everything",
+		Body: "A session covers the whole workspace and starts from Share on any page. With Mirror everything " +
+			"on, everyone sees exactly the driver's screen — menus, dragged windows, dialogs, a VNC desktop " +
+			"moving live — and everyone who is not driving always follows. A colleague with an account can " +
+			"join as themselves, signed in; anyone else joins as a guest.",
+		Doc: "docs/SHARED_SESSIONS.md",
+	},
+	{
+		Version: "0.0.13",
+		Date:    "2026-10-01",
+		Title:   "Kanban boards",
+		Body: "Boards of columns and cards, private or shared. Drag a card to exactly where it belongs with the " +
+			"mouse, a touch screen or the keyboard, and drag columns to reorder them. Cards carry a description, " +
+			"labels, an assignee, a due date and a colour; columns a colour and a work-in-progress limit.",
+		Doc: "docs/KANBAN.md",
+	},
+	{
+		Version: "0.0.13",
+		Date:    "2026-10-01",
+		Title:   "Profiles: a name, an email and an avatar, and a Profile page",
+		Body: "Accounts have a first and last name, an email address (one per account) and an avatar, asked for " +
+			"at setup and registration and shown across the app. Name, email, avatar, password and API tokens " +
+			"are all on the new Profile page.",
+	},
+	{
+		Version: "0.0.13",
+		Date:    "2026-10-01",
+		Title:   "Credentials encrypted at rest",
+		Body: "Passwords, node and stack secrets, names, emails, chat and Kanban text are encrypted in the " +
+			"database, with the key on a volume of its own (app-keys); login sessions are stored hashed. " +
+			"Existing data is encrypted on first start. Back up the key with the database, and rotate it with " +
+			"make rotate-key.",
+		Doc: "docs/CONFIGURATION.md",
+	},
+	{
+		Version: "0.0.13",
+		Date:    "2026-10-01",
+		Title:   "Also: MariaDB 12.3, node web UIs from the canvas, and fixes",
+		Body: "MariaDB 12.3 joins the version picker. Right-click a node with a web UI on the canvas for Open in " +
+			"new tab and Open in VNC Browser. Fixed: a watching guest's Leave did nothing while the mirror was " +
+			"showing, and dialogs no longer open behind windows.",
+	},
+	{
 		Version: "0.0.12",
 		Date:    "2026-09-30",
 		Title:   "Shared sessions — work on a stack together, live",

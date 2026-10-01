@@ -3,6 +3,8 @@
 **Kanban** keeps boards of work: columns for each stage, cards for each piece of work, in
 the order you put them. Open it from **Start → Workspace → Kanban**.
 
+![A shared Kanban board: four columns, two of them coloured, cards with labels, colours, due dates and assignees](screenshots/kanban.png)
+
 ## Boards
 
 The list on the left is your boards, then the ones colleagues shared. **New board** asks

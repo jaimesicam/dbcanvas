@@ -1304,6 +1304,8 @@ deployment failures, data-generation completed/failed, stacks destroyed or **exp
 approval.
 
 ### The desktop
+![The DBCanvas desktop: a stack on the canvas in a window, the stack's nodes in a folder window, the stacks down the right, and the taskbar](screenshots/desktop.png)
+
 DBCanvas opens as a **desktop**. Every page — Database Stacks, Database Explorer, Query
 Runner, the summaries, Settings — opens in its own window over a desktop that has an icon
 for each page (double-click one to open it). The **Start** button at the left of the

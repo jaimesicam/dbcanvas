@@ -13,7 +13,7 @@ development: spin up a production-shaped cluster in minutes, exercise it, tear i
 > that trade durability for speed of setup, and stacks that are meant to be torn down. Do not
 > run anything you care about on it, and do not use it to deploy production infrastructure.
 
-![The Database Stacks canvas with a deployed stack](docs/screenshots/stacks-canvas.png)
+![The DBCanvas desktop: a deployed stack on the canvas in one window, its nodes in a folder window, your stacks down the right, and the taskbar](docs/screenshots/desktop.png)
 
 ---
 
@@ -164,9 +164,79 @@ yourself.
 
 ## What's new
 
-### 0.0.12
+### 0.0.13
 
 <details open>
+<summary><b>DBCanvas is a web desktop</b></summary>
+
+Every page now opens in a **window** on a desktop: move it, resize it from any edge, snap it to
+half or a quarter of the screen, minimize it to the **taskbar**, or tile and cascade the lot.
+The sidebar became a **Start** menu — grouped and searchable — and the desktop has an icon for
+every page and one for every **stack**: double-click a stack for a folder of its nodes, lit by
+what each container is doing, with a right-click for a node's console and web UIs. Terminals,
+node web UIs and the file managers are windows too, and the taskbar shows what is running,
+who drives a shared session and the time. **Appearance → Layout → Classic** brings back the
+sidebar and tabs.
+
+![The DBCanvas desktop](docs/screenshots/desktop.png)
+
+[The desktop →](docs/STACKS.md#the-desktop)
+</details>
+
+<details>
+<summary><b>Shared sessions: the whole app, and Mirror everything</b></summary>
+
+A session now covers the whole workspace and starts from **Share** on any page. With **Mirror
+everything** on, everyone sees exactly the driver's screen — the menus they open, the windows
+they drag, the dialogs, a VNC desktop moving live — instead of their own copy of the page, and
+everyone who is not driving always follows. A colleague with a DBCanvas account can join as
+**themselves**, signed in, with their own name and avatar; anyone else joins as a guest.
+
+[Shared Sessions →](docs/SHARED_SESSIONS.md)
+</details>
+
+<details>
+<summary><b>Kanban boards</b></summary>
+
+Boards of columns and cards, private or shared with everyone. Drag a card to exactly where it
+belongs — between two cards, into another column — with the mouse, a touch screen or the
+keyboard, and drag columns to reorder them. Cards carry a description, labels, an assignee, a
+due date and a colour; columns a colour and a work-in-progress limit.
+
+[Kanban →](docs/KANBAN.md)
+</details>
+
+<details>
+<summary><b>Profiles: a name, an email and an avatar, and a Profile page</b></summary>
+
+Accounts have a first and last name, an email address (one per account) and an avatar from 28,
+asked for at setup and registration. They show in the account menu, Manage Users, shared
+sessions and on Kanban cards. Everything about your account — name, email, avatar, password
+and API tokens — is on the new **Profile** page.
+</details>
+
+<details>
+<summary><b>Credentials encrypted at rest</b></summary>
+
+Passwords, node and stack secrets, names, emails, chat and Kanban text are encrypted in the
+database (AES-256-GCM), with the key on a volume of its own (`app-keys`); login sessions are
+stored hashed. Existing data is encrypted on the first start. **Back up the key with the
+database** — one is useless without the other — and rotate it with `make rotate-key`.
+
+[Configuration →](docs/CONFIGURATION.md)
+</details>
+
+<details>
+<summary><b>Also: MariaDB 12.3, node web UIs from the canvas, and fixes</b></summary>
+
+MariaDB **12.3** joins the version picker. Right-click a node with a web UI on the canvas for
+**Open in new tab** and **Open in VNC Browser**. Fixed: a watching guest's **Leave** did
+nothing while the mirror was showing, and dialogs no longer open behind windows.
+</details>
+
+### 0.0.12
+
+<details>
 <summary><b>Shared sessions — work on a stack together, live</b></summary>
 
 Click **Share** on a stack and send the link. Whoever opens it gives a name and an email and

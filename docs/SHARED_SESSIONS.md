@@ -12,7 +12,7 @@ while everyone else watches them.
 A link lasts at most **two hours**. Nobody has to install anything or forward a port:
 everything, including a VNC desktop, travels through DBCanvas's own address.
 
-![A shared session from the host's side: the stack on the canvas, a VNC desktop shared into a browser window, and the session panel with a guest waiting in the lobby](screenshots/shared-session-host.png)
+![A shared session from the host's side: the stack on the canvas in a desktop window, and the session panel with one guest waiting in the lobby, one signed in with their account, one joined as a guest, and the chat](screenshots/shared-session-host.png)
 
 > [!IMPORTANT]
 > A guest you give control to can do everything you can in your workspace — deploy,
@@ -62,7 +62,7 @@ The link opens a join screen with two ways in:
 - **Join as a guest** — anyone else types a name and an email, both required, neither
   verified (labels to recognise people by, not an identity), and picks an avatar.
 
-![The join screen a guest sees when they open the link](screenshots/shared-session-join.png)
+![The join screen, opened in a browser already signed in to DBCanvas: join as that account in one click, or as a guest](screenshots/shared-session-join.png)
 
 They wait in the **lobby**. You get a notification and an entry at the top of the
 session panel with their avatar, their name, their email (or the account they signed in
@@ -90,7 +90,7 @@ pointer on the canvas. Following is not optional: everyone who is not driving fo
 the driver all the time, so nobody watching gets lost. To look around on their own, a
 guest asks for control.
 
-![The same session from a guest's side: following the host, the canvas and the desktop both view only](screenshots/shared-session-guest.png)
+![The same session from a guest's side with Mirror everything on: the host's screen, right-click menu and all, beside the guest's own session panel](screenshots/shared-session-guest.png)
 
 Following moves everyone to the same place, but each browser still draws its own copy of
 the page. Whatever is not part of that place — a context menu, a window being dragged, a
@@ -172,7 +172,7 @@ one opens the page in a window inside DBCanvas, served through DBCanvas's own po
 **Right-clicking** the link — or the node on the canvas — offers **Open in VNC Browser**
 (below) and, for anyone but a guest, **Open in new tab**.
 
-![Right-clicking a node's web link](screenshots/browser-window-menu.png)
+![Right-clicking a node's web link: open it in the stack's VNC Browser, in a new tab, or copy it](screenshots/browser-window-menu.png)
 
 The window has back, forward, reload, an address you can edit, **Open in a browser tab**
 (still through DBCanvas), and the controls every window has — minimize to the taskbar,
