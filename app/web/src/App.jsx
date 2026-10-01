@@ -41,6 +41,7 @@ import Settings from './pages/Settings.jsx'
 import Labs from './pages/Labs.jsx'
 import Api from './pages/Api.jsx'
 import Profile from './pages/Profile.jsx'
+import Kanban from './pages/Kanban.jsx'
 import { showExperimental, visible } from './lib/experimental.js'
 
 // Exported for the smoke suite: the tags on these entries are what an installation
@@ -48,6 +49,8 @@ import { showExperimental, visible } from './lib/experimental.js'
 export const NAV = [
   { id: 'dashboard', label: 'Dashboard', icon: 'Dashboard', page: Dashboard, hint: 'Widgets & live charts' },
   { id: 'stack-designer', label: 'Database Stacks', icon: 'Stacks', page: StackDesigner, hint: 'Design & deploy stacks' },
+  // fill: a board is columns side by side, as tall as the window (pages/Kanban.jsx).
+  { id: 'kanban', label: 'Kanban', icon: 'Kanban', page: Kanban, fill: true, hint: 'Boards of cards — plan and track the work, alone or together' },
   { id: 'data-generator', label: 'Data Generator', icon: 'Table', page: DataGenerator, hint: 'Generate test data for stack tables' },
   // Beside the Query Runner deliberately, and doing the opposite job: that page runs
   // one statement many times to see what contention does, this one runs many

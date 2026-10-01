@@ -125,7 +125,8 @@ yourself.
 | [**Core Dump Analyzer**](docs/CORE_DUMP_ANALYZER.md) | Read a `mysqld` core dump from another server — threads, stack, arguments. |
 | [**All in One**](docs/ALL_IN_ONE.md) | Many database instances in one node, for when you need versions side by side. |
 | [**Shared Sessions**](docs/SHARED_SESSIONS.md) | Share a live session through a link: colleagues follow you across every tab, chat, and take control when you hand it to them — terminals and VNC desktops included, through one port. |
-| [**HTTP API**](docs/API.md) | Every one of the 321 endpoints, with tokens you create and expire yourself. |
+| [**Kanban**](docs/KANBAN.md) | Boards of work, alone or shared: drag cards to exactly where they belong, from the mouse, a touch screen or the keyboard. |
+| [**HTTP API**](docs/API.md) | Every one of the 342 endpoints, with tokens you create and expire yourself. |
 | [**`dbcanvas-cli`**](docs/CLI.md) | Sign in once, then compose, deploy and drive stacks from your terminal. |
 
 ## Documentation

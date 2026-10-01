@@ -48,6 +48,7 @@ How to use each part of DBCanvas. For installing and configuring it, see
 
 | Guide | What it covers |
 | --- | --- |
+| [Kanban](KANBAN.md) | Boards of columns and cards, private or shared: dragging cards and columns into place, the keyboard, filters, work-in-progress limits. |
 | [Shared Sessions](SHARED_SESSIONS.md) | Share a live session through a link — a lobby, following, chat, handing over control — and open node web UIs, VNC included, in a browser window through DBCanvas's own port. |
 
 ## Learn on it

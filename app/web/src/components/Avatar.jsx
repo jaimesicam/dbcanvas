@@ -77,7 +77,7 @@ export function Avatar({ avatar, name, size = 28, className = '', title }) {
 // AvatarPicker is the grid to choose one from.
 export function AvatarPicker({ value, onChange, size = 36 }) {
   return (
-    <div className="grid grid-cols-7 gap-1.5" role="radiogroup" aria-label="Avatar">
+    <div className="grid max-w-[22rem] grid-cols-7 gap-1.5" role="radiogroup" aria-label="Avatar">
       {AVATARS.map((a) => {
         const on = value === a.id
         return (

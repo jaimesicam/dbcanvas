@@ -1225,6 +1225,25 @@ The stream is `text/event-stream` and stays open; each event's `data` is one
 notification as JSON. It is how a long-running script learns that a deploy finished
 without polling.
 
+## Kanban
+
+Boards of columns of cards ([Kanban](KANBAN.md)). A board is its owner's; shared, any
+signed-in user works on its columns and cards. Positions are indexes: `0` is the top of a
+column (or its leftmost place on the board), and an index past the end is the end.
+
+| To do this | API | CLI |
+| --- | --- | --- |
+| Your boards and the shared ones | `GET /api/kanban/boards` | `dbcanvas api GET /api/kanban/boards` |
+| Create a board | `POST /api/kanban/boards` `{"name", "shared", "columns": ["To do", …]}` | — |
+| A board, its columns and cards in order (`?since=<rev>` for a cheap poll) | `GET /api/kanban/boards/{id}` | `dbcanvas api GET /api/kanban/boards/3` |
+| Rename or share it; delete it *(owner)* | `PUT /api/kanban/boards/{id}` `{"name", "shared"}` · `DELETE …` | — |
+| Add, change, delete a column | `POST /api/kanban/boards/{id}/columns` `{"name", "index"}` · `PUT /api/kanban/columns/{cid}` `{"name", "wipLimit"}` · `DELETE …` | — |
+| Move a column | `POST /api/kanban/columns/{cid}/move` `{"index"}` | — |
+| Add a card | `POST /api/kanban/columns/{cid}/cards` `{"title", "description", "labels", "assigneeId", "due", "index"}` | — |
+| Change or delete a card | `PUT /api/kanban/cards/{kid}` · `DELETE /api/kanban/cards/{kid}` | — |
+| Move a card to a place in a column | `POST /api/kanban/cards/{kid}/move` `{"columnId", "index"}` | `dbcanvas api POST /api/kanban/cards/12/move --data '{"columnId":4,"index":0}'` |
+| Who a card can be assigned to | `GET /api/kanban/people` | — |
+
 ## Shared sessions
 
 A stack's owner shares a live session through a link that lasts at most two hours.

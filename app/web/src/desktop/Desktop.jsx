@@ -20,7 +20,7 @@ import { StackIcons, StackFolder, useStacks } from './Stacks.jsx'
 // The Start menu's sections. A page not named here lands in the last one, so a new
 // page is never lost from the menu, only filed under Other until it is placed.
 const GROUPS = [
-  { title: 'Workspace', ids: ['dashboard', 'stack-designer'] },
+  { title: 'Workspace', ids: ['dashboard', 'stack-designer', 'kanban'] },
   { title: 'Data and queries', ids: ['data-generator', 'database-explorer', 'queryrun', 'benchmark', 'sample-code'] },
   { title: 'Diagnose', ids: ['packet-inspector', 'operator-debugger', 'core-dump', 'stalk-summary', 'log-summary', 'ftdc-summary', 'operator-summary', 'k8s-states'] },
   { title: 'Learn', ids: ['labs'] },
