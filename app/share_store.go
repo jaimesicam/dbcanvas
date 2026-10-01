@@ -368,7 +368,7 @@ func (s *Store) ExpiredShareSessions(now time.Time) ([]int64, error) {
 
 const shareGuestCols = `id, session_id, name, email, state, muted, remote_addr, joined_at, admitted_at, left_at, invite_hash`
 
-func scanShareGuest(row interface{ Scan(...any) error }) (ShareGuest, error) {
+func (s *Store) scanShareGuest(row interface{ Scan(...any) error }) (ShareGuest, error) {
 	var g ShareGuest
 	var muted int
 	var adm, left sql.NullString
@@ -377,6 +377,13 @@ func scanShareGuest(row interface{ Scan(...any) error }) (ShareGuest, error) {
 		return ShareGuest{}, errShareNotFound
 	}
 	if err != nil {
+		return ShareGuest{}, err
+	}
+	// Name and email are sealed (encryption.go): what a guest typed is theirs.
+	if g.Name, err = s.openVal(aadID("share_guests", "name", g.SessionID), g.Name); err != nil {
+		return ShareGuest{}, err
+	}
+	if g.Email, err = s.openVal(aadID("share_guests", "email", g.SessionID), g.Email); err != nil {
 		return ShareGuest{}, err
 	}
 	g.Muted = muted != 0
@@ -390,6 +397,13 @@ func scanShareGuest(row interface{ Scan(...any) error }) (ShareGuest, error) {
 }
 
 func (s *Store) CreateShareGuest(sessionID int64, name, email, cookieHash, remoteAddr, inviteHash string) (ShareGuest, error) {
+	name, err := s.sealVal(aadID("share_guests", "name", sessionID), name)
+	if err != nil {
+		return ShareGuest{}, err
+	}
+	if email, err = s.sealVal(aadID("share_guests", "email", sessionID), email); err != nil {
+		return ShareGuest{}, err
+	}
 	res, err := s.db.Exec(`INSERT INTO share_guests (session_id, name, email, cookie_hash, state, remote_addr, joined_at, invite_hash)
 		VALUES (?,?,?,?,?,?,?,?)`, sessionID, name, email, cookieHash, guestWaiting, remoteAddr, nowRFC3339(), inviteHash)
 	if err != nil {
@@ -403,11 +417,11 @@ func (s *Store) CreateShareGuest(sessionID int64, name, email, cookieHash, remot
 }
 
 func (s *Store) GetShareGuest(id int64) (ShareGuest, error) {
-	return scanShareGuest(s.db.QueryRow(`SELECT `+shareGuestCols+` FROM share_guests WHERE id = ?`, id))
+	return s.scanShareGuest(s.db.QueryRow(`SELECT `+shareGuestCols+` FROM share_guests WHERE id = ?`, id))
 }
 
 func (s *Store) ShareGuestByCookie(cookieHash string) (ShareGuest, error) {
-	return scanShareGuest(s.db.QueryRow(`SELECT `+shareGuestCols+` FROM share_guests WHERE cookie_hash = ?`, cookieHash))
+	return s.scanShareGuest(s.db.QueryRow(`SELECT `+shareGuestCols+` FROM share_guests WHERE cookie_hash = ?`, cookieHash))
 }
 
 func (s *Store) ListShareGuests(sessionID int64) ([]ShareGuest, error) {
@@ -418,7 +432,7 @@ func (s *Store) ListShareGuests(sessionID int64) ([]ShareGuest, error) {
 	defer rows.Close()
 	out := []ShareGuest{}
 	for rows.Next() {
-		g, err := scanShareGuest(rows)
+		g, err := s.scanShareGuest(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -456,8 +470,16 @@ func (s *Store) AddShareMessage(m ShareMessage) (ShareMessage, error) {
 	if m.CreatedAt == "" {
 		m.CreatedAt = nowRFC3339()
 	}
+	author, err := s.sealVal(aadID("share_messages", "author", m.SessionID), m.Author)
+	if err != nil {
+		return ShareMessage{}, err
+	}
+	body, err := s.sealVal(aadID("share_messages", "body", m.SessionID), m.Body)
+	if err != nil {
+		return ShareMessage{}, err
+	}
 	res, err := s.db.Exec(`INSERT INTO share_messages (session_id, author_kind, guest_id, author, kind, body, created_at)
-		VALUES (?,?,?,?,?,?,?)`, m.SessionID, m.AuthorKind, m.GuestID, m.Author, m.Kind, m.Body, m.CreatedAt)
+		VALUES (?,?,?,?,?,?,?)`, m.SessionID, m.AuthorKind, m.GuestID, author, m.Kind, body, m.CreatedAt)
 	if err != nil {
 		return ShareMessage{}, err
 	}
@@ -485,6 +507,12 @@ func (s *Store) ListShareMessages(sessionID int64, limit int) ([]ShareMessage, e
 	for rows.Next() {
 		var m ShareMessage
 		if err := rows.Scan(&m.ID, &m.SessionID, &m.AuthorKind, &m.GuestID, &m.Author, &m.Kind, &m.Body, &m.CreatedAt); err != nil {
+			return nil, err
+		}
+		if m.Author, err = s.openVal(aadID("share_messages", "author", m.SessionID), m.Author); err != nil {
+			return nil, err
+		}
+		if m.Body, err = s.openVal(aadID("share_messages", "body", m.SessionID), m.Body); err != nil {
 			return nil, err
 		}
 		out = append(out, m)

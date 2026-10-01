@@ -21,6 +21,8 @@ COPY app/go.mod app/go.sum ./
 RUN go mod download
 COPY app/*.go ./
 COPY app/cmd/ ./cmd/
+# The encryption-at-rest package, shared by the server and dbcanvas_reset_password.
+COPY app/internal/ ./internal/
 # Embedded into the binary (go:embed in linuxclient_el7.go): the CentOS 7 repo file an EOL
 # Linux Client is pointed at. Not a .go file, so the line above does not bring it.
 COPY app/el7/ ./el7/
@@ -87,7 +89,10 @@ ENV DBCANVAS_IMAGES_DIR=/opt/dbcanvas/images
 ENV APP_HOST=0.0.0.0
 ENV APP_PORT=8080
 ENV DB_PATH=/data/dbcanvas.db
+# The key the database's credential columns are sealed with (app/internal/seal). On a
+# volume of its own, so a backup of /data alone is ciphertext.
+ENV DBCANVAS_ENCRYPTION_KEY_PATH=/keys/dbcanvas-encryption.key
 ENV K3D_BIN=/usr/local/bin/k3d
 EXPOSE 8080
-VOLUME ["/data"]
+VOLUME ["/data", "/keys"]
 ENTRYPOINT ["/dbcanvas"]

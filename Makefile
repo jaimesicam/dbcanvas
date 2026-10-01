@@ -11,7 +11,7 @@ VERSION ?= $(shell cat VERSION 2>/dev/null || echo dev)
 # app/clidownload.go, which is what the API page offers for download.
 CLI_PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 
-.PHONY: install install-extras compose env build up down logs restart clean images extra-images versions smoke cli cli-test trafficsim-image hotelsim-image airlinesim-image carsim-image marketchaos-image stocksim-image ledgersim-image intranet-image vnc-image
+.PHONY: install install-extras compose env build up down logs restart rotate-key clean images extra-images versions smoke cli cli-test trafficsim-image hotelsim-image airlinesim-image carsim-image marketchaos-image stocksim-image ledgersim-image intranet-image vnc-image
 
 ## install: everything a first run needs — every image DBCanvas can build (the OS
 ## bases and the Intranet, then the optional ones on top: the VNC desktop, the K3D
@@ -81,6 +81,14 @@ down:
 
 ## restart: recreate the stack
 restart: down compose
+
+## rotate-key: re-encrypt the database's passwords and secrets under a new key. Stops
+## the app, re-seals everything in one transaction, keeps the old key as .old on the
+## key volume, and starts the app again.
+rotate-key:
+	docker compose stop app
+	docker compose run --rm --no-deps app -rotate-encryption-key
+	docker compose start app
 
 ## logs: follow application logs
 logs:

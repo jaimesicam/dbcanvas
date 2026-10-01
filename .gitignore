@@ -1,5 +1,8 @@
 # Environment / secrets
 .env
+# The database's encryption key, beside the database on a local (non-Docker) run.
+dbcanvas-encryption.key
+dbcanvas-encryption.key.*
 
 # Node
 node_modules/
