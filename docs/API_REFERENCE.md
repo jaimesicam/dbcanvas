@@ -1236,7 +1236,8 @@ transcript and the guest actions — are deleted after `sessionRetentionDays`
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Start a session, get its link *(password sign-in only)* | `POST /api/stacks/{id}/share` `{"minutes": 5–120, "hideSecrets": false}` | — |
+| Start a session, get its link *(password sign-in only)* | `POST /api/share/sessions` `{"minutes": 5–120, "hideSecrets": false, "mirror": true}` — or `POST /api/stacks/{id}/share` with the same body, to file it on a stack | — |
+| Mirror everything on or off | `POST /api/share/sessions/{sid}/mirror` `{"mirror": true}` | — |
 | Your sessions (`?live=1` for running ones) | `GET /api/share/sessions` | `dbcanvas api GET /api/share/sessions?live=1` |
 | One session: guests and who has control | `GET /api/share/sessions/{sid}` | `dbcanvas api GET /api/share/sessions/3` |
 | Admit, deny, remove a guest | `POST /api/share/sessions/{sid}/guests/{gid}/admit` · `…/deny` · `…/remove` | `dbcanvas api POST …/guests/5/admit` |

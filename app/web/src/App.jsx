@@ -10,6 +10,8 @@ import { Badge, Button } from './components/ui.jsx'
 import { TerminalProvider } from './terminal/TerminalProvider.jsx'
 import { SessionProvider, useSession } from './session/SessionProvider.jsx'
 import SessionPanel from './components/SessionPanel.jsx'
+import ShareDialog from './components/ShareDialog.jsx'
+import { MirrorRecorder, MirrorView } from './session/Mirror.jsx'
 import { BrowserProvider } from './browser/BrowserProvider.jsx'
 import { notifApi, relTime } from './lib/notifApi.js'
 
@@ -218,6 +220,7 @@ function Workspace({ onSessionEnded }) {
     if (guest && session.ended && onSessionEnded) onSessionEnded(session.ended)
   }, [guest, session.ended, onSessionEnded])
   const [panelOpen, setPanelOpen] = useState(true)
+  const [shareOpen, setShareOpen] = useState(false)
   const showPanel = session.active || (session.ended && session.isHost)
   useEffect(() => { if (session.active) setPanelOpen(true) }, [session.active])
 
@@ -323,6 +326,7 @@ function Workspace({ onSessionEnded }) {
           onLogout={logout}
           guest={guest}
           session={session}
+          onShare={!guest && !session.active ? () => setShareOpen(true) : null}
         />
         {tabs.length > 1 && (
           // The tabs WRAP onto further rows rather than scrolling sideways. With a
@@ -386,7 +390,10 @@ function Workspace({ onSessionEnded }) {
               // opt-in: `h-full` is an exact height, so imposing it on every page would cap
               // the long ones (Log Summary, the API reference) instead of letting <main>
               // scroll them.
-              <div key={t.key} className={`${on ? 'animate-fade-in' : 'hidden'}${meta.fill ? ' h-full' : ''}`} aria-hidden={!on}>
+              // A host-only page is an empty box in the mirror (session/Mirror.jsx), as
+              // it is out of a guest's reach everywhere else.
+              <div key={t.key} className={`${on ? 'animate-fade-in' : 'hidden'}${meta.fill ? ' h-full' : ''}`} aria-hidden={!on}
+                data-mirror-private={GUEST_HIDDEN.has(t.id) ? '' : undefined}>
                 <PageVisibleProvider visible={on}>
                   <RefreshProvider register={registerFor(t.key)}>
                     <TabPage Page={Page} />
@@ -399,8 +406,12 @@ function Workspace({ onSessionEnded }) {
       </div>
 
       {showPanel && panelOpen && <SessionPanel onClose={() => setPanelOpen(false)} />}
+      <MirrorRecorder />
+      <MirrorView right={showPanel && panelOpen ? '22rem' : 0} onShowPanel={showPanel && !panelOpen ? () => setPanelOpen(true) : null} />
+      {shareOpen && <ShareDialog stack={null} onClose={() => setShareOpen(false)} />}
       {showPanel && !panelOpen && (
         <button
+          data-mirror-private
           onClick={() => setPanelOpen(true)}
           title="Show the shared session"
           className="fixed bottom-16 right-3 z-30 flex items-center gap-2 rounded-lg border bg-surface px-3 py-2 text-sm shadow-lg hover:bg-surface2"
@@ -476,7 +487,7 @@ export function TabCapNotice({ max, onDismiss }) {
 
 // The Refresh button sits beside the title because it acts on the page the title
 // names, and only appears for a page that has something to re-read.
-function Topbar({ title, hint, onRefresh, refreshing, onSearch, user, onLogout, guest, session }) {
+function Topbar({ title, hint, onRefresh, refreshing, onSearch, user, onLogout, guest, session, onShare }) {
   return (
     <header className="flex h-14 items-center gap-3 border-b bg-surface px-4">
       <div className="min-w-0">
@@ -504,6 +515,13 @@ function Topbar({ title, hint, onRefresh, refreshing, onSearch, user, onLogout, 
           <kbd className="hidden rounded bg-surface2 px-1.5 text-xs sm:inline">⌘K</kbd>
         </button>
         <AppearancePicker />
+        {onShare && (
+          // A session covers the whole workspace, so it starts from here — any page.
+          <button onClick={onShare} title="Share a live session of your workspace"
+            className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-fg hover:opacity-90">
+            <Icon.Share size={15} /> <span className="hidden sm:inline">Share</span>
+          </button>
+        )}
         {session?.active && (
           // Who is driving, always in view: in a shared session that is the one fact
           // everybody needs before they click anything.
@@ -658,7 +676,7 @@ function NotificationBell() {
         )}
       </button>
       {open && (
-        <div className="absolute right-0 z-30 mt-2 w-80 overflow-hidden rounded-lg border bg-surface shadow-2xl">
+        <div data-mirror-private className="absolute right-0 z-30 mt-2 w-80 overflow-hidden rounded-lg border bg-surface shadow-2xl">
           <div className="flex items-center justify-between border-b px-3 py-2">
             <span className="text-sm font-semibold">Notifications</span>
             <button onClick={markAll} className="text-xs text-muted hover:text-fg" disabled={unread === 0}>
@@ -706,7 +724,7 @@ function AccountMenu({ user, onLogout }) {
         {initials(user?.username)}
       </button>
       {open && (
-        <div className="absolute right-0 z-20 mt-2 w-52 rounded-lg border bg-surface p-2 shadow-xl">
+        <div data-mirror-private className="absolute right-0 z-20 mt-2 w-52 rounded-lg border bg-surface p-2 shadow-xl">
           <div className="flex items-center justify-between gap-2 px-1 pb-2">
             <span className="truncate text-sm font-medium">{user?.username}</span>
             <Badge tone={user?.role === 'admin' ? 'primary' : 'muted'}>{user?.role}</Badge>

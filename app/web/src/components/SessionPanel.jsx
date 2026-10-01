@@ -180,7 +180,7 @@ export default function SessionPanel({ onClose }) {
           <span className="flex-1 text-sm font-semibold">Session ended</span>
         </div>
         <div className="space-y-3 p-3 text-sm">
-          <p className="text-muted">Every guest was disconnected. The transcript is kept on the stack.</p>
+          <p className="text-muted">Every guest was disconnected. Download the transcript now — one started from a stack is also kept in that stack&apos;s Share dialog.</p>
           <div className="flex gap-2">
             <a className="text-primary hover:underline" href={shareApi.transcriptURL(s.sid)}>Download transcript</a>
             <span className="text-muted">·</span>
@@ -194,7 +194,7 @@ export default function SessionPanel({ onClose }) {
   }
 
   return (
-    <aside className="flex w-[22rem] shrink-0 flex-col border-l bg-surface" aria-label="Shared session">
+    <aside data-mirror-private className="flex w-[22rem] shrink-0 flex-col border-l bg-surface" aria-label="Shared session">
       {/* header */}
       <div className="flex items-center gap-2 border-b px-3 py-2">
         <Icon.Share size={16} />
@@ -223,6 +223,22 @@ export default function SessionPanel({ onClose }) {
             </label>
           )}
         </div>
+        {s.isHost ? (
+          <label className="flex cursor-pointer items-start gap-1.5" title="Everyone sees exactly the driver's screen — menus, drags, dialogs, windows — instead of their own copy of the page">
+            <input type="checkbox" className="mt-0.5" checked={s.mirror} onChange={(e) => s.setMirror(e.target.checked)} />
+            <span>
+              Mirror everything
+              <span className="block text-xs text-muted">
+                {s.mirror ? 'Everyone following sees exactly the driver’s screen.' : 'Show everyone the driver’s screen itself — context menus, drags, dialogs — not just the same page.'}
+              </span>
+            </span>
+          </label>
+        ) : s.mirror && (
+          <div className="flex items-center gap-1.5 text-xs text-muted">
+            <Icon.Monitor size={13} />
+            {s.isDriver ? 'Mirror is on: everyone sees your screen as you see it.' : s.following ? 'Mirroring the driver’s screen.' : 'Mirror is on — tick Follow to see the driver’s screen.'}
+          </div>
+        )}
         <div className="flex flex-wrap gap-1.5">
           {s.isGuest && !s.isDriver && <Button variant="outline" onClick={s.requestControl}>Request control</Button>}
           {s.isGuest && s.isDriver && <Button variant="outline" onClick={s.releaseControl}>Hand control back</Button>}

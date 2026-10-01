@@ -14,6 +14,10 @@ import { playSound } from '../lib/sessionSounds.js'
 //   publishCursor(point)  the driver's pointer, in canvas coordinates
 //   follow / cursor       what a follower reads to go where the driver is
 //
+// and, with the host's "Mirror everything" on, the driver's screen itself
+// (session/Mirror.jsx): sendMirror(events) from the driver, onMirror(fn) for
+// everyone else, and requestResync() when a viewer needs a fresh snapshot.
+//
 // and one thing it does on its own: when the driver's browser changes something on
 // the server, it tells everyone else to re-read ('dbcanvas:invalidate', which App
 // turns into the active tab's Refresh).
@@ -36,6 +40,7 @@ const INERT = {
   admit: async () => {}, deny: async () => {}, remove: async () => {}, mute: async () => {}, end: async () => {},
   start: async () => { throw new Error('no session') }, openSharedTerm: async () => {}, closeSharedTerm: async () => {},
   shareBrowser: () => {},
+  mirror: false, mirroring: false, setMirror: async () => {}, sendMirror: () => {}, onMirror: () => () => {}, requestResync: () => {},
   notice: () => {}, dismissRequest: () => {}, reset: () => {}, markRead: () => {}, newLink: async () => {},
 }
 
@@ -101,6 +106,10 @@ export function SessionProvider({ children }) {
   const followRef = useRef({})
   const followTimer = useRef(null)
   const lastCursor = useRef(0)
+  // The mirror stream is far too busy for React state: it goes straight to whoever
+  // subscribed (the recorder for resyncs, the replayer for events).
+  const mirrorSubs = useRef(new Set())
+  const emitMirror = (m) => { for (const fn of mirrorSubs.current) fn(m) }
 
   const isGuest = !!guest
   const isHost = !!user && !isGuest && !!sid
@@ -179,6 +188,10 @@ export function SessionProvider({ children }) {
             break
           case 'cursor':
             setCursor({ ...m.data, from: m.from, at: Date.now() })
+            break
+          case 'mirror':
+          case 'mirror-resync':
+            emitMirror(m)
             break
           case 'invalidate':
             window.dispatchEvent(new CustomEvent('dbcanvas:invalidate', { detail: m.data || {} }))
@@ -292,7 +305,16 @@ export function SessionProvider({ children }) {
     try { await fn() } catch (e) { localNotice(e.message) }
   }, [localNotice])
 
+  const mirror = !!presence?.mirror
   const value = useMemo(() => ({
+    mirror,
+    // mirroring: this browser shows the driver's screen rather than its own. Follow
+    // off is the way out of it, as it is out of following.
+    mirroring: !!sid && !ended && mirror && !isDriver && following,
+    setMirror: (on) => hostCall(() => shareApi.setMirror(sid, on)),
+    sendMirror: (events) => send({ t: 'mirror', data: events }),
+    onMirror: (fn) => { mirrorSubs.current.add(fn); return () => mirrorSubs.current.delete(fn) },
+    requestResync: () => send({ t: 'mirror-resync' }),
     active: !!sid && !ended, sid, me, presence, messages, follow, cursor, terms, browsers, ended, requests, connected, link, unread,
     isDriver: !sid || isDriver, isHost, isGuest, following: following && !isDriver,
     controllerName: controller === 0 ? presence?.host?.name : presence?.guests?.find((g) => g.id === controller)?.name,
@@ -320,9 +342,10 @@ export function SessionProvider({ children }) {
         return r.url
       } catch (e) { localNotice(e.message); return '' }
     },
-    // start begins a session on a stack and returns its link; the link is shown once.
-    start: async (stackId, minutes, hideSecrets) => {
-      const r = await shareApi.start(stackId, minutes, hideSecrets)
+    // start begins a session — from a stack, or from anywhere with stackId null — and
+    // returns its link; the link is shown once.
+    start: async (stackId, minutes, hideSecrets, mirrorOn) => {
+      const r = await shareApi.start(stackId, minutes, hideSecrets, mirrorOn)
       setEnded(null); setMessages([]); setPresence(null); setTerms([]); setBrowsers([]); setRequests([])
       setLink(r.url)
       setSid(r.session.id)
@@ -340,7 +363,7 @@ export function SessionProvider({ children }) {
     },
     openSharedTerm: (spec) => shareApi.openTerm(sid, spec),
     closeSharedTerm: (tid) => shareApi.closeTerm(sid, tid).catch(() => {}),
-  }), [sid, ended, me, presence, messages, follow, cursor, terms, browsers, requests, connected, link, unread, isDriver, isHost, isGuest,
+  }), [mirror, sid, ended, me, presence, messages, follow, cursor, terms, browsers, requests, connected, link, unread, isDriver, isHost, isGuest,
     following, controller, publishFollow, publishUI, publishCursor, localNotice, send, hostCall])
 
   return <SessionCtx.Provider value={value}>{children}</SessionCtx.Provider>

@@ -74,7 +74,7 @@ func (a *App) hubFor(sess ShareSession) *shareHub {
 		return h
 	}
 	h := &shareHub{app: a, sess: sess, clients: map[*hubClient]bool{}, terms: map[string]*sharedTerm{},
-		browsers: map[string]*sharedBrowser{}, lastChat: map[int64]time.Time{}}
+		browsers: map[string]*sharedBrowser{}, lastChat: map[int64]time.Time{}, mirror: sess.Mirror}
 	shareHubs.hubs[sess.ID] = h
 	h.armTimers()
 	return h
@@ -97,6 +97,10 @@ type shareHub struct {
 	driverLost *time.Timer
 	lastChat   map[int64]time.Time
 	ended      bool
+	// mirror is "Mirror everything" (sharemirror.go); lastResync throttles the
+	// requests for a fresh snapshot.
+	mirror     bool
+	lastResync time.Time
 }
 
 // sharedBrowser is a browser window everyone in the session sees. Link is the node
@@ -191,6 +195,7 @@ func (h *shareHub) presence() map[string]any {
 		online[c.guestID] = true
 	}
 	controller := h.controller
+	mirror := h.mirror
 	h.mu.Unlock()
 	type person struct {
 		ShareGuest
@@ -205,10 +210,17 @@ func (h *shareHub) presence() map[string]any {
 	return map[string]any{
 		"t": "presence", "host": map[string]any{"name": h.sess.HostName, "online": online[0]},
 		"guests": people, "controller": controller, "expiresAt": h.sess.ExpiresAt, "hideSecrets": h.sess.HideSecrets,
+		"mirror": mirror,
 	}
 }
 
 func (h *shareHub) broadcastPresence() { h.broadcast(h.presence(), nil) }
+
+func (h *shareHub) controllerNow() int64 {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.controller
+}
 
 func (h *shareHub) nameOf(guestID int64) string {
 	if guestID == 0 {
@@ -378,7 +390,9 @@ func (a *App) handleShareWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.CloseNow()
-	conn.SetReadLimit(64 << 10)
+	// Large enough for the driver's mirror snapshot (sharemirror.go); every other
+	// message is capped where it is handled.
+	conn.SetReadLimit(shareMirrorMax + 4096)
 
 	h := a.hubFor(sess)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -410,6 +424,10 @@ func (a *App) handleShareWS(w http.ResponseWriter, r *http.Request) {
 	h.send(c, map[string]any{"t": "hello", "you": map[string]any{"guestId": c.guestID, "name": c.name, "host": c.isHost()},
 		"session": sess, "history": history, "follow": follow, "terms": terms, "browsers": browsers})
 	h.broadcastPresence()
+	// Someone new is watching: the mirror they need starts with a full snapshot.
+	if c.guestID != h.controllerNow() {
+		h.requestResync()
+	}
 
 	// writer
 	go func() {
@@ -558,6 +576,12 @@ func (h *shareHub) handle(c *hubClient, t, body string, data json.RawMessage) {
 			h.event("browser", c.guestID, c.name, c.name+" opened "+b.Title+" in a browser window")
 		}
 		h.broadcast(map[string]any{"t": t, "browser": b}, c)
+	case "mirror":
+		h.relayMirror(c, driving, data)
+	case "mirror-resync":
+		if !driving {
+			h.requestResync()
+		}
 	case "control-request":
 		if c.isHost() || driving {
 			return

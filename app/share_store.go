@@ -18,18 +18,11 @@ const shareSchema = `
 -- One row per share link. The token is shown to the host once, inside the link;
 -- only its SHA-256 is kept, so a copy of the database is not a copy of the link.
 -- expires_at is at most two hours after created_at, which share.go enforces on the
--- way in; ended_at is set by End session, a revoke, or the expiry.
-CREATE TABLE IF NOT EXISTS share_sessions (
-  id           INTEGER PRIMARY KEY AUTOINCREMENT,
-  host_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  stack_id     INTEGER NOT NULL REFERENCES stacks(id) ON DELETE CASCADE,
-  token_hash   TEXT NOT NULL,
-  hide_secrets INTEGER NOT NULL DEFAULT 0,
-  created_at   TEXT NOT NULL,
-  expires_at   TEXT NOT NULL,
-  ended_at     TEXT,
-  ended_reason TEXT NOT NULL DEFAULT ''
-);
+-- way in; ended_at is set by End session, a revoke, or the expiry. A session covers
+-- the whole application; stack_id is only the stack it was started from, if any
+-- (migrateShareSessions makes it nullable in older databases). mirror is the host's
+-- "Mirror everything" switch (sharemirror.go).
+CREATE TABLE IF NOT EXISTS share_sessions (` + shareSessionsColumns + `);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_share_sessions_token ON share_sessions(token_hash);
 CREATE INDEX IF NOT EXISTS idx_share_sessions_host ON share_sessions(host_id, id DESC);
 CREATE INDEX IF NOT EXISTS idx_share_sessions_stack ON share_sessions(stack_id, id DESC);
@@ -85,6 +78,63 @@ CREATE TABLE IF NOT EXISTS share_actions (
 );
 CREATE INDEX IF NOT EXISTS idx_share_actions_session ON share_actions(session_id, id);`
 
+const shareSessionsColumns = `
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  host_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  stack_id     INTEGER REFERENCES stacks(id) ON DELETE SET NULL,
+  token_hash   TEXT NOT NULL,
+  hide_secrets INTEGER NOT NULL DEFAULT 0,
+  mirror       INTEGER NOT NULL DEFAULT 0,
+  created_at   TEXT NOT NULL,
+  expires_at   TEXT NOT NULL,
+  ended_at     TEXT,
+  ended_reason TEXT NOT NULL DEFAULT ''
+`
+
+// migrateShareSessions brings an older share_sessions table to the one above: a
+// session was once filed on exactly one stack (stack_id NOT NULL, deleted with it),
+// and had no mirror switch. SQLite cannot drop a NOT NULL, so the table is rebuilt —
+// the documented way: a new table, copy, drop, rename, with foreign keys off so the
+// drop does not cascade to the guests and messages that point at it.
+func migrateShareSessions(db *sql.DB) error {
+	db.Exec("ALTER TABLE share_sessions ADD COLUMN mirror INTEGER NOT NULL DEFAULT 0")
+	var notNull int
+	if err := db.QueryRow(`SELECT "notnull" FROM pragma_table_info('share_sessions') WHERE name = 'stack_id'`).Scan(&notNull); err != nil || notNull == 0 {
+		return err
+	}
+	if _, err := db.Exec("PRAGMA foreign_keys = OFF"); err != nil {
+		return err
+	}
+	defer db.Exec("PRAGMA foreign_keys = ON")
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	const cols = `id, host_id, stack_id, token_hash, hide_secrets, mirror, created_at, expires_at, ended_at, ended_reason`
+	for _, q := range []string{
+		`CREATE TABLE share_sessions_new (` + shareSessionsColumns + `)`,
+		`INSERT INTO share_sessions_new (` + cols + `) SELECT ` + cols + ` FROM share_sessions`,
+		`DROP TABLE share_sessions`,
+		`ALTER TABLE share_sessions_new RENAME TO share_sessions`,
+	} {
+		if _, err := tx.Exec(q); err != nil {
+			return err
+		}
+	}
+	// The indexes went with the old table.
+	for _, q := range []string{
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_share_sessions_token ON share_sessions(token_hash)`,
+		`CREATE INDEX IF NOT EXISTS idx_share_sessions_host ON share_sessions(host_id, id DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_share_sessions_stack ON share_sessions(stack_id, id DESC)`,
+	} {
+		if _, err := tx.Exec(q); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // ShareSession is one share link and its lifetime.
 type ShareSession struct {
 	ID          int64   `json:"id"`
@@ -93,6 +143,7 @@ type ShareSession struct {
 	StackID     int64   `json:"stackId"`
 	StackName   string  `json:"stackName"`
 	HideSecrets bool    `json:"hideSecrets"`
+	Mirror      bool    `json:"mirror"`
 	CreatedAt   string  `json:"createdAt"`
 	ExpiresAt   string  `json:"expiresAt"`
 	EndedAt     *string `json:"endedAt,omitempty"`
@@ -163,8 +214,8 @@ type ShareAction struct {
 
 var errShareNotFound = errors.New("shared session not found")
 
-const shareSessionCols = `s.id, s.host_id, COALESCE(u.username,''), s.stack_id, COALESCE(st.name,''),
-  s.hide_secrets, s.created_at, s.expires_at, s.ended_at, s.ended_reason`
+const shareSessionCols = `s.id, s.host_id, COALESCE(u.username,''), COALESCE(s.stack_id,0), COALESCE(st.name,''),
+  s.hide_secrets, s.mirror, s.created_at, s.expires_at, s.ended_at, s.ended_reason`
 
 const shareSessionFrom = ` FROM share_sessions s
   LEFT JOIN users u ON u.id = s.host_id
@@ -172,9 +223,9 @@ const shareSessionFrom = ` FROM share_sessions s
 
 func scanShareSession(row interface{ Scan(...any) error }) (ShareSession, error) {
 	var s ShareSession
-	var hide int
+	var hide, mirror int
 	var ended sql.NullString
-	err := row.Scan(&s.ID, &s.HostID, &s.HostName, &s.StackID, &s.StackName, &hide,
+	err := row.Scan(&s.ID, &s.HostID, &s.HostName, &s.StackID, &s.StackName, &hide, &mirror,
 		&s.CreatedAt, &s.ExpiresAt, &ended, &s.EndedReason)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ShareSession{}, errShareNotFound
@@ -183,19 +234,19 @@ func scanShareSession(row interface{ Scan(...any) error }) (ShareSession, error)
 		return ShareSession{}, err
 	}
 	s.HideSecrets = hide != 0
+	s.Mirror = mirror != 0
 	if ended.Valid {
 		s.EndedAt = &ended.String
 	}
 	return s, nil
 }
 
-func (s *Store) CreateShareSession(hostID, stackID int64, tokenHash string, hideSecrets bool, expires time.Time) (ShareSession, error) {
-	hide := 0
-	if hideSecrets {
-		hide = 1
-	}
-	res, err := s.db.Exec(`INSERT INTO share_sessions (host_id, stack_id, token_hash, hide_secrets, created_at, expires_at)
-		VALUES (?,?,?,?,?,?)`, hostID, stackID, tokenHash, hide, nowRFC3339(), expires.UTC().Format(time.RFC3339))
+// CreateShareSession files a new session. stackID is the stack it was started from,
+// or 0 for one started from anywhere else; it covers the whole application either way.
+func (s *Store) CreateShareSession(hostID, stackID int64, tokenHash string, hideSecrets, mirror bool, expires time.Time) (ShareSession, error) {
+	stack := sql.NullInt64{Int64: stackID, Valid: stackID != 0}
+	res, err := s.db.Exec(`INSERT INTO share_sessions (host_id, stack_id, token_hash, hide_secrets, mirror, created_at, expires_at)
+		VALUES (?,?,?,?,?,?,?)`, hostID, stack, tokenHash, boolInt(hideSecrets), boolInt(mirror), nowRFC3339(), expires.UTC().Format(time.RFC3339))
 	if err != nil {
 		return ShareSession{}, err
 	}
@@ -229,6 +280,18 @@ func (s *Store) listShareSessions(where string, arg any) ([]ShareSession, error)
 		out = append(out, ss)
 	}
 	return out, rows.Err()
+}
+
+// SetShareSessionMirror turns a live session's "Mirror everything" on or off.
+func (s *Store) SetShareSessionMirror(id int64, on bool) error {
+	res, err := s.db.Exec(`UPDATE share_sessions SET mirror = ? WHERE id = ? AND ended_at IS NULL`, boolInt(on), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return errShareNotFound
+	}
+	return nil
 }
 
 // SetShareSessionToken replaces a live session's link. The old one stops opening the
@@ -468,4 +531,11 @@ func (s *Store) ListShareActions(sessionID int64) ([]ShareAction, error) {
 		out = append(out, a)
 	}
 	return out, rows.Err()
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Icon } from './Icons.jsx'
+import { noteSecret } from '../lib/secretRegistry.js'
 
 // Secret — the one way a credential is shown in DBCanvas: masked, with a reveal toggle and a copy
 // button. Passwords, tokens, keys and the connection URIs that embed them all go through this, so
@@ -24,6 +25,7 @@ export function CopyButton({ text, size = 14 }) {
 export function SecretValue({ value }) {
   const [show, setShow] = useState(false)
   const v = value ?? ''
+  noteSecret(v)
   if (v === '') {
     return (
       <div className="flex items-center gap-1 rounded-lg border bg-bg px-2 py-1.5">
@@ -33,7 +35,7 @@ export function SecretValue({ value }) {
   }
   return (
     <div className="flex items-center gap-1 rounded-lg border bg-bg px-2 py-1.5">
-      <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg">
+      <span data-secret className="min-w-0 flex-1 truncate font-mono text-xs text-fg">
         {show ? v : '•'.repeat(Math.min(44, String(v).length))}
       </span>
       <button title={show ? 'Hide' : 'Reveal'} onClick={() => setShow((s) => !s)}
@@ -50,10 +52,11 @@ export function SecretValue({ value }) {
 export function SecretInline({ value }) {
   const [show, setShow] = useState(false)
   const v = value ?? ''
+  noteSecret(v)
   if (v === '') return <span className="font-mono text-xs text-fg">—</span>
   return (
     <span className="flex min-w-0 items-center gap-1">
-      <span className="min-w-0 truncate font-mono text-xs text-fg">
+      <span data-secret className="min-w-0 truncate font-mono text-xs text-fg">
         {show ? v : '•'.repeat(Math.min(24, String(v).length))}
       </span>
       <button title={show ? 'Hide' : 'Reveal'} onClick={() => setShow((s) => !s)}

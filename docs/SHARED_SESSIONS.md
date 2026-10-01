@@ -3,8 +3,10 @@
 A **shared session** lets colleagues watch you work in DBCanvas, live, from their own
 browsers — and take the wheel when you hand it to them. You share a link; whoever opens
 it gives a name and an email and waits in a lobby until you let them in. From then on
-they follow you across every tab, see the terminals and node web UIs you open, and chat
-with you. Give one of them control and they can do anything you can in your workspace,
+they follow you across the whole application — every page, not only one stack — see the
+terminals and node web UIs you open, and chat with you. With **Mirror everything** on they
+see your screen itself: the menus you open, the windows you drag, the dialogs, what you
+type. Give one of them control and they can do anything you can in your workspace,
 while everyone else watches them.
 
 A link lasts at most **two hours**. Nobody has to install anything or forward a port:
@@ -36,14 +38,17 @@ that one port. See [Configuration](CONFIGURATION.md) for both variables.
 
 ## Starting a session
 
-Open a stack you own and click **Share** in the canvas toolbar. Pick how long the link
-lasts, and whether to **Hide secrets** (below), then **Start and get the link**. The
+Click **Share** in the top bar, on any page — or in a stack's canvas toolbar, which also
+files the session's transcript on that stack. Either way the session is your whole
+workspace. Pick how long the link lasts, whether to **Mirror everything** (below) and
+whether to **Hide secrets** (below), then **Start and get the link**. The
 session panel opens beside the workspace with the link and a **Copy link** button — the
 link is shown this once. **New link** (or, after a reload, **Issue a new invitation
 link**) replaces it with a fresh one: the old link stops opening the join screen, while
 guests already through it stay in the session.
 
-The dialog also lists the earlier sessions on this stack, each with its transcript.
+Started from a stack, the dialog also lists the earlier sessions on it, each with its
+transcript.
 
 ## Joining
 
@@ -77,6 +82,35 @@ pointer on the canvas. Untick **Follow** in the panel to look around on your own
 it to catch up.
 
 ![The same session from a guest's side: following the host, the canvas and the desktop both view only](screenshots/shared-session-guest.png)
+
+Following moves everyone to the same place, but each browser still draws its own copy of
+the page. Whatever is not part of that place — a context menu, a window being dragged, a
+dialog, a hover, text being typed — stays on the driver's screen. **Mirror everything**
+covers that.
+
+### Mirror everything
+
+With it on, everyone who follows sees **exactly the driver's screen**, live, scaled to fit
+beside their own session panel: the right-click menu they opened, the window they are
+dragging, the dialog they filled in, their pointer and their clicks. A strip across the top
+says whose screen it is. It is a picture of the screen, so it cannot be clicked; **Stop
+mirroring** (or unticking **Follow**) goes back to your own view, already on the driver's
+page, and ticking **Follow** brings the mirror back. When control moves, the mirror moves
+to the new driver's screen — the host watching a guest drive sees the guest's.
+
+It is on by default for a new session, and the host switches it in the session panel at
+any time. How it works: the driver's browser records its own page (with
+[rrweb](https://github.com/rrweb-io/rrweb) — the page's structure, then every change to it,
+and canvases such as a VNC desktop a few times a second) and DBCanvas relays that stream
+to everyone else over the session's live channel. It keeps none of it, and a browser that
+arrives late is sent a fresh snapshot.
+
+What a guest must not see stays out of the stream at its source, in the driver's browser:
+the pages that belong to your account (Settings, API tokens, Manage Users), your account
+and notification menus and your session panel are sent as empty boxes, password fields are
+always masked, and with **Hide secrets** on every masked credential stays masked — and its
+value is blanked wherever else it is drawn, a connection string or a terminal line
+included.
 
 The top bar always says who has control. A guest's sidebar leaves out the pages that
 belong to your account — Settings, API tokens, Manage Users — and they never see your
@@ -174,8 +208,10 @@ keyboard and mouse reach it. Firefox reaches the node by its name on the stack n
 With **Hide secrets** ticked, every password is masked in what guests are sent — node
 secrets, design fields, a VNC desktop's password — and a guest who saves the design while
 driving cannot overwrite a real password with the mask they were shown. It keeps
-passwords off guests' screens; it does not stop a guest who drives from reading a
-configuration file in a terminal.
+passwords off guests' screens — in a mirrored screen too, where each credential the page
+masks is blanked wherever it appears — but it does not stop a guest who drives from reading
+a configuration file in a terminal, and a password the page shows only in plain text (one
+DBCanvas never handled as a secret) reaches a mirror as it is.
 
 ## Chat
 

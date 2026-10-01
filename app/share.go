@@ -525,6 +525,21 @@ func (a *App) handleCreateShare(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "only a stack's owner can share it")
 		return
 	}
+	a.createShare(w, r, u, st.ID, st.Name)
+}
+
+// handleCreateAppShare starts a session from anywhere in the application. A session
+// covers all of it either way — the stack route only files it on a stack.
+func (a *App) handleCreateAppShare(w http.ResponseWriter, r *http.Request) {
+	u, ok := a.currentUser(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	a.createShare(w, r, u, 0, "")
+}
+
+func (a *App) createShare(w http.ResponseWriter, r *http.Request, u User, stackID int64, stackName string) {
 	allowed, maxMinutes := a.guestSessionSettings()
 	if !allowed {
 		writeErr(w, http.StatusForbidden, "guest sessions are turned off on this installation — an administrator can turn them on in Settings")
@@ -533,6 +548,7 @@ func (a *App) handleCreateShare(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Minutes     int  `json:"minutes"`
 		HideSecrets bool `json:"hideSecrets"`
+		Mirror      bool `json:"mirror"`
 	}
 	if err := decode(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
@@ -553,14 +569,45 @@ func (a *App) handleCreateShare(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "failed to create the link")
 		return
 	}
-	sess, err := a.store.CreateShareSession(u.ID, st.ID, hashTokenSecret(token), in.HideSecrets,
+	sess, err := a.store.CreateShareSession(u.ID, stackID, hashTokenSecret(token), in.HideSecrets, in.Mirror,
 		time.Now().Add(time.Duration(in.Minutes)*time.Minute))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to create the session")
 		return
 	}
-	a.hubFor(sess).event("start", 0, u.Username, fmt.Sprintf("%s started a shared session on %s for %d minutes", u.Username, st.Name, in.Minutes))
+	on := ""
+	if stackName != "" {
+		on = " from " + stackName
+	}
+	a.hubFor(sess).event("start", 0, u.Username, fmt.Sprintf("%s started a shared session%s for %d minutes", u.Username, on, in.Minutes))
 	writeJSON(w, http.StatusOK, map[string]any{"session": sess, "url": publicURL(r) + "/join/" + token})
+}
+
+// handleShareMirror is the host turning "Mirror everything" on or off mid-session.
+func (a *App) handleShareMirror(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := a.loadHostedSession(w, r)
+	if !ok {
+		return
+	}
+	if !sess.live(time.Now()) {
+		writeErr(w, http.StatusConflict, "this session has ended")
+		return
+	}
+	var in struct {
+		Mirror bool `json:"mirror"`
+	}
+	if err := decode(r, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := a.store.SetShareSessionMirror(sess.ID, in.Mirror); err != nil {
+		writeErr(w, http.StatusNotFound, "this session has ended")
+		return
+	}
+	if h := shareHubs.get(sess.ID); h != nil {
+		h.setMirror(in.Mirror)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"mirror": in.Mirror})
 }
 
 func (a *App) handleListShares(w http.ResponseWriter, r *http.Request) {
@@ -759,7 +806,11 @@ func (a *App) handleShareTranscript(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "DBCanvas shared session %d — stack %q, host %s\n", sess.ID, sess.StackName, sess.HostName)
+	if sess.StackName != "" {
+		fmt.Fprintf(&b, "DBCanvas shared session %d — started from stack %q, host %s\n", sess.ID, sess.StackName, sess.HostName)
+	} else {
+		fmt.Fprintf(&b, "DBCanvas shared session %d — host %s\n", sess.ID, sess.HostName)
+	}
 	fmt.Fprintf(&b, "Started %s, expires %s", sess.CreatedAt, sess.ExpiresAt)
 	if sess.EndedAt != nil {
 		fmt.Fprintf(&b, ", ended %s (%s)", *sess.EndedAt, sess.EndedReason)
@@ -921,7 +972,7 @@ func (a *App) handleJoin(w http.ResponseWriter, r *http.Request) {
 	h.broadcastPresence()
 	a.notify(Notification{UserID: sess.HostID, Scope: "user", Type: "share.lobby", Severity: "info",
 		Title:   g.Name + " wants to join your shared session",
-		Body:    fmt.Sprintf("%s (%s) is waiting in the lobby of the session on %s.", g.Name, g.Email, sess.StackName),
+		Body:    fmt.Sprintf("%s (%s) is waiting in the lobby of your shared session.", g.Name, g.Email),
 		StackID: sess.StackID})
 	writeJSON(w, http.StatusOK, g)
 }

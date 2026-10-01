@@ -576,12 +576,12 @@ func TestEndedSessionsArePurgedAfterTheRetention(t *testing.T) {
 	f.app.store.AddShareMessage(ShareMessage{SessionID: f.sess.ID, AuthorKind: "guest", GuestID: g.ID, Author: "Jane", Kind: "chat", Body: "hi"})
 	f.app.store.StartShareAction(ShareAction{SessionID: f.sess.ID, GuestID: g.ID, Method: "POST", Path: "/x"}, 0)
 
-	old, _ := f.app.store.CreateShareSession(f.host.ID, f.stack.ID, "old", false, time.Now().Add(time.Hour))
-	recent, _ := f.app.store.CreateShareSession(f.host.ID, f.stack.ID, "recent", false, time.Now().Add(time.Hour))
+	old, _ := f.app.store.CreateShareSession(f.host.ID, f.stack.ID, "old", false, false, time.Now().Add(time.Hour))
+	recent, _ := f.app.store.CreateShareSession(f.host.ID, f.stack.ID, "recent", false, false, time.Now().Add(time.Hour))
 	past := time.Now().Add(-100 * 24 * time.Hour).UTC().Format(time.RFC3339)
 	f.app.store.db.Exec(`UPDATE share_sessions SET ended_at = ?, ended_reason = 'ended' WHERE id IN (?, ?)`, past, old.ID, f.sess.ID)
 	f.app.store.EndShareSession(recent.ID, "ended")
-	live, _ := f.app.store.CreateShareSession(f.host.ID, f.stack.ID, "live", false, time.Now().Add(time.Hour))
+	live, _ := f.app.store.CreateShareSession(f.host.ID, f.stack.ID, "live", false, false, time.Now().Add(time.Hour))
 	f.app.store.db.Exec(`UPDATE share_sessions SET created_at = ? WHERE id = ?`, past, live.ID)
 
 	f.app.store.SetAppSetting(settingShareRetentionDays, "0")

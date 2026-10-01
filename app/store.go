@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -243,6 +244,10 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id, id DESC);`
 		return nil, err
 	}
 	db.Exec("ALTER TABLE share_guests ADD COLUMN invite_hash TEXT NOT NULL DEFAULT ''")
+	if err := migrateShareSessions(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate share_sessions: %w", err)
+	}
 
 	return &Store{db: db}, nil
 }

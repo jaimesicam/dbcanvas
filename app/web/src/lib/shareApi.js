@@ -19,7 +19,12 @@ const enc = encodeURIComponent
 
 export const shareApi = {
   // host
-  start: (stackId, minutes, hideSecrets) => request('POST', `/api/stacks/${stackId}/share`, { minutes, hideSecrets }),
+  // A session covers the whole application; a stackId only files it on the stack it
+  // was started from.
+  start: (stackId, minutes, hideSecrets, mirror) => (stackId
+    ? request('POST', `/api/stacks/${stackId}/share`, { minutes, hideSecrets, mirror })
+    : request('POST', '/api/share/sessions', { minutes, hideSecrets, mirror })),
+  setMirror: (sid, mirror) => request('POST', `/api/share/sessions/${sid}/mirror`, { mirror }),
   live: () => request('GET', '/api/share/sessions?live=1'),
   get: (sid) => request('GET', `/api/share/sessions/${sid}`),
   admit: (sid, gid) => request('POST', `/api/share/sessions/${sid}/guests/${gid}/admit`),

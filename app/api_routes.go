@@ -922,7 +922,11 @@ func buildAPIRoutes() []apiRoute {
 		// read or write scope (share.go). Only the routes marked GuestOK are reachable
 		// by a guest; the rest manage the session and are the host's alone.
 		{Method: "POST", Path: "/api/stacks/{id}/share", Group: gShare, NoToken: true, Handler: m((*App).handleCreateShare),
-			Summary: "Start a shared session on a stack and return its link, once. Requires a password sign-in."},
+			Summary: "Start a shared session from a stack and return its link, once; it covers the whole application. Requires a password sign-in."},
+		{Method: "POST", Path: "/api/share/sessions", Group: gShare, NoToken: true, Handler: m((*App).handleCreateAppShare),
+			Summary: "Start a shared session from anywhere — it covers the whole application — and return its link, once. Requires a password sign-in. Body: {minutes, hideSecrets, mirror}."},
+		{Method: "POST", Path: "/api/share/sessions/{sid}/mirror", Group: gShare, Handler: m((*App).handleShareMirror),
+			Summary: "Turn Mirror everything on or off: {\"mirror\": true} shows everyone exactly the driver's screen."},
 		{Method: "GET", Path: "/api/stacks/{id}/share/transcripts", Group: gShare, Handler: m((*App).handleStackTranscripts),
 			Summary: "The shared sessions filed on a stack, with how long each transcript is."},
 		{Method: "GET", Path: "/api/share/sessions", Group: gShare, Handler: m((*App).handleListShares),

@@ -21,19 +21,21 @@ export default function ShareDialog({ stack, onClose }) {
   const choices = DURATIONS.filter((m) => m <= maxMin)
   const [minutes, setMinutes] = useState(choices.includes(60) ? 60 : choices.at(-1) || maxMin)
   const [hide, setHide] = useState(false)
+  const [mirror, setMirror] = useState(true)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [past, setPast] = useState([])
 
   useEffect(() => {
+    if (!stack) return
     shareApi.transcripts(stack.id).then((l) => setPast(Array.isArray(l) ? l : [])).catch(() => {})
-  }, [stack.id])
+  }, [stack])
 
   const unreachable = !system.publicUrl && loopback(location.hostname)
   const start = async () => {
     setErr(''); setBusy(true)
     try {
-      await session.start(stack.id, Number(minutes), hide)
+      await session.start(stack?.id ?? null, Number(minutes), hide, mirror)
       onClose()
     } catch (e) {
       setErr(e.message)
@@ -61,7 +63,8 @@ export default function ShareDialog({ stack, onClose }) {
         ) : (
           <div className="space-y-3 text-sm">
             <p className="text-muted">
-              Anyone with the link waits in a lobby until you admit them. Guests see all of your tabs and chat;
+              Anyone with the link waits in a lobby until you admit them. The session is your whole workspace —
+              every page, not only {stack ? 'this stack' : 'the one you are on'}. Guests see what you do and chat;
               one you give control to can do anything you can here, except reach your account.
             </p>
             <label className="flex items-center gap-2">
@@ -76,6 +79,17 @@ export default function ShareDialog({ stack, onClose }) {
                 Hide secrets
                 <span className="block text-xs text-muted">
                   Passwords are masked in everything guests are sent. A guest with control can still read a config file in a terminal.
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2">
+              <input type="checkbox" checked={mirror} onChange={(e) => setMirror(e.target.checked)} className="mt-1" />
+              <span>
+                Mirror everything
+                <span className="block text-xs text-muted">
+                  Everyone sees exactly the screen of whoever has control — the menus they open, the windows they drag,
+                  the dialogs, what they type — so nobody gets lost. Off, each guest only follows to the same page.
+                  You can switch it in the session panel at any time.
                 </span>
               </span>
             </label>
