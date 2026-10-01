@@ -52,6 +52,10 @@ var sealedColumns = []sealedColumn{
 	{"share_guests", "email", `'share_guests.email:' || session_id`},
 	{"share_messages", "author", `'share_messages.author:' || session_id`},
 	{"share_messages", "body", `'share_messages.body:' || session_id`},
+	{"kanban_boards", "name", `'kanban_boards.name:' || id`},
+	{"kanban_columns", "name", `'kanban_columns.name:' || board_id`},
+	{"kanban_cards", "title", `'kanban_cards.title:' || board_id`},
+	{"kanban_cards", "description", `'kanban_cards.description:' || board_id`},
 }
 
 func aadID(table, col string, id int64) string {

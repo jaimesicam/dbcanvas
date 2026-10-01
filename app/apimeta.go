@@ -59,7 +59,10 @@ var paramDocByPrefix = map[string]map[string]string{
 	"/api/stalksummary/archive": {"aid": "A kept pt-stalk archive's numeric id."},
 	"/api/share/sessions": {"sid": "The shared session's numeric id.", "gid": "A guest's numeric id within the session.",
 		"tid": "A shared terminal's id within the session."},
-	"/api/join": {"token": "The share link's token — the last part of the link the host sent."},
+	"/api/join":           {"token": "The share link's token — the last part of the link the host sent."},
+	"/api/kanban/boards":  {"id": "The board's numeric id."},
+	"/api/kanban/columns": {"cid": "The column's numeric id."},
+	"/api/kanban/cards":   {"kid": "The card's numeric id."},
 }
 
 // endpointParam is one path wildcard.

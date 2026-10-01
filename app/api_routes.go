@@ -107,6 +107,7 @@ const (
 	gImages    = "Node images"
 	gTokens    = "API tokens"
 	gShare     = "Shared sessions"
+	gKanban    = "Kanban"
 	gMeta      = "API metadata"
 )
 
@@ -119,7 +120,7 @@ var apiGroupOrder = []string{
 	gStacks, gTemplates, gCatalog, gImages, gNodes, gClusters, gLabs,
 	gDataGen, gQueryRun, gExplorer, gBench, gSample, gStockSim, gLedgerSim,
 	gPkt, gLog, gFTDC, gStalk, gOpSum, gCaptures, gDebug, gGDB,
-	gDash, gNotif, gShare,
+	gDash, gNotif, gShare, gKanban,
 	gFS, gCerts, gMail, gLDAP, gSamba, gK3D, gAIO, gSeaweed, gOpenBao, gRepo,
 }
 
@@ -920,6 +921,37 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "Open a node's web UI in Firefox on the stack's Ubuntu VNC desktop, and return the desktop's link — the way to share a page in a session so everyone sees one copy of it."},
 		{Method: "POST", Path: "/api/browse", Group: gNodes, ReadOnly: true, Handler: m((*App).handleBrowse),
 			Summary: "Turn a link to a node's web UI (http://host:<published port>/…) into an address served through DBCanvas's own port, for the browser window."},
+
+		// --- Kanban --------------------------------------------------------------
+		// Boards of columns of cards (kanban.go): a person's own, and the shared ones.
+		{Method: "GET", Path: "/api/kanban/boards", Group: gKanban, Handler: m((*App).handleKanbanBoards),
+			Summary: "The boards you can open: your own, then the ones others shared."},
+		{Method: "POST", Path: "/api/kanban/boards", Group: gKanban, Handler: m((*App).handleKanbanCreateBoard),
+			Summary: "Create a board: {name, shared, columns} (columns default to To do, In progress, Done)."},
+		{Method: "GET", Path: "/api/kanban/boards/{id}", Group: gKanban, Handler: m((*App).handleKanbanGetBoard),
+			Summary: "A board with its columns and cards in order; ?since=<rev> answers {unchanged: true} when nothing moved."},
+		{Method: "PUT", Path: "/api/kanban/boards/{id}", Group: gKanban, Handler: m((*App).handleKanbanUpdateBoard),
+			Summary: "Rename a board or share it with everyone: {name, shared}. The owner only."},
+		{Method: "DELETE", Path: "/api/kanban/boards/{id}", Group: gKanban, Handler: m((*App).handleKanbanDeleteBoard),
+			Summary: "Delete a board with every column and card on it. The owner only."},
+		{Method: "POST", Path: "/api/kanban/boards/{id}/columns", Group: gKanban, Handler: m((*App).handleKanbanAddColumn),
+			Summary: "Add a column: {name, index} (index omitted: at the right end)."},
+		{Method: "PUT", Path: "/api/kanban/columns/{cid}", Group: gKanban, Handler: m((*App).handleKanbanUpdateColumn),
+			Summary: "Rename a column or set its work-in-progress limit: {name, wipLimit} (0 for none)."},
+		{Method: "DELETE", Path: "/api/kanban/columns/{cid}", Group: gKanban, Handler: m((*App).handleKanbanDeleteColumn),
+			Summary: "Delete a column and the cards in it."},
+		{Method: "POST", Path: "/api/kanban/columns/{cid}/move", Group: gKanban, Handler: m((*App).handleKanbanMoveColumn),
+			Summary: "Move a column to a place among the board's columns: {index} (0 is the leftmost)."},
+		{Method: "POST", Path: "/api/kanban/columns/{cid}/cards", Group: gKanban, Handler: m((*App).handleKanbanAddCard),
+			Summary: "Add a card to a column: {title, description, labels, assigneeId, due, index} (index omitted: at the bottom)."},
+		{Method: "PUT", Path: "/api/kanban/cards/{kid}", Group: gKanban, Handler: m((*App).handleKanbanUpdateCard),
+			Summary: "Change a card: {title, description, labels: [{color, text}], assigneeId, due: YYYY-MM-DD}."},
+		{Method: "DELETE", Path: "/api/kanban/cards/{kid}", Group: gKanban, Handler: m((*App).handleKanbanDeleteCard),
+			Summary: "Delete a card from its column, for good."},
+		{Method: "POST", Path: "/api/kanban/cards/{kid}/move", Group: gKanban, Handler: m((*App).handleKanbanMoveCard),
+			Summary: "Move a card to a column of its board, at a place in it: {columnId, index} (0 is the top)."},
+		{Method: "GET", Path: "/api/kanban/people", Group: gKanban, Handler: m((*App).handleKanbanPeople),
+			Summary: "Who a card can be assigned to: every approved account, by name and avatar."},
 
 		// --- Shared sessions ---------------------------------------------------
 		// A host shares a live session through a link; guests act as the host with a
