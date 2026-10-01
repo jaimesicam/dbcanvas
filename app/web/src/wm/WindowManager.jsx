@@ -96,7 +96,7 @@ export function WindowManagerProvider({ children }) {
   const [extras, setExtras] = useState({}) // key -> { label, icon, active, onClick, title }
   // The shell's say: start is the taskbar's leading element (the desktop's Start
   // button), always keeps the taskbar up with nothing open, inset is kept clear.
-  const [shell, setShellState] = useState({ start: null, always: false, inset: NO_INSET })
+  const [shell, setShellState] = useState({ start: null, status: null, always: false, inset: NO_INSET })
   const insetRef = useRef(NO_INSET)
   insetRef.current = shell.inset
   const [preview, setPreview] = useState(null) // the snap preview rect while dragging
@@ -114,7 +114,7 @@ export function WindowManagerProvider({ children }) {
   const area = useCallback(() => areaOf(barRef.current, insetRef.current), [])
   const setShell = useCallback((p) => setShellState((s) => {
     const n = { ...s, ...p }
-    return n.start === s.start && n.always === s.always && n.inset.top === s.inset.top && n.inset.right === s.inset.right ? s : n
+    return n.start === s.start && n.status === s.status && n.always === s.always && n.inset.top === s.inset.top && n.inset.right === s.inset.right ? s : n
   }), [])
 
   // The viewport changing size re-lays maximized and snapped windows.
@@ -222,8 +222,8 @@ export function WindowManagerProvider({ children }) {
     register, unregister, patch, focus, minimize, maximize, toggleMax, tile, cascade, minimizeAll, setExtra,
     area, setPreview, setDragging, setShell,
   }), [register, unregister, patch, focus, minimize, maximize, toggleMax, tile, cascade, minimizeAll, setExtra, area, setShell])
-  const value = useMemo(() => ({ ...api, wins, extras, front, layerEl, start: shell.start, desktop: shell.always }),
-    [api, wins, extras, front, layerEl, shell.start, shell.always])
+  const value = useMemo(() => ({ ...api, wins, extras, front, layerEl, start: shell.start, status: shell.status, desktop: shell.always }),
+    [api, wins, extras, front, layerEl, shell.start, shell.status, shell.always])
 
   return (
     <ApiCtx.Provider value={api}>
@@ -446,6 +446,7 @@ function Taskbar() {
           )
         })}
       </div>
+      {wm.status}
       {list.length > 0 && (
         <div className="flex shrink-0 items-center gap-0.5 border-l pl-1.5">
           <button onClick={wm.tile} title="Tile the open windows" className="rounded px-2 py-1 text-xs text-muted hover:bg-surface2 hover:text-fg">Tile</button>

@@ -5,7 +5,7 @@ import { Card, Button, Badge, Field, ConfirmButton, InfoRow, inputCls } from '..
 import { Help, Hint } from '../components/Tooltip.jsx'
 import { HELP, MENU_HELP, nodeHelp } from '../lib/help.js'
 import { usePolling } from '../lib/usePolling.jsx'
-import { sendHandoff } from '../lib/handoff.js'
+import { sendHandoff, useHandoff } from '../lib/handoff.js'
 import { stackApi, templateApi, imageApi, mongoDownloadURL, k8sPods, isBuiltinTemplate, frameApi, TTL_OPTIONS, DEPLOY_TONE, NODE_UPLOAD_DESTS, PRODUCT_OS_FAMILIES } from '../lib/stackApi.js'
 import { kindOf as aioKindOf, familyOf as aioFamilyOf } from '../lib/aioPorts.js'
 import { showEOL, showExperimental, visibleGroups } from '../lib/experimental.js'
@@ -1509,6 +1509,8 @@ export default function StackDesigner() {
   const session = useSession()
   useEffect(() => { session.publishFollow({ stackId: openId }) }, [openId]) // eslint-disable-line react-hooks/exhaustive-deps
   const followStack = session.following && session.follow?.page === 'stack-designer' ? session.follow.stackId : undefined
+  // A stack opened from elsewhere — the desktop's stack icons (desktop/Desktop.jsx).
+  useHandoff('dbcanvas.openStack', (raw) => { const id = Number(raw); if (id) setOpenId(id) })
   useEffect(() => {
     if (followStack !== undefined && followStack !== openId) setOpenId(followStack ?? null)
   }, [followStack]) // eslint-disable-line react-hooks/exhaustive-deps

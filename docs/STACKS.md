@@ -1318,6 +1318,15 @@ and you are back at the bare desktop. A minimized page stays open — it keeps i
 and its view — and stops polling until it is back on screen, as a hidden tab does. How
 many pages may be open at once is still **Settings → Tabs**.
 
+Your **stacks** are icons down the right of the desktop, each with a dot for its state
+(green deployed, grey draft, red expired). Double-click one for a **folder** of its nodes:
+an icon per node, grouped by cluster, lit by what its container is doing. Double-click a
+node for the obvious thing — its web UI if it has one, else its root console — or
+right-click it for its console (PMM's root and pmm consoles), each web UI in a new tab or
+in the stack's VNC Browser, and **Open in Database Stacks**, which opens the stack on the
+canvas. The taskbar's right end shows how many nodes are running (and how many are
+starting or failed), who drives a shared session and how long it has left, and the time.
+
 Prefer the old layout? **Appearance → Layout → Classic** brings back the sidebar and the
 tab strip, in this browser; **Desktop** returns to the desktop.
 

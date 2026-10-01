@@ -101,7 +101,8 @@ to the new driver's screen — the host watching a guest drive sees the guest's.
 It is on by default for a new session, and the host switches it in the session panel at
 any time. How it works: the driver's browser records its own page (with
 [rrweb](https://github.com/rrweb-io/rrweb) — the page's structure, then every change to it,
-and canvases such as a VNC desktop a few times a second) and DBCanvas relays that stream
+and canvases a few times a second — including a VNC desktop, which lives in a browser
+window's frame, where rrweb's own sampling does not reach) and DBCanvas relays that stream
 to everyone else over the session's live channel. It keeps none of it, and a browser that
 arrives late is sent a fresh snapshot.
 

@@ -15,6 +15,7 @@ import { MirrorRecorder, MirrorView } from './session/Mirror.jsx'
 import { BrowserProvider } from './browser/BrowserProvider.jsx'
 import { WindowManagerProvider, useWindowApi, useTaskbarItem } from './wm/WindowManager.jsx'
 import { StartButton, DesktopSurface, PageWindows, pageWindowId } from './desktop/Desktop.jsx'
+import { DesktopStatus } from './desktop/Stacks.jsx'
 import { useShellMode, SHELL_MODES } from './lib/shellMode.js'
 import { notifApi, relTime } from './lib/notifApi.js'
 
@@ -290,11 +291,12 @@ function Workspace({ onSessionEnded }) {
   const openRef = useRef(openTab)
   openRef.current = openTab
   const startEl = useMemo(() => <StartButton navRef={navRef} openRef={openRef} />, [])
+  const statusEl = useMemo(() => <DesktopStatus />, [])
   useLayoutEffect(() => {
     wmApi?.setShell(desktop
-      ? { always: true, start: startEl, inset: { top: 56, right: showPanel && panelOpen ? 352 : 0 } }
-      : { always: false, start: null, inset: { top: 0, right: 0 } })
-  }, [desktop, showPanel, panelOpen, wmApi, startEl])
+      ? { always: true, start: startEl, status: statusEl, inset: { top: 56, right: showPanel && panelOpen ? 352 : 0 } }
+      : { always: false, start: null, status: null, inset: { top: 0, right: 0 } })
+  }, [desktop, showPanel, panelOpen, wmApi, startEl, statusEl])
 
   // The hidden session panel comes back from the taskbar, in either shell.
   useTaskbarItem('session', showPanel && !panelOpen ? {

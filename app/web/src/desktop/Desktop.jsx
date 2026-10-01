@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from '../components/Icons.jsx'
 import { Window, useWindowManager, useWindowApi } from '../wm/WindowManager.jsx'
+import { StackIcons, StackFolder, useStacks } from './Stacks.jsx'
 
 // Desktop.jsx — DBCanvas as a desktop (lib/shellMode.js picks it; it is the default).
 //
@@ -120,6 +121,14 @@ export function DesktopSurface({ nav, onOpen }) {
   const [sel, setSel] = useState(null)
   const [menu, setMenu] = useState(null)
   const items = useMemo(() => groupNav(nav).flatMap((g) => g.items), [nav])
+  // Stacks, on the right; a stack opens as a folder of its nodes (desktop/Stacks.jsx).
+  const showStacks = nav.some((n) => n.id === 'stack-designer')
+  const [stacks] = useStacks()
+  const [folders, setFolders] = useState([])
+  const openFolder = (st) => {
+    setFolders((fs) => (fs.some((f) => f.id === st.id) ? fs : [...fs, st]))
+    setTimeout(() => api.focus(`stackfolder:${st.id}`), 0)
+  }
   return (
     <div
       data-desktop
@@ -129,7 +138,13 @@ export function DesktopSurface({ nav, onOpen }) {
           + ' radial-gradient(ellipse at 90% 95%, color-mix(in srgb, var(--primary) 10%, transparent), transparent 50%), var(--bg)',
       }}
       onPointerDown={(e) => { if (e.target === e.currentTarget) setSel(null) }}
-      onContextMenu={(e) => { if (e.target.closest('[data-desktop-icon]')) return; e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY }) }}
+      // A folder window is a child here in React but not in the page (it is portalled
+      // to the window layer), so its events bubble in; only the desktop's own count.
+      onContextMenu={(e) => {
+        if (!e.currentTarget.contains(e.target) || e.target.closest('[data-desktop-icon], [data-desktop-stack]')) return
+        e.preventDefault()
+        setMenu({ x: e.clientX, y: e.clientY })
+      }}
     >
       <div className="flex h-full flex-col flex-wrap content-start gap-1 p-3">
         {items.map((n) => {
@@ -150,6 +165,11 @@ export function DesktopSurface({ nav, onOpen }) {
           )
         })}
       </div>
+      {showStacks && <StackIcons stacks={stacks} onOpenFolder={openFolder} onOpen={onOpen} />}
+      {folders.map((st) => (
+        <StackFolder key={st.id} stack={stacks.find((x) => x.id === st.id) || st} onOpen={onOpen}
+          onClose={() => setFolders((fs) => fs.filter((f) => f.id !== st.id))} />
+      ))}
       {menu && createPortal(
         <>
           <div className="fixed inset-0 z-[80]" onPointerDown={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null) }} />
