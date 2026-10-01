@@ -912,6 +912,8 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "Revoke anyone's token, and tell them it happened."},
 
 		// --- Browser window ----------------------------------------------------
+		{Method: "POST", Path: "/api/browse/desktop", Group: gNodes, Handler: m((*App).handleBrowseDesktop),
+			Summary: "Open a node's web UI in Firefox on the stack's Ubuntu VNC desktop, and return the desktop's link — the way to share a page in a session so everyone sees one copy of it."},
 		{Method: "POST", Path: "/api/browse", Group: gNodes, ReadOnly: true, Handler: m((*App).handleBrowse),
 			Summary: "Turn a link to a node's web UI (http://host:<published port>/…) into an address served through DBCanvas's own port, for the browser window."},
 
@@ -937,6 +939,8 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "Mute or unmute a guest in chat: {\"muted\": true}.", Handler: func(a *App) http.HandlerFunc { return a.handleShareGuestAction("mute")(a) }},
 		{Method: "POST", Path: "/api/share/sessions/{sid}/control", Group: gShare, Handler: m((*App).handleShareControl),
 			Summary: "Give control to a guest, {\"to\": <guest id>}, or take it back, {\"to\": \"host\"}."},
+		{Method: "POST", Path: "/api/share/sessions/{sid}/link", Group: gShare, NoToken: true, Handler: m((*App).handleShareNewLink),
+			Summary: "Issue a new invitation link for a live session and return it, once; the previous link stops working for anyone not already in."},
 		{Method: "POST", Path: "/api/share/sessions/{sid}/end", Group: gShare, Handler: m((*App).handleEndShare),
 			Summary: "End a shared session now; every guest is disconnected."},
 		{Method: "GET", Path: "/api/share/sessions/{sid}/transcript", Group: gShare, Media: mediaDownload, Handler: m((*App).handleShareTranscript),
@@ -956,7 +960,7 @@ func buildAPIRoutes() []apiRoute {
 		{Method: "GET", Path: "/api/join/{token}/status", Group: gShare, Auth: authPublic, GuestOK: true, Handler: m((*App).handleJoinStatus),
 			Summary: "A guest's place in a session: waiting, admitted, denied, removed or ended."},
 		{Method: "POST", Path: "/api/join/{token}/leave", Group: gShare, Auth: authPublic, GuestOK: true, Handler: m((*App).handleJoinLeave),
-			Summary: "Leave a shared session and forget the guest cookie."},
+			Summary: "Leave a shared session. The same link does not let this guest back in; the host issues a new one."},
 
 		// --- What's new ---------------------------------------------------------
 		{Method: "GET", Path: "/api/whatsnew", Group: gPrefs, Handler: m((*App).handleWhatsNew),

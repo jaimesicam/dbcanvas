@@ -164,6 +164,23 @@ func TestWatcherReadsButNeverWrites(t *testing.T) {
 	}
 }
 
+// A watcher may look at the shared desktop, not put pages on it; the driver may.
+func TestOnlyTheDriverOpensPagesOnTheDesktop(t *testing.T) {
+	f := newShareFixture(t, RoleUser)
+	c, g := f.join(t, "Jane")
+	f.admit(t, g)
+	if code, reached := f.call(t, "POST /api/browse/desktop", c); code != http.StatusForbidden || reached {
+		t.Errorf("a watcher opened a page on the desktop: %d", code)
+	}
+	if code, _ := f.call(t, "POST /api/browse", c); code != http.StatusOK {
+		t.Errorf("a watcher could not open a browser window: %d", code)
+	}
+	f.app.hubFor(f.sess).setController(g.ID)
+	if code, reached := f.call(t, "POST /api/browse/desktop", c); code != http.StatusOK || !reached {
+		t.Errorf("the driver could not open a page on the desktop: %d", code)
+	}
+}
+
 func TestDriverWritesAndIsAudited(t *testing.T) {
 	f := newShareFixture(t, RoleUser)
 	c, g := f.join(t, "Jane")
@@ -408,6 +425,123 @@ func TestLeavingDropsControl(t *testing.T) {
 	}
 	if code, _ := f.call(t, "GET /api/stacks", c); code != http.StatusUnauthorized {
 		t.Errorf("a guest who left still reads: %d", code)
+	}
+}
+
+// joinStatus is what the guest's page asks on /join/<token>: its state, or the HTTP
+// code when there is none.
+func (f *shareFixture) joinStatus(t *testing.T, token string, c *http.Cookie) (int, string) {
+	t.Helper()
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/join/"+token+"/status", nil)
+	r.SetPathValue("token", token)
+	if c != nil {
+		r.AddCookie(c)
+	}
+	f.app.handleJoinStatus(w, r)
+	var out struct {
+		State string `json:"state"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &out)
+	return w.Code, out.State
+}
+
+// The guest's browser marks every API call as a guest's, Leave included. A watcher
+// may not write, but leaving is not a write to the host's workspace: it must work.
+func TestAWatcherCanLeave(t *testing.T) {
+	f := newShareFixture(t, RoleUser)
+	c, g := f.join(t, "Jane")
+	f.admit(t, g)
+	var rt apiRoute
+	for _, x := range apiRoutes() {
+		if x.Pattern() == "POST /api/join/{token}/leave" {
+			rt = x
+		}
+	}
+	r := httptest.NewRequest("POST", "/api/join/"+f.token+"/leave", nil)
+	r.SetPathValue("token", f.token)
+	r.Header.Set(guestHeader, "1")
+	r.AddCookie(c)
+	w := httptest.NewRecorder()
+	f.app.requireScope(rt, f.app.handleJoinLeave)(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("a watcher could not leave: %d %s", w.Code, w.Body)
+	}
+	if got, _ := f.app.store.GetShareGuest(g.ID); got.State != guestLeft {
+		t.Errorf("after Leave the guest is %q, want left", got.State)
+	}
+}
+
+func TestLeavingNeedsANewInvitation(t *testing.T) {
+	f := newShareFixture(t, RoleUser)
+	c, g := f.join(t, "Jane")
+	f.admit(t, g)
+	other, og := f.join(t, "Lee")
+	f.admit(t, og)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/", nil)
+	r.SetPathValue("token", f.token)
+	r.AddCookie(c)
+	f.app.handleJoinLeave(w, r)
+	for _, k := range w.Result().Cookies() {
+		if k.Name == guestCookieName && k.MaxAge < 0 {
+			t.Fatal("leaving forgot the cookie, so the same link would open the join form again")
+		}
+	}
+	if code, state := f.joinStatus(t, f.token, c); code != http.StatusOK || state != guestLeft {
+		t.Fatalf("after leaving, the old link shows %d %q, want the left screen", code, state)
+	}
+
+	// Asking to join again on the same link is refused.
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("POST", "/api/join/"+f.token, strings.NewReader(`{"name":"Jane","email":"jane@example.com"}`))
+	r.SetPathValue("token", f.token)
+	r.RemoteAddr = "10.0.0.4:5555"
+	r.AddCookie(c)
+	f.app.handleJoin(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("a guest who left rejoined on the same link: %d %s", w.Code, w.Body)
+	}
+
+	// The host issues a new link: the old one is dead for newcomers...
+	w = httptest.NewRecorder()
+	r = f.asHost(httptest.NewRequest("POST", "/", nil))
+	r.SetPathValue("sid", strconv.FormatInt(f.sess.ID, 10))
+	f.app.handleShareNewLink(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("new link: %d %s", w.Code, w.Body)
+	}
+	var out struct {
+		URL string `json:"url"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &out)
+	fresh := out.URL[strings.LastIndex(out.URL, "/")+1:]
+	if fresh == f.token {
+		t.Fatal("the new link is the old one")
+	}
+	if code, _ := f.joinStatus(t, f.token, nil); code != http.StatusNotFound {
+		t.Errorf("the replaced link still answers a newcomer: %d", code)
+	}
+	// ...but a guest already through it keeps their place on reload.
+	if code, state := f.joinStatus(t, f.token, other); code != http.StatusOK || state != guestAdmitted {
+		t.Errorf("an admitted guest lost their place when the link was replaced: %d %q", code, state)
+	}
+	if code, _ := f.call(t, "GET /api/stacks", other); code != http.StatusOK {
+		t.Errorf("an admitted guest stopped reading when the link was replaced: %d", code)
+	}
+
+	// The guest who left, given the new link, is invited again.
+	if code, _ := f.joinStatus(t, fresh, c); code != http.StatusNotFound {
+		t.Errorf("the new link should show a guest who left the join form, got %d", code)
+	}
+	f.token = fresh
+	c2, g2 := f.join(t, "Jane")
+	if g2.ID == g.ID || g2.State != guestWaiting {
+		t.Errorf("rejoining on a new link should be a new lobby entry: %+v", g2)
+	}
+	if code, _ := f.call(t, "GET /api/stacks", c2); code != http.StatusUnauthorized {
+		t.Errorf("a rejoining guest got in without the host's admit: %d", code)
 	}
 }
 

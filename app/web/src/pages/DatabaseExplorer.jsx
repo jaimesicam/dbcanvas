@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '../components/Icons.jsx'
 import { Badge, Button, ConfirmButton, inputCls } from '../components/ui.jsx'
 import { Help } from '../components/Tooltip.jsx'
+import { useDialog } from '../components/Dialog.jsx'
 import { DbxGrid, ValueViewer } from '../components/DbxGrid.jsx'
 import { DbxChart } from '../components/DbxChart.jsx'
 import { useHandoff, sendHandoff } from '../lib/handoff.js'
@@ -886,8 +887,10 @@ function ReadOnlyBanner({ tab, conn, patch, onArmChange }) {
 
 function QueryBar({ tab, conn, conns, patch, onRun, onCancel, onSave, say }) {
   const caps = (conn && conn.capabilities) || {}
+  const [dialog, ask] = useDialog()
   return (
     <div className="flex flex-wrap items-center gap-2 border-b px-2 py-1.5">
+      {dialog}
       <select
         value={tab.connectionId}
         onChange={(e) => {
@@ -927,8 +930,12 @@ function QueryBar({ tab, conn, conns, patch, onRun, onCancel, onSave, say }) {
         </Button>
       )}
       <button
-        onClick={() => {
-          const name = typeof prompt === 'function' ? prompt('Save this query as:') : ''
+        onClick={async () => {
+          const name = await ask.prompt({
+            title: 'Save this query', label: 'Name', placeholder: 'e.g. Slow orders by customer',
+            body: 'It will be listed under Saved in the sidebar.',
+            defaultValue: tab.title && tab.title !== (conn && conn.label) ? tab.title : '',
+          })
           if (name) onSave({ name, engine: conn ? conn.engine : '', statement: tab.sql || tab.command, database: tab.database })
         }}
         className="rounded-md border px-2 py-1 text-xs hover:bg-surface2"

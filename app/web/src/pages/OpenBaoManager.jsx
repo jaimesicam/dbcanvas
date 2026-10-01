@@ -6,6 +6,7 @@ import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import Secret from '../components/Secret.jsx'
 import { Help } from '../components/Tooltip.jsx'
 import { DEP_HELP } from '../lib/help.js'
+import { useFollowedState } from '../session/SessionProvider.jsx'
 
 // OpenBaoManager — properties of a deployed OpenBao node.
 //
@@ -57,7 +58,7 @@ function Code({ label, text }) {
 }
 
 export default function OpenBaoManager({ dep, stackId, nodeId, onDeleteNode }) {
-  const [tab, setTab] = useState('overview')
+  const [tab, setTab] = useFollowedState(`tab:${nodeId}`, 'overview')
   const { openTerminal } = useTerminals()
   const api = openbaoApi(stackId, nodeId)
   const cfg = dep.config || {}

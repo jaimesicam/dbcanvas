@@ -27,6 +27,7 @@ export const shareApi = {
   remove: (sid, gid) => request('POST', `/api/share/sessions/${sid}/guests/${gid}/remove`),
   mute: (sid, gid, muted) => request('POST', `/api/share/sessions/${sid}/guests/${gid}/mute`, { muted }),
   control: (sid, to) => request('POST', `/api/share/sessions/${sid}/control`, { to }),
+  newLink: (sid) => request('POST', `/api/share/sessions/${sid}/link`),
   end: (sid) => request('POST', `/api/share/sessions/${sid}/end`),
   transcripts: (stackId) => request('GET', `/api/stacks/${stackId}/share/transcripts`),
   transcriptURL: (sid, format = 'txt') => `/api/share/sessions/${sid}/transcript${format === 'json' ? '?format=json' : ''}`,

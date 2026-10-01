@@ -6,6 +6,7 @@ import { SecretValue } from '../components/Secret.jsx'
 import { Help } from '../components/Tooltip.jsx'
 import { HELP, DEP_HELP } from '../lib/help.js'
 import SeaweedFileManager from './SeaweedFileManager.jsx'
+import { useFollowedState } from '../session/SessionProvider.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -41,7 +42,7 @@ function KV({ k, v, mono, help }) {
 }
 
 export default function SeaweedFSManager({ stackId, nodeId, dep, onDeleteNode }) {
-  const [tab, setTab] = useState('overview')
+  const [tab, setTab] = useFollowedState(`tab:${nodeId}`, 'overview')
   const cfg = dep.config || {}
   const sec = dep.secrets || {}
 

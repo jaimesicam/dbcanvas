@@ -242,6 +242,7 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id, id DESC);`
 		db.Close()
 		return nil, err
 	}
+	db.Exec("ALTER TABLE share_guests ADD COLUMN invite_hash TEXT NOT NULL DEFAULT ''")
 
 	return &Store{db: db}, nil
 }

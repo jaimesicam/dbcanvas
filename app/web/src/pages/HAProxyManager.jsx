@@ -4,6 +4,7 @@ import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE } from '../lib/stackApi.js'
 import { Help } from '../components/Tooltip.jsx'
 import { DEP_HELP } from '../lib/help.js'
+import { useFollowedState } from '../session/SessionProvider.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -52,7 +53,7 @@ function Row({ k, v, link }) {
 }
 
 export default function HAProxyManager({ dep, onDeleteNode }) {
-  const [tab, setTab] = useState('overview')
+  const [tab, setTab] = useFollowedState(`tab:${dep?.nodeId}`, 'overview')
   const cfg = dep.config || {}
 
   return (

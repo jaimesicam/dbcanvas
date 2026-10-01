@@ -5,6 +5,7 @@ import Root from '../Root.jsx'
 import { Button, Field, inputCls } from '../components/ui.jsx'
 import { shareApi } from '../lib/shareApi.js'
 import { joinToken } from '../lib/guest.js'
+import { useDialog } from '../components/Dialog.jsx'
 
 // GuestScreens — what a person who opened a share link sees before they are in, and
 // after the session is over (app/share.go).
@@ -15,7 +16,9 @@ import { joinToken } from '../lib/guest.js'
 //   closed   denied, removed, left, or the session ended
 //
 // The link is the whole address of the session: a reload on /join/<token> lands
-// back where the guest was, because the cookie says who they are.
+// back where the guest was, because the cookie says who they are. Leaving is final
+// for that link: the cookie stays, marked as left, and coming back takes a new
+// invitation link from the host (app/share.go, handleShareNewLink).
 
 function fmtTime(iso) {
   try { return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) } catch { return '' }
@@ -61,7 +64,7 @@ export function GuestGate() {
 
   if (phase === 'loading') return <Splash />
   if (phase === 'join') return <JoinScreen token={token} info={info} onJoined={check} />
-  if (phase === 'lobby') return <LobbyScreen token={token} info={info} onLeft={() => { setClosed('left'); setPhase('closed') }} />
+  if (phase === 'lobby') return <LobbyScreen token={token} info={info} />
   if (phase === 'closed') return <ClosedScreen reason={closed} info={info} />
   return (
     <AuthProvider>
@@ -108,10 +111,23 @@ function JoinScreen({ token, info, onJoined }) {
   )
 }
 
-function LobbyScreen({ token, info, onLeft }) {
+function LobbyScreen({ token, info }) {
+  const [dialog, ask] = useDialog()
+  const [err, setErr] = useState('')
   const leave = async () => {
-    try { await shareApi.leave(token) } catch { /* the cookie is gone either way */ }
-    onLeft()
+    const yes = await ask.confirm({
+      title: 'Leave the lobby?',
+      body: 'The host will not be able to admit you. To come back you will need a new invitation link.',
+      confirmLabel: 'Leave', danger: true,
+    })
+    if (!yes) return
+    try {
+      await shareApi.leave(token)
+    } catch (e) {
+      setErr(`Could not leave: ${e.message}`)
+      return
+    }
+    location.replace('/?left=1')
   }
   return (
     <Shell title="Waiting for the host" subtitle={`${info?.hostName || 'The host'} will let you in shortly`}>
@@ -121,16 +137,18 @@ function LobbyScreen({ token, info, onLeft }) {
           <span>You are in the lobby as <span className="font-medium">{info?.guest?.name}</span>.</span>
         </div>
         <p className="text-xs text-muted">This page opens the session by itself once you are admitted. Keep it open.</p>
+        {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
         <Button variant="outline" className="w-full" onClick={leave}>Leave</Button>
       </div>
+      {dialog}
     </Shell>
   )
 }
 
 const CLOSED_TEXT = {
   denied: ['Not admitted', 'The host did not let you in to this session.'],
-  removed: ['Removed from the session', 'The host removed you from this session.'],
-  left: ['You left the session', 'You can close this tab.'],
+  removed: ['Removed from the session', 'The host removed you from this session. To come back, ask the host for a new invitation link.'],
+  left: ['You left the session', 'This link no longer lets you back in. To rejoin, ask the host for a new invitation link. You can close this tab.'],
   ended: ['The session has ended', 'The host ended the session, or it reached its time limit.'],
   expired: ['The session has ended', 'The session reached its time limit.'],
   revoked: ['The session has ended', 'The host revoked the link.'],

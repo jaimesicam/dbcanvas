@@ -15,6 +15,12 @@ import { useSession } from '../session/SessionProvider.jsx'
 // Right-click any such link for "Open in browser window". For a guest a plain click
 // does the same, because the raw port is exactly what a guest cannot reach.
 //
+// "Open in VNC Browser" opens the page in Firefox on the stack's VNC desktop instead
+// (app/browsedesk.go) and shows that desktop. A browser window shares only an
+// address — each viewer loads their own copy with their own logins — so a guest
+// watching Roundcube or PMM there sees a login page. On the desktop there is one copy
+// of the page, and everyone sees exactly what the driver does.
+//
 // In a shared session a window the driver or the host opens is everyone's, like a
 // shared terminal: it opens on every screen, follows the driver as they move around
 // in it, and closes for everyone when they close it. Each browser resolves the link
@@ -23,7 +29,7 @@ import { useSession } from '../session/SessionProvider.jsx'
 // filled in only for whoever may read it.
 
 const Ctx = createContext(null)
-export const useBrowser = () => useContext(Ctx) || { openBrowser: async () => {} }
+export const useBrowser = () => useContext(Ctx) || { openBrowser: async () => {}, openInDesktop: async () => {} }
 
 // nodeLink reports whether an href is a node's published web UI: this host (or
 // loopback) on a port other than DBCanvas's own.
@@ -51,6 +57,20 @@ async function resolve(url) {
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`)
   return data
 }
+
+// desktopFor opens a node link in Firefox on the stack's VNC desktop and returns the
+// desktop's own link.
+async function desktopFor(url) {
+  const res = await fetch('/api/browse/desktop', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+    body: JSON.stringify({ url }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`)
+  return data
+}
+
+const portOf = (href) => { try { return new URL(href, location.href).port } catch { return '' } }
 
 let seq = 0
 
@@ -112,6 +132,27 @@ export function BrowserProvider({ children }) {
       setWins((ws) => ws.map((w) => (w.id === id ? { ...w, title: 'Could not open', error: e.message } : w)))
     }
   }, [])
+
+  // openInDesktop puts the page on the stack's VNC desktop, then shows the desktop:
+  // the window already open on it if there is one, else a new one — which, in a
+  // session, opens on everyone's screen like any other.
+  const openInDesktop = useCallback(async (href) => {
+    try {
+      const r = await desktopFor(href)
+      const port = portOf(r.desktopLink)
+      const open = winsRef.current.find((w) => w.kind === 'vnc' && !w.error && portOf(w.link) === port)
+      if (open) {
+        focus(open.id)
+      } else {
+        await openBrowser(r.desktopLink)
+      }
+    } catch (e) {
+      zTop.current += 1
+      const z = zTop.current
+      const id = `err-${Date.now().toString(36)}-${++seq}`
+      setWins((ws) => [...ws, { id, title: 'Could not open in VNC Browser', base: '', link: href, rect: cascade(ws.length), z, error: e.message }])
+    }
+  }, [focus, openBrowser])
 
   // A shared window is closed by whoever has control, for everyone. Anyone else —
   // the host too, while a guest drives — cannot take it off the screens (the hub
@@ -182,7 +223,7 @@ export function BrowserProvider({ children }) {
   }, [guest, openBrowser])
 
   return (
-    <Ctx.Provider value={{ openBrowser }}>
+    <Ctx.Provider value={{ openBrowser, openInDesktop }}>
       {children}
       {wins.map((w) => (
         <BrowserWindow key={w.id} win={w} src={srcOf(w, viewOnly)} viewOnly={viewOnly && w.kind === 'vnc'}
@@ -194,9 +235,15 @@ export function BrowserProvider({ children }) {
       {menu && (
         <>
           <div className="fixed inset-0 z-[70]" onClick={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null) }} />
-          <div className="fixed z-[71] min-w-[210px] rounded-md border bg-surface py-1 text-sm shadow-xl"
-            style={{ left: Math.min(menu.x, innerWidth - 220), top: Math.min(menu.y, innerHeight - 120) }}>
+          <div className="fixed z-[71] min-w-[210px] max-w-[290px] rounded-md border bg-surface py-1 text-sm shadow-xl"
+            style={{ left: Math.min(menu.x, innerWidth - 300), top: Math.min(menu.y, innerHeight - 180) }}>
             <MenuItem icon={<Icon.Monitor size={14} />} onClick={() => { openBrowser(menu.href); setMenu(null) }}>Open in browser window</MenuItem>
+            {!viewOnly && (
+              <MenuItem icon={<Icon.Share size={14} />} onClick={() => { openInDesktop(menu.href); setMenu(null) }}
+                hint={session.active ? 'One copy on the stack’s desktop — everyone sees what you see' : 'In Firefox on the stack’s VNC desktop'}>
+                Open in VNC Browser
+              </MenuItem>
+            )}
             {!guest && <MenuItem icon={<Icon.External size={14} />} onClick={() => { window.open(menu.href, '_blank', 'noreferrer'); setMenu(null) }}>Open in new tab</MenuItem>}
             <MenuItem icon={<Icon.Copy size={14} />} onClick={() => { navigator.clipboard?.writeText(menu.href); setMenu(null) }}>Copy link</MenuItem>
             <div className="mt-1 border-t px-3 pt-1.5 text-[11px] text-muted">Through DBCanvas's own port — no port forward needed.</div>
@@ -207,10 +254,14 @@ export function BrowserProvider({ children }) {
   )
 }
 
-function MenuItem({ icon, onClick, children }) {
+function MenuItem({ icon, onClick, hint, children }) {
   return (
-    <button onClick={onClick} className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-surface2">
-      <span className="text-muted">{icon}</span>{children}
+    <button onClick={onClick} className="flex w-full items-start gap-2 px-3 py-1.5 text-left hover:bg-surface2">
+      <span className="mt-0.5 text-muted">{icon}</span>
+      <span className="min-w-0">
+        <span className="block">{children}</span>
+        {hint && <span className="block text-[11px] text-muted">{hint}</span>}
+      </span>
     </button>
   )
 }

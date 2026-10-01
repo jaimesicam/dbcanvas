@@ -7,6 +7,7 @@ import PGCertTab from '../components/PGCertTab.jsx'
 import { SecretValue } from '../components/Secret.jsx'
 import { Help } from '../components/Tooltip.jsx'
 import { DEP_HELP } from '../lib/help.js'
+import { useFollowedState } from '../session/SessionProvider.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -68,7 +69,7 @@ function CodeBlock({ label, text }) {
 // SpockManager is the properties-panel console for a deployed Spock cluster member —
 // a writable node in a full-mesh, active-active PostgreSQL cluster.
 export default function SpockManager({ stackId, nodeId, dep, onDeleteNode }) {
-  const [tab, setTab] = useState('overview')
+  const [tab, setTab] = useFollowedState(`tab:${nodeId}`, 'overview')
   const cfg = dep.config || {}
   const sec = dep.secrets || {}
 

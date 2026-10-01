@@ -6,6 +6,7 @@ import { Help } from '../components/Tooltip.jsx'
 import { TOOL_HELP } from '../lib/help.js'
 import { k3dApi } from '../lib/stackApi.js'
 import { usePolling } from '../lib/usePolling.jsx'
+import { useFollowedState } from '../session/SessionProvider.jsx'
 
 // K8sBackupManager — an operator-managed cluster's backups, its restores, and the bucket they
 // live in.
@@ -559,7 +560,7 @@ const PANES = [
 
 export function K8sBackupManager({ stackId, frame, isServer }) {
   const api = useMemo(() => (frame ? k3dApi(stackId, frame.id) : null), [stackId, frame])
-  const [pane, setPane] = useState('backups')
+  const [pane, setPane] = useFollowedState(`k8sBackup:${frame?.id}`, 'backups')
   const [data, setData] = useState(null)
   const [err, setErr] = useState('')
   const [note, setNote] = useState(null)

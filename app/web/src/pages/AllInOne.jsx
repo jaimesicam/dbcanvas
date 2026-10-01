@@ -11,6 +11,7 @@ import {
   MEMBER_CHOICE_LABEL,
 } from '../lib/aioPorts.js'
 import { HELP } from '../lib/help.js'
+import { useFollowedState } from '../session/SessionProvider.jsx'
 
 // AllInOne.jsx — the All-in-One node's designer form and its deployed manager.
 //
@@ -732,7 +733,7 @@ const MGR_TABS = [
 export function AllInOneManager({ stackId, nodeId, dep, onDeleteNode }) {
   const api = aioApi(stackId, nodeId)
   const { openTerminal } = useTerminals()
-  const [tab, setTab] = useState('instances')
+  const [tab, setTab] = useFollowedState(`tab:${nodeId}`, 'instances')
   const [data, setData] = useState(null)
   const [busy, setBusy] = useState('')
   const [err, setErr] = useState('')

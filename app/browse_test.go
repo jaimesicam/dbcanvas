@@ -195,7 +195,7 @@ func TestBrowseIsTheOwnersAndTheirGuests(t *testing.T) {
 	app.store.SetAppSetting(settingAllowGuestSessions, "1")
 	st, _ := app.store.CreateStack("lab", owner.ID, ttlInfinity, nil, []byte(defaultDesign))
 	sess, _ := app.store.CreateShareSession(owner.ID, st.ID, "h", false, time.Now().Add(time.Hour))
-	g, _ := app.store.CreateShareGuest(sess.ID, "Jane", "j@example.com", hashTokenSecret("gsecret"), "")
+	g, _ := app.store.CreateShareGuest(sess.ID, "Jane", "j@example.com", hashTokenSecret("gsecret"), "", "")
 	app.store.SetShareGuestState(g.ID, guestAdmitted)
 	gc := &http.Cookie{Name: guestCookieName, Value: "gsecret"}
 	if resp := get(t, front, "/_p/k1/", gc, nil); resp.StatusCode != 200 {

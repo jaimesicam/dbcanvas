@@ -10,6 +10,7 @@ import OidcLoginGuide from '../components/OidcLoginGuide.jsx'
 import { SecretValue } from '../components/Secret.jsx'
 import { Help } from '../components/Tooltip.jsx'
 import { DEP_HELP } from '../lib/help.js'
+import { useFollowedState } from '../session/SessionProvider.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -44,7 +45,7 @@ function KV({ k, v, mono, help }) {
 // "mariadb" for the MariaDB family. Only the Encryption tab cares: a member's keyring guide has
 // to say what belongs to this member and what belongs to the cluster (see VaultGuide).
 export default function MySQLManager({ stackId, nodeId, engine = 'ps', dep, onDeleteNode }) {
-  const [tab, setTab] = useState('overview')
+  const [tab, setTab] = useFollowedState(`tab:${nodeId}`, 'overview')
   const { openTerminal } = useTerminals()
   const cfg = dep.config || {}
   const sec = dep.secrets || {}

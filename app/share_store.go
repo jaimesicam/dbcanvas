@@ -36,6 +36,9 @@ CREATE INDEX IF NOT EXISTS idx_share_sessions_stack ON share_sessions(stack_id, 
 
 -- One row per person who came through a link. Name and email are what they typed:
 -- labels, not identity. The cookie is the credential, stored hashed like the link.
+-- invite_hash is the link they came through (store.go adds it to older databases): a
+-- guest who left, was removed or was denied cannot come back on that same link, only
+-- on a new one the host issues (share.go, handleJoin).
 CREATE TABLE IF NOT EXISTS share_guests (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id   INTEGER NOT NULL REFERENCES share_sessions(id) ON DELETE CASCADE,
@@ -61,7 +64,7 @@ CREATE TABLE IF NOT EXISTS share_messages (
   author_kind  TEXT NOT NULL,         -- host | guest | system
   guest_id     INTEGER NOT NULL DEFAULT 0,
   author       TEXT NOT NULL DEFAULT '',
-  kind         TEXT NOT NULL,         -- chat | join | leave | lobby | control | action | expiry-warning | end
+  kind         TEXT NOT NULL,         -- chat | join | leave | lobby | link | control | action | expiry-warning | end
   body         TEXT NOT NULL,
   created_at   TEXT NOT NULL
 );
@@ -122,6 +125,7 @@ type ShareGuest struct {
 	JoinedAt   string  `json:"joinedAt"`
 	AdmittedAt *string `json:"admittedAt,omitempty"`
 	LeftAt     *string `json:"leftAt,omitempty"`
+	InviteHash string  `json:"-"`
 }
 
 // Guest states.
@@ -227,6 +231,29 @@ func (s *Store) listShareSessions(where string, arg any) ([]ShareSession, error)
 	return out, rows.Err()
 }
 
+// SetShareSessionToken replaces a live session's link. The old one stops opening the
+// join page; guests already through it keep their cookies.
+func (s *Store) SetShareSessionToken(id int64, tokenHash string) error {
+	res, err := s.db.Exec(`UPDATE share_sessions SET token_hash = ? WHERE id = ? AND ended_at IS NULL`, tokenHash, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return errShareNotFound
+	}
+	return nil
+}
+
+// ShareSessionTokenHash is the hash of a session's current link.
+func (s *Store) ShareSessionTokenHash(id int64) (string, error) {
+	var h string
+	err := s.db.QueryRow(`SELECT token_hash FROM share_sessions WHERE id = ?`, id).Scan(&h)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", errShareNotFound
+	}
+	return h, err
+}
+
 // ListShareSessions is a host's sessions, newest first.
 func (s *Store) ListShareSessions(hostID int64) ([]ShareSession, error) {
 	return s.listShareSessions("s.host_id = ?", hostID)
@@ -276,13 +303,13 @@ func (s *Store) ExpiredShareSessions(now time.Time) ([]int64, error) {
 	return ids, rows.Err()
 }
 
-const shareGuestCols = `id, session_id, name, email, state, muted, remote_addr, joined_at, admitted_at, left_at`
+const shareGuestCols = `id, session_id, name, email, state, muted, remote_addr, joined_at, admitted_at, left_at, invite_hash`
 
 func scanShareGuest(row interface{ Scan(...any) error }) (ShareGuest, error) {
 	var g ShareGuest
 	var muted int
 	var adm, left sql.NullString
-	err := row.Scan(&g.ID, &g.SessionID, &g.Name, &g.Email, &g.State, &muted, &g.RemoteAddr, &g.JoinedAt, &adm, &left)
+	err := row.Scan(&g.ID, &g.SessionID, &g.Name, &g.Email, &g.State, &muted, &g.RemoteAddr, &g.JoinedAt, &adm, &left, &g.InviteHash)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ShareGuest{}, errShareNotFound
 	}
@@ -299,9 +326,9 @@ func scanShareGuest(row interface{ Scan(...any) error }) (ShareGuest, error) {
 	return g, nil
 }
 
-func (s *Store) CreateShareGuest(sessionID int64, name, email, cookieHash, remoteAddr string) (ShareGuest, error) {
-	res, err := s.db.Exec(`INSERT INTO share_guests (session_id, name, email, cookie_hash, state, remote_addr, joined_at)
-		VALUES (?,?,?,?,?,?,?)`, sessionID, name, email, cookieHash, guestWaiting, remoteAddr, nowRFC3339())
+func (s *Store) CreateShareGuest(sessionID int64, name, email, cookieHash, remoteAddr, inviteHash string) (ShareGuest, error) {
+	res, err := s.db.Exec(`INSERT INTO share_guests (session_id, name, email, cookie_hash, state, remote_addr, joined_at, invite_hash)
+		VALUES (?,?,?,?,?,?,?,?)`, sessionID, name, email, cookieHash, guestWaiting, remoteAddr, nowRFC3339(), inviteHash)
 	if err != nil {
 		return ShareGuest{}, err
 	}

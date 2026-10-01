@@ -9,6 +9,7 @@ import MongoCertReissue from '../components/MongoCertReissue.jsx'
 import { SecretValue } from '../components/Secret.jsx'
 import { Help } from '../components/Tooltip.jsx'
 import { DEP_HELP } from '../lib/help.js'
+import { useFollowedState } from '../session/SessionProvider.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -76,7 +77,7 @@ function roleText(cfg) {
 }
 
 export default function MongoDBManager({ stackId, nodeId, frameId, dep, onDeleteNode }) {
-  const [tab, setTab] = useState('overview')
+  const [tab, setTab] = useFollowedState(`tab:${nodeId}`, 'overview')
   const { openTerminal } = useTerminals()
   const cfg = dep.config || {}
   const sec = dep.secrets || {}

@@ -12,6 +12,7 @@ import { CRFormEditor } from './CRFormEditor.jsx'
 import { K8sObjectEditor } from './K8sObjectEditor.jsx'
 import { K8sBackupManager } from './K8sBackupManager.jsx'
 import { K8sLogicalReplicas } from './K8sLogicalReplicas.jsx'
+import { useFollowedState } from '../session/SessionProvider.jsx'
 
 // K3DManager — a running k3s node of a K3D cluster frame.
 //
@@ -311,7 +312,7 @@ export function ReplicationView({ view, err, note, busy, isServer, onRefresh, on
 }
 
 export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }) {
-  const [tab, setTab] = useState('overview')
+  const [tab, setTab] = useFollowedState(`tab:${nodeId}`, 'overview')
   const { openTerminal } = useTerminals()
   const cfg = dep.config || {}
   const sec = dep.secrets || {}

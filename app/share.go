@@ -217,7 +217,14 @@ func guestForbidden(rt apiRoute) string {
 // guestNeed is the scope a guest needs for a route. As for a token — GET reads, the
 // rest writes — with one addition: an interactive socket (a node's terminal, the
 // debugger, gdb) is a GET that hands over a shell, so it takes control.
+//
+// The public join routes (/api/join/…) need nothing: they act on the guest's own
+// place in the session — above all Leave, which a watcher must be able to press —
+// and never on the host's workspace.
 func guestNeed(rt apiRoute) string {
+	if rt.Auth == authPublic {
+		return ScopeRead
+	}
 	if rt.Media == mediaWebSocket && rt.Group != gShare {
 		return ScopeWrite
 	}
@@ -861,9 +868,16 @@ func (a *App) handleJoin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusTooManyRequests, "too many attempts — wait a minute and try again")
 		return
 	}
-	if g, ok := a.currentGuestOf(r, sess); ok && (g.State == guestWaiting || g.State == guestAdmitted) {
-		writeJSON(w, http.StatusOK, g) // already in: a double click, or a reload
-		return
+	invite := hashTokenSecret(r.PathValue("token"))
+	if g, ok := a.currentGuestOf(r, sess); ok {
+		switch {
+		case g.State == guestWaiting || g.State == guestAdmitted:
+			writeJSON(w, http.StatusOK, g) // already in: a double click, or a reload
+			return
+		case guestGone(g.State) && g.InviteHash == invite:
+			writeErr(w, http.StatusForbidden, "you are no longer in this session — ask the host for a new invitation link")
+			return
+		}
 	}
 	var in struct {
 		Name  string `json:"name"`
@@ -892,7 +906,7 @@ func (a *App) handleJoin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "failed to join")
 		return
 	}
-	g, err := a.store.CreateShareGuest(sess.ID, name, email, hashTokenSecret(secret), remoteHost(r))
+	g, err := a.store.CreateShareGuest(sess.ID, name, email, hashTokenSecret(secret), remoteHost(r), invite)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to join")
 		return
@@ -912,15 +926,47 @@ func (a *App) handleJoin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, g)
 }
 
+// joinSession is the session a /join/<token> request is about: the one the link
+// opens, or — when the host has since issued a new link — the one this browser's
+// guest cookie belongs to, so a guest already through the old link keeps their
+// place. fromLink says which.
+func (a *App) joinSession(r *http.Request) (sess ShareSession, fromLink bool, ok bool) {
+	if tok := r.PathValue("token"); tok != "" && len(tok) <= 100 {
+		if sess, err := a.store.ShareSessionByToken(hashTokenSecret(tok)); err == nil {
+			return sess, true, true
+		}
+	}
+	c, err := r.Cookie(guestCookieName)
+	if err != nil || c.Value == "" {
+		return ShareSession{}, false, false
+	}
+	g, err := a.store.ShareGuestByCookie(hashTokenSecret(c.Value))
+	if err != nil {
+		return ShareSession{}, false, false
+	}
+	sess, err = a.store.GetShareSession(g.SessionID)
+	return sess, false, err == nil
+}
+
+// guestGone is whether a guest is out of the session for good: left, removed, or
+// never admitted.
+func guestGone(state string) bool {
+	return state == guestLeft || state == guestRemoved || state == guestDenied
+}
+
 // handleJoinStatus is what the lobby polls.
 func (a *App) handleJoinStatus(w http.ResponseWriter, r *http.Request) {
-	tok := r.PathValue("token")
-	sess, err := a.store.ShareSessionByToken(hashTokenSecret(tok))
-	if err != nil {
+	sess, fromLink, ok := a.joinSession(r)
+	if !ok {
 		writeErr(w, http.StatusNotFound, "this link has expired or was never valid")
 		return
 	}
 	g, ok := a.currentGuestOf(r, sess)
+	// A guest who is out, holding a newer link than the one they came through, is
+	// invited again: they get the join form, not the door they walked out of.
+	if ok && fromLink && guestGone(g.State) && g.InviteHash != hashTokenSecret(r.PathValue("token")) {
+		ok = false
+	}
 	if !ok {
 		writeErr(w, http.StatusNotFound, "you have not joined this session")
 		return
@@ -933,10 +979,12 @@ func (a *App) handleJoinStatus(w http.ResponseWriter, r *http.Request) {
 		"hostName": sess.HostName, "stackName": sess.StackName, "expiresAt": sess.ExpiresAt})
 }
 
+// handleJoinLeave takes a guest out of the session. The cookie is kept, now pointing
+// at a guest who left, so this browser cannot walk back in on the same link: coming
+// back takes a new invitation from the host (handleShareNewLink).
 func (a *App) handleJoinLeave(w http.ResponseWriter, r *http.Request) {
-	tok := r.PathValue("token")
-	sess, err := a.store.ShareSessionByToken(hashTokenSecret(tok))
-	if err != nil {
+	sess, _, ok := a.joinSession(r)
+	if !ok {
 		writeErr(w, http.StatusNotFound, "this link has expired or was never valid")
 		return
 	}
@@ -948,9 +996,32 @@ func (a *App) handleJoinLeave(w http.ResponseWriter, r *http.Request) {
 			h.broadcastPresence()
 		}
 	}
-	http.SetCookie(w, &http.Cookie{Name: guestCookieName, Value: "", Path: "/", HttpOnly: true,
-		SameSite: http.SameSiteStrictMode, Secure: r.TLS != nil, MaxAge: -1})
 	writeJSON(w, http.StatusOK, map[string]any{"status": "left"})
+}
+
+// handleShareNewLink replaces a session's link and returns the new one, once. The old
+// link stops working for anyone not already in — a guest who left on it, or anyone it
+// was forwarded to — so it is how the host invites someone back.
+func (a *App) handleShareNewLink(w http.ResponseWriter, r *http.Request) {
+	sess, u, ok := a.loadHostedSession(w, r)
+	if !ok {
+		return
+	}
+	if !sess.live(time.Now()) {
+		writeErr(w, http.StatusConflict, "this session has ended")
+		return
+	}
+	token, err := newShareToken()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to create the link")
+		return
+	}
+	if err := a.store.SetShareSessionToken(sess.ID, hashTokenSecret(token)); err != nil {
+		writeErr(w, http.StatusConflict, "this session has ended")
+		return
+	}
+	a.hubFor(sess).event("link", 0, u.Username, u.Username+" issued a new invitation link; the previous one no longer works")
+	writeJSON(w, http.StatusOK, map[string]any{"session": sess, "url": publicURL(r) + "/join/" + token})
 }
 
 // ------------------------------------------------------------- expiry

@@ -1242,6 +1242,7 @@ transcript and the guest actions — are deleted after `sessionRetentionDays`
 | Admit, deny, remove a guest | `POST /api/share/sessions/{sid}/guests/{gid}/admit` · `…/deny` · `…/remove` | `dbcanvas api POST …/guests/5/admit` |
 | Mute or unmute a guest | `POST /api/share/sessions/{sid}/guests/{gid}/mute` `{"muted": true}` | — |
 | Give or take back control | `POST /api/share/sessions/{sid}/control` `{"to": 5}` or `{"to": "host"}` | — |
+| New invitation link (retires the old one; returned once) | `POST /api/share/sessions/{sid}/link` | `dbcanvas api POST /api/share/sessions/3/link` |
 | End it now | `POST /api/share/sessions/{sid}/end` | `dbcanvas api POST /api/share/sessions/3/end` |
 | Transcripts filed on a stack | `GET /api/stacks/{id}/share/transcripts` | — |
 | Download a transcript | `GET /api/share/sessions/{sid}/transcript` *(text; `?format=json`)* | `dbcanvas api GET …/transcript --out session.txt` |
@@ -1262,6 +1263,14 @@ when they close it. A watching guest may look at a proxied page but not post to 
 open its websockets — except a VNC desktop, which they see live through a view-only
 filter on the server that drops their keyboard, pointer, clipboard and resize
 messages. The guest in control can use every page fully.
+
+**Open in VNC Browser.** `POST /api/browse/desktop {"url": "http://localhost:38755/graph/"}`
+resolves the link the same way, then opens it as a Firefox tab on the stack's running
+Ubuntu VNC desktop, at the node's name on the stack network (`http://pmm-01:8080/graph/`),
+and returns `{"desktopLink", "desktop", "opened"}`. The client opens `desktopLink` as a
+browser window, shared like any other, so everyone in a session sees the one copy of the
+page. 409 when the stack has no running VNC desktop. It changes the desktop, so a
+watching guest gets 403 and a driving guest's call is audited.
 
 A guest is not an account. The guest's browser marks every request as a guest's
 (the `X-DBCanvas-Guest` header, or `?guest=1` on sockets and downloads), and the

@@ -7,6 +7,7 @@ import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import { SecretValue } from '../components/Secret.jsx'
 import { Help } from '../components/Tooltip.jsx'
 import { DEP_HELP } from '../lib/help.js'
+import { useFollowedState } from '../session/SessionProvider.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -41,7 +42,7 @@ function Err({ children }) {
 }
 
 export default function IntranetManager({ stackId, nodeId, dep, onDeleteNode }) {
-  const [tab, setTab] = useState('overview')
+  const [tab, setTab] = useFollowedState(`tab:${nodeId}`, 'overview')
   const api = intranetApi(stackId, nodeId)
   const { openTerminal } = useTerminals()
   const sec = dep.secrets || {}

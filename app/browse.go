@@ -128,6 +128,54 @@ func newBrowseKey() string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
+// nodeLinkTarget is a node link resolved to the container that publishes it.
+type nodeLinkTarget struct {
+	link     *url.URL
+	hostPort int
+	pp       PublishedPort
+	st       Stack
+	label    string
+}
+
+// resolveNodeLink finds which container publishes a node link's port, and checks it
+// belongs to a stack u may use. It answers the request itself when it cannot.
+func (a *App) resolveNodeLink(w http.ResponseWriter, r *http.Request, u User, raw string) (nodeLinkTarget, bool) {
+	link, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || (link.Scheme != "http" && link.Scheme != "https") || link.Host == "" {
+		writeErr(w, http.StatusBadRequest, "a node link is an http:// or https:// address")
+		return nodeLinkTarget{}, false
+	}
+	port := link.Port()
+	if port == "" {
+		port = map[string]string{"http": "80", "https": "443"}[link.Scheme]
+	}
+	hostPort, _ := strconv.Atoi(port)
+	if a.docker == nil {
+		writeErr(w, http.StatusNotImplemented, "the browser window needs the Docker engine")
+		return nodeLinkTarget{}, false
+	}
+	pp, found, err := a.docker.ContainerByHostPort(r.Context(), hostPort)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "could not ask Docker which node publishes port "+port)
+		return nodeLinkTarget{}, false
+	}
+	if !found {
+		writeErr(w, http.StatusNotFound, "no running node publishes port "+port+" on this installation")
+		return nodeLinkTarget{}, false
+	}
+	stackID, label, ok := stackOfContainer(pp.Name)
+	if !ok {
+		writeErr(w, http.StatusForbidden, "port "+port+" does not belong to a DBCanvas node")
+		return nodeLinkTarget{}, false
+	}
+	st, err := a.store.GetStack(stackID)
+	if err != nil || (st.OwnerID != u.ID && u.Role != RoleAdmin) {
+		writeErr(w, http.StatusForbidden, "port "+port+" belongs to a stack that is not yours")
+		return nodeLinkTarget{}, false
+	}
+	return nodeLinkTarget{link: link, hostPort: hostPort, pp: pp, st: st, label: label}, true
+}
+
 // handleBrowse resolves a node link to a proxied address the browser window opens.
 func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	u, ok := a.currentUser(r)
@@ -142,39 +190,11 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	link, err := url.Parse(strings.TrimSpace(in.URL))
-	if err != nil || (link.Scheme != "http" && link.Scheme != "https") || link.Host == "" {
-		writeErr(w, http.StatusBadRequest, "a node link is an http:// or https:// address")
-		return
-	}
-	port := link.Port()
-	if port == "" {
-		port = map[string]string{"http": "80", "https": "443"}[link.Scheme]
-	}
-	hostPort, _ := strconv.Atoi(port)
-	if a.docker == nil {
-		writeErr(w, http.StatusNotImplemented, "the browser window needs the Docker engine")
-		return
-	}
-	pp, found, err := a.docker.ContainerByHostPort(r.Context(), hostPort)
-	if err != nil {
-		writeErr(w, http.StatusBadGateway, "could not ask Docker which node publishes port "+port)
-		return
-	}
-	if !found {
-		writeErr(w, http.StatusNotFound, "no running node publishes port "+port+" on this installation")
-		return
-	}
-	stackID, label, ok := stackOfContainer(pp.Name)
+	nl, ok := a.resolveNodeLink(w, r, u, in.URL)
 	if !ok {
-		writeErr(w, http.StatusForbidden, "port "+port+" does not belong to a DBCanvas node")
 		return
 	}
-	st, err := a.store.GetStack(stackID)
-	if err != nil || (st.OwnerID != u.ID && u.Role != RoleAdmin) {
-		writeErr(w, http.StatusForbidden, "port "+port+" belongs to a stack that is not yours")
-		return
-	}
+	link, pp, st, stackID, label := nl.link, nl.pp, nl.st, nl.st.ID, nl.label
 
 	// Which design node the container is — for its label, and whether it is a VNC
 	// desktop (whose password the window fills in for whoever may read it).
@@ -208,7 +228,7 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	}
 	if t == nil {
 		t = &browseTarget{Key: newBrowseKey(), OwnerID: st.OwnerID, StackID: stackID, ContainerID: pp.ContainerID,
-			ContainerPort: pp.ContainerPort, HostPort: hostPort, Scheme: link.Scheme, Title: label, Kind: kind, lastUsed: time.Now()}
+			ContainerPort: pp.ContainerPort, HostPort: nl.hostPort, Scheme: link.Scheme, Title: label, Kind: kind, lastUsed: time.Now()}
 		t.proxy = a.newBrowseProxy(t)
 		browseTargets.m[t.Key] = t
 	}

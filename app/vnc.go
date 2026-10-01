@@ -185,6 +185,11 @@ func (a *App) provisionVNC(st Stack, n designNode, doc designDoc) {
 		if err := a.runStep(ctx, id, vncFirefoxCAScript, nil, pr.logln); err != nil {
 			pr.logln("Firefox CA trust setup skipped: " + err.Error())
 		}
+		// A browser fit to be watched (browsedesk.go): tabs, no first-run dialog, no
+		// saved passwords.
+		if err := a.runStep(ctx, id, deskFirefoxPolicyScript, nil, pr.logln); err != nil {
+			pr.logln("Firefox desktop policy skipped: " + err.Error())
+		}
 
 		pr.phase("Creating desktop user", 60)
 		if err := a.runStep(ctx, id, vncSetupUserScript, []string{"VNCUSER=" + user, "VNCPW=" + pw, "GEOMETRY=" + vncGeometry}, pr.logln); err != nil {

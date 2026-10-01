@@ -406,7 +406,7 @@ function Workspace({ onSessionEnded }) {
           className="fixed bottom-16 right-3 z-30 flex items-center gap-2 rounded-lg border bg-surface px-3 py-2 text-sm shadow-lg hover:bg-surface2"
         >
           <Icon.Chat size={16} /> Session
-          {session.messages.length > 0 && <span className="rounded bg-primary/15 px-1.5 text-xs text-primary">{session.messages.length}</span>}
+          {session.unread > 0 && <span className="rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-fg" title="Unread messages">{session.unread > 99 ? '99+' : session.unread}</span>}
         </button>
       )}
 

@@ -39,7 +39,9 @@ that one port. See [Configuration](CONFIGURATION.md) for both variables.
 Open a stack you own and click **Share** in the canvas toolbar. Pick how long the link
 lasts, and whether to **Hide secrets** (below), then **Start and get the link**. The
 session panel opens beside the workspace with the link and a **Copy link** button — the
-link is shown this once.
+link is shown this once. **New link** (or, after a reload, **Issue a new invitation
+link**) replaces it with a fresh one: the old link stops opening the join screen, while
+guests already through it stay in the session.
 
 The dialog also lists the earlier sessions on this stack, each with its transcript.
 
@@ -52,8 +54,16 @@ neither verified: they are labels for you to recognise people by, not an identit
 
 They wait in the **lobby**. You get a notification and an entry at the top of the
 session panel with their name, email and the address they came from, and **Admit** or
-**Deny**. Nobody sees anything of your workspace before you admit them. A guest who is
-denied or removed can only ask again, as a new entry in the lobby for you to decide on.
+**Deny**. Nobody sees anything of your workspace before you admit them.
+
+**Leaving is final for that link.** A guest who clicks **Leave** (in the session
+panel or the lobby) confirms it and lands on DBCanvas's sign-in page, which says they
+left. A guest who is removed or denied sees a screen telling them so. Either way, the
+link they came through will not let them ask again from that browser. To invite them
+back, click **New link** and send it: they
+join through it as a new entry in the lobby, for you to admit. Because the new link
+also retires the old one, a guest who clears their cookies cannot come back on the link
+they left with either.
 
 A guest's tab stays on the `/join/…` address for the whole session; reloading it puts
 them back where they were. A colleague who also has an account on this DBCanvas keeps
@@ -93,6 +103,7 @@ nothing, and this is enforced by the server, not by greyed-out buttons:
 | The canvas | view only — edits, deletes, moves and Properties are refused | edit, deploy, destroy |
 | Terminals | watch | type |
 | Browser windows | look; a VNC desktop live but untouchable | use |
+| Open in VNC Browser | — | put a page on the stack's desktop |
 | Close a shared terminal or window | no | yes |
 
 These are never reachable by a guest, driving or not: your account and password, your
@@ -131,6 +142,32 @@ Pages in a browser window run on DBCanvas's own address. That is what lets them 
 their own logins, and it is fine for the lab services DBCanvas deploys; it is not a
 sandbox for arbitrary websites.
 
+### Open in VNC Browser — one copy everyone sees
+
+A browser window shares only the page's **address**. Every viewer loads their own copy,
+with their own logins. So a guest watching Roundcube or PMM in one sees a login page,
+and can't log in, because a watcher can't send forms. Even logged in, anything that
+doesn't change the address (a message in the preview pane, a scroll, a dashboard's data)
+wouldn't follow you. DBCanvas deliberately does not hand guests your logins for those
+apps instead: every guest would act as you inside them, and their copies would still
+drift apart.
+
+When everyone should see exactly what the driver sees, right-click the link and choose
+**Open in VNC Browser**. The page opens as a tab in Firefox on the stack's **Ubuntu VNC**
+desktop, and that desktop opens as a shared window. There is one copy of the page and one
+login, which stays inside the desktop: guests only see its pixels, and only the driver's
+keyboard and mouse reach it. Firefox reaches the node by its name on the stack network
+(`http://pmm-01:8080/…`), exactly as it would from inside the lab.
+
+- The stack needs an **Ubuntu VNC** node; without one the option explains that.
+- A watching guest doesn't get the option. A driving guest does, and it is recorded
+  like any other change they make.
+- Firefox there opens pages as tabs, skips its first-run dialog, and never saves
+  passwords. A login stays in the browser only as a session, so a guest given control
+  later can't read your saved logins.
+- Whoever drives controls the whole desktop, terminal included. Give control
+  accordingly.
+
 ## Hide secrets
 
 With **Hide secrets** ticked, every password is masked in what guests are sent — node
@@ -142,7 +179,15 @@ configuration file in a terminal.
 ## Chat
 
 Everyone admitted shares one chat, in the panel. Messages are plain text — whatever a
-guest types, `<script>` included, is shown and never run. System events arrive in the
+guest types, `<script>` included, is shown and never run. **Enter** sends and
+**Shift+Enter** starts a new line. The smiley button opens an emoji picker, and typed
+emoticons become emoji when sent (`:)` 🙂, `:D` 😄, `:+1:` 👍, `:tada:` 🎉, `<3` ❤️),
+except inside `` `code` `` or a word or URL.
+
+DBCanvas plays a short chime for a message from someone else, a guest arriving in the
+lobby or asking for control (host), control handed to you, the expiry warnings and the
+end. The bell in the chat header turns the sounds off for that browser. With the panel
+hidden, its button counts the unread messages. System events arrive in the
 same stream: joins, the lobby, control changes, every change a guest makes while driving
 ("Jane — Stop a node — POST …"), terminals and windows opened, and warnings ten and two
 minutes before the link expires. You can **mute** a guest, who keeps watching, or

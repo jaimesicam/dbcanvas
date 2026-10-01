@@ -446,6 +446,30 @@ export const Icon = {
       <line x1="8" y1="13" x2="13" y2="13" />
     </Svg>
   ),
+  // A smiling face: the chat's emoji picker.
+  Smile: (p) => (
+    <Svg {...p}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M8.5 14.5a4.5 4.5 0 0 0 7 0" />
+      <line x1="9" y1="9.5" x2="9.01" y2="9.5" />
+      <line x1="15" y1="9.5" x2="15.01" y2="9.5" />
+    </Svg>
+  ),
+  // A bell struck through: alert sounds off.
+  BellOff: (p) => (
+    <Svg {...p}>
+      <path d="M6 9a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6" />
+      <path d="M10 19a2 2 0 0 0 4 0" />
+      <line x1="3" y1="3" x2="21" y2="21" />
+    </Svg>
+  ),
+  // A paper plane: send.
+  Send: (p) => (
+    <Svg {...p}>
+      <path d="M21 3L10 14" />
+      <path d="M21 3l-7 18-4-7-7-4z" />
+    </Svg>
+  ),
   // A pointer: who is steering the session.
   Pointer: (p) => (
     <Svg {...p}>

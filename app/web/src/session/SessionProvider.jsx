@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { shareApi } from '../lib/shareApi.js'
 import { useAuth } from '../auth/AuthProvider.jsx'
+import { playSound } from '../lib/sessionSounds.js'
 
 // SessionProvider — this browser's side of a shared session (app/share.go,
 // app/sharehub.go).
@@ -17,6 +18,11 @@ import { useAuth } from '../auth/AuthProvider.jsx'
 // the server, it tells everyone else to re-read ('dbcanvas:invalidate', which App
 // turns into the active tab's Refresh).
 //
+// It also chimes (lib/sessionSounds.js) for what someone should not miss while looking
+// at the canvas: a message from someone else, a guest in the lobby or asking for
+// control, control handed to you, the clock, the end — and counts the messages that
+// arrived while the panel was hidden (unread, markRead).
+//
 // Outside a session every value is inert, so a page may call these unconditionally.
 
 const SessionCtx = createContext(null)
@@ -24,17 +30,48 @@ const SessionCtx = createContext(null)
 const INERT = {
   active: false, sid: null, me: null, presence: null, messages: [], isDriver: true, isHost: false,
   isGuest: false, following: false, follow: null, cursor: null, terms: [], browsers: [], ended: null, requests: [],
-  connected: false, link: '',
-  setFollowing: () => {}, publishFollow: () => {}, publishCursor: () => {}, sendChat: () => {},
+  connected: false, link: '', unread: 0,
+  setFollowing: () => {}, publishFollow: () => {}, publishUI: () => {}, publishCursor: () => {}, sendChat: () => {},
   requestControl: () => {}, releaseControl: () => {}, takeControl: async () => {}, giveControl: async () => {},
   admit: async () => {}, deny: async () => {}, remove: async () => {}, mute: async () => {}, end: async () => {},
   start: async () => { throw new Error('no session') }, openSharedTerm: async () => {}, closeSharedTerm: async () => {},
   shareBrowser: () => {},
-  notice: () => {}, dismissRequest: () => {}, reset: () => {},
+  notice: () => {}, dismissRequest: () => {}, reset: () => {}, markRead: () => {}, newLink: async () => {},
 }
 
 export function useSession() {
   return useContext(SessionCtx) || INERT
+}
+
+// useFollowedState is useState for a piece of UI that followers should see change
+// with the driver: which tab a node's Properties show, which pane is open. The driver's
+// value is published under `key` with the rest of the follow state (so a guest who
+// arrives later lands on it too); while following, the value is the driver's.
+//
+// Key it by what it belongs to — `tab:${nodeId}` — so two panels never share one.
+// Outside a session it is plain useState.
+export function useFollowedState(key, initial) {
+  const s = useSession()
+  const theirs = s.following ? s.follow?.ui?.[key] : undefined
+  const [value, setValue] = useState(() => (theirs !== undefined ? theirs : initial))
+  const valueRef = useRef(value)
+  valueRef.current = value
+  useEffect(() => {
+    if (theirs !== undefined) setValue(theirs)
+  }, [theirs])
+  // Whoever drives says where they are as soon as the panel shows, or as soon as they
+  // take control, not only on their next click.
+  const { active, isDriver, publishUI } = s
+  useEffect(() => {
+    if (active && isDriver) publishUI(key, valueRef.current)
+  }, [active, isDriver, key, publishUI])
+  const set = useCallback((next) => {
+    const v = typeof next === 'function' ? next(valueRef.current) : next
+    valueRef.current = v
+    setValue(v)
+    publishUI(key, v)
+  }, [key, publishUI])
+  return [value, set]
 }
 
 // Exported for the render checks: mount a component as a guest, a driver, a host.
@@ -58,6 +95,7 @@ export function SessionProvider({ children }) {
   const [requests, setRequests] = useState([])
   const [connected, setConnected] = useState(false)
   const [following, setFollowing] = useState(true)
+  const [unread, setUnread] = useState(0)
 
   const wsRef = useRef(null)
   const followRef = useRef({})
@@ -71,6 +109,10 @@ export function SessionProvider({ children }) {
   const isDriver = !!sid && controller === myId
   const driverRef = useRef(isDriver)
   driverRef.current = isDriver
+  const myIdRef = useRef(myId)
+  myIdRef.current = myId
+  const hostRef = useRef(isHost)
+  hostRef.current = isHost
 
   // A host finds their live session again after a reload.
   useEffect(() => {
@@ -123,9 +165,15 @@ export function SessionProvider({ children }) {
           case 'presence':
             setPresence(m)
             break
-          case 'message':
-            setMessages((ms) => [...ms.slice(-499), m.message])
+          case 'message': {
+            const msg = m.message
+            setMessages((ms) => [...ms.slice(-499), msg])
+            const mine = msg.authorKind !== 'system' && msg.guestId === myIdRef.current
+            if (msg.kind === 'chat' && !mine) { playSound('message'); setUnread((n) => n + 1) }
+            else if (msg.kind === 'join' && !mine) playSound('join')
+            else if (msg.kind === 'expiry-warning') playSound('warning')
             break
+          }
           case 'follow':
             setFollowData(m.data)
             break
@@ -136,6 +184,7 @@ export function SessionProvider({ children }) {
             window.dispatchEvent(new CustomEvent('dbcanvas:invalidate', { detail: m.data || {} }))
             break
           case 'control-request':
+            if (hostRef.current) playSound('request')
             setRequests((rs) => (rs.some((r) => r.guestId === m.guestId) ? rs : [...rs, { guestId: m.guestId, name: m.name }]))
             break
           case 'terminal-open':
@@ -157,6 +206,7 @@ export function SessionProvider({ children }) {
             localNotice(m.error)
             break
           case 'end':
+            playSound('end')
             setEnded(m.reason || 'ended')
             live = false
             break
@@ -172,6 +222,20 @@ export function SessionProvider({ children }) {
       wsRef.current = null
     }
   }, [sid, ended, localNotice])
+
+  // A guest arriving in the lobby, for the host; control arriving, for whoever gets it.
+  const waitingCount = presence?.guests?.filter((g) => g.state === 'waiting').length ?? 0
+  const lastWaiting = useRef(0)
+  useEffect(() => {
+    if (isHost && waitingCount > lastWaiting.current) playSound('lobby')
+    lastWaiting.current = waitingCount
+  }, [isHost, waitingCount])
+  const lastController = useRef(null)
+  useEffect(() => {
+    if (!presence) return
+    if (lastController.current !== null && lastController.current !== controller && controller === myId) playSound('control')
+    lastController.current = controller
+  }, [presence, controller, myId])
 
   // Control requests are answered by control moving; a stale one is dropped.
   useEffect(() => {
@@ -210,6 +274,12 @@ export function SessionProvider({ children }) {
     followTimer.current = setTimeout(() => send({ t: 'follow', data: followRef.current }), 80)
   }, [send])
 
+  // publishUI is publishFollow for one key of the followed UI state (useFollowedState):
+  // merged into `ui`, so one panel's tab does not wipe another's.
+  const publishUI = useCallback((key, v) => {
+    publishFollow({ ui: { ...(followRef.current.ui || {}), [key]: v } })
+  }, [publishFollow])
+
   const publishCursor = useCallback((pt) => {
     if (!driverRef.current) return
     const now = Date.now()
@@ -223,12 +293,13 @@ export function SessionProvider({ children }) {
   }, [localNotice])
 
   const value = useMemo(() => ({
-    active: !!sid && !ended, sid, me, presence, messages, follow, cursor, terms, browsers, ended, requests, connected, link,
+    active: !!sid && !ended, sid, me, presence, messages, follow, cursor, terms, browsers, ended, requests, connected, link, unread,
     isDriver: !sid || isDriver, isHost, isGuest, following: following && !isDriver,
     controllerName: controller === 0 ? presence?.host?.name : presence?.guests?.find((g) => g.id === controller)?.name,
     setFollowing,
-    publishFollow, publishCursor,
+    publishFollow, publishUI, publishCursor,
     notice: localNotice,
+    markRead: () => setUnread(0),
     sendChat: (body) => send({ t: 'chat', body }),
     requestControl: () => send({ t: 'control-request' }),
     releaseControl: () => send({ t: 'control-release' }),
@@ -240,6 +311,15 @@ export function SessionProvider({ children }) {
     remove: (gid) => hostCall(() => shareApi.remove(sid, gid)),
     mute: (gid, muted) => hostCall(() => shareApi.mute(sid, gid, muted)),
     end: () => hostCall(() => shareApi.end(sid)),
+    // newLink replaces the link — the way to invite back a guest who left — and
+    // returns the new one, shown once like the first.
+    newLink: async () => {
+      try {
+        const r = await shareApi.newLink(sid)
+        setLink(r.url)
+        return r.url
+      } catch (e) { localNotice(e.message); return '' }
+    },
     // start begins a session on a stack and returns its link; the link is shown once.
     start: async (stackId, minutes, hideSecrets) => {
       const r = await shareApi.start(stackId, minutes, hideSecrets)
@@ -249,7 +329,7 @@ export function SessionProvider({ children }) {
       return r.url
     },
     // A host who ends a session goes back to working alone.
-    reset: () => { setSid(null); setEnded(null); setLink(''); setPresence(null); setMessages([]); setTerms([]) },
+    reset: () => { setSid(null); setEnded(null); setLink(''); setPresence(null); setMessages([]); setTerms([]); setUnread(0) },
     // t is browser-open | browser-nav | browser-close; the opener keeps its own list
     // in step, since the hub tells everyone but the sender.
     shareBrowser: (t, b) => {
@@ -260,8 +340,8 @@ export function SessionProvider({ children }) {
     },
     openSharedTerm: (spec) => shareApi.openTerm(sid, spec),
     closeSharedTerm: (tid) => shareApi.closeTerm(sid, tid).catch(() => {}),
-  }), [sid, ended, me, presence, messages, follow, cursor, terms, browsers, requests, connected, link, isDriver, isHost, isGuest,
-    following, controller, publishFollow, publishCursor, localNotice, send, hostCall])
+  }), [sid, ended, me, presence, messages, follow, cursor, terms, browsers, requests, connected, link, unread, isDriver, isHost, isGuest,
+    following, controller, publishFollow, publishUI, publishCursor, localNotice, send, hostCall])
 
   return <SessionCtx.Provider value={value}>{children}</SessionCtx.Provider>
 }

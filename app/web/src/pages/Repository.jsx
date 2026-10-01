@@ -4,6 +4,7 @@ import { Icon } from '../components/Icons.jsx'
 import { Help } from '../components/Tooltip.jsx'
 import { HELP } from '../lib/help.js'
 import { stackApi, repositoryApi, DEPLOY_TONE } from '../lib/stackApi.js'
+import { useFollowedState } from '../session/SessionProvider.jsx'
 
 // Repository — a yum/apt mirror of the Percona repositories plus a Docker registry, carrying only
 // what the design names (app/repository.go). Three things live here:
@@ -321,7 +322,7 @@ const TABS = [
 ]
 
 export function RepositoryManager({ stackId, nodeId, dep, onDeleteNode }) {
-  const [tab, setTab] = useState('overview')
+  const [tab, setTab] = useFollowedState(`tab:${nodeId}`, 'overview')
   const cfg = dep.config || {}
   const syncing = cfg.sync?.state === 'running'
   return (

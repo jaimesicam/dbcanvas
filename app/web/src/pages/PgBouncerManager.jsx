@@ -4,6 +4,7 @@ import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE } from '../lib/stackApi.js'
 import { Help } from '../components/Tooltip.jsx'
 import { DEP_HELP } from '../lib/help.js'
+import { useFollowedState } from '../session/SessionProvider.jsx'
 
 // PgBouncerManager is the panel for a running PgBouncer node. Three tabs, because a
 // pooler raises three different questions and they have different answers:
@@ -77,7 +78,7 @@ function Row({ k, v, note }) {
 }
 
 export default function PgBouncerManager({ dep, onDeleteNode }) {
-  const [tab, setTab] = useState('overview')
+  const [tab, setTab] = useFollowedState(`tab:${dep?.nodeId}`, 'overview')
   const cfg = dep.config || {}
 
   return (

@@ -48,7 +48,7 @@ import OperatorSummary, { Verdicts as OpVerdicts, Findings as OpFindings, Worklo
 import { PageVisibleProvider, usePolling, usePageVisible } from '../src/lib/usePolling.jsx'
 import { RefreshProvider, useRefresh } from '../src/lib/useRefresh.jsx'
 import SessionPanel from '../src/components/SessionPanel.jsx'
-import { SessionContext } from '../src/session/SessionProvider.jsx'
+import { SessionContext, useFollowedState } from '../src/session/SessionProvider.jsx'
 import { guestURL } from '../src/lib/guest.js'
 import { openTab, closeTab, tabCounts, clampTabs, TABS_DEFAULT, TABS_MIN, TABS_MAX } from '../src/lib/tabs.js'
 import { mongoDownloadURL } from '../src/lib/stackApi.js'
@@ -157,6 +157,8 @@ import {
   suggestChart, toCSV, toJSON,
 } from '../src/lib/dbxApi.js'
 import realDeps from './real-deps.json' with { type: 'json' }
+import { withEmoji, onlyEmoji } from '../src/lib/emoji.js'
+import { DialogBox } from '../src/components/Dialog.jsx'
 
 const noop = () => {}
 let failures = 0
@@ -4280,24 +4282,62 @@ check('shared session: the panel renders for the host and for a guest, and chat 
     presence: { host: { name: 'admin', online: true }, controller: 0, expiresAt: new Date(Date.now() + 3600e3).toISOString(),
       guests: [{ id: 2, name: 'Jane', email: 'jane@example.com', state: 'admitted', online: true },
                { id: 3, name: 'Lee', email: 'lee@example.com', state: 'waiting', remoteAddr: '10.0.0.9' }] },
-    messages: [{ id: 1, kind: 'chat', authorKind: 'guest', author: 'Jane', body: '<script>alert(1)</script>', createdAt: new Date().toISOString() },
+    messages: [{ id: 1, kind: 'chat', authorKind: 'guest', guestId: 2, author: 'Jane', body: '<script>alert(1)</script>', createdAt: new Date().toISOString() },
                { id: 2, kind: 'action', authorKind: 'guest', author: 'Jane', body: 'Stop a node — POST /x', createdAt: new Date().toISOString() }],
     follow: null, cursor: null, terms: [], controllerName: 'admin', following: false,
     setFollowing() {}, publishFollow() {}, publishCursor() {}, sendChat() {}, requestControl() {}, releaseControl() {},
     takeControl() {}, giveControl() {}, dismissRequest() {}, admit() {}, deny() {}, remove() {}, mute() {}, end() {}, notice() {}, reset() {},
+    markRead() {}, newLink() {}, unread: 0, me: { guestId: 0, name: 'admin', host: true },
   }
   const hostHTML = renderToString(<SessionContext.Provider value={{ ...base, isHost: true, isGuest: false, isDriver: true }}><SessionPanel /></SessionContext.Provider>)
-  for (const want of ['Lobby', 'Admit', 'End session', 'Copy link', 'asked for control', 'Grant']) {
+  for (const want of ['Lobby', 'Admit', 'End session', 'Copy link', 'New link', 'asked for control', 'Grant', 'Emoji', 'Alert sounds']) {
     if (!hostHTML.includes(want)) throw new Error(`the host panel is missing ${want}`)
   }
   if (hostHTML.includes('<script>alert')) throw new Error('a chat message was rendered as HTML')
   if (!hostHTML.includes('&lt;script&gt;')) throw new Error('a chat message was not shown as text')
-  const guestHTML = renderToString(<SessionContext.Provider value={{ ...base, isHost: false, isGuest: true, isDriver: false, following: true }}><SessionPanel /></SessionContext.Provider>)
-  for (const bad of ['Admit', 'End session', 'Copy link', 'lee@example.com']) {
+  const guestHTML = renderToString(<SessionContext.Provider value={{ ...base, me: { guestId: 2, name: 'Jane', host: false }, isHost: false, isGuest: true, isDriver: false, following: true }}><SessionPanel /></SessionContext.Provider>)
+  if (!guestHTML.includes('>You<')) throw new Error("a guest's own message is not marked as theirs")
+  for (const bad of ['Admit', 'End session', 'Copy link', 'New link', 'invitation link', 'lee@example.com']) {
     if (guestHTML.includes(bad)) throw new Error(`a guest was shown the host's ${bad}`)
   }
   if (!guestHTML.includes('Request control') || !guestHTML.includes('Leave')) throw new Error('a guest cannot ask for control or leave')
   return 'host controls, guest controls, chat as text'
+})
+
+check('shared session: emoticons become emoji, but not inside words, URLs or code', () => {
+  const cases = [
+    ['thanks :)', 'thanks 🙂'], [':+1: done', '👍 done'], ['ok :D!', 'ok 😄!'],
+    ['f(x:)', 'f(x:)'], ['http://host:8080/x', 'http://host:8080/x'], ['run `SELECT :) FROM t`', 'run `SELECT :) FROM t`'],
+    ['<3', '❤️'],
+  ]
+  for (const [in_, want] of cases) {
+    const got = withEmoji(in_)
+    if (got !== want) throw new Error(`withEmoji(${JSON.stringify(in_)}) = ${JSON.stringify(got)}, want ${JSON.stringify(want)}`)
+  }
+  if (!onlyEmoji('🎉') || !onlyEmoji('👍 👍') || onlyEmoji('ok 👍') || onlyEmoji('123')) throw new Error('onlyEmoji misjudged')
+  return 'converted where standalone, left alone elsewhere'
+})
+
+check('shared session: a follower sees the tab the driver picked in a node\'s Properties', () => {
+  function Panel() { const [tab] = useFollowedState('tab:n1', 'overview'); return <div>{`tab=${tab}`}</div> }
+  const base = { active: true, publishUI() {}, follow: { page: 'stack-designer', ui: { 'tab:n1': 'backups' } } }
+  const follower = renderToString(<SessionContext.Provider value={{ ...base, following: true, isDriver: false }}><Panel /></SessionContext.Provider>)
+  if (!follower.includes('tab=backups')) throw new Error(`a follower did not get the driver's tab: ${follower}`)
+  const lookingAround = renderToString(<SessionContext.Provider value={{ ...base, following: false, isDriver: false }}><Panel /></SessionContext.Provider>)
+  if (!lookingAround.includes('tab=overview')) throw new Error('someone not following was moved to the driver\'s tab')
+  if (!renderToString(<Panel />).includes('tab=overview')) throw new Error('outside a session the hook is not plain state')
+
+  // Every node manager's tab is followed: a new one written with plain useState would
+  // silently leave guests on Overview.
+  const { readFileSync, readdirSync } = nodeFs
+  const plain = []
+  for (const file of readdirSync(new URL('../src/pages', import.meta.url))) {
+    if (!/Manager\.jsx$|^Repository\.jsx$|^AllInOne\.jsx$/.test(file)) continue
+    const text = readFileSync(new URL(`../src/pages/${file}`, import.meta.url), 'utf8')
+    if (/const \[(tab|pane), set(Tab|Pane)\] = useState\(/.test(text)) plain.push(file)
+  }
+  if (plain.length) throw new Error(`these keep their tab in plain useState, so guests do not follow it — use useFollowedState: ${plain.join(', ')}`)
+  return 'follower gets the driver\'s tab; non-followers and no session keep their own'
 })
 
 check('shared session: a guest socket or download is marked as a guest\'s', () => {
@@ -4337,6 +4377,35 @@ check('refresh: every page with server data offers the top-bar Refresh', () => {
   renderToString(<Probe />)
   renderToString(<RefreshProvider register={() => () => {}}><Probe /></RefreshProvider>)
   return 'every NAV page but Settings registers one; inert outside a provider'
+})
+
+check('dialogs: no window.confirm/alert/prompt anywhere, and the app\'s own dialog renders', () => {
+  // The browser's dialogs are unstyled, block the page — a shared session's socket and
+  // timers included — and cannot mark an action as destructive. components/Dialog.jsx
+  // is the replacement; this keeps a native one from creeping back.
+  const { readFileSync, readdirSync, statSync } = nodeFs
+  const offenders = []
+  const walk = (dir) => {
+    for (const name of readdirSync(dir)) {
+      const path = `${dir}/${name}`
+      if (statSync(path).isDirectory()) { walk(path); continue }
+      if (!/\.(jsx?|tsx?)$/.test(name)) continue
+      readFileSync(path, 'utf8').split('\n').forEach((line, i) => {
+        const code = line.replace(/\/\/.*$/, '')
+        if (/(^|[^.\w])(window\.)?(confirm|alert|prompt)\s*\(/.test(code)) offenders.push(`${path.replace(/^.*\/src\//, 'src/')}:${i + 1}`)
+      })
+    }
+  }
+  walk(new URL('../src', import.meta.url).pathname)
+  if (offenders.length) throw new Error(`native browser dialogs — use useDialog() from components/Dialog.jsx: ${offenders.join(', ')}`)
+
+  const confirmHTML = renderToString(<DialogBox kind="confirm" opts={{ title: 'End the session for everyone?', confirmLabel: 'End session', danger: true }} onDone={noop} />)
+  for (const want of ['alertdialog', 'End the session for everyone?', 'End session', 'Cancel']) {
+    if (!confirmHTML.includes(want)) throw new Error(`the confirm dialog is missing ${want}`)
+  }
+  const promptHTML = renderToString(<DialogBox kind="prompt" opts={{ title: 'Save this query', label: 'Name', defaultValue: 'orders' }} onDone={noop} />)
+  if (!promptHTML.includes('value="orders"') || !promptHTML.includes('Save')) throw new Error('the prompt dialog did not render its field')
+  return 'none found; confirm and prompt render'
 })
 
 check('handoff: no page reads a handoff straight out of sessionStorage', () => {

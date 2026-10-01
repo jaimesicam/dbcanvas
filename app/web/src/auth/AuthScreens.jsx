@@ -110,7 +110,17 @@ export function AuthScreen() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
-  const [success, setSuccess] = useState('')
+  // A shared-session guest who pressed Leave lands here with ?left=1
+  // (components/SessionPanel.jsx); say so once, then tidy the address.
+  const [success, setSuccess] = useState(() => {
+    try {
+      const q = new URLSearchParams(location.search)
+      if (q.get('left') !== '1') return ''
+      q.delete('left')
+      history.replaceState(null, '', location.pathname + (q.toString() ? `?${q}` : '') + location.hash)
+      return 'You left the shared session. To rejoin, ask the host for a new invitation link.'
+    } catch { return '' }
+  })
   const [busy, setBusy] = useState(false)
 
   function switchTab(next) {
