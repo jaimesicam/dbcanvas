@@ -26,7 +26,11 @@ import { Icon } from '../components/Icons.jsx'
 // own; in a shared session the mirror (session/Mirror.jsx) is what shows it.
 
 const Ctx = createContext(null)
+const ApiCtx = createContext(null)
 export const useWindowManager = () => useContext(Ctx)
+// useWindowApi is the manager's commands alone — stable, so a caller that only opens,
+// focuses or arranges windows is not re-rendered on every frame of a drag.
+export const useWindowApi = () => useContext(ApiCtx)
 
 export const TASKBAR_H = 36
 const SNAP_EDGE = 14 // px from a screen edge that snaps
@@ -34,8 +38,12 @@ const SNAP_CORNER = 80 // px from a corner, along the edge, that makes it a quar
 const MIN_W = 320
 const MIN_H = 180
 
-// area is where windows live: the viewport above the taskbar.
-const areaOf = (bar) => ({ x: 0, y: 0, w: innerWidth, h: innerHeight - (bar ? TASKBAR_H : 0) })
+// area is where windows live: the viewport above the taskbar, less what the shell
+// keeps for itself (insets: the top bar, the session panel).
+const NO_INSET = { top: 0, right: 0 }
+const areaOf = (bar, inset = NO_INSET) => ({
+  x: 0, y: inset.top, w: innerWidth - inset.right, h: innerHeight - inset.top - (bar ? TASKBAR_H : 0),
+})
 
 // snapRect is the rectangle a snap zone stands for.
 function snapRect(zone, a) {
@@ -74,7 +82,7 @@ function clampRect(r, a) {
     w: Math.max(MIN_W, Math.min(r.w, a.w)),
     h: Math.max(MIN_H, Math.min(r.h, a.h)),
     x: Math.min(Math.max(r.x, KEEP - r.w), a.w - KEEP),
-    y: Math.min(Math.max(r.y, a.y), a.h - 32),
+    y: Math.min(Math.max(r.y, a.y), a.y + a.h - 32),
   }
 }
 
@@ -86,6 +94,11 @@ export function WindowManagerProvider({ children }) {
   //   the zone it is snapped to; order is its place in the stack (higher = front).
   const [wins, setWins] = useState({})
   const [extras, setExtras] = useState({}) // key -> { label, icon, active, onClick, title }
+  // The shell's say: start is the taskbar's leading element (the desktop's Start
+  // button), always keeps the taskbar up with nothing open, inset is kept clear.
+  const [shell, setShellState] = useState({ start: null, always: false, inset: NO_INSET })
+  const insetRef = useRef(NO_INSET)
+  insetRef.current = shell.inset
   const [preview, setPreview] = useState(null) // the snap preview rect while dragging
   const [dragging, setDragging] = useState(false)
   const [, setVp] = useState(0)
@@ -95,10 +108,14 @@ export function WindowManagerProvider({ children }) {
   const winsRef = useRef(wins)
   winsRef.current = wins
 
-  const bar = Object.keys(wins).length > 0 || Object.keys(extras).length > 0
+  const bar = shell.always || Object.keys(wins).length > 0 || Object.keys(extras).length > 0
   const barRef = useRef(bar)
   barRef.current = bar
-  const area = useCallback(() => areaOf(barRef.current), [])
+  const area = useCallback(() => areaOf(barRef.current, insetRef.current), [])
+  const setShell = useCallback((p) => setShellState((s) => {
+    const n = { ...s, ...p }
+    return n.start === s.start && n.always === s.always && n.inset.top === s.inset.top && n.inset.right === s.inset.right ? s : n
+  }), [])
 
   // The viewport changing size re-lays maximized and snapped windows.
   useEffect(() => {
@@ -106,6 +123,21 @@ export function WindowManagerProvider({ children }) {
     addEventListener('resize', on)
     return () => removeEventListener('resize', on)
   }, [])
+
+  // The shell's reserved space changed (the desktop's top bar came up, the session
+  // panel opened): every window is brought back inside what is left.
+  useEffect(() => {
+    setWins((ws) => {
+      const a = areaOf(barRef.current, shell.inset)
+      // Pulled in, and narrowed or shortened to fit when it ran past the new edge.
+      const fit = (r) => clampRect({
+        ...r,
+        w: r.x + r.w > a.x + a.w ? Math.max(MIN_W, a.x + a.w - Math.max(r.x, a.x)) : r.w,
+        h: r.y + r.h > a.y + a.h ? Math.max(MIN_H, a.y + a.h - Math.max(r.y, a.y)) : r.h,
+      }, a)
+      return Object.fromEntries(Object.entries(ws).map(([k, w]) => [k, { ...w, rect: fit(w.rect) }]))
+    })
+  }, [shell.inset])
 
   // Docked panels below the windows (the terminal dock) sit above the taskbar.
   useLayoutEffect(() => {
@@ -117,13 +149,13 @@ export function WindowManagerProvider({ children }) {
   const register = useCallback((id, spec) => {
     setWins((ws) => {
       if (ws[id]) return { ...ws, [id]: { ...ws[id], title: spec.title, icon: spec.icon } }
-      const a = areaOf(true)
+      const a = areaOf(true, insetRef.current)
       const w = Math.min(spec.w || 720, a.w - 40)
       const h = Math.min(spec.h || 460, a.h - 40)
       const n = cascadeN++ % 8
       const rect = clampRect({
         x: spec.x ?? Math.round(Math.max(20, (a.w - w) / 2 - 120 + n * 32)),
-        y: spec.y ?? Math.round(Math.max(20, (a.h - h) / 2 - 90 + n * 32)),
+        y: spec.y ?? Math.round(a.y + Math.max(12, (a.h - h) / 2 - 90 + n * 32)),
         w, h,
       }, a)
       return { ...ws, [id]: { id, title: spec.title, icon: spec.icon, rect, min: false, max: !!spec.max, snap: null, order: ++order.current } }
@@ -175,7 +207,7 @@ export function WindowManagerProvider({ children }) {
     const a = area()
     const w = Math.min(900, Math.round(a.w * 0.6)), h = Math.min(600, Math.round(a.h * 0.65))
     const out = { ...ws }
-    list.forEach((x, i) => { out[x.id] = { ...x, max: false, snap: null, rect: clampRect({ x: 40 + i * 32, y: 30 + i * 32, w, h }, a) } })
+    list.forEach((x, i) => { out[x.id] = { ...x, max: false, snap: null, rect: clampRect({ x: 40 + i * 32, y: a.y + 20 + i * 32, w, h }, a) } })
     return out
   }), [area])
 
@@ -188,11 +220,13 @@ export function WindowManagerProvider({ children }) {
 
   const api = useMemo(() => ({
     register, unregister, patch, focus, minimize, maximize, toggleMax, tile, cascade, minimizeAll, setExtra,
-    area, setPreview, setDragging,
-  }), [register, unregister, patch, focus, minimize, maximize, toggleMax, tile, cascade, minimizeAll, setExtra, area])
-  const value = useMemo(() => ({ ...api, wins, extras, front, layerEl }), [api, wins, extras, front, layerEl])
+    area, setPreview, setDragging, setShell,
+  }), [register, unregister, patch, focus, minimize, maximize, toggleMax, tile, cascade, minimizeAll, setExtra, area, setShell])
+  const value = useMemo(() => ({ ...api, wins, extras, front, layerEl, start: shell.start, desktop: shell.always }),
+    [api, wins, extras, front, layerEl, shell.start, shell.always])
 
   return (
+    <ApiCtx.Provider value={api}>
     <Ctx.Provider value={value}>
       {children}
       {/* One stacking context for every window: above the page and the terminal
@@ -204,6 +238,7 @@ export function WindowManagerProvider({ children }) {
       )}
       {bar && <Taskbar />}
     </Ctx.Provider>
+    </ApiCtx.Provider>
   )
 }
 
@@ -220,9 +255,10 @@ export function WindowManagerProvider({ children }) {
 //   canClose   false greys the close button out, with closeTitle as the reason
 //   menu       extra entries for the title bar's right-click menu: [{ label, onClick }]
 //   bodyClass  classes for the body
+//   private    the whole window is an empty box in a shared session's mirror
 const NO_WM = { register: () => {}, unregister: () => {}, wins: {}, layerEl: null, area: () => areaOf(false) }
 
-export function Window({ id, title, icon, size, header, onClose, canClose = true, closeTitle, menu, bodyClass = '', children }) {
+export function Window({ id, title, icon, size, header, onClose, canClose = true, closeTitle, menu, bodyClass = '', private: priv, children }) {
   const wm = useWindowManager() || NO_WM // outside the provider (a render check) it draws nothing
   const { register, unregister } = wm
   const w = wm.wins[id]
@@ -323,6 +359,7 @@ export function Window({ id, title, icon, size, header, onClose, canClose = true
   return createPortal(
     <div
       data-wm-window={id}
+      data-mirror-private={priv ? '' : undefined}
       className={`pointer-events-auto absolute flex flex-col overflow-hidden border bg-surface shadow-2xl ${fullish ? '' : 'rounded-lg'} ${active ? 'border-primary/40' : ''}`}
       style={{ left: geo.x, top: geo.y, width: geo.w, height: geo.h, zIndex: w.order, visibility: w.min ? 'hidden' : 'visible' }}
       aria-hidden={w.min}
@@ -386,6 +423,7 @@ function Taskbar() {
   return (
     <div data-wm-taskbar className="fixed inset-x-0 bottom-0 z-[44] flex items-center gap-1 border-t bg-surface/95 px-2 backdrop-blur"
       style={{ height: TASKBAR_H }}>
+      {wm.start}
       <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
         {extras.map(([k, x]) => (
           <button key={k} onClick={x.onClick} title={x.title}
@@ -412,7 +450,7 @@ function Taskbar() {
         <div className="flex shrink-0 items-center gap-0.5 border-l pl-1.5">
           <button onClick={wm.tile} title="Tile the open windows" className="rounded px-2 py-1 text-xs text-muted hover:bg-surface2 hover:text-fg">Tile</button>
           <button onClick={wm.cascade} title="Cascade the open windows" className="rounded px-2 py-1 text-xs text-muted hover:bg-surface2 hover:text-fg">Cascade</button>
-          <button onClick={wm.minimizeAll} title="Minimize every window" className="rounded px-2 py-1 text-xs text-muted hover:bg-surface2 hover:text-fg">Show page</button>
+          <button onClick={wm.minimizeAll} title="Minimize every window" className="rounded px-2 py-1 text-xs text-muted hover:bg-surface2 hover:text-fg">{wm.desktop ? 'Show desktop' : 'Show page'}</button>
         </div>
       )}
       {menu && (

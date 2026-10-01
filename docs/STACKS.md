@@ -1303,18 +1303,37 @@ deployment failures, data-generation completed/failed, stacks destroyed or **exp
 (TTL), backups completed, high resource usage, and (for admins) new accounts awaiting
 approval.
 
+### The desktop
+DBCanvas opens as a **desktop**. Every page — Database Stacks, Database Explorer, Query
+Runner, the summaries, Settings — opens in its own window over a desktop that has an icon
+for each page (double-click one to open it). The **Start** button at the left of the
+taskbar lists every page, grouped (Workspace, Data and queries, Diagnose, Learn, System),
+with a search box: type a few letters and press Enter. Right-click a page in the Start
+menu, or its icon, to open **another window** of it — two benchmarks side by side. ⌘K
+still finds a page from anywhere.
+
+The window in front is the page the top bar is about: its title, its **Refresh**, and
+the address (`#benchmark`), which still opens that page on a reload. Close the last window
+and you are back at the bare desktop. A minimized page stays open — it keeps its filters
+and its view — and stops polling until it is back on screen, as a hidden tab does. How
+many pages may be open at once is still **Settings → Tabs**.
+
+Prefer the old layout? **Appearance → Layout → Classic** brings back the sidebar and the
+tab strip, in this browser; **Desktop** returns to the desktop.
+
 ### Windows and the taskbar
-Terminals you detach from the dock (or open undocked), browser windows on node web UIs and
-the file managers open as **windows** over the workspace, and the page behind them stays
-usable. Each one moves by its title bar and resizes from any edge or corner; double-click
+Pages, terminals you detach from the dock (or open undocked), browser windows on node web
+UIs and the file managers all open as **windows**, and they all behave alike. Each one moves by its title bar and resizes from any edge or corner; double-click
 the title bar (or press its maximize button) to fill the screen. Drag a window to the left
 or right edge for half the screen, into a corner for a quarter, or to the top edge to
 maximize — an outline shows where it will land — and drag it away to get its size back.
 The window you touch comes to the front, and windows always stay below dialogs and menus.
 
-While any window or docked terminal is open, a **taskbar** runs along the bottom: a button
-for each window (click to bring it forward, again to minimize it), the terminal dock's
-toggle, and **Tile**, **Cascade** and **Show page** (minimize everything). A minimized
+The **taskbar** runs along the bottom: **Start**, a button for each window (click to bring
+it forward, again to minimize it), the terminal dock's toggle, the session panel when it is
+hidden, and **Tile**, **Cascade** and **Show desktop** (minimize everything). Right-click
+the desktop for the same arrangements. Windows keep clear of the top bar and of the shared
+session panel. A minimized
 window keeps running — a terminal stays connected and a page stays loaded. Right-click a
 title bar for Maximize, Minimize, Snap left, Snap right and Close (and Dock, for a terminal).
 

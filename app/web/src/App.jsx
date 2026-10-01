@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from './auth/AuthProvider.jsx'
 import { PageVisibleProvider } from './lib/usePolling.jsx'
 import { RefreshProvider, runAll } from './lib/useRefresh.jsx'
@@ -13,7 +13,9 @@ import SessionPanel from './components/SessionPanel.jsx'
 import ShareDialog from './components/ShareDialog.jsx'
 import { MirrorRecorder, MirrorView } from './session/Mirror.jsx'
 import { BrowserProvider } from './browser/BrowserProvider.jsx'
-import { WindowManagerProvider } from './wm/WindowManager.jsx'
+import { WindowManagerProvider, useWindowApi, useTaskbarItem } from './wm/WindowManager.jsx'
+import { StartButton, DesktopSurface, PageWindows, pageWindowId } from './desktop/Desktop.jsx'
+import { useShellMode, SHELL_MODES } from './lib/shellMode.js'
 import { notifApi, relTime } from './lib/notifApi.js'
 
 import Dashboard from './pages/Dashboard.jsx'
@@ -126,6 +128,12 @@ function Workspace({ onSessionEnded }) {
   // whole point: a page keeps its scroll position, its filters and its in-flight
   // view. That is also why lib/usePolling.jsx exists — a kept-alive page would
   // otherwise keep its timer running behind a tab nobody is looking at.
+  // The shell: the desktop (every page a window — desktop/Desktop.jsx) or the
+  // classic sidebar and tab strip. Either way a tab is an open page; on the desktop
+  // it is drawn as a window, and closing the last one leaves the bare desktop.
+  const [shellMode] = useShellMode()
+  const desktop = shellMode === 'desktop'
+  const wmApi = useWindowApi()
   const [tabs, setTabs] = useState(() => [{ key: 'tab-1', id: location.hash.replace('#', '') || 'dashboard' }])
   const [activeKey, setActiveKey] = useState('tab-1')
   const [collapsed, setCollapsed] = useState(false)
@@ -142,7 +150,7 @@ function Workspace({ onSessionEnded }) {
   const maxTabs = clampTabs(settings.maxTabs)
 
   const activeTab = tabs.find((t) => t.key === activeKey) ?? tabs[0]
-  const active = activeTab?.id ?? 'dashboard'
+  const active = activeTab?.id ?? (desktop ? null : 'dashboard')
 
   // The rules live in lib/tabs.js so they can be tested; this wires them to state.
   // Updaters stay pure: React may call a setState updater twice, so the key is
@@ -156,7 +164,10 @@ function Workspace({ onSessionEnded }) {
     }
     setActiveKey(next.activeKey)
     setCapped(next.capped ? { at: Date.now(), max: maxTabs } : null)
-  }, [tabs, activeKey, maxTabs])
+    // On the desktop, opening a page that is already open brings its window forward
+    // (and back from the taskbar) — once it is registered, for a new one.
+    if (desktop && next.activeKey) setTimeout(() => wmApi?.focus(pageWindowId(next.activeKey)), 0)
+  }, [tabs, activeKey, maxTabs, desktop, wmApi])
 
   // Refresh. Each tab's page registers what "read it again" means for it (see
   // lib/useRefresh.jsx); the top bar shows one button, for the tab on screen.
@@ -192,17 +203,24 @@ function Workspace({ onSessionEnded }) {
   }, [])
 
   const closeTab = useCallback((key) => {
-    const next = closeTabRule(tabs, activeKey, key)
+    // The desktop lets the last window go; the classic shell always keeps one tab.
+    const rest = tabs.filter((t) => t.key !== key)
+    const next = desktop
+      ? { tabs: rest, activeKey: activeKey === key ? (rest.at(-1)?.key ?? null) : activeKey }
+      : closeTabRule(tabs, activeKey, key)
     delete registerFns.current[key]
     setTabs(next.tabs)
     setActiveKey(next.activeKey)
     // Closing one is the answer to the warning, so it takes the warning with it.
     setCapped(null)
-  }, [tabs, activeKey])
+  }, [tabs, activeKey, desktop])
+
+  // Back to the classic shell with every window closed: it needs a tab to show.
+  useEffect(() => { if (!desktop && tabs.length === 0) openTab('dashboard') }, [desktop, tabs.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Follow mode (session/SessionProvider.jsx). The driver says which page they are
   // on; everyone following goes there — the same tab if one is open, a new one if not.
-  useEffect(() => { session.publishFollow({ page: active }) }, [active]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (active) session.publishFollow({ page: active }) }, [active]) // eslint-disable-line react-hooks/exhaustive-deps
   const followPage = session.following ? session.follow?.page : null
   useEffect(() => {
     if (followPage && followPage !== active && nav.some((n) => n.id === followPage)) openTab(followPage)
@@ -241,7 +259,7 @@ function Workspace({ onSessionEnded }) {
   // working, a refresh gives you one tab of what you were looking at, and the
   // arrangement stays ephemeral the way an editor's does.
   useEffect(() => {
-    if (location.hash.replace('#', '') !== active) location.hash = active
+    if (active && location.hash.replace('#', '') !== active) location.hash = active
   }, [active])
 
   useEffect(() => {
@@ -263,7 +281,86 @@ function Workspace({ onSessionEnded }) {
     return () => removeEventListener('keydown', onKey)
   }, [])
 
-  const current = nav.find((n) => n.id === active) ?? nav[0]
+  const current = nav.find((n) => n.id === active) ?? (desktop ? null : nav[0])
+
+  // The desktop's claims on the window manager: the Start button on the taskbar, the
+  // taskbar always up, and the top bar and the session panel kept clear of windows.
+  const navRef = useRef(nav)
+  navRef.current = nav
+  const openRef = useRef(openTab)
+  openRef.current = openTab
+  const startEl = useMemo(() => <StartButton navRef={navRef} openRef={openRef} />, [])
+  useLayoutEffect(() => {
+    wmApi?.setShell(desktop
+      ? { always: true, start: startEl, inset: { top: 56, right: showPanel && panelOpen ? 352 : 0 } }
+      : { always: false, start: null, inset: { top: 0, right: 0 } })
+  }, [desktop, showPanel, panelOpen, wmApi, startEl])
+
+  // The hidden session panel comes back from the taskbar, in either shell.
+  useTaskbarItem('session', showPanel && !panelOpen ? {
+    label: session.unread > 0 ? `Session (${session.unread > 99 ? '99+' : session.unread})` : 'Session',
+    icon: <Icon.Chat size={14} />, title: 'Show the shared session', active: false, onClick: () => setPanelOpen(true),
+  } : null)
+
+  // A page with what the shell gives every page, for whichever shell draws it.
+  const renderPage = (t, visible) => {
+    const meta = nav.find((n) => n.id === t.id) ?? nav[0]
+    return (
+      <PageVisibleProvider visible={visible}>
+        <RefreshProvider register={registerFor(t.key)}>
+          <TabPage Page={meta.page} />
+        </RefreshProvider>
+      </PageVisibleProvider>
+    )
+  }
+  const topbar = (
+    <Topbar
+      title={current?.label ?? 'Desktop'}
+      hint={current?.hint ?? 'Open a page from Start, or double-click its icon'}
+      onRefresh={refreshers.current[activeTab?.key]?.size ? () => refreshTab(activeTab.key) : null}
+      refreshing={!!refreshing[activeTab?.key]}
+      onSearch={() => setPaletteOpen(true)}
+      user={user}
+      onLogout={logout}
+      guest={guest}
+      session={session}
+      onShare={!guest && !session.active ? () => setShareOpen(true) : null}
+      brand={desktop}
+    />
+  )
+  const around = (
+    <>
+      {showPanel && panelOpen && <SessionPanel onClose={() => setPanelOpen(false)} />}
+      <MirrorRecorder />
+      <MirrorView right={showPanel && panelOpen ? '22rem' : 0} onShowPanel={showPanel && !panelOpen ? () => setPanelOpen(true) : null} />
+      {shareOpen && <ShareDialog stack={null} onClose={() => setShareOpen(false)} />}
+      {paletteOpen && (
+        <CommandPalette
+          items={nav}
+          onClose={() => setPaletteOpen(false)}
+          onPick={(id) => {
+            openTab(id)
+            setPaletteOpen(false)
+          }}
+        />
+      )}
+    </>
+  )
+
+  if (desktop) {
+    return (
+      <div className="flex h-full bg-bg text-fg" style={{ paddingBottom: 'var(--wm-taskbar, 0px)' }}>
+        <div className="flex min-w-0 flex-1 flex-col">
+          {topbar}
+          {capped && <TabCapNotice max={capped.max} onDismiss={() => setCapped(null)} />}
+          <DesktopSurface nav={nav} onOpen={openTab} />
+        </div>
+        <PageWindows tabs={tabs} nav={nav} activeKey={activeKey} setActiveKey={setActiveKey} closeTab={closeTab}
+          renderPage={renderPage} privateIds={GUEST_HIDDEN} />
+        {around}
+      </div>
+    )
+  }
   // How many tabs each page has open, for the count badge on the nav item.
   const openCount = tabCounts(tabs)
 
@@ -322,18 +419,7 @@ function Workspace({ onSessionEnded }) {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar
-          title={current.label}
-          hint={current.hint}
-          onRefresh={refreshers.current[activeTab?.key]?.size ? () => refreshTab(activeTab.key) : null}
-          refreshing={!!refreshing[activeTab?.key]}
-          onSearch={() => setPaletteOpen(true)}
-          user={user}
-          onLogout={logout}
-          guest={guest}
-          session={session}
-          onShare={!guest && !session.active ? () => setShareOpen(true) : null}
-        />
+        {topbar}
         {tabs.length > 1 && (
           // The tabs WRAP onto further rows rather than scrolling sideways. With a
           // cap of twenty a single row always overflows, and a tab scrolled off
@@ -389,7 +475,6 @@ function Workspace({ onSessionEnded }) {
               PageVisibleProvider is what stops a hidden one from polling. */}
           {tabs.map((t) => {
             const meta = nav.find((n) => n.id === t.id) ?? nav[0]
-            const Page = meta.page
             const on = t.key === activeKey
             return (
               // A page opts into filling the workspace with `fill` on its NAV entry. Only
@@ -400,43 +485,14 @@ function Workspace({ onSessionEnded }) {
               // it is out of a guest's reach everywhere else.
               <div key={t.key} className={`${on ? 'animate-fade-in' : 'hidden'}${meta.fill ? ' h-full' : ''}`} aria-hidden={!on}
                 data-mirror-private={GUEST_HIDDEN.has(t.id) ? '' : undefined}>
-                <PageVisibleProvider visible={on}>
-                  <RefreshProvider register={registerFor(t.key)}>
-                    <TabPage Page={Page} />
-                  </RefreshProvider>
-                </PageVisibleProvider>
+                {renderPage(t, on)}
               </div>
             )
           })}
         </main>
       </div>
 
-      {showPanel && panelOpen && <SessionPanel onClose={() => setPanelOpen(false)} />}
-      <MirrorRecorder />
-      <MirrorView right={showPanel && panelOpen ? '22rem' : 0} onShowPanel={showPanel && !panelOpen ? () => setPanelOpen(true) : null} />
-      {shareOpen && <ShareDialog stack={null} onClose={() => setShareOpen(false)} />}
-      {showPanel && !panelOpen && (
-        <button
-          data-mirror-private
-          onClick={() => setPanelOpen(true)}
-          title="Show the shared session"
-          className="fixed bottom-16 right-3 z-30 flex items-center gap-2 rounded-lg border bg-surface px-3 py-2 text-sm shadow-lg hover:bg-surface2"
-        >
-          <Icon.Chat size={16} /> Session
-          {session.unread > 0 && <span className="rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-fg" title="Unread messages">{session.unread > 99 ? '99+' : session.unread}</span>}
-        </button>
-      )}
-
-      {paletteOpen && (
-        <CommandPalette
-          items={nav}
-          onClose={() => setPaletteOpen(false)}
-          onPick={(id) => {
-            openTab(id)
-            setPaletteOpen(false)
-          }}
-        />
-      )}
+      {around}
     </div>
   )
 }
@@ -493,9 +549,17 @@ export function TabCapNotice({ max, onDismiss }) {
 
 // The Refresh button sits beside the title because it acts on the page the title
 // names, and only appears for a page that has something to re-read.
-function Topbar({ title, hint, onRefresh, refreshing, onSearch, user, onLogout, guest, session, onShare }) {
+function Topbar({ title, hint, onRefresh, refreshing, onSearch, user, onLogout, guest, session, onShare, brand }) {
   return (
-    <header className="flex h-14 items-center gap-3 border-b bg-surface px-4">
+    // Above the window layer (wm/WindowManager.jsx), so its menus open over windows.
+    <header className="relative flex h-14 items-center gap-3 border-b bg-surface px-4" style={{ zIndex: 50 }}>
+      {brand && (
+        // The desktop has no sidebar to carry the name, so the top bar does.
+        <div className="flex shrink-0 items-center gap-2 border-r pr-3" title="DBCanvas — Database Interaction Lab">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-fg"><Icon.Brand size={19} /></div>
+          <span className="hidden text-sm font-semibold lg:inline">DBCanvas</span>
+        </div>
+      )}
       <div className="min-w-0">
         <h2 className="truncate text-sm font-semibold">{title}</h2>
         <p className="truncate text-xs text-muted">{hint}</p>
@@ -570,6 +634,7 @@ function useOutsideClose(open, setOpen) {
 // choice still applies locally, and the Settings page reports save errors.
 function AppearancePicker() {
   const { theme, setTheme, look, setLook } = useTheme()
+  const [shell, setShell] = useShellMode()
   const { save } = useSettings()
   const [open, setOpen] = useState(false)
   const ref = useOutsideClose(open, setOpen)
@@ -599,6 +664,17 @@ function AppearancePicker() {
               <span className="h-4 w-4 rounded-full border" style={{ background: t.swatch }} />
               <span className="flex-1 text-left">{t.label}</span>
               {theme === t.id && <Icon.Check size={16} />}
+            </button>
+          ))}
+          {/* The shell is this browser's choice (lib/shellMode.js), not the account's. */}
+          <div className="mt-1 border-t px-2.5 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted">Layout</div>
+          {SHELL_MODES.map((m) => (
+            <button key={m.id} onClick={() => { setShell(m.id); setOpen(false) }}
+              title={m.id === 'desktop' ? 'Every page in a window over a desktop, with a Start menu and a taskbar' : 'A sidebar and a tab strip'}
+              className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm hover:bg-surface2">
+              {m.id === 'desktop' ? <Icon.Monitor size={16} /> : <Icon.Dashboard size={16} />}
+              <span className="flex-1 text-left">{m.label}</span>
+              {shell === m.id && <Icon.Check size={16} />}
             </button>
           ))}
           <div className="mt-1 border-t px-2.5 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted">Look</div>

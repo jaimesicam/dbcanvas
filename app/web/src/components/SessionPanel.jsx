@@ -174,7 +174,7 @@ export default function SessionPanel({ onClose }) {
 
   if (s.ended && s.isHost) {
     return (
-      <aside className="flex w-[22rem] shrink-0 flex-col border-l bg-surface">
+      <aside className="relative flex w-[22rem] shrink-0 flex-col border-l bg-surface" style={{ zIndex: 50 }}>
         <div className="flex items-center gap-2 border-b px-3 py-2">
           <Icon.Share size={16} />
           <span className="flex-1 text-sm font-semibold">Session ended</span>
@@ -194,7 +194,8 @@ export default function SessionPanel({ onClose }) {
   }
 
   return (
-    <aside data-mirror-private className="flex w-[22rem] shrink-0 flex-col border-l bg-surface" aria-label="Shared session">
+    // Above the window layer (wm/WindowManager.jsx): a window is never dragged over the chat.
+    <aside data-mirror-private className="relative flex w-[22rem] shrink-0 flex-col border-l bg-surface" style={{ zIndex: 50 }} aria-label="Shared session">
       {/* header */}
       <div className="flex items-center gap-2 border-b px-3 py-2">
         <Icon.Share size={16} />

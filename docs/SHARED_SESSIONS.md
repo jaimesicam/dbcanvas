@@ -112,8 +112,9 @@ always masked, and with **Hide secrets** on every masked credential stays masked
 value is blanked wherever else it is drawn, a connection string or a terminal line
 included.
 
-The top bar always says who has control. A guest's sidebar leaves out the pages that
-belong to your account — Settings, API tokens, Manage Users — and they never see your
+The top bar always says who has control. On the desktop, a page you open opens on every
+follower's desktop too, and comes to the front there as it does on yours. A guest's Start
+menu and desktop leave out the pages that belong to your account — Settings, API tokens, Manage Users — and they never see your
 notifications.
 
 ## Control
