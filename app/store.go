@@ -270,6 +270,8 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id, id DESC);`
 		db.Close()
 		return nil, err
 	}
+	db.Exec("ALTER TABLE kanban_columns ADD COLUMN color TEXT NOT NULL DEFAULT ''")
+	db.Exec("ALTER TABLE kanban_cards ADD COLUMN color TEXT NOT NULL DEFAULT ''")
 	if err := migrateShareSessions(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate share_sessions: %w", err)

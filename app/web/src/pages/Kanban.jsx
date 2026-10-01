@@ -7,7 +7,7 @@ import { Avatar } from '../components/Avatar.jsx'
 import { useAuth } from '../auth/AuthProvider.jsx'
 import { useRefresh } from '../lib/useRefresh.jsx'
 import { usePageVisible } from '../lib/usePolling.jsx'
-import { kanbanApi, LABEL_COLORS, labelHex, BOARD_TEMPLATES, moveLocal, cardsIn } from '../lib/kanbanApi.js'
+import { kanbanApi, LABEL_COLORS, labelHex, tint, BOARD_TEMPLATES, moveLocal, cardsIn } from '../lib/kanbanApi.js'
 
 // Kanban — boards of columns of cards (app/kanban.go).
 //
@@ -23,6 +23,8 @@ import { kanbanApi, LABEL_COLORS, labelHex, BOARD_TEMPLATES, moveLocal, cardsIn 
 //     drops it and Escape cancels. Enter opens it.
 //   - A card added from a column's footer lands at the bottom; the composer stays
 //     open for the next one. A deleted card can be undone for a few seconds.
+//   - Cards and columns can carry a colour (the label palette): right-click a card,
+//     or a column's ⋯, or the card's own dialog.
 //
 // Every change is shown at once and then saved; a refusal puts the board back as
 // the server has it. A board open here is re-read every few seconds (only when it
@@ -173,6 +175,10 @@ export default function Kanban() {
     write((d) => ({ ...d, columns: d.columns.map((c) => (c.id === col.id ? { ...c, wipLimit: n } : c)) }),
       () => kanbanApi.updateColumn(col.id, col.name, n))
   }
+  const colorColumn = (col, color) => write(
+    (d) => ({ ...d, columns: d.columns.map((c) => (c.id === col.id ? { ...c, color } : c)) }),
+    () => kanbanApi.colorColumn(col.id, color),
+  )
   const deleteColumn = async (col) => {
     const n = cardsIn(data.cards, col.id).length
     const yes = await ask.confirm({
@@ -208,6 +214,10 @@ export default function Kanban() {
     (d) => ({ ...d, cards: moveLocal(d.cards, id, colId, index) }),
     () => kanbanApi.moveCard(id, colId, index),
   )
+  const colorCard = (card, color) => write(
+    (d) => ({ ...d, cards: d.cards.map((c) => (c.id === card.id ? { ...c, color } : c)) }),
+    () => kanbanApi.updateCard(card.id, { ...card, color }),
+  )
   const saveCard = (card) => write(
     (d) => ({ ...d, cards: d.cards.map((c) => (c.id === card.id ? { ...c, ...card } : c)) }),
     () => kanbanApi.updateCard(card.id, card),
@@ -219,7 +229,7 @@ export default function Kanban() {
     setToast({
       text: `Deleted “${card.title.length > 40 ? `${card.title.slice(0, 40)}…` : card.title}”`,
       undo: () => write(null, () => kanbanApi.addCard(card.columnId, {
-        title: card.title, description: card.description, labels: card.labels, assigneeId: card.assigneeId, due: card.due, index,
+        title: card.title, description: card.description, labels: card.labels, assigneeId: card.assigneeId, due: card.due, color: card.color, index,
       })),
     })
   }
@@ -290,7 +300,8 @@ export default function Kanban() {
             </div>
             <Board data={data} people={people} filtering={filtering} matches={matches}
               dragging={dragging} onMoveCard={moveCard} onMoveColumn={moveColumn} onOpenCard={setOpenCard}
-              onAddCard={addCard} onRenameColumn={renameColumn} onWip={setWip} onDeleteColumn={deleteColumn} />
+              onAddCard={addCard} onRenameColumn={renameColumn} onWip={setWip} onDeleteColumn={deleteColumn}
+              onColorColumn={colorColumn} onColorCard={colorCard} onDeleteCard={deleteCard} />
           </>
         )}
       </section>
@@ -347,13 +358,34 @@ function Menu({ at, items, onClose }) {
       <div className="fixed inset-0 z-[90]" onPointerDown={onClose} onContextMenu={(e) => { e.preventDefault(); onClose() }} />
       <div className="fixed z-[91] min-w-[180px] rounded-md border bg-surface py-1 text-xs shadow-xl"
         style={{ left: Math.min(at.x, innerWidth - 190), top: Math.min(at.y, innerHeight - 30 * items.length - 10) }}>
-        {items.map((it, i) => (it.sep ? <div key={i} className="my-1 border-t" /> : (
+        {items.map((it, i) => (it.sep ? <div key={i} className="my-1 border-t" /> : it.swatches ? (
+          <div key={`sw${i}`} className="px-3 py-1.5">
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted">{it.label}</div>
+            <Swatches value={it.value} onPick={(c) => { it.onPick(c); onClose() }} />
+          </div>
+        ) : (
           <button key={it.label} onClick={() => { it.onClick(); onClose() }}
             className={`block w-full px-3 py-1.5 text-left ${it.danger ? 'text-danger hover:bg-danger/10' : 'text-fg hover:bg-surface2'}`}>{it.label}</button>
         )))}
       </div>
     </>,
     document.body,
+  )
+}
+
+// Swatches picks a palette colour, or none.
+function Swatches({ value, onPick, size = 18 }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      <button type="button" title="No colour" onClick={() => onPick('')}
+        className={`flex items-center justify-center rounded border text-[10px] text-muted ${!value ? 'ring-2 ring-primary ring-offset-1 ring-offset-surface' : ''}`}
+        style={{ width: size, height: size }}>∅</button>
+      {LABEL_COLORS.map((c) => (
+        <button type="button" key={c.id} title={c.id} onClick={() => onPick(c.id)}
+          className={`rounded ${value === c.id ? 'ring-2 ring-primary ring-offset-1 ring-offset-surface' : 'opacity-85 hover:opacity-100'}`}
+          style={{ width: size, height: size, background: c.hex }} />
+      ))}
+    </div>
   )
 }
 
@@ -428,7 +460,7 @@ function NewBoardDialog({ onClose, onCreate }) {
 
 // Board draws the columns and runs the dragging: cards by their body, columns by
 // their header, with the pointer or the keyboard.
-function Board({ data, people, filtering, matches, dragging, onMoveCard, onMoveColumn, onOpenCard, onAddCard, onRenameColumn, onWip, onDeleteColumn }) {
+function Board({ data, people, filtering, matches, dragging, onMoveCard, onMoveColumn, onOpenCard, onAddCard, onRenameColumn, onWip, onDeleteColumn, onColorColumn, onColorCard, onDeleteCard }) {
   const scroller = useRef(null)
   const colEls = useRef(new Map()) // colId -> column element
   const bodyEls = useRef(new Map()) // colId -> card list element
@@ -666,7 +698,9 @@ function Board({ data, people, filtering, matches, dragging, onMoveCard, onMoveC
             setBodyEl={(el) => (el ? bodyEls.current.set(c.id, el) : bodyEls.current.delete(c.id))}
             drag={drag} kbd={kbd} kbdCard={kbd ? data.cards.find((x) => x.id === kbd.id) : null} onHeaderPress={startPress('column', c.id)} onCardPress={(id) => startPress('card', id)}
             onCardKey={kbdKey} onOpenCard={(id) => { if (!dragging.current) onOpenCard(id) }} onAddCard={onAddCard}
-            onRename={(name) => onRenameColumn(c, name)} onWip={() => onWip(c)} onDelete={() => onDeleteColumn(c)} />
+            onRename={(name) => onRenameColumn(c, name)} onWip={() => onWip(c)} onDelete={() => onDeleteColumn(c)}
+            onColor={(color) => onColorColumn(c, color)} onColorCard={onColorCard} onDeleteCard={onDeleteCard}
+            onMoveCard={(card, top) => onMoveCard(card.id, c.id, top ? 0 : byCol[c.id].length)} />
         )))}
       {drag && createPortal(
         <div ref={ghost} className="pointer-events-none fixed left-0 top-0 z-[100] opacity-95" style={{ width: drag.w }}>
@@ -684,10 +718,11 @@ function Board({ data, people, filtering, matches, dragging, onMoveCard, onMoveC
   )
 }
 
-function Column({ col, cards, matches, personOf, setColEl, setBodyEl, drag, kbd, kbdCard, onHeaderPress, onCardPress, onCardKey, onOpenCard, onAddCard, onRename, onWip, onDelete }) {
+function Column({ col, cards, matches, personOf, setColEl, setBodyEl, drag, kbd, kbdCard, onHeaderPress, onCardPress, onCardKey, onOpenCard, onAddCard, onRename, onWip, onDelete, onColor, onColorCard, onDeleteCard, onMoveCard }) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(col.name)
   const [menu, setMenu] = useState(null)
+  const [cardMenu, setCardMenu] = useState(null) // { x, y, card }
   const [adding, setAdding] = useState(null) // 'top' | 'bottom'
   useEffect(() => { if (!editing) setName(col.name) }, [col.name, editing])
   const over = col.wipLimit > 0 && cards.length > col.wipLimit
@@ -709,7 +744,8 @@ function Column({ col, cards, matches, personOf, setColEl, setBodyEl, drag, kbd,
   }
 
   return (
-    <div ref={setColEl} className={`flex max-h-full w-72 shrink-0 flex-col rounded-xl border bg-surface2/60 ${drag?.kind === 'card' && drag.overCol === col.id ? 'ring-2 ring-primary/40' : ''}`}>
+    <div ref={setColEl} className={`flex max-h-full w-72 shrink-0 flex-col rounded-xl border ${col.color ? '' : 'bg-surface2/60'} ${drag?.kind === 'card' && drag.overCol === col.id ? 'ring-2 ring-primary/40' : ''}`}
+      style={col.color ? { background: tint(col.color, 14, 'var(--surface2)'), borderTop: `3px solid ${labelHex(col.color)}` } : undefined}>
       <div onPointerDown={onHeaderPress} onDoubleClick={() => setEditing(true)}
         className="flex cursor-grab items-center gap-2 px-3 pb-1.5 pt-2.5 active:cursor-grabbing" title="Drag to move the column · double-click to rename">
         {editing ? (
@@ -734,6 +770,7 @@ function Column({ col, cards, matches, personOf, setColEl, setBodyEl, drag, kbd,
             <div key={it.card.id} data-card-id={it.card.id} tabIndex={0}
               onPointerDown={onCardPress(it.card.id)} onKeyDown={onCardKey(it.card)}
               onClick={() => onOpenCard(it.card.id)}
+              onContextMenu={(e) => { e.preventDefault(); setCardMenu({ x: e.clientX, y: e.clientY, card: it.card }) }}
               className="rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-primary"
               style={{ touchAction: 'manipulation' }}
               aria-label={`${it.card.title}. Space to move, Enter to open.`}>
@@ -755,8 +792,19 @@ function Column({ col, cards, matches, personOf, setColEl, setBodyEl, drag, kbd,
           { label: 'Add a card at the top', onClick: () => setAdding('top') },
           { label: 'Rename', onClick: () => setEditing(true) },
           { label: col.wipLimit ? `Work-in-progress limit (${col.wipLimit})…` : 'Set a work-in-progress limit…', onClick: onWip },
+          { swatches: true, label: 'Column colour', value: col.color, onPick: onColor },
           { sep: true },
           { label: 'Delete column', danger: true, onClick: onDelete },
+        ]} />
+      )}
+      {cardMenu && (
+        <Menu at={cardMenu} onClose={() => setCardMenu(null)} items={[
+          { label: 'Open', onClick: () => onOpenCard(cardMenu.card.id) },
+          { label: 'Move to the top', onClick: () => onMoveCard(cardMenu.card, true) },
+          { label: 'Move to the bottom', onClick: () => onMoveCard(cardMenu.card, false) },
+          { swatches: true, label: 'Card colour', value: cardMenu.card.color, onPick: (c) => onColorCard(cardMenu.card, c) },
+          { sep: true },
+          { label: 'Delete card', danger: true, onClick: () => onDeleteCard(cardMenu.card) },
         ]} />
       )}
     </div>
@@ -796,7 +844,8 @@ function Composer({ onAdd, onClose }) {
 function CardFace({ card, person, lifted }) {
   const due = dueInfo(card.due)
   return (
-    <div className={`cursor-pointer select-none rounded-lg border bg-surface p-2.5 text-sm transition-shadow ${lifted ? 'border-primary/60 shadow-2xl ring-2 ring-primary/40' : 'shadow-sm hover:border-primary/40 hover:shadow'}`}>
+    <div className={`cursor-pointer select-none rounded-lg border bg-surface p-2.5 text-sm transition-shadow ${lifted ? 'border-primary/60 shadow-2xl ring-2 ring-primary/40' : 'shadow-sm hover:border-primary/40 hover:shadow'}`}
+      style={card.color ? { background: tint(card.color, 18), borderLeft: `4px solid ${labelHex(card.color)}` } : undefined}>
       {card.labels?.length > 0 && (
         <div className="mb-1.5 flex flex-wrap gap-1">
           {card.labels.map((l, i) => (
@@ -820,7 +869,7 @@ function CardFace({ card, person, lifted }) {
 
 function CardDialog({ card, columns, people, onClose, onSave, onDelete, onMove }) {
   const [c, setC] = useState(() => ({ ...card, labels: card.labels || [] }))
-  const dirty = JSON.stringify([c.title, c.description, c.labels, c.assigneeId, c.due]) !== JSON.stringify([card.title, card.description, card.labels || [], card.assigneeId, card.due])
+  const dirty = JSON.stringify([c.title, c.description, c.labels, c.assigneeId, c.due, c.color || '']) !== JSON.stringify([card.title, card.description, card.labels || [], card.assigneeId, card.due, card.color || ''])
   const save = () => { if (c.title.trim()) { onSave({ ...c, title: c.title.trim() }); onClose() } }
   const close = () => { if (dirty && c.title.trim()) onSave({ ...c, title: c.title.trim() }); onClose() }
   const setLabel = (i, patch) => setC((x) => ({ ...x, labels: x.labels.map((l, n) => (n === i ? { ...l, ...patch } : l)) }))
@@ -863,6 +912,10 @@ function CardDialog({ card, columns, people, onClose, onSave, onDelete, onMove }
                 <input type="date" value={c.due} onChange={(e) => setC({ ...c, due: e.target.value })} className={`${inputCls} text-sm`} />
                 {c.due && <button onClick={() => setC({ ...c, due: '' })} className="rounded px-1.5 text-muted hover:bg-surface2" title="Clear">✕</button>}
               </div>
+            </div>
+            <div className="space-y-1.5">
+              <div className="text-xs font-medium text-muted">Card colour</div>
+              <Swatches value={c.color || ''} onPick={(color) => setC({ ...c, color })} size={20} />
             </div>
             <div className="space-y-1.5">
               <div className="text-xs font-medium text-muted">Labels</div>

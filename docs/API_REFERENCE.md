@@ -1237,9 +1237,9 @@ column (or its leftmost place on the board), and an index past the end is the en
 | Create a board | `POST /api/kanban/boards` `{"name", "shared", "columns": ["To do", …]}` | — |
 | A board, its columns and cards in order (`?since=<rev>` for a cheap poll) | `GET /api/kanban/boards/{id}` | `dbcanvas api GET /api/kanban/boards/3` |
 | Rename or share it; delete it *(owner)* | `PUT /api/kanban/boards/{id}` `{"name", "shared"}` · `DELETE …` | — |
-| Add, change, delete a column | `POST /api/kanban/boards/{id}/columns` `{"name", "index"}` · `PUT /api/kanban/columns/{cid}` `{"name", "wipLimit"}` · `DELETE …` | — |
+| Add, change, delete a column | `POST /api/kanban/boards/{id}/columns` `{"name", "index"}` · `PUT /api/kanban/columns/{cid}` `{"name", "wipLimit"}` (or `{"color"}` alone) · `DELETE …` | — |
 | Move a column | `POST /api/kanban/columns/{cid}/move` `{"index"}` | — |
-| Add a card | `POST /api/kanban/columns/{cid}/cards` `{"title", "description", "labels", "assigneeId", "due", "index"}` | — |
+| Add a card | `POST /api/kanban/columns/{cid}/cards` `{"title", "description", "labels", "assigneeId", "due", "color", "index"}` | — |
 | Change or delete a card | `PUT /api/kanban/cards/{kid}` · `DELETE /api/kanban/cards/{kid}` | — |
 | Move a card to a place in a column | `POST /api/kanban/cards/{kid}/move` `{"columnId", "index"}` | `dbcanvas api POST /api/kanban/cards/12/move --data '{"columnId":4,"index":0}'` |
 | Who a card can be assigned to | `GET /api/kanban/people` | — |

@@ -25,6 +25,10 @@ import (
 // titles and descriptions) is sealed at rest like the rest of what they type
 // (encryption.go).
 //
+// A card and a column may each carry a colour from the label palette: a card's
+// tints it, a column's tints the lane — a way to see a kind of work, or a stage, at a
+// glance.
+//
 // rev counts every change to a board, so a page that has it open asks "anything
 // since rev N?" every few seconds and gets a one-line answer when nothing moved.
 
@@ -95,6 +99,7 @@ type KanbanColumn struct {
 	Name     string `json:"name"`
 	Position int    `json:"position"`
 	WIPLimit int    `json:"wipLimit"`
+	Color    string `json:"color"`
 }
 
 type KanbanLabel struct {
@@ -110,6 +115,7 @@ type KanbanCard struct {
 	Labels      []KanbanLabel `json:"labels"`
 	AssigneeID  int64         `json:"assigneeId"`
 	Due         string        `json:"due"`
+	Color       string        `json:"color"`
 	Position    int           `json:"position"`
 	CreatedBy   int64         `json:"createdBy"`
 	CreatedAt   string        `json:"createdAt"`
@@ -246,13 +252,13 @@ func (s *Store) DeleteKanbanBoard(id int64) error {
 // KanbanContents is a board's columns and cards, in order.
 func (s *Store) KanbanContents(boardID int64) ([]KanbanColumn, []KanbanCard, error) {
 	cols := []KanbanColumn{}
-	rows, err := s.db.Query(`SELECT id, name, position, wip_limit FROM kanban_columns WHERE board_id = ? ORDER BY position, id`, boardID)
+	rows, err := s.db.Query(`SELECT id, name, position, wip_limit, color FROM kanban_columns WHERE board_id = ? ORDER BY position, id`, boardID)
 	if err != nil {
 		return nil, nil, err
 	}
 	for rows.Next() {
 		var c KanbanColumn
-		if err := rows.Scan(&c.ID, &c.Name, &c.Position, &c.WIPLimit); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.Position, &c.WIPLimit, &c.Color); err != nil {
 			rows.Close()
 			return nil, nil, err
 		}
@@ -264,7 +270,7 @@ func (s *Store) KanbanContents(boardID int64) ([]KanbanColumn, []KanbanCard, err
 	}
 	rows.Close()
 	cards := []KanbanCard{}
-	rows, err = s.db.Query(`SELECT k.id, k.column_id, k.title, k.description, k.labels, k.assignee_id, k.due, k.position,
+	rows, err = s.db.Query(`SELECT k.id, k.column_id, k.title, k.description, k.labels, k.assignee_id, k.due, k.color, k.position,
 		k.created_by, k.created_at, k.updated_at
 		FROM kanban_cards k JOIN kanban_columns c ON c.id = k.column_id
 		WHERE k.board_id = ? ORDER BY c.position, k.position, k.id`, boardID)
@@ -285,7 +291,7 @@ func (s *Store) KanbanContents(boardID int64) ([]KanbanColumn, []KanbanCard, err
 func (s *Store) scanKanbanCard(row interface{ Scan(...any) error }, boardID int64) (KanbanCard, error) {
 	var c KanbanCard
 	var labels string
-	if err := row.Scan(&c.ID, &c.ColumnID, &c.Title, &c.Description, &labels, &c.AssigneeID, &c.Due, &c.Position,
+	if err := row.Scan(&c.ID, &c.ColumnID, &c.Title, &c.Description, &labels, &c.AssigneeID, &c.Due, &c.Color, &c.Position,
 		&c.CreatedBy, &c.CreatedAt, &c.UpdatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return c, errKanbanNotFound
@@ -393,6 +399,22 @@ func (s *Store) AddKanbanColumn(boardID int64, name string, index int) (int64, e
 	return id, tx.Commit()
 }
 
+// SetKanbanColumnColor changes only a column's colour ("" for none).
+func (s *Store) SetKanbanColumnColor(boardID, colID int64, color string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`UPDATE kanban_columns SET color = ? WHERE id = ?`, color, colID); err != nil {
+		return err
+	}
+	if err := bumpBoard(tx, boardID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *Store) UpdateKanbanColumn(boardID, colID int64, name string, wip int) error {
 	sealed, err := s.kanbanSeal("kanban_columns", "name", boardID, name)
 	if err != nil {
@@ -470,9 +492,9 @@ func (s *Store) AddKanbanCard(boardID, colID int64, c KanbanCard, index int, by 
 		return 0, err
 	}
 	now := nowRFC3339()
-	res, err := tx.Exec(`INSERT INTO kanban_cards (board_id, column_id, title, description, labels, assignee_id, due, position,
-		created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-		boardID, colID, title, desc, labels, c.AssigneeID, c.Due, len(ids), by, now, now)
+	res, err := tx.Exec(`INSERT INTO kanban_cards (board_id, column_id, title, description, labels, assignee_id, due, color, position,
+		created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+		boardID, colID, title, desc, labels, c.AssigneeID, c.Due, c.Color, len(ids), by, now, now)
 	if err != nil {
 		return 0, err
 	}
@@ -512,8 +534,8 @@ func (s *Store) UpdateKanbanCard(boardID, cardID int64, c KanbanCard) error {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`UPDATE kanban_cards SET title = ?, description = ?, labels = ?, assignee_id = ?, due = ?, updated_at = ? WHERE id = ?`,
-		title, desc, labels, c.AssigneeID, c.Due, nowRFC3339(), cardID); err != nil {
+	if _, err := tx.Exec(`UPDATE kanban_cards SET title = ?, description = ?, labels = ?, assignee_id = ?, due = ?, color = ?, updated_at = ? WHERE id = ?`,
+		title, desc, labels, c.AssigneeID, c.Due, c.Color, nowRFC3339(), cardID); err != nil {
 		return err
 	}
 	if err := bumpBoard(tx, boardID); err != nil {
@@ -780,12 +802,28 @@ func (a *App) handleKanbanUpdateColumn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Name     string `json:"name"`
-		WIPLimit int    `json:"wipLimit"`
+		Name     string  `json:"name"`
+		WIPLimit int     `json:"wipLimit"`
+		Color    *string `json:"color"`
 	}
 	if err := decode(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
 		return
+	}
+	// {color} alone recolours the column and leaves the rest as it is.
+	if in.Color != nil {
+		if *in.Color != "" && !kanbanLabelColors[*in.Color] {
+			writeErr(w, http.StatusBadRequest, "a colour is one of the palette's, or empty for none")
+			return
+		}
+		if err := a.store.SetKanbanColumnColor(b.ID, cid, *in.Color); err != nil {
+			writeErr(w, http.StatusInternalServerError, "failed to save the column")
+			return
+		}
+		if in.Name == "" {
+			writeJSON(w, http.StatusOK, map[string]any{"id": cid})
+			return
+		}
 	}
 	name, err := cleanText(in.Name, kanbanNameMax, "a column's name")
 	if err != nil {
@@ -841,6 +879,7 @@ type cardInput struct {
 	Labels      []KanbanLabel `json:"labels"`
 	AssigneeID  int64         `json:"assigneeId"`
 	Due         string        `json:"due"`
+	Color       string        `json:"color"`
 	Index       *int          `json:"index"`
 }
 
@@ -874,7 +913,10 @@ func (a *App) checkCard(in cardInput) (KanbanCard, error) {
 			return KanbanCard{}, errors.New("no such person to assign")
 		}
 	}
-	return KanbanCard{Title: title, Description: strings.TrimRight(in.Description, " \n\t"), Labels: labels, AssigneeID: in.AssigneeID, Due: due}, nil
+	if in.Color != "" && !kanbanLabelColors[in.Color] {
+		return KanbanCard{}, errors.New("a colour is one of the palette's, or empty for none")
+	}
+	return KanbanCard{Title: title, Description: strings.TrimRight(in.Description, " \n\t"), Labels: labels, AssigneeID: in.AssigneeID, Due: due, Color: in.Color}, nil
 }
 
 func (a *App) handleKanbanAddCard(w http.ResponseWriter, r *http.Request) {

@@ -23,6 +23,7 @@ export const kanbanApi = {
   deleteBoard: (id) => request('DELETE', `/api/kanban/boards/${id}`),
   addColumn: (boardId, name, index) => request('POST', `/api/kanban/boards/${boardId}/columns`, { name, index }),
   updateColumn: (cid, name, wipLimit) => request('PUT', `/api/kanban/columns/${cid}`, { name, wipLimit }),
+  colorColumn: (cid, color) => request('PUT', `/api/kanban/columns/${cid}`, { color }),
   deleteColumn: (cid) => request('DELETE', `/api/kanban/columns/${cid}`),
   moveColumn: (cid, index) => request('POST', `/api/kanban/columns/${cid}/move`, { index }),
   addCard: (cid, card) => request('POST', `/api/kanban/columns/${cid}/cards`, card),
@@ -39,6 +40,11 @@ export const LABEL_COLORS = [
   { id: 'purple', hex: '#a855f7' }, { id: 'pink', hex: '#ec4899' }, { id: 'gray', hex: '#6b7280' },
 ]
 export const labelHex = (c) => LABEL_COLORS.find((x) => x.id === c)?.hex || '#6b7280'
+
+// tint is a palette colour mixed into a surface, for a card's or a column's
+// background: strong enough to tell at a glance, light enough to read on, in every
+// theme (it mixes with the theme's own surface).
+export const tint = (c, pct, surface = 'var(--surface)') => (c ? `color-mix(in srgb, ${labelHex(c)} ${pct}%, ${surface})` : undefined)
 
 // Board templates: the columns a new board starts with.
 export const BOARD_TEMPLATES = [

@@ -224,3 +224,21 @@ func TestAPollWithNothingNewIsCheap(t *testing.T) {
 		t.Error("a new card did not move the rev")
 	}
 }
+
+func TestCardsAndColumnsHaveColours(t *testing.T) {
+	f := newKanbanFixture(t)
+	w := f.do(f.ann, "POST", "/", map[string]string{"cid": id(f.cols[0])}, `{"title":"A","color":"teal"}`, m((*App).handleKanbanAddCard))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("add: %d %s", w.Code, w.Body)
+	}
+	if w := f.do(f.ann, "POST", "/", map[string]string{"cid": id(f.cols[0])}, `{"title":"B","color":"neon"}`, m((*App).handleKanbanAddCard)); w.Code != http.StatusBadRequest {
+		t.Errorf("an unknown colour was accepted: %d", w.Code)
+	}
+	if w := f.do(f.ann, "PUT", "/", map[string]string{"cid": id(f.cols[1])}, `{"color":"purple"}`, m((*App).handleKanbanUpdateColumn)); w.Code != http.StatusOK {
+		t.Fatalf("recolour: %d %s", w.Code, w.Body)
+	}
+	cols, cards, _ := f.app.store.KanbanContents(f.boardID)
+	if cards[0].Color != "teal" || cols[1].Color != "purple" || cols[1].Name != "In progress" {
+		t.Errorf("colours: card %q, column %+v", cards[0].Color, cols[1])
+	}
+}
