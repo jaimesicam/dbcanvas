@@ -310,6 +310,9 @@ body { margin:0; background:var(--bg); color:var(--fg); font-family:var(--ui-tex
 /* While a window moves or resizes (wm/WindowManager.jsx), an iframe under the pointer
    would swallow the pointer events and strand the drag. */
 .wm-dragging iframe { pointer-events: none; }
+/* A viewer watching the driver's mirrored screen has no use for their own taskbar
+   (session/Mirror.jsx). */
+html[data-mirroring] [data-wm-taskbar] { display: none; }
 @keyframes pulse-ring {
   0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 55%, transparent); }
   70% { box-shadow: 0 0 0 10px transparent; }

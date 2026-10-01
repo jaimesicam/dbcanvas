@@ -157,6 +157,14 @@ export function MirrorView({ right = 0, onShowPanel }) {
     }
   }, [s.mirroring])
 
+  // While the driver's screen is shown, this browser's own taskbar is not: it would
+  // peek out under the session panel, offering windows the viewer cannot see.
+  useEffect(() => {
+    if (!s.mirroring) return undefined
+    document.documentElement.dataset.mirroring = '1'
+    return () => { delete document.documentElement.dataset.mirroring }
+  }, [s.mirroring])
+
   // A new driver means a new screen to wait for.
   const driver = s.controllerName
   useEffect(() => { if (s.mirroring) { setWaiting(true); api.current.requestResync() } }, [driver]) // eslint-disable-line react-hooks/exhaustive-deps
