@@ -40,6 +40,7 @@ import ManageUsers from './pages/ManageUsers.jsx'
 import Settings from './pages/Settings.jsx'
 import Labs from './pages/Labs.jsx'
 import Api from './pages/Api.jsx'
+import Profile from './pages/Profile.jsx'
 import { showExperimental, visible } from './lib/experimental.js'
 
 // Exported for the smoke suite: the tags on these entries are what an installation
@@ -73,6 +74,8 @@ export const NAV = [
   // what the label used to say and the flag now decides.
   { id: 'labs', label: 'Labs (experimental)', icon: 'Flask', page: Labs, experimental: true, hint: 'Hands-on scenarios with real check-work verification' },
   { id: 'api', label: 'API', icon: 'Code', page: Api, hint: 'Every endpoint, and the tokens that authenticate against them' },
+  // Your account: name, avatar, password, tokens. Settings is how the app behaves.
+  { id: 'profile', label: 'Profile', icon: 'Users', page: Profile, hint: 'Your name, avatar, password and API tokens' },
   { id: 'settings', label: 'Settings', icon: 'Settings', page: Settings, hint: 'Terminal & appearance preferences' },
 ]
 const ADMIN_NAV = { id: 'users', label: 'Manage Users', icon: 'Users', page: ManageUsers, hint: 'Approve & manage accounts' }
@@ -105,7 +108,7 @@ export default function App({ onSessionEnded }) {
 // A shared-session guest acts as the host but never reaches the host's account: these
 // pages are the host's own (their settings, their API tokens, other users), and the
 // server refuses what they would do (app/share.go), so they are not offered.
-const GUEST_HIDDEN = new Set(['settings', 'api', 'users'])
+const GUEST_HIDDEN = new Set(['settings', 'api', 'users', 'profile'])
 
 function Workspace({ onSessionEnded }) {
   const { user, logout, guest } = useAuth()
@@ -796,9 +799,7 @@ function dotColor(sev) {
 }
 
 function AccountMenu({ user, onLogout }) {
-  const { setUser } = useAuth()
   const [open, setOpen] = useState(false)
-  const [editing, setEditing] = useState(false)
   const ref = useOutsideClose(open, setOpen)
   return (
     <div className="relative" ref={ref}>
@@ -815,15 +816,14 @@ function AccountMenu({ user, onLogout }) {
             </div>
             <Badge tone={user?.role === 'admin' ? 'primary' : 'muted'}>{user?.role}</Badge>
           </div>
-          <Button variant="subtle" size="sm" className="mb-1 w-full" onClick={() => { setOpen(false); setEditing(true) }}>
-            <Icon.Users size={16} /> Edit profile
+          <Button variant="subtle" size="sm" className="mb-1 w-full" onClick={() => { setOpen(false); location.hash = 'profile' }}>
+            <Icon.Users size={16} /> Profile
           </Button>
           <Button variant="subtle" size="sm" className="w-full" onClick={onLogout}>
             <Icon.Logout size={16} /> Sign out
           </Button>
         </div>
       )}
-      {editing && <ProfileDialog user={user} onSaved={setUser} onClose={() => setEditing(false)} />}
     </div>
   )
 }

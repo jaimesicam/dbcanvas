@@ -24,7 +24,7 @@ const GROUPS = [
   { title: 'Data and queries', ids: ['data-generator', 'database-explorer', 'queryrun', 'benchmark', 'sample-code'] },
   { title: 'Diagnose', ids: ['packet-inspector', 'operator-debugger', 'core-dump', 'stalk-summary', 'log-summary', 'ftdc-summary', 'operator-summary', 'k8s-states'] },
   { title: 'Learn', ids: ['labs'] },
-  { title: 'System', ids: ['api', 'settings', 'users'] },
+  { title: 'System', ids: ['profile', 'api', 'settings', 'users'] },
 ]
 
 export function groupNav(nav) {

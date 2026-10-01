@@ -4363,7 +4363,7 @@ check('refresh: every page with server data offers the top-bar Refresh', () => {
       benchmark: 'Benchmark', 'sample-code': 'SampleCode', 'packet-inspector': 'PacketInspector',
       'operator-debugger': 'OperatorDebugger', 'core-dump': 'CoreDumpAnalyzer', 'stalk-summary': 'StalkSummary',
       'log-summary': 'LogSummary', 'ftdc-summary': 'FTDCSummary', 'operator-summary': 'OperatorSummary',
-      'k8s-states': 'K8sStates', labs: 'Labs', api: 'Api', dashboard: 'Dashboard' }[n.id]
+      'k8s-states': 'K8sStates', labs: 'Labs', api: 'Api', dashboard: 'Dashboard', profile: 'Profile', kanban: 'Kanban' }[n.id]
     if (!file) { missing.push(`${n.id} (no file mapped — add it here)`); continue }
     const text = readFileSync(new URL(`../src/pages/${file}.jsx`, import.meta.url), 'utf8')
     if (!/useRefresh\(/.test(text)) missing.push(file)

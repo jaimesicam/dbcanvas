@@ -146,7 +146,7 @@ function UploadLimit() {
   )
 }
 
-// ChangePassword — your own password, from Settings.
+// ChangePassword — your own password, on the Profile page (pages/Profile.jsx).
 //
 // The current password is required by the server even though the user is signed in,
 // and the form says why: this is the check that stops a stolen session becoming a
@@ -676,7 +676,11 @@ export default function Settings() {
 
       <TabLimit value={clampTabs(settings.maxTabs)} onSave={(n) => save({ maxTabs: n })} />
 
-      <ChangePassword />
+      <Row title="Password" hint="Your password, name and avatar are on your Profile now.">
+        <Button variant="outline" size="sm" onClick={() => { location.hash = 'profile' }}>
+          <Icon.Users size={15} /> Open your profile
+        </Button>
+      </Row>
 
       <UploadLimit />
 
