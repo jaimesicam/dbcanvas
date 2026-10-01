@@ -6,13 +6,15 @@ import { Icon } from '../components/Icons.jsx'
 import { useSettings } from '../settings/SettingsProvider.jsx'
 import { useSession } from '../session/SessionProvider.jsx'
 import { shareApi } from '../lib/shareApi.js'
+import { Window, useWindowManager, useTaskbarItem } from '../wm/WindowManager.jsx'
 
 // A top-level terminal manager. Because the provider (and its dock) live above
 // the page switch, xterm instances + their WebSockets stay mounted across
 // navigation — sessions are not reset when you leave and return to a page.
 //
 // Each session lives in exactly one place at a time: a tab in the bottom dock, or
-// its own floating window. Detaching/attaching does NOT re-create xterm — the
+// its own floating window — a managed one (wm/WindowManager.jsx), so it moves, snaps,
+// minimizes to the taskbar and stacks like every other window. Detaching/attaching does NOT re-create xterm — the
 // session's persistent host <div> (with xterm opened into it) is re-parented into
 // the correct slot via appendChild, so scrollback and the live socket survive.
 
@@ -25,10 +27,8 @@ const loadLayout = () => {
   catch { return { height: 300 } }
 }
 
-// floatRect places a new floating window, cascading each one clear of the last.
-const floatRect = (floatingCount) => ({
-  x: 120 + (floatingCount % 6) * 28, y: 96 + (floatingCount % 6) * 28, w: 580, h: 320,
-})
+// floatRect is a new floating window's first size; the window manager places it.
+const floatRect = () => ({ w: 640, h: 360 })
 
 const XTERM_THEME = {
   background: '#0e1117', foreground: '#e6eaf2', cursor: '#6366f1',
@@ -89,7 +89,7 @@ export function TerminalProvider({ children }) {
     // its own floating window, cascaded like a detached one.
     setSessions((ss) => [...ss, {
       id, title, status: 'connecting', floating: undocked, shared: !!shared,
-      ...(undocked ? { float: floatRect(ss.filter((s) => s.floating).length) } : {}),
+      ...(undocked ? { float: floatRect() } : {}),
     }])
     if (!undocked) {
       setActiveId(id)
@@ -185,12 +185,7 @@ export function TerminalProvider({ children }) {
   }, [share.active, share.sid, share.terms, attach, dropTerminal])
 
   const detachTerminal = useCallback((id) => {
-    setSessions((ss) => {
-      const floatingCount = ss.filter((s) => s.floating).length
-      return ss.map((s) => (s.id === id
-        ? { ...s, floating: true, float: s.float || floatRect(floatingCount) }
-        : s))
-    })
+    setSessions((ss) => ss.map((s) => (s.id === id ? { ...s, floating: true, float: s.float || floatRect() } : s)))
   }, [])
 
   const attachTerminal = useCallback((id) => {
@@ -234,14 +229,15 @@ function TerminalLayer() {
   const areaRef = useRef(null)
   const floatRefs = useRef(new Map()) // id -> body slot element
   const drag = useRef(null)
+  const wm = useWindowManager()
 
   // Right-click actions, shared by docked tabs and floating windows.
   const openMenu = (id) => (e) => { e.preventDefault(); e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, id }) }
-  // Maximize is offered only for docked tabs: detach into a full-viewport window.
+  // Maximize is offered only for docked tabs: detach into a maximized window.
   const maximize = (s) => { detachTerminal(s.id); setFloat(s.id, { max: true }) }
   const minimize = (s) => {
-    if (s.floating) { setFloat(s.id, { max: false }); attachTerminal(s.id) }
-    setOpen(false)
+    if (s.floating) wm.minimize(`term:${s.id}`)
+    else setOpen(false)
   }
 
   useEffect(() => {
@@ -292,37 +288,24 @@ function TerminalLayer() {
     }
   }
 
-  // dragging: docked height handle, or a floating window's move.
+  // dragging the dock's height handle; floating windows are the window manager's.
   useEffect(() => {
     const onMove = (e) => {
       const d = drag.current
       if (!d) return
-      if (d.kind === 'height') {
-        setLayout((l) => ({ ...l, height: Math.min(Math.max(140, d.h0 + (d.y0 - e.clientY)), window.innerHeight - 80) }))
-      } else if (d.kind === 'fmove') {
-        // Clamp so the title bar can never be dragged off-screen (it holds the
-        // only Dock/Maximize/Close controls). Keep the whole window's top edge in
-        // view vertically, and at least KEEP px reachable on either side.
-        const KEEP = 64
-        const nx = d.fx + (e.clientX - d.x0)
-        const ny = d.fy + (e.clientY - d.y0)
-        const x = Math.min(Math.max(nx, KEEP - d.w), window.innerWidth - KEEP)
-        const y = Math.min(Math.max(ny, 0), window.innerHeight - 28)
-        setFloat(d.id, { x, y })
-      } else if (d.kind === 'fresize') {
-        // Manual resize of a floating window. We don't use CSS `resize: both`
-        // because WebKit/Safari won't fire the native grabber when a child (the
-        // xterm canvas) covers the corner — the drag here works in every browser.
-        const w = Math.max(320, d.w0 + (e.clientX - d.x0))
-        const h = Math.max(180, d.h0 + (e.clientY - d.y0))
-        setFloat(d.id, { w, h })
-      }
+      setLayout((l) => ({ ...l, height: Math.min(Math.max(140, d.h0 + (d.y0 - e.clientY)), window.innerHeight - 80) }))
     }
     const onUp = () => { drag.current = null }
     addEventListener('pointermove', onMove)
     addEventListener('pointerup', onUp)
     return () => { removeEventListener('pointermove', onMove); removeEventListener('pointerup', onUp) }
-  }, [setFloat])
+  }, [])
+
+  // The dock's toggle lives on the taskbar.
+  useTaskbarItem('terminals', docked.length ? {
+    label: `Terminals (${docked.length})`, icon: <Icon.Terminal size={14} />, active: open,
+    title: open ? 'Hide the terminal dock' : 'Show the terminal dock', onClick: () => setOpen((o) => !o),
+  } : null)
 
   if (sessions.length === 0) return null
 
@@ -331,55 +314,24 @@ function TerminalLayer() {
   return (
     <>
       {/* floating per-tab windows */}
-      {floating.map((s) => {
-        const f = s.float || { x: 120, y: 96, w: 580, h: 320 }
-        const geo = f.max
-          ? { left: 0, top: 0, width: '100vw', height: '100vh', borderRadius: 0 }
-          : { left: f.x, top: f.y, width: f.w, height: f.h }
-        return (
-          <div key={s.id} className="fixed z-40 flex flex-col rounded-lg border bg-surface shadow-2xl"
-            style={{ ...geo, overflow: 'hidden' }}>
-            <div
-              className="flex items-center gap-1.5 border-b bg-surface2 px-2 py-1"
-              style={{ cursor: f.max ? 'default' : 'move' }}
-              onContextMenu={openMenu(s.id)}
-              onPointerDown={(e) => { if (f.max || e.target.closest('button')) return; drag.current = { kind: 'fmove', id: s.id, x0: e.clientX, y0: e.clientY, fx: f.x, fy: f.y, w: e.currentTarget.parentElement?.offsetWidth || f.w } }}
-            >
-              <span className={statusDot(s.status)} />
-              <span className="min-w-0 flex-1 truncate text-xs text-fg">{s.title}</span>
+      {floating.map((s) => (
+        <Window key={s.id} id={`term:${s.id}`} title={s.title} size={{ ...floatRect(), max: !!s.float?.max }}
+          icon={<span className="flex items-center gap-1.5"><span className={statusDot(s.status)} /><Icon.Terminal size={13} /></span>}
+          onClose={() => closeTerminal(s.id)} canClose={canClose(s)} closeTitle={closeTitle(s)}
+          menu={[{ label: 'Dock', onClick: () => attachTerminal(s.id) }]}
+          header={(
+            <span className="flex min-w-0 flex-1 justify-end">
               <button title="Dock" onClick={() => attachTerminal(s.id)} className="rounded p-1 text-muted hover:bg-surface hover:text-fg"><Icon.Frame size={13} /></button>
-              <button title={closeTitle(s)} disabled={!canClose(s)} onClick={() => closeTerminal(s.id)} className="rounded px-1.5 text-muted hover:text-danger disabled:cursor-not-allowed disabled:opacity-30">✕</button>
-            </div>
-            <div ref={floatSlot(s.id)} className="relative flex-1 overflow-hidden bg-[#0e1117]" />
-            {!f.max && (
-              <div
-                title="Resize"
-                onPointerDown={(e) => {
-                  e.preventDefault(); e.stopPropagation()
-                  const win = e.currentTarget.parentElement
-                  drag.current = { kind: 'fresize', id: s.id, x0: e.clientX, y0: e.clientY, w0: win?.offsetWidth || f.w, h0: win?.offsetHeight || f.h }
-                }}
-                className="absolute bottom-0 right-0 z-10 h-4 w-4 cursor-se-resize text-muted hover:text-fg"
-                style={{ touchAction: 'none' }}
-              >
-                <svg viewBox="0 0 10 10" className="absolute bottom-0.5 right-0.5 h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
-                  <path d="M9 3 L3 9 M9 6 L6 9" />
-                </svg>
-              </div>
-            )}
-          </div>
-        )
-      })}
+            </span>
+          )}
+          bodyClass="bg-[#0e1117]">
+          <div ref={floatSlot(s.id)} className="absolute inset-0 overflow-hidden" />
+        </Window>
+      ))}
 
       {/* bottom dock (docked sessions) */}
-      {docked.length > 0 && !open && (
-        <button onClick={() => setOpen(true)}
-          className="fixed bottom-3 right-3 z-40 flex items-center gap-2 rounded-lg border bg-surface px-3 py-2 text-sm shadow-lg hover:bg-surface2">
-          <Icon.Nodes size={16} /> Terminals ({docked.length})
-        </button>
-      )}
       {docked.length > 0 && open && (
-        <div className="fixed inset-x-0 bottom-0 z-40 flex flex-col border bg-surface shadow-2xl" style={{ height: layout.height }}>
+        <div className="fixed inset-x-0 z-40 flex flex-col border bg-surface shadow-2xl" style={{ height: layout.height, bottom: 'var(--wm-taskbar, 0px)' }}>
           <div
             onPointerDown={(e) => { drag.current = { kind: 'height', y0: e.clientY, h0: layout.height } }}
             className="h-1.5 w-full cursor-ns-resize bg-border/60 hover:bg-primary"

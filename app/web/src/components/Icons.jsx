@@ -617,6 +617,12 @@ export const Icon = {
       <path d="M10 14l-6 6" />
     </Svg>
   ),
+  // Minus is a window's minimize button: a bar along the bottom, where the taskbar is.
+  Minus: (p) => (
+    <Svg {...p}>
+      <path d="M5 18h14" />
+    </Svg>
+  ),
   StepOut: (p) => (
     <Svg {...p}>
       <path d="M12 12.5v-9" />

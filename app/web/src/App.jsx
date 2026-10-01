@@ -13,6 +13,7 @@ import SessionPanel from './components/SessionPanel.jsx'
 import ShareDialog from './components/ShareDialog.jsx'
 import { MirrorRecorder, MirrorView } from './session/Mirror.jsx'
 import { BrowserProvider } from './browser/BrowserProvider.jsx'
+import { WindowManagerProvider } from './wm/WindowManager.jsx'
 import { notifApi, relTime } from './lib/notifApi.js'
 
 import Dashboard from './pages/Dashboard.jsx'
@@ -85,12 +86,16 @@ export default function App({ onSessionEnded }) {
   return (
     <SettingsProvider>
       <SessionProvider>
-        <TerminalProvider>
-          {/* Node web UIs in a window, through this port (browser/BrowserProvider.jsx). */}
-          <BrowserProvider>
-            <Workspace onSessionEnded={onSessionEnded} />
-          </BrowserProvider>
-        </TerminalProvider>
+        {/* Every floating window — terminals, browser windows, file managers — and
+            the taskbar (wm/WindowManager.jsx). */}
+        <WindowManagerProvider>
+          <TerminalProvider>
+            {/* Node web UIs in a window, through this port (browser/BrowserProvider.jsx). */}
+            <BrowserProvider>
+              <Workspace onSessionEnded={onSessionEnded} />
+            </BrowserProvider>
+          </TerminalProvider>
+        </WindowManagerProvider>
       </SessionProvider>
     </SettingsProvider>
   )
@@ -263,7 +268,8 @@ function Workspace({ onSessionEnded }) {
   const openCount = tabCounts(tabs)
 
   return (
-    <div className="flex h-full bg-bg text-fg">
+    // The taskbar (wm/WindowManager.jsx) takes the bottom strip while it shows.
+    <div className="flex h-full bg-bg text-fg" style={{ paddingBottom: 'var(--wm-taskbar, 0px)' }}>
       <aside className={`flex flex-col border-r bg-surface transition-all ${collapsed ? 'w-[68px]' : 'w-60'}`}>
         <div className="flex items-center gap-2.5 border-b px-4 h-14">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-fg">

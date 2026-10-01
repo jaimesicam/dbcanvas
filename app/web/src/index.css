@@ -307,6 +307,9 @@ body { margin:0; background:var(--bg); color:var(--fg); font-family:var(--ui-tex
 
 @keyframes fade-in { from { opacity:0; transform:translateY(6px) } to { opacity:1; transform:translateY(0) } }
 .animate-fade-in { animation: fade-in .25s ease both; }
+/* While a window moves or resizes (wm/WindowManager.jsx), an iframe under the pointer
+   would swallow the pointer events and strand the drag. */
+.wm-dragging iframe { pointer-events: none; }
 @keyframes pulse-ring {
   0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 55%, transparent); }
   70% { box-shadow: 0 0 0 10px transparent; }

@@ -1303,6 +1303,21 @@ deployment failures, data-generation completed/failed, stacks destroyed or **exp
 (TTL), backups completed, high resource usage, and (for admins) new accounts awaiting
 approval.
 
+### Windows and the taskbar
+Terminals you detach from the dock (or open undocked), browser windows on node web UIs and
+the file managers open as **windows** over the workspace, and the page behind them stays
+usable. Each one moves by its title bar and resizes from any edge or corner; double-click
+the title bar (or press its maximize button) to fill the screen. Drag a window to the left
+or right edge for half the screen, into a corner for a quarter, or to the top edge to
+maximize — an outline shows where it will land — and drag it away to get its size back.
+The window you touch comes to the front, and windows always stay below dialogs and menus.
+
+While any window or docked terminal is open, a **taskbar** runs along the bottom: a button
+for each window (click to bring it forward, again to minimize it), the terminal dock's
+toggle, and **Tile**, **Cascade** and **Show page** (minimize everything). A minimized
+window keeps running — a terminal stays connected and a page stays loaded. Right-click a
+title bar for Maximize, Minimize, Snap left, Snap right and Close (and Dock, for a terminal).
+
 ### Settings
 Per-user preferences, stored on the **account** rather than the browser, so they follow you to
 another machine: whether a node console opens **docked** (a tab in the bottom terminal dock, the

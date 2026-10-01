@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from '../components/Icons.jsx'
+import { Window } from '../wm/WindowManager.jsx'
 import { Button, inputCls } from '../components/ui.jsx'
 import { fsApi, fsNodes } from '../lib/stackApi.js'
 import { useSettings } from '../settings/SettingsProvider.jsx'
@@ -213,25 +214,20 @@ export default function FileManager({ stackId, nodeId, nodeLabel, onClose }) {
     })
   }
 
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onMouseDown={onClose}>
-      <div
-        className="flex h-[min(85vh,900px)] w-full max-w-[min(1500px,95vw)] flex-col overflow-hidden rounded-xl border bg-surface shadow-2xl"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <header className="flex shrink-0 items-center gap-3 border-b px-4 py-2.5">
-          <Icon.Folder size={18} />
-          <h2 className="text-sm font-semibold">File Manager</h2>
+  // A window (wm/WindowManager.jsx), not a modal: the page behind stays usable, and
+  // it moves, snaps and minimizes like the terminals and browser windows.
+  return (
+    <Window id={`files:${stackId}:${nodeId}`} title={`File Manager · ${nodeLabel || nodeId}`}
+      icon={<Icon.Folder size={14} />} size={{ w: 1280, h: 760 }} onClose={onClose}
+      header={
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           <span className="text-xs text-muted">{nodes.length} running node{nodes.length === 1 ? '' : 's'} in this stack</span>
-          <div className="ml-auto flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={() => setSplit((s) => !s)}>
-              {split ? 'Single pane' : 'Split (transfer between nodes)'}
-            </Button>
-            <button onClick={onClose} title="Close file manager" className="rounded-md p-1 text-muted hover:bg-surface2 hover:text-fg">
-              <Icon.Close size={16} />
-            </button>
-          </div>
-        </header>
+          <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setSplit((s) => !s)}>
+            {split ? 'Single pane' : 'Split (transfer between nodes)'}
+          </Button>
+        </div>
+      }>
+      <div className="absolute inset-0 flex flex-col overflow-hidden bg-surface">
 
         <Toolbar
           pane={src} split={split} busy={busy} dst={dst} labelOf={labelOf}
@@ -314,8 +310,7 @@ export default function FileManager({ stackId, nodeId, nodeLabel, onClose }) {
           onApply={(fn, msg) => run('props', async () => { await fn(); return msg }, [dialog.pane])}
         />
       )}
-    </div>,
-    document.body,
+    </Window>
   )
 }
 

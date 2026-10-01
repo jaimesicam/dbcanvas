@@ -164,7 +164,9 @@ one opens the page in a window inside DBCanvas, served through DBCanvas's own po
 ![Right-clicking a node's web link](screenshots/browser-window-menu.png)
 
 The window has back, forward, reload, an address you can edit, **Open in a browser tab**
-(still through DBCanvas), maximize and close. It works outside a session too.
+(still through DBCanvas), and the controls every window has — minimize to the taskbar,
+maximize, snap to an edge, close ([Windows and the taskbar](STACKS.md#windows-and-the-taskbar)).
+It works outside a session too.
 
 In a session, a window the driver or you opens is **shared**: it opens on every screen,
 follows the driver as they move around in it, and only the driver can close it. A VNC
