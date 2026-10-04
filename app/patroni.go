@@ -62,8 +62,11 @@ type patroniConfig struct {
 	GenerateCert bool   `json:"generateCert"`
 	UseProxy     bool   `json:"useProxy"`
 	MonitoredBy  string `json:"monitoredBy"` // PMM node FQDN, if any
-	Ports        []int  `json:"ports"`
-	ExportPort   int    `json:"exportPort"` // published host port for 5432 (0 = none)
+	// QuerySource is the query analytics extension enabled cluster-wide ("pgstatements",
+	// "pgstatmonitor"; empty when neither). See pgquerysource.go.
+	QuerySource string `json:"querySource,omitempty"`
+	Ports       []int  `json:"ports"`
+	ExportPort  int    `json:"exportPort"` // published host port for 5432 (0 = none)
 }
 
 // pgSecrets holds the cluster-wide PostgreSQL credentials: the superuser
@@ -211,7 +214,8 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 			EtcdEndpoints: etcdEndpoints, UsePgBackRest: frame.UsePgBackRest, BackupRepo: backupRepo,
 			BackupStanza: backupStanza,
 			GenerateCert: frame.GenerateCert, UseProxy: frame.UseProxy, MonitoredBy: monitoredBy,
-			Ports: patroniPorts,
+			QuerySource: pgQuerySourceFor(frame.Type, frame.PGQuerySource, frame.PMMNodeID),
+			Ports:       patroniPorts,
 		}
 		cfgJSON, _ := json.Marshal(cfg)
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
@@ -326,6 +330,19 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 				pr.logln("initial pgBackRest backup failed: " + err.Error())
 			} else {
 				pr.logln("pgBackRest stanza created + initial full backup taken")
+			}
+		}
+
+		// ---- Phase 4b: query analytics extension, created once on the leader ----
+		// The preload is a DCS parameter every member started with; the extension itself
+		// is catalog state, so the replicas get it by streaming.
+		if qs := pgQuerySourceFor(frame.Type, frame.PGQuerySource, frame.PMMNodeID); qs != pgQSNone && leaderID != "" {
+			pr := a.pxcNewProg(st.ID, leaderID)
+			pr.phase("Enabling "+pgQueryExtension(qs), 91)
+			ldep, _ := a.store.GetDeployment(st.ID, leaderID)
+			if err := a.enablePGQueryExtension(ctx, ldep.ContainerID, qs, "", pr.logln); err != nil {
+				// Non-fatal like the backup above: the cluster is up, QAN is what is missing.
+				pr.logln(err.Error())
 			}
 		}
 
@@ -456,6 +473,13 @@ func (a *App) patroniPrepareNode(ctx context.Context, st Stack, frame designFram
 			pr.logln("pmm-client install skipped: " + err.Error())
 		} else {
 			pr.logln("pmm-client installed")
+		}
+	}
+	// Every member preloads it (Patroni writes the DCS parameters on each), so every
+	// member needs the library on disk or it will not start.
+	if pgQuerySourceFor(frame.Type, frame.PGQuerySource, frame.PMMNodeID) == pgQSMonitor {
+		if err := a.installPGStatMonitor(ctx, id, frame.OS, major, pr.logln); err != nil {
+			return pr.fail("%v", err)
 		}
 	}
 
@@ -723,6 +747,7 @@ func (a *App) patroniRegisterPMM(ctx context.Context, st Stack, n designNode, fr
 		// peer auth); PMM_PW is that role's password.
 		"PMM_PW=" + envOr("PMM_PASSWORD", "pmm_password"),
 		"NODE=" + n.Label,
+		"QSFLAGS=" + pgQueryPMMFlags(pgQuerySourceFor(frame.Type, frame.PGQuerySource, frame.PMMNodeID)),
 	}
 	if _, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"bash", "-c", script}, env); err != nil {
 		pr.logln("PMM registration skipped: " + err.Error())
@@ -874,6 +899,12 @@ func patroniYAML(frame designFrame, host, fqdn string, etcdEndpoints []string, s
 	if frame.UsePgBackRest {
 		fmt.Fprintf(&b, "        archive_mode: \"on\"\n")
 		fmt.Fprintf(&b, "        archive_command: \"pgbackrest --stanza=%s archive-push %%p\"\n", stanza)
+	}
+	if qs := pgQuerySourceFor(frame.Type, frame.PGQuerySource, frame.PMMNodeID); qs != pgQSNone {
+		fmt.Fprintf(&b, "        shared_preload_libraries: \"%s\"\n", pgPreloadValue(nil, qs))
+		for _, p := range pgQueryParams(qs) {
+			fmt.Fprintf(&b, "        %s: \"%s\"\n", p[0], p[1])
+		}
 	}
 	fmt.Fprintf(&b, "  initdb:\n")
 	fmt.Fprintf(&b, "  - encoding: UTF8\n")
@@ -1118,7 +1149,9 @@ if [ "$(runuser -u postgres -- psql -tAc 'SELECT pg_is_in_recovery()' 2>/dev/nul
     printf '%s\n' "CREATE ROLE pmm WITH LOGIN SUPERUSER PASSWORD :'pw';" | runuser -u postgres -- psql -v ON_ERROR_STOP=1 -v pw="$PMM_PW" >/dev/null 2>&1 || true
   fi
 fi
-pmm-admin add postgresql --username=pmm --password="$PMM_PW" --host=127.0.0.1 --port=5432 "$NODE"`
+# QSFLAGS is --query-source when a query analytics extension was chosen (unquoted on
+# purpose: empty means no flag, and pmm-admin's own default).
+pmm-admin add postgresql --username=pmm --password="$PMM_PW" --host=127.0.0.1 --port=5432 $QSFLAGS "$NODE"`
 
 const patroniPMMDebian = `set -e
 export DEBIAN_FRONTEND=noninteractive
@@ -1137,4 +1170,6 @@ if [ "$(runuser -u postgres -- psql -tAc 'SELECT pg_is_in_recovery()' 2>/dev/nul
     printf '%s\n' "CREATE ROLE pmm WITH LOGIN SUPERUSER PASSWORD :'pw';" | runuser -u postgres -- psql -v ON_ERROR_STOP=1 -v pw="$PMM_PW" >/dev/null 2>&1 || true
   fi
 fi
-pmm-admin add postgresql --username=pmm --password="$PMM_PW" --host=127.0.0.1 --port=5432 "$NODE"`
+# QSFLAGS is --query-source when a query analytics extension was chosen (unquoted on
+# purpose: empty means no flag, and pmm-admin's own default).
+pmm-admin add postgresql --username=pmm --password="$PMM_PW" --host=127.0.0.1 --port=5432 $QSFLAGS "$NODE"`

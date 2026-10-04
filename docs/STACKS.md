@@ -987,6 +987,19 @@ backup taken from the new primary references the full backup the old one took. (
 compose` still wires repmgr to Barman when you ask for `backup`, because it builds its SeaweedFS
 node with plain HTTP; pick pgBackRest in the designer.)
 
+**Query Analytics needs an extension.** PMM's QAN reads PostgreSQL's statement statistics from
+`pg_stat_statements` or `pg_stat_monitor`, and neither is on by default — without one, PMM shows
+the server's metrics and an empty QAN. On a standalone PostgreSQL node and a Patroni frame, picking
+a PMM node shows **Query Analytics extension**: *pg_stat_statements* (contrib) or
+*pg_stat_monitor* (Percona's, installed from its own package and preloaded after
+pg_stat_statements). The extension is preloaded, configured as the
+[PMM documentation](https://docs.percona.com/percona-monitoring-and-management/3/install-pmm/install-pmm-client/connect-database/postgresql.html#configure-monitoring-extension)
+sets it up, created in the `postgres` database, and passed to `pmm-admin add postgresql` as
+`--query-source`. repmgr and Spock frames have an **Enable pg_stat_statements** tick of their own,
+with or without PMM. pg_stat_monitor is not offered there, because it is a Percona package and
+those frames run PGDG and source-built PostgreSQL. On a node with pg_tde, both libraries go on the
+same `shared_preload_libraries` line. It is a deploy-time choice.
+
 **Operating a repmgr cluster.** Every repmgr member gets a **repmgr** tab: the commands for looking
 at the cluster, checking it, and changing who is primary — built from that member's own facts, so
 each one pastes into its root console as it stands. `repmgr` is not on the postgres user's PATH on

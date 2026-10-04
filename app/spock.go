@@ -70,8 +70,10 @@ type spockConfig struct {
 	GenerateCert bool     `json:"generateCert"`
 	UseProxy     bool     `json:"useProxy"`
 	MonitoredBy  string   `json:"monitoredBy"`
-	Ports        []int    `json:"ports"`
-	ExportPort   int      `json:"exportPort"`
+	// QuerySource is "pgstatements" when pg_stat_statements is enabled, empty otherwise.
+	QuerySource string `json:"querySource,omitempty"`
+	Ports       []int  `json:"ports"`
+	ExportPort  int    `json:"exportPort"`
 }
 
 // spockNodeName derives a valid Spock node identifier from a member host.
@@ -142,7 +144,8 @@ func (a *App) provisionSpockFrame(st Stack, frame designFrame, doc designDoc) {
 			PGMajor: major, PGVersion: frame.PGVersion,
 			NodeName: spockNodeName(host), Database: db, Members: memberFQDNs, SpockRef: spockRef(),
 			GenerateCert: frame.GenerateCert, UseProxy: frame.UseProxy, MonitoredBy: monitoredBy,
-			Ports: []int{patroniPGPort},
+			QuerySource: pgQuerySourceFor(frame.Type, frame.PGQuerySource, frame.PMMNodeID),
+			Ports:       []int{patroniPGPort},
 		}
 		cfgJSON, _ := json.Marshal(cfg)
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
@@ -365,8 +368,10 @@ func (a *App) spockPrepareNode(ctx context.Context, st Stack, frame designFrame,
 			return pr.fail("%v", err)
 		}
 	}
+	qs := pgQuerySourceFor(frame.Type, frame.PGQuerySource, frame.PMMNodeID)
 	confEnv := []string{"CONFDIR=" + dataDir, "DATADIR=" + dataDir,
-		"HBALINES=" + strings.Join(pgHostAuthLines(frame.PGHostAuth), "\n")}
+		"HBALINES=" + strings.Join(pgHostAuthLines(frame.PGHostAuth), "\n"),
+		"PRELOAD=" + pgPreloadValue([]string{"spock"}, qs), "QSCONF=" + strings.Join(pgQueryConfLines(qs), "\n")}
 	if frame.GenerateCert {
 		confEnv = append(confEnv, "TLS=1")
 	}
@@ -379,6 +384,11 @@ func (a *App) spockPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	}
 	if err := a.runStep(ctx, id, pgSetPasswordScript, []string{"SUPERPW=" + sec.SuperPassword}, pr.logln); err != nil {
 		return pr.fail("set superuser password: %v", err)
+	}
+	// Every member is its own primary, and the postgres database is outside the Spock
+	// mesh (which replicates the demo database), so each creates it locally.
+	if err := a.enablePGQueryExtension(ctx, id, qs, prefix+"/bin/psql", pr.logln); err != nil {
+		return pr.fail("%v", err)
 	}
 	pr.logln("PostgreSQL running with wal_level=logical + spock preloaded")
 	return nil
@@ -495,11 +505,13 @@ grep -q "dbcanvas spock" "$CONF" 2>/dev/null || {
   echo "port = 5432"
   echo "password_encryption = scram-sha-256"
   echo "wal_level = logical"
-  echo "shared_preload_libraries = 'spock'"
+  echo "shared_preload_libraries = '${PRELOAD:-spock}'"
   echo "track_commit_timestamp = on"
   echo "max_worker_processes = 16"
   echo "max_replication_slots = 16"
   echo "max_wal_senders = 16"
+  # pg_stat_statements settings, when it is enabled (its library is in PRELOAD above).
+  [ -z "$QSCONF" ] || printf '%s\n' "$QSCONF"
 } >> "$CONF"
 }
 if [ -n "$TLS" ] && ! grep -q "^ssl = on" "$CONF"; then

@@ -217,8 +217,11 @@ type pgConfig struct {
 	// when the node is not encrypted. See pgtde.go.
 	Vault       vaultInfo `json:"vault"`
 	MonitoredBy string    `json:"monitoredBy"` // PMM node FQDN, if any
-	Ports       []int     `json:"ports"`
-	ExportPort  int       `json:"exportPort"` // published host port for 5432 (0 = none)
+	// QuerySource is the query analytics extension enabled for PMM ("pgstatements",
+	// "pgstatmonitor"; empty when neither). See pgquerysource.go.
+	QuerySource string `json:"querySource,omitempty"`
+	Ports       []int  `json:"ports"`
+	ExportPort  int    `json:"exportPort"` // published host port for 5432 (0 = none)
 }
 
 // pgServiceName / pgConfDir are OS-aware: on EL the packaged unit is
@@ -270,6 +273,7 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 		backupRepo = "pgbackrest → SeaweedFS S3"
 		backupStanza = patroniStanza(n.Label)
 	}
+	qs := pgQuerySourceFor("pg", n.PGQuerySource, n.PMMNodeID)
 
 	cfg := pgConfig{
 		Image: image, OS: n.OS, Hostname: host, FQDN: fqdn,
@@ -277,7 +281,7 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 		UsePgBackRest: n.UsePgBackRest, BackupRepo: backupRepo, BackupStanza: backupStanza,
 		Service: pgServiceName(n.OS, major), DataDir: pgDataDir(n.OS, major),
 		GenerateCert: n.GenerateCert, UseProxy: n.UseProxy, MonitoredBy: monitoredBy,
-		Ports: []int{patroniPGPort},
+		QuerySource: qs, Ports: []int{patroniPGPort},
 	}
 	cfgJSON, _ := json.Marshal(cfg)
 	secJSON, _ := json.Marshal(sec)
@@ -410,6 +414,14 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 				pr.logln("pmm-client installed")
 			}
 		}
+		// pg_stat_monitor is its own package; fatal when missing, because it is about to
+		// be preloaded and PostgreSQL will not start with a library it cannot find.
+		if qs == pgQSMonitor {
+			if err := a.installPGStatMonitor(ctx, id, n.OS, major, pr.logln); err != nil {
+				pr.fail("%v", err)
+				return
+			}
+		}
 
 		dataDir := pgDataDir(n.OS, major)
 		confDir := pgConfDir(n.OS, major)
@@ -453,7 +465,8 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 		// ---- configure postgresql.conf + pg_hba.conf ----
 		pr.phase("Configuring PostgreSQL", 62)
 		confEnv := []string{"CONFDIR=" + confDir, "DATADIR=" + dataDir, "STANZA=" + stanza,
-			"HBALINES=" + strings.Join(pgHostAuthLines(n.PGHostAuth), "\n")}
+			"HBALINES=" + strings.Join(pgHostAuthLines(n.PGHostAuth), "\n"),
+			"PRELOAD=" + pgPreloadValue(nil, qs), "QSCONF=" + strings.Join(pgQueryConfLines(qs), "\n")}
 		if n.UsePgBackRest {
 			confEnv = append(confEnv, "PGBACKREST=1")
 		}
@@ -478,6 +491,15 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 		if err := a.runStep(ctx, id, pgSetPasswordScript, []string{"SUPERPW=" + sec.SuperPassword}, pr.logln); err != nil {
 			pr.fail("set superuser password: %v", err)
 			return
+		}
+
+		// ---- query analytics extension for PMM (pg_stat_statements / pg_stat_monitor) ----
+		if qs != pgQSNone {
+			pr.phase("Enabling "+pgQueryExtension(qs), 80)
+			if err := a.enablePGQueryExtension(ctx, id, qs, "", pr.logln); err != nil {
+				pr.fail("%v", err)
+				return
+			}
 		}
 
 		// ---- data-at-rest encryption (pg_tde → OpenBao) ----
@@ -593,6 +615,7 @@ func (a *App) pgRegisterPMM(ctx context.Context, st Stack, n designNode, doc des
 		// PMM_PW is that role's password.
 		"PMM_PW=" + envOr("PMM_PASSWORD", "pmm_password"),
 		"NODE=" + n.Label,
+		"QSFLAGS=" + pgQueryPMMFlags(pgQuerySourceFor("pg", n.PGQuerySource, n.PMMNodeID)),
 	}
 	if _, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"bash", "-c", script}, env); err != nil {
 		pr.logln("PMM registration skipped: " + err.Error())
@@ -696,6 +719,13 @@ if [ -n "$TLS" ]; then
     echo "ssl_key_file = '$DATADIR/server.key'"
     echo "ssl_ca_file = '$DATADIR/ca.crt'"
   } >> "$CONF"
+fi
+# Query analytics for PMM. The preload is marked so pg_tde, which preloads too,
+# can replace this line with one carrying both rather than overriding it.
+if [ -n "$PRELOAD" ]; then
+  sed -i "/# dbcanvas-preload/d" "$CONF"
+  echo "shared_preload_libraries = '$PRELOAD' # dbcanvas-preload" >> "$CONF"
+  printf '%s\n' "$QSCONF" >> "$CONF"
 fi
 grep -q "dbcanvas-remote" "$HBA" 2>/dev/null || {
   {

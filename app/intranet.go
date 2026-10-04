@@ -177,6 +177,11 @@ type designNode struct {
 	// is not cosmetic — see pgHostAuthLines in app/pg.go. Same field on designFrame
 	// for the three PostgreSQL cluster types.
 	PGHostAuth string `json:"pgHostAuth"`
+	// PGQuerySource is the statement-statistics extension PMM Query Analytics reads:
+	// "" (none), "pgstatements" or "pgstatmonitor" — the values `pmm-admin add
+	// postgresql --query-source` takes. A PMM option here, so it applies only while
+	// PMMNodeID is set. Same field on designFrame. See app/pgquerysource.go.
+	PGQuerySource string `json:"pgQuerySource"`
 	// Which of that node's buckets to use ("" → its first, i.e. the default bucket).
 	SeaweedFSBucket string `json:"seaweedfsBucket"`
 	// PgBouncer node fields (Type=="pgbouncer"; ignored by other types). A connection
@@ -555,7 +560,12 @@ type designFrame struct {
 	PGVersion string `json:"pgVersion"` // minor (e.g. 16.4); "" → latest
 	// PGHostAuth is the cluster's client authentication method list, cluster-wide.
 	// See the identical field on designNode (the standalone case).
-	PGHostAuth      string `json:"pgHostAuth"`
+	PGHostAuth string `json:"pgHostAuth"`
+	// PGQuerySource is the query analytics extension, cluster-wide. On a Patroni
+	// frame it is a PMM option ("pgstatements" or "pgstatmonitor", only with
+	// PMMNodeID); on repmgr and Spock it is "pgstatements" on its own, since neither
+	// runs Percona's packages. See the identical field on designNode.
+	PGQuerySource   string `json:"pgQuerySource"`
 	UsePgBackRest   bool   `json:"usePgBackRest"`   // configure pgBackRest → SeaweedFS S3 (clone + backup)
 	SeaweedFSNodeID string `json:"seaweedfsNodeId"` // SeaweedFS node id backing pgBackRest/Barman (when enabled)
 	// Which of that node's buckets to use ("" → its first, i.e. the default bucket).
@@ -1342,6 +1352,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 				out = append(out, seaweedBucketIssues("PostgreSQL node "+n.Label, n.SeaweedFSNodeID, n.SeaweedFSBucket, doc)...)
 			}
 			out = append(out, pgHostAuthIssues("PostgreSQL node "+n.Label, n.PGHostAuth, n.GenerateCert)...)
+			out = append(out, pgQuerySourceIssues("PostgreSQL node "+n.Label, "pg", n.PGQuerySource)...)
 			out = append(out, dirAuthIssues(n, dirNodes)...)
 			out = append(out, oidcIssues(n, keycloakIDs, keycloakSSL)...)
 			out = append(out, vaultIssues(n, openbaoIDs)...)
@@ -2007,6 +2018,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			out = append(out, seaweedBucketIssues("Patroni cluster "+f.Label, f.SeaweedFSNodeID, f.SeaweedFSBucket, doc)...)
 		}
 		out = append(out, pgHostAuthIssues("Patroni cluster "+f.Label, f.PGHostAuth, f.GenerateCert)...)
+		out = append(out, pgQuerySourceIssues("Patroni cluster "+f.Label, "patroni", f.PGQuerySource)...)
 		img := pxcImage(f.OS, f.OSVersion, f.Arch)
 		if !seenImg[img] {
 			seenImg[img] = true
@@ -2056,6 +2068,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 				" has both Barman and pgBackRest enabled — PostgreSQL has one archive_command, so pick one"})
 		}
 		out = append(out, pgHostAuthIssues("repmgr cluster "+f.Label, f.PGHostAuth, f.GenerateCert)...)
+		out = append(out, pgQuerySourceIssues("repmgr cluster "+f.Label, "repmgr", f.PGQuerySource)...)
 		switch repmgrBackupEngine(f) {
 		case "barman":
 			out = append(out, barmanSeaweedIssues("repmgr cluster "+f.Label, f.SeaweedFSNodeID, doc)...)
@@ -2107,6 +2120,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			out = append(out, issue{Level: "error", Message: "Spock cluster " + f.Label + " allows at most 7 nodes"})
 		}
 		out = append(out, pgHostAuthIssues("Spock cluster "+f.Label, f.PGHostAuth, f.GenerateCert)...)
+		out = append(out, pgQuerySourceIssues("Spock cluster "+f.Label, "spock", f.PGQuerySource)...)
 		img := pxcImage(f.OS, f.OSVersion, f.Arch)
 		if !seenImg[img] {
 			seenImg[img] = true

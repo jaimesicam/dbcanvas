@@ -125,6 +125,7 @@ func (a *App) applyPGVault(ctx context.Context, st Stack, n designNode, containe
 		"TDEDIR=" + pgTDEDir, "TOKENFILE=" + pgTDETokenFile, "TDETOKEN=" + token,
 		"PROVIDER=" + pgTDEProvider, "KEYNAME=" + pgTDEKeyName(host),
 		"VAULTURL=" + cfg.Addr, "VAULTMOUNT=" + mount, "CAFILE=" + caFile,
+		"PRELOAD=" + pgPreloadValue([]string{"pg_tde"}, pgQuerySourceFor("pg", n.PGQuerySource, n.PMMNodeID)),
 	}, pr.logln); err != nil {
 		return vaultInfo{}, err
 	}
@@ -205,8 +206,10 @@ chmod 0600 "$TOKENFILE"
 
 # 2) pg_tde needs shared memory, so it loads at startup. The marker keeps a redeploy from
 #    stacking a second copy of the line.
-sed -i "/# dbcanvas-tde/d" "$CONF"
-echo "shared_preload_libraries = 'pg_tde' # dbcanvas-tde" >> "$CONF"
+#    PRELOAD is pg_tde plus whatever else this node preloads (pg_stat_statements for PMM),
+#    so the dbcanvas-preload line it replaces is not lost to "last one wins".
+sed -i "/# dbcanvas-tde/d; /# dbcanvas-preload/d" "$CONF"
+echo "shared_preload_libraries = '${PRELOAD:-pg_tde}' # dbcanvas-tde" >> "$CONF"
 systemctl restart "$SERVICE"
 for i in $(seq 1 30); do runuser -u postgres -- psql -tAc 'select 1' >/dev/null 2>&1 && break; sleep 1; done
 runuser -u postgres -- psql -tAc 'select 1' >/dev/null 2>&1 || {

@@ -5945,6 +5945,7 @@ function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }
           {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
         </select>
       </Field>
+      <PGQuerySourceField obj={n} patch={patchNode} deployed={deployed} />
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
@@ -10981,6 +10982,43 @@ export function PGHostAuthFields({ obj, patch, deployed, tls }) {
   )
 }
 
+// PGQuerySourceField picks the statement-statistics extension PMM Query Analytics
+// reads, for a standalone PostgreSQL node or a Patroni frame — a PMM option, so it
+// only appears once a PMM node is selected (the server ignores it without one).
+// Mirrors pgQuerySourceFor in app/pgquerysource.go.
+export function PGQuerySourceField({ obj, patch, deployed }) {
+  if (!obj.pmmNodeId) return null
+  const lock = deployed ? 'opacity-70' : ''
+  return (
+    <Field label="Query Analytics extension" help={HELP.pgQuerySource}
+      hint={obj.pgQuerySource === 'pgstatmonitor'
+        ? 'Installs Percona\'s pg_stat_monitor package, preloads it after pg_stat_statements, and registers with --query-source=pgstatmonitor.'
+        : obj.pgQuerySource === 'pgstatements'
+          ? 'Preloads pg_stat_statements and registers with --query-source=pgstatements.'
+          : 'Without one, PMM shows metrics but Query Analytics stays empty.'}>
+      <select className={`${inputCls} ${lock}`} value={obj.pgQuerySource || ''} disabled={deployed}
+        onChange={(e) => patch(obj.id, { pgQuerySource: e.target.value })}>
+        <option value="">none</option>
+        <option value="pgstatements">pg_stat_statements</option>
+        <option value="pgstatmonitor">pg_stat_monitor</option>
+      </select>
+    </Field>
+  )
+}
+
+// PGStatStatementsOption turns pg_stat_statements on for a repmgr or Spock frame —
+// neither runs Percona's packages, so pg_stat_monitor is not on offer, and it is
+// useful without PMM, so it is not tied to the PMM picker.
+export function PGStatStatementsOption({ obj, patch, deployed }) {
+  return (
+    <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+      <input type="checkbox" checked={obj.pgQuerySource === 'pgstatements'} disabled={deployed}
+        onChange={(e) => patch(obj.id, { pgQuerySource: e.target.checked ? 'pgstatements' : '' })} />
+      <span>Enable pg_stat_statements{obj.pmmNodeId ? ' (PMM Query Analytics)' : ''}</span><Help text={HELP.pgStatStatements} />
+    </label>
+  )
+}
+
 function PatroniFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, deployed }) {
   const imgs = usePPGCatalog(f, deployed, patchFrame)
   const lock = deployed ? 'opacity-70' : ''
@@ -11052,6 +11090,7 @@ function PatroniFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame
           {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
         </select>
       </Field>
+      <PGQuerySourceField obj={f} patch={patchFrame} deployed={deployed} />
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
@@ -11211,6 +11250,7 @@ function RepmgrFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame,
           {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
         </select>
       </Field>
+      <PGStatStatementsOption obj={f} patch={patchFrame} deployed={deployed} />
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
@@ -11337,6 +11377,7 @@ function SpockFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, 
           {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
         </select>
       </Field>
+      <PGStatStatementsOption obj={f} patch={patchFrame} deployed={deployed} />
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />

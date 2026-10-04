@@ -129,12 +129,12 @@ func TestOpenBaoMountsCoverPostgreSQL(t *testing.T) {
 // step whose absence would produce a node that looks encrypted and is not.
 func TestPGTDEConfigureScriptDoesTheWholeSequence(t *testing.T) {
 	for _, want := range []string{
-		"shared_preload_libraries = 'pg_tde'",         // pg_tde needs shared memory
-		"CREATE EXTENSION IF NOT EXISTS pg_tde;",      // per database
-		"template1",                                   // …so new databases inherit it
-		"pg_tde_add_global_key_provider_vault_v2",     // register OpenBao
-		"pg_tde_change_global_key_provider_vault_v2",  // …or update it on a redeploy
-		"pg_tde_create_key_using_global_key_provider", // the principal key
+		"shared_preload_libraries = '${PRELOAD:-pg_tde}'", // pg_tde needs shared memory
+		"CREATE EXTENSION IF NOT EXISTS pg_tde;",          // per database
+		"template1",                                       // …so new databases inherit it
+		"pg_tde_add_global_key_provider_vault_v2",         // register OpenBao
+		"pg_tde_change_global_key_provider_vault_v2",      // …or update it on a redeploy
+		"pg_tde_create_key_using_global_key_provider",     // the principal key
 		"pg_tde_set_default_key_using_global_key_provider",
 		"USING tde_heap", // prove it before claiming it
 		"pg_tde_is_encrypted",

@@ -419,6 +419,19 @@ export const HELP = {
     'Which Percona Orchestrator build to install. Leave it at the latest unless you are matching a deployment ' +
     'already in the field.',
 
+  // --- PostgreSQL query analytics ------------------------------------------
+  pgQuerySource:
+    'PMM Query Analytics reads statement statistics from an extension, and PostgreSQL ships with neither turned ' +
+    'on — without one PMM shows the server\'s metrics and an empty QAN. pg_stat_statements is the contrib module ' +
+    'every build has; pg_stat_monitor is Percona\'s, with time buckets, client addresses and error tracking, and ' +
+    'is installed from its own package. Either is preloaded, set up as the PMM documentation configures it, created ' +
+    'in the postgres database, and named to pmm-admin with --query-source.',
+  pgStatStatements:
+    'Preload pg_stat_statements and create it in the postgres database on every member, with the settings PMM ' +
+    'expects (track = all, track_io_timing, 2 kB query text). Useful on its own for the pg_stat_statements view, ' +
+    'and what PMM Query Analytics reads when the cluster is monitored. pg_stat_monitor is not offered here: it is ' +
+    'a Percona package, and this cluster does not run Percona Distribution for PostgreSQL.',
+
   // --- PostgreSQL client authentication (pg_hba) ---------------------------
   pgHostAuthPw:
     'The pg_hba rule for clients that do not present a certificate. scram-sha-256 is what every client DBCanvas ' +

@@ -76,8 +76,11 @@ type repmgrConfig struct {
 	GenerateCert bool   `json:"generateCert"`
 	UseProxy     bool   `json:"useProxy"`
 	MonitoredBy  string `json:"monitoredBy"`
-	Ports        []int  `json:"ports"`
-	ExportPort   int    `json:"exportPort"`
+	// QuerySource is "pgstatements" when pg_stat_statements is enabled cluster-wide,
+	// empty otherwise. See pgquerysource.go.
+	QuerySource string `json:"querySource,omitempty"`
+	Ports       []int  `json:"ports"`
+	ExportPort  int    `json:"exportPort"`
 	// What the repmgr tab builds its commands out of. Every one of these is knowable from the
 	// OS and major, and every one of them is something a person otherwise has to look up before
 	// they can type a single repmgr command: the config file is per-major and not where the
@@ -280,10 +283,11 @@ func (a *App) provisionRepmgrFrame(st Stack, frame designFrame, doc designDoc) {
 			BackupEngine: backupEngine, BackupStanza: repmgrStanza(frame.Label),
 			Service: pgServiceName(frame.OS, major), DataDir: pgDataDir(frame.OS, major),
 			GenerateCert: frame.GenerateCert, UseProxy: frame.UseProxy, MonitoredBy: monitoredBy,
-			Ports:      []int{patroniPGPort},
-			RepmgrConf: pgRepmgrConfPath(major),
-			RepmgrBin:  pgBinDir(frame.OS, major) + "/repmgr",
-			Peers:      repmgrPeersOf(members, hosts, domain, i),
+			QuerySource: pgQuerySourceFor(frame.Type, frame.PGQuerySource, frame.PMMNodeID),
+			Ports:       []int{patroniPGPort},
+			RepmgrConf:  pgRepmgrConfPath(major),
+			RepmgrBin:   pgBinDir(frame.OS, major) + "/repmgr",
+			Peers:       repmgrPeersOf(members, hosts, domain, i),
 		}
 		cfgJSON, _ := json.Marshal(cfg)
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
@@ -680,6 +684,11 @@ func (a *App) repmgrSetupPrimary(ctx context.Context, st Stack, frame designFram
 		confEnv = append(confEnv, "TLS=1")
 	}
 	confEnv = append(confEnv, "HBALINES="+strings.Join(pgHostAuthLines(frame.PGHostAuth), "\n"))
+	// repmgr's own library and, when chosen, pg_stat_statements: one preload line with both.
+	// Standbys clone this postgresql.conf, so they preload it too.
+	qs := pgQuerySourceFor(frame.Type, frame.PGQuerySource, frame.PMMNodeID)
+	confEnv = append(confEnv, "PRELOAD="+pgPreloadValue([]string{"repmgr"}, qs),
+		"QSCONF="+strings.Join(pgQueryConfLines(qs), "\n"))
 	if err := a.runStep(ctx, id, repmgrConfigurePrimaryScript, confEnv, pr.logln); err != nil {
 		return pr.fail("configure primary: %v", err)
 	}
@@ -692,6 +701,10 @@ func (a *App) repmgrSetupPrimary(ctx context.Context, st Stack, frame designFram
 	}
 	if err := a.runStep(ctx, id, repmgrCreateRoleScript, []string{"REPLUSER=" + sec.ReplUser, "REPLPW=" + sec.ReplPassword}, pr.logln); err != nil {
 		return pr.fail("create repmgr role/db: %v", err)
+	}
+	// Before the standbys clone, so they arrive with the extension already in place.
+	if err := a.enablePGQueryExtension(ctx, id, qs, "", pr.logln); err != nil {
+		return pr.fail("%v", err)
 	}
 	if err := a.runStep(ctx, id, repmgrPrimaryRegisterScript, []string{"BINDIR=" + pgBinDir(frame.OS, major), "CONF=" + pgRepmgrConfPath(major)}, pr.logln); err != nil {
 		return pr.fail("repmgr primary register: %v", err)
@@ -1079,8 +1092,10 @@ HBA="$CONFDIR/pg_hba.conf"
   echo "max_replication_slots = 10"
   echo "wal_keep_size = 512MB"
   echo "hot_standby = on"
-  echo "shared_preload_libraries = 'repmgr'"
+  echo "shared_preload_libraries = '${PRELOAD:-repmgr}'"
 } >> "$CONF"
+# pg_stat_statements settings, when it is enabled (its library is in PRELOAD above).
+[ -z "$QSCONF" ] || printf '%s\n' "$QSCONF" >> "$CONF"
 if [ -n "$ARCHIVE_CMD" ]; then
   echo "archive_mode = on" >> "$CONF"
   echo "archive_command = '$ARCHIVE_CMD'" >> "$CONF"
