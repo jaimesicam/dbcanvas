@@ -532,6 +532,24 @@ kubeconfig — the clusters deploy at the same time as the client — so take on
 node's **Kubeconfig** tab, or a role-scoped one from its **Users** tab, which is the more interesting
 thing to test with.
 
+**Database clients, at design time.** A **Linux Client** can also be deployed with Percona's
+database client tools already installed, each from Percona's own repositories through
+`percona-release`:
+
+| Tool | Package | Series |
+|---|---|---|
+| Percona Server MySQL client (`mysql`) | `percona-server-client` | 8.0, 8.4 or 9.7 |
+| MySQL Shell (`mysqlsh`) | `percona-mysql-shell` | the same series as the client |
+| `mongosh` | `percona-mongodb-mongosh` | from `psmdb-80` |
+| Percona Distribution for PostgreSQL `psql` | `percona-postgresql-client-NN` / `percona-postgresqlNN` | 13 to 18, put on PATH |
+| Percona ClusterSync for MongoDB (`pcsm`) | `percona-clustersync-mongodb` | installed, not started |
+
+The series pickers offer only what Percona publishes for the node's release: Debian 13 has no 8.0
+MySQL client (8.4 or 9.7), and CentOS 7 gets Percona's last el7 builds — MySQL 8.0.37, mongosh 2.1.5,
+psql 13 — and no ClusterSync. A design that asks for anything else is refused at **Validate**. The
+versions the panel shows are read off the binaries after the install; a tool that did not install
+does not stop the deploy, and the log says why.
+
 **Sample Client Code.** A deployed **Linux Client** has a **Sample Client Code** action — in its panel and in
 its right-click menu — that generates a runnable client program for any database in the stack and
 runs it there. Pick an endpoint (a node, a cluster, HAProxy's write or read port, a MySQL Router
@@ -836,7 +854,8 @@ the pickers — a stack that already has one keeps working.
   Intranet proxy, when ticked) in `yum.conf`, and installs `percona-release`. The node has **no
   systemd** — CentOS 7's systemd 219 cannot run as PID 1 on a cgroup v2 Docker host, which is every
   current one — so it is a shell and nothing else: the terminal, Sample Client Code and file drops
-  work, services do not. kubectl and Helm install; core-dump analysis is not offered on it. Docker
+  work, services do not. kubectl and Helm install, and so do the database clients (at their el7
+releases, without ClusterSync); core-dump analysis is not offered on it. Docker
   backend only. For what Sample Client Code can run there, see [Sample Client Code](SAMPLE_CODE.md#centos-7).
 - **PMM2.** A PMM 2 server under **Monitoring**, separate from PMM3 — pick the release
   (2.25.0 to 2.44.1, the last one; a fixed list, since there will be no new ones for

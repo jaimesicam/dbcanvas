@@ -87,6 +87,15 @@ type designNode struct {
 	// linuxClientInstallK8sTools.
 	LCKubectl bool `json:"lcKubectl"`
 	LCHelm    bool `json:"lcHelm"`
+	// Percona database clients on a Linux Client (Type=="linuxclient"; ignored elsewhere). The
+	// MySQL series covers both the client and MySQL Shell. See linuxclient_db.go.
+	LCMySQLClient bool   `json:"lcMysqlClient"`
+	LCMySQLShell  bool   `json:"lcMysqlShell"`
+	LCMySQLMajor  string `json:"lcMysqlMajor"` // "8.0" | "8.4" | "9.7"; "" → 8.4
+	LCMongosh     bool   `json:"lcMongosh"`
+	LCPsql        bool   `json:"lcPsql"`
+	LCPsqlMajor   string `json:"lcPsqlMajor"` // "13".."18"; "" → 17
+	LCClusterSync bool   `json:"lcClusterSync"`
 	// Standalone Percona Server node fields (Type=="ps"; ignored by other types).
 	PSMajor      string `json:"psMajor"`      // Percona Server "8.0" | "8.4"
 	PSVersion    string `json:"psVersion"`    // minor; "" → latest
@@ -1163,6 +1172,9 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			if n.GDBEnabled {
 				out = append(out, issue{Level: "error", Message: "Linux Client " + n.Label + " is set to CentOS 7, which is not offered for core-dump analysis — pick the Oracle Linux release closest to the crashed server"})
 			}
+		}
+		if n.Type == "linuxclient" {
+			out = append(out, lcDBClientIssues(n)...)
 		}
 		if n.Type == "linuxclient" && n.GDBEnabled && !isEL7OS(n.OS) {
 			out = append(out, a.gdbNodeIssues(n, st)...)

@@ -540,7 +540,8 @@ export const NODE_TYPES = {
     ports: false,
     plainSequentialLabel: true,
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }, { id: 'ubuntu', label: 'Ubuntu' }, { id: 'debian', label: 'Debian' }],
-    defaults: { os: 'oraclelinux', osVersion: '9', useProxy: false, lcKubectl: false, lcHelm: false },
+    defaults: { os: 'oraclelinux', osVersion: '9', useProxy: false, lcKubectl: false, lcHelm: false,
+      lcMysqlClient: false, lcMysqlShell: false, lcMongosh: false, lcPsql: false, lcClusterSync: false },
   },
   // Traffic Sim — the "Valkey Traffic Lab" live demo app (background agents +
   // a web map). Runs dbcanvas's own first-party image, not an OS/DB image, so it
@@ -6748,6 +6749,8 @@ function LinuxClientForm({ node: n, nodes = [], patchNode, deleteNode, dep, depl
       <RepositoryPicker value={n.repositoryNodeId} nodes={nodes} deployed={deployed}
         onChange={(id) => patchNode(n.id, { repositoryNodeId: id })} />
 
+      <DBClientFields node={n} patchNode={patchNode} deployed={deployed} />
+
       <K8sToolFields node={n} patchNode={patchNode} deployed={deployed} frames={frames} />
 
       {/* Core-dump analysis matches debug symbols to the crashed server's own OS; it is not
@@ -6757,6 +6760,76 @@ function LinuxClientForm({ node: n, nodes = [], patchNode, deleteNode, dep, depl
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
         <Icon.Trash size={16} /> Delete node
       </Button>
+    </div>
+  )
+}
+
+// lcMysqlSeries / lcPsqlSeries / lcClusterSyncOn mirror app/linuxclient_db.go: what Percona
+// publishes for each Linux Client release, probed rather than assumed. Debian 13 has no 8.0
+// client; CentOS 7 stops at MySQL 8.0 and psql 13, and has no ClusterSync.
+export function lcMysqlSeries(os, osVersion) {
+  if (os === 'centos') return ['8.0']
+  if (os === 'debian' && osVersion === '13') return ['8.4', '9.7']
+  return ['8.0', '8.4', '9.7']
+}
+export function lcPsqlSeries(os) {
+  return os === 'centos' ? ['13'] : ['13', '14', '15', '16', '17', '18']
+}
+export const lcClusterSyncOn = (os) => os !== 'centos'
+// The series a node installs when it picked none — mirrors lcMySQLMajor / lcPsqlMajor.
+const lcDefault = (list, want) => (list.includes(want) ? want : list[list.length - 1])
+
+// DBClientFields — Percona's database clients on a Linux Client, chosen at design time.
+//
+// All five come from Percona's own repositories through percona-release. The series pickers offer
+// only what the node's release carries; a design saved before the OS changed is refused at
+// Validate rather than left to fail inside apt or dnf.
+export function DBClientFields({ node: n, patchNode, deployed }) {
+  const mySeries = lcMysqlSeries(n.os, n.osVersion)
+  const pgSeries = lcPsqlSeries(n.os)
+  const myMajor = n.lcMysqlMajor || lcDefault(mySeries, '8.4')
+  const pgMajor = n.lcPsqlMajor || lcDefault(pgSeries, '17')
+  const pcsm = lcClusterSyncOn(n.os)
+  const box = (key, label, note, extra) => (
+    <label className="flex items-start gap-2 text-sm">
+      <input type="checkbox" className="mt-1" disabled={deployed} checked={!!n[key]}
+        onChange={(e) => patchNode(n.id, { [key]: e.target.checked })} />
+      <span className="min-w-0 flex-1">
+        {label}
+        {note && <span className="block text-xs text-muted">{note}</span>}
+        {extra}
+      </span>
+    </label>
+  )
+  const series = (key, value, list, label) => {
+    const ok = list.includes(value)
+    return (
+      <select className={`${inputCls} mt-1 ${deployed ? 'opacity-70' : ''}`} disabled={deployed} value={ok ? value : ''}
+        onChange={(e) => patchNode(n.id, { [key]: e.target.value })} aria-label={label}>
+        {!ok && <option value="" disabled>{`${value} is not published for this release — pick one`}</option>}
+        {list.map((v) => <option key={v} value={v}>{`${label} ${v}`}</option>)}
+      </select>
+    )
+  }
+  return (
+    <div className="space-y-2 rounded-lg bg-surface2 p-2">
+      <span className="text-xs font-medium text-muted">Database client tools</span>
+      {box('lcMysqlClient', 'Percona Server MySQL client', <>The <span className="font-mono">mysql</span> command line client.</>)}
+      {box('lcMysqlShell', 'MySQL Shell', <><span className="font-mono">mysqlsh</span>, from the same series as the client.</>)}
+      {(n.lcMysqlClient || n.lcMysqlShell) && series('lcMysqlMajor', myMajor, mySeries, 'MySQL')}
+      {(n.lcMysqlClient || n.lcMysqlShell) && n.os === 'debian' && n.osVersion === '13' && (
+        <p className="text-[11px] text-muted">Percona publishes no 8.0 client for Debian 13.</p>
+      )}
+      {box('lcMongosh', 'mongosh', 'The MongoDB Shell, from Percona Server for MongoDB.')}
+      {box('lcPsql', 'psql', 'The Percona Distribution for PostgreSQL client, put on PATH.',
+        n.lcPsql && series('lcPsqlMajor', pgMajor, pgSeries, 'PostgreSQL'))}
+      {pcsm
+        ? box('lcClusterSync', 'Percona ClusterSync for MongoDB',
+          <><span className="font-mono">pcsm</span>, installed but not started — it needs a source and a target cluster.</>)
+        : <p className="text-[11px] text-muted">Percona ClusterSync for MongoDB is not published for CentOS 7.</p>}
+      {n.os === 'centos' && (n.lcMysqlClient || n.lcMysqlShell || n.lcPsql || n.lcMongosh) && (
+        <p className="text-[11px] text-muted">CentOS 7 gets Percona's last el7 builds: MySQL 8.0.37, mongosh 2.1.5 and psql 13.</p>
+      )}
     </div>
   )
 }
@@ -6928,6 +7001,7 @@ function LinuxClientManager({ dep, onDeleteNode, stackId }) {
   const ready = cfg.gdbStatus === 'ready'
   // Read back off the node at deploy, not from what was asked for — see linuxClientConfig.
   const tools = [cfg.kubectlVersion && `kubectl ${cfg.kubectlVersion}`, cfg.helmVersion && `helm ${cfg.helmVersion}`].filter(Boolean)
+  const dbClients = cfg.dbClients || []
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -6939,6 +7013,8 @@ function LinuxClientManager({ dep, onDeleteNode, stackId }) {
           ? "Set up for core-dump analysis. Its terminal is still a plain shell if you want gdb by hand."
           : tools.length
             ? "A jump box with the Kubernetes client tools on it. Open its terminal and point them at a cluster."
+            : dbClients.length
+              ? "A jump box with database client tools on it. Open its terminal and point them at this stack's databases."
             : "No product installed — but Sample Client Code will put a runnable client program on it, install whatever that program needs, and run it against any database in this stack."}
       </p>
       {!!tools.length && (
@@ -6961,6 +7037,11 @@ function LinuxClientManager({ dep, onDeleteNode, stackId }) {
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
         <InfoRow label="Image" help={HELP.depImage}><span className="font-mono text-xs">{cfg.image || ''}</span></InfoRow>
         <InfoRow label="Host" help={HELP.depHost}><span className="font-mono text-xs">{cfg.fqdn || cfg.hostname}</span></InfoRow>
+        {!!dbClients.length && (
+          <InfoRow label="Database clients" help={HELP.depDBClients}>
+            <span className="font-mono text-xs">{dbClients.map((c) => `${c.tool} ${c.version}`).join(' · ')}</span>
+          </InfoRow>
+        )}
         {!!tools.length && (
           <InfoRow label="Kubernetes tools" help={HELP.depK8sTools}>
             <span className="font-mono text-xs">{tools.join(' · ')}</span>

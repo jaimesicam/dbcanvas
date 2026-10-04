@@ -35,7 +35,7 @@ import {
   BigHoleForm, BigHoleManager, BigHoleLink,
   nodeCardTip, memberCardTip,
   k8sReplLinkable, ReplicationLinkForm, ReplicationLinkChoices,
-  associationBlocked, isReplEdge, k8sReplRoleOf, K3D_SOURCE_EXPOSE, K8sToolFields,
+  associationBlocked, isReplEdge, k8sReplRoleOf, K3D_SOURCE_EXPOSE, K8sToolFields, DBClientFields, lcMysqlSeries, lcPsqlSeries,
   frameHeaderW, layoutFrame, separateFrames, SIM_NODE_TYPES, frameVersionLabel, frameSubLabel,
   podMenuEntries, POD_SHELLS, POD_CLIENTS,
   Spinner, NodeStatus, nodeConfiguring, configPhaseOf, PITRFields,
@@ -5262,6 +5262,30 @@ check('linux client: the kubectl version follows the cluster on the canvas', () 
   const off = renderToString(<K8sToolFields node={{ id: 'lc2' }} patchNode={noop} deployed={false} frames={[]} />)
   if (off.includes('kubeconfig')) throw new Error('the kubeconfig note belongs to a node that installs something')
   if (!withCluster.includes('kubeconfig')) throw new Error('a node with the tools on must be told it has no kubeconfig')
+  return 'ok'
+})
+
+// ---- Percona database clients on a Linux Client ---------------------------------------
+// The series pickers offer only what Percona publishes for the node's release (mirrors
+// app/linuxclient_db.go), and say so when a saved choice no longer fits.
+check('linux client: the database client pickers follow the release', () => {
+  const all = { id: 'lc1', type: 'linuxclient', os: 'oraclelinux', osVersion: '9',
+    lcMysqlClient: true, lcMysqlShell: true, lcMongosh: true, lcPsql: true, lcClusterSync: true }
+  const ol = renderToString(<DBClientFields node={all} patchNode={noop} deployed={false} />)
+  for (const want of ['MySQL Shell', 'mongosh', 'psql', 'ClusterSync', 'MySQL 8.4', 'PostgreSQL 18']) {
+    if (!ol.includes(want)) throw new Error('the form must offer ' + want)
+  }
+  // Debian 13 has no 8.0 client: not offered, and a saved 8.0 is flagged rather than shown as chosen.
+  if (lcMysqlSeries('debian', '13').includes('8.0')) throw new Error('Debian 13 has no 8.0 client')
+  const trixie = renderToString(<DBClientFields node={{ ...all, os: 'debian', osVersion: '13', lcMysqlMajor: '8.0' }} patchNode={noop} deployed={false} />)
+  if (trixie.includes('>MySQL 8.0<') || !trixie.includes('not published for this release')) throw new Error('a saved 8.0 on Debian 13 must be flagged')
+  // CentOS 7: no ClusterSync checkbox, psql 13 only.
+  const el7 = renderToString(<DBClientFields node={{ ...all, os: 'centos', osVersion: '7' }} patchNode={noop} deployed={false} />)
+  if (!el7.includes('not published for CentOS 7')) throw new Error('CentOS 7 must say it has no ClusterSync')
+  if (lcPsqlSeries('centos').join() !== '13') throw new Error('CentOS 7 psql is 13 only')
+  // Nothing ticked: no series pickers.
+  const off = renderToString(<DBClientFields node={{ id: 'lc2', os: 'ubuntu', osVersion: '24.04' }} patchNode={noop} deployed={false} />)
+  if (off.includes('<select')) throw new Error('a series picker belongs to a ticked tool')
   return 'ok'
 })
 
