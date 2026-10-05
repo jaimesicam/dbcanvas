@@ -310,6 +310,9 @@ body { margin:0; background:var(--bg); color:var(--fg); font-family:var(--ui-tex
 /* While a window moves or resizes (wm/WindowManager.jsx), an iframe under the pointer
    would swallow the pointer events and strand the drag. */
 .wm-dragging iframe { pointer-events: none; }
+/* One cursor for the whole page while a window is moved (grabbing) or resized (the
+   edge's arrow) — see dragCursor in wm/WindowManager.jsx. */
+html[data-wm-drag], html[data-wm-drag] * { cursor: var(--wm-drag-cursor) !important; }
 /* A viewer watching the driver's mirrored screen has no use for their own taskbar
    (session/Mirror.jsx). */
 html[data-mirroring] [data-wm-taskbar] { display: none; }

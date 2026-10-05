@@ -88,6 +88,22 @@ function clampRect(r, a) {
 
 let cascadeN = 0
 
+// dragCursor holds one cursor over the whole page while a window is moved or resized.
+// The pointer crosses terminals, buttons and text on the way, each with a cursor of its
+// own, so setting it on <body> is not enough: index.css forces it on every element
+// while html[data-wm-drag] is set. null puts the page's own cursors back.
+const RESIZE_CURSOR = { n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize', ne: 'nesw-resize', sw: 'nesw-resize', nw: 'nwse-resize', se: 'nwse-resize' }
+function dragCursor(cursor) {
+  const el = document.documentElement
+  if (cursor) {
+    el.style.setProperty('--wm-drag-cursor', cursor)
+    el.dataset.wmDrag = ''
+  } else {
+    el.style.removeProperty('--wm-drag-cursor')
+    delete el.dataset.wmDrag
+  }
+}
+
 export function WindowManagerProvider({ children }) {
   // wins: id -> { id, title, icon, rect, min, max, snap, order }
   //   rect is where the window is when it is neither maximized nor snapped; snap is
@@ -270,6 +286,8 @@ export function Window({ id, title, icon, size, header, onClose, canClose = true
     register(id, { title, icon, ...size })
   }, [id, title]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => unregister(id), [id, unregister])
+  // A window closed mid-drag must not leave the page's cursor grabbing.
+  useEffect(() => () => { if (drag.current) dragCursor(null) }, [])
 
   const a = wm.area()
   const geo = !w ? null : w.max ? snapRect('max', a) : w.snap ? snapRect(w.snap, a) : w.rect
@@ -290,6 +308,9 @@ export function Window({ id, title, icon, size, header, onClose, canClose = true
           d.rect = base
           wm.patch(id, { max: false, snap: null })
         }
+        // Grabbing from the first real movement, not the press — a click on the
+        // title bar should not flicker the cursor.
+        if (!d.moved) dragCursor('grabbing')
         d.moved = true
         const zone = zoneAt(e.clientX, e.clientY, wm.area())
         d.zone = zone
@@ -311,6 +332,7 @@ export function Window({ id, title, icon, size, header, onClose, canClose = true
       drag.current = null
       wm.setDragging(false)
       wm.setPreview(null)
+      dragCursor(null)
       document.body.style.userSelect = ''
       if (d.kind === 'move' && d.moved && d.zone) {
         if (d.zone === 'max') wm.patch(id, { max: true, snap: null })
@@ -319,7 +341,10 @@ export function Window({ id, title, icon, size, header, onClose, canClose = true
     }
     addEventListener('pointermove', move)
     addEventListener('pointerup', up)
-    return () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up) }
+    // A drag the browser takes away (a touch turned into a scroll, the window losing the
+    // pointer) ends the same way, or the cursor would stay grabbing.
+    addEventListener('pointercancel', up)
+    return () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', up) }
   }, [id, wm])
 
   if (!w || !wm.layerEl) return null
@@ -332,6 +357,7 @@ export function Window({ id, title, icon, size, header, onClose, canClose = true
       wm.patch(id, { rect: geo, max: false, snap: null })
     }
     e.preventDefault()
+    if (kind === 'resize') dragCursor(RESIZE_CURSOR[edge])
     document.body.style.userSelect = 'none'
     wm.setDragging(true)
     drag.current = { kind, edge, sx: e.clientX, sy: e.clientY, rect: (kind === 'resize' && (w.max || w.snap)) ? geo : w.rect,
