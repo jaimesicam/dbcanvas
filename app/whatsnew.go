@@ -37,6 +37,43 @@ type releaseNote struct {
 // expanded, and the tests assume the ordering.
 var whatsNewNotes = []releaseNote{
 	{
+		Version: "0.0.14",
+		Date:    "2026-10-05",
+		Title:   "PostgreSQL Query Analytics for PMM: pg_stat_statements or pg_stat_monitor",
+		Body: "PMM's Query Analytics needs a statement-statistics extension, and PostgreSQL turns neither on. A " +
+			"standalone PostgreSQL node or a Patroni cluster monitored by PMM now picks pg_stat_statements or " +
+			"Percona's pg_stat_monitor, and repmgr and Spock clusters can enable pg_stat_statements. The " +
+			"extension is preloaded, configured as the PMM documentation sets it up, created in the postgres " +
+			"database and passed to pmm-admin as --query-source.",
+		Doc: "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.14",
+		Date:    "2026-10-05",
+		Title:   "Linux Client: Percona database clients at design time",
+		Body: "A Linux Client can be deployed with the Percona Server MySQL client, MySQL Shell, mongosh, " +
+			"Percona psql and Percona ClusterSync for MongoDB already installed. The pickers offer only what " +
+			"Percona publishes for the node's OS release, and the versions shown are read back off the binaries.",
+		Doc: "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.14",
+		Date:    "2026-10-05",
+		Title:   "Linux Client: every Kubernetes cluster in one kubeconfig",
+		Body: "A running Linux Client copies the admin kubeconfig of every Kubernetes cluster in the stack into " +
+			"/root/.kube/config, one context per cluster named after its frame, and switches the current context " +
+			"from its panel. Contexts you added yourself are kept when you copy again.",
+		Doc: "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.14",
+		Date:    "2026-10-05",
+		Title:   "Also: desktop fixes",
+		Body: "A terminal opened from a node no longer lands behind the Database Stacks window. The docked " +
+			"terminal comes in front when it opens, and the taskbar's Terminals button raises it when a window " +
+			"covers it. The minimized Deployment button sits in its window's corner instead of under the taskbar.",
+	},
+	{
 		Version: "0.0.13",
 		Date:    "2026-10-01",
 		Title:   "DBCanvas is a web desktop",

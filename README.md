@@ -164,9 +164,56 @@ yourself.
 
 ## What's new
 
-### 0.0.13
+### 0.0.14
 
 <details open>
+<summary><b>PostgreSQL Query Analytics for PMM: pg_stat_statements or pg_stat_monitor</b></summary>
+
+PMM's Query Analytics reads PostgreSQL's statement statistics from an extension, and PostgreSQL
+turns neither on — without one, PMM shows the server's metrics and an empty QAN. A standalone
+PostgreSQL node or a **Patroni** cluster monitored by PMM now picks **pg_stat_statements** or
+Percona's **pg_stat_monitor**; **repmgr** and **Spock** clusters have a pg_stat_statements tick of
+their own. The extension is preloaded, configured as the
+[PMM documentation](https://docs.percona.com/percona-monitoring-and-management/3/install-pmm/install-pmm-client/connect-database/postgresql.html#configure-monitoring-extension)
+sets it up, created in the `postgres` database and passed to `pmm-admin` as `--query-source`.
+
+[PostgreSQL clusters →](docs/STACKS.md)
+</details>
+
+<details>
+<summary><b>Linux Client: Percona database clients at design time</b></summary>
+
+A **Linux Client** can be deployed with the Percona Server MySQL client, MySQL Shell (8.0 / 8.4 /
+9.7), mongosh, Percona psql (13–18) and Percona ClusterSync for MongoDB already installed. The
+pickers offer only what Percona publishes for the node's OS release, Validate refuses anything
+else, and the versions in the panel are read back off the binaries.
+
+[Linux Client →](docs/STACKS.md)
+</details>
+
+<details>
+<summary><b>Linux Client: every Kubernetes cluster in one kubeconfig</b></summary>
+
+A running Linux Client's panel copies the admin kubeconfig of every Kubernetes cluster in the
+stack into `/root/.kube/config` — one context per cluster, named after its frame — and switches
+the **current context**. Contexts you added yourself, such as a role-scoped one from a cluster's
+**Users** tab, are kept when you copy again.
+
+[Linux Client →](docs/STACKS.md)
+</details>
+
+<details>
+<summary><b>Also: desktop fixes</b></summary>
+
+A terminal opened from a node no longer lands behind the Database Stacks window. The docked
+terminal comes in front when it opens, and the taskbar's **Terminals** button raises it when a
+window covers it. The minimized **Deployment** button sits in its window's corner instead of
+under the taskbar.
+</details>
+
+### 0.0.13
+
+<details>
 <summary><b>DBCanvas is a web desktop</b></summary>
 
 Every page now opens in a **window** on a desktop: move it, resize it from any edge, snap it to
