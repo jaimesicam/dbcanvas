@@ -528,9 +528,18 @@ than install it from the node's terminal is the version: kubectl is supported on
 either side of the API server, and a Kubernetes frame on the same canvas has its k3s release pinned,
 so DBCanvas installs the kubectl that matches *that cluster* (and says which one it matched). Helm
 takes the current release from its own installer, which needs no matching. Neither is given a
-kubeconfig — the clusters deploy at the same time as the client — so take one from the K3D server
-node's **Kubeconfig** tab, or a role-scoped one from its **Users** tab, which is the more interesting
-thing to test with.
+kubeconfig at deploy — the clusters deploy at the same time as the client.
+
+**Every cluster in one kubeconfig, after the deploy.** Once a Linux Client is running, its panel has
+a **Kubeconfig** section listing the stack's Kubernetes clusters. **Copy to /root/.kube/config** merges
+every running cluster's admin kubeconfig into the node's `/root/.kube/config` (directory 0700, file
+0600), one context per cluster, named after its frame. k3s calls its cluster, user and context
+`default`, so they are renamed rather than copied, or two clusters would overwrite each other. Each
+context points at its cluster's load balancer on the stack network. **Current context** switches between
+them, the same as `kubectl config use-context`. Copying again replaces those contexts and keeps any you
+added yourself, such as a role-scoped one from a frame's **Users** tab, which is the more interesting
+thing to test with. It also keeps whichever one was current. A `~/.kube/config` that cannot be read is
+kept as `config.bak.<time>` rather than overwritten. Copy again after adding or rebuilding a cluster.
 
 **Database clients, at design time.** A **Linux Client** can also be deployed with Percona's
 database client tools already installed, each from Percona's own repositories through

@@ -344,6 +344,13 @@ func buildAPIRoutes() []apiRoute {
 		// own machine; off unless SSH_FORWARDING_HOST is set (see sshforward.go).
 		{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/sshforward", Group: gNodes, Handler: m((*App).handleNodeSSHForward),
 			Summary: "The exact `ssh -L` line forwarding every port this node publishes to the caller's machine."},
+		// A Linux Client's kubeconfig: every K3D cluster in the stack, merged (linuxclient_kubeconfig.go).
+		{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/kubeconfig", Group: gNodes, Handler: m((*App).handleLinuxClientKubeconfig),
+			Summary: "A Linux Client's ~/.kube/config: its contexts and current one, and the stack's Kubernetes clusters."},
+		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/kubeconfig", Group: gNodes, Handler: m((*App).handleLinuxClientKubeconfigCopy),
+			Summary: "Merge every running K3D cluster's admin kubeconfig into a Linux Client's ~/.kube/config, one context per cluster."},
+		{Method: "PUT", Path: "/api/stacks/{id}/nodes/{nid}/kubeconfig/context", Group: gNodes, Handler: m((*App).handleLinuxClientKubeContext),
+			Summary: "Set the current context of a Linux Client's ~/.kube/config."},
 		// Drag files from the host onto a node's card in the designer (see nodeupload.go).
 		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/upload", Group: gNodes, Media: mediaMultipart, Handler: m((*App).handleNodeUpload),
 			Summary: "Copy files or a whole directory into a node, streamed rather than buffered."},

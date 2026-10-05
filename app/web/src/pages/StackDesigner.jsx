@@ -7030,12 +7030,11 @@ function LinuxClientManager({ dep, onDeleteNode, stackId }) {
           {cfg.kubectlVersion && <><span className="font-mono text-fg">kubectl</span> (and the <span className="font-mono">k</span> alias) </>}
           {cfg.kubectlVersion && cfg.helmVersion && 'and '}
           {cfg.helmVersion && <><span className="font-mono text-fg">helm</span> </>}
-          are on PATH. Neither has a kubeconfig yet: copy one from a Kubernetes frame's server node —
-          its <span className="font-medium text-fg">Kubeconfig</span> tab for admin, or{' '}
-          <span className="font-medium text-fg">Users</span> for a role-scoped one — into{' '}
-          <span className="font-mono">~/.kube/config</span> here.
+          are on PATH. Copy the stack's clusters into <span className="font-mono">~/.kube/config</span> below, or
+          a role-scoped one from a Kubernetes frame's <span className="font-medium text-fg">Users</span> tab.
         </div>
       )}
+      <LinuxClientKubeconfig stackId={stackId} nodeId={dep.nodeId} />
       <Button size="sm" className="w-full" onClick={() => {
         sendHandoff('dbcanvas.sampleCodeNode', `${stackId}/${dep.nodeId}`)
         location.hash = 'sample-code'
@@ -7089,6 +7088,85 @@ function LinuxClientManager({ dep, onDeleteNode, stackId }) {
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
         <Icon.Trash size={16} /> Delete node
       </Button>
+    </div>
+  )
+}
+
+// LinuxClientKubeconfig puts the stack's Kubernetes clusters in a Linux Client's
+// /root/.kube/config — every running K3D frame's admin kubeconfig, merged, one context per
+// cluster named after its frame — and picks the current context. Hidden when the stack has no
+// Kubernetes frame. See app/linuxclient_kubeconfig.go.
+function LinuxClientKubeconfig({ stackId, nodeId }) {
+  const [state, setState] = useState(null)
+  const [busy, setBusy] = useState('')
+  const [msg, setMsg] = useState('')
+  const [err, setErr] = useState('')
+  useEffect(() => {
+    let alive = true
+    stackApi.lcKubeconfig(stackId, nodeId).then((s) => { if (alive) setState(s) }).catch((e) => { if (alive) setErr(e.message) })
+    return () => { alive = false }
+  }, [stackId, nodeId])
+  if (!state && !err) return null
+  if (state && !state.clusters.length) return null
+
+  const running = (state?.clusters || []).filter((c) => c.running)
+  const copy = async () => {
+    setBusy('copy'); setErr(''); setMsg('')
+    try {
+      const r = await stackApi.lcKubeconfigCopy(stackId, nodeId)
+      setState(r.state)
+      setMsg([
+        `${r.copied} cluster${r.copied === 1 ? '' : 's'} in /root/.kube/config.`,
+        r.skipped?.length ? `Skipped: ${r.skipped.join('; ')}.` : '',
+        r.backup ? `The file that was there could not be read and is kept as ${r.backup}.` : '',
+      ].filter(Boolean).join(' '))
+    } catch (e) { setErr(e.message) } finally { setBusy('') }
+  }
+  const use = async (context) => {
+    setBusy('ctx'); setErr(''); setMsg('')
+    try { setState(await stackApi.lcKubeContext(stackId, nodeId, context)) } catch (e) { setErr(e.message) } finally { setBusy('') }
+  }
+  // What a copy would add that the file does not have yet.
+  const missing = running.filter((c) => !(state?.contexts || []).some((x) => x.name === c.context))
+
+  return (
+    <div className="space-y-2 rounded-lg border p-3 text-sm">
+      <div className="flex items-center justify-between">
+        <span className="font-medium">Kubeconfig</span>
+        <Help text={HELP.lcKubeconfig} />
+      </div>
+      {state && (
+        <div className="space-y-1 text-xs">
+          {state.clusters.map((c) => (
+            <div key={c.frameId} className="flex items-center justify-between gap-2">
+              <span className="truncate font-mono">{c.context}</span>
+              {c.running
+                ? <Badge tone={(state.contexts || []).some((x) => x.name === c.context) ? 'success' : 'muted'}>
+                    {(state.contexts || []).some((x) => x.name === c.context) ? 'in config' : 'not copied'}
+                  </Badge>
+                : <Badge tone="warning">not running</Badge>}
+            </div>
+          ))}
+        </div>
+      )}
+      <Button size="sm" className="w-full" disabled={!!busy || !running.length} onClick={copy}>
+        <Icon.Copy size={14} /> {busy === 'copy' ? 'Copying…'
+          : state?.exists ? (missing.length ? `Copy ${missing.length} more to /root/.kube/config` : 'Copy again to /root/.kube/config')
+            : 'Copy to /root/.kube/config'}
+      </Button>
+      {state?.exists && state.contexts.length > 0 && (
+        <Field label="Current context" help={HELP.lcKubeContext}>
+          <select className={inputCls} value={state.current || ''} disabled={!!busy} onChange={(e) => use(e.target.value)}>
+            {!state.current && <option value="">none</option>}
+            {state.contexts.map((c) => (
+              <option key={c.name} value={c.name}>{c.name}{c.managed ? '' : ' (added by hand)'}</option>
+            ))}
+          </select>
+        </Field>
+      )}
+      {state?.note && <div className="text-[11px] text-warning">{state.note}</div>}
+      {msg && <div className="text-[11px] text-muted">{msg}</div>}
+      {err && <div className="text-[11px] text-danger">{err}</div>}
     </div>
   )
 }

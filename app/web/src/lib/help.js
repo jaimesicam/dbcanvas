@@ -419,6 +419,17 @@ export const HELP = {
     'Which Percona Orchestrator build to install. Leave it at the latest unless you are matching a deployment ' +
     'already in the field.',
 
+  // --- Linux Client kubeconfig ----------------------------------------------
+  lcKubeconfig:
+    'Copies the admin kubeconfig of every running Kubernetes cluster in this stack into /root/.kube/config on ' +
+    'this node, one context per cluster, named after its frame, so kubectl and Helm work from the terminal ' +
+    'without pasting anything. Contexts you added yourself are kept; a cluster copied again is replaced, not ' +
+    'duplicated. Each one reaches its cluster through its load balancer on the stack network. Run it again after ' +
+    'adding or rebuilding a cluster.',
+  lcKubeContext:
+    'Which cluster kubectl and Helm talk to when you do not pass --context: the current-context of ' +
+    '/root/.kube/config. The same as running `kubectl config use-context <name>` on the node.',
+
   // --- PostgreSQL query analytics ------------------------------------------
   pgQuerySource:
     'PMM Query Analytics reads statement statistics from an extension, and PostgreSQL ships with neither turned ' +
