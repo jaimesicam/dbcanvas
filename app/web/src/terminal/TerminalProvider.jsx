@@ -226,6 +226,12 @@ function TerminalLayer() {
   const closeTitle = (s) => (canClose(s) ? 'Close' : 'Only whoever has control can close a shared terminal')
   const [layout, setLayout] = useState(loadLayout)
   const [menu, setMenu] = useState(null) // { x, y, id } for the right-click context menu
+  // dockUp lifts the dock over the windows. It normally sits under them (a window is
+  // something you put in front of things), which hid a terminal you had just opened
+  // whenever a window — Database Stacks, say — reached down over the bottom of the
+  // screen. So showing it, or a new session in it, brings it to the front, and
+  // touching a window sends it back.
+  const [dockUp, setDockUp] = useState(false)
   const areaRef = useRef(null)
   const floatRefs = useRef(new Map()) // id -> body slot element
   const drag = useRef(null)
@@ -301,10 +307,26 @@ function TerminalLayer() {
     return () => { removeEventListener('pointermove', onMove); removeEventListener('pointerup', onUp) }
   }, [])
 
+  useEffect(() => { if (open) setDockUp(true) }, [open, activeId])
+  useEffect(() => {
+    const on = (e) => {
+      const t = e.target instanceof Element ? e.target : null
+      if (!t) return
+      if (t.closest('[data-terminal-dock]')) setDockUp(true)
+      else if (t.closest('[data-wm-window]')) setDockUp(false)
+    }
+    addEventListener('pointerdown', on, true)
+    return () => removeEventListener('pointerdown', on, true)
+  }, [])
+
   // The dock's toggle lives on the taskbar.
+  // A dock that is open but under a window is brought forward, not hidden — hiding
+  // what you cannot see is a click that seems to do nothing.
+  const dockShown = open && dockUp
   useTaskbarItem('terminals', docked.length ? {
-    label: `Terminals (${docked.length})`, icon: <Icon.Terminal size={14} />, active: open,
-    title: open ? 'Hide the terminal dock' : 'Show the terminal dock', onClick: () => setOpen((o) => !o),
+    label: `Terminals (${docked.length})`, icon: <Icon.Terminal size={14} />, active: dockShown,
+    title: dockShown ? 'Hide the terminal dock' : 'Show the terminal dock',
+    onClick: () => (open && !dockUp ? setDockUp(true) : setOpen((o) => !o)),
   } : null)
 
   if (sessions.length === 0) return null
@@ -331,7 +353,9 @@ function TerminalLayer() {
 
       {/* bottom dock (docked sessions) */}
       {docked.length > 0 && open && (
-        <div className="fixed inset-x-0 z-40 flex flex-col border bg-surface shadow-2xl" style={{ height: layout.height, bottom: 'var(--wm-taskbar, 0px)' }}>
+        <div data-terminal-dock className="fixed inset-x-0 flex flex-col border bg-surface shadow-2xl"
+          // 46 is just over the window layer (45) and under dialogs and menus (50+).
+          style={{ zIndex: dockUp ? 46 : 40, height: layout.height, bottom: 'var(--wm-taskbar, 0px)' }}>
           <div
             onPointerDown={(e) => { drag.current = { kind: 'height', y0: e.clientY, h0: layout.height } }}
             className="h-1.5 w-full cursor-ns-resize bg-border/60 hover:bg-primary"

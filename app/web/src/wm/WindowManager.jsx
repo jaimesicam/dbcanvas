@@ -230,7 +230,8 @@ export function WindowManagerProvider({ children }) {
     <Ctx.Provider value={value}>
       {children}
       {/* One stacking context for every window: above the page and the terminal
-          dock, below dialogs and menus (z-50 and up). */}
+          dock, below dialogs and menus (z-50 and up). The dock comes over it while
+          it is in use — see dockUp in terminal/TerminalProvider.jsx. */}
       <div ref={layer} className={`pointer-events-none fixed inset-0 ${dragging ? 'wm-dragging' : ''}`} style={{ zIndex: 45 }} />
       {preview && (
         <div className="pointer-events-none fixed rounded-lg border-2 border-primary/70 bg-primary/10 transition-all"

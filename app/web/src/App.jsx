@@ -267,8 +267,18 @@ function Workspace({ onSessionEnded }) {
     if (active && location.hash.replace('#', '') !== active) location.hash = active
   }, [active])
 
+  // A hash that names the active page is the effect above writing it — the browser
+  // fires hashchange for our own write too. Treating that echo as navigation used to
+  // call openTab, whose deferred focus raised the page's window again a moment later:
+  // over the terminal just opened from that page, when it was opened quickly enough.
+  const activeRef = useRef(active)
+  activeRef.current = active
   useEffect(() => {
-    const onHash = () => openTab(location.hash.replace('#', '') || 'dashboard')
+    const onHash = () => {
+      const id = location.hash.replace('#', '') || 'dashboard'
+      if (id === activeRef.current) return
+      openTab(id)
+    }
     addEventListener('hashchange', onHash)
     return () => removeEventListener('hashchange', onHash)
   }, [openTab])

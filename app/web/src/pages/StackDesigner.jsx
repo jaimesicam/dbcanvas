@@ -2330,6 +2330,11 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
   const [busy, setBusy] = useState('') // 'validate' | 'deploy' | ''
   const [configNode, setConfigNode] = useState(null) // node whose profile is shown
   const [deployPanel, setDeployPanel] = useState('hidden') // 'open' | 'min' | 'hidden'
+  // The window this designer is drawn in, on the desktop (null in the tabbed shell).
+  // The minimized Deployment button belongs to it: pinned to the viewport it sat
+  // under the taskbar, and under the window itself once that was maximized.
+  const [deployHost, setDeployHost] = useState(null)
+  const designerRoot = useCallback((el) => { if (el) setDeployHost(el.closest('[data-wm-window]')) }, [])
   // The architecture this installation targets. Nodes no longer carry one — an
   // installation builds images for a single DOCKER_PLATFORM — so the canvas cards
   // label them from the catalogue instead of from the design.
@@ -4224,7 +4229,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
   )
 
   return (
-    <div className="flex h-[78vh] gap-4">
+    <div ref={designerRoot} className="flex h-[78vh] gap-4">
       {shareOpen && <ShareDialog stack={stack} onClose={() => setShareOpen(false)} />}
       <div className="flex min-w-0 flex-1 flex-col gap-3">
         {/* toolbar */}
@@ -4680,14 +4685,16 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
       {deployPanel === 'min' && createPortal(
         <button
           onClick={() => setDeployPanel('open')}
-          className="fixed bottom-3 left-3 z-40 flex items-center gap-2 rounded-lg border bg-surface px-3 py-2 text-sm shadow-lg hover:bg-surface2"
+          className={`${deployHost ? 'absolute bottom-3' : 'fixed'} left-3 z-40 flex items-center gap-2 rounded-lg border bg-surface px-3 py-2 text-sm shadow-lg hover:bg-surface2`}
+          // Outside a window it is the page's corner, which the taskbar takes when it is up.
+          style={deployHost ? undefined : { bottom: 'calc(var(--wm-taskbar, 0px) + 0.75rem)' }}
         >
           <Icon.Arrow size={16} /> Deployment
           {deployments.some((d) => d.state === 'pending' || d.state === 'provisioning') && (
             <span className="h-2 w-2 animate-pulse rounded-full bg-warning" />
           )}
         </button>,
-        document.body,
+        deployHost || document.body,
       )}
     </div>
   )
