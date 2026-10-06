@@ -61,7 +61,7 @@ func parseNodeSpec(arg string) (map[string]any, error) {
 		// And the plain switches.
 		"export": "export", "cert": "cert", "proxy": "proxy", "gtid": "gtid",
 		"mysqlrouter": "mysqlRouter", "tls": "tls",
-		"netalltraffic": "netAllTraffic",
+		"netalltraffic": "netAllTraffic", "pgvector": "pgvector",
 	}
 	strOpts := map[string]string{
 		"name": "name", "os": "os", "arch": "arch", "version": "version",
@@ -141,7 +141,7 @@ func parseNodeSpec(arg string) (map[string]any, error) {
 			"  links:   monitor, ldap, oidc, kerberos, vault, backup, orchestrator\n"+
 			"           (each takes an optional <link>With= naming which node)\n"+
 			"  wire to: to=<name>  — the backend a proxy fronts, the database a sim drives\n"+
-			"  flags:   export, cert, proxy, gtid, mysqlRouter, tls, netAllTraffic\n"+
+			"  flags:   export, cert, proxy, gtid, mysqlRouter, tls, netAllTraffic, pgvector\n"+
 			"  values:  name=, os=, arch=, version=, count=, cpus=, memoryGb=, exportPort=,\n"+
 			"           replMode=, mode=, setup=, dataset=, certTtl=, buckets=a+b\n"+
 			"  shaping: netLatencyMs=, netJitterMs=, netLossPct=, netRateMbit=,\n"+

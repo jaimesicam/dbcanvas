@@ -359,7 +359,12 @@ func cnpgObjectStoreManifest(name, ns string, s3 *crS3) []byte {
 // Monitoring is deliberately *not* spec.monitoring.enablePodMonitor: the 1.30 operator warns
 // that field is deprecated and directs users to manage the PodMonitor themselves, so
 // cnpgPodMonitorManifest writes one instead.
-func cnpgClusterManifest(name, ns string, instances, storageGB int, pgVersion, objectStore string) []byte {
+//
+// pgVector creates the extension in the application database at bootstrap. CNPG's postgresql
+// images (the <major> and -standard / -system tags; not -minimal) already carry pgvector, but
+// its control file is not `trusted`, so the application role the operator creates could not
+// run CREATE EXTENSION itself. postInitApplicationSQL runs as the superuser, in that database.
+func cnpgClusterManifest(name, ns string, instances, storageGB int, pgVersion, objectStore string, pgVector bool) []byte {
 	var b strings.Builder
 	fmt.Fprintf(&b, "apiVersion: %s\nkind: Cluster\nmetadata:\n  name: %s\n  namespace: %s\nspec:\n",
 		cnpgAPIVersion, name, ns)
@@ -368,6 +373,9 @@ func cnpgClusterManifest(name, ns string, instances, storageGB int, pgVersion, o
 		fmt.Fprintf(&b, "  imageName: %s:%s\n", cnpgPGImageRepo, v)
 	}
 	fmt.Fprintf(&b, "  storage:\n    size: %dGi\n", storageGB)
+	if pgVector {
+		b.WriteString("  bootstrap:\n    initdb:\n      postInitApplicationSQL:\n      - CREATE EXTENSION IF NOT EXISTS vector\n")
+	}
 	if objectStore != "" {
 		// isWALArchiver hands continuous WAL archiving to the plugin; without it the cluster
 		// would take base backups with no WAL stream, which is not a restorable backup.
@@ -692,12 +700,16 @@ func (a *App) installCNPGOperator(ctx context.Context, st Stack, frame designFra
 	// ---- the Cluster CR ----
 	pr.phase("Applying the Cluster CR", 88)
 	manifest := cnpgClusterManifest(cfg.ClusterName, ns,
-		cnpgInstances(frame), cnpgStorageGB(frame), frame.K3DCNPGVersion, objectStore)
+		cnpgInstances(frame), cnpgStorageGB(frame), frame.K3DCNPGVersion, objectStore, frame.K3DPgVector)
 	if err := apply("cluster", ns, manifest); err != nil {
 		return fmt.Errorf("apply the CNPG Cluster: %w", err)
 	}
 	pr.logln(fmt.Sprintf("Cluster %s applied: %d instance(s), %dGi storage%s",
 		cfg.ClusterName, cnpgInstances(frame), cnpgStorageGB(frame), cnpgPGLabel(frame.K3DCNPGVersion)))
+	if frame.K3DPgVector {
+		cfg.PGVector = true
+		pr.logln("pgvector: CREATE EXTENSION vector in the application database at bootstrap (postInitApplicationSQL)")
+	}
 
 	cfg.CNPGInstances = cnpgInstances(frame)
 	cfg.CNPGStorageGB = cnpgStorageGB(frame)

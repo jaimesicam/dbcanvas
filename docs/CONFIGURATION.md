@@ -31,7 +31,7 @@ often enough to be worth writing down. For what the product *does*, see the
 Single-image rebuilds, for when only one thing changed: `make intranet-image`,
 `make vnc-image`, `make bighole-image` (the browser-only FTDC viewer,
 built from upstream source at a pinned commit), and one per demo app (`make trafficsim-image`,
-`make hotelsim-image`, `make airlinesim-image`, `make carsim-image`,
+`make hotelsim-image`, `make supportsim-image` (also the pgvector Support Sim's image), `make airlinesim-image`, `make carsim-image`,
 `make marketchaos-image`, `make stocksim-image`). `make extra-images` builds all of them, so
 these are for iterating on one without waiting for the others.
 

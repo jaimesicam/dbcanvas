@@ -72,8 +72,11 @@ type spockConfig struct {
 	MonitoredBy  string   `json:"monitoredBy"`
 	// QuerySource is "pgstatements" when pg_stat_statements is enabled, empty otherwise.
 	QuerySource string `json:"querySource,omitempty"`
-	Ports       []int  `json:"ports"`
-	ExportPort  int    `json:"exportPort"`
+	// PGVector names the pgvector tag compiled into this member's prefix when the cluster has
+	// it; empty otherwise. See pgvector.go.
+	PGVector   string `json:"pgVector,omitempty"`
+	Ports      []int  `json:"ports"`
+	ExportPort int    `json:"exportPort"`
 }
 
 // spockNodeName derives a valid Spock node identifier from a member host.
@@ -136,6 +139,10 @@ func (a *App) provisionSpockFrame(st Stack, frame designFrame, doc designDoc) {
 		memberFQDNs = append(memberFQDNs, fqdnOf(hosts[n.ID], domain))
 	}
 
+	pgVector := ""
+	if frame.PGVector {
+		pgVector = pgVectorSource(frame.Type, frame.OS, major)
+	}
 	for _, n := range members {
 		host := hosts[n.ID]
 		cfg := spockConfig{
@@ -145,6 +152,7 @@ func (a *App) provisionSpockFrame(st Stack, frame designFrame, doc designDoc) {
 			NodeName: spockNodeName(host), Database: db, Members: memberFQDNs, SpockRef: spockRef(),
 			GenerateCert: frame.GenerateCert, UseProxy: frame.UseProxy, MonitoredBy: monitoredBy,
 			QuerySource: pgQuerySourceFor(frame.Type, frame.PGQuerySource, frame.PMMNodeID),
+			PGVector:    pgVector,
 			Ports:       []int{patroniPGPort},
 		}
 		cfgJSON, _ := json.Marshal(cfg)
@@ -347,6 +355,14 @@ func (a *App) spockPrepareNode(ctx context.Context, st Stack, frame designFrame,
 		return pr.fail("compile PostgreSQL/Spock: %v", err)
 	}
 	pr.logln("PostgreSQL " + pgRef + " (patched) + Spock " + spockRef() + " compiled + installed")
+	// pgvector has no package for a PostgreSQL that lives in its own prefix, so it is built
+	// against this one, right after it. Fatal for the standalone node's reason.
+	if frame.PGVector {
+		pr.phase("Compiling pgvector", 56)
+		if err := a.buildPGVector(ctx, id, prefix, pr.logln); err != nil {
+			return pr.fail("%v", err)
+		}
+	}
 	a.ensureRsyslog(ctx, id, frame.OS, pr.logln)
 
 	if frame.PMMNodeID != "" {
@@ -389,6 +405,14 @@ func (a *App) spockPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	// mesh (which replicates the demo database), so each creates it locally.
 	if err := a.enablePGQueryExtension(ctx, id, qs, prefix+"/bin/psql", pr.logln); err != nil {
 		return pr.fail("%v", err)
+	}
+	// pgvector the same way, on every member. Here template1 matters more than anywhere: the
+	// replicated demo database is created after this, from template1, so every member's copy
+	// has `vector` before Spock starts replicating tables that might use it.
+	if frame.PGVector {
+		if err := a.enablePGVector(ctx, id, prefix+"/bin/psql", pr.logln); err != nil {
+			return pr.fail("%v", err)
+		}
 	}
 	pr.logln("PostgreSQL running with wal_level=logical + spock preloaded")
 	return nil

@@ -38,6 +38,9 @@ type psmdbOptions struct {
 	// Secret, and each replica set's `configuration` carries the mongod `security.vault` block
 	// that reads the files out of it. See k3dvault.go.
 	Vault *k3dVault
+	// Search turns on spec.search (mongot) and swaps spec.image for a PSMDB 8.3 server, which
+	// search needs. See k3dsearch.go.
+	Search bool
 }
 
 // psmdbTransform rewrites the operator's cr.yaml for a small k3d cluster. Like crTransform it is
@@ -53,11 +56,22 @@ func psmdbTransform(src string, o psmdbOptions) string {
 	// example of the same key further down the block can be marked when we reach it — see the
 	// crDuplicateWarning rule below.
 	vaultInserted := false
+	// searchInserted is the same thing for `search`, inserted beside spec.image, so the shipped
+	// commented-out example at the bottom of the file can be marked too.
+	searchInserted := false
 
 	for _, ln := range lines {
 		ind, commented, body := crLine(ln)
 		pvc.update(ind, commented, body)
 
+		// Checked before the commenting-out below, which is usually still running here: the
+		// shipped example sits at the very end of the file, right after logcollector's
+		// resources block.
+		if commented && searchInserted && ind == 2 && body == "search:" {
+			out = append(out, crDuplicateWarning("search"))
+			out = append(out, ln)
+			continue
+		}
 		if commentTo >= 0 && !commented && body != "" && ind <= commentTo {
 			commentTo = -1
 		}
@@ -118,6 +132,13 @@ func psmdbTransform(src string, o psmdbOptions) string {
 		case p == "spec.sharding.configsvrReplSet.size" && o.Vault != nil && o.Sharding:
 			out = append(out, ln)
 			out = append(out, crIndent(psmdbVaultConfiguration(o.Vault, o.Name+"-cfg"), ind)...)
+
+		// Vector search: a PSMDB 8.3 server (mongot attaches to nothing older) and the
+		// operator's spec.search, written right under spec.image so the two read together.
+		case p == "spec.image" && o.Search:
+			out = append(out, "  image: "+psmdbSearchServerImage)
+			out = append(out, crIndent(psmdbSearchBlock(), 2)...)
+			searchInserted = true
 
 		// A 1–3 node cluster cannot place one pod per node.
 		case key == "antiAffinityTopologyKey":
@@ -380,6 +401,27 @@ func (a *App) installPSMDBOperator(ctx context.Context, st Stack, frame designFr
 			" has no spec.secrets.vault (added in " + psmdbVaultMinVer + ") — the cluster is NOT encrypted")
 	}
 
+	// Vector search. Gated on the operator version as well as the checkbox, like encryption:
+	// validation refuses the design below psmdbSearchMinVer (k3dSearchIssues), and an older CRD
+	// has no spec.search — the API server would prune it and the cluster would come up without
+	// mongot while the canvas said otherwise.
+	exposeMode := ""
+	if frame.K3DVectorSearch && psmdbHasSearch(cfg.OperatorVer) {
+		opts.Search = true
+		switch exposeMode = psmdbSearchExposeMode(true, cfg.Sharding, opts.ExposeReplset); exposeMode {
+		case "nodeport":
+			opts.ExposeReplset = "NodePort" // see psmdbSearchExposeMode
+		case "none":
+			opts.ExposeReplset = ""
+		}
+		cfg.VectorSearch = "mongot " + psmdbSearchImage + " on " + psmdbSearchServerImage
+		pr.logln("vector search: spec.search on (" + psmdbSearchImage + "), server image " + psmdbSearchServerImage +
+			" — one mongot StatefulSet per data-bearing replica set (" + cfg.ClusterName + "-rs0-search)")
+	} else if frame.K3DVectorSearch {
+		pr.logln("vector search skipped: operator " + cfg.OperatorVer + " has no spec.search (added in " +
+			psmdbSearchMinVer + ") — the cluster has NO mongot")
+	}
+
 	newCR := psmdbTransform(string(raw), opts)
 	if err := a.engCtx(ctx).CopyFile(ctx, serverID, cfg.OperatorSrc+"/deploy", "cr.yaml", 0o644, []byte(newCR)); err != nil {
 		pr.logln("could not write the rewritten cr.yaml back to the source tree: " + err.Error())
@@ -390,6 +432,25 @@ func (a *App) installPSMDBOperator(ctx context.Context, st Stack, frame designFr
 	topology := "replica set (rs0)"
 	if cfg.Sharding {
 		topology = "sharded (rs0 + config servers + mongos)"
+	}
+	if opts.Search {
+		topology += ", vector search"
+	}
+	switch exposeMode {
+	case "nodeport":
+		yml := psmdbSearchServicesYAML(cfg.ClusterName, "rs0", 3)
+		if err := a.kubectlApply(ctx, serverID, ns, []byte(yml)); err != nil {
+			pr.logln("could not create the members' LoadBalancers: " + err.Error())
+		} else {
+			cfg.VectorSearch += "; rs0 NodePort (operator) + LoadBalancer -ext (DBCanvas)"
+			pr.logln("rs0 exposed as NodePort by the operator, with a LoadBalancer per member beside it (" + cfg.ClusterName +
+				"-rs0-0..2" + psmdbExtSuffix + ") and " + cfg.ClusterName + "-rs0-search" + psmdbExtSuffix +
+				" for mongot's metrics (:9946) and health (:8080). With spec.search on, the operator's own LoadBalancer exposure " +
+				"leaves 1.23.x 'initializing' forever; NodePort does not")
+		}
+	case "none":
+		pr.logln("rs0 not exposed: ClusterIP exposure with spec.search on would leave operator 1.23.x 'initializing', " +
+			"and per-pod ClusterIP Services are unreachable from outside the cluster anyway")
 	}
 	pr.logln("cr.yaml applied (affinity none, resources commented out, " + topology + ")")
 	return nil

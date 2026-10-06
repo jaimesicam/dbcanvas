@@ -119,6 +119,7 @@ function Overview({ cfg, dep, onDeleteNode }) {
       <KV k="TLS" help={DEP_HELP.TLS} v={cfg.generateCert ? 'Intranet-CA cert' : 'off'} />
       {cfg.vault?.enabled && <KV k="Encryption at rest" help={DEP_HELP['Encryption at rest']} v={`OpenBao · ${cfg.vault.mount}`} mono />}
       <KV k="Monitored by" help={DEP_HELP['Monitored by']} v={cfg.monitoredBy || 'none'} mono />
+      {cfg.pgVector && <KV k="pgvector" help={DEP_HELP.pgvector} v={cfg.pgVector} mono />}
       <KV k="Host port (5432)" help={DEP_HELP['Host port (5432)']} v={cfg.exportPort ? String(cfg.exportPort) : 'not published'} mono />
       <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>

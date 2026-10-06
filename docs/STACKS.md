@@ -70,7 +70,8 @@ the DBCanvas source, so they need a checkout and `make <name>-image`.
 
 
 - **PostgreSQL** — standalone, **Patroni** HA clusters, **repmgr** clusters, and **Spock**
-  multi-master (active-active) clusters (pgBackRest / Barman cloud backups; pgvector &
+  multi-master (active-active) clusters (pgBackRest / Barman cloud backups; **pgvector** vector
+  similarity search as a tick on every one of them and on the K3D operator frame, below;
   TimescaleDB supported).
 - **MySQL (Percona)** — **Percona XtraDB Cluster**, Percona Server, MySQL replication, and
   **InnoDB / Group Replication** clusters.
@@ -82,7 +83,7 @@ the DBCanvas source, so they need a checkout and `make <name>-image`.
   wired with `MASTER_USE_GTID = slave_pos` and the cluster's `gtid_domain_id` is derived
   from its name; Galera state transfers use `mariabackup`.
 - **MongoDB** — Percona Server for MongoDB: standalone, replica set, and sharded
-  (PBM backups; optional Keycloak OIDC auth), plus two tools for them: **MClusterAdmin**, a web
+  (PBM backups; optional Keycloak OIDC auth; **vector search** with mongot on 8.3+, below), plus two tools for them: **MClusterAdmin**, a web
   administration panel, and **Big Hole**, an FTDC viewer (both below).
 - **Valkey** — standalone and cluster (LDAP integration, PMM monitoring).
 - **Kubernetes** — a **K3D cluster** frame (1–3 k3s nodes, created by k3d on the stack network,
@@ -121,6 +122,41 @@ the DBCanvas source, so they need a checkout and `make <name>-image`.
   (baseline vs. validated measurements, a hard correctness gate, a 100-point score) rather than
   a checked SQL answer, for MarketChaos), with a live dashboard reachable from the stack's
   Ubuntu VNC desktop.
+- **Support Sim** — MongoDB **vector search** doing a real job, and a place to learn it. A help
+  desk for a fictional cloud-database company: tickets arrive continuously, each is embedded *in the
+  sim's own process* (all-MiniLM-L6-v2, 384 dimensions, pure Go — no API key, no GPU, works
+  offline) and searched with `$vectorSearch`, and the desk acts on what it finds — answers from the
+  closest resolved tickets, routes to a team, merges a customer's repeat ticket, raises an incident
+  when a burst of *new* problems appears. Keyword search (`$search`) and hybrid (`$rankFusion`)
+  answer the same questions on the same tickets, and all three are **scored against the simulator's
+  ground truth**, so the dashboard shows where vectors win, where keywords hold up, and why — not a
+  claim. Five tabs: **Live Desk**, **Search Showdown** (one question, three engines, the right
+  answer marked; hybrid as `$rankFusion` or `$scoreFusion` with a weight slider and per-result score
+  breakdowns, and a sweep that finds the best weight and can apply it to the live desk), **Vector Lab** (seven hands-on steps: a sentence's 384 numbers, cosine similarity
+  and its traps, a 2-D map of the tickets, the index definitions, a `$vectorSearch` builder with
+  recall measured against exact search and the same query in mongosh/Python/Node/Go, and how long a
+  new document takes to become findable), **Index Workshop** (nine real indexes over the same
+  2,000 tickets — cosine, dotProduct, euclidean, scalar and binary quantization, BSON float32 and int8
+  vectors, un-normalized vectors — benchmarked for recall, accuracy, latency and size; a lifecycle
+  playground that creates, updates and drops an index while probe queries run; `$vectorSearch`
+  explain; and mongot's own metrics, live) and **Under the Hood**. Every result shows the exact
+  pipeline that produced it. Link it to a PS MongoDB replica set or sharded cluster with **Vector
+  search** on, or to a K3D frame running the MongoDB operator with it on (below). Linked to a
+  MongoDB without mongot it still runs, on an in-app brute-force scan, and says so on every page.
+  `make supportsim-image` builds it; the template **PSMDB Vector Search + Support Sim** is the
+  whole demo in one click.
+- **pgvector Support Sim** (`pgvectorsim`) — the same desk, the same image and the same tabs, run
+  against **PostgreSQL** instead (`DB_ENGINE=postgres`): embeddings go into a pgvector `vector`
+  column and are searched through an **HNSW** index with `<=>`. Link it to one PostgreSQL target —
+  a standalone node, a Patroni, repmgr or Spock cluster, an HAProxy or PgBouncer node in front of
+  one, or a K3D frame running a PostgreSQL operator — and DBCanvas hands it a connection string
+  the way it does Stock Market Sim (every member of a Patroni/repmgr cluster, with
+  `target_session_attrs=read-write`, so a switchover does not strand it on a standby). It creates
+  its own `supportsim` database when its role may, and otherwise works in a `supportsim` schema of
+  the database it was given. Turn **pgvector** on for the target (the node, the cluster frame, or
+  the K3D frame's PostgreSQL operator — Percona, CloudNativePG or Crunchy PGO); without it the sim still runs, storing
+  embeddings as `real[]` and scanning them in the app, and validation warns. The template
+  **PostgreSQL + pgvector + Support Sim** is the whole demo in one click.
 - **Stock Market Sim** — the one app simulator you *operate* rather than just watch, and the one
   that does not have to be linked to anything on the canvas. Background agents move prices, place
   orders and settle trades continuously, while you create, edit and delete securities, portfolios
@@ -1063,6 +1099,103 @@ is **linux/amd64 only**: Percona's apt repo publishes `percona-toolkit`, the pac
 the collector, for that architecture alone. Each finished capture is kept on disk with a
 timestamp, so a cluster has a history to compare across rather than only its latest.
 
+### Vector search — Percona Search for MongoDB (mongot)
+
+Tick **Vector search** on a **PSMDB Replica Set** or **PSMDB Sharded** frame and `$vectorSearch`
+(semantic / AI search) and `$search` (full-text) work on it. MongoDB does not search anything
+itself: `mongod` forwards those stages over gRPC to a second process, **mongot**, which keeps
+Lucene indexes current by tailing the replica set's change stream. Turning it on is four things
+that have to agree, and the deploy does all four — the same four the Percona Operator does for
+`spec.search`:
+
+- **PSMDB 8.3 or later.** Nothing older can attach to mongot. Ticking the box moves the frame to the
+  8.3 series when the image offers it (`ONLY=percona make versions` if it does not), and validation
+  refuses anything older.
+- **mongod's parameters, at first start** — `mongotHost` and `searchIndexManagementHostAndPort`
+  pointing at mongot's `:27028`, plus `useGrpcForSearch`. They are startup-only, which is why this
+  is a design-time option; mongod starts happily before the mongot it names exists.
+- **A `searchCoordinator` user**, `mongot`, on the replica set (and, sharded, on every shard and the
+  config servers).
+- **mongot itself** — `percona-search-mongodb` from the `ps4m` repository (about 290 MB: it is a
+  Java service with its own JDK), configured with the replica set's members, gRPC on 27028, health
+  on `:8080/health`, metrics on 9946, logging to `/var/log/mongot/mongot.log`.
+
+**One mongot per replica set** — the operator allows no more — **on its first member**; on a sharded
+cluster, one per shard on each shard's first member, with mongos pointed at shard 0's and each
+mongot also connected to mongos. Stop that member and `$vectorSearch` fails while every ordinary
+query keeps working: that is what a single-mongot deployment looks like, and worth being able to
+show. A standalone node cannot have it (mongot needs a change stream — use a one-member replica
+set), and mongot is published for Oracle Linux 8/9, Ubuntu 22.04/24.04 and Debian 12 only, which
+validation checks. Search indexes are not part of a backup; mongot rebuilds them from the data.
+
+On a **K3D frame** running the **Percona Operator for MongoDB 1.23.0 or later**, the same box
+writes `spec.search` (a one-pod mongot StatefulSet per replica set, `<cluster>-rs0-search`, with its
+own PVC) and switches `spec.image` to a PSMDB 8.3 server — the operator's shipped `cr.yaml` runs
+8.0, and its release notes ask you to choose an 8.3 image yourself. Below 1.23.0 the option is
+hidden, and refused by validation. It is a **tech preview** in both places: not for production.
+
+With search on and the replica set exposed as **LoadBalancer**, the operator exposes the members as
+**NodePort** instead, and DBCanvas adds a LoadBalancer per member beside it. Operator 1.23.x never
+reports a search-enabled cluster `ready` when it exposes the replica set as LoadBalancer or ClusterIP:
+the mongot pod carries the replica set's label, gets counted as a member, has no per-pod Service, and
+the cluster is left without a connection host — a bug in the operator, unchanged in 1.23.1 and on
+`main`. NodePort takes a different path and is unaffected. The extra Services are
+`<cluster>-rs0-<i>-ext` (each member's own address on 27017) and `<cluster>-rs0-search-ext` (mongot's
+metrics :9946 and health :8080, which the operator keeps in-cluster), labelled `managed-by: dbcanvas` and
+named apart from the operator's so it never adopts or deletes them. mongot's metrics are turned on through
+`spec.search.configuration`, since the operator's generated config ships them disabled. ClusterIP is
+left unexposed; sharded clusters are unaffected.
+
+### pgvector — vector similarity search for PostgreSQL
+
+Tick **pgvector (vector similarity search)** on a standalone **PostgreSQL** node or a **Patroni**,
+**repmgr** or **Spock** frame and the cluster gets the `vector` column type, the distance operators
+`<->` (L2), `<=>` (cosine) and `<#>` (negative inner product), and the **HNSW** and **IVFFlat**
+approximate nearest-neighbour indexes — embeddings stored and searched in plain SQL, beside the rest of
+the data. It is a design-time option because it installs software, but it changes nothing about how the
+server starts: pgvector is not a `shared_preload_libraries` entry.
+
+Every member gets the files, from wherever its own PostgreSQL came from — a build for another server
+would install cleanly and fail at the first `CREATE EXTENSION`:
+
+- **Standalone and Patroni** run Percona Distribution for PostgreSQL, so it is Percona's package from the
+  same `ppg-<major>` repository: `percona-pgvector_<major>` on Oracle Linux / Rocky,
+  `percona-postgresql-<major>-pgvector` on Debian / Ubuntu.
+- **repmgr** runs PGDG's PostgreSQL, so it is PGDG's package: `pgvector_<major>` /
+  `postgresql-<major>-pgvector`.
+- **Spock** runs a patched PostgreSQL compiled into its own prefix, which no package was built for, so
+  pgvector is compiled against it too, right after the server, at a pinned tag (`v0.8.6`).
+
+Each install is checked for `vector.control` in the server's own `sharedir`, and a member that does not
+get it fails its deploy — the cluster was asked for vector search. All members have it, not only the
+primary, because a standby reading a vector column loads the library too, and any of them may be
+promoted.
+
+The extension is then created **on the primary**, in two databases: `postgres`, where `psql` lands,
+and **`template1`**, which every later `CREATE DATABASE` copies — so an application that creates its own
+database afterwards finds `vector` already there. Standbys get both by replication (on Patroni, once on
+the leader; on repmgr, before the standbys are cloned). On Spock every member is its own primary and
+creates it locally, before the replicated demo database is created from `template1`. The deploy log
+reports the version it got (`pgvector 0.8.6 enabled in postgres and template1`), and the node's panel
+shows which package it came from.
+
+On a **K3D frame** running the **Percona Operator for PostgreSQL 2.6.0 or later**, the same box writes
+`spec.extensions.builtin.pgvector: true`. The operator's images already carry pgvector, and the operator
+creates the extension in every database itself. That spelling is the only one 2.x knows, and 3.x still
+accepts it and maps it onto its newer `extensions.pgvector.enabled`, so one form serves every version;
+with transparent data encryption on as well, both go into the one `spec.extensions` block. Below 2.6.0
+the CRD has no such field and would reject the whole `cr.yaml`, so the option is hidden there and refused
+by validation.
+
+On a K3D frame running **CloudNativePG** or **Crunchy PGO** the box is there too. Their images already
+carry pgvector (CloudNativePG's plain `<major>` and `-standard` / `-system` tags, not `-minimal`; Crunchy's
+`crunchy-postgres`), but its control file is not `trusted`, so the application role those operators
+create cannot run `CREATE EXTENSION` itself. DBCanvas has the operator do it once, as the superuser, in
+the application database: CloudNativePG through `spec.bootstrap.initdb.postInitApplicationSQL`, Crunchy
+through `spec.databaseInitSQL` pointing at a `<cluster>-init-sql` ConfigMap (`\c <cluster>` then
+`CREATE EXTENSION IF NOT EXISTS vector`). Both run only when the cluster is first created.
+
+
 ### PgBouncer — connection pooling for the PostgreSQL family
 
 A **PgBouncer** node runs Percona's `percona-pgbouncer` (out of the same `ppg-NN` repository
@@ -1238,16 +1371,16 @@ that uses the Repository waits for it, so a large list makes a slow first deploy
 A **template** is a canvas design detached from any one stack: the nodes, the clusters, the
 links and every option set on them, reusable as the starting point for the next stack.
 
-**The built-in defaults.** Eleven ship with the app, covering the engine families:
+**The built-in defaults.** Fourteen ship with the app, covering the engine families:
 
 | Category | Template |
 | --- | --- |
 | Getting started | Starter — Percona Server (one node plus a desktop to reach it from) |
 | MySQL | PXC + ProxySQL + PMM · Percona Server replication + Orchestrator · InnoDB Cluster |
-| PostgreSQL | Patroni + HAProxy · PostgreSQL + pgBackRest |
-| MongoDB | PSMDB replica set + PBM · PSMDB sharded cluster |
+| PostgreSQL | Patroni + HAProxy · PostgreSQL + pgBackRest · PostgreSQL + pgvector + Support Sim |
+| MongoDB | PSMDB replica set + PBM · PSMDB Vector Search + Support Sim · PSMDB sharded cluster |
 | Valkey | Valkey Cluster |
-| Kubernetes | Percona Operator for MySQL (PXC) on k3s |
+| Kubernetes | Percona Operator for MySQL (PXC) on k3s · PXC operator, two clusters replicating |
 | All in One | Four engines in one container |
 
 None of them pins a minor version — they take whatever this installation's `make versions`

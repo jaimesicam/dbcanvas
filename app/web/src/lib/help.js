@@ -443,6 +443,28 @@ export const HELP = {
     'and what PMM Query Analytics reads when the cluster is monitored. pg_stat_monitor is not offered here: it is ' +
     'a Percona package, and this cluster does not run Percona Distribution for PostgreSQL.',
 
+  // --- pgvector -------------------------------------------------------------
+  pgVector:
+    'pgvector adds a `vector` column type, the distance operators <-> (L2), <=> (cosine) and <#> (negative inner ' +
+    'product), and two approximate nearest-neighbour index methods, HNSW and IVFFlat — similarity search over ' +
+    'embeddings in plain SQL. It is installed on every member (Percona\'s package on a standalone node or Patroni, ' +
+    'PGDG\'s on repmgr, compiled from source on Spock), and the extension is created on the primary in the postgres ' +
+    'database and in template1, so every database created later already has it. Not a preload library: nothing about ' +
+    'how the server starts changes.',
+  k3dPgVectorCnpg:
+    'CloudNativePG\'s postgresql images (the plain <major> tags DBCanvas pins, and the operator\'s default) already ' +
+    'carry pgvector. Its extension is not trusted, so the application role cannot create it; this adds ' +
+    'spec.bootstrap.initdb.postInitApplicationSQL: CREATE EXTENSION IF NOT EXISTS vector, which the operator runs once, ' +
+    'as the superuser, in the application database (app) when the cluster is first created.',
+  k3dPgVectorPgo:
+    'Crunchy\'s crunchy-postgres images already carry pgvector. Its extension is not trusted, so the application role ' +
+    'cannot create it; this applies a ConfigMap and points spec.databaseInitSQL at it, which PGO runs once, as the ' +
+    'superuser, when the cluster is first ready: \\c <cluster> then CREATE EXTENSION IF NOT EXISTS vector.',
+  k3dPgVector:
+    'Sets spec.extensions.builtin.pgvector in cr.yaml (Percona Operator for PostgreSQL 2.6.0+; the 3.x operators map it ' +
+    'onto extensions.pgvector). The operator\'s images already carry pgvector, and the operator creates the extension in ' +
+    'every database itself: the `vector` type, the <-> <=> <#> distance operators, and HNSW / IVFFlat indexes.',
+
   // --- PostgreSQL client authentication (pg_hba) ---------------------------
   pgHostAuthPw:
     'The pg_hba rule for clients that do not present a certificate. scram-sha-256 is what every client DBCanvas ' +
@@ -653,6 +675,12 @@ export const HELP = {
     'deliberate decision. Expiry is checked when the token is used, and an expired token stays in the ' +
     'list marked expired — which is how "why did my script start failing" gets an answer.',
   bigHoleRef: 'The upstream commit this viewer was built from. It is the version: the project publishes no tags and its package.json still says 0.0.0, so the revision is the only honest answer to which Big Hole this is. Change it in images/bighole.Dockerfile and app/bighole.go together, then rebuild with `make bighole-image`.',
+  vectorSearch: 'Run Percona Search for MongoDB (mongot) beside this cluster so $vectorSearch (semantic / AI search) and $search (full-text) work. ' +
+    'Needs PSMDB 8.3 or later. One mongot per replica set — for a sharded cluster, one per shard — co-located on the set\'s first member, which is what the Percona Operator does too. ' +
+    'Every mongod (and mongos) gets the mongotHost / searchIndexManagementHostAndPort parameters at first start, and mongot logs in as a searchCoordinator user. ' +
+    'The package is ~290 MB (mongot is a Java service), so the first deploy takes a few minutes longer. Tech preview: not for production.',
+  k3dVectorSearch: 'Turn on the operator\'s spec.search (tech preview, operator 1.23.0+): a one-pod mongot StatefulSet per replica set (<cluster>-rs0-search) with its own PVC. ' +
+    'spec.image is switched to a PSMDB 8.3 server, which mongot needs — the operator\'s shipped cr.yaml runs 8.0.',
   mcaCredentials: 'Create the two MClusterAdmin accounts on this MongoDB when it deploys, so the panel does not have to authenticate as the root admin user. ' +
     '"madmin" gets the least-privilege set MClusterAdmin publishes for its whole feature list — cluster monitoring and management, host management, database ' +
     'admin, read on any database, user administration, and read on local for the oplog dashboard. "madmin-ro" gets only what the monitoring dashboards need. ' +
@@ -786,6 +814,8 @@ const NODE_BLURB = {
   trafficsim: 'A traffic simulator, for a different load profile against the same node.',
   airlinesim: 'An airline-booking workload generator.',
   hotelsim: 'A hotel-booking workload generator.',
+  supportsim: 'A help desk run on MongoDB Vector Search, with a hands-on Vector Lab.',
+  pgvectorsim: 'The Support Sim\'s help desk on PostgreSQL with pgvector (HNSW, <=>), with a hands-on Vector Lab. Link it to any PostgreSQL node or cluster; turn pgvector on there for real vector indexes.',
   carsim: 'A vehicle-telemetry workload generator.',
   bighole: 'A MongoDB FTDC viewer that runs entirely in the browser — drag a diagnostic.data folder or a support tarball onto the page and it charts it. No backend, nothing uploaded. Open it on localhost: browsers only give a page the on-disk storage it decodes a capture into over HTTPS or localhost.',
   mclusteradmin: 'A MongoDB administration panel — topology, replica set and sharding status, current ops, slow queries, indexes, users and roles. Its web UI is published to the host, so you reach it straight from your browser.',
@@ -935,6 +965,7 @@ export const DEP_HELP = {
   Endpoint: 'The address clients use for this service.',
   'PgBouncer endpoint': 'Connect here rather than to PostgreSQL directly when you want the pooler in the path.',
   'Monitored by': 'The PMM server collecting this node\'s metrics. Open that node\'s panel for the PMM address and login.',
+  pgvector: 'Where this member\'s pgvector came from (its package, or the tag compiled for Spock). The `vector` extension was created in the postgres and template1 databases on the primary, so `CREATE TABLE … (embedding vector(384))` works in any database created since.',
   'PMM service token': 'The credential the agent on this node authenticates to PMM with. Disposable, like everything else in a lab stack.',
   Grafana: 'The Grafana bundled with this deployment.',
   'Grafana dashboard': 'Open this for the dashboards. From your own browser only if the address is a host one — otherwise use the VNC desktop.',
@@ -961,6 +992,7 @@ export const DEP_HELP = {
     'The spec.logcollector sidecars are running, so PostgreSQL\'s server log and pgBackRest\'s client log are kept ' +
     'as rotated files on the data volume rather than only in the pod\'s stdout.',
   'Point-in-time recovery': 'The operator\'s binlog collector (spec.backup.pitr): binary logs uploaded continuously, so a restore can land between backups. On the replica end of a replication link it starts switched off — the seed restore replaces the GTID history the collector would be uploading — and DBCanvas turns it on once replication is running.',
+  'Vector search': 'Percona Search for MongoDB (mongot). mongod forwards $search and $vectorSearch to this address over gRPC; mongot keeps its indexes current from the replica set\'s change stream. One mongot per replica set (per shard on a sharded cluster), on its first member: its health check is curl localhost:8080/health there, its log /var/log/mongot/mongot.log.',
   'Backups (PBM)': 'Percona Backup for MongoDB, and the S3 bucket it targets. Run and restore backups from this node\'s Backups tab.',
   'Barman backups': 'Barman\'s backup store for this cluster.',
   pgBackRest: 'The pgBackRest repository this cluster backs up to, and clones new replicas from.',

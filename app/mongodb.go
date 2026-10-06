@@ -64,6 +64,12 @@ type mongoConfig struct {
 	OIDCSampleUsers  string `json:"oidcSampleUsers"` // sample Keycloak users created (for the manager)
 	// Data-at-rest encryption keyed by an OpenBao node (psm standalone only; see dbvault.go).
 	Vault vaultInfo `json:"vault"`
+	// Vector search (psmrs / psmdb frames with VectorSearch on; see mongosearch.go).
+	// SearchHost is the mongot this member's mongod forwards $search/$vectorSearch to
+	// (host:27028); MongotHere is set on the member that runs it.
+	VectorSearch bool   `json:"vectorSearch,omitempty"`
+	SearchHost   string `json:"searchHost,omitempty"`
+	MongotHere   bool   `json:"mongotHere,omitempty"`
 }
 
 // mongoSecrets holds the cluster admin credentials and the shared internal-auth
@@ -85,6 +91,10 @@ type mongoSecrets struct {
 	MCAReadOnlyPassword string `json:"mcaReadonlyPassword"`
 	// Password for the sample Keycloak OIDC users created at deploy (lab convenience).
 	OIDCSamplePassword string `json:"oidcSamplePassword"`
+	// The searchCoordinator account mongot authenticates as (vector search only). Kept
+	// across redeploys like the PBM password, since mongot's password file must match.
+	SearchUser     string `json:"searchUser,omitempty"`
+	SearchPassword string `json:"searchPassword,omitempty"`
 }
 
 // psmdbRepo maps a major series to its percona-release repository name.
@@ -94,6 +104,10 @@ func psmdbRepo(major string) string {
 		return "psmdb-60"
 	case "7.0", "7":
 		return "psmdb-70"
+	case "8.3":
+		// The series Percona Search for MongoDB (mongot) needs — see mongosearch.go.
+		// Without its own case it fell to the default and quietly installed 8.0.
+		return "psmdb-83"
 	default:
 		return "psmdb-80"
 	}
@@ -163,6 +177,7 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 	keyFile := ""
 	pmmPass := ""
 	pbmPass := ""
+	searchPass := ""
 	for _, n := range members {
 		if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Secrets) > 0 {
 			var s mongoSecrets
@@ -175,6 +190,9 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 				}
 				if s.PBMPassword != "" {
 					pbmPass = s.PBMPassword
+				}
+				if s.SearchPassword != "" {
+					searchPass = s.SearchPassword
 				}
 			}
 		}
@@ -189,6 +207,12 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 		pbmPass = genSecret("MongoPBM!")
 	}
 	sec := mongoSecrets{AdminUser: "admin", AdminPassword: admin, KeyFile: keyFile, PMMUser: "pmm", PMMPassword: pmmPass, PBMUser: "pbm", PBMPassword: pbmPass}
+	if frame.VectorSearch {
+		if searchPass == "" {
+			searchPass = genSecret("Mongot")
+		}
+		sec.SearchUser, sec.SearchPassword = mongoSearchUser, searchPass
+	}
 	mcaAdminPW, mcaROPW := mcaPasswordsFor(doc, frame.ID)
 	mcaSecretsFor(&sec, frame.MCACredentials, mcaAdminPW, mcaROPW)
 	// Cluster members and the mongos router are told to advertise SCRAM-SHA-256 when
@@ -223,6 +247,30 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 		}
 	}
 
+	// Vector search: one mongot per shard, on the shard's first member; each shard's
+	// mongod points at its own, and mongos at shard 0's (the operator's choice — index
+	// management through the router only has to reach *a* mongot, which forwards the
+	// rest through mongod). The config servers hold no searchable data and get none.
+	searchAddrOf := map[int]string{}
+	if frame.VectorSearch {
+		for _, i := range shardIdx {
+			searchAddrOf[i] = fmt.Sprintf("%s:%d", fqdnOf(hosts[shards[i][0].ID], domain), mongotGRPCPort)
+		}
+	}
+	paramsOf := func(n designNode) string {
+		if !frame.VectorSearch {
+			return mcaParams
+		}
+		switch n.Role {
+		case "config":
+			return mcaParams
+		case "mongos":
+			return mergeSetParams(mcaParams, mongoSearchSetParams(searchAddrOf[shardIdx[0]]))
+		default:
+			return mergeSetParams(mcaParams, mongoSearchSetParams(searchAddrOf[n.Shard]))
+		}
+	}
+
 	replSetOf := func(n designNode) string {
 		switch n.Role {
 		case "config":
@@ -244,6 +292,17 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 			GenerateCert: frame.GenerateCert, UseProxy: frame.UseProxy, MonitoredBy: monitoredBy,
 			EnablePBM: frame.EnablePBM, BackupRepo: pbmRepo,
 			Ports: []int{mongoPort},
+		}
+		if frame.VectorSearch && n.Role != "config" {
+			cfg.VectorSearch = true
+			if n.Role == "mongos" {
+				cfg.SearchHost = searchAddrOf[shardIdx[0]]
+			} else {
+				cfg.SearchHost = searchAddrOf[n.Shard]
+				if cfg.MongotHere = n.ID == shards[n.Shard][0].ID; cfg.MongotHere {
+					cfg.Ports = append(cfg.Ports, mongotGRPCPort, mongotHealthPort, mongotMetricsPort)
+				}
+			}
 		}
 		cfgJSON, _ := json.Marshal(cfg)
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
@@ -277,7 +336,7 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 			wg.Add(1)
 			go func(n designNode) {
 				defer wg.Done()
-				if err := a.mongoPrepareNode(ctx, st, frame, n, hosts[n.ID], image, major, replSetOf(n), configDB, intranetID, intranetIP, domain, mcaParams, sec, nil, progs[n.ID]); err != nil {
+				if err := a.mongoPrepareNode(ctx, st, frame, n, hosts[n.ID], image, major, replSetOf(n), configDB, intranetID, intranetIP, domain, paramsOf(n), sec, nil, progs[n.ID]); err != nil {
 					mu.Lock()
 					failed = true
 					mu.Unlock()
@@ -308,7 +367,7 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 		// ---- Phase 3: start mongos + add the shards ----
 		mpr := progs[mongos.ID]
 		mpr.phase("Starting mongos router", 80)
-		if err := a.mongoStartMongos(ctx, st, *mongos, configDB, mcaParams, progs[mongos.ID]); err != nil {
+		if err := a.mongoStartMongos(ctx, st, *mongos, configDB, paramsOf(*mongos), progs[mongos.ID]); err != nil {
 			return
 		}
 		var shardSpecs []string
@@ -329,6 +388,44 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 		// for its per-shard views, and a shard replica set keeps its own users.
 		for _, h := range mcaShardedAccountHosts(config, shards, shardIdx) {
 			a.mongoEnsureMCAUsers(ctx, st, h, sec, progs[h.ID])
+		}
+
+		// ---- Vector search: the mongot account where each mongot authenticates — every
+		// shard's own replica set (it tails that shard's change stream) and the config
+		// RS (its router connection logs in through mongos, which reads users from
+		// there) — then one mongot per shard, in parallel since each is a 290 MB install.
+		if frame.VectorSearch {
+			for _, h := range mcaShardedAccountHosts(config, shards, shardIdx) {
+				if err := a.mongoEnsureSearchUser(ctx, st, h, sec, progs[h.ID]); err != nil {
+					failAll("vector search: %v", err)
+					return
+				}
+			}
+			router := []string{fmt.Sprintf("%s:%d", fqdnOf(hosts[mongos.ID], domain), mongoPort)}
+			var swg sync.WaitGroup
+			var smu sync.Mutex
+			var serr error
+			for _, i := range shardIdx {
+				var rsHosts []string
+				for _, n := range shards[i] {
+					rsHosts = append(rsHosts, fmt.Sprintf("%s:%d", fqdnOf(hosts[n.ID], domain), mongoPort))
+				}
+				swg.Add(1)
+				go func(h designNode, rsHosts []string) {
+					defer swg.Done()
+					if err := a.mongoSetupSearch(ctx, st, frame, h, rsHosts, router, sec, progs[h.ID]); err != nil {
+						smu.Lock()
+						serr = err
+						smu.Unlock()
+					}
+				}(shards[i][0], rsHosts)
+			}
+			swg.Wait()
+			if serr != nil {
+				failAll("vector search: %v", serr)
+				return
+			}
+			a.mongoProbeSearch(ctx, a.depContainer(st.ID, mongos.ID), sec, progs[mongos.ID].logln)
 		}
 
 		// ---- PMM: create the monitoring user + register each node (when a running
@@ -417,6 +514,7 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 	keyFile := ""
 	pmmPass := ""
 	pbmPass := ""
+	searchPass := ""
 	for _, n := range members {
 		if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Secrets) > 0 {
 			var s mongoSecrets
@@ -429,6 +527,9 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 				}
 				if s.PBMPassword != "" {
 					pbmPass = s.PBMPassword
+				}
+				if s.SearchPassword != "" {
+					searchPass = s.SearchPassword
 				}
 			}
 		}
@@ -443,6 +544,12 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 		pbmPass = genSecret("MongoPBM!")
 	}
 	sec := mongoSecrets{AdminUser: "admin", AdminPassword: admin, KeyFile: keyFile, PMMUser: "pmm", PMMPassword: pmmPass, PBMUser: "pbm", PBMPassword: pbmPass}
+	if frame.VectorSearch {
+		if searchPass == "" {
+			searchPass = genSecret("Mongot")
+		}
+		sec.SearchUser, sec.SearchPassword = mongoSearchUser, searchPass
+	}
 	mcaAdminPW, mcaROPW := mcaPasswordsFor(doc, frame.ID)
 	mcaSecretsFor(&sec, frame.MCACredentials, mcaAdminPW, mcaROPW)
 	// Cluster members and the mongos router are told to advertise SCRAM-SHA-256 when
@@ -469,7 +576,21 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 		}
 	}
 
-	for _, n := range members {
+	// Vector search: one mongot, on the first member, which every member's mongod is
+	// pointed at (mongosearch.go). The parameters go into mongod.conf now because
+	// they are read only at startup.
+	memberParams := mcaParams
+	searchAddr := ""
+	var rsHosts []string
+	if frame.VectorSearch {
+		searchAddr = fmt.Sprintf("%s:%d", fqdnOf(hosts[members[0].ID], domain), mongotGRPCPort)
+		memberParams = mergeSetParams(mcaParams, mongoSearchSetParams(searchAddr))
+		for _, n := range members {
+			rsHosts = append(rsHosts, fmt.Sprintf("%s:%d", fqdnOf(hosts[n.ID], domain), mongoPort))
+		}
+	}
+
+	for i, n := range members {
 		host := hosts[n.ID]
 		cfg := mongoConfig{
 			Cluster: frame.Label, Image: image, OS: frame.OS, Arch: archOr(frame.Arch),
@@ -477,7 +598,11 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 			PSMDBMajor: major, Version: frame.PSMDBVersion,
 			GenerateCert: frame.GenerateCert, UseProxy: frame.UseProxy, MonitoredBy: monitoredBy,
 			EnablePBM: frame.EnablePBM, BackupRepo: pbmRepo,
-			Ports: []int{mongoPort},
+			Ports:        []int{mongoPort},
+			VectorSearch: frame.VectorSearch, SearchHost: searchAddr, MongotHere: frame.VectorSearch && i == 0,
+		}
+		if cfg.MongotHere {
+			cfg.Ports = append(cfg.Ports, mongotGRPCPort, mongotHealthPort, mongotMetricsPort)
 		}
 		cfgJSON, _ := json.Marshal(cfg)
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
@@ -511,7 +636,7 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 			wg.Add(1)
 			go func(n designNode) {
 				defer wg.Done()
-				if err := a.mongoPrepareNode(ctx, st, frame, n, hosts[n.ID], image, major, rs, "", intranetID, intranetIP, domain, mcaParams, sec, nil, progs[n.ID]); err != nil {
+				if err := a.mongoPrepareNode(ctx, st, frame, n, hosts[n.ID], image, major, rs, "", intranetID, intranetIP, domain, memberParams, sec, nil, progs[n.ID]); err != nil {
 					mu.Lock()
 					failed = true
 					mu.Unlock()
@@ -535,6 +660,22 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 		// MClusterAdmin: the panel's account on the primary, which replicates it to
 		// the whole set like every other user.
 		a.mongoEnsureMCAUsers(ctx, st, members[0], sec, progs[members[0].ID])
+
+		// Vector search: the searchCoordinator account on the primary, then mongot on
+		// the first member. Fatal, unlike PMM and PBM below: a stack designed for
+		// $vectorSearch that comes up without it has not deployed what was asked for.
+		if frame.VectorSearch {
+			pr := progs[members[0].ID]
+			if err := a.mongoEnsureSearchUser(ctx, st, members[0], sec, pr); err != nil {
+				failAll("vector search: %v", err)
+				return
+			}
+			if err := a.mongoSetupSearch(ctx, st, frame, members[0], rsHosts, nil, sec, pr); err != nil {
+				failAll("vector search: %v", err)
+				return
+			}
+			a.mongoProbeSearch(ctx, a.depContainer(st.ID, members[0].ID), sec, pr.logln)
+		}
 
 		// PMM: create the monitoring user on the primary (replicates to the set) and
 		// register each member with --cluster=<replica-set name>.

@@ -120,7 +120,7 @@ name, and pick something under **Start from**.
 
 ![The New stack dialog, with the PXC + ProxySQL + PMM template selected](screenshots/getting-started-new-stack.png)
 
-> *Eleven templates ship with the app. Picking one describes what it builds and how many
+> *Fourteen templates ship with the app. Picking one describes what it builds and how many
 > nodes it takes before you commit — this one is the reference MySQL HA stack.*
 
 **Lifetime** is how long the stack lives before DBCanvas tears it down for you. Lab stacks

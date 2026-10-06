@@ -42,7 +42,7 @@ the passwords in `.env` — see [Configuration](docs/CONFIGURATION.md).
 ## Your first stack
 
 Go to **Database Stacks** → **New stack**, name it, and pick something under **Start from**.
-Eleven templates ship with the app, one per engine family.
+Fourteen templates ship with the app, one per engine family.
 
 ![The New stack dialog with the PXC + ProxySQL + PMM template selected](docs/screenshots/getting-started-new-stack.png)
 

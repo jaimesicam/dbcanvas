@@ -183,13 +183,15 @@ percona-release setup proxysql >/dev/null 2>&1
 echo '@@PROXYSQL2@@'; elsearch proxysql2 | grep -E '^2\.' | sort -rV -u
 echo '@@PROXYSQL3@@'; elsearch proxysql3 | grep -E '^3\.' | sort -rV -u
 # Percona Server for MongoDB: each psmdb-NN repo carries one major series
-# (6.0/7.0/8.0); the percona-server-mongodb meta package is the versioned one.
+# (6.0/7.0/8.0/8.3); the percona-server-mongodb meta package is the versioned one.
 percona-release setup psmdb-60 >/dev/null 2>&1
 echo '@@PSMDB60@@'; elsearch percona-server-mongodb | grep -E '^6\.0\.' | sort -rV -u
 percona-release setup psmdb-70 >/dev/null 2>&1
 echo '@@PSMDB70@@'; elsearch percona-server-mongodb | grep -E '^7\.0\.' | sort -rV -u
 percona-release setup psmdb-80 >/dev/null 2>&1
 echo '@@PSMDB80@@'; elsearch percona-server-mongodb | grep -E '^8\.0\.' | sort -rV -u
+percona-release setup psmdb-83 >/dev/null 2>&1
+echo '@@PSMDB83@@'; elsearch percona-server-mongodb | grep -E '^8\.3\.' | sort -rV -u
 # Percona Distribution for PostgreSQL: each ppg-NN repo carries one major series
 # (13..18); on EL the versioned meta package is percona-postgresqlNN (no hyphen;
 # the server is percona-postgresqlNN-server).
@@ -319,6 +321,8 @@ percona-release setup psmdb-70 >/dev/null 2>&1; apt-get update >/dev/null 2>&1
 echo '@@PSMDB70@@'; madison percona-server-mongodb | grep -E '^7\.0\.' | sort -rV -u
 percona-release setup psmdb-80 >/dev/null 2>&1; apt-get update >/dev/null 2>&1
 echo '@@PSMDB80@@'; madison percona-server-mongodb | grep -E '^8\.0\.' | sort -rV -u
+percona-release setup psmdb-83 >/dev/null 2>&1; apt-get update >/dev/null 2>&1
+echo '@@PSMDB83@@'; madison percona-server-mongodb | grep -E '^8\.3\.' | sort -rV -u
 percona-release setup ppg-13 >/dev/null 2>&1; apt-get update >/dev/null 2>&1
 echo '@@PPG13@@'; madison percona-postgresql-13 | grep -E '^13\.' | sort -rV -u
 percona-release setup ppg-14 >/dev/null 2>&1; apt-get update >/dev/null 2>&1
@@ -705,7 +709,7 @@ while IFS=$'\t' read -r os version platform arch tag; do
   echo "==> probing ${tag} (${platform}) for installable versions" >&2
 
   ps80="" ; ps84="" ; ps97="" ; ps57="" ; pxc80="" ; pxc84="" ; psql2="" ; psql3=""
-  mdb60="" ; mdb70="" ; mdb80=""
+  mdb60="" ; mdb70="" ; mdb80="" ; mdb83=""
   pg13="" ; pg14="" ; pg15="" ; pg16="" ; pg17="" ; pg18=""
   vk91=""
   orch=""
@@ -724,6 +728,7 @@ while IFS=$'\t' read -r os version platform arch tag; do
       mdb60="$(printf '%s\n' "$out" | section PSMDB60)"
       mdb70="$(printf '%s\n' "$out" | section PSMDB70)"
       mdb80="$(printf '%s\n' "$out" | section PSMDB80)"
+      mdb83="$(printf '%s\n' "$out" | section PSMDB83)"
       pg13="$(printf '%s\n' "$out" | section PPG13)"
       pg14="$(printf '%s\n' "$out" | section PPG14)"
       pg15="$(printf '%s\n' "$out" | section PPG15)"
@@ -755,6 +760,7 @@ while IFS=$'\t' read -r os version platform arch tag; do
   m6=$(printf '%s' "$mdb60" | grep -c . || true)
   m7=$(printf '%s' "$mdb70" | grep -c . || true)
   m8=$(printf '%s' "$mdb80" | grep -c . || true)
+  m83=$(printf '%s' "$mdb83" | grep -c . || true)
   g13=$(printf '%s' "$pg13" | grep -c . || true)
   g14=$(printf '%s' "$pg14" | grep -c . || true)
   g15=$(printf '%s' "$pg15" | grep -c . || true)
@@ -770,7 +776,7 @@ while IFS=$'\t' read -r os version platform arch tag; do
   d123=$(printf '%s' "$md123" | grep -c . || true)
   c80=$(printf '%s' "$myc80" | grep -c . || true)
   c84=$(printf '%s' "$myc84" | grep -c . || true)
-  echo "    ps: ${n80}+${n84}+${n57}  pxc: ${px0}+${px4}  proxysql: ${pq2}+${pq3}  psmdb: ${m6}+${m7}+${m8}  ppg: ${g13}+${g14}+${g15}+${g16}+${g17}+${g18}  valkey: ${vk9}  orchestrator: ${orc}" >&2
+  echo "    ps: ${n80}+${n84}+${n57}  pxc: ${px0}+${px4}  proxysql: ${pq2}+${pq3}  psmdb: ${m6}+${m7}+${m8}+${m83}  ppg: ${g13}+${g14}+${g15}+${g16}+${g17}+${g18}  valkey: ${vk9}  orchestrator: ${orc}" >&2
   echo "    mariadb: ${d106}+${d1011}+${d114}+${d118}+${d123}  mysql_community: ${c80}+${c84}" >&2
 
   # emit_series <indent-key> <key1> <list1> [<key2> <list2> ...]: emit a major-series
@@ -834,7 +840,7 @@ while IFS=$'\t' read -r os version platform arch tag; do
     emit_group percona  percona_server         "8.0" "$ps80"  "8.4" "$ps84"  "9.7" "$ps97"  "5.7" "$ps57"
     emit_group percona  percona_xtradb_cluster "8.0" "$pxc80" "8.4" "$pxc84"
     emit_group percona  proxysql               "2"   "$psql2" "3"   "$psql3"
-    emit_group percona  percona_server_mongodb "6.0" "$mdb60" "7.0" "$mdb70" "8.0" "$mdb80"
+    emit_group percona  percona_server_mongodb "6.0" "$mdb60" "7.0" "$mdb70" "8.0" "$mdb80" "8.3" "$mdb83"
     emit_group percona  percona_postgresql     "13" "$pg13" "14" "$pg14" "15" "$pg15" "16" "$pg16" "17" "$pg17" "18" "$pg18"
     emit_group percona  percona_valkey         "9.1" "$vk91"
     emit_group percona  percona_orchestrator   "3"   "$orch"

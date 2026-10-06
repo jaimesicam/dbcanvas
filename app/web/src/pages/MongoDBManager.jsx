@@ -122,6 +122,7 @@ export default function MongoDBManager({ stackId, nodeId, frameId, dep, onDelete
           <KV k="TLS" help={DEP_HELP.TLS} v={cfg.generateCert ? 'cert issued (see TLS tab)' : 'none'} />
           <KV k="Backups (PBM)" help={DEP_HELP['Backups (PBM)']} v={cfg.enablePBM ? (cfg.backupRepo || 'enabled') : 'disabled'} />
           {cfg.oidcEnabled && <KV k="Keycloak SSO" help={DEP_HELP['Keycloak SSO']} v="enabled (see Keycloak SSO tab)" />}
+          {cfg.vectorSearch && <KV k="Vector search" help={DEP_HELP['Vector search']} v={cfg.mongotHere ? `mongot runs here · ${cfg.searchHost}` : `via mongot ${cfg.searchHost}`} mono />}
           {cfg.vault?.enabled && <KV k="Encryption at rest" help={DEP_HELP['Encryption at rest']} v={`OpenBao · ${cfg.vault.mount}`} />}
           <KV k="Monitored by" help={DEP_HELP['Monitored by']} v={cfg.monitoredBy} mono />
           {cfg.serverVersion && <KV k="Version" help={DEP_HELP.Version} v={cfg.serverVersion} mono />}

@@ -76,11 +76,25 @@ var builtinTemplateDefs = []struct {
 		Design:      tplPGBackRestDesign,
 	},
 	{
+		Slug:        "pg-pgvector-support-sim",
+		Name:        "PostgreSQL + pgvector + Support Sim",
+		Description: "A standalone Percona Distribution for PostgreSQL 17 node with pgvector on, driven by the pgvector Support Sim: the same help desk as the MongoDB one, storing ticket embeddings in a vector column and answering, routing and merging tickets with an HNSW index and the <=> cosine operator, scored against keyword search, with a hands-on Vector Lab.",
+		Category:    "PostgreSQL",
+		Design:      tplPGVectorDesign,
+	},
+	{
 		Slug:        "psmdb-replica-set-pbm",
 		Name:        "PSMDB replica set + PBM",
 		Description: "A 3-member Percona Server for MongoDB replica set with Percona Backup for MongoDB wired to SeaweedFS S3 storage, configured at deploy.",
 		Category:    "MongoDB",
 		Design:      tplPSMRSPBMDesign,
+	},
+	{
+		Slug:        "psmdb-vector-search",
+		Name:        "PSMDB Vector Search + Support Sim",
+		Description: "A 3-member Percona Server for MongoDB 8.3 replica set with Vector search on (Percona Search for MongoDB, mongot), driven by the Support Sim: a help desk that answers, routes and merges tickets with $vectorSearch, scores itself against keyword search, and comes with a hands-on Vector Lab.",
+		Category:    "MongoDB",
+		Design:      tplPSMDBVectorDesign,
 	},
 	{
 		Slug:        "psmdb-sharded",
@@ -238,6 +252,22 @@ var tplPGBackRestDesign = json.RawMessage(`{
   "view": {"x":0,"y":0,"z":1}
 }`)
 
+// pgvector is not a preload library, so the standalone node only installs Percona's package
+// and creates the extension in postgres and template1 (pgvector.go); the sim then creates its
+// own `supportsim` database, which inherits the extension from template1.
+var tplPGVectorDesign = json.RawMessage(`{
+  "nodes": [
+    {"id":"tpl-intranet","type":"intranet","label":"Intranet","x":40,"y":40},
+    {"id":"tpl-pgv","type":"pg","label":"pgvector-01","os":"oraclelinux","osVersion":"9","pgMajor":"17","pgVersion":"","pgVector":true,"exportEnabled":false,"exportHostPort":0,"x":300,"y":40},
+    {"id":"tpl-pgvectorsim","type":"pgvectorsim","label":"pgvectorsim-01","x":300,"y":240}
+  ],
+  "frames": [],
+  "edges": [
+    {"id":"tpl-pgv-edge","from":{"node":"tpl-pgv","port":"bottom"},"to":{"node":"tpl-pgvectorsim","port":"top"},"type":"directional"}
+  ],
+  "view": {"x":0,"y":0,"z":1}
+}`)
+
 var tplPSMRSPBMDesign = json.RawMessage(`{
   "nodes": [
     {"id":"tpl-intranet","type":"intranet","label":"Intranet","x":40,"y":40},
@@ -250,6 +280,23 @@ var tplPSMRSPBMDesign = json.RawMessage(`{
     {"id":"tpl-psmrs","type":"psmrs","label":"psmrs-01","os":"oraclelinux","osVersion":"9","psmdbMajor":"8.0","psmdbVersion":"","rootPassword":"","pmmNodeId":"","useProxy":false,"enablePBM":true,"seaweedfsNodeId":"tpl-seaweed","seaweedfsBucket":"backups","generateCert":false,"certTtlValue":365,"certTtlUnit":"days","x":560,"y":20,"w":400,"h":138}
   ],
   "edges": [],
+  "view": {"x":0,"y":0,"z":1}
+}`)
+
+var tplPSMDBVectorDesign = json.RawMessage(`{
+  "nodes": [
+    {"id":"tpl-intranet","type":"intranet","label":"Intranet","x":40,"y":40},
+    {"id":"tpl-vs-1","type":"psmrs","label":"vs-1","frameId":"tpl-vsrs","exportEnabled":false,"exportHostPort":0,"x":574,"y":66},
+    {"id":"tpl-vs-2","type":"psmrs","label":"vs-2","frameId":"tpl-vsrs","exportEnabled":false,"exportHostPort":0,"x":702,"y":66},
+    {"id":"tpl-vs-3","type":"psmrs","label":"vs-3","frameId":"tpl-vsrs","exportEnabled":false,"exportHostPort":0,"x":830,"y":66},
+    {"id":"tpl-supportsim","type":"supportsim","label":"supportsim-01","x":700,"y":240}
+  ],
+  "frames": [
+    {"id":"tpl-vsrs","type":"psmrs","label":"vectors","os":"oraclelinux","osVersion":"9","psmdbMajor":"8.3","psmdbVersion":"","rootPassword":"","pmmNodeId":"","useProxy":true,"enablePBM":false,"vectorSearch":true,"generateCert":false,"certTtlValue":365,"certTtlUnit":"days","x":560,"y":20,"w":400,"h":138}
+  ],
+  "edges": [
+    {"id":"tpl-vs-edge","from":{"node":"tpl-vsrs","port":"bottom"},"to":{"node":"tpl-supportsim","port":"top"},"type":"directional"}
+  ],
   "view": {"x":0,"y":0,"z":1}
 }`)
 

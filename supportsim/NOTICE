@@ -1,0 +1,25 @@
+supportsim
+==========
+
+This application computes sentence embeddings with the all-MiniLM-L6-v2 model:
+
+  sentence-transformers/all-MiniLM-L6-v2
+  https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
+  Licensed under the Apache License, Version 2.0
+  (https://www.apache.org/licenses/LICENSE-2.0).
+
+  Trained by Nils Reimers (nreimers) and the sentence-transformers
+  community, fine-tuned from Microsoft's MiniLM
+  (nreimers/MiniLM-L6-H384-uncased, derived from microsoft/MiniLM-L12-H384-uncased;
+  Wang et al., "MiniLM: Deep Self-Attention Distillation for Task-Agnostic
+  Compression of Pre-Trained Transformers", 2020). Its WordPiece vocabulary is
+  that of Google's BERT-base-uncased.
+
+The model weights (model.safetensors) and vocabulary (vocab.txt) are NOT
+included in this repository. They are downloaded from Hugging Face at image
+build time by scripts/fetch-model.sh (pinned revision, SHA-256 verified) and
+are redistributed, unmodified, only inside the built container image.
+
+The inference code in internal/embed is an independent pure-Go
+implementation written for this project; it contains no code from
+sentence-transformers, Hugging Face Transformers, or PyTorch.

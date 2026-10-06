@@ -356,6 +356,9 @@ func (a *App) k3dCRState(ctx context.Context, serverID string, cfg k3dConfig) (s
 		return "", false
 	}
 	state = strings.ToLower(strings.TrimSpace(out))
+	if state == "initializing" && cfg.Operator == "psmdb" && cfg.VectorSearch != "" && a.psmdbSearchStuckReady(ctx, serverID, cfg) {
+		return "ready (search status workaround)", true
+	}
 	return state, state == "ready"
 }
 
@@ -515,7 +518,13 @@ func (a *App) k3dPSMDBResolve(ctx context.Context, serverID string, frame design
 		return stockSimResolved{}, true, fmt.Errorf(
 			"the %s replica set in %s has not elected a primary yet", rs, frame.Label)
 	}
-	svc, found := findService(svcs, primary)
+	// A search-enabled cluster has a LoadBalancer DBCanvas added beside the operator's
+	// NodePort (<pod>-ext, see psmdbSearchExposeMode); it is the address a LoadBalancer was
+	// chosen for, so it comes first.
+	svc, found := findService(svcs, primary+psmdbExtSuffix)
+	if !found {
+		svc, found = findService(svcs, primary)
+	}
 	if !found {
 		return stockSimResolved{}, true, fmt.Errorf(
 			"the %s replica set's primary is pod %s, which has no Service of its own — expose the replica set's pods on the Kubernetes frame",
@@ -778,7 +787,19 @@ func stockSimK3DExposeIssues(doc designDoc, n designNode) []issue {
 	sort.Strings(names)
 	return []issue{{Level: "warning", Message: fmt.Sprintf(
 		"Stock Market Sim node %s is linked to Kubernetes frame %s, where %s %s exposed as ClusterIP — an address that exists only inside the cluster. Set %s to LoadBalancer or NodePort on the frame, or the sim will have nothing to connect to.",
-		n.Label, f.Label, strings.Join(names, " and "), plural(len(names), "is", "are"), joinOr(names))}}
+		n.Label, f.Label, strings.Join(names, " and "), tierVerb(names), joinOr(names))}}
+}
+
+// tierVerb agrees "is"/"are" with the tier names, which are plural on their own as often
+// as not ("the replica set's pods", "the mongos routers") — counting them is not enough.
+func tierVerb(names []string) string {
+	if len(names) > 1 {
+		return "are"
+	}
+	if len(names) == 1 && (strings.HasSuffix(names[0], "pods") || strings.HasSuffix(names[0], "routers")) {
+		return "are"
+	}
+	return "is"
 }
 
 func plural(n int, one, many string) string {

@@ -182,6 +182,11 @@ type designNode struct {
 	// postgresql --query-source` takes. A PMM option here, so it applies only while
 	// PMMNodeID is set. Same field on designFrame. See app/pgquerysource.go.
 	PGQuerySource string `json:"pgQuerySource"`
+	// PGVector installs pgvector (vector similarity search) and creates the `vector`
+	// extension in the postgres and template1 databases. Not a preload library, so
+	// nothing about the server's startup changes. Same field on designFrame for the
+	// three PostgreSQL cluster types. See app/pgvector.go.
+	PGVector bool `json:"pgVector"`
 	// Which of that node's buckets to use ("" → its first, i.e. the default bucket).
 	SeaweedFSBucket string `json:"seaweedfsBucket"`
 	// PgBouncer node fields (Type=="pgbouncer"; ignored by other types). A connection
@@ -553,6 +558,11 @@ type designFrame struct {
 	// MCACredentials adds the two MClusterAdmin accounts to this cluster when it
 	// deploys. See the identical field on designNode (the standalone case).
 	MCACredentials bool `json:"mcaCredentials"`
+	// VectorSearch runs Percona Search for MongoDB (mongot) alongside a psmrs or psmdb
+	// frame — one mongot per data-bearing replica set, on its first member — and points
+	// every mongod (and mongos) at it, so $search and $vectorSearch work. PSMDB 8.3+ only;
+	// see mongosearch.go.
+	VectorSearch bool `json:"vectorSearch"`
 	// Patroni PostgreSQL cluster frame config (Type=="patroni"; reuses OS/OSVersion/
 	// Arch, RootPassword (postgres superuser pw), PMMNodeID, UseProxy, GenerateCert/
 	// CertTTL above). Each member co-locates PostgreSQL + Patroni + an etcd member.
@@ -565,7 +575,10 @@ type designFrame struct {
 	// frame it is a PMM option ("pgstatements" or "pgstatmonitor", only with
 	// PMMNodeID); on repmgr and Spock it is "pgstatements" on its own, since neither
 	// runs Percona's packages. See the identical field on designNode.
-	PGQuerySource   string `json:"pgQuerySource"`
+	PGQuerySource string `json:"pgQuerySource"`
+	// PGVector is pgvector on every member, cluster-wide: Percona's package on Patroni,
+	// PGDG's on repmgr, a source build on Spock. See the identical field on designNode.
+	PGVector        bool   `json:"pgVector"`
 	UsePgBackRest   bool   `json:"usePgBackRest"`   // configure pgBackRest → SeaweedFS S3 (clone + backup)
 	SeaweedFSNodeID string `json:"seaweedfsNodeId"` // SeaweedFS node id backing pgBackRest/Barman (when enabled)
 	// Which of that node's buckets to use ("" → its first, i.e. the default bucket).
@@ -686,6 +699,16 @@ type designFrame struct {
 	// directory, so a cluster that starts unencrypted cannot be encrypted later without
 	// re-creating the data.
 	K3DVaultEncryption bool `json:"k3dVaultEncryption"`
+	// K3DVectorSearch turns on the PSMDB operator's spec.search (Percona Search for
+	// MongoDB, mongot) and runs a PSMDB 8.3 image, which search needs. Operator 1.23.0+;
+	// see k3dsearch.go.
+	K3DVectorSearch bool `json:"k3dVectorSearch"`
+	// K3DPgVector turns pgvector on for a PostgreSQL operator's cluster. Percona: the operator's
+	// spec.extensions.builtin.pgvector (2.6.0+), which installs it and creates the extension in
+	// every database; see pgvector.go. CloudNativePG and Crunchy PGO: their images already carry
+	// it, and DBCanvas creates the extension in the application database at bootstrap
+	// (cnpg.go postInitApplicationSQL, k3dpgo.go databaseInitSQL).
+	K3DPgVector bool `json:"k3dPgVector"`
 	// The OpenBao node the cluster's principal key lives on. Named and shaped exactly like the
 	// designNode field of the same name (see dbvault.go): one OpenBao per stack, and the cluster
 	// gets its own KV v2 mount and a token scoped to it.
@@ -1477,6 +1500,25 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			if _, _, _, ok := hotelSimTarget(doc, n.ID); !ok {
 				out = append(out, issue{Level: "error", Message: "Hotel Sim node " + n.Label + " must be linked to a PS MongoDB (standalone, replica set, or sharded cluster) node — draw an association line from one to it"})
 			}
+		case "supportsim":
+			others++
+			if !seenImg[supportSimImage] {
+				seenImg[supportSimImage] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, supportSimImage); !ok {
+					out = append(out, missingImageIssue("supportsim"))
+				}
+			}
+			out = append(out, supportSimIssues(doc, n)...)
+		case "pgvectorsim":
+			// The Support Sim's own image, run against PostgreSQL (pgvectorsim.go).
+			others++
+			if !seenImg[supportSimImage] {
+				seenImg[supportSimImage] = true
+				if ok, _ := a.engCtx(ctx).ImageExists(ctx, supportSimImage); !ok {
+					out = append(out, missingImageIssue("supportsim"))
+				}
+			}
+			out = append(out, pgVectorSimIssues(doc, n)...)
 		case "airlinesim":
 			others++
 			if !seenImg[airlineSimImage] {
@@ -1874,7 +1916,9 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		out = append(out, a.k3dFrameIssues(ctx, f, members, opCat)...)
 		out = append(out, seaweedBucketIssues("K3D cluster "+f.Label, f.SeaweedFSNodeID, f.SeaweedFSBucket, doc)...)
 		out = append(out, k3dBackupIssues(f, doc)...)
+		out = append(out, k3dSearchIssues(f, opCat)...)
 		out = append(out, k3dPGFeatureIssues(f, doc, opCat, running[f.ID])...)
+		out = append(out, k3dPgVectorIssues(f, opCat, running[f.ID])...)
 		out = append(out, k3dVaultIssues(f, doc, opCat, running[f.ID])...)
 	}
 	for name, c := range k3dNames {
@@ -1932,6 +1976,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		}
 		out = append(out, pbmFrameIssues(f, doc)...)
 		out = append(out, seaweedBucketIssues("PS MongoDB cluster "+f.Label, f.SeaweedFSNodeID, f.SeaweedFSBucket, doc)...)
+		out = append(out, mongoSearchIssues(f)...)
 		img := pxcImage(f.OS, f.OSVersion, f.Arch)
 		if !seenImg[img] {
 			seenImg[img] = true
@@ -1972,6 +2017,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		}
 		out = append(out, pbmFrameIssues(f, doc)...)
 		out = append(out, seaweedBucketIssues("PS MongoDB cluster "+f.Label, f.SeaweedFSNodeID, f.SeaweedFSBucket, doc)...)
+		out = append(out, mongoSearchIssues(f)...)
 		img := pxcImage(f.OS, f.OSVersion, f.Arch)
 		if !seenImg[img] {
 			seenImg[img] = true
@@ -2362,6 +2408,10 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionTrafficSim(st, n, doc)
 		case "hotelsim":
 			a.provisionHotelSim(st, n, doc)
+		case "supportsim":
+			a.provisionSupportSim(st, n, doc)
+		case "pgvectorsim":
+			a.provisionPGVectorSim(st, n, doc)
 		case "airlinesim":
 			a.provisionAirlineSim(st, n, doc)
 		case "carsim":

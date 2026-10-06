@@ -140,6 +140,8 @@ func extraImageCatalog() []extraImage {
 			About: "The Valkey Traffic Lab demo app.", Why: whyNotBuildable("trafficsim")},
 		{ID: "hotelsim", Tag: hotelSimImage, Label: "Hotel Sim", Make: "hotelsim-image", Needs: []string{"hotelsim"},
 			About: "The MongoDB Hotel Reservation Lab demo app.", Why: whyNotBuildable("hotelsim")},
+		{ID: "supportsim", Tag: supportSimImage, Label: "Support Sim", Make: "supportsim-image", Needs: []string{"supportsim", "pgvectorsim"},
+			About: "The Vector Search Support Desk demo app — MongoDB ($vectorSearch) or PostgreSQL (pgvector); embeds all-MiniLM-L6-v2.", Why: whyNotBuildable("supportsim")},
 		{ID: "airlinesim", Tag: airlineSimImage, Label: "Airline Sim", Make: "airlinesim-image", Needs: []string{"airlinesim"},
 			About: "The MySQL Airline Reservation Lab demo app.", Why: whyNotBuildable("airlinesim")},
 		{ID: "carsim", Tag: carSimImage, Label: "Car Rental Sim", Make: "carsim-image", Needs: []string{"carsim"},

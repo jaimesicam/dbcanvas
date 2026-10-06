@@ -11,7 +11,7 @@ import (
 // option produces no stanza at all rather than an empty one.
 
 func TestCNPGClusterManifest(t *testing.T) {
-	full := string(cnpgClusterManifest("pg", "ns", 3, 20, "17", "pg-store"))
+	full := string(cnpgClusterManifest("pg", "ns", 3, 20, "17", "pg-store", false))
 	for _, want := range []string{
 		"apiVersion: postgresql.cnpg.io/v1",
 		"kind: Cluster",
@@ -36,7 +36,7 @@ func TestCNPGClusterManifest(t *testing.T) {
 	}
 
 	// An unpinned version and no backup target must leave both stanzas out entirely.
-	min := string(cnpgClusterManifest("pg", "ns", 1, 1, "", ""))
+	min := string(cnpgClusterManifest("pg", "ns", 1, 1, "", "", false))
 	for _, unwanted := range []string{"imageName", "plugins", "barmanObjectName"} {
 		if strings.Contains(min, unwanted) {
 			t.Errorf("minimal manifest should not mention %q:\n%s", unwanted, min)
@@ -226,5 +226,16 @@ func TestCNPGPoolerDefaults(t *testing.T) {
 	}
 	if got := cnpgPoolerName("pgtest"); got != "pgtest-pooler-rw" {
 		t.Errorf("pooler name = %q", got)
+	}
+}
+
+// pgvector on a CNPG cluster is created at bootstrap, as the superuser, in the app database.
+func TestCNPGPgVectorBootstrap(t *testing.T) {
+	if m := string(cnpgClusterManifest("pg", "ns", 1, 1, "17", "", false)); strings.Contains(m, "bootstrap") {
+		t.Errorf("pgvector off must leave bootstrap to the operator:\n%s", m)
+	}
+	m := string(cnpgClusterManifest("pg", "ns", 1, 1, "17", "", true))
+	if !strings.Contains(m, "  bootstrap:\n    initdb:\n      postInitApplicationSQL:\n      - CREATE EXTENSION IF NOT EXISTS vector\n") {
+		t.Errorf("pgvector on must create the extension at bootstrap:\n%s", m)
 	}
 }

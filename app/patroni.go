@@ -65,8 +65,11 @@ type patroniConfig struct {
 	// QuerySource is the query analytics extension enabled cluster-wide ("pgstatements",
 	// "pgstatmonitor"; empty when neither). See pgquerysource.go.
 	QuerySource string `json:"querySource,omitempty"`
-	Ports       []int  `json:"ports"`
-	ExportPort  int    `json:"exportPort"` // published host port for 5432 (0 = none)
+	// PGVector is where pgvector came from (its package) when the cluster has it; empty
+	// otherwise. See pgvector.go.
+	PGVector   string `json:"pgVector,omitempty"`
+	Ports      []int  `json:"ports"`
+	ExportPort int    `json:"exportPort"` // published host port for 5432 (0 = none)
 }
 
 // pgSecrets holds the cluster-wide PostgreSQL credentials: the superuser
@@ -204,6 +207,11 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 		backupStanza = patroniStanza(frame.Label)
 	}
 
+	pgVector := ""
+	if frame.PGVector {
+		pgVector = pgVectorSource(frame.Type, frame.OS, frame.PGMajor)
+	}
+
 	// Record every member as pending with its profile.
 	for _, n := range members {
 		host := hosts[n.ID]
@@ -215,6 +223,7 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 			BackupStanza: backupStanza,
 			GenerateCert: frame.GenerateCert, UseProxy: frame.UseProxy, MonitoredBy: monitoredBy,
 			QuerySource: pgQuerySourceFor(frame.Type, frame.PGQuerySource, frame.PMMNodeID),
+			PGVector:    pgVector,
 			Ports:       patroniPorts,
 		}
 		cfgJSON, _ := json.Marshal(cfg)
@@ -343,6 +352,23 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 			if err := a.enablePGQueryExtension(ctx, ldep.ContainerID, qs, "", pr.logln); err != nil {
 				// Non-fatal like the backup above: the cluster is up, QAN is what is missing.
 				pr.logln(err.Error())
+			}
+		}
+
+		// ---- Phase 4c: pgvector, created once on the leader (postgres + template1) ----
+		// Every member already has the package (patroniPrepareNode), so whichever one Patroni
+		// promotes later can serve vector columns; the extension is catalog state and streams.
+		if frame.PGVector && leaderID != "" {
+			pr := a.pxcNewProg(st.ID, leaderID)
+			pr.phase("Enabling pgvector", 92)
+			ldep, _ := a.store.GetDeployment(st.ID, leaderID)
+			if err := a.enablePGVector(ctx, ldep.ContainerID, "", pr.logln); err != nil {
+				// Non-fatal, like the two above and unlike the standalone node and repmgr. By
+				// now the members have bootstrapped as one Patroni cluster, and failing the
+				// leader alone would leave the replicas reporting a cluster whose leader is
+				// "failed" while it serves traffic. The package is on every member, so the
+				// remedy is one CREATE EXTENSION, and the log says which.
+				pr.logln(err.Error() + " — run CREATE EXTENSION vector; in postgres and template1 on the leader")
 			}
 		}
 
@@ -479,6 +505,16 @@ func (a *App) patroniPrepareNode(ctx context.Context, st Stack, frame designFram
 	// member needs the library on disk or it will not start.
 	if pgQuerySourceFor(frame.Type, frame.PGQuerySource, frame.PMMNodeID) == pgQSMonitor {
 		if err := a.installPGStatMonitor(ctx, id, frame.OS, major, pr.logln); err != nil {
+			return pr.fail("%v", err)
+		}
+	}
+	// pgvector on every member, not only the first leader: a replica reading a vector column
+	// loads the library too, and any member may be promoted. Fatal, as on the standalone node —
+	// the cluster was asked for vector search, and a member without it is not the cluster
+	// that was designed.
+	if frame.PGVector {
+		pr.phase("Installing pgvector", 47)
+		if err := a.installPGVector(ctx, id, frame.OS, major, "ppg", pr.logln); err != nil {
 			return pr.fail("%v", err)
 		}
 	}

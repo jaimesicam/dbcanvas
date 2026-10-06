@@ -106,6 +106,7 @@ function Overview({ cfg, dep, onDeleteNode }) {
       <KV k="Image" help={DEP_HELP.Image} v={cfg.image} mono />
       <KV k="etcd endpoints" help={DEP_HELP['etcd endpoints']} v={(cfg.etcdEndpoints || []).length ? `${(cfg.etcdEndpoints || []).length} member(s)` : '—'} />
       <KV k="pgBackRest" help={DEP_HELP.pgBackRest} v={cfg.usePgBackRest ? (cfg.backupRepo || 'enabled') : 'disabled'} />
+      {cfg.pgVector && <KV k="pgvector" help={DEP_HELP.pgvector} v={cfg.pgVector} mono />}
       <KV k="Host port (5432)" help={DEP_HELP['Host port (5432)']} v={cfg.exportPort ? String(cfg.exportPort) : 'not published'} mono />
       <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>

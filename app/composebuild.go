@@ -278,6 +278,7 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 		{s.AlertEmail != "", kind.takes("alertEmail"), "alertEmail"},
 		{s.Dataset != "", kind.takes("dataset"), "dataset"},
 		{s.MCA, kind.takes("mca"), "mca"},
+		{s.PGVector, kind.takes("pgvector"), "pgvector"},
 		{s.ViewOnly, kind.takes("viewOnly"), "viewOnly"},
 	}
 	for _, l := range composeLinks {
@@ -398,6 +399,7 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 		}
 		fr.ReplMode, fr.Mode, fr.PSMDBSetup = s.ReplMode, s.Mode, s.Setup
 		fr.MCACredentials = s.MCA
+		fr.PGVector = s.PGVector
 		fr.MySQLRouter = s.MySQLRouter
 		if kind.SetVersion != nil {
 			kind.SetVersion(major, minor, nil, &fr)
@@ -481,6 +483,7 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 		}
 		n.Mode, n.AlertEmail, n.MCDataset, n.TLS = s.Mode, s.AlertEmail, s.Dataset, s.TLS
 		n.MCACredentials, n.ViewOnly = s.MCA, s.ViewOnly
+		n.PGVector = s.PGVector
 		n.Buckets = s.Buckets
 		b.applyShaping(&n, s)
 		if kind.SetVersion != nil {

@@ -152,10 +152,16 @@ type k3dConfig struct {
 	PGTDE             string `json:"pgTde"`
 	PGLogicalReplicas int    `json:"pgLogicalReplicas"`
 	PGLogCollector    bool   `json:"pgLogCollector"`
+	// PGVector is spec.extensions.builtin.pgvector as applied (operator 2.6.0+) — false when the
+	// frame asked for it on an operator too old to have it, for the reason PGTDE is recorded.
+	PGVector bool `json:"pgVector,omitempty"`
 	// PXC / PSMDB: data-at-rest encryption keyed to the stack's OpenBao node ("" = not
 	// encrypted). A sentence for the same reason PGTDE is one — what a reader wants is which key
 	// store holds the master key, not merely that encryption happened. See k3dvault.go.
 	VaultEncryption string `json:"vaultEncryption"`
+	// VectorSearch describes the PSMDB cluster's Percona Search for MongoDB (mongot) when the
+	// frame turned it on — the server and mongot images it runs. Empty when off.
+	VectorSearch string `json:"vectorSearch,omitempty"`
 	// CloudNativePG (Operator=="cnpg"): the cluster's shape, how to reach it, and where the
 	// generated application password lives. The password itself is deliberately not here —
 	// k3dConfig is the non-secret profile.
@@ -1919,6 +1925,12 @@ func (a *App) k3dWaitClusterReady(ctx context.Context, st Stack, frame designFra
 	last := ""
 	for {
 		state, ready := a.k3dCRState(ctx, serverID, cfg)
+		if ready && state != "ready" {
+			say(cfg.ClusterName + " is up — every replica set and every mongot reports ready — but the operator leaves it " +
+				"\"initializing\": with spec.search on and the replica set exposed it cannot work out a connection host " +
+				"(a known 1.23.x issue; see psmdbSearchStuckReady). The cluster and $vectorSearch work regardless")
+			return
+		}
 		if ready {
 			say(cfg.ClusterName + " reports ready — the cluster is up")
 			return

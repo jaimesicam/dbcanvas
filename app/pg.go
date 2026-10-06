@@ -220,8 +220,11 @@ type pgConfig struct {
 	// QuerySource is the query analytics extension enabled for PMM ("pgstatements",
 	// "pgstatmonitor"; empty when neither). See pgquerysource.go.
 	QuerySource string `json:"querySource,omitempty"`
-	Ports       []int  `json:"ports"`
-	ExportPort  int    `json:"exportPort"` // published host port for 5432 (0 = none)
+	// PGVector is where pgvector came from (its package) when the node has it; empty
+	// otherwise. See pgvector.go.
+	PGVector   string `json:"pgVector,omitempty"`
+	Ports      []int  `json:"ports"`
+	ExportPort int    `json:"exportPort"` // published host port for 5432 (0 = none)
 }
 
 // pgServiceName / pgConfDir are OS-aware: on EL the packaged unit is
@@ -274,6 +277,10 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 		backupStanza = patroniStanza(n.Label)
 	}
 	qs := pgQuerySourceFor("pg", n.PGQuerySource, n.PMMNodeID)
+	pgVector := ""
+	if n.PGVector {
+		pgVector = pgVectorSource("pg", n.OS, major)
+	}
 
 	cfg := pgConfig{
 		Image: image, OS: n.OS, Hostname: host, FQDN: fqdn,
@@ -281,7 +288,7 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 		UsePgBackRest: n.UsePgBackRest, BackupRepo: backupRepo, BackupStanza: backupStanza,
 		Service: pgServiceName(n.OS, major), DataDir: pgDataDir(n.OS, major),
 		GenerateCert: n.GenerateCert, UseProxy: n.UseProxy, MonitoredBy: monitoredBy,
-		QuerySource: qs, Ports: []int{patroniPGPort},
+		QuerySource: qs, PGVector: pgVector, Ports: []int{patroniPGPort},
 	}
 	cfgJSON, _ := json.Marshal(cfg)
 	secJSON, _ := json.Marshal(sec)
@@ -422,6 +429,17 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 				return
 			}
 		}
+		// pgvector is its own package too. Fatal for the opposite reason: nothing stops the
+		// server starting without it, but the node was asked for vector search, and a node
+		// that deploys "fine" and then fails every CREATE TABLE with a vector column is the
+		// harder of the two to diagnose.
+		if n.PGVector {
+			pr.phase("Installing pgvector", 48)
+			if err := a.installPGVector(ctx, id, n.OS, major, "ppg", pr.logln); err != nil {
+				pr.fail("%v", err)
+				return
+			}
+		}
 
 		dataDir := pgDataDir(n.OS, major)
 		confDir := pgConfDir(n.OS, major)
@@ -497,6 +515,16 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 		if qs != pgQSNone {
 			pr.phase("Enabling "+pgQueryExtension(qs), 80)
 			if err := a.enablePGQueryExtension(ctx, id, qs, "", pr.logln); err != nil {
+				pr.fail("%v", err)
+				return
+			}
+		}
+
+		// ---- pgvector: the extension in postgres and template1 ----
+		// No preload and no restart: the package is on disk, so CREATE EXTENSION is all.
+		if n.PGVector {
+			pr.phase("Enabling pgvector", 81)
+			if err := a.enablePGVector(ctx, id, "", pr.logln); err != nil {
 				pr.fail("%v", err)
 				return
 			}

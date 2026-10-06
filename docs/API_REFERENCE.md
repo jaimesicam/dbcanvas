@@ -324,6 +324,8 @@ the same kind of line, but works without it.
 | `haproxy` | `patroni`, `repmgr`, `spock`, `pxc`, `ps-repl` — exactly one |
 | `trafficsim` | `valkey`, `valkey-cluster` |
 | `hotelsim` | `psm`, `psmrs`, `psmdb` |
+| `supportsim` | `psm`, `psmrs`, `psmdb`, `k3d` |
+| `pgvectorsim` | `pg`, `patroni`, `repmgr`, `spock`, `haproxy`, `pgbouncer`, `k3d` |
 | `airlinesim` | `ps`, `ps-repl`, `pxc`, `proxysql`, `haproxy` |
 | `pgbouncer` | `pg`, `patroni`, `repmgr`, `spock` — exactly one |
 | `carsim` | `pg`, `patroni`, `repmgr`, `spock`, `haproxy`, `pgbouncer` |

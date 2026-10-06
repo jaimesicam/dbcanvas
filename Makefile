@@ -11,7 +11,7 @@ VERSION ?= $(shell cat VERSION 2>/dev/null || echo dev)
 # app/clidownload.go, which is what the API page offers for download.
 CLI_PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 
-.PHONY: install install-extras compose env build up down logs restart rotate-key clean images extra-images versions smoke cli cli-test trafficsim-image hotelsim-image airlinesim-image carsim-image marketchaos-image stocksim-image ledgersim-image intranet-image vnc-image
+.PHONY: install install-extras compose env build up down logs restart rotate-key clean images extra-images versions smoke cli cli-test trafficsim-image hotelsim-image supportsim-image airlinesim-image carsim-image marketchaos-image stocksim-image ledgersim-image intranet-image vnc-image
 
 ## install: everything a first run needs — every image DBCanvas can build (the OS
 ## bases and the Intranet, then the optional ones on top: the VNC desktop, the K3D
@@ -226,6 +226,12 @@ trafficsim-image:
 ## node needs this.
 hotelsim-image:
 	bash images/apps.sh hotelsim
+
+## supportsim-image: build the MongoDB Vector Search Support Desk demo app image
+## (first-party Go binary + embedded frontend + the all-MiniLM-L6-v2 weights,
+## downloaded at build time) — a Support Sim node needs this.
+supportsim-image:
+	bash images/apps.sh supportsim
 
 ## airlinesim-image: build the MySQL Airline Reservation Lab demo app image
 ## (first-party Go binary + embedded static frontend, no systemd) — an Airline Sim

@@ -202,12 +202,17 @@ stringData:
 // connection through the pooler fail with "no such user" while direct connections to the
 // primary work — which is a confusing way to lose the pooler. Verified on a live 5.8.8 cluster:
 // dropping the attribute fixed it immediately, and nothing else changed.
-func pgoClusterManifest(name, ns string, instances, storageGB int, pgVersion, exposePG, exposePGBouncer string, s3 *crS3, monitoring bool) []byte {
+//
+// pgVector points spec.databaseInitSQL at pgoInitSQLConfigMap, which creates the extension.
+func pgoClusterManifest(name, ns string, instances, storageGB int, pgVersion, exposePG, exposePGBouncer string, s3 *crS3, monitoring, pgVector bool) []byte {
 	var b strings.Builder
 	fmt.Fprintf(&b, "apiVersion: %s\nkind: PostgresCluster\nmetadata:\n  name: %s\n  namespace: %s\nspec:\n",
 		pgoAPIVersion, name, ns)
 	fmt.Fprintf(&b, "  postgresVersion: %s\n", pgVersion)
 	fmt.Fprintf(&b, "  users:\n  - name: postgres\n  - name: %s\n    databases:\n    - %s\n", name, name)
+	if pgVector {
+		fmt.Fprintf(&b, "  databaseInitSQL:\n    name: %s\n    key: %s\n", pgoInitSQLName(name), pgoInitSQLKey)
+	}
 	if exposePG != "" {
 		fmt.Fprintf(&b, "  service:\n    type: %s\n", exposePG)
 	}
@@ -234,6 +239,21 @@ func pgoClusterManifest(name, ns string, instances, storageGB int, pgVersion, ex
 			"              requests:\n                storage: %dGi\n", storageGB)
 	}
 	return []byte(b.String())
+}
+
+// pgoInitSQLKey is the ConfigMap key spec.databaseInitSQL reads.
+const pgoInitSQLKey = "init.sql"
+
+func pgoInitSQLName(cluster string) string { return cluster + "-init-sql" }
+
+// pgoInitSQLConfigMap holds the SQL PGO runs once, as the superuser, when the cluster is first
+// ready. Crunchy's crunchy-postgres images carry pgvector, but its control file is not
+// `trusted`, so the application role could not create the extension itself. PGO runs the file
+// with psql against the postgres database, hence the \c into the application database, which
+// spec.users has already created by then.
+func pgoInitSQLConfigMap(cluster, ns string) []byte {
+	return []byte(fmt.Sprintf("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: %s\n  namespace: %s\ndata:\n  %s: |\n"+
+		"    \\c %s\n    CREATE EXTENSION IF NOT EXISTS vector;\n", pgoInitSQLName(cluster), ns, pgoInitSQLKey, cluster))
 }
 
 // pgoBlock indents a YAML fragment to a column and returns it as manifest text. The Percona
@@ -524,8 +544,15 @@ func (a *App) installPGOOperator(ctx context.Context, st Stack, frame designFram
 
 	// ---- the cluster ----
 	pr.phase("Creating the PostgresCluster", 88)
+	if frame.K3DPgVector {
+		if err := ar.apply(ctx, ns, "init-sql", pgoInitSQLConfigMap(cluster, ns)); err != nil {
+			return fmt.Errorf("apply the databaseInitSQL ConfigMap: %w", err)
+		}
+		cfg.PGVector = true
+		pr.logln("pgvector: CREATE EXTENSION vector in database " + cluster + " via spec.databaseInitSQL (" + pgoInitSQLName(cluster) + ")")
+	}
 	manifest := pgoClusterManifest(cluster, ns, cfg.PGOInstances, cfg.PGOStorageGB, cfg.PGOPGVersion,
-		cfg.ExposePG, cfg.ExposePGBouncer, s3, monitoring)
+		cfg.ExposePG, cfg.ExposePGBouncer, s3, monitoring, frame.K3DPgVector)
 	if err := ar.apply(ctx, ns, "postgrescluster", manifest); err != nil {
 		return fmt.Errorf("apply the PostgresCluster: %w", err)
 	}

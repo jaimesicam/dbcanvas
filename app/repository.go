@@ -1557,6 +1557,8 @@ func (a *App) handleRepositoryCatalog(w http.ResponseWriter, r *http.Request) {
 		{"psmdb-60", "Percona Server for MongoDB 6.0", "MongoDB", versionsOf("percona_server_mongodb", "6.0")},
 		{"psmdb-70", "Percona Server for MongoDB 7.0", "MongoDB", versionsOf("percona_server_mongodb", "7.0")},
 		{"psmdb-80", "Percona Server for MongoDB 8.0", "MongoDB", versionsOf("percona_server_mongodb", "8.0")},
+		{"psmdb-83", "Percona Server for MongoDB 8.3", "MongoDB", versionsOf("percona_server_mongodb", "8.3")},
+		{"ps4m", "Percona Search for MongoDB (mongot)", "MongoDB", nil},
 		{"pbm", "Percona Backup for MongoDB", "MongoDB", nil},
 		{"valkey-91", "Percona Valkey 9.1", "Valkey", versionsOf("percona_valkey", "9.1")},
 		{"pmm3-client", "PMM 3 client", "Common", nil},

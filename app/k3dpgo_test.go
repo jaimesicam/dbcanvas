@@ -56,7 +56,7 @@ func TestPGOUserSecretCarriesTheSelectorLabels(t *testing.T) {
 }
 
 func TestPGOClusterManifest(t *testing.T) {
-	m := string(pgoClusterManifest("hippo", "pgo", 2, 5, "17", "ClusterIP", "LoadBalancer", nil, false))
+	m := string(pgoClusterManifest("hippo", "pgo", 2, 5, "17", "ClusterIP", "LoadBalancer", nil, false, false))
 	for _, want := range []string{
 		// v1beta1, not v1: PGO 5.x serves only v1beta1 and 6.x serves both, so this is the one
 		// spelling that works across every version the picker offers.
@@ -91,7 +91,7 @@ func TestPGOClusterManifest(t *testing.T) {
 	// be rejected, and a leftover volume would silently keep backups inside the cluster.
 	s3 := string(pgoClusterManifest("hippo", "pgo", 1, 1, "18", "", "", &crS3{
 		Bucket: "b", Region: "r", EndpointURL: "https://sw.example.net:8333", Secret: "hippo-pgbackrest-secrets",
-	}, false))
+	}, false, false))
 	for _, want := range []string{
 		"      configuration:\n      - secret:\n          name: hippo-pgbackrest-secrets",
 		"        repo1-s3-uri-style: path",
@@ -230,11 +230,11 @@ func TestPGOBackupWarningMatchesPercona(t *testing.T) {
 // The exporter is one field, and it must be absent unless asked for: it adds a container to
 // every instance pod, which on a k3d budget is not free.
 func TestPGOClusterManifestMonitoring(t *testing.T) {
-	off := string(pgoClusterManifest("hippo", "pgo", 2, 1, "17", "", "", nil, false))
+	off := string(pgoClusterManifest("hippo", "pgo", 2, 1, "17", "", "", nil, false, false))
 	if strings.Contains(off, "monitoring:") {
 		t.Errorf("the exporter is configured on a frame that did not ask for it:\n%s", off)
 	}
-	on := string(pgoClusterManifest("hippo", "pgo", 2, 1, "17", "", "", nil, true))
+	on := string(pgoClusterManifest("hippo", "pgo", 2, 1, "17", "", "", nil, true, false))
 	if !strings.Contains(on, "  monitoring:\n    pgmonitor:\n      exporter: {}\n") {
 		t.Errorf("monitoring does not enable the pgMonitor exporter:\n%s", on)
 	}
@@ -407,5 +407,24 @@ func TestPGOUnsupportedExporterVersionWarns(t *testing.T) {
 	f.K3DPGOVersion, f.K3DPGOMonitoring = "18", false
 	if _, ok := pgoExporterIssue(f, f.Label); ok {
 		t.Error("a frame with monitoring off warned about the exporter")
+	}
+}
+
+// pgvector on a PGO cluster is a databaseInitSQL ConfigMap the cluster points at: the
+// extension is not trusted, so the application role cannot create it.
+func TestPGOPgVectorInitSQL(t *testing.T) {
+	off := string(pgoClusterManifest("hippo", "pgo", 1, 1, "17", "", "", nil, false, false))
+	if strings.Contains(off, "databaseInitSQL") {
+		t.Errorf("pgvector off must not set databaseInitSQL:\n%s", off)
+	}
+	on := string(pgoClusterManifest("hippo", "pgo", 1, 1, "17", "", "", nil, false, true))
+	if !strings.Contains(on, "  databaseInitSQL:\n    name: hippo-init-sql\n    key: init.sql\n") {
+		t.Errorf("pgvector on must point databaseInitSQL at the ConfigMap:\n%s", on)
+	}
+	cm := string(pgoInitSQLConfigMap("hippo", "pgo"))
+	for _, want := range []string{"name: hippo-init-sql", "namespace: pgo", "  init.sql: |\n    \\c hippo\n    CREATE EXTENSION IF NOT EXISTS vector;"} {
+		if !strings.Contains(cm, want) {
+			t.Errorf("ConfigMap missing %q:\n%s", want, cm)
+		}
 	}
 }

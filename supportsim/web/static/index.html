@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vector Support Desk</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%2300a37a'/><circle cx='10' cy='12' r='3' fill='white'/><circle cx='21' cy='10' r='2.4' fill='white'/><circle cx='19' cy='21' r='3.4' fill='white'/></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><circle cx="16" cy="16" r="14" fill="var(--accent)"/><circle cx="10" cy="12" r="3" fill="#fff"/><circle cx="21" cy="10" r="2.4" fill="#fff"/><circle cx="19" cy="21" r="3.4" fill="#fff"/><path d="M10 12 L19 21 M21 10 L19 21" stroke="#fff" stroke-width="1.2" opacity=".7"/></svg>
+    <div>
+      <div class="brand-name">Orbit Support · Vector Desk</div>
+      <div class="brand-sub"><span class="mongo-only">MongoDB Vector Search, doing a real job</span><span class="pg-only">PostgreSQL + pgvector, doing a real job</span></div>
+    </div>
+  </div>
+  <div class="chips" id="chips"></div>
+  <div class="controls">
+    <button id="pause" class="btn" title="Pause or resume incoming tickets">⏸ Pause</button>
+    <label class="rate" title="Tickets arriving per minute"><input id="rate" type="range" min="2" max="120" step="1" value="12"><span id="rateLabel">12/min</span></label>
+    <button id="outage" class="btn warn" title="Make several customers report the same platform problem at once">🚨 Simulate outage</button>
+  </div>
+</header>
+
+<div id="phase" class="phase hidden"></div>
+
+<nav class="tabs" role="tablist">
+  <button class="tab active" data-tab="desk">① Live Desk</button>
+  <button class="tab" data-tab="showdown">② Search Showdown</button>
+  <button class="tab" data-tab="lab">③ Vector Lab</button>
+  <button class="tab" data-tab="workshop">④ Index Workshop</button>
+  <button class="tab" data-tab="hood">⑤ Under the Hood</button>
+</nav>
+
+<main>
+<!-- ===================================================================== DESK -->
+<section id="tab-desk" class="pane active">
+  <div class="hero" id="hero">Waiting for the first tickets…</div>
+  <div class="kpis" id="kpis"></div>
+  <div class="desk-grid">
+    <div>
+      <div class="section-head">
+        <h2>Incoming tickets</h2>
+        <span class="muted small">Each one is embedded, then searched with <span class="mongo-only"><code>$vectorSearch</code></span><span class="pg-only">pgvector: <code>ORDER BY embedding &lt;=&gt; $1 LIMIT 10</code></span>. Click a ticket to see exactly why the desk did what it did.</span>
+      </div>
+      <div id="feed" class="feed"></div>
+    </div>
+    <aside>
+      <div class="card">
+        <h3>Who gets it right?</h3>
+        <p class="muted small">Scored on every everyday ticket against the simulator's ground truth — the same tickets, the same moment, two kinds of search.</p>
+        <div id="scoreboard"></div>
+      </div>
+      <div class="card">
+        <h3>Incident radar</h3>
+        <p class="muted small">A burst of tickets about something <i>new</i> (nothing resolved resembles them) that resemble <i>each other</i>, within <span id="incSpan">3</span> minutes: probably one outage, however each customer worded it.</p>
+        <div id="incidents" class="incidents"><div class="muted small">No incidents yet. Try <b>Simulate outage</b>.</div></div>
+      </div>
+    </aside>
+  </div>
+</section>
+
+<!-- ===================================================================== SHOWDOWN -->
+<section id="tab-showdown" class="pane">
+  <div class="intro">
+    <h2>Same question, three engines</h2>
+    <p class="mongo-only">Ask the knowledge base something the way a customer would. <b>Keyword search</b> (<code>$search</code>, BM25) looks for your words. <b>Vector search</b> (<code>$vectorSearch</code>) looks for your meaning. <b>Hybrid</b> blends the two, either by rank (<code>$rankFusion</code>) or by normalized score (<code>$scoreFusion</code>), with weights you set below. All three run on the same mongot. Each hybrid result shows what it got from each side.</p>
+    <p class="pg-only">Ask the knowledge base something the way a customer would. <b>Keyword search</b> is PostgreSQL's own full-text search (a <code>tsvector</code> column, a GIN index, <code>ts_rank_cd</code>): it looks for your words. <b>Vector search</b> is pgvector (<code>embedding &lt;=&gt; $1</code> on an HNSW index): it looks for your meaning. <b>Hybrid</b> blends the two in one SQL statement, either by rank (reciprocal rank fusion) or by normalized score, with weights you set below. No second service: all three are queries against the same tables, in the same transaction if you like. Each hybrid result shows what it got from each side.</p>
+  </div>
+  <form id="sdForm" class="sd-form">
+    <input id="sdQuery" type="text" placeholder="e.g. my card was charged twice" autocomplete="off">
+    <select id="sdColl"><option value="kb_articles">Knowledge base articles</option><option value="tickets">Past resolved tickets</option></select>
+    <button class="btn primary" type="submit">Search</button>
+  </form>
+  <div class="examples" id="sdExamples"></div>
+  <div class="fusion-bar">
+    <span class="small muted">Hybrid:</span>
+    <select id="fuMethod"><option value="rank">$rankFusion · by rank</option><option value="score">$scoreFusion · by score</option></select>
+    <select id="fuNorm" class="hidden"><option value="sigmoid">sigmoid</option><option value="minMaxScaler">minMaxScaler</option><option value="none">none</option></select>
+    <label class="wslider">keyword <input id="fuWeight" type="range" min="0" max="1" step="0.1" value="0.5"> vector <b id="fuWeightLbl">0.5 : 0.5</b></label>
+    <span class="small muted" id="fuDesk"></span>
+  </div>
+  <div id="sdVerdict"></div>
+  <div class="sd-cols" id="sdCols"></div>
+
+  <div class="card" style="margin-top:16px">
+    <h3>Tune the blend: find the weight instead of guessing it</h3>
+    <p class="muted small">Equal weights are a default, not an answer. This sweeps the vector weight from 0 (keyword only) to 1 (vector only) on 80 tickets the desk has never seen and scores each setting against the right answer. Then you can make the live desk use the best one.</p>
+    <div class="row">
+      <select id="tuColl"><option value="kb_articles">against KB articles</option><option value="tickets">against past tickets</option></select>
+      <select id="tuMethod"><option value="rank">$rankFusion</option><option value="score">$scoreFusion</option></select>
+      <select id="tuNorm"><option value="sigmoid">sigmoid</option><option value="minMaxScaler">minMaxScaler</option><option value="none">none</option></select>
+      <button id="tuGo" class="btn primary">Run the sweep</button>
+    </div>
+    <div id="tuOut"></div>
+  </div>
+</section>
+
+<!-- ===================================================================== LAB -->
+<section id="tab-lab" class="pane">
+  <div class="intro">
+    <h2>Vector Lab: learn it by poking it</h2>
+    <p>Seven short steps, from "what is an embedding?" to the exact <span class="mongo-only"><code>$vectorSearch</code></span><span class="pg-only">SQL</span> you would put in your own app. Everything here runs live, against this <span class="mongo-only">cluster</span><span class="pg-only">database</span>.</p>
+  </div>
+
+  <div class="step" id="step1">
+    <div class="step-n">1</div>
+    <div class="step-body">
+      <h3>A sentence becomes 384 numbers</h3>
+      <p>An <b>embedding model</b> reads text and outputs a fixed-length list of numbers, a <b>vector</b>. This app runs <code>all-MiniLM-L6-v2</code> inside its own process: no API call, no GPU. Every ticket, every article and every query goes through it.</p>
+      <div class="row"><input id="embText" type="text" value="I got a new phone and can't log in"><button id="embGo" class="btn primary">Embed</button></div>
+      <div id="embOut"></div>
+    </div>
+  </div>
+
+  <div class="step" id="step2">
+    <div class="step-n">2</div>
+    <div class="step-body">
+      <h3>Similar meaning → nearby vectors</h3>
+      <p><b>Cosine similarity</b> measures the angle between two vectors: 1 means they point the same way, 0 means unrelated. Because the vectors are unit length, it is just the sum of 384 products, <code>a[i]×b[i]</code>. Try the presets, especially the last two.</p>
+      <div class="presets" id="simPresets"></div>
+      <div class="row"><input id="simA" type="text" value="my card was charged twice"><input id="simB" type="text" value="I was billed two times for the same payment"><button id="simGo" class="btn primary">Compare</button></div>
+      <div id="simOut"></div>
+    </div>
+  </div>
+
+  <div class="step" id="step3">
+    <div class="step-n">3</div>
+    <div class="step-body">
+      <h3>The map: every ticket, squashed from 384 dimensions to 2</h3>
+      <p>Each dot is a ticket (◆ = KB article), colored by the team that owns the problem. Nobody told the model about teams. The clusters appear because tickets about the same problem mean similar things. Type something to see where it lands and which tickets are truly nearest. The lines are the real 384-D neighbors, which a 2-D picture can only approximate.</p>
+      <div class="row"><input id="mapText" type="text" placeholder="e.g. backups stopped working last week"><button id="mapGo" class="btn primary">Place it</button><button id="mapRefresh" class="btn">Refresh map</button></div>
+      <div class="map-wrap"><canvas id="map" width="900" height="520"></canvas><div id="mapTip" class="tip hidden"></div></div>
+      <div id="mapLegend" class="legend"></div>
+      <div id="mapNb"></div>
+    </div>
+  </div>
+
+  <div class="step" id="step4">
+    <div class="step-n">4</div>
+    <div class="step-body">
+      <h3>Index it</h3>
+      <p class="mongo-only">Vectors live in an ordinary field (<code>embedding</code>, an array of 384 doubles). To search them fast you create a <b>vector search index</b>. <code>mongod</code> only records the index; <b>mongot</b> builds and serves it. Note the <code>filter</code> fields: <code>$vectorSearch</code> can only pre-filter on fields declared here.</p>
+      <div class="pg-only">
+        <p>Vectors live in an ordinary column of pgvector's type, <code>embedding vector(384)</code>, next to every other column of the row. To search them fast you create an index like any other, <code>USING hnsw</code>, naming the <b>operator class</b> that matches the distance you will query with: <code>vector_cosine_ops</code> for <code>&lt;=&gt;</code>. An index on one operator is ignored by a query using another. The keyword side is ordinary PostgreSQL: a generated <code>tsvector</code> column and a GIN index.</p>
+      </div>
+      <div id="idxOut"></div>
+    </div>
+  </div>
+
+  <div class="step" id="step5">
+    <div class="step-n">5</div>
+    <div class="step-body">
+      <h3 class="mongo-only">Query it: build a <code>$vectorSearch</code></h3>
+      <p class="mongo-only"><code>numCandidates</code> is how many nearest neighbors the HNSW graph explores before picking the top <code>limit</code>. More candidates means better recall but more work. <code>exact: true</code> skips the graph and scans every vector: perfect recall, linear cost. Recall here is measured against mongot's own exact search.</p>
+      <h3 class="pg-only">Query it: <code>ORDER BY embedding &lt;=&gt; $1 LIMIT k</code></h3>
+      <p class="pg-only">A vector search in PostgreSQL is an ordinary <code>SELECT</code>: order by the distance to the query vector, take the first k. The HNSW index serves that ORDER BY. <code>hnsw.ef_search</code> (default 40) is how many candidates the graph walk keeps: more means better recall and more work. <b>exact</b> turns index scans off, so every row's distance is computed and sorted: perfect recall, linear cost. Filters are plain <code>WHERE</code> clauses on any column, no declaration needed. Recall is measured against that exact query.</p>
+      <div class="builder">
+        <label>Query<input id="bQuery" type="text" value="customers can't connect from their new office"></label>
+        <label>Collection<select id="bColl"><option value="tickets">tickets</option><option value="kb_articles">kb_articles</option></select></label>
+        <label>limit <b id="bKv">5</b><input id="bK" type="range" min="1" max="20" value="5"></label>
+        <label><span class="mongo-only">numCandidates</span><span class="pg-only">hnsw.ef_search</span> <b id="bNv">50</b><input id="bN" type="range" min="1" max="1000" value="50"></label>
+        <label class="inline"><input id="bExact" type="checkbox"> exact <span class="mongo-only">(ENN)</span><span class="pg-only">(no index)</span></label>
+        <label>filter: team<select id="bTeam"><option value="">any</option></select></label>
+        <label>filter: plan<select id="bPlan"><option value="">any</option></select></label>
+        <label>filter: status<select id="bStatus"><option value="">any</option><option>resolved</option><option>open</option><option>auto_answered</option></select></label>
+        <button id="bGo" class="btn primary">Run</button>
+      </div>
+      <div id="bOut"></div>
+    </div>
+  </div>
+
+  <div class="step" id="step6">
+    <div class="step-n">6</div>
+    <div class="step-body">
+      <h3 class="mongo-only">Fresh off the change stream</h3>
+      <p class="mongo-only">mongot keeps its index current by tailing the replica set's change stream. A new document is findable by <code>$vectorSearch</code> a moment <i>after</i> the insert is acknowledged. This inserts a probe ticket and times that moment.</p>
+      <h3 class="pg-only">Transactional, not eventual</h3>
+      <p class="pg-only">An HNSW index is updated inside the same transaction as the <code>INSERT</code>, like a B-tree. So a vector search follows the ordinary rules of MVCC: the writing session sees its own row before it commits, other sessions don't, and everyone does the moment it commits. This inserts a probe ticket and asks at each of those three points.</p>
+      <button id="frGo" class="btn primary">Insert a ticket and time it</button>
+      <div id="frOut"></div>
+    </div>
+  </div>
+
+  <div class="step" id="step7">
+    <div class="step-n">7</div>
+    <div class="step-body">
+      <h3>Things worth knowing before you build one</h3>
+      <div class="gotchas mongo-only">
+        <div class="gotcha"><b>One model, both sides.</b> Queries must be embedded with the same model as the documents. Vectors from different models live in different spaces; their cosines are meaningless.</div>
+        <div class="gotcha"><b>numDimensions must match.</b> MiniLM gives 384. A 1536-wide index will not find 384-wide vectors.</div>
+        <div class="gotcha"><b>Scores are rescaled.</b> For a cosine index <code>vectorSearchScore = (1 + cos) / 2</code>, so 0.5 means unrelated, not "half similar".</div>
+        <div class="gotcha"><b>Negation is weak.</b> "I can log in" and "I can't log in" are close (see step 2). Embeddings capture topic better than logic. Pair them with filters or a reranker when it matters.</div>
+        <div class="gotcha"><b>Pre-filter fields go in the index.</b> <code>filter: {team: "Billing"}</code> only works if <code>team</code> is declared <code>type: "filter"</code>.</div>
+        <div class="gotcha"><b>numCandidates ≈ 10–20 × limit</b> is a good start. Then measure recall like step 5 does.</div>
+        <div class="gotcha"><b>Search is eventually consistent.</b> Read-your-own-write with <code>$vectorSearch</code> may miss a document for a few milliseconds (step 6).</div>
+        <div class="gotcha"><b>Vectors cost space.</b> 384 doubles are about 3 KB per document. Store them as BSON binData vectors (float32 / int8) to cut that by 2–8×.</div>
+        <div class="gotcha"><b>One mongot per replica set.</b> Here it runs on the first member; if that host stops, <code>$vectorSearch</code> fails while ordinary queries keep working.</div>
+        <div class="gotcha"><b>A missing index returns nothing, not an error.</b> <code>$vectorSearch</code> naming an index that doesn't exist (dropped, misspelled, not built yet) returns 0 results, which looks just like "no matches". Index Workshop step 2 shows it.</div>
+        <div class="gotcha"><b>int8 vectors need an int8 query.</b> Against a BinData int8 field, a float <code>queryVector</code> silently returns nothing. Quantize the query the same way as the documents.</div>
+        <div class="gotcha"><b>Search indexes aren't backed up.</b> Backups contain the data (and the vectors); mongot rebuilds its indexes after a restore.</div>
+      </div>
+      <div class="gotchas pg-only">
+        <div class="gotcha"><b>One model, both sides.</b> Queries must be embedded with the same model as the rows. Vectors from different models live in different spaces; their distances are meaningless.</div>
+        <div class="gotcha"><b>The column fixes the width.</b> <code>vector(384)</code> refuses a 1536-number vector with an error, which is better than silently finding nothing.</div>
+        <div class="gotcha"><b>Operators are distances, not scores.</b> <code>&lt;=&gt;</code> is cosine <i>distance</i> (0 = same direction), <code>&lt;-&gt;</code> L2 distance, <code>&lt;#&gt;</code> the <i>negative</i> inner product. ORDER BY ascending; <code>1 - (a &lt;=&gt; b)</code> gives the cosine similarity back.</div>
+        <div class="gotcha"><b>The operator must match the index.</b> An index built with <code>vector_cosine_ops</code> serves <code>&lt;=&gt;</code> only. Query with <code>&lt;-&gt;</code> and the planner quietly falls back to a sequential scan: right answers, slowly. <code>EXPLAIN</code> tells you (Index Workshop step 3).</div>
+        <div class="gotcha"><b>ef_search caps the rows.</b> An HNSW scan returns at most <code>hnsw.ef_search</code> rows (default 40). <code>LIMIT 100</code> with the default returns 40, without an error. Raise it per query with <code>SET LOCAL</code> inside a transaction.</div>
+        <div class="gotcha"><b>Filters are applied after the index.</b> <code>WHERE team = 'Billing'</code> filters the candidates HNSW returns, so a selective filter can come back short. pgvector 0.8's <code>hnsw.iterative_scan</code> keeps searching; before 0.8, use a partial index per value or a bigger ef_search (Index Workshop step 2).</div>
+        <div class="gotcha"><b>Small tables are scanned.</b> Under a few thousand rows the planner often picks a sequential scan over the HNSW index, because it is cheaper. That is correct, not a bug; the index takes over as the table grows.</div>
+        <div class="gotcha"><b>Build memory matters.</b> HNSW builds fast while the graph fits in <code>maintenance_work_mem</code>, and much slower once it doesn't (a NOTICE says so). <code>max_parallel_maintenance_workers</code> parallelises the build.</div>
+        <div class="gotcha"><b>Vectors are big rows.</b> 384 floats are 1.5 KB per row, close to the TOAST threshold. <code>halfvec</code> halves that; <code>binary_quantize</code> indexes 48 bytes and re-ranks with the full vector (Index Workshop step 1).</div>
+        <div class="gotcha"><b>Indexes are part of the database.</b> They are WAL-logged, replicated to standbys, and in every physical backup. A replica can serve vector reads; no separate service has to be rebuilt after a restore.</div>
+        <div class="gotcha"><b>CREATE EXTENSION vector, once per database.</b> The package puts the library on the server; each database still needs the extension created. The Percona Operator does it for you when <code>pgvector</code> is enabled.</div>
+        <div class="gotcha"><b>Negation is weak.</b> "I can log in" and "I can't log in" are close (see step 2). Pair similarity with filters or a reranker when it matters.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================================================================== WORKSHOP -->
+<section id="tab-workshop" class="pane">
+  <div class="intro">
+    <h2>Index Workshop: the choices you make when you define a vector index</h2>
+    <p class="mongo-only">Similarity function, quantization, how the vector is stored, whether it is normalized: each is one line in an index definition, and each changes size, speed or correctness. Here they are measured on real indexes, on a copy of the tickets (<code>vector_variants</code>), so the desk is never affected.</p>
+    <p class="pg-only">Index type (HNSW or IVFFlat), operator class, graph parameters, column type (<code>vector</code>, <code>halfvec</code>, <code>bit</code>), whether the vectors are normalized: each is one clause in a <code>CREATE INDEX</code>, and each changes size, build time, speed or correctness. Here they are measured on real indexes over copies of the tickets (tables <code>vv_*</code> in the <code>supportsim</code> schema), so the desk is never affected.</p>
+  </div>
+
+  <div class="step"><div class="step-n">1</div><div class="step-body">
+    <h3>Same vectors, nine indexes</h3>
+    <p class="mongo-only">Build nine search indexes over the same 2,000 tickets, then ask each the same 60 questions. Recall is measured against exact search on the cosine baseline. "Right answer" is whether the 5 nearest tickets vote for the correct article, i.e. whether the difference matters to the desk.</p>
+    <p class="pg-only">Build eight indexes (and one table with none) over the same 2,000 tickets, then ask each the same 60 questions. Recall is measured against the exact query on the unindexed table. "Right answer" is whether the 5 nearest tickets vote for the correct article, i.e. whether the difference matters to the desk. Move <code>hnsw.ef_search</code> and <code>ivfflat.probes</code> and run again: that is the speed/recall dial.</p>
+    <div class="row" id="wsBuildRow"><button id="wsBuild" class="btn primary">Build the variant indexes</button><span id="wsState" class="small muted"></span></div>
+    <div class="builder" style="margin-top:6px">
+      <label>limit (k) <b id="wsKv">10</b><input id="wsK" type="range" min="1" max="20" value="10"></label>
+      <label class="mongo-only">numCandidates <b id="wsNv">40</b><input id="wsN" type="range" min="5" max="400" step="5" value="40"></label>
+      <label class="pg-only">hnsw.ef_search <b id="wsEv">40</b><input id="wsE" type="range" min="1" max="400" value="40"></label>
+      <label class="pg-only">ivfflat.probes <b id="wsPv">1</b><input id="wsP" type="range" min="1" max="45" value="1"></label>
+      <button id="wsBench" class="btn primary">Run the benchmark</button>
+    </div>
+    <div id="wsOut"></div>
+  </div></div>
+
+  <div class="step"><div class="step-n">2</div><div class="step-body">
+    <h3>An index's life, watched</h3>
+    <p class="mongo-only">One index, <code>playground</code>. Press the buttons in order. Every 0.7 s two probe queries run against it, a plain <code>$vectorSearch</code> and one that pre-filters on <code>team</code>, and every change in what mongot reports or the probes return is recorded below.</p>
+    <p class="pg-only">One HNSW index, <code>vv_play_hnsw</code>, on an 8,000-row table. Press the buttons in order. Every 0.7 s two probe queries run, a plain <code>ORDER BY embedding &lt;=&gt; $1 LIMIT 10</code> and the same with <code>WHERE vip</code> (2% of rows), and every change in the index's state (<code>pg_index</code>, <code>pg_stat_progress_create_index</code>), the plan, or what the probes return is recorded below.</p>
+    <div class="pg-actions" id="pgActions"></div>
+    <div id="pgShell"></div>
+    <div id="pgTimeline"></div>
+  </div></div>
+
+  <div class="step"><div class="step-n">3</div><div class="step-body">
+    <h3 class="mongo-only">Explain: what did HNSW actually do?</h3>
+    <p class="mongo-only"><code>explain("executionStats")</code> on a <code>$vectorSearch</code> returns mongot's own report: which Lucene query ran, how many vectors each segment visited, and how long it took. Compare approximate with <b>exact</b>, small with large <code>numCandidates</code>, and with or without a filter.</p>
+    <h3 class="pg-only">EXPLAIN ANALYZE: did it use the index?</h3>
+    <p class="pg-only">The planner decides, per query, whether the vector index is worth it. <code>EXPLAIN (ANALYZE, BUFFERS)</code> shows its choice: an <code>Index Scan</code> on the HNSW index, or a <code>Seq Scan</code> and a <code>Sort</code>. Try the desk's own table (small, so usually scanned), then the variants: the unindexed baseline, IVFFlat with more probes, the binary index's two-step plan, a selective filter.</p>
+    <div class="builder">
+      <label>Query<input id="exQuery" type="text" value="customers can't connect from their new office"></label>
+      <label>Index<select id="exIndex"><option value="tickets_vector">tickets_vector (the desk's)</option></select></label>
+      <label>limit <b id="exKv">5</b><input id="exK" type="range" min="1" max="20" value="5"></label>
+      <label><span class="mongo-only">numCandidates</span><span class="pg-only">hnsw.ef_search</span> <b id="exNv">50</b><input id="exN" type="range" min="5" max="1000" step="5" value="50"></label>
+      <label class="pg-only">ivfflat.probes <b id="exPv">1</b><input id="exP" type="range" min="1" max="45" value="1"></label>
+      <label class="inline"><input id="exExact" type="checkbox"> exact</label>
+      <label>filter: team<select id="exTeam"><option value="">none</option></select></label>
+      <button id="exGo" class="btn primary">Explain</button>
+    </div>
+    <div id="exOut"></div>
+  </div></div>
+
+  <div class="step"><div class="step-n">4</div><div class="step-body">
+    <h3 class="pg-only">PostgreSQL, live</h3>
+    <p class="pg-only">Read from the catalog every 5 s: the settings that steer vector search, every vector and full-text index with its size, how often the planner used it (<code>pg_stat_user_indexes</code>) and how much of it was read from <code>shared_buffers</code> (<code>pg_statio_user_indexes</code>), and the vector queries <code>pg_stat_statements</code> has seen.</p>
+    <h3 class="mongo-only">mongot, live</h3>
+    <p class="mongo-only">Read straight from mongot's Prometheus endpoint (<code>:9946/metrics</code>): latency <i>inside</i> mongot, the JVM heap, and every search index's size, documents and change-stream lag. Index sizes are refreshed by mongot every few minutes, so a brand-new index shows "pending" at first.</p>
+    <div id="mtOut"><div class="muted small">Loading…</div></div>
+  </div></div>
+</section>
+
+<!-- ===================================================================== HOOD -->
+<section id="tab-hood" class="pane">
+  <div class="intro">
+    <h2>Under the hood</h2>
+    <p>What actually runs when this page searches, and where.</p>
+  </div>
+  <div class="hood-grid">
+    <div class="card"><h3>The path of one <span class="mongo-only"><code>$vectorSearch</code></span><span class="pg-only">vector query</span></h3><div id="arch"></div></div>
+    <div class="card"><h3><span class="mongo-only">Search indexes on this cluster</span><span class="pg-only">Indexes on the desk's tables</span></h3><div id="hoodIdx"></div></div>
+    <div class="card"><h3><span class="mongo-only">A ticket document</span><span class="pg-only">A ticket row</span></h3><p class="muted small"><span class="mongo-only">The vector is just a field. Everything else is ordinary MongoDB.</span><span class="pg-only">The vector is just a column. Everything else is ordinary PostgreSQL.</span></p><pre id="hoodDoc" class="code"></pre></div>
+    <div class="card"><h3><span class="mongo-only">What turning on "Vector search" configured</span><span class="pg-only">What turning on "pgvector" configured</span></h3><div id="hoodCfg"></div></div>
+  </div>
+</section>
+</main>
+
+<div id="drawer" class="drawer hidden"><div class="drawer-inner"><button class="drawer-x" id="drawerX" aria-label="Close">✕</button><div id="drawerBody"></div></div></div>
+<script src="app.js"></script>
+</body>
+</html>

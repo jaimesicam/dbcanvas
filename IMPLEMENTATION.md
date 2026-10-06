@@ -26361,3 +26361,170 @@ after the stack was deleted. `k3dStackClusters` lists k3d's clusters by the `-s<
 (compared whole: `-s1` is not `-s15`); teardown deletes all of them, and a frame's deploy deletes
 the ones no current frame is named for (`k3dStaleClusters`).
 
+
+## 420. Vector search (Percona Search for MongoDB, mongot) at design time, and the Support Sim — `app/mongosearch.go` (new), `app/k3dsearch.go` (new), `app/supportsim.go` (new), `app/{mongosearch,k3dsearch,supportsim}_test.go` (new), `app/testdata/cr-psmdb-1.23.0.yaml` (new), `app/{mongodb,k3dpsmdb,k3d,stocksim_k3d,intranet,compose,extraimages,repository,templates_builtin}.go`, `supportsim/` (new), `images/{versions.sh,apps.sh}`, `versions.yaml`, `Makefile`, `StackDesigner`, `MongoDBManager`, `lib/{help,nodeLinks}.js`, `docs/{STACKS,API_REFERENCE,CONFIGURATION,GETTING_STARTED}.md`, `README.md`
+
+**PSMDB 8.3 in the catalog.** `versions.sh` probes `psmdb-83` (rpm and deb) and records an `"8.3"` series;
+`psmdbRepo` maps it. It had no case and fell to the default, so the first search-enabled deploy installed
+8.0.32 and mongod refused `useGrpcForSearch` — `TestPSMDBRepoSeries` pins all four series. `psmdb-83` and
+`ps4m` are offered to Repository nodes.
+
+**Vector search on psmrs / psmdb frames** (`designFrame.VectorSearch`). The layout is the operator's
+(`pkg/psmdb/vectorsearch` at 1.23.0): one mongot per data-bearing replica set, on its first member by
+label; sharded, one per shard, mongos pointed at shard 0's, each mongot's `syncSource.router` at mongos;
+none for the config servers. mongod/mongos get `mongotHost`, `searchIndexManagementHostAndPort`,
+`skipAuthenticationTo{SearchIndexManagementServer,Mongot}: false`, `searchTLSMode: disabled`,
+`useGrpcForSearch: true` before first start — startup-only parameters, hence design time — merged into
+the one `setParameter` block (`mergeSetParams`; a second would be a duplicate key) with the MClusterAdmin
+mechanisms. After the replica sets and admin exist: a `mongot` user with `searchCoordinator` (on the RS;
+sharded, on every shard and the config RS), then `percona-search-mongodb` from `ps4m` (~290 MB, its own
+JDK), `/etc/mongot/mongot.yml` listening on all interfaces, the password file 0400, the packaged unit,
+and a wait on `:8080/health` = SERVING. Fatal on failure, unlike PMM/PBM: a search stack without mongot
+did not deploy what was asked. Validation: 8.3+ and an OS ps4m publishes for (OL8/9, Ubuntu 22.04/24.04,
+Debian 12 — OL10 and Debian 13 have 8.3 but no mongot). The designer's checkbox moves the frame to 8.3.
+
+**Vector search on a K3D PSMDB frame** (`K3DVectorSearch`, operator ≥ 1.23.0): `spec.search` written
+beside `spec.image`, which becomes `percona/percona-server-mongodb:8.3.11-3` (the shipped cr.yaml runs
+8.0; the operator certifies no 8.3 image yet); the shipped commented example is marked as a duplicate.
+Images are pinned constants — there is no supported-combination catalog to discover.
+**Operator bug, worked around:** with search on and rs0 exposed (LoadBalancer/ClusterIP), 1.23.x never
+leaves `initializing`. A goroutine dump of the operator showed `updateStatus → connectionEndpoint →
+GetReplsetAddrs → getExtServices`: the mongot pod carries `app.kubernetes.io/replset=rs0`, so it is listed
+as a member, no per-pod Service exists for it, `status.host` stays empty, and `ready` requires a host.
+`psmdbSearchStuckReady` treats exactly that status (initializing, every RS ready, every mongot ready, no
+host) as up, and the deploy log says why. Sharded clusters (endpoint = mongos) are unaffected.
+
+**Support Sim** (`supportsim`, image `dbcanvas-supportsim:latest`, port 8095): a help desk whose tickets
+are embedded in-process by a pure-Go all-MiniLM-L6-v2 (`supportsim/internal/embed`, checked against
+sentence-transformers: every token id equal, cosine ≥ 0.9999999, ~8 ms a sentence; weights fetched at
+build, pinned and checksummed) and acted on with `$vectorSearch`. Links to psm/psmrs/psmdb or a K3D PSMDB
+frame (Stock Market Sim's K3D resolver); without mongot it runs on an in-app scan and says so. Every
+ticket carries its archetype, so vector, keyword (`$search`) and hybrid (`$rankFusion`, which PSMDB 8.3
+serves) are scored against ground truth. Thresholds come from `corpus_test.go`'s distributions; the
+corpus generator varies phrasing so "similar past tickets" is not a copy lookup. Measured honestly, the
+result is a nuanced one and the dashboard says so: over past tickets keyword is about as good as vector
+(customers share words), over KB articles vector ≈ 70% vs keyword ≈ 35% top-1, and hybrid 1:1 sits between.
+Incidents need novelty (nothing resolved ≥ 0.60) plus 4 mutually similar (≥ 0.40) tickets in 3 minutes —
+similarity alone fired on ordinary traffic at high rates. On a sharded target the sim shards `tickets`
+(hashed `_id`) so searches fan out to every shard's mongot.
+
+Verified on this host (Docker, linux/amd64 images): template **PSMDB Vector Search + Support Sim** — PSMDB
+8.3.11-3 ×3 on OL9, mongot 1.70.4-2 SERVING on vs-1, four search indexes READY, outage burst raised one
+incident of 8 tickets; minimum sharded cluster with search — three mongots SERVING, `$vectorSearch`,
+`$search` and `$rankFusion` through mongos, tickets on 3 shards; K3D, operator 1.23.1 — `rs0-search-0`
+running, the stuck-`initializing` status recognised and logged, the sim connected through the primary's
+LoadBalancer with all four indexes READY and a new ticket findable 37 ms after insert; the 1.22.0 design
+refused by validation. Not exercised: Debian/Ubuntu images, TLS between mongod
+and mongot, PBM backups of a search-enabled cluster, K3D sharded with search.
+
+## 421. Support Sim: the rest of vector search — hybrid tuning, the Index Workshop — `supportsim/internal/sim/{tune,workshop,playground}.go` (new), `supportsim/internal/mongotmetrics/` (new), `supportsim/internal/{search,store,api}`, `supportsim/web/static/*`, `app/supportsim.go`, `docs/STACKS.md`, `supportsim/README.md`
+
+Everything was probed on PSMDB 8.3.11 + mongot 1.70.4 before it was built, because Atlas documentation
+is not a description of Percona's mongot. What it does: all three similarity functions; `quantization:
+"scalar"` and `"binary"`; BSON binary vectors (subtype 9, float32 and int8 — written by hand, the pinned Go
+driver v1.17 has no helper); `$scoreFusion` (sigmoid / minMaxScaler / none) and `$rankFusion`, both with
+`scoreDetails` and weights including 0; `explain` with per-segment HNSW statistics; `updateSearchIndex`;
+per-index metrics on `:9946` labelled with the same id `$listSearchIndexes` reports.
+
+**Hybrid.** `HybridOpts{method, vectorWeight, normalization}` drives both stages; hits carry the
+server's scoreDetails as `parts`; an app-side fallback does the same arithmetic. `DefaultHybrid()` exists
+because the zero value is a legitimate keyword-only blend — the test caught the engine defaulting to it.
+The sweep (11 weights × 80 seeded unseen tickets) on KB articles rises monotonically to vector-only
+(40% → 68% top-1): BM25 against articles in other words is noise, and the page says so rather than
+presenting hybrid as automatically better. Against past tickets every blend is ≈100% and the page
+says the curve is flat. "Apply" sets the desk's fusion and restarts its hybrid counter (`hybridScored`).
+
+**Index Workshop.** `vector_variants`: 2,000 resolved tickets (topped up with generated ones — on a
+few hundred, HNSW visits nearly everything and approximate equals exact), each with `emb`, `emb_f32`,
+`emb_i8` (scaled per vector by its max component) and `emb_raw` (random length 0.2–5, stable per id).
+Nine indexes; 60 seeded questions; recall@k against `exact: true` on `v_cosine`. Measured at
+numCandidates 10 / 40 / 200: binary 0.83 / 0.98 / 1.00; un-normalized dotProduct ≈0.22 at every setting
+(mean returned length 4.0 vs 1.5 — length beats meaning). On disk, quantized indexes are *not* smaller
+(scalar 3.8 MB vs cosine 3.0 MB): mongot keeps full-precision vectors to rescore; int8 BinData is (845 KB).
+The lesson text was rewritten to say what the numbers show — quantization saves heap, not disk.
+**Playground** — observations the hints are written from: before creation and after a drop, a
+`$vectorSearch` on the missing index returns 0 results, not an error; after an update adding a filter
+field, filtered queries started working ~2 s in while the status still read BUILDING; a dimension
+mismatch is a hard error ("indexed with 384 dimensions but queried with …"). **Explain**: exact search
+reports no segment stats, only `collect` = every document; approximate reports visited per segment
+(1,089 of 2,000 at numCandidates 50 over 9 segments). **Metrics**: index sizes are refreshed by mongot
+every few minutes, shown as "pending" until then. DBCanvas passes `MONGOT_METRICS` (each placed mongot,
+`:9946`); without it the sim asks the server's `mongotHost`, which on K3D is in-cluster and unreachable,
+and the panel says so.
+
+## 422. K3D vector search: avoid the operator's status bug instead of masking it — `app/{k3dsearch,k3dpsmdb,supportsim}.go`, `app/{k3dsearch,supportsim}_test.go`, `docs/STACKS.md`
+
+§420 recognised the stuck status (`psmdbSearchStuckReady`) and carried on. That made DBCanvas work
+but left the cluster reporting `initializing` to everything else. Compared with the operator's own
+tutorial (1.23.0 search-setup), the one material difference in our cr.yaml was `replsets.expose`:
+the tutorial connects from inside Kubernetes and exposes nothing. Proven on the test cluster:
+expose off → `ready` within 10 s with `status.host` set; expose back on → `initializing` within 10 s.
+The cause is unchanged in 1.23.1 and `main` (`connectionEndpoint` lists pods by `RSLabels`, which
+match the mongot pod), and only fires for LoadBalancer/ClusterIP (NodePort takes another branch).
+
+`psmdbSearchExposeMode`: with search on and a replica set, LoadBalancer → the operator's expose is
+left off and DBCanvas applies its own per-pod LoadBalancers, named as the operator's
+(`<cluster>-rs0-<i>`, so every resolver is unchanged) but labelled `managed-by: dbcanvas` — the
+operator's `removeOutdatedServices` deletes only Services with its own external-service labels, so
+it leaves them alone; ClusterIP → not exposed at all (unreachable from outside anyway); NodePort and
+sharded → the operator as before. A `<cluster>-rs0-search-ext` LoadBalancer exposes mongot's :9946 and
+:8080, and its address is passed to the Support Sim as `MONGOT_METRICS`. mongot's metrics are off in
+the operator's generated config (`metrics: enabled: false`), so `spec.search.configuration` turns them
+on — patched live first: the operator rolled the mongot pod and the metrics came up. The stuck-status
+recognition stays as a fallback for clusters deployed before this.
+
+Verified on k3s, operator 1.23.1: a fresh deploy reports `ready` on its own ("k3d-vs reports ready"),
+CR `expose.enabled: false`, the four DBCanvas Services with MetalLB addresses; the Support Sim connected
+through `<cluster>-rs0-0`, built the nine workshop indexes, benchmark/explain/freshness worked.
+
+**Revised: operator NodePort plus DBCanvas LoadBalancers beside it.** The first version turned the
+operator's expose off and created LoadBalancers under the operator's own Service names. Testing NodePort
+showed two things: the operator's NodePort exposure keeps a search-enabled cluster `ready` (its branch of
+`connectionEndpoint` never lists pods), and once its expose is on, the operator adopts same-named Services
+(ours became NodePorts with its labels). So the exposure is now the operator's own NodePort, and
+DBCanvas's LoadBalancers are named apart — `<pod>-ext` — selecting the same pods; the PSMDB resolver
+tries `<primary>-ext` before `<primary>`. Validation and the frame's LoadBalancer choice are unchanged.
+
+## 423. pgvector at design time, and the Support Sim on PostgreSQL — `app/pgvector.go` (new), `app/pgvectorsim.go` (new), `app/{pgvector,pgvectorsim}_test.go` (new), `app/{pg,patroni,repmgr,spock,k3d,k3dpg,intranet,compose,composebuild,extraimages,pgbouncer,templates_builtin}.go`, `cli/cmd_compose.go`, `supportsim/internal/sim/{backend,mongo_backend,mongo_workshop,pg_backend,pg_search,pg_workshop}.go` (new), `supportsim/internal/{sim,search}`, `supportsim/main.go`, `supportsim/web/static/*`, `StackDesigner`, `PGManager`, `PatroniManager`, `lib/{help,nodeLinks}.js`, `docs/{STACKS,CLI,API_REFERENCE,CONFIGURATION,GETTING_STARTED}.md`, `README.md`
+
+**pgvector** is a checkbox on a PostgreSQL node and on Patroni / repmgr / Spock frames (`pgVector`), a
+compose flag (`pgvector`), and `K3DPgVector` on a K3D frame's Percona Operator for PostgreSQL cluster.
+On VMs it installs the package from the server's own repository — `percona-pgvector_<major>` (EL) /
+`percona-postgresql-<major>-pgvector` (deb) for Percona Distribution, PGDG's `pgvector_<major>` /
+`postgresql-<major>-pgvector` for community, a source build for Spock — and runs `CREATE EXTENSION
+vector` (no `shared_preload_libraries` needed). On K3D it is `spec.extensions.builtin.pgvector: true`
+(2.6.0+), merged into the one `extensions` block with pg_tde. CloudNativePG and Crunchy PGO images
+already carry pgvector (checked: `ghcr.io/cloudnative-pg/postgresql:17` and `-standard-bookworm` have
+`vector.control`, `-minimal-bookworm` does not; `crunchy-postgres:ubi9-17.9-2610` has 0.8.6), but the
+extension is not `trusted`, and both operators' application roles are not superusers. So DBCanvas has
+the operator create it once at bootstrap: CNPG `bootstrap.initdb.postInitApplicationSQL`, PGO
+`databaseInitSQL` → a `<cluster>-init-sql` ConfigMap (`\c <cluster>` first: PGO runs it in `postgres`).
+
+**pgvectorsim** is the Support Sim image with `DB_ENGINE=postgres` and `POSTGRES_DSN`, resolved by the
+Stock Market Sim's PostgreSQL resolvers: a standalone node, Patroni/repmgr (every member,
+`target_session_attrs=read-write`), Spock, HAProxy's write port, PgBouncer (simple protocol in
+transaction mode), and K3D operators. Validation requires the link and warns when the database behind it
+has no pgvector (the sim then stores `real[]` and scans in the app). Template "PostgreSQL + pgvector +
+Support Sim".
+
+**The sim** got a `Backend` interface (`backend.go`): the desk, Lab, tuning and Workshop are engine-
+neutral, with `mongo_*` and `pg_*` implementations. PostgreSQL specifics worth recording:
+
+- Hybrid search is one statement: two CTEs (vector top-20, full-text top-20) joined and fused by
+  reciprocal rank (`$3::float8/(60+rank)` — without the cast the division is integer and every score is 0)
+  or by min-max / sigmoid normalized score, returning each side's part like `scoreDetails`.
+- Keyword search ORs the query's lexemes (`replace(plainto_tsquery(…)::text, ' & ', ' | ')`): AND
+  semantics found almost nothing for a customer's sentence.
+- `SET LOCAL` inside a transaction for every per-query setting; session `SET`s survive in the pool, so
+  the Workshop's build connection ends with `RESET ALL`.
+- Freshness is not a lag but MVCC: three probes (writer before COMMIT, other session before COMMIT,
+  other session after) — found / not found / found.
+- The playground table (`vv_play`, 8,000 rows) is four copies of each workshop row **with per-copy
+  noise**: HNSW stores identical vectors in one graph element with several heap TIDs, so exact copies
+  made `ef_search = 5` return 20 rows. Its filter lesson uses `vip` (2% of rows): with `team = 'Billing'`
+  (17%) a 40-candidate walk still found 10. Verified: ef_search 5 → 5 rows; vip, iterative off → 1 row;
+  iterative `relaxed_order` → 10. The workshop build also creates `vv_play_hnsw`, and the tuning
+  lessons recreate it if it was dropped: without it they silently probed a sequential scan.
+- The desk's tables are small enough that the planner prefers a Seq Scan to the HNSW index (0 scans in
+  `pg_stat_user_indexes`). That is shown and explained rather than forced; only the Lab's builder sets
+  `enable_seqscan = off`, visibly, so its ef_search slider means something.

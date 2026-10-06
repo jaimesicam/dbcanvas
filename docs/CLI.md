@@ -136,7 +136,7 @@ The syntax is **`kind[:count][,flag][,key=value]`**:
 | `os=el8` | also `ol9`, `rhel9`, `noble`, `jammy`, `bookworm`, `ubuntu24.04`, `oraclelinux:10`… |
 | `monitor` · `ldap` · `oidc` · `kerberos` · `vault` · `backup` · `orchestrator` | relationships — each wires this node to another in the spec |
 | `to=` | the association *line* — the backend a proxy fronts, the database a simulator drives |
-| `export` · `cert` · `proxy` · `gtid` · `mysqlRouter` · `tls` | plain switches; `gtid=false` turns a default off |
+| `export` · `cert` · `proxy` · `gtid` · `mysqlRouter` · `tls` · `pgvector` | plain switches; `gtid=false` turns a default off. `pgvector` (on `pg`, `patroni`, `repmgr`, `spock`) installs pgvector and creates the extension |
 | `name=` · `count=` · `cpus=` · `memoryGb=` · `exportPort=` · `certTtl=` | values |
 | `netLatencyMs=` · `netJitterMs=` · `netLossPct=` · `netRateMbit=` · `netAllTraffic` | network shaping |
 | `deviceReadMbps=` · `deviceWriteMbps=` | disk throughput limits |

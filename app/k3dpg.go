@@ -43,6 +43,10 @@ type pgOptions struct {
 	LogicalDatabases []string // which databases each replica subscribes to; empty = the CRD's "all"
 	LogCollector     *bool    // spec.logcollector.enabled; nil = keep whatever cr.yaml ships
 	TDE              *pgTDE   // spec.extensions.pg_tde; nil = no encryption at rest
+	// PGVector is spec.extensions.builtin.pgvector (operator 2.6.0+; see pgHasPGVector). It
+	// shares the extensions mapping with TDE above, which is why both are rendered by one
+	// pgExtensionsBlock rather than each inserting its own.
+	PGVector bool
 }
 
 // pgTDE is spec.extensions.pg_tde — pg_tde keyed to the stack's OpenBao node.
@@ -208,8 +212,8 @@ func pgTransform(src string, o pgOptions) string {
 			if o.LogicalReplicas > 0 {
 				out = append(out, crIndent(pgLogicalReplicasBlock(o.LogicalReplicas, o.LogicalStorageGB, o.LogicalBootstrap, o.LogicalDatabases), 2)...)
 			}
-			if o.TDE != nil {
-				out = append(out, crIndent(pgTDEBlock(o.TDE), 2)...)
+			if ext := pgExtensionsBlock(o); ext != "" {
+				out = append(out, crIndent(ext, 2)...)
 			}
 
 		// The connection pooler in front of the database.
@@ -296,7 +300,31 @@ func pgLogicalReplicasBlock(n, storageGB int, bootstrap string, databases []stri
 	return strings.TrimSuffix(b.String(), "\n")
 }
 
-// pgTDEBlock renders spec.extensions.pg_tde against the stack's OpenBao node.
+// pgExtensionsBlock renders spec.extensions with everything the options ask to go in it, or ""
+// for none. One block, always: pgvector and pg_tde both live under `extensions:`, and two
+// inserted `extensions:` keys would be a duplicate mapping key — which the API server's decoder
+// refuses, or, worse, a lenient one resolves by keeping only the last.
+//
+// pgvector is written in the `builtin:` form. That is the only spelling 2.x knows, and 3.x still
+// accepts it and maps it onto its newer extensions.pgvector.enabled, so it serves every operator
+// from 2.6.0 on. Writing just the one key is safe on 2.x too: its builtin fields are optional
+// pointers whose nil means "the operator's default", so the other builtins keep theirs.
+func pgExtensionsBlock(o pgOptions) string {
+	var parts []string
+	if o.PGVector {
+		parts = append(parts, "builtin:\n  pgvector: true")
+	}
+	if o.TDE != nil {
+		parts = append(parts, pgTDEBlock(o.TDE))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "extensions:\n" + strings.Join(crIndent(strings.Join(parts, "\n"), 2), "\n")
+}
+
+// pgTDEBlock renders the pg_tde entry of spec.extensions (pgExtensionsBlock wraps it) against
+// the stack's OpenBao node.
 //
 // mountPath is the KV *mount*, not a path inside it: the operator hands it to
 // pg_tde_add_global_key_provider_vault_v2 as vault_mount_path and the extension builds
@@ -304,16 +332,16 @@ func pgLogicalReplicasBlock(n, storageGB int, bootstrap string, databases []stri
 // nothing to verify, and pointing at a key that the Secret does not carry fails the pod.
 func pgTDEBlock(t *pgTDE) string {
 	var b strings.Builder
-	b.WriteString("extensions:\n  pg_tde:\n    enabled: true\n")
+	b.WriteString("pg_tde:\n  enabled: true\n")
 	if t.WALEncryption {
-		b.WriteString("    walEncryption: true\n")
+		b.WriteString("  walEncryption: true\n")
 	}
-	b.WriteString("    vault:\n")
-	fmt.Fprintf(&b, "      host: %s\n", t.VaultHost)
-	fmt.Fprintf(&b, "      mountPath: %s\n", t.MountPath)
-	fmt.Fprintf(&b, "      tokenSecret:\n        name: %s\n        key: token\n", t.Secret)
+	b.WriteString("  vault:\n")
+	fmt.Fprintf(&b, "    host: %s\n", t.VaultHost)
+	fmt.Fprintf(&b, "    mountPath: %s\n", t.MountPath)
+	fmt.Fprintf(&b, "    tokenSecret:\n      name: %s\n      key: token\n", t.Secret)
 	if t.CAKey != "" {
-		fmt.Fprintf(&b, "      caSecret:\n        name: %s\n        key: %s\n", t.Secret, t.CAKey)
+		fmt.Fprintf(&b, "    caSecret:\n      name: %s\n      key: %s\n", t.Secret, t.CAKey)
 	}
 	return strings.TrimSuffix(b.String(), "\n")
 }
@@ -592,6 +620,23 @@ func (a *App) installPGOperator(ctx context.Context, st Stack, frame designFrame
 				cfg.PGTDE += " + WAL"
 			}
 			pr.logln("pg_tde keyed to " + tde.VaultHost + ", mount " + tde.MountPath)
+		}
+	}
+
+	// ---- pgvector (2.6.0+) ----
+	//
+	// The same belt-and-braces as the 3.1.0 features above, with its own floor: below 2.6.0 the
+	// CRD has no spec.extensions.builtin, and the API server would refuse the whole cr.yaml.
+	// Validation already says so (k3dPgVectorIssues). The operator creates the extension in every
+	// database itself once the instances are up — there is nothing to run afterwards.
+	if frame.K3DPgVector {
+		if pgHasPGVector(cfg.OperatorVer) {
+			opts.PGVector = true
+			cfg.PGVector = true
+			pr.logln("pgvector: spec.extensions.builtin.pgvector = true (the operator creates the extension in every database)")
+		} else {
+			pr.logln("pgvector skipped: operator " + orDefault(cfg.OperatorVer, "(unknown version)") + " predates " +
+				pgVectorK3DMinVer + ", whose CRD has no spec.extensions.builtin")
 		}
 	}
 

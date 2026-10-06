@@ -4,6 +4,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"sigs.k8s.io/yaml"
 )
 
 // pgTransform runs against the PostgreSQL operator's real cr.yaml (testdata/cr-pg.yaml, 3.1.0).
@@ -368,6 +370,78 @@ func TestPGLogicalDatabasesParsing(t *testing.T) {
 				t.Errorf("pgLogicalDatabases(%q) = %v, want %v", tc.in, got, tc.want)
 				break
 			}
+		}
+	}
+}
+
+// pgvector goes into the same spec.extensions mapping pg_tde uses — never a second
+// `extensions:` key, which would be a duplicate the API server refuses. Run against the real
+// cr.yaml, alone and together with TDE, and read back as YAML.
+func TestPGTransformPGVector(t *testing.T) {
+	raw, err := os.ReadFile("testdata/cr-pg.yaml")
+	if err != nil {
+		t.Skipf("no PG cr.yaml fixture: %v", err)
+	}
+	tde := &pgTDE{WALEncryption: true, VaultHost: "https://bao-01.example.net:8200",
+		MountPath: "postgresql-pg-01", Secret: "pg-01-pgtde-vault", CAKey: "ca.crt"}
+
+	for _, c := range []struct {
+		name string
+		tde  *pgTDE
+	}{{"pgvector alone", nil}, {"pgvector + pg_tde", tde}} {
+		out := pgTransform(string(raw), pgOptions{Name: "pg-01", PGVector: true, TDE: c.tde})
+
+		// Exactly one active spec.extensions key.
+		path, n := newYPath(), 0
+		for _, ln := range strings.Split(out, "\n") {
+			ind, commented, body := crLine(ln)
+			path.update(ind, commented, body)
+			if !commented && body != "" && path.String() == "spec.extensions" {
+				n++
+			}
+		}
+		if n != 1 {
+			t.Errorf("%s: spec.extensions appears %d times, want 1", c.name, n)
+		}
+
+		var doc struct {
+			Spec struct {
+				Extensions struct {
+					Builtin struct {
+						PGVector *bool `json:"pgvector"`
+					} `json:"builtin"`
+					PGTDE *struct {
+						Enabled       bool `json:"enabled"`
+						WALEncryption bool `json:"walEncryption"`
+						Vault         struct {
+							Host      string `json:"host"`
+							MountPath string `json:"mountPath"`
+						} `json:"vault"`
+					} `json:"pg_tde"`
+				} `json:"extensions"`
+			} `json:"spec"`
+		}
+		if err := yaml.Unmarshal([]byte(out), &doc); err != nil {
+			t.Fatalf("%s: the rewritten cr.yaml is not valid YAML: %v", c.name, err)
+		}
+		ext := doc.Spec.Extensions
+		if ext.Builtin.PGVector == nil || !*ext.Builtin.PGVector {
+			t.Errorf("%s: spec.extensions.builtin.pgvector is not true", c.name)
+		}
+		switch {
+		case c.tde == nil && ext.PGTDE != nil:
+			t.Errorf("%s: pg_tde was written for a cluster that did not ask for it", c.name)
+		case c.tde != nil && (ext.PGTDE == nil || !ext.PGTDE.Enabled || !ext.PGTDE.WALEncryption ||
+			ext.PGTDE.Vault.Host != tde.VaultHost || ext.PGTDE.Vault.MountPath != tde.MountPath):
+			t.Errorf("%s: pg_tde did not survive alongside pgvector: %+v", c.name, ext.PGTDE)
+		}
+	}
+
+	// Neither → no extensions block at all.
+	out := pgTransform(string(raw), pgOptions{Name: "pg-01"})
+	for _, ln := range strings.Split(out, "\n") {
+		if _, commented, body := crLine(ln); !commented && strings.HasPrefix(body, "extensions:") {
+			t.Error("an extensions block was emitted for a cluster that asked for none")
 		}
 	}
 }

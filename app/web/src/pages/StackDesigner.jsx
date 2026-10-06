@@ -621,6 +621,39 @@ export const NODE_TYPES = {
     osOptions: [{ id: 'hotelsim', label: 'dbcanvas-hotelsim' }],
     defaults: {},
   },
+  // Support Sim — the MongoDB Vector Search Support Desk: a help desk whose tickets are
+  // embedded in-process and acted on with $vectorSearch (answer, route, merge, raise an
+  // incident), scored live against keyword search, plus a Vector Lab that teaches the
+  // pieces. First-party image, no OS fields. Links to a PSMDB node or frame — ideally a
+  // replica set / sharded cluster with Vector search on — or to a K3D frame running the
+  // PSMDB operator (see supportSimTarget in app/supportsim.go).
+  supportsim: {
+    label: 'Support Sim',
+    slug: 'supportsim',
+    sub: 'MongoDB Vector Search Support Desk + Vector Lab',
+    color: '#00a37a',
+    icon: 'Flask',
+    singleton: false,
+    ports: true,
+    osOptions: [{ id: 'supportsim', label: 'dbcanvas-supportsim' }],
+    defaults: {},
+  },
+  // pgvector Support Sim — the same help desk and image as Support Sim, run against
+  // PostgreSQL (DB_ENGINE=postgres) with pgvector's HNSW index instead of $vectorSearch.
+  // Links to one PostgreSQL target: a standalone pg node, a Patroni/repmgr/Spock frame,
+  // an HAProxy or PgBouncer node in front of one, or a K3D frame running a PostgreSQL
+  // operator (see pgVectorSimTarget in app/pgvectorsim.go).
+  pgvectorsim: {
+    label: 'pgvector Support Sim',
+    slug: 'pgvectorsim',
+    sub: 'PostgreSQL pgvector Support Desk + Vector Lab',
+    color: '#336791',
+    icon: 'Flask',
+    singleton: false,
+    ports: true,
+    osOptions: [{ id: 'supportsim', label: 'dbcanvas-supportsim' }],
+    defaults: {},
+  },
   // Airline Sim — the "MySQL Airline Reservation Lab" live demo app (ten background
   // agents + a web dashboard) driving a 200-route reservation workload against a
   // 2000-aircraft fleet. Runs dbcanvas's own first-party image, not an OS/DB image,
@@ -755,7 +788,7 @@ export const NODE_TYPES = {
 // database they drive — which is why the line gets a caption of its own ("app
 // connection"), and why the two panels that merely *display* data (Big Hole,
 // MClusterAdmin) are not in here: they carry no connector at all.
-export const SIM_NODE_TYPES = new Set(['stocksim', 'ledgersim', 'airlinesim', 'carsim', 'hotelsim', 'trafficsim', 'marketchaos'])
+export const SIM_NODE_TYPES = new Set(['stocksim', 'ledgersim', 'airlinesim', 'carsim', 'hotelsim', 'supportsim', 'pgvectorsim', 'trafficsim', 'marketchaos'])
 
 // isReplEdge distinguishes the two kinds of line the canvas draws with one edge list: a
 // cross-cluster replication link ('async' / 'bidir'), and everything else — an
@@ -1226,13 +1259,13 @@ export const frameVersionLabel = (f) => {
   if (f?.type === 'mariadbgalera') return `MariaDB ${f?.mariadbVersion || f?.mariadbMajor || ''} Galera`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'mysqlcerepl') return `MySQL ${f?.mysqlceVersion || f?.mysqlceMajor || ''} replication`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'mysqlceinnodb') return `MySQL ${f?.mysqlceVersion || f?.mysqlceMajor || ''} · ${f?.replMode === 'groupreplication' ? 'Group Replication' : 'InnoDB Cluster'}`.replace(/\s+/g, ' ').trim()
-  if (f?.type === 'psmdb') return `PS MongoDB ${f?.psmdbVersion || f?.psmdbMajor || ''} sharded · ${f?.psmdbSetup === 'minimum' ? 'minimum' : 'standard'}`.replace(/\s+/g, ' ').trim()
-  if (f?.type === 'psmrs') return `PS MongoDB ${f?.psmdbVersion || f?.psmdbMajor || ''} replica set`.replace(/\s+/g, ' ').trim()
-  if (f?.type === 'patroni') return `Percona PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · Patroni`.replace(/\s+/g, ' ').trim()
-  if (f?.type === 'repmgr') return `PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · repmgr (PGDG)`.replace(/\s+/g, ' ').trim()
-  if (f?.type === 'spock') return `PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · Spock multi-master`.replace(/\s+/g, ' ').trim()
+  if (f?.type === 'psmdb') return `PS MongoDB ${f?.psmdbVersion || f?.psmdbMajor || ''} sharded · ${f?.psmdbSetup === 'minimum' ? 'minimum' : 'standard'}${f?.vectorSearch ? ' · vector search' : ''}`.replace(/\s+/g, ' ').trim()
+  if (f?.type === 'psmrs') return `PS MongoDB ${f?.psmdbVersion || f?.psmdbMajor || ''} replica set${f?.vectorSearch ? ' · vector search' : ''}`.replace(/\s+/g, ' ').trim()
+  if (f?.type === 'patroni') return `Percona PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · Patroni${f?.pgVector ? ' · pgvector' : ''}`.replace(/\s+/g, ' ').trim()
+  if (f?.type === 'repmgr') return `PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · repmgr (PGDG)${f?.pgVector ? ' · pgvector' : ''}`.replace(/\s+/g, ' ').trim()
+  if (f?.type === 'spock') return `PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · Spock multi-master${f?.pgVector ? ' · pgvector' : ''}`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'valkeycluster') return `Valkey Cluster ${f?.valkeyVersion || f?.valkeyMajor || ''}`.trim()
-  if (f?.type === 'k3d') return `Kubernetes (k3s via k3d)${K3D_OPERATOR_LABEL[f?.k3dOperator] ? ` · ${K3D_OPERATOR_LABEL[f.k3dOperator]}` : ''}`
+  if (f?.type === 'k3d') return `Kubernetes (k3s via k3d)${K3D_OPERATOR_LABEL[f?.k3dOperator] ? ` · ${K3D_OPERATOR_LABEL[f.k3dOperator]}` : ''}${['pg', 'cnpg', 'pgo'].includes(f?.k3dOperator) && f?.k3dPgVector ? ' · pgvector' : ''}`
   return pxcVersionLabel(f)
 }
 
@@ -2029,6 +2062,8 @@ const PALETTE_ALIASES = {
   linuxclient: 'client host bare vm jump box test tools centos el7',
   trafficsim: 'demo simulation city map live traffic',
   hotelsim: 'demo simulation hotel reservation booking mongo mongodb',
+  supportsim: 'demo simulation support help desk tickets vector search vectorsearch semantic embeddings ai rag mongot mongo mongodb lab learn',
+  pgvectorsim: 'demo simulation support help desk tickets vector search pgvector hnsw semantic embeddings ai rag postgres postgresql patroni lab learn',
   mclusteradmin: 'mongodb admin panel administration mca mclusteradmin gui web ui manage replica set sharding balancer oplog users roles',
   bighole: 'mongodb ftdc diagnostic data viewer big hole bighole charts metrics support tarball browser offline',
   airlinesim: 'demo simulation airline flight reservation booking mysql pxc',
@@ -2917,6 +2952,8 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
       if (n.type === 'trafficsim') return 'trafficsim'
       if (n.type === 'psm') return 'psm'
       if (n.type === 'hotelsim') return 'hotelsim'
+      if (n.type === 'supportsim') return 'supportsim'
+      if (n.type === 'pgvectorsim') return 'pgvectorsim'
       if (n.type === 'ps' && !n.frameId) return 'ps'
       if (n.type === 'pg' && !n.frameId) return 'pg'
       // Standalone MariaDB and MySQL CE had no kind at all until Stock Market
@@ -3034,6 +3071,15 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
     if (k2 === 'psmrs' && k1 === 'hotelsim') return createFlow(e2, e1, { singleOutgoing: true })
     if (k1 === 'psmdb' && k2 === 'hotelsim') return createFlow(e1, e2, { singleOutgoing: true })
     if (k2 === 'psmdb' && k1 === 'hotelsim') return createFlow(e2, e1, { singleOutgoing: true })
+    // The same three → Support Sim, plus a K3D frame (its operator is checked by
+    // validation: it must be the MongoDB one).
+    if (['psm', 'psmrs', 'psmdb', 'k3d'].includes(k1) && k2 === 'supportsim') return createFlow(e1, e2, { singleOutgoing: true })
+    if (['psm', 'psmrs', 'psmdb', 'k3d'].includes(k2) && k1 === 'supportsim') return createFlow(e2, e1, { singleOutgoing: true })
+    // Any PostgreSQL target → pgvector Support Sim: the Car Rental Sim's set plus a K3D
+    // frame (validation checks that it runs a PostgreSQL operator, and that an HAProxy
+    // fronts PostgreSQL rather than MySQL).
+    if (PGV_LINKABLE_KINDS.has(k1) && k2 === 'pgvectorsim') return createFlow(e1, e2, { singleOutgoing: true })
+    if (PGV_LINKABLE_KINDS.has(k2) && k1 === 'pgvectorsim') return createFlow(e2, e1, { singleOutgoing: true })
     // Standalone Percona Server node, a PXC/MySQL backend frame (direct), or a
     // ProxySQL/HAProxy node or cluster fronting one of the latter two → Airline Sim
     // node (same shape as the rules above; an Airline Sim node links to exactly one
@@ -4070,6 +4116,8 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
     { title: 'App Simulators', items: [
       { label: 'Traffic Sim', type: 'trafficsim', onClick: () => addNode('trafficsim') },
       { label: 'Hotel Sim', type: 'hotelsim', onClick: () => addNode('hotelsim') },
+      { label: 'Support Sim (Vector Search)', type: 'supportsim', onClick: () => addNode('supportsim') },
+      { label: 'pgvector Support Sim', type: 'pgvectorsim', onClick: () => addNode('pgvectorsim') },
       { label: 'Airline Sim', type: 'airlinesim', onClick: () => addNode('airlinesim') },
       { label: 'Car Rental Sim', type: 'carsim', onClick: () => addNode('carsim') },
       // The one simulator that is still moving, so it is tagged rather than
@@ -5953,6 +6001,7 @@ function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }
         </select>
       </Field>
       <PGQuerySourceField obj={n} patch={patchNode} deployed={deployed} />
+      <PGVectorOption obj={n} patch={patchNode} deployed={deployed} />
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
@@ -7558,6 +7607,218 @@ function HotelSimManager({ dep, onDeleteNode }) {
   )
 }
 
+// SupportSimForm edits a (not-yet-running) Support Sim node: like Hotel Sim, nothing to
+// configure but the link, resolved the way the backend's supportSimTarget does — and a
+// note on whether that target actually has mongot, since without it the desk runs on
+// an in-app scan and the point of the sim is $vectorSearch.
+function SupportSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep }) {
+  const linked = (() => {
+    for (const e of edges) {
+      const other = e.from.node === n.id ? e.to.node : (e.to.node === n.id ? e.from.node : null)
+      if (!other) continue
+      const pnode = nodes.find((x) => x.id === other && x.type === 'psm')
+      if (pnode) return { kind: 'psm', label: pnode.label, search: false }
+      const f = frames.find((x) => x.id === other && ['psmrs', 'psmdb', 'k3d'].includes(x.type))
+      if (f) return { kind: f.type, label: f.label, search: f.type === 'k3d' ? (f.k3dOperator === 'psmdb' && !!f.k3dVectorSearch) : !!f.vectorSearch, frame: f }
+    }
+    return null
+  })()
+  const KIND_LABEL = { psm: 'PSMDB', psmrs: 'PSMDB Replica Set', psmdb: 'PSMDB Sharded', k3d: 'Kubernetes (PSMDB operator)' }
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Support Sim</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+      <p className="text-xs text-muted">
+        A help desk run on MongoDB Vector Search. Tickets arrive continuously; each is embedded in this
+        node (all-MiniLM-L6-v2, 384 dimensions, no external API) and searched with <span className="font-mono">$vectorSearch</span> to
+        answer it from similar resolved tickets, route it, merge repeats and spot outages, while keyword
+        search (<span className="font-mono">$search</span>) is scored on the same tickets. The dashboard also has a Search
+        Showdown and a hands-on Vector Lab.
+      </p>
+      {linked ? (
+        <>
+          <div className="rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-xs text-primary">
+            Linked to {KIND_LABEL[linked.kind]} <span className="font-mono font-medium">{linked.label}</span>
+          </div>
+          {linked.kind === 'k3d' && linked.frame?.k3dOperator !== 'psmdb' ? (
+            <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
+              That Kubernetes frame does not run the Percona Operator for MongoDB.
+            </div>
+          ) : !linked.search && (
+            <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
+              {linked.kind === 'psm'
+                ? 'A standalone node cannot run mongot (it needs a replica set). The desk will work on an in-app scan instead of $vectorSearch: use a PSMDB Replica Set (one member is enough) with Vector search on.'
+                : 'Vector search is off on that frame, so the desk will work on an in-app scan instead of $vectorSearch. Tick Vector search on the frame.'}
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
+          Not linked. Draw an association line from a PSMDB Replica Set or Sharded frame (Vector search on), or a K3D frame running the MongoDB operator, to this node.
+        </div>
+      )}
+      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
+        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+      </Field>
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// SupportSimManager shows a deployed Support Sim's dashboard link and its target.
+function SupportSimManager({ dep, onDeleteNode }) {
+  const cfg = dep?.config || {}
+  const KIND_LABEL = { psm: 'PSMDB', psmrs: 'PSMDB Replica Set', psmdb: 'PSMDB Sharded', k3d: 'Kubernetes (PSMDB operator)' }
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Support Sim</span>
+        <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
+      </div>
+      <SimDashboardLink port={cfg.httpPort} />
+      <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
+        <InfoRow label="Internal URL" help={HELP.depInternalURL}><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8095</span></InfoRow>
+        <InfoRow label="Linked to" help={HELP.depLinkedTo}><span className="font-mono text-xs">{cfg.targetName} ({KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></InfoRow>
+        <InfoRow label="Vector search" help={HELP.vectorSearch}><span className="text-xs">{cfg.vectorSearch ? 'mongot ($vectorSearch)' : 'off: in-app scan'}</span></InfoRow>
+      </div>
+      <p className="text-xs text-muted">Tabs: Live Desk · Search Showdown · Vector Lab · Under the Hood.</p>
+      <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// PGV_LINKABLE_KINDS are the endpoint kinds a pgvector Support Sim links to — mirrors
+// pgVectorSimTarget in app/pgvectorsim.go.
+const PGV_LINKABLE_KINDS = new Set(['pg', 'patroni', 'repmgr', 'spock', 'haproxy', 'pgbouncer', 'k3d'])
+const PGV_KIND_LABEL = {
+  pg: 'PostgreSQL', patroni: 'Patroni Cluster', repmgr: 'repmgr Cluster', spock: 'Spock Cluster',
+  haproxy: 'HAProxy', pgbouncer: 'PgBouncer', k3d: 'Kubernetes',
+}
+
+// pgvLinked resolves a pgvector Support Sim's target the way pgVectorSimTarget does, and
+// whether the PostgreSQL behind it has pgvector on (pgVectorSimHasPGVector): for a router,
+// its backend's option; for a K3D frame, the Percona operator's.
+function pgvLinked(n, nodes, frames, edges) {
+  const otherOf = (id) => {
+    const out = []
+    for (const e of edges) {
+      if (e.from.node === id) out.push(e.to.node)
+      else if (e.to.node === id) out.push(e.from.node)
+    }
+    return out
+  }
+  const backendOf = (id) => {
+    for (const o of otherOf(id)) {
+      const f = frames.find((x) => x.id === o && ['patroni', 'repmgr', 'spock', 'pxc', 'mysql'].includes(x.type))
+      if (f) return { label: f.label, pgVector: !!f.pgVector, pg: ['patroni', 'repmgr', 'spock'].includes(f.type) }
+      const p = nodes.find((x) => x.id === o && x.type === 'pg' && !x.frameId)
+      if (p) return { label: p.label, pgVector: !!p.pgVector, pg: true }
+    }
+    return null
+  }
+  for (const other of otherOf(n.id)) {
+    const node = nodes.find((x) => x.id === other)
+    if (node && ((node.type === 'pg' && !node.frameId) || (node.type === 'haproxy' && !node.frameId) || node.type === 'pgbouncer')) {
+      if (node.type === 'pg') return { kind: 'pg', label: node.label, pgVector: !!node.pgVector, ok: true }
+      const back = backendOf(node.id)
+      return { kind: node.type, label: node.label, back, pgVector: !!back?.pgVector, ok: !!back?.pg }
+    }
+    const f = frames.find((x) => x.id === other && ['patroni', 'repmgr', 'spock', 'k3d'].includes(x.type))
+    if (f) {
+      if (f.type === 'k3d') {
+        const ok = ['pg', 'cnpg', 'pgo'].includes(f.k3dOperator)
+        return { kind: 'k3d', label: f.label, frame: f, ok, pgVector: ['pg', 'cnpg', 'pgo'].includes(f.k3dOperator) && !!f.k3dPgVector }
+      }
+      return { kind: f.type, label: f.label, pgVector: !!f.pgVector, ok: true }
+    }
+  }
+  return null
+}
+
+// PGVectorSimForm edits a (not-yet-running) pgvector Support Sim node: nothing to configure
+// but the link, plus a note when the PostgreSQL behind it has no pgvector — the desk then
+// stores embeddings as real[] and scans them in the app.
+function PGVectorSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep }) {
+  const linked = pgvLinked(n, nodes, frames, edges)
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">pgvector Support Sim</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+      <p className="text-xs text-muted">
+        The Support Sim's help desk on PostgreSQL. Tickets arrive continuously; each is embedded in this
+        node (all-MiniLM-L6-v2, 384 dimensions, no external API), stored in a pgvector <span className="font-mono">vector</span> column
+        and searched through an HNSW index with <span className="font-mono">{'<=>'}</span> to answer it from similar resolved
+        tickets, route it, merge repeats and spot outages, while keyword search is scored on the same tickets.
+        The sim creates its own <span className="font-mono">supportsim</span> database when it may.
+      </p>
+      {linked ? (
+        <>
+          <div className="rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-xs text-primary">
+            Linked to {PGV_KIND_LABEL[linked.kind]} <span className="font-mono font-medium">{linked.label}</span>
+            {linked.back && <> in front of <span className="font-mono font-medium">{linked.back.label}</span></>}
+          </div>
+          {!linked.ok ? (
+            <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
+              {linked.kind === 'k3d'
+                ? 'That Kubernetes frame does not run a PostgreSQL operator.'
+                : `That ${PGV_KIND_LABEL[linked.kind]} node does not front exactly one PostgreSQL backend.`}
+            </div>
+          ) : !linked.pgVector && (
+            <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
+              {linked.kind === 'k3d' && linked.frame?.k3dOperator !== 'pg'
+                ? 'Only the Percona Operator for PostgreSQL offers pgvector here. Without it the sim stores embeddings as real[] and scans in the app.'
+                : `Turn on pgvector on ${linked.back ? linked.back.label : linked.label} to use HNSW indexes; without it the sim stores embeddings as real[] and scans in the app.`}
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
+          Not linked. Draw an association line from a PostgreSQL node, a Patroni, repmgr or Spock frame,
+          an HAProxy or PgBouncer node in front of one, or a K3D frame running a PostgreSQL operator, to this node.
+        </div>
+      )}
+      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
+        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+      </Field>
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// PGVectorSimManager shows a deployed pgvector Support Sim's dashboard link and its target.
+function PGVectorSimManager({ dep, onDeleteNode }) {
+  const cfg = dep?.config || {}
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">pgvector Support Sim</span>
+        <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
+      </div>
+      <SimDashboardLink port={cfg.httpPort} />
+      <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
+        <InfoRow label="Internal URL" help={HELP.depInternalURL}><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8095</span></InfoRow>
+        <InfoRow label="Linked to" help={HELP.depLinkedTo}><span className="font-mono text-xs">{cfg.targetName} ({cfg.targetKind})</span></InfoRow>
+        {cfg.endpoint && <InfoRow label="Endpoint"><span className="font-mono text-xs">{cfg.endpoint}</span></InfoRow>}
+        <InfoRow label="pgvector" help={HELP.pgVector}><span className="text-xs">{cfg.pgVector ? 'on (HNSW index, <=>)' : 'off: real[] + in-app scan'}</span></InfoRow>
+      </div>
+      <p className="text-xs text-muted">Tabs: Live Desk · Search Showdown · Vector Lab · Under the Hood.</p>
+      <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
 // AirlineSimForm edits a (not-yet-deployed) Airline Sim node. It resolves its own
 // linked target across all five source shapes: a standalone Percona Server node, a
 // PXC/MySQL backend frame (direct), an HAProxy node, or a ProxySQL node/cluster —
@@ -9147,6 +9408,9 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
   // A blank version means the catalog's latest, the same thing the deploy will resolve.
   const pgVer = op === 'pg' ? (f.k3dOperatorVer || latest) : ''
   const pg310 = op === 'pg' && !!pgVer && cmpDottedVersions(pgVer, '3.1.0') >= 0
+  // spec.extensions.builtin.pgvector arrived in 2.6.0 — hidden below it for the same reason
+  // (an older CRD rejects the whole cr.yaml), and refused by the backend too (k3dPgVectorIssues).
+  const pg260 = op === 'pg' && !!pgVer && cmpDottedVersions(pgVer, '2.6.0') >= 0
   const baoNode = nodes.find((x) => x.type === 'openbao')
   // Data-at-rest encryption for the PXC and MongoDB operators, keyed to the stack's OpenBao node.
   // MongoDB's `spec.secrets.vault` only exists from operator 1.13.0; PXC's `vaultSecretName` is in
@@ -9191,6 +9455,9 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
   // MySQL Router only speaks group replication, so an async cluster is HAProxy either way.
   const psFrontEnd = psAsync ? 'haproxy' : (f.k3dProxy === 'router' ? 'router' : 'haproxy')
   const shardedTooSmall = ((op === 'psmdb' && f.k3dSharding) || psAsync) && (cpus < 8 || memGb < 12)
+  // Vector search is the operator's spec.search, a tech preview from 1.23.0. Hidden below that
+  // release for the reason encryption is: the CRD has no such field (k3dSearchIssues refuses it too).
+  const canSearch = op === 'psmdb' && !!psmdbVer && cmpDottedVersions(psmdbVer, '1.23.0') >= 0
 
   return (
     <div className="space-y-3">
@@ -9397,6 +9664,11 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
                   onChange={(e) => patchFrame(f.id, { k3dCnpgVersion: e.target.value })} />
               )}
             </Field>
+            <label className={`flex items-center gap-2 text-sm ${lock}`}>
+              <input type="checkbox" checked={!!f.k3dPgVector} disabled={deployed}
+                onChange={(e) => patchFrame(f.id, { k3dPgVector: e.target.checked })} />
+              <span>pgvector (vector similarity search)</span><Help text={HELP.k3dPgVectorCnpg} />
+            </label>
             <Field label="Expose · Postgres primary" help={HELP.k8sExpose} hint="CloudNativePG's own services are all ClusterIP. A LoadBalancer address makes the primary reachable from outside the cluster, and follows failover.">
               <select className={`${inputCls} ${lock}`} value={f.k3dCnpgExpose || 'clusterip'} disabled={deployed}
                 onChange={(e) => patchFrame(f.id, { k3dCnpgExpose: e.target.value })}>
@@ -9574,6 +9846,21 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
                 </select>
               </Field>
             )}
+            {canSearch && (
+              <label className={`flex items-start gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+                <input type="checkbox" className="mt-1" disabled={deployed}
+                  checked={!!f.k3dVectorSearch}
+                  onChange={(e) => patchFrame(f.id, { k3dVectorSearch: e.target.checked })} />
+                <span>
+                  Vector search <Help text={HELP.k3dVectorSearch} />
+                  <span className="block text-xs text-muted">
+                    <span className="font-mono">spec.search</span> — Percona Search for MongoDB (mongot), one pod per replica set,
+                    and a PSMDB 8.3 server image. Enables <span className="font-mono">$vectorSearch</span> and{' '}
+                    <span className="font-mono">$search</span>. Tech preview.
+                  </span>
+                </span>
+              </label>
+            )}
             {encryptionAtRest}
           </>
         )}
@@ -9591,6 +9878,13 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
                 {K3D_EXPOSE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
               </select>
             </Field>
+            {pg260 && (
+              <label className={`flex items-center gap-2 text-sm ${lock}`}>
+                <input type="checkbox" checked={!!f.k3dPgVector} disabled={deployed}
+                  onChange={(e) => patchFrame(f.id, { k3dPgVector: e.target.checked })} />
+                <span>pgvector (vector similarity search)</span><Help text={HELP.k3dPgVector} />
+              </label>
+            )}
             {/* The three features the operator grew in 3.1.0. Hidden rather than disabled on an
                 older release: the CRD has no such field, so writing one makes the API server
                 reject the whole cr.yaml and create no cluster at all. */}
@@ -9745,6 +10039,11 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
                   onChange={(e) => patchFrame(f.id, { k3dPgoVersion: e.target.value })} />
               )}
             </Field>
+            <label className={`flex items-center gap-2 text-sm ${lock}`}>
+              <input type="checkbox" checked={!!f.k3dPgVector} disabled={deployed}
+                onChange={(e) => patchFrame(f.id, { k3dPgVector: e.target.checked })} />
+              <span>pgvector (vector similarity search)</span><Help text={HELP.k3dPgVectorPgo} />
+            </label>
             <Field label="Expose · PostgreSQL" help={HELP.k8sExpose} hint="The HA Service in front of the primary (the read/write endpoint).">
               <select className={`${inputCls} ${lock}`} value={f.k3dExposePg || 'clusterip'} disabled={deployed}
                 onChange={(e) => patchFrame(f.id, { k3dExposePg: e.target.value })}>
@@ -10560,6 +10859,45 @@ function PBMOptions({ f, nodes, patchFrame, deployed }) {
   )
 }
 
+// VectorSearchOption turns on Percona Search for MongoDB (mongot) for a replica-set or
+// sharded frame. Ticking it moves the frame to the 8.3 series when the image offers it,
+// because nothing older can talk to mongot — the backend refuses the design otherwise
+// (mongoSearchIssues), but a checkbox that fixes its own precondition is kinder than an
+// error at Validate.
+const SEARCH_OS = new Set(['oraclelinux/8', 'oraclelinux/9', 'ubuntu/22.04', 'ubuntu/24.04', 'debian/12'])
+function VectorSearchOption({ f, majors, patchFrame, deployed }) {
+  const lock = deployed ? 'opacity-70' : ''
+  const has83 = majors.includes('8.3')
+  const oldMajor = !!f.psmdbMajor && cmpDottedVersions(f.psmdbMajor, '8.3') < 0
+  const osOK = SEARCH_OS.has(`${f.os}/${f.osVersion}`)
+  return (
+    <div className="space-y-1">
+      <label className={`flex items-center gap-2 text-sm ${lock}`}>
+        <input type="checkbox" checked={!!f.vectorSearch} disabled={deployed}
+          onChange={(e) => {
+            const on = e.target.checked
+            const p = { vectorSearch: on }
+            if (on && oldMajor && has83) { p.psmdbMajor = '8.3'; p.psmdbVersion = '' }
+            patchFrame(f.id, p)
+          }} />
+        <span>Vector search (Percona Search for MongoDB · mongot)</span><Help text={HELP.vectorSearch} />
+      </label>
+      {!!f.vectorSearch && (
+        <div className="space-y-1 pl-6 text-xs text-muted">
+          <p>
+            {f.type === 'psmdb'
+              ? <>One <span className="font-mono">mongot</span> per shard, on each shard&rsquo;s first member; mongos points at shard 0&rsquo;s.</>
+              : <>One <span className="font-mono">mongot</span> on the first member; every member&rsquo;s mongod points at it.</>}{' '}
+            Enables <span className="font-mono">$vectorSearch</span> and <span className="font-mono">$search</span>. Tech preview.
+          </p>
+          {oldMajor && <p className="text-danger">Needs PS MongoDB 8.3 or later{has83 ? ' — choose 8.3 above.' : ' — this image offers no 8.3 packages; run `ONLY=percona make versions`.'}</p>}
+          {!osOK && <p className="text-danger">mongot is published for Oracle Linux 8/9, Ubuntu 22.04/24.04 and Debian 12 only.</p>}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // MCACredentialsOption adds the two MClusterAdmin accounts to a MongoDB. Shared by
 // all three shapes — the standalone node, the replica set and the sharded cluster —
 // because it is the same pair in the same place each time: on the standalone, on the
@@ -10688,6 +11026,8 @@ function MongoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, rebuildClu
       </Field>
 
       <PBMOptions f={f} nodes={nodes} patchFrame={patchFrame} deployed={deployed} />
+
+      <VectorSearchOption f={f} majors={majors} patchFrame={patchFrame} deployed={deployed} />
 
       <MCACredentialsOption value={f.mcaCredentials} deployed={deployed}
         onChange={(v) => patchFrame(f.id, { mcaCredentials: v })} />
@@ -10831,6 +11171,8 @@ function PSMRSFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed }) 
   const lock = deployed ? 'opacity-70' : ''
   const pmmNodes = nodes.filter((n) => n.type === 'pmm')
   const members = nodes.filter((n) => n.frameId === f.id).length
+  const catEntry = imgs.find((i) => i.os === f.os && i.osVersion === f.osVersion)
+  const majors = catEntry ? Object.keys(catEntry.versions || {}).filter((m) => (catEntry.versions[m] || []).length) : []
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -10852,6 +11194,8 @@ function PSMRSFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed }) 
       </Field>
 
       <PBMOptions f={f} nodes={nodes} patchFrame={patchFrame} deployed={deployed} />
+
+      <VectorSearchOption f={f} majors={majors} patchFrame={patchFrame} deployed={deployed} />
 
       <MCACredentialsOption value={f.mcaCredentials} deployed={deployed}
         onChange={(v) => patchFrame(f.id, { mcaCredentials: v })} />
@@ -11104,6 +11448,20 @@ export function PGStatStatementsOption({ obj, patch, deployed }) {
   )
 }
 
+// PGVectorOption installs pgvector on every member of a standalone PostgreSQL node or a
+// Patroni / repmgr / Spock frame and creates the extension in postgres and template1.
+// Not tied to PMM or to a Percona build: each shape installs it from wherever its own
+// PostgreSQL came from (see app/pgvector.go).
+export function PGVectorOption({ obj, patch, deployed }) {
+  return (
+    <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+      <input type="checkbox" checked={!!obj.pgVector} disabled={deployed}
+        onChange={(e) => patch(obj.id, { pgVector: e.target.checked })} />
+      <span>pgvector (vector similarity search)</span><Help text={HELP.pgVector} />
+    </label>
+  )
+}
+
 function PatroniFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, deployed }) {
   const imgs = usePPGCatalog(f, deployed, patchFrame)
   const lock = deployed ? 'opacity-70' : ''
@@ -11176,6 +11534,7 @@ function PatroniFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame
         </select>
       </Field>
       <PGQuerySourceField obj={f} patch={patchFrame} deployed={deployed} />
+      <PGVectorOption obj={f} patch={patchFrame} deployed={deployed} />
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
@@ -11336,6 +11695,7 @@ function RepmgrFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame,
         </select>
       </Field>
       <PGStatStatementsOption obj={f} patch={patchFrame} deployed={deployed} />
+      <PGVectorOption obj={f} patch={patchFrame} deployed={deployed} />
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
@@ -11463,6 +11823,7 @@ function SpockFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, 
         </select>
       </Field>
       <PGStatStatementsOption obj={f} patch={patchFrame} deployed={deployed} />
+      <PGVectorOption obj={f} patch={patchFrame} deployed={deployed} />
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
@@ -13269,6 +13630,19 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
       return <MClusterAdminForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
     // Hotel Sim node — the MongoDB Hotel Reservation Lab live demo app.
+    if (n.type === 'supportsim') {
+      if (dep && dep.state === 'running') {
+        return <SupportSimManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <SupportSimForm node={n} nodes={nodes} frames={frames} edges={edges} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+    }
+    // pgvector Support Sim node — the same desk on PostgreSQL.
+    if (n.type === 'pgvectorsim') {
+      if (dep && dep.state === 'running') {
+        return <PGVectorSimManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <PGVectorSimForm node={n} nodes={nodes} frames={frames} edges={edges} patchNode={patchNode} deleteNode={deleteNode} dep={dep} />
+    }
     if (n.type === 'hotelsim') {
       if (dep && dep.state === 'running') {
         return <HotelSimManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />

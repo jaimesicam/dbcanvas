@@ -125,6 +125,7 @@ type composeNodeSpec struct {
 	MCA         bool     `json:"mca"`         // psm/psmrs/psmdb: create the MClusterAdmin accounts
 	ViewOnly    bool     `json:"viewOnly"`    // mclusteradmin: start the panel with every write disabled
 	CertTTL     string   `json:"certTtl"`     // "365d", "30m", "2h" — short ones expire on purpose
+	PGVector    bool     `json:"pgvector"`    // pg/patroni/repmgr/spock: install pgvector, CREATE EXTENSION vector
 
 	Export     bool `json:"export"`     // publish the database port to the host
 	ExportPort int  `json:"exportPort"` // 0 → Docker picks a free one
@@ -472,8 +473,9 @@ var composeKinds = []composeKind{
 		About: "Percona Server for MySQL, standalone."},
 	{Kind: "pg", Type: "pg", CanShape: true, Catalog: "percona_postgresql",
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) { n.PGMajor, n.PGVersion = major, minor }, CanExport: true, CanCert: true,
-		Links: []string{"monitor", "ldap", "oidc", "kerberos", "backup", "vault"},
-		About: "Percona Distribution for PostgreSQL, standalone. vault=true is pg_tde, which needs PostgreSQL 17 or 18."},
+		Scalars: []string{"pgvector"},
+		Links:   []string{"monitor", "ldap", "oidc", "kerberos", "backup", "vault"},
+		About:   "Percona Distribution for PostgreSQL, standalone. vault=true is pg_tde, which needs PostgreSQL 17 or 18."},
 	{Kind: "psm", Type: "psm", CanShape: true, Catalog: "percona_server_mongodb",
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) { n.PSMDBMajor, n.PSMDBVersion = major, minor }, CanExport: true, CanCert: true,
 		Scalars: []string{"mca"},
@@ -546,13 +548,15 @@ var composeKinds = []composeKind{
 	{Kind: "patroni", Type: "patroni", CanShape: true, Frame: true, Members: 3, MinMembers: 2, MaxMembers: 7,
 		Catalog:    "percona_postgresql",
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) { f.PGMajor, f.PGVersion = major, minor }, CanCert: true,
-		Links: []string{"monitor", "backup"},
-		About: "PostgreSQL HA with Patroni and etcd."},
+		Scalars: []string{"pgvector"},
+		Links:   []string{"monitor", "backup"},
+		About:   "PostgreSQL HA with Patroni and etcd."},
 	{Kind: "repmgr", Type: "repmgr", CanShape: true, Frame: true, Members: 3, MinMembers: 2, MaxMembers: 7,
 		Catalog:    "percona_postgresql",
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) { f.PGMajor, f.PGVersion = major, minor }, CanCert: true,
-		Links: []string{"monitor", "backup"},
-		About: "PostgreSQL streaming replication with repmgr."},
+		Scalars: []string{"pgvector"},
+		Links:   []string{"monitor", "backup"},
+		About:   "PostgreSQL streaming replication with repmgr."},
 	{Kind: "psmrs", Type: "psmrs", CanShape: true, Frame: true, Members: 3, MinMembers: 1, MaxMembers: 9,
 		Catalog:    "percona_server_mongodb",
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) { f.PSMDBMajor, f.PSMDBVersion = major, minor }, CanCert: true,
@@ -607,6 +611,7 @@ var composeKinds = []composeKind{
 		Catalog:    "percona_postgresql",
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) { f.PGMajor, f.PGVersion = major, minor },
 		CanCert:    true,
+		Scalars:    []string{"pgvector"},
 		Links:      []string{"monitor"},
 		About:      "PostgreSQL multi-master with Spock."},
 	{Kind: "proxysql-cluster", Type: "proxysql", CanShape: true, Scalars: []string{"mode"}, Frame: true, Members: 3, MinMembers: 1, MaxMembers: 9,
@@ -639,6 +644,12 @@ var composeKinds = []composeKind{
 	{Kind: "hotelsim", Type: "hotelsim", NoSizing: true, ImageOnly: true,
 		EdgeTo: []string{"psm", "psmrs", "psmdb"},
 		About:  "Hotel Sim — a booking workload on PS MongoDB."},
+	{Kind: "supportsim", Type: "supportsim", NoSizing: true, ImageOnly: true,
+		EdgeTo: []string{"psm", "psmrs", "psmdb", "k3d"},
+		About:  "Support Sim — a help desk run on MongoDB Vector Search ($vectorSearch), with a Vector Lab."},
+	{Kind: "pgvectorsim", Type: "pgvectorsim", NoSizing: true, ImageOnly: true,
+		EdgeTo: []string{"pg", "patroni", "repmgr", "spock", "haproxy", "pgbouncer", "k3d"},
+		About:  "pgvector Support Sim — the Support Sim's help desk on PostgreSQL with pgvector (HNSW), directly or through an HAProxy or PgBouncer node."},
 
 	// --- administration panels ----------------------------------------------
 	//

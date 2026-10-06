@@ -79,8 +79,11 @@ type repmgrConfig struct {
 	// QuerySource is "pgstatements" when pg_stat_statements is enabled cluster-wide,
 	// empty otherwise. See pgquerysource.go.
 	QuerySource string `json:"querySource,omitempty"`
-	Ports       []int  `json:"ports"`
-	ExportPort  int    `json:"exportPort"`
+	// PGVector is where pgvector came from (PGDG's package) when the cluster has it; empty
+	// otherwise. See pgvector.go.
+	PGVector   string `json:"pgVector,omitempty"`
+	Ports      []int  `json:"ports"`
+	ExportPort int    `json:"exportPort"`
 	// What the repmgr tab builds its commands out of. Every one of these is knowable from the
 	// OS and major, and every one of them is something a person otherwise has to look up before
 	// they can type a single repmgr command: the config file is per-major and not where the
@@ -267,6 +270,10 @@ func (a *App) provisionRepmgrFrame(st Stack, frame designFrame, doc designDoc) {
 		backupRepo = "pgBackRest → SeaweedFS S3"
 	}
 
+	pgVector := ""
+	if frame.PGVector {
+		pgVector = pgVectorSource(frame.Type, frame.OS, major)
+	}
 	// node_id is the 1-based member index (stable while labels are stable). Member 0
 	// is the initial primary.
 	for i, n := range members {
@@ -284,6 +291,7 @@ func (a *App) provisionRepmgrFrame(st Stack, frame designFrame, doc designDoc) {
 			Service: pgServiceName(frame.OS, major), DataDir: pgDataDir(frame.OS, major),
 			GenerateCert: frame.GenerateCert, UseProxy: frame.UseProxy, MonitoredBy: monitoredBy,
 			QuerySource: pgQuerySourceFor(frame.Type, frame.PGQuerySource, frame.PMMNodeID),
+			PGVector:    pgVector,
 			Ports:       []int{patroniPGPort},
 			RepmgrConf:  pgRepmgrConfPath(major),
 			RepmgrBin:   pgBinDir(frame.OS, major) + "/repmgr",
@@ -541,6 +549,17 @@ func (a *App) repmgrPrepareNode(ctx context.Context, st Stack, frame designFrame
 		}
 	}
 
+	// pgvector — PGDG's package, since this is PGDG's PostgreSQL (the repository is already
+	// configured by the install above). On every node rather than only the primary: a standby
+	// is cloned from the primary's data directory, which carries the catalog entry but not the
+	// library, and any of them may be promoted. Fatal for the standalone node's reason.
+	if frame.PGVector {
+		pr.phase("Installing pgvector", 44)
+		if err := a.installPGVector(ctx, id, frame.OS, major, "pgdg", pr.logln); err != nil {
+			return pr.fail("%v", err)
+		}
+	}
+
 	// pgBackRest (when chosen) — installed on every node, like Barman below and for the same
 	// reason: after a failover whichever member is primary has to archive WAL, and every member
 	// has to be able to restore. The config is written here too, before PostgreSQL starts, so
@@ -705,6 +724,14 @@ func (a *App) repmgrSetupPrimary(ctx context.Context, st Stack, frame designFram
 	// Before the standbys clone, so they arrive with the extension already in place.
 	if err := a.enablePGQueryExtension(ctx, id, qs, "", pr.logln); err != nil {
 		return pr.fail("%v", err)
+	}
+	// pgvector likewise, and fatal here (unlike Patroni's leader): the standbys have not been
+	// cloned yet, so failing now stops the cluster before it exists rather than after.
+	if frame.PGVector {
+		pr.phase("Enabling pgvector", 58)
+		if err := a.enablePGVector(ctx, id, "", pr.logln); err != nil {
+			return pr.fail("%v", err)
+		}
 	}
 	if err := a.runStep(ctx, id, repmgrPrimaryRegisterScript, []string{"BINDIR=" + pgBinDir(frame.OS, major), "CONF=" + pgRepmgrConfPath(major)}, pr.logln); err != nil {
 		return pr.fail("repmgr primary register: %v", err)

@@ -5,6 +5,7 @@
 #
 #   dbcanvas-trafficsim:latest     Valkey Traffic Lab
 #   dbcanvas-hotelsim:latest       MongoDB Hotel Reservation Lab
+#   dbcanvas-supportsim:latest     MongoDB Vector Search Support Desk
 #   dbcanvas-airlinesim:latest     MySQL Airline Reservation Lab
 #   dbcanvas-carsim:latest         PostgreSQL Car Rental Lab
 #   dbcanvas-marketchaos:latest    "Unoptimized MySQL Challenge" stock exchange
@@ -33,7 +34,7 @@ ROOT="$(cd "$IMAGES_DIR/.." && pwd)"
 PLATFORM="$(resolve_platform "$ROOT")" || exit 1
 
 # name → build context, in the order they are built.
-APPS=(trafficsim hotelsim airlinesim carsim marketchaos stocksim ledgersim)
+APPS=(trafficsim hotelsim supportsim airlinesim carsim marketchaos stocksim ledgersim)
 
 declare -a BUILT=() FAILED=()
 
