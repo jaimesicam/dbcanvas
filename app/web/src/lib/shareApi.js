@@ -34,6 +34,19 @@ export const shareApi = {
   control: (sid, to) => request('POST', `/api/share/sessions/${sid}/control`, { to }),
   newLink: (sid) => request('POST', `/api/share/sessions/${sid}/link`),
   end: (sid) => request('POST', `/api/share/sessions/${sid}/end`),
+  // drawing on the screen (app/sharedraw.go): every guest, or one
+  setGuestsDraw: (sid, draw) => request('POST', `/api/share/sessions/${sid}/draw`, { draw }),
+  setGuestDraw: (sid, gid, draw) => request('POST', `/api/share/sessions/${sid}/guests/${gid}/draw`, { draw }),
+  // recordings (app/sharerecord.go); the chunks go up from session/recorder.js
+  recordStart: (sid, mime) => request('POST', `/api/share/sessions/${sid}/recordings`, { mime }),
+  recordFinish: (rid, durationMs) => request('POST', `/api/share/recordings/${rid}/finish`, { durationMs }),
+  recordChunkURL: (rid, seq) => `/api/share/recordings/${rid}/chunks?seq=${seq}`,
+  recordings: () => request('GET', '/api/share/recordings'),
+  recordingURL: (rid, inline = false) => `/api/share/recordings/${rid}/file${inline ? '?inline=1' : ''}`,
+  // The chat that goes with a recording, kept with it after the session's records go.
+  recordingTranscriptURL: (rid, format = 'txt') => `/api/share/recordings/${rid}/transcript${format === 'json' ? '?format=json' : ''}`,
+  updateRecording: (rid, patch) => request('PUT', `/api/share/recordings/${rid}`, patch),
+  deleteRecording: (rid) => request('DELETE', `/api/share/recordings/${rid}`),
   transcripts: (stackId) => request('GET', `/api/stacks/${stackId}/share/transcripts`),
   transcriptURL: (sid, format = 'txt') => `/api/share/sessions/${sid}/transcript${format === 'json' ? '?format=json' : ''}`,
   // either side

@@ -724,6 +724,12 @@ export const HELP = {
     'that it is deleted, checked once an hour; lowering the number deletes what is now too old at once. ' +
     'A session still running is never deleted, and deleting a stack deletes its sessions whatever this ' +
     'says. 0 keeps them for as long as the stack exists.',
+  recordingRetention:
+    'A host can record a shared session from its panel: their own tab, captured in their browser, so the ' +
+    'recording holds the screen, what everyone drew on it and the chat. Everyone in the session is told. A ' +
+    'recording is kept on the server, beside the database, for its host to download from the Share dialog ' +
+    'until its purge date \u2014 this many days after it starts, unless the host moves the date or purges it ' +
+    'sooner. Changing this sets the date of new recordings only. Deleting the account deletes its recordings.',
   maxTokenDays:
     'The longest lifetime anyone who is not an administrator may give an API token. Asking for longer ' +
     'gets this value rather than an error, so lowering it never breaks the create form. It does not ' +

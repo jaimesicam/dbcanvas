@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { shareApi } from '../lib/shareApi.js'
 import { useAuth } from '../auth/AuthProvider.jsx'
 import { playSound } from '../lib/sessionSounds.js'
+import { recorder } from './recorder.js'
 
 // SessionProvider — this browser's side of a shared session (app/share.go,
 // app/sharehub.go).
@@ -17,6 +18,10 @@ import { playSound } from '../lib/sessionSounds.js'
 // and, with the host's "Mirror everything" on, the driver's screen itself
 // (session/Mirror.jsx): sendMirror(events) from the driver, onMirror(fn) for
 // everyone else, and requestResync() when a viewer needs a fresh snapshot.
+//
+// and the drawings on the screen (session/DrawLayer.jsx, app/sharedraw.go): marks,
+// what everyone drew; drawMark / eraseMarks / clearMarks to change them; drawing, the
+// pen (tool, colour, size) and canDraw for this browser's own toolbar.
 //
 // and one thing it does on its own: when the driver's browser changes something on
 // the server, it tells everyone else to re-read ('dbcanvas:invalidate', which App
@@ -42,6 +47,9 @@ const INERT = {
   shareBrowser: () => {},
   mirror: false, mirroring: false, setMirror: async () => {}, sendMirror: () => {}, onMirror: () => () => {}, requestResync: () => {},
   notice: () => {}, dismissRequest: () => {}, reset: () => {}, markRead: () => {}, newLink: async () => {},
+  marks: [], drawing: false, setDrawing: () => {}, pen: { tool: 'pen', color: '#ef4444', size: 'm' }, setPen: () => {},
+  canDraw: false, drawMark: () => {}, eraseMarks: () => {}, clearMarks: () => {},
+  setGuestsDraw: async () => {}, setGuestDraw: async () => {}, recording: null,
 }
 
 export function useSession() {
@@ -100,6 +108,10 @@ export function SessionProvider({ children }) {
   const [requests, setRequests] = useState([])
   const [connected, setConnected] = useState(false)
   const [unread, setUnread] = useState(0)
+  // What is drawn on the screen, oldest first, and this browser's own pen.
+  const [marks, setMarks] = useState([])
+  const [drawing, setDrawing] = useState(false)
+  const [pen, setPen] = useState({ tool: 'pen', color: '#ef4444', size: 'm' })
 
   const wsRef = useRef(null)
   const followRef = useRef({})
@@ -168,8 +180,17 @@ export function SessionProvider({ children }) {
             setMessages(m.history || [])
             setTerms(m.terms || [])
             setBrowsers(m.browsers || [])
+            setMarks(m.marks || [])
             if (m.follow) setFollowData(m.follow)
             break
+          case 'draw':
+            setMarks((ms) => upsertMark(ms, m.mark))
+            break
+          case 'draw-erase': {
+            const gone = new Set(m.ids || [])
+            setMarks((ms) => ms.filter((x) => !gone.has(x.id)))
+            break
+          }
           case 'presence':
             setPresence(m)
             break
@@ -218,6 +239,10 @@ export function SessionProvider({ children }) {
             localNotice(m.error)
             break
           case 'end':
+            // The session is over: so is its recording, and what was drawn on it.
+            if (recorder.get().sid === sid) recorder.stop()
+            setMarks([])
+            setDrawing(false)
             playSound('end')
             setEnded(m.reason || 'ended')
             live = false
@@ -304,8 +329,31 @@ export function SessionProvider({ children }) {
     try { await fn() } catch (e) { localNotice(e.message) }
   }, [localNotice])
 
+  // Who may draw: the host always; a guest unless the host turned it off for
+  // everyone or for them (app/sharedraw.go, which decides — this only draws the UI).
+  const canDraw = !!sid && !ended && (isHost || (!!presence?.guestsDraw &&
+    !presence?.guests?.find((g) => g.id === myId)?.drawOff))
+  useEffect(() => { if (!canDraw) setDrawing(false) }, [canDraw])
+
   const mirror = !!presence?.mirror
   const value = useMemo(() => ({
+    marks, drawing, setDrawing, pen, setPen, canDraw,
+    recording: presence?.recording || null,
+    // drawMark draws, or redraws a line as it grows; the hub tells everyone else.
+    drawMark: (mark) => {
+      setMarks((ms) => upsertMark(ms, { ...mark, by: myIdRef.current, name: me?.name || '' }))
+      send({ t: 'draw', data: mark })
+    },
+    eraseMarks: (ids) => {
+      if (!ids.length) return
+      const gone = new Set(ids)
+      setMarks((ms) => ms.filter((x) => !gone.has(x.id) || (!hostRef.current && x.by !== myIdRef.current)))
+      send({ t: 'draw-erase', data: { ids } })
+    },
+    // clearMarks: your own drawings, or — the host only — everyone's.
+    clearMarks: (all) => send({ t: 'draw-clear', data: { all: !!all } }),
+    setGuestsDraw: (on) => hostCall(() => shareApi.setGuestsDraw(sid, on)),
+    setGuestDraw: (gid, on) => hostCall(() => shareApi.setGuestDraw(sid, gid, on)),
     mirror,
     // mirroring: this browser shows the driver's screen rather than its own.
     mirroring: !!sid && !ended && mirror && !isDriver,
@@ -345,7 +393,7 @@ export function SessionProvider({ children }) {
     // returns its link; the link is shown once.
     start: async (stackId, minutes, hideSecrets, mirrorOn) => {
       const r = await shareApi.start(stackId, minutes, hideSecrets, mirrorOn)
-      setEnded(null); setMessages([]); setPresence(null); setTerms([]); setBrowsers([]); setRequests([])
+      setEnded(null); setMessages([]); setPresence(null); setTerms([]); setBrowsers([]); setRequests([]); setMarks([])
       setLink(r.url)
       setSid(r.session.id)
       return r.url
@@ -362,8 +410,17 @@ export function SessionProvider({ children }) {
     },
     openSharedTerm: (spec) => shareApi.openTerm(sid, spec),
     closeSharedTerm: (tid) => shareApi.closeTerm(sid, tid).catch(() => {}),
-  }), [mirror, sid, ended, me, presence, messages, follow, cursor, terms, browsers, requests, connected, link, unread, isDriver, isHost, isGuest,
+  }), [marks, drawing, pen, canDraw, mirror, sid, ended, me, presence, messages, follow, cursor, terms, browsers, requests, connected, link, unread, isDriver, isHost, isGuest,
     controller, publishFollow, publishUI, publishCursor, localNotice, send, hostCall])
 
   return <SessionCtx.Provider value={value}>{children}</SessionCtx.Provider>
+}
+
+// upsertMark replaces a mark by id — a line redrawn as it grows — or adds it on top.
+function upsertMark(ms, mark) {
+  const i = ms.findIndex((x) => x.id === mark.id)
+  if (i < 0) return [...ms, mark]
+  const next = ms.slice()
+  next[i] = mark
+  return next
 }

@@ -129,7 +129,8 @@ The container always listens on all interfaces internally; host-side exposure is
 by the compose publish binding, not by `APP_HOST` inside the container.
 
 **Advanced (rarely changed)** — set by `docker-compose.yml` or handy for local dev:
-`DB_PATH` (SQLite file, default `dbcanvas.db`; the container uses a `/data` volume),
+`DB_PATH` (SQLite file, default `dbcanvas.db`; the container uses a `/data` volume — shared-session
+recordings are kept beside it, in `recordings/`),
 `DBCANVAS_ENCRYPTION_KEY_PATH` (the database's encryption key, default
 `dbcanvas-encryption.key` beside the database; the container uses a `/keys` volume — see
 [The encryption key](#the-encryption-key)),

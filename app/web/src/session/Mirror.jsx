@@ -5,6 +5,7 @@ import { Icon } from '../components/Icons.jsx'
 import { useSession } from './SessionProvider.jsx'
 import { maskSecrets } from '../lib/secretRegistry.js'
 import { startIframeCanvasSampler } from './mirrorCanvas.js'
+import { DrawLayer } from './DrawLayer.jsx'
 
 // Mirror.jsx — "Mirror everything" (app/sharemirror.go).
 //
@@ -178,6 +179,9 @@ export function MirrorView({ right = 0, onShowPanel }) {
   }, [s.mirroring])
 
   if (!s.mirroring) return null
+  // The drawings sit on the driver's workspace — their screen less their session
+  // panel — which the driver publishes (session/DrawLayer.jsx).
+  const frame = s.follow?.drawFrame || (size && { w: size.width, h: size.height })
   const k = size && box.width ? Math.min(box.width / size.width, box.height / size.height, 1.5) : 1
   return (
     <div className="fixed inset-y-0 left-0 z-[9000] flex flex-col bg-bg" style={{ right }} data-mirror-view>
@@ -203,6 +207,11 @@ export function MirrorView({ right = 0, onShowPanel }) {
           style={size ? { width: size.width, height: size.height, transform: `translate(-50%, -50%) scale(${k})` } : undefined}
         >
           <div ref={root} className="dbc-mirror h-full w-full" />
+          {size && frame && (
+            <div className="absolute left-0 top-0" style={{ width: Math.min(frame.w, size.width), height: Math.min(frame.h, size.height), zIndex: 10 }}>
+              <DrawLayer />
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -26528,3 +26528,66 @@ neutral, with `mongo_*` and `pg_*` implementations. PostgreSQL specifics worth r
 - The desk's tables are small enough that the planner prefers a Seq Scan to the HNSW index (0 scans in
   `pg_stat_user_indexes`). That is shown and explained rather than forced; only the Lab's builder sets
   `enable_seqscan = off`, visibly, so its ef_search slider means something.
+
+## 424. Shared sessions: drawing on the screen, and the host's recordings — `app/sharedraw.go` (new), `app/sharerecord.go` (new), `app/{sharedraw,sharerecord}_test.go` (new), `app/{share,share_store,sharehub,store,syssettings,api_routes,apimeta}.go`, `app/web/src/session/{DrawLayer.jsx,recorder.js}` (new), `app/web/src/components/Recordings.jsx` (new), `app/web/src/{App,session/SessionProvider,session/Mirror,components/SessionPanel,components/ShareDialog,components/Icons,pages/Settings,settings/SettingsProvider}.jsx`, `app/web/src/lib/{shareApi,apiApi,help}.js`, `app/web/smoke/render.jsx`, `docs/{SHARED_SESSIONS,API_REFERENCE,CONFIGURATION}.md`
+
+**Drawing.** Anyone in a session may draw a freehand line or put down a line of text, and erase what
+they drew; the host erases anything and clears the screen. Marks are hub state, in memory like the rest
+of the live session (`shareHub.marks` + `markOrder`), sent whole in `hello`, and relayed as `draw` (an
+upsert: a line is re-sent as it grows, ~14×/s, so others see it being drawn), `draw-erase` and
+`draw-clear`. The hub sets `by`/`name`; a mark id already owned by someone else is not theirs to
+redraw. Validation is strict because a mark is rendered on everyone's screen: a fixed colour palette
+(never free CSS), coordinates within the unit square, bounded points/text/size, 1,000 marks at most.
+
+Coordinates are fractions of the *frame* — the workspace, left of the session panel — and width/text
+size are fractions of the frame's height, so a mark keeps its place and weight on any screen. In a
+mirror the frame must be the *driver's* workspace inside their replayed viewport: every browser's
+workspace layer publishes `drawFrame {w, h}` as follow state, and MirrorView puts a DrawLayer of that
+size at the top-left of the scaled replay, so a viewer draws straight onto the mirrored page and it
+lands exactly (verified: a text at 0.2757 of the host frame is at 0.2757 in the guest's mirror; a
+guest's line on the mirror arrives at the host where it was drawn). The workspace layer is
+`[data-mirror-private]`, so the driver's own marks are not in the rrweb stream twice. The layer only
+takes the pointer while drawing; the eraser hit-tests `elementsFromPoint` on a 9-point disc against
+wide transparent hit paths (smoothed curves pass through midpoints, not the points drawn, and a
+single-point probe kept missing them).
+
+Permissions: `share_sessions.draw` (guests may draw, default on) and `share_guests.draw_off`, both
+in SQLite like `muted`, so a restart cannot quietly re-enable someone the host stopped. The hub checks
+on every draw message, erasing included; the host always may.
+
+**Recording.** The host's browser records its own tab — `getDisplayMedia` with `preferCurrentTab`,
+then MediaRecorder (VP9 WebM, 2.5 Mbit/s, the tab's own resolution; the default capture was 800×500
+for a 1440×900 tab). That one picture already holds the workspace or the mirror, the drawings and the
+host's panel with the chat, so nothing is composited server-side and no guest's screen is captured.
+Chunks of 4 s go up as they are made (`POST /api/share/recordings/{rid}/chunks?seq=N`), appended in
+order under a per-recording lock; a repeated seq is acknowledged and dropped, a gap is a 409 with the
+expected seq, and a short write is truncated back so a retry appends to a clean end. The uploader
+retries with backoff and never skips a chunk (a gap breaks the rest of a WebM). Presence carries
+`recording`, so every participant sees REC; start and stop go in the transcript.
+
+Finishing (Stop, the browser's Stop sharing, the session ending, or 3 minutes without a chunk) writes
+the **duration into the WebM**: MediaRecorder leaves it out, and players then show a stream that
+cannot be seeked. `webmSetDuration` walks EBML header → Segment → Info, overwrites an existing
+Duration in place, or inserts one (11 bytes) and rewrites the file through a temp + rename. Insertion
+is only safe with no byte offsets in the file, so a SeekHead/Cluster/Tracks before Info leaves the
+file untouched (`errWebMLayout`) — MediaRecorder's output has none. Verified in Chrome: an 11.6 s
+recording loads with `duration = 11.622`. The browser's duration is capped by the first-to-last-chunk
+clock.
+
+Files live beside the database (`recordings/`, i.e. `/data/recordings`), rows in `share_recordings`
+with `session_id ON DELETE SET NULL` (a recording outlives the session's purged records) and
+`host_id ON DELETE CASCADE`. Each has a `purge_at`: `recordingRetentionDays` (admin setting, default
+30, 1–3650) after it starts, movable by the host (`PUT`, a future date ≤ 10 years) or purged now
+(`DELETE`). The share reaper runs `recordingUpkeep` every minute (finish stale, delete due) and
+hourly sweeps files no row owns (an account deleted with its rows); on its first pass it also
+finishes rows a previous process left in `processing`. Only the host reaches a recording — not
+guests (`gShare` routes are host-only unless GuestOK), not another account, not an admin.
+
+**The transcript goes with the recording.** Each recording has a **Transcript** download
+(`GET /api/share/recordings/{rid}/transcript`, text or `?format=json`). While the session's records
+exist it is the live transcript, the whole session, from the same `shareTranscript` the session's own
+download now uses (`share.go`). The recording also keeps a sealed JSON copy (`share_recordings.transcript`,
+`aadID("share_recordings","transcript",id)`), taken when it finishes and again by `purgeShareSessions`
+just before the retention deletes the session. So the chat stays downloadable until the recording's
+purge date, even when that date is later than the session retention allows (default 30 vs 90 days,
+but a host can move it out to ten years).

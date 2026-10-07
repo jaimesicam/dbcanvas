@@ -21,7 +21,8 @@ const shareSchema = `
 -- way in; ended_at is set by End session, a revoke, or the expiry. A session covers
 -- the whole application; stack_id is only the stack it was started from, if any
 -- (migrateShareSessions makes it nullable in older databases). mirror is the host's
--- "Mirror everything" switch (sharemirror.go).
+-- "Mirror everything" switch (sharemirror.go); draw is whether guests may draw on
+-- the shared screen (sharedraw.go) — the host always may.
 CREATE TABLE IF NOT EXISTS share_sessions (` + shareSessionsColumns + `);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_share_sessions_token ON share_sessions(token_hash);
 CREATE INDEX IF NOT EXISTS idx_share_sessions_host ON share_sessions(host_id, id DESC);
@@ -40,6 +41,7 @@ CREATE TABLE IF NOT EXISTS share_guests (
   cookie_hash  TEXT NOT NULL,
   state        TEXT NOT NULL,         -- waiting | admitted | denied | removed | left
   muted        INTEGER NOT NULL DEFAULT 0,
+  draw_off     INTEGER NOT NULL DEFAULT 0, -- the host stopped this guest drawing
   remote_addr  TEXT NOT NULL DEFAULT '',
   joined_at    TEXT NOT NULL,
   admitted_at  TEXT,
@@ -76,7 +78,32 @@ CREATE TABLE IF NOT EXISTS share_actions (
   message_id   INTEGER NOT NULL DEFAULT 0,
   created_at   TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_share_actions_session ON share_actions(session_id, id);`
+CREATE INDEX IF NOT EXISTS idx_share_actions_session ON share_actions(session_id, id);
+
+-- A host's screen recordings of a session (sharerecord.go). The video itself is a
+-- file in the recordings directory, named by file; the row is what it is and when
+-- it goes, and a copy of the session's transcript, so the chat can be downloaded with
+-- the video for as long as the video is kept. A recording outlives its session's records (session_id is cleared when
+-- they are purged) and is deleted on purge_at, or sooner by its host.
+CREATE TABLE IF NOT EXISTS share_recordings (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id    INTEGER REFERENCES share_sessions(id) ON DELETE SET NULL,
+  host_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title         TEXT NOT NULL DEFAULT '',
+  mime          TEXT NOT NULL,
+  file          TEXT NOT NULL,
+  size          INTEGER NOT NULL DEFAULT 0,
+  chunks        INTEGER NOT NULL DEFAULT 0,
+  duration_ms   INTEGER NOT NULL DEFAULT 0,
+  state         TEXT NOT NULL,         -- recording | processing | ready
+  started_at    TEXT NOT NULL,
+  ended_at      TEXT,
+  last_chunk_at TEXT,
+  purge_at      TEXT NOT NULL,
+  transcript    TEXT NOT NULL DEFAULT '' -- a sealed JSON copy of the session's transcript
+);
+CREATE INDEX IF NOT EXISTS idx_share_recordings_host ON share_recordings(host_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_share_recordings_purge ON share_recordings(purge_at);`
 
 const shareSessionsColumns = `
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -85,6 +112,7 @@ const shareSessionsColumns = `
   token_hash   TEXT NOT NULL,
   hide_secrets INTEGER NOT NULL DEFAULT 0,
   mirror       INTEGER NOT NULL DEFAULT 0,
+  draw         INTEGER NOT NULL DEFAULT 1,
   created_at   TEXT NOT NULL,
   expires_at   TEXT NOT NULL,
   ended_at     TEXT,
@@ -98,6 +126,7 @@ const shareSessionsColumns = `
 // drop does not cascade to the guests and messages that point at it.
 func migrateShareSessions(db *sql.DB) error {
 	db.Exec("ALTER TABLE share_sessions ADD COLUMN mirror INTEGER NOT NULL DEFAULT 0")
+	db.Exec("ALTER TABLE share_sessions ADD COLUMN draw INTEGER NOT NULL DEFAULT 1")
 	var notNull int
 	if err := db.QueryRow(`SELECT "notnull" FROM pragma_table_info('share_sessions') WHERE name = 'stack_id'`).Scan(&notNull); err != nil || notNull == 0 {
 		return err
@@ -111,7 +140,7 @@ func migrateShareSessions(db *sql.DB) error {
 		return err
 	}
 	defer tx.Rollback()
-	const cols = `id, host_id, stack_id, token_hash, hide_secrets, mirror, created_at, expires_at, ended_at, ended_reason`
+	const cols = `id, host_id, stack_id, token_hash, hide_secrets, mirror, draw, created_at, expires_at, ended_at, ended_reason`
 	for _, q := range []string{
 		`CREATE TABLE share_sessions_new (` + shareSessionsColumns + `)`,
 		`INSERT INTO share_sessions_new (` + cols + `) SELECT ` + cols + ` FROM share_sessions`,
@@ -137,13 +166,15 @@ func migrateShareSessions(db *sql.DB) error {
 
 // ShareSession is one share link and its lifetime.
 type ShareSession struct {
-	ID          int64   `json:"id"`
-	HostID      int64   `json:"hostId"`
-	HostName    string  `json:"hostName"`
-	StackID     int64   `json:"stackId"`
-	StackName   string  `json:"stackName"`
-	HideSecrets bool    `json:"hideSecrets"`
-	Mirror      bool    `json:"mirror"`
+	ID          int64  `json:"id"`
+	HostID      int64  `json:"hostId"`
+	HostName    string `json:"hostName"`
+	StackID     int64  `json:"stackId"`
+	StackName   string `json:"stackName"`
+	HideSecrets bool   `json:"hideSecrets"`
+	Mirror      bool   `json:"mirror"`
+	// GuestsDraw is whether guests may draw on the shared screen (sharedraw.go).
+	GuestsDraw  bool    `json:"guestsDraw"`
 	CreatedAt   string  `json:"createdAt"`
 	ExpiresAt   string  `json:"expiresAt"`
 	EndedAt     *string `json:"endedAt,omitempty"`
@@ -172,6 +203,7 @@ type ShareGuest struct {
 	Email      string  `json:"email"`
 	State      string  `json:"state"`
 	Muted      bool    `json:"muted"`
+	DrawOff    bool    `json:"drawOff"`
 	RemoteAddr string  `json:"remoteAddr,omitempty"`
 	JoinedAt   string  `json:"joinedAt"`
 	AdmittedAt *string `json:"admittedAt,omitempty"`
@@ -221,7 +253,7 @@ type ShareAction struct {
 var errShareNotFound = errors.New("shared session not found")
 
 const shareSessionCols = `s.id, s.host_id, COALESCE(u.username,''), COALESCE(s.stack_id,0), COALESCE(st.name,''),
-  s.hide_secrets, s.mirror, s.created_at, s.expires_at, s.ended_at, s.ended_reason`
+  s.hide_secrets, s.mirror, s.draw, s.created_at, s.expires_at, s.ended_at, s.ended_reason`
 
 const shareSessionFrom = ` FROM share_sessions s
   LEFT JOIN users u ON u.id = s.host_id
@@ -229,9 +261,9 @@ const shareSessionFrom = ` FROM share_sessions s
 
 func scanShareSession(row interface{ Scan(...any) error }) (ShareSession, error) {
 	var s ShareSession
-	var hide, mirror int
+	var hide, mirror, draw int
 	var ended sql.NullString
-	err := row.Scan(&s.ID, &s.HostID, &s.HostName, &s.StackID, &s.StackName, &hide, &mirror,
+	err := row.Scan(&s.ID, &s.HostID, &s.HostName, &s.StackID, &s.StackName, &hide, &mirror, &draw,
 		&s.CreatedAt, &s.ExpiresAt, &ended, &s.EndedReason)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ShareSession{}, errShareNotFound
@@ -241,6 +273,7 @@ func scanShareSession(row interface{ Scan(...any) error }) (ShareSession, error)
 	}
 	s.HideSecrets = hide != 0
 	s.Mirror = mirror != 0
+	s.GuestsDraw = draw != 0
 	if ended.Valid {
 		s.EndedAt = &ended.String
 	}
@@ -291,6 +324,18 @@ func (s *Store) listShareSessions(where string, arg any) ([]ShareSession, error)
 // SetShareSessionMirror turns a live session's "Mirror everything" on or off.
 func (s *Store) SetShareSessionMirror(id int64, on bool) error {
 	res, err := s.db.Exec(`UPDATE share_sessions SET mirror = ? WHERE id = ? AND ended_at IS NULL`, boolInt(on), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return errShareNotFound
+	}
+	return nil
+}
+
+// SetShareSessionDraw sets whether a live session's guests may draw.
+func (s *Store) SetShareSessionDraw(id int64, on bool) error {
+	res, err := s.db.Exec(`UPDATE share_sessions SET draw = ? WHERE id = ? AND ended_at IS NULL`, boolInt(on), id)
 	if err != nil {
 		return err
 	}
@@ -372,13 +417,13 @@ func (s *Store) ExpiredShareSessions(now time.Time) ([]int64, error) {
 	return ids, rows.Err()
 }
 
-const shareGuestCols = `id, session_id, name, email, state, muted, remote_addr, joined_at, admitted_at, left_at, invite_hash, user_id, account, avatar`
+const shareGuestCols = `id, session_id, name, email, state, muted, draw_off, remote_addr, joined_at, admitted_at, left_at, invite_hash, user_id, account, avatar`
 
 func (s *Store) scanShareGuest(row interface{ Scan(...any) error }) (ShareGuest, error) {
 	var g ShareGuest
-	var muted int
+	var muted, drawOff int
 	var adm, left sql.NullString
-	err := row.Scan(&g.ID, &g.SessionID, &g.Name, &g.Email, &g.State, &muted, &g.RemoteAddr, &g.JoinedAt, &adm, &left, &g.InviteHash,
+	err := row.Scan(&g.ID, &g.SessionID, &g.Name, &g.Email, &g.State, &muted, &drawOff, &g.RemoteAddr, &g.JoinedAt, &adm, &left, &g.InviteHash,
 		&g.UserID, &g.Account, &g.Avatar)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ShareGuest{}, errShareNotFound
@@ -394,6 +439,7 @@ func (s *Store) scanShareGuest(row interface{ Scan(...any) error }) (ShareGuest,
 		return ShareGuest{}, err
 	}
 	g.Muted = muted != 0
+	g.DrawOff = drawOff != 0
 	if adm.Valid {
 		g.AdmittedAt = &adm.String
 	}
@@ -477,6 +523,12 @@ func (s *Store) SetShareGuestMuted(id int64, muted bool) error {
 		m = 1
 	}
 	_, err := s.db.Exec(`UPDATE share_guests SET muted = ? WHERE id = ?`, m, id)
+	return err
+}
+
+// SetShareGuestDrawOff stops a guest drawing on the shared screen, or lets them again.
+func (s *Store) SetShareGuestDrawOff(id int64, off bool) error {
+	_, err := s.db.Exec(`UPDATE share_guests SET draw_off = ? WHERE id = ?`, boolInt(off), id)
 	return err
 }
 
@@ -580,4 +632,174 @@ func boolInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// ------------------------------------------------------------- recordings (sharerecord.go)
+
+const shareRecordingCols = `id, COALESCE(session_id,0), host_id, title, mime, file, size, chunks, duration_ms, state,
+  started_at, ended_at, last_chunk_at, purge_at`
+
+func scanShareRecording(row interface{ Scan(...any) error }) (ShareRecording, error) {
+	var r ShareRecording
+	var ended, last sql.NullString
+	err := row.Scan(&r.ID, &r.SessionID, &r.HostID, &r.Title, &r.Mime, &r.File, &r.Size, &r.Chunks, &r.DurationMs, &r.State,
+		&r.StartedAt, &ended, &last, &r.PurgeAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ShareRecording{}, errShareNotFound
+	}
+	if err != nil {
+		return ShareRecording{}, err
+	}
+	if ended.Valid {
+		r.EndedAt = &ended.String
+	}
+	if last.Valid {
+		r.LastChunkAt = &last.String
+	}
+	return r, nil
+}
+
+func (s *Store) listShareRecordings(where string, args ...any) ([]ShareRecording, error) {
+	rows, err := s.db.Query(`SELECT `+shareRecordingCols+` FROM share_recordings WHERE `+where+` ORDER BY id DESC`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ShareRecording{}
+	for rows.Next() {
+		r, err := scanShareRecording(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) CreateShareRecording(r ShareRecording) (ShareRecording, error) {
+	res, err := s.db.Exec(`INSERT INTO share_recordings (session_id, host_id, title, mime, file, state, started_at, purge_at)
+		VALUES (?,?,?,?,?,?,?,?)`, r.SessionID, r.HostID, r.Title, r.Mime, r.File, r.State, nowRFC3339(), r.PurgeAt)
+	if err != nil {
+		return r, err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return r, err
+	}
+	return s.GetShareRecording(id)
+}
+
+func (s *Store) GetShareRecording(id int64) (ShareRecording, error) {
+	return scanShareRecording(s.db.QueryRow(`SELECT `+shareRecordingCols+` FROM share_recordings WHERE id = ?`, id))
+}
+
+// ListShareRecordings is a host's recordings, newest first.
+func (s *Store) ListShareRecordings(hostID int64) ([]ShareRecording, error) {
+	return s.listShareRecordings("host_id = ?", hostID)
+}
+
+// AddShareRecordingChunk records that a chunk was appended: how many there are now,
+// and how large the file is.
+func (s *Store) AddShareRecordingChunk(id, chunks, size int64) error {
+	_, err := s.db.Exec(`UPDATE share_recordings SET chunks = ?, size = ?, last_chunk_at = ? WHERE id = ?`, chunks, size, nowRFC3339(), id)
+	return err
+}
+
+// SetShareRecordingState moves a recording on; from "recording" only once, so two
+// stops do not finish it twice.
+func (s *Store) SetShareRecordingState(id int64, state string) error {
+	res, err := s.db.Exec(`UPDATE share_recordings SET state = ? WHERE id = ? AND state = ?`, state, id, recRecording)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return errShareNotFound
+	}
+	return nil
+}
+
+// FinishShareRecording marks a recording ready to download.
+func (s *Store) FinishShareRecording(id, durationMs, size int64) error {
+	_, err := s.db.Exec(`UPDATE share_recordings SET state = ?, duration_ms = ?, size = ?, ended_at = COALESCE(ended_at, ?) WHERE id = ?`,
+		recReady, durationMs, size, nowRFC3339(), id)
+	return err
+}
+
+func (s *Store) SetShareRecordingTitle(id int64, title string) error {
+	_, err := s.db.Exec(`UPDATE share_recordings SET title = ? WHERE id = ?`, title, id)
+	return err
+}
+
+func (s *Store) SetShareRecordingPurge(id int64, at time.Time) error {
+	_, err := s.db.Exec(`UPDATE share_recordings SET purge_at = ? WHERE id = ?`, at.UTC().Format(time.RFC3339), id)
+	return err
+}
+
+func (s *Store) DeleteShareRecording(id int64) error {
+	_, err := s.db.Exec(`DELETE FROM share_recordings WHERE id = ?`, id)
+	return err
+}
+
+// StaleShareRecordings are recordings still open whose last chunk (or start, if none
+// came) is older than before.
+func (s *Store) StaleShareRecordings(before time.Time) ([]ShareRecording, error) {
+	return s.listShareRecordings(`state = ? AND COALESCE(last_chunk_at, started_at) < ?`, recRecording, before.UTC().Format(time.RFC3339))
+}
+
+func (s *Store) ShareRecordingsInState(state string) ([]ShareRecording, error) {
+	return s.listShareRecordings(`state = ?`, state)
+}
+
+// DueShareRecordings are the recordings whose purge date has come. One still being
+// recorded waits until it is finished.
+func (s *Store) DueShareRecordings(now time.Time) ([]ShareRecording, error) {
+	return s.listShareRecordings(`purge_at <= ? AND state = ?`, now.UTC().Format(time.RFC3339), recReady)
+}
+
+// ShareRecordingFiles is the set of file names some recording owns.
+func (s *Store) ShareRecordingFiles() (map[string]bool, error) {
+	rows, err := s.db.Query(`SELECT file FROM share_recordings`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var f string
+		if err := rows.Scan(&f); err != nil {
+			return nil, err
+		}
+		out[f] = true
+	}
+	return out, rows.Err()
+}
+
+// SetShareRecordingTranscript keeps a copy of the session's transcript with a
+// recording. It is sealed (encryption.go) like the chat it copies.
+func (s *Store) SetShareRecordingTranscript(id int64, transcript string) error {
+	v, err := s.sealVal(aadID("share_recordings", "transcript", id), transcript)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`UPDATE share_recordings SET transcript = ? WHERE id = ?`, v, id)
+	return err
+}
+
+// ShareRecordingTranscript is the copy kept with a recording, or "" if none was.
+func (s *Store) ShareRecordingTranscript(id int64) (string, error) {
+	var v string
+	if err := s.db.QueryRow(`SELECT transcript FROM share_recordings WHERE id = ?`, id).Scan(&v); err != nil {
+		return "", err
+	}
+	if v == "" {
+		return "", nil
+	}
+	return s.openVal(aadID("share_recordings", "transcript", id), v)
+}
+
+// ShareRecordingsOfSessionsEndedBefore are the recordings whose session's records
+// the retention is about to delete.
+func (s *Store) ShareRecordingsOfSessionsEndedBefore(before time.Time) ([]ShareRecording, error) {
+	return s.listShareRecordings(`session_id IN (SELECT id FROM share_sessions WHERE ended_at IS NOT NULL AND ended_at < ?)`,
+		before.UTC().Format(time.RFC3339))
 }

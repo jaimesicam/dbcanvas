@@ -33,7 +33,7 @@ const SYSTEM_DEFAULTS = {
   // land never offers to write to a PMM database.
   internalWrites: false,
   // Shared sessions (app/share.go): off until an administrator turns them on.
-  allowGuestSessions: false, maxGuestMinutes: 120, sessionRetentionDays: 90, publicUrl: '',
+  allowGuestSessions: false, maxGuestMinutes: 120, sessionRetentionDays: 90, recordingRetentionDays: 30, publicUrl: '',
 }
 // Exported for the render checks, which need to mount a component under a chosen
 // preference — `tooltips: 'off'` is only observable through the context, and the

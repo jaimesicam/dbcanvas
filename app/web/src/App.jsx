@@ -12,6 +12,7 @@ import { SessionProvider, useSession } from './session/SessionProvider.jsx'
 import SessionPanel from './components/SessionPanel.jsx'
 import ShareDialog from './components/ShareDialog.jsx'
 import { MirrorRecorder, MirrorView } from './session/Mirror.jsx'
+import { WorkspaceDrawing } from './session/DrawLayer.jsx'
 import { BrowserProvider } from './browser/BrowserProvider.jsx'
 import { WindowManagerProvider, useWindowApi, useTaskbarItem } from './wm/WindowManager.jsx'
 import { StartButton, DesktopSurface, PageWindows, pageWindowId } from './desktop/Desktop.jsx'
@@ -350,6 +351,7 @@ function Workspace({ onSessionEnded }) {
       {showPanel && panelOpen && <SessionPanel onClose={() => setPanelOpen(false)} />}
       <MirrorRecorder />
       <MirrorView right={showPanel && panelOpen ? '22rem' : 0} onShowPanel={showPanel && !panelOpen ? () => setPanelOpen(true) : null} />
+      <WorkspaceDrawing right={showPanel && panelOpen ? 352 : 0} />
       {shareOpen && <ShareDialog stack={null} onClose={() => setShareOpen(false)} />}
       {paletteOpen && (
         <CommandPalette

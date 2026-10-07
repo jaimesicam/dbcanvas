@@ -102,6 +102,9 @@ type SystemSettings struct {
 	// with their names, emails and addresses, the transcript, the guest actions — are
 	// kept before they are deleted. 0 keeps them for as long as the stack exists.
 	SessionRetentionDays int `json:"sessionRetentionDays"`
+	// RecordingRetentionDays is how long a session's screen recording is kept by
+	// default, 1 to 3650 (sharerecord.go); its host can move the date.
+	RecordingRetentionDays int `json:"recordingRetentionDays"`
 	// PublicURL is the base share links are built on (PUBLIC_URL in .env), or "" when
 	// links use the address the host's browser used. Derived and read-only.
 	PublicURL string `json:"publicUrl"`
@@ -131,7 +134,7 @@ func sshForwardingSetting(appUser string) SSHForwardingSetting {
 
 func defaultSystemSettings() SystemSettings {
 	return SystemSettings{MaxUploadBytes: defaultMaxUploadBytes, MaxTokenDays: defaultMaxTokenDays, MaxGuestMinutes: shareMaxMinutes,
-		SessionRetentionDays: defaultShareRetentionDays}
+		SessionRetentionDays: defaultShareRetentionDays, RecordingRetentionDays: defaultRecordingRetentionDays}
 }
 
 // normalize clamps out-of-range values rather than rejecting them, so a value
@@ -157,6 +160,7 @@ func (s SystemSettings) normalize() SystemSettings {
 	}
 	s.MaxGuestMinutes = clampGuestMinutes(strconv.Itoa(s.MaxGuestMinutes))
 	s.SessionRetentionDays = clampRetentionDays(s.SessionRetentionDays)
+	s.RecordingRetentionDays = clampRecordingDays(s.RecordingRetentionDays)
 	return s
 }
 
@@ -179,6 +183,7 @@ func (a *App) systemSettings(appUser string) SystemSettings {
 	}
 	s.AllowGuestSessions, s.MaxGuestMinutes = a.guestSessionSettings()
 	s.SessionRetentionDays = a.shareRetentionDays()
+	s.RecordingRetentionDays = a.recordingRetentionDays()
 	s = s.normalize()
 	s.PublicURL = strings.TrimRight(strings.TrimSpace(os.Getenv("PUBLIC_URL")), "/")
 	s.SSHForwarding = sshForwardingSetting(appUser)
@@ -223,6 +228,9 @@ func (a *App) handleUpdateSystemSettings(w http.ResponseWriter, r *http.Request)
 	if _, ok := present["sessionRetentionDays"]; !ok {
 		in.SessionRetentionDays = a.shareRetentionDays()
 	}
+	if _, ok := present["recordingRetentionDays"]; !ok {
+		in.RecordingRetentionDays = a.recordingRetentionDays()
+	}
 	s := in.normalize()
 	if err := a.store.SetAppSetting(settingMaxUploadBytes, strconv.FormatInt(s.MaxUploadBytes, 10)); err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to save settings")
@@ -253,6 +261,10 @@ func (a *App) handleUpdateSystemSettings(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := a.store.SetAppSetting(settingShareRetentionDays, strconv.Itoa(s.SessionRetentionDays)); err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to save settings")
+		return
+	}
+	if err := a.store.SetAppSetting(settingRecordingRetentionDays, strconv.Itoa(s.RecordingRetentionDays)); err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to save settings")
 		return
 	}

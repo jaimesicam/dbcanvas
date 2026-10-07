@@ -8,6 +8,8 @@ import { shareApi } from '../lib/shareApi.js'
 import { joinToken } from '../lib/guest.js'
 import { EMOJI_GROUPS, onlyEmoji, withEmoji } from '../lib/emoji.js'
 import { setSoundsEnabled, soundsEnabled, subscribeSounds } from '../lib/sessionSounds.js'
+import { recorder } from '../session/recorder.js'
+import Recordings from './Recordings.jsx'
 
 // SessionPanel — the shared session, beside the workspace (app/share.go).
 //
@@ -21,6 +23,11 @@ import { setSoundsEnabled, soundsEnabled, subscribeSounds } from '../lib/session
 // the caret, and typed emoticons (":)", ":+1:") become emoji on send (lib/emoji.js).
 // Enter sends, Shift+Enter starts a new line; the bell in the chat header turns the
 // alert sounds off for this browser (lib/sessionSounds.js).
+//
+// Anyone may draw on the screen (session/DrawLayer.jsx) unless the host turned it off
+// for everyone or for them. The host may also record the session (session/recorder.js):
+// everyone sees that it is being recorded, and the recordings are kept for the host to
+// download until their purge date (components/Recordings.jsx).
 
 function useCountdown(iso) {
   const [now, setNow] = useState(Date.now())
@@ -71,10 +78,29 @@ function groupStart(prev, m) {
   return (Date.parse(m.createdAt) || 0) - (Date.parse(prev.createdAt) || 0) > GROUP_MS
 }
 
-const EVENT_ICON = { control: '🎮', join: '👋', leave: '🚪', lobby: '🛎️', 'expiry-warning': '⏰', end: '🏁', start: '▶️', browser: '🌐', link: '🔗', action: '🛠️' }
+const EVENT_ICON = { draw: '✏️', record: '⏺️', control: '🎮', join: '👋', leave: '🚪', lobby: '🛎️', 'expiry-warning': '⏰', end: '🏁', start: '▶️', browser: '🌐', link: '🔗', action: '🛠️' }
+
+// Elapsed is m:ss (or h:mm:ss) since a moment, ticking each second.
+function useElapsed(since) {
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    if (!since) return undefined
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [since])
+  if (!since) return ''
+  const sec = Math.max(0, Math.floor((now - since) / 1000))
+  const h = Math.floor(sec / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  const ss = String(sec % 60).padStart(2, '0')
+  return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`
+}
 
 export default function SessionPanel({ onClose }) {
   const s = useSession()
+  const rec = useSyncExternalStore(recorder.subscribe, recorder.get, recorder.get)
+  const recordingHere = rec.status !== 'idle' && rec.sid === s.sid
+  const elapsed = useElapsed(recordingHere && rec.status === 'recording' ? rec.startedAt : 0)
   const p = s.presence
   const { left, text } = useCountdown(p?.expiresAt)
   const [draft, setDraft] = useState('')
@@ -135,7 +161,7 @@ export default function SessionPanel({ onClose }) {
   const endSession = async () => {
     const yes = await ask.confirm({
       title: 'End the session for everyone?',
-      body: 'Every guest is disconnected and shared terminals close. The transcript is kept on the stack.',
+      body: 'Every guest is disconnected and shared terminals close. The transcript is kept on the stack, and a recording in progress is stopped and saved.',
       confirmLabel: 'End session', danger: true,
     })
     if (yes) s.end()
@@ -176,6 +202,15 @@ export default function SessionPanel({ onClose }) {
   const controller = p?.controller ?? 0
   const low = left > 0 && left < 10 * 60 * 1000
 
+  const startRecording = async () => {
+    const yes = await ask.confirm({
+      title: 'Record this session?',
+      body: 'Your browser asks what to capture: choose this tab. The recording is what you see here — the screen, the drawings and this panel with the chat. Everyone in the session is told it is being recorded. You can download it later, until its purge date.',
+      confirmLabel: 'Choose the tab', icon: <Icon.Record size={15} />,
+    })
+    if (yes) recorder.start(s.sid)
+  }
+
   if (s.ended && s.isHost) {
     return (
       <aside className="relative flex w-[22rem] shrink-0 flex-col border-l bg-surface" style={{ zIndex: 50 }}>
@@ -190,6 +225,7 @@ export default function SessionPanel({ onClose }) {
             <span className="text-muted">·</span>
             <a className="text-primary hover:underline" href={shareApi.transcriptURL(s.sid, 'json')}>JSON</a>
           </div>
+          <Recordings sessionId={s.sid} compact />
           <Button variant="outline" onClick={s.reset}>Close</Button>
         </div>
         {dialog}
@@ -209,6 +245,11 @@ export default function SessionPanel({ onClose }) {
             {s.isGuest ? `${p?.host?.name || 'The host'}'s workspace` : `${inRoom.length} guest${inRoom.length === 1 ? '' : 's'}`}
             {' · '}
             <span className={low ? 'font-medium text-warning' : ''}>ends in {text}</span>
+            {p?.recording && (
+              <span className="ml-1.5 inline-flex items-center gap-1 rounded bg-danger/15 px-1 text-[11px] font-semibold text-danger" title="The host is recording this session">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-danger" />REC
+              </span>
+            )}
             {!s.connected && <span className="text-warning"> · reconnecting…</span>}
           </div>
         </div>
@@ -237,6 +278,46 @@ export default function SessionPanel({ onClose }) {
           <div className="flex items-center gap-1.5 text-xs text-muted">
             <Icon.Monitor size={13} />
             {s.isDriver ? 'Mirror is on: everyone sees your screen as you see it.' : 'Mirroring the driver’s screen.'}
+          </div>
+        )}
+        {/* drawing on the screen */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {s.canDraw ? (
+            <Button variant={s.drawing ? 'primary' : 'outline'} onClick={() => s.setDrawing(!s.drawing)}
+              title="Draw or write on the screen, for everyone to see">
+              <Icon.Pencil size={13} className="mr-1 inline" />{s.drawing ? 'Drawing… (Esc)' : 'Draw on screen'}
+            </Button>
+          ) : (
+            <span className="text-xs text-muted">The host has turned drawing off for you.</span>
+          )}
+          {s.isHost && (
+            <label className="flex cursor-pointer items-center gap-1 text-xs" title="Whether guests may draw on the screen; you always may">
+              <input type="checkbox" checked={!!p?.guestsDraw} onChange={(e) => s.setGuestsDraw(e.target.checked)} />
+              Guests may draw
+            </label>
+          )}
+        </div>
+        {/* recording, the host's */}
+        {s.isHost && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {!recordingHere ? (
+              <Button variant="outline" onClick={startRecording} disabled={!recorder.supported() || rec.status !== 'idle'}
+                title={recorder.supported() ? 'Record the screen, the drawings and the chat' : 'This browser cannot record a tab — use Chrome, Edge or Firefox'}>
+                <Icon.Record size={13} className="mr-1 inline text-danger" />Record
+              </Button>
+            ) : rec.status === 'starting' ? (
+              <span className="text-xs text-muted">Choose this tab in the browser&apos;s dialog…</span>
+            ) : (
+              <>
+                <span className="inline-flex items-center gap-1.5 rounded-md bg-danger/10 px-2 py-1 text-xs font-medium text-danger">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-danger" />
+                  {rec.status === 'stopping' ? 'Saving the recording…' : `Recording ${elapsed}`}
+                  {rec.pending > 1 && <span className="font-normal text-muted">· uploading {rec.pending}</span>}
+                </span>
+                {rec.status === 'recording' && <Button variant="outline" onClick={recorder.stop}>Stop</Button>}
+              </>
+            )}
+            {rec.error && <span className="w-full text-xs text-danger">{rec.error}</span>}
           </div>
         )}
         <div className="flex flex-wrap gap-1.5">
@@ -292,11 +373,12 @@ export default function SessionPanel({ onClose }) {
           <Person name={p?.host?.name} badge="host" online={p?.host?.online} driving={controller === 0} avatar={p?.host?.avatar} />
           {inRoom.map((g) => (
             <Person key={g.id} name={g.name} sub={s.isHost ? (g.account ? `@${g.account}` : g.email) : ''} badge="guest" online={g.online}
-              driving={controller === g.id} muted={g.muted} avatar={g.avatar} verified={g.account}>
+              driving={controller === g.id} muted={g.muted} noDraw={g.drawOff} avatar={g.avatar} verified={g.account}>
               {s.isHost && (
                 <>
                   {controller !== g.id && <IconBtn title="Give control" onClick={() => s.giveControl(g.id)}><Icon.Pointer size={12} /></IconBtn>}
                   <IconBtn title={g.muted ? 'Unmute' : 'Mute'} onClick={() => s.mute(g.id, !g.muted)}><Icon.Chat size={12} /></IconBtn>
+                  <IconBtn title={g.drawOff ? 'Let them draw' : 'Stop them drawing'} onClick={() => s.setGuestDraw(g.id, !!g.drawOff)}><Icon.Pencil size={12} /></IconBtn>
                   <IconBtn title="Remove from the session" onClick={() => removeGuest(g)}><Icon.Close size={12} /></IconBtn>
                 </>
               )}
@@ -416,7 +498,7 @@ export default function SessionPanel({ onClose }) {
   )
 }
 
-function Person({ name, sub, badge, online, driving, muted, avatar, verified, children }) {
+function Person({ name, sub, badge, online, driving, muted, noDraw, avatar, verified, children }) {
   return (
     <div className="group flex items-center gap-2 rounded-md px-1 py-1">
       <span className="relative shrink-0">
@@ -430,6 +512,7 @@ function Person({ name, sub, badge, online, driving, muted, avatar, verified, ch
           {verified && <span className="rounded bg-success/10 px-1 text-[11px] text-success" title={`Signed in with the DBCanvas account ${verified}`}>account</span>}
           {driving && <span className="rounded bg-success/15 px-1 text-[11px] text-success">driving</span>}
           {muted && <span className="rounded bg-warning/15 px-1 text-[11px] text-warning">muted</span>}
+          {noDraw && <span className="rounded bg-warning/15 px-1 text-[11px] text-warning" title="The host stopped them drawing">no drawing</span>}
         </div>
         {sub && <div className="truncate text-xs text-muted">{sub}</div>}
       </div>

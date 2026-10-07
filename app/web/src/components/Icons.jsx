@@ -598,6 +598,27 @@ export const Icon = {
       <path d="M14.8 6.9 17.4 9.5" />
     </Svg>
   ),
+  // Drawing on a shared session's screen (session/DrawLayer.jsx): an eraser, a letter
+  // for the text tool, and the record button's dot.
+  Eraser: (p) => (
+    <Svg {...p}>
+      <path d="m7.5 20.5-4-4a1.8 1.8 0 0 1 0-2.5L13.8 3.7a1.8 1.8 0 0 1 2.5 0l4 4a1.8 1.8 0 0 1 0 2.5L10.6 20H20" />
+      <path d="m9.2 9 6 6" />
+    </Svg>
+  ),
+  Text: (p) => (
+    <Svg {...p}>
+      <path d="M5 6.5V4.5h14v2" />
+      <path d="M12 4.5v15" />
+      <path d="M9 19.5h6" />
+    </Svg>
+  ),
+  Record: (p) => (
+    <Svg {...p}>
+      <circle cx="12" cy="12" r="8.5" />
+      <circle cx="12" cy="12" r="4" fill="currentColor" stroke="none" />
+    </Svg>
+  ),
   // Maximize / Restore for the debugger's panels: arrows out of the corners, then into them.
   // Two marks rather than one that flips, because the button says what will happen next and
   // "the arrows point the way the panel is about to go" is the whole of the idea.

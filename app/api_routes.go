@@ -61,6 +61,7 @@ const (
 	mediaJSON      mediaKind = ""          // request and response are JSON
 	mediaMultipart mediaKind = "multipart" // multipart/form-data upload
 	mediaDownload  mediaKind = "download"  // streams a file back as an attachment
+	mediaBinary    mediaKind = "binary"    // the request body is raw bytes
 	mediaSSE       mediaKind = "sse"       // text/event-stream
 	mediaWebSocket mediaKind = "websocket" // upgrades the connection
 )
@@ -984,6 +985,10 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "Remove a guest from the session; they lose access at once.", Handler: func(a *App) http.HandlerFunc { return a.handleShareGuestAction("remove")(a) }},
 		{Method: "POST", Path: "/api/share/sessions/{sid}/guests/{gid}/mute", Group: gShare,
 			Summary: "Mute or unmute a guest in chat: {\"muted\": true}.", Handler: func(a *App) http.HandlerFunc { return a.handleShareGuestAction("mute")(a) }},
+		{Method: "POST", Path: "/api/share/sessions/{sid}/guests/{gid}/draw", Group: gShare,
+			Summary: "Let a guest draw on the shared screen, or stop them: {\"draw\": false}.", Handler: func(a *App) http.HandlerFunc { return a.handleShareGuestAction("draw")(a) }},
+		{Method: "POST", Path: "/api/share/sessions/{sid}/draw", Group: gShare, Handler: m((*App).handleShareDraw),
+			Summary: "Let every guest draw on the shared screen, or none of them: {\"draw\": false}. The host always may."},
 		{Method: "POST", Path: "/api/share/sessions/{sid}/control", Group: gShare, Handler: m((*App).handleShareControl),
 			Summary: "Give control to a guest, {\"to\": <guest id>}, or take it back, {\"to\": \"host\"}."},
 		{Method: "POST", Path: "/api/share/sessions/{sid}/link", Group: gShare, NoToken: true, Handler: m((*App).handleShareNewLink),
@@ -992,6 +997,22 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "End a shared session now; every guest is disconnected."},
 		{Method: "GET", Path: "/api/share/sessions/{sid}/transcript", Group: gShare, Media: mediaDownload, Handler: m((*App).handleShareTranscript),
 			Summary: "Download a session's transcript, chat, events and guest actions, as text or ?format=json."},
+		{Method: "POST", Path: "/api/share/sessions/{sid}/recordings", Group: gShare, Handler: m((*App).handleShareRecordStart),
+			Summary: "Start recording a live session — the host's own screen, captured in their browser — and tell everyone: {mime}. Returns the recording, to upload chunks to."},
+		{Method: "GET", Path: "/api/share/recordings", Group: gShare, Handler: m((*App).handleListShareRecordings),
+			Summary: "Your session recordings, newest first, with their state, size, length and purge date."},
+		{Method: "POST", Path: "/api/share/recordings/{rid}/chunks", Group: gShare, Media: mediaBinary, Handler: m((*App).handleShareRecordChunk),
+			Summary: "Append one chunk of video to a recording in progress: ?seq=N (from 0), the bytes as the body. A chunk already taken is acknowledged and dropped."},
+		{Method: "POST", Path: "/api/share/recordings/{rid}/finish", Group: gShare, Handler: m((*App).handleShareRecordFinish),
+			Summary: "Stop a recording and finish its file: {durationMs}."},
+		{Method: "GET", Path: "/api/share/recordings/{rid}/file", Group: gShare, Media: mediaDownload, Handler: m((*App).handleShareRecordFile),
+			Summary: "Download a finished recording; ?inline=1 to play it in the browser."},
+		{Method: "GET", Path: "/api/share/recordings/{rid}/transcript", Group: gShare, Media: mediaDownload, Handler: m((*App).handleShareRecordTranscript),
+			Summary: "Download the chat transcript that goes with a recording, as text or ?format=json — kept with the recording after the session's own records are purged."},
+		{Method: "PUT", Path: "/api/share/recordings/{rid}", Group: gShare, Handler: m((*App).handleShareRecordUpdate),
+			Summary: "Rename a recording or move the date it is purged on: {title, purgeAt} (a date, 2006-01-02, in the future)."},
+		{Method: "DELETE", Path: "/api/share/recordings/{rid}", Group: gShare, Handler: m((*App).handleShareRecordDelete),
+			Summary: "Purge a recording now: its file and its record."},
 		{Method: "GET", Path: "/api/share/sessions/{sid}/ws", Group: gShare, GuestOK: true, Media: mediaWebSocket, Handler: m((*App).handleShareWS),
 			Summary: "The session's live channel: presence, follow, cursor, chat, control and events."},
 		{Method: "POST", Path: "/api/share/sessions/{sid}/terms", Group: gShare, GuestOK: true, Handler: m((*App).handleShareTermOpen),

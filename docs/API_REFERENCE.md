@@ -1255,7 +1255,9 @@ gives control to can do anything the host can in the workspace. Off until an
 administrator turns it on (`allowGuestSessions` in `PUT /api/system/settings`).
 An ended session's records — its guests' names, emails and addresses, the
 transcript and the guest actions — are deleted after `sessionRetentionDays`
-(default 90; `0` keeps them until the stack is deleted), checked hourly.
+(default 90; `0` keeps them until the stack is deleted), checked hourly. A host's
+screen recordings are kept on their own date, `recordingRetentionDays` after they start
+(default 30, 1–3650) unless the host moves it.
 
 | To do this | API | CLI |
 | --- | --- | --- |
@@ -1266,11 +1268,21 @@ transcript and the guest actions — are deleted after `sessionRetentionDays`
 | Admit, deny, remove a guest | `POST /api/share/sessions/{sid}/guests/{gid}/admit` · `…/deny` · `…/remove` | `dbcanvas api POST …/guests/5/admit` |
 | Mute or unmute a guest | `POST /api/share/sessions/{sid}/guests/{gid}/mute` `{"muted": true}` | — |
 | Give or take back control | `POST /api/share/sessions/{sid}/control` `{"to": 5}` or `{"to": "host"}` | — |
+| Let every guest draw, or none | `POST /api/share/sessions/{sid}/draw` `{"draw": false}` | — |
+| Let one guest draw, or stop them | `POST /api/share/sessions/{sid}/guests/{gid}/draw` `{"draw": false}` | — |
+| Start recording *(the video comes from the host's browser)* | `POST /api/share/sessions/{sid}/recordings` `{"mime": "video/webm;codecs=vp9"}` | — |
+| Append a chunk of video, in order | `POST /api/share/recordings/{rid}/chunks?seq=N` *(raw bytes; a chunk already taken is acknowledged)* | — |
+| Stop a recording | `POST /api/share/recordings/{rid}/finish` `{"durationMs": 61000}` | — |
+| Your recordings | `GET /api/share/recordings` | `dbcanvas api GET /api/share/recordings` |
+| Download one *(ranges served; `?inline=1` to play)* | `GET /api/share/recordings/{rid}/file` | `dbcanvas api GET /api/share/recordings/4/file --out session.webm` |
+| The chat transcript that goes with it *(text; `?format=json`)* | `GET /api/share/recordings/{rid}/transcript` | `dbcanvas api GET /api/share/recordings/4/transcript --out chat.txt` |
+| Rename it, or move its purge date | `PUT /api/share/recordings/{rid}` `{"title": "…", "purgeAt": "2026-12-31"}` | — |
+| Purge it now | `DELETE /api/share/recordings/{rid}` | `dbcanvas api DELETE /api/share/recordings/4` |
 | New invitation link (retires the old one; returned once) | `POST /api/share/sessions/{sid}/link` | `dbcanvas api POST /api/share/sessions/3/link` |
 | End it now | `POST /api/share/sessions/{sid}/end` | `dbcanvas api POST /api/share/sessions/3/end` |
 | Transcripts filed on a stack | `GET /api/stacks/{id}/share/transcripts` | — |
 | Download a transcript | `GET /api/share/sessions/{sid}/transcript` *(text; `?format=json`)* | `dbcanvas api GET …/transcript --out session.txt` |
-| **Live channel** — presence, follow, chat, control | `GET /api/share/sessions/{sid}/ws` *(websocket)* | — |
+| **Live channel** — presence, follow, chat, control, drawings | `GET /api/share/sessions/{sid}/ws` *(websocket)* | — |
 | Shared terminal: open, close, watch | `POST /api/share/sessions/{sid}/terms` · `DELETE …/terms/{tid}` · `GET …/terms/{tid}/ws` | — |
 | The join page, joining, the lobby, leaving *(public)* | `GET /api/join/{token}` · `POST /api/join/{token}` `{"name", "email", "avatar"}` · `GET …/status` · `POST …/leave` | — |
 | Join as your DBCanvas account *(public)* | `POST /api/join/{token}/account` `{"username", "password"}` or `{"useSession": true}` — a lobby place only; the browser is not signed in | — |

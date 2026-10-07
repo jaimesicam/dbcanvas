@@ -78,7 +78,8 @@ func (a *App) hubFor(sess ShareSession) *shareHub {
 		sess.HostName = host.displayName()
 	}
 	h := &shareHub{app: a, sess: sess, clients: map[*hubClient]bool{}, terms: map[string]*sharedTerm{},
-		browsers: map[string]*sharedBrowser{}, lastChat: map[int64]time.Time{}, mirror: sess.Mirror}
+		browsers: map[string]*sharedBrowser{}, lastChat: map[int64]time.Time{}, mirror: sess.Mirror,
+		marks: map[string]*shareMark{}}
 	shareHubs.hubs[sess.ID] = h
 	h.armTimers()
 	return h
@@ -105,6 +106,12 @@ type shareHub struct {
 	// requests for a fresh snapshot.
 	mirror     bool
 	lastResync time.Time
+	// marks are what people drew on the screen (sharedraw.go), and markOrder the
+	// order they were drawn in, so a late arrival sees them stacked the same way.
+	marks     map[string]*shareMark
+	markOrder []string
+	// recording is the host's screen recording in progress, if any (sharerecord.go).
+	recording *ShareRecording
 }
 
 // sharedBrowser is a browser window everyone in the session sees. Link is the node
@@ -200,6 +207,11 @@ func (h *shareHub) presence() map[string]any {
 	}
 	controller := h.controller
 	mirror := h.mirror
+	guestsDraw := h.sess.GuestsDraw
+	var recording any
+	if h.recording != nil {
+		recording = map[string]any{"id": h.recording.ID, "startedAt": h.recording.StartedAt}
+	}
 	h.mu.Unlock()
 	type person struct {
 		ShareGuest
@@ -218,7 +230,7 @@ func (h *shareHub) presence() map[string]any {
 	return map[string]any{
 		"t": "presence", "host": host,
 		"guests": people, "controller": controller, "expiresAt": h.sess.ExpiresAt, "hideSecrets": h.sess.HideSecrets,
-		"mirror": mirror,
+		"mirror": mirror, "guestsDraw": guestsDraw, "recording": recording,
 	}
 }
 
@@ -425,12 +437,13 @@ func (a *App) handleShareWS(w http.ResponseWriter, r *http.Request) {
 	for _, b := range h.browsers {
 		browsers = append(browsers, b)
 	}
+	marks := h.markList()
 	h.mu.Unlock()
 	defer h.clientGone(c)
 
 	history, _ := a.store.ListShareMessages(sess.ID, shareHistory)
 	h.send(c, map[string]any{"t": "hello", "you": map[string]any{"guestId": c.guestID, "name": c.name, "host": c.isHost()},
-		"session": sess, "history": history, "follow": follow, "terms": terms, "browsers": browsers})
+		"session": sess, "history": history, "follow": follow, "terms": terms, "browsers": browsers, "marks": marks})
 	h.broadcastPresence()
 	// Someone new is watching: the mirror they need starts with a full snapshot.
 	if c.guestID != h.controllerNow() {
@@ -584,6 +597,8 @@ func (h *shareHub) handle(c *hubClient, t, body string, data json.RawMessage) {
 			h.event("browser", c.guestID, c.name, c.name+" opened "+b.Title+" in a browser window")
 		}
 		h.broadcast(map[string]any{"t": t, "browser": b}, c)
+	case "draw", "draw-erase", "draw-clear":
+		h.handleDraw(c, t, data)
 	case "mirror":
 		h.relayMirror(c, driving, data)
 	case "mirror-resync":

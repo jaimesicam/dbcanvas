@@ -82,6 +82,7 @@ export function curlFor(ep, origin = '') {
   if (ep.media === 'sse') return `curl -N ${auth} "${url}"`
   if (ep.media === 'download') return `curl -OJ ${auth} "${url}"`
   if (ep.media === 'multipart') return `curl ${auth} -F file=@./yourfile "${url}"`
+  if (ep.media === 'binary') return `curl -s -X ${ep.method} ${auth} \\\n  -H 'Content-Type: application/octet-stream' --data-binary @./yourfile "${url}"`
   if (ep.method === 'GET') return `curl -s ${auth} "${url}"`
   return `curl -s -X ${ep.method} ${auth} \\\n  -H 'Content-Type: application/json' \\\n  -d '{}' "${url}"`
 }

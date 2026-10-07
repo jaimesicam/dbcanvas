@@ -59,10 +59,11 @@ var paramDocByPrefix = map[string]map[string]string{
 	"/api/stalksummary/archive": {"aid": "A kept pt-stalk archive's numeric id."},
 	"/api/share/sessions": {"sid": "The shared session's numeric id.", "gid": "A guest's numeric id within the session.",
 		"tid": "A shared terminal's id within the session."},
-	"/api/join":           {"token": "The share link's token — the last part of the link the host sent."},
-	"/api/kanban/boards":  {"id": "The board's numeric id."},
-	"/api/kanban/columns": {"cid": "The column's numeric id."},
-	"/api/kanban/cards":   {"kid": "The card's numeric id."},
+	"/api/share/recordings": {"rid": "A session recording's numeric id."},
+	"/api/join":             {"token": "The share link's token — the last part of the link the host sent."},
+	"/api/kanban/boards":    {"id": "The board's numeric id."},
+	"/api/kanban/columns":   {"cid": "The column's numeric id."},
+	"/api/kanban/cards":     {"kid": "The card's numeric id."},
 }
 
 // endpointParam is one path wildcard.
@@ -243,6 +244,11 @@ func openAPIDocument() map[string]any {
 			op["responses"].(map[string]any)["200"] = map[string]any{
 				"description": "The file, as an attachment.",
 				"content":     map[string]any{"application/octet-stream": map[string]any{"schema": map[string]any{"type": "string", "format": "binary"}}},
+			}
+		case mediaBinary:
+			op["requestBody"] = map[string]any{
+				"required": true,
+				"content":  map[string]any{"application/octet-stream": map[string]any{"schema": map[string]any{"type": "string", "format": "binary"}}},
 			}
 		case mediaMultipart:
 			op["requestBody"] = map[string]any{

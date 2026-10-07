@@ -122,7 +122,14 @@ func (a *App) purgeShareSessions() int {
 	if days == 0 {
 		return 0
 	}
-	n, err := a.store.PurgeShareSessions(time.Now().Add(-time.Duration(days) * 24 * time.Hour))
+	before := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+	// A recording keeps its session's transcript after the session's records go.
+	if recs, err := a.store.ShareRecordingsOfSessionsEndedBefore(before); err == nil {
+		for _, rec := range recs {
+			a.keepRecordingTranscript(rec)
+		}
+	}
+	n, err := a.store.PurgeShareSessions(before)
 	if err != nil {
 		log.Printf("shared sessions: purge failed: %v", err)
 	}
@@ -707,6 +714,20 @@ func (a *App) handleShareGuestAction(action string) func(*App) http.HandlerFunc 
 					word = "muted"
 				}
 				h.event("control", g.ID, g.Name, g.Name+" was "+word+" by the host")
+			case "draw":
+				var in struct {
+					Draw bool `json:"draw"`
+				}
+				if err := decode(r, &in); err != nil {
+					writeErr(w, http.StatusBadRequest, "invalid request body")
+					return
+				}
+				a.store.SetShareGuestDrawOff(g.ID, !in.Draw)
+				if in.Draw {
+					h.event("draw", g.ID, g.Name, h.sess.HostName+" let "+g.Name+" draw")
+				} else {
+					h.event("draw", g.ID, g.Name, h.sess.HostName+" stopped "+g.Name+" drawing")
+				}
 			}
 			h.broadcastPresence()
 			g, _ = a.store.GetShareGuest(g.ID)
@@ -791,22 +812,26 @@ func (a *App) handleStackTranscripts(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// handleShareTranscript downloads a session's transcript: chat, events and the guest
-// actions, as text (the default) or JSON.
-func (a *App) handleShareTranscript(w http.ResponseWriter, r *http.Request) {
-	sess, _, ok := a.loadHostedSession(w, r)
-	if !ok {
-		return
-	}
+// shareTranscript is everything a transcript download carries. It is also what a
+// recording keeps a copy of (sharerecord.go), so the chat can still be downloaded
+// with the video after the session's own records are purged.
+type shareTranscript struct {
+	Session  ShareSession   `json:"session"`
+	Guests   []ShareGuest   `json:"guests"`
+	Messages []ShareMessage `json:"messages"`
+	Actions  []ShareAction  `json:"actions"`
+}
+
+func (a *App) shareTranscriptOf(sess ShareSession) shareTranscript {
 	msgs, _ := a.store.ListShareMessages(sess.ID, 0)
 	guests, _ := a.store.ListShareGuests(sess.ID)
 	actions, _ := a.store.ListShareActions(sess.ID)
-	name := fmt.Sprintf("dbcanvas-session-%d", sess.ID)
-	if r.URL.Query().Get("format") == "json" {
-		w.Header().Set("Content-Disposition", `attachment; filename="`+name+`.json"`)
-		writeJSON(w, http.StatusOK, map[string]any{"session": sess, "guests": guests, "messages": msgs, "actions": actions})
-		return
-	}
+	return shareTranscript{Session: sess, Guests: guests, Messages: msgs, Actions: actions}
+}
+
+// text is the transcript as a person reads it.
+func (t shareTranscript) text() string {
+	sess := t.Session
 	var b strings.Builder
 	if sess.StackName != "" {
 		fmt.Fprintf(&b, "DBCanvas shared session %d — started from stack %q, host %s\n", sess.ID, sess.StackName, sess.HostName)
@@ -818,20 +843,40 @@ func (a *App) handleShareTranscript(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(&b, ", ended %s (%s)", *sess.EndedAt, sess.EndedReason)
 	}
 	b.WriteString("\n\nGuests:\n")
-	for _, g := range guests {
+	for _, g := range t.Guests {
 		fmt.Fprintf(&b, "  %s <%s> — %s, from %s\n", g.Name, g.Email, g.State, g.RemoteAddr)
 	}
 	b.WriteString("\nTranscript:\n")
-	for _, m := range msgs {
+	for _, m := range t.Messages {
 		who := m.Author
 		if m.Kind != "chat" {
 			who = "*"
 		}
 		fmt.Fprintf(&b, "[%s] %s: %s\n", m.CreatedAt, who, m.Body)
 	}
+	return b.String()
+}
+
+// write sends the transcript as an attachment named name: text, or ?format=json.
+func (t shareTranscript) write(w http.ResponseWriter, r *http.Request, name string) {
+	if r.URL.Query().Get("format") == "json" {
+		w.Header().Set("Content-Disposition", `attachment; filename="`+name+`.json"`)
+		writeJSON(w, http.StatusOK, t)
+		return
+	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`.txt"`)
-	w.Write([]byte(b.String()))
+	w.Write([]byte(t.text()))
+}
+
+// handleShareTranscript downloads a session's transcript: chat, events and the guest
+// actions, as text (the default) or JSON.
+func (a *App) handleShareTranscript(w http.ResponseWriter, r *http.Request) {
+	sess, _, ok := a.loadHostedSession(w, r)
+	if !ok {
+		return
+	}
+	a.shareTranscriptOf(sess).write(w, r, fmt.Sprintf("dbcanvas-session-%d", sess.ID))
 }
 
 // ------------------------------------------------------------- guest handlers (public)
@@ -1197,18 +1242,23 @@ var shareReaperOnce sync.Once
 // startShareReaper ends sessions whose time ran out while no hub was watching them —
 // across a restart, say. A live hub ends its own session on a timer (sharehub.go);
 // this is the backstop, once a minute. It also deletes the records of sessions that
-// ended longer ago than the retention allows, once an hour.
+// ended longer ago than the retention allows, once an hour; and it keeps the screen
+// recordings (sharerecord.go): finishes abandoned ones, deletes those due.
 func (a *App) startShareReaper() {
 	shareReaperOnce.Do(func() {
 		go func() {
 			var purged time.Time
+			sweep := false
 			for {
 				if time.Since(purged) >= time.Hour {
 					if n := a.purgeShareSessions(); n > 0 {
 						log.Printf("shared sessions: deleted %d past the %d-day retention", n, a.shareRetentionDays())
 					}
 					purged = time.Now()
+					sweep = true
 				}
+				a.recordingUpkeep(sweep)
+				sweep = false
 				ids, _ := a.store.ExpiredShareSessions(time.Now())
 				for _, id := range ids {
 					if sess, err := a.store.GetShareSession(id); err == nil {

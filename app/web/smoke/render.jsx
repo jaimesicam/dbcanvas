@@ -50,6 +50,7 @@ import { PageVisibleProvider, usePolling, usePageVisible } from '../src/lib/useP
 import { RefreshProvider, useRefresh } from '../src/lib/useRefresh.jsx'
 import SessionPanel from '../src/components/SessionPanel.jsx'
 import { SessionContext, useFollowedState } from '../src/session/SessionProvider.jsx'
+import { Mark as DrawMark } from '../src/session/DrawLayer.jsx'
 import { guestURL } from '../src/lib/guest.js'
 import { openTab, closeTab, tabCounts, clampTabs, TABS_DEFAULT, TABS_MIN, TABS_MAX } from '../src/lib/tabs.js'
 import { mongoDownloadURL } from '../src/lib/stackApi.js'
@@ -4303,6 +4304,35 @@ check('shared session: the panel renders for the host and for a guest, and chat 
   }
   if (!guestHTML.includes('Request control') || !guestHTML.includes('Leave')) throw new Error('a guest cannot ask for control or leave')
   return 'host controls, guest controls, chat as text'
+})
+
+check('shared session: drawing and recording controls follow who may use them', () => {
+  const base = {
+    active: true, sid: 7, connected: true, ended: null, link: '', requests: [], messages: [], terms: [], unread: 0,
+    presence: { host: { name: 'admin', online: true }, controller: 0, expiresAt: new Date(Date.now() + 3600e3).toISOString(),
+      guestsDraw: true, recording: { id: 4, startedAt: new Date().toISOString() },
+      guests: [{ id: 2, name: 'Jane', email: 'jane@example.com', state: 'admitted', online: true, drawOff: true }] },
+    controllerName: 'admin', following: false, drawing: false, marks: [], pen: { tool: 'pen', color: '#ef4444', size: 'm' },
+    setDrawing() {}, setGuestsDraw() {}, setGuestDraw() {}, markRead() {}, newLink() {}, notice() {},
+  }
+  const host = renderToString(<SessionContext.Provider value={{ ...base, me: { guestId: 0 }, canDraw: true, isHost: true, isGuest: false, isDriver: true }}><SessionPanel /></SessionContext.Provider>)
+  for (const want of ['Draw on screen', 'Guests may draw', 'Record', 'REC', 'Let them draw', 'no drawing']) {
+    if (!host.includes(want)) throw new Error(`the host panel is missing ${want}`)
+  }
+  const guest = renderToString(<SessionContext.Provider value={{ ...base, me: { guestId: 2 }, canDraw: false, isHost: false, isGuest: true, isDriver: false }}><SessionPanel /></SessionContext.Provider>)
+  if (!guest.includes('turned drawing off for you')) throw new Error('a guest the host stopped is not told')
+  if (!guest.includes('REC')) throw new Error('a guest is not told the session is being recorded')
+  for (const bad of ['Guests may draw', '>Record<', 'Let them draw', 'Draw on screen']) {
+    if (guest.includes(bad)) throw new Error(`a guest was shown ${bad}`)
+  }
+  // A mark is drawn as SVG; its text is text, never markup.
+  const svg = renderToString(<svg>
+    <DrawMark m={{ id: 'a', kind: 'pen', name: 'Jane', color: '#ef4444', width: 0.006, points: [[0.1, 0.1], [0.2, 0.2], [0.3, 0.1]] }} w={1000} h={500} />
+    <DrawMark m={{ id: 'b', kind: 'text', name: 'Jane', color: '#3b82f6', size: 0.03, x: 0.5, y: 0.5, text: '<img src=x onerror=alert(1)>' }} w={1000} h={500} />
+  </svg>)
+  if (!svg.includes('M100 50Q200 100') || !svg.includes('data-mark="a"')) throw new Error(`the line was not drawn at its fractions: ${svg}`)
+  if (svg.includes('<img') || !svg.includes('&lt;img')) throw new Error('a text mark was rendered as markup')
+  return 'host switches, guest told, REC for all, marks as SVG text'
 })
 
 check('shared session: emoticons become emoji, but not inside words, URLs or code', () => {

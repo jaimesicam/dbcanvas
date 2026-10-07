@@ -265,6 +265,8 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id, id DESC);`
 	db.Exec("ALTER TABLE share_guests ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0")
 	db.Exec("ALTER TABLE share_guests ADD COLUMN account TEXT NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE share_guests ADD COLUMN avatar TEXT NOT NULL DEFAULT ''")
+	db.Exec("ALTER TABLE share_guests ADD COLUMN draw_off INTEGER NOT NULL DEFAULT 0")
+	db.Exec("ALTER TABLE share_recordings ADD COLUMN transcript TEXT NOT NULL DEFAULT ''")
 	// Kanban boards (kanban.go).
 	if _, err := db.Exec(kanbanSchema); err != nil {
 		db.Close()

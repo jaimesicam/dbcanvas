@@ -4,9 +4,11 @@ import { Button } from './ui.jsx'
 import { useSession } from '../session/SessionProvider.jsx'
 import { useSettings } from '../settings/SettingsProvider.jsx'
 import { shareApi } from '../lib/shareApi.js'
+import Recordings from './Recordings.jsx'
 
 // ShareDialog — a stack owner starting a shared session (app/share.go), and the
-// transcripts of the ones before.
+// transcripts of the ones before, and the host's recordings of them, to download
+// until each one's purge date.
 
 const DURATIONS = [15, 30, 60, 90, 120]
 
@@ -106,6 +108,18 @@ export default function ShareDialog({ stack, onClose }) {
             </div>
           </div>
         )}
+
+        <div className="mt-4 border-t pt-3">
+          <div className="mb-1.5 text-xs font-medium text-muted">
+            Your recordings
+            <span className="font-normal">
+              {' · '}each is purged on its date — {system.recordingRetentionDays || 30} days after it starts unless you move it
+            </span>
+          </div>
+          <div className="max-h-64 overflow-y-auto">
+            <Recordings />
+          </div>
+        </div>
 
         {past.length > 0 && (
           <div className="mt-4 border-t pt-3">

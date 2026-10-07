@@ -243,12 +243,89 @@ same stream: joins, the lobby, control changes, every change a guest makes while
 minutes before the link expires. You can **mute** a guest, who keeps watching, or
 **remove** them.
 
+## Drawing on the screen
+
+Anyone in the session can draw on what everyone is looking at. **Draw on screen** in the
+panel brings up a toolbar at the top of the workspace:
+
+| Tool | What it does |
+| --- | --- |
+| **Pen** | Draw a freehand line; everyone sees it grow as you draw |
+| **Text** | Click where it goes, type, then **Enter** (**Esc** drops it) |
+| **Eraser** | Rub out a line or a text by dragging over it — your own; the host's eraser takes anyone's |
+| Colours, thin / medium / thick | The pen's colour and weight, and the text's size |
+| **Clear mine** | Remove everything you drew |
+| **Clear all** | The host only: remove every drawing, everyone's |
+
+![The host drawing on the dashboard: the drawing toolbar at the top, a red line and the words "look here" from the host, a green line from a guest, and the session panel with Guests may draw on](screenshots/shared-session-drawing.png)
+
+**Done** or **Esc** stops drawing and gives the workspace back its clicks; the drawings
+stay until someone erases them or the session ends. Hover a drawing while erasing to see
+whose it is.
+
+A drawing lands on the same spot of everyone's screen whatever its size: it is kept in
+proportions of the workspace (everything left of the session panel), not in pixels. With
+Mirror everything on, a viewer draws straight onto the driver's mirrored screen, and it
+lines up exactly; following without the mirror, each browser shows its own copy of the
+page, so a drawing lands in the same proportion of a window that may lay out differently.
+
+The host decides who draws. **Guests may draw** in the panel turns it off or on for every
+guest at once, and the pencil beside a guest stops or lets just them (they are marked
+*no drawing*). A guest who is stopped is told so, and the server refuses what they send,
+erasing included. The host can always draw.
+
+Drawings are live state, like the pointer: a guest arriving late sees every drawing that
+is up, but they are not written to the transcript, and they are gone when the session
+ends. A [recording](#recording) keeps them.
+
+## Recording
+
+The host can record the session: **Record** in the panel. The browser asks what to share —
+choose **this tab** (Chrome and Edge offer it first). What is recorded is what you see in
+it: your workspace, or the driver's mirrored screen when someone else drives; the drawings
+on it; and the session panel with the chat and who is here. Nothing is recorded from a
+guest's screen. Everyone in the session sees a red **REC** beside the clock while it runs,
+and the chat says when recording starts and stops.
+
+**Stop** in the panel ends the recording; so does the browser's own *Stop sharing*, ending
+the session, or the session reaching its time. The video is sent to DBCanvas as it is made,
+a few seconds at a time, so a tab that crashes or is closed loses only its last seconds:
+a recording that stops getting video for three minutes is finished with what arrived. It is
+a WebM (an MP4 in Safari) at the tab's resolution, around 1 GB an hour at most and usually
+far less for a page that mostly sits still.
+
+![The host's own recording, mid-session: the dashboard with a line drawn across it, and the session panel with REC, the recording's clock and the chat](screenshots/shared-session-recording.png)
+
+### Downloading, and when a recording is purged
+
+A recording is yours, the host's: no guest and no other account — an administrator
+included — can download it. Find it in the **Share** dialog under **Your recordings**, any
+time after the session (and in the panel straight after it ends):
+
+- **Download video** saves the video; **Play** opens it in a browser tab.
+- **Transcript** saves the session's chat and events as text (**JSON** beside it for the
+  same as JSON) — the whole session's, not only the minutes recorded. A copy is kept with
+  the recording, encrypted like the chat, so it can be downloaded for as long as the video
+  is, even after the session's own records are deleted.
+- **purged on** is the date it is deleted — **30 days** after it starts unless an
+  administrator changed the default in **Settings → Shared sessions** (1 to 3,650 days).
+  Pick another date to keep it longer or less long.
+- The bin **purges it now**, file and all.
+
+The server checks once a minute and deletes every recording whose date has come. A
+recording outlives its session's other records: the transcript can be gone after its own
+retention while the recording is still there, and the other way round. Deleting your
+account deletes your recordings.
+
+Recordings are files beside the database (`/data/recordings` in the container), so back
+them up with it if you need them to survive the volume.
+
 ## Ending
 
 A session ends when its time is up, when you click **End session**, or when an
 administrator turns shared sessions off. Every guest is disconnected at once and their
-browser says so; control returns to you and shared terminals close. The panel then
-offers the transcript.
+browser says so; control returns to you and shared terminals close, and a recording in
+progress is stopped and saved. The panel then offers the transcript and the recording.
 
 ## What is kept
 
@@ -260,17 +337,19 @@ What a session leaves behind is stored in DBCanvas's database:
 | Guests | name, email, address, and when they joined, were admitted and left |
 | Transcript | every chat message and system event |
 | Guest actions | every change a guest made while driving, with its result |
+| Recordings | the video file and a copy of the transcript, until the recording's purge date (see [Recording](#recording)) |
 
 It is kept for **90 days** after the session ends (**Settings → Shared sessions** changes
 that; 0 keeps it until the stack is deleted), and deleting the stack deletes it. The link
 and each guest's credential are stored only as hashes. Download a transcript as text or
 JSON from the panel after a session, or from the Share dialog's list of earlier ones.
 
-Not kept: what was typed or shown in a terminal, what happened inside a VNC desktop or a
-web page, and anything live — who was online, the pointer, the windows that were open.
+Not kept, unless the host recorded the session: what was typed or shown in a terminal, what
+happened inside a VNC desktop or a web page, and anything live — who was online, the pointer,
+the drawings, the windows that were open.
 
 ## From the API
 
-Every part of it is an endpoint — starting a session, the lobby, control, the live
-channel, transcripts, and `POST /api/browse` for the browser window. See [Shared
+Every part of it is an endpoint — starting a session, the lobby, control, drawing
+permissions, the live channel, transcripts, recordings, and `POST /api/browse` for the browser window. See [Shared
 sessions in the API reference](API_REFERENCE.md#shared-sessions).

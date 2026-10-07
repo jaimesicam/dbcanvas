@@ -368,10 +368,12 @@ export function GuestSessions() {
   const on = !!system.allowGuestSessions
   const [minutes, setMinutes] = useState(system.maxGuestMinutes ?? 120)
   const [days, setDays] = useState(system.sessionRetentionDays ?? 90)
+  const [recDays, setRecDays] = useState(system.recordingRetentionDays ?? 30)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   useEffect(() => { setMinutes(system.maxGuestMinutes ?? 120) }, [system.maxGuestMinutes])
   useEffect(() => { setDays(system.sessionRetentionDays ?? 90) }, [system.sessionRetentionDays])
+  useEffect(() => { setRecDays(system.recordingRetentionDays ?? 30) }, [system.recordingRetentionDays])
 
   const apply = async (patch) => {
     setErr(''); setBusy(true)
@@ -379,6 +381,7 @@ export function GuestSessions() {
   }
   const dirty = Number(minutes) !== system.maxGuestMinutes
   const daysDirty = Number(days) !== system.sessionRetentionDays
+  const recDirty = Number(recDays) !== system.recordingRetentionDays
 
   return (
     <Row
@@ -421,6 +424,19 @@ export function GuestSessions() {
         <Help text={HELP.sessionRetention} />
         {isAdmin && daysDirty && (
           <Button variant="primary" onClick={() => apply({ sessionRetentionDays: Math.max(0, Math.round(Number(days) || 0)) })} disabled={busy}>Save</Button>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-muted">Purge recordings after</span>
+        <input
+          type="number" min="1" max="3650" step="1" disabled={!isAdmin || busy}
+          value={recDays} onChange={(e) => setRecDays(e.target.value)}
+          className="w-20 rounded-lg border bg-bg px-2 py-1 text-sm"
+        />
+        <span className="text-muted">days (the default; a host can move a recording&apos;s date)</span>
+        <Help text={HELP.recordingRetention} />
+        {isAdmin && recDirty && (
+          <Button variant="primary" onClick={() => apply({ recordingRetentionDays: Math.max(1, Math.round(Number(recDays) || 30)) })} disabled={busy}>Save</Button>
         )}
       </div>
       {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
