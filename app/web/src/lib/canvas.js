@@ -21,12 +21,16 @@ export function portPoint(r, port) {
 // Cubic bezier that leaves/enters each port perpendicular to the edge, anchored
 // to the exact chosen ports (never re-routed to the nearest side).
 export function edgePath(p0, port0, p1, port1) {
+  const [c0, c1] = edgeControls(p0, port0, p1, port1)
+  return `M ${p0.x} ${p0.y} C ${c0.x} ${c0.y} ${c1.x} ${c1.y} ${p1.x} ${p1.y}`
+}
+
+// The two control points edgePath's curve uses.
+export function edgeControls(p0, port0, p1, port1) {
   const d0 = PORT_DIR[port0]
   const d1 = PORT_DIR[port1]
   const k = clamp(dist(p0, p1) / 2, 40, 170)
-  const c0 = { x: p0.x + d0[0] * k, y: p0.y + d0[1] * k }
-  const c1 = { x: p1.x + d1[0] * k, y: p1.y + d1[1] * k }
-  return `M ${p0.x} ${p0.y} C ${c0.x} ${c0.y} ${c1.x} ${c1.y} ${p1.x} ${p1.y}`
+  return [{ x: p0.x + d0[0] * k, y: p0.y + d0[1] * k }, { x: p1.x + d1[0] * k, y: p1.y + d1[1] * k }]
 }
 
 // Convert a client point to world coordinates given the canvas wrapper rect and

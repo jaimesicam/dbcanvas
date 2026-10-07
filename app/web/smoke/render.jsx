@@ -15,6 +15,7 @@
 // Run with `npm run smoke`.
 
 import { renderToString } from 'react-dom/server'
+import { stackRelations, relationPorts } from '../src/lib/relations.js'
 import { Icon } from '../src/components/Icons.jsx'
 import { AllInOneForm, AllInOneManager, connectString, credRows, __tabsForTest } from '../src/pages/AllInOne.jsx'
 import { TerminalProvider } from '../src/terminal/TerminalProvider.jsx'
@@ -5800,6 +5801,47 @@ check('explorer: JSON export disambiguates duplicate column names', () => {
     const n = (src.match(/<RepositoryPicker /g) || []).length
     if (n < 20) throw new Error(`only ${n} forms render RepositoryPicker`)
     if (!NODE_TYPES.repository || NODE_TYPES.repository.icon !== 'Package') throw new Error('NODE_TYPES.repository missing')
+    return 'ok'
+  })
+}
+
+{
+  const nodes = [
+    { id: 'pmm', type: 'pmm', label: 'pmm-01' },
+    { id: 'repo', type: 'repository', label: 'repo-01' },
+    { id: 'bao', type: 'openbao', label: 'bao-01' },
+    { id: 'sw', type: 'seaweedfs', label: 'sw-01' },
+    { id: 'dir', type: 'sambaad', label: 'ad-01' },
+    { id: 'ps', type: 'ps', label: 'ps-01', pmmNodeId: 'pmm', repositoryNodeId: 'repo', enableVault: true, openbaoNodeId: 'bao', ldapAuth: false, ldapDirNodeId: 'dir' },
+    { id: 'pg', type: 'pg', label: 'pg-01', usePgBackRest: false, seaweedfsNodeId: 'sw', enableVault: false, openbaoNodeId: 'bao' },
+    { id: 'm1', type: 'pxc', frameId: 'f1', pmmNodeId: 'pmm' },
+    { id: 'aio', type: 'aio', label: 'aio-01', aioInstances: [{ id: 'i1', name: 'ps01', pmmNodeId: 'pmm', orchestratorRef: 'inst:x' }] },
+  ]
+  const frames = [{ id: 'f1', type: 'pxc', label: 'pxc-cluster', pmmNodeId: 'pmm', enablePBM: false }]
+  const rels = stackRelations(nodes, frames)
+  const find = (from, to) => rels.find((r) => r.from === from && r.to === to)
+  check('relations: PMM, repository and OpenBao settings each become a labelled line', () => {
+    if (!find('ps', 'pmm')?.label.includes('monitored by')) throw new Error('no ps → pmm line')
+    if (!find('ps', 'repo')?.label.includes('installs from')) throw new Error('no ps → repo line')
+    if (!find('ps', 'bao')?.detail.includes('encryption keys')) throw new Error('no ps → bao line')
+    return 'ok'
+  })
+  check('relations: a setting whose checkbox is off draws nothing', () => {
+    for (const [f, t] of [['ps', 'dir'], ['pg', 'sw'], ['pg', 'bao']]) if (find(f, t)) throw new Error(`stale ${f} → ${t} drawn`)
+    return 'ok'
+  })
+  check('relations: a cluster member folds into its frame, once', () => {
+    if (rels.some((r) => r.from === 'm1')) throw new Error('member drew its own line')
+    if (rels.filter((r) => r.from === 'f1' && r.to === 'pmm').length !== 1) throw new Error('frame line missing or doubled')
+    return 'ok'
+  })
+  check('relations: an All-in-One instance is named on its line', () => {
+    if (find('aio', 'pmm')?.label !== 'ps01: monitored by') throw new Error(JSON.stringify(find('aio', 'pmm')))
+    return 'ok'
+  })
+  check('relations: lines join the facing sides', () => {
+    const [a, b] = relationPorts({ x: 0, y: 0, w: 100, h: 50 }, { x: 400, y: 10, w: 100, h: 50 })
+    if (a !== 'right' || b !== 'left') throw new Error(`${a}/${b}`)
     return 'ok'
   })
 }

@@ -46,6 +46,7 @@ import { useRefresh } from '../lib/useRefresh.jsx'
 import { useSession } from '../session/SessionProvider.jsx'
 import { useBrowser } from '../browser/BrowserProvider.jsx'
 import { nodeWebLinks } from '../lib/nodeLinks.js'
+import { stackRelations, relationPorts, bezierMid, RELATION_KINDS } from '../lib/relations.js'
 import ShareDialog from '../components/ShareDialog.jsx'
 
 const NODE_W = 212
@@ -2039,6 +2040,7 @@ function TemplateMetaModal({ template, onClose, onSaved }) {
 // palette persists which categories you collapsed and the handful of entries you
 // actually reach for, per browser.
 const PALETTE_KEY = 'dbcanvas-palette'
+const RELATIONS_KEY = 'dbcanvas-relations'
 const RECENT_MAX = 5
 // Extra search terms per node type — the words people actually type that appear in no
 // label or category ("redis" for Valkey, "k8s" for K3D, "mongo" for the PSMDB entries).
@@ -2348,6 +2350,10 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
   const [collapsed, setCollapsed] = useState(() => loadPalettePrefs().collapsed)
   const [recent, setRecent] = useState(() => loadPalettePrefs().recent)
   const [selected, setSelected] = useState(null)
+  // Relationship lines: the picker settings (PMM, repository, OpenBao, …) drawn as
+  // labelled lines. Off by default — a viewer preference, so it lives in this browser.
+  const [showRelations, setShowRelations] = useState(() => { try { return localStorage.getItem(RELATIONS_KEY) === '1' } catch { return false } })
+  useEffect(() => { try { localStorage.setItem(RELATIONS_KEY, showRelations ? '1' : '0') } catch { /* */ } }, [showRelations])
   const [menu, setMenu] = useState(null)
   const [addMenu, setAddMenu] = useState(null) // right-click on empty canvas: add a node here
   const [connect, setConnect] = useState(null)
@@ -2575,6 +2581,8 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
     const rect = wrapRef.current.getBoundingClientRect()
     return screenToWorld(rect, refs.current.view, cx, cy)
   }, [])
+
+  const relations = useMemo(() => stackRelations(nodes, frames), [nodes, frames])
 
   // rectOf resolves a connection endpoint id to its rectangle — a free node uses
   // the fixed node size, a PXC cluster frame its own geometry.
@@ -4331,6 +4339,12 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
           <div className="ml-auto flex items-center gap-3">
             <Hint text={HELP.uiSaveState}><span className="text-xs text-muted">{saveState === 'saving' ? 'Saving…' : 'Saved'}</span></Hint>
             <Hint text={HELP.uiCounts}><span className="text-xs text-muted">{nodes.length} nodes · {edges.length} links</span></Hint>
+            <Hint text={HELP.uiRelations}>
+              <Button size="sm" variant={showRelations ? 'subtle' : 'ghost'} aria-pressed={showRelations}
+                className={showRelations ? 'text-primary' : ''} onClick={() => setShowRelations((v) => !v)}>
+                <Icon.Link size={15} /> Relationships{showRelations && relations.length ? ` (${relations.length})` : ''}
+              </Button>
+            </Hint>
             <Hint text={HELP.uiResetView}>
               <Button size="sm" variant="ghost" onClick={() => setView({ x: 40, y: 20, z: 1 })}>
                 <Icon.Move size={15} /> Reset view
@@ -4415,7 +4429,31 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
                 <marker id="stk-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
                   <path d="M0,0 L10,5 L0,10 z" fill="context-stroke" />
                 </marker>
+                <marker id="stk-rel-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                  <path d="M0,1 L9,5 L0,9" fill="none" stroke="context-stroke" strokeWidth="1.6" />
+                </marker>
               </defs>
+              {showRelations && relations.map((rl) => {
+                const r0 = rectOf(rl.from)
+                const r1 = rectOf(rl.to)
+                if (!r0 || !r1) return null
+                const [s0, s1] = relationPorts(r0, r1)
+                const p0 = portPoint(r0, s0)
+                const p1 = portPoint(r1, s1)
+                const mid = bezierMid(p0, s0, p1, s1)
+                const col = RELATION_KINDS[rl.kind]?.color || 'var(--muted)'
+                return (
+                  <g key={rl.id} opacity={0.9}>
+                    <path d={edgePath(p0, s0, p1, s1)} fill="none" stroke={col} strokeWidth="1.5"
+                      strokeDasharray="2 4" strokeLinecap="round" markerEnd="url(#stk-rel-arrow)" />
+                    <text x={mid.x} y={mid.y - 4} textAnchor="middle" className="pointer-events-auto cursor-help"
+                      style={{ fill: col, fontSize: '9px', fontWeight: 600, paintOrder: 'stroke', stroke: 'var(--bg)', strokeWidth: 3.5, strokeLinejoin: 'round' }}>
+                      <title>{rl.detail}</title>
+                      {rl.label}
+                    </text>
+                  </g>
+                )
+              })}
               {edges.map((ed) => {
                 const r0 = rectOf(ed.from.node)
                 const r1 = rectOf(ed.to.node)
@@ -4426,13 +4464,13 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
                 const on = selected?.kind === 'edge' && selected.id === ed.id
                 const repl = isReplEdge(ed)
                 // Caption: a cross-cluster replication link, or an association line
-                // (any link involving a ProxySQL or HAProxy node, or a ProxySQL cluster frame).
+                // (any link involving a ProxySQL, HAProxy or PgBouncer node, or a ProxySQL cluster frame).
                 // The association caption names what crosses the line, not who initiates:
                 // these edges are read undirected everywhere that consumes them, so a verb
                 // with a direction in it ("forwards SQL traffic to") had no true reading —
                 // the proxy sits at the arrowhead against a cluster and at the tail against
                 // a simulator, so the same phrase pointed both ways.
-                const proxyNodeEnd = nodes.some((n) => (n.id === ed.from.node || n.id === ed.to.node) && (n.type === 'proxysql' || n.type === 'haproxy'))
+                const proxyNodeEnd = nodes.some((n) => (n.id === ed.from.node || n.id === ed.to.node) && (n.type === 'proxysql' || n.type === 'haproxy' || n.type === 'pgbouncer'))
                 const proxyFrameEnd = frames.some((fr) => (fr.id === ed.from.node || fr.id === ed.to.node) && fr.type === 'proxysql')
                 // An application simulator's line was the one association line with no
                 // caption at all, which left the longest line on most canvases unlabelled.

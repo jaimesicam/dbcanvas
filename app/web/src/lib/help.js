@@ -627,6 +627,7 @@ export const HELP = {
   uiDestroy:
     'Tear down every container and volume in this stack. The design stays on the canvas, so you can redeploy it — ' +
     'but the data inside the nodes is gone.',
+  uiRelations: 'Show the relationships set in node properties as labelled dotted lines — which PMM monitors a node, which Repository it installs from, which OpenBao holds its encryption keys, where it backs up to, which directory or Keycloak it authenticates against. Hover a label for the full sentence.',
   uiResetView: 'Recentre the canvas at 100%, for when you have panned or zoomed somewhere you cannot find your way back from.',
   // --- Kubernetes States ---------------------------------------------------
   k8sStates:
