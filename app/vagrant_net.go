@@ -106,7 +106,21 @@ var stackRuleChains = []struct{ table, chain string }{
 	{"nat", "POSTROUTING"},
 }
 
-func stackRuleComment(stackID int64) string { return fmt.Sprintf("dbcanvas-stack-%d", stackID) }
+// stackRuleComment tags a stack's rules in the host's shared chains — the stack's network name,
+// so it carries the instance too. Matched whole (hasRuleComment): "dbcanvas-stack-1" must not
+// take "dbcanvas-stack-10"'s rules with it.
+func stackRuleComment(stackID int64) string { return networkName(stackID) }
+
+// hasRuleComment reports whether an `iptables -S` line carries exactly this comment.
+func hasRuleComment(line, comment string) bool {
+	f := strings.Fields(line)
+	for i := 0; i+1 < len(f); i++ {
+		if f[i] == "--comment" && strings.Trim(f[i+1], `"`) == comment {
+			return true
+		}
+	}
+	return false
+}
 
 // ensureIPForward turns on IPv4 forwarding if it is off. Docker normally sets this,
 // but a host with no running containers yet may not have it enabled.
@@ -159,7 +173,7 @@ func (a *App) unlinkStackNetworks(ctx context.Context, stackID int64) {
 			continue // chain absent (no Docker) or no privilege — nothing to undo
 		}
 		for _, line := range strings.Split(out, "\n") {
-			if !strings.Contains(line, comment) || !strings.HasPrefix(line, "-A ") {
+			if !hasRuleComment(line, comment) || !strings.HasPrefix(line, "-A ") {
 				continue
 			}
 			// Turn the "-A <chain> …" append spec printed by -S into a "-D …" delete.

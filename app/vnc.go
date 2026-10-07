@@ -46,7 +46,7 @@ const (
 // noVNC, Firefox and the Percona clients on the systemd Ubuntu 24.04 base. Built by
 // `make images` / `make vnc-image`.
 func vncImage(arch string) string {
-	return "dbcanvas-vnc:" + vncOS + "-" + vncOSVer + "-" + archOr(arch)
+	return "dbcanvas-vnc:" + vncOS + "-" + vncOSVer + "-" + archOr(arch) + "-" + imageRelease()
 }
 
 // vncConfig is the non-secret profile shown for a deployed VNC node.

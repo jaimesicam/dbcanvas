@@ -141,9 +141,10 @@ function Stat({ label, value, sub, tone = 'muted' }) {
   )
 }
 
-// shortName trims the dbcanvas prefix and the random deploy token for readability
-// (dbcanvas-115-pxc-mr263gcu-13 → 115-pxc-13).
-const shortName = (n) => n.replace(/^dbcanvas-/, '').replace(/-[a-z0-9]{6,}-(\d+)$/i, '-$1')
+// shortName trims the installation's prefix and the random deploy token for readability
+// (dbcanvas-115-pxc-mr263gcu-13 → 115-pxc-13, dbcanvas-jane-115-pg-1 → 115-pg-1): everything up
+// to the stack id, which is the first all-digit part (instance names cannot have one).
+const shortName = (n) => n.replace(/^(?!k3d-)[a-z][a-z0-9-]*?-(?=\d+-)/, '').replace(/-[a-z0-9]{6,}-(\d+)$/i, '-$1')
 
 // TopBars renders a ranked horizontal bar chart (top-N). HTML/CSS bars keep the app's
 // font crisp and animate smoothly — no distorted SVG text.

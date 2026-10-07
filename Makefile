@@ -11,7 +11,7 @@ VERSION ?= $(shell cat VERSION 2>/dev/null || echo dev)
 # app/clidownload.go, which is what the API page offers for download.
 CLI_PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 
-.PHONY: install install-extras compose env build up down logs restart rotate-key clean images extra-images versions smoke cli cli-test trafficsim-image hotelsim-image supportsim-image airlinesim-image carsim-image marketchaos-image stocksim-image ledgersim-image intranet-image vnc-image
+.PHONY: install install-extras adopt-images compose env build up down logs restart rotate-key clean images extra-images versions smoke cli cli-test trafficsim-image hotelsim-image supportsim-image airlinesim-image carsim-image marketchaos-image stocksim-image ledgersim-image intranet-image vnc-image
 
 ## install: everything a first run needs — every image DBCanvas can build (the OS
 ## bases and the Intranet, then the optional ones on top: the VNC desktop, the K3D
@@ -50,6 +50,14 @@ install-extras:
 	  echo "  Retry with 'make extra-images' or the per-app target (e.g. 'make trafficsim-image')."; \
 	}
 
+## adopt-images: give the images this host already built the current release's tag, instead
+## of rebuilding them. Every image is tagged with its release (dbcanvas-systemd:…-amd64-v0.0.14)
+## so installations sharing a Docker daemon cannot overwrite each other's; images built before
+## that have no release in their tag. Run once after upgrading when they were built from this
+## checkout. Nothing is rebuilt or removed.
+adopt-images:
+	@bash images/adopt.sh
+
 ## compose: create .env if needed, then build and start the stack
 compose: env
 	APP_VERSION=$(VERSION) docker compose up --build -d
@@ -63,8 +71,22 @@ compose: env
 ## bind mount whose source is missing is created by the daemon as a *directory* — after
 ## which every picker is empty until someone notices. An empty stand-in is recoverable;
 ## `make images` / `make versions` overwrite it.
+##
+## It also names the installation (DBCANVAS_INSTANCE, see docker-compose.yml): a new .env
+## gets dbcanvas-<login>, so a second person on the same Docker host gets their own image,
+## volumes and stack containers. A .env from before the setting existed gets "dbcanvas" —
+## the name that installation already has — so its database is not swapped for an empty one.
 env:
-	@test -f .env || { cp .env.example .env && echo "Created .env from .env.example"; }
+	@if [ ! -f .env ]; then \
+	  cp .env.example .env; \
+	  inst="dbcanvas-$$(printf '%s' "$${USER:-$$(id -un)}" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9\n' '-' | sed 's/^-*//;s/-*$$//')"; \
+	  sed -i.bak "s/^DBCANVAS_INSTANCE=.*/DBCANVAS_INSTANCE=$$inst/" .env && rm -f .env.bak; \
+	  echo "Created .env from .env.example (instance: $$inst)"; \
+	elif ! grep -qE '^DBCANVAS_INSTANCE=.+' .env; then \
+	  sed -i.bak '/^DBCANVAS_INSTANCE=/d' .env && rm -f .env.bak; \
+	  printf '\n# Added by make env: the name this installation already had (see .env.example).\nDBCANVAS_INSTANCE=dbcanvas\n' >> .env; \
+	  echo "Set DBCANVAS_INSTANCE=dbcanvas in .env — this installation's existing name, so its data stays where it is"; \
+	fi
 	@for f in images.yaml versions.yaml; do 	  test -e $$f || { echo "images: []" >$$f; 	    echo "Created empty $$f — run 'make images' (and 'make versions') to fill it"; }; 	done
 
 ## build: build the image only

@@ -1,3 +1,12 @@
+# The instance name (DBCANVAS_INSTANCE in .env, `make env` sets dbcanvas-$USER) is this
+# installation's name on a shared Docker daemon: the compose project — so the container and the
+# volumes holding the database and its key — the app image, and the prefix on every container,
+# network and K3D cluster the app deploys. Two people running DBCanvas on one host each get their
+# own; without it the second `make build` replaces the first one's image, and both installations'
+# stack 1 fight over the same container names. Unset means "dbcanvas", which is what an
+# installation made before this existed is called — its volumes are dbcanvas_app-data/-keys.
+name: ${DBCANVAS_INSTANCE:-dbcanvas}
+
 services:
   app:
     build:
@@ -9,13 +18,15 @@ services:
         # itself; a bare `docker compose up` therefore builds a "dev" image, and that
         # is the honest label for one built outside `make`.
         APP_VERSION: ${APP_VERSION:-dev}
-    image: dbcanvas:latest
+    image: ${DBCANVAS_INSTANCE:-dbcanvas}:latest
     platform: ${DOCKER_PLATFORM:-linux/amd64}
     environment:
       # The container always listens on all interfaces internally (the
       # Dockerfile sets APP_HOST=0.0.0.0); host-side exposure is controlled by
       # the publish binding below, not by this value.
       APP_PORT: ${APP_PORT:-8080}
+      # See `name:` above — the app prefixes what it deploys with it (app/instance.go).
+      DBCANVAS_INSTANCE: ${DBCANVAS_INSTANCE:-dbcanvas}
       DB_PATH: /data/dbcanvas.db
       # The key the database's passwords and secrets are encrypted with, generated on
       # first start. It lives on its own volume (app-keys) so that a copy of the

@@ -15,7 +15,7 @@ import (
 // Percona Server node ("ps"), a MySQL replication frame's primary, a PXC cluster
 // frame, or either of the last two fronted by HAProxy or ProxySQL — seven resolvable
 // shapes in total. An embedded web server exposes a live dashboard of the result.
-// Runs dbcanvas's own first-party dbcanvas-airlinesim:latest image (built by
+// Runs dbcanvas's own first-party dbcanvas-airlinesim:v<release> image (built by
 // `make airlinesim-image`), not a systemd OS image — no product installed on top,
 // no PMM monitoring. Its dashboard port is published to the host (like PMM's own
 // HTTP/HTTPS ports) on a fixed, auto-assigned port that's reused across a redeploy
@@ -23,9 +23,10 @@ import (
 // browser, with no VNC desktop needed.
 
 const (
-	airlineSimImage = "dbcanvas-airlinesim:latest"
-	airlineSimPort  = 8090
+	airlineSimPort = 8090
 )
+
+var airlineSimImage = "dbcanvas-airlinesim:" + imageRelease()
 
 // airlineSimConfig is the non-secret profile shown for a deployed Airline Sim node.
 type airlineSimConfig struct {

@@ -41,7 +41,7 @@ declare -a BUILT=() FAILED=()
 build_app() {
   local name="$1"
   local ctx="$ROOT/$name"
-  local tag="dbcanvas-${name}:latest"
+  local tag="dbcanvas-${name}:$(image_release "$ROOT")"
 
   echo "=================================================================="
   echo "==> building ${tag}  (platform=${PLATFORM})"

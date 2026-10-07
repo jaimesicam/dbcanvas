@@ -64,6 +64,12 @@ func main() {
 		}
 		return
 	}
+	// Refuse a malformed instance name rather than deploy under it: every name this installation
+	// gives a container is built on it, and so is how it tells its own from another's (instance.go).
+	if why := validInstance(instanceName); why != "" {
+		log.Fatalf("DBCANVAS_INSTANCE=%q: %s", instanceName, why)
+	}
+	log.Printf("instance %s", instanceName)
 	useDataTempDir(dbPath)
 	store, err := OpenStore(dbPath)
 	if err != nil {

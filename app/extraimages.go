@@ -239,7 +239,7 @@ func (a *App) buildExtraImage(ctx context.Context, e extraImage) error {
 	// A baked image is built FROM a systemd base, which `make images` produces. Say
 	// so plainly rather than letting the build fail on a missing FROM.
 	if e.BaseOS[0] != "" {
-		base := fmt.Sprintf("dbcanvas-systemd:%s-%s-%s", e.BaseOS[0], e.BaseOS[1], platformArch())
+		base := pxcImage(e.BaseOS[0], e.BaseOS[1], platformArch())
 		if ok, _ := a.docker.ImageExists(ctx, base); !ok {
 			return fmt.Errorf("the base image %s is not built — run `make images` first (that one is the operating systems, and it cannot be built from here)", base)
 		}
@@ -253,7 +253,7 @@ func (a *App) buildExtraImage(ctx context.Context, e extraImage) error {
 		return fmt.Errorf("pull %s: %w", buildhelperImage, err)
 	}
 
-	name := fmt.Sprintf("dbcanvas-imagebuild-%s-%d", e.ID, time.Now().UnixNano())
+	name := helperName("imagebuild-"+e.ID, time.Now().UnixNano())
 	cid, err := a.docker.ContainerCreate(ctx, ContainerSpec{
 		Name:  name,
 		Image: buildhelperImage,

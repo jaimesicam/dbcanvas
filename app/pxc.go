@@ -78,7 +78,7 @@ type pxcSecrets struct {
 }
 
 func pxcImage(os, osVersion, arch string) string {
-	return "dbcanvas-systemd:" + os + "-" + osVersion + "-" + archOr(arch)
+	return "dbcanvas-systemd:" + os + "-" + osVersion + "-" + archOr(arch) + "-" + imageRelease()
 }
 
 // mysqlFamilySecrets builds the credential set for any MySQL-family engine (PXC,

@@ -316,7 +316,7 @@ func (d *Docker) ApplyDiskLimits(ctx context.Context, image string, ids []string
 	// moment it exited. Exec gives the exit code and output directly, and the container is
 	// force-removed before its sleep ever elapses.
 	spec := ContainerSpec{
-		Name:       fmt.Sprintf("dbcanvas-iomax-%d", time.Now().UnixNano()),
+		Name:       helperName("iomax", time.Now().UnixNano()),
 		Image:      image,
 		Privileged: true, // ContainerCreate then adds the host cgroupns + writable /sys/fs/cgroup
 		Cmd:        []string{"sleep", "300"},

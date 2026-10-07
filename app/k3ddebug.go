@@ -314,7 +314,7 @@ func (a *App) k3dDebugBuild(ctx context.Context, st Stack, tarball []byte, cfg *
 	// whose *command* is the build would be restarted by the default restart policy the moment
 	// it finished, and its exit code is easier to read from an exec than from a wait.
 	cid, err := eng.ContainerCreate(ctx, ContainerSpec{
-		Name:      fmt.Sprintf("dbcanvas-%d-dlvbuild-%d", st.ID, time.Now().UnixNano()),
+		Name:      fmt.Sprintf("%sdlvbuild-%d", stackContainerPrefix(st.ID), time.Now().UnixNano()),
 		Image:     "golang:" + goTag,
 		Cmd:       []string{"sleep", "3600"},
 		NoRestart: true,

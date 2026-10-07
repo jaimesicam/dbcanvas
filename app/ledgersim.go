@@ -13,7 +13,7 @@ import (
 
 // Ledger Sim (Type=="ledgersim"): an order-and-payment ledger driven through
 // JDBC and HikariCP, against MySQL (Percona Server, PXC, MySQL Community) or
-// PostgreSQL. Runs dbcanvas's own dbcanvas-ledgersim:latest image (built by
+// PostgreSQL. Runs dbcanvas's own dbcanvas-ledgersim:v<release> image (built by
 // `make ledgersim-image`) — a JVM on Eclipse Temurin rather than a Go binary,
 // which is the point of it.
 //
@@ -40,9 +40,10 @@ import (
 // reach, this node can reach, minus the two engines JDBC has no business
 // speaking to.
 const (
-	ledgerSimImage = "dbcanvas-ledgersim:latest"
-	ledgerSimPort  = 8094
+	ledgerSimPort = 8094
 )
+
+var ledgerSimImage = "dbcanvas-ledgersim:" + imageRelease()
 
 // ledgerSimEngines is what JDBC covers here. Shorter than stocksim's list on
 // purpose: MongoDB and Valkey have no JDBC driver worth shipping, and a node
@@ -711,7 +712,7 @@ func (a *App) handleLedgerSimTest(w http.ResponseWriter, r *http.Request) {
 		network = ""
 	}
 
-	name := fmt.Sprintf("dbcanvas-%d-ledgersim-testconn-%d", st.ID, time.Now().UnixNano())
+	name := fmt.Sprintf("%sledgersim-testconn-%d", stackContainerPrefix(st.ID), time.Now().UnixNano())
 	id, err := eng.ContainerCreate(ctx, ContainerSpec{
 		Name: name, Image: ledgerSimImage, Env: env,
 		Network:    network,

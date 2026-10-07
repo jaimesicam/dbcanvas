@@ -119,8 +119,11 @@ fi
 # or the product is not in the old file (a newly built image, or a product recorded
 # for the first time), which tells the caller to emit an empty map instead.
 carry_section() {
+  # Tags are compared without their release suffix (-v0.0.14, see image_release): the same OS
+  # image rebuilt for a new release is still the image this section describes.
   awk -v tag="$1" -v key="$2" '
-    $0 == "    tag: " tag { inimg = 1; next }
+    function base(t) { sub(/-v[0-9][0-9A-Za-z.]*$/, "", t); return t }
+    /^    tag: / { t = $0; sub(/^    tag: /, "", t); if (base(t) == base(tag)) { inimg = 1; next } }
     inimg && /^  - os:/   { exit }
     inimg && $0 == "    " key ":" { found = 1; print; next }
     inimg && found && /^    [a-z_]+:/ { exit }

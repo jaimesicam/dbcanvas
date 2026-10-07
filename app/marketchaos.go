@@ -22,7 +22,7 @@ import (
 // running member hosts once the PXC-specific challenge pack lands (stage S2+), not
 // just the one primary connection every other sim resolves to.
 //
-// Runs dbcanvas's own first-party dbcanvas-marketchaos:latest image (built by
+// Runs dbcanvas's own first-party dbcanvas-marketchaos:v<release> image (built by
 // `make marketchaos-image`), not a systemd OS image. Its dashboard port is
 // published to the host (like PMM's own HTTP/HTTPS ports) on a fixed,
 // auto-assigned port that's reused across a redeploy — see the HTTPPort field
@@ -30,9 +30,10 @@ import (
 // needed.
 
 const (
-	marketChaosImage = "dbcanvas-marketchaos:latest"
-	marketChaosPort  = 8092
+	marketChaosPort = 8092
 )
+
+var marketChaosImage = "dbcanvas-marketchaos:" + imageRelease()
 
 // marketChaosConfig is the non-secret profile shown for a deployed MarketChaos node.
 type marketChaosConfig struct {

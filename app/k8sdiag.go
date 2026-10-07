@@ -50,7 +50,7 @@ const (
 // k8sCollectorImage is the image a capture runs in. Built by
 // `make k8scollector-image`; amd64-only because Percona's apt repo has no arm64
 // percona-toolkit (see the Dockerfile).
-func k8sCollectorImage() string { return "dbcanvas-k8scollector:debian-12-amd64" }
+func k8sCollectorImage() string { return "dbcanvas-k8scollector:debian-12-amd64-" + imageRelease() }
 
 // k8sCollectResource maps a frame's operator to the collector's -resource value.
 // The two community PostgreSQL operators are not Percona's, so the collector has
@@ -191,7 +191,7 @@ func (a *App) runK8sCollect(ctx context.Context, st Stack, frame designFrame, se
 		return nil, fmt.Errorf("the collector image %s is not built — run `make k8scollector-image`", k8sCollectorImage())
 	}
 	cid, err := eng.ContainerCreate(ctx, ContainerSpec{
-		Name:      fmt.Sprintf("dbcanvas-k8scollect-%d", time.Now().UnixNano()),
+		Name:      helperName("k8scollect", time.Now().UnixNano()),
 		Image:     k8sCollectorImage(),
 		Cmd:       []string{"sleep", strconv.Itoa(int(k8sCollectTimeout.Seconds()))},
 		Network:   networkName(st.ID),

@@ -235,7 +235,7 @@ type repoSyncStatus struct {
 }
 
 func repoDataVolume(stackID int64, nodeID string) string {
-	return fmt.Sprintf("dbcanvas-repo-%d-%s", stackID, nodeID)
+	return fmt.Sprintf("%srepo-%d-%s", instancePrefix(), stackID, nodeID)
 }
 
 func repositoryImage(arch string) string { return pxcImage(repoOSImage, repoOSVersion, archOr(arch)) }

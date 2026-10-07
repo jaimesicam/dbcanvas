@@ -50,7 +50,7 @@ VNC_BASE_OS="ubuntu";          VNC_BASE_VER="24.04"
 # like the node images, because the package it exists to deliver is amd64-only.
 # Must match k8sCollectorImage() in app/k8sdiag.go.
 K8SCOLLECTOR_PLATFORM="linux/amd64"
-K8SCOLLECTOR_TAG="dbcanvas-k8scollector:debian-12-amd64"
+K8SCOLLECTOR_TAG="dbcanvas-k8scollector:debian-12-amd64" # + the release, below
 
 # Big Hole: the upstream commit to build, and the image tag that records it. The
 # project has no tags and no version in its package.json, so the revision is the
@@ -66,6 +66,7 @@ esac
 
 # shellcheck source=platform.sh
 . "$IMAGES_DIR/platform.sh"
+K8SCOLLECTOR_TAG="${K8SCOLLECTOR_TAG}-$(image_release "$ROOT")"
 PLATFORM="$(resolve_platform "$ROOT")" || exit 1
 ARCH="${PLATFORM#linux/}"
 
@@ -137,7 +138,7 @@ declare -a BUILT=() SKIPPED=() FAILED=()
 # build_service <name> <dockerfile> <base_os> <base_version> <tag>
 build_service() {
   local name="$1" dockerfile="$2" base_os="$3" base_ver="$4" tag="$5"
-  local base="dbcanvas-systemd:${base_os}-${base_ver}-${ARCH}"
+  local base="dbcanvas-systemd:${base_os}-${base_ver}-${ARCH}-$(image_release "$ROOT")"
 
   echo "=================================================================="
   echo "==> building ${tag}  (base=${base}, platform=${PLATFORM})"
@@ -183,11 +184,11 @@ build_standalone() {
 
 if [ "$WANT" = "intranet" ] || [ "$WANT" = "all" ]; then
   build_service intranet intranet.Dockerfile "$INTRANET_BASE_OS" "$INTRANET_BASE_VER" \
-    "dbcanvas-intranet:${INTRANET_BASE_OS}-${INTRANET_BASE_VER}-${ARCH}"
+    "dbcanvas-intranet:${INTRANET_BASE_OS}-${INTRANET_BASE_VER}-${ARCH}-$(image_release "$ROOT")"
 fi
 if [ "$WANT" = "vnc" ] || [ "$WANT" = "all" ]; then
   build_service vnc vnc.Dockerfile "$VNC_BASE_OS" "$VNC_BASE_VER" \
-    "dbcanvas-vnc:${VNC_BASE_OS}-${VNC_BASE_VER}-${ARCH}"
+    "dbcanvas-vnc:${VNC_BASE_OS}-${VNC_BASE_VER}-${ARCH}-$(image_release "$ROOT")"
 fi
 
 if [ "$WANT" = "k8scollector" ] || [ "$WANT" = "all" ]; then

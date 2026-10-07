@@ -341,7 +341,7 @@ func (a *App) gdbProbeMounts(ctx context.Context, image, coreDir, libDir string)
 	// The node images declare CMD (not ENTRYPOINT), so overriding the command with a sleep gives
 	// a plain container rather than a second systemd — this probe wants a shell, not an init.
 	cid, err := eng.ContainerCreate(ctx, ContainerSpec{
-		Name:      fmt.Sprintf("dbcanvas-gdbprobe-%d", time.Now().UnixNano()),
+		Name:      helperName("gdbprobe", time.Now().UnixNano()),
 		Image:     image,
 		Cmd:       []string{"sleep", "60"},
 		NoRestart: true,

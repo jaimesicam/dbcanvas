@@ -85,7 +85,7 @@ func pmmAlias(label string) string {
 // pmmDataVolume is the stable name of a PMM node's /srv data volume (persists across
 // upgrades; removed when the stack is destroyed).
 func pmmDataVolume(stackID int64, nodeID string) string {
-	return fmt.Sprintf("dbcanvas-pmm-%d-%s", stackID, nodeID)
+	return fmt.Sprintf("%spmm-%d-%s", instancePrefix(), stackID, nodeID)
 }
 
 func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {

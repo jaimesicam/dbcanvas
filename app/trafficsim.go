@@ -14,7 +14,7 @@ import (
 // Valkey node or Valkey Cluster it's linked to (by a drawn edge, exactly like
 // HAProxy links to a backend cluster frame), while a small embedded web server
 // exposes a live map of the result. Runs dbcanvas's own first-party
-// dbcanvas-trafficsim:latest image (built by `make trafficsim-image`), not a
+// dbcanvas-trafficsim:v<release> image (built by `make trafficsim-image`), not a
 // systemd OS image and not a third-party pulled one — no product installed on top,
 // no PMM monitoring. Its dashboard port is published to the host (like PMM's own
 // HTTP/HTTPS ports) on a fixed, auto-assigned port that's reused across a redeploy
@@ -22,9 +22,10 @@ import (
 // browser, with no VNC desktop needed.
 
 const (
-	trafficSimImage = "dbcanvas-trafficsim:latest"
-	trafficSimPort  = 8088
+	trafficSimPort = 8088
 )
+
+var trafficSimImage = "dbcanvas-trafficsim:" + imageRelease()
 
 // trafficSimConfig is the non-secret profile shown for a deployed Traffic Sim node.
 type trafficSimConfig struct {

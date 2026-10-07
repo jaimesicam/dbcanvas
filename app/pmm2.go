@@ -81,7 +81,7 @@ type pmm2Config struct {
 // pmm2DataVolume is a PMM 2 node's /srv, kept across a redeploy like PMM 3's (pmmDataVolume) and
 // removed with the stack.
 func pmm2DataVolume(stackID int64, nodeID string) string {
-	return fmt.Sprintf("dbcanvas-pmm2-%d-%s", stackID, nodeID)
+	return fmt.Sprintf("%spmm2-%d-%s", instancePrefix(), stackID, nodeID)
 }
 
 // pmm2AdminPasswordScript sets the Grafana admin password — which is the PMM login. PMM 2 grew a

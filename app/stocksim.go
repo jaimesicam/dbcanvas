@@ -16,7 +16,7 @@ import (
 // Stock Market Sim (Type=="stocksim"): a small stock-exchange application with
 // full browser CRUD, a live dashboard and a printable report, running against
 // whichever database it was pointed at. Runs dbcanvas's own first-party
-// dbcanvas-stocksim:latest image (built by `make stocksim-image`), not a
+// dbcanvas-stocksim:v<release> image (built by `make stocksim-image`), not a
 // systemd OS image — no product installed on top, no PMM monitoring. Its
 // dashboard port is published to the host on a fixed, auto-assigned port that's
 // reused across a redeploy, so it's reachable directly from the host browser
@@ -37,9 +37,10 @@ import (
 // why this is the only provisioner that sets ExtraHosts, and the only node type
 // with a pre-deploy connection test (see handleStockSimTest).
 const (
-	stockSimImage = "dbcanvas-stocksim:latest"
-	stockSimPort  = 8093
+	stockSimPort = 8093
 )
+
+var stockSimImage = "dbcanvas-stocksim:" + imageRelease()
 
 // stockSimImplementedEngines mirrors store.Implemented() inside the sim image.
 // The node form offers exactly this set, so a user can never configure a target
@@ -1576,7 +1577,7 @@ func (a *App) handleStockSimTest(w http.ResponseWriter, r *http.Request) {
 
 	// A distinct name per attempt, so two people testing at once cannot
 	// collide, and a leftover from a crashed attempt never blocks a new one.
-	name := fmt.Sprintf("dbcanvas-%d-stocksim-testconn-%d", st.ID, time.Now().UnixNano())
+	name := fmt.Sprintf("%sstocksim-testconn-%d", stackContainerPrefix(st.ID), time.Now().UnixNano())
 	id, err := eng.ContainerCreate(ctx, ContainerSpec{
 		Name: name, Image: stockSimImage, Env: env,
 		Network:    network,

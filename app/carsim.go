@@ -16,7 +16,7 @@ import (
 // standalone PostgreSQL node ("pg"), a Patroni/repmgr/Spock cluster frame, or any
 // of the last three fronted by HAProxy — seven resolvable shapes in total. An
 // embedded web server exposes a live dashboard of the result. Runs dbcanvas's own
-// first-party dbcanvas-carsim:latest image (built by `make carsim-image`), not a
+// first-party dbcanvas-carsim:v<release> image (built by `make carsim-image`), not a
 // systemd OS image — no product installed on top, no PMM monitoring. Its
 // dashboard port is published to the host (like PMM's own HTTP/HTTPS ports) on a
 // fixed, auto-assigned port that's reused across a redeploy — see the HTTPPort
@@ -24,9 +24,10 @@ import (
 // desktop needed.
 
 const (
-	carSimImage = "dbcanvas-carsim:latest"
-	carSimPort  = 8091
+	carSimPort = 8091
 )
+
+var carSimImage = "dbcanvas-carsim:" + imageRelease()
 
 // carSimConfig is the non-secret profile shown for a deployed Car Rental Sim node.
 type carSimConfig struct {

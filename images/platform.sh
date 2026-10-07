@@ -46,3 +46,15 @@ resolve_platform() {
       ;;
   esac
 }
+
+# image_release prints the release every image DBCanvas builds is tagged with: "v" + the repo's
+# VERSION file (v0.0.14). It is what lets several installations share one Docker daemon: one
+# checkout's `make images` cannot replace the images another, on a different release, deploys
+# from — and installations on the same release share them instead of each building their own.
+# Must match imageRelease() in app/instance.go, which reads the same VERSION (stamped into the app).
+# $1: repo root
+image_release() {
+  local v
+  v="$(tr -d '[:space:]' <"$1/VERSION" 2>/dev/null)"
+  printf 'v%s\n' "${v:-dev}"
+}

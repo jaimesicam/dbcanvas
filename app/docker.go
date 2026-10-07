@@ -1082,7 +1082,9 @@ func (d *Docker) ListManaged(ctx context.Context) ([]ContainerInfo, error) {
 		if len(c.Names) > 0 {
 			name = strings.TrimPrefix(c.Names[0], "/")
 		}
-		ours := strings.HasPrefix(name, "dbcanvas-") && !strings.HasPrefix(name, "dbcanvas-app")
+		// A stack container of this installation: <instance>-<stackID>-… (instance.go). The app's
+		// own container, transient helpers and other installations' containers are not.
+		_, ours := stackIDFromInstanceName(name)
 		if !ours {
 			// A K3D frame's containers, which carry k3d's naming rather than ours. The
 			// stack scope in the name is what keeps a hand-made k3d cluster out.

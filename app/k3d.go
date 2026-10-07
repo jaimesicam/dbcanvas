@@ -336,9 +336,20 @@ func (a *App) runK3D(ctx context.Context, logln func(string), args ...string) (s
 // k3dClusterName is the k3d cluster name for a frame: its label, sanitized, scoped by the stack.
 // The scope is not cosmetic — every stack's first K3D frame is labelled "k3d-00" by default, and
 // k3d cluster names are global to the Docker daemon, so without it two stacks would fight over one
-// cluster (the second deploy dies with "a cluster with that name already exists").
+// cluster (the second deploy dies with "a cluster with that name already exists"). For the same
+// reason it carries the installation (instance.go) after the stack: two installations on one daemon
+// both have a stack 1. The installation called "dbcanvas" adds nothing, so its clusters keep their
+// names.
 func k3dClusterName(stackID int64, frame designFrame) string {
-	return fmt.Sprintf("%s-s%d", sanitizeName(frame.Label), stackID)
+	return sanitizeName(frame.Label) + k3dStackSuffix(stackID)
+}
+
+// k3dStackSuffix is how every cluster name of one stack of this installation ends.
+func k3dStackSuffix(stackID int64) string {
+	if tag := instanceTag(); tag != "" {
+		return fmt.Sprintf("-s%d-%s", stackID, tag)
+	}
+	return fmt.Sprintf("-s%d", stackID)
 }
 
 // k3dNodeContainer is the container k3d creates for the i-th member (0 = the server).
@@ -382,7 +393,14 @@ func k3dStackIDFromContainer(name string) (int64, bool) {
 	if cluster == "" {
 		return 0, false
 	}
-	// The cluster name ends with the stack scope: <frame label>-s<stackID>.
+	// The cluster name ends with the stack scope: <frame label>-s<stackID>[-<instance tag>]. A
+	// cluster of another installation ends with a different tag (or none), and is not ours.
+	if tag := instanceTag(); tag != "" {
+		var ok bool
+		if cluster, ok = strings.CutSuffix(cluster, "-"+tag); !ok {
+			return 0, false
+		}
+	}
 	i := strings.LastIndex(cluster, "-s")
 	if i < 0 {
 		return 0, false
@@ -455,7 +473,9 @@ func (a *App) k3dFrameIssues(ctx context.Context, f designFrame, members int, op
 				out = append(out, issue{Level: "error", Message: "K3D cluster " + name + ": the debugger's host port " + strconv.Itoa(p) +
 					" is privileged — pick one above 1024"})
 			} else if used, err := a.engCtx(ctx).ListPublishedPorts(ctx); err == nil {
-				if owner, taken := used[p]; taken && !strings.HasPrefix(owner, k3dContainerPrefix+sanitizeName(f.Label)) {
+				owner, taken := used[p]
+				_, mine := k3dStackIDFromContainer(owner) // a cluster of this installation, not another's of the same label
+				if taken && !(mine && strings.HasPrefix(owner, k3dContainerPrefix+sanitizeName(f.Label)+"-s")) {
 					out = append(out, issue{Level: "warning", Message: "K3D cluster " + name + ": host port " + strconv.Itoa(p) +
 						" (the debugger) is already published by " + owner + " — the deploy will fail unless it is gone by then"})
 				}
@@ -1352,9 +1372,10 @@ func (a *App) k3dStackClusters(ctx context.Context, stackID int64) []string {
 }
 
 // k3dClustersOfStack keeps the names ending in this stack's suffix. "-s1" must not match
-// "k3d-00-s15", which it does not: the suffix is compared whole.
+// "k3d-00-s15", which it does not: the suffix is compared whole — and nor does it match another
+// installation's "k3d-00-s1-jane", whose suffix is not this installation's.
 func k3dClustersOfStack(names []string, stackID int64) []string {
-	suffix := fmt.Sprintf("-s%d", stackID)
+	suffix := k3dStackSuffix(stackID)
 	var out []string
 	for _, n := range names {
 		if strings.HasSuffix(n, suffix) {

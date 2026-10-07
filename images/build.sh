@@ -67,9 +67,10 @@ declare -a FAILED=()
 
 platform="$PLATFORM"
 arch="${platform#linux/}"
+RELEASE="$(image_release "$ROOT")"
 for entry in "${MATRIX[@]}"; do
   IFS='|' read -r base os version dockerfile <<<"$entry"
-  tag="${IMAGE_PREFIX}:${os}-${version}-${arch}"
+  tag="${IMAGE_PREFIX}:${os}-${version}-${arch}-${RELEASE}"
   echo "=================================================================="
   echo "==> building ${tag}  (base=${base}, platform=${platform})"
   echo "=================================================================="

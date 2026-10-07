@@ -972,10 +972,12 @@ func hasError(issues []issue) bool {
 	return false
 }
 
-func networkName(stackID int64) string { return fmt.Sprintf("dbcanvas-stack-%d", stackID) }
+// networkName and containerName carry the instance (instance.go): dbcanvas-stack-1 and
+// dbcanvas-1-<node> for the installation called "dbcanvas", as they always were.
+func networkName(stackID int64) string { return fmt.Sprintf("%sstack-%d", instancePrefix(), stackID) }
 
 func containerName(stackID int64, nodeID string) string {
-	return fmt.Sprintf("dbcanvas-%d-%s", stackID, sanitizeName(nodeID))
+	return stackContainerPrefix(stackID) + sanitizeName(nodeID)
 }
 
 func sanitizeName(s string) string {
@@ -1086,7 +1088,7 @@ func platformArch() string {
 // Oracle Linux 9 whatever the canvas says — its service config is written for it — so
 // the tag varies by architecture alone.
 func intranetImage(arch string) string {
-	return "dbcanvas-intranet:oraclelinux-9-" + archOr(arch)
+	return "dbcanvas-intranet:oraclelinux-9-" + archOr(arch) + "-" + imageRelease()
 }
 
 // --- validation ---
@@ -1136,6 +1138,10 @@ func (a *App) runningFrames(st Stack, doc designDoc) map[string]bool {
 }
 
 func (a *App) validateStack(ctx context.Context, st Stack) []issue {
+	return a.adoptableImageHints(ctx, a.validateStackIssues(ctx, st))
+}
+
+func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 	var out []issue
 	if err := a.engCtx(ctx).Ping(ctx); err != nil {
 		return append(out, issue{Level: "error", Message: "Docker is not reachable: " + err.Error()})
@@ -2248,7 +2254,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 	// redeploy doesn't flag itself).
 	if len(exportReq) > 0 {
 		usedPorts, _ = a.engCtx(ctx).ListPublishedPorts(ctx)
-		selfPrefix := fmt.Sprintf("dbcanvas-%d-", st.ID)
+		selfPrefix := stackContainerPrefix(st.ID)
 		for port, who := range exportReq {
 			if len(who) > 1 {
 				out = append(out, issue{Level: "error", Message: fmt.Sprintf("Export host port %d requested by multiple nodes: %s", port, strings.Join(who, ", "))})
@@ -3350,7 +3356,7 @@ func (a *App) teardownStack(stackID int64) {
 	// cancelDeploy has waited: nothing can create more.
 	for _, e := range a.stackEngines(st) {
 		ctx := withEngine(bg, e)
-		if ids, err := e.ContainersByNamePrefix(ctx, fmt.Sprintf("dbcanvas-%d-", stackID)); err == nil {
+		if ids, err := e.ContainersByNamePrefix(ctx, stackContainerPrefix(stackID)); err == nil {
 			for _, id := range ids {
 				e.ContainerRemove(ctx, id)
 			}

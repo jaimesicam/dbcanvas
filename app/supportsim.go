@@ -26,14 +26,15 @@ import (
 // searches with an in-app brute-force scan, and says plainly on every page that it
 // is doing so and how to turn the real thing on.
 //
-// Same shape as Hotel Sim: a first-party image (dbcanvas-supportsim:latest, built by
+// Same shape as Hotel Sim: a first-party image (dbcanvas-supportsim:v<release>, built by
 // `make supportsim-image`), dashboard published to the host on a port kept across
 // redeploys.
 
 const (
-	supportSimImage = "dbcanvas-supportsim:latest"
-	supportSimPort  = 8095
+	supportSimPort = 8095
 )
+
+var supportSimImage = "dbcanvas-supportsim:" + imageRelease()
 
 // supportSimConfig is the non-secret profile shown for a deployed Support Sim node.
 type supportSimConfig struct {

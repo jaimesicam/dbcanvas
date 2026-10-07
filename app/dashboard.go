@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"net/http"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 )
@@ -184,13 +182,8 @@ func stackIDFromName(name string) int64 {
 	if id, ok := k3dStackIDFromContainer(name); ok {
 		return id
 	}
-	rest := strings.TrimPrefix(name, "dbcanvas-")
-	if i := strings.IndexByte(rest, '-'); i > 0 {
-		if id, err := strconv.ParseInt(rest[:i], 10, 64); err == nil {
-			return id
-		}
-	}
-	return 0
+	id, _ := stackIDFromInstanceName(name)
+	return id
 }
 
 // sampleStats returns a cached (≤2s) snapshot of all managed running containers. Because it

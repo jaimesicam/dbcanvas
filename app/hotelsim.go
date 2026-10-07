@@ -15,7 +15,7 @@ import (
 // standalone node, replica-set frame, or sharded-cluster frame it's linked to (by a
 // drawn edge, exactly like Traffic Sim links to a Valkey node/cluster), while an
 // embedded web server exposes a live dashboard of the result. Runs dbcanvas's own
-// first-party dbcanvas-hotelsim:latest image (built by `make hotelsim-image`), not
+// first-party dbcanvas-hotelsim:v<release> image (built by `make hotelsim-image`), not
 // a systemd OS image — no product installed on top, no PMM monitoring. Its
 // dashboard port is published to the host (like PMM's own HTTP/HTTPS ports) on a
 // fixed, auto-assigned port that's reused across a redeploy — see the HTTPPort
@@ -23,9 +23,10 @@ import (
 // desktop needed.
 
 const (
-	hotelSimImage = "dbcanvas-hotelsim:latest"
-	hotelSimPort  = 8089
+	hotelSimPort = 8089
 )
+
+var hotelSimImage = "dbcanvas-hotelsim:" + imageRelease()
 
 // hotelSimConfig is the non-secret profile shown for a deployed Hotel Sim node.
 type hotelSimConfig struct {

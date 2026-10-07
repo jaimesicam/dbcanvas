@@ -11,7 +11,7 @@ import (
 
 // pgvector Support Sim (Type=="pgvectorsim"): the Support Sim's help desk (supportsim.go)
 // run against PostgreSQL instead of MongoDB. Same first-party image
-// (dbcanvas-supportsim:latest), same dashboard port, same distroless health check — the
+// (dbcanvas-supportsim:v<release>), same dashboard port, same distroless health check — the
 // sim picks its backend from DB_ENGINE, and with DB_ENGINE=postgres it stores tickets and
 // their embeddings in PostgreSQL and searches them with pgvector (an HNSW index, <=>).
 // Without pgvector on the target it still runs: embeddings go into a real[] column and
