@@ -164,9 +164,108 @@ yourself.
 
 ## What's new
 
-### 0.0.14
+### 0.0.15
 
 <details open>
+<summary><b>Several installations on one Docker host</b></summary>
+
+Each installation now has a name — **`DBCANVAS_INSTANCE`** in `.env`, which `make env` sets to
+`dbcanvas-<your login>` — and it names the app image, the compose volumes, and every container,
+network, volume and K3D cluster the installation deploys. Before, two people running DBCanvas on one
+Docker host shared one `dbcanvas:latest` image (the second `make build` replaced the first), and
+both installations' stack 1 used the same container names: a deploy removed the other's
+containers and a destroy swept them. An existing `.env` is given `dbcanvas`, the name that
+installation already had, so its data and running stacks carry on as they were.
+
+Node images are now tagged with the release (`dbcanvas-systemd:oraclelinux-9-amd64-v0.0.15`), so
+one checkout's `make images` cannot replace what another release deploys from. After upgrading,
+**`make adopt-images`** tags the images you already built for the new release instead of
+rebuilding them, and Validate points at it when an image is only there under its old tag.
+Each installation on a host also needs its own `APP_PORT`.
+</details>
+
+<details>
+<summary><b>Live view on the canvas</b></summary>
+
+**Live**, in the Database Stacks toolbar, opens a panel beside every running node with what it is
+doing now: CPU (with a trend line), memory, data-directory size and filesystem use, swap, IOPS,
+network and disk throughput — and the **replication role its database reports**, not the one the
+design says: `PRIMARY · RW`, `REPLICA · RO` with lag, `SECONDARY · RO`, PXC's `Synced`, for the
+MySQL family, PostgreSQL, MongoDB and Valkey. A role that contradicts the design, after a failover
+say, is flagged `≠ design`. It refreshes every 2, 5 or 10 seconds while it is on; the panels place
+themselves clear of the cards, shrink to bars when you zoom out, and can be dragged or closed.
+K3D clusters show container figures.
+</details>
+
+<details>
+<summary><b>Ceph block storage for K3D clusters: volumes that grow</b></summary>
+
+A **Ceph** node — a monitor, a manager and one OSD in a single container from Ceph's own image —
+can hold a K3D cluster's volumes. A cluster that picks it gets **Ceph CSI** installed before its
+operator, with `ceph-rbd` as its only storage class, so the database volumes are RBD images, and
+unlike k3s's local-path they **grow**: set a larger size in the cluster's **Storage** panel and the
+operator's custom resource is patched, the volumes expand and the filesystem follows online. The
+Ceph node's panel shows health, raw capacity and every image with the PVC it backs.
+
+[Kubernetes clusters →](docs/STACKS.md)
+</details>
+
+<details>
+<summary><b>Shared sessions: drawing on the screen, and recordings</b></summary>
+
+Anyone in a shared session can **draw** a line or put down text on what everyone is looking at,
+and erase their own; the host erases anything, clears the screen, and turns drawing off for every
+guest or for one. Marks land in the same place on every screen.
+
+The host can **record** the session — their own tab, so the recording holds the screen, the
+drawings and the chat — and everyone sees REC while it runs. Recordings are listed in the Share
+dialog with the session's chat transcript and are purged on their date (30 days by default, an
+admin setting) unless the host keeps them or purges them sooner.
+
+[Shared sessions →](docs/SHARED_SESSIONS.md)
+</details>
+
+<details>
+<summary><b>Vector search at design time: MongoDB and pgvector</b></summary>
+
+**MongoDB:** PS MongoDB replica sets and sharded clusters have a **Vector search** option —
+Percona Search for MongoDB (`mongot`) on PSMDB 8.3 — and so does the PSMDB operator from 1.23.0
+(`spec.search`), with mongot's metrics turned on.
+
+**PostgreSQL:** standalone nodes, Patroni, repmgr and Spock have a **pgvector** option (Percona or
+PGDG packages, or a source build), and the Percona Operator, CloudNativePG and Crunchy PGO clusters
+create the extension at bootstrap.
+
+[Database stacks →](docs/STACKS.md)
+</details>
+
+<details>
+<summary><b>Support Sim: a help desk on vector search, on MongoDB or pgvector</b></summary>
+
+A new demo application: a help desk whose search runs on vector search, with a **Search
+Showdown**, hybrid tuning, a seven-step **Vector Lab** and an **Index Workshop** (variant
+benchmark, index lifecycle, explain, live metrics). It runs on MongoDB's mongot or on PostgreSQL +
+pgvector — the **Support Sim** and **pgvector Support Sim** nodes, each with a template — and
+every page speaks the engine in use.
+
+[Database stacks →](docs/STACKS.md)
+</details>
+
+<details>
+<summary><b>Also: Relationships, a toolbar that fits, and desktop polish</b></summary>
+
+The Database Stacks toolbar's **Relationships** button draws the settings made in node
+properties as labelled dotted lines — monitored by PMM, managed by Orchestrator, installs from a
+Repository, keys from OpenBao, backs up to SeaweedFS, SSO via Keycloak, LDAP/Kerberos via a
+directory, upgraded by Watchtower — and PgBouncer lines are captioned "SQL traffic" like
+ProxySQL's and HAProxy's. Zoomed in or in a small window, the toolbar's secondary buttons drop
+their labels, so Validate and Deploy are no longer wrapped out of sight. Dragging a window shows
+a grabbing cursor until it is released.
+</details>
+
+### 0.0.14
+
+<details>
 <summary><b>PostgreSQL Query Analytics for PMM: pg_stat_statements or pg_stat_monitor</b></summary>
 
 PMM's Query Analytics reads PostgreSQL's statement statistics from an extension, and PostgreSQL

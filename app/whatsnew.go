@@ -37,6 +37,76 @@ type releaseNote struct {
 // expanded, and the tests assume the ordering.
 var whatsNewNotes = []releaseNote{
 	{
+		Version: "0.0.15",
+		Date:    "2026-10-07",
+		Title:   "Several installations on one Docker host",
+		Body: "Each installation now has a name, DBCANVAS_INSTANCE, which `make env` sets to dbcanvas-<your " +
+			"login>. It names the app image, the volumes and every container, network and K3D cluster the " +
+			"installation deploys, so two people on one host no longer overwrite each other's image or collide " +
+			"on stack 1. An existing installation keeps the name dbcanvas and everything it already runs. Node " +
+			"images are tagged by release; after upgrading, `make adopt-images` tags the ones you already built " +
+			"instead of rebuilding them.",
+		Doc: "docs/CONFIGURATION.md",
+	},
+	{
+		Version: "0.0.15",
+		Date:    "2026-10-07",
+		Title:   "Live view on the canvas",
+		Body: "Live, in the Database Stacks toolbar, opens a panel beside every running node: CPU, memory, disk, " +
+			"swap, IOPS, network and disk throughput, and the replication role the database reports right now " +
+			"(primary or replica, read-write or read-only) for MySQL, PostgreSQL, MongoDB and Valkey, flagged " +
+			"when it contradicts the design. It refreshes every 2, 5 or 10 seconds, and panels can be dragged " +
+			"or closed.",
+	},
+	{
+		Version: "0.0.15",
+		Date:    "2026-10-07",
+		Title:   "Ceph block storage for K3D clusters: volumes that grow",
+		Body: "A Ceph node (monitor, manager and one OSD in a container) can hold a K3D cluster's volumes. The " +
+			"cluster gets Ceph CSI with ceph-rbd as its storage class, so the operator's database volumes are " +
+			"RBD images that can grow, from the cluster's Storage panel. The Ceph node's panel shows health, " +
+			"capacity and every image with the PVC it backs.",
+		Doc: "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.15",
+		Date:    "2026-10-07",
+		Title:   "Shared sessions: drawing on the screen, and recordings",
+		Body: "Anyone in a shared session can draw lines or put down text on what everyone is looking at, and " +
+			"erase their own; the host can erase anything and turn drawing off for a guest or for everyone. The " +
+			"host can also record the session, screen, drawings and chat, and the recordings are listed in the " +
+			"Share dialog with the chat transcript until they are purged (30 days by default).",
+		Doc: "docs/SHARED_SESSIONS.md",
+	},
+	{
+		Version: "0.0.15",
+		Date:    "2026-10-07",
+		Title:   "Vector search at design time: MongoDB and pgvector",
+		Body: "PS MongoDB replica sets and sharded clusters can be deployed with vector search (Percona Search " +
+			"for MongoDB, mongot, on PSMDB 8.3), as can the PSMDB operator from 1.23.0. PostgreSQL standalone " +
+			"nodes, Patroni, repmgr and Spock get a pgvector option, and the Percona, CloudNativePG and Crunchy " +
+			"operators create the extension at bootstrap.",
+		Doc: "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.15",
+		Date:    "2026-10-07",
+		Title:   "Support Sim: a help desk on vector search, on MongoDB or pgvector",
+		Body: "A new demo application: a help desk whose search runs on vector search, with a Search Showdown, " +
+			"hybrid tuning, a seven-step Vector Lab and an Index Workshop. It runs on MongoDB's mongot or on " +
+			"PostgreSQL with pgvector, as the Support Sim and pgvector Support Sim nodes, each with a template.",
+		Doc: "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.15",
+		Date:    "2026-10-07",
+		Title:   "Also: Relationships, a toolbar that fits, and desktop polish",
+		Body: "The Database Stacks toolbar's Relationships button draws the settings made in node properties " +
+			"(PMM, Orchestrator, Repository, OpenBao, SeaweedFS, Keycloak, LDAP, Watchtower) as labelled lines, " +
+			"and PgBouncer lines are captioned. Zoomed in or in a small window, the toolbar's secondary buttons " +
+			"drop their labels so Deploy stays in view. Dragging a window shows a grabbing cursor.",
+	},
+	{
 		Version: "0.0.14",
 		Date:    "2026-10-05",
 		Title:   "PostgreSQL Query Analytics for PMM: pg_stat_statements or pg_stat_monitor",
