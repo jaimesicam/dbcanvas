@@ -97,6 +97,9 @@ export const stackApi = {
   // that template's design itself rather than taking a copy from here.
   create: (name, ttl, design, templateId) => request('POST', '/api/stacks', { name, ttl, design, templateId }),
   get: (id) => request('GET', `/api/stacks/${id}`),
+  // live is the canvas's Live view: per running node, container figures plus the
+  // replication role and data size its engine reports (app/livestate.go).
+  live: (id) => request('GET', `/api/stacks/${id}/live`),
   update: (id, name, design) => request('PUT', `/api/stacks/${id}`, { name, design }),
   remove: (id) => request('DELETE', `/api/stacks/${id}`),
   validate: (id) => request('POST', `/api/stacks/${id}/validate`),
@@ -455,6 +458,11 @@ export function k3dApi(id, fid) {
     logicalReplicaReseed: (name) => request('POST', `${base}/logicalreplicas/reseed`, { name }),
     logicalReplicaBootstrapLog: (name) => request('GET',
       `${base}/logicalreplicas/bootstraplog?name=${encodeURIComponent(name)}`),
+    // Volumes (app/k3dstorage.go). `storage` is read-only and safe to poll: each PVC, its size,
+    // capacity and use, and whether the cluster can grow them. `storageGrow` writes a larger
+    // database volume size into the custom resource; the operator resizes. There is no shrink.
+    storage: () => request('GET', `${base}/storage`),
+    storageGrow: (sizeGiB) => request('POST', `${base}/storage`, { sizeGiB }),
     // Backups and restores (app/k3dbackup.go). `backups` lists both tables and the store they go
     // to; the mutating calls each apply one custom resource and archive the manifest they applied
     // under the operator's deploy/backup, and hand that manifest back so the panel can show what
@@ -616,4 +624,9 @@ export const k8sPods = (stackId, nodeId) =>
 export const imageApi = {
   list: () => request('GET', '/api/images'),
   build: (id) => request('POST', `/api/images/${id}/build`),
+}
+
+// A Ceph node's state (app/ceph.go): health, capacity, and every RBD image with the PVC it backs.
+export const cephApi = {
+  status: (stackId, nodeId) => request('GET', `/api/stacks/${stackId}/nodes/${encodeURIComponent(nodeId)}/ceph`),
 }

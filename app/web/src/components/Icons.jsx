@@ -598,6 +598,20 @@ export const Icon = {
       <path d="M14.8 6.9 17.4 9.5" />
     </Svg>
   ),
+  // A disk: the Ceph node (block storage for K3D volumes).
+  // The canvas's Live view (components/LiveOverlay.jsx): a heartbeat trace.
+  Pulse: (p) => (
+    <Svg {...p}>
+      <path d="M3 12h4l2.5-6 4 12 2.5-6H21" />
+    </Svg>
+  ),
+  Disk: (p) => (
+    <Svg {...p}>
+      <ellipse cx="12" cy="5.5" rx="7.5" ry="2.5" />
+      <path d="M4.5 5.5v13c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5v-13" />
+      <path d="M4.5 12c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5" />
+    </Svg>
+  ),
   // Drawing on a shared session's screen (session/DrawLayer.jsx): an eraser, a letter
   // for the text tool, and the record button's dot.
   Eraser: (p) => (

@@ -216,6 +216,7 @@ func (a *App) installPSOperator(ctx context.Context, st Stack, frame designFrame
 	opts.PMMHost = a.k3dPMMToken(ctx, st, frame, doc, serverID, cfg.ClusterName+"-secrets", "pmmservertoken", cfg, pr)
 
 	newCR := psTransform(string(raw), opts)
+	newCR = k3dStorageCR(newCR, frame, cfg.Operator, cfg.OperatorVer, pr.logln)
 	if err := a.engCtx(ctx).CopyFile(ctx, serverID, cfg.OperatorSrc+"/deploy", "cr.yaml", 0o644, []byte(newCR)); err != nil {
 		pr.logln("could not write the rewritten cr.yaml back to the source tree: " + err.Error())
 	}

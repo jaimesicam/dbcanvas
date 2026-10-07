@@ -124,7 +124,12 @@ type k3dConfig struct {
 	// derived from the frame's checkbox: the checkbox is what was asked for, this is what is
 	// on the cluster — they differ when the install failed, and the panel should say which.
 	CertManager string `json:"certManager"`
-	Operator    string `json:"operator"`    // "" | "pxc" | "ps" | "psmdb" | "pg"
+	Operator    string `json:"operator"` // "" | "pxc" | "ps" | "psmdb" | "pg"
+	// Storage is "ceph" when the cluster's volumes are RBD images on CephNodeID (ceph.go), whose
+	// monitor Ceph CSI was given CephMonitor; "" is k3s's local-path.
+	Storage     string `json:"storage,omitempty"`
+	CephNodeID  string `json:"cephNodeId,omitempty"`
+	CephMonitor string `json:"cephMonitor,omitempty"`
 	OperatorVer string `json:"operatorVer"` //
 	OperatorSrc string `json:"operatorSrc"` // /root/<repo>-<ver> on the first node
 	Namespace   string `json:"namespace"`   //
@@ -1041,6 +1046,11 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 			args = append(args, k3dDebugCreateArgs(frame)...)
 		}
 		args = append(args, registryArgs...)
+		// Volumes on a Ceph node: the k3s nodes need the host's /dev and kernel modules, and no
+		// local-path provisioner — see ceph.go.
+		if k3dOnCeph(frame) {
+			args = append(args, k3dCephCreateArgs()...)
+		}
 		// A previous run (or a failed one) may have left the cluster behind, and k3d refuses to
 		// create over it. Removing it first makes a redeploy idempotent — the same thing every
 		// other provisioner does with "remove the container of this name before creating it".
@@ -1184,6 +1194,22 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 			} else {
 				base.CertManager = ver
 			}
+		}
+
+		// ---- Ceph CSI, before the operator asks for its first volume ----
+		if k3dOnCeph(frame) {
+			pr.phase("Waiting for the Ceph node", 59)
+			ccfg, key, err := a.waitCephReady(ctx, st.ID, frame.CephNodeID, deployTimeout())
+			if err != nil {
+				failAll("volumes on Ceph: %v", err)
+				return
+			}
+			pr.phase("Installing Ceph CSI", 61)
+			if err := a.installCephCSI(ctx, serverID, ccfg, key, pr.logln); err != nil {
+				failAll("install Ceph CSI: %v", err)
+				return
+			}
+			base.Storage, base.CephNodeID, base.CephMonitor = "ceph", frame.CephNodeID, ccfg.Monitor
 		}
 
 		// ---- the operator ----
@@ -2134,6 +2160,7 @@ func (a *App) installPXCOperator(ctx context.Context, st Stack, frame designFram
 	}
 
 	newCR := crTransform(string(raw), opts)
+	newCR = k3dStorageCR(newCR, frame, cfg.Operator, cfg.OperatorVer, pr.logln)
 	// Keep /root in sync with what was actually applied — the source is there to be read.
 	if err := a.engCtx(ctx).CopyFile(ctx, serverID, cfg.OperatorSrc+"/deploy", "cr.yaml", 0o644, []byte(newCR)); err != nil {
 		pr.logln("could not write the rewritten cr.yaml back to the source tree: " + err.Error())

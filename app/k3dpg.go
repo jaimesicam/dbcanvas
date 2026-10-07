@@ -641,6 +641,7 @@ func (a *App) installPGOperator(ctx context.Context, st Stack, frame designFrame
 	}
 
 	newCR := pgTransform(string(raw), opts)
+	newCR = k3dStorageCR(newCR, frame, cfg.Operator, cfg.OperatorVer, pr.logln)
 	if err := a.engCtx(ctx).CopyFile(ctx, serverID, cfg.OperatorSrc+"/deploy", "cr.yaml", 0o644, []byte(newCR)); err != nil {
 		pr.logln("could not write the rewritten cr.yaml back to the source tree: " + err.Error())
 	}

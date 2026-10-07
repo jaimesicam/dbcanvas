@@ -148,6 +148,9 @@ type designNode struct {
 	ValkeyMajor   string `json:"valkeyMajor"`   // Valkey "9.1"
 	ValkeyVersion string `json:"valkeyVersion"` // minor; "" → latest
 	UseLDAP       bool   `json:"useLdap"`       // wire the valkey-ldap module to the Intranet OpenLDAP (Oracle Linux only for now)
+	// Ceph node fields (Type=="ceph"; block storage for K3D frames, see ceph.go). The one OSD is
+	// a sparse file of this size; what the volumes on it may add up to.
+	CephOSDSizeGB int `json:"cephOsdSizeGb"` // 0 → 20
 	// SeaweedFS node fields (Type=="seaweedfs"; an S3-compatible object store used
 	// as a backup target). Runs the chrislusf/seaweedfs image (pulled, not a systemd
 	// image), so it ignores os/arch like PMM.
@@ -785,6 +788,14 @@ type designFrame struct {
 	// port is fixed, so two debug frames at once collide on it. Spelled as the negative so the
 	// zero value publishes, which is what every design saved before this option did.
 	K3DDebugNoPublish bool `json:"k3dDebugNoPublish"`
+	// K3DStorage is where the cluster's volumes live: "" (local) is k3s's local-path, a
+	// directory on a node, which cannot be resized; "ceph" is RBD images on the stack's Ceph
+	// node (CephNodeID), through Ceph CSI, which can grow. See ceph.go.
+	K3DStorage string `json:"k3dStorage"`
+	CephNodeID string `json:"cephNodeId"`
+	// K3DStorageGB is the database volume size each pod gets (PXC/PS/PSMDB/PG), in GiB;
+	// 0 keeps the operator's cr.yaml default.
+	K3DStorageGB int `json:"k3dStorageGb"`
 }
 
 type designDoc struct {
@@ -1379,6 +1390,9 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 			out = append(out, dirAuthIssues(n, dirNodes)...)
 			out = append(out, oidcIssues(n, keycloakIDs, keycloakSSL)...)
 			out = append(out, vaultIssues(n, openbaoIDs)...)
+		case "ceph":
+			others++
+			out = append(out, cephNodeIssues(n)...)
 		case "seaweedfs":
 			others++
 			buckets := seaweedBuckets(n)
@@ -1916,6 +1930,7 @@ func (a *App) validateStack(ctx context.Context, st Stack) []issue {
 		out = append(out, a.k3dFrameIssues(ctx, f, members, opCat)...)
 		out = append(out, seaweedBucketIssues("K3D cluster "+f.Label, f.SeaweedFSNodeID, f.SeaweedFSBucket, doc)...)
 		out = append(out, k3dBackupIssues(f, doc)...)
+		out = append(out, k3dStorageIssues(f, doc)...)
 		out = append(out, k3dSearchIssues(f, opCat)...)
 		out = append(out, k3dPGFeatureIssues(f, doc, opCat, running[f.ID])...)
 		out = append(out, k3dPgVectorIssues(f, opCat, running[f.ID])...)
@@ -2382,6 +2397,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionMongoStandalone(st, n, doc)
 		case "seaweedfs":
 			a.provisionSeaweedFS(st, n, doc)
+		case "ceph":
+			a.provisionCeph(st, n, doc)
 		case "watchtower":
 			a.provisionWatchtower(st, n, doc)
 		case "keycloak":

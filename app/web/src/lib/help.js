@@ -628,6 +628,7 @@ export const HELP = {
     'Tear down every container and volume in this stack. The design stays on the canvas, so you can redeploy it — ' +
     'but the data inside the nodes is gone.',
   uiRelations: 'Show the relationships set in node properties as labelled dotted lines — which PMM monitors a node, which Repository it installs from, which OpenBao holds its encryption keys, where it backs up to, which directory or Keycloak it authenticates against. Hover a label for the full sentence.',
+  uiLive: 'Live: a panel beside every running node with its CPU, memory, disk and network, and the replication role its database reports right now — primary or replica, read-write or read-only. Refreshes every 2, 5 or 10 seconds while it is on and this window has focus. Drag a panel out of the way or close it; switching Live off and on brings them all back.',
   uiResetView: 'Recentre the canvas at 100%, for when you have panned or zoomed somewhere you cannot find your way back from.',
   // --- Kubernetes States ---------------------------------------------------
   k8sStates:
@@ -724,6 +725,34 @@ export const HELP = {
     'that it is deleted, checked once an hour; lowering the number deletes what is now too old at once. ' +
     'A session still running is never deleted, and deleting a stack deletes its sessions whatever this ' +
     'says. 0 keeps them for as long as the stack exists.',
+  k8sVolumes:
+    'Where the cluster keeps its volumes. Local is k3s\u2019s local-path: a directory on the node a pod ' +
+    'lands on, which Kubernetes cannot resize and which a pod cannot follow to another node. Ceph RBD ' +
+    'keeps every volume as an image on the stack\u2019s Ceph node, through Ceph CSI: network block ' +
+    'storage, as most production clusters have, which can grow. A Ceph cluster is created with the host\u2019s ' +
+    '/dev and kernel modules in its k3s nodes and without local-path, so every volume the operator makes ' +
+    '\u2014 data, backups, logs \u2014 is on Ceph. Chosen before deploy: it is how the cluster is created.',
+  k8sVolumeSize:
+    'The size of each database pod\u2019s volume, written into cr.yaml where the operator reads it ' +
+    '(pxc.volumeSpec, mysql.volumeSpec, every replsets[].volumeSpec, instances[].dataVolumeClaimSpec). ' +
+    'Blank keeps the operator\u2019s default. On Ceph it can be grown later from the cluster\u2019s Storage tab.',
+  k8sGrow:
+    'Writes the new size into the custom resource; the operator then resizes each PersistentVolumeClaim ' +
+    'and keeps its StatefulSet in step, while the database runs \u2014 Ceph grows the image, and the ' +
+    'filesystem is grown on the node. PXC, Percona Server and MongoDB need the operator\u2019s volume ' +
+    'scaling switch (enableVolumeExpansion, or storageScaling in newer releases), which DBCanvas turns ' +
+    'on at deploy for a cluster on Ceph; the PostgreSQL operator resizes on its own. There is no shrink: ' +
+    'Kubernetes refuses a smaller volume.',
+  cephOsdSize:
+    'How large the node\u2019s one OSD is: a sparse file, so it takes host disk only as volumes fill it. ' +
+    'Volumes are thin too, so clusters can be promised more than this in total \u2014 writes fail once ' +
+    'it is actually full, which is a scenario worth having.',
+  cephThin:
+    'What the volumes on this node add up to at their full size. RBD images are thin, so this can be more ' +
+    'than the node holds; what counts is Used.',
+  cephImages:
+    'Every RBD image in the pool, with the Kubernetes volume Ceph CSI made it for. Images outlive a cluster ' +
+    'that is destroyed without deleting its volumes first; redeploying the Ceph node clears them.',
   recordingRetention:
     'A host can record a shared session from its panel: their own tab, captured in their browser, so the ' +
     'recording holds the screen, what everyone drew on it and the chat. Everyone in the session is told. A ' +

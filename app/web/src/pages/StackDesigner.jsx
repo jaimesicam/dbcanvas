@@ -5,6 +5,8 @@ import { Card, Button, Badge, Field, ConfirmButton, InfoRow, inputCls } from '..
 import { Help, Hint } from '../components/Tooltip.jsx'
 import { HELP, MENU_HELP, nodeHelp } from '../lib/help.js'
 import { usePolling } from '../lib/usePolling.jsx'
+import { useLiveStates, LIVE_INTERVALS } from '../lib/useLiveStates.js'
+import LiveOverlay from '../components/LiveOverlay.jsx'
 import { sendHandoff, useHandoff } from '../lib/handoff.js'
 import { stackApi, templateApi, imageApi, mongoDownloadURL, k8sPods, isBuiltinTemplate, frameApi, TTL_OPTIONS, DEPLOY_TONE, NODE_UPLOAD_DESTS, PRODUCT_OS_FAMILIES } from '../lib/stackApi.js'
 import { kindOf as aioKindOf, familyOf as aioFamilyOf } from '../lib/aioPorts.js'
@@ -18,6 +20,7 @@ import MySQLManager from './MySQLManager.jsx'
 import InnoDBManager from './InnoDBManager.jsx'
 import MongoDBManager from './MongoDBManager.jsx'
 import SeaweedFSManager from './SeaweedFSManager.jsx'
+import CephManager from './CephManager.jsx'
 import OpenBaoManager from './OpenBaoManager.jsx'
 import K3DManager from './K3DManager.jsx'
 import PatroniManager from './PatroniManager.jsx'
@@ -444,6 +447,20 @@ export const NODE_TYPES = {
     ports: false,
     osOptions: [{ id: 'seaweedfs', label: 'chrislusf/seaweedfs' }],
     defaults: { accessKey: 'seaweedfs', secretKey: '', bucket: '' },
+  },
+  // Ceph — block storage for K3D frames (app/ceph.go): one container from Ceph's own image with a
+  // monitor, a manager and one OSD on a sparse file. A frame that picks it keeps its volumes there
+  // as RBD images, which — unlike k3s's local-path — can grow.
+  ceph: {
+    label: 'Ceph',
+    slug: 'ceph',
+    sub: 'Block storage for K3D volumes',
+    color: '#ef4444',
+    icon: 'Disk',
+    singleton: false,
+    ports: false,
+    osOptions: [{ id: 'ceph', label: 'quay.io/ceph/ceph' }],
+    defaults: { cephOsdSizeGb: 20 },
   },
   // Watchtower — a per-stack singleton running percona/watchtower with the docker
   // socket mounted and its HTTP API enabled. A PMM node associated with it can
@@ -1086,7 +1103,7 @@ const ENGINE_SHORT = {
   proxysql: 'ProxySQL', haproxy: 'HAProxy', pgbouncer: 'PgBouncer',
   valkey: 'Valkey', valkeycluster: 'Valkey',
   pmm: 'PMM', pmm2: 'PMM', openbao: 'OpenBao', keycloak: 'Keycloak',
-  seaweedfs: 'SeaweedFS', sambaad: 'Samba', vnc: 'Ubuntu', watchtower: 'Watchtower', k3d: 'k3s',
+  seaweedfs: 'SeaweedFS', ceph: 'Ceph', sambaad: 'Samba', vnc: 'Ubuntu', watchtower: 'Watchtower', k3d: 'k3s',
   orchestrator: 'Orchestrator', repository: 'Repository',
 }
 
@@ -2041,6 +2058,8 @@ function TemplateMetaModal({ template, onClose, onSaved }) {
 // actually reach for, per browser.
 const PALETTE_KEY = 'dbcanvas-palette'
 const RELATIONS_KEY = 'dbcanvas-relations'
+const LIVE_KEY = 'dbcanvas-live'
+const LIVE_MS_KEY = 'dbcanvas-live-ms'
 const RECENT_MAX = 5
 // Extra search terms per node type — the words people actually type that appear in no
 // label or category ("redis" for Valkey, "k8s" for K3D, "mongo" for the PSMDB entries).
@@ -2060,6 +2079,7 @@ const PALETTE_ALIASES = {
   pmm: 'monitoring metrics grafana', openbao: 'vault secrets',
   sambaad: 'ldap active directory domain', keycloak: 'sso oidc identity',
   seaweedfs: 's3 object storage', vnc: 'desktop gui ubuntu',
+  ceph: 'block storage rbd volumes pvc kubernetes k3d resize grow csi',
   watchtower: 'updates upgrade', intranet: 'dns gateway core',
   linuxclient: 'client host bare vm jump box test tools centos el7',
   trafficsim: 'demo simulation city map live traffic',
@@ -2354,6 +2374,19 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
   // labelled lines. Off by default — a viewer preference, so it lives in this browser.
   const [showRelations, setShowRelations] = useState(() => { try { return localStorage.getItem(RELATIONS_KEY) === '1' } catch { return false } })
   useEffect(() => { try { localStorage.setItem(RELATIONS_KEY, showRelations ? '1' : '0') } catch { /* */ } }, [showRelations])
+  // Live view: a popup beside every running node with its CPU, memory, disk, network and
+  // replication role (components/LiveOverlay.jsx). A viewer preference, like the lines above.
+  const [liveOn, setLiveOn] = useState(() => { try { return localStorage.getItem(LIVE_KEY) === '1' } catch { return false } })
+  const [liveMs, setLiveMs] = useState(() => { try { const v = Number(localStorage.getItem(LIVE_MS_KEY)); return LIVE_INTERVALS.includes(v) ? v : 5000 } catch { return 5000 } })
+  useEffect(() => { try { localStorage.setItem(LIVE_KEY, liveOn ? '1' : '0'); localStorage.setItem(LIVE_MS_KEY, String(liveMs)) } catch { /* */ } }, [liveOn, liveMs])
+  const [liveClosed, setLiveClosed] = useState(() => new Set())
+  const [liveOffsets, setLiveOffsets] = useState({})
+  const { live, error: liveError } = useLiveStates(stackId, liveOn, liveMs)
+  // Switching Live on opens every popup again, where it started.
+  const toggleLive = () => {
+    if (!liveOn) { setLiveClosed(new Set()); setLiveOffsets({}) }
+    setLiveOn(!liveOn)
+  }
   const [menu, setMenu] = useState(null)
   const [addMenu, setAddMenu] = useState(null) // right-click on empty canvas: add a node here
   const [connect, setConnect] = useState(null)
@@ -4117,6 +4150,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
     ] },
     { title: 'Storage & Clients', items: [
       { label: 'SeaweedFS', type: 'seaweedfs', onClick: () => addNode('seaweedfs') },
+      { label: 'Ceph', type: 'ceph', onClick: () => addNode('ceph') },
       { label: 'Ubuntu VNC', type: 'vnc', onClick: () => addNode('vnc'), off: has('vnc') },
       { label: 'Linux Client', type: 'linuxclient', onClick: () => addNode('linuxclient') },
       { label: 'Repository', type: 'repository', onClick: () => addNode('repository') },
@@ -4288,37 +4322,39 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
     <div ref={designerRoot} className="flex h-[78vh] gap-4">
       {shareOpen && <ShareDialog stack={stack} onClose={() => setShareOpen(false)} />}
       <div className="flex min-w-0 flex-1 flex-col gap-3">
-        {/* toolbar */}
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-surface px-3 py-2">
-          <Hint text={HELP.uiBack}><Button size="sm" variant="ghost" onClick={onBack}><Icon.ArrowLeft size={16} /> Stacks</Button></Hint>
+        {/* toolbar — a container: narrow (a small window, or the browser zoomed in), the secondary
+            buttons drop their labels so Validate and Deploy stay on the first rows instead of
+            being wrapped out of sight. */}
+        <div className="@container flex flex-wrap items-center gap-2 rounded-xl border bg-surface px-3 py-2">
+          <Hint text={HELP.uiBack}><Button size="sm" variant="ghost" onClick={onBack}><Icon.ArrowLeft size={16} /> <span className="@max-3xl:hidden">Stacks</span></Button></Hint>
           <div className="mx-1 h-5 w-px bg-border" />
           <span className="text-sm font-semibold">{stack.name}</span>
           <Hint text={HELP.uiTTL}><Badge tone="primary">{ttlLabel(stack.ttl)}</Badge></Hint>
           {!session.isGuest && (
             <Button size="sm" variant={session.active ? 'subtle' : 'outline'} onClick={() => setShareOpen(true)}>
-              <Icon.Share size={15} /> {session.active ? 'Sharing' : 'Share'}
+              <Icon.Share size={15} /> <span className="@max-3xl:hidden">{session.active ? 'Sharing' : 'Share'}</span>
             </Button>
           )}
           {locked && <Badge tone="muted">Following {session.controllerName || 'the driver'} — view only</Badge>}
           <Hint text={HELP.uiStackStatus}><Badge tone={STATUS_TONE[stack.status] || 'muted'}>{stack.status}</Badge></Hint>
-          <div className="mx-1 h-5 w-px bg-border" />
-          {!libraryColumn && <span className="text-xs text-muted">Right-click the canvas to add a node</span>}
-          {libraryColumn && paletteDocked && <span className="text-xs text-muted">Add nodes from the Infrastructure Library →</span>}
+          <div className="mx-1 h-5 w-px bg-border @max-3xl:hidden" />
+          {!libraryColumn && <span className="text-xs text-muted @max-3xl:hidden">Right-click the canvas to add a node</span>}
+          {libraryColumn && paletteDocked && <span className="text-xs text-muted @max-3xl:hidden">Add nodes from the Infrastructure Library →</span>}
           {libraryColumn && !paletteDocked && (
-            <Hint text={HELP.uiPalette}><Button size="sm" variant="outline" onClick={() => setPaletteDocked(true)}><Icon.Plus size={15} /> Palette</Button></Hint>
+            <Hint text={HELP.uiPalette}><Button size="sm" variant="outline" onClick={() => setPaletteDocked(true)}><Icon.Plus size={15} /> <span className="@max-3xl:hidden">Palette</span></Button></Hint>
           )}
-          <div className="mx-1 h-5 w-px bg-border" />
+          <div className="mx-1 h-5 w-px bg-border @max-3xl:hidden" />
           <Hint text={HELP.uiInsertTemplate}>
             <Button size="sm" variant="outline" disabled={!!busy || deploying || locked} onClick={() => setInsertTpl(true)}>
-              <Icon.Copy size={15} /> Insert template
+              <Icon.Copy size={15} /> <span className="@max-3xl:hidden">Insert template</span>
             </Button>
           </Hint>
           <Hint text={HELP.uiSaveTemplate}>
             <Button size="sm" variant="outline" disabled={!!busy || nodes.length === 0} onClick={() => setSaveTpl(true)}>
-              <Icon.File size={15} /> Save as template
+              <Icon.File size={15} /> <span className="@max-3xl:hidden">Save as template</span>
             </Button>
           </Hint>
-          <div className="mx-1 h-5 w-px bg-border" />
+          <div className="mx-1 h-5 w-px bg-border @max-3xl:hidden" />
           <Hint text={HELP.uiValidate}>
             <Button size="sm" variant="outline" disabled={!!busy} onClick={runValidate}>
               <Icon.Check size={15} /> {busy === 'validate' ? 'Validating…' : 'Validate'}
@@ -4332,22 +4368,35 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
           {(deployments.length > 0 || stack.status === 'deployed') && (
             <Hint text={HELP.uiDestroy}>
               <ConfirmButton size="sm" variant="outline" disabled={!!busy || locked} confirmLabel="Destroy — sure?" onConfirm={runDestroy}>
-                <Icon.Trash size={15} /> {busy === 'destroy' ? 'Destroying…' : 'Destroy'}
+                <Icon.Trash size={15} /> <span className="@max-3xl:hidden">{busy === 'destroy' ? 'Destroying…' : 'Destroy'}</span>
               </ConfirmButton>
             </Hint>
           )}
           <div className="ml-auto flex items-center gap-3">
             <Hint text={HELP.uiSaveState}><span className="text-xs text-muted">{saveState === 'saving' ? 'Saving…' : 'Saved'}</span></Hint>
-            <Hint text={HELP.uiCounts}><span className="text-xs text-muted">{nodes.length} nodes · {edges.length} links</span></Hint>
+            <Hint text={HELP.uiCounts}><span className="text-xs text-muted @max-3xl:hidden">{nodes.length} nodes · {edges.length} links</span></Hint>
             <Hint text={HELP.uiRelations}>
               <Button size="sm" variant={showRelations ? 'subtle' : 'ghost'} aria-pressed={showRelations}
                 className={showRelations ? 'text-primary' : ''} onClick={() => setShowRelations((v) => !v)}>
-                <Icon.Link size={15} /> Relationships{showRelations && relations.length ? ` (${relations.length})` : ''}
+                <Icon.Link size={15} /> <span className="@max-3xl:hidden">Relationships</span>{showRelations && relations.length ? ` (${relations.length})` : ''}
               </Button>
             </Hint>
+            <Hint text={liveError ? `${HELP.uiLive} — ${liveError}` : HELP.uiLive}>
+              <Button size="sm" variant={liveOn ? 'subtle' : 'ghost'} aria-pressed={liveOn}
+                className={liveOn ? 'text-primary' : ''} onClick={toggleLive}>
+                <Icon.Pulse size={15} /> <span className="@max-3xl:hidden">Live</span>
+                {liveOn && liveClosed.size > 0 && <span className="text-xs text-muted">({liveClosed.size} hidden)</span>}
+              </Button>
+            </Hint>
+            {liveOn && (
+              <select aria-label="Live refresh interval" value={liveMs} onChange={(e) => setLiveMs(Number(e.target.value))}
+                className="rounded-md border bg-surface px-1.5 py-1 text-xs text-fg">
+                {LIVE_INTERVALS.map((ms) => <option key={ms} value={ms}>{ms / 1000}s</option>)}
+              </select>
+            )}
             <Hint text={HELP.uiResetView}>
               <Button size="sm" variant="ghost" onClick={() => setView({ x: 40, y: 20, z: 1 })}>
-                <Icon.Move size={15} /> Reset view
+                <Icon.Move size={15} /> <span className="@max-3xl:hidden">Reset view</span>
               </Button>
             </Hint>
           </div>
@@ -4376,8 +4425,9 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
           </div>
         )}
 
-        {/* canvas + node palette (docked left, or floating) */}
-        <div className="flex min-h-0 flex-1 gap-3">
+        {/* canvas + node palette (docked left, or floating) — never squeezed to nothing by a
+            wrapped toolbar; the window scrolls instead. */}
+        <div className="flex min-h-[240px] flex-1 gap-3">
         {libraryColumn && paletteDocked && (
           <div className="flex w-[200px] shrink-0 flex-col overflow-hidden rounded-xl border bg-surface">
             {paletteHeader(() => setPaletteDocked(false), 'Undock (float)', <Icon.External size={14} />, null)}
@@ -4648,6 +4698,14 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
               )
             })}
           </div>
+
+          {liveOn && (
+            <LiveOverlay nodes={nodes} frames={frames} view={view} live={live}
+              sizes={{ node: [NODE_W, NODE_H], member: [PXC_NODE_W, PXC_NODE_H] }}
+              closed={liveClosed} offsets={liveOffsets}
+              onClose={(id) => setLiveClosed((s) => new Set(s).add(id))}
+              onMove={(id, off) => setLiveOffsets((o) => ({ ...o, [id]: off }))} />
+          )}
 
           {/* The legend swaps to the drop hint while files are being dragged over
               the canvas — saying it permanently pushes the line under the minimap. */}
@@ -6187,6 +6245,42 @@ export function PITRFields({ f, nodes, patchFrame, deployed, replRole = '' }) {
         </>
       )}
     </>
+  )
+}
+
+// CephForm edits a (not-yet-running) Ceph node: its label and how large its one OSD is. The
+// clusters that use it are listed, since the choice is made on them (a K3D frame's Volumes).
+function CephForm({ node: n, frames = [], patchNode, dep, deployed }) {
+  const lock = deployed ? 'opacity-70' : ''
+  const users = frames.filter((f) => f.type === 'k3d' && f.k3dStorage === 'ceph' && f.cephNodeId === n.id)
+  const size = n.cephOsdSizeGb ?? 20
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Ceph</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+      <p className="text-xs text-muted">
+        Block storage for K3D clusters: a monitor, a manager and one OSD in a container
+        (<span className="font-mono">quay.io/ceph/ceph</span>, Squid). A cluster that keeps its volumes here gets them as RBD
+        images through Ceph CSI — and, unlike local-path, they can grow. One copy of everything: a backend to test against,
+        not a store to trust.
+      </p>
+      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
+        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+      </Field>
+      <Field label="Capacity (GB)" help={HELP.cephOsdSize} hint="The OSD is a sparse file: it takes host disk only as volumes fill it. 5 to 1000.">
+        <input type="number" min="5" max="1000" className={`${inputCls} ${lock}`} disabled={deployed} value={size}
+          onChange={(e) => patchNode(n.id, { cephOsdSizeGb: Math.round(Number(e.target.value) || 0) })} />
+      </Field>
+      {(size < 5 || size > 1000) && <p className="text-xs text-danger">The capacity is 5 to 1000 GB.</p>}
+      <div className="text-xs">
+        <div className="mb-0.5 text-muted">Clusters with volumes here</div>
+        {users.length
+          ? users.map((f) => <div key={f.id} className="font-medium">{f.label}</div>)
+          : <div className="text-muted">None yet — pick this node under a K3D cluster&apos;s Volumes.</div>}
+      </div>
+    </div>
   )
 }
 
@@ -9398,11 +9492,28 @@ function EverestOperatorsField({ f, patchFrame, deployed }) {
   )
 }
 
+// The four Percona operators — the ones whose cr.yaml DBCanvas sizes and can grow (app/ceph.go).
+const PERCONA_K8S_OPS = new Set(['pxc', 'ps', 'psmdb', 'pg'])
+// The first release with enableVolumeExpansion, and with storageScaling, read from every offered
+// release's CRD — the same table as app/ceph.go's volScaleSince.
+const VOLUME_SCALING_SINCE = { pxc: ['1.16.0', '1.20.0'], psmdb: ['1.18.0', '1.22.0'], ps: ['0.11.0', '1.2.0'] }
+// volumeScalingOf is how an operator release grows a volume: 'storageScaling', 'enableVolumeExpansion',
+// 'pvc' (the PostgreSQL operator, which has no switch), or '' when it cannot.
+function volumeScalingOf(op, ver) {
+  if (op === 'pg') return 'pvc'
+  const since = VOLUME_SCALING_SINCE[op]
+  if (!since || !ver) return ''
+  if (cmpDottedVersions(ver, since[1]) >= 0) return 'storageScaling'
+  if (cmpDottedVersions(ver, since[0]) >= 0) return 'enableVolumeExpansion'
+  return ''
+}
+
 function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, deployed, replRole = '' }) {
   const lock = deployed ? 'opacity-70' : ''
   const count = frameNodes.length
   const pmmNodes = nodes.filter((x) => x.type === 'pmm')
   const swNodes = nodes.filter((x) => x.type === 'seaweedfs')
+  const cephNodes = nodes.filter((x) => x.type === 'ceph')
   const cpus = f.k3dCpus || 4
   // The device override only matters once a disk limit is actually set.
   const k3dThrottled = !!(f.k3dDiskReadMbps || f.k3dDiskWriteMbps)
@@ -10129,6 +10240,52 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
           </p>
         )}
       </div>
+
+      {/* Volumes. Where the cluster keeps its PVCs is a create-time choice: a Ceph-backed cluster
+          is created with the host's /dev and without k3s's local-path provisioner (app/ceph.go). */}
+      {op && !everest && (
+        <div className="space-y-2 rounded-lg border p-2.5">
+          <div className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted">
+            <Icon.Disk size={13} /> Volumes <Help text={HELP.k8sVolumes} />
+          </div>
+          <div className="flex gap-1 rounded-lg bg-surface2 p-1 text-sm">
+            {[{ id: '', label: 'Local (local-path)' }, { id: 'ceph', label: 'Ceph RBD' }].map((o) => (
+              <button key={o.id || 'local'} disabled={deployed}
+                onClick={() => patchFrame(f.id, { k3dStorage: o.id, cephNodeId: o.id === 'ceph' ? (f.cephNodeId || cephNodes[0]?.id || '') : '' })}
+                className={`flex-1 rounded-md px-2 py-1 ${(f.k3dStorage || '') === o.id ? 'bg-surface font-medium shadow-sm' : 'text-muted hover:text-fg'} ${lock}`}>
+                {o.label}
+              </button>
+            ))}
+          </div>
+          {f.k3dStorage === 'ceph' ? (
+            <Field label="Ceph node" help={HELP.k8sVolumes}
+              hint={cephNodes.length ? 'The cluster\u2019s volumes are RBD images on this node.' : 'Add a Ceph node to the stack first (Storage & Clients).'}>
+              <select className={`${inputCls} ${lock}`} value={f.cephNodeId || ''} disabled={deployed}
+                onChange={(e) => patchFrame(f.id, { cephNodeId: e.target.value })}>
+                <option value="">— pick a Ceph node —</option>
+                {cephNodes.map((c) => <option key={c.id} value={c.id}>{c.label} ({c.cephOsdSizeGb || 20} GB)</option>)}
+              </select>
+            </Field>
+          ) : (
+            <p className="text-xs text-muted">A directory on the node a pod lands on. Kubernetes cannot resize these volumes.</p>
+          )}
+          {PERCONA_K8S_OPS.has(op) && (
+            <Field label="Database volume (GiB per pod)" help={HELP.k8sVolumeSize}
+              hint={`Blank = the operator\u2019s default (${{ pxc: '6 GB', ps: '2 GiB', psmdb: '3 GiB', pg: '1 GiB' }[op]}).`}>
+              <input type="number" min="1" max="1000" className={`${inputCls} ${lock}`} disabled={deployed}
+                value={f.k3dStorageGb || ''} placeholder="default"
+                onChange={(e) => patchFrame(f.id, { k3dStorageGb: Math.max(0, Math.round(Number(e.target.value) || 0)) })} />
+            </Field>
+          )}
+          {f.k3dStorage === 'ceph' && PERCONA_K8S_OPS.has(op) && (() => {
+            const ver = f.k3dOperatorVer || latest
+            const mode = volumeScalingOf(op, ver)
+            return mode
+              ? <p className="text-xs text-success">Volumes can grow after deploy, from the cluster\u2019s Storage tab — {mode === 'pvc' ? 'the operator resizes when the instance asks for more' : `operator ${ver} has ${mode === 'storageScaling' ? 'storageScaling' : 'enableVolumeExpansion'}, which is switched on`}. They cannot shrink: Kubernetes does not.</p>
+              : <p className="text-xs text-warning">Operator {ver || '(unknown)'} cannot grow volumes — that came in {VOLUME_SCALING_SINCE[op]?.[0]}. They will be on Ceph at a fixed size.</p>
+          })()}
+        </div>
+      )}
 
       {/* Debugging the operator is a deploy-time decision twice over: the debug binary is compiled
           from the operator's own source tarball, and k3d fixes a cluster's published ports when it
@@ -13588,6 +13745,11 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <SeaweedFSManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <SeaweedFSForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+    }
+    // Ceph block-storage node (volumes for K3D frames).
+    if (n.type === 'ceph') {
+      if (dep && dep.state === 'running') return <CephManager stackId={stackId} nodeId={n.id} dep={dep} />
+      return <CephForm node={n} nodes={nodes} frames={frames} patchNode={patchNode} dep={dep} deployed={deployed} />
     }
     // Watchtower singleton node (container auto-upgrades for PMM).
     if (n.type === 'watchtower') {

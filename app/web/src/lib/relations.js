@@ -19,6 +19,7 @@ export const RELATION_KINDS = {
   repository: { color: '#0ea5e9' },
   encryption: { color: '#16a34a' },
   backup: { color: '#14b8a6' },
+  storage: { color: '#ef4444' },
   auth: { color: '#8b5cf6' },
   upgrade: { color: '#64748b' },
   app: { color: '#ec4899' },
@@ -58,6 +59,12 @@ const RULES = [
     },
     label: () => 'backs up to',
     detail: (s, t) => `${s} stores its backups (and WAL/oplog archive, where enabled) in ${t}'s S3 bucket.`,
+  },
+  {
+    field: 'cephNodeId', kind: 'storage',
+    when: (o) => o.k3dStorage === 'ceph',
+    label: () => 'volumes on',
+    detail: (s, t) => `${s} keeps its volumes as RBD images on ${t}, through Ceph CSI — volumes that can grow.`,
   },
   {
     field: 'keycloakNodeId', kind: 'auth',

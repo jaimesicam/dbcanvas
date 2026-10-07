@@ -12,6 +12,7 @@ import { CRFormEditor } from './CRFormEditor.jsx'
 import { K8sObjectEditor } from './K8sObjectEditor.jsx'
 import { K8sBackupManager } from './K8sBackupManager.jsx'
 import { K8sLogicalReplicas } from './K8sLogicalReplicas.jsx'
+import { K8sStorage } from './K8sStorage.jsx'
 import { useFollowedState } from '../session/SessionProvider.jsx'
 
 // K3DManager — a running k3s node of a K3D cluster frame.
@@ -77,6 +78,10 @@ const TABS = [
   // is the two things you ask it to do once — take a backup, put one back — plus the object store
   // underneath, which is the only part of a Percona cluster no Kubernetes object reports on.
   { id: 'backup', label: 'Backups' },
+  // The cluster's volumes: every PVC with its size and use, and — on Ceph, with an operator that
+  // can — growing the database volumes (app/k3dstorage.go). Any operator but OpenEverest, whose
+  // clusters are its own.
+  { id: 'storage', label: 'Storage' },
   // Only ever shown for a PXC-operator cluster that is one end of a replication link on the
   // canvas — it is the one operator whose custom resource can replicate from another cluster.
   { id: 'replication', label: 'Replication' },
@@ -374,6 +379,7 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
           && (t.id !== 'data' || isServer)
           && (t.id !== 'cr' || CR_EDITABLE.has(cfg.operator))
           && (t.id !== 'backup' || (CR_EDITABLE.has(cfg.operator) && isServer))
+          && (t.id !== 'storage' || (cfg.operator && cfg.operator !== 'everest' && isServer))
           && (t.id !== 'replication' || (cfg.operator === 'pxc' && isServer))
           && (t.id !== 'logicalreplicas' || (cfg.operator === 'pg' && PG_LOGICAL_REPLICAS(cfg) && isServer))).map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
@@ -563,6 +569,7 @@ kubectl get svc -n ${ns}`} />
       {tab === 'data' && <K8sObjectEditor stackId={stackId} frame={frame} isServer={isServer} />}
       {tab === 'backup' && <K8sBackupManager stackId={stackId} frame={frame} isServer={isServer} />}
       {tab === 'logicalreplicas' && <K8sLogicalReplicas stackId={stackId} frame={frame} isServer={isServer} />}
+      {tab === 'storage' && <K8sStorage stackId={stackId} frame={frame} isServer={isServer} />}
 
       {tab === 'diag' && (
         frame

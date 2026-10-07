@@ -61,6 +61,7 @@ var nodeVersionScripts = map[string]string{
 	"sambaad":       "samba --version 2>/dev/null | head -1",
 	"pmm":           "pmm-admin --version 2>/dev/null | head -1",
 	"seaweedfs":     "weed version 2>/dev/null | head -1",
+	"ceph":          "ceph --version 2>/dev/null | head -1",
 	// A k3s node: "k3s version v1.31.5+k3s1 (…)".
 	"k3d": "k3s --version 2>/dev/null | head -1",
 }
