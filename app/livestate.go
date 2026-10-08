@@ -296,6 +296,7 @@ func resolveSources(doc designDoc, nodes map[string]*liveNode) {
 		ln.Role = &r
 	}
 }
+
 // asyncReplFrames are the clusters held together by plain source → replica replication, where a
 // member with no source at all is a member that has silently left.
 var asyncReplFrames = map[string]bool{"mysql": true, "mysqlcerepl": true, "mariadbrepl": true}
