@@ -102,6 +102,12 @@ export const stackApi = {
   // live is the canvas's Live view: per running node, container figures plus the
   // replication role and data size its engine reports (app/livestate.go).
   live: (id) => request('GET', `/api/stacks/${id}/live`),
+  // What the server's watcher recorded (app/livewatch.go): samples, the timeline and open alerts.
+  history: (id, minutes = 60) => request('GET', `/api/stacks/${id}/history?minutes=${minutes}`),
+  alerts: (id) => request('GET', `/api/stacks/${id}/alerts`),
+  setAlertRules: (id, rules) => request('PUT', `/api/stacks/${id}/alert-rules`, rules),
+  alertSummary: () => request('GET', '/api/alerts/summary'),
+  extend: (id, by) => request('POST', `/api/stacks/${id}/extend`, { by }),
   update: (id, name, design) => request('PUT', `/api/stacks/${id}`, { name, design }),
   remove: (id) => request('DELETE', `/api/stacks/${id}`),
   validate: (id) => request('POST', `/api/stacks/${id}/validate`),
@@ -112,6 +118,13 @@ export const stackApi = {
   // Switching a replicated cluster's primary (app/switchover.go).
   switchoverInfo: (id, nid) => request('GET', `/api/stacks/${id}/nodes/${nid}/switchover`),
   promote: (id, nid) => request('POST', `/api/stacks/${id}/nodes/${nid}/promote`),
+  // Rebuilding a replica from its primary (app/rebuild.go): the plan and the running job, and start.
+  rebuildInfo: (id, nid, jobOnly) => request('GET', `/api/stacks/${id}/nodes/${nid}/rebuild${jobOnly ? '?job=1' : ''}`),
+  rollingInfo: (id, nid) => request('GET', `/api/stacks/${id}/nodes/${nid}/rolling-restart`),
+  rollingRestart: (id, nid, switchover) => request('POST', `/api/stacks/${id}/nodes/${nid}/rolling-restart`, { switchover }),
+  errorLog: (id, nid, lines = 100) => request('GET', `/api/stacks/${id}/nodes/${nid}/errorlog?lines=${lines}`),
+  configDrift: (id, nid) => request('GET', `/api/stacks/${id}/nodes/${nid}/config-drift`),
+  rebuild: (id, nid) => request('POST', `/api/stacks/${id}/nodes/${nid}/rebuild`),
   // The `ssh -L` line that tunnels this node's published ports to the operator's
   // machine. Only meaningful when system.sshForwarding.enabled (app/sshforward.go).
   nodeSSHForward: (id, nid) => request('GET', `/api/stacks/${id}/nodes/${nid}/sshforward`),

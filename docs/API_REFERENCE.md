@@ -539,6 +539,57 @@ response lists every step taken; a failed switch says which step failed.
 PXC, Galera and Spock have no primary to move, and the Valkey nodes DBCanvas deploys have
 no replicas, so those members show why instead.
 
+### Rebuilding a replica, rolling restarts, comparing configuration
+
+**UI:** right-click a cluster member.
+
+- **Rebuild from primary…** throws the replica's data away, copies it afresh from the
+  primary and puts it back into replication. It is done with the cluster's own tool, on the
+  node, so the data never passes through DBCanvas:
+
+  | Cluster | How |
+  | --- | --- |
+  | MySQL / Percona Server 8.0.17+ replication | the CLONE plugin; replication resumes by GTID, or from the binlog position the clone recorded |
+  | MariaDB, older MySQL | `mariadb-dump` / `mysqldump` run on the replica against the primary in one snapshot, loaded with binary logging off; accounts are left as they are |
+  | Group Replication / InnoDB Cluster | rejoin with `group_replication_clone_threshold=1` |
+  | Patroni | `patronictl reinit` |
+  | repmgr | `repmgr standby clone`, then `standby register` |
+  | MongoDB replica set member | an emptied dbPath, so the member does a full initial sync |
+  | PXC, MariaDB Galera | `grastate.dat` dropped, so the member rejoins with a full SST |
+
+  `GET /api/stacks/{id}/nodes/{nid}/rebuild` says how and from which member (or why not);
+  `POST` starts it in the background, and the same `GET` follows its steps.
+- **Rolling restart of the cluster…** restarts every member one at a time: replicas first,
+  each back and caught up before the next, then — optionally after handing the primary to a
+  restarted replica — the old primary. Galera members one by one until Synced.
+  `POST /api/stacks/{id}/nodes/{nid}/rolling-restart` with `{"switchover": true}`.
+- **Compare configuration…** lays the settings that differ across the members side by side
+  (`GET /api/stacks/{id}/nodes/{nid}/config-drift`).
+
+The **Live details** tab of a database node tails its own error log
+(`GET /api/stacks/{id}/nodes/{nid}/errorlog?lines=200`) and links to its PMM dashboards when
+a PMM node monitors it.
+
+### Health, history and alerts
+
+The server samples every deployed stack every 30 seconds (an administrator sets the interval,
+or switches it off, in Settings → Stack history and alerts). The canvas's **Health** button
+opens what it recorded:
+
+- **Alerts** open now — a database down, replication broken, a replica behind, a filesystem
+  filling, connections running out — each with what usually fixes it. An alert opens after the
+  condition holds for two samples (a database down: one), closes after two clear ones, and
+  reaches the notification bell. A node stopped on purpose, or being restarted or rebuilt by
+  DBCanvas, raises nothing.
+- **Timeline**: role changes, unplanned failovers (a primary that moved without DBCanvas
+  moving it), switchovers, rebuilds, restarts and lifetime changes, with who asked for them.
+- **Trends**: a day of CPU, memory, lag, QPS, TPS, connections, IOPS and filesystem use per node.
+- **Rules**: the stack's thresholds.
+
+`GET /api/stacks/{id}/history?minutes=60`, `GET /api/stacks/{id}/alerts`,
+`PUT /api/stacks/{id}/alert-rules`, `GET /api/alerts/summary`. A stack's lifetime is extended
+with `POST /api/stacks/{id}/extend` `{"by": "4h"}`, also from the TTL chip in the canvas header.
+
 ![A deployed node's panel](screenshots/getting-started-node-panel.png)
 
 > *`GET /api/stacks/{id}/nodes/{nid}` returns everything on this panel: what the node

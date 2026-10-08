@@ -314,6 +314,54 @@ func (a *App) warnExpiringStacks() {
 	}
 }
 
+// handleExtendStack pushes a stack's expiry out by one of the TTL steps, from whichever is later of
+// now and its current expiry, or makes it never expire. The canvas offers it when the stack is
+// close to its end, so a lab in use is not torn down under somebody.
+func (a *App) handleExtendStack(w http.ResponseWriter, r *http.Request) {
+	st, u, ok := a.loadOwnedStack(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		By string `json:"by"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<12)).Decode(&body); err != nil || !validTTL(body.By) {
+		writeErr(w, http.StatusBadRequest, "by must be one of the TTLs (2h, 4h, 8h, 24h, 2w, infinity)")
+		return
+	}
+	if st.Status == StackExpired {
+		writeErr(w, http.StatusConflict, "this stack has already expired and been torn down")
+		return
+	}
+	ttl, exp := st.TTL, (*string)(nil)
+	if body.By == ttlInfinity {
+		ttl = ttlInfinity
+	} else {
+		from := time.Now()
+		if st.ExpiresAt != nil {
+			if t, err := time.Parse(time.RFC3339, *st.ExpiresAt); err == nil && t.After(from) {
+				from = t
+			}
+		}
+		e := from.Add(ttlDurations[body.By]).UTC().Format(time.RFC3339)
+		exp = &e
+		if st.ExpiresAt == nil {
+			ttl = body.By // it never expired before; now it does, by this much
+		}
+	}
+	if err := a.store.SetStackExpiry(st.ID, ttl, exp); err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to extend the stack")
+		return
+	}
+	expiryWarned.Delete(st.ID) // warn again before the new end
+	what := "never expires"
+	if exp != nil {
+		what = "expires " + *exp
+	}
+	a.recordStackEvent(st.ID, "", "action", "info", "Lifetime extended: "+what, "", u.Username)
+	writeJSON(w, http.StatusOK, map[string]any{"ttl": ttl, "expiresAt": exp})
+}
+
 // reapExpiredStacks marks stacks past their TTL as expired and tears down their
 // containers. Runs periodically from main.
 func (a *App) reapExpiredStacks() {

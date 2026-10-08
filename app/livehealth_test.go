@@ -307,3 +307,72 @@ func TestMariaDBChannelNotCountedTwice(t *testing.T) {
 		t.Errorf("one channel reported %d times: %q", len(r.Problems), r.Problems)
 	}
 }
+
+func TestMySQLLoad(t *testing.T) {
+	out := `*************************** 1. row ***************************
+ro: 0
+*************************** 1. row ***************************
+max_conn: 151
+*************************** 1. row ***************************
+Variable_name: Com_commit
+        Value: 40
+*************************** 2. row ***************************
+Variable_name: Com_rollback
+        Value: 2
+*************************** 3. row ***************************
+Variable_name: Questions
+        Value: 9000
+*************************** 4. row ***************************
+Variable_name: Threads_connected
+        Value: 12
+*************************** 5. row ***************************
+Variable_name: Threads_running
+        Value: 3
+`
+	r := parseMySQLLive(out, 0)
+	l := r.Load
+	if l == nil || *l.Queries != 9000 || *l.Commits != 42 || *l.Conns != 11 || *l.Active != 2 || *l.MaxConns != 151 {
+		t.Fatalf("load = %+v", l)
+	}
+	if parseMySQLLive("*************************** 1. row ***************************\nro: 0\n", 0).Load != nil {
+		t.Error("no status rows should give no load, not zeros")
+	}
+}
+
+func TestPGLoad(t *testing.T) {
+	x, c, a, m := int64(500), 7, 2, 100
+	r := pgLiveRole(pgLive{Xact: &x, Conns: &c, Active: &a, MaxConn: &m})
+	if r.Load == nil || r.Load.Queries != nil || *r.Load.Commits != 500 || *r.Load.Conns != 7 || *r.Load.MaxConns != 100 {
+		t.Fatalf("load = %+v", r.Load)
+	}
+}
+
+func TestValkeyLoad(t *testing.T) {
+	r := parseValkeyLive("role:master\r\nconnected_slaves:0\r\nconnected_clients:5\r\ntotal_commands_processed:1234\r\nmaxclients:10000\n")
+	if r.Load == nil || *r.Load.Queries != 1234 || *r.Load.Conns != 4 || *r.Load.MaxConns != 10000 {
+		t.Fatalf("load = %+v", r.Load)
+	}
+	if d := parseValkeyLive("Could not connect to Valkey at 127.0.0.1:6379: Connection refused\nmaxclients:\n"); !d.Down || strings.Contains(d.Err, "maxclients") {
+		t.Fatalf("down = %+v", d)
+	}
+}
+
+func TestDetachedReplica(t *testing.T) {
+	doc := designDoc{
+		Frames: []designFrame{{ID: "f", Type: "mariadbrepl"}},
+		Nodes:  []designNode{{ID: "a", FrameID: "f"}, {ID: "b", FrameID: "f"}, {ID: "c", FrameID: "f"}},
+	}
+	shared := &liveRole{Role: "standalone", Access: "ro"}
+	nodes := map[string]*liveNode{
+		"a": {State: "running", Role: &liveRole{Role: "primary", Access: "rw"}},
+		"b": {State: "running", Role: shared},
+		"c": {State: "running", Role: &liveRole{Role: "replica"}},
+	}
+	detachedReplicas(doc, nodes)
+	if len(nodes["b"].Role.Problems) != 1 || len(nodes["c"].Role.Problems) != 0 {
+		t.Fatalf("b=%v c=%v", nodes["b"].Role.Problems, nodes["c"].Role.Problems)
+	}
+	if len(shared.Problems) != 0 {
+		t.Fatal("the cached role was changed in place")
+	}
+}

@@ -449,6 +449,44 @@ export function GuestSessions() {
   )
 }
 
+// LiveWatch is how often the server samples every deployed stack for its history, timeline and
+// alerts (app/livewatch.go). Instance-wide: each pass execs into every database node.
+export function LiveWatch() {
+  const { system, saveSystem } = useSettings()
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
+  const [sec, setSec] = useState(system.liveWatchSeconds ?? 30)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  useEffect(() => { setSec(system.liveWatchSeconds ?? 30) }, [system.liveWatchSeconds])
+  const apply = async (v) => {
+    setErr(''); setBusy(true)
+    try { await saveSystem({ liveWatchSeconds: v }) } catch (e) { setErr(e.message) } finally { setBusy(false) }
+  }
+  const on = (system.liveWatchSeconds ?? 30) > 0
+  return (
+    <Row
+      title="Stack history and alerts"
+      hint="How often the server samples every deployed stack: the trend lines of the last day, the timeline of role changes and failovers, and the alerts in the notification bell. Off means none of these are recorded."
+    >
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${on ? 'bg-primary/15 text-primary' : 'bg-muted/15 text-muted'}`}>
+          {on ? `Every ${system.liveWatchSeconds}s` : 'Off'}
+        </span>
+        <span className="text-muted">Sample every</span>
+        <input type="number" min="0" max="600" step="5" disabled={!isAdmin || busy}
+          value={sec} onChange={(e) => setSec(e.target.value)}
+          className="w-20 rounded-lg border bg-bg px-2 py-1 text-sm" />
+        <span className="text-muted">seconds (15 to 600; 0 switches it off)</span>
+        {isAdmin && Number(sec) !== system.liveWatchSeconds && (
+          <Button variant="primary" onClick={() => apply(Math.max(0, Math.round(Number(sec) || 0)))} disabled={busy}>Save</Button>
+        )}
+      </div>
+      {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
+    </Row>
+  )
+}
+
 // TabLimit is how many pages the main window will keep open at once.
 //
 // A draft plus an explicit Save, like the two instance-wide rows below, rather
@@ -705,6 +743,7 @@ export default function Settings() {
       <InternalWrites />
 
       <GuestSessions />
+      <LiveWatch />
 
       <Row title="Theme" hint="The colour palette. Applied now and whenever you sign in, on any browser.">
         <div className="grid gap-2 sm:grid-cols-3">

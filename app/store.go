@@ -299,6 +299,12 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id, id DESC);`
 		return nil, err
 	}
 	db.Exec("ALTER TABLE password_resets ADD COLUMN purpose TEXT NOT NULL DEFAULT 'reset'")
+	// The watcher's history, timeline and alerts (livewatch.go).
+	if _, err := db.Exec(watchSchema); err != nil {
+		db.Close()
+		return nil, err
+	}
+	db.Exec("ALTER TABLE live_events ADD COLUMN actor TEXT NOT NULL DEFAULT ''")
 	if err := migrateShareSessions(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate share_sessions: %w", err)
@@ -686,6 +692,12 @@ func (s *Store) ListStacks(ownerID int64, isAdmin bool) ([]Stack, error) {
 		stacks = append(stacks, st)
 	}
 	return stacks, rows.Err()
+}
+
+// SetStackExpiry sets a stack's TTL label and expiry (nil: never).
+func (s *Store) SetStackExpiry(id int64, ttl string, expiresAt *string) error {
+	_, err := s.db.Exec("UPDATE stacks SET ttl = ?, expires_at = ? WHERE id = ?", ttl, expiresAt, id)
+	return err
 }
 
 // GetStack returns a single stack including its design JSON.

@@ -42,11 +42,22 @@ export function useLiveStates(stackId, enabled, intervalMs) {
         const dt = p ? (now - p.t) / 1000 : 0
         // A counter that went backwards is a restarted container: no rate this time round.
         const rate = (k) => (p && dt > 0 && n[k] >= p[k] ? (n[k] - p[k]) / dt : null)
+        // The database's own counters (role.load), the same way — but between the server's own
+        // sample times: a role is cached a few seconds, so two polls can carry one sample, and then
+        // the last rate stands.
+        const load = n.role?.load
+        const sameLoad = load && p?.loadAt === load.atMs
+        const ldt = load && p?.loadAt ? (load.atMs - p.loadAt) / 1000 : 0
+        const loadRate = (k) => (sameLoad ? p.loadRates?.[k] ?? null
+          : load?.[k] != null && p?.[k] != null && ldt > 0 && load[k] >= p[k] ? (load[k] - p[k]) / ldt : null)
+        const qps = loadRate('queries'), tps = loadRate('commits')
         const cpu = [...(p?.cpu || []), n.cpuPercent || 0].slice(-HISTORY)
         const mem = [...(p?.mem || []), n.memPercent || 0].slice(-HISTORY)
         seen[id] = {
           t: now, netRx: n.netRx, netTx: n.netTx, blkRead: n.blkRead, blkWrite: n.blkWrite,
           readOps: n.readOps, writeOps: n.writeOps, cpu, mem,
+          queries: sameLoad ? p.queries : load?.queries, commits: sameLoad ? p.commits : load?.commits,
+          loadAt: sameLoad ? p.loadAt : load?.atMs, loadRates: { queries: qps, commits: tps },
         }
         out[id] = {
           ...n, netIn: rate('netRx'), netOut: rate('netTx'), diskRead: rate('blkRead'), diskWrite: rate('blkWrite'),
@@ -54,6 +65,7 @@ export function useLiveStates(stackId, enabled, intervalMs) {
           // I/O wait only where the kernel measures it per container (PSI); the host's iowait is
           // not the node's, so without PSI there is none to show.
           iowait: n.ioPressure ?? null, cpuHist: cpu, memHist: mem,
+          qps, tps,
         }
       }
       prev.current = seen

@@ -3050,7 +3050,7 @@ func (a *App) handleGetNode(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleNodeAction(action string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		st, _, ok := a.loadOwnedStack(w, r)
+		st, u, ok := a.loadOwnedStack(w, r)
 		if !ok {
 			return
 		}
@@ -3064,6 +3064,7 @@ func (a *App) handleNodeAction(action string) http.HandlerFunc {
 		// driven by Vagrant, not Docker.
 		a.stampEngine(r, st, nid)
 		ctx := r.Context()
+		markNodeAction(st.ID, nid) // the watcher does not alert on what this is about to do
 		switch action {
 		case "start":
 			err = a.engCtx(ctx).ContainerStart(ctx, dep.ContainerID)
@@ -3091,6 +3092,8 @@ func (a *App) handleNodeAction(action string) http.HandlerFunc {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		markNodeAction(st.ID, nid) // and the window runs from its end
+		a.recordStackEvent(st.ID, nid, "action", "info", nodeLabel(buildDoc(st), nid)+" "+map[string]string{"start": "started", "stop": "stopped", "restart": "restarted"}[action], "", u.Username)
 		updated, _ := a.store.GetDeployment(st.ID, nid)
 		writeJSON(w, http.StatusOK, updated)
 	}

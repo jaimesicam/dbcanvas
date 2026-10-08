@@ -44,6 +44,8 @@ import {
 } from '../src/pages/StackDesigner.jsx'
 import PgBouncerManager from '../src/pages/PgBouncerManager.jsx'
 import { LiveStrip, ClusterTable, fixLayout, countOverlaps, footprints, tableHeight } from '../src/components/LiveCard.jsx'
+import { HealthButton } from '../src/components/StackHistory.jsx'
+import { LiveDetailsBody } from '../src/components/LiveOverlay.jsx'
 import { RepositoryForm, RepositoryManager, RepositoryPicker, RepoContentEditor, GuideTab as RepoGuide, LogTab as RepoLog } from '../src/pages/Repository.jsx'
 import { ReplicationView } from '../src/pages/K3DManager.jsx'
 import OperatorSummary, { Verdicts as OpVerdicts, Findings as OpFindings, Workloads as OpWorkloads, Pods as OpPods, CRs as OpCRs, Operators as OpOperators, Deployment as OpDeployment, Images as OpImages, Secrets as OpSecrets, Backups as OpBackups, Certs as OpCerts, Storage as OpStorage, Logs as OpLogs, Galera as OpGalera, PodSummaries as OpPodSummaries, BackupLogs as OpBackupLogs, Extras as OpExtras } from '../src/pages/OperatorSummary.jsx'
@@ -1903,6 +1905,31 @@ check('Live cluster table: rows with IOPS, a member with no data', () => {
   if (!/IOPS R \/ W/.test(html)) throw new Error('the table has no IOPS column')
   if (!/12 \/ 3\.4k/.test(html)) throw new Error('read and write IOPS are not shown')
   return html
+})
+
+check('Live cluster table: QPS / TPS and connections', () => {
+  const live = { a: { state: 'running', cpuPercent: 4, memPercent: 1, qps: 1520, tps: 7.5, role: { role: 'primary', access: 'rw', load: { queries: 1, commits: 1, conns: 12, maxConns: 151 } } } }
+  const html = renderToString(<ClusterTable frame={{ id: 'f', type: 'mysql', w: 400 }} members={[{ id: 'a', label: 'db-1' }]} live={live} />)
+  if (!/1\.5k \/ 7\.5/.test(html)) throw new Error('QPS / TPS are not shown')
+  if (!/12\/151/.test(html)) throw new Error('connections used of max are not shown')
+  return html
+})
+
+check('Live details: the database load rows', () => {
+  const data = { state: 'running', cpuPercent: 4, memPercent: 1, qps: 3.25, tps: null, role: { role: 'replica', access: 'ro', load: { queries: 1, conns: 3, maxConns: 100, active: 1 } } }
+  const html = renderToString(<LiveDetailsBody node={{ id: 'a', label: 'db-1' }} frame={null} data={data} />)
+  const text = html.replace(/<!-- -->/g, '')
+  if (!/QPS 3\.3/.test(text) || !/TPS —/.test(text)) throw new Error('QPS / TPS row is wrong')
+  if (!/3\/100/.test(html)) throw new Error('connections bar is missing')
+  return html
+})
+
+check('Health button: a check when nothing is open, else the count', () => {
+  const none = renderToString(<HealthButton alerts={[]} watching onClick={noop} />)
+  if (!/✓/.test(none)) throw new Error('no alerts should read as a check')
+  const two = renderToString(<HealthButton alerts={[{ severity: 'warning' }, { severity: 'error' }]} watching onClick={noop} />)
+  if (!/>2</.test(two)) throw new Error('two alerts should read 2')
+  return none + two
 })
 
 check('the application simulators are named as such', () => {

@@ -1,4 +1,4 @@
-import { RoleChip, health, NOT_RUNNING, ROLE_LABEL, tone, iops, rate, designMismatch, warnStyle, dangerStyle } from './LiveOverlay.jsx'
+import { RoleChip, health, NOT_RUNNING, ROLE_LABEL, tone, iops, rate, designMismatch, warnStyle, dangerStyle, perSec, connText } from './LiveOverlay.jsx'
 import { fmtBytes } from '../lib/dashApi.js'
 
 // LiveCard.jsx — the Live view as part of the canvas itself, rather than panels over it.
@@ -6,7 +6,7 @@ import { fmtBytes } from '../lib/dashApi.js'
 // With Live on, every card grows a strip: what the node is now (its role as the server reports it,
 // or why it is not serving), anything wrong with its replication, and a bar each for CPU, memory
 // and disk. Nothing floats, so nothing lands on another card; the full figures open beside a card
-// when it is selected (components/LiveOverlay.jsx) or in the Properties panel's Live tab.
+// when it is selected (components/LiveOverlay.jsx) or in the Properties panel's Live details tab.
 //
 // A replicated cluster can instead carry a table under its frame — one row per member, the shape
 // of SHOW REPLICA STATUS across the whole cluster — and then its members' cards stay plain.
@@ -25,7 +25,7 @@ export const LIVE_NODE_EXTRA = 48
 export const TABLE_GAP = 8
 const TABLE_HEAD = 22
 const TABLE_ROW = 24
-export const TABLE_MIN_W = 620
+export const TABLE_MIN_W = 760
 export const tableHeight = (members) => TABLE_HEAD + members * TABLE_ROW + 2
 export const tableWidth = (frame) => Math.max(frame.w || 0, TABLE_MIN_W)
 
@@ -166,7 +166,8 @@ export function ProblemBadge({ count, title }) {
 const ROLE_ORDER = { primary: 0, standalone: 1, secondary: 2, replica: 2, member: 3, arbiter: 4 }
 
 // ClusterTable is a cluster's members as rows, placed under its frame by the canvas: role and
-// source, lag, the three bars, read and write IOPS, and what is wrong.
+// source, lag, the three bars, read and write IOPS, the database's QPS / TPS and connections, and
+// what is wrong.
 export function ClusterTable({ frame, members, live, onSelect, selectedId }) {
   const rows = members.map((n) => ({ n, d: live[n.id] }))
     .sort((a, b) => (ROLE_ORDER[a.d?.role?.role] ?? 5) - (ROLE_ORDER[b.d?.role?.role] ?? 5) || a.n.label.localeCompare(b.n.label))
@@ -179,7 +180,9 @@ export function ClusterTable({ frame, members, live, onSelect, selectedId }) {
           <tr className="bg-surface2 text-[9px] tracking-wide text-muted" style={{ height: TABLE_HEAD }}>
             <th className={th}>MEMBER</th><th className={th}>ROLE</th><th className={th}>LAG</th>
             <th className={th}>CPU</th><th className={th}>MEM</th><th className={th}>DISK</th>
-            <th className={th} title="Read / write operations per second">IOPS R / W</th><th className={th}>STATUS</th>
+            <th className={th} title="Read / write operations per second">IOPS R / W</th>
+            <th className={th} title="Statements / transactions a second, as the database counts them">QPS / TPS</th>
+            <th className={th} title="Client connections open / the most allowed">CONN</th><th className={th}>STATUS</th>
           </tr>
         </thead>
         <tbody>
@@ -208,6 +211,8 @@ export function ClusterTable({ frame, members, live, onSelect, selectedId }) {
                   </td>
                 ))}
                 <td className="px-1.5 font-mono tabular-nums">{d ? `${iops(d.readIops)} / ${iops(d.writeIops)}` : '—'}</td>
+                <td className="px-1.5 font-mono tabular-nums">{d?.role?.load ? `${perSec(d.qps)} / ${perSec(d.tps)}` : '—'}</td>
+                <td className="px-1.5 font-mono tabular-nums" title={d?.role?.load?.active != null ? `${d.role.load.active} running something now` : undefined}>{d?.role?.load ? connText(d.role.load) : '—'}</td>
                 <td className="max-w-[160px] truncate px-1.5" title={meta.all || meta.text}
                   style={meta.tone ? { color: `var(--${meta.tone})` } : undefined}>
                   {meta.tone === 'warning' ? '⚠ ' : ''}{meta.text || 'ok'}

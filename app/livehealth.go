@@ -52,9 +52,55 @@ SELECT VARIABLE_VALUE AS wsrep_size FROM information_schema.GLOBAL_STATUS WHERE 
 SELECT MEMBER_ROLE AS gr_role, MEMBER_STATE AS gr_self FROM performance_schema.replication_group_members WHERE MEMBER_ID=@@server_uuid;
 SELECT MEMBER_HOST AS gr_host, MEMBER_PORT AS gr_port, MEMBER_STATE AS gr_state FROM performance_schema.replication_group_members WHERE MEMBER_ID<>@@server_uuid AND MEMBER_ID<>'';
 SELECT COUNT(*) AS dumps FROM information_schema.PROCESSLIST WHERE COMMAND LIKE 'Binlog Dump%';
+SELECT @@global.max_connections AS max_conn;
+SHOW GLOBAL STATUS WHERE Variable_name IN ('Questions','Com_commit','Com_rollback','Threads_connected','Threads_running');
 SHOW REPLICA STATUS;
 SHOW SLAVE STATUS;
 `
+
+// mysqlLoad reads the probe's SHOW GLOBAL STATUS rows (Variable_name / Value) and max_connections.
+// Commits are Com_commit + Com_rollback: explicit transactions — an autocommit statement is a
+// query, not a commit, here as in PMM's MySQL dashboards. Threads_connected includes the probe's
+// own connection and Threads_running the probe's own statement, so one is taken off each.
+func mysqlLoad(blocks []map[string]string, f map[string]string) *liveLoad {
+	st := map[string]int64{}
+	for _, b := range blocks {
+		if name := b["Variable_name"]; name != "" {
+			if v, err := strconv.ParseInt(b["Value"], 10, 64); err == nil {
+				st[name] = v
+			}
+		}
+	}
+	if len(st) == 0 {
+		return nil
+	}
+	l := &liveLoad{}
+	if q, ok := st["Questions"]; ok {
+		l.Queries = &q
+	}
+	if c, ok := st["Com_commit"]; ok {
+		c += st["Com_rollback"]
+		l.Commits = &c
+	}
+	l.Conns = minusOne(st, "Threads_connected")
+	l.Active = minusOne(st, "Threads_running")
+	if n, err := strconv.Atoi(f["max_conn"]); err == nil {
+		l.MaxConns = &n
+	}
+	return l
+}
+
+func minusOne(st map[string]int64, k string) *int {
+	v, ok := st[k]
+	if !ok {
+		return nil
+	}
+	n := int(v) - 1
+	if n < 0 {
+		n = 0
+	}
+	return &n
+}
 
 // verticalBlocks splits mysql --vertical (or \G) output into its rows, one map per row.
 func verticalBlocks(out string) []map[string]string {
@@ -135,7 +181,7 @@ func replicaChannels(blocks []map[string]string) []map[string]string {
 func parseMySQLLive(out string, expectMembers int) *liveRole {
 	blocks := verticalBlocks(out)
 	f := verticalFields(out)
-	r := &liveRole{Access: "rw"}
+	r := &liveRole{Access: "rw", Load: mysqlLoad(blocks, f)}
 	// 1 on MySQL; MariaDB 11.x+ answers OFF, ON, NO_LOCK or NO_LOCK_NO_ADMIN — every value but
 	// OFF is read-only.
 	if on := func(v string) bool { return v != "" && v != "0" && !strings.EqualFold(v, "OFF") }; on(f["ro"]) || on(f["sro"]) {
@@ -181,6 +227,9 @@ func parseMySQLLive(out string, expectMembers int) *liveRole {
 	// Every channel is checked whatever the role: a PXC member can also be the replica end of a
 	// cross-cluster link (replication.go), and that channel breaking is the problem worth saying.
 	running := 0
+	if len(channels) > 0 {
+		r.Source = firstNonEmpty(channels[0]["Source_Host"], channels[0]["Master_Host"])
+	}
 	for _, c := range channels {
 		host := firstNonEmpty(c["Source_Host"], c["Master_Host"])
 		where := host
@@ -243,7 +292,12 @@ const liveProbePG = `SELECT json_build_object(
               WHEN pg_last_wal_receive_lsn() = pg_last_wal_replay_lsn() THEN 0
               ELSE EXTRACT(EPOCH FROM now() - pg_last_xact_replay_timestamp()) END,
   'receiver', (SELECT status FROM pg_stat_wal_receiver LIMIT 1),
-  'idle_slots', (SELECT coalesce(json_agg(slot_name ORDER BY slot_name), '[]'::json) FROM pg_replication_slots WHERE NOT active))`
+  'sender', (SELECT sender_host FROM pg_stat_wal_receiver LIMIT 1),
+  'idle_slots', (SELECT coalesce(json_agg(slot_name ORDER BY slot_name), '[]'::json) FROM pg_replication_slots WHERE NOT active),
+  'xact', (SELECT sum(xact_commit + xact_rollback) FROM pg_stat_database),
+  'conns', (SELECT count(*) FROM pg_stat_activity WHERE backend_type = 'client backend' AND pid <> pg_backend_pid()),
+  'active', (SELECT count(*) FROM pg_stat_activity WHERE backend_type = 'client backend' AND state = 'active' AND pid <> pg_backend_pid()),
+  'max_conn', current_setting('max_connections')::int)`
 
 type pgLive struct {
 	Rec       bool     `json:"rec"`
@@ -251,17 +305,30 @@ type pgLive struct {
 	Senders   int      `json:"senders"`
 	Lag       *float64 `json:"lag"`
 	Receiver  *string  `json:"receiver"`
+	Sender    *string  `json:"sender"`
 	IdleSlots []string `json:"idle_slots"`
+	// PostgreSQL counts transactions, not statements (that needs pg_stat_statements), so a
+	// PostgreSQL node has TPS and no QPS.
+	Xact    *int64 `json:"xact"`
+	Conns   *int   `json:"conns"`
+	Active  *int   `json:"active"`
+	MaxConn *int   `json:"max_conn"`
 }
 
 func pgLiveRole(p pgLive) *liveRole {
 	r := &liveRole{Access: "rw"}
+	if p.Xact != nil || p.Conns != nil {
+		r.Load = &liveLoad{Commits: p.Xact, Conns: p.Conns, Active: p.Active, MaxConns: p.MaxConn}
+	}
 	if p.Rec || p.RO == "on" {
 		r.Access = "ro"
 	}
 	switch {
 	case p.Rec:
 		r.Role, r.LagSec = "replica", p.Lag
+		if p.Sender != nil {
+			r.Source = *p.Sender
+		}
 		switch {
 		case p.Receiver == nil:
 			r.State = "not streaming"
@@ -298,6 +365,8 @@ type mongoMember struct {
 	Self     bool      `bson:"self"`
 	Msg      string    `bson:"lastHeartbeatMessage"`
 	Optime   time.Time `bson:"optimeDate"`
+	// SyncSource is the member this one copies from ("host:port"), empty on the primary.
+	SyncSource string `bson:"syncSourceHost"`
 }
 
 // mongoBadStates are member states that mean the member is not serving its part of the set.
@@ -355,6 +424,9 @@ func mongoReplHealth(members []mongoMember) (problems []string, lag *float64) {
 // member — the cluster's state and every node as this one sees it. The sections are separated by a
 // marker line, since valkey-cli's own output has no structure to split on.
 const liveValkeyScript = `valkey-cli --no-auth-warning INFO replication 2>&1
+valkey-cli --no-auth-warning INFO clients 2>/dev/null | grep -E '^(connected_clients|blocked_clients):'
+valkey-cli --no-auth-warning INFO stats 2>/dev/null | grep '^total_commands_processed:'
+echo "maxclients:$(valkey-cli --no-auth-warning CONFIG GET maxclients 2>/dev/null | tail -n 1)"
 if [ "$CLUSTER" = 1 ]; then
   echo '#==cluster-info'
   valkey-cli --no-auth-warning CLUSTER INFO 2>&1
@@ -381,7 +453,7 @@ func parseValkeyLive(out string) *liveRole {
 	var r *liveRole
 	switch f["role"] {
 	case "slave", "replica":
-		r = &liveRole{Role: "replica", Access: "rw", State: f["master_link_status"]}
+		r = &liveRole{Role: "replica", Access: "rw", State: f["master_link_status"], Source: f["master_host"]}
 		if f["slave_read_only"] == "1" || f["replica_read_only"] == "1" {
 			r.Access = "ro"
 		}
@@ -399,8 +471,10 @@ func parseValkeyLive(out string) *liveRole {
 			r.Role, r.Replicas = "primary", &n
 		}
 	default:
-		return &liveRole{Down: true, Err: clipLine(firstNonEmpty(strings.TrimSpace(repl), "valkey-cli did not answer"), problemMax)}
+		msg, _, _ := strings.Cut(strings.TrimSpace(repl), "\n")
+		return &liveRole{Down: true, Err: clipLine(firstNonEmpty(msg, "valkey-cli did not answer"), problemMax)}
 	}
+	r.Load = valkeyLoad(f)
 	if strings.TrimSpace(cinfo) != "" {
 		if st := kvLines(cinfo)["cluster_state"]; st != "" && st != "ok" {
 			r.Problems = append(r.Problems, "cluster state is "+st+": not every slot is served")
@@ -408,6 +482,29 @@ func parseValkeyLive(out string) *liveRole {
 		r.Problems = append(r.Problems, valkeyNodeProblems(cnodes)...)
 	}
 	return r
+}
+
+// valkeyLoad: Valkey counts commands; it has no transactions to count. The probe's own
+// valkey-cli is one of the connected clients.
+func valkeyLoad(f map[string]string) *liveLoad {
+	l := &liveLoad{}
+	if v, err := strconv.ParseInt(strings.TrimSpace(f["total_commands_processed"]), 10, 64); err == nil {
+		l.Queries = &v
+	}
+	if v, err := strconv.Atoi(strings.TrimSpace(f["connected_clients"])); err == nil {
+		v--
+		if v < 0 {
+			v = 0
+		}
+		l.Conns = &v
+	}
+	if v, err := strconv.Atoi(strings.TrimSpace(f["maxclients"])); err == nil {
+		l.MaxConns = &v
+	}
+	if l.Queries == nil && l.Conns == nil {
+		return nil
+	}
+	return l
 }
 
 // valkeyNodeProblems reads CLUSTER NODES: "<id> <ip:port@cport[,host]> <flags> <master> <ping> <pong>

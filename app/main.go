@@ -90,6 +90,8 @@ func main() {
 	app.registerRoutes(mux)
 
 	app.startReaper()
+	// Samples every deployed stack for its history and alerts (livewatch.go).
+	app.startLiveWatch()
 	// Flushes buffered token last-used stamps and reaps long-dead tokens.
 	app.startTokenMaintenance()
 	// Ends expired shared sessions and deletes the ones past their retention.

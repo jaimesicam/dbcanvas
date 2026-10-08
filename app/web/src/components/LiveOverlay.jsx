@@ -6,7 +6,7 @@ import { fmtBytes } from '../lib/dashApi.js'
 // card that is selected and any that are pinned (lib/useLiveStates.js polls for the figures). Every
 // card carries a strip of its own (components/LiveCard.jsx) — role, health, three bars — so this is
 // what you open for the rest, not something every node shows at once: seven of these at once was
-// a canvas covered in panels. The details body is shared with the Properties panel's Live tab.
+// a canvas covered in panels. The details body is shared with the Properties panel's Live details tab.
 //
 // The popups are drawn in screen space over the canvas, not inside its zoomed layer, so their text
 // stays readable at any zoom; a leader line ties each one back to its card. Zoomed out, a popup
@@ -200,7 +200,7 @@ function Popup({ node, frame, data, compact, pos, pinned, onPin, onClose, onDrag
 
 // LiveDetailsBody is everything Live knows about one node: its role and what the engine reports
 // wrong with it, then CPU (with its last minute), memory, disk, I/O wait, swap, network, read and
-// write IOPS, and disk throughput. The canvas's details popup and the Properties panel's Live tab
+// write IOPS, and disk throughput. The canvas's details popup and the Properties panel's Live details tab
 // both draw this, so the two never disagree.
 export function LiveDetailsBody({ node, frame, data, compact }) {
   if (data.state !== 'running') {
@@ -254,6 +254,7 @@ export function LiveDetailsBody({ node, frame, data, compact }) {
               {d.path} · fs {Math.round(fsPct || 0)}% of {fmtBytes(d.fsTotal)}
             </div>
           )}
+          {r?.load && <LoadRows load={r.load} qps={data.qps} tps={data.tps} />}
           <div className="flex items-center justify-between gap-1 font-mono text-[10px] tabular-nums text-fg">
             <span className="font-sans font-semibold text-muted">NET</span>
             <span title="Network in">↓ {rate(data.netIn)}</span>
@@ -276,6 +277,32 @@ export function LiveDetailsBody({ node, frame, data, compact }) {
   )
 }
 
+// perSec is a rate for the load rows: whole numbers, thousands as k.
+export const perSec = (v) => (v == null ? '—' : v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v >= 10 ? `${Math.round(v)}` : v.toFixed(1))
+
+// connText is "used / max", the share in a tooltip.
+export const connText = (l) => (l?.conns == null ? '—' : l.maxConns ? `${l.conns}/${l.maxConns}` : `${l.conns}`)
+
+// LoadRows is what the database itself is doing: queries and transactions a second, and its
+// connections against the most it accepts, with how many are running something now. An engine
+// that does not count one shows a dash (PostgreSQL has no statement count without
+// pg_stat_statements; MongoDB and Valkey no transactions).
+function LoadRows({ load, qps, tps }) {
+  const pct = load.conns != null && load.maxConns ? (load.conns / load.maxConns) * 100 : null
+  return (
+    <>
+      <div className="flex items-center justify-between gap-1 font-mono text-[10px] tabular-nums text-fg">
+        <span className="font-sans font-semibold text-muted">DB</span>
+        <span title={load.queries == null ? 'This engine does not count statements' : 'Statements a second'}>QPS {perSec(qps)}</span>
+        <span title={load.commits == null ? 'This engine does not count transactions' : 'Transactions committed or rolled back a second'}>TPS {perSec(tps)}</span>
+      </div>
+      <div title={`${load.conns ?? '?'} client connections open of ${load.maxConns ?? '?'} allowed${load.active != null ? `; ${load.active} running something now` : ''}`}>
+        <Bar label="CONN" pct={pct} text={`${connText(load)}${load.active != null ? ` · ${load.active} act` : ''}`} />
+      </div>
+    </>
+  )
+}
+
 // popupHeight estimates a popup's height for placement — close enough to keep popups apart; a
 // measured height would move them as their contents load, which is worse than a few pixels' slack.
 function popupHeight(data, compact) {
@@ -288,7 +315,8 @@ function popupHeight(data, compact) {
   const detail = hasRole && !compact && roleDetail(data.role)
   const bars = 2 + (data.disk ? 1 : 0) + (data.iowait != null ? 1 : 0) + (!compact && swapView(data) ? 1 : 0)
   const iopsRow = 16
-  return 26 + 12 + (hasRole ? 20 : 0) + (detail ? 14 : 0) + probs + downLine + bars * 18 + (compact ? 0 : (data.disk ? 14 : 0) + 32 + iopsRow)
+  const loadRows = !compact && data.role?.load ? 16 + 18 : 0
+  return 26 + 12 + (hasRole ? 20 : 0) + (detail ? 14 : 0) + probs + downLine + bars * 18 + loadRows + (compact ? 0 : (data.disk ? 14 : 0) + 32 + iopsRow)
 }
 
 const overlap = (a, b) =>

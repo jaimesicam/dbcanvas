@@ -105,6 +105,10 @@ type SystemSettings struct {
 	// RecordingRetentionDays is how long a session's screen recording is kept by
 	// default, 1 to 3650 (sharerecord.go); its host can move the date.
 	RecordingRetentionDays int `json:"recordingRetentionDays"`
+	// LiveWatchSeconds is how often the watcher samples every deployed stack for its history and
+	// alerts (livewatch.go), 15 to 600; 0 switches it off. Each pass costs one exec per database
+	// node, which is why an administrator, not each user, decides it.
+	LiveWatchSeconds int `json:"liveWatchSeconds"`
 	// PublicURL is the base share links are built on (PUBLIC_URL in .env), or "" when
 	// links use the address the host's browser used. Derived and read-only.
 	PublicURL string `json:"publicUrl"`
@@ -134,7 +138,7 @@ func sshForwardingSetting(appUser string) SSHForwardingSetting {
 
 func defaultSystemSettings() SystemSettings {
 	return SystemSettings{MaxUploadBytes: defaultMaxUploadBytes, MaxTokenDays: defaultMaxTokenDays, MaxGuestMinutes: shareMaxMinutes,
-		SessionRetentionDays: defaultShareRetentionDays, RecordingRetentionDays: defaultRecordingRetentionDays}
+		SessionRetentionDays: defaultShareRetentionDays, RecordingRetentionDays: defaultRecordingRetentionDays, LiveWatchSeconds: defaultWatchSeconds}
 }
 
 // normalize clamps out-of-range values rather than rejecting them, so a value
@@ -161,6 +165,7 @@ func (s SystemSettings) normalize() SystemSettings {
 	s.MaxGuestMinutes = clampGuestMinutes(strconv.Itoa(s.MaxGuestMinutes))
 	s.SessionRetentionDays = clampRetentionDays(s.SessionRetentionDays)
 	s.RecordingRetentionDays = clampRecordingDays(s.RecordingRetentionDays)
+	s.LiveWatchSeconds = clampWatchSeconds(s.LiveWatchSeconds)
 	return s
 }
 
@@ -184,6 +189,7 @@ func (a *App) systemSettings(appUser string) SystemSettings {
 	s.AllowGuestSessions, s.MaxGuestMinutes = a.guestSessionSettings()
 	s.SessionRetentionDays = a.shareRetentionDays()
 	s.RecordingRetentionDays = a.recordingRetentionDays()
+	s.LiveWatchSeconds = a.watchSeconds()
 	s = s.normalize()
 	s.PublicURL = strings.TrimRight(strings.TrimSpace(os.Getenv("PUBLIC_URL")), "/")
 	s.SSHForwarding = sshForwardingSetting(appUser)
@@ -231,6 +237,9 @@ func (a *App) handleUpdateSystemSettings(w http.ResponseWriter, r *http.Request)
 	if _, ok := present["recordingRetentionDays"]; !ok {
 		in.RecordingRetentionDays = a.recordingRetentionDays()
 	}
+	if _, ok := present["liveWatchSeconds"]; !ok {
+		in.LiveWatchSeconds = a.watchSeconds()
+	}
 	s := in.normalize()
 	if err := a.store.SetAppSetting(settingMaxUploadBytes, strconv.FormatInt(s.MaxUploadBytes, 10)); err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to save settings")
@@ -265,6 +274,10 @@ func (a *App) handleUpdateSystemSettings(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := a.store.SetAppSetting(settingRecordingRetentionDays, strconv.Itoa(s.RecordingRetentionDays)); err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to save settings")
+		return
+	}
+	if err := a.store.SetAppSetting(settingWatchSeconds, strconv.Itoa(s.LiveWatchSeconds)); err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to save settings")
 		return
 	}

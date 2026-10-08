@@ -55,6 +55,7 @@ import { useBrowser } from '../browser/BrowserProvider.jsx'
 import { nodeWebLinks } from '../lib/nodeLinks.js'
 import { stackRelations, relationPorts, bezierMid, RELATION_KINDS } from '../lib/relations.js'
 import ShareDialog from '../components/ShareDialog.jsx'
+import { useStackAlerts, HealthButton, StackHistoryPanel, ErrorLogTail } from '../components/StackHistory.jsx'
 
 const NODE_W = 212
 // A node card carries an icon, its name and its status, and nothing else — so it is
@@ -1618,6 +1619,54 @@ function expiresIn(iso) {
   return `expires in ${Math.max(1, Math.floor(ms / 6e4))}m`
 }
 
+// ExpiryChip is the stack's lifetime in the canvas header: its TTL and how long is left, amber in
+// the last hour and red in the last quarter of it, and a menu to push the end out — so a lab in
+// use is extended from where it is being used, not torn down under somebody.
+function ExpiryChip({ stack, onExtended }) {
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [, tick] = useState(0)
+  const ref = useRef(null)
+  useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 30000); return () => clearInterval(t) }, [])
+  useEffect(() => {
+    if (!open) return undefined
+    const away = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    addEventListener('pointerdown', away)
+    return () => removeEventListener('pointerdown', away)
+  }, [open])
+  const left = stack.expiresAt ? new Date(stack.expiresAt) - new Date() : null
+  const tone = left == null ? 'primary' : left < 15 * 60e3 ? 'danger' : left < 60 * 60e3 ? 'warning' : 'primary'
+  const extend = async (by) => {
+    setBusy(true); setErr('')
+    try { onExtended(await stackApi.extend(stack.id, by)); setOpen(false) } catch (e) { setErr(e.message) } finally { setBusy(false) }
+  }
+  const style = { background: `color-mix(in srgb, var(--${tone}) 15%, transparent)`, color: `var(--${tone})` }
+  return (
+    <span ref={ref} className="relative inline-flex">
+      <button type="button" onClick={() => setOpen((o) => !o)} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium" style={style}
+        aria-haspopup="menu" aria-expanded={open}>
+        {ttlLabel(stack.ttl)}{left != null && <span className="opacity-80">· {expiresIn(stack.expiresAt)}</span>}
+        {tone !== 'primary' && <span className="font-semibold">· Extend</span>}
+      </button>
+      {open && (
+        <div role="menu" className="absolute left-0 top-full z-30 mt-1 w-48 rounded-lg border bg-surface p-1 text-xs shadow-xl">
+          <div className="px-2 py-1 text-muted">{left == null ? 'Never expires' : `Torn down ${expiresIn(stack.expiresAt).replace('expires ', '')}`}</div>
+          {['2h', '4h', '8h', '24h', '2w'].map((by) => (
+            <button key={by} type="button" role="menuitem" disabled={busy} onClick={() => extend(by)}
+              className="block w-full rounded px-2 py-1 text-left hover:bg-surface2">Extend by {ttlLabel(by)}</button>
+          ))}
+          {left != null && (
+            <button type="button" role="menuitem" disabled={busy} onClick={() => extend('infinity')}
+              className="block w-full rounded px-2 py-1 text-left hover:bg-surface2">Never expire</button>
+          )}
+          {err && <div className="px-2 py-1 text-danger">{err}</div>}
+        </div>
+      )}
+    </span>
+  )
+}
+
 function StackList({ stacks, templates, loading, error, onOpen, onCreated, onChanged, onTemplatesChanged }) {
   const [showNew, setShowNew] = useState(false)
   const { user } = useAuth()
@@ -2396,6 +2445,9 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
   const [liveDismissed, setLiveDismissed] = useState(null) // the selected card whose details were closed
   const [liveOffsets, setLiveOffsets] = useState({})
   const { live, error: liveError } = useLiveStates(stackId, liveOn, liveMs)
+  // Health: the server watcher's open alerts, timeline and trends (components/StackHistory.jsx).
+  const [healthTab, setHealthTab] = useState(null) // null = closed, else the open tab
+  const [{ alerts: stackAlerts, rules: alertRules, intervalSec: watchSec }, reloadAlerts] = useStackAlerts(stackId, stack?.status === 'deployed')
   const toggleLive = () => {
     if (!liveOn) { setLiveOffsets({}); setLiveDismissed(null) }
     setLiveOn(!liveOn)
@@ -2457,6 +2509,12 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
   const [replPrompt, setReplPrompt] = useState(null) // member↔member: choose replication direction/type
   const [confirmDel, setConfirmDel] = useState(null) // confirm deleting a deployed node/cluster
   const [switchDlg, setSwitchDlg] = useState(null) // { targetId, target, from, phase, steps, error }
+  const [rebuildDlg, setRebuildDlg] = useState(null) // { nodeId, label }
+  const [driftDlg, setDriftDlg] = useState(null) // node id
+  const [rollingDlg, setRollingDlg] = useState(null) // node id
+  // Find on canvas (Ctrl/⌘+F): the query, and which match Enter last went to.
+  const [findQ, setFindQ] = useState(null) // null = closed
+  const [findAt, setFindAt] = useState(0)
   const [saveState, setSaveState] = useState('saved') // saved | saving
   const [deployments, setDeployments] = useState([])
   const [issues, setIssues] = useState(null) // validate results panel
@@ -2812,9 +2870,14 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
     return () => { removeEventListener('dragend', end); removeEventListener('drop', end) }
   }, [])
 
-  // delete key
+  // delete key, and Ctrl/⌘+F for find
   useEffect(() => {
     function onKey(e) {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'f' || e.key === 'F') && !e.shiftKey && !e.altKey) {
+        e.preventDefault()
+        setFindQ((q) => (q == null ? '' : q))
+        return
+      }
       if (e.key === 'Escape') {
         setMenu(null)
         setAddMenu(null)
@@ -3985,6 +4048,42 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
     }
   }
 
+  // focusNode selects a node and brings it to the middle of the canvas — where an alert or a
+  // timeline entry sends you.
+  function focusNode(nid) {
+    const n = nodes.find((x) => x.id === nid)
+    if (!n) return
+    setSelected({ kind: 'node', id: nid })
+    const r = wrapRef.current?.getBoundingClientRect()
+    if (!r) return
+    const f = n.frameId ? frames.find((x) => x.id === n.frameId) : null
+    const wx = (f ? f.x + f.w / 2 : n.x + NODE_W / 2), wy = (f ? f.y + f.h / 2 : n.y + NODE_H / 2)
+    setView((v) => ({ ...v, x: r.width / 2 - wx * v.z, y: r.height / 2 - wy * v.z }))
+  }
+
+  // findHits are the nodes a find matches: by name, hostname-ish label, type, or their cluster's
+  // name — the order they sit on the canvas, top to bottom.
+  const findHits = useMemo(() => {
+    const q = (findQ || '').trim().toLowerCase()
+    if (!q) return []
+    const frameName = Object.fromEntries(frames.map((f) => [f.id, (f.label || '').toLowerCase()]))
+    return nodes
+      .filter((n) => (n.label || '').toLowerCase().includes(q) || (n.type || '').toLowerCase().includes(q) || (n.frameId && frameName[n.frameId]?.includes(q)))
+      .sort((a, b) => {
+        const fa = a.frameId ? frames.find((f) => f.id === a.frameId) : a
+        const fb = b.frameId ? frames.find((f) => f.id === b.frameId) : b
+        return (fa?.y ?? 0) - (fb?.y ?? 0) || (fa?.x ?? 0) - (fb?.x ?? 0) || (a.label || '').localeCompare(b.label || '')
+      })
+      .map((n) => n.id)
+  }, [findQ, nodes, frames])
+  const findSet = new Set(findHits)
+  const findGo = (dir) => {
+    if (!findHits.length) return
+    const i = (findAt + dir + findHits.length) % findHits.length
+    setFindAt(i)
+    focusNode(findHits[i])
+  }
+
   async function nodeAction(nid, action) {
     try {
       const d = await stackApi.nodeAction(stack.id, nid, action)
@@ -4069,7 +4168,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
       // selected. Pinning switches Live on if it was off.
       const pinned = liveOn && livePinned.has(id)
       actions.push({
-        label: 'Live',
+        label: 'Live view',
         help: MENU_HELP.liveMenu,
         items: [
           pinned
@@ -4129,6 +4228,19 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
         // role to a replica the user picks. Who is primary is asked of the servers when the submenu
         // opens (app/switchover.go), not read from the design.
         const frameType = node?.frameId ? frames.find((f) => f.id === node.frameId)?.type : ''
+        if (REBUILDABLE.has(frameType) && node?.role !== 'mongos' && node?.role !== 'arbiter' && deployments.some((d) => d.nodeId === id && d.state === 'running')) {
+          actions.push({
+            label: frameType === 'pxc' || frameType === 'mariadbgalera' ? 'Rebuild (full state transfer)…' : 'Rebuild from primary…',
+            help: MENU_HELP.rebuild,
+            fn: () => setRebuildDlg({ nodeId: id, label: node?.label || id }),
+          })
+        }
+        if (DRIFT_FRAMES.has(frameType) && node?.role !== 'mongos') {
+          actions.push({ label: 'Compare configuration…', help: MENU_HELP.configDrift, fn: () => setDriftDlg(id) })
+        }
+        if (REBUILDABLE.has(frameType) && node?.role !== 'mongos') {
+          actions.push({ label: 'Rolling restart of the cluster…', help: MENU_HELP.rollingRestart, fn: () => setRollingDlg(id) })
+        }
         if (SWITCHABLE.has(frameType) && node?.role !== 'mongos') {
           actions.push({
             label: 'Replication role',
@@ -4464,7 +4576,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
           <Hint text={HELP.uiBack}><Button size="sm" variant="ghost" onClick={onBack}><Icon.ArrowLeft size={16} /> <span className="@max-3xl:hidden">Stacks</span></Button></Hint>
           <div className="mx-1 h-5 w-px bg-border" />
           <span className="text-sm font-semibold">{stack.name}</span>
-          <Hint text={HELP.uiTTL}><Badge tone="primary">{ttlLabel(stack.ttl)}</Badge></Hint>
+          <Hint text={HELP.uiTTL}><span><ExpiryChip stack={stack} onExtended={(r) => setStack((p) => ({ ...p, ttl: r.ttl, expiresAt: r.expiresAt }))} /></span></Hint>
           {!session.isGuest && (
             <Button size="sm" variant={session.active ? 'subtle' : 'outline'} onClick={() => setShareOpen(true)}>
               <Icon.Share size={15} /> <span className="@max-3xl:hidden">{session.active ? 'Sharing' : 'Share'}</span>
@@ -4516,10 +4628,16 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
                 <Icon.Link size={15} /> <span className="@max-3xl:hidden">Relationships</span>{showRelations && relations.length ? ` (${relations.length})` : ''}
               </Button>
             </Hint>
+            {stack.status === 'deployed' && (
+              <Hint text={HELP.uiHealth}>
+                <HealthButton alerts={stackAlerts} watching={watchSec > 0}
+                  onClick={() => setHealthTab((t) => (t ? null : stackAlerts.length ? 'alerts' : 'timeline'))} />
+              </Hint>
+            )}
             <Hint text={liveError ? `${HELP.uiLive} — ${liveError}` : HELP.uiLive}>
               <Button size="sm" variant={liveOn ? 'subtle' : 'ghost'} aria-pressed={liveOn}
                 className={liveOn ? 'text-primary' : ''} onClick={toggleLive}>
-                <Icon.Pulse size={15} /> <span className="@max-3xl:hidden">Live</span>
+                <Icon.Pulse size={15} /> <span className="@max-3xl:hidden">Live view</span>
               </Button>
             </Hint>
             {liveOn && (
@@ -4601,6 +4719,25 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
           className="relative flex-1 overflow-hidden rounded-xl border bg-bg"
           style={{ touchAction: 'none' }}
         >
+          {findQ != null && (
+            <div className="absolute left-1/2 top-3 z-30 flex -translate-x-1/2 items-center gap-1 rounded-lg border bg-surface px-2 py-1 shadow-lg"
+              onPointerDown={(e) => e.stopPropagation()} onContextMenu={(e) => e.stopPropagation()}>
+              <Icon.Search size={14} />
+              <input autoFocus aria-label="Find on canvas" placeholder="Find a node, type or cluster" value={findQ}
+                onChange={(e) => { setFindQ(e.target.value); setFindAt(-1) }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') { e.preventDefault(); findGo(e.shiftKey ? -1 : 1) }
+                  if (e.key === 'Escape') { e.stopPropagation(); setFindQ(null) }
+                }}
+                className="w-56 bg-transparent px-1 py-0.5 text-sm outline-none" />
+              <span className="min-w-[44px] text-right text-xs tabular-nums text-muted">
+                {findQ.trim() ? (findHits.length ? `${Math.max(0, findAt) + 1} / ${findHits.length}` : 'none') : ''}
+              </span>
+              <button type="button" aria-label="Previous match" disabled={!findHits.length} onClick={() => findGo(-1)} className="rounded px-1 text-muted hover:bg-surface2">↑</button>
+              <button type="button" aria-label="Next match" disabled={!findHits.length} onClick={() => findGo(1)} className="rounded px-1 text-muted hover:bg-surface2">↓</button>
+              <button type="button" aria-label="Close find" onClick={() => setFindQ(null)} className="rounded p-0.5 text-muted hover:bg-surface2"><Icon.Close size={13} /></button>
+            </div>
+          )}
           {libraryColumn && !paletteDocked && (
             <div className="absolute z-20 flex flex-col rounded-xl border bg-surface shadow-lg"
               onPointerDown={(e) => e.stopPropagation()}
@@ -4777,7 +4914,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
                           onDragLeave={(e) => nodeDragLeave(e, n.id)}
                           onDrop={(e) => nodeDrop(e, n.id)}
                           className={`absolute inset-0 flex cursor-pointer flex-col overflow-hidden rounded-lg border bg-surface shadow-sm ${non ? 'ring-2 ring-primary' : ''} ${dropNode === n.id ? 'ring-2 ring-success' : ''}`}
-                          style={liveOn && !non ? { boxShadow: healthRing(live[n.id]) || undefined } : undefined}
+                          style={findSet.has(n.id) && !non ? { boxShadow: '0 0 0 3px color-mix(in srgb, var(--primary) 60%, transparent)' } : liveOn && !non ? { boxShadow: healthRing(live[n.id]) || undefined } : undefined}
                         >
                           <div className="h-1 w-full shrink-0" style={{ background: barCol }} />
                           {/* Name and status. The role and the version are in the
@@ -4845,7 +4982,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
                   onDragLeave={(e) => nodeDragLeave(e, n.id)}
                   onDrop={(e) => nodeDrop(e, n.id)}
                   className={`group absolute flex cursor-grab flex-col overflow-hidden rounded-xl border bg-surface shadow-sm active:cursor-grabbing ${on ? 'ring-2 ring-primary' : ''} ${dropNode === n.id ? 'ring-2 ring-success' : ''}`}
-                  style={{ left: n.x, top: n.y, width: NODE_W, height: nodeH, boxShadow: liveOn && !on ? healthRing(live[n.id]) || undefined : undefined }}
+                  style={{ left: n.x, top: n.y, width: NODE_W, height: nodeH, boxShadow: findSet.has(n.id) && !on ? '0 0 0 3px color-mix(in srgb, var(--primary) 60%, transparent)' : liveOn && !on ? healthRing(live[n.id]) || undefined : undefined }}
                 >
                   <div className="h-1.5 w-full shrink-0" style={{ background: def.color }} />
                   {/* One row: icon, name, status. Everything else is in the tooltip
@@ -4868,6 +5005,48 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
                 </div>
               )
             })}
+
+            {/* Live replication: who each replica actually copies from, as its server says — drawn
+                over the cards, under each pair, so a replica re-pointed by hand or by a failover
+                shows where it really is. Amber when that replica reports a problem; dashed when its
+                source is not the member the design marks primary. */}
+            {liveOn && (
+              <svg className="pointer-events-none absolute left-0 top-0 overflow-visible" width="1" height="1">
+                <defs>
+                  <marker id="stk-live-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                    <path d="M0,0 L10,5 L0,10 z" fill="context-stroke" />
+                  </marker>
+                </defs>
+                {nodes.map((n) => {
+                  const r = live[n.id]?.role
+                  if (!r?.sourceNode) return null
+                  const a = rectOf(r.sourceNode)
+                  const b = rectOf(n.id)
+                  if (!a || !b) return null
+                  const sick = (r.problems?.length || 0) > 0
+                  const col = sick ? 'var(--warning)' : 'var(--success)'
+                  const designPrimary = n.frameId ? nodes.find((m) => m.frameId === n.frameId && m.role === 'primary') : null
+                  const differs = designPrimary && designPrimary.id !== r.sourceNode
+                  const x0 = a.x + a.w / 2, x1 = b.x + b.w / 2
+                  const y0 = a.y + a.h, y1 = b.y + b.h
+                  // Under the pair, inside the frame's bottom margin when both are its members, so the
+                  // arc does not run into whatever sits below the cluster.
+                  const fr = n.frameId && frames.find((f) => f.id === n.frameId)
+                  const room = fr ? (fr.y + fr.h) - Math.max(y0, y1) - 2 : 40
+                  const dip = Math.max(6, Math.min(16 + Math.min(40, Math.abs(x1 - x0) / 8), room / 0.75))
+                  const d = `M${x0},${y0} C${x0},${Math.max(y0, y1) + dip} ${x1},${Math.max(y0, y1) + dip} ${x1},${y1 + 2}`
+                  const lag = r.lagSec != null ? `lag ${r.lagSec < 10 ? r.lagSec.toFixed(1) : Math.round(r.lagSec)}s` : ''
+                  return (
+                    <g key={`live-${n.id}`} opacity={0.9}>
+                      <path d={d} fill="none" stroke={col} strokeWidth="2" strokeLinecap="round" style={{ pointerEvents: 'stroke' }}
+                        strokeDasharray={differs ? '5 4' : undefined} markerEnd="url(#stk-live-arrow)">
+                        <title>{`${nodes.find((m) => m.id === r.sourceNode)?.label} → ${n.label}${lag ? ' · ' + lag : ''}${sick ? ' · ' + r.problems[0] : ''}${differs ? ` · the design marks ${designPrimary.label} primary` : ''}`}</title>
+                      </path>
+                    </g>
+                  )
+                })}
+              </svg>
+            )}
           </div>
 
           {liveOn && (
@@ -4999,6 +5178,24 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
           onClose={() => setReplPrompt(null)}
           onChoose={(fromEnd, toEnd, mode) => { createReplEdge(fromEnd, toEnd, mode); setReplPrompt(null) }}
         />
+      )}
+
+      {healthTab && (
+        <StackHistoryPanel stackId={stackId} nodes={nodes} alerts={stackAlerts} rules={alertRules} intervalSec={watchSec}
+          tab={healthTab} setTab={setHealthTab} onClose={() => setHealthTab(null)} onRulesSaved={reloadAlerts}
+          onSelectNode={focusNode}
+          actions={{
+            restart: (nid) => nodeAction(nid, 'restart'),
+            rebuild: (nid) => setRebuildDlg({ nodeId: nid, label: nodes.find((n) => n.id === nid)?.label || nid }),
+            inspect: focusNode,
+          }} />
+      )}
+
+      {rollingDlg && <RollingModal stackId={stack.id} nodeId={rollingDlg} onClose={() => setRollingDlg(null)} />}
+      {driftDlg && <DriftModal stackId={stack.id} nodeId={driftDlg} onClose={() => setDriftDlg(null)} />}
+
+      {rebuildDlg && (
+        <RebuildModal stackId={stack.id} nodeId={rebuildDlg.nodeId} label={rebuildDlg.label} onClose={() => setRebuildDlg(null)} />
       )}
 
       {switchDlg && (
@@ -5146,6 +5343,253 @@ function DeploymentConsole({ deployments, nodes, onMinimize, inline = false, col
 // SWITCHABLE are the cluster types whose primary can be switched from the canvas
 // (app/switchover.go switchKinds).
 const SWITCHABLE = new Set(['mysql', 'mysqlcerepl', 'mariadbrepl', 'innodb', 'mysqlceinnodb', 'patroni', 'repmgr', 'psmrs', 'psmdb'])
+// REBUILDABLE are the clusters whose members can be re-copied from the primary (app/rebuild.go):
+// every switchable one, and Galera, whose members rejoin with a full state transfer.
+const REBUILDABLE = new Set([...SWITCHABLE, 'pxc', 'mariadbgalera'])
+// DRIFT_FRAMES are the clusters whose members' settings can be compared (app/drift.go).
+const DRIFT_FRAMES = new Set([...REBUILDABLE, 'spock', 'valkeycluster', 'valkey'])
+
+// pmmFamily is which PMM service type a database node registers as.
+function pmmFamily(type) {
+  if (/valkey/.test(type)) return ''
+  if (/^(pg|patroni|repmgr|spock)/.test(type)) return 'postgresql'
+  if (/^psm|mongo/.test(type)) return 'mongodb'
+  return 'mysql'
+}
+
+// PMMLinks opens this node's dashboards in the PMM server that monitors it — the node's or its
+// cluster's PMM node — straight on its service (PMM registers each one under the node's name).
+function PMMLinks({ node, frame, nodes, depByNode }) {
+  const pmmId = node.pmmNodeId || frame?.pmmNodeId
+  const fam = pmmFamily(node.type)
+  const pmm = pmmId && nodes.find((n) => n.id === pmmId)
+  const cfg = pmm && depByNode[pmm.id]?.state === 'running' ? depByNode[pmm.id]?.config || {} : null
+  if (!fam || !cfg) return null
+  const host = location.hostname
+  const base = cfg.httpsPort ? `https://${host}:${cfg.httpsPort}` : cfg.httpPort ? `http://${host}:${cfg.httpPort}` : ''
+  if (!base) return null
+  const svc = encodeURIComponent(node.label)
+  const links = [
+    [`${fam === 'mysql' ? 'MySQL' : fam === 'postgresql' ? 'PostgreSQL' : 'MongoDB'} summary`, `${base}/graph/d/${fam}-instance-summary/${fam}-instance-summary?var-service_name=${svc}`],
+    ['Query Analytics', `${base}/graph/d/pmm-qan/pmm-query-analytics?var-service_name=${svc}`],
+  ]
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-t pt-2 text-[11px]">
+      <span className="text-[10px] font-semibold tracking-wide text-muted">PMM · {pmm.label}</span>
+      {links.map(([label, url]) => (
+        <a key={label} href={url} target="_blank" rel="noreferrer" className="text-primary underline-offset-2 hover:underline">{label} ↗</a>
+      ))}
+    </div>
+  )
+}
+
+// RollingModal restarts a whole cluster one member at a time (app/rolling.go) and follows it.
+function RollingModal({ stackId, nodeId, onClose }) {
+  const [info, setInfo] = useState(null)
+  const [err, setErr] = useState('')
+  const [switchover, setSwitchover] = useState(true)
+  const [starting, setStarting] = useState(false)
+  const load = useCallback(async () => {
+    try { setInfo(await stackApi.rollingInfo(stackId, nodeId)) } catch (e) { setErr(e.message) }
+  }, [stackId, nodeId])
+  useEffect(() => { load() }, [load])
+  const job = info?.job
+  const running = job?.state === 'running'
+  useEffect(() => {
+    if (!running) return undefined
+    const t = setInterval(load, 2000)
+    return () => clearInterval(t)
+  }, [running, load])
+  const start = async () => {
+    setStarting(true); setErr('')
+    try { const r = await stackApi.rollingRestart(stackId, nodeId, info.canSwitch && switchover); setInfo((p) => ({ ...p, job: r.job })) } catch (e) { setErr(e.message) } finally { setStarting(false) }
+  }
+  const recent = job && (running || job.endedAt > Date.now() / 1000 - 3600)
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={onClose}>
+      <div className="w-full max-w-lg rounded-xl border bg-surface p-5 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
+        <h3 className="mb-2 text-sm font-semibold">
+          {running ? `Restarting ${info.cluster} member by member…` : recent && job.state === 'done' ? `${info.cluster} was restarted` : recent && job.state === 'failed' ? 'Rolling restart stopped' : `Rolling restart of ${info?.cluster || 'the cluster'}?`}
+        </h3>
+        {!info && !err && <div className="text-xs text-muted">Asking the cluster…</div>}
+        {info && !info.supported && <p className="mb-3 text-xs text-muted">{info.reason}</p>}
+        {info?.supported && !running && (
+          <div className="mb-3 space-y-2 text-xs">
+            <p className="text-muted">
+              {info.kind === 'galera'
+                ? `Each of the ${info.members} members is restarted in turn, and the next waits until it is Synced again.`
+                : `The replicas are restarted first, one at a time, each back and caught up before the next. Then the primary.`}
+              {' '}It stops at the first member that does not come back, leaving the rest untouched.
+            </p>
+            {info.canSwitch && (
+              <label className="flex items-start gap-2">
+                <input type="checkbox" checked={switchover} onChange={(e) => setSwitchover(e.target.checked)} className="mt-0.5" />
+                <span>Hand the primary to a restarted replica first, so writes pause for seconds instead of a restart. The old primary comes back as a replica.</span>
+              </label>
+            )}
+          </div>
+        )}
+        {running && (
+          <div className="mb-2 flex items-center gap-2 text-xs text-muted">
+            <span className="h-3 w-3 animate-spin rounded-full border-2 border-surface2 border-t-primary" />
+            Closing this does not stop it — the notification bell says when it ends.
+          </div>
+        )}
+        {recent && job.error && <p className="mb-2 text-xs text-danger">{job.error}</p>}
+        {recent && job.steps?.length > 0 && (
+          <ol className="mb-4 max-h-64 space-y-0.5 overflow-auto rounded-lg border bg-bg px-3 py-2 font-mono text-[11px] leading-snug">
+            {job.steps.map((s, i) => <li key={i} className="whitespace-pre-wrap">{s}</li>)}
+          </ol>
+        )}
+        {err && <p className="mb-2 text-xs text-danger">{err}</p>}
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={onClose}>{running || recent ? 'Close' : 'Cancel'}</Button>
+          {info?.supported && !running && <Button size="sm" disabled={starting} onClick={start}>{starting ? 'Starting…' : 'Restart member by member'}</Button>}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+// DriftModal lays the settings that differ across a cluster's members side by side
+// (app/drift.go): what is meant to be alike and is not first, then what differs by role.
+function DriftModal({ stackId, nodeId, onClose }) {
+  const [data, setData] = useState(null)
+  const [err, setErr] = useState('')
+  const [q, setQ] = useState('')
+  useEffect(() => { stackApi.configDrift(stackId, nodeId).then(setData).catch((e) => setErr(e.message)) }, [stackId, nodeId])
+  const members = data?.members || []
+  const rows = (data?.diffs || []).filter((r) => !q || r.name.toLowerCase().includes(q.toLowerCase()))
+  const drift = rows.filter((r) => !r.expected)
+  const role = rows.filter((r) => r.expected)
+  const table = (list) => (
+    <table className="w-full border-collapse text-[11px]">
+      <thead><tr className="bg-surface2 text-left text-muted">
+        <th className="px-2 py-1 font-semibold">SETTING</th>
+        {members.map((m) => <th key={m.nodeId} className="px-2 py-1 font-semibold">{m.label}</th>)}
+      </tr></thead>
+      <tbody>
+        {list.map((r) => {
+          const counts = {}
+          for (const v of Object.values(r.values)) counts[v] = (counts[v] || 0) + 1
+          const common = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0]
+          return (
+            <tr key={r.name} className="border-t align-top">
+              <td className="px-2 py-1 font-mono">{r.name}</td>
+              {members.map((m) => {
+                const v = r.values[m.nodeId]
+                const odd = v != null && v !== common && !r.expected
+                return <td key={m.nodeId} className="max-w-[220px] break-all px-2 py-1 font-mono" style={odd ? { color: 'var(--warning)', fontWeight: 600 } : undefined}>{v ?? '—'}</td>
+              })}
+            </tr>
+          )
+        })}
+      </tbody>
+    </table>
+  )
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={onClose}>
+      <div className="flex max-h-[85vh] w-full max-w-4xl flex-col rounded-xl border bg-surface p-5 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="mb-2 flex items-center gap-2">
+          <h3 className="text-sm font-semibold">Configuration across the cluster</h3>
+          <span className="flex-1" />
+          <input placeholder="Filter settings" value={q} onChange={(e) => setQ(e.target.value)} className="w-48 rounded-md border bg-bg px-2 py-1 text-xs" />
+        </div>
+        {!data && !err && <div className="text-xs text-muted">Asking every member…</div>}
+        {err && <div className="text-xs text-danger">{err}</div>}
+        {data && (
+          <div className="min-h-0 flex-1 space-y-4 overflow-auto">
+            <p className="text-xs text-muted">
+              {members.map((m) => `${m.label}: ${m.error ? 'did not answer — ' + m.error : m.count + ' settings'}`).join(' · ')}.
+              {' '}Identity settings (server ids, UUIDs, host names) are left out; a member's own host name inside a value reads &lt;host&gt;.
+            </p>
+            <div>
+              <div className="mb-1 text-xs font-semibold">{drift.length ? `${drift.length} setting${drift.length === 1 ? '' : 's'} differ` : 'No drift: every compared setting is the same on every member.'}</div>
+              {drift.length > 0 && <div className="overflow-hidden rounded-lg border">{table(drift)}</div>}
+            </div>
+            {role.length > 0 && (
+              <div>
+                <div className="mb-1 text-xs font-semibold text-muted">Different by role, as expected</div>
+                <div className="overflow-hidden rounded-lg border opacity-80">{table(role)}</div>
+              </div>
+            )}
+          </div>
+        )}
+        <div className="mt-3 flex justify-end"><Button size="sm" variant="ghost" onClick={onClose}>Close</Button></div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+// RebuildModal shows how a member would be rebuilt and from which node, asks, then follows the
+// background job step by step until it ends. Closing it does not stop the rebuild; opening it
+// again on the same node picks the job up.
+function RebuildModal({ stackId, nodeId, label, onClose }) {
+  const [info, setInfo] = useState(null)
+  const [err, setErr] = useState('')
+  const [starting, setStarting] = useState(false)
+  const load = useCallback(async (jobOnly) => {
+    try { setInfo(await stackApi.rebuildInfo(stackId, nodeId, jobOnly)) } catch (e) { setErr(e.message) }
+  }, [stackId, nodeId])
+  useEffect(() => { load(false) }, [load])
+  const job = info?.job
+  const running = job?.state === 'running'
+  useEffect(() => {
+    if (!running) return undefined
+    const t = setInterval(() => load(true), 2000)
+    return () => clearInterval(t)
+  }, [running, load])
+  const plan = info?.plan
+  const start = async () => {
+    setStarting(true); setErr('')
+    try { const r = await stackApi.rebuild(stackId, nodeId); setInfo((p) => ({ ...p, job: r.job })) } catch (e) { setErr(e.message) } finally { setStarting(false) }
+  }
+  const showJob = job && (running || !plan || job.endedAt > Date.now() / 1000 - 3600)
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={onClose}>
+      <div className="w-full max-w-lg rounded-xl border bg-surface p-5 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
+        <h3 className="mb-2 text-sm font-semibold">
+          {running ? `Rebuilding ${label}…` : job?.state === 'done' && showJob ? `${label} was rebuilt` : job?.state === 'failed' && showJob ? `Rebuilding ${label} failed` : `Rebuild ${label} from the primary?`}
+        </h3>
+        {!info && !err && <div className="text-xs text-muted">Asking the cluster…</div>}
+        {plan && !running && (
+          plan.supported ? (
+            <div className="mb-3 space-y-2 text-xs">
+              <p><span className="text-muted">Copies from </span><span className="font-semibold">{plan.from}</span></p>
+              <p className="text-muted">{plan.method}</p>
+              {plan.warning && <p style={{ color: 'var(--warning)' }}>{plan.warning}</p>}
+              <p className="rounded-lg border px-2 py-1.5" style={{ borderColor: 'color-mix(in srgb, var(--danger) 35%, transparent)', color: 'var(--danger)' }}>
+                Everything on {label} is replaced by the copy. It does not serve reads until it has caught up.
+              </p>
+            </div>
+          ) : <p className="mb-3 text-xs text-muted">{plan.reason}</p>
+        )}
+        {running && (
+          <div className="mb-2 flex items-center gap-2 text-xs text-muted">
+            <span className="h-3 w-3 animate-spin rounded-full border-2 border-surface2 border-t-primary" />
+            Copying from {job.from}. Closing this does not stop it — the notification bell says when it ends.
+          </div>
+        )}
+        {showJob && job.error && <p className="mb-2 text-xs text-danger">{job.error}</p>}
+        {showJob && job.steps?.length > 0 && (
+          <ol className="mb-4 max-h-64 space-y-0.5 overflow-auto rounded-lg border bg-bg px-3 py-2 font-mono text-[11px] leading-snug">
+            {job.steps.map((s, i) => <li key={i}>{s}</li>)}
+          </ol>
+        )}
+        {err && <p className="mb-2 text-xs text-danger">{err}</p>}
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={onClose}>{running || (showJob && job.state !== 'running') ? 'Close' : 'Cancel'}</Button>
+          {plan?.supported && !running && (
+            <Button size="sm" disabled={starting} onClick={start}>{starting ? 'Starting…' : `Rebuild ${label}`}</Button>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
 
 // SwitchoverModal asks before switching a primary, waits through it (it can take a minute — a
 // repmgr switchover restarts the old primary), and shows what was done, step by step.
@@ -13665,7 +14109,7 @@ function StackProperties({ locked, lockedBy, selected, stackId, nodes, edges, fr
       )}
       {liveData && (
         <div role="tablist" aria-label="Node panel" className="mb-3 grid grid-cols-2 gap-1 rounded-lg bg-surface2 p-1">
-          {[['node', 'Node'], ['live', 'Live']].map(([id, label]) => (
+          {[['node', 'Node'], ['live', 'Live details']].map(([id, label]) => (
             <button key={id} type="button" role="tab" aria-selected={propTab === id} onClick={() => setPropTab(id)}
               className={`rounded-md py-1 text-xs font-medium transition ${propTab === id ? 'bg-surface text-fg shadow' : 'text-muted'}`}>{label}</button>
           ))}
@@ -13675,6 +14119,8 @@ function StackProperties({ locked, lockedBy, selected, stackId, nodes, edges, fr
         <div className="space-y-2 text-sm">
           <div className="text-sm font-semibold">{liveNode.label}</div>
           <LiveDetailsBody node={liveNode} frame={liveNode.frameId ? frames.find((f) => f.id === liveNode.frameId) : null} data={liveData} />
+          {liveData.role && <PMMLinks node={liveNode} frame={liveNode.frameId ? frames.find((f) => f.id === liveNode.frameId) : null} nodes={nodes} depByNode={depByNode} />}
+          {liveData.role && <ErrorLogTail stackId={stackId} nodeId={liveNode.id} />}
         </div>
       ) : (
         <Body selected={selected} stackId={stackId} nodes={nodes} edges={edges} frames={frames} depByNode={depByNode} patchNode={patchNode} patchFrame={patchFrame} patchEdge={patchEdge} deleteNode={deleteNode} deleteEdge={deleteEdge} deleteFrame={deleteFrame} rebuildMongoCluster={rebuildMongoCluster} />

@@ -97,6 +97,13 @@ func mongoGroup(n designNode) string {
 
 // switchTopology finds the replication group node nid belongs to, or says why it has none.
 func (a *App) switchTopology(st Stack, nid string) (swTopo, error) {
+	return a.groupTopology(st, nid, switchKinds, noPrimaryKinds, true)
+}
+
+// groupTopology is switchTopology for any operation on a replication group: kinds maps the frame
+// types it applies to, refuse the ones it explains it cannot; allRunning refuses a group with a
+// member that is not running, and otherwise such members are left out.
+func (a *App) groupTopology(st Stack, nid string, kinds, refuse map[string]string, allRunning bool) (swTopo, error) {
 	doc := buildDoc(st)
 	var node designNode
 	found := false
@@ -117,12 +124,12 @@ func (a *App) switchTopology(st Stack, nid string) (swTopo, error) {
 			frame = f
 		}
 	}
-	if why, ok := noPrimaryKinds[frame.Type]; ok {
+	if why, ok := refuse[frame.Type]; ok {
 		return swTopo{}, errors.New(why)
 	}
-	kind, ok := switchKinds[frame.Type]
+	kind, ok := kinds[frame.Type]
 	if !ok {
-		return swTopo{}, errors.New("switching the primary is not supported for this kind of cluster")
+		return swTopo{}, errors.New("this is not supported for this kind of cluster")
 	}
 	if frame.Type == "psmdb" && node.Role == "mongos" {
 		return swTopo{}, errors.New("a mongos router has no replication role")
@@ -139,7 +146,13 @@ func (a *App) switchTopology(st Stack, nid string) (swTopo, error) {
 		}
 		dep, err := a.store.GetDeployment(st.ID, n.ID)
 		if err != nil || dep.State != DeployRunning || dep.ContainerID == "" {
-			return swTopo{}, fmt.Errorf("%s is not running — every member must be up to switch the primary", n.Label)
+			if allRunning {
+				return swTopo{}, fmt.Errorf("%s is not running — every member must be up to switch the primary", n.Label)
+			}
+			if n.ID == nid {
+				return swTopo{}, fmt.Errorf("%s is not running — start the node first", n.Label)
+			}
+			continue
 		}
 		t.Members = append(t.Members, swMember{Node: n, Dep: dep, Host: hosts[n.ID], FQDN: fqdnOf(hosts[n.ID], domain)})
 	}
@@ -155,6 +168,7 @@ type swState struct {
 	Label    string   `json:"label"`
 	Role     string   `json:"role,omitempty"`
 	Access   string   `json:"access,omitempty"`
+	State    string   `json:"state,omitempty"`
 	LagSec   *float64 `json:"lagSec,omitempty"`
 	Problems []string `json:"problems,omitempty"`
 	Down     bool     `json:"down,omitempty"`
@@ -178,7 +192,7 @@ func (a *App) probeTopo(ctx context.Context, st Stack, t swTopo) ([]swState, int
 			r := a.probeLiveRole(c, st, m.Node.ID, m.Node.Type, 0)
 			s := swState{NodeID: m.Node.ID, Label: m.Node.Label}
 			if r != nil {
-				s.Role, s.Access, s.LagSec, s.Problems, s.Down, s.Err = r.Role, r.Access, r.LagSec, r.Problems, r.Down, r.Err
+				s.Role, s.Access, s.State, s.LagSec, s.Problems, s.Down, s.Err = r.Role, r.Access, r.State, r.LagSec, r.Problems, r.Down, r.Err
 			}
 			s.Primary = s.Err == "" && (s.Role == "primary" || (s.Role == "standalone" && s.Access == "rw"))
 			out[i] = s
@@ -277,10 +291,25 @@ func (a *App) handlePromote(w http.ResponseWriter, r *http.Request) {
 	// Not the request's context: a browser that navigates away must not abandon a switch halfway.
 	ctx, cancel := context.WithTimeout(context.Background(), switchoverTimeout)
 	defer cancel()
+	steps, status, err := a.switchPrimary(ctx, st, t, nid, u)
+	if err != nil {
+		if steps == nil {
+			writeErr(w, status, err.Error())
+			return
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error(), "steps": steps})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "primary": nid, "steps": steps})
+}
+
+// switchPrimary makes nid the primary of t, with the frame's lock already held by the caller. It
+// returns the steps taken; on failure an HTTP status for it, and nil steps when it was refused
+// before anything was touched.
+func (a *App) switchPrimary(ctx context.Context, st Stack, t swTopo, nid string, u User) ([]string, int, error) {
 	states, pi := a.probeTopo(ctx, st, t)
 	if pi < 0 {
-		writeErr(w, http.StatusConflict, "cannot tell which member is the primary right now — check the Live view")
-		return
+		return nil, http.StatusConflict, errors.New("cannot tell which member is the primary right now — check the Live view")
 	}
 	var target swState
 	for _, s := range states {
@@ -289,11 +318,11 @@ func (a *App) handlePromote(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !target.Eligible {
-		writeErr(w, http.StatusConflict, fmt.Sprintf("%s cannot be made primary: %s", target.Label, target.Why))
-		return
+		return nil, http.StatusConflict, fmt.Errorf("%s cannot be made primary: %s", target.Label, target.Why)
 	}
 	primary, _ := t.member(states[pi].NodeID)
 	cand, _ := t.member(nid)
+	var err error
 	var others []swMember
 	for _, m := range t.Members {
 		if m.Node.ID != primary.Node.ID && m.Node.ID != cand.Node.ID {
@@ -303,6 +332,7 @@ func (a *App) handlePromote(w http.ResponseWriter, r *http.Request) {
 
 	log := &swLog{}
 	log.add("%s is primary; making %s the primary", primary.Node.Label, cand.Node.Label)
+	markPlannedSwitch(st.ID)
 	switch t.Kind {
 	case "patroni":
 		err = a.switchPatroni(ctx, st, t, primary, cand, log)
@@ -318,6 +348,7 @@ func (a *App) handlePromote(w http.ResponseWriter, r *http.Request) {
 		err = errors.New("not supported")
 	}
 	clearLiveRoles(st.ID)
+	markPlannedSwitch(st.ID) // the window runs from the end of the switch, however long it took
 	// A partial switch still moved the primary: the design must say so, or a redeploy rebuilds
 	// the old one.
 	var part *partialSwitch
@@ -328,19 +359,20 @@ func (a *App) handlePromote(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		log.add("failed: %v", err)
+		a.recordStackEvent(st.ID, cand.Node.ID, "action", "error", fmt.Sprintf("Switchover to %s failed", cand.Node.Label), err.Error(), u.Username)
 		a.notify(Notification{UserID: u.ID, Scope: "user", Type: "stack.switchover", Severity: "error",
 			Title: "Switchover failed", Body: fmt.Sprintf("%s: making %s primary failed — %v", st.Name, cand.Node.Label, err)})
-		writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "steps": log.lines})
-		return
+		return log.lines, http.StatusConflict, err
 	}
 	if changed, err := a.recordNewPrimary(st, t, primary, cand); err != nil {
 		log.add("the switch worked, but the design could not be updated: %v", err)
 	} else if changed {
 		log.add("design updated: %s is now marked primary", cand.Node.Label)
 	}
+	a.recordStackEvent(st.ID, cand.Node.ID, "action", "info", fmt.Sprintf("Switchover: %s made primary (was %s)", cand.Node.Label, primary.Node.Label), "", u.Username)
 	a.notify(Notification{UserID: u.ID, Scope: "user", Type: "stack.switchover", Severity: "success",
 		Title: "Primary switched", Body: fmt.Sprintf("%s: %s is now the primary (was %s).", st.Name, cand.Node.Label, primary.Node.Label)})
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "primary": cand.Node.ID, "steps": log.lines})
+	return log.lines, http.StatusOK, nil
 }
 
 // partialSwitch is a switch whose candidate became primary, with something after that (a

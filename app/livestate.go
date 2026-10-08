@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 // livestate.go — the canvas's Live view: what each running node of a stack is doing right now.
@@ -59,6 +60,28 @@ type liveRole struct {
 	// Down is a database that did not answer while its container is running; Err says how.
 	Down bool   `json:"down,omitempty"`
 	Err  string `json:"error,omitempty"`
+	// Load is the database's own work and connections (livehealth.go), when the engine says.
+	Load *liveLoad `json:"load,omitempty"`
+	// Source is the host this node replicates from, as the engine reports it (a MySQL channel's
+	// source, PostgreSQL's WAL sender, MongoDB's sync source, Valkey's primary); SourceNode is the
+	// node of this stack that host is, when it is one — what the canvas draws the actual
+	// replication arrows from.
+	Source     string `json:"source,omitempty"`
+	SourceNode string `json:"sourceNode,omitempty"`
+}
+
+// liveLoad is what the database itself is doing. Queries and Commits are counters since the server
+// started, which the client (and the history sampler) turn into QPS and TPS from two samples; an
+// engine that does not count one leaves it out, rather than reporting zero.
+type liveLoad struct {
+	Queries  *int64 `json:"queries,omitempty"`  // statements (MySQL Questions, MongoDB opcounters, Valkey commands)
+	Commits  *int64 `json:"commits,omitempty"`  // transactions committed or rolled back
+	Conns    *int   `json:"conns,omitempty"`    // client connections open now
+	MaxConns *int   `json:"maxConns,omitempty"` // the most the server accepts
+	Active   *int   `json:"active,omitempty"`   // connections running something right now
+	// AtMs is when the counters were read. A role is cached for liveRoleTTL, so two polls can see
+	// one sample; rates are taken between samples' own times, not the polls'.
+	AtMs int64 `json:"atMs"`
 }
 
 type liveDisk struct {
@@ -111,10 +134,20 @@ func (a *App) handleStackLive(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	deps, err := a.store.ListDeployments(st.ID)
+	out, err := a.liveSnapshot(r.Context(), st)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to read deployments")
 		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sampledAtSec": time.Now().Unix(), "nodes": out})
+}
+
+// liveSnapshot is every deployed node of a stack as Live sees it now — what the canvas polls, and
+// what the history sampler (livewatch.go) records.
+func (a *App) liveSnapshot(ctx context.Context, st Stack) (map[string]*liveNode, error) {
+	deps, err := a.store.ListDeployments(st.ID)
+	if err != nil {
+		return nil, err
 	}
 	doc := buildDoc(st)
 	types := map[string]string{}
@@ -133,7 +166,7 @@ func (a *App) handleStackLive(w http.ResponseWriter, r *http.Request) {
 			ids = append(ids, dep.ContainerID)
 		}
 	}
-	stats := a.liveContainerStats(r.Context(), st, deps, ids)
+	stats := a.liveContainerStats(ctx, st, deps, ids)
 
 	out := map[string]*liveNode{}
 	var mu sync.Mutex
@@ -177,7 +210,78 @@ func (a *App) handleStackLive(w http.ResponseWriter, r *http.Request) {
 		}(dep, typ, dep.ContainerID)
 	}
 	wg.Wait()
-	writeJSON(w, http.StatusOK, map[string]any{"sampledAtSec": time.Now().Unix(), "nodes": out})
+	detachedReplicas(doc, out)
+	resolveSources(doc, out)
+	return out, nil
+}
+
+// resolveSources names the node each replica's source host is. A host can be given as the short
+// name, the FQDN, or (MongoDB, PostgreSQL) an address; the first two are matched.
+func resolveSources(doc designDoc, nodes map[string]*liveNode) {
+	hosts := stackHostnames(doc)
+	byHost := map[string]string{}
+	for id, h := range hosts {
+		if h == "" {
+			continue
+		}
+		byHost[strings.ToLower(h)] = id
+	}
+	for id, ln := range nodes {
+		if ln == nil || ln.Role == nil || ln.Role.Source == "" {
+			continue
+		}
+		h := strings.ToLower(strings.TrimSuffix(ln.Role.Source, "."))
+		short, _, _ := strings.Cut(h, ".")
+		src := firstNonEmpty(byHost[h], byHost[short])
+		if src == "" || src == id {
+			continue
+		}
+		r := *ln.Role
+		r.SourceNode = src
+		ln.Role = &r
+	}
+}
+
+// asyncReplFrames are the clusters held together by plain source → replica replication, where a
+// member with no source at all is a member that has silently left.
+var asyncReplFrames = map[string]bool{"mysql": true, "mysqlcerepl": true, "mariadbrepl": true}
+
+// detachedReplicas flags the member of a replication cluster that has no replication configured
+// while another member is the primary: nothing is broken on it — there is simply nothing to break
+// — so the engine reports no problem, and the member drifts unnoticed. (A replica whose
+// replication was reset, a rebuild that stopped halfway.)
+func detachedReplicas(doc designDoc, nodes map[string]*liveNode) {
+	frameType := map[string]string{}
+	for _, f := range doc.Frames {
+		frameType[f.ID] = f.Type
+	}
+	members := map[string][]string{}
+	for _, n := range doc.Nodes {
+		if n.FrameID != "" && asyncReplFrames[frameType[n.FrameID]] {
+			members[n.FrameID] = append(members[n.FrameID], n.ID)
+		}
+	}
+	for _, ids := range members {
+		primary := ""
+		for _, id := range ids {
+			if ln := nodes[id]; ln != nil && ln.Role != nil && ln.Role.Role == "primary" {
+				primary = id
+			}
+		}
+		if primary == "" {
+			continue
+		}
+		for _, id := range ids {
+			ln := nodes[id]
+			if ln == nil || ln.Role == nil || ln.Role.Role != "standalone" || ln.Role.Err != "" {
+				continue
+			}
+			// The role cache is shared with other callers: annotate a copy.
+			r := *ln.Role
+			r.Problems = append(append([]string(nil), r.Problems...), "not replicating: no replication source is configured on this member")
+			ln.Role = &r
+		}
+	}
 }
 
 var liveStatCache = struct {
@@ -359,6 +463,14 @@ func pruneLiveCache(m map[string]liveCacheEntry) {
 // guessing — an engine that is restarting is exactly when a stale role would mislead. members is
 // how many members the design gives the node's cluster, 0 outside one.
 func (a *App) probeLiveRole(ctx context.Context, st Stack, nid, typ string, members int) *liveRole {
+	r := a.probeLiveRoleNow(ctx, st, nid, typ, members)
+	if r != nil && r.Load != nil {
+		r.Load.AtMs = time.Now().UnixMilli()
+	}
+	return r
+}
+
+func (a *App) probeLiveRoleNow(ctx context.Context, st Stack, nid, typ string, members int) *liveRole {
 	if typ == "valkey" || typ == "valkeycluster" {
 		return a.probeValkeyRole(ctx, st, nid, typ == "valkeycluster")
 	}
@@ -421,7 +533,7 @@ func (a *App) probeMongoRole(ctx context.Context, c dbConn) *liveRole {
 	var r *liveRole
 	switch {
 	case h.Msg == "isdbgrid":
-		return &liveRole{Role: "router", Access: "rw"}
+		return &liveRole{Role: "router", Access: "rw", Load: a.mongoLoad(ctx, client)}
 	case h.Arbiter:
 		r = &liveRole{Role: "arbiter", Access: "ro", State: h.SetName}
 	case h.Writable && h.SetName != "":
@@ -431,7 +543,7 @@ func (a *App) probeMongoRole(ctx context.Context, c dbConn) *liveRole {
 	case h.SetName != "":
 		r = &liveRole{Role: "member", Access: "ro", State: h.SetName} // recovering, startup…
 	default:
-		return &liveRole{Role: "standalone", Access: "rw"}
+		return &liveRole{Role: "standalone", Access: "rw", Load: a.mongoLoad(ctx, client)}
 	}
 	// The set's members as this one sees them (livehealth.go). A status that will not come back
 	// costs the popup its problem lines, not its role.
@@ -440,8 +552,44 @@ func (a *App) probeMongoRole(ctx context.Context, c dbConn) *liveRole {
 	}
 	if err := client.Database("admin").RunCommand(ctx, bson.D{{Key: "replSetGetStatus", Value: 1}}).Decode(&rs); err == nil {
 		r.Problems, r.LagSec = mongoReplHealth(rs.Members)
+		for _, m := range rs.Members {
+			if m.Self && m.SyncSource != "" {
+				r.Source, _, _ = strings.Cut(m.SyncSource, ":")
+			}
+		}
 	}
+	r.Load = a.mongoLoad(ctx, client)
 	return r
+}
+
+// mongoLoad reads serverStatus: every operation counter as the queries (commands included — the
+// shell's own hello is one), connections current against current + available, and the clients
+// running something now. MongoDB has no commit counter worth the name outside a transaction.
+func (a *App) mongoLoad(ctx context.Context, client *mongo.Client) *liveLoad {
+	var ss struct {
+		Op struct {
+			Insert, Query, Update, Delete, Getmore, Command int64
+		} `bson:"opcounters"`
+		Conn struct {
+			Current   int `bson:"current"`
+			Available int `bson:"available"`
+		} `bson:"connections"`
+		Lock struct {
+			Active struct {
+				Total int `bson:"total"`
+			} `bson:"activeClients"`
+		} `bson:"globalLock"`
+	}
+	cmd := bson.D{{Key: "serverStatus", Value: 1}, {Key: "repl", Value: 0}, {Key: "metrics", Value: 0}, {Key: "locks", Value: 0}, {Key: "wiredTiger", Value: 0}}
+	if err := client.Database("admin").RunCommand(ctx, cmd).Decode(&ss); err != nil {
+		return nil
+	}
+	q := ss.Op.Insert + ss.Op.Query + ss.Op.Update + ss.Op.Delete + ss.Op.Getmore + ss.Op.Command
+	// The driver holds a few connections of its own (a monitor beside the one asking), so the
+	// count includes the probe's; how many depends on the driver, so none is taken off.
+	limit := ss.Conn.Current + ss.Conn.Available
+	conns, act := ss.Conn.Current, ss.Lock.Active.Total
+	return &liveLoad{Queries: &q, Conns: &conns, MaxConns: &limit, Active: &act}
 }
 
 func (a *App) probeValkeyRole(ctx context.Context, st Stack, nid string, cluster bool) *liveRole {
