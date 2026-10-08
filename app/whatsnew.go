@@ -37,6 +37,28 @@ type releaseNote struct {
 // expanded, and the tests assume the ordering.
 var whatsNewNotes = []releaseNote{
 	{
+		Version: "0.0.16",
+		Date:    "2026-10-08",
+		Title:   "Manage Users: create accounts, change roles, reset passwords",
+		Body: "An administrator can create an account, approved straight away, and either send its owner a " +
+			"7-day link to choose a password or give them a temporary one they must change at first sign-in. " +
+			"Any other account can be made an administrator or a regular user again, have its username and " +
+			"profile edited, or have its password reset: set outright (temporary by default) or through a " +
+			"one-time link valid for 24 hours. A reset signs the account out everywhere.",
+		Doc: "docs/API_REFERENCE.md",
+	},
+	{
+		Version: "0.0.16",
+		Date:    "2026-10-08",
+		Title:   "Sessions and sign-in history in Manage Users",
+		Body: "Every account shows when it was last active and how many sessions it has. Its Sessions dialog " +
+			"lists each browser, address and time, and signs out one session or all of them without changing " +
+			"the password; on your own account, the one you are using is kept. Sign out everyone, and Clear " +
+			"sign-in history for one account or all, are at the top of the page. The list can be searched, " +
+			"filtered by status and role, and sorted.",
+		Doc: "docs/API_REFERENCE.md",
+	},
+	{
 		Version: "0.0.15",
 		Date:    "2026-10-07",
 		Title:   "Several installations on one Docker host",

@@ -164,9 +164,39 @@ yourself.
 
 ## What's new
 
-### 0.0.15
+### 0.0.16
 
 <details open>
+<summary><b>Manage Users: create accounts, change roles, reset passwords</b></summary>
+
+**Add user** creates an account that is approved straight away, with the role you choose. Its
+owner either gets a link, valid for 7 days, to choose their own password, or a temporary password
+you type, which they must change when they first sign in — until they do, the server refuses
+everything else they ask for. Any other account can be made an **administrator or a regular user**
+again (nobody changes their own role, so an instance always keeps one), and its username, names,
+email and avatar can be edited.
+
+**Reset password** sets a new one outright — temporary by default, so only the owner ends up
+knowing it — or creates a one-time link, valid for 24 hours, for them to choose it. Either signs
+the account out everywhere, and can revoke its API tokens too. Neither works with an API token.
+See [API & CLI reference](docs/API_REFERENCE.md#users-admin).
+</details>
+
+<details>
+<summary><b>Sessions and sign-in history in Manage Users</b></summary>
+
+The list shows when each account was **last active** and how many sessions it has, and can be
+searched by name, username or email, filtered by status and role, and sorted. An account's
+**Sessions** dialog lists each browser, address, sign-in time and last activity, and signs out one
+session or all of them without touching the password; on your own account the session you are
+using is marked *This browser* and kept. **Sign out everyone** ends every session on the instance
+but yours, and **Clear sign-in history** forgets the last sign-in and each session's address,
+browser and times — for one account or for all — without signing anyone out.
+</details>
+
+### 0.0.15
+
+<details>
 <summary><b>Several installations on one Docker host</b></summary>
 
 Each installation now has a name — **`DBCANVAS_INSTANCE`** in `.env`, which `make env` sets to
