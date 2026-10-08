@@ -4144,6 +4144,66 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
     }
   }
 
+  // Live replication on the canvas. endpointIds is a line end's database nodes: the node, or a
+  // cluster frame's members. replLive is a designed replication line's health from the channel at
+  // its replica end (both ends for a bidirectional line): ok, lagging, broken, or missing.
+  const endpointIds = (id) => {
+    if (nodes.some((n) => n.id === id)) return [id]
+    return nodes.filter((n) => n.frameId === id).map((n) => n.id)
+  }
+  function channelFrom(replicaEnd, sourceEnd) {
+    const srcs = new Set(endpointIds(sourceEnd))
+    for (const id of endpointIds(replicaEnd)) {
+      const r = live[id]?.role
+      for (const ch of r?.channels || []) if (srcs.has(ch.sourceNode)) return ch
+      if (r?.sourceNode && srcs.has(r.sourceNode)) return { running: !(r.problems?.length), lagSec: r.lagSec, problem: r.problems?.[0] }
+    }
+    return null
+  }
+  function replLive(ed) {
+    const ends = ed.type === 'bidir' ? [[ed.to.node, ed.from.node], [ed.from.node, ed.to.node]] : [[ed.to.node, ed.from.node]]
+    const anyLive = ends.some(([rep]) => endpointIds(rep).some((id) => live[id]?.role))
+    if (!anyLive) return null
+    let worst = { tone: 'success', text: '' }
+    const rank = { success: 0, warning: 1, danger: 2 }
+    for (const [rep, src] of ends) {
+      const ch = channelFrom(rep, src)
+      let v
+      if (!ch) v = { tone: 'danger', text: 'not replicating', title: 'The replica end has no channel from this source.' }
+      else if (!ch.running) v = { tone: 'danger', text: 'stopped', title: ch.problem || 'The channel is not running.' }
+      else if (ch.problem || (ch.lagSec ?? 0) > 30) v = { tone: 'warning', text: ch.lagSec != null ? `lag ${Math.round(ch.lagSec)}s` : 'problem', title: ch.problem }
+      else v = { tone: 'success', text: ch.lagSec != null ? `lag ${ch.lagSec < 10 ? ch.lagSec.toFixed(1) : Math.round(ch.lagSec)}s` : 'replicating' }
+      if (rank[v.tone] >= rank[worst.tone]) worst = v
+    }
+    return worst
+  }
+  // replDeviations are the replication streams Live sees that the design does not draw: a replica
+  // following another member than its cluster's designed primary (a failover, a re-point by hand),
+  // or a source no designed line covers. As designed, nothing extra is drawn.
+  function replDeviations() {
+    const out = []
+    const covered = (src, dst) => edges.some((ed) => isReplEdge(ed) && (
+      (endpointIds(ed.from.node).includes(src) && endpointIds(ed.to.node).includes(dst)) ||
+      (ed.type === 'bidir' && endpointIds(ed.to.node).includes(src) && endpointIds(ed.from.node).includes(dst))))
+    for (const n of nodes) {
+      const r = live[n.id]?.role
+      if (!r) continue
+      const srcs = r.channels?.length ? r.channels.map((c) => c.sourceNode).filter(Boolean) : r.sourceNode ? [r.sourceNode] : []
+      for (const src of srcs) {
+        const s = nodes.find((m) => m.id === src)
+        if (!s || covered(src, n.id)) continue
+        if (n.frameId && s.frameId === n.frameId) {
+          const designPrimary = nodes.find((m) => m.frameId === n.frameId && m.role === 'primary')
+          if (!designPrimary || designPrimary.id === src) continue
+        }
+        out.push({ src, dst: n.id, why: n.frameId && s.frameId === n.frameId
+          ? `${n.label} replicates from ${s.label}; the design marks ${nodes.find((m) => m.frameId === n.frameId && m.role === 'primary')?.label} primary`
+          : `${n.label} replicates from ${s.label}, which no replication line on the canvas draws` })
+      }
+    }
+    return out
+  }
+
   // focusNode selects a node and brings it to the middle of the canvas — where an alert or a
   // timeline entry sends you.
   function focusNode(nid) {
@@ -4947,21 +5007,24 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
                 // sim → proxy line reads as the application's connection rather than as
                 // the proxy's SQL — which is the same traffic, named from the wrong end.
                 const simEnd = nodes.some((n) => (n.id === ed.from.node || n.id === ed.to.node) && SIM_NODE_TYPES.has(n.type))
+                const rl = repl && liveOn ? replLive(ed) : null
                 const caption = repl
-                  ? (ed.type === 'bidir' ? 'bidirectional replication' : 'async replication')
+                  ? (ed.type === 'bidir' ? 'bidirectional replication' : 'async replication') + (rl?.text ? ` · ${rl.text}` : '')
                   : simEnd ? 'app connection'
                   : (proxyNodeEnd || proxyFrameEnd ? 'SQL traffic' : null)
+                const replColor = rl ? `var(--${rl.tone})` : 'var(--success)'
                 return (
                   <g key={ed.id}>
                     <path d={d} fill="none" stroke="transparent" strokeWidth="16" className="pointer-events-auto cursor-pointer"
                       onPointerDown={(e) => { e.stopPropagation(); setSelected({ kind: 'edge', id: ed.id }) }} />
-                    <path d={d} fill="none" stroke={on ? 'var(--primary)' : repl ? 'var(--success)' : 'var(--muted)'} strokeWidth={on ? 3 : 2}
-                      strokeDasharray={repl ? '7 4' : undefined}
+                    <path d={d} fill="none" stroke={on ? 'var(--primary)' : repl ? replColor : 'var(--muted)'} strokeWidth={on ? 3 : rl ? 2.5 : 2}
+                      strokeDasharray={repl && (!rl || rl.tone !== 'success') ? '7 4' : undefined}
                       markerEnd={repl ? 'url(#stk-arrow)' : undefined}
                       markerStart={ed.type === 'bidir' ? 'url(#stk-arrow)' : undefined} />
                     {caption && (
-                      <text x={(p0.x + p1.x) / 2} y={(p0.y + p1.y) / 2 - 5} textAnchor="middle"
-                        style={{ fill: 'var(--muted)', fontSize: '9px', paintOrder: 'stroke', stroke: 'var(--bg)', strokeWidth: 3.5, strokeLinejoin: 'round' }}>
+                      <text x={(p0.x + p1.x) / 2} y={(p0.y + p1.y) / 2 - 5} textAnchor="middle" className={rl?.title ? 'pointer-events-auto cursor-help' : undefined}
+                        style={{ fill: rl && rl.tone !== 'success' ? `var(--${rl.tone})` : 'var(--muted)', fontSize: '9px', fontWeight: rl && rl.tone !== 'success' ? 600 : 400, paintOrder: 'stroke', stroke: 'var(--bg)', strokeWidth: 3.5, strokeLinejoin: 'round' }}>
+                        {rl?.title && <title>{rl.title}</title>}
                         {caption}
                       </text>
                     )}
@@ -5134,10 +5197,11 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
               )
             })}
 
-            {/* Live replication: who each replica actually copies from, as its server says — drawn
-                over the cards, under each pair, so a replica re-pointed by hand or by a failover
-                shows where it really is. Amber when that replica reports a problem; dashed when its
-                source is not the member the design marks primary. */}
+            {/* Live replication that is not as designed: a replica following another member than
+                its cluster's designed primary, or a source no replication line draws. What matches
+                the design is shown on the design's own lines (their colour and lag), so the canvas
+                stays quiet while everything is where it was put. Each arc gets its own depth under
+                the cards, so two of them never sit on top of each other. */}
             {liveOn && (
               <svg className="pointer-events-none absolute left-0 top-0 overflow-visible" width="1" height="1">
                 <defs>
@@ -5145,32 +5209,19 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
                     <path d="M0,0 L10,5 L0,10 z" fill="context-stroke" />
                   </marker>
                 </defs>
-                {nodes.map((n) => {
-                  const r = live[n.id]?.role
-                  if (!r?.sourceNode) return null
-                  const a = rectOf(r.sourceNode)
-                  const b = rectOf(n.id)
+                {replDeviations().map((dv, i) => {
+                  const a = rectOf(dv.src)
+                  const b = rectOf(dv.dst)
                   if (!a || !b) return null
-                  const sick = (r.problems?.length || 0) > 0
-                  const col = sick ? 'var(--warning)' : 'var(--success)'
-                  const designPrimary = n.frameId ? nodes.find((m) => m.frameId === n.frameId && m.role === 'primary') : null
-                  const differs = designPrimary && designPrimary.id !== r.sourceNode
                   const x0 = a.x + a.w / 2, x1 = b.x + b.w / 2
                   const y0 = a.y + a.h, y1 = b.y + b.h
-                  // Under the pair, inside the frame's bottom margin when both are its members, so the
-                  // arc does not run into whatever sits below the cluster.
-                  const fr = n.frameId && frames.find((f) => f.id === n.frameId)
-                  const room = fr ? (fr.y + fr.h) - Math.max(y0, y1) - 2 : 40
-                  const dip = Math.max(6, Math.min(16 + Math.min(40, Math.abs(x1 - x0) / 8), room / 0.75))
+                  const dip = 22 + 16 * i + Math.min(40, Math.abs(x1 - x0) / 10)
                   const d = `M${x0},${y0} C${x0},${Math.max(y0, y1) + dip} ${x1},${Math.max(y0, y1) + dip} ${x1},${y1 + 2}`
-                  const lag = r.lagSec != null ? `lag ${r.lagSec < 10 ? r.lagSec.toFixed(1) : Math.round(r.lagSec)}s` : ''
                   return (
-                    <g key={`live-${n.id}`} opacity={0.9}>
-                      <path d={d} fill="none" stroke={col} strokeWidth="2" strokeLinecap="round" style={{ pointerEvents: 'stroke' }}
-                        strokeDasharray={differs ? '5 4' : undefined} markerEnd="url(#stk-live-arrow)">
-                        <title>{`${nodes.find((m) => m.id === r.sourceNode)?.label} → ${n.label}${lag ? ' · ' + lag : ''}${sick ? ' · ' + r.problems[0] : ''}${differs ? ` · the design marks ${designPrimary.label} primary` : ''}`}</title>
-                      </path>
-                    </g>
+                    <path key={`live-${dv.src}-${dv.dst}`} d={d} fill="none" stroke="var(--warning)" strokeWidth="2" strokeLinecap="round"
+                      strokeDasharray="5 4" markerEnd="url(#stk-live-arrow)" style={{ pointerEvents: 'stroke' }}>
+                      <title>{dv.why}</title>
+                    </path>
                   )
                 })}
               </svg>

@@ -68,6 +68,23 @@ type liveRole struct {
 	// replication arrows from.
 	Source     string `json:"source,omitempty"`
 	SourceNode string `json:"sourceNode,omitempty"`
+	// Channels is every replication channel of a MySQL-family node — a cluster primary can also
+	// be the replica end of a link from another cluster, and a bidirectional link is a channel
+	// at both ends — so the canvas can colour each designed replication line by its own channel.
+	Channels []liveChannel `json:"channels,omitempty"`
+	// CrossCluster: this node's sources are all outside its own cluster — the primary of a
+	// cluster fed by a replication link from another one.
+	CrossCluster bool `json:"crossCluster,omitempty"`
+}
+
+// liveChannel is one replication channel as its replica reports it.
+type liveChannel struct {
+	Source     string   `json:"source"`
+	SourceNode string   `json:"sourceNode,omitempty"`
+	Name       string   `json:"name,omitempty"`
+	Running    bool     `json:"running"`
+	LagSec     *float64 `json:"lagSec,omitempty"`
+	Problem    string   `json:"problem,omitempty"`
 }
 
 // liveLoad is what the database itself is doing. Queries and Commits are counters since the server
@@ -222,8 +239,13 @@ func (a *App) liveSnapshot(ctx context.Context, st Stack) (map[string]*liveNode,
 	return out, nil
 }
 
-// resolveSources names the node each replica's source host is. A host can be given as the short
-// name, the FQDN, or (MongoDB, PostgreSQL) an address; the first two are matched.
+// resolveSources names the node each replica's source host is — for the node's first source and
+// for each of its channels. A host can be given as the short name, the FQDN, or (MongoDB,
+// PostgreSQL) an address; the first two are matched.
+//
+// A member whose every channel comes from outside its own cluster, and which feeds replicas or
+// is the cluster's designed primary, is that cluster's primary — fed by a replication link from
+// another cluster — and is reported as such rather than as a replica.
 func resolveSources(doc designDoc, nodes map[string]*liveNode) {
 	hosts := stackHostnames(doc)
 	byHost := map[string]string{}
@@ -233,22 +255,47 @@ func resolveSources(doc designDoc, nodes map[string]*liveNode) {
 		}
 		byHost[strings.ToLower(h)] = id
 	}
-	for id, ln := range nodes {
-		if ln == nil || ln.Role == nil || ln.Role.Source == "" {
-			continue
-		}
-		h := strings.ToLower(strings.TrimSuffix(ln.Role.Source, "."))
+	frameOf := map[string]string{}
+	design := map[string]designNode{}
+	for _, n := range doc.Nodes {
+		frameOf[n.ID] = n.FrameID
+		design[n.ID] = n
+	}
+	resolve := func(host, self string) string {
+		h := strings.ToLower(strings.TrimSuffix(host, "."))
 		short, _, _ := strings.Cut(h, ".")
 		src := firstNonEmpty(byHost[h], byHost[short])
-		if src == "" || src == id {
+		if src == self {
+			return ""
+		}
+		return src
+	}
+	for id, ln := range nodes {
+		if ln == nil || ln.Role == nil || (ln.Role.Source == "" && len(ln.Role.Channels) == 0) {
 			continue
 		}
 		r := *ln.Role
-		r.SourceNode = src
+		if r.Source != "" {
+			r.SourceNode = resolve(r.Source, id)
+		}
+		r.Channels = append([]liveChannel(nil), r.Channels...)
+		inFrame := false
+		for i := range r.Channels {
+			r.Channels[i].SourceNode = resolve(r.Channels[i].Source, id)
+			if f := frameOf[id]; f != "" && frameOf[r.Channels[i].SourceNode] == f {
+				inFrame = true
+			}
+		}
+		if r.Role == "replica" && frameOf[id] != "" && len(r.Channels) > 0 && !inFrame &&
+			((r.Replicas != nil && *r.Replicas > 0) || design[id].Role == "primary") {
+			r.Role, r.CrossCluster = "primary", true
+			if r.State == "replicating" {
+				r.State = ""
+			}
+		}
 		ln.Role = &r
 	}
 }
-
 // asyncReplFrames are the clusters held together by plain source → replica replication, where a
 // member with no source at all is a member that has silently left.
 var asyncReplFrames = map[string]bool{"mysql": true, "mysqlcerepl": true, "mariadbrepl": true}

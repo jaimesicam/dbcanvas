@@ -1,4 +1,4 @@
-import { RoleChip, health, NOT_RUNNING, ROLE_LABEL, tone, iops, rate, designMismatch, warnStyle, dangerStyle, perSec, connText } from './LiveOverlay.jsx'
+import { RoleChip, health, NOT_RUNNING, ROLE_LABEL, tone, iops, rate, designMismatch, warnStyle, dangerStyle, perSec, connText, crossFrom } from './LiveOverlay.jsx'
 import { fmtBytes } from '../lib/dashApi.js'
 
 // LiveCard.jsx — the Live view as part of the canvas itself, rather than panels over it.
@@ -66,7 +66,7 @@ function ShortRole({ data, node, frame }) {
   const mismatch = designMismatch(node, frame, r)
   return chip(`${SHORT[r.role] || r.role.toUpperCase()}${r.access ? '·' + r.access.toUpperCase() : ''}${mismatch ? ' ≠' : ''}`,
     lead ? { background: 'color-mix(in srgb, var(--primary) 16%, transparent)', color: 'var(--primary)' } : { background: 'var(--surface2)', color: 'var(--fg)' },
-    `${ROLE_LABEL[r.role] || r.role}${r.access ? ' · ' + r.access.toUpperCase() : ''}${mismatch ? ` — the design says ${mismatch}` : ''}`)
+    `${ROLE_LABEL[r.role] || r.role}${r.access ? ' · ' + r.access.toUpperCase() : ''}${r.crossCluster ? ` — the primary of this cluster, replicating from ${crossFrom(r)} in another cluster` : ''}${mismatch ? ` — the design says ${mismatch}` : ''}`)
 }
 
 // meta is the short line beside the role: the first problem, the reason a database is down, lag,
@@ -76,6 +76,7 @@ function metaOf(data) {
   if (data.state !== 'running') return { text: (NOT_RUNNING[data.state] || [])[1] || '', tone: 'danger' }
   if (r?.down) return { text: r.error || 'the database is not answering', tone: 'danger' }
   if (r?.problems?.length) return { text: r.problems[0], tone: 'warning', all: r.problems.join('\n') }
+  if (r?.crossCluster) return { text: `←${crossFrom(r)}${r.lagSec != null ? ` ${Math.round(r.lagSec)}s` : ''}`, all: `Replicating from ${crossFrom(r)} in another cluster${r.lagSec != null ? `, lag ${r.lagSec}s` : ''}` }
   if (r?.lagSec != null) return { text: `lag ${r.lagSec < 10 ? r.lagSec.toFixed(1) : Math.round(r.lagSec)}s` }
   if (r?.replicas != null) return { text: `${r.replicas} replica${r.replicas === 1 ? '' : 's'}` }
   if (r?.state) return { text: r.state }

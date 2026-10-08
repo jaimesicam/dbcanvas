@@ -376,3 +376,32 @@ func TestDetachedReplica(t *testing.T) {
 		t.Fatal("the cached role was changed in place")
 	}
 }
+
+// mysql04 is the primary of psrepl-01 and the replica end of a link from mysql01 in psrepl-00:
+// a cluster primary fed from another cluster, not a replica of its own cluster.
+func TestCrossClusterPrimary(t *testing.T) {
+	doc := designDoc{
+		Frames: []designFrame{{ID: "a", Type: "mysql"}, {ID: "b", Type: "mysql"}},
+		Nodes: []designNode{
+			{ID: "m1", Label: "mysql01", FrameID: "a", Role: "primary"},
+			{ID: "m4", Label: "mysql04", FrameID: "b", Role: "primary"},
+			{ID: "m5", Label: "mysql05", FrameID: "b", Role: "secondary"},
+		},
+	}
+	two := 2
+	nodes := map[string]*liveNode{
+		"m1": {State: "running", Role: &liveRole{Role: "primary", Access: "rw"}},
+		"m4": {State: "running", Role: &liveRole{Role: "replica", Access: "rw", State: "replicating", Replicas: &two, Source: "mysql01.example.net",
+			Channels: []liveChannel{{Source: "mysql01.example.net", Name: "xrepl_a", Running: true}}}},
+		"m5": {State: "running", Role: &liveRole{Role: "replica", Access: "ro", Source: "mysql04.example.net",
+			Channels: []liveChannel{{Source: "mysql04.example.net", Running: true}}}},
+	}
+	resolveSources(doc, nodes)
+	m4 := nodes["m4"].Role
+	if m4.Role != "primary" || !m4.CrossCluster || m4.Channels[0].SourceNode != "m1" || m4.SourceNode != "m1" {
+		t.Fatalf("mysql04 = %+v", m4)
+	}
+	if m5 := nodes["m5"].Role; m5.Role != "replica" || m5.CrossCluster || m5.Channels[0].SourceNode != "m4" {
+		t.Fatalf("mysql05 = %+v", m5)
+	}
+}

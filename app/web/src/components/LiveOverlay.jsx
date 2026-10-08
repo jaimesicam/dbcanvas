@@ -94,6 +94,9 @@ export const NOT_RUNNING = {
   unreachable: ['NOT RESPONDING', 'The deployment says running, but the container does not answer.'],
 }
 
+// crossFrom names where a cross-cluster primary replicates from: the source host's short name.
+export const crossFrom = (role) => (role?.channels?.[0]?.source || role?.source || '').split('.')[0]
+
 export function RoleChip({ role, mismatch }) {
   if (!role) return null
   if (role.down) {
@@ -106,10 +109,11 @@ export function RoleChip({ role, mismatch }) {
   return (
     <span className="flex items-center gap-1">
       <span className="rounded px-1.5 py-px text-[10px] font-bold tracking-wide"
+        title={role.crossCluster ? `The primary of this cluster, and the replica end of a link from ${crossFrom(role)} in another cluster.` : undefined}
         style={lead
           ? { background: 'color-mix(in srgb, var(--primary) 16%, transparent)', color: 'var(--primary)' }
           : { background: 'var(--surface2)', color: 'var(--fg)' }}>
-        {ROLE_LABEL[role.role] || role.role.toUpperCase()}{role.access ? ` · ${role.access.toUpperCase()}` : ''}
+        {ROLE_LABEL[role.role] || role.role.toUpperCase()}{role.access ? ` · ${role.access.toUpperCase()}` : ''}{role.crossCluster ? ` ← ${crossFrom(role)}` : ''}
       </span>
       {mismatch && (
         <span title={`The design says ${mismatch}; the server says otherwise — a failover, or a role changed by hand.`}

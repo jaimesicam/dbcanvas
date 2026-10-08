@@ -223,6 +223,11 @@ func parseMySQLLive(out string, expectMembers int) *liveRole {
 			r.Role, r.Replicas = "primary", &n
 		}
 	}
+	// A replica that feeds replicas of its own (a relay, or the primary of a cluster fed from
+	// another cluster) says how many.
+	if n, _ := strconv.Atoi(f["dumps"]); n > 0 && r.Replicas == nil && len(channels) > 0 {
+		r.Replicas = &n
+	}
 
 	// Every channel is checked whatever the role: a PXC member can also be the replica end of a
 	// cross-cluster link (replication.go), and that channel breaking is the problem worth saying.
@@ -232,6 +237,13 @@ func parseMySQLLive(out string, expectMembers int) *liveRole {
 	}
 	for _, c := range channels {
 		host := firstNonEmpty(c["Source_Host"], c["Master_Host"])
+		ch := liveChannel{Source: host, Name: firstNonEmpty(c["Channel_Name"], c["Connection_name"]),
+			Running: firstNonEmpty(c["Replica_IO_Running"], c["Slave_IO_Running"]) == "Yes" && firstNonEmpty(c["Replica_SQL_Running"], c["Slave_SQL_Running"]) == "Yes"}
+		if lag, err := strconv.ParseFloat(firstNonEmpty(c["Seconds_Behind_Source"], c["Seconds_Behind_Master"]), 64); err == nil {
+			ch.LagSec = &lag
+		}
+		ch.Problem = clipLine(firstNonEmpty(c["Last_IO_Error"], c["Last_SQL_Error"]), problemMax)
+		r.Channels = append(r.Channels, ch)
 		where := host
 		if ch := c["Channel_Name"]; ch != "" {
 			where += " (channel " + ch + ")"
