@@ -5733,8 +5733,8 @@ function DeployPreviewModal({ p, busy, onConfirm, onClose }) {
         <h3 className="mb-1 text-sm font-semibold">{nothing ? 'Nothing to deploy' : 'What this deploy will do'}</h3>
         <p className="mb-3 text-xs text-muted">
           {nothing
-            ? `Every node is running, and a deploy leaves running nodes alone — settings changed on them since are not applied by it.`
-            : `${p.unchanged} running node${p.unchanged === 1 ? ' is' : 's are'} left alone. Settings changed on running nodes are not applied by a deploy.`}
+            ? `Every node is built, and a deploy leaves running and stopped nodes alone — settings changed on them since are not applied by it.`
+            : `${p.unchanged} running or stopped node${p.unchanged === 1 ? ' is' : 's are'} left alone. Settings changed on them are not applied by a deploy.`}
         </p>
         <div className="min-h-0 flex-1 space-y-3 overflow-auto">
           {group('Recreated — running, data lost', p.rebuild, 'danger')}

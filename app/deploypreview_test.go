@@ -15,9 +15,9 @@ func TestPreviewDeploy(t *testing.T) {
 		},
 	}
 	deps := []Deployment{
-		{NodeID: "i", State: DeployRunning}, {NodeID: "p", State: DeployStopped},
-		{NodeID: "a", State: DeployRunning}, {NodeID: "b", State: DeployRunning},
-		{NodeID: "x", State: DeployRunning}, {NodeID: "gone", State: DeployRunning},
+		{NodeID: "i", State: DeployRunning, ContainerID: "c1"}, {NodeID: "p", State: DeployError, ContainerID: "c2"},
+		{NodeID: "a", State: DeployRunning, ContainerID: "c3"}, {NodeID: "b", State: DeployStopped, ContainerID: "c4"},
+		{NodeID: "x", State: DeployRunning, ContainerID: "c5"}, {NodeID: "gone", State: DeployRunning, ContainerID: "c6"},
 	}
 	p := previewDeploy(doc, deps)
 	if len(p.Remove) != 1 || p.Remove[0].NodeID != "gone" {
@@ -34,5 +34,30 @@ func TestPreviewDeploy(t *testing.T) {
 	}
 	if p.Unchanged != 2 { // the intranet and the whole running galera frame
 		t.Errorf("unchanged = %d", p.Unchanged)
+	}
+}
+
+// A node stopped on purpose keeps its container and data: a deploy leaves it, and its cluster,
+// alone.
+func TestStoppedIsNotRebuilt(t *testing.T) {
+	doc := designDoc{
+		Frames: []designFrame{{ID: "f", Type: "mysql", Label: "repl"}},
+		Nodes: []designNode{
+			{ID: "s", Type: "ps", Label: "ps-01"},
+			{ID: "a", Type: "mysql", FrameID: "f", Label: "db-1"},
+			{ID: "b", Type: "mysql", FrameID: "f", Label: "db-2"},
+		},
+	}
+	deps := []Deployment{
+		{NodeID: "s", State: DeployStopped, ContainerID: "c1"},
+		{NodeID: "a", State: DeployRunning, ContainerID: "c2"},
+		{NodeID: "b", State: DeployStopped, ContainerID: "c3"},
+	}
+	p := previewDeploy(doc, deps)
+	if len(p.Recreate)+len(p.Rebuild)+len(p.Create) != 0 || p.Unchanged != 3 {
+		t.Fatalf("%+v", p)
+	}
+	if deployBuilt(Deployment{State: DeployStopped}) {
+		t.Error("a stopped deployment with no container is not built")
 	}
 }

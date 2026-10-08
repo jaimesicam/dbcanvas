@@ -2368,13 +2368,13 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 		if n.FrameID != "" {
 			continue
 		}
-		if d, ok := existing[n.ID]; ok && d.State == DeployRunning {
+		if d, ok := existing[n.ID]; ok && deployBuilt(d) {
 			// An All-in-One node is the one type whose contents can legitimately
 			// grow after it is running: its instance list is edited on the node
 			// itself, not by adding canvas nodes. Re-enter it when the planned
 			// instance set has changed so the new instances get built; provisionAIO
 			// reuses the container and skips the ones already there.
-			if !(n.Type == "aio" && aioNeedsRedeploy(a, st, n, d)) {
+			if !(n.Type == "aio" && d.State == DeployRunning && aioNeedsRedeploy(a, st, n, d)) {
 				continue
 			}
 		}
@@ -2464,13 +2464,13 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 		for _, n := range doc.Nodes {
 			if n.FrameID == f.ID && n.Type == f.Type {
 				ids = append(ids, n.ID)
-				if d, ok := existing[n.ID]; ok && d.State == DeployRunning {
+				if d, ok := existing[n.ID]; ok && deployBuilt(d) {
 					running++
 				}
 			}
 		}
 		if len(ids) > 0 && running == len(ids) {
-			continue // frame skipped (already fully running) — not part of this pass
+			continue // frame skipped (every member already built) — not part of this pass
 		}
 		barrierIDs = append(barrierIDs, ids...)
 	}
@@ -2520,7 +2520,7 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 		for _, n := range doc.Nodes {
 			if n.FrameID == f.ID && n.Type == memberType {
 				members++
-				if d, ok := existing[n.ID]; ok && d.State == DeployRunning {
+				if d, ok := existing[n.ID]; ok && deployBuilt(d) {
 					running++
 				}
 			}
@@ -3097,6 +3097,14 @@ func (a *App) handleNodeAction(action string) http.HandlerFunc {
 		updated, _ := a.store.GetDeployment(st.ID, nid)
 		writeJSON(w, http.StatusOK, updated)
 	}
+}
+
+// deployBuilt is a node a deploy leaves alone: running, or stopped on purpose. A stopped node
+// still has its container and its data — Start brings it back as it was — so provisioning it
+// again would recreate the container and lose the data. Only a node never deployed, or one whose
+// provisioning failed (error, pending), is built again.
+func deployBuilt(d Deployment) bool {
+	return d.ContainerID != "" && (d.State == DeployRunning || d.State == DeployStopped)
 }
 
 // refreshPublishedPorts re-reads a node container's auto-assigned host ports and

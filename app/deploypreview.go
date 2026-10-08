@@ -7,10 +7,10 @@ import (
 
 // deploypreview.go — what pressing Deploy on a stack that is already deployed would do, before it
 // does it. A redeploy is not a no-op that adds what is new: it removes the containers and volumes
-// of every node deleted from the canvas, provisions a node that is not running from scratch (a
-// stopped one included — a new container, a new data directory), and provisions a cluster as a
-// unit, so a cluster with one new or stopped member has every member's container recreated,
-// running ones too, with their data. The preview follows handleDeployStack's own rules and says
+// of every node deleted from the canvas, provisions a node that was never built or whose
+// provisioning failed from scratch, and provisions a cluster as a
+// unit, so a cluster with a new member (or one whose provisioning failed) has every member's
+// container recreated, running ones too, with their data. A stopped node is left as it is. The preview follows handleDeployStack's own rules and says
 // all of that per node, so nobody finds out from the deploy log.
 
 type previewItem struct {
@@ -25,9 +25,9 @@ type previewItem struct {
 type deployPreview struct {
 	Remove    []previewItem `json:"remove"`    // deleted from the canvas: container and volumes removed
 	Create    []previewItem `json:"create"`    // never deployed: created
-	Recreate  []previewItem `json:"recreate"`  // deployed but not running: built again from scratch
+	Recreate  []previewItem `json:"recreate"`  // deployed but failed (error, pending): built again from scratch
 	Rebuild   []previewItem `json:"rebuild"`   // running, but its cluster is provisioned again: recreated, data lost
-	Unchanged int           `json:"unchanged"` // running and left alone
+	Unchanged int           `json:"unchanged"` // running or stopped, and left alone
 }
 
 // previewFrameTypes are the frames handleDeployStack provisions as a unit, members of their own type.
@@ -53,7 +53,7 @@ func previewDeploy(doc designDoc, deps []Deployment) deployPreview {
 				Why: "deleted from the canvas — its container and volumes are removed"})
 		}
 	}
-	running := func(id string) bool { d, ok := existing[id]; return ok && d.State == DeployRunning }
+	running := func(id string) bool { d, ok := existing[id]; return ok && deployBuilt(d) } // running or stopped: left alone
 	notRunning := func(n designNode, cluster string) previewItem {
 		it := previewItem{NodeID: n.ID, Label: n.Label, Type: n.Type, Cluster: cluster}
 		if d, ok := existing[n.ID]; ok {
@@ -102,7 +102,7 @@ func previewDeploy(doc designDoc, deps []Deployment) deployPreview {
 		for _, n := range members {
 			if running(n.ID) {
 				p.Rebuild = append(p.Rebuild, previewItem{NodeID: n.ID, Label: n.Label, Type: n.Type, State: DeployRunning, Cluster: f.Label,
-					Why: "running, but " + f.Label + " is provisioned as a whole because another member is new or not running — its container is recreated and its data is lost"})
+					Why: "built, but " + f.Label + " is provisioned as a whole because another member is new or failed — its container is recreated and its data is lost"})
 				continue
 			}
 			add(notRunning(n, f.Label))

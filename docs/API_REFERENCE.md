@@ -593,9 +593,10 @@ there is none, amber past a day — and **Back up now** in its popover
 
 Deploy on a stack that is already deployed first shows what it will do
 (`GET /api/stacks/{id}/deploy/preview`): nodes deleted from the canvas are removed with their
-volumes, a node that is not running is provisioned again from scratch, and a cluster with a new or
-stopped member is provisioned as a whole — its running members' containers are recreated and their
-data lost. Running nodes are otherwise left alone, and settings changed on them are not applied.
+volumes, a node never built or whose provisioning failed is provisioned from scratch, and a cluster
+with such a member is provisioned as a whole — its other members' containers are recreated and their
+data lost. Running and stopped nodes are otherwise left alone (a stopped node keeps its container and
+data; Start brings it back as it was), and settings changed on them are not applied.
 
 The canvas undoes and redoes design changes (Ctrl/⌘+Z, Ctrl/⌘+Shift+Z); Shift- or Ctrl/⌘-click
 selects several cards to start, stop or restart one after another.
