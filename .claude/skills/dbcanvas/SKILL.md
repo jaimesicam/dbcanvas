@@ -368,6 +368,7 @@ unless they explicitly asked for that exact action.
 | `dbcanvas stack delete` | Removes the design too. Not recoverable. Prompts unless `--yes`. |
 | `dbcanvas api DELETE /api/users/{id}` | Deletes an account **and its stacks**. |
 | `dbcanvas api POST /api/users/{id}/disable` | Cuts somebody's access, sessions and tokens. |
+| `dbcanvas api POST /api/users/{id}/role` | Grants or removes somebody's administrator access. |
 | `dbcanvas token revoke` | Breaks whatever was holding that token, immediately. |
 | `dbcanvas password --revoke-tokens` | Breaks every script of theirs, including your own session. |
 | `dbcanvas node stop` / `restart` | Interrupts a running database; ports move on restart. |

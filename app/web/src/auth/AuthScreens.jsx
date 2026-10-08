@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from './AuthProvider.jsx'
 import { useTheme, THEMES } from '../theme/ThemeProvider.jsx'
 import { Button, Field, inputCls } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { ProfileFields, profileComplete } from '../components/ProfileFields.jsx'
 import { randomAvatar } from '../components/Avatar.jsx'
+import { api } from '../lib/api.js'
 
 export function Splash() {
   return (
@@ -116,14 +117,20 @@ export function AuthScreen() {
   const [profile, setProfile] = useState(() => ({ firstName: '', lastName: '', email: '', avatar: randomAvatar() }))
   const [error, setError] = useState('')
   // A shared-session guest who pressed Leave lands here with ?left=1
-  // (components/SessionPanel.jsx); say so once, then tidy the address.
+  // (components/SessionPanel.jsx), and somebody who just used a reset link with
+  // ?reset=1 (ResetPasswordScreen); say so once, then tidy the address.
   const [success, setSuccess] = useState(() => {
     try {
       const q = new URLSearchParams(location.search)
-      if (q.get('left') !== '1') return ''
+      const left = q.get('left') === '1'
+      const reset = q.get('reset') === '1'
+      if (!left && !reset) return ''
       q.delete('left')
+      q.delete('reset')
       history.replaceState(null, '', location.pathname + (q.toString() ? `?${q}` : '') + location.hash)
-      return 'You left the shared session. To rejoin, ask the host for a new invitation link.'
+      return left
+        ? 'You left the shared session. To rejoin, ask the host for a new invitation link.'
+        : 'Your password was changed. Sign in with the new one.'
     } catch { return '' }
   })
   const [busy, setBusy] = useState(false)
@@ -215,6 +222,135 @@ export function AuthScreen() {
           </p>
         </form>
       )}
+    </Shell>
+  )
+}
+
+// resetToken is the token when this tab is on a password reset link
+// (/reset-password/<token>, app/useradmin.go), else ''.
+export function resetToken() {
+  const p = location.pathname
+  return p.startsWith('/reset-password/') ? decodeURIComponent(p.slice('/reset-password/'.length).split('/')[0] || '') : ''
+}
+
+// ResetPasswordScreen is where a reset link an administrator sent lands. It comes
+// before sign-in — the person has no working password, which is the point — and
+// sends them to the sign-in screen once the new one is set.
+export function ResetPasswordScreen({ token }) {
+  const [info, setInfo] = useState(null) // { username, firstName, expiresAt, purpose }
+  const [dead, setDead] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    api.resetLinkInfo(token).then(setInfo, (err) => setDead(err.message))
+  }, [token])
+
+  async function onSubmit(e) {
+    e.preventDefault()
+    setError('')
+    if (password !== confirm) {
+      setError('Passwords do not match.')
+      return
+    }
+    setBusy(true)
+    try {
+      await api.useResetLink(token, password)
+      location.replace('/?reset=1')
+    } catch (err) {
+      setError(err.message)
+      setBusy(false)
+    }
+  }
+
+  if (dead) {
+    return (
+      <Shell title="Reset password" subtitle="This link cannot be used">
+        <Banner kind="error">{dead}</Banner>
+        <Button size="lg" className="w-full" onClick={() => location.replace('/')}>Go to sign in</Button>
+      </Shell>
+    )
+  }
+  if (!info) return <Splash />
+  // An invite is the link an admin created the account with: nobody is resetting
+  // anything, they are choosing a first password.
+  const invite = info.purpose === 'invite'
+  return (
+    <Shell title={invite ? `Welcome${info.firstName ? `, ${info.firstName}` : ''}` : 'Reset password'}
+      subtitle={invite ? `Choose a password for your account, ${info.username}` : `Choose a new password for ${info.username}`}>
+      <Banner kind="error">{error}</Banner>
+      <form onSubmit={onSubmit} className="space-y-3">
+        <Field label="New password" hint="At least 8 characters.">
+          <input type="password" autoComplete="new-password" className={inputCls} value={password}
+            onChange={(e) => setPassword(e.target.value)} autoFocus />
+        </Field>
+        <Field label="Confirm new password">
+          <input type="password" autoComplete="new-password" className={inputCls} value={confirm}
+            onChange={(e) => setConfirm(e.target.value)} />
+        </Field>
+        <Button type="submit" size="lg" className="w-full" disabled={busy || !password}>
+          {busy ? 'Saving…' : 'Set password'}
+        </Button>
+        <p className="text-center text-xs text-muted">
+          {invite ? 'The link works once. Then sign in as ' + info.username + '.' : 'The link works once. Every session this account has is signed out.'}
+        </p>
+      </form>
+    </Shell>
+  )
+}
+
+// ForcePasswordChange is all an account sees after an administrator set its password
+// for it: choose your own, or sign out. The server refuses everything else meanwhile.
+export function ForcePasswordChange() {
+  const { user, refresh, logout } = useAuth()
+  const [current, setCurrent] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  async function onSubmit(e) {
+    e.preventDefault()
+    setError('')
+    if (password !== confirm) {
+      setError('Passwords do not match.')
+      return
+    }
+    setBusy(true)
+    try {
+      await api.changePassword(current, password, false)
+      await refresh()
+    } catch (err) {
+      setError(err.message)
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Shell title="Choose your password" subtitle={`An administrator set a temporary password for ${user?.username}`}>
+      <Banner kind="error">{error}</Banner>
+      <form onSubmit={onSubmit} className="space-y-3">
+        <Field label="Temporary password" hint="The one you just signed in with.">
+          <input type="password" autoComplete="current-password" className={inputCls} value={current}
+            onChange={(e) => setCurrent(e.target.value)} autoFocus />
+        </Field>
+        <Field label="New password" hint="At least 8 characters.">
+          <input type="password" autoComplete="new-password" className={inputCls} value={password}
+            onChange={(e) => setPassword(e.target.value)} />
+        </Field>
+        <Field label="Confirm new password">
+          <input type="password" autoComplete="new-password" className={inputCls} value={confirm}
+            onChange={(e) => setConfirm(e.target.value)} />
+        </Field>
+        <Button type="submit" size="lg" className="w-full" disabled={busy || !current || !password}>
+          {busy ? 'Saving…' : 'Set password and continue'}
+        </Button>
+        <button type="button" onClick={logout} className="block w-full text-center text-xs text-muted hover:text-fg">
+          Sign out instead
+        </button>
+      </form>
     </Shell>
   )
 }

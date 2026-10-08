@@ -224,15 +224,16 @@ func (s *Store) ListAllAPITokens() ([]APIToken, error) {
 // knowing which of the two it was.
 func (s *Store) APITokenByHash(hash string) (APIToken, User, error) {
 	row := s.db.QueryRow(`SELECT `+apiTokenColsT+`, u.id, u.username, u.role, u.status, u.created_at, u.approved_at,
-		u.first_name, u.last_name, u.avatar, u.email
+		u.first_name, u.last_name, u.avatar, u.email, u.must_change_password, u.last_login_at, u.invite_pending
 		FROM api_tokens t JOIN users u ON u.id = t.user_id
 		WHERE t.token_hash = ?`, hash)
 	var t APIToken
 	var u User
-	var expires, lastUsed, revoked, approved sql.NullString
+	var expires, lastUsed, revoked, approved, lastLogin sql.NullString
 	err := row.Scan(&t.ID, &t.UserID, &t.Name, &t.Prefix, &t.Scope,
 		&t.CreatedAt, &expires, &lastUsed, &revoked,
-		&u.ID, &u.Username, &u.Role, &u.Status, &u.CreatedAt, &approved, &u.FirstName, &u.LastName, &u.Avatar, &u.Email)
+		&u.ID, &u.Username, &u.Role, &u.Status, &u.CreatedAt, &approved, &u.FirstName, &u.LastName, &u.Avatar, &u.Email,
+		&u.MustChangePassword, &lastLogin, &u.InvitePending)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return APIToken{}, User{}, ErrTokenNotFound
@@ -253,6 +254,9 @@ func (s *Store) APITokenByHash(hash string) (APIToken, User, error) {
 	}
 	if approved.Valid {
 		u.ApprovedAt = &approved.String
+	}
+	if lastLogin.Valid {
+		u.LastLoginAt = &lastLogin.String
 	}
 	t.State = t.state(time.Now())
 	return t, u, nil
@@ -483,6 +487,19 @@ func (a *App) requireScope(rt apiRoute, next http.HandlerFunc) http.HandlerFunc 
 			return
 		}
 		if bearerToken(r) == "" {
+			// A cookie session is resolved here once, so the password-change gate can
+			// see it, and stashed so the handler's currentUser does not look it up again.
+			if rt.Auth != authPublic {
+				if c, err := r.Cookie(cookieName); err == nil && c.Value != "" {
+					if u, err := a.store.SessionUser(c.Value); err == nil {
+						if !passwordGateAllows(u, rt) {
+							writeErr(w, http.StatusForbidden, errPasswordChangeRequired)
+							return
+						}
+						r = withPrincipal(r, principal{User: u})
+					}
+				}
+			}
 			next(w, r)
 			return
 		}
@@ -494,6 +511,10 @@ func (a *App) requireScope(rt apiRoute, next http.HandlerFunc) http.HandlerFunc 
 		if rt.NoToken {
 			writeErr(w, http.StatusForbidden,
 				"this endpoint cannot be used with an API token — sign in with a password")
+			return
+		}
+		if !passwordGateAllows(u, rt) {
+			writeErr(w, http.StatusForbidden, errPasswordChangeRequired)
 			return
 		}
 		if have := effectiveScope(tok, u); !scopeAllows(have, need) {

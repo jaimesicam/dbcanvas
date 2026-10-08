@@ -48,6 +48,22 @@ export const api = {
   listUsers: () => request('GET', '/api/users'),
   setUserStatus: (id, action) => request('POST', `/api/users/${id}/${action}`),
   deleteUser: (id) => request('DELETE', `/api/users/${id}`),
+  // An admin acting on someone else's account (app/useradmin.go).
+  // body: { username, role, firstName, lastName, email, avatar, password? }
+  createUser: (body) => request('POST', '/api/users', body),
+  updateUser: (id, body) => request('PUT', `/api/users/${id}`, body),
+  setUserRole: (id, role) => request('POST', `/api/users/${id}/role`, { role }),
+  setUserPassword: (id, newPassword, revokeTokens, requireChange) =>
+    request('POST', `/api/users/${id}/password`, { newPassword, revokeTokens, requireChange }),
+  listUserSessions: (id) => request('GET', `/api/users/${id}/sessions`),
+  endUserSessions: (id) => request('DELETE', `/api/users/${id}/sessions`),
+  endUserSession: (id, sid) => request('DELETE', `/api/users/${id}/sessions/${sid}`),
+  clearSignInHistory: (id) => request('DELETE', `/api/users/${id}/sign-ins`),
+  clearAllSignInHistory: () => request('DELETE', '/api/users/sign-ins'),
+  endAllSessions: () => request('DELETE', '/api/users/sessions'),
+  createResetLink: (id) => request('POST', `/api/users/${id}/reset-link`),
+  resetLinkInfo: (token) => request('GET', `/api/auth/reset/${encodeURIComponent(token)}`),
+  useResetLink: (token, newPassword) => request('POST', `/api/auth/reset/${encodeURIComponent(token)}`, { newPassword }),
   // Release notes (app/whatsnew.go). The server decides whether there is anything
   // unread, so the client never has to compare version strings — getting that
   // subtly wrong would re-open the dialog on every page load.

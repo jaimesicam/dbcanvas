@@ -93,14 +93,25 @@ func TestRouteTableIsRegistrable(t *testing.T) {
 // somebody either widened or narrowed access, and it should be on purpose.
 func TestAdminRoutesUnchanged(t *testing.T) {
 	want := map[string]bool{
-		"PUT /api/system/settings":      true,
-		"GET /api/users":                true,
-		"POST /api/users/{id}/approve":  true,
-		"POST /api/users/{id}/reject":   true,
-		"POST /api/users/{id}/disable":  true,
-		"DELETE /api/users/{id}":        true,
-		"GET /api/admin/tokens":         true, // added with API tokens
-		"DELETE /api/admin/tokens/{id}": true, // added with API tokens
+		"PUT /api/system/settings":              true,
+		"GET /api/users":                        true,
+		"POST /api/users/{id}/approve":          true,
+		"POST /api/users/{id}/reject":           true,
+		"POST /api/users/{id}/disable":          true,
+		"DELETE /api/users/{id}":                true,
+		"POST /api/users/{id}/role":             true, // added with admin role changes
+		"POST /api/users/{id}/password":         true, // added with admin password resets
+		"POST /api/users/{id}/reset-link":       true, // added with admin password resets
+		"POST /api/users":                       true, // added with admin account management
+		"PUT /api/users/{id}":                   true,
+		"GET /api/users/{id}/sessions":          true,
+		"DELETE /api/users/{id}/sessions":       true,
+		"DELETE /api/users/{id}/sessions/{sid}": true,
+		"DELETE /api/users/{id}/sign-ins":       true, // added with clearing sign-in history
+		"DELETE /api/users/sign-ins":            true,
+		"DELETE /api/users/sessions":            true, // added with signing everyone out
+		"GET /api/admin/tokens":                 true, // added with API tokens
+		"DELETE /api/admin/tokens/{id}":         true, // added with API tokens
 		// Building an image runs a build on the host's Docker daemon, which is the
 		// installation itself rather than anybody's stack. Admin, deliberately.
 		"POST /api/images/{id}/build": true,
@@ -133,6 +144,10 @@ func TestPublicRoutesUnchanged(t *testing.T) {
 		"POST /api/auth/register",
 		"POST /api/auth/login",
 		"POST /api/auth/logout",
+		// A reset link an admin issued: its owner has no working password by
+		// definition, so the link is the credential (useradmin.go).
+		"GET /api/auth/reset/{token}",
+		"POST /api/auth/reset/{token}",
 		// A shared-session link: the join page, the lobby and leaving happen before
 		// the guest has any credential but the link itself (share.go).
 		"GET /api/join/{token}",

@@ -77,9 +77,9 @@ should not break a CI job, but a password changed because it may have leaked sho
 able to take everything with it. When it does, the CLI drops its own now-dead token
 from the config and tells you to sign in again.
 
-Forgotten it entirely, with nobody able to sign in? That is a different problem —
-an administrator runs `dbcanvas_reset_password` inside the app container, see
-[Configuration](CONFIGURATION.md#recovering-an-admin-password).
+Forgotten it entirely? An administrator can set a new one or send you a reset link from
+**Manage Users**. With no administrator able to sign in, one runs `dbcanvas_reset_password`
+inside the app container, see [Configuration](CONFIGURATION.md#recovering-an-admin-password).
 
 ## Configuration and profiles
 

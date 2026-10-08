@@ -61,9 +61,10 @@ func (a *App) issueSession(w http.ResponseWriter, r *http.Request, userID int64)
 	}
 	token := hex.EncodeToString(raw)
 	expires := time.Now().Add(sessionTTL)
-	if err := a.store.CreateSession(token, userID, expires); err != nil {
+	if err := a.store.CreateSessionFrom(token, userID, expires, remoteHost(r), r.UserAgent()); err != nil {
 		return err
 	}
+	a.store.TouchLastLogin(userID)
 	http.SetCookie(w, &http.Cookie{
 		Name:     cookieName,
 		Value:    token,

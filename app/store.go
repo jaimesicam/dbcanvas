@@ -42,6 +42,15 @@ type User struct {
 	LastName  string `json:"lastName"`
 	Email     string `json:"email"`
 	Avatar    string `json:"avatar"`
+	// MustChangePassword is set when an admin set this account's password for it
+	// (useradmin.go): until the owner picks their own, only that is allowed.
+	MustChangePassword bool `json:"mustChangePassword,omitempty"`
+	// LastLoginAt is the last password sign-in; nil means none recorded — never, or
+	// the history was cleared.
+	LastLoginAt *string `json:"lastLoginAt,omitempty"`
+	// InvitePending is an account an admin created with a link that has not been
+	// used yet: a new link for it is an invite, not a reset (useradmin.go).
+	InvitePending bool `json:"invitePending,omitempty"`
 }
 
 // Store wraps the SQLite database.
@@ -252,6 +261,16 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id, id DESC);`
 	db.Exec("ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE users ADD COLUMN email_hash TEXT NOT NULL DEFAULT ''")
 	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email_hash) WHERE email_hash != ''")
+	// Account administration (useradmin.go): a password the admin set is temporary
+	// until changed; when the owner last signed in; and, per session, where from and
+	// when it was last used, so an admin can see and end them.
+	db.Exec("ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0")
+	db.Exec("ALTER TABLE users ADD COLUMN last_login_at TEXT")
+	db.Exec("ALTER TABLE users ADD COLUMN invite_pending INTEGER NOT NULL DEFAULT 0")
+	db.Exec("ALTER TABLE sessions ADD COLUMN created_at TEXT NOT NULL DEFAULT ''")
+	db.Exec("ALTER TABLE sessions ADD COLUMN last_seen_at TEXT NOT NULL DEFAULT ''")
+	db.Exec("ALTER TABLE sessions ADD COLUMN ip TEXT NOT NULL DEFAULT ''")
+	db.Exec("ALTER TABLE sessions ADD COLUMN user_agent TEXT NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE stacks ADD COLUMN backend TEXT")
 	db.Exec("ALTER TABLE lab_runs ADD COLUMN initial_backup_count INTEGER NOT NULL DEFAULT 0")
 
@@ -274,6 +293,12 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id, id DESC);`
 	}
 	db.Exec("ALTER TABLE kanban_columns ADD COLUMN color TEXT NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE kanban_cards ADD COLUMN color TEXT NOT NULL DEFAULT ''")
+	// Password reset links an admin issues (useradmin.go).
+	if _, err := db.Exec(passwordResetSchema); err != nil {
+		db.Close()
+		return nil, err
+	}
+	db.Exec("ALTER TABLE password_resets ADD COLUMN purpose TEXT NOT NULL DEFAULT 'reset'")
 	if err := migrateShareSessions(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate share_sessions: %w", err)
@@ -297,12 +322,16 @@ func (s *Store) scanUser(row interface {
 	Scan(dest ...any) error
 }) (User, error) {
 	var u User
-	var approved sql.NullString
-	if err := row.Scan(&u.ID, &u.Username, &u.Role, &u.Status, &u.CreatedAt, &approved, &u.FirstName, &u.LastName, &u.Avatar, &u.Email); err != nil {
+	var approved, lastLogin sql.NullString
+	if err := row.Scan(&u.ID, &u.Username, &u.Role, &u.Status, &u.CreatedAt, &approved, &u.FirstName, &u.LastName, &u.Avatar, &u.Email,
+		&u.MustChangePassword, &lastLogin, &u.InvitePending); err != nil {
 		return User{}, err
 	}
 	if approved.Valid {
 		u.ApprovedAt = &approved.String
+	}
+	if lastLogin.Valid {
+		u.LastLoginAt = &lastLogin.String
 	}
 	return s.openProfile(u)
 }
@@ -322,7 +351,7 @@ func (s *Store) openProfile(u User) (User, error) {
 	return u, nil
 }
 
-const userCols = "id, username, role, status, created_at, approved_at, first_name, last_name, avatar, email"
+const userCols = "id, username, role, status, created_at, approved_at, first_name, last_name, avatar, email, must_change_password, last_login_at, invite_pending"
 
 // CountUsers returns the total number of user accounts.
 func (s *Store) CountUsers() (int, error) {
@@ -385,13 +414,17 @@ func (s *Store) CredByUsername(username string) (User, string, error) {
 		username,
 	)
 	var u User
-	var approved sql.NullString
+	var approved, lastLogin sql.NullString
 	var hash string
-	if err := row.Scan(&u.ID, &u.Username, &u.Role, &u.Status, &u.CreatedAt, &approved, &u.FirstName, &u.LastName, &u.Avatar, &u.Email, &hash); err != nil {
+	if err := row.Scan(&u.ID, &u.Username, &u.Role, &u.Status, &u.CreatedAt, &approved, &u.FirstName, &u.LastName, &u.Avatar, &u.Email,
+		&u.MustChangePassword, &lastLogin, &u.InvitePending, &hash); err != nil {
 		return User{}, "", err
 	}
 	if approved.Valid {
 		u.ApprovedAt = &approved.String
+	}
+	if lastLogin.Valid {
+		u.LastLoginAt = &lastLogin.String
 	}
 	u, err := s.openProfile(u)
 	if err != nil {
@@ -486,9 +519,19 @@ func (s *Store) SetAppSetting(key, value string) error {
 // CreateSession stores a session token for a user with an expiry. Only its hash is
 // kept, so a copy of the database signs nobody in; every lookup hashes the cookie.
 func (s *Store) CreateSession(token string, userID int64, expires time.Time) error {
+	return s.CreateSessionFrom(token, userID, expires, "", "")
+}
+
+// CreateSessionFrom creates a session recording the address and browser it was
+// signed in from, which is how an admin tells one session from another.
+func (s *Store) CreateSessionFrom(token string, userID int64, expires time.Time, ip, userAgent string) error {
+	now := nowRFC3339()
+	if len(userAgent) > 300 {
+		userAgent = userAgent[:300]
+	}
 	_, err := s.db.Exec(
-		"INSERT INTO sessions (token, user_id, expires_at) VALUES (?,?,?)",
-		seal.HashSecret(token), userID, expires.UTC().Format(time.RFC3339),
+		"INSERT INTO sessions (token, user_id, expires_at, created_at, last_seen_at, ip, user_agent) VALUES (?,?,?,?,?,?,?)",
+		seal.HashSecret(token), userID, expires.UTC().Format(time.RFC3339), now, now, ip, userAgent,
 	)
 	return err
 }
@@ -497,10 +540,11 @@ func (s *Store) CreateSession(token string, userID int64, expires time.Time) err
 // deleted and treated as missing.
 func (s *Store) SessionUser(token string) (User, error) {
 	var userID int64
-	var expiresStr string
+	var expiresStr, seenStr string
+	hashed := seal.HashSecret(token)
 	err := s.db.QueryRow(
-		"SELECT user_id, expires_at FROM sessions WHERE token = ?", seal.HashSecret(token),
-	).Scan(&userID, &expiresStr)
+		"SELECT user_id, expires_at, last_seen_at FROM sessions WHERE token = ?", hashed,
+	).Scan(&userID, &expiresStr, &seenStr)
 	if err != nil {
 		return User{}, err
 	}
@@ -508,6 +552,11 @@ func (s *Store) SessionUser(token string) (User, error) {
 	if err != nil || time.Now().After(expires) {
 		s.DeleteSession(token)
 		return User{}, sql.ErrNoRows
+	}
+	// Last seen to the minute is all an admin needs, and a write on every request
+	// would be a write on every poll.
+	if seen, err := time.Parse(time.RFC3339, seenStr); err != nil || time.Since(seen) > time.Minute {
+		s.db.Exec("UPDATE sessions SET last_seen_at = ? WHERE token = ?", nowRFC3339(), hashed)
 	}
 	return s.GetUser(userID)
 }

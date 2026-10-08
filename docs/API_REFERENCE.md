@@ -107,9 +107,11 @@ Password changed. Every other session was signed out.
 Your API tokens still work. Pass --revoke-tokens if you wanted them gone too.
 ```
 
-> **Forgotten it entirely, with nobody able to sign in?** That is a different problem
-> and has a different answer: `docker exec -it dbcanvas-app-1 dbcanvas_reset_password`
-> — see [Configuration](CONFIGURATION.md#recovering-an-admin-password).
+> **Forgotten it entirely?** Ask an administrator: **Manage Users** can set a new
+> password or hand you a one-time reset link (see [Users](#users-admin)). With no
+> administrator able to sign in, the answer is
+> `docker exec -it dbcanvas-app-1 dbcanvas_reset_password` — see
+> [Configuration](CONFIGURATION.md#recovering-an-admin-password).
 
 ## API tokens
 
@@ -138,18 +140,57 @@ The secret is returned once, by the create call, and never again.
 ![Manage Users: the account list](screenshots/manage-users.png)
 
 > *`GET /api/users` returns these rows, accounts awaiting approval first. Each button
-> is one of the four POSTs below.*
+> is one of the calls below.*
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| List every account, pending first | `GET /api/users` | `dbcanvas api GET /api/users` |
+| List every account, pending first, with last sign-in, last activity and session count | `GET /api/users` | `dbcanvas api GET /api/users` |
+| Create an approved account (needs a password sign-in) | `POST /api/users` | — |
+| Change an account's username and profile | `PUT /api/users/{id}` | `dbcanvas api PUT /api/users/1 -d '{"username":"pat",…}'` |
 | Approve a pending account | `POST /api/users/{id}/approve` | `dbcanvas api POST /api/users/1/approve` |
 | Reject a request | `POST /api/users/{id}/reject` | `dbcanvas api POST /api/users/1/reject` |
 | Disable an approved account | `POST /api/users/{id}/disable` | `dbcanvas api POST /api/users/1/disable` |
 | Delete an account and its stacks | `DELETE /api/users/{id}` | `dbcanvas api DELETE /api/users/1` |
+| Make an account an administrator, or a regular user again | `POST /api/users/{id}/role` | `dbcanvas api POST /api/users/1/role -d '{"role":"admin"}'` |
+| Set an account's password (needs a password sign-in) | `POST /api/users/{id}/password` | — |
+| Create a one-time reset link (needs a password sign-in) | `POST /api/users/{id}/reset-link` | — |
+| List an account's sessions | `GET /api/users/{id}/sessions` | `dbcanvas api GET /api/users/1/sessions` |
+| Sign an account out everywhere, or out of one session | `DELETE /api/users/{id}/sessions[/{sid}]` | `dbcanvas api DELETE /api/users/1/sessions` |
+| Sign every account out, except the caller's session | `DELETE /api/users/sessions` | `dbcanvas api DELETE /api/users/sessions` |
+| Clear an account's sign-in history, or everyone's | `DELETE /api/users/{id}/sign-ins`, `DELETE /api/users/sign-ins` | `dbcanvas api DELETE /api/users/sign-ins` |
 
 Rejecting or disabling revokes that account's sessions **and its API tokens** in the
 same operation.
+
+Nobody can change their own role — that is how an instance would end up with no
+administrator — and a role change applies on the account's next request, without
+signing it out.
+
+**Add user** creates an account that is approved straight away, with the role you pick.
+Its owner gets either a link, valid for 7 days, to choose a password, or a temporary
+password you type, which they must change when they first sign in.
+
+**Resetting someone's password** (the key button) works two ways. *Set the password*
+replaces it outright, signs the account out everywhere, and optionally revokes its API
+tokens. By default the password is temporary: until the owner chooses their own, the
+server refuses everything else they ask for, with a session or a token. *Send a reset link* returns a `/reset-password/<token>` link for the owner to
+choose a password themselves: it works once, for 24 hours, a newer link replaces it, and
+using it signs the account out everywhere. The page behind it calls
+`GET /api/auth/reset/{token}` and `POST /api/auth/reset/{token}`, which need no sign-in.
+Both reset calls refuse an API token, and refuse the caller's own account — your own
+password is changed from Settings, with the current one.
+
+**Sessions** (the screen button, or the session count under *Last active*) lists where an
+account is signed in — browser, address, when it signed in and was last used — and signs
+out one session or all of them without touching the password. On your own account the
+session you are using is marked *This browser* and is never ended there — **Sign out
+other sessions** clears the rest. **Sign out everyone**, at
+the top of the page, ends every session on the instance except your own; passwords and
+API tokens are untouched. **Clear sign-in history**
+— there, for one account, or at the top of the page for everyone — forgets the last
+sign-in and each session's address, browser and times. It signs nobody out, and
+activity from then on is recorded again. The list can be searched
+by name, username or email, filtered by status and role, and sorted.
 
 ## Instance settings (admin)
 

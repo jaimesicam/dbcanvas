@@ -48,7 +48,7 @@ var paramDoc = map[string]string{
 // paramDocByPrefix overrides paramDoc for route families where a wildcard name is
 // reused for something else. Longest matching prefix wins.
 var paramDocByPrefix = map[string]map[string]string{
-	"/api/users":                {"id": "The account's numeric id."},
+	"/api/users":                {"id": "The account's numeric id.", "sid": "A session's id, as listed by GET /api/users/{id}/sessions."},
 	"/api/templates":            {"id": "The template's id — a number, or `builtin:<name>` for one that ships with the app."},
 	"/api/labs":                 {"id": "The lab's id."},
 	"/api/queryrun/runs":        {"id": "The query run's id."},
@@ -61,6 +61,7 @@ var paramDocByPrefix = map[string]map[string]string{
 		"tid": "A shared terminal's id within the session."},
 	"/api/share/recordings": {"rid": "A session recording's numeric id."},
 	"/api/join":             {"token": "The share link's token — the last part of the link the host sent."},
+	"/api/auth/reset":       {"token": "The reset link's token — the last part of the link an administrator sent."},
 	"/api/kanban/boards":    {"id": "The board's numeric id."},
 	"/api/kanban/columns":   {"cid": "The column's numeric id."},
 	"/api/kanban/cards":     {"kid": "The card's numeric id."},

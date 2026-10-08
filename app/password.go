@@ -29,9 +29,10 @@ import (
 // schedule should not silently break a CI job — but a password changed because it
 // leaked is a different situation, so the caller can ask for it.
 //
-// An administrator resetting somebody *else's* password is a different problem with a
-// different answer: `dbcanvas_reset_password` in the image (see cmd/), which needs no
-// working login at all because the case it exists for is nobody having one.
+// An administrator resetting somebody *else's* password is useradmin.go: set it
+// outright, or hand the owner a one-time link. An admin with no admin left to ask has
+// `dbcanvas_reset_password` in the image (see cmd/), which needs no working login at
+// all because the case it exists for is nobody having one.
 
 type passwordChange struct {
 	CurrentPassword string `json:"currentPassword"`
@@ -47,7 +48,9 @@ func (s *Store) SetUserPassword(id int64, hash string) error {
 	if err != nil {
 		return err
 	}
-	res, err := s.db.Exec("UPDATE users SET password_hash = ? WHERE id = ?", sealed, id)
+	// Any new password clears the must-change flag and settles a pending invite; an
+	// admin setting a temporary one sets the flag again afterwards (useradmin.go).
+	res, err := s.db.Exec("UPDATE users SET password_hash = ?, must_change_password = 0, invite_pending = 0 WHERE id = ?", sealed, id)
 	if err != nil {
 		return err
 	}

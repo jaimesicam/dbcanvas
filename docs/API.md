@@ -89,7 +89,10 @@ tokens in the same operation that revokes its browser sessions. Without that,
 outright, whatever the token's scope, and for the same reason: they are the two
 endpoints that would turn a leaked token into a permanent one, or into a full account
 takeover. Both need a password sign-in — `dbcanvas token create` and
-`dbcanvas password` prompt for one and use it directly.
+`dbcanvas password` prompt for one and use it directly. An administrator resetting
+somebody else's password (`POST /api/users/{id}/password` and
+`POST /api/users/{id}/reset-link`) or creating an account (`POST /api/users`) is refused
+a token for the same reason, even an admin-scope one.
 
 Changing a password requires the **current** password even though the caller is
 already signed in: a session somebody else got hold of should not be able to lock the

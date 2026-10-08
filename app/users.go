@@ -18,7 +18,20 @@ func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "failed to list users")
 		return
 	}
-	writeJSON(w, http.StatusOK, users)
+	// Each row carries its live sessions too (useradmin.go), so the table can say who
+	// is around without a call per account.
+	stats, _ := a.store.SessionStats()
+	type row struct {
+		User
+		LastSeenAt string `json:"lastSeenAt,omitempty"`
+		Sessions   int    `json:"sessions"`
+	}
+	out := make([]row, 0, len(users))
+	for _, u := range users {
+		st := stats[u.ID]
+		out = append(out, row{User: u, LastSeenAt: st.LastSeen, Sessions: st.Count})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // handleUserStatus returns a handler that transitions a user to the given status.
