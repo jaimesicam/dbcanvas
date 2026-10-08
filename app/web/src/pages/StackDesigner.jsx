@@ -55,7 +55,8 @@ import { useBrowser } from '../browser/BrowserProvider.jsx'
 import { nodeWebLinks } from '../lib/nodeLinks.js'
 import { stackRelations, relationPorts, bezierMid, RELATION_KINDS } from '../lib/relations.js'
 import ShareDialog from '../components/ShareDialog.jsx'
-import { useStackAlerts, HealthButton, StackHistoryPanel, ErrorLogTail } from '../components/StackHistory.jsx'
+import { useDialog } from '../components/Dialog.jsx'
+import { useStackAlerts, HealthButton, StackHistoryPanel, ErrorLogTail, BackupChip } from '../components/StackHistory.jsx'
 
 const NODE_W = 212
 // A node card carries an icon, its name and its status, and nothing else — so it is
@@ -2401,6 +2402,59 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
   // stay free.
   const designRef = useRef({ nodes: [], edges: [], frames: [] })
   designRef.current = { nodes, edges, frames }
+
+  // Undo / redo of the design. A burst of changes (a drag, a typed name) settles into one step
+  // after half a second; a reload, and the canvas re-laying itself for Live, are not steps
+  // (histSkip). Nodes, links and clusters are restored; what was deployed is not touched.
+  const hist = useRef({ undo: [], redo: [], base: null, timer: null, skip: true })
+  const [, setHistTick] = useState(0)
+  const histSkip = () => { hist.current.skip = true }
+  useEffect(() => {
+    const h = hist.current
+    const snap = { nodes, edges, frames }
+    if (h.skip || !h.base) {
+      h.skip = false
+      clearTimeout(h.timer)
+      h.timer = null
+      h.base = snap
+      return
+    }
+    clearTimeout(h.timer)
+    h.timer = setTimeout(() => {
+      h.timer = null
+      const b = h.base
+      if (b.nodes === snap.nodes && b.edges === snap.edges && b.frames === snap.frames) return
+      h.undo.push(b)
+      if (h.undo.length > 100) h.undo.shift()
+      h.redo = []
+      h.base = snap
+      setHistTick((t) => t + 1)
+    }, 500)
+  }, [nodes, edges, frames])
+  const histMove = (from, to) => {
+    const h = hist.current
+    if (h.timer) { // a step still settling is recorded first, so undo undoes it
+      clearTimeout(h.timer)
+      h.timer = null
+      if (h.base && (h.base.nodes !== designRef.current.nodes || h.base.edges !== designRef.current.edges || h.base.frames !== designRef.current.frames)) {
+        h.undo.push(h.base)
+        h.redo = []
+        h.base = designRef.current
+      }
+    }
+    const stack = h[from]
+    if (!stack.length) return
+    const snap = stack.pop()
+    h[to].push(designRef.current)
+    h.skip = true
+    setNodesRaw(snap.nodes)
+    setEdgesRaw(snap.edges)
+    setFramesRaw(snap.frames)
+    setSelected((sel) => (sel && sel.kind === 'node' && !snap.nodes.some((n) => n.id === sel.id) ? null : sel))
+    setHistTick((t) => t + 1)
+  }
+  const undo = () => { if (!refuseLocked()) histMove('undo', 'redo') }
+  const redo = () => { if (!refuseLocked()) histMove('redo', 'undo') }
   const lockedNotice = useRef(0)
   const guarded = (raw, key) => (v) => {
     if (!lockedRef.current) return raw(v)
@@ -2473,6 +2527,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
       fz = r.frames
       nz = r.nodes
     }
+    histSkip()
     setFramesRaw(fz)
     setNodesRaw(nz)
   }, [memberH]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -2510,10 +2565,15 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
   const [confirmDel, setConfirmDel] = useState(null) // confirm deleting a deployed node/cluster
   const [switchDlg, setSwitchDlg] = useState(null) // { targetId, target, from, phase, steps, error }
   const [rebuildDlg, setRebuildDlg] = useState(null) // { nodeId, label }
+  const [deployPreview, setDeployPreview] = useState(null) // what a redeploy would do, awaiting a yes
   const [driftDlg, setDriftDlg] = useState(null) // node id
+  const [usersDlg, setUsersDlg] = useState(null) // node id
+  const [drillDlg, setDrillDlg] = useState(null) // node id
   const [rollingDlg, setRollingDlg] = useState(null) // node id
   // Find on canvas (Ctrl/⌘+F): the query, and which match Enter last went to.
   const [findQ, setFindQ] = useState(null) // null = closed
+  const [multi, setMulti] = useState(() => new Set()) // node ids, Shift/Ctrl-clicked
+  const [multiBusy, setMultiBusy] = useState('')
   const [findAt, setFindAt] = useState(0)
   const [saveState, setSaveState] = useState('saved') // saved | saving
   const [deployments, setDeployments] = useState([])
@@ -2611,6 +2671,9 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
         fz = r.frames
         nz = r.nodes
       }
+      histSkip()
+      hist.current.undo = []
+      hist.current.redo = []
       setNodesRaw(nz)
       setEdgesRaw(ez)
       setFramesRaw(fz)
@@ -2873,6 +2936,13 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
   // delete key, and Ctrl/⌘+F for find
   useEffect(() => {
     function onKey(e) {
+      const typing = e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT' || e.target.isContentEditable)
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !typing && (e.key === 'z' || e.key === 'Z' || e.key === 'y')) {
+        e.preventDefault()
+        if (e.key === 'y' || e.shiftKey) redo()
+        else undo()
+        return
+      }
       if ((e.metaKey || e.ctrlKey) && (e.key === 'f' || e.key === 'F') && !e.shiftKey && !e.altKey) {
         e.preventDefault()
         setFindQ((q) => (q == null ? '' : q))
@@ -2881,6 +2951,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
       if (e.key === 'Escape') {
         setMenu(null)
         setAddMenu(null)
+        setMulti((m) => (m.size ? new Set() : m))
         setDrop(null)
         // The transfer dialog is not Escape-dismissible: while it runs, closing
         // it would orphan a copy the user can no longer see or cancel; once it
@@ -2902,9 +2973,26 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
     setMenu(null)
     dragRef.current = { kind: 'pan', sx: e.clientX, sy: e.clientY, ox: view.x, oy: view.y }
   }
+  // Shift- or Ctrl/⌘-click adds a card to (or takes it out of) a multi-selection, which the bar
+  // at the bottom of the canvas acts on; a plain click selects one card as before.
+  function toggleMulti(e, id) {
+    if (!(e.shiftKey || e.metaKey || e.ctrlKey)) {
+      if (multi.size) setMulti(new Set())
+      return false
+    }
+    setMulti((m) => {
+      const next = new Set(m)
+      if (selected?.kind === 'node' && !next.size && selected.id !== id) next.add(selected.id)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+    return true
+  }
   function startNode(e, id) {
     if (e.button !== 0) return
     e.stopPropagation()
+    if (toggleMulti(e, id)) return
     setSelected({ kind: 'node', id })
     setMenu(null)
     const w = getWorld(e.clientX, e.clientY)
@@ -2923,6 +3011,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
   function selectFrameNode(e, id) {
     if (e.button !== 0) return
     e.stopPropagation()
+    if (toggleMulti(e, id)) return
     setSelected({ kind: 'node', id })
     setMenu(null)
   }
@@ -4011,7 +4100,9 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
     }
   }
 
-  async function runDeploy() {
+  // runDeploy validates, and on a stack that is already deployed shows what the deploy would do
+  // first (app/deploypreview.go) — a redeploy removes, recreates and rebuilds as well as adds.
+  async function runDeploy(confirmed) {
     if (refuseLocked()) return
     setBusy('deploy')
     setIssues(null)
@@ -4022,6 +4113,11 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
         setIssues(v.issues)
         return
       }
+      if (!confirmed && deployments.length > 0) {
+        setDeployPreview(await stackApi.deployPreview(stack.id))
+        return
+      }
+      setDeployPreview(null)
       const r = await stackApi.deploy(stack.id)
       setDeployments(r.deployments || [])
       setStack((p) => ({ ...p, status: 'deployed' }))
@@ -4237,6 +4333,12 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
         }
         if (DRIFT_FRAMES.has(frameType) && node?.role !== 'mongos') {
           actions.push({ label: 'Compare configuration…', help: MENU_HELP.configDrift, fn: () => setDriftDlg(id) })
+        }
+        if (REBUILDABLE.has(frameType) && frameType !== 'psmdb' && node?.role !== 'mongos') {
+          actions.push({ label: 'Database users…', help: MENU_HELP.dbUsers, fn: () => setUsersDlg(id) })
+        }
+        if (['patroni', 'psmrs', 'innodb', 'mysqlceinnodb', 'pxc', 'mariadbgalera', 'mysql', 'mysqlcerepl', 'mariadbrepl'].includes(frameType)) {
+          actions.push({ label: 'Failure drill…', help: MENU_HELP.drill, fn: () => setDrillDlg(id) })
         }
         if (REBUILDABLE.has(frameType) && node?.role !== 'mongos') {
           actions.push({ label: 'Rolling restart of the cluster…', help: MENU_HELP.rollingRestart, fn: () => setRollingDlg(id) })
@@ -4608,7 +4710,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
             </Button>
           </Hint>
           <Hint text={HELP.uiDeploy}>
-            <Button size="sm" disabled={!!busy || nodes.length === 0 || locked} onClick={runDeploy}>
+            <Button size="sm" disabled={!!busy || nodes.length === 0 || locked} onClick={() => runDeploy(false)}>
               <Icon.Arrow size={15} /> {busy === 'deploy' ? 'Deploying…' : 'Deploy'}
             </Button>
           </Hint>
@@ -4666,6 +4768,12 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
                 </Button>
               </Hint>
             )}
+            <Hint text={HELP.uiUndo}>
+              <span className="inline-flex">
+                <Button size="sm" variant="ghost" aria-label="Undo" disabled={!hist.current.undo.length && !hist.current.timer} onClick={undo}>↶</Button>
+                <Button size="sm" variant="ghost" aria-label="Redo" disabled={!hist.current.redo.length} onClick={redo}>↷</Button>
+              </span>
+            </Hint>
             <Hint text={HELP.uiResetView}>
               <Button size="sm" variant="ghost" onClick={() => setView({ x: 40, y: 20, z: 1 })}>
                 <Icon.Move size={15} /> <span className="@max-3xl:hidden">Reset view</span>
@@ -4719,6 +4827,25 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
           className="relative flex-1 overflow-hidden rounded-xl border bg-bg"
           style={{ touchAction: 'none' }}
         >
+          {multi.size > 0 && (
+            <div className="absolute bottom-3 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-lg border bg-surface px-3 py-1.5 text-sm shadow-lg"
+              onPointerDown={(e) => e.stopPropagation()} onContextMenu={(e) => e.stopPropagation()}>
+              <span className="font-semibold">{multi.size} selected</span>
+              <span className="max-w-[260px] truncate text-xs text-muted">{nodes.filter((n) => multi.has(n.id)).map((n) => n.label).join(', ')}</span>
+              {['start', 'stop', 'restart'].map((act) => (
+                <Button key={act} size="sm" variant="outline" disabled={!!multiBusy || locked || ![...multi].some((id) => depByNode[id])}
+                  onClick={async () => {
+                    setMultiBusy(act)
+                    // One at a time, in canvas order: a cluster restarted all at once has no quorum.
+                    for (const n of nodes.filter((x) => multi.has(x.id) && depByNode[x.id])) await nodeAction(n.id, act)
+                    setMultiBusy('')
+                  }}>
+                  {multiBusy === act ? `${act[0].toUpperCase() + act.slice(1)}ing…` : act[0].toUpperCase() + act.slice(1)}
+                </Button>
+              ))}
+              <Button size="sm" variant="ghost" onClick={() => setMulti(new Set())}>Clear</Button>
+            </div>
+          )}
           {findQ != null && (
             <div className="absolute left-1/2 top-3 z-30 flex -translate-x-1/2 items-center gap-1 rounded-lg border bg-surface px-2 py-1 shadow-lg"
               onPointerDown={(e) => e.stopPropagation()} onContextMenu={(e) => e.stopPropagation()}>
@@ -4877,6 +5004,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
                       <div className="whitespace-nowrap text-xs font-semibold text-fg">{f.label}</div>
                       <div className="truncate text-[10px] text-muted">{frameSubLabel(f, kids, depByNode)}</div>
                     </div>
+                    {kids.some((n) => depByNode[n.id]?.state === 'running') && <BackupChip stackId={stackId} frame={f} />}
                     {liveOn && (() => {
                       const sick = kids.filter((n) => problemCount(live[n.id]) > 0)
                       const count = sick.reduce((t, n) => t + problemCount(live[n.id]), 0)
@@ -4914,7 +5042,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
                           onDragLeave={(e) => nodeDragLeave(e, n.id)}
                           onDrop={(e) => nodeDrop(e, n.id)}
                           className={`absolute inset-0 flex cursor-pointer flex-col overflow-hidden rounded-lg border bg-surface shadow-sm ${non ? 'ring-2 ring-primary' : ''} ${dropNode === n.id ? 'ring-2 ring-success' : ''}`}
-                          style={findSet.has(n.id) && !non ? { boxShadow: '0 0 0 3px color-mix(in srgb, var(--primary) 60%, transparent)' } : liveOn && !non ? { boxShadow: healthRing(live[n.id]) || undefined } : undefined}
+                          style={multi.has(n.id) ? { boxShadow: '0 0 0 3px var(--primary)' } : findSet.has(n.id) && !non ? { boxShadow: '0 0 0 3px color-mix(in srgb, var(--primary) 60%, transparent)' } : liveOn && !non ? { boxShadow: healthRing(live[n.id]) || undefined } : undefined}
                         >
                           <div className="h-1 w-full shrink-0" style={{ background: barCol }} />
                           {/* Name and status. The role and the version are in the
@@ -4982,7 +5110,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
                   onDragLeave={(e) => nodeDragLeave(e, n.id)}
                   onDrop={(e) => nodeDrop(e, n.id)}
                   className={`group absolute flex cursor-grab flex-col overflow-hidden rounded-xl border bg-surface shadow-sm active:cursor-grabbing ${on ? 'ring-2 ring-primary' : ''} ${dropNode === n.id ? 'ring-2 ring-success' : ''}`}
-                  style={{ left: n.x, top: n.y, width: NODE_W, height: nodeH, boxShadow: findSet.has(n.id) && !on ? '0 0 0 3px color-mix(in srgb, var(--primary) 60%, transparent)' : liveOn && !on ? healthRing(live[n.id]) || undefined : undefined }}
+                  style={{ left: n.x, top: n.y, width: NODE_W, height: nodeH, boxShadow: multi.has(n.id) ? '0 0 0 3px var(--primary)' : findSet.has(n.id) && !on ? '0 0 0 3px color-mix(in srgb, var(--primary) 60%, transparent)' : liveOn && !on ? healthRing(live[n.id]) || undefined : undefined }}
                 >
                   <div className="h-1.5 w-full shrink-0" style={{ background: def.color }} />
                   {/* One row: icon, name, status. Everything else is in the tooltip
@@ -5192,7 +5320,13 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
       )}
 
       {rollingDlg && <RollingModal stackId={stack.id} nodeId={rollingDlg} onClose={() => setRollingDlg(null)} />}
+      {drillDlg && <DrillModal stackId={stack.id} nodeId={drillDlg} onClose={() => setDrillDlg(null)} />}
+      {usersDlg && <DBUsersModal stackId={stack.id} nodeId={usersDlg} onClose={() => setUsersDlg(null)} />}
       {driftDlg && <DriftModal stackId={stack.id} nodeId={driftDlg} onClose={() => setDriftDlg(null)} />}
+
+      {deployPreview && (
+        <DeployPreviewModal p={deployPreview} busy={busy === 'deploy'} onConfirm={() => runDeploy(true)} onClose={() => setDeployPreview(null)} />
+      )}
 
       {rebuildDlg && (
         <RebuildModal stackId={stack.id} nodeId={rebuildDlg.nodeId} label={rebuildDlg.label} onClose={() => setRebuildDlg(null)} />
@@ -5380,6 +5514,245 @@ function PMMLinks({ node, frame, nodes, depByNode }) {
         <a key={label} href={url} target="_blank" rel="noreferrer" className="text-primary underline-offset-2 hover:underline">{label} ↗</a>
       ))}
     </div>
+  )
+}
+
+// genPassword makes a password the accounts dialog can paste anywhere: letters and digits only.
+function genPassword() {
+  const a = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'
+  const b = new Uint32Array(20)
+  crypto.getRandomValues(b)
+  return [...b].map((x) => a[x % a.length]).join('')
+}
+
+// DBUsersModal is a cluster's database accounts (app/dbusers.go): each one with the members
+// that have it, and whether its password is the same on all of them; creating, rotating and
+// dropping one happens on the primary, and the answer says which members it reached.
+function DBUsersModal({ stackId, nodeId, onClose }) {
+  const [dialog, ask] = useDialog()
+  const [data, setData] = useState(null)
+  const [err, setErr] = useState('')
+  const [form, setForm] = useState({ name: '', host: '%', database: '', privilege: 'readwrite', password: genPassword() })
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState(null)
+  const [showInternal, setShowInternal] = useState(false)
+  const load = useCallback(async () => {
+    try { setData(await stackApi.dbUsers(stackId, nodeId)); setErr('') } catch (e) { setErr(e.message) }
+  }, [stackId, nodeId])
+  useEffect(() => { load() }, [load])
+  const run = async (body, label) => {
+    setBusy(true); setResult(null); setErr('')
+    try {
+      const r = await stackApi.dbUsersChange(stackId, nodeId, body)
+      setResult({ label, ...r })
+      await load()
+    } catch (e) { setErr(e.message) } finally { setBusy(false) }
+  }
+  const mysql = data && !['patroni', 'repmgr', 'mongo'].includes(data.kind)
+  const members = data?.members || []
+  const users = (data?.users || []).filter((u) => showInternal || !u.internal)
+  const who = (u) => (data?.kind === 'mongo' ? `${u.db}.${u.name}` : u.host ? `${u.name}@${u.host}` : u.name)
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={onClose}>
+      <div className="flex max-h-[88vh] w-full max-w-4xl flex-col rounded-xl border bg-surface p-5 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="mb-2 flex items-center gap-2">
+          <h3 className="text-sm font-semibold">Database users</h3>
+          {data && <span className="text-xs text-muted">changes are made on {members.find((m) => m.nodeId === data.primary)?.label} and replicated</span>}
+          <span className="flex-1" />
+          <label className="flex items-center gap-1 text-xs text-muted"><input type="checkbox" checked={showInternal} onChange={(e) => setShowInternal(e.target.checked)} /> show DBCanvas&apos;s own</label>
+        </div>
+        {!data && !err && <div className="text-xs text-muted">Asking every member…</div>}
+        {err && <div className="mb-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">{err}</div>}
+        {result && (
+          <div className="mb-2 rounded-lg border px-3 py-2 text-xs" style={{ borderColor: `color-mix(in srgb, var(--${result.missing?.length ? 'warning' : 'success'}) 40%, transparent)` }}>
+            {result.label} on {result.on}. {result.missing?.length ? <span style={{ color: 'var(--warning)' }}>Not yet on {result.missing.join(', ')} — is replication running there?</span> : <span style={{ color: 'var(--success)' }}>Confirmed on every member: {result.confirmed.join(', ')}.</span>}
+          </div>
+        )}
+        {data && (
+          <div className="min-h-0 flex-1 space-y-3 overflow-auto">
+            <div className="overflow-hidden rounded-lg border">
+              <table className="w-full border-collapse text-[11px]">
+                <thead><tr className="bg-surface2 text-left text-muted">
+                  <th className="px-2 py-1 font-semibold">ACCOUNT</th><th className="px-2 py-1 font-semibold">MAY</th>
+                  {members.map((m) => <th key={m.nodeId} className="px-2 py-1 text-center font-semibold" title={m.error || undefined}>{m.label}{m.error ? ' ⚠' : ''}</th>)}
+                  <th />
+                </tr></thead>
+                <tbody>
+                  {users.map((u) => (
+                    <tr key={who(u)} className="border-t">
+                      <td className="px-2 py-1 font-mono">{who(u)}</td>
+                      <td className="max-w-[200px] truncate px-2 py-1 text-muted" title={u.roles}>{u.roles || '—'}</td>
+                      {members.map((m) => {
+                        const has = u.on.includes(m.nodeId)
+                        const diff = u.differs?.includes(m.nodeId)
+                        return (
+                          <td key={m.nodeId} className="px-2 py-1 text-center"
+                            title={m.error ? m.error : !has ? 'Not on this member' : diff ? 'Its password differs from the primary\'s' : 'Present, same password'}
+                            style={{ color: m.error ? 'var(--muted)' : !has ? 'var(--danger)' : diff ? 'var(--warning)' : 'var(--success)' }}>
+                            {m.error ? '?' : !has ? '✕' : diff ? '≠' : '✓'}
+                          </td>
+                        )
+                      })}
+                      <td className="whitespace-nowrap px-2 py-1 text-right">
+                        <button type="button" disabled={busy} className="rounded px-1.5 text-primary hover:underline"
+                          onClick={async () => {
+                            const pw = await ask.prompt({ title: `New password for ${who(u)}`, label: 'Copy it now — it is not shown again', defaultValue: genPassword(), confirmLabel: 'Set password' })
+                            if (pw) run({ action: 'password', name: u.name, host: u.host, database: u.db === 'admin' ? '' : u.db, password: pw }, `Password changed for ${who(u)}`)
+                          }}>Rotate</button>
+                        <button type="button" disabled={busy || u.internal} className="rounded px-1.5 text-danger hover:underline disabled:opacity-30"
+                          onClick={async () => {
+                            if (await ask.confirm({ title: `Drop ${who(u)}?`, body: 'It is dropped on the primary, and replication drops it on every member.', confirmLabel: 'Drop', danger: true }))
+                              run({ action: 'drop', name: u.name, host: u.host, database: u.db === 'admin' ? '' : u.db }, `Dropped ${who(u)}`)
+                          }}>Drop</button>
+                      </td>
+                    </tr>
+                  ))}
+                  {!users.length && <tr><td colSpan={members.length + 3} className="px-2 py-3 text-center text-muted">No accounts besides the server&apos;s and DBCanvas&apos;s own.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+            <div className="rounded-lg border p-3">
+              <div className="mb-2 text-xs font-semibold">New account</div>
+              <div className="flex flex-wrap items-end gap-2 text-xs">
+                <label className="flex flex-col gap-0.5"><span className="text-muted">Name</span>
+                  <input value={form.name} onChange={(e) => set('name', e.target.value)} className="w-32 rounded border bg-bg px-2 py-1" /></label>
+                {mysql && <label className="flex flex-col gap-0.5"><span className="text-muted">From host</span>
+                  <input value={form.host} onChange={(e) => set('host', e.target.value)} className="w-28 rounded border bg-bg px-2 py-1" /></label>}
+                {data.kind !== 'patroni' && data.kind !== 'repmgr' && <label className="flex flex-col gap-0.5"><span className="text-muted">Database (empty: all)</span>
+                  <input value={form.database} onChange={(e) => set('database', e.target.value)} className="w-32 rounded border bg-bg px-2 py-1" /></label>}
+                <label className="flex flex-col gap-0.5"><span className="text-muted">May</span>
+                  <select value={form.privilege} onChange={(e) => set('privilege', e.target.value)} className="rounded border bg-bg px-2 py-1">
+                    <option value="readonly">read</option><option value="readwrite">read and write</option><option value="admin">administer</option>
+                  </select></label>
+                <label className="flex flex-col gap-0.5"><span className="text-muted">Password</span>
+                  <input value={form.password} onChange={(e) => set('password', e.target.value)} className="w-48 rounded border bg-bg px-2 py-1 font-mono" /></label>
+                <Button size="sm" disabled={busy || !form.name} onClick={() => run({ action: 'create', ...form }, `Created ${form.name}`)}>{busy ? 'Working…' : 'Create'}</Button>
+              </div>
+            </div>
+          </div>
+        )}
+        <div className="mt-3 flex justify-end"><Button size="sm" variant="ghost" onClick={onClose}>Close</Button></div>
+        {dialog}
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+// DrillModal runs a failure drill (app/drills.go): which ones this cluster offers, and once one is
+// running, its checklist — each step ticked off by what the watcher saw happen.
+function DrillModal({ stackId, nodeId, onClose, onChanged }) {
+  const [info, setInfo] = useState(null)
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+  const load = useCallback(async () => {
+    try { setInfo(await stackApi.drillInfo(stackId, nodeId)); setErr('') } catch (e) { setErr(e.message) }
+  }, [stackId, nodeId])
+  useEffect(() => { load() }, [load])
+  const d = info?.drill
+  useEffect(() => {
+    if (!d || d.endedAt) return undefined
+    const t = setInterval(load, 4000)
+    return () => clearInterval(t)
+  }, [d, load])
+  const start = async (kind) => {
+    setBusy(true); setErr('')
+    try { await stackApi.drillStart(stackId, nodeId, kind); await load(); onChanged?.() } catch (e) { setErr(e.message) } finally { setBusy(false) }
+  }
+  const finish = async () => {
+    setBusy(true)
+    try { await stackApi.drillEnd(stackId); onChanged?.(); onClose() } catch (e) { setErr(e.message) } finally { setBusy(false) }
+  }
+  const done = d ? d.steps.filter((x) => x.done).length : 0
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={onClose}>
+      <div className="w-full max-w-lg rounded-xl border bg-surface p-5 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
+        <h3 className="mb-2 text-sm font-semibold">{d ? `Drill: ${d.cluster} — ${done} of ${d.steps.length}` : 'Failure drill'}</h3>
+        {!info && !err && <div className="text-xs text-muted">Asking the cluster…</div>}
+        {err && <p className="mb-2 text-xs text-danger">{err}</p>}
+        {info && !d && (
+          <div className="space-y-2">
+            <p className="text-xs text-muted">The fault is real: nothing is simulated, and the alerts, the failover and the recovery are the cluster&apos;s own. Do it where losing a few seconds of writes is fine.</p>
+            {(info.offered || []).map((k) => (
+              <div key={k.kind} className="rounded-lg border p-3">
+                <div className="text-sm font-medium">{k.title}</div>
+                <div className="mb-2 text-xs text-muted">{k.about}</div>
+                <Button size="sm" variant="danger" disabled={busy} onClick={() => start(k.kind)}>{busy ? 'Starting…' : 'Start the drill'}</Button>
+              </div>
+            ))}
+            {!info.offered?.length && <p className="text-xs text-muted">{info.reason || 'No drill is offered for this cluster yet.'}</p>}
+          </div>
+        )}
+        {d && (
+          <ol className="mb-3 space-y-2">
+            {d.steps.map((x, i) => (
+              <li key={i} className="flex gap-2 text-sm">
+                <span className="mt-0.5 shrink-0 text-base leading-none" style={{ color: x.done ? 'var(--success)' : 'var(--muted)' }}>{x.done ? '☑' : '☐'}</span>
+                <div>
+                  <div className={x.done ? '' : 'text-fg'}>{x.text}{x.done && x.at ? <span className="ml-2 text-xs text-muted">after {Math.max(0, x.at - d.startedAt)}s</span> : null}</div>
+                  {!x.done && x.hint && <div className="text-xs text-muted">{x.hint}</div>}
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+        {d?.endedAt ? <p className="mb-2 text-xs" style={{ color: 'var(--success)' }}>Every step done in {d.endedAt - d.startedAt}s.</p> : null}
+        <div className="flex justify-end gap-2">
+          <Button size="sm" variant="ghost" onClick={onClose}>Close</Button>
+          {d && <Button size="sm" variant="outline" disabled={busy} onClick={finish}>Finish drill</Button>}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+// DeployPreviewModal is what Deploy would do to a stack that is already deployed, before it does
+// it: the destructive parts first and in colour, then what is only added.
+function DeployPreviewModal({ p, busy, onConfirm, onClose }) {
+  const nothing = !p.remove.length && !p.create.length && !p.recreate.length && !p.rebuild.length
+  const destructive = p.remove.length + p.recreate.length + p.rebuild.length
+  const group = (title, items, tone) => items.length > 0 && (
+    <div>
+      <div className="mb-1 text-xs font-semibold" style={tone ? { color: `var(--${tone})` } : undefined}>{title} ({items.length})</div>
+      <ul className="space-y-1 rounded-lg border bg-bg p-2 text-xs">
+        {items.map((it) => (
+          <li key={it.nodeId}>
+            <span className="font-semibold">{it.label}</span>
+            {it.cluster && <span className="text-muted"> · {it.cluster}</span>}
+            <div className="text-[11px] text-muted">{it.why}</div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={onClose}>
+      <div className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-xl border bg-surface p-5 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
+        <h3 className="mb-1 text-sm font-semibold">{nothing ? 'Nothing to deploy' : 'What this deploy will do'}</h3>
+        <p className="mb-3 text-xs text-muted">
+          {nothing
+            ? `Every node is running, and a deploy leaves running nodes alone — settings changed on them since are not applied by it.`
+            : `${p.unchanged} running node${p.unchanged === 1 ? ' is' : 's are'} left alone. Settings changed on running nodes are not applied by a deploy.`}
+        </p>
+        <div className="min-h-0 flex-1 space-y-3 overflow-auto">
+          {group('Recreated — running, data lost', p.rebuild, 'danger')}
+          {group('Removed', p.remove, 'danger')}
+          {group('Provisioned again from scratch', p.recreate, 'warning')}
+          {group('Created', p.create, '')}
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={onClose}>{nothing ? 'Close' : 'Cancel'}</Button>
+          {!nothing && (
+            <Button size="sm" variant={destructive ? 'danger' : 'primary'} disabled={busy} onClick={onConfirm}>
+              {busy ? 'Deploying…' : destructive ? `Deploy — ${destructive} node${destructive === 1 ? '' : 's'} lose data` : 'Deploy'}
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body,
   )
 }
 

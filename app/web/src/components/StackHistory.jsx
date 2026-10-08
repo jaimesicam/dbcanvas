@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { stackApi } from '../lib/stackApi.js'
+import { stackApi, patroniApi, repmgrApi, mongoApi } from '../lib/stackApi.js'
 import { usePolling } from '../lib/usePolling.jsx'
 import { Button, Toggle } from './ui.jsx'
 import TimeChart from './TimeChart.jsx'
@@ -343,5 +343,80 @@ export function ErrorLogTail({ stackId, nodeId }) {
         </>
       )}
     </div>
+  )
+}
+
+// backupEnabled says whether a cluster was deployed with backups, and how they are taken.
+export function backupEnabled(f) {
+  if (f.type === 'patroni' && f.usePgBackRest) return 'patroni'
+  if (f.type === 'repmgr' && (f.usePgBackRest || f.useBarman)) return 'repmgr'
+  if ((f.type === 'psmrs' || f.type === 'psmdb') && f.enablePBM) return 'pbm'
+  return ''
+}
+
+const fmtSize = (n) => (!n ? '' : n >= 1 << 30 ? `${(n / (1 << 30)).toFixed(1)} GB` : n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`)
+
+// BackupChip is a cluster header's backup age (app/backupstatus.go): red when there is none,
+// amber past a day, and a popover with the newest backup and Back up now.
+export function BackupChip({ stackId, frame }) {
+  const how = backupEnabled(frame)
+  const [b, setB] = useState(null)
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  const ref = useRef(null)
+  useEffect(() => {
+    if (!open) return undefined
+    const away = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    addEventListener('pointerdown', away)
+    return () => removeEventListener('pointerdown', away)
+  }, [open])
+  const load = useCallback(async () => {
+    try { setB(await stackApi.backupStatus(stackId, frame.id)) } catch (e) { setB({ error: e.message }) }
+  }, [stackId, frame.id])
+  useEffect(() => { if (how) load() }, [how, load])
+  usePolling(load, how ? (b?.running ? 10000 : 120000) : 0, { enabled: !!how })
+  if (!how || !b) return null
+  const age = b.lastAt ? Date.now() / 1000 - b.lastAt : null
+  const tone = b.error && !b.count ? 'muted' : !b.count ? 'danger' : age > 86400 ? 'warning' : 'success'
+  const short = b.running ? 'running' : !b.count ? (b.error ? '?' : 'none') : ago(b.lastAt).replace(' ago', '')
+  const now = async () => {
+    setBusy(true); setMsg('')
+    try {
+      if (how === 'patroni') await patroniApi(stackId, frame.id).backup()
+      else if (how === 'repmgr') await repmgrApi(stackId, frame.id).backup()
+      else await mongoApi(stackId, frame.id).pbmBackup()
+      setMsg('Backup taken.')
+    } catch (e) { setMsg(e.message) } finally { setBusy(false); load() }
+  }
+  return (
+    <span ref={ref} className="relative" onPointerDown={(e) => e.stopPropagation()}>
+      <button type="button" onClick={() => setOpen((o) => !o)}
+        title={b.count ? `Last backup ${ago(b.lastAt)} — ${b.count} in the repository` : b.error || 'No backup has been taken'}
+        className="shrink-0 rounded px-1 py-px text-[9px] font-bold"
+        style={{ background: `color-mix(in srgb, var(--${tone === 'muted' ? 'muted' : tone}) 16%, transparent)`, color: `var(--${tone === 'muted' ? 'muted' : tone})` }}>
+        ⛁ {short}
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-30 mt-1 w-64 space-y-2 rounded-lg border bg-surface p-3 text-xs shadow-xl">
+          <div className="font-semibold">Backups · {b.engine === 'pbm' ? 'PBM' : b.engine === 'barman' ? 'Barman cloud' : 'pgBackRest'}</div>
+          {b.count > 0 ? (
+            <div className="space-y-0.5 text-muted">
+              <div>Newest: <span className="text-fg">{ago(b.lastAt)}</span>{b.type ? ` · ${b.type}` : ''}{b.size ? ` · ${fmtSize(b.size)}` : ''}</div>
+              <div className="truncate font-mono text-[10px]" title={b.last}>{b.last}</div>
+              <div>{b.count} in the repository</div>
+            </div>
+          ) : (
+            <div style={{ color: b.error ? 'var(--muted)' : 'var(--danger)' }}>{b.error || 'No backup has been taken of this cluster yet.'}</div>
+          )}
+          {b.running && <div style={{ color: 'var(--primary)' }}>A backup is running.</div>}
+          <div className="flex items-center gap-2">
+            <Button size="sm" disabled={busy || b.running} onClick={now}>{busy ? 'Backing up…' : 'Back up now'}</Button>
+            <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>Close</Button>
+          </div>
+          {msg && <div className="text-muted">{msg}</div>}
+        </div>
+      )}
+    </span>
   )
 }

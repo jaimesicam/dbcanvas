@@ -1258,3 +1258,23 @@ func TestComposeCatalogueMatchesTheBuilder(t *testing.T) {
 		}
 	}
 }
+
+func TestComposePgBackRestTurnsOnSeaweedTLS(t *testing.T) {
+	doc, _, _, added, err := buildCompose(composeSpec{Name: "x", Nodes: []composeNodeSpec{
+		{Kind: "patroni", Count: 3, Backup: true}, {Kind: "seaweedfs"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range doc.Nodes {
+		if n.Type == "seaweedfs" && !n.TLS {
+			t.Fatal("the SeaweedFS behind pgBackRest must serve S3 over TLS")
+		}
+		if n.Type == "seaweedfs" && len(seaweedBuckets(n)) == 0 {
+			t.Fatal("a SeaweedFS with no bucket fails validation")
+		}
+	}
+	if !strings.Contains(strings.Join(added, "\n"), "HTTPS") {
+		t.Errorf("the plan should say TLS was turned on: %v", added)
+	}
+}

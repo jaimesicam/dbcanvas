@@ -570,6 +570,36 @@ The **Live details** tab of a database node tails its own error log
 (`GET /api/stacks/{id}/nodes/{nid}/errorlog?lines=200`) and links to its PMM dashboards when
 a PMM node monitors it.
 
+### Database users, failure drills, backups
+
+**UI:** right-click a cluster member.
+
+- **Database users…** lists the cluster's accounts with the members that have each one and
+  whether its password is the same everywhere (on Galera, where every member salts its own hash,
+  only presence is compared). Creating (read, read and write, or administer; one database or all),
+  rotating and dropping an account happens on the primary, and the answer says which members it
+  has reached. `GET`/`POST /api/stacks/{id}/nodes/{nid}/db-users`.
+- **Failure drill…** breaks the cluster for real and ticks a checklist off from what the watcher
+  saw: *kill the primary* (Patroni, MongoDB, Group Replication; any Galera member) — the alert,
+  the election, bringing the old primary back, its catching up, every alert resolved — or *stop
+  replication* on a MySQL/MariaDB replica. `GET`/`POST /api/stacks/{id}/nodes/{nid}/drill`,
+  `DELETE /api/stacks/{id}/drill`.
+
+A cluster deployed with backups shows the age of its newest backup on its header — red when
+there is none, amber past a day — and **Back up now** in its popover
+(`GET /api/stacks/{id}/frames/{fid}/backup-status`, from pgBackRest's `info` or PBM's `list`).
+
+### Before a redeploy
+
+Deploy on a stack that is already deployed first shows what it will do
+(`GET /api/stacks/{id}/deploy/preview`): nodes deleted from the canvas are removed with their
+volumes, a node that is not running is provisioned again from scratch, and a cluster with a new or
+stopped member is provisioned as a whole — its running members' containers are recreated and their
+data lost. Running nodes are otherwise left alone, and settings changed on them are not applied.
+
+The canvas undoes and redoes design changes (Ctrl/⌘+Z, Ctrl/⌘+Shift+Z); Shift- or Ctrl/⌘-click
+selects several cards to start, stop or restart one after another.
+
 ### Health, history and alerts
 
 The server samples every deployed stack every 30 seconds (an administrator sets the interval,

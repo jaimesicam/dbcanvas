@@ -141,3 +141,26 @@ func TestAlertRulesNormalize(t *testing.T) {
 		t.Fatal("clamp")
 	}
 }
+
+func TestWatchFailoverAcrossRestart(t *testing.T) {
+	app, st := watchFixture(t)
+	watchState.mu.Lock()
+	delete(watchState.planned, st.ID)
+	watchState.mu.Unlock()
+	t0 := time.Now()
+	app.watchStack(st, map[string]*liveNode{"a": node("primary", -1), "b": node("replica", 0)}, t0)
+	// The app restarts: everything in memory is gone.
+	watchState.mu.Lock()
+	delete(watchState.stacks, st.ID)
+	delete(watchState.primary, st.ID)
+	delete(watchState.planned, st.ID) // another test's switch, on the same stack id
+	watchState.mu.Unlock()
+	app.watchStack(st, map[string]*liveNode{"a": {State: "unreachable"}, "b": node("primary", -1)}, t0.Add(30*time.Second))
+	ev, _ := app.store.LiveEvents(st.ID, 0, 50)
+	for _, e := range ev {
+		if e.Kind == "failover" {
+			return
+		}
+	}
+	t.Fatalf("no failover across the restart: %+v", ev)
+}

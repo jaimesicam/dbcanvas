@@ -171,6 +171,29 @@ func (b *composeBuilder) fixPrerequisites() {
 			"reachable from a browser inside the stack")
 	}
 
+	// pgBackRest's S3 client speaks HTTPS only, so the SeaweedFS a pgBackRest backup goes to
+	// serves S3 over TLS — the designer's validation refuses it otherwise.
+	tlsFor := map[string]bool{}
+	for _, f := range b.doc.Frames {
+		if f.UsePgBackRest && f.SeaweedFSNodeID != "" {
+			tlsFor[f.SeaweedFSNodeID] = true
+		}
+	}
+	for _, n := range b.doc.Nodes {
+		if n.UsePgBackRest && n.SeaweedFSNodeID != "" {
+			tlsFor[n.SeaweedFSNodeID] = true
+		}
+	}
+	for i := range b.doc.Nodes {
+		if n := &b.doc.Nodes[i]; n.Type == "seaweedfs" && tlsFor[n.ID] && !n.TLS {
+			n.TLS, n.GenerateCert = true, true
+			if n.CertTTLValue == 0 {
+				n.CertTTLValue, n.CertTTLUnit = 365, "days"
+			}
+			b.added = append(b.added, "S3 over HTTPS on "+n.Label+" — pgBackRest's S3 client speaks nothing else")
+		}
+	}
+
 	usesOIDC := slices.ContainsFunc(b.doc.Nodes, func(n designNode) bool { return n.EnableOIDC })
 	if !usesOIDC {
 		return
@@ -485,6 +508,10 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 		n.MCACredentials, n.ViewOnly = s.MCA, s.ViewOnly
 		n.PGVector = s.PGVector
 		n.Buckets = s.Buckets
+		if kind.Type == "seaweedfs" && len(n.Buckets) == 0 {
+			// A store with no bucket fails validation, and a backup needs one to land in.
+			n.Buckets = []string{"backups"}
+		}
 		b.applyShaping(&n, s)
 		if kind.SetVersion != nil {
 			kind.SetVersion(major, minor, &n, nil)

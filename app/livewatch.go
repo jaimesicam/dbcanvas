@@ -178,6 +178,24 @@ func (s *Store) AddLiveSamples(stackID int64, rows map[string]liveSampleRow) err
 	return tx.Commit()
 }
 
+// LatestSamples is each node's newest sample since a time.
+func (s *Store) LatestSamples(stackID, since int64) map[string]liveSampleRow {
+	out := map[string]liveSampleRow{}
+	rows, err := s.db.Query(`SELECT node_id, role, MAX(at) FROM live_samples WHERE stack_id=? AND at>=? GROUP BY node_id`, stackID, since)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var nid string
+		var r liveSampleRow
+		if rows.Scan(&nid, &r.Role, &r.At) == nil {
+			out[nid] = r
+		}
+	}
+	return out
+}
+
 func (s *Store) LiveSamples(stackID int64, since int64) (map[string][]liveSampleRow, error) {
 	rows, err := s.db.Query(`SELECT node_id,at,state,role,access,cpu,mem,fs_pct,lag,qps,tps,conns,max_conns,read_iops,write_iops,net_in,net_out,problems
 	  FROM live_samples WHERE stack_id=? AND at>=? ORDER BY at`, stackID, since)
@@ -522,10 +540,23 @@ func (a *App) watchStack(st Stack, snap map[string]*liveNode, now time.Time) {
 		nodes = map[string]*watchNode{}
 		watchState.stacks[st.ID] = nodes
 	}
+	watchState.mu.Unlock()
+	// After a restart the watcher remembers nothing: what the last samples said (if recent) is
+	// where it carries on from, so a failover across a restart is still one.
+	var seeded map[string]liveSampleRow
+	if first {
+		seeded = a.store.LatestSamples(st.ID, now.Add(-10*time.Minute).Unix())
+	}
+	watchState.mu.Lock()
 	primaries := watchState.primary[st.ID]
 	if primaries == nil {
 		primaries = map[string]string{}
 		watchState.primary[st.ID] = primaries
+		for nid, r := range seeded {
+			if r.Role == "primary" && frameOf[nid] != "" {
+				primaries[frameOf[nid]] = nid
+			}
+		}
 	}
 	planned := now.Sub(watchState.planned[st.ID]) < plannedWindow
 	watchState.mu.Unlock()
@@ -552,7 +583,7 @@ func (a *App) watchStack(st Stack, snap map[string]*liveNode, now time.Time) {
 		busy := now.Sub(watchState.action[fmt.Sprintf("%d:%s", st.ID, nid)]) < nodeActionWindow
 		prev := nodes[nid]
 		if prev == nil {
-			prev = &watchNode{streak: map[string]int{}}
+			prev = &watchNode{streak: map[string]int{}, role: seeded[nid].Role}
 			nodes[nid] = prev
 		}
 		watchState.mu.Unlock()
@@ -711,7 +742,7 @@ func (a *App) watchStack(st Stack, snap map[string]*liveNode, now time.Time) {
 	for fid, nid := range newPrimary {
 		was := primaries[fid]
 		primaries[fid] = nid
-		if first || was == "" || was == nid {
+		if was == "" || was == nid {
 			continue
 		}
 		fl := frameLabel[fid]
