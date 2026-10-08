@@ -15,13 +15,17 @@ import (
 
 // livestate.go — the canvas's Live view: what each running node of a stack is doing right now.
 //
-// GET /api/stacks/{id}/live answers, per node, with three things of different cost:
+// GET /api/stacks/{id}/live answers, per node, with three things of different cost — and, for a
+// node that is deployed but not running, just that (its state), so a stopped node is a red popup
+// rather than a missing one:
 //
 //   - its container's CPU, memory, network and block I/O — one Docker stats call per container of
 //     this stack, in parallel (not the dashboard's sampleStats, which walks every container on the
 //     host six at a time: ~1s each, so a stack's poll would pay for everybody else's nodes);
 //   - its replication role and whether it takes writes, asked of the engine itself (not read from
-//     the design — the design says who was made primary, which a failover makes untrue);
+//     the design — the design says who was made primary, which a failover makes untrue), with
+//     whatever is wrong with its replication as the engine sees it (livehealth.go), and whether
+//     the database answers at all;
 //   - how much disk its data directory holds, and how full the filesystem under it is.
 //
 // The last two cost an exec each, so they are cached per node (roles for liveRoleTTL, disk for
@@ -48,8 +52,13 @@ type liveRole struct {
 	// LagSec is how far a replica's applied data trails its source, when the engine says.
 	LagSec *float64 `json:"lagSec,omitempty"`
 	// Replicas is how many replicas a primary is feeding, when the engine says.
-	Replicas *int   `json:"replicas,omitempty"`
-	Err      string `json:"error,omitempty"`
+	Replicas *int `json:"replicas,omitempty"`
+	// Problems are what is wrong with this node's replication, one line each, as the engine
+	// reports it: a stopped channel, a peer it cannot reach, a slot nobody reads (livehealth.go).
+	Problems []string `json:"problems,omitempty"`
+	// Down is a database that did not answer while its container is running; Err says how.
+	Down bool   `json:"down,omitempty"`
+	Err  string `json:"error,omitempty"`
 }
 
 type liveDisk struct {
@@ -60,6 +69,8 @@ type liveDisk struct {
 }
 
 type liveNode struct {
+	// State is "running", the deployment's state for a node that is not ("stopped", "error"), or
+	// "unreachable" for a running deployment whose container does not answer.
 	State string `json:"state"`
 	ContainerStat
 	*liveIO
@@ -105,9 +116,16 @@ func (a *App) handleStackLive(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "failed to read deployments")
 		return
 	}
+	doc := buildDoc(st)
 	types := map[string]string{}
-	for _, n := range buildDoc(st).Nodes {
+	frameOf := map[string]string{}
+	members := map[string]int{}
+	for _, n := range doc.Nodes {
 		types[n.ID] = n.Type
+		if n.FrameID != "" {
+			frameOf[n.ID] = n.FrameID
+			members[n.FrameID]++
+		}
 	}
 	var ids []string
 	for _, dep := range deps {
@@ -122,11 +140,19 @@ func (a *App) handleStackLive(w http.ResponseWriter, r *http.Request) {
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 6)
 	for _, dep := range deps {
+		if _, inDesign := types[dep.NodeID]; !inDesign {
+			continue
+		}
+		if dep.State == DeployStopped || dep.State == DeployError {
+			out[dep.NodeID] = &liveNode{State: dep.State}
+			continue
+		}
 		if dep.State != DeployRunning || dep.ContainerID == "" {
 			continue
 		}
 		cs, found := stats[dep.ContainerID]
 		if !found {
+			out[dep.NodeID] = &liveNode{State: "unreachable"}
 			continue
 		}
 		n := &liveNode{State: "running", ContainerStat: cs.st, liveIO: cs.io}
@@ -143,7 +169,7 @@ func (a *App) handleStackLive(w http.ResponseWriter, r *http.Request) {
 			ctx, cancel := context.WithTimeout(withEngine(context.Background(), a.depEngine(st, dep.NodeID)), liveProbeTime)
 			defer cancel()
 			key := fmt.Sprintf("%d:%s:%s", st.ID, dep.NodeID, cid)
-			role := a.liveRoleCached(ctx, key, st, dep.NodeID, typ)
+			role := a.liveRoleCached(ctx, key, st, dep.NodeID, typ, members[frameOf[dep.NodeID]])
 			disk := a.liveDiskCached(ctx, key, cid)
 			mu.Lock()
 			n.Role, n.Disk = role, disk
@@ -228,7 +254,7 @@ func parseLiveIO(out string) *liveIO {
 // liveContainerStats samples the given containers at once. A sample younger than 1.5s is reused, so
 // two viewers of one stack (or a fast interval) cost the daemon one call per container, not two.
 // A container that does not answer — stopped, or gone since the deployment was written — is left
-// out, and its node gets no popup.
+// out, and handleStackLive reports its node as unreachable.
 func (a *App) liveContainerStats(ctx context.Context, st Stack, deps []Deployment, ids []string) map[string]liveSample {
 	out := map[string]liveSample{}
 	var mu sync.Mutex
@@ -286,14 +312,14 @@ func liveProbed(typ string) bool {
 	return engineForType(typ) != "" || typ == "valkey" || typ == "valkeycluster"
 }
 
-func (a *App) liveRoleCached(ctx context.Context, key string, st Stack, nid, typ string) *liveRole {
+func (a *App) liveRoleCached(ctx context.Context, key string, st Stack, nid, typ string, members int) *liveRole {
 	liveCache.mu.Lock()
 	e, ok := liveCache.role[key]
 	liveCache.mu.Unlock()
 	if ok && time.Since(e.at) < liveRoleTTL {
 		return e.role
 	}
-	role := a.probeLiveRole(ctx, st, nid, typ)
+	role := a.probeLiveRole(ctx, st, nid, typ, members)
 	liveCache.mu.Lock()
 	liveCache.role[key] = liveCacheEntry{at: time.Now(), role: role}
 	pruneLiveCache(liveCache.role)
@@ -330,10 +356,11 @@ func pruneLiveCache(m map[string]liveCacheEntry) {
 }
 
 // probeLiveRole asks a node's engine what it is. A probe that fails says so in Err rather than
-// guessing — an engine that is restarting is exactly when a stale role would mislead.
-func (a *App) probeLiveRole(ctx context.Context, st Stack, nid, typ string) *liveRole {
+// guessing — an engine that is restarting is exactly when a stale role would mislead. members is
+// how many members the design gives the node's cluster, 0 outside one.
+func (a *App) probeLiveRole(ctx context.Context, st Stack, nid, typ string, members int) *liveRole {
 	if typ == "valkey" || typ == "valkeycluster" {
-		return a.probeValkeyRole(ctx, st, nid)
+		return a.probeValkeyRole(ctx, st, nid, typ == "valkeycluster")
 	}
 	c, ok := a.dbConnFor(st, nid)
 	if !ok {
@@ -341,7 +368,7 @@ func (a *App) probeLiveRole(ctx context.Context, st Stack, nid, typ string) *liv
 	}
 	switch c.Engine {
 	case "mysql":
-		return a.probeMySQLRole(ctx, c)
+		return a.probeMySQLRole(ctx, c, members)
 	case "postgres":
 		return a.probePGRole(ctx, c)
 	case "mongodb":
@@ -350,121 +377,35 @@ func (a *App) probeLiveRole(ctx context.Context, st Stack, nid, typ string) *liv
 	return nil
 }
 
-// liveMySQLProbe is one batch for every MySQL flavour — Percona Server, MySQL, MariaDB, PXC,
-// Galera, Group Replication. Each statement ends in \G so the answers come back as uniform
-// "name: value" lines, and the client runs with --force so a statement a flavour does not have
-// (super_read_only on MariaDB, SHOW SLAVE on 8.4, performance_schema on old MariaDB) is skipped,
-// not fatal.
-const liveMySQLProbe = `SELECT @@global.read_only AS ro\G
-SELECT @@global.super_read_only AS sro\G
-SELECT VARIABLE_VALUE AS wsrep FROM performance_schema.global_status WHERE VARIABLE_NAME='wsrep_local_state_comment'\G
-SELECT VARIABLE_VALUE AS wsrep FROM information_schema.GLOBAL_STATUS WHERE VARIABLE_NAME='WSREP_LOCAL_STATE_COMMENT'\G
-SELECT MEMBER_ROLE AS gr_role FROM performance_schema.replication_group_members WHERE MEMBER_ID=@@server_uuid\G
-SELECT COUNT(*) AS dumps FROM information_schema.PROCESSLIST WHERE COMMAND LIKE 'Binlog Dump%'\G
-SHOW REPLICA STATUS\G
-SHOW SLAVE STATUS\G
-`
-
-func (a *App) probeMySQLRole(ctx context.Context, c dbConn) *liveRole {
+func (a *App) probeMySQLRole(ctx context.Context, c dbConn, members int) *liveRole {
 	res, err := c.engine().ExecInput(ctx, c.ContainerID, "",
-		append(c.client("mysql"), "-u", c.Super, "--force"),
+		append(c.client("mysql"), "-u", c.Super, "--force", "--vertical"),
 		append([]string{"MYSQL_PWD=" + c.Password}, c.Env...), []byte(liveMySQLProbe))
 	if err != nil {
 		return &liveRole{Err: err.Error()}
 	}
-	f := verticalFields(res.Stdout)
-	if _, ok := f["ro"]; !ok {
-		return &liveRole{Err: lastLines(strings.TrimSpace(res.Stderr), 200)}
+	if _, ok := verticalFields(res.Stdout)["ro"]; !ok {
+		msg := strings.TrimSpace(res.Stderr)
+		return &liveRole{Down: mysqlUnreachable(msg), Err: lastLines(msg, 200)}
 	}
-	r := &liveRole{Access: "rw"}
-	if f["ro"] == "1" || f["sro"] == "1" {
-		r.Access = "ro"
-	}
-	source := firstNonEmpty(f["Source_Host"], f["Master_Host"])
-	switch {
-	case f["wsrep"] != "":
-		r.Role, r.State = "member", f["wsrep"]
-	case f["gr_role"] != "":
-		r.Role = map[string]string{"PRIMARY": "primary", "SECONDARY": "secondary"}[f["gr_role"]]
-		if r.Role == "" {
-			r.Role = "member"
-		}
-	case source != "":
-		r.Role = "replica"
-		io := firstNonEmpty(f["Replica_IO_Running"], f["Slave_IO_Running"])
-		sql := firstNonEmpty(f["Replica_SQL_Running"], f["Slave_SQL_Running"])
-		r.State = "replicating"
-		if io != "Yes" || sql != "Yes" {
-			r.State = "stopped"
-		}
-		if lag, err := strconv.ParseFloat(firstNonEmpty(f["Seconds_Behind_Source"], f["Seconds_Behind_Master"]), 64); err == nil {
-			r.LagSec = &lag
-		}
-	default:
-		r.Role = "standalone"
-		if n, _ := strconv.Atoi(f["dumps"]); n > 0 {
-			r.Role, r.Replicas = "primary", &n
-		}
-	}
-	return r
-}
-
-// verticalFields reads every "name: value" line of mysql \G output; the first answer for a name
-// wins (the statements are ordered so the preferred source of a value comes first).
-func verticalFields(out string) map[string]string {
-	f := map[string]string{}
-	for _, line := range strings.Split(out, "\n") {
-		k, v, ok := strings.Cut(strings.TrimSpace(line), ": ")
-		if !ok || strings.HasPrefix(k, "*") {
-			continue
-		}
-		if _, seen := f[k]; !seen {
-			f[k] = strings.TrimSpace(v)
-		}
-	}
-	return f
+	return parseMySQLLive(res.Stdout, members)
 }
 
 // probePGRole: lag is the age of the last replayed transaction only while the replica has WAL it
 // has not applied yet — on an idle primary that age just grows, and a caught-up replica showing
 // "lag 55s" is the kind of number that sends somebody looking for a problem that is not there.
 func (a *App) probePGRole(ctx context.Context, c dbConn) *liveRole {
-	var out struct {
-		Rec     bool     `json:"rec"`
-		RO      string   `json:"ro"`
-		Senders int      `json:"senders"`
-		Lag     *float64 `json:"lag"`
-		Datadir string   `json:"datadir"`
+	var out pgLive
+	if err := a.queryJSON(ctx, c, "postgres", liveProbePG, &out); err != nil {
+		return &liveRole{Down: pgUnreachable(err.Error()), Err: lastLines(err.Error(), 200)}
 	}
-	err := a.queryJSON(ctx, c, "postgres", `SELECT json_build_object(
-  'rec', pg_is_in_recovery(),
-  'ro', current_setting('default_transaction_read_only'),
-  'senders', (SELECT count(*) FROM pg_stat_replication),
-  'lag', CASE WHEN NOT pg_is_in_recovery() THEN NULL
-              WHEN pg_last_wal_receive_lsn() = pg_last_wal_replay_lsn() THEN 0
-              ELSE EXTRACT(EPOCH FROM now() - pg_last_xact_replay_timestamp()) END)`, &out)
-	if err != nil {
-		return &liveRole{Err: lastLines(err.Error(), 200)}
-	}
-	r := &liveRole{Access: "rw"}
-	if out.Rec || out.RO == "on" {
-		r.Access = "ro"
-	}
-	switch {
-	case out.Rec:
-		r.Role, r.LagSec = "replica", out.Lag
-	case out.Senders > 0:
-		r.Role, r.Replicas = "primary", &out.Senders
-	default:
-		r.Role = "standalone"
-	}
-	return r
+	return pgLiveRole(out)
 }
 
 func (a *App) probeMongoRole(ctx context.Context, c dbConn) *liveRole {
 	client, closer, err := a.mongoClientFor(ctx, c)
 	if err != nil {
-		return &liveRole{Err: lastLines(err.Error(), 200)}
+		return &liveRole{Down: true, Err: lastLines(err.Error(), 200)}
 	}
 	defer closer()
 	var h struct {
@@ -475,56 +416,51 @@ func (a *App) probeMongoRole(ctx context.Context, c dbConn) *liveRole {
 		Msg       string `bson:"msg"`
 	}
 	if err := client.Database("admin").RunCommand(ctx, bson.D{{Key: "hello", Value: 1}}).Decode(&h); err != nil {
-		return &liveRole{Err: lastLines(err.Error(), 200)}
+		return &liveRole{Down: true, Err: lastLines(err.Error(), 200)}
 	}
+	var r *liveRole
 	switch {
 	case h.Msg == "isdbgrid":
 		return &liveRole{Role: "router", Access: "rw"}
 	case h.Arbiter:
-		return &liveRole{Role: "arbiter", Access: "ro", State: h.SetName}
+		r = &liveRole{Role: "arbiter", Access: "ro", State: h.SetName}
 	case h.Writable && h.SetName != "":
-		return &liveRole{Role: "primary", Access: "rw", State: h.SetName}
+		r = &liveRole{Role: "primary", Access: "rw", State: h.SetName}
 	case h.Secondary:
-		return &liveRole{Role: "secondary", Access: "ro", State: h.SetName}
+		r = &liveRole{Role: "secondary", Access: "ro", State: h.SetName}
 	case h.SetName != "":
-		return &liveRole{Role: "member", Access: "ro", State: h.SetName} // recovering, startup…
+		r = &liveRole{Role: "member", Access: "ro", State: h.SetName} // recovering, startup…
+	default:
+		return &liveRole{Role: "standalone", Access: "rw"}
 	}
-	return &liveRole{Role: "standalone", Access: "rw"}
+	// The set's members as this one sees them (livehealth.go). A status that will not come back
+	// costs the popup its problem lines, not its role.
+	var rs struct {
+		Members []mongoMember `bson:"members"`
+	}
+	if err := client.Database("admin").RunCommand(ctx, bson.D{{Key: "replSetGetStatus", Value: 1}}).Decode(&rs); err == nil {
+		r.Problems, r.LagSec = mongoReplHealth(rs.Members)
+	}
+	return r
 }
 
-func (a *App) probeValkeyRole(ctx context.Context, st Stack, nid string) *liveRole {
+func (a *App) probeValkeyRole(ctx context.Context, st Stack, nid string, cluster bool) *liveRole {
 	dep, err := a.store.GetDeployment(st.ID, nid)
 	if err != nil {
 		return &liveRole{Err: "not deployed"}
 	}
 	var sec valkeySecrets
 	json.Unmarshal(dep.Secrets, &sec)
-	res, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"valkey-cli", "--no-auth-warning", "INFO", "replication"},
-		[]string{"REDISCLI_AUTH=" + sec.Password})
-	if err != nil || res.Code != 0 {
-		return &liveRole{Err: "valkey-cli did not answer"}
+	flag := "0"
+	if cluster {
+		flag = "1"
 	}
-	f := map[string]string{}
-	for _, line := range strings.Split(res.Stdout, "\n") {
-		if k, v, ok := strings.Cut(strings.TrimSpace(line), ":"); ok {
-			f[k] = v
-		}
+	res, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"sh", "-c", liveValkeyScript},
+		[]string{"REDISCLI_AUTH=" + sec.Password, "CLUSTER=" + flag})
+	if err != nil {
+		return &liveRole{Down: true, Err: err.Error()}
 	}
-	switch f["role"] {
-	case "slave", "replica":
-		r := &liveRole{Role: "replica", Access: "rw", State: f["master_link_status"]}
-		if f["slave_read_only"] == "1" || f["replica_read_only"] == "1" {
-			r.Access = "ro"
-		}
-		return r
-	case "master":
-		n, _ := strconv.Atoi(f["connected_slaves"])
-		if n > 0 {
-			return &liveRole{Role: "primary", Access: "rw", Replicas: &n}
-		}
-		return &liveRole{Role: "standalone", Access: "rw"}
-	}
-	return &liveRole{Err: "no role in INFO replication"}
+	return parseValkeyLive(res.Stdout)
 }
 
 // liveDiskScript prints "<path> <bytes in it> <fs used> <fs size>" for the first data directory

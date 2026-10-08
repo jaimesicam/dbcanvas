@@ -628,7 +628,10 @@ export const HELP = {
     'Tear down every container and volume in this stack. The design stays on the canvas, so you can redeploy it — ' +
     'but the data inside the nodes is gone.',
   uiRelations: 'Show the relationships set in node properties as labelled dotted lines — which PMM monitors a node, which Repository it installs from, which OpenBao holds its encryption keys, where it backs up to, which directory or Keycloak it authenticates against. Hover a label for the full sentence.',
-  uiLive: 'Live: a panel beside every running node with its CPU, memory, disk and network, and the replication role its database reports right now — primary or replica, read-write or read-only. Refreshes every 2, 5 or 10 seconds while it is on and this window has focus. Drag a panel out of the way or close it; switching Live off and on brings them all back.',
+  uiLive: 'Live: every card shows the role its database reports right now — primary or replica, read-write or read-only — anything wrong with its replication, and a bar each for CPU, memory and disk. Select a card for its full figures beside it (pin them to keep them open), or open the Live tab in Properties. Refreshes every 2, 5 or 10 seconds while it is on and this window has focus.',
+  uiLiveStrips: 'Strips: the figures on every card, cluster members included.',
+  uiLiveTables: 'Tables: each database cluster gets a table under it — one row per member with its role, lag, CPU, memory, disk, read and write IOPS and status — and its member cards stay plain.',
+  uiFixLayout: 'Pull apart whatever overlaps: Live makes cards taller and puts tables under clusters, which can run into what was placed beneath them. Moves the lower of two overlapping things down (or the right one across, when they sit side by side) and saves the design.',
   uiResetView: 'Recentre the canvas at 100%, for when you have panned or zoomed somewhere you cannot find your way back from.',
   // --- Kubernetes States ---------------------------------------------------
   k8sStates:
@@ -875,6 +878,8 @@ export const MENU_HELP = {
   openVncBrowser: 'Opens this node\'s web UI in Firefox on the stack\'s Ubuntu VNC desktop, and shows that desktop. In a shared session there is one copy of the page, so everyone sees what you see.',
   fileManager: 'Browse this node\'s filesystem: upload, download, edit a config in place, change ownership and permissions. Usually faster than a shell for fixing one wrong line.',
   bucketManager: 'Browse this SeaweedFS node\'s buckets in two panes: download an object, upload files into a folder, delete what you no longer want, and copy objects from one bucket to another (on this node or another SeaweedFS node in the stack).',
+  liveMenu: 'The Live view (the toolbar\'s Live button). Pin details keeps this node\'s full figures open beside it while you select other cards — it turns Live on if it is off. Unpin all closes every pinned one; the tables switch between figures on the cards and a table under each cluster.',
+  replicationRole: 'Make a replica the primary, or hand the primary to a replica you choose. It is done the cluster\'s own way — Patroni and repmgr switchovers, a MongoDB step-down, Group Replication\'s set_as_primary — and for MySQL and MariaDB replication by freezing writes on the primary, waiting until every replica has applied exactly the same data, then promoting and re-pointing (by GTID, or by binlog position without it). Writes pause for a few seconds. HAProxy, ProxySQL, PgBouncer and MySQL Router follow the new primary by themselves; the design is updated to match.',
   copyExec: 'Copies a ready-made `docker exec -it … bash` line, for when you would rather work in your own terminal than the browser.',
   sshTunnel: 'Copies an `ssh -L` line that forwards every port this node publishes to the same port on your own machine \u2014 for when DBCanvas runs on a server and the ports are bound to it, not to you. It logs in as your DBCanvas username, so on a server where that is also your ssh account the line is ready to paste.',
   stop: 'Stops the container. The data survives; start it again from this menu.',

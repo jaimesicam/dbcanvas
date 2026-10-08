@@ -43,6 +43,7 @@ import {
   FrameVaultFields, PgBouncerForm, PGHostAuthFields,
 } from '../src/pages/StackDesigner.jsx'
 import PgBouncerManager from '../src/pages/PgBouncerManager.jsx'
+import { LiveStrip, ClusterTable, fixLayout, countOverlaps, footprints, tableHeight } from '../src/components/LiveCard.jsx'
 import { RepositoryForm, RepositoryManager, RepositoryPicker, RepoContentEditor, GuideTab as RepoGuide, LogTab as RepoLog } from '../src/pages/Repository.jsx'
 import { ReplicationView } from '../src/pages/K3DManager.jsx'
 import OperatorSummary, { Verdicts as OpVerdicts, Findings as OpFindings, Workloads as OpWorkloads, Pods as OpPods, CRs as OpCRs, Operators as OpOperators, Deployment as OpDeployment, Images as OpImages, Secrets as OpSecrets, Backups as OpBackups, Certs as OpCerts, Storage as OpStorage, Logs as OpLogs, Galera as OpGalera, PodSummaries as OpPodSummaries, BackupLogs as OpBackupLogs, Extras as OpExtras } from '../src/pages/OperatorSummary.jsx'
@@ -1852,6 +1853,58 @@ check('a frame that grew is pushed clear of its neighbour', () => {
 })
 
 // The simulators are what get the "app connection" caption on their association line.
+
+// Live's Fix layout: taller cards and tables under clusters run into what was placed beneath them.
+// It must clear every overlap, move nothing that does not overlap, and be done after one run.
+check('Live: Fix layout pulls overlapping cards and clusters apart', () => {
+  const boxes = [
+    { kind: 'frame', id: 'f1', x: 100, y: 40, w: 400, h: 300 },   // a cluster, now with its table
+    { kind: 'frame', id: 'f2', x: 100, y: 330, w: 400, h: 120 },  // the cluster that was under it
+    { kind: 'node', id: 'n1', x: 100, y: 440, w: 212, h: 104 },   // and a card under that
+    { kind: 'node', id: 'far', x: 900, y: 40, w: 212, h: 104 },   // nowhere near anything
+  ]
+  if (countOverlaps(boxes) !== 2) throw new Error(`expected 2 overlapping pairs, got ${countOverlaps(boxes)}`)
+  const moves = fixLayout(boxes)
+  if (moves['node:far']) throw new Error('a card that overlaps nothing must not move')
+  if (!moves['frame:f2'] || moves['frame:f2'].dy <= 0 || moves['frame:f2'].dx) throw new Error('the lower cluster moves down, not across')
+  const after = boxes.map((b) => { const m = moves[`${b.kind}:${b.id}`]; return m ? { ...b, x: b.x + m.dx, y: b.y + m.dy } : b })
+  if (countOverlaps(after)) throw new Error('something still overlaps after Fix layout')
+  if (Object.keys(fixLayout(after)).length) throw new Error('a second run must find nothing to do')
+  // Side by side on one row: the right-hand card moves across, not down.
+  const row = fixLayout([{ kind: 'node', id: 'a', x: 0, y: 0, w: 212, h: 104 }, { kind: 'node', id: 'b', x: 150, y: 0, w: 212, h: 104 }])
+  if (!row['node:b'] || row['node:b'].dy || row['node:b'].dx <= 0) throw new Error('a card beside another moves across')
+  return 'ok'
+})
+
+check('Live: footprints add a cluster\'s table under its frame', () => {
+  const nodes = [{ id: 'm1', frameId: 'f', x: 0, y: 0 }, { id: 'm2', frameId: 'f', x: 0, y: 0 }, { id: 'n', x: 0, y: 500 }]
+  const fp = footprints(nodes, [{ id: 'f', type: 'mysql', x: 0, y: 0, w: 300, h: 100 }], { node: [212, 104] }, () => 2)
+  const f = fp.find((b) => b.kind === 'frame')
+  if (f.h !== 100 + 8 + tableHeight(2)) throw new Error(`frame footprint ${f.h} does not include its table`)
+  if (fp.filter((b) => b.kind === 'node').length !== 1) throw new Error('members are part of their frame, not separate boxes')
+  return 'ok'
+})
+
+check('Live strip: healthy member, member with a problem, down node, no data', () => {
+  const ok = { state: 'running', cpuPercent: 4, memPercent: 1, disk: { path: '/var/lib/mysql', dataBytes: 1, fsUsed: 53, fsTotal: 100 }, role: { role: 'replica', access: 'ro', lagSec: 0 } }
+  const node = { id: 'a', label: 'a' }
+  const warn = renderToString(<LiveStrip member data={{ ...ok, role: { ...ok.role, problems: ['receiver cannot connect'] } }} node={node} frame={null} />)
+  if (!/receiver cannot connect/.test(warn)) throw new Error('a member\'s strip does not say what is wrong')
+  const down = renderToString(<LiveStrip data={{ ...ok, role: { down: true, error: "Can't connect" } }} node={node} frame={null} />)
+  if (!/DB DOWN/.test(down)) throw new Error('a down database is not called down')
+  return renderToString(<LiveStrip member data={ok} node={node} frame={null} />) + warn + down
+    + renderToString(<LiveStrip data={{ state: 'stopped' }} node={node} frame={null} />)
+    + renderToString(<LiveStrip data={null} node={node} frame={null} />)
+})
+
+check('Live cluster table: rows with IOPS, a member with no data', () => {
+  const live = { a: { state: 'running', cpuPercent: 4, memPercent: 1, readIops: 12, writeIops: 3400, role: { role: 'primary', access: 'rw', replicas: 1 } } }
+  const html = renderToString(<ClusterTable frame={{ id: 'f', type: 'mysql', w: 400 }} members={[{ id: 'a', label: 'db-1' }, { id: 'b', label: 'db-2' }]} live={live} />)
+  if (!/IOPS R \/ W/.test(html)) throw new Error('the table has no IOPS column')
+  if (!/12 \/ 3\.4k/.test(html)) throw new Error('read and write IOPS are not shown')
+  return html
+})
+
 check('the application simulators are named as such', () => {
   for (const t of ['stocksim', 'airlinesim', 'carsim', 'hotelsim', 'trafficsim', 'marketchaos']) {
     if (!SIM_NODE_TYPES.has(t)) throw new Error(`${t} is a simulator and must carry the app-connection caption`)

@@ -6,7 +6,11 @@ import { Help, Hint } from '../components/Tooltip.jsx'
 import { HELP, MENU_HELP, nodeHelp } from '../lib/help.js'
 import { usePolling } from '../lib/usePolling.jsx'
 import { useLiveStates, LIVE_INTERVALS } from '../lib/useLiveStates.js'
-import LiveOverlay from '../components/LiveOverlay.jsx'
+import LiveOverlay, { LiveDetailsBody } from '../components/LiveOverlay.jsx'
+import {
+  LiveStrip, ProblemBadge, ClusterTable, problemCount, healthRing, healthDot,
+  LIVE_MEMBER_EXTRA, LIVE_NODE_EXTRA, TABLE_GAP, tableHeight, tableWidth, footprints, countOverlaps, fixLayout,
+} from '../components/LiveCard.jsx'
 import { sendHandoff, useHandoff } from '../lib/handoff.js'
 import { stackApi, templateApi, imageApi, mongoDownloadURL, k8sPods, isBuiltinTemplate, frameApi, TTL_OPTIONS, DEPLOY_TONE, NODE_UPLOAD_DESTS, PRODUCT_OS_FAMILIES } from '../lib/stackApi.js'
 import { kindOf as aioKindOf, familyOf as aioFamilyOf } from '../lib/aioPorts.js'
@@ -889,11 +893,12 @@ export function frameSubLabel(frame, members, depByNode) {
 }
 
 // layoutFrame derives a frame's size and lays its member nodes out in a row.
-export function layoutFrame(frame, frameNodes, sub) {
+// memberH is the member card's height — taller while Live draws its strips (components/LiveCard.jsx).
+export function layoutFrame(frame, frameNodes, sub, memberH = PXC_NODE_H) {
   const n = Math.max(1, frameNodes.length)
   const contentW = FRAME_PAD * 2 + n * PXC_NODE_W + (n - 1) * FRAME_GAP
   const w = Math.max(contentW, frameHeaderW(frame, frameNodes.length, sub))
-  const h = FRAME_TITLE + FRAME_PAD * 2 + PXC_NODE_H
+  const h = FRAME_TITLE + FRAME_PAD * 2 + memberH
   // Members stay centred when the title is what set the width, so a one-node frame
   // does not read as a wide box with something forgotten in the corner.
   const ox = frame.x + Math.round((w - contentW) / 2) + FRAME_PAD
@@ -950,14 +955,14 @@ export function separateFrames(frames) {
 // (its replica-set members stacked below). Sizes adapt to the member count so it
 // fits both the standard (13-node) and minimum (5-node) setups; the single-row
 // layoutFrame is unusable here.
-function layoutPSMDBFrame(frame, frameNodes, sub) {
+function layoutPSMDBFrame(frame, frameNodes, sub, memberH = PXC_NODE_H) {
   // Stable ordering independent of array order: derive columns/rows from role.
   const mongos = frameNodes.filter((n) => n.role === 'mongos')
   const config = frameNodes.filter((n) => n.role === 'config')
   const shardIdx = [...new Set(frameNodes.filter((n) => n.role === 'shard').map((n) => n.shard))].sort((a, b) => a - b)
   const shards = shardIdx.map((s) => frameNodes.filter((n) => n.role === 'shard' && n.shard === s))
   const colW = PXC_NODE_W + FRAME_GAP
-  const rowH = PXC_NODE_H + FRAME_GAP
+  const rowH = memberH + FRAME_GAP
   // columns: max(top row = 1 mongos + config members, shard columns).
   const ncols = Math.max(1 + config.length, shards.length, 3)
   const contentW = FRAME_PAD * 2 + ncols * PXC_NODE_W + (ncols - 1) * FRAME_GAP
@@ -965,7 +970,7 @@ function layoutPSMDBFrame(frame, frameNodes, sub) {
   // rows: 1 top row + the tallest shard replica set.
   const maxShardRows = shards.reduce((m, s) => Math.max(m, s.length), 0)
   const nrows = 1 + maxShardRows
-  const h = FRAME_TITLE + FRAME_PAD * 2 + nrows * PXC_NODE_H + (nrows - 1) * FRAME_GAP
+  const h = FRAME_TITLE + FRAME_PAD * 2 + nrows * memberH + (nrows - 1) * FRAME_GAP
   const ox = frame.x + Math.round((w - contentW) / 2) + FRAME_PAD
   const oy = frame.y + FRAME_TITLE + FRAME_PAD
   const positioned = []
@@ -983,9 +988,14 @@ function layoutPSMDBFrame(frame, frameNodes, sub) {
 }
 
 // relayoutFrame picks the right layout for a frame type.
-function relayoutFrame(frame, frameNodes, sub) {
-  return frame.type === 'psmdb' ? layoutPSMDBFrame(frame, frameNodes, sub) : layoutFrame(frame, frameNodes, sub)
+function relayoutFrame(frame, frameNodes, sub, memberH = PXC_NODE_H) {
+  return frame.type === 'psmdb' ? layoutPSMDBFrame(frame, frameNodes, sub, memberH) : layoutFrame(frame, frameNodes, sub, memberH)
 }
+
+// TABLE_FRAMES are the clusters that get a Live table under them: databases, not proxies or
+// Kubernetes.
+const TABLE_FRAMES = new Set(['pxc', 'mysql', 'mysqlcerepl', 'mariadbrepl', 'mariadbgalera', 'innodb', 'mysqlceinnodb',
+  'patroni', 'repmgr', 'spock', 'psmrs', 'psmdb', 'valkeycluster'])
 
 // nextClusterName → pxc-cluster-NN, unique across all PXC frames (from 00).
 function nextClusterName(frames) {
@@ -2060,6 +2070,7 @@ const PALETTE_KEY = 'dbcanvas-palette'
 const RELATIONS_KEY = 'dbcanvas-relations'
 const LIVE_KEY = 'dbcanvas-live'
 const LIVE_MS_KEY = 'dbcanvas-live-ms'
+const LIVE_TABLES_KEY = 'dbcanvas-live-tables'
 const RECENT_MAX = 5
 // Extra search terms per node type — the words people actually type that appear in no
 // label or category ("redis" for Valkey, "k8s" for K3D, "mongo" for the PSMDB entries).
@@ -2374,24 +2385,78 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
   // labelled lines. Off by default — a viewer preference, so it lives in this browser.
   const [showRelations, setShowRelations] = useState(() => { try { return localStorage.getItem(RELATIONS_KEY) === '1' } catch { return false } })
   useEffect(() => { try { localStorage.setItem(RELATIONS_KEY, showRelations ? '1' : '0') } catch { /* */ } }, [showRelations])
-  // Live view: a popup beside every running node with its CPU, memory, disk, network and
-  // replication role (components/LiveOverlay.jsx). A viewer preference, like the lines above.
+  // Live view: every card grows a strip with its role, health and bars, clusters can carry a
+  // table, and the selected or pinned cards open their full figures beside them
+  // (components/LiveCard.jsx, LiveOverlay.jsx). A viewer preference, like the lines above.
   const [liveOn, setLiveOn] = useState(() => { try { return localStorage.getItem(LIVE_KEY) === '1' } catch { return false } })
   const [liveMs, setLiveMs] = useState(() => { try { const v = Number(localStorage.getItem(LIVE_MS_KEY)); return LIVE_INTERVALS.includes(v) ? v : 5000 } catch { return 5000 } })
-  useEffect(() => { try { localStorage.setItem(LIVE_KEY, liveOn ? '1' : '0'); localStorage.setItem(LIVE_MS_KEY, String(liveMs)) } catch { /* */ } }, [liveOn, liveMs])
-  const [liveClosed, setLiveClosed] = useState(() => new Set())
+  const [liveTables, setLiveTables] = useState(() => { try { return localStorage.getItem(LIVE_TABLES_KEY) === '1' } catch { return false } })
+  useEffect(() => { try { localStorage.setItem(LIVE_KEY, liveOn ? '1' : '0'); localStorage.setItem(LIVE_MS_KEY, String(liveMs)); localStorage.setItem(LIVE_TABLES_KEY, liveTables ? '1' : '0') } catch { /* */ } }, [liveOn, liveMs, liveTables])
+  const [livePinned, setLivePinned] = useState(() => new Set())
+  const [liveDismissed, setLiveDismissed] = useState(null) // the selected card whose details were closed
   const [liveOffsets, setLiveOffsets] = useState({})
   const { live, error: liveError } = useLiveStates(stackId, liveOn, liveMs)
-  // Switching Live on opens every popup again, where it started.
   const toggleLive = () => {
-    if (!liveOn) { setLiveClosed(new Set()); setLiveOffsets({}) }
+    if (!liveOn) { setLiveOffsets({}); setLiveDismissed(null) }
     setLiveOn(!liveOn)
+  }
+  const togglePin = (id) => setLivePinned((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  // Card sizes follow the Live mode: strips make every card taller, except cluster members while
+  // their cluster's table carries the figures instead.
+  const memberH = liveOn && !liveTables ? PXC_NODE_H + LIVE_MEMBER_EXTRA : PXC_NODE_H
+  const nodeH = liveOn ? NODE_H + LIVE_NODE_EXTRA : NODE_H
+  const sizeRef = useRef({ memberH, nodeH })
+  sizeRef.current = { memberH, nodeH }
+  // A member's height sets its frame's: re-lay every frame when the mode changes it. The raw
+  // setters, because this is the viewer's display, not an edit — and a viewer without control in
+  // a shared session sees it too.
+  const laidMemberH = useRef(memberH)
+  useEffect(() => {
+    if (laidMemberH.current === memberH) return
+    laidMemberH.current = memberH
+    let fz = designRef.current.frames
+    let nz = designRef.current.nodes
+    for (const f of fz) {
+      const r = relayout(f.id, fz, nz)
+      fz = r.frames
+      nz = r.nodes
+    }
+    setFramesRaw(fz)
+    setNodesRaw(nz)
+  }, [memberH]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Selecting another card brings its details back after one was closed.
+  useEffect(() => { setLiveDismissed(null) }, [selected?.id])
+  // The details shown: the selected card (unless closed) and the pinned ones.
+  const liveShow = new Set(liveOn ? livePinned : [])
+  if (liveOn && selected?.kind === 'node' && selected.id !== liveDismissed) liveShow.add(selected.id)
+  // tableMembers is how many rows a frame's Live table has, 0 when it has none.
+  const tableMembers = (f) => (liveOn && liveTables && TABLE_FRAMES.has(f.type) ? nodes.filter((n) => n.frameId === f.id).length : 0)
+  const tableBlocks = frames.filter((f) => tableMembers(f) > 0)
+    .map((f) => ({ x: f.x, y: f.y + f.h + TABLE_GAP, w: tableWidth(f), h: tableHeight(tableMembers(f)) }))
+  // What Live made overlap: taller cards and tables run into whatever was placed under them.
+  const liveBoxes = liveOn ? footprints(nodes, frames, { node: [NODE_W, nodeH] }, tableMembers) : []
+  const liveOverlaps = liveOn ? countOverlaps(liveBoxes) : 0
+  // runFixLayout pulls overlapping cards, clusters and tables apart (components/LiveCard.jsx
+  // fixLayout) and saves the result: an edit of the design, so not while someone else has control.
+  function runFixLayout() {
+    if (refuseLocked()) return
+    const moves = fixLayout(liveOn ? liveBoxes : footprints(nodes, frames, { node: [NODE_W, nodeH] }, () => 0))
+    const n = Object.keys(moves).length
+    if (!n) { setFlash({ tone: 'success', text: 'Nothing overlaps.' }); return }
+    const moveOf = (key) => moves[key]
+    setFrames((fs) => fs.map((f) => { const m = moveOf(`frame:${f.id}`); return m ? { ...f, x: f.x + m.dx, y: f.y + m.dy } : f }))
+    setNodes((ns) => ns.map((nd) => {
+      const m = nd.frameId ? moveOf(`frame:${nd.frameId}`) : moveOf(`node:${nd.id}`)
+      return m ? { ...nd, x: nd.x + m.dx, y: nd.y + m.dy } : nd
+    }))
+    setFlash({ tone: 'success', text: `Moved ${n} item${n === 1 ? '' : 's'} so nothing overlaps.` })
   }
   const [menu, setMenu] = useState(null)
   const [addMenu, setAddMenu] = useState(null) // right-click on empty canvas: add a node here
   const [connect, setConnect] = useState(null)
   const [replPrompt, setReplPrompt] = useState(null) // member↔member: choose replication direction/type
   const [confirmDel, setConfirmDel] = useState(null) // confirm deleting a deployed node/cluster
+  const [switchDlg, setSwitchDlg] = useState(null) // { targetId, target, from, phase, steps, error }
   const [saveState, setSaveState] = useState('saved') // saved | saving
   const [deployments, setDeployments] = useState([])
   const [issues, setIssues] = useState(null) // validate results panel
@@ -2556,7 +2621,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
   useEffect(() => {
     for (const f of frames) {
       const mine = nodes.filter((n) => n.frameId === f.id)
-      const want = relayoutFrame(f, mine, frameSubLabel(f, mine, depByNode)).frame
+      const want = relayoutFrame(f, mine, frameSubLabel(f, mine, depByNode), sizeRef.current.memberH).frame
       if (want.w !== f.w || want.h !== f.h) {
         const r = relayout(f.id, frames, nodes)
         setFrames(r.frames)
@@ -2623,7 +2688,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
     const n = refs.current.nodes.find((x) => x.id === id)
     // A cluster member (inside a frame) uses the small member-card geometry; a free
     // node uses the full node size.
-    if (n) return n.frameId ? { x: n.x, y: n.y, w: PXC_NODE_W, h: PXC_NODE_H } : { x: n.x, y: n.y, w: NODE_W, h: NODE_H }
+    if (n) return n.frameId ? { x: n.x, y: n.y, w: PXC_NODE_W, h: sizeRef.current.memberH } : { x: n.x, y: n.y, w: NODE_W, h: sizeRef.current.nodeH }
     const f = refs.current.frames.find((x) => x.id === id)
     if (f) return { x: f.x, y: f.y, w: f.w, h: f.h }
     return null
@@ -2646,11 +2711,11 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
       if (n.frameId) {
         // PXC and Percona Server replication members expose ports for cross-cluster
         // replication links; other members (ProxySQL, InnoDB) do not.
-        if (n.type === 'pxc' || n.type === 'mysql') consider(n.id, { x: n.x, y: n.y, w: PXC_NODE_W, h: PXC_NODE_H })
+        if (n.type === 'pxc' || n.type === 'mysql') consider(n.id, { x: n.x, y: n.y, w: PXC_NODE_W, h: sizeRef.current.memberH })
         continue
       }
       if (!NODE_TYPES[n.type]?.ports) continue
-      consider(n.id, { x: n.x, y: n.y, w: NODE_W, h: NODE_H })
+      consider(n.id, { x: n.x, y: n.y, w: NODE_W, h: sizeRef.current.nodeH })
     }
     for (const f of refs.current.frames) {
       if (CONNECTABLE_FRAMES.has(f.type)) consider(f.id, { x: f.x, y: f.y, w: f.w, h: f.h })
@@ -2682,7 +2747,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
           // moving the box and leaving its width behind: a frame renamed to something
           // longer resizes as soon as it is next dragged.
           const mine = refs.current.nodes.filter((n) => n.frameId === d.id)
-          const r = relayoutFrame({ ...frame, x: nx, y: ny }, mine)
+          const r = relayoutFrame({ ...frame, x: nx, y: ny }, mine, undefined, sizeRef.current.memberH)
           const laid = new Map(r.nodes.map((n) => [n.id, n]))
           setFrames((fs) => fs.map((f) => (f.id === d.id ? r.frame : f)))
           setNodes((ns) => ns.map((n) => laid.get(n.id) || n))
@@ -3322,7 +3387,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
     if (!frame) return { frames: framesArr, nodes: nodesArr }
     const mine = nodesArr.filter((n) => n.frameId === frameId)
     const others = nodesArr.filter((n) => n.frameId !== frameId)
-    const r = relayoutFrame(frame, mine, frameSubLabel(frame, mine, deps))
+    const r = relayoutFrame(frame, mine, frameSubLabel(frame, mine, deps), sizeRef.current.memberH)
     return {
       frames: framesArr.map((f) => (f.id === frameId ? r.frame : f)),
       nodes: [...others, ...r.nodes],
@@ -3929,6 +3994,49 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
     }
   }
 
+  // switchoverMenu is the "Replication role" submenu: Promote on a replica; on the primary, the
+  // replicas it can hand over to, with their lag. A member that cannot take over is shown greyed,
+  // with the reason as its tooltip.
+  async function switchoverMenu(id) {
+    const info = await stackApi.switchoverInfo(stack.id, id)
+    if (!info.supported) return [{ label: info.reason || 'Not supported here', disabled: true, fn: () => {} }]
+    const label = (nid) => info.members.find((m) => m.nodeId === nid)?.label || nid
+    const lag = (m) => (m.lagSec != null ? ` · lag ${m.lagSec < 10 ? m.lagSec.toFixed(1) : Math.round(m.lagSec)}s` : '')
+    if (info.primary === id) {
+      const others = info.members.filter((m) => m.nodeId !== id)
+      return [
+        { heading: 'Demote — hand primary to' },
+        ...others.map((m) => ({
+          label: `${m.label}${lag(m)}`,
+          disabled: !m.eligible,
+          help: m.eligible ? `Make ${m.label} the primary; ${label(id)} becomes a replica of it.` : m.why,
+          fn: () => setSwitchDlg({ targetId: m.nodeId, target: m.label, from: label(id), phase: 'confirm' }),
+        })),
+      ]
+    }
+    const me = info.members.find((m) => m.nodeId === id)
+    return [{
+      label: 'Promote to primary',
+      disabled: !me?.eligible,
+      help: me?.eligible ? `Make ${me.label} the primary; ${label(info.primary)} becomes a replica of it.` : me?.why,
+      fn: () => setSwitchDlg({ targetId: id, target: me.label, from: label(info.primary), phase: 'confirm' }),
+    }]
+  }
+
+  async function runSwitch() {
+    const d = switchDlg
+    setSwitchDlg({ ...d, phase: 'running' })
+    try {
+      const r = await stackApi.promote(stack.id, d.targetId)
+      setSwitchDlg({ ...d, phase: 'done', steps: r.steps || [] })
+    } catch (err) {
+      setSwitchDlg({ ...d, phase: 'failed', error: err.message, steps: err.data?.steps || [] })
+    }
+    // The server rewrote the design's roles: read it back rather than let a later save of the
+    // copy in this page put the old primary back.
+    setReloadKey((k) => k + 1)
+  }
+
   // podConsoleMenu asks the cluster what is running and hands back the menu for it.
   // Called by the context menu when the "Enter pod console" submenu opens, once per
   // open of that menu — errors included, which arrive as the submenu's own row rather
@@ -3957,6 +4065,20 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
     const actions = []
     if (dep) {
       actions.push({ label: 'View config / profile', help: MENU_HELP.config, fn: () => showConfig(id) })
+      // The Live view's details, from the node: pin them so they stay open while other cards are
+      // selected. Pinning switches Live on if it was off.
+      const pinned = liveOn && livePinned.has(id)
+      actions.push({
+        label: 'Live',
+        help: MENU_HELP.liveMenu,
+        items: [
+          pinned
+            ? { label: 'Unpin details', fn: () => togglePin(id) }
+            : { label: 'Pin details', fn: () => { setLivePinned((ps) => new Set(ps).add(id)); setLiveOn(true) } },
+          { label: 'Unpin all', disabled: !livePinned.size, fn: () => setLivePinned(new Set()) },
+          { label: liveTables ? 'Hide cluster tables' : 'Show cluster tables', fn: () => { setLiveTables(!liveTables); setLiveOn(true) } },
+        ],
+      })
       if (dep.state === 'running') {
         const node = nodes.find((n) => n.id === id)
         if (node?.type === 'pmm') {
@@ -4002,6 +4124,19 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
               ? { label: 'Open in VNC Browser', help, disabled: !vncUp, fn: desk(links[0]) }
               : { label: 'Open in VNC Browser', help, items: links.map((l) => ({ label: l.label, fn: desk(l) })) })
           }
+        }
+        // A replicated cluster's member can take over as primary, or — on the primary — hand the
+        // role to a replica the user picks. Who is primary is asked of the servers when the submenu
+        // opens (app/switchover.go), not read from the design.
+        const frameType = node?.frameId ? frames.find((f) => f.id === node.frameId)?.type : ''
+        if (SWITCHABLE.has(frameType) && node?.role !== 'mongos') {
+          actions.push({
+            label: 'Replication role',
+            help: MENU_HELP.replicationRole,
+            key: `switch:${id}`,
+            empty: 'Nothing to switch',
+            items: () => switchoverMenu(id),
+          })
         }
         actions.push({ label: 'File manager', help: MENU_HELP.fileManager, fn: () => setFileMgr({ nodeId: id, label: node?.label || 'node' }) })
         // Sample Client Code is a Linux Client action: it writes a project onto the node and
@@ -4385,7 +4520,6 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
               <Button size="sm" variant={liveOn ? 'subtle' : 'ghost'} aria-pressed={liveOn}
                 className={liveOn ? 'text-primary' : ''} onClick={toggleLive}>
                 <Icon.Pulse size={15} /> <span className="@max-3xl:hidden">Live</span>
-                {liveOn && liveClosed.size > 0 && <span className="text-xs text-muted">({liveClosed.size} hidden)</span>}
               </Button>
             </Hint>
             {liveOn && (
@@ -4393,6 +4527,26 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
                 className="rounded-md border bg-surface px-1.5 py-1 text-xs text-fg">
                 {LIVE_INTERVALS.map((ms) => <option key={ms} value={ms}>{ms / 1000}s</option>)}
               </select>
+            )}
+            {liveOn && (
+              <div role="group" aria-label="What Live shows" className="inline-flex overflow-hidden rounded-md border text-xs">
+                <Hint text={HELP.uiLiveStrips}>
+                  <button type="button" aria-pressed={!liveTables} onClick={() => setLiveTables(false)}
+                    className={`px-2 py-1 ${!liveTables ? 'bg-primary text-primary-fg' : 'bg-surface text-fg hover:bg-surface2'}`}>Strips</button>
+                </Hint>
+                <Hint text={HELP.uiLiveTables}>
+                  <button type="button" aria-pressed={liveTables} onClick={() => setLiveTables(true)}
+                    className={`border-l px-2 py-1 ${liveTables ? 'bg-primary text-primary-fg' : 'bg-surface text-fg hover:bg-surface2'}`}>+ Tables</button>
+                </Hint>
+              </div>
+            )}
+            {liveOn && (
+              <Hint text={HELP.uiFixLayout}>
+                <Button size="sm" variant="ghost" onClick={runFixLayout} disabled={locked}>
+                  <Icon.Grid size={15} /> <span className="@max-3xl:hidden">Fix layout</span>
+                  {liveOverlaps > 0 && <span className="rounded bg-warning/20 px-1 text-[10px] font-bold text-warning">{liveOverlaps}</span>}
+                </Button>
+              </Hint>
             )}
             <Hint text={HELP.uiResetView}>
               <Button size="sm" variant="ghost" onClick={() => setView({ x: 40, y: 20, z: 1 })}>
@@ -4586,6 +4740,11 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
                       <div className="whitespace-nowrap text-xs font-semibold text-fg">{f.label}</div>
                       <div className="truncate text-[10px] text-muted">{frameSubLabel(f, kids, depByNode)}</div>
                     </div>
+                    {liveOn && (() => {
+                      const sick = kids.filter((n) => problemCount(live[n.id]) > 0)
+                      const count = sick.reduce((t, n) => t + problemCount(live[n.id]), 0)
+                      return <ProblemBadge count={count} title={sick.map((n) => n.label).join(', ')} />
+                    })()}
                     {/* PS MongoDB has a fixed topology — no add/remove controls. */}
                     {f.type !== 'psmdb' && (
                       <div className="ml-auto flex items-center gap-0.5">
@@ -4610,7 +4769,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
                     const canRepl = f.type === 'pxc' || f.type === 'mysql'
                     return (
                       <div key={n.id} className="group absolute"
-                        style={{ left: n.x - f.x, top: n.y - f.y, width: PXC_NODE_W, height: PXC_NODE_H }}>
+                        style={{ left: n.x - f.x, top: n.y - f.y, width: PXC_NODE_W, height: memberH }}>
                         <div
                           onPointerDown={(e) => selectFrameNode(e, n.id)}
                           onContextMenu={(e) => openMenu(e, n.id)}
@@ -4618,6 +4777,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
                           onDragLeave={(e) => nodeDragLeave(e, n.id)}
                           onDrop={(e) => nodeDrop(e, n.id)}
                           className={`absolute inset-0 flex cursor-pointer flex-col overflow-hidden rounded-lg border bg-surface shadow-sm ${non ? 'ring-2 ring-primary' : ''} ${dropNode === n.id ? 'ring-2 ring-success' : ''}`}
+                          style={liveOn && !non ? { boxShadow: healthRing(live[n.id]) || undefined } : undefined}
                         >
                           <div className="h-1 w-full shrink-0" style={{ background: barCol }} />
                           {/* Name and status. The role and the version are in the
@@ -4628,10 +4788,11 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
                             text={memberCardTip(f, n, dep, sub,
                               deployedLabel(n.type, dep) || (f.type === 'k3d' ? 'rancher/k3s' : ''),
                               f.arch || platform)}
-                            placement="top" display="flex" className="min-h-0 flex-1"
+                            placement="top" display="flex" className={liveOn ? 'shrink-0' : 'min-h-0 flex-1'}
                           >
-                            <div className="flex w-full items-center gap-1 px-2">
+                            <div className="flex w-full items-center gap-1 px-2" style={liveOn ? { height: PXC_NODE_H - 4 } : undefined}>
                               <span className="min-w-0 flex-1 truncate text-xs font-semibold text-fg">{n.label}</span>
+                              {liveOn && <ProblemBadge count={problemCount(live[n.id])} title={(live[n.id]?.role?.problems || []).join('\n')} />}
                               {dep?.state === 'provisioning' ? (
                                 <ProgressRing percent={dep.progress?.percent || 0} size={15} />
                               ) : nodeConfiguring(dep) ? (
@@ -4641,10 +4802,11 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
                                 <Spinner size={13} />
                               ) : dep ? (
                                 <span className="h-2 w-2 shrink-0 rounded-full"
-                                  style={{ background: `var(--${DEPLOY_TONE[dep.state] === 'success' ? 'success' : dep.state === 'error' ? 'danger' : 'warning'})` }} />
+                                  style={{ background: (liveOn && healthDot(live[n.id])) || `var(--${DEPLOY_TONE[dep.state] === 'success' ? 'success' : dep.state === 'error' ? 'danger' : 'warning'})` }} />
                               ) : null}
                             </div>
                           </Hint>
+                          {liveOn && !liveTables && <LiveStrip member data={live[n.id]} node={n} frame={f} />}
                         </div>
                         {canRepl && (
                           <PortHandles ownerId={n.id} connecting={!!connect} snapPort={connect?.targetId === n.id ? connect.targetPort : null} onStart={startConnect} />
@@ -4659,6 +4821,13 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
                       said they were connectable at all. */}
                   {CONNECTABLE_FRAMES.has(f.type) && (
                     <PortHandles ownerId={f.id} connecting={!!connect} snapPort={connect?.targetId === f.id ? connect.targetPort : null} onStart={startConnect} />
+                  )}
+                  {tableMembers(f) > 0 && (
+                    <div className="absolute left-0" style={{ top: f.h + TABLE_GAP }}>
+                      <ClusterTable frame={f} members={kids} live={live}
+                        selectedId={selected?.kind === 'node' ? selected.id : null}
+                        onSelect={(id) => setSelected({ kind: 'node', id })} />
+                    </div>
                   )}
                 </div>
               )
@@ -4676,21 +4845,23 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
                   onDragLeave={(e) => nodeDragLeave(e, n.id)}
                   onDrop={(e) => nodeDrop(e, n.id)}
                   className={`group absolute flex cursor-grab flex-col overflow-hidden rounded-xl border bg-surface shadow-sm active:cursor-grabbing ${on ? 'ring-2 ring-primary' : ''} ${dropNode === n.id ? 'ring-2 ring-success' : ''}`}
-                  style={{ left: n.x, top: n.y, width: NODE_W, height: NODE_H }}
+                  style={{ left: n.x, top: n.y, width: NODE_W, height: nodeH, boxShadow: liveOn && !on ? healthRing(live[n.id]) || undefined : undefined }}
                 >
                   <div className="h-1.5 w-full shrink-0" style={{ background: def.color }} />
                   {/* One row: icon, name, status. Everything else is in the tooltip
                       — see nodeCardTip. A card is a thing on a diagram, and the
                       moment it carries three lines of prose it stops being one. */}
-                  <Hint text={nodeCardTip(n, def, depByNode[n.id], n.arch || platform)} placement="top" display="flex" className="min-h-0 flex-1">
-                    <div className="flex w-full items-center gap-2.5 px-3">
+                  <Hint text={nodeCardTip(n, def, depByNode[n.id], n.arch || platform)} placement="top" display="flex" className={liveOn ? 'shrink-0' : 'min-h-0 flex-1'}>
+                    <div className="flex w-full items-center gap-2.5 px-3" style={liveOn ? { height: NODE_H - 6 } : undefined}>
                       <span className="shrink-0" style={{ color: def.color }}>
                         {(Icon[def.icon] || Icon.Server)({ size: 20 })}
                       </span>
                       <span className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">{n.label}</span>
+                      {liveOn && <ProblemBadge count={problemCount(live[n.id])} title={(live[n.id]?.role?.problems || []).join('\n')} />}
                       <span className="shrink-0"><NodeStatus dep={depByNode[n.id]} /></span>
                     </div>
                   </Hint>
+                  {liveOn && <LiveStrip data={live[n.id]} node={n} frame={null} />}
                   {def.ports && (
                     <PortHandles ownerId={n.id} connecting={!!connect} snapPort={connect?.targetId === n.id ? connect.targetPort : null} onStart={startConnect} />
                   )}
@@ -4701,10 +4872,21 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
 
           {liveOn && (
             <LiveOverlay nodes={nodes} frames={frames} view={view} live={live}
-              sizes={{ node: [NODE_W, NODE_H], member: [PXC_NODE_W, PXC_NODE_H] }}
-              closed={liveClosed} offsets={liveOffsets}
-              onClose={(id) => setLiveClosed((s) => new Set(s).add(id))}
+              sizes={{ node: [NODE_W, nodeH], member: [PXC_NODE_W, memberH] }}
+              show={liveShow} pinned={livePinned} blocks={tableBlocks} offsets={liveOffsets}
+              onClose={(id) => { if (livePinned.has(id)) togglePin(id); else setLiveDismissed(id) }}
+              onPin={togglePin}
               onMove={(id, off) => setLiveOffsets((o) => ({ ...o, [id]: off }))} />
+          )}
+
+          {/* What Live made overlap, and the way out of it. */}
+          {liveOn && liveOverlaps > 0 && (
+            <div className="absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-2 rounded-lg border bg-surface/95 px-3 py-1.5 text-xs shadow-lg backdrop-blur"
+              onPointerDown={(e) => e.stopPropagation()}>
+              <span className="text-warning">⚠</span>
+              <span className="text-fg">With Live on, {liveOverlaps} {liveOverlaps === 1 ? 'pair of things overlaps' : 'pairs of things overlap'}.</span>
+              <Button size="sm" variant="primary" disabled={locked} onClick={runFixLayout}>Fix layout</Button>
+            </div>
           )}
 
           {/* The legend swaps to the drop hint while files are being dragged over
@@ -4744,6 +4926,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
         deleteEdge={deleteEdge}
         deleteFrame={deleteFrame}
         rebuildMongoCluster={rebuildMongoCluster}
+        live={liveOn ? live : null}
         deployOpen={deployPanel === 'open'}
         deployments={deployments}
         onDeployMinimize={() => setDeployPanel('min')}
@@ -4816,6 +4999,11 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
           onClose={() => setReplPrompt(null)}
           onChoose={(fromEnd, toEnd, mode) => { createReplEdge(fromEnd, toEnd, mode); setReplPrompt(null) }}
         />
+      )}
+
+      {switchDlg && (
+        <SwitchoverModal dlg={switchDlg} onConfirm={runSwitch}
+          onClose={() => { if (switchDlg.phase !== 'running') setSwitchDlg(null) }} />
       )}
 
       {confirmDel && (
@@ -4955,6 +5143,51 @@ function DeploymentConsole({ deployments, nodes, onMinimize, inline = false, col
 
 // DeleteConfirmModal guards deletion of a *deployed* node or cluster, whose containers
 // and volumes are torn down in real time (and can't be undone).
+// SWITCHABLE are the cluster types whose primary can be switched from the canvas
+// (app/switchover.go switchKinds).
+const SWITCHABLE = new Set(['mysql', 'mysqlcerepl', 'mariadbrepl', 'innodb', 'mysqlceinnodb', 'patroni', 'repmgr', 'psmrs', 'psmdb'])
+
+// SwitchoverModal asks before switching a primary, waits through it (it can take a minute — a
+// repmgr switchover restarts the old primary), and shows what was done, step by step.
+function SwitchoverModal({ dlg, onConfirm, onClose }) {
+  const { phase, target, from, steps = [], error } = dlg
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={onClose}>
+      <div className="w-full max-w-md rounded-xl border bg-surface p-5 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
+        <h3 className="mb-1 text-sm font-semibold">
+          {phase === 'done' ? `${target} is the primary` : phase === 'failed' ? 'Switchover failed' : `Make ${target} the primary?`}
+        </h3>
+        {phase === 'confirm' && (
+          <p className="mb-4 text-xs text-muted">
+            <span className="font-semibold text-fg">{from}</span> stops taking writes and becomes a replica of{' '}
+            <span className="font-semibold text-fg">{target}</span>. Writes pause for a few seconds while every replica
+            catches up; nothing is switched until they have. Proxies follow the new primary by themselves, and the
+            design is updated to match.
+          </p>
+        )}
+        {phase === 'running' && (
+          <div className="mb-2 flex items-center gap-2 text-xs text-muted">
+            <span className="h-3 w-3 animate-spin rounded-full border-2 border-surface2 border-t-primary" />
+            Switching — this can take up to a minute. Leaving the page does not stop it.
+          </div>
+        )}
+        {phase === 'failed' && <p className="mb-2 text-xs text-danger">{error}</p>}
+        {steps.length > 0 && (
+          <ol className="mb-4 max-h-64 list-decimal space-y-0.5 overflow-auto rounded-lg border bg-bg py-2 pl-7 pr-3 text-[11px] leading-snug">
+            {steps.map((s, i) => <li key={i}>{s}</li>)}
+          </ol>
+        )}
+        <div className="flex justify-end gap-2">
+          {phase === 'confirm' && <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>}
+          {phase === 'confirm' && <Button size="sm" onClick={onConfirm}>Make {target} primary</Button>}
+          {(phase === 'done' || phase === 'failed') && <Button size="sm" onClick={onClose}>Close</Button>}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
 function DeleteConfirmModal({ info, onCancel, onConfirm }) {
   const isFrame = info.kind === 'frame'
   return createPortal(
@@ -13375,7 +13608,12 @@ function loadProps() {
   try { return JSON.parse(localStorage.getItem(PROPS_KEY) || '{}') } catch { return {} }
 }
 
-function StackProperties({ locked, lockedBy, selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, rebuildMongoCluster, deployOpen, deployments, onDeployMinimize }) {
+function StackProperties({ locked, lockedBy, selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, rebuildMongoCluster, live, deployOpen, deployments, onDeployMinimize }) {
+  // The Live tab sits above whatever the node's own panel is, so every node type has it without
+  // each manager growing a tab of its own. Shown while Live is on and the node has figures.
+  const [propTab, setPropTab] = useState('node')
+  const liveNode = selected?.kind === 'node' ? nodes.find((x) => x.id === selected.id) : null
+  const liveData = live && liveNode ? live[liveNode.id] : null
   const selNode = selected?.kind === 'node' ? nodes.find((n) => n.id === selected.id) : null
   const selDep = selNode ? depByNode[selNode.id] : null
   const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb' || selNode.type === 'psmdb' || selNode.type === 'psmrs' || selNode.type === 'psm' || selNode.type === 'seaweedfs' || selNode.type === 'patroni' || selNode.type === 'haproxy' || selNode.type === 'pgbouncer' || selNode.type === 'repository' || selNode.type === 'pg' || selNode.type === 'repmgr' || selNode.type === 'spock' || selNode.type === 'aio' || selNode.type === 'mariadb' || selNode.type === 'mariadbrepl' || selNode.type === 'mariadbgalera' || selNode.type === 'mysqlce' || selNode.type === 'mysqlcerepl' || selNode.type === 'mysqlceinnodb')) || selected?.kind === 'frame'
@@ -13425,7 +13663,22 @@ function StackProperties({ locked, lockedBy, selected, stackId, nodes, edges, fr
           View only — {lockedBy || 'someone else'} has control.
         </div>
       )}
-      <Body selected={selected} stackId={stackId} nodes={nodes} edges={edges} frames={frames} depByNode={depByNode} patchNode={patchNode} patchFrame={patchFrame} patchEdge={patchEdge} deleteNode={deleteNode} deleteEdge={deleteEdge} deleteFrame={deleteFrame} rebuildMongoCluster={rebuildMongoCluster} />
+      {liveData && (
+        <div role="tablist" aria-label="Node panel" className="mb-3 grid grid-cols-2 gap-1 rounded-lg bg-surface2 p-1">
+          {[['node', 'Node'], ['live', 'Live']].map(([id, label]) => (
+            <button key={id} type="button" role="tab" aria-selected={propTab === id} onClick={() => setPropTab(id)}
+              className={`rounded-md py-1 text-xs font-medium transition ${propTab === id ? 'bg-surface text-fg shadow' : 'text-muted'}`}>{label}</button>
+          ))}
+        </div>
+      )}
+      {liveData && propTab === 'live' ? (
+        <div className="space-y-2 text-sm">
+          <div className="text-sm font-semibold">{liveNode.label}</div>
+          <LiveDetailsBody node={liveNode} frame={liveNode.frameId ? frames.find((f) => f.id === liveNode.frameId) : null} data={liveData} />
+        </div>
+      ) : (
+        <Body selected={selected} stackId={stackId} nodes={nodes} edges={edges} frames={frames} depByNode={depByNode} patchNode={patchNode} patchFrame={patchFrame} patchEdge={patchEdge} deleteNode={deleteNode} deleteEdge={deleteEdge} deleteFrame={deleteFrame} rebuildMongoCluster={rebuildMongoCluster} />
+      )}
     </fieldset>
   )
 

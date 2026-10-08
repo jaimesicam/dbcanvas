@@ -503,6 +503,41 @@ what makes them safe to hand over.
 | Run one command | *(the same WebSocket)* | `dbcanvas node exec <stack> <node> -- mysql -e 'SHOW STATUS'` |
 | Get the `ssh -L` tunnel line | `GET …/nodes/{nid}/sshforward` | `dbcanvas node tunnel <stack> <node>` |
 | Copy files in | `POST …/nodes/{nid}/upload` *(multipart)* | `dbcanvas node cp ./my.cnf <stack>:<node>:/etc/` |
+| See who is primary and who could take over | `GET …/nodes/{nid}/switchover` | `dbcanvas api GET /api/stacks/1/nodes/<id>/switchover` |
+| Make this member the primary | `POST …/nodes/{nid}/promote` | `dbcanvas api POST /api/stacks/1/nodes/<id>/promote` |
+
+### Switching the primary
+
+**UI:** right-click a member of a replicated cluster → **Replication role**. On a replica
+it offers **Promote to primary**; on the primary, **Demote — hand primary to** lists the
+replicas with their lag, and you pick the one that takes over. Who is primary is asked of
+the servers when the menu opens, not read from the design. A member that cannot take over
+is greyed, with the reason.
+
+| Cluster | How the switch is made |
+| --- | --- |
+| Patroni | `patronictl switchover --candidate` |
+| repmgr | `repmgr standby switchover --siblings-follow` on the candidate |
+| MongoDB replica set (and each shard / config set of a sharded cluster) | every other secondary is frozen, the primary steps down, the candidate wins; nothing in the replica set config changes |
+| Group Replication / InnoDB Cluster | `group_replication_set_as_primary()` |
+| MySQL and MariaDB replication, GTID or not | see below |
+
+For MySQL and MariaDB replication the switch freezes writes on the primary
+(`super_read_only`; on MariaDB 11+ `read_only=NO_LOCK_NO_ADMIN`, which also stops the
+admin accounts that plain `read_only` lets through; on older MariaDB a global read lock),
+reads where it stopped, and waits until the candidate **and every other replica** have
+applied exactly that much. If one does not catch up within a minute, writes are put back
+and nothing changes. Then replication stops on every replica, the candidate becomes
+writable, and the old primary and the other replicas follow it — by GTID
+auto-positioning, or without GTID from the candidate's own binlog coordinates. Semi-sync
+moves with the primary. A switch is refused while any replica is not replicating.
+
+HAProxy, ProxySQL, PgBouncer's follow timer and MySQL Router find the new primary by
+themselves. The design is updated, so a redeploy builds the cluster as it now is. The
+response lists every step taken; a failed switch says which step failed.
+
+PXC, Galera and Spock have no primary to move, and the Valkey nodes DBCanvas deploys have
+no replicas, so those members show why instead.
 
 ![A deployed node's panel](screenshots/getting-started-node-panel.png)
 

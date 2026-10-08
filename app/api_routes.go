@@ -369,6 +369,11 @@ func buildAPIRoutes() []apiRoute {
 		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/restart", Group: gNodes,
 			Summary: "Restart a node. Published ports may move, so re-read the node afterwards.",
 			Handler: func(a *App) http.HandlerFunc { return a.handleNodeAction("restart") }},
+		// Switching the primary of a replicated cluster (switchover.go).
+		{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/switchover", Group: gNodes, Handler: m((*App).handleSwitchoverInfo),
+			Summary: "Whether this member's cluster can switch its primary, who the primary is, and which members could take over — as the servers report it now."},
+		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/promote", Group: gNodes, Handler: m((*App).handlePromote),
+			Summary: "Make this member the primary of its cluster, demoting the current one: Patroni, repmgr, MongoDB replica sets, Group Replication / InnoDB Cluster, and MySQL or MariaDB async replication (GTID or not — writes are frozen and every replica caught up before anything moves). Returns the steps taken."},
 		// The `ssh -L` line that tunnels a node's published ports to the operator's
 		// own machine; off unless SSH_FORWARDING_HOST is set (see sshforward.go).
 		{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/sshforward", Group: gNodes, Handler: m((*App).handleNodeSSHForward),

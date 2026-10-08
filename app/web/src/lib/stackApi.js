@@ -23,6 +23,8 @@ async function request(method, path, body) {
     const msg = (data && data.error) || `Request failed (${res.status})`
     const err = new Error(msg)
     err.status = res.status
+    // The rest of the body, for an endpoint that explains its failure (a switchover's steps).
+    err.data = data
     throw err
   }
   return data
@@ -107,6 +109,9 @@ export const stackApi = {
   destroy: (id) => request('POST', `/api/stacks/${id}/destroy`),
   getNode: (id, nid) => request('GET', `/api/stacks/${id}/nodes/${nid}`),
   nodeAction: (id, nid, action) => request('POST', `/api/stacks/${id}/nodes/${nid}/${action}`),
+  // Switching a replicated cluster's primary (app/switchover.go).
+  switchoverInfo: (id, nid) => request('GET', `/api/stacks/${id}/nodes/${nid}/switchover`),
+  promote: (id, nid) => request('POST', `/api/stacks/${id}/nodes/${nid}/promote`),
   // The `ssh -L` line that tunnels this node's published ports to the operator's
   // machine. Only meaningful when system.sshForwarding.enabled (app/sshforward.go).
   nodeSSHForward: (id, nid) => request('GET', `/api/stacks/${id}/nodes/${nid}/sshforward`),
