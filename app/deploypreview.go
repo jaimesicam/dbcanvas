@@ -27,6 +27,8 @@ type deployPreview struct {
 	Create    []previewItem `json:"create"`    // never deployed: created
 	Recreate  []previewItem `json:"recreate"`  // deployed but failed (error, pending): built again from scratch
 	Rebuild   []previewItem `json:"rebuild"`   // running, but its cluster is provisioned again: recreated, data lost
+	Join      []previewItem `json:"join"`      // new members joining a running cluster, which keeps running
+	Refused   []string      `json:"refused"`   // clusters a new member cannot join yet: deploy refuses
 	Unchanged int           `json:"unchanged"` // running or stopped, and left alone
 }
 
@@ -38,7 +40,7 @@ var previewFrameTypes = map[string]bool{
 }
 
 func previewDeploy(doc designDoc, deps []Deployment) deployPreview {
-	p := deployPreview{Remove: []previewItem{}, Create: []previewItem{}, Recreate: []previewItem{}, Rebuild: []previewItem{}}
+	p := deployPreview{Remove: []previewItem{}, Create: []previewItem{}, Recreate: []previewItem{}, Rebuild: []previewItem{}, Join: []previewItem{}, Refused: []string{}}
 	existing := map[string]Deployment{}
 	for _, d := range deps {
 		existing[d.NodeID] = d
@@ -99,16 +101,38 @@ func previewDeploy(doc designDoc, deps []Deployment) deployPreview {
 			p.Unchanged += up
 			continue
 		}
+		// Nothing built: provisioned whole, as a first deploy. Some built: the new members
+		// join (join.go), or — a kind that cannot take one yet — deploy refuses and builds
+		// nothing (see Refused); only a configuration-only cluster is still rebuilt whole.
+		whole := up == 0 || rebuildOnJoin[f.Type]
+		joining := up > 0 && joinKinds[f.Type]
 		for _, n := range members {
 			if running(n.ID) {
-				p.Rebuild = append(p.Rebuild, previewItem{NodeID: n.ID, Label: n.Label, Type: n.Type, State: DeployRunning, Cluster: f.Label,
-					Why: "built, but " + f.Label + " is provisioned as a whole because another member is new or failed — its container is recreated and its data is lost"})
+				if whole {
+					p.Rebuild = append(p.Rebuild, previewItem{NodeID: n.ID, Label: n.Label, Type: n.Type, State: DeployRunning, Cluster: f.Label,
+						Why: "running, but " + f.Label + " is provisioned as a whole — it holds only the configuration DBCanvas writes, so nothing is lost"})
+				} else {
+					p.Unchanged++
+				}
 				continue
 			}
-			add(notRunning(n, f.Label))
+			it := notRunning(n, f.Label)
+			switch {
+			case joining:
+				it.Why = "joins the running " + f.Label + " with a copy of its data from the primary — the other members keep running"
+				p.Join = append(p.Join, it)
+			case whole:
+				add(it)
+			}
 		}
 	}
-	for _, l := range [][]previewItem{p.Remove, p.Create, p.Recreate, p.Rebuild} {
+	for _, f := range doc.Frames {
+		built, fresh := frameSplit(f, doc, existing)
+		if why := joinRefused(f, built, fresh); why != "" {
+			p.Refused = append(p.Refused, why)
+		}
+	}
+	for _, l := range [][]previewItem{p.Remove, p.Create, p.Recreate, p.Rebuild, p.Join} {
 		sort.Slice(l, func(i, j int) bool { return l[i].Cluster+l[i].Label < l[j].Cluster+l[j].Label })
 	}
 	return p

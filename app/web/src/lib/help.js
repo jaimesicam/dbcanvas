@@ -657,7 +657,7 @@ export const HELP = {
   uiCounts: 'How many nodes and links are on the canvas — a quick check that a template inserted what you expected.',
   uiMinimap: 'The whole canvas at a glance. Click or drag inside it to jump the view.',
   uiDockPanel: 'Detach this panel into a floating window, or dock it back into the column. The choice is remembered.',
-  uiAddMember: 'Add another node to this cluster. Available until the cluster is deployed.',
+  uiAddMember: 'Add another node to this cluster. On a deployed cluster, the next Deploy builds only the new member and joins it to the running cluster with a copy of its data — the members already there keep running.',
   uiRemoveMember: 'Remove the last node from this cluster.',
   uiNodeContext: 'Right-click any node for its root console, a file browser, start/stop, and the commands to reach it from your own shell.',
   uiDragToResize: 'Drag to resize this panel.',

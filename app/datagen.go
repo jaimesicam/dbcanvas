@@ -112,7 +112,9 @@ func (a *App) dbConnFor(st Stack, target string) (dbConn, bool) {
 	}
 	nid, inst := aioSplitTarget(target)
 	dep, err := a.store.GetDeployment(st.ID, nid)
-	if err != nil || dep.ContainerID == "" || dep.State != DeployRunning {
+	// Provisioning too: a member joining a running cluster is probed for its role while its
+	// deploy finishes (join.go), and its container is already there to ask.
+	if err != nil || dep.ContainerID == "" || (dep.State != DeployRunning && dep.State != DeployProvisioning) {
 		return dbConn{}, false
 	}
 	if inst != "" {

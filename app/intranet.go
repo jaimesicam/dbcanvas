@@ -1153,6 +1153,19 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 	if err := json.Unmarshal(st.Design, &doc); err != nil {
 		return append(out, issue{Level: "error", Message: "stack design is invalid"})
 	}
+	// A member added to a running cluster of a kind that cannot take one yet (join.go).
+	if deps, err := a.store.ListDeployments(st.ID); err == nil && len(deps) > 0 {
+		existing := map[string]Deployment{}
+		for _, d := range deps {
+			existing[d.NodeID] = d
+		}
+		for _, f := range doc.Frames {
+			built, fresh := frameSplit(f, doc, existing)
+			if why := joinRefused(f, built, fresh); why != "" {
+				out = append(out, issue{Level: "error", Message: why})
+			}
+		}
+	}
 	if len(doc.Nodes) == 0 {
 		out = append(out, issue{Level: "warning", Message: "Stack has no nodes to deploy"})
 	}
@@ -2456,23 +2469,22 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 	// cross-cluster channels are held until all of them reach their reset baseline.
 	var barrierIDs []string
 	for _, f := range doc.Frames {
-		if !mysqlFamilyFrame(f.Type) {
+		// Only the provisioners that arrive at the barrier take part in it. InnoDB Cluster,
+		// Group Replication and MariaDB Galera never do, and counting their members made every
+		// other MySQL-family cluster of the stack wait out the whole deploy timeout.
+		if !barrierFrames[f.Type] {
 			continue
 		}
-		var ids []string
-		running := 0
-		for _, n := range doc.Nodes {
-			if n.FrameID == f.ID && n.Type == f.Type {
-				ids = append(ids, n.ID)
-				if d, ok := existing[n.ID]; ok && deployBuilt(d) {
-					running++
-				}
-			}
+		// Only a cluster built from scratch this pass takes part: one whose members are all
+		// built is left alone, and one gaining members has them join the running cluster
+		// (join.go), which waits for nobody — its built members would never arrive.
+		built, fresh := frameSplit(f, doc, existing)
+		if len(built) > 0 || len(fresh) == 0 {
+			continue
 		}
-		if len(ids) > 0 && running == len(ids) {
-			continue // frame skipped (every member already built) — not part of this pass
+		for _, n := range fresh {
+			barrierIDs = append(barrierIDs, n.ID)
 		}
-		barrierIDs = append(barrierIDs, ids...)
 	}
 	a.setDeployBarrier(st.ID, barrierIDs)
 
@@ -2515,17 +2527,15 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 		default:
 			continue
 		}
-		members := 0
-		running := 0
-		for _, n := range doc.Nodes {
-			if n.FrameID == f.ID && n.Type == memberType {
-				members++
-				if d, ok := existing[n.ID]; ok && deployBuilt(d) {
-					running++
-				}
-			}
+		// Per member, not per cluster: a cluster with nothing built is provisioned whole; one
+		// with nothing new is left alone; one with both has only the new members built, and
+		// they join the running cluster — the members already there are never recreated.
+		built, fresh := frameSplit(f, doc, existing)
+		if memberType != f.Type || len(fresh) == 0 {
+			continue
 		}
-		if members > 0 && running == members {
+		if len(built) > 0 && !rebuildOnJoin[f.Type] {
+			a.joinFrame(st, f, doc, fresh)
 			continue
 		}
 		switch f.Type {
@@ -3098,6 +3108,9 @@ func (a *App) handleNodeAction(action string) http.HandlerFunc {
 		writeJSON(w, http.StatusOK, updated)
 	}
 }
+
+// barrierFrames are the cluster kinds whose provisioners arrive at the replication barrier.
+var barrierFrames = map[string]bool{"pxc": true, "mysql": true, "mariadbrepl": true, "mysqlcerepl": true}
 
 // deployBuilt is a node a deploy leaves alone: running, or stopped on purpose. A stopped node
 // still has its container and its data — Start brings it back as it was — so provisioning it

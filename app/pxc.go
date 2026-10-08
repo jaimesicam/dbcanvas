@@ -247,17 +247,34 @@ type pxcProg struct {
 	stackID int64
 	nodeID  string
 	p       *provProgress
+	// relay, when set, makes this the progress of a running member being touched on another
+	// node's behalf (a member joining its cluster, join.go): its lines go to relay, and nothing
+	// about the member itself — its deploy log, its state — is written.
+	relay func(string)
+}
+
+// sideProg is the progress of running member nodeID while it does a step for the joiner whose
+// progress is into: the lines land in the joiner's log, labelled.
+func (a *App) sideProg(stackID int64, nodeID, label string, into *pxcProg) *pxcProg {
+	return &pxcProg{a: a, stackID: stackID, nodeID: nodeID, p: &provProgress{}, relay: func(s string) { into.logln(label + ": " + s) }}
 }
 
 func (a *App) pxcNewProg(stackID int64, nodeID string) *pxcProg {
 	return &pxcProg{a: a, stackID: stackID, nodeID: nodeID, p: &provProgress{Phase: "Starting", Log: []string{}}}
 }
 func (pr *pxcProg) save() {
+	if pr.relay != nil {
+		return
+	}
 	b, _ := json.Marshal(pr.p)
 	pr.a.store.SetDeploymentProgress(pr.stackID, pr.nodeID, b)
 }
 func (pr *pxcProg) phase(s string, n int) { pr.p.Phase = s; pr.p.Percent = n; pr.save() }
 func (pr *pxcProg) logln(s string) {
+	if pr.relay != nil {
+		pr.relay(s)
+		return
+	}
 	pr.p.Log = append(pr.p.Log, s)
 	if len(pr.p.Log) > 200 {
 		pr.p.Log = pr.p.Log[len(pr.p.Log)-200:]
@@ -266,6 +283,10 @@ func (pr *pxcProg) logln(s string) {
 }
 func (pr *pxcProg) fail(format string, a ...any) error {
 	msg := fmt.Sprintf(format, a...)
+	if pr.relay != nil {
+		pr.relay(msg)
+		return fmt.Errorf("%s", msg)
+	}
 	// A destroy cancels the deploy out from under the provisioners. The errors
 	// that follow are caused by the teardown itself, so don't record them as node
 	// failures — the deployment rows are about to be deleted, and writing them

@@ -271,46 +271,55 @@ func (a *App) provisionMySQLFrame(st Stack, frame designFrame, doc designDoc) {
 
 		// ---- Phase 4: TLS + PMM + finalize ----
 		for _, n := range members {
-			pr := progs[n.ID]
-			dep, _ := a.store.GetDeployment(st.ID, n.ID)
-			// Let the unix root user run mysql without typing the password.
-			a.engCtx(ctx).CopyFile(ctx, dep.ContainerID, "/root", ".my.cnf", 0o600, pxcRootMyCnf(sec))
-			if frame.GenerateCert {
-				pr.phase("Issuing certificate", 90)
-				host := hosts[n.ID]
-				if err := a.pxcApplyCert(ctx, dep.ContainerID, intranetID, fqdnOf(host, domain), mysqlUnit(frame.OS), frame.OS, frame.CertTTLValue, frame.CertTTLUnit, pr.logln, false); err != nil {
-					pr.fail("%v", err)
-					return
-				}
+			if a.mysqlFinishMember(ctx, st, frame, doc, n, sec, intranetID, monitoredBy, n.ID == primary.ID, progs[n.ID]) != nil {
+				return
 			}
-			if frame.PMMNodeID != "" {
-				pr.phase("Registering with PMM", 95)
-				pmmUser, pmmPass := "", ""
-				if _, u, p, ok := a.pmmServerFor(st, doc, frame.PMMNodeID); ok {
-					pmmUser, pmmPass = u, p
-				}
-				a.pxcPMMExec(ctx, dep.ContainerID, frame.OS, pxcPMMEnv(monitoredBy, pmmUser, pmmPass, sec, n.Label)) // best-effort
-			}
-			// The keyring was staged before this member's first start; confirm it actually
-			// loaded. The end-to-end check (writing an encrypted table) runs on the primary
-			// only — a secondary is super_read_only by now, and the primary's write is the
-			// cluster's proof either way.
-			if frame.EnableVault {
-				pr.phase("Verifying keyring (OpenBao)", 97)
-				mount, _, _ := mysqlVaultMount(frame.PSMajor, hosts[n.ID])
-				if err := a.verifyMySQLVault(ctx, dep.ContainerID, frame.OS, frame.PSMajor, mount, sec.RootPassword, n.ID == primary.ID, pr); err != nil {
-					pr.fail("verify keyring_vault: %v", err)
-					return
-				}
-			}
-			pr.phase("Running", 100)
-			pr.p.Message = "provisioned"
-			pr.save()
-			a.store.SetDeploymentState(st.ID, n.ID, DeployRunning)
 		}
 		a.reconcileStackDNS(ctx, st.ID)
 		log.Printf("stack %d mysql repl %s: provisioned (%d node(s))", st.ID, frame.Label, len(members))
 	}()
+}
+
+// mysqlFinishMember is a replication member's last steps, once it replicates: root's ~/.my.cnf,
+// its TLS certificate, PMM registration, the keyring check, and running. Shared by a cluster's
+// first deploy and a member joining it later (join.go).
+func (a *App) mysqlFinishMember(ctx context.Context, st Stack, frame designFrame, doc designDoc, n designNode, sec pxcSecrets, intranetID, monitoredBy string, isPrimary bool, pr *pxcProg) error {
+	domain := envOr("DOMAIN", "example.net")
+	hosts := stackHostnames(doc)
+	dep, _ := a.store.GetDeployment(st.ID, n.ID)
+	// Let the unix root user run mysql without typing the password.
+	a.engCtx(ctx).CopyFile(ctx, dep.ContainerID, "/root", ".my.cnf", 0o600, pxcRootMyCnf(sec))
+	if frame.GenerateCert {
+		pr.phase("Issuing certificate", 90)
+		host := hosts[n.ID]
+		if err := a.pxcApplyCert(ctx, dep.ContainerID, intranetID, fqdnOf(host, domain), mysqlUnit(frame.OS), frame.OS, frame.CertTTLValue, frame.CertTTLUnit, pr.logln, false); err != nil {
+			return pr.fail("%v", err)
+		}
+	}
+	if frame.PMMNodeID != "" {
+		pr.phase("Registering with PMM", 95)
+		pmmUser, pmmPass := "", ""
+		if _, u, p, ok := a.pmmServerFor(st, doc, frame.PMMNodeID); ok {
+			pmmUser, pmmPass = u, p
+		}
+		a.pxcPMMExec(ctx, dep.ContainerID, frame.OS, pxcPMMEnv(monitoredBy, pmmUser, pmmPass, sec, n.Label)) // best-effort
+	}
+	// The keyring was staged before this member's first start; confirm it actually
+	// loaded. The end-to-end check (writing an encrypted table) runs on the primary
+	// only — a secondary is super_read_only by now, and the primary's write is the
+	// cluster's proof either way.
+	if frame.EnableVault {
+		pr.phase("Verifying keyring (OpenBao)", 97)
+		mount, _, _ := mysqlVaultMount(frame.PSMajor, hosts[n.ID])
+		if err := a.verifyMySQLVault(ctx, dep.ContainerID, frame.OS, frame.PSMajor, mount, sec.RootPassword, isPrimary, pr); err != nil {
+			return pr.fail("verify keyring_vault: %v", err)
+		}
+	}
+	pr.phase("Running", 100)
+	pr.p.Message = "provisioned"
+	pr.save()
+	a.store.SetDeploymentState(st.ID, n.ID, DeployRunning)
+	return nil
 }
 
 // provisionPerconaServer provisions a standalone Percona Server node — a single

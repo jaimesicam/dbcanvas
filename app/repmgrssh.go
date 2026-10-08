@@ -217,13 +217,17 @@ echo "ssh postgres@$PEER ok"`
 // replication, the failover and the backups are all untouched — so a failure here is logged
 // against the node it happened on and the deploy carries on. The panel's repmgr tab says what
 // was set up, so the gap is visible where somebody would go looking for the command.
-func (a *App) repmgrWireSSH(ctx context.Context, st Stack, frame designFrame, members []designNode, fqdns map[string]string, major string) {
+func (a *App) repmgrWireSSH(ctx context.Context, st Stack, frame designFrame, members []designNode, fqdns map[string]string, major string, progFor ...func(nodeID string) *pxcProg) {
+	prog := func(nid string) *pxcProg { return a.pxcNewProg(st.ID, nid) }
+	if len(progFor) > 0 && progFor[0] != nil {
+		prog = progFor[0] // a join: running members' lines go to the joiner's log (join.go)
+	}
 	if len(members) < 2 {
 		return // one node has nobody to switch over with
 	}
 	priv, pub, err := repmgrSSHKeypair(frame.Label)
 	if err != nil {
-		a.pxcNewProg(st.ID, members[0].ID).logln("SSH between members skipped: " + err.Error())
+		prog(members[0].ID).logln("SSH between members skipped: " + err.Error())
 		return
 	}
 	install := repmgrSSHInstallRHEL
@@ -236,7 +240,7 @@ func (a *App) repmgrWireSSH(ctx context.Context, st Stack, frame designFrame, me
 
 	ok := make(map[string]bool, len(members))
 	for _, n := range members {
-		pr := a.pxcNewProg(st.ID, n.ID)
+		pr := prog(n.ID)
 		pr.phase("Wiring SSH between members", 70)
 		dep, derr := a.store.GetDeployment(st.ID, n.ID)
 		if derr != nil || dep.ContainerID == "" {
@@ -273,7 +277,7 @@ func (a *App) repmgrWireSSH(ctx context.Context, st Stack, frame designFrame, me
 		if derr != nil || dep.ContainerID == "" {
 			continue
 		}
-		pr := a.pxcNewProg(st.ID, n.ID)
+		pr := prog(n.ID)
 		if err := a.runStep(ctx, dep.ContainerID, repmgrSSHVerifyScript,
 			[]string{"PEER=" + fqdns[primary.ID]}, pr.logln); err != nil {
 			pr.logln("SSH to " + fqdns[primary.ID] + " did not work, so switchover from this node will not: " + err.Error())

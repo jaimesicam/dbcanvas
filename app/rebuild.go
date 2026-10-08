@@ -66,6 +66,9 @@ type rebuildJob struct {
 	Error     string   `json:"error,omitempty"`
 	StartedAt int64    `json:"startedAt"`
 	EndedAt   int64    `json:"endedAt,omitempty"`
+	// logf, when set, also receives every step — a member joining a cluster at deploy puts
+	// the copy into its deploy log.
+	logf func(string)
 }
 
 var rebuildJobs = struct {
@@ -74,9 +77,13 @@ var rebuildJobs = struct {
 }{m: map[string]*rebuildJob{}}
 
 func (j *rebuildJob) add(f string, args ...any) {
+	line := fmt.Sprintf(f, args...)
 	rebuildJobs.mu.Lock()
-	j.Steps = append(j.Steps, time.Now().Format("15:04:05")+"  "+fmt.Sprintf(f, args...))
+	j.Steps = append(j.Steps, time.Now().Format("15:04:05")+"  "+line)
 	rebuildJobs.mu.Unlock()
+	if j.logf != nil {
+		j.logf(line)
+	}
 }
 
 func (j *rebuildJob) snapshot() rebuildJob {
@@ -151,42 +158,8 @@ func (a *App) planRebuild(ctx context.Context, st Stack, nid string) rebuildPlan
 	p.Supported, p.From, p.FromID = true, p.primary.Node.Label, p.primary.Node.ID
 	switch t.Kind {
 	case "mysql", "mariadb":
-		mariadb := t.Kind == "mariadb"
-		d := sqlDialect{MariaDB: mariadb, Client: "mysql"}
-		if mariadb {
-			d.Client = "mariadb"
-		}
-		ver, err := a.asyncSQL(ctx, st, p.primary, d, "SELECT @@version AS v")
-		if err != nil {
-			return rebuildPlan{Reason: "cannot ask the primary: " + err.Error()}
-		}
-		version := firstRow(ver)["v"]
-		p.dialect = dialectFor(version, mariadb)
-		if !mariadb {
-			g, _ := a.asyncSQL(ctx, st, p.primary, d, "SELECT @@GLOBAL.gtid_mode AS g")
-			p.gtid = firstRow(g)["g"] == "ON"
-			p.clone = cloneCapable(version)
-			if p.clone && !me.Down && me.Err == "" {
-				// CLONE wants the same release on both ends.
-				if tv, err := a.asyncSQL(ctx, st, p.target, d, "SELECT @@version AS v"); err == nil {
-					if r := firstRow(tv)["v"]; swVersionRe.FindString(r) != swVersionRe.FindString(version) {
-						p.clone = false
-						p.Warning = fmt.Sprintf("%s runs %s and the primary %s — CLONE needs the same release, so this is a logical copy.", p.target.Node.Label, r, version)
-					}
-				}
-			}
-		} else {
-			p.gtid = a.mariadbUsesGTID(ctx, st, t, d)
-		}
-		pos := "binlog position"
-		if p.gtid {
-			pos = "GTID"
-		}
-		if p.clone {
-			p.Method = fmt.Sprintf("CLONE: %s pulls a physical copy of %s, restarts on it, and replicates again from where the copy ends (by %s).", p.target.Node.Label, p.primary.Node.Label, pos)
-		} else {
-			p.Method = fmt.Sprintf("Logical copy: %s on %s dumps every database of %s in one consistent snapshot and loads it, then replicates again from the snapshot's %s. Accounts are left as they are.",
-				map[bool]string{true: "mariadb-dump", false: "mysqldump"}[mariadb], p.target.Node.Label, p.primary.Node.Label, pos)
+		if reason := a.planSQLCopy(ctx, st, &p, !me.Down && me.Err == ""); reason != "" {
+			return rebuildPlan{Reason: reason}
 		}
 	case "gr":
 		p.Method = "Group Replication clone: the member leaves the group and rejoins with the clone threshold at 1, so it is cloned from a donor and restarts on the copy."
@@ -198,6 +171,52 @@ func (a *App) planRebuild(ctx context.Context, st Stack, nid string) rebuildPlan
 		p.Method = "Initial sync: mongod on the member is stopped, its dbPath emptied, and on restart it copies every collection from the replica set again."
 	}
 	return p
+}
+
+// planSQLCopy works out how a MySQL or MariaDB member gets a copy of the primary's data — CLONE
+// or a logical dump, positioned by GTID or by binlog coordinates — and fills it into p. targetUp
+// says the target's server answers, so its release can be compared with the primary's. It returns
+// why it cannot, or "".
+func (a *App) planSQLCopy(ctx context.Context, st Stack, p *rebuildPlan, targetUp bool) string {
+	t := p.t
+	mariadb := t.Kind == "mariadb"
+	d := sqlDialect{MariaDB: mariadb, Client: "mysql"}
+	if mariadb {
+		d.Client = "mariadb"
+	}
+	ver, err := a.asyncSQL(ctx, st, p.primary, d, "SELECT @@version AS v")
+	if err != nil {
+		return "cannot ask the primary: " + err.Error()
+	}
+	version := firstRow(ver)["v"]
+	p.dialect = dialectFor(version, mariadb)
+	if !mariadb {
+		g, _ := a.asyncSQL(ctx, st, p.primary, d, "SELECT @@GLOBAL.gtid_mode AS g")
+		p.gtid = firstRow(g)["g"] == "ON"
+		p.clone = cloneCapable(version)
+		if p.clone && targetUp {
+			// CLONE wants the same release on both ends.
+			if tv, err := a.asyncSQL(ctx, st, p.target, d, "SELECT @@version AS v"); err == nil {
+				if r := firstRow(tv)["v"]; swVersionRe.FindString(r) != swVersionRe.FindString(version) {
+					p.clone = false
+					p.Warning = fmt.Sprintf("%s runs %s and the primary %s — CLONE needs the same release, so this is a logical copy.", p.target.Node.Label, r, version)
+				}
+			}
+		}
+	} else {
+		p.gtid = a.mariadbUsesGTID(ctx, st, t, d)
+	}
+	pos := "binlog position"
+	if p.gtid {
+		pos = "GTID"
+	}
+	if p.clone {
+		p.Method = fmt.Sprintf("CLONE: %s pulls a physical copy of %s, restarts on it, and replicates again from where the copy ends (by %s).", p.target.Node.Label, p.primary.Node.Label, pos)
+	} else {
+		p.Method = fmt.Sprintf("Logical copy: %s on %s dumps every database of %s in one consistent snapshot and loads it, then replicates again from the snapshot's %s. Accounts are left as they are.",
+			map[bool]string{true: "mariadb-dump", false: "mysqldump"}[mariadb], p.target.Node.Label, p.primary.Node.Label, pos)
+	}
+	return ""
 }
 
 // cloneCapable: the CLONE plugin arrived in MySQL 8.0.17.

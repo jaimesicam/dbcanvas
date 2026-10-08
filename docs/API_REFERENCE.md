@@ -591,12 +591,30 @@ there is none, amber past a day — and **Back up now** in its popover
 
 ### Before a redeploy
 
-Deploy on a stack that is already deployed first shows what it will do
-(`GET /api/stacks/{id}/deploy/preview`): nodes deleted from the canvas are removed with their
-volumes, a node never built or whose provisioning failed is provisioned from scratch, and a cluster
-with such a member is provisioned as a whole — its other members' containers are recreated and their
-data lost. Running and stopped nodes are otherwise left alone (a stopped node keeps its container and
-data; Start brings it back as it was), and settings changed on them are not applied.
+Deploy decides per member, not per cluster. A cluster none of whose members is built is
+provisioned whole, as on a first deploy; one whose members are all built (running, or stopped on
+purpose) is left alone; and one with built members and new ones has **only the new members built**,
+each joining the running cluster the way that cluster takes a member — the members already there
+keep running and are never recreated:
+
+| Cluster | How a new member joins |
+| --- | --- |
+| Percona Server / MySQL replication | built and baselined, then CLONEd from the current primary (a consistent dump where CLONE is not available) and replicating by GTID or binlog position, read-only, with semi-sync if the cluster uses it |
+| MariaDB replication | built and baselined, then a consistent `mariadb-dump` of the primary, replicating from its position |
+| PXC, MariaDB Galera | built with the whole cluster in `wsrep_cluster_address`, started, and given a full state transfer; the running members' configuration learns the address for their next restart |
+| InnoDB Cluster / Group Replication | `addInstance` with clone recovery on the primary (raw GR: clone from a donor, and the running members' persisted seeds updated) |
+| Patroni | joins etcd (`member add`, state existing), then Patroni takes a base backup from the leader |
+| repmgr | `repmgr standby clone` from the current primary, `register`, repmgrd, SSH for switchovers |
+| MongoDB replica set | built with the set's keyFile, added by the primary with `replSetReconfig`, initial sync |
+
+Kinds that cannot take a member yet (sharded MongoDB, Spock, Valkey cluster, Kubernetes) are
+refused by validation and by deploy rather than rebuilt; a ProxySQL cluster, which holds only
+configuration DBCanvas writes, is still provisioned whole.
+
+`GET /api/stacks/{id}/deploy/preview` says it all before it happens: nodes deleted from the canvas
+are removed with their volumes, a node never built or whose provisioning failed is built, members
+joining are listed as such, and a refused cluster says why. Settings changed on running nodes are
+not applied by a deploy.
 
 The canvas undoes and redoes design changes (Ctrl/⌘+Z, Ctrl/⌘+Shift+Z); Shift- or Ctrl/⌘-click
 selects several cards to start, stop or restart one after another.

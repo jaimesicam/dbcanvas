@@ -5711,8 +5711,9 @@ function DrillModal({ stackId, nodeId, onClose, onChanged }) {
 // DeployPreviewModal is what Deploy would do to a stack that is already deployed, before it does
 // it: the destructive parts first and in colour, then what is only added.
 function DeployPreviewModal({ p, busy, onConfirm, onClose }) {
-  const nothing = !p.remove.length && !p.create.length && !p.recreate.length && !p.rebuild.length
-  const destructive = p.remove.length + p.recreate.length + p.rebuild.length
+  const nothing = !p.remove.length && !p.create.length && !p.recreate.length && !p.rebuild.length && !p.join?.length && !p.refused?.length
+  const refused = p.refused || []
+  const destructive = p.remove.length + p.recreate.length
   const group = (title, items, tone) => items.length > 0 && (
     <div>
       <div className="mb-1 text-xs font-semibold" style={tone ? { color: `var(--${tone})` } : undefined}>{title} ({items.length})</div>
@@ -5737,16 +5738,20 @@ function DeployPreviewModal({ p, busy, onConfirm, onClose }) {
             : `${p.unchanged} running or stopped node${p.unchanged === 1 ? ' is' : 's are'} left alone. Settings changed on them are not applied by a deploy.`}
         </p>
         <div className="min-h-0 flex-1 space-y-3 overflow-auto">
-          {group('Recreated — running, data lost', p.rebuild, 'danger')}
+          {refused.map((r) => (
+            <div key={r} className="rounded-lg border px-3 py-2 text-xs" style={{ borderColor: 'color-mix(in srgb, var(--danger) 40%, transparent)', color: 'var(--danger)' }}>{r}</div>
+          ))}
+          {group('Joins its running cluster', p.join || [], 'primary')}
+          {group('Rebuilt — holds only configuration', p.rebuild, 'warning')}
           {group('Removed', p.remove, 'danger')}
           {group('Provisioned again from scratch', p.recreate, 'warning')}
           {group('Created', p.create, '')}
         </div>
         <div className="mt-4 flex justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={onClose}>{nothing ? 'Close' : 'Cancel'}</Button>
-          {!nothing && (
+          {!nothing && !refused.length && (
             <Button size="sm" variant={destructive ? 'danger' : 'primary'} disabled={busy} onClick={onConfirm}>
-              {busy ? 'Deploying…' : destructive ? `Deploy — ${destructive} node${destructive === 1 ? '' : 's'} lose data` : 'Deploy'}
+              {busy ? 'Deploying…' : destructive ? `Deploy — ${destructive} node${destructive === 1 ? '' : 's'} rebuilt or removed` : 'Deploy'}
             </Button>
           )}
         </div>

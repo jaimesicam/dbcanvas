@@ -775,6 +775,9 @@ func (a *App) mariadbPrepareNode(ctx context.Context, st Stack, frame designFram
 		instScript = mariadbInstallDebian
 	}
 	env := []string{"MAJOR=" + major, "PKGS=" + pkgs, "VER=" + frame.MariaDBVersion}
+	if galera {
+		env = append(env, "GALERA_OPT="+map[bool]string{true: "mariadb-server-galera", false: "MariaDB-server-galera"}[isDebianOS(frame.OS)])
+	}
 	if err := a.runStep(ctx, id, instScript, env, pr.logln); err != nil {
 		return pr.fail("install MariaDB %s: %v", major, err)
 	}
@@ -918,7 +921,16 @@ gpgkey=https://mirror.mariadb.org/yum/RPM-GPG-KEY-MariaDB
 gpgcheck=1
 module_hotfixes=1
 EOF
-pin_install $PKGS`
+pin_install $PKGS
+# Galera's SST scripts and the unit's galera_new_cluster wiring moved out of MariaDB-server into
+# MariaDB-server-galera in newer series; a joiner without it fails with "wsrep_sst_mariabackup:
+# command not found". Same version as the server, and only where the series has it.
+if [ -n "$GALERA_OPT" ]; then
+  V=$(rpm -q --qf '%{VERSION}-%{RELEASE}' MariaDB-server 2>/dev/null)
+  for p in $GALERA_OPT; do
+    rpm -q "$p" >/dev/null 2>&1 || dnf -y -q install "$p-$V" >/dev/null 2>&1 && echo "$p installed" || true
+  done
+fi`
 
 const mariadbInstallDebian = pinInstallDebian + `set -e
 export DEBIAN_FRONTEND=noninteractive
@@ -929,7 +941,12 @@ CODE=$(. /etc/os-release; echo "$VERSION_CODENAME")
 echo "deb [signed-by=/etc/apt/keyrings/dbcanvas-mariadb.pgp] https://mirror.mariadb.org/repo/$MAJOR/ubuntu $CODE main" \
   >/etc/apt/sources.list.d/dbcanvas-mariadb.list
 apt-get update -qq >/dev/null
-pin_install $PKGS`
+pin_install $PKGS
+if [ -n "$GALERA_OPT" ]; then
+  for p in $GALERA_OPT; do
+    dpkg -s "$p" >/dev/null 2>&1 || apt-get install -y -qq "$p" >/dev/null 2>&1 && echo "$p installed" || true
+  done
+fi`
 
 // mariadbDatadirInit prepares the datadir before the first start.
 //
@@ -1112,6 +1129,20 @@ if systemctl is-active --quiet "$UNIT"; then
   # stop it so the bootstrap below can create one. A lone member that was merely
   # restarted cannot re-form one by itself.
   [ "$(wsrep_stat WSREP_CLUSTER_STATUS)" = "Primary" ] || systemctl stop "$UNIT"
+fi
+# galera_new_cluster hands --wsrep-new-cluster to the unit through an environment file, which
+# the unit has to read: some packaged units (MariaDB 12.3.3's on EL9) dropped both the
+# EnvironmentFile and $_WSREP_NEW_CLUSTER from ExecStart, so the seed starts as a joiner, finds
+# nobody, and aborts. Put the wiring back where it is missing.
+if ! systemctl cat "$UNIT" 2>/dev/null | grep -q '_WSREP_NEW_CLUSTER'; then
+  mkdir -p "/etc/systemd/system/$UNIT.service.d"
+  cat > "/etc/systemd/system/$UNIT.service.d/zz-dbcanvas-wsrep-new-cluster.conf" <<'UNITEOF'
+[Service]
+EnvironmentFile=-/run/mariadb-wsrep-new-cluster
+ExecStart=
+ExecStart=/usr/sbin/mariadbd $MYSQLD_OPTS $_WSREP_NEW_CLUSTER
+UNITEOF
+  systemctl daemon-reload
 fi
 if ! systemctl is-active --quiet "$UNIT"; then
   systemctl reset-failed "$UNIT" 2>/dev/null || true
