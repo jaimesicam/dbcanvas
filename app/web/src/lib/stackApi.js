@@ -130,6 +130,12 @@ export const stackApi = {
   drillInfo: (id, nid) => request('GET', `/api/stacks/${id}/nodes/${nid}/drill`),
   drillStart: (id, nid, kind) => request('POST', `/api/stacks/${id}/nodes/${nid}/drill`, { kind }),
   drillEnd: (id) => request('DELETE', `/api/stacks/${id}/drill`),
+  // What is running inside a node (app/activity.go).
+  activity: (id, nid, withParts = '') => request('GET', `/api/stacks/${id}/nodes/${nid}/activity${withParts ? `?with=${withParts}` : ''}`),
+  activityKill: (id, nid, session, mode) => request('POST', `/api/stacks/${id}/nodes/${nid}/activity/kill`, { session, mode }),
+  activityExplain: (id, nid, session, statement, db) => request('POST', `/api/stacks/${id}/nodes/${nid}/activity/explain`, { session, statement, db }),
+  activityDeep: (id, nid, minutes) => request('POST', `/api/stacks/${id}/nodes/${nid}/activity/deep`, { minutes }),
+  deadlocks: (id, nid) => request('GET', `/api/stacks/${id}/nodes/${nid}/deadlocks`),
   configDrift: (id, nid) => request('GET', `/api/stacks/${id}/nodes/${nid}/config-drift`),
   rebuild: (id, nid) => request('POST', `/api/stacks/${id}/nodes/${nid}/rebuild`),
   // The `ssh -L` line that tunnels this node's published ports to the operator's

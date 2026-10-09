@@ -522,6 +522,29 @@ func (s *Store) SetAppSetting(key, value string) error {
 	return err
 }
 
+// AppSettingKeys lists the setting keys that start with prefix.
+func (s *Store) AppSettingKeys(prefix string) ([]string, error) {
+	rows, err := s.db.Query("SELECT key FROM app_settings WHERE key LIKE ? ESCAPE '\\'", strings.NewReplacer("%", "\\%", "_", "\\_").Replace(prefix)+"%")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var k string
+		if rows.Scan(&k) == nil {
+			out = append(out, k)
+		}
+	}
+	return out, rows.Err()
+}
+
+// DeleteAppSetting removes one instance-wide setting.
+func (s *Store) DeleteAppSetting(key string) error {
+	_, err := s.db.Exec("DELETE FROM app_settings WHERE key = ?", key)
+	return err
+}
+
 // CreateSession stores a session token for a user with an expiry. Only its hash is
 // kept, so a copy of the database signs nobody in; every lookup hashes the cookie.
 func (s *Store) CreateSession(token string, userID int64, expires time.Time) error {

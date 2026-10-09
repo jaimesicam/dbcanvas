@@ -56,6 +56,7 @@ import { nodeWebLinks } from '../lib/nodeLinks.js'
 import { stackRelations, relationPorts, bezierMid, RELATION_KINDS } from '../lib/relations.js'
 import ShareDialog from '../components/ShareDialog.jsx'
 import { useDialog } from '../components/Dialog.jsx'
+import { ActivityPanel } from '../components/Activity.jsx'
 import { useStackAlerts, HealthButton, StackHistoryPanel, ErrorLogTail, BackupChip } from '../components/StackHistory.jsx'
 
 const NODE_W = 212
@@ -2569,6 +2570,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
   const [driftDlg, setDriftDlg] = useState(null) // node id
   const [usersDlg, setUsersDlg] = useState(null) // node id
   const [drillDlg, setDrillDlg] = useState(null) // node id
+  const [activityDlg, setActivityDlg] = useState(null) // { nodeId, focus }
   const [rollingDlg, setRollingDlg] = useState(null) // node id
   // Find on canvas (Ctrl/⌘+F): the query, and which match Enter last went to.
   const [findQ, setFindQ] = useState(null) // null = closed
@@ -4391,6 +4393,9 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
             fn: () => setRebuildDlg({ nodeId: id, label: node?.label || id }),
           })
         }
+        if (ACTIVITY_TYPES.has(node?.type) && node?.role !== 'arbiter' && deployments.some((d) => d.nodeId === id && d.state === 'running')) {
+          actions.push({ label: 'Activity…', help: MENU_HELP.activity, fn: () => setActivityDlg({ nodeId: id }) })
+        }
         if (DRIFT_FRAMES.has(frameType) && node?.role !== 'mongos') {
           actions.push({ label: 'Compare configuration…', help: MENU_HELP.configDrift, fn: () => setDriftDlg(id) })
         }
@@ -5366,11 +5371,22 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
           actions={{
             restart: (nid) => nodeAction(nid, 'restart'),
             rebuild: (nid) => setRebuildDlg({ nodeId: nid, label: nodes.find((n) => n.id === nid)?.label || nid }),
+            activity: (nid) => { setHealthTab(null); setActivityDlg({ nodeId: nid }) },
             inspect: focusNode,
           }} />
       )}
 
       {rollingDlg && <RollingModal stackId={stack.id} nodeId={rollingDlg} onClose={() => setRollingDlg(null)} />}
+      {activityDlg && (() => {
+        const an = nodes.find((n) => n.id === activityDlg.nodeId)
+        if (!an) return null
+        const members = an.frameId ? nodes.filter((n) => n.frameId === an.frameId && n.type === an.type && n.role !== 'mongos') : [an]
+        return (
+          <ActivityPanel key={activityDlg.nodeId + (activityDlg.focus || '')} stackId={stack.id} node={an} members={members}
+            focusSession={activityDlg.focus} nodeLabel={(id) => nodes.find((n) => n.id === id)?.label || id}
+            onOpenNode={(nid, focus) => setActivityDlg({ nodeId: nid, focus })} onClose={() => setActivityDlg(null)} />
+        )
+      })()}
       {drillDlg && <DrillModal stackId={stack.id} nodeId={drillDlg} onClose={() => setDrillDlg(null)} />}
       {usersDlg && <DBUsersModal stackId={stack.id} nodeId={usersDlg} onClose={() => setUsersDlg(null)} />}
       {driftDlg && <DriftModal stackId={stack.id} nodeId={driftDlg} onClose={() => setDriftDlg(null)} />}
@@ -5531,6 +5547,11 @@ const SWITCHABLE = new Set(['mysql', 'mysqlcerepl', 'mariadbrepl', 'innodb', 'my
 // REBUILDABLE are the clusters whose members can be re-copied from the primary (app/rebuild.go):
 // every switchable one, and Galera, whose members rejoin with a full state transfer.
 const REBUILDABLE = new Set([...SWITCHABLE, 'pxc', 'mariadbgalera'])
+// ACTIVITY_TYPES are the nodes whose running sessions the Activity view reads (app/activity.go):
+// every MySQL-family, PostgreSQL and MongoDB node, and the two proxies.
+const ACTIVITY_TYPES = new Set(['ps', 'mysql', 'mysqlce', 'mysqlcerepl', 'mariadb', 'mariadbrepl', 'mariadbgalera', 'pxc', 'innodb', 'mysqlceinnodb',
+  'pg', 'patroni', 'repmgr', 'spock', 'psm', 'psmrs', 'psmdb', 'proxysql', 'pgbouncer'])
+
 // DRIFT_FRAMES are the clusters whose members' settings can be compared (app/drift.go).
 const DRIFT_FRAMES = new Set([...REBUILDABLE, 'spock', 'valkeycluster', 'valkey'])
 

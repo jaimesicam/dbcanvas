@@ -53,10 +53,25 @@ SELECT MEMBER_ROLE AS gr_role, MEMBER_STATE AS gr_self FROM performance_schema.r
 SELECT MEMBER_HOST AS gr_host, MEMBER_PORT AS gr_port, MEMBER_STATE AS gr_state FROM performance_schema.replication_group_members WHERE MEMBER_ID<>@@server_uuid AND MEMBER_ID<>'';
 SELECT COUNT(*) AS dumps FROM information_schema.PROCESSLIST WHERE COMMAND LIKE 'Binlog Dump%';
 SELECT @@global.max_connections AS max_conn;
+SELECT IFNULL(MAX(TIMESTAMPDIFF(SECOND, trx_started, NOW())), 0) AS trx_max, IFNULL(SUM(trx_state = 'LOCK WAIT'), 0) AS lock_waiters,
+  IFNULL(MAX(TIMESTAMPDIFF(SECOND, trx_wait_started, NOW())), 0) AS lock_wait_max FROM information_schema.INNODB_TRX;
 SHOW GLOBAL STATUS WHERE Variable_name IN ('Questions','Com_commit','Com_rollback','Threads_connected','Threads_running');
 SHOW REPLICA STATUS;
 SHOW SLAVE STATUS;
 `
+
+// txnFrom reads the transaction health figures, or nil when the server did not give them.
+func txnFrom(trxMax, waiters, waitMax string) *liveTxn {
+	if trxMax == "" && waiters == "" {
+		return nil
+	}
+	t := &liveTxn{}
+	t.OldestSec, _ = strconv.ParseFloat(trxMax, 64)
+	w, _ := strconv.ParseFloat(waiters, 64)
+	t.LockWaiters = int(w)
+	t.LockWaitMaxSec, _ = strconv.ParseFloat(waitMax, 64)
+	return t
+}
 
 // mysqlLoad reads the probe's SHOW GLOBAL STATUS rows (Variable_name / Value) and max_connections.
 // Commits are Com_commit + Com_rollback: explicit transactions — an autocommit statement is a
@@ -181,7 +196,7 @@ func replicaChannels(blocks []map[string]string) []map[string]string {
 func parseMySQLLive(out string, expectMembers int) *liveRole {
 	blocks := verticalBlocks(out)
 	f := verticalFields(out)
-	r := &liveRole{Access: "rw", Load: mysqlLoad(blocks, f)}
+	r := &liveRole{Access: "rw", Load: mysqlLoad(blocks, f), Txn: txnFrom(f["trx_max"], f["lock_waiters"], f["lock_wait_max"])}
 	// 1 on MySQL; MariaDB 11.x+ answers OFF, ON, NO_LOCK or NO_LOCK_NO_ADMIN — every value but
 	// OFF is read-only.
 	if on := func(v string) bool { return v != "" && v != "0" && !strings.EqualFold(v, "OFF") }; on(f["ro"]) || on(f["sro"]) {
@@ -309,7 +324,10 @@ const liveProbePG = `SELECT json_build_object(
   'xact', (SELECT sum(xact_commit + xact_rollback) FROM pg_stat_database),
   'conns', (SELECT count(*) FROM pg_stat_activity WHERE backend_type = 'client backend' AND pid <> pg_backend_pid()),
   'active', (SELECT count(*) FROM pg_stat_activity WHERE backend_type = 'client backend' AND state = 'active' AND pid <> pg_backend_pid()),
-  'max_conn', current_setting('max_connections')::int)`
+  'max_conn', current_setting('max_connections')::int,
+  'trx_max', (SELECT coalesce(max(extract(epoch from now() - xact_start)), 0) FROM pg_stat_activity WHERE backend_type = 'client backend' AND pid <> pg_backend_pid()),
+  'lock_waiters', (SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock'),
+  'lock_wait_max', (SELECT coalesce(max(extract(epoch from now() - state_change)), 0) FROM pg_stat_activity WHERE wait_event_type = 'Lock'))`
 
 type pgLive struct {
 	Rec       bool     `json:"rec"`
@@ -321,16 +339,28 @@ type pgLive struct {
 	IdleSlots []string `json:"idle_slots"`
 	// PostgreSQL counts transactions, not statements (that needs pg_stat_statements), so a
 	// PostgreSQL node has TPS and no QPS.
-	Xact    *int64 `json:"xact"`
-	Conns   *int   `json:"conns"`
-	Active  *int   `json:"active"`
-	MaxConn *int   `json:"max_conn"`
+	Xact        *int64   `json:"xact"`
+	Conns       *int     `json:"conns"`
+	Active      *int     `json:"active"`
+	MaxConn     *int     `json:"max_conn"`
+	TrxMax      *float64 `json:"trx_max"`
+	LockWaiters *int     `json:"lock_waiters"`
+	LockWaitMax *float64 `json:"lock_wait_max"`
 }
 
 func pgLiveRole(p pgLive) *liveRole {
 	r := &liveRole{Access: "rw"}
 	if p.Xact != nil || p.Conns != nil {
 		r.Load = &liveLoad{Commits: p.Xact, Conns: p.Conns, Active: p.Active, MaxConns: p.MaxConn}
+	}
+	if p.TrxMax != nil {
+		r.Txn = &liveTxn{OldestSec: *p.TrxMax}
+		if p.LockWaiters != nil {
+			r.Txn.LockWaiters = *p.LockWaiters
+		}
+		if p.LockWaitMax != nil {
+			r.Txn.LockWaitMaxSec = *p.LockWaitMax
+		}
 	}
 	if p.Rec || p.RO == "on" {
 		r.Access = "ro"

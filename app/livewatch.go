@@ -95,11 +95,14 @@ type alertRules struct {
 	LagSec      float64 `json:"lagSec"`      // a replica this far behind
 	DiskPct     float64 `json:"diskPct"`     // the data directory's filesystem this full
 	ConnPct     float64 `json:"connPct"`     // this share of max connections in use
+	TrxSec      float64 `json:"trxSec"`      // a transaction open this long
+	LockWaitSec float64 `json:"lockWaitSec"` // a session waiting this long for a lock
+	Deadlock    bool    `json:"deadlock"`    // a deadlock (a timeline event, and the bell)
 	Notify      bool    `json:"notify"`      // to the owner's notification bell, not just the timeline
 }
 
 func defaultAlertRules() alertRules {
-	return alertRules{Down: true, Replication: true, Failover: true, LagSec: 30, DiskPct: 85, ConnPct: 90, Notify: true}
+	return alertRules{Down: true, Replication: true, Failover: true, LagSec: 30, DiskPct: 85, ConnPct: 90, TrxSec: 600, LockWaitSec: 30, Deadlock: true, Notify: true}
 }
 
 func (r alertRules) normalize() alertRules {
@@ -112,6 +115,8 @@ func (r alertRules) normalize() alertRules {
 	r.LagSec = clamp(r.LagSec, 1, 86400)
 	r.DiskPct = clamp(r.DiskPct, 10, 99)
 	r.ConnPct = clamp(r.ConnPct, 10, 100)
+	r.TrxSec = clamp(r.TrxSec, 10, 86400)
+	r.LockWaitSec = clamp(r.LockWaitSec, 1, 86400)
 	return r
 }
 
@@ -485,6 +490,7 @@ func (a *App) watchPass() {
 				return
 			}
 			a.watchStack(st, snap, time.Now())
+			a.watchDeadlocks(ctx, st, snap)
 		}(s.ID)
 	}
 	wg.Wait()
@@ -702,6 +708,24 @@ func (a *App) watchStack(st Stack, snap map[string]*liveNode, now time.Time) {
 			}
 			conds = append(conds, c)
 		}
+		if rules.TrxSec > 0 {
+			c := watchCond{kind: "trx", severity: "warning", openAfter: 2, closeAfter: 2}
+			if r != nil && r.Txn != nil && r.Txn.OldestSec > rules.TrxSec {
+				c.holds = true
+				c.title = fmt.Sprintf("%s: a transaction has been open %s", name, (time.Duration(r.Txn.OldestSec) * time.Second).String())
+				c.detail = fmt.Sprintf("threshold %s — see Activity → Transactions", (time.Duration(rules.TrxSec) * time.Second).String())
+			}
+			conds = append(conds, c)
+		}
+		if rules.LockWaitSec > 0 {
+			c := watchCond{kind: "lockwait", severity: "warning", openAfter: 1, closeAfter: 2}
+			if r != nil && r.Txn != nil && r.Txn.LockWaiters > 0 && r.Txn.LockWaitMaxSec > rules.LockWaitSec {
+				c.holds = true
+				c.title = fmt.Sprintf("%s: %d session(s) waiting for a lock, the longest %.0fs", name, r.Txn.LockWaiters, r.Txn.LockWaitMaxSec)
+				c.detail = fmt.Sprintf("threshold %.0fs — see Activity → Blocking", rules.LockWaitSec)
+			}
+			conds = append(conds, c)
+		}
 		watchState.mu.Lock()
 		for _, c := range conds {
 			s := prev.streak[c.kind]
@@ -799,13 +823,17 @@ func ruleOn(r alertRules, kind string) bool {
 		return r.DiskPct > 0
 	case "conns":
 		return r.ConnPct > 0
+	case "trx":
+		return r.TrxSec > 0
+	case "lockwait":
+		return r.LockWaitSec > 0
 	}
 	return false
 }
 
 func alertHeading(kind string) string {
 	return map[string]string{"down": "Database down", "replication": "Replication problem", "lag": "Replica behind",
-		"disk": "Filesystem filling", "conns": "Connections running out"}[kind]
+		"disk": "Filesystem filling", "conns": "Connections running out", "trx": "Long transaction", "lockwait": "Lock wait"}[kind]
 }
 
 // recordStackEvent puts something DBCanvas did on the stack's timeline (a switchover, a rebuild),
@@ -899,4 +927,175 @@ func (a *App) handleAlertSummary(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"stacks": out})
+}
+
+// ------------------------------------------------------------------------------ deadlocks
+
+// watchDeadlocks records each new deadlock on the stack's timeline. InnoDB keeps only its latest
+// deadlock, so each pass reads it and compares it with the last one recorded for the node:
+// a deadlock that comes and goes between two passes is still caught unless another replaces it
+// within the same 30 seconds. PostgreSQL keeps a count; its increase is the event.
+var pgDeadlockCounts = struct {
+	sync.Mutex
+	m map[string]int64
+}{m: map[string]int64{}}
+
+func (a *App) watchDeadlocks(ctx context.Context, st Stack, snap map[string]*liveNode) {
+	rules := a.store.AlertRules(st.ID)
+	if !rules.Deadlock {
+		return
+	}
+	doc := buildDoc(st)
+	for nid, ln := range snap {
+		if ln == nil || ln.State != "running" || ln.Role == nil || ln.Role.Down {
+			continue
+		}
+		c, ok := a.dbConnFor(st, nid)
+		if !ok {
+			continue
+		}
+		cctx, cancel := context.WithTimeout(withEngine(ctx, a.depEngine(st, nid)), 10*time.Second)
+		switch c.Engine {
+		case "mysql":
+			res, err := c.engine().ExecInput(cctx, c.ContainerID, "", append(c.client("mysql"), "-u", c.Super, "-N", "--raw", "-B"),
+				append([]string{"MYSQL_PWD=" + c.Password}, c.Env...), []byte("SHOW ENGINE INNODB STATUS;\n"))
+			if err == nil {
+				if d := parseDeadlock(res.Stdout); d != nil && d.At != "" {
+					a.recordDeadlock(st, doc, nid, d, rules)
+				}
+			}
+		case "postgres":
+			var n int64
+			if a.queryJSON(cctx, c, "postgres", "SELECT coalesce(sum(deadlocks), 0) FROM pg_stat_database", &n) == nil {
+				key := fmt.Sprintf("%d:%s", st.ID, nid)
+				pgDeadlockCounts.Lock()
+				prev, seen := pgDeadlockCounts.m[key]
+				pgDeadlockCounts.m[key] = n
+				pgDeadlockCounts.Unlock()
+				if seen && n > prev {
+					a.recordPGDeadlocks(cctx, st, doc, nid, c, int(n-prev), rules)
+				}
+			}
+		}
+		cancel()
+	}
+}
+
+// recordDeadlock adds the deadlock to the timeline unless it is the one recorded last for this
+// node (InnoDB keeps showing its latest until another happens).
+func (a *App) recordDeadlock(st Stack, doc designDoc, nid string, d *deadlockInfo, rules alertRules) {
+	evs, _ := a.store.LiveEventsOf(st.ID, nid, "deadlock", 1)
+	if len(evs) > 0 {
+		var last deadlockInfo
+		if json.Unmarshal([]byte(evs[0].Detail), &last) == nil && last.At == d.At {
+			return
+		}
+	}
+	name := nodeLabel(doc, nid)
+	victim := ""
+	for _, t := range d.Txs {
+		if t.Victim {
+			victim = fmt.Sprintf(" — transaction %d (thread %s) rolled back", t.Number, t.Thread)
+			if d.Engine == "postgres" {
+				victim = fmt.Sprintf(" — process %s's transaction rolled back", t.Thread)
+			}
+		}
+	}
+	b, _ := json.Marshal(d)
+	title := fmt.Sprintf("Deadlock on %s at %s%s", name, d.At, victim)
+	a.store.AddLiveEvent(st.ID, liveEvent{NodeID: nid, Kind: "deadlock", Severity: "warning", Title: title, Detail: string(b)})
+	if rules.Notify {
+		a.notifyStack(st.ID, "live.deadlock", "warning", "Deadlock", st.Name+": "+title, nid)
+	}
+}
+
+// recordPGDeadlocks records the deadlocks the counter says happened, with their detail from
+// the server log when it can be read; otherwise a count, pointing at the log.
+func (a *App) recordPGDeadlocks(ctx context.Context, st Stack, doc designDoc, nid string, c dbConn, n int, rules alertRules) {
+	var log string
+	var found []*deadlockInfo
+	if a.queryJSON(ctx, c, "postgres", pgLogTailSQL, &log) == nil {
+		found = parsePGDeadlocks(log)
+	}
+	if len(found) > n {
+		found = found[len(found)-n:]
+	}
+	recent, _ := a.store.LiveEventsOf(st.ID, nid, "deadlock", 50)
+	seen := map[string]bool{}
+	for _, e := range recent {
+		var d deadlockInfo
+		if json.Unmarshal([]byte(e.Detail), &d) == nil && d.At != "" && len(d.Txs) > 0 {
+			seen[d.At+"/"+d.Txs[0].Thread] = true
+		}
+	}
+	recorded := 0
+	for _, d := range found {
+		if d.At == "" || seen[d.At+"/"+d.Txs[0].Thread] {
+			continue
+		}
+		a.recordDeadlock(st, doc, nid, d, rules)
+		recorded++
+	}
+	if recorded > 0 || len(found) > 0 {
+		return
+	}
+	title := fmt.Sprintf("%d deadlocks on %s", n, nodeLabel(doc, nid))
+	if n == 1 {
+		title = "A deadlock on " + nodeLabel(doc, nid)
+	}
+	a.store.AddLiveEvent(st.ID, liveEvent{NodeID: nid, Kind: "deadlock", Severity: "warning", Title: title,
+		Detail: "PostgreSQL counted it, but its detail is only in the server log, which could not be read here — see the node's error log (Live details)."})
+	if rules.Notify {
+		a.notifyStack(st.ID, "live.deadlock", "warning", "Deadlock", st.Name+": "+title, nid)
+	}
+}
+
+// LiveEventsOf is a node's latest events of one kind.
+func (s *Store) LiveEventsOf(stackID int64, nid, kind string, limit int) ([]liveEvent, error) {
+	rows, err := s.db.Query(`SELECT id,node_id,at,kind,severity,title,detail,actor FROM live_events
+	  WHERE stack_id=? AND node_id=? AND kind=? ORDER BY id DESC LIMIT ?`, stackID, nid, kind, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []liveEvent{}
+	for rows.Next() {
+		var e liveEvent
+		if err := rows.Scan(&e.ID, &e.NodeID, &e.At, &e.Kind, &e.Severity, &e.Title, &e.Detail, &e.Actor); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// handleNodeDeadlocks is the node's deadlock history, newest first, each parsed.
+func (a *App) handleNodeDeadlocks(w http.ResponseWriter, r *http.Request) {
+	st, _, ok := a.loadOwnedStack(w, r)
+	if !ok {
+		return
+	}
+	evs, err := a.store.LiveEventsOf(st.ID, r.PathValue("nid"), "deadlock", 50)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to read deadlocks")
+		return
+	}
+	type item struct {
+		At       int64         `json:"at"`
+		Title    string        `json:"title"`
+		Deadlock *deadlockInfo `json:"deadlock,omitempty"`
+		Note     string        `json:"note,omitempty"`
+	}
+	out := []item{}
+	for _, e := range evs {
+		it := item{At: e.At, Title: e.Title}
+		var d deadlockInfo
+		if json.Unmarshal([]byte(e.Detail), &d) == nil && d.At != "" {
+			it.Deadlock = &d
+		} else {
+			it.Note = e.Detail
+		}
+		out = append(out, it)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"deadlocks": out})
 }

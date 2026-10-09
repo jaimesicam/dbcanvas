@@ -92,6 +92,8 @@ func main() {
 	app.startReaper()
 	// Samples every deployed stack for its history and alerts (livewatch.go).
 	app.startLiveWatch()
+	// Turns deep performance_schema instrumentation off when its time is up (activitydeep.go).
+	app.startDeepReverter()
 	// Flushes buffered token last-used stamps and reaps long-dead tokens.
 	app.startTokenMaintenance()
 	// Ends expired shared sessions and deletes the ones past their retention.

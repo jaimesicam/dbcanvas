@@ -19,7 +19,7 @@ const SEV_STYLE = {
 }
 
 const KIND_LABEL = {
-  role: 'role', failover: 'failover', switchover: 'switchover', alert: 'alert', resolved: 'resolved', action: 'action',
+  role: 'role', failover: 'failover', switchover: 'switchover', alert: 'alert', resolved: 'resolved', action: 'action', deadlock: 'deadlock', drill: 'drill',
 }
 
 export const ago = (sec) => {
@@ -67,6 +67,7 @@ function fixAction(alert, actions) {
   switch (alert.fix) {
     case 'restart': return actions.restart && { label: 'Restart node', fn: () => actions.restart(alert.nodeId) }
     case 'rebuild': return actions.rebuild && { label: 'Rebuild replica…', fn: () => actions.rebuild(alert.nodeId) }
+    case 'activity': return actions.activity && { label: 'Open Activity', fn: () => actions.activity(alert.nodeId) }
     default: return actions.inspect && { label: 'Diagnostics', fn: () => actions.inspect(alert.nodeId) }
   }
 }
@@ -298,6 +299,9 @@ function Rules({ stackId, rules, onSaved }) {
       {num('lagSec', 'Replica behind by more than', 'seconds', '0 switches it off')}
       {num('diskPct', 'Filesystem fuller than', '%', '0 switches it off')}
       {num('connPct', 'Connections in use at least', '% of max', '0 switches it off')}
+      {num('trxSec', 'A transaction open longer than', 'seconds', '0 switches it off')}
+      {num('lockWaitSec', 'A session waiting for a lock longer than', 'seconds', '0 switches it off')}
+      <div><Toggle checked={r.deadlock} onChange={(v) => set('deadlock', v)} label="A deadlock happens (recorded with both transactions)" /></div>
       <div><Toggle checked={r.notify} onChange={(v) => set('notify', v)} label="Send alerts to the notification bell (the timeline records them either way)" /></div>
       <div className="flex items-center gap-3">
         <Button size="sm" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save rules'}</Button>

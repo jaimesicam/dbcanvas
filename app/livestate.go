@@ -72,9 +72,18 @@ type liveRole struct {
 	// be the replica end of a link from another cluster, and a bidirectional link is a channel
 	// at both ends — so the canvas can colour each designed replication line by its own channel.
 	Channels []liveChannel `json:"channels,omitempty"`
+	// Txn is the transaction health of the node: its oldest open transaction and who waits on
+	// a lock — what the long-transaction and lock-wait alerts read (livewatch.go).
+	Txn *liveTxn `json:"txn,omitempty"`
 	// CrossCluster: this node's sources are all outside its own cluster — the primary of a
 	// cluster fed by a replication link from another one.
 	CrossCluster bool `json:"crossCluster,omitempty"`
+}
+
+type liveTxn struct {
+	OldestSec      float64 `json:"oldestSec"`
+	LockWaiters    int     `json:"lockWaiters"`
+	LockWaitMaxSec float64 `json:"lockWaitMaxSec"`
 }
 
 // liveChannel is one replication channel as its replica reports it.

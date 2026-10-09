@@ -32,7 +32,7 @@ longer one.
 
 **Running load** · [Data Generator](#data-generator) · [Query Runner](#query-runner) · [Database Explorer](#database-explorer) · [Benchmark](#benchmark) · [Sample Client Code](#sample-client-code) · [Stock Market Sim](#stock-market-sim) · [Ledger Sim](#ledger-sim)
 
-**Finding out what happened** · [Packet Inspector](#packet-inspector) · [Log Summary](#log-summary) · [FTDC Summary](#ftdc-summary) · [Stalk Summary](#stalk-summary) · [Diagnostic captures](#diagnostic-captures) · [Operator Debugger](#operator-debugger) · [Core Dump Analyzer](#core-dump-analyzer)
+**Finding out what happened** · [Activity](#activity) · [Packet Inspector](#packet-inspector) · [Log Summary](#log-summary) · [FTDC Summary](#ftdc-summary) · [Stalk Summary](#stalk-summary) · [Diagnostic captures](#diagnostic-captures) · [Operator Debugger](#operator-debugger) · [Core Dump Analyzer](#core-dump-analyzer)
 
 **Managing a node** · [Node file manager](#node-file-manager) · [Certificates](#certificates) · [Intranet mail](#intranet-mail) · [Intranet LDAP](#intranet-ldap) · [Samba AD DC](#samba-ad-dc) · [SeaweedFS](#seaweedfs) · [OpenBao](#openbao)
 
@@ -633,7 +633,8 @@ opens what it recorded:
 - **Timeline**: role changes, unplanned failovers (a primary that moved without DBCanvas
   moving it), switchovers, rebuilds, restarts and lifetime changes, with who asked for them.
 - **Trends**: a day of CPU, memory, lag, QPS, TPS, connections, IOPS and filesystem use per node.
-- **Rules**: the stack's thresholds.
+- **Rules**: the stack's thresholds — including a transaction open too long, a session waiting
+  too long for a lock, and deadlocks (see [Activity](#activity)).
 
 `GET /api/stacks/{id}/history?minutes=60`, `GET /api/stacks/{id}/alerts`,
 `PUT /api/stacks/{id}/alert-rules`, `GET /api/alerts/summary`. A stack's lifetime is extended
@@ -1079,6 +1080,50 @@ experiment happens.
 ---
 
 # Finding out what happened
+
+## Activity
+
+**UI:** right-click a running database or proxy node → **Activity…** (or *see Activity* on a
+transaction or lock-wait alert). It refreshes every 2 seconds while it is open and costs the node
+nothing when it is closed.
+
+| Tab | What it answers |
+| --- | --- |
+| Overview | what to look at first: the oldest blocker, the longest transaction, DDL stuck in a queue |
+| Blocking | who blocks whom, as a tree under each root blocker — row locks, metadata locks (the ALTER waiting for a long SELECT, and every SELECT queued behind the ALTER), PostgreSQL's `pg_blocking_pids`, a pool with no free server connection. An idle blocker says so: its application holds the transaction open |
+| Transactions | open transactions by age, rows locked and modified; for an idle one, what it last ran |
+| Sessions | every session, filterable; *CPU / I/O / memory per session* adds what each one costs (from `/proc` and performance_schema) |
+| DDL | DDL in flight, its phase, progress and estimate, and the sessions queued behind it |
+| Deadlocks | each deadlock the watcher recorded, with the transactions, the rows or locks each held and waited for, and the one rolled back |
+| Statements | normalised statements by time per second (DBCanvas's own monitoring queries hidden) |
+| Pools | ProxySQL's per-backend connection pool, PgBouncer's per database and user |
+
+MySQL and MariaDB (performance_schema, `INNODB_TRX`, `data_lock_waits` or `INNODB_LOCK_WAITS`,
+`metadata_locks`), PostgreSQL, MongoDB (`currentOp`), ProxySQL — where each session links to its
+backend connection on the database node — and PgBouncer.
+
+**Kill** ends a statement or a connection; **EXPLAIN** shows a running statement's plan without
+running it again. A statement still waiting for its table locks has no plan yet, and says so.
+
+**Deep** (MySQL family) switches on, for 1 to 60 minutes, the performance_schema stage, wait and
+transaction events that were off — DDL progress for any ALTER, and per-session socket I/O. Only
+what was off is switched on, and only that is switched back, when the time is up, when it is
+turned off, or when DBCanvas next starts. It is never on by default: instrumentation costs a busy
+server throughput.
+
+Deadlocks are recorded by the watcher on each pass: InnoDB's latest from `SHOW ENGINE INNODB
+STATUS`, PostgreSQL's from its counter with the detail read from the server log. A transaction
+open longer than the stack's *trxSec* rule (10 minutes by default) and a lock wait longer than
+*lockWaitSec* (30 seconds) open alerts like any other.
+
+```sh
+N=/api/stacks/12/nodes/$NODE_ID      # an id, not a name: see `dbcanvas node list`
+dbcanvas api GET "$N/activity?with=digests,resources,deadlock"
+dbcanvas api POST "$N/activity/kill" --data '{"session": "4711", "mode": "connection"}'
+dbcanvas api POST "$N/activity/explain" --data '{"session": "4711"}'
+dbcanvas api POST "$N/activity/deep" --data '{"minutes": 10}'
+dbcanvas api GET "$N/deadlocks"
+```
 
 ## Packet Inspector
 
