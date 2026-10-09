@@ -1224,8 +1224,16 @@ func (a *App) mongoInitReplicaSet(ctx context.Context, st Stack, rs string, ms [
 	pr := progs[first.ID]
 	pr.phase("Initiating replica set "+rs, 65)
 	var memberJSON []string
+	// The first member gets priority 2: everything after the initiation (the admin user through
+	// the localhost exception, the PMM and PBM users) runs on it and needs it to be the primary.
+	// With equal priorities any member can win the first election — on a busy host another one
+	// often does — and the wait below then waits for something that never happens.
 	for i, n := range ms {
-		memberJSON = append(memberJSON, fmt.Sprintf(`{_id:%d,host:"%s:%d"}`, i, fqdnOf(hosts[n.ID], domain), mongoPort))
+		prio := 1
+		if i == 0 {
+			prio = 2
+		}
+		memberJSON = append(memberJSON, fmt.Sprintf(`{_id:%d,host:"%s:%d",priority:%d}`, i, fqdnOf(hosts[n.ID], domain), mongoPort, prio))
 	}
 	cfg := fmt.Sprintf(`{_id:"%s",configsvr:%v,members:[%s]}`, rs, role == "configsvr", strings.Join(memberJSON, ","))
 	if err := a.runStep(ctx, dep.ContainerID, mongoInitRSScript, []string{"RSCFG=" + cfg, "RS=" + rs}, pr.logln); err != nil {
