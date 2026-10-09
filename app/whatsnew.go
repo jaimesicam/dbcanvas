@@ -37,6 +37,73 @@ type releaseNote struct {
 // expanded, and the tests assume the ordering.
 var whatsNewNotes = []releaseNote{
 	{
+		Version: "0.0.17",
+		Date:    "2026-10-09",
+		Title:   "Activity: what is running inside a database or proxy node",
+		Body: "Right-click a running database or proxy node → Activity… shows who blocks whom as a tree under each " +
+			"root blocker (row locks, the queue behind an ALTER waiting for a metadata lock, exhausted pools), " +
+			"open transactions with what an idle one last ran, DDL with its progress and the sessions queued " +
+			"behind it, a deadlock history with when each happened and who was rolled back, statement digests and " +
+			"pools. Kill a statement or a connection, or EXPLAIN a running one. Per-session CPU, I/O, memory and " +
+			"network are there on request, and Deep mode switches on extra performance_schema instrumentation for " +
+			"up to an hour, then back off by itself. MySQL, MariaDB, PostgreSQL, MongoDB, ProxySQL and PgBouncer.",
+		Doc: "docs/API_REFERENCE.md",
+	},
+	{
+		Version: "0.0.17",
+		Date:    "2026-10-09",
+		Title:   "Stack health: history, alerts and failover detection",
+		Body: "The server samples every deployed stack every 30 seconds and keeps a day of CPU, memory, lag, QPS, " +
+			"connections, IOPS and disk per node, a timeline of role changes, unplanned failovers, switchovers, " +
+			"rebuilds and restarts, and alerts — a database down, replication broken, a replica behind, a " +
+			"filesystem filling, connections running out, a transaction open too long, a lock wait too long, a " +
+			"deadlock — each with what usually fixes it. Open it from the canvas's Health button.",
+		Doc: "docs/API_REFERENCE.md",
+	},
+	{
+		Version: "0.0.17",
+		Date:    "2026-10-09",
+		Title:   "Promote and demote from the canvas",
+		Body: "Right-click a cluster member → Replication role to promote a replica or hand the primary to one you " +
+			"pick: Patroni, repmgr, MongoDB, Group Replication / InnoDB Cluster, and MySQL and MariaDB " +
+			"replication with or without GTID, waiting until every replica has applied exactly what the old " +
+			"primary wrote. The Live view now shows each node's role, problems and load on its card, one line per " +
+			"replication link coloured by its real state, and arrows only where replication is not as designed.",
+		Doc: "docs/API_REFERENCE.md",
+	},
+	{
+		Version: "0.0.17",
+		Date:    "2026-10-09",
+		Title:   "Add a member to a running cluster without rebuilding the others",
+		Body: "Deploy now decides per member: a new node joins the running cluster the way that cluster takes a " +
+			"member — CLONE or a consistent dump for MySQL and MariaDB replication, state transfer for Galera, " +
+			"addInstance for InnoDB Cluster, a base backup for Patroni and repmgr, initial sync for MongoDB — and " +
+			"the members already there keep running untouched. A node stopped from the canvas is no longer " +
+			"rebuilt by the next deploy, and Deploy on a deployed stack shows what it will do first.",
+		Doc: "docs/API_REFERENCE.md",
+	},
+	{
+		Version: "0.0.17",
+		Date:    "2026-10-09",
+		Title:   "Rebuild a replica, rolling restarts, configuration drift",
+		Body: "Rebuild a replica from its primary (CLONE, a consistent dump, Group Replication clone, patronictl " +
+			"reinit, repmgr standby clone, MongoDB initial sync, Galera SST); restart a cluster replicas first, " +
+			"then a switchover and the old primary; and compare configuration across a cluster's members, with " +
+			"identity settings set apart.",
+		Doc: "docs/API_REFERENCE.md",
+	},
+	{
+		Version: "0.0.17",
+		Date:    "2026-10-09",
+		Title:   "Database users, failure drills, backup age, undo",
+		Body: "Database users… lists a cluster's accounts with the members that have each and whether the passwords " +
+			"match, and creates, rotates and drops them on the primary. Failure drill… kills the primary or stops " +
+			"replication for real and ticks off a checklist from what the watcher saw. A cluster's header shows " +
+			"the age of its newest backup. Design changes undo and redo with Ctrl/⌘+Z, and Shift-click selects " +
+			"several cards to start, stop or restart.",
+		Doc: "docs/API_REFERENCE.md",
+	},
+	{
 		Version: "0.0.16",
 		Date:    "2026-10-08",
 		Title:   "Manage Users: create accounts, change roles, reset passwords",

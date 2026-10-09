@@ -164,9 +164,78 @@ yourself.
 
 ## What's new
 
-### 0.0.16
+### 0.0.17
 
 <details open>
+<summary><b>Activity: what is running inside a database or proxy node</b></summary>
+
+Right-click a running database or proxy node → **Activity…**. **Blocking** draws who blocks whom as a tree under
+each root blocker — row locks, the metadata-lock queue behind an ALTER (and every SELECT stuck behind *that*), PostgreSQL's
+lock chains, a pool with no free server connection — and says when the blocker is idle, its application holding the
+transaction open. **Transactions** lists them by age with what an idle one last ran; **DDL** shows each one's phase,
+progress and estimate and the queue behind it; **Deadlocks** keeps a history, with what each transaction held and waited
+for (the locked key decoded) and the one rolled back. **Kill** ends a statement or a connection, **EXPLAIN** shows a
+running statement's plan. CPU, I/O, memory and network per session are one tick away, and **Deep** switches on the
+performance_schema instrumentation that was off for up to an hour — never by default, because it costs a busy server
+throughput. MySQL, MariaDB, PostgreSQL, MongoDB, ProxySQL (each session linked to its backend connection) and PgBouncer.
+See [API & CLI reference](docs/API_REFERENCE.md#activity).
+</details>
+
+<details>
+<summary><b>Stack health: history, alerts and failover detection</b></summary>
+
+A watcher samples every deployed stack every 30 seconds. The canvas's **Health** button opens a day of trends per
+node, a timeline — role changes, *unplanned* failovers, switchovers, rebuilds, restarts, with who asked — and alerts with
+hysteresis: a database down, replication broken, a replica behind, a filesystem filling, connections running out, a
+transaction open too long, a lock wait too long, a deadlock. Each has the fix it usually needs, per-stack rules, and the
+notification bell. A node stopped on purpose raises nothing.
+See [API & CLI reference](docs/API_REFERENCE.md#health-history-and-alerts).
+</details>
+
+<details>
+<summary><b>Promote and demote from the canvas</b></summary>
+
+Right-click a cluster member → **Replication role**: promote a replica, or hand the primary to one you pick. Patroni,
+repmgr, MongoDB, Group Replication / InnoDB Cluster, and MySQL and MariaDB replication with or without GTID — writes are
+frozen, every replica applies exactly what the old primary wrote, then everyone is re-pointed; semi-sync moves with the
+primary. The **Live view** puts each node's role, problems and load on its card, draws one line per replication link
+coloured by its real state, and adds arrows only where replication is not as designed.
+See [API & CLI reference](docs/API_REFERENCE.md#switching-the-primary).
+</details>
+
+<details>
+<summary><b>Add a member to a running cluster without rebuilding the others</b></summary>
+
+Deploy now decides per member. A new node joins the running cluster the way that cluster takes a member — CLONE or a
+consistent dump for MySQL and MariaDB replication, a state transfer for PXC and Galera, `addInstance` for InnoDB Cluster,
+a base backup for Patroni and repmgr, initial sync for MongoDB — and the members already there keep running, untouched.
+A node stopped from the canvas is no longer rebuilt by the next deploy, and Deploy on a deployed stack first shows what it
+will do. See [API & CLI reference](docs/API_REFERENCE.md#before-a-redeploy).
+</details>
+
+<details>
+<summary><b>Rebuild a replica, rolling restarts, configuration drift</b></summary>
+
+**Rebuild from primary** throws a replica's data away and copies it afresh (CLONE, a consistent dump, Group Replication
+clone, `patronictl reinit`, `repmgr standby clone`, MongoDB initial sync, Galera SST). **Rolling restart** goes replicas
+first, each back and caught up, then a switchover and the old primary. **Compare configuration** lines up a cluster's
+members' settings with identity and role settings set apart.
+See [API & CLI reference](docs/API_REFERENCE.md#rebuilding-a-replica-rolling-restarts-comparing-configuration).
+</details>
+
+<details>
+<summary><b>Database users, failure drills, backup age, undo</b></summary>
+
+**Database users…** lists a cluster's accounts with the members that have each one and whether its password matches,
+and creates, rotates and drops them on the primary. **Failure drill…** kills the primary or stops replication for real and
+ticks a checklist off from what the watcher saw. A cluster's header shows its newest backup's age, with **Back up now**.
+Design changes undo and redo with Ctrl/⌘+Z, and Shift- or Ctrl/⌘-click selects several cards to start, stop or restart.
+See [API & CLI reference](docs/API_REFERENCE.md#database-users-failure-drills-backups).
+</details>
+
+### 0.0.16
+
+<details>
 <summary><b>Manage Users: create accounts, change roles, reset passwords</b></summary>
 
 **Add user** creates an account that is approved straight away, with the role you choose. Its
