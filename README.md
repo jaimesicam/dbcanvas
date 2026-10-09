@@ -39,6 +39,33 @@ signs up afterwards waits for an admin to approve them.
 Everything has a working default. Before exposing DBCanvas beyond your own machine, change
 the passwords in `.env` — see [Configuration](docs/CONFIGURATION.md).
 
+## Upgrade
+
+Do not run `make install` again: it rebuilds every image, which takes as long as the first time.
+Images are tagged with the release they were built for, so after pulling a new release, give the
+images you already have its tag, then rebuild and restart DBCanvas itself:
+
+```sh
+git pull
+make adopt-images     # tag the images you already built for this release — seconds, nothing rebuilt
+make compose          # rebuild and restart DBCanvas
+```
+
+Your stacks and their data are untouched: running nodes keep running while DBCanvas restarts.
+
+`make adopt-images` reuses an image only on the assumption that its definition did not change.
+To see whether it did, look at what the pull changed under `images/`:
+
+```sh
+git diff --stat ORIG_HEAD -- images
+```
+
+Nothing listed means you are done. Otherwise the release notes under [What's new](#whats-new)
+say which image to rebuild and with which target — `make vnc-image`, `make intranet-image`,
+`make carsim-image` and so on rebuild one image each; `make images` rebuilds the operating-system
+bases and the Intranet. If you skip `make adopt-images`, Validate says which image is missing
+under the new tag and suggests it.
+
 ## Your first stack
 
 Go to **Database Stacks** → **New stack**, name it, and pick something under **Start from**.
