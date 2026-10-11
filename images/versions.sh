@@ -134,9 +134,9 @@ carry_section() {
 
 # ---- in-container probe scripts, one per OS family ----
 # Each prints version lines (newest first) fenced by @@PS80@@ / @@PS84@@ /
-# @@PS57@@ / @@PXC80@@ / @@PXC84@@ / @@PROXYSQL2@@ / @@PROXYSQL3@@ /
+# @@PS57@@ / @@PXC80@@ / @@PXC84@@ / @@PXC97@@ / @@PROXYSQL2@@ / @@PROXYSQL3@@ /
 # @@VALKEY91@@ / @@END@@ markers — Percona Server (8.0, 8.4 and the legacy 5.7
-# series), Percona XtraDB Cluster (8.0 and 8.4), ProxySQL (major series 2 and
+# series), Percona XtraDB Cluster (8.0, 8.4 and 9.7), ProxySQL (major series 2 and
 # 3, from the proxysql2 / proxysql3 packages), and Valkey (9.1, from the
 # percona-valkey-bundle meta-package).
 
@@ -162,24 +162,19 @@ echo '@@PS84@@';  elsearch percona-server-server   | grep -E '^8\.4\.' | sort -r
 # (Percona-Server-server-57), unlike the unsuffixed 8.0/8.4 server package.
 percona-release setup ps57     >/dev/null 2>&1
 echo '@@PS57@@';  elsearch Percona-Server-server-57 | grep -E '^5\.7\.' | sort -rV -u
-# Percona Server 9.7 LTS is written by hand, NOT through percona-release: version
-# 1.0-33 (the newest published) lists ps97lts among its products and then requests
-# repo.percona.com/ps-97lts/, which 404s, while the dashed spelling disables every
-# Percona repo and enables nothing while exiting 0. Verified against a live EL9 node.
-cat >/etc/yum.repos.d/dbc-ps-97.repo <<EOF
-[dbc-ps-97-lts]
-name=Percona Server 9.7 LTS
-baseurl=https://repo.percona.com/ps-97-lts/yum/release/\$releasever/RPMS/\$basearch/
-gpgkey=https://repo.percona.com/yum/PERCONA-PACKAGING-KEY
-gpgcheck=1
-enabled=1
-skip_if_unavailable=1
-EOF
+# The 9.7 LTS repositories go through `percona-release enable-only <repo> release`, not
+# `setup`: percona-release 1.0-33/1.0-34 turn ps97lts into repo.percona.com/ps-97lts/
+# (404), and the dashed spelling makes `setup` disable every Percona repo and enable
+# nothing while exiting 0. `enable-only` (checked on EL9 and Ubuntu 24.04) works, and is
+# what `setup` amounts to for the other series.
+percona-release enable-only ps-97-lts release >/dev/null 2>&1
 echo '@@PS97@@';  elsearch percona-server-server   | grep -E '^9\.7\.' | sort -rV -u
 percona-release setup pxc80    >/dev/null 2>&1
 echo '@@PXC80@@'; elsearch percona-xtradb-cluster  | grep -E '^8\.0\.' | sort -rV -u
 percona-release setup pxc84lts >/dev/null 2>&1
 echo '@@PXC84@@'; elsearch percona-xtradb-cluster  | grep -E '^8\.4\.' | sort -rV -u
+percona-release enable-only pxc-97-lts release >/dev/null 2>&1
+echo '@@PXC97@@'; elsearch percona-xtradb-cluster  | grep -E '^9\.7\.' | sort -rV -u
 # ProxySQL: a single 'proxysql' repo carries both the proxysql2 and proxysql3
 # packages; enumerate each separately (proxysql2-2.x.y, proxysql3-3.x.y).
 percona-release setup proxysql >/dev/null 2>&1
@@ -303,18 +298,15 @@ echo '@@PS84@@';  madison percona-server-server   | grep -E '^8\.4\.' | sort -rV
 # Legacy Percona Server 5.7 (EOL) — on Debian the package is percona-server-server-5.7.
 percona-release setup ps57     >/dev/null 2>&1; apt-get update >/dev/null 2>&1
 echo '@@PS57@@';  madison percona-server-server-5.7 | grep -E '^5\.7\.' | sort -rV -u
-# Percona Server 9.7 LTS by hand — percona-release cannot enable it (see rhel_probe).
-apt-get install -y -qq curl gnupg ca-certificates >/dev/null 2>&1
-install -d /etc/apt/keyrings
-curl -fsSL https://repo.percona.com/yum/PERCONA-PACKAGING-KEY 2>/dev/null | gpg --batch --yes --dearmor -o /etc/apt/keyrings/dbc-percona.gpg 2>/dev/null
-echo "deb [signed-by=/etc/apt/keyrings/dbc-percona.gpg] https://repo.percona.com/ps-97-lts/apt $(. /etc/os-release; echo "$VERSION_CODENAME") main" \
-  >/etc/apt/sources.list.d/dbc-ps-97.list
-apt-get update >/dev/null 2>&1
+# Percona Server 9.7 LTS through enable-only — `setup` cannot take it (see rhel_probe).
+percona-release enable-only ps-97-lts release >/dev/null 2>&1; apt-get update >/dev/null 2>&1
 echo '@@PS97@@';  madison percona-server-server   | grep -E '^9\.7\.' | sort -rV -u
 percona-release setup pxc80    >/dev/null 2>&1; apt-get update >/dev/null 2>&1
 echo '@@PXC80@@'; madison percona-xtradb-cluster  | grep -E '^8\.0\.' | sort -rV -u
 percona-release setup pxc84lts >/dev/null 2>&1; apt-get update >/dev/null 2>&1
 echo '@@PXC84@@'; madison percona-xtradb-cluster  | grep -E '^8\.4\.' | sort -rV -u
+percona-release enable-only pxc-97-lts release >/dev/null 2>&1; apt-get update >/dev/null 2>&1
+echo '@@PXC97@@'; madison percona-xtradb-cluster  | grep -E '^9\.7\.' | sort -rV -u
 percona-release setup proxysql >/dev/null 2>&1; apt-get update >/dev/null 2>&1
 echo '@@PROXYSQL2@@'; madison proxysql2 | grep -E '^2\.' | sort -rV -u
 echo '@@PROXYSQL3@@'; madison proxysql3 | grep -E '^3\.' | sort -rV -u
@@ -711,7 +703,7 @@ while IFS=$'\t' read -r os version platform arch tag; do
 
   echo "==> probing ${tag} (${platform}) for installable versions" >&2
 
-  ps80="" ; ps84="" ; ps97="" ; ps57="" ; pxc80="" ; pxc84="" ; psql2="" ; psql3=""
+  ps80="" ; ps84="" ; ps97="" ; ps57="" ; pxc80="" ; pxc84="" ; pxc97="" ; psql2="" ; psql3=""
   mdb60="" ; mdb70="" ; mdb80="" ; mdb83=""
   pg13="" ; pg14="" ; pg15="" ; pg16="" ; pg17="" ; pg18=""
   vk91=""
@@ -726,6 +718,7 @@ while IFS=$'\t' read -r os version platform arch tag; do
       ps97="$(printf '%s\n' "$out" | section PS97)"
       pxc80="$(printf '%s\n' "$out" | section PXC80)"
       pxc84="$(printf '%s\n' "$out" | section PXC84)"
+      pxc97="$(printf '%s\n' "$out" | section PXC97)"
       psql2="$(printf '%s\n' "$out" | section PROXYSQL2)"
       psql3="$(printf '%s\n' "$out" | section PROXYSQL3)"
       mdb60="$(printf '%s\n' "$out" | section PSMDB60)"
@@ -758,6 +751,7 @@ while IFS=$'\t' read -r os version platform arch tag; do
   n57=$(printf '%s' "$ps57" | grep -c . || true)
   px0=$(printf '%s' "$pxc80" | grep -c . || true)
   px4=$(printf '%s' "$pxc84" | grep -c . || true)
+  px7=$(printf '%s' "$pxc97" | grep -c . || true)
   pq2=$(printf '%s' "$psql2" | grep -c . || true)
   pq3=$(printf '%s' "$psql3" | grep -c . || true)
   m6=$(printf '%s' "$mdb60" | grep -c . || true)
@@ -779,7 +773,7 @@ while IFS=$'\t' read -r os version platform arch tag; do
   d123=$(printf '%s' "$md123" | grep -c . || true)
   c80=$(printf '%s' "$myc80" | grep -c . || true)
   c84=$(printf '%s' "$myc84" | grep -c . || true)
-  echo "    ps: ${n80}+${n84}+${n57}  pxc: ${px0}+${px4}  proxysql: ${pq2}+${pq3}  psmdb: ${m6}+${m7}+${m8}+${m83}  ppg: ${g13}+${g14}+${g15}+${g16}+${g17}+${g18}  valkey: ${vk9}  orchestrator: ${orc}" >&2
+  echo "    ps: ${n80}+${n84}+${n57}  pxc: ${px0}+${px4}+${px7}  proxysql: ${pq2}+${pq3}  psmdb: ${m6}+${m7}+${m8}+${m83}  ppg: ${g13}+${g14}+${g15}+${g16}+${g17}+${g18}  valkey: ${vk9}  orchestrator: ${orc}" >&2
   echo "    mariadb: ${d106}+${d1011}+${d114}+${d118}+${d123}  mysql_community: ${c80}+${c84}" >&2
 
   # emit_series <indent-key> <key1> <list1> [<key2> <list2> ...]: emit a major-series
@@ -841,7 +835,7 @@ while IFS=$'\t' read -r os version platform arch tag; do
     echo "    arch: ${arch}"
     echo "    tag: ${tag}"
     emit_group percona  percona_server         "8.0" "$ps80"  "8.4" "$ps84"  "9.7" "$ps97"  "5.7" "$ps57"
-    emit_group percona  percona_xtradb_cluster "8.0" "$pxc80" "8.4" "$pxc84"
+    emit_group percona  percona_xtradb_cluster "8.0" "$pxc80" "8.4" "$pxc84" "9.7" "$pxc97"
     emit_group percona  proxysql               "2"   "$psql2" "3"   "$psql3"
     emit_group percona  percona_server_mongodb "6.0" "$mdb60" "7.0" "$mdb70" "8.0" "$mdb80" "8.3" "$mdb83"
     emit_group percona  percona_postgresql     "13" "$pg13" "14" "$pg14" "15" "$pg15" "16" "$pg16" "17" "$pg17" "18" "$pg18"
@@ -1067,3 +1061,6 @@ if [ "$skipped" -gt 0 ]; then
   echo "Skipped ${skipped} image(s) not on ${PLATFORM}" >&2
 fi
 echo "==================================================================" >&2
+# The mv above replaces versions.yaml rather than rewriting it, and a running app's
+# single-file bind mount stays on the old one — so its pickers are empty until it restarts.
+echo "If DBCanvas is running, restart it so it reads the new catalog:  make restart" >&2

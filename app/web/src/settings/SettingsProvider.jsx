@@ -13,7 +13,7 @@ import { TABS_DEFAULT } from '../lib/tabs.js'
 
 const DEFAULTS = {
   terminalMode: 'docked', theme: 'dark', look: 'modern',
-  deploymentBackend: 'docker', nodeLibrary: 'menu', tooltips: 'on', maxTabs: TABS_DEFAULT,
+  deploymentBackend: 'docker', nodeLibrary: 'menu', tooltips: 'on', terminalsOnTop: 'on', maxTabs: TABS_DEFAULT,
 }
 // Instance-wide, not per user (app/syssettings.go). Kept here so the one fetch
 // serves both the settings page and the designer, which needs the upload

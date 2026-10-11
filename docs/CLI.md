@@ -81,6 +81,57 @@ Forgotten it entirely? An administrator can set a new one or send you a reset li
 **Manage Users**. With no administrator able to sign in, one runs `dbcanvas_reset_password`
 inside the app container, see [Configuration](CONFIGURATION.md#recovering-an-admin-password).
 
+## Accounts (administrators)
+
+An administrator can create accounts from the CLI, and the new account's owner can then
+sign in with it — which is how you set the CLI up for somebody else:
+
+```
+$ dbcanvas user create bob --first Bob --last Lee --email bob@example.net
+Creating an account requires an administrator's password (a token cannot create accounts).
+Password for admin: ********
+Temporary password for bob: ********
+Temporary password for bob again: ********
+Created bob (id 2, user).
+
+They must replace the temporary password at their first sign-in, which this does:
+
+  dbcanvas login --url http://localhost:8080 --user bob --profile bob
+```
+
+```
+$ dbcanvas login --url http://localhost:8080 --user bob --profile bob
+Password: ********
+An administrator set the password for bob — choose your own before continuing.
+New password: ********
+New password again: ********
+Password changed.
+Created token "dbcanvas-cli on thinkpad" (dbc_k3j9…), write scope, expires 2027-01-09.
+```
+
+```sh
+dbcanvas user list                                      # every account, with its state
+dbcanvas user create pat --first Pat --last Kim --email pat@example.net --role admin
+dbcanvas user create sam --first Sam --last Oh --email sam@example.net --invite
+dbcanvas --profile bob whoami                           # use the new account's profile
+```
+
+`user create` asks for your password even though you are signed in, for the same reason
+`token create` and `password` do: `POST /api/users` refuses API tokens outright, so a
+leaked admin token cannot mint accounts — least of all an administrator for itself. It
+signs in for that one request and signs out. `--admin NAME` names the administrator when
+the profile does not. `user list` works with an admin-scoped token
+(`dbcanvas login --scope admin`).
+
+A temporary password is one the owner has to replace before the account can do anything
+else, and `dbcanvas login` asks for the replacement on the spot. `--invite` skips the
+temporary password and prints a one-time link, valid for 7 days, for the owner to choose
+one in a browser; after that they `dbcanvas login` as usual. Everything else in
+**Manage Users** — approving, disabling, roles, deleting — is
+`dbcanvas api … /api/users/{id}/…` with an admin-scoped token (see the
+[API reference](API_REFERENCE.md#users-admin)); setting another account's password and
+issuing a reset link stay in the browser, because those refuse tokens too.
+
 ## Configuration and profiles
 
 `~/.config/dbcanvas/config.json` (`%AppData%\dbcanvas\config.json` on Windows), mode
@@ -222,10 +273,10 @@ quietly. `--wait` follows every node to `running` and exits **4** if any of them
 not get there.
 
 **Why the version is spelled out.** `auth_openid_connect` arrived in Percona Server
-8.4.11-11. Below that the provisioner skips the plugin *without failing*, so you would
+8.4.11-11 and 9.7.2-2. Below those the provisioner skips the plugin *without failing*, so you would
 get a node with no SSO and no error at compose, validate or deploy. Compose refuses it
 instead, naming the minimum — and `8.4.11` resolves to `8.4.11-11.1`, just past the
-line.
+line (`9.7.2` works the same way on the 9.7 series).
 
 **Proving the SSO works** is worth doing, because a deployed stack does not by itself
 tell you the plugin loaded and the accounts bound:

@@ -36,17 +36,97 @@ curl -s -H "Authorization: Bearer $DBCANVAS_TOKEN" "$DBCANVAS_URL/api/me"
 ### Getting a credential — ask, do not improvise
 
 A token is created by `dbcanvas login`, which needs the user's **password**. Never
-invent, guess or brute-force one. If `DBCANVAS_TOKEN` is not set and no profile
-exists, stop and ask the user to either run `dbcanvas login` themselves or paste a
-token they created in **API → Tokens**.
-
-`dbcanvas login` prompts interactively. In an automated context that will hang, so
-prefer the environment:
+invent, guess or brute-force one. If `DBCANVAS_TOKEN` is not set, no profile exists
+and the user has not given you a password, stop and ask them to either run
+`dbcanvas login` themselves or paste a token they created in **API → Tokens**:
 
 ```sh
 export DBCANVAS_URL=http://localhost:8080
 export DBCANVAS_TOKEN=dbc_...
 ```
+
+**A password the user gave you is yours to use.** The CLI does not need a terminal:
+when stdin is not one, every password prompt reads one line from stdin, in the order
+the prompts appear. So pipe them in — never put a password in a flag, an environment
+variable, a file or your reply:
+
+```sh
+printf '%s\n' "$PW" | dbcanvas login --url http://localhost:8080 --user alice
+```
+
+Whatever you pipe is still in your transcript, so say once that this suits a lab
+instance and that a password used this way is worth rotating on a shared one.
+
+### Setting up an account for somebody, and working as it
+
+The request looks like: *"DBCanvas is at URL, the admin is A with password P — create
+user U and use DBCanvas as U."* Every account has a first name, a last name and an
+email; ask for any you were not given. U's own password is one the user names, or one
+you generate and tell them once (at least 8 characters, no leading or trailing space).
+Use one profile per account and revoke the admin's token when you are done.
+
+**With `dbcanvas-cli`:**
+
+```sh
+URL=http://localhost:8080
+# 1. A short-lived admin token, in its own profile.
+printf '%s\n' "$ADMIN_PW" |
+  dbcanvas login --url "$URL" --user admin --scope admin --expires 1 --profile admin
+
+# 2. The account. Prompts, in order: the admin's password, then U's temporary
+#    password twice. (--invite instead prints a 7-day link and asks only the first.)
+printf '%s\n' "$ADMIN_PW" "$TEMP_PW" "$TEMP_PW" |
+  dbcanvas --profile admin user create bob --first Bob --last Lee --email bob@example.net
+
+# 3. U's first sign-in. Prompts: the temporary password, then U's own twice — an
+#    account with an admin-set password can do nothing else until it is replaced.
+printf '%s\n' "$TEMP_PW" "$USER_PW" "$USER_PW" |
+  dbcanvas login --url "$URL" --user bob --profile bob
+
+# 4. Work as U, then drop the admin token.
+dbcanvas --profile bob whoami
+dbcanvas --profile admin logout
+```
+
+**With `curl`** (no CLI installed). Account creation and password changes refuse API
+tokens, so steps 1–3 run on a password **session**: a cookie in a jar that is deleted at
+the end. Bodies are built with `jq -n --arg`, which escapes any character a password
+holds, and sent on stdin (`--data @-`) so no password is ever in a command-line
+argument. Every response is JSON; an error is `{"error": "…"}` with a 4xx status.
+
+```sh
+URL=http://localhost:8080
+JAR=$(mktemp); trap 'rm -f "$JAR"' EXIT
+post() { curl -sS -b "$JAR" -c "$JAR" -X POST "$URL$1" \
+           -H 'Content-Type: application/json' --data @- ; }
+
+# 1. Admin session.
+jq -n --arg u admin --arg p "$ADMIN_PW" '{username:$u, password:$p}' | post /api/auth/login
+
+# 2. The account. "password" is the temporary one; leave it out (or "") to get
+#    {"url": …, "expiresAt": …} — a 7-day link for U to choose one in a browser.
+jq -n --arg p "$TEMP_PW" '{username:"bob", role:"user", password:$p,
+  firstName:"Bob", lastName:"Lee", email:"bob@example.net"}' | post /api/users
+
+# 3. Sign the admin out, then U's first sign-in: the login response says
+#    "mustChangePassword": true, and until the change only it is allowed.
+post /api/auth/logout </dev/null
+jq -n --arg u bob --arg p "$TEMP_PW" '{username:$u, password:$p}' | post /api/auth/login
+jq -n --arg c "$TEMP_PW" --arg n "$USER_PW" '{currentPassword:$c, newPassword:$n}' |
+  post /api/me/password
+
+# 4. A token for U (same session), then sign the session out.
+DBCANVAS_TOKEN=$(jq -n '{name:"bob via curl", scope:"write", days:30}' |
+  post /api/tokens | jq -r .secret)
+post /api/auth/logout </dev/null
+
+# 5. Work as U.
+curl -sS -H "Authorization: Bearer $DBCANVAS_TOKEN" "$URL/api/me"
+```
+
+No `jq`? Build the JSON with `python3 -c 'import json,sys; …'` — never by pasting a
+password into a JSON string by hand, where a quote or backslash in it breaks the body.
+Keep the token out of your reply; it is a password for the account.
 
 ### Know what this installation actually has
 
@@ -186,8 +266,8 @@ Four `--node` flags, five containers: compose adds the Intranet, adds the `vnc-0
 desktop Keycloak's port-less admin console needs, and turns on the certificate an OIDC
 issuer requires — each reported under `+`. Do not pass `--node vnc` yourself.
 
-Spell the version out. `auth_openid_connect` arrived in Percona Server 8.4.11-11, and
-below that the provisioner skips the plugin *without failing* — no error at compose,
+Spell the version out. `auth_openid_connect` arrived in Percona Server 8.4.11-11 and
+9.7.2-2, and below those the provisioner skips the plugin *without failing* — no error at compose,
 validate or deploy, just a node with no SSO. Compose refuses it instead, naming the
 minimum.
 
@@ -210,6 +290,63 @@ does not exist yet. `--wait` exits **4** if the deploy failed.
 
 Deploying is slow — minutes, sometimes tens of minutes for an HA cluster. Say so
 before you start rather than after.
+
+### A, without the CLI: the same lab over `curl`
+
+Every step above is one endpoint. `$DBCANVAS_TOKEN` is a token with `write` scope (§1
+shows how to get one from a password), and the stack belongs to that token's account.
+
+```sh
+URL=http://localhost:8080
+api() { curl -sS -H "Authorization: Bearer $DBCANVAS_TOKEN" \
+          -H 'Content-Type: application/json' "$@"; }
+
+# What this installation has — never guess a kind, an option or a version.
+api "$URL/api/meta/endpoints" | jq -r '.groups[].endpoints[] | "\(.method) \(.path)"' |
+  grep -E ' /api/stacks(/compose(/kinds)?|/\{id\}(/(validate|deploy|destroy))?)?$'
+api "$URL/api/stacks/compose/kinds" | jq -c '.kinds[] | {kind, options, needs}'
+api "$URL/api/catalog/ps" | jq -c '.images[] | {os, osVersion, series: (.versions | keys)}'
+
+# The spec is the JSON form of --node: one object per entry, "kind" required,
+# every other field optional (count, version, os, monitor, ldap, oidc, vault,
+# backup, to, netLatencyMs, …). The CLI's 'ps,version=8.4,os=el9' is:
+SPEC='{"name":"repro-1234","ttl":"2h",
+       "nodes":[{"kind":"ps","version":"8.4","os":"el9"}]}'
+
+# 1. The plan. Nothing is created; read .resolved and .added (what compose added
+#    for you — the Intranet, a Keycloak's desktop…). A full version ("8.4.11")
+#    resolves to the exact build; a series ("8.4") shows "version": null and means
+#    its newest build at deploy time.
+echo "$SPEC" | jq '.dryRun = true' | api -X POST "$URL/api/stacks/compose" --data @- |
+  jq '{ok, added, resolved: [.resolved[] | select(.os != "")
+       | {kind, major, version, os: (.os + " " + .osVersion)}]}'
+
+# 2. Create it. The response carries the new stack and the validator's issues;
+#    "ok": false means an issue of level "error" — read it before deploying.
+STACK=$(echo "$SPEC" | api -X POST "$URL/api/stacks/compose" --data @- |
+  tee /dev/stderr | jq -r 'if .ok then .stack.id else empty end')
+[ -n "$STACK" ] || { echo "compose refused or validation failed — see above"; exit 1; }
+
+# 3. Deploy, then wait the way `--wait` does: poll until every node is "running"
+#    or "error". A single Percona Server takes a few minutes; a cluster, longer.
+api -X POST "$URL/api/stacks/$STACK/deploy" >/dev/null
+for i in $(seq 1 120); do
+  STATES=$(api "$URL/api/stacks/$STACK" | jq -r '.deployments[] | "\(.nodeId) \(.state)"')
+  echo "$STATES"; echo ---
+  [ -n "$STATES" ] && ! echo "$STATES" | grep -vqE ' (running|error)$' && break
+  sleep 10
+done
+echo "$STATES" | grep -q ' error$' && echo "a node failed — read its log before retrying"
+
+# 4. Node ids are opaque; the labels you will be asked about live in the design.
+api "$URL/api/stacks/$STACK" |
+  jq '[.design.nodes[] | {id, label, type}] as $n
+      | .deployments[] | . as $d | ($n[] | select(.id == $d.nodeId)) + {state}'
+```
+
+Tearing down is two calls and both are outward-facing — **ask first** (§5):
+`POST /api/stacks/$STACK/destroy` removes the containers and keeps the design;
+`DELETE /api/stacks/$STACK` deletes the stack once nothing is running.
 
 ### B. Reproduce a problem on a specific version or topology
 
@@ -346,14 +483,18 @@ start from a template or an export.
 `dbcanvas whoami` prints the scope. `dbcanvas endpoints --scope read` lists what a
 read token could reach.
 
-**Two things no token can ever do**, whatever its scope — both deliberate:
+**Things no token can ever do**, whatever its scope — all deliberate:
 
 - `POST /api/tokens` — create another token
 - `POST /api/me/password` — change the password
+- `POST /api/users` — create an account (and setting another account's password or
+  issuing it a reset link)
 
-Both need a password sign-in. If asked to do either, use `dbcanvas token create` or
-`dbcanvas password`, which prompt; in a non-interactive context, explain that the
-user must run it themselves.
+All need a password sign-in: `dbcanvas token create`, `dbcanvas password` and
+`dbcanvas user create` sign in for the one request and sign out, reading the password
+from stdin when there is no terminal (§1). With the password from the user, run them;
+without it, ask — do not report the 403 a token gets as a dead end. The curl form of
+creating an account is in §1, *Setting up an account for somebody*.
 
 ---
 
@@ -367,6 +508,7 @@ unless they explicitly asked for that exact action.
 | `dbcanvas stack destroy` | Removes every container in the stack. The design survives. |
 | `dbcanvas stack delete` | Removes the design too. Not recoverable. Prompts unless `--yes`. |
 | `dbcanvas api DELETE /api/users/{id}` | Deletes an account **and its stacks**. |
+| `dbcanvas user create` | Creates an account somebody can sign in with — an administrator if `--role admin`. |
 | `dbcanvas api POST /api/users/{id}/disable` | Cuts somebody's access, sessions and tokens. |
 | `dbcanvas api POST /api/users/{id}/role` | Grants or removes somebody's administrator access. |
 | `dbcanvas token revoke` | Breaks whatever was holding that token, immediately. |

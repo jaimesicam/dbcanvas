@@ -107,12 +107,31 @@ const mysqlAdminUserSQL = `CREATE USER IF NOT EXISTS '$ADMIN_USER'@'%' IDENTIFIE
 ALTER USER '$ADMIN_USER'@'%' IDENTIFIED BY '$ADMIN_PW';
 GRANT ALL PRIVILEGES ON *.* TO '$ADMIN_USER'@'%' WITH GRANT OPTION;`
 
-// pxcProduct maps a PXC major series to its percona-release product name.
+// pxcProduct maps a PXC major series to its percona-release setup product name. 9.7 has
+// none that works with `setup` (see perconaRepoSetup), so it is "", which makes the
+// install scripts `percona-release enable` pxcRepoName instead.
 func pxcProduct(major string) string {
-	if major == "8.4" {
+	switch major {
+	case "9.7":
+		return ""
+	case "8.4":
 		return "pxc84lts"
 	}
 	return "pxc80"
+}
+
+// pxcRepoName is the percona-release repository name for a PXC series, used on the
+// enable path (pxcInstallRHEL/Debian with $PRODUCT empty) and by gdbReleaseRepo.
+func pxcRepoName(major string) string {
+	switch major {
+	case "9.7":
+		return "pxc-97-lts"
+	case "8.4":
+		return "pxc-84-lts"
+	case "5.7":
+		return "pxc-57"
+	}
+	return "pxc-80"
 }
 
 // pxbProduct / pxbPackage map a PXC major series to the matching Percona
@@ -121,8 +140,8 @@ func pxcProduct(major string) string {
 func pxbProduct(major string) string {
 	switch major {
 	case "9.7":
-		// Same story as psClientProduct: the repository exists (pxb-97-lts) but
-		// percona-release cannot enable it, so the script writes it by hand.
+		// Same story as psClientProduct: percona-release can only `enable` pxb-97-lts,
+		// not `setup` it, so the script enables pxbRepoName instead.
 		return ""
 	case "8.4":
 		return "pxb84lts"
@@ -133,8 +152,8 @@ func pxbProduct(major string) string {
 	return "pxb80"
 }
 
-// pxbRepoName is the repository directory for a XtraBackup series on the
-// hand-written path (see pxcInstallXtrabackupRHEL).
+// pxbRepoName is the percona-release repository for a XtraBackup series on the
+// enable path (see pxcInstallXtrabackupRHEL).
 func pxbRepoName(major string) string {
 	switch major {
 	case "9.7":
@@ -191,9 +210,11 @@ func pxcLogError(os string) string {
 }
 
 // logUpdatesOption returns the right "replica updates" option for the version:
-// log_replica_updates on 8.4 and 8.0.26+, log_slave_updates on older 8.0.
+// log_replica_updates on 8.4, 9.7 and 8.0.26+, log_slave_updates on older 8.0.
+// 9.x removed log_slave_updates outright, so it must never reach the patch parse
+// below — "9.7.1-1.1" has patch 1 and would read as a pre-8.0.26 server.
 func logUpdatesOption(major, version string) string {
-	if major == "8.4" {
+	if mysqlModernMajor(major) {
 		return "log_replica_updates=ON"
 	}
 	// 5.7 predates the log_replica_updates rename; it only has log_slave_updates.
@@ -567,7 +588,7 @@ func (a *App) pxcPrepareNode(ctx context.Context, st Stack, frame designFrame, n
 	if frame.UseProxy {
 		proxy = "http://intranet." + domain + ":3128"
 	}
-	env := []string{"PRODUCT=" + pxcProduct(frame.PXCMajor), "PKG=" + pkg, "PROXY=" + proxy, "VER=" + frame.PXCVersion}
+	env := []string{"PRODUCT=" + pxcProduct(frame.PXCMajor), "REPO=" + pxcRepoName(frame.PXCMajor), "PKG=" + pkg, "PROXY=" + proxy, "VER=" + frame.PXCVersion}
 	script := pxcInstallRHEL
 	if isDebianOS(frame.OS) {
 		script = pxcInstallDebian
@@ -998,55 +1019,30 @@ type designFrameNode = designNode
 
 // ------------------------------------------------------------------ scripts
 
+// pxcInstall{RHEL,Debian} enable the cluster's PXC series and install $PKG.
+// $PRODUCT empty enables $REPO instead — PXC 9.7 (see perconaRepoSetup).
 const pxcInstallRHEL = pinInstallRHEL + `set -e
 if [ -n "$PROXY" ]; then grep -q '^proxy=' /etc/dnf/dnf.conf 2>/dev/null || echo "proxy=$PROXY" >> /etc/dnf/dnf.conf; fi
 dnf -y -q module disable mysql >/dev/null 2>&1 || true
-percona-release setup -y "$PRODUCT" >/dev/null 2>&1
-pin_install "$PKG"`
+` + perconaRepoSetup + `pin_install "$PKG"`
 
 const pxcInstallDebian = pinInstallDebian + `set -e
 export DEBIAN_FRONTEND=noninteractive
 if [ -n "$PROXY" ]; then echo "Acquire::http::Proxy \"$PROXY\";" > /etc/apt/apt.conf.d/01dbcanvas-proxy; fi
-percona-release setup -y "$PRODUCT" >/dev/null 2>&1
-apt-get update -qq >/dev/null
+` + perconaRepoSetup + `apt-get update -qq >/dev/null
 pin_install "$PKG"`
 
 // pxcInstallXtrabackup{RHEL,Debian} enable the XtraBackup repo for the cluster's
-// PXC series (percona-release setup pxb80 | pxb84lts) and install the matching
-// percona-xtrabackup-80 | -84 package used for SST.
-// $PRODUCT empty takes the hand-written path, for the series percona-release cannot
-// enable — pxb-97-lts has the same problem as ps-97-lts. See psRepoRHEL in mysql.go.
+// PXC series (percona-release setup pxb80 | pxb84lts, or enable pxb-97-lts) and install
+// the matching percona-xtrabackup-80 | -84 | -97 package used for SST.
 const pxcInstallXtrabackupRHEL = pinInstallRHEL + `set -e
-if [ -z "$PRODUCT" ]; then
-  cat >/etc/yum.repos.d/dbcanvas-pxb.repo <<EOF
-[dbcanvas-pxb]
-name=Percona XtraBackup $REPO
-baseurl=https://repo.percona.com/$REPO/yum/release/\$releasever/RPMS/\$basearch/
-gpgkey=https://repo.percona.com/yum/PERCONA-PACKAGING-KEY
-gpgcheck=1
-enabled=1
-skip_if_unavailable=1
-EOF
-else
-  percona-release setup -y "$PRODUCT" >/dev/null 2>&1
-fi
-# pin_install rather than a bare dnf: XtraBackup has its own version series, but it shares
+` + perconaRepoSetup + `# pin_install rather than a bare dnf: XtraBackup has its own version series, but it shares
 # libraries with the cluster packages, and an unpinned install can drag those up a minor.
 pin_install "$PKG" >/dev/null`
 
 const pxcInstallXtrabackupDebian = pinInstallDebian + `set -e
 export DEBIAN_FRONTEND=noninteractive
-if [ -z "$PRODUCT" ]; then
-  apt-get install -y -qq curl gnupg ca-certificates >/dev/null 2>&1 || true
-  install -d /etc/apt/keyrings
-  curl -fsSL https://repo.percona.com/yum/PERCONA-PACKAGING-KEY | gpg --batch --yes --dearmor -o /etc/apt/keyrings/dbcanvas-percona.gpg
-  CODE=$(. /etc/os-release; echo "$VERSION_CODENAME")
-  echo "deb [signed-by=/etc/apt/keyrings/dbcanvas-percona.gpg] https://repo.percona.com/$REPO/apt $CODE main" \
-    >/etc/apt/sources.list.d/dbcanvas-pxb.list
-else
-  percona-release setup -y "$PRODUCT" >/dev/null 2>&1
-fi
-apt-get update -qq >/dev/null
+` + perconaRepoSetup + `apt-get update -qq >/dev/null
 pin_install "$PKG" >/dev/null`
 
 // pxcDebianIncludeCnf appends a trailing `!include /etc/mysql/dbcanvas.cnf` to

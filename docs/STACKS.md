@@ -325,15 +325,16 @@ the DBCanvas source, so they need a checkout and `make <name>-image`.
 **Authentication.** Point a database at a directory and it is wired at deploy: **LDAP** against
 the Intranet OpenLDAP or the Samba AD DC (Percona Server, PostgreSQL, PSMDB), **Kerberos/GSSAPI**
 single sign-on against the Samba AD DC (PostgreSQL, PSMDB), and **Keycloak OIDC** (PMM, PostgreSQL
-18 via `pg_oidc_validator`, PSMDB via `MONGODB-OIDC`, Percona Server 8.4 via `auth_openid_connect`).
+18 via `pg_oidc_validator`, PSMDB via `MONGODB-OIDC`, Percona Server 8.4 and 9.7 via `auth_openid_connect`).
 The designer greys out combinations an engine cannot actually run — PostgreSQL cannot do LDAP and
 OIDC at once (they compete for the same `pg_hba` line), and MongoDB cannot combine OIDC with
 LDAP/Kerberos (each needs its own `mongod.conf` `setParameter` block) — and validation blocks the
 deploy rather than letting one silently win. MySQL has no such conflict: it picks an auth plugin
 per account, so LDAP and OIDC accounts live side by side on one server.
 
-Turning on Keycloak SSO for a **Percona Server** node moves it to 8.4 (latest minor): Percona
-added `auth_openid_connect` in **8.4.11-11**, and the 9.7 series does not carry it yet. The deploy
+Turning on Keycloak SSO for a **Percona Server** node keeps a 9.7 node on 9.7 and moves any
+other to 8.4, with the minor reset to the latest: Percona added `auth_openid_connect` in
+**8.4.11-11** and **9.7.2-2** (9.7.1-1 does not have it). The deploy
 wires the whole demo, not just the plugin — a realm and a public `mysql` client on the Keycloak
 node, sample users `jane` and `john` in an `accounting` group, MySQL accounts bound to those users'
 `sub` claims, and an `oidc_demo` schema only the group's role can read. The node's **Keycloak SSO**

@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from '../components/Icons.jsx'
+import { useSettings } from '../settings/SettingsProvider.jsx'
 
 // WindowManager — every floating window in DBCanvas, managed in one place.
 //
@@ -12,7 +13,9 @@ import { Icon } from '../components/Icons.jsx'
 //
 //   - geometry: move by the title bar, resize from any edge or corner;
 //   - stacking: the window you touch comes to the front, always below dialogs and
-//     menus (the whole layer is one z-index; windows are ranked inside it);
+//     menus (the whole layer is one z-index; windows are ranked inside it) — except
+//     that an onTop window (a terminal, under the default terminalsOnTop setting)
+//     ranks above every other one until it is minimized;
 //   - minimize, maximize (also a double-click on the title bar), close;
 //   - snapping: drag to the left or right edge for half the screen, into a corner
 //     for a quarter, to the top edge to maximize — with a preview of where it lands;
@@ -87,6 +90,13 @@ function clampRect(r, a) {
 }
 
 let cascadeN = 0
+
+// ONTOP_Z lifts onTop windows into a band of their own inside the window layer: they
+// still stack among themselves by order (the one touched last is in front), and every
+// other window still takes focus when touched — it just cannot climb over them. order
+// grows by one per focus, so it never reaches this.
+const ONTOP_Z = 1_000_000
+export const windowZ = (order, onTop) => (onTop ? ONTOP_Z + order : order)
 
 // dragCursor holds one cursor over the whole page while a window is moved or resized.
 // The pointer crosses terminals, buttons and text on the way, each with a cursor of its
@@ -273,10 +283,14 @@ export function WindowManagerProvider({ children }) {
 //   menu       extra entries for the title bar's right-click menu: [{ label, onClick }]
 //   bodyClass  classes for the body
 //   private    the whole window is an empty box in a shared session's mirror
+//   onTop      stays above windows without it while the user's terminalsOnTop
+//              setting is on (terminals pass it); minimizing still hides it
 const NO_WM = { register: () => {}, unregister: () => {}, wins: {}, layerEl: null, area: () => areaOf(false) }
 
-export function Window({ id, title, icon, size, header, onClose, canClose = true, closeTitle, menu, bodyClass = '', private: priv, children }) {
+export function Window({ id, title, icon, size, header, onClose, canClose = true, closeTitle, menu, bodyClass = '', private: priv, onTop = false, children }) {
   const wm = useWindowManager() || NO_WM // outside the provider (a render check) it draws nothing
+  const { settings } = useSettings()
+  const pinned = onTop && settings.terminalsOnTop !== 'off'
   const { register, unregister } = wm
   const w = wm.wins[id]
   const drag = useRef(null)
@@ -388,7 +402,7 @@ export function Window({ id, title, icon, size, header, onClose, canClose = true
       data-wm-window={id}
       data-mirror-private={priv ? '' : undefined}
       className={`pointer-events-auto absolute flex flex-col overflow-hidden border bg-surface shadow-2xl ${fullish ? '' : 'rounded-lg'} ${active ? 'border-primary/40' : ''}`}
-      style={{ left: geo.x, top: geo.y, width: geo.w, height: geo.h, zIndex: w.order, visibility: w.min ? 'hidden' : 'visible' }}
+      style={{ left: geo.x, top: geo.y, width: geo.w, height: geo.h, zIndex: windowZ(w.order, pinned), visibility: w.min ? 'hidden' : 'visible' }}
       aria-hidden={w.min}
       onPointerDownCapture={() => wm.focus(id)}
     >

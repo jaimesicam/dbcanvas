@@ -17,6 +17,9 @@ import (
 //	POST /api/tokens        →  an API token, which is what gets stored
 //	POST /api/auth/logout   →  the session is discarded immediately
 //
+// (plus POST /api/me/password in between when an administrator set the password: the
+// account can do nothing else until its owner has chosen one.)
+//
 // The extra round trip buys a much better credential to leave on a laptop. A stored
 // password is unscoped, unexpiring, invisible to the person it belongs to, and can
 // create anything; the token that replaces it is scoped, expires, appears in the
@@ -76,9 +79,10 @@ func cmdLogin(args []string) error {
 
 	// 1. Password sign-in. The cookie lives in this process and nowhere else.
 	var me struct {
-		ID       int64  `json:"id"`
-		Username string `json:"username"`
-		Role     string `json:"role"`
+		ID                 int64  `json:"id"`
+		Username           string `json:"username"`
+		Role               string `json:"role"`
+		MustChangePassword bool   `json:"mustChangePassword"`
 	}
 	if err := c.post("/api/auth/login", map[string]string{
 		"username": strings.TrimSpace(username), "password": password,
@@ -88,6 +92,27 @@ func cmdLogin(args []string) error {
 	// From here on the session must be cleaned up whatever happens, including on
 	// the error paths below — leaving a live session behind would undo the point.
 	defer func() { c.post("/api/auth/logout", nil, nil) }()
+
+	// 1b. An administrator created this account (or reset it) with a temporary
+	// password. Until the owner picks their own the server allows nothing else —
+	// minting a token included — so pick it here, on the same session, rather than
+	// failing and sending them to a browser. The session survives the change.
+	if me.MustChangePassword {
+		fmt.Fprintf(os.Stderr, "An administrator set the password for %s — choose your own before continuing.\n", me.Username)
+		next, err := promptNewPassword("New password", "your new password")
+		if err != nil {
+			return err
+		}
+		if next == password {
+			return fmt.Errorf("that is the temporary password — choose a different one")
+		}
+		if err := c.post("/api/me/password", map[string]any{
+			"currentPassword": password, "newPassword": next,
+		}, nil); err != nil {
+			return err
+		}
+		fmt.Fprintln(os.Stderr, "Password changed.")
+	}
 
 	tokenName := *name
 	if tokenName == "" {

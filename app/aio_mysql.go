@@ -111,8 +111,8 @@ func (a *App) aioMySQLInstallFor(ctx context.Context, id string, n designNode, f
 			script = mysqlInstallDebian
 		}
 		// REPO matters only when PRODUCT is empty — the series percona-release
-		// cannot enable, which the script installs from a hand-written repository
-		// (see psRepoRHEL in mysql.go). Passing it unconditionally keeps the two
+		// cannot `setup`, which the script `enable`s by repository name instead
+		// (see perconaRepoSetup in mysql.go). Passing it unconditionally keeps the two
 		// callers of this script identical.
 		env = []string{"PRODUCT=" + product, "REPO=" + psRepoName(psMajorOf(major)), "PKGS=" + pkgs,
 			"OPT=" + strings.Join(psServerPackagesOptional(n.OS, psMajorOf(major)), " "), "VER=" + version}
@@ -875,7 +875,7 @@ $M -e "START GROUP_REPLICATION;"
 // aioPXCMajor is the node-level PXC series and pinned minor.
 func aioPXCMajor(n designNode) (major, version string) {
 	m := strings.TrimSpace(n.AIOPXCMajor)
-	if m != "8.4" {
+	if m != "8.4" && m != "9.7" {
 		m = "8.0"
 	}
 	return m, n.AIOPXCVersion
@@ -894,7 +894,7 @@ func (a *App) aioPXCInstall(ctx context.Context, id string, n designNode, pr *px
 		script = pxcInstallDebian
 	}
 	if err := a.runStep(ctx, id, script, []string{
-		"PRODUCT=" + pxcProduct(major), "PKG=percona-xtradb-cluster", "PROXY=" + proxy, "VER=" + version,
+		"PRODUCT=" + pxcProduct(major), "REPO=" + pxcRepoName(major), "PKG=percona-xtradb-cluster", "PROXY=" + proxy, "VER=" + version,
 	}, pr.logln); err != nil {
 		return fmt.Errorf("install percona-xtradb-cluster: %w", err)
 	}

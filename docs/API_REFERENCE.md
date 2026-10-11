@@ -72,7 +72,7 @@ dbcanvas login --url http://localhost:8080
 | --- | --- | --- |
 | Who am I | `GET /api/me` | `dbcanvas whoami` |
 | Read your UI preferences | `GET /api/me/settings` | `dbcanvas api GET /api/me/settings` |
-| Change theme, look, tab limit, terminal mode, deployment backend, tooltips | `PUT /api/me/settings` | `dbcanvas api PUT /api/me/settings --data '{"theme":"forest","look":"industrial","maxTabs":20,"tooltips":"off"}'` |
+| Change theme, look, tab limit, terminal mode, terminal stacking, deployment backend, tooltips | `PUT /api/me/settings` | `dbcanvas api PUT /api/me/settings --data '{"theme":"forest","look":"industrial","maxTabs":20,"tooltips":"off"}'` |
 | List the node images beyond the OS bases, with what is present | `GET /api/images` | `dbcanvas api GET /api/images` |
 | Build one of them on this Docker daemon (admin) | `POST /api/images/{id}/build` | `dbcanvas api POST /api/images/bighole/build` |
 | Download a MongoDB node's `diagnostic.data` with its log, as a tar.gz | `GET /api/stacks/{id}/nodes/{nid}/mongo/diagnostic` | `dbcanvas api GET /api/stacks/12/nodes/psmrs-01/mongo/diagnostic` |
@@ -144,8 +144,8 @@ The secret is returned once, by the create call, and never again.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| List every account, pending first, with last sign-in, last activity and session count | `GET /api/users` | `dbcanvas api GET /api/users` |
-| Create an approved account (needs a password sign-in) | `POST /api/users` | — |
+| List every account, pending first, with last sign-in, last activity and session count | `GET /api/users` | `dbcanvas user list` |
+| Create an approved account (needs a password sign-in) | `POST /api/users` | `dbcanvas user create bob --first Bob --last Lee --email bob@example.net` (asks for your password; `--invite` for a link instead) |
 | Change an account's username and profile | `PUT /api/users/{id}` | `dbcanvas api PUT /api/users/1 -d '{"username":"pat",…}'` |
 | Approve a pending account | `POST /api/users/{id}/approve` | `dbcanvas api POST /api/users/1/approve` |
 | Reject a request | `POST /api/users/{id}/reject` | `dbcanvas api POST /api/users/1/reject` |
@@ -215,7 +215,9 @@ rather than being refused, so a hand-edited row cannot wedge the UI. `tooltips` 
 one where that matters in a direction worth knowing: it is `on` unless the stored value
 is exactly `off`, so a client that has never heard of the field — an older UI, the CLI
 sending a settings object it built itself — cannot switch the explanations off for an
-account. A PUT that omits a field keeps what is stored.
+account. `terminalsOnTop` works the same way: terminal windows stay in front of every
+other window unless the stored value is exactly `off`. A PUT that omits a field keeps
+what is stored.
 
 ---
 
@@ -436,7 +438,8 @@ deploy. Composing a Keycloak node also **adds the Ubuntu desktop** it requires: 
 admin console publishes no host ports and is only reachable from a browser inside the
 stack, so the validator refuses the alternative outright — unlike monitoring, which
 is optional and never added for you. And `oidc` on a Percona Server older than
-8.4.11-11 is **refused**: `auth_openid_connect` arrived there, and below it the
+8.4.11-11 (or, on the 9.7 series, 9.7.2-2) is **refused**: `auth_openid_connect` arrived
+there, and below it the
 provisioner skips the plugin without failing, so the flag would be accepted
 everywhere and do nothing.
 

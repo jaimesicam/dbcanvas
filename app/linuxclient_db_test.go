@@ -81,7 +81,7 @@ func TestLCDBSteps(t *testing.T) {
 	if deb[0].Packages[0] != "percona-postgresql-client-17" {
 		t.Errorf("Debian psql package = %v", deb[0].Packages)
 	}
-	// 9.7 is the series percona-release cannot enable; it goes through the hand-written repository.
+	// 9.7 is the series percona-release cannot `setup`; it is enabled by repository name.
 	s97 := lcDBSteps(designNode{OS: "ubuntu", OSVersion: "24.04", LCMySQLClient: true, LCMySQLMajor: "9.7"})
 	if s97[0].HandRepo != "ps-97-lts" || len(s97[0].Repos) != 0 {
 		t.Errorf("9.7 step = %+v", s97[0])

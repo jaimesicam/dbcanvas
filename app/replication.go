@@ -186,15 +186,14 @@ func memberServerID(n designNode) int {
 }
 
 // frameMajor returns a cluster frame's MySQL major series ("8.0" | "8.4" | "9.7"),
-// used to pick version-safe keywords. Only the Percona Server frames reach 9.7 —
-// Percona publishes no PXC for that series (repo.percona.com has pxc-84-lts and
-// pxc-8x-innovation, no pxc-97-lts), which is why the PXC branch stops at 8.4.
+// used to pick version-safe keywords. PXC reached 9.7 with 9.7.1-1 (pxc-97-lts).
 func frameMajor(f designFrame) string {
 	if f.Type == "mysql" {
 		return psMajorOf(f.PSMajor)
 	}
-	if f.PXCMajor == "8.4" {
-		return "8.4"
+	switch f.PXCMajor {
+	case "8.4", "9.7":
+		return f.PXCMajor
 	}
 	return "8.0"
 }

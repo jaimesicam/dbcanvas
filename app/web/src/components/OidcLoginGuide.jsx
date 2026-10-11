@@ -85,7 +85,7 @@ export default function OidcLoginGuide({ engine, info, secrets }) {
     )
   }
 
-  // ps — Percona Server 8.4's auth_openid_connect. Unlike psql's device flow, the MySQL
+  // ps — Percona Server 8.4 / 9.7's auth_openid_connect. Unlike psql's device flow, the MySQL
   // client takes an ID token from a file, so the round-trip is: ask Keycloak for a token,
   // then hand mysql the file. The node's oidc-login helper does both in one command.
   if (engine === 'ps') {

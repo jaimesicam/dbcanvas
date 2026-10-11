@@ -121,7 +121,9 @@ services:
       - app-keys:/keys            # its encryption key, kept apart from it
       # Catalog of installable versions (Percona Server per image + PMM3),
       # produced by `make versions`. Mounted read-only; re-run `make versions`
-      # on the host to refresh what the version pickers offer.
+      # on the host to refresh what the version pickers offer, then
+      # `make restart` — make versions replaces the file, and this single-file
+      # mount keeps pointing at the old one until the container is recreated.
       - ./versions.yaml:/etc/dbcanvas/versions.yaml:ro
       # The base images this installation has built, produced by `make images` —
       # what the OS pickers offer. Separate from the catalog above so that

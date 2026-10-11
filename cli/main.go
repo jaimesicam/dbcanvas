@@ -51,6 +51,7 @@ func init() {
 		{"whoami", "Show who you are signed in as, and on which installation", cmdWhoami},
 		{"password", "Change your own password", cmdPassword},
 		{"token", "Manage API tokens: list, create, revoke", cmdToken},
+		{"user", "Accounts (administrators): list, create", cmdUser},
 		{"stack", "Stacks: compose or create, deploy, destroy, delete, export", cmdStack},
 		{"node", "Nodes: list, start, stop, restart, console, exec, cp, tunnel", cmdNode},
 		{"template", "Deployment templates: list, export, import", cmdTemplate},

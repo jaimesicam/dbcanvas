@@ -20,7 +20,7 @@ often enough to be worth writing down. For what the product *does*, see the
 | `make images` | Build what every stack needs: the operating-system bases (the systemd images, one per OS × the one platform this installation targets) and the pre-baked **Intranet** on top of the Oracle Linux 9 base — the DNS and CA the rest of a stack is built against, so it is not an optional image. Slow — this is the long part of `make install`. If only the Intranet fails (it is the one build here that reaches Percona's repos), the bases still stand, DBCanvas still starts, and you can retry with `make intranet-image` or from the Build button a Validate offers. |
 | `make extra-images` | Build everything *optional* that sits on top of the bases: the pre-baked Ubuntu VNC image, the K3D diagnostics collector, the Big Hole FTDC viewer, and the six demo applications. (It re-checks the Intranet too — a cached no-op once it exists.) `make install` builds these as well; this is the target for rebuilding them on their own, and unlike the install it fails if any of them fails. Kept separate from `make images` because these fetch from npm, GitHub and Percona's repos, so they fail for reasons that are not about your machine. **An admin can build any but the demo apps from the web interface instead**, at the point a Validate says one is missing. |
 | `make adopt-images` | Give the images this host already built the current release's tag instead of rebuilding them. Every image DBCanvas builds is tagged with its release (`dbcanvas-systemd:oraclelinux-9-amd64-v0.0.14`, `dbcanvas-trafficsim:v0.0.14`) so installations sharing a Docker daemon cannot overwrite each other's; images from before that have no release in the tag, and an upgraded installation reports them missing. Run it once after upgrading, when those images were built from this checkout. Nothing is rebuilt or removed. |
-| `make versions` | Run the built images and record what each can actually install into `versions.yaml`. This is what fills the designer's version pickers. **Slow** — a container and a pile of repository queries per image, hours rather than minutes — so it is not part of `make install`. Run it when you want versions released since the last probe, or after building an OS image that was not in the matrix before. `ONLY=percona` / `ONLY=upstream` re-probes one group and keeps the other's recorded versions. |
+| `make versions` | Run the built images and record what each can actually install into `versions.yaml`. This is what fills the designer's version pickers. **Restart DBCanvas afterwards** (`make restart`) — until then a running app cannot read the new file and every picker is empty (see [Troubleshooting](#troubleshooting)). **Slow** — a container and a pile of repository queries per image, hours rather than minutes — so it is not part of `make install`. Run it when you want versions released since the last probe, or after building an OS image that was not in the matrix before. `ONLY=percona` / `ONLY=upstream` re-probes one group and keeps the other's recorded versions. |
 | `make up` / `make down` | Start / stop the app without rebuilding. |
 | `make restart` | `down`, then `compose`. |
 | `make logs` | Follow the app's logs. |
@@ -236,9 +236,20 @@ So a point release published *after* your last run simply isn't in the file yet:
 make versions          # re-probe the repos and rewrite versions.yaml
 ```
 
-Then **reload the browser tab**. The app re-reads `versions.yaml` on every catalog request and
-compose mounts it read-only from the repo, so no rebuild or restart is needed — the pickers
-pick it up on the next page load.
+Then **restart DBCanvas** and reload the browser tab:
+
+```sh
+make restart           # make down, then make compose
+```
+
+The app re-reads `versions.yaml` on every catalog request, but it needs a new container to see
+the new file. Compose bind-mounts that one file into the container, and `make versions` writes
+the new catalog to a temporary file and moves it over the old one. A single-file bind mount
+stays attached to the file that was there when the container started, so until it restarts
+the app cannot open `versions.yaml` at all and **every version picker is empty**. `make restart`
+removes the container and creates a new one; `make compose` alone does not, because it only
+recreates the container when the image or the configuration changed. It also rebuilds the app
+image from this checkout. Running stacks and the database are not affected.
 
 **A minor you chose that the repository has since dropped.** The picker offers what `versions.yaml`
 recorded; a repository can move on between that probe and your deploy, and some keep only the last
@@ -260,6 +271,7 @@ If a whole **OS or series** is missing rather than one point release:
 ```sh
 make images            # the image must exist before it can be probed
 make versions
+make restart
 ```
 
 Still empty? Check these, in order:

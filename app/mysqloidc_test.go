@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// Percona Server's auth_openid_connect exists in exactly one series and only from one minor
-// (8.4.11-11), so the design has to be rejected before a deploy discovers the missing .so.
+// Percona Server's auth_openid_connect exists only from one minor per series (8.4.11-11,
+// 9.7.2-2), so the design has to be rejected before a deploy discovers the missing .so.
 // Unlike PostgreSQL, MySQL chooses its auth plugin per account, so LDAP is not a conflict.
 func TestOIDCIssuesPerconaServer(t *testing.T) {
 	const kc = "kc1"
@@ -26,7 +26,10 @@ func TestOIDCIssuesPerconaServer(t *testing.T) {
 		{"8.4 pinned to the first release with the plugin", designNode{Type: "ps", Label: "ps1", PSMajor: "8.4", PSVersion: "8.4.11-11.1", EnableOIDC: true, KeycloakNodeID: kc}, sslOn, false},
 		{"alongside LDAP, which MySQL allows", designNode{Type: "ps", Label: "ps1", PSMajor: "8.4", EnableOIDC: true, KeycloakNodeID: kc, LdapAuth: true}, sslOn, false},
 		{"8.0 has no plugin", designNode{Type: "ps", Label: "ps1", PSMajor: "8.0", EnableOIDC: true, KeycloakNodeID: kc}, sslOn, true},
-		{"9.7 does not carry it yet", designNode{Type: "ps", Label: "ps1", PSMajor: "9.7", EnableOIDC: true, KeycloakNodeID: kc}, sslOn, true},
+		{"9.7 latest minor", designNode{Type: "ps", Label: "ps1", PSMajor: "9.7", EnableOIDC: true, KeycloakNodeID: kc}, sslOn, false},
+		{"9.7 pinned to the first release with the plugin", designNode{Type: "ps", Label: "ps1", PSMajor: "9.7", PSVersion: "9.7.2-2.1", EnableOIDC: true, KeycloakNodeID: kc}, sslOn, false},
+		{"9.7 pinned to 9.7.1, which predates it", designNode{Type: "ps", Label: "ps1", PSMajor: "9.7", PSVersion: "9.7.1-1.1", EnableOIDC: true, KeycloakNodeID: kc}, sslOn, true},
+		{"5.7 has no plugin", designNode{Type: "ps", Label: "ps1", PSMajor: "5.7", EnableOIDC: true, KeycloakNodeID: kc}, sslOn, true},
 		{"8.4 pinned to an older minor", designNode{Type: "ps", Label: "ps1", PSMajor: "8.4", PSVersion: "8.4.10-10.1", EnableOIDC: true, KeycloakNodeID: kc}, sslOn, true},
 		{"no keycloak node selected", designNode{Type: "ps", Label: "ps1", PSMajor: "8.4", EnableOIDC: true}, sslOn, true},
 		{"keycloak without SSL cannot issue an HTTPS issuer", designNode{Type: "ps", Label: "ps1", PSMajor: "8.4", EnableOIDC: true, KeycloakNodeID: kc}, sslOff, true},
@@ -47,6 +50,32 @@ func TestOIDCIssuesPerconaServer(t *testing.T) {
 	}
 }
 
+func TestMySQLOIDCSupported(t *testing.T) {
+	tests := []struct {
+		major, version string
+		want           bool
+		min            string
+	}{
+		{"8.4", "", true, "8.4.11-11"},
+		{"8.4", "8.4.10-10.1", false, "8.4.11-11"},
+		{"9.7", "", true, "9.7.2-2"},
+		{"9.7", "9.7.2-2.1", true, "9.7.2-2"},
+		{"9.7", "9.7.3-3.1", true, "9.7.2-2"},  // later 9.7 minors keep it
+		{"9.7", "9.7.1-1.1", false, "9.7.2-2"}, // and the one before does not
+		{"", "9.7.1-1.1", false, "9.7.2-2"},    // the series comes from the version when no major is given
+		{"8.0", "", false, ""},                 // no plugin in the series at all
+		{"8.0", "8.0.46-37.1", false, ""},
+		{"5.7", "", false, ""},
+		{"10.3", "10.3.0-1.1", true, "10.3"}, // a newer series inherits it
+	}
+	for _, tc := range tests {
+		got, min := mysqlOIDCSupported(tc.major, tc.version)
+		if got != tc.want || min != tc.min {
+			t.Errorf("mysqlOIDCSupported(%q, %q) = %v, %q, want %v, %q", tc.major, tc.version, got, min, tc.want, tc.min)
+		}
+	}
+}
+
 func TestPSVersionAtLeast(t *testing.T) {
 	tests := []struct {
 		v, min string
@@ -60,7 +89,7 @@ func TestPSVersionAtLeast(t *testing.T) {
 		{"8.4.10-10.1", "8.4.11-11", false}, // 10 < 11, and not lexicographically
 		{"8.4.9-9.1", "8.4.11-11", false},   // 9 < 11, where a string compare would say otherwise
 		{"8.4.11-10.1", "8.4.11-11", false}, // same upstream, older Percona build
-		{"9.7.1-1.1", "8.4.11-11", true},    // newer series — the major gate handles 9.7, not this
+		{"9.7.1-1.1", "8.4.11-11", true},    // newer series — mysqlOIDCMinFor handles 9.7, not this
 		{"8.4", "8.4.11-11", false},         // too coarse to prove anything
 		{"nonsense", "8.4.11-11", false},    // unparseable compares as short
 	}

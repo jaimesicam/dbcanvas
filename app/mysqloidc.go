@@ -10,7 +10,7 @@ import (
 
 // mysqloidc.go — Keycloak OpenID Connect login for the standalone Percona Server node
 // (Type=="ps"), via the auth_openid_connect plugin Percona shipped in Percona Server for
-// MySQL 8.4.11-11. Mirrors applyPGOIDC (pgoidc.go) and applyDirectoryAuth (dbauth.go):
+// MySQL 8.4.11-11 and 9.7.2-2. Mirrors applyPGOIDC (pgoidc.go) and applyDirectoryAuth (dbauth.go):
 // auto-configured at deploy, gated by EnableOIDC, and skipped (not fatal) if it fails.
 //
 // The node ends up with the whole demo already wired: a Keycloak realm + client, sample
@@ -20,8 +20,11 @@ import (
 // Recipe, validated live against percona-server-server-8.4.11-11.1.el9 + Keycloak 26.5.5:
 //
 //   - Both libraries — auth_openid_connect.so (server) and
-//     authentication_openid_connect_client.so (client) — are inside percona-server-server.
-//     There is no separate package, and no client-side install on the node.
+//     authentication_openid_connect_client.so (client) — come with the server install, so
+//     there is no extra package and no client-side install on the node. On 8.4 they are
+//     inside percona-server-server; on 9.7.2 both moved to percona-server-client-plugins,
+//     which percona-server-server pulls in through percona-server-client (el9 and noble
+//     repo metadata, checked 2026-10-11). The script finds the .so wherever it landed.
 //   - The plugin is loaded from /etc/my.cnf with plugin-load-add, NOT with INSTALL PLUGIN:
 //     auth_openid_connect_configuration is a plugin variable, so an option file can only
 //     carry it if the plugin is already loaded when options are parsed. That also makes the
@@ -47,7 +50,8 @@ import (
 
 const (
 	// mysqlOIDCMinVersion is the first Percona Server release carrying auth_openid_connect
-	// (8.4.11-11, 2026-08-20). The 9.7 series does not have it yet: 9.7.1-1 predates it.
+	// (8.4.11-11, 2026-08-20). Each series picked it up at its own minor — see
+	// mysqlOIDCMinFor; this one is the oldest, quoted where any supported version will do.
 	mysqlOIDCMinVersion = "8.4.11-11"
 	mysqlOIDCIDPName    = "keycloak"   // key in auth_openid_connect_configuration
 	mysqlOIDCClientID   = "mysql"      // Keycloak client id == the token audience
@@ -56,6 +60,58 @@ const (
 	mysqlOIDCDatabase   = "oidc_demo"  // schema the role can read
 	mysqlOIDCConfigFile = "/etc/mysql-oidc-idp.json"
 )
+
+// mysqlOIDCMinBySeries is the first release of each Percona Server series that carries
+// auth_openid_connect. 9.7 got it in 9.7.2-2; 9.7.1-1 predates it. A series newer than the
+// last one listed is assumed to have inherited it, so the next LTS does not need a code
+// change to stay selectable.
+var mysqlOIDCMinBySeries = []struct{ series, min string }{
+	{"8.4", "8.4.11-11"},
+	{"9.7", "9.7.2-2"},
+}
+
+// mysqlOIDCMinFor returns the first version of series (a major like "9.7", or a full version
+// it is the prefix of) that carries auth_openid_connect, and false when the series has none
+// at all (8.0, 5.7).
+func mysqlOIDCMinFor(series string) (string, bool) {
+	f := versionFields(series)
+	if len(f) < 2 {
+		return "", false
+	}
+	newest := mysqlOIDCMinBySeries[len(mysqlOIDCMinBySeries)-1]
+	if nf := versionFields(newest.series); f[0] > nf[0] || f[0] == nf[0] && f[1] > nf[1] {
+		return fmt.Sprintf("%d.%d", f[0], f[1]), true // newer than anything listed
+	}
+	for _, e := range mysqlOIDCMinBySeries {
+		if sf := versionFields(e.series); f[0] == sf[0] && f[1] == sf[1] {
+			return e.min, true
+		}
+	}
+	return "", false
+}
+
+// mysqlOIDCMinOr is mysqlOIDCMinFor for messages: the series' minimum, or the oldest one.
+func mysqlOIDCMinOr(series string) string {
+	if min, ok := mysqlOIDCMinFor(series); ok {
+		return min
+	}
+	return mysqlOIDCMinVersion
+}
+
+// mysqlOIDCSupported reports whether Percona Server major/version carries auth_openid_connect.
+// An empty version means the series' latest minor. The returned minimum is the one to quote
+// when it does not ("" when the series has no plugin at all).
+func mysqlOIDCSupported(major, version string) (bool, string) {
+	series := major
+	if strings.TrimSpace(version) != "" {
+		series = version
+	}
+	min, ok := mysqlOIDCMinFor(series)
+	if !ok {
+		return false, ""
+	}
+	return psVersionAtLeast(version, min), min
+}
 
 // mysqlOIDCSampleUsers are the Keycloak users created for the demo, all in mysqlOIDCGroup.
 // Each gets a matching MySQL account bound to its Keycloak user id (the token's `sub`).
@@ -163,7 +219,7 @@ func (a *App) applyMySQLOIDC(ctx context.Context, st Stack, n designNode, doc de
 		"DB=" + mysqlOIDCDatabase,
 		"CLIENT_ID=" + mysqlOIDCClientID,
 		"TOKEN_URL=" + issuer + "/protocol/openid-connect/token",
-		"MINVER=" + mysqlOIDCMinVersion,
+		"MINVER=" + mysqlOIDCMinOr(psMajorOf(n.PSMajor)),
 	}
 	if err := a.runStep(ctx, containerID, mysqlOIDCScript, env, pr.logln); err != nil {
 		return err

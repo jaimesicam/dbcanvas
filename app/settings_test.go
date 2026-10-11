@@ -11,7 +11,7 @@ func TestUserSettingsNormalize(t *testing.T) {
 	if got := (UserSettings{TerminalMode: "floaty", Theme: "chartreuse", Look: "brutalist", MaxTabs: 0}).normalize(); got != def {
 		t.Fatalf("junk settings = %+v, want defaults %+v", got, def)
 	}
-	want := UserSettings{TerminalMode: TerminalUndocked, Theme: "forest", Look: "industrial", DeploymentBackend: BackendVagrant, NodeLibrary: LibraryDocked, Tooltips: TooltipsOff, MaxTabs: 12}
+	want := UserSettings{TerminalMode: TerminalUndocked, Theme: "forest", Look: "industrial", DeploymentBackend: BackendVagrant, NodeLibrary: LibraryDocked, Tooltips: TooltipsOff, TerminalsOnTop: TerminalsOnTopOff, MaxTabs: 12}
 	if got := want.normalize(); got != want {
 		t.Fatalf("valid settings = %+v, want %+v (unchanged)", got, want)
 	}
@@ -64,6 +64,37 @@ func TestTooltipsDefaultOn(t *testing.T) {
 		t.Fatalf("save settings: %v", err)
 	}
 	if got := app.userSettingsFor(u.ID).Tooltips; got != TooltipsOff {
+		t.Errorf("a stored off reads back as %q", got)
+	}
+}
+
+// Terminals stay in front by default, and — like tooltips — every way of not saying
+// otherwise (a client that predates the field, an old row, junk) has to read as on.
+func TestTerminalsOnTopDefaultOn(t *testing.T) {
+	for _, stored := range []string{"", "off ", "no", "false", "ON"} {
+		if got := (UserSettings{TerminalsOnTop: stored}).normalize().TerminalsOnTop; got != TerminalsOnTopOn {
+			t.Errorf("terminalsOnTop %q normalised to %q, want %q", stored, got, TerminalsOnTopOn)
+		}
+	}
+	if got := (UserSettings{TerminalsOnTop: TerminalsOnTopOff}).normalize().TerminalsOnTop; got != TerminalsOnTopOff {
+		t.Errorf("terminalsOnTop off normalised to %q", got)
+	}
+
+	app := newTestApp(t)
+	u, err := app.store.CreateUser("ontop", "x", RoleUser, StatusApproved)
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	if err := app.store.SetUserSettings(u.ID, `{"terminalMode":"undocked"}`); err != nil {
+		t.Fatalf("save settings: %v", err)
+	}
+	if got := app.userSettingsFor(u.ID).TerminalsOnTop; got != TerminalsOnTopOn {
+		t.Errorf("a row without the field reads as %q, want %q", got, TerminalsOnTopOn)
+	}
+	if err := app.store.SetUserSettings(u.ID, `{"terminalsOnTop":"off"}`); err != nil {
+		t.Fatalf("save settings: %v", err)
+	}
+	if got := app.userSettingsFor(u.ID).TerminalsOnTop; got != TerminalsOnTopOff {
 		t.Errorf("a stored off reads back as %q", got)
 	}
 }

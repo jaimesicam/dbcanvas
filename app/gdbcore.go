@@ -209,17 +209,11 @@ func gdbReleaseProduct(product, major string) string {
 	return psClientProduct(major)
 }
 
-// gdbReleaseRepo is the repository path for the series percona-release has no working alias for
-// (see psRepoRHEL) — the same escape hatch the Percona Server node uses.
+// gdbReleaseRepo is the repository for the series percona-release has no working setup alias for
+// (see perconaRepoSetup) — the same escape hatch the Percona Server node uses.
 func gdbReleaseRepo(product, major string) string {
 	if product == "pxc" {
-		switch major {
-		case "8.4":
-			return "pxc-84-lts"
-		case "5.7":
-			return "pxc-57"
-		}
-		return "pxc-80"
+		return pxcRepoName(major)
 	}
 	return psRepoName(major)
 }

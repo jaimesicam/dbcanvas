@@ -59,7 +59,7 @@ func pgOIDCUsernames() []string {
 
 // oidcIssues validates a pmm/pg/ps node's Keycloak-SSO selection: a linked SSL-enabled
 // Keycloak (HTTPS issuer), plus the per-engine version each validator needs — PostgreSQL 18
-// for pg (pg_oidc_validator) and Percona Server 8.4.11-11 for ps (auth_openid_connect). For
+// for pg (pg_oidc_validator) and Percona Server 8.4.11-11 / 9.7.2-2 for ps (auth_openid_connect). For
 // pg there is one more rule: no LDAP alongside OIDC, because both claim the same
 // `host all all` pg_hba catch-all and the first matching line wins, so the two can never both
 // be live. (Kerberos is fine: it matches on a separate `hostgssenc` line. And MySQL has no
@@ -84,11 +84,12 @@ func oidcIssues(n designNode, keycloakIDs, keycloakSSL map[string]bool) []issue 
 			return []issue{{Level: "error", Message: label + " has both LDAP and Keycloak OIDC enabled — PostgreSQL cannot use both (they compete for the same pg_hba line); turn one off"}}
 		}
 	case "ps":
-		if psMajorOf(n.PSMajor) != "8.4" {
-			return []issue{{Level: "error", Message: label + " uses Keycloak OIDC (auth_openid_connect), which Percona ships in the 8.4 LTS series only — 9.7 does not carry the plugin yet; set the Percona Server major to 8.4"}}
+		ok, min := mysqlOIDCSupported(psMajorOf(n.PSMajor), n.PSVersion)
+		if min == "" {
+			return []issue{{Level: "error", Message: label + " uses Keycloak OIDC (auth_openid_connect), which Percona ships from 8.4.11-11 and 9.7.2-2 on — Percona Server " + psMajorOf(n.PSMajor) + " does not carry the plugin; set the Percona Server major to 8.4 or 9.7"}}
 		}
-		if !psVersionAtLeast(n.PSVersion, mysqlOIDCMinVersion) {
-			return []issue{{Level: "error", Message: label + " is pinned to Percona Server " + n.PSVersion + ", which predates auth_openid_connect — choose " + mysqlOIDCMinVersion + " or newer, or leave the minor version at \"latest\""}}
+		if !ok {
+			return []issue{{Level: "error", Message: label + " is pinned to Percona Server " + n.PSVersion + ", which predates auth_openid_connect — choose " + min + " or newer, or leave the minor version at \"latest\""}}
 		}
 	}
 	return nil

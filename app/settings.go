@@ -40,6 +40,19 @@ const (
 	TooltipsOff = "off" // no bubbles, and no "?" buttons left behind either
 )
 
+// terminalsOnTop values: whether terminal windows stay in front of every other window.
+//
+// A string for the same reason as tooltips: the default is ON, so an empty value (an
+// older client, a row written before the field existed) has to mean on, not off.
+// While on, touching a page, file manager or browser window gives it focus but does not
+// raise it over a terminal — floating terminals and the terminal dock only leave the
+// front when they are minimized (or the dock is hidden). Terminals still stack among
+// themselves by whichever was touched last.
+const (
+	TerminalsOnTopOn  = "on"  // terminals stay above other windows (default)
+	TerminalsOnTopOff = "off" // terminals stack like every other window
+)
+
 // themes recognised by the web UI (theme/ThemeProvider.jsx — keep in sync).
 var validThemes = map[string]bool{
 	"light": true, "dark": true, "midnight": true,
@@ -73,6 +86,7 @@ type UserSettings struct {
 	DeploymentBackend string `json:"deploymentBackend"` // docker | vagrant
 	NodeLibrary       string `json:"nodeLibrary"`       // menu | docked
 	Tooltips          string `json:"tooltips"`          // on | off
+	TerminalsOnTop    string `json:"terminalsOnTop"`    // on | off
 	MaxTabs           int    `json:"maxTabs"`           // between minMaxTabs and maxMaxTabs
 	// WhatsNewSeen is the highest release whose notes this account has dismissed
 	// (see whatsnew.go). Free-form on purpose: it holds whatever appVersion was,
@@ -84,7 +98,7 @@ func defaultSettings() UserSettings {
 	return UserSettings{
 		TerminalMode: TerminalDocked, Theme: "dark", Look: "modern",
 		DeploymentBackend: BackendDocker, NodeLibrary: LibraryMenu,
-		Tooltips: TooltipsOn, MaxTabs: defaultMaxTabs,
+		Tooltips: TooltipsOn, TerminalsOnTop: TerminalsOnTopOn, MaxTabs: defaultMaxTabs,
 	}
 }
 
@@ -108,6 +122,9 @@ func (s UserSettings) normalize() UserSettings {
 	}
 	if s.Tooltips != TooltipsOn && s.Tooltips != TooltipsOff {
 		s.Tooltips = def.Tooltips
+	}
+	if s.TerminalsOnTop != TerminalsOnTopOn && s.TerminalsOnTop != TerminalsOnTopOff {
+		s.TerminalsOnTop = def.TerminalsOnTop
 	}
 	// Clamped rather than reset, unlike the fields above: those are values from a
 	// fixed set, where anything else is meaningless, but a number slightly out of

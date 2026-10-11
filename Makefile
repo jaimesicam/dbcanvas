@@ -235,6 +235,9 @@ bighole-image:
 ## `make images` no longer overwrites it. Run this when the pickers should offer
 ## versions released since the last probe, or after building a new OS image.
 ## ONLY=percona / ONLY=upstream re-probes one group and keeps the other as recorded.
+## Restart DBCanvas afterwards (make restart): the file is replaced, not rewritten, and a
+## running app's bind mount cannot see the new one — every version picker is empty until
+## the container is recreated. `make compose` alone does not recreate it.
 versions:
 	bash images/versions.sh
 

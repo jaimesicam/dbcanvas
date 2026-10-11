@@ -5,7 +5,7 @@
 # chart and k3s catalogs. The images themselves are images.yaml.
 # Re-run image discovery: make images   Re-run version discovery: make versions
 images_generated_at: 2026-09-14T06:52:42Z
-versions_generated_at: 2026-10-06T03:28:54Z
+versions_generated_at: 2026-10-11T00:03:20Z
 images:
   - os: oraclelinux
     version: "8"
@@ -121,6 +121,8 @@ images:
         - 8.4.3-3.1
         - 8.4.2-2.1
         - 8.4.0-1.1
+      "9.7":
+        - 9.7.1-1.1
     proxysql:
       "2":
         - 2.7.3-1.2
@@ -438,6 +440,8 @@ images:
         - 8.4.3-3.1
         - 8.4.2-2.1
         - 8.4.0-1.1
+      "9.7":
+        - 9.7.1-1.1
     proxysql:
       "2":
         - 2.7.3-1.2
@@ -768,6 +772,8 @@ images:
         - 8.4.8-8.1
         - 8.4.7-7.1
         - 8.4.6-6.1
+      "9.7":
+        - 9.7.1-1.1
     proxysql:
       "2":
         - 2.7.3-1.2
@@ -999,6 +1005,8 @@ images:
         - 8.4.8-8-1
         - 8.4.7-7-1
         - 8.4.6-6-1
+      "9.7":
+        - 9.7.1-1-1
     proxysql:
       "2":
         - 2.7.3-1.2
@@ -1193,6 +1201,8 @@ images:
         - 8.4.8-8-1
         - 8.4.7-7-1
         - 8.4.6-6-1
+      "9.7":
+        - 9.7.1-1-1
     proxysql:
       "2":
         - 2.7.3-1.2
@@ -1357,6 +1367,8 @@ images:
         - 8.4.8-8-1
         - 8.4.7-7-1
         - 8.4.6-6-1
+      "9.7":
+        - 9.7.1-1-1
     proxysql:
       "2":
         - 2.7.3-1.2
@@ -1500,6 +1512,8 @@ images:
         - 8.4.10-10-1
         - 8.4.8-8-1
         - 8.4.7-7-1
+      "9.7":
+        - 9.7.1-1-1
     proxysql:
       "2": []
       "3":

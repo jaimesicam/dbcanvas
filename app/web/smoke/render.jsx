@@ -105,7 +105,8 @@ import Api, {
   CliCommands as ApiCliCommands, CliHelpText as ApiCliHelpText,
 } from '../src/pages/Api.jsx'
 import WhatsNew, { WhatsNewLink } from '../src/components/WhatsNew.jsx'
-import { ChangePassword as SettingsChangePassword, LookOptions, TabLimit, TooltipOptions, TOOLTIP_MODES } from '../src/pages/Settings.jsx'
+import { ChangePassword as SettingsChangePassword, LookOptions, TabLimit, TooltipOptions, TOOLTIP_MODES, TerminalOnTopOptions, TERMINAL_ON_TOP_MODES } from '../src/pages/Settings.jsx'
+import { windowZ } from '../src/wm/WindowManager.jsx'
 import { LOOKS, THEMES } from '../src/theme/ThemeProvider.jsx'
 import {
   curlFor, cliFor, matches as epMatches, samplePath, expiryText, relDate,
@@ -4736,6 +4737,21 @@ check('tooltip: placement flips and clamps to stay on screen', () => {
   if (tall.top < 0 || tall.top + 900 > 800 + 900) throw new Error(`unclamped vertical: ${tall.top}`)
   delete globalThis.window
   return 'ok'
+})
+
+check('terminals on top: a terminal outranks every other window until minimized', () => {
+  // Window draws nothing without a provider and a layer to portal into, so the rule is
+  // checked where it lives: windowZ. A page window touched long after a terminal (a far
+  // higher order) still sits under it; terminals among themselves follow order.
+  const page = windowZ(5000, false), term = windowZ(3, true), term2 = windowZ(4, true)
+  if (!(term > page)) throw new Error(`terminal z ${term} not above a later-focused page window z ${page}`)
+  if (!(term2 > term)) throw new Error('terminals no longer stack by focus among themselves')
+  if (windowZ(7, false) !== 7) throw new Error('an ordinary window lost its plain order z')
+  // The settings row offers both, with "on" marked as the default.
+  const html = renderToString(<TerminalOnTopOptions value="on" onPick={noop} />)
+  for (const m of TERMINAL_ON_TOP_MODES) if (!html.includes(m.label)) throw new Error(`missing option ${m.label}`)
+  if (!/Keep terminals on top.*\(default\)/s.test(html)) throw new Error('"Keep terminals on top" is not marked as the default')
+  return 'pinned band, order within it, default on'
 })
 
 check('tooltips: switching them off takes the "?" with them', () => {

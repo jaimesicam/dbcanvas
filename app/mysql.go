@@ -406,7 +406,7 @@ func (a *App) provisionPerconaServer(st Stack, n designNode, doc designDoc) {
 				pr.logln("directory authentication skipped: " + err.Error())
 			}
 		}
-		// Keycloak OpenID Connect logins (auth_openid_connect, Percona Server 8.4.11-11+).
+		// Keycloak OpenID Connect logins (auth_openid_connect, Percona Server 8.4.11-11+ / 9.7.2-2+).
 		// Restarts mysqld, so it goes before the vault step, which restarts it again.
 		if n.EnableOIDC {
 			if err := a.applyMySQLOIDC(ctx, st, n, doc, a.containerOf(st.ID, n.ID), sec, pr); err != nil {
@@ -518,8 +518,8 @@ func mysqlModernMajor(major string) bool {
 	return false
 }
 
-// psRepoName is the repository directory on repo.percona.com for a series, used only
-// on the hand-written path (see psRepoRHEL). Percona's own naming is inconsistent —
+// psRepoName is the repository name for a series, used only on the percona-release
+// enable path (see perconaRepoSetup). Percona's own naming is inconsistent —
 // ps-80 has no suffix, ps-84-lts and ps-97-lts do — so this is a lookup, not a format.
 func psRepoName(major string) string {
 	switch major {
@@ -752,7 +752,7 @@ func (a *App) mysqlPrepareNode(ctx context.Context, st Stack, frame designFrame,
 
 	// Install Percona XtraBackup matching the Percona Server series (8.0 → pxb80 /
 	// percona-xtrabackup-80, 8.4 → pxb84lts / percona-xtrabackup-84, 9.7 → the
-	// hand-written pxb-97-lts repo / percona-xtrabackup-97) so the node can
+	// pxb-97-lts repo, enabled by name / percona-xtrabackup-97) so the node can
 	// take physical backups (e.g. to a SeaweedFS S3 target via xbcloud).
 	pr.phase("Installing Percona XtraBackup", 45)
 	xbpkg := pxbPackage(frame.PSMajor)
@@ -909,47 +909,39 @@ func (a *App) mysqlAttachReplica(ctx context.Context, st Stack, frame designFram
 
 // ------------------------------------------------------------------ scripts
 
-// psRepoRHEL / psRepoDebian write a Percona repository by hand, for the series
-// percona-release cannot enable.
+// perconaRepoSetup enables the Percona repository for a series: `percona-release setup
+// $PRODUCT` where the series has a working setup alias, otherwise `percona-release enable
+// $REPO release`.
 //
-// This is not a preference. percona-release 1.0-33 — the newest published — lists
-// ps97lts among its products and then builds the URL http://repo.percona.com/ps-97lts/,
-// which 404s; spelled with dashes (ps-97-lts, the real path) it disables every Percona
-// repository, enables nothing, and exits 0 saying "All done!". Both were run against a
-// live Oracle Linux 9 node before this was written. The repository itself is fine:
-// percona-server-server 9.7.1-1.1.el9 installs from it.
+// The 9.7 LTS repositories (ps-97-lts, pxc-97-lts, pxb-97-lts) are known to percona-release,
+// but only to `enable`. `setup` cannot take them: percona-release 1.0-33 and 1.0-34 turn
+// ps97lts / pxc97lts into the URL repo.percona.com/ps-97lts/, which 404s, and the dashed
+// spelling disables every Percona repository, enables nothing and exits 0. `enable
+// pxc-97-lts release` (1.0-34, checked 2026-10-11 on Oracle Linux 9 and Ubuntu 24.04) writes
+// the same percona-*-release repository files any other series gets, so the Repository-node
+// rewrite and STRICT mode treat them like the rest.
 //
-// $PRODUCT empty is the signal to take this path; see psClientProduct.
-const psRepoRHEL = `if [ -z "$PRODUCT" ]; then
-  cat >/etc/yum.repos.d/dbcanvas-ps.repo <<EOF
-[dbcanvas-ps]
-name=Percona Server $REPO
-baseurl=https://repo.percona.com/$REPO/yum/release/\$releasever/RPMS/\$basearch/
-gpgkey=https://repo.percona.com/yum/PERCONA-PACKAGING-KEY
-gpgcheck=1
-enabled=1
-skip_if_unavailable=1
-EOF
+// `enable`, not `enable-only`: it is additive, which the callers that already have other
+// Percona repositories on (a ProxySQL node's proxysql repo, the Linux client's tool repos) need.
+// The dbcanvas-*.repo / .list files are what DBCanvas 0.0.17 and earlier wrote by hand for these
+// series; a retried or re-provisioned node drops them so the repository is not listed twice.
+//
+// $PRODUCT empty is the signal to take the enable path; see psClientProduct and pxcProduct.
+const perconaRepoSetup = `if [ -z "$PRODUCT" ]; then
+  rm -f /etc/yum.repos.d/dbcanvas-ps.repo /etc/yum.repos.d/dbcanvas-pxb.repo \
+    /etc/apt/sources.list.d/dbcanvas-ps.list /etc/apt/sources.list.d/dbcanvas-pxb.list
+  percona-release enable "$REPO" release >/dev/null 2>&1
 else
   percona-release setup -y "$PRODUCT" >/dev/null 2>&1
 fi
 `
 
-const psRepoDebian = `if [ -z "$PRODUCT" ]; then
-  apt-get install -y -qq curl gnupg ca-certificates >/dev/null 2>&1 || true
-  install -d /etc/apt/keyrings
-  # --batch --yes is not optional: a provisioning step is retried, and on the second
-  # attempt the keyring file already exists, at which point gpg asks whether to
-  # overwrite it and dies with "cannot open '/dev/tty'" — which is what a failed
-  # Ubuntu deploy actually reported before this was added.
-  curl -fsSL https://repo.percona.com/yum/PERCONA-PACKAGING-KEY | gpg --batch --yes --dearmor -o /etc/apt/keyrings/dbcanvas-percona.gpg
-  CODE=$(. /etc/os-release; echo "$VERSION_CODENAME")
-  echo "deb [signed-by=/etc/apt/keyrings/dbcanvas-percona.gpg] https://repo.percona.com/$REPO/apt $CODE main" \
-    >/etc/apt/sources.list.d/dbcanvas-ps.list
-else
-  percona-release setup -y "$PRODUCT" >/dev/null 2>&1
-fi
-`
+// psRepoRHEL / psRepoDebian are perconaRepoSetup under the names the install scripts use;
+// percona-release hides the difference between the two families.
+const (
+	psRepoRHEL   = perconaRepoSetup
+	psRepoDebian = perconaRepoSetup
+)
 
 const mysqlInstallRHEL = pinInstallRHEL + `set -e
 dnf -y -q module disable mysql >/dev/null 2>&1 || true

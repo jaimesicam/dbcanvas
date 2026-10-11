@@ -379,16 +379,21 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 		return fmt.Errorf("%s has no version to pin (it is a pulled image or has no choice)", kind.Kind)
 	}
 
-	// The MySQL OIDC plugin arrived in 8.4.11-11, and provisionMySQLOIDC is "skipped
-	// (not fatal)" below that — so asking for it on 8.0 gets you a node with no SSO,
-	// no error at compose, none at validate and none at deploy. Compose refuses
+	// The MySQL OIDC plugin arrived in 8.4.11-11 and 9.7.2-2, and provisionMySQLOIDC is
+	// "skipped (not fatal)" below that — so asking for it on 8.0 gets you a node with no
+	// SSO, no error at compose, none at validate and none at deploy. Compose refuses
 	// options a kind does not support; a version that does not support one is the
-	// same silence, and reusing the provisioner's own predicate keeps the two from
+	// same silence, and reusing the validator's own predicate keeps the two from
 	// drifting apart.
-	if s.OIDC && kind.Kind == "ps" && !psVersionAtLeast(minor, mysqlOIDCMinVersion) {
-		return fmt.Errorf("ps: %q needs Percona Server %s or newer (auth_openid_connect "+
-			"arrived there); %s was resolved. Try version=8.4.11 or later",
-			"oidc", mysqlOIDCMinVersion, minor)
+	if s.OIDC && kind.Kind == "ps" {
+		if ok, min := mysqlOIDCSupported(major, minor); !ok {
+			if min == "" {
+				min = mysqlOIDCMinVersion
+			}
+			return fmt.Errorf("ps: %q needs Percona Server 8.4.11-11 / 9.7.2-2 or newer "+
+				"(auth_openid_connect arrived there); %s was resolved. Try version=%s or later",
+				"oidc", minor, strings.SplitN(min, "-", 2)[0])
+		}
 	}
 
 	res := composeResolved{

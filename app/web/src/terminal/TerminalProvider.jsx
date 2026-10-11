@@ -231,7 +231,16 @@ function TerminalLayer() {
   // whenever a window — Database Stacks, say — reached down over the bottom of the
   // screen. So showing it, or a new session in it, brings it to the front, and
   // touching a window sends it back.
+  //
+  // Under the terminalsOnTop setting (the default) touching a window no longer sends it
+  // back: the dock, like a floating terminal, leaves the front only when it is hidden.
+  // The dock and the window layer are separate stacking contexts, so it cannot slot in
+  // between terminal and non-terminal windows — it stays over all of them.
   const [dockUp, setDockUp] = useState(false)
+  const { settings } = useSettings()
+  const onTop = settings.terminalsOnTop !== 'off'
+  const onTopRef = useRef(onTop)
+  onTopRef.current = onTop
   const areaRef = useRef(null)
   const floatRefs = useRef(new Map()) // id -> body slot element
   const drag = useRef(null)
@@ -307,13 +316,13 @@ function TerminalLayer() {
     return () => { removeEventListener('pointermove', onMove); removeEventListener('pointerup', onUp) }
   }, [])
 
-  useEffect(() => { if (open) setDockUp(true) }, [open, activeId])
+  useEffect(() => { if (open) setDockUp(true) }, [open, activeId, onTop])
   useEffect(() => {
     const on = (e) => {
       const t = e.target instanceof Element ? e.target : null
       if (!t) return
       if (t.closest('[data-terminal-dock]')) setDockUp(true)
-      else if (t.closest('[data-wm-window]')) setDockUp(false)
+      else if (t.closest('[data-wm-window]') && !onTopRef.current) setDockUp(false)
     }
     addEventListener('pointerdown', on, true)
     return () => removeEventListener('pointerdown', on, true)
@@ -337,7 +346,7 @@ function TerminalLayer() {
     <>
       {/* floating per-tab windows */}
       {floating.map((s) => (
-        <Window key={s.id} id={`term:${s.id}`} title={s.title} size={{ ...floatRect(), max: !!s.float?.max }}
+        <Window key={s.id} id={`term:${s.id}`} title={s.title} size={{ ...floatRect(), max: !!s.float?.max }} onTop
           icon={<span className="flex items-center gap-1.5"><span className={statusDot(s.status)} /><Icon.Terminal size={13} /></span>}
           onClose={() => closeTerminal(s.id)} canClose={canClose(s)} closeTitle={closeTitle(s)}
           menu={[{ label: 'Dock', onClick: () => attachTerminal(s.id) }]}

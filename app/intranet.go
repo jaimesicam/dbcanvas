@@ -503,7 +503,7 @@ type designFrame struct {
 	OS           string `json:"os"`           // os family: "oraclelinux" | "ubuntu"
 	OSVersion    string `json:"osVersion"`    // e.g. "9" | "24.04"
 	Arch         string `json:"arch"`         // "amd64" | "arm64"
-	PXCMajor     string `json:"pxcMajor"`     // "8.0" | "8.4"
+	PXCMajor     string `json:"pxcMajor"`     // "8.0" | "8.4" | "9.7"
 	PXCVersion   string `json:"pxcVersion"`   // minor (e.g. 8.0.45-36.1); "" → latest
 	RootPassword string `json:"rootPassword"` // "" → auto-generated
 	PMMNodeID    string `json:"pmmNodeId"`    // PMM node that monitors this cluster (optional)

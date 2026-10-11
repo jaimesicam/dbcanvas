@@ -54,7 +54,7 @@ produced — run it when you want versions released since the catalog was last b
 | `make compose` | Rebuild the app and start it. The everyday command. |
 | `make up` / `make down` | Start / stop without rebuilding. |
 | `make logs` | Follow the application log. |
-| `make versions` | Re-probe the repositories for new database versions. Slow (hours) and optional — not part of `make install`. |
+| `make versions` | Re-probe the repositories for new database versions. Slow (hours) and optional — not part of `make install`. Restart DBCanvas afterwards (`make restart`), or the version pickers go empty. |
 | `make extra-images` | Rebuild the optional images (VNC, tool and demo images) on their own. |
 
 Every setting has a working default. **Before exposing DBCanvas beyond your own machine,
@@ -316,7 +316,7 @@ something else on the machine — another stack, or something outside DBCanvas. 
 
 **A version is missing from a picker.** The lists come from `make versions`, which probes the
 repositories and is not run by `make install`. Run it to pick up builds published since the
-catalog in the repo was made — see
+catalog in the repo was made, then `make restart` — see
 [Troubleshooting](CONFIGURATION.md#troubleshooting) for the case where a specific minor never
 appears.
 

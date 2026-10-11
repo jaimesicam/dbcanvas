@@ -37,8 +37,8 @@ import (
 // HOW ANOTHER NODE USES IT. A node's "Repository" association (RepositoryNodeID, on nodes and
 // frames) installs dbcanvas-repo-rewrite plus thin dnf/yum/apt-get/apt wrappers in /usr/local/bin.
 // Before every package-manager run the script rewrites repo.percona.com to this node in whatever
-// .repo/.list files exist — the ones percona-release writes and the ones DBCanvas writes by hand
-// for the series it cannot enable — but only for the repositories this node actually carries for
+// .repo/.list files exist — the ones percona-release writes (and the ones DBCanvas 0.0.17 and
+// earlier wrote by hand for the 9.7 series) — but only for the repositories this node actually carries for
 // that OS release and architecture, a list it re-reads from /dbcanvas/carried/ each time. So
 // nothing in any provisioner had to learn about mirrors, a repository added here after the fact is
 // picked up by nodes already running, and a repository not carried keeps coming from upstream
@@ -1550,6 +1550,7 @@ func (a *App) handleRepositoryCatalog(w http.ResponseWriter, r *http.Request) {
 		{"ps-97-lts", "Percona Server 9.7 LTS", "MySQL", versionsOf("percona_server", "9.7")},
 		{"pxc-80", "Percona XtraDB Cluster 8.0", "MySQL", versionsOf("percona_xtradb_cluster", "8.0")},
 		{"pxc-84-lts", "Percona XtraDB Cluster 8.4 LTS", "MySQL", versionsOf("percona_xtradb_cluster", "8.4")},
+		{"pxc-97-lts", "Percona XtraDB Cluster 9.7 LTS", "MySQL", versionsOf("percona_xtradb_cluster", "9.7")},
 		{"pxb-80", "Percona XtraBackup 8.0", "MySQL", nil},
 		{"pxb-84-lts", "Percona XtraBackup 8.4", "MySQL", nil},
 		{"pxb-97-lts", "Percona XtraBackup 9.7", "MySQL", nil},

@@ -49,12 +49,12 @@ func TestPS97UsesTheModernVocabulary(t *testing.T) {
 	}
 }
 
-// percona-release cannot enable the 9.7 repository. Version 1.0-33 — the newest
-// published — lists ps97lts among its products and then requests
-// repo.percona.com/ps-97lts/ (404); spelled ps-97-lts it disables every Percona repo,
-// enables nothing, and exits 0. Both were run against a live EL9 node. So the install
-// script writes the repository by hand, and the empty product string is the signal.
-func TestPS97WritesItsRepositoryByHand(t *testing.T) {
+// percona-release cannot `setup` the 9.7 repositories: 1.0-33 and 1.0-34 request
+// repo.percona.com/ps-97lts/ (404) for ps97lts, and spelled ps-97-lts setup disables every
+// Percona repo, enables nothing, and exits 0. `percona-release enable ps-97-lts release`
+// works, so the install script enables the repository by name, and the empty product
+// string is the signal.
+func TestPS97EnablesItsRepositoryByName(t *testing.T) {
 	if got := psClientProduct("9.7"); got != "" {
 		t.Fatalf("psClientProduct(9.7) = %q — a percona-release product here would silently install nothing", got)
 	}
@@ -72,18 +72,29 @@ func TestPS97WritesItsRepositoryByHand(t *testing.T) {
 	}
 	// The older series must keep going through percona-release, which works for them.
 	if psClientProduct("8.4") != "ps84lts" || psClientProduct("8.0") != "ps80" {
-		t.Error("the hand-written path must not swallow the series percona-release handles")
+		t.Error("the enable path must not swallow the series percona-release can set up")
 	}
-	// And both install scripts have to carry the fork.
-	for _, s := range []string{mysqlInstallRHEL, mysqlInstallDebian} {
-		if !strings.Contains(s, `if [ -z "$PRODUCT" ]`) {
-			t.Error("an install script has no hand-written repository path")
+	if got := pxcProduct("9.7"); got != "" {
+		t.Errorf("pxcProduct(9.7) = %q — pxc-97-lts has the same problem", got)
+	}
+	if got := pxcRepoName("9.7"); got != "pxc-97-lts" {
+		t.Errorf("pxcRepoName(9.7) = %q", got)
+	}
+	// And every install script has to carry the fork, through percona-release rather than a
+	// hand-written repository file.
+	for _, s := range []string{mysqlInstallRHEL, mysqlInstallDebian, pxcInstallRHEL, pxcInstallDebian,
+		pxcInstallXtrabackupRHEL, pxcInstallXtrabackupDebian} {
+		if !strings.Contains(s, `if [ -z "$PRODUCT" ]`) || !strings.Contains(s, `percona-release enable "$REPO" release`) {
+			t.Error("an install script has no percona-release enable path")
+		}
+		if strings.Contains(s, "PERCONA-PACKAGING-KEY") {
+			t.Error("an install script still writes a repository by hand")
 		}
 	}
 }
 
-// Every caller of the shared install scripts has to pass REPO, or the hand-written
-// path writes a repository URL with a hole in it and installs nothing.
+// Every caller of the shared install scripts has to pass REPO, or the enable path
+// runs `percona-release enable "" release` and installs nothing.
 func TestEveryInstallCallerPassesTheRepo(t *testing.T) {
 	for _, f := range []string{"mysql.go", "aio_mysql.go", "pxc.go"} {
 		src, err := os.ReadFile(f)
@@ -91,7 +102,8 @@ func TestEveryInstallCallerPassesTheRepo(t *testing.T) {
 			t.Skipf("%s not readable", f)
 		}
 		for _, line := range strings.Split(string(src), "\n") {
-			if !strings.Contains(line, `"PRODUCT=" + ps`) && !strings.Contains(line, `"PRODUCT=" + pxb`) {
+			if !strings.Contains(line, `"PRODUCT=" + ps`) && !strings.Contains(line, `"PRODUCT=" + pxb`) &&
+				!strings.Contains(line, `"PRODUCT=" + pxc`) {
 				continue
 			}
 			if !strings.Contains(line, `"REPO=" + `) {

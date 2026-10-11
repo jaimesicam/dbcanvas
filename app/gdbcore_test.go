@@ -171,6 +171,7 @@ func TestGDBReleaseNames(t *testing.T) {
 		{"pxc", "8.0", "pxc-80"},
 		{"pxc", "8.4", "pxc-84-lts"},
 		{"pxc", "5.7", "pxc-57"},
+		{"pxc", "9.7", "pxc-97-lts"},
 	}
 	for _, c := range cases {
 		if got := gdbReleaseRepo(c.product, c.major); got != c.wantRepo {
@@ -179,6 +180,10 @@ func TestGDBReleaseNames(t *testing.T) {
 	}
 	if got := gdbReleaseProduct("pxc", "8.0"); got != "pxc80" {
 		t.Errorf("pxc 8.0 percona-release product = %q", got)
+	}
+	// percona-release cannot enable 9.7, so the product is empty and the repo is written by hand.
+	if got := gdbReleaseProduct("pxc", "9.7"); got != "" {
+		t.Errorf("pxc 9.7 percona-release product = %q, want empty", got)
 	}
 	if got := gdbReleaseProduct("ps", "8.0"); got != "ps80" {
 		t.Errorf("ps 8.0 percona-release product = %q", got)

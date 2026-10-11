@@ -142,7 +142,7 @@ func lcDBClientIssues(n designNode) []issue {
 type lcDBStep struct {
 	Tools    []lcDBTool
 	Repos    []string // percona-release repositories, enabled additively
-	HandRepo string   // a series percona-release cannot enable; written by hand (see psRepoRHEL)
+	HandRepo string   // a series percona-release cannot `setup`; enabled by name (see perconaRepoSetup)
 	Packages []string
 }
 
@@ -201,17 +201,18 @@ for r in $REPOS; do
 done
 `
 
-// lcDBHandRepo{RHEL,Debian} wrap the hand-written repository the Percona Server nodes use for a
-// series percona-release cannot enable (psRepoRHEL), keyed on $HAND_REPO.
+// lcDBHandRepo{RHEL,Debian} enable the repository the Percona Server nodes use for a series
+// percona-release cannot `setup` (perconaRepoSetup), keyed on $HAND_REPO. Additive, so the
+// repositories lcDBSteps enabled before it stay on.
 const lcDBHandRepoRHEL = `if [ -n "$HAND_REPO" ]; then
 PRODUCT=""; REPO="$HAND_REPO"
-` + psRepoRHEL + `echo "wrote the $HAND_REPO repository"
+` + psRepoRHEL + `echo "enabled the $HAND_REPO repository"
 fi
 `
 
 const lcDBHandRepoDebian = `if [ -n "$HAND_REPO" ]; then
 PRODUCT=""; REPO="$HAND_REPO"
-` + psRepoDebian + `echo "wrote the $HAND_REPO repository"
+` + psRepoDebian + `echo "enabled the $HAND_REPO repository"
 fi
 `
 

@@ -132,3 +132,31 @@ func TestConfiguringMarker(t *testing.T) {
 	// And an unconditional clear is idempotent on a node that was never marked.
 	app.clearConfiguring(st.ID, "n2")
 }
+
+// PXC has a 9.7 series since 9.7.1-1, and the keyword choices hang off frameMajor.
+func TestFrameMajorPXC(t *testing.T) {
+	for in, want := range map[string]string{"8.0": "8.0", "8.4": "8.4", "9.7": "9.7", "": "8.0", "bogus": "8.0"} {
+		if got := frameMajor(designFrame{Type: "pxc", PXCMajor: in}); got != want {
+			t.Errorf("frameMajor(pxc %q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// 9.x has no log_slave_updates at all; a pinned 9.7 minor ("9.7.1-1.1", patch 1) once
+// fell through to the pre-8.0.26 branch and wrote an option mysqld refuses to start with.
+func TestLogUpdatesOption(t *testing.T) {
+	cases := []struct{ major, version, want string }{
+		{"9.7", "9.7.1-1.1", "log_replica_updates=ON"},
+		{"9.7", "9.7.2-2.1", "log_replica_updates=ON"},
+		{"9.7", "", "log_replica_updates=ON"},
+		{"8.4", "8.4.0-1.1", "log_replica_updates=ON"},
+		{"8.0", "8.0.45-36.1", "log_replica_updates=ON"},
+		{"8.0", "8.0.25-15.1", "log_slave_updates=ON"},
+		{"5.7", "5.7.44-48.1", "log_slave_updates=ON"},
+	}
+	for _, c := range cases {
+		if got := logUpdatesOption(c.major, c.version); got != c.want {
+			t.Errorf("logUpdatesOption(%q, %q) = %q, want %q", c.major, c.version, got, c.want)
+		}
+	}
+}

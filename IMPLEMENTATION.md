@@ -26591,3 +26591,72 @@ download now uses (`share.go`). The recording also keeps a sealed JSON copy (`sh
 just before the retention deletes the session. So the chat stays downloadable until the recording's
 purge date, even when that date is later than the session retention allows (default 30 vs 90 days,
 but a host can move it out to ten years).
+
+## 425. Terminals stay on top, OIDC on Percona Server 9.7.2, and PXC 9.7 — `app/{settings,mysqloidc,pgoidc,composebuild,mysql,pxc,aio_mysql,gdbcore,replication,repository,intranet}.go`, `app/{settings,mysqloidc,gdbcore,replication}_test.go`, `images/versions.sh`, `versions.yaml`, `app/web/src/{wm/WindowManager,terminal/TerminalProvider,pages/Settings,settings/SettingsProvider,pages/StackDesigner,components/OidcLoginGuide}.jsx`, `app/web/smoke/render.jsx`
+
+**Terminals on top.** A per-user setting, `terminalsOnTop` (`"on"` | `"off"`, default and any
+unknown value `"on"`, like `tooltips`). While it is on, floating terminal windows sit in a layer above
+every ordinary window (`onTop` in WindowManager): clicking a page window still selects it but cannot
+raise it over a terminal, terminals still raise among themselves, and minimizing still hides one. The
+terminal dock no longer drops behind a clicked window either. "Stack normally" in Settings restores
+click-to-front for everything.
+
+**OIDC on 9.7.** Percona Server 9.7.2-2 carries `auth_openid_connect`; 9.7.1-1 does not. The single
+`mysqlOIDCMinVersion` gate became a per-series table (`mysqlOIDCMinBySeries`: 8.4 → 8.4.11-11,
+9.7 → 9.7.2-2) behind `mysqlOIDCSupported(major, version)`, which `oidcIssues`, compose and the
+deploy step's `MINVER` share. A series newer than the last listed is assumed to have inherited the
+plugin, so the next LTS needs no code change. The designer's pin keeps a 9.7 node on 9.7 (anything
+else moves to 8.4), clears the minor to latest, and flags a drift inline (`psOidcMin` mirrors the Go
+table). Packaging moved: on 9.7.2 both `auth_openid_connect.so` and the client plugin are in
+`percona-server-client-plugins`, which `percona-server-server` pulls in through
+`percona-server-client` (el9 and noble repo metadata) — the deploy script finds the `.so` by path, so
+nothing changed there. Verified on `percona-server-server-9.7.2-2.1.el9`: loaded with
+`plugin-load-add` + `FILE://` configuration it reports `ACTIVE`, and an `auth_openid_connect` account
+creates. A full Keycloak token login on 9.7.2 has not been run yet.
+
+**PXC 9.7.** `pxc-97-lts` publishes 9.7.1-1.1 for el8/9/10 and jammy/noble/bookworm/trixie, amd64
+and arm64. `pxcProduct("9.7")` is `""` and `pxcInstall{RHEL,Debian}` enable `pxcRepoName` (which
+`gdbReleaseRepo` now reuses) through the shared `perconaRepoSetup`. `frameMajor` and `aioPXCMajor` accept 9.7; `versions.sh` probes `@@PXC97@@`; the
+repository mirror offers `pxc-97-lts`. The UI's PXC major list is catalog-driven, so 9.7 appears once
+`versions.yaml` has it. Layout matches 8.4 (galera4 path, `mysql`/`mysql@` units, xtrabackup-v2 SST);
+the 9.7.1 notes remove `wsrep-slave-FK-checks`, `wsrep-slave-UK-checks` and `wsrep-causal-reads`,
+none of which DBCanvas writes. The only XtraBackup in `pxb-97-lts` is `9.7.1-1.rc1`.
+
+**The 9.7 repositories go through percona-release after all.** The old reading — "percona-release
+cannot enable ps-97-lts", hence hand-written .repo/.list files for ps-97-lts and pxb-97-lts — was
+true only of `setup`: percona-release 1.0-33/1.0-34 turn `ps97lts` into the 404 URL
+repo.percona.com/ps-97lts/, and `setup ps-97-lts` disables everything. `percona-release enable
+<repo> release` works for ps-97-lts, pxc-97-lts and pxb-97-lts (1.0-34, the version in the images;
+checked on Oracle Linux 9, Ubuntu 24.04 and Debian 12). `psRepoRHEL`/`psRepoDebian` are now one
+fragment, `perconaRepoSetup`: `setup $PRODUCT` where that works, otherwise additive `enable $REPO
+release` — additive because the ProxySQL node and the Linux client already have other Percona
+repositories on. It also drops the dbcanvas-ps/pxb files 0.0.17 wrote, so a re-provisioned node
+does not list the repository twice. `versions.sh` uses `enable-only` for the same series. Verified
+end to end with the generated scripts: PXC 9.7.1 + XtraBackup 9.7 on OL9 and Ubuntu 24.04, PS 9.7.2
+on Ubuntu 24.04 (with `auth_openid_connect.so` present).
+
+**Bug found on the way:** `logUpdatesOption` only short-circuited 8.4, so a pinned 9.7 minor
+("9.7.1-1.1", patch 1) fell into the pre-8.0.26 branch and wrote `log_slave_updates`, which 9.x
+removed — a PS 9.7 node pinned to a minor (not "latest") could not start. It now keys off
+`mysqlModernMajor`. Verified: a two-node cluster from `pxcMyCnf` output on 9.7.1-1.1/el9 bootstraps,
+the second member joins by xtrabackup-v2 SST, reaches Synced and has the rows.
+
+## 426. Accounts from the CLI: `dbcanvas user list | create`, and a first sign-in that sets the password — `cli/cmd_user.go` (new), `cli/cmd_user_test.go` (new), `cli/{cmd_auth,main}.go`, `docs/{CLI,API_REFERENCE}.md`, `.claude/skills/dbcanvas/SKILL.md`
+
+An administrator can set the CLI up for somebody else: `dbcanvas user create bob --first …
+--last … --email …`, then `dbcanvas login --user bob --profile bob`. No server change — `POST
+/api/users` already existed — and deliberately none: it stays NoToken, so a leaked admin token
+still cannot mint accounts (an administrator for itself least of all). `user create` therefore
+does what `token create` and `password` do: asks for the administrator's password, signs in for
+the one request and signs out, after refusing locally anything the server would (missing
+name/email, a bad role, a short or space-padded temporary password) and saying plainly when the
+account it signed in as is not an administrator or still has to change its own password.
+`--invite` sends no password and prints the 7-day link instead. `user list` uses the stored token
+(admin scope) and marks invited and must-change accounts.
+
+The other half is `login`. An account with an admin-set password can do nothing but change it
+(`passwordGateRoutes`), minting a token included, so the old `login` failed for exactly the user
+this is for. It now reads `mustChangePassword` from the sign-in response, asks for a new password
+twice (refusing the temporary one), `POST /api/me/password` on the same session — which survives
+the change — and carries on to the token. Verified against a scratch server and against a running
+0.17 instance (account created, first login, `whoami`, account and tokens removed again).

@@ -6814,20 +6814,54 @@ export function FrameVaultFields({ frame: f, nodes, patchFrame, deployed }) {
   )
 }
 
-// Version pins for KeycloakOidcFields: each engine's OIDC validator exists in exactly one
-// series, so turning SSO on moves the node onto it rather than letting validation reject the
-// design later. Percona Server's auth_openid_connect plugin arrived in 8.4.11-11, so the
-// minor is cleared to "latest" as well — an 8.4 pinned to an older minor has no plugin.
-// The major stays editable after the pin, so `warn` re-flags a drift off 18 inline instead
-// of leaving it to the server's oidcIssues at deploy time. pgOidcMajorOk mirrors that rule:
+// Version pins for KeycloakOidcFields: each engine's OIDC validator exists only from a given
+// version, so turning SSO on moves the node onto one rather than letting validation reject
+// the design later. Percona Server's auth_openid_connect plugin arrived in 8.4.11-11 and
+// 9.7.2-2, so a 9.7 node stays on 9.7 and anything else moves to 8.4, with the minor cleared
+// to "latest" either way — a minor pinned before the plugin has no plugin.
+// The version stays editable after the pin, so `warn` re-flags a drift inline instead of
+// leaving it to the server's oidcIssues at deploy time. pgOidcMajorOk mirrors that rule:
 // the extension is packaged as percona-pg_oidc_validator18 and exists for no other major.
+// psOidcMin mirrors mysqlOIDCMinFor (mysqloidc.go): a series newer than 9.7 inherits it.
 const pgOidcMajorOk = (n) => (n.pgMajor || '16') === '18'
 const PG_OIDC_PIN = {
   patch: { pgMajor: '18', pgVersion: '' },
   note: <>Uses PostgreSQL 18 + <span className="font-mono">pg_oidc_validator</span> (set automatically).</>,
   warn: (n) => (pgOidcMajorOk(n) ? null : <>PostgreSQL {n.pgMajor || '16'} has no <span className="font-mono">pg_oidc_validator</span> — set the PostgreSQL major to 18 above, or turn this off.</>),
 }
-const PS_OIDC_PIN = { patch: { psMajor: '8.4', psVersion: '' }, note: <>Uses Percona Server 8.4 (latest minor) + the <span className="font-mono">auth_openid_connect</span> plugin, which Percona added in 8.4.11-11. Not in the 9.7 series yet.</> }
+const verFields = (v) => {
+  const out = []
+  for (const f of String(v || '').split(/[.-]/)) {
+    if (!/^\d+$/.test(f)) break
+    out.push(Number(f))
+  }
+  return out
+}
+const verAtLeast = (v, min) => {
+  const got = verFields(v); const want = verFields(min)
+  for (let i = 0; i < want.length; i++) {
+    if (i >= got.length) return false
+    if (got[i] !== want[i]) return got[i] > want[i]
+  }
+  return true
+}
+const psOidcMin = (major) => {
+  const [a, b] = verFields(major)
+  if (a === 8 && b === 4) return '8.4.11-11'
+  if (a === 9 && b === 7) return '9.7.2-2'
+  return a > 9 || (a === 9 && b > 7) ? `${a}.${b}` : null
+}
+const PS_OIDC_PIN = {
+  patch: (n) => ({ psMajor: psOidcMin(n.psMajor || '8.0') ? n.psMajor : '8.4', psVersion: '' }),
+  note: <>Uses the <span className="font-mono">auth_openid_connect</span> plugin, which Percona added in 8.4.11-11 and 9.7.2-2 (minor reset to latest).</>,
+  warn: (n) => {
+    const major = n.psMajor || '8.0'
+    const min = psOidcMin(major)
+    if (!min) return <>Percona Server {major} has no <span className="font-mono">auth_openid_connect</span> — set the major to 8.4 or 9.7 above, or turn this off.</>
+    if (n.psVersion && !verAtLeast(n.psVersion, min)) return <>Percona Server {n.psVersion} predates <span className="font-mono">auth_openid_connect</span> — pick {min} or newer, or leave the minor at latest.</>
+    return null
+  },
+}
 
 // KeycloakOidcFields renders the shared "Keycloak SSO" design block for the PMM, PostgreSQL
 // and Percona Server forms: an enable toggle + a Keycloak-node picker + realm. `pin` (see
@@ -6846,7 +6880,7 @@ function KeycloakOidcFields({ node: n, nodes, patchNode, deployed, label, pin, b
       <div className="text-xs font-medium text-muted">Keycloak SSO</div>
       <label className={`flex items-center gap-2 text-sm ${noOidc ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.enableOIDC} disabled={noOidc}
-          onChange={(e) => patchNode(n.id, { enableOIDC: e.target.checked, ...(pin && e.target.checked ? pin.patch : {}) })} />
+          onChange={(e) => patchNode(n.id, { enableOIDC: e.target.checked, ...(pin && e.target.checked ? (typeof pin.patch === 'function' ? pin.patch(n) : pin.patch) : {}) })} />
         <span>{label}</span><Help text={HELP.oidc} />
       </label>
       {blocked && <p className="text-xs text-muted">{blocked}</p>}

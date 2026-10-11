@@ -18,6 +18,14 @@ const TERMINAL_MODES = [
   { id: 'undocked', label: 'Undocked', hint: 'Opens in its own floating, movable window.' },
 ]
 
+// Terminals stay in front by default: a console you are typing into should not vanish
+// because you clicked a page or a file manager to read something off it. Exported for
+// the render checks.
+export const TERMINAL_ON_TOP_MODES = [
+  { id: 'on', label: 'Keep terminals on top', hint: 'Terminal windows and the terminal dock stay in front of every other window, even while another one is selected. Minimize a terminal (or hide the dock) to get it out of the way.' },
+  { id: 'off', label: 'Stack normally', hint: 'Whichever window you touch comes to the front, terminals included.' },
+]
+
 const DEPLOY_BACKENDS = [
   { id: 'docker', label: 'Docker', hint: 'Provisions every node as a Docker container on the local daemon.' },
   { id: 'vagrant', label: 'Vagrant (hybrid)', hint: 'Runs OS/DB nodes (PostgreSQL, MySQL/PXC, MongoDB, Valkey, ProxySQL, HAProxy) as VirtualBox VMs; the Intranet and image-only infra (PMM, Keycloak, etc.) stay on Docker in the same stack. Requires vagrant + VirtualBox on the host.' },
@@ -592,6 +600,34 @@ function LookPreview({ look, on }) {
 
 // LookOptions is the look grid. Exported for the render smoke test, which is the
 // only thing that renders all four at once outside this page.
+
+// TerminalOnTopOptions is the Terminal stacking choice, exported for the render checks.
+export function TerminalOnTopOptions({ value, onPick }) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      {TERMINAL_ON_TOP_MODES.map((m) => {
+        const on = value === m.id
+        return (
+          <button key={m.id} onClick={() => onPick(m.id)} aria-pressed={on}
+            className={`flex items-start gap-2.5 rounded-lg border p-3 text-left transition ${on ? 'border-primary bg-primary/10' : 'hover:bg-surface2'}`}>
+            <span className={`mt-0.5 ${on ? 'text-primary' : 'text-muted'}`}>
+              <Icon.Terminal size={16} />
+            </span>
+            <span className="min-w-0">
+              <span className="flex items-center gap-1.5 text-sm font-medium">
+                {m.label}
+                {m.id === 'on' && <span className="text-[10px] font-normal text-muted">(default)</span>}
+                {on && <Icon.Check size={14} />}
+              </span>
+              <span className="block text-xs text-muted">{m.hint}</span>
+            </span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 // TooltipOptions is the Tooltips row. Exported like LookOptions, and for the same
 // reason: the page itself needs an authenticated session to render, so a row worth a
 // render check has to be reachable without one.
@@ -676,6 +712,10 @@ export default function Settings() {
             )
           })}
         </div>
+      </Row>
+
+      <Row title="Terminal stacking" hint="Whether terminals stay in front when you select another window.">
+        <TerminalOnTopOptions value={settings.terminalsOnTop || 'on'} onPick={(id) => set({ terminalsOnTop: id })} />
       </Row>
 
       <Row title="Deployment" hint="How a stack's nodes are provisioned when you deploy. Applies to the next deploy of each stack.">

@@ -104,9 +104,9 @@ func proxysqlMySQLEnv(sec proxysqlSecrets, members []string, mode string) []stri
 func psClientProduct(pxcMajor string) string {
 	switch pxcMajor {
 	case "9.7":
-		// percona-release has no working alias for this series — see psRepoScript
-		// in mysql.go, which writes the repository by hand. Returning the empty
-		// string is how the install scripts know to take that path.
+		// percona-release has no working `setup` alias for this series — see
+		// perconaRepoSetup in mysql.go, which `enable`s the repository instead.
+		// Returning the empty string is how the install scripts know to take that path.
 		return ""
 	case "8.4":
 		return "ps84lts"
