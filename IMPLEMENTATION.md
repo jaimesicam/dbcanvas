@@ -26674,3 +26674,12 @@ completion is written; the version shown in the panel is read back from `cmctl v
 --short`. Verified with the generated script on Oracle Linux 9, Ubuntu 24.04 and Debian 12, cmctl
 alone and with kubectl and Helm (v2.6.1 everywhere), and against a tampered binary and an
 architecture missing from checksums.txt (both refused, nothing installed).
+
+## 428. File managers stay on top too — `app/web/src/{pages/FileManager,pages/SeaweedFileManager,pages/Settings,wm/WindowManager}.jsx`, `app/settings.go`, `docs/API_REFERENCE.md`
+
+The File Manager and the Bucket File Manager now pass `onTop`, so under `terminalsOnTop` (still the
+default) they share the terminals' band: clicking a page or browser window selects it but cannot
+raise it over them, they and the terminals raise among each other by last touch, and minimizing
+hides them. The setting keeps its name so stored values carry over; its Settings labels now name
+file managers too. The terminal dock still sits over every window, file managers included — it
+is a separate stacking context, as section 425 notes.

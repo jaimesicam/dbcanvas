@@ -40,17 +40,19 @@ const (
 	TooltipsOff = "off" // no bubbles, and no "?" buttons left behind either
 )
 
-// terminalsOnTop values: whether terminal windows stay in front of every other window.
+// terminalsOnTop values: whether terminal and file manager windows stay in front of
+// every other window. The name predates the file managers joining in; it is kept so a
+// stored setting carries over.
 //
 // A string for the same reason as tooltips: the default is ON, so an empty value (an
 // older client, a row written before the field existed) has to mean on, not off.
-// While on, touching a page, file manager or browser window gives it focus but does not
-// raise it over a terminal — floating terminals and the terminal dock only leave the
-// front when they are minimized (or the dock is hidden). Terminals still stack among
-// themselves by whichever was touched last.
+// While on, touching a page or browser window gives it focus but does not raise it over
+// a terminal or a file manager — those, and the terminal dock, only leave the front when
+// they are minimized (or the dock is hidden). Among themselves they still stack by
+// whichever was touched last.
 const (
-	TerminalsOnTopOn  = "on"  // terminals stay above other windows (default)
-	TerminalsOnTopOff = "off" // terminals stack like every other window
+	TerminalsOnTopOn  = "on"  // terminals and file managers stay above other windows (default)
+	TerminalsOnTopOff = "off" // they stack like every other window
 )
 
 // themes recognised by the web UI (theme/ThemeProvider.jsx — keep in sync).

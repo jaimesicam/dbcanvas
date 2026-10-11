@@ -22,8 +22,8 @@ const TERMINAL_MODES = [
 // because you clicked a page or a file manager to read something off it. Exported for
 // the render checks.
 export const TERMINAL_ON_TOP_MODES = [
-  { id: 'on', label: 'Keep terminals on top', hint: 'Terminal windows and the terminal dock stay in front of every other window, even while another one is selected. Minimize a terminal (or hide the dock) to get it out of the way.' },
-  { id: 'off', label: 'Stack normally', hint: 'Whichever window you touch comes to the front, terminals included.' },
+  { id: 'on', label: 'Keep terminals and file managers on top', hint: 'Terminal windows, the terminal dock and file managers stay in front of every other window, even while another one is selected. Minimize one (or hide the dock) to get it out of the way.' },
+  { id: 'off', label: 'Stack normally', hint: 'Whichever window you touch comes to the front, terminals and file managers included.' },
 ]
 
 const DEPLOY_BACKENDS = [
@@ -714,7 +714,7 @@ export default function Settings() {
         </div>
       </Row>
 
-      <Row title="Terminal stacking" hint="Whether terminals stay in front when you select another window.">
+      <Row title="Terminal stacking" hint="Whether terminals and file managers stay in front when you select another window.">
         <TerminalOnTopOptions value={settings.terminalsOnTop || 'on'} onPick={(id) => set({ terminalsOnTop: id })} />
       </Row>
 

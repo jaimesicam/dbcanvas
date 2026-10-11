@@ -215,8 +215,8 @@ rather than being refused, so a hand-edited row cannot wedge the UI. `tooltips` 
 one where that matters in a direction worth knowing: it is `on` unless the stored value
 is exactly `off`, so a client that has never heard of the field — an older UI, the CLI
 sending a settings object it built itself — cannot switch the explanations off for an
-account. `terminalsOnTop` works the same way: terminal windows stay in front of every
-other window unless the stored value is exactly `off`. A PUT that omits a field keeps
+account. `terminalsOnTop` works the same way: terminal and file manager windows stay in
+front of every other window unless the stored value is exactly `off`. A PUT that omits a field keeps
 what is stored.
 
 ---

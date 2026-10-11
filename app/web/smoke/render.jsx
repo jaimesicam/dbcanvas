@@ -4739,7 +4739,7 @@ check('tooltip: placement flips and clamps to stay on screen', () => {
   return 'ok'
 })
 
-check('terminals on top: a terminal outranks every other window until minimized', () => {
+check('terminals on top: a terminal or file manager outranks every other window until minimized', () => {
   // Window draws nothing without a provider and a layer to portal into, so the rule is
   // checked where it lives: windowZ. A page window touched long after a terminal (a far
   // higher order) still sits under it; terminals among themselves follow order.
@@ -4750,8 +4750,13 @@ check('terminals on top: a terminal outranks every other window until minimized'
   // The settings row offers both, with "on" marked as the default.
   const html = renderToString(<TerminalOnTopOptions value="on" onPick={noop} />)
   for (const m of TERMINAL_ON_TOP_MODES) if (!html.includes(m.label)) throw new Error(`missing option ${m.label}`)
-  if (!/Keep terminals on top.*\(default\)/s.test(html)) throw new Error('"Keep terminals on top" is not marked as the default')
-  return 'pinned band, order within it, default on'
+  if (!/Keep terminals and file managers on top.*\(default\)/s.test(html)) throw new Error('"Keep terminals and file managers on top" is not marked as the default')
+  // Both file managers join the terminals' band; the flag on <Window> is all it takes.
+  for (const file of ['FileManager.jsx', 'SeaweedFileManager.jsx']) {
+    const text = nodeFs.readFileSync(new URL(`../src/pages/${file}`, import.meta.url), 'utf8')
+    if (!/<Window id=\{`files:[\s\S]*?\bonTop\b[\s\S]*?header=/.test(text)) throw new Error(`${file}: its <Window> no longer passes onTop`)
+  }
+  return 'pinned band, order within it, default on, file managers in it'
 })
 
 check('tooltips: switching them off takes the "?" with them', () => {

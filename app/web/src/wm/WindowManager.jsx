@@ -14,8 +14,8 @@ import { useSettings } from '../settings/SettingsProvider.jsx'
 //   - geometry: move by the title bar, resize from any edge or corner;
 //   - stacking: the window you touch comes to the front, always below dialogs and
 //     menus (the whole layer is one z-index; windows are ranked inside it) — except
-//     that an onTop window (a terminal, under the default terminalsOnTop setting)
-//     ranks above every other one until it is minimized;
+//     that an onTop window (a terminal or a file manager, under the default
+//     terminalsOnTop setting) ranks above every other one until it is minimized;
 //   - minimize, maximize (also a double-click on the title bar), close;
 //   - snapping: drag to the left or right edge for half the screen, into a corner
 //     for a quarter, to the top edge to maximize — with a preview of where it lands;
@@ -284,7 +284,8 @@ export function WindowManagerProvider({ children }) {
 //   bodyClass  classes for the body
 //   private    the whole window is an empty box in a shared session's mirror
 //   onTop      stays above windows without it while the user's terminalsOnTop
-//              setting is on (terminals pass it); minimizing still hides it
+//              setting is on (terminals and both file managers pass it);
+//              minimizing still hides it
 const NO_WM = { register: () => {}, unregister: () => {}, wins: {}, layerEl: null, area: () => areaOf(false) }
 
 export function Window({ id, title, icon, size, header, onClose, canClose = true, closeTitle, menu, bodyClass = '', private: priv, onTop = false, children }) {

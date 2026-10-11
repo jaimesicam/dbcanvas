@@ -208,7 +208,7 @@ export default function SeaweedFileManager({ stackId, nodeId, nodeLabel, buckets
   // it moves, snaps and minimizes like the terminals and browser windows.
   return (
     <Window id={`files:${stackId}:${nodeId}:buckets`} title={`Bucket File Manager · ${nodeLabel || nodeId}`}
-      icon={<Icon.Bucket size={14} />} size={{ w: 1280, h: 760 }} onClose={onClose}
+      icon={<Icon.Bucket size={14} />} size={{ w: 1280, h: 760 }} onClose={onClose} onTop
       header={
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <span className="text-xs text-muted">
