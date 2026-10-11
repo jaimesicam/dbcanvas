@@ -76,6 +76,7 @@ func TestLCK8sToolsScriptShape(t *testing.T) {
 	for _, want := range []string{
 		`if [ -n "$KUBECTL_VERSION" ]`, // kubectl is optional
 		`if [ -n "$HELM" ]`,            // and so is helm
+		`if [ -n "$CMCTL" ]`,           // and so is cmctl
 		`sha256sum -c`,                 // the download is verified
 		`install -m 0755`,              // and only then does it reach PATH
 		`if [ -n "$PROXY" ]`,           // the Intranet proxy is honoured
@@ -88,12 +89,38 @@ func TestLCK8sToolsScriptShape(t *testing.T) {
 	if !strings.Contains(body, `"$KUBECTL_URL.sha256"`) {
 		t.Error("the checksum must come from the same release path as the binary")
 	}
+	// Same for cmctl: binary and checksums.txt from one release prefix, and an empty match in
+	// checksums.txt must fail rather than verify nothing.
+	for _, want := range []string{`"$CMCTL_RELEASE/cmctl_linux_$ARCH"`, `"$CMCTL_RELEASE/checksums.txt"`, `checksums.txt has no entry`, `sha256sum -c cmctl.sha256`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the cmctl install is missing %q", want)
+		}
+	}
+	if !strings.HasSuffix(lcCmctlRelease, "/releases/latest/download") {
+		t.Errorf("lcCmctlRelease = %q, want a latest-release download prefix", lcCmctlRelease)
+	}
 	// Both package-manager preambles install what the body needs.
 	for name, pre := range map[string]string{"RHEL": lcK8sToolsRHEL, "Debian": lcK8sToolsDebian, "CentOS 7": lcK8sToolsEL7} {
 		for _, tool := range []string{"curl", "tar", "ca-certificates"} {
 			if !strings.Contains(pre, tool) {
 				t.Errorf("the %s preamble does not install %s", name, tool)
 			}
+		}
+	}
+}
+
+func TestLCJoinAnd(t *testing.T) {
+	for _, tc := range []struct {
+		in   []string
+		want string
+	}{
+		{nil, ""},
+		{[]string{"kubectl"}, "kubectl"},
+		{[]string{"kubectl", "Helm"}, "kubectl and Helm"},
+		{[]string{"kubectl", "Helm", "cmctl"}, "kubectl, Helm and cmctl"},
+	} {
+		if got := lcJoinAnd(tc.in); got != tc.want {
+			t.Errorf("lcJoinAnd(%v) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }

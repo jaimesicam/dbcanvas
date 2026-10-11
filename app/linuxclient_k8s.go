@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// linuxclient_k8s.go — kubectl and Helm on a Linux Client node.
+// linuxclient_k8s.go — kubectl, Helm and cmctl on a Linux Client node.
 //
 // A Linux Client is the jump box: a bare host on the stack network with the Intranet's DNS and CA
 // already trusted. Next to a K3D frame it is the obvious place to drive the cluster from — which
@@ -25,6 +25,11 @@ import (
 // Helm has no such constraint — it speaks the API server's REST, not a pinned version — so it takes
 // the version its own installer picks, and what landed is recorded rather than assumed.
 //
+// cmctl, cert-manager's CLI (`cmctl check api`, `cmctl status certificate`, `cmctl renew`), is the
+// tool for the cert-manager a K3D frame installs (k3dcertmanager.go). Since v2 it is released on its
+// own, apart from cert-manager, and works against the cert-manager releases still supported — so,
+// like Helm, it takes the current release.
+//
 // ------------------------------------------------------------------- what is NOT done here
 //
 // No kubeconfig is written. The clusters are provisioned concurrently with this node, so anything
@@ -41,14 +46,18 @@ const lcKubectlURL = "https://dl.k8s.io/release/%s/bin/linux/%s/kubectl"
 // hand-rolled download gets wrong.
 const lcHelmInstaller = "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3"
 
+// lcCmctlRelease is cmctl's latest-release download prefix. Both the binary and the release's
+// checksums.txt come from it, so the checksum always belongs to the binary beside it.
+const lcCmctlRelease = "https://github.com/cert-manager/cmctl/releases/latest/download"
+
 // lcK8sToolsRHEL / lcK8sToolsDebian install the download prerequisites. Everything after that is
 // the same on both, so the shared body is appended to whichever package manager runs.
 const lcK8sToolsRHEL = `set -e
 dnf -y -q install curl tar ca-certificates bash-completion >/dev/null
 `
 
-// lcK8sToolsEL7 is the same prelude for CentOS 7, which has yum and no dnf. kubectl and Helm are
-// static binaries, so nothing past the download tools differs.
+// lcK8sToolsEL7 is the same prelude for CentOS 7, which has yum and no dnf. kubectl, Helm and
+// cmctl are static binaries, so nothing past the download tools differs.
 const lcK8sToolsEL7 = `set -e
 yum -y -q install curl tar ca-certificates bash-completion >/dev/null
 `
@@ -59,10 +68,11 @@ apt-get update -qq >/dev/null
 apt-get install -y -qq curl tar ca-certificates bash-completion >/dev/null
 `
 
-// lcK8sToolsBody downloads what was asked for. It is one script for both tools so a node with both
-// selected takes one round trip through the retrying runStep, and so the proxy is exported once.
+// lcK8sToolsBody downloads what was asked for. It is one script for every tool so a node with
+// several selected takes one round trip through the retrying runStep, and so the proxy is exported
+// once.
 //
-// The kubectl checksum is verified, and a mismatch fails the step: an image that is not what
+// The kubectl and cmctl checksums are verified, and a mismatch fails the step: an image that is not what
 // upstream published is not something to shrug at, and a half-downloaded binary that answers
 // `kubectl version` with a shell error is worse than no kubectl at all.
 const lcK8sToolsBody = `
@@ -88,6 +98,19 @@ if [ -n "$HELM" ]; then
   /tmp/get-helm-3 --no-sudo >/dev/null
   rm -f /tmp/get-helm-3
   /usr/local/bin/helm completion bash > /etc/bash_completion.d/helm 2>/dev/null || true
+fi
+if [ -n "$CMCTL" ]; then
+  cd /tmp
+  curl -fsSL -o "cmctl_linux_$ARCH" "$CMCTL_RELEASE/cmctl_linux_$ARCH"
+  curl -fsSL -o cmctl-checksums.txt "$CMCTL_RELEASE/checksums.txt"
+  # checksums.txt lists every asset of the release; verify the one line for this binary, and
+  # fail when there is no such line rather than let "nothing to check" pass as a pass.
+  grep " cmctl_linux_$ARCH\$" cmctl-checksums.txt > cmctl.sha256 ||
+    { echo "cmctl: checksums.txt has no entry for cmctl_linux_$ARCH" >&2; exit 1; }
+  sha256sum -c cmctl.sha256 >/dev/null
+  install -m 0755 "cmctl_linux_$ARCH" /usr/local/bin/cmctl
+  rm -f "cmctl_linux_$ARCH" cmctl-checksums.txt cmctl.sha256
+  /usr/local/bin/cmctl completion bash > /etc/bash_completion.d/cmctl 2>/dev/null || true
 fi
 `
 
@@ -147,10 +170,13 @@ func (a *App) linuxClientInstallK8sTools(ctx context.Context, id string, n desig
 	if n.LCHelm {
 		want = append(want, "Helm (latest)")
 	}
+	if n.LCCmctl {
+		want = append(want, "cmctl (latest)")
+	}
 	if len(want) == 0 {
 		return
 	}
-	pr.phase("Installing "+strings.Join(want, " and "), 85)
+	pr.phase("Installing "+lcJoinAnd(want), 85)
 	pr.logln("installing " + strings.Join(want, ", "))
 
 	arch := archOr(n.Arch)
@@ -165,6 +191,9 @@ func (a *App) linuxClientInstallK8sTools(ctx context.Context, id string, n desig
 		"KUBECTL_URL=" + fmt.Sprintf(lcKubectlURL, version, arch),
 		"HELM=" + map[bool]string{true: "1", false: ""}[n.LCHelm],
 		"HELM_INSTALLER=" + lcHelmInstaller,
+		"CMCTL=" + map[bool]string{true: "1", false: ""}[n.LCCmctl],
+		"CMCTL_RELEASE=" + lcCmctlRelease,
+		"ARCH=" + arch,
 		"DOMAIN=" + envOr("DOMAIN", "example.net"),
 		"PROXY=" + map[bool]string{true: "http://intranet." + envOr("DOMAIN", "example.net") + ":3128", false: ""}[n.UseProxy],
 	}
@@ -181,6 +210,10 @@ func (a *App) linuxClientInstallK8sTools(ctx context.Context, id string, n desig
 	if n.LCHelm {
 		cfg.HelmVersion = a.lcToolVersion(ctx, id, "/usr/local/bin/helm version --short 2>/dev/null")
 	}
+	if n.LCCmctl {
+		// "Client Version: v2.6.1" — the last field is the release.
+		cfg.CmctlVersion = a.lcToolVersion(ctx, id, "/usr/local/bin/cmctl version --client --short 2>/dev/null | awk '{print $NF}'")
+	}
 	switch {
 	case n.LCKubectl && cfg.KubectlVersion == "":
 		pr.logln("kubectl did not install")
@@ -193,15 +226,29 @@ func (a *App) linuxClientInstallK8sTools(ctx context.Context, id string, n desig
 	case cfg.HelmVersion != "":
 		pr.logln("helm " + cfg.HelmVersion + " on PATH")
 	}
-	// Neither tool has a cluster to talk to until it is given a kubeconfig, and this node cannot
+	switch {
+	case n.LCCmctl && cfg.CmctlVersion == "":
+		pr.logln("cmctl did not install")
+	case cfg.CmctlVersion != "":
+		pr.logln("cmctl " + cfg.CmctlVersion + " on PATH (bash completion)")
+	}
+	// No tool has a cluster to talk to until it is given a kubeconfig, and this node cannot
 	// safely fetch one (see the file comment). Say where it is instead of leaving a kubectl that
 	// answers "connection refused" as the first experience of the node.
-	if cfg.KubectlVersion != "" || cfg.HelmVersion != "" {
+	if cfg.KubectlVersion != "" || cfg.HelmVersion != "" || cfg.CmctlVersion != "" {
 		if k3dFrames := k3dFrameLabels(doc); len(k3dFrames) > 0 {
 			pr.logln("no kubeconfig yet: copy one from " + strings.Join(k3dFrames, " / ") +
 				" — the frame's server node has Kubeconfig (admin) and Users (per-role) in its panel")
 		}
 	}
+}
+
+// lcJoinAnd joins a list the way the phase line reads it: "a", "a and b", "a, b and c".
+func lcJoinAnd(items []string) string {
+	if len(items) < 2 {
+		return strings.Join(items, "")
+	}
+	return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
 }
 
 // k3dFrameLabels names the Kubernetes clusters on the canvas, for the hint above.

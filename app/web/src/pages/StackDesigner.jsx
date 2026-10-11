@@ -565,7 +565,7 @@ export const NODE_TYPES = {
     ports: false,
     plainSequentialLabel: true,
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }, { id: 'ubuntu', label: 'Ubuntu' }, { id: 'debian', label: 'Debian' }],
-    defaults: { os: 'oraclelinux', osVersion: '9', useProxy: false, lcKubectl: false, lcHelm: false,
+    defaults: { os: 'oraclelinux', osVersion: '9', useProxy: false, lcKubectl: false, lcHelm: false, lcCmctl: false,
       lcMysqlClient: false, lcMysqlShell: false, lcMongosh: false, lcPsql: false, lcClusterSync: false },
   },
   // Traffic Sim — the "Valkey Traffic Lab" live demo app (background agents +
@@ -8196,7 +8196,7 @@ export function K8sToolFields({ node: n, patchNode, deployed, frames = [] }) {
   // Mirrors lcKubectlVersion in app/linuxclient_k8s.go: the first Kubernetes frame decides.
   const pinned = k3d.map((f) => f.k3dK3sVersion).find(Boolean)
   const version = (pinned || '').replace(/[-+]k3s.*$/, '')
-  const on = !!n.lcKubectl || !!n.lcHelm
+  const on = !!n.lcKubectl || !!n.lcHelm || !!n.lcCmctl
   return (
     <div className="space-y-2 rounded-lg bg-surface2 p-2">
       <span className="text-xs font-medium text-muted">Kubernetes client tools</span>
@@ -8226,9 +8226,21 @@ export function K8sToolFields({ node: n, patchNode, deployed, frames = [] }) {
           </span>
         </span>
       </label>
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" className="mt-1" disabled={deployed} checked={!!n.lcCmctl}
+          onChange={(e) => patchNode(n.id, { lcCmctl: e.target.checked })} />
+        <span>
+          Install cmctl
+          <span className="block text-xs text-muted">
+            cert-manager's CLI — <span className="font-mono">cmctl check api</span>, <span className="font-mono">status certificate</span>,{' '}
+            <span className="font-mono">renew</span> — for the cert-manager a Kubernetes frame installs. The current
+            release, checksum-verified, with bash completion.
+          </span>
+        </span>
+      </label>
       {on && (
         <p className="rounded-md border border-accent/30 bg-accent/10 px-2 py-1.5 text-[11px] leading-snug text-muted">
-          Both need a kubeconfig, which this node is not given: the clusters deploy at the same time as
+          They need a kubeconfig, which this node is not given: the clusters deploy at the same time as
           it does. Take one from the Kubernetes frame's server node — <span className="font-medium text-fg">Kubeconfig</span> for
           admin, <span className="font-medium text-fg">Users</span> for a role-scoped one, which is the more interesting test.
           {!deployed && n.useProxy === false && ' Downloads go direct; tick the Intranet proxy above to send them through Squid.'}
@@ -8350,7 +8362,10 @@ function LinuxClientManager({ dep, onDeleteNode, stackId }) {
   const gdb = !!cfg.gdbEnabled
   const ready = cfg.gdbStatus === 'ready'
   // Read back off the node at deploy, not from what was asked for — see linuxClientConfig.
-  const tools = [cfg.kubectlVersion && `kubectl ${cfg.kubectlVersion}`, cfg.helmVersion && `helm ${cfg.helmVersion}`].filter(Boolean)
+  const tools = [cfg.kubectlVersion && `kubectl ${cfg.kubectlVersion}`, cfg.helmVersion && `helm ${cfg.helmVersion}`,
+    cfg.cmctlVersion && `cmctl ${cfg.cmctlVersion}`].filter(Boolean)
+  // The binaries that landed, for the "… are on PATH" line: "kubectl", "kubectl and helm", "kubectl, helm and cmctl".
+  const toolNames = [cfg.kubectlVersion && 'kubectl', cfg.helmVersion && 'helm', cfg.cmctlVersion && 'cmctl'].filter(Boolean)
   const dbClients = cfg.dbClients || []
   return (
     <div className="space-y-3">
@@ -8369,10 +8384,14 @@ function LinuxClientManager({ dep, onDeleteNode, stackId }) {
       </p>
       {!!tools.length && (
         <div className="rounded-lg border border-accent/30 bg-accent/10 px-3 py-2 text-[11px] leading-snug text-muted">
-          {cfg.kubectlVersion && <><span className="font-mono text-fg">kubectl</span> (and the <span className="font-mono">k</span> alias) </>}
-          {cfg.kubectlVersion && cfg.helmVersion && 'and '}
-          {cfg.helmVersion && <><span className="font-mono text-fg">helm</span> </>}
-          are on PATH. Copy the stack's clusters into <span className="font-mono">~/.kube/config</span> below, or
+          {toolNames.map((t, i) => (
+            <span key={t}>
+              {i > 0 && (i === toolNames.length - 1 ? ' and ' : ', ')}
+              <span className="font-mono text-fg">{t}</span>
+              {t === 'kubectl' && <> (and the <span className="font-mono">k</span> alias)</>}
+            </span>
+          ))}
+          {toolNames.length === 1 ? ' is' : ' are'} on PATH. Copy the stack's clusters into <span className="font-mono">~/.kube/config</span> below, or
           a role-scoped one from a Kubernetes frame's <span className="font-medium text-fg">Users</span> tab.
         </div>
       )}

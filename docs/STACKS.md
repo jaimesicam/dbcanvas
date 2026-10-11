@@ -102,7 +102,7 @@ the DBCanvas source, so they need a checkout and `make <name>-image`.
   its panel), an **Ubuntu VNC** desktop, and a **Linux Client** jump box (a bare OS host with
   nothing installed, on any base image the matrix builds — Oracle Linux 8/9/10, Ubuntu
   22.04/24.04 or Debian 12/13, and CentOS 7 with `EOL=on` (below): join the stack's DNS/CA trust, then use its terminal to install
-  and exercise whatever client tools a task needs — or tick *install kubectl* / *install Helm* to
+  and exercise whatever client tools a task needs — or tick *install kubectl* / *install Helm* / *install cmctl* to
   have them there at deploy, or *use this client for core-dump analysis* and it becomes one, see
   below), and a **Repository** (a yum/apt mirror and container registry the other nodes install
   from, below).
@@ -564,8 +564,11 @@ already on it — on PATH, with bash completion and the `k` alias. The reason to
 than install it from the node's terminal is the version: kubectl is supported one minor version
 either side of the API server, and a Kubernetes frame on the same canvas has its k3s release pinned,
 so DBCanvas installs the kubectl that matches *that cluster* (and says which one it matched). Helm
-takes the current release from its own installer, which needs no matching. Neither is given a
-kubeconfig at deploy — the clusters deploy at the same time as the client.
+takes the current release from its own installer, which needs no matching. **cmctl**, cert-manager's
+CLI (`cmctl check api`, `cmctl status certificate`, `cmctl renew`), is there for the cert-manager a
+Kubernetes frame installs; since v2 it is released apart from cert-manager, so it takes the current
+release too, verified against that release's `checksums.txt`. None of them is given a kubeconfig at
+deploy — the clusters deploy at the same time as the client.
 
 **Every cluster in one kubeconfig, after the deploy.** Once a Linux Client is running, its panel has
 a **Kubeconfig** section listing the stack's Kubernetes clusters. **Copy to /root/.kube/config** merges
@@ -900,7 +903,7 @@ the pickers — a stack that already has one keeps working.
   Intranet proxy, when ticked) in `yum.conf`, and installs `percona-release`. The node has **no
   systemd** — CentOS 7's systemd 219 cannot run as PID 1 on a cgroup v2 Docker host, which is every
   current one — so it is a shell and nothing else: the terminal, Sample Client Code and file drops
-  work, services do not. kubectl and Helm install, and so do the database clients (at their el7
+  work, services do not. kubectl, Helm and cmctl install, and so do the database clients (at their el7
 releases, without ClusterSync); core-dump analysis is not offered on it. Docker
   backend only. For what Sample Client Code can run there, see [Sample Client Code](SAMPLE_CODE.md#centos-7).
 - **PMM2.** A PMM 2 server under **Monitoring**, separate from PMM3 — pick the release

@@ -26660,3 +26660,17 @@ this is for. It now reads `mustChangePassword` from the sign-in response, asks f
 twice (refusing the temporary one), `POST /api/me/password` on the same session — which survives
 the change — and carries on to the token. Verified against a scratch server and against a running
 0.17 instance (account created, first login, `whoami`, account and tokens removed again).
+
+## 427. cmctl on a Linux Client — `app/{linuxclient_k8s,linuxclient,intranet}.go`, `app/linuxclient_k8s_test.go`, `StackDesigner` (K8sToolFields, LinuxClientManager), `smoke/render.jsx`, `docs/STACKS.md`
+
+A third Kubernetes client tool beside kubectl and Helm: **cmctl**, cert-manager's CLI, for the
+cert-manager a K3D frame installs. `lcCmctl` on the node; the install is a block in the shared
+`lcK8sToolsBody`, so one, two or all three tools still take one step. Since v2 cmctl is released
+apart from cert-manager and supports the cert-manager releases still in support, so — like Helm —
+it takes the current release: the binary and that release's `checksums.txt` both come from
+`github.com/cert-manager/cmctl/releases/latest/download`, the one line for `cmctl_linux_$ARCH` is
+verified, and a missing line or a mismatch fails the step before anything reaches PATH. Bash
+completion is written; the version shown in the panel is read back from `cmctl version --client
+--short`. Verified with the generated script on Oracle Linux 9, Ubuntu 24.04 and Debian 12, cmctl
+alone and with kubectl and Helm (v2.6.1 everywhere), and against a tampered binary and an
+architecture missing from checksums.txt (both refused, nothing installed).

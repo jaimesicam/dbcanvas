@@ -30,6 +30,7 @@ type linuxClientConfig struct {
 	// version is a claim that the tool runs. "" means it is not there. See linuxclient_k8s.go.
 	KubectlVersion string `json:"kubectlVersion,omitempty"`
 	HelmVersion    string `json:"helmVersion,omitempty"`
+	CmctlVersion   string `json:"cmctlVersion,omitempty"`
 	// The Percona database clients, read back the same way. See linuxclient_db.go.
 	DBClients []lcDBClient `json:"dbClients,omitempty"`
 	gdbNodeConfig
@@ -182,9 +183,9 @@ func (a *App) provisionLinuxClient(st Stack, n designNode, doc designDoc) {
 			pr.logln("package egress via Intranet proxy")
 		}
 
-		// kubectl / Helm before gdb: they are a short download, and a node whose debug symbols
-		// take four minutes should not hold up the tools somebody is waiting to type with.
-		if n.LCKubectl || n.LCHelm {
+		// kubectl / Helm / cmctl before gdb: they are a short download, and a node whose debug
+		// symbols take four minutes should not hold up the tools somebody is waiting to type with.
+		if n.LCKubectl || n.LCHelm || n.LCCmctl {
 			a.linuxClientInstallK8sTools(ctx, id, n, doc, &cfg, pr)
 			cfgJSON, _ = json.Marshal(cfg)
 		}

@@ -5392,6 +5392,16 @@ check('linux client: the kubectl version follows the cluster on the canvas', () 
   return 'ok'
 })
 
+// cmctl is the third tool, and on its own it still gets the kubeconfig note: cert-manager's CLI talks
+// to the cluster through a kubeconfig like the other two.
+check('linux client: cmctl is offered, and on its own still gets the kubeconfig note', () => {
+  const off = renderToString(<K8sToolFields node={{ id: 'lc3' }} patchNode={noop} deployed={false} frames={[]} />)
+  if (!off.includes('Install cmctl')) throw new Error('the form must offer cmctl')
+  const only = renderToString(<K8sToolFields node={{ id: 'lc3', lcCmctl: true }} patchNode={noop} deployed={false} frames={[]} />)
+  if (!only.includes('kubeconfig')) throw new Error('cmctl alone must be told it has no kubeconfig')
+  return 'ok'
+})
+
 // ---- Percona database clients on a Linux Client ---------------------------------------
 // The series pickers offer only what Percona publishes for the node's release (mirrors
 // app/linuxclient_db.go), and say so when a saved choice no longer fits.
