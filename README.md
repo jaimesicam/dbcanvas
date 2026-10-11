@@ -191,9 +191,61 @@ yourself.
 
 ## What's new
 
-### 0.0.17
+### 0.0.18
 
 <details open>
+<summary><b>Terminals and file managers stay on top</b></summary>
+
+Terminal windows, the terminal dock, the **File Manager** and the **Bucket File Manager** now stay in front of
+every other window, even while you work in another one, until you minimize them. Clicking Database Stacks or a
+browser window still selects it; it just no longer covers the terminal you were reading. **Settings → Terminal
+stacking → Stack normally** brings back click-to-front for everything.
+</details>
+
+<details>
+<summary><b>OIDC sign-in on Percona Server 9.7.2</b></summary>
+
+A Percona Server node can use OpenID Connect sign-in through Keycloak on **9.7.2** and later 9.7 releases, as
+well as 8.4.11 and later. The designer keeps a 9.7 node on 9.7 when you switch OIDC on, and compose names the
+version to use if the one you asked for is too old. See [Stacks](docs/STACKS.md).
+</details>
+
+<details>
+<summary><b>Percona XtraDB Cluster 9.7</b></summary>
+
+**PXC 9.7** deploys like 8.4: a Galera cluster with XtraBackup 9.7 for state transfer, on every supported
+operating system. Percona Server, XtraBackup and PXC 9.7 are installed from Percona's `ps-97-lts`, `pxb-97-lts`
+and `pxc-97-lts` repositories through `percona-release`.
+</details>
+
+<details>
+<summary><b>Create accounts from <code>dbcanvas-cli</code></b></summary>
+
+`dbcanvas user list` shows the accounts, and `dbcanvas user create` adds one with a temporary password or an
+invitation link, after asking for your administrator password. The new user's first `dbcanvas login` asks them
+to replace the temporary password, then creates their token. Passwords can be piped in when there is no
+terminal, so a script or an agent can set an account up and work as it. See [CLI](docs/CLI.md#accounts-administrators).
+</details>
+
+<details>
+<summary><b>cmctl on a Linux Client</b></summary>
+
+A Linux Client with Kubernetes tools can install **cmctl**, the cert-manager command line, beside kubectl and
+Helm. It is downloaded from cert-manager's latest release and checked against the published checksums.
+</details>
+
+<details>
+<summary><b>Upgrading: nothing to rebuild, restart after make versions</b></summary>
+
+No image definition changed in this release: after `git pull`, `make adopt-images` and `make compose` are all
+it takes (`images/versions.sh` shows up in the diff, but it is the version probe, not an image). The catalog in
+the repo already lists PXC 9.7. If you run `make versions` yourself, restart DBCanvas afterwards with
+`make restart` — until then the running app cannot read the new catalog and every version picker is empty.
+</details>
+
+### 0.0.17
+
+<details>
 <summary><b>Activity: what is running inside a database or proxy node</b></summary>
 
 Right-click a running database or proxy node → **Activity…**. **Blocking** draws who blocks whom as a tree under

@@ -37,6 +37,64 @@ type releaseNote struct {
 // expanded, and the tests assume the ordering.
 var whatsNewNotes = []releaseNote{
 	{
+		Version: "0.0.18",
+		Date:    "2026-10-11",
+		Title:   "Terminals and file managers stay on top",
+		Body: "Terminal windows, the terminal dock and both file managers now stay in front of every other window, " +
+			"even while you work in another one, until you minimize them. Clicking Database Stacks or a browser " +
+			"window still selects it; it just no longer covers the terminal you were reading. Settings → Terminal " +
+			"stacking → Stack normally brings back click-to-front for everything.",
+		Doc: "docs/API_REFERENCE.md",
+	},
+	{
+		Version: "0.0.18",
+		Date:    "2026-10-11",
+		Title:   "OIDC sign-in on Percona Server 9.7.2",
+		Body: "A Percona Server node can use OpenID Connect sign-in through Keycloak on 9.7.2 and later 9.7 " +
+			"releases, as well as 8.4.11 and later. The designer keeps a 9.7 node on 9.7 when you switch OIDC on, " +
+			"and compose names the version to use if the one you asked for is too old.",
+		Doc: "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.18",
+		Date:    "2026-10-11",
+		Title:   "Percona XtraDB Cluster 9.7",
+		Body: "PXC 9.7 deploys like 8.4: a Galera cluster with XtraBackup 9.7 for state transfer, on every " +
+			"supported operating system. Percona Server, XtraBackup and PXC 9.7 are installed from Percona's " +
+			"ps-97-lts, pxb-97-lts and pxc-97-lts repositories through percona-release.",
+		Doc: "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.18",
+		Date:    "2026-10-11",
+		Title:   "Create accounts from dbcanvas-cli",
+		Body: "dbcanvas user list shows the accounts, and dbcanvas user create adds one with a temporary password " +
+			"or an invitation link, after asking for your administrator password. The new user's first dbcanvas " +
+			"login asks them to replace the temporary password, then creates their token. Passwords can be piped " +
+			"in when there is no terminal, so a script or an agent can set an account up and work as it.",
+		Doc: "docs/CLI.md",
+	},
+	{
+		Version: "0.0.18",
+		Date:    "2026-10-11",
+		Title:   "cmctl on a Linux Client",
+		Body: "A Linux Client with Kubernetes tools can install cmctl, the cert-manager command line, beside " +
+			"kubectl and Helm. It is downloaded from cert-manager's latest release and checked against the " +
+			"published checksums.",
+		Doc: "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.18",
+		Date:    "2026-10-11",
+		Title:   "Upgrading: nothing to rebuild, restart after make versions",
+		Body: "No image definition changed in this release: after git pull, make adopt-images and make compose are " +
+			"all it takes (images/versions.sh changed, but it is the version probe, not an image). The catalog in " +
+			"the repo already lists PXC 9.7. If you run make versions yourself, restart DBCanvas afterwards with " +
+			"make restart — until then the running app cannot read the new catalog and every version picker is " +
+			"empty.",
+		Doc: "docs/CONFIGURATION.md",
+	},
+	{
 		Version: "0.0.17",
 		Date:    "2026-10-09",
 		Title:   "Activity: what is running inside a database or proxy node",
