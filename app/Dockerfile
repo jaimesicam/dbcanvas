@@ -20,6 +20,9 @@ ARG APP_VERSION=dev
 COPY app/go.mod app/go.sum ./
 RUN go mod download
 COPY app/*.go ./
+# Embedded into the binary (go:embed in gdbserver.go): the Core Dump Analyzer's server-state
+# extractor, which gdb runs inside a core-dump node. Not a .go file, so the line above misses it.
+COPY app/*.py ./
 COPY app/cmd/ ./cmd/
 # The encryption-at-rest package, shared by the server and dbcanvas_reset_password.
 COPY app/internal/ ./internal/

@@ -119,6 +119,10 @@ type gdbSession struct {
 	verdict *gdbVerdict
 	reading string // the object gdb last said it was reading symbols from
 	recipe  string // the terminal equivalent of this session, for copying
+	// srvState is the server's own view of itself (processlist, InnoDB, binlog, error log, wsrep)
+	// read from the core by gdbserver.go, cached because a dead process does not change. Cleared
+	// when a different core is opened, the same as the verdict.
+	srvState *gdbServerState
 	// Where source lives on this node, resolved once when the core is opened, and the answers
 	// already worked out for the paths the debug information records. Both are per-core: a
 	// different core can be a different build with a different tree unpacked next to it.
@@ -373,7 +377,7 @@ func (s *gdbSession) open(ctx context.Context, core string) error {
 
 	s.mu.Lock()
 	s.cli, s.conn, s.core = cli, conn, core
-	s.symbols, s.signal, s.sigText, s.reading, s.verdict = "", "", "", "", nil
+	s.symbols, s.signal, s.sigText, s.reading, s.verdict, s.srvState = "", "", "", "", nil, nil
 	s.srcRoots, s.srcPaths = srcRoots, map[string]string{}
 	// Built here rather than in the browser because this is where the truth is: the solib path was
 	// just resolved by walking the mount, and a recipe that guessed it would send somebody off to

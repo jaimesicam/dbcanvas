@@ -255,6 +255,57 @@ wrong for a person. Everything that decides what the backtrace *says* is kept, `
 past-main`/`past-entry` included — without those the bottom of a stack-exhaustion core, which is
 the part that names the bug, is simply cut off.
 
+## Server state — what the server was *doing*, not just where it faulted
+
+A backtrace says where `mysqld`'s own thread was when the signal landed. It has nowhere to put what
+the *server* was in the middle of: the sixty sessions and the queries in their hands, the
+transaction that held the row lock everything else was queued behind, how far the binlog had been
+written, the last thing the error log recorded before the crash, or — on a PXC node — whether this
+member still believed it was in the Primary component. All of that is in the core too, because the
+structures the running server reads for `SHOW PROCESSLIST`, `SHOW ENGINE INNODB STATUS` and
+`performance_schema.error_log` are sitting in the dump at the same offsets. The **Server state** tab
+(next to **Stack**, once a core is open) reads them.
+
+It is one gdb pass over the whole process — read once, the first time the tab is opened on a core,
+then cached, because a dead process does not change. The headline tiles are the server version and
+how long it had been up at the crash, the session count (running vs. idle), the binlog file and
+position, and InnoDB's history-list length with the redo it had written since the last checkpoint
+(a large gap is a long crash-recovery ahead). Below them:
+
+- **The lock-wait graph — the stalled items.** Every InnoDB transaction that was waiting on a lock
+  is drawn as *this one → is blocked by → that one*, with the SQL each was running pulled over from
+  the processlist. On a pile-up this names, in one line, the single transaction everything else was
+  queued behind — which on the core this was built against is a `SELECT SLEEP(3600)` holding a row
+  lock an `UPDATE` then waited on, with an `ALTER` and a `SELECT` stacked behind the metadata lock
+  the `UPDATE`'s own table held. The full transaction list is under it: id, state, rows modified,
+  the owning thread, and the operation each was on.
+- **The processlist**, reconstructed from every `THD` in the core — thread id, command, database,
+  state and query. Idle (sleeping) connections are dimmed so the handful that were running stand
+  out; a killed connection is flagged. A session that was actually executing can be **clicked
+  through to its own stack** — the extractor maps each running `THD` to its gdb thread by reading
+  that thread's `current_thd`, which is the one reliable bridge between a MySQL connection id and an
+  OS thread. (An idle connection has no `current_thd`, and no stack worth jumping to.)
+- **The error log** — `performance_schema.error_log` read straight out of its ring buffer, newest
+  last, coloured by priority. On a real crash the last lines are usually the crash handler's own.
+
+### Percona XtraDB Cluster adds the one thing a plain-MySQL core cannot have
+
+For a `pxc` core the tab grows a **Galera / PXC cluster** card: `wsrep_ready`, the cluster status
+(**Primary** / non-Primary), the member count at the crash, this node's name and address, the
+provider, the `gcomm://` address and the SST method — all read from the server's own wsrep globals,
+which live in `mysqld` (and so carry debug symbols), not in Galera. The card goes red when the
+node's *own* view was already the problem: a node that crashed while out of the Primary component
+had been partitioned off before it fell over, which is a different story from one that crashed
+inside a healthy cluster, and the status line should look different too.
+
+**What is *not* in the core, said plainly.** The gcache — Galera's write-set ring buffer — is
+`galera.cache`, a file-backed shared mapping, and the kernel's core-dump filter excludes those by
+default; `libgalera_smm.so` also ships fully stripped, with no debug-symbol package anywhere. So
+the write-sets cached for IST are not in the dump and could not be read even if they were. Rather
+than appear to have missed them, the tab records this as a note. The write-set history and the
+provider's own seqno range belong to the cluster's live status variables and its own error log,
+which this tool has no plans to duplicate — the same boundary the eviction findings below draw.
+
 ## Three things worth knowing
 
 **Opening a value is slow the first time.** Not the page — gdb. Asking for the members of a C++

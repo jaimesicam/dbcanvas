@@ -26683,3 +26683,68 @@ raise it over them, they and the terminals raise among each other by last touch,
 hides them. The setting keeps its name so stored values carry over; its Settings labels now name
 file managers too. The terminal dock still sits over every window, file managers included — it
 is a separate stacking context, as section 425 notes.
+
+## 429. Core Dump Analyzer: the server, not just the stack — `app/gdbserver.go`, `app/gdbserver_extract.py`, `app/gdbserver_test.go` (all new), `app/{gdbsess,gdbapi}.go`, `app/web/src/pages/CoreDumpAnalyzer.jsx`, `app/web/src/lib/gdbApi.js`, `docs/CORE_DUMP_ANALYZER.md`
+
+Shown the finished analyzer — the verdict, the stack, the source, the frame values — the ask was
+the obvious next one: *"can you get more information from the coredump, like the queries that were
+running, binary logs, stalled items"*. A backtrace says where `mysqld`'s own thread was. It has nowhere to put what the
+*server* was doing — the sessions and their queries, the transaction holding the lock everything
+else queued behind, the binlog position, the error log, the cluster membership — and all of it is
+in the core, because the structures `SHOW PROCESSLIST`, `SHOW ENGINE INNODB STATUS` and
+`performance_schema.error_log` read are sitting in the dump at the same offsets.
+
+### A Python pass, not a hundred MI round trips
+
+Each distinct C++ type gdb touches on a server binary costs a one-time DWARF load measured in tens
+of seconds, and the error-log walk alone is hundreds of events. Done as individual
+`-data-evaluate-expression` calls that is both slow and chatty. So the reading is one embedded
+Python script (`gdbserver_extract.py`, `//go:embed`ed) that walks everything in a single gdb
+invocation — touching each type once — and prints one line: a sentinel plus JSON, parsed once.
+
+That does **not** reopen the python hole the user console closes. `gdbUnsafeCommand` refuses
+`python` from a *person* typing into a debugger pointed at a mounted directory, which is arbitrary
+code execution. This script is embedded in the binary, substituted only with a sanitised product
+string, and run through the MI client directly (`cli.console`), not the gated session console. The
+gate on user input is untouched; `TestGDBSanitizeProduct` pins that the placeholder can only ever
+become `ps` or `pxc`.
+
+### What it reads, all verified live against real cores
+
+Deployed PS 8.4.11 and PXC 8.4.11 nodes with `coredumper` on, built a recognisable in-flight state
+(an open transaction holding a row lock, an `UPDATE` waiting on it, two statements stacked behind a
+metadata lock, a long query), crashed each with `SIGSEGV`, and read the cores back through the
+tool. Every section matched the ground truth recorded just before the crash:
+
+- **Processlist** — walk `Global_THD_manager::thd_manager->thd_list[0..7]`. The trap: a
+  `Prealloced_array<THD*,60>` inline (`m_inline_size >= 0`) stores elements in `m_buff`, not at
+  `m_ext.m_array_ptr` — that field *aliases* element 0 in the union, so reading it as the array
+  base casts a `THD*` as `THD**` and prints garbage (the first version did exactly this). Per THD:
+  `m_thread_id`, `m_command`, `m_db`/`m_query_string` (LEX_CSTRING), `m_proc_info` (cut at its own
+  NUL — a fixed buffer, so a forced-length read drags in the PSI stage names after it), `killed`.
+- **InnoDB** — `rseg_history_len`, `flushed_to_disk_lsn`, `last_checkpoint_lsn`, and the active
+  transactions from `trx_sys->rw_trx_list`, each with its **lock-wait graph**:
+  `trx->lock.wait_lock` (atomic pointer ⇒ waiting) and `trx->lock.blocking_trx` (⇒ the holder).
+  Atomic accessors differ — `_M_i` for integral/enum, `_M_b._M_p` for pointers.
+- **Binlog** — `mysql_bin_log.log_file_name` + `atomic_binlog_end_pos`.
+- **Error log** — `performance_schema.error_log`'s ring buffer. `ring_buffer_write`/`start`/`end`
+  are optimized out on release builds, but `ring_buffer_read` and `log_sink_pfs_buffered_events`
+  (the count) are not, so the walk is bounded by the count rather than the write pointer.
+- **PXC wsrep** — `wsrep_ready`, `wsrep_cluster_status`, `wsrep_cluster_size`, node name/address,
+  provider, `gcomm://` address, SST method. All live in `mysqld` (which has debuginfo), so a
+  crashed non-Primary member shows as exactly that.
+
+### The UX
+
+A **Server state** tab beside **Stack** (once a core is open), because the two answer different
+questions and each wants the whole width. Headline tiles (version/uptime, sessions, binlog,
+InnoDB history + redo gap); the lock-wait graph drawn as *waiter → blocked by → holder* with each
+one's SQL; the processlist with idle connections dimmed and running ones **clickable through to
+their own stack** — the extractor maps each running `THD` to its gdb thread via that thread's
+`current_thd`, the one reliable bridge from a connection id to an OS thread; the error log,
+priority-coloured; and for PXC the cluster card, red when the node's own view was the problem.
+Fetched once per core and cached. `go test ./...` and `make smoke` pass; the parser is unit-tested
+against captured PS and PXC output, including the no-line case.
+
+The two cores it was built against are kept under `GDB_MOUNT_ROOT` (`/srv/coredumps`) with a PS and
+a PXC analysis node already pointed at them, so the page can be opened and reviewed directly.

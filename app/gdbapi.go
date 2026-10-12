@@ -380,6 +380,16 @@ func (a *App) gdbRun(ctx context.Context, sess *gdbSession, tgt gdbTarget, cmd g
 			return nil, err
 		}
 		return map[string]any{"cores": cores}, nil
+
+	case "serverstate":
+		// What the server was doing, read from the core — the processlist, InnoDB's transactions
+		// and lock-wait graph, the binlog position, the error log, and (PXC) cluster membership.
+		// Cached on the session; see gdbserver.go.
+		st, err := sess.serverState(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"serverState": st}, nil
 	}
 	return nil, fmt.Errorf("unknown command %q", cmd.Cmd)
 }

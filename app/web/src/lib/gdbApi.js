@@ -171,6 +171,32 @@ export function crashSummary(frames = []) {
   }
 }
 
+// COMMAND_IDLE are the processlist commands that are a connection sitting idle rather than running
+// something. They are dimmed in the session table so the handful that were actually executing at
+// the crash stand out of a list that is mostly parked workers.
+const COMMAND_IDLE = new Set(['Sleep', 'Daemon', 'Binlog Dump', 'Binlog Dump GTID', ''])
+export const isIdleSession = (s) => COMMAND_IDLE.has(s?.command || '') && !s?.query
+
+// PRIO_* map the error-log priority (the integer perfschema stores) to a label and a tone. 0 is
+// MySQL's "System", and the levels are not a severity order you can compare numerically — see the
+// mysql-log-facts memory — so this is a lookup, not a threshold.
+export const LOG_PRIO = {
+  0: { label: 'System', tone: 'muted' },
+  1: { label: 'Error', tone: 'danger' },
+  2: { label: 'Warning', tone: 'warning' },
+  3: { label: 'Note', tone: 'muted' },
+}
+
+// wsrepTone flags a PXC member whose own view of the cluster is the problem: a node that crashed
+// while already out of the Primary component is a different story from one that crashed inside a
+// healthy cluster, and the status line should look different too.
+export function wsrepTone(w) {
+  if (!w) return 'muted'
+  const s = (w.clusterStatus || '').toLowerCase()
+  if (w.ready === false || (s && s !== 'primary')) return 'danger'
+  return 'success'
+}
+
 // formatBytes is for core-file sizes, which are the size of a server's memory and
 // therefore always want a unit.
 export function formatBytes(n) {
@@ -180,6 +206,28 @@ export function formatBytes(n) {
   let i = 0
   while (v >= 1024 && i < units.length - 1) { v /= 1024; i++ }
   return `${v >= 100 || i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`
+}
+
+// formatUptime renders "how long had the server been up" from its start_time (unix seconds) read
+// out of the core, against the core's own newest clock we have — the latest error-log timestamp —
+// rather than now, because the core is from whenever it crashed, not from when you are reading it.
+export function formatUptime(startSec, asOfSec) {
+  if (!startSec || !asOfSec || asOfSec <= startSec) return ''
+  let s = asOfSec - startSec
+  const d = Math.floor(s / 86400); s -= d * 86400
+  const h = Math.floor(s / 3600); s -= h * 3600
+  const m = Math.floor(s / 60)
+  if (d) return `${d}d ${h}h`
+  if (h) return `${h}h ${m}m`
+  if (m) return `${m}m`
+  return `${s}s`
+}
+
+// lsnGap is the distance between the flushed LSN and the last checkpoint: the redo the server would
+// have had to replay on restart. A large gap on a crashed node is a long crash-recovery ahead.
+export function lsnGap(innodb) {
+  if (!innodb || innodb.flushedLsn == null || innodb.checkpointLsn == null) return null
+  return innodb.flushedLsn - innodb.checkpointLsn
 }
 
 // ---------------------------------------------------------------- values

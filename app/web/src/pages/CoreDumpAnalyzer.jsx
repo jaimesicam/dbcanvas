@@ -6,6 +6,7 @@ import {
   gdbApi, gdbNodeApi, openGDBSession, GDB_STATUS_TONE, GDB_STATUS_TEXT,
   gdbTargetKey, shortFunc, libraryOf, sourceOf, isSystemFrame, formatBytes,
   canExpand, valueSummary, groupThreadStacks, threadStacksAsText,
+  isIdleSession, LOG_PRIO, wsrepTone, formatUptime, lsnGap,
 } from '../lib/gdbApi.js'
 import { useHandoff } from '../lib/handoff.js'
 import { useRefresh } from '../lib/useRefresh.jsx'
@@ -67,6 +68,12 @@ export default function CoreDumpAnalyzer() {
   const [output, setOutput] = useState('')
   const [busy, setBusy] = useState('')
   const [maxPanel, setMaxPanel] = useState(null)
+  const [view, setView] = useState('stack')          // 'stack' | 'server'
+  const [serverState, setServerState] = useState(null) // the server's own view, read from the core
+  const [serverErr, setServerErr] = useState('')
+  const [serverBusy, setServerBusy] = useState(false) // the one-pass read is in flight (its own flag,
+  // not the shared `busy` — the stack panes' effects run while this view is open and their finally
+  // would clear `busy` out from under the reading message)
 
   const sessionRef = useRef(null)
   const target = useMemo(
@@ -134,7 +141,7 @@ export default function CoreDumpAnalyzer() {
     sessionRef.current?.close()
     sessionRef.current = null
     setState(null); setLog([]); setFrames([]); setVars([]); setWatches([]); setOutput(''); setSource(null)
-    setStacks(null); setFrameVars({})
+    setStacks(null); setFrameVars({}); setServerState(null); setServerErr('')
     if (!target) return undefined
     connect()
 
@@ -218,6 +225,30 @@ export default function CoreDumpAnalyzer() {
   // server, so it is fetched when the view is opened rather than kept up to date — a core file
   // does not change, so once is enough.
   useEffect(() => { setStacks(null) }, [state?.core])
+
+  // The server's own state, read from the core by one gdb pass — fetched the first time the Server
+  // tab is opened on a given core, then cached (a core file does not change). Reset per core.
+  useEffect(() => { setServerState(null); setServerErr('') }, [state?.core])
+  useEffect(() => {
+    if (view !== 'server' || status !== 'ready' || serverState || serverErr) return undefined
+    let live = true
+    setServerBusy(true)
+    sessionRef.current?.call({ cmd: 'serverstate' })
+      .then((r) => { if (live) setServerState(r.serverState || {}) })
+      .catch((e) => { if (live) setServerErr(e.message) })
+      .finally(() => { if (live) setServerBusy(false) })
+    return () => { live = false }
+  }, [view, status, state?.core, serverState, serverErr]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Clicking a session or a transaction's thread opens that thread's stack: switch to the Stack
+  // view and select it. This is why the extractor maps each running THD to its gdb thread number.
+  const openThread = useCallback((gdbThreadNum) => {
+    if (!gdbThreadNum) return
+    setView('stack')
+    call({ cmd: 'backtrace', thread: String(gdbThreadNum), offset: 0 }, 'backtrace')
+      .then((r) => { if (r) { setFrames(r.frames || []); setMore(!!r.more); setFrameIdx(0) } })
+  }, [call])
+
   useEffect(() => {
     if (stackMode !== 'all' || status !== 'ready' || stacks) return undefined
     let live = true
@@ -355,6 +386,12 @@ export default function CoreDumpAnalyzer() {
           <CrashSummary state={state} frames={frames} core={cores.find((c) => c.name === state?.core)}
             onExpand={expand} onWatch={addWatchExpr} />
           <GdbRecipe recipe={state?.recipe} />
+          {state?.status === 'ready' && (
+            <ViewTabs view={view} onView={setView} hasServer={!!serverState || !!serverErr} />
+          )}
+          {view === 'server' ? (
+            <ServerStateView state={state} busy={serverBusy} data={serverState} error={serverErr} onThread={openThread} />
+          ) : (
           <PanelMaximize value={maxPanel} onChange={setMaxPanel}>
             <div className="relative grid h-[calc(100vh-17rem)] min-h-[560px] grid-cols-12 gap-3 overflow-hidden">
               <div className="col-span-3 flex min-h-0 flex-col gap-3 overflow-y-auto">
@@ -393,9 +430,310 @@ export default function CoreDumpAnalyzer() {
               </div>
             </div>
           </PanelMaximize>
+          )}
         </>
       )}
     </div>
+  )
+}
+
+// ================================================================ server state
+//
+// What the server was *doing* when it died, read out of the core — the part a backtrace has no
+// place for. A stack says where mysqld's own thread was; this says the sixty sessions and their
+// queries, the transaction that held the lock everything else was queued behind, how far the
+// binlog got, the last thing the error log recorded, and — on PXC — whether the node still thought
+// it was in the Primary component. It is one gdb pass (gdbserver.go), so it is fetched once, the
+// first time the tab is opened, and cached.
+
+const TONE_CLS = {
+  muted: 'text-muted',
+  success: 'text-[color:var(--status-ok)]',
+  warning: 'text-[color:var(--status-warn)]',
+  danger: 'text-[color:var(--status-crit)]',
+}
+const DOT_CLS = {
+  muted: 'bg-muted/50',
+  success: 'bg-[color:var(--status-ok)]',
+  warning: 'bg-[color:var(--status-warn)]',
+  danger: 'bg-[color:var(--status-crit)]',
+}
+
+// ViewTabs switches the workspace between the stack (the debugger proper) and the server-state
+// dashboard. Two modes rather than a fourth column because they answer different questions and
+// each wants the whole width: the stack is "why did this thread fault", the dashboard is "what was
+// the server in the middle of".
+export function ViewTabs({ view, onView, hasServer }) {
+  const Tab = ({ id, icon: Ico, children }) => (
+    <button
+      onClick={() => onView(id)}
+      className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+        view === id ? 'bg-surface text-fg shadow-sm' : 'text-muted hover:text-fg'}`}>
+      <Ico size={15} />{children}
+    </button>
+  )
+  return (
+    <div className="flex items-center gap-1 rounded-xl border bg-surface2 p-1">
+      <Tab id="stack" icon={Icon.Nodes}>Stack</Tab>
+      <Tab id="server" icon={Icon.Pulse}>Server state</Tab>
+      {!hasServer && view === 'server' && (
+        <span className="ml-1 text-xs text-muted">reading the core…</span>
+      )}
+    </div>
+  )
+}
+
+// StatTile is one headline number of the server's state — binlog position, history length, uptime.
+function StatTile({ label, value, sub, tone = 'muted' }) {
+  return (
+    <div className="rounded-xl border bg-surface px-3 py-2">
+      <div className="text-[11px] uppercase tracking-wide text-muted">{label}</div>
+      <div className={`truncate font-mono text-sm font-semibold ${TONE_CLS[tone] || 'text-fg'}`} title={value}>
+        {value || '—'}
+      </div>
+      {sub && <div className="truncate text-[11px] text-muted" title={sub}>{sub}</div>}
+    </div>
+  )
+}
+
+export function ServerStateView({ state, busy, data, error, onThread }) {
+  if (state?.status !== 'ready') {
+    return <Card className="p-6 text-sm text-muted">Open a core to read the server's state from it.</Card>
+  }
+  if (error) {
+    return (
+      <Card className="p-4 text-sm text-danger">
+        The server state could not be read: {error}
+        <div className="mt-1 text-xs text-muted">
+          This needs the server's own debug symbols — the same ones the stack uses. If the stack resolves
+          and this does not, the build is one the extractor does not recognise; tell us which.
+        </div>
+      </Card>
+    )
+  }
+  if (!data) {
+    return (
+      <Card className="p-6 text-sm text-muted">
+        {busy ? (
+          <span className="flex items-center gap-2">
+            <Icon.Refresh size={15} className="animate-spin" />
+            Reading the server state from the core — one gdb pass over the whole process. On a large
+            core the first read is a minute or two (every C++ type it touches loads its debug
+            information once); it is cached after.
+          </span>
+        ) : 'Loading…'}
+      </Card>
+    )
+  }
+
+  const asOf = data.errorLog?.length ? Math.floor((data.errorLog[data.errorLog.length - 1].ts || 0) / 1e6) : 0
+  const uptime = formatUptime(data.meta?.startTime, asOf)
+  const gap = lsnGap(data.innodb)
+  const binlog = data.binlog
+  const running = (data.sessions || []).filter((s) => !isIdleSession(s))
+
+  return (
+    <div className="flex min-h-0 flex-col gap-3 overflow-y-auto pr-1">
+      {/* headline tiles */}
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+        <StatTile label="Server" value={data.meta?.version} sub={uptime ? `up ${uptime} at crash` : (data.meta?.product === 'pxc' ? 'Percona XtraDB Cluster' : 'Percona Server')} />
+        <StatTile label="Sessions" value={`${(data.sessions || []).length}`} sub={`${running.length} running, ${(data.sessions || []).length - running.length} idle`} />
+        {binlog ? <StatTile label="Binlog" value={binlog.file?.replace(/^\.\//, '')} sub={binlog.position != null ? `position ${binlog.position.toLocaleString()}` : ''} />
+          : <StatTile label="Binlog" value="off" />}
+        <StatTile label="InnoDB history" value={data.innodb?.historyListLength != null ? data.innodb.historyListLength.toLocaleString() : '—'}
+          sub={gap != null ? `redo since checkpoint ${formatBytes(gap)}` : ''} tone={data.innodb?.historyListLength > 100000 ? 'warning' : 'muted'} />
+      </div>
+
+      {data.wsrep && <WsrepCard w={data.wsrep} />}
+      <LockWaits innodb={data.innodb} sessions={data.sessions || []} onThread={onThread} />
+      <Processlist sessions={data.sessions || []} onThread={onThread} />
+      <ErrorLogView events={data.errorLog || []} />
+
+      {data.notes?.length > 0 && (
+        <div className="rounded-xl border bg-surface2/50 px-3 py-2 text-[11px] text-muted">
+          {data.notes.map((n, i) => <div key={i} className="flex gap-1.5"><span className="opacity-60">·</span><span>{n}</span></div>)}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// WsrepCard is the one panel a plain-MySQL core never has: the PXC member's own view of the
+// cluster. "non-Primary" or ready=false on a crashed node is the whole story — it had already been
+// partitioned off before it fell over — so the card goes red when the node's own view is the
+// problem.
+export function WsrepCard({ w }) {
+  const tone = wsrepTone(w)
+  return (
+    <Panel id="wsrep" title="Galera / PXC cluster" className="shrink-0"
+      action={<span className={`flex items-center gap-1.5 text-xs font-medium ${TONE_CLS[tone]}`}>
+        <span className={`inline-block h-2 w-2 rounded-full ${DOT_CLS[tone]}`} />
+        {w.clusterStatus || 'unknown'}{w.ready === false ? ' · not ready' : ''}
+      </span>}>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1 p-3 text-sm md:grid-cols-3">
+        <Field label="This node" value={w.nodeName} />
+        <Field label="Members at crash" value={w.clusterSize != null ? String(w.clusterSize) : '—'} />
+        <Field label="Cluster" value={w.clusterName} />
+        <Field label="Node address" value={w.nodeAddress} mono />
+        <Field label="SST method" value={w.sstMethod} mono />
+        <Field label="Provider" value={w.provider ? libraryOf(w.provider) : ''} mono title={w.provider} />
+        <Field label="gcomm" value={w.clusterAddress} mono className="col-span-2 md:col-span-3" />
+      </div>
+    </Panel>
+  )
+}
+
+function Field({ label, value, mono, title, className = '' }) {
+  return (
+    <div className={`min-w-0 ${className}`}>
+      <div className="text-[11px] uppercase tracking-wide text-muted">{label}</div>
+      <div className={`truncate ${mono ? 'font-mono text-xs' : 'text-sm'} text-fg`} title={title || value}>{value || '—'}</div>
+    </div>
+  )
+}
+
+// LockWaits draws the InnoDB lock-wait graph — the "stalled items". Each waiting transaction is
+// shown as "this one ⟶ is blocked by ⟶ that one", with the SQL each was running pulled over from
+// the processlist by thread id. This is the single most useful thing in the panel when a core is a
+// pile-up rather than a crash: it names the one transaction everything else was queued behind.
+export function LockWaits({ innodb, sessions, onThread }) {
+  const trx = innodb?.transactions || []
+  const waiters = trx.filter((t) => t.waiting && t.blockedByTrx != null)
+  const byId = Object.fromEntries(trx.map((t) => [t.id, t]))
+  const queryFor = (threadId) => sessions.find((s) => s.threadId === threadId)?.query || ''
+
+  if (trx.length === 0) {
+    return <Panel id="locks" title="InnoDB transactions" className="shrink-0" bodyClass="p-3 text-sm text-muted">No active transactions.</Panel>
+  }
+  return (
+    <Panel id="locks" title={`InnoDB transactions (${trx.length})`} className="shrink-0" bodyClass="p-3">
+      {waiters.length === 0 ? (
+        <p className="mb-2 text-sm text-[color:var(--status-ok)]">No lock waits — nothing was blocked.</p>
+      ) : (
+        <div className="mb-3 space-y-2">
+          <p className="text-xs font-medium text-[color:var(--status-warn)]">{waiters.length} transaction(s) waiting on a lock:</p>
+          {waiters.map((w) => {
+            const holder = byId[w.blockedByTrx]
+            return (
+              <div key={w.id} className="rounded-lg border border-[color:var(--status-warn)]/30 bg-[color:var(--status-warn)]/5 p-2 text-sm">
+                <TrxChip t={w} role="waiter" query={queryFor(w.threadId)} onThread={onThread} />
+                <div className="my-1 ml-3 flex items-center gap-1 text-xs text-muted"><Icon.Arrow size={12} /> blocked by</div>
+                {holder ? <TrxChip t={holder} role="holder" query={queryFor(holder.threadId)} onThread={onThread} />
+                  : <div className="text-xs text-muted">trx {w.blockedByTrx} (not in the active list)</div>}
+              </div>
+            )
+          })}
+        </div>
+      )}
+      <table className="w-full text-left text-xs">
+        <thead className="text-muted"><tr>
+          <th className="py-1 pr-2 font-medium">Trx</th><th className="pr-2 font-medium">State</th>
+          <th className="pr-2 font-medium">Rows</th><th className="pr-2 font-medium">Thread</th><th className="font-medium">Operation</th>
+        </tr></thead>
+        <tbody className="font-mono">
+          {trx.map((t) => (
+            <tr key={t.id} className="border-t">
+              <td className="py-1 pr-2">{t.id}</td>
+              <td className={`pr-2 ${t.waiting ? 'text-[color:var(--status-warn)]' : ''}`}>{t.state}{t.waiting ? ' (waiting)' : ''}</td>
+              <td className="pr-2">{t.rowsModified ?? ''}</td>
+              <td className="pr-2">{t.gdbThread ? <button className="text-accent hover:underline" onClick={() => onThread?.(t.gdbThread)}>{t.threadId}</button> : (t.threadId ?? '')}</td>
+              <td className="truncate text-muted" title={t.op}>{t.op}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Panel>
+  )
+}
+
+function TrxChip({ t, role, query, onThread }) {
+  const color = role === 'waiter' ? 'var(--status-warn)' : 'var(--status-crit)'
+  return (
+    <div className="rounded border bg-surface p-1.5" style={{ borderColor: `color-mix(in srgb, ${color} 35%, transparent)` }}>
+      <div className="flex items-center gap-2 text-xs">
+        <span className="font-semibold" style={{ color }}>{role === 'waiter' ? 'waiting' : 'holding'}</span>
+        <span className="font-mono text-muted">trx {t.id}</span>
+        {t.threadId != null && (t.gdbThread
+          ? <button className="font-mono text-accent hover:underline" onClick={() => onThread?.(t.gdbThread)}>thread {t.threadId}</button>
+          : <span className="font-mono text-muted">thread {t.threadId}</span>)}
+      </div>
+      {query && <div className="mt-0.5 truncate font-mono text-xs text-fg" title={query}>{query}</div>}
+    </div>
+  )
+}
+
+// Processlist is SHOW PROCESSLIST reconstructed from the core. Idle (sleeping) connections are
+// dimmed so the handful that were running stand out; a running session whose stack we could locate
+// is clickable through to it.
+export function Processlist({ sessions, onThread }) {
+  const [showIdle, setShowIdle] = useState(false)
+  const shown = showIdle ? sessions : sessions.filter((s) => !isIdleSession(s))
+  const idleCount = sessions.length - sessions.filter((s) => !isIdleSession(s)).length
+  return (
+    <Panel id="processlist" title={`Processlist (${sessions.length})`} className="shrink-0" bodyClass="p-0"
+      action={idleCount > 0 && (
+        <button className="text-xs text-muted hover:text-fg" onClick={() => setShowIdle((v) => !v)}>
+          {showIdle ? 'hide' : 'show'} {idleCount} idle
+        </button>
+      )}>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-xs">
+          <thead className="sticky top-0 bg-surface text-muted"><tr>
+            <th className="px-2 py-1.5 font-medium">Id</th><th className="pr-2 font-medium">Command</th>
+            <th className="pr-2 font-medium">DB</th><th className="pr-2 font-medium">State</th><th className="pr-2 font-medium">Query</th>
+          </tr></thead>
+          <tbody>
+            {shown.length === 0 && <tr><td colSpan={5} className="px-2 py-3 text-muted">No sessions.</td></tr>}
+            {shown.map((s, i) => {
+              const idle = isIdleSession(s)
+              return (
+                <tr key={i} className={`border-t ${idle ? 'opacity-55' : ''}`}>
+                  <td className="px-2 py-1 font-mono">
+                    {s.gdbThread
+                      ? <button className="text-accent hover:underline" title="Open this session's stack" onClick={() => onThread?.(s.gdbThread)}>{s.threadId}</button>
+                      : (s.threadId ?? '')}
+                    {s.killed && <span className="ml-1 text-[color:var(--status-crit)]" title="killed">✕</span>}
+                  </td>
+                  <td className="pr-2">{s.command}</td>
+                  <td className="pr-2 font-mono text-muted">{s.db}</td>
+                  <td className="pr-2 text-muted">{s.state}</td>
+                  <td className="max-w-[1px] truncate pr-2 font-mono" title={s.query}>{s.query}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
+  )
+}
+
+// ErrorLogView is performance_schema.error_log, read from the ring buffer in the core — the last
+// things the server told itself before the signal, which on a real crash usually includes the
+// crash handler's own first lines. Newest last, the way a log reads.
+export function ErrorLogView({ events }) {
+  if (!events.length) {
+    return <Panel id="errorlog" title="Error log" className="shrink-0" bodyClass="p-3 text-sm text-muted">The error-log ring buffer was empty or not readable.</Panel>
+  }
+  return (
+    <Panel id="errorlog" title={`Error log (${events.length})`} className="h-72" bodyClass="overflow-auto p-0">
+      <table className="w-full text-left text-xs">
+        <tbody className="font-mono">
+          {events.map((e, i) => {
+            const p = LOG_PRIO[e.prio] || { label: '', tone: 'muted' }
+            return (
+              <tr key={i} className="border-t align-top">
+                <td className="whitespace-nowrap px-2 py-1 text-muted">{e.ts ? new Date(e.ts / 1000).toLocaleTimeString() : ''}</td>
+                <td className={`px-1 ${TONE_CLS[p.tone]}`}>{p.label}</td>
+                <td className="px-1 text-muted">{e.subsys}</td>
+                <td className="px-1 text-muted">{e.code}</td>
+                <td className="py-1 pr-2 text-fg">{e.message}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </Panel>
   )
 }
 
