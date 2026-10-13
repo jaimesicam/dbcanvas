@@ -7,7 +7,7 @@ import {
   gdbTargetKey, shortFunc, libraryOf, sourceOf, isSystemFrame, formatBytes,
   canExpand, valueSummary, groupThreadStacks, threadStacksAsText,
   isIdleSession, LOG_PRIO, wsrepTone, formatStarted, lsnGap,
-  accountOf, crashTimeRef, formatAge, serverVerdict,
+  accountOf, crashTimeRef, formatAge, serverVerdict, threadWaitInfo,
 } from '../lib/gdbApi.js'
 import { useHandoff } from '../lib/handoff.js'
 import { useRefresh } from '../lib/useRefresh.jsx'
@@ -424,6 +424,7 @@ export default function CoreDumpAnalyzer() {
                   more={more} busy={busy} state={state}
                   onMore={() => loadFrames(thread, frames.length)}
                   mode={stackMode} onMode={setStackMode}
+                  waitInfo={threadWaitInfo(serverState, thread)}
                   stacks={stacks} locals={locals} onLocals={setLocals} frameVars={frameVars}
                   onThread={(id) => {
                     setStackMode('thread')
@@ -1226,7 +1227,7 @@ export function ThreadList({ threads, selected, signal, onSelect }) {
 // scaffolding rather than the fault.
 export function Backtrace({
   frames, selected, onSelect, more, busy, state, onMore,
-  mode = 'thread', onMode, stacks, locals, onLocals, frameVars, onThread,
+  mode = 'thread', onMode, stacks, locals, onLocals, frameVars, onThread, waitInfo,
 }) {
   const empty = !frames || frames.length === 0
   const all = mode === 'all'
@@ -1342,6 +1343,7 @@ export function Backtrace({
         </p>
       ) : (
         <div className="font-mono text-[11px]">
+          <ThreadWaitBanner waitInfo={waitInfo} onThread={onThread} />
           {/* readability toolbar: filter, fold, and jumps to the frames that matter */}
           <div className="sticky top-0 z-10 flex flex-wrap items-center gap-x-3 gap-y-1 border-b bg-surface px-3 py-1.5 text-[10px]">
             <div className="flex items-center gap-1">
@@ -1459,6 +1461,49 @@ function JumpBtn({ onClick, title, active, children }) {
         ? 'border-primary/40 bg-primary/15 text-primary' : 'border-transparent hover:bg-surface2 hover:text-fg'}`}>
       {children}
     </button>
+  )
+}
+
+// ThreadWaitBanner is the one thing a debugger cannot do on its own: say that the thread you are
+// reading was blocked on a lock another thread held, and name that thread. It reads the InnoDB
+// lock-wait graph from the Server-state pass (so it appears once that has been read) and sits at the
+// top of the stack — a thread parked in `lock_wait_suspend_thread` is a dead end on its own, and
+// this turns it into "go look at thread N", one click away. It shows both directions: what this
+// thread waited on, and what was queued behind it when it was the one holding the lock.
+function ThreadWaitBanner({ waitInfo, onThread }) {
+  if (!waitInfo) return null
+  const { waitingOn, blocking } = waitInfo
+  const Peer = ({ p }) => (
+    p.thread
+      ? <button onClick={() => onThread?.(String(p.thread))} className="font-mono text-accent hover:underline" title="open this thread's stack">thread {p.thread}</button>
+      : <span className="font-mono text-muted">trx {p.trxId}</span>
+  )
+  return (
+    <div className="space-y-1 border-b p-2 font-sans">
+      {waitingOn && (
+        <div className="rounded-md border border-[color:var(--status-warn)]/40 bg-[color:var(--status-warn)]/10 px-2.5 py-1.5 text-[11px] leading-snug">
+          <span className="font-medium text-[color:var(--status-warn)]">Blocked.</span>{' '}
+          This thread was waiting on a lock held by <Peer p={waitingOn} />
+          {waitingOn.account && <span className="text-muted"> ({waitingOn.account})</span>}.
+          {waitingOn.query && (
+            <div className="mt-0.5 truncate font-mono text-[10px] text-muted" title={waitingOn.query}>
+              holder was running: {waitingOn.query}
+            </div>
+          )}
+        </div>
+      )}
+      {blocking.length > 0 && (
+        <div className="rounded-md border border-[color:var(--status-crit)]/40 bg-[color:var(--status-crit)]/10 px-2.5 py-1.5 text-[11px] leading-snug">
+          <span className="font-medium text-[color:var(--status-crit)]">
+            Blocking {blocking.length} thread{blocking.length === 1 ? '' : 's'}.
+          </span>{' '}
+          Queued behind a lock this thread holds:{' '}
+          {blocking.map((p, i) => (
+            <span key={i}>{i > 0 && ', '}<Peer p={p} />{p.account && <span className="text-muted"> ({p.account})</span>}</span>
+          ))}.
+        </div>
+      )}
+    </div>
   )
 }
 

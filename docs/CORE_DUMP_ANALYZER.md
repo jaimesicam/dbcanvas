@@ -189,6 +189,17 @@ kernel recorded one), and **▲ own / ▼ own** to step to the next frame that i
 than a system library's. Folding stands down in **full** mode and while filtering, where you have
 asked to see everything.
 
+**See who a thread was waiting on.** A debugger shows one thread at a time and cannot tell you that
+the thread you are reading was blocked on a lock another thread held — but the core's own InnoDB
+lock-wait graph can, so once the **Server state** tab has been read, the stack grows a banner that
+says so. A thread parked in `lock_wait_suspend_thread` stops being a dead end: *"Blocked. This thread
+was waiting on a lock held by thread 10 (root@localhost)"*, with the holder's own query and a link
+straight to its stack. It reads both directions — on the thread that held the lock the banner is
+*"Blocking 1 thread. Queued behind a lock this thread holds: thread 8"* — so the pile-up in the
+Server-state view and the thread you are debugging are one click apart, either way. (Metadata-lock
+waits, which the processlist shows as *Waiting for table metadata lock*, are not yet correlated this
+way — only InnoDB row locks, where the core records the holder.)
+
 **See every thread at once.** The stack panel's **All threads** tab is `thread apply all bt`, with
 the two things that command cannot do. Identical stacks are folded together — twenty idle workers
 parked in the same wait become one row saying `20×`, which is itself a finding and is invisible in

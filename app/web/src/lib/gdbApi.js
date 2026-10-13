@@ -315,6 +315,36 @@ export function accountOf(s) {
   return ip ? `${base} [${ip}]` : base
 }
 
+// threadWaitInfo bridges the Stack view and the Server-state view: given the gdb thread a reader is
+// looking at, it says — from the InnoDB lock-wait graph in the core — whether that thread was
+// blocked waiting on a lock another thread held, and whether other threads were blocked behind it. A
+// debugger shows one thread at a time and cannot see this; the core's own lock graph can, so a
+// thread parked in `lock_wait_suspend_thread` stops being a dead end and names the thread to look at
+// next. Returns null unless the selected thread is part of a wait relationship (and only when the
+// server state has been read — otherwise there is nothing to correlate against).
+export function threadWaitInfo(serverState, gdbThread) {
+  const trx = serverState?.innodb?.transactions || []
+  const sessions = serverState?.sessions || []
+  if (!trx.length || gdbThread == null || gdbThread === '') return null
+  const g = Number(gdbThread)
+  const byId = Object.fromEntries(trx.map((t) => [t.id, t]))
+  const self = trx.find((t) => t.gdbThread === g)
+  if (!self) return null
+  const sessOf = (t) => sessions.find((s) => (t.gdbThread && s.gdbThread === t.gdbThread) || (t.threadId != null && s.threadId === t.threadId))
+  const desc = (t) => {
+    const s = sessOf(t) || {}
+    return { thread: t.gdbThread || null, connId: t.threadId ?? s.threadId ?? null, trxId: t.id, account: accountOf(s), query: s.query || t.op || '' }
+  }
+  let waitingOn = null
+  if (self.waiting && self.blockedByTrx != null) {
+    const holder = byId[self.blockedByTrx]
+    waitingOn = holder ? desc(holder) : { thread: null, connId: null, trxId: self.blockedByTrx, account: '', query: '' }
+  }
+  const blocking = trx.filter((w) => w.waiting && w.blockedByTrx === self.id).map(desc)
+  if (!waitingOn && blocking.length === 0) return null
+  return { waitingOn, blocking }
+}
+
 // crashTimeRef is the best estimate of *when* the core was taken, so a session's age can be shown
 // as "how long it had been running". Nothing in a core records the crash instant reliably (see
 // formatStarted), so this takes the latest evidence of life: the newest error-log line, or the most

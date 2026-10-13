@@ -26860,3 +26860,30 @@ Verified live against the `ps-locks-mdl` core: on `mysqld_main`'s thread (15 fra
 skipping the system frame. On a cond-waiting worker whose only library runs are two frames each, the
 result is correct either way. SSR `smoke` passes; the browser half still hangs on this Chromium, so
 it was driven directly in headless Chromium.
+
+## 433. Core Dump Analyzer: who a thread was waiting on — cross-thread lock correlation — `app/web/src/pages/CoreDumpAnalyzer.jsx`, `app/web/src/lib/gdbApi.js`
+
+The one thing a debugger structurally cannot do: a backtrace shows one thread, so a thread parked in
+`lock_wait_suspend_thread` is a dead end — you cannot see which thread holds the lock it waits on.
+The core's InnoDB lock-wait graph can (§429's `transactions` carry `waiting`, `blockedByTrx`, and the
+`gdbThread` each maps to), so the Stack view grows a banner, built from the Server-state read:
+
+- `threadWaitInfo(serverState, gdbThread)` finds the transaction on the selected gdb thread and reads
+  the graph both ways — what it was *waiting on* (its `blockedByTrx` holder) and what was *blocked
+  behind it* (every waiter whose `blockedByTrx` is this trx) — joining each to its session for the
+  account and query.
+- `ThreadWaitBanner` renders it above the stack: amber *"Blocked. This thread was waiting on a lock
+  held by thread 10 (root@localhost)"* with the holder's query, and/or crit *"Blocking 1 thread.
+  Queued behind a lock this thread holds: thread 8"*. Each peer is a link into that thread's stack, so
+  the Server-state pile-up and the stack you are reading are one click apart in both directions.
+
+It appears only once the Server-state tab has been read (nothing to correlate against otherwise).
+MDL waits (shown as *Waiting for table metadata lock*) are not correlated — only InnoDB row locks,
+where the core records the holder; the MDL graph is a later extraction.
+
+Bug found and fixed while verifying live: the banner's peer link passed the gdb thread as a JS
+number, but the `backtrace` command's `Thread` field is a string, so the server's JSON unmarshal
+rejected it and the click did nothing (`openThread` had always sent `String(n)`; this path did not).
+Verified live against the `ps-locks-mdl` core, both directions: the UPDATE waiter (gdb thread 8)
+named the SLEEP holder (thread 10), and clicking through to thread 10 flipped the banner to "blocking
+thread 8", each with `root@localhost` and the holder's `SELECT SLEEP(3600)`. SSR `smoke` passes.
