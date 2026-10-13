@@ -3921,11 +3921,12 @@ check('nav: every sidebar entry has an icon, and no two neighbours share one', (
   // The sidebar is read at 18px down a single column, where two entries drawn alike are two
   // entries you pick wrong. Dashboard and Database Stacks were four rounded squares each, and
   // Operator Summary wore the Operator Debugger's beetle; adjacency is what makes that cost
-  // something, so neighbours must differ.
-  for (let i = 1; i < NAV.length; i++) {
-    if (NAV[i].icon === NAV[i - 1].icon) {
-      throw new Error(`${NAV[i - 1].id} and ${NAV[i].id} are next to each other with the same ${NAV[i].icon} icon`)
-    }
+  // something, so neighbours must differ. And not only neighbours: Kubernetes States wore
+  // Kanban's columns twenty rows down, and in Cmd+K and the tab strip there is no distance at all.
+  const seen = new Map()
+  for (const n of NAV) {
+    if (seen.has(n.icon)) throw new Error(`${seen.get(n.icon)} and ${n.id} both use the ${n.icon} icon`)
+    seen.set(n.icon, n.id)
   }
   return `${NAV.length} entries`
 })

@@ -865,7 +865,7 @@ export default function K8sStates() {
       : 'flex h-full min-h-[40rem] flex-col gap-2'}>
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="flex items-center gap-2 text-base font-semibold text-fg">
-          <Icon.Kanban size={18} /> Kubernetes States
+          <Icon.K8sStates size={18} /> Kubernetes States
           <Help text={HELP.k8sStates} />
         </h1>
         <select className={selectCls} value={key} onChange={(e) => setKey(e.target.value)}

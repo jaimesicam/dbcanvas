@@ -72,7 +72,7 @@ export const NAV = [
   // fact, this one watches a live one. Same subject, opposite tense.
   // fill: this page is a board with a rail beside it, so it wants the height of the
   // workspace rather than the height of its own content — see <main> below.
-  { id: 'k8s-states', label: 'Kubernetes States', icon: 'Kanban', page: K8sStates, fill: true, hint: 'A live board of every object in a Kubernetes cluster — red for what is broken, lit for what just changed' },
+  { id: 'k8s-states', label: 'Kubernetes States', icon: 'K8sStates', page: K8sStates, fill: true, hint: 'A live board of every object in a Kubernetes cluster — red for what is broken, lit for what just changed' },
   // Tagged experimental, so it is in the menu only where EXPERIMENTAL is on (see
   // lib/experimental.js). Its scenarios are LLM-written and still moving, which is
   // what the label used to say and the flag now decides.

@@ -240,6 +240,23 @@ export const Icon = {
       <line x1="19.1" y1="19.1" x2="21.5" y2="21.5" />
     </Svg>
   ),
+  // Kubernetes States: a wall of status lights, one per object, and one of them lit — the
+  // page is a live board where what just changed glows. It wore Kanban's three columns,
+  // which made it the same picture as the Kanban page in the sidebar; and it cannot take
+  // the helm wheel, which is Operator Summary's, the row above it.
+  K8sStates: (p) => (
+    <Svg {...p}>
+      <circle cx="5.5" cy="5.5" r="2" />
+      <circle cx="12" cy="5.5" r="2" />
+      <circle cx="18.5" cy="5.5" r="2" />
+      <circle cx="5.5" cy="12" r="2" />
+      <circle cx="12" cy="12" r="2.4" fill="currentColor" />
+      <circle cx="18.5" cy="12" r="2" />
+      <circle cx="5.5" cy="18.5" r="2" />
+      <circle cx="12" cy="18.5" r="2" />
+      <circle cx="18.5" cy="18.5" r="2" />
+    </Svg>
+  ),
   Kanban: (p) => (
     <Svg {...p}>
       <rect x="3" y="3" width="5" height="18" rx="1.5" />
