@@ -26794,3 +26794,40 @@ Not touched, worth knowing: a thread's **first** backtrace with arguments costs 
 for the files in those frames; repeats 4–6s), so the click-through to a session's stack waits on
 that the first time. That is the Stack view's existing cost, not this read's.
 
+## 431. Server state, read for you: a verdict band and richer sessions — `app/gdbserver_extract.py`, `app/gdbserver.go`, `app/web/src/pages/CoreDumpAnalyzer.jsx`, `app/web/src/lib/gdbApi.js`, `docs/CORE_DUMP_ANALYZER.md`
+
+429–430 proved the server-state read and made it fast; this makes it *read* at a glance, after a
+cross-version inventory (PS/PXC 8.0, 8.4, 9.7, six real cores) confirmed what the core actually
+holds beyond what the tab was showing. The tab had been a flat scroll of equal-weight panels and a
+processlist that stopped at command/db/state/query. Two changes, both verified live against the
+`ps-locks-mdl` (PS 8.4) and `pxc-holder` (PXC 8.4) cores on `coredump-lab`:
+
+- **A verdict band** across the top of the tab, the server-state counterpart to the Stack tab's
+  crash banner but about the *server*, not the signal. `serverVerdict(data, state)` picks the
+  heaviest condition that holds and colours the band to match: a PXC node out of the Primary
+  component (red), a lock pile-up (amber, naming the one transaction everything queued behind —
+  *"everything was queued behind transaction 29807; start there"* on the PS core), a genuine fault
+  (echoes the stack verdict — gated strictly on `verdict.fault`/a `SIG*` signal, since
+  `verdict.headline`/`culprit` are set even for a gcore snapshot, which must not read as a crash),
+  or a clean snapshot. Supporting chips carry running/connected, in-error, killed, and a long
+  history list.
+- **The sessions table** gains the two things the inventory newly proved recoverable per `THD`: the
+  **account** (`user@host [ip]` from `m_security_ctx` — a sql-layer `String` read by `m_ptr`/
+  `m_length`, with LEX_CSTRING/`char*` fallbacks) and the command's **age** (`start_time.tv_sec`
+  against a crash-time reference taken from the newest error-log line or latest command start, since
+  the core records no single crash instant). Each row expands into a **drawer** with the per-session
+  detail that does not fit a cell — first the **diagnostics area** (`m_stmt_da`: the last error the
+  session raised, gated on the `Diagnostics_area::DA_ERROR` status resolved by name so a version
+  renumbering can't fool it — errno, SQLSTATE, message), then the account, query id, in-transaction
+  flag (`server_status & SERVER_STATUS_IN_TRANS`), command start time and full query. The `THD`
+  struct grew matching Go fields (`gdbSrvSession`), since the extractor feeds typed structs and an
+  unlisted field is dropped.
+
+Verified live: the PS core's band reads *"1 transaction blocked — a lock pile-up … queued behind
+transaction 29807"* over five running sessions (`root@localhost`, ages 10–11s, two *Waiting for
+table metadata lock*), and a row drawer shows connection 74 `IN TRANSACTION yes`, query id 9891,
+`SELECT SLEEP(3600) AS holder_trx`; the PXC gcore reads *"2 sessions were running when the core was
+taken — a snapshot of a healthy server"*. SSR `smoke` and `go vet`/`go build` pass; the browser
+half of `make smoke` still hangs on this Chromium build, so the two cores were driven directly in
+headless Chromium instead.
+

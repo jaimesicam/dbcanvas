@@ -269,7 +269,20 @@ structures the running server reads for `SHOW PROCESSLIST`, `SHOW ENGINE INNODB 
 It is one gdb pass over the whole process — read once, the first time the tab is opened on a core,
 then cached, because a dead process does not change (about 30–50 seconds the first time on the 8.4
 cores it was built against, most of it gdb loading the debug information the read touches; leaving
-the tab while it runs does not lose it). The headline tiles are the server version and when it
+the tab while it runs does not lose it).
+
+**The verdict band reads the tab for you.** Across the top, one line states the shape the server was
+in — the server-state counterpart to the Stack tab's crash banner, and deliberately about the
+*server* rather than the signal, because a core is as often a pile-up or a partitioned node as it is
+a fault. It is the heaviest condition that holds: a PXC node that was out of the Primary component
+(red — it had left the cluster before it fell over), a lock pile-up (amber — *"N transactions
+blocked — everything was queued behind transaction X; start there"*), a genuine fault (it echoes the
+stack verdict and points at it), or a clean snapshot of a healthy server. A row of chips underneath
+carries the supporting counts — running vs. connected, sessions sitting on an error, killed
+connections, a history list that has run long. The band turns "read five panels to find the story"
+into "read one line, then drill".
+
+The headline tiles below it are the server version and when it
 started — not an uptime, because nothing in a core reliably records the moment of the crash — the
 session count (running vs. idle), the binlog file and
 position, and InnoDB's history-list length with the redo it had written since the last checkpoint
@@ -282,12 +295,20 @@ position, and InnoDB's history-list length with the redo it had written since th
   lock an `UPDATE` then waited on, with an `ALTER` and a `SELECT` stacked behind the metadata lock
   the `UPDATE`'s own table held. The full transaction list is under it: id, state, rows modified,
   the owning thread, and the operation each was on.
-- **The processlist**, reconstructed from every `THD` in the core — thread id, command, database,
-  state and query. Idle (sleeping) connections are dimmed so the handful that were running stand
-  out; a killed connection is flagged. A session that was actually executing can be **clicked
-  through to its own stack** — the extractor maps each running `THD` to its gdb thread by reading
-  that thread's `current_thd`, which is the one reliable bridge between a MySQL connection id and an
-  OS thread. (An idle connection has no `current_thd`, and no stack worth jumping to.)
+- **The sessions table**, reconstructed from every `THD` in the core, and carrying two things the
+  live processlist never had on a core before: the **account** each connection belongs to
+  (`user@host`, with the peer IP in brackets when it differs — read from the `THD`'s security
+  context) and how **long** it had been on its current command. Thread id, command, database, state
+  and query are there too; idle (sleeping) connections are dimmed so the handful that were running
+  stand out; a killed connection is flagged, and a session that was sitting on an error carries a
+  marker. Any row **expands into a drawer** with the per-session detail that does not fit a cell —
+  the **diagnostics area** (the last error the session raised: errno, SQLSTATE and message, shown
+  first because a connection mid-error is usually the one worth reading), the account and query id,
+  whether it was inside a transaction, when the command began, and the full query text. A session
+  that was actually executing can be **clicked through to its own stack** — the extractor maps each
+  running `THD` to its gdb thread by reading that thread's `current_thd`, which is the one reliable
+  bridge between a MySQL connection id and an OS thread. (An idle connection has no `current_thd`,
+  and no stack worth jumping to.)
 - **The error log** — `performance_schema.error_log` read straight out of its ring buffer, newest
   last, coloured by priority — the newest 300 when the buffer holds more, since the lines just
   before the crash are the ones that matter. On a real crash the last lines are usually the crash

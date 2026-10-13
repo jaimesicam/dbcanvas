@@ -66,6 +66,22 @@ type gdbSrvSession struct {
 	State    string `json:"state,omitempty"`
 	Query    string `json:"query,omitempty"`
 	Killed   bool   `json:"killed,omitempty"`
+	// Account, read from the THD's security context — who this connection is. User and Host are the
+	// authenticated account (user@host), IP the peer address; together they are the "who" the flat
+	// processlist never had.
+	User string `json:"user,omitempty"`
+	Host string `json:"host,omitempty"`
+	IP   string `json:"ip,omitempty"`
+	// StartTime is when this connection's current command began (THD::start_time, unix seconds), so
+	// the page can show how long it had been running at the crash.
+	StartTime int64 `json:"startTime,omitempty"`
+	QueryID   int64 `json:"queryId,omitempty"`
+	// The session's diagnostics area — the last error it had raised, if any. On a core this is often
+	// the clue: the connection that was mid-error when everything stopped.
+	LastErrno int    `json:"lastErrno,omitempty"`
+	LastError string `json:"lastError,omitempty"`
+	SQLState  string `json:"sqlState,omitempty"`
+	InTrans   bool   `json:"inTrans,omitempty"`
 	// GdbThread is this session's gdb thread number, present only when the connection was actually
 	// running in the server (and so carried a current_thd to map it by) — which is what lets the
 	// page open the session's own stack. Idle connections have none and no stack to open.

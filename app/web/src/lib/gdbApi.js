@@ -299,3 +299,96 @@ export function threadStacksAsText(stacks = []) {
     return [head, ...body].join('\n')
   }).join('\n\n')
 }
+
+// ---------------------------------------------------------------- sessions
+
+// accountOf renders the "who" of a session from its security context: user@host, with the peer IP
+// in brackets when it differs from the host (a networked client), so the common root@localhost
+// stays short and app@db-01 [10.0.0.5] carries the address it is worth carrying.
+export function accountOf(s) {
+  if (!s) return ''
+  const user = s.user || ''
+  const host = s.host || s.ip || ''
+  const base = user ? (host ? `${user}@${host}` : user) : host
+  if (!base) return ''
+  const ip = s.ip && s.ip !== s.host ? s.ip : ''
+  return ip ? `${base} [${ip}]` : base
+}
+
+// crashTimeRef is the best estimate of *when* the core was taken, so a session's age can be shown
+// as "how long it had been running". Nothing in a core records the crash instant reliably (see
+// formatStarted), so this takes the latest evidence of life: the newest error-log line, or the most
+// recent command start, whichever is later. Returned in unix seconds, or null if there is nothing.
+export function crashTimeRef(data) {
+  let ref = 0
+  for (const e of data?.errorLog || []) if (e.ts) ref = Math.max(ref, Math.floor(e.ts / 1e6))
+  for (const s of data?.sessions || []) if (s.startTime) ref = Math.max(ref, s.startTime)
+  return ref || null
+}
+
+// formatAge turns a span in seconds into a compact "2h 5m" / "3m 12s" / "45s". Used for how long a
+// session had been on its current command at the crash.
+export function formatAge(sec) {
+  if (sec == null || sec < 0) return ''
+  if (sec < 60) return `${sec}s`
+  const m = Math.floor(sec / 60)
+  if (m < 60) return sec % 60 ? `${m}m ${sec % 60}s` : `${m}m`
+  const h = Math.floor(m / 60)
+  if (h < 24) return m % 60 ? `${h}h ${m % 60}m` : `${h}h`
+  const d = Math.floor(h / 24)
+  return h % 24 ? `${d}d ${h % 24}h` : `${d}d`
+}
+
+// serverVerdict reads the one-line shape of the server at the crash from its own state — the
+// Server-state tab's answer to the Stack tab's crash verdict. It is deliberately about the server,
+// not the signal: a core is often a pile-up or a partitioned node, and that story lives in the
+// transactions, the cluster view and the sessions, not in the faulting frame. Returns the single
+// most important finding plus a few supporting chips, each with a tone that drives its colour.
+export function serverVerdict(data, state) {
+  if (!data) return null
+  const sessions = data.sessions || []
+  const running = sessions.filter((s) => !isIdleSession(s))
+  const trx = data.innodb?.transactions || []
+  const waiters = trx.filter((t) => t.waiting && t.blockedByTrx != null)
+  const errored = sessions.filter((s) => s.lastErrno)
+  const killed = sessions.filter((s) => s.killed)
+  const w = data.wsrep
+
+  // Supporting chips, always shown, lightest to heaviest handled by the caller's ordering.
+  const chips = []
+  chips.push({ label: `${running.length} running`, sub: `${sessions.length} connected`, tone: running.length ? 'accent' : 'muted' })
+  if (errored.length) chips.push({ label: `${errored.length} in error`, tone: 'warning' })
+  if (killed.length) chips.push({ label: `${killed.length} killed`, tone: 'danger' })
+  if (data.innodb?.historyListLength > 100000) chips.push({ label: 'history list high', sub: data.innodb.historyListLength.toLocaleString(), tone: 'warning' })
+
+  // The headline is the heaviest condition that holds.
+  let tone = 'accent'
+  let headline = ''
+  let why = ''
+  if (w && wsrepTone(w) === 'danger') {
+    tone = 'danger'
+    headline = `This PXC node was ${w.ready === false ? 'not ready' : `in a ${w.clusterStatus || 'non-Primary'} component`} when it crashed`
+    why = 'It had already left the Primary component — it was cut off from the cluster before the process fell over, so look at the partition first and the crash second.'
+  } else if (waiters.length) {
+    tone = 'warning'
+    const blockers = [...new Set(waiters.map((x) => x.blockedByTrx))]
+    headline = `${waiters.length} transaction${waiters.length === 1 ? '' : 's'} blocked — a lock pile-up`
+    why = blockers.length === 1
+      ? `Everything was queued behind transaction ${blockers[0]}. Start there.`
+      : `Queued behind transactions ${blockers.join(', ')}.`
+  } else if (state?.verdict?.fault || /^SIG/.test(state?.signal || '')) {
+    // The stack tab found a real fault — a kernel siginfo address or a signal name — so the crash,
+    // not a stall, is the story; echo its headline and point at it. A gcore snapshot has neither and
+    // falls through to the server-centric summary below (verdict.headline/culprit get set either way).
+    headline = state.verdict?.headline || `${state.signal}${state.signalText ? ` — ${state.signalText}` : ''}`
+    why = 'No lock pile-up and the cluster view is clean — this reads as a genuine crash, not a stall. The stack tab has the fault.'
+  } else if (running.length) {
+    headline = `${running.length} session${running.length === 1 ? ' was' : 's were'} running when the core was taken`
+    why = 'No lock pile-up, a clean cluster view, and no recorded crash signal — a snapshot of a healthy server.'
+  } else {
+    tone = 'muted'
+    headline = 'No sessions were running when the core was taken'
+    why = 'Every connection was idle.'
+  }
+  return { tone, headline, why, chips, blocker: waiters.length ? [...new Set(waiters.map((x) => x.blockedByTrx))][0] : null }
+}

@@ -78,6 +78,25 @@ def lexcstr(v):         # LEX_CSTRING {str,length}
     except Exception:
         return ""
 
+def sqlstr(v):          # sql-layer String {m_ptr,m_length}; falls back to LEX_CSTRING / char*
+    try:
+        p = v["m_ptr"]
+        if as_int(p) == 0: return ""
+        n = as_int(v["m_length"]) or 0
+        if n <= 0: return ""
+        return p.string(length=min(n, 1<<20), errors="replace")
+    except Exception:
+        pass
+    try:
+        if "str" in [f.name for f in v.type.strip_typedefs().fields()]:
+            return lexcstr(v)
+    except Exception:
+        pass
+    try:
+        return cstr(v, 512)
+    except Exception:
+        return ""
+
 # fld(p, name): the field `name` of the struct `p` points at, read at its offset. Subscripting a
 # pointer to THD (`thd["m_thread_id"]`) costs ~0.75s *every time* on a release mysqld — gdb
 # materialises the whole 14 KB polymorphic object for each access — which made a 15-session
@@ -104,6 +123,21 @@ def fld(p, name):
     if r is None:
         raise gdb.error("no field %s in %s" % (name, key[0]))
     return gdb.Value(int(p) + r[0]).cast(r[1].pointer()).dereference()
+
+# The error state of a Diagnostics_area. enum_diagnostics_status is DA_EMPTY, DA_OK, DA_EOF,
+# DA_ERROR, DA_DISABLED; only DA_ERROR carries a meaningful errno/message. Resolve the enumerator
+# once (by name, so a renumbering across versions can't fool us), and fall back to its name.
+_DA_ERR = None
+def _da_is_error(v):
+    global _DA_ERR
+    if _DA_ERR is None:
+        try: _DA_ERR = as_int(gdb.parse_and_eval("Diagnostics_area::DA_ERROR"))
+        except Exception: _DA_ERR = -1
+    try:
+        if _DA_ERR >= 0: return as_int(v) == _DA_ERR
+    except Exception: pass
+    try: return "ERROR" in str(v)
+    except Exception: return False
 
 CHARP = None
 def charp():
@@ -303,6 +337,40 @@ def sessions():
                     r["state"] = cstr(pi, 128) if as_int(pi) else ""
                 except Exception: r["state"] = ""
                 try: r["killed"] = as_int(atom_i(fld(thd, "killed"))) not in (0, None)
+                except Exception: pass
+                # Who — the authenticated account and peer, from the security context.
+                try:
+                    sec = fld(thd, "m_security_ctx")
+                    if as_int(sec):
+                        u = sqlstr(fld(sec, "m_user"));  h = sqlstr(fld(sec, "m_host")); ip = sqlstr(fld(sec, "m_ip"))
+                        if u:  r["user"] = u
+                        if h:  r["host"] = h
+                        if ip: r["ip"] = ip
+                except Exception: pass
+                # When this command began, and its query id.
+                try:
+                    secs = as_int(fld(thd, "start_time")["tv_sec"])
+                    if secs: r["startTime"] = secs
+                except Exception: pass
+                try:
+                    q = as_int(atom_i(fld(thd, "query_id")))
+                    if q: r["queryId"] = q
+                except Exception: pass
+                try:
+                    ss = as_int(fld(thd, "server_status"))
+                    if ss is not None and (ss & 1): r["inTrans"] = True   # SERVER_STATUS_IN_TRANS
+                except Exception: pass
+                # The diagnostics area: the last error this session had raised, if it was in an error
+                # state when the core was taken.
+                try:
+                    da = fld(thd, "m_stmt_da")
+                    if as_int(da) and _da_is_error(fld(da, "m_status")):
+                        en = as_int(fld(da, "m_mysql_errno"))
+                        if en: r["lastErrno"] = en
+                        msg = cstr(fld(da, "m_message_text"), 512)
+                        if msg: r["lastError"] = msg
+                        ss = cstr(fld(da, "m_returned_sqlstate"), 8)
+                        if ss and ss != "00000": r["sqlState"] = ss
                 except Exception: pass
                 g = TMAP.get(tid)
                 if g is not None: r["gdbThread"] = g

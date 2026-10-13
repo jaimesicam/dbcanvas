@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '../components/Icons.jsx'
 import { Button, Badge, Card, inputCls } from '../components/ui.jsx'
 import { Panel, PanelMaximize, EventLog } from '../components/DebugPanel.jsx'
@@ -7,6 +7,7 @@ import {
   gdbTargetKey, shortFunc, libraryOf, sourceOf, isSystemFrame, formatBytes,
   canExpand, valueSummary, groupThreadStacks, threadStacksAsText,
   isIdleSession, LOG_PRIO, wsrepTone, formatStarted, lsnGap,
+  accountOf, crashTimeRef, formatAge, serverVerdict,
 } from '../lib/gdbApi.js'
 import { useHandoff } from '../lib/handoff.js'
 import { useRefresh } from '../lib/useRefresh.jsx'
@@ -490,6 +491,53 @@ export function ViewTabs({ view, onView, hasServer }) {
   )
 }
 
+// VERDICT_SKIN drives the band's border/background/accent off the verdict tone, so a partitioned
+// node reads red the moment the tab opens and a clean crash reads neutral — the colour is the first
+// thing seen, before any number.
+const VERDICT_SKIN = {
+  accent:  { box: 'border-accent/30 bg-accent/10', dot: 'bg-accent', head: 'text-fg' },
+  warning: { box: 'border-[color:var(--status-warn)]/40 bg-[color:var(--status-warn)]/10', dot: 'bg-[color:var(--status-warn)]', head: 'text-[color:var(--status-warn)]' },
+  danger:  { box: 'border-[color:var(--status-crit)]/40 bg-[color:var(--status-crit)]/10', dot: 'bg-[color:var(--status-crit)]', head: 'text-[color:var(--status-crit)]' },
+  muted:   { box: 'border bg-surface2/50', dot: 'bg-muted/50', head: 'text-fg' },
+}
+const CHIP_CLS = {
+  accent:  'border-accent/30 text-accent',
+  warning: 'border-[color:var(--status-warn)]/40 text-[color:var(--status-warn)]',
+  danger:  'border-[color:var(--status-crit)]/40 text-[color:var(--status-crit)]',
+  muted:   'border-muted/30 text-muted',
+}
+
+// ServerVerdictBand is the one line that reads the whole tab for you. It states the shape the server
+// was in — a lock pile-up, a partitioned PXC node, a genuine crash, or a quiet idle process — with a
+// colour that matches, and a row of supporting chips (running / in-error / killed / history). It is
+// the Server-state answer to the Stack tab's crash banner, and it turns "read five panels to find
+// the story" into "read one line, then drill".
+export function ServerVerdictBand({ verdict }) {
+  if (!verdict) return null
+  const skin = VERDICT_SKIN[verdict.tone] || VERDICT_SKIN.muted
+  return (
+    <div className={`rounded-lg border px-3 py-2 ${skin.box}`}>
+      <div className="flex items-start gap-2">
+        <span className={`mt-1.5 inline-block h-2 w-2 shrink-0 rounded-full ${skin.dot}`} />
+        <div className="min-w-0 flex-1">
+          <p className={`text-sm font-medium ${skin.head}`}>{verdict.headline}</p>
+          {verdict.why && <p className="mt-0.5 text-[11px] leading-snug text-muted">{verdict.why}</p>}
+          {verdict.chips?.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {verdict.chips.map((c, i) => (
+                <span key={i} className={`inline-flex items-baseline gap-1 rounded-full border px-2 py-0.5 text-[11px] ${CHIP_CLS[c.tone] || CHIP_CLS.muted}`}>
+                  <span className="font-medium">{c.label}</span>
+                  {c.sub && <span className="font-mono opacity-70">{c.sub}</span>}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // StatTile is one headline number of the server's state — binlog position, history length, uptime.
 function StatTile({ label, value, sub, tone = 'muted' }) {
   return (
@@ -537,9 +585,13 @@ export function ServerStateView({ state, busy, data, error, onThread }) {
   const gap = lsnGap(data.innodb)
   const binlog = data.binlog
   const running = (data.sessions || []).filter((s) => !isIdleSession(s))
+  const verdict = serverVerdict(data, state)
+  const crashRef = crashTimeRef(data)
 
   return (
     <div className="flex min-h-0 flex-col gap-3 overflow-y-auto pr-1">
+      <ServerVerdictBand verdict={verdict} />
+
       {/* headline tiles */}
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
         <StatTile label="Server" value={data.meta?.version} sub={started ? `started ${started}` : (data.meta?.product === 'pxc' ? 'Percona XtraDB Cluster' : 'Percona Server')} />
@@ -552,7 +604,7 @@ export function ServerStateView({ state, busy, data, error, onThread }) {
 
       {data.wsrep && <WsrepCard w={data.wsrep} />}
       <LockWaits innodb={data.innodb} sessions={data.sessions || []} onThread={onThread} />
-      <Processlist sessions={data.sessions || []} onThread={onThread} />
+      <Sessions sessions={data.sessions || []} crashRef={crashRef} onThread={onThread} />
       <ErrorLogView events={data.errorLog || []} />
 
       {data.notes?.length > 0 && (
@@ -668,15 +720,21 @@ function TrxChip({ t, role, query, onThread }) {
   )
 }
 
-// Processlist is SHOW PROCESSLIST reconstructed from the core. Idle (sleeping) connections are
-// dimmed so the handful that were running stand out; a running session whose stack we could locate
-// is clickable through to it.
-export function Processlist({ sessions, onThread }) {
+// Sessions is SHOW PROCESSLIST reconstructed from the core, but with the two things the live
+// processlist never carried onto a core before: the account each connection belongs to (user@host
+// from the THD's security context) and how long it had been on its current command. Idle (sleeping)
+// connections are dimmed so the handful that were running stand out; a running session whose stack
+// we located is clickable through to it; and any row expands into a drawer with the detail that only
+// exists per-session — the diagnostics area (the last error it raised), the full query, timing, and
+// whether it was mid-transaction. That drawer is the point: it is where "which connection was this,
+// and what had gone wrong with it" gets answered without leaving the tab.
+export function Sessions({ sessions, crashRef, onThread }) {
   const [showIdle, setShowIdle] = useState(false)
+  const [open, setOpen] = useState(null)
   const shown = showIdle ? sessions : sessions.filter((s) => !isIdleSession(s))
   const idleCount = sessions.length - sessions.filter((s) => !isIdleSession(s)).length
   return (
-    <Panel id="processlist" title={`Processlist (${sessions.length})`} className="shrink-0" bodyClass="p-0"
+    <Panel id="sessions" title={`Sessions (${sessions.length})`} className="shrink-0" bodyClass="p-0"
       action={idleCount > 0 && (
         <button className="text-xs text-muted hover:text-fg" onClick={() => setShowIdle((v) => !v)}>
           {showIdle ? 'hide' : 'show'} {idleCount} idle
@@ -685,32 +743,89 @@ export function Processlist({ sessions, onThread }) {
       <div className="overflow-x-auto">
         <table className="w-full text-left text-xs">
           <thead className="sticky top-0 bg-surface text-muted"><tr>
-            <th className="px-2 py-1.5 font-medium">Id</th><th className="pr-2 font-medium">Command</th>
-            <th className="pr-2 font-medium">DB</th><th className="pr-2 font-medium">State</th><th className="pr-2 font-medium">Query</th>
+            <th className="w-6" /><th className="px-2 py-1.5 font-medium">Id</th>
+            <th className="pr-2 font-medium">Account</th><th className="pr-2 font-medium">Command</th>
+            <th className="pr-2 font-medium">DB</th><th className="pr-2 font-medium">Age</th>
+            <th className="pr-2 font-medium">State</th><th className="pr-2 font-medium">Query</th>
           </tr></thead>
           <tbody>
-            {shown.length === 0 && <tr><td colSpan={5} className="px-2 py-3 text-muted">No sessions.</td></tr>}
+            {shown.length === 0 && <tr><td colSpan={8} className="px-2 py-3 text-muted">No sessions.</td></tr>}
             {shown.map((s, i) => {
               const idle = isIdleSession(s)
+              const isOpen = open === i
+              const account = accountOf(s)
+              const age = crashRef && s.startTime ? formatAge(crashRef - s.startTime) : ''
+              const hasDetail = account || s.lastErrno || s.query || s.startTime || s.queryId || s.inTrans
               return (
-                <tr key={i} className={`border-t ${idle ? 'opacity-55' : ''}`}>
-                  <td className="px-2 py-1 font-mono">
-                    {s.gdbThread
-                      ? <button className="text-accent hover:underline" title="Open this session's stack" onClick={() => onThread?.(s.gdbThread)}>{s.threadId}</button>
-                      : (s.threadId ?? '')}
-                    {s.killed && <span className="ml-1 text-[color:var(--status-crit)]" title="killed">✕</span>}
-                  </td>
-                  <td className="pr-2">{s.command}</td>
-                  <td className="pr-2 font-mono text-muted">{s.db}</td>
-                  <td className="pr-2 text-muted">{s.state}</td>
-                  <td className="max-w-[1px] truncate pr-2 font-mono" title={s.query}>{s.query}</td>
-                </tr>
+                <Fragment key={i}>
+                  <tr
+                    className={`border-t ${idle ? 'opacity-55' : ''} ${hasDetail ? 'cursor-pointer hover:bg-surface2/60' : ''} ${isOpen ? 'bg-surface2/60' : ''}`}
+                    onClick={hasDetail ? () => setOpen(isOpen ? null : i) : undefined}>
+                    <td className="pl-2 text-muted">{hasDetail && <Icon.Chevron size={12} className={`transition-transform ${isOpen ? 'rotate-90' : ''}`} />}</td>
+                    <td className="px-2 py-1 font-mono">
+                      {s.gdbThread
+                        ? <button className="text-accent hover:underline" title="Open this session's stack" onClick={(e) => { e.stopPropagation(); onThread?.(s.gdbThread) }}>{s.threadId}</button>
+                        : (s.threadId ?? '')}
+                      {s.killed && <span className="ml-1 text-[color:var(--status-crit)]" title="killed">✕</span>}
+                    </td>
+                    <td className="max-w-[12rem] truncate pr-2 font-mono text-muted" title={account}>{account || '—'}</td>
+                    <td className="pr-2">{s.command}{s.lastErrno ? <span className="ml-1 text-[color:var(--status-warn)]" title={`error ${s.lastErrno}`}>!</span> : null}</td>
+                    <td className="pr-2 font-mono text-muted">{s.db}</td>
+                    <td className="whitespace-nowrap pr-2 font-mono text-muted">{age}</td>
+                    <td className="pr-2 text-muted">{s.state}</td>
+                    <td className="max-w-[1px] truncate pr-2 font-mono" title={s.query}>{s.query}</td>
+                  </tr>
+                  {isOpen && <tr className="border-t bg-surface2/40"><td /><td colSpan={7} className="px-2 py-2"><SessionDetail s={s} account={account} age={age} onThread={onThread} /></td></tr>}
+                </Fragment>
               )
             })}
           </tbody>
         </table>
       </div>
     </Panel>
+  )
+}
+
+// SessionDetail is the drawer under a session row: everything about the connection that does not fit
+// a table cell. The diagnostics area comes first when there is one, because a session that was
+// sitting on an error is usually the one worth reading; then the account and timing, then the query
+// in full.
+function SessionDetail({ s, account, age, onThread }) {
+  return (
+    <div className="space-y-2">
+      {s.lastErrno != null && (
+        <div className="rounded border border-[color:var(--status-warn)]/40 bg-[color:var(--status-warn)]/5 p-2">
+          <div className="text-[10px] uppercase tracking-wide text-[color:var(--status-warn)]">Last error raised</div>
+          <div className="mt-0.5 font-mono text-xs text-fg">
+            <span className="text-[color:var(--status-warn)]">ERROR {s.lastErrno}{s.sqlState ? ` (${s.sqlState})` : ''}</span>
+            {s.lastError ? `: ${s.lastError}` : ''}
+          </div>
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1 md:grid-cols-4">
+        <Field label="Account" value={account} mono className="col-span-2" />
+        <Field label="Connection id" value={s.threadId != null ? String(s.threadId) : ''} mono />
+        <Field label="Query id" value={s.queryId != null ? String(s.queryId) : ''} mono />
+        <Field label="Command" value={s.command} />
+        <Field label="State" value={s.state} />
+        <Field label="Running for" value={age} />
+        <Field label="In transaction" value={s.inTrans ? 'yes' : (s.command ? 'no' : '')} />
+        {s.startTime ? <Field label="Command started" value={formatStarted(s.startTime)} className="col-span-2" /> : null}
+        <Field label="Database" value={s.db} mono />
+        <Field label="Killed" value={s.killed ? 'yes' : 'no'} />
+      </div>
+      {s.query && (
+        <div>
+          <div className="text-[10px] uppercase tracking-wide text-muted">Query</div>
+          <pre className="mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-surface2 p-2 font-mono text-[11px] text-fg">{s.query}</pre>
+        </div>
+      )}
+      {s.gdbThread && (
+        <button className="inline-flex items-center gap-1 text-xs text-accent hover:underline" onClick={() => onThread?.(s.gdbThread)}>
+          <Icon.Nodes size={12} /> Open this session's stack
+        </button>
+      )}
+    </div>
   )
 }
 
