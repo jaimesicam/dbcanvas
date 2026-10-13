@@ -191,9 +191,37 @@ yourself.
 
 ## What's new
 
-### 0.0.18
+### 0.0.19
 
 <details open>
+<summary><b>Server state from a core dump</b></summary>
+
+The Core Dump Analyzer's new **Server state** tab reads what the server was *doing* out of the core, not just
+where it faulted: the processlist with each session's query, the InnoDB transactions and the lock-wait graph of
+who was blocked by whom, the binlog position, the error-log ring, and — on Percona XtraDB Cluster — the node's
+own view of cluster membership. One gdb pass over the dump, cached after the first read.
+[Core Dump Analyzer →](docs/CORE_DUMP_ANALYZER.md)
+</details>
+
+<details>
+<summary><b>The gdb behind every Server-state section</b></summary>
+
+Each Server-state section carries a collapsed, copyable **gdb** block — the exact commands it was read with — so
+you can reproduce any of it by hand against the same core.
+</details>
+
+<details>
+<summary><b>A verdict band, de-noised stacks, and who was waiting on whom</b></summary>
+
+The stack view names the crash class in a verdict band, folds repeating recursion and runs of library frames
+with **jump to culprit / next own frame**, reads a stack-exhaustion crash for what it is rather than a null
+pointer, and — once the Server state is read — tells a blocked thread which thread held the lock it was waiting
+on. See [Core Dump Analyzer](docs/CORE_DUMP_ANALYZER.md).
+</details>
+
+### 0.0.18
+
+<details>
 <summary><b>Terminals and file managers stay on top</b></summary>
 
 Terminal windows, the terminal dock, the **File Manager** and the **Bucket File Manager** now stay in front of
