@@ -6,7 +6,7 @@ import {
   gdbApi, gdbNodeApi, openGDBSession, GDB_STATUS_TONE, GDB_STATUS_TEXT,
   gdbTargetKey, shortFunc, libraryOf, sourceOf, isSystemFrame, formatBytes,
   canExpand, valueSummary, groupThreadStacks, threadStacksAsText,
-  isIdleSession, LOG_PRIO, wsrepTone, formatUptime, lsnGap,
+  isIdleSession, LOG_PRIO, wsrepTone, formatStarted, lsnGap,
 } from '../lib/gdbApi.js'
 import { useHandoff } from '../lib/handoff.js'
 import { useRefresh } from '../lib/useRefresh.jsx'
@@ -228,16 +228,23 @@ export default function CoreDumpAnalyzer() {
 
   // The server's own state, read from the core by one gdb pass — fetched the first time the Server
   // tab is opened on a given core, then cached (a core file does not change). Reset per core.
-  useEffect(() => { setServerState(null); setServerErr('') }, [state?.core])
+  //
+  // The request belongs to the core, not to the tab: switching to Stack mid-read, or the status
+  // blipping while a backtrace runs, must not drop the answer — that left the tab stuck on
+  // "reading" and sent a second full read to queue behind the first. serverReq holds the core a
+  // read is in flight for; an answer is kept only if that is still the open core.
+  const serverReq = useRef('')
+  useEffect(() => { setServerState(null); setServerErr(''); setServerBusy(false); serverReq.current = '' }, [state?.core])
   useEffect(() => {
-    if (view !== 'server' || status !== 'ready' || serverState || serverErr) return undefined
-    let live = true
+    const core = state?.core
+    if (view !== 'server' || status !== 'ready' || serverState || serverErr || !core) return
+    if (serverReq.current === core) return
+    serverReq.current = core
     setServerBusy(true)
     sessionRef.current?.call({ cmd: 'serverstate' })
-      .then((r) => { if (live) setServerState(r.serverState || {}) })
-      .catch((e) => { if (live) setServerErr(e.message) })
-      .finally(() => { if (live) setServerBusy(false) })
-    return () => { live = false }
+      .then((r) => { if (serverReq.current === core) setServerState(r.serverState || {}) })
+      .catch((e) => { if (serverReq.current === core) setServerErr(e.message) })
+      .finally(() => { if (serverReq.current === core) { serverReq.current = ''; setServerBusy(false) } })
   }, [view, status, state?.core, serverState, serverErr]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Clicking a session or a transaction's thread opens that thread's stack: switch to the Stack
@@ -526,8 +533,7 @@ export function ServerStateView({ state, busy, data, error, onThread }) {
     )
   }
 
-  const asOf = data.errorLog?.length ? Math.floor((data.errorLog[data.errorLog.length - 1].ts || 0) / 1e6) : 0
-  const uptime = formatUptime(data.meta?.startTime, asOf)
+  const started = formatStarted(data.meta?.startTime)
   const gap = lsnGap(data.innodb)
   const binlog = data.binlog
   const running = (data.sessions || []).filter((s) => !isIdleSession(s))
@@ -536,7 +542,7 @@ export function ServerStateView({ state, busy, data, error, onThread }) {
     <div className="flex min-h-0 flex-col gap-3 overflow-y-auto pr-1">
       {/* headline tiles */}
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-        <StatTile label="Server" value={data.meta?.version} sub={uptime ? `up ${uptime} at crash` : (data.meta?.product === 'pxc' ? 'Percona XtraDB Cluster' : 'Percona Server')} />
+        <StatTile label="Server" value={data.meta?.version} sub={started ? `started ${started}` : (data.meta?.product === 'pxc' ? 'Percona XtraDB Cluster' : 'Percona Server')} />
         <StatTile label="Sessions" value={`${(data.sessions || []).length}`} sub={`${running.length} running, ${(data.sessions || []).length - running.length} idle`} />
         {binlog ? <StatTile label="Binlog" value={binlog.file?.replace(/^\.\//, '')} sub={binlog.position != null ? `position ${binlog.position.toLocaleString()}` : ''} />
           : <StatTile label="Binlog" value="off" />}

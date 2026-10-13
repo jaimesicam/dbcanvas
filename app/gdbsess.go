@@ -123,6 +123,9 @@ type gdbSession struct {
 	// read from the core by gdbserver.go, cached because a dead process does not change. Cleared
 	// when a different core is opened, the same as the verdict.
 	srvState *gdbServerState
+	// srvBusy is closed when the server-state read in flight finishes (nil when none is). A second
+	// caller waits on it rather than start another full read behind the first in gdb's queue.
+	srvBusy chan struct{}
 	// Where source lives on this node, resolved once when the core is opened, and the answers
 	// already worked out for the paths the debug information records. Both are per-core: a
 	// different core can be a different build with a different tree unpacked next to it.

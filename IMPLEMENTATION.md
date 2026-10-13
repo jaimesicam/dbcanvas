@@ -26737,7 +26737,7 @@ tool. Every section matched the ground truth recorded just before the crash:
 ### The UX
 
 A **Server state** tab beside **Stack** (once a core is open), because the two answer different
-questions and each wants the whole width. Headline tiles (version/uptime, sessions, binlog,
+questions and each wants the whole width. Headline tiles (version/start time, sessions, binlog,
 InnoDB history + redo gap); the lock-wait graph drawn as *waiter → blocked by → holder* with each
 one's SQL; the processlist with idle connections dimmed and running ones **clickable through to
 their own stack** — the extractor maps each running `THD` to its gdb thread via that thread's
@@ -26748,3 +26748,49 @@ against captured PS and PXC output, including the no-line case.
 
 The two cores it was built against are kept under `GDB_MOUNT_ROOT` (`/srv/coredumps`) with a PS and
 a PXC analysis node already pointed at them, so the page can be opened and reviewed directly.
+
+## 430. Server state, in seconds rather than minutes — `app/gdbserver_extract.py`, `app/gdbserver.go`, `app/gdbsess.go`, `app/web/src/pages/CoreDumpAnalyzer.jsx`, `app/web/src/lib/gdbApi.js`, `docs/CORE_DUMP_ANALYZER.md`
+
+429 shipped with the read proven but slow, and the last timing breakdown landed after the session
+ended: **~145 seconds** past gdb's own load (processlist 85s, thread map 25s against a 20s budget it
+always hit, InnoDB 16s, error log 13s). Timing every field access showed it was not warm-up:
+
+- **`thd["field"]` costs ~0.75s every time** on a release `mysqld` — gdb materialises the whole
+  14 KB polymorphic `THD` for each subscript through a pointer — 15 sessions × 6 fields = 85s.
+  `fld(p, name)` resolves each field's offset once from the type (base classes included, cached
+  per type/field) and reads only that field: ~1ms. Used for every `THD` and `trx_t` access.
+- **`current_thd` per thread costs ~0.7s** — gdb resolves TLS through libthread_db each time, and
+  reading `$fs_base` instead still builds a frame per thread (~0.5s). `current_thd` is static TLS
+  in `mysqld`, so it sits at one fixed distance from the thread pointer on every thread: resolve
+  `&current_thd` once on the selected thread, take its distance from that thread's `fs_base`, and
+  read every other thread at `fs_base + distance`, with each thread's `fs_base` parsed straight out
+  of the core's `NT_PRSTATUS` notes (keyed by LWP = `ptid[1]`). 62 threads: 34s → under 1ms, the
+  same 25 threads found as the slow way, and **every running session is now clickable** (the
+  budget used to cut it off, so the lock waiters had no stack link). The per-thread loop stays as
+  the fallback for non-x86-64 cores.
+- What is left is one-time: the first `mysql_bin_log` lookup (5s) and the first
+  `ring_buffer_read` (9.5s) each expand that file's DWARF; repeats are milliseconds.
+
+Live: **~30s** for a single read, 46–50s with both cores read at once on this box.
+
+Driving it in the browser turned up three more:
+
+- **A read could get stuck "reading" for good.** The fetch effect's lifetime was the tab and the
+  status, so switching to Stack mid-read — or the status changing while a backtrace ran — dropped
+  the answer and left `serverBusy` on, and coming back sent a second full read to queue behind the
+  first in gdb (a 10-minute hang when it stacked up). The request now belongs to the *core*
+  (`serverReq`), and the server keeps one read in flight per session (`srvBusy`): a second caller
+  waits for it rather than starting another, and a read that outlives a core switch is not cached
+  for the new core. Checked live: switch to Stack 4s in, come back, one read, done.
+- **The error log kept the oldest 300 events** — and dropped exactly the ones before the crash
+  (the PXC core showed its first 300 of 383 and stopped mid-SST). It now steps through the ring's
+  headers with one raw read each and decodes only the newest 300, with a note saying so.
+- **"up 1s at crash"** on PXC (and no uptime at all on PS) — "now" was the last error-log row,
+  which was the 300-row cap on PXC and "ready for connections" on PS, where nothing is logged
+  between start and crash. The core file's mtime would have been right here but a plain copy resets
+  it, so the tile shows what the core does record — the start time — and claims no uptime.
+
+Not touched, worth knowing: a thread's **first** backtrace with arguments costs 14–40s (the DWARF
+for the files in those frames; repeats 4–6s), so the click-through to a session's stack waits on
+that the first time. That is the Stack view's existing cost, not this read's.
+

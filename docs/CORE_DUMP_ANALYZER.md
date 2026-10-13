@@ -267,8 +267,11 @@ structures the running server reads for `SHOW PROCESSLIST`, `SHOW ENGINE INNODB 
 (next to **Stack**, once a core is open) reads them.
 
 It is one gdb pass over the whole process — read once, the first time the tab is opened on a core,
-then cached, because a dead process does not change. The headline tiles are the server version and
-how long it had been up at the crash, the session count (running vs. idle), the binlog file and
+then cached, because a dead process does not change (about 30–50 seconds the first time on the 8.4
+cores it was built against, most of it gdb loading the debug information the read touches; leaving
+the tab while it runs does not lose it). The headline tiles are the server version and when it
+started — not an uptime, because nothing in a core reliably records the moment of the crash — the
+session count (running vs. idle), the binlog file and
 position, and InnoDB's history-list length with the redo it had written since the last checkpoint
 (a large gap is a long crash-recovery ahead). Below them:
 
@@ -286,7 +289,9 @@ position, and InnoDB's history-list length with the redo it had written since th
   that thread's `current_thd`, which is the one reliable bridge between a MySQL connection id and an
   OS thread. (An idle connection has no `current_thd`, and no stack worth jumping to.)
 - **The error log** — `performance_schema.error_log` read straight out of its ring buffer, newest
-  last, coloured by priority. On a real crash the last lines are usually the crash handler's own.
+  last, coloured by priority — the newest 300 when the buffer holds more, since the lines just
+  before the crash are the ones that matter. On a real crash the last lines are usually the crash
+  handler's own.
 
 ### Percona XtraDB Cluster adds the one thing a plain-MySQL core cannot have
 

@@ -208,19 +208,13 @@ export function formatBytes(n) {
   return `${v >= 100 || i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`
 }
 
-// formatUptime renders "how long had the server been up" from its start_time (unix seconds) read
-// out of the core, against the core's own newest clock we have — the latest error-log timestamp —
-// rather than now, because the core is from whenever it crashed, not from when you are reading it.
-export function formatUptime(startSec, asOfSec) {
-  if (!startSec || !asOfSec || asOfSec <= startSec) return ''
-  let s = asOfSec - startSec
-  const d = Math.floor(s / 86400); s -= d * 86400
-  const h = Math.floor(s / 3600); s -= h * 3600
-  const m = Math.floor(s / 60)
-  if (d) return `${d}d ${h}h`
-  if (h) return `${h}h ${m}m`
-  if (m) return `${m}m`
-  return `${s}s`
+// formatStarted renders when the server started, from its start_time (unix seconds) read out of the
+// core. Not an uptime: that needs the moment of the crash, and nothing in the core records it
+// reliably — the newest error-log line can be minutes older (a quiet server logs nothing between
+// "ready for connections" and the crash), and the core file's mtime is reset by a plain copy.
+export function formatStarted(startSec) {
+  if (!startSec) return ''
+  return new Date(startSec * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
 }
 
 // lsnGap is the distance between the flushed LSN and the last checkpoint: the redo the server would

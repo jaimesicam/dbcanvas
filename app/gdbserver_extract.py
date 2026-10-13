@@ -8,7 +8,7 @@
 # cannot be read records a note and the rest still comes back.
 #
 # The keys are camelCase to match the Go structs in gdbserver.go and the JS that renders them.
-import gdb, json, time
+import gdb, json, re, struct, time
 
 # The live session runs with `set print pretty on` and print-object on (gdbStartScript), which make
 # gdb resolve dynamic types (RTTI/vtables) when it touches a value — slow on a polymorphic type like
@@ -78,6 +78,33 @@ def lexcstr(v):         # LEX_CSTRING {str,length}
     except Exception:
         return ""
 
+# fld(p, name): the field `name` of the struct `p` points at, read at its offset. Subscripting a
+# pointer to THD (`thd["m_thread_id"]`) costs ~0.75s *every time* on a release mysqld — gdb
+# materialises the whole 14 KB polymorphic object for each access — which made a 15-session
+# processlist take 85s. Resolving each field's offset once from the type (base classes included)
+# and reading just that field is ~1ms. Offsets are cached per (type, field).
+_OFFS = {}
+def _find(t, name):
+    t = t.strip_typedefs()
+    for f in t.fields():
+        if f.name == name and not f.is_base_class:
+            return f.bitpos // 8, f.type
+    for f in t.fields():
+        if f.is_base_class:
+            r = _find(f.type, name)
+            if r: return f.bitpos // 8 + r[0], r[1]
+    return None
+
+def fld(p, name):
+    t = p.type.strip_typedefs().target().strip_typedefs()
+    key = (str(t), name)
+    if key not in _OFFS:
+        _OFFS[key] = _find(t, name)
+    r = _OFFS[key]
+    if r is None:
+        raise gdb.error("no field %s in %s" % (name, key[0]))
+    return gdb.Value(int(p) + r[0]).cast(r[1].pointer()).dereference()
+
 CHARP = None
 def charp():
     global CHARP
@@ -101,12 +128,95 @@ COMMANDS = {
 # maps the two for every session that was actually running — which is exactly the set the page
 # wants to be able to jump from. Idle (sleeping) connections have no current_thd and so no stack to
 # jump to anyway.
+def _core_fsbase():
+    # {LWP: fs_base} straight from the core's NT_PRSTATUS notes (x86-64 only; {} otherwise). fs_base
+    # is the thread pointer, and gdb would otherwise build a frame per thread to read it (~0.5s each).
+    out = {}
+    try:
+        m = re.search(r"Local core dump file:\s*`([^']+)'", gdb.execute("info files", to_string=True))
+        if not m: return out
+        with open(m.group(1), "rb") as f:
+            h = f.read(64)
+            if h[:4] != b"\x7fELF" or h[4] != 2 or struct.unpack_from("<H", h, 0x12)[0] != 62:
+                return out
+            phoff, = struct.unpack_from("<Q", h, 0x20)
+            phsz, phn = struct.unpack_from("<HH", h, 0x36)
+            f.seek(phoff); ph = f.read(phsz * phn)
+            for i in range(phn):
+                if struct.unpack_from("<I", ph, i*phsz)[0] != 4:      # PT_NOTE
+                    continue
+                off, = struct.unpack_from("<Q", ph, i*phsz + 8)
+                sz, = struct.unpack_from("<Q", ph, i*phsz + 32)
+                f.seek(off); d = f.read(sz); p = 0
+                while p + 12 <= len(d):
+                    nn, dn, ty = struct.unpack_from("<III", d, p); p += 12
+                    p += (nn + 3) & ~3; desc = d[p:p+dn]; p += (dn + 3) & ~3
+                    if ty == 1 and dn >= 112 + 27*8:                   # NT_PRSTATUS
+                        pid, = struct.unpack_from("<i", desc, 32)      # pr_pid
+                        out[pid], = struct.unpack_from("<Q", desc, 112 + 21*8)   # pr_reg.fs_base
+    except Exception:
+        return {}
+    return out
+
 def thread_map():
     m = {}
     try:
         inf = gdb.selected_inferior()
+        THDp = gdb.lookup_type("THD").pointer()
     except Exception:
         return m
+    # Fast path. current_thd is static TLS in mysqld, so on every thread it sits at the same offset
+    # from the thread pointer. gdb resolves a TLS variable through libthread_db at ~0.7s a thread
+    # (60 threads: ~45s), so resolve it once on the selected thread, take its distance from that
+    # thread's fs_base, and read every other thread's current_thd at fs_base + that distance.
+    fsm = _core_fsbase()
+    if fsm:
+        try:
+            cur = gdb.selected_thread()
+            delta = as_int(gdb.parse_and_eval("&current_thd")) - fsm[cur.ptid[1]]
+            for t in inf.threads():
+                fs = fsm.get(t.ptid[1])
+                if not fs: continue
+                try:
+                    p = struct.unpack("<Q", bytes(inf.read_memory(fs + delta, 8)))[0]
+                    if not p: continue
+                    tid = as_int(fld(gdb.Value(p).cast(THDp), "m_thread_id"))
+                    if tid is not None and tid not in m:
+                        m[tid] = t.num
+                except Exception:
+                    continue
+            return m
+        except Exception:
+            m = {}
+    # Slow path (not x86-64, or the core's notes unreadable): ask gdb per thread, bounded by a
+    # wall-clock budget. It is only the click-through convenience; the processlist does not need it.
+    saved = None
+    try: saved = gdb.selected_thread()
+    except Exception: pass
+    budget = time.time() + 20.0
+    try:
+        for t in inf.threads():
+            if time.time() > budget:
+                note("thread→stack map stopped at the time budget; some sessions are not clickable")
+                break
+            try:
+                t.switch()
+                thd = gdb.parse_and_eval("current_thd")
+                if as_int(thd) in (0, None):
+                    continue
+                tid = as_int(fld(thd, "m_thread_id"))
+                if tid is not None and tid not in m:
+                    m[tid] = t.num
+            except Exception:
+                continue
+    except Exception as e:
+        note("thread map: %s" % e)
+    finally:
+        try:
+            if saved is not None: saved.switch()
+        except Exception:
+            pass
+    return m
     saved = None
     try: saved = gdb.selected_thread()
     except Exception: pass
@@ -125,7 +235,7 @@ def thread_map():
                 thd = gdb.parse_and_eval("current_thd")
                 if as_int(thd) in (0, None):
                     continue
-                tid = as_int(thd["m_thread_id"])
+                tid = as_int(fld(thd, "m_thread_id"))
                 if tid is not None and tid not in m:
                     m[tid] = t.num
             except Exception:
@@ -179,20 +289,20 @@ def sessions():
                 seen += 1
                 r = {}
                 tid = None
-                try: tid = as_int(thd["m_thread_id"])
+                try: tid = as_int(fld(thd, "m_thread_id"))
                 except Exception: pass
                 if tid is not None: r["threadId"] = tid
                 try:
-                    c = as_int(thd["m_command"])
+                    c = as_int(fld(thd, "m_command"))
                     r["command"] = COMMANDS.get(c, str(c))
                 except Exception: pass
-                r["db"] = lexcstr(thd["m_db"])
-                r["query"] = lexcstr(thd["m_query_string"])
+                r["db"] = lexcstr(fld(thd, "m_db"))
+                r["query"] = lexcstr(fld(thd, "m_query_string"))
                 try:
-                    pi = thd["m_proc_info"]
+                    pi = fld(thd, "m_proc_info")
                     r["state"] = cstr(pi, 128) if as_int(pi) else ""
                 except Exception: r["state"] = ""
-                try: r["killed"] = as_int(atom_i(thd["killed"])) not in (0, None)
+                try: r["killed"] = as_int(atom_i(fld(thd, "killed"))) not in (0, None)
                 except Exception: pass
                 g = TMAP.get(tid)
                 if g is not None: r["gdbThread"] = g
@@ -217,31 +327,31 @@ def innodb():
         while as_int(cur) not in (0, None) and n < MAXTRX:
             t = cur
             row = {}
-            row["id"] = as_int(t["id"])
-            try: row["state"] = str(atom_i(t["state"])).replace("TRX_STATE_", "")
+            row["id"] = as_int(fld(t, "id"))
+            try: row["state"] = str(atom_i(fld(t, "state"))).replace("TRX_STATE_", "")
             except Exception: pass
-            try: row["rowsModified"] = as_int(t["undo_no"])
+            try: row["rowsModified"] = as_int(fld(t, "undo_no"))
             except Exception: pass
             tid = None
             try:
-                thd = t["mysql_thd"]
-                if as_int(thd): tid = as_int(thd["m_thread_id"])
+                thd = fld(t, "mysql_thd")
+                if as_int(thd): tid = as_int(fld(thd, "m_thread_id"))
             except Exception: pass
             if tid is not None:
                 row["threadId"] = tid
                 g = TMAP.get(tid)
                 if g is not None: row["gdbThread"] = g
             try:
-                op = t["op_info"]; row["op"] = cstr(op, 128) if as_int(op) else ""
+                op = fld(t, "op_info"); row["op"] = cstr(op, 128) if as_int(op) else ""
             except Exception: pass
-            try: row["waiting"] = as_int(atom_p(t["lock"]["wait_lock"])) not in (0, None)
+            try: row["waiting"] = as_int(atom_p(fld(t, "lock")["wait_lock"])) not in (0, None)
             except Exception: pass
             try:
-                bt = atom_p(t["lock"]["blocking_trx"])
-                if as_int(bt): row["blockedByTrx"] = as_int(bt["id"])
+                bt = atom_p(fld(t, "lock")["blocking_trx"])
+                if as_int(bt): row["blockedByTrx"] = as_int(fld(bt, "id"))
             except Exception: pass
             trx.append(row)
-            cur = t["trx_list"]["next"]
+            cur = fld(t, "trx_list")["next"]
             n += 1
     except Exception as e:
         note("innodb transactions: %s" % e)
@@ -278,15 +388,33 @@ def errorlog():
     try: start = as_int(ev("ring_buffer_start"))
     except Exception: pass
     end = (start + 5*1024*1024) if start else None
+    # Two passes. The ring is walked oldest-first from ring_buffer_read, and a crash wants the
+    # *newest* lines — the first version kept the oldest MAXLOG and dropped exactly the ones before
+    # the crash. So pass one only steps through the headers (one raw read of each event's length),
+    # and pass two decodes the last MAXLOG of them.
+    try:
+        lo, lt = _find(ET, "m_message_length")
+        lsz = lt.strip_typedefs().sizeof
+    except Exception as ex:
+        note("error log: %s" % ex); return rows
+    inf = gdb.selected_inferior()
+    addrs = []
     e = read
-    for _ in range(min(nev, MAXLOG) + 2):
+    for _ in range(min(nev, 200000) + 2):
         if not e: break
-        ep = gdb.Value(e).cast(ET.pointer())
-        try: mlen = as_int(ep["m_message_length"])
+        try: mlen = int.from_bytes(bytes(inf.read_memory(e + lo, lsz)), "little")
         except Exception: break
-        if mlen in (0, None) or mlen > 8192:
+        if mlen == 0 or mlen > 8192:
             if start and e != start: e = start; continue
             break
+        addrs.append((e, mlen))
+        if len(addrs) >= nev: break
+        e = e + ((hdr + mlen + 1 + 7) & ~7)
+        if end and e + hdr > end: e = start
+    if len(addrs) > MAXLOG:
+        note("error log: showing the newest %d of %d buffered events" % (MAXLOG, len(addrs)))
+    for e, mlen in addrs[-MAXLOG:]:
+        ep = gdb.Value(e).cast(ET.pointer())
         r = {}
         try: r["ts"] = as_int(ep["m_timestamp"])
         except Exception: pass
@@ -299,9 +427,6 @@ def errorlog():
         try: r["message"] = gdb.Value(e + hdr).cast(charp()).string(length=mlen, errors="replace")
         except Exception: r["message"] = ""
         rows.append(r)
-        if len(rows) >= MAXLOG: break
-        e = e + ((hdr + mlen + 1 + 7) & ~7)
-        if end and e + hdr > end: e = start
     return rows
 
 def wsrep():

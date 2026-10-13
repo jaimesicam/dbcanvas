@@ -2,11 +2,11 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
-	_ "embed"
 )
 
 // gdbserver.go — reading the server, not just the stack.
@@ -55,7 +55,7 @@ type gdbServerState struct {
 type gdbSrvMeta struct {
 	Product   string `json:"product"`
 	Version   string `json:"version,omitempty"`
-	StartTime int64  `json:"startTime,omitempty"` // unix seconds; uptime is now - this
+	StartTime int64  `json:"startTime,omitempty"` // unix seconds; shown as when the server started
 }
 
 // gdbSrvSession is one row of the processlist, reconstructed from a THD in the core.
@@ -73,10 +73,10 @@ type gdbSrvSession struct {
 }
 
 type gdbSrvInnoDB struct {
-	HistoryListLength *int64       `json:"historyListLength,omitempty"`
-	FlushedLSN        *int64       `json:"flushedLsn,omitempty"`
-	CheckpointLSN     *int64       `json:"checkpointLsn,omitempty"`
-	Transactions      []gdbSrvTrx  `json:"transactions,omitempty"`
+	HistoryListLength *int64      `json:"historyListLength,omitempty"`
+	FlushedLSN        *int64      `json:"flushedLsn,omitempty"`
+	CheckpointLSN     *int64      `json:"checkpointLsn,omitempty"`
+	Transactions      []gdbSrvTrx `json:"transactions,omitempty"`
 }
 
 // gdbSrvTrx is one active InnoDB transaction. BlockedByTrx and Waiting are what let the page draw
@@ -128,15 +128,45 @@ const gdbServerStateSentinel = "<<CDA_SERVERSTATE>>"
 // It is cached on the session: the walk is seconds of work and the answer does not change for a
 // dead process, so a second viewer, or the same viewer reopening the panel, pays nothing. Opening
 // a different core clears it (open() resets srvState), the same as the verdict.
+//
+// Only one read runs at a time: a page that asks again while the first is still going (it changed
+// tabs and came back, or a second viewer opened the panel) waits for that read instead of queueing
+// another minute of gdb work behind it.
 func (s *gdbSession) serverState(ctx context.Context) (*gdbServerState, error) {
-	s.mu.Lock()
-	if s.srvState != nil {
-		st := s.srvState
+	var (
+		done    chan struct{}
+		product string
+		cli     *miClient
+	)
+	for done == nil {
+		s.mu.Lock()
+		if s.srvState != nil {
+			st := s.srvState
+			s.mu.Unlock()
+			return st, nil
+		}
+		if w := s.srvBusy; w != nil {
+			s.mu.Unlock()
+			select {
+			case <-w:
+				continue // finished (or failed): take its answer, or run it ourselves
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		done = make(chan struct{})
+		s.srvBusy = done
+		product, cli = s.tgt.Product, s.cli
 		s.mu.Unlock()
-		return st, nil
 	}
-	product := s.tgt.Product
-	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		if s.srvBusy == done {
+			s.srvBusy = nil
+		}
+		s.mu.Unlock()
+		close(done)
+	}()
 	if product == "" {
 		product = "ps"
 	}
@@ -163,7 +193,10 @@ func (s *gdbSession) serverState(ctx context.Context) (*gdbServerState, error) {
 		return nil, err
 	}
 	s.mu.Lock()
-	s.srvState = st
+	// A core opened while this was reading is a different process; its answer is not this one.
+	if s.cli == cli {
+		s.srvState = st
+	}
 	s.mu.Unlock()
 	s.logf("info", "read server state: %d session(s), %d transaction(s), %d log event(s)",
 		len(st.Sessions), gdbTrxCount(st), len(st.ErrorLog))
