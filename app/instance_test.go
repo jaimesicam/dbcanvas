@@ -147,3 +147,25 @@ func TestReleaseTagRe(t *testing.T) {
 		}
 	}
 }
+
+// A k3s node's container is named by k3d, not by containerName: copying `docker exec` for one used
+// to hand over dbcanvas-12-k3s-…, a container that does not exist.
+func TestDeploymentContainerName(t *testing.T) {
+	withInstance(t, legacyInstance, func() {
+		for _, c := range []struct {
+			cfg, want string
+		}{
+			{``, "dbcanvas-12-n1"},
+			{`{"hostname":"mysql01"}`, "dbcanvas-12-n1"},
+			{`{"cluster":"pxc-00"}`, "dbcanvas-12-n1"}, // a database cluster member, not k3s
+			{`{"cluster":"k3d-00-s12","role":"agent","k3sVersion":"v1.31.5-k3s1","container":"k3d-k3d-00-s12-agent-1"}`, "k3d-k3d-00-s12-agent-1"},
+			{`{"cluster":"k3d-00-s12","role":"server","k3sVersion":"v1.31.5-k3s1"}`, "k3d-k3d-00-s12-server-0"},
+			{`{"cluster":"k3d-00-s12","role":"agent","k3sVersion":"v1.31.5-k3s1"}`, ""},
+		} {
+			d := Deployment{StackID: 12, NodeID: "n1", Config: []byte(c.cfg)}
+			if got := deploymentContainerName(d); got != c.want {
+				t.Errorf("config %s: got %q, want %q", c.cfg, got, c.want)
+			}
+		}
+	})
+}

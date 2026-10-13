@@ -516,6 +516,31 @@ export const Icon = {
       <path d="M5 15V5a2 2 0 0 1 2-2h8" />
     </Svg>
   ),
+  // Detach and dock, for the designer's panels (palette, Properties, Deployment). They were the
+  // Frame brackets — "fullscreen" to anyone, a few pixels under the window's own maximize, and
+  // the same picture both ways — and the palette's pair was External and an arrow. PopOut is an
+  // arrow out of the layout to a window of its own (the arrow is what keeps it from being Copy's
+  // two squares at 14px); DockIn is an arrow into the column the panel goes back to, on the side
+  // it goes back to (`side`, default right).
+  PopOut: (p) => (
+    <Svg {...p}>
+      <path d="M9 7H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" />
+      <rect x="12" y="3" width="9" height="8" rx="1.5" />
+      <path d="M6.5 17.5 11 13" />
+      <path d="M7.5 13H11v3.5" />
+    </Svg>
+  ),
+  DockIn: ({ side = 'right', ...p }) => (
+    <Svg {...p}>
+      <g transform={side === 'left' ? 'matrix(-1 0 0 1 24 0)' : undefined}>
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <path d="M15 4v16" />
+        <path d="M15 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4Z" fill="currentColor" fillOpacity="0.25" stroke="none" />
+        <path d="M6 12h6" />
+        <path d="M9.5 9.5 12 12l-2.5 2.5" />
+      </g>
+    </Svg>
+  ),
   External: (p) => (
     <Svg {...p}>
       <path d="M14 4h6v6" />

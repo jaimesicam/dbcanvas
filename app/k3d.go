@@ -120,6 +120,9 @@ type k3dConfig struct {
 	MemoryGB     int    `json:"memoryGb"`     // total memory for the cluster
 	DiskLimit    string `json:"diskLimit"`    // per-node disk ceiling, e.g. "read 50 MB/s · write 20 MB/s" ("" = unlimited)
 	MetalLBRange string `json:"metallbRange"` // the LoadBalancer address pool
+	// Container is the node's container, k3d-<cluster>-server-0 / -agent-N. k3d names it, so it
+	// is not the containerName every other node has (see deploymentContainerName).
+	Container string `json:"container,omitempty"`
 	// The cert-manager release installed on this cluster, or "" for none. Recorded rather than
 	// derived from the frame's checkbox: the checkbox is what was asked for, this is what is
 	// on the cluster — they differ when the install failed, and the panel should say which.
@@ -1139,6 +1142,7 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 			if i == 0 {
 				cfg.Role = "server"
 			}
+			cfg.Container = cname
 			cfg.Hostname = hosts[n.ID]
 			cfg.FQDN = fqdnOf(hosts[n.ID], domain)
 			cfg.Image = k3dNodeImage(ctx, a, cid)

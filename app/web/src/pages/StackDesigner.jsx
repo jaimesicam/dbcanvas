@@ -3056,9 +3056,10 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
 
   // copyExecCommand puts `docker exec -it <container> bash` on the clipboard and
   // flashes what happened — a menu item that copies silently gives the operator
-  // no way to tell a success from a browser that refused the clipboard.
+  // no way to tell a success from a browser that refused the clipboard. A k3s node
+  // (k3d names its containers k3d-…) is the rancher/k3s image, busybox with no bash.
   async function copyExecCommand(name) {
-    const cmd = `docker exec -it ${name} bash`
+    const cmd = `docker exec -it ${name} ${name.startsWith('k3d-') ? 'sh' : 'bash'}`
     setFlash(await copyText(cmd) ? { tone: 'ok', text: `Copied: ${cmd}` } : { tone: 'err', text: `Could not reach the clipboard. Command: ${cmd}` })
   }
 
@@ -4725,10 +4726,10 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
       </div>
     </div>
   )
-  const paletteHeader = (onToggle, dockLabel, dockIcon, onDrag) => (
+  const paletteHeader = (onToggle, dockHelp, dockIcon, onDrag) => (
     <div className={`flex shrink-0 items-center justify-between border-b px-2 py-1.5 ${onDrag ? 'cursor-move' : ''}`} onPointerDown={onDrag}>
       <span className="text-xs font-semibold">Infrastructure Library</span>
-      <button title={HELP.uiDockPanel} onClick={onToggle} className="text-muted hover:text-fg">{dockIcon}</button>
+      <button title={dockHelp} onClick={onToggle} className="text-muted hover:text-fg">{dockIcon}</button>
     </div>
   )
 
@@ -4875,7 +4876,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
         <div className="flex min-h-[240px] flex-1 gap-3">
         {libraryColumn && paletteDocked && (
           <div className="flex w-[200px] shrink-0 flex-col overflow-hidden rounded-xl border bg-surface">
-            {paletteHeader(() => setPaletteDocked(false), 'Undock (float)', <Icon.External size={14} />, null)}
+            {paletteHeader(() => setPaletteDocked(false), HELP.uiDetachPanel, <Icon.PopOut size={14} />, null)}
             {paletteBody}
           </div>
         )}
@@ -4935,7 +4936,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
               onPointerDown={(e) => e.stopPropagation()}
               onContextMenu={(e) => e.stopPropagation()}
               style={{ left: palettePos.x, top: palettePos.y, width: 210, height: 380, minWidth: 170, minHeight: 220, resize: 'both', overflow: 'hidden' }}>
-              {paletteHeader(() => setPaletteDocked(true), 'Dock left', <Icon.ArrowLeft size={14} />, (e) => { e.stopPropagation(); dragRef.current = { kind: 'palette', sx: e.clientX, sy: e.clientY, ox: palettePos.x, oy: palettePos.y } })}
+              {paletteHeader(() => setPaletteDocked(true), HELP.uiDockPanel, <Icon.DockIn side="left" size={14} />, (e) => { e.stopPropagation(); dragRef.current = { kind: 'palette', sx: e.clientX, sy: e.clientY, ox: palettePos.x, oy: palettePos.y } })}
               {paletteBody}
             </div>
           )}
@@ -5274,6 +5275,7 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
       </div>
 
       <StackProperties
+        host={deployHost}
         locked={locked}
         lockedBy={session.controllerName}
         selected={selected}
@@ -5440,7 +5442,7 @@ function loadDeployLayout() {
 // Properties column: `inline` renders it as an in-flow flex child of that column;
 // if Properties is detached it falls back to a fixed panel pinned to the right
 // edge bottom (`columnWidth` wide). Detached, it floats freely via a portal.
-function DeploymentConsole({ deployments, nodes, onMinimize, inline = false, columnWidth = 320 }) {
+function DeploymentConsole({ deployments, nodes, onMinimize, inline = false, columnWidth = 320, host = null }) {
   const [layout, setLayout] = useState(loadDeployLayout)
   const drag = useRef(null)
   useEffect(() => { try { localStorage.setItem(DEPLOY_KEY, JSON.stringify(layout)) } catch { /* */ } }, [layout])
@@ -5498,8 +5500,8 @@ function DeploymentConsole({ deployments, nodes, onMinimize, inline = false, col
             : <Badge tone="success">deployment complete</Badge>
         ) : null}
         <div className="ml-auto flex items-center gap-1">
-          <button title={detached ? 'Dock' : 'Detach'} onClick={() => setLayout((l) => ({ ...l, docked: !l.docked }))}
-            className="rounded p-1 text-muted hover:bg-surface hover:text-fg"><Icon.Frame size={14} /></button>
+          <button title={detached ? HELP.uiDockPanel : HELP.uiDetachPanel} onClick={() => setLayout((l) => ({ ...l, docked: !l.docked }))}
+            className="rounded p-1 text-muted hover:bg-surface hover:text-fg">{detached ? <Icon.DockIn size={14} /> : <Icon.PopOut size={14} />}</button>
           <button title="Minimize" onClick={onMinimize} className="rounded px-1.5 text-muted hover:bg-surface hover:text-fg">—</button>
         </div>
       </div>
@@ -5535,8 +5537,13 @@ function DeploymentConsole({ deployments, nodes, onMinimize, inline = false, col
   )
 
   // Inline docked → render in flow (the column positions it); otherwise (detached
-  // float, or docked-while-Properties-detached) it's fixed, so portal to <body>.
-  return inline && !detached ? node : createPortal(node, document.body)
+  // float, or docked-while-Properties-detached) it's fixed, so it is portalled out.
+  // Into the designer's window on the desktop (`host`), not <body>: the window layer
+  // stacks above z-40, so from <body> the console sat behind its own window — and
+  // behind it for good once that was maximized. Inside the window it rises and falls
+  // with it; position: fixed still places it against the viewport, since the window
+  // has no transform to become its containing block.
+  return inline && !detached ? node : createPortal(node, host || document.body)
 }
 
 // DeleteConfirmModal guards deletion of a *deployed* node or cluster, whose containers
@@ -14555,7 +14562,7 @@ function loadProps() {
   try { return JSON.parse(localStorage.getItem(PROPS_KEY) || '{}') } catch { return {} }
 }
 
-function StackProperties({ locked, lockedBy, selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, rebuildMongoCluster, live, deployOpen, deployments, onDeployMinimize }) {
+function StackProperties({ host, locked, lockedBy, selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, rebuildMongoCluster, live, deployOpen, deployments, onDeployMinimize }) {
   // The Live tab sits above whatever the node's own panel is, so every node type has it without
   // each manager growing a tab of its own. Shown while Live is on and the node has figures.
   const [propTab, setPropTab] = useState('node')
@@ -14596,8 +14603,8 @@ function StackProperties({ locked, lockedBy, selected, stackId, nodes, edges, fr
       style={move ? { cursor: 'move' } : undefined}
     >
       <h3 className="text-sm font-semibold">Properties</h3>
-      <button onClick={() => setDocked((d) => !d)} title={HELP.uiDockPanel} className="rounded p-1 text-muted hover:bg-surface2 hover:text-fg">
-        <Icon.Frame size={14} />
+      <button onClick={() => setDocked((d) => !d)} title={docked ? HELP.uiDetachPanel : HELP.uiDockPanel} className="rounded p-1 text-muted hover:bg-surface2 hover:text-fg">
+        {docked ? <Icon.PopOut size={14} /> : <Icon.DockIn size={14} />}
       </button>
     </div>
   )
@@ -14633,7 +14640,7 @@ function StackProperties({ locked, lockedBy, selected, stackId, nodes, edges, fr
 
   // Docked deployment console lives at the bottom of this column (under Properties).
   const deployConsole = deployOpen && (
-    <DeploymentConsole deployments={deployments} nodes={nodes} onMinimize={onDeployMinimize} inline columnWidth={width} />
+    <DeploymentConsole deployments={deployments} nodes={nodes} onMinimize={onDeployMinimize} inline columnWidth={width} host={host} />
   )
 
   if (docked) {
@@ -14668,12 +14675,13 @@ function StackProperties({ locked, lockedBy, selected, stackId, nodes, edges, fr
             <svg viewBox="0 0 10 10" className="h-full w-full"><path d="M9 1 L1 9 M9 5 L5 9" stroke="currentColor" fill="none" /></svg>
           </div>
         </div>,
-        document.body,
+        // Into the designer's window, not <body> — see DeploymentConsole.
+        host || document.body,
       )}
       {/* Properties is detached, so the docked console can't sit under it — pin it
           to the right-column bottom instead (handled by DeploymentConsole). */}
       {deployOpen && (
-        <DeploymentConsole deployments={deployments} nodes={nodes} onMinimize={onDeployMinimize} columnWidth={width} />
+        <DeploymentConsole deployments={deployments} nodes={nodes} onMinimize={onDeployMinimize} columnWidth={width} host={host} />
       )}
     </>
   )

@@ -650,8 +650,8 @@ type Deployment struct {
 	Config      json.RawMessage `json:"config,omitempty"`
 	Secrets     json.RawMessage `json:"secrets,omitempty"`
 	Progress    json.RawMessage `json:"progress,omitempty"`
-	// ContainerName is derived, not stored: containerName(StackID, NodeID), filled
-	// on the read paths so the UI can show/copy the `docker exec` command without
+	// ContainerName is derived, not stored: deploymentContainerName, filled on the
+	// read paths so the UI can show/copy the `docker exec` command without
 	// re-deriving the naming rule client-side. UpsertDeployment ignores it.
 	ContainerName string `json:"containerName,omitempty"`
 }
@@ -1021,7 +1021,7 @@ func (s *Store) ListDeployments(stackID int64) ([]Deployment, error) {
 		if prog.Valid {
 			d.Progress = json.RawMessage(prog.String)
 		}
-		d.ContainerName = containerName(d.StackID, d.NodeID)
+		d.ContainerName = deploymentContainerName(d)
 		out = append(out, d)
 	}
 	return out, rows.Err()
@@ -1052,7 +1052,7 @@ func (s *Store) GetDeployment(stackID int64, nodeID string) (Deployment, error) 
 	if prog.Valid {
 		d.Progress = json.RawMessage(prog.String)
 	}
-	d.ContainerName = containerName(d.StackID, d.NodeID)
+	d.ContainerName = deploymentContainerName(d)
 	return d, nil
 }
 
@@ -1251,4 +1251,31 @@ func nullRaw(r json.RawMessage) any {
 		return nil
 	}
 	return string(r)
+}
+
+// deploymentContainerName is the name of the container a deployment runs in.
+//
+// Every node DBCanvas creates is containerName(StackID, NodeID). A k3s node is not: k3d
+// creates it and names it k3d-<cluster>-server-0 / -agent-N (k3dNodeContainer), so the
+// generic name pointed `docker exec` at a container that does not exist. Its config says
+// which: Container since it was recorded, and before that the server can still be worked
+// out from the cluster. An agent from before then cannot — which agent it was is not in
+// its config — so it gets no name rather than a wrong one.
+func deploymentContainerName(d Deployment) string {
+	var k struct {
+		Container  string `json:"container"`
+		Cluster    string `json:"cluster"`
+		Role       string `json:"role"`
+		K3SVersion string `json:"k3sVersion"`
+	}
+	if len(d.Config) == 0 || json.Unmarshal(d.Config, &k) != nil || k.Cluster == "" || k.K3SVersion == "" {
+		return containerName(d.StackID, d.NodeID)
+	}
+	switch {
+	case k.Container != "":
+		return k.Container
+	case k.Role == "server":
+		return k3dNodeContainer(k.Cluster, 0)
+	}
+	return ""
 }
