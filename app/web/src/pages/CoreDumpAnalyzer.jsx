@@ -46,6 +46,14 @@ const FRAME_WINDOW = 200
 // was not read rather than waiting for something that is not coming.
 const FULL_WINDOW = 40
 
+// FOLD_MIN is how many consecutive library/system frames it takes to be worth collapsing into a
+// band — the libc/libstdc++ scaffolding a reader scrolls past to reach the frames that are theirs.
+// Two, because the common shapes are two frames: every idle worker tops out in
+// `__futex_abstimed_wait_common` + `pthread_cond_wait` before its own wait-wrapper, and every
+// thread bottoms out in `start_thread` + `clone3` — folding both makes the own frames the headline.
+// A lone system frame between two own frames (a run of one) is left inline; a band of one is silly.
+const FOLD_MIN = 2
+
 export default function CoreDumpAnalyzer() {
   const [targets, setTargets] = useState(null)
   const [key, setKey] = useState('')
@@ -1228,6 +1236,64 @@ export function Backtrace({
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }
+
+  // Readability controls — the whole point of the middle column on a real crash, where the three
+  // frames that are yours sit under forty of libc and libstdc++. `fold` collapses runs of library
+  // frames into one expandable band; `filter` narrows to frames whose function matches; the jump
+  // buttons move between the frames that matter without scrolling. Folding stands down in full mode
+  // (you asked to read every frame's state) and while filtering.
+  const [fold, setFold] = useState(true)
+  const [filter, setFilter] = useState('')
+  const [expanded, setExpanded] = useState(() => new Set())
+  const toggleBand = (key) => setExpanded((p) => { const n = new Set(p); n.has(key) ? n.delete(key) : n.add(key); return n })
+  const q = filter.trim().toLowerCase()
+  const filtering = q.length > 0
+  const folding = fold && !locals && !filtering
+
+  // The selected frame scrolls into view when selection moves (a jump, or following the culprit),
+  // which is a no-op for an ordinary click on a frame already on screen.
+  const selRef = useRef(null)
+  useEffect(() => { selRef.current?.scrollIntoView({ block: 'nearest' }) }, [selected])
+
+  const levelToIdx = (lvl) => frames.findIndex((f) => f.level === lvl)
+  const culpritIdx = state?.verdict?.culprit ? levelToIdx(state.verdict.culprit.level) : -1
+  const faultLvl = state?.verdict?.fault?.through?.frame
+  const faultIdx = faultLvl != null ? levelToIdx(faultLvl) : -1
+  const gotoOwn = (dir) => {
+    for (let i = (selected ?? -1) + dir; i >= 0 && i < frames.length; i += dir) {
+      if (!isSystemFrame(frames[i])) { onSelect(i); return }
+    }
+  }
+
+  // items folds the frame list for display: each entry is either a frame (with its real array
+  // index) or a collapsed band of consecutive library frames. The selected frame is never folded,
+  // so a jump or the culprit is always visible; runs shorter than FOLD_MIN are not worth a band.
+  const items = useMemo(() => {
+    const list = (filtering
+      ? frames.map((f, i) => ({ f, i })).filter(({ f }) => (f.func || '').toLowerCase().includes(q))
+      : frames.map((f, i) => ({ f, i })))
+    if (!folding) return list.map(({ f, i }) => ({ type: 'frame', f, i }))
+    const out = []
+    let run = []
+    const flush = () => {
+      if (!run.length) return
+      const key = `b${run[0].i}`
+      if (run.length >= FOLD_MIN && !expanded.has(key)) {
+        out.push({ type: 'band', key, run: run.slice() })
+      } else {
+        if (run.length >= FOLD_MIN) out.push({ type: 'bandHead', key, count: run.length })
+        run.forEach((x) => out.push({ type: 'frame', f: x.f, i: x.i }))
+      }
+      run = []
+    }
+    for (const { f, i } of list) {
+      if (!isSystemFrame(f) || i === selected) { flush(); out.push({ type: 'frame', f, i }) }
+      else run.push({ f, i })
+    }
+    flush()
+    return out
+  }, [frames, folding, filtering, q, expanded, selected])
+
   return (
     <Panel id="stack"
       title={all ? `Every thread${stacks ? ` (${stacks.length})` : ''}` : state?.core ? `Stack — thread ${state.thread}` : 'Stack'}
@@ -1276,11 +1342,67 @@ export function Backtrace({
         </p>
       ) : (
         <div className="font-mono text-[11px]">
-          {frames.map((f, i) => {
+          {/* readability toolbar: filter, fold, and jumps to the frames that matter */}
+          <div className="sticky top-0 z-10 flex flex-wrap items-center gap-x-3 gap-y-1 border-b bg-surface px-3 py-1.5 text-[10px]">
+            <div className="flex items-center gap-1">
+              <Icon.Search size={11} className="text-muted" />
+              <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="filter frames"
+                className="w-28 bg-transparent text-fg placeholder:text-muted/70 focus:outline-none" />
+              {filtering && <button onClick={() => setFilter('')} className="text-muted hover:text-fg" title="clear">✕</button>}
+            </div>
+            <button onClick={() => setFold((v) => !v)} disabled={locals || filtering}
+              title={locals ? 'full mode shows every frame' : filtering ? 'not while filtering' : 'collapse runs of library frames'}
+              className={`rounded border px-1.5 py-0.5 transition disabled:opacity-40 ${folding
+                ? 'border-primary/40 bg-primary/15 text-primary' : 'text-muted hover:bg-surface2 hover:text-fg'}`}>
+              fold library
+            </button>
+            <div className="ml-auto flex items-center gap-1 text-muted">
+              <span className="opacity-70">jump</span>
+              {culpritIdx >= 0 && <JumpBtn onClick={() => onSelect(culpritIdx)} active={selected === culpritIdx} title="the frame that is the bug">culprit</JumpBtn>}
+              {faultIdx >= 0 && faultIdx !== culpritIdx && <JumpBtn onClick={() => onSelect(faultIdx)} active={selected === faultIdx} title="the frame the faulting address came from">fault</JumpBtn>}
+              <JumpBtn onClick={() => gotoOwn(-1)} title="previous own-code frame">▲ own</JumpBtn>
+              <JumpBtn onClick={() => gotoOwn(1)} title="next own-code frame">▼ own</JumpBtn>
+            </div>
+          </div>
+
+          {filtering && (
+            <p className="border-b bg-surface2/40 px-3 py-1 text-[10px] text-muted">
+              {items.length} of {frames.length} frames matching “{filter.trim()}”
+            </p>
+          )}
+
+          {items.map((it) => {
+            if (it.type === 'band') {
+              const libs = [...new Set(it.run.map((x) => libraryOf(x.f.from)).filter(Boolean))]
+              const a = it.run[0].f.level, b = it.run[it.run.length - 1].f.level
+              return (
+                <button key={it.key} onClick={() => toggleBand(it.key)}
+                  className="flex w-full items-center gap-2 border-b bg-surface2/30 px-3 py-1 text-left text-muted hover:bg-surface2/60">
+                  <span className="w-10 shrink-0" />
+                  <Icon.Chevron size={11} className="shrink-0" />
+                  <span className="min-w-0 flex-1 truncate italic">
+                    {it.run.length} library frames
+                    {libs.length > 0 && <span className="not-italic opacity-70"> · {libs.slice(0, 3).join(', ')}</span>}
+                  </span>
+                  <span className="shrink-0 text-[10px] opacity-70">#{a}–#{b}</span>
+                </button>
+              )
+            }
+            if (it.type === 'bandHead') {
+              return (
+                <button key={it.key} onClick={() => toggleBand(it.key)}
+                  className="flex w-full items-center gap-2 border-b bg-surface2/30 px-3 py-0.5 text-left text-muted hover:bg-surface2/60">
+                  <span className="w-10 shrink-0" />
+                  <Icon.Chevron size={11} className="shrink-0 rotate-90" />
+                  <span className="flex-1 italic">{it.count} library frames — hide</span>
+                </button>
+              )
+            }
+            const { f, i } = it
             const sys = isSystemFrame(f)
             return (
               <div key={`${f.level}-${i}`}>
-                <button onClick={() => onSelect(i)}
+                <button ref={i === selected ? selRef : null} onClick={() => onSelect(i)}
                   className={`flex w-full items-baseline gap-2 border-b px-3 py-1 text-left ${
                     i === selected ? 'bg-primary/10' : 'hover:bg-surface2/60'}`}>
                   <span className="w-10 shrink-0 tabular-nums text-muted">#{f.level}</span>
@@ -1312,7 +1434,10 @@ export function Backtrace({
               </div>
             )
           })}
-          {more && (
+          {filtering && items.length === 0 && (
+            <p className="px-3 py-3 text-[10px] text-muted">No frame matches “{filter.trim()}”.</p>
+          )}
+          {more && !filtering && (
             <div className="p-2">
               <Button variant="outline" size="sm" disabled={!!busy} onClick={onMore}>
                 Load {FRAME_WINDOW} more frames
@@ -1322,6 +1447,18 @@ export function Backtrace({
         </div>
       )}
     </Panel>
+  )
+}
+
+// JumpBtn is one of the backtrace toolbar's navigation chips — jump to the culprit, the fault
+// frame, or the next/previous frame that belongs to the program rather than a system library.
+function JumpBtn({ onClick, title, active, children }) {
+  return (
+    <button onClick={onClick} title={title}
+      className={`rounded border px-1 py-0.5 transition ${active
+        ? 'border-primary/40 bg-primary/15 text-primary' : 'border-transparent hover:bg-surface2 hover:text-fg'}`}>
+      {children}
+    </button>
   )
 }
 

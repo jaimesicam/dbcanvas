@@ -26831,3 +26831,32 @@ taken — a snapshot of a healthy server"*. SSR `smoke` and `go vet`/`go build` 
 half of `make smoke` still hangs on this Chromium build, so the two cores were driven directly in
 headless Chromium instead.
 
+
+## 432. Core Dump Analyzer: reading a long backtrace — fold, filter, jump — `app/web/src/pages/CoreDumpAnalyzer.jsx`
+
+The Stack view was already advanced (crash verdict + culprit auto-focus, recursion collapsed to one
+row with the whole-stack count, siginfo fault address, threads labelled by what they were doing),
+but its own opening comment names the weakness it still had — *"sixty threads and four hundred frames
+scroll past in one go"* — and library noise was only dimmed, not collapsed, with no way to navigate
+a deep stack. A readability toolbar on the per-thread backtrace, frontend-only:
+
+- **Fold library frames** (`fold`, on by default): consecutive runs of system-library frames
+  (`isSystemFrame`, i.e. libc/libstdc++/libpthread, not the program's own) collapse into one
+  expandable band — `2 library frames · libc.so.6 #12–#13`. The selected frame is never folded, so a
+  jump or the culprit is always visible. `FOLD_MIN = 2`, not 3, because the common shapes are
+  two-frame runs — every idle worker tops out in `__futex_abstimed_wait_common` + `pthread_cond_wait`
+  before its own wait-wrapper, and every thread bottoms out in `start_thread` + `clone3` — so folding
+  both makes the own frames the headline. Bands expand/collapse individually; folding stands down in
+  full mode and while filtering.
+- **Filter frames**: narrows the list to frames whose function matches, with an `N of M` note.
+- **Jump chips**: *culprit* (`verdict.culprit.level`), *fault* (`verdict.fault.through.frame`, when
+  the kernel recorded one), and *▲/▼ own* to step to the next non-system frame. The selected frame
+  scrolls into view on a jump (a no-op for an ordinary click).
+
+The `items` memo turns the flat frame list into frame/band/bandHead entries; `JumpBtn` is the chip.
+Verified live against the `ps-locks-mdl` core: on `mysqld_main`'s thread (15 frames) the
+`start_thread`/`clone3` pair folds to one band, expands back to 15, folds off to flat; `filter
+"connection"` → *2 of 15*; *▼ own* steps #0 `memset` → #1 `ClearCoreDumpParametersInternal`,
+skipping the system frame. On a cond-waiting worker whose only library runs are two frames each, the
+result is correct either way. SSR `smoke` passes; the browser half still hangs on this Chromium, so
+it was driven directly in headless Chromium.

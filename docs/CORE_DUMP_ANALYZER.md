@@ -176,6 +176,19 @@ in the C runtime are dimmed. A repeating cycle — direct or mutual, up to eight
 is folded into one row with a **×N** badge counting its runs in the *whole* stack, which is
 the only way a stack-exhaustion core is readable at all.
 
+**Read a long stack without scrolling past it.** On a real crash the three frames that are yours sit
+under a layer of libc and libstdc++, so the stack panel has a toolbar for getting to them. **fold
+library** (on by default) collapses each run of consecutive system-library frames into one
+expandable band — `2 library frames · libc.so.6` for the `start_thread`/`clone3` every thread ends
+in, or the whole malloc chain a heap crash lands in — so the frames that belong to the program are
+the ones on screen; click a band to open it, and the toolbar's toggle to turn folding off entirely.
+**filter frames** narrows the list to the frames whose function matches what you type. And the
+**jump** chips move the selection to the frames worth looking at without hunting: **culprit** (the
+frame the verdict named as the bug), **fault** (the frame the faulting address came from, when the
+kernel recorded one), and **▲ own / ▼ own** to step to the next frame that is the program's rather
+than a system library's. Folding stands down in **full** mode and while filtering, where you have
+asked to see everything.
+
 **See every thread at once.** The stack panel's **All threads** tab is `thread apply all bt`, with
 the two things that command cannot do. Identical stacks are folded together — twenty idle workers
 parked in the same wait become one row saying `20×`, which is itself a finding and is invisible in
