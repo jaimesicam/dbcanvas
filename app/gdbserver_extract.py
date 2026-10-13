@@ -28,7 +28,6 @@ SENT = "<<CDA_SERVERSTATE>>"
 product = "PRODUCT_PLACEHOLDER"   # "ps" | "pxc", substituted by the server
 MAXSESS = 512
 MAXTRX  = 256
-MAXLOG  = 300
 
 notes = []
 def note(s):
@@ -456,10 +455,10 @@ def errorlog():
     try: start = as_int(ev("ring_buffer_start"))
     except Exception: pass
     end = (start + 5*1024*1024) if start else None
-    # Two passes. The ring is walked oldest-first from ring_buffer_read, and a crash wants the
-    # *newest* lines — the first version kept the oldest MAXLOG and dropped exactly the ones before
-    # the crash. So pass one only steps through the headers (one raw read of each event's length),
-    # and pass two decodes the last MAXLOG of them.
+    # Two passes. Pass one steps through the headers (one raw read of each event's length) to find
+    # every event in the ring; pass two decodes them all, oldest-first. The ring is already bounded
+    # by the server (log_sink_pfs_buffered_events), so "all of them" is the whole buffer, not a
+    # truncated tail — a crash wants the lines right before it, and dropping any would hide them.
     try:
         lo, lt = _find(ET, "m_message_length")
         lsz = lt.strip_typedefs().sizeof
@@ -479,9 +478,7 @@ def errorlog():
         if len(addrs) >= nev: break
         e = e + ((hdr + mlen + 1 + 7) & ~7)
         if end and e + hdr > end: e = start
-    if len(addrs) > MAXLOG:
-        note("error log: showing the newest %d of %d buffered events" % (MAXLOG, len(addrs)))
-    for e, mlen in addrs[-MAXLOG:]:
+    for e, mlen in addrs:
         ep = gdb.Value(e).cast(ET.pointer())
         r = {}
         try: r["ts"] = as_int(ep["m_timestamp"])

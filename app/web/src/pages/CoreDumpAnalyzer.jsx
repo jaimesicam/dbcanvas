@@ -414,6 +414,7 @@ export default function CoreDumpAnalyzer() {
                 <CoreList cores={cores} open={state?.core} busy={busy} target={target}
                   onOpen={(name) => call({ cmd: 'open', core: name }, 'open')} />
                 <ThreadList threads={state?.threads || []} selected={thread} signal={state?.signal}
+                  signalThread={state?.signalThread}
                   onSelect={(id) => call({ cmd: 'backtrace', thread: id, offset: 0 }, 'backtrace')
                     .then((r) => { if (r) { setFrames(r.frames || []); setMore(!!r.more); setFrameIdx(0) } })} />
               </div>
@@ -560,6 +561,113 @@ function StatTile({ label, value, sub, tone = 'muted' }) {
   )
 }
 
+// The gdb behind each Server-state section. Everything the extractor reads lives in `mysqld` (which
+// has debug symbols), so each section is a handful of expressions a person can paste at the (gdb)
+// prompt after launching with the recipe above ("Run this in your own terminal"). These mirror
+// app/gdbserver_extract.py — the Python there resolves field offsets once for speed and loops in one
+// pass, but the result of `thd["m_thread_id"]` and of the offset read is the same value.
+const GDB_PREAMBLE = '# launch first — see "Run this in your own terminal" above — then at the (gdb) prompt:\n'
+export const GDB_SNIPPETS = {
+  meta: GDB_PREAMBLE +
+    'p server_version                               # version string\n' +
+    'p server_start_time                            # Unix seconds\n' +
+    'p mysql_bin_log.log_file_name                  # current binlog file\n' +
+    'p mysql_bin_log.atomic_binlog_end_pos._M_i     # binlog position\n' +
+    'p trx_sys->rseg_history_len._M_i               # InnoDB history list length\n' +
+    'p log_sys->flushed_to_disk_lsn._M_i            # redo flushed LSN\n' +
+    'p log_sys->last_checkpoint_lsn._M_i            # checkpoint LSN (gap = flushed - checkpoint)',
+  wsrep: GDB_PREAMBLE +
+    '# all from mysqld globals — libgalera itself is stripped and carries none of this\n' +
+    'p wsrep_ready\n' +
+    'p wsrep_cluster_status\n' +
+    'p wsrep_cluster_size\n' +
+    'p wsrep_cluster_name\n' +
+    'p wsrep_node_name\n' +
+    'p wsrep_node_address\n' +
+    'p wsrep_provider\n' +
+    'p wsrep_cluster_address\n' +
+    'p wsrep_sst_method',
+  sessions: GDB_PREAMBLE +
+    '# SHOW PROCESSLIST, walked out of Global_THD_manager::thd_manager->thd_list[0..7]\n' +
+    '# (a Prealloced_array<THD*,60>: inline when m_inline_size >= 0, else m_ext).\n' +
+    'python\n' +
+    'THDpp = gdb.lookup_type("THD").pointer().pointer()\n' +
+    'mgr = gdb.parse_and_eval("Global_THD_manager::thd_manager")\n' +
+    'CMD = {0:"Sleep",3:"Query",14:"Ping",29:"Daemon"}   # enum_server_command\n' +
+    'for b in range(8):\n' +
+    '    arr = mgr["thd_list"][b]; isz = int(arr["m_inline_size"])\n' +
+    '    if isz >= 0: n, base = isz, arr["m_buff"].address.cast(THDpp)\n' +
+    '    else:        n, base = int(arr["m_ext"]["m_alloced_size"]), arr["m_ext"]["m_array_ptr"]\n' +
+    '    for i in range(n):\n' +
+    '        thd = base[i]\n' +
+    '        if int(thd) == 0: continue\n' +
+    '        sec = thd["m_security_ctx"]\n' +
+    '        s = lambda S: S["m_ptr"].string(length=int(S["m_length"])) if int(S["m_ptr"]) else ""\n' +
+    '        qp = thd["m_query_string"]\n' +
+    '        q  = qp["str"].string(length=int(qp["length"])) if int(qp["str"]) else ""\n' +
+    '        st = thd["m_proc_info"].string() if int(thd["m_proc_info"]) else ""\n' +
+    '        print("id=%-4s cmd=%-7s %s@%s state=%r q=%r" % (int(thd["m_thread_id"]),\n' +
+    '              CMD.get(int(thd["m_command"]), int(thd["m_command"])), s(sec["m_user"]), s(sec["m_host"]), st, q))\n' +
+    'end',
+  trx: GDB_PREAMBLE +
+    '# active transactions + lock-wait graph, from trx_sys->rw_trx_list (a UT_LIST).\n' +
+    '# wait_lock non-null => waiting; blocking_trx => the holder. (empty loop = none.)\n' +
+    'python\n' +
+    'cur = gdb.parse_and_eval("trx_sys->rw_trx_list")["first_element"]\n' +
+    'while int(cur) != 0:\n' +
+    '    t = cur\n' +
+    '    wl = t["lock"]["wait_lock"]["_M_b"]["_M_p"]\n' +
+    '    bt = t["lock"]["blocking_trx"]["_M_b"]["_M_p"]\n' +
+    '    thd = t["mysql_thd"]; tid = int(thd["m_thread_id"]) if int(thd) else None\n' +
+    '    print("trx id=%s state=%s rows=%s thd=%s waiting=%s blocked_by=%s" % (int(t["id"]),\n' +
+    '          str(t["state"]["_M_i"]).replace("TRX_STATE_",""), int(t["undo_no"]), tid,\n' +
+    '          int(wl)!=0, (int(bt["id"]) if int(bt) else None)))\n' +
+    '    cur = t["trx_list"]["next"]\n' +
+    'end',
+  errorLog: GDB_PREAMBLE +
+    '# performance_schema.error_log, walked from the ring buffer. ring_buffer_start/end/write are\n' +
+    '# optimized out on release builds, so the walk is bounded by the event count, not the write ptr.\n' +
+    'python\n' +
+    'ET = gdb.lookup_type("log_sink_pfs_event"); hdr = ET.sizeof\n' +
+    'e = int(gdb.parse_and_eval("ring_buffer_read"))\n' +
+    'nev = int(gdb.parse_and_eval("log_sink_pfs_buffered_events"))\n' +
+    'charp = gdb.lookup_type("char").pointer()\n' +
+    'for _ in range(nev):\n' +
+    '    ep = gdb.Value(e).cast(ET.pointer()); mlen = int(ep["m_message_length"])\n' +
+    '    msg = gdb.Value(e + hdr).cast(charp).string(length=mlen, errors="replace")\n' +
+    '    print("prio=%s code=%s %s" % (int(ep["m_prio"]), ep["m_error_code"].string(), msg))\n' +
+    '    e += (hdr + mlen + 1 + 7) & ~7\n' +
+    'end',
+}
+
+// GdbSnippet is a collapsed "how this section was read" disclosure under a Server-state section: the
+// exact gdb for it, copied with one click. Mirrors GdbRecipe, smaller, and defaults closed because
+// most of the time you are reading the values, not reproducing them.
+export function GdbSnippet({ label, code }) {
+  const [open, setOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(code) } catch { /* clipboard refused; it is on screen */ }
+    setCopied(true); setTimeout(() => setCopied(false), 1500)
+  }
+  return (
+    <div className="-mt-1 rounded-xl border border-dashed bg-surface2/30">
+      <div className="flex items-center justify-between px-3 py-1">
+        <button onClick={() => setOpen((v) => !v)} className="flex items-center gap-1 font-mono text-[10px] text-muted hover:text-fg">
+          <Icon.Chevron size={11} className={`transition-transform ${open ? '' : '-rotate-90'}`} />
+          {`gdb — how ${label} was read`}
+        </button>
+        {open && (
+          <button onClick={copy} title="Copy the gdb commands" className="flex items-center gap-1 font-mono text-[10px] text-muted hover:text-fg">
+            {copied ? <Icon.Check size={11} /> : <Icon.Copy size={11} />}{copied ? 'Copied' : 'Copy'}
+          </button>
+        )}
+      </div>
+      {open && <pre className="overflow-x-auto whitespace-pre px-3 pb-2 font-mono text-[10px] leading-[1.5] text-fg">{code}</pre>}
+    </div>
+  )
+}
+
 export function ServerStateView({ state, busy, data, error, onThread }) {
   if (state?.status !== 'ready') {
     return <Card className="p-6 text-sm text-muted">Open a core to read the server's state from it.</Card>
@@ -610,11 +718,16 @@ export function ServerStateView({ state, busy, data, error, onThread }) {
         <StatTile label="InnoDB history" value={data.innodb?.historyListLength != null ? data.innodb.historyListLength.toLocaleString() : '—'}
           sub={gap != null ? `redo since checkpoint ${formatBytes(gap)}` : ''} tone={data.innodb?.historyListLength > 100000 ? 'warning' : 'muted'} />
       </div>
+      <GdbSnippet label="these tiles" code={GDB_SNIPPETS.meta} />
 
       {data.wsrep && <WsrepCard w={data.wsrep} />}
+      {data.wsrep && <GdbSnippet label="the cluster card" code={GDB_SNIPPETS.wsrep} />}
       <LockWaits innodb={data.innodb} sessions={data.sessions || []} onThread={onThread} />
+      <GdbSnippet label="InnoDB transactions" code={GDB_SNIPPETS.trx} />
       <Sessions sessions={data.sessions || []} crashRef={crashRef} onThread={onThread} />
+      <GdbSnippet label="the sessions" code={GDB_SNIPPETS.sessions} />
       <ErrorLogView events={data.errorLog || []} />
+      <GdbSnippet label="the error log" code={GDB_SNIPPETS.errorLog} />
 
       {data.notes?.length > 0 && (
         <div className="rounded-xl border bg-surface2/50 px-3 py-2 text-[11px] text-muted">
@@ -1000,7 +1113,7 @@ export function CrashSummary({ state, frames, core, onExpand, onWatch }) {
         // No verdict yet, or the analysis could not run. Say what is known rather than nothing.
         <p className="text-sm font-medium text-fg">
           {state.signal || 'The process'}{state.signalText ? ` — ${state.signalText}` : ''} on thread{' '}
-          <span className="font-mono">{state.thread}</span> of {state.totalThreads}.
+          <span className="font-mono">{state.signalThread || state.thread}</span> of {state.totalThreads}.
         </p>
       )}
 
@@ -1186,12 +1299,15 @@ export function CoreList({ cores, open, busy, target, onOpen }) {
 
 // ThreadList puts the signalled thread first and labels the rest by their top frame. Sixty threads
 // named only "Thread 0x7f… (LWP 9756)" is a list nobody can read; what each one was *doing* is.
-export function ThreadList({ threads, selected, signal, onSelect }) {
+export function ThreadList({ threads, selected, signal, signalThread, onSelect }) {
+  // The signalled thread is pinned to the top — it is the one anybody opened the core to read — and
+  // selecting another thread only highlights it in place. The danger badge belongs to the thread
+  // that crashed, never to whatever is currently selected.
   const ordered = useMemo(() => {
     const list = [...(threads || [])]
-    list.sort((a, b) => (a.id === selected ? -1 : b.id === selected ? 1 : Number(a.id) - Number(b.id)))
+    list.sort((a, b) => (a.id === signalThread ? -1 : b.id === signalThread ? 1 : Number(a.id) - Number(b.id)))
     return list
-  }, [threads, selected])
+  }, [threads, signalThread])
   return (
     <Panel id="threads" title={`Threads${threads?.length ? ` (${threads.length})` : ''}`}
       className="flex-1" bodyClass="min-h-0 flex-1 overflow-auto p-2">
@@ -1205,7 +1321,7 @@ export function ThreadList({ threads, selected, signal, onSelect }) {
                 t.id === selected ? 'bg-primary/15 text-primary' : 'text-muted hover:bg-surface2 hover:text-fg'}`}>
               <span className="flex items-baseline gap-1.5">
                 <span className="shrink-0 font-mono text-[11px]">#{t.id}</span>
-                {t.id === selected && signal && <Badge tone="danger">{signal}</Badge>}
+                {t.id === signalThread && signal && <Badge tone="danger">{signal}</Badge>}
                 {t.name && <span className="truncate text-[10px]">{t.name}</span>}
               </span>
               <span className="block truncate font-mono text-[10px] opacity-80"

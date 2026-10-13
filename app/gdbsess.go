@@ -83,19 +83,20 @@ type gdbLogLine struct {
 
 // gdbState is everything the page draws, re-sent whole on every change.
 type gdbState struct {
-	Status      string      `json:"status"` // idle | loading | ready | error
-	Detail      string      `json:"detail,omitempty"`
-	Core        string      `json:"core,omitempty"` // the file being read
-	Signal      string      `json:"signal,omitempty"`
-	SignalText  string      `json:"signalText,omitempty"`
-	Threads     []miThread  `json:"threads"`
-	Thread      string      `json:"thread,omitempty"` // the selected one
-	Total       int         `json:"totalThreads"`
-	AllowShell  bool        `json:"allowShell"`
-	Symbols     string      `json:"symbols,omitempty"` // gdb's own verdict on the symbol table
-	Verdict     *gdbVerdict `json:"verdict,omitempty"` // what went wrong and why — see gdbdiag.go
-	Subscribers int         `json:"subscribers"`
-	Target      gdbTarget   `json:"target"`
+	Status       string      `json:"status"` // idle | loading | ready | error
+	Detail       string      `json:"detail,omitempty"`
+	Core         string      `json:"core,omitempty"` // the file being read
+	Signal       string      `json:"signal,omitempty"`
+	SignalText   string      `json:"signalText,omitempty"`
+	Threads      []miThread  `json:"threads"`
+	Thread       string      `json:"thread,omitempty"`       // the selected one
+	SignalThread string      `json:"signalThread,omitempty"` // the thread that took the signal, fixed at open
+	Total        int         `json:"totalThreads"`
+	AllowShell   bool        `json:"allowShell"`
+	Symbols      string      `json:"symbols,omitempty"` // gdb's own verdict on the symbol table
+	Verdict      *gdbVerdict `json:"verdict,omitempty"` // what went wrong and why — see gdbdiag.go
+	Subscribers  int         `json:"subscribers"`
+	Target       gdbTarget   `json:"target"`
 	// Recipe is the command line that reproduces this session in a terminal — built when the core
 	// is opened, because it carries the search path this node actually resolved (gdbRecipe).
 	Recipe string `json:"recipe,omitempty"`
@@ -132,9 +133,13 @@ type gdbSession struct {
 	srcRoots []string
 	srcPaths map[string]string // DWARF path -> the file on this node, "" when there is none
 	threads  []miThread
-	thread   string
-	allow    bool
-	grace    *time.Timer
+	thread   string // the thread the page currently has selected
+	// The thread that took the signal, fixed when the core is opened. It must not drift to `thread`:
+	// selecting another thread to read it does not change which thread crashed, and badging the
+	// selection as "took the signal" is simply wrong. Every "which thread crashed" question reads this.
+	signalThread string
+	allow        bool
+	grace        *time.Timer
 
 	submu   sync.Mutex
 	subs    map[int]chan []byte
@@ -263,7 +268,7 @@ func (s *gdbSession) snapshot() gdbState {
 	st := gdbState{
 		Status: s.status, Detail: s.detail, Core: s.core,
 		Signal: s.signal, SignalText: s.sigText, Symbols: s.symbols, Verdict: s.verdict,
-		Threads: append([]miThread(nil), s.threads...), Thread: s.thread,
+		Threads: append([]miThread(nil), s.threads...), Thread: s.thread, SignalThread: s.signalThread,
 		Total: len(s.threads), AllowShell: s.allow, Target: s.tgt, Recipe: s.recipe,
 	}
 	if st.Threads == nil {
@@ -381,6 +386,7 @@ func (s *gdbSession) open(ctx context.Context, core string) error {
 	s.mu.Lock()
 	s.cli, s.conn, s.core = cli, conn, core
 	s.symbols, s.signal, s.sigText, s.reading, s.verdict, s.srvState = "", "", "", "", nil, nil
+	s.signalThread = ""
 	s.srcRoots, s.srcPaths = srcRoots, map[string]string{}
 	// Built here rather than in the browser because this is where the truth is: the solib path was
 	// just resolved by walking the mount, and a recipe that guessed it would send somebody off to
@@ -400,7 +406,7 @@ func (s *gdbSession) open(ctx context.Context, core string) error {
 	// thing about a core everybody wants first. *What* the signal was arrived on the console
 	// stream while the core was loading — see onStream.
 	s.mu.Lock()
-	s.threads, s.thread = threads, current
+	s.threads, s.thread, s.signalThread = threads, current, current
 	sig := s.signal
 	s.status, s.detail = "ready", ""
 	s.mu.Unlock()
@@ -449,7 +455,7 @@ func (s *gdbSession) watch(cli *miClient) {
 	s.mu.Lock()
 	s.status = "error"
 	s.detail = "gdb is no longer running on the node — open the core again"
-	s.threads, s.thread = nil, ""
+	s.threads, s.thread, s.signalThread = nil, "", ""
 	s.mu.Unlock()
 	s.logf("error", "gdb exited on its own — the session is gone; open the core again")
 	s.publishState()
@@ -595,7 +601,7 @@ func (s *gdbSession) teardown(why string) {
 	s.closeClient()
 	s.mu.Lock()
 	s.status, s.detail, s.core = "idle", "", ""
-	s.threads, s.thread = nil, ""
+	s.threads, s.thread, s.signalThread = nil, "", ""
 	s.mu.Unlock()
 	s.logf("info", "gdb closed — %s", why)
 	s.publishState()
@@ -856,7 +862,7 @@ const gdbAllThreadWindow = 40
 func (s *gdbSession) threadStacks(ctx context.Context) ([]gdbThreadStack, error) {
 	s.mu.Lock()
 	threads := append([]miThread(nil), s.threads...)
-	signalled := s.thread
+	signalled := s.signalThread
 	s.mu.Unlock()
 	if len(threads) == 0 {
 		return nil, fmt.Errorf("no core file is open")

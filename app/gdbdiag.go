@@ -309,6 +309,16 @@ func (s *gdbSession) diagnose(ctx context.Context, cli *miClient, thread, signal
 				v.Fault.Addr, t.Name, t.Value, shortFuncName(t.Func), where))
 		} else if v.Fault != nil {
 			v.Evidence = append(v.Evidence, "the address the program touched is "+v.Fault.Addr)
+		} else if v.Class == "stack-exhaustion" {
+			// gdbFaultDetail just read siginfo here with the crashing thread selected, so this read
+			// is reliable where one earlier in the pass is not. A stack overflow usually ends with the
+			// kernel forcing the signal (si_code SI_KERNEL) because there is no stack left to deliver
+			// it; saying so keeps the si_addr of 0x0 that the fault block omits from looking missing.
+			if si := cli.siginfo(ctx); si != nil && si.Code == siKernel {
+				v.Evidence = append(v.Evidence,
+					"the kernel forced the signal (si_code SI_KERNEL) — the stack was too full to "+
+						"deliver it, so there is no faulting address and no null pointer to read into this")
+			}
 		}
 	}
 	stateFrame := v.Culprit
@@ -364,8 +374,8 @@ func gdbClassify(v *gdbVerdict, frames []miFrame, start, period, reps int, signa
 			shortFuncName(culprit.Func), reps)
 		v.Why = fmt.Sprintf(
 			"%s is a %d-frame cycle that repeats %d times, %d of the stack's %d frames. "+
-				"The signal landed in %s only because an allocation was the first thing to touch "+
-				"the guard page — malloc is not the problem, and neither is the frame that called it.",
+				"The signal landed in %s only because that frame was the next to touch the exhausted "+
+				"stack — it is not the bug, and neither is the frame that called it.",
 			strings.Join(v.Cycle, " → "), period, reps, covered, v.Depth, shortFuncName(top.Func))
 		v.Evidence = append(v.Evidence,
 			fmt.Sprintf("the stack is %d frames deep", v.Depth),
@@ -1018,6 +1028,19 @@ func gdbCallerSentence(caller *miFrame) string {
 // would be a guess dressed as a fact.
 const gdbFaultWindow = 1 << 16
 
+// siKernel (SI_KERNEL, 0x80) is the kernel's generic "I raised this" si_code, used when a signal
+// is not tied to a faulting address. A stack overflow with no room left to deliver the handler is
+// the common one: the kernel forces a SIGSEGV but there is no fault address to record. si_code
+// values <= 0 are signals sent from user space (SI_USER is 0, SI_QUEUE is negative). In none of
+// these does si_addr hold a faulting address — it is left 0 — so reading that 0x0 as "a null
+// pointer was dereferenced" invents evidence. Only a positive, non-SI_KERNEL code is a hardware or
+// kernel fault code (SEGV_MAPERR, SEGV_ACCERR, …) whose si_addr is the address the program touched.
+const siKernel = 0x80
+
+// gdbFaultAddrMeaningful reports whether si_addr is an address the program actually touched, rather
+// than a left-over zero from a signal the kernel synthesised or user space sent.
+func gdbFaultAddrMeaningful(code int) bool { return code > 0 && code != siKernel }
+
 // gdbSigcodes names si_code for the signals where it says something a reader can use.
 var gdbSigcodes = map[string]map[int]string{
 	"SIGSEGV": {1: "the address is not mapped at all", 2: "the address is mapped, but not for that access"},
@@ -1039,6 +1062,12 @@ func (s *gdbSession) gdbFaultDetail(ctx context.Context, cli *miClient, thread s
 	}
 	si := cli.siginfo(ctx)
 	if si == nil || !si.HasAddr {
+		return nil
+	}
+	// A kernel-synthesised or user-sent signal carries no faulting address (see siKernel). Its
+	// si_addr is a left-over 0, and the classic case here is a stack overflow the kernel could not
+	// deliver — reporting its 0x0 as a null-pointer dereference points the reader at the wrong bug.
+	if !gdbFaultAddrMeaningful(si.Code) {
 		return nil
 	}
 	f := &gdbFault{Addr: fmt.Sprintf("0x%x", si.Addr), Code: si.Code}

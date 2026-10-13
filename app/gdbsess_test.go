@@ -96,10 +96,11 @@ func TestGDBThreadStacksCarryTheRealDepth(t *testing.T) {
 		`^done,stack=[frame={level="0",addr="0x3",func="poll",from="/lib64/libc.so.6"}]`,
 		`^done,depth="4"`)
 	sess := &gdbSession{
-		subs:    map[int]chan []byte{},
-		cli:     cli,
-		thread:  "1",
-		threads: []miThread{{ID: "1", Target: "Thread 0x76 (LWP 9756)"}, {ID: "2", Name: "ib_io_rd"}},
+		subs:         map[int]chan []byte{},
+		cli:          cli,
+		thread:       "2", // selecting another thread to read it must not move the signal marker
+		signalThread: "1",
+		threads:      []miThread{{ID: "1", Target: "Thread 0x76 (LWP 9756)"}, {ID: "2", Name: "ib_io_rd"}},
 	}
 	stacks, err := sess.threadStacks(context.Background())
 	if err != nil {
@@ -110,6 +111,9 @@ func TestGDBThreadStacksCarryTheRealDepth(t *testing.T) {
 	}
 	if !stacks[0].Signal {
 		t.Error("the thread that took the signal is not marked")
+	}
+	if stacks[1].Signal {
+		t.Error("thread 2 is only selected, not signalled — it must not be marked as taking the signal")
 	}
 	if stacks[0].Depth != 1085 {
 		t.Errorf("depth = %d, want the whole stack's 1085 rather than the frames returned", stacks[0].Depth)

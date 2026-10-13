@@ -119,6 +119,7 @@ import CoreDumpAnalyzer, {
   FrameVars as GdbVars, EvaluateBox as GdbEval, ConsoleBox as GdbConsole,
   SourceView as GdbSource, GdbRecipe, AllThreads as GdbAllThreads,
   FrameLocals as GdbFrameLocals, CrashState as GdbCrashState, VarNode as GdbVarNode,
+  ServerStateView as GdbServerState, GdbSnippet, GDB_SNIPPETS,
 } from '../src/pages/CoreDumpAnalyzer.jsx'
 import {
   crashSummary, shortFunc, sourceOf, isSystemFrame, formatBytes,
@@ -3251,7 +3252,7 @@ check('core dump: core list with its verdicts', () =>
 check('core dump: core list with nothing mounted', () =>
   renderToString(<GdbCores cores={[]} open="" busy="" target={gdbTargetFx} onOpen={noop} />))
 check('core dump: threads', () =>
-  renderToString(<GdbThreads threads={gdbStateFx.threads} selected="1" signal="SIGSEGV" onSelect={noop} />))
+  renderToString(<GdbThreads threads={gdbStateFx.threads} selected="2" signalThread="1" signal="SIGSEGV" onSelect={noop} />))
 check('core dump: the stack, with recursion collapsed', () => {
   const html = renderToString(<GdbStack frames={gdbFramesFx} selected={0} onSelect={noop}
     more busy="" state={gdbStateFx} onMore={noop} />)
@@ -3293,6 +3294,30 @@ check('core dump: the terminal recipe is offered once a core is open', () => {
   if (renderToString(<GdbRecipe recipe="" />) !== '') throw new Error('an empty recipe still rendered')
   if (renderToString(<GdbRecipe />) !== '') throw new Error('a missing recipe still rendered')
   return 'collapsed, copyable'
+})
+
+check('core dump: a gdb snippet shows its commands and a copy, collapsed by default', () => {
+  const html = renderToString(<GdbSnippet label="the sessions" code={GDB_SNIPPETS.sessions} />)
+  if (!/gdb — how the sessions was read/.test(html)) throw new Error('the section is not labelled')
+  // Collapsed, so the body (and its Copy) is not in the markup until opened.
+  if (html.includes('Global_THD_manager')) throw new Error('the snippet should start collapsed')
+  return html
+})
+
+check('core dump: every server-state section carries its own gdb', () => {
+  const data = {
+    meta: { product: 'pxc', version: '8.0.27-18.1', startTime: 1791882731 },
+    sessions: [{ threadId: 18, command: 'Query', state: 'starting', query: 'ALTER USER CURRENT_USER()' }],
+    innodb: { historyListLength: 10, transactions: [] },
+    binlog: { file: './binlog.000007', position: 736 },
+    errorLog: [{ ts: 1791882732000000, prio: 3, subsys: 'WSREP', message: 'guard' }],
+    wsrep: { ready: true, clusterStatus: 'Primary', clusterSize: 3, nodeName: 'pxc-2', sstMethod: 'xtrabackup-v2' },
+  }
+  const html = renderToString(<GdbServerState state={{ status: 'ready', core: 'c' }} busy={false} data={data} error="" onThread={noop} />)
+  for (const label of ['these tiles', 'the cluster card', 'InnoDB transactions', 'the sessions', 'the error log']) {
+    if (!html.includes(`gdb — how ${label} was read`)) throw new Error(`no gdb disclosure for ${label}`)
+  }
+  return html
 })
 
 // ---- what `thread apply all bt` becomes here ---------------------------------

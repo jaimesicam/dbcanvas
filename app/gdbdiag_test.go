@@ -79,8 +79,10 @@ func TestDiagnoseStackExhaustion(t *testing.T) {
 			t.Errorf("evidence does not mention %s: %s", want, joined)
 		}
 	}
-	if !strings.Contains(v.Why, "guard page") {
-		t.Errorf("the explanation does not say why the signal landed in malloc: %s", v.Why)
+	// The explanation must pin the blame off the frame that faulted — without inventing a mechanism
+	// (an allocation touching a guard page) that only holds when that frame happens to be malloc.
+	if !strings.Contains(v.Why, "not the bug") || !strings.Contains(v.Why, "exhausted stack") {
+		t.Errorf("the explanation does not clear the faulting frame generically: %s", v.Why)
 	}
 }
 
@@ -914,6 +916,19 @@ func TestGDBFaultDetailRecognisesGarbage(t *testing.T) {
 	got := s.gdbFaultDetail(context.Background(), cli, "1", []miFrame{{Level: 0, Func: "f"}}, "SIGSEGV", 0)
 	if got == nil || !strings.Contains(got.Note, "never a pointer") {
 		t.Errorf("note = %+v, want it to say the value was never a pointer", got)
+	}
+}
+
+// A SIGSEGV the kernel synthesised (si_code SI_KERNEL, 0x80) carries no faulting address — its
+// si_addr is a left-over 0. This is what a stack overflow looks like, and reading that 0x0 as a
+// null-pointer dereference points the reader at a bug that is not there, so no fault is reported.
+func TestGDBFaultDetailIgnoresKernelSynthesisedSignal(t *testing.T) {
+	// signo=11, si_code=128 (SI_KERNEL), si_addr=0x0. No variable reads should follow.
+	cli, _, _ := newMIFake(t, `^done,value="11"`, `^done,value="128"`, `^done,value="0x0"`)
+	s := &gdbSession{}
+	frames := []miFrame{{Level: 0, Func: "vfprintf", Args: []miVar{{Name: "x", Value: "0x0", Arg: true}}}}
+	if got := s.gdbFaultDetail(context.Background(), cli, "1", frames, "SIGSEGV", 0); got != nil {
+		t.Errorf("fault = %+v, want nothing — SI_KERNEL means si_addr is not a faulting address", got)
 	}
 }
 
