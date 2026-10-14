@@ -87,3 +87,34 @@ func TestPGBenchIssues(t *testing.T) {
 		}
 	}
 }
+
+func TestParsePGBench(t *testing.T) {
+	out := `pgbench (17.11 - Percona Server for PostgreSQL 17.11.1)
+transaction type: <builtin: TPC-B (sort of)>
+scaling factor: 2
+query mode: simple
+number of clients: 8
+number of threads: 4
+maximum number of tries: 1
+duration: 10 s
+number of transactions actually processed: 12345
+number of failed transactions: 3 (0.024%)
+latency average = 6.482 ms
+initial connection time = 21.334 ms
+tps = 1234.123456 (without initial connection time)`
+	r, err := parsePGBench(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.TPS != 1234.123456 || r.LatencyMs != 6.482 || r.Transactions != 12345 || r.Failed != 3 {
+		t.Errorf("parsed %+v", r)
+	}
+	if _, err := parsePGBench("pgbench: error: connection refused"); err == nil {
+		t.Error("output without a tps line must be an error")
+	}
+	for _, bad := range []pgBenchRequest{{Clients: 0, Seconds: 10}, {Clients: 65, Seconds: 10}, {Clients: 4, Seconds: 4}, {Clients: 4, Seconds: 301}} {
+		if bad.check() == nil {
+			t.Errorf("%+v accepted", bad)
+		}
+	}
+}

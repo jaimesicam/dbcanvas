@@ -2379,7 +2379,9 @@ function loadPalettePrefs() {
   catch { return { collapsed: [], recent: [] } }
 }
 
-function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
+// Exported for the browser smoke check, which opens a stack in it — the page-level mount
+// never gets this far, and that is where an editor that blanks on open hides.
+export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
   // In a shared session only the driver's canvas saves. Everyone else's — the host's
   // too, while a guest drives — is a view of the design that reloads when the driver
   // changes it: a stale copy that autosaved would take nodes the driver just added
@@ -6737,6 +6739,7 @@ function VaultFields({ node: n, nodes, patchNode, deployed }) {
           PostgreSQL version above to turn it on.
         </p>
       )}
+      {n.enableVault && bao && isPg && pgOk && <TDEWalOption obj={n} patch={patchNode} deployed={deployed} />}
       {n.enableVault && bao && isPg && (
         <p className="text-xs text-muted">
           At deploy DBCanvas finds the <span className="font-mono">pg_tde</span> build this server can load — the one
@@ -6779,6 +6782,29 @@ function VaultFields({ node: n, nodes, patchNode, deployed }) {
   )
 }
 
+// TDEWalOption is pg_tde's WAL encryption (app/pgtdewal.go), offered under table encryption on the
+// standalone node and on Patroni. A deploy-time choice: it changes how archiving and every
+// restore are wired, not just a setting.
+function TDEWalOption({ obj, patch, deployed }) {
+  return (
+    <>
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!obj.pgTdeWal} disabled={deployed}
+          onChange={(e) => patch(obj.id, { pgTdeWal: e.target.checked })} />
+        <span>Encrypt WAL too</span>
+      </label>
+      {obj.pgTdeWal && (
+        <p className="text-xs text-muted">
+          <span className="font-mono">pg_tde.wal_encrypt</span> with the server key. With pgBackRest, archiving goes
+          through <span className="font-mono">pg_tde_archive_decrypt</span> and every restore through{' '}
+          <span className="font-mono">pg_tde_restore_encrypt</span>, and pgBackRest&apos;s header and page checks are
+          off — Percona&apos;s conditions for supporting it.
+        </p>
+      )}
+    </>
+  )
+}
+
 // PatroniVaultFields is encryption at rest for a Patroni cluster: pg_tde, keyed to the stack's
 // OpenBao (app/patronitde.go). It says the opposite of FrameVaultFields about mounts, on purpose:
 // Patroni members are physical copies of one another, so they share ONE principal key — a member
@@ -6801,6 +6827,7 @@ export function PatroniVaultFields({ frame: f, nodes, patchFrame, deployed }) {
       </label>
       {!bao && <p className="text-xs text-muted">Add the OpenBao node to key encryption to it.</p>}
       {!tde.ok && <p className={`text-xs ${f.enableVault ? 'text-danger' : 'text-muted'}`}>{tde.why}.</p>}
+      {f.enableVault && bao && tde.ok && <TDEWalOption obj={f} patch={patchFrame} deployed={deployed} />}
       {f.enableVault && bao && tde.ok && (
         <p className="text-xs text-muted">
           Every member gets <span className="font-mono">pg_tde</span> (the build its server loads), preloaded from

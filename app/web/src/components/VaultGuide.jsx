@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Icon } from './Icons.jsx'
+import { ConfirmButton } from './ui.jsx'
 
 // VaultGuide — the "Encryption" tab of a deployed Percona Server / PSMDB / PostgreSQL node that
 // was wired to an OpenBao node at deploy. The keyring is already configured; this says what was
@@ -42,13 +43,16 @@ function KV({ k, v }) {
   )
 }
 
-export default function VaultGuide({ engine, info }) {
+// `onRotate` (PostgreSQL only) is the pg_tde principal-key rotation for this node or cluster —
+// pgApi/patroniApi .tdeRotate; it resolves to the new vault info.
+export default function VaultGuide({ engine, info, onRotate }) {
   if (!info || !info.enabled) return null
   const plugin = info.method === 'keyring_vault plugin'
 
   const rows = (
     <div className="space-y-1.5 rounded-lg border p-2">
       <KV k="Method" v={info.method} />
+      {info.build && <KV k="pg_tde" v={info.build} />}
       <KV k="OpenBao" v={info.addr} />
       <KV k="KV mount" v={`${info.mount} (v${info.kvVersion})`} />
       {info.secretPath && <KV k="Secret" v={info.secretPath} />}
@@ -89,6 +93,24 @@ systemctl start mongod`} />
           disk. PostgreSQL cannot read an encrypted table while OpenBao is sealed or unreachable.
         </div>
         {rows}
+        {info.build && (
+          <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
+            Each PostgreSQL server build loads only some <span className="font-mono">pg_tde</span> builds, and the
+            packages do not say which — the rest install and then stop the server. The deploy tried them in a
+            scratch cluster, newest first, and kept <span className="font-mono">{info.build}</span>.
+          </div>
+        )}
+        {info.shared && (
+          <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
+            The whole Patroni cluster shares this KV mount and principal key — every member reads it with the same
+            token file. Replicas are physical copies of the leader&apos;s encrypted files, so a member with a key of
+            its own could not read a page it was given. <span className="font-mono">tde_heap</span> is the default
+            through Patroni&apos;s configuration (<span className="font-mono">patronictl show-config</span>), so a
+            member promoted later has it too, and Patroni rewinds and rebuilds members with{' '}
+            <span className="font-mono">pg_tde_rewind</span> and <span className="font-mono">pg_tde_basebackup</span> —
+            plain <span className="font-mono">pg_rewind</span> leaves a rewound member with unreadable encrypted pages.
+          </div>
+        )}
         <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
           <span className="font-mono">default_table_access_method</span> is{' '}
           <span className="font-mono">tde_heap</span> on this node, and the extension is in{' '}
@@ -105,16 +127,24 @@ psql -U postgres -c "SELECT pg_tde_is_encrypted('enc_demo');"   # -> t`} />
 # SET ACCESS METHOD drops hint bits — reset them so reads do not pay for it:
 psql -U postgres -c "SELECT count(*) FROM my_table;"`} />
         <Code label="Read the principal key straight from OpenBao (on the OpenBao node)" text={`bao kv get ${info.mount}/${key}`} />
-        <Code label="Rotate the principal key" text={`psql -U postgres -c "SELECT pg_tde_set_default_key_using_global_key_provider('${key}-2', 'openbao');"`} />
-        <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] leading-snug text-muted">
-          WAL encryption is <span className="font-medium">not</span> on. It is a separate switch
-          (<span className="font-mono">ALTER SYSTEM SET pg_tde.wal_encrypt = on</span>) and Percona supports it only
-          with <span className="font-mono">pg_tde_archive_decrypt</span> in{' '}
-          <span className="font-mono">archive_command</span> and{' '}
-          <span className="font-mono">pg_tde_restore_encrypt</span> in{' '}
-          <span className="font-mono">restore_command</span> — which this node's pgBackRest archiving does not use.
-          Table data is encrypted either way.
-        </div>
+        {onRotate && <RotateKey info={info} onRotate={onRotate} />}
+        {info.wal ? (
+          <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
+            WAL is encrypted too (<span className="font-mono">pg_tde.wal_encrypt = on</span>, with the server key).
+            pgBackRest archives through <span className="font-mono">pg_tde_archive_decrypt</span> and restores through{' '}
+            <span className="font-mono">pg_tde_restore_encrypt</span>, so the archive holds WAL it can verify and
+            replay — protect the repository itself. Its <span className="font-mono">archive-header-check</span> and{' '}
+            <span className="font-mono">checksum-page</span> are off, as Percona requires.
+          </div>
+        ) : (
+          <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] leading-snug text-muted">
+            WAL encryption is <span className="font-medium">not</span> on, so a row written to an encrypted table is
+            readable in the WAL that carries it. It is a deploy-time choice here (&quot;Encrypt WAL too&quot; on the
+            form), because Percona supports it only with <span className="font-mono">pg_tde_archive_decrypt</span> /{' '}
+            <span className="font-mono">pg_tde_restore_encrypt</span> around archiving and restore, which DBCanvas then
+            sets up. Table data is encrypted either way.
+          </div>
+        )}
       </div>
     )
   }
@@ -153,6 +183,42 @@ mysql -e "SELECT NAME, ENCRYPTION FROM information_schema.innodb_tablespaces WHE
         above. An explicit clause still wins, in either direction.
       </div>
       <Code label="Rotate the master key" text={`mysql -e "ALTER INSTANCE ROTATE INNODB MASTER KEY;"`} />
+    </div>
+  )
+}
+
+// RotateKey is pg_tde's principal-key rotation: a new key in OpenBao, made the default (tables)
+// and the server key (WAL); pg_tde re-wraps its internal keys, the pages are not rewritten. The
+// old key stays in OpenBao, so a backup from before the rotation can still be restored.
+function RotateKey({ info, onRotate }) {
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState(null)
+  async function rotate() {
+    setBusy(true)
+    setMsg(null)
+    try {
+      const r = await onRotate()
+      setMsg({ ok: true, text: `Rotated to ${r.key}.` })
+    } catch (e) {
+      setMsg({ ok: false, text: e.message || 'Rotation failed.' })
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="space-y-1.5 rounded-lg border p-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-muted">Principal key</span>
+        <ConfirmButton size="sm" variant="outline" disabled={busy} confirmLabel="Rotate now?" onConfirm={rotate}>
+          {busy ? 'Rotating…' : 'Rotate key'}
+        </ConfirmButton>
+      </div>
+      <p className="text-[11px] leading-snug text-muted">
+        Creates a new key in <span className="font-mono">{info.mount}</span> and makes it the default and server key;
+        existing data is re-wrapped, not rewritten, and the old key stays in OpenBao for older backups.
+        {info.rotatedAt && <> Last rotated {new Date(info.rotatedAt).toLocaleString()}.</>}
+      </p>
+      {msg && <p className={`text-[11px] ${msg.ok ? 'text-success' : 'text-danger'}`}>{msg.text}</p>}
     </div>
   )
 }

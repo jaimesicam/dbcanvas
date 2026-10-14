@@ -204,8 +204,16 @@ func (a *App) handlePGRestore(w http.ResponseWriter, r *http.Request) {
 	a.stampEngine(r, st, n.ID)
 	major := ppgMajorOf(n.PGMajor)
 	ctx := r.Context()
+	// The target (args) and the options every restore of this node needs (always) travel
+	// separately: if the target turns out to be past the end of the archive, the script restores
+	// again with the second set alone.
+	var always []string
+	if n.EnableVault && n.PGTDEWal {
+		always = pgRestoreTDEArgs(pgBinDir(n.OS, major), patroniStanza(n.Label)) // pgtdewal.go
+	}
 	env := []string{"STANZA=" + patroniStanza(n.Label), "SERVICE=" + pgServiceName(n.OS, major),
-		"PSQL=" + pgBinDir(n.OS, major) + "/psql", "ARGS=" + strings.Join(args, "\n")}
+		"PSQL=" + pgBinDir(n.OS, major) + "/psql", "ARGS=" + strings.Join(args, "\n"), "ALWAYS=" + strings.Join(always, "\n"),
+		"DATA=" + pgDataDir(n.OS, major)}
 	res, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"bash", "-c", pgRestoreScript}, env)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "restore failed: "+err.Error())
@@ -216,6 +224,9 @@ func (a *App) handlePGRestore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	what := map[string]string{"": "the latest point", "latest": "the latest point", "time": req.Time, "backup": "backup " + req.Set}[req.Mode]
+	if strings.Contains(res.Stdout, pgRestoreFellBack) {
+		what = "the newest archived point (" + req.Time + " is past the end of the archive)"
+	}
 	a.notifyStack(st.ID, "restore.done", "success", "Restore completed", n.Label+": restored to "+what+".", n.ID)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status": "ok", "restoredTo": what, "log": lastLines(res.Stdout, 2000),
@@ -223,24 +234,75 @@ func (a *App) handlePGRestore(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// pgRestoreScript: stop, --delta restore, start, wait out recovery. ARGS is newline-separated so
-// a target with a space in it ("2026-10-14 09:30:00+00") stays one argument.
-// Env: STANZA, SERVICE, PSQL, ARGS.
-const pgRestoreScript = `set -e
-mapfile -t extra < <(printf '%s' "$ARGS" | sed '/^$/d')
+// pgRestoreFellBack is the line pgRestoreScript prints when it had to restore to the end of the
+// archive instead of the target.
+const pgRestoreFellBack = "target is past the end of the archive"
+
+// pgArchiveFlushScript switches to a new WAL segment and waits for the one it closed to be
+// archived — run on the server before it is stopped. Without it a restore to "a minute ago" is a
+// restore to a moment whose WAL is still in the server's current, unarchived segment: recovery
+// stops short of the target and the restored server refuses to start ("recovery ended before
+// configured recovery target was reached"). Bounded; a broken archive is said, not waited on.
+// Env: PSQL. Optional HOSTARG (e.g. "-h /var/run/postgresql").
+const pgArchiveFlushScript = `flush_archive() {
+  Q() { runuser -u postgres -- "$PSQL" $HOSTARG -qAtX -d postgres -c "$1" 2>/dev/null; }
+  local W A i
+  W=$(Q "SELECT pg_walfile_name(pg_switch_wal())")
+  [ -n "$W" ] || { echo "note: could not switch WAL before the restore"; return 0; }
+  for i in $(seq 1 60); do
+    A=$(Q "SELECT coalesce(last_archived_wal, '') FROM pg_stat_archiver")
+    if [ -n "$A" ] && { [ "$A" = "$W" ] || [ "$A" \> "$W" ]; }; then echo "archived through $W"; return 0; fi
+    sleep 1
+  done
+  echo "note: $W was not archived within 60s — the newest moments may not be restorable"
+}
+flush_archive`
+
+// pgRestoreScript: flush the archive, stop, --delta restore, start, wait out recovery. ARGS is
+// the target, ALWAYS what every restore of this node needs (WAL encryption's restore_command),
+// both newline-separated so a target with a space in it stays one argument. If recovery ends
+// before the target — the archive does not reach it — the server would stay down; instead it is
+// restored again to the end of the archive, the closest point there is, and that is said.
+// Env: STANZA, SERVICE, PSQL, ARGS, ALWAYS, DATA.
+const pgRestoreScript = pgArchiveFlushScript + `
+set -e
+mapfile -t target < <(printf '%s' "$ARGS" | sed '/^$/d')
+mapfile -t always < <(printf '%s' "$ALWAYS" | sed '/^$/d')
+restore() {
+  runuser -u postgres -- pgbackrest --stanza="$STANZA" --delta --log-level-console=info "$@" restore 2>&1 |
+    grep -E "INFO: (restore backup set|restore size|restore command end)|WARN|ERROR" || true
+  test "${PIPESTATUS[0]}" -eq 0
+}
+started() {
+  systemctl start "$SERVICE" 2>/dev/null || true
+  for i in $(seq 1 120); do
+    r=$(runuser -u postgres -- "$PSQL" -qAtX -c 'SELECT pg_is_in_recovery()' 2>/dev/null || true)
+    [ "$r" = "f" ] && return 0
+    systemctl is-failed -q "$SERVICE" && return 1
+    sleep 1
+  done
+  return 1
+}
+short_of_target() {
+  { ls -t "$DATA"/log/*.log /var/log/postgresql/*.log 2>/dev/null | head -1 | xargs -r tail -50; journalctl -u "$SERVICE" --no-pager -n 50 2>/dev/null; } |
+    grep -q "recovery ended before configured recovery target was reached"
+}
 systemctl stop "$SERVICE"
 echo "stopped $SERVICE"
-runuser -u postgres -- pgbackrest --stanza="$STANZA" --delta --log-level-console=info "${extra[@]}" restore 2>&1 |
-  grep -E "INFO: (restore command begin|restore backup set|restore size|write updated|restore command end)|WARN|ERROR" || true
-test "${PIPESTATUS[0]}" -eq 0
-systemctl start "$SERVICE"
-for i in $(seq 1 120); do
-  r=$(runuser -u postgres -- "$PSQL" -qAtX -c 'SELECT pg_is_in_recovery()' 2>/dev/null || true)
-  [ "$r" = "f" ] && { echo "recovery finished — accepting writes"; runuser -u postgres -- "$PSQL" -qAtX -c "SELECT 'timeline ' || timeline_id FROM pg_control_checkpoint()"; exit 0; }
-  sleep 1
-done
-echo "PostgreSQL did not leave recovery within 120s:"; journalctl -u "$SERVICE" --no-pager 2>/dev/null | tail -15
-exit 1`
+restore "${always[@]}" "${target[@]}"
+if ! started; then
+  if [ ${#target[@]} -gt 0 ] && short_of_target; then
+    echo "` + pgRestoreFellBack + ` — restoring to the newest archived point instead"
+    systemctl stop "$SERVICE" 2>/dev/null || true
+    systemctl reset-failed "$SERVICE" 2>/dev/null || true
+    restore "${always[@]}"
+    started || { echo "PostgreSQL did not start after restoring to the end of the archive:"; journalctl -u "$SERVICE" --no-pager 2>/dev/null | tail -15; exit 1; }
+  else
+    echo "PostgreSQL did not leave recovery:"; journalctl -u "$SERVICE" --no-pager 2>/dev/null | tail -15; exit 1
+  fi
+fi
+echo "recovery finished — accepting writes"
+runuser -u postgres -- "$PSQL" -qAtX -c "SELECT 'timeline ' || timeline_id FROM pg_control_checkpoint()"`
 
 // pgRestoredTimeline reads the "timeline N" line pgRestoreScript ends with.
 func pgRestoredTimeline(out string) string {

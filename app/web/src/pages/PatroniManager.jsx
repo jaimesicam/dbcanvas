@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Button, Badge } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import BackupGuide from '../components/BackupGuide.jsx'
+import VaultGuide from '../components/VaultGuide.jsx'
+import PGBenchCard from '../components/PGBenchCard.jsx'
 import RestorePanel from '../components/RestorePanel.jsx'
 import { DEPLOY_TONE, patroniApi } from '../lib/stackApi.js'
 import { PGGatherCard } from '../components/Diagnostics.jsx'
@@ -16,6 +18,8 @@ const TABS = [
   { id: 'creds', label: 'Credentials' },
   { id: 'cert', label: 'Certificate' },
   { id: 'backup', label: 'Backup' },
+  { id: 'workload', label: 'Workload' },
+  { id: 'encryption', label: 'Encryption' },
   { id: 'diag', label: 'Diagnostics' },
 ]
 
@@ -76,7 +80,7 @@ export default function PatroniManager({ stackId, nodeId, frame, dep, onDeleteNo
       </div>
 
       <div className="flex flex-wrap gap-1 rounded-lg bg-surface2 p-1">
-        {TABS.filter((t) => t.id !== 'backup' || hasBackup).map((t) => (
+        {TABS.filter((t) => (t.id !== 'backup' || hasBackup) && (t.id !== 'encryption' || cfg.vault?.enabled)).map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
@@ -91,6 +95,8 @@ export default function PatroniManager({ stackId, nodeId, frame, dep, onDeleteNo
       {tab === 'creds' && <Creds cfg={cfg} sec={sec} />}
       {tab === 'cert' && <PGCertTab stackId={stackId} nodeId={nodeId} />}
       {tab === 'backup' && hasBackup && <BackupTab stackId={stackId} frameId={frame?.id} cfg={cfg} />}
+      {tab === 'workload' && <PGBenchCard where="on the cluster's leader" run={(b) => patroniApi(stackId, frame?.id).pgbench(b)} />}
+      {tab === 'encryption' && <VaultGuide engine="pg" info={cfg.vault} onRotate={() => patroniApi(stackId, frame?.id).tdeRotate()} />}
       {tab === 'diag' && <PGGatherCard stackId={stackId} nodeId={nodeId} defaultDb={cfg.database} />}
     </div>
   )

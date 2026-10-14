@@ -476,7 +476,7 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 				pr.fail("prepare pgbackrest dirs: %v", err)
 				return
 			}
-			conf := patroniPgBackRestConf(n.Label, n.OS, major, swCfg, swSec)
+			conf := patroniPgBackRestConf(n.Label, n.OS, major, swCfg, swSec, n.EnableVault && n.PGTDEWal)
 			if err := a.engCtx(ctx).CopyFile(ctx, id, "/etc/pgbackrest", "pgbackrest.conf", 0o644, []byte(conf)); err != nil {
 				pr.fail("write pgbackrest.conf: %v", err)
 				return
@@ -582,7 +582,14 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 		if n.UsePgBackRest {
 			pr.phase("Creating pgBackRest stanza + initial backup", 86)
 			if err := a.runStep(ctx, id, patroniBackupScript, []string{"STANZA=" + stanza}, pr.logln); err != nil {
-				// Non-fatal: the server is up; surface the failure but keep running.
+				// Non-fatal: the server is up; surface the failure but keep running — except under
+				// WAL encryption, where a backup that cannot complete means the archive_command
+				// wrapper is not archiving, and a node that encrypts WAL nobody can restore is not
+				// the node that was asked for (pgtdewal.go).
+				if n.EnableVault && n.PGTDEWal {
+					pr.fail("initial pgBackRest backup failed with WAL encryption on — archiving through pg_tde_archive_decrypt is not working: %v", err)
+					return
+				}
 				pr.logln("initial pgBackRest backup failed: " + err.Error())
 			} else {
 				pr.logln("pgBackRest stanza created + initial full backup taken")

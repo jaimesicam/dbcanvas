@@ -75,6 +75,13 @@ type vaultInfo struct {
 	CACert     string `json:"caCert"`     // the Intranet CA in the node's trust store
 	ConfFile   string `json:"confFile"`   // keyring conf / manifest location (MySQL only)
 	TokenFile  string `json:"tokenFile"`  // PSMDB only (MySQL carries the token inside its conf)
+	// PostgreSQL only: which pg_tde the node ended up with ("percona-pg_tde17 2.1.2-1.el9", or
+	// bundled with the server) — the install chooses it by loading each build (pgtde.go), so it
+	// is worth showing — and, on a Patroni cluster, that the principal key is the cluster's.
+	Build     string `json:"build,omitempty"`
+	Shared    bool   `json:"shared,omitempty"`
+	WAL       bool   `json:"wal,omitempty"`       // pg_tde.wal_encrypt on (pgtdewal.go)
+	RotatedAt string `json:"rotatedAt,omitempty"` // last principal-key rotation (pgtderotate.go)
 }
 
 // vaultIssues validates a ps/psm/pg node's OpenBao selection.

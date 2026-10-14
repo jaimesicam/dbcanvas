@@ -85,6 +85,9 @@ func (a *App) patroniTDEMember(ctx context.Context, containerID string, f design
 	}, logln); err != nil {
 		return fmt.Errorf("install pg_tde: %w", err)
 	}
+	if b := a.pgTDEBuild(ctx, containerID, f.OS, major); b != "" {
+		logln("pg_tde: " + b)
+	}
 	return a.runStep(ctx, containerID, pgTDETokenScript, []string{
 		"TDEDIR=" + pgTDEDir, "TOKENFILE=" + pgTDETokenFile, "TDETOKEN=" + t.token,
 	}, logln)
@@ -95,7 +98,8 @@ func (a *App) patroniTDEEnable(ctx context.Context, leaderCID string, f designFr
 	major := ppgMajorOf(f.PGMajor)
 	key := patroniTDEKeyName(f)
 	if err := a.runStep(ctx, leaderCID, patroniTDEEnableScript, []string{
-		"PSQL=" + pgBinDir(f.OS, major) + "/psql", "CONF=/etc/patroni/postgresql.yml",
+		"PSQL=" + pgBinDir(f.OS, major) + "/psql", "CONF=/etc/patroni/postgresql.yml", "SCOPE=" + sanitizeName(f.Label),
+		"WALENC=" + map[bool]string{true: "1"}[f.PGTDEWal],
 		"PROVIDER=" + pgTDEProvider, "KEYNAME=" + key, "TOKENFILE=" + pgTDETokenFile,
 		"VAULTURL=" + t.cfg.Addr, "VAULTMOUNT=" + t.mount, "CAFILE=" + t.ca,
 	}, logln); err != nil {
@@ -105,7 +109,7 @@ func (a *App) patroniTDEEnable(ctx context.Context, leaderCID string, f designFr
 	return vaultInfo{
 		Enabled: true, Method: "pg_tde global key provider (vault_v2), one principal key for the cluster",
 		Addr: t.cfg.Addr, OpenBao: t.cfg.FQDN, Mount: t.mount, KVVersion: "2",
-		SecretPath: t.mount + "/data/" + key, CACert: t.ca, TokenFile: pgTDETokenFile,
+		SecretPath: t.mount + "/data/" + key, CACert: t.ca, TokenFile: pgTDETokenFile, Shared: true, WAL: f.PGTDEWal,
 	}, nil
 }
 
@@ -146,8 +150,26 @@ ENC=$(printf '%s\n' \
 printf '%s\n' "DROP TABLE IF EXISTS dbcanvas_tde_check;" | P -d postgres >/dev/null 2>&1 || true
 [ "$ENC" = "t" ] || { echo "pg_tde is configured but a tde_heap table did not come back encrypted ('$ENC')"; exit 1; }
 patronictl -c "$CONF" edit-config --force -p default_table_access_method=tde_heap >/dev/null
+ok=""
 for i in $(seq 1 30); do
-  [ "$(P -d postgres -tA -c 'SHOW default_table_access_method')" = "tde_heap" ] && { echo "pg_tde active: principal key $KEYNAME, tde_heap the cluster default"; exit 0; }
+  [ "$(P -d postgres -tA -c 'SHOW default_table_access_method')" = "tde_heap" ] && { ok=1; break; }
   sleep 1
 done
-echo "patronictl set default_table_access_method, but the leader still reports $(P -d postgres -tA -c 'SHOW default_table_access_method')"; exit 1`
+[ -n "$ok" ] || { echo "patronictl set default_table_access_method, but the leader still reports $(P -d postgres -tA -c 'SHOW default_table_access_method')"; exit 1; }
+echo "pg_tde active: principal key $KEYNAME, tde_heap the cluster default"
+# WAL encryption (pgtdewal.go): the server key, then pg_tde.wal_encrypt through Patroni — a
+# restart setting, so a rolling restart of every member. archive_command and the replicas'
+# restore_command have gone through pg_tde's wrappers since bootstrap.
+[ -n "$WALENC" ] || exit 0
+[ "$(P -d postgres -tA -c "SELECT count(*) FROM pg_settings WHERE name = 'pg_tde.wal_encrypt'")" = "1" ] ||
+  { echo "this pg_tde build has no WAL encryption (no pg_tde.wal_encrypt setting)"; exit 1; }
+printf '%s\n' "SELECT pg_tde_set_server_key_using_global_key_provider(:'key', :'prov');" | psql_tde
+patronictl -c "$CONF" edit-config --force -p pg_tde.wal_encrypt=on >/dev/null
+sleep 12
+patronictl -c "$CONF" restart "$SCOPE" --force >/dev/null
+for i in $(seq 1 120); do
+  [ "$(P -d postgres -tA -c 'SHOW pg_tde.wal_encrypt' 2>/dev/null)" = "on" ] && ! patronictl -c "$CONF" list 2>/dev/null | grep -q '\*' && {
+    echo "WAL encryption on, every member restarted"; exit 0; }
+  sleep 1
+done
+echo "pg_tde.wal_encrypt did not come on across the cluster:"; patronictl -c "$CONF" list 2>&1 | tail -6; exit 1`

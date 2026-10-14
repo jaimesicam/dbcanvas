@@ -3,6 +3,7 @@ package main
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // Percona builds pg_tde for two majors, and the designer, the validator and the deploy all have
@@ -206,5 +207,21 @@ func TestPatroniYAMLUsesPGTDETools(t *testing.T) {
 	f.EnableVault = false
 	if y := patroniYAML(f, "patroni-1", "patroni-1.example.net", []string{"patroni-1.example.net:2379"}, pgSecrets{}); strings.Contains(y, "pg_tde") {
 		t.Error("an unencrypted cluster must not mention pg_tde")
+	}
+}
+
+// A rotated key keeps its base and swaps the timestamp, so names never pile suffixes up and
+// OpenBao keeps every generation side by side.
+func TestPGTDERotateKeyName(t *testing.T) {
+	at := time.Date(2026, 10, 14, 9, 30, 0, 0, time.UTC)
+	for in, want := range map[string]string{
+		"postgresql-pg-01/data/pg-01-principal":                "pg-01-principal-20261014093000",
+		"postgresql-pg-01/data/pg-01-principal-20261001120000": "pg-01-principal-20261014093000",
+		"postgresql-c1/data/c1-principal":                      "c1-principal-20261014093000",
+		"":                                                     "principal-20261014093000",
+	} {
+		if got := pgTDERotateKeyName(in, at); got != want {
+			t.Errorf("pgTDERotateKeyName(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

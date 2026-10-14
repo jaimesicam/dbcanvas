@@ -35,15 +35,30 @@ import (
 
 // patroniRestoreTarget is the frame and its running members, leader first.
 type patroniRestoreTarget struct {
-	st      Stack
-	frame   designFrame
-	leader  memberRef
-	members []memberRef // replicas, in design order
+	st        Stack
+	frame     designFrame
+	leader    memberRef
+	members   []memberRef // replicas, in design order
+	memberIDs []string    // every member's node id, leader included
 }
 
-type memberRef struct{ label, container string }
+type memberRef struct{ id, label, container string }
 
 func (a *App) patroniRestoreFrame(w http.ResponseWriter, r *http.Request) (patroniRestoreTarget, bool) {
+	t, ok := a.patroniFrameMembers(w, r)
+	if !ok {
+		return patroniRestoreTarget{}, false
+	}
+	if !t.frame.UsePgBackRest {
+		writeErr(w, http.StatusBadRequest, "pgBackRest is not enabled for this cluster")
+		return patroniRestoreTarget{}, false
+	}
+	return t, true
+}
+
+// patroniFrameMembers resolves a Patroni frame and its running members, leader first, writing the
+// HTTP error itself when a member is down or there is no leader. Shared by restore and key rotation.
+func (a *App) patroniFrameMembers(w http.ResponseWriter, r *http.Request) (patroniRestoreTarget, bool) {
 	st, _, ok := a.loadOwnedStack(w, r)
 	if !ok {
 		return patroniRestoreTarget{}, false
@@ -66,10 +81,6 @@ func (a *App) patroniRestoreFrame(w http.ResponseWriter, r *http.Request) (patro
 		writeErr(w, http.StatusNotFound, "Patroni cluster not found")
 		return patroniRestoreTarget{}, false
 	}
-	if !frame.UsePgBackRest {
-		writeErr(w, http.StatusBadRequest, "pgBackRest is not enabled for this cluster")
-		return patroniRestoreTarget{}, false
-	}
 	t := patroniRestoreTarget{st: st, frame: frame}
 	leaderCID := a.patroniLeaderContainer(r.Context(), st, frame, doc)
 	for _, n := range doc.Nodes {
@@ -81,7 +92,8 @@ func (a *App) patroniRestoreFrame(w http.ResponseWriter, r *http.Request) (patro
 			writeErr(w, http.StatusConflict, n.Label+" is not running — every member has to be, to restore the cluster")
 			return patroniRestoreTarget{}, false
 		}
-		m := memberRef{n.Label, dep.ContainerID}
+		m := memberRef{n.ID, n.Label, dep.ContainerID}
+		t.memberIDs = append(t.memberIDs, n.ID)
 		if dep.ContainerID == leaderCID {
 			t.leader = m
 		} else {
@@ -130,6 +142,10 @@ func (a *App) handlePatroniRestore(w http.ResponseWriter, r *http.Request) {
 	major := ppgMajorOf(f.PGMajor)
 	stanza := patroniStanza(f.Label)
 	data := pgDataDir(f.OS, major)
+	var always []string // what every restore of this cluster needs, as in pgrestore.go
+	if f.EnableVault && f.PGTDEWal {
+		always = pgRestoreTDEArgs(pgBinDir(f.OS, major), stanza) // pgtdewal.go
+	}
 	var log []string
 	step := func(m memberRef, what, script string, env []string) error {
 		res, err := a.engCtx(ctx).Exec(ctx, m.container, []string{"bash", "-c", script}, env)
@@ -158,6 +174,9 @@ func (a *App) handlePatroniRestore(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// 0. Archive the segment in progress, so a target a minute ago is in the archive (pgrestore.go).
+	_ = step(t.leader, "archive the current WAL segment", pgArchiveFlushScript,
+		[]string{"PSQL=" + pgBinDir(f.OS, major) + "/psql", "HOSTARG=-h /var/run/postgresql"})
 	// 1. Stop every member, replicas first, so none of them is promoted when the leader goes.
 	for _, m := range append(append([]memberRef{}, t.members...), t.leader) {
 		if err := step(m, "stop Patroni", patroniStopScript, nil); err != nil {
@@ -174,6 +193,7 @@ func (a *App) handlePatroniRestore(w http.ResponseWriter, r *http.Request) {
 	// 3. Restore and recover the leader outside Patroni.
 	if err := step(t.leader, "pgBackRest restore and recovery", patroniRestoreLeaderScript, []string{
 		"STANZA=" + stanza, "BINDIR=" + pgBinDir(f.OS, major), "DATA=" + data, "ARGS=" + strings.Join(args, "\n"),
+		"ALWAYS=" + strings.Join(always, "\n"),
 	}); err != nil {
 		fail(err)
 		return
@@ -197,6 +217,9 @@ func (a *App) handlePatroniRestore(w http.ResponseWriter, r *http.Request) {
 	}
 
 	what := map[string]string{"": "the latest point", "latest": "the latest point", "time": req.Time, "backup": "backup " + req.Set}[req.Mode]
+	if strings.Contains(strings.Join(log, "\n"), pgRestoreFellBack) {
+		what = "the newest archived point (" + req.Time + " is past the end of the archive)"
+	}
 	a.notifyStack(t.st.ID, "restore.done", "success", "Restore completed",
 		fmt.Sprintf("%s: restored to %s; %s leads, %d replica(s) rebuilt.", f.Label, what, t.leader.label, len(t.members)), "")
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -222,21 +245,39 @@ patronictl -c "$CONF" list 2>/dev/null | grep -q "(uninitialized)" || {
 echo "removed from etcd"`
 
 // patroniRestoreLeaderScript restores the data directory and runs recovery to the target with
-// PostgreSQL started by hand, then stops it — Patroni starts it again in the next step.
-// Env: STANZA, BINDIR, DATA, ARGS (newline-separated, as pgRestoreScript).
+// PostgreSQL started by hand, then stops it — Patroni starts it again in the next step. A target
+// past the end of the archive falls back to the end of it, as pgRestoreScript does.
+// Env: STANZA, BINDIR, DATA, ARGS, ALWAYS (newline-separated, as pgRestoreScript).
 const patroniRestoreLeaderScript = `set -e
-mapfile -t extra < <(printf '%s' "$ARGS" | sed '/^$/d')
-runuser -u postgres -- pgbackrest --stanza="$STANZA" --delta --log-level-console=info "${extra[@]}" restore 2>&1 |
-  grep -E "INFO: (restore backup set|restore size|restore command end)|WARN|ERROR" || true
-test "${PIPESTATUS[0]}" -eq 0
-runuser -u postgres -- "$BINDIR/pg_ctl" -D "$DATA" -l /tmp/pg-restore.log -w -t 600 start >/dev/null
-r=""
-for i in $(seq 1 600); do
-  r=$(runuser -u postgres -- "$BINDIR/psql" -qAtX -h /var/run/postgresql -c 'SELECT pg_is_in_recovery()' 2>/dev/null || true)
-  [ "$r" = "f" ] && break
-  sleep 1
-done
-[ "$r" = "f" ] || { echo "recovery did not finish:"; tail -15 /tmp/pg-restore.log; exit 1; }
+mapfile -t target < <(printf '%s' "$ARGS" | sed '/^$/d')
+mapfile -t always < <(printf '%s' "$ALWAYS" | sed '/^$/d')
+restore() {
+  runuser -u postgres -- pgbackrest --stanza="$STANZA" --delta --log-level-console=info "$@" restore 2>&1 |
+    grep -E "INFO: (restore backup set|restore size|restore command end)|WARN|ERROR" || true
+  test "${PIPESTATUS[0]}" -eq 0
+}
+recovered() {
+  : > /tmp/pg-restore.log; chown postgres /tmp/pg-restore.log
+  runuser -u postgres -- "$BINDIR/pg_ctl" -D "$DATA" -l /tmp/pg-restore.log -w -t 600 start >/dev/null 2>&1 || return 1
+  local r="" i
+  for i in $(seq 1 600); do
+    r=$(runuser -u postgres -- "$BINDIR/psql" -qAtX -h /var/run/postgresql -c 'SELECT pg_is_in_recovery()' 2>/dev/null || true)
+    [ "$r" = "f" ] && return 0
+    runuser -u postgres -- "$BINDIR/pg_ctl" -D "$DATA" status >/dev/null 2>&1 || return 1
+    sleep 1
+  done
+  return 1
+}
+restore "${always[@]}" "${target[@]}"
+if ! recovered; then
+  if [ ${#target[@]} -gt 0 ] && grep -q "recovery ended before configured recovery target was reached" /tmp/pg-restore.log; then
+    echo "` + pgRestoreFellBack + ` — restoring to the newest archived point instead"
+    restore "${always[@]}"
+    recovered || { echo "recovery did not finish:"; tail -15 /tmp/pg-restore.log; exit 1; }
+  else
+    echo "recovery did not finish:"; tail -15 /tmp/pg-restore.log; exit 1
+  fi
+fi
 runuser -u postgres -- "$BINDIR/psql" -qAtX -h /var/run/postgresql -c "SELECT 'recovered — timeline ' || timeline_id FROM pg_control_checkpoint()"
 runuser -u postgres -- "$BINDIR/pg_ctl" -D "$DATA" -m fast -w stop >/dev/null`
 

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Button, Badge } from '../components/ui.jsx'
 import RestorePanel from '../components/RestorePanel.jsx'
+import PGBenchCard from '../components/PGBenchCard.jsx'
 import { Icon } from '../components/Icons.jsx'
 import BackupGuide from '../components/BackupGuide.jsx'
 import { DEPLOY_TONE, pgApi } from '../lib/stackApi.js'
@@ -22,6 +23,7 @@ const TABS = [
   { id: 'cert', label: 'Certificate' },
   { id: 'encryption', label: 'Encryption' },
   { id: 'backup', label: 'Backup' },
+  { id: 'workload', label: 'Workload' },
   { id: 'diag', label: 'Diagnostics' },
 ]
 
@@ -101,7 +103,8 @@ export default function PGManager({ stackId, nodeId, dep, onDeleteNode }) {
       {tab === 'dirlogin' && <DbLoginGuide engine="pg" info={cfg.dirAuth} />}
       {tab === 'sso' && <OidcLoginGuide engine="pg" info={cfg.oidc} secrets={sec} />}
       {tab === 'cert' && <PGCertTab stackId={stackId} nodeId={nodeId} />}
-      {tab === 'encryption' && <VaultGuide engine="pg" info={cfg.vault} />}
+      {tab === 'workload' && <PGBenchCard where="on this node" run={(b) => pgApi(stackId, nodeId).pgbench(b)} />}
+      {tab === 'encryption' && <VaultGuide engine="pg" info={cfg.vault} onRotate={() => pgApi(stackId, nodeId).tdeRotate()} />}
       {tab === 'backup' && hasBackup && <BackupTab stackId={stackId} nodeId={nodeId} cfg={cfg} />}
       {tab === 'diag' && <PGGatherCard stackId={stackId} nodeId={nodeId} defaultDb={cfg.database} />}
     </div>

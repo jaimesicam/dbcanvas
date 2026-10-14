@@ -579,7 +579,7 @@ func (a *App) repmgrPrepareNode(ctx context.Context, st Stack, frame designFrame
 		// The same generator Patroni and standalone PostgreSQL use: to pgBackRest a repmgr
 		// member is one PostgreSQL with one data directory and one stanza, which is exactly
 		// what that config describes.
-		conf := patroniPgBackRestConf(frame.Label, frame.OS, major, swCfg, swSec)
+		conf := patroniPgBackRestConf(frame.Label, frame.OS, major, swCfg, swSec, false)
 		if err := a.engCtx(ctx).CopyFile(ctx, id, "/etc/pgbackrest", "pgbackrest.conf", 0o644, []byte(conf)); err != nil {
 			return pr.fail("write pgbackrest.conf: %v", err)
 		}

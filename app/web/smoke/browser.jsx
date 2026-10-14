@@ -26,7 +26,9 @@ import StalkSummary from '../src/pages/StalkSummary.jsx'
 import PacketInspector from '../src/pages/PacketInspector.jsx'
 import K8sStates from '../src/pages/K8sStates.jsx'
 import DatabaseExplorer from '../src/pages/DatabaseExplorer.jsx'
-import { ContextMenu, podMenuEntries } from '../src/pages/StackDesigner.jsx'
+import { ContextMenu, podMenuEntries, StackEditor } from '../src/pages/StackDesigner.jsx'
+import { AuthContext } from '../src/auth/AuthProvider.jsx'
+import stackDesign from './stack-design.json'
 import { Help } from '../src/components/Tooltip.jsx'
 import { SettingsCtx } from '../src/settings/SettingsProvider.jsx'
 
@@ -166,6 +168,17 @@ const payloadFor = (url) => {
   if (url.includes('/cores')) return { cores: [] }
   if (url.includes('/files')) return { files: [], entries: [] }
   if (url.includes('/breakpoints')) return { breakpoints: [] }
+  // The stack the editor opens (driveStackEditor below): a deployed Intranet + PostgreSQL, the
+  // design saved from a real stack, with nothing for a redeploy to do.
+  if (url.includes('/api/stacks/77/deploy/preview')) return { remove: [], create: [], recreate: [], rebuild: [], join: [], refused: [], unchanged: 2 }
+  // Shapes copied from a live server, so the editor's panels get what they really get.
+  if (url.includes('/api/stacks/77/alerts')) return { alerts: [], intervalSec: 30, rules: { down: true, replication: true, failover: true, lagSec: 30, diskPct: 85, connPct: 90, trxSec: 600, lockWaitSec: 30, deadlock: true, notify: true } }
+  if (url.includes('/api/stacks/77/history')) return { alerts: [], events: [], intervalSec: 30, minutes: 60, samples: {} }
+  if (url.includes('/api/stacks/77/live')) return { nodes: {} }
+  if (/\/api\/stacks\/77$/.test(url)) {
+    return { id: 77, name: 'smoke-stack', ownerId: 1, status: 'deployed', ttl: '4h', expiresAt: '2099-01-01T00:00:00Z',
+      design: stackDesign, deployments: stackDesign.nodes.map((n) => ({ stackId: 77, nodeId: n.id, state: 'running', config: {} })) }
+  }
   if (url.includes('/stacks')) return { stacks: [] }
   if (url.includes('/bundles')) return { bundles: [] }
   if (url.includes('/archives')) return { archives: [] }
@@ -428,6 +441,45 @@ async function driveBoardFill() {
 }
 driveBoardFill().catch((err) => record('states board fill', err))
 
+// ---------------------------------------------------------------- a stack, opened
+//
+// The page-level mounts above stop at the stack list. The editor is where the work is, and it
+// went out blank once: an effect read stack.id while the stack was still loading (null), and
+// React unmounted the whole tree — no error on screen, just nothing. So open one: a deployed
+// stack, whose editor must render its name and say Deploy has nothing to do.
+let editorDone = false
+async function driveStackEditor() {
+  const host = document.createElement('div')
+  host.id = 'stack-editor'
+  host.style.height = '800px'
+  document.body.appendChild(host)
+  const auth = { phase: 'ready', user: { id: 1, username: 'admin', role: 'admin' }, guest: false,
+    refresh: async () => {}, setup: async () => {}, login: async () => {}, register: async () => {}, logout: async () => {}, setUser: () => {} }
+  createRoot(host).render(
+    <StrictMode>
+      <AuthContext.Provider value={auth}>
+        <TerminalProvider>
+          <PageVisibleProvider visible>
+            <Boundary name="StackEditor"><StackEditor stackId={77} templates={[]} onBack={() => {}} /></Boundary>
+          </PageVisibleProvider>
+        </TerminalProvider>
+      </AuthContext.Provider>
+    </StrictMode>,
+  )
+  let text = ''
+  for (let i = 0; i < 20; i++) {
+    await new Promise((r) => setTimeout(r, 100))
+    text = host.textContent || ''
+    if (text.includes('Up to date')) break
+  }
+  if (!text.trim()) throw new Error('the editor rendered nothing — it unmounted on open')
+  if (!text.includes('smoke-stack')) throw new Error('the editor did not show the stack it opened')
+  if (!text.includes('pg-01')) throw new Error('the canvas did not show the stack\'s nodes')
+  if (!text.includes('Up to date')) throw new Error('a deployed stack with nothing to redeploy did not say "Up to date"')
+  editorDone = true
+}
+driveStackEditor().catch((err) => record('stack editor', err))
+
 // Give effects, their microtasks and the stubbed fetches a turn, then report.
 setTimeout(() => {
   const blank = PAGES.filter(([name]) => (document.getElementById(`page-${name}`)?.textContent || '').trim() === '')
@@ -439,6 +491,9 @@ setTimeout(() => {
   }
   if (!tipsDone && !failures.some((f) => f.startsWith('tooltip switch'))) {
     record('tooltip switch', new Error('never finished — did the hover stop opening a bubble?'))
+  }
+  if (!editorDone && !failures.some((f) => f.startsWith('stack editor'))) {
+    record('stack editor', new Error('never finished — did the editor stop rendering?'))
   }
   if (!fillDone && !failures.some((f) => f.startsWith('states board fill'))) {
     record('states board fill', new Error('never finished — did the page stop rendering?'))

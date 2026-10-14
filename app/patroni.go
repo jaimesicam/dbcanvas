@@ -43,17 +43,19 @@ var patroniPorts = []int{patroniPGPort, patroniRESTPort, etcdClientPort, etcdPee
 
 // patroniConfig is the non-secret profile shown for a deployed Patroni node.
 type patroniConfig struct {
-	Cluster       string   `json:"cluster"`
-	Image         string   `json:"image"`
-	OS            string   `json:"os"` // os family (oraclelinux | ubuntu | …) — drives paths
-	Hostname      string   `json:"hostname"`
-	FQDN          string   `json:"fqdn"`
-	PGMajor       string   `json:"pgMajor"`   // "13".."18"
-	PGVersion     string   `json:"pgVersion"` // selected minor (display)
-	Role          string   `json:"role"`      // leader | replica (best-effort, filled post-bootstrap)
-	EtcdEndpoints []string `json:"etcdEndpoints"`
-	UsePgBackRest bool     `json:"usePgBackRest"`
-	BackupRepo    string   `json:"backupRepo"` // e.g. "s3://<bucket>/pgbackrest" when pgBackRest is on
+	// Vault is persisted by the pg_tde step (patronitde.go) after the cluster is keyed.
+	Vault         vaultInfo `json:"vault"`
+	Cluster       string    `json:"cluster"`
+	Image         string    `json:"image"`
+	OS            string    `json:"os"` // os family (oraclelinux | ubuntu | …) — drives paths
+	Hostname      string    `json:"hostname"`
+	FQDN          string    `json:"fqdn"`
+	PGMajor       string    `json:"pgMajor"`   // "13".."18"
+	PGVersion     string    `json:"pgVersion"` // selected minor (display)
+	Role          string    `json:"role"`      // leader | replica (best-effort, filled post-bootstrap)
+	EtcdEndpoints []string  `json:"etcdEndpoints"`
+	UsePgBackRest bool      `json:"usePgBackRest"`
+	BackupRepo    string    `json:"backupRepo"` // e.g. "s3://<bucket>/pgbackrest" when pgBackRest is on
 	// What the Backup tab's commands need to be runnable as they stand: the stanza every
 	// pgbackrest command takes, and the bucket the repository actually lives in (the frame
 	// picks one of the SeaweedFS node's, so it is not always that node's default).
@@ -136,10 +138,13 @@ func pgDataDir(os, major string) string {
 
 // etcdConfPath is the YAML config file the etcd unit reads (Percona's EL etcd unit
 // runs `etcd --config-file /etc/etcd/etcd.conf.yaml`).
+//
+// The same file on every OS. Debian/Ubuntu used to be /etc/default/etcd, and Percona's
+// etcd-server package there now runs `etcd --config-file /etc/etcd/etcd.conf.yaml` too (checked
+// on Ubuntu 22.04 and 24.04, etcd-server 3.5.33): the YAML written to the old path was ignored,
+// etcd came up on its defaults — a one-member cluster on 127.0.0.1 — and no Patroni cluster could
+// form on Ubuntu.
 func etcdConfPath(os string) string {
-	if isDebianOS(os) {
-		return "/etc/default/etcd"
-	}
 	return "/etc/etcd/etcd.conf.yaml"
 }
 
@@ -371,7 +376,11 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 				return
 			}
 			for _, n := range members {
-				a.persistConfigKey(st, n.ID, "vault", info)
+				mi := info
+				if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil {
+					mi.Build = a.pgTDEBuild(ctx, dep.ContainerID, frame.OS, ppgMajorOf(frame.PGMajor))
+				}
+				a.persistConfigKey(st, n.ID, "vault", mi)
 			}
 		}
 
@@ -382,7 +391,12 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 			ldep, _ := a.store.GetDeployment(st.ID, leaderID)
 			env := []string{"STANZA=" + patroniStanza(frame.Label)}
 			if err := a.runStep(ctx, ldep.ContainerID, patroniBackupScript, env, pr.logln); err != nil {
-				// Non-fatal: the cluster is up; surface the failure but keep running.
+				// Non-fatal: the cluster is up; surface the failure but keep running — except under
+				// WAL encryption, as on the standalone node (pg.go).
+				if frame.EnableVault && frame.PGTDEWal {
+					pr.fail("initial pgBackRest backup failed with WAL encryption on — archiving through pg_tde_archive_decrypt is not working: %v", err)
+					return
+				}
 				pr.logln("initial pgBackRest backup failed: " + err.Error())
 			} else {
 				pr.logln("pgBackRest stanza created + initial full backup taken")
@@ -634,7 +648,7 @@ func (a *App) patroniPrepareNode(ctx context.Context, st Stack, frame designFram
 		if err := a.runStep(ctx, id, patroniPgBackRestDirsScript, nil, pr.logln); err != nil {
 			return pr.fail("prepare pgbackrest dirs: %v", err)
 		}
-		conf := patroniPgBackRestConf(frame.Label, frame.OS, major, swCfg, swSec)
+		conf := patroniPgBackRestConf(frame.Label, frame.OS, major, swCfg, swSec, frame.EnableVault && frame.PGTDEWal)
 		if err := a.engCtx(ctx).CopyFile(ctx, id, "/etc/pgbackrest", "pgbackrest.conf", 0o644, []byte(conf)); err != nil {
 			return pr.fail("write pgbackrest.conf: %v", err)
 		}
@@ -657,7 +671,13 @@ func (a *App) patroniPrepareNode(ctx context.Context, st Stack, frame designFram
 	if err := a.engCtx(ctx).CopyFile(ctx, id, "/etc/patroni", "postgresql.yml", 0o644, []byte(yml)); err != nil {
 		return pr.fail("write patroni config: %v", err)
 	}
-	if err := a.runStep(ctx, id, patroniPrepDirsScript, []string{"DATADIR=" + pgDataDir(frame.OS, major)}, pr.logln); err != nil {
+	// Percona's Debian/Ubuntu unit reads /etc/patroni/patroni.yml rather than postgresql.yml
+	// (PATRONI_CONFIG_LOCATION in the packaged unit). A link, not a second copy: everything
+	// here — patronictl -c, the labs, restore — names postgresql.yml, and two copies drift.
+	if err := a.runStep(ctx, id, `ln -sfn postgresql.yml /etc/patroni/patroni.yml`, nil, pr.logln); err != nil {
+		return pr.fail("link patroni.yml: %v", err)
+	}
+	if err := a.runStep(ctx, id, patroniPrepDirsScript, []string{"DATADIR=" + pgDataDir(frame.OS, major), "MAJOR=" + major}, pr.logln); err != nil {
 		return pr.fail("prepare data dir: %v", err)
 	}
 	return nil
@@ -714,7 +734,8 @@ func (a *App) patroniWaitEtcd(ctx context.Context, st Stack, members []designNod
 				allHealthy = false
 				break
 			}
-			res, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"bash", "-c", patroniEtcdHealthScript}, nil)
+			res, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"bash", "-c", patroniEtcdHealthScript},
+				[]string{"MEMBERS=" + strconv.Itoa(len(members))})
 			if err != nil || res.Code != 0 {
 				allHealthy = false
 				break
@@ -731,10 +752,23 @@ func (a *App) patroniWaitEtcd(ctx context.Context, st Stack, members []designNod
 // patroniWaitCluster polls Patroni until a leader is elected and every member is
 // running. It returns the design node id of the leader.
 func (a *App) patroniWaitCluster(ctx context.Context, st Stack, frame designFrame, members []designNode, timeout time.Duration) (string, error) {
-	deadline := time.Now().Add(timeout)
+	start := time.Now()
+	deadline := start.Add(timeout)
+	// A member whose PostgreSQL cannot start is restarted by Patroni every ten seconds, for
+	// ever, and the deploy used to sit on "Starting Patroni" until the timeout with no word of
+	// why (a restore_command that could not be found did exactly that). So once a member has
+	// had a minute, its last real FATAL goes into its own log as it changes, and the same one
+	// for three minutes is the answer: the deploy fails with it.
+	type seen struct {
+		fatal string
+		since time.Time
+	}
+	last := map[string]seen{}
+	nextLook := start.Add(time.Minute)
 	for time.Now().Before(deadline) {
 		leaderID := ""
 		running := 0
+		var down []designNode
 		for _, n := range members {
 			dep, err := a.store.GetDeployment(st.ID, n.ID)
 			if err != nil || dep.ContainerID == "" {
@@ -742,23 +776,57 @@ func (a *App) patroniWaitCluster(ctx context.Context, st Stack, frame designFram
 			}
 			// /leader returns 200 only on the current leader/primary; /health returns
 			// 200 when the node's PostgreSQL is up (leader or streaming replica).
+			up := false
 			if res, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"bash", "-c", patroniRoleScript}, nil); err == nil {
 				switch strings.TrimSpace(res.Stdout) {
 				case "leader":
 					leaderID = n.ID
 					running++
+					up = true
 				case "running":
 					running++
+					up = true
 				}
+			}
+			if !up {
+				down = append(down, n)
 			}
 		}
 		if leaderID != "" && running == len(members) {
 			return leaderID, nil
 		}
+		if time.Now().After(nextLook) {
+			nextLook = time.Now().Add(20 * time.Second)
+			for _, n := range down {
+				dep, _ := a.store.GetDeployment(st.ID, n.ID)
+				res, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"bash", "-c", patroniLastFatalScript},
+					[]string{"DATA=" + pgDataDir(frame.OS, ppgMajorOf(frame.PGMajor))})
+				f := ""
+				if err == nil {
+					f = strings.TrimSpace(res.Stdout)
+				}
+				if f == "" {
+					continue
+				}
+				pr := a.pxcNewProg(st.ID, n.ID)
+				if prev, ok := last[n.ID]; !ok || prev.fatal != f {
+					last[n.ID] = seen{f, time.Now()}
+					pr.logln("PostgreSQL is not starting: " + f)
+				} else if time.Since(prev.since) > 3*time.Minute {
+					return "", fmt.Errorf("%s: PostgreSQL keeps failing to start — %s", n.Label, f)
+				}
+			}
+		}
 		time.Sleep(3 * time.Second)
 	}
 	return "", fmt.Errorf("Patroni cluster %s did not elect a leader / all replicas within %s", frame.Label, timeout)
 }
+
+// patroniLastFatalScript prints the last FATAL/PANIC in a member's PostgreSQL log that is not
+// the noise of a start or stop in progress, without its timestamp. Env: DATA.
+const patroniLastFatalScript = `L=$(ls -t "$DATA"/log/*.log /var/log/postgresql/*.log 2>/dev/null | head -1)
+[ -n "$L" ] || exit 0
+grep -E "FATAL|PANIC" "$L" | grep -vE "is starting up|is shutting down|terminating connection" | tail -1 | sed -E 's/^[0-9-]+ [0-9:.]+ [A-Z]+ \[[0-9]+\] //'`
 
 // waitPatroniRunning waits for every member of a Patroni frame to be running and
 // returns their FQDNs (for HAProxy backends) plus the cluster credentials.
@@ -1012,7 +1080,13 @@ func patroniYAML(frame designFrame, host, fqdn string, etcdEndpoints []string, s
 	fmt.Fprintf(&b, "        wal_level: replica\n")
 	if frame.UsePgBackRest {
 		fmt.Fprintf(&b, "        archive_mode: \"on\"\n")
-		fmt.Fprintf(&b, "        archive_command: \"pgbackrest --stanza=%s archive-push %%p\"\n", stanza)
+		if frame.EnableVault && frame.PGTDEWal {
+			// Wrapped from bootstrap (pgtdewal.go): the wrapper passes a plain segment through,
+			// so it is right before WAL encryption is switched on and after.
+			fmt.Fprintf(&b, "        archive_command: %s\n", yamlQuote(pgTDEArchiveCommand(pgBinDir(frame.OS, major), stanza)))
+		} else {
+			fmt.Fprintf(&b, "        archive_command: \"pgbackrest --stanza=%s archive-push %%p\"\n", stanza)
+		}
 	}
 	qs := pgQuerySourceFor(frame.Type, frame.PGQuerySource, frame.PMMNodeID)
 	exts := pgFrameExtensions(frame)
@@ -1079,6 +1153,12 @@ func patroniYAML(frame designFrame, host, fqdn string, etcdEndpoints []string, s
 		fmt.Fprintf(&b, "    command: pgbackrest --stanza=%s --delta restore\n", stanza)
 		fmt.Fprintf(&b, "    keep_data: true\n")
 		fmt.Fprintf(&b, "    no_params: true\n")
+		if frame.EnableVault && frame.PGTDEWal {
+			// A replica replays archived WAL through the wrapper too; Patroni writes this into
+			// every member's recovery settings.
+			fmt.Fprintf(&b, "  recovery_conf:\n")
+			fmt.Fprintf(&b, "    restore_command: %s\n", yamlQuote(pgTDERestoreCommand(pgBinDir(frame.OS, major), stanza)))
+		}
 	}
 	if frame.EnableRoleChangeCallback {
 		fmt.Fprintf(&b, "  callbacks:\n")
@@ -1099,7 +1179,7 @@ func patroniYAML(frame designFrame, host, fqdn string, etcdEndpoints []string, s
 // patroniPgBackRestConf renders /etc/pgbackrest/pgbackrest.conf for the S3
 // (SeaweedFS) repository plus the cluster stanza. Mirrors the keys surfaced in
 // SeaweedFSManager.jsx (repo1-s3-uri-style=path over plain HTTP).
-func patroniPgBackRestConf(label, os, major string, sw seaweedConfig, sec seaweedSecrets) string {
+func patroniPgBackRestConf(label, os, major string, sw seaweedConfig, sec seaweedSecrets, walEncrypt bool) string {
 	endpoint := sw.InternalEndpoint
 	if endpoint == "" {
 		endpoint = fmt.Sprintf("http://%s:%d", sw.FQDN, seaweedS3Port)
@@ -1131,6 +1211,11 @@ func patroniPgBackRestConf(label, os, major string, sw seaweedConfig, sec seawee
 	fmt.Fprintf(&b, "[%s]\n", stanza)
 	fmt.Fprintf(&b, "pg1-path=%s\n", pgDataDir(os, major))
 	fmt.Fprintf(&b, "pg1-port=%d\n", patroniPGPort)
+	if walEncrypt {
+		for _, o := range pgTDEBackRestOptions { // pgtdewal.go
+			fmt.Fprintf(&b, "%s\n", o)
+		}
+	}
 	return b.String()
 }
 
@@ -1175,7 +1260,18 @@ echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) action=$1 role=$2 cluster=$3" >> /tmp/patro
 
 // patroniPrepDirsScript ensures the PostgreSQL data dir parent exists and is owned
 // by postgres (Patroni initdb writes into DATADIR; the parent must be writable).
+//
+// On Debian/Ubuntu the server package creates and starts a cluster of its own at install
+// (pg_createcluster MAJOR main), in /var/lib/postgresql/MAJOR/main — exactly Patroni's data_dir.
+// Left there, every member boots its own unrelated cluster and Patroni refuses to join them
+// ("system ID mismatch, node patroni-2 belongs to a different cluster"). So it is dropped — but
+// only when /etc/postgresql/MAJOR/main says it is the package's own cluster; a data directory
+// Patroni initialised has no such entry and is never touched. Env: DATADIR, MAJOR.
 const patroniPrepDirsScript = `set -e
+if [ -n "$MAJOR" ] && [ -d "/etc/postgresql/$MAJOR/main" ] && command -v pg_dropcluster >/dev/null 2>&1; then
+  pg_dropcluster --stop "$MAJOR" main
+  echo "dropped the package's default cluster $MAJOR/main — Patroni initialises the data directory itself"
+fi
 mkdir -p "$DATADIR"
 chown -R postgres:postgres "$(dirname "$DATADIR")" 2>/dev/null || chown -R postgres:postgres "$DATADIR"
 chmod 700 "$DATADIR" 2>/dev/null || true`
@@ -1208,8 +1304,11 @@ systemctl enable etcd >/dev/null 2>&1 || true
 systemctl reset-failed etcd 2>/dev/null || true
 systemctl --no-block restart etcd`
 
-// patroniEtcdHealthScript checks the local etcd endpoint is healthy (exit 0).
-const patroniEtcdHealthScript = `ETCDCTL_API=3 etcdctl --endpoints=http://127.0.0.1:2379 endpoint health >/dev/null 2>&1`
+// patroniEtcdHealthScript checks the local etcd endpoint is healthy AND sees every member. Health
+// alone is not quorum: an etcd that missed its config is a healthy cluster of one, and all three
+// members passed this check that way while none could reach another. Env: MEMBERS.
+const patroniEtcdHealthScript = `ETCDCTL_API=3 etcdctl --endpoints=http://127.0.0.1:2379 endpoint health >/dev/null 2>&1 &&
+[ "$(ETCDCTL_API=3 etcdctl --endpoints=http://127.0.0.1:2379 member list 2>/dev/null | grep -c ', started, ')" -eq "$MEMBERS" ]`
 
 // patroniStartScript enables + starts the Patroni unit (which reads
 // /etc/patroni/postgresql.yml). The leader initdb's PostgreSQL; replicas clone

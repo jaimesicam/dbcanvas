@@ -201,6 +201,9 @@ type designNode struct {
 	// PGBenchScale loads `pgbench -i -s N` into a database called pgbench at deploy (0 = none).
 	// Same field on designFrame (Patroni). See app/pgbenchdata.go.
 	PGBenchScale int `json:"pgbenchScale"`
+	// PGTDEWal turns on pg_tde.wal_encrypt as well as table encryption (needs EnableVault).
+	// Same field on designFrame (Patroni). See app/pgtdewal.go.
+	PGTDEWal bool `json:"pgTdeWal"`
 	// Which of that node's buckets to use ("" → its first, i.e. the default bucket).
 	SeaweedFSBucket string `json:"seaweedfsBucket"`
 	// PgBouncer node fields (Type=="pgbouncer"; ignored by other types). A connection
@@ -598,6 +601,7 @@ type designFrame struct {
 	PGAuditLog      string `json:"pgAuditLog"`
 	PGSetUser       bool   `json:"pgSetUser"`
 	PGBenchScale    int    `json:"pgbenchScale"`    // pgbench sample data on the leader; see designNode
+	PGTDEWal        bool   `json:"pgTdeWal"`        // pg_tde WAL encryption cluster-wide; see designNode
 	UsePgBackRest   bool   `json:"usePgBackRest"`   // configure pgBackRest → SeaweedFS S3 (clone + backup)
 	SeaweedFSNodeID string `json:"seaweedfsNodeId"` // SeaweedFS node id backing pgBackRest/Barman (when enabled)
 	// Which of that node's buckets to use ("" → its first, i.e. the default bucket).
@@ -1424,6 +1428,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			out = append(out, pgQuerySourceIssues("PostgreSQL node "+n.Label, "pg", n.PGQuerySource)...)
 			out = append(out, pgExtensionIssues("PostgreSQL node "+n.Label, n.OS, n.PGMajor, n.PGVersion, n.PGAudit, n.PGAuditLog, n.PGSetUser)...)
 			out = append(out, pgBenchIssues("PostgreSQL node "+n.Label, n.PGBenchScale)...)
+			out = append(out, pgTDEWALIssues("PostgreSQL node "+n.Label, n.PGTDEWal, n.EnableVault)...)
 			out = append(out, dirAuthIssues(n, dirNodes)...)
 			out = append(out, oidcIssues(n, keycloakIDs, keycloakSSL)...)
 			out = append(out, vaultIssues(n, openbaoIDs)...)
@@ -2119,6 +2124,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 		out = append(out, pgQuerySourceIssues("Patroni cluster "+f.Label, "patroni", f.PGQuerySource)...)
 		out = append(out, pgExtensionIssues("Patroni cluster "+f.Label, f.OS, f.PGMajor, f.PGVersion, f.PGAudit, f.PGAuditLog, f.PGSetUser)...)
 		out = append(out, pgBenchIssues("Patroni cluster "+f.Label, f.PGBenchScale)...)
+		out = append(out, pgTDEWALIssues("Patroni cluster "+f.Label, f.PGTDEWal, f.EnableVault)...)
 		out = append(out, vaultFrameIssues(f, openbaoIDs)...)
 		img := pxcImage(f.OS, f.OSVersion, f.Arch)
 		if !seenImg[img] {

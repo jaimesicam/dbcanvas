@@ -2,7 +2,9 @@ import { createContext, useContext, useCallback, useEffect, useState } from 'rea
 import { api } from '../lib/api.js'
 
 // phase ∈ {loading, setup, anon, authed}
-const AuthContext = createContext(null)
+// Exported for the browser smoke check (smoke/browser.jsx), which mounts the stack editor
+// without signing in.
+export const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
   const [phase, setPhase] = useState('loading')

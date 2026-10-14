@@ -363,6 +363,10 @@ export function pgApi(id, nid) {
     // Re-issue the node's Intranet-CA server cert (overwrites in place, no restart).
     // Works for standalone PostgreSQL, Patroni, repmgr and Spock members.
     certInfo: () => request('GET', `${base}/pg/cert`),
+    // Rotate the pg_tde principal key (app/pgtderotate.go).
+    tdeRotate: () => request('POST', `${base}/pg/tde/rotate`),
+    // pgbench against the node's pgbench data: { clients, seconds, readOnly }.
+    pgbench: (body) => request('POST', `${base}/pg/pgbench`, body),
     certGenerate: (value, unit) => request('POST', `${base}/pg/cert`, { value, unit }),
   }
 }
@@ -553,6 +557,9 @@ export function patroniApi(id, fid) {
     // one — see app/patronirestore.go for what that does to every member.
     backups: () => request('GET', `${base}/patroni/backups`),
     restore: (body) => request('POST', `${base}/patroni/restore`, body),
+    // Rotate the cluster's pg_tde principal key, on the leader.
+    tdeRotate: () => request('POST', `${base}/patroni/tde/rotate`),
+    pgbench: (body) => request('POST', `${base}/patroni/pgbench`, body),
   }
 }
 

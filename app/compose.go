@@ -130,6 +130,7 @@ type composeNodeSpec struct {
 	PGAuditLog  string   `json:"pgauditLog"`  // pgaudit.log, e.g. "ddl,role" (the default) or "all,-misc"
 	SetUser     bool     `json:"setUser"`     // pg/patroni: set_user, audited privilege escalation
 	PGBench     int      `json:"pgbench"`     // pg/patroni: pgbench -i -s N into database pgbench at deploy
+	TDEWal      bool     `json:"tdeWal"`      // pg/patroni with vault: pg_tde WAL encryption too
 
 	Export     bool `json:"export"`     // publish the database port to the host
 	ExportPort int  `json:"exportPort"` // 0 → Docker picks a free one
@@ -478,7 +479,7 @@ var composeKinds = []composeKind{
 		About: "Percona Server for MySQL, standalone."},
 	{Kind: "pg", Type: "pg", CanShape: true, Catalog: "percona_postgresql",
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) { n.PGMajor, n.PGVersion = major, minor }, CanExport: true, CanCert: true,
-		Scalars: []string{"pgvector", "pgaudit", "pgauditLog", "setUser", "pgbench"},
+		Scalars: []string{"pgvector", "pgaudit", "pgauditLog", "setUser", "pgbench", "tdeWal"},
 		Links:   []string{"monitor", "ldap", "oidc", "kerberos", "backup", "vault"},
 		About:   "Percona Distribution for PostgreSQL, standalone. vault=true is pg_tde, which needs PostgreSQL 17.2 or newer."},
 	{Kind: "psm", Type: "psm", CanShape: true, Catalog: "percona_server_mongodb",
@@ -553,7 +554,7 @@ var composeKinds = []composeKind{
 	{Kind: "patroni", Type: "patroni", CanShape: true, Frame: true, Members: 3, MinMembers: 2, MaxMembers: 7,
 		Catalog:    "percona_postgresql",
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) { f.PGMajor, f.PGVersion = major, minor }, CanCert: true,
-		Scalars: []string{"pgvector", "pgaudit", "pgauditLog", "setUser", "pgbench"},
+		Scalars: []string{"pgvector", "pgaudit", "pgauditLog", "setUser", "pgbench", "tdeWal"},
 		Links:   []string{"monitor", "backup", "vault"},
 		About:   "PostgreSQL HA with Patroni and etcd. vault=true is pg_tde with one key for the cluster, which needs PostgreSQL 17.2 or newer."},
 	{Kind: "repmgr", Type: "repmgr", CanShape: true, Frame: true, Members: 3, MinMembers: 2, MaxMembers: 7,

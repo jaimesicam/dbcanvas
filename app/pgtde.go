@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 // pgtde.go — data-at-rest encryption for the standalone PostgreSQL node (pg), keyed by an OpenBao
@@ -101,12 +102,16 @@ func (a *App) applyPGVault(ctx context.Context, st Stack, n designNode, containe
 	}, pr.logln); err != nil {
 		return vaultInfo{}, fmt.Errorf("install pg_tde: %w", err)
 	}
+	build := a.pgTDEBuild(ctx, containerID, n.OS, major)
 	if err := a.runStep(ctx, containerID, pgTDEConfigureScript, []string{
 		"CONFDIR=" + confDir, "SERVICE=" + service,
 		"TDEDIR=" + pgTDEDir, "TOKENFILE=" + pgTDETokenFile, "TDETOKEN=" + token,
 		"PROVIDER=" + pgTDEProvider, "KEYNAME=" + pgTDEKeyName(host),
 		"VAULTURL=" + cfg.Addr, "VAULTMOUNT=" + mount, "CAFILE=" + caFile,
 		"PRELOAD=" + pgPreloadValue(append([]string{"pg_tde"}, pgExtPreload(pgNodeExtensions(n))...), pgQuerySourceFor("pg", n.PGQuerySource, n.PMMNodeID)),
+		"WALENC=" + map[bool]string{true: "1"}[n.PGTDEWal],
+		"ARCHIVECMD=" + map[bool]string{true: pgTDEArchiveCommand(pgBinDir(n.OS, major), patroniStanza(n.Label))}[n.PGTDEWal && n.UsePgBackRest],
+		"RESTORECMD=" + map[bool]string{true: pgTDERestoreCommand(pgBinDir(n.OS, major), patroniStanza(n.Label))}[n.PGTDEWal && n.UsePgBackRest],
 	}, pr.logln); err != nil {
 		return vaultInfo{}, err
 	}
@@ -115,8 +120,28 @@ func (a *App) applyPGVault(ctx context.Context, st Stack, n designNode, containe
 		Enabled: true, Method: "pg_tde global key provider (vault_v2)",
 		Addr: cfg.Addr, OpenBao: cfg.FQDN, Mount: mount, KVVersion: kvVersion,
 		SecretPath: mount + "/data/" + pgTDEKeyName(host),
-		CACert:     caFile, TokenFile: pgTDETokenFile,
+		CACert:     caFile, TokenFile: pgTDETokenFile, Build: build, WAL: n.PGTDEWal,
 	}, nil
+}
+
+// pgTDEBuild names the pg_tde a node has, after pgTDEInstall* chose it: the separate package
+// and its version, or the server's own copy. runStep keeps output only on failure, so this is
+// its own small query.
+func (a *App) pgTDEBuild(ctx context.Context, containerID, nodeOS, major string) string {
+	pkg := pgTDEPackage(nodeOS, major)
+	q := `rpm -q --qf '%{NAME} %{VERSION}-%{RELEASE}' "$PKG" 2>/dev/null`
+	if isDebianOS(nodeOS) {
+		q = `dpkg-query -W -f='${Package} ${Version}' "$PKG" 2>/dev/null`
+	}
+	res, err := a.engCtx(ctx).Exec(ctx, containerID, []string{"bash", "-c", q + ` || echo "bundled with the server"`}, []string{"PKG=" + pkg})
+	if err != nil || res.Code != 0 {
+		return ""
+	}
+	out := strings.TrimSpace(res.Stdout)
+	if strings.Contains(out, "not installed") {
+		return "bundled with the server"
+	}
+	return out
 }
 
 // pgTDEInstallRHEL leaves the node with the newest pg_tde that this server actually loads.
@@ -267,6 +292,26 @@ fi
 printf '%s\n' "SELECT pg_tde_create_key_using_global_key_provider(:'key', :'prov');" | psql_tde >/dev/null 2>&1 \
   || echo "principal key $KEYNAME already exists in $VAULTMOUNT — reusing it"
 printf '%s\n' "SELECT pg_tde_set_default_key_using_global_key_provider(:'key', :'prov');" | psql_tde
+
+# 5b) WAL encryption (pgtdewal.go), when asked for: the server key encrypts WAL, archiving and
+#     restoring go through pg_tde's wrappers, and pg_tde.wal_encrypt needs a restart. A build
+#     without the setting is said so rather than left to fail on an unknown parameter.
+if [ -n "$WALENC" ]; then
+  HAS=$(runuser -u postgres -- psql -tA -d postgres -c "SELECT count(*) FROM pg_settings WHERE name = 'pg_tde.wal_encrypt'")
+  [ "$HAS" = "1" ] || { echo "this pg_tde build has no WAL encryption (no pg_tde.wal_encrypt setting)"; exit 1; }
+  printf '%s\n' "SELECT pg_tde_set_server_key_using_global_key_provider(:'key', :'prov');" | psql_tde
+  sed -i "/# dbcanvas-tde-wal/d" "$CONF"
+  if [ -n "$ARCHIVECMD" ]; then
+    sed -i "/^archive_command[[:space:]]*=/d" "$CONF"
+    printf '%s\n' "archive_command = '$ARCHIVECMD' # dbcanvas-tde-wal" "restore_command = '$RESTORECMD' # dbcanvas-tde-wal" >> "$CONF"
+  fi
+  echo "pg_tde.wal_encrypt = on # dbcanvas-tde-wal" >> "$CONF"
+  systemctl restart "$SERVICE"
+  for i in $(seq 1 30); do runuser -u postgres -- psql -tAc 'select 1' >/dev/null 2>&1 && break; sleep 1; done
+  [ "$(runuser -u postgres -- psql -tA -c 'SHOW pg_tde.wal_encrypt')" = "on" ] || {
+    echo "PostgreSQL did not come back with pg_tde.wal_encrypt on:"; journalctl -u "$SERVICE" --no-pager 2>/dev/null | tail -15; exit 1; }
+  echo "WAL encryption on${ARCHIVECMD:+ — archived through pg_tde_archive_decrypt}"
+fi
 
 # 6) Prove it end to end before claiming the node is encrypted: a real tde_heap table, written
 #    through the TDE storage manager with a key fetched from OpenBao.

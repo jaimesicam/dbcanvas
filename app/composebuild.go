@@ -306,6 +306,7 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 		{s.PGAuditLog != "", kind.takes("pgauditLog"), "pgauditLog"},
 		{s.SetUser, kind.takes("setUser"), "setUser"},
 		{s.PGBench != 0, kind.takes("pgbench"), "pgbench"},
+		{s.TDEWal, kind.takes("tdeWal"), "tdeWal"},
 		{s.ViewOnly, kind.takes("viewOnly"), "viewOnly"},
 	}
 	for _, l := range composeLinks {
@@ -433,6 +434,7 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 		fr.MCACredentials = s.MCA
 		fr.PGVector = s.PGVector
 		fr.PGAudit, fr.PGAuditLog, fr.PGSetUser, fr.PGBenchScale = s.PGAudit || s.PGAuditLog != "", s.PGAuditLog, s.SetUser, s.PGBench
+		fr.PGTDEWal = s.TDEWal
 		fr.MySQLRouter = s.MySQLRouter
 		if kind.SetVersion != nil {
 			kind.SetVersion(major, minor, nil, &fr)
@@ -518,6 +520,7 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 		n.MCACredentials, n.ViewOnly = s.MCA, s.ViewOnly
 		n.PGVector = s.PGVector
 		n.PGAudit, n.PGAuditLog, n.PGSetUser, n.PGBenchScale = s.PGAudit || s.PGAuditLog != "", s.PGAuditLog, s.SetUser, s.PGBench
+		n.PGTDEWal = s.TDEWal
 		n.Buckets = s.Buckets
 		if kind.Type == "seaweedfs" && len(n.Buckets) == 0 {
 			// A store with no bucket fails validation, and a backup needs one to land in.

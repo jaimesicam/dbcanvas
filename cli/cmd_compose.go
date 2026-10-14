@@ -62,7 +62,7 @@ func parseNodeSpec(arg string) (map[string]any, error) {
 		"export": "export", "cert": "cert", "proxy": "proxy", "gtid": "gtid",
 		"mysqlrouter": "mysqlRouter", "tls": "tls",
 		"netalltraffic": "netAllTraffic", "pgvector": "pgvector",
-		"pgaudit": "pgaudit", "setuser": "setUser",
+		"pgaudit": "pgaudit", "setuser": "setUser", "tdewal": "tdeWal",
 	}
 	strOpts := map[string]string{
 		"name": "name", "os": "os", "arch": "arch", "version": "version",

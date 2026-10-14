@@ -53,3 +53,15 @@ func TestPatroniRestoreSteps(t *testing.T) {
 		t.Error("a replica's data directory must be emptied with -mindepth 1, never removed")
 	}
 }
+
+// The archive flush is pasted in front of the restore; it must hand control back, not end the
+// script (an exit in it skipped the restore entirely in the first draft).
+func TestPGArchiveFlushReturns(t *testing.T) {
+	body := pgArchiveFlushScript[:strings.LastIndex(pgArchiveFlushScript, "flush_archive")]
+	if strings.Contains(body, "exit ") {
+		t.Error("pgArchiveFlushScript must return from its function, never exit")
+	}
+	if !strings.HasPrefix(pgRestoreScript, pgArchiveFlushScript) {
+		t.Error("the restore must flush the archive before it stops the server")
+	}
+}
