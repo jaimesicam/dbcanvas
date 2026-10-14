@@ -1189,6 +1189,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 	if len(doc.Nodes) == 0 {
 		out = append(out, issue{Level: "warning", Message: "Stack has no nodes to deploy"})
 	}
+	out = append(out, catalogVersionIssues(doc)...)
 	intranet := 0
 	watchtower := 0
 	keycloak := 0

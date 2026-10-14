@@ -868,6 +868,8 @@ func pgBouncerNotes(backend, cluster string, n designNode) string {
 // version catalogue (that catalogue is server minors), so this takes what the series
 // carries — which is also what a real Percona Distribution install would get.
 const pgBouncerInstallRHEL = `set -e
+# EL8 AppStream's default postgresql module hides the ppg-NN packages; no-op on EL9/EL10.
+dnf -y -q module disable postgresql >/dev/null 2>&1 || true
 percona-release setup -y "$PRODUCT" >/dev/null 2>&1
 dnf -y -q install $PKGS >/dev/null`
 

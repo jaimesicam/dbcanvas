@@ -143,10 +143,10 @@ carry_section() {
 rhel_probe() {
   cat <<'EOS'
 set +e
-# On EL8 the distro ships default `mysql` and `mariadb` dnf modules that mask the
+# On EL8 the distro ships default `mysql`, `mariadb` and `postgresql` dnf modules that mask the
 # third-party packages of the same name; disabling them makes the upstream versions
 # visible. Harmless no-ops on EL9/EL10.
-dnf -y -q module disable mysql mariadb >/dev/null 2>&1
+dnf -y -q module disable mysql mariadb postgresql >/dev/null 2>&1
 # elsearch <pkg>: exact package versions, normalised (e.g. 8.0.30-22.1).
 elsearch() {
   dnf -q search "$1" --showduplicates 2>/dev/null | grep -iE "^$1-[0-9]" \
@@ -833,7 +833,10 @@ while IFS=$'\t' read -r os version platform arch tag; do
     echo "    version: \"${version}\""
     echo "    platform: ${platform}"
     echo "    arch: ${arch}"
-    echo "    tag: ${tag}"
+    # Recorded without the release suffix (-v0.0.19, see image_release): the catalog
+    # describes the OS image, not one build of it, so a rebuild for a new release
+    # leaves this file unchanged.
+    echo "    tag: ${tag%-v[0-9]*}"
     emit_group percona  percona_server         "8.0" "$ps80"  "8.4" "$ps84"  "9.7" "$ps97"  "5.7" "$ps57"
     emit_group percona  percona_xtradb_cluster "8.0" "$pxc80" "8.4" "$pxc84" "9.7" "$pxc97"
     emit_group percona  proxysql               "2"   "$psql2" "3"   "$psql3"

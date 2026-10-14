@@ -198,6 +198,8 @@ func (a *App) enablePGQueryExtension(ctx context.Context, containerID, qs, psql 
 // files landed, since a preload of a library that is not there stops the server.
 // Env: PRODUCT, PKG, BINDIR.
 const pgStatMonitorInstallRHEL = `set -e
+# EL8 AppStream's default postgresql module hides the ppg-NN packages; no-op on EL9/EL10.
+dnf -y -q module disable postgresql >/dev/null 2>&1 || true
 percona-release setup -y "$PRODUCT" >/dev/null 2>&1 || true
 dnf -y -q install "$PKG" >/dev/null 2>&1 || yum -y -q install "$PKG" >/dev/null
 SHAREDIR=$("$BINDIR/pg_config" --sharedir 2>/dev/null)

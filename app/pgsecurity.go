@@ -199,6 +199,8 @@ for e in $EXTS; do
 done`
 
 const pgExtInstallRHEL = pinInstallRHEL + `set -e
+# EL8 AppStream's default postgresql module hides the ppg-NN packages; no-op on EL9/EL10.
+dnf -y -q module disable postgresql >/dev/null 2>&1 || true
 percona-release setup -y "$PRODUCT" >/dev/null 2>&1 || true
 pin_install $PKGS
 ` + pgExtCheck

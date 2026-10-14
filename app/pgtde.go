@@ -166,6 +166,8 @@ func (a *App) pgTDEBuild(ctx context.Context, containerID, nodeOS, major string)
 // after this was written.
 // Env: PRODUCT (ppg-NN), TDEPKG, BINDIR.
 const pgTDEInstallRHEL = `set -e
+# EL8 AppStream's default postgresql module hides the ppg-NN packages; no-op on EL9/EL10.
+dnf -y -q module disable postgresql >/dev/null 2>&1 || true
 percona-release setup -y "$PRODUCT" >/dev/null 2>&1 || true
 ` + pgTDELoadsFn + `
 installed() { rpm -q "$TDEPKG" >/dev/null 2>&1; }

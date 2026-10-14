@@ -1229,6 +1229,8 @@ func yamlEscape(s string) string {
 // ------------------------------------------------------------------ scripts
 
 const patroniInstallRHEL = pinInstallRHEL + `set -e
+# EL8 AppStream's default postgresql module hides the ppg-NN packages; no-op on EL9/EL10.
+dnf -y -q module disable postgresql >/dev/null 2>&1 || true
 dnf -y -q install which >/dev/null 2>&1 || true
 # percona-pgbackrest needs libssh2, which lives in EPEL on Oracle Linux.
 if [ -n "$WITH_EPEL" ]; then

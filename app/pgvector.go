@@ -174,6 +174,8 @@ func (a *App) enablePGVector(ctx context.Context, containerID, psql string, logl
 // CREATE EXTENSION failing later with a far less useful message. Env: PKG, BINDIR, and
 // PRODUCT for Percona's repository.
 const pgVectorInstallRHEL = `set -e
+# EL8 AppStream's default postgresql module hides the ppg-NN packages; no-op on EL9/EL10.
+dnf -y -q module disable postgresql >/dev/null 2>&1 || true
 [ -z "$PRODUCT" ] || percona-release setup -y "$PRODUCT" >/dev/null 2>&1 || true
 dnf -y -q install "$PKG" >/dev/null 2>&1 || yum -y -q install "$PKG" >/dev/null
 SHAREDIR=$("$BINDIR/pg_config" --sharedir 2>/dev/null)

@@ -230,6 +230,8 @@ func (a *App) applyPGOIDC(ctx context.Context, st Stack, n designNode, doc desig
 // the `oauth` hba line authenticates the token, but the mapped role still has to exist.
 // Env: ISSUER, SERVICE, USERS (space-separated role names).
 const pgOIDCScript = pinInstallRHEL + `set -e
+# EL8 AppStream's default postgresql module hides the ppg-NN packages; no-op on EL9/EL10.
+dnf -y -q module disable postgresql >/dev/null 2>&1 || true
 percona-release setup -y ppg-18 >/dev/null 2>&1 || true
 # pin_install, not a bare dnf: the validator carries its own version, but its dependencies are
 # this node's own PostgreSQL packages, and installing it unpinned invites dnf to upgrade the
