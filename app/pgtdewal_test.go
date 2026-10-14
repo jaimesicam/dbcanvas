@@ -67,3 +67,19 @@ func TestPatroniOnUbuntu(t *testing.T) {
 		t.Error("the package's default Debian cluster must be dropped — and only when /etc/postgresql says it is the package's")
 	}
 }
+
+// repmgr on Ubuntu: the standbys need the primary's configuration applied (Debian keeps it
+// outside the data directory a clone replaces), and a failed repmgr step must fail the deploy.
+func TestRepmgrOnUbuntu(t *testing.T) {
+	env := strings.Join(repmgrConfEnv(designFrame{Type: "repmgr", Label: "r1"}, "/etc/postgresql/17/main", "/var/lib/postgresql/17/main", pgSecrets{ReplUser: "repmgr"}, seaweedConfig{}), "\n")
+	for _, want := range []string{"CONFDIR=/etc/postgresql/17/main", "REPLUSER=repmgr", "PRELOAD=repmgr"} {
+		if !strings.Contains(env, want) {
+			t.Errorf("repmgrConfEnv lacks %s", want)
+		}
+	}
+	for name, s := range map[string]string{"clone": repmgrStandbyCloneScript, "standby register": repmgrStandbyRegisterScript, "primary register": repmgrPrimaryRegisterScript} {
+		if strings.Contains(s, "| tail") && !strings.Contains(s, "pipefail") {
+			t.Errorf("%s pipes into tail without pipefail — a repmgr failure would read as success", name)
+		}
+	}
+}

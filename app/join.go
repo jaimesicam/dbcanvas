@@ -883,7 +883,7 @@ func (a *App) joinRepmgrFrame(st Stack, frame designFrame, doc designDoc, fresh 
 				continue
 			}
 			pr.phase("Cloning standby from "+primary.Node.Label, 60)
-			if a.repmgrSetupStandby(ctx, st, frame, n, major, primary.FQDN, sec, pr) != nil {
+			if a.repmgrSetupStandby(ctx, st, frame, n, major, primary.FQDN, sec, swCfg, pr) != nil {
 				continue
 			}
 			pr.phase("Starting repmgrd", 82)

@@ -385,7 +385,7 @@ func (a *App) provisionRepmgrFrame(st Stack, frame designFrame, doc designDoc) {
 		for _, n := range members[1:] {
 			spr := a.pxcNewProg(st.ID, n.ID)
 			spr.phase("Cloning standby from primary", 60)
-			if err := a.repmgrSetupStandby(ctx, st, frame, n, major, primaryFQDN, sec, spr); err != nil {
+			if err := a.repmgrSetupStandby(ctx, st, frame, n, major, primaryFQDN, sec, swCfg, spr); err != nil {
 				return
 			}
 		}
@@ -690,24 +690,7 @@ func (a *App) repmgrSetupPrimary(ctx context.Context, st Stack, frame designFram
 			return pr.fail("%v", err)
 		}
 	}
-	confEnv := []string{"CONFDIR=" + confDir, "DATADIR=" + dataDir, "REPLUSER=" + sec.ReplUser}
-	if repmgrBackupEngine(frame) == "pgbackrest" {
-		// Set on the primary only. `repmgr standby clone` copies the primary's configuration,
-		// so the standbys inherit archive_command and a member promoted by a switchover or a
-		// failover is already archiving without anything being re-applied.
-		confEnv = append(confEnv, "ARCHIVE_CMD="+repmgrPgBackRestArchiveCommand(frame.Label))
-	} else if frame.UseBarman {
-		confEnv = append(confEnv, "ARCHIVE_CMD="+barmanArchiveCommand(frame.Label, swCfg))
-	}
-	if frame.GenerateCert {
-		confEnv = append(confEnv, "TLS=1")
-	}
-	confEnv = append(confEnv, "HBALINES="+strings.Join(pgHostAuthLines(frame.PGHostAuth), "\n"))
-	// repmgr's own library and, when chosen, pg_stat_statements: one preload line with both.
-	// Standbys clone this postgresql.conf, so they preload it too.
-	qs := pgQuerySourceFor(frame.Type, frame.PGQuerySource, frame.PMMNodeID)
-	confEnv = append(confEnv, "PRELOAD="+pgPreloadValue([]string{"repmgr"}, qs),
-		"QSCONF="+strings.Join(pgQueryConfLines(qs), "\n"))
+	confEnv := repmgrConfEnv(frame, confDir, dataDir, sec, swCfg)
 	if err := a.runStep(ctx, id, repmgrConfigurePrimaryScript, confEnv, pr.logln); err != nil {
 		return pr.fail("configure primary: %v", err)
 	}
@@ -722,7 +705,7 @@ func (a *App) repmgrSetupPrimary(ctx context.Context, st Stack, frame designFram
 		return pr.fail("create repmgr role/db: %v", err)
 	}
 	// Before the standbys clone, so they arrive with the extension already in place.
-	if err := a.enablePGQueryExtension(ctx, id, qs, "", pr.logln); err != nil {
+	if err := a.enablePGQueryExtension(ctx, id, pgQuerySourceFor(frame.Type, frame.PGQuerySource, frame.PMMNodeID), "", pr.logln); err != nil {
 		return pr.fail("%v", err)
 	}
 	// pgvector likewise, and fatal here (unlike Patroni's leader): the standbys have not been
@@ -740,9 +723,36 @@ func (a *App) repmgrSetupPrimary(ctx context.Context, st Stack, frame designFram
 	return nil
 }
 
+// repmgrConfEnv is the configuration every member runs with — listen_addresses, replication,
+// pg_hba, the repmgr preload, archiving, TLS — for repmgrConfigurePrimaryScript.
+//
+// On EL the configuration lives in the data directory, so `repmgr standby clone` copies the
+// primary's and the standbys inherit it: archive_command too, so a member promoted by a
+// switchover or a failover is already archiving. On Debian/Ubuntu it lives in
+// /etc/postgresql/MAJOR/main, which a clone does not touch — the standbys kept the package's
+// defaults (listen_addresses = localhost, no repmgr preload, no pg_hba lines), so nothing could
+// reach them, `standby register` failed, and repmgrd could never fail over. repmgrSetupStandby
+// applies the same environment there.
+func repmgrConfEnv(frame designFrame, confDir, dataDir string, sec pgSecrets, swCfg seaweedConfig) []string {
+	env := []string{"CONFDIR=" + confDir, "DATADIR=" + dataDir, "REPLUSER=" + sec.ReplUser}
+	if repmgrBackupEngine(frame) == "pgbackrest" {
+		env = append(env, "ARCHIVE_CMD="+repmgrPgBackRestArchiveCommand(frame.Label))
+	} else if frame.UseBarman {
+		env = append(env, "ARCHIVE_CMD="+barmanArchiveCommand(frame.Label, swCfg))
+	}
+	if frame.GenerateCert {
+		env = append(env, "TLS=1")
+	}
+	env = append(env, "HBALINES="+strings.Join(pgHostAuthLines(frame.PGHostAuth), "\n"))
+	// repmgr's own library and, when chosen, pg_stat_statements: one preload line with both.
+	qs := pgQuerySourceFor(frame.Type, frame.PGQuerySource, frame.PMMNodeID)
+	return append(env, "PRELOAD="+pgPreloadValue([]string{"repmgr"}, qs),
+		"QSCONF="+strings.Join(pgQueryConfLines(qs), "\n"))
+}
+
 // repmgrSetupStandby clones the standby from the primary, starts PostgreSQL, and runs
 // `repmgr standby register`. TLS (if enabled) is re-issued for this node after clone.
-func (a *App) repmgrSetupStandby(ctx context.Context, st Stack, frame designFrame, n designNode, major, primaryFQDN string, sec pgSecrets, pr *pxcProg) error {
+func (a *App) repmgrSetupStandby(ctx context.Context, st Stack, frame designFrame, n designNode, major, primaryFQDN string, sec pgSecrets, swCfg seaweedConfig, pr *pxcProg) error {
 	dep, _ := a.store.GetDeployment(st.ID, n.ID)
 	id := dep.ContainerID
 	dataDir := pgDataDir(frame.OS, major)
@@ -764,6 +774,13 @@ func (a *App) repmgrSetupStandby(ctx context.Context, st Stack, frame designFram
 	if frame.GenerateCert {
 		if err := a.pgApplyCert(ctx, id, a.intranetContainerID(ctx, st), fqdn, dataDir, frame.CertTTLValue, frame.CertTTLUnit, pr.logln); err != nil {
 			return pr.fail("%v", err)
+		}
+	}
+	// Debian keeps the configuration outside the data directory the clone just replaced — see
+	// repmgrConfEnv. Same settings as the primary, before the standby first starts.
+	if isDebianOS(frame.OS) {
+		if err := a.runStep(ctx, id, repmgrConfigurePrimaryScript, repmgrConfEnv(frame, pgConfDir(frame.OS, major), dataDir, sec, swCfg), pr.logln); err != nil {
+			return pr.fail("configure standby: %v", err)
 		}
 	}
 	pr.phase("Starting standby PostgreSQL", 70)
@@ -1119,6 +1136,10 @@ HBA="$CONFDIR/pg_hba.conf"
   echo "max_replication_slots = 10"
   echo "wal_keep_size = 512MB"
   echo "hot_standby = on"
+  # pg_rewind needs this (or data checksums) to rewind a former primary so it can rejoin after a
+  # switchover or failover. On Debian the package creates the cluster without checksums, so
+  # without it every diverged member needed a full re-clone: "pg_rewind cannot be used".
+  echo "wal_log_hints = on"
   echo "shared_preload_libraries = '${PRELOAD:-repmgr}'"
 } >> "$CONF"
 # pg_stat_statements settings, when it is enabled (its library is in PRELOAD above).
@@ -1160,17 +1181,21 @@ runuser -u postgres -- psql -v ON_ERROR_STOP=0 -c "CREATE DATABASE repmgr OWNER 
 runuser -u postgres -- psql -v ON_ERROR_STOP=1 -c "ALTER ROLE \"$REPLUSER\" SET search_path TO repmgr, public;"`
 
 // repmgrPrimaryRegisterScript registers the primary with repmgr (idempotent via -F).
-const repmgrPrimaryRegisterScript = `set -e
+const repmgrPrimaryRegisterScript = `set -eo pipefail
 runuser -u postgres -- "$BINDIR/repmgr" -f "$CONF" primary register -F 2>&1 | tail -20`
 
+// The three repmgr steps below end in "| tail" to keep the log short, so they run with pipefail:
+// without it the step's status was tail's, and a standby that failed to register (or to clone)
+// was reported as done — on Ubuntu every standby was, while repmgr knew of none of them.
+
 // repmgrStandbyCloneScript clones the standby from the primary then prepares to start.
-const repmgrStandbyCloneScript = `set -e
+const repmgrStandbyCloneScript = `set -eo pipefail
 install -d -m 700 -o postgres -g postgres "$DATADIR"
 find "$DATADIR" -mindepth 1 -delete 2>/dev/null || true
 runuser -u postgres -- "$BINDIR/repmgr" -h "$PRIMARY" -U "$REPLUSER" -d repmgr -f "$CONF" standby clone --fast-checkpoint -F 2>&1 | tail -30`
 
 // repmgrStandbyRegisterScript registers the standby after it is streaming.
-const repmgrStandbyRegisterScript = `set -e
+const repmgrStandbyRegisterScript = `set -eo pipefail
 runuser -u postgres -- "$BINDIR/repmgr" -f "$CONF" standby register -F 2>&1 | tail -20`
 
 // repmgrdStartScript enables + starts repmgrd (automatic failover) via the
@@ -1180,8 +1205,9 @@ runuser -u postgres -- "$BINDIR/repmgr" -f "$CONF" standby register -F 2>&1 | ta
 // naive Type=simple unit's ExecStart exits 0 immediately and systemd marks the
 // service dead (failover silently off). The packaged unit is Type=forking with a
 // pidfile and already reads $CONF (/etc/repmgr/<major>/repmgr.conf): on EL it is
-// `repmgr-<major>.service`; on Debian it is `repmgrd.service` driven by
-// /etc/default/repmgrd. We enable whichever exists.
+// `repmgr-<major>.service`; on Debian it is `repmgrd`, driven by /etc/default/repmgrd — an
+// /etc/init.d script there, not a native unit, which systemd wraps as repmgrd.service (Ubuntu
+// 24.04). We enable whichever exists, and start it as a separate step.
 const repmgrdStartScript = `set -e
 # Remove any stale hand-rolled unit from an older build (Debian's packaged unit
 # lives under /lib, so this only clears our old override).
@@ -1208,7 +1234,10 @@ else
 fi
 systemctl daemon-reload
 systemctl reset-failed "$SVC" 2>/dev/null || true
-systemctl enable --now "$SVC"
+# enable and start separately: on Debian/Ubuntu repmgrd is a SysV init script that systemd wraps,
+# and for those "enable --now" registers the script, exits 0 — and starts nothing.
+systemctl enable "$SVC" >/dev/null 2>&1 || true
+systemctl start "$SVC"
 sleep 3
 systemctl is-active --quiet "$SVC" || { echo "$SVC failed to start:"; journalctl -u "$SVC" --no-pager 2>/dev/null | tail -20; exit 1; }
 echo "$SVC enabled + running (boot-persistent)"`

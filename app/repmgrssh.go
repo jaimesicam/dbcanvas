@@ -127,7 +127,19 @@ func repmgrSSHKeypair(cluster string) (priv, pub string, err error) {
 // fresh tmpfs and the file comes back). Starting it as well makes this deploy work now rather
 // than after a restart. Removing the file by hand is the fallback, for an image whose unit is
 // genuinely absent.
+//
+// And one more, which does not refuse a login but makes each one take 25 seconds: where
+// systemd-logind is not running — on the Ubuntu 24.04 image it crashes at start (signal TRAP) —
+// pam_systemd waits out its D-Bus timeout in every SSH session. A repmgr switchover makes a dozen
+// SSH calls, so it ran ~4½ minutes, past DBCanvas's switchover limit, and was reported failed
+// while repmgr carried on and finished it. pam_systemd only registers the session with logind,
+// which has nothing to register it with, so it is commented out (marked) on such a node.
 const repmgrAllowUserLogins = `
+if ! systemctl is-active --quiet systemd-logind 2>/dev/null; then
+  for f in /etc/pam.d/*; do
+    grep -qE '^[^#]*pam_systemd\.so' "$f" 2>/dev/null && sed -i -E 's/^([^#]*pam_systemd\.so.*)$/# dbcanvas: logind not running — \1/' "$f"
+  done
+fi
 if systemctl cat systemd-user-sessions.service >/dev/null 2>&1; then
   systemctl add-wants multi-user.target systemd-user-sessions.service >/dev/null 2>&1 || true
   systemctl start systemd-user-sessions.service >/dev/null 2>&1 || rm -f /run/nologin

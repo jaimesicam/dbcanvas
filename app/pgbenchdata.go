@@ -47,12 +47,13 @@ func (a *App) loadPGBench(ctx context.Context, containerID, bindir string, scale
 	return nil
 }
 
-// Env: BINDIR, SCALE. --quiet keeps the progress lines (one per 100k rows) out of the deploy log.
-const pgBenchInitScript = `set -e
+// Env: BINDIR, SCALE. --quiet keeps the progress lines (one per 100k rows) out of the deploy log;
+// pipefail, because the last command pipes into tail and a failed load must not read as success.
+const pgBenchInitScript = `set -eo pipefail
 PSQL="$BINDIR/psql"
 if [ "$(runuser -u postgres -- "$PSQL" -qAtX -c 'SELECT pg_is_in_recovery()' 2>/dev/null)" = "t" ]; then
   echo "standby — pgbench data arrives by replication"; exit 0
 fi
-runuser -u postgres -- "$PSQL" -qAtX -c "SELECT 1 FROM pg_database WHERE datname = 'pgbench'" | grep -q 1 ||
+[ "$(runuser -u postgres -- "$PSQL" -qAtX -c "SELECT 1 FROM pg_database WHERE datname = 'pgbench'")" = "1" ] ||
   runuser -u postgres -- "$PSQL" -qAtX -c "CREATE DATABASE pgbench"
 runuser -u postgres -- "$BINDIR/pgbench" -i -s "$SCALE" --quiet pgbench 2>&1 | tail -3`

@@ -297,9 +297,14 @@ func (a *App) handlePromote(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, status, err.Error())
 			return
 		}
+		// A switchover that fails part-way can leave the cluster changed — a promoted member, a
+		// stopped former primary — so it is recorded where the stack's history is read, not only
+		// returned to whoever happened to be waiting on the request.
+		a.notifyStack(st.ID, "switchover.failed", "error", "Switchover failed", lastLines(err.Error(), 600), nid)
 		writeJSON(w, status, map[string]any{"error": err.Error(), "steps": steps})
 		return
 	}
+	a.notifyStack(st.ID, "switchover.done", "success", "Switchover completed", "New primary: "+nid+".", nid)
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "primary": nid, "steps": steps})
 }
 
