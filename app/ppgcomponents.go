@@ -26,7 +26,7 @@ type ppgComponent struct {
 	Label string `json:"label"` // what the form calls it
 	// Majors it is packaged for. Every OS release the PostgreSQL forms offer (Oracle Linux 9/10,
 	// Ubuntu 22.04/24.04) has the same set for every component below — the repository was
-	// checked for that — so this is per major only; ppgComponentOSOK is where an OS limit goes.
+	// checked for that — so this is per major only.
 	Majors []string `json:"majors"`
 	// MinMinor is the first minor of a major the component works with, where that is not the
 	// whole series ("" or absent = every minor). Not visible in package metadata — the packages
@@ -37,9 +37,6 @@ type ppgComponent struct {
 	// component has no package of its own there (it is in the server package).
 	RHEL   string `json:"rhel"`
 	Debian string `json:"debian"`
-	// RHELOnly holds a component to Oracle Linux while DBCanvas's install path for it exists
-	// for that family alone — the component itself is packaged for both.
-	RHELOnly bool `json:"rhelOnly,omitempty"`
 }
 
 var ppgComponents = []ppgComponent{
@@ -61,9 +58,6 @@ var ppgComponents = []ppgComponent{
 		// it against before that.
 		Majors: []string{"18"},
 		RHEL:   "percona-pg_oidc_validator%s", Debian: "percona-pg-oidc-validator%s",
-		// pgOIDCScript is dnf only. Ubuntu has the validator and libpq-oauth, but no install
-		// path here yet — without this the design validated and the deploy failed on apt.
-		RHELOnly: true,
 	},
 	{
 		ID: "pgaudit", Label: "pgAudit",
@@ -122,9 +116,6 @@ func (c ppgComponent) Available(nodeOS, major, minor string) (bool, string) {
 	m := ppgMajorOf(major)
 	if !containsStr(c.Majors, m) {
 		return false, fmt.Sprintf("%s is packaged for PostgreSQL %s only, not %s", c.Label, joinOr(c.Majors), m)
-	}
-	if c.RHELOnly && isDebianOS(nodeOS) {
-		return false, fmt.Sprintf("%s is installed on Oracle Linux nodes only for now, not %s", c.Label, nodeOS)
 	}
 	if min := c.MinMinor[m]; min != "" && minor != "" && compareVersions(ppgMinorOf(minor), min) < 0 {
 		return false, fmt.Sprintf("%s needs PostgreSQL %s or newer, and this node is pinned to %s", c.Label, min, ppgMinorOf(minor))

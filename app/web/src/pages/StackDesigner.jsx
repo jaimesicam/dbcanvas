@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from '../components/Icons.jsx'
 import { Card, Button, Badge, Field, ConfirmButton, InfoRow, inputCls } from '../components/ui.jsx'
@@ -2579,6 +2579,11 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
   const [multiBusy, setMultiBusy] = useState('')
   const [findAt, setFindAt] = useState(0)
   const [saveState, setSaveState] = useState('saved') // saved | saving
+  // What a redeploy would do, for the Deploy button's label: null until known (and on a stack
+  // that was never deployed, where Deploy simply builds everything). Read from the same preview
+  // the confirm dialog shows, after each save, so "Up to date" is the server's word, not a guess
+  // from the canvas.
+  const [pendingChanges, setPendingChanges] = useState(null)
   const [deployments, setDeployments] = useState([])
   const [issues, setIssues] = useState(null) // validate results panel
   // Building a missing node image is an admin action (the server enforces it); a
@@ -2729,6 +2734,23 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
   // nodes (the server rejects it too). Option/position edits stay live. Cleared once
   // every node finishes provisioning.
   const deploying = busy === 'deploy' || deployments.some((d) => d.state === 'pending' || d.state === 'provisioning')
+
+  // A redeploy leaves running and stopped nodes alone (app/deploypreview.go), so on a built stack
+  // whose canvas adds, removes and repairs nothing, Deploy does nothing — and said only "Deploy".
+  // Counted after every save and every deployment change.
+  const depKey = deployments.map((d) => `${d.nodeId}:${d.state}`).join(',')
+  // stack is null until the first load — this effect runs before the editor's loading return.
+  const stackID = stack?.id
+  useEffect(() => {
+    if (!stackID || saveState !== 'saved' || deploying || !deployments.length) { if (!deployments.length) setPendingChanges(null); return }
+    let alive = true
+    stackApi.deployPreview(stackID).then((p) => {
+      if (!alive) return
+      const n = ['remove', 'create', 'recreate', 'rebuild', 'join'].reduce((t, k) => t + (p[k]?.length || 0), 0)
+      setPendingChanges(n + (p.refused?.length ? 1 : 0))
+    }).catch(() => { if (alive) setPendingChanges(null) })
+    return () => { alive = false }
+  }, [stackID, saveState, depKey, deploying]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // auto-open the deployment console while anything is provisioning, but never
   // override the user's minimized choice.
@@ -4776,9 +4798,9 @@ function StackEditor({ stackId, templates = [], onTemplatesChanged, onBack }) {
               <Icon.Check size={15} /> {busy === 'validate' ? 'Validating…' : 'Validate'}
             </Button>
           </Hint>
-          <Hint text={HELP.uiDeploy}>
-            <Button size="sm" disabled={!!busy || nodes.length === 0 || locked} onClick={() => runDeploy(false)}>
-              <Icon.Arrow size={15} /> {busy === 'deploy' ? 'Deploying…' : 'Deploy'}
+          <Hint text={pendingChanges === 0 ? HELP.uiDeployUpToDate : HELP.uiDeploy}>
+            <Button size="sm" variant={pendingChanges === 0 ? 'outline' : undefined} disabled={!!busy || nodes.length === 0 || locked || pendingChanges === 0} onClick={() => runDeploy(false)}>
+              <Icon.Arrow size={15} /> {busy === 'deploy' ? 'Deploying…' : pendingChanges === 0 ? 'Up to date' : pendingChanges > 0 ? `Deploy ${pendingChanges} change${pendingChanges === 1 ? '' : 's'}` : 'Deploy'}
             </Button>
           </Hint>
           {(deployments.length > 0 || stack.status === 'deployed') && (
@@ -6752,6 +6774,44 @@ function VaultFields({ node: n, nodes, patchNode, deployed }) {
             </p>
           )}
         </>
+      )}
+    </div>
+  )
+}
+
+// PatroniVaultFields is encryption at rest for a Patroni cluster: pg_tde, keyed to the stack's
+// OpenBao (app/patronitde.go). It says the opposite of FrameVaultFields about mounts, on purpose:
+// Patroni members are physical copies of one another, so they share ONE principal key — a member
+// with its own could not read a page it was given. Greys out where pg_tde does not exist for the
+// cluster's version (the PPG component table), with the reason.
+export function PatroniVaultFields({ frame: f, nodes, patchFrame, deployed }) {
+  const bao = nodes.find((x) => x.type === 'openbao')
+  const tde = ppgAvailable(usePPGComponents(), 'pg_tde', f)
+  const none = deployed || !bao || (!tde.ok && !f.enableVault)
+  return (
+    <div className="space-y-2 rounded-lg border border-dashed p-2">
+      <div className="text-xs font-medium text-muted">Data-at-rest encryption</div>
+      <label className={`flex items-center gap-2 text-sm ${none ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!f.enableVault} disabled={none}
+          onChange={(e) => patchFrame(f.id, {
+            enableVault: e.target.checked,
+            openbaoNodeId: e.target.checked ? (bao?.id ?? '') : '',
+          })} />
+        <span>Encrypt with OpenBao (pg_tde)</span><Help text={HELP.vault} />
+      </label>
+      {!bao && <p className="text-xs text-muted">Add the OpenBao node to key encryption to it.</p>}
+      {!tde.ok && <p className={`text-xs ${f.enableVault ? 'text-danger' : 'text-muted'}`}>{tde.why}.</p>}
+      {f.enableVault && bao && tde.ok && (
+        <p className="text-xs text-muted">
+          Every member gets <span className="font-mono">pg_tde</span> (the build its server loads), preloaded from
+          bootstrap, and the cluster gets <span className="font-medium text-fg">one</span> KV mount
+          (<span className="font-mono">postgresql-{f.label}</span>) and one principal key on{' '}
+          <span className="font-mono">{bao.label}</span> — replicas are physical copies of the leader&apos;s encrypted
+          files, so they need its key, and the key provider&apos;s settings replicate with the data. Once there is a
+          leader, <span className="font-mono">tde_heap</span> becomes the default through Patroni&apos;s configuration,
+          so a member promoted later has it too. WAL is not encrypted: that needs{' '}
+          <span className="font-mono">pg_tde_basebackup</span> for every replica Patroni builds.
+        </p>
       )}
     </div>
   )
@@ -12968,6 +13028,7 @@ function PatroniFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame
       <PGVectorOption obj={f} patch={patchFrame} deployed={deployed} />
       <PGSecurityOptions obj={f} patch={patchFrame} deployed={deployed} />
       <PGBenchOption obj={f} patch={patchFrame} deployed={deployed} />
+      <PatroniVaultFields frame={f} nodes={nodes} patchFrame={patchFrame} deployed={deployed} />
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
@@ -14599,10 +14660,23 @@ export function ContextMenu({ menu, onClose, actions }) {
   // the menu, which is what makes every right-click a fresh look at the cluster.
   const cache = useRef(new Map())
   const W = menuWidth(actions)
-  const { x, y, maxHeight } = menuPos(menu.x, menu.y, actions, window.innerWidth, window.innerHeight, W)
+  const est = menuPos(menu.x, menu.y, actions, window.innerWidth, window.innerHeight, W)
+  // menuPos places the panel from an estimated height, and labels that wrap ("MySQL
+  // (Community)") make it taller than that — so a menu opened low on the canvas scrolled while
+  // the space above it sat empty. Measure what actually rendered and lift it by the shortfall.
+  const [lift, setLift] = useState(0)
+  const root = useRef(null)
+  useLayoutEffect(() => {
+    const p = root.current?.querySelector('[data-menu-panel]')
+    if (!p) return
+    const short = p.scrollHeight - p.clientHeight
+    if (short > 0) setLift(Math.min(short, est.y - 8))
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const y = est.y - lift
+  const maxHeight = window.innerHeight - y - 8
   return createPortal(
-    <div className="fixed inset-0 z-50" onClick={onClose} onContextMenu={(e) => { e.preventDefault(); onClose() }}>
-      <MenuPanel actions={actions} x={x} y={y} w={W} maxHeight={maxHeight} onClose={onClose} cache={cache} />
+    <div ref={root} className="fixed inset-0 z-50" onClick={onClose} onContextMenu={(e) => { e.preventDefault(); onClose() }}>
+      <MenuPanel actions={actions} x={est.x} y={y} w={W} maxHeight={maxHeight} onClose={onClose} cache={cache} />
     </div>,
     document.body,
   )
@@ -14741,7 +14815,7 @@ function StackProperties({ host, locked, lockedBy, selected, stackId, nodes, edg
 function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, rebuildMongoCluster }) {
   // "or cluster" rather than a list: this component edits fourteen frame types now, and
   // the empty state named only the first one for a long time after that stopped being true.
-  if (!selected) return <p className="text-sm text-muted">Select a node, link or cluster to edit it. Add an Intranet node from the toolbar to begin.</p>
+  if (!selected) return <p className="text-sm text-muted">Select a node, link or cluster to edit it. Right-click the canvas to add one.</p>
 
   if (selected.kind === 'frame') {
     const f = frames.find((x) => x.id === selected.id)

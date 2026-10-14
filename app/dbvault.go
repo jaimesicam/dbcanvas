@@ -103,12 +103,19 @@ func vaultIssues(n designNode, openbaoIDs map[string]bool) []issue {
 // replication frames, whose members are encrypted as a unit (each with its own mount; see
 // mysqlVaultMount).
 func vaultFrameIssues(f designFrame, openbaoIDs map[string]bool) []issue {
-	if !f.EnableVault || !mysqlFamilyVaultFrame(f.Type) {
+	if !f.EnableVault || !(mysqlFamilyVaultFrame(f.Type) || f.Type == "patroni") {
 		return nil
 	}
 	if !openbaoIDs[f.OpenBaoNodeID] {
 		return []issue{{Level: "error", Message: frameKindLabel(f.Type) + " " + f.Label +
 			" has data-at-rest encryption enabled but is not linked to an OpenBao node — add an OpenBao node and select it"}}
+	}
+	// A Patroni cluster's encryption is pg_tde (patronitde.go), with the standalone node's
+	// version rules.
+	if f.Type == "patroni" {
+		if ok, why := pgTDEComponent().Available(f.OS, f.PGMajor, f.PGVersion); !ok {
+			return []issue{{Level: "error", Message: "Patroni cluster " + f.Label + " has data-at-rest encryption enabled, which is pg_tde — " + why + ". Change the PostgreSQL version, or turn encryption off"}}
+		}
 	}
 	return nil
 }
@@ -125,6 +132,8 @@ func frameKindLabel(t string) string {
 		return "PXC cluster"
 	case "mysql":
 		return "Percona Server replication cluster"
+	case "patroni":
+		return "Patroni cluster"
 	}
 	return t
 }

@@ -33,3 +33,23 @@ func TestPGRestoreArgs(t *testing.T) {
 		}
 	}
 }
+
+// The Patroni restore was worked out by hand on a live cluster; these are the parts of it that
+// look like they could be simplified and cannot.
+func TestPatroniRestoreSteps(t *testing.T) {
+	// patronictl remove's exit status is not proof: the cluster must be seen gone from etcd, or
+	// the restored leader is told to rejoin as a replica.
+	if !strings.Contains(patroniForgetScript, "(uninitialized)") {
+		t.Error("forgetting the cluster must check etcd shows it uninitialized")
+	}
+	// Recovery runs outside Patroni and must finish (promote) before Patroni starts on it.
+	if !strings.Contains(patroniRestoreLeaderScript, "pg_is_in_recovery()") ||
+		!strings.Contains(patroniRestoreLeaderScript, "-m fast -w stop") {
+		t.Error("the leader must recover to the end, then be stopped for Patroni to start")
+	}
+	// A replica's data directory is emptied, not removed: Patroni (and initdb's permissions)
+	// expect the directory itself to be there.
+	if !strings.Contains(patroniRebuildReplicaScript, `find "$DATA" -mindepth 1 -delete`) {
+		t.Error("a replica's data directory must be emptied with -mindepth 1, never removed")
+	}
+}

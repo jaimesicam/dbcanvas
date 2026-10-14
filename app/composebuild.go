@@ -302,6 +302,10 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 		{s.Dataset != "", kind.takes("dataset"), "dataset"},
 		{s.MCA, kind.takes("mca"), "mca"},
 		{s.PGVector, kind.takes("pgvector"), "pgvector"},
+		{s.PGAudit, kind.takes("pgaudit"), "pgaudit"},
+		{s.PGAuditLog != "", kind.takes("pgauditLog"), "pgauditLog"},
+		{s.SetUser, kind.takes("setUser"), "setUser"},
+		{s.PGBench != 0, kind.takes("pgbench"), "pgbench"},
 		{s.ViewOnly, kind.takes("viewOnly"), "viewOnly"},
 	}
 	for _, l := range composeLinks {
@@ -428,6 +432,7 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 		fr.ReplMode, fr.Mode, fr.PSMDBSetup = s.ReplMode, s.Mode, s.Setup
 		fr.MCACredentials = s.MCA
 		fr.PGVector = s.PGVector
+		fr.PGAudit, fr.PGAuditLog, fr.PGSetUser, fr.PGBenchScale = s.PGAudit || s.PGAuditLog != "", s.PGAuditLog, s.SetUser, s.PGBench
 		fr.MySQLRouter = s.MySQLRouter
 		if kind.SetVersion != nil {
 			kind.SetVersion(major, minor, nil, &fr)
@@ -512,6 +517,7 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 		n.Mode, n.AlertEmail, n.MCDataset, n.TLS = s.Mode, s.AlertEmail, s.Dataset, s.TLS
 		n.MCACredentials, n.ViewOnly = s.MCA, s.ViewOnly
 		n.PGVector = s.PGVector
+		n.PGAudit, n.PGAuditLog, n.PGSetUser, n.PGBenchScale = s.PGAudit || s.PGAuditLog != "", s.PGAuditLog, s.SetUser, s.PGBench
 		n.Buckets = s.Buckets
 		if kind.Type == "seaweedfs" && len(n.Buckets) == 0 {
 			// A store with no bucket fails validation, and a backup needs one to land in.
@@ -874,10 +880,15 @@ func (a *App) handleComposeStack(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// A dry run resolves and reports without creating anything, so a caller can show
-	// the plan first. It cannot run the validator, which needs a stored stack — that
-	// is stated rather than faked.
+	// the plan first — and validates it, against a stack that is not stored. It used to
+	// skip validation and say ok, so `--dry-run` approved plans the real compose then
+	// refused (pg_tde on a 17.0 node). The validator reads the stack id only to find the
+	// stack's own deployments and containers, and an unsaved stack (id 0) has none.
 	if spec.DryRun {
-		out.OK = true
+		if issues := a.validateStack(r.Context(), Stack{Name: strings.TrimSpace(spec.Name), Design: design}); issues != nil {
+			out.Issues = issues
+		}
+		out.OK = !hasError(out.Issues)
 		writeJSON(w, http.StatusOK, out)
 		return
 	}

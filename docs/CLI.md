@@ -378,7 +378,9 @@ without a database in the spec.
 
 **`--dry-run` prints the plan and creates nothing** — worth doing first, because the
 interesting column is what your version string resolved to. `8.4.5` is `8.4.5-5.1` on
-Oracle Linux and `8.4.5-5-1` on Ubuntu, and the plan tells you which one you got.
+Oracle Linux and `8.4.5-5-1` on Ubuntu, and the plan tells you which one you got. It is
+also validated, as the real compose would be, and exits non-zero when the design has an
+error — pg_tde asked of a PostgreSQL 17.0 node, say.
 
 An **Intranet node is added for you** if the spec has none, since everything else
 assumes one. `monitor` is *not* — a PMM server is a heavy container, so compose tells

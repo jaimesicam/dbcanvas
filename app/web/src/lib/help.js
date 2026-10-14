@@ -627,6 +627,8 @@ export const HELP = {
   uiValidate:
     'Check the design without deploying anything: missing links, impossible topologies, host ports that clash, ' +
     'paths outside the allowed root. Cheap, and worth doing before a long deploy.',
+  uiDeployUpToDate:
+    'Every node on the canvas is built, and nothing was added or removed since — a redeploy would change nothing. A redeploy builds new nodes, removes deleted ones and rebuilds failed ones; it does not re-apply settings to a running node. To change one of those, rebuild the node (delete it and add it again) or use its management panel.',
   uiDeploy:
     'Build the stack. Nodes are provisioned in dependency order and the console shows each step; a node that fails ' +
     'leaves the rest running so you can read its log.',

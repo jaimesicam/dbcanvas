@@ -6,6 +6,7 @@ import { dashApi, fmtBytes } from '../lib/dashApi.js'
 import { usePolling } from '../lib/usePolling.jsx'
 import { relTime } from '../lib/notifApi.js'
 import { useRefresh } from '../lib/useRefresh.jsx'
+import { openStackInDesigner } from '../desktop/Stacks.jsx'
 
 // Dashboard — store-backed summary counters plus focus-gated live OS stats. The live sample
 // polls only while this page is on screen AND the tab is visible/focused, so there is no
@@ -54,11 +55,25 @@ export default function Dashboard() {
   useRefresh(() => Promise.all([loadSummary(), loadStats()]))
 
   const admin = sum?.scope === 'admin'
-  const bars = (rows, key, fmt) =>
-    (rows || [])
-      .map((r) => ({ name: r.name, value: r[key] || 0, display: fmt(r[key] || 0) }))
+  // Each bar knows its own scale (frac, 0–1) rather than being drawn against the busiest row:
+  // relative bars made a container at 0.8% CPU look pinned. labelOf/stackOf are the canvas's
+  // names for the container (app/dashboard.go), so a row can be traced — and clicked — to its stack.
+  const labelOf = (name) => (stats?.nodes || []).find((n) => n.name === name)
+  const bars = (rows, key, fmt, frac) => {
+    const top = (rows || [])
+      .map((r) => ({ name: r.name, value: r[key] || 0, display: fmt(r[key] || 0), row: labelOf(r.name) || r }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 5)
+    const max = Math.max(...top.map((t) => t.value), 0)
+    return top.map((t) => ({ ...t, frac: frac(t, max) }))
+  }
+  // CPU: Docker's figure is per core, so a full bar is one full core (more is capped, and
+  // the number says so). Memory: the container's own limit. Rates have no ceiling, so they
+  // are ranked against each other — but against at least 1 MB/s, so a trickle stays a trickle.
+  const cpuFrac = (t) => t.value / 100
+  const memFrac = (t) => (t.row.memPercent || 0) / 100
+  const rateFrac = (t, max) => t.value / Math.max(max, 1 << 20)
+  const openStack = (id) => openStackInDesigner((page) => { location.hash = page }, id)
   const pct = (v) => `${v.toFixed(1)}%`
   const rate = (v) => `${fmtBytes(v)}/s`
 
@@ -99,11 +114,11 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-        <Card title="Top containers" subtitle="By CPU">
-          <TopBars items={bars(stats?.nodes, 'cpuPercent', pct)} empty="No running containers" accent="var(--color-primary)" />
+        <Card title="Top containers" subtitle="By CPU — a full bar is one core">
+          <TopBars items={bars(stats?.nodes, 'cpuPercent', pct, cpuFrac)} empty="No running containers" accent="var(--color-primary)" onOpen={openStack} />
         </Card>
-        <Card title="Top containers" subtitle="By memory">
-          <TopBars items={bars(stats?.nodes, 'memUsed', fmtBytes)} empty="No running containers" accent="var(--color-accent)" />
+        <Card title="Top containers" subtitle="By memory — a full bar is the container's limit">
+          <TopBars items={bars(stats?.nodes, 'memUsed', fmtBytes, memFrac)} empty="No running containers" accent="var(--color-accent)" onOpen={openStack} />
         </Card>
         <Card title="By engine" subtitle="Running DB nodes">
           <Breakdown data={sum?.byEngine} labels={{ postgres: 'PostgreSQL', mysql: 'MySQL/PXC', mongodb: 'MongoDB', valkey: 'Valkey' }} />
@@ -112,10 +127,10 @@ export default function Dashboard() {
 
       {/* Per-node network / disk rates */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Card title="Top network in" subtitle="Per node (live)"><TopBars items={bars(rates, 'netIn', rate)} accent="var(--color-success)" /></Card>
-        <Card title="Top network out" subtitle="Per node (live)"><TopBars items={bars(rates, 'netOut', rate)} accent="var(--color-accent)" /></Card>
-        <Card title="Top disk in" subtitle="Per node (live)"><TopBars items={bars(rates, 'diskIn', rate)} accent="var(--color-warning)" /></Card>
-        <Card title="Top disk out" subtitle="Per node (live)"><TopBars items={bars(rates, 'diskOut', rate)} accent="var(--color-primary)" /></Card>
+        <Card title="Top network in" subtitle="Per node (live)"><TopBars items={bars(rates, 'netIn', rate, rateFrac)} accent="var(--color-success)" onOpen={openStack} /></Card>
+        <Card title="Top network out" subtitle="Per node (live)"><TopBars items={bars(rates, 'netOut', rate, rateFrac)} accent="var(--color-accent)" onOpen={openStack} /></Card>
+        <Card title="Top disk in" subtitle="Per node (live)"><TopBars items={bars(rates, 'diskIn', rate, rateFrac)} accent="var(--color-warning)" onOpen={openStack} /></Card>
+        <Card title="Top disk out" subtitle="Per node (live)"><TopBars items={bars(rates, 'diskOut', rate, rateFrac)} accent="var(--color-primary)" onOpen={openStack} /></Card>
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
@@ -147,26 +162,32 @@ function Stat({ label, value, sub, tone = 'muted' }) {
 const shortName = (n) => n.replace(/^(?!k3d-)[a-z][a-z0-9-]*?-(?=\d+-)/, '').replace(/-[a-z0-9]{6,}-(\d+)$/i, '-$1')
 
 // TopBars renders a ranked horizontal bar chart (top-N). HTML/CSS bars keep the app's
-// font crisp and animate smoothly — no distorted SVG text.
-function TopBars({ items, empty = 'Waiting for samples…', accent = 'var(--color-primary)' }) {
+// font crisp and animate smoothly — no distorted SVG text. Each item carries its own frac
+// (see bars() in Dashboard); a row with a known stack opens it in Database Stacks.
+function TopBars({ items, empty = 'Waiting for samples…', accent = 'var(--color-primary)', onOpen }) {
   if (!items || !items.length) return <div className="py-6 text-center text-sm text-muted">{empty}</div>
-  const max = Math.max(...items.map((i) => i.value), 1e-9)
   return (
     <div className="space-y-2">
-      {items.map((it) => (
-        <div key={it.name}>
-          <div className="mb-0.5 flex items-baseline justify-between gap-3">
-            <span className="truncate text-xs text-fg/90">{shortName(it.name)}</span>
-            <span className="shrink-0 text-[11px] tabular-nums text-muted">{it.display}</span>
+      {items.map((it) => {
+        const r = it.row || {}
+        const name = r.label ? `${r.stack} / ${r.label}` : shortName(it.name)
+        const click = onOpen && r.stackId ? () => onOpen(r.stackId) : undefined
+        return (
+          <div key={it.name} className={click ? 'cursor-pointer rounded hover:bg-surface2/60' : ''} onClick={click}
+            title={click ? `${it.name} — open ${r.stack || 'its stack'} in Database Stacks` : it.name}>
+            <div className="mb-0.5 flex items-baseline justify-between gap-3">
+              <span className="truncate text-xs text-fg/90">{name}</span>
+              <span className="shrink-0 text-[11px] tabular-nums text-muted">{it.display}</span>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-surface2">
+              <div
+                className="h-full rounded-full transition-[width] duration-500 ease-out"
+                style={{ width: `${it.value <= 0 ? 0 : Math.min(100, Math.max(2, it.frac * 100))}%`, background: accent }}
+              />
+            </div>
           </div>
-          <div className="h-1.5 overflow-hidden rounded-full bg-surface2">
-            <div
-              className="h-full rounded-full transition-[width] duration-500 ease-out"
-              style={{ width: `${it.value <= 0 ? 0 : Math.max(3, (it.value / max) * 100)}%`, background: accent }}
-            />
-          </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -187,12 +208,30 @@ function Breakdown({ data, labels = {} }) {
   )
 }
 
+// foldActivity folds a burst of the same event on one stack into one row — three members of
+// one cluster crossing the CPU threshold together is one thing that happened, not three. Items
+// arrive newest first; a burst is the same title and stack within two minutes of the first.
+function foldActivity(items) {
+  const out = []
+  for (const n of items) {
+    const g = out[out.length - 1]
+    const t = Date.parse(n.createdAt)
+    if (g && n.stackId && g.stackId === n.stackId && g.title === n.title && Math.abs(Date.parse(g.createdAt) - t) < 120000) {
+      g.count++
+      g.bodies.push(n.body)
+      continue
+    }
+    out.push({ ...n, count: 1, bodies: [n.body] })
+  }
+  return out.map((g) => (g.count > 1 ? { ...g, title: `${g.title} ×${g.count}`, body: g.bodies.map((b) => (b || '').split(':')[0]).join(', ') } : g))
+}
+
 function Activity({ items }) {
   if (!items.length) return <div className="py-6 text-center text-sm text-muted">No recent activity</div>
   const dot = { info: 'bg-muted', success: 'bg-primary', warning: 'bg-warning', error: 'bg-danger' }
   return (
     <div className="space-y-2">
-      {items.map((n) => (
+      {foldActivity(items).map((n) => (
         <div key={n.id} className="flex items-start gap-2.5">
           <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${dot[n.severity] || 'bg-muted'}`} />
           <div className="min-w-0 flex-1">

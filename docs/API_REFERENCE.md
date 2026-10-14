@@ -447,8 +447,8 @@ It also lays the result out with the coordinates the built-in templates use, so 
 opens on the canvas looking designed rather than piled in a corner.
 
 **`"dryRun": true`** resolves and reports without creating anything — which versions
-it settled on, what it added — so you can look before committing. `--dry-run` in the
-CLI.
+it settled on, what it added, and the validator's `issues` (`"ok": false` on an error) —
+so you can look before committing. `--dry-run` in the CLI.
 
 **Errors are the point.** An unavailable version is answered with what *is* available
 in that series; an unknown OS with the aliases; a bad member count with the range; and

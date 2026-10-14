@@ -2119,6 +2119,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 		out = append(out, pgQuerySourceIssues("Patroni cluster "+f.Label, "patroni", f.PGQuerySource)...)
 		out = append(out, pgExtensionIssues("Patroni cluster "+f.Label, f.OS, f.PGMajor, f.PGVersion, f.PGAudit, f.PGAuditLog, f.PGSetUser)...)
 		out = append(out, pgBenchIssues("Patroni cluster "+f.Label, f.PGBenchScale)...)
+		out = append(out, vaultFrameIssues(f, openbaoIDs)...)
 		img := pxcImage(f.OS, f.OSVersion, f.Arch)
 		if !seenImg[img] {
 			seenImg[img] = true

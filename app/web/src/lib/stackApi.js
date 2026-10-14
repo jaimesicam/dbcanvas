@@ -549,6 +549,10 @@ export function patroniApi(id, fid) {
   return {
     // Run an on-demand pgBackRest full backup on the current leader.
     backup: () => request('POST', `${base}/patroni/backup`),
+    // The cluster's backup sets (read on the leader), and restoring the whole cluster from
+    // one — see app/patronirestore.go for what that does to every member.
+    backups: () => request('GET', `${base}/patroni/backups`),
+    restore: (body) => request('POST', `${base}/patroni/restore`, body),
   }
 }
 

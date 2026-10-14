@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Button, Badge } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import BackupGuide from '../components/BackupGuide.jsx'
+import RestorePanel from '../components/RestorePanel.jsx'
 import { DEPLOY_TONE, patroniApi } from '../lib/stackApi.js'
 import { PGGatherCard } from '../components/Diagnostics.jsx'
 import PGCertTab from '../components/PGCertTab.jsx'
@@ -150,6 +151,7 @@ function BackupTab({ stackId, frameId, cfg }) {
     try {
       await patroniApi(stackId, frameId).backup()
       setMsg({ tone: 'success', text: 'pgBackRest full backup completed.' })
+      window.dispatchEvent(new Event('dbcanvas:pg-backups'))
     } catch (e) {
       setMsg({ tone: 'danger', text: e.message || 'Backup failed.' })
     } finally {
@@ -176,6 +178,7 @@ function BackupTab({ stackId, frameId, cfg }) {
           {msg.text}
         </div>
       )}
+      <RestorePanel api={patroniApi(stackId, frameId)} busy={busy} setBusy={setBusy} setMsg={setMsg} cluster />
       <BackupGuide engine="pgbackrest" patroni cfg={cfg} nodeLabel={cfg.cluster} />
     </div>
   )

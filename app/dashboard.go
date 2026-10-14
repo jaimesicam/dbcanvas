@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"sync"
 	"time"
@@ -159,7 +160,45 @@ type containerStatRow struct {
 	StackID int64  `json:"stackId"`
 	Name    string `json:"name"`
 	State   string `json:"state"`
+	// Stack and Label are what the canvas calls it — "core. dump" / "mysql01" — so a busy
+	// container can be traced to its card. The container name (dbcanvas-10-mysql-mv79p7lz-2) is
+	// built from the stack id and the node's internal id, neither of which is on screen.
+	Stack string `json:"stack,omitempty"`
+	Label string `json:"label,omitempty"`
 	ContainerStat
+}
+
+// containerLabels maps container names to their stack's name and node's canvas label, for the
+// given stacks: the deployments say which container is which node, the design says its label.
+func (a *App) containerLabels(stackIDs map[int64]bool) map[string][2]string {
+	out := map[string][2]string{}
+	for id := range stackIDs {
+		st, err := a.store.GetStack(id)
+		if err != nil {
+			continue
+		}
+		var doc designDoc
+		_ = json.Unmarshal(st.Design, &doc)
+		label := map[string]string{}
+		for _, n := range doc.Nodes {
+			label[n.ID] = n.Label
+		}
+		deps, _ := a.store.ListDeployments(id)
+		for _, d := range deps {
+			if d.ContainerName != "" {
+				out[d.ContainerName] = [2]string{st.Name, label[d.NodeID]}
+			}
+		}
+	}
+	return out
+}
+
+// statDisplayName is "stack / label" when the container is known, else its own name.
+func statDisplayName(row containerStatRow) string {
+	if row.Label != "" {
+		return row.Stack + " / " + row.Label
+	}
+	return row.Name
 }
 
 var dashStats = struct {
@@ -233,6 +272,7 @@ func (a *App) checkThresholds(rows []containerStatRow, ci []ContainerInfo) {
 	for _, c := range ci {
 		idByName[c.Name] = c.ID
 	}
+	var names map[string][2]string // looked up only once something is over a threshold
 	for _, row := range rows {
 		if row.State != "running" {
 			continue
@@ -255,8 +295,18 @@ func (a *App) checkThresholds(rows []containerStatRow, ci []ContainerInfo) {
 		}
 		statsAlerts.last[key] = time.Now()
 		statsAlerts.mu.Unlock()
+		if names == nil {
+			ids := map[int64]bool{}
+			for _, r := range rows {
+				ids[r.StackID] = true
+			}
+			names = a.containerLabels(ids)
+		}
+		if n, ok := names[row.Name]; ok {
+			row.Stack, row.Label = n[0], n[1]
+		}
 		a.notifyStack(row.StackID, "resource.alert", "warning", "High resource usage",
-			row.Name+": "+msg, "")
+			statDisplayName(row)+": "+msg, "")
 	}
 }
 
@@ -289,9 +339,17 @@ func (a *App) handleDashboardStats(w http.ResponseWriter, r *http.Request) {
 	// Aggregate + full per-node list (the client derives rates + ranks the tables).
 	var totCPU, totMemUsed, totMemLimit float64
 	nodes := []containerStatRow{}
+	ids := map[int64]bool{}
+	for _, row := range mine {
+		ids[row.StackID] = true
+	}
+	names := a.containerLabels(ids)
 	for _, row := range mine {
 		if row.State != "running" {
 			continue
+		}
+		if n, ok := names[row.Name]; ok {
+			row.Stack, row.Label = n[0], n[1]
 		}
 		totCPU += row.CPUPercent
 		totMemUsed += float64(row.MemUsed)

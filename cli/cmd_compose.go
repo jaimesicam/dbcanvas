@@ -62,6 +62,7 @@ func parseNodeSpec(arg string) (map[string]any, error) {
 		"export": "export", "cert": "cert", "proxy": "proxy", "gtid": "gtid",
 		"mysqlrouter": "mysqlRouter", "tls": "tls",
 		"netalltraffic": "netAllTraffic", "pgvector": "pgvector",
+		"pgaudit": "pgaudit", "setuser": "setUser",
 	}
 	strOpts := map[string]string{
 		"name": "name", "os": "os", "arch": "arch", "version": "version",
@@ -75,10 +76,11 @@ func parseNodeSpec(arg string) (map[string]any, error) {
 		"to": "to",
 		// Per-engine.
 		"replmode": "replMode", "mode": "mode", "setup": "setup",
-		"dataset": "dataset", "certttl": "certTtl",
+		"dataset": "dataset", "certttl": "certTtl", "pgauditlog": "pgauditLog",
 	}
 	intOpts := map[string]string{
 		"count": "count", "cpus": "cpus", "memorygb": "memoryGb", "exportport": "exportPort",
+		"pgbench": "pgbench",
 		// Resource shaping.
 		"netlatencyms": "netLatencyMs", "netjitterms": "netJitterMs",
 		"netratembit":    "netRateMbit",
@@ -264,6 +266,11 @@ func stackCompose(args []string) error {
 	}
 
 	if *dryRun {
+		// The server validates a dry run too, so a plan it would refuse fails here rather
+		// than at the real compose.
+		if !res.OK {
+			return fmt.Errorf("dry run — nothing was created, and the design has errors (above) that would stop it")
+		}
 		fmt.Println("\nDry run — nothing was created. Drop --dry-run to build it.")
 		return nil
 	}

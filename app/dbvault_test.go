@@ -284,10 +284,23 @@ func TestVaultFrameIssues(t *testing.T) {
 	// keyring_vault is a Percona Server component: MariaDB's equivalent is a different plugin
 	// with a different key format, and the MySQL Community packages have none at all. A flag set
 	// on one of those frames is not an error to report here — it is a frame that never offers it.
-	for _, ft := range []string{"mariadbgalera", "mysqlcerepl", "innodb", "patroni"} {
+	for _, ft := range []string{"mariadbgalera", "mysqlcerepl", "innodb", "repmgr"} {
 		if got := vaultFrameIssues(designFrame{Type: ft, Label: "c1", EnableVault: true}, bao); len(got) != 0 {
 			t.Errorf("%s is not a vault-capable frame but reported %v", ft, got)
 		}
+	}
+	// Patroni is: pg_tde, one key for the cluster (patronitde.go), with pg_tde's version rules.
+	pat := designFrame{Type: "patroni", Label: "c1", EnableVault: true, OpenBaoNodeID: "bao1", OS: "oraclelinux", PGMajor: "17"}
+	if got := vaultFrameIssues(pat, bao); len(got) != 0 {
+		t.Errorf("patroni on 17 (newest) reported %v", got)
+	}
+	pat.PGVersion = "17.0-1"
+	if got := vaultFrameIssues(pat, bao); len(got) == 0 {
+		t.Error("patroni on 17.0 has no pg_tde that loads, and was accepted")
+	}
+	pat.PGVersion, pat.OpenBaoNodeID = "", ""
+	if got := vaultFrameIssues(pat, bao); len(got) == 0 {
+		t.Error("patroni encryption with no OpenBao node was accepted")
 	}
 }
 

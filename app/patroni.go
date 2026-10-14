@@ -270,6 +270,22 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 			}
 		}
 
+		// pg_tde: the cluster's one OpenBao mount and token, before any member is built.
+		var tde *patroniTDE
+		if frame.EnableVault {
+			for _, n := range members {
+				a.pxcNewProg(st.ID, n.ID).phase("Waiting for OpenBao (pg_tde key)", 9)
+			}
+			t, terr := a.patroniTDEPrepare(ctx, st, frame, a.pxcNewProg(st.ID, members[0].ID).logln)
+			if terr != nil {
+				for _, n := range members {
+					a.pxcNewProg(st.ID, n.ID).fail("pg_tde: %v", terr)
+				}
+				return
+			}
+			tde = t
+		}
+
 		// ---- Phase 1 (parallel): container + install + etcd/patroni config per node ----
 		var wg sync.WaitGroup
 		failed := make(map[string]bool)
@@ -288,6 +304,20 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 		wg.Wait()
 		if len(failed) > 0 {
 			return // each failed node already recorded its error
+		}
+
+		// pg_tde on every member before Patroni starts any of them: it is preloaded from
+		// bootstrap, and a member without the library (or the token) cannot start.
+		if tde != nil {
+			for _, n := range members {
+				pr := a.pxcNewProg(st.ID, n.ID)
+				pr.phase("Installing pg_tde", 55)
+				dep, _ := a.store.GetDeployment(st.ID, n.ID)
+				if err := a.patroniTDEMember(ctx, dep.ContainerID, frame, tde, pr.logln); err != nil {
+					pr.fail("%v", err)
+					return
+				}
+			}
 		}
 
 		// All containers exist — publish DNS so every FQDN resolves for etcd/Patroni.
@@ -326,6 +356,23 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 				a.pxcNewProg(st.ID, n.ID).fail("%v", err)
 			}
 			return
+		}
+
+		// ---- Phase 3b: pg_tde keyed on the leader, before anything is written that should be
+		// encrypted (the first backup, pgbench data). Fatal, as on the standalone node: a
+		// cluster that reports encryption it does not have is worse than one that failed.
+		if tde != nil && leaderID != "" {
+			pr := a.pxcNewProg(st.ID, leaderID)
+			pr.phase("Configuring pg_tde (OpenBao)", 86)
+			ldep, _ := a.store.GetDeployment(st.ID, leaderID)
+			info, terr := a.patroniTDEEnable(ctx, ldep.ContainerID, frame, tde, pr.logln)
+			if terr != nil {
+				pr.fail("configure pg_tde: %v", terr)
+				return
+			}
+			for _, n := range members {
+				a.persistConfigKey(st, n.ID, "vault", info)
+			}
 		}
 
 		// ---- Phase 4: initial pgBackRest stanza + full backup on the leader ----
@@ -969,7 +1016,11 @@ func patroniYAML(frame designFrame, host, fqdn string, etcdEndpoints []string, s
 	}
 	qs := pgQuerySourceFor(frame.Type, frame.PGQuerySource, frame.PMMNodeID)
 	exts := pgFrameExtensions(frame)
-	if preload := pgPreloadValue(pgExtPreload(exts), qs); preload != "" {
+	own := pgExtPreload(exts)
+	if frame.EnableVault {
+		own = append([]string{"pg_tde"}, own...) // patronitde.go: preloaded from bootstrap
+	}
+	if preload := pgPreloadValue(own, qs); preload != "" {
 		fmt.Fprintf(&b, "        shared_preload_libraries: \"%s\"\n", preload)
 		for _, p := range append(pgQueryParams(qs), pgExtParams(exts)...) {
 			fmt.Fprintf(&b, "        %s: \"%s\"\n", p[0], p[1])
@@ -995,6 +1046,16 @@ func patroniYAML(frame designFrame, host, fqdn string, etcdEndpoints []string, s
 	fmt.Fprintf(&b, "  connect_address: %s:%d\n", fqdn, patroniPGPort)
 	fmt.Fprintf(&b, "  data_dir: %s\n", pgDataDir(frame.OS, major))
 	fmt.Fprintf(&b, "  bin_dir: %s\n", pgBinDir(frame.OS, major))
+	if frame.EnableVault {
+		// pg_tde's own tools, in place of the stock ones Patroni runs. Plain pg_rewind on a
+		// tde_heap cluster finishes with exit 0 and leaves the rewound member corrupt — seen on a
+		// live cluster: after a hard failover the old leader rejoined, streamed, and failed every
+		// read of pgbench_accounts_pkey with "page verification failed". pg_tde_rewind and
+		// pg_tde_basebackup carry pg_tde's key map with the pages. See patronitde.go.
+		fmt.Fprintf(&b, "  bin_name:\n")
+		fmt.Fprintf(&b, "    pg_rewind: pg_tde_rewind\n")
+		fmt.Fprintf(&b, "    pg_basebackup: pg_tde_basebackup\n")
+	}
 	fmt.Fprintf(&b, "  pgpass: /tmp/pgpass\n")
 	fmt.Fprintf(&b, "  authentication:\n")
 	fmt.Fprintf(&b, "    superuser:\n")

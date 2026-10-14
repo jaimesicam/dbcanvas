@@ -57,7 +57,6 @@ export function ppgAvailable(comps, id, { os, pgMajor, pgVersion }) {
   const pat = isDebian(os) ? c.debian : c.rhel
   const pkg = pat ? pat.replace('%s', major) : ''
   if (!c.majors.includes(major)) return { ok: false, why: `${c.label} is packaged for PostgreSQL ${joinOr(c.majors)} only, not ${major}`, pkg }
-  if (c.rhelOnly && isDebian(os)) return { ok: false, why: `${c.label} is installed on Oracle Linux nodes only for now, not ${os}`, pkg }
   const min = c.minMinor?.[major]
   if (min && pgVersion && versionLess(minorOf(pgVersion), min)) return { ok: false, why: `${c.label} needs PostgreSQL ${min} or newer, and this node is pinned to ${minorOf(pgVersion)}`, pkg }
   return { ok: true, why: '', pkg }

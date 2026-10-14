@@ -206,7 +206,11 @@ func (a *App) applyPGOIDC(ctx context.Context, st Stack, n designNode, doc desig
 	}
 	users := pgOIDCUsernames()
 	env := []string{"ISSUER=" + issuer, "SERVICE=" + service, "USERS=" + strings.Join(users, " "), "VER=" + n.PGVersion}
-	if err := a.runStep(ctx, containerID, pgOIDCScript, env, pr.logln); err != nil {
+	script := pgOIDCScript
+	if isDebianOS(n.OS) {
+		script = pgOIDCScriptDebian
+	}
+	if err := a.runStep(ctx, containerID, script, env, pr.logln); err != nil {
 		return err
 	}
 	nodeFQDN := fqdnOf(stackHostnames(doc)[n.ID], domain)
@@ -263,6 +267,46 @@ systemctl restart "$SERVICE" >/dev/null 2>&1 || su - postgres -c "pg_ctl -D $DAT
 for i in $(seq 1 20); do su - postgres -c "psql -tAc 'select 1'" >/dev/null 2>&1 && break; sleep 1; done
 # One LOGIN role per Keycloak user, named after the preferred_username the validator maps on.
 # Idempotent: a redeploy (or a role someone made by hand) must not fail the step.
+SQL=/tmp/dbcanvas-oidc-roles.sql
+: > "$SQL"
+for U in $USERS; do
+  echo "DO \$do\$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '$U') THEN CREATE ROLE \"$U\" LOGIN; END IF; END \$do\$;" >> "$SQL"
+done
+chmod 644 "$SQL"
+su - postgres -c "psql -q -v ON_ERROR_STOP=1 -f $SQL" || { echo "failed to create OIDC login roles"; exit 1; }
+echo "pg_oidc_validator configured (issuer $ISSUER, roles $USERS)"`
+
+// pgOIDCScriptDebian is pgOIDCScript for Ubuntu. Same steps, three differences: the packages
+// are percona-pg-oidc-validator18 and libpq-oauth (the client's OAuth flow module) from the same
+// ppg-18 repository, both pinned to the node's minor; the CA goes in through
+// update-ca-certificates; and pg_hba.conf / postgresql.conf live in /etc/postgresql/18/main, not
+// the data directory. The hba edit is awk rather than python3, which the Ubuntu image lacks.
+// Env: ISSUER, SERVICE, USERS, VER.
+const pgOIDCScriptDebian = pinInstallDebian + `set -e
+export DEBIAN_FRONTEND=noninteractive
+percona-release setup -y ppg-18 >/dev/null 2>&1 || true
+apt-get update -qq >/dev/null
+pin_install percona-pg-oidc-validator18 libpq-oauth >/dev/null
+if [ -f /tmp/dbca-ca.crt ]; then cp -f /tmp/dbca-ca.crt /usr/local/share/ca-certificates/dbcanvas-ca.crt; update-ca-certificates >/dev/null 2>&1 || true; fi
+DIR=$(dirname "$(find /etc/postgresql -name pg_hba.conf 2>/dev/null | head -1)")
+[ -n "$DIR" ] && [ "$DIR" != "." ] || { echo "pg_hba.conf not found under /etc/postgresql"; exit 1; }
+HBA="$DIR/pg_hba.conf"; CONF="$DIR/postgresql.conf"
+sed -i "/# dbcanvas-oidc/d" "$HBA" "$CONF"
+printf '%s\n' "oauth_validator_libraries = 'pg_oidc_validator' # dbcanvas-oidc" \
+  "pg_oidc_validator.authn_field = 'preferred_username' # dbcanvas-oidc" >> "$CONF"
+SU="host all postgres 0.0.0.0/0 scram-sha-256 # dbcanvas-oidc"
+OAUTH="host all all 0.0.0.0/0 oauth scope=\"openid\",issuer=$ISSUER # dbcanvas-oidc"
+# The two lines go just above the first password catch-all (first match wins in pg_hba), or at
+# the top when there is none.
+CATCHALL='^host[[:space:]]+all[[:space:]]+all[[:space:]]+0\.0\.0\.0/0[[:space:]]+scram-sha-256[[:space:]]*$'
+if grep -qE "$CATCHALL" "$HBA"; then
+  awk -v su="$SU" -v oa="$OAUTH" -v re="$CATCHALL" '!d && $0 ~ re {print su; print oa; d=1} {print}' "$HBA" > "$HBA.new"
+else
+  { printf '%s\n%s\n' "$SU" "$OAUTH"; cat "$HBA"; } > "$HBA.new"
+fi
+cat "$HBA.new" > "$HBA"; rm -f "$HBA.new"
+systemctl restart "$SERVICE" >/dev/null 2>&1 || true
+for i in $(seq 1 20); do su - postgres -c "psql -tAc 'select 1'" >/dev/null 2>&1 && break; sleep 1; done
 SQL=/tmp/dbcanvas-oidc-roles.sql
 : > "$SQL"
 for U in $USERS; do

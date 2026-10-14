@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -106,27 +107,32 @@ func (a *App) handlePGBackups(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	ctx := r.Context()
-	res, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"bash", "-c",
-		`runuser -u postgres -- pgbackrest --stanza="$STANZA" info --output=json`}, []string{"STANZA=" + patroniStanza(n.Label)})
-	if err != nil || res.Code != 0 {
-		msg := ""
-		if err != nil {
-			msg = err.Error()
-		} else {
-			msg = lastLines(res.Stderr+res.Stdout, 200)
-		}
-		writeErr(w, http.StatusInternalServerError, "pgbackrest info failed: "+msg)
+	out, err := a.pgBackupList(r.Context(), dep.ContainerID, patroniStanza(n.Label))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// pgBackupList runs `pgbackrest info` in a container and shapes it for the Backup tab: the sets,
+// and the earliest point a time restore can reach. Shared by the standalone node and Patroni.
+func (a *App) pgBackupList(ctx context.Context, containerID, stanza string) (map[string]any, error) {
+	res, err := a.engCtx(ctx).Exec(ctx, containerID, []string{"bash", "-c",
+		`runuser -u postgres -- pgbackrest --stanza="$STANZA" info --output=json`}, []string{"STANZA=" + stanza})
+	if err != nil {
+		return nil, fmt.Errorf("pgbackrest info failed: %w", err)
+	}
+	if res.Code != 0 {
+		return nil, fmt.Errorf("pgbackrest info failed: %s", lastLines(res.Stderr+res.Stdout, 200))
 	}
 	var info pgBackRestInfoJSON
 	if err := json.Unmarshal([]byte(res.Stdout), &info); err != nil || len(info) == 0 {
-		writeErr(w, http.StatusInternalServerError, "pgbackrest info: unreadable output")
-		return
+		return nil, fmt.Errorf("pgbackrest info: unreadable output")
 	}
-	stanza := info[0]
+	st := info[0]
 	sets := []pgBackupSet{}
-	for _, b := range stanza.Backup {
+	for _, b := range st.Backup {
 		sets = append(sets, pgBackupSet{
 			Label: b.Label, Type: b.Type,
 			Start: time.Unix(b.Timestamp.Start, 0).UTC().Format(time.RFC3339),
@@ -134,16 +140,16 @@ func (a *App) handlePGBackups(w http.ResponseWriter, r *http.Request) {
 			Size:  b.Info.Size, Repo: b.Info.Repository.Delta, WAL: b.Archive.Start,
 		})
 	}
-	out := map[string]any{"stanza": patroniStanza(n.Label), "backups": sets, "status": stanza.Status.Message}
+	out := map[string]any{"stanza": stanza, "backups": sets, "status": st.Status.Message}
 	// The earliest point a time restore can reach is the end of the oldest backup: before that
 	// there is no consistent copy to replay from.
 	if len(sets) > 0 {
 		out["earliest"] = sets[0].Stop
 	}
-	if len(stanza.Archive) > 0 {
-		out["walMax"] = stanza.Archive[len(stanza.Archive)-1].Max
+	if len(st.Archive) > 0 {
+		out["walMax"] = st.Archive[len(st.Archive)-1].Max
 	}
-	writeJSON(w, http.StatusOK, out)
+	return out, nil
 }
 
 // pgRestoreRequest is POST …/pg/restore.
