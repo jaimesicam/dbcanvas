@@ -444,6 +444,12 @@ export const HELP = {
     'a Percona package, and this cluster does not run Percona Distribution for PostgreSQL.',
 
   // --- pgvector -------------------------------------------------------------
+  pgAudit:
+    'pgAudit writes an AUDIT line to the PostgreSQL log for every statement in the classes you choose (ddl, role, read, write, function, misc, misc_set, all — prefix one with "-" to subtract it, as in all,-misc). Preloaded and created in postgres and template1. Percona\'s package, from the same ppg repository as the server.',
+  pgBenchScale:
+    'Loads pgbench\'s four tables into a database called pgbench at deploy (pgbench -i -s N). Scale 1 is 100,000 rows in pgbench_accounts, about 16 MB. Loaded after encryption is set up and before the first pgBackRest backup, so both include it. On Patroni it is loaded on the leader and streams to the replicas. Run a workload against it later with pgbench -c 8 -T 60 pgbench.',
+  pgSetUser:
+    'set_user lets a role become a superuser through set_user() / set_user_u() only, and logs who did it. While escalated, ALTER SYSTEM, COPY PROGRAM and changes to log_statement are blocked, so the escalation cannot hide itself. Preloaded and created in postgres and template1.',
   pgVector:
     'pgvector adds a `vector` column type, the distance operators <-> (L2), <=> (cosine) and <#> (negative inner ' +
     'product), and two approximate nearest-neighbour index methods, HNSW and IVFFlat — similarity search over ' +

@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Button, Badge } from '../components/ui.jsx'
+import { useEffect, useState } from 'react'
+import { Button, Badge, ConfirmButton } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import BackupGuide from '../components/BackupGuide.jsx'
 import { DEPLOY_TONE, pgApi } from '../lib/stackApi.js'
@@ -163,6 +163,7 @@ function BackupTab({ stackId, nodeId, cfg }) {
     try {
       await pgApi(stackId, nodeId).backup()
       setMsg({ tone: 'success', text: 'pgBackRest full backup completed.' })
+      window.dispatchEvent(new Event('dbcanvas:pg-backups'))
     } catch (e) {
       setMsg({ tone: 'danger', text: e.message || 'Backup failed.' })
     } finally {
@@ -188,7 +189,81 @@ function BackupTab({ stackId, nodeId, cfg }) {
           {msg.text}
         </div>
       )}
+      <RestorePanel stackId={stackId} nodeId={nodeId} busy={busy} setBusy={setBusy} setMsg={setMsg} />
       <BackupGuide engine="pgbackrest" cfg={cfg} nodeLabel={cfg.hostname} />
+    </div>
+  )
+}
+
+// RestorePanel is the other half of the Backup tab: what is in the repository, and getting it
+// back (app/pgrestore.go). Three ways, each one pgBackRest restore of the stopped server —
+// everything archived, up to a moment (PITR), or one backup set as it was taken. Each overwrites
+// the node's data, so each is a two-click ConfirmButton.
+function RestorePanel({ stackId, nodeId, busy, setBusy, setMsg }) {
+  const [info, setInfo] = useState(null)
+  const [err, setErr] = useState('')
+  const [when, setWhen] = useState('')
+  const load = () => pgApi(stackId, nodeId).backups().then((r) => { setInfo(r); setErr('') }).catch((e) => setErr(e.message))
+  useEffect(() => {
+    load()
+    const on = () => load()
+    window.addEventListener('dbcanvas:pg-backups', on)
+    return () => window.removeEventListener('dbcanvas:pg-backups', on)
+  }, [stackId, nodeId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function restore(body, what) {
+    setBusy(true)
+    setMsg(null)
+    try {
+      const r = await pgApi(stackId, nodeId).restore(body)
+      setMsg({ tone: 'success', text: `Restored to ${what}${r.timeline ? `, now on timeline ${r.timeline}` : ''}. Take a full backup now, so the next point-in-time restore has a clean starting point on this timeline.` })
+      load()
+    } catch (e) {
+      setMsg({ tone: 'danger', text: e.message || 'Restore failed.' })
+    } finally {
+      setBusy(false)
+    }
+  }
+  // datetime-local is the browser's local time with no zone; the server wants RFC 3339.
+  const whenISO = when ? new Date(when).toISOString() : ''
+  const fmt = (iso) => new Date(iso).toLocaleString()
+  const backups = info?.backups || []
+
+  return (
+    <div className="space-y-2 rounded-lg border p-2.5">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-muted">Restore</span>
+        <button className="text-xs text-muted hover:text-fg" onClick={load} title="Reload the backup list"><Icon.Refresh size={13} /></button>
+      </div>
+      {err && <p className="text-xs text-danger">{err}</p>}
+      {info && backups.length === 0 && <p className="text-xs text-muted">No backups in the repository yet.</p>}
+      {backups.length > 0 && (
+        <>
+          <div className="max-h-48 space-y-1 overflow-auto">
+            {[...backups].reverse().map((b) => (
+              <div key={b.label} className="flex items-center gap-2 rounded bg-surface2 px-2 py-1 text-xs">
+                <Badge tone={b.type === 'full' ? 'primary' : 'muted'}>{b.type}</Badge>
+                <span className="min-w-0 flex-1 truncate" title={b.label}>{fmt(b.stop)}</span>
+                <ConfirmButton size="sm" variant="subtle" disabled={busy} confirmLabel="Overwrite?"
+                  onConfirm={() => restore({ mode: 'backup', set: b.label }, `backup ${b.label}`)}>Restore</ConfirmButton>
+              </div>
+            ))}
+          </div>
+          <ConfirmButton size="sm" className="w-full" variant="subtle" disabled={busy} confirmLabel="Overwrite this node's data?"
+            onConfirm={() => restore({ mode: 'latest' }, 'the latest point')}>
+            Restore to latest (replay all archived WAL)
+          </ConfirmButton>
+          <div className="space-y-1">
+            <label className="text-xs text-muted">Point in time — reachable from {fmt(info.earliest)}</label>
+            <div className="flex gap-2">
+              <input type="datetime-local" step="1" className="min-w-0 flex-1 rounded border bg-bg px-2 py-1 text-xs"
+                value={when} onChange={(e) => setWhen(e.target.value)} />
+              <ConfirmButton size="sm" disabled={busy || !when} confirmLabel="Overwrite?"
+                onConfirm={() => restore({ mode: 'time', time: whenISO }, fmt(whenISO))}>Restore</ConfirmButton>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

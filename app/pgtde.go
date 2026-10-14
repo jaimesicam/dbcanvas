@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"strings"
 )
 
 // pgtde.go — data-at-rest encryption for the standalone PostgreSQL node (pg), keyed by an OpenBao
@@ -31,35 +30,18 @@ import (
 //
 // Percona builds pg_tde for PostgreSQL 17 and 18 only (docs.percona.com/pg-tde), and from PPG
 // 17.7 it stopped being bundled with the server: it is a package of its own,
-// percona-pg_tde<major> on RHEL and percona-pg-tde-<major> on Debian. Up to 17.6 that package
-// does not exist because the extension is already inside the server package — so the install
-// step below treats a missing package as normal and checks for pg_tde.control instead, which is
-// the thing that actually has to be true either way.
+// percona-pg_tde<major> on RHEL and percona-pg-tde<major> on Debian (ppgcomponents.go). Which
+// build of it a server can load is a strict pairing that package metadata does not express —
+// see pgTDEInstallRHEL — so the install step does not pick one: it tries them.
 
-// pgTDEMajors are the PostgreSQL majors Percona builds pg_tde for.
-var pgTDEMajors = []string{"17", "18"}
-
-// pgTDEMajorOK reports whether a PostgreSQL major has pg_tde at all.
-func pgTDEMajorOK(major string) bool {
-	m := ppgMajorOf(major)
-	for _, v := range pgTDEMajors {
-		if m == v {
-			return true
-		}
-	}
-	return false
-}
+// pgTDEComponent is pg_tde's entry in the PPG component table: which majors, which minors, what the
+// package is called.
+func pgTDEComponent() ppgComponent { c, _ := ppgComponentByID("pg_tde"); return c }
 
 // pgTDEPackage is the separate pg_tde package for a major. It exists from PPG 17.7 onward; before
 // that the extension ships inside the server package and this name is simply absent from the
 // repository, which pgTDEInstall* handles rather than failing on.
-func pgTDEPackage(nodeOS, major string) string {
-	m := ppgMajorOf(major)
-	if isDebianOS(nodeOS) {
-		return "percona-pg-tde-" + m
-	}
-	return "percona-pg_tde" + m
-}
+func pgTDEPackage(nodeOS, major string) string { return pgTDEComponent().Package(nodeOS, major) }
 
 const (
 	// Where the OpenBao token lives on the node. pg_tde is handed this path, not the token
@@ -87,9 +69,8 @@ func pgTDEKeyName(host string) string { return host + "-principal" }
 // Intranet CA already in its trust store. Only the client half is PostgreSQL's.
 func (a *App) applyPGVault(ctx context.Context, st Stack, n designNode, containerID, host, confDir, service string, pr *pxcProg) (vaultInfo, error) {
 	pr.phase("Configuring pg_tde (OpenBao)", 90)
-	if !pgTDEMajorOK(n.PGMajor) {
-		return vaultInfo{}, fmt.Errorf("pg_tde is built for PostgreSQL %s only, not %s",
-			strings.Join(pgTDEMajors, "/"), ppgMajorOf(n.PGMajor))
+	if ok, why := pgTDEComponent().Available(n.OS, n.PGMajor, n.PGVersion); !ok {
+		return vaultInfo{}, fmt.Errorf("%s", why)
 	}
 	cfg, rootToken, baoCID, err := a.waitOpenBaoReady(ctx, st.ID, n.OpenBaoNodeID, deployTimeout())
 	if err != nil {
@@ -125,7 +106,7 @@ func (a *App) applyPGVault(ctx context.Context, st Stack, n designNode, containe
 		"TDEDIR=" + pgTDEDir, "TOKENFILE=" + pgTDETokenFile, "TDETOKEN=" + token,
 		"PROVIDER=" + pgTDEProvider, "KEYNAME=" + pgTDEKeyName(host),
 		"VAULTURL=" + cfg.Addr, "VAULTMOUNT=" + mount, "CAFILE=" + caFile,
-		"PRELOAD=" + pgPreloadValue([]string{"pg_tde"}, pgQuerySourceFor("pg", n.PGQuerySource, n.PMMNodeID)),
+		"PRELOAD=" + pgPreloadValue(append([]string{"pg_tde"}, pgExtPreload(pgNodeExtensions(n))...), pgQuerySourceFor("pg", n.PGQuerySource, n.PMMNodeID)),
 	}, pr.logln); err != nil {
 		return vaultInfo{}, err
 	}
@@ -138,43 +119,89 @@ func (a *App) applyPGVault(ctx context.Context, st Stack, n designNode, containe
 	}, nil
 }
 
-// pgTDEInstallRHEL installs the separate pg_tde package when the repository has one.
+// pgTDEInstallRHEL leaves the node with the newest pg_tde that this server actually loads.
 //
-// A MISSING PACKAGE IS NOT AN ERROR. Up to PPG 17.6 pg_tde is inside percona-postgresql17-server
-// and `percona-pg_tde17` does not exist; from 17.7 it is its own package and the server has none.
-// Testing for the package would therefore be testing the wrong thing, so the step ends by testing
-// for what has to be true in both worlds: pg_tde.control on disk, under this build's own sharedir.
+// Not "the newest pg_tde", and not a table. Each server build accepts a narrow set of pg_tde
+// builds and nothing in the packages says which: the rest install cleanly and then stop the
+// server at preload — "undefined symbol: percona_allow_upstream_smgr_api" when pg_tde is newer
+// than its server, "Percona API version mismatch" otherwise. Installing every pair on Oracle
+// Linux 9 and Ubuntu 24.04 (2026-10-14) found no rule that holds across releases, and the two
+// OSes pair the same server release differently (17.10-1 takes 2.2.0 on OL9 and refuses it on
+// Ubuntu). From 17.7 the server package also pulls in the newest pg_tde as a dependency,
+// whether it loads or not. So:
 //
-// Not pin_install: VER is this node's PostgreSQL minor, and pg_tde carries its own version series,
-// so pinning it would only produce a "no such build" note on every deploy.
+//  1. a server that bundles pg_tde (17.2–17.6) and has no separate package keeps its own, if it
+//     loads — the separate package conflicts with it;
+//  2. otherwise each build in the repository, newest first, is installed (downgrading as it goes)
+//     and loaded into a scratch cluster — its own data directory, port and socket, so the real
+//     server is untouched — until one creates the extension. Each that does not is logged with
+//     the server's reason.
+//
+// A few seconds per build tried, and right for every OS and every release, including the ones
+// after this was written.
 // Env: PRODUCT (ppg-NN), TDEPKG, BINDIR.
 const pgTDEInstallRHEL = `set -e
 percona-release setup -y "$PRODUCT" >/dev/null 2>&1 || true
-if [ -n "$(dnf -q repoquery "$TDEPKG" 2>/dev/null)" ]; then
-  dnf -y -q install "$TDEPKG"
-  echo "installed $TDEPKG"
-else
-  echo "note: $TDEPKG is not in this repository — up to 17.6 pg_tde ships inside the server package"
+` + pgTDELoadsFn + `
+installed() { rpm -q "$TDEPKG" >/dev/null 2>&1; }
+if ! installed && [ -f "$SHAREDIR/extension/pg_tde.control" ]; then
+  if loads; then echo "pg_tde is bundled with this server and loads — not installing $TDEPKG"; exit 0; fi
+  echo "note: the pg_tde bundled with this server does not load: $REASON"
 fi
-SHAREDIR=$("$BINDIR/pg_config" --sharedir 2>/dev/null)
-[ -n "$SHAREDIR" ] && [ -f "$SHAREDIR/extension/pg_tde.control" ] || {
-  echo "pg_tde.control not found under ${SHAREDIR:-<unknown sharedir>}/extension — this PostgreSQL build has no pg_tde"; exit 1; }
-echo "pg_tde extension files present"`
+for v in $(dnf -q repoquery --qf '%{version}-%{release}' "$TDEPKG" 2>/dev/null | sort -rV); do
+  if ! rpm -q "$TDEPKG-$v" >/dev/null 2>&1; then
+    if installed; then
+      dnf -y -q downgrade "$TDEPKG-$v" >/dev/null 2>&1 || dnf -y -q upgrade "$TDEPKG-$v" >/dev/null 2>&1 || { echo "note: could not install $TDEPKG $v"; continue; }
+    else
+      dnf -y -q install "$TDEPKG-$v" >/dev/null 2>&1 || { echo "note: could not install $TDEPKG $v"; continue; }
+    fi
+  fi
+  if loads; then echo "installed $TDEPKG $v — the newest pg_tde this server loads"; exit 0; fi
+  echo "note: $TDEPKG $v does not load on this server: $REASON"
+done
+echo "no pg_tde build in this repository loads on this PostgreSQL server"; exit 1`
 
+// pgTDEInstallDebian is the same search with apt. madison lists source lines too; only the
+// binary ones (… Packages) are builds that can be installed.
 const pgTDEInstallDebian = `set -e
 export DEBIAN_FRONTEND=noninteractive
 percona-release setup -y "$PRODUCT" >/dev/null 2>&1 || true
 apt-get update -qq >/dev/null
-if apt-cache show "$TDEPKG" >/dev/null 2>&1; then
-  apt-get install -y -qq "$TDEPKG" >/dev/null
-  echo "installed $TDEPKG"
-else
-  echo "note: $TDEPKG is not in this repository — up to 17.6 pg_tde ships inside the server package"
+` + pgTDELoadsFn + `
+installed() { [ "$(dpkg-query -W -f='${Status}' "$TDEPKG" 2>/dev/null)" = "install ok installed" ]; }
+if ! installed && [ -f "$SHAREDIR/extension/pg_tde.control" ]; then
+  if loads; then echo "pg_tde is bundled with this server and loads — not installing $TDEPKG"; exit 0; fi
+  echo "note: the pg_tde bundled with this server does not load: $REASON"
 fi
-SHAREDIR=$("$BINDIR/pg_config" --sharedir 2>/dev/null)
-[ -n "$SHAREDIR" ] && [ -f "$SHAREDIR/extension/pg_tde.control" ] || {
-  echo "pg_tde.control not found under ${SHAREDIR:-<unknown sharedir>}/extension — this PostgreSQL build has no pg_tde"; exit 1; }
-echo "pg_tde extension files present"`
+for v in $(apt-cache madison "$TDEPKG" 2>/dev/null | awk -F'|' '$3 ~ /Packages/ {gsub(/ /,"",$2); print $2}' | sort -rV); do
+  if [ "$(dpkg-query -W -f='${Version}' "$TDEPKG" 2>/dev/null)" != "$v" ]; then
+    apt-get install -y -qq --allow-downgrades "$TDEPKG=$v" >/dev/null 2>&1 || { echo "note: could not install $TDEPKG $v"; continue; }
+  fi
+  if loads; then echo "installed $TDEPKG $v — the newest pg_tde this server loads"; exit 0; fi
+  echo "note: $TDEPKG $v does not load on this server: $REASON"
+done
+echo "no pg_tde build in this repository loads on this PostgreSQL server"; exit 1`
+
+// pgTDELoadsFn defines loads(): does the pg_tde on disk preload into this server and create?
+// A scratch cluster, not the real one: its own directory, port and socket, no TCP, stopped and
+// removed afterwards, so the node's server is never restarted with a library that may not load.
+// On failure REASON is the server's first FATAL/ERROR line. Needs BINDIR.
+const pgTDELoadsFn = `SHAREDIR=$("$BINDIR/pg_config" --sharedir 2>/dev/null)
+REASON=""
+loads() {
+  local dir=/tmp/pgtde-check ok=1
+  rm -rf "$dir"; install -d -o postgres -g postgres "$dir"
+  runuser -u postgres -- "$BINDIR/initdb" -D "$dir/data" >/dev/null 2>&1 || { REASON="initdb failed"; rm -rf "$dir"; return 1; }
+  echo "shared_preload_libraries = 'pg_tde'" >> "$dir/data/postgresql.conf"
+  if runuser -u postgres -- "$BINDIR/pg_ctl" -D "$dir/data" -l "$dir/log" -w \
+       -o "-p 54329 -k $dir -c listen_addresses=''" start >/dev/null 2>&1; then
+    runuser -u postgres -- "$BINDIR/psql" -h "$dir" -p 54329 -d postgres -qAtX -c "CREATE EXTENSION pg_tde" >/dev/null 2>&1 && ok=0
+    runuser -u postgres -- "$BINDIR/pg_ctl" -D "$dir/data" -m immediate stop >/dev/null 2>&1 || true
+  fi
+  [ $ok = 0 ] || REASON=$(grep -m1 -oE "(FATAL|ERROR): .*" "$dir/log" 2>/dev/null || echo "the server did not start")
+  rm -rf "$dir"
+  return $ok
+}`
 
 // pgTDEConfigureScript is everything after the package: the token file, the preload, the
 // extension, the key provider, the principal key, and a real encrypted table to prove it works.

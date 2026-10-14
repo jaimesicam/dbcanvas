@@ -742,7 +742,9 @@ func (a *App) handlePPGCatalog(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"images": loadPPGCatalog()})
+	// components is ppgcomponents.go's table, so the form greys out exactly what
+	// validation would reject rather than keeping its own copy of the rules.
+	writeJSON(w, http.StatusOK, map[string]any{"images": loadPPGCatalog(), "components": ppgComponents})
 }
 
 func (a *App) handleSpockCatalog(w http.ResponseWriter, r *http.Request) {

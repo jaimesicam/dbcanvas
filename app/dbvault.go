@@ -87,12 +87,14 @@ func vaultIssues(n designNode, openbaoIDs map[string]bool) []issue {
 	if !openbaoIDs[n.OpenBaoNodeID] {
 		out = append(out, issue{Level: "error", Message: label + " node " + n.Label + " has data-at-rest encryption enabled but is not linked to an OpenBao node — add an OpenBao node and select it"})
 	}
-	// PostgreSQL's encryption is pg_tde, and pg_tde exists for exactly two majors. This is an
-	// error rather than a silent no-op because the package simply is not in the repository for
-	// the others — the deploy would install PostgreSQL, fail to find pg_tde and stop.
-	if n.Type == "pg" && !pgTDEMajorOK(n.PGMajor) {
-		out = append(out, issue{Level: "error", Message: label + " node " + n.Label + " has data-at-rest encryption enabled, which is pg_tde — Percona builds it for PostgreSQL " +
-			strings.Join(pgTDEMajors, " and ") + " only, and this node is on " + ppgMajorOf(n.PGMajor) + ". Change the PostgreSQL major, or turn encryption off"})
+	// PostgreSQL's encryption is pg_tde, which exists for some majors (and minors) only — see
+	// ppgcomponents.go. This is an error rather than a silent no-op because the package simply
+	// is not in the repository for the others — the deploy would install PostgreSQL, fail to
+	// find pg_tde and stop.
+	if n.Type == "pg" {
+		if ok, why := pgTDEComponent().Available(n.OS, n.PGMajor, n.PGVersion); !ok {
+			out = append(out, issue{Level: "error", Message: label + " node " + n.Label + " has data-at-rest encryption enabled, which is pg_tde — " + why + ". Change the PostgreSQL version, or turn encryption off"})
+		}
 	}
 	return out
 }

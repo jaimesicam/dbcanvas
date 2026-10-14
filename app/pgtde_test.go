@@ -8,7 +8,7 @@ import (
 // Percona builds pg_tde for two majors, and the designer, the validator and the deploy all have
 // to agree on which. ppgMajorOf's "" → 16 default means an unset major is NOT supported, which is
 // the safe direction: the checkbox stays off until a major is chosen deliberately.
-func TestPGTDEMajorOK(t *testing.T) {
+func TestPGTDEMajors(t *testing.T) {
 	for _, tc := range []struct {
 		major string
 		want  bool
@@ -20,8 +20,8 @@ func TestPGTDEMajorOK(t *testing.T) {
 		{"19", false}, // not built yet — do not guess forward
 		{"", false},   // unset defaults to 16
 	} {
-		if got := pgTDEMajorOK(tc.major); got != tc.want {
-			t.Errorf("pgTDEMajorOK(%q) = %v, want %v", tc.major, got, tc.want)
+		if got, _ := pgTDEComponent().Available("oraclelinux", tc.major, ""); got != tc.want {
+			t.Errorf("pg_tde on %q = %v, want %v", tc.major, got, tc.want)
 		}
 	}
 }
@@ -35,7 +35,9 @@ func TestPGTDEPackage(t *testing.T) {
 	if got := pgTDEPackage("oraclelinux", "17"); got != "percona-pg_tde17" {
 		t.Errorf("RHEL package = %q", got)
 	}
-	if got := pgTDEPackage("ubuntu", "18"); got != "percona-pg-tde-18" {
+	// percona-pg-tde-18 is what this said for a long time; the repository has percona-pg-tde18,
+	// and every pg_tde deploy on Ubuntu 18 failed on the difference.
+	if got := pgTDEPackage("ubuntu", "18"); got != "percona-pg-tde18" {
 		t.Errorf("Debian package = %q", got)
 	}
 }
@@ -159,15 +161,33 @@ func TestPGTDEConfigureScriptDoesTheWholeSequence(t *testing.T) {
 	}
 }
 
-// A missing pg_tde package is normal below PPG 17.7 (the extension is inside the server package),
-// so the install step must test for the extension files rather than for the package.
-func TestPGTDEInstallToleratesABundledExtension(t *testing.T) {
-	for _, s := range []string{pgTDEInstallRHEL, pgTDEInstallDebian} {
-		if !strings.Contains(s, "pg_tde.control") {
-			t.Error("the install step must verify pg_tde.control, not just the package")
+// The install step must keep a bundled pg_tde that loads (the separate package conflicts with
+// it), and otherwise choose a build by loading it — never by trusting the package manager, which
+// installs builds that then stop the server.
+func TestPGTDEInstallChoosesByLoading(t *testing.T) {
+	for name, s := range map[string]string{"RHEL": pgTDEInstallRHEL, "Debian": pgTDEInstallDebian} {
+		if !strings.Contains(s, "pg_tde.control") || !strings.Contains(s, "not installing $TDEPKG") {
+			t.Errorf("%s: a bundled pg_tde that loads must be kept, and the log must say so", name)
 		}
-		if !strings.Contains(s, "ships inside the server package") {
-			t.Error("a missing package must be explained in the deploy log, not treated as failure")
+		if !strings.Contains(s, "sort -rV") || !strings.Contains(s, "if loads; then") {
+			t.Errorf("%s: builds must be tried newest first, each one loaded before it is kept", name)
 		}
+		if !strings.Contains(s, "no pg_tde build in this repository loads") {
+			t.Errorf("%s: running out of builds must fail the deploy with a reason", name)
+		}
+	}
+	// The scratch cluster must stay off the real server's port and socket.
+	if !strings.Contains(pgTDELoadsFn, "-p 54329") || !strings.Contains(pgTDELoadsFn, "listen_addresses=''") {
+		t.Error("loads() must run on its own port with no TCP listener")
+	}
+}
+
+// 17.0 has no pg_tde that loads at all, so it is refused at validation, not found out at deploy.
+func TestPGTDERefuses170(t *testing.T) {
+	if ok, _ := pgTDEComponent().Available("oraclelinux", "17", "17.0-1"); ok {
+		t.Error("pg_tde on 17.0 should be refused")
+	}
+	if ok, _ := pgTDEComponent().Available("oraclelinux", "17", "17.2-1"); !ok {
+		t.Error("pg_tde on 17.2 should be allowed")
 	}
 }

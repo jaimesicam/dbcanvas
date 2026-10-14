@@ -77,8 +77,9 @@ func oidcIssues(n designNode, keycloakIDs, keycloakSSL map[string]bool) []issue 
 	}
 	switch n.Type {
 	case "pg":
-		if ppgMajorOf(n.PGMajor) != "18" {
-			return []issue{{Level: "error", Message: label + " uses Keycloak OIDC (pg_oidc_validator), which requires PostgreSQL 18 — set the version to 18"}}
+		validator, _ := ppgComponentByID("pg_oidc_validator")
+		if ok, why := validator.Available(n.OS, n.PGMajor, n.PGVersion); !ok {
+			return []issue{{Level: "error", Message: label + " uses Keycloak OIDC — " + why}}
 		}
 		if n.LdapAuth {
 			return []issue{{Level: "error", Message: label + " has both LDAP and Keycloak OIDC enabled — PostgreSQL cannot use both (they compete for the same pg_hba line); turn one off"}}

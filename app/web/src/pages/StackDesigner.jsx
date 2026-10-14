@@ -5,6 +5,7 @@ import { Card, Button, Badge, Field, ConfirmButton, InfoRow, inputCls } from '..
 import { Help, Hint } from '../components/Tooltip.jsx'
 import { HELP, MENU_HELP, nodeHelp } from '../lib/help.js'
 import { usePolling } from '../lib/usePolling.jsx'
+import { usePPGComponents, ppgComponents, ppgAvailable } from '../lib/ppgComponents.js'
 import { useLiveStates, LIVE_INTERVALS } from '../lib/useLiveStates.js'
 import LiveOverlay, { LiveDetailsBody } from '../components/LiveOverlay.jsx'
 import {
@@ -6668,12 +6669,10 @@ function DirectoryAuthFields({ node: n, nodes, patchNode, deployed, kerberos, ld
   )
 }
 
-// pgTdeMajorOk mirrors pgTDEMajorOK in app/pgtde.go: Percona builds pg_tde for PostgreSQL 17
-// and 18 only. Unlike the Keycloak pins above, ticking encryption does NOT move the node onto a
-// supported major — the PostgreSQL version is usually the point of the node, so the toggle stays
-// off until the version agrees rather than quietly changing it underneath.
-const PG_TDE_MAJORS = ['17', '18']
-const pgTdeMajorOk = (n) => PG_TDE_MAJORS.includes(n.pgMajor || '16')
+// pg_tde's majors, minors and package come from the PPG component table (lib/ppgComponents.js,
+// app/ppgcomponents.go). Unlike the Keycloak pins above, ticking encryption does NOT move the node
+// onto a supported version — the PostgreSQL version is usually the point of the node, so the
+// toggle stays off until the version agrees rather than quietly changing it underneath.
 
 // VaultFields renders the "Data-at-rest encryption" block shared by the standalone Percona
 // Server, PSMDB and PostgreSQL forms: a toggle + an OpenBao-node picker. How the engine is wired
@@ -6685,7 +6684,8 @@ const pgTdeMajorOk = (n) => PG_TDE_MAJORS.includes(n.pgMajor || '16')
 function VaultFields({ node: n, nodes, patchNode, deployed }) {
   const bao = nodes.find((x) => x.type === 'openbao')
   const isPg = n.type === 'pg'
-  const pgOk = !isPg || pgTdeMajorOk(n)
+  const tde = ppgAvailable(usePPGComponents(), 'pg_tde', n)
+  const pgOk = !isPg || tde.ok
   const none = deployed || !bao || !pgOk
   const maj = n.psMajor || '8.0'
   const method = isPg
@@ -6711,15 +6711,15 @@ function VaultFields({ node: n, nodes, patchNode, deployed }) {
       {!bao && <p className="text-xs text-muted">Add the OpenBao node to key encryption to it.</p>}
       {isPg && !pgOk && (
         <p className="text-xs text-muted">
-          Encryption at rest for PostgreSQL is <span className="font-mono">pg_tde</span>, which Percona builds for
-          PostgreSQL {PG_TDE_MAJORS.join(' and ')} only — this node is on {n.pgMajor || '16'}. Change the PostgreSQL
-          major above to turn it on.
+          Encryption at rest for PostgreSQL is <span className="font-mono">pg_tde</span>: {tde.why}. Change the
+          PostgreSQL version above to turn it on.
         </p>
       )}
       {n.enableVault && bao && isPg && (
         <p className="text-xs text-muted">
-          At deploy DBCanvas installs <span className="font-mono">percona-pg_tde{n.pgMajor || '18'}</span> (from
-          PPG 17.7 it is a package of its own; before that it is inside the server), preloads{' '}
+          At deploy DBCanvas finds the <span className="font-mono">pg_tde</span> build this server can load — the one
+          bundled with it up to 17.6, otherwise the newest <span className="font-mono">{tde.pkg}</span> that loads, tried
+          in a scratch cluster first, since each server build accepts only some of them — preloads{' '}
           <span className="font-mono">pg_tde</span>, writes the OpenBao token to a postgres-owned file, registers the
           provider with <span className="font-mono">pg_tde_add_global_key_provider_vault_v2()</span> and sets a
           default principal key. The extension is created in <span className="font-mono">template1</span> as well as{' '}
@@ -6827,14 +6827,14 @@ export function FrameVaultFields({ frame: f, nodes, patchFrame, deployed }) {
 // 9.7.2-2, so a 9.7 node stays on 9.7 and anything else moves to 8.4, with the minor cleared
 // to "latest" either way — a minor pinned before the plugin has no plugin.
 // The version stays editable after the pin, so `warn` re-flags a drift inline instead of
-// leaving it to the server's oidcIssues at deploy time. pgOidcMajorOk mirrors that rule:
-// the extension is packaged as percona-pg_oidc_validator18 and exists for no other major.
+// leaving it to the server's oidcIssues at deploy time. For pg the rule is the PPG component
+// table's (pg_oidc_validator: which majors, which OS), so the warning is the validator's words.
 // psOidcMin mirrors mysqlOIDCMinFor (mysqloidc.go): a series newer than 9.7 inherits it.
-const pgOidcMajorOk = (n) => (n.pgMajor || '16') === '18'
+const pgOidcOk = (n) => ppgAvailable(ppgComponents(), 'pg_oidc_validator', n)
 const PG_OIDC_PIN = {
   patch: { pgMajor: '18', pgVersion: '' },
   note: <>Uses PostgreSQL 18 + <span className="font-mono">pg_oidc_validator</span> (set automatically).</>,
-  warn: (n) => (pgOidcMajorOk(n) ? null : <>PostgreSQL {n.pgMajor || '16'} has no <span className="font-mono">pg_oidc_validator</span> — set the PostgreSQL major to 18 above, or turn this off.</>),
+  warn: (n) => { const v = pgOidcOk(n); return v.ok ? null : <>{v.why} — change it above, or turn this off.</> },
 }
 const verFields = (v) => {
   const out = []
@@ -7187,6 +7187,7 @@ function PerconaServerForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
 // read/write instance — no Patroni/etcd/replication.
 function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }) {
   const imgs = usePPGCatalog(n, deployed, patchNode)
+  usePPGComponents() // the OIDC pin's warning reads the table; re-render once it is here
   const lock = deployed ? 'opacity-70' : ''
   const pmmNodes = nodes.filter((x) => x.type === 'pmm')
   const seaweedNodes = nodes.filter((x) => x.type === 'seaweedfs')
@@ -7235,9 +7236,9 @@ function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }
       </Field>
       {/* Enabling Keycloak SSO pins the major to 18, but the selector above stays open
           afterwards — say so here, where the version is actually chosen. */}
-      {!deployed && n.enableOIDC && !pgOidcMajorOk(n) && (
+      {!deployed && n.enableOIDC && !pgOidcOk(n).ok && (
         <p className="text-xs text-danger">
-          Keycloak SSO is on and <span className="font-mono">pg_oidc_validator</span> is packaged for PostgreSQL 18 only — pick 18, or turn Keycloak SSO off below.
+          Keycloak SSO is on, and {pgOidcOk(n).why} — change it here, or turn Keycloak SSO off below.
         </p>
       )}
 
@@ -7266,6 +7267,8 @@ function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }
       </Field>
       <PGQuerySourceField obj={n} patch={patchNode} deployed={deployed} />
       <PGVectorOption obj={n} patch={patchNode} deployed={deployed} />
+      <PGSecurityOptions obj={n} patch={patchNode} deployed={deployed} />
+      <PGBenchOption obj={n} patch={patchNode} deployed={deployed} />
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
@@ -12844,6 +12847,52 @@ export function PGVectorOption({ obj, patch, deployed }) {
   )
 }
 
+// PGSecurityOptions is pgAudit + set_user, Percona's audit pair, for the two shapes that run
+// Percona's packages (standalone and Patroni). Each checkbox greys out where the PPG component
+// table says the package does not exist for this major/OS (see lib/ppgComponents.js), with the
+// reason under it — the same words validation would use.
+export function PGSecurityOptions({ obj, patch, deployed }) {
+  const comps = usePPGComponents()
+  const audit = ppgAvailable(comps, 'pgaudit', obj)
+  const setUser = ppgAvailable(comps, 'set_user', obj)
+  const row = (key, on, avail, label, help) => (
+    <>
+      <label className={`flex items-center gap-2 text-sm ${deployed || !avail.ok ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!on} disabled={deployed || (!avail.ok && !on)}
+          onChange={(e) => patch(obj.id, { [key]: e.target.checked })} />
+        <span>{label}</span><Help text={help} />
+      </label>
+      {!avail.ok && <p className={`text-xs ${on ? 'text-danger' : 'text-muted'}`}>{avail.why}.</p>}
+    </>
+  )
+  return (
+    <div className="space-y-2">
+      {row('pgAudit', obj.pgAudit, audit, 'pgAudit (statement audit log)', HELP.pgAudit)}
+      {obj.pgAudit && (
+        <Field label="Log classes" hint="pgaudit.log — e.g. ddl,role · write,ddl · all,-misc">
+          <input className={`${inputCls} font-mono ${deployed ? 'opacity-70' : ''}`} disabled={deployed}
+            placeholder="ddl,role" value={obj.pgAuditLog || ''}
+            onChange={(e) => patch(obj.id, { pgAuditLog: e.target.value })} />
+        </Field>
+      )}
+      {row('pgSetUser', obj.pgSetUser, setUser, 'set_user (audited privilege escalation)', HELP.pgSetUser)}
+    </div>
+  )
+}
+
+// PGBenchOption is the sample data for a PostgreSQL node or Patroni cluster: `pgbench -i -s N`
+// into a database called pgbench at deploy (app/pgbenchdata.go). 0 is none.
+export function PGBenchOption({ obj, patch, deployed }) {
+  const scale = obj.pgbenchScale || 0
+  return (
+    <Field label="pgbench data (scale)" help={HELP.pgBenchScale}
+      hint={scale > 0 ? `${(scale * 100000).toLocaleString()} accounts, about ${scale * 16 >= 1000 ? `${(scale * 16 / 1000).toFixed(1)} GB` : `${scale * 16} MB`} — in database pgbench` : '0 = none'}>
+      <input type="number" min="0" max="1000" className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} disabled={deployed}
+        value={scale} onChange={(e) => patch(obj.id, { pgbenchScale: Math.max(0, Math.min(1000, Number(e.target.value) || 0)) })} />
+    </Field>
+  )
+}
+
 function PatroniFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, deployed }) {
   const imgs = usePPGCatalog(f, deployed, patchFrame)
   const lock = deployed ? 'opacity-70' : ''
@@ -12917,6 +12966,8 @@ function PatroniFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame
       </Field>
       <PGQuerySourceField obj={f} patch={patchFrame} deployed={deployed} />
       <PGVectorOption obj={f} patch={patchFrame} deployed={deployed} />
+      <PGSecurityOptions obj={f} patch={patchFrame} deployed={deployed} />
+      <PGBenchOption obj={f} patch={patchFrame} deployed={deployed} />
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />

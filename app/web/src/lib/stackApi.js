@@ -356,6 +356,10 @@ export function pgApi(id, nid) {
   return {
     // Run an on-demand pgBackRest full backup.
     backup: () => request('POST', `${base}/pg/backup`),
+    // The pgBackRest backup sets, and the earliest point a restore can reach.
+    backups: () => request('GET', `${base}/pg/backups`),
+    // Restore: { mode: 'latest' } | { mode: 'time', time: RFC 3339 } | { mode: 'backup', set: label }.
+    restore: (body) => request('POST', `${base}/pg/restore`, body),
     // Re-issue the node's Intranet-CA server cert (overwrites in place, no restart).
     // Works for standalone PostgreSQL, Patroni, repmgr and Spock members.
     certInfo: () => request('GET', `${base}/pg/cert`),

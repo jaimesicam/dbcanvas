@@ -372,6 +372,29 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 			}
 		}
 
+		// ---- Phase 4d: pgAudit / set_user, created once on the leader ----
+		// Same reasoning as pgvector: the packages are on every member and every member
+		// preloads them (bootstrap DCS parameters), so this is catalog state that streams.
+		if exts := pgFrameExtensions(frame); len(exts) > 0 && leaderID != "" {
+			pr := a.pxcNewProg(st.ID, leaderID)
+			pr.phase("Enabling "+pgExtNames(exts), 93)
+			ldep, _ := a.store.GetDeployment(st.ID, leaderID)
+			if err := a.createPGExtensions(ctx, ldep.ContainerID, "", exts, pr.logln); err != nil {
+				// Non-fatal for the same reason as pgvector above.
+				pr.logln(err.Error() + " — run CREATE EXTENSION for " + pgExtNames(exts) + " in postgres and template1 on the leader")
+			}
+		}
+
+		// ---- Phase 4e: pgbench sample data on the leader; it streams to the replicas ----
+		if frame.PGBenchScale > 0 && leaderID != "" {
+			pr := a.pxcNewProg(st.ID, leaderID)
+			pr.phase(fmt.Sprintf("Loading pgbench data (scale %d)", frame.PGBenchScale), 94)
+			ldep, _ := a.store.GetDeployment(st.ID, leaderID)
+			if err := a.loadPGBench(ctx, ldep.ContainerID, pgBinDir(frame.OS, ppgMajorOf(frame.PGMajor)), frame.PGBenchScale, pr.logln); err != nil {
+				pr.logln(err.Error())
+			}
+		}
+
 		// ---- Phase 5: PMM + finalize ----
 		for _, n := range members {
 			pr := a.pxcNewProg(st.ID, n.ID)
@@ -515,6 +538,14 @@ func (a *App) patroniPrepareNode(ctx context.Context, st Stack, frame designFram
 	if frame.PGVector {
 		pr.phase("Installing pgvector", 47)
 		if err := a.installPGVector(ctx, id, frame.OS, major, "ppg", pr.logln); err != nil {
+			return pr.fail("%v", err)
+		}
+	}
+	// pgAudit / set_user on every member: they are preloaded cluster-wide, and a member that
+	// cannot load one does not start.
+	if exts := pgFrameExtensions(frame); len(exts) > 0 {
+		pr.phase("Installing "+pgExtNames(exts), 48)
+		if err := a.installPGExtensions(ctx, id, frame.OS, major, frame.PGVersion, exts, pr.logln); err != nil {
 			return pr.fail("%v", err)
 		}
 	}
@@ -936,9 +967,11 @@ func patroniYAML(frame designFrame, host, fqdn string, etcdEndpoints []string, s
 		fmt.Fprintf(&b, "        archive_mode: \"on\"\n")
 		fmt.Fprintf(&b, "        archive_command: \"pgbackrest --stanza=%s archive-push %%p\"\n", stanza)
 	}
-	if qs := pgQuerySourceFor(frame.Type, frame.PGQuerySource, frame.PMMNodeID); qs != pgQSNone {
-		fmt.Fprintf(&b, "        shared_preload_libraries: \"%s\"\n", pgPreloadValue(nil, qs))
-		for _, p := range pgQueryParams(qs) {
+	qs := pgQuerySourceFor(frame.Type, frame.PGQuerySource, frame.PMMNodeID)
+	exts := pgFrameExtensions(frame)
+	if preload := pgPreloadValue(pgExtPreload(exts), qs); preload != "" {
+		fmt.Fprintf(&b, "        shared_preload_libraries: \"%s\"\n", preload)
+		for _, p := range append(pgQueryParams(qs), pgExtParams(exts)...) {
 			fmt.Fprintf(&b, "        %s: \"%s\"\n", p[0], p[1])
 		}
 	}

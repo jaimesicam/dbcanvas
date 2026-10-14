@@ -850,6 +850,10 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "Run an on-demand pgBackRest backup on a Patroni cluster."},
 		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/pg/backup", Group: gClusters, Handler: m((*App).handlePGBackup),
 			Summary: "Run an on-demand pgBackRest backup on a standalone PostgreSQL node."},
+		{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/pg/backups", Group: gClusters, Handler: m((*App).handlePGBackups),
+			Summary: "List a standalone PostgreSQL node's pgBackRest backup sets and the earliest point a restore can reach."},
+		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/pg/restore", Group: gClusters, Handler: m((*App).handlePGRestore),
+			Summary: "Restore a standalone PostgreSQL node from pgBackRest: to the latest point, to a time (PITR), or to one backup set."},
 		{Method: "POST", Path: "/api/stacks/{id}/frames/{fid}/pbm/backup", Group: gClusters, Handler: m((*App).handleMongoPBMBackup),
 			Summary: "Run an on-demand PBM backup on a MongoDB replica set or sharded cluster."},
 		// The path says barman because that was the only engine a repmgr cluster had when it was

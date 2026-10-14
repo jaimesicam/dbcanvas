@@ -277,6 +277,7 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 		backupStanza = patroniStanza(n.Label)
 	}
 	qs := pgQuerySourceFor("pg", n.PGQuerySource, n.PMMNodeID)
+	exts := pgNodeExtensions(n)
 	pgVector := ""
 	if n.PGVector {
 		pgVector = pgVectorSource("pg", n.OS, major)
@@ -441,6 +442,17 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 			}
 		}
 
+		// pgAudit / set_user: packages now, preload with the config below, CREATE EXTENSION
+		// once the server is up. Fatal: both are preloaded, and PostgreSQL does not start
+		// with a library it cannot find.
+		if len(exts) > 0 {
+			pr.phase("Installing "+pgExtNames(exts), 49)
+			if err := a.installPGExtensions(ctx, id, n.OS, major, n.PGVersion, exts, pr.logln); err != nil {
+				pr.fail("%v", err)
+				return
+			}
+		}
+
 		dataDir := pgDataDir(n.OS, major)
 		confDir := pgConfDir(n.OS, major)
 		service := pgServiceName(n.OS, major)
@@ -484,7 +496,8 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 		pr.phase("Configuring PostgreSQL", 62)
 		confEnv := []string{"CONFDIR=" + confDir, "DATADIR=" + dataDir, "STANZA=" + stanza,
 			"HBALINES=" + strings.Join(pgHostAuthLines(n.PGHostAuth), "\n"),
-			"PRELOAD=" + pgPreloadValue(nil, qs), "QSCONF=" + strings.Join(pgQueryConfLines(qs), "\n")}
+			"PRELOAD=" + pgPreloadValue(pgExtPreload(exts), qs),
+			"QSCONF=" + strings.Join(append(pgQueryConfLines(qs), pgExtConfLines(exts)...), "\n")}
 		if n.UsePgBackRest {
 			confEnv = append(confEnv, "PGBACKREST=1")
 		}
@@ -530,6 +543,14 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 			}
 		}
 
+		if len(exts) > 0 {
+			pr.phase("Enabling "+pgExtNames(exts), 82)
+			if err := a.createPGExtensions(ctx, id, "", exts, pr.logln); err != nil {
+				pr.fail("%v", err)
+				return
+			}
+		}
+
 		// ---- data-at-rest encryption (pg_tde → OpenBao) ----
 		// After the server is up, not before it starts: unlike MySQL's keyring and MongoDB's
 		// security.vault, a pg_tde key provider is registered by calling a SQL function. Before
@@ -546,6 +567,15 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 			cfg.Vault = info
 			cfgJSON, _ = json.Marshal(cfg)
 			a.persistConfigKey(st, n.ID, "vault", info)
+		}
+
+		// ---- pgbench sample data: after pg_tde (so it is encrypted), before the first backup ----
+		if n.PGBenchScale > 0 {
+			pr.phase(fmt.Sprintf("Loading pgbench data (scale %d)", n.PGBenchScale), 84)
+			if err := a.loadPGBench(ctx, id, pgBinDir(n.OS, major), n.PGBenchScale, pr.logln); err != nil {
+				// Non-fatal: the node is what was asked for; the data is a convenience on top.
+				pr.logln(err.Error())
+			}
 		}
 
 		// ---- pgBackRest stanza + initial full backup ----
@@ -748,8 +778,9 @@ if [ -n "$TLS" ]; then
     echo "ssl_ca_file = '$DATADIR/ca.crt'"
   } >> "$CONF"
 fi
-# Query analytics for PMM. The preload is marked so pg_tde, which preloads too,
-# can replace this line with one carrying both rather than overriding it.
+# Preloads (PMM query analytics, pgAudit, set_user) and their settings. The preload is
+# marked so pg_tde, which preloads too, can replace this line with one carrying all of
+# them rather than overriding it.
 if [ -n "$PRELOAD" ]; then
   sed -i "/# dbcanvas-preload/d" "$CONF"
   echo "shared_preload_libraries = '$PRELOAD' # dbcanvas-preload" >> "$CONF"

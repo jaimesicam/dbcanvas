@@ -191,6 +191,16 @@ type designNode struct {
 	// nothing about the server's startup changes. Same field on designFrame for the
 	// three PostgreSQL cluster types. See app/pgvector.go.
 	PGVector bool `json:"pgVector"`
+	// PGAudit installs and preloads pgAudit, logging the statement classes in PGAuditLog
+	// ("" → pgAuditDefaultLog); PGSetUser does the same for set_user, the privilege-escalation
+	// audit that pairs with it. Percona's packages, so standalone (pg) and Patroni only. Same
+	// fields on designFrame. See app/pgsecurity.go.
+	PGAudit    bool   `json:"pgAudit"`
+	PGAuditLog string `json:"pgAuditLog"`
+	PGSetUser  bool   `json:"pgSetUser"`
+	// PGBenchScale loads `pgbench -i -s N` into a database called pgbench at deploy (0 = none).
+	// Same field on designFrame (Patroni). See app/pgbenchdata.go.
+	PGBenchScale int `json:"pgbenchScale"`
 	// Which of that node's buckets to use ("" → its first, i.e. the default bucket).
 	SeaweedFSBucket string `json:"seaweedfsBucket"`
 	// PgBouncer node fields (Type=="pgbouncer"; ignored by other types). A connection
@@ -582,7 +592,12 @@ type designFrame struct {
 	PGQuerySource string `json:"pgQuerySource"`
 	// PGVector is pgvector on every member, cluster-wide: Percona's package on Patroni,
 	// PGDG's on repmgr, a source build on Spock. See the identical field on designNode.
-	PGVector        bool   `json:"pgVector"`
+	PGVector bool `json:"pgVector"`
+	// pgAudit and set_user on every member of a Patroni frame. See designNode.
+	PGAudit         bool   `json:"pgAudit"`
+	PGAuditLog      string `json:"pgAuditLog"`
+	PGSetUser       bool   `json:"pgSetUser"`
+	PGBenchScale    int    `json:"pgbenchScale"`    // pgbench sample data on the leader; see designNode
 	UsePgBackRest   bool   `json:"usePgBackRest"`   // configure pgBackRest → SeaweedFS S3 (clone + backup)
 	SeaweedFSNodeID string `json:"seaweedfsNodeId"` // SeaweedFS node id backing pgBackRest/Barman (when enabled)
 	// Which of that node's buckets to use ("" → its first, i.e. the default bucket).
@@ -1407,6 +1422,8 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			}
 			out = append(out, pgHostAuthIssues("PostgreSQL node "+n.Label, n.PGHostAuth, n.GenerateCert)...)
 			out = append(out, pgQuerySourceIssues("PostgreSQL node "+n.Label, "pg", n.PGQuerySource)...)
+			out = append(out, pgExtensionIssues("PostgreSQL node "+n.Label, n.OS, n.PGMajor, n.PGVersion, n.PGAudit, n.PGAuditLog, n.PGSetUser)...)
+			out = append(out, pgBenchIssues("PostgreSQL node "+n.Label, n.PGBenchScale)...)
 			out = append(out, dirAuthIssues(n, dirNodes)...)
 			out = append(out, oidcIssues(n, keycloakIDs, keycloakSSL)...)
 			out = append(out, vaultIssues(n, openbaoIDs)...)
@@ -2100,6 +2117,8 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 		}
 		out = append(out, pgHostAuthIssues("Patroni cluster "+f.Label, f.PGHostAuth, f.GenerateCert)...)
 		out = append(out, pgQuerySourceIssues("Patroni cluster "+f.Label, "patroni", f.PGQuerySource)...)
+		out = append(out, pgExtensionIssues("Patroni cluster "+f.Label, f.OS, f.PGMajor, f.PGVersion, f.PGAudit, f.PGAuditLog, f.PGSetUser)...)
+		out = append(out, pgBenchIssues("Patroni cluster "+f.Label, f.PGBenchScale)...)
 		img := pxcImage(f.OS, f.OSVersion, f.Arch)
 		if !seenImg[img] {
 			seenImg[img] = true
