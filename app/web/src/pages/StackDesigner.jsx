@@ -5459,6 +5459,25 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
   )
 }
 
+// onScreen keeps a floating panel's title bar reachable — its only handle, so once it is
+// covered the panel cannot be dragged back. Not merely inside the viewport: the app header
+// (z-50) and the desktop taskbar (z-44) are drawn over these panels (z-40), so the title
+// bar stays below the one and above the other, with a grab-width inside the left and right
+// edges. Applied while dragging and again when drawing, so a position saved on a larger
+// screen — or a window since made smaller — comes back into view instead of staying lost.
+function onScreen(f) {
+  const grab = 80
+  const header = document.querySelector('[data-app-header]')?.getBoundingClientRect()
+  const taskbar = document.querySelector('[data-wm-taskbar]')?.getBoundingClientRect()
+  const top = header && header.height ? Math.max(0, header.bottom) : 0
+  const bottom = taskbar && taskbar.height ? taskbar.top : window.innerHeight
+  return {
+    ...f,
+    x: Math.min(Math.max(f.x, grab - f.w), window.innerWidth - grab),
+    y: Math.min(Math.max(f.y, top), Math.max(top, bottom - 40)),
+  }
+}
+
 const DEPLOY_KEY = 'dbcanvas-deploy-layout'
 function loadDeployLayout() {
   try { return { docked: true, height: 280, float: { x: 120, y: 120, w: 640, h: 360 }, ...JSON.parse(localStorage.getItem(DEPLOY_KEY) || '{}') } }
@@ -5479,7 +5498,7 @@ function DeploymentConsole({ deployments, nodes, onMinimize, inline = false, col
       const d = drag.current
       if (!d) return
       if (d.kind === 'height') setLayout((l) => ({ ...l, height: Math.min(Math.max(160, d.h0 + (d.y0 - e.clientY)), window.innerHeight - 80) }))
-      else if (d.kind === 'move') setLayout((l) => ({ ...l, float: { ...l.float, x: d.fx + (e.clientX - d.x0), y: d.fy + (e.clientY - d.y0) } }))
+      else if (d.kind === 'move') setLayout((l) => ({ ...l, float: onScreen({ ...l.float, x: d.fx + (e.clientX - d.x0), y: d.fy + (e.clientY - d.y0) }) }))
       else if (d.kind === 'wh') setLayout((l) => ({ ...l, float: { ...l.float, w: Math.max(360, d.w0 + (e.clientX - d.x0)), h: Math.max(200, d.h0 + (e.clientY - d.y0)) } }))
     }
     const onUp = () => { drag.current = null }
@@ -5494,9 +5513,10 @@ function DeploymentConsole({ deployments, nodes, onMinimize, inline = false, col
   const label = (nid) => nodes.find((n) => n.id === nid)?.label || nid
 
   const detached = !layout.docked
+  const float = onScreen(layout.float)
   let style, cls = 'z-40 flex flex-col border bg-surface shadow-2xl'
   if (detached) {
-    style = { position: 'fixed', left: layout.float.x, top: layout.float.y, width: layout.float.w, height: layout.float.h }
+    style = { position: 'fixed', left: float.x, top: float.y, width: float.w, height: float.h }
   } else if (inline) {
     // in-flow child at the bottom of the Properties column
     style = { height: layout.height }
@@ -5515,7 +5535,7 @@ function DeploymentConsole({ deployments, nodes, onMinimize, inline = false, col
       )}
       <div
         className="flex items-center gap-2 border-b bg-surface2 px-3 py-1.5"
-        onPointerDown={detached ? (e) => { if (e.target.closest('button')) return; drag.current = { kind: 'move', x0: e.clientX, y0: e.clientY, fx: layout.float.x, fy: layout.float.y } } : undefined}
+        onPointerDown={detached ? (e) => { if (e.target.closest('button')) return; drag.current = { kind: 'move', x0: e.clientX, y0: e.clientY, fx: float.x, fy: float.y } } : undefined}
         style={detached ? { cursor: 'move' } : undefined}
       >
         <span className="text-sm font-semibold">Deployment</span>
@@ -14730,6 +14750,7 @@ function StackProperties({ host, locked, lockedBy, selected, stackId, nodes, edg
   const [docked, setDocked] = useState(saved.docked !== false)
   const [width, setWidth] = useState(saved.width || 288)
   const [flt, setFlt] = useState(saved.float || { x: Math.max(20, (typeof window !== 'undefined' ? window.innerWidth : 1200) - 500), y: 96, w: 460, h: 540 })
+  const shown = onScreen(flt) // drawn and dragged from here, so a lost title bar comes back
   const drag = useRef(null)
 
   // give management tabs room when a running Intranet is selected (docked)
@@ -14741,7 +14762,7 @@ function StackProperties({ host, locked, lockedBy, selected, stackId, nodes, edg
       const d = drag.current
       if (!d) return
       if (d.kind === 'w') setWidth(Math.min(680, Math.max(260, d.w0 + (d.x0 - e.clientX))))
-      else if (d.kind === 'move') setFlt((f) => ({ ...f, x: d.fx + (e.clientX - d.x0), y: d.fy + (e.clientY - d.y0) }))
+      else if (d.kind === 'move') setFlt((f) => onScreen({ ...f, x: d.fx + (e.clientX - d.x0), y: d.fy + (e.clientY - d.y0) }))
       else if (d.kind === 'wh') setFlt((f) => ({ ...f, w: Math.max(280, d.w0 + (e.clientX - d.x0)), h: Math.max(220, d.h0 + (e.clientY - d.y0)) }))
     }
     const onUp = () => { drag.current = null }
@@ -14753,7 +14774,7 @@ function StackProperties({ host, locked, lockedBy, selected, stackId, nodes, edg
   const Header = ({ move }) => (
     <div
       className="mb-3 flex items-center justify-between"
-      onPointerDown={move ? (e) => { if (e.target.closest('button')) return; drag.current = { kind: 'move', x0: e.clientX, y0: e.clientY, fx: flt.x, fy: flt.y } } : undefined}
+      onPointerDown={move ? (e) => { if (e.target.closest('button')) return; drag.current = { kind: 'move', x0: e.clientX, y0: e.clientY, fx: shown.x, fy: shown.y } } : undefined}
       style={move ? { cursor: 'move' } : undefined}
     >
       <h3 className="text-sm font-semibold">Properties</h3>
@@ -14817,7 +14838,7 @@ function StackProperties({ host, locked, lockedBy, selected, stackId, nodes, edg
     <>
       {createPortal(
         <div className="fixed z-40 flex flex-col overflow-hidden rounded-xl border bg-surface shadow-2xl"
-          style={{ left: flt.x, top: flt.y, width: flt.w, height: flt.h }}>
+          style={{ left: shown.x, top: shown.y, width: shown.w, height: shown.h }}>
           <div className="flex-1 overflow-auto p-4">
             <Header move />
             {body}

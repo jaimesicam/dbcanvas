@@ -571,7 +571,7 @@ export function TabCapNotice({ max, onDismiss }) {
 function Topbar({ title, hint, onRefresh, refreshing, onSearch, user, onLogout, guest, session, onShare, brand }) {
   return (
     // Above the window layer (wm/WindowManager.jsx), so its menus open over windows.
-    <header className="relative flex h-14 items-center gap-3 border-b bg-surface px-4" style={{ zIndex: 50 }}>
+    <header data-app-header className="relative flex h-14 items-center gap-3 border-b bg-surface px-4" style={{ zIndex: 50 }}>
       {brand && (
         // The desktop has no sidebar to carry the name, so the top bar does.
         <div className="flex shrink-0 items-center gap-2 border-r pr-3" title="DBCanvas — Database Interaction Lab">
