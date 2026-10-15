@@ -96,6 +96,8 @@ func (a *App) aioProvisionPG(ctx context.Context, st Stack, n designNode, doc de
 				"PRODUCT=" + ppgProduct(major),
 				"PKGS=" + strings.Join(pkgs, " "),
 				"VER=" + byMajor[major][0].PGVersion,
+				// percona-patroni's Python deps on EL8 live in EPEL (see the patroni kind).
+				"WITH_EPEL=1", "EPELPKG=" + epelPackage(n.OSVersion),
 			}
 			if err := a.runStep(ctx, id, patroniInstallRHEL, env, pr.logln); err != nil {
 				return fmt.Errorf("install PostgreSQL %s: %w", major, err)
@@ -1040,7 +1042,7 @@ func (a *App) aioProvisionSpock(ctx context.Context, id string, n designNode, in
 		}
 		if err := a.runStep(ctx, id, aioSpockConfigScript, []string{
 			"DATADIR=" + l.DataDir, "RUNDIR=" + l.RunDir,
-			fmt.Sprintf("PORT=%d", m.Ports.Client),
+			fmt.Sprintf("PORT=%d", m.Ports.Client), "POSTGRES=" + prefix + "/bin/postgres",
 		}, pr.logln); err != nil {
 			return fmt.Errorf("%s: configure: %w", m.Inst, err)
 		}
@@ -1116,6 +1118,11 @@ sed -i '/^# --- dbcanvas spock ---$/,$d' "$CONF"
   echo "max_worker_processes = 16"
   echo "max_replication_slots = 16"
   echo "max_wal_senders = 16"
+  # PostgreSQL 18.6+ refuses spock_output unless output_plugin_libraries names it; older
+  # minors reject the unknown parameter (see spockConfigureScript).
+  if "$POSTGRES" --describe-config 2>/dev/null | grep -q '^output_plugin_libraries'; then
+    echo "output_plugin_libraries = 'pgoutput, test_decoding, spock_output'"
+  fi
 } >> "$CONF"
 grep -q "dbcanvas-aio-spock" "$HBA" || {
   echo "# dbcanvas-aio-spock" >> "$HBA"
