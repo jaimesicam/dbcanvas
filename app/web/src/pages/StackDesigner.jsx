@@ -4800,9 +4800,11 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
               <Icon.Check size={15} /> {busy === 'validate' ? 'Validating…' : 'Validate'}
             </Button>
           </Hint>
-          <Hint text={pendingChanges === 0 ? HELP.uiDeployUpToDate : HELP.uiDeploy}>
-            <Button size="sm" variant={pendingChanges === 0 ? 'outline' : undefined} disabled={!!busy || nodes.length === 0 || locked || pendingChanges === 0} onClick={() => runDeploy(false)}>
-              <Icon.Arrow size={15} /> {busy === 'deploy' ? 'Deploying…' : pendingChanges === 0 ? 'Up to date' : pendingChanges > 0 ? `Deploy ${pendingChanges} change${pendingChanges === 1 ? '' : 's'}` : 'Deploy'}
+          {/* deploying, not just busy: a deploy started from the CLI or another tab, or one whose
+              POST has returned, is still provisioning — and the server refuses a second with a 409. */}
+          <Hint text={deploying ? 'Locked while deploying' : pendingChanges === 0 ? HELP.uiDeployUpToDate : HELP.uiDeploy}>
+            <Button size="sm" variant={pendingChanges === 0 ? 'outline' : undefined} disabled={!!busy || deploying || nodes.length === 0 || locked || pendingChanges === 0} onClick={() => runDeploy(false)}>
+              <Icon.Arrow size={15} /> {deploying ? 'Deploying…' : pendingChanges === 0 ? 'Up to date' : pendingChanges > 0 ? `Deploy ${pendingChanges} change${pendingChanges === 1 ? '' : 's'}` : 'Deploy'}
             </Button>
           </Hint>
           {(deployments.length > 0 || stack.status === 'deployed') && (
@@ -13324,7 +13326,7 @@ function SpockFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, 
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="PostgreSQL major" help={HELP.major('PostgreSQL')} hint="Spock supports 15–17.">
+        <Field label="PostgreSQL major" help={HELP.major('PostgreSQL')} hint="Spock supports 15–18.">
           <select className={`${inputCls} ${lock}`} value={f.pgMajor} disabled={deployed} onChange={(e) => patchFrame(f.id, { pgMajor: e.target.value, pgVersion: '' })}>
             {majors.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>

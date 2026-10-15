@@ -387,7 +387,8 @@ func (a *App) spockPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	qs := pgQuerySourceFor(frame.Type, frame.PGQuerySource, frame.PMMNodeID)
 	confEnv := []string{"CONFDIR=" + dataDir, "DATADIR=" + dataDir,
 		"HBALINES=" + strings.Join(pgHostAuthLines(frame.PGHostAuth), "\n"),
-		"PRELOAD=" + pgPreloadValue([]string{"spock"}, qs), "QSCONF=" + strings.Join(pgQueryConfLines(qs), "\n")}
+		"PRELOAD=" + pgPreloadValue([]string{"spock"}, qs), "QSCONF=" + strings.Join(pgQueryConfLines(qs), "\n"),
+		"POSTGRES=" + prefix + "/bin/postgres"}
 	if frame.GenerateCert {
 		confEnv = append(confEnv, "TLS=1")
 	}
@@ -534,6 +535,12 @@ grep -q "dbcanvas spock" "$CONF" 2>/dev/null || {
   echo "max_worker_processes = 16"
   echo "max_replication_slots = 16"
   echo "max_wal_senders = 16"
+  # PostgreSQL 18.6+ refuses a logical decoding plugin not named in output_plugin_libraries
+  # (default 'pgoutput, test_decoding'), so every peer's slot creation would fail. Older
+  # minors reject the unknown parameter at startup, hence the check.
+  if "$POSTGRES" --describe-config 2>/dev/null | grep -q '^output_plugin_libraries'; then
+    echo "output_plugin_libraries = 'pgoutput, test_decoding, spock_output'"
+  fi
   # pg_stat_statements settings, when it is enabled (its library is in PRELOAD above).
   [ -z "$QSCONF" ] || printf '%s\n' "$QSCONF"
 } >> "$CONF"

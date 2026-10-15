@@ -563,7 +563,9 @@ func (a *App) patroniPrepareNode(ctx context.Context, st Stack, frame designFram
 		instScript = patroniInstallDebian
 	}
 	env := []string{"PRODUCT=" + ppgProduct(major), "PKGS=" + strings.Join(pkgs, " "), "VER=" + frame.PGVersion}
-	if frame.UsePgBackRest && !debian {
+	// EPEL on Oracle Linux carries percona-patroni's Python deps on EL8
+	// (python3-wcwidth, python3.12-dns) and percona-pgbackrest's libssh2.
+	if !debian {
 		env = append(env, "WITH_EPEL=1", "EPELPKG="+epelPackage(frame.OSVersion))
 	}
 	if err := a.runStep(ctx, id, instScript, env, pr.logln); err != nil {
@@ -1232,7 +1234,7 @@ const patroniInstallRHEL = pinInstallRHEL + `set -e
 # EL8 AppStream's default postgresql module hides the ppg-NN packages; no-op on EL9/EL10.
 dnf -y -q module disable postgresql >/dev/null 2>&1 || true
 dnf -y -q install which >/dev/null 2>&1 || true
-# percona-pgbackrest needs libssh2, which lives in EPEL on Oracle Linux.
+# EPEL on Oracle Linux: percona-patroni's Python deps on EL8, percona-pgbackrest's libssh2.
 if [ -n "$WITH_EPEL" ]; then
   dnf -y -q install "$EPELPKG" >/dev/null 2>&1 || dnf -y -q install epel-release >/dev/null 2>&1 || true
 fi

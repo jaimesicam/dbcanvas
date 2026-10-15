@@ -4892,7 +4892,7 @@ members, no odd requirement), and node-detail in `intranet.go`.
 
 **Frontend.** New **Spock Cluster** palette entry (PostgreSQL group); `spock` node type,
 frame color, layout/label/version registration, `addSpockCluster` (3 members, resizable
-2–7); `SpockFrameForm` (Oracle Linux only, PG major restricted to 15–17); `SpockMemberForm`;
+2–7); `SpockFrameForm` (Oracle Linux only, PG major restricted to 15–18); `SpockMemberForm`;
 and `SpockManager` with a Replication tab documenting the active-active model, a
 multi-master try-it snippet, adding tables (`repset_add_table` / `replicate_ddl` — DDL isn't
 auto-replicated), and `sub_show_status`.
