@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log"
 	"sync"
 	"time"
 )
@@ -113,4 +114,29 @@ func (a *App) cancelDeploy(stackID int64) {
 	case <-time.After(cancelDeployWait):
 	}
 	a.deploys.CompareAndDelete(stackID, r)
+}
+
+// failInterruptedDeployments runs once at startup, before any request is served.
+// Provisioning lives in goroutines of the process that started it, so a node still
+// pending or provisioning now was being built by a server that has since stopped:
+// nothing will ever finish it, and left alone it would hold its stack "deploying" —
+// Deploy locked in the designer — forever. It is marked failed and says why, so a
+// redeploy picks it up like any other failed node.
+func (a *App) failInterruptedDeployments() {
+	deps, err := a.store.InFlightDeployments()
+	if err != nil {
+		log.Printf("interrupted deployments: %v", err)
+		return
+	}
+	const why = "interrupted: the DBCanvas server restarted while this node was provisioning — deploy again to finish it"
+	for _, d := range deps {
+		a.store.SetDeploymentState(d.StackID, d.NodeID, DeployError)
+		a.editProgress(d.StackID, d.NodeID, func(p *provProgress) {
+			p.Phase, p.Message = "failed", why
+			p.Log = append(p.Log, why)
+		})
+	}
+	if len(deps) > 0 {
+		log.Printf("marked %d deployment(s) interrupted by the restart as failed", len(deps))
+	}
 }

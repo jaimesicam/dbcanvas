@@ -315,9 +315,14 @@ func (a *App) waitProxySQLRunning(ctx context.Context, stackID int64, doc design
 
 	deadline := time.Now().Add(timeout)
 	for {
+		failed := 0
 		for _, m := range members {
 			dep, derr := a.store.GetDeployment(stackID, m.ID)
 			if derr != nil {
+				continue
+			}
+			if dep.State == DeployError {
+				failed++
 				continue
 			}
 			if dep.State == DeployRunning && dep.ContainerID != "" {
@@ -331,6 +336,11 @@ func (a *App) waitProxySQLRunning(ctx context.Context, stackID int64, doc design
 				sec := pxcSecrets{AppUser: psec.AppUser, AppPassword: psec.AppPassword}
 				return fqdnOf(hosts[m.ID], domain), pcfg.BackendKind, sec, displayName, nil
 			}
+		}
+		// Every member failed: none will come up, so say so now rather than holding the
+		// linked node — and the stack's Deploy lock — until the deploy timeout.
+		if failed == len(members) {
+			return "", "", pxcSecrets{}, "", fmt.Errorf("linked ProxySQL %s failed to provision", displayName)
 		}
 		if time.Now().After(deadline) {
 			return "", "", pxcSecrets{}, "", fmt.Errorf("linked ProxySQL %s did not become ready within %s", displayName, timeout)

@@ -99,6 +99,19 @@ func proxysqlMySQLEnv(sec proxysqlSecrets, members []string, mode string) []stri
 	}
 }
 
+// psClientPackage is the Percona Server client package for a backend series: the one
+// psServerPackages installs alongside the server. 5.7 names it differently
+// (Percona-Server-client-57 on RHEL, percona-server-client-5.7 on Debian), and the 8.0+
+// name finds nothing in the ps-57 repository.
+func psClientPackage(os, series string) string {
+	for _, p := range psServerPackages(os, series) {
+		if strings.Contains(strings.ToLower(p), "client") {
+			return p
+		}
+	}
+	return "percona-server-client"
+}
+
 // psClientProduct maps a PXC major series to the percona-release product for the
 // matching Percona Server client (ps84lts for 8.4, ps80 otherwise).
 func psClientProduct(pxcMajor string) string {
@@ -339,6 +352,10 @@ func (a *App) provisionProxySQLFrame(st Stack, frame designFrame, doc designDoc)
 				return
 			}
 			progs[primary.ID].logln("ProxySQL manually configured for MySQL on primary; syncs to the cluster")
+			if err := a.proxysqlLegacyAuth(ctx, pdep.ContainerID, pxcSec, clusterHost, progs[primary.ID].logln); err != nil {
+				progs[primary.ID].fail("app user authentication for ProxySQL: %v", err)
+				return
+			}
 		} else {
 			cfgEnv := []string{
 				"PSQL_ADMIN_USER=admin", "PSQL_ADMIN_PW=" + proxysqlAdminPassword(),
@@ -354,6 +371,10 @@ func (a *App) provisionProxySQLFrame(st Stack, frame designFrame, doc designDoc)
 				return
 			}
 			progs[primary.ID].logln("proxysql-admin enabled on primary; config syncs to the cluster")
+			if err := a.proxysqlLegacyAuth(ctx, pdep.ContainerID, pxcSec, clusterHost, progs[primary.ID].logln); err != nil {
+				progs[primary.ID].fail("app user authentication for ProxySQL: %v", err)
+				return
+			}
 		}
 
 		// ---- Phase 4: PMM registration + finalize ----
@@ -460,7 +481,7 @@ func (a *App) proxysqlPrepareMember(ctx context.Context, st Stack, frame designF
 	if err := a.runStep(ctx, id, instScript, []string{"PKG=" + pkg, "VER=" + frame.ProxySQLVersion}, pr.logln); err != nil {
 		return pr.fail("install %s: %v", pkg, err)
 	}
-	if err := a.runStep(ctx, id, clientScript, []string{"PRODUCT=" + psClientProduct(pxcMajor), "REPO=" + psRepoName(pxcMajor)}, pr.logln); err != nil {
+	if err := a.runStep(ctx, id, clientScript, []string{"PRODUCT=" + psClientProduct(pxcMajor), "REPO=" + psRepoName(pxcMajor), "CLIENT_PKG=" + psClientPackage(frame.OS, pxcMajor)}, pr.logln); err != nil {
 		return pr.fail("install percona-server-client: %v", err)
 	}
 	// Install pmm-client only when the cluster is monitored by a PMM server.
@@ -661,7 +682,7 @@ func (a *App) provisionProxySQLInstance(st Stack, doc designDoc, p proxysqlPlan)
 		// ProxySQL talks to the backend with the mysql client, so the Percona Server
 		// client must be installed first (series matches the backend).
 		setPhase("Installing MySQL client", 58)
-		clientEnv := []string{"PRODUCT=" + psClientProduct(clientSeries), "REPO=" + psRepoName(clientSeries)}
+		clientEnv := []string{"PRODUCT=" + psClientProduct(clientSeries), "REPO=" + psRepoName(clientSeries), "CLIENT_PKG=" + psClientPackage(p.OS, clientSeries)}
 		if err := a.runStep(ctx, id, clientScript, clientEnv, logln); err != nil {
 			failNode("install percona-server-client: %v", err)
 			return
@@ -707,6 +728,10 @@ func (a *App) provisionProxySQLInstance(st Stack, doc designDoc, p proxysqlPlan)
 				return
 			}
 			logln("ProxySQL manually configured for MySQL replication (mode=" + cfg.Mode + ")")
+			if err := a.proxysqlLegacyAuth(ctx, id, pxcSec, clusterHost, logln); err != nil {
+				failNode("app user authentication for ProxySQL: %v", err)
+				return
+			}
 		} else {
 			setPhase("Configuring proxysql-admin", 80)
 			// Start proxysql first so its 6032 admin password is set to the .env value
@@ -728,6 +753,10 @@ func (a *App) provisionProxySQLInstance(st Stack, doc designDoc, p proxysqlPlan)
 				return
 			}
 			logln("proxysql-admin configured and enabled (mode=" + cfg.Mode + ")")
+			if err := a.proxysqlLegacyAuth(ctx, id, pxcSec, clusterHost, logln); err != nil {
+				failNode("app user authentication for ProxySQL: %v", err)
+				return
+			}
 		}
 
 		// Optional PMM monitoring (pmm-client is already installed).
@@ -745,6 +774,127 @@ func (a *App) provisionProxySQLInstance(st Stack, doc designDoc, p proxysqlPlan)
 		a.store.SetDeploymentState(st.ID, p.NodeID, DeployRunning)
 		log.Printf("stack %d proxysql %s: provisioned", st.ID, p.NodeID)
 	}()
+}
+
+// proxysqlLegacyAuthScript gives the backend app user mysql_native_password when the
+// ProxySQL installed predates caching_sha2_password (added in 2.6). MySQL 8.0 creates
+// users with caching_sha2_password, and ProxySQL 2.0–2.5 cannot complete that exchange
+// for its backend connections: verified on Oracle Linux 8 against PXC 8.0, every version
+// from 2.0.13 to 2.5.5 deployed and then answered "Access denied for user 'app'" on 6033,
+// while 2.6.5 and 2.7.3 served the same user. The monitor user is unaffected. It decides
+// from the binary actually installed and the user's current plugin, so it is a no-op on
+// 2.6+, on 5.7 backends, and on a redeploy. 8.4 does not load mysql_native_password by
+// default, which validation refuses (proxysqlBackendIssues) rather than meeting here.
+const proxysqlLegacyAuthScript = `set -e
+rm -f /tmp/dbcanvas-legacy-auth
+V=$(proxysql --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+case "$V" in 1.*|2.[0-5].*) ;; *) exit 0 ;; esac
+export MYSQL_PWD="$CLUSTER_PW"
+M="mysql -u$CLUSTER_USER -h$CLUSTER_HOST -NB"
+PLUGIN=$($M -e "SELECT plugin FROM mysql.user WHERE user='$APP_USER' AND host='%'")
+[ "$PLUGIN" = caching_sha2_password ] || exit 0
+$M -e "ALTER USER '$APP_USER'@'%' IDENTIFIED WITH mysql_native_password BY '$APP_PW'"
+echo "app user $APP_USER switched to mysql_native_password: ProxySQL $V predates caching_sha2_password support (2.6)" > /tmp/dbcanvas-legacy-auth`
+
+// proxysqlLegacyAuth runs proxysqlLegacyAuthScript in a ProxySQL container against the
+// backend's write endpoint, where the ALTER replicates to every member.
+// runStep keeps no output on success, so the script leaves its one-line note in a file
+// for the deploy log: the change is to a user other clients share, and should say why.
+func (a *App) proxysqlLegacyAuth(ctx context.Context, id string, sec pxcSecrets, backendHost string, logln func(string)) error {
+	if err := a.runStep(ctx, id, proxysqlLegacyAuthScript, []string{
+		"CLUSTER_USER=" + sec.ClusterUser, "CLUSTER_PW=" + sec.ClusterPassword, "CLUSTER_HOST=" + backendHost,
+		"APP_USER=" + sec.AppUser, "APP_PW=" + sec.AppPassword,
+	}, logln); err != nil {
+		return err
+	}
+	if res, err := a.engCtx(ctx).Exec(ctx, id, []string{"cat", "/tmp/dbcanvas-legacy-auth"}, nil); err == nil && res.Code == 0 {
+		if note := strings.TrimSpace(res.Stdout); note != "" {
+			logln(note)
+		}
+	}
+	return nil
+}
+
+// proxysqlBelow26 reports whether a pinned ProxySQL build ("2.5.5-1.2") predates 2.6, the
+// first with caching_sha2_password. A blank version installs the newest, which does not.
+func proxysqlBelow26(version string) bool {
+	var major, minor int
+	if n, _ := fmt.Sscanf(strings.TrimSpace(version), "%d.%d", &major, &minor); n < 2 {
+		return false
+	}
+	return major < 2 || (major == 2 && minor < 6)
+}
+
+// proxysqlBackendIssues refuses the ProxySQL / backend pairs that deploy and then do not
+// work. Two independent limits, measured on every ProxySQL build in the catalogue:
+//
+//   - proxysql-admin (PXC backends only; MySQL replication is configured over the admin
+//     interface without it) reads the installed client's version and exits with "Cannot
+//     determine the MySQL client version" on a series it does not list — and the client
+//     installed is the backend's series. get_mysql_version knows up to 8.0 in 2.0–2.7.1,
+//     adds 8.4 in 2.7.3 and 3.0.1–3.0.6, and 9.6/9.7 in 3.0.9.
+//   - authentication (both backends): ProxySQL before 2.6 cannot use
+//     caching_sha2_password for its backend connections. On 8.0 the app user is moved to
+//     mysql_native_password at deploy (proxysqlLegacyAuthScript); 8.4 does not load that
+//     plugin by default and 9.x no longer has it, so those are refused.
+//
+// A blank version installs the newest build of the major, which is what is assumed here.
+func proxysqlBackendIssues(doc designDoc, what, startID, proxysqlMajor, proxysqlVersion string) []issue {
+	back, kind, ok := backendFrameForProxySQL(doc, startID)
+	if !ok {
+		return nil
+	}
+	series := back.PXCMajor
+	if kind == "mysql" {
+		series = psMajorOf(back.PSMajor)
+	}
+	modern := series == "8.4" || strings.HasPrefix(series, "9.")
+	var out []issue
+	if kind == "pxc" {
+		if need := proxysqlAdminMinimum(series); need != "" && proxysqlBuildBefore(proxysqlMajor, proxysqlVersion, need) {
+			out = append(out, issue{Level: "error", Message: what + " uses " + proxysqlLabel(proxysqlMajor, proxysqlVersion) +
+				", whose proxysql-admin does not recognise the PXC " + series + " client of " + back.Label +
+				" — choose ProxySQL " + need + " or later"})
+		}
+	}
+	if modern && proxysqlBelow26(proxysqlVersion) {
+		out = append(out, issue{Level: "error", Message: what + " uses ProxySQL " + proxysqlVersion +
+			", which cannot authenticate with caching_sha2_password, and " + back.Label + " (" + series +
+			") has no mysql_native_password to fall back on — choose ProxySQL 2.6 or later"})
+	}
+	return out
+}
+
+// proxysqlAdminMinimum is the first ProxySQL build whose proxysql-admin recognises a
+// client series, or "" when every build does.
+func proxysqlAdminMinimum(series string) string {
+	switch {
+	case series == "8.4":
+		return "2.7.3"
+	case strings.HasPrefix(series, "9."):
+		return "3.0.9"
+	}
+	return ""
+}
+
+// proxysqlBuildBefore reports whether the ProxySQL that will be installed is older than
+// want ("2.7.3"). A blank version is the newest of its major: 2.7.3 for 2, 3.0.9 for 3.
+func proxysqlBuildBefore(major, version, want string) bool {
+	if strings.TrimSpace(version) == "" {
+		version = "2.7.3"
+		if proxysqlMajorOf(major) == "3" {
+			version = "3.0.9"
+		}
+	}
+	// The build suffix ("-1.2") is not part of the comparison: the limits are per release.
+	return compareVersions(strings.SplitN(strings.TrimSpace(version), "-", 2)[0], want) < 0
+}
+
+func proxysqlLabel(major, version string) string {
+	if v := strings.TrimSpace(version); v != "" {
+		return "ProxySQL " + v
+	}
+	return "ProxySQL " + proxysqlMajorOf(major)
 }
 
 // proxysqlMajorOf normalizes a ProxySQL major series (default "2").
@@ -875,12 +1025,15 @@ pin_install "$PKG" debianutils`
 // percona-release cannot enable, takes the hand-written path ($PRODUCT empty,
 // $REPO set).
 const proxysqlInstallClientRHEL = `set -e
-` + psRepoRHEL + `dnf -y -q install percona-server-client`
+# EL8 AppStream's default mysql module hides percona-server-client ("Unable to find a
+# match"), as it does for the server packages (mysqlInstallRHEL); no-op on EL9/EL10.
+dnf -y -q module disable mysql >/dev/null 2>&1 || true
+` + psRepoRHEL + `dnf -y -q install "${CLIENT_PKG:-percona-server-client}"`
 
 const proxysqlInstallClientDebian = `set -e
 export DEBIAN_FRONTEND=noninteractive
 ` + psRepoDebian + `apt-get update -qq >/dev/null
-apt-get install -y -qq percona-server-client`
+apt-get install -y -qq "${CLIENT_PKG:-percona-server-client}"`
 
 // proxysqlStartScript enables + starts the proxysql service so its admin interface
 // (6032) is reachable (needed before configuring native clustering), then rewrites

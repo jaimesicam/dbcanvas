@@ -985,6 +985,26 @@ func (s *Store) SetDeploymentState(stackID int64, nodeID, state string) error {
 	return err
 }
 
+// InFlightDeployments returns every deployment, across all stacks, still pending or
+// provisioning — at startup, the ones a previous server process was building.
+func (s *Store) InFlightDeployments() ([]Deployment, error) {
+	rows, err := s.db.Query("SELECT stack_id, node_id FROM deployments WHERE state IN (?, ?)",
+		DeployPending, DeployProvisioning)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Deployment
+	for rows.Next() {
+		var d Deployment
+		if err := rows.Scan(&d.StackID, &d.NodeID); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
 // SetDeploymentProgress updates just the provisioning progress JSON.
 func (s *Store) SetDeploymentProgress(stackID int64, nodeID string, progress []byte) error {
 	_, err := s.db.Exec("UPDATE deployments SET progress_json = ? WHERE stack_id = ? AND node_id = ?", nullRaw(progress), stackID, nodeID)

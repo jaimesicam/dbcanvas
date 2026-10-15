@@ -1373,6 +1373,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			if _, _, ok := backendFrameForProxySQL(doc, n.ID); !ok {
 				out = append(out, issue{Level: "error", Message: "ProxySQL node " + n.Label + " must be linked to a PXC or MySQL cluster — draw an association line from one to it"})
 			}
+			out = append(out, proxysqlBackendIssues(doc, "ProxySQL node "+n.Label, n.ID, n.ProxySQLMajor, n.ProxySQLVersion)...)
 			if n.ExportEnabled && n.ExportHostPort > 0 {
 				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
 			}
@@ -1757,6 +1758,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 		if _, _, ok := backendFrameForProxySQL(doc, f.ID); !ok {
 			out = append(out, issue{Level: "error", Message: "ProxySQL cluster " + f.Label + " must be linked to a PXC or MySQL cluster — draw an association line from one to it"})
 		}
+		out = append(out, proxysqlBackendIssues(doc, "ProxySQL cluster "+f.Label, f.ID, f.ProxySQLMajor, f.ProxySQLVersion)...)
 	}
 	for name, c := range proxyClusterNames {
 		if c > 1 && name != "" {

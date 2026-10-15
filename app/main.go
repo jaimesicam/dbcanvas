@@ -89,6 +89,8 @@ func main() {
 	// page and the OpenAPI document are generated from.
 	app.registerRoutes(mux)
 
+	// Nodes a previous process was still provisioning can never finish now (deployrun.go).
+	app.failInterruptedDeployments()
 	app.startReaper()
 	// Samples every deployed stack for its history and alerts (livewatch.go).
 	app.startLiveWatch()

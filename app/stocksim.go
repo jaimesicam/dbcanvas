@@ -1405,8 +1405,17 @@ func (a *App) waitMySQLFamilyFrame(ctx context.Context, stackID int64, frame des
 				byNode[d.NodeID] = d
 			}
 			othersUp := false
+			// usable counts the members that could serve writes: the primary when
+			// wantPrimary, else any member. Once all of them have failed, none will.
+			usable, failed := 0, 0
 			for _, n := range members {
 				d, ok := byNode[n.ID]
+				if !wantPrimary || n.Role == "primary" {
+					usable++
+					if ok && d.State == DeployError {
+						failed++
+					}
+				}
 				if !ok || d.State != DeployRunning || d.ContainerID == "" {
 					continue
 				}
@@ -1423,6 +1432,9 @@ func (a *App) waitMySQLFamilyFrame(ctx context.Context, stackID int64, frame des
 			if wantPrimary && othersUp && time.Now().After(deadline) {
 				return "", pxcSecrets{}, fmt.Errorf(
 					"associated cluster %s has running members but no primary — writes have nowhere to go", frame.Label)
+			}
+			if usable > 0 && failed == usable {
+				return "", pxcSecrets{}, fmt.Errorf("associated cluster %s failed to provision", frame.Label)
 			}
 		}
 		if time.Now().After(deadline) {
