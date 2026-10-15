@@ -191,9 +191,64 @@ yourself.
 
 ## What's new
 
-### 0.0.19
+### 0.0.20
 
 <details open>
+<summary><b>PostgreSQL on Oracle Linux 8</b></summary>
+
+PostgreSQL 13–18 now deploys on **Oracle Linux 8** — standalone, Patroni, repmgr, Spock and All-in-One instances.
+EL8's AppStream `postgresql` module is disabled before installing, Patroni gets the EPEL packages it needs there,
+and Spock on PostgreSQL 18.6 names its output plugin in the new `output_plugin_libraries` setting, without which
+every subscription stayed down. Validation also refuses a deploy onto a version the catalogue has no build for.
+See [Stacks](docs/STACKS.md).
+</details>
+
+<details>
+<summary><b>Restore and point-in-time recovery for PostgreSQL and Patroni</b></summary>
+
+The **Backup** tab of a standalone PostgreSQL node and of a Patroni cluster restores from pgBackRest: the latest
+backup, a point in time, or one backup set. A Patroni restore recovers the leader, starts Patroni there, takes a
+fresh backup on the new timeline and rebuilds every replica. A target past the end of the archive restores to the
+end of it and says so. See [Stacks](docs/STACKS.md).
+</details>
+
+<details>
+<summary><b>pg_tde on Patroni, WAL encryption and key rotation</b></summary>
+
+Patroni clusters can encrypt with **pg_tde**, keyed to OpenBao with one key for the whole cluster, and fail over
+with `pg_tde_rewind` and `pg_tde_basebackup`. **Encrypt WAL too** extends encryption to the WAL and the pgBackRest
+archive on standalone and Patroni, and the **Encryption** tab rotates the principal key. The form only offers
+pg_tde, OIDC and other components where a build exists for that major, minor and OS. See [Stacks](docs/STACKS.md).
+</details>
+
+<details>
+<summary><b>pgAudit, set_user and pgbench on PostgreSQL</b></summary>
+
+Standalone PostgreSQL and Patroni can preload **pgAudit** and **set_user** with the audit classes you choose, load
+**pgbench** sample data at deploy, and run pgbench from a new **Workload** tab showing TPS, latency and failures.
+Compose takes `pgaudit`, `pgauditLog`, `setUser` and `pgbench=N`. See [Stacks](docs/STACKS.md).
+</details>
+
+<details>
+<summary><b>Patroni, repmgr and Keycloak OIDC on Ubuntu</b></summary>
+
+Patroni on Ubuntu writes etcd's config where the packaged unit reads it and drops the package's default cluster
+first. repmgr standbys get the primary's configuration, repmgrd actually starts, and a switchover takes about 14
+seconds instead of four and a half minutes. PostgreSQL OIDC sign-in through Keycloak now installs on Ubuntu.
+See [Stacks](docs/STACKS.md).
+</details>
+
+<details>
+<summary><b>Database Stacks fixes</b></summary>
+
+**Deploy** stays locked while a deployment is still provisioning, including one started from `dbcanvas-cli`. The
+detached Deployment console and Properties panel open in front of their window, **Copy docker exec command** works
+on a k3s node, and the dashboard scales CPU, memory and rates against something meaningful.
+</details>
+
+### 0.0.19
+
+<details>
 <summary><b>Server state from a core dump</b></summary>
 
 The Core Dump Analyzer's new **Server state** tab reads what the server was *doing* out of the core, not just
