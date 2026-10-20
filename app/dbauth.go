@@ -98,6 +98,11 @@ type dirAuthInfo struct {
 	NodeFQDN string `json:"nodeFQDN"`
 	Realm    string `json:"realm"`
 	UserAttr string `json:"userAttr"`
+	// Where a directory account has to be registered, for a cluster member: "primary" (async
+	// replication — the replicas are read-only, so PrimaryFQDN) or "galera" (any member, PXC
+	// replicates it). Empty on a standalone node.
+	Scope       string `json:"scope,omitempty"`
+	PrimaryFQDN string `json:"primaryFQDN,omitempty"`
 }
 
 // resolveDirectory waits for the chosen directory node to be running and derives the
@@ -159,6 +164,13 @@ func (a *App) resolveDirectory(ctx context.Context, st Stack, doc designDoc, dir
 // in the node's Deployment.Config. rootPW is the engine's admin/root password (used to verify a
 // restart came back for MySQL).
 func (a *App) applyDirectoryAuth(ctx context.Context, st Stack, n designNode, doc designDoc, containerID, engine, rootPW string, pr *pxcProg) error {
+	return a.applyDirectoryAuthStep(ctx, st, n, doc, containerID, engine, rootPW, mysqlAuthStep{Unit: mysqlUnit(n.OS), Restart: true}, pr)
+}
+
+// applyDirectoryAuthStep is applyDirectoryAuth with the Percona Server step spelled out: which
+// unit to restart, or none at all for a cluster member that has not started yet (see
+// clusterauth.go). The other engines ignore step.
+func (a *App) applyDirectoryAuthStep(ctx context.Context, st Stack, n designNode, doc designDoc, containerID, engine, rootPW string, step mysqlAuthStep, pr *pxcProg) error {
 	pr.phase("Configuring directory authentication", 96)
 	domain := envOr("DOMAIN", "example.net")
 
@@ -220,6 +232,7 @@ func (a *App) applyDirectoryAuth(ctx context.Context, st Stack, n designNode, do
 		"BINDDN=" + ldap.BindDN, "BINDPW=" + ldap.BindPW,
 		"NODEFQDN=" + nodeFQDN, "REALM=" + samba.Realm, "ROOTPW=" + rootPW,
 		"KEYTAB=" + keytabPath, "KRB=" + boolEnv(kerberos),
+		"UNIT=" + step.Unit, "RESTART=" + boolEnv(step.Restart),
 	}
 	var script string
 	switch engine {
@@ -235,7 +248,8 @@ func (a *App) applyDirectoryAuth(ctx context.Context, st Stack, n designNode, do
 	}
 
 	info := dirAuthInfo{Enabled: n.LdapAuth || kerberos, Ldap: n.LdapAuth, Kerberos: kerberos,
-		DirType: ldap.Type, DirFQDN: ldap.FQDN, NodeFQDN: nodeFQDN, Realm: samba.Realm, UserAttr: ldap.UserAttr}
+		DirType: ldap.Type, DirFQDN: ldap.FQDN, NodeFQDN: nodeFQDN, Realm: samba.Realm, UserAttr: ldap.UserAttr,
+		Scope: step.Scope, PrimaryFQDN: step.PrimaryFQDN}
 	a.persistDirAuth(st, n.ID, info)
 	var msg string
 	if n.LdapAuth {
@@ -337,9 +351,16 @@ const krb5ClientInstall = `if command -v apt-get >/dev/null 2>&1; then
   fi`
 
 // mysqlDirAuthScript loads authentication_ldap_simple via /etc/my.cnf (the .d dir is not
-// included) and restarts mysqld.
+// included) and restarts $UNIT, putting the old file back if the server will not come up with
+// the plugin. RESTART=0 only writes the block, for a server that has not started yet — a PXC
+// joiner, whose first start then loads the plugin (see clusterauth.go).
 const mysqlDirAuthScript = `set -e
+PLUG=$(find /usr/lib64/mysql/plugin /usr/lib/mysql/plugin /usr/lib/*/mysql/plugin -name authentication_ldap_simple.so 2>/dev/null | head -1)
+[ -n "$PLUG" ] || { echo "authentication_ldap_simple.so is not in this build"; exit 1; }
 CNF=/etc/my.cnf
+UNIT=${UNIT:-mysqld}
+touch "$CNF"
+cp -f "$CNF" /tmp/my.cnf.pre-dirauth
 sed -i "/# dbcanvas-dirauth-begin/,/# dbcanvas-dirauth-end/d" "$CNF"
 cat >> "$CNF" <<EOF
 
@@ -353,10 +374,22 @@ authentication_ldap_simple_bind_root_dn=$BINDDN
 authentication_ldap_simple_bind_root_pwd=$BINDPW
 # dbcanvas-dirauth-end
 EOF
-systemctl restart mysqld
-for i in $(seq 1 30); do mysql -uroot -p"$ROOTPW" -e "SELECT 1" >/dev/null 2>&1 && break; sleep 2; done
-mysql -uroot -p"$ROOTPW" -e "SELECT @@authentication_ldap_simple_server_host" 2>/dev/null | tail -1
-echo "authentication_ldap_simple loaded"`
+if [ "$RESTART" = "0" ]; then
+  rm -f /tmp/my.cnf.pre-dirauth
+  echo "authentication_ldap_simple staged for the first start"; exit 0
+fi
+if ! systemctl restart "$UNIT"; then
+  cp -f /tmp/my.cnf.pre-dirauth "$CNF"; systemctl restart "$UNIT" || true
+  echo "mysqld refused to start with the LDAP options — reverted /etc/my.cnf"; exit 1
+fi
+for i in $(seq 1 40); do mysql -uroot -p"$ROOTPW" -e "SELECT 1" >/dev/null 2>&1 && break; sleep 2; done
+STATUS=$(mysql -uroot -p"$ROOTPW" -N -B -e "SELECT PLUGIN_STATUS FROM INFORMATION_SCHEMA.PLUGINS WHERE PLUGIN_NAME='authentication_ldap_simple'" 2>/dev/null)
+if [ "$STATUS" != "ACTIVE" ]; then
+  cp -f /tmp/my.cnf.pre-dirauth "$CNF"; systemctl restart "$UNIT" || true
+  echo "authentication_ldap_simple did not load — reverted /etc/my.cnf"; exit 1
+fi
+rm -f /tmp/my.cnf.pre-dirauth
+echo "authentication_ldap_simple loaded (server $DIRFQDN)"`
 
 // mongoDirAuthScript merges a security.ldap block + PLAIN mechanism into mongod.conf, and when
 // KRB=1 installs cyrus-sasl-gssapi, wires the keytab (KRB5_KTNAME) + saslHostName + GSSAPI.

@@ -8,11 +8,17 @@ import { SecretValue } from '../components/Secret.jsx'
 import { Help } from '../components/Tooltip.jsx'
 import { DEP_HELP } from '../lib/help.js'
 import { useFollowedState } from '../session/SessionProvider.jsx'
+import XtraBackupPanel from '../components/XtraBackupPanel.jsx'
+import DbLoginGuide from '../components/DbLoginGuide.jsx'
+import OidcLoginGuide from '../components/OidcLoginGuide.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'creds', label: 'Credentials' },
   { id: 'cert', label: 'Certificate' },
+  { id: 'dirlogin', label: 'Directory Login' },
+  { id: 'sso', label: 'Keycloak SSO' },
+  { id: 'backup', label: 'Backup' },
   { id: 'diag', label: 'Diagnostics' },
 ]
 
@@ -43,7 +49,8 @@ function KV({ k, v, mono, help }) {
   )
 }
 
-export default function PXCManager({ stackId, nodeId, dep, onDeleteNode }) {
+// xb, when set, is the cluster frame whose XtraBackup backups the Backup tab shows.
+export default function PXCManager({ stackId, nodeId, dep, onDeleteNode, xb = null }) {
   const [tab, setTab] = useFollowedState(`tab:${nodeId}`, 'overview')
   const api = pxcApi(stackId, nodeId)
   const { openTerminal } = useTerminals()
@@ -59,7 +66,7 @@ export default function PXCManager({ stackId, nodeId, dep, onDeleteNode }) {
       </div>
 
       <div className="flex flex-wrap gap-1 rounded-lg bg-surface2 p-1">
-        {TABS.filter((t) => !(arbiter && t.id !== 'overview')).map((t) => (
+        {TABS.filter((t) => !(arbiter && t.id !== 'overview') && (t.id !== 'backup' || xb) && (t.id !== 'dirlogin' || cfg.dirAuth?.enabled) && (t.id !== 'sso' || cfg.oidc?.enabled)).map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
             className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${tab === t.id ? 'bg-surface text-fg shadow' : 'text-muted'}`}>
             {t.label}
@@ -74,6 +81,9 @@ export default function PXCManager({ stackId, nodeId, dep, onDeleteNode }) {
       )}
       {tab === 'creds' && !arbiter && <CredsTab cfg={cfg} sec={sec} />}
       {tab === 'cert' && !arbiter && <CertTab api={api} cfg={cfg} />}
+      {tab === 'dirlogin' && !arbiter && <DbLoginGuide engine="ps" info={cfg.dirAuth} />}
+      {tab === 'sso' && !arbiter && <OidcLoginGuide engine="ps" info={cfg.oidc} secrets={sec} />}
+      {tab === 'backup' && !arbiter && xb && <XtraBackupPanel stackId={stackId} scope={xb.scope} id={xb.id} kind="pxc" />}
       {tab === 'diag' && !arbiter && <PTStalkCard stackId={stackId} nodeId={nodeId} />}
     </div>
   )

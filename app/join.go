@@ -233,6 +233,7 @@ func (a *App) joinMySQLFrame(st Stack, frame designFrame, doc designDoc, fresh [
 				continue
 			}
 			a.persistConfigKey(st, n.ID, "sourceHost", primary.FQDN)
+			a.mysqlJoinAuth(ctx, st, frame, doc, n, primary.FQDN, sec, pr)
 			if a.mysqlFinishMember(ctx, st, frame, doc, n, sec, intranetID, monitoredBy, false, pr) != nil {
 				continue
 			}
@@ -355,6 +356,7 @@ func (a *App) joinPXCFrame(st Stack, frame designFrame, doc designDoc, fresh []d
 					continue
 				}
 			} else {
+				a.pxcStageAuth(ctx, st, frame, doc, n, sec, pr)
 				pr.phase("Joining "+frame.Label+" (SST)", 65)
 				if a.pxcJoin(ctx, st, frame, n, hosts[n.ID], domain, intranetID, sec, pr) != nil {
 					continue
@@ -464,7 +466,7 @@ func (a *App) joinMongoRSFrame(st Stack, frame designFrame, doc designDoc, fresh
 			Cluster: frame.Label, Image: image, OS: frame.OS, Arch: archOr(frame.Arch),
 			Role: "member", ReplSet: rs, Hostname: host, FQDN: fqdnOf(host, domain),
 			PSMDBMajor: major, Version: frame.PSMDBVersion,
-			GenerateCert: frame.GenerateCert, UseProxy: frame.UseProxy, MonitoredBy: monitoredBy,
+			GenerateCert: frame.GenerateCert, TLS: mongoTLSOn(frame), UseProxy: frame.UseProxy, MonitoredBy: monitoredBy,
 			EnablePBM: frame.EnablePBM, Ports: []int{mongoPort}, VectorSearch: frame.VectorSearch, SearchHost: searchAddr,
 		}
 		if frame.EnablePBM {

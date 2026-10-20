@@ -73,7 +73,7 @@ func TestMergeSetParams(t *testing.T) {
 	if strings.Count(merged, "setParameter:") != 1 {
 		t.Fatalf("want one setParameter header:\n%s", merged)
 	}
-	conf := mongodConfYAML("rs", "", true, merged, "")
+	conf := mongodConfYAML("rs", "", true, merged, "", false)
 	var c map[string]any
 	if err := yaml.Unmarshal([]byte(conf), &c); err != nil {
 		t.Fatalf("mongod.conf is not YAML: %v\n%s", err, conf)

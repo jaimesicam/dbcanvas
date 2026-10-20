@@ -174,6 +174,11 @@ type designNode struct {
 	PGVersion       string `json:"pgVersion"`       // minor; "" → latest
 	UsePgBackRest   bool   `json:"usePgBackRest"`   // configure pgBackRest → SeaweedFS S3 backup
 	SeaweedFSNodeID string `json:"seaweedfsNodeId"` // SeaweedFS node id backing pgBackRest
+	// UseXtraBackup (standalone ps; the mysql/pxc frames carry their own) backs the server up
+	// with Percona XtraBackup to the SeaweedFSNodeID bucket; XBPITR also ships its binary logs
+	// there for point-in-time restore. See mysqlbackup.go.
+	UseXtraBackup bool `json:"useXtraBackup"`
+	XBPITR        bool `json:"xbPitr"`
 	// PGHostAuth is how remote clients authenticate, as an ordered comma-separated
 	// pg_hba method list ("" → scram-sha-256, which is what every design before this
 	// field had). More than one is the point: "cert,scram-sha-256" authenticates a
@@ -604,6 +609,8 @@ type designFrame struct {
 	PGTDEWal        bool   `json:"pgTdeWal"`        // pg_tde WAL encryption cluster-wide; see designNode
 	UsePgBackRest   bool   `json:"usePgBackRest"`   // configure pgBackRest → SeaweedFS S3 (clone + backup)
 	SeaweedFSNodeID string `json:"seaweedfsNodeId"` // SeaweedFS node id backing pgBackRest/Barman (when enabled)
+	UseXtraBackup   bool   `json:"useXtraBackup"`   // mysql/pxc: Percona XtraBackup → SeaweedFS (mysqlbackup.go)
+	XBPITR          bool   `json:"xbPitr"`          // mysql/pxc: ship binary logs too, for point-in-time restore
 	// Which of that node's buckets to use ("" → its first, i.e. the default bucket).
 	SeaweedFSBucket string `json:"seaweedfsBucket"`
 	// DisablePgRewind turns off Patroni's use_pg_rewind (on by default for
@@ -746,6 +753,17 @@ type designFrame struct {
 	// applied afterwards: a keyring that arrives later means restarting a member, and restarting
 	// a PXC member means leaving and rejoining the cluster. See dbvault.go.
 	EnableVault bool `json:"enableVault"`
+	// Directory and Keycloak logins for the PXC and Percona Server replication frames
+	// (Type=="pxc" | "mysql"; see clusterauth.go). The same fields, with the same JSON names, as
+	// on a standalone Percona Server node — authentication_ldap_simple against LdapDirNodeID,
+	// auth_openid_connect against KeycloakNodeID — but set once on the frame and wired into every
+	// member, because the accounts that use them replicate: a member without the plugin loaded
+	// would stop applying the cluster's CREATE USER.
+	LdapAuth       bool   `json:"ldapAuth"`
+	LdapDirNodeID  string `json:"ldapDirNodeId"`
+	EnableOIDC     bool   `json:"enableOIDC"`
+	KeycloakNodeID string `json:"keycloakNodeId"`
+	OIDCRealm      string `json:"oidcRealm"` // "" → "dbcanvas"
 	// Point-in-time recovery, PXC operator only (`backup.pitr` — the binlog collector). It needs
 	// an S3 store, so it rides on SeaweedFSNodeID; K3DPITRBucket is which of that node's buckets
 	// the *binlogs* go to, and giving them their own is the point — two clusters uploading
@@ -1410,6 +1428,9 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			}
 			out = append(out, dirAuthIssues(n, dirNodes)...)
 			out = append(out, vaultIssues(n, openbaoIDs)...)
+			if n.Type == "ps" {
+				out = append(out, xbIssues("Percona Server node "+n.Label, n.UseXtraBackup, n.SeaweedFSNodeID, n.SeaweedFSBucket, n.EnableVault, doc)...)
+			}
 		case "pg":
 			others++
 			img := pxcImage(n.OS, n.OSVersion, n.Arch)
@@ -1721,6 +1742,8 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			out = append(out, issue{Level: "warning", Message: "PXC cluster " + f.Label + ": an odd number of nodes keeps quorum on a split network"})
 		}
 		out = append(out, vaultFrameIssues(f, openbaoIDs)...)
+		out = append(out, frameAuthIssues(f, dirNodes, keycloakIDs, keycloakSSL)...)
+		out = append(out, xbIssues("PXC cluster "+f.Label, f.UseXtraBackup, f.SeaweedFSNodeID, f.SeaweedFSBucket, f.EnableVault, doc)...)
 	}
 	for name, c := range clusterNames {
 		if c > 1 && name != "" {
@@ -1801,6 +1824,8 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			}
 		}
 		out = append(out, vaultFrameIssues(f, openbaoIDs)...)
+		out = append(out, frameAuthIssues(f, dirNodes, keycloakIDs, keycloakSSL)...)
+		out = append(out, xbIssues("MySQL replication cluster "+f.Label, f.UseXtraBackup, f.SeaweedFSNodeID, f.SeaweedFSBucket, f.EnableVault, doc)...)
 	}
 	for name, c := range mysqlNames {
 		if c > 1 && name != "" {

@@ -269,6 +269,10 @@ func (a *App) provisionMySQLFrame(st Stack, frame designFrame, doc designDoc) {
 			a.registerOrchestrator(ctx, st, frame.OrchestratorNodeID, orchMembers, progs[primary.ID].logln)
 		}
 
+		// LDAP / Keycloak logins: every member loads the plugins before the primary creates
+		// the accounts that replicate to them (clusterauth.go).
+		a.mysqlFrameAuth(ctx, st, frame, doc, primary, secondaries, sec, progs)
+
 		// ---- Phase 4: TLS + PMM + finalize ----
 		for _, n := range members {
 			if a.mysqlFinishMember(ctx, st, frame, doc, n, sec, intranetID, monitoredBy, n.ID == primary.ID, progs[n.ID]) != nil {

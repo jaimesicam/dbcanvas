@@ -154,6 +154,7 @@ type scCfgProbe struct {
 	Hostname     string `json:"hostname"`
 	OS           string `json:"os"`
 	GenerateCert bool   `json:"generateCert"`
+	TLS          bool   `json:"tls"` // MongoDB: net.tls turned on at deploy
 	ReplSet      string `json:"replSet"`
 	Role         string `json:"role"`
 	// The product series, spelled differently by every engine.
@@ -303,6 +304,16 @@ func scDeriveTLS(engine string, generateCert bool, nodeOS string) scTLS {
 	return scTLS{Mode: scTLSOff, Why: "Valkey TLS is runtime configuration and is off on a freshly deployed node"}
 }
 
+// scDeriveProbeTLS is scDeriveTLS for a deployed node's probe: a MongoDB node that had
+// TLS turned on at deploy is listening for it with a stack-CA certificate, so it gets
+// Verify where scDeriveTLS alone would say "not turned on for you".
+func scDeriveProbeTLS(engine string, p scCfgProbe, nodeOS string) scTLS {
+	if engine == scMongoDB && p.GenerateCert && p.TLS {
+		return scTLS{Mode: scTLSVerify, CA: scCAPath(nodeOS), Why: "TLS was turned on at deploy with a certificate signed by the stack CA, which is already in this Linux Client's trust store"}
+	}
+	return scDeriveTLS(engine, p.GenerateCert, nodeOS)
+}
+
 // scApplyTLSChoice overrides a target's derived TLS with what the user picked, keeping the CA path
 // (which is a fact about the node, not a preference) and saying where the choice came from.
 func scApplyTLSChoice(t scTarget, mode, nodeOS string) scTarget {
@@ -373,7 +384,7 @@ func (a *App) scStackTargets(st Stack, clientOS string) []scTarget {
 			Host: host, Port: scDefaultPort(engine), User: user, Password: pass,
 			Database: scDemoDatabase, AuthDB: "admin", Role: "member",
 			StackID: st.ID, StackName: st.Name, NodeID: n.ID,
-			TLS: scDeriveTLS(engine, p.GenerateCert, clientOS),
+			TLS: scDeriveProbeTLS(engine, p, clientOS),
 		}
 		if frame := frameByID(doc, n.FrameID); frame.ID != "" {
 			t.Label = frame.Label + " · " + n.Label
@@ -518,7 +529,7 @@ func (a *App) scReplicaSetTarget(st Stack, doc designDoc, f designFrame, hosts m
 		User: user, Password: pass, Database: scDemoDatabase, AuthDB: "admin", Role: "primary",
 		Note:    "the whole set — the driver finds the primary and follows it through a failover",
 		StackID: st.ID, StackName: st.Name, NodeID: members[0].ID,
-		TLS: scDeriveTLS(scMongoDB, p.GenerateCert, clientOS),
+		TLS: scDeriveProbeTLS(scMongoDB, p, clientOS),
 	}, true
 }
 

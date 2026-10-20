@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { stackApi, patroniApi, repmgrApi, mongoApi } from '../lib/stackApi.js'
+import { stackApi, patroniApi, repmgrApi, mongoApi, xbApi } from '../lib/stackApi.js'
 import { usePolling } from '../lib/usePolling.jsx'
 import { Button, Toggle } from './ui.jsx'
 import TimeChart from './TimeChart.jsx'
@@ -355,6 +355,7 @@ export function backupEnabled(f) {
   if (f.type === 'patroni' && f.usePgBackRest) return 'patroni'
   if (f.type === 'repmgr' && (f.usePgBackRest || f.useBarman)) return 'repmgr'
   if ((f.type === 'psmrs' || f.type === 'psmdb') && f.enablePBM) return 'pbm'
+  if ((f.type === 'pxc' || f.type === 'mysql') && f.useXtraBackup) return 'xb'
   return ''
 }
 
@@ -379,6 +380,14 @@ export function BackupChip({ stackId, frame }) {
     try { setB(await stackApi.backupStatus(stackId, frame.id)) } catch (e) { setB({ error: e.message }) }
   }, [stackId, frame.id])
   useEffect(() => { if (how) load() }, [how, load])
+  // A backup taken from a member's manager (Backup tab) rather than this chip.
+  useEffect(() => {
+    if (!how) return undefined
+    const on = () => load()
+    addEventListener('dbcanvas:backups', on)
+    addEventListener('dbcanvas:pg-backups', on)
+    return () => { removeEventListener('dbcanvas:backups', on); removeEventListener('dbcanvas:pg-backups', on) }
+  }, [how, load])
   usePolling(load, how ? (b?.running ? 10000 : 120000) : 0, { enabled: !!how })
   if (!how || !b) return null
   const age = b.lastAt ? Date.now() / 1000 - b.lastAt : null
@@ -389,7 +398,9 @@ export function BackupChip({ stackId, frame }) {
     try {
       if (how === 'patroni') await patroniApi(stackId, frame.id).backup()
       else if (how === 'repmgr') await repmgrApi(stackId, frame.id).backup()
+      else if (how === 'xb') await xbApi(stackId, 'frames', frame.id).backup('full')
       else await mongoApi(stackId, frame.id).pbmBackup()
+      dispatchEvent(new Event('dbcanvas:backups'))
       setMsg('Backup taken.')
     } catch (e) { setMsg(e.message) } finally { setBusy(false); load() }
   }
@@ -403,7 +414,7 @@ export function BackupChip({ stackId, frame }) {
       </button>
       {open && (
         <div className="absolute left-0 top-full z-30 mt-1 w-64 space-y-2 rounded-lg border bg-surface p-3 text-xs shadow-xl">
-          <div className="font-semibold">Backups · {b.engine === 'pbm' ? 'PBM' : b.engine === 'barman' ? 'Barman cloud' : 'pgBackRest'}</div>
+          <div className="font-semibold">Backups · {b.engine === 'pbm' ? 'PBM' : b.engine === 'barman' ? 'Barman cloud' : b.engine === 'xtrabackup' ? 'XtraBackup' : 'pgBackRest'}</div>
           {b.count > 0 ? (
             <div className="space-y-0.5 text-muted">
               <div>Newest: <span className="text-fg">{ago(b.lastAt)}</span>{b.type ? ` · ${b.type}` : ''}{b.size ? ` · ${fmtSize(b.size)}` : ''}</div>

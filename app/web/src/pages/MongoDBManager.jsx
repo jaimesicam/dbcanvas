@@ -119,7 +119,7 @@ export default function MongoDBManager({ stackId, nodeId, frameId, dep, onDelete
           <KV k="PS MongoDB" help={DEP_HELP['PS MongoDB']} v={`${cfg.psmdbMajor || ''}${cfg.version ? ` (${cfg.version})` : ''}`} />
           {isMongos && <KV k="configDB" help={DEP_HELP.configDB} v={cfg.configDB} mono />}
           {!isInternal && <KV k="Exported port" help={DEP_HELP['Exported port']} v={exportPort || 'not published'} />}
-          <KV k="TLS" help={DEP_HELP.TLS} v={cfg.generateCert ? 'cert issued (see TLS tab)' : 'none'} />
+          <KV k="TLS" help={DEP_HELP.TLS} v={cfg.tls ? 'on — preferTLS, Intranet CA (see TLS tab)' : cfg.generateCert ? 'cert issued, not enabled (see TLS tab)' : 'none'} />
           <KV k="Backups (PBM)" help={DEP_HELP['Backups (PBM)']} v={cfg.enablePBM ? (cfg.backupRepo || 'enabled') : 'disabled'} />
           {cfg.oidcEnabled && <KV k="Keycloak SSO" help={DEP_HELP['Keycloak SSO']} v="enabled (see Keycloak SSO tab)" />}
           {cfg.vectorSearch && <KV k="Vector search" help={DEP_HELP['Vector search']} v={cfg.mongotHere ? `mongot runs here · ${cfg.searchHost}` : `via mongot ${cfg.searchHost}`} mono />}
@@ -169,8 +169,19 @@ export default function MongoDBManager({ stackId, nodeId, frameId, dep, onDelete
           const svcFile = isMongos ? '/etc/mongos.conf' : '/etc/mongod.conf'
           const svc = isMongos ? 'mongos' : 'mongod'
           const isCluster = cfg.role !== 'standalone'
-          const serverCfg =
-`# ${svcFile} — merge into the existing net: block, then restart the service.
+          const serverCfg = cfg.tls
+? `# ${svcFile} — written at deploy (TLS enabled in the design).
+net:
+  tls:
+    mode: preferTLS
+    certificateKeyFile: ${dir}/server.pem
+    CAFile: ${dir}/ca.crt
+    allowConnectionsWithoutCertificates: true
+
+# Escalate live, no restart — once every client connects with TLS:
+#   db.adminCommand({ setParameter: 1, tlsMode: "requireTLS" })
+# Repeat on every node${isCluster ? ' of the cluster' : ''}; add mode: requireTLS here to make it stick across restarts.`
+: `# ${svcFile} — merge into the existing net: block, then restart the service.
 net:
   tls:
     mode: requireTLS
@@ -202,10 +213,17 @@ mongosh --tls --tlsCAFile ${dir}/ca.crt --tlsCertificateKeyFile client.pem \\
           return (
             <div className="space-y-3">
               <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
+                {cfg.tls ? (<>
+                A per-node certificate signed by the Intranet CA is installed and TLS is{' '}
+                <span className="font-semibold">on</span> in <span className="font-mono">preferTLS</span> mode:
+                {isCluster ? ' cluster members talk TLS to each other, and' : ''} clients that ask for TLS get it,
+                while plaintext clients still connect. Reissuing the certificate overwrites it in place — restart {svc} to load it.
+                </>) : (<>
                 A per-node certificate signed by the Intranet CA has been issued and stored on this
                 node. TLS is <span className="font-semibold">not auto-enabled</span> — apply the server
                 config below to turn it on{isCluster ? ', then repeat on every member (and the mongos) and restart each' : ' and restart mongod'}.
                 {isCluster && <> For a rolling enable without downtime, use <span className="font-mono">mode: preferTLS</span> first, then switch to <span className="font-mono">requireTLS</span>.</>}
+                </>)}
               </div>
               <MongoCertReissue stackId={stackId} nodeId={nodeId} />
               <CopyRow label="Certificate + key (PEM)" value={`${dir}/server.pem`} />
@@ -322,7 +340,8 @@ function BackupTab({ stackId, frameId, cfg, sec }) {
     setMsg(null)
     try {
       await mongoApi(stackId, frameId).pbmBackup()
-      setMsg({ tone: 'success', text: 'PBM backup started.' })
+      setMsg({ tone: 'success', text: 'PBM backup completed.' })
+      window.dispatchEvent(new Event('dbcanvas:backups'))
     } catch (e) {
       setMsg({ tone: 'danger', text: e.message || 'Backup failed.' })
     } finally {
@@ -338,7 +357,7 @@ function BackupTab({ stackId, frameId, cfg, sec }) {
         member. List/restore with <span className="font-mono">pbm list</span> / <span className="font-mono">pbm restore</span> from a root console.
       </div>
       <Button size="sm" className="w-full" disabled={busy} onClick={runBackup}>
-        <Icon.Arrow size={15} /> {busy ? 'Starting backup…' : 'Backup now'}
+        <Icon.Arrow size={15} /> {busy ? 'Backing up…' : 'Backup now'}
       </Button>
       {sec.pbmUser && <CopyRow label="PBM user" value={sec.pbmUser} />}
       {sec.pbmPassword && <CopyRow label="PBM password" value={sec.pbmPassword} />}

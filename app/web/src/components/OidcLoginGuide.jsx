@@ -103,7 +103,9 @@ mysql --user=${who} --authentication-openid-connect-client-id-token-file=/root/i
     const roleCmd = `SET ROLE ${info.role};                 -- the group-mapped role is granted, not activated
 SELECT CURRENT_USER(), CURRENT_ROLE();
 SELECT * FROM ${info.database}.invoices;`
-    const addUser = `-- 'sub' is the Keycloak user id, which the console shows on the user's page:
+    const addWhere = info.scope === 'primary' ? `-- run on the primary (${info.primaryFQDN}); it replicates to every member.\n`
+      : info.scope === 'galera' ? '-- run on any member; PXC replicates it to the rest.\n' : ''
+    const addUser = `${addWhere}-- 'sub' is the Keycloak user id, which the console shows on the user's page:
 CREATE USER 'carol'@'%' IDENTIFIED WITH 'auth_openid_connect'
   AS '{"identity_provider": "keycloak", "user": "<that user's id>"}';`
     return (

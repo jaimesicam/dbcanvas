@@ -6415,6 +6415,12 @@ function PXCFrameForm({ frame: f, stackId, nodes, frameNodes, patchFrame, delete
         </div>
       )}
 
+      {/* Logins are a cluster setting: every member gets the plugins (clusterauth.go). */}
+      <DirectoryAuthFields node={f} nodes={nodes} patchNode={patchFrame} deployed={deployed} kerberos={false} />
+      <KeycloakOidcFields node={f} nodes={nodes} patchNode={patchFrame} deployed={deployed}
+        label="Token login with Keycloak (auth_openid_connect)" pin={PXC_OIDC_PIN} />
+
+      <XtraBackupOptions v={f} nodes={nodes} patch={(p) => patchFrame(f.id, p)} />
       <FrameVaultFields frame={f} nodes={nodes} patchFrame={patchFrame} deployed={deployed} />
 
       {(regulars < 3 || total % 2 === 0) && (
@@ -6610,6 +6616,13 @@ function MySQLFrameForm({ frame: f, stackId, nodes, frames, edges, patchFrame, d
         </div>
       )}
 
+      {/* Logins are a cluster setting: every member gets the plugins (clusterauth.go). */}
+      <DirectoryAuthFields node={f} nodes={nodes} patchNode={patchFrame} deployed={deployed} kerberos={false}
+        ldapBlocked={(f.psMajor || '8.0') === '5.7' ? 'Percona Server 5.7 has no authentication_ldap_simple — choose 8.0 or newer for LDAP.' : ''} />
+      <KeycloakOidcFields node={f} nodes={nodes} patchNode={patchFrame} deployed={deployed}
+        label="Token login with Keycloak (auth_openid_connect)" pin={PS_REPL_OIDC_PIN} />
+
+      <XtraBackupOptions v={f} nodes={nodes} patch={(p) => patchFrame(f.id, p)} />
       <FrameVaultFields frame={f} nodes={nodes} patchFrame={patchFrame} deployed={deployed} />
 
       {(primaries !== 1 || secondaries === 0) && (
@@ -6979,6 +6992,27 @@ const PS_OIDC_PIN = {
   },
 }
 
+// PXC_OIDC_PIN is PS_OIDC_PIN for a PXC frame, whose series and minor are pxcMajor/pxcVersion.
+// PXC builds trail Percona Server's, so a series can have the plugin on paper while its newest
+// PXC build still predates it (9.7 did) — the note says so, and validation checks the catalog.
+const PXC_OIDC_PIN = {
+  patch: (f) => ({ pxcMajor: psOidcMin(f.pxcMajor || '8.0') ? f.pxcMajor : '8.4', pxcVersion: '' }),
+  note: <>Every member loads <span className="font-mono">auth_openid_connect</span> (PXC 8.4.11-11 / 9.7.2-2 and newer); the bootstrap member creates the accounts and the joiners receive them with their SST.</>,
+  warn: (f) => {
+    const major = f.pxcMajor || '8.0'
+    const min = psOidcMin(major)
+    if (!min) return <>PXC {major} has no <span className="font-mono">auth_openid_connect</span> — set the major to 8.4 above, or turn this off.</>
+    if (f.pxcVersion && !verAtLeast(f.pxcVersion, min)) return <>PXC {f.pxcVersion} predates <span className="font-mono">auth_openid_connect</span> — pick {min} or newer, or leave the minor at latest.</>
+    return null
+  },
+}
+
+// PS_REPL_OIDC_PIN is PS_OIDC_PIN worded for a replication frame.
+const PS_REPL_OIDC_PIN = {
+  ...PS_OIDC_PIN,
+  note: <>Every member loads <span className="font-mono">auth_openid_connect</span> (Percona Server 8.4.11-11 / 9.7.2-2 and newer); the primary creates the accounts and they replicate.</>,
+}
+
 // KeycloakOidcFields renders the shared "Keycloak SSO" design block for the PMM, PostgreSQL
 // and Percona Server forms: an enable toggle + a Keycloak-node picker + realm. `pin` (see
 // above) moves the node onto the version that engine's OIDC support needs and explains why.
@@ -7280,6 +7314,7 @@ function PerconaServerForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
       <KeycloakOidcFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed}
         label="Token login with Keycloak (auth_openid_connect)" pin={PS_OIDC_PIN} />
 
+      <XtraBackupOptions v={n} nodes={nodes} patch={(p) => patchNode(n.id, p)} />
       <VaultFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} />
 
       {!deployed && <p className="text-xs text-muted">Access links and credentials appear here after deploy.</p>}
@@ -12327,6 +12362,41 @@ function InnoDBMemberForm({ node: n, frame, patchNode, dep, deployed }) {
 // PBMOptions renders the "Enable Percona Backup for MongoDB" checkbox + the
 // SeaweedFS-node selector, shared by the PSMDB sharded-cluster and replica-set
 // frame forms. percona-backup-mongodb is installed on every member regardless;
+// XtraBackupOptions turns on Percona XtraBackup → SeaweedFS for a standalone Percona Server node
+// or a replication / PXC cluster (app/mysqlbackup.go). `v` is the node or frame, `patch` applies
+// a change to it. Nothing about it happens at deploy — the bucket config and the binary-log
+// shipper are written by the first backup — so it stays editable on a deployed cluster.
+function XtraBackupOptions({ v, nodes, patch }) {
+  const seaweedNodes = nodes.filter((n) => n.type === 'seaweedfs')
+  return (
+    <>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={!!v.useXtraBackup}
+          onChange={(e) => patch({ useXtraBackup: e.target.checked, ...(e.target.checked && !v.useXtraBackup ? { xbPitr: true } : {}) })} />
+        <span>Back up with Percona XtraBackup to SeaweedFS</span><Help text={HELP.xtrabackup} />
+      </label>
+      {v.useXtraBackup && (
+        <>
+          <Field label="SeaweedFS node (S3 backup storage)" help={HELP.seaweedfsBackup} hint={seaweedNodes.length ? 'Full and incremental backups land in this node\'s bucket; take them from the Backup tab.' : 'Add a SeaweedFS node to the stack first.'}>
+            <select className={inputCls} value={v.seaweedfsNodeId || ''} onChange={(e) => patch({ seaweedfsNodeId: e.target.value })}>
+              <option value="">select a SeaweedFS node…</option>
+              {seaweedNodes.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+            </select>
+          </Field>
+          {!!v.seaweedfsNodeId && (
+            <SeaweedBucketField nodes={nodes} nodeId={v.seaweedfsNodeId} value={v.seaweedfsBucket} deployed={false}
+              onChange={(b) => patch({ seaweedfsBucket: b })} />
+          )}
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={!!v.xbPitr} onChange={(e) => patch({ xbPitr: e.target.checked })} />
+            <span>Ship binary logs for point-in-time restore</span><Help text={HELP.xbPitr} />
+          </label>
+        </>
+      )}
+    </>
+  )
+}
+
 // enabling this configures pbm-agent + the S3 store on the selected SeaweedFS node.
 function PBMOptions({ f, nodes, patchFrame, deployed }) {
   const lock = deployed ? 'opacity-70' : ''
@@ -12534,7 +12604,7 @@ function MongoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, rebuildClu
         onChange={(id) => patchFrame(f.id, { repositoryNodeId: id })} />
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!f.generateCert} disabled={deployed} onChange={(e) => patchFrame(f.id, { generateCert: e.target.checked })} />
-        <span>Generate per-node certificates from Intranet CA</span><Help text={HELP.generateCert} />
+        <span>Generate per-node certificates from Intranet CA (TLS on)</span><Help text={HELP.mongoTLS} />
       </label>
       {f.generateCert && (
         <div className="flex items-center gap-2">
@@ -12702,7 +12772,7 @@ function PSMRSFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed }) 
         onChange={(id) => patchFrame(f.id, { repositoryNodeId: id })} />
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!f.generateCert} disabled={deployed} onChange={(e) => patchFrame(f.id, { generateCert: e.target.checked })} />
-        <span>Generate per-node certificates from Intranet CA</span><Help text={HELP.generateCert} />
+        <span>Generate per-node certificates from Intranet CA (TLS on)</span><Help text={HELP.mongoTLS} />
       </label>
       {f.generateCert && (
         <div className="flex items-center gap-2">
@@ -14084,7 +14154,7 @@ function PSMStandaloneForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
         onChange={(id) => patchNode(n.id, { repositoryNodeId: id })} />
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
         <input type="checkbox" checked={!!n.generateCert} disabled={deployed} onChange={(e) => patchNode(n.id, { generateCert: e.target.checked })} />
-        <span>Generate certificate from Intranet CA</span><Help text={HELP.generateCert} />
+        <span>Generate certificate from Intranet CA (TLS on)</span><Help text={HELP.mongoTLS} />
       </label>
       {n.generateCert && (
         <div className="flex items-center gap-2">
@@ -14964,7 +15034,8 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     // PXC cluster member node.
     if (n.type === 'pxc') {
       if (dep && dep.state === 'running') {
-        return <PXCManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+        const fr = frames.find((x) => x.id === n.frameId)
+        return <PXCManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} xb={fr?.useXtraBackup ? { scope: 'frames', id: fr.id } : null} />
       }
       return <PXCNodeForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} nodes={nodes} patchNode={patchNode} dep={dep} deployed={deployed} />
     }
@@ -14972,7 +15043,8 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     // MySQL replication member node.
     if (n.type === 'mysql') {
       if (dep && dep.state === 'running') {
-        return <MySQLManager stackId={stackId} nodeId={n.id} engine={n.type} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+        const fr = frames.find((x) => x.id === n.frameId)
+        return <MySQLManager stackId={stackId} nodeId={n.id} engine={n.type} dep={dep} onDeleteNode={() => deleteNode(n.id)} xb={fr?.useXtraBackup ? { scope: 'frames', id: fr.id } : null} />
       }
       return <MySQLMemberForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} nodes={nodes} patchNode={patchNode} dep={dep} deployed={deployed} />
     }
@@ -15113,7 +15185,7 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     // Standalone Percona Server node.
     if (n.type === 'ps') {
       if (dep && dep.state === 'running') {
-        return <MySQLManager stackId={stackId} nodeId={n.id} engine={n.type} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+        return <MySQLManager stackId={stackId} nodeId={n.id} engine={n.type} dep={dep} onDeleteNode={() => deleteNode(n.id)} xb={n.useXtraBackup ? { scope: 'nodes', id: n.id } : null} />
       }
       return <PerconaServerForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }

@@ -36,6 +36,10 @@ type oidcInfo struct {
 	Group    string   `json:"group,omitempty"`    // Keycloak group those users belong to
 	Role     string   `json:"role,omitempty"`     // MySQL role that group grants
 	Database string   `json:"database,omitempty"` // schema the role can read
+	// A cluster member's: where accounts are created — "primary" (async replication) or
+	// "galera" (PXC, any member). See dirAuthInfo.Scope.
+	Scope       string `json:"scope,omitempty"`
+	PrimaryFQDN string `json:"primaryFQDN,omitempty"`
 }
 
 // pgOIDCSampleUsers are the Keycloak users created for the PostgreSQL demo, each given a

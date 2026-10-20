@@ -10,12 +10,12 @@ import (
 // asserts the two agree, so moving the log in the config generator fails here
 // rather than silently producing a bundle with no log in it.
 func TestMongoDownloadPathsMatchWhatIsDeployed(t *testing.T) {
-	mongod := mongodConfYAML("rs0", "", true, "", "")
+	mongod := mongodConfYAML("rs0", "", true, "", "", false)
 	want := "path: " + mongoLogPath("")
 	if !strings.Contains(mongod, want) {
 		t.Errorf("mongod.conf does not log to %q:\n%s", mongoLogPath(""), mongod)
 	}
-	router := mongosConfYAML("cfg/h1:27017", "")
+	router := mongosConfYAML("cfg/h1:27017", "", false)
 	want = "path: " + mongoLogPath("mongos")
 	if !strings.Contains(router, want) {
 		t.Errorf("mongos.conf does not log to %q:\n%s", mongoLogPath("mongos"), router)

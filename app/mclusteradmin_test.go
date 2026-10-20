@@ -191,15 +191,15 @@ func TestMCAWritesTheSCRAMMechanismIntoTheConfig(t *testing.T) {
 
 	// And it reaches both files a panel can be pointed at: a replica-set member, and
 	// the mongos a sharded cluster is administered through.
-	conf := mongodConfYAML("rs0", "", true, mongoMCASetParams(true, false, false), "")
+	conf := mongodConfYAML("rs0", "", true, mongoMCASetParams(true, false, false), "", false)
 	if strings.Count(conf, "setParameter:") != 1 || !strings.Contains(conf, "SCRAM-SHA-256") {
 		t.Errorf("mongod.conf is wrong:\n%s", conf)
 	}
-	router := mongosConfYAML("cfg/h1:27017", mongoMCASetParams(true, false, false))
+	router := mongosConfYAML("cfg/h1:27017", mongoMCASetParams(true, false, false), false)
 	if strings.Count(router, "setParameter:") != 1 || !strings.Contains(router, "SCRAM-SHA-256") {
 		t.Errorf("mongos.conf is wrong:\n%s", router)
 	}
-	if strings.Contains(mongosConfYAML("cfg/h1:27017", ""), "setParameter") {
+	if strings.Contains(mongosConfYAML("cfg/h1:27017", "", false), "setParameter") {
 		t.Error("a mongos with no panel accounts should carry no setParameter block")
 	}
 }

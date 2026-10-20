@@ -49,7 +49,11 @@ export default function DbLoginGuide({ engine, info }) {
 psql "host=${node} user=${u} dbname=postgres gssencmode=require"` })
     }
   } else if (engine === 'ps') {
-    blocks.push({ label: "One-time: register the user (run as MySQL root on this node)", text:
+    // A cluster member's account is a cluster's: created where it replicates from.
+    const where = info.scope === 'primary' ? `on the primary, ${info.primaryFQDN} — it replicates to every member`
+      : info.scope === 'galera' ? 'on any member — PXC replicates it to the rest'
+        : 'on this node'
+    blocks.push({ label: `One-time: register the user (run as MySQL root ${where})`, text:
 `CREATE USER '${u}'@'%' IDENTIFIED WITH authentication_ldap_simple;
 GRANT SELECT ON *.* TO '${u}'@'%';   -- grant what you need` })
     blocks.push({ label: 'Log in with an LDAP password (cleartext plugin required)', text:

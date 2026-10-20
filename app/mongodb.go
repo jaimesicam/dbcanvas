@@ -49,6 +49,7 @@ type mongoConfig struct {
 	ExportPort   int    `json:"exportPort"` // host-published 27017 for a member/standalone (0 if unpublished)
 	ConfigDB     string `json:"configDB"`   // configDB connection string (mongos)
 	GenerateCert bool   `json:"generateCert"`
+	TLS          bool   `json:"tls,omitempty"` // net.tls enabled at deploy (preferTLS) with the GenerateCert cert
 	UseProxy     bool   `json:"useProxy"`
 	MonitoredBy  string `json:"monitoredBy"`
 	Ports        []int  `json:"ports"`
@@ -289,7 +290,7 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 			Cluster: frame.Label, Image: image, OS: frame.OS, Arch: archOr(frame.Arch),
 			Role: n.Role, Shard: n.Shard, ReplSet: replSetOf(n), Hostname: host, FQDN: fqdnOf(host, domain),
 			PSMDBMajor: major, Version: frame.PSMDBVersion, ConfigDB: configDB,
-			GenerateCert: frame.GenerateCert, UseProxy: frame.UseProxy, MonitoredBy: monitoredBy,
+			GenerateCert: frame.GenerateCert, TLS: mongoTLSOn(frame), UseProxy: frame.UseProxy, MonitoredBy: monitoredBy,
 			EnablePBM: frame.EnablePBM, BackupRepo: pbmRepo,
 			Ports: []int{mongoPort},
 		}
@@ -367,7 +368,7 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 		// ---- Phase 3: start mongos + add the shards ----
 		mpr := progs[mongos.ID]
 		mpr.phase("Starting mongos router", 80)
-		if err := a.mongoStartMongos(ctx, st, *mongos, configDB, paramsOf(*mongos), progs[mongos.ID]); err != nil {
+		if err := a.mongoStartMongos(ctx, st, *mongos, configDB, paramsOf(*mongos), mongoTLSOn(frame), progs[mongos.ID]); err != nil {
 			return
 		}
 		var shardSpecs []string
@@ -596,7 +597,7 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 			Cluster: frame.Label, Image: image, OS: frame.OS, Arch: archOr(frame.Arch),
 			Role: "member", ReplSet: rs, Hostname: host, FQDN: fqdnOf(host, domain),
 			PSMDBMajor: major, Version: frame.PSMDBVersion,
-			GenerateCert: frame.GenerateCert, UseProxy: frame.UseProxy, MonitoredBy: monitoredBy,
+			GenerateCert: frame.GenerateCert, TLS: mongoTLSOn(frame), UseProxy: frame.UseProxy, MonitoredBy: monitoredBy,
 			EnablePBM: frame.EnablePBM, BackupRepo: pbmRepo,
 			Ports:        []int{mongoPort},
 			VectorSearch: frame.VectorSearch, SearchHost: searchAddr, MongotHere: frame.VectorSearch && i == 0,
@@ -792,7 +793,7 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 	cfg := mongoConfig{
 		Cluster: "", Image: image, OS: n.OS, Arch: archOr(n.Arch), Role: "standalone",
 		Hostname: host, FQDN: fqdnOf(host, domain), PSMDBMajor: major, Version: n.PSMDBVersion,
-		GenerateCert: n.GenerateCert, UseProxy: n.UseProxy, MonitoredBy: monitoredBy,
+		GenerateCert: n.GenerateCert, TLS: mongoTLSOn(frame), UseProxy: n.UseProxy, MonitoredBy: monitoredBy,
 		Ports:            []int{mongoPort},
 		OIDCEnabled:      n.EnableOIDC,
 		OIDCIssuer:       oidcIssuer,
@@ -1083,11 +1084,13 @@ func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	}
 
 	// Per-node TLS material (CA-signed) when requested. Written to every node type
-	// (config / shard / mongos / standalone); TLS is not auto-enabled — the manager's
-	// TLS tab documents how to turn it on. Best-effort.
+	// (config / shard / mongos / standalone). Fatal: the certificate turns TLS on in
+	// mongod.conf, and mongod will not start on a certificateKeyFile that does not exist.
 	if frame.GenerateCert {
 		pr.phase("Issuing certificate", 52)
-		a.mongoApplyCert(ctx, id, intranetID, fqdnOf(host, domain), host, frame.CertTTLValue, frame.CertTTLUnit, pr.logln)
+		if err := a.mongoApplyCert(ctx, id, intranetID, fqdnOf(host, domain), host, frame.CertTTLValue, frame.CertTTLUnit, pr.logln); err != nil && mongoTLSOn(frame) {
+			return pr.fail("issue TLS certificate: %v", err)
+		}
 	}
 
 	if n.Role == "mongos" {
@@ -1117,7 +1120,7 @@ func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame,
 		}
 		vaultBlock = vault.Block
 	}
-	conf := mongodConfYAML(replSet, clusterRole, sec.KeyFile != "", setParams, vaultBlock)
+	conf := mongodConfYAML(replSet, clusterRole, sec.KeyFile != "", setParams, vaultBlock, mongoTLSOn(frame))
 	if err := a.engCtx(ctx).CopyFile(ctx, id, "/etc", "mongod.conf", 0o644, []byte(conf)); err != nil {
 		return pr.fail("write mongod.conf: %v", err)
 	}
@@ -1131,13 +1134,31 @@ func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame,
 // mongoCertDir is where a node's per-node TLS material lives when GenerateCert is on.
 const mongoCertDir = "/etc/mongo/certs"
 
+// mongoTLSOn reports whether a MongoDB frame (or a standalone's synthetic frame) turns
+// TLS on at deploy: a node given an Intranet-CA certificate serves it, as every other
+// engine's node does.
+func mongoTLSOn(f designFrame) bool { return f.GenerateCert }
+
+// mongoTLSYAML is the net.tls sub-block written into mongod.conf / mongos.conf when
+// the node has a certificate (mongoTLSOn). preferTLS, not requireTLS: members and mongos talk TLS to each
+// other (each presents its own CA-signed cert, which carries clientAuth), and a client
+// that asks for TLS gets it — while the plaintext localhost connections every deploy
+// step, PMM, PBM and mongot make keep working. requireTLS is one live setParameter
+// away (tlsMode) once that is what the lab needs. allowConnectionsWithoutCertificates
+// lets password users connect over TLS without an X.509 client certificate.
+const mongoTLSYAML = `  tls:
+    mode: preferTLS
+    certificateKeyFile: ` + mongoCertDir + `/server.pem
+    CAFile: ` + mongoCertDir + `/ca.crt
+    allowConnectionsWithoutCertificates: true
+`
+
 // mongoApplyCert issues a per-node CA-signed certificate for a MongoDB node and writes
 // it as a MongoDB-style PEM (certificate followed by its private key — the format
 // mongod's certificateKeyFile wants) plus the CA cert, under mongoCertDir, owned by
-// mongod. It deliberately does NOT enable TLS in mongod.conf: turning on cluster TLS is
-// an all-members-at-once operator step (see the node's TLS docs in the manager), so this
-// only makes the signed material available on the node. Best-effort — a failure is
-// logged, never fatal (the node runs fine without TLS).
+// mongod. It never touches mongod.conf itself: TLS is wired at deploy by mongodConfYAML /
+// mongosConfYAML (mongoTLSOn → mongoTLSYAML). Errors are logged and returned; the caller
+// decides whether they are fatal.
 func (a *App) mongoApplyCert(ctx context.Context, containerID, intranetID, fqdn, host string, ttlValue int, ttlUnit string, logln func(string)) error {
 	if logln == nil {
 		logln = func(string) {}
@@ -1179,7 +1200,7 @@ func (a *App) mongoApplyCert(ctx context.Context, containerID, intranetID, fqdn,
 		logln("per-node certificate FAILED: " + err.Error())
 		return err
 	}
-	logln("per-node certificate written to " + mongoCertDir + "/server.pem (TLS not auto-enabled — see the node's TLS tab)")
+	logln("per-node certificate written to " + mongoCertDir + "/server.pem")
 	return nil
 }
 
@@ -1564,10 +1585,11 @@ func (a *App) mongoRegisterPMM(ctx context.Context, st Stack, node designNode, o
 	}
 }
 
-// mongoStartMongos writes mongos.conf + the mongos systemd unit and starts it.
-func (a *App) mongoStartMongos(ctx context.Context, st Stack, mongos designNode, configDB, setParams string, pr *pxcProg) error {
+// mongoStartMongos writes mongos.conf + the mongos systemd unit and starts it. tls
+// turns on net.tls with the certificate mongoPrepareNode issued on this node.
+func (a *App) mongoStartMongos(ctx context.Context, st Stack, mongos designNode, configDB, setParams string, tls bool, pr *pxcProg) error {
 	dep, _ := a.store.GetDeployment(st.ID, mongos.ID)
-	if err := a.engCtx(ctx).CopyFile(ctx, dep.ContainerID, "/etc", "mongos.conf", 0o644, []byte(mongosConfYAML(configDB, setParams))); err != nil {
+	if err := a.engCtx(ctx).CopyFile(ctx, dep.ContainerID, "/etc", "mongos.conf", 0o644, []byte(mongosConfYAML(configDB, setParams, tls))); err != nil {
 		return pr.fail("write mongos.conf: %v", err)
 	}
 	if err := a.engCtx(ctx).CopyFile(ctx, dep.ContainerID, "/etc/systemd/system", "mongos.service", 0o644, []byte(mongosUnit)); err != nil {
@@ -1600,11 +1622,15 @@ func (a *App) mongoAddShards(ctx context.Context, st Stack, mongos designNode, s
 // non-empty, is an already-rendered "setParameter:" block (e.g. MONGODB-OIDC). vault,
 // when non-empty, is the rendered security.vault sub-block (dbvault.go) and must go
 // *inside* the security block — mongod reads encryption settings only at first start.
-func mongodConfYAML(replSet, clusterRole string, useKeyFile bool, setParams, vault string) string {
+// tls adds net.tls (mongoTLSYAML).
+func mongodConfYAML(replSet, clusterRole string, useKeyFile bool, setParams, vault string, tls bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "storage:\n  dbPath: %s\n", mongoDataDir)
 	fmt.Fprintf(&b, "systemLog:\n  destination: file\n  path: %s/mongod.log\n  logAppend: true\n", mongoLogDir)
 	fmt.Fprintf(&b, "net:\n  port: %d\n  bindIpAll: true\n", mongoPort)
+	if tls {
+		b.WriteString(mongoTLSYAML)
+	}
 	fmt.Fprintf(&b, "processManagement:\n  fork: false\n  pidFilePath: %s/mongod.pid\n", mongoRunDir)
 	if useKeyFile {
 		fmt.Fprintf(&b, "security:\n  keyFile: %s\n  authorization: enabled\n", mongoKeyFile)
@@ -1720,10 +1746,13 @@ mk("keycloak/bob@%s","keycloak/developers");`, domain, domain)
 // A sharded cluster is administered through mongos, so the mechanism has to be
 // advertised here as well as on the shards behind it — a router that will not
 // negotiate SCRAM-SHA-256 refuses the panel no matter what the config servers say.
-func mongosConfYAML(configDB, setParams string) string {
+func mongosConfYAML(configDB, setParams string, tls bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "systemLog:\n  destination: file\n  path: %s/mongos.log\n  logAppend: true\n", mongoLogDir)
 	fmt.Fprintf(&b, "net:\n  port: %d\n  bindIpAll: true\n", mongoPort)
+	if tls {
+		b.WriteString(mongoTLSYAML)
+	}
 	fmt.Fprintf(&b, "processManagement:\n  fork: false\n  pidFilePath: %s/mongos.pid\n", mongoRunDir)
 	fmt.Fprintf(&b, "security:\n  keyFile: %s\n", mongoKeyFile)
 	fmt.Fprintf(&b, "sharding:\n  configDB: %s\n", configDB)

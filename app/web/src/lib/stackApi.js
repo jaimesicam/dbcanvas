@@ -350,6 +350,23 @@ export function frameApi(id, fid) {
   }
 }
 
+// Percona XtraBackup → SeaweedFS (app/mysqlbackup.go) for a standalone Percona Server node
+// (scope 'nodes', tid = node id) or a Percona Server replication / PXC cluster (scope 'frames',
+// tid = frame id).
+export function xbApi(id, scope, tid) {
+  const base = `/api/stacks/${id}/${scope}/${tid}/xb`
+  return {
+    // { type: 'full' | 'incremental' }
+    backup: (type = 'full') => request('POST', `${base}/backup`, { type }),
+    // The catalog, whether binary logs are shipped, and the point-in-time window.
+    backups: () => request('GET', `${base}/backups`),
+    // { mode: 'backup', name } | { mode: 'latest' } | { mode: 'time', time: RFC 3339 }
+    restore: (body) => request('POST', `${base}/restore`, body),
+    // Deletes the backup and every incremental built on it.
+    remove: (name) => request('POST', `${base}/delete`, { name }),
+  }
+}
+
 // Standalone PostgreSQL node management. `nid` is the design node id.
 export function pgApi(id, nid) {
   const base = `/api/stacks/${id}/nodes/${nid}`

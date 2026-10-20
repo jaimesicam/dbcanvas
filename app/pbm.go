@@ -294,7 +294,8 @@ export PBM_MONGODB_URI="$PBM_URI"
 for i in $(seq 1 10); do pbm status >/dev/null 2>&1 && break; sleep 2; done
 pbm config --file /etc/pbm-storage.yaml`
 
-// pbmBackupScript runs an on-demand logical backup and waits for PBM to accept it.
+// pbmBackupScript runs an on-demand logical backup and waits for it to finish, so the
+// "Backup completed" notification and the cluster's backup chip see the new snapshot.
 const pbmBackupScript = `set -e
 export PBM_MONGODB_URI="$PBM_URI"
-pbm backup`
+pbm backup --wait`

@@ -194,7 +194,8 @@ func (b *composeBuilder) fixPrerequisites() {
 		}
 	}
 
-	usesOIDC := slices.ContainsFunc(b.doc.Nodes, func(n designNode) bool { return n.EnableOIDC })
+	usesOIDC := slices.ContainsFunc(b.doc.Nodes, func(n designNode) bool { return n.EnableOIDC }) ||
+		slices.ContainsFunc(b.doc.Frames, func(f designFrame) bool { return f.EnableOIDC })
 	if !usesOIDC {
 		return
 	}
@@ -390,14 +391,23 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 	// options a kind does not support; a version that does not support one is the
 	// same silence, and reusing the validator's own predicate keeps the two from
 	// drifting apart.
-	if s.OIDC && kind.Kind == "ps" {
-		if ok, min := mysqlOIDCSupported(major, minor); !ok {
+	if s.OIDC && (kind.Kind == "ps" || kind.Kind == "ps-repl" || kind.Kind == "pxc") {
+		have := minor
+		if have == "" && kind.Kind == "pxc" {
+			// PXC's newest build of a series can predate the plugin (9.7 does), so "latest"
+			// has to be looked up rather than assumed — as frameAuthIssues does.
+			have = catalogNewest(kind.Catalog, os_, osVer, arch, major)
+		}
+		if ok, min := mysqlOIDCSupported(major, have); !ok {
 			if min == "" {
 				min = mysqlOIDCMinVersion
 			}
-			return fmt.Errorf("ps: %q needs Percona Server 8.4.11-11 / 9.7.2-2 or newer "+
+			if have == "" {
+				have = major
+			}
+			return fmt.Errorf("%s: %q needs 8.4.11-11 / 9.7.2-2 or newer "+
 				"(auth_openid_connect arrived there); %s was resolved. Try version=%s or later",
-				"oidc", minor, strings.SplitN(min, "-", 2)[0])
+				kind.Kind, "oidc", have, strings.SplitN(min, "-", 2)[0])
 		}
 	}
 

@@ -11,6 +11,7 @@ import { SecretValue } from '../components/Secret.jsx'
 import { Help } from '../components/Tooltip.jsx'
 import { DEP_HELP } from '../lib/help.js'
 import { useFollowedState } from '../session/SessionProvider.jsx'
+import XtraBackupPanel from '../components/XtraBackupPanel.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -18,6 +19,7 @@ const TABS = [
   { id: 'dirlogin', label: 'Directory Login' },
   { id: 'sso', label: 'Keycloak SSO' },
   { id: 'encryption', label: 'Encryption' },
+  { id: 'backup', label: 'Backup' },
   { id: 'diag', label: 'Diagnostics' },
 ]
 
@@ -44,7 +46,9 @@ function KV({ k, v, mono, help }) {
 // engine is the node's own type — "ps" standalone, "pxc" or "mysql" for a cluster member,
 // "mariadb" for the MariaDB family. Only the Encryption tab cares: a member's keyring guide has
 // to say what belongs to this member and what belongs to the cluster (see VaultGuide).
-export default function MySQLManager({ stackId, nodeId, engine = 'ps', dep, onDeleteNode }) {
+// xb, when set, is where XtraBackup backups of this node live — { scope: 'nodes' | 'frames', id }
+// (the node itself, or its cluster): see XtraBackupPanel.
+export default function MySQLManager({ stackId, nodeId, engine = 'ps', dep, onDeleteNode, xb = null }) {
   const [tab, setTab] = useFollowedState(`tab:${nodeId}`, 'overview')
   const { openTerminal } = useTerminals()
   const cfg = dep.config || {}
@@ -60,7 +64,7 @@ export default function MySQLManager({ stackId, nodeId, engine = 'ps', dep, onDe
       </div>
 
       <div className="flex flex-wrap gap-1 rounded-lg bg-surface2 p-1">
-        {TABS.filter((t) => (t.id !== 'dirlogin' || cfg.dirAuth?.enabled) && (t.id !== 'sso' || cfg.oidc?.enabled) && (t.id !== 'encryption' || cfg.vault?.enabled)).map((t) => (
+        {TABS.filter((t) => (t.id !== 'dirlogin' || cfg.dirAuth?.enabled) && (t.id !== 'sso' || cfg.oidc?.enabled) && (t.id !== 'encryption' || cfg.vault?.enabled) && (t.id !== 'backup' || xb)).map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
             className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${tab === t.id ? 'bg-surface text-fg shadow' : 'text-muted'}`}>
             {t.label}
@@ -133,6 +137,7 @@ export default function MySQLManager({ stackId, nodeId, engine = 'ps', dep, onDe
       {tab === 'dirlogin' && <DbLoginGuide engine="ps" info={cfg.dirAuth} />}
       {tab === 'sso' && <OidcLoginGuide engine="ps" info={cfg.oidc} secrets={sec} />}
       {tab === 'encryption' && <VaultGuide engine={engine} info={cfg.vault} />}
+      {tab === 'backup' && xb && <XtraBackupPanel stackId={stackId} scope={xb.scope} id={xb.id} kind={engine} />}
       {tab === 'diag' && <PTStalkCard stackId={stackId} nodeId={nodeId} />}
     </div>
   )

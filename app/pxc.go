@@ -457,8 +457,12 @@ func (a *App) provisionPXCFrame(st Stack, frame designFrame, doc designDoc) {
 		if err := a.pxcBootstrap(ctx, st, frame, regulars[0], hosts[regulars[0].ID], domain, intranetID, sec, bootProg); err != nil {
 			return
 		}
+		// LDAP / Keycloak logins go on while the bootstrap member is still alone, and onto each
+		// joiner before it starts (clusterauth.go).
+		a.pxcBootstrapAuth(ctx, st, frame, doc, regulars[0], sec, bootProg)
 		for _, n := range regulars[1:] {
 			pr := a.pxcNewProg(st.ID, n.ID)
+			a.pxcStageAuth(ctx, st, frame, doc, n, sec, pr)
 			pr.phase("Joining cluster (SST)", 65)
 			if err := a.pxcJoin(ctx, st, frame, n, hosts[n.ID], domain, intranetID, sec, pr); err != nil {
 				return

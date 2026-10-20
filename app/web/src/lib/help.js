@@ -85,6 +85,13 @@ export const HELP = {
     'database to use it, so traffic in the stack is encrypted and clients can actually verify who they connected ' +
     'to. The CA is trusted by every node in the stack and by the VNC desktop\'s browser, so nothing has to be ' +
     'told to skip verification. Needs an Intranet node.',
+  mongoTLS:
+    'Issue a certificate signed by the Intranet CA and turn TLS on in mongod (and mongos) at deploy: a net.tls block with ' +
+    'mode preferTLS, the Intranet CA as CAFile, and allowConnectionsWithoutCertificates so password users ' +
+    'connect over TLS without a client certificate. Members and the router talk TLS to each other; plaintext ' +
+    'clients (PMM, PBM and DBCanvas\'s own tooling on localhost) keep working. Needs an Intranet node. Escalate to requireTLS live ' +
+    'with setParameter tlsMode once nothing plaintext is left. With a short certificate TTL the cluster ' +
+    'stops talking to itself the moment the certificate expires — reissue it from the node\'s TLS tab.',
   certTTL:
     'How long the issued certificate stays valid. The default is a year; set it to minutes or hours when the point ' +
     'of the exercise is to watch what breaks the moment a certificate expires.',
@@ -163,6 +170,16 @@ export const HELP = {
     'on unless you are specifically demonstrating the old way.',
 
   // --- storage & backup ----------------------------------------------------
+  xtrabackup:
+    'Back the server up with Percona XtraBackup, streamed by xbcloud into the SeaweedFS node\'s S3 bucket under ' +
+    'xtrabackup/<cluster>/. Full and incremental backups are taken on demand from the Backup tab; an incremental ' +
+    'continues the newest backup, on the member that took it. Restore puts one backup back as it was taken, or ' +
+    '(with binary-log shipping) the latest point or any moment since the first backup. A replication cluster ' +
+    'restores every member and re-attaches the replicas; PXC restores the bootstrap member and the rest rejoin by SST.',
+  xbPitr:
+    'Ship every member\'s closed binary logs to the bucket every minute, closing the current one every five minutes ' +
+    'when it has grown, so a restore can replay on top of a backup to a point in time. A restore closes and ships ' +
+    'the current binary log first, so the moments up to the restore are reachable too.',
   seaweedfsBackup:
     'Send backups to the SeaweedFS node\'s S3 endpoint, which stands in for S3 without leaving the stack. Add a ' +
     'SeaweedFS node to the canvas to make this available.',

@@ -172,6 +172,13 @@ func mysqlOIDCIDPJSON(issuer, clientID string) string {
 
 // applyMySQLOIDC configures Percona Server on containerID to accept Keycloak ID tokens.
 func (a *App) applyMySQLOIDC(ctx context.Context, st Stack, n designNode, doc designDoc, containerID string, sec pxcSecrets, pr *pxcProg) error {
+	return a.applyMySQLOIDCStep(ctx, st, n, doc, containerID, sec, mysqlAuthStep{Unit: mysqlUnit(n.OS), Restart: true, SQL: true}, pr)
+}
+
+// applyMySQLOIDCStep is applyMySQLOIDC with the step spelled out, for a cluster member (see
+// clusterauth.go): step.SQL creates the demo schema and the accounts, which a cluster does once
+// and replicates; step.Restart=false only stages the files for a server yet to start.
+func (a *App) applyMySQLOIDCStep(ctx context.Context, st Stack, n designNode, doc designDoc, containerID string, sec pxcSecrets, step mysqlAuthStep, pr *pxcProg) error {
 	pr.phase("Configuring Keycloak OIDC (auth_openid_connect)", 96)
 	host, ssl, kcID, adminPW, ok := a.waitKeycloak(ctx, st.ID, n.KeycloakNodeID, deployTimeout())
 	if !ok {
@@ -212,7 +219,9 @@ func (a *App) applyMySQLOIDC(ctx context.Context, st Stack, n designNode, doc de
 		"IDP=" + mysqlOIDCIDPName,
 		"IDPJSON=" + mysqlOIDCIDPJSON(issuer, mysqlOIDCClientID),
 		"CONFFILE=" + mysqlOIDCConfigFile,
-		"UNIT=" + mysqlUnit(n.OS),
+		"UNIT=" + step.Unit,
+		"RESTART=" + boolEnv(step.Restart),
+		"SQL=" + boolEnv(step.SQL),
 		"ROOTPW=" + sec.RootPassword,
 		"USERS=" + strings.Join(pairs, " "),
 		"ROLE=" + mysqlOIDCRole,
@@ -229,20 +238,30 @@ func (a *App) applyMySQLOIDC(ctx context.Context, st Stack, n designNode, doc de
 		ConsoleURL: keycloakIssuer(host, ssl),
 		NodeFQDN:   fqdnOf(stackHostnames(doc)[n.ID], domain),
 		Users:      names, Group: mysqlOIDCGroup, Role: mysqlOIDCRole, Database: mysqlOIDCDatabase,
+		Scope: step.Scope, PrimaryFQDN: step.PrimaryFQDN,
 	})
 	// The sample users are useless without their password, so the panel shows it (like the
 	// PSMDB node's tab does). It goes in the node's own secrets, not in pxcSecrets — that
 	// struct is shared with PXC, which has no OIDC plugin to speak of.
 	a.persistSecretKey(st, n.ID, "oidcSamplePassword", keycloakUserPassword())
-	pr.logln("auth_openid_connect configured (issuer " + issuer + ", accounts " + strings.Join(names, ", ") + ")")
+	switch {
+	case step.SQL:
+		pr.logln("auth_openid_connect configured (issuer " + issuer + ", accounts " + strings.Join(names, ", ") + ")")
+	case step.Restart:
+		pr.logln("auth_openid_connect loaded (issuer " + issuer + "); the accounts come from the cluster")
+	default:
+		pr.logln("auth_openid_connect staged for the first start (issuer " + issuer + ")")
+	}
 	return nil
 }
 
 // mysqlOIDCScript loads auth_openid_connect from /etc/my.cnf against $CONFFILE, restarts
 // mysqld, then creates the demo schema, the group-mapped role and one MySQL account per
-// Keycloak user, plus the /usr/local/bin/oidc-login helper.
-// Env: IDP, IDPJSON, CONFFILE, UNIT, ROOTPW, USERS ("name:sub …"), ROLE, DB, CLIENT_ID,
-// TOKEN_URL, MINVER.
+// Keycloak user, plus the /usr/local/bin/oidc-login helper. RESTART=0 leaves mysqld alone (a
+// server yet to start reads the block on its first start) and SQL=0 skips the schema and
+// accounts — a cluster member that gets them by replication.
+// Env: IDP, IDPJSON, CONFFILE, UNIT, RESTART, SQL, ROOTPW, USERS ("name:sub …"), ROLE, DB,
+// CLIENT_ID, TOKEN_URL, MINVER.
 const mysqlOIDCScript = `set -e
 PLUG=$(find /usr/lib64/mysql/plugin /usr/lib/mysql/plugin /usr/lib/*/mysql/plugin -name auth_openid_connect.so 2>/dev/null | head -1)
 [ -n "$PLUG" ] || { echo "auth_openid_connect.so is not in this build — Percona Server $MINVER or newer is required"; exit 1; }
@@ -257,6 +276,7 @@ fi
 printf '%s\n' "$IDPJSON" > "$CONFFILE"
 chmod 640 "$CONFFILE"; chown root:mysql "$CONFFILE" 2>/dev/null || true
 CNF=/etc/my.cnf
+touch "$CNF"
 cp -f "$CNF" /tmp/my.cnf.pre-oidc
 sed -i "/# dbcanvas-oidc-begin/,/# dbcanvas-oidc-end/d" "$CNF"
 cat >> "$CNF" <<EOF
@@ -267,6 +287,7 @@ plugin-load-add=auth_openid_connect.so
 auth_openid_connect_configuration=FILE://$CONFFILE
 # dbcanvas-oidc-end
 EOF
+if [ "$RESTART" != "0" ]; then
 # A bad option file keeps mysqld down, so put the old one back rather than leave a dead node.
 if ! systemctl restart "$UNIT"; then
   cp -f /tmp/my.cnf.pre-oidc "$CNF"; systemctl restart "$UNIT" || true
@@ -278,7 +299,9 @@ if [ "$STATUS" != "ACTIVE" ]; then
   cp -f /tmp/my.cnf.pre-oidc "$CNF"; systemctl restart "$UNIT" || true
   echo "auth_openid_connect did not load — reverted /etc/my.cnf"; exit 1
 fi
+fi
 rm -f /tmp/my.cnf.pre-oidc
+if [ "$SQL" != "0" ]; then
 {
   echo "CREATE DATABASE IF NOT EXISTS $DB;"
   echo "CREATE TABLE IF NOT EXISTS $DB.invoices (id INT PRIMARY KEY, amount DECIMAL(10,2));"
@@ -293,6 +316,7 @@ rm -f /tmp/my.cnf.pre-oidc
 } > /tmp/dbcanvas-oidc.sql
 mysql -uroot -p"$ROOTPW" < /tmp/dbcanvas-oidc.sql
 rm -f /tmp/dbcanvas-oidc.sql
+fi
 cat > /usr/local/bin/oidc-login <<EOS
 #!/bin/sh
 # Written by DBCanvas. Trades a Keycloak password for an ID token, then logs into MySQL with it.
@@ -316,4 +340,4 @@ curl -sS -X POST "$TOKEN_URL" -d grant_type=password -d client_id="$CLIENT_ID" -
 mysql --user="$U" --authentication-openid-connect-client-id-token-file="$TOK" "$@"
 EOS
 chmod 755 /usr/local/bin/oidc-login
-echo "auth_openid_connect ACTIVE; accounts created; oidc-login installed"`
+echo "auth_openid_connect configured (restart=$RESTART, accounts=$SQL); oidc-login installed"`

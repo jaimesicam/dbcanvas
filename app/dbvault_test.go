@@ -219,7 +219,7 @@ func TestKeyringOptionsLandInTheNodeConfig(t *testing.T) {
 // and verify TLS with the Intranet CA already on the node.
 func TestMongoVaultBlockInConf(t *testing.T) {
 	block := mongoVaultBlock("bao01.example.net", "mongodb-psm01/data/psm01", intranetCAAnchor, true)
-	conf := mongodConfYAML("", "", false, "", block)
+	conf := mongodConfYAML("", "", false, "", block, false)
 	for _, want := range []string{
 		"security:\n  authorization: enabled\n  enableEncryption: true\n  vault:\n",
 		"    serverName: bao01.example.net",
@@ -242,7 +242,7 @@ func TestMongoVaultBlockInConf(t *testing.T) {
 	}
 
 	// A node with no encryption gets no vault block at all.
-	if off := mongodConfYAML("rs0", "", true, "", ""); strings.Contains(off, "enableEncryption") {
+	if off := mongodConfYAML("rs0", "", true, "", "", false); strings.Contains(off, "enableEncryption") {
 		t.Errorf("mongod.conf should carry no encryption when vault is off:\n%s", off)
 	}
 }

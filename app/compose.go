@@ -286,16 +286,22 @@ var composeLinks = []composeLink{
 	{Option: "ldap", Provides: []string{"intranet", "sambaad"},
 		Missing: `add {"kind":"intranet"} or {"kind":"sambaad"}`,
 		Apply: func(id string, n *designNode, f *designFrame) {
-			if n != nil {
-				n.LdapAuth, n.LdapDirNodeID = true, id
-			} else {
+			switch {
+			case f != nil && mysqlAuthFrameType(f.Type):
+				f.LdapAuth, f.LdapDirNodeID = true, id // every member, from the frame (clusterauth.go)
+			case f != nil:
 				f.UseLDAP = true // valkeycluster wires its members from the frame
+			case !mysqlAuthFrameType(n.Type):
+				n.LdapAuth, n.LdapDirNodeID = true, id
 			}
 		}},
 	{Option: "oidc", Provides: []string{"keycloak"},
 		Missing: `add {"kind":"keycloak"} to the spec`,
 		Apply: func(id string, n *designNode, f *designFrame) {
-			if n != nil {
+			switch {
+			case f != nil && mysqlAuthFrameType(f.Type):
+				f.EnableOIDC, f.KeycloakNodeID = true, id
+			case n != nil && !mysqlAuthFrameType(n.Type):
 				n.EnableOIDC, n.KeycloakNodeID = true, id
 			}
 		}},
@@ -344,10 +350,17 @@ var composeLinks = []composeLink{
 					f.UseBarman = true
 				case "psmrs", "psmdb":
 					f.EnablePBM = true
+				case "pxc", "mysql":
+					f.UseXtraBackup, f.XBPITR = true, true
 				}
 				return
 			}
-			n.UsePgBackRest, n.SeaweedFSNodeID = true, id
+			n.SeaweedFSNodeID = id
+			if n.Type == "ps" {
+				n.UseXtraBackup, n.XBPITR = true, true
+			} else {
+				n.UsePgBackRest = true
+			}
 		}},
 	{Option: "orchestrator", Provides: []string{"orchestrator"},
 		Missing: `add {"kind":"orchestrator"} to the spec`,
@@ -475,8 +488,8 @@ var composeKinds = []composeKind{
 	// --- standalone engines -------------------------------------------------
 	{Kind: "ps", Type: "ps", CanShape: true, Catalog: "percona_server",
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) { n.PSMajor, n.PSVersion = major, minor }, CanExport: true, CanCert: true, CanGTID: true,
-		Links: []string{"monitor", "ldap", "oidc", "vault"},
-		About: "Percona Server for MySQL, standalone."},
+		Links: []string{"monitor", "ldap", "oidc", "backup", "vault"},
+		About: "Percona Server for MySQL, standalone. backup=true is Percona XtraBackup to SeaweedFS, with binary-log shipping for point-in-time restore."},
 	{Kind: "pg", Type: "pg", CanShape: true, Catalog: "percona_postgresql",
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) { n.PGMajor, n.PGVersion = major, minor }, CanExport: true, CanCert: true,
 		Scalars: []string{"pgvector", "pgaudit", "pgauditLog", "setUser", "pgbench", "tdeWal"},
@@ -486,7 +499,7 @@ var composeKinds = []composeKind{
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) { n.PSMDBMajor, n.PSMDBVersion = major, minor }, CanExport: true, CanCert: true,
 		Scalars: []string{"mca"},
 		Links:   []string{"monitor", "ldap", "oidc", "kerberos", "vault"},
-		About:   "Percona Server for MongoDB, standalone. mca=true adds the MClusterAdmin accounts."},
+		About:   "Percona Server for MongoDB, standalone. mca=true adds the MClusterAdmin accounts; cert=true issues an Intranet-CA certificate and turns TLS on (preferTLS)."},
 	{Kind: "mariadb", Type: "mariadb", CanShape: true, Catalog: "mariadb",
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) {
 			n.MariaDBMajor, n.MariaDBVersion = major, minor
@@ -543,14 +556,14 @@ var composeKinds = []composeKind{
 		Catalog:    "percona_xtradb_cluster",
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) { f.PXCMajor, f.PXCVersion = major, minor },
 		Roles:      func(i, of int) string { return "regular" }, CanCert: true, CanGTID: true, CanExport: true,
-		Links: []string{"monitor", "vault"},
-		About: "Percona XtraDB Cluster. \"count\" is the member count (default 3)."},
+		Links: []string{"monitor", "ldap", "oidc", "backup", "vault"},
+		About: "Percona XtraDB Cluster. \"count\" is the member count (default 3). backup=true is Percona XtraBackup to SeaweedFS, with binary-log shipping for point-in-time restore."},
 	{Kind: "ps-repl", Type: "mysql", CanShape: true, Scalars: []string{"replMode"}, Frame: true, Members: 3, MinMembers: 2, MaxMembers: 9,
 		Catalog:    "percona_server",
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) { f.PSMajor, f.PSVersion = major, minor },
 		Roles:      primaryFirst, CanCert: true, CanGTID: true, CanExport: true,
-		Links: []string{"monitor", "orchestrator", "vault"},
-		About: "Percona Server asynchronous replication."},
+		Links: []string{"monitor", "ldap", "oidc", "orchestrator", "backup", "vault"},
+		About: "Percona Server asynchronous replication. backup=true is Percona XtraBackup to SeaweedFS, with binary-log shipping for point-in-time restore."},
 	{Kind: "patroni", Type: "patroni", CanShape: true, Frame: true, Members: 3, MinMembers: 2, MaxMembers: 7,
 		Catalog:    "percona_postgresql",
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) { f.PGMajor, f.PGVersion = major, minor }, CanCert: true,
@@ -568,7 +581,7 @@ var composeKinds = []composeKind{
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) { f.PSMDBMajor, f.PSMDBVersion = major, minor }, CanCert: true,
 		Scalars: []string{"mca"},
 		Links:   []string{"monitor", "backup"},
-		About:   "A Percona Server for MongoDB replica set. mca=true adds the MClusterAdmin accounts."},
+		About:   "A Percona Server for MongoDB replica set. mca=true adds the MClusterAdmin accounts; cert=true issues Intranet-CA certificates and turns TLS on (preferTLS)."},
 	{Kind: "valkey-cluster", Type: "valkeycluster", CanShape: true, Frame: true, Members: 3, MinMembers: 3, MaxMembers: 7,
 		Catalog:    "percona_valkey",
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) { f.ValkeyVersion = minor },
@@ -636,7 +649,7 @@ var composeKinds = []composeKind{
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) { f.PSMDBMajor, f.PSMDBVersion = major, minor },
 		CanCert:    true,
 		Links:      []string{"monitor", "backup"},
-		About:      "A sharded PS MongoDB cluster. setup=standard (13 nodes) or minimum (5). mca=true adds the MClusterAdmin accounts."},
+		About:      "A sharded PS MongoDB cluster. setup=standard (13 nodes) or minimum (5). mca=true adds the MClusterAdmin accounts; cert=true issues Intranet-CA certificates and turns TLS on (preferTLS)."},
 
 	// --- application simulators ---------------------------------------------
 	//

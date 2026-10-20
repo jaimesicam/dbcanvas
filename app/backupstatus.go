@@ -20,7 +20,7 @@ import (
 // line); the badge says so rather than guessing.
 
 type backupInfo struct {
-	Engine  string `json:"engine"`           // pgbackrest | pbm | barman
+	Engine  string `json:"engine"`           // pgbackrest | pbm | barman | xtrabackup
 	Count   int    `json:"count"`            // backups in the repository
 	LastAt  int64  `json:"lastAt,omitempty"` // unix seconds the newest one finished
 	Last    string `json:"last,omitempty"`   // its label or name
@@ -159,6 +159,8 @@ func (a *App) frameBackupStatus(ctx context.Context, st Stack, doc designDoc, f 
 			return parsePBMList(res.Stdout)
 		}
 		return backupInfo{Engine: "pbm", Err: "no member is running"}
+	case (f.Type == "pxc" || f.Type == "mysql") && f.UseXtraBackup:
+		return a.xbFrameStatus(ctx, st, doc, f)
 	}
 	return backupInfo{}
 }
