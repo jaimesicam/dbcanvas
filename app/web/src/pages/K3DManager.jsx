@@ -14,6 +14,7 @@ import { K8sBackupManager } from './K8sBackupManager.jsx'
 import { K8sLogicalReplicas } from './K8sLogicalReplicas.jsx'
 import { K8sStorage } from './K8sStorage.jsx'
 import { useFollowedState } from '../session/SessionProvider.jsx'
+import K3DClusterSync from '../components/K3DClusterSync.jsx'
 
 // K3DManager — a running k3s node of a K3D cluster frame.
 //
@@ -73,6 +74,8 @@ const TABS = [
   // reconciles, the TLS chains, and the tuning file. Any Kubernetes frame has them, so unlike
   // cr.yaml this is not gated on the operator being a Percona one.
   { id: 'data', label: 'Secrets & configs' },
+  // The operator-run ClusterSync, when the frame was deployed with one (k3dclustersync.go).
+  { id: 'sync', label: 'ClusterSync' },
   // Backups, restores, and the bucket they live in. Beside cr.yaml and the Secrets for the same
   // reason they are beside each other: that tab is the standing instruction to the operator, this
   // is the two things you ask it to do once — take a backup, put one back — plus the object store
@@ -106,6 +109,16 @@ const PG_LOGICAL_REPLICAS = (cfg) => {
   if (!v) return false
   const seg = (i) => parseInt(v.split('.')[i] ?? '0', 10) || 0
   return seg(0) > 3 || (seg(0) === 3 && seg(1) >= 1)
+}
+
+// ClusterSync is the PSMDB operator's PerconaServerMongoDBClusterSync, from 1.23.0 — the tab is
+// there on any such cluster, with a sync or without one (it can start one). Mirrors
+// psmdbHasClusterSync in app/k3dclustersync.go.
+const PSMDB_CLUSTERSYNC = (cfg) => {
+  if (cfg.operator !== 'psmdb') return false
+  const v = String(cfg.operatorVer || '')
+  const seg = (i) => parseInt(v.split('.')[i] ?? '0', 10) || 0
+  return !!v && (seg(0) > 1 || (seg(0) === 1 && seg(1) >= 23))
 }
 
 const ROLE_HELP = {
@@ -377,6 +390,7 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
         {TABS.filter((t) => (t.id !== 'operator' || cfg.operator)
           && (t.id !== 'diag' || isServer)
           && (t.id !== 'data' || isServer)
+          && (t.id !== 'sync' || (isServer && PSMDB_CLUSTERSYNC(cfg)))
           && (t.id !== 'cr' || CR_EDITABLE.has(cfg.operator))
           && (t.id !== 'backup' || (CR_EDITABLE.has(cfg.operator) && isServer))
           && (t.id !== 'storage' || (cfg.operator && cfg.operator !== 'everest' && isServer))
@@ -567,6 +581,7 @@ kubectl get svc -n ${ns}`} />
       {tab === 'replication' && <ReplicationTab stackId={stackId} frame={frame} isServer={isServer} />}
       {tab === 'cr' && <CRFormEditor stackId={stackId} frame={frame} isServer={isServer} />}
       {tab === 'data' && <K8sObjectEditor stackId={stackId} frame={frame} isServer={isServer} />}
+      {tab === 'sync' && isServer && PSMDB_CLUSTERSYNC(cfg) && frame && <K3DClusterSync stackId={stackId} frame={frame} cfg={cfg} />}
       {tab === 'backup' && <K8sBackupManager stackId={stackId} frame={frame} isServer={isServer} />}
       {tab === 'logicalreplicas' && <K8sLogicalReplicas stackId={stackId} frame={frame} isServer={isServer} />}
       {tab === 'storage' && <K8sStorage stackId={stackId} frame={frame} isServer={isServer} />}

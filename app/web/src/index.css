@@ -322,3 +322,22 @@ html[data-mirroring] [data-wm-taskbar] { display: none; }
   100% { box-shadow: 0 0 0 0 transparent; }
 }
 .pulse-ring { animation: pulse-ring 1.8s infinite; }
+/* ClusterSync's source → target link (components/ClusterSyncPanel.jsx): dots travelling the
+   line while data moves. Paused and finished syncs drop the class, so the line stands still. */
+@keyframes pcsm-flow { from { background-position: 0 0 } to { background-position: 16px 0 } }
+.pcsm-flow {
+  background-image: radial-gradient(circle, var(--primary) 1.5px, transparent 2px);
+  background-size: 8px 4px;
+  background-repeat: repeat-x;
+  background-position: 0 center;
+  animation: pcsm-flow .6s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) { .pcsm-flow { animation: none; } }
+@keyframes pcsm-flow-v { from { background-position: center 0 } to { background-position: center 16px } }
+.pcsm-flow-v {
+  background-image: radial-gradient(circle, var(--primary) 1.5px, transparent 2px);
+  background-size: 4px 8px;
+  background-repeat: repeat-y;
+  animation: pcsm-flow-v .6s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) { .pcsm-flow-v { animation: none; } }

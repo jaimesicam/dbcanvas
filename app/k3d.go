@@ -1315,6 +1315,12 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 		// and incomplete: cr.yaml has been applied, and the operator has yet to create a single
 		// database pod. Keep the cards spinning until the cluster it manages says it is ready.
 		a.k3dWaitClusterReady(ctx, st, frame, members, base, serverID)
+		// ClusterSync needs the target cluster ready before its custom resource is created.
+		a.k3dStartClusterSync(ctx, st, frame, doc, serverID, base, func(msg string) {
+			if len(members) > 0 {
+				a.replLogln(st.ID, members[0].ID, msg)
+			}
+		})
 		log.Printf("stack %d k3d %s: provisioned (%d node(s), operator %q)", st.ID, frame.Label, nodes, operator)
 	}()
 }

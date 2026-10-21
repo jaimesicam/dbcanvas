@@ -713,6 +713,10 @@ export const HELP = {
     'Needs PSMDB 8.3 or later. One mongot per replica set — for a sharded cluster, one per shard — co-located on the set\'s first member, which is what the Percona Operator does too. ' +
     'Every mongod (and mongos) gets the mongotHost / searchIndexManagementHostAndPort parameters at first start, and mongot logs in as a searchCoordinator user. ' +
     'The package is ~290 MB (mongot is a Java service), so the first deploy takes a few minutes longer. Tech preview: not for production.',
+  k3dClusterSync: 'Operator 1.23.0+: once this cluster is ready, DBCanvas creates a pcsm-source account (backup, clusterMonitor, readAnyDatabase) on the source, ' +
+    'a <cluster>-sync-source Secret with its credentials, and a PerconaServerMongoDBClusterSync named <cluster>-sync in mode running. The operator deploys ' +
+    'PCSM as <cluster>-sync-pcsm, which clones the source and then follows its change stream. Pause, resume and finalize set spec.mode. The operator requires ' +
+    'the same major on both sides (its 1.23.x cluster runs PSMDB 8.0) and matching topology. Users and roles are not copied.',
   k3dVectorSearch: 'Turn on the operator\'s spec.search (tech preview, operator 1.23.0+): a one-pod mongot StatefulSet per replica set (<cluster>-rs0-search) with its own PVC. ' +
     'spec.image is switched to a PSMDB 8.3 server, which mongot needs — the operator\'s shipped cr.yaml runs 8.0.',
   mcaCredentials: 'Create the two MClusterAdmin accounts on this MongoDB when it deploys, so the panel does not have to authenticate as the root admin user. ' +

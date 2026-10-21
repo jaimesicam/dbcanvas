@@ -427,6 +427,17 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "A Linux Client's ~/.kube/config: its contexts and current one, and the stack's Kubernetes clusters."},
 		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/kubeconfig", Group: gNodes, Handler: m((*App).handleLinuxClientKubeconfigCopy),
 			Summary: "Merge every running K3D cluster's admin kubeconfig into a Linux Client's ~/.kube/config, one context per cluster."},
+		// Percona ClusterSync for MongoDB, driven from a Linux Client (lcclustersync.go).
+		{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/pcsm", Group: gNodes, Handler: m((*App).handlePCSMState),
+			Summary: "A Linux Client's ClusterSync: the stack's MongoDB clusters it can sync, which pairs PCSM supports, and the running sync's status and log."},
+		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/pcsm/start", Group: gNodes, Handler: m((*App).handlePCSMStart),
+			Summary: "Start a ClusterSync from one MongoDB cluster to another: {source, target, include[], exclude[], fresh}."},
+		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/pcsm/stop", Group: gNodes, Handler: m((*App).handlePCSMStop),
+			Summary: "Stop the Linux Client's ClusterSync service and forget the sync; what was copied stays on the target."},
+		{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/pcsm/compare", Group: gNodes, Handler: m((*App).handlePCSMCompare),
+			Summary: "Document counts per collection on the sync's source and target."},
+		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/pcsm/{action}", Group: gNodes, Handler: m((*App).handlePCSMAction),
+			Summary: "Pause, resume, resume-failed or finalize the Linux Client's running ClusterSync."},
 		{Method: "PUT", Path: "/api/stacks/{id}/nodes/{nid}/kubeconfig/context", Group: gNodes, Handler: m((*App).handleLinuxClientKubeContext),
 			Summary: "Set the current context of a Linux Client's ~/.kube/config."},
 		// Drag files from the host onto a node's card in the designer (see nodeupload.go).
@@ -891,6 +902,14 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "Run an on-demand backup on a repmgr cluster's primary, with whichever engine it was deployed with (pgBackRest or Barman cloud)."},
 
 		// --- Kubernetes frames --------------------------------------------------
+		{Method: "GET", Path: "/api/stacks/{id}/frames/{fid}/k3d/clustersync", Group: gK3D, Handler: m((*App).handleK3DClusterSync),
+			Summary: "A PSMDB-operator K3D cluster's ClusterSync: the PerconaServerMongoDBClusterSync's spec and status, PCSM's own status from its pod, and the pod's log."},
+		{Method: "POST", Path: "/api/stacks/{id}/frames/{fid}/k3d/clustersync/start", Group: gK3D, Handler: m((*App).handleK3DClusterSyncStart),
+			Summary: "Start a ClusterSync into a PSMDB-operator K3D cluster from a MongoDB cluster on the canvas: {source: <frame id>}."},
+		{Method: "POST", Path: "/api/stacks/{id}/frames/{fid}/k3d/clustersync/stop", Group: gK3D, Handler: m((*App).handleK3DClusterSyncStop),
+			Summary: "Stop and remove a K3D cluster's ClusterSync: delete the custom resource and its Secret, and clear PCSM's state on the target so a later sync starts fresh."},
+		{Method: "POST", Path: "/api/stacks/{id}/frames/{fid}/k3d/clustersync/{action}", Group: gK3D, Handler: m((*App).handleK3DClusterSyncMode),
+			Summary: "Pause, resume or finalize a K3D cluster's ClusterSync (sets the custom resource's spec.mode)."},
 		{Method: "GET", Path: "/api/stacks/{id}/frames/{fid}/k3d/kubeconfig", Group: gK3D, Handler: m((*App).handleK3DKubeconfig),
 			Summary: "An admin kubeconfig for a K3D cluster frame, ready to paste into `kubectl`."},
 		{Method: "GET", Path: "/api/stacks/{id}/frames/{fid}/k3d/users", Group: gK3D, Handler: m((*App).handleK3DUsers),

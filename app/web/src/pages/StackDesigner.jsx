@@ -22,6 +22,7 @@ import PMMManager from './PMMManager.jsx'
 import PXCManager from './PXCManager.jsx'
 import ProxySQLManager from './ProxySQLManager.jsx'
 import MySQLManager from './MySQLManager.jsx'
+import ClusterSyncPanel from '../components/ClusterSyncPanel.jsx'
 import InnoDBManager from './InnoDBManager.jsx'
 import MongoDBManager from './MongoDBManager.jsx'
 import SeaweedFSManager from './SeaweedFSManager.jsx'
@@ -8329,7 +8330,7 @@ export function DBClientFields({ node: n, patchNode, deployed }) {
         n.lcPsql && series('lcPsqlMajor', pgMajor, pgSeries, 'PostgreSQL'))}
       {pcsm
         ? box('lcClusterSync', 'Percona ClusterSync for MongoDB',
-          <><span className="font-mono">pcsm</span>, installed but not started — it needs a source and a target cluster.</>)
+          <><span className="font-mono">pcsm</span>. Once deployed, the node's panel syncs one of this stack's MongoDB replica sets or sharded clusters into another, with live progress.</>)
         : <p className="text-[11px] text-muted">Percona ClusterSync for MongoDB is not published for CentOS 7.</p>}
       {n.os === 'centos' && (n.lcMysqlClient || n.lcMysqlShell || n.lcPsql || n.lcMongosh) && (
         <p className="text-[11px] text-muted">CentOS 7 gets Percona's last el7 builds: MySQL 8.0.37, mongosh 2.1.5 and psql 13.</p>
@@ -8550,6 +8551,7 @@ function LinuxClientManager({ dep, onDeleteNode, stackId }) {
         </div>
       )}
       <LinuxClientKubeconfig stackId={stackId} nodeId={dep.nodeId} />
+      {dbClients.some((c) => c.tool === 'pcsm') && dep.state === 'running' && <ClusterSyncPanel stackId={stackId} nodeId={dep.nodeId} />}
       <Button size="sm" className="w-full" onClick={() => {
         sendHandoff('dbcanvas.sampleCodeNode', `${stackId}/${dep.nodeId}`)
         location.hash = 'sample-code'
@@ -10842,7 +10844,7 @@ function volumeScalingOf(op, ver) {
   return ''
 }
 
-function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, deployed, replRole = '' }) {
+function K3DFrameForm({ frame: f, nodes, frames = [], frameNodes, patchFrame, deleteFrame, deployed, replRole = '' }) {
   const lock = deployed ? 'opacity-70' : ''
   const count = frameNodes.length
   const pmmNodes = nodes.filter((x) => x.type === 'pmm')
@@ -10941,6 +10943,8 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
   // Vector search is the operator's spec.search, a tech preview from 1.23.0. Hidden below that
   // release for the reason encryption is: the CRD has no such field (k3dSearchIssues refuses it too).
   const canSearch = op === 'psmdb' && !!psmdbVer && cmpDottedVersions(psmdbVer, '1.23.0') >= 0
+  // ClusterSync is the operator's PerconaServerMongoDBClusterSync, also from 1.23.0 (k3dclustersync.go).
+  const canSync = op === 'psmdb' && !!psmdbVer && cmpDottedVersions(psmdbVer, '1.23.0') >= 0
 
   return (
     <div className="space-y-3">
@@ -11344,6 +11348,7 @@ function K3DFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, de
                 </span>
               </label>
             )}
+            {canSync && <K3DClusterSyncOption f={f} frames={frames} patchFrame={patchFrame} deployed={deployed} />}
             {encryptionAtRest}
           </>
         )}
@@ -12420,6 +12425,52 @@ function PBMOptions({ f, nodes, patchFrame, deployed }) {
           onChange={(v) => patchFrame(f.id, { seaweedfsBucket: v })} />
       )}
     </>
+  )
+}
+
+// K3DClusterSyncOption has the PSMDB operator run Percona ClusterSync for MongoDB into this
+// cluster from another MongoDB cluster on the canvas (app/k3dclustersync.go). The operator's own
+// rules are checked here as you pick, as k3dClusterSyncIssues checks them on validate: matching
+// topology, and the same major as the cluster operator 1.23.x deploys (8.0).
+function K3DClusterSyncOption({ f, frames, patchFrame, deployed }) {
+  const sources = frames.filter((x) => x.type === 'psmrs' || x.type === 'psmdb')
+  const src = sources.find((x) => x.id === f.k3dClusterSyncSource)
+  const problem = !src ? '' :
+    (src.type === 'psmdb') !== !!f.k3dSharding ? `the operator syncs ${f.k3dSharding ? 'a sharded cluster only from a sharded source' : 'a replica set only from a replica set'}` :
+      f.k3dVectorSearch ? 'vector search runs PSMDB 8.3, which PCSM does not support' :
+        (src.psmdbMajor || '8.0') !== '8.0' ? `this cluster runs PSMDB 8.0 and the operator syncs only from the same major — ${src.label} is ${src.psmdbMajor}` : ''
+  return (
+    <div className={`space-y-2 rounded-lg border border-dashed p-2 ${deployed ? 'opacity-70' : ''}`}>
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" className="mt-1" disabled={deployed} checked={!!f.k3dClusterSync}
+          onChange={(e) => patchFrame(f.id, { k3dClusterSync: e.target.checked, ...(e.target.checked && !f.k3dClusterSyncSource && sources[0] ? { k3dClusterSyncSource: sources[0].id } : {}) })} />
+        <span>
+          ClusterSync from another cluster <Help text={HELP.k3dClusterSync} />
+          <span className="block text-xs text-muted">
+            A <span className="font-mono">PerconaServerMongoDBClusterSync</span>: the operator runs Percona ClusterSync for MongoDB beside this
+            cluster and copies a source cluster into it, then keeps it in step until you finalize.
+          </span>
+        </span>
+      </label>
+      {f.k3dClusterSync && (sources.length === 0
+        ? <p className="text-xs text-muted">Add a PS MongoDB replica set{f.k3dSharding ? ' or sharded cluster' : ''} to the canvas to sync from.</p>
+        : (
+          <>
+            <Field label="Source">
+              <select className={inputCls} value={f.k3dClusterSyncSource || ''} disabled={deployed}
+                onChange={(e) => patchFrame(f.id, { k3dClusterSyncSource: e.target.value })}>
+                <option value="">— select —</option>
+                {sources.map((x) => (
+                  <option key={x.id} value={x.id}>{x.label} · {x.psmdbMajor || 'latest'} · {x.type === 'psmdb' ? 'sharded' : 'replica set'}</option>
+                ))}
+              </select>
+            </Field>
+            {problem
+              ? <p className="text-xs text-danger">{problem}.</p>
+              : src && <p className="text-xs text-muted">Starts once this cluster is ready; DBCanvas creates a <span className="font-mono">pcsm-source</span> account on {src.label} and the credentials Secret.</p>}
+          </>
+        ))}
+    </div>
   )
 }
 
@@ -14983,7 +15034,7 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
       return <ValkeyClusterFrameForm frame={f} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
     }
     if (f.type === 'k3d') {
-      return <K3DFrameForm frame={f} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed}
+      return <K3DFrameForm frame={f} nodes={nodes} frames={frames} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed}
         replRole={k8sReplRoleOf(f.id, edges, frames)} />
     }
     return <PXCFrameForm frame={f} stackId={stackId} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} running={running} />

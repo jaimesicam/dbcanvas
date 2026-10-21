@@ -146,6 +146,13 @@ export const stackApi = {
   lcKubeconfig: (id, nid) => request('GET', `/api/stacks/${id}/nodes/${nid}/kubeconfig`),
   lcKubeconfigCopy: (id, nid, context = '') => request('POST', `/api/stacks/${id}/nodes/${nid}/kubeconfig`, { context }),
   lcKubeContext: (id, nid, context) => request('PUT', `/api/stacks/${id}/nodes/${nid}/kubeconfig/context`, { context }),
+  // Percona ClusterSync for MongoDB on a Linux Client (app/lcclustersync.go).
+  pcsm: (id, nid) => request('GET', `/api/stacks/${id}/nodes/${nid}/pcsm`),
+  pcsmStart: (id, nid, body) => request('POST', `/api/stacks/${id}/nodes/${nid}/pcsm/start`, body),
+  // action: pause | resume | resume-failed | finalize
+  pcsmAction: (id, nid, action) => request('POST', `/api/stacks/${id}/nodes/${nid}/pcsm/${action}`),
+  pcsmStop: (id, nid) => request('POST', `/api/stacks/${id}/nodes/${nid}/pcsm/stop`),
+  pcsmCompare: (id, nid) => request('GET', `/api/stacks/${id}/nodes/${nid}/pcsm/compare`),
   // Copy host files into a running node. `dest` is one of NODE_UPLOAD_DESTS;
   // `files` is [{ path, file }] where path is relative to dest. The relative
   // path travels as the multipart field name — Go strips directories from the
@@ -459,6 +466,11 @@ export function k3dApi(id, fid) {
   const base = `/api/stacks/${id}/frames/${fid}/k3d`
   return {
     kubeconfig: () => request('GET', `${base}/kubeconfig`),
+    // The PSMDB operator's ClusterSync (app/k3dclustersync.go); action: pause | resume | finalize.
+    clusterSync: () => request('GET', `${base}/clustersync`),
+    clusterSyncMode: (action) => request('POST', `${base}/clustersync/${action}`),
+    clusterSyncStart: (source) => request('POST', `${base}/clustersync/start`, { source }),
+    clusterSyncStop: () => request('POST', `${base}/clustersync/stop`),
     users: () => request('GET', `${base}/users`),
     userCreate: (body) => request('POST', `${base}/users`, body),
     userDelete: (username) => request('POST', `${base}/users/delete`, { username }),

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -41,6 +42,46 @@ type psmdbOptions struct {
 	// Search turns on spec.search (mongot) and swaps spec.image for a PSMDB 8.3 server, which
 	// search needs. See k3dsearch.go.
 	Search bool
+	// CacheSizeGB is each data-bearing mongod's WiredTiger cache (0 = mongod's own default). The
+	// transform comments every resources block out so the pods schedule on a small k3d cluster,
+	// and a mongod with no memory limit sizes its cache from the whole host — on a 26 GB Docker VM
+	// that is 12 GB for each of three pods inside an 8 GB cluster, which holds until the first
+	// heavy write (a ClusterSync clone, a restore) and then starves the node. See psmdbCacheSizeGB.
+	CacheSizeGB float64
+}
+
+// psmdbCacheSizeGB shares 35% of a K3D frame's memory budget among its data-bearing mongods —
+// three for a replica set, six with config servers (mongos keeps no cache) — never below
+// mongod's 0.25 GB minimum.
+func psmdbCacheSizeGB(memoryGB int, sharding bool) float64 {
+	if memoryGB <= 0 {
+		memoryGB = 8
+	}
+	pods := 3.0
+	if sharding {
+		pods = 6
+	}
+	gb := float64(memoryGB) * 0.35 / pods
+	if gb < 0.25 {
+		gb = 0.25
+	}
+	return math.Floor(gb*100) / 100
+}
+
+// psmdbReplsetConfiguration is a replica set's `configuration:` — the mongod settings DBCanvas
+// adds: the encryption block (k3dvault.go) and the cache size, in one block because a replica
+// set has one configuration key. "" when there is nothing to add.
+func psmdbReplsetConfiguration(o psmdbOptions, replset string) string {
+	var b strings.Builder
+	if o.Vault != nil {
+		b.WriteString(psmdbVaultConfiguration(o.Vault, replset))
+	} else if o.CacheSizeGB > 0 {
+		b.WriteString("configuration: |")
+	}
+	if o.CacheSizeGB > 0 {
+		fmt.Fprintf(&b, "\n  storage:\n    wiredTiger:\n      engineConfig:\n        cacheSizeGB: %g", o.CacheSizeGB)
+	}
+	return b.String()
 }
 
 // psmdbTransform rewrites the operator's cr.yaml for a small k3d cluster. Like crTransform it is
@@ -126,12 +167,12 @@ func psmdbTransform(src string, o psmdbOptions) string {
 		// `size:` is the anchor because it is the first uncommented key of each of them and the
 		// shipped `configuration:` is commented out — mongos is deliberately not included, since
 		// a router stores no data and has no key to fetch.
-		case p == "spec.replsets.size" && o.Vault != nil:
+		case p == "spec.replsets.size" && (o.Vault != nil || o.CacheSizeGB > 0):
 			out = append(out, ln)
-			out = append(out, crIndent(psmdbVaultConfiguration(o.Vault, o.Name+"-rs0"), ind)...)
-		case p == "spec.sharding.configsvrReplSet.size" && o.Vault != nil && o.Sharding:
+			out = append(out, crIndent(psmdbReplsetConfiguration(o, o.Name+"-rs0"), ind)...)
+		case p == "spec.sharding.configsvrReplSet.size" && (o.Vault != nil || o.CacheSizeGB > 0) && o.Sharding:
 			out = append(out, ln)
-			out = append(out, crIndent(psmdbVaultConfiguration(o.Vault, o.Name+"-cfg"), ind)...)
+			out = append(out, crIndent(psmdbReplsetConfiguration(o, o.Name+"-cfg"), ind)...)
 
 		// Vector search: a PSMDB 8.3 server (mongot attaches to nothing older) and the
 		// operator's spec.search, written right under spec.image so the two read together.
@@ -354,6 +395,7 @@ func (a *App) installPSMDBOperator(ctx context.Context, st Stack, frame designFr
 		Sharding:      cfg.Sharding,
 		ExposeReplset: cfg.ExposeReplset,
 		ExposeMongos:  cfg.ExposeMongos,
+		CacheSizeGB:   psmdbCacheSizeGB(frame.K3DMemoryGB, cfg.Sharding),
 	}
 	if !cfg.Sharding {
 		opts.ExposeMongos = "" // no routers to expose

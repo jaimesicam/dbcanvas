@@ -733,6 +733,11 @@ type designFrame struct {
 	// MongoDB, mongot) and runs a PSMDB 8.3 image, which search needs. Operator 1.23.0+;
 	// see k3dsearch.go.
 	K3DVectorSearch bool `json:"k3dVectorSearch"`
+	// K3DClusterSync has the PSMDB operator (1.23.0+) run Percona ClusterSync for MongoDB into this
+	// cluster from K3DClusterSyncSource — the id of a PS MongoDB replica-set ("psmrs") or sharded
+	// ("psmdb") frame in the stack. See k3dclustersync.go.
+	K3DClusterSync       bool   `json:"k3dClusterSync"`
+	K3DClusterSyncSource string `json:"k3dClusterSyncSource"`
 	// K3DPgVector turns pgvector on for a PostgreSQL operator's cluster. Percona: the operator's
 	// spec.extensions.builtin.pgvector (2.6.0+), which installs it and creates the extension in
 	// every database; see pgvector.go. CloudNativePG and Crunchy PGO: their images already carry
@@ -2002,6 +2007,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 		out = append(out, k3dBackupIssues(f, doc)...)
 		out = append(out, k3dStorageIssues(f, doc)...)
 		out = append(out, k3dSearchIssues(f, opCat)...)
+		out = append(out, k3dClusterSyncIssues(f, doc, opCat)...)
 		out = append(out, k3dPGFeatureIssues(f, doc, opCat, running[f.ID])...)
 		out = append(out, k3dPgVectorIssues(f, opCat, running[f.ID])...)
 		out = append(out, k3dVaultIssues(f, doc, opCat, running[f.ID])...)
