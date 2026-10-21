@@ -37,6 +37,69 @@ type releaseNote struct {
 // expanded, and the tests assume the ordering.
 var whatsNewNotes = []releaseNote{
 	{
+		Version: "0.0.21",
+		Date:    "2026-10-21",
+		Title:   "Percona ClusterSync for MongoDB on the Linux Client",
+		Body: "A Linux Client with ClusterSync installed gets a panel that syncs one of the stack's MongoDB replica" +
+			" sets or sharded clusters into another. Pairs PCSM does not support are shown with the reason. " +
+			"DBCanvas creates pcsm-source and pcsm-target accounts with the documented roles and shows live " +
+			"progress: the clone with its rate and time left, lag with a history, events read and applied, and " +
+			"the PCSM log, with Pause, Resume, Finalize, Verify counts and Stop. Do it by hand gives the same " +
+			"steps as commands. Tested on Oracle Linux 8, 9 and 10, Debian 12 and 13, and Ubuntu 22.04 and 24.04.",
+		Doc: "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.21",
+		Date:    "2026-10-21",
+		Title:   "ClusterSync through the Percona Operator for MongoDB",
+		Body: "A K3D cluster on operator 1.23.0 or newer can sync from a PS MongoDB cluster on the canvas through a" +
+			" PerconaServerMongoDBClusterSync, at deploy or from the node's ClusterSync tab, with the same live " +
+			"view, pause, resume and finalize, and Stop and remove, which also clears PCSM's state so the next " +
+			"sync starts clean. K3D PSMDB clusters now size each mongod's WiredTiger cache from the frame's " +
+			"memory instead of the whole Docker host, which starved small clusters under heavy writes.",
+		Doc: "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.21",
+		Date:    "2026-10-21",
+		Title:   "LDAP and Keycloak on PS Replication and PXC",
+		Body: "PS Replication and PXC clusters take the same LDAP and Keycloak options as a standalone Percona " +
+			"Server. Every member loads the plugins before the accounts that use them replicate, so no replica or" +
+			" Galera member ever receives an account it cannot apply. Keycloak needs 8.4.11-11 or 9.7.2-2, and " +
+			"LDAP is refused on 5.7. Members get Directory Login and Keycloak SSO tabs.",
+		Doc: "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.21",
+		Date:    "2026-10-21",
+		Title:   "XtraBackup backups and point-in-time restore",
+		Body: "Standalone Percona Server, PS Replication and PXC can back up with Percona XtraBackup to a SeaweedFS" +
+			" bucket, full or incremental, from a new Backup tab. With binary-log shipping on, a restore can go " +
+			"to the latest point or any moment since the first backup, as well as to one backup as taken.",
+		Doc: "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.21",
+		Date:    "2026-10-21",
+		Title:   "MongoDB TLS at deploy",
+		Body: "A MongoDB node or cluster with a certificate now turns TLS on at deploy in preferTLS mode, so " +
+			"members talk TLS to each other and plaintext tools keep working. Sample code for these nodes " +
+			"verifies TLS against the stack's CA, and a PBM backup started from the panel waits until it " +
+			"finishes.",
+		Doc: "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.21",
+		Date:    "2026-10-21",
+		Title:   "ProxySQL across 5.7 to 9.7, and deploys that fail fast",
+		Body: "ProxySQL installs on Oracle Linux 8, uses mysql_native_password for backends where releases before " +
+			"2.6 need it, and validation refuses ProxySQL and server pairs that cannot work together. A node " +
+			"waiting on a failed dependency now fails at once instead of holding the stack for an hour, a server " +
+			"restart no longer leaves a stack stuck deploying, and the detached Deployment and Properties panels " +
+			"can no longer be dragged out of reach.",
+		Doc: "docs/STACKS.md",
+	},
+	{
 		Version: "0.0.20",
 		Date:    "2026-10-15",
 		Title:   "PostgreSQL on Oracle Linux 8",
