@@ -19,9 +19,11 @@ import (
 //
 //	ssl: true            → SOURCE_SSL=1, SOURCE_SSL_CA=<ca>
 //	sslSkipVerify: false → SOURCE_SSL_VERIFY_SERVER_CERT=1
-//	ca: /etc/mysql/ssl/ca.crt
+//	ca: /etc/mysql/ssl-internal/ca.crt
 //
-// The `ca` is a path in the REPLICA's pod: its own `<cluster>-ssl` Secret's ca.crt. So SSL between
+// The `ca` is a path in the REPLICA's pod: its own `<cluster>-ssl-internal` Secret's ca.crt — the
+// internal one, because the internal certificate is what the source serves on 3306 (see below), so
+// its CA is the one that verifies it, even where the two Secrets carry the same CA. So SSL between
 // two clusters only works when both clusters' certificates come from one CA — left to itself each
 // operator makes a CA of its own, and the replica then refuses the source's certificate as signed
 // by a stranger. That is true even with verification off: given a CA, the MySQL client still checks
@@ -60,9 +62,11 @@ import (
 //     the certificates signed here rather than with cfssl.
 
 const (
-	// k3dReplSSLCA is the CA a replica verifies its source with: its own ssl Secret's ca.crt, where
-	// the operator mounts it (and what cr.yaml's commented example uses).
-	k3dReplSSLCA = "/etc/mysql/ssl/ca.crt"
+	// k3dReplSSLCA is the CA a replica verifies its source with: its own ssl-internal Secret's
+	// ca.crt, where the operator mounts it. Not cr.yaml's commented example (/etc/mysql/ssl/ca.crt):
+	// the source serves its INTERNAL certificate on 3306, so the internal CA is the one that matches
+	// it — the same file today, since both Secrets come from the Intranet CA, but not by necessity.
+	k3dReplSSLCA = "/etc/mysql/ssl-internal/ca.crt"
 	// The operator's defaults for a channel's retry settings. It fills them in only when a channel
 	// carries no `configuration` at all, so one that does — for SSL — has to state them too, or
 	// they go to MySQL as 0.

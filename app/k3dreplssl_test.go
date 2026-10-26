@@ -52,7 +52,8 @@ func TestK3DReplTLSFor(t *testing.T) {
 }
 
 // The channel's configuration. Retry settings are stated because the operator only defaults them
-// when `configuration` is absent, and the CA is the replica's own mounted ca.crt.
+// when `configuration` is absent, and the CA is the replica's own mounted internal ca.crt — the internal certificate is what the
+// source serves on 3306.
 func TestK3DReplChannelConfig(t *testing.T) {
 	links := k3dReplLinks(k3dReplDoc("async"))
 	if c := k3dReplChannelConfig(links[0]); c != nil {
@@ -61,7 +62,7 @@ func TestK3DReplChannelConfig(t *testing.T) {
 	for _, skip := range []bool{false, true} {
 		l := k3dReplLinks(k3dReplSSLDoc(skip))[0]
 		c := k3dReplChannelConfig(l)
-		if c["ssl"] != true || c["sslSkipVerify"] != skip || c["ca"] != "/etc/mysql/ssl/ca.crt" {
+		if c["ssl"] != true || c["sslSkipVerify"] != skip || c["ca"] != "/etc/mysql/ssl-internal/ca.crt" {
 			t.Errorf("skipVerify=%v: configuration = %v", skip, c)
 		}
 		if c["sourceRetryCount"] != 3 || c["sourceConnectRetry"] != 60 {

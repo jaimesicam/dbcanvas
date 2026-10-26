@@ -7606,7 +7606,8 @@ export function ReplSSLFields({ f, source, sslReplicas = [], patchFrame, deploye
               Replicate from {source.label} over SSL
               <span className="block text-xs text-muted">
                 Sets <span className="font-mono">ssl: true</span> on the channel, with the CA at{' '}
-                <span className="font-mono">/etc/mysql/ssl/ca.crt</span>. Both clusters' certificates then come from
+                <span className="font-mono">/etc/mysql/ssl-internal/ca.crt</span> — the internal CA, because the source
+                serves its internal certificate on 3306. Both clusters' certificates then come from
                 the stack's Intranet CA, so each trusts the other's — this one {how(f)}, {source.label} {how(source)}.
               </span>
             </span>
