@@ -617,6 +617,9 @@ export const HELP = {
     'The Kubernetes client tools installed on this node, as they answer for themselves — the versions are read off ' +
     'the binaries after the install, not copied from what was requested. kubectl is matched to the k3s release of a ' +
     'Kubernetes frame on the canvas, because it is only supported one minor version either side of the API server.',
+  depCfssl:
+    'cfssl and cfssljson, read back off the binaries after the install. Use them from the node\'s terminal to make a ' +
+    'CA and certificates by hand — cfssl gencert prints JSON, cfssljson -bare writes it out as .pem files.',
   depDBClients:
     'The Percona database client tools installed on this node, as they answer for themselves — the versions are read ' +
     'off the binaries after the install. One that is missing here did not install; the deploy log says why.',

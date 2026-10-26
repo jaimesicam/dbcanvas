@@ -5433,6 +5433,15 @@ check('linux client: cmctl is offered, and on its own still gets the kubeconfig 
   return 'ok'
 })
 
+// cfssl and cfssljson are one checkbox, and need no cluster — so no kubeconfig note on their own.
+check('linux client: cfssl and cfssljson are one option, with no kubeconfig note', () => {
+  const off = renderToString(<K8sToolFields node={{ id: 'lc4' }} patchNode={noop} deployed={false} frames={[]} />)
+  if (!off.includes('Install cfssl and cfssljson')) throw new Error('the form must offer cfssl and cfssljson together')
+  const only = renderToString(<K8sToolFields node={{ id: 'lc4', lcCfssl: true }} patchNode={noop} deployed={false} frames={[]} />)
+  if (only.includes('kubeconfig')) throw new Error('cfssl alone does not need a kubeconfig')
+  return 'ok'
+})
+
 // ---- Percona database clients on a Linux Client ---------------------------------------
 // The series pickers offer only what Percona publishes for the node's release (mirrors
 // app/linuxclient_db.go), and say so when a saved choice no longer fits.

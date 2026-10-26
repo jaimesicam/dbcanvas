@@ -96,6 +96,14 @@ func TestLCK8sToolsScriptShape(t *testing.T) {
 			t.Errorf("the cmctl install is missing %q", want)
 		}
 	}
+	// cfssl: both binaries and the checksums from the one resolved tag, both verified before either
+	// is installed.
+	for _, want := range []string{`if [ -n "$CFSSL" ]`, `"$CFSSL_REPO/latest"`, `"$CFSSL_REPO/download/$tag/cfssl_${ver}_checksums.txt"`,
+		`for b in cfssl cfssljson`, `sha256sum -c "$b.sha256"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the cfssl install is missing %q", want)
+		}
+	}
 	if !strings.HasSuffix(lcCmctlRelease, "/releases/latest/download") {
 		t.Errorf("lcCmctlRelease = %q, want a latest-release download prefix", lcCmctlRelease)
 	}

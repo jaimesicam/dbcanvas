@@ -567,7 +567,7 @@ export const NODE_TYPES = {
     ports: false,
     plainSequentialLabel: true,
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }, { id: 'ubuntu', label: 'Ubuntu' }, { id: 'debian', label: 'Debian' }],
-    defaults: { os: 'oraclelinux', osVersion: '9', useProxy: false, lcKubectl: false, lcHelm: false, lcCmctl: false,
+    defaults: { os: 'oraclelinux', osVersion: '9', useProxy: false, lcKubectl: false, lcHelm: false, lcCmctl: false, lcCfssl: false,
       lcMysqlClient: false, lcMysqlShell: false, lcMongosh: false, lcPsql: false, lcClusterSync: false },
   },
   // Traffic Sim — the "Valkey Traffic Lab" live demo app (background agents +
@@ -8393,6 +8393,18 @@ export function K8sToolFields({ node: n, patchNode, deployed, frames = [] }) {
           </span>
         </span>
       </label>
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" className="mt-1" disabled={deployed} checked={!!n.lcCfssl}
+          onChange={(e) => patchNode(n.id, { lcCfssl: e.target.checked })} />
+        <span>
+          Install cfssl and cfssljson
+          <span className="block text-xs text-muted">
+            CloudFlare's PKI toolkit, for making a CA and server certificates by hand —{' '}
+            <span className="font-mono">cfssl gencert … | cfssljson -bare server</span>, as the operator TLS docs do.
+            Both from the current release, checksum-verified.
+          </span>
+        </span>
+      </label>
       {on && (
         <p className="rounded-md border border-accent/30 bg-accent/10 px-2 py-1.5 text-[11px] leading-snug text-muted">
           They need a kubeconfig, which this node is not given: the clusters deploy at the same time as
@@ -8519,6 +8531,8 @@ function LinuxClientManager({ dep, onDeleteNode, stackId }) {
   // Read back off the node at deploy, not from what was asked for — see linuxClientConfig.
   const tools = [cfg.kubectlVersion && `kubectl ${cfg.kubectlVersion}`, cfg.helmVersion && `helm ${cfg.helmVersion}`,
     cfg.cmctlVersion && `cmctl ${cfg.cmctlVersion}`].filter(Boolean)
+  // cfssl needs no cluster, so it is listed on its own rather than in the kubeconfig note below.
+  const cfssl = cfg.cfsslVersion
   // The binaries that landed, for the "… are on PATH" line: "kubectl", "kubectl and helm", "kubectl, helm and cmctl".
   const toolNames = [cfg.kubectlVersion && 'kubectl', cfg.helmVersion && 'helm', cfg.cmctlVersion && 'cmctl'].filter(Boolean)
   const dbClients = cfg.dbClients || []
@@ -8569,6 +8583,11 @@ function LinuxClientManager({ dep, onDeleteNode, stackId }) {
         {!!tools.length && (
           <InfoRow label="Kubernetes tools" help={HELP.depK8sTools}>
             <span className="font-mono text-xs">{tools.join(' · ')}</span>
+          </InfoRow>
+        )}
+        {!!cfssl && (
+          <InfoRow label="Certificate tools" help={HELP.depCfssl}>
+            <span className="font-mono text-xs">cfssl {cfssl} · cfssljson {cfssl}</span>
           </InfoRow>
         )}
         {gdb && <>

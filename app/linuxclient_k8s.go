@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// linuxclient_k8s.go — kubectl, Helm and cmctl on a Linux Client node.
+// linuxclient_k8s.go — kubectl, Helm, cmctl and cfssl on a Linux Client node.
 //
 // A Linux Client is the jump box: a bare host on the stack network with the Intranet's DNS and CA
 // already trusted. Next to a K3D frame it is the obvious place to drive the cluster from — which
@@ -30,6 +30,11 @@ import (
 // own, apart from cert-manager, and works against the cert-manager releases still supported — so,
 // like Helm, it takes the current release.
 //
+// cfssl and cfssljson are one choice: CloudFlare's PKI toolkit, the pair the Percona operator docs
+// use to make a CA and server certificates by hand (`cfssl gencert … | cfssljson -bare server`).
+// Neither is useful alone, so they come from the same release together. Its assets carry the
+// version in their names (cfssl_1.7.1_linux_amd64), so the script resolves the latest tag first.
+//
 // ------------------------------------------------------------------- what is NOT done here
 //
 // No kubeconfig is written. The clusters are provisioned concurrently with this node, so anything
@@ -50,14 +55,18 @@ const lcHelmInstaller = "https://raw.githubusercontent.com/helm/helm/main/script
 // checksums.txt come from it, so the checksum always belongs to the binary beside it.
 const lcCmctlRelease = "https://github.com/cert-manager/cmctl/releases/latest/download"
 
+// lcCfsslRepo is cfssl's GitHub releases page. /latest redirects to /tag/vX.Y.Z, which is how the
+// script learns the version its asset names need; the binaries and checksums sit under /download.
+const lcCfsslRepo = "https://github.com/cloudflare/cfssl/releases"
+
 // lcK8sToolsRHEL / lcK8sToolsDebian install the download prerequisites. Everything after that is
 // the same on both, so the shared body is appended to whichever package manager runs.
 const lcK8sToolsRHEL = `set -e
 dnf -y -q install curl tar ca-certificates bash-completion >/dev/null
 `
 
-// lcK8sToolsEL7 is the same prelude for CentOS 7, which has yum and no dnf. kubectl, Helm and
-// cmctl are static binaries, so nothing past the download tools differs.
+// lcK8sToolsEL7 is the same prelude for CentOS 7, which has yum and no dnf. kubectl, Helm,
+// cmctl and cfssl are static binaries, so nothing past the download tools differs.
 const lcK8sToolsEL7 = `set -e
 yum -y -q install curl tar ca-certificates bash-completion >/dev/null
 `
@@ -72,7 +81,7 @@ apt-get install -y -qq curl tar ca-certificates bash-completion >/dev/null
 // several selected takes one round trip through the retrying runStep, and so the proxy is exported
 // once.
 //
-// The kubectl and cmctl checksums are verified, and a mismatch fails the step: an image that is not what
+// The kubectl, cmctl and cfssl checksums are verified, and a mismatch fails the step: an image that is not what
 // upstream published is not something to shrug at, and a half-downloaded binary that answers
 // `kubectl version` with a shell error is worse than no kubectl at all.
 const lcK8sToolsBody = `
@@ -111,6 +120,26 @@ if [ -n "$CMCTL" ]; then
   install -m 0755 "cmctl_linux_$ARCH" /usr/local/bin/cmctl
   rm -f "cmctl_linux_$ARCH" cmctl-checksums.txt cmctl.sha256
   /usr/local/bin/cmctl completion bash > /etc/bash_completion.d/cmctl 2>/dev/null || true
+fi
+if [ -n "$CFSSL" ]; then
+  cd /tmp
+  tag=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "$CFSSL_REPO/latest")
+  tag=${tag##*/}
+  case "$tag" in v[0-9]*) ;; *) echo "cfssl: could not resolve the latest release ($tag)" >&2; exit 1 ;; esac
+  ver=${tag#v}
+  curl -fsSL -o cfssl-checksums.txt "$CFSSL_REPO/download/$tag/cfssl_${ver}_checksums.txt"
+  for b in cfssl cfssljson; do
+    curl -fsSL -o "${b}_${ver}_linux_$ARCH" "$CFSSL_REPO/download/$tag/${b}_${ver}_linux_$ARCH"
+    grep " ${b}_${ver}_linux_$ARCH\$" cfssl-checksums.txt > "$b.sha256" ||
+      { echo "cfssl: checksums.txt has no entry for ${b}_${ver}_linux_$ARCH" >&2; exit 1; }
+    sha256sum -c "$b.sha256" >/dev/null
+  done
+  # Only once both verify does either reach PATH: they are one tool in two binaries.
+  for b in cfssl cfssljson; do
+    install -m 0755 "${b}_${ver}_linux_$ARCH" "/usr/local/bin/$b"
+    rm -f "${b}_${ver}_linux_$ARCH" "$b.sha256"
+  done
+  rm -f cfssl-checksums.txt
 fi
 `
 
@@ -173,6 +202,9 @@ func (a *App) linuxClientInstallK8sTools(ctx context.Context, id string, n desig
 	if n.LCCmctl {
 		want = append(want, "cmctl (latest)")
 	}
+	if n.LCCfssl {
+		want = append(want, "cfssl and cfssljson (latest)")
+	}
 	if len(want) == 0 {
 		return
 	}
@@ -193,12 +225,14 @@ func (a *App) linuxClientInstallK8sTools(ctx context.Context, id string, n desig
 		"HELM_INSTALLER=" + lcHelmInstaller,
 		"CMCTL=" + map[bool]string{true: "1", false: ""}[n.LCCmctl],
 		"CMCTL_RELEASE=" + lcCmctlRelease,
+		"CFSSL=" + map[bool]string{true: "1", false: ""}[n.LCCfssl],
+		"CFSSL_REPO=" + lcCfsslRepo,
 		"ARCH=" + arch,
 		"DOMAIN=" + envOr("DOMAIN", "example.net"),
 		"PROXY=" + map[bool]string{true: "http://intranet." + envOr("DOMAIN", "example.net") + ":3128", false: ""}[n.UseProxy],
 	}
 	if err := a.runStep(ctx, id, script+lcK8sToolsBody, env, pr.logln); err != nil {
-		pr.logln("the Kubernetes client tools did not install: " + lastLines(err.Error(), 200) +
+		pr.logln("the client tools did not install: " + lastLines(err.Error(), 200) +
 			" — the node is up regardless; install them from its terminal")
 	}
 
@@ -213,6 +247,12 @@ func (a *App) linuxClientInstallK8sTools(ctx context.Context, id string, n desig
 	if n.LCCmctl {
 		// "Client Version: v2.6.1" — the last field is the release.
 		cfg.CmctlVersion = a.lcToolVersion(ctx, id, "/usr/local/bin/cmctl version --client --short 2>/dev/null | awk '{print $NF}'")
+	}
+	if n.LCCfssl {
+		// "Version: 1.7.1" from each; both must answer, or the pair is not there.
+		if a.lcToolVersion(ctx, id, "/usr/local/bin/cfssljson -version 2>/dev/null") != "" {
+			cfg.CfsslVersion = a.lcToolVersion(ctx, id, "/usr/local/bin/cfssl version 2>/dev/null | awk '/^Version:/{print $2}'")
+		}
 	}
 	switch {
 	case n.LCKubectl && cfg.KubectlVersion == "":
@@ -231,6 +271,12 @@ func (a *App) linuxClientInstallK8sTools(ctx context.Context, id string, n desig
 		pr.logln("cmctl did not install")
 	case cfg.CmctlVersion != "":
 		pr.logln("cmctl " + cfg.CmctlVersion + " on PATH (bash completion)")
+	}
+	switch {
+	case n.LCCfssl && cfg.CfsslVersion == "":
+		pr.logln("cfssl and cfssljson did not install")
+	case cfg.CfsslVersion != "":
+		pr.logln("cfssl and cfssljson " + cfg.CfsslVersion + " on PATH")
 	}
 	// No tool has a cluster to talk to until it is given a kubeconfig, and this node cannot
 	// safely fetch one (see the file comment). Say where it is instead of leaving a kubectl that

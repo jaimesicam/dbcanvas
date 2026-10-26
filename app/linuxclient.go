@@ -31,6 +31,7 @@ type linuxClientConfig struct {
 	KubectlVersion string `json:"kubectlVersion,omitempty"`
 	HelmVersion    string `json:"helmVersion,omitempty"`
 	CmctlVersion   string `json:"cmctlVersion,omitempty"`
+	CfsslVersion   string `json:"cfsslVersion,omitempty"` // cfssl and cfssljson, one release
 	// The Percona database clients, read back the same way. See linuxclient_db.go.
 	DBClients []lcDBClient `json:"dbClients,omitempty"`
 	gdbNodeConfig
@@ -183,9 +184,9 @@ func (a *App) provisionLinuxClient(st Stack, n designNode, doc designDoc) {
 			pr.logln("package egress via Intranet proxy")
 		}
 
-		// kubectl / Helm / cmctl before gdb: they are a short download, and a node whose debug
+		// kubectl / Helm / cmctl / cfssl before gdb: they are a short download, and a node whose debug
 		// symbols take four minutes should not hold up the tools somebody is waiting to type with.
-		if n.LCKubectl || n.LCHelm || n.LCCmctl {
+		if n.LCKubectl || n.LCHelm || n.LCCmctl || n.LCCfssl {
 			a.linuxClientInstallK8sTools(ctx, id, n, doc, &cfg, pr)
 			cfgJSON, _ = json.Marshal(cfg)
 		}

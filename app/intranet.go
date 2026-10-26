@@ -88,6 +88,7 @@ type designNode struct {
 	LCKubectl bool `json:"lcKubectl"`
 	LCHelm    bool `json:"lcHelm"`
 	LCCmctl   bool `json:"lcCmctl"` // cert-manager's CLI, for the cert-manager a K3D frame installs
+	LCCfssl   bool `json:"lcCfssl"` // cfssl and cfssljson together, for hand-made TLS certificates
 	// Percona database clients on a Linux Client (Type=="linuxclient"; ignored elsewhere). The
 	// MySQL series covers both the client and MySQL Shell. See linuxclient_db.go.
 	LCMySQLClient bool   `json:"lcMysqlClient"`
