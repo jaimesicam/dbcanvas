@@ -111,6 +111,14 @@ type crOptions struct {
 	// the cr.yaml left in /root says the cluster is encrypted — silence there would read as a
 	// cluster that is not. See k3dvault.go.
 	VaultSecret string
+	// TLSIssuer / TLSSANs fill `spec.tls` when a replication link over SSL had DBCanvas issue the
+	// cluster's certificates through cert-manager ("" / nil = leave the section as shipped).
+	// TLSIssuer names the namespace's Issuer for the Intranet CA, so that a certificate the
+	// operator ever has to make again comes from the same CA as the other cluster's; TLSSANs are
+	// the extra DNS names. Only DNS names: the operator appends SANs to a Certificate's dnsNames,
+	// where an IP address would not match a client dialling it. See k3dreplssl.go.
+	TLSIssuer string
+	TLSSANs   []string
 }
 
 // crExposeFor is the Service type for a section, or "" when that section should be left as shipped.
@@ -251,6 +259,18 @@ func crTransform(src string, o crOptions) string {
 				block := fmt.Sprintf("replicationChannels:\n- name: %s\n  isSource: true", o.SourceChannel)
 				out = append(out, crIndent(block, 4)...)
 				inserted["replicationChannels"] = true
+			}
+			// `spec.tls`: cr.yaml ships `enabled: true` live and SANs / issuerConf commented out,
+			// so these too are inserted beside it rather than uncommented.
+			if section == "tls" {
+				if len(o.TLSSANs) > 0 {
+					out = append(out, crIndent("SANs:\n- "+strings.Join(o.TLSSANs, "\n- "), 4)...)
+					inserted["SANs"] = true
+				}
+				if o.TLSIssuer != "" {
+					out = append(out, crIndent("issuerConf:\n  name: "+o.TLSIssuer+"\n  kind: Issuer\n  group: cert-manager.io", 4)...)
+					inserted["issuerConf"] = true
+				}
 			}
 			continue
 		}

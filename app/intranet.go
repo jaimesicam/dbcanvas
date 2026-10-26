@@ -779,6 +779,13 @@ type designFrame struct {
 	K3DPITR        bool   `json:"k3dPitr"`
 	K3DPITRBucket  string `json:"k3dPitrBucket"`
 	K3DPITRSeconds int    `json:"k3dPitrSeconds"`
+	// SSL on the cross-cluster replication channel this frame is the REPLICA end of (PXC
+	// operator only — the channel's `configuration` lives on the replica). Both clusters of the
+	// link then take their certificates from the Intranet CA, so each trusts the other; with
+	// verification on (SkipVerify false) the source's also name its LoadBalancer addresses and
+	// the DNS names the replica dials. See k3dreplssl.go.
+	K3DReplSSL           bool `json:"k3dReplSsl"`
+	K3DReplSSLSkipVerify bool `json:"k3dReplSslSkipVerify"`
 	// cert-manager, installed before the operator and waited for. A deploy-time decision
 	// because it changes what the operator does rather than what it is: the Percona operators
 	// look for cert-manager when they reconcile, and one that starts first and finds none

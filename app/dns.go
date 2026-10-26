@@ -340,6 +340,9 @@ func (a *App) reconcileStackDNS(ctx context.Context, stackID int64) {
 			}
 		}
 	}
+	// A replication source's per-pod LoadBalancer addresses, which a replica verifying its
+	// certificate dials by name (k3dreplssl.go).
+	recs = append(recs, k3dReplDNSRecords(deps, typeByID)...)
 	sort.Slice(recs, func(i, j int) bool { return recs[i].host < recs[j].host })
 
 	domain := envOr("DOMAIN", "example.net")

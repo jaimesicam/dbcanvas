@@ -1245,6 +1245,27 @@ export function k8sReplRoleOf(frameId, edges, frames) {
   return ''
 }
 
+// k8sReplSourceOf is the frame a Kubernetes frame replicates FROM, or null — the frame whose
+// certificates a replica over SSL verifies. Separate from k8sReplRoleOf because a frame in a
+// chain (A → B → C) is reported there as a source and is a replica all the same.
+export function k8sReplSourceOf(frameId, edges, frames) {
+  const byId = (id) => frames.find((f) => f.id === id && f.type === 'k3d')
+  for (const ed of edges || []) {
+    if (!isReplEdge(ed) || ed.to.node !== frameId) continue
+    const src = byId(ed.from.node)
+    if (src && byId(frameId)) return src
+  }
+  return null
+}
+
+// k8sReplSslReplicasOf lists the frames that replicate from this one over SSL — which is what
+// decides this frame's certificates, though the choice is made on theirs.
+export function k8sReplSslReplicasOf(frameId, edges, frames) {
+  return (edges || []).filter((ed) => isReplEdge(ed) && ed.from.node === frameId)
+    .map((ed) => frames.find((f) => f.id === ed.to.node && f.type === 'k3d' && f.k3dReplSsl))
+    .filter(Boolean)
+}
+
 // K3D_SOURCE_EXPOSE is the Service type a replication source's database pods must have.
 //
 // A replica in another Kubernetes cluster dials the source's per-pod addresses, and a
@@ -7564,6 +7585,63 @@ export function PITRFields({ f, nodes, patchFrame, deployed, replRole = '' }) {
   )
 }
 
+// ReplSSLFields — SSL on a Kubernetes replication link, chosen on the replica's frame because the
+// channel's `configuration` is the replica's. Mirrors app/k3dreplssl.go: both clusters then take
+// their certificates from the Intranet CA, made before cr.yaml (through a cert-manager CA Issuer
+// on a frame that installs cert-manager, by hand otherwise), and with verification on the source's
+// also name its LoadBalancer addresses and the per-pod DNS names the replica dials.
+export function ReplSSLFields({ f, source, sslReplicas = [], patchFrame, deployed }) {
+  const lock = deployed ? 'opacity-70' : ''
+  const how = (fr) => fr.k3dCertManager ? 'through a cert-manager CA Issuer' : 'by hand, as the operator\'s manual-certificate procedure does'
+  if (!source && !sslReplicas.length) return null
+  return (
+    <div className="space-y-2 rounded-lg border border-dashed p-2">
+      <div className="text-xs font-medium text-muted">Replication over SSL</div>
+      {source && (
+        <>
+          <label className={`flex items-start gap-2 text-sm ${lock}`}>
+            <input type="checkbox" className="mt-1" checked={!!f.k3dReplSsl} disabled={deployed}
+              onChange={(e) => patchFrame(f.id, { k3dReplSsl: e.target.checked, ...(e.target.checked ? {} : { k3dReplSslSkipVerify: false }) })} />
+            <span>
+              Replicate from {source.label} over SSL
+              <span className="block text-xs text-muted">
+                Sets <span className="font-mono">ssl: true</span> on the channel, with the CA at{' '}
+                <span className="font-mono">/etc/mysql/ssl/ca.crt</span>. Both clusters' certificates then come from
+                the stack's Intranet CA, so each trusts the other's — this one {how(f)}, {source.label} {how(source)}.
+              </span>
+            </span>
+          </label>
+          {!!f.k3dReplSsl && (
+            <label className={`ml-6 flex items-start gap-2 text-sm ${lock}`}>
+              <input type="checkbox" className="mt-1" checked={!!f.k3dReplSslSkipVerify} disabled={deployed}
+                onChange={(e) => patchFrame(f.id, { k3dReplSslSkipVerify: e.target.checked })} />
+              <span>
+                Skip certificate verification (<span className="font-mono">sslSkipVerify</span>)
+                <span className="block text-xs text-muted">
+                  {f.k3dReplSslSkipVerify
+                    ? 'Encrypted, and the chain is still checked against the shared CA, but not whether the certificate names the host dialled.'
+                    : <>Off: the replica checks the source's certificate names the host it dials. {source.label}'s certificates
+                      also carry every address of its LoadBalancer block and DNS names for its three database pods
+                      (<span className="font-mono">&lt;cluster&gt;-pxc-0…2</span> in the stack domain), and the replica dials those names.</>}
+                </span>
+              </span>
+            </label>
+          )}
+        </>
+      )}
+      {!!sslReplicas.length && (
+        <p className="text-[11px] leading-snug text-muted">
+          {sslReplicas.map((r) => r.label).join(', ')} {sslReplicas.length === 1 ? 'replicates' : 'replicate'} from this cluster
+          over SSL, so its certificates are made from the Intranet CA, {how(f)}
+          {sslReplicas.some((r) => !r.k3dReplSslSkipVerify)
+            ? ', naming its LoadBalancer addresses and per-pod DNS names for the replica to verify.'
+            : '.'}
+        </p>
+      )}
+    </div>
+  )
+}
+
 // CephForm edits a (not-yet-running) Ceph node: its label and how large its one OSD is. The
 // clusters that use it are listed, since the choice is made on them (a K3D frame's Volumes).
 function CephForm({ node: n, frames = [], patchNode, dep, deployed }) {
@@ -10863,7 +10941,7 @@ function volumeScalingOf(op, ver) {
   return ''
 }
 
-function K3DFrameForm({ frame: f, nodes, frames = [], frameNodes, patchFrame, deleteFrame, deployed, replRole = '' }) {
+function K3DFrameForm({ frame: f, nodes, frames = [], frameNodes, patchFrame, deleteFrame, deployed, replRole = '', replSource = null, replSslReplicas = [] }) {
   const lock = deployed ? 'opacity-70' : ''
   const count = frameNodes.length
   const pmmNodes = nodes.filter((x) => x.type === 'pmm')
@@ -11732,6 +11810,9 @@ function K3DFrameForm({ frame: f, nodes, frames = [], frameNodes, patchFrame, de
           operator only: it is the only one of the six with this in its custom resource. */}
       {op === 'pxc' && (
         <PITRFields f={f} nodes={nodes} patchFrame={patchFrame} deployed={deployed} replRole={replRole} />
+      )}
+      {op === 'pxc' && (
+        <ReplSSLFields f={f} source={replSource} sslReplicas={replSslReplicas} patchFrame={patchFrame} deployed={deployed} />
       )}
       {/* PMM monitors a Percona operator's cluster through a pmm-client sidecar that the
           operator's own CR configures. CloudNativePG is not a Percona product and ships no
@@ -15054,7 +15135,8 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     }
     if (f.type === 'k3d') {
       return <K3DFrameForm frame={f} nodes={nodes} frames={frames} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed}
-        replRole={k8sReplRoleOf(f.id, edges, frames)} />
+        replRole={k8sReplRoleOf(f.id, edges, frames)} replSource={k8sReplSourceOf(f.id, edges, frames)}
+        replSslReplicas={k8sReplSslReplicasOf(f.id, edges, frames)} />
     }
     return <PXCFrameForm frame={f} stackId={stackId} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} running={running} />
   }

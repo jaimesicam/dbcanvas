@@ -9,6 +9,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"net"
 	"time"
 )
 
@@ -21,6 +22,14 @@ import (
 // systemd-image nodes (PXC/Patroni), for images that ship no openssl — e.g. the
 // minimal SeaweedFS image.
 func signTLSCert(caCertPEM, caKeyPEM []byte, cn string, dnsNames []string, ttl time.Duration) (certPEM, keyPEM []byte, err error) {
+	return issueTLSCert(caCertPEM, caKeyPEM, cn, dnsNames, nil, ttl, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+}
+
+// issueTLSCert is signTLSCert with IP SANs and the extended key usages spelled out. A certificate
+// that is dialled by address needs the address as an IP SAN — a TLS client matching an IP never
+// looks at the DNS names — and one that a peer also presents as a *client* (Galera's SST and IST
+// between PXC pods) needs clientAuth beside serverAuth, or OpenSSL refuses it for that purpose.
+func issueTLSCert(caCertPEM, caKeyPEM []byte, cn string, dnsNames []string, ips []net.IP, ttl time.Duration, usages []x509.ExtKeyUsage) (certPEM, keyPEM []byte, err error) {
 	if ttl <= 0 {
 		ttl = 365 * 24 * time.Hour
 	}
@@ -39,8 +48,9 @@ func signTLSCert(caCertPEM, caKeyPEM []byte, cn string, dnsNames []string, ttl t
 		NotBefore:             now.Add(-5 * time.Minute),
 		NotAfter:              now.Add(ttl),
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		ExtKeyUsage:           usages,
 		DNSNames:              dnsNames,
+		IPAddresses:           ips,
 		BasicConstraintsValid: true,
 	}
 

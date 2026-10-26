@@ -38,7 +38,7 @@ import (
 // expect to have to manage, which is the source's LoadBalancer addresses: MetalLB assigns those
 // within seconds of the Services being created, so by the time there is a `destination` string to
 // restore from they have been readable for minutes. That is why step 4 *reads* them
-// (k3dReplSourceHosts) instead of predicting them. There is nothing to pin and no race to lose.
+// (k3dReplSourceAddrs) instead of predicting them. There is nothing to pin and no race to lose.
 //
 // ------------------------------------------------------------------------------- ordering that does matter
 //
@@ -301,6 +301,19 @@ func k3dReplIssues(doc designDoc, ends k3dReplEdgeEnds, e designEdge, pairs map[
 		warn("Replication link " + src.Label + " → " + dst.Label + ": " + src.Label +
 			"'s database Service will be deployed as LoadBalancer instead of the type set on the frame — a replica in another cluster cannot reach a ClusterIP")
 	}
+	// Over SSL with verification, the replica dials the source's pods by stack DNS names built
+	// from its cluster name (k3dReplPodHost) — which two frames with one cluster name would both
+	// publish, for different addresses.
+	if dst.K3DReplSSL && !dst.K3DReplSSLSkipVerify {
+		for _, f := range doc.Frames {
+			if f.Type == "k3d" && f.ID != src.ID && k3dCRName(f) == k3dCRName(src) {
+				err("Replication link " + src.Label + " → " + dst.Label + ": " + src.Label + " and " + f.Label +
+					" have the same cluster name, " + k3dCRName(src) + ", so the DNS names the replica verifies (" +
+					k3dReplPodHost(k3dCRName(src), 0) + ", …) would belong to both — rename one of them")
+				break
+			}
+		}
+	}
 	warn("Replication link " + src.Label + " → " + dst.Label + ": on deploy, " + dst.Label +
 		" is restored from a backup of " + src.Label + " — anything already in it is replaced — and the operator then holds it read-only")
 	if e.Type == "bidir" {
@@ -429,16 +442,28 @@ func (a *App) k3dReplLink(ctx context.Context, st Stack, doc designDoc, l k3dRep
 
 	// ---- 4. the channel ----
 	phase("attaching the replication channel")
-	hosts, err := a.k3dReplSourceHosts(ctx, srcServer, srcCfg.Namespace, srcCfg.ClusterName)
+	byPod, err := a.k3dReplSourceAddrs(ctx, srcServer, srcCfg.Namespace, srcCfg.ClusterName)
 	if err != nil {
 		return err
 	}
-	say(fmt.Sprintf("channel %s ← %s", l.Channel, strings.Join(hosts, ", ")))
-	if err := a.k3dReplPatchChannel(ctx, dstServer, dstCfg.Namespace, dstCfg.ClusterName, l.Channel, hosts); err != nil {
+	hosts := k3dReplSortedAddrs(byPod)
+	// A replica that verifies the source's certificate dials the DNS names it carries, published
+	// here for the addresses MetalLB handed out — see k3dreplssl.go.
+	if k3dReplVerifies(l) {
+		hosts = a.k3dReplPublishHosts(ctx, st, doc, l.Src, srcCfg.ClusterName, byPod)
+	}
+	ssl := k3dReplSSLDescribe(l)
+	if ssl != "" {
+		say(fmt.Sprintf("channel %s ← %s (%s)", l.Channel, strings.Join(hosts, ", "), ssl))
+	} else {
+		say(fmt.Sprintf("channel %s ← %s", l.Channel, strings.Join(hosts, ", ")))
+	}
+	if err := a.k3dReplPatchChannel(ctx, dstServer, dstCfg.Namespace, dstCfg.ClusterName, l.Channel, hosts, k3dReplChannelConfig(l)); err != nil {
 		return fmt.Errorf("patch the replica's replicationChannels: %w", err)
 	}
 	a.k3dReplSaveConfig(st, doc, l.Dst, func(c *k3dConfig) {
 		c.ReplRole, c.ReplChannel, c.ReplPeer, c.ReplSources = "replica", l.Channel, k3dCRName(l.Src), hosts
+		c.ReplSSL = ssl
 	})
 	a.k3dReplSaveConfig(st, doc, l.Src, func(c *k3dConfig) {
 		c.ReplRole, c.ReplChannel, c.ReplPeer = "source", l.Channel, k3dCRName(l.Dst)
@@ -853,21 +878,24 @@ func (a *App) k3dWaitRestore(ctx context.Context, serverID, ns, name string, tim
 	return fmt.Errorf("timed out waiting for the seed restore %s", name)
 }
 
-// k3dReplSourceHosts reads the addresses a replica should dial: the external address of each
+// k3dReplSourceAddrs reads the addresses a replica should dial: the external address of each
 // per-pod Service the operator creates when `pxc.expose` is on.
 //
 // This is the step the whole "wait for the LoadBalancer IPs" question is really about, and by the
 // time it runs there is nothing to wait for — the seed backup above took minutes and MetalLB
 // assigns within seconds of the Service appearing. The short retry is for the case where this runs
 // without a seed (an already-seeded redeploy) against a cluster that has only just come up.
-func (a *App) k3dReplSourceHosts(ctx context.Context, serverID, ns, cluster string) ([]string, error) {
+//
+// The addresses come keyed by the pod each Service fronts, which is what lets a replica that
+// verifies certificates dial them by name (k3dReplPublishHosts).
+func (a *App) k3dReplSourceAddrs(ctx context.Context, serverID, ns, cluster string) (map[string]string, error) {
 	deadline := time.Now().Add(3 * time.Minute)
 	for {
 		out, err := a.kubectl(ctx, serverID, "-n", ns, "get", "svc",
 			"-l", "app.kubernetes.io/instance="+cluster, "-o", "json")
 		if err == nil {
-			if hosts := k3dReplHostsFromServices(out); len(hosts) > 0 {
-				return hosts, nil
+			if byPod := k3dReplAddrsFromServices(out); len(byPod) > 0 {
+				return byPod, nil
 			}
 		}
 		if time.Now().After(deadline) {
@@ -891,6 +919,22 @@ func (a *App) k3dReplSourceHosts(ctx context.Context, serverID, ns, cluster stri
 // broad query also picks up the proxy tier, which this filter then drops for the same reason the
 // headless pair is dropped: no pod-name selector, not a database pod.
 func k3dReplHostsFromServices(js string) []string {
+	return k3dReplSortedAddrs(k3dReplAddrsFromServices(js))
+}
+
+// k3dReplSortedAddrs is the addresses of k3dReplAddrsFromServices as a sorted list.
+func k3dReplSortedAddrs(byPod map[string]string) []string {
+	var hosts []string
+	for _, h := range byPod {
+		hosts = append(hosts, h)
+	}
+	sort.Strings(hosts)
+	return hosts
+}
+
+// k3dReplAddrsFromServices is k3dReplHostsFromServices keyed by the database pod each Service
+// fronts.
+func k3dReplAddrsFromServices(js string) map[string]string {
 	var list struct {
 		Items []struct {
 			Spec struct {
@@ -911,18 +955,22 @@ func k3dReplHostsFromServices(js string) []string {
 	if json.Unmarshal([]byte(js), &list) != nil {
 		return nil
 	}
-	var hosts []string
+	hosts := map[string]string{}
 	for _, it := range list.Items {
-		if it.Spec.Selector["statefulset.kubernetes.io/pod-name"] == "" {
+		pod := it.Spec.Selector["statefulset.kubernetes.io/pod-name"]
+		if pod == "" {
 			continue
 		}
 		switch it.Spec.Type {
 		case "LoadBalancer":
+			// One address per Service: MetalLB assigns one, and a pod is one source.
 			for _, in := range it.Status.LoadBalancer.Ingress {
 				if in.IP != "" {
-					hosts = append(hosts, in.IP)
+					hosts[pod] = in.IP
+					break
 				} else if in.Hostname != "" {
-					hosts = append(hosts, in.Hostname)
+					hosts[pod] = in.Hostname
+					break
 				}
 			}
 		case "ClusterIP":
@@ -931,7 +979,6 @@ func k3dReplHostsFromServices(js string) []string {
 			continue
 		}
 	}
-	sort.Strings(hosts)
 	return hosts
 }
 
@@ -939,18 +986,22 @@ func k3dReplHostsFromServices(js string) []string {
 //
 // A merge patch replaces the whole list rather than appending to it, which is what makes this
 // reconcile rather than accumulate: a source that has moved leaves no stale entry behind.
-func (a *App) k3dReplPatchChannel(ctx context.Context, serverID, ns, cluster, channel string, hosts []string) error {
+//
+// conf is the channel's `configuration` — nil leaves it out, and the operator fills in its retry
+// defaults; a link over SSL states them along with ssl, sslSkipVerify and ca (k3dReplChannelConfig).
+func (a *App) k3dReplPatchChannel(ctx context.Context, serverID, ns, cluster, channel string, hosts []string, conf map[string]any) error {
 	type source struct {
 		Host   string `json:"host"`
 		Port   int    `json:"port"`
 		Weight int    `json:"weight"`
 	}
 	type ch struct {
-		Name        string   `json:"name"`
-		IsSource    bool     `json:"isSource"`
-		SourcesList []source `json:"sourcesList"`
+		Name        string         `json:"name"`
+		IsSource    bool           `json:"isSource"`
+		SourcesList []source       `json:"sourcesList"`
+		Config      map[string]any `json:"configuration,omitempty"`
 	}
-	c := ch{Name: channel}
+	c := ch{Name: channel, Config: conf}
 	for _, h := range hosts {
 		c.SourcesList = append(c.SourcesList, source{Host: h, Port: k3dReplPort, Weight: k3dReplWeight})
 	}
@@ -1216,6 +1267,11 @@ type k3dReplView struct {
 	// Exposed is the addresses a replica would dial this cluster on — read for a source, so the
 	// tab can show that the per-pod Services actually got an address.
 	Exposed []string `json:"exposed,omitempty"`
+	// SSL is how the replica's channel connects ("" = plaintext), and TLSCerts / TLSSANs where this
+	// cluster's certificates came from when a link over SSL had DBCanvas make them.
+	SSL      string   `json:"ssl,omitempty"`
+	TLSCerts string   `json:"tlsCerts,omitempty"`
+	TLSSANs  []string `json:"tlsSans,omitempty"`
 }
 
 func (a *App) handleK3DReplication(w http.ResponseWriter, r *http.Request) {
@@ -1232,6 +1288,7 @@ func (a *App) handleK3DReplication(w http.ResponseWriter, r *http.Request) {
 	view := k3dReplView{
 		Role: cfg.ReplRole, Channel: cfg.ReplChannel, Peer: cfg.ReplPeer,
 		Cluster: cfg.ClusterName, Sources: cfg.ReplSources, SeededFrom: cfg.ReplSeededFrom,
+		SSL: cfg.ReplSSL, TLSCerts: cfg.TLSCerts, TLSSANs: cfg.TLSSANs,
 	}
 	var doc designDoc
 	if json.Unmarshal(st.Design, &doc) == nil && view.Role == "" {
@@ -1302,7 +1359,7 @@ func (a *App) handleK3DReplicationReseed(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// k3dReplSourceHostsOnce is k3dReplSourceHosts without the retry, for the properties panel: a
+// k3dReplSourceHostsOnce is k3dReplSourceAddrs without the retry, for the properties panel: a
 // request that renders a tab must not sit there for three minutes because a Service is Pending.
 func (a *App) k3dReplSourceHostsOnce(ctx context.Context, serverID, ns, cluster string) ([]string, error) {
 	out, err := a.kubectl(ctx, serverID, "-n", ns, "get", "svc",

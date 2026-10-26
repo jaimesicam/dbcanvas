@@ -239,6 +239,18 @@ type k3dConfig struct {
 	// presence is what stops a redeploy restoring over the top of a working replica. Kept when a
 	// link is removed — the data is still the source's, and that is worth being able to read.
 	ReplSeededFrom string `json:"replSeededFrom"`
+	// ReplSSL is how the replica's channel connects ("" = plaintext): over SSL, and whether it
+	// verifies the source's certificate. Replica only. See k3dreplssl.go.
+	ReplSSL string `json:"replSsl,omitempty"`
+	// TLSCerts says where this cluster's certificates came from when a replication link over SSL
+	// had DBCanvas make them ("" = the operator made its own), and TLSSANs what they name beyond
+	// the operator's own in-cluster hosts.
+	TLSCerts string   `json:"tlsCerts,omitempty"`
+	TLSSANs  []string `json:"tlsSans,omitempty"`
+	// ReplHosts are the stack DNS names published for a replication source's per-pod
+	// LoadBalancer addresses (short name → address), which a replica verifying the source's
+	// certificate dials instead of the bare addresses. Published by reconcileStackDNS.
+	ReplHosts map[string]string `json:"replHosts,omitempty"`
 	// GrafanaDashboard names the dashboard provisioned into Grafana ("" = none). Grafana
 	// with Prometheus wired up but no dashboard reads to a user as monitoring that does
 	// not work, so whether one landed is worth reporting rather than leaving to be
@@ -2118,6 +2130,17 @@ func (a *App) installPXCOperator(ctx context.Context, st Stack, frame designFram
 	}
 	pr.logln("secrets.yaml applied as " + cfg.ClusterName + "-secrets (passwords from .env)")
 
+	// ---- replication over SSL: certificates from the shared CA, BEFORE cr.yaml ----
+	// Same reason as secrets.yaml: an operator that reconciles first finds no ssl Secrets and
+	// makes its own, under a CA the other cluster does not trust. See k3dreplssl.go.
+	var tlsIssuer string
+	var tlsSANs []string
+	if t := k3dReplTLSFor(doc, frame); t.On {
+		if tlsIssuer, tlsSANs, err = a.k3dReplProvisionTLS(ctx, st, frame, doc, serverID, cfg, t, pr); err != nil {
+			return fmt.Errorf("replication over SSL: %w", err)
+		}
+	}
+
 	// ---- cr.yaml: rewrite before applying ----
 	pr.phase("Applying cr.yaml", 88)
 	// Read it out of the tarball, not off the node: the k3s image is busybox — it has no bash,
@@ -2132,6 +2155,8 @@ func (a *App) installPXCOperator(ctx context.Context, st Stack, frame designFram
 		// Each section gets its own Service type; only the chosen proxy's section is enabled, so
 		// the other one's expose value is irrelevant (and left as cr.yaml ships it).
 		ExposePXC: cfg.ExposePXC,
+		TLSIssuer: tlsIssuer,
+		TLSSANs:   tlsSANs,
 	}
 	// The source end of a replication link declares its channel here; the replica's is patched in
 	// after its seed restore, by reconcileK3DReplication. The per-pod LoadBalancer that goes with

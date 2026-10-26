@@ -36,7 +36,7 @@ import {
   BigHoleForm, BigHoleManager, BigHoleLink,
   nodeCardTip, memberCardTip,
   k8sReplLinkable, ReplicationLinkForm, ReplicationLinkChoices,
-  associationBlocked, isReplEdge, k8sReplRoleOf, K3D_SOURCE_EXPOSE, K8sToolFields, DBClientFields, lcMysqlSeries, lcPsqlSeries,
+  associationBlocked, isReplEdge, k8sReplRoleOf, k8sReplSourceOf, k8sReplSslReplicasOf, ReplSSLFields, K3D_SOURCE_EXPOSE, K8sToolFields, DBClientFields, lcMysqlSeries, lcPsqlSeries,
   frameHeaderW, layoutFrame, separateFrames, SIM_NODE_TYPES, frameVersionLabel, frameSubLabel,
   podMenuEntries, POD_SHELLS, POD_CLIENTS,
   Spinner, NodeStatus, nodeConfiguring, configPhaseOf, PITRFields,
@@ -1741,6 +1741,30 @@ check('a Kubernetes replication source is known from the edge, and exposed', () 
   return 'ok'
 })
 
+// ---- replication over SSL ----
+// Chosen on the replica's frame (the channel is the replica's), but it decides the source's
+// certificates too — so the replica offers the checkbox and the source says what it means for it.
+check('replication over SSL: offered on the replica, explained on the source', () => {
+  const src = { id: 'kf1', type: 'k3d', label: 'cluster1', k3dOperator: 'pxc', k3dCertManager: true }
+  const dst = { id: 'kf2', type: 'k3d', label: 'cluster2', k3dOperator: 'pxc', k3dReplSsl: true }
+  const frames = [src, dst]
+  const edges = [{ id: 'e1', type: 'async', from: { node: 'kf1' }, to: { node: 'kf2' } }]
+  if (k8sReplSourceOf('kf2', edges, frames)?.id !== 'kf1') throw new Error('the replica must know its source')
+  if (k8sReplSourceOf('kf1', edges, frames) !== null) throw new Error('a source replicates from nobody')
+  if (k8sReplSslReplicasOf('kf1', edges, frames).length !== 1) throw new Error('the source must see its SSL replica')
+  if (k8sReplSslReplicasOf('kf1', edges, [src, { ...dst, k3dReplSsl: false }]).length !== 0) throw new Error('a plaintext replica is not an SSL one')
+  const replica = renderToString(<ReplSSLFields f={dst} source={src} patchFrame={noop} deployed={false} />).replaceAll('<!-- -->', '')
+  for (const want of ['Replicate from cluster1 over SSL', 'sslSkipVerify', 'Intranet CA', 'cert-manager CA Issuer', 'manual-certificate procedure', 'LoadBalancer block']) {
+    if (!replica.includes(want)) throw new Error('the replica form must say ' + want)
+  }
+  const off = renderToString(<ReplSSLFields f={{ ...dst, k3dReplSsl: false }} source={src} patchFrame={noop} deployed={false} />)
+  if (off.includes('sslSkipVerify')) throw new Error('skip-verify belongs under SSL, not beside it')
+  const source = renderToString(<ReplSSLFields f={src} sslReplicas={[dst]} patchFrame={noop} deployed={false} />).replaceAll('<!-- -->', '')
+  if (!source.includes('cluster2') || !source.includes('per-pod DNS names')) throw new Error('the source must say its certificates name what the replica verifies')
+  if (renderToString(<ReplSSLFields f={src} patchFrame={noop} deployed={false} />) !== '') throw new Error('a frame with no link shows nothing')
+  return replica + source
+})
+
 // ---- a node that is running but not finished spins ----
 // A k3s node reports running the moment cr.yaml is applied, and a replica cluster stays
 // running through its whole seed restore. Both used to show the green dot that means ready.
@@ -1976,6 +2000,11 @@ check('the Replication tab renders every state', () => {
     { isServer: true, view: { role: 'replica', channel: 'cluster1_to_cluster2', cluster: 'cluster2', peer: 'cluster1', sources: ['172.20.255.248'], seededFrom: 's3://backup1/cluster1-full', running: true } },
     { isServer: true, view: { role: 'replica', channel: 'cluster1_to_cluster2', cluster: 'cluster2', peer: 'cluster1', running: false, ioRunning: 'Connecting', sqlRunning: 'Yes', lastError: 'error connecting to source' } },
     { isServer: true, view: { role: 'replica', channel: 'cluster1_to_cluster2', cluster: 'cluster2', peer: 'cluster1' }, note: 're-seeding cluster2' },
+    { isServer: true, view: { role: 'replica', channel: 'cluster1_to_cluster2', cluster: 'cluster2', peer: 'cluster1', running: true,
+      sources: ['cluster1-pxc-0.example.net'], ssl: 'SSL, source certificate verified against the Intranet CA and its host name',
+      tlsCerts: 'cert-manager, Issuer dbcanvas-intranet-ca (the Intranet CA)' } },
+    { isServer: true, view: { role: 'source', channel: 'cluster1_to_cluster2', cluster: 'cluster1', peer: 'cluster2',
+      tlsCerts: 'made by DBCanvas from the Intranet CA (manual certificates)', tlsSans: ['cluster1-pxc-0.example.net', '172.20.255.248-172.20.255.255'] } },
   ]
   return cases.map((c) => renderToString(
     <ReplicationView view={c.view} err={c.err} note={c.note} busy={false} isServer={c.isServer} onRefresh={noop} onReseed={noop} />)).join('')

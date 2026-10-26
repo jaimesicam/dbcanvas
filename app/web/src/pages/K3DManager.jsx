@@ -291,6 +291,11 @@ export function ReplicationView({ view, err, note, busy, isServer, onRefresh, on
         {isReplica && <KV k="Reads from" v={(view.sources || []).join(', ')} mono />}
         {!isReplica && <KV k="Reachable at" v={(view.exposed || []).join(', ')} mono />}
         {isReplica && <KV k="Seeded from" v={view.seededFrom} mono />}
+        {isReplica && <KV k="Channel SSL" v={view.ssl || 'off'} />}
+        {/* Present when a link over SSL had DBCanvas make this cluster's certificates from the
+            Intranet CA — see app/k3dreplssl.go. */}
+        {!!view.tlsCerts && <KV k="Certificates" v={view.tlsCerts} />}
+        {!!view.tlsSans?.length && <KV k="Also naming" v={view.tlsSans.join(', ')} mono />}
       </div>
 
       {isReplica && (
