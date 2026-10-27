@@ -659,6 +659,58 @@ export function TooltipOptions({ value, onPick }) {
   )
 }
 
+// Keeping Scratchboard boards is off by default (app/scratchboard.go): what gets pasted there is
+// often a certificate, a Secret or a connection string. Switching it off deletes every board the
+// account kept, so that choice takes a second click.
+export const SCRATCHBOARD_MODES = [
+  { id: 'off', label: 'Temporary only', hint: 'Every board lives in this browser tab and is gone when it reloads. Nothing is sent to the server.' },
+  { id: 'on', label: 'Allow keeping boards', hint: 'Pin a board on the Scratchboard to keep it: it is saved to your account, encrypted, in the DBCanvas database. Unpinned boards stay temporary.' },
+]
+
+// ScratchboardOptions is the Scratchboard row, exported for the render checks.
+export function ScratchboardOptions({ value, onPick }) {
+  const [armed, setArmed] = useState(false)
+  useEffect(() => {
+    if (!armed) return
+    const t = setTimeout(() => setArmed(false), 4000)
+    return () => clearTimeout(t)
+  }, [armed])
+  const pick = (id) => {
+    if (id === value) return
+    if (id === 'off' && !armed) { setArmed(true); return }
+    setArmed(false)
+    onPick(id)
+  }
+  return (
+    <Row title="Scratchboard" hint="Whether Scratchboard boards can be kept across reloads.">
+      <div className="grid gap-2 sm:grid-cols-2">
+        {SCRATCHBOARD_MODES.map((m) => {
+          const on = value === m.id
+          const confirm = armed && m.id === 'off'
+          return (
+            <button key={m.id} onClick={() => pick(m.id)} aria-pressed={on}
+              className={`flex items-start gap-2.5 rounded-lg border p-3 text-left transition ${confirm ? 'border-danger bg-danger/10' : on ? 'border-primary bg-primary/10' : 'hover:bg-surface2'}`}>
+              <span className={`mt-0.5 ${on ? 'text-primary' : 'text-muted'}`}>
+                {m.id === 'on' ? <Icon.Pin size={16} /> : <Icon.Pencil size={16} />}
+              </span>
+              <span className="min-w-0">
+                <span className="flex items-center gap-1.5 text-sm font-medium">
+                  {m.label}
+                  {m.id === 'off' && <span className="text-[10px] font-normal text-muted">(default)</span>}
+                  {on && <Icon.Check size={14} />}
+                </span>
+                <span className={`block text-xs ${confirm ? 'text-danger' : 'text-muted'}`}>
+                  {confirm ? 'Click again to switch it off and delete every board you kept. This cannot be undone.' : m.hint}
+                </span>
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </Row>
+  )
+}
+
 export function LookOptions({ value, onPick }) {
   return (
     <div className="grid gap-2 sm:grid-cols-2">
@@ -769,6 +821,8 @@ export default function Settings() {
       <TooltipOptions value={settings.tooltips || 'on'} onPick={(id) => set({ tooltips: id })} />
 
       <TabLimit value={clampTabs(settings.maxTabs)} onSave={(n) => save({ maxTabs: n })} />
+
+      <ScratchboardOptions value={settings.scratchboard || 'off'} onPick={(id) => set({ scratchboard: id })} />
 
       <Row title="Password" hint="Your password, name and avatar are on your Profile now.">
         <Button variant="outline" size="sm" onClick={() => { location.hash = 'profile' }}>

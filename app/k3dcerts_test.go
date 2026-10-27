@@ -125,6 +125,9 @@ func TestK3DCertsFrom(t *testing.T) {
 		s.CertMgr.Revision != 2 || s.CertMgr.Ready || s.CertMgr.Reason == "" {
 		t.Errorf("secret: %+v / %+v", s, s.CertMgr)
 	}
+	if !strings.Contains(s.TLSPEM, "BEGIN CERTIFICATE") || !strings.Contains(s.CAPEM, "BEGIN CERTIFICATE") || strings.Contains(s.TLSPEM+s.CAPEM, "PRIVATE KEY") {
+		t.Errorf("the view carries the public PEMs and never the key")
+	}
 	if s.Status != "warning" {
 		t.Errorf("a valid certificate whose Certificate is not Ready is a warning, got %s", s.Status)
 	}

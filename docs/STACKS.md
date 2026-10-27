@@ -1576,6 +1576,85 @@ no background CPU/disk cost when you're not looking.
 
 ![The live Dashboard](screenshots/dashboard.png)
 
+### Scratchboard
+
+Canvases for notes, conversions and reading what you paste. Paste or drop text on the board and it
+suggests the card that reads it; right-click the board to add any card where you click; select text
+inside a card and the same suggestions open it in another card.
+
+**Boards.** Keep as many boards as you like, one tab each: **+** adds one, double-click a tab to
+rename it, **×** removes it (a second click confirms when it has cards). "Send to Scratchboard"
+lands on the board that is open.
+
+**Colours.** The palette on a card's title bar sets its background colour and its font colour. A
+background colour alone picks a readable font colour for itself.
+
+**Working on a board.**
+- **Size:** a card, and every text box in it, grows with its content until you resize the card
+  by hand; double-click the resize corner to fit it to its content again. Double-click a title bar
+  to collapse the card to it.
+- **Arrows:** a card opened from another (a selection, "open in a new card") is joined to it by an
+  arrow. Drag the dot on a card's right edge onto another card to draw one; click an arrow to
+  remove it.
+- **Undo:** closing a card (× or Delete), clearing or removing a board, and removing an arrow can
+  be undone with **Undo** or Ctrl/⌘+Z.
+- **Search:** finds text on every card of every board; pick a result to jump to its card.
+- **Board → Export / Import:** a board as a `.json` file, every card's content included, Secrets
+  too. Importing the file, or dropping it on the board, opens it as a new temporary board.
+  **Download as Markdown** and **Copy as Markdown** give the board's text for notes.
+
+| Card | What it does |
+| --- | --- |
+| **Quick Note** | Text with a Markdown preview. |
+| **Checklist** | Steps to tick off. |
+| **Transformer** | JSON pretty-print, minify and sort keys; JSON ↔ YAML; Base64 and URL encoding, both ways. |
+| **TLS Inspector** | A PEM bundle, a CSR or a Kubernetes TLS Secret. It shows subject, issuer, SANs, usages, dates and keys, a plain-English summary, and the same checks as the K3D **Certificates** tab: dates, the chain to `ca.crt`, the strict `openssl verify -CAfile` check PXC's SST runs, and whether the private key matches. It can also check whether a host name is covered by the certificate. |
+| **Text Diff** | Side by side or inline, optionally comparing JSON or YAML by meaning, so key order and formatting are ignored. |
+| **Certificate Compare** | Two certificates side by side, with every field that differs highlighted. |
+| **Secret decoder** | Every key of a Secret decoded, masked until shown; certificates open in the TLS Inspector. |
+| **GTID sets** | Union, A − B and B − A (errant transactions on a replica), containment, counts. |
+| **Log time** | Epoch (s, ms, µs, ns), ISO 8601, MySQL, PostgreSQL and mongod `$date` timestamps in each other's forms, in any time zone, and the time between two. |
+| **Database units** | Byte sizes both ways in decimal units (1 KB = 1,000 B) and binary units (1 KiB = 1,024 B) side by side; `my.cnf` K/M/G suffixes, which MySQL reads as binary; InnoDB and PostgreSQL page counts; durations. |
+| **MongoDB values** | An ObjectId's creation time, and what `$date`, `$timestamp`, `$numberLong`, `$binary` and the other Extended JSON wrappers hold. |
+| **Connection URI** | A MySQL, PostgreSQL or MongoDB URI (or a libpq `key=value` string) split into parts, with the password masked, and what its TLS settings make the client do. |
+| **Log filter** | Keep or drop lines by text or `/regex/`, and collapse repeats that differ only in numbers, ids and quoted values. |
+| **Query digest** | A MySQL slow log (or queries ending in `;`) read the way pt-query-digest 3.x reads it, with the same results: each query's fingerprint, its Query ID (MD5 of the fingerprint), the Item (verbs and tables), and the profile ranked by total response time with Calls, R/Call and V/M. Click a query for its example and its time, lock and row statistics; the profile or the full report can be copied as pt-query-digest text. |
+| **Redactor** | Masks IPv4 and IPv6 addresses, host names, e-mail addresses, user names, MAC addresses, optionally UUIDs (GTID ranges kept), extra words, and passwords and secrets: URI passwords, `password=`, `-p…`, `IDENTIFIED BY`, YAML and JSON keys, Authorization headers, AWS keys, JWTs, PEM private keys and Kubernetes Secret `data:`. The same value always gets the same replacement, and each replacement keeps its shape (an address stays an address). Counts per kind, and a mapping table whose originals stay masked until **Show originals**. |
+| **JWT / OIDC decoder** | A token's header and claims, with `exp`, `nbf`, `iat` and `auth_time` in UTC and relative to now, and Keycloak's realm and client roles. It verifies the signature against a pasted JWKS (the key is chosen by `kid`), JWK, PEM public key or certificate, or HMAC secret: RS, PS, ES and HS at 256/384/512, and EdDSA (Ed25519). It flags expired, not yet valid, `alg none`, a missing `exp` and a missing `aud`. An encrypted token (JWE) has only its header read. The JWKS is pasted, never fetched. |
+| **Replication status** | MySQL `SHOW REPLICA STATUS\G` / `SHOW SLAVE STATUS\G` (every channel, vertical or table form), MongoDB `rs.status()` (as mongosh prints it, or as JSON), and PostgreSQL `pg_stat_replication` / `pg_stat_wal_receiver` (psql aligned or `\x`) read into a verdict per channel, member or standby: running or not, lag in seconds and bytes, the last IO/SQL error with what its number usually means, source host, TLS, auto-position, the primary and each member's state, health, sync source and heartbeat message, and sync state; problems listed worst first. For MySQL it works out the GTIDs retrieved but not yet executed and opens Retrieved and Executed in the **GTID sets** card. |
+| **Config compare** | Two configurations compared by meaning: `my.cnf` (by option group; `-` = `_`, `loose-`, `skip-`/`disable-`/`enable-`, K/M/G as binary), `SHOW VARIABLES`, `postgresql.conf` and `pg_settings` (PostgreSQL's own units, such as 8kB pages, MB and min), and `mongod.conf` (dotted keys). Rows are different, only in A, only in B, or the same but written differently (`1G` and `1073741824`), plus options set more than once and which line wins, so a file can be checked against a running server. Open both texts in **Text Diff** with one click. |
+| **EXPLAIN reader** | A MySQL EXPLAIN (table, `\G`, `FORMAT=JSON` including `explain_json_format_version=2`, `FORMAT=TREE`, `EXPLAIN ANALYZE`) or a PostgreSQL EXPLAIN (text as psql prints it, `ANALYZE`/`BUFFERS`, `FORMAT JSON`) as an indented tree: node, table, index, estimated vs actual rows, loops, cost, time and conditions. Findings point at their node: full scans, `Using filesort`, `Using temporary`, join buffers, `possible_keys` with no key used, estimates off by 10× or more, nested-loop inner sides run 1,000+ times, filters that discard most rows, sorts on disk and multi-batch hashes. |
+| **InnoDB status reader** | `SHOW ENGINE INNODB STATUS` (with or without the `\G` rows, or as one `\n`-escaped line), MySQL 5.7 and 8.0: the latest deadlock per transaction (thread, query, locks held and waited for, table, index, lock mode, which one was rolled back), semaphore waits, history list length and the oldest active transactions, buffer pool hit rate and pages, LSN and checkpoint age, row operations. A deadlock pasted from the error log also reads. |
+
+**Send to Scratchboard.** Several panels send content straight to the board:
+- **K3D Certificates tab:** a Secret's certificates go to a TLS Inspector. These are public
+  certificates only, never `tls.key`.
+- **Secrets & configs:** any value.
+- **cr.yaml form:** the spec, including pending changes, goes to a Transformer.
+- **Log Summary:** the source lines around an event go to a Log filter.
+
+**Temporary by default.** Closing the window or reloading the browser drops every board that is
+not kept; minimizing keeps them.
+- **Keeping boards:** off by default. With **Settings → Scratchboard → Allow keeping boards**, the
+  pin on a board's tab keeps that board: it is saved to your account, encrypted with the
+  installation's key, in the DBCanvas SQLite database on the `app-data` volume (`/data/dbcanvas.db`),
+  never in the image. Unpinning a board deletes its saved copy; unpinned boards stay temporary.
+  Switching the setting back off deletes every board you kept. If a kept board was saved from
+  another tab or browser since this one loaded it, the save is refused and the board asks which
+  version to keep, rather than overwriting either.
+- **No browser storage:** card content is never written to browser storage.
+- **Stays in the browser:** nothing but a kept board is sent to the DBCanvas server. Every card,
+  certificate checks included, runs in the page, using the browser's own WebCrypto for
+  signatures.
+- **In-memory hand-over:** "Send to Scratchboard" passes content in memory.
+- **Shared sessions:** cards are hidden from guests by default. The eye on a card shows that one
+  card to them.
+- **Recordings:** a session recording is a video of the tab and cannot hide anything, so the board
+  says so while one is running.
+
+This is about what DBCanvas keeps. Text you copy stays on the clipboard, and a file you download
+is yours to delete.
+
 ### Notifications
 A live bell (Server-Sent Events) that surfaces what happens across your stacks: node
 deployment failures, data-generation completed/failed, stacks destroyed or **expiring soon**

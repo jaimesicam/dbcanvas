@@ -293,6 +293,12 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id, id DESC);`
 	}
 	db.Exec("ALTER TABLE kanban_columns ADD COLUMN color TEXT NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE kanban_cards ADD COLUMN color TEXT NOT NULL DEFAULT ''")
+	// Boards kept from the Scratchboard (scratchboard.go).
+	if _, err := db.Exec(scratchboardSchema); err != nil {
+		db.Close()
+		return nil, err
+	}
+	db.Exec("ALTER TABLE scratchboards ADD COLUMN rev INTEGER NOT NULL DEFAULT 1")
 	// Password reset links an admin issues (useradmin.go).
 	if _, err := db.Exec(passwordResetSchema); err != nil {
 		db.Close()

@@ -10,6 +10,7 @@ import {
 } from '../lib/logApi.js'
 import { TOOL_HELP, MORE_HELP } from '../lib/help.js'
 import { useHandoff } from '../lib/handoff.js'
+import { sendToScratchboard } from '../lib/scratch/bus.js'
 import { useRefresh } from '../lib/useRefresh.jsx'
 
 // Log Summary — read several database servers' logs as one classified timeline.
@@ -1226,6 +1227,8 @@ export function EventDetail({ e, bundle, id, first }) {
             <div className="mb-1 flex items-center justify-between text-[10px] text-muted">
               <span>{src?.name} lines {ctx.from}–{ctx.to}</span>
               <button className="underline hover:text-fg" onClick={() => setCtx(null)}>hide</button>
+              <button className="underline hover:text-fg" title="Open these lines in the Scratchboard's Log filter"
+                onClick={() => sendToScratchboard({ type: 'logfilter', title: `${src?.name || 'log'} ${ctx.from}–${ctx.to}`, input: ctx.text })}>scratchboard</button>
             </div>
             <pre className="max-h-72 overflow-auto whitespace-pre rounded-md bg-surface2 p-2 font-mono text-[10px] leading-snug">
               {ctx.text}

@@ -15,6 +15,28 @@
 // Run with `npm run smoke`.
 
 import { renderToString } from 'react-dom/server'
+import { CARD_TYPES, TlsView, DiffView, GtidView, UnitsView, TimeView, UriView, MongoView, LogFilterView, CompareView, SecretView } from '../src/components/scratch/Cards.jsx'
+import { CardFrame, SuggestMenu, AddCardMenu, BoardTab, cardStyle, LinkLayer } from '../src/pages/Scratchboard.jsx'
+import { exportBoard, importBoard, boardMarkdown, searchBoards } from '../src/lib/scratch/boardfile.js'
+import { DigestView } from '../src/components/scratch/DigestCard.jsx'
+import { digest, fingerprint, formatProfile, formatTime } from '../src/lib/scratch/ptdigest.js'
+import { RedactView } from '../src/components/scratch/RedactCard.jsx'
+import { JwtView } from '../src/components/scratch/JwtCard.jsx'
+import { redact } from '../src/lib/scratch/redact.js'
+import { analyzeJwt, b64url } from '../src/lib/scratch/jwt.js'
+import { suggest } from '../src/lib/scratch/detect.js'
+import { ReplView, ReplCard } from '../src/components/scratch/ReplCard.jsx'
+import { ConfigView, ConfigCard } from '../src/components/scratch/ConfigCard.jsx'
+import { readReplication } from '../src/lib/scratch/replstatus.js'
+import { compareConfigs } from '../src/lib/scratch/cnfdiff.js'
+import { ExplainView } from '../src/components/scratch/ExplainCard.jsx'
+import { InnodbView } from '../src/components/scratch/InnodbCard.jsx'
+import { parseExplain } from '../src/lib/scratch/explain.js'
+import { parseInnodb } from '../src/lib/scratch/innodb.js'
+import { checkBundle, parseBundle } from '../src/lib/scratch/x509check.js'
+import { diffLines } from '../src/lib/scratch/diff.js'
+import { readSecret } from '../src/lib/scratch/transform.js'
+import { ROOT as SC_ROOT, INTERMEDIATE as SC_INT, LEAF as SC_LEAF } from './scratch-certs.js'
 import { DnsTab, DnsRecordForm } from '../src/pages/IntranetManager.jsx'
 import { stackRelations, relationPorts } from '../src/lib/relations.js'
 import { Icon } from '../src/components/Icons.jsx'
@@ -4521,9 +4543,10 @@ check('refresh: every page with server data offers the top-bar Refresh', () => {
   // until the tab is closed and reopened. Refresh is the answer, and a page that
   // forgets to register simply has no button — which looks like nothing, so the
   // rule is checked rather than remembered. Settings is the one exception: it has
-  // drafts and nothing to re-read that another tab could have changed.
+  // drafts and nothing to re-read that another tab could have changed. The Scratchboard
+  // reads from the server only the boards its owner kept, once, and nothing another tab changes.
   const { readFileSync } = nodeFs
-  const except = new Set(['settings', 'database-explorer'])
+  const except = new Set(['settings', 'database-explorer', 'scratchboard'])
   const missing = []
   for (const n of NAV) {
     if (except.has(n.id)) continue
@@ -6133,6 +6156,311 @@ check('K3D certificates tab', () => {
   if (!renderToString(<CertsView view={null} />).includes('Loading')) throw new Error('loading state')
   if (!renderToString(<CertsView err="boom" />).includes('boom')) throw new Error('error state')
   return html
+})
+
+// ---- Scratchboard ----------------------------------------------------------------------
+// The TLS checks are async (WebCrypto), so they run here and the renders below are sync.
+const scChain = await checkBundle({ tlsCrt: SC_LEAF + '\n' + SC_INT, caCrt: SC_ROOT })
+const scStrictOK = await checkBundle({ tlsCrt: SC_LEAF + '\n' + SC_INT, caCrt: SC_INT + '\n' + SC_ROOT })
+const scKp = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify'])
+const scPk8 = new Uint8Array(await crypto.subtle.exportKey('pkcs8', scKp.privateKey))
+const scKeyPem = `-----BEGIN ${'PRIVATE'} KEY-----\n${btoa(String.fromCharCode(...scPk8))}\n-----END ${'PRIVATE'} KEY-----`
+const scWrongKey = await checkBundle({ tlsCrt: SC_LEAF, caCrt: SC_ROOT + '\n' + SC_INT, tlsKey: scKeyPem })
+const scSecret = await readSecret(`apiVersion: v1\nkind: Secret\nmetadata:\n  name: db1-ssl\ndata:\n  tls.crt: ${btoa(SC_LEAF)}\n  password: c2VjcmV0\n`)
+
+check('scratchboard: TLS checks agree with openssl', () => {
+  const by = (r, n) => r.checks.find((c) => c.name === n)
+  if (!by(scChain, 'chain')?.ok) throw new Error('leaf + intermediate must chain to the root: ' + by(scChain, 'chain')?.detail)
+  if (by(scChain, 'strict')?.ok !== false) throw new Error('without the intermediate in ca.crt the strict (openssl -CAfile) check must fail')
+  if (!by(scStrictOK, 'strict')?.ok) throw new Error('with the intermediate in ca.crt the strict check passes')
+  if (by(scWrongKey, 'key')?.ok !== false) throw new Error('a key from elsewhere must not match')
+  const leaf = scChain.chain[0]
+  if (leaf.ext.san.dns.join() !== 'db1.example.net,*.db.example.net' || leaf.ext.san.ips[0] !== '10.0.0.5') throw new Error('SANs: ' + JSON.stringify(leaf.ext.san))
+  const html = renderToString(<TlsView res={scChain} host="x.db.example.net" />).replaceAll('<!-- -->', '')
+  for (const want of ['Identifies db1.example.net', 'Example Intermediate', 'openssl verify -CAfile', 'is named by the certificate', 'ca.crt', 'pathlen 0']) {
+    if (!html.includes(want)) throw new Error('the TLS view must show ' + want)
+  }
+  if (!renderToString(<TlsView res={scChain} host="other.example.net" />).includes('NOT among')) throw new Error('an unnamed host is refused')
+  return html
+})
+
+check('scratchboard: every card renders from its starting state', () => {
+  let all = ''
+  for (const [type, T] of Object.entries(CARD_TYPES)) {
+    const html = renderToString(<T.Body state={T.init('')} update={() => {}} spawn={() => {}} onSelectText={() => {}} />)
+    if (!html) throw new Error(type + ' rendered nothing')
+    all += html
+  }
+  return all
+})
+
+check('scratchboard: cards are private to the session mirror unless shown', () => {
+  const card = { id: 'c1', type: 'note', x: 0, y: 0, w: 300, h: 200, z: 1, state: { text: 'secret note' } }
+  const priv = renderToString(<CardFrame card={card} update={() => {}} close={() => {}} duplicate={() => {}} spawn={() => {}} />)
+  if (!priv.includes('data-mirror-private')) throw new Error('a card body must carry data-mirror-private by default')
+  const shown = renderToString(<CardFrame card={{ ...card, shared: true }} update={() => {}} close={() => {}} duplicate={() => {}} spawn={() => {}} />)
+  if (shown.includes('data-mirror-private')) throw new Error('"Show to session" must lift it')
+  return priv
+})
+
+check('scratchboard: views', () => {
+  const parts = [
+    renderToString(<DiffView ops={diffLines('a\nb', 'a\nc')} />),
+    renderToString(<GtidView a="3e11fa47-71ca-11e1-9e33-c80aa9429562:1-10" b="3e11fa47-71ca-11e1-9e33-c80aa9429562:1-12" />),
+    renderToString(<UnitsView size="128M" mode="mycnf" duration="250ms" />),
+    renderToString(<TimeView a="2026-10-27T08:02:29.331039Z" b="1761552149" zone="Asia/Manila" />),
+    renderToString(<UriView input="postgresql://app:pw@db1:5432/app?sslmode=verify-full" />),
+    renderToString(<MongoView input={'{"_id":{"$oid":"671df5c4a1b2c3d4e5f60718"}}'} />),
+    renderToString(<LogFilterView input={'x 1\nx 2\ny'} include="x" grouped />),
+    renderToString(<CompareView a={scChain.chain[0]} b={parseBundle(SC_INT).certs[0]} />),
+    renderToString(<SecretView sec={scSecret} spawn={() => {}} source="" />),
+    renderToString(<SuggestMenu text="mysql://root@h/db" x={0} y={0} onPick={() => {}} onClose={() => {}} />),
+  ].map((h) => h.replaceAll('<!-- -->', ''))
+  const html = parts.join('')
+  for (const want of ['134,217,728', '128 MiB', '134.218 MB', '128M', 'B − A', ':11-12', 'Asia/Manila', 'name the host dialled', '••', 'Connection URI', '×2', '≠', 'db1-ssl']) {
+    if (!html.includes(want)) throw new Error('the scratchboard views must show ' + want)
+  }
+  if (html.includes('c2VjcmV0') || parts[8].includes('>secret<')) throw new Error('a Secret value must be masked until shown')
+  return html
+})
+
+check('scratchboard: boards, the add menu and card colours', () => {
+  const menu = renderToString(<AddCardMenu onPick={() => {}} />)
+  for (const t of Object.values(CARD_TYPES)) if (!menu.includes(t.label)) throw new Error('the add menu must list ' + t.label)
+  const b = { id: 'b1', name: 'Certs', keep: true, cards: [], view: { x: 0, y: 0, z: 1 } }
+  const kept = renderToString(<BoardTab board={b} active canKeep removable onSelect={() => {}} onRename={() => {}} onKeep={() => {}} onRemove={() => {}} />)
+  if (!kept.includes('Certs') || !kept.includes('Kept')) throw new Error('a kept board tab must say so')
+  const off = renderToString(<BoardTab board={b} active canKeep={false} removable onSelect={() => {}} onRename={() => {}} onKeep={() => {}} onRemove={() => {}} />)
+  if (off.includes('Kept')) throw new Error('with keeping off a tab must not offer to keep the board')
+  const st = cardStyle({ color: '#fef3c7' })
+  if (st['--surface'] !== '#fef3c7' || st['--fg'] !== '#111827') throw new Error('a light card must get a dark font: ' + JSON.stringify(st))
+  if (cardStyle({ color: '#172554' })['--fg'] !== '#f3f4f6') throw new Error('a dark card must get a light font')
+  if (cardStyle({ color: '#172554', fg: '#dc2626' })['--fg'] !== '#dc2626') throw new Error('a chosen font colour must win')
+  if (Object.keys(cardStyle({})).length) throw new Error('an uncoloured card must follow the theme')
+  const card = { id: 'c', type: 'note', x: 0, y: 0, w: 300, h: 200, z: 1, color: '#dcfce7', fg: '#2563eb', state: CARD_TYPES.note.init('x') }
+  const html = renderToString(<CardFrame card={card} update={() => {}} close={() => {}} duplicate={() => {}} spawn={() => {}} />)
+  if (!html.includes('--surface:#dcfce7') || !html.includes('--fg:#2563eb')) throw new Error('a card must carry its colours')
+  return 'ok'
+})
+
+check('scratchboard: EXPLAIN reader', () => {
+  const pg = parseExplain(` Hash Join  (cost=1.00..900.00 rows=5 width=8) (actual time=0.1..40.0 rows=9000 loops=1)
+   Hash Cond: (o.cid = c.id)
+   ->  Seq Scan on orders o  (cost=0.00..800.00 rows=50 width=8) (actual time=0.01..30.0 rows=9000 loops=1)
+         Filter: (status = 'open'::text)
+         Rows Removed by Filter: 91000
+   ->  Hash  (cost=1.00..1.00 rows=40 width=4) (actual time=0.05..0.05 rows=40 loops=1)
+         Buckets: 1024  Batches: 2  Memory Usage: 10kB
+         ->  Seq Scan on customers c  (cost=0.00..1.00 rows=40 width=4) (actual time=0.01..0.02 rows=40 loops=1)
+ Execution Time: 41.2 ms`)
+  const my = parseExplain(`| id | select_type | table | partitions | type | possible_keys | key  | key_len | ref  | rows   | filtered | Extra                       |
+|  1 | SIMPLE      | t1    | NULL       | ALL  | idx_a         | NULL | NULL    | NULL | 120000 |    10.00 | Using where; Using filesort |`)
+  if (pg.error || my.error) throw new Error(pg.error || my.error)
+  const html = (renderToString(<ExplainView res={pg} />) + renderToString(<ExplainView res={my} />)).replaceAll('<!-- -->', '')
+  for (const want of ['PostgreSQL EXPLAIN ANALYZE', 'Seq Scan', 'orders', 'Rows Removed by Filter', 'underestimated', 'Filter removes 91,000 rows', '2 batches', 'MySQL EXPLAIN (table)', 'possible_keys lists idx_a', 'Using filesort', 'Execution Time']) {
+    if (!html.includes(want)) throw new Error('the EXPLAIN reader must show ' + want)
+  }
+  return html
+})
+
+check('scratchboard: InnoDB status reader', () => {
+  const st = parseInnodb(`=====================================\\n2026-10-27 08:02:29 0x7f3a INNODB MONITOR OUTPUT\\n=====================================\\nPer second averages calculated from the last 18 seconds\\n------------------------\\nLATEST DETECTED DEADLOCK\\n------------------------\\n2026-10-27 07:55:01 0x7f3b\\n*** (1) TRANSACTION:\\nTRANSACTION 1886, ACTIVE 8 sec starting index read\\nMySQL thread id 21, OS thread handle 1402, query id 512 localhost root updating\\nUPDATE accounts SET balance = 0 WHERE id = 2\\n*** (1) WAITING FOR THIS LOCK TO BE GRANTED:\\nRECORD LOCKS space id 5 page no 4 n bits 72 index PRIMARY of table \`bank\`.\`accounts\` trx id 1886 lock_mode X locks rec but not gap waiting\\n*** (2) TRANSACTION:\\nTRANSACTION 1887, ACTIVE 5 sec starting index read\\nMySQL thread id 22, OS thread handle 1403, query id 513 localhost root updating\\nUPDATE accounts SET balance = 0 WHERE id = 1\\n*** (2) HOLDS THE LOCK(S):\\nRECORD LOCKS space id 5 page no 4 n bits 72 index PRIMARY of table \`bank\`.\`accounts\` trx id 1887 lock_mode X locks rec but not gap\\n*** WE ROLL BACK TRANSACTION (2)\\n------------\\nTRANSACTIONS\\n------------\\nTrx id counter 1902\\nHistory list length 1534201\\nLIST OF TRANSACTIONS FOR EACH SESSION:\\n---TRANSACTION 1501, ACTIVE 7260 sec\\n5 lock struct(s), heap size 1128, 1520 row lock(s), undo log entries 98000\\nMySQL thread id 12, OS thread handle 1404, query id 401 10.0.0.9 batch\\n----------------------\\nBUFFER POOL AND MEMORY\\n----------------------\\nBuffer pool size   8192\\nFree buffers       0\\nDatabase pages     8100\\nModified db pages  1200\\nBuffer pool hit rate 951 / 1000, young-making rate 0 / 1000 not 0 / 1000\\n----------------------------\\nEND OF INNODB MONITOR OUTPUT\\n============================`)
+  if (st.error) throw new Error(st.error)
+  const html = renderToString(<InnodbView res={st} />).replaceAll('<!-- -->', '')
+  for (const want of ['2026-10-27 08:02:29', 'last <span class="text-fg">18</span> seconds', 'bank.accounts', 'lock_mode X locks rec but not gap', 'rolled back', 'thread 21', 'UPDATE accounts SET balance = 0 WHERE id = 2', '1,534,201', '7260 s (2 h 1 min)', '98,000', '951 / 1000 (95.1%)', 'Deadlock at 2026-10-27 07:55:01']) {
+    if (!html.includes(want)) throw new Error('the InnoDB status reader must show ' + want)
+  }
+  return html
+})
+
+check('scratchboard: replication status', () => {
+  const mysql = readReplication([
+    '*************************** 1. row ***************************',
+    '             Replica_IO_State: Waiting for source to send event',
+    '                  Source_Host: 10.0.0.11',
+    '                  Source_Port: 3306',
+    '           Replica_IO_Running: Yes',
+    '          Replica_SQL_Running: No',
+    '        Seconds_Behind_Source: NULL',
+    '           Source_SSL_Allowed: Yes',
+    '               Last_SQL_Errno: 1062',
+    "               Last_SQL_Error: Could not execute Write_rows event on table app.t1; Duplicate entry '7' for key 't1.PRIMARY'",
+    '     Last_SQL_Error_Timestamp: 261027 08:02:29',
+    '           Retrieved_Gtid_Set: 3e11fa47-71ca-11e1-9e33-c80aa9429562:1-1540',
+    '            Executed_Gtid_Set: 3e11fa47-71ca-11e1-9e33-c80aa9429562:1-1531,',
+    '9b1c6f2e-8a41-11ef-b2d1-0242ac120003:1-12',
+    '                Auto_Position: 1',
+    '                 Channel_Name: ',
+  ].join('\n'))
+  const mongo = readReplication("{ set: 'rs0', date: ISODate('2026-10-27T08:02:30Z'), members: [" +
+    "{ name: 'a:27017', health: 1, state: 1, stateStr: 'PRIMARY', optime: { ts: Timestamp({ t: 1793088150, i: 1 }), t: Long('7') }, optimeDate: ISODate('2026-10-27T08:02:30Z'), self: true }," +
+    "{ name: 'b:27017', health: 1, state: 2, stateStr: 'SECONDARY', optimeDate: ISODate('2026-10-27T08:01:30Z'), syncSourceHost: 'a:27017', lastHeartbeat: ISODate('2026-10-27T08:02:29Z') }," +
+    "{ name: 'c:27017', health: 0, state: 8, stateStr: '(not reachable/healthy)', lastHeartbeatMessage: 'Connection refused' } ], ok: 1 }")
+  const pg = readReplication([
+    ' pid  | application_name | client_addr |   state   |  sent_lsn   | write_lsn  | flush_lsn  | replay_lsn |   replay_lag    | sync_state',
+    '------+------------------+-------------+-----------+-------------+------------+------------+------------+-----------------+------------',
+    ' 4123 | standby1         | 10.0.0.12   | streaming | 16/B374D848 | 16/B374D848 | 16/B374D848 | 16/20000000 | 00:12:03.5      | async',
+    '(1 row)',
+  ].join('\n'))
+  if (mysql.items[0].gtid?.pending !== '3e11fa47-71ca-11e1-9e33-c80aa9429562:1532-1540') throw new Error('Retrieved − Executed: ' + mysql.items[0].gtid?.pending)
+  if (mongo.items.find((i) => i.title === 'b:27017')?.status !== 'warning') throw new Error('a secondary 60 s behind must be flagged')
+  let spawned = null
+  const html = [
+    renderToString(<ReplView res={mysql} spawn={(...a) => { spawned = a }} />),
+    renderToString(<ReplView res={mongo} />),
+    renderToString(<ReplView res={pg} />),
+    renderToString(<ReplCard state={{ input: '' }} update={() => {}} spawn={() => {}} onSelectText={() => {}} />),
+  ].join('').replaceAll('<!-- -->', '')
+  for (const want of ['the SQL thread is stopped', 'duplicate key on the replica', '9 transaction(s) retrieved, not yet executed', 'GTID card',
+    'primary a:27017', 'not reachable', '1 min 0 s behind the primary', 'replay lag 12 min 4 s', 'of WAL not yet replayed']) {
+    if (!html.includes(want)) throw new Error('the replication view must show ' + want)
+  }
+  return html
+})
+
+check('scratchboard: config compare', () => {
+  const a = '[client]\nport = 3306\n[mysqld]\nserver-id = 1\ninnodb_buffer_pool_size = 1G\nmax_connections = 500\nskip-name-resolve\nmax_connections = 800\n!includedir /etc/my.cnf.d/\n'
+  const b = '+-------------------------+------------+\n| Variable_name           | Value      |\n+-------------------------+------------+\n| innodb_buffer_pool_size | 1073741824 |\n| max_connections         | 151        |\n| server_id               | 1          |\n| skip_name_resolve       | ON         |\n| wait_timeout            | 28800      |\n+-------------------------+------------+\n'
+  const res = compareConfigs(a, b)
+  if (res.a.format !== 'mycnf' || res.b.format !== 'mysqlvars') throw new Error('formats: ' + res.a.format + ' / ' + res.b.format)
+  const row = (n) => res.rows.find((r) => r.name === n)
+  if (row('innodb_buffer_pool_size').kind !== 'written') throw new Error('1G and 1073741824 are the same by meaning')
+  if (row('max_connections').kind !== 'diff') throw new Error('the last max_connections (800) differs from 151')
+  const pg = compareConfigs("shared_buffers = 4GB\ncheckpoint_timeout = 15min\nwork_mem = '16MB'\n",
+    ' name | setting | unit\n--------------------+---------+------\n shared_buffers | 524288 | 8kB\n checkpoint_timeout | 900 | s\n work_mem | 4096 | kB\n(3 rows)\n')
+  if (pg.counts.written !== 2 || pg.counts.diff !== 1) throw new Error('postgresql units: ' + JSON.stringify(pg.counts))
+  const html = [
+    renderToString(<ConfigView res={res} show="written" />),
+    renderToString(<ConfigView res={pg} show="all" />),
+    renderToString(<ConfigCard state={{ a: '', b: '' }} update={() => {}} spawn={() => {}} onSelectText={() => {}} />),
+  ].join('').replaceAll('<!-- -->', '')
+  for (const want of ['same, written differently', '1G = 1073741824', 'different', 'line 8 wins', '!includedir', 'not compared: [client]', 'both 4 GiB', 'both 15 min', '16 MiB']) {
+    if (!html.includes(want)) throw new Error('the config compare view must show ' + want)
+  }
+  return html
+})
+
+const scJwt = await (async () => {
+  const now = Date.UTC(2026, 9, 27, 8, 0, 0)
+  const s = now / 1000
+  const enc = (o) => b64url(JSON.stringify(o))
+  const head = enc({ alg: 'HS256', typ: 'JWT' })
+  const body = enc({ iss: 'https://kc.example.net/realms/db', sub: 'u-1', aud: 'dbcanvas', exp: s + 240, iat: s - 60, preferred_username: 'alice', realm_access: { roles: ['dba'] } })
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode('smoke-secret'), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+  const sig = b64url(new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(head + '.' + body))))
+  const tok = head + '.' + body + '.' + sig
+  return {
+    ok: await analyzeJwt('Authorization: Bearer ' + tok, 'smoke-secret', { now }),
+    tampered: await analyzeJwt(head + '.' + enc({ sub: 'x' }) + '.' + sig, 'smoke-secret', { now }),
+    none: await analyzeJwt(enc({ alg: 'none' }) + '.' + body + '.', '', { now }),
+    jwe: await analyzeJwt(enc({ alg: 'RSA-OAEP', enc: 'A256GCM' }) + '.a.b.c.d', '', { now }),
+    cert: await analyzeJwt(enc({ alg: 'ES256', kid: 'k' }) + '.' + body + '.' + b64url(new Uint8Array(64)), SC_ROOT, { now }),
+  }
+})()
+check('scratchboard: redactor', () => {
+  const text = "2026-10-27T08:02:31Z 14 [Note] Access denied for user 'appuser'@'192.168.10.44' (using password: YES)\n" +
+    'mysql://appuser:S3cret!pw@db7.corp.example.net:3306/app connected from 192.168.10.44; my.cnf 5.7.44-48 ib_logfile0 0x7f3a2c00b000\n' +
+    'kind: Secret\ndata:\n  password: UzNjcmV0IXB3\n'
+  const r = redact(text)
+  for (const leak of ['appuser', '192.168.10.44', 'S3cret!pw', 'UzNjcmV0IXB3', 'db7.corp.example.net']) if (r.text.includes(leak)) throw new Error('the redacted text still has ' + leak)
+  for (const keep of ['my.cnf', '5.7.44-48', 'ib_logfile0', '0x7f3a2c00b000', '2026-10-27T08:02:31Z', '(using password: YES)', "'user1'@'10.0.0.1'", 'host1.example.net:3306']) if (!r.text.includes(keep)) throw new Error('the redacted text must keep ' + keep + ':\n' + r.text)
+  if (r.mapping.find((m) => m.original === '192.168.10.44')?.count !== 2) throw new Error('the same address must map to one placeholder')
+  if (r.mapping.find((m) => m.original === 'S3cret!pw')?.count !== 2) throw new Error('the Secret data value and the URI password are the same secret')
+  const html = renderToString(<RedactView res={r} spawn={() => {}} onToggle={() => {}} />).replaceAll('<!-- -->', '')
+  for (const want of ['10.0.0.1', 'host1.example.net', 'Show originals', 'Passwords &amp; secrets']) if (!html.includes(want)) throw new Error('the Redactor must show ' + want)
+  if (html.includes('192.168.10.44') || html.includes('appuser')) throw new Error('originals must be masked until shown')
+  if (!renderToString(<RedactView res={r} showOriginals onToggle={() => {}} />).includes('192.168.10.44')) throw new Error('Show originals reveals them')
+  if (!suggest('a\nb').some((s) => s.type === 'redact')) throw new Error('Smart Paste offers the Redactor for multi-line text')
+  // The documentation domains are masked; the Redactor's own placeholders are not, and new ones skip them.
+  const again = redact('host1.example.net user1@example.com db7.corp.example.net ann@example.org').text
+  if (again !== 'host1.example.net user1@example.com host2.example.net user2@example.com') throw new Error('placeholders and documentation domains: ' + again)
+  return html
+})
+
+check('scratchboard: JWT decoder', () => {
+  if (scJwt.ok.verify.status !== 'valid') throw new Error('HS256 with its secret must verify: ' + scJwt.ok.verify.detail)
+  if (scJwt.tampered.verify.status !== 'invalid') throw new Error('a changed payload must not verify')
+  if (scJwt.none.verify.status !== 'none' || scJwt.jwe.verify.status !== 'encrypted') throw new Error('alg none and JWE statuses')
+  if (scJwt.cert.verify.status !== 'invalid') throw new Error('an EC key read from a certificate is used: ' + scJwt.cert.verify.detail)
+  const html = renderToString(<JwtView res={scJwt.ok} spawn={() => {}} />).replaceAll('<!-- -->', '')
+  for (const want of ['signature valid', 'expires in 4 min', 'issued 1 min ago', '2026-10-27 08:04:00 UTC', 'Keycloak realm roles', 'alice']) if (!html.includes(want)) throw new Error('the JWT view must show ' + want)
+  for (const [r, want] of [[scJwt.tampered, 'invalid signature'], [scJwt.none, 'alg none'], [scJwt.jwe, 'encrypted (JWE)']]) if (!renderToString(<JwtView res={r} />).includes(want)) throw new Error('the JWT view must say ' + want)
+  if (suggest('Bearer ' + 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.abc')[0]?.type !== 'jwt') throw new Error('Smart Paste picks the JWT decoder first')
+  return html
+})
+
+check('scratchboard: query digest matches pt-query-digest', () => {
+  // Expected values are what pt-fingerprint and pt-query-digest 3.x print for the same input.
+  const fps = {
+    'SELECT * FROM t WHERE id IN (1,2,3) ORDER BY a ASC, b ASC LIMIT 5, 10': 'select * from t where id in(?+) order by a, b limit ?',
+    "UPDATE inventory SET qty = qty - 1 WHERE sku = 'A-1'": 'update inventory set qty = qty ? ? where sku = ?',
+    "INSERT INTO audit (a, b) VALUES (1, 'x'), (2, 'y')": 'insert into audit (a, b) values(?+)',
+  }
+  for (const [q, want] of Object.entries(fps)) if (fingerprint(q) !== want) throw new Error('fingerprint of ' + q + ': ' + fingerprint(q))
+  const ev = (s, qt, q) => `# Time: 2024-01-01T10:00:0${s}\n# User@Host: app[app] @ web1 [10.0.0.1]\n# Query_time: ${qt}  Lock_time: 0.000100 Rows_sent: 1  Rows_examined: 100\n${s ? '' : 'use shop;\n'}SET timestamp=170410320${s};\n${q};\n`
+  const log = ev(0, '0.500000', 'SELECT o.id FROM orders o JOIN customers c ON c.id = o.customer_id WHERE o.id = 5') +
+    ev(1, '1.500000', 'SELECT o.id FROM orders o JOIN customers c ON c.id = o.customer_id WHERE o.id = 6') +
+    ev(2, '0.200000', "UPDATE inventory SET qty = qty - 1 WHERE sku = 'A-1'") +
+    ev(3, '0.050000', "INSERT INTO audit (a, b) VALUES (1, 'x'), (2, 'y')") +
+    ev(4, '0.000010', '# administrator command: Quit')
+  const res = digest(log)
+  globalThis.__log = log
+  const profile = formatProfile(res).split('\n')
+  const want = [
+    '#    1 0xF53DCDE2A415EC26318557008253AFF7   2.0000 88.9%     2 1.0000  0.50 SELECT orders customers',
+    '#    2 0xBA0E45BC96CE42E25851EEF7EEDE67FB   0.2000  8.9%     1 0.2000  0.00 UPDATE inventory',
+    '# MISC 0xMISC                               0.0500  2.2%     2 0.0250   0.0 <2 ITEMS>',
+  ]
+  want.forEach((w, i) => { if (profile[3 + i] !== w) throw new Error('profile row ' + (i + 1) + ': ' + profile[3 + i]) })
+  const top = res.classes[0]
+  if (top.id !== '0xF53DCDE2A415EC26318557008253AFF7' || top.item !== 'SELECT orders customers' || top.dbs[0]?.value !== 'shop') throw new Error('class 1: ' + JSON.stringify([top.id, top.item, top.dbs]))
+  const qt = top.stats.Query_time
+  if ([qt.sum, qt.pct_95, qt.stddev, qt.median].map(formatTime).join() !== '2s,2s,707ms,1s') throw new Error('Exec time stats: ' + [qt.sum, qt.pct_95, qt.stddev, qt.median].map(formatTime))
+  const html = renderToString(<DigestView res={res} selected={top.checksum} />).replaceAll('<!-- -->', '')
+  for (const s of ['0xF53DCDE2A415EC26318557008253AFF7', 'SELECT orders customers', 'select o.id from orders o join customers c on c.id = o.customer_id where o.id = ?', '707ms']) {
+    if (!html.includes(s)) throw new Error('the digest view must show ' + s)
+  }
+  return html
+})
+
+check('scratchboard: export, import, Markdown, search, arrows, collapse', () => {
+  const note = { id: 'n1', type: 'note', title: 'Findings', x: 0, y: 0, w: 300, h: 200, z: 1, state: { text: 'buffer pool too small' } }
+  const list = { id: 'k1', type: 'checklist', title: '', x: 400, y: 0, w: 300, h: 200, z: 2, state: { items: [{ id: 'a', text: 'check lag', done: true }] } }
+  const tls = { id: 't1', type: 'tls', title: '', x: 0, y: 300, w: 300, h: 200, z: 3, state: { input: 'line1\nline2' } }
+  const board = { id: 'b', name: 'Lab 1', cards: [note, list, tls], links: [{ id: 'l1', from: 'n1', to: 'k1' }, { id: 'l2', from: 'n1', to: 'gone' }], view: { x: 0, y: 0, z: 1 } }
+  const known = new Set(Object.keys(CARD_TYPES))
+  const back = importBoard(exportBoard(board), known)
+  if (back.error || back.cards.length !== 3 || back.name !== 'Lab 1') throw new Error('round trip: ' + JSON.stringify(back).slice(0, 200))
+  if (back.links.length !== 1) throw new Error('an arrow to a card that is not in the file must be dropped')
+  if (!importBoard('{"kind":"other"}', known).error || !importBoard('nope', known).error) throw new Error('a file that is not a board must be refused')
+  const unknown = importBoard(JSON.stringify({ kind: 'dbcanvas-scratchboard', cards: [{ id: 'x', type: 'future', state: {} }, note] }), known)
+  if (unknown.cards.length !== 1 || unknown.skipped !== 1) throw new Error('unknown card kinds are left out and counted')
+  const md = boardMarkdown(board, { tls: 'TLS Inspector', checklist: 'Checklist' })
+  for (const want of ['# Lab 1', '## Findings', 'buffer pool too small', '- [x] check lag', '## TLS Inspector', '```\nline1\nline2\n```']) {
+    if (!md.includes(want)) throw new Error('Markdown must include ' + JSON.stringify(want) + ':\n' + md)
+  }
+  const found = searchBoards([board, { id: 'b2', name: 'Other', cards: [{ ...note, id: 'n2', state: { text: 'nothing' } }] }], 'LAG')
+  if (found.length !== 1 || found[0].cardId !== 'k1' || found[0].boardName !== 'Lab 1') throw new Error('search: ' + JSON.stringify(found))
+  if (searchBoards([board], '  ').length) throw new Error('a blank search finds nothing')
+  const svg = renderToString(<LinkLayer cards={board.cards} links={board.links} onRemove={() => {}} />)
+  if ((svg.match(/marker-end/g) || []).length !== 1) throw new Error('one arrow is drawn, the dangling one is not: ' + svg)
+  const fr = (c) => renderToString(<CardFrame card={c} update={() => {}} close={() => {}} duplicate={() => {}} spawn={() => {}} />)
+  if (fr({ ...note, collapsed: true }).includes('buffer pool')) throw new Error('a collapsed card shows only its title bar')
+  if (fr(note).includes('max-height') || !fr({ ...note, sized: true }).includes('max-height:200px')) throw new Error('a card grows with its content until it is resized by hand')
+  return md
+})
+
+check('scratchboard: no card content goes to browser storage or a handoff', () => {
+  // Kept boards reach the server through lib/scratchboardApi.js alone, which is outside this set.
+  const src = Object.values(import.meta.glob(['../src/pages/Scratchboard.jsx', '../src/components/scratch/*.jsx', '../src/lib/scratch/*.js', '../src/lib/scratch/*.jsx'], { query: '?raw', import: 'default', eager: true }))
+  if (src.length < 10) throw new Error('expected the Scratchboard sources, found ' + src.length)
+  for (const code of src) {
+    const body = code.replace(/\/\/.*$/gm, '')
+    for (const bad of ['localStorage', 'sessionStorage', 'indexedDB', 'sendHandoff', 'useFollowedState', 'fetch(', 'request(']) {
+      if (body.includes(bad)) throw new Error('Scratchboard code must not use ' + bad)
+    }
+  }
+  return 'ok'
 })
 
 if (failures > 0) {

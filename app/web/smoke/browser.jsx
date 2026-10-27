@@ -26,6 +26,7 @@ import StalkSummary from '../src/pages/StalkSummary.jsx'
 import PacketInspector from '../src/pages/PacketInspector.jsx'
 import K8sStates from '../src/pages/K8sStates.jsx'
 import DatabaseExplorer from '../src/pages/DatabaseExplorer.jsx'
+import Scratchboard from '../src/pages/Scratchboard.jsx'
 import { ContextMenu, podMenuEntries, StackEditor } from '../src/pages/StackDesigner.jsx'
 import { AuthContext } from '../src/auth/AuthProvider.jsx'
 import stackDesign from './stack-design.json'
@@ -215,6 +216,7 @@ class Boundary extends Component {
 }
 
 const PAGES = [
+  ['Scratchboard', Scratchboard],
   ['OperatorDebugger', OperatorDebugger],
   ['CoreDumpAnalyzer', CoreDumpAnalyzer],
   // Sample Client Code's mount chain is four dependent fetches deep — nodes, then that node's
@@ -480,6 +482,130 @@ async function driveStackEditor() {
 }
 driveStackEditor().catch((err) => record('stack editor', err))
 
+
+// ---------------------------------------------------------------- the Scratchboard, driven
+//
+// Right-click to add, the text area growing with its text, close and undo, an arrow drawn by
+// dragging from one card onto another, collapse, and search — all of it pointer events and
+// measured heights, which only a real browser has.
+let scratchDone = false
+async function driveScratchboard() {
+  const host = document.createElement('div')
+  // On screen, over the other pages: elementFromPoint (how a dropped arrow finds its card)
+  // sees only what is in the viewport. Offset and transformed like a page in its tab wrapper
+  // (the fade-in leaves a transform), so the menus have to place themselves by the window.
+  host.style.cssText = 'position:fixed;left:120px;top:60px;width:1280px;height:740px;z-index:9999;background:#fff;transform:translateY(0)'
+  document.body.appendChild(host)
+  createRoot(host).render(
+    <StrictMode>
+      <PageVisibleProvider visible>
+        <Boundary name="ScratchboardDriven"><Scratchboard /></Boundary>
+      </PageVisibleProvider>
+    </StrictMode>,
+  )
+  const tick = (ms = 40) => new Promise((r) => setTimeout(r, ms))
+  const btn = (pred) => [...host.querySelectorAll('button')].find(pred)
+  const cards = () => [...host.querySelectorAll('[data-card-id]')]
+  await tick(200)
+  const board = host.querySelector('[data-board].relative')
+  if (!board) throw new Error('no board')
+  const r = board.getBoundingClientRect()
+
+  // Right-click the board: the card menu opens at the pointer, and the card picked lands there.
+  board.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 200, clientY: r.top + 150 }))
+  await tick()
+  const note = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Quick Note' && !host.contains(b))
+  if (!note) throw new Error('right-click opened no card menu')
+  // At the pointer, moved in only as far as it takes to stay in the window.
+  const mr = note.closest('.grid').getBoundingClientRect()
+  const want = { x: Math.max(8, Math.min(r.left + 200, innerWidth - 500)), y: Math.max(8, Math.min(r.top + 150, innerHeight - 440)) }
+  if (Math.abs(mr.left - want.x) > 2 || Math.abs(mr.top - want.y) > 2) {
+    throw new Error(`the card menu opened at ${Math.round(mr.left)}, ${Math.round(mr.top)}, not at ${Math.round(want.x)}, ${Math.round(want.y)}`)
+  }
+  note.click()
+  await tick()
+  if (cards().length !== 1) throw new Error(`expected 1 card, have ${cards().length}`)
+  const c1 = cards()[0]
+  if (Math.abs(parseFloat(c1.style.left) - 200) > 1 || Math.abs(parseFloat(c1.style.top) - 150) > 1) {
+    throw new Error(`the card landed at ${c1.style.left}, ${c1.style.top}, not where the board was right-clicked`)
+  }
+
+  // The text area grows with its text, up to a ceiling, then scrolls.
+  const ta = c1.querySelector('textarea')
+  const type = (v) => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(ta, v)
+    ta.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+  const h0 = ta.getBoundingClientRect().height
+  type(Array.from({ length: 20 }, (_, i) => `hello line ${i}`).join('\n'))
+  await tick()
+  const h1 = ta.getBoundingClientRect().height
+  if (h1 < h0 * 1.8) throw new Error(`20 lines left the text area at ${Math.round(h1)}px (was ${Math.round(h0)}px)`)
+  if (ta.scrollHeight > ta.clientHeight + 2) throw new Error('20 lines still scroll inside the text area')
+  type(Array.from({ length: 200 }, (_, i) => `line ${i}`).join('\n'))
+  await tick()
+  if (ta.getBoundingClientRect().height > h1 * 2 || ta.style.overflowY !== 'auto') throw new Error('200 lines must stop growing at the ceiling and scroll')
+
+  // Close, then Undo brings it back with its text.
+  btn((b) => (b.title || '').startsWith('Close'))?.click()
+  await tick()
+  if (cards().length !== 0) throw new Error('close left the card')
+  btn((b) => b.textContent.trim() === 'Undo')?.click()
+  await tick()
+  if (cards().length !== 1 || !cards()[0].querySelector('textarea')?.value.startsWith('line 0')) throw new Error('Undo did not bring the card back as it was')
+
+  // A second card, and an arrow dragged from the first onto it.
+  btn((b) => b.textContent.trim() === 'Add card')?.click()
+  await tick()
+  btn((b) => b.textContent.trim() === 'Checklist')?.click()
+  await tick()
+  if (cards().length !== 2) throw new Error('Add card did not add the second card')
+  const [a, b] = cards()
+  const handle = a.querySelector('[title^="Drag onto"]')
+  const hr = handle.getBoundingClientRect()
+  const br = b.querySelector('.cursor-move').getBoundingClientRect()
+  handle.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, clientX: hr.left + 3, clientY: hr.top + 3 }))
+  window.dispatchEvent(new PointerEvent('pointermove', { clientX: br.left + 40, clientY: br.top + 8 }))
+  await tick()
+  window.dispatchEvent(new PointerEvent('pointerup', { clientX: br.left + 40, clientY: br.top + 8 }))
+  await tick()
+  const arrows = host.querySelectorAll('path[marker-end]')
+  if (arrows.length !== 1) {
+    const at = document.elementFromPoint(br.left + 40, br.top + 8)
+    throw new Error(`dragging onto the second card drew ${arrows.length} arrows (handle ${Math.round(hr.left)},${Math.round(hr.top)}; target ${Math.round(br.left)},${Math.round(br.top)}; under it: ${at?.tagName}.${at?.className} in card ${at?.closest?.('[data-card-id]')?.dataset.cardId}; b=${b.dataset.cardId}; viewport ${innerWidth}x${innerHeight})`)
+  }
+
+  // Collapse hides the body; search finds the card and rings it.
+  btn((b) => b.title === 'Collapse to the title bar')?.click()
+  await tick()
+  if (cards()[0].querySelector('textarea')) throw new Error('a collapsed card still shows its body')
+  const search = host.querySelector('input[placeholder="Search every board"]')
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(search, 'line 199')
+  search.dispatchEvent(new Event('input', { bubbles: true }))
+  await tick()
+  const hit = btn((b) => b.textContent.includes('Board 1 ›'))
+  if (!hit) throw new Error('search found nothing')
+  hit.click()
+  await tick()
+  if (!cards()[0].className.includes('ring-2') || !cards()[0].querySelector('textarea')) throw new Error('a search hit must open and ring its card')
+
+  // Every kind of card opens from the menu and survives its effects, on a board of its own.
+  btn((b) => b.title === 'New board')?.click()
+  await tick()
+  btn((b) => b.textContent.trim() === 'Add card')?.click()
+  await tick()
+  const kinds = [...host.querySelectorAll('.grid.grid-cols-3 button')].map((b) => b.textContent.trim())
+  if (kinds.length < 20) throw new Error(`the card menu lists ${kinds.length} kinds`)
+  for (const k of kinds) {
+    if (!host.querySelector('.grid.grid-cols-3')) { btn((b) => b.textContent.trim() === 'Add card').click(); await tick(10) }
+    btn((b) => b.textContent.trim() === k && b.closest('.grid.grid-cols-3'))?.click()
+    await tick(15)
+  }
+  if (cards().length !== kinds.length) throw new Error(`opened ${cards().length} of ${kinds.length} kinds of card`)
+  scratchDone = true
+}
+driveScratchboard().catch((err) => record('scratchboard', err))
+
 // Give effects, their microtasks and the stubbed fetches a turn, then report.
 setTimeout(() => {
   const blank = PAGES.filter(([name]) => (document.getElementById(`page-${name}`)?.textContent || '').trim() === '')
@@ -494,6 +620,9 @@ setTimeout(() => {
   }
   if (!editorDone && !failures.some((f) => f.startsWith('stack editor'))) {
     record('stack editor', new Error('never finished — did the editor stop rendering?'))
+  }
+  if (!scratchDone && !failures.some((f) => f.startsWith('scratchboard'))) {
+    record('scratchboard', new Error('never finished'))
   }
   if (!fillDone && !failures.some((f) => f.startsWith('states board fill'))) {
     record('states board fill', new Error('never finished — did the page stop rendering?'))

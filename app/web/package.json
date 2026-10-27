@@ -15,7 +15,8 @@
     "@xterm/xterm": "^6.0.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "rrweb": "^2.1.6"
+    "rrweb": "^2.1.6",
+    "yaml": "2.9.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.1",

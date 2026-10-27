@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Button, Badge, inputCls } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { CopyButton } from '../components/Secret.jsx'
+import { sendToScratchboard } from '../lib/scratch/bus.js'
 import { k3dApi } from '../lib/stackApi.js'
 
 // K8sObjectEditor — the cluster's Secrets and ConfigMaps, as an editor.
@@ -99,6 +100,12 @@ function ValueBox({ entry, kind, value, changed, onChange }) {
             {show ? <Icon.EyeOff size={14} /> : <Icon.Eye size={14} />}
           </button>
           <CopyButton text={v} />
+          {!!v && (
+            <button title="Open in the Scratchboard" onClick={() => sendToScratchboard({ title: entry?.key || entry?.name || '', input: v })}
+              className="rounded p-1 text-muted hover:bg-surface2 hover:text-fg">
+              <Icon.Send size={14} />
+            </button>
+          )}
         </div>
       </div>
       {changed && <div className="text-[10px] font-medium text-primary">changed</div>}

@@ -11,7 +11,7 @@ func TestUserSettingsNormalize(t *testing.T) {
 	if got := (UserSettings{TerminalMode: "floaty", Theme: "chartreuse", Look: "brutalist", MaxTabs: 0}).normalize(); got != def {
 		t.Fatalf("junk settings = %+v, want defaults %+v", got, def)
 	}
-	want := UserSettings{TerminalMode: TerminalUndocked, Theme: "forest", Look: "industrial", DeploymentBackend: BackendVagrant, NodeLibrary: LibraryDocked, Tooltips: TooltipsOff, TerminalsOnTop: TerminalsOnTopOff, MaxTabs: 12}
+	want := UserSettings{TerminalMode: TerminalUndocked, Theme: "forest", Look: "industrial", DeploymentBackend: BackendVagrant, NodeLibrary: LibraryDocked, Tooltips: TooltipsOff, TerminalsOnTop: TerminalsOnTopOff, MaxTabs: 12, Scratchboard: ScratchboardStoreOn}
 	if got := want.normalize(); got != want {
 		t.Fatalf("valid settings = %+v, want %+v (unchanged)", got, want)
 	}
@@ -28,6 +28,15 @@ func TestUserSettingsNormalize(t *testing.T) {
 	// PUT without the field keeps what is stored (handleUpdateSettings seeds it).
 	if got := (UserSettings{}).normalize().MaxTabs; got != defaultMaxTabs {
 		t.Errorf("MaxTabs 0 normalised to %d, want the default %d", got, defaultMaxTabs)
+	}
+}
+
+// Keeping Scratchboard boards is off unless the account explicitly said "on".
+func TestScratchboardDefaultOff(t *testing.T) {
+	for _, stored := range []string{"", "ON", "yes", "1", "true"} {
+		if got := (UserSettings{Scratchboard: stored}).normalize().Scratchboard; got != ScratchboardStoreOff {
+			t.Errorf("scratchboard %q normalised to %q, want off", stored, got)
+		}
 	}
 }
 

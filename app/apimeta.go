@@ -44,6 +44,7 @@ var paramDoc = map[string]string{
 	"cid":      "A Database Explorer connection id, as returned by GET /api/dbexplorer/connections. It is an opaque token that is re-resolved and re-authorized on every request.",
 	"hid":      "A Database Explorer history entry's numeric id.",
 	"sid":      "A saved Database Explorer query's numeric id.",
+	"bid":      "A Scratchboard board's id, chosen by the page (letters, digits, - and _; up to 40).",
 }
 
 // paramDocByPrefix overrides paramDoc for route families where a wildcard name is

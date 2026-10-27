@@ -85,6 +85,10 @@ type k3dCertSecret struct {
 	Checks     []k3dCertCheck  `json:"checks"`
 	CertMgr    *k3dCertManaged `json:"certManager,omitempty"`
 	ParseError string          `json:"parseError,omitempty"`
+	// The certificates themselves, PEM — public material only, never tls.key — so the panel can
+	// hand them to the Scratchboard's TLS Inspector.
+	TLSPEM string `json:"tlsPem,omitempty"`
+	CAPEM  string `json:"caPem,omitempty"`
 }
 
 // k3dCertsView is the tab.
@@ -148,6 +152,7 @@ func k3dCertsFrom(ns, secretsJSON, certsJSON string, now time.Time) k3dCertsView
 			cs.Status = "invalid"
 		}
 		cs.Secret, cs.Version = s.Metadata.Name, s.Metadata.ResourceVersion
+		cs.TLSPEM, cs.CAPEM = string(dec("tls.crt")), string(dec("ca.crt"))
 		cs.CertMgr = owners[s.Metadata.Name]
 		if cs.CertMgr != nil && !cs.CertMgr.Ready && cs.Status == "valid" {
 			cs.Status = "warning"

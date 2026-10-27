@@ -16,6 +16,7 @@ import { K8sStorage } from './K8sStorage.jsx'
 import { useFollowedState } from '../session/SessionProvider.jsx'
 import K3DClusterSync from '../components/K3DClusterSync.jsx'
 import { usePolling } from '../lib/usePolling.jsx'
+import { sendToScratchboard } from '../lib/scratch/bus.js'
 
 // K3DManager — a running k3s node of a K3D cluster frame.
 //
@@ -335,6 +336,12 @@ export function CertsView({ view, err, busy, renewed = {}, onRefresh }) {
             <span className="min-w-0 flex-1 truncate font-mono font-medium text-fg">{s.secret}</span>
             {renewed[s.secret] && <Badge tone="primary">renewed</Badge>}
             <Badge tone={CERT_TONE[s.status] || 'muted'}>{s.status}</Badge>
+            {s.tlsPem && (
+              <button className="rounded p-0.5 text-muted hover:text-fg" title="Open in the Scratchboard's TLS Inspector (certificates only, not the key)"
+                onClick={() => sendToScratchboard({ type: 'tls', title: s.secret, input: s.tlsPem, state: { ca: s.caPem || '' } })}>
+                <Icon.Send size={13} />
+              </button>
+            )}
           </div>
           {renewed[s.secret] && (
             <div className="text-[11px] text-primary">Re-issued while this tab was open — serial was {renewed[s.secret].from}.</div>

@@ -55,6 +55,16 @@ const (
 	TerminalsOnTopOff = "off" // they stack like every other window
 )
 
+// scratchboard values: whether the Scratchboard may keep boards on the server
+// (scratchboard.go). Off by default — what is pasted there is often a certificate, a
+// Secret or a connection string — so here the empty string means off, which is also
+// what an older client or a row written before the field existed should mean.
+// Turning it off deletes every board the account kept.
+const (
+	ScratchboardStoreOff = "off" // boards live in the browser tab only (default)
+	ScratchboardStoreOn  = "on"  // boards marked to be kept are saved to the account
+)
+
 // themes recognised by the web UI (theme/ThemeProvider.jsx — keep in sync).
 var validThemes = map[string]bool{
 	"light": true, "dark": true, "midnight": true,
@@ -90,6 +100,7 @@ type UserSettings struct {
 	Tooltips          string `json:"tooltips"`          // on | off
 	TerminalsOnTop    string `json:"terminalsOnTop"`    // on | off
 	MaxTabs           int    `json:"maxTabs"`           // between minMaxTabs and maxMaxTabs
+	Scratchboard      string `json:"scratchboard"`      // off | on
 	// WhatsNewSeen is the highest release whose notes this account has dismissed
 	// (see whatsnew.go). Free-form on purpose: it holds whatever appVersion was,
 	// including "dev", and normalize() must leave it exactly as it found it.
@@ -101,6 +112,7 @@ func defaultSettings() UserSettings {
 		TerminalMode: TerminalDocked, Theme: "dark", Look: "modern",
 		DeploymentBackend: BackendDocker, NodeLibrary: LibraryMenu,
 		Tooltips: TooltipsOn, TerminalsOnTop: TerminalsOnTopOn, MaxTabs: defaultMaxTabs,
+		Scratchboard: ScratchboardStoreOff,
 	}
 }
 
@@ -127,6 +139,9 @@ func (s UserSettings) normalize() UserSettings {
 	}
 	if s.TerminalsOnTop != TerminalsOnTopOn && s.TerminalsOnTop != TerminalsOnTopOff {
 		s.TerminalsOnTop = def.TerminalsOnTop
+	}
+	if s.Scratchboard != ScratchboardStoreOn {
+		s.Scratchboard = ScratchboardStoreOff
 	}
 	// Clamped rather than reset, unlike the fields above: those are values from a
 	// fixed set, where anything else is meaningless, but a number slightly out of
@@ -186,12 +201,21 @@ func (a *App) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	// Seeded from what is stored, so a client that PUTs a settings object without
 	// whatsNewSeen (an older UI, or the CLI) cannot blank it and re-open the
 	// release notes for that account.
-	in := a.userSettingsFor(u.ID)
+	prev := a.userSettingsFor(u.ID)
+	in := prev
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	s := in.normalize()
+	// Switching keeping off deletes what was kept, before the switch is saved, so a
+	// failure leaves the setting on rather than leaving boards behind it.
+	if prev.Scratchboard == ScratchboardStoreOn && s.Scratchboard != ScratchboardStoreOn {
+		if err := a.store.DeleteScratchboards(u.ID); err != nil {
+			writeErr(w, http.StatusInternalServerError, "failed to delete the kept Scratchboard boards")
+			return
+		}
+	}
 	if err := a.saveUserSettings(u.ID, s); err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to save settings")
 		return

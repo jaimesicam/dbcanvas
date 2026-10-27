@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Button, Badge, Toggle, inputCls } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
+import { sendToScratchboard } from '../lib/scratch/bus.js'
 import { Help } from '../components/Tooltip.jsx'
 import { k3dApi } from '../lib/stackApi.js'
 
@@ -654,6 +655,10 @@ export function CRFormEditor({ stackId, frame, isServer, preloaded }) {
             ? <>{changed.length} change{changed.length === 1 ? '' : 's'} pending</>
             : 'No changes'}
         </span>
+        <button className="rounded p-1 text-muted hover:bg-surface2 hover:text-fg" title="Open the spec (with any pending changes) in the Scratchboard's Transformer"
+          onClick={() => sendToScratchboard({ type: 'transform', title: 'cr.yaml spec', input: JSON.stringify({ spec: draft }, null, 2), state: { to: 'yaml' } })}>
+          <Icon.Send size={14} />
+        </button>
         <div className="ml-auto flex items-center gap-2">
           {!!changed.length && (
             <>

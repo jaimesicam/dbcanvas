@@ -22,6 +22,24 @@ const minor = (p) => `Which ${p} build to install. Leave it on "latest" and the 
   `this host last probed the repositories.`
 
 export const HELP = {
+  scratchboard:
+    'Canvases for notes, conversions and inspecting what you paste. Keep as many boards as you like, one tab each: ' +
+    '+ adds one, double-click a tab to rename it. Right-click the board to add a card where you click, or paste or ' +
+    'drop text on it and it suggests the card that reads it: a certificate or Secret, JSON or YAML, a slow log (read ' +
+    'as pt-query-digest reads it), an EXPLAIN, InnoDB status, replication status, two configs to compare, a JWT, a ' +
+    'GTID set, a URI, log lines. The Redactor masks addresses, names and secrets before text is shared. Select text ' +
+    'inside a card to open it in another; a card ' +
+    'opened from another is joined to it by an arrow, and dragging the dot on a card\'s edge onto another draws one ' +
+    '(click an arrow to remove it). Double-click a title bar to collapse the card. A card grows with its content until ' +
+    'you resize it; double-click the resize corner to fit it again. Closing a card, clearing or removing a board, and ' +
+    'removing an arrow can be undone (Ctrl/⌘+Z). Search finds text on every board. Board → Export saves the board ' +
+    'to a file, Secrets included, and Import (or dropping the file on the board) opens it again; Markdown gives the ' +
+    'text for notes. Everything is parsed in this browser. By default nothing is saved: reloading clears every board. ' +
+    'With "Keep Scratchboard boards" on in Settings, the pin on a tab keeps that board — saved to your account, ' +
+    'encrypted, in the DBCanvas database — while unpinned boards stay temporary; a board saved from another tab in ' +
+    'the meantime is never overwritten without asking. Turning the setting off deletes every kept board. Cards are ' +
+    'hidden from shared-session guests unless you show them with the eye on the card. A session recording is a ' +
+    'video of the tab, so it does capture the board.',
   // --- identity ------------------------------------------------------------
   label:
     'The name on the canvas — and the node\'s hostname on the stack network, so every other node can reach it at ' +
