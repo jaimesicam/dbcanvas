@@ -650,6 +650,11 @@ export function intranetApi(id, nid) {
     ldapGroupMembers: (cn, uids) => request('POST', `${base}/ldap/groups/members`, { cn, uids }),
     ldapGroupDelete: (cn) => request('POST', `${base}/ldap/groups/delete`, { cn }),
 
+    dnsList: () => request('GET', `${base}/dns`),
+    dnsAdd: (rec) => request('POST', `${base}/dns/records`, rec),
+    dnsUpdate: (rec) => request('POST', `${base}/dns/records/update`, rec),
+    dnsDelete: (id) => request('POST', `${base}/dns/records/delete`, { id }),
+
     certInfo: () => request('GET', `${base}/cert`),
     certGenerate: (value, unit) => request('POST', `${base}/cert`, { value, unit }),
 

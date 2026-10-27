@@ -13,6 +13,7 @@ const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'email', label: 'Email' },
   { id: 'ldap', label: 'LDAP' },
+  { id: 'dns', label: 'DNS' },
   { id: 'cert', label: 'Certificate' },
   { id: 'dbcerts', label: 'DB Certs' },
   { id: 'dbauth', label: 'DB Auth' },
@@ -77,6 +78,7 @@ export default function IntranetManager({ stackId, nodeId, dep, onDeleteNode }) 
       )}
       {tab === 'email' && <EmailTab api={api} domain={sec.domain} webmailPort={cfg.webmailPort} />}
       {tab === 'ldap' && <LdapTab api={api} sec={sec} />}
+      {tab === 'dns' && <DnsTab api={api} />}
       {tab === 'cert' && <CertTab api={api} />}
       {tab === 'dbcerts' && <DBCertTab api={api} domain={sec.domain} />}
       {tab === 'dbauth' && <DbLdapAuthGuide kind="ldap" fqdn={'intranet.' + sec.domain} baseDN={'ou=People,' + sec.baseDN} bindDN={sec.ldapAdminDN} />}
@@ -311,6 +313,155 @@ function LdapTab({ api, sec }) {
             <Icon.Plus size={15} /> Group
           </Button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ------------------------------------------------------------------- dns tab
+
+// The stack's DNS as bind serves it: the records DBCanvas publishes for every node (read-only,
+// rebuilt on every deploy) and the ones added here, which DBCanvas keeps and merges in each time
+// (app/dnscustom.go). A custom record replaces the automatic one of the same name or address.
+const DNS_TYPES = {
+  A: { name: 'host (e.g. db or db.site1)', value: 'IPv4 address' },
+  CNAME: { name: 'alias (e.g. mysql)', value: 'target host (bare = in-domain)' },
+  PTR: { name: 'IPv4 address', value: 'host name it returns' },
+}
+const EMPTY_DNS = { type: 'A', name: '', value: '', ptr: true }
+
+export function DnsRecordForm({ rec, setRec, domain }) {
+  const ph = DNS_TYPES[rec.type]
+  return (
+    <div className="space-y-1">
+      {/* inputCls carries w-full, which a width class beside it does not reliably beat — so
+          the wrappers size the row: a fixed box for the type, the rest for the name. */}
+      <div className="flex gap-1">
+        <div className="w-24 shrink-0">
+          <select className={inputCls} value={rec.type}
+            onChange={(e) => setRec({ ...rec, type: e.target.value, ptr: e.target.value === 'A' })}>
+            {Object.keys(DNS_TYPES).map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+        <div className="min-w-0 flex-1">
+          <input className={inputCls} placeholder={ph.name} value={rec.name} onChange={(e) => setRec({ ...rec, name: e.target.value })} />
+        </div>
+      </div>
+      <input className={inputCls} placeholder={ph.value} value={rec.value} onChange={(e) => setRec({ ...rec, value: e.target.value })} />
+      {rec.type === 'A' && (
+        <label className="flex items-center gap-1.5 text-xs text-muted">
+          <input type="checkbox" checked={!!rec.ptr} onChange={(e) => setRec({ ...rec, ptr: e.target.checked })} />
+          Also publish the reverse (PTR) record
+        </label>
+      )}
+      {rec.type !== 'PTR' && rec.name && domain && (
+        <div className="text-[11px] text-muted">Resolves as <span className="font-mono">{rec.name.replace(/\.$/, '').replace(new RegExp(`\\.${domain.replace(/\./g, '\\.')}$`), '')}.{domain}</span></div>
+      )}
+    </div>
+  )
+}
+
+// `initial` is a view to render before the first load returns (the smoke test's way in).
+export function DnsTab({ api, initial = null }) {
+  const [view, setView] = useState(initial)
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [nr, setNr] = useState(EMPTY_DNS)
+  const [edit, setEdit] = useState(null) // the custom record being edited
+  const [showAuto, setShowAuto] = useState(false)
+
+  const load = useCallback(async () => {
+    try { setView(await api.dnsList()) } catch (e) { setErr(e.message) }
+  }, [api])
+  useEffect(() => { load() }, [load])
+
+  // Every mutation answers with the new view, so no reload round trip.
+  async function run(fn) {
+    setBusy(true); setErr('')
+    try { setView(await fn()); return true } catch (e) { setErr(e.message); return false } finally { setBusy(false) }
+  }
+
+  if (!view) return <div className="space-y-2"><Err>{err}</Err><div className="text-xs text-muted">Loading…</div></div>
+  const domain = view.domain
+  const fqdn = (n) => `${n}.${domain}`
+  const shown = (r) => (r.type === 'PTR' ? `${r.name} → ${r.value}` : `${fqdn(r.name)} → ${r.value}`)
+  const auto = view.automatic || []
+  const overridden = auto.filter((r) => r.overridden).length
+
+  return (
+    <div className="space-y-4">
+      <Err>{err}</Err>
+      {!view.applied && (
+        <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
+          The Intranet is not running, so nothing is being served. Records saved now are published on its next deploy.
+        </div>
+      )}
+
+      {/* custom records */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-1 text-xs font-semibold text-muted">
+          Custom records
+          <Help text={`Added by hand and kept by DBCanvas, so they survive every redeploy. A custom A or CNAME replaces the automatic record of the same name; a custom PTR (or an A with its reverse ticked) replaces the automatic PTR of the same address. A PTR outside the stack network gets a /24 reverse zone of its own.`} />
+        </div>
+        {view.custom.length === 0 && <div className="text-xs text-muted">None yet.</div>}
+        {view.custom.map((r) => (
+          <div key={r.id} className={`rounded-lg border px-2 py-1.5 text-sm ${edit?.id === r.id ? 'border-primary bg-primary/5' : 'bg-bg'}`}>
+            <div className="flex items-center gap-1">
+              <Badge tone="primary">{r.type}</Badge>
+              <button className="min-w-0 flex-1 truncate text-left font-mono text-xs" title="Edit"
+                onClick={() => setEdit(edit?.id === r.id ? null : { ...r, ptr: !!r.ptr })}>
+                {shown(r)}{r.type === 'A' && r.ptr ? <span className="text-muted"> · +PTR</span> : null}
+              </button>
+              <CopyButton text={r.type === 'PTR' ? `dig +short -x ${r.name}` : `dig +short ${fqdn(r.name)}`} title="Copy dig command" />
+              <ConfirmButton variant="ghost" size="sm" confirmLabel="Delete?"
+                onConfirm={() => run(async () => { if (edit?.id === r.id) setEdit(null); return api.dnsDelete(r.id) })}>
+                <Icon.Trash size={15} />
+              </ConfirmButton>
+            </div>
+            {edit?.id === r.id && (
+              <div className="mt-2 space-y-1.5 border-t pt-2">
+                <DnsRecordForm rec={edit} setRec={setEdit} domain={domain} />
+                <Button size="sm" className="w-full" disabled={busy || !edit.name || !edit.value}
+                  onClick={async () => { if (await run(() => api.dnsUpdate(edit))) setEdit(null) }}>Save</Button>
+              </div>
+            )}
+          </div>
+        ))}
+
+        <div className="space-y-1.5 rounded-lg border border-dashed p-2">
+          <div className="text-xs font-medium text-muted">Add record</div>
+          <DnsRecordForm rec={nr} setRec={setNr} domain={domain} />
+          <Button size="sm" className="w-full" disabled={busy || !nr.name || !nr.value}
+            onClick={async () => { if (await run(() => api.dnsAdd(nr))) setNr({ ...EMPTY_DNS, type: nr.type, ptr: nr.type === 'A' }) }}>
+            <Icon.Plus size={15} /> Add
+          </Button>
+        </div>
+      </div>
+
+      {/* automatic records */}
+      <div className="space-y-1">
+        <button className="flex w-full items-center gap-1 text-left text-xs font-semibold text-muted" onClick={() => setShowAuto(!showAuto)}>
+          <Icon.Chevron size={13} className={`shrink-0 transition-transform ${showAuto ? '' : '-rotate-90'}`} />
+          Automatic records ({auto.length}{overridden ? `, ${overridden} replaced` : ''})
+          <Help text="Published by DBCanvas for every deployed node and rebuilt on every deploy, so they cannot be edited here — add a custom record with the same name or address to replace one." />
+        </button>
+        {showAuto && (
+          <div className="space-y-0.5">
+            {auto.length === 0 && <div className="text-xs text-muted">No running nodes.</div>}
+            {auto.map((r) => (
+              <div key={`${r.type}:${r.name}`} className={`flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-xs ${r.overridden ? 'text-muted line-through' : 'text-fg'}`}
+                title={r.overridden ? 'Replaced by a custom record' : ''}>
+                <span className="w-10 shrink-0 text-muted no-underline">{r.type}</span>
+                <span className="min-w-0 flex-1 truncate">{shown(r)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="text-[11px] text-muted">
+        Zones served: <span className="font-mono">{[domain, ...(view.reverseZones || [])].join(' · ')}</span>.
+        Every node, K3D pod and the VNC desktop resolve through the Intranet; your own machine does not.
       </div>
     </div>
   )

@@ -93,6 +93,7 @@ const (
 	gNotif     = "Notifications"
 	gMail      = "Intranet mail"
 	gLDAP      = "Intranet LDAP"
+	gDNS       = "Intranet DNS"
 	gCerts     = "Certificates"
 	gSeaweed   = "SeaweedFS"
 	gOpenBao   = "OpenBao"
@@ -122,7 +123,7 @@ var apiGroupOrder = []string{
 	gDataGen, gQueryRun, gExplorer, gBench, gSample, gStockSim, gLedgerSim,
 	gPkt, gLog, gFTDC, gStalk, gOpSum, gCaptures, gDebug, gGDB,
 	gDash, gNotif, gShare, gKanban,
-	gFS, gCerts, gMail, gLDAP, gSamba, gK3D, gAIO, gSeaweed, gOpenBao, gRepo,
+	gFS, gCerts, gMail, gLDAP, gDNS, gSamba, gK3D, gAIO, gSeaweed, gOpenBao, gRepo,
 }
 
 // apiRoute is one endpoint: how it is addressed, who may call it, what it is for,
@@ -792,6 +793,19 @@ func buildAPIRoutes() []apiRoute {
 		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/ldap/groups/delete", Group: gLDAP,
 			Summary: "Delete an OpenLDAP group.",
 			Handler: func(a *App) http.HandlerFunc { return a.ldapGroupMutate(ldapGroupDeleteScript, false) }},
+
+		// --- Intranet DNS -------------------------------------------------------
+		{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/dns", Group: gDNS, Handler: m((*App).handleDNSList),
+			Summary: "The Intranet's DNS: the records published for every node, the custom ones added by hand, and the reverse zones served."},
+		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/dns/records", Group: gDNS,
+			Summary: "Add a custom A, CNAME or PTR record; it replaces any automatic record of the same name or address.",
+			Handler: func(a *App) http.HandlerFunc { return a.dnsMutate("add") }},
+		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/dns/records/update", Group: gDNS,
+			Summary: "Change a custom DNS record, by its id.",
+			Handler: func(a *App) http.HandlerFunc { return a.dnsMutate("update") }},
+		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/dns/records/delete", Group: gDNS,
+			Summary: "Delete a custom DNS record, by its id; an automatic record it replaced comes back.",
+			Handler: func(a *App) http.HandlerFunc { return a.dnsMutate("delete") }},
 
 		// --- certificates -------------------------------------------------------
 		{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/cert", Group: gCerts, Handler: m((*App).handleCertInfo),

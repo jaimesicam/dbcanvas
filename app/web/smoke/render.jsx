@@ -15,6 +15,7 @@
 // Run with `npm run smoke`.
 
 import { renderToString } from 'react-dom/server'
+import { DnsTab, DnsRecordForm } from '../src/pages/IntranetManager.jsx'
 import { stackRelations, relationPorts } from '../src/lib/relations.js'
 import { Icon } from '../src/components/Icons.jsx'
 import { AllInOneForm, AllInOneManager, connectString, credRows, __tabsForTest } from '../src/pages/AllInOne.jsx'
@@ -6050,6 +6051,33 @@ check('explorer: JSON export disambiguates duplicate column names', () => {
     return 'ok'
   })
 }
+
+check('Intranet DNS tab', () => {
+  const view = {
+    domain: 'example.net', applied: false, reverseZones: ['20.172.in-addr.arpa', '2.1.10.in-addr.arpa'],
+    automatic: [
+      { type: 'A', name: 'pmm', value: '172.20.0.5', overridden: true },
+      { type: 'PTR', name: '172.20.0.5', value: 'pmm.example.net', overridden: false },
+    ],
+    custom: [
+      { id: 'a1', type: 'A', name: 'pmm', value: '10.1.2.3', ptr: true },
+      { id: 'c1', type: 'CNAME', name: 'db', value: 'ps01.example.net' },
+      { id: 'p1', type: 'PTR', name: '172.20.0.6', value: 'mysql-prod.corp.lan' },
+    ],
+  }
+  const html = renderToString(<DnsTab api={{}} initial={view} />).replaceAll('<!-- -->', '')
+  for (const want of ['pmm.example.net → 10.1.2.3', '+PTR', 'db.example.net → ps01.example.net', '172.20.0.6 → mysql-prod.corp.lan',
+    'Automatic records (2, 1 replaced)', '2.1.10.in-addr.arpa', 'not running']) {
+    if (!html.includes(want)) throw new Error('the DNS tab must show ' + want)
+  }
+  if (!renderToString(<DnsTab api={{}} />).includes('Loading')) throw new Error('before the first load the tab says so')
+  for (const type of ['A', 'CNAME', 'PTR']) {
+    const form = renderToString(<DnsRecordForm rec={{ type, name: 'db.example.net', value: 'x', ptr: true }} setRec={() => {}} domain="example.net" />).replaceAll('<!-- -->', '')
+    if ((type === 'A') !== form.includes('reverse (PTR)')) throw new Error(type + ': the reverse tick belongs on A records only')
+    if (type !== 'PTR' && !form.includes('db.example.net')) throw new Error(type + ': the form must show the resolved name')
+  }
+  return html
+})
 
 if (failures > 0) {
   console.error(`\n${failures} render failure(s)`)

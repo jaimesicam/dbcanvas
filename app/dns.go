@@ -37,6 +37,8 @@ func dnsSerial() int64 {
 // published as an A record (and PTR in the reverse zone), and non-Intranet nodes
 // use the Intranet as their resolver. The zone is rebuilt from scratch on every
 // reconcile, so adds/removes/restarts (which can change container IPs) converge.
+// Records added by hand on the Intranet's DNS tab are kept by DBCanvas, not in the
+// zone file, and merged in on every rebuild (dnscustom.go).
 
 // --- hostnames ---
 
@@ -124,46 +126,60 @@ func nodeTypeOf(st Stack, nid string) string {
 
 // --- reverse zone math ---
 
-// reverseZoneInfo derives the in-addr.arpa zone name and a PTR-owner function
-// from a network CIDR, rounding the prefix down to an octet boundary (/8,/16,/24).
-func reverseZoneInfo(cidr string) (zone string, owner func(ip string) string, ok bool) {
+// revZone is one in-addr.arpa zone: the first `octets` bytes of `base` fixed, the rest the owner
+// name of each PTR in it.
+type revZone struct {
+	name   string
+	base   net.IP // 4-byte form
+	octets int
+}
+
+// reverseZoneFor derives the stack's reverse zone from a network CIDR, rounding the prefix down to
+// an octet boundary (/8, /16, /24).
+func reverseZoneFor(cidr string) (revZone, bool) {
 	_, ipnet, err := net.ParseCIDR(cidr)
 	if err != nil {
-		return "", nil, false
+		return revZone{}, false
 	}
 	base := ipnet.IP.To4()
 	if base == nil {
-		return "", nil, false
+		return revZone{}, false
 	}
 	ones, _ := ipnet.Mask.Size()
-	var octets int
 	switch {
 	case ones >= 24:
-		octets = 3
+		return newRevZone(base, 3), true
 	case ones >= 16:
-		octets = 2
+		return newRevZone(base, 2), true
 	case ones >= 8:
-		octets = 1
-	default:
-		return "", nil, false
+		return newRevZone(base, 1), true
 	}
+	return revZone{}, false
+}
+
+func newRevZone(base net.IP, octets int) revZone {
 	var parts []string
 	for i := octets - 1; i >= 0; i-- {
 		parts = append(parts, fmt.Sprintf("%d", base[i]))
 	}
-	zone = strings.Join(parts, ".") + ".in-addr.arpa"
-	owner = func(ip string) string {
-		p := net.ParseIP(ip).To4()
-		if p == nil {
-			return ""
+	return revZone{name: strings.Join(parts, ".") + ".in-addr.arpa", base: base, octets: octets}
+}
+
+func (z revZone) contains(ip net.IP) bool {
+	for i := 0; i < z.octets; i++ {
+		if ip[i] != z.base[i] {
+			return false
 		}
-		var rev []string
-		for i := 3; i >= octets; i-- {
-			rev = append(rev, fmt.Sprintf("%d", p[i]))
-		}
-		return strings.Join(rev, ".")
 	}
-	return zone, owner, true
+	return true
+}
+
+func (z revZone) owner(ip net.IP) string {
+	var rev []string
+	for i := 3; i >= z.octets; i-- {
+		rev = append(rev, fmt.Sprintf("%d", ip[i]))
+	}
+	return strings.Join(rev, ".")
 }
 
 // --- zone + config rendering ---
@@ -172,37 +188,128 @@ type dnsRecord struct{ host, ip string }
 
 const zoneTTL = 60
 
+// dnsReverseFile is where the stack network's reverse zone lives; any other reverse zone — one a
+// custom PTR outside the stack network called for (dnscustom.go) — is dnsExtraRevPrefix+<zone>.
+const (
+	dnsForwardFile    = "dbcanvas.forward"
+	dnsReverseFile    = "dbcanvas.reverse"
+	dnsExtraRevPrefix = "dbcanvas.rev."
+)
+
 func zoneHeader(b *strings.Builder, domain string, serial int64) {
 	fmt.Fprintf(b, "$TTL %d\n", zoneTTL)
 	fmt.Fprintf(b, "@ IN SOA intranet.%s. admin.%s. ( %d 3600 600 86400 60 )\n", domain, domain, serial)
 	fmt.Fprintf(b, "@ IN NS intranet.%s.\n", domain)
 }
 
-func forwardZone(domain string, serial int64, recs []dnsRecord) string {
-	var b strings.Builder
-	zoneHeader(&b, domain, serial)
-	for _, r := range recs {
-		fmt.Fprintf(&b, "%s IN A %s\n", r.host, r.ip)
-	}
-	return b.String()
+// dnsZoneFile is one zone named serves: its name, its file under /var/named, and the text.
+type dnsZoneFile struct{ Zone, File, Text string }
+
+// dnsZones is everything the Intranet's bind is given: the forward zone and the reverse zones.
+type dnsZones struct {
+	Forward dnsZoneFile
+	Reverse []dnsZoneFile
 }
 
-func reverseZone(domain string, serial int64, recs []dnsRecord, owner func(string) string) string {
-	var b strings.Builder
-	zoneHeader(&b, domain, serial)
-	for _, r := range recs {
-		if o := owner(r.ip); o != "" {
-			fmt.Fprintf(&b, "%s IN PTR %s.%s.\n", o, r.host, domain)
+// buildDNSZones renders the zones from the automatic records (one per deployed node) and the
+// stack's custom records. A custom A or CNAME replaces the automatic records of the same name, and
+// a custom PTR (or an A published with its PTR) replaces the automatic PTRs of the same address —
+// so a custom record can point a node's name somewhere else without fighting the reconcile that
+// rewrites the zone after every deploy. Every PTR lands in the reverse zone that
+// contains its address: the stack network's, or a /24 of its own for an address outside it.
+func buildDNSZones(domain string, serial int64, subnet string, auto []dnsRecord, custom []dnsCustomRecord) dnsZones {
+	named := map[string]bool{}
+	customPTR := map[string]bool{}
+	for _, c := range custom {
+		switch c.Type {
+		case "A", "CNAME":
+			named[c.Name] = true
+			if c.Type == "A" && c.PTR {
+				customPTR[c.Value] = true
+			}
+		case "PTR":
+			customPTR[c.Name] = true
 		}
 	}
-	return b.String()
+
+	var fwd strings.Builder
+	zoneHeader(&fwd, domain, serial)
+	type ptr struct{ ip, target string }
+	var ptrs []ptr
+	for _, r := range auto {
+		if !named[r.host] {
+			fmt.Fprintf(&fwd, "%s IN A %s\n", r.host, r.ip)
+		}
+		if !customPTR[r.ip] {
+			ptrs = append(ptrs, ptr{r.ip, fqdnOf(r.host, domain)})
+		}
+	}
+	for _, c := range custom {
+		switch c.Type {
+		case "A":
+			fmt.Fprintf(&fwd, "%s IN A %s\n", c.Name, c.Value)
+			if c.PTR {
+				ptrs = append(ptrs, ptr{c.Value, fqdnOf(c.Name, domain)})
+			}
+		case "CNAME":
+			fmt.Fprintf(&fwd, "%s IN CNAME %s.\n", c.Name, c.Value)
+		case "PTR":
+			ptrs = append(ptrs, ptr{c.Name, c.Value})
+		}
+	}
+	out := dnsZones{Forward: dnsZoneFile{Zone: domain, File: dnsForwardFile, Text: fwd.String()}}
+
+	// The stack network's reverse zone is always served (empty or not), as it always has been;
+	// any other is made only for the addresses that need it.
+	type zoneOut struct {
+		z    revZone
+		file string
+		b    *strings.Builder
+		seen map[string]bool
+	}
+	var zones []*zoneOut
+	newZone := func(z revZone, file string) *zoneOut {
+		zo := &zoneOut{z: z, file: file, b: &strings.Builder{}, seen: map[string]bool{}}
+		zoneHeader(zo.b, domain, serial)
+		zones = append(zones, zo)
+		return zo
+	}
+	if z, ok := reverseZoneFor(subnet); ok {
+		newZone(z, dnsReverseFile)
+	}
+	for _, p := range ptrs {
+		ip := net.ParseIP(p.ip).To4()
+		if ip == nil {
+			continue
+		}
+		var zo *zoneOut
+		for _, cand := range zones {
+			if cand.z.contains(ip) {
+				zo = cand
+				break
+			}
+		}
+		if zo == nil {
+			z := newRevZone(ip, 3)
+			zo = newZone(z, dnsExtraRevPrefix+z.name)
+		}
+		line := fmt.Sprintf("%s IN PTR %s.\n", zo.z.owner(ip), p.target)
+		if !zo.seen[line] {
+			zo.seen[line] = true
+			zo.b.WriteString(line)
+		}
+	}
+	for _, zo := range zones {
+		out.Reverse = append(out.Reverse, dnsZoneFile{Zone: zo.z.name, File: zo.file, Text: zo.b.String()})
+	}
+	return out
 }
 
 // namedConf renders a minimal authoritative named.conf. It listens only on
 // localhost + the Intranet's own address (never 127.0.0.11, which is Docker's
-// embedded resolver it forwards external queries to), serves the forward zone,
-// and serves the reverse zone when one could be derived.
-func namedConf(domain, reverseZoneName, listenIP string) string {
+// embedded resolver it forwards external queries to), and serves the forward zone
+// and every reverse zone.
+func namedConf(z dnsZones, listenIP string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, `plugin query "/usr/lib64/named/filter-aaaa.so" {
     filter-aaaa-on-v4 yes;
@@ -217,10 +324,9 @@ options {
     forward first;
     dnssec-validation no;
 };
-zone "%s" IN { type master; file "/var/named/dbcanvas.forward"; };
-`, listenIP, domain)
-	if reverseZoneName != "" {
-		fmt.Fprintf(&b, "zone \"%s\" IN { type master; file \"/var/named/dbcanvas.reverse\"; };\n", reverseZoneName)
+`, listenIP)
+	for _, f := range append([]dnsZoneFile{z.Forward}, z.Reverse...) {
+		fmt.Fprintf(&b, "zone \"%s\" IN { type master; file \"/var/named/%s\"; };\n", f.Zone, f.File)
 	}
 	return b.String()
 }
@@ -277,18 +383,21 @@ func (a *App) restoreNodeResolver(ctx context.Context, st Stack, nid string, dep
 
 // --- reconcile ---
 
-// reconcileStackDNS rebuilds the Intranet's authoritative zones from the stack's
-// current deployments: an A record (and PTR) for every node that has a container
-// IP, including the Intranet itself. Best-effort and idempotent — safe to call
-// after any deploy/lifecycle change. No-op until the Intranet has a container IP.
-func (a *App) reconcileStackDNS(ctx context.Context, stackID int64) {
-	st, err := a.store.GetStack(stackID)
-	if err != nil {
-		return
-	}
+// dnsPlan is what the Intranet's zones are built from: where its bind runs, the automatic records
+// (one per deployed node) and the stack network they are on.
+type dnsPlan struct {
+	intranetID, intranetIP string
+	domain, subnet         string
+	auto                   []dnsRecord
+}
+
+// stackDNSPlan reads the stack's current deployments into a dnsPlan: an A record for every node
+// that has a container IP, including the Intranet itself. ok=false until the Intranet has a
+// container IP — there is no DNS authority to write to before then.
+func (a *App) stackDNSPlan(ctx context.Context, st Stack) (dnsPlan, bool) {
 	var doc designDoc
 	if json.Unmarshal(st.Design, &doc) != nil {
-		return
+		return dnsPlan{}, false
 	}
 	hosts := stackHostnames(doc)
 	typeByID := map[string]string{}
@@ -296,28 +405,22 @@ func (a *App) reconcileStackDNS(ctx context.Context, stackID int64) {
 		typeByID[n.ID] = n.Type
 	}
 
-	deps, _ := a.store.ListDeployments(stackID)
-	// Cross-engine routing reconciles on the same triggers as DNS (a hybrid stack
-	// needs the host FORWARD path + VM routes open before names resolved here are
-	// reachable). No-op for docker-only stacks; independent of the Intranet below.
-	a.reconcileStackRouting(ctx, st, deps)
-	intranetID := ""
+	deps, _ := a.store.ListDeployments(st.ID)
+	p := dnsPlan{domain: envOr("DOMAIN", "example.net")}
 	for _, d := range deps {
 		if typeByID[d.NodeID] == "intranet" && d.ContainerID != "" {
-			intranetID = d.ContainerID
+			p.intranetID = d.ContainerID
 			break
 		}
 	}
-	if intranetID == "" {
-		return // no DNS authority yet
+	if p.intranetID == "" {
+		return dnsPlan{}, false // no DNS authority yet
 	}
-	netName := networkName(stackID)
-	intranetIP, _ := a.intranetEngine().ContainerIP(ctx, intranetID, netName)
-	if intranetIP == "" {
-		return
+	netName := networkName(st.ID)
+	if p.intranetIP, _ = a.intranetEngine().ContainerIP(ctx, p.intranetID, netName); p.intranetIP == "" {
+		return dnsPlan{}, false
 	}
 
-	var recs []dnsRecord
 	for _, d := range deps {
 		h := hosts[d.NodeID]
 		if h == "" || d.ContainerID == "" {
@@ -329,52 +432,88 @@ func (a *App) reconcileStackDNS(ctx context.Context, stackID int64) {
 		if ip == "" {
 			continue
 		}
-		recs = append(recs, dnsRecord{host: h, ip: ip})
+		p.auto = append(p.auto, dnsRecord{host: h, ip: ip})
 		// An All-in-One node runs many instances behind one container IP. Publish
 		// each instance's name as its own A record so a replication config, a PMM
 		// registration or a psql -h reads as a hostname rather than "the AiO box,
 		// port 15020". Same IP, different names — the port disambiguates.
 		if typeByID[d.NodeID] == "aio" {
 			for _, inst := range aioRuntimeInstances(d) {
-				recs = append(recs, dnsRecord{host: inst.Inst, ip: ip})
+				p.auto = append(p.auto, dnsRecord{host: inst.Inst, ip: ip})
 			}
 		}
 	}
 	// A replication source's per-pod LoadBalancer addresses, which a replica verifying its
 	// certificate dials by name (k3dreplssl.go).
-	recs = append(recs, k3dReplDNSRecords(deps, typeByID)...)
-	sort.Slice(recs, func(i, j int) bool { return recs[i].host < recs[j].host })
+	p.auto = append(p.auto, k3dReplDNSRecords(deps, typeByID)...)
+	sort.Slice(p.auto, func(i, j int) bool { return p.auto[i].host < p.auto[j].host })
+	p.subnet, _ = a.intranetEngine().NetworkSubnet(ctx, netName)
+	return p, true
+}
 
-	domain := envOr("DOMAIN", "example.net")
-	serial := dnsSerial()
-	subnet, _ := a.intranetEngine().NetworkSubnet(ctx, netName)
-	revZone, owner, hasRev := reverseZoneInfo(subnet)
+// reconcileStackDNS rebuilds the Intranet's authoritative zones from the stack's
+// current deployments and its custom records. Best-effort and idempotent — safe to
+// call after any deploy/lifecycle change. No-op until the Intranet has a container IP.
+func (a *App) reconcileStackDNS(ctx context.Context, stackID int64) {
+	a.applyStackDNS(ctx, stackID)
+}
 
-	a.intranetEngine().CopyFile(ctx, intranetID, "/var/named", "dbcanvas.forward", 0o644, []byte(forwardZone(domain, serial, recs)))
-	revName := ""
-	if hasRev {
-		revName = revZone
-		a.intranetEngine().CopyFile(ctx, intranetID, "/var/named", "dbcanvas.reverse", 0o644, []byte(reverseZone(domain, serial, recs, owner)))
+// applyStackDNS is reconcileStackDNS reporting what went wrong, for the DNS tab: applied=false
+// (with no error) means there is no running Intranet yet, so the records wait for its deploy.
+func (a *App) applyStackDNS(ctx context.Context, stackID int64) (applied bool, err error) {
+	st, err := a.store.GetStack(stackID)
+	if err != nil {
+		return false, err
 	}
-	a.intranetEngine().CopyFile(ctx, intranetID, "/etc", "named.conf", 0o644, []byte(namedConf(domain, revName, intranetIP)))
+	// Cross-engine routing reconciles on the same triggers as DNS (a hybrid stack
+	// needs the host FORWARD path + VM routes open before names resolved here are
+	// reachable). No-op for docker-only stacks; independent of the Intranet below.
+	deps, _ := a.store.ListDeployments(st.ID)
+	a.reconcileStackRouting(ctx, st, deps)
+	p, ok := a.stackDNSPlan(ctx, st)
+	if !ok {
+		return false, nil
+	}
+	zones := buildDNSZones(p.domain, dnsSerial(), p.subnet, p.auto, a.dnsCustomRecords(stackID))
+
+	eng := a.intranetEngine()
+	var revNames, files []string
+	for _, f := range append([]dnsZoneFile{zones.Forward}, zones.Reverse...) {
+		if err := eng.CopyFile(ctx, p.intranetID, "/var/named", f.File, 0o644, []byte(f.Text)); err != nil {
+			return false, fmt.Errorf("write zone %s: %w", f.Zone, err)
+		}
+		files = append(files, f.File)
+	}
+	for _, f := range zones.Reverse {
+		revNames = append(revNames, f.Zone)
+	}
+	if err := eng.CopyFile(ctx, p.intranetID, "/etc", "named.conf", 0o644, []byte(namedConf(zones, p.intranetIP))); err != nil {
+		return false, fmt.Errorf("write named.conf: %w", err)
+	}
 
 	// Fix ownership and (re)load named. `rndc reconfig` loads any newly-declared
-	// zones from the rewritten named.conf; then each existing zone is reloaded by
-	// name (the bare `rndc reload` does not reliably re-read a changed master zone
-	// file). The serial is guaranteed to advance (see dnsSerial), so named honors
-	// the reload. A full restart is the fallback.
-	env := []string{"FWD=" + domain, "REV=" + revName}
+	// zones from the rewritten named.conf (and drops any no longer declared); then each
+	// zone is reloaded by name (the bare `rndc reload` does not reliably re-read a
+	// changed master zone file). The serial is guaranteed to advance (see dnsSerial),
+	// so named honors the reload. A full restart is the fallback. Extra reverse zones
+	// that are no longer needed leave their files behind, so those are removed first.
+	env := []string{"FWD=" + p.domain, "REVS=" + strings.Join(revNames, " "), "FILES=" + strings.Join(files, " ")}
 	reload := `set -e
-chown root:named /etc/named.conf /var/named/dbcanvas.forward 2>/dev/null || true
-[ -f /var/named/dbcanvas.reverse ] && chown root:named /var/named/dbcanvas.reverse 2>/dev/null || true
+for f in /var/named/` + dnsExtraRevPrefix + `*; do
+  [ -e "$f" ] || continue
+  case " $FILES " in *" $(basename "$f") "*) ;; *) rm -f "$f" ;; esac
+done
+chown root:named /etc/named.conf /var/named/dbcanvas.* 2>/dev/null || true
 chmod 640 /etc/named.conf 2>/dev/null || true
 chmod 644 /var/named/dbcanvas.* 2>/dev/null || true
 if command -v rndc >/dev/null 2>&1; then
   rndc reconfig >/dev/null 2>&1 || true
-  rndc reload "$FWD" >/dev/null 2>&1 || true
-  [ -n "$REV" ] && rndc reload "$REV" >/dev/null 2>&1 || true
+  for z in "$FWD" $REVS; do rndc reload "$z" >/dev/null 2>&1 || true; done
 else
   systemctl reload named >/dev/null 2>&1 || systemctl restart named >/dev/null 2>&1 || true
 fi`
-	a.intranetEngine().Exec(ctx, intranetID, []string{"bash", "-c", reload}, env)
+	if _, err := eng.Exec(ctx, p.intranetID, []string{"bash", "-c", reload}, env); err != nil {
+		return false, fmt.Errorf("reload named: %w", err)
+	}
+	return true, nil
 }

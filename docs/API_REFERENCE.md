@@ -34,7 +34,7 @@ longer one.
 
 **Finding out what happened** · [Activity](#activity) · [Packet Inspector](#packet-inspector) · [Log Summary](#log-summary) · [FTDC Summary](#ftdc-summary) · [Stalk Summary](#stalk-summary) · [Diagnostic captures](#diagnostic-captures) · [Operator Debugger](#operator-debugger) · [Core Dump Analyzer](#core-dump-analyzer)
 
-**Managing a node** · [Node file manager](#node-file-manager) · [Certificates](#certificates) · [Intranet mail](#intranet-mail) · [Intranet LDAP](#intranet-ldap) · [Samba AD DC](#samba-ad-dc) · [SeaweedFS](#seaweedfs) · [OpenBao](#openbao)
+**Managing a node** · [Node file manager](#node-file-manager) · [Certificates](#certificates) · [Intranet mail](#intranet-mail) · [Intranet LDAP](#intranet-ldap) · [Intranet DNS](#intranet-dns) · [Samba AD DC](#samba-ad-dc) · [SeaweedFS](#seaweedfs) · [OpenBao](#openbao)
 
 **Watching** · [Dashboard](#dashboard) · [Notifications](#notifications) · [Shared sessions](#shared-sessions) · [API metadata](#api-metadata)
 
@@ -1368,6 +1368,17 @@ The directory database LDAP authentication binds against.
 | Create · update · set password · delete | `POST …/ldap/users` · `/update` · `/password` · `/delete` | `dbcanvas api POST …/ldap/users --data '{…}'` |
 | List groups, with members | `GET …/nodes/{nid}/ldap/groups` | `dbcanvas api GET …/ldap/groups` |
 | Create · set members · delete | `POST …/ldap/groups` · `/members` · `/delete` | `dbcanvas api POST …/ldap/groups/members --data '{…}'` |
+
+## Intranet DNS
+
+Records added by hand beside the ones published for every node. A custom record replaces the
+automatic one of the same name or address. Every write rewrites the zones and answers with the new view.
+
+| To do this | API | CLI |
+| --- | --- | --- |
+| Automatic and custom records, and the reverse zones served | `GET …/nodes/{nid}/dns` | `dbcanvas api GET …/dns` |
+| Add an A, CNAME or PTR record | `POST …/nodes/{nid}/dns/records` | `dbcanvas api POST …/dns/records --data '{"type":"A","name":"db","value":"10.1.2.3","ptr":true}'` |
+| Change one · delete one, by id | `POST …/dns/records/update` · `/delete` | `dbcanvas api POST …/dns/records/delete --data '{"id":"…"}'` |
 
 ## Samba AD DC
 

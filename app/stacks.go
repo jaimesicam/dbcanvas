@@ -280,6 +280,7 @@ func (a *App) handleDeleteStack(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "failed to delete stack")
 		return
 	}
+	a.store.DeleteAppSetting(dnsCustomKey(st.ID)) // the Intranet DNS tab's records (dnscustom.go)
 	writeJSON(w, http.StatusOK, map[string]any{"status": "deleted"})
 }
 

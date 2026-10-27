@@ -881,6 +881,27 @@ The ports are read from the engine when you click, not from the design — host 
 re-assigned every time a container restarts. Leave `SSH_FORWARDING_HOST` empty (the default)
 and the menu item is absent; on a laptop install the ports are already local.
 
+**The stack's DNS, and adding records to it.** The Intranet runs bind as the authority for the
+stack's domain: every deployed node gets an A record and a PTR, and every node, K3D pod and the
+VNC desktop resolve through it. Those records are rebuilt on every deploy, so they are not edited
+directly. Instead, the Intranet's panel has a **DNS** tab where you add your own:
+
+- **A** — a name (`db`, `db.site1`, or a wildcard such as `*.apps`) and an IPv4 address,
+  optionally with its reverse record.
+- **CNAME** — an alias for another name. A bare target is taken as one in the stack's domain;
+  anything with a dot is taken as fully qualified, so it can point outside the stack.
+- **PTR** — what a reverse lookup of an address returns, for setups whose `skip_name_resolve`,
+  `pg_hba` host names or replication grants depend on it.
+
+A custom record **replaces** the automatic one with the same name or address. It can point
+`pmm` somewhere else, or make `ps01`'s address reverse-resolve to the host name a set of grants
+expects, and the next deploy will not undo it. Delete the custom record and the automatic
+one comes back. A PTR for an address outside the stack network gets a /24 reverse zone of its
+own. The records are kept by DBCanvas rather than in the zone file, so they survive every
+redeploy, and they are removed with the stack. Records saved while the Intranet is stopped are
+published when it next deploys. The tab also lists the automatic records, striking through the
+ones a custom record replaces, and each custom record has a copyable `dig` command.
+
 **Monitoring with PMM.** Add a PMM node and point databases at it; DB nodes register
 themselves, so Percona Monitoring & Management comes up already watching the stack:
 
