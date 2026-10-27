@@ -160,7 +160,7 @@ func testCA(t *testing.T) ([]byte, []byte) {
 // tls.SANs cannot do — and is issued by the shared CA's Issuer.
 func TestK3DReplCertificateManifest(t *testing.T) {
 	_, in, _ := k3dReplCertSpecs("cluster1", "pxc", "example.net", "172.20.255.248-172.20.255.249", true)
-	m := k3dReplCertificateManifest(in)
+	m := k3dReplCertificateManifest(in, k3dReplCAIssuer)
 	for _, want := range []string{
 		"name: cluster1-ssl-internal", "secretName: cluster1-ssl-internal",
 		"ipAddresses:\n  - 172.20.255.248\n  - 172.20.255.249\n",

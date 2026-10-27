@@ -79,6 +79,9 @@ type openbaoConfig struct {
 	UseProxy  bool   `json:"useProxy"`  // package egress via the Intranet Squid proxy
 	Ports     []int  `json:"ports"`     // 8200 (API), 8201 (cluster)
 	PolicyDir string `json:"policyDir"` // /etc/openbao.d — where the .hcl policy files live
+	// PKI is the CA mount (it signs as the Intranet CA), once one exists — set at deploy when the node's PKI option
+	// is on, or by the first K3D frame that issues its certificates through it (openbaopki.go).
+	PKI *openbaoPKIInfo `json:"pki,omitempty"`
 }
 
 // kvM is one KV mount as surfaced to the UI.
@@ -597,6 +600,19 @@ func (a *App) provisionOpenBao(st Stack, n designNode, doc designDoc) {
 			if err := a.runStep(ctx, id, openbaoMountScript, env, pr.logln); err != nil {
 				// A keyring the operator can still create by hand is not worth failing the node.
 				pr.logln("mount " + m.Path + " skipped: " + err.Error())
+			}
+		}
+
+		// ---- PKI: signing as the Intranet CA, when asked for ----
+		if n.PKI {
+			pr.phase("Setting up PKI (the Intranet CA)", 96)
+			info, err := a.ensureOpenBaoPKI(ctx, st, id, cfg, sec.RootToken, pr.logln)
+			if err != nil {
+				// The keyring half of the node is up and usable; say so rather than fail it.
+				pr.logln("PKI NOT set up: " + err.Error())
+			} else {
+				cfg.PKI = info
+				pr.logln("PKI: sign through " + info.SignPath + " (policy " + info.Policy + ")")
 			}
 		}
 

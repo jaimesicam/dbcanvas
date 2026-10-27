@@ -185,6 +185,25 @@ bao status`} />
               </div>
             ))}
           </div>
+          {cfg.pki && (
+            <div className="rounded-lg border p-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-mono font-medium text-fg">{cfg.pki.mount}</span>
+                <Badge tone="primary">PKI</Badge>
+              </div>
+              <div className="mt-1 text-muted">Signs as {cfg.pki.subject}</div>
+              <div className="mt-0.5 text-muted">
+                Role <span className="font-mono">{cfg.pki.role}</span> · policy <span className="font-mono">{cfg.pki.policy}</span> ·
+                sign through <span className="font-mono">{cfg.pki.signPath}</span>
+              </div>
+            </div>
+          )}
+          {cfg.pki && (
+            <Code label="Sign a certificate by hand (root console)" text={`openssl req -new -newkey rsa:2048 -nodes -keyout app.key -subj "/CN=app.example.net" -out app.csr
+bao write -field=certificate ${cfg.pki.signPath} csr=@app.csr common_name=app.example.net ttl=720h > app.crt
+# the CA it signs as (the Intranet CA)
+bao read -field=certificate ${cfg.pki.mount}/cert/ca`} />
+          )}
           <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] leading-snug text-muted">
             Percona Server for MongoDB and <span className="font-mono">pg_tde</span> both support{' '}
             <span className="font-medium">KV v2 only</span>, so there is no v1 mount for either. Percona Server for

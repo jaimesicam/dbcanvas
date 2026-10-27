@@ -42,6 +42,10 @@ type psmdbOptions struct {
 	// Search turns on spec.search (mongot) and swaps spec.image for a PSMDB 8.3 server, which
 	// search needs. See k3dsearch.go.
 	Search bool
+	// Horizons are the replica set's split-horizon names — the host names its certificate carries
+	// (from operator 1.22.0) and mongod advertises to a client that dials one. "" = none. See
+	// k3dtlshosts.go.
+	Horizons string
 	// CacheSizeGB is each data-bearing mongod's WiredTiger cache (0 = mongod's own default). The
 	// transform comments every resources block out so the pods schedule on a small k3d cluster,
 	// and a mongod with no memory limit sizes its cache from the whole host — on a 26 GB Docker VM
@@ -167,9 +171,14 @@ func psmdbTransform(src string, o psmdbOptions) string {
 		// `size:` is the anchor because it is the first uncommented key of each of them and the
 		// shipped `configuration:` is commented out — mongos is deliberately not included, since
 		// a router stores no data and has no key to fetch.
-		case p == "spec.replsets.size" && (o.Vault != nil || o.CacheSizeGB > 0):
+		case p == "spec.replsets.size" && (o.Vault != nil || o.CacheSizeGB > 0 || o.Horizons != ""):
 			out = append(out, ln)
-			out = append(out, crIndent(psmdbReplsetConfiguration(o, o.Name+"-rs0"), ind)...)
+			if o.Vault != nil || o.CacheSizeGB > 0 {
+				out = append(out, crIndent(psmdbReplsetConfiguration(o, o.Name+"-rs0"), ind)...)
+			}
+			if o.Horizons != "" {
+				out = append(out, crIndent(o.Horizons, ind)...)
+			}
 		case p == "spec.sharding.configsvrReplSet.size" && (o.Vault != nil || o.CacheSizeGB > 0) && o.Sharding:
 			out = append(out, ln)
 			out = append(out, crIndent(psmdbReplsetConfiguration(o, o.Name+"-cfg"), ind)...)
@@ -384,6 +393,17 @@ func (a *App) installPSMDBOperator(ctx context.Context, st Stack, frame designFr
 	}
 	pr.logln("secrets.yaml applied as " + cfg.ClusterName + "-secrets (passwords from .env)")
 
+	// ---- the certificate issuer, BEFORE cr.yaml ----
+	// Only from psmdbUserIssuerMinVer: an older operator overwrites an Issuer of the configured
+	// name with its own CA (k3dissuer.go). Validation refuses the combination; this is the belt.
+	var issuer string
+	if k3dIssuerOf(frame) != "" && compareVersions(cfg.OperatorVer, psmdbUserIssuerMinVer) < 0 {
+		pr.logln("certificate issuer NOT used: operator " + cfg.OperatorVer + " overwrites an Issuer it did not make (fixed in " +
+			psmdbUserIssuerMinVer + "), so it issues its own certificates")
+	} else if issuer, err = a.k3dProvisionIssuer(ctx, st, frame, doc, serverID, cfg, pr); err != nil {
+		return fmt.Errorf("certificate issuer: %w", err)
+	}
+
 	// ---- cr.yaml ----
 	pr.phase("Applying cr.yaml", 88)
 	raw, err := tarFile(tarball, "deploy/cr.yaml")
@@ -464,7 +484,16 @@ func (a *App) installPSMDBOperator(ctx context.Context, st Stack, frame designFr
 			psmdbSearchMinVer + ") — the cluster has NO mongot")
 	}
 
+	// Host names: split horizons, for a replica set whose pods have LoadBalancer addresses to
+	// publish them at. Validation says why any of the other cases gets none.
+	if k3dTLSHostsOn(frame) && !cfg.Sharding && strings.EqualFold(opts.ExposeReplset, "LoadBalancer") &&
+		compareVersions(cfg.OperatorVer, psmdbHorizonMinVer) >= 0 {
+		opts.Horizons = psmdbSplitHorizons(cfg.ClusterName, envOr("DOMAIN", "example.net"))
+		cfg.TLSHostsInCert = true
+	}
 	newCR := psmdbTransform(string(raw), opts)
+	// mode is the operator's default, written out because the section is being created.
+	newCR = k3dCRIssuer(newCR, string(raw), issuer, nil, cfg, pr.logln, "mode: preferTLS")
 	newCR = k3dStorageCR(newCR, frame, cfg.Operator, cfg.OperatorVer, pr.logln)
 	if err := a.engCtx(ctx).CopyFile(ctx, serverID, cfg.OperatorSrc+"/deploy", "cr.yaml", 0o644, []byte(newCR)); err != nil {
 		pr.logln("could not write the rewritten cr.yaml back to the source tree: " + err.Error())

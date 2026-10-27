@@ -667,6 +667,86 @@ the operator self-signs as it always did; the k3s node's panel has a **cert-mana
 what is really on the cluster, which is how you tell those two apart. Both states are legitimate
 labs — "reproduce it with their cert-manager" and "reproduce it without" are different tickets.
 
+**Which CA cert-manager issues from.** With cert-manager ticked, a frame running the **PXC**,
+**Percona Server** or **MongoDB** operator gets a **Certificate issuer** choice. Whatever you pick
+other than the default is written into cr.yaml as `tls.issuerConf`:
+
+- **The operator's own self-signed CA** (the default): each cluster makes a CA of its own, which
+  nothing else in the stack trusts.
+- **Intranet CA**: a cert-manager CA Issuer holding the stack's root, which every node, pod and
+  the VNC desktop already trust.
+- **OpenBao PKI**: a cert-manager **Vault Issuer** signing through the OpenBao node's `pki`
+  mount, which holds the Intranet CA itself, so cert-manager runs against a real Vault API.
+  - **Why not an intermediate:** PXC cannot form a cluster with one. The SST script checks a
+    node's certificate with `openssl verify -CAfile ca.crt tls.crt`, and `openssl verify` ignores
+    the intermediate that cert-manager puts after the leaf in `tls.crt`. Every joiner fails with
+    *The certificate and CA do not match*, as it does for any PXC cluster whose cert-manager
+    issues from a Vault intermediate.
+  - **Login:** cert-manager logs in with an **AppRole** of the cluster's own, whose policy may
+    only sign through the mount's two roles: `dbcanvas`, and `psmdb` for the MongoDB operator. It is an AppRole rather than a token because the Vault
+    issuer never renews a token, and a token would stop working a month into the lab.
+  - **ca.crt is unchanged:** `ca.crt` in every Secret is the Intranet CA and `tls.crt` is just
+    the leaf. Clients, `--ssl-ca` and a replication channel's `ca` work exactly as with the CA
+    Issuer.
+  - **The `psmdb` role** gives certificates the `O=PSMDB` the MongoDB operator asks for. mongod
+    accepts a peer as a cluster member only when its certificate's O matches its own, and a
+    signing role keeps only the request's CN, so without it every replica-set member's x509
+    cluster authentication fails as an unknown user.
+  - **Sealed OpenBao:** OpenBao seals itself when it restarts, and certificates stop renewing
+    until it is unsealed.
+
+Both non-default issuers chain to the same root, so two clusters replicating over SSL verify
+each other whichever one each picked. With replication over SSL on, the replication certificates
+come from the frame's issuer as well. The MongoDB operator only accepts a named issuer from
+**1.23.0**: earlier releases overwrite an Issuer of that name with their own CA, so the choice is
+not offered below it. The k3s node's panel shows the issuer under **Certificate issuer**.
+
+The OpenBao node has a **PKI** option of its own, which sets up the same `pki` mount at deploy
+for signing by hand. A frame that issues through OpenBao creates it if it is not there, so the
+option is not needed for that. Its **Policies** tab then shows the mount and a ready-to-paste
+signing command.
+
+**Host names for host-name verification.** Under the issuer, **Host names in the certificates and
+the Intranet DNS** lets a client outside Kubernetes connect with `--ssl-mode=VERIFY_IDENTITY`,
+`sslmode=verify-full`, or MongoDB TLS without `tlsAllowInvalidHostnames`:
+
+- **In the certificates**, written to cr.yaml before the operator first reconciles. The names
+  are `<service>.<domain>`, for every Service the cluster may expose, such as
+  `cluster1-haproxy.example.net` or `cluster1-pxc-0.example.net`.
+  - **PXC and Percona Server:** added as `tls.SANs`.
+  - **MongoDB:** added as a split horizon per replica-set pod, which the operator puts in the
+    certificate from **1.22.0**. mongod also advertises those names to a client that connected
+    by one of them. A sharded cluster's `mongos` name is published in DNS, but no operator
+    setting puts it in the router's certificate.
+- **In the Intranet DNS**, once the cluster is ready. Every LoadBalancer Service the cluster
+  really has is published as `<service>.<domain>`, with a PTR record so a reverse lookup of the
+  address returns the name. A Service on ClusterIP has no address outside Kubernetes and is not
+  published.
+
+The k3s node's panel lists the published names with their addresses, and marks each one **in
+cert** or **DNS only**.
+
+**What the certificates are, and whether they are valid.** The k3s server node's panel has a
+**Certificates** tab. It lists every Secret in the cluster's namespace that carries a `tls.crt`,
+and for each one shows `tls.crt` (and any chain behind it) and `ca.crt`: subject, issuer, SANs,
+usages, dates, serial and SHA-256 fingerprint. It also shows the cert-manager Certificate that
+writes the Secret: Ready or why not, the issuer, the revision and the next renewal.
+
+Each Secret is checked and marked **valid**, **warning** (expiring within 14 days, or its
+Certificate is not Ready) or **invalid**:
+
+- **Dates:** the certificate is inside its validity window.
+- **Chain to ca.crt:** `tls.crt` verifies against `ca.crt`, the way Go, a browser or mongosh
+  verifies it.
+- **openssl verify -CAfile (strict):** the same check with no intermediates, which is what PXC's
+  SST runs on every joiner. A Secret that passes the chain check and fails this one belongs to a
+  cluster whose new members will not join.
+- **tls.key matches:** the private key belongs to the certificate.
+
+The Secrets are read live, every 30 seconds while the tab is open, so a renewal shows up without
+reopening anything. When a certificate's serial changes while you watch, the Secret is marked
+**renewed**, with the serial it replaced.
+
 **Secrets and ConfigMaps, as an editor.** Beside the cr.yaml tab, the k3s server node's panel has
 **Secrets & configs**: every Secret or ConfigMap in a namespace, and an editor for the one you
 pick. If cr.yaml is what the operator was told to do, these are the objects it was told it with —

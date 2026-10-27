@@ -127,7 +127,16 @@ type k3dConfig struct {
 	// derived from the frame's checkbox: the checkbox is what was asked for, this is what is
 	// on the cluster — they differ when the install failed, and the panel should say which.
 	CertManager string `json:"certManager"`
-	Operator    string `json:"operator"` // "" | "pxc" | "ps" | "psmdb" | "pg"
+	// CertIssuer says which Issuer the operator was pointed at through tls.issuerConf, in words
+	// ("" = the operator's own CA). See k3dissuer.go.
+	CertIssuer string `json:"certIssuer,omitempty"`
+	// TLSHosts are the cluster's LoadBalancer Services published in the stack DNS (Service name →
+	// address), TLSHostList the same for the panel, and TLSHostsInCert whether cr.yaml got the
+	// names into the certificates — false on a release without the field. See k3dtlshosts.go.
+	TLSHosts       map[string]string `json:"tlsHosts,omitempty"`
+	TLSHostList    []k3dTLSHost      `json:"tlsHostList,omitempty"`
+	TLSHostsInCert bool              `json:"tlsHostsInCert,omitempty"`
+	Operator       string            `json:"operator"` // "" | "pxc" | "ps" | "psmdb" | "pg"
 	// Storage is "ceph" when the cluster's volumes are RBD images on CephNodeID (ceph.go), whose
 	// monitor Ceph CSI was given CephMonitor; "" is k3s's local-path.
 	Storage     string `json:"storage,omitempty"`
@@ -1327,6 +1336,12 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 		// and incomplete: cr.yaml has been applied, and the operator has yet to create a single
 		// database pod. Keep the cards spinning until the cluster it manages says it is ready.
 		a.k3dWaitClusterReady(ctx, st, frame, members, base, serverID)
+		// Host names for clients that verify them: the Services exist once the cluster is ready.
+		a.k3dPublishTLSHosts(ctx, st, doc, frame, serverID, base, func(msg string) {
+			if len(members) > 0 {
+				a.replLogln(st.ID, members[0].ID, msg)
+			}
+		})
 		// ClusterSync needs the target cluster ready before its custom resource is created.
 		a.k3dStartClusterSync(ctx, st, frame, doc, serverID, base, func(msg string) {
 			if len(members) > 0 {
@@ -2133,10 +2148,14 @@ func (a *App) installPXCOperator(ctx context.Context, st Stack, frame designFram
 	// ---- replication over SSL: certificates from the shared CA, BEFORE cr.yaml ----
 	// Same reason as secrets.yaml: an operator that reconciles first finds no ssl Secrets and
 	// makes its own, under a CA the other cluster does not trust. See k3dreplssl.go.
-	var tlsIssuer string
+	// The frame's own certificate issuer goes first: replication's certificates come from it too.
+	tlsIssuer, err := a.k3dProvisionIssuer(ctx, st, frame, doc, serverID, cfg, pr)
+	if err != nil {
+		return fmt.Errorf("certificate issuer: %w", err)
+	}
 	var tlsSANs []string
 	if t := k3dReplTLSFor(doc, frame); t.On {
-		if tlsIssuer, tlsSANs, err = a.k3dReplProvisionTLS(ctx, st, frame, doc, serverID, cfg, t, pr); err != nil {
+		if tlsIssuer, tlsSANs, err = a.k3dReplProvisionTLS(ctx, st, frame, doc, serverID, cfg, t, tlsIssuer, pr); err != nil {
 			return fmt.Errorf("replication over SSL: %w", err)
 		}
 	}
@@ -2157,6 +2176,12 @@ func (a *App) installPXCOperator(ctx context.Context, st Stack, frame designFram
 		ExposePXC: cfg.ExposePXC,
 		TLSIssuer: tlsIssuer,
 		TLSSANs:   tlsSANs,
+	}
+	// Host names for clients that verify them (k3dtlshosts.go), beside replication's.
+	var hostSANs []string
+	if k3dTLSHostsOn(frame) {
+		hostSANs = k3dTLSHostSANs("pxc", cfg.ClusterName, envOr("DOMAIN", "example.net"), false)
+		opts.TLSSANs = append(opts.TLSSANs, hostSANs...)
 	}
 	// The source end of a replication link declares its channel here; the replica's is patched in
 	// after its seed restore, by reconcileK3DReplication. The per-pod LoadBalancer that goes with
@@ -2216,6 +2241,11 @@ func (a *App) installPXCOperator(ctx context.Context, st Stack, frame designFram
 	}
 
 	newCR := crTransform(string(raw), opts)
+	// Releases before 1.15.0 ship `tls:` commented out, where crTransform has nowhere to put it.
+	newCR = k3dCRIssuer(newCR, string(raw), tlsIssuer, opts.TLSSANs, cfg, pr.logln)
+	if len(hostSANs) == 0 {
+		cfg.TLSHostsInCert = false // the SANs were replication's, not host names
+	}
 	newCR = k3dStorageCR(newCR, frame, cfg.Operator, cfg.OperatorVer, pr.logln)
 	// Keep /root in sync with what was actually applied — the source is there to be read.
 	if err := a.engCtx(ctx).CopyFile(ctx, serverID, cfg.OperatorSrc+"/deploy", "cr.yaml", 0o644, []byte(newCR)); err != nil {

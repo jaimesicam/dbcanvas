@@ -237,6 +237,26 @@ export const HELP = {
     'cert-manager, not whatever is newest then. Pick a specific one when you are reproducing a cluster that runs ' +
     'it: cert-manager is what issues the cluster\'s certificates once the operator finds it, so its version is ' +
     'part of the behaviour you are trying to reproduce.',
+  k8sCertIssuer:
+    'Which CA cert-manager issues the database certificates from, written to cr.yaml as tls.issuerConf. ' +
+    'Left alone, each operator makes a self-signed CA per cluster, which nothing else trusts. The Intranet CA ' +
+    'is the stack\'s own root. OpenBao PKI signs as that same root from the OpenBao node\'s PKI mount: ' +
+    'cert-manager logs in with an AppRole and signs through it, so ca.crt is the Intranet CA either way, and ' +
+    'certificates stop renewing while OpenBao is sealed. It holds the ' +
+    'root rather than an intermediate because PXC\'s SST script verifies a node\'s certificate with plain ' +
+    '`openssl verify -CAfile ca.crt`, which cannot see an intermediate and fails every joiner.',
+  k8sTlsHosts:
+    'Puts the cluster\'s endpoint names in its certificates and publishes them in the Intranet DNS, so a client can ' +
+    'connect with host-name verification (--ssl-mode=VERIFY_IDENTITY, sslmode=verify-full, MongoDB TLS without ' +
+    'tlsAllowInvalidHostnames). The certificate side is written into cr.yaml before the operator first reconciles; ' +
+    'the DNS side happens once the cluster is ready, from the LoadBalancer Services it really has, with PTR ' +
+    'records so a reverse lookup of the address returns the name. A Service on ClusterIP has no address outside ' +
+    'Kubernetes and is not published.',
+  openbaoPKI:
+    'Turn on the PKI secrets engine at pki and give it the Intranet CA, so certificates it signs are trusted ' +
+    'everywhere in the stack. Role dbcanvas signs any name and IP for up to three years; policy pki-dbcanvas ' +
+    'allows signing through it and nothing else. A K3D frame that issues its certificates through OpenBao sets ' +
+    'this up on its own, so tick it only to use the engine by hand.',
   k8sNamespace:
     'The Kubernetes namespace the database resources are created in. Handy to change when you want two clusters ' +
     'from the same operator side by side.',
@@ -1126,6 +1146,8 @@ export const DEP_HELP = {
   Operator: 'The operator reconciling this database. It, not DBCanvas, is what actually creates and heals the pods.',
   Manifests: 'Where the custom resources were written on the node. Edit them there and re-apply to change the cluster the way you would in production.',
   'LoadBalancer pool': 'The address range k3s hands out to LoadBalancer services in this cluster.',
+  'Host names': 'The cluster\u2019s LoadBalancer Services, published in the Intranet DNS as <service>.<domain> with a PTR for each address. "in cert" means the cluster\u2019s certificates carry the name, so a client verifying the host name accepts it; "DNS only" means the name resolves but the certificate does not carry it (a MongoDB router, or an operator release without the field).',
+  'Certificate issuer': 'Which CA the operator was told to issue the database certificates from, through tls.issuerConf. "the operator\u2019s own CA" means it made a self-signed one for this cluster. The Intranet CA, directly or signing through OpenBao, is the stack root, so ca.crt in the cluster\u2019s Secrets is the Intranet CA either way. With OpenBao, renewals stop while it is sealed.',
   'cert-manager': 'The cert-manager release installed on this cluster, or "not installed". It is what the operator asks for the database\u2019s TLS certificates when it is there; without it the operator generates a self-signed set of its own. This row is what is really on the cluster \u2014 a frame that asked for it and whose install failed says "not installed" here, and the deployment log says why.',
   'Expose · Postgres': 'How PostgreSQL is reachable from outside the cluster.',
   Config: 'Where this node\'s configuration file lives. Edit it with the file manager, then restart the node from its right-click menu.',

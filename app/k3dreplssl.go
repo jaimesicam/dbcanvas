@@ -187,8 +187,13 @@ func k3dReplCertSpecs(cluster, ns, domain, pool string, sans bool) (external, in
 // returns what cr.yaml's `spec.tls` should then say (cert-manager only). Fatal on failure: an SSL
 // link between clusters with two different CAs does not connect, and the place to find that out is
 // here, not as an IO thread error at the end of a forty-minute deploy.
+//
+// issuer is the cert-manager Issuer the frame already set up for all its certificates
+// (k3dissuer.go: the Intranet CA, directly or signing through OpenBao), "" when it has none. When it
+// is set the replication certificates come from it too; both chain to the Intranet CA, so a
+// replica verifies the source whichever of the two each cluster uses.
 func (a *App) k3dReplProvisionTLS(ctx context.Context, st Stack, frame designFrame, doc designDoc,
-	serverID string, cfg *k3dConfig, t k3dReplTLS, pr *pxcProg) (issuer string, sans []string, err error) {
+	serverID string, cfg *k3dConfig, t k3dReplTLS, frameIssuer string, pr *pxcProg) (issuer string, sans []string, err error) {
 
 	pr.phase("Issuing replication certificates", 84)
 	intranetID := a.intranetContainerID(ctx, st)
@@ -216,14 +221,21 @@ func (a *App) k3dReplProvisionTLS(ctx context.Context, st Stack, frame designFra
 	}
 
 	if cfg.CertManager != "" {
-		if err := a.k3dReplCertManagerTLS(ctx, serverID, cfg.Namespace, caCrt, caKey, external, internal); err != nil {
+		issuer, what := frameIssuer, k3dIssuerDescribe(frameIssuer)
+		if issuer == "" {
+			if err := a.k3dIntranetCAIssuer(ctx, serverID, cfg.Namespace, caCrt, caKey); err != nil {
+				return "", nil, err
+			}
+			issuer, what = k3dReplCAIssuer, "the Intranet CA"
+		}
+		if err := a.k3dApplyCertificates(ctx, serverID, cfg.Namespace, issuer, external, internal); err != nil {
 			return "", nil, err
 		}
-		cfg.TLSCerts = "cert-manager, Issuer " + k3dReplCAIssuer + " (the Intranet CA)"
+		cfg.TLSCerts = "cert-manager, Issuer " + issuer + " (" + what + ")"
 		cfg.TLSSANs = recorded
 		pr.logln("replication certificates: " + external.Secret + " and " + internal.Secret +
-			" issued by cert-manager from the Intranet CA (Issuer " + k3dReplCAIssuer + ")" + k3dReplSANsNote(recorded))
-		return k3dReplCAIssuer, extraDNS, nil
+			" issued by cert-manager from " + what + " (Issuer " + issuer + ")" + k3dReplSANsNote(recorded))
+		return issuer, extraDNS, nil
 	}
 	if frame.K3DCertManager {
 		pr.logln("replication certificates: cert-manager did not install, so they are made by hand instead")
@@ -267,18 +279,26 @@ func k3dReplTLSSecret(name string, ca, crt, key []byte) []byte {
 	return b
 }
 
-// k3dReplCertManagerTLS puts the Intranet CA into the namespace as a CA Issuer and has cert-manager
-// issue the two certificates from it, then waits for both Secrets.
-func (a *App) k3dReplCertManagerTLS(ctx context.Context, serverID, ns string, caCrt, caKey []byte, certs ...k3dReplCertSpec) error {
+// k3dIntranetCAIssuer puts the Intranet CA into the namespace as a Secret and makes a CA Issuer of
+// it (k3dReplCAIssuer). Applying it again changes nothing.
+func (a *App) k3dIntranetCAIssuer(ctx context.Context, serverID, ns string, caCrt, caKey []byte) error {
 	if err := a.kubectlApply(ctx, serverID, ns, k3dReplTLSSecret(k3dReplCAIssuer, caCrt, caCrt, caKey)); err != nil {
 		return fmt.Errorf("create the CA secret %s: %w", k3dReplCAIssuer, err)
 	}
-	docs := []string{k3dReplIssuerManifest()}
+	if err := a.kubectlApply(ctx, serverID, ns, []byte(k3dReplIssuerManifest())); err != nil {
+		return fmt.Errorf("create the Issuer %s: %w", k3dReplCAIssuer, err)
+	}
+	return nil
+}
+
+// k3dApplyCertificates has cert-manager issue certificates from an Issuer, then waits for each.
+func (a *App) k3dApplyCertificates(ctx context.Context, serverID, ns, issuer string, certs ...k3dReplCertSpec) error {
+	var docs []string
 	for _, c := range certs {
-		docs = append(docs, k3dReplCertificateManifest(c))
+		docs = append(docs, k3dReplCertificateManifest(c, issuer))
 	}
 	if err := a.kubectlApply(ctx, serverID, ns, []byte(strings.Join(docs, "---\n"))); err != nil {
-		return fmt.Errorf("create the Issuer and Certificates: %w", err)
+		return fmt.Errorf("create the Certificates: %w", err)
 	}
 	for _, c := range certs {
 		if _, err := a.kubectl(ctx, serverID, "-n", ns, "wait", "certificate/"+c.Secret,
@@ -302,7 +322,7 @@ spec:
 
 // k3dReplCertificateManifest is one Certificate, named as the operator names its own (`<cluster>-ssl`,
 // `<cluster>-ssl-internal`) so that the cluster reads as cert-manager-managed the usual way.
-func k3dReplCertificateManifest(c k3dReplCertSpec) string {
+func k3dReplCertificateManifest(c k3dReplCertSpec, issuer string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "apiVersion: cert-manager.io/v1\nkind: Certificate\nmetadata:\n  name: %s\nspec:\n", c.Secret)
 	fmt.Fprintf(&b, "  secretName: %s\n  commonName: %s\n  duration: %s\n", c.Secret, c.CN, k3dReplCertTTL)
@@ -317,7 +337,7 @@ func k3dReplCertificateManifest(c k3dReplCertSpec) string {
 			fmt.Fprintf(&b, "  - %s\n", ip)
 		}
 	}
-	fmt.Fprintf(&b, "  issuerRef:\n    name: %s\n    kind: Issuer\n    group: cert-manager.io\n", k3dReplCAIssuer)
+	fmt.Fprintf(&b, "  issuerRef:\n    name: %s\n    kind: Issuer\n    group: cert-manager.io\n", issuer)
 	return b.String()
 }
 
@@ -339,6 +359,19 @@ func (a *App) k3dReplPublishHosts(ctx context.Context, st Stack, doc designDoc, 
 	return names
 }
 
+// k3dPublishedHosts is every name a K3D member's config asks the stack DNS to publish: a
+// replication source's per-pod addresses and the cluster's host names (k3dtlshosts.go).
+func k3dPublishedHosts(cfg k3dConfig) map[string]string {
+	out := map[string]string{}
+	for h, ip := range cfg.TLSHosts {
+		out[h] = ip
+	}
+	for h, ip := range cfg.ReplHosts {
+		out[h] = ip
+	}
+	return out
+}
+
 // k3dReplDNSRecords are the stack DNS records for the replication sources' per-pod addresses, read
 // off the recorded config of every K3D member (each carries the same map, so names are deduplicated).
 func k3dReplDNSRecords(deps []Deployment, typeByID map[string]string) []dnsRecord {
@@ -352,7 +385,7 @@ func k3dReplDNSRecords(deps []Deployment, typeByID map[string]string) []dnsRecor
 		if json.Unmarshal(d.Config, &cfg) != nil {
 			continue
 		}
-		for host, ip := range cfg.ReplHosts {
+		for host, ip := range k3dPublishedHosts(cfg) {
 			if seen[host] || net.ParseIP(ip) == nil {
 				continue
 			}

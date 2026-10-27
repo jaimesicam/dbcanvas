@@ -194,6 +194,12 @@ func (a *App) installPSOperator(ctx context.Context, st Stack, frame designFrame
 	}
 	pr.logln("secrets.yaml applied as " + cfg.ClusterName + "-secrets (passwords from .env)")
 
+	// ---- the certificate issuer, BEFORE cr.yaml: the operator looks it up on its first reconcile ----
+	issuer, err := a.k3dProvisionIssuer(ctx, st, frame, doc, serverID, cfg, pr)
+	if err != nil {
+		return fmt.Errorf("certificate issuer: %w", err)
+	}
+
 	// ---- cr.yaml ----
 	pr.phase("Applying cr.yaml", 88)
 	raw, err := tarFile(tarball, "deploy/cr.yaml")
@@ -216,6 +222,11 @@ func (a *App) installPSOperator(ctx context.Context, st Stack, frame designFrame
 	opts.PMMHost = a.k3dPMMToken(ctx, st, frame, doc, serverID, cfg.ClusterName+"-secrets", "pmmservertoken", cfg, pr)
 
 	newCR := psTransform(string(raw), opts)
+	var hostSANs []string
+	if k3dTLSHostsOn(frame) {
+		hostSANs = k3dTLSHostSANs("ps", cfg.ClusterName, envOr("DOMAIN", "example.net"), false)
+	}
+	newCR = k3dCRIssuer(newCR, string(raw), issuer, hostSANs, cfg, pr.logln)
 	newCR = k3dStorageCR(newCR, frame, cfg.Operator, cfg.OperatorVer, pr.logln)
 	if err := a.engCtx(ctx).CopyFile(ctx, serverID, cfg.OperatorSrc+"/deploy", "cr.yaml", 0o644, []byte(newCR)); err != nil {
 		pr.logln("could not write the rewritten cr.yaml back to the source tree: " + err.Error())

@@ -938,6 +938,8 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "A K3D cluster's volumes: where they live (local-path or Ceph), each PVC's size, capacity and use, and whether the operator can grow them."},
 		{Method: "POST", Path: "/api/stacks/{id}/frames/{fid}/k3d/storage", Group: gK3D, Handler: m((*App).handleK3DStorageGrow),
 			Summary: "Grow a K3D cluster's database volumes: {\"sizeGiB\": 10}, larger than they are. Written into the custom resource for the operator to resize; Ceph volumes and an operator release with volume scaling only."},
+		{Method: "GET", Path: "/api/stacks/{id}/frames/{fid}/k3d/certs", Group: gK3D, Handler: m((*App).handleK3DCerts),
+			Summary: "The cluster's TLS Secrets read live — ca.crt and tls.crt details, the cert-manager Certificate behind each, and whether the chain, the key and the dates are valid."},
 		{Method: "GET", Path: "/api/stacks/{id}/frames/{fid}/k3d/replication", Group: gK3D, Handler: m((*App).handleK3DReplication),
 			Summary: "Where a PXC-operator cluster sits in a cross-cluster replication link, and whether the channel is running."},
 		{Method: "POST", Path: "/api/stacks/{id}/frames/{fid}/k3d/replication/reseed", Group: gK3D, Handler: m((*App).handleK3DReplicationReseed),

@@ -485,6 +485,8 @@ export function k3dApi(id, fid) {
     // `replication` is read-only and safe to poll; `reseed` restores the replica again from a
     // fresh backup of its source and replaces its data, so it is a deliberate action.
     replication: () => request('GET', `${base}/replication`),
+    // The cluster's TLS Secrets, parsed and checked live (app/k3dcerts.go).
+    certs: () => request('GET', `${base}/certs`),
     reseed: () => request('POST', `${base}/replication/reseed`),
     // Kubernetes States (app/k3dstates.go): one sample of every object in the cluster —
     // its tone, its summary, its toned properties and the warnings against it. Safe to

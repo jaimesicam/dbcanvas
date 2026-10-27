@@ -262,6 +262,10 @@ type designNode struct {
 	// (PS 8.4), the keyring_vault plugin (PS 5.7/8.0) or mongod's security.vault (PSMDB).
 	EnableVault   bool   `json:"enableVault"`
 	OpenBaoNodeID string `json:"openbaoNodeId"`
+	// PKI (Type=="openbao"): turn on the PKI secrets engine at deploy, signing as the Intranet CA
+	// (openbaopki.go). A K3D frame whose cert-manager issuer is OpenBao sets it up on
+	// its own; this is for using it by hand.
+	PKI bool `json:"pki"`
 	// MarketChaos node fields (Type=="marketchaos"). Unlike every other app
 	// simulator, dataset size is a deploy-time choice, not a fixed constant —
 	// re-seeding a large market after deploy would take the same many minutes
@@ -797,9 +801,16 @@ type designFrame struct {
 	// reproduce their cert-manager too, and "whatever is newest" is not a version you
 	// can compare two deploys against.
 	K3DCertManagerVer string `json:"k3dCertManagerVer"`
-	K3DOperator       string `json:"k3dOperator"`    // "" | "pxc" | "ps" | "psmdb" | "pg" | "cnpg" | "pgo" | "everest"
-	K3DOperatorVer    string `json:"k3dOperatorVer"` // "" = the catalog's latest
-	K3DNamespace      string `json:"k3dNamespace"`   // namespace the operator + CR are installed into
+	// K3DCertIssuer is the CA cert-manager issues the database certificates from (k3dissuer.go):
+	// "" the operator's own self-signed CA, "intranet" the Intranet CA, "openbao" the same CA
+	// signing through OpenBao's PKI. Read only with cert-manager on, by the PXC, PS and PSMDB operators.
+	K3DCertIssuer string `json:"k3dCertIssuer"`
+	// K3DTLSHosts puts the cluster's endpoint host names in its certificates and publishes them in
+	// the stack DNS, for clients that verify the host name (k3dtlshosts.go). cert-manager only.
+	K3DTLSHosts    bool   `json:"k3dTlsHosts"`
+	K3DOperator    string `json:"k3dOperator"`    // "" | "pxc" | "ps" | "psmdb" | "pg" | "cnpg" | "pgo" | "everest"
+	K3DOperatorVer string `json:"k3dOperatorVer"` // "" = the catalog's latest
+	K3DNamespace   string `json:"k3dNamespace"`   // namespace the operator + CR are installed into
 	// The proxy in front of the database. cr.yaml ships HAProxy enabled and the alternative disabled;
 	// they are mutually exclusive, so choosing one disables the other. PXC: haproxy | proxysql.
 	// PS: haproxy | router (MySQL Router understands group replication only).
@@ -2019,6 +2030,8 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 		out = append(out, k3dPGFeatureIssues(f, doc, opCat, running[f.ID])...)
 		out = append(out, k3dPgVectorIssues(f, opCat, running[f.ID])...)
 		out = append(out, k3dVaultIssues(f, doc, opCat, running[f.ID])...)
+		out = append(out, k3dIssuerIssues(f, doc, opCat, running[f.ID])...)
+		out = append(out, k3dTLSHostIssues(f, doc, opCat, running[f.ID])...)
 	}
 	for name, c := range k3dNames {
 		if c > 1 && name != "" {

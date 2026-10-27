@@ -7585,6 +7585,61 @@ export function PITRFields({ f, nodes, patchFrame, deployed, replRole = '' }) {
   )
 }
 
+// K3DIssuerField — which CA cert-manager issues the database certificates from (app/k3dissuer.go).
+// Offered for the three operators that read tls.issuerConf; PSMDB only from 1.23.0, because older
+// releases overwrite an Issuer of the configured name with their own CA. Hidden rather than
+// disabled below that, the way the other version-gated options are; the backend refuses it too.
+export const K3D_ISSUER_OPERATORS = new Set(['pxc', 'ps', 'psmdb'])
+export function K3DIssuerField({ f, op, ver, baoNode, patchFrame, deployed, lock = '' }) {
+  if (!K3D_ISSUER_OPERATORS.has(op)) return null
+  if (op === 'psmdb' && !(ver && cmpDottedVersions(ver, '1.23.0') >= 0)) {
+    return <p className="text-xs text-muted">The MongoDB operator issues from its own CA here: a named issuer needs operator 1.23.0 or newer.</p>
+  }
+  const v = f.k3dCertIssuer || ''
+  return (
+    <Field label="Certificate issuer" help={HELP.k8sCertIssuer}>
+      <select className={`${inputCls} ${lock}`} value={v} disabled={deployed}
+        onChange={(e) => patchFrame(f.id, { k3dCertIssuer: e.target.value })}>
+        <option value="">The operator&rsquo;s own self-signed CA</option>
+        <option value="intranet">Intranet CA (cert-manager CA Issuer)</option>
+        <option value="openbao" disabled={!baoNode && v !== 'openbao'}>OpenBao PKI — the Intranet CA, signing through OpenBao{baoNode ? '' : ' (add an OpenBao node)'}</option>
+      </select>
+      <span className="mt-1 block text-xs text-muted">
+        {v === '' && <>Each cluster gets a CA of its own, which nothing else in the stack trusts.</>}
+        {v === 'intranet' && <>A CA Issuer holding the Intranet CA, named in <span className="font-mono">tls.issuerConf</span>. Every node, pod and the VNC desktop already trust it.</>}
+        {v === 'openbao' && <>A Vault Issuer signing through <span className="font-mono">pki/sign/{op === 'psmdb' ? 'psmdb' : 'dbcanvas'}</span> on {baoNode ? <span className="font-mono">{baoNode.label}</span> : 'the OpenBao node'}, logging in with an AppRole of this cluster&rsquo;s own. The mount holds the Intranet CA itself, so <span className="font-mono">ca.crt</span> is the Intranet CA and <span className="font-mono">tls.crt</span> is just the leaf. Certificates stop renewing while OpenBao is sealed.</>}
+      </span>
+    </Field>
+  )
+}
+
+// K3DTLSHostsField — the cluster's endpoint host names in its certificates and in the Intranet DNS
+// (app/k3dtlshosts.go), for clients that verify the host name. The names are <service>.<domain>:
+// which Services those are depends on the operator, so the hint lists them.
+export function K3DTLSHostsField({ f, op, ver, patchFrame, deployed }) {
+  if (!K3D_ISSUER_OPERATORS.has(op)) return null
+  const c = (f.label || 'cluster1').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 22)
+  const which = {
+    pxc: <><span className="font-mono">{c}-haproxy</span>, <span className="font-mono">{c}-proxysql</span> and the per-pod <span className="font-mono">{c}-pxc-N</span>, added as <span className="font-mono">tls.SANs</span></>,
+    ps: <><span className="font-mono">{c}-mysql-primary</span>, <span className="font-mono">{c}-haproxy</span>, <span className="font-mono">{c}-router</span>, added as <span className="font-mono">tls.SANs</span></>,
+    psmdb: <>the replica set&rsquo;s <span className="font-mono">{c}-rs0-N</span>, added as split horizons (operator 1.22.0+, replica set on a LoadBalancer; mongos names are published but no setting puts them in its certificate)</>,
+  }[op]
+  return (
+    <label className="flex items-start gap-2 text-sm">
+      <input type="checkbox" className="mt-1" disabled={deployed} checked={!!f.k3dTlsHosts}
+        onChange={(e) => patchFrame(f.id, { k3dTlsHosts: e.target.checked })} />
+      <span>
+        Host names in the certificates and the Intranet DNS <Help text={HELP.k8sTlsHosts} />
+        <span className="block text-xs text-muted">
+          For clients that verify the host name. Names {which}. Once the cluster is ready, every LoadBalancer
+          Service it has is published as <span className="font-mono">&lt;service&gt;.&lt;domain&gt;</span> with its reverse record.
+          {op === 'psmdb' && ver && cmpDottedVersions(ver, '1.22.0') < 0 && <> This operator release is older than 1.22.0, so the names reach DNS but not the certificate.</>}
+        </span>
+      </span>
+    </label>
+  )
+}
+
 // ReplSSLFields — SSL on a Kubernetes replication link, chosen on the replica's frame because the
 // channel's `configuration` is the replica's. Mirrors app/k3dreplssl.go: both clusters then take
 // their certificates from the Intranet CA, made before cr.yaml (through a cert-manager CA Issuer
@@ -7902,6 +7957,18 @@ function OpenBaoForm({ node: n, patchNode, deleteNode, dep, deployed }) {
           </select>
         </div>
       )}
+
+      <label className={`flex items-start gap-2 text-sm ${lock}`}>
+        <input type="checkbox" className="mt-1" checked={!!n.pki} disabled={deployed}
+          onChange={(e) => patchNode(n.id, { pki: e.target.checked })} />
+        <span>
+          PKI, signing as the Intranet CA <Help text={HELP.openbaoPKI} />
+          <span className="block text-xs text-muted">
+            Mounts <span className="font-mono">pki</span> holding the Intranet CA, so what it signs is trusted stack-wide.
+            Role <span className="font-mono">dbcanvas</span> signs through <span className="font-mono">pki/sign/dbcanvas</span>.
+            A K3D frame that issues through OpenBao sets this up by itself.</span>
+        </span>
+      </label>
 
       <label className={`flex items-center gap-2 text-sm ${lock}`}>
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed}
@@ -11161,6 +11228,10 @@ function K3DFrameForm({ frame: f, nodes, frames = [], frameNodes, patchFrame, de
             )}
           </Field>
         )}
+        {f.k3dCertManager && <K3DIssuerField f={f} op={op} ver={f.k3dOperatorVer || latest} baoNode={baoNode}
+          patchFrame={patchFrame} deployed={deployed} lock={lock} />}
+        {f.k3dCertManager && <K3DTLSHostsField f={f} op={op} ver={f.k3dOperatorVer || latest}
+          patchFrame={patchFrame} deployed={deployed} />}
       </div>
 
       <div className="space-y-2 rounded-lg border border-dashed p-2">

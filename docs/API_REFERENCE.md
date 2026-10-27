@@ -780,6 +780,7 @@ dbcanvas api GET /api/catalog/ps | jq '.["oraclelinux-9"]'
 | Create one with a role | `POST …/frames/{fid}/k3d/users` | `dbcanvas api POST …/k3d/users --data '{"username":"dev","role":"view"}'` |
 | Delete one | `POST …/frames/{fid}/k3d/users/delete` | `dbcanvas api POST …/k3d/users/delete` |
 | Get a kubeconfig scoped to one user | `GET …/k3d/users/{username}/kubeconfig` | `dbcanvas api GET …/kubeconfig` |
+| The TLS Secrets, parsed and checked live | `GET …/frames/{fid}/k3d/certs` | `dbcanvas api GET …/k3d/certs` |
 | Read a cross-cluster replication link | `GET …/frames/{fid}/k3d/replication` | `dbcanvas api GET …/k3d/replication` |
 | Re-seed a replica from its source | `POST …/frames/{fid}/k3d/replication/reseed` | `dbcanvas api POST …/k3d/replication/reseed` |
 | Read the CRD as a form model, with the live `spec` | `GET …/frames/{fid}/k3d/cr` | `dbcanvas api GET …/k3d/cr` |

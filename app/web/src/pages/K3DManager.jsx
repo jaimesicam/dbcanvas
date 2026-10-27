@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button, Badge, Field, ConfirmButton, inputCls } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE, k3dApi } from '../lib/stackApi.js'
@@ -15,6 +15,7 @@ import { K8sLogicalReplicas } from './K8sLogicalReplicas.jsx'
 import { K8sStorage } from './K8sStorage.jsx'
 import { useFollowedState } from '../session/SessionProvider.jsx'
 import K3DClusterSync from '../components/K3DClusterSync.jsx'
+import { usePolling } from '../lib/usePolling.jsx'
 
 // K3DManager — a running k3s node of a K3D cluster frame.
 //
@@ -74,6 +75,9 @@ const TABS = [
   // reconciles, the TLS chains, and the tuning file. Any Kubernetes frame has them, so unlike
   // cr.yaml this is not gated on the operator being a Percona one.
   { id: 'data', label: 'Secrets & configs' },
+  // What the cluster's TLS Secrets hold — ca.crt and tls.crt parsed — and whether they are valid,
+  // read live so a cert-manager renewal shows up (app/k3dcerts.go).
+  { id: 'certs', label: 'Certificates' },
   // The operator-run ClusterSync, when the frame was deployed with one (k3dclustersync.go).
   { id: 'sync', label: 'ClusterSync' },
   // Backups, restores, and the bucket they live in. Beside cr.yaml and the Secrets for the same
@@ -243,6 +247,127 @@ function ReplicationTab({ stackId, frame, isServer }) {
   return <ReplicationView view={view} err={err} note={note} busy={busy} isServer={isServer} onRefresh={load} onReseed={reseed} />
 }
 
+// CertsTab reads the cluster's TLS Secrets every 30 seconds while it is on screen, and remembers
+// each certificate's serial between reads: a serial that changes is a renewal (or a re-issue), and
+// says so until the panel is closed.
+function CertsTab({ stackId, frame }) {
+  const api = frame ? k3dApi(stackId, frame.id) : null
+  const [view, setView] = useState(null)
+  const [err, setErr] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const seen = useRef({})       // secret → leaf serial first seen
+  const [renewed, setRenewed] = useState({}) // secret → { from, at }
+
+  const load = async () => {
+    if (!api) return
+    setBusy(true)
+    try {
+      const v = await api.certs()
+      const changed = {}
+      for (const s of v.secrets || []) {
+        const serial = s.chain?.[0]?.serial
+        if (!serial) continue
+        const before = seen.current[s.secret]
+        if (before && before !== serial) changed[s.secret] = { from: before, at: v.checkedAt }
+        seen.current[s.secret] = serial
+      }
+      if (Object.keys(changed).length) setRenewed((prev) => ({ ...prev, ...changed }))
+      setView(v); setErr(null)
+    } catch (e) { setErr(e.message) } finally { setBusy(false) }
+  }
+  useEffect(() => { load() }, [frame?.id])
+  usePolling(load, 30000)
+  return <CertsView view={view} err={err} busy={busy} renewed={renewed} onRefresh={load} />
+}
+
+const CERT_TONE = { valid: 'success', warning: 'warning', invalid: 'danger' }
+const CHECK_LABEL = { dates: 'Dates', chain: 'Chain to ca.crt', strict: 'openssl verify -CAfile (strict)', key: 'tls.key matches' }
+
+function fmtDate(s) {
+  if (!s) return '—'
+  const d = new Date(s)
+  return isNaN(d) ? s : d.toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC')
+}
+
+function CertDetails({ c, title }) {
+  return (
+    <div className="space-y-0.5 rounded border bg-bg px-2 py-1.5 text-[11px]">
+      <div className="flex items-center gap-1">
+        <span className="font-medium text-fg">{title}</span>
+        {c.isCA && <Badge tone="accent">CA</Badge>}
+        {c.selfSigned && <Badge tone="muted">self-signed</Badge>}
+        <span className={`ml-auto ${c.daysLeft < 0 ? 'text-danger' : c.daysLeft < 14 ? 'text-warning' : 'text-muted'}`}>
+          {c.daysLeft < 0 ? 'expired' : `${c.daysLeft} days left`}
+        </span>
+      </div>
+      <div className="font-mono text-fg break-all">{c.subject || '(empty subject)'}</div>
+      <div className="text-muted">issued by <span className="font-mono">{c.issuer}</span></div>
+      <div className="text-muted">{fmtDate(c.notBefore)} → {fmtDate(c.notAfter)}</div>
+      {(c.dnsNames?.length > 0 || c.ips?.length > 0) && (
+        <div className="text-muted">SANs: <span className="font-mono text-fg break-all">{[...(c.dnsNames || []), ...(c.ips || [])].join(', ')}</span></div>
+      )}
+      {c.usages?.length > 0 && <div className="text-muted">Usage: {c.usages.join(', ')}</div>}
+      <div className="text-muted">Serial <span className="font-mono">{c.serial}</span></div>
+      <div className="text-muted break-all">SHA-256 <span className="font-mono">{c.fingerprint}</span></div>
+    </div>
+  )
+}
+
+// CertsView is the rendering half of the Certificates tab (fetching is CertsTab's), so every state
+// can be rendered without a server.
+export function CertsView({ view, err, busy, renewed = {}, onRefresh }) {
+  if (err) return <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">{err}</div>
+  if (!view) return <div className="text-xs text-muted">Loading…</div>
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 text-[11px] text-muted">
+        <span className="min-w-0 flex-1">
+          Namespace <span className="font-mono">{view.namespace}</span> · read {fmtDate(view.checkedAt)} · refreshes every 30 s
+        </span>
+        <Button variant="outline" size="sm" disabled={busy} onClick={onRefresh}><Icon.Refresh size={14} /> Refresh</Button>
+      </div>
+      {view.secrets.length === 0 && (
+        <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] text-muted">No Secret in this namespace carries a tls.crt yet.</div>
+      )}
+      {view.secrets.map((s) => (
+        <div key={s.secret} className="space-y-2 rounded-lg border p-2 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="min-w-0 flex-1 truncate font-mono font-medium text-fg">{s.secret}</span>
+            {renewed[s.secret] && <Badge tone="primary">renewed</Badge>}
+            <Badge tone={CERT_TONE[s.status] || 'muted'}>{s.status}</Badge>
+          </div>
+          {renewed[s.secret] && (
+            <div className="text-[11px] text-primary">Re-issued while this tab was open — serial was {renewed[s.secret].from}.</div>
+          )}
+          {s.certManager && (
+            <div className="text-[11px] text-muted">
+              cert-manager Certificate <span className="font-mono">{s.certManager.name}</span> · {s.certManager.issuer}
+              {' · '}{s.certManager.ready ? 'Ready' : <span className="text-warning">not Ready{s.certManager.reason ? `: ${s.certManager.reason}` : ''}</span>}
+              {s.certManager.revision ? ` · revision ${s.certManager.revision}` : ''}
+              {s.certManager.renewalTime ? ` · renews ${fmtDate(s.certManager.renewalTime)}` : ''}
+            </div>
+          )}
+          {s.parseError && <div className="text-[11px] text-danger">{s.parseError}</div>}
+          {s.checks?.length > 0 && (
+            <div className="space-y-0.5">
+              {s.checks.map((c) => (
+                <div key={c.name} className="flex items-start gap-1.5 text-[11px]">
+                  <span className={c.ok ? 'text-success' : 'text-danger'}>{c.ok ? '✓' : '✗'}</span>
+                  <span className="shrink-0 font-medium text-fg">{CHECK_LABEL[c.name] || c.name}</span>
+                  <span className="min-w-0 text-muted">{c.detail}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {(s.chain || []).map((c, i) => <CertDetails key={`t${i}`} c={c} title={i === 0 ? 'tls.crt — certificate' : `tls.crt — chain ${i}`} />)}
+          {(s.ca || []).map((c, i) => <CertDetails key={`c${i}`} c={c} title={s.ca.length > 1 ? `ca.crt — ${i + 1}` : 'ca.crt'} />)}
+          {s.ca?.length === 0 && s.chain?.length > 0 && <div className="text-[11px] text-muted">No ca.crt in this Secret.</div>}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ReplicationView is the rendering half, separated from the fetching half so every state it can be
 // in — not linked, source, replica running, replica stopped, still loading, errored — can be
 // rendered and checked without a server. See app/k3drepl.go for what produces `view`.
@@ -395,6 +520,7 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
         {TABS.filter((t) => (t.id !== 'operator' || cfg.operator)
           && (t.id !== 'diag' || isServer)
           && (t.id !== 'data' || isServer)
+          && (t.id !== 'certs' || (isServer && cfg.operator && cfg.operator !== 'everest'))
           && (t.id !== 'sync' || (isServer && PSMDB_CLUSTERSYNC(cfg)))
           && (t.id !== 'cr' || CR_EDITABLE.has(cfg.operator))
           && (t.id !== 'backup' || (CR_EDITABLE.has(cfg.operator) && isServer))
@@ -427,6 +553,19 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
           {/* What is on the cluster, not what the canvas asked for: the two differ when the
               install failed, and this is the row that would have to say so. */}
           <KV k="cert-manager" help={DEP_HELP['cert-manager']} v={cfg.certManager || 'not installed'} mono />
+          {cfg.certManager && <KV k="Certificate issuer" help={DEP_HELP['Certificate issuer']} v={cfg.certIssuer || 'the operator\u2019s own CA'} />}
+          {Array.isArray(cfg.tlsHostList) && cfg.tlsHostList.length > 0 && (
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-1 text-muted">Host names<Help text={DEP_HELP['Host names']} /></div>
+              {cfg.tlsHostList.map((h) => (
+                <div key={h.host} className="flex items-center gap-2 font-mono text-xs">
+                  <span className="min-w-0 flex-1 truncate text-fg">{h.host}</span>
+                  <span className="text-muted">{h.ip}</span>
+                  <Badge tone={h.inCert ? 'success' : 'warning'}>{h.inCert ? 'in cert' : 'DNS only'}</Badge>
+                </div>
+              ))}
+            </div>
+          )}
           <KV k="Operator" help={DEP_HELP.Operator} v={cfg.operator ? `${isEverest ? 'OpenEverest' : cfg.operator.toUpperCase()} ${cfg.operatorVer}` : 'none'} />
           {cfg.operator && <KV k={isEverest ? 'DB namespace' : 'Namespace'} help={isEverest ? DEP_HELP['DB namespace'] : DEP_HELP.Namespace} v={ns} mono />}
           {cfg.operator && !isEverest && <KV k="Database cluster" help={DEP_HELP['Database cluster']} v={cr} mono />}
@@ -584,6 +723,7 @@ kubectl get svc -n ${ns}`} />
 
       {tab === 'users' && <UsersTab stackId={stackId} frame={frame} isServer={isServer} />}
       {tab === 'replication' && <ReplicationTab stackId={stackId} frame={frame} isServer={isServer} />}
+      {tab === 'certs' && <CertsTab stackId={stackId} frame={frame} />}
       {tab === 'cr' && <CRFormEditor stackId={stackId} frame={frame} isServer={isServer} />}
       {tab === 'data' && <K8sObjectEditor stackId={stackId} frame={frame} isServer={isServer} />}
       {tab === 'sync' && isServer && PSMDB_CLUSTERSYNC(cfg) && frame && <K3DClusterSync stackId={stackId} frame={frame} cfg={cfg} />}

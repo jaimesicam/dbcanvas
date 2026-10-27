@@ -36,7 +36,7 @@ import {
   BuildImageRow,
   BigHoleForm, BigHoleManager, BigHoleLink,
   nodeCardTip, memberCardTip,
-  k8sReplLinkable, ReplicationLinkForm, ReplicationLinkChoices,
+  k8sReplLinkable, ReplicationLinkForm, ReplicationLinkChoices, K3DIssuerField, K3DTLSHostsField,
   associationBlocked, isReplEdge, k8sReplRoleOf, k8sReplSourceOf, k8sReplSslReplicasOf, ReplSSLFields, K3D_SOURCE_EXPOSE, K8sToolFields, DBClientFields, lcMysqlSeries, lcPsqlSeries,
   frameHeaderW, layoutFrame, separateFrames, SIM_NODE_TYPES, frameVersionLabel, frameSubLabel,
   podMenuEntries, POD_SHELLS, POD_CLIENTS,
@@ -48,7 +48,7 @@ import { LiveStrip, ClusterTable, fixLayout, countOverlaps, footprints, tableHei
 import { HealthButton } from '../src/components/StackHistory.jsx'
 import { LiveDetailsBody } from '../src/components/LiveOverlay.jsx'
 import { RepositoryForm, RepositoryManager, RepositoryPicker, RepoContentEditor, GuideTab as RepoGuide, LogTab as RepoLog } from '../src/pages/Repository.jsx'
-import { ReplicationView } from '../src/pages/K3DManager.jsx'
+import { CertsView, ReplicationView } from '../src/pages/K3DManager.jsx'
 import OperatorSummary, { Verdicts as OpVerdicts, Findings as OpFindings, Workloads as OpWorkloads, Pods as OpPods, CRs as OpCRs, Operators as OpOperators, Deployment as OpDeployment, Images as OpImages, Secrets as OpSecrets, Backups as OpBackups, Certs as OpCerts, Storage as OpStorage, Logs as OpLogs, Galera as OpGalera, PodSummaries as OpPodSummaries, BackupLogs as OpBackupLogs, Extras as OpExtras } from '../src/pages/OperatorSummary.jsx'
 import { PageVisibleProvider, usePolling, usePageVisible } from '../src/lib/usePolling.jsx'
 import { RefreshProvider, useRefresh } from '../src/lib/useRefresh.jsx'
@@ -6076,6 +6076,62 @@ check('Intranet DNS tab', () => {
     if ((type === 'A') !== form.includes('reverse (PTR)')) throw new Error(type + ': the reverse tick belongs on A records only')
     if (type !== 'PTR' && !form.includes('db.example.net')) throw new Error(type + ': the form must show the resolved name')
   }
+  return html
+})
+
+check('K3D certificate issuer field', () => {
+  const noop = () => {}
+  const bao = { id: 'b1', type: 'openbao', label: 'bao-01' }
+  const f = (extra) => ({ id: 'kf', type: 'k3d', k3dCertManager: true, ...extra })
+  const open = renderToString(<K3DIssuerField f={f({ k3dCertIssuer: 'openbao' })} op="pxc" ver="1.20.0" baoNode={bao} patchFrame={noop} deployed={false} />).replaceAll('<!-- -->', '')
+  for (const want of ['Certificate issuer', 'OpenBao PKI', 'pki/sign/dbcanvas', 'bao-01', 'AppRole', 'sealed']) {
+    if (!open.includes(want)) throw new Error('the OpenBao choice must say ' + want)
+  }
+  if (!renderToString(<K3DIssuerField f={f({})} op="ps" ver="1.2.0" patchFrame={noop} deployed={false} />).includes('add an OpenBao node')) {
+    throw new Error('without an OpenBao node the choice says what is missing')
+  }
+  if (!renderToString(<K3DIssuerField f={f({})} op="psmdb" ver="1.22.0" patchFrame={noop} deployed={false} />).includes('1.23.0')) {
+    throw new Error('PSMDB below 1.23.0 must say why there is no choice')
+  }
+  if (renderToString(<K3DIssuerField f={f({})} op="psmdb" ver="1.23.1" patchFrame={noop} deployed={false} />).indexOf('<select') < 0) {
+    throw new Error('PSMDB 1.23.1 offers the choice')
+  }
+  if (renderToString(<K3DIssuerField f={f({})} op="cnpg" ver="" patchFrame={noop} deployed={false} />) !== '') {
+    throw new Error('operators that do not read issuerConf show nothing')
+  }
+  return open
+})
+
+check('K3D host names field', () => {
+  const noop = () => {}
+  const f = { id: 'kf', label: 'k3d-00', k3dCertManager: true, k3dTlsHosts: true }
+  const pxc = renderToString(<K3DTLSHostsField f={f} op="pxc" ver="1.20.0" patchFrame={noop} deployed={false} />).replaceAll('<!-- -->', '')
+  for (const want of ['k3d-00-haproxy', 'tls.SANs', 'reverse record']) {
+    if (!pxc.includes(want)) throw new Error('the PXC host names option must say ' + want)
+  }
+  const mongo = renderToString(<K3DTLSHostsField f={f} op="psmdb" ver="1.21.0" patchFrame={noop} deployed={false} />).replaceAll('<!-- -->', '')
+  if (!mongo.includes('split horizons') || !mongo.includes('older than 1.22.0')) throw new Error('PSMDB below 1.22.0 must say the names reach DNS only')
+  if (renderToString(<K3DTLSHostsField f={f} op="pg" ver="" patchFrame={noop} deployed={false} />) !== '') throw new Error('pg shows nothing')
+  return pxc
+})
+
+check('K3D certificates tab', () => {
+  const cert = (o) => ({ subject: 'O=PSMDB,CN=pkimongo', issuer: 'CN=DBCanvas CA,O=DBCanvas', serial: 'ABC123', notBefore: '2026-10-27T08:00:00Z',
+    notAfter: '2027-01-25T08:00:00Z', daysLeft: 89, dnsNames: ['pkimongo-rs0-0.example.net'], usages: ['server auth', 'client auth'], fingerprint: 'ff', ...o })
+  const view = { namespace: 'default', checkedAt: '2026-10-27T09:00:00Z', secrets: [
+    { secret: 'pkimongo-ssl', status: 'valid', chain: [cert({})], ca: [cert({ subject: 'CN=DBCanvas CA,O=DBCanvas', isCA: true, selfSigned: true, daysLeft: 3600 })],
+      checks: [{ name: 'chain', ok: true, detail: 'tls.crt chains to ca.crt' }, { name: 'key', ok: true, detail: 'tls.key matches the certificate' }],
+      certManager: { name: 'pkimongo-ssl', issuer: 'Issuer/dbcanvas-openbao', ready: true, revision: 2, renewalTime: '2026-12-26T08:00:00Z' } },
+    { secret: 'pkipxc-ssl-internal', status: 'invalid', chain: [cert({}), cert({ subject: 'CN=Intermediate', isCA: true })], ca: [],
+      checks: [{ name: 'strict', ok: false, detail: 'fails `openssl verify -CAfile ca.crt tls.crt` (no intermediates), which PXC\'s SST runs' }] },
+  ] }
+  const html = renderToString(<CertsView view={view} renewed={{ 'pkimongo-ssl': { from: 'OLD1', at: '' } }} onRefresh={() => {}} />).replaceAll('<!-- -->', '')
+  for (const want of ['pkimongo-ssl', 'renewed', 'serial was OLD1', 'Issuer/dbcanvas-openbao', 'revision 2', 'pkimongo-rs0-0.example.net',
+    'client auth', 'ca.crt', 'self-signed', 'invalid', 'SST', 'tls.crt — chain 1', 'No ca.crt in this Secret', 'refreshes every 30 s']) {
+    if (!html.includes(want)) throw new Error('the certificates tab must show ' + want)
+  }
+  if (!renderToString(<CertsView view={null} />).includes('Loading')) throw new Error('loading state')
+  if (!renderToString(<CertsView err="boom" />).includes('boom')) throw new Error('error state')
   return html
 })
 
