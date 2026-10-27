@@ -13,7 +13,7 @@ func TestValidInstance(t *testing.T) {
 			t.Errorf("%q rejected: %s", ok, why)
 		}
 	}
-	for _, bad := range []string{"", "DBCanvas", "dbcanvas-5", "dbcanvas-jane-2", "dbcanvas-s2", "dbcanvas--x", "-x", "x-", "9lab", "dbcanvas_x"} {
+	for _, bad := range []string{"", "DBCanvas", "dbcanvas-5", "dbcanvas-jane-2", "dbcanvas-s2", "dbcanvas-dbcanvas", "dbcanvas--x", "-x", "x-", "9lab", "dbcanvas_x"} {
 		if validInstance(bad) == "" {
 			t.Errorf("%q accepted", bad)
 		}
@@ -29,15 +29,16 @@ func withInstance(t *testing.T, name string, f func()) {
 	f()
 }
 
-// The installation called "dbcanvas" — every one made before DBCANVAS_INSTANCE — must name things
-// exactly as it always has, or upgrading orphans its running stacks.
+// The installation called "dbcanvas" — every one made before DBCANVAS_INSTANCE — must name its
+// containers, networks and volumes exactly as it always has, or upgrading orphans its running
+// stacks. Its K3D clusters carry the instance like every other installation's.
 func TestLegacyInstanceNames(t *testing.T) {
 	withInstance(t, legacyInstance, func() {
 		f := designFrame{Label: "k3d-00"}
 		for got, want := range map[string]string{
 			containerName(12, "pg-1"): "dbcanvas-12-pg-1",
 			networkName(12):           "dbcanvas-stack-12",
-			k3dClusterName(12, f):     "k3d-00-s12",
+			k3dClusterName(12, f):     "k3d-00-s12-dbcanvas",
 			pmmDataVolume(12, "pmm"):  "dbcanvas-pmm-12-pmm",
 			stackRuleComment(12):      "dbcanvas-stack-12",
 		} {
@@ -64,13 +65,15 @@ func TestInstancesDoNotClaimEachOther(t *testing.T) {
 		if _, ok := stackIDFromInstanceName(legacyPG); ok {
 			t.Errorf("jane claims %q", legacyPG)
 		}
-		if _, ok := k3dStackIDFromContainer(legacyK3D); ok {
-			t.Errorf("jane claims %q", legacyK3D)
+		for _, n := range []string{legacyK3D, "k3d-k3d-00-s3-server-0"} {
+			if _, ok := k3dStackIDFromContainer(n); ok {
+				t.Errorf("jane claims %q", n)
+			}
 		}
 		if id, ok := k3dStackIDFromContainer(janeK3D); !ok || id != 3 {
 			t.Errorf("jane does not recognise her own %q (%d, %v)", janeK3D, id, ok)
 		}
-		if got := k3dClustersOfStack([]string{"k3d-00-s3", "k3d-00-s3-jane", "k3d-00-s3-x-jane"}, 3); len(got) != 1 || got[0] != "k3d-00-s3-jane" {
+		if got := k3dClustersOfStack([]string{"k3d-00-s3", "k3d-00-s3-dbcanvas", "k3d-00-s3-jane", "k3d-00-s3-x-jane"}, 3); len(got) != 1 || got[0] != "k3d-00-s3-jane" {
 			t.Errorf("jane's stack 3 clusters: %v", got)
 		}
 	})
@@ -86,8 +89,29 @@ func TestInstancesDoNotClaimEachOther(t *testing.T) {
 		if _, ok := k3dStackIDFromContainer(janeK3D); ok {
 			t.Errorf("legacy claims %q", janeK3D)
 		}
-		if got := k3dClustersOfStack([]string{"k3d-00-s3", "k3d-00-s3-jane", "k3d-00-s31"}, 3); len(got) != 1 || got[0] != "k3d-00-s3" {
+		// Its clusters from before names were tagged are still its own: a teardown removes them.
+		for _, n := range []string{legacyK3D, "k3d-k3d-00-s3-server-0"} {
+			if id, ok := k3dStackIDFromContainer(n); !ok || id != 3 {
+				t.Errorf("legacy does not recognise its own %q (%d, %v)", n, id, ok)
+			}
+		}
+		got := k3dClustersOfStack([]string{"k3d-00-s3", "k3d-00-s3-dbcanvas", "k3d-00-s3-jane", "k3d-00-s31"}, 3)
+		if len(got) != 2 || got[0] != "k3d-00-s3" || got[1] != "k3d-00-s3-dbcanvas" {
 			t.Errorf("legacy stack 3 clusters: %v", got)
+		}
+	})
+}
+
+// A running cluster is reached by the name its deploy recorded, which for one created before names
+// were tagged is not the name a deploy would give it now.
+func TestK3DDeployedCluster(t *testing.T) {
+	withInstance(t, legacyInstance, func() {
+		f := designFrame{Label: "k3d-00"}
+		if got := k3dDeployedCluster(116, f, Deployment{Config: []byte(`{"cluster":"k3d-00-s116","role":"server"}`)}); got != "k3d-00-s116" {
+			t.Errorf("recorded cluster: got %q", got)
+		}
+		if got := k3dDeployedCluster(116, f, Deployment{}); got != "k3d-00-s116-dbcanvas" {
+			t.Errorf("nothing recorded: got %q", got)
 		}
 	})
 }

@@ -19,8 +19,10 @@ import (
 //
 // DBCANVAS_INSTANCE (docker-compose.yml; `make env` sets dbcanvas-<login>) names the
 // installation, and every container, network, volume and K3D cluster it creates carries it.
-// The installation that existed before the setting is "dbcanvas", and for it every name comes out
-// exactly as it always has — nothing to migrate.
+// The installation that existed before the setting is "dbcanvas", and for it every container,
+// network and volume name comes out exactly as it always has — nothing to migrate. K3D clusters are
+// the exception: they carry the instance too (see instanceTag), and the ones it made before that
+// are still recognised as its own.
 //
 // Ownership works on the same names: a container is this installation's only when the instance
 // prefix is followed directly by a stack id, so "dbcanvas" never claims "dbcanvas-jane-3-pg".
@@ -36,6 +38,9 @@ var instanceRe = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`)
 func validInstance(s string) string {
 	if !instanceRe.MatchString(s) {
 		return "lowercase letters, digits and single dashes, starting with a letter"
+	}
+	if s == legacyInstance+"-"+legacyInstance {
+		return "it would tag K3D clusters exactly like the installation called " + legacyInstance
 	}
 	if len(s) > 40 {
 		return "at most 40 characters (it prefixes container and K3D node host names, which stop at 63)"
@@ -63,15 +68,18 @@ var instanceName = func() string {
 // instancePrefix starts every container, network and volume name this installation creates.
 func instancePrefix() string { return instanceName + "-" }
 
-// instanceTag is what scopes a K3D cluster name to this installation: "" for the legacy instance
-// (its clusters keep the names they have), otherwise the instance minus a leading "dbcanvas-",
-// which every cluster name would otherwise spend 9 of its 63 characters repeating.
+// instanceTag is what scopes a K3D cluster name to this installation: the instance minus a leading
+// "dbcanvas-", which every cluster name would otherwise spend 9 of its 63 characters repeating —
+// "dbcanvas" itself for the legacy instance. That one named its clusters with no tag at all before,
+// and k3dLegacyNames says when such a name is still its own.
 func instanceTag() string {
-	if instanceName == legacyInstance {
-		return ""
-	}
 	return strings.TrimPrefix(instanceName, legacyInstance+"-")
 }
+
+// k3dLegacyNames says whether untagged K3D cluster names (<label>-s<stackID>) are this
+// installation's: they are what the legacy instance named its clusters before they were tagged,
+// and no other installation ever made one.
+func k3dLegacyNames() bool { return instanceName == legacyInstance }
 
 // stackIDFromInstanceName reads the stack id out of a name this installation gave a stack's
 // container: <instance>-<stackID>-…. Anything else — another installation's container, the

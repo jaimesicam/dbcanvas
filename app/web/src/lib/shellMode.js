@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 // shellMode.js — which shell this browser shows: the desktop (every page a window
-// over a desktop, a Start menu, a taskbar — desktop/Desktop.jsx) or the classic one
+// over a desktop, a Menu, a taskbar — desktop/Desktop.jsx) or the classic one
 // (a sidebar and a tab strip). A per-browser convenience, like a remembered filter:
 // the desktop is the default, and Classic is the way back for whoever wants it.
 

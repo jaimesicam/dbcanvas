@@ -313,14 +313,16 @@ func TestValidNamespace(t *testing.T) {
 // to the Docker daemon — so the name must be scoped by stack, or the second stack's deploy fails
 // with "a cluster with that name already exists".
 func TestK3DClusterNameIsScopedByStack(t *testing.T) {
-	f := designFrame{Label: "k3d-00"}
-	a, b := k3dClusterName(7, f), k3dClusterName(8, f)
-	if a == b {
-		t.Fatalf("two stacks with the same frame label share a cluster name (%q)", a)
-	}
-	if a != "k3d-00-s7" {
-		t.Errorf("cluster name = %q, want k3d-00-s7", a)
-	}
+	withInstance(t, legacyInstance, func() {
+		f := designFrame{Label: "k3d-00"}
+		a, b := k3dClusterName(7, f), k3dClusterName(8, f)
+		if a == b {
+			t.Fatalf("two stacks with the same frame label share a cluster name (%q)", a)
+		}
+		if a != "k3d-00-s7-dbcanvas" {
+			t.Errorf("cluster name = %q, want k3d-00-s7-dbcanvas", a)
+		}
+	})
 }
 
 func TestK3DNodeContainer(t *testing.T) {
@@ -732,12 +734,19 @@ func TestK3DPGFeatureIssuesDoNotBlockAnAlreadyRunningFrame(t *testing.T) {
 // A renamed frame leaves a cluster under its old name; only that one is stale. Another stack's
 // clusters are never this stack's, even when the id is a prefix of theirs (-s1 vs -s15).
 func TestK3DStaleClusters(t *testing.T) {
-	doc := designDoc{Frames: []designFrame{{Type: "k3d", Label: "k3d-00"}, {Type: "k3d", Label: "k3d-01"}, {Type: "pxc", Label: "old"}}}
-	existing := []string{"k3d-00-s1", "k3d-01-s1", "k3d-oe-s1", "k3d-00-s15", "k3d-oe-s15", "other"}
-	if got := k3dStaleClusters(existing, 1, doc); !reflect.DeepEqual(got, []string{"k3d-oe-s1"}) {
-		t.Fatalf("stale = %q, want [k3d-oe-s1]", got)
-	}
-	if got := k3dClustersOfStack(existing, 15); !reflect.DeepEqual(got, []string{"k3d-00-s15", "k3d-oe-s15"}) {
-		t.Fatalf("stack 15 = %q", got)
-	}
+	withInstance(t, legacyInstance, func() {
+		doc := designDoc{Frames: []designFrame{{Type: "k3d", Label: "k3d-00"}, {Type: "k3d", Label: "k3d-01"}, {Type: "pxc", Label: "old"}}}
+		existing := []string{"k3d-00-s1-dbcanvas", "k3d-01-s1-dbcanvas", "k3d-oe-s1-dbcanvas", "k3d-00-s15-dbcanvas", "k3d-oe-s15-dbcanvas", "other"}
+		if got := k3dStaleClusters(existing, 1, doc); !reflect.DeepEqual(got, []string{"k3d-oe-s1-dbcanvas"}) {
+			t.Fatalf("stale = %q, want [k3d-oe-s1-dbcanvas]", got)
+		}
+		if got := k3dClustersOfStack(existing, 15); !reflect.DeepEqual(got, []string{"k3d-00-s15-dbcanvas", "k3d-oe-s15-dbcanvas"}) {
+			t.Fatalf("stack 15 = %q", got)
+		}
+		// A frame's cluster from before names were tagged is stale too: a redeploy replaces it
+		// with one under the tagged name, rather than leaving it holding its host ports.
+		if got := k3dStaleClusters([]string{"k3d-00-s1", "k3d-00-s1-dbcanvas"}, 1, doc); !reflect.DeepEqual(got, []string{"k3d-00-s1"}) {
+			t.Fatalf("untagged stale = %q, want [k3d-00-s1]", got)
+		}
+	})
 }

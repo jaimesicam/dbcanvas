@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { stackApi, frameApi } from '../lib/stackApi'
-import { Badge, Button, ConfirmButton, Field, Toggle, inputCls } from '../components/ui'
+import { Badge, Button, Field, inputCls } from '../components/ui'
+import { Icon } from '../components/Icons.jsx'
+import { Help } from '../components/Tooltip.jsx'
 import { HELP } from '../lib/help.js'
 
 // Designer forms for the non-Percona upstreams: MariaDB (standalone, replication,
@@ -88,11 +90,30 @@ function VersionPickers({ obj, patch, deployed, majorKey, versionKey, majorLabel
         </Field>
       </div>
       {!loading && !majors.length && (
-        <p className="text-xs text-amber-600 dark:text-amber-400">
+        <p className="text-xs text-warning">
           No packages for this OS/arch. Pick another combination, or run <code>make versions</code>.
         </p>
       )}
     </>
+  )
+}
+
+// Check is one checkbox row, drawn the way every other designer form draws its options.
+function Check({ checked, onChange, label, help, disabled }) {
+  return (
+    <label className={`flex items-center gap-2 text-sm ${disabled ? 'opacity-70' : ''}`}>
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+      <span>{label}</span>{help && <Help text={help} />}
+    </label>
+  )
+}
+
+// DeleteButton is the designer's delete action for a node or a cluster.
+function DeleteButton({ onClick, children }) {
+  return (
+    <Button variant="danger" size="sm" className="w-full" onClick={onClick}>
+      <Icon.Trash size={16} /> {children}
+    </Button>
   )
 }
 
@@ -116,13 +137,11 @@ function CommonOptions({ obj, patch, nodes, deployed, showGtid, showRepl }) {
           {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
         </select>
       </Field>
-      <div className="space-y-1.5">
-        {showGtid && (
-          <Toggle checked={obj.gtid !== false} onChange={(v) => patch({ gtid: v })} label="Enable GTID" />
-        )}
-        <Toggle checked={!!obj.useProxy} onChange={(v) => patch({ useProxy: v })} label="Install packages via the Intranet proxy" />
-        <Toggle checked={!!obj.generateCert} onChange={(v) => patch({ generateCert: v })} label="Issue a TLS certificate from the Intranet CA" />
-      </div>
+      {showGtid && (
+        <Check checked={obj.gtid !== false} onChange={(v) => patch({ gtid: v })} label="Enable GTID" help={HELP.gtid} />
+      )}
+      <Check checked={!!obj.useProxy} onChange={(v) => patch({ useProxy: v })} label="Install packages via the Intranet proxy" help={HELP.proxy} />
+      <Check checked={!!obj.generateCert} onChange={(v) => patch({ generateCert: v })} label="Issue a TLS certificate from the Intranet CA" help={HELP.generateCert} />
       {obj.generateCert && (
         <div className="grid grid-cols-2 gap-2">
           <Field label="Certificate TTL" help={HELP.certTTL}>
@@ -194,7 +213,7 @@ function OrchestratorPicker({ frame: f, stackId, nodes, patch, running }) {
 function ExportRow({ node: n, patchNode, deployed }) {
   return (
     <>
-      <Toggle checked={!!n.exportEnabled} onChange={(v) => patchNode(n.id, { exportEnabled: v })} label="Publish port 3306 to the host" />
+      <Check checked={!!n.exportEnabled} onChange={(v) => patchNode(n.id, { exportEnabled: v })} label="Publish port 3306 to the host" help={HELP.exportPort} />
       {n.exportEnabled && (
         <Field label="Host port" help={HELP.hostPort} hint={deployed ? 'Changing this needs a destroy + redeploy — published ports are fixed at container creation.' : '0 = pick a free port'}>
           <input type="number" min="0" className={inputCls} value={n.exportHostPort || 0} onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
@@ -222,7 +241,7 @@ export function MariaDBNodeForm({ node: n, nodes, patchNode, deleteNode, deploye
       <VersionPickers obj={n} patch={patch} deployed={deployed} majorKey="mariadbMajor" versionKey="mariadbVersion" majorLabel="MariaDB" cat={cat} />
       <CommonOptions obj={n} patch={patch} nodes={nodes} deployed={deployed} showGtid />
       <ExportRow node={n} patchNode={patchNode} deployed={deployed} />
-      <ConfirmButton onConfirm={() => deleteNode(n.id)}>Delete node</ConfirmButton>
+      <DeleteButton onClick={() => deleteNode(n.id)}>Delete node</DeleteButton>
     </div>
   )
 }
@@ -250,19 +269,19 @@ export function MariaDBFrameForm({ frame: f, stackId, nodes, patchFrame, deleteF
       {/* MariaDB GTIDs are domain-server-seq; the domain is derived from the cluster
           name so every member shares it and two clusters never collide. */}
       {f.gtid !== false && (
-        <p className="text-xs text-slate-500 dark:text-slate-400">
+        <p className="text-xs text-muted">
           GTID positions are <code>domain-server-seq</code>; the domain is derived from the cluster name.
         </p>
       )}
-      <p className="text-xs text-amber-600 dark:text-amber-400">
+      <p className="text-xs text-warning">
         Secondaries are <code>read_only</code>, but MariaDB has no <code>super_read_only</code>, so a
         SUPER account (admin, app) can still write to one. Use the app credentials against the primary,
         or a non-SUPER user, if you need that guarantee — MySQL and Percona replicas set both.
       </p>
       {primaries !== 1 && (
-        <p className="text-xs text-red-600 dark:text-red-400">Needs exactly one primary (has {primaries}).</p>
+        <p className="text-xs text-danger">Needs exactly one primary (has {primaries}).</p>
       )}
-      <ConfirmButton onConfirm={() => deleteFrame(f.id)}>Delete cluster</ConfirmButton>
+      <DeleteButton onClick={() => deleteFrame(f.id)}>Delete cluster</DeleteButton>
     </div>
   )
 }
@@ -285,19 +304,19 @@ export function MariaDBGaleraFrameForm({ frame: f, nodes, patchFrame, deleteFram
       </Field>
       <VersionPickers obj={f} patch={patch} deployed={deployed} majorKey="mariadbMajor" versionKey="mariadbVersion" majorLabel="MariaDB" cat={cat} />
       <CommonOptions obj={f} patch={patch} nodes={nodes} deployed={deployed} />
-      <p className="text-xs text-slate-500 dark:text-slate-400">
+      <p className="text-xs text-muted">
         State transfer uses <code>mariabackup</code>. The seed is bootstrapped first, then each
         joiner starts in turn — Galera services one state transfer per donor at a time.
       </p>
       {members.length < 3 && (
-        <p className="text-xs text-red-600 dark:text-red-400">Needs at least 3 members (has {members.length}).</p>
+        <p className="text-xs text-danger">Needs at least 3 members (has {members.length}).</p>
       )}
       {members.length >= 3 && members.length % 2 === 0 && (
-        <p className="text-xs text-amber-600 dark:text-amber-400">
+        <p className="text-xs text-warning">
           An even member count cannot break a tie — use an odd number.
         </p>
       )}
-      <ConfirmButton onConfirm={() => deleteFrame(f.id)}>Delete cluster</ConfirmButton>
+      <DeleteButton onClick={() => deleteFrame(f.id)}>Delete cluster</DeleteButton>
     </div>
   )
 }
@@ -320,7 +339,7 @@ export function MySQLCENodeForm({ node: n, nodes, patchNode, deleteNode, deploye
       <VersionPickers obj={n} patch={patch} deployed={deployed} majorKey="mysqlceMajor" versionKey="mysqlceVersion" majorLabel="MySQL" cat={cat} />
       <CommonOptions obj={n} patch={patch} nodes={nodes} deployed={deployed} showGtid />
       <ExportRow node={n} patchNode={patchNode} deployed={deployed} />
-      <ConfirmButton onConfirm={() => deleteNode(n.id)}>Delete node</ConfirmButton>
+      <DeleteButton onClick={() => deleteNode(n.id)}>Delete node</DeleteButton>
     </div>
   )
 }
@@ -346,9 +365,9 @@ export function MySQLCEFrameForm({ frame: f, stackId, nodes, patchFrame, deleteF
       <CommonOptions obj={f} patch={patch} nodes={nodes} deployed={deployed} showGtid showRepl />
       <OrchestratorPicker frame={f} stackId={stackId} nodes={nodes} patch={patch} running={running} />
       {primaries !== 1 && (
-        <p className="text-xs text-red-600 dark:text-red-400">Needs exactly one primary (has {primaries}).</p>
+        <p className="text-xs text-danger">Needs exactly one primary (has {primaries}).</p>
       )}
-      <ConfirmButton onConfirm={() => deleteFrame(f.id)}>Delete cluster</ConfirmButton>
+      <DeleteButton onClick={() => deleteFrame(f.id)}>Delete cluster</DeleteButton>
     </div>
   )
 }
@@ -377,17 +396,17 @@ export function MySQLCEInnoDBFrameForm({ frame: f, nodes, patchFrame, deleteFram
           <option value="groupreplication">Group Replication (raw)</option>
         </select>
       </Field>
-      <Toggle checked={!!f.mysqlRouter} onChange={(v) => patch({ mysqlRouter: v })} label="Install MySQL Router on each member" />
+      <Check checked={!!f.mysqlRouter} onChange={(v) => patch({ mysqlRouter: v })} label="Install MySQL Router on each member" />
       <CommonOptions obj={f} patch={patch} nodes={nodes} deployed={deployed} />
       {members.length < 3 && (
-        <p className="text-xs text-red-600 dark:text-red-400">Needs at least 3 members (has {members.length}).</p>
+        <p className="text-xs text-danger">Needs at least 3 members (has {members.length}).</p>
       )}
       {members.length >= 3 && members.length % 2 === 0 && (
-        <p className="text-xs text-amber-600 dark:text-amber-400">
+        <p className="text-xs text-warning">
           Group Replication needs an odd member count to reach quorum.
         </p>
       )}
-      <ConfirmButton onConfirm={() => deleteFrame(f.id)}>Delete cluster</ConfirmButton>
+      <DeleteButton onClick={() => deleteFrame(f.id)}>Delete cluster</DeleteButton>
     </div>
   )
 }
@@ -413,7 +432,7 @@ export function UpstreamMemberForm({ node: n, frame, patchNode, deleteNode, depl
         </Field>
       )}
       <ExportRow node={n} patchNode={patchNode} deployed={deployed} />
-      <ConfirmButton onConfirm={() => deleteNode(n.id)}>Delete node</ConfirmButton>
+      <DeleteButton onClick={() => deleteNode(n.id)}>Delete node</DeleteButton>
     </div>
   )
 }

@@ -406,7 +406,7 @@ func (a *App) handleK3DKubeconfig(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	cluster := k3dClusterName(st.ID, frame)
+	cluster := k3dDeployedCluster(st.ID, frame, dep)
 	yaml, err := a.k3dFetchKubeconfig(r.Context(), dep.ContainerID, cluster)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, "fetch kubeconfig: "+lastLines(err.Error(), 200))
@@ -494,7 +494,7 @@ func (a *App) handleK3DUserKubeconfig(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "username is required")
 		return
 	}
-	cluster := k3dClusterName(st.ID, frame)
+	cluster := k3dDeployedCluster(st.ID, frame, dep)
 	yaml, err := a.k3dUserKubeconfig(r.Context(), dep.ContainerID, cluster, username)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, "user kubeconfig: "+lastLines(err.Error(), 200))

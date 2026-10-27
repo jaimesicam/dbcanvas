@@ -120,7 +120,7 @@ export function WindowManagerProvider({ children }) {
   //   the zone it is snapped to; order is its place in the stack (higher = front).
   const [wins, setWins] = useState({})
   const [extras, setExtras] = useState({}) // key -> { label, icon, active, onClick, title }
-  // The shell's say: start is the taskbar's leading element (the desktop's Start
+  // The shell's say: start is the taskbar's leading element (the desktop's Menu
   // button), always keeps the taskbar up with nothing open, inset is kept clear.
   const [shell, setShellState] = useState({ start: null, status: null, always: false, inset: NO_INSET })
   const insetRef = useRef(NO_INSET)

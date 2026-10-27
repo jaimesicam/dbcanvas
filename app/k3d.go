@@ -362,19 +362,32 @@ func (a *App) runK3D(ctx context.Context, logln func(string), args ...string) (s
 // k3d cluster names are global to the Docker daemon, so without it two stacks would fight over one
 // cluster (the second deploy dies with "a cluster with that name already exists"). For the same
 // reason it carries the installation (instance.go) after the stack: two installations on one daemon
-// both have a stack 1. The installation called "dbcanvas" adds nothing, so its clusters keep their
-// names.
+// both have a stack 1.
+//
+// It is the name a deploy creates. A cluster already running may have been created under the
+// untagged name the "dbcanvas" installation used before; k3dDeployedCluster is the name to reach it by.
 func k3dClusterName(stackID int64, frame designFrame) string {
 	return sanitizeName(frame.Label) + k3dStackSuffix(stackID)
 }
 
+// k3dDeployedCluster is the name of the cluster a frame's server node runs in: the one its deploy
+// recorded, which for a cluster created before names were tagged is not k3dClusterName's.
+func k3dDeployedCluster(stackID int64, frame designFrame, server Deployment) string {
+	var cfg k3dConfig
+	if json.Unmarshal(server.Config, &cfg) == nil && cfg.Cluster != "" {
+		return cfg.Cluster
+	}
+	return k3dClusterName(stackID, frame)
+}
+
 // k3dStackSuffix is how every cluster name of one stack of this installation ends.
 func k3dStackSuffix(stackID int64) string {
-	if tag := instanceTag(); tag != "" {
-		return fmt.Sprintf("-s%d-%s", stackID, tag)
-	}
-	return fmt.Sprintf("-s%d", stackID)
+	return fmt.Sprintf("-s%d-%s", stackID, instanceTag())
 }
+
+// k3dLegacyStackSuffix is how the legacy installation ended a stack's cluster names before they
+// were tagged (see k3dLegacyNames).
+func k3dLegacyStackSuffix(stackID int64) string { return fmt.Sprintf("-s%d", stackID) }
 
 // k3dNodeContainer is the container k3d creates for the i-th member (0 = the server).
 func k3dNodeContainer(cluster string, i int) string {
@@ -417,13 +430,13 @@ func k3dStackIDFromContainer(name string) (int64, bool) {
 	if cluster == "" {
 		return 0, false
 	}
-	// The cluster name ends with the stack scope: <frame label>-s<stackID>[-<instance tag>]. A
-	// cluster of another installation ends with a different tag (or none), and is not ours.
-	if tag := instanceTag(); tag != "" {
-		var ok bool
-		if cluster, ok = strings.CutSuffix(cluster, "-"+tag); !ok {
-			return 0, false
-		}
+	// The cluster name ends with the stack scope: <frame label>-s<stackID>-<instance tag>. A
+	// cluster of another installation ends with a different tag, and is not ours — nor is an
+	// untagged one, unless this is the installation that made those.
+	if c, ok := strings.CutSuffix(cluster, "-"+instanceTag()); ok {
+		cluster = c
+	} else if !k3dLegacyNames() {
+		return 0, false
 	}
 	i := strings.LastIndex(cluster, "-s")
 	if i < 0 {
@@ -1410,12 +1423,13 @@ func (a *App) k3dStackClusters(ctx context.Context, stackID int64) []string {
 
 // k3dClustersOfStack keeps the names ending in this stack's suffix. "-s1" must not match
 // "k3d-00-s15", which it does not: the suffix is compared whole — and nor does it match another
-// installation's "k3d-00-s1-jane", whose suffix is not this installation's.
+// installation's "k3d-00-s1-jane", whose suffix is not this installation's. The legacy
+// installation's untagged clusters count too, so a redeploy or teardown still removes them.
 func k3dClustersOfStack(names []string, stackID int64) []string {
-	suffix := k3dStackSuffix(stackID)
+	suffix, legacy := k3dStackSuffix(stackID), k3dLegacyStackSuffix(stackID)
 	var out []string
 	for _, n := range names {
-		if strings.HasSuffix(n, suffix) {
+		if strings.HasSuffix(n, suffix) || (k3dLegacyNames() && strings.HasSuffix(n, legacy)) {
 			out = append(out, n)
 		}
 	}

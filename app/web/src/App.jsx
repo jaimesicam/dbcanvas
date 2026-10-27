@@ -15,7 +15,7 @@ import { MirrorRecorder, MirrorView } from './session/Mirror.jsx'
 import { WorkspaceDrawing } from './session/DrawLayer.jsx'
 import { BrowserProvider } from './browser/BrowserProvider.jsx'
 import { WindowManagerProvider, useWindowApi, useTaskbarItem } from './wm/WindowManager.jsx'
-import { StartButton, DesktopSurface, PageWindows, pageWindowId } from './desktop/Desktop.jsx'
+import { MenuButton, DesktopSurface, PageWindows, pageWindowId } from './desktop/Desktop.jsx'
 import { DesktopStatus } from './desktop/Stacks.jsx'
 import { useShellMode, SHELL_MODES } from './lib/shellMode.js'
 import { Avatar, fullName } from './components/Avatar.jsx'
@@ -302,13 +302,13 @@ function Workspace({ onSessionEnded }) {
 
   const current = nav.find((n) => n.id === active) ?? (desktop ? null : nav[0])
 
-  // The desktop's claims on the window manager: the Start button on the taskbar, the
+  // The desktop's claims on the window manager: the Menu button on the taskbar, the
   // taskbar always up, and the top bar and the session panel kept clear of windows.
   const navRef = useRef(nav)
   navRef.current = nav
   const openRef = useRef(openTab)
   openRef.current = openTab
-  const startEl = useMemo(() => <StartButton navRef={navRef} openRef={openRef} />, [])
+  const startEl = useMemo(() => <MenuButton navRef={navRef} openRef={openRef} />, [])
   const statusEl = useMemo(() => <DesktopStatus />, [])
   useLayoutEffect(() => {
     wmApi?.setShell(desktop
@@ -336,7 +336,7 @@ function Workspace({ onSessionEnded }) {
   const topbar = (
     <Topbar
       title={current?.label ?? 'Desktop'}
-      hint={current?.hint ?? 'Open a page from Start, or double-click its icon'}
+      hint={current?.hint ?? 'Open a page from the Menu, or double-click its icon'}
       onRefresh={refreshers.current[activeTab?.key]?.size ? () => refreshTab(activeTab.key) : null}
       refreshing={!!refreshing[activeTab?.key]}
       onSearch={() => setPaletteOpen(true)}
@@ -692,7 +692,7 @@ function AppearancePicker() {
           <div className="mt-1 border-t px-2.5 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted">Layout</div>
           {SHELL_MODES.map((m) => (
             <button key={m.id} onClick={() => { setShell(m.id); setOpen(false) }}
-              title={m.id === 'desktop' ? 'Every page in a window over a desktop, with a Start menu and a taskbar' : 'A sidebar and a tab strip'}
+              title={m.id === 'desktop' ? 'Every page in a window over a desktop, with a Menu and a taskbar' : 'A sidebar and a tab strip'}
               className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm hover:bg-surface2">
               {m.id === 'desktop' ? <Icon.Monitor size={16} /> : <Icon.Dashboard size={16} />}
               <span className="flex-1 text-left">{m.label}</span>

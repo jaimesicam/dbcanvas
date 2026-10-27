@@ -179,9 +179,9 @@ func (s *Store) DeleteK8sDump(id int64) error {
 
 // runK8sCollect performs one capture end to end and returns the archive bytes.
 // Everything it creates is torn down before it returns, including on failure.
-func (a *App) runK8sCollect(ctx context.Context, st Stack, frame designFrame, serverID string) ([]byte, error) {
-	cluster := k3dClusterName(st.ID, frame)
-	kubeconfig, err := a.k3dFetchKubeconfig(ctx, serverID, cluster)
+func (a *App) runK8sCollect(ctx context.Context, st Stack, frame designFrame, server Deployment) ([]byte, error) {
+	cluster := k3dDeployedCluster(st.ID, frame, server)
+	kubeconfig, err := a.k3dFetchKubeconfig(ctx, server.ContainerID, cluster)
 	if err != nil {
 		return nil, fmt.Errorf("fetch the cluster's kubeconfig: %w", err)
 	}
@@ -238,13 +238,13 @@ func (a *App) runK8sCollect(ctx context.Context, st Stack, frame designFrame, se
 }
 
 // keepK8sDump writes a finished capture to disk and indexes it.
-func (a *App) keepK8sDump(st Stack, frame designFrame, data []byte) (k8sDump, error) {
+func (a *App) keepK8sDump(st Stack, frame designFrame, server Deployment, data []byte) (k8sDump, error) {
 	dir := k8sDumpDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return k8sDump{}, err
 	}
 	now := time.Now().UTC()
-	cluster := k3dClusterName(st.ID, frame)
+	cluster := k3dDeployedCluster(st.ID, frame, server)
 	name := fmt.Sprintf("clusterdump-%s-%s.tar.gz", sanitizeName(cluster), now.Format("20060102-150405"))
 	path := filepath.Join(dir, name)
 	if err := os.WriteFile(path, data, 0o644); err != nil {
@@ -306,7 +306,6 @@ func (a *App) handleK8sCollectStart(w http.ResponseWriter, r *http.Request) {
 	}
 	a.captures.Store(key, &captureState{Status: captureRunning, Started: time.Now().UTC().Format(time.RFC3339)})
 	eng := a.engCtx(r.Context())
-	serverID := dep.ContainerID
 	go func() {
 		ctx, cancel := context.WithTimeout(withEngine(context.Background(), eng), k8sCollectTimeout)
 		defer cancel()
@@ -314,13 +313,13 @@ func (a *App) handleK8sCollectStart(w http.ResponseWriter, r *http.Request) {
 		if v, loaded := a.captures.Load(key); loaded {
 			state.Started = v.(*captureState).Started
 		}
-		data, err := a.runK8sCollect(ctx, st, frame, serverID)
+		data, err := a.runK8sCollect(ctx, st, frame, dep)
 		if err != nil {
 			state.Status, state.Message = captureError, lastLines(err.Error(), 400)
 			a.captures.Store(key, state)
 			return
 		}
-		if _, err := a.keepK8sDump(st, frame, data); err != nil {
+		if _, err := a.keepK8sDump(st, frame, dep, data); err != nil {
 			state.Status, state.Message = captureError, "keep the capture: "+err.Error()
 			a.captures.Store(key, state)
 			return
@@ -503,14 +502,14 @@ func (a *App) handleOpSummaryNode(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), k8sCollectTimeout)
 	defer cancel()
-	data, err := a.runK8sCollect(ctx, st, frame, dep.ContainerID)
+	data, err := a.runK8sCollect(ctx, st, frame, dep)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	d, keepErr := a.keepK8sDump(st, frame, data)
+	d, keepErr := a.keepK8sDump(st, frame, dep, data)
 	u, _ := a.currentUser(r)
-	m, err := a.opAnalyse(u, data, k3dClusterName(st.ID, frame), "node", st.ID, st.Name)
+	m, err := a.opAnalyse(u, data, k3dDeployedCluster(st.ID, frame, dep), "node", st.ID, st.Name)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return

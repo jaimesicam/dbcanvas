@@ -7,8 +7,8 @@ import { StackIcons, StackFolder, useStacks } from './Stacks.jsx'
 // Desktop.jsx — DBCanvas as a desktop (lib/shellMode.js picks it; it is the default).
 //
 // Every page opens as a window (PageWindows) over a desktop (DesktopSurface) with an
-// icon for each page, and the sidebar becomes the Start menu on the taskbar
-// (StartButton). The pages are the same components the classic shell mounts, kept
+// icon for each page, and the sidebar becomes the Menu on the taskbar
+// (MenuButton). The pages are the same components the classic shell mounts, kept
 // mounted the same way: a minimized window is hidden, not unmounted, so a page keeps
 // its scroll position, its filters and its in-flight view — and stops polling, as a
 // hidden tab does (lib/usePolling.jsx).
@@ -17,7 +17,7 @@ import { StackIcons, StackFolder, useStacks } from './Stacks.jsx'
 // terminals, browser windows and file managers: one stack, one taskbar, one set of
 // snapping and arranging rules for everything on screen.
 
-// The Start menu's sections. A page not named here lands in the last one, so a new
+// The Menu's sections. A page not named here lands in the last one, so a new
 // page is never lost from the menu, only filed under Other until it is placed.
 const GROUPS = [
   { title: 'Workspace', ids: ['dashboard', 'stack-designer', 'kanban'] },
@@ -42,10 +42,10 @@ export function groupNav(nav) {
 // pageWindowId is a page window's id in the window manager.
 export const pageWindowId = (key) => `page:${key}`
 
-// StartButton is the taskbar's first button and the menu it opens. It reads the
+// MenuButton is the taskbar's first button and the menu it opens. It reads the
 // page list and the opener through refs, so the window manager can hold one element
 // for the life of the shell.
-export function StartButton({ navRef, openRef }) {
+export function MenuButton({ navRef, openRef }) {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
   const btn = useRef(null)
@@ -76,14 +76,14 @@ export function StartButton({ navRef, openRef }) {
   }
   return (
     <>
-      <button ref={btn} onClick={() => setOpen((o) => !o)} title="Start — every page"
+      <button ref={btn} onClick={() => setOpen((o) => !o)} title="Menu — every page"
         className={`mr-1 flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold ${open ? 'bg-primary text-primary-fg' : 'bg-primary/15 text-primary hover:bg-primary/25'}`}>
-        <Icon.Brand size={15} /> Start
+        <Icon.Brand size={15} /> Menu
       </button>
       {open && createPortal(
         <>
           <div className="fixed inset-0 z-[80]" onPointerDown={() => setOpen(false)} />
-          <div data-start-menu className="fixed bottom-10 left-2 z-[81] flex max-h-[min(640px,80vh)] w-[min(560px,94vw)] flex-col overflow-hidden rounded-xl border bg-surface shadow-2xl">
+          <div data-desktop-menu className="fixed bottom-10 left-2 z-[81] flex max-h-[min(640px,80vh)] w-[min(560px,94vw)] flex-col overflow-hidden rounded-xl border bg-surface shadow-2xl">
             <div className="flex items-center gap-2 border-b px-3 py-2">
               <Icon.Search size={15} className="text-muted" />
               <input ref={input} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a page…"

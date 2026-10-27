@@ -250,11 +250,11 @@ func lcKubeStateOf(raw string, frames []designFrame, servers map[string]Deployme
 	state := lcKubeState{Clusters: []lcKubeCluster{}, Contexts: []lcKubeContext{}}
 	managed := map[string]bool{}
 	for _, f := range frames {
-		_, running := servers[f.ID]
+		server, running := servers[f.ID]
 		name := lcKubeContextName(f)
 		managed[name] = true
 		state.Clusters = append(state.Clusters, lcKubeCluster{FrameID: f.ID, Context: name, Running: running,
-			Server: k3dServerLBAddr(k3dClusterName(st.ID, f))})
+			Server: k3dServerLBAddr(k3dDeployedCluster(st.ID, f, server))})
 	}
 	if strings.TrimSpace(raw) == "" {
 		return state
@@ -352,7 +352,7 @@ func (a *App) handleLinuxClientKubeconfigCopy(w http.ResponseWriter, r *http.Req
 		}
 		// The cluster's server node may live on another engine than the client: run kubectl there.
 		kctx := withEngine(r.Context(), a.depEngine(st, sdep.NodeID))
-		raw, err := a.k3dFetchKubeconfig(kctx, sdep.ContainerID, k3dClusterName(st.ID, f))
+		raw, err := a.k3dFetchKubeconfig(kctx, sdep.ContainerID, k3dDeployedCluster(st.ID, f, sdep))
 		if err != nil {
 			skipped = append(skipped, f.Label+" ("+lastLines(err.Error(), 120)+")")
 			continue
