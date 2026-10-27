@@ -366,6 +366,57 @@ export function InternalWrites() {
   )
 }
 
+// OpenRegistration is whether a new sign-up can use its account at once (app/auth.go),
+// instead of waiting for an administrator to approve it. Instance-wide and off by default.
+export function OpenRegistration() {
+  const { system, saveSystem } = useSettings()
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
+  const on = !!system.openRegistration
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+
+  const apply = async (next) => {
+    setErr(''); setBusy(true)
+    try {
+      await saveSystem({ openRegistration: next })
+    } catch (e) {
+      setErr(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Row
+      title="Registration"
+      hint="Whether an account somebody registers can be used at once, or waits for an administrator to approve it. Instance-wide, and approval is the default."
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+          on ? 'bg-warning/15 text-warning' : 'bg-muted/15 text-muted'}`}>
+          {on ? <Icon.StatusWarn size={13} /> : <Icon.Check size={13} />}
+          {on ? 'Open: no approval needed' : 'Approval required'}
+        </span>
+        <Help text={HELP.openRegistration} />
+        {isAdmin && (
+          <Button variant={on ? 'subtle' : 'outline'} onClick={() => apply(!on)} disabled={busy}>
+            {busy ? 'Saving…' : on ? 'Require approval' : 'Open registration'}
+          </Button>
+        )}
+      </div>
+      {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
+      <div className="text-xs text-muted">
+        {on
+          ? 'Anyone who can reach the sign-in page can create an account and use it straight away, as a user (not an administrator). Administrators are notified of each one.'
+          : isAdmin
+            ? 'A new account waits under Users until an administrator approves it.'
+            : 'Set by an administrator.'}
+      </div>
+    </Row>
+  )
+}
+
 // GuestSessions is the switch for shared sessions (app/share.go): whether a stack's
 // owner may share a live session through a link, and the longest a link may last.
 // Instance-wide and off by default — a link admits people who have no account here.
@@ -835,6 +886,8 @@ export default function Settings() {
       <TokenLifetime />
 
       <InternalWrites />
+
+      <OpenRegistration />
 
       <GuestSessions />
       <LiveWatch />

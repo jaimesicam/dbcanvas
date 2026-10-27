@@ -131,7 +131,93 @@ func buildCompose(spec composeSpec) (designDoc, map[string][2]float64, []compose
 	}
 	// Pass three: prerequisites that only become known once the wiring is done.
 	b.fixPrerequisites()
+	// Pass four: fields the spec sets by name. b.resolved holds one entry per spec entry,
+	// in order.
+	for i, s := range ordered {
+		if err := b.applyOptions(s, b.resolved[i]); err != nil {
+			return designDoc{}, nil, nil, nil, err
+		}
+	}
 	return b.doc, b.pos, b.resolved, b.added, nil
+}
+
+// applyOptions applies an entry's options and memberOptions, checked against the
+// design catalogue.
+func (b *composeBuilder) applyOptions(s composeNodeSpec, res composeResolved) error {
+	if len(s.Options) == 0 && len(s.MemberOptions) == 0 {
+		return nil
+	}
+	members := func(apply func(n *designNode) error) error {
+		for _, id := range res.NodeIDs {
+			if n := b.node(id); n != nil {
+				if err := apply(n); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	if res.FrameID == "" {
+		if len(s.MemberOptions) > 0 {
+			return fmt.Errorf("%s: memberOptions is for a cluster; use options", res.Name)
+		}
+		return members(func(n *designNode) error {
+			e, ok := designCatalog().node(n.Type)
+			if !ok {
+				return fmt.Errorf("%s: node type %q is not catalogued", res.Name, n.Type)
+			}
+			return withOptions(e, n, s.Options)
+		})
+	}
+	for i := range b.doc.Frames {
+		fr := &b.doc.Frames[i]
+		if fr.ID != res.FrameID {
+			continue
+		}
+		fe, ok := designCatalog().frame(fr.Type)
+		if !ok {
+			return fmt.Errorf("%s: cluster type %q is not catalogued", res.Name, fr.Type)
+		}
+		if err := withOptions(fe, fr, s.Options); err != nil {
+			return fmt.Errorf("%s: %w", res.Name, err)
+		}
+		me, _ := designCatalog().node(fe.MemberType)
+		return members(func(n *designNode) error {
+			if err := withOptions(me, n, s.MemberOptions); err != nil {
+				return fmt.Errorf("%s memberOptions: %w", res.Name, err)
+			}
+			return nil
+		})
+	}
+	return nil
+}
+
+// withOptions applies catalogued options to a designNode or designFrame through its
+// JSON form, which is the form the catalogue names fields in.
+func withOptions[T any](e *catalogEntry, v *T, opts map[string]json.RawMessage) error {
+	if len(opts) == 0 {
+		return nil
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return err
+	}
+	if err := applyCatalogOptions(e, m, opts); err != nil {
+		return err
+	}
+	if raw, err = json.Marshal(m); err != nil {
+		return err
+	}
+	var out T
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return err
+	}
+	*v = out
+	return nil
 }
 
 // fixPrerequisites turns on the settings that a relationship makes mandatory.

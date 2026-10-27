@@ -122,6 +122,13 @@ parameters, tags and security are all described; request and response bodies are
 declared as free-form JSON rather than 228 hand-written schemas, because a second
 description of the app would be a second thing to get out of date.
 
+`GET /api/stacks/design/catalog` does the same for stack designs: every node and
+cluster type, each option it takes (field, JSON type, accepted values, default, when it
+applies), the relations it can hold, the lines it draws, and the endpoints that apply
+once it is deployed. The `/api/stacks/{id}/design/…` endpoints add, change and remove
+one node, cluster or line at a time and check each change against it. See
+[the API reference](API_REFERENCE.md#the-design-catalogue-and-editing-a-design-one-piece-at-a-time).
+
 ## Things that are not plain JSON
 
 Most endpoints take and return JSON. Four kinds do not, and the catalogue marks each

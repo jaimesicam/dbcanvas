@@ -179,20 +179,9 @@ func (a *App) handleUpdateStack(w http.ResponseWriter, r *http.Request) {
 	if len(body.Design) > 0 {
 		design = body.Design
 	}
-	// While a deployment is in progress, the node set is frozen: reject adding or
-	// removing nodes (option/position edits are still fine). This keeps the canvas
-	// consistent with what the in-flight provisioners are building.
-	if len(body.Design) > 0 && !sameNodeSet(st.Design, design) && a.deployInProgress(st.ID) {
-		writeErr(w, http.StatusConflict, "cannot add or remove nodes while a deployment is in progress")
+	if !a.saveStackDesign(w, st, name, design) {
 		return
 	}
-	if err := a.store.UpdateStack(st.ID, name, design); err != nil {
-		writeErr(w, http.StatusInternalServerError, "failed to update stack")
-		return
-	}
-	// Real-time cleanup: a node removed from the canvas has its container + volumes
-	// (and deployment record) torn down immediately, not deferred to the next deploy.
-	a.cleanupRemovedNodes(st.ID, design)
 	updated, err := a.store.GetStack(st.ID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to read stack")

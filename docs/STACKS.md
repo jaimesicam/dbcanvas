@@ -1732,8 +1732,15 @@ there is previewed in the look it offers. Every typeface is a system face — a 
 out to a font CDN gets the same looks as one with.
 
 ### Manage Users (admin)
-Registration is approval-gated: admins approve, reject, disable, re-approve, and delete
-accounts.
+Registration is approval-gated by default: admins approve, reject, disable, re-approve, and
+delete accounts. **Settings → Registration** can open it, so that an account somebody
+registers is approved as it is created and they are signed in at once, with the user role.
+Accounts already pending stay pending, and administrators are notified of each new account
+either way.
+
+Deleting an account deletes its stacks and the containers they deployed. Over the API, an
+account's stacks can be handed to another account first, and a single stack can change owner;
+see [the API reference](API_REFERENCE.md#users-admin).
 
 **Locked out?** The image ships a password-reset tool, because the runtime is distroless —
 no shell, no `sqlite3` — and the database lives on a volume only that container mounts:

@@ -12,10 +12,13 @@ export function AuthProvider({ children }) {
   // A shared-session guest (app/share.go): who they are, when the status says this
   // tab is one. user is then the host they act as.
   const [guest, setGuest] = useState(null)
+  // Whether a new sign-up is approved at once (app/auth.go), for the registration form.
+  const [openRegistration, setOpenRegistration] = useState(false)
 
   const refresh = useCallback(async () => {
     try {
       const s = await api.status()
+      setOpenRegistration(!!s.openRegistration)
       if (!s.initialized) {
         setUser(null)
         setPhase('setup')
@@ -47,9 +50,13 @@ export function AuthProvider({ children }) {
     await refresh()
   }, [refresh])
 
+  // With open registration the server signs the new account in, so the status is read
+  // again to enter the app.
   const register = useCallback(async (username, password, profile) => {
-    return api.register(username, password, profile)
-  }, [])
+    const res = await api.register(username, password, profile)
+    if (res?.status === 'approved') await refresh()
+    return res
+  }, [refresh])
 
   const logout = useCallback(async () => {
     try {
@@ -60,7 +67,7 @@ export function AuthProvider({ children }) {
   }, [refresh])
 
   return (
-    <AuthContext.Provider value={{ phase, user, guest, refresh, setup, login, register, logout, setUser }}>
+    <AuthContext.Provider value={{ phase, user, guest, openRegistration, refresh, setup, login, register, logout, setUser }}>
       {children}
     </AuthContext.Provider>
   )

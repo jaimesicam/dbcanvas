@@ -108,6 +108,62 @@ func TestRegisterTakesAProfile(t *testing.T) {
 	}
 }
 
+func TestOpenRegistration(t *testing.T) {
+	app := newTestApp(t)
+	app.store.CreateUser("admin", "x", RoleAdmin, StatusApproved)
+	register := func(user, email string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		app.handleRegister(w, httptest.NewRequest("POST", "/api/auth/register", strings.NewReader(
+			`{"username":"`+user+`","password":"password123","firstName":"A","lastName":"B","email":"`+email+`"}`)))
+		return w
+	}
+	setSettings := func(body string) {
+		w := httptest.NewRecorder()
+		app.handleUpdateSystemSettings(w, httptest.NewRequest("PUT", "/api/system/settings", strings.NewReader(body)))
+		if w.Code != http.StatusOK {
+			t.Fatalf("settings %s: %d %s", body, w.Code, w.Body)
+		}
+	}
+
+	// Off by default: the account waits for approval and nobody is signed in.
+	if app.systemSettings("").OpenRegistration {
+		t.Fatal("open registration is on by default")
+	}
+	w := register("pending1", "pending1@example.com")
+	if u, _, _ := app.store.CredByUsername("pending1"); w.Code != http.StatusCreated || u.Status != StatusPending {
+		t.Errorf("closed registration: %d, status %q", w.Code, u.Status)
+	}
+	if len(w.Result().Cookies()) != 0 {
+		t.Error("a pending account was given a session")
+	}
+
+	// On: approved at once and signed in.
+	setSettings(`{"openRegistration":true}`)
+	w = register("open1", "open1@example.com")
+	if u, _, _ := app.store.CredByUsername("open1"); w.Code != http.StatusCreated || u.Status != StatusApproved {
+		t.Errorf("open registration: %d, status %q", w.Code, u.Status)
+	}
+	if len(w.Result().Cookies()) == 0 {
+		t.Error("an approved sign-up was not signed in")
+	}
+	if u, _, _ := app.store.CredByUsername("pending1"); u.Status != StatusPending {
+		t.Error("turning open registration on approved an account that was already pending")
+	}
+
+	// A settings body without the field keeps it; an explicit false turns it off.
+	setSettings(`{"maxUploadBytes":67108864}`)
+	if !app.openRegistration() {
+		t.Error("a settings update that left openRegistration out switched it off")
+	}
+	setSettings(`{"openRegistration":false}`)
+	if code := register("closed1", "closed1@example.com").Code; code != http.StatusCreated || app.openRegistration() {
+		t.Errorf("sign-up after turning it off: %d, still on %v", code, app.openRegistration())
+	}
+	if u, _, _ := app.store.CredByUsername("closed1"); u.Status != StatusPending {
+		t.Errorf("sign-up after turning it off: status %q", u.Status)
+	}
+}
+
 func TestUpdateProfile(t *testing.T) {
 	app := newTestApp(t)
 	u, _ := app.store.CreateUser("ada", "x", RoleUser, StatusApproved)

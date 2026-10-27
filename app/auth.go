@@ -146,6 +146,8 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 		// /api/me because the client already calls it on every load, and because
 		// /api/me returns a bare User that nothing should be appended to.
 		"version": appVersion,
+		// Whether a new sign-up is approved at once, for the registration form to say so.
+		"openRegistration": a.openRegistration(),
 	}
 	if u, ok := a.currentUser(r); ok {
 		resp["authenticated"] = true
@@ -245,7 +247,14 @@ func (a *App) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "failed to hash password")
 		return
 	}
-	nu, err := a.store.CreateUser(strings.TrimSpace(c.Username), hash, RoleUser, StatusPending)
+	// With open registration the account is approved as it is created, and the person
+	// is signed in; otherwise it waits for an administrator.
+	open := a.openRegistration()
+	status := StatusPending
+	if open {
+		status = StatusApproved
+	}
+	nu, err := a.store.CreateUser(strings.TrimSpace(c.Username), hash, RoleUser, status)
 	if err != nil {
 		if errors.Is(err, ErrUserExists) {
 			writeErr(w, http.StatusConflict, "username already exists")
@@ -259,6 +268,20 @@ func (a *App) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.stampWhatsNewSeen(nu.ID)
+	if open {
+		a.notify(Notification{Scope: "admin", Type: "user.registered", Severity: "info",
+			Title: "New account registered", Body: c.Profile.FirstName + " " + c.Profile.LastName + " (" + nu.Username + ") registered; open registration approved the account."})
+		if err := a.issueSession(w, r, nu.ID); err != nil {
+			writeErr(w, http.StatusInternalServerError, "failed to create session")
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{
+			"status":  "approved",
+			"message": "Your account was created and you are signed in.",
+			"user":    nu,
+		})
+		return
+	}
 	a.notify(Notification{Scope: "admin", Type: "user.pending", Severity: "warning",
 		Title: "New account awaiting approval", Body: c.Profile.FirstName + " " + c.Profile.LastName + " (" + nu.Username + ") registered and needs approval."})
 	writeJSON(w, http.StatusCreated, map[string]any{

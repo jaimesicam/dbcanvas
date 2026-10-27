@@ -30,6 +30,7 @@ var paramDoc = map[string]string{
 	"id":       "The stack's numeric id.",
 	"nid":      "The node's id within the stack's design (its `id` on the canvas, not its hostname).",
 	"fid":      "The frame's id within the stack's design — a cluster or Kubernetes frame.",
+	"eid":      "A line's id within the stack's design (its `id` in the design's edges).",
 	"aid":      "A kept pt-stalk archive's numeric id.",
 	"did":      "A kept pt-k8s-debug-collector cluster-dump's numeric id.",
 	"job":      "A Data Generator job id, as returned when the job was started.",

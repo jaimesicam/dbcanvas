@@ -110,7 +110,7 @@ export function SetupScreen() {
 }
 
 export function AuthScreen() {
-  const { login, register } = useAuth()
+  const { login, register, openRegistration } = useAuth()
   const [tab, setTab] = useState('signin')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -162,6 +162,7 @@ export function AuthScreen() {
     setBusy(true)
     try {
       const res = await register(username, password, profile)
+      if (res?.status === 'approved') return
       setSuccess(res.message || 'Account created.')
       setUsername('')
       setPassword('')
@@ -218,7 +219,9 @@ export function AuthScreen() {
             {busy ? 'Creating…' : 'Create account'}
           </Button>
           <p className="text-center text-xs text-muted">
-            New accounts require administrator approval before first sign-in.
+            {openRegistration
+              ? 'Your account can be used as soon as it is created.'
+              : 'New accounts require administrator approval before first sign-in.'}
           </p>
         </form>
       )}

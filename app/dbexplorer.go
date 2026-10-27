@@ -425,7 +425,7 @@ type dexBinary struct {
 	Marker string `json:"__dbx"` // always "binary"
 	Base64 string `json:"b64"`
 	Len    int    `json:"len"`
-	Hex    string `json:"hex,omitempty"` // first bytes, for the grid preview
+	Hex    string `json:"hex"` // first bytes, for the grid preview; "" for an empty value
 }
 
 // dexBigNum carries an integer that does not survive a float64 — MySQL's BIGINT

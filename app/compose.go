@@ -141,6 +141,13 @@ type composeNodeSpec struct {
 	GTID     *bool `json:"gtid"`
 	CPUs     int   `json:"cpus"`
 	MemoryGB int   `json:"memoryGb"`
+
+	// Options sets any other field of the node (or, for a cluster, of its frame) by its
+	// design JSON name, and MemberOptions sets fields on every member of a cluster.
+	// Both are checked against the design catalogue (GET /api/stacks/design/catalog),
+	// and applied last, so they override what the shorthand above chose.
+	Options       map[string]json.RawMessage `json:"options"`
+	MemberOptions map[string]json.RawMessage `json:"memberOptions"`
 }
 
 // link reads one relationship by name, so the wiring pass can be table-driven while

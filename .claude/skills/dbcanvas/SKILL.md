@@ -1,6 +1,6 @@
 ---
 name: dbcanvas
-description: Drive a DBCanvas installation over its HTTP API or with dbcanvas-cli — deploy database stacks (PostgreSQL, MySQL/PXC, MongoDB, Valkey, clustered or standalone), run load against them, and diagnose them from packet captures, logs, FTDC, pt-stalk and core dumps. Use when asked to spin up a database lab, reproduce a database problem on a specific version or topology, generate test data, benchmark a cluster, or read a stack's logs and captures. Triggers on dbcanvas, dbcanvas-cli, "spin up a stack", "deploy a PXC cluster", "database lab", DBCANVAS_TOKEN, /api/stacks.
+description: Drive a DBCanvas installation over its HTTP API or with dbcanvas-cli — deploy database stacks (PostgreSQL, MySQL/PXC, MongoDB, Valkey, clustered or standalone), run load against them, and diagnose them from packet captures, logs, FTDC, pt-stalk and core dumps. Use when asked to spin up a database lab, reproduce a database problem on a specific version or topology, generate test data, benchmark a cluster, or read a stack's logs and captures. Also configures every deploy option, relationship and post-deployment action of a stack through the design catalogue and design endpoints, and manages user accounts. Triggers on dbcanvas, dbcanvas-cli, "spin up a stack", "deploy a PXC cluster", "database lab", DBCANVAS_TOKEN, /api/stacks, design catalog.
 ---
 
 # Driving DBCanvas
@@ -128,6 +128,32 @@ No `jq`? Build the JSON with `python3 -c 'import json,sys; …'` — never by pa
 password into a JSON string by hand, where a quote or backslash in it breaks the body.
 Keep the token out of your reply; it is a password for the account.
 
+### Managing accounts (admin)
+
+Everything **Manage Users** does is an endpoint under `/api/users` (admin only; list
+them with `dbcanvas endpoints -q users`). The ones you reach for most:
+
+```sh
+dbcanvas user list                                          # pending first
+dbcanvas api GET    /api/users/7                            # one account: stacks, active tokens, sessions
+dbcanvas api POST   /api/users/7/approve                    # or /reject, /disable
+dbcanvas api POST   /api/users/7/role -d '{"role":"admin"}'
+dbcanvas api GET    /api/users/7/stacks
+dbcanvas api GET    /api/users/7/tokens                     # never the secrets
+dbcanvas api DELETE /api/users/7/tokens                     # revoke them all; sessions untouched
+dbcanvas api DELETE /api/users/7/sessions                   # sign it out everywhere
+dbcanvas api POST   /api/stacks/12/owner -d '{"userId":3}'  # hand one stack over
+dbcanvas api DELETE '/api/users/7?transferStacksTo=3'       # delete, keeping its stacks
+```
+
+**Deleting an account deletes its stacks and their containers** unless
+`transferStacksTo` names an approved account to give them to. Ask before either.
+
+Sign-ups wait for approval unless an administrator has turned on open registration
+(`openRegistration` in `GET /api/system/settings`; `PUT` it to change). It is an
+instance-wide decision about who may use the installation: do not turn it on to get
+yourself an account — ask for one (§1).
+
 ### Know what this installation actually has
 
 Endpoints and installable versions differ per installation. **Read, don't assume:**
@@ -136,6 +162,7 @@ Endpoints and installable versions differ per installation. **Read, don't assume
 dbcanvas endpoints --long              # every endpoint this server serves
 dbcanvas endpoints -q backup           # find one
 dbcanvas stack kinds                   # what compose can build here
+dbcanvas api GET /api/stacks/design/catalog   # every node/cluster type, option, relation and action
 dbcanvas api GET /api/catalog/ps       # which Percona Server versions exist here
 dbcanvas template list                 # which templates exist here
 ```
@@ -243,8 +270,15 @@ is an error, because nine node types never apply a CPU limit. Do not work around
 the refusal is telling you the knob does not exist there. `dbcanvas stack kinds` is
 generated from the same table, so it is never out of date with what will be accepted.
 
+**Anything the shorthand does not cover, set by name.** Every compose entry also takes
+`options` (fields of the node, or of a cluster's frame) and `memberOptions` (fields on
+every member), named as the design catalogue names them — see "Every option, by name"
+below. In the CLI that means `--spec spec.json` (or `--spec -`) or the `curl` form; they are checked
+the same way, and an unknown field is refused.
+
 If `compose` refuses a kind — a Kubernetes frame, an All-in-One, the Stock Market Sim,
-a core-dump host — it says why. Fall back to a template for those:
+a core-dump host — it says why. Compose the rest, then add those with the design
+endpoints (below), or start from a template:
 
 ```sh
 dbcanvas template list
@@ -277,9 +311,67 @@ password `KEYCLOAK_USER_PASSWORD`), then **`SET ROLE accounting;`** before query
 without `SET ROLE` the query fails with *SELECT command denied* and looks like the SSO
 is broken when it is not.
 
-**Never author a canvas design from scratch.** It is one document of ~120
-type-discriminated fields with cross-references by generated id. Compose, or a
-template, or an export you edit.
+**Never author a whole canvas design by hand.** It is one document of ~335
+type-discriminated fields with cross-references by generated id. Compose it, or start
+from a template, then change it one piece at a time with the design endpoints, which
+check every field against the catalogue.
+
+### Every option, by name: the design catalogue and the design endpoints
+
+`GET /api/stacks/design/catalog` is the designer's properties panels as data. For each
+node type (`nodes`) and cluster type (`frames`) it lists:
+
+- `options` — `field`, JSON `type`, accepted `values`, the `default` a new one gets,
+  and `when` it applies (`"usePgBackRest is on"`, `"k3dOperator is pxc or ps"`). A
+  cluster's own settings are the frame entry's options; per-member settings are the
+  member node entry's (`memberType`).
+- `relations` — named references to another node: `monitor` (PMM), `backup`
+  (SeaweedFS), `vault` (OpenBao), `oidc` (Keycloak), `ldap`/`kerberos` (a directory),
+  `orchestrator`, `repository`, `storage` (Ceph), `upgrade` (Watchtower), `app` (an
+  All-in-One). Top-level `relations` says which field each is stored in.
+- `edges` — the lines it draws (a proxy's backend, a simulator's database, replication
+  between clusters) and what may be at the other end. Provisioners walk these.
+- `actions` — **what you can do once it is deployed**: backups and restores,
+  switchover, certificates, database users, captures, with each one's body and when it
+  applies. `commonActions` (start, stop, rebuild, logs, shell, files) apply to every node.
+
+```sh
+CAT='/api/stacks/design/catalog'
+dbcanvas api GET "$CAT?type=patroni" | jq '.frame.options[] | {field, type, values, default, when}'
+dbcanvas api GET "$CAT?type=patroni" | jq '.node.actions[] | "\(.method) \(.path) — \(.description)"'
+dbcanvas api GET "$CAT" | jq -r '.frames[].type'      # every cluster type
+```
+
+Then change a stack's design one thing at a time. Ids, not labels, in paths (§3);
+`GET /api/stacks/{id}/design` shows both.
+
+```sh
+S=12
+dbcanvas api POST /api/stacks/$S/design/nodes  -d '{"type":"pmm"}'
+dbcanvas api POST /api/stacks/$S/design/frames -d '{"type":"pxc","members":3,
+  "options":{"pxcMajor":"8.4","generateCert":true},"relations":{"monitor":"<pmm id>"}}'
+dbcanvas api POST /api/stacks/$S/design/nodes  -d '{"frameId":"<frame id>"}'        # one more member
+dbcanvas api POST /api/stacks/$S/design/nodes  -d '{"type":"proxysql"}'
+dbcanvas api POST /api/stacks/$S/design/edges  -d '{"from":"<frame id>","to":"<proxysql id>"}'
+dbcanvas api PUT  /api/stacks/$S/design/frames/<frame id> -d '{"memberOptions":{"cpus":2}}'
+dbcanvas api PUT  /api/stacks/$S/design/nodes/<id> -d '{"relations":{"monitor":null}}'  # null clears
+dbcanvas api DELETE /api/stacks/$S/design/nodes/<id>
+dbcanvas stack validate $S && dbcanvas stack deploy $S --wait
+```
+
+- Each call answers with what it made or changed, plus the validator's `issues` and
+  `ok`. Issues do not block an edit (a design is often incomplete half-way); read them
+  before deploying.
+- A refusal names what is accepted: the type's options, the relation's target types,
+  the member range. Fix the request; do not fall back to `PUT /api/stacks/{id}` to get
+  a field past the check. A field that is refused does nothing on that type.
+- `PUT` changes only what the body names; an option set to `null` goes back to its
+  zero value.
+- Removing a node or cluster also removes its lines and clears relations to it, and
+  **removes its container if deployed**. Ask before removing anything deployed.
+- A sharded `psmdb` cluster's shape comes from `options.psmdbSetup` (`standard` or
+  `minimum`), not `members`.
+- Nodes cannot be added or removed while a deploy is running; option changes can.
 
 **Always set a `--ttl`.** `2h`, `4h`, `8h`, `24h`, `2w`, `infinity`. A lab you forget
 runs until somebody notices. Only use `infinity` if the user asked for it.
@@ -357,15 +449,17 @@ dbcanvas stack compose bug-4821 --node 'ps,version=8.0.42,os=el9' --dry-run
 ```
 
 If the version is not available the error lists what is, in that series. For a shape
-compose does not build, edit an exported design:
+compose does not build, compose what it can and change the rest with the design
+endpoints ("Every option, by name", above):
 
 ```sh
-dbcanvas stack export some-lab > design.json
-# edit design.json
-dbcanvas api PUT /api/stacks/12 --data @design.json
+dbcanvas api POST /api/stacks/12/design/frames -d '{"type":"k3d","options":{"k3dOperator":"pxc"}}'
 dbcanvas stack validate 12                           # check before building
 dbcanvas stack deploy 12 --wait
 ```
+
+Replacing the whole document (`stack export`, edit, `PUT /api/stacks/{id}`) still works,
+but nothing checks the fields; prefer the design endpoints.
 
 `validate` builds nothing and exits non-zero when the design has problems. Run it
 before every deploy you assembled by hand.
@@ -468,7 +562,11 @@ every start, so a port you noted before is stale.
 narrow — say so; do not retry.
 
 **Never construct a canvas design from nothing.** Use `stack compose`; failing that,
-start from a template or an export.
+a template. Change it with the design endpoints, not by editing the JSON.
+
+**Look up post-deployment actions; don't guess paths.** What a deployed node or cluster
+can do is its catalogue entry's `actions` (`GET /api/stacks/design/catalog?type=<type>`),
+each with its method, path, body and when it applies.
 
 ---
 

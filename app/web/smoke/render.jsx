@@ -5647,6 +5647,10 @@ check('explorer: a binary value is shown as a length and hex, never as mojibake'
   const shown = cellDisplay(bin)
   if (!shown.includes('BINARY[3]') || !shown.includes('000102')) throw new Error(`binary display: ${shown}`)
   if (cellText(bin) !== '0x000102') throw new Error(`copied binary: ${cellText(bin)}`)
+  // An empty BLOB, as every mysql.user row has, and one from a server that leaves the hex out.
+  for (const empty of [{ __dbx: 'binary', b64: '', len: 0, hex: '' }, { __dbx: 'binary', b64: '', len: 0 }]) {
+    if (cellDisplay(empty) !== 'BINARY[0] 0x' || cellText(empty) !== '0x') throw new Error(`empty binary: ${cellDisplay(empty)}`)
+  }
   const big = { __dbx: 'bignum', text: '18446744073709551615' }
   if (cellText(big) !== '18446744073709551615') throw new Error('a wide integer must keep every digit')
   if (cellNumber(big) !== 18446744073709552000) throw new Error('a bignum still sorts numerically')

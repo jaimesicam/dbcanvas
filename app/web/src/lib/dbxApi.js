@@ -68,6 +68,9 @@ export const isNull = (v) => v === null || v === undefined
 
 export const isBinary = (v) => !!v && typeof v === 'object' && v.__dbx === 'binary'
 export const isBigNum = (v) => !!v && typeof v === 'object' && v.__dbx === 'bignum'
+// binHead is a binary value's hex preview. An empty value has none, and a server older
+// than this page leaves the field out altogether, so absent reads as "".
+const binHead = (v) => `0x${v.hex || ''}${v.len * 2 > (v.hex || '').length ? '…' : ''}`
 
 // cellText is the value as text: what gets copied, exported and searched. It is
 // deliberately not what gets displayed — display adds the NULL mark and truncation,
@@ -75,7 +78,7 @@ export const isBigNum = (v) => !!v && typeof v === 'object' && v.__dbx === 'bign
 export function cellText(v) {
   if (isNull(v)) return ''
   if (isBigNum(v)) return v.text
-  if (isBinary(v)) return `0x${v.hex}${v.len * 2 > v.hex.length ? '…' : ''}`
+  if (isBinary(v)) return binHead(v)
   if (typeof v === 'object') return JSON.stringify(v)
   return String(v)
 }
@@ -85,7 +88,7 @@ export function cellText(v) {
 export const CELL_MAX = 220
 export function cellDisplay(v) {
   if (isNull(v)) return NULL_MARK
-  if (isBinary(v)) return `BINARY[${v.len}] 0x${v.hex}${v.len * 2 > v.hex.length ? '…' : ''}`
+  if (isBinary(v)) return `BINARY[${v.len}] ${binHead(v)}`
   const s = cellText(v)
   return s.length > CELL_MAX ? `${s.slice(0, CELL_MAX)}…` : s
 }

@@ -51,7 +51,7 @@ account needs before it has one.
 | --- | --- | --- |
 | Ask whether this installation is set up, and who you are | `GET /api/setup/status` | `dbcanvas version` (also prints the server's) |
 | Create the first account — it becomes the administrator | `POST /api/setup` | *(UI only; there is nothing to authenticate with yet)* |
-| Request an account, pending an admin's approval | `POST /api/auth/register` `{"username", "password", "firstName", "lastName", "email", "avatar"}` — names and email required; one email per account | *(UI only)* |
+| Request an account: pending until an admin approves it, or approved and signed in at once when **open registration** is on | `POST /api/auth/register` `{"username", "password", "firstName", "lastName", "email", "avatar"}` — names and email required; one email per account. The response's `status` is `"pending"` or `"approved"` | *(UI only)* |
 | Change your name, email and avatar | `PUT /api/me/profile` `{"firstName", "lastName", "email", "avatar"}` | — |
 | The avatars to choose from | `GET /api/avatars` | — |
 | Sign in and get a session cookie | `POST /api/auth/login` | `dbcanvas login` — then swaps it for a token |
@@ -145,12 +145,17 @@ The secret is returned once, by the create call, and never again.
 | To do this | API | CLI |
 | --- | --- | --- |
 | List every account, pending first, with last sign-in, last activity and session count | `GET /api/users` | `dbcanvas user list` |
+| Read one account, with its stack count and active API token count | `GET /api/users/{id}` | `dbcanvas api GET /api/users/1` |
+| List the stacks an account owns | `GET /api/users/{id}/stacks` | `dbcanvas api GET /api/users/1/stacks` |
+| List an account's API tokens (never the secrets) | `GET /api/users/{id}/tokens` | `dbcanvas api GET /api/users/1/tokens` |
+| Revoke every API token of an account | `DELETE /api/users/{id}/tokens` | `dbcanvas api DELETE /api/users/1/tokens` |
+| Hand a stack to another account | `POST /api/stacks/{id}/owner` `{"userId"}` | `dbcanvas api POST /api/stacks/12/owner -d '{"userId":3}'` |
 | Create an approved account (needs a password sign-in) | `POST /api/users` | `dbcanvas user create bob --first Bob --last Lee --email bob@example.net` (asks for your password; `--invite` for a link instead) |
 | Change an account's username and profile | `PUT /api/users/{id}` | `dbcanvas api PUT /api/users/1 -d '{"username":"pat",…}'` |
 | Approve a pending account | `POST /api/users/{id}/approve` | `dbcanvas api POST /api/users/1/approve` |
 | Reject a request | `POST /api/users/{id}/reject` | `dbcanvas api POST /api/users/1/reject` |
 | Disable an approved account | `POST /api/users/{id}/disable` | `dbcanvas api POST /api/users/1/disable` |
-| Delete an account and its stacks | `DELETE /api/users/{id}` | `dbcanvas api DELETE /api/users/1` |
+| Delete an account and its stacks, or hand the stacks to another account first | `DELETE /api/users/{id}[?transferStacksTo={userId}]` | `dbcanvas api DELETE '/api/users/1?transferStacksTo=3'` |
 | Make an account an administrator, or a regular user again | `POST /api/users/{id}/role` | `dbcanvas api POST /api/users/1/role -d '{"role":"admin"}'` |
 | Set an account's password (needs a password sign-in) | `POST /api/users/{id}/password` | — |
 | Create a one-time reset link (needs a password sign-in) | `POST /api/users/{id}/reset-link` | — |
@@ -160,7 +165,15 @@ The secret is returned once, by the create call, and never again.
 | Clear an account's sign-in history, or everyone's | `DELETE /api/users/{id}/sign-ins`, `DELETE /api/users/sign-ins` | `dbcanvas api DELETE /api/users/sign-ins` |
 
 Rejecting or disabling revokes that account's sessions **and its API tokens** in the
-same operation.
+same operation. `DELETE /api/users/{id}/tokens` revokes the tokens alone, leaving the
+sessions and the password as they are; the owner gets a notification.
+
+**Deleting an account** deletes its stacks, and removes the containers they deployed,
+as `DELETE /api/stacks/{id}` would. With `?transferStacksTo=<user id>` the stacks go to
+that account instead, still running; it must be an approved account other than the one
+being deleted. The response says how many stacks were deleted or transferred.
+`POST /api/stacks/{id}/owner` moves a single stack the same way, and notifies the new
+owner.
 
 Nobody can change their own role — that is how an instance would end up with no
 administrator — and a role change applies on the account's next request, without
@@ -206,8 +219,16 @@ by name, username or email, filtered by status and role, and sorted.
 | --- | --- | --- |
 | Read the instance settings | `GET /api/system/settings` | `dbcanvas api GET /api/system/settings` |
 | Change them (admin) | `PUT /api/system/settings` | `dbcanvas api PUT /api/system/settings --data '{"maxUploadBytes":8589934592,"maxTokenDays":30}'` |
+| Let a new sign-up use its account at once, without approval (admin) | `PUT /api/system/settings` `{"openRegistration": true}` | `dbcanvas api PUT /api/system/settings --data '{"openRegistration":true}'` |
 
-Out-of-range values are clamped, not refused. `sshForwarding` in the response is
+Out-of-range values are clamped, not refused.
+
+**`openRegistration`** is off by default: an account registered on the sign-in page is
+created pending, and waits under **Users** for an administrator. On, it is approved as
+it is created, with the user role, and the person is signed in. Accounts already pending
+when it is turned on stay pending. Administrators are notified of each new account
+either way. `GET /api/setup/status` reports it as `openRegistration`, so a sign-up form
+can say which will happen. A PUT that leaves the field out keeps what is stored. `sshForwarding` in the response is
 derived from `SSH_FORWARDING_HOST` and read-only.
 
 A per-account value the server does not recognise falls back to that field's default
@@ -242,6 +263,11 @@ everything else hangs off.
 | Create one from a template or a design | `POST /api/stacks` | `dbcanvas stack create <name> --template <t> --ttl 4h` |
 | Read one, with every node's state | `GET /api/stacks/{id}` | `dbcanvas stack get <stack>` |
 | Replace its name, TTL or design | `PUT /api/stacks/{id}` | `dbcanvas api PUT /api/stacks/1 --data @design.json` |
+| **What a design can hold**: every node and cluster type, its options, relations, lines and post-deployment actions | `GET /api/stacks/design/catalog[?type=pxc]` | `dbcanvas api GET '/api/stacks/design/catalog?type=pxc'` |
+| Read the design alone | `GET /api/stacks/{id}/design` | `dbcanvas api GET /api/stacks/12/design` |
+| Add, change or remove a node | `POST /api/stacks/{id}/design/nodes`, `PUT`/`DELETE …/design/nodes/{nid}` | `dbcanvas api POST /api/stacks/12/design/nodes -d '{"type":"pmm"}'` |
+| Add, change or remove a cluster | `POST /api/stacks/{id}/design/frames`, `PUT`/`DELETE …/design/frames/{fid}` | `dbcanvas api POST /api/stacks/12/design/frames -d '{"type":"pxc","members":3}'` |
+| Draw or remove a line | `POST /api/stacks/{id}/design/edges`, `DELETE …/design/edges/{eid}` | `dbcanvas api POST /api/stacks/12/design/edges -d '{"from":"…","to":"…"}'` |
 | Check the design, build nothing | `POST /api/stacks/{id}/validate` | `dbcanvas stack validate <stack>` |
 | Deploy it | `POST /api/stacks/{id}/deploy` | `dbcanvas stack deploy <stack> --wait` |
 | Remove the containers, keep the design | `POST /api/stacks/{id}/destroy` | `dbcanvas stack destroy <stack>` |
@@ -273,6 +299,75 @@ dbcanvas stack destroy pxc-lab
 **Set a TTL on anything a script creates.** `2h`, `4h`, `8h`, `24h`, `2w` or
 `infinity`. A job that dies between `deploy` and `destroy` otherwise leaves a cluster
 running until somebody notices.
+
+### The design catalogue, and editing a design one piece at a time
+
+Every option the designer's properties panels offer, every relation and every line is
+also reachable over the API. `GET /api/stacks/design/catalog` says what they are, from
+the same knowledge the panels draw:
+
+- **`nodes`** and **`frames`**: one entry per node type and per cluster type. Each has a
+  `placement` (`standalone`, `member` of the listed `frameTypes`, or `frame`), whether
+  it is a `singleton`, what it `requires` in the stack, and its **`options`**: the
+  design field, its JSON `type`, the accepted `values` when the set is fixed, the
+  `default` a new one gets, a `description`, and `when` it applies (`"usePgBackRest is
+  on"`, `"k3dOperator is pxc or ps"`). A cluster entry names its `memberType` and its
+  `defaultMembers`, `minMembers` and `maxMembers`; cluster-wide settings are the frame's
+  options, per-member settings the member node's.
+- **`relations`**: the references a node or frame holds to another node (`monitor` →
+  a PMM node, `backup` → SeaweedFS, `vault` → OpenBao, `oidc` → Keycloak, `ldap` and
+  `kerberos` → a directory, `orchestrator`, `repository`, `storage` → Ceph, `upgrade` →
+  Watchtower, `app` → an All-in-One node), with the field each is stored in and the
+  switches it turns on. An entry's `relations` lists the ones it offers.
+- **`edges`** on an entry: the lines it draws and what may be at the other end — a
+  proxy's backend, a simulator's database, replication between clusters (`async` or
+  `bidir`). The provisioners walk these lines, so they are part of the design.
+- **`actions`** on an entry: the endpoints that apply to a deployed node or cluster of
+  that type — backups and restores, switchover, certificates, users, captures — with
+  the request body and when each applies. `commonActions` apply to every node.
+
+`?type=pxc` narrows it to the `pxc` node and cluster entries.
+
+The design endpoints then change one thing at a time, and check it against the
+catalogue: an unknown field, a value of the wrong JSON type or outside its fixed set, a
+relation to a node of the wrong type, a label already in use, a cluster outside its
+member range — each is refused with a message naming what is accepted. Each call
+answers with what it created or changed and the validator's `issues` for the whole
+design (`"ok": false` on an error); issues do not block the edit, since a design is
+often incomplete half-way through.
+
+```json
+POST /api/stacks/12/design/frames
+{
+  "type": "pxc", "label": "pxc-a", "members": 3,
+  "options": {"pxcMajor": "8.4", "generateCert": true},
+  "relations": {"monitor": "pmm-mvqf0a1b-1"}
+}
+
+POST /api/stacks/12/design/nodes
+{"type": "proxysql", "options": {"mode": "singlewrite"}}
+
+POST /api/stacks/12/design/edges
+{"from": "frame-mvqf0c2d-1", "to": "proxysql-mvqf0e3f-1", "type": "directional"}
+
+PUT /api/stacks/12/design/nodes/proxysql-mvqf0e3f-1
+{"label": "proxy-1", "options": {"cpus": 2}, "relations": {"monitor": null}}
+```
+
+- A **new node or cluster** starts with the designer's defaults, and is placed to the
+  right of everything on the canvas unless `x`/`y` are given. A cluster's members get
+  the roles the designer gives them; a sharded `psmdb` cluster takes its shape from
+  `options.psmdbSetup` (`standard` or `minimum`), not from `members`.
+- **Add a member** to an existing cluster with `POST …/design/nodes` and `frameId`;
+  remove one with `DELETE …/design/nodes/{nid}`, down to the cluster's minimum.
+- **`PUT`** changes only what the body names. An option set to `null` is removed (back to
+  its zero value); a relation set to `null` or `""` is cleared, with its switches. On a
+  cluster, `memberOptions` applies to every member, and moving the frame moves them.
+- **Removing** a node or cluster also removes its lines and clears every relation that
+  pointed at it; a deployed node's container is removed with it, as on the canvas.
+- Keys the catalogue does not describe (canvas positions, the view) are kept as they are.
+- As with `PUT /api/stacks/{id}`, nodes cannot be added or removed while a deploy is in
+  flight; option changes can.
 
 ### Composing a stack
 
@@ -446,6 +541,17 @@ everywhere and do nothing.
 It also lays the result out with the coordinates the built-in templates use, so it
 opens on the canvas looking designed rather than piled in a corner.
 
+**Any other option, by its design name.** `"options"` sets fields of the node (or of a
+cluster's frame) and `"memberOptions"` sets fields on every member, by the names the
+design catalogue lists. They are checked the same way the design endpoints check them,
+and applied last, so they override what the shorthand chose:
+
+```json
+{"kind": "patroni", "count": 3,
+ "options": {"usePgBackRest": true, "pgAudit": true},
+ "memberOptions": {"cpus": 2}}
+```
+
 **`"dryRun": true`** resolves and reports without creating anything — which versions
 it settled on, what it added, and the validator's `issues` (`"ok": false` on an error) —
 so you can look before committing. `--dry-run` in the CLI.
@@ -459,7 +565,8 @@ Kubernetes frame (an operator choice, a node budget, expose tiers), an All-in-On
 (a list of per-instance configurations), the Stock Market Sim (three connection modes
 and a dozen lab knobs) and a core-dump host (host directory paths and the crashed
 build's version). Those are the shapes a terse spec would get subtly and silently
-wrong, so it refuses them by name — start from a template and `PUT` the design.
+wrong, so it refuses them by name. Add them to a composed stack with the design endpoints
+above, or start from a template.
 
 There is deliberately **no `deploy` flag** on compose: `POST /api/stacks/{id}/deploy`
 already does that properly, and `dbcanvas stack compose --deploy` simply makes both

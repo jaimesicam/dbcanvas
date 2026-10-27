@@ -27,6 +27,8 @@ const (
 	// settingInternalWrites unlocks writes to the databases DBCanvas exposes
 	// read-only — PMM Server's own PostgreSQL and ClickHouse. See the field below.
 	settingInternalWrites = "internalWrites"
+	// settingOpenRegistration lets a new sign-up use its account at once. See the field.
+	settingOpenRegistration = "openRegistration"
 )
 
 const (
@@ -85,9 +87,14 @@ type SystemSettings struct {
 	// be armed for writes explicitly before one is sent (dexQueryRequest.AllowWrites),
 	// so a tab left open from before the setting changed cannot write into a PMM
 	// database because somebody pressed Run.
-	InternalWrites bool                 `json:"internalWrites"`
-	SSHForwarding  SSHForwardingSetting `json:"sshForwarding"`
-	Experimental   bool                 `json:"experimental"`
+	InternalWrites bool `json:"internalWrites"`
+	// OpenRegistration approves an account the moment somebody registers it, and signs
+	// them in, instead of leaving it pending until an administrator approves it. Off by
+	// default: who can use an installation is the installation's decision. Accounts that
+	// are already pending stay pending; turning it on approves nobody retroactively.
+	OpenRegistration bool                 `json:"openRegistration"`
+	SSHForwarding    SSHForwardingSetting `json:"sshForwarding"`
+	Experimental     bool                 `json:"experimental"`
 	// EOL is whether end-of-life releases are offered (EOL in .env; see eol.go). Derived and
 	// read-only like Experimental, and for the same reason it rides here: the designer needs it
 	// before it draws the node library and the Linux Client's OS picker.
@@ -186,6 +193,7 @@ func (a *App) systemSettings(appUser string) SystemSettings {
 	if v, err := a.store.AppSetting(settingInternalWrites); err == nil {
 		s.InternalWrites = v == "1"
 	}
+	s.OpenRegistration = a.openRegistration()
 	s.AllowGuestSessions, s.MaxGuestMinutes = a.guestSessionSettings()
 	s.SessionRetentionDays = a.shareRetentionDays()
 	s.RecordingRetentionDays = a.recordingRetentionDays()
@@ -203,6 +211,13 @@ func (a *App) maxUploadBytes() int64 { return a.systemSettings("").MaxUploadByte
 
 // maxTokenDays is the configured ceiling on a non-admin API token's lifetime.
 func (a *App) maxTokenDays() int { return a.systemSettings("").MaxTokenDays }
+
+// openRegistration reports whether a new sign-up is approved at once. Anything but an
+// explicit "1" is off, so a missing or hand-edited row keeps registration behind approval.
+func (a *App) openRegistration() bool {
+	v, err := a.store.AppSetting(settingOpenRegistration)
+	return err == nil && v == "1"
+}
 
 // internalWritesAllowed reports whether an administrator has unlocked writes to
 // the internal databases. Read on every request that could write to one — never
@@ -254,6 +269,19 @@ func (a *App) handleUpdateSystemSettings(w http.ResponseWriter, r *http.Request)
 		internal = "1"
 	}
 	if err := a.store.SetAppSetting(settingInternalWrites, internal); err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to save settings")
+		return
+	}
+	// A body that leaves openRegistration out keeps what is stored, so a client written
+	// before the setting existed cannot switch it off by omission.
+	if _, ok := present["openRegistration"]; !ok {
+		s.OpenRegistration = a.openRegistration()
+	}
+	open := "0"
+	if s.OpenRegistration {
+		open = "1"
+	}
+	if err := a.store.SetAppSetting(settingOpenRegistration, open); err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to save settings")
 		return
 	}

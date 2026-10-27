@@ -34,6 +34,9 @@ const SYSTEM_DEFAULTS = {
   // Off until the server says otherwise, so a page rendered before the settings
   // land never offers to write to a PMM database.
   internalWrites: false,
+  // Open registration (app/syssettings.go): new sign-ups wait for approval unless an
+  // administrator turns this on.
+  openRegistration: false,
   // Shared sessions (app/share.go): off until an administrator turns them on.
   allowGuestSessions: false, maxGuestMinutes: 120, sessionRetentionDays: 90, recordingRetentionDays: 30, publicUrl: '',
 }

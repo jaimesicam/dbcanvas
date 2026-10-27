@@ -110,6 +110,11 @@ func TestAdminRoutesUnchanged(t *testing.T) {
 		"DELETE /api/users/{id}/sign-ins":       true, // added with clearing sign-in history
 		"DELETE /api/users/sign-ins":            true,
 		"DELETE /api/users/sessions":            true, // added with signing everyone out
+		"GET /api/users/{id}":                   true, // added with the account API
+		"GET /api/users/{id}/stacks":            true,
+		"GET /api/users/{id}/tokens":            true,
+		"DELETE /api/users/{id}/tokens":         true,
+		"POST /api/stacks/{id}/owner":           true,
 		"GET /api/admin/tokens":                 true, // added with API tokens
 		"DELETE /api/admin/tokens/{id}":         true, // added with API tokens
 		// Building an image runs a build on the host's Docker daemon, which is the

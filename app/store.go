@@ -771,6 +771,13 @@ func (s *Store) UpdateStack(id int64, name string, design []byte) error {
 	return err
 }
 
+// SetStackOwner hands a stack to another account. The design is sealed per stack id,
+// not per owner, so it needs no re-sealing.
+func (s *Store) SetStackOwner(id, ownerID int64) error {
+	_, err := s.db.Exec("UPDATE stacks SET owner_id = ? WHERE id = ?", ownerID, id)
+	return err
+}
+
 // SetStackStatus updates a stack's lifecycle status.
 func (s *Store) SetStackStatus(id int64, status string) error {
 	_, err := s.db.Exec("UPDATE stacks SET status = ? WHERE id = ?", status, id)

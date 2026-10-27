@@ -783,6 +783,12 @@ export const HELP = {
     'filters and its half-built canvas, which is the whole reason switching tabs is instant. At the ' +
     'limit a page does not open and the window tells you, rather than closing one of yours to make ' +
     'room: a tab can be running a benchmark. Lowering it does not close anything already open.',
+  openRegistration:
+    'Off, an account somebody registers on the sign-in page is created pending, and they cannot sign in ' +
+    'until an administrator approves it under Users. On, the account is approved as it is created and ' +
+    'they are signed in at once, with the user role. Accounts already pending when it is turned on stay ' +
+    'pending. Administrators get a notification for each new account either way. The setting is also ' +
+    'openRegistration on PUT /api/system/settings.',
   internalWrites:
     'DBCanvas exposes PMM Server\u2019s own PostgreSQL (its inventory) and ClickHouse (Query Analytics) ' +
     'read-only, and the databases enforce that themselves \u2014 PostgreSQL inside a READ ONLY transaction, ' +

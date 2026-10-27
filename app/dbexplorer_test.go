@@ -583,6 +583,11 @@ func TestDexCellKeepsNullBinaryAndWideIntegersHonest(t *testing.T) {
 	if !ok || bin.Marker != "binary" || bin.Len != 3 || bin.Hex != "0001ff" {
 		t.Fatalf("binary cell = %#v", b)
 	}
+	// An empty BLOB (mysql.user's ssl_cipher, x509_issuer and x509_subject on every
+	// account) still carries its hex preview, as "", for the grid to read.
+	if j, _ := json.Marshal(dexCell([]byte{}, dexSemBinary)); !strings.Contains(string(j), `"hex":""`) {
+		t.Errorf("empty binary cell = %s, want a hex field", j)
+	}
 	// Even typed as a string, bytes that cannot be text are carried as binary.
 	if _, ok := dexCell([]byte{0x00, 0x01}, dexSemString).(dexBinary); !ok {
 		t.Error("NUL bytes typed as a string should still travel as binary")
