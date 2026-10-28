@@ -12678,7 +12678,7 @@ function VectorSearchOption({ f, majors, patchFrame, deployed }) {
             Enables <span className="font-mono">$vectorSearch</span> and <span className="font-mono">$search</span>. Tech preview.
           </p>
           {oldMajor && <p className="text-danger">Needs PS MongoDB 8.3 or later{has83 ? ' — choose 8.3 above.' : ' — this image offers no 8.3 packages; run `ONLY=percona make versions`.'}</p>}
-          {!osOK && <p className="text-danger">mongot is published for Oracle Linux 8/9, Ubuntu 22.04/24.04 and Debian 12 only.</p>}
+          {!osOK && <p className="text-danger">Vector search needs Oracle Linux 8/9 or Ubuntu 22.04/24.04.</p>}
         </div>
       )}
     </div>

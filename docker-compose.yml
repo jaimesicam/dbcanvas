@@ -47,6 +47,8 @@ services:
       CLUSTER_PASSWORD: ${CLUSTER_PASSWORD:-cluster_password}
       # clustercheck@'localhost' password — PXC clustercheck health endpoint for HAProxy.
       CLUSTERCHECK_PASSWORD: ${CLUSTERCHECK_PASSWORD:-cluster_password}
+      # The account Orchestrator nodes use to discover and monitor a linked cluster.
+      ORCHESTRATOR_PASSWORD: ${ORCHESTRATOR_PASSWORD:-orchestrator_password}
       # Root/superuser + admin passwords for MySQL/PXC/GR/InnoDB nodes.
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_password}
       MYSQL_ADMIN_PASSWORD: ${MYSQL_ADMIN_PASSWORD:-admin_password}
@@ -75,6 +77,8 @@ services:
       # Ubuntu VNC desktop: the desktop login and the VNC access code. VncAuth
       # uses only the first 8 characters.
       VNC_PASSWORD: ${VNC_PASSWORD:-vnc_password}
+      # Samba AD DC: the Administrator password. Must meet Active Directory complexity.
+      SAMBA_PASSWORD: ${SAMBA_PASSWORD:-SambaPassword2026}
       # The platform this installation targets. Also selects the manifest-list
       # entry when the app pulls multi-arch images for stack nodes (Keycloak,
       # SeaweedFS, Valkey). PMM and Watchtower are pinned to linux/amd64 in code

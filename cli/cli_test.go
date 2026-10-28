@@ -873,6 +873,11 @@ func TestParseNodeSpec(t *testing.T) {
 		{"ps,MemoryGB=8,monitorWith=pmm-a", map[string]any{
 			"kind": "ps", "memoryGb": 8, "monitorWith": "pmm-a"}},
 		{"ps , os = el9 , monitor ", map[string]any{"kind": "ps", "os": "el9", "monitor": true}},
+		// Every scalar field the server's compose spec takes has a --node form.
+		{"psmdb,mca", map[string]any{"kind": "psmdb", "mca": true}},
+		{"mclusteradmin,viewOnly", map[string]any{"kind": "mclusteradmin", "viewOnly": true}},
+		{"orchestrator,alertEmail=dba@example.com", map[string]any{
+			"kind": "orchestrator", "alertEmail": "dba@example.com"}},
 	} {
 		got, err := parseNodeSpec(c.in)
 		if err != nil {

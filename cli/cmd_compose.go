@@ -63,6 +63,7 @@ func parseNodeSpec(arg string) (map[string]any, error) {
 		"mysqlrouter": "mysqlRouter", "tls": "tls",
 		"netalltraffic": "netAllTraffic", "pgvector": "pgvector",
 		"pgaudit": "pgaudit", "setuser": "setUser", "tdewal": "tdeWal",
+		"mca": "mca", "viewonly": "viewOnly",
 	}
 	strOpts := map[string]string{
 		"name": "name", "os": "os", "arch": "arch", "version": "version",
@@ -77,6 +78,7 @@ func parseNodeSpec(arg string) (map[string]any, error) {
 		// Per-engine.
 		"replmode": "replMode", "mode": "mode", "setup": "setup",
 		"dataset": "dataset", "certttl": "certTtl", "pgauditlog": "pgauditLog",
+		"alertemail": "alertEmail",
 	}
 	intOpts := map[string]string{
 		"count": "count", "cpus": "cpus", "memorygb": "memoryGb", "exportport": "exportPort",
@@ -143,9 +145,11 @@ func parseNodeSpec(arg string) (map[string]any, error) {
 			"  links:   monitor, ldap, oidc, kerberos, vault, backup, orchestrator\n"+
 			"           (each takes an optional <link>With= naming which node)\n"+
 			"  wire to: to=<name>  — the backend a proxy fronts, the database a sim drives\n"+
-			"  flags:   export, cert, proxy, gtid, mysqlRouter, tls, netAllTraffic, pgvector\n"+
+			"  flags:   export, cert, proxy, gtid, mysqlRouter, tls, netAllTraffic, pgvector,\n"+
+			"           pgaudit, setUser, tdeWal, mca, viewOnly\n"+
 			"  values:  name=, os=, arch=, version=, count=, cpus=, memoryGb=, exportPort=,\n"+
-			"           replMode=, mode=, setup=, dataset=, certTtl=, buckets=a+b\n"+
+			"           replMode=, mode=, setup=, dataset=, certTtl=, pgauditLog=, pgbench=,\n"+
+			"           alertEmail=, buckets=a+b\n"+
 			"  shaping: netLatencyMs=, netJitterMs=, netLossPct=, netRateMbit=,\n"+
 			"           deviceReadMbps=, deviceWriteMbps=\n"+
 			"  `dbcanvas stack kinds` lists what each kind supports.", key, arg)

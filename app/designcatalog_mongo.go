@@ -36,7 +36,7 @@ var mongoCertOptions = []catalogOption{
 var mongoCommonFrameOptions = []catalogOption{
 	{Field: "enablePBM", Desc: "Percona Backup for MongoDB: pbm-agent on every mongod member, with the S3 store on the SeaweedFS node of the backup relation (seaweedfsNodeId). Needs that relation."},
 	{Field: "seaweedfsBucket", Desc: "Which bucket of the SeaweedFS node backups go to; \"\" is its first (default) bucket. Backups land under pbm/<cluster name>.", When: "enablePBM is on"},
-	{Field: "vectorSearch", Desc: "Run Percona Search for MongoDB (mongot) so $search and $vectorSearch work: one mongot per data-bearing replica set, on its first member. Needs psmdbMajor 8.3 or later and Oracle Linux 8/9, Ubuntu 22.04/24.04 or Debian 12."},
+	{Field: "vectorSearch", Desc: "Run Percona Search for MongoDB (mongot) so $search and $vectorSearch work: one mongot per data-bearing replica set, on its first member. Needs psmdbMajor 8.3 or later and Oracle Linux 8/9 or Ubuntu 22.04/24.04."},
 	{Field: "mcaCredentials", Desc: "Create the MClusterAdmin accounts madmin and madmin-ro (SCRAM-SHA-256) at deploy; their passwords come from the stack's MClusterAdmin node."},
 	{Field: "useProxy", Desc: "Download packages through the Intranet's Squid proxy."},
 }

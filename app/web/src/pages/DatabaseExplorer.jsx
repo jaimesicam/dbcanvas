@@ -776,6 +776,15 @@ function TabBody({ tab, conn, conns, editorH, setEditorH, patch, onRun, onCancel
   const engine = conn ? conn.engine : ''
   const caps = (conn && conn.capabilities) || {}
   const res = tab.result
+  // The Run button asks before a destructive statement, as the keyboard shortcut does.
+  const [confirm, setConfirm] = useState(null)
+  const runFromBar = (o) => {
+    if (!o && engine !== 'mongodb' && engine !== 'valkey' && isDestructiveSQL(tab.sql || '')) {
+      setConfirm(tab.sql)
+      return
+    }
+    onRun(o)
+  }
 
   const sets = (res && res.sets) || []
   const primary = sets.find((s) => s.columns && s.columns.length) || sets[0] || null
@@ -790,8 +799,8 @@ function TabBody({ tab, conn, conns, editorH, setEditorH, patch, onRun, onCancel
   ]
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <QueryBar tab={tab} conn={conn} conns={conns} patch={patch} onRun={onRun} onCancel={onCancel} onSave={onSave} say={say} />
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <QueryBar tab={tab} conn={conn} conns={conns} patch={patch} onRun={runFromBar} onCancel={onCancel} onSave={onSave} say={say} />
       {conn && conn.readOnly && <ReadOnlyBanner tab={tab} conn={conn} patch={patch} onArmChange={onArmChange} />}
       <div className="shrink-0 overflow-auto border-b" style={{ height: editorH }}>
         {engine === 'mongodb'
@@ -822,6 +831,15 @@ function TabBody({ tab, conn, conns, editorH, setEditorH, patch, onRun, onCancel
           onOpenValue={onOpenValue} onEditRow={onEditRow} patch={patch} onRun={onRun}
         />
       </div>
+      {confirm && (
+        <Confirm
+          title="Run this statement?"
+          body={confirm}
+          note="This changes data or schema."
+          onCancel={() => setConfirm(null)}
+          onConfirm={() => { const sql = confirm; setConfirm(null); onRun({ sql }) }}
+        />
+      )}
     </div>
   )
 }

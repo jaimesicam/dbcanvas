@@ -34,13 +34,32 @@ func logsTargets(args []string) error {
 	return simpleGet("logs targets", args, "/api/logsummary/targets")
 }
 
+// logTargetsOf is every node of one stack that Log Summary can read, which is what the
+// server needs spelled out when --nodes is left off.
+func logTargetsOf(c *Client, stackID int64) ([]string, error) {
+	var targets []struct {
+		StackID int64  `json:"stackId"`
+		NodeID  string `json:"nodeId"`
+	}
+	if err := c.get("/api/logsummary/targets", &targets); err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, t := range targets {
+		if t.StackID == stackID {
+			ids = append(ids, t.NodeID)
+		}
+	}
+	return ids, nil
+}
+
 func logsList(args []string) error {
 	return simpleGet("logs list", args, "/api/logsummary/bundles")
 }
 
 func logsCollect(args []string) error {
 	fs := flagsFor("logs collect")
-	nodes := fs.String("nodes", "", "comma-separated node ids; omit for every node in the stack")
+	nodes := fs.String("nodes", "", "comma-separated nodes; omit for every node in the stack that has logs to read")
 	if err := parse(fs, args); err != nil {
 		return err
 	}
@@ -62,6 +81,15 @@ func logsCollect(args []string) error {
 			return err
 		}
 		body["nodeIds"] = strings.Split(ids, ",")
+	} else {
+		ids, err := logTargetsOf(c, st.ID)
+		if err != nil {
+			return err
+		}
+		if len(ids) == 0 {
+			return fmt.Errorf("stack %q has no running node with logs to read", st.Name)
+		}
+		body["nodeIds"] = ids
 	}
 	var raw []byte
 	if err := c.request("POST", "/api/logsummary/collect", body, &raw); err != nil {
@@ -91,7 +119,7 @@ func logsGet(args []string) error {
 
 func logsEvents(args []string) error {
 	fs := flagsFor("logs events")
-	sev := fs.String("severity", "", "only this severity")
+	sev := fs.String("severity", "", "only these severities, comma-separated: bad, warn, ok, info")
 	limit := fs.Int("limit", 0, "how many events to return")
 	if err := parse(fs, args); err != nil {
 		return err
@@ -105,7 +133,7 @@ func logsEvents(args []string) error {
 	}
 	q := url.Values{}
 	if *sev != "" {
-		q.Set("severity", *sev)
+		q.Set("sev", *sev)
 	}
 	if *limit > 0 {
 		q.Set("limit", fmt.Sprint(*limit))

@@ -477,7 +477,7 @@ dbcanvas query run --stack repro-1234 --nodes pxc-01,pxc-02 --sql 'SHOW STATUS L
 
 ```sh
 dbcanvas logs collect repro-1234 --nodes pxc-01,pxc-02,pxc-03   # one timeline across members
-dbcanvas logs events <bundle-id> --severity error
+dbcanvas logs events <bundle-id> --severity bad
 dbcanvas capture start repro-1234 pxc-01 --seconds 30            # decoded packets
 dbcanvas stalk start repro-1234 pxc-01                           # pt-stalk
 dbcanvas ftdc node mongo-lab psmdb-01                            # MongoDB's black box
@@ -707,7 +707,7 @@ dbcanvas benchmark run galera-stall pxc-01 --workload oltp --duration 300 --wait
 dbcanvas logs collect galera-stall --nodes pxc-01,pxc-02,pxc-03 --json | tee bundle.json
 BUNDLE=$(jq -r .id bundle.json)
 dbcanvas logs get "$BUNDLE" --json | jq '.verdict'
-dbcanvas logs events "$BUNDLE" --severity error --limit 50 --json > errors.json
+dbcanvas --json logs events "$BUNDLE" --severity bad --limit 50 > errors.json
 dbcanvas stalk start galera-stall pxc-01
 sleep 60 && dbcanvas stalk download galera-stall pxc-01 --out ./
 

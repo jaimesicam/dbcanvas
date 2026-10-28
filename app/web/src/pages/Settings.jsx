@@ -272,7 +272,7 @@ function TokenLifetime() {
   return (
     <Row
       title="API token lifetime"
-      hint="The longest expiry anyone who is not an administrator may give an API token. Instance-wide."
+      hint="The longest expiry anyone may give an API token, administrators included. Only an administrator can create a token that never expires. Instance-wide."
     >
       <div className="flex flex-wrap items-center gap-2">
         <div className="w-24">
