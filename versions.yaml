@@ -1806,9 +1806,8 @@ operators:
       - "1.7.0"
   ps:
     repository: percona/percona-server-mysql-operator
-    latest: "1.3.0"
+    latest: "1.2.0"
     versions:
-      - "1.3.0"
       - "1.2.0"
       - "1.1.0"
       - "1.0.0"
