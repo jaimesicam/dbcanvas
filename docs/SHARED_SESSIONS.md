@@ -1,355 +1,265 @@
 # Shared Sessions
 
-A **shared session** lets colleagues watch you work in DBCanvas, live, from their own
-browsers — and take the wheel when you hand it to them. You share a link; whoever opens
-it gives a name and an email and waits in a lobby until you let them in. From then on
-they follow you across the whole application — every page, not only one stack — see the
-terminals and node web UIs you open, and chat with you. With **Mirror everything** on they
-see your screen itself: the menus you open, the windows you drag, the dialogs, what you
-type. Give one of them control and they can do anything you can in your workspace,
-while everyone else watches them.
-
-A link lasts at most **two hours**. Nobody has to install anything or forward a port:
-everything, including a VNC desktop, travels through DBCanvas's own address.
+A **shared session** lets colleagues watch you work in DBCanvas from their own browsers, chat with
+you, draw on the screen, and take control when you hand it to them. You send a link; guests wait in
+a lobby until you admit them, then follow you across the whole application. Nothing needs to be
+installed or port-forwarded on their side: pages, terminals and VNC desktops all go through
+DBCanvas's own address. A link lasts at most two hours.
 
 ![A shared session from the host's side: the stack on the canvas in a desktop window, and the session panel with one guest waiting in the lobby, one signed in with their account, one joined as a guest, and the chat](screenshots/shared-session-host.png)
 
 > [!IMPORTANT]
-> A guest you give control to can do everything you can in your workspace — deploy,
-> destroy, open a root shell. Admit only people you would hand your keyboard to.
+> A guest you give control to can do everything you can in your workspace — deploy, destroy, open
+> a root shell. Admit only people you would hand your keyboard to.
 
-## Turning it on
+## Enable shared sessions
 
-Shared sessions are **off** until an administrator turns them on in **Settings → Shared
-sessions**. The same row sets the longest a link may last (5 to 120 minutes) and how long
-the record of an ended session is kept (see [What is kept](#what-is-kept)). Turning the
-switch off ends every live session at once.
+Shared sessions are off by default. An administrator turns them on in **Settings → Shared
+sessions** with **Allow shared sessions**. The same row sets:
 
-Guests reach DBCanvas at the address in the link, so it has to be one they can reach:
+| Setting | Range | Default |
+| --- | --- | --- |
+| **Longest link** | 5–120 minutes | 120 |
+| **Keep ended sessions** | 0–3,650 days (0 keeps them) | 90 |
+| **Purge recordings after** | 1–3,650 days | 30 |
 
-| Where the guests are | Set in `.env` |
+**Turn off (ends live sessions)** ends every live session at once.
+
+Guests must be able to reach the address in the link:
+
+| Where guests are | Set in `.env` |
 | --- | --- |
-| On the same network | `APP_HOST=0.0.0.0` so DBCanvas listens beyond this machine, and `PUBLIC_URL=http://<this machine's address>:8080` so links carry that address |
-| Behind an SSH tunnel (`ssh -L 8080:127.0.0.1:8080 you@server`) | Nothing: the link says `localhost:8080`, which is the tunnel on their machine |
-| Through a port forward or a proxy | `PUBLIC_URL` set to the forwarded address; websockets must pass through |
+| Same network | `APP_HOST=0.0.0.0` and `PUBLIC_URL=http://<this machine's address>:8080` |
+| Through an SSH tunnel (`ssh -L 8080:127.0.0.1:8080 user@server.example.com`) | Nothing — the link's `localhost:8080` is their end of the tunnel |
+| Through a port forward or proxy | `PUBLIC_URL` set to the forwarded address; websockets must pass through |
 
-Everything a guest uses — the pages, the live channel, terminals, VNC — goes through
-that one port. See [Configuration](CONFIGURATION.md) for both variables.
+See [Configuration](CONFIGURATION.md) for both variables.
 
-## Starting a session
+## Start a session
 
-Click **Share** in the top bar, on any page — or in a stack's canvas toolbar, which also
-files the session's transcript on that stack. Either way the session is your whole
-workspace. Pick how long the link lasts, whether to **Mirror everything** (below) and
-whether to **Hide secrets** (below), then **Start and get the link**. The
-session panel opens beside the workspace with the link and a **Copy link** button — the
-link is shown this once. **New link** (or, after a reload, **Issue a new invitation
-link**) replaces it with a fresh one: the old link stops opening the join screen, while
-guests already through it stay in the session.
+1. Click **Share** in the top bar on any page, or in a stack's canvas toolbar (this also files the
+   transcript on that stack and lists **Earlier sessions on this stack** with their transcripts).
+2. Choose how long it **Lasts**, and whether to **Mirror everything** and **Hide secrets** (below).
+3. Click **Start and get the link**. The session panel opens with the link and **Copy link** —
+   the link is shown only once.
 
-Started from a stack, the dialog also lists the earlier sessions on it, each with its
-transcript.
+**New link** (after a reload, **Issue a new invitation link**) replaces the link. The old link
+stops admitting new people; guests already in stay.
 
-## Joining
+## Join a session
 
-The link opens a join screen with two ways in:
+The link opens a join screen:
 
-- **I have an account** — a colleague with a DBCanvas account signs in with it, or, when
-  their browser is already signed in, joins as that account with one click. You see
-  their own name, email and avatar, marked **signed in as** their username: their password was
-  checked, so it is them. It does not sign their browser in; like any guest they work in
-  your workspace, not their own. You cannot join your own session this way.
-- **Join as a guest** — anyone else types a name and an email, both required, neither
-  verified (labels to recognise people by, not an identity), and picks an avatar.
+- **I have an account** — a DBCanvas user signs in (or, if already signed in, joins with one
+  click). You see their real name and avatar, marked **signed in as** their username. They still
+  work in your workspace, not their own. You cannot join your own session.
+- **Join as a guest** — anyone else enters a name and email (required, not verified) and picks an
+  avatar.
 
 ![The join screen, opened in a browser already signed in to DBCanvas: join as that account in one click, or as a guest](screenshots/shared-session-join.png)
 
-They wait in the **lobby**. You get a notification and an entry at the top of the
-session panel with their avatar, their name, their email (or the account they signed in
-with) and the address they came from, and **Admit** or
-**Deny**. Nobody sees anything of your workspace before you admit them.
+Guests wait in the **Lobby**. You get a notification and a lobby entry with their avatar, name,
+email or account, and address, with **Admit** and **Deny**. Nobody sees anything before you admit
+them.
 
-**Leaving is final for that link.** A guest who clicks **Leave** (in the session
-panel or the lobby) confirms it and lands on DBCanvas's sign-in page, which says they
-left. A guest who is removed or denied sees a screen telling them so. Either way, the
-link they came through will not let them ask again from that browser. To invite them
-back, click **New link** and send it: they
-join through it as a new entry in the lobby, for you to admit. Because the new link
-also retires the old one, a guest who clears their cookies cannot come back on the link
-they left with either.
+A guest's tab stays on the `/join/…` address; reloading it returns them to the session. Their other
+tabs keep their own sign-in.
 
-A guest's tab stays on the `/join/…` address for the whole session; reloading it puts
-them back where they were. A colleague who also has an account on this DBCanvas keeps
-their own sign-in in their other tabs — only the guest tab is a guest.
+**Leaving is final for that link.** A guest who clicks **Leave**, or is removed or denied, cannot
+rejoin from that browser with the same link. To invite them back, issue a **New link**; they join
+the lobby again.
 
-## Following
+## What guests see
 
-An admitted guest sees DBCanvas as you do and **follows** you: the page you are on, the
-stack you have open, the canvas's position and zoom, the node you selected, and your
-pointer on the canvas. Following is not optional: everyone who is not driving follows
-the driver all the time, so nobody watching gets lost. To look around on their own, a
-guest asks for control.
+Everyone who is not driving **follows** the driver: the page, the open stack, the canvas position
+and zoom, the selected node, and the pointer on the canvas. Following cannot be turned off; to look
+around on their own, a guest asks for control.
+
+On the desktop shell, a page the driver opens also opens on every follower's desktop. A guest's
+**Menu** and desktop leave out the pages that belong to your account (Settings, API tokens, Manage
+Users), and guests never see your notifications. The top bar always shows who has control.
 
 ![The same session from a guest's side with Mirror everything on: the host's screen, right-click menu and all, beside the guest's own session panel](screenshots/shared-session-guest.png)
 
-Following moves everyone to the same place, but each browser still draws its own copy of
-the page. Whatever is not part of that place — a context menu, a window being dragged, a
-dialog, a hover, text being typed — stays on the driver's screen. **Mirror everything**
-covers that.
-
 ### Mirror everything
 
-With it on, everyone who is not driving sees **exactly the driver's screen**, live, scaled to fit
-beside their own session panel: the right-click menu they opened, the window they are
-dragging, the dialog they filled in, their pointer and their clicks. A strip across the top
-says whose screen it is. It is a picture of the screen, so it cannot be clicked; the
-session panel beside it stays yours — chat, **Request control**, **Leave**. When control
-moves, the mirror moves to the new driver's screen — the host watching a guest drive sees
-the guest's.
+Following puts everyone on the same page, but each browser draws its own copy, so menus, dragged
+windows, dialogs and typing stay on the driver's screen. With **Mirror everything** on (the default
+for a new session; the host can switch it in the panel), followers see a live, non-clickable
+picture of the driver's screen beside their own session panel. When control moves, the mirror
+follows the new driver. DBCanvas relays the picture and stores none of it.
 
-It is on by default for a new session, and the host switches it in the session panel at
-any time. How it works: the driver's browser records its own page (with
-[rrweb](https://github.com/rrweb-io/rrweb) — the page's structure, then every change to it,
-and canvases a few times a second — including a VNC desktop, which lives in a browser
-window's frame, where rrweb's own sampling does not reach) and DBCanvas relays that stream
-to everyone else over the session's live channel. It keeps none of it, and a browser that
-arrives late is sent a fresh snapshot.
+Kept out of the mirror: your account pages (Settings, API tokens, Manage Users), your account and
+notification menus and your session panel (shown as empty boxes), and password fields (always
+masked). With **Hide secrets** on, masked credentials are also blanked wherever else they appear,
+including connection strings and terminal lines.
 
-What a guest must not see stays out of the stream at its source, in the driver's browser:
-the pages that belong to your account (Settings, API tokens, Manage Users), your account
-and notification menus and your session panel are sent as empty boxes, password fields are
-always masked, and with **Hide secrets** on every masked credential stays masked — and its
-value is blanked wherever else it is drawn, a connection string or a terminal line
-included.
+## Hand over control
 
-The top bar always says who has control. On the desktop, a page you open opens on every
-follower's desktop too, and comes to the front there as it does on yours. A guest's Start
-menu and desktop leave out the pages that belong to your account — Settings, API tokens, Manage Users — and they never see your
-notifications.
+One person drives at a time — at first, you.
 
-## Control
+- A guest clicks **Request control**; you **Grant** or **Deny**. You can also **Give control** from
+  the guest's row.
+- While a guest drives, everyone follows them, and your canvas shows **Following … — view only**.
+- **Take control back** returns it to you at any time; the guest can **Hand control back**.
+- A driver who disconnects keeps control for 30 seconds, then loses it.
 
-One person drives at a time. At first that is you.
-
-- A guest clicks **Request control**; the request appears in the panel with **Grant**
-  and **Deny**. You can also give control from the guest's row.
-- While a guest drives, everyone — you included — follows them, and your canvas shows
-  **Following … — view only**.
-- **Take control back** returns it to you at any moment; the guest can **Hand control
-  back**. A driver who disconnects keeps control for 30 seconds — a reload, a flaky
-  connection — and then loses it.
-
-Whoever does not have control **watches**. A watcher can read everything and change
-nothing, and this is enforced by the server, not by greyed-out buttons:
+Watchers can read but not change anything; the server enforces this.
 
 | | Watching | Driving |
 | --- | --- | --- |
-| Pages, stacks, node panels, results | read | read and change |
-| The canvas | view only — edits, deletes, moves and Properties are refused | edit, deploy, destroy |
-| Terminals | watch | type |
-| Browser windows | look; a VNC desktop live but untouchable | use |
-| Open in VNC Browser | — | put a page on the stack's desktop |
-| Close a shared terminal or window | no | yes |
+| Pages, stacks, node panels, results | Read | Read and change |
+| Canvas | View only | Edit, deploy, destroy |
+| Terminals | Watch | Type |
+| Browser windows | Look; a VNC desktop is live but cannot be touched | Use |
+| **Open in VNC Browser** | — | Yes |
+| Close a shared terminal or window | No | Yes |
 
-These are never reachable by a guest, driving or not: your account and password, your
-API tokens, your notifications, other users, administration and instance settings, and
-the session itself (admitting, removing, giving control, ending). An administrator's
-guests are not administrators: they see your stacks, not everyone's.
+Never available to a guest, driving or not: your account, password, API tokens and notifications;
+other users; administration and instance settings; and managing the session itself (admitting,
+removing, giving control, ending). An administrator's guests are not administrators — they see the
+host's stacks only.
 
-## Terminals
+## Terminals and browser windows
 
-A terminal opened during a session — by the driver, or by you — is **shared**: one shell
-on the node, shown to everyone, with what came before it for anyone who arrives late.
-Only whoever has control can type into it; when control moves, the keyboard moves with
-it. Only the driver can close a shared terminal; anyone else can minimize it to the dock.
+A terminal opened during a session is **shared**: one shell, shown to everyone, with its earlier
+output for late arrivals. Only the driver can type in it or close it; others can minimize it.
 
-## Browser windows
-
-Every node web UI — a VNC desktop, PMM, webmail, a simulator's dashboard, HAProxy stats,
-SeaweedFS, OpenEverest — is published on a port of its own, which a guest (or anyone
-reaching DBCanvas through one tunnel) cannot reach. For a guest, a plain click on a link to
-one opens the page in a window inside DBCanvas, served through DBCanvas's own port.
-**Right-clicking** the link — or the node on the canvas — offers **Open in VNC Browser**
-(below) and, for anyone but a guest, **Open in new tab**.
+Node web UIs (VNC desktop, PMM, webmail, HAProxy stats, SeaweedFS, OpenEverest and so on) each have
+their own port, which guests cannot reach. For a guest, clicking such a link opens it in a
+**browser window** inside DBCanvas, through DBCanvas's port. Right-clicking the link or node offers
+**Open in VNC Browser** and, for non-guests, **Open in new tab**.
 
 ![Right-clicking a node's web link: open it in the stack's VNC Browser, in a new tab, or copy it](screenshots/browser-window-menu.png)
 
-The window has back, forward, reload, an address you can edit, **Open in a browser tab**
-(still through DBCanvas), and the controls every window has — minimize to the taskbar,
-maximize, snap to an edge, close ([Windows and the taskbar](STACKS.md#windows-and-the-taskbar)).
-It works outside a session too.
+A browser window has **Back**, **Forward**, **Reload**, an editable address, **Open in a browser
+tab** (still through DBCanvas), and the usual window controls ([Windows and the
+taskbar](STACKS.md#windows-and-the-taskbar)). It also works outside a session. In a session, a
+window opened by the driver or host opens on every screen and follows the driver's navigation; only
+the driver can close it. A VNC desktop connects by itself in shared mode; watchers' keyboard,
+pointer, clipboard and resize input is dropped by the server.
 
-In a session, a window the driver or you opens is **shared**: it opens on every screen,
-follows the driver as they move around in it, and only the driver can close it. A VNC
-desktop connects by itself, with its password filled in for anyone allowed to read it,
-and in *shared* mode so a second viewer never disconnects the first. A watcher sees it
-live and cannot touch it: their connection passes through a filter on the server that
-drops keyboard, pointer, clipboard and resize messages.
+Pages in a browser window run on DBCanvas's own address. This suits the lab services DBCanvas
+deploys; it is not a sandbox for arbitrary websites.
 
-Pages in a browser window run on DBCanvas's own address. That is what lets them keep
-their own logins, and it is fine for the lab services DBCanvas deploys; it is not a
-sandbox for arbitrary websites.
+### Show one copy with Open in VNC Browser
 
-### Open in VNC Browser — one copy everyone sees
+A browser window shares only the page's address: each viewer loads their own copy with their own
+logins, so a watcher sees a login page and cannot submit it. To show everyone exactly what the
+driver sees, right-click the link or node and choose **Open in VNC Browser**. The page opens as a
+Firefox tab on the stack's **Ubuntu VNC** desktop, shown as a shared window: one copy, one login,
+only the driver's input.
 
-A browser window shares only the page's **address**. Every viewer loads their own copy,
-with their own logins. So a guest watching Roundcube or PMM in one sees a login page,
-and can't log in, because a watcher can't send forms. Even logged in, anything that
-doesn't change the address (a message in the preview pane, a scroll, a dashboard's data)
-wouldn't follow you. DBCanvas deliberately does not hand guests your logins for those
-apps instead: every guest would act as you inside them, and their copies would still
-drift apart.
-
-When everyone should see exactly what the driver sees, right-click the link (or the node) and choose
-**Open in VNC Browser**. The page opens as a tab in Firefox on the stack's **Ubuntu VNC**
-desktop, and that desktop opens as a shared window. There is one copy of the page and one
-login, which stays inside the desktop: guests only see its pixels, and only the driver's
-keyboard and mouse reach it. Firefox reaches the node by its name on the stack network
-(`http://pmm-01:8080/…`), exactly as it would from inside the lab.
-
-- The stack needs an **Ubuntu VNC** node; without one the option explains that.
-- A watching guest doesn't get the option. A driving guest does, and it is recorded
-  like any other change they make.
-- Firefox there opens pages as tabs, skips its first-run dialog, and never saves
-  passwords. A login stays in the browser only as a session, so a guest given control
-  later can't read your saved logins.
-- Whoever drives controls the whole desktop, terminal included. Give control
-  accordingly.
+- The stack needs a deployed **Ubuntu VNC** node; without one, DBCanvas tells you so.
+- Watching guests do not get the option; a driving guest does, and it is recorded like any change.
+- Firefox there never saves passwords, so a later driver cannot read your logins. The driver
+  controls the whole desktop, terminal included.
 
 ## Hide secrets
 
-With **Hide secrets** ticked, every password is masked in what guests are sent — node
-secrets, design fields, a VNC desktop's password — and a guest who saves the design while
-driving cannot overwrite a real password with the mask they were shown. It keeps
-passwords off guests' screens — in a mirrored screen too, where each credential the page
-masks is blanked wherever it appears — but it does not stop a guest who drives from reading
-a configuration file in a terminal, and a password the page shows only in plain text (one
-DBCanvas never handled as a secret) reaches a mirror as it is.
+With **Hide secrets** on, passwords are masked in everything sent to guests (node secrets, design
+fields, a VNC desktop's password), and a driving guest who saves the design cannot overwrite a real
+password with the mask. It does not stop a driving guest from reading a configuration file in a
+terminal, and a password that a page shows as plain text reaches the mirror unmasked.
 
 ## Chat
 
-Everyone admitted shares one chat, in the panel. Messages are plain text — whatever a
-guest types, `<script>` included, is shown and never run. **Enter** sends and
-**Shift+Enter** starts a new line. The smiley button opens an emoji picker, and typed
-emoticons become emoji when sent (`:)` 🙂, `:D` 😄, `:+1:` 👍, `:tada:` 🎉, `<3` ❤️),
-except inside `` `code` `` or a word or URL.
+Everyone admitted shares one chat in the panel. Messages are plain text. **Enter** sends;
+**Shift+Enter** starts a new line. The **Emoji** button opens a picker, and typed emoticons such as
+`:)`, `:D`, `:+1:`, `:tada:` and `<3` become emoji (not inside `` `code` ``, words or URLs).
 
-DBCanvas plays a short chime for a message from someone else, a guest arriving in the
-lobby or asking for control (host), control handed to you, the expiry warnings and the
-end. The bell in the chat header turns the sounds off for that browser. With the panel
-hidden, its button counts the unread messages. System events arrive in the
-same stream: joins, the lobby, control changes, every change a guest makes while driving
-("Jane — Stop a node — POST …"), terminals and windows opened, and warnings ten and two
-minutes before the link expires. You can **mute** a guest, who keeps watching, or
-**remove** them.
+A chime plays for messages from others, lobby arrivals and control requests (host), control handed
+to you, expiry warnings and the end; the bell in the chat header mutes it for that browser. With
+the panel hidden, its button counts unread messages.
 
-## Drawing on the screen
+The chat also shows events: joins, the lobby, control changes, every change a driving guest makes,
+terminals and windows opened, and warnings 10 and 2 minutes before the link expires. The host can
+**Mute** a guest (they keep watching) or **Remove** them.
 
-Anyone in the session can draw on what everyone is looking at. **Draw on screen** in the
-panel brings up a toolbar at the top of the workspace:
+## Draw on the screen
+
+Anyone in the session can draw. **Draw on screen** in the panel opens a toolbar:
 
 | Tool | What it does |
 | --- | --- |
-| **Pen** | Draw a freehand line; everyone sees it grow as you draw |
-| **Text** | Click where it goes, type, then **Enter** (**Esc** drops it) |
-| **Eraser** | Rub out a line or a text by dragging over it — your own; the host's eraser takes anyone's |
-| Colours, thin / medium / thick | The pen's colour and weight, and the text's size |
-| **Clear mine** | Remove everything you drew |
-| **Clear all** | The host only: remove every drawing, everyone's |
+| **Pen** | Freehand line, visible to everyone as you draw |
+| **Text** | Click, type, **Enter** (**Esc** discards) |
+| **Eraser** | Drag over your own drawings; the host's eraser removes anyone's |
+| Colours, Thin / Medium / Thick | Pen colour and weight, text size |
+| **Clear mine** | Remove all your drawings |
+| **Clear all** | Host only: remove every drawing |
 
 ![The host drawing on the dashboard: the drawing toolbar at the top, a red line and the words "look here" from the host, a green line from a guest, and the session panel with Guests may draw on](screenshots/shared-session-drawing.png)
 
-**Done** or **Esc** stops drawing and gives the workspace back its clicks; the drawings
-stay until someone erases them or the session ends. Hover a drawing while erasing to see
-whose it is.
+**Done** or **Esc** stops drawing; drawings stay until erased or the session ends. Hover a drawing
+while erasing to see whose it is. Drawings are positioned in proportion to the workspace, so they
+line up exactly on a mirrored screen; without the mirror, layouts may differ slightly.
 
-A drawing lands on the same spot of everyone's screen whatever its size: it is kept in
-proportions of the workspace (everything left of the session panel), not in pixels. With
-Mirror everything on, a viewer draws straight onto the driver's mirrored screen, and it
-lines up exactly; following without the mirror, each browser shows its own copy of the
-page, so a drawing lands in the same proportion of a window that may lay out differently.
+The host controls who draws: **Guests may draw** switches it for all guests, and the pencil on a
+guest's row (**Stop them drawing** / **Let them draw**) for one guest, who is then marked **no
+drawing**. The host can always draw.
 
-The host decides who draws. **Guests may draw** in the panel turns it off or on for every
-guest at once, and the pencil beside a guest stops or lets just them (they are marked
-*no drawing*). A guest who is stopped is told so, and the server refuses what they send,
-erasing included. The host can always draw.
+Late arrivals see the drawings already up. Drawings are not in the transcript and disappear when
+the session ends; a [recording](#record-a-session) keeps them.
 
-Drawings are live state, like the pointer: a guest arriving late sees every drawing that
-is up, but they are not written to the transcript, and they are gone when the session
-ends. A [recording](#recording) keeps them.
+## Record a session
 
-## Recording
+1. Click **Record** in the panel.
+2. In the browser's dialog, choose **this tab** (Chrome and Edge offer it first).
 
-The host can record the session: **Record** in the panel. The browser asks what to share —
-choose **this tab** (Chrome and Edge offer it first). What is recorded is what you see in
-it: your workspace, or the driver's mirrored screen when someone else drives; the drawings
-on it; and the session panel with the chat and who is here. Nothing is recorded from a
-guest's screen. Everyone in the session sees a red **REC** beside the clock while it runs,
-and the chat says when recording starts and stops.
+The recording is what you see in that tab: your workspace (or the driver's mirrored screen), the
+drawings, and the session panel with chat and participants. Nothing is recorded from guests'
+screens. Everyone sees a red **REC** while it runs, and the chat notes start and stop.
 
-**Stop** in the panel ends the recording; so does the browser's own *Stop sharing*, ending
-the session, or the session reaching its time. The video is sent to DBCanvas as it is made,
-a few seconds at a time, so a tab that crashes or is closed loses only its last seconds:
-a recording that stops getting video for three minutes is finished with what arrived. It is
-a WebM (an MP4 in Safari) at the tab's resolution, around 1 GB an hour at most and usually
-far less for a page that mostly sits still.
+**Stop** in the panel ends it; so does the browser's *Stop sharing*, ending the session, or the
+session expiring. Video is uploaded every few seconds, so a crashed or closed tab loses only the
+last seconds; a recording that receives nothing for three minutes is finished with what arrived.
+The file is WebM (MP4 in Safari), at most about 1 GB per hour.
 
 ![The host's own recording, mid-session: the dashboard with a line drawn across it, and the session panel with REC, the recording's clock and the chat](screenshots/shared-session-recording.png)
 
-### Downloading, and when a recording is purged
+### Download or purge a recording
 
-A recording is yours, the host's: no guest and no other account — an administrator
-included — can download it. Find it in the **Share** dialog under **Your recordings**, any
-time after the session (and in the panel straight after it ends):
+Only the host can download a recording — not guests, other users or administrators. Find it under
+**Your recordings** in the **Share** dialog (and in the panel right after the session ends):
 
-- **Download video** saves the video; **Play** opens it in a browser tab.
-- **Transcript** saves the session's chat and events as text (**JSON** beside it for the
-  same as JSON) — the whole session's, not only the minutes recorded. A copy is kept with
-  the recording, encrypted like the chat, so it can be downloaded for as long as the video
-  is, even after the session's own records are deleted.
-- **purged on** is the date it is deleted — **30 days** after it starts unless an
-  administrator changed the default in **Settings → Shared sessions** (1 to 3,650 days).
-  Pick another date to keep it longer or less long.
-- The bin **purges it now**, file and all.
+| Item | What it does |
+| --- | --- |
+| **Download video** / **Play** | Save the video, or open it in a browser tab |
+| **Transcript** / **JSON** | The whole session's chat and events, as text or JSON. A copy is kept with the recording, so it stays available as long as the video |
+| **purged on** | The deletion date (default 30 days after the recording starts); pick another date to change it |
+| Bin icon | Purge it now |
 
-The server checks once a minute and deletes every recording whose date has come. A
-recording outlives its session's other records: the transcript can be gone after its own
-retention while the recording is still there, and the other way round. Deleting your
-account deletes your recordings.
+Recordings are deleted on their date, independently of the session's other records. Deleting your
+account deletes your recordings. They are stored as files beside the database (`/data/recordings`
+in the container), so back them up with it.
 
-Recordings are files beside the database (`/data/recordings` in the container), so back
-them up with it if you need them to survive the volume.
+## End a session
 
-## Ending
-
-A session ends when its time is up, when you click **End session**, or when an
-administrator turns shared sessions off. Every guest is disconnected at once and their
-browser says so; control returns to you and shared terminals close, and a recording in
-progress is stopped and saved. The panel then offers the transcript and the recording.
+A session ends when its time is up, when you click **End session**, or when an administrator turns
+shared sessions off. Guests are disconnected, control returns to you, shared terminals close, and a
+running recording is saved. The panel then offers the transcript (**Download transcript**) and the
+recording.
 
 ## What is kept
 
-What a session leaves behind is stored in DBCanvas's database:
-
 | Kept | Details |
 | --- | --- |
-| The session | stack, host, start, expiry, how it ended, whether secrets were hidden |
-| Guests | name, email, address, and when they joined, were admitted and left |
-| Transcript | every chat message and system event |
-| Guest actions | every change a guest made while driving, with its result |
-| Recordings | the video file and a copy of the transcript, until the recording's purge date (see [Recording](#recording)) |
+| Session | Stack, host, start, expiry, how it ended, whether secrets were hidden |
+| Guests | Name, email, address; when they joined, were admitted and left |
+| Transcript | Every chat message and event |
+| Guest actions | Every change a driving guest made, with its result |
+| Recordings | Video and a transcript copy, until the purge date |
 
-It is kept for **90 days** after the session ends (**Settings → Shared sessions** changes
-that; 0 keeps it until the stack is deleted), and deleting the stack deletes it. The link
-and each guest's credential are stored only as hashes. Download a transcript as text or
-JSON from the panel after a session, or from the Share dialog's list of earlier ones.
+Session records are kept for 90 days after the session ends (see **Keep ended sessions**), and are
+deleted with the stack. Links and guest credentials are stored only as hashes. Download a
+transcript from the panel after a session, or from the **Share** dialog's list of earlier sessions.
 
-Not kept, unless the host recorded the session: what was typed or shown in a terminal, what
-happened inside a VNC desktop or a web page, and anything live — who was online, the pointer,
-the drawings, the windows that were open.
+Not kept, unless recorded: terminal input and output, what happened inside a VNC desktop or web
+page, and live state (who was online, pointers, drawings, open windows).
 
-## From the API
+## API
 
-Every part of it is an endpoint — starting a session, the lobby, control, drawing
-permissions, the live channel, transcripts, recordings, and `POST /api/browse` for the browser window. See [Shared
+Every part of a session — starting it, the lobby, control, drawing permissions, the live channel,
+transcripts, recordings, and `POST /api/browse` for browser windows — has an endpoint. See [Shared
 sessions in the API reference](API_REFERENCE.md#shared-sessions).

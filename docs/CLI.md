@@ -1,12 +1,22 @@
 # `dbcanvas-cli`
 
-Drive DBCanvas from a terminal: deploy a stack, watch it come up, open a root console
-on a node, run a benchmark, tear it down. Everything the web UI does, because it
-speaks the same [HTTP API](API.md).
+Drive DBCanvas from a terminal: compose and deploy a stack, open a console on a node, run a
+benchmark, tear it down. It uses the same [HTTP API](API.md) as the web interface, and
+`dbcanvas api` reaches any endpoint that has no subcommand.
 
 ---
 
 ## Install
+
+**From a running installation** (no checkout needed): the **API** page has download links, or
+
+```sh
+curl -fL -o dbcanvas "http://localhost:8080/api/cli/download?os=linux&arch=amd64"
+chmod +x dbcanvas && sudo mv dbcanvas /usr/local/bin/
+```
+
+Builds exist for `linux` (`amd64`, `arm64`), `darwin` (`amd64`, `arm64`) and `windows`
+(`amd64`).
 
 **From a checkout:**
 
@@ -15,153 +25,139 @@ make cli                      # → dist/dbcanvas-cli_<os>_<arch>
 install dist/dbcanvas-cli_darwin_arm64 /usr/local/bin/dbcanvas
 ```
 
-**From a running installation** — no checkout needed, which is the point on a shared
-server. The **API** page has download links, or:
-
-```sh
-curl -fL -o dbcanvas "http://localhost:8080/api/cli/download?os=linux&arch=amd64"
-chmod +x dbcanvas && sudo mv dbcanvas /usr/local/bin/
-```
-
-`dbcanvas version` prints the CLI's version and, once signed in, the server's.
-
-Running `dbcanvas` with no arguments prints every command with a line about what it does — and
-the **API** page shows that same text, taken from the binary the installation ships, so the
-command list is readable from the browser without leaving it or reaching this file.
+`dbcanvas` with no arguments lists every command; the **API** page shows the same list.
+`dbcanvas version` prints the CLI's version and, when signed in, the server's.
 
 ## Signing in
 
 ```
 $ dbcanvas login --url http://localhost:8080
-Username: jaime
+Username: alex
 Password: ********
-Created token "dbcanvas-cli on thinkpad" (dbc_a1b2c3d4…), write scope, expires 2026-12-01.
-Saved to ~/.config/dbcanvas/config.json
+Created token "dbcanvas-cli on laptop" (dbc_a1b2c3d4…), write scope, expires 2026-12-01.
+Saved to ~/.config/dbcanvas/config.json as profile "default".
 ```
 
-What that actually did: signed in with your password, used that session to create an
-API token, then **signed the session out again**. Only the token is written to disk,
-at mode `0600`. Your password is never stored, and never sent again.
-
-That is worth the extra round trip because the credential left behind is a much better
-one to leave lying around: it is scoped, it expires, you can see it in **API →
-Tokens**, and you can revoke it from your phone if the laptop goes missing.
+`login` signs in with your password, creates an API token, and signs the password session out.
+Only the token is saved (file mode `0600`); the password is never stored. The token appears
+under your API tokens, where you can revoke it.
 
 ```sh
-dbcanvas login --expires 30 --scope read   # a token for a read-only script
-dbcanvas whoami                            # account, scope, expiry, server version
-dbcanvas logout                            # revoke the token and forget it
+dbcanvas login --expires 30 --scope read   # a short-lived read-only token
+dbcanvas whoami                            # account, role, server, token scope and expiry
+dbcanvas logout                            # revoke the token and remove the profile
 ```
 
-`logout` revokes server-side as well as deleting the local copy — a config file you
-merely delete leaves a live credential behind.
+| `login` flag | Default | Meaning |
+| --- | --- | --- |
+| `--url` | — | DBCanvas base URL. |
+| `--user` | prompted | Username. |
+| `--profile` | `default` | Name for this installation in the config file. |
+| `--scope` | `write` | `read`, `write` or `admin`. |
+| `--expires` | `90` | Lifetime in days; `0` = never (administrators only). |
+| `--name` | `dbcanvas-cli on <hostname>` | Token name. |
+
+Use `logout` rather than deleting the config file — deleting it leaves the token valid.
+
+## API tokens
+
+```sh
+dbcanvas token list                 # your tokens; --all for every token (administrators)
+dbcanvas token create --name ci --scope write --expires 30
+dbcanvas token revoke 12            # --admin to revoke somebody else's (administrators)
+```
+
+`token create` asks for your password: a token cannot create another token.
 
 ## Changing your password
 
-![The equivalent form in Settings](screenshots/settings-password.png)
+![The same change in the web interface](screenshots/settings-password.png)
 
 ```sh
-dbcanvas password                    # prompts for the current one, then the new one twice
-dbcanvas password --revoke-tokens    # …and revoke every API token, including this CLI's
-dbcanvas password --user jaime       # when the profile does not name an account
+dbcanvas password                    # prompts for the current password, then the new one twice
+dbcanvas password --revoke-tokens    # also revoke every API token, including this CLI's
+dbcanvas password --user alex        # when the profile does not name an account
 ```
 
-This signs in with your current password rather than sending the stored token,
-because `POST /api/me/password` refuses bearer authentication outright — the same
-asymmetry that stops a token creating another token. A leaked token can read and write
-your stacks; it cannot take over your account.
+`password` asks for your current password: a token cannot change a password. The change signs
+out your other browsers and devices. API tokens keep working unless you pass `--revoke-tokens`;
+then the CLI removes its own token and asks you to sign in again.
 
-Changing your password signs out every *other* browser and device and keeps the one
-you used. API tokens survive unless you pass `--revoke-tokens`: a routine rotation
-should not break a CI job, but a password changed because it may have leaked should be
-able to take everything with it. When it does, the CLI drops its own now-dead token
-from the config and tells you to sign in again.
-
-Forgotten it entirely? An administrator can set a new one or send you a reset link from
-**Manage Users**. With no administrator able to sign in, one runs `dbcanvas_reset_password`
-inside the app container, see [Configuration](CONFIGURATION.md#recovering-an-admin-password).
+Forgotten your password? An administrator can set a new one or send a reset link from
+**Manage Users**. If no administrator can sign in, see
+[Recovering an admin password](CONFIGURATION.md#recovering-an-admin-password).
 
 ## Accounts (administrators)
 
-An administrator can create accounts from the CLI, and the new account's owner can then
-sign in with it — which is how you set the CLI up for somebody else:
+Create an account for somebody, who then signs in with it:
 
 ```
-$ dbcanvas user create bob --first Bob --last Lee --email bob@example.net
+$ dbcanvas user create sam --first Sam --last Lee --email sam@example.net
 Creating an account requires an administrator's password (a token cannot create accounts).
 Password for admin: ********
-Temporary password for bob: ********
-Temporary password for bob again: ********
-Created bob (id 2, user).
+Temporary password for sam: ********
+Temporary password for sam again: ********
+Created sam (id 2, user).
 
 They must replace the temporary password at their first sign-in, which this does:
 
-  dbcanvas login --url http://localhost:8080 --user bob --profile bob
+  dbcanvas login --url http://localhost:8080 --user sam --profile sam
 ```
 
-```
-$ dbcanvas login --url http://localhost:8080 --user bob --profile bob
-Password: ********
-An administrator set the password for bob — choose your own before continuing.
-New password: ********
-New password again: ********
-Password changed.
-Created token "dbcanvas-cli on thinkpad" (dbc_k3j9…), write scope, expires 2027-01-09.
-```
+When `sam` runs that `login`, the CLI asks for a new password before creating the token.
 
 ```sh
-dbcanvas user list                                      # every account, with its state
+dbcanvas user list                                      # every account and its state
 dbcanvas user create pat --first Pat --last Kim --email pat@example.net --role admin
-dbcanvas user create sam --first Sam --last Oh --email sam@example.net --invite
-dbcanvas --profile bob whoami                           # use the new account's profile
+dbcanvas user create kai --first Kai --last Oh --email kai@example.net --invite
+dbcanvas --profile sam whoami                           # act as another profile
 ```
 
-`user create` asks for your password even though you are signed in, for the same reason
-`token create` and `password` do: `POST /api/users` refuses API tokens outright, so a
-leaked admin token cannot mint accounts — least of all an administrator for itself. It
-signs in for that one request and signs out. `--admin NAME` names the administrator when
-the profile does not. `user list` works with an admin-scoped token
-(`dbcanvas login --scope admin`).
+| `user create` flag | Meaning |
+| --- | --- |
+| `--first`, `--last`, `--email` | Required. |
+| `--role` | `user` (default) or `admin`. |
+| `--invite` | No temporary password; print a one-time link (valid 7 days) for the owner to set one in a browser. |
+| `--admin NAME` | The administrator signing in, when the profile does not name one. |
 
-A temporary password is one the owner has to replace before the account can do anything
-else, and `dbcanvas login` asks for the replacement on the spot. `--invite` skips the
-temporary password and prints a one-time link, valid for 7 days, for the owner to choose
-one in a browser; after that they `dbcanvas login` as usual. Everything else in
-**Manage Users** — approving, disabling, roles, deleting — is
-`dbcanvas api … /api/users/{id}/…` with an admin-scoped token (see the
-[API reference](API_REFERENCE.md#users-admin)); setting another account's password and
-issuing a reset link stay in the browser, because those refuse tokens too.
+`user create` asks for your password even when signed in: a token cannot create accounts.
+`user list` works with an admin-scoped token (`dbcanvas login --scope admin`). For approving,
+disabling, changing roles or deleting accounts, use `dbcanvas api` with an admin-scoped token
+(see the [API reference](API_REFERENCE.md#users-admin)). Setting another account's password and
+issuing reset links are browser-only.
 
 ## Configuration and profiles
 
-`~/.config/dbcanvas/config.json` (`%AppData%\dbcanvas\config.json` on Windows), mode
-`0600`:
+The config file is `~/.config/dbcanvas/config.json` (`%AppData%\dbcanvas\config.json` on
+Windows), mode `0600`:
 
 ```json
 {
-  "current": "local",
+  "current": "default",
   "profiles": {
-    "local": { "url": "http://localhost:8080", "token": "dbc_…", "user": "jaime" },
-    "lab":   { "url": "https://dbcanvas.lab.internal", "token": "dbc_…", "user": "jaime" }
+    "default": { "url": "http://localhost:8080", "token": "dbc_…", "user": "alex" },
+    "lab":     { "url": "https://dbcanvas.example.com", "token": "dbc_…", "user": "alex" }
   }
 }
 ```
 
-| | |
+| Setting | Effect |
 | --- | --- |
-| `--profile lab` | use another installation for this command |
-| `dbcanvas login --profile lab --url …` | add or replace one |
-| `DBCANVAS_URL`, `DBCANVAS_TOKEN` | override everything; what CI should use, so nothing is written to disk at all |
-| `--url`, `--token` | override for a single command |
+| `--profile lab` | Use another installation for this command. |
+| `dbcanvas login --profile lab --url …` | Add or replace a profile. |
+| `--url`, `--token` | Override for one command. |
+| `DBCANVAS_URL`, `DBCANVAS_TOKEN` | Override the profile. Use these in CI — nothing is written to disk. |
+| `DBCANVAS_CONFIG` | Path to the config file. |
+| `--json` | Print the server's JSON response unchanged instead of a table. |
 
-## Building a stack
+## Composing a stack
 
-`compose` describes what you want; the server works out the rest.
+`stack compose` builds a stack from a short description; the server fills in the rest.
 
 ```sh
-dbcanvas stack kinds          # every kind, its options, and the OS aliases
+dbcanvas stack kinds          # every kind, its options, relationships and OS aliases
 
-dbcanvas stack compose repro-1234 --ttl 8h \
+dbcanvas stack compose pxc-lab --ttl 8h \
   --node 'pxc:3,version=8.4.5,os=el8,monitor' \
   --node 'ps,version=8.0.45,os=el9,ldap,monitor' \
   --node 'pmm,version=3' \
@@ -178,57 +174,51 @@ pmm       pmm-01          -              3            1      -             -
   + an Intranet node (DNS, CA, LDAP, package proxy) — every stack needs one
 ```
 
-The syntax is **`kind[:count][,flag][,key=value]`**:
+Each `--node` is **`kind[:count][,option][,key=value]`**:
 
-| | |
+| Option | Meaning |
 | --- | --- |
-| `pxc:3` | three members; the count only means something for a cluster kind |
-| `version=8.4.5` | an upstream release, a series (`8.4`), a full package version, or omit for latest |
-| `os=el8` | also `ol9`, `rhel9`, `noble`, `jammy`, `bookworm`, `ubuntu24.04`, `oraclelinux:10`… |
-| `monitor` · `ldap` · `oidc` · `kerberos` · `vault` · `backup` · `orchestrator` | relationships — each wires this node to another in the spec |
-| `to=` | the association *line* — the backend a proxy fronts, the database a simulator drives |
-| `export` · `cert` · `proxy` · `gtid` · `mysqlRouter` · `tls` · `pgvector` | plain switches; `gtid=false` turns a default off. `pgvector` (on `pg`, `patroni`, `repmgr`, `spock`) installs pgvector and creates the extension |
-| `name=` · `count=` · `cpus=` · `memoryGb=` · `exportPort=` · `certTtl=` | values |
-| `netLatencyMs=` · `netJitterMs=` · `netLossPct=` · `netRateMbit=` · `netAllTraffic` | network shaping |
-| `deviceReadMbps=` · `deviceWriteMbps=` | disk throughput limits |
-| `replMode=` · `mode=` · `setup=` · `dataset=` · `buckets=a+b` | per-engine, on the kinds that have them |
-| `monitorWith=` · `oidcWith=` · … | which provider, when the spec has more than one |
+| `:3` | Member count, for cluster kinds. |
+| `version=` | A release (`8.4.5`), a series (`8.4`) or a full package version. Omit for the latest. |
+| `os=` | `el8`, `ol9`, `rhel9`, `noble`, `jammy`, `ubuntu24.04`, `oraclelinux:10`, … |
+| `arch=` | CPU architecture. |
+| `monitor`, `ldap`, `oidc`, `kerberos`, `vault`, `backup`, `orchestrator` | Relationships: connect this node to the matching provider in the spec. |
+| `monitorWith=`, `ldapWith=`, `oidcWith=`, `kerberosWith=`, `vaultWith=`, `backupWith=`, `orchestratorWith=` | Which provider, when the spec has more than one. |
+| `to=` | The node this one is wired to — the backend a proxy fronts, the database a demo app drives. |
+| `export`, `cert`, `proxy`, `gtid`, `mysqlRouter`, `tls`, `pgvector`, `pgaudit`, `setUser`, `tdeWal`, `mca`, `viewOnly` | Switches; `gtid=false` turns a default off. `pgvector` installs pgvector and creates the extension. `mca` creates the MClusterAdmin accounts on a MongoDB node; `viewOnly` starts an MClusterAdmin panel with writes disabled. |
+| `name=`, `count=`, `cpus=`, `memoryGb=`, `exportPort=`, `certTtl=` | Values. |
+| `replMode=`, `mode=`, `setup=`, `dataset=`, `pgauditLog=`, `pgbench=`, `alertEmail=`, `buckets=a+b` | Per-kind values. `alertEmail=` is the mailbox an Orchestrator sends failure alerts to. |
+| `netLatencyMs=`, `netJitterMs=`, `netLossPct=`, `netRateMbit=`, `netAllTraffic` | Network shaping. |
+| `deviceReadMbps=`, `deviceWriteMbps=` | Disk throughput limits. |
 
-Every option is checked against the kind. `cpus=` on a Keycloak node is **refused**,
-not ignored, because nine node types never apply a CPU limit; `netLatencyMs=` is
-refused anywhere the shaper has no ports to shape. `dbcanvas stack kinds` lists
-exactly what each kind takes, and that list is generated from the same table the
-builder checks against.
+Options are checked against the kind: one a kind does not support (`cpus=` on Keycloak, say) is
+refused, not ignored. `dbcanvas stack kinds` lists what each kind accepts.
 
-The relationships are the part you could not write by hand — each is a field holding
-another node's generated id:
+| `stack compose` flag | Meaning |
+| --- | --- |
+| `--node` | A node, as above. Repeatable. |
+| `--spec FILE` | A JSON spec (or `-` for stdin) instead of `--node`. Use it for options the `--node` form does not accept. |
+| `--ttl` | `2h`, `4h`, `8h` (default), `24h`, `2w` or `infinity`. |
+| `--dry-run` | Print and validate the plan without creating anything. Exits non-zero if the design has an error. |
+| `--deploy` | Deploy once composed. |
+| `--wait` | With `--deploy`, wait for every node to come up. |
 
-```sh
-dbcanvas stack compose sso-lab \
-  --node keycloak \
-  --node 'ps,version=8.4.11,os=el9,oidc,monitor' \
-  --node 'pmm,oidc' \
-  --node openbao --node 'psm,os=el9,vault,ldap'
-```
+What compose adds for you, and says so:
 
-```
-KIND      NAME         OS             VERSION      NODES  WIRED TO
-keycloak  keycloak-01  -              -            1      -
-ps        ps-01        oraclelinux 9  8.4.11-11.1  1      monitor→pmm-01  oidc→keycloak-01
-pmm       pmm-01       -              -            1      oidc→keycloak-01
-psm       psm-01       oraclelinux 9  8.0 (latest) 1      ldap→intranet-01  vault→openbao-01
+- **An Intranet node**, if the spec has none.
+- **Prerequisites of what you asked for** — for example a VNC desktop for Keycloak (whose admin
+  console publishes no host port) and a certificate on Keycloak (an OIDC issuer must use HTTPS).
+- **A single obvious `to=` target.** When there is more than one possible target, compose asks
+  you to choose.
 
-  + vnc-01 — Keycloak's admin console publishes no host ports, so it is only reachable from a browser inside the stack
-  + a certificate on keycloak-01 — an OIDC issuer has to be reachable over HTTPS
-```
+It does **not** add a PMM server for `monitor` — add `--node pmm` yourself.
 
-`dbcanvas stack kinds` prints which relationships each kind supports and what each
-connects to.
+Use `--dry-run` to see what a version string resolves to (`8.4.5` is `8.4.5-5.1` on Oracle
+Linux and `8.4.5-5-1` on Ubuntu).
 
-### End to end: single sign-on, composed and deployed
+### Example: single sign-on
 
-The whole of "an Intranet, Percona Server 8.4.11 with Keycloak SSO, and PMM 3 watching
-it" is one command. This is a real run, output included:
+Percona Server with Keycloak SSO and PMM:
 
 ```sh
 dbcanvas stack compose sso-lab --ttl 8h \
@@ -238,90 +228,28 @@ dbcanvas stack compose sso-lab --ttl 8h \
   --deploy --wait
 ```
 
-```
-KIND      NAME         OS             VERSION      NODES  WIRED TO
-intranet  intranet-01  -              -            1      -
-keycloak  keycloak-01  -              -            1      -
-ps        ps-01        oraclelinux 9  8.4.11-11.1  1      monitor→pmm-01  oidc→keycloak-01
-pmm       pmm-01       -              3            1      -
+This deploys five nodes: the Intranet, Keycloak, Percona Server, PMM and a VNC desktop.
+OIDC needs Percona Server 8.4.11-11 or 9.7.2-2 or later; compose refuses an older version.
 
-  + an Intranet node (DNS, CA, LDAP, package proxy) — every stack needs one
-
-  + vnc-01 — Keycloak's admin console publishes no host ports, so it is only reachable from a browser inside the stack
-
-  + a certificate on keycloak-01 — an OIDC issuer has to be reachable over HTTPS
-  info     All checks passed
-
-Created "sso-lab" (id 5), 8h.
-Deploying sso-lab…
-  n-intranet-01            provisioning
-  n-keycloak-01            provisioning
-  n-pmm-01                 provisioning
-  n-ps-01                  provisioning
-  n-vnc-01                 provisioning
-  n-intranet-01            running
-  n-vnc-01                 running
-  n-keycloak-01            running
-  n-pmm-01                 running
-  n-ps-01                  running
-sso-lab is up: 5 node(s) running.
-```
-
-Five containers from four `--node` flags: the Intranet, the desktop and the
-certificate are prerequisites compose knows about, and it says so rather than doing it
-quietly. `--wait` follows every node to `running` and exits **4** if any of them does
-not get there.
-
-**Why the version is spelled out.** `auth_openid_connect` arrived in Percona Server
-8.4.11-11 and 9.7.2-2. Below those the provisioner skips the plugin *without failing*, so you would
-get a node with no SSO and no error at compose, validate or deploy. Compose refuses it
-instead, naming the minimum — and `8.4.11` resolves to `8.4.11-11.1`, just past the
-line (`9.7.2` works the same way on the 9.7 series).
-
-**Proving the SSO works** is worth doing, because a deployed stack does not by itself
-tell you the plugin loaded and the accounts bound:
+To check SSO works, open a console on the node and log in as a sample Keycloak user (`jane` or
+`john`, password `KEYCLOAK_USER_PASSWORD` from `.env`):
 
 ```sh
 dbcanvas node console sso-lab ps-01
-```
-
-```sh
-oidc-login jane                      # prompts for the password; nothing hits history
+oidc-login jane
 ```
 
 ```sql
-SET ROLE accounting;                 -- granted by the Keycloak group, but NOT active
+SET ROLE accounting;                 -- the role from the Keycloak group is granted but not active
 SELECT CURRENT_USER(), CURRENT_ROLE();
 SELECT * FROM oidc_demo.invoices;
 ```
 
-`SET ROLE` is the step people miss. A role mapped from a Keycloak group is granted for
-the life of the connection but left inactive — `SHOW GRANTS` lists it while
-`CURRENT_ROLE()` is still `NONE` — so the query fails with *SELECT command denied*
-until you activate it. DBCanvas deliberately does not flip
-`activate_all_roles_on_login`, because that would change role behaviour for every
-other account on the node. Expect:
+Without `SET ROLE` the `SELECT` fails with *SELECT command denied*. Over TCP instead of the
+socket, add `--ssl-mode=REQUIRED`. The node's panel shows the same steps, and Keycloak's admin
+console is reachable from a browser on the VNC desktop.
 
-```
-jane@%	`accounting`@`%`
-```
-
-`oidc-login` is installed on the node during provisioning: it trades a Keycloak
-password for an ID token and logs into MySQL with it. Keycloak is seeded with `jane`
-and `john`, whose password is `KEYCLOAK_USER_PASSWORD` from your `.env`. Connecting
-over TCP rather than the socket additionally needs `--ssl-mode=REQUIRED`; OIDC refuses
-`DISABLED` with a bare *Access denied*.
-
-The node's panel in the UI carries the same guide with your real account names filled
-in. Reach Keycloak's own admin console from a browser on the `vnc-01` desktop — that
-is what that node is for.
-
-### Associations — `to=`
-
-A relationship is a field. An **association is a line on the canvas**, and some nodes
-do nothing without one: a ProxySQL has no backend, an HAProxy fails validation
-outright, and every application simulator has no database to drive. The provisioners
-find these by walking the canvas graph, so no field substitutes for the line.
+### Example: a proxy and a demo app
 
 ```sh
 dbcanvas stack compose chaos-lab \
@@ -331,136 +259,101 @@ dbcanvas stack compose chaos-lab \
   --node pmm
 ```
 
-```
-KIND         NAME            OS             VERSION    NODES  WIRED TO
-pxc          pxc-cluster-01  oraclelinux 8  8.4.5-5.1  3      monitor→pmm-01
-haproxy      haproxy-01      oraclelinux 9  -          1      to→pxc-cluster-01
-marketchaos  marketchaos-01  -              -          1      to→haproxy-01
-```
+The HAProxy has only one possible backend, so it needs no `to=`. The MarketChaos node could
+drive the cluster directly or through the proxy, so `to=` chooses.
 
-The HAProxy needed no `to=`: there was one legal backend, so compose used it and said
-so. The MarketChaos node did, because it could have driven the cluster *directly* or
-gone *through* the proxy — a real difference, and not one to guess at. Omit it where
-there is nothing to attach to and compose refuses rather than building a stack that
-cannot deploy.
-
-### Shaping the machine, not just the version
-
-A slow disk and a lossy link between cluster members are the failures worth
-reproducing, and neither is a version string:
+### Example: slow network and slow disk
 
 ```sh
 dbcanvas stack compose flaky --node 'pxc:3,os=el9,netLatencyMs=80,netJitterMs=20,netLossPct=1'
 dbcanvas stack compose slowdisk --node 'ps,os=el9,deviceReadMbps=20,deviceWriteMbps=10'
 ```
 
-Shaping applies to the node's own database and cluster ports; `netAllTraffic` widens
-it to every packet, which models a bad NIC rather than a bad link and can make a node
-fail its own provisioning. `dbcanvas stack validate` prints what each shaped node
-will get, before anything is built.
+Network shaping applies to the node's database and cluster ports. `netAllTraffic` shapes every
+packet, which can make the node fail its own provisioning. `dbcanvas stack validate` shows what
+each shaped node will get.
 
-### Clusters with a shape of their own
+### Example: sharded MongoDB
 
-Most cluster kinds take `:count`. A sharded PS MongoDB cluster does not — its shape
-is fixed at one mongos, a config replica set and three shards — so it takes `setup=`
-instead:
+A sharded cluster has a fixed shape, so it takes `setup=` instead of a count:
+`setup=standard` (13 nodes) or `setup=minimum` (5).
 
 ```sh
-dbcanvas stack compose mongo-lab --node 'psmdb,setup=minimum,os=el9,mca=true' --node hotelsim \
+dbcanvas stack compose mongo-lab --node 'psmdb,setup=minimum,os=el9,mca' --node hotelsim \
   --node mclusteradmin
 ```
 
-`setup=standard` is 13 containers, `setup=minimum` is 5. The Hotel Sim needs no `to=`:
-the cluster is the only thing in the spec it can speak to. `mca=true` adds the two
-MClusterAdmin accounts to the MongoDB (with SCRAM-SHA-256 enabled for them), and the
-`mclusteradmin` node is the panel that uses them — the one kind whose association is optional, so it composes with or
-without a database in the spec.
-
-**`--dry-run` prints the plan and creates nothing** — worth doing first, because the
-interesting column is what your version string resolved to. `8.4.5` is `8.4.5-5.1` on
-Oracle Linux and `8.4.5-5-1` on Ubuntu, and the plan tells you which one you got. It is
-also validated, as the real compose would be, and exits non-zero when the design has an
-error — pg_tde asked of a PostgreSQL 17.0 node, say.
-
-An **Intranet node is added for you** if the spec has none, since everything else
-assumes one. `monitor` is *not* — a PMM server is a heavy container, so compose tells
-you to add `--node pmm` rather than starting one on your behalf.
-
-**`--spec file.json`** sends the API's own JSON for anything the flag form cannot say,
-and `dbcanvas stack kinds` prints what this installation can build — including the
-handful it refuses, with the reason.
+The Hotel Sim needs no `to=`: the cluster is the only database it can use. `mclusteradmin` is
+the MClusterAdmin panel, and `mca` creates its accounts on the MongoDB (on a `psm`, `psmrs` or
+`psmdb` node). Add `viewOnly` to the `mclusteradmin` entry to start the panel with writes
+disabled.
 
 ## Stacks
 
 ```sh
-dbcanvas stack list                          # id, name, status, nodes, expires
-dbcanvas stack get my-pxc-lab                # the design and every node's state
-dbcanvas stack compose my-pxc-lab --node 'pxc:3,monitor' --node pmm --ttl 4h
-dbcanvas stack create my-pxc-lab --template "PXC + ProxySQL + PMM" --ttl 4h
-dbcanvas stack validate my-pxc-lab           # check the design, build nothing
-dbcanvas stack deploy my-pxc-lab --wait      # deploy and follow it to running
-dbcanvas stack destroy my-pxc-lab            # remove the containers, keep the design
-dbcanvas stack delete my-pxc-lab             # remove both
-dbcanvas stack export my-pxc-lab > lab.json
+dbcanvas stack list                          # id, name, status, nodes, expiry
+dbcanvas stack get pxc-lab                   # the design and every node's state
+dbcanvas stack create pxc-lab --template "PXC + ProxySQL + PMM" --ttl 4h
+dbcanvas stack validate pxc-lab              # check the design, build nothing
+dbcanvas stack deploy pxc-lab --wait         # deploy and wait for every node
+dbcanvas stack destroy pxc-lab               # remove the containers, keep the design
+dbcanvas stack delete pxc-lab                # remove both (asks first; --yes to skip)
+dbcanvas stack export pxc-lab > lab.json
 ```
 
-Anywhere a stack is named you can use its **name or its id**. Names are matched
-exactly first, then case-insensitively; if two of your stacks share a name the CLI
-says so and asks for the id rather than picking one.
+| Command | Flags |
+| --- | --- |
+| `stack create` | `--template` (name or id), `--design FILE` (or `-`), `--ttl` (default `8h`), `--deploy`, `--wait` |
+| `stack deploy` | `--wait`, `--timeout` (default `1h`) |
+| `stack delete` | `--yes` |
 
-`--wait` polls until every node is `running` or something has failed, printing state
-changes as they happen, and exits non-zero if the deploy did not finish. That exit
-code is the useful part in CI.
+A stack can be named by **name or id**. Names match exactly first, then case-insensitively; if
+two stacks share a name, use the id.
+
+`--wait` prints node state changes until every node is `running` or one fails, and exits `4` if
+the deploy did not finish. Without it, `deploy` returns as soon as provisioning starts.
 
 ## Nodes
 
 ```sh
-dbcanvas node list my-pxc-lab                              # NAME, NODE ID, STATE, CONTAINER
-dbcanvas node restart my-pxc-lab pxc-01
-dbcanvas node console my-pxc-lab pxc-01                   # interactive root shell
-dbcanvas node exec my-pxc-lab pxc-01 -- mysql -e 'SHOW STATUS LIKE "wsrep%"'
-dbcanvas node cp ./my.cnf my-pxc-lab:pxc-01:/etc/my.cnf.d/
-dbcanvas node cp my-pxc-lab:pxc-01:/var/log/mysqld.log ./
-dbcanvas node tunnel my-pxc-lab pxc-01                    # print the ssh -L line
-dbcanvas node pods k8s-lab k3s-01                         # pods in the cluster that node runs
-dbcanvas node console k8s-lab k3s-01 \
-  --namespace default --pod cluster1-pxc-0 --container pxc   # a shell inside the pod
-dbcanvas node console k8s-lab k3s-01 \
-  --pod cluster1-pxc-0 --container pxc --shell mysql         # …or a mysql prompt in it
+dbcanvas node list pxc-lab                                # name, node id, state, container
+dbcanvas node stop pxc-lab pxc-01                         # also start, restart
+dbcanvas node console pxc-lab pxc-01                      # interactive root shell
+dbcanvas node exec pxc-lab pxc-01 -- mysql -e 'SHOW STATUS LIKE "wsrep%"'
+dbcanvas node cp ./my.cnf pxc-lab:pxc-01:/etc/my.cnf.d/
+dbcanvas node cp pxc-lab:pxc-01:/var/log/mysqld.log ./
+dbcanvas node tunnel pxc-lab pxc-01                       # print the ssh -L command
 ```
 
-Nodes are named the same way stacks are: **by name or by id**. The name is the
-node's hostname — `pxc-01`, what the canvas and the compose plan show — and the id is
-the design's internal one, which for a stack drawn in the UI looks like
-`pxc-mt1kvaak-3`. Names are matched exactly first, then case-insensitively. `node
-list` prints both, which is where to look after a failed guess.
+A node can be named by its **hostname** (`pxc-01`, as on the canvas) or its **node id**; `node
+list` shows both. Leave `console` with `Ctrl-D` or `exit`.
 
-`console` puts your terminal in raw mode and bridges it to the same WebSocket the
-browser's console uses, forwarding window resizes. `Ctrl-D` or `exit` to leave.
+### Consoles inside Kubernetes pods
 
-On a **Kubernetes server node** the same command takes `--pod`, and then the shell
-lands inside a container of that pod instead of in the node: the server runs
-`kubectl exec -it` through the node's own kubectl and admin kubeconfig, so nothing
-has to be configured on your machine. `--container` is required (a database pod has
-sidecars, and picking for you would pick wrong), `--namespace` defaults to `default`,
-and `--shell` is `auto` (bash if the container has it, else `/bin/sh`), `bash` or
-`sh`. `node pods` lists every pod in the cluster with each container's state, which
-is the check worth doing first: `kubectl exec` only reaches a *running* container,
-and its refusal arrives as one line in a terminal that then closes. The canvas has
-the same thing as a menu — right-click the k3s server node → **Enter pod console** —
-and there a container that is not running is greyed out with the reason.
+On a K3D frame's k3s server node, `--pod` opens the console inside a pod's container instead of
+the node. Nothing needs configuring on your machine.
 
-`--shell` also takes a **database client**: `mysql`, `psql` or `mongosh`, and the
-prompt is that client already logged in as an administrator rather than a shell you
-then have to log in from. **No password is passed for it, by you or by DBCanvas** —
-each of the four Percona operators mounts the cluster's users Secret into the pods it
-creates, so the script the server runs finds the credential inside the container
-(`/etc/mysql/mysql-users-secret/root` for PXC and PS,
-`/etc/users-secret/MONGODB_DATABASE_ADMIN_*` for PSMDB; a Postgres container runs *as*
-`postgres`, so peer authentication needs none at all). Which client a container has is
-the `console` column of `node pods`; asking for one it does not have is not an error —
-the script says what it could not find and opens a shell in that container instead, so
-the reason stays on screen.
+```sh
+dbcanvas node pods k8s-lab k3s-01                            # pods and container states
+dbcanvas node console k8s-lab k3s-01 \
+  --namespace default --pod cluster1-pxc-0 --container pxc   # a shell in the pod
+dbcanvas node console k8s-lab k3s-01 \
+  --pod cluster1-pxc-0 --container pxc --shell mysql         # a mysql prompt in it
+```
+
+| `node console` flag | Default | Meaning |
+| --- | --- | --- |
+| `--pod` | — | Open the console in this pod. |
+| `--container` | — | Which container; required with `--pod`. |
+| `--namespace` | `default` | The pod's namespace. |
+| `--shell` | `auto` | `auto` (bash if present, else sh), `bash`, `sh`, or a database client: `mysql`, `psql`, `mongosh`. |
+| `--user` | image's user | Exec as this uid or username. |
+
+`--shell mysql|psql|mongosh` opens the client already logged in as an administrator, using
+credentials found inside the container — you type no password. If the container has
+no such client, you get a shell with a message instead. Check `node pods` first: only a running
+container can be entered. The canvas offers the same through right-click → **Enter pod
+console**.
 
 ## Templates
 
@@ -474,67 +367,73 @@ dbcanvas template import pxc.json
 
 ```sh
 dbcanvas datagen connections
-dbcanvas datagen databases my-pxc-lab pxc-01
-dbcanvas datagen tables my-pxc-lab pxc-01 --database sbtest
-dbcanvas datagen run my-pxc-lab pxc-01 --database sbtest --table sbtest1 --rows 5000000 --wait
+dbcanvas datagen databases pxc-lab pxc-01
+dbcanvas datagen tables pxc-lab pxc-01 --database sbtest
+dbcanvas datagen run pxc-lab pxc-01 --database sbtest --table sbtest1 --rows 5000000 --wait
 
 dbcanvas query targets
-dbcanvas query run --stack my-pxc-lab --nodes pxc-01,pxc-02 \
+dbcanvas query run --stack pxc-lab --nodes pxc-01,pxc-02 \
                    --sql 'SELECT @@hostname, @@server_id' --json
 dbcanvas query history
 
-dbcanvas benchmark run my-pxc-lab pxc-01 --workload oltp --duration 60 --wait
+dbcanvas benchmark targets
+dbcanvas benchmark run pxc-lab pxc-01 --workload oltp --duration 60 --wait
 dbcanvas benchmark history
 ```
 
-`--sql @file.sql` reads the statement from a file, which beats quoting it.
+| Command | Flags |
+| --- | --- |
+| `datagen tables` | `--database` (required) |
+| `datagen run` | `--table`, `--rows` (both required), `--database`, `--wait`, `--timeout` (default `2h`) |
+| `query run` | `--stack`, `--nodes`, `--sql` (all required; `--sql @file.sql` reads a file), `--database`, `--count` (default `1`; `0` repeats until `--time-limit`), `--threads` (default `1`), `--time-limit` seconds (default `60`), `--wait` (default on), `--timeout` (default `30m`) |
+| `benchmark run` | `--workload` `oltp` (default), `olap`, `rw` or `ro`; `--duration` seconds (default `60`); `--threads`; `--database` (default `dbcanvas_bench`); `--create-db` (default on); `--scale`; `--warmup` seconds; `--wait` |
 
 ## Diagnosis
 
 ```sh
-# Several nodes' logs as one timeline — the comparison across members is the point
-dbcanvas logs collect my-pxc-lab --nodes pxc-01,pxc-02,pxc-03
+# Log Summary: several nodes' logs as one timeline
+dbcanvas logs targets
+dbcanvas logs collect pxc-lab --nodes pxc-01,pxc-02,pxc-03   # omit --nodes for every node with logs
 dbcanvas logs list
 dbcanvas logs get <bundle-id>
-dbcanvas logs events <bundle-id> --severity error --limit 50
+dbcanvas logs events <bundle-id> --severity bad,warn --limit 50   # bad, warn, ok, info
+dbcanvas logs delete <bundle-id>
 
-# tcpdump on a node, decoded
-dbcanvas capture start my-pxc-lab pxc-01 --seconds 30
+# Packet Inspector: capture on a node, decoded
+dbcanvas capture targets
+dbcanvas capture start pxc-lab pxc-01 --seconds 30 --label login-burst
+dbcanvas capture list
 dbcanvas capture get <id>
+dbcanvas capture stop <id>
 dbcanvas capture packets <id> --limit 50
-dbcanvas capture download <id>            # the raw .pcap, for Wireshark
+dbcanvas capture download <id> --out cap.pcap     # the raw .pcap, for Wireshark
 
-# pt-stalk
-dbcanvas stalk start my-pxc-lab pxc-01
-dbcanvas stalk status my-pxc-lab pxc-01
-dbcanvas stalk download my-pxc-lab pxc-01 --out ./
+# Stalk Summary: pt-stalk
+dbcanvas stalk start pxc-lab pxc-01
+dbcanvas stalk status pxc-lab pxc-01
+dbcanvas stalk download pxc-lab pxc-01 --out ./
 dbcanvas stalk archives
 dbcanvas stalk analyse <archive-id>
 
-# MongoDB's own black box
+# FTDC Summary: MongoDB diagnostic data
 dbcanvas ftdc targets
-dbcanvas ftdc node my-mongo-lab psmdb-01
+dbcanvas ftdc node mongo-lab psmdb-01
 ```
 
 ## Watching
 
 ```sh
-dbcanvas dashboard              # the counters
-dbcanvas dashboard --live       # a live CPU/memory/network sample per node
-dbcanvas updates                # is there a newer DBCanvas? lists what changed up to it
-dbcanvas updates --full         # …with each release note's full text
+dbcanvas dashboard              # the dashboard counters
+dbcanvas dashboard --live       # plus a live CPU/memory/network sample per node
+dbcanvas updates                # is a newer DBCanvas release available, and what changed
+dbcanvas updates --full         # with each release note's full text
 dbcanvas notifications
 dbcanvas notifications --read-all
 ```
 
-Every command that produces a table also takes `--json`, which emits the API's own
-response unchanged — so a pipeline into `jq` never depends on the CLI's formatting.
-The diagnosis commands print the server's JSON either way: a verdict object has no
-sensible table form.
+Commands that print a table also accept `--json`. The diagnosis commands always print JSON.
 
-## Everything else
-
-The curated commands above cover what people run daily. They are not the limit:
+## Any other endpoint
 
 ```sh
 dbcanvas endpoints                       # the whole catalogue
@@ -545,37 +444,29 @@ dbcanvas api POST /api/templates/import --data @pxc.json
 dbcanvas api PUT  /api/me/settings --data '{"theme":"forest"}'
 ```
 
-`dbcanvas api` reaches **any** endpoint, with your token applied and errors reported
-the same way. So the CLI covers the entire API from the day it ships, and a
-convenience subcommand can be added later without touching the server.
+| Command | Flags |
+| --- | --- |
+| `endpoints` | `--group`, `-q` (match method, path, summary or group), `--scope` (`read`, `write`, `admin`), `--long` (include summaries) |
+| `api` | `--data` (inline JSON, `@file`, or `@-` for stdin), `--out FILE` (save the response, for downloads), `--raw` (print unformatted) |
 
 ## Exit codes
 
-| Code | Means |
+| Code | Meaning |
 | --- | --- |
-| `0` | success |
-| `1` | the request failed — the server's error message is printed to stderr |
-| `2` | the command line is wrong |
-| `3` | not signed in, or the token is expired or revoked (`dbcanvas login` again) |
-| `4` | `--wait` gave up: the deploy failed, or a node ended in `error` |
+| `0` | Success. |
+| `1` | The request failed; the server's message is printed to stderr. |
+| `2` | Wrong command line. |
+| `3` | Not signed in, or the token expired or was revoked — run `dbcanvas login`. |
+| `4` | `--wait` gave up: the deploy or job failed, or did not finish in time. |
 
-Distinct codes exist so a CI job can tell "the cluster failed to come up" from "my
-token lapsed", which are not the same problem and should not page the same person.
+## Scripting tips
 
-## Scripting notes
-
-- **In CI, use `DBCANVAS_URL` and `DBCANVAS_TOKEN`** from the secret store. Nothing
-  is written to disk, and nothing has to be cleaned up.
-- **Give the CI token `write` and a short expiry**, and let it lapse. Renewing a
-  90-day token four times a year is a smaller risk than a token that never dies.
-- **`--wait` is what makes a pipeline honest.** Without it, `deploy` returns as soon
-  as provisioning has *started*, and the next step runs against a cluster that is not
-  there yet.
-- **Set a TTL on anything a script creates** (`--ttl 4h`). A CI job that dies between
-  `deploy` and `destroy` otherwise leaves a cluster running until somebody notices.
+- **In CI, set `DBCANVAS_URL` and `DBCANVAS_TOKEN`** from your secret store.
+- **Give CI tokens `write` scope and a short expiry.**
+- **Use `--wait`** so the next step does not run against a stack that is still coming up.
+- **Set `--ttl` on anything a script creates**, so a failed job does not leave a stack running.
 
 ---
 
 See also: [HTTP API](API.md) for tokens, scopes and the endpoint catalogue, and
-[API & CLI reference](API_REFERENCE.md) for every feature's endpoint and its CLI
-equivalent side by side.
+[API & CLI reference](API_REFERENCE.md) for each feature's endpoints and CLI equivalents.

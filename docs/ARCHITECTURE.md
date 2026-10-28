@@ -220,6 +220,23 @@ This is also the shape hybrid runs in — a host process with `vagrant`/`VBoxMan
 except that hybrid serves the SPA from the binary (`npm run build`, then `go build`) rather
 than from the Vite dev server.
 
+## Adding an endpoint
+
+Routes live in one table, `app/api_routes.go`. A row with its group and a one-sentence
+summary is registered, catalogued, published in the OpenAPI document and scope-checked.
+`TestEveryRouteIsDocumented` fails if the summary is missing.
+
+## Versioning
+
+The `VERSION` file is stamped into both binaries at build time (`main.appVersion` for the
+server, `main.version` for the CLI). `/api/setup/status` and `dbcanvas version` report it,
+and the **What's new** dialog compares it with each account's read state. A plain
+`go build` reports `dev`, which sorts newer than every release.
+
+To release: edit `VERSION`, add an entry to `whatsNewNotes` in `app/whatsnew.go` and the
+matching prose to the README's *What's new* section (`TestWhatsNewMatchesREADME` checks
+they agree), rebuild, and run `make adopt-images`.
+
 ## Tech stack
 
 Go (standard library HTTP, `modernc.org/sqlite`, no ORM) · React + Vite + Tailwind ·

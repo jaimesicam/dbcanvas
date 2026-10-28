@@ -1,17 +1,15 @@
 # DBCanvas — Database Interaction Lab
 
-Design a database topology on a canvas, click **Deploy**, and get real running nodes — wired
-together with DNS, TLS, LDAP, replication, monitoring and backups. Then use the tools that
-come with it to load those databases, watch them work, and find out why they do what they do.
+Draw a database topology on a canvas, click **Deploy**, and get running nodes with DNS, TLS,
+LDAP, replication, monitoring and backups already set up. Then load them, watch them and
+diagnose them with the tools that come with it.
 
-Built for testing, demos, training, troubleshooting, benchmarking and application
-development: spin up a production-shaped cluster in minutes, exercise it, tear it down.
+Use it for testing, demos, training, troubleshooting, benchmarking and application development.
 
 > [!IMPORTANT]
-> **DBCanvas is for previewing, testing and learning — not for production.** Everything it
-> deploys is disposable lab infrastructure: default credentials from a `.env` file, containers
-> that trade durability for speed of setup, and stacks that are meant to be torn down. Do not
-> run anything you care about on it, and do not use it to deploy production infrastructure.
+> **DBCanvas is for testing and learning, not production.** Everything it deploys is disposable:
+> default credentials, containers built for quick setup rather than durability, and stacks
+> meant to be torn down.
 
 ![The DBCanvas desktop: a deployed stack on the canvas in one window, its nodes in a folder window, your stacks down the right, and the taskbar](docs/screenshots/desktop.png)
 
@@ -19,173 +17,143 @@ development: spin up a production-shaped cluster in minutes, exercise it, tear i
 
 ## Install
 
-Requires **Docker**, with access to its daemon socket.
+You need **Docker** and access to its daemon socket.
 
 ```sh
 git clone https://github.com/jaimesicam/dbcanvas.git && cd dbcanvas
 make install
 ```
 
-That builds every image DBCanvas can build, records what each of them can install, and starts
-DBCanvas at **http://localhost:8080**. The first run takes a while — it is building
-operating-system images, and then the tool and demo images on top of them — and later runs are
-just `make compose`. An image that fails to build (they fetch from npm, GitHub and Percona's
-repositories) is reported and skipped: DBCanvas still starts, and only the node types that
-need it are affected.
+DBCanvas starts at **http://localhost:8080**. The first install builds every image and takes a
+while. If an image fails to build, DBCanvas still starts, and only the node types that need
+that image are unavailable.
 
-Open the URL and create an account: **the first one becomes the administrator.** Anyone who
-signs up afterwards waits for an admin to approve them.
+Open the URL and create an account. **The first account becomes the administrator**, and an
+administrator must approve later sign-ups.
 
-Everything has a working default. Before exposing DBCanvas beyond your own machine, change
-the passwords in `.env` — see [Configuration](docs/CONFIGURATION.md).
+Every setting has a working default. Before you open DBCanvas to anyone else, change the
+passwords in `.env` (see [Configuration](docs/CONFIGURATION.md)).
 
 ## Upgrade
 
-Do not run `make install` again: it rebuilds every image, which takes as long as the first time.
-Images are tagged with the release they were built for, so after pulling a new release, give the
-images you already have its tag, then rebuild and restart DBCanvas itself:
-
 ```sh
 git pull
-make adopt-images     # tag the images you already built for this release — seconds, nothing rebuilt
+make adopt-images     # tag the images you already have for this release (no rebuild)
 make compose          # rebuild and restart DBCanvas
 ```
 
-Your stacks and their data are untouched: running nodes keep running while DBCanvas restarts.
+Running stacks keep running during the restart.
 
-`make adopt-images` reuses an image only on the assumption that its definition did not change.
-To see whether it did, look at what the pull changed under `images/`:
-
-```sh
-git diff --stat ORIG_HEAD -- images
-```
-
-Nothing listed means you are done. Otherwise the release notes under [What's new](#whats-new)
-say which image to rebuild and with which target — `make vnc-image`, `make intranet-image`,
-`make carsim-image` and so on rebuild one image each; `make images` rebuilds the operating-system
-bases and the Intranet. If you skip `make adopt-images`, Validate says which image is missing
-under the new tag and suggests it.
+If the release changed an image definition, rebuild that image. `git diff --stat ORIG_HEAD -- images`
+lists the changes, and the release notes under [What's new](#whats-new) name the `make` target
+to run. If an image is missing, **Validate** tells you which one.
 
 ## Your first stack
 
-Go to **Database Stacks** → **New stack**, name it, and pick something under **Start from**.
-Fourteen templates ship with the app, one per engine family.
+1. Open **Database Stacks** → **New stack**, name it, and pick a template under **Start from**.
+2. Press **Validate** to check the design, then **Deploy**.
+3. Wait for the nodes to show `running`.
 
 ![The New stack dialog with the PXC + ProxySQL + PMM template selected](docs/screenshots/getting-started-new-stack.png)
 
-The whole topology lands on the canvas, editable. Press **Validate** to check the design
-without building anything, then **Deploy** and watch the node cards turn `running`.
-
 ![A deployed stack — Intranet, PMM and a Percona Server node](docs/screenshots/getting-started-deployed.png)
 
-**Building one by hand?** Add the **Intranet** node first — it provides the DNS, certificate
-authority, LDAP and package proxy every other node assumes exists, which is why the rest of
-the library stays greyed out until it is there.
+To build a stack from scratch, add the **Intranet** node first. It provides the DNS,
+certificate authority, LDAP and package proxy that the other nodes need, so the rest of the
+node library stays disabled until it is on the canvas.
 
-**Set the stack's lifetime** to the shortest thing that covers what you are doing. Lab stacks
-are easy to forget; DBCanvas tears them down for you when the TTL elapses.
+Give each stack a **TTL** (time to live). DBCanvas tears the stack down when it expires.
 
-→ **[Getting started](docs/GETTING_STARTED.md)** walks the whole thing end to end.
+→ [Getting started](docs/GETTING_STARTED.md) covers this end to end.
 
-## Operating what you built
+## Working with nodes
 
-**Right-click any running node** for a root console in the browser, a file manager, the
-`docker exec` line for your own terminal, start/stop/restart, and — on a server install — an
-`ssh -L` line that brings its ports to your machine.
+- **Right-click a running node** to open a root console, open a file manager, copy its
+  `docker exec` command, start, stop or restart it, or (on a server install) copy an
+  `ssh -L` tunnel command.
+- **Click a node** to see its panel: address, credentials, certificate, and engine-specific
+  management such as replication, users, backups and diagnostic captures.
+- **Hover any `?`** to see what a field, value or button does.
 
 ![The right-click menu on a running node](docs/screenshots/getting-started-node-menu.png)
 
-**Click a node** for its panel: what it actually is, where it is on the network, its
-credentials and certificate, and per-engine management — replication, users, backups,
-diagnostics captures.
+Ways to connect:
 
-**Four ways to connect**, in the order you will want them:
-
-| | |
+| From | How |
 | --- | --- |
-| **The web terminal** | Right-click → *Enter root console*. Root inside the node, client already installed, nothing to set up. |
-| **From another node** | Every node resolves every other by name: `mysql -h ps-01.example.net -u root -p`. The **Ubuntu VNC** desktop is this with a browser in it. |
-| **From your own machine** | Tick *Export … port to the host* before deploying; the panel then shows which host port it landed on. |
-| **Through an SSH tunnel** | For when DBCanvas runs on a server — set `SSH_FORWARDING_HOST` and copy the line from the node's menu. |
-
-**Anything with a `?` next to it explains itself** — every field, every value on a deployed
-node, every toolbar button and every entry in the node library. Hover it, or tab to it.
+| **The browser** | Right-click → *Enter root console*. The database client is already installed. |
+| **Another node** | Nodes reach each other by name, for example `mysql -h ps-01.example.net -u root -p`. The **Ubuntu VNC** node gives you a desktop with a browser inside the stack. |
+| **Your machine** | Tick *Export … port to the host* before deploying. The node's panel shows the host port. |
+| **An SSH tunnel** | When DBCanvas runs on a server, set `SSH_FORWARDING_HOST` and copy the command from the node's menu. |
 
 ## What you can build
 
-**Databases**, standalone or clustered, on Oracle Linux, Rocky, Alma, Debian or Ubuntu:
+**Databases**, standalone or clustered, on Oracle Linux 8, 9 or 10 or Ubuntu 22.04 or 24.04
+(the versions offered depend on the engine).
 
-- **PostgreSQL** — standalone, Patroni HA, repmgr, Spock multi-master, and CloudNativePG or
-  Crunchy PGO on Kubernetes
-- **MySQL** — Percona XtraDB Cluster, Percona Server, MySQL Community, asynchronous
-  replication, InnoDB Cluster / Group Replication, and MariaDB (standalone, replication,
-  Galera)
-- **MongoDB** — Percona Server for MongoDB: standalone, replica set, sharded, with an
-  optional **MClusterAdmin** web administration panel and a **Big Hole** FTDC viewer beside them
-- **Valkey** — standalone and cluster
+- **MySQL**: Percona Server, Percona XtraDB Cluster, MySQL Community, asynchronous replication,
+  InnoDB Cluster / Group Replication, and MariaDB (standalone, replication, Galera)
+- **PostgreSQL**: standalone, Patroni, repmgr and Spock
+- **MongoDB**: Percona Server for MongoDB, as a standalone, replica set or sharded cluster
+- **Valkey**: standalone and cluster
+- **Kubernetes**: a k3s cluster running a Percona operator (PXC, MySQL, MongoDB or PostgreSQL),
+  CloudNativePG, Crunchy PGO or OpenEverest
 
-**The infrastructure around them**: an Intranet node (DNS · mail · OpenLDAP · Squid proxy ·
-a certificate authority), PMM, ProxySQL, HAProxy, Orchestrator, SeaweedFS S3, Keycloak,
-OpenBao, Samba AD DC, Watchtower, MClusterAdmin, Big Hole, an Ubuntu VNC desktop, and a
-Kubernetes cluster frame that runs any of six database operators.
+**Infrastructure**: Intranet (DNS, mail, OpenLDAP, Squid proxy, certificate authority), PMM,
+ProxySQL, HAProxy, PgBouncer, Orchestrator, SeaweedFS (S3), Ceph, Keycloak, OpenBao, Samba AD DC,
+Watchtower, a package Repository, MClusterAdmin, Big Hole, an Ubuntu VNC desktop and a Linux
+Client.
 
-**Load to run against them**: app simulators that drive continuous, realistic traffic — a
-hotel booking system, an airline, a car rental fleet, and a stock exchange you operate
-yourself.
+**Simulated load**: applications that send realistic traffic to your databases, including hotel,
+airline, car rental, support desk, ledger and stock market simulators.
 
-## What you can do with it
+## Tools
 
 | | |
 | --- | --- |
-| [**Stacks**](docs/STACKS.md) | Design on a canvas, deploy, and manage every node from its own panel — terminal, files, credentials, certificates, replication. |
-| [**Data Generator**](docs/DATA_GENERATOR.md) | Fill tables with realistic data, at the scale it takes to see a problem. |
-| [**Query Runner**](docs/QUERY_RUNNER.md) | Run SQL across nodes in parallel, gated on the processlist. |
-| [**Database Explorer**](docs/DATABASE_EXPLORER.md) | Browse schemas, collections and keys; run SQL, MongoDB queries and Valkey commands; inspect results as tables, documents or charts — including read-only access to PMM's internal PostgreSQL and ClickHouse data. |
-| [**Benchmark**](docs/BENCHMARK.md) | OLTP, OLAP, read-write and read-only workloads, with throughput and latency. |
-| [**Sample Client Code**](docs/SAMPLE_CODE.md) | Runnable client code for a deployment on the canvas — pick an endpoint, a language and a driver; DBCanvas installs what it needs and runs it. |
-| [**Packet Inspector**](docs/PACKET_INSPECTOR.md) | Capture on a node and decode MySQL, PostgreSQL, MongoDB and Valkey off the wire. |
-| [**Log Summary**](docs/LOG_SUMMARY.md) | Several nodes' logs on one timeline, split into the good, the warning and the bad. |
-| [**Stalk Summary**](docs/STALK_SUMMARY.md) | Turn a pt-stalk capture into charts, and say which variables to change. |
-| [**FTDC Summary**](docs/FTDC_SUMMARY.md) | Read MongoDB's own black box — the diagnostic data every mongod already writes. |
-| [**Operator Summary**](docs/OPERATOR_SUMMARY.md) | Read a pt-k8s-debug-collector cluster-dump — what is not running, and what the operator says about it. |
-| [**Operator Debugger**](docs/OPERATOR_DEBUGGER.md) | Step through the Kubernetes operator itself — breakpoints, stack and variables, no IDE. |
-| [**Core Dump Analyzer**](docs/CORE_DUMP_ANALYZER.md) | Read a `mysqld` core dump from another server — threads, stack, arguments. |
-| [**All in One**](docs/ALL_IN_ONE.md) | Many database instances in one node, for when you need versions side by side. |
-| [**Shared Sessions**](docs/SHARED_SESSIONS.md) | Share a live session through a link: colleagues follow you across every tab, chat, and take control when you hand it to them — terminals and VNC desktops included, through one port. |
-| [**Kanban**](docs/KANBAN.md) | Boards of work, alone or shared: drag cards to exactly where they belong, from the mouse, a touch screen or the keyboard. |
-| [**HTTP API**](docs/API.md) | Every one of the 342 endpoints, with tokens you create and expire yourself. |
-| [**`dbcanvas-cli`**](docs/CLI.md) | Sign in once, then compose, deploy and drive stacks from your terminal. |
+| [**Stacks**](docs/STACKS.md) | Design, deploy and manage stacks, and every node from its panel. |
+| [**Data Generator**](docs/DATA_GENERATOR.md) | Fill tables with realistic data. |
+| [**Query Runner**](docs/QUERY_RUNNER.md) | Run SQL on several nodes in parallel. |
+| [**Database Explorer**](docs/DATABASE_EXPLORER.md) | Browse and query MySQL, PostgreSQL, MongoDB, Valkey, and PMM's internal databases. |
+| [**Benchmark**](docs/BENCHMARK.md) | Run workloads and measure throughput and latency. |
+| [**Sample Client Code**](docs/SAMPLE_CODE.md) | Generate and run client code for a node in your choice of language and driver. |
+| [**Packet Inspector**](docs/PACKET_INSPECTOR.md) | Capture traffic on a node and decode the database protocol. |
+| [**Log Summary**](docs/LOG_SUMMARY.md) | Several nodes' logs on one timeline, sorted into errors, warnings and the rest. |
+| [**Stalk Summary**](docs/STALK_SUMMARY.md) | Charts and recommendations from a pt-stalk capture. |
+| [**FTDC Summary**](docs/FTDC_SUMMARY.md) | Read MongoDB's diagnostic data. |
+| [**Kubernetes States**](docs/KUBERNETES_STATES.md) | A live board of every object in a Kubernetes cluster. |
+| [**Operator Summary**](docs/OPERATOR_SUMMARY.md) | Read a pt-k8s-debug-collector dump. |
+| [**Operator Debugger**](docs/OPERATOR_DEBUGGER.md) | Set breakpoints in a running Kubernetes operator. |
+| [**Core Dump Analyzer**](docs/CORE_DUMP_ANALYZER.md) | Read a `mysqld` core dump: threads, stacks and arguments. |
+| [**All in One**](docs/ALL_IN_ONE.md) | Many database instances in one node, side by side. |
+| [**Shared Sessions**](docs/SHARED_SESSIONS.md) | Share a live session through a link; others can follow, chat and take control. |
+| [**Kanban**](docs/KANBAN.md) | Private or shared boards of cards. |
+| [**HTTP API**](docs/API.md) | Every feature as an HTTP endpoint, with tokens you create. |
+| [**`dbcanvas-cli`**](docs/CLI.md) | Compose, deploy and drive stacks from a terminal. |
 
 ## Documentation
 
-- **[Getting started](docs/GETTING_STARTED.md)** — install to running cluster, end to end
-- [Feature guides](docs/README.md) — the tools above, one page each
-- [Stacks](docs/STACKS.md) — every node and cluster type, and everything the canvas does
-- [HTTP API](docs/API.md) — tokens, scopes, the endpoint catalogue, OpenAPI
-- [API & CLI reference](docs/API_REFERENCE.md) — every feature, its endpoints, and the
-  equivalent CLI command
-- [`dbcanvas-cli`](docs/CLI.md) — install, sign in, every command
-- [`.claude/skills/dbcanvas/`](.claude/skills/dbcanvas/SKILL.md) — an Agent Skill for
-  driving DBCanvas: the safe path through the API and the CLI. It loads by itself for
-  anyone working in this checkout; to use it from anywhere else, copy it into your own
-  skills directory:
+- **[Getting started](docs/GETTING_STARTED.md)**: from install to a running cluster
+- [Feature guides](docs/README.md): one page per tool
+- [Configuration & commands](docs/CONFIGURATION.md): `.env`, `make` targets, troubleshooting
+- [HTTP API](docs/API.md) and the [API & CLI reference](docs/API_REFERENCE.md)
+- [`dbcanvas-cli`](docs/CLI.md)
+- [Agent Skill](.claude/skills/dbcanvas/SKILL.md) for driving DBCanvas from Claude Code. It loads
+  automatically in this checkout. To use it elsewhere:
 
   ```sh
   mkdir -p ~/.claude/skills/dbcanvas
   cp .claude/skills/dbcanvas/SKILL.md ~/.claude/skills/dbcanvas/
   ```
-- [Configuration & commands](docs/CONFIGURATION.md) — `.env`, every `make` target,
-  troubleshooting, recovering an admin password
-- [Architecture](docs/ARCHITECTURE.md) — how it is wired, and why
+- [Architecture](docs/ARCHITECTURE.md): for contributors
 
 ## Requirements
 
-- **Docker**, with access to the daemon socket. DBCanvas drives the daemon to create your
-  stacks, which is a privileged capability — run it somewhere you trust.
-- Enough resources for what you deploy: a full HA cluster is several containers.
-- Linux recommended; also runs on macOS and Windows Docker, including Apple Silicon.
-- **k3d** only for Kubernetes frames (the app image ships it), and **Vagrant + VirtualBox**
-  only for the hybrid backend, where database nodes are real VMs instead of containers.
+- **Docker** with access to the daemon socket. DBCanvas uses it to create your stacks, which
+  is a privileged capability, so run DBCanvas somewhere you trust.
+- Enough CPU, memory and disk for what you deploy. An HA cluster is several containers.
+- Linux (recommended) or macOS, including Apple Silicon.
+- **Vagrant + VirtualBox**, only if you use the hybrid backend, which runs database nodes as VMs.
 
 ---
 

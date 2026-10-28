@@ -1,282 +1,170 @@
 # Data Generator
 
-An embedded feature under **Database Stacks** that generates realistic test data for
-tables in databases provisioned by dbcanvas. It targets testing, demos, troubleshooting,
-benchmarking, performance validation, and app development.
+The **Data Generator** fills a table or collection in one of your deployed databases with realistic
+test data. It reads the table's structure, picks a generator for each column, lets you adjust
+them, previews the result, and then inserts as many rows as you ask for.
+
+Engines: **PostgreSQL**, **MySQL** (including PXC, MariaDB and MySQL Community) and **MongoDB**.
+Open it from the sidebar (**Data Generator**) or at `#data-generator`.
 
 ![The Data Generator with a table chosen and its column template ready](screenshots/data-generator.png)
 
-> *Pick a node, a database and a table, and the column template is built from the table itself:
-> each column with its type and flags, and a generator chosen to match — `Random text` for a
-> varchar, `Random decimal` for a decimal, `Timestamp` for a datetime, and the auto-increment
-> primary key left to the database. Anything can be overridden or skipped before generating.*
+## Generate data
 
-Engines: **PostgreSQL** and **MySQL/PXC** (both implemented). This document describes the
-whole feature; sections tagged _(roadmap)_ are designed but not yet built. The core
-workflow works end-to-end for both engines.
+1. **Connection** — pick a running database node. Connections come from your stacks; you never
+   enter a host or password.
+2. **Database & table** — pick a database, then a table (or collection). Use the filter box to
+   narrow a long list; each entry shows its estimated row count.
+3. **Column template** (or **Field template** on MongoDB) — review the generator chosen for each
+   column, change any of them, set options, or tick **skip**.
+4. **Generate** — set the options below, press **Preview** to see sample rows (nothing is
+   written), then **Generate**.
 
----
+Progress shows rows inserted, rows/s, elapsed time, ETA and error count. **Cancel** stops the job.
 
-## 1. Feature overview
+Before you generate, a summary line shows the target table, how many columns will be inserted, how
+many are skipped or filled by the database, and how many foreign-key columns will be sampled.
 
-- Reuses the **connection profiles** already known to Database Stacks — the user never
-  re-enters host/port/credentials. Every SQL call runs via `docker exec psql` inside the
-  node container using the deployment's stored superuser secret, so it works whether or not
-  the DB port is published to the host.
-- Introspects a chosen table (types, PK/FK, identity/generated, unique, defaults, pgvector
-  columns, TimescaleDB hypertables) and builds a **per-column generator template** with a
-  smart-inferred default and a combobox of alternatives.
-- Generates data with configurable **rows / batch size / workers**, is **foreign-key aware**
-  (samples referenced tables), previews rows before inserting, and reports **live progress**.
+## Generate options
 
-## 2. User workflow
+| Option | Meaning | Default |
+| --- | --- | --- |
+| **Total rows** | Rows (or documents) to insert. | 1000 |
+| **Batch size** | Rows per INSERT statement (max 20,000). | 1000 |
+| **Workers** | Parallel insert workers (1–16). | 4 |
+| **FK sample** | How many values to read from each referenced table (SQL only). | 500 |
+| **Seed (0=random)** | Fixes the generated values so a run can be repeated. | 0 |
+| **On error: stop** | Stop the job at the first failed batch. Off: count the error and continue. | on |
 
-1. Open **Data Generator** from the left nav (directly below Database Stacks).
-2. Pick a **connection** — a running PostgreSQL node (pg / patroni / repmgr) from any stack
-   the user owns.
-3. Pick a **database**, then browse/filter **schemas + tables** (with estimated row counts).
-4. Select a **table** → review the **column template** (type, flags, inferred generator).
-5. Adjust generators / options per column; mark columns to skip.
-6. Set **total rows, batch size, workers, FK sample size, seed, stop-on-error**.
-7. **Preview** sample rows (no writes).
-8. **Generate** → live progress (rows, rows/s, elapsed, ETA, errors). Cancel any time.
+## Column template (SQL)
 
-## 3. Data Generator wizard flow
+Each row shows the column name, type, flags (**PK**, **FK→table**, **identity**, **generated**,
+**NOT NULL**), a **Generator** list ordered most-relevant first, its options, and **skip**.
 
-```
-Connection ─▶ Database ─▶ Table ─▶ Column template ─▶ Options ─▶ Preview ─▶ Confirm ─▶ Run ─▶ Progress
-   (list)      (list)     (browse)   (per-column)      (rows/…)   (10 rows)  (summary)  (job)   (poll)
-```
+**How a default generator is picked** (first match wins):
 
-The confirmation summary (Step 4 card) restates target schema.table, insertable column
-count, DB-managed/skipped count, and any FK columns being sampled before the user clicks
-Generate.
+1. Identity, generated and serial/auto-increment columns → **Use database default** (left out of the
+   INSERT so the database fills them).
+2. Foreign key → **Foreign key sampler**.
+3. pgvector column → **pgvector embedding**, at the column's dimension.
+4. Enum column → **Enum-like value**, using the real labels.
+5. TimescaleDB hypertable time column → **Time-series timestamp**.
+6. Column name: first name, last name, email, username, phone, city, country, company, job title,
+   URL, address and full name are recognised from common spellings (`fname`, `surname`, `mobile`,
+   `website`, …).
+7. Column type: UUID, boolean, integer (bigint for 64-bit), decimal (metric-like names such as
+   `cpu` or `latency` get **TimescaleDB metric**), date/timestamp, JSON, IP/MAC address, otherwise
+   **Random text**.
 
-## 4. PostgreSQL metadata inspection
+Text is trimmed to the column's length and decimals respect its scale.
 
-One JSON-returning query per concern (all via `psql -tAqc`, unmarshalled in Go):
+**Options by generator**
 
-- **Columns**: `attnum`, name, `format_type` (→ `varchar(50)`, `numeric(10,2)`), udt name,
-  nullability, default expr, `attidentity` → identity, `attgenerated` → generated column,
-  char length, numeric precision/scale, pgvector dimension (parsed from `format_type` for
-  `vector`/`halfvec`/`sparsevec`), enum labels (`pg_enum` when `typtype='e'`).
-- **Keys**: `pg_index` → primary-key and unique columns.
-- **Foreign keys**: `pg_constraint contype='f'` (single-column) → referenced schema/table/col.
-- **Hypertable**: `timescaledb_information.dimensions` (Time dimension) → hypertable + time
-  column; query error (extension absent) is treated as "not a hypertable".
-- **Tables + estimated rows**: `pg_class.reltuples` (internal TimescaleDB/`pg_catalog`
-  schemas excluded).
+| Generator | Options |
+| --- | --- |
+| Any, on a nullable column | **null%** — share of NULLs |
+| Random integer, Random decimal, TimescaleDB metric | **min**, **max** |
+| Sequential integer | **start** |
+| pgvector embedding | **dim** |
+| Device/sensor ID | **devices** |
+| Constant value | the value |
 
-_(roadmap)_ CHECK constraints (`pg_get_constraintdef`), composite FKs, chunk interval /
-compression settings, existing time range, index list.
+## Foreign keys
 
-## 4b. Kubernetes operator clusters
+A foreign-key column samples real values from the table it references (up to **FK sample** values)
+and picks among them. If a NOT NULL foreign key references an empty table, the job stops before
+inserting. A nullable one gets NULL and a warning. Only single-column foreign keys are recognised —
+fill parent tables first.
 
-> [!NOTE]
-> Operator targets are new and need more testing. Verified against Percona PostgreSQL
-> Operator clusters; other PostgreSQL operators are written from their own conventions
-> but have not been run against a live cluster of each.
+## Field template (MongoDB)
 
-A PostgreSQL cluster deployed by an operator inside a K3D frame appears in the
-connection list alongside the canvas nodes. Everything above works on it unchanged:
-the generator runs `psql` inside the cluster's own pod, through `kubectl exec` on the
-k3s server container, instead of in a node container — so introspection, preview and
-generation all behave the same whether the Service is ClusterIP or has an address.
+DBCanvas samples up to 200 documents to infer each field's BSON type, including embedded documents
+and arrays. Unlike the SQL template, it is fully editable: **Add field**, rename, change the BSON
+type, or remove a field — so you can build documents for an empty collection.
 
-Only the endpoint that takes writes is offered (the primary), because pointing an
-INSERT at a replica or a pooler fails in a way that reads like a DBCanvas fault rather
-than like what it is.
+- BSON types: ObjectId, String, Int32, Int64, Double, Decimal128, Boolean, Date, Timestamp, Binary,
+  Regex, JavaScript, Embedded document, Array, MinKey, MaxKey.
+- String fields offer the same name-based generators as SQL (names, email, city, …).
+- `_id` is skipped by default so MongoDB assigns it. Untick **skip** to generate ObjectIds instead.
+- Options: **null%** on every field; **min**/**max** on numeric types; **start** on Sequential
+  integer; **bytes** on Binary.
+- Preview shows five documents as Extended JSON.
 
-MySQL and MongoDB operator clusters are **not** offered here. That is a limit of how
-the generator reaches a database, not of what it can generate: its MySQL path pipes the
-password through `MYSQL_PWD`, and `kubectl exec` carries no environment from the
-caller, so a MySQL cluster would need the password on a command line inside the pod.
-Those clusters are still reachable from the
-[Database Explorer](DATABASE_EXPLORER.md#kubernetes-clusters), the Query Runner and the
-Benchmark.
+## Special column types
 
-## 5. MySQL/PXC metadata inspection
+- **pgvector** — `vector`, `halfvec` and `sparsevec` columns are detected with their dimension.
+  Values are uniform between **min** and **max** (default −1 to 1).
+- **TimescaleDB** — on a hypertable the time column gets evenly spaced timestamps, metric-like
+  columns a sine-wave-plus-noise value, and `device_id`-style columns a device id
+  (`device-0001`…).
 
-Sourced from `information_schema` via the `mysql` client (auth as root through `MYSQL_PWD`),
-returning JSON (`JSON_ARRAYAGG`/`JSON_OBJECT`): `COLUMNS` (`COLUMN_TYPE` + `DATA_TYPE`,
-nullability, default, `EXTRA` → `auto_increment`, `GENERATION_EXPRESSION` → generated,
-`CHARACTER_MAXIMUM_LENGTH`, `NUMERIC_PRECISION/SCALE`, `COLUMN_KEY` → PK/unique, enum/set
-members parsed from `COLUMN_TYPE`), `KEY_COLUMN_USAGE` (single-column FKs), `TABLES.TABLE_ROWS`
-(estimate). In MySQL a schema **is** a database. Any PXC member is writable (multi-primary);
-for MySQL replication / InnoDB cluster, target the primary/writer node.
+**Supported types**
 
-## 6. Column generator template design
+| Engine | Types |
+| --- | --- |
+| PostgreSQL | smallint/integer/bigint, serial/bigserial, numeric/decimal/real/double/money, boolean, char/varchar/text, uuid, date/time/timetz/timestamp/timestamptz, json/jsonb, inet/cidr/macaddr/macaddr8, enums, identity and generated columns, pgvector |
+| MySQL | tinyint…bigint, decimal/float/double, bit, boolean, char/varchar, text types, date/time/datetime/timestamp/year, json, binary/varbinary/blob types, enum/set, generated and auto-increment columns |
 
-Per column the UI shows: name, data type, flags (PK / FK→table / identity / generated /
-NOT NULL), a **generator combobox** (choices ordered most-relevant first), inline **options**
-for the chosen generator, and a **skip** toggle. Request/response shape:
+Not generated: PostgreSQL interval, bytea, xml, arrays, range and domain types.
 
-```jsonc
-// column (server → UI)
-{ "name":"email", "dataType":"text", "udt":"text", "nullable":true,
-  "isPrimaryKey":false, "fk":null, "vectorDim":0, "enum":null,
-  "generator":"email", "generators":["email","auto","skip","default", "..."] }
-```
+## Targets
 
-## 7. Smart generator inference rules
+| Engine | Nodes offered |
+| --- | --- |
+| PostgreSQL | PostgreSQL, Patroni, repmgr, Spock |
+| MySQL | Percona Server, PXC, InnoDB Cluster / GR, MySQL Community, MariaDB |
+| MongoDB | PSMDB standalone, PSMDB RS members, and the **mongos** router of a sharded cluster |
 
-Resolution order (first match wins):
+Also offered:
 
-1. **DB-managed** → `Use database default`: generated columns, identity columns, `nextval(`
-   defaults (serial/bigserial).
-2. **Foreign key** → `Foreign key sampler`.
-3. **pgvector column** → `pgvector embedding` (dimension from the type).
-4. **Enum type** → `Enum-like value` (uses the actual labels).
-5. **Hypertable time column** → `Time-series timestamp`.
-6. **Name heuristics** (regex, case-insensitive): `first_name|fname`→first name,
-   `last_name|lname`→last name, `email`→email, `user_name|login`→username,
-   `phone|mobile|contact_number`→phone, `city`/`country`/`address`/`company`/`job_title`→the
-   matching library, `url|website`→URL, `full_name|name`→full name.
-7. **Type fallback**: uuid→UUID, bool→boolean, int→random int (bigint→bigint,
-   `qty|count`→int), numeric/float→decimal (`price|amount|cost`→money-like,
-   `temperature|cpu|latency|usage`→metric), date/time→timestamp/date, json→JSON object,
-   inet/cidr/macaddr→IP/MAC, otherwise text (with `status`→enum-word, `device_id`→device id,
-   `is_/has_/enabled/active/flag`→boolean).
+- **All-in-One** database instances, listed per instance.
+- **Databases deployed by an operator in a K3D frame**:
+  - PostgreSQL — the primary only, whether or not its Service has an outside address.
+  - MongoDB — members and mongos routers with a LoadBalancer or NodePort Service (not config
+    servers).
+  - MySQL operator clusters are not offered. Use the
+    [Database Explorer](DATABASE_EXPLORER.md#kubernetes-clusters), Query Runner or Benchmark for them.
 
-If nothing infers, a safe **type-aware random** value is used. Values are length-clipped to
-`char_max_length` and decimals honor numeric scale.
+Write to the primary. Any PXC or Galera member accepts writes; on async replication, Group
+Replication or a MongoDB replica set, pick the primary (a MongoDB secondary rejects the insert).
 
-## 8. Foreign key handling strategy
+## API
 
-- FK columns default to **Foreign key sampler**.
-- Before a run, each FK column's referenced table is sampled:
-  `SELECT quote_nullable(refcol) FROM refschema.reftable WHERE refcol IS NOT NULL
-   ORDER BY random() LIMIT <fkSampleSize>`. `quote_nullable` returns ready-to-inject,
-  correctly-typed SQL literals; rows draw uniformly from the cached sample.
-- If a **non-nullable** FK's referenced table is empty → the job **fails fast** with a clear
-  message. Nullable empties → a warning; the column gets `NULL`.
-- Supported now: single-column, nullable, and (via ordering by dependency) parent-first
-  workflows. _(roadmap)_ composite FKs, self-referencing sampling, periodic sample refresh
-  for very large runs, weighted sampling, multi-level dependency ordering.
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/datagen/connections` | Nodes you can generate into |
+| GET | `/api/datagen/stacks/{id}/nodes/{nid}/databases` | Databases on a node |
+| GET | `/api/datagen/stacks/{id}/nodes/{nid}/tables?db=` | Tables or collections, with estimated rows |
+| GET | `/api/datagen/stacks/{id}/nodes/{nid}/columns?db=&schema=&table=` | Column template |
+| POST | `/api/datagen/stacks/{id}/nodes/{nid}/preview` | Sample rows (no writes) |
+| POST | `/api/datagen/stacks/{id}/nodes/{nid}/generate` | Start a job; returns `{jobId}` |
+| GET | `/api/datagen/jobs/{job}` | Job progress |
+| POST | `/api/datagen/jobs/{job}/cancel` | Cancel a job |
 
-## 9. Large data generation strategy
-
-- The generate endpoint spawns a job with **N workers** (1–16). A shared, mutex-guarded
-  counter hands each worker a **batch** (≤20k); each worker owns its own seeded RNG and FK
-  sample view (no shared mutable RNG).
-- Each batch is a single **multi-row `INSERT … VALUES (…),(…)`** executed with
-  `ON_ERROR_STOP=1`. Progress is tracked with atomic counters.
-- **On error**: increment error count; if `stopOnError`, cancel the job; else continue.
-- Progress endpoint reports rows generated/inserted, **rows/s**, elapsed, **ETA**, errors,
-  status. The job is cancellable.
-- _(roadmap)_ `COPY`-stream loading for max throughput, commit-interval / rows-per-transaction
-  tuning, prepared inserts, max-error-count, dry-run, generate-SQL-only, pause/resume.
-
-## 10. pgvector support
-
-- Detects `vector`, `halfvec`, `sparsevec` and parses the **dimension** from the type
-  (`embedding vector(1536)` → 1536).
-- Generates valid literals `'[v1,v2,…]'::vector` (or `::halfvec`) at the detected dimension.
-- Options: **dimension**, **min**, **max** (uniform components). _(roadmap)_ normalized /
-  clustered / category-based embeddings, sparse vectors, distribution + seed controls.
-
-## 11. TimescaleDB support
-
-- Detects hypertables + the time column via `timescaledb_information`.
-- The time column defaults to **Time-series timestamp** (regular interval from a start
-  cursor); metric columns default to a **sine-wave + noise** metric generator; `device_id`
-  columns to a **device id** generator.
-- Options today: metric min/max, interval start/step (internal), device count.
-  _(roadmap)_ start/end/interval/jitter, rows-per-device, backfill vs recent, and metric
-  patterns (trend, seasonal, spikes, missing, outliers, per-device baseline).
-
-## 12. PostgreSQL & MySQL/PXC type support
-
-**PostgreSQL (implemented):** smallint/integer/bigint, serial/bigserial (DB default),
-numeric/decimal/real/double/money, boolean, char/varchar/text, uuid, date/time/timetz/
-timestamp/timestamptz, json/jsonb, inet/cidr/macaddr/macaddr8, enums, identity & generated
-(DB-managed), pgvector `vector`/`halfvec`/`sparsevec`. _(roadmap)_ interval, bytea, xml,
-arrays, range/domain types.
-
-**MySQL/PXC (implemented):** tinyint…bigint, decimal/float/double, bit, boolean, char/varchar,
-text family, date/time/datetime/timestamp/year, json, binary/varbinary/blob family, enum/set,
-generated & auto-increment (DB-managed).
-
-DB-managed columns (identity, generated, serial/auto-increment, useful defaults) are omitted
-from the INSERT so the database fills them; they can also be explicitly set to
-`Use database default` or `Skip`.
-
-## 13. Safety & confirmation behavior
-
-- **Preview** generates 10 rows client-visible with **zero writes**.
-- The generate card shows a **summary** (target schema.table, insertable vs skipped/DB-managed
-  columns, FK columns to be sampled) before the explicit **Generate** click.
-- FK fatal check (empty referenced table for NOT NULL) blocks the run.
-- Jobs are **cancellable**; `stopOnError` halts on the first failed batch.
-- _(roadmap)_ full pre-run confirmation screen (engine/impact/constraint warnings),
-  dry-run, generate-SQL-only, export/import config JSON, richer error log.
-
-## 14. Job progress & error handling
-
-Job snapshot (`GET /api/datagen/jobs/{job}`):
-
-```jsonc
-{ "id":"…", "status":"running|done|error|canceled",
-  "total":1000000, "inserted":734000, "errors":0,
-  "rowsPerSec":48211.5, "elapsedSec":15.2, "etaSec":5.5, "message":"" }
-```
-
-Errors are counted per failed batch; the last error message is surfaced. `stopOnError`
-cancels the job's context so all workers wind down promptly.
-
-## 15. Example generation configuration structure
-
-Request body for **preview** and **generate** (`POST …/preview`, `POST …/generate`):
+Preview and generate take the same body:
 
 ```jsonc
 {
-  "database": "appdb",
-  "schema": "public",
-  "table": "users",
-  "rows": 1000000,
-  "batch": 2000,
-  "threads": 8,
-  "seed": 42,                // 0 = random
+  "database": "appdb", "schema": "public", "table": "users",
+  "rows": 1000000, "batch": 2000, "threads": 8,
+  "seed": 42,                 // 0 = random
   "stopOnError": true,
   "fkSampleSize": 1000,
   "columns": [
-    { "name": "id",         "generator": "default" },                       // identity → DB
-    { "name": "org_id",     "generator": "fk" },                            // sampled from orgs
-    { "name": "first_name", "generator": "firstname" },
-    { "name": "email",      "generator": "email",  "options": { "nullPct": 5 } },
+    { "name": "id",         "generator": "default" },
+    { "name": "org_id",     "generator": "fk" },
+    { "name": "email",      "generator": "email",   "options": { "nullPct": 5 } },
     { "name": "age",        "generator": "randint", "options": { "min": 18, "max": 90 } },
-    { "name": "status",     "generator": "enum" },                          // uses enum labels
-    { "name": "price",      "generator": "decimal", "options": { "min": 0, "max": 9999 } },
     { "name": "embedding",  "generator": "pgvector", "options": { "dim": 1536, "min": -1, "max": 1 } },
-    { "name": "created_at", "generator": "timestamp" },
-    { "name": "full_label", "skip": true }                                  // generated column
+    { "name": "full_label", "skip": true }
   ]
 }
 ```
 
-## API surface
+A job snapshot looks like:
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| GET  | `/api/datagen/connections` | running PostgreSQL nodes across the user's stacks |
-| GET  | `/api/datagen/stacks/{id}/nodes/{nid}/databases` | list databases |
-| GET  | `/api/datagen/stacks/{id}/nodes/{nid}/tables?db=` | list schema.table + est. rows |
-| GET  | `/api/datagen/stacks/{id}/nodes/{nid}/columns?db=&schema=&table=` | column template + metadata |
-| POST | `/api/datagen/stacks/{id}/nodes/{nid}/preview` | 10 sample rows (no writes) |
-| POST | `/api/datagen/stacks/{id}/nodes/{nid}/generate` | start a generation job → `{jobId}` |
-| GET  | `/api/datagen/jobs/{job}` | progress snapshot |
-| POST | `/api/datagen/jobs/{job}/cancel` | cancel a running job |
-
-## Source map
-
-- `app/datagen.go` — engine dispatch (`dbConn`, `queryJSON`/`execSQL`), connections,
-  database/table listing, PostgreSQL `pgTableMeta`.
-- `app/datagen_mysql.go` — MySQL/PXC `myTableMeta` (information_schema) + enum/set parsing.
-- `app/datagen_gen.go` — generator IDs, inference, per-column value generation (engine-aware
-  type ranges + JSON cast).
-- `app/datagen_data.go` — realistic-data libraries (names, cities, companies, …).
-- `app/datagen_job.go` — config, FK sampling (quote_nullable / QUOTE), worker/batch engine
-  (identifier quoting per engine), progress, cancel.
-- `app/docker.go` — `ExecInput` (stdin-piped exec) used for both `psql -f -` and `mysql`.
-- `app/web/src/pages/DataGenerator.jsx` — wizard UI.
-- `app/web/src/lib/datagenApi.js` — API wrapper + generator labels.
+```jsonc
+{ "id": "…", "status": "running",   // running | done | error | canceled
+  "total": 1000000, "inserted": 734000, "errors": 0,
+  "rowsPerSec": 48211.5, "elapsedSec": 15.2, "etaSec": 5.5, "message": "" }
+```

@@ -1,82 +1,73 @@
 # Operator Backups
 
-The **Backups** tab on a Kubernetes frame does the three things a Percona operator's backups
-need doing: takes them, puts them back, and shows you what is actually in the bucket underneath.
-Every action is a manifest the panel writes, applies and files on the node — so the tab is a way
-to *learn* this, not a thing you have to keep using.
+The **Backups** tab on a K3D cluster takes backups through the Percona operator, restores them, and
+shows what is actually in the object store. Every action applies a manifest you can read, and each
+one is saved as a file on the node so you can apply it yourself with `kubectl`.
 
-It is on any K3D frame running one of the four Percona operators — **MySQL (PXC)**,
-**MySQL (Percona Server)**, **MongoDB**, or **PostgreSQL**. Open the cluster's **server** node
-and pick **Backups**, next to **cr.yaml** and **Secrets & configs**. The three sit together on
-purpose: `cr.yaml` is the standing instruction to the operator, Secrets are the objects it is
-told it with, and this is the two things you ask it to do once.
-
-## What each pane is for
+It is available on K3D frames running one of the four Percona operators: **MySQL (PXC)**,
+**MySQL (Percona Server)**, **MongoDB** and **PostgreSQL**. Open the cluster's **server** node and
+choose **Backups** (next to **cr.yaml** and **Secrets & configs**). CloudNativePG and Crunchy PGO
+are not supported.
 
 | Pane | What it shows |
 | --- | --- |
-| **Backups** | Every Backup custom resource in the namespace, its state, where it went, and whether deleting it will take the data too. Takes new ones; restores from one. |
-| **Restores** | Every Restore object and what became of it. |
-| **Bucket** | What is really in the object store — listed, downloaded and deleted through a pod on the cluster. |
-| **Manifests** | Every document this tab has applied, as files on the node. |
+| **Backups** | Every backup object in the namespace: state, storage, destination, and whether deleting it also deletes the data. Take and restore from here. |
+| **Restores** | Every restore object and its outcome. |
+| **Bucket** | The objects in the backup store. Shown only when the cluster has an object store. |
+| **Manifests** | Every manifest this tab has applied. |
 
-## Taking a backup
+The Backups and Restores lists refresh every five seconds.
 
-Press **Take a backup**. The panel writes a manifest, applies it, and shows you both the document
-and where it filed it:
+## Take a backup
+
+1. Optionally change the **Name** (default `<cluster>-backup-<timestamp>`).
+2. Optionally turn on **Delete the data with the object** (see [Delete a backup](#delete-a-backup)).
+3. Press **Take a backup**. **Preview YAML** shows the manifest without applying it.
+
+Example manifest (PXC):
 
 ```yaml
 apiVersion: pxc.percona.com/v1
 kind: PerconaXtraDBClusterBackup
 metadata:
-#  finalizers:
-#    - percona.com/delete-backup
   name: cluster1-backup-20260911-143002
 spec:
   pxcCluster: cluster1
   storageName: seaweedfs
 ```
 
-The name is the cluster, the verb and a UTC timestamp, so the list sorts newest-first by name
-alone. **Preview YAML** builds the same document and applies nothing, which is the way to read
-what a setting does before it does it.
-
-The state in the table is the operator's own — `Starting`, `Running`, `Succeeded`, `Failed` — and
-the table polls every five seconds while you watch. An object the operator has not reached yet
-reads `Pending` rather than showing a blank cell.
+The state column shows the operator's own state (`Starting`, `Running`, `Succeeded`, `Failed`), or
+`Pending` before the operator has picked the object up.
 
 > [!NOTE]
-> **Where does it go?** `storageName` (or `repoName` on PostgreSQL) names the storage in the
-> cluster's `cr.yaml`, which DBCanvas pointed at the stack's SeaweedFS node at deploy time. A
-> frame deployed without one still takes backups — to the PVC the operator ships — and the
-> Bucket pane is simply not offered.
+> Backups go to the storage named in the cluster's `cr.yaml`, which DBCanvas points at the stack's
+> SeaweedFS node when there is one. A cluster without one backs up to the operator's default PVC
+> storage, and the **Bucket** pane is not shown.
 
-## Deleting a backup, and deleting a backup
+## Delete a backup
 
-These are different acts, and the tab gives them different buttons because the difference is the
-part people come to a lab to find out:
+Deleting the backup **object** and deleting its **data** are separate actions:
 
-- **the object** — `kubectl delete pxc-backup <name>`. The record goes. Every byte stays in the
-  bucket, unreferenced and invisible to Kubernetes.
-- **the object and its data** — the same delete, but the panel first patches the
-  `percona.com/delete-backup` finalizer onto the object, which is what makes the operator clear
-  the storage on its way out.
+| Button | Effect |
+| --- | --- |
+| **the object** | Deletes the Kubernetes object. The backup files stay in the bucket. |
+| **the object and its data** | Adds the `percona.com/delete-backup` finalizer first, so the operator also deletes the files. |
 
-The finalizer is set at the moment of deletion rather than assumed from how the backup was
-created, so "delete the data too" means the same thing for a backup taken here, by a schedule, or
-by the replication seed. There is also a **Delete the data with the object** switch when taking
-one, which arms the finalizer up front — that is how the operators' own `backup.yaml` documents
-it, commented out.
+Turning on **Delete the data with the object** when taking a backup adds the finalizer up front.
 
-Percona's PostgreSQL operator is the exception and the tab says so: pgBackRest owns its
-repository's retention and the operator does not reach into it, so a `PerconaPGBackup` is only
-ever a record. Expire it from the repository, or delete the objects in the Bucket pane.
+**PostgreSQL:** pgBackRest manages its own retention, so deleting a backup object never deletes
+data and only one delete button is shown. Expire backups in pgBackRest, or delete files in the
+**Bucket** pane.
 
-## Restoring
+## Restore
 
-**Restore…** on a `Succeeded` backup opens a confirmation that states the cost plainly: the
-cluster stops serving, its data is replaced, and on the MySQL operators the GTID history goes
-with it. There is no undo. The manifest is one field:
+> [!WARNING]
+> A restore replaces the cluster's data and cannot be undone. The cluster stops serving while it
+> runs, and on the MySQL operators the GTID history is replaced too. Take a backup first if the
+> current data matters.
+
+**MySQL and MongoDB:** press **Restore…** on a `Succeeded` backup, then **Restore <cluster> from
+this** (or **Preview YAML**).
 
 ```yaml
 apiVersion: pxc.percona.com/v1
@@ -88,155 +79,72 @@ spec:
   backupName: cluster1-backup-20260911-143002
 ```
 
-**PostgreSQL restores a repository, not a backup object.** `PerconaPGRestore` names `repo1` and
-hands the rest to pgBackRest, so that pane offers an options box instead of a button per row:
-`--set=<label>` picks a specific backup, `--type=time --target=…` does point-in-time. With no
-options it restores the latest backup in the repo, which is what pgBackRest does on its own.
+**PostgreSQL:** a restore names a pgBackRest repository, not a backup. Use the box under the list:
+leave it empty to restore the latest backup, or add pgBackRest options such as
+`--set=<label>` (a specific backup) or `--type=time --target=…` (point-in-time). Then press
+**Restore <cluster> from <repo>**.
 
-## The bucket
+## Browse the bucket
 
-A backup object says where it went and stops there. The **Bucket** pane is the other half:
+The **Bucket** pane lists what is in the object store, including things no Kubernetes object
+points to: binlogs being uploaded for PITR, half-written prefixes from failed backups, pgBackRest
+files, and data from backup objects deleted without the finalizer.
 
-- the binlogs a PITR collector is uploading right now,
-- the prefix a failed backup left half-written,
-- a pgBackRest repository nothing has expired,
-- anything whose backup object was deleted **without** the finalizer.
+1. Press **List the bucket**. Folders are grouped at each `/`; click one to open it, use the
+   breadcrumb to go back, and **Load more** to page.
+2. **Download** saves one object, up to **64 MiB**. For larger files the pane shows a command to
+   copy it inside the cluster instead.
+3. **Delete** removes one object, or everything under a prefix. A prefix delete has a **dry run**
+   button; use it first. Either way the pane reports how many objects matched.
 
-None of that is a Kubernetes object, so none of it appears anywhere else.
+Each action shows the exact `kubectl exec … aws s3api …` command it ran.
 
-### How it works — the toolbox pod
+**The toolbox pod.** Bucket operations run the AWS CLI in a pod on the cluster named
+`<cluster>-dbcanvas-s3`, using the cluster's own backup credentials Secret, so it works with any S3
+endpoint the operator uses. It starts on first use and keeps no state. On PXC and Percona Server it
+uses the cluster's backup image; on MongoDB and PostgreSQL the first start pulls
+`percona/percona-xtrabackup:8.0`. When the store uses HTTPS, the toolbox verifies its certificate
+against the Intranet CA and the store's own certificate. **Stop toolbox** removes the pod; the
+bucket is not touched.
 
-Every operation in this pane runs `aws` **in a pod on the cluster**, not from DBCanvas. The pod
-is `<cluster>-dbcanvas-s3`, it runs an image that carries the AWS CLI, and it takes the cluster's
-own backup credentials straight from the Secret the operator already uses:
+## Manifests on the node
 
-```yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: cluster1-dbcanvas-s3
-spec:
-  restartPolicy: Never
-  containers:
-  - name: s3
-    image: percona/percona-xtrabackup:8.0
-    command: ["sleep", "infinity"]
-    env:
-    - name: AWS_ENDPOINT_URL
-      value: "http://seaweedfs-1.example.net:8333"
-    - name: AWS_EC2_METADATA_DISABLED
-      value: "true"
-    envFrom:
-    - secretRef:
-        name: cluster1-backup-s3
-```
-
-That choice buys three things. It works against **any** S3 endpoint the operator was pointed at,
-not just DBCanvas's own SeaweedFS node. Every operation is therefore a real `kubectl` command
-against a real manifest, and the panel hands you the exact line it ran. And it is how this is
-actually done: Percona's backup images ship the AWS CLI next to `xbcloud`, which is why "spawn an
-xtrabackup pod and use the CLI" is the standard way to get at a Percona cluster's bucket.
-
-The pod is **started on demand and holds no state**. On a PXC or Percona Server cluster it uses
-the cluster's own backup image, which is already on every node, so it costs nothing; on MongoDB
-and PostgreSQL — whose backup images carry `pbm` and `pgbackrest` and no S3 client — the first
-start pulls `percona/percona-xtrabackup`. **Stop toolbox** removes it; the bucket is untouched.
-
-**A store with TLS on.** The AWS CLI is boto3, and botocore verifies certificates against its own
-bundled CA list rather than the system trust store — so against an `https://` SeaweedFS node every
-call used to fail with `SSL validation failed … CERTIFICATE_VERIFY_FAILED` before it reached the
-bucket, whether that node's certificate came from the Intranet CA or signed itself. The toolbox now
-mounts a Secret (`<cluster>-dbcanvas-s3-ca`) holding both the Intranet CA and the store's own S3
-certificate, with `AWS_CA_BUNDLE` pointing at it, so the certificate is actually *verified* rather
-than skipped — unlike the operator's own backups, where DBCanvas sets `verifyTLS: false` because
-the backup images cannot be given a trust store. A toolbox left running from before this existed is
-replaced rather than reused: nothing about it looks unhealthy, so it would keep failing.
-
-### Listing, downloading, deleting
-
-Listing folds at the next `/`, so a flat keyspace reads as directories and a pgBackRest
-repository is navigable rather than forty thousand rows. Click a folder to descend, the
-breadcrumb to come back, **Load more** to page.
-
-```sh
-kubectl -n default exec cluster1-dbcanvas-s3 -- \
-  aws s3api list-objects-v2 --bucket dbcanvas --delimiter / --prefix cluster1-2026-09-11/ --output json
-```
-
-**Download** streams one object to your browser, up to **64 MiB**. The cap is deliberate: the
-things worth reading from here — an `xtrabackup_info`, a pgBackRest manifest, a `.md5` — are
-kilobytes, and a backup artefact is gigabytes. Ask for a larger one and the panel refuses with
-the command that copies it *inside* the cluster instead.
-
-**Delete** removes one object, or everything under a prefix. A prefix delete offers a **dry run**
-beside it and you should use it — `aws s3 rm --recursive` over the wrong prefix is the one action
-in this tab with no counterpart anywhere else. Either way the panel reports how many objects
-matched, so "nothing matched" never reads as "done".
-
-## Everything it applied, on the node
-
-Every manifest this tab applies is filed at:
+Every manifest the tab applies is saved in the operator's source directory on the server node:
 
 ```
 <operator source>/deploy/backup/
 ```
 
-— which on a PXC cluster is `/root/percona-xtradb-cluster-operator-1.20.0/deploy/backup/`, beside
-the `backup.yaml` and `restore.yaml` samples the release already ships. Each file carries the
-commands to apply it again in its header:
+For example `/root/percona-xtradb-cluster-operator-1.20.0/deploy/backup/`, next to the release's
+own `backup.yaml` and `restore.yaml`. Each file starts with the commands to apply it again and
+watch the result:
 
 ```yaml
-# pxc-backup cluster1-backup-20260911-143002 — take a backup of cluster1
-#
-# Written by DBCanvas on 2026-09-11T14:30:02Z. Apply it again, or edit it and apply that, with:
-#
 #   kubectl apply -n default -f deploy/backup/cluster1-backup-20260911-143002.yaml
-#
-# and watch what the operator makes of it with:
-#
 #   kubectl -n default get pxc-backup -w
 ```
 
-The **Manifests** pane lists them and shows any of them, but the point is that they are files on
-a node you have a root console to. Nothing in this tab does anything to a cluster that is not
-`kubectl apply` of a document you can read.
+The **Manifests** pane lists and shows these files.
 
-## The four operators, side by side
+## Operator differences
 
-The tab is one set of controls over four CRDs. What differs:
-
-| | Backup / Restore kinds | Cluster field | Storage field | Delete the data? | Restore names |
+| Operator | Backup / Restore kinds | Cluster field | Storage field | Delete data with object? | Restore from |
 | --- | --- | --- | --- | --- | --- |
-| **MySQL (PXC)** | `PerconaXtraDBClusterBackup` / `…Restore` | `pxcCluster` | `storageName` | yes, via finalizer | a backup |
-| **MySQL (PS)** | `PerconaServerMySQLBackup` / `…Restore` | `clusterName` | `storageName` | yes, via finalizer | a backup |
-| **MongoDB** | `PerconaServerMongoDBBackup` / `…Restore` | `clusterName` | `storageName` | yes, via finalizer | a backup |
-| **PostgreSQL** | `PerconaPGBackup` / `PerconaPGRestore` | `pgCluster` | `repoName` | no — pgBackRest owns retention | a repository |
-
-The two community PostgreSQL operators DBCanvas can also install — CloudNativePG and Crunchy PGO
-— are Helm-installed and model backups differently enough that they are left out, the same way
-they are left out of the cr.yaml editor.
-
-## Two things worth knowing
-
-**A restore is not undoable, and the cluster is down while it runs.** The operator pauses it,
-replaces the data, and brings it back. On a lab this is the experiment; it is also the fastest way
-to lose the state you were part-way through building. Take a backup of what is there first — it
-costs a minute.
-
-**Deleting a backup object usually leaves the data.** This surprises people, and it is the
-operators' own default, not DBCanvas's. If your bucket keeps growing while the backup list stays
-short, that is why — and the Bucket pane is how you find what is in there and clear it.
+| **MySQL (PXC)** | `PerconaXtraDBClusterBackup` / `PerconaXtraDBClusterRestore` | `pxcCluster` | `storageName` | yes, via finalizer | a backup |
+| **MySQL (Percona Server)** | `PerconaServerMySQLBackup` / `PerconaServerMySQLRestore` | `clusterName` | `storageName` | yes, via finalizer | a backup |
+| **MongoDB** | `PerconaServerMongoDBBackup` / `PerconaServerMongoDBRestore` | `clusterName` | `storageName` | yes, via finalizer | a backup |
+| **PostgreSQL** | `PerconaPGBackup` / `PerconaPGRestore` | `pgCluster` | `repoName` | no — pgBackRest manages retention | a repository |
 
 ## API
 
-Every action has an endpoint under the frame; see
+Every action has an endpoint under the frame — see
 [API & CLI reference](API_REFERENCE.md#kubernetes-frames).
 
 ```sh
-# take one, and watch for it
+# take a backup, then watch its state
 dbcanvas api POST /api/stacks/1/frames/k3d-01/k3d/backups --data '{}'
 dbcanvas api GET  /api/stacks/1/frames/k3d-01/k3d/backups | jq '.backups[] | {name, state, destination}'
 
-# what is in the bucket
+# list the bucket under a prefix
 dbcanvas api GET '/api/stacks/1/frames/k3d-01/k3d/bucket?prefix=cluster1-2026-09-11'
 ```

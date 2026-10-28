@@ -1,42 +1,37 @@
-# API & CLI reference, feature by feature
+# API & CLI reference
 
-Every feature of DBCanvas, with the endpoint behind it, the `dbcanvas-cli` command
-that calls it, and — where a picture helps — the thing you would have clicked instead.
+Every feature of DBCanvas with its endpoints and the `dbcanvas-cli` command that calls
+them. For authentication, scopes and status codes, read [HTTP API](API.md); for CLI
+profiles, `--json`, `--wait` and exit codes, read [`dbcanvas-cli`](CLI.md).
 
-For **how** to authenticate, what scopes mean and how tokens expire, read
-[HTTP API](API.md) first. For the CLI's own conventions — profiles, `--json`,
-`--wait`, exit codes — read [`dbcanvas-cli`](CLI.md). This page is the map between
-the three.
-
-**This page is written by hand and the catalogue is not.** The authoritative,
-always-current list is on the **API** page in the app, or:
+The always-current list is the **API** page in the app, or:
 
 ```sh
 dbcanvas endpoints --long
-curl -s -H "Authorization: Bearer $DBCANVAS_TOKEN" localhost:8080/api/meta/endpoints
 ```
 
-If something here disagrees with those, they are right.
+**Conventions on this page**
 
-**Where a table says `dbcanvas api …`** there is no curated subcommand: that is the
-escape hatch, it works for every endpoint, and it is not a lesser option — just a
-longer one.
-
----
+- `…/nodes/{nid}` is short for `/api/stacks/{id}/nodes/{nid}`, and `…/frames/{fid}`
+  for `/api/stacks/{id}/frames/{fid}`. A *frame* is a cluster on the canvas.
+- Where the CLI column says `dbcanvas api …`, there is no dedicated subcommand;
+  `dbcanvas api METHOD PATH [--data JSON|@file] [--out FILE]` calls any endpoint.
+- Global CLI flags such as `--json` go **before** the command:
+  `dbcanvas --json query run …`.
 
 ## Contents
 
 **Getting in** · [Sign-in & accounts](#sign-in--accounts) · [Your account](#your-account) · [API tokens](#api-tokens) · [Users (admin)](#users-admin) · [Instance settings (admin)](#instance-settings-admin)
 
-**Building** · [Stacks](#stacks) · [Templates](#templates) · [Nodes](#nodes) · [Clusters & backups](#clusters--backups) · [Version catalogues](#version-catalogues) · [Kubernetes frames](#kubernetes-frames) · [All in One](#all-in-one)
+**Building** · [Stacks](#stacks) · [Templates](#templates) · [Nodes](#nodes) · [Clusters & backups](#clusters--backups) · [Version catalogues](#version-catalogues) · [Kubernetes frames](#kubernetes-frames) · [All in One](#all-in-one) · [Repository, Ceph and Linux Client nodes](#repository-ceph-and-linux-client-nodes) · [Labs](#labs)
 
-**Running load** · [Data Generator](#data-generator) · [Query Runner](#query-runner) · [Database Explorer](#database-explorer) · [Benchmark](#benchmark) · [Sample Client Code](#sample-client-code) · [Stock Market Sim](#stock-market-sim) · [Ledger Sim](#ledger-sim)
+**Running load** · [Data Generator](#data-generator) · [Query Runner](#query-runner) · [Database Explorer](#database-explorer) · [Benchmark](#benchmark) · [Stock Market Sim](#stock-market-sim) · [Sample Client Code](#sample-client-code) · [Ledger Sim](#ledger-sim)
 
-**Finding out what happened** · [Activity](#activity) · [Packet Inspector](#packet-inspector) · [Log Summary](#log-summary) · [FTDC Summary](#ftdc-summary) · [Stalk Summary](#stalk-summary) · [Diagnostic captures](#diagnostic-captures) · [Operator Debugger](#operator-debugger) · [Core Dump Analyzer](#core-dump-analyzer)
+**Finding out what happened** · [Activity](#activity) · [Packet Inspector](#packet-inspector) · [Log Summary](#log-summary) · [FTDC Summary](#ftdc-summary) · [Stalk Summary](#stalk-summary) · [Operator Summary](#operator-summary) · [Diagnostic captures](#diagnostic-captures) · [Operator Debugger](#operator-debugger) · [Core Dump Analyzer](#core-dump-analyzer)
 
 **Managing a node** · [Node file manager](#node-file-manager) · [Certificates](#certificates) · [Intranet mail](#intranet-mail) · [Intranet LDAP](#intranet-ldap) · [Intranet DNS](#intranet-dns) · [Samba AD DC](#samba-ad-dc) · [SeaweedFS](#seaweedfs) · [OpenBao](#openbao)
 
-**Watching** · [Dashboard](#dashboard) · [Notifications](#notifications) · [Shared sessions](#shared-sessions) · [API metadata](#api-metadata)
+**Watching** · [Dashboard](#dashboard) · [Notifications](#notifications) · [Kanban](#kanban) · [Shared sessions](#shared-sessions) · [API metadata](#api-metadata)
 
 ---
 
@@ -44,21 +39,23 @@ longer one.
 
 ## Sign-in & accounts
 
-The only five endpoints reachable without a session, because they are the ones an
-account needs before it has one.
+These endpoints need no session.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Ask whether this installation is set up, and who you are | `GET /api/setup/status` | `dbcanvas version` (also prints the server's) |
-| Create the first account — it becomes the administrator | `POST /api/setup` | *(UI only; there is nothing to authenticate with yet)* |
-| Request an account: pending until an admin approves it, or approved and signed in at once when **open registration** is on | `POST /api/auth/register` `{"username", "password", "firstName", "lastName", "email", "avatar"}` — names and email required; one email per account. The response's `status` is `"pending"` or `"approved"` | *(UI only)* |
-| Change your name, email and avatar | `PUT /api/me/profile` `{"firstName", "lastName", "email", "avatar"}` | — |
-| The avatars to choose from | `GET /api/avatars` | — |
-| Sign in and get a session cookie | `POST /api/auth/login` | `dbcanvas login` — then swaps it for a token |
-| Sign out | `POST /api/auth/logout` | `dbcanvas logout` — also revokes the token |
+| Is this installation set up, and who am I | `GET /api/setup/status` | `dbcanvas version` (also prints the server version) |
+| Create the first account (it becomes the administrator) | `POST /api/setup` | *(UI only)* |
+| Request an account | `POST /api/auth/register` `{"username", "password", "firstName", "lastName", "email", "avatar"}` | *(UI only)* |
+| Sign in and get a session cookie | `POST /api/auth/login` | `dbcanvas login` |
+| Sign out | `POST /api/auth/logout` | `dbcanvas logout` (also revokes the CLI's token) |
+| Check a password reset link · set the new password | `GET` · `POST /api/auth/reset/{token}` | *(UI only)* |
 
-`dbcanvas login` does all three of the last ones in sequence and keeps only the
-token; see [`dbcanvas-cli`](CLI.md#signing-in) for why.
+Names and email are required to register, and an email belongs to one account. The
+response's `status` is `"pending"` (waiting for an administrator) or `"approved"`
+(when open registration is on).
+
+`dbcanvas login` signs in, creates an API token, signs out and keeps only the token —
+see [`dbcanvas-cli`](CLI.md#signing-in).
 
 ```sh
 dbcanvas login --url http://localhost:8080
@@ -66,40 +63,45 @@ dbcanvas login --url http://localhost:8080
 
 ## Your account
 
-**UI:** the avatar menu, top right, and **Settings**.
+**UI:** **Profile** (name, avatar, password, tokens) and **Settings** (preferences).
 
 | To do this | API | CLI |
 | --- | --- | --- |
 | Who am I | `GET /api/me` | `dbcanvas whoami` |
-| Read your UI preferences | `GET /api/me/settings` | `dbcanvas api GET /api/me/settings` |
-| Change theme, look, tab limit, terminal mode, terminal stacking, deployment backend, tooltips | `PUT /api/me/settings` | `dbcanvas api PUT /api/me/settings --data '{"theme":"forest","look":"industrial","maxTabs":20,"tooltips":"off"}'` |
-| List the node images beyond the OS bases, with what is present | `GET /api/images` | `dbcanvas api GET /api/images` |
-| Build one of them on this Docker daemon (admin) | `POST /api/images/{id}/build` | `dbcanvas api POST /api/images/bighole/build` |
-| Download a MongoDB node's `diagnostic.data` with its log, as a tar.gz | `GET /api/stacks/{id}/nodes/{nid}/mongo/diagnostic` | `dbcanvas api GET /api/stacks/12/nodes/psmrs-01/mongo/diagnostic` |
-| **Change your password** | `POST /api/me/password` | `dbcanvas password` |
-| Read the release notes, and whether you have seen them | `GET /api/whatsnew` | `dbcanvas api GET /api/whatsnew` |
-| Mark the release notes read | `POST /api/whatsnew/seen` | `dbcanvas api POST /api/whatsnew/seen` |
+| Change your name, email and avatar | `PUT /api/me/profile` `{"firstName", "lastName", "email", "avatar"}` | — |
+| The avatars to choose from | `GET /api/avatars` | — |
+| Read your preferences | `GET /api/me/settings` | `dbcanvas api GET /api/me/settings` |
+| Change them | `PUT /api/me/settings` | `dbcanvas api PUT /api/me/settings --data '{"theme":"forest","look":"industrial","maxTabs":20}'` |
+| **Change your password** | `POST /api/me/password` | `dbcanvas password [--revoke-tokens]` |
+| Your kept Scratchboard boards | `GET /api/me/scratchboards` · `PUT`/`DELETE /api/me/scratchboards/{bid}` | — |
+| Release notes, and whether you have read them | `GET /api/whatsnew` · `POST /api/whatsnew/seen` | `dbcanvas api GET /api/whatsnew` |
+| Node images beyond the OS bases, and which are present | `GET /api/images` | `dbcanvas api GET /api/images` |
+| Build one of them (admin) | `POST /api/images/{id}/build` | `dbcanvas api POST /api/images/bighole/build` |
 
-![The change-password form in Settings](screenshots/settings-password.png)
+Preference fields (`PUT` changes only the fields you send; an unknown value falls back
+to the default):
 
-> *`POST /api/me/password` is this form. The current-password field is not a
-> formality — it is the check the endpoint exists for. The toggle is the
-> `revokeTokens` flag.*
+| Field | Values |
+| --- | --- |
+| `theme` | `light`, `dark` (default), `midnight`, `solarized`, `synthwave`, `forest` |
+| `look` | `modern` (default), `industrial`, `editorial`, `soft` |
+| `maxTabs` | 2–40 (default 20) |
+| `terminalMode` | `docked`, `undocked` |
+| `terminalsOnTop` | `on` unless exactly `off` |
+| `tooltips` | `on` unless exactly `off` |
+| `deploymentBackend` | `docker`, `vagrant` |
+| `nodeLibrary` | `menu`, `docked` |
+| `scratchboard` | `off`, `on` (keep chosen boards on the server) |
 
-**Changing your password needs your current one**, even though you are already signed
-in — a session somebody else got hold of should not be able to lock you out. And **an
-API token cannot do it at all**: that is the same asymmetry that stops a token
-creating another token. Both the endpoint and `dbcanvas password` ask for the
-password, and the CLI signs in with it rather than sending its stored token.
+![The change-password form](screenshots/settings-password.png)
 
-Changing it signs out every *other* session and keeps the one you used.
-API tokens survive by default — a routine rotation should not break a CI job — and
-`--revoke-tokens` (or the toggle in Settings) takes them with it, which is what you
-want if the password may have leaked.
+**Changing your password** needs your current password, and an API token cannot do it.
+It signs out every other session and keeps yours. Your API tokens keep working unless
+you tick **Also revoke my API tokens** (`revokeTokens`, or `--revoke-tokens`).
 
 ```sh
 $ dbcanvas password
-Changing the password for jaime on http://localhost:8080.
+Changing the password for alice on http://localhost:8080.
 Current password: ********
 New password: ********
 New password again: ********
@@ -107,31 +109,27 @@ Password changed. Every other session was signed out.
 Your API tokens still work. Pass --revoke-tokens if you wanted them gone too.
 ```
 
-> **Forgotten it entirely?** Ask an administrator: **Manage Users** can set a new
-> password or hand you a one-time reset link (see [Users](#users-admin)). With no
-> administrator able to sign in, the answer is
-> `docker exec -it dbcanvas-app-1 dbcanvas_reset_password` — see
-> [Configuration](CONFIGURATION.md#recovering-an-admin-password).
+> [!TIP]
+> Forgotten your password? An administrator can set a new one or send you a reset
+> link from **Manage Users** (see [Users](#users-admin)). If no administrator can sign
+> in, see [Configuration](CONFIGURATION.md#recovering-an-admin-password).
 
 ## API tokens
 
-**UI:** **API** → **Tokens**.
+**UI:** **API → Tokens**. See [HTTP API](API.md#create-a-token) for scopes and expiry.
 
 ![API → Tokens: the create form and the token table](screenshots/api-tokens.png)
 
-> *Every row is one `GET /api/tokens` entry — name, prefix, scope, expiry, last used
-> and state. Active, expired and revoked all stay listed. The lower table is
-> `GET /api/admin/tokens`, which adds the owner column and is admin-only.*
-
 | To do this | API | CLI |
 | --- | --- | --- |
-| List your tokens | `GET /api/tokens` | `dbcanvas token list` |
-| Create one (needs a password sign-in) | `POST /api/tokens` | `dbcanvas token create --name N --scope write --expires 30` |
+| List your tokens (active, expired and revoked) | `GET /api/tokens` | `dbcanvas token list` |
+| Create one (password sign-in only) | `POST /api/tokens` `{"name", "scope", "days"}` | `dbcanvas token create --name N --scope write --expires 30` |
 | Revoke one of yours | `DELETE /api/tokens/{id}` | `dbcanvas token revoke <id>` |
-| List every token on the instance | `GET /api/admin/tokens` | `dbcanvas token list --all` |
-| Revoke anyone's | `DELETE /api/admin/tokens/{id}` | `dbcanvas token revoke <id> --admin` |
+| List every token on the instance (admin) | `GET /api/admin/tokens` | `dbcanvas token list --all` |
+| Revoke anyone's (admin) | `DELETE /api/admin/tokens/{id}` | `dbcanvas token revoke <id> --admin` |
 
-The secret is returned once, by the create call, and never again.
+The secret is returned once, by the create call. `days: 0` means never expires
+(administrators only).
 
 ## Users (admin)
 
@@ -139,106 +137,71 @@ The secret is returned once, by the create call, and never again.
 
 ![Manage Users: the account list](screenshots/manage-users.png)
 
-> *`GET /api/users` returns these rows, accounts awaiting approval first. Each button
-> is one of the calls below.*
-
 | To do this | API | CLI |
 | --- | --- | --- |
-| List every account, pending first, with last sign-in, last activity and session count | `GET /api/users` | `dbcanvas user list` |
-| Read one account, with its stack count and active API token count | `GET /api/users/{id}` | `dbcanvas api GET /api/users/1` |
-| List the stacks an account owns | `GET /api/users/{id}/stacks` | `dbcanvas api GET /api/users/1/stacks` |
-| List an account's API tokens (never the secrets) | `GET /api/users/{id}/tokens` | `dbcanvas api GET /api/users/1/tokens` |
-| Revoke every API token of an account | `DELETE /api/users/{id}/tokens` | `dbcanvas api DELETE /api/users/1/tokens` |
-| Hand a stack to another account | `POST /api/stacks/{id}/owner` `{"userId"}` | `dbcanvas api POST /api/stacks/12/owner -d '{"userId":3}'` |
-| Create an approved account (needs a password sign-in) | `POST /api/users` | `dbcanvas user create bob --first Bob --last Lee --email bob@example.net` (asks for your password; `--invite` for a link instead) |
-| Change an account's username and profile | `PUT /api/users/{id}` | `dbcanvas api PUT /api/users/1 -d '{"username":"pat",…}'` |
-| Approve a pending account | `POST /api/users/{id}/approve` | `dbcanvas api POST /api/users/1/approve` |
-| Reject a request | `POST /api/users/{id}/reject` | `dbcanvas api POST /api/users/1/reject` |
-| Disable an approved account | `POST /api/users/{id}/disable` | `dbcanvas api POST /api/users/1/disable` |
-| Delete an account and its stacks, or hand the stacks to another account first | `DELETE /api/users/{id}[?transferStacksTo={userId}]` | `dbcanvas api DELETE '/api/users/1?transferStacksTo=3'` |
-| Make an account an administrator, or a regular user again | `POST /api/users/{id}/role` | `dbcanvas api POST /api/users/1/role -d '{"role":"admin"}'` |
-| Set an account's password (needs a password sign-in) | `POST /api/users/{id}/password` | — |
-| Create a one-time reset link (needs a password sign-in) | `POST /api/users/{id}/reset-link` | — |
-| List an account's sessions | `GET /api/users/{id}/sessions` | `dbcanvas api GET /api/users/1/sessions` |
-| Sign an account out everywhere, or out of one session | `DELETE /api/users/{id}/sessions[/{sid}]` | `dbcanvas api DELETE /api/users/1/sessions` |
-| Sign every account out, except the caller's session | `DELETE /api/users/sessions` | `dbcanvas api DELETE /api/users/sessions` |
-| Clear an account's sign-in history, or everyone's | `DELETE /api/users/{id}/sign-ins`, `DELETE /api/users/sign-ins` | `dbcanvas api DELETE /api/users/sign-ins` |
+| List accounts, pending first, with last sign-in, activity and session count | `GET /api/users` | `dbcanvas user list` |
+| Read one, with its stack and active token counts | `GET /api/users/{id}` | `dbcanvas api GET /api/users/1` |
+| The stacks it owns | `GET /api/users/{id}/stacks` | `dbcanvas api GET /api/users/1/stacks` |
+| Its API tokens (never the secrets) | `GET /api/users/{id}/tokens` | `dbcanvas api GET /api/users/1/tokens` |
+| Revoke all its API tokens | `DELETE /api/users/{id}/tokens` | `dbcanvas api DELETE /api/users/1/tokens` |
+| Create an approved account (password sign-in only) | `POST /api/users` | `dbcanvas user create bob --first Bob --last Lee --email bob@example.net [--role admin] [--invite]` |
+| Change its username and profile | `PUT /api/users/{id}` | `dbcanvas api PUT /api/users/1 --data '{"username":"pat"}'` |
+| Approve · reject · disable | `POST /api/users/{id}/approve` · `/reject` · `/disable` | `dbcanvas api POST /api/users/1/approve` |
+| Delete it and its stacks, or hand the stacks over first | `DELETE /api/users/{id}[?transferStacksTo={userId}]` | `dbcanvas api DELETE '/api/users/1?transferStacksTo=3'` |
+| Make it an administrator, or a user again | `POST /api/users/{id}/role` `{"role"}` | `dbcanvas api POST /api/users/1/role --data '{"role":"admin"}'` |
+| Set its password (password sign-in only) | `POST /api/users/{id}/password` | — |
+| Create a one-time reset link (password sign-in only) | `POST /api/users/{id}/reset-link` | — |
+| List its sessions | `GET /api/users/{id}/sessions` | `dbcanvas api GET /api/users/1/sessions` |
+| Sign it out everywhere, or of one session | `DELETE /api/users/{id}/sessions[/{sid}]` | `dbcanvas api DELETE /api/users/1/sessions` |
+| Sign every account out except your own session | `DELETE /api/users/sessions` | `dbcanvas api DELETE /api/users/sessions` |
+| Clear sign-in history for one account, or everyone | `DELETE /api/users/{id}/sign-ins` · `DELETE /api/users/sign-ins` | `dbcanvas api DELETE /api/users/sign-ins` |
+| Hand a stack to another account | `POST /api/stacks/{id}/owner` `{"userId"}` | `dbcanvas api POST /api/stacks/12/owner --data '{"userId":3}'` |
 
-Rejecting or disabling revokes that account's sessions **and its API tokens** in the
-same operation. `DELETE /api/users/{id}/tokens` revokes the tokens alone, leaving the
-sessions and the password as they are; the owner gets a notification.
-
-**Deleting an account** deletes its stacks, and removes the containers they deployed,
-as `DELETE /api/stacks/{id}` would. With `?transferStacksTo=<user id>` the stacks go to
-that account instead, still running; it must be an approved account other than the one
-being deleted. The response says how many stacks were deleted or transferred.
-`POST /api/stacks/{id}/owner` moves a single stack the same way, and notifies the new
-owner.
-
-Nobody can change their own role — that is how an instance would end up with no
-administrator — and a role change applies on the account's next request, without
-signing it out.
-
-**Add user** creates an account that is approved straight away, with the role you pick.
-Its owner gets either a link, valid for 7 days, to choose a password, or a temporary
-password you type, which they must change when they first sign in.
-
-**Resetting someone's password** (the key button) works two ways. *Set the password*
-replaces it outright, signs the account out everywhere, and optionally revokes its API
-tokens. By default the password is temporary: until the owner chooses their own, the
-server refuses everything else they ask for, with a session or a token. *Send a reset link* returns a `/reset-password/<token>` link for the owner to
-choose a password themselves: it works once, for 24 hours, a newer link replaces it, and
-using it signs the account out everywhere. The page behind it calls
-`GET /api/auth/reset/{token}` and `POST /api/auth/reset/{token}`, which need no sign-in.
-Both reset calls refuse an API token, and refuse the caller's own account — your own
-password is changed from Settings, with the current one.
-
-**Sessions** (the screen button, or the session count under *Last active*) lists where an
-account is signed in — browser, address, when it signed in and was last used — and signs
-out one session or all of them without touching the password. On your own account the
-session you are using is marked *This browser* and is never ended there — **Sign out
-other sessions** clears the rest. **Sign out everyone**, at
-the top of the page, ends every session on the instance except your own; passwords and
-API tokens are untouched. **Clear sign-in history**
-— there, for one account, or at the top of the page for everyone — forgets the last
-sign-in and each session's address, browser and times. It signs nobody out, and
-activity from then on is recorded again. The list can be searched
-by name, username or email, filtered by status and role, and sorted.
+- **Reject** or **disable** revokes the account's sessions and API tokens together.
+  Revoking tokens alone leaves sessions and password untouched; the owner is notified.
+- **Delete** removes the account's stacks and their containers. With
+  `?transferStacksTo=` they move, still running, to another approved account. A moved
+  stack's new owner is notified.
+- You cannot change your own role. A role change applies on the account's next
+  request without signing it out.
+- **Add user** creates an approved account with either a 7-day link to choose a
+  password (`--invite`) or a temporary password the owner must change at first
+  sign-in.
+- **Reset password** either sets a new password (signs the account out everywhere,
+  optionally revokes its tokens; temporary by default) or returns a
+  `/reset-password/<token>` link that works once, for 24 hours. Neither works on your
+  own account.
+- **Sessions** lists where an account is signed in. Your current session is marked
+  *This browser*. **Sign out everyone** keeps your own session; passwords and tokens
+  are untouched. **Clear sign-in history** signs nobody out.
 
 ## Instance settings (admin)
 
-**UI:** **Settings** — the upload ceiling and the token-lifetime ceiling.
+**UI:** **Settings** (the instance-wide rows are editable by administrators only).
 
 ![The Settings page](screenshots/settings.png)
-
-> *Two of these rows are per-account (`/api/me/settings`) and two are instance-wide
-> (`/api/system/settings`). The distinction is who the setting belongs to: a theme is
-> yours, a ceiling on what the server will do on everyone's behalf is not.*
 
 | To do this | API | CLI |
 | --- | --- | --- |
 | Read the instance settings | `GET /api/system/settings` | `dbcanvas api GET /api/system/settings` |
-| Change them (admin) | `PUT /api/system/settings` | `dbcanvas api PUT /api/system/settings --data '{"maxUploadBytes":8589934592,"maxTokenDays":30}'` |
-| Let a new sign-up use its account at once, without approval (admin) | `PUT /api/system/settings` `{"openRegistration": true}` | `dbcanvas api PUT /api/system/settings --data '{"openRegistration":true}'` |
+| Change them (admin) | `PUT /api/system/settings` | `dbcanvas api PUT /api/system/settings --data '{"maxTokenDays":30}'` |
 
-Out-of-range values are clamped, not refused.
+A `PUT` keeps any field it leaves out, and out-of-range values are clamped, not
+refused.
 
-**`openRegistration`** is off by default: an account registered on the sign-in page is
-created pending, and waits under **Users** for an administrator. On, it is approved as
-it is created, with the user role, and the person is signed in. Accounts already pending
-when it is turned on stay pending. Administrators are notified of each new account
-either way. `GET /api/setup/status` reports it as `openRegistration`, so a sign-up form
-can say which will happen. A PUT that leaves the field out keeps what is stored. `sshForwarding` in the response is
-derived from `SSH_FORWARDING_HOST` and read-only.
+| Field | Settings row | Default |
+| --- | --- | --- |
+| `maxUploadBytes` | Node file uploads | 4 GiB (1 MiB–1 TiB) |
+| `maxTokenDays` | API token lifetime | 90 (1–365) |
+| `internalWrites` | Writes to internal databases (PMM's own databases in the Database Explorer) | off |
+| `openRegistration` | Registration: approve sign-ups at once and sign them in | off |
+| `allowGuestSessions`, `maxGuestMinutes`, `sessionRetentionDays`, `recordingRetentionDays` | Shared sessions | off, 120 (5–120), 90 (`0` keeps them while the stack exists), 30 (1–3650) |
+| `liveWatchSeconds` | Stack history and alerts: sampling interval | 30 (15–600; `0` off) |
 
-A per-account value the server does not recognise falls back to that field's default
-rather than being refused, so a hand-edited row cannot wedge the UI. `tooltips` is the
-one where that matters in a direction worth knowing: it is `on` unless the stored value
-is exactly `off`, so a client that has never heard of the field — an older UI, the CLI
-sending a settings object it built itself — cannot switch the explanations off for an
-account. `terminalsOnTop` works the same way: terminal and file manager windows stay in
-front of every other window unless the stored value is exactly `off`. A PUT that omits a field keeps
-what is stored.
+Read-only fields come from the server's environment: `sshForwarding`
+(`SSH_FORWARDING_HOST`), `experimental`, `eol` and `publicUrl`. With open registration
+off, a new account waits under **Manage Users**; turning it on approves no one already
+pending. `GET /api/setup/status` reports `openRegistration` too.
 
 ---
 
@@ -246,49 +209,39 @@ what is stored.
 
 ## Stacks
 
-A stack is a topology on a canvas plus everything it deployed. This is the feature
-everything else hangs off.
+A stack is a design on the canvas plus the containers it deployed.
 
 ![The Database Stacks canvas with a deployed stack](screenshots/stacks-canvas.png)
-
-> *The canvas is a `design` document — nodes, edges and a viewport. `GET
-> /api/stacks/{id}` hands you exactly what is drawn here; `PUT` replaces it. Anything
-> you can arrange by dragging, you can send as JSON.*
 
 | To do this | API | CLI |
 | --- | --- | --- |
 | List your stacks | `GET /api/stacks` | `dbcanvas stack list` |
-| **Build one from a description** | `POST /api/stacks/compose` | `dbcanvas stack compose <name> --node …` |
+| **Build one from a short description** | `POST /api/stacks/compose` | `dbcanvas stack compose <name> --node …` |
 | What compose can build | `GET /api/stacks/compose/kinds` | `dbcanvas stack kinds` |
-| Create one from a template or a design | `POST /api/stacks` | `dbcanvas stack create <name> --template <t> --ttl 4h` |
+| Create one from a template or a design | `POST /api/stacks` `{"name", "ttl", "templateId" or "design"}` | `dbcanvas stack create <name> --template <t> --ttl 4h` (or `--design file.json`) |
 | Read one, with every node's state | `GET /api/stacks/{id}` | `dbcanvas stack get <stack>` |
 | Replace its name, TTL or design | `PUT /api/stacks/{id}` | `dbcanvas api PUT /api/stacks/1 --data @design.json` |
-| **What a design can hold**: every node and cluster type, its options, relations, lines and post-deployment actions | `GET /api/stacks/design/catalog[?type=pxc]` | `dbcanvas api GET '/api/stacks/design/catalog?type=pxc'` |
 | Read the design alone | `GET /api/stacks/{id}/design` | `dbcanvas api GET /api/stacks/12/design` |
-| Add, change or remove a node | `POST /api/stacks/{id}/design/nodes`, `PUT`/`DELETE …/design/nodes/{nid}` | `dbcanvas api POST /api/stacks/12/design/nodes -d '{"type":"pmm"}'` |
-| Add, change or remove a cluster | `POST /api/stacks/{id}/design/frames`, `PUT`/`DELETE …/design/frames/{fid}` | `dbcanvas api POST /api/stacks/12/design/frames -d '{"type":"pxc","members":3}'` |
-| Draw or remove a line | `POST /api/stacks/{id}/design/edges`, `DELETE …/design/edges/{eid}` | `dbcanvas api POST /api/stacks/12/design/edges -d '{"from":"…","to":"…"}'` |
-| Check the design, build nothing | `POST /api/stacks/{id}/validate` | `dbcanvas stack validate <stack>` |
-| Deploy it | `POST /api/stacks/{id}/deploy` | `dbcanvas stack deploy <stack> --wait` |
+| **What a design can hold** | `GET /api/stacks/design/catalog[?type=pxc]` | `dbcanvas api GET '/api/stacks/design/catalog?type=pxc'` |
+| Add · change · remove a node | `POST /api/stacks/{id}/design/nodes` · `PUT`/`DELETE …/design/nodes/{nid}` | `dbcanvas api POST /api/stacks/12/design/nodes --data '{"type":"pmm"}'` |
+| Add · change · remove a cluster | `POST /api/stacks/{id}/design/frames` · `PUT`/`DELETE …/design/frames/{fid}` | `dbcanvas api POST /api/stacks/12/design/frames --data '{"type":"pxc","members":3}'` |
+| Draw · remove a line | `POST /api/stacks/{id}/design/edges` · `DELETE …/design/edges/{eid}` | `dbcanvas api POST /api/stacks/12/design/edges --data '{"from":"…","to":"…"}'` |
+| Check the design without building | `POST /api/stacks/{id}/validate` | `dbcanvas stack validate <stack>` |
+| What a deploy would do now | `GET /api/stacks/{id}/deploy/preview` | `dbcanvas api GET /api/stacks/12/deploy/preview` |
+| Deploy | `POST /api/stacks/{id}/deploy` | `dbcanvas stack deploy <stack> [--wait] [--timeout 60m]` |
+| Live CPU, memory, I/O and replication role per node | `GET /api/stacks/{id}/live` | `dbcanvas api GET /api/stacks/12/live` |
+| Extend its lifetime | `POST /api/stacks/{id}/extend` `{"by": "4h"}` | `dbcanvas api POST /api/stacks/12/extend --data '{"by":"4h"}'` |
 | Remove the containers, keep the design | `POST /api/stacks/{id}/destroy` | `dbcanvas stack destroy <stack>` |
-| Delete both | `DELETE /api/stacks/{id}` | `dbcanvas stack delete <stack>` |
+| Delete both | `DELETE /api/stacks/{id}` | `dbcanvas stack delete <stack> [--yes]` |
 | Export the design as JSON | `GET /api/stacks/{id}` | `dbcanvas stack export <stack> > lab.json` |
 
 ![The New stack dialog with a template selected](screenshots/getting-started-new-stack.png)
 
-> *Picking a template in **New stack** is `GET /api/templates/{id}` for its design,
-> then `POST /api/stacks` with that design — which is exactly what
-> `dbcanvas stack create --template` does.*
-
-**`deploy` returns immediately.** It starts provisioning and answers; the node states
-in `GET /api/stacks/{id}` are the progress. `--wait` polls that for you, prints each
-node transition, and exits **4** if the deploy failed — which is the part a CI job
-needs.
+**Deploy returns at once.** Progress is each node's `state` in `GET /api/stacks/{id}`:
+`pending` → `provisioning` → `running`, or `error` (`stopped` when stopped on
+purpose). `--wait` polls for you and exits **4** if the deploy failed.
 
 ![A deployed stack — Intranet, PMM and a Percona Server node](screenshots/getting-started-deployed.png)
-
-> *Each card here is one entry in the `deployments` array: a `nodeId`, a `state`
-> (`pending` → `provisioning` → `running`, or `error`) and a container id.*
 
 ```sh
 dbcanvas stack create pxc-lab --template "PXC + ProxySQL + PMM" --ttl 4h --deploy --wait
@@ -296,45 +249,29 @@ dbcanvas stack get pxc-lab
 dbcanvas stack destroy pxc-lab
 ```
 
-**Set a TTL on anything a script creates.** `2h`, `4h`, `8h`, `24h`, `2w` or
-`infinity`. A job that dies between `deploy` and `destroy` otherwise leaves a cluster
-running until somebody notices.
+**Give every scripted stack a TTL**: `2h`, `4h`, `8h` (the CLI default), `24h`, `2w`
+or `infinity`. When the TTL runs out, the stack's containers are removed and the stack
+is marked `expired`.
 
 ### The design catalogue, and editing a design one piece at a time
 
-Every option the designer's properties panels offer, every relation and every line is
-also reachable over the API. `GET /api/stacks/design/catalog` says what they are, from
-the same knowledge the panels draw:
+`GET /api/stacks/design/catalog` describes everything the designer's panels offer:
 
-- **`nodes`** and **`frames`**: one entry per node type and per cluster type. Each has a
-  `placement` (`standalone`, `member` of the listed `frameTypes`, or `frame`), whether
-  it is a `singleton`, what it `requires` in the stack, and its **`options`**: the
-  design field, its JSON `type`, the accepted `values` when the set is fixed, the
-  `default` a new one gets, a `description`, and `when` it applies (`"usePgBackRest is
-  on"`, `"k3dOperator is pxc or ps"`). A cluster entry names its `memberType` and its
-  `defaultMembers`, `minMembers` and `maxMembers`; cluster-wide settings are the frame's
-  options, per-member settings the member node's.
-- **`relations`**: the references a node or frame holds to another node (`monitor` →
-  a PMM node, `backup` → SeaweedFS, `vault` → OpenBao, `oidc` → Keycloak, `ldap` and
-  `kerberos` → a directory, `orchestrator`, `repository`, `storage` → Ceph, `upgrade` →
-  Watchtower, `app` → an All-in-One node), with the field each is stored in and the
-  switches it turns on. An entry's `relations` lists the ones it offers.
-- **`edges`** on an entry: the lines it draws and what may be at the other end — a
-  proxy's backend, a simulator's database, replication between clusters (`async` or
-  `bidir`). The provisioners walk these lines, so they are part of the design.
-- **`actions`** on an entry: the endpoints that apply to a deployed node or cluster of
-  that type — backups and restores, switchover, certificates, users, captures — with
-  the request body and when each applies. `commonActions` apply to every node.
+| Key | Contents |
+| --- | --- |
+| `nodes`, `frames` | one entry per node type and cluster type: its `placement` (`standalone`, `member` of listed `frameTypes`, or `frame`), whether it is a `singleton`, what it `requires`, and its `options` (field, JSON `type`, accepted `values`, `default`, `description`, and `when` it applies). Clusters add `memberType`, `defaultMembers`, `minMembers`, `maxMembers`. |
+| `relations` | references a node holds to another node — `monitor` (PMM), `backup` (SeaweedFS), `vault` (OpenBao), `oidc` (Keycloak), `ldap`, `kerberos`, `orchestrator`, `repository`, `storage` (Ceph), `upgrade` (Watchtower), `app` (All in One) — with the field each is stored in |
+| `edges` (per entry) | the lines a type draws and what may be at the other end: a proxy's backend, a simulator's database, replication between clusters (`async` or `bidir`) |
+| `actions` (per entry) | endpoints that apply once deployed, with request body and when each applies; `commonActions` apply to every node |
 
-`?type=pxc` narrows it to the `pxc` node and cluster entries.
+`?type=pxc` narrows it to the `pxc` entries.
 
-The design endpoints then change one thing at a time, and check it against the
-catalogue: an unknown field, a value of the wrong JSON type or outside its fixed set, a
-relation to a node of the wrong type, a label already in use, a cluster outside its
-member range — each is refused with a message naming what is accepted. Each call
-answers with what it created or changed and the validator's `issues` for the whole
-design (`"ok": false` on an error); issues do not block the edit, since a design is
-often incomplete half-way through.
+The design endpoints change one thing at a time and check it against the catalogue.
+An unknown field, a wrong type or value, a relation to the wrong node type, a label
+already in use, or a cluster outside its member range is refused with a message
+naming what is accepted. Each call returns what it changed plus the validator's
+`issues` for the whole design (`"ok": false` on an error); issues do not block the
+edit.
 
 ```json
 POST /api/stacks/12/design/frames
@@ -354,32 +291,26 @@ PUT /api/stacks/12/design/nodes/proxysql-mvqf0e3f-1
 {"label": "proxy-1", "options": {"cpus": 2}, "relations": {"monitor": null}}
 ```
 
-- A **new node or cluster** starts with the designer's defaults, and is placed to the
-  right of everything on the canvas unless `x`/`y` are given. A cluster's members get
-  the roles the designer gives them; a sharded `psmdb` cluster takes its shape from
-  `options.psmdbSetup` (`standard` or `minimum`), not from `members`.
-- **Add a member** to an existing cluster with `POST …/design/nodes` and `frameId`;
-  remove one with `DELETE …/design/nodes/{nid}`, down to the cluster's minimum.
-- **`PUT`** changes only what the body names. An option set to `null` is removed (back to
-  its zero value); a relation set to `null` or `""` is cleared, with its switches. On a
-  cluster, `memberOptions` applies to every member, and moving the frame moves them.
-- **Removing** a node or cluster also removes its lines and clears every relation that
-  pointed at it; a deployed node's container is removed with it, as on the canvas.
-- Keys the catalogue does not describe (canvas positions, the view) are kept as they are.
-- As with `PUT /api/stacks/{id}`, nodes cannot be added or removed while a deploy is in
-  flight; option changes can.
+- A new node or cluster gets the designer's defaults and is placed to the right of
+  the canvas unless `x`/`y` are given. A sharded `psmdb` cluster takes its shape from
+  `options.psmdbSetup` (`standard` or `minimum`), not `members`.
+- Add a member to a cluster with `POST …/design/nodes` and `frameId`; remove one with
+  `DELETE …/design/nodes/{nid}`, down to the cluster's minimum.
+- `PUT` changes only what the body names. An option set to `null` is removed; a
+  relation set to `null` or `""` is cleared. On a cluster, `memberOptions` applies to
+  every member.
+- Removing a node or cluster also removes its lines and every relation pointing at it,
+  and a deployed node's container.
+- Nodes cannot be added or removed while a deploy is running; options can change.
 
 ### Composing a stack
 
-`POST /api/stacks/compose` takes a description instead of a canvas document. It is the
-answer to "three PXC 8.4.5 nodes on EL8, a Percona Server 8.0.45 on EL9 with LDAP, and
-a PMM watching both" — which as a hand-written design means knowing that the package
-is `8.4.5-5.1` on Oracle Linux and `8.4.5-5-1` on Ubuntu, that a cluster is a *frame*
-plus member nodes carrying its id, and that monitoring is a field holding another
-node's id rather than a line drawn on the canvas.
+`POST /api/stacks/compose` builds a whole stack from a short description: kinds,
+counts, versions, OS and relationships. It fills in package builds, cluster ids and
+node references for you.
 
 ```sh
-dbcanvas stack compose repro-1234 --ttl 8h \
+dbcanvas stack compose lab-1 --ttl 8h \
   --node 'pxc:3,version=8.4.5,os=el8,monitor' \
   --node 'ps,version=8.0.45,os=el9,ldap,monitor' \
   --node 'pmm,version=3' \
@@ -389,7 +320,7 @@ dbcanvas stack compose repro-1234 --ttl 8h \
 ```json
 POST /api/stacks/compose
 {
-  "name": "repro-1234", "ttl": "8h",
+  "name": "lab-1", "ttl": "8h",
   "nodes": [
     {"kind": "pxc", "count": 3, "version": "8.4.5", "os": "el8", "monitor": true},
     {"kind": "ps",  "version": "8.0.45", "os": "el9", "ldap": true, "monitor": true},
@@ -398,43 +329,30 @@ POST /api/stacks/compose
 }
 ```
 
-Both produce the same thing:
+Use `--spec file.json` (or `-` for stdin) to send a JSON spec from the CLI.
 
-```
-KIND      NAME            OS             VERSION      NODES  MONITORED BY  DIRECTORY
-intranet  intranet-01     -              -            1      -             -
-pxc       pxc-cluster-01  oraclelinux 8  8.4.5-5.1    3      pmm-01        -
-ps        ps-01           oraclelinux 9  8.0.45-36.1  1      pmm-01        intranet-01
-pmm       pmm-01          -              3            1      -             -
+| You write | It becomes |
+| --- | --- |
+| `"os": "el8"` | Oracle Linux 8 |
+| `"version": "8.4.5"` | series `8.4`, the matching package build for that OS |
+| `"version": "8.4"` | the latest build in that series |
+| `"version": ""` | the newest series, latest build |
+| `"kind": "pxc", "count": 3` | a cluster with 3 members |
+| `"monitor": true` | monitoring by the PMM node in the spec |
+| *(no Intranet node)* | an Intranet node is added (every stack needs one); reported in `added` |
 
-  + an Intranet node (DNS, CA, LDAP, package proxy) — every stack needs one
-```
-
-**What it resolves for you.**
-
-| You write | It becomes | Why you could not write it |
-| --- | --- | --- |
-| `"os": "el8"` | `oraclelinux` + release `8` | The design wants the pair; every bug report says "el8". |
-| `"version": "8.4.5"` | series `8.4`, build `8.4.5-5.1` | The package suffix differs per OS family, and nothing about `8.4.5` says its series is `8.4`. |
-| `"version": "8.4"` | that series, latest build | |
-| `"version": ""` | the newest series, latest build | |
-| `"kind": "pxc", "count": 3` | a frame plus 3 member nodes carrying its `frameId` | The ids do not exist until something generates them. |
-| `"monitor": true` | `pmmNodeId` on the frame (cluster) or the node | |
-| *nothing* | an Intranet node | Everything else assumes one exists. Reported in `added`. |
-
-**The relationships.** Each is a boolean that resolves to a reference to another node
-in the same spec — the part of a design you cannot write by hand, because the field
-holds an id that does not exist until something generates it. Each takes an optional
-`…With` partner naming which node, for a spec with more than one candidate.
+**Relationships.** Each is a boolean that points the node at another node in the
+spec. When the spec has more than one candidate, name it with the matching `…With`
+option (`monitorWith`, `ldapWith`, …).
 
 | Option | Wires | Provided by | Available on |
 | --- | --- | --- | --- |
-| `monitor` | PMM registration | `pmm` | every engine and cluster |
-| `ldap` | directory authentication | `intranet`, `sambaad` | `ps`, `pg`, `psm`, `valkey`, `valkey-cluster` |
-| `oidc` | Keycloak single sign-on | `keycloak` | `ps`, `pg`, `psm`, `pmm` |
+| `monitor` | PMM monitoring | `pmm` | every engine, cluster and ProxySQL |
+| `ldap` | directory authentication | `intranet`, `sambaad` | `ps`, `pg`, `psm`, `valkey`, `pxc`, `ps-repl`, `valkey-cluster` |
+| `oidc` | Keycloak single sign-on | `keycloak` | `ps`, `pg`, `psm`, `pmm`, `pxc`, `ps-repl` |
 | `kerberos` | GSSAPI single sign-on | `sambaad` | `pg`, `psm` |
-| `vault` | data-at-rest keys in OpenBao | `openbao` | `ps`, `psm`, `pg` (pg_tde — PostgreSQL 17/18 only), `pxc`, `ps-repl` (whole cluster, one KV mount per member) |
-| `backup` | pgBackRest / Barman / PBM → S3 | `seaweedfs` | `pg`, `patroni`, `repmgr`, `psmrs` |
+| `vault` | data-at-rest keys in OpenBao | `openbao` | `ps`, `pg` (pg_tde: PostgreSQL 17/18), `psm`, `pxc`, `ps-repl`, `patroni` |
+| `backup` | backups to S3 | `seaweedfs` | `ps`, `pg`, `pxc`, `ps-repl`, `patroni`, `repmgr`, `psmrs`, `psmdb` |
 | `orchestrator` | topology discovery and failover | `orchestrator` | `ps-repl`, `mariadb-repl`, `mysql-repl` |
 
 ```sh
@@ -445,71 +363,46 @@ dbcanvas stack compose sso-lab \
   --node openbao --node 'psm,os=el9,vault,ldap'
 ```
 
-Asking for one a kind does not have is an error naming the kind; asking for one with
-no provider in the spec is an error naming the line to add. `dbcanvas stack kinds`
-prints the whole matrix for your installation.
+**Lines (`to=`).** Proxies and simulators find their database through a line on the
+canvas. `"to"` names the target; omit it and compose uses the only valid one, or
+refuses and lists the candidates.
 
-**The associations.** A relationship above is a *field*. An association is a **line on
-the canvas**, and it is the half of a design that fields cannot express: the
-provisioners find a ProxySQL's backend and a simulator's database by walking the edge
-graph, never by reading a field. Eight kinds do nothing without one, and an HAProxy
-without one cannot even pass validation. `mclusteradmin` is the exception: it takes
-the same kind of line, but works without it.
-
-| Kind | Associates with |
+| Kind | Connects to |
 | --- | --- |
 | `proxysql`, `proxysql-cluster` | `pxc`, `ps-repl` |
-| `haproxy` | `patroni`, `repmgr`, `spock`, `pxc`, `ps-repl` — exactly one |
+| `haproxy` | one of `patroni`, `repmgr`, `spock`, `pxc`, `ps-repl` |
+| `pgbouncer` | one of `pg`, `patroni`, `repmgr`, `spock` |
 | `trafficsim` | `valkey`, `valkey-cluster` |
 | `hotelsim` | `psm`, `psmrs`, `psmdb` |
 | `supportsim` | `psm`, `psmrs`, `psmdb`, `k3d` |
 | `pgvectorsim` | `pg`, `patroni`, `repmgr`, `spock`, `haproxy`, `pgbouncer`, `k3d` |
 | `airlinesim` | `ps`, `ps-repl`, `pxc`, `proxysql`, `haproxy` |
-| `pgbouncer` | `pg`, `patroni`, `repmgr`, `spock` — exactly one |
 | `carsim` | `pg`, `patroni`, `repmgr`, `spock`, `haproxy`, `pgbouncer` |
 | `marketchaos` | `ps`, `pxc`, `ps-repl`, `haproxy` |
-| `mclusteradmin` | `psm`, `psmrs`, `psmdb` — **optional**: the panel connects to any URI typed into it, and the line only means compose can hand it a ready-made connection string |
+
+`mclusteradmin` and `bighole` take no line. MClusterAdmin gets a ready-made
+connection string when the spec has exactly one MongoDB.
 
 ```json
 {"kind": "haproxy", "os": "el9"}
 {"kind": "marketchaos", "to": "haproxy-01"}
 ```
 
-`"to"` names the target. Omit it and compose uses the only legal one and reports it
-in the plan; with several it refuses and names them, because driving a cluster
-directly and driving it through a proxy are different tests. With none it refuses
-rather than composing a design that cannot deploy.
+**Shaping the machine.** Per-node options; a kind that would ignore one refuses it.
 
-**Shaping the machine.** A slow disk and a lossy link between cluster members are the
-failures worth reproducing, and neither is a version string. These are per node, and
-each is refused on a kind that would ignore it.
+| Field | Effect |
+| --- | --- |
+| `netLatencyMs`, `netJitterMs`, `netLossPct`, `netRateMbit` | delay, jitter, loss and a rate cap on the node's database and cluster ports |
+| `netAllTraffic` | apply those to all of the node's traffic |
+| `deviceReadMbps`, `deviceWriteMbps` | disk throughput limits |
+| `cpus`, `memoryGb` | container limits |
 
-| Field | Effect | Available on |
-| --- | --- | --- |
-| `netLatencyMs`, `netJitterMs`, `netLossPct`, `netRateMbit` | delay, jitter, loss and a rate cap on the node's own database and cluster ports | every engine and the two proxies |
-| `netAllTraffic` | widen that to every packet — a bad NIC rather than a bad link | as above |
-| `deviceReadMbps`, `deviceWriteMbps` | disk throughput limits | anything that takes `cpus` |
-| `cpus`, `memoryGb` | container limits | **not** `pmm`, `seaweedfs`, `keycloak`, `openbao`, `sambaad`, `vnc`, `watchtower`, `intranet` or the simulators, which never apply them |
-
-That last row is the rule the whole option table follows: an option a kind would
-silently ignore is **refused**, not accepted. `GET /api/stacks/compose/kinds` lists
-exactly what each kind takes, generated from the same table the builder checks
-against.
-
-**Per-engine choices** — each selects a genuinely different topology or mode rather
-than a tuning detail: `replMode` (`async`|`semisync`, or `innodbcluster`|
-`groupreplication`), `mode` for ProxySQL (`singlewrite`|`loadbal`) and for PgBouncer
-(the pool mode: `transaction` by default, `session` or `statement`), `mysqlRouter`,
-`setup` for a sharded PSMDB cluster, `dataset` for MarketChaos, `buckets` and `tls`
-for SeaweedFS, `alertEmail` for Orchestrator, and `certTtl` (`365d`, `2h`, `30m` — a
-short one expires on purpose).
-
-**PgBouncer.** One `pgbouncer` node pools for one PostgreSQL node or one Patroni,
-repmgr or Spock cluster — the `to=` line picks which. Composed, it follows the
-cluster's primary across a failover and authenticates clients with `auth_query`, both
-on by default; `cert` terminates TLS at the pool with a certificate from the Intranet
-CA. Point a Car Rental Sim at it with `to=pgbouncer-01` to put the pool in the load
-path.
+**Per-engine choices**: `replMode` (`async`, `semisync`, `innodbcluster`,
+`groupreplication`), `mode` (ProxySQL `singlewrite`/`loadbal`; PgBouncer pool mode
+`transaction` by default, `session` or `statement`), `mysqlRouter`, `setup` (sharded
+PSMDB: `standard` or `minimum`; `count` is refused), `dataset` (MarketChaos),
+`buckets` and `tls` (SeaweedFS), `alertEmail` (Orchestrator), `certTtl` (`365d`,
+`2h`, `30m`). `dbcanvas stack kinds` lists exactly which options each kind takes.
 
 ```sh
 dbcanvas stack compose pool-lab --ttl 4h \
@@ -518,33 +411,19 @@ dbcanvas stack compose pool-lab --ttl 4h \
   --node 'carsim,to=pgbouncer-01'
 ```
 
-**Clusters with a fixed shape.** Most cluster kinds take `count`. A sharded PSMDB
-cluster does not: its shape is one mongos, a config replica set and exactly three
-shards, so it takes `"setup": "standard"` (13 containers) or `"minimum"` (5), and
-`count` is refused. Compose emits every member with the role and shard index the
-provisioner selects on.
+**What compose adds or refuses for you**
 
-**Prerequisites it knows about.** An OIDC issuer has to be reachable over HTTPS, so
-composing `oidc` turns on the Keycloak node's certificate and says so — the validator
-refuses the alternative and the fix is mechanical. Kinds that work on only one OS take
-it (OpenBao is Oracle Linux 9 only; the VNC desktop is Ubuntu 24.04), and the five
-singleton kinds are refused twice over rather than composed into a design that cannot
-deploy. Composing a Keycloak node also **adds the Ubuntu desktop** it requires: its
-admin console publishes no host ports and is only reachable from a browser inside the
-stack, so the validator refuses the alternative outright — unlike monitoring, which
-is optional and never added for you. And `oidc` on a Percona Server older than
-8.4.11-11 (or, on the 9.7 series, 9.7.2-2) is **refused**: `auth_openid_connect` arrived
-there, and below it the
-provisioner skips the plugin without failing, so the flag would be accepted
-everywhere and do nothing.
+- `oidc` turns on the Keycloak node's certificate, and a Keycloak node brings the
+  Ubuntu desktop it needs (its admin console is reachable only from inside the stack).
+- `oidc` on Percona Server is refused below 8.4.11-11 (9.7.2-2 on the 9.7 series).
+- OpenBao runs only on Oracle Linux 9 and the VNC desktop only on Ubuntu 24.04.
+- Only one each of `intranet`, `keycloak`, `openbao`, `vnc` and `watchtower` per stack.
+- Not composable: Kubernetes frames, All in One, Stock Market Sim and Linux Client
+  nodes. Add them with the design endpoints, or start from a template.
 
-It also lays the result out with the coordinates the built-in templates use, so it
-opens on the canvas looking designed rather than piled in a corner.
-
-**Any other option, by its design name.** `"options"` sets fields of the node (or of a
-cluster's frame) and `"memberOptions"` sets fields on every member, by the names the
-design catalogue lists. They are checked the same way the design endpoints check them,
-and applied last, so they override what the shorthand chose:
+**Any other option** by its design-catalogue name: `"options"` sets fields on the node
+(or a cluster's frame) and `"memberOptions"` on every member. They are checked like
+the design endpoints and override the shorthand.
 
 ```json
 {"kind": "patroni", "count": 3,
@@ -552,301 +431,250 @@ and applied last, so they override what the shorthand chose:
  "memberOptions": {"cpus": 2}}
 ```
 
-**`"dryRun": true`** resolves and reports without creating anything — which versions
-it settled on, what it added, and the validator's `issues` (`"ok": false` on an error) —
-so you can look before committing. `--dry-run` in the CLI.
+**`"dryRun": true`** (`--dry-run`) reports the resolved plan — versions, added nodes
+and the validator's `issues` — without creating anything. Errors name what is
+available: the builds in a series, the OS aliases, the member range, or the node to add.
 
-**Errors are the point.** An unavailable version is answered with what *is* available
-in that series; an unknown OS with the aliases; a bad member count with the range; and
-`"monitor"` with no PMM in the spec with the line to add.
-
-**What compose will not build**, and why, from `GET /api/stacks/compose/kinds`: a
-Kubernetes frame (an operator choice, a node budget, expose tiers), an All-in-One node
-(a list of per-instance configurations), the Stock Market Sim (three connection modes
-and a dozen lab knobs) and a core-dump host (host directory paths and the crashed
-build's version). Those are the shapes a terse spec would get subtly and silently
-wrong, so it refuses them by name. Add them to a composed stack with the design endpoints
-above, or start from a template.
-
-There is deliberately **no `deploy` flag** on compose: `POST /api/stacks/{id}/deploy`
-already does that properly, and `dbcanvas stack compose --deploy` simply makes both
-calls.
+Compose does not deploy; `--deploy` in the CLI calls `POST /api/stacks/{id}/deploy`
+afterwards.
 
 ## Templates
 
-**UI:** **New stack** → **Start from**, and **Save as template** on the canvas.
+**UI:** **New stack → Start from**, and **Save as template** on the canvas.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| List available templates | `GET /api/templates` | `dbcanvas template list` |
-| Save the current canvas as one | `POST /api/templates` | `dbcanvas api POST /api/templates --data @tpl.json` |
+| List templates (built-in, yours, published) | `GET /api/templates` | `dbcanvas template list` |
+| Save a canvas as one | `POST /api/templates` | `dbcanvas api POST /api/templates --data @tpl.json` |
 | Read one, with its design | `GET /api/templates/{id}` | `dbcanvas api GET /api/templates/builtin:pxc-proxysql-pmm` |
 | Rename or re-describe it | `PUT /api/templates/{id}` | `dbcanvas api PUT /api/templates/3 --data '{"name":"…"}'` |
 | Delete one of yours | `DELETE /api/templates/{id}` | `dbcanvas api DELETE /api/templates/3` |
-| Publish instance-wide (admin) | `POST /api/templates/{id}/share` | `dbcanvas api POST /api/templates/3/share` |
-| Download as a `.json` file | `GET /api/templates/{id}/export` | `dbcanvas template export <name> > pxc.json` |
+| Publish or withdraw instance-wide (admin) | `POST /api/templates/{id}/share` | `dbcanvas api POST /api/templates/3/share` |
+| Download as `.json` | `GET /api/templates/{id}/export` | `dbcanvas template export <name> > pxc.json` |
 | Import one | `POST /api/templates/import` | `dbcanvas template import pxc.json` |
 
-Built-in templates have ids like `builtin:pxc-proxysql-pmm`; your own are numbers.
-Saved templates are stripped of secrets, host paths and pinned host ports, which is
-what makes them safe to hand over.
+Built-in templates have ids like `builtin:pxc-proxysql-pmm`; saved ones are numbers.
+Saved templates are stripped of secrets, host paths and pinned host ports.
 
 ## Nodes
 
-**UI:** click a node for its panel; right-click for the menu.
+**UI:** click a node for its panel; right-click for its menu.
 
 ![The right-click menu on a running node](screenshots/getting-started-node-menu.png)
 
-> *Every item on this menu is an endpoint. **Enter root console** is the `…/term`
-> WebSocket, **File manager** is the `…/fs/*` family, **Copy SSH tunnel command** is
-> `…/sshforward`, and start/stop/restart are the three POSTs below.*
-
 | To do this | API | CLI |
 | --- | --- | --- |
-| Read a node's panel | `GET /api/stacks/{id}/nodes/{nid}` | `dbcanvas api GET /api/stacks/1/nodes/pxc-01` |
-| List a stack's deployed nodes | `GET /api/stacks/{id}` | `dbcanvas node list <stack>` |
+| A node's panel: type, address, published ports, credentials, certificate | `GET …/nodes/{nid}` | `dbcanvas api GET /api/stacks/1/nodes/<nid>` |
+| List a stack's nodes | `GET /api/stacks/{id}` | `dbcanvas node list <stack>` |
 | Start · stop · restart | `POST …/nodes/{nid}/start` · `/stop` · `/restart` | `dbcanvas node start\|stop\|restart <stack> <node>` |
-| Open a root console | `GET …/nodes/{nid}/term` *(WebSocket)* | `dbcanvas node console <stack> <node>` |
-| List the pods on a Kubernetes server node | `GET …/nodes/{nid}/k8s/pods` | `dbcanvas node pods <stack> <node>` |
-| Open a console inside a pod's container | `GET …/nodes/{nid}/term?namespace=&pod=&container=&shell=` *(WebSocket)* | `dbcanvas node console <stack> <node> --pod P --container C` |
-| …as that database's own client | the same, with `shell=mysql`, `psql` or `mongosh` | `… --container pxc --shell mysql` |
+| Open a root console | `GET …/nodes/{nid}/term` *(WebSocket)* | `dbcanvas node console <stack> <node> [--user U]` |
 | Run one command | *(the same WebSocket)* | `dbcanvas node exec <stack> <node> -- mysql -e 'SHOW STATUS'` |
-| Get the `ssh -L` tunnel line | `GET …/nodes/{nid}/sshforward` | `dbcanvas node tunnel <stack> <node>` |
-| Copy files in | `POST …/nodes/{nid}/upload` *(multipart)* | `dbcanvas node cp ./my.cnf <stack>:<node>:/etc/` |
-| See who is primary and who could take over | `GET …/nodes/{nid}/switchover` | `dbcanvas api GET /api/stacks/1/nodes/<id>/switchover` |
-| Make this member the primary | `POST …/nodes/{nid}/promote` | `dbcanvas api POST /api/stacks/1/nodes/<id>/promote` |
+| List the pods on a Kubernetes server node | `GET …/nodes/{nid}/k8s/pods` | `dbcanvas node pods <stack> <node>` |
+| Console inside a pod's container | `GET …/nodes/{nid}/term?namespace=&pod=&container=&shell=` *(WebSocket)* | `dbcanvas node console <stack> <node> --pod P --container C [--namespace N] [--shell S]` |
+| The `ssh -L` tunnel line | `GET …/nodes/{nid}/sshforward` | `dbcanvas node tunnel <stack> <node>` |
+| Copy files onto a node (drag and drop) | `POST …/nodes/{nid}/upload` *(multipart)* | `dbcanvas node cp ./my.cnf <stack>:<node>:/etc/` |
+| Download a MongoDB node's `diagnostic.data` and log | `GET …/nodes/{nid}/mongo/diagnostic` | `dbcanvas api GET …/mongo/diagnostic --out diag.tar.gz` |
+| Who is primary, and who could take over | `GET …/nodes/{nid}/switchover` | `dbcanvas api GET …/switchover` |
+| Make this member the primary | `POST …/nodes/{nid}/promote` | `dbcanvas api POST …/promote` |
+
+![A deployed node's panel](screenshots/getting-started-node-panel.png)
+![Credentials on a node's panel](screenshots/getting-started-credentials.png)
+
+Passwords are generated per deployment and returned by `GET …/nodes/{nid}`, so a
+script can connect without anyone pasting one.
+
+![A root console in the browser](screenshots/terminal.png)
+
+On the console WebSocket, binary frames are keystrokes and text frames are
+`{"type":"resize"}` messages.
+
+> [!NOTE]
+> A node gets a new host port each time it starts. Re-read the node after a restart.
 
 ### Switching the primary
 
-**UI:** right-click a member of a replicated cluster → **Replication role**. On a replica
-it offers **Promote to primary**; on the primary, **Demote — hand primary to** lists the
-replicas with their lag, and you pick the one that takes over. Who is primary is asked of
-the servers when the menu opens, not read from the design. A member that cannot take over
-is greyed, with the reason.
+**UI:** right-click a member of a replicated cluster → **Replication role**. A replica
+offers **Promote to primary**; the primary offers **Demote — hand primary to** with each
+replica's lag. Members that cannot take over are greyed, with the reason.
 
 | Cluster | How the switch is made |
 | --- | --- |
 | Patroni | `patronictl switchover --candidate` |
-| repmgr | `repmgr standby switchover --siblings-follow` on the candidate |
-| MongoDB replica set (and each shard / config set of a sharded cluster) | every other secondary is frozen, the primary steps down, the candidate wins; nothing in the replica set config changes |
+| repmgr | `repmgr standby switchover --siblings-follow` |
+| MongoDB replica set (and each shard or config set) | other secondaries frozen, primary steps down, candidate elected |
 | Group Replication / InnoDB Cluster | `group_replication_set_as_primary()` |
-| MySQL and MariaDB replication, GTID or not | see below |
+| MySQL and MariaDB replication (GTID or not) | writes frozen on the primary, every replica caught up, then the candidate made writable and the others re-pointed |
 
-For MySQL and MariaDB replication the switch freezes writes on the primary
-(`super_read_only`; on MariaDB 11+ `read_only=NO_LOCK_NO_ADMIN`, which also stops the
-admin accounts that plain `read_only` lets through; on older MariaDB a global read lock),
-reads where it stopped, and waits until the candidate **and every other replica** have
-applied exactly that much. If one does not catch up within a minute, writes are put back
-and nothing changes. Then replication stops on every replica, the candidate becomes
-writable, and the old primary and the other replicas follow it — by GTID
-auto-positioning, or without GTID from the candidate's own binlog coordinates. Semi-sync
-moves with the primary. A switch is refused while any replica is not replicating.
+For MySQL and MariaDB, if a replica does not catch up within a minute, writes are
+restored and nothing changes. A switch is refused while any replica is not
+replicating. Semi-sync moves with the primary.
 
-HAProxy, ProxySQL, PgBouncer's follow timer and MySQL Router find the new primary by
-themselves. The design is updated, so a redeploy builds the cluster as it now is. The
-response lists every step taken; a failed switch says which step failed.
-
-PXC, Galera and Spock have no primary to move, and the Valkey nodes DBCanvas deploys have
-no replicas, so those members show why instead.
+HAProxy, ProxySQL, PgBouncer and MySQL Router follow the new primary. The design is
+updated, so a redeploy keeps the new roles. The response lists every step, and which
+step failed if one did. PXC, Galera and Spock have no primary to move.
 
 ### Rebuilding a replica, rolling restarts, comparing configuration
 
 **UI:** right-click a cluster member.
 
-- **Rebuild from primary…** throws the replica's data away, copies it afresh from the
-  primary and puts it back into replication. It is done with the cluster's own tool, on the
-  node, so the data never passes through DBCanvas:
+- **Rebuild from primary…** (**Rebuild (full state transfer)…** on PXC and Galera)
+  discards the member's data, copies it afresh and puts it back into replication:
 
   | Cluster | How |
   | --- | --- |
-  | MySQL / Percona Server 8.0.17+ replication | the CLONE plugin; replication resumes by GTID, or from the binlog position the clone recorded |
-  | MariaDB, older MySQL | `mariadb-dump` / `mysqldump` run on the replica against the primary in one snapshot, loaded with binary logging off; accounts are left as they are |
-  | Group Replication / InnoDB Cluster | rejoin with `group_replication_clone_threshold=1` |
+  | MySQL / Percona Server 8.0.17+ replication | CLONE plugin |
+  | MariaDB, older MySQL | a consistent `mariadb-dump` / `mysqldump` of the primary |
+  | Group Replication / InnoDB Cluster | rejoin with clone recovery |
   | Patroni | `patronictl reinit` |
   | repmgr | `repmgr standby clone`, then `standby register` |
-  | MongoDB replica set member | an emptied dbPath, so the member does a full initial sync |
-  | PXC, MariaDB Galera | `grastate.dat` dropped, so the member rejoins with a full SST |
+  | MongoDB replica set | full initial sync |
+  | PXC, MariaDB Galera | full SST |
 
-  `GET /api/stacks/{id}/nodes/{nid}/rebuild` says how and from which member (or why not);
-  `POST` starts it in the background, and the same `GET` follows its steps.
-- **Rolling restart of the cluster…** restarts every member one at a time: replicas first,
-  each back and caught up before the next, then — optionally after handing the primary to a
-  restarted replica — the old primary. Galera members one by one until Synced.
-  `POST /api/stacks/{id}/nodes/{nid}/rolling-restart` with `{"switchover": true}`.
-- **Compare configuration…** lays the settings that differ across the members side by side
-  (`GET /api/stacks/{id}/nodes/{nid}/config-drift`).
+  `GET …/nodes/{nid}/rebuild` shows the plan (or why not) and the running or last
+  rebuild; `POST` starts it.
+- **Rolling restart of the cluster…** restarts members one at a time, replicas first,
+  each caught up before the next, optionally handing over the primary first.
+  `GET`/`POST …/nodes/{nid}/rolling-restart` `{"switchover": true}`.
+- **Compare configuration…** shows the settings that differ across members:
+  `GET …/nodes/{nid}/config-drift`.
 
-The **Live details** tab of a database node tails its own error log
-(`GET /api/stacks/{id}/nodes/{nid}/errorlog?lines=200`) and links to its PMM dashboards when
-a PMM node monitors it.
+The **Live details** tab of a database node shows its error log
+(`GET …/nodes/{nid}/errorlog?lines=200`, up to 1000) and links to its PMM dashboards
+when monitored.
 
 ### Database users, failure drills, backups
 
 **UI:** right-click a cluster member.
 
-- **Database users…** lists the cluster's accounts with the members that have each one and
-  whether its password is the same everywhere (on Galera, where every member salts its own hash,
-  only presence is compared). Creating (read, read and write, or administer; one database or all),
-  rotating and dropping an account happens on the primary, and the answer says which members it
-  has reached. `GET`/`POST /api/stacks/{id}/nodes/{nid}/db-users`.
-- **Failure drill…** breaks the cluster for real and ticks a checklist off from what the watcher
-  saw: *kill the primary* (Patroni, MongoDB, Group Replication; any Galera member) — the alert,
-  the election, bringing the old primary back, its catching up, every alert resolved — or *stop
-  replication* on a MySQL/MariaDB replica. `GET`/`POST /api/stacks/{id}/nodes/{nid}/drill`,
+- **Database users…** lists the cluster's accounts, which members have each, and
+  whether passwords match. Create (read, read and write, or admin; one database or
+  all), rotate or drop an account on the primary. `GET`/`POST …/nodes/{nid}/db-users`
+  `{action, name, host, password, privilege, database}`.
+- **Failure drill…** breaks the cluster for real and checks off what happened: *kill
+  the primary* (Patroni, MongoDB, Group Replication, any Galera member) or *stop
+  replication* on a MySQL/MariaDB replica. `GET`/`POST …/nodes/{nid}/drill`,
   `DELETE /api/stacks/{id}/drill`.
 
-A cluster deployed with backups shows the age of its newest backup on its header — red when
-there is none, amber past a day — and **Back up now** in its popover
-(`GET /api/stacks/{id}/frames/{fid}/backup-status`, from pgBackRest's `info` or PBM's `list`).
+A cluster deployed with backups shows the age of its newest backup on its header (red
+for none, amber past a day) and **Back up now**: `GET …/frames/{fid}/backup-status`.
 
 ### Before a redeploy
 
-Deploy decides per member, not per cluster. A cluster none of whose members is built is
-provisioned whole, as on a first deploy; one whose members are all built (running, or stopped on
-purpose) is left alone; and one with built members and new ones has **only the new members built**,
-each joining the running cluster the way that cluster takes a member — the members already there
-keep running and are never recreated:
+Deploy works per member:
+
+- a cluster with no built members is built whole;
+- a cluster whose members are all built (running, or stopped on purpose) is left alone;
+- a cluster with built and new members builds **only the new members**, which join the
+  running cluster.
 
 | Cluster | How a new member joins |
 | --- | --- |
-| Percona Server / MySQL replication | built and baselined, then CLONEd from the current primary (a consistent dump where CLONE is not available) and replicating by GTID or binlog position, read-only, with semi-sync if the cluster uses it |
-| MariaDB replication | built and baselined, then a consistent `mariadb-dump` of the primary, replicating from its position |
-| PXC, MariaDB Galera | built with the whole cluster in `wsrep_cluster_address`, started, and given a full state transfer; the running members' configuration learns the address for their next restart |
-| InnoDB Cluster / Group Replication | `addInstance` with clone recovery on the primary (raw GR: clone from a donor, and the running members' persisted seeds updated) |
-| Patroni | joins etcd (`member add`, state existing), then Patroni takes a base backup from the leader |
-| repmgr | `repmgr standby clone` from the current primary, `register`, repmgrd, SSH for switchovers |
-| MongoDB replica set | built with the set's keyFile, added by the primary with `replSetReconfig`, initial sync |
+| Percona Server / MySQL replication | CLONE from the primary (a consistent dump where CLONE is unavailable), then replicates read-only |
+| MariaDB replication | a consistent `mariadb-dump` of the primary |
+| PXC, MariaDB Galera | full state transfer |
+| InnoDB Cluster / Group Replication | `addInstance` with clone recovery |
+| Patroni | joins etcd; Patroni takes a base backup from the leader |
+| repmgr | `repmgr standby clone` and `register` |
+| MongoDB replica set | added with `replSetReconfig`, initial sync |
 
-Kinds that cannot take a member yet (sharded MongoDB, Spock, Valkey cluster, Kubernetes) are
-refused by validation and by deploy rather than rebuilt; a ProxySQL cluster, which holds only
-configuration DBCanvas writes, is still provisioned whole.
+Sharded MongoDB, Spock, Valkey cluster and Kubernetes frames cannot take a new member
+yet; validation and deploy refuse it.
 
-`GET /api/stacks/{id}/deploy/preview` says it all before it happens: nodes deleted from the canvas
-are removed with their volumes, a node never built or whose provisioning failed is built, members
-joining are listed as such, and a refused cluster says why. Settings changed on running nodes are
-not applied by a deploy.
-
-The canvas undoes and redoes design changes (Ctrl/⌘+Z, Ctrl/⌘+Shift+Z); Shift- or Ctrl/⌘-click
-selects several cards to start, stop or restart one after another.
+`GET /api/stacks/{id}/deploy/preview` lists what a deploy would do: nodes deleted
+from the canvas (removed with their volumes), nodes to build, members to join, and
+refused clusters with the reason. Settings changed on running nodes are not applied
+by a deploy.
 
 ### Health, history and alerts
 
-The server samples every deployed stack every 30 seconds (an administrator sets the interval,
-or switches it off, in Settings → Stack history and alerts). The canvas's **Health** button
-opens what it recorded:
+DBCanvas samples every deployed stack every 30 seconds by default (**Settings → Stack
+history and alerts**). The canvas's **Health** button shows:
 
-- **Alerts** open now — a database down, replication broken, a replica behind, a filesystem
-  filling, connections running out — each with what usually fixes it. An alert opens after the
-  condition holds for two samples (a database down: one), closes after two clear ones, and
-  reaches the notification bell. A node stopped on purpose, or being restarted or rebuilt by
-  DBCanvas, raises nothing.
-- **Timeline**: role changes, unplanned failovers (a primary that moved without DBCanvas
-  moving it), switchovers, rebuilds, restarts and lifetime changes, with who asked for them.
-- **Trends**: a day of CPU, memory, lag, QPS, TPS, connections, IOPS and filesystem use per node.
-- **Rules**: the stack's thresholds — including a transaction open too long, a session waiting
-  too long for a lock, and deadlocks (see [Activity](#activity)).
+- **Alerts** open now: a database down, replication broken, a replica behind, a
+  filesystem filling, connections running out, a transaction open too long, a long
+  lock wait, a deadlock. Each opens after two bad samples (database down: one),
+  closes after two good ones, and reaches the notification bell. A node stopped or
+  restarted by DBCanvas raises nothing.
+- **Timeline**: role changes, unplanned failovers, switchovers, rebuilds, restarts and
+  lifetime changes, with who asked.
+- **Trends**: a day of CPU, memory, lag, QPS, TPS, connections, IOPS and filesystem
+  use per node.
+- **Rules**: the stack's thresholds.
 
-`GET /api/stacks/{id}/history?minutes=60`, `GET /api/stacks/{id}/alerts`,
-`PUT /api/stacks/{id}/alert-rules`, `GET /api/alerts/summary`. A stack's lifetime is extended
-with `POST /api/stacks/{id}/extend` `{"by": "4h"}`, also from the TTL chip in the canvas header.
+| To do this | API |
+| --- | --- |
+| Samples, timeline and open alerts | `GET /api/stacks/{id}/history?minutes=60` (up to a day) |
+| Open alerts and rules | `GET /api/stacks/{id}/alerts` |
+| Change the rules | `PUT /api/stacks/{id}/alert-rules` |
+| Open alerts across all your stacks | `GET /api/alerts/summary` |
 
-![A deployed node's panel](screenshots/getting-started-node-panel.png)
-
-> *`GET /api/stacks/{id}/nodes/{nid}` returns everything on this panel: what the node
-> is, its address on the stack network, its published host ports, its generated
-> credentials and its certificate.*
-
-![Credentials on a node's panel](screenshots/getting-started-credentials.png)
-
-> *The passwords here come back in the same response. They are generated per
-> deployment, so reading them from the API is how a script connects without anybody
-> having to paste one.*
-
-![A root console in the browser](screenshots/terminal.png)
-
-> *This is the `…/term` WebSocket. `dbcanvas node console` is the same thing in your
-> own terminal — binary frames are keystrokes, text frames are `{"type":"resize"}`.
-> A browser cannot set an `Authorization` header on a WebSocket handshake and does
-> not need to; the CLI can, which is why there is no `?token=` parameter.*
-
-**After a restart, re-read the node.** Docker hands out a new ephemeral host port on
-every start, so any port you noted before the restart is stale.
+Default rules: replica lag 30 s, filesystem 85 %, connections 90 %, transaction open
+10 minutes (`trxSec`), lock wait 30 s (`lockWaitSec`); `0` switches a threshold off.
 
 ### A console inside a pod
 
-On a **k3s server node** the same `…/term` socket takes four extra parameters —
-`namespace`, `pod`, `container` and `shell` (`auto`, `bash`, `sh`, or one of the
-database clients below) — and then the exec is `kubectl exec -it` into that container,
-run through the node's own kubectl and its admin kubeconfig. Nothing is configured on the caller's machine, no
-kubeconfig is downloaded, and no port is published off the cluster; a browser gets
-the same shell as the CLI because it is the same endpoint. Names are checked against
-the Kubernetes naming rules before the socket is upgraded, so a bad one is an HTTP
-error with a body rather than a socket that closes.
+On a **k3s server node**, the `…/term` WebSocket also takes `namespace`, `pod`,
+`container` and `shell` (`auto`, `bash`, `sh`, `mysql`, `psql` or `mongosh`) and opens
+the console inside that container. Nothing is configured on your machine and no port
+is published. Invalid names get an HTTP error before the socket opens.
 
-`GET …/nodes/{nid}/k8s/pods` is where the four parts come from: every pod in the
-cluster, with each pod's containers, whether each is `running`, `waiting` or
-`terminated`, and which are init containers. It is read fresh each time — the canvas
-re-reads it on every open of the **Enter pod console** menu, because the operator
-deletes and recreates pods on its own schedule and the names carry a generated
-suffix.
+`GET …/nodes/{nid}/k8s/pods` lists every pod with its containers, their state
+(`running`, `waiting`, `terminated`), which are init containers, and which database
+clients each can start (`clients`). Read it fresh each time: the operator recreates
+pods with new names.
 
 ```sh
 dbcanvas node pods k8s-lab k3s-01
-dbcanvas node console k8s-lab k3s-01 --namespace default --pod cluster1-pxc-0 --container pxc
+dbcanvas node console k8s-lab k3s-01 --namespace default --pod cluster1-pxc-0 --container pxc --shell mysql
 ```
 
-#### …as the database's own client
+With `shell=mysql`, `psql` or `mongosh` the console opens that client already logged
+in as an administrator. The password is read inside the container from what the
+operator mounted, and never passes through DBCanvas:
 
-`shell` also takes `mysql`, `psql` or `mongosh`, and then the console is that client
-already logged in as an administrator instead of a shell to log in from.
-
-**No credential is sent for it.** Every one of the four Percona operators mounts the
-cluster's users Secret into the pods it creates, so the script the server hands to the
-pod's `/bin/sh` reads the password *inside the container* — DBCanvas never reads the
-Secret, the password never reaches the app, never appears in the k3s node's process
-list, and cannot land in a log:
-
-| Client | Credential, in the container | Containers it is offered on |
+| Client | Credential used | Offered on containers |
 | --- | --- | --- |
 | `mysql` | `/etc/mysql/mysql-users-secret/root`, else `$MYSQL_ROOT_PASSWORD` | `pxc`, `mysql`, `haproxy`, `pxc-monit`, `proxysql` |
-| `psql` | none — the container runs *as* `postgres`, so peer authentication is the login | `database`, `postgres` |
+| `psql` | peer authentication as `postgres` | `database`, `postgres` |
 | `mongosh` | `/etc/users-secret/MONGODB_DATABASE_ADMIN_{USER,PASSWORD}` | `mongod`, `mongos` |
 
-The `clients` field of each container in the pod list is that last column, per
-container, which is what the canvas builds its menu rows from. It is a hint, not a
-restriction: a client may be asked for on any container, because every script probes
-for its binary, its credential and a live server *before* it execs anything, and a
-script that comes up short prints what was missing and opens a shell in that container
-instead — exiting would close the terminal and take the explanation with it. The probes
-read `/dev/null` and never prompt, so one of them cannot leave you holding a console
-that has printed nothing and is waiting for a password.
+If the client, credential or server is missing, the console says what was missing and
+opens a shell instead.
 
 ## Clusters & backups
 
-A *frame* on the canvas is a cluster. These act on the frame rather than one node.
+These act on a cluster (frame) or on one database node.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Add/remove PMM monitoring on every member | `POST /api/stacks/{id}/frames/{fid}/pmm` | `dbcanvas api POST /api/stacks/1/frames/pxc-cluster/pmm` |
-| Add/remove Orchestrator on a MySQL replication cluster | `POST …/frames/{fid}/orchestrator` | `dbcanvas api POST …/orchestrator` |
-| pgBackRest backup on a Patroni cluster | `POST …/frames/{fid}/patroni/backup` | `dbcanvas api POST …/patroni/backup` |
-| pgBackRest backup on a standalone PostgreSQL node | `POST …/nodes/{nid}/pg/backup` | `dbcanvas api POST …/pg/backup` |
-| PBM backup on a MongoDB replica set or shard | `POST …/frames/{fid}/pbm/backup` | `dbcanvas api POST …/pbm/backup` |
-| Barman backup on a repmgr primary | `POST …/frames/{fid}/barman/backup` | `dbcanvas api POST …/barman/backup` |
+| Add or remove PMM monitoring on every member | `POST …/frames/{fid}/pmm` | `dbcanvas api POST /api/stacks/1/frames/<fid>/pmm` |
+| Add or remove Orchestrator on a MySQL replication cluster | `POST …/frames/{fid}/orchestrator` | `dbcanvas api POST …/orchestrator` |
+| When the cluster was last backed up | `GET …/frames/{fid}/backup-status` | `dbcanvas api GET …/backup-status` |
+| **Patroni (pgBackRest)**: back up · list backups · restore (latest, a time, or a set) | `POST …/frames/{fid}/patroni/backup` · `GET …/patroni/backups` · `POST …/patroni/restore` | `dbcanvas api POST …/patroni/backup` |
+| **Standalone PostgreSQL (pgBackRest)**: back up · list · restore | `POST …/nodes/{nid}/pg/backup` · `GET …/pg/backups` · `POST …/pg/restore` | `dbcanvas api POST …/pg/backup` |
+| **MongoDB (PBM)**: back up a replica set or sharded cluster | `POST …/frames/{fid}/pbm/backup` | `dbcanvas api POST …/pbm/backup` |
+| **repmgr**: back up from the primary (pgBackRest or Barman) | `POST …/frames/{fid}/barman/backup` | `dbcanvas api POST …/barman/backup` |
+| **XtraBackup, PS replication or PXC cluster**: back up · list · restore · delete | `POST …/frames/{fid}/xb/backup` · `GET …/xb/backups` · `POST …/xb/restore` · `POST …/xb/delete` | `dbcanvas api POST …/xb/backup --data '{"type":"full"}'` |
+| **XtraBackup, standalone Percona Server**: the same four | `…/nodes/{nid}/xb/backup` · `/backups` · `/restore` · `/delete` | `dbcanvas api POST …/xb/backup --data '{"type":"incremental"}'` |
+| Run pgbench on a PostgreSQL node · a Patroni leader | `POST …/nodes/{nid}/pg/pgbench` · `POST …/frames/{fid}/patroni/pgbench` | `dbcanvas api POST …/pg/pgbench` |
+| Rotate the pg_tde principal key | `POST …/nodes/{nid}/pg/tde/rotate` · `POST …/frames/{fid}/patroni/tde/rotate` | `dbcanvas api POST …/pg/tde/rotate` |
+
+XtraBackup backups go to SeaweedFS. `xb/restore` takes `{"mode": "backup", "name"}`,
+`{"mode": "latest"}` or `{"mode": "time", "time"}`; `xb/delete` `{"name"}` also deletes
+the incrementals built on it.
 
 ![A PMM node's panel](screenshots/pmm-node.png)
 ![PMM's own web UI, reached from the panel](screenshots/pmm-web.png)
 
-> *Ticking **Monitored by** on a cluster after it is deployed is the `…/frames/{fid}/pmm`
-> POST: it creates the monitoring user on every member and registers each agent.*
+Ticking **Monitored by** on a deployed cluster calls `…/frames/{fid}/pmm`: it creates
+the monitoring user on every member and registers each one.
 
 ## Version catalogues
 
-What this installation can actually install, as recorded by `make versions`. The
-designer's version pickers are built from these; a script that constructs a design
-should read them rather than guessing a version string.
+What this installation can install. The designer's version pickers use these; a
+script that builds a design should read them rather than guess a version.
 
-| Engine | API |
+| Catalogue | API |
 | --- | --- |
 | Percona XtraDB Cluster | `GET /api/catalog/pxc` |
 | Percona Server for MySQL | `GET /api/catalog/ps` |
@@ -857,152 +685,129 @@ should read them rather than guessing a version string.
 | Percona Distribution for PostgreSQL | `GET /api/catalog/ppg` |
 | Spock (pgEdge) | `GET /api/catalog/spock` |
 | Valkey | `GET /api/catalog/valkey` |
-| ProxySQL · Orchestrator · PMM | `GET /api/catalog/proxysql` · `/orchestrator` · `/pmm` |
-| k3s, and the six operators | `GET /api/catalog/k3s` · `/operators` |
-| The OS base images built here | `GET /api/catalog/images` |
+| ProxySQL · Orchestrator | `GET /api/catalog/proxysql` · `/api/catalog/orchestrator` |
+| PMM 3 · PMM 2 | `GET /api/catalog/pmm` · `/api/catalog/pmm2` |
+| k3s · Kubernetes operators | `GET /api/catalog/k3s` · `/api/catalog/operators` |
+| What a Repository node can mirror | `GET /api/catalog/repository` |
+| The OS base images built on this host | `GET /api/catalog/images` |
+
+Engine catalogues list versions per OS.
 
 ```sh
-dbcanvas api GET /api/catalog/ps | jq '.["oraclelinux-9"]'
+dbcanvas api GET /api/catalog/ps
 ```
 
 ## Kubernetes frames
 
-**UI:** the k3s node's panel on a K3D frame.
+**UI:** the k3s node's panel on a K3D frame. These endpoints are addressed by frame;
+the pod list and pod console are under [Nodes](#nodes).
 
 ![A K3D cluster frame on the canvas](screenshots/k3d-cluster.png)
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Get an admin kubeconfig | `GET …/frames/{fid}/k3d/kubeconfig` | `dbcanvas api GET …/k3d/kubeconfig` |
-| List the clusters you can watch live | `GET /api/k3d/states/targets` | `dbcanvas api GET /api/k3d/states/targets` |
-| Sample every object's state at once | `GET …/frames/{fid}/k3d/states` | `dbcanvas api GET …/k3d/states` |
-| Tail one container's log (or the run that died) | `GET …/k3d/states/logs?namespace=&name=&container=&previous=1` | `dbcanvas api GET '…/k3d/states/logs?namespace=pxc&name=cluster1-pxc-0&container=pxc'` |
-| Read one object as YAML | `GET …/k3d/states/manifest?kind=&namespace=&name=` | `dbcanvas api GET '…/k3d/states/manifest?kind=Pod&namespace=pxc&name=cluster1-pxc-0'` |
-| Build the states board from a kept capture | `POST /api/k8sstates/dumps/{did}` | `dbcanvas api POST /api/k8sstates/dumps/2` |
-| Build it from an uploaded cluster-dump | `POST /api/k8sstates/upload` (multipart) | — |
-| Read an object's YAML out of an archive | `GET /api/k8sstates/archive/manifest?dump=2&kind=&namespace=&name=` | `dbcanvas api GET '/api/k8sstates/archive/manifest?dump=2&kind=Pod&namespace=pxc&name=cluster1-pxc-0'` |
-| Read a pod's kept files out of an archive | `GET /api/k8sstates/archive/logs?dump=2&namespace=&name=&file=` | `dbcanvas api GET '/api/k8sstates/archive/logs?dump=2&namespace=pxc&name=cluster1-pxc-0'` |
-| List every file in a cluster-dump, or read one | `GET /api/k8sstates/archive/files?dump=2&path=` | `dbcanvas api GET '/api/k8sstates/archive/files?dump=2'` |
-| List the RBAC users made for testing | `GET …/frames/{fid}/k3d/users` | `dbcanvas api GET …/k3d/users` |
-| Create one with a role | `POST …/frames/{fid}/k3d/users` | `dbcanvas api POST …/k3d/users --data '{"username":"dev","role":"view"}'` |
-| Delete one | `POST …/frames/{fid}/k3d/users/delete` | `dbcanvas api POST …/k3d/users/delete` |
-| Get a kubeconfig scoped to one user | `GET …/k3d/users/{username}/kubeconfig` | `dbcanvas api GET …/kubeconfig` |
-| The TLS Secrets, parsed and checked live | `GET …/frames/{fid}/k3d/certs` | `dbcanvas api GET …/k3d/certs` |
-| Read a cross-cluster replication link | `GET …/frames/{fid}/k3d/replication` | `dbcanvas api GET …/k3d/replication` |
-| Re-seed a replica from its source | `POST …/frames/{fid}/k3d/replication/reseed` | `dbcanvas api POST …/k3d/replication/reseed` |
-| Read the CRD as a form model, with the live `spec` | `GET …/frames/{fid}/k3d/cr` | `dbcanvas api GET …/k3d/cr` |
-| Patch the custom resource | `POST …/frames/{fid}/k3d/cr` | `dbcanvas api POST …/k3d/cr --data '{"patch":{"pxc":{"size":5}}}'` |
-| List a namespace's Secrets or ConfigMaps | `GET …/frames/{fid}/k3d/objects?kind=secret` | `dbcanvas api GET …/k3d/objects?kind=configmap` |
-| Read one, with its values | `GET …/frames/{fid}/k3d/object?kind=&namespace=&name=` | `dbcanvas api GET '…/k3d/object?kind=secret&name=cluster1-secrets'` |
-| Write keys into one, or remove them | `POST …/frames/{fid}/k3d/object` | `dbcanvas api POST …/k3d/object --data '{"kind":"secret","name":"cluster1-secrets","set":{"root":"new"}}'` |
-| List the backups and restores, with their store | `GET …/frames/{fid}/k3d/backups` | `dbcanvas api GET …/k3d/backups` |
-| Take a backup | `POST …/frames/{fid}/k3d/backups` | `dbcanvas api POST …/k3d/backups --data '{}'` |
-| Delete a backup object, optionally its data | `POST …/frames/{fid}/k3d/backups/delete` | `dbcanvas api POST …/k3d/backups/delete --data '{"name":"b1","data":true}'` |
-| Restore a backup onto the cluster | `POST …/frames/{fid}/k3d/restores` | `dbcanvas api POST …/k3d/restores --data '{"backup":"b1"}'` |
-| Delete a restore record | `POST …/frames/{fid}/k3d/restores/delete` | `dbcanvas api POST …/k3d/restores/delete --data '{"name":"r1"}'` |
-| The manifests this tab applied, on the node | `GET …/frames/{fid}/k3d/backups/manifests` | `dbcanvas api GET '…/k3d/backups/manifests?name=b1.yaml'` |
-| List a prefix of the backup bucket | `GET …/frames/{fid}/k3d/bucket?prefix=` | `dbcanvas api GET '…/k3d/bucket?prefix=cluster1-full'` |
-| Delete an object or a prefix from it | `POST …/frames/{fid}/k3d/bucket/delete` | `dbcanvas api POST …/k3d/bucket/delete --data '{"key":"old","recursive":true,"dryRun":true}'` |
-| Download one object (≤ 64 MiB) | `GET …/frames/{fid}/k3d/bucket/download?key=` | `dbcanvas api GET '…/k3d/bucket/download?key=x/xtrabackup_info'` |
-| Whether the bucket toolbox pod is running | `GET …/frames/{fid}/k3d/bucket/toolbox` | `dbcanvas api GET …/k3d/bucket/toolbox` |
-| Start or stop it | `POST …/frames/{fid}/k3d/bucket/toolbox` | `dbcanvas api POST …/k3d/bucket/toolbox --data '{"action":"stop"}'` |
+| An admin kubeconfig | `GET …/frames/{fid}/k3d/kubeconfig` | `dbcanvas api GET …/k3d/kubeconfig` |
+| Clusters you can watch live | `GET /api/k3d/states/targets` | `dbcanvas api GET /api/k3d/states/targets` |
+| Every object's state at once | `GET …/frames/{fid}/k3d/states` | `dbcanvas api GET …/k3d/states` |
+| One container's log (or the previous run's) | `GET …/k3d/states/logs?namespace=&name=&container=&previous=1` | `dbcanvas api GET '…/k3d/states/logs?namespace=pxc&name=cluster1-pxc-0&container=pxc'` |
+| One object as YAML | `GET …/k3d/states/manifest?kind=&namespace=&name=` | `dbcanvas api GET '…/k3d/states/manifest?kind=Pod&namespace=pxc&name=cluster1-pxc-0'` |
+| States board from a kept cluster-dump | `POST /api/k8sstates/dumps/{did}` | `dbcanvas api POST /api/k8sstates/dumps/2` |
+| States board from an uploaded cluster-dump | `POST /api/k8sstates/upload` *(multipart)* | — |
+| From an archive: an object's YAML · a pod's files · any file | `GET /api/k8sstates/archive/manifest?dump=&kind=&namespace=&name=` · `/archive/logs?dump=&namespace=&name=&file=` · `/archive/files?dump=&path=` | `dbcanvas api GET '/api/k8sstates/archive/files?dump=2'` |
+| RBAC users: list · create · delete | `GET`/`POST …/frames/{fid}/k3d/users` · `POST …/k3d/users/delete` | `dbcanvas api POST …/k3d/users --data '{"username":"dev","role":"view"}'` |
+| A kubeconfig for one user | `GET …/k3d/users/{username}/kubeconfig` | `dbcanvas api GET …/k3d/users/dev/kubeconfig` |
+| TLS Secrets, parsed and checked | `GET …/frames/{fid}/k3d/certs` | `dbcanvas api GET …/k3d/certs` |
+| Cross-cluster replication: read · re-seed the replica | `GET …/frames/{fid}/k3d/replication` · `POST …/k3d/replication/reseed` | `dbcanvas api GET …/k3d/replication` |
+| The custom resource: read as a form model · patch | `GET`/`POST …/frames/{fid}/k3d/cr` | `dbcanvas api POST …/k3d/cr --data '{"patch":{"pxc":{"size":5}}}'` |
+| Secrets and ConfigMaps: list · read one · write keys | `GET …/k3d/objects?kind=secret` · `GET …/k3d/object?kind=&namespace=&name=` · `POST …/k3d/object` | `dbcanvas api POST …/k3d/object --data '{"kind":"secret","name":"cluster1-secrets","set":{"root":"new"}}'` |
+| Volumes: read · grow | `GET`/`POST …/frames/{fid}/k3d/storage` `{"sizeGiB"}` | `dbcanvas api POST …/k3d/storage --data '{"sizeGiB":20}'` |
+| PostgreSQL logical replicas: list · add · remove · reseed · bootstrap log | `GET`/`POST …/k3d/logicalreplicas` · `POST …/logicalreplicas/remove` · `/reseed` · `GET …/logicalreplicas/bootstraplog` | `dbcanvas api GET …/k3d/logicalreplicas` |
+| PSMDB ClusterSync: status · start · stop · pause/resume/finalize | `GET …/k3d/clustersync` · `POST …/clustersync/start` `{"source": "<frame id>"}` · `/stop` · `/{action}` | `dbcanvas api GET …/k3d/clustersync` |
+| Backups and restores: list · take · delete · restore · delete a restore | `GET`/`POST …/k3d/backups` · `POST …/k3d/backups/delete` · `POST …/k3d/restores` · `POST …/k3d/restores/delete` | `dbcanvas api POST …/k3d/backups --data '{}'` |
+| Manifests the Backups tab applied | `GET …/k3d/backups/manifests[?name=]` | `dbcanvas api GET '…/k3d/backups/manifests?name=b1.yaml'` |
+| Backup bucket: list · delete · download (≤ 64 MiB) | `GET …/k3d/bucket?prefix=` · `POST …/k3d/bucket/delete` · `GET …/k3d/bucket/download?key=` | `dbcanvas api GET '…/k3d/bucket?prefix=cluster1-full'` |
+| The bucket toolbox pod: status · start/stop | `GET`/`POST …/k3d/bucket/toolbox` | `dbcanvas api POST …/k3d/bucket/toolbox --data '{"action":"stop"}'` |
 
 ```sh
 dbcanvas api GET /api/stacks/1/frames/k3d-01/k3d/kubeconfig | jq -r .kubeconfig > kube.yaml
 KUBECONFIG=kube.yaml kubectl get pods -A
 ```
 
-These are addressed by **frame**, because a Kubernetes cluster's identity on the
-canvas is its frame. The two endpoints that reach *into* a pod are addressed by node
-instead — the pod list and the pod console, both under `…/nodes/{nid}/` in
-[Nodes](#nodes) — because they run through one specific k3s server node's kubectl,
-and that node is the thing you right-click.
+**Replication** between two PXC-operator frames is set up by drawing a line and
+deploying ([Stacks](STACKS.md)). **Re-seed replaces the replica's data** with a fresh
+backup of the source.
 
-Replication is set up by the deploy — draw the link between two PXC-operator frames on the canvas
-and press Deploy ([Stacks](STACKS.md)). These two are for reading where a cluster sits in the link
-and whether its channel is running, and for asking for a fresh seed. **Re-seed replaces the
-replica's data** with a new backup of the source; it is the one action that restores, which is why
-Deploy never does it on its own.
+**Custom resource editor (`k3d/cr`).** `GET` returns the operator's CRD as a form model
+(fields, types, enums, bounds) with the live `spec`. `POST` takes a JSON merge patch of
+`spec` (`null` deletes a key), always dry-runs it on the API server first, and applies
+nothing if it is rejected. Add `"dryRun": true` to validate only.
 
 ```sh
-dbcanvas api GET /api/stacks/1/frames/cluster2/k3d/replication | jq '{role, channel, peer, running}'
-```
-
-The two `cr` endpoints are the **cr.yaml editor**, and are useful on their own. `GET …/k3d/cr`
-returns the operator's own CustomResourceDefinition pruned to a form model — every field with its
-type, enum, bounds and grouping — alongside the live `spec` and the cluster's state, which is a
-compact way to ask what *this* operator version accepts. `POST` takes a JSON merge patch of `spec`
-(a `null` deletes a key) and is **always dry-run against the API server first**; pass
-`"dryRun": true` to validate a change and stop there. A rejected patch comes back with the API
-server's own message and nothing applied.
-
-```sh
-# what would this operator do with a fourth database pod?
 dbcanvas api POST /api/stacks/1/frames/k3d-00/k3d/cr \
   --data '{"patch":{"pxc":{"size":4}},"dryRun":true}'
 ```
 
-The three `object` endpoints are the **Secrets and ConfigMaps editor**, and they follow the same contract: a
-write is a merge patch of `data` (a `remove` list becomes JSON nulls), always dry-run against the
-API server first, `dryRun` to stop there. A Secret's values are base64 on the wire to Kubernetes
-but **plain text in this API** — the server decodes on read and encodes on write, so a caller
-never handles base64. Two rules are worth knowing before scripting against it:
+**Secrets and ConfigMaps editor (`k3d/object`).** A write is a merge patch of `data`
+(`set` and `remove`), dry-run first, `dryRun` to stop there. Secret values are plain
+text in this API; DBCanvas handles the base64. The list returns key names and sizes
+only. A non-text value is returned as `"binary": true` without its value. Errors
+return the API server's message, never the value being written.
 
-- **The list carries no values**, only key names and their decoded sizes. Values come from a read
-  of one named object.
-- **A value that is not text is `"binary": true`** with a size and no value, and the editor never
-  sends one back. Naming such a key in `set` is allowed — an explicit replacement is an intent,
-  not an accident — but nothing round-trips a value it could not show.
+**Backups tab** — see [Operator Backups](OPERATOR_BACKUPS.md). The same calls work for
+every Percona operator: the API finds the cluster and its storage from the frame.
+Every write returns the manifest it applied and keeps a copy on the node; `"dryRun":
+true` returns the manifest without applying it.
 
-A failure reports the API server's own message and nothing else: not the command, because the
-command contains the value being written and half of what this endpoint writes is a password.
-
-```sh
-# rotate the operator's monitor user and watch what the operator does about it
-dbcanvas api POST /api/stacks/1/frames/k3d-00/k3d/object \
-  --data '{"kind":"secret","name":"k3d-00-secrets","set":{"monitor":"new-password"}}'
-```
-
-The remaining eleven are the **Backups tab** — see [Operator Backups](OPERATOR_BACKUPS.md).
-They cover the four Percona operators and normalise away what differs between them: a backup
-names `pxcCluster`/`clusterName`/`pgCluster` and `storageName`/`repoName` depending on which
-operator it is, and the API takes neither — it reads the cluster and its storage from the frame
-and tells you what it used. Every mutating call **returns the manifest it applied** and archives
-it in the operator's own `deploy/backup/` on the node, so nothing here does anything you could
-not have done with `kubectl apply`. Pass `"dryRun": true` to get the manifest and apply nothing.
-
-Two of them deserve reading twice before scripting against them:
-
-- **`backups/delete` with `"data": true`** sets the `percona.com/delete-backup` finalizer before
-  deleting, so the operator clears the object store too. Without it — the default — the record
-  goes and every byte stays. Percona's PostgreSQL operator has no such finalizer and the call is
-  refused for it rather than silently doing half the job.
-- **`restores`** stops the cluster and replaces its data, and there is no undo.
+> [!WARNING]
+> `restores` stops the cluster and replaces its data; there is no undo.
+> `backups/delete` with `"data": true` also deletes the backup files from storage
+> (refused for the PostgreSQL operator, which does not support it); without it only
+> the record is deleted.
 
 ```sh
-# take one and wait for it
 dbcanvas api POST /api/stacks/1/frames/k3d-01/k3d/backups --data '{}'
 dbcanvas api GET  /api/stacks/1/frames/k3d-01/k3d/backups | jq '.backups[] | {name, state, destination}'
 ```
 
-The `bucket` endpoints are the object store rather than Kubernetes, and they work by running
-`aws` in a pod on the cluster (`<cluster>-dbcanvas-s3`, started on demand) with the cluster's own
-backup credentials — so they work against whatever S3 endpoint the operator was pointed at, and
-every answer carries the exact command line it ran. Listing folds at the next `/` and pages with
-`after`; a recursive delete also removes the empty directory nodes a filer-backed store leaves
-behind. Download is capped at 64 MiB, and refuses anything larger with the command that copies it
-inside the cluster instead.
+**Bucket** calls run `aws` in a toolbox pod on the cluster (`<cluster>-dbcanvas-s3`,
+started on demand) with the cluster's own backup credentials, and each answer includes
+the command it ran. Listing stops at the next `/` and pages with `after`. A larger
+download is refused with the command to copy it inside the cluster instead.
 
 ## All in One
 
-Many database instances inside one node. Every action execs the container's own
-`aioctl`, so the API and a shell in the node cannot disagree.
+Many database instances inside one node.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| List every instance, with engine, version, port and state | `GET …/nodes/{nid}/aio/instances` | `dbcanvas api GET …/aio/instances` |
+| List instances, with engine, version, port and state | `GET …/nodes/{nid}/aio/instances` | `dbcanvas api GET …/aio/instances` |
 | Start · stop · restart one | `POST …/aio/instances/{inst}/start` · `/stop` · `/restart` | `dbcanvas api POST …/aio/instances/mysql-8.0/restart` |
 | Tail one instance's log | `GET …/aio/instances/{inst}/logs` | `dbcanvas api GET …/aio/instances/mysql-8.0/logs` |
+
+## Repository, Ceph and Linux Client nodes
+
+| To do this | API | CLI |
+| --- | --- | --- |
+| Add packages, images or operator releases to a Repository node | `POST …/nodes/{nid}/repository/add` | `dbcanvas api POST …/repository/add --data '{…}'` |
+| Re-sync a Repository node | `POST …/nodes/{nid}/repository/sync` | `dbcanvas api POST …/repository/sync` |
+| A Ceph node's health, capacity and RBD images | `GET …/nodes/{nid}/ceph` | `dbcanvas api GET …/ceph` |
+| Set a Linux Client's current kubeconfig context | `PUT …/nodes/{nid}/kubeconfig/context` | `dbcanvas api PUT …/kubeconfig/context --data '{…}'` |
+| Linux Client ClusterSync (MongoDB to MongoDB): status · start · stop · document counts | `GET …/nodes/{nid}/pcsm` · `POST …/pcsm/start` `{source, target, include, exclude, fresh}` · `POST …/pcsm/stop` · `GET …/pcsm/compare` | `dbcanvas api GET …/pcsm` |
+| Pause, resume, resume-failed or finalize it | `POST …/nodes/{nid}/pcsm/{action}` | `dbcanvas api POST …/pcsm/pause` |
+
+Repository `add` and `sync` return `202`; progress shows on the node.
+
+## Labs
+
+**UI:** **Labs (experimental)** — hands-on scenarios graded against a real cluster.
+
+| To do this | API | CLI |
+| --- | --- | --- |
+| The labs available, with steps and the stack each needs | `GET /api/labs` | `dbcanvas api GET /api/labs` |
+| Your attempts and step results | `GET /api/labs/runs` | `dbcanvas api GET /api/labs/runs` |
+| Start a lab (deploys its stack) | `POST /api/labs/{id}/start` | `dbcanvas api POST /api/labs/<id>/start` |
+| Check one step | `POST /api/labs/{id}/steps/{stepId}/check` | `dbcanvas api POST /api/labs/<id>/steps/<step>/check` |
+| Finish | `POST /api/labs/{id}/finish` | `dbcanvas api POST /api/labs/<id>/finish` |
 
 ---
 
@@ -1010,24 +815,19 @@ Many database instances inside one node. Every action execs the container's own
 
 ## Data Generator
 
-Fill tables with realistic data, at the scale it takes to see a problem.
+Fill tables with realistic data. See [Data Generator](DATA_GENERATOR.md).
 
 ![The Data Generator](screenshots/data-generator.png)
 
-> *The form is built from `…/columns`: DBCanvas introspects the table and infers a
-> generator per column. **Preview** is the `…/preview` POST — it changes nothing,
-> so a read-scoped token can call it.*
-
 | To do this | API | CLI |
 | --- | --- | --- |
-| Which nodes can it write to | `GET /api/datagen/connections` | `dbcanvas datagen connections` |
-| List databases on a node | `GET /api/datagen/stacks/{id}/nodes/{nid}/databases` | `dbcanvas datagen databases <stack> <node>` |
-| List tables, with row counts | `…/tables` | `dbcanvas datagen tables <stack> <node> --database sbtest` |
-| Inspect a table's columns and generators | `…/columns` | `dbcanvas api GET …/columns?database=sbtest&table=sbtest1` |
-| Preview rows without writing them | `POST …/preview` | `dbcanvas api POST …/preview --data '{…}'` |
-| Start a generation job | `POST …/generate` | `dbcanvas datagen run <stack> <node> --table T --rows N --wait` |
-| Poll a job | `GET /api/datagen/jobs/{job}` | *(`--wait` does this)* |
-| Cancel a job | `POST /api/datagen/jobs/{job}/cancel` | `dbcanvas api POST /api/datagen/jobs/<job>/cancel` |
+| Nodes it can write to | `GET /api/datagen/connections` | `dbcanvas datagen connections` |
+| Databases on a node | `GET /api/datagen/stacks/{id}/nodes/{nid}/databases` | `dbcanvas datagen databases <stack> <node>` |
+| Tables, with row counts | `…/tables?database=` | `dbcanvas datagen tables <stack> <node> --database sbtest` |
+| A table's columns and suggested generators | `…/columns?database=&table=` | `dbcanvas api GET '…/columns?database=sbtest&table=sbtest1'` |
+| Preview rows without writing | `POST …/preview` | `dbcanvas api POST …/preview --data '{…}'` |
+| Start a job | `POST …/generate` | `dbcanvas datagen run <stack> <node> --database D --table T --rows N [--wait] [--timeout 2h]` |
+| Poll · cancel a job | `GET /api/datagen/jobs/{job}` · `POST …/cancel` | `--wait` polls · `dbcanvas api POST /api/datagen/jobs/<job>/cancel` |
 
 ```sh
 dbcanvas datagen run pxc-lab pxc-01 --database sbtest --table sbtest1 --rows 5000000 --wait
@@ -1037,156 +837,130 @@ Rows already written stay written when a job is cancelled.
 
 ## Query Runner
 
-Run SQL across several nodes in parallel, gated on the processlist.
+Run SQL on several nodes in parallel. See [Query Runner](QUERY_RUNNER.md).
 
 ![The Query Runner](screenshots/query-runner.png)
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Which nodes can it run against | `GET /api/queryrun/targets` | `dbcanvas query targets` |
+| Nodes it can run against | `GET /api/queryrun/targets` | `dbcanvas query targets` |
 | Start a run | `POST /api/queryrun/runs` | `dbcanvas query run --stack S --nodes a,b --sql '…'` |
 | Poll it | `GET /api/queryrun/runs/{id}` | *(the CLI waits by default)* |
 | Stop it, killing the statements | `POST /api/queryrun/runs/{id}/stop` | `dbcanvas api POST /api/queryrun/runs/<id>/stop` |
 | Your previous runs | `GET /api/queryrun/history` | `dbcanvas query history` |
 
-```sh
-dbcanvas query run --stack pxc-lab --nodes pxc-01,pxc-02,pxc-03 \
-  --sql 'SELECT @@hostname, @@server_id' --json | jq '.nodes[]'
-```
+`query run` flags: `--database`, `--count` (per node; `0` repeats until
+`--time-limit`, default 60 s), `--threads`, `--wait` (default true), `--timeout`.
+`--sql @file.sql` reads the statement from a file.
 
-`--sql @file.sql` reads the statement from a file, which is easier than quoting.
+```sh
+dbcanvas --json query run --stack pxc-lab --nodes pxc-01,pxc-02,pxc-03 \
+  --sql 'SELECT @@hostname, @@server_id' | jq '.nodes[]'
+```
 
 ## Database Explorer
 
-Browse and query the databases DBCanvas deployed — MySQL, PostgreSQL, MongoDB, Valkey
-and ClickHouse, including PMM Server's internal PostgreSQL and Query Analytics store.
-See [Database Explorer](DATABASE_EXPLORER.md).
+Browse and query the databases in your stacks — MySQL, PostgreSQL, MongoDB, Valkey and
+ClickHouse, including PMM Server's own PostgreSQL and Query Analytics store. See
+[Database Explorer](DATABASE_EXPLORER.md).
 
-A connection is named by an opaque id from the first call. **No endpoint here takes a
-host, a user or a password, and none returns one** — the id is re-resolved against your
-own stacks and re-authorized on every request, and the credentials never leave the
-server.
+A connection is an opaque id from the first call. No endpoint takes or returns a host,
+user or password.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Every database you may reach, by stack and engine | `GET /api/dbexplorer/connections` | `dbcanvas api GET /api/dbexplorer/connections` |
-| One connection, with the version read from the server | `GET /api/dbexplorer/connections/{cid}` | *(UI)* |
-| Its databases (or Valkey keyspaces) | `GET /api/dbexplorer/connections/{cid}/databases` | *(UI)* |
-| Its schemas, where the engine has them | `GET /api/dbexplorer/connections/{cid}/schemas?database=` | *(UI)* |
-| One level of the object tree | `GET /api/dbexplorer/connections/{cid}/objects?database=&schema=&folder=&cursor=&filter=` | *(UI)* |
-| Describe one object — columns, indexes, keys, size, DDL | `GET /api/dbexplorer/connections/{cid}/object?database=&schema=&name=&kind=` | *(UI)* |
-| Its first page of rows, documents or values | `GET /api/dbexplorer/connections/{cid}/viewdata?database=&name=&kind=&limit=` | *(UI)* |
-| Run SQL, a MongoDB query, or a Valkey command | `POST /api/dbexplorer/query` | `dbcanvas api POST /api/dbexplorer/query` |
-| Cancel one of your in-flight queries | `POST /api/dbexplorer/cancel` | *(UI)* |
-| Insert, edit or delete one row — or preview the statement | `POST /api/dbexplorer/mutate` | *(UI)* |
-| Your query history | `GET /api/dbexplorer/history` | `dbcanvas api GET /api/dbexplorer/history` |
-| Delete one entry / clear the lot | `DELETE /api/dbexplorer/history/{hid}` · `DELETE /api/dbexplorer/history` | *(UI)* |
-| Saved queries | `GET`/`POST /api/dbexplorer/saved` · `DELETE /api/dbexplorer/saved/{sid}` | *(UI)* |
-| Give a Kubernetes database an address the load tools can dial | `POST /api/dbexplorer/expose` | *(UI)* |
-| Remove that Service again | `POST /api/dbexplorer/unexpose` | *(UI)* |
-
-The object listing is one level per call — the tree is expanded lazily, and Valkey's
-`cursor` is a `SCAN` cursor you hand back to continue.
+| Every database you can reach, by stack and engine | `GET /api/dbexplorer/connections` | `dbcanvas api GET /api/dbexplorer/connections` |
+| One connection, with its server version | `GET /api/dbexplorer/connections/{cid}` | *(UI)* |
+| Its databases (or Valkey keyspaces) | `GET …/connections/{cid}/databases` | *(UI)* |
+| Its schemas | `GET …/connections/{cid}/schemas?database=` | *(UI)* |
+| One level of the object tree | `GET …/connections/{cid}/objects?database=&schema=&folder=&cursor=&filter=` | *(UI)* |
+| Describe one object: columns, indexes, keys, size, DDL | `GET …/connections/{cid}/object?database=&schema=&name=&kind=` | *(UI)* |
+| Its first page of rows, documents or values | `GET …/connections/{cid}/viewdata?database=&name=&kind=&limit=` | *(UI)* |
+| Run SQL, a MongoDB query or a Valkey command | `POST /api/dbexplorer/query` | `dbcanvas api POST /api/dbexplorer/query --data '{…}'` |
+| Cancel your running query | `POST /api/dbexplorer/cancel` | *(UI)* |
+| Insert, edit or delete one row, or preview the statement | `POST /api/dbexplorer/mutate` | *(UI)* |
+| Query history · delete one · clear | `GET /api/dbexplorer/history` · `DELETE …/history/{hid}` · `DELETE …/history` | `dbcanvas api GET /api/dbexplorer/history` |
+| Saved queries | `GET`/`POST /api/dbexplorer/saved` · `DELETE …/saved/{sid}` | *(UI)* |
+| Give a Kubernetes database an address the load tools can reach · remove it | `POST /api/dbexplorer/expose` · `POST /api/dbexplorer/unexpose` | *(UI)* |
 
 ```sh
-# The connection ids, then a query against one of them.
 CID=$(dbcanvas api GET /api/dbexplorer/connections |
       jq -r '.stacks[0].groups[0].connections[0].id')
-
 dbcanvas api POST /api/dbexplorer/query --data "$(jq -n --arg c "$CID" \
   '{connectionId:$c, database:"shop", sql:"SELECT country, count(*) FROM orders GROUP BY 1", limit:500}')"
 ```
 
-Connections include the databases a Kubernetes operator deployed inside a K3D frame.
-A LoadBalancer or NodePort Service is dialled directly; a ClusterIP one is read by
-running the database's own client in its pod. `expose` adds a Service *beside* the
-operator's own so the Query Runner and Benchmark can dial it too, and never modifies
-anything the operator owns.
-
-Every result is capped — 500 rows by default, 50,000 at most — and every query has a
-timeout (30 s by default, 300 s at most). A PMM connection is read-only at the
-*database* as well as in the application: PostgreSQL runs it inside `BEGIN READ ONLY`
-and ClickHouse with `readonly=2`, so a write is refused by the server with SQLSTATE
-25006 or error 164 even if it got past the application's own classifier.
+- Results are capped at 500 rows by default, 50,000 at most; queries time out after
+  30 s by default, 300 s at most.
+- Valkey's `cursor` is a `SCAN` cursor you pass back to continue.
+- Databases inside a K3D frame are included. `expose` adds a Service beside the
+  operator's own and never changes what the operator owns.
+- PMM's databases are read-only unless an administrator turns on **Writes to internal
+  databases**; the database itself also refuses writes.
 
 ## Benchmark
 
-OLTP, OLAP, read-write and read-only workloads, with throughput and latency.
+OLTP, OLAP, read-write and read-only workloads. See [Benchmark](BENCHMARK.md).
 
 ![Benchmark results](screenshots/benchmark.png)
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Which nodes, and which workloads each supports | `GET /api/benchmark/targets` | `dbcanvas benchmark targets` |
+| Nodes, and the workloads each supports | `GET /api/benchmark/targets` | `dbcanvas benchmark targets` |
 | Start a run | `POST /api/benchmark/runs` | `dbcanvas benchmark run <stack> <node> --workload oltp --duration 60 --wait` |
 | Live throughput and latency | `GET /api/benchmark/runs/{id}` | *(`--wait` polls it)* |
-| Stop early, keeping the numbers so far | `POST /api/benchmark/runs/{id}/stop` | `dbcanvas api POST /api/benchmark/runs/<id>/stop` |
-| Previous runs, for comparison | `GET /api/benchmark/history` | `dbcanvas benchmark history` |
+| Stop early, keeping the results | `POST /api/benchmark/runs/{id}/stop` | `dbcanvas api POST /api/benchmark/runs/<id>/stop` |
+| Previous runs | `GET /api/benchmark/history` | `dbcanvas benchmark history` |
+
+`benchmark run` flags: `--workload` (`oltp`, `olap`, `rw`, `ro`), `--duration` (s),
+`--threads`, `--database` (default `dbcanvas_bench`), `--create-db` (default true),
+`--scale`, `--warmup` (s), `--wait`.
 
 ## Stock Market Sim
 
 ![Three Stock Market Sim nodes driving three Kubernetes operators](screenshots/stocksim-operators.png)
 
-The sim itself is a node you deploy and link on the canvas — there is no API to drive
-it, because linking it *is* the configuration. One endpoint exists, for the case the
-canvas cannot guess:
+The sim is configured by deploying it and linking it on the canvas. One endpoint
+tests a hand-entered connection:
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Test a hand-entered database connection from inside the stack network | `POST …/nodes/{nid}/stocksim/test` | `dbcanvas api POST …/stocksim/test --data '{…}'` |
+| Test a database connection from inside the stack network | `POST …/nodes/{nid}/stocksim/test` | `dbcanvas api POST …/stocksim/test --data '{…}'` |
 
 ## Sample Client Code
 
-Generate a runnable client program for a deployment on the canvas, install what it
-needs on a Linux Client, and run it. See [Sample Client Code](SAMPLE_CODE.md).
+Generate a client program for a deployment, install what it needs on a Linux Client,
+and run it. See [Sample Client Code](SAMPLE_CODE.md).
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Every sample, with its dependencies and licences | `GET /api/samplecode/catalog` | `dbcanvas api GET /api/samplecode/catalog` |
-| Which Linux Clients can run one | `GET /api/samplecode/nodes` | `dbcanvas api GET /api/samplecode/nodes` |
+| Every sample, with dependencies and licences | `GET /api/samplecode/catalog` | `dbcanvas api GET /api/samplecode/catalog` |
+| Linux Clients that can run one | `GET /api/samplecode/nodes` | `dbcanvas api GET /api/samplecode/nodes` |
 | The endpoints in that node's stack | `GET …/nodes/{nid}/samplecode/targets` | `dbcanvas api GET …/samplecode/targets` |
-| Render a sample (changes nothing) | `POST …/nodes/{nid}/samplecode/generate` | `dbcanvas api POST …/samplecode/generate -d '{…}'` |
-| Save / prepare / run / reset it | `POST …/nodes/{nid}/samplecode/runs` | `dbcanvas api POST …/samplecode/runs -d '{…}'` |
-| Follow the job | `GET …/samplecode/runs/{jid}` | `dbcanvas api GET …/samplecode/runs/{jid}` |
-| Stop it | `POST …/samplecode/runs/{jid}/stop` | `dbcanvas api POST …/samplecode/runs/{jid}/stop` |
-
-A sample is addressed as **database/language/client/scenario** — `mysql/java/hikari/crud`
-— and the body of `generate` and `runs` is the same four fields:
+| Render a sample (changes nothing) | `POST …/nodes/{nid}/samplecode/generate` | `dbcanvas api POST …/samplecode/generate --data '{…}'` |
+| Save · prepare · run · reset | `POST …/nodes/{nid}/samplecode/runs` | `dbcanvas api POST …/samplecode/runs --data '{…}'` |
+| Follow · stop the job | `GET …/samplecode/runs/{jid}` · `POST …/runs/{jid}/stop` | `dbcanvas api GET …/samplecode/runs/<jid>` |
 
 ```json
 { "sample": "mysql/java/hikari/crud", "target": "ps1", "tls": "verify", "action": "run" }
 ```
 
-`target` is an endpoint id from `…/samplecode/targets`; `tls` is `off`, `require` or
-`verify`, and omitting it keeps whatever DBCanvas derived from the deployment. `action`
-is `save`, `prepare`, `run` or `reset`, and only `runs` takes it.
-
-The job's log is the transcript: every check, every command before it runs, its output,
-and the program's own exit code. A non-zero exit is the program's answer, not a DBCanvas
-failure — the job reports `ran: true` with the code.
-
----
+`sample` is database/language/client/scenario. `target` is an id from
+`…/samplecode/targets`. `tls` is `off`, `require` or `verify` (omit it to use the
+deployment's setting). `action` (`save`, `prepare`, `run`, `reset`) is for `runs`
+only. The job log shows every command and its output; a non-zero exit from the
+program is reported as `ran: true` with the exit code.
 
 ## Ledger Sim
 
-The JDBC simulator. Like the Stock Market Sim it is configured by deploying and linking
-it, and for the same reason has exactly one endpoint — but the check is a JDBC one, so
-it also takes the **driver**, and answers with that driver's own version string and
-`SQLState`:
+The JDBC simulator, configured by deploying and linking it. Its JDBC URL, driver,
+HikariCP settings and workload are changed on its own dashboard while it runs.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Test a hand-entered JDBC connection, with the chosen driver, from inside the stack network | `POST …/nodes/{nid}/ledgersim/test` | `dbcanvas api POST …/ledgersim/test --data '{…}'` |
+| Test a JDBC connection with the chosen driver, from inside the stack network | `POST …/nodes/{nid}/ledgersim/test` | `dbcanvas api POST …/ledgersim/test --data '{…}'` |
 
-The answer comes from the sim image itself, run once in a throwaway container: the
-drivers, the URL composition and the per-driver TLS mapping all live there, and a
-reimplementation in the server would be answering a different question.
-
-Everything else about a deployed Ledger Sim node — its JDBC URL, the driver, the
-HikariCP settings and the workload knobs — is changed on **its own dashboard**, which
-applies to the running pool rather than needing a redeploy. That is a deliberate split:
-the canvas decides where a node starts, and the dashboard is where the client-side
-experiment happens.
+The answer includes the driver's version string and any `SQLState`.
 
 ---
 
@@ -1194,41 +968,29 @@ experiment happens.
 
 ## Activity
 
-**UI:** right-click a running database or proxy node → **Activity…** (or *see Activity* on a
-transaction or lock-wait alert). It refreshes every 2 seconds while it is open and costs the node
-nothing when it is closed.
+**UI:** right-click a running database or proxy node → **Activity…** (or *see
+Activity* on a transaction or lock-wait alert). It refreshes every 2 seconds by
+default while open.
 
-| Tab | What it answers |
+| Tab | Shows |
 | --- | --- |
 | Overview | what to look at first: the oldest blocker, the longest transaction, DDL stuck in a queue |
-| Blocking | who blocks whom, as a tree under each root blocker — row locks, metadata locks (the ALTER waiting for a long SELECT, and every SELECT queued behind the ALTER), PostgreSQL's `pg_blocking_pids`, a pool with no free server connection. An idle blocker says so: its application holds the transaction open |
-| Transactions | open transactions by age, rows locked and modified; for an idle one, what it last ran |
-| Sessions | every session, filterable; *CPU / I/O / memory per session* adds what each one costs (from `/proc` and performance_schema) |
-| DDL | DDL in flight, its phase, progress and estimate, and the sessions queued behind it |
-| Deadlocks | each deadlock the watcher recorded, with the transactions, the rows or locks each held and waited for, and the one rolled back |
-| Statements | normalised statements by time per second (DBCanvas's own monitoring queries hidden) |
-| Pools | ProxySQL's per-backend connection pool, PgBouncer's per database and user |
+| Blocking | who blocks whom: row locks, metadata locks, PostgreSQL blockers, a pool with no free connection |
+| Transactions | open transactions by age, rows locked and modified; what an idle one last ran |
+| Sessions | every session; optionally CPU, I/O and memory per session |
+| DDL | DDL in flight with phase, progress and estimate, and what is queued behind it |
+| Deadlocks | each recorded deadlock: the transactions, what each held and waited for, the one rolled back |
+| Statements | normalised statements by time per second |
+| Pools | ProxySQL's per-backend pool; PgBouncer's per database and user |
 
-MySQL and MariaDB (performance_schema, `INNODB_TRX`, `data_lock_waits` or `INNODB_LOCK_WAITS`,
-`metadata_locks`), PostgreSQL, MongoDB (`currentOp`), ProxySQL — where each session links to its
-backend connection on the database node — and PgBouncer.
-
-**Kill** ends a statement or a connection; **EXPLAIN** shows a running statement's plan without
-running it again. A statement still waiting for its table locks has no plan yet, and says so.
-
-**Deep** (MySQL family) switches on, for 1 to 60 minutes, the performance_schema stage, wait and
-transaction events that were off — DDL progress for any ALTER, and per-session socket I/O. Only
-what was off is switched on, and only that is switched back, when the time is up, when it is
-turned off, or when DBCanvas next starts. It is never on by default: instrumentation costs a busy
-server throughput.
-
-Deadlocks are recorded by the watcher on each pass: InnoDB's latest from `SHOW ENGINE INNODB
-STATUS`, PostgreSQL's from its counter with the detail read from the server log. A transaction
-open longer than the stack's *trxSec* rule (10 minutes by default) and a lock wait longer than
-*lockWaitSec* (30 seconds) open alerts like any other.
+Supported: MySQL, MariaDB, PostgreSQL, MongoDB, ProxySQL and PgBouncer (tabs vary by
+engine). **Kill** ends a statement or connection; **EXPLAIN** shows a running
+statement's plan without re-running it. **Deep** (MySQL family) turns on extra
+performance_schema instrumentation for 1–60 minutes and turns back off only what it
+turned on.
 
 ```sh
-N=/api/stacks/12/nodes/$NODE_ID      # an id, not a name: see `dbcanvas node list`
+N=/api/stacks/12/nodes/$NODE_ID      # a node id: see `dbcanvas node list`
 dbcanvas api GET "$N/activity?with=digests,resources,deadlock"
 dbcanvas api POST "$N/activity/kill" --data '{"session": "4711", "mode": "connection"}'
 dbcanvas api POST "$N/activity/explain" --data '{"session": "4711"}'
@@ -1239,28 +1001,25 @@ dbcanvas api GET "$N/deadlocks"
 ## Packet Inspector
 
 `tcpdump` on a database node, decoded packet by packet — MySQL, PostgreSQL, MongoDB
-and Valkey.
+and Valkey. See [Packet Inspector](PACKET_INSPECTOR.md).
 
 ![The Packet Inspector](screenshots/packet-inspector.png)
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Which nodes can be captured, and on which port | `GET /api/pktinspect/targets` | `dbcanvas capture targets` |
-| Start a capture | `POST /api/pktinspect/captures` | `dbcanvas capture start <stack> <node> --seconds 30` |
+| Nodes that can be captured, and on which port | `GET /api/pktinspect/targets` | `dbcanvas capture targets` |
+| Start a capture | `POST /api/pktinspect/captures` | `dbcanvas capture start <stack> <node> [--seconds 30] [--label L]` |
 | List your captures | `GET /api/pktinspect/captures` | `dbcanvas capture list` |
 | A capture's state and counters | `GET /api/pktinspect/captures/{id}` | `dbcanvas capture get <id>` |
-| Stop one and decode it | `POST …/captures/{id}/stop` | `dbcanvas capture stop <id>` |
+| Stop and decode | `POST …/captures/{id}/stop` | `dbcanvas capture stop <id>` |
 | A page of decoded packets | `GET …/captures/{id}/packets` | `dbcanvas capture packets <id> --limit 50` |
-| One packet in full | `GET …/captures/{id}/packets/{no}` | `dbcanvas api GET …/packets/42` |
-| The zoomable timeline | `GET …/captures/{id}/timeline` | `dbcanvas api GET …/timeline` |
-| Download the raw `.pcap` | `GET …/captures/{id}/download` | `dbcanvas capture download <id>` |
-| The server-log records a capture is blind to | `GET …/captures/{id}/serverlog` | `dbcanvas api GET …/serverlog` |
-| Upload a `.pcap` from elsewhere | `POST /api/pktinspect/upload` *(multipart)* | `curl -F file=@x.pcap …` |
+| One packet in full | `GET …/captures/{id}/packets/{no}` | `dbcanvas api GET /api/pktinspect/captures/<id>/packets/42` |
+| The timeline | `GET …/captures/{id}/timeline` | `dbcanvas api GET …/timeline` |
+| Download the `.pcap` | `GET …/captures/{id}/download` | `dbcanvas capture download <id> [--out F]` |
+| Server-log records from the same window | `GET …/captures/{id}/serverlog` | `dbcanvas api GET …/serverlog` |
+| Upload a `.pcap` | `POST /api/pktinspect/upload` *(multipart, field `file`)* | `curl -F file=@x.pcap …` |
 
 ![One decoded packet in detail](screenshots/packet-inspector-detail.png)
-
-> *`GET …/packets/{no}` returns exactly this: the decoded fields, the raw bytes, and
-> the exchange the packet belongs to.*
 
 ```sh
 ID=$(dbcanvas capture start pxc-lab pxc-01 --seconds 20 | jq -r .id)
@@ -1269,143 +1028,127 @@ sleep 25 && dbcanvas capture download "$ID"
 
 ## Log Summary
 
-Several nodes' logs on one timeline, split into the good, the warning and the bad.
+Several nodes' logs on one timeline, classified by severity. See
+[Log Summary](LOG_SUMMARY.md).
 
 ![The Log Summary](screenshots/log-summary.png)
 
 | To do this | API | CLI |
 | --- | --- | --- |
 | What can be collected | `GET /api/logsummary/targets` | `dbcanvas logs targets` |
-| Collect several nodes' logs as one bundle | `POST /api/logsummary/collect` | `dbcanvas logs collect <stack> --nodes a,b,c` |
+| Collect several nodes' logs as one bundle | `POST /api/logsummary/collect` | `dbcanvas logs collect <stack> [--nodes a,b,c]` (every node with logs if omitted) |
 | List your bundles | `GET /api/logsummary/bundles` | `dbcanvas logs list` |
 | A bundle's sources, verdict and counts | `GET /api/logsummary/bundles/{id}` | `dbcanvas logs get <id>` |
-| A page of classified events | `GET …/bundles/{id}/events` | `dbcanvas logs events <id> --severity error` |
-| The per-source swimlane | `GET …/bundles/{id}/timeline` | `dbcanvas api GET …/timeline` |
-| What every node was doing at one instant | `GET …/bundles/{id}/at` | `dbcanvas api GET …/at?t=…` |
+| A page of events | `GET …/bundles/{id}/events` | `dbcanvas logs events <id> [--severity bad,warn] [--limit N]` |
+| The per-source timeline | `GET …/bundles/{id}/timeline` | `dbcanvas api GET …/timeline` |
+| What every node was doing at one instant | `GET …/bundles/{id}/at?t=` | `dbcanvas api GET '…/at?t=…'` |
 | Download one source's raw log | `GET …/bundles/{id}/sources/{src}/raw` | `dbcanvas api GET …/raw --out node.log` |
 | Correct a source's clock offset | `POST …/bundles/{id}/offset` | `dbcanvas api POST …/offset --data '{…}'` |
 | Delete a bundle | `DELETE /api/logsummary/bundles/{id}` | `dbcanvas logs delete <id>` |
-| Upload logs from elsewhere | `POST /api/logsummary/upload` *(multipart)* | `curl -F file=@mysqld.log …` |
+| Upload logs | `POST /api/logsummary/upload` *(multipart, field `files`)* | `curl -F files=@mysqld.log …` |
 
 ```sh
 dbcanvas logs collect pxc-lab --nodes pxc-01,pxc-02,pxc-03 | jq '{id, verdict}'
-dbcanvas logs events <id> --severity error --limit 20
+dbcanvas logs events <id> --severity bad --limit 20
 ```
-
-The point of collecting several at once is the comparison *across* members, which is
-why `collect` takes a node list rather than being per-node.
 
 ## FTDC Summary
 
-MongoDB's own black box — the per-second diagnostic data every `mongod` writes with
-no configuration.
+Charts and findings from MongoDB's `diagnostic.data`. See [FTDC Summary](FTDC_SUMMARY.md).
 
 ![FTDC Summary: a decoded capture, with the charts worth looking at called out](screenshots/ftdc-summary.png)
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Which MongoDB nodes can be read | `GET /api/ftdc/targets` | `dbcanvas ftdc targets` |
+| MongoDB nodes that can be read | `GET /api/ftdc/targets` | `dbcanvas ftdc targets` |
 | Read a running node's `diagnostic.data` | `POST …/nodes/{nid}/ftdc` | `dbcanvas ftdc node <stack> <node>` |
 | Compare two windows | `POST /api/ftdc/compare` | `dbcanvas api POST /api/ftdc/compare --data '{…}'` |
-| Upload `diagnostic.data` from elsewhere | `POST /api/ftdc/upload` *(multipart)* | `curl -F files=@metrics.2026-09-02 …` |
+| Upload `diagnostic.data` | `POST /api/ftdc/upload` *(multipart, field `files`)* | `curl -F files=@metrics.2026-09-02 …` |
 
 ## Stalk Summary
 
-Turn a `pt-stalk` capture into charts, verdicts and configuration advice.
+Charts, verdicts and configuration advice from a `pt-stalk` capture. See
+[Stalk Summary](STALK_SUMMARY.md).
 
 ![The Stalk Summary](screenshots/stalk-summary.png)
 
 | To do this | API | CLI |
 | --- | --- | --- |
 | Capture and analyse in one request | `POST …/nodes/{nid}/stalksummary` | `dbcanvas api POST …/stalksummary` |
-| Analyse an archive already kept here | `POST /api/stalksummary/archive/{aid}` | `dbcanvas stalk analyse <aid>` |
-| Put two captures head to head | `POST /api/stalksummary/compare` | `dbcanvas api POST /api/stalksummary/compare --data '{…}'` |
-| Upload an archive | `POST /api/stalksummary/upload` *(multipart)* | `curl -F file=@stalk.tar.gz …` |
+| Analyse a kept archive | `POST /api/stalksummary/archive/{aid}` | `dbcanvas stalk analyse <aid>` |
+| Compare two captures | `POST /api/stalksummary/compare` | `dbcanvas api POST /api/stalksummary/compare --data '{…}'` |
+| Upload an archive | `POST /api/stalksummary/upload` *(multipart, field `file`)* | `curl -F file=@stalk.tar.gz …` |
 
 ## Operator Summary
 
-Turn a `pt-k8s-debug-collector` cluster-dump into workload health, custom-resource status
-and operator errors. The archive can come from a K3D cluster here or from any cluster
-anywhere — the collector's output is the same shape wherever it was taken.
+Workload health, custom-resource status and operator errors from a
+`pt-k8s-debug-collector` cluster-dump, taken here or on any cluster. See
+[Operator Summary](OPERATOR_SUMMARY.md).
 
 | To do this | API | CLI |
 | --- | --- | --- |
 | Capture and analyse in one request | `POST …/frames/{fid}/k3d/opsummary` | `dbcanvas api POST …/k3d/opsummary` |
-| Analyse a capture already kept here | `POST /api/opsummary/dumps/{did}` | `dbcanvas api POST /api/opsummary/dumps/3` |
-| Every kept capture | `GET /api/opsummary/dumps` | `dbcanvas api GET /api/opsummary/dumps` |
+| Analyse a kept cluster-dump | `POST /api/opsummary/dumps/{did}` | `dbcanvas api POST /api/opsummary/dumps/3` |
+| Every kept cluster-dump | `GET /api/opsummary/dumps` | `dbcanvas api GET /api/opsummary/dumps` |
 | Upload a cluster-dump | `POST /api/opsummary/upload` *(multipart)* | `curl -F file=@cluster-dump.tar.gz …` |
 
 ## Diagnostic captures
 
-`pg_gather` for PostgreSQL, `pt-stalk` for the MySQL family — both run on the node
-itself — and `pt-k8s-debug-collector` for a Kubernetes cluster, which runs in a
-throwaway container beside it.
+`pt-stalk` (MySQL family) and `pg_gather` (PostgreSQL) run on the node;
+`pt-k8s-debug-collector` collects a Kubernetes cluster.
 
 | To do this | API | CLI |
 | --- | --- | --- |
 | Start pt-stalk | `POST …/nodes/{nid}/ptstalk` | `dbcanvas stalk start <stack> <node>` |
-| Is it running, and what has it collected | `GET …/nodes/{nid}/ptstalk` | `dbcanvas stalk status <stack> <node>` |
-| Download the current capture | `GET …/nodes/{nid}/ptstalk/download` | `dbcanvas stalk download <stack> <node>` |
-| Kept archives from this node | `GET …/nodes/{nid}/ptstalk/archives` | `dbcanvas api GET …/ptstalk/archives` |
-| Every kept archive | `GET /api/ptstalk/archives` | `dbcanvas stalk archives` |
-| Download a kept archive | `GET /api/ptstalk/archives/{aid}/download` | `dbcanvas api GET …/download --out stalk.tar.gz` |
-| Annotate one | `POST /api/ptstalk/archives/{aid}/note` | `dbcanvas api POST …/note --data '{"note":"…"}'` |
-| Delete one | `DELETE /api/ptstalk/archives/{aid}` | `dbcanvas api DELETE /api/ptstalk/archives/3` |
-| Start pg_gather | `POST …/nodes/{nid}/pggather` | `dbcanvas api POST …/pggather` |
-| Start a Kubernetes cluster-dump | `POST …/frames/{fid}/k3d/collect` | `dbcanvas api POST …/k3d/collect` |
-| Is the cluster-dump running | `GET …/frames/{fid}/k3d/collect` | `dbcanvas api GET …/k3d/collect` |
+| Its status and what it has collected | `GET …/nodes/{nid}/ptstalk` | `dbcanvas stalk status <stack> <node>` |
+| Download the current capture | `GET …/nodes/{nid}/ptstalk/download` | `dbcanvas stalk download <stack> <node> [--out F]` |
+| Kept archives from this node · from everywhere | `GET …/nodes/{nid}/ptstalk/archives` · `GET /api/ptstalk/archives` | `dbcanvas stalk archives` |
+| Download · annotate · delete a kept archive | `GET /api/ptstalk/archives/{aid}/download` · `POST …/{aid}/note` · `DELETE /api/ptstalk/archives/{aid}` | `dbcanvas api GET /api/ptstalk/archives/3/download --out stalk.tar.gz` |
+| Start pg_gather · status · report | `POST …/nodes/{nid}/pggather` · `GET …/pggather` · `GET …/pggather/download` | `dbcanvas api POST …/pggather` |
+| Start a Kubernetes cluster-dump · status | `POST`/`GET …/frames/{fid}/k3d/collect` | `dbcanvas api POST …/k3d/collect` |
 | Kept cluster-dumps for this cluster | `GET …/frames/{fid}/k3d/collect/dumps` | `dbcanvas api GET …/k3d/collect/dumps` |
-| Download a kept cluster-dump | `GET /api/k8sdumps/{did}/download` | `dbcanvas api GET …/download --out cluster-dump.tar.gz` |
-| Delete one | `DELETE /api/k8sdumps/{did}` | `dbcanvas api DELETE /api/k8sdumps/3` |
-| pg_gather status · report | `GET …/pggather` · `…/pggather/download` | `dbcanvas api GET …/pggather` |
+| Download · delete a kept cluster-dump | `GET /api/k8sdumps/{did}/download` · `DELETE /api/k8sdumps/{did}` | `dbcanvas api GET /api/k8sdumps/3/download --out cluster-dump.tar.gz` |
 
-Kept archives are deliberately **not** tied to the deployment they came from: a node
-can be recreated, and comparing across the change that recreated it is the point.
+Kept archives outlive the node they came from, so you can compare before and after a
+node is recreated.
 
 ## Operator Debugger
 
-Step through a Kubernetes operator under Delve — breakpoints, call stack, variables,
-no IDE.
+Step through a Kubernetes operator under Delve. See
+[Operator Debugger](OPERATOR_DEBUGGER.md).
 
 ![The Operator Debugger stopped in Reconcile](screenshots/operator-debugger.png)
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Which frames run their operator under Delve | `GET /api/k3d/debug/targets` | `dbcanvas api GET /api/k3d/debug/targets` |
-| The operator's source tree | `GET …/frames/{fid}/k3d/debug/sources` | `dbcanvas api GET …/debug/sources` |
-| One source file | `GET …/frames/{fid}/k3d/debug/source` | `dbcanvas api GET …/debug/source?path=…` |
-| The live debug session | `GET …/k3d/debug/ws` *(WebSocket)* | *(UI only — this one is genuinely interactive)* |
-| Force a reconcile so a breakpoint is reached | `POST …/k3d/debug/reconcile` | `dbcanvas api POST …/debug/reconcile` |
+| Frames running their operator under Delve | `GET /api/k3d/debug/targets` | `dbcanvas api GET /api/k3d/debug/targets` |
+| The operator's source tree · one file | `GET …/frames/{fid}/k3d/debug/sources` · `GET …/k3d/debug/source?path=` | `dbcanvas api GET …/debug/sources` |
+| The live debug session | `GET …/frames/{fid}/k3d/debug/ws` *(WebSocket)* | *(UI only)* |
+| Force a reconcile | `POST …/frames/{fid}/k3d/debug/reconcile` | `dbcanvas api POST …/debug/reconcile` |
 
 ## Core Dump Analyzer
 
-Read a crashed server's `mysqld` core dump — and get a diagnosis, not just a
-backtrace.
+Read a crashed `mysqld`'s core dump and get a diagnosis. See
+[Core Dump Analyzer](CORE_DUMP_ANALYZER.md#using-it).
 
 ![The Core Dump Analyzer: a SIGABRT read out of a real core, with its threads and stack](screenshots/core-dump-analyzer.png)
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Which Linux Clients are core-dump hosts | `GET /api/gdb/targets` | `dbcanvas api GET /api/gdb/targets` |
-| What is in the mounted core directory | `GET …/nodes/{nid}/gdb/cores` | `dbcanvas api GET …/gdb/cores` |
+| Linux Clients set up as core-dump hosts | `GET /api/gdb/targets` | `dbcanvas api GET /api/gdb/targets` |
+| The cores available, and whether symbols and libraries match | `GET …/nodes/{nid}/gdb/cores` | `dbcanvas api GET …/gdb/cores` |
 | The live gdb session | `GET …/nodes/{nid}/gdb/ws` *(WebSocket)* | *(UI only)* |
 
-`…/gdb/cores` also reports whether the symbols and libraries actually match the core,
-which is the first thing to check and the easiest to get wrong.
-
-The WebSocket takes one JSON command per message, `{"cmd": …}`. Besides `open`,
-`backtrace`, `variables`, `evaluate`, `disassemble`, `source` and `console`, it
-answers:
+The WebSocket takes one JSON command per message, `{"cmd": …}`: `open`, `backtrace`,
+`variables`, `evaluate`, `disassemble`, `source`, `console`, and:
 
 | `cmd` | Returns |
 | --- | --- |
-| `threads` | every thread's stack at once (`thread apply all bt`), identical stacks folded and each with its real depth |
-| `framevars` | arguments and locals for the frames listed in `levels` of `thread` — `bt full`, a frame at a time |
-| `children` | the members of `expr` in `frame` of `thread`, so a struct or pointer can be opened a level at a time |
+| `threads` | every thread's stack at once, identical stacks folded |
+| `framevars` | arguments and locals for the frames in `levels` of `thread` |
+| `children` | the members of `expr` in `frame` of `thread`, one level at a time |
 
-`source` resolves the path the compiler recorded against the source trees the node
-unpacked, and returns both: `file` is what was asked for, `path` is where it was found.
-See [Core Dump Analyzer](CORE_DUMP_ANALYZER.md#using-it).
+`source` returns `file` (as requested) and `path` (where it was found).
 
 ---
 
@@ -1413,90 +1156,77 @@ See [Core Dump Analyzer](CORE_DUMP_ANALYZER.md#using-it).
 
 ## Node file manager
 
-Arbitrary read/write inside a node's filesystem, scoped — like the web terminal — to
-a stack you own.
+Read and write files inside a node.
 
 ![Dragging a file onto a node](screenshots/file-drop.png)
-
-> *Dragging a file from your desktop onto a node card is `POST
-> …/nodes/{nid}/upload`, a streamed multipart request. `dbcanvas node cp` is the same
-> endpoint from a shell. Nothing is buffered whole, at either end — an 800 MB core
-> file goes from disk to socket.*
-
 ![The File Manager browsing a node's filesystem](screenshots/file-manager.png)
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Which nodes can be browsed | `GET /api/stacks/{id}/fs/nodes` | `dbcanvas api GET /api/stacks/1/fs/nodes` |
-| List a directory | `GET …/nodes/{nid}/fs/list` | `dbcanvas api GET …/fs/list?path=/etc` |
-| Read a text file | `GET …/nodes/{nid}/fs/read` | `dbcanvas api GET …/fs/read?path=/etc/my.cnf` |
-| Write one back | `POST …/nodes/{nid}/fs/write` | `dbcanvas api POST …/fs/write --data '{…}'` |
-| Download a file, or a directory as `.tar.gz` | `GET …/nodes/{nid}/fs/download` | `dbcanvas node cp <stack>:<node>:/path ./` |
+| Nodes that can be browsed | `GET /api/stacks/{id}/fs/nodes` | `dbcanvas api GET /api/stacks/1/fs/nodes` |
+| List a directory | `GET …/nodes/{nid}/fs/list?path=` | `dbcanvas api GET '…/fs/list?path=/etc'` |
+| Read a text file · write one | `GET …/fs/read?path=` · `POST …/fs/write` | `dbcanvas api GET '…/fs/read?path=/etc/my.cnf'` |
+| Download a file, or a directory as `.tar.gz` | `GET …/nodes/{nid}/fs/download?path=` | `dbcanvas node cp <stack>:<node>:/path ./` |
 | Upload into a directory | `POST …/nodes/{nid}/fs/upload` *(multipart)* | `dbcanvas node cp ./file <stack>:<node>:/dir/` |
-| mkdir · delete · rename | `POST …/fs/mkdir` · `/delete` · `/rename` | `dbcanvas api POST …/fs/mkdir --data '{"path":"/opt/x"}'` |
-| chmod · chown | `POST …/fs/chmod` · `/chown` | `dbcanvas api POST …/fs/chmod --data '{…}'` |
+| mkdir · delete · rename | `POST …/fs/mkdir` · `/fs/delete` · `/fs/rename` | `dbcanvas api POST …/fs/mkdir --data '{"path":"/opt/x"}'` |
+| chmod · chown | `POST …/fs/chmod` · `/fs/chown` | `dbcanvas api POST …/fs/chmod --data '{…}'` |
 | Users and groups inside the node | `GET …/nodes/{nid}/fs/identities` | `dbcanvas api GET …/fs/identities` |
-| **Copy node → node without a round trip** | `POST …/nodes/{nid}/fs/transfer` | `dbcanvas node cp <stack>:a:/f <stack>:b:/f` |
+| **Copy node to node directly** | `POST …/nodes/{nid}/fs/transfer` | `dbcanvas node cp <stack>:a:/f <stack>:b:/f` |
 
-`fs/transfer` is the fastest way to put one file on every member of a cluster: the
-bytes never leave the host.
+Uploads are streamed and limited by **Settings → Node file uploads**. `fs/transfer`
+copies between nodes on the host without passing through your machine.
 
 ## Certificates
 
-The Intranet node is a certificate authority. Every node in the stack trusts it, and
-so does the VNC desktop's browser — so nothing has to be told to skip verification.
+The Intranet node is the stack's certificate authority; every node trusts it.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| The CA's own certificate | `GET …/nodes/{nid}/cert` | `dbcanvas api GET …/cert` |
+| The CA certificate | `GET …/nodes/{nid}/cert` (Intranet node) | `dbcanvas api GET …/cert` |
 | Reissue the Intranet node's certificate | `POST …/nodes/{nid}/cert` | `dbcanvas api POST …/cert` |
-| List issued client certificates | `GET …/nodes/{nid}/dbcerts` | `dbcanvas api GET …/dbcerts` |
-| Issue one for a database user | `POST …/nodes/{nid}/dbcerts` | `dbcanvas api POST …/dbcerts --data '{"user":"appuser"}'` |
-| Fetch one, with its key and the chain | `GET …/nodes/{nid}/dbcerts/{user}` | `dbcanvas api GET …/dbcerts/appuser` |
-| Delete one | `POST …/nodes/{nid}/dbcerts/delete` | `dbcanvas api POST …/dbcerts/delete` |
-| Reissue a node's server certificate | `POST …/{pxc,pg,mongo,pmm}/cert` | `dbcanvas api POST …/pxc/cert` |
-| Read one | `GET …/{pxc,pg,mongo,pmm}/cert` | `dbcanvas api GET …/pg/cert` |
+| Client certificates: list · issue · fetch (with key and chain) · delete | `GET`/`POST …/nodes/{nid}/dbcerts` · `GET …/dbcerts/{user}` · `POST …/dbcerts/delete` | `dbcanvas api POST …/dbcerts --data '{"user":"appuser"}'` |
+| A database node's server certificate: read · reissue | `GET`/`POST …/nodes/{nid}/pxc/cert`, `/pg/cert`, `/mongo/cert`, `/pmm/cert` | `dbcanvas api POST …/pg/cert` |
 
 ## Intranet mail
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| List mailboxes | `GET …/nodes/{nid}/email/users` | `dbcanvas api GET …/email/users` |
-| Create one | `POST …/nodes/{nid}/email/users` | `dbcanvas api POST …/email/users --data '{…}'` |
-| Set a password | `POST …/email/users/password` | `dbcanvas api POST …/email/users/password --data '{…}'` |
-| Delete one | `POST …/email/users/delete` | `dbcanvas api POST …/email/users/delete --data '{…}'` |
+| List · create mailboxes | `GET`/`POST …/nodes/{nid}/email/users` | `dbcanvas api GET …/email/users` |
+| Set a password · delete | `POST …/email/users/password` · `/email/users/delete` | `dbcanvas api POST …/email/users/delete --data '{…}'` |
 
 ## Intranet LDAP
 
-The directory database LDAP authentication binds against.
+The directory LDAP authentication uses.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| List users | `GET …/nodes/{nid}/ldap/users` | `dbcanvas api GET …/ldap/users` |
-| Create · update · set password · delete | `POST …/ldap/users` · `/update` · `/password` · `/delete` | `dbcanvas api POST …/ldap/users --data '{…}'` |
-| List groups, with members | `GET …/nodes/{nid}/ldap/groups` | `dbcanvas api GET …/ldap/groups` |
-| Create · set members · delete | `POST …/ldap/groups` · `/members` · `/delete` | `dbcanvas api POST …/ldap/groups/members --data '{…}'` |
+| Users: list · create | `GET`/`POST …/nodes/{nid}/ldap/users` | `dbcanvas api GET …/ldap/users` |
+| Users: update · set password · delete | `POST …/ldap/users/update` · `/password` · `/delete` | `dbcanvas api POST …/ldap/users/password --data '{…}'` |
+| Groups (with members): list · create | `GET`/`POST …/nodes/{nid}/ldap/groups` | `dbcanvas api GET …/ldap/groups` |
+| Groups: set members · delete | `POST …/ldap/groups/members` · `/delete` | `dbcanvas api POST …/ldap/groups/members --data '{…}'` |
 
 ## Intranet DNS
 
-Records added by hand beside the ones published for every node. A custom record replaces the
-automatic one of the same name or address. Every write rewrites the zones and answers with the new view.
+Records added by hand beside the automatic ones. A custom record replaces an automatic
+one with the same name or address. Every write returns the updated view.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Automatic and custom records, and the reverse zones served | `GET …/nodes/{nid}/dns` | `dbcanvas api GET …/dns` |
+| Automatic and custom records, and the reverse zones | `GET …/nodes/{nid}/dns` | `dbcanvas api GET …/dns` |
 | Add an A, CNAME or PTR record | `POST …/nodes/{nid}/dns/records` | `dbcanvas api POST …/dns/records --data '{"type":"A","name":"db","value":"10.1.2.3","ptr":true}'` |
-| Change one · delete one, by id | `POST …/dns/records/update` · `/delete` | `dbcanvas api POST …/dns/records/delete --data '{"id":"…"}'` |
+| Change · delete one, by id | `POST …/dns/records/update` · `/delete` | `dbcanvas api POST …/dns/records/delete --data '{"id":"…"}'` |
 
 ## Samba AD DC
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Users: list · create · update · password · delete | `GET/POST …/samba/users[/…]` | `dbcanvas api …` |
-| Groups: list · create · members · delete | `GET/POST …/samba/groups[/…]` | `dbcanvas api …` |
+| Users: list · create | `GET`/`POST …/nodes/{nid}/samba/users` | `dbcanvas api GET …/samba/users` |
+| Users: update · set password · delete | `POST …/samba/users/update` · `/password` · `/delete` | `dbcanvas api POST …/samba/users/password --data '{…}'` |
+| Groups: list · create | `GET`/`POST …/nodes/{nid}/samba/groups` | `dbcanvas api GET …/samba/groups` |
+| Groups: set members · delete | `POST …/samba/groups/members` · `/delete` | `dbcanvas api POST …/samba/groups/members --data '{…}'` |
 | The `krb5.conf` a client needs | `GET …/samba/krb5` | `dbcanvas api GET …/samba/krb5` |
-| Nodes a service principal can be minted for | `GET …/samba/targets` | `dbcanvas api GET …/samba/targets` |
-| List · register a Kerberos principal | `GET/POST …/samba/principals` | `dbcanvas api POST …/samba/principals --data '{…}'` |
+| Nodes a service principal can be created for | `GET …/samba/targets` | `dbcanvas api GET …/samba/targets` |
+| Kerberos principals: list · register | `GET`/`POST …/samba/principals` | `dbcanvas api POST …/samba/principals --data '{…}'` |
 | Export a keytab | `GET …/samba/keytab` | `dbcanvas api GET …/samba/keytab` |
 | Issue the LDAPS certificate | `POST …/samba/cert` | `dbcanvas api POST …/samba/cert` |
 
@@ -1506,24 +1236,23 @@ automatic one of the same name or address. Every write rewrites the zones and an
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Browse a bucket's objects | `GET …/nodes/{nid}/seaweed/objects` | `dbcanvas api GET …/seaweed/objects` |
-| Which SeaweedFS nodes are running, and their buckets | `GET /api/stacks/{id}/seaweed/nodes` | `dbcanvas api GET /api/stacks/{id}/seaweed/nodes` |
-| Download one object | `GET …/nodes/{nid}/seaweed/download?bucket=&path=` | — (a file download; use the panel or `curl`) |
-| Upload files into a folder | `POST …/nodes/{nid}/seaweed/upload` (multipart) | — (a file upload; use the panel or `curl -F`) |
-| Copy objects into another bucket | `POST …/nodes/{nid}/seaweed/transfer` | `dbcanvas api POST …/seaweed/transfer --data '{…}'` |
+| Running SeaweedFS nodes and their buckets | `GET /api/stacks/{id}/seaweed/nodes` | `dbcanvas api GET /api/stacks/1/seaweed/nodes` |
+| Browse a bucket | `GET …/nodes/{nid}/seaweed/objects` | `dbcanvas api GET …/seaweed/objects` |
+| Download one object | `GET …/nodes/{nid}/seaweed/download?bucket=&path=` | `dbcanvas api GET '…/seaweed/download?bucket=b&path=p' --out f` |
+| Upload files into a folder | `POST …/nodes/{nid}/seaweed/upload` *(multipart)* | `curl -F` |
+| Copy objects to another bucket | `POST …/nodes/{nid}/seaweed/transfer` | `dbcanvas api POST …/seaweed/transfer --data '{…}'` |
 | Delete objects (a folder needs `recursive`) | `POST …/nodes/{nid}/seaweed/delete` | `dbcanvas api POST …/seaweed/delete --data '{…}'` |
 
-Browsing is usually to confirm a backup actually landed. The rest is the **bucket file manager**
-behind them — **Files…** on the Buckets tab, or **Bucket file manager** on the node's right-click
-menu: two panes, each on a node + bucket + folder, with download, drag-and-drop upload, delete and
-copying between buckets. An upload obeys the instance's file-drop size limit, a copy is streamed container
-to container, and objects written here are ordinary S3 objects that `aws s3` sees normally.
+**UI:** **Files…** on the node's Buckets tab, or **Bucket file manager** on its
+right-click menu: two panes, with download, drag-and-drop upload, delete and copy
+between buckets. Uploads follow **Settings → Node file uploads**. Objects are ordinary
+S3 objects.
 
 ## OpenBao
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Initialised? Sealed? Key thresholds? | `GET …/nodes/{nid}/openbao/status` | `dbcanvas api GET …/openbao/status` |
+| Initialised, sealed, key thresholds | `GET …/nodes/{nid}/openbao/status` | `dbcanvas api GET …/openbao/status` |
 | Unseal with the stored keys | `POST …/nodes/{nid}/openbao/unseal` | `dbcanvas api POST …/openbao/unseal` |
 
 ---
@@ -1537,20 +1266,18 @@ to container, and objects written here are ordinary S3 objects that `aws s3` see
 | To do this | API | CLI |
 | --- | --- | --- |
 | Counters: stacks, nodes, engines, jobs, recent activity | `GET /api/dashboard/summary` | `dbcanvas dashboard` |
-| A live CPU/memory/network/disk sample per node | `GET /api/dashboard/stats` | `dbcanvas dashboard --live` |
-| Is there a newer DBCanvas, and what changed up to it | `GET /api/dashboard/updates` | `dbcanvas updates [--full]` |
+| Live CPU, memory, network and disk per node | `GET /api/dashboard/stats` | `dbcanvas dashboard --live` |
+| Is a newer DBCanvas available, and what changed | `GET /api/dashboard/updates` | `dbcanvas updates [--full]` |
 
-`stats` samples Docker on demand and caches for two seconds, so it costs nothing when
-nobody is asking. Polling it from a script is fine; polling it every 100 ms is not.
+`stats` is sampled on request and cached for two seconds.
 
-`updates` is the **Check for updates** button, and it is the only thing in DBCanvas
-that reaches out to GitHub — nothing checks at startup or on a timer. The server
-reads `VERSION` and `app/whatsnew.go` from the repository's `main` branch and answers
-with `current`, `latest`, `available`, and `notes`: the release notes for every
-version after this build up to `latest`, newest first, in the same shape as
-`GET /api/whatsnew`. An unstamped build reports `"dev": true` and never `available`;
-notes that could not be read come back as `notesError` without failing the check. A
-server with no route to `raw.githubusercontent.com` answers `502`.
+`updates` is the **Check for updates** button; DBCanvas never checks on its own. It
+asks the DBCanvas GitHub repository for the latest released version and its release
+notes, and returns `current`, `latest`, `available` and `notes` (each release after
+yours, newest first, in the same shape as `GET /api/whatsnew`). A development build
+returns `"dev": true` and never `available`. If the notes cannot be read, `notesError`
+says why and the check still succeeds. If GitHub cannot be reached, the answer is
+`502`.
 
 ## Notifications
 
@@ -1563,140 +1290,101 @@ server with no route to `raw.githubusercontent.com` answers `502`.
 
 ![The notification bell, open](screenshots/notifications.png)
 
-> *These are `GET /api/notifications` items. Each arrived over the SSE stream while
-> the page was open — a deploy finishing, a token being created, a stack expiring.*
-
-The stream is `text/event-stream` and stays open; each event's `data` is one
-notification as JSON. It is how a long-running script learns that a deploy finished
-without polling.
+The stream stays open and sends each notification as one JSON event — a deploy
+finishing, a token created, a stack expiring — so a script can wait without polling.
 
 ## Kanban
 
-Boards of columns of cards ([Kanban](KANBAN.md)). A board is its owner's; shared, any
-signed-in user works on its columns and cards. Positions are indexes: `0` is the top of a
-column (or its leftmost place on the board), and an index past the end is the end.
+Boards of columns of cards ([Kanban](KANBAN.md)). A board belongs to its owner; a
+shared board's columns and cards can be edited by any signed-in user. Positions are
+indexes: `0` is the top of a column (or leftmost on the board); an index past the end
+means the end.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Your boards and the shared ones | `GET /api/kanban/boards` | `dbcanvas api GET /api/kanban/boards` |
+| Your boards and shared ones | `GET /api/kanban/boards` | `dbcanvas api GET /api/kanban/boards` |
 | Create a board | `POST /api/kanban/boards` `{"name", "shared", "columns": ["To do", …]}` | — |
-| A board, its columns and cards in order (`?since=<rev>` for a cheap poll) | `GET /api/kanban/boards/{id}` | `dbcanvas api GET /api/kanban/boards/3` |
-| Rename or share it; delete it *(owner)* | `PUT /api/kanban/boards/{id}` `{"name", "shared"}` · `DELETE …` | — |
-| Add, change, delete a column | `POST /api/kanban/boards/{id}/columns` `{"name", "index"}` · `PUT /api/kanban/columns/{cid}` `{"name", "wipLimit"}` (or `{"color"}` alone) · `DELETE …` | — |
+| A board with its columns and cards (`?since=<rev>` for a cheap poll) | `GET /api/kanban/boards/{id}` | `dbcanvas api GET /api/kanban/boards/3` |
+| Rename or share it · delete it *(owner)* | `PUT /api/kanban/boards/{id}` `{"name", "shared"}` · `DELETE …` | — |
+| Add · change · delete a column | `POST /api/kanban/boards/{id}/columns` `{"name", "index"}` · `PUT /api/kanban/columns/{cid}` `{"name", "wipLimit"}` or `{"color"}` · `DELETE …` | — |
 | Move a column | `POST /api/kanban/columns/{cid}/move` `{"index"}` | — |
 | Add a card | `POST /api/kanban/columns/{cid}/cards` `{"title", "description", "labels", "assigneeId", "due", "color", "index"}` | — |
-| Change or delete a card | `PUT /api/kanban/cards/{kid}` · `DELETE /api/kanban/cards/{kid}` | — |
-| Move a card to a place in a column | `POST /api/kanban/cards/{kid}/move` `{"columnId", "index"}` | `dbcanvas api POST /api/kanban/cards/12/move --data '{"columnId":4,"index":0}'` |
+| Change · delete a card | `PUT` · `DELETE /api/kanban/cards/{kid}` | — |
+| Move a card | `POST /api/kanban/cards/{kid}/move` `{"columnId", "index"}` | `dbcanvas api POST /api/kanban/cards/12/move --data '{"columnId":4,"index":0}'` |
 | Who a card can be assigned to | `GET /api/kanban/people` | — |
 
 ## Shared sessions
 
-A stack's owner shares a live session through a link that lasts at most two hours.
-Whoever opens it gives a name and an email and waits in a lobby until the host admits
-them; admitted guests follow the host across every tab and chat, and a guest the host
-gives control to can do anything the host can in the workspace. Off until an
-administrator turns it on (`allowGuestSessions` in `PUT /api/system/settings`).
-An ended session's records — its guests' names, emails and addresses, the
-transcript and the guest actions — are deleted after `sessionRetentionDays`
-(default 90; `0` keeps them until the stack is deleted), checked hourly. A host's
-screen recordings are kept on their own date, `recordingRetentionDays` after they start
-(default 30, 1–3650) unless the host moves it.
+A stack's owner shares a live session through a link that lasts up to two hours (the
+administrator's **Shared sessions** setting may set less). Guests give a name and
+email, wait in a lobby until admitted, then follow the host and chat; a guest given
+control can do anything the host can in the workspace. An administrator must turn
+it on (`allowGuestSessions`). See [Shared sessions](SHARED_SESSIONS.md).
+
+Ended sessions' records (guests' names, emails and addresses, the transcript, guest
+actions) are deleted after `sessionRetentionDays` (default 90). Recordings are kept
+`recordingRetentionDays` (default 30) unless the host changes the date.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Start a session, get its link *(password sign-in only)* | `POST /api/share/sessions` `{"minutes": 5–120, "hideSecrets": false, "mirror": true}` — or `POST /api/stacks/{id}/share` with the same body, to file it on a stack | — |
-| Mirror everything on or off | `POST /api/share/sessions/{sid}/mirror` `{"mirror": true}` | — |
-| Your sessions (`?live=1` for running ones) | `GET /api/share/sessions` | `dbcanvas api GET /api/share/sessions?live=1` |
+| Start a session and get its link *(password sign-in only)* | `POST /api/share/sessions` `{"minutes": 5–120, "hideSecrets": false, "mirror": true}`, or `POST /api/stacks/{id}/share` to file it on a stack | — |
+| Mirror everything on or off | `POST /api/share/sessions/{sid}/mirror` `{"mirror"}` | — |
+| Your sessions (`?live=1` for running ones) | `GET /api/share/sessions` | `dbcanvas api GET '/api/share/sessions?live=1'` |
 | One session: guests and who has control | `GET /api/share/sessions/{sid}` | `dbcanvas api GET /api/share/sessions/3` |
-| Admit, deny, remove a guest | `POST /api/share/sessions/{sid}/guests/{gid}/admit` · `…/deny` · `…/remove` | `dbcanvas api POST …/guests/5/admit` |
-| Mute or unmute a guest | `POST /api/share/sessions/{sid}/guests/{gid}/mute` `{"muted": true}` | — |
+| Admit · deny · remove a guest | `POST …/sessions/{sid}/guests/{gid}/admit` · `/deny` · `/remove` | `dbcanvas api POST /api/share/sessions/3/guests/5/admit` |
+| Mute or unmute a guest | `POST …/guests/{gid}/mute` `{"muted"}` | — |
 | Give or take back control | `POST /api/share/sessions/{sid}/control` `{"to": 5}` or `{"to": "host"}` | — |
-| Let every guest draw, or none | `POST /api/share/sessions/{sid}/draw` `{"draw": false}` | — |
-| Let one guest draw, or stop them | `POST /api/share/sessions/{sid}/guests/{gid}/draw` `{"draw": false}` | — |
-| Start recording *(the video comes from the host's browser)* | `POST /api/share/sessions/{sid}/recordings` `{"mime": "video/webm;codecs=vp9"}` | — |
-| Append a chunk of video, in order | `POST /api/share/recordings/{rid}/chunks?seq=N` *(raw bytes; a chunk already taken is acknowledged)* | — |
-| Stop a recording | `POST /api/share/recordings/{rid}/finish` `{"durationMs": 61000}` | — |
+| Let every guest draw, or none · one guest | `POST …/sessions/{sid}/draw` `{"draw"}` · `POST …/guests/{gid}/draw` | — |
+| Start recording (video from the host's browser) | `POST /api/share/sessions/{sid}/recordings` `{"mime"}` | — |
+| Append a chunk, in order | `POST /api/share/recordings/{rid}/chunks?seq=N` *(raw bytes)* | — |
+| Stop a recording | `POST /api/share/recordings/{rid}/finish` `{"durationMs"}` | — |
 | Your recordings | `GET /api/share/recordings` | `dbcanvas api GET /api/share/recordings` |
-| Download one *(ranges served; `?inline=1` to play)* | `GET /api/share/recordings/{rid}/file` | `dbcanvas api GET /api/share/recordings/4/file --out session.webm` |
-| The chat transcript that goes with it *(text; `?format=json`)* | `GET /api/share/recordings/{rid}/transcript` | `dbcanvas api GET /api/share/recordings/4/transcript --out chat.txt` |
-| Rename it, or move its purge date | `PUT /api/share/recordings/{rid}` `{"title": "…", "purgeAt": "2026-12-31"}` | — |
+| Download one (`?inline=1` to play) | `GET /api/share/recordings/{rid}/file` | `dbcanvas api GET /api/share/recordings/4/file --out session.webm` |
+| Its chat transcript (text; `?format=json`) | `GET /api/share/recordings/{rid}/transcript` | `dbcanvas api GET /api/share/recordings/4/transcript --out chat.txt` |
+| Rename it or move its purge date | `PUT /api/share/recordings/{rid}` `{"title", "purgeAt": "2026-12-31"}` | — |
 | Purge it now | `DELETE /api/share/recordings/{rid}` | `dbcanvas api DELETE /api/share/recordings/4` |
-| New invitation link (retires the old one; returned once) | `POST /api/share/sessions/{sid}/link` | `dbcanvas api POST /api/share/sessions/3/link` |
+| New invitation link (retires the old one) *(password sign-in only)* | `POST /api/share/sessions/{sid}/link` | — |
 | End it now | `POST /api/share/sessions/{sid}/end` | `dbcanvas api POST /api/share/sessions/3/end` |
 | Transcripts filed on a stack | `GET /api/stacks/{id}/share/transcripts` | — |
-| Download a transcript | `GET /api/share/sessions/{sid}/transcript` *(text; `?format=json`)* | `dbcanvas api GET …/transcript --out session.txt` |
-| **Live channel** — presence, follow, chat, control, drawings | `GET /api/share/sessions/{sid}/ws` *(websocket)* | — |
-| Shared terminal: open, close, watch | `POST /api/share/sessions/{sid}/terms` · `DELETE …/terms/{tid}` · `GET …/terms/{tid}/ws` | — |
-| The join page, joining, the lobby, leaving *(public)* | `GET /api/join/{token}` · `POST /api/join/{token}` `{"name", "email", "avatar"}` · `GET …/status` · `POST …/leave` | — |
-| Join as your DBCanvas account *(public)* | `POST /api/join/{token}/account` `{"username", "password"}` or `{"useSession": true}` — a lobby place only; the browser is not signed in | — |
+| Download a session transcript (text; `?format=json`) | `GET /api/share/sessions/{sid}/transcript` | `dbcanvas api GET /api/share/sessions/3/transcript --out session.txt` |
+| **Live channel**: presence, follow, cursor, chat, control, drawings | `GET /api/share/sessions/{sid}/ws` *(WebSocket)* | — |
+| Shared terminal: open · close · watch | `POST …/sessions/{sid}/terms` · `DELETE …/terms/{tid}` · `GET …/terms/{tid}/ws` | — |
+| Guest side *(no sign-in)*: the join page · join · status · leave | `GET /api/join/{token}` · `POST /api/join/{token}` `{"name", "email", "avatar"}` · `GET …/status` · `POST …/leave` | — |
+| Join as your DBCanvas account *(no sign-in; does not sign the browser in)* | `POST /api/join/{token}/account` `{"username", "password"}` or `{"useSession": true}` | — |
 
-**Browser window.** Right-clicking a link to a node's web UI (PMM, the noVNC
-desktop, a simulator dashboard, webmail — anything on `http://<host>:<published
-port>/`) is opened in a browser window by a guest's plain click.
-`POST /api/browse {"url": "http://localhost:32790/vnc.html"}` finds the node that
-publishes that host port, checks it is on one of the caller's stacks, and returns a
-`/_p/<key>/…` address that DBCanvas proxies to the node over the stack network —
-pages, redirects, cookies and websockets — so nothing but DBCanvas's own port needs
-to be reachable. In a shared session a window the driver or the host opens opens
-for everyone, follows the driver as they move around in it, and closes for everyone
-when they close it. A watching guest may look at a proxied page but not post to it or
-open its websockets — except a VNC desktop, which they see live through a view-only
-filter on the server that drops their keyboard, pointer, clipboard and resize
-messages. The guest in control can use every page fully.
+**Opening a node's web UI in a window.** `POST /api/browse {"url":
+"http://localhost:32790/vnc.html"}` finds the node publishing that host port, checks
+it is on one of your stacks, and returns a `/_p/<key>/…` address that DBCanvas proxies
+to the node — so only DBCanvas's own port needs to be reachable. In a session, a
+window the host or driver opens opens for everyone. A watching guest can view proxied
+pages but not submit to them; a VNC desktop is shown to them view-only.
 
-**Open in VNC Browser.** `POST /api/browse/desktop {"url": "http://localhost:38755/graph/"}`
-resolves the link the same way, then opens it as a Firefox tab on the stack's running
-Ubuntu VNC desktop, at the node's name on the stack network (`http://pmm-01:8080/graph/`),
-and returns `{"desktopLink", "desktop", "opened"}`. The client opens `desktopLink` as a
-browser window, shared like any other, so everyone in a session sees the one copy of the
-page. 409 when the stack has no running VNC desktop. It changes the desktop, so a
-watching guest gets 403 and a driving guest's call is audited.
+**Opening a link in the VNC desktop.** `POST /api/browse/desktop {"url": "…"}` opens
+the link as a Firefox tab on the stack's running Ubuntu VNC desktop, using the node's
+name on the stack network, and returns `{"desktopLink", "desktop", "opened"}`. `409`
+when the stack has no running VNC desktop; a watching guest gets `403`.
 
-A guest is not an account. The guest's browser marks every request as a guest's
-(the `X-DBCanvas-Guest` header, or `?guest=1` on sockets and downloads), and the
-server then treats it as the **host's** request with a `read` scope while the guest
-watches and `write` while they drive — exactly as an API token of that scope. A
-guest never reaches the host's account, tokens, notifications or administration,
-and never inherits admin rights. Every write a guest makes is recorded, with the
+**Guests are not accounts.** A guest's requests carry `X-DBCanvas-Guest` (or
+`?guest=1` on sockets and downloads) and act as the host with `read` scope while
+watching and `write` while in control. A guest never reaches the host's account,
+tokens, notifications or administration. Every guest write is recorded, with the
 guest's name, in the transcript.
 
 ## API metadata
 
 ![API → Endpoints: the generated catalogue with a row expanded](screenshots/api-endpoints.png)
-
-> *This is `GET /api/meta/endpoints` rendered. The expanded row shows what the
-> catalogue carries per endpoint — the scope, the path parameters, and the `curl` and
-> CLI lines derived from the route record. The count in the corner is the whole
-> surface.*
-
 ![API → Getting started](screenshots/api-getting-started.png)
-
-> *The shortest path from a password to a JSON response, the CLI download links served
-> by `GET /api/cli/download`, and the four access rules in full.*
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| The endpoint catalogue | `GET /api/meta/endpoints` | `dbcanvas endpoints [--group G] [-q term] [--long]` |
+| The endpoint catalogue | `GET /api/meta/endpoints` | `dbcanvas endpoints [--group G] [--scope S] [-q term] [--long]` |
 | OpenAPI 3.1 document | `GET /api/meta/openapi.json` | `dbcanvas api GET /api/meta/openapi.json` |
-| Download the CLI for a platform | `GET /api/cli/download?os=&arch=` | *(this is how you get the CLI)* |
-| The CLI's own usage — every command, from the binary this image ships | `GET /api/cli/help` | `dbcanvas api GET /api/cli/help` |
+| Download the CLI for a platform | `GET /api/cli/download?os=&arch=` | *(how you get the CLI)* |
+| The CLI's own help, from the binary this server ships | `GET /api/cli/help` | `dbcanvas --help` |
 
----
-
-## Two things the UI does that no endpoint does
-
-Worth stating plainly, so nobody hunts for them:
-
-**Arranging the canvas.** There is no "add a PXC node" endpoint. A stack's topology is
-one `design` document, and you change it by `PUT`ting a new one. The practical way to
-build a design from a script is to start from a template
-(`GET /api/templates/{id}` → `.design`) or export a stack you built by hand
-(`dbcanvas stack export`), edit the JSON, and `PUT` it back.
-
-**The interactive debuggers.** The Operator Debugger and Core Dump Analyzer expose
-their session as a WebSocket carrying a protocol built for a UI. The CLI can open a
-console (`dbcanvas node console`), and deliberately does not try to reimplement a
-breakpoint UI in a terminal.
+> [!NOTE]
+> The Operator Debugger and Core Dump Analyzer sessions are interactive WebSockets
+> built for the UI; the CLI does not drive them.
 
 ---
 

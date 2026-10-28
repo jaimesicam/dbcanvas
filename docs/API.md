@@ -1,201 +1,155 @@
 # HTTP API
 
-Everything DBCanvas does, it does over HTTP. The web UI is a client of this API and
-nothing more — there is no second, privileged path — so anything you can do on the
-canvas you can do from a script, and anything a script can do you can watch happen
-in the browser.
+Everything the web UI does goes through this HTTP API, so anything you can click you
+can also script.
 
-The **API** page in the app is the live version of this document: it lists every
-endpoint on *your* installation, with a `curl` line you can copy, and it is where you
-create tokens. This page explains the parts that are worth reading once.
+The **API** page in the app lists every endpoint on your installation, with a `curl`
+line to copy, and is where you create tokens. For each feature's endpoints and the
+matching `dbcanvas-cli` command, see the [API & CLI reference](API_REFERENCE.md).
 
-**Looking for a specific feature's endpoint?** [API & CLI reference](API_REFERENCE.md)
-walks every feature with its endpoints, the `dbcanvas-cli` command that calls each
-one, and a screenshot of what you would have clicked instead.
+## Authenticate
 
----
-
-## Authenticating
-
-Two credentials work, and they resolve to the same account with the same permissions.
-
-| Credential | Sent as | Who uses it |
+| Credential | Sent as | Used by |
 | --- | --- | --- |
-| **Session cookie** | `Cookie: dbcanvas_session=…`, set by `POST /api/auth/login` | the web UI |
-| **API token** | `Authorization: Bearer dbc_…` | scripts, `dbcanvas-cli`, CI |
+| Session cookie | `Cookie: dbcanvas_session=…`, set by `POST /api/auth/login` | the web UI |
+| API token | `Authorization: Bearer dbc_…` | scripts, `dbcanvas-cli`, CI |
 
 ```sh
 curl -s -H "Authorization: Bearer $DBCANVAS_TOKEN" http://localhost:8080/api/stacks
 ```
 
-A token acts as your account. It is not a service account, it has no permissions of
-its own, and it stops working the moment your account does.
+A token acts as your account, with your permissions. It stops working when your
+account is disabled or rejected.
 
-## Tokens
+## Create a token
 
-Create one under **API → Tokens**, or with `dbcanvas login`.
+1. Open **API → Tokens** (or run `dbcanvas login` or `dbcanvas token create`).
+2. Give it a name, a scope and an expiry.
+3. Copy the secret. It is shown **once**: DBCanvas keeps only a hash of it, and the
+   list shows only its first characters (`dbc_` plus eight).
 
-A token looks like `dbc_` followed by 43 characters. **The secret is shown once**, at
-creation, and never again — DBCanvas stores only a SHA-256 hash of it, so there is
-nothing to recover and nothing for a copy of the database to leak. What the UI keeps
-is the first eight characters, which is enough to tell your own tokens apart and far
-too little to guess the rest. The `dbc_` prefix is there so a secret scanner, a
-pre-commit hook or a panicked search through your shell history can find one that
-escaped.
+A token is `dbc_` followed by 43 characters, so secret scanners can find a leaked one.
 
 ### Scopes
 
 | Scope | Can call |
 | --- | --- |
-| `read` | every `GET`, plus the few `POST`s that compute something without changing anything — `validate`, `compare`, `preview`, a lab step check |
-| `write` | everything the account can do in the UI |
-| `admin` | additionally the admin-only endpoints (`/api/users/*`, `/api/admin/*`, `PUT /api/system/settings`). Only an administrator can create one. |
+| `read` | every `GET`, plus `POST`s that change nothing (validate, compare, preview, a lab step check) |
+| `write` | everything your account can do |
+| `admin` | also the administrator endpoints: `/api/users/*`, `/api/admin/*`, `PUT /api/system/settings`, `POST /api/images/{id}/build`, `POST /api/stacks/{id}/owner`. Only an administrator can create one. |
 
-Scopes are checked against the endpoint, not guessed: the route table records each
-endpoint's method and whether it mutates, so a `read` token calling `POST
-/api/stacks/12/deploy` gets a `403` that names the scope it would need.
-
-A token's scope is also **capped by your account's role on every request**. If an
-administrator is demoted, the `admin`-scope tokens they hold quietly become `write`
-tokens; nobody has to remember to go and revoke them.
+A token with too narrow a scope gets `403` naming the scope it needs. A token's scope
+is also capped by its owner's current role: when an administrator is demoted, their
+`admin` tokens act as `write` tokens.
 
 ### Expiry
 
-Pick 7, 30, 60 or 90 days, a custom number of days, or — as an administrator —
-**never**. An instance-wide ceiling (**Settings → API tokens**, default 90 days)
-applies to everyone who is not an administrator; asking for longer gets you the
-ceiling rather than an error.
+The UI offers 7, 30, 60 or 90 days, and **Never** for administrators. Through the API
+you can send any number of `days`. Every dated token is capped by the instance-wide
+**API token lifetime** in **Settings** (default 90 days, 1–365); a longer request is
+shortened, not refused.
 
-Expiry is enforced when the token is used, not by a background job, and an expired
-token **stays in your list** marked `expired`. That is deliberate: "why did my script
-start getting 401s on Tuesday" is a question the row answers and its absence does not.
-Rows are deleted 30 days after they expire or are revoked.
+An expired or revoked token stays in your list, marked as such, for 30 days and is
+then deleted.
 
-### Two rules worth knowing
-
-**Creating a token requires your password.** `POST /api/tokens` refuses bearer
-authentication outright, whatever the token's scope. So a token that leaks cannot mint
-a longer-lived replacement for itself — an attacker who has it still needs your
-password to get anything more durable. This is also why `dbcanvas login` asks for a
-password rather than accepting a token.
-
-**Losing access loses the API too.** Disabling or rejecting an account revokes its
-tokens in the same operation that revokes its browser sessions. Without that,
-"disable" would close somebody's browser and leave their scripts running.
-
-### The two things a token can never do
-
-`POST /api/tokens` and `POST /api/me/password` both refuse bearer authentication
-outright, whatever the token's scope, and for the same reason: they are the two
-endpoints that would turn a leaked token into a permanent one, or into a full account
-takeover. Both need a password sign-in — `dbcanvas token create` and
-`dbcanvas password` prompt for one and use it directly. An administrator resetting
-somebody else's password (`POST /api/users/{id}/password` and
-`POST /api/users/{id}/reset-link`) or creating an account (`POST /api/users`) is refused
-a token for the same reason, even an admin-scope one.
-
-Changing a password requires the **current** password even though the caller is
-already signed in: a session somebody else got hold of should not be able to lock the
-owner out. It signs out every *other* session and keeps the caller's. API tokens
-survive unless `revokeTokens` is set — a scheduled rotation should not break a CI job,
-while a password changed because it leaked should be able to take the tokens with it.
+### Revoke a token
 
 Revoking is immediate. You can revoke your own tokens; an administrator can revoke
-anyone's from **API → All tokens**, and the owner is notified when they do.
+anyone's under **API → All tokens**, and the owner is notified. Disabling or rejecting
+an account revokes its tokens and its sessions together.
 
-## The endpoint catalogue
+## What a token can never do
+
+These endpoints refuse a token, whatever its scope, and need a password sign-in:
+
+| Endpoint | Why |
+| --- | --- |
+| `POST /api/tokens` | create a token (`dbcanvas token create` and `dbcanvas login` ask for your password) |
+| `POST /api/me/password` | change your password (`dbcanvas password` asks for the current one) |
+| `POST /api/users`, `POST /api/users/{id}/password`, `POST /api/users/{id}/reset-link` | create an account, or set or reset someone else's password |
+| `POST /api/share/sessions`, `POST /api/stacks/{id}/share`, `POST /api/share/sessions/{sid}/link` | start a shared session or issue its link |
+
+Changing your password needs your **current** password. It signs out every other
+session and keeps yours. API tokens keep working unless you send `revokeTokens`
+(`--revoke-tokens` in the CLI, or **Also revoke my API tokens** on the **Profile**
+page).
+
+An account given a temporary password gets `403` on everything else until it sets
+its own.
+
+## Find an endpoint
 
 ```sh
 curl -s -H "Authorization: Bearer $DBCANVAS_TOKEN" \
   http://localhost:8080/api/meta/endpoints | jq '.groups[].name'
 ```
 
-`GET /api/meta/endpoints` returns every endpoint grouped by feature, each with its
-group, one-sentence summary, path parameters, the scope it needs, and how it
-communicates. It is generated from the same table that installs the handlers, so it
-describes what is actually being served — and a test fails the build if a new route
-is added without a summary.
+| Endpoint | Returns |
+| --- | --- |
+| `GET /api/meta/endpoints` | every endpoint, grouped by feature, with a one-line summary, path parameters, the scope it needs and how it is called |
+| `GET /api/meta/openapi.json` | the same, as an OpenAPI 3.1 document for generated clients, Postman or Bruno. Request and response bodies are declared as free-form JSON. |
+| `GET /api/stacks/design/catalog` | every node and cluster type a design can hold, its options, relations and lines — see [the design catalogue](API_REFERENCE.md#the-design-catalogue-and-editing-a-design-one-piece-at-a-time) |
 
-`GET /api/meta/openapi.json` is the same surface as an **OpenAPI 3.1** document, for
-generated clients, Postman, Bruno or anything else that reads one. Paths, methods,
-parameters, tags and security are all described; request and response bodies are
-declared as free-form JSON rather than 228 hand-written schemas, because a second
-description of the app would be a second thing to get out of date.
+`dbcanvas endpoints` prints the catalogue in a terminal.
 
-`GET /api/stacks/design/catalog` does the same for stack designs: every node and
-cluster type, each option it takes (field, JSON type, accepted values, default, when it
-applies), the relations it can hold, the lines it draws, and the endpoints that apply
-once it is deployed. The `/api/stacks/{id}/design/…` endpoints add, change and remove
-one node, cluster or line at a time and check each change against it. See
-[the API reference](API_REFERENCE.md#the-design-catalogue-and-editing-a-design-one-piece-at-a-time).
+## Endpoints that are not plain JSON
 
-## Things that are not plain JSON
+Most endpoints take and return JSON. The catalogue marks the others:
 
-Most endpoints take and return JSON. Four kinds do not, and the catalogue marks each
-one so you know before you call it:
-
-| Kind | Endpoints | How to call it |
+| Kind | Examples | How to call it |
 | --- | --- | --- |
-| **Uploads** | `POST …/upload`, `POST /api/ftdc/upload`, `POST /api/logsummary/upload`, … | `multipart/form-data`; `curl -F file=@capture.pcap` |
-| **Downloads** | `…/download`, `…/export`, `…/raw` | responds with an attachment; `curl -OJ` |
-| **Event stream** | `GET /api/notifications/stream` | `text/event-stream`; each event's data is one JSON notification |
-| **WebSocket** | `…/term`, `…/gdb/ws`, `…/k3d/debug/ws` | upgrades the connection. Set the `Authorization` header on the handshake — there is deliberately no `?token=` parameter, because a query string ends up in access logs and browser history. Browsers use the session cookie instead. |
+| Upload | `…/fs/upload`, `/api/pktinspect/upload`, `/api/ftdc/upload` | `multipart/form-data`: `curl -F file=@capture.pcap` |
+| Download | `…/download`, `…/export`, `…/raw` | an attachment: `curl -OJ` |
+| Raw bytes | `POST /api/share/recordings/{rid}/chunks` | the request body is the bytes |
+| Event stream | `GET /api/notifications/stream` | `text/event-stream`; each event's data is one notification as JSON |
+| WebSocket | `…/term`, `…/gdb/ws`, `…/k3d/debug/ws`, `/api/share/sessions/{sid}/ws` | send the `Authorization` header on the handshake; there is no `?token=` parameter. Browsers use the session cookie. |
 
 ## Status codes
 
 | Code | Means |
 | --- | --- |
-| `400` | the body or a parameter is wrong; the `error` field says which |
+| `400` | a bad body or parameter; `error` says which |
 | `401` | not signed in, or the token is unknown, expired or revoked |
-| `403` | signed in but not permitted — not your stack, not an administrator, or the token's scope is too narrow (the message says which scope is needed) |
+| `403` | not permitted: not your stack, not an administrator, a token scope too narrow, or an endpoint that refuses tokens |
 | `404` | no such stack, node, capture or token |
-| `409` | the state is wrong for the request — the node is not running, the stack is already deployed |
+| `409` | wrong state for the request, for example the node is not running |
+| `502` | an outside service could not be reached (the update check) |
 
-Errors are always `{"error": "…"}`, and the message is written to be read by a person.
+Errors are always `{"error": "…"}`.
 
-## Ownership
+## Who can reach what
 
-Nearly every endpoint is scoped to a stack, and a stack belongs to the account that
-created it. You can reach your own stacks; an administrator can reach any. This is
-the same check the UI is subject to, applied in the same place, so there is no way for
-a token to see more than its owner could by clicking.
+A stack belongs to the account that created it. You can reach your own stacks; an
+administrator can reach any. A token sees exactly what its owner sees in the UI.
 
-## Worked example: deploy a stack and wait for it
+These need no sign-in: `GET /api/setup/status`, `POST /api/setup`,
+`POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`,
+`GET`/`POST /api/auth/reset/{token}`, and the `/api/join/{token}` endpoints a shared
+session's guests use.
+
+## Example: deploy a stack and wait for it
 
 ```sh
 API=http://localhost:8080
 AUTH="Authorization: Bearer $DBCANVAS_TOKEN"
 
-# Start from a shipped template
-TPL=$(curl -s -H "$AUTH" $API/api/templates | jq -r '.[] | select(.name|test("PXC")) | .id' | head -1)
-DESIGN=$(curl -s -H "$AUTH" $API/api/templates/$TPL | jq '.design')
-
-# Create it, with a lifetime, and deploy
+# Create a stack from a built-in template, with a 4-hour lifetime
 ID=$(curl -s -H "$AUTH" -H 'Content-Type: application/json' \
-  -d "{\"name\":\"api-demo\",\"ttl\":\"4h\",\"design\":$DESIGN}" \
+  -d '{"name":"api-demo","ttl":"4h","templateId":"builtin:pxc-proxysql-pmm"}' \
   $API/api/stacks | jq -r .id)
 
 curl -s -H "$AUTH" -X POST $API/api/stacks/$ID/validate | jq .
 curl -s -H "$AUTH" -X POST $API/api/stacks/$ID/deploy
 
-# Deploy returns immediately; the node states are the progress
-until [ "$(curl -s -H "$AUTH" $API/api/stacks/$ID |
-           jq '[.deployments[] | select(.state != "running")] | length')" = 0 ]; do
+# Deploy returns at once; poll the node states until none is pending or provisioning
+while curl -s -H "$AUTH" $API/api/stacks/$ID |
+      jq -e '[.deployments[].state] | any(. == "pending" or . == "provisioning")' >/dev/null; do
   sleep 5
 done
+curl -s -H "$AUTH" $API/api/stacks/$ID | jq '.deployments[] | {nodeId, state}'
 
 curl -s -H "$AUTH" -X POST $API/api/stacks/$ID/destroy
 ```
 
-`dbcanvas stack deploy api-demo --wait` is the same thing in one line — see
-[`dbcanvas-cli`](CLI.md).
-
----
-
-## Adding an endpoint
-
-For anyone working on DBCanvas: routes live in one table, `app/api_routes.go`. Add a
-row with its group and a one-sentence summary, and it is registered, catalogued, in
-the OpenAPI document and scope-checked. Leave the summary out and
-`TestEveryRouteIsDocumented` fails, which is the point — the reference cannot fall
-behind the code, because the code does not build without it.
+`dbcanvas stack create api-demo --template "PXC + ProxySQL + PMM" --ttl 4h --deploy --wait`
+does the same in one line — see [`dbcanvas-cli`](CLI.md).

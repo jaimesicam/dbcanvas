@@ -1,19 +1,26 @@
 # Kanban
 
-**Kanban** keeps boards of work: columns for each stage, cards for each piece of work, in
-the order you put them. Open it from **Start → Workspace → Kanban**.
+**Kanban** keeps boards of work: a column for each stage, a card for each piece of work. Open
+it from **Menu → Workspace → Kanban**.
 
 ![A shared Kanban board: four columns, two of them coloured, cards with labels, colours, due dates and assignees](screenshots/kanban.png)
 
 ## Boards
 
-The list on the left is your boards, then the ones colleagues shared. **New board** asks
-for a name and what to start with — Basic (To do → In progress → Done), Sprint, Incident,
-Support repro, or a blank board — and whether to share it.
+The list on the left shows your boards, then the ones colleagues shared. **New board** asks
+for a name, a starting layout, and whether to share it:
+
+| Layout | Columns |
+| --- | --- |
+| Basic | To do, In progress, Done |
+| Sprint | Backlog, To do, In progress, Review, Done |
+| Incident | Triage, Investigating, Mitigated, Resolved |
+| Support repro | Reported, Reproducing, Reproduced, Fix verified, Closed |
+| Blank | One column |
 
 A board is yours. **Share with everyone** lets every signed-in user see it and work on its
-cards and columns; only you can rename it, share or unshare it, or delete it (right-click
-it in the list, or its **⋯**). A shared board follows what others do within a few seconds.
+cards and columns; only you can rename it, make it private, or delete it (right-click it in
+the list, or its **⋯**). A shared board shows others' changes within a few seconds.
 
 ## Cards
 
@@ -34,14 +41,15 @@ it in the list, or its **⋯**). A shared board follows what others do within a 
 - **Colour** — right-click a card (or use **Card colour** in the open card) to give it a
   colour: it is tinted, with a stripe down its left edge, so a kind of work stands out.
   The same menu moves a card to the top or the bottom of its column, or deletes it.
-- **Delete** — from the open card, or its right-click menu. **Undo** in the notice that follows puts it back where
-  it was.
+- **Delete** — from the open card, or its right-click menu. **Undo** in the notice that
+  follows puts it back where it was.
 - **Filter** — type in **Filter cards** to see only the cards that mention something, or
   click a face to see only that person's cards.
 
 ## Columns
 
-Drag a column by its header to reorder the board. Double-click a column's name to rename
+**Column** in the board's header adds a column. Drag a column by its header to reorder the
+board. Double-click a column's name to rename
 it. Its **⋯** sets a **work-in-progress limit** — the count turns red when the column holds
 more — gives it a **column colour** (the lane is tinted, with a coloured top edge), and
 deletes the column, together with its cards once you confirm.

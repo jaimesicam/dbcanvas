@@ -1,1757 +1,840 @@
 # Stacks
-Design a topology on a canvas and turn it into real running nodes — containers, or VMs in
-hybrid mode. Add nodes and cluster **frames**, connect them, give the stack a **TTL**, and
-deploy. Every node type gets its own management panel: a web terminal, its credentials and
-certificate, users, and on-demand backups.
+A stack is a topology you draw on a canvas and deploy as real nodes — containers, or VirtualBox
+VMs in hybrid mode. Add nodes and cluster **frames**, connect them, give the stack a **TTL**
+(time to live), and deploy. Every deployed node gets a management panel with a web terminal,
+credentials, certificates, users and backups.
 
 > [!IMPORTANT]
-> Stacks are **disposable lab infrastructure**, for previewing features and testing. They are
-> built for speed of setup rather than durability or security, and are meant to be torn down.
-> Do not deploy production infrastructure with DBCanvas.
+> Stacks are **disposable lab infrastructure**, built for fast setup rather than durability or
+> security, and meant to be torn down. Do not deploy production infrastructure with DBCanvas.
 
 ![The stack list — every stack, its lifetime and its state](screenshots/stacks-list.png)
 
-> **New here?** [Getting started](GETTING_STARTED.md) walks the whole path — install, first
-> stack, deploy, connect — in order. This page is the reference behind it.
+New to DBCanvas? [Getting started](GETTING_STARTED.md) walks through install, first stack,
+deploy and connect. This page is the reference behind it.
 
-## How the canvas works
+## Build and deploy a stack
 
-Four things live on it, and everything below is a variation on them.
+1. **Add an Intranet node first.** Right-click the canvas and pick **Core → Intranet**. Everything
+   else stays greyed out until it is there: it provides the stack's DNS, a certificate authority
+   (CA) every node trusts, OpenLDAP, mail (Roundcube webmail) and a Squid proxy that caches
+   package downloads.
+2. **Add nodes.** Right-click the canvas where you want a node and pick it from the
+   **Infrastructure Library**. Hover an entry to see what it gives you, or why it is unavailable.
+   To browse the whole catalog with search (it also matches aliases such as `redis`, `k8s` or
+   `vault`) and a recently-used list, set **Settings → Adding nodes** to *Docked library*.
+3. **Add clusters.** A cluster is a **frame**: a dashed box that owns its members. The frame's
+   panel sets what is true of the whole cluster (name, version, replication mode); each member's
+   panel sets what is true of that node.
+4. **Connect nodes.** Drag from one node's port to another's. An **association line** (no
+   arrow) relates two things — a ProxySQL fronting a cluster, a simulator driving a database. A
+   **replication link** (with an arrow) between two cluster members, or between two Kubernetes
+   frames, sets up cross-cluster replication from source to replica; a head at each end means
+   bidirectional. Monitoring (PMM), backup targets, directories and key stores are picked from
+   fields in the database's own panel.
+5. **Set options** in the **Properties** panel on the right. Every field has a **?** that says
+   what it does and when to change it.
+6. Click **Validate** — a dry run that reports missing links, impossible topologies and host-port
+   clashes without building anything.
+7. Click **Deploy**. Nodes are provisioned in dependency order, with every step in the deployment
+   console. A node that fails leaves the others running so you can get into it and look.
 
-- **Nodes** are the things that run: a database, a proxy, a monitoring server, a desktop.
-  **Right-click the canvas** where you want one and pick it from the **Infrastructure
-  Library** — the first level of the menu is the categories, and whatever you pick lands at
-  the point you clicked. Hover an entry to see what that type actually gets you before you
-  add it, including the reason a greyed-out one is unavailable. If you would rather browse the
-  whole catalog at once — with a search box that also matches aliases like `redis`, `k8s` or
-  `vault`, and a recently-used list — set **Adding nodes** to *Docked library* in Settings and
-  the library returns as a column on the left. The canvas menu keeps working either way.
-- **Frames** are clusters. A dashed box owns its members, and has its own panel for what is
-  true of the whole cluster — its name, version, replication mode — while each member's panel
-  sets what is true of just that node. Adding a *PXC Cluster* gives you the frame and its
-  nodes together.
-- **Links** wire nodes to each other: drag from one node's port to another's. This is how a
-  database gets monitored by a PMM server, fronted by a ProxySQL, or backed up to a SeaweedFS
-  S3 node. An **association line** has no direction — it records that two things are related,
-  and it reads the same whichever end you started the drag from, so a ProxySQL fronting a
-  cluster and a simulator driving one are both drawn as plain lines. The one link that *is*
-  directional is a **cross-cluster replication link** between two cluster members, which is
-  drawn with an arrow from source to replica (or a head at each end when it is bidirectional)
-  because there the direction is what you are choosing. The same arrow between **two Kubernetes
-  frames** sets up cross-cluster replication between two operator-managed PXC clusters — the one
-  link that joins two frames rather than two nodes, because a Kubernetes cluster's identity on the
-  canvas *is* its frame.
-- **The Properties panel** on the right edits whatever is selected. Every field has a `?`
-  explaining what it is for and when you would change it.
-
-**The Intranet node goes on first.** The rest of the library is greyed out (with the reason on
-hover) until it is there,
-because it provides what everything else assumes exists: DNS for the stack's hostnames, a
-certificate authority the other nodes trust, OpenLDAP, mail, and a Squid proxy that caches
-package downloads (which is what makes the second node of the same OS much faster than the
-first).
-
-Then **Validate** — a dry run that catches missing links, impossible topologies and host-port
-clashes without building anything — and **Deploy**, which provisions in dependency order and
-shows every step in the deployment console. A node that fails leaves the rest running, so you
-can get into it and look.
-
-One kind of Validate error can be fixed without leaving the page. `make images` builds the
-operating-system bases and the Intranet on top of them; the rest of the images layered on the
-bases — the VNC desktop, the K3D collector, Big Hole — are `make extra-images`,
-which `make install` runs but does not insist on, because they fetch from npm, GitHub and
-Percona's repositories and fail for reasons that are not about your machine. So a stack can
-name an image nobody has built yet, and when it does, an **administrator
-gets a Build button under the error**: the same build, on the same Docker daemon DBCanvas is already using, with the
-log if it fails. The demo applications are the exception — their build context is a directory of
-the DBCanvas source, so they need a checkout and `make <name>-image`.
+**Missing images.** If a node needs an image that has not been built on this host, Validate says
+so and an administrator gets a **Build** button under the error. The demo applications are the
+exception: they need a DBCanvas checkout and `make <name>-image` (for example
+`make stocksim-image`).
 
 ## What you can put on the canvas
 
-
-- **PostgreSQL** — standalone, **Patroni** HA clusters, **repmgr** clusters, and **Spock**
-  multi-master (active-active) clusters (pgBackRest / Barman cloud backups; **pgvector** vector
-  similarity search as a tick on every one of them and on the K3D operator frame, below;
-  TimescaleDB supported).
-- **MySQL (Percona)** — **Percona XtraDB Cluster**, Percona Server, MySQL replication, and
-  **InnoDB / Group Replication** clusters.
-- **MySQL (Community)** — Oracle's community builds (8.0 / 8.4) from repo.mysql.com:
-  standalone, replication, and **InnoDB Cluster / Group Replication** (MySQL Shell +
-  MySQL Router).
-- **MariaDB** — from mariadb.org (10.6 / 10.11 / 11.4 / 11.8 / 12.3): standalone, replication
-  and **Galera** clusters. MariaDB's GTIDs are `domain-server-seq`, so replication is
-  wired with `MASTER_USE_GTID = slave_pos` and the cluster's `gtid_domain_id` is derived
-  from its name; Galera state transfers use `mariabackup`.
-- **MongoDB** — Percona Server for MongoDB: standalone, replica set, and sharded
-  (PBM backups; optional Keycloak OIDC auth; **vector search** with mongot on 8.3+, below), plus two tools for them: **MClusterAdmin**, a web
-  administration panel, and **Big Hole**, an FTDC viewer (both below).
-- **Valkey** — standalone and cluster (LDAP integration, PMM monitoring).
-- **Kubernetes** — a **K3D cluster** frame (1–3 k3s nodes, created by k3d on the stack network,
-  with MetalLB for LoadBalancer services) that can install any of the four Percona operators —
-  **MySQL (PXC)**, **MySQL (Percona Server)**, **MongoDB (PSMDB)** or **PostgreSQL** — into a
-  namespace of your choosing.
-- **Core** — an **Intranet** node (OpenLDAP, bind DNS, an internal CA, a Squid proxy, and
-  Roundcube/Dovecot webmail). One per stack, and the one node that goes on first.
-- **Proxies & HA** — **ProxySQL** (standalone or a cluster), **HAProxy**, **PgBouncer**
-  (below), and **Orchestrator** (MySQL topology discovery, failure detection and failover).
-- **Monitoring** — **PMM** and **Watchtower**, which rolls a PMM server onto a newer image
-  so an upgrade can be demonstrated. With `EOL=on`, also **PMM2** (below).
-- **Identity & Secrets** — a **Samba AD DC** (Active Directory, LDAP, Kerberos),
-  **Keycloak** (OIDC), and **OpenBao** (secrets manager).
-- **Storage & Clients** — **SeaweedFS** (S3 for backups, up to 10 buckets, browsable from
-  its panel), an **Ubuntu VNC** desktop, and a **Linux Client** jump box (a bare OS host with
-  nothing installed, on any base image the matrix builds — Oracle Linux 8/9/10, Ubuntu
-  22.04/24.04 or Debian 12/13, and CentOS 7 with `EOL=on` (below): join the stack's DNS/CA trust, then use its terminal to install
-  and exercise whatever client tools a task needs — or tick *install kubectl* / *install Helm* / *install cmctl* to
-  have them there at deploy, or *use this client for core-dump analysis* and it becomes one, see
-  below), and a **Repository** (a yum/apt mirror and container registry the other nodes install
-  from, below).
-- **App Simulators** — link **Traffic Sim** to a Valkey node/cluster, **Hotel Sim** to a PS
-  MongoDB standalone/replica-set/sharded node, **Airline Sim** to a standalone Percona Server
-  node, a MySQL replication or PXC cluster, or a ProxySQL/HAProxy node fronting one, **Car
-  Rental Sim** to a standalone PostgreSQL node, a Patroni/repmgr/Spock cluster, or an HAProxy
-  node fronting one, and it drives real, continuous background traffic against it (reads/writes
-  for Traffic Sim; a 100-hotel reservation workload exercising CRUD, transactions and change
-  streams for Hotel Sim; a 200-route reservation workload against a 2000-aircraft fleet,
-  exercising real MySQL transactions and Galera certification-conflict retries under contention,
-  for Airline Sim; a 180-location rental workload against a 2000-vehicle fleet, exercising a
-  date-range-guarded multi-row UPDATE for booking and a `FOR UPDATE SKIP LOCKED` claim for
-  vehicle check-out, for Car Rental Sim; a 200-security fictional stock exchange — 10 workload
-  agents, a traffic level × mix control, and an 18-challenge catalog of deliberately-injected
-  indexing/query/locking/PXC problems the learner diagnoses and fixes, graded on outcome
-  (baseline vs. validated measurements, a hard correctness gate, a 100-point score) rather than
-  a checked SQL answer, for MarketChaos), with a live dashboard reachable from the stack's
-  Ubuntu VNC desktop.
-- **Support Sim** — MongoDB **vector search** doing a real job, and a place to learn it. A help
-  desk for a fictional cloud-database company: tickets arrive continuously, each is embedded *in the
-  sim's own process* (all-MiniLM-L6-v2, 384 dimensions, pure Go — no API key, no GPU, works
-  offline) and searched with `$vectorSearch`, and the desk acts on what it finds — answers from the
-  closest resolved tickets, routes to a team, merges a customer's repeat ticket, raises an incident
-  when a burst of *new* problems appears. Keyword search (`$search`) and hybrid (`$rankFusion`)
-  answer the same questions on the same tickets, and all three are **scored against the simulator's
-  ground truth**, so the dashboard shows where vectors win, where keywords hold up, and why — not a
-  claim. Five tabs: **Live Desk**, **Search Showdown** (one question, three engines, the right
-  answer marked; hybrid as `$rankFusion` or `$scoreFusion` with a weight slider and per-result score
-  breakdowns, and a sweep that finds the best weight and can apply it to the live desk), **Vector Lab** (seven hands-on steps: a sentence's 384 numbers, cosine similarity
-  and its traps, a 2-D map of the tickets, the index definitions, a `$vectorSearch` builder with
-  recall measured against exact search and the same query in mongosh/Python/Node/Go, and how long a
-  new document takes to become findable), **Index Workshop** (nine real indexes over the same
-  2,000 tickets — cosine, dotProduct, euclidean, scalar and binary quantization, BSON float32 and int8
-  vectors, un-normalized vectors — benchmarked for recall, accuracy, latency and size; a lifecycle
-  playground that creates, updates and drops an index while probe queries run; `$vectorSearch`
-  explain; and mongot's own metrics, live) and **Under the Hood**. Every result shows the exact
-  pipeline that produced it. Link it to a PS MongoDB replica set or sharded cluster with **Vector
-  search** on, or to a K3D frame running the MongoDB operator with it on (below). Linked to a
-  MongoDB without mongot it still runs, on an in-app brute-force scan, and says so on every page.
-  `make supportsim-image` builds it; the template **PSMDB Vector Search + Support Sim** is the
-  whole demo in one click.
-- **pgvector Support Sim** (`pgvectorsim`) — the same desk, the same image and the same tabs, run
-  against **PostgreSQL** instead (`DB_ENGINE=postgres`): embeddings go into a pgvector `vector`
-  column and are searched through an **HNSW** index with `<=>`. Link it to one PostgreSQL target —
-  a standalone node, a Patroni, repmgr or Spock cluster, an HAProxy or PgBouncer node in front of
-  one, or a K3D frame running a PostgreSQL operator — and DBCanvas hands it a connection string
-  the way it does Stock Market Sim (every member of a Patroni/repmgr cluster, with
-  `target_session_attrs=read-write`, so a switchover does not strand it on a standby). It creates
-  its own `supportsim` database when its role may, and otherwise works in a `supportsim` schema of
-  the database it was given. Turn **pgvector** on for the target (the node, the cluster frame, or
-  the K3D frame's PostgreSQL operator — Percona, CloudNativePG or Crunchy PGO); without it the sim still runs, storing
-  embeddings as `real[]` and scanning them in the app, and validation warns. The template
-  **PostgreSQL + pgvector + Support Sim** is the whole demo in one click.
-- **Stock Market Sim** — the one app simulator you *operate* rather than just watch, and the one
-  that does not have to be linked to anything on the canvas. Background agents move prices, place
-  orders and settle trades continuously, while you create, edit and delete securities, portfolios
-  and orders from its own web interface; it generates a printable **report** (print to PDF) and
-  per-table **CSV exports**, shows the tables it created in the target database, and can drop them
-  again when you're done. The same application runs on **MySQL, PostgreSQL, MongoDB or Valkey** —
-  link it to a standalone Percona Server, PostgreSQL, PS MongoDB or Valkey node with a drawn
-  association line, *or* switch the node to a **manual connection** and give it a host, port,
-  user, password and database — reaching a database that is not part of the stack at all:
-  elsewhere on the Docker host (`host.docker.internal`), on your network, or a managed cloud
-  instance, with a **Test connection** button that checks it before you deploy. One node drives
-  exactly one database, so four nodes side by side give you four independent applications with
-  four dashboards, one per engine. It connects to **any database in the stack**: a standalone
-  Percona Server, MariaDB, MySQL, PostgreSQL, PS MongoDB or Valkey node; any cluster frame (PXC,
-  MySQL/MariaDB/MySQL CE replication, Galera, InnoDB Cluster and Group Replication, Patroni,
-  repmgr, Spock, PSMDB replica sets and sharded clusters, Valkey cluster); a **Kubernetes frame
-  running any of the six database operators** (PXC, Percona Server for MySQL, PSMDB, Percona
-  PostgreSQL, CloudNativePG, Crunchy PGO), whose engine follows the operator the frame runs; or a
-  **ProxySQL/HAProxy** node fronting one — resolving by default to the cluster's write endpoint, be
-  that the primary, the leader, the router or the mongos. The **Stock Market Sim** can be told to
-  split that: behind an HAProxy node, tick **Send reads to HAProxy's read port** and the queries
-  that only display — the dashboard, the lists, the report — go to `:5001`, which round-robins the
-  replicas, while writes keep `:5000`. A read whose answer decides a write stays on the primary
-  whatever the setting, so replication lag cannot turn into a failed edit; see the note under the
-  checkbox. It is the only workload here that puts read load on a cluster's replicas. A database inside Kubernetes has to be
-  reachable from the stack network first: set the tier in front of it — the proxy, the mongos
-  routers, the pgBouncer pool, or the database pods themselves — to **LoadBalancer** or
-  **NodePort** on the frame, since a ClusterIP address exists only inside the cluster, and the
-  designer says so before you deploy if none of them is. The two PostgreSQL operators are reached
-  through their **pgBouncer** pool when it has an address, as their own application user, and
-  directly on the primary as `postgres` when it does not. A MongoDB **replica set** is the one target whose
-  address does not follow a failover — the set advertises in-cluster names, so the sim is pointed
-  straight at the member holding the primary role and an election means redeploying the node; a
-  sharded cluster has mongos in front of it and does not have this problem. An **All in One** node draws no association lines, so its instance is chosen from a
-  picker on this node instead of with a line. Set the load level to **High** and it also grows the dataset:
-  bulk price history is written until the app owns a configurable **dataset size** (5 GiB by
-  default), so there is something real on the volume to measure a disk, a storage class or a
-  backup against — the simulation carries on at its normal rate once the target is met. A
-  configurable **working set** (half the dataset by default) is then kept under continuous random
-  read, which is what makes cache size measurable: a dataset that is only ever written to is
-  served out of a few hundred kilobytes of hot rows, so a 128 MiB buffer pool reports a ~100% hit
-  rate and reading its size back tells you nothing. With a working set larger than the cache it
-  misses properly — the same 2 GiB dataset that showed 99.98% and 0.01 MiB/s off disk shows 92.8%
-  and 469 MiB/s, and raising the pool past the working set takes throughput up 6.6×. **Database
-  threads** (4 by default) sets how many workers write that history and read it back, and sizes
-  the connection pool with it. Settled orders are swept after a retention window (15 minutes by
-  default) so the order book stays bounded — without it the dashboard's own two-second order
-  count grows linearly more expensive for the life of the deployment, and cumulative figures
-  stay correct across the sweep because what was removed is tallied durably.
-  Six **deliberate problems** can also be switched on, each reproducing a condition that is
-  hard to cause on purpose and easy to hit by accident: an **idle transaction** held open with
-  a read snapshot (up to 24h) so purge cannot advance and the InnoDB history list — or
-  PostgreSQL's xmin horizon and the bloat behind it — grows for as long as it sits there;
-  **extra tables** (up to 5000, read in rotation) so `table_open_cache` stops holding the
-  working set and every query pays to reopen one; **temporary-table queries** shaped to
-  build a large intermediate result either in memory or forced to spill to disk;
-  **lock contention**, where concurrent writers compete for a handful of rows — queueing on
-  *light*, and on *heavy* taking the same two rows in opposite orders so the server has to
-  detect and break real deadlocks; **scan queries** against the tick history with a predicate
-  no index can serve, so the server reads every row to return a handful; and **write
-  pressure** in either of its two distinct shapes — *commits*, many tiny transactions that
-  each pay for their own log flush, or *redo*, bulk rewrites that fill the write-ahead log and
-  eat checkpoint headroom. Measured on a lab server: history list 6,496 and climbing, 15,896
-  `Table_open_cache_overflows` against 1,200 tables and a 400-entry cache, the same rollup
-  taking 1,961 ms spilled versus 429 ms in memory, 364 deadlocks a minute on *heavy* against
-  none on *light*, 11.0M rows read to return 122,949 (about 90 read per row returned), and one
-  second of *commits* costing 142 log syncs for 176 KiB against *redo*'s 18 syncs for 2.2 MiB —
-  the same knob, opposite costs. Nothing grows: the contended and committed writes go to rows
-  this app owns, and the bulk rewrites overwrite a fixed 256 rows in place.
-  Each knob is offered only on an engine that can actually do it. On MySQL, PostgreSQL and MongoDB it takes its own database or
-  schema; on Valkey there is no size target and no working set, because its tick history is a
-  length-capped stream that writing to does not enlarge and that holds no cold data to read.
-  This one is a working application rather than a tuning puzzle: it has CRUD and a report.
-- **Ledger Sim** — the same idea one layer up: not "what does this database do under load", but
-  **how the application is connected to it**. An order-and-payment ledger — accounts, orders,
-  order lines and a real double-entry posting for every movement — driven over **JDBC** by a
-  **HikariCP** pool, on a JVM (Eclipse Temurin) rather than a Go binary. It exists because
-  "it works from the CLI but not from the app" is nearly always a *client* fact, and none of
-  those facts exist in the other simulators.
-  The image ships **three drivers** — **MySQL Connector/J**, **MariaDB Connector/J** and
-  **pgJDBC** — and both MySQL ones speak to the same servers, which is the point: pointing each
-  at one server in turn is the only honest way to tell a driver problem from a server problem.
-  The driver is a per-node choice *and* can be swapped on the dashboard while the workload runs.
-  DBCanvas detects the target the usual two ways — a drawn line to any MySQL-family or PostgreSQL
-  node, cluster frame, router or Kubernetes frame, or a **manual connection** to a database
-  outside the stack, with the same **Test connection** button — and the sim composes the JDBC URL
-  from what it was given. The dashboard then shows **that URL**, every driver property it derived
-  and **why** (`allowPublicKeyRetrieval=true` so `caching_sha2_password` can authenticate without
-  TLS; `targetServerType=primary` when several hosts were given, or pgJDBC may settle on a standby
-  and every write fails read-only; and the fact that MariaDB Connector/J has **no** opportunistic
-  TLS mode, so `prefer` becomes `sslMode=disable` rather than silently forcing TLS on), and lets
-  every part of it be edited and re-applied against the live pool — host list, database, TLS,
-  individual properties, or the whole URL verbatim. A configuration that cannot connect is
-  **refused with the driver's own SQLState and nothing changes**; the pool that was working is
-  still working. Every successful change starts a fresh measurement window, so "swap the driver
-  and compare p95" is a real comparison rather than two drivers blended into one histogram.
-  **Or no pool at all.** A node can be set to **direct** mode — a fresh connection per
-  transaction, opened and closed around it — which is how a great many real applications
-  connect, from cron jobs and short-lived CLI tools to the classic PHP request model and most
-  serverless handlers. It is not a degraded setting but the other half of the experiment: the
-  same workload, the same server, switchable on the dashboard without redeploying, so "use a
-  connection pool" becomes a number instead of advice. Measured on a lab Percona Server
-  8.0.46, 8 workers, switched live: **pooled did 23,365 transactions in 30s opening one
-  connection** (p50 8.19 ms); **direct did 6,097 opening 6,091** (p50 65.54 ms, of which
-  26.75 ms was the connect itself — about 40% of every transaction spent on TCP, TLS,
-  authentication and session setup). In direct mode the pool panel shows what that mode
-  costs instead of what a pool holds: connections opened, average connect time, and its share
-  of each transaction. The pool settings are greyed out and labelled as inert, because they
-  are. The designer also warns before deploy if a direct-mode node has enough workers to
-  threaten the server's `max_connections`, since with no pool the worker count *is* the
-  connection count.
-  The **HikariCP** settings are first-class and equally live — `maximumPoolSize`, `minimumIdle`,
-  `connectionTimeout`, `idleTimeout`, `maxLifetime`, `keepaliveTime`, `leakDetectionThreshold`,
-  `autoCommit`, `readOnly`, `connectionInitSql` and the pool's transaction isolation — because
-  pool misconfiguration is one of the most common things behind "the database is slow" that turns
-  out not to be the database. The pool panel shows active, idle, total and **threads awaiting a
-  connection**, which is the number that distinguishes a slow server from a queue in front of a
-  fast one. On the workload side: the **isolation level** (blank means the driver default, which
-  MySQL and PostgreSQL do not agree on), **revenue shards** — every order credits one of these
-  accounts, so 1 serialises every transaction in the system on a single row and 8 spreads it — a
-  **hot-account share**, and a **deadlock share** that makes that fraction of transactions take
-  their two row locks in the opposite order, producing real engine-detected deadlocks rather than
-  a description of them. Deadlocks, lock timeouts, retries and errors are counted separately, so
-  you can see how much of the throughput is real work and how much is the same work done again,
-  and recent failures are listed with their **SQLState and vendor code unparaphrased** — the same
-  event reads differently through each driver, and that difference is usually the answer. Because
-  every posting is a matched debit and credit, the dashboard's **balance check** is zero on a
-  correct ledger: a non-zero total means a transaction was observed half-applied.
-  JDBC is the limit of it — there is no driver here for MongoDB or Valkey, and a line drawn to one
-  is refused with a sentence pointing at the Stock Market Sim instead. Needs
-  `make ledgersim-image`, which is the slow one: it builds a shaded jar from Maven Central rather
-  than a Go binary.
-- **All in One** — one container running **many** database instances side by side, instead of
-  one product per node. Add features to it from a menu (Percona Server, PS replication, InnoDB
-  Cluster / Group Replication, PXC, PostgreSQL, repmgr, Patroni, Spock, PSMDB standalone /
-  replica set / sharded, Valkey standalone / cluster, ProxySQL, HAProxy, Orchestrator) and each
-  becomes an independent instance with its own datadir, config, systemd unit and **non-default
-  port**. It draws no association lines: every relationship — PMM monitoring, an LDAP directory,
-  OpenBao, Keycloak, a SeaweedFS backup target, the instance a proxy fronts — is a drop-down on
-  the instance itself. See [All in One](ALL_IN_ONE.md).
-- **Operations** — cross-cluster replication links, per-node web terminals, certificate
-  management, on-demand backups, and TTL-based auto-teardown.
-- **Constrained nodes** — every node can be limited on all four resources it competes for:
-  **CPU** and **memory** (container limits), **disk** (`--device-read-bps`/`--device-write-bps`),
-  and the **network** — added latency, jitter, packet loss and a bandwidth cap, applied with
-  `tc`. The network one is what makes a synchronous cluster interesting. Measured on a live
-  three-node Galera cluster: a degraded link (200 ms ±40 ms, 10% loss, 1 Mbit) backs the *writer*
-  up — `wsrep_local_send_queue` rises and a bulk insert that took 22 ms unimpaired ran for
-  minutes — and severing it (100% loss) evicts the member in **8 seconds**, the majority side
-  holding `cluster_size 2 / Primary` while the isolated node drops to `1 / non-Primary` and stops
-  accepting writes; clearing the impairment rejoins it in **11 seconds**. Worth knowing: a slow
-  *link* stalls the sender, whereas receiver-side flow control needs a slow *node* — they are
-  different experiments, and the second one is produced with the CPU/memory limits or plain
-  configuration rather than with `tc`. Measured on the same rig, with two PXC members tuned
-  (`innodb_flush_log_at_trx_commit=2`, `sync_binlog=0`, 2 GiB pool and redo) and one left at
-  stock (`1`, `1`, 128 MiB): driving updates at a tuned member left the stock member's receive
-  queue averaging **168 writesets against the tuned member's 1.1** on the identical stream,
-  sending **500 flow-control pauses** while the tuned member sent none, and pausing the writer
-  **44%** of the time. A bandwidth cap mostly just slows a state transfer down. Shaping is
-  scoped to the node's own database and cluster ports (for PXC: 3306, 4444, 4567, 4568), so DNS,
-  LDAP and health checks stay clean and the node degrades rather than looking broken — measured
-  on a lab node, ping stayed at 0.09 ms while port 4567 went to 124 ms. It is applied *after* the
-  cluster forms, because a lossy link fails state transfer, and it is a runtime change, so a
-  redeploy re-applies it without recreating anything.
-
-**Authentication.** Point a database at a directory and it is wired at deploy: **LDAP** against
-the Intranet OpenLDAP or the Samba AD DC (Percona Server, PostgreSQL, PSMDB), **Kerberos/GSSAPI**
-single sign-on against the Samba AD DC (PostgreSQL, PSMDB), and **Keycloak OIDC** (PMM, PostgreSQL
-18 via `pg_oidc_validator`, PSMDB via `MONGODB-OIDC`, Percona Server 8.4 and 9.7 via `auth_openid_connect`).
-The designer greys out combinations an engine cannot actually run — PostgreSQL cannot do LDAP and
-OIDC at once (they compete for the same `pg_hba` line), and MongoDB cannot combine OIDC with
-LDAP/Kerberos (each needs its own `mongod.conf` `setParameter` block) — and validation blocks the
-deploy rather than letting one silently win. MySQL has no such conflict: it picks an auth plugin
-per account, so LDAP and OIDC accounts live side by side on one server.
-
-Turning on Keycloak SSO for a **Percona Server** node keeps a 9.7 node on 9.7 and moves any
-other to 8.4, with the minor reset to the latest: Percona added `auth_openid_connect` in
-**8.4.11-11** and **9.7.2-2** (9.7.1-1 does not have it). The deploy
-wires the whole demo, not just the plugin — a realm and a public `mysql` client on the Keycloak
-node, sample users `jane` and `john` in an `accounting` group, MySQL accounts bound to those users'
-`sub` claims, and an `oidc_demo` schema only the group's role can read. The node's **Keycloak SSO**
-tab shows how to log in, and DBCanvas writes a small shell wrapper to `/usr/local/bin/oidc-login`
-on the node (not an upstream tool) that does the whole round-trip in one command: ask Keycloak for
-an ID token, hand the file to `mysql`. No MySQL password is ever sent, and the
-group→role mapping means `SHOW GRANTS` gains `accounting` at connection time (activate it with
-`SET ROLE`). The link must be encrypted — a Unix socket, or TCP with `--ssl-mode=REQUIRED`.
-
-**Data-at-rest encryption (OpenBao).** Add an **OpenBao** node (a Vault-compatible secrets
-manager, one per stack) and tick *Encrypt with OpenBao* on a Percona Server, PSMDB or PostgreSQL
-node — or on a **PXC cluster** or **Percona Server replication** frame, where the tick covers
-every member. At deploy the node is initialized and unsealed for you — its **5 unseal keys and root token**
-appear in the node's properties, since OpenBao prints them exactly once — and the database is wired
-to it as its keyring: `component_keyring_vault` on Percona Server 8.4, the `keyring_vault` **plugin**
-on 5.7/8.0 (the component does not exist before 8.4), `security.vault` on PSMDB, and **`pg_tde`** on
-PostgreSQL. Each database gets its own KV mount and a token scoped to it, and verifies OpenBao with
-the Intranet CA every node already trusts. OpenBao seals itself on every restart, so its panel shows
-the live seal state and can replay the stored keys with one click.
-
-**On a cluster** — a PXC frame or a Percona Server replication frame — the tick is on the frame
-and applies to every member, which is what Percona requires: *"Percona XtraDB Cluster strongly
-recommends using the same keyring component type on all cluster nodes"*, and a joiner whose keyring
-does not match its donor's cannot join at all. Four things follow from that, and they are the
-reasons this is a deploy-time decision rather than a switch:
-
-- **Every member gets its own KV mount** (`mysql-<host>`) and its own token. That is not tidiness:
-  *"each `secret_mount_point` must serve only one Percona Server instance"* — sharing one risks
-  overwriting another server's key. It works inside a cluster because keys are never what travels
-  between members: write-sets and binlog events carry rows, each member encrypts what it writes
-  with a master key of its own, and a PXC joiner's SST re-encrypts the donor's tablespace keys
-  under a key it generates for itself.
-- **The keyring is staged before the member's first start**, not applied afterwards. Configuring a
-  keyring on a running member would mean restarting it, and restarting a PXC member means leaving
-  the cluster and rejoining it — an IST at best, a full SST at worst, in the middle of a deploy.
-- **SST stays on `xtrabackup-v2`.** PXC aborts an **rsync** SST outright on a node configured with
-  `component_keyring_vault`, because rsync copies tablespaces with no re-encryption step.
-- **`default_table_encryption=ON`**, so tables created on the cluster are encrypted without an
-  `ENCRYPTION='Y'` clause — the same choice the PostgreSQL path makes with `tde_heap`. An explicit
-  clause still wins in either direction.
-
-**An encrypted PXC cluster also encrypts its cluster traffic**, and that is PXC's rule rather than
-a choice: with a keyring configured, its SST script refuses an unencrypted channel —
-
-    FATAL: keyring component is enabled but transit channel is unencrypted.
-    Enable encryption for SST traffic
-
-— so a keyed cluster without it bootstraps its first member and can never add a second. PXC also
-requires that *"all nodes must use identical key and certificate files"*, which per-node
-certificates are not. So an encrypted cluster gets **one certificate**, signed by the Intranet CA
-and staged on every member before the first one starts (outside the data directory, which a
-joiner's SST replaces wholesale), and `pxc_encrypt_cluster_traffic=ON` with an `[sst]` section that
-uses it. Ticking *Generate per-node certificates* on an encrypted cluster is therefore a no-op, and
-the deploy log says so: the shared certificate covers client TLS as well, with every member's name
-in it.
-
-The deploy proves it rather than asserting it: every member is checked for a loaded keyring
-(`keyring_component_status` / `information_schema.plugins`), and the writable member — the node
-that bootstrapped the cluster, or the replication primary — creates and drops a real encrypted
-table, which is the operation that makes the server store a master key in OpenBao. A member that
-cannot do that fails its deploy instead of coming up unencrypted.
-
-MariaDB and MySQL Community frames do not offer the tick at all: `keyring_vault` is a Percona
-Server component, MariaDB's equivalent is a different plugin with a different key format, and
-Oracle's community packages ship `component_keyring_file` only.
-
-PostgreSQL is the odd one, and worth knowing about before you tick the box:
-
-- **It is `pg_tde`, so it needs PostgreSQL 17 or 18** — the only majors Percona builds the extension
-  for. The checkbox stays off on any other major and says why rather than quietly moving the node,
-  because the PostgreSQL version is usually the point of the node.
-- **The keyring is not a config file.** MySQL and MongoDB read theirs at startup; a pg_tde key
-  provider is *registered from SQL*
-  (`pg_tde_add_global_key_provider_vault_v2`), so this step runs after the server is already up.
-  The OpenBao token is written to a postgres-owned file, because pg_tde is given a path rather than
-  the token itself.
-- **From Percona Distribution for PostgreSQL 17.7 the extension is its own package**
-  (`percona-pg_tde17` / `percona-pg_tde18`); up to 17.6 it is inside the server package. DBCanvas
-  installs it when the repository has it and checks for the extension either way.
-- **Tables here are encrypted without asking.** The extension is created in `template1` as well as
-  `postgres`, and `default_table_access_method` becomes `tde_heap` — so every database made from the
-  default template inherits it. (A database created from `template0` needs its own
-  `CREATE EXTENSION pg_tde` first.) The deploy proves this end to end before the node reports as
-  encrypted: it creates a real `tde_heap` table and checks `pg_tde_is_encrypted`.
-- **WAL encryption is not turned on.** `pg_tde.wal_encrypt` is supported only with
-  `pg_tde_archive_decrypt` in `archive_command` and `pg_tde_restore_encrypt` in `restore_command`,
-  which the node's pgBackRest archiving does not use. Table data is encrypted either way.
-
-**Kubernetes with the Percona operators.** Add a **K3D Cluster** frame and pick a Percona operator —
-all four are supported: **PXC**, **MySQL (Percona Server)**, **MongoDB** and **PostgreSQL**. DBCanvas runs
-k3d against the same Docker daemon it already uses, creating the k3s nodes **on the stack network**
-— so pods resolve the Intranet DNS, reach PMM and SeaweedFS by name, and **MetalLB** hands out
-LoadBalancer addresses from the stack subnet that every other container can reach. Several K3D
-frames can share one stack: each cluster gets its own block of 8 addresses from the top of the
-subnet, so two clusters on the same network never advertise the same address. You choose the
-cluster size, its **Kubernetes version** (any k3s release `make versions` discovered; the newest by
-default — k3d's own default trails the releases far enough to break some operators' CRDs), its
-CPU/memory budget (a total, split across the nodes — DBCanvas warns if it is too small to schedule the
-cluster, or too large for your host), the namespace, the shape of the cluster
-(PXC: **HAProxy or ProxySQL** in front; Percona Server: **group replication or async** replication
-under Orchestrator, behind HAProxy or **MySQL Router**; MongoDB: a **replica set or a sharded
-cluster** with mongos routers; PostgreSQL: a Patroni HA cluster behind **pgBouncer**), and how each tier is exposed
-(ClusterIP / NodePort / LoadBalancer — the database can stay in-cluster while the proxy, router or
-pooler takes a LoadBalancer address). The operator's source is unpacked into
-`/root` on the first node, and its `cr.yaml` is rewritten before it is applied — anti-affinity set to
-`none` and every section's CPU/memory requests commented out, because the shipped file assumes a real
-multi-node cluster and would otherwise never schedule.
-
-Link a **SeaweedFS** node and the cluster backs up to it over S3; link a **PMM** node and DBCanvas
-mints a **service token** on the PMM server (you choose how long it lives — 365 days by default) and
-patches it into the cluster's secret, so the pmm-client sidecars register themselves and the whole
-cluster shows up in PMM. The cluster's users come from your `.env`, like every other database
-DBCanvas deploys, so the root password is the one you already know. (PostgreSQL is the one exception
-worth knowing: pgBackRest speaks S3 only over TLS, so its backups need a SeaweedFS node with **TLS
-on** — the designer warns you when it isn't, because without it the cluster silently keeps the
-operator's own PVC backup repo and the bucket stays empty.)
-
-**OpenEverest on Kubernetes.** Pick **OpenEverest** as the frame's operator and DBCanvas installs the
-database platform from its Helm chart (`openeverest`, any release `make versions` found), then waits
-for the Percona operators you tick — **MySQL (PXC)**, **MongoDB** and **PostgreSQL**, all three by
-default — to be installed into Everest's database namespace (the frame's namespace, `everest` by
-default) by OLM. Their versions are not yours to pick: each chart release pins the catalog they come
-from, and the node's panel shows what landed (`pxc 1.20.0 · pg 3.0.0` for chart 1.16.2). The frame
-creates **no database** — that is what Everest's UI is for. Like a PMM node's, the UI is published on a
-random host port (on `CONTAINER_BIND_IP`, loopback by default, kept across redeploys), and the node's
-panel has an **Open OpenEverest** button for `http://localhost:<port>/`; other nodes reach it on its
-MetalLB address on the stack network. Sign in as `admin` with `EVEREST_PASSWORD` from `.env`, which
-the panel also shows.
-Backups and PMM are configured inside Everest too — a SeaweedFS node is a backup storage, a PMM node a
-monitoring endpoint — so the frame's own SeaweedFS and PMM pickers are hidden. The platform is about
-ten pods before the first database (server, operator, OLM, monitoring), so give the frame 6 CPU / 10 GiB
-or more.
-
-**Percona Operator for PostgreSQL 3.1.0 and newer** adds three more knobs, which the designer shows
-only when the frame pins a version that has them — on an older release their `cr.yaml` sections do
-not exist, so asking for one is rejected outright by the API server rather than ignored, and the
-cluster is never created at all:
-
-- **Logical replicas** (`spec.logicalReplicas`) — up to three extra read-only replicas fed by
-  *logical* replication from the primary rather than by the physical streaming Patroni manages
-  between the instances. They never get promoted and never join the failover group, so they are for
-  reading, for an analytics consumer, or for watching what logical replication does when you break
-  it. Each is a pod with its own volume, seeded either from the pgBackRest repository or with
-  `pg_basebackup` straight off the primary. **Databases** is blank by default, which writes
-  `databases: []` — the operator's own "every non-template database except `postgres`", resolved
-  when the replica bootstraps. That is the right default for a frame designed before the
-  application has created anything; name databases explicitly only when they will certainly exist
-  by then, because the operator does not create a missing one, it leaves the replica unready.
-- **Persistent logging** (`spec.logcollector`) — a fluent-bit sidecar and logrotate that keep
-  PostgreSQL's server log and pgBackRest's client log as rotated files on the data volume. On by
-  default, which is what the operator ships; turn it off and the log lives only in the pod's stdout,
-  where a restart loses it.
-- **Transparent data encryption** (`spec.extensions.pg_tde`) — encryption at rest, optionally
-  including the write-ahead log. It needs a key store: add an **OpenBao** node to the canvas and the
-  cluster gets its own KV v2 mount on it and a token scoped to that mount, verifying OpenBao with
-  the Intranet CA every node already trusts. pg_tde has no local keyring — the CRD refuses a cluster
-  that asks for encryption without a vault — so the designer errors when there is no OpenBao node,
-  and like every encryption-at-rest choice it cannot be turned on afterwards without re-creating
-  the data.
-
-**Logical replicas and encryption cannot be combined on this operator.** The operator mounts the
-pg_tde credentials into the instance pods but not into the logical-replica bootstrap job, so the
-job restores the data directory, `pg_createsubscriber` starts the restored standby, and PostgreSQL
-dies on `could not open file "/pgconf/tde/token" for "vault_token"` — the replica is then marked
-`broken` and nothing retries it. The cluster itself is healthy throughout, which is what makes this
-worth catching early, so the designer refuses the combination rather than letting you find out
-afterwards. There is no workaround in the custom resource: a `logicalReplicas` entry has no
-`volumes` field to add the secret with, and both bootstrap methods go through
-`pg_createsubscriber`. (WAL encryption is not the trigger — it fails with `pg_tde.wal_encrypt` off
-too.)
-
-**Data-at-rest encryption on PXC and MongoDB** works the same way and from the same OpenBao node —
-tick *Data-at-rest encryption* on the frame. The cluster gets its own KV v2 mount and a token
-scoped to that mount (never OpenBao's root token, which is what the operators' own examples use),
-and verifies OpenBao with the Intranet CA. What differs is only where the operator reads it from:
-
-- **PXC** — a Secret named by `spec.vaultSecretName`, holding the `keyring_vault.conf` the image's
-  entrypoint looks for. Finding that file is *what turns encryption on*: the entrypoint then loads
-  the keyring_vault plugin and sets `default_table_encryption`, `innodb_undo_log_encrypt` and
-  `innodb_redo_log_encrypt` together, so tables, undo log and redo log are all covered.
-- **MongoDB** — two halves that have to agree, which is why the designer writes both:
-  `spec.secrets.vault` names the Secret, and each replica set's `configuration` carries mongod's
-  `security.vault` block pointing at the files inside it. Write only one and the operator falls
-  back to a local key file. A sharded cluster's replica set and config servers get **separate
-  keys** in the same mount — they are separate WiredTiger deployments, and one shared key path has
-  whichever starts second overwrite the first's. It needs operator **1.13.0 or newer**
-  (`spec.secrets.vault` does not exist below that), so the option is hidden on older releases the
-  way the PostgreSQL ones are; PXC has had `vaultSecretName` since 1.7.0, which is the oldest
-  version the catalog offers.
-
-Neither can be turned on afterwards — the database establishes encryption when it creates its data
-files — so it is a design-time choice, and a deploy that cannot reach the key store fails rather
-than quietly bringing up an unencrypted cluster.
-
-One detail worth knowing, because it decides the *format* of what DBCanvas writes rather than
-anything you choose: **PXC 8.4 reads its keyring as the `component_keyring_vault` component and
-8.0 as the `keyring_vault` plugin**, and the operator feeds both from the same Secret key — copying
-it verbatim into the component's config, which parses it as JSON. So the file is rendered per
-server version, read from the `spec.pxc.image` tag in the operator release's own `cr.yaml`. Get it
-wrong and the pods crash-loop on `Keyring configuration JSON parse error` before the cluster ever
-forms, which is why a release whose image DBCanvas cannot read refuses the deploy instead.
-
-**Watch it while it runs.** A running cluster can be opened on the
-[**Kubernetes States**](KUBERNETES_STATES.md) board — every pod, workload, claim, service and
-custom resource as a card, red when the object itself says it is broken, lit for a few seconds
-when one of its numbers changes, and kept in place when it is deleted until you dismiss it. It
-is the view to have open while a failover runs or an operator rolls a StatefulSet; the button
-is on the **server** node's panel, or pick the cluster from the sidebar page.
-
-**Step through the operator itself.** A frame running any of the **four Percona operators** can
-be deployed with the operator running under **Delve**: tick *Run the operator under Delve*, and
-DBCanvas rebuilds the operator from that release's own source with the optimiser off and runs it
-under `dlv` in place of the released binary. Then open the
-[**Operator Debugger**](OPERATOR_DEBUGGER.md) — breakpoints, call stack, variables and
-expressions, plus a button that forces a reconcile so a breakpoint in `Reconcile` is actually
-reached. No IDE, no clone of the operator, no Go toolchain, and no `kubectl port-forward` to keep
-alive. (The two community PostgreSQL operators come from a Helm chart rather than a release
-tarball, so there is no source to compile or to show, and the option is not offered for them.)
-
-The pod keeps the released image (only its command changes), the probes and leader election are
-turned off so you can sit on a breakpoint, and Delve starts with `--continue` so the cluster
-still deploys whether or not you ever attach. It costs a few minutes of build time on the first
-deploy.
-
-**kubectl and Helm, at design time.** A **Linux Client** can be deployed with either or both
-already on it — on PATH, with bash completion and the `k` alias. The reason to choose it here rather
-than install it from the node's terminal is the version: kubectl is supported one minor version
-either side of the API server, and a Kubernetes frame on the same canvas has its k3s release pinned,
-so DBCanvas installs the kubectl that matches *that cluster* (and says which one it matched). Helm
-takes the current release from its own installer, which needs no matching. **cmctl**, cert-manager's
-CLI (`cmctl check api`, `cmctl status certificate`, `cmctl renew`), is there for the cert-manager a
-Kubernetes frame installs; since v2 it is released apart from cert-manager, so it takes the current
-release too, verified against that release's `checksums.txt`. None of them is given a kubeconfig at
-deploy — the clusters deploy at the same time as the client.
-
-**Every cluster in one kubeconfig, after the deploy.** Once a Linux Client is running, its panel has
-a **Kubeconfig** section listing the stack's Kubernetes clusters. **Copy to /root/.kube/config** merges
-every running cluster's admin kubeconfig into the node's `/root/.kube/config` (directory 0700, file
-0600), one context per cluster, named after its frame. k3s calls its cluster, user and context
-`default`, so they are renamed rather than copied, or two clusters would overwrite each other. Each
-context points at its cluster's load balancer on the stack network. **Current context** switches between
-them, the same as `kubectl config use-context`. Copying again replaces those contexts and keeps any you
-added yourself, such as a role-scoped one from a frame's **Users** tab, which is the more interesting
-thing to test with. It also keeps whichever one was current. A `~/.kube/config` that cannot be read is
-kept as `config.bak.<time>` rather than overwritten. Copy again after adding or rebuilding a cluster.
-
-**Database clients, at design time.** A **Linux Client** can also be deployed with Percona's
-database client tools already installed, each from Percona's own repositories through
-`percona-release`:
-
-| Tool | Package | Series |
-|---|---|---|
-| Percona Server MySQL client (`mysql`) | `percona-server-client` | 8.0, 8.4 or 9.7 |
-| MySQL Shell (`mysqlsh`) | `percona-mysql-shell` | the same series as the client |
-| `mongosh` | `percona-mongodb-mongosh` | from `psmdb-80` |
-| Percona Distribution for PostgreSQL `psql` | `percona-postgresql-client-NN` / `percona-postgresqlNN` | 13 to 18, put on PATH |
-| Percona ClusterSync for MongoDB (`pcsm`) | `percona-clustersync-mongodb` | installed, not started |
-
-The series pickers offer only what Percona publishes for the node's release: Debian 13 has no 8.0
-MySQL client (8.4 or 9.7), and CentOS 7 gets Percona's last el7 builds — MySQL 8.0.37, mongosh 2.1.5,
-psql 13 — and no ClusterSync. A design that asks for anything else is refused at **Validate**. The
-versions the panel shows are read off the binaries after the install; a tool that did not install
-does not stop the deploy, and the log says why.
-
-**Sample Client Code.** A deployed **Linux Client** has a **Sample Client Code** action — in its panel and in
-its right-click menu — that generates a runnable client program for any database in the stack and
-runs it there. Pick an endpoint (a node, a cluster, HAProxy's write or read port, a MySQL Router
-port), a language and a client library, and an example from Connection Test to Full CRUD; the
-generated project carries the deployment's real host, port, account, password and TLS settings, and
-DBCanvas installs the runtime, the driver and any native client it needs before running it — showing
-every command it used. See [Sample Client Code](SAMPLE_CODE.md).
-
-**Read a core dump from somewhere else.** A **Linux Client** node can be deployed as a core-dump
-analysis host: give it a host directory holding a `mysqld` core file and another holding the
-crashed server's `mysqld` plus everything `ldd` listed for it, pick the Percona Server or PXC
-version that crashed, and DBCanvas bind-mounts both read-only and installs the matching debug
-symbols. Then open the [**Core Dump Analyzer**](CORE_DUMP_ANALYZER.md) — threads, the stack that
-took the signal, and each frame's arguments and locals, with recursion collapsed and a verdict on
-whether the symbols and libraries actually match the core. An 800 MB core is read where it lies,
-not copied. The two directories are confined to `GDB_MOUNT_ROOT` (`.env`).
-
-Ticking *Also publish the debugger to the host* additionally exposes Delve on
-`127.0.0.1:40000` for an external editor; the server node's **Operator** tab then hands you the
-matching `git clone`, a ready `launch.json` (with the `substitutePath` that makes source line
-up), and the annotation that forces a reconcile. Leave it off when you debug from DBCanvas: the
-port is fixed, so two debugged clusters would collide on it.
-
-Stop the debug session whenever you like — DBCanvas clears the breakpoints and resumes the
-operator when you close the page, resumes a stopped session nobody has touched for five minutes,
-and a watchdog sidecar covers even the case where DBCanvas itself dies, within ten seconds. That
-matters more than it sounds: a breakpoint that outlives its session fires on the next reconcile
-with nobody attached, and the operator freezes with no probe failing and nothing in its log, so
-the cluster quietly stops being reconciled; the next attach then shows the breakpoint as
-*unverified*, which reads as a broken debugger rather than as leftovers in the way.
-
-![A K3D cluster node's panel beside a console listing the pods the operator built](screenshots/k3d-cluster.png)
-
-> *A one-node K3D cluster on k3s v1.36.3 running the **Percona Operator for MySQL (PXC)
-> 1.20.0**, with a console open on the same node: `kubectl get pods -A` shows the three
-> `k3d-00-pxc` members and three `k3d-00-haproxy` pods the operator built, alongside MetalLB
-> and the operator itself. The panel is the cluster at a glance — the operator and its
-> namespace, HAProxy in front, the database kept ClusterIP while the proxy takes a MetalLB
-> address — and its tabs carry `kubectl`, a copyable kubeconfig and per-namespace Kubernetes
-> users.*
-
-**Kubeconfig and RBAC users, for testing access control.** The K3D server node's panel has a
-**Kubeconfig** tab (a copyable admin kubeconfig, pointed at k3d's own load balancer so it works
-from any other node in the stack — e.g. paste it into the **Linux Client** node's terminal) and a
-**Users** tab: create a genuine Kubernetes `User` — a real X.509 client certificate, signed by the
-cluster's own CA — bound to a built-in ClusterRole (`view`/`edit`/`admin` scoped to one namespace,
-or `cluster-admin` cluster-wide), then copy that user's own kubeconfig and confirm exactly what it
-can and can't do.
-
-**cert-manager, ticked at design time.** A Kubernetes frame has a **Cluster add-ons** box with one
-option in it: install cert-manager before the operator. Ticking it reveals a version picker, the
-same shape as the operator's: *latest* is the newest release `make versions` found on
-charts.jetstack.io, and it is resolved to that exact release when the frame deploys — so a stack
-redeployed next month installs the cert-manager you deployed, not whatever is newest then. Pick an
-older one to reproduce a cluster that runs it; cert-manager is what issues the database's
-certificates once the operator finds it, so its version is part of the behaviour under test.
-It is a design-time choice rather than something to do afterwards, because what it
-changes is what the *operator* does on its first reconcile: with cert-manager on the cluster the
-four Percona operators ask it for the database's TLS certificates — a real Issuer, renewal, a CA
-the pods trust — and without it they quietly generate a self-signed set of their own. Installing
-it a minute later does not undo that decision, so the deploy applies the manifest, waits for the
-three deployments, and then waits again until cert-manager's webhook actually admits a
-`Certificate` (the deployments report Available a few seconds before that is true) — and only then
-installs the operator. If any of it fails the deploy carries on with a loud line in the log and
-the operator self-signs as it always did; the k3s node's panel has a **cert-manager** row saying
-what is really on the cluster, which is how you tell those two apart. Both states are legitimate
-labs — "reproduce it with their cert-manager" and "reproduce it without" are different tickets.
-
-**Which CA cert-manager issues from.** With cert-manager ticked, a frame running the **PXC**,
-**Percona Server** or **MongoDB** operator gets a **Certificate issuer** choice. Whatever you pick
-other than the default is written into cr.yaml as `tls.issuerConf`:
-
-- **The operator's own self-signed CA** (the default): each cluster makes a CA of its own, which
-  nothing else in the stack trusts.
-- **Intranet CA**: a cert-manager CA Issuer holding the stack's root, which every node, pod and
-  the VNC desktop already trust.
-- **OpenBao PKI**: a cert-manager **Vault Issuer** signing through the OpenBao node's `pki`
-  mount, which holds the Intranet CA itself, so cert-manager runs against a real Vault API.
-  - **Why not an intermediate:** PXC cannot form a cluster with one. The SST script checks a
-    node's certificate with `openssl verify -CAfile ca.crt tls.crt`, and `openssl verify` ignores
-    the intermediate that cert-manager puts after the leaf in `tls.crt`. Every joiner fails with
-    *The certificate and CA do not match*, as it does for any PXC cluster whose cert-manager
-    issues from a Vault intermediate.
-  - **Login:** cert-manager logs in with an **AppRole** of the cluster's own, whose policy may
-    only sign through the mount's two roles: `dbcanvas`, and `psmdb` for the MongoDB operator. It is an AppRole rather than a token because the Vault
-    issuer never renews a token, and a token would stop working a month into the lab.
-  - **ca.crt is unchanged:** `ca.crt` in every Secret is the Intranet CA and `tls.crt` is just
-    the leaf. Clients, `--ssl-ca` and a replication channel's `ca` work exactly as with the CA
-    Issuer.
-  - **The `psmdb` role** gives certificates the `O=PSMDB` the MongoDB operator asks for. mongod
-    accepts a peer as a cluster member only when its certificate's O matches its own, and a
-    signing role keeps only the request's CN, so without it every replica-set member's x509
-    cluster authentication fails as an unknown user.
-  - **Sealed OpenBao:** OpenBao seals itself when it restarts, and certificates stop renewing
-    until it is unsealed.
-
-Both non-default issuers chain to the same root, so two clusters replicating over SSL verify
-each other whichever one each picked. With replication over SSL on, the replication certificates
-come from the frame's issuer as well. The MongoDB operator only accepts a named issuer from
-**1.23.0**: earlier releases overwrite an Issuer of that name with their own CA, so the choice is
-not offered below it. The k3s node's panel shows the issuer under **Certificate issuer**.
-
-The OpenBao node has a **PKI** option of its own, which sets up the same `pki` mount at deploy
-for signing by hand. A frame that issues through OpenBao creates it if it is not there, so the
-option is not needed for that. Its **Policies** tab then shows the mount and a ready-to-paste
-signing command.
-
-**Host names for host-name verification.** Under the issuer, **Host names in the certificates and
-the Intranet DNS** lets a client outside Kubernetes connect with `--ssl-mode=VERIFY_IDENTITY`,
-`sslmode=verify-full`, or MongoDB TLS without `tlsAllowInvalidHostnames`:
-
-- **In the certificates**, written to cr.yaml before the operator first reconciles. The names
-  are `<service>.<domain>`, for every Service the cluster may expose, such as
-  `cluster1-haproxy.example.net` or `cluster1-pxc-0.example.net`.
-  - **PXC and Percona Server:** added as `tls.SANs`.
-  - **MongoDB:** added as a split horizon per replica-set pod, which the operator puts in the
-    certificate from **1.22.0**. mongod also advertises those names to a client that connected
-    by one of them. A sharded cluster's `mongos` name is published in DNS, but no operator
-    setting puts it in the router's certificate.
-- **In the Intranet DNS**, once the cluster is ready. Every LoadBalancer Service the cluster
-  really has is published as `<service>.<domain>`, with a PTR record so a reverse lookup of the
-  address returns the name. A Service on ClusterIP has no address outside Kubernetes and is not
-  published.
-
-The k3s node's panel lists the published names with their addresses, and marks each one **in
-cert** or **DNS only**.
-
-**What the certificates are, and whether they are valid.** The k3s server node's panel has a
-**Certificates** tab. It lists every Secret in the cluster's namespace that carries a `tls.crt`,
-and for each one shows `tls.crt` (and any chain behind it) and `ca.crt`: subject, issuer, SANs,
-usages, dates, serial and SHA-256 fingerprint. It also shows the cert-manager Certificate that
-writes the Secret: Ready or why not, the issuer, the revision and the next renewal.
-
-Each Secret is checked and marked **valid**, **warning** (expiring within 14 days, or its
-Certificate is not Ready) or **invalid**:
-
-- **Dates:** the certificate is inside its validity window.
-- **Chain to ca.crt:** `tls.crt` verifies against `ca.crt`, the way Go, a browser or mongosh
-  verifies it.
-- **openssl verify -CAfile (strict):** the same check with no intermediates, which is what PXC's
-  SST runs on every joiner. A Secret that passes the chain check and fails this one belongs to a
-  cluster whose new members will not join.
-- **tls.key matches:** the private key belongs to the certificate.
-
-The Secrets are read live, every 30 seconds while the tab is open, so a renewal shows up without
-reopening anything. When a certificate's serial changes while you watch, the Secret is marked
-**renewed**, with the serial it replaced.
-
-**Secrets and ConfigMaps, as an editor.** Beside the cr.yaml tab, the k3s server node's panel has
-**Secrets & configs**: every Secret or ConfigMap in a namespace, and an editor for the one you
-pick. If cr.yaml is what the operator was told to do, these are the objects it was told it with —
-`<cluster>-secrets` (root, monitor, xtrabackup, replication, proxyadmin), `internal-<cluster>`
-(the operator's own copy of them, and the two disagreeing is a specific reportable failure), the
-`-ssl` chains, and the ConfigMap holding my.cnf or mongod.conf. Editing a password here is how the
-operator's credential rotation gets exercised at all; editing the tuning file and watching the
-rollout is the other half.
-
-It follows the cr.yaml editor's rules, for the same reasons. Nothing is applied until you say so
-and the footer counts what is pending; every apply is server-side dry-run first, so an immutable
-object or a key the Secret's own type refuses comes back as the API server's message with nothing
-changed; and a Secret's values are **masked until revealed, one key at a time** — the list never
-carries values at all, so the tab can be opened in a screen-share. A value that is not text is
-shown as `binary · N bytes` and is never round-tripped through a text box. Nothing is restarted
-afterwards: what a changed Secret or ConfigMap does next is the operator's business, and watching
-which is usually the point.
-
-**A shell inside a pod, from the canvas.** Right-click the **k3s server** node and take **Enter
-pod console**: the menu opens onto the cluster's namespaces, then that namespace's pods, then the
-pod's containers, then the shell to run — `kubectl exec -it`, four clicks, with no kubeconfig and
-no terminal of your own. The list is read from the cluster **every time the menu is opened**,
-never cached between right-clicks, because pods are the shortest-lived thing on a canvas: the
-operator deletes and recreates them on its own schedule and names them with a generated suffix, so
-a menu built from a minute-old list offers shells into containers that are gone. A container that
-is not running is shown greyed with the reason rather than hidden — a pod stuck in `Init` is
-exactly when you want to look inside one, and its init containers are on the same list. The
-console runs through the server node's own kubectl and admin kubeconfig, so an agent node does not
-offer it, and `dbcanvas node pods` / `dbcanvas node console --pod` are the same thing from a
-terminal ([CLI](CLI.md)).
-
-**A database prompt, in the same four clicks.** On a database container that last menu leads with
-the database's own client — **mysql** on a `pxc` or `mysql` container (and on `haproxy`,
-`pxc-monit` or `proxysql`, where it goes through the proxy instead of the socket), **psql** on a
-Percona PG or CloudNativePG container, **mongosh** on a `mongod` or `mongos` — already logged in
-as an administrator, above a separator with the shells under it. **Nobody types a password and
-DBCanvas never reads one:** each of the four operators mounts the cluster's users Secret into the
-pods it creates, so the script finds the credential inside the container
-(`/etc/mysql/mysql-users-secret/root`, `/etc/users-secret/MONGODB_DATABASE_ADMIN_*`, or nothing at
-all for Postgres, whose container runs *as* `postgres` and lets peer authentication do it). The
-password therefore never crosses the app, never reaches the k3s node's process list, and cannot
-end up in a log — which is what makes this worth having rather than merely possible. A container
-the client cannot be started in is not a terminal that flashes and dies: the script says what it
-could not find — no client in the image, no secret mounted, nothing answering — and opens a shell
-there instead, so the reason is still on screen.
-
-**Replicating one Kubernetes cluster into another.** Draw a link between two K3D frames that both
-run the **PXC operator** and pick a direction: on the next Deploy the second cluster becomes a
-replica of the first. There is nothing else to set up — start from the *Kubernetes — PXC operator,
-two clusters replicating* template, or add the link to two clusters you already have.
-
-What DBCanvas does with it is Percona's own two procedures, [*Restore to a new
-cluster*](https://docs.percona.com/percona-operator-for-xtradb-cluster/latest/backups-restore-to-new-cluster.html)
-and [*Set up cross-site
-replication*](https://docs.percona.com/percona-operator-for-xtradb-cluster/latest/replication.html),
-run in the order they have to happen in:
-
-1. The **source**'s `cr.yaml` declares the channel (`replicationChannels`, `isSource: true`), and
-   its database pods each get their own LoadBalancer address — a replica in another cluster cannot
-   reach a ClusterIP, so this overrides the frame's *Database Service* setting and says so in the
-   node's log.
-2. Both clusters deploy **at the same time**; the replica waits for nothing.
-3. Once both are ready, a **backup of the source** is taken to its SeaweedFS bucket.
-4. That backup is **restored onto the replica** — pointed at the *source's* bucket, at the
-   source's endpoint, with the source store's credentials copied into the replica's cluster as a
-   Secret of its own. The cluster pauses while this runs and comes back carrying the source's data
-   and its GTID history.
-5. **Only then** is the replica's own channel attached, with the source's pod addresses as its
-   sources. Attaching it earlier would point the replica at binary logs the source has already
-   purged, and replication would stop with error 1236 instead of starting.
-
-Both clusters need a **SeaweedFS backup store** — that is what validation refuses to deploy
-without, along with the address arithmetic: a source spends one MetalLB address per database pod on
-top of its proxy tier, out of the eight a cluster's block holds. **One store each is fine**, which
-is the shape two sites really have: the restore is handed the source's endpoint by the backup
-itself, and the source store's keys are copied into the replica's cluster under a name of their own.
-Sharing one node with a bucket each — what the template does — is one fewer container to explain.
-
-The server node's **Replication** tab is where it is afterwards: which end this cluster is, the
-channel, what it reads from or is reachable at, the backup it was seeded from, and — on the replica
-— whether the channel is actually running, with the IO/SQL thread state and the last error when it
-is not. **Re-seed** is there too, and it is the only thing that restores again: pressing Deploy
-reconciles the channel and never touches the data, because a seed replaces it. Take the link off
-the canvas and the next Deploy stops the channel and leaves the data where it is.
-
-> **Replicating is one-way.** The operator holds a cluster that carries an inbound channel
-> read-only, so bidirectional is not offered between Kubernetes clusters — write to the source.
-
-**Point-in-time recovery.** A PXC-operator frame can turn on the operator's **binlog collector**
-(`backup.pitr`): binary logs uploaded continuously, so a restore can land at any moment between
-backups rather than only on a backup. It needs the frame's SeaweedFS store, and it takes a **bucket
-of its own** — two clusters uploading binary logs into one bucket interleave two streams, and
-neither of them can be replayed afterwards, which is the one arrangement validation refuses.
-
-On the **replica end of a replication link it starts switched off**, whatever the frame says, and
-DBCanvas turns it on afterwards. The seed restore replaces the replica's data and its whole GTID
-history; a collector running across that writes binary logs from two different histories into one
-stream. So the order is: deploy with the collector off, restore, attach the channel, wait until
-replication is actually *running* — and only then enable it. A re-seed does the same thing in
-reverse, switching the collector off before it restores. The node's panel says which of the two
-states it is in rather than leaving "on" to mean both.
-
-**Editing `cr.yaml` after it is applied.** The K3D server node's panel has a **cr.yaml** tab: the
-live custom resource as a form, generated from the CRD *this cluster* is running — so it offers what
-this operator version accepts rather than a fixed list that goes stale a release later. Search
-across every section (`pitr`, `size`, `resources`), edit with real controls — toggles, pickers,
-bounded numbers, repeatable entries for schedules and storages — and nothing is sent until you say
-so: the footer counts the pending changes, **Review patch** shows the exact merge patch, **Check**
-validates it against the API server without applying anything, **Apply** sends it. Fields the form
-cannot usefully draw — affinity, tolerations, sidecars — are still there as JSON, so the whole
-resource is reachable. Available for the four Percona operators.
-
-**S3 backups (SeaweedFS).** One SeaweedFS node can create **up to 10 buckets**, and every database
-that backs up to it — standalone PostgreSQL, Patroni, repmgr, the MongoDB clusters, and all four K3D
-operators — **picks which bucket it uses**, so a stack's backups don't have to share one. Once the
-node is running, its panel **browses the buckets**: pick one, list what actually landed in it, and
-click into the folders backups nest under (`pbm/<cluster>/…`, `pgbackrest/<cluster>/repo1/…`) — the
-quick way to confirm a backup exists without exec-ing into anything.
-
-**Files…** on that tab (or **Bucket file manager** on the node's right-click menu) opens the full
-thing: two panes, each on a node + bucket + folder of its own. **Download** an object to your
-machine, **upload** files into a folder — drag them onto the listing, or use the button — **delete**
-what you no longer want, and with the second pane open, **copy objects from one bucket into
-another**, on the same node or another SeaweedFS node in the stack. Nothing passes through your
-browser but the download itself: a copy is streamed container to container. Deleting asks first,
-and a folder is only ever removed with everything inside it when the confirmation says so — a
-folder here is a whole backup (`pbm/<cluster>`, `pgbackrest/<cluster>/repo1`). Uploads obey the same size ceiling as a node file drop, and what
-you write lands as an ordinary S3 object — `aws s3 ls` from a database node sees it with the key,
-size and ETag you would expect.
-
-> *Browsing `pxc-backups` inside the backup the PXC operator just wrote — the xtrabackup files with
-> their sizes and times. The breadcrumb walks back out; the selector switches buckets.*
-
-**Deployed versions.** Once a node is running, DBCanvas records the version it *actually* deployed
-with — `PS 8.4.10-10`, `PSMDB 8.0.26-11`, `PMM 3.3.1` — not just the series that was requested
-(`8.0`, or "latest"). It is in the node's properties, and on the canvas it is in the card's
-tooltip: a card itself carries an icon, a name and a status, and nothing else. Three lines of
-prose in a 212px box wrapped, clipped, and turned a diagram into a wall of half-sentences — so
-hovering a card is what tells you what it is, what it was built from, and what state it is in.
-
-Every deployed node gets a **management panel** — runtime profile, endpoints, credentials,
-certificates, backups, and one-click consoles:
-
-**MongoDB downloads.** Right-click any MongoDB node — standalone, replica-set member, shard
-member or mongos — for **Download diagnostic.data with mongod.log** (mongos.log on a router), an
-entry the rest of the app makes you go looking for. One `.tar.gz` holding one
-`<hostname>_log_diagnostic_data` directory with both in it: FTDC is what the server was doing, the
-log is what happened to it, and nobody reading them wants one without the other. Naming the
-directory after the node is what lets three members' bundles unpack side by side instead of over
-each other. It streams, so a multi-gigabyte log costs nothing in memory on the way past. DBCanvas
-works the paths out itself, including the one that catches people: a mongos keeps its FTDC beside
-its log rather than in a dbPath it does not have — and a node with no diagnostic.data yet still
-gives you the log. The archive is what [FTDC Summary](FTDC_SUMMARY.md), a **Big Hole** node or
-Percona Support all want.
-
-**Web terminals.** Drop into a root (or service) shell on any node, right in the browser —
-sessions survive navigation and can be docked or floated (**Settings** picks which they open as):
-
-![A deployed PXC node's panel — what it is, where it is, and how to open a console](screenshots/node-panel.png)
-
-> *Every deployed node has a panel: what it actually is (version, image, ports, container),
-> its generated credentials, its certificate, and a root console one click away.*
-
-![A live per-node web terminal, querying the cluster it is running on](screenshots/terminal.png)
-
-**Getting files onto a node.** Drag a file — or a whole folder — from your desktop onto a node
-on the canvas. DBCanvas asks where to put it and copies it in; there is no scp, no bind mount
-and no shell involved:
-
-![Dropping a file on a node — DBCanvas asks which directory to copy it into](screenshots/file-drop.png)
-
-> *A dropped file offers the destinations worth having on that node (`/`, `/home`, `/root`,
-> `/tmp`), and the drop names the node so a mis-aimed drag is obvious before it happens.*
-
-**The file manager.** Right-click a running node and choose **File manager** for a full browser
-over its filesystem: navigate, upload and download, create files and folders, rename, change
-permissions and ownership, delete — and **edit a file in place**, which is usually what you
-actually want when a config is one line wrong.
-
-![The File Manager browsing a node's filesystem](screenshots/file-manager.png)
-
-> *Every running node in the stack is in the picker at the top left, so you can move between
-> them without closing the window. **Split** opens a second pane on another node and copies
-> between the two — the fastest way to put the same file on every member of a cluster.*
-
-**Finding out what a setting does.** Every field on a node's panel — designing it and
-after it is deployed — carries a **?** next to its label. Hover it, or tab to it, for what
-the setting is for and when you would change it, rather than a restatement of the label.
-The same applies to the values on a deployed node (what to *do* with that port, that
-container name, that password), to every button in the toolbar, and to every entry in the
-Infrastructure Library, which explains what each node type gets you before you add it.
-
-**Reaching a node from your own machine.** On a server install, `CONTAINER_BIND_IP` keeps
-every port a node publishes on the server's loopback — which is the right default and also
-means your browser and your local `mysql` client cannot get to any of them. Set
-`SSH_FORWARDING_HOST` in `.env` to the address the server answers SSH on (`10.0.0.7`, or
-`10.0.0.7:2222`) and right-clicking a running node offers **Copy SSH tunnel command**: the exact
-`ssh -L` line forwarding every port that node currently publishes, each to the same port
-locally, so every address the panel shows works verbatim through the tunnel.
-
-```
-ssh -L 8443:127.0.0.1:8443 -L 8080:127.0.0.1:8080 jaime@10.0.0.7 -p 22
-```
-
-**The login is filled in for you.** With no `user@` in the value, the command uses the name of
-whoever is signed in to DBCanvas — `jaime` above, because that is who asked for it. On a server
-install that is usually the same person who has the ssh account, so the line is ready to paste.
-Two people asking the same node each get their own account in it. Write `user@10.0.0.7` instead
-to pin one login for everybody regardless of who is signed in.
-
-The ports are read from the engine when you click, not from the design — host ports are
-re-assigned every time a container restarts. Leave `SSH_FORWARDING_HOST` empty (the default)
-and the menu item is absent; on a laptop install the ports are already local.
-
-**The stack's DNS, and adding records to it.** The Intranet runs bind as the authority for the
-stack's domain: every deployed node gets an A record and a PTR, and every node, K3D pod and the
-VNC desktop resolve through it. Those records are rebuilt on every deploy, so they are not edited
-directly. Instead, the Intranet's panel has a **DNS** tab where you add your own:
-
-- **A** — a name (`db`, `db.site1`, or a wildcard such as `*.apps`) and an IPv4 address,
-  optionally with its reverse record.
-- **CNAME** — an alias for another name. A bare target is taken as one in the stack's domain;
-  anything with a dot is taken as fully qualified, so it can point outside the stack.
-- **PTR** — what a reverse lookup of an address returns, for setups whose `skip_name_resolve`,
-  `pg_hba` host names or replication grants depend on it.
-
-A custom record **replaces** the automatic one with the same name or address. It can point
-`pmm` somewhere else, or make `ps01`'s address reverse-resolve to the host name a set of grants
-expects, and the next deploy will not undo it. Delete the custom record and the automatic
-one comes back. A PTR for an address outside the stack network gets a /24 reverse zone of its
-own. The records are kept by DBCanvas rather than in the zone file, so they survive every
-redeploy, and they are removed with the stack. Records saved while the Intranet is stopped are
-published when it next deploys. The tab also lists the automatic records, striking through the
-ones a custom record replaces, and each custom record has a copyable `dig` command.
-
-**Monitoring with PMM.** Add a PMM node and point databases at it; DB nodes register
-themselves, so Percona Monitoring & Management comes up already watching the stack:
+### Operating systems
+
+| Node | OS choices |
+| --- | --- |
+| Percona products (PXC, Percona Server, PSMDB, PostgreSQL, Patroni, repmgr, Valkey, ProxySQL, HAProxy, PgBouncer, Orchestrator), MariaDB, MySQL Community, All in One | Oracle Linux 8, 9, 10; Ubuntu 22.04, 24.04 — only those the installed version catalog has packages for |
+| Spock | Oracle Linux 8, 9, 10 |
+| Linux Client | Oracle Linux 8, 9, 10; Ubuntu 22.04, 24.04; Debian 12, 13; CentOS 7 with `EOL=on` |
+| Intranet, OpenBao | Oracle Linux 9 |
+| Samba AD DC, Ubuntu VNC, Repository | Ubuntu 24.04 |
+| PMM, Keycloak, SeaweedFS, Ceph, Watchtower, MClusterAdmin, Big Hole, simulators | A fixed container image; no OS choice |
+
+Debian is for the Linux Client only, and only on the Docker backend; Validate rejects it on any
+other node. The version pickers list what `make versions` found for each OS.
+
+### Library at a glance
+
+| Category | Entries |
+| --- | --- |
+| Core | Intranet |
+| All in One | All in One |
+| MySQL (Percona) | PXC Cluster · Percona Server · PS Replication · InnoDB / GR |
+| MySQL (Community) | MySQL · MySQL Replication · MySQL InnoDB / GR |
+| MariaDB | MariaDB · MariaDB Replication · MariaDB Galera |
+| MongoDB | PSMDB Sharded · PSMDB Replica Set · PSMDB · MClusterAdmin · Big Hole (FTDC viewer) |
+| PostgreSQL | PostgreSQL · Patroni Cluster · repmgr Cluster · Spock Cluster |
+| Valkey | Valkey Cluster · Valkey |
+| Kubernetes | K3D Cluster |
+| Proxies & HA | ProxySQL · ProxySQL Cluster · HAProxy · PgBouncer · Orchestrator |
+| Monitoring | PMM3 · PMM2 (`EOL=on` only) · Watchtower |
+| Identity & Secrets | Samba AD DC · Keycloak · OpenBao |
+| Storage & Clients | SeaweedFS · Ceph · Ubuntu VNC · Linux Client · Repository |
+| App Simulators | Traffic Sim · Hotel Sim · Support Sim (Vector Search) · pgvector Support Sim · Airline Sim · Car Rental Sim · Unoptimized MySQL Challenge (only when `EXPERIMENTAL` is on) · Stock Market Sim · Ledger Sim |
+
+One per stack: Intranet, Samba AD DC, Keycloak, OpenBao, Ubuntu VNC and Watchtower.
+
+### MySQL (Percona)
+
+| Type | What you get | Members |
+| --- | --- | --- |
+| **PXC Cluster** | Percona XtraDB Cluster: synchronous multi-writer replication. Members can be data nodes or `garbd` arbitrators. | 1–9, default 3 |
+| **Percona Server** | A standalone server, 5.7 / 8.0 / 8.4 / 9.7. | — |
+| **PS Replication** | Async or semi-sync replication: one primary, read-only secondaries. Can be watched by an Orchestrator node. | 2–9, default 3 |
+| **InnoDB / GR** | Group Replication, as an InnoDB Cluster (MySQL Shell) or raw GR, with optional MySQL Router on every member. | 1–9, default 3 |
+
+Options shared by these: GTIDs, PMM monitoring, an Intranet-CA certificate, XtraBackup to
+SeaweedFS, LDAP and Keycloak sign-in (below), OpenBao encryption (below), and resource limits.
+
+### MySQL (Community) and MariaDB
+
+| Type | What you get | Members |
+| --- | --- | --- |
+| **MySQL** | Oracle's MySQL Community from repo.mysql.com, 8.0 / 8.4 / 9.7. | — |
+| **MySQL Replication** | Async or semi-sync replication. | 2–9, default 3 |
+| **MySQL InnoDB / GR** | Group Replication, as InnoDB Cluster (MySQL Shell + MySQL Router) or raw GR. | 3–9, default 3 |
+| **MariaDB** | MariaDB from mariadb.org, 10.6 / 10.11 / 11.4 / 11.8 / 12.3. | — |
+| **MariaDB Replication** | Async or semi-sync replication using MariaDB GTIDs. | 2–9, default 3 |
+| **MariaDB Galera** | Galera cluster with `mariabackup` state transfers. | 3–9, default 3 |
+
+These do not offer OpenBao encryption.
+
+### MongoDB
+
+| Type | What you get | Members |
+| --- | --- | --- |
+| **PSMDB** | Percona Server for MongoDB, standalone. LDAP, Kerberos or Keycloak OIDC sign-in, and OpenBao encryption. | — |
+| **PSMDB Replica Set** | A replica set; the frame's label is the set name. PBM backups to SeaweedFS, optional [vector search](#vector-search-on-mongodb-mongot). | 1–9, default 3 |
+| **PSMDB Sharded** | One mongos, a config-server replica set and three shards. | 5 or 13, default 13 |
+| **MClusterAdmin** | A third-party MongoDB web administration panel ([below](#mclusteradmin)). | — |
+| **Big Hole** | A third-party FTDC (`diagnostic.data`) viewer that runs in your browser ([below](#big-hole)). | — |
+
+Every MongoDB node has **Download diagnostic.data with mongod.log** on its right-click menu
+(mongos.log on a router): one `.tar.gz` containing a `<hostname>_log_diagnostic_data`
+directory, ready for [FTDC Summary](FTDC_SUMMARY.md) or Big Hole.
+
+### PostgreSQL
+
+| Type | What you get | Members |
+| --- | --- | --- |
+| **PostgreSQL** | Percona Distribution for PostgreSQL 13–18, standalone. | — |
+| **Patroni Cluster** | Percona PostgreSQL with Patroni and etcd: a leader, streaming replicas, automatic failover. | 3–7, default 3 |
+| **repmgr Cluster** | PGDG PostgreSQL with repmgr and repmgrd. | 3–7, default 3 |
+| **Spock Cluster** | Active-active (multi-master) PostgreSQL with pgEdge Spock; every member is writable. | 2–7, default 3 |
+
+Options on the standalone node and Patroni (Percona packages): pgBackRest backups, PMM Query
+Analytics extension (*pg_stat_statements* or *pg_stat_monitor*), pgAudit, set_user, pgbench data at
+deploy, and pg_tde encryption. repmgr and Spock offer **Enable pg_stat_statements** instead. All
+four offer [pgvector](#pgvector-on-postgresql) and [client authentication](#client-authentication-on-postgresql-pg_hba).
+Only the standalone node offers LDAP, Kerberos and Keycloak sign-in.
+
+### Valkey
+
+| Type | What you get | Members |
+| --- | --- | --- |
+| **Valkey** | Standalone Valkey 9.1 from Percona. Optional OpenLDAP authentication (Oracle Linux only) and PMM. | — |
+| **Valkey Cluster** | An all-master Valkey Cluster. | 3–7, default 3 |
+
+### Kubernetes
+
+| Type | What you get | Members |
+| --- | --- | --- |
+| **K3D Cluster** | A k3s cluster on the stack network, with MetalLB LoadBalancer addresses, optionally running a database operator. See [Kubernetes (K3D)](#kubernetes-k3d). | 1–3 k3s nodes, default 1 |
+
+### Proxies and HA
+
+| Type | What you get |
+| --- | --- |
+| **ProxySQL** / **ProxySQL Cluster** | ProxySQL in front of a PXC or Percona Server replication cluster. A cluster frame (1–9 nodes) shares one configuration. |
+| **HAProxy** | TCP load balancer in front of exactly one Patroni, repmgr, Spock, PXC or Percona Server replication cluster. Writes on 5000, reads on 5001, stats on 7000. |
+| **PgBouncer** | Connection pooler on 6432 in front of one PostgreSQL node or cluster. See [PgBouncer](#pool-postgresql-connections-with-pgbouncer). |
+| **Orchestrator** | Percona Orchestrator: topology discovery and failure detection for MySQL replication. A replication frame points at it with **Monitored by (Orchestrator)**. |
+
+### Monitoring
+
+| Type | What you get |
+| --- | --- |
+| **PMM3** | Percona Monitoring and Management 3. Databases that pick it register themselves. Optional LDAP or Keycloak sign-in to Grafana. |
+| **PMM2** | A PMM 2 server, 2.25.0 to 2.44.1, offered only with `EOL=on`. Login `admin` / `PMM_ADMIN_PASSWORD`. Nothing can be pointed at it, and it gets no Intranet certificate, SMTP, LDAP or Keycloak. amd64 only. |
+| **Watchtower** | Lets a PMM node that points at it upgrade itself to a newer image from its own UI. |
 
 ![A PMM node's panel — the server, its components, and two ways into it](screenshots/pmm-node.png)
 
-> *PMM is one node: Grafana, VictoriaMetrics, ClickHouse, PostgreSQL, QAN and nginx in a single
-> container. The panel names them, and gives a root console alongside a `pmm-admin` one.*
-
 ![Percona Monitoring & Management, already watching the services that registered with it](screenshots/pmm-web.png)
 
-**End-of-life releases (`EOL=on`).** Support questions come from systems the vendor stopped
-supporting, so an installation with `EOL=on` in `.env` (see [Configuration](CONFIGURATION.md)) is
-offered two of them. Both are off by default, and turning the switch back off only hides them from
-the pickers — a stack that already has one keeps working.
+### Identity and secrets
 
-- **CentOS 7 Linux Client.** Pick `centos (end of life)` / `7` in a Linux Client's OS picker. There is
-  nothing to build: the node runs the stock `centos:7` image, and at deploy DBCanvas replaces its
-  `CentOS-Base.repo` with one pointed at `vault.centos.org` (mirror.centos.org no longer serves
-  CentOS 7), does the same for the Software Collections repository, sets `ip_resolve=4` (and the
-  Intranet proxy, when ticked) in `yum.conf`, and installs `percona-release`. The node has **no
-  systemd** — CentOS 7's systemd 219 cannot run as PID 1 on a cgroup v2 Docker host, which is every
-  current one — so it is a shell and nothing else: the terminal, Sample Client Code and file drops
-  work, services do not. kubectl, Helm and cmctl install, and so do the database clients (at their el7
-releases, without ClusterSync); core-dump analysis is not offered on it. Docker
-  backend only. For what Sample Client Code can run there, see [Sample Client Code](SAMPLE_CODE.md#centos-7).
-- **PMM2.** A PMM 2 server under **Monitoring**, separate from PMM3 — pick the release
-  (2.25.0 to 2.44.1, the last one; a fixed list, since there will be no new ones for
-  `make versions` to find) and deploy. The console is published on HTTPS/HTTP host ports and the
-  login is `admin` / `PMM_ADMIN_PASSWORD`. It is deliberately not integrated with anything: no
-  database node can be pointed at it, and it gets no Intranet certificate, SMTP, LDAP or Keycloak.
-  amd64 only, as PMM 2 never had an arm64 server image.
+| Type | What you get |
+| --- | --- |
+| **Samba AD DC** | Active Directory domain controller: LDAP and Kerberos for database sign-in. |
+| **Keycloak** | OpenID Connect identity provider. Needs an Ubuntu VNC node, because its admin console is reachable only from inside the stack. |
+| **OpenBao** | Vault-compatible secrets manager, used as the key store for data-at-rest encryption. Initialized and unsealed at deploy; its 5 unseal keys and root token are on its panel, which can re-unseal it after a restart with one click. Optional **PKI** mount for signing certificates. |
 
-**MClusterAdmin — a MongoDB administration panel.** A node that runs
-[MClusterAdmin](https://github.com/PrzemekMalkowski/mclusteradmin), a third-party web panel for
-MongoDB: topology and replica-set status, sharding and the balancer, current operations, slow
-queries with explain, indexes and profiling, users and roles, and oplog stats. Its web UI is
-published to a host port like PMM's, so it opens straight from your browser — no VNC desktop
-needed. It runs [upstream's own published
-image](https://github.com/PrzemekMalkowski/mclusteradmin/pkgs/container/mclusteradmin), pulled at
-deploy the way PMM's and Keycloak's are, so there is nothing to build first. Pinned to a release
-tag rather than `latest`, and to `linux/amd64` — the one architecture upstream builds — so on an
-arm64 installation it runs under Rosetta or qemu, like the PMM server.
+### Storage and clients
 
-**You enter the connection URI in the panel itself**, which is why this node draws no association
-lines: it is configured entirely through its own UI — no environment, no config file — so there is
-nothing for a line to carry, and every other line on this canvas is walked by a provisioner. What
-DBCanvas can do is the credentials half, below; the host is then the only thing left to type.
-
-The accounts it connects as are a choice on the MongoDB, not on the panel: every MongoDB node and
-cluster has an **Add MClusterAdmin credentials** tick. Ticking it creates both accounts when the
-database deploys —
-
-| Account | Roles | For |
-| --- | --- | --- |
-| `madmin` | `clusterMonitor`, `clusterManager`, `hostManager`, `dbAdminAnyDatabase`, `readAnyDatabase`, `userAdminAnyDatabase`, `read` on `local` | Every panel feature. |
-| `madmin-ro` | `clusterMonitor`, `readAnyDatabase`, `read` on `local` | The monitoring dashboards. |
-
-Those are upstream's own least-privilege sets, role for role — each is there because some panel
-feature does not work without it, and both deliberately exclude `root` and `clusterAdmin`, so the
-panel cannot drop a database. They go wherever the cluster keeps users: the standalone itself, the
-replica-set primary, and — for a sharded cluster — the config replica set **and the primary of
-every shard**. That last part matters: `mongos` authenticates against the config replica set, so
-one account there is enough for anything going through the router, but the panel also connects
-*directly* to each shard for its per-shard views (replica-set status, oplog, current ops,
-cross-shard user sync) and prompts for credentials when it does. A shard is its own replica set
-with its own users, so an account that exists only on the config servers produces "could not log
-in to rs0" while everything through `mongos` works.
-
-**Both accounts are created with SCRAM-SHA-256, and the tick also names SCRAM-SHA-256 in the
-server's `authenticationMechanisms`.** That second half is what makes the first work: an account
-with SCRAM-SHA-256 credentials on a server that does not advertise the mechanism is refused with
-an error naming it, which reads exactly like a wrong password. (A node already running LDAP,
-Kerberos or Keycloak OIDC lists both SCRAM mechanisms in its own `setParameter` block, so the tick
-leaves that one alone — `mongod.conf` can carry only one, and a duplicate would stop mongod
-starting.)
-
-**The passwords live on the panel node**, which is where you log in from, so a stack with three
-MongoDBs does not end up with three passwords for one account: `madmin_password` and
-`madmin_ro_password` by default (`MCLUSTERADMIN_PASSWORD` / `MCLUSTERADMIN_RO_PASSWORD`),
-overridable per stack on the node. The node's panel shows both, masked and copyable, next to the
-URI shape to paste them into.
-
-The panel node's **read-only panel** switch (`--view-only`) disables every write the UI can offer.
-Sign in as `madmin-ro` to match it and both halves agree: the panel not offering the button, and
-MongoDB refusing it if something else did.
-
-**Big Hole — MongoDB FTDC in the browser.** A node that runs
-[Big Hole](https://github.com/zelmario/Big-hole), a third-party viewer for MongoDB's
-`diagnostic.data`: drag a folder — or a whole support tarball, however it is nested — onto the
-page and it decodes and charts it, every metric it can find, with the replica set laid out so an
-election is somewhere to land rather than something to hunt for. Upstream publishes no image, so
-DBCanvas builds one from source at a pinned commit (`make bighole-image`).
-
-It is the loosest-coupled node here, deliberately: no association line, no credentials, no
-configuration, because the app talks to nothing at all — not to a database, not to an API, not
-even to DBCanvas. There is no backend, and nothing you open in it leaves your browser.
-
-> **Open it on `localhost`.** Browsers grant a page the private on-disk storage this needs only
-> over HTTPS or localhost, so reaching it as `http://<host>:<port>` leaves it unable to keep a
-> capture — and it fails partway through reading one, which looks like a broken decoder rather
-> than a deployment mistake. The node's panel links to localhost and, when you are browsing
-> DBCanvas from somewhere else, hands you the `ssh -L` line that puts you there.
-
-For a capture from a node in this stack, take `diagnostic.data` from that node's **File Manager**
-first. DBCanvas's own [FTDC Summary](FTDC_SUMMARY.md) reads the same files and answers a different
-question — verdicts, findings and the handful of charts that carry them, rather than everything
-plotted — so the two are worth having side by side.
-
-**Ubuntu VNC desktop.** An optional XFCE desktop jump-box (Firefox + Percona clients)
-reachable over a browser-based VNC client — handy for GUI database tools inside the stack network.
-Its MySQL client is **8.4**, with the OpenID Connect client plugin, so a Keycloak user can sign in
-to a Percona Server node from the desktop the same way they would from the node itself:
+| Type | What you get |
+| --- | --- |
+| **SeaweedFS** | S3-compatible backup store with 1–10 buckets, optional HTTPS (**S3 TLS**). See [S3 backups](#browse-and-manage-s3-backups-seaweedfs). |
+| **Ceph** | Block storage for K3D volumes (RBD images that can grow). OSD size 5–1000 GB, default 20. |
+| **Ubuntu VNC** | XFCE desktop over web VNC with Firefox and Percona clients (MySQL client 8.4 with the OpenID Connect plugin). |
+| **Linux Client** | A bare host with nothing installed. Optional database clients, Kubernetes tools and core-dump analysis. See [Linux Client](#linux-client). |
+| **Repository** | A yum/apt mirror of Percona repositories plus a container registry. See [Repository](#mirror-packages-and-images-with-a-repository-node). |
 
 ![The Ubuntu VNC desktop, querying a cluster node by name with the pre-installed client](screenshots/vnc-desktop.png)
 
-> *The desktop is on the stack network, so `pxc01.example.net` resolves and the clients that
-> ship in the image reach it without any setup.*
+### All in One
+One container running many database instances side by side — Percona Server, MySQL Community or
+MariaDB (one MySQL flavour per node), PXC, PostgreSQL, Patroni, repmgr, Spock, PSMDB, Valkey,
+ProxySQL, HAProxy and Orchestrator — each with its own port, data directory and systemd unit.
+Relationships (PMM, the instance a proxy fronts) are drop-downs on each instance, not lines. See
+[All in One](ALL_IN_ONE.md).
 
-![The SeaweedFS node's Buckets tab — a browser over what the databases wrote](screenshots/seaweedfs-buckets.png)
+### Application simulators
 
-> *Inside `mongo-backups/pbm/psmrs-00`, the snapshot a MongoDB replica set in the same stack
-> just wrote: `.pbm.init`, the timestamped snapshot directory and its `.pbm.json` metadata. The
-> replica set's frame has **Enable PBM** ticked with this node picked as its target, which is
-> all it takes. Each engine writes to its own prefix — PBM under `pbm/<cluster>`, pgBackRest
-> under `pgbackrest/<cluster>`, xtrabackup and the Percona operators at the top level.*
+Each simulator runs continuous load against the database it is linked to and publishes a live
+dashboard on a host port. Draw an association line from the simulator to its target.
 
-**Backups, and how to undo one.** A PostgreSQL node or cluster with a backup store linked gets a
-**Backup** tab: where it backs up to (bucket, and for repmgr the endpoint and server name), a
-**Backup now** button, and — expanded from *How to back up and restore* — the commands for
-everything the button does not do. List what exists, check that WAL archiving is actually keeping
-up, take an incremental, delete one backup or apply a retention policy, and restore, including to a
-point in time. They are built from that deployment's own facts: the stanza, the bucket, the systemd
-unit and the data directory are already filled in, so each one can be pasted into the node's root
-console as it stands. Standalone PostgreSQL and Patroni get the **pgBackRest** set (with Patroni's
-restore going through `patronictl`, because Patroni owns PostgreSQL and `systemctl` would be undone
-under you); repmgr gets whichever of the two its frame was built with. The Kubernetes operators are
-not included — there a backup is a custom resource, not a command.
+| Simulator | Workload | Link it to |
+| --- | --- | --- |
+| **Traffic Sim** | City traffic: vehicles, sensors, signals, incidents. | Valkey node or Valkey Cluster |
+| **Hotel Sim** | 100-hotel reservation chain: CRUD, transactions, change streams. | PSMDB, replica set or sharded cluster |
+| **Support Sim (Vector Search)** | A help desk that embeds tickets in-process (all-MiniLM-L6-v2, 384 dimensions, no API key) and answers, routes and merges them with `$vectorSearch`, scored against `$search` and hybrid search. Tabs: Live Desk, Search Showdown, Vector Lab, Index Workshop, Under the Hood. | PSMDB replica set or sharded cluster with **Vector search** on, or a K3D frame running the MongoDB operator with it on. Without mongot it falls back to an in-app scan. |
+| **pgvector Support Sim** | The same desk on PostgreSQL, using a pgvector column and an HNSW index. Creates a `supportsim` database (or schema). | PostgreSQL, Patroni, repmgr or Spock; HAProxy or PgBouncer in front of one; or a K3D frame running a PostgreSQL operator. Turn on pgvector on the target. |
+| **Airline Sim** | 200-route reservation workload on a 2,000-aircraft fleet, including Galera certification-conflict retries. | Percona Server, PS Replication or PXC; or ProxySQL / HAProxy in front of one |
+| **Car Rental Sim** | 180-location rental workload on a 2,000-vehicle fleet, with `FOR UPDATE SKIP LOCKED`. | PostgreSQL, Patroni, repmgr or Spock; or HAProxy / PgBouncer in front of one |
+| **Unoptimized MySQL Challenge** | MarketChaos: a stock exchange deployed with deliberately bad indexes, queries and locking for you to diagnose and fix, scored on outcome. Small, medium, large or custom dataset. Shown only with `EXPERIMENTAL` on. | Percona Server, one PXC member, PXC or PS Replication; or HAProxy in front of one |
+| **Stock Market Sim** | A stock-exchange app you operate. See below. | Any database (see below) |
+| **Ledger Sim** | A JDBC order-and-payment ledger. See below. | MySQL-family or PostgreSQL |
 
-**A repmgr cluster picks its backup engine.** The frame's **Backups** setting offers *pgBackRest*
-or *Barman cloud*, and the trade is one line: pgBackRest is what the standalone and Patroni
-clusters here use, so it is the one to choose if you want to compare like with like — but its S3
-client only speaks HTTPS, so the SeaweedFS node needs **S3 TLS on**. barman-cloud is boto3
-underneath and works against a plain-HTTP store, which makes it the quicker one to stand up. The
-designer refuses a pgBackRest cluster pointed at a plain-HTTP store rather than deploying one
-whose every backup fails, and refuses both engines at once — PostgreSQL has a single
-`archive_command`, so one would silently win. It is a deploy-time choice: changing it means
-rebuilding the cluster.
+The templates **PSMDB Vector Search + Support Sim** and **PostgreSQL + pgvector + Support Sim**
+deploy a complete vector-search demo.
 
-Either engine survives a switchover without anything being re-applied. The archive command is set
-on the primary, and `repmgr standby clone` copies the primary's configuration to the standbys — so
-whichever member is promoted is already archiving to the same repository, and an incremental
-backup taken from the new primary references the full backup the old one took. (`dbcanvas stack
-compose` still wires repmgr to Barman when you ask for `backup`, because it builds its SeaweedFS
-node with plain HTTP; pick pgBackRest in the designer.)
+**Stock Market Sim** runs the same application on MySQL, PostgreSQL, MongoDB or Valkey, with
+create/edit/delete for securities, portfolios and orders, a printable report and CSV exports.
 
-**Query Analytics needs an extension.** PMM's QAN reads PostgreSQL's statement statistics from
-`pg_stat_statements` or `pg_stat_monitor`, and neither is on by default — without one, PMM shows
-the server's metrics and an empty QAN. On a standalone PostgreSQL node and a Patroni frame, picking
-a PMM node shows **Query Analytics extension**: *pg_stat_statements* (contrib) or
-*pg_stat_monitor* (Percona's, installed from its own package and preloaded after
-pg_stat_statements). The extension is preloaded, configured as the
-[PMM documentation](https://docs.percona.com/percona-monitoring-and-management/3/install-pmm/install-pmm-client/connect-database/postgresql.html#configure-monitoring-extension)
-sets it up, created in the `postgres` database, and passed to `pmm-admin add postgresql` as
-`--query-source`. repmgr and Spock frames have an **Enable pg_stat_statements** tick of their own,
-with or without PMM. pg_stat_monitor is not offered there, because it is a Percona package and
-those frames run PGDG and source-built PostgreSQL. On a node with pg_tde, both libraries go on the
-same `shared_preload_libraries` line. It is a deploy-time choice.
+- **Connection:** *linked* (an association line to any database node, cluster frame, K3D frame
+  with a database operator, or a proxy in front of one cluster), *All in One* (pick an instance on
+  an All in One node), or *manual* (host, port, user, password and database — including databases
+  outside the stack — with a **Test connection** button).
+- **Kubernetes targets** must be reachable from the stack network: set the proxy, router, pooler
+  or database Service on the frame to **LoadBalancer** or **NodePort**. Validate warns if none is.
+- **Send reads to HAProxy's read port** (behind an HAProxy node): display-only reads go to 5001,
+  writes stay on 5000.
+- **Load:** at the *High* level it grows the dataset to **dataset size** (default 5 GiB) and keeps
+  a **working set** (default 50%) under random read, so cache sizing is measurable. **Database
+  threads** defaults to 4.
+- **Lab problems**, each only on engines that support it: an idle transaction (up to 24 h), extra
+  tables (up to 5,000), temporary-table queries (memory or disk), lock contention (light or heavy,
+  with real deadlocks), scan queries, and write pressure (*commits* or *redo*).
 
-**Operating a repmgr cluster.** Every repmgr member gets a **repmgr** tab: the commands for looking
-at the cluster, checking it, and changing who is primary — built from that member's own facts, so
-each one pastes into its root console as it stands. `repmgr` is not on the postgres user's PATH on
-the Oracle Linux images and its config file is per-major (`/etc/repmgr/18/repmgr.conf`), which is
-two things to look up before you can type anything; the tab has both filled in. It covers
-`cluster show` and `cluster event`, `node status` and `node check`, switchover (the `--dry-run`
-first, and always with `--siblings-follow`), the manual `standby promote` / `standby follow` /
-`node rejoin` for when the primary is already gone, and starting and stopping repmgrd so you can
-drive a failover by hand and watch it. It also lists the other members with their node ids and
-hostnames, because a switchover names one.
+**Ledger Sim** drives an order-and-payment ledger over JDBC with a HikariCP pool. Use it to
+compare drivers and pool settings rather than servers.
 
-**Switchover needs SSH, and the deploy sets it up.** `repmgr standby switchover` is the one repmgr
-operation that is not a database operation: it has to stop PostgreSQL on the *other* machine, and
-there is no SQL for that. So repmgr shells out — `ssh -o Batchmode=yes … /bin/true` as the
-`postgres` user — and a cluster without it stops at `ERROR: unable to connect via SSH to host …,
-user ""` before doing anything. Each repmgr cluster is therefore given a keypair of its own at
-deploy time, with the public half in every member's `authorized_keys` including its own, so
-switchover works in whichever direction you choose. `repmgr.conf` gets the matching `ssh_options`,
-and the four `service_*_command` settings so repmgr stops PostgreSQL with `systemctl` rather than
-its built-in `pg_ctl` — which systemd would simply undo — plus a sudoers entry letting `postgres`
-run those four `systemctl` calls and nothing else.
+- **Drivers:** MySQL Connector/J, MariaDB Connector/J and pgJDBC; switch drivers on the dashboard
+  while it runs.
+- **Connection:** linked (MySQL-family or PostgreSQL node, frame, router or K3D frame) or manual
+  (with **Test connection**). The dashboard shows the JDBC URL and every derived property, and lets
+  you edit and re-apply them. A configuration that cannot connect is refused with the driver's
+  SQLState and the working pool is kept.
+- **Pooled or direct:** *direct* opens a fresh connection per transaction, so you can measure
+  what pooling saves. Validate warns if a direct-mode node's workers could exceed
+  `max_connections`.
+- **Workload controls:** HikariCP settings, isolation level, revenue shards, hot-account share and
+  deadlock share. Deadlocks, lock timeouts, retries and errors are counted separately, and a
+  **balance check** shows zero on a consistent ledger.
+- Not for MongoDB or Valkey. Build it with `make ledgersim-image` (it downloads from Maven Central).
 
-This is done for **repmgr clusters only**. No other node type gets an SSH server, a key or a
-sudoers file, and the base images are untouched: everything above is installed by the repmgr
-frame's own deploy. Replication, cloning, backups and repmgrd's automatic failover never needed
-any of it — switchover is the only thing that does, which is why a cluster built before this
-still works and still cannot switch over.
+### Resource limits and network conditions
+Database nodes and cluster members can be limited on **CPU** and **memory**, **disk** read and
+write rate (MB/s), and **network**: added latency, jitter, packet loss and a bandwidth cap.
+Network shaping applies only to the node's database and cluster ports (unless you tick shaping
+all traffic), is applied after the cluster forms, and can be changed and redeployed without
+recreating the node. Network conditions are Docker-only.
 
-A **TLS** SeaweedFS store works for both. pgBackRest requires it; barman-cloud does not, and used to
-fail against one — `SSL validation failed … CERTIFICATE_VERIFY_FAILED` — because barman-cloud is
-boto3, and botocore verifies against its own bundled CA list rather than the system trust store the
-Intranet CA is installed into. Each repmgr member now carries a bundle holding the Intranet CA and
-the store's own S3 certificate, with `ca_bundle` in the postgres user's `~/.aws/config` pointing at
-it, which covers both a store whose certificate the Intranet CA signed and one that is self-signed.
-An existing cluster picks this up the next time it backs up, without being rebuilt.
+## Sign in with a directory or single sign-on
 
-**Diagnostics captures.** From a running node's panel, capture a diagnostic bundle and
-download it: **pg_gather** (a single `GatherReport.html`) on PostgreSQL nodes,
-**pt-stalk** + `pt-summary` + `pt-mysql-summary` (a tarball) on MySQL/PXC nodes, or
-**pt-k8s-debug-collector** (a `cluster-dump.tar.gz`) on a **K3D** cluster's server node.
-Feed a pt-stalk archive straight into **Stalk Summary** to chart it, or a cluster-dump into
-**Operator Summary** to read it.
+Pick a directory or identity provider in the database's panel and it is wired at deploy:
 
-The Kubernetes capture is of the whole cluster rather than one node — every namespace's
-resources, every pod's log, and the operator's own custom resources. It runs
-`pt-k8s-debug-collector` in a throwaway container *beside* the cluster rather than on a k3s
-node, because the collector reaches the cluster over a kubeconfig and its most useful output
-is the per-pod database summary it makes by port-forwarding into a database pod and running
-`pt-mysql-summary` / `pt-mongodb-summary` / `pg_gather` — which need real database clients
-that a k3s node does not have. The container image is built by `make k8scollector-image`, and
-is **linux/amd64 only**: Percona's apt repo publishes `percona-toolkit`, the package carrying
-the collector, for that architecture alone. Each finished capture is kept on disk with a
-timestamp, so a cluster has a history to compare across rather than only its latest.
+| Method | Provider | Available on |
+| --- | --- | --- |
+| **LDAP** | Intranet OpenLDAP or Samba AD DC | Percona Server (not 5.7), PS Replication, PXC, PostgreSQL, PSMDB, PMM. Valkey: Intranet OpenLDAP, Oracle Linux only. |
+| **Kerberos (GSSAPI)** | Samba AD DC | PostgreSQL, PSMDB |
+| **Keycloak OIDC** | Keycloak | PMM; PostgreSQL 18; PSMDB; Percona Server and PXC 8.4.11-11 / 9.7.2-2 or newer |
 
-### Vector search — Percona Search for MongoDB (mongot)
+The designer greys out combinations an engine cannot run: PostgreSQL cannot combine LDAP and
+OIDC, and MongoDB cannot combine OIDC with LDAP or Kerberos. MySQL can mix LDAP and OIDC accounts
+on one server.
 
-Tick **Vector search** on a **PSMDB Replica Set** or **PSMDB Sharded** frame and `$vectorSearch`
-(semantic / AI search) and `$search` (full-text) work on it. MongoDB does not search anything
-itself: `mongod` forwards those stages over gRPC to a second process, **mongot**, which keeps
-Lucene indexes current by tailing the replica set's change stream. Turning it on is four things
-that have to agree, and the deploy does all four — the same four the Percona Operator does for
-`spec.search`:
+**Keycloak SSO on Percona Server.** Turning it on keeps a 9.7 node on 9.7 and moves any other to
+the latest 8.4. The deploy creates a realm and a public `mysql` client, sample users `jane` and
+`john` in an `accounting` group, MySQL accounts bound to them, and an `oidc_demo` schema only
+that group's role can read. The node's **Keycloak SSO** tab shows how to log in; the
+`oidc-login` command on the node fetches a token and starts `mysql` with it. Activate the role
+with `SET ROLE`. The connection must be encrypted (a Unix socket, or TCP with
+`--ssl-mode=REQUIRED`).
 
-- **PSMDB 8.3 or later.** Nothing older can attach to mongot. Ticking the box moves the frame to the
-  8.3 series when the image offers it (`ONLY=percona make versions` if it does not), and validation
-  refuses anything older.
-- **mongod's parameters, at first start** — `mongotHost` and `searchIndexManagementHostAndPort`
-  pointing at mongot's `:27028`, plus `useGrpcForSearch`. They are startup-only, which is why this
-  is a design-time option; mongod starts happily before the mongot it names exists.
-- **A `searchCoordinator` user**, `mongot`, on the replica set (and, sharded, on every shard and the
-  config servers).
-- **mongot itself** — `percona-search-mongodb` from the `ps4m` repository (about 290 MB: it is a
-  Java service with its own JDK), configured with the replica set's members, gRPC on 27028, health
-  on `:8080/health`, metrics on 9946, logging to `/var/log/mongot/mongot.log`.
+## Encrypt data at rest with OpenBao
 
-**One mongot per replica set** — the operator allows no more — **on its first member**; on a sharded
-cluster, one per shard on each shard's first member, with mongos pointed at shard 0's and each
-mongot also connected to mongos. Stop that member and `$vectorSearch` fails while every ordinary
-query keeps working: that is what a single-mongot deployment looks like, and worth being able to
-show. A standalone node cannot have it (mongot needs a change stream — use a one-member replica
-set), and mongot is published for Oracle Linux 8/9, Ubuntu 22.04/24.04 and Debian 12 only, which
-validation checks. Search indexes are not part of a backup; mongot rebuilds them from the data.
+Add an **OpenBao** node, then tick *Encrypt with OpenBao* (or the equivalent encryption option)
+on a supported database. Each database gets its own KV mount and a token scoped to it, and
+verifies OpenBao with the Intranet CA. Encryption is a deploy-time choice: it cannot be turned on
+later without recreating the data.
 
-On a **K3D frame** running the **Percona Operator for MongoDB 1.23.0 or later**, the same box
-writes `spec.search` (a one-pod mongot StatefulSet per replica set, `<cluster>-rs0-search`, with its
-own PVC) and switches `spec.image` to a PSMDB 8.3 server — the operator's shipped `cr.yaml` runs
-8.0, and its release notes ask you to choose an 8.3 image yourself. Below 1.23.0 the option is
-hidden, and refused by validation. It is a **tech preview** in both places: not for production.
+| Target | How it is encrypted |
+| --- | --- |
+| Percona Server | `component_keyring_vault` on 8.4; the `keyring_vault` plugin on 5.7 / 8.0. Not with XtraBackup. |
+| PS Replication, PXC (frame) | Every member, each with its own mount; `default_table_encryption=ON`. |
+| PSMDB (standalone) | `security.vault` |
+| PostgreSQL, Patroni | `pg_tde`, PostgreSQL 17 or 18 only. Tables use `tde_heap` by default (also in `template1`). Optional **Encrypt WAL too**. A Patroni cluster shares one key. |
 
-With search on and the replica set exposed as **LoadBalancer**, the operator exposes the members as
-**NodePort** instead, and DBCanvas adds a LoadBalancer per member beside it. Operator 1.23.x never
-reports a search-enabled cluster `ready` when it exposes the replica set as LoadBalancer or ClusterIP:
-the mongot pod carries the replica set's label, gets counted as a member, has no per-pod Service, and
-the cluster is left without a connection host — a bug in the operator, unchanged in 1.23.1 and on
-`main`. NodePort takes a different path and is unaffected. The extra Services are
-`<cluster>-rs0-<i>-ext` (each member's own address on 27017) and `<cluster>-rs0-search-ext` (mongot's
-metrics :9946 and health :8080, which the operator keeps in-cluster), labelled `managed-by: dbcanvas` and
-named apart from the operator's so it never adopts or deletes them. mongot's metrics are turned on through
-`spec.search.configuration`, since the operator's generated config ships them disabled. ClusterIP is
-left unexposed; sharded clusters are unaffected.
+Not offered on MariaDB or MySQL Community.
 
-### pgvector — vector similarity search for PostgreSQL
+**Encrypted PXC clusters also encrypt cluster traffic** (`pxc_encrypt_cluster_traffic=ON`), with
+one Intranet-CA certificate shared by every member; *Generate per-node certificates* has no
+effect on such a cluster. SST uses `xtrabackup-v2`.
 
-Tick **pgvector (vector similarity search)** on a standalone **PostgreSQL** node or a **Patroni**,
-**repmgr** or **Spock** frame and the cluster gets the `vector` column type, the distance operators
-`<->` (L2), `<=>` (cosine) and `<#>` (negative inner product), and the **HNSW** and **IVFFlat**
-approximate nearest-neighbour indexes — embeddings stored and searched in plain SQL, beside the rest of
-the data. It is a design-time option because it installs software, but it changes nothing about how the
-server starts: pgvector is not a `shared_preload_libraries` entry.
+The deploy checks every member has its keyring loaded and creates an encrypted test table; a
+member that cannot fails instead of coming up unencrypted. The node's **Encryption** tab shows
+the result.
 
-Every member gets the files, from wherever its own PostgreSQL came from — a build for another server
-would install cleanly and fail at the first `CREATE EXTENSION`:
+## Kubernetes (K3D)
 
-- **Standalone and Patroni** run Percona Distribution for PostgreSQL, so it is Percona's package from the
-  same `ppg-<major>` repository: `percona-pgvector_<major>` on Oracle Linux / Rocky,
-  `percona-postgresql-<major>-pgvector` on Debian / Ubuntu.
-- **repmgr** runs PGDG's PostgreSQL, so it is PGDG's package: `pgvector_<major>` /
-  `postgresql-<major>-pgvector`.
-- **Spock** runs a patched PostgreSQL compiled into its own prefix, which no package was built for, so
-  pgvector is compiled against it too, right after the server, at a pinned tag (`v0.8.6`).
+Add a **K3D Cluster** frame to run k3s on the stack network. Pods resolve the Intranet DNS and
+reach PMM and SeaweedFS by name, and **MetalLB** hands out LoadBalancer addresses from the stack
+subnet (8 per cluster, so several clusters can share a stack).
 
-Each install is checked for `vector.control` in the server's own `sharedir`, and a member that does not
-get it fails its deploy — the cluster was asked for vector search. All members have it, not only the
-primary, because a standby reading a vector column loads the library too, and any of them may be
-promoted.
+![A K3D cluster node's panel beside a console listing the pods the operator built](screenshots/k3d-cluster.png)
 
-The extension is then created **on the primary**, in two databases: `postgres`, where `psql` lands,
-and **`template1`**, which every later `CREATE DATABASE` copies — so an application that creates its own
-database afterwards finds `vector` already there. Standbys get both by replication (on Patroni, once on
-the leader; on repmgr, before the standbys are cloned). On Spock every member is its own primary and
-creates it locally, before the replicated demo database is created from `template1`. The deploy log
-reports the version it got (`pgvector 0.8.6 enabled in postgres and template1`), and the node's panel
-shows which package it came from.
+> *A one-node K3D cluster running the Percona Operator for MySQL (PXC), with `kubectl get pods
+> -A` in its console: the PXC and HAProxy pods, MetalLB and the operator.*
 
-On a **K3D frame** running the **Percona Operator for PostgreSQL 2.6.0 or later**, the same box writes
-`spec.extensions.builtin.pgvector: true`. The operator's images already carry pgvector, and the operator
-creates the extension in every database itself. That spelling is the only one 2.x knows, and 3.x still
-accepts it and maps it onto its newer `extensions.pgvector.enabled`, so one form serves every version;
-with transparent data encryption on as well, both go into the one `spec.extensions` block. Below 2.6.0
-the CRD has no such field and would reject the whole `cr.yaml`, so the option is hidden there and refused
-by validation.
+### Frame options
 
-On a K3D frame running **CloudNativePG** or **Crunchy PGO** the box is there too. Their images already
-carry pgvector (CloudNativePG's plain `<major>` and `-standard` / `-system` tags, not `-minimal`; Crunchy's
-`crunchy-postgres`), but its control file is not `trusted`, so the application role those operators
-create cannot run `CREATE EXTENSION` itself. DBCanvas has the operator do it once, as the superuser, in
-the application database: CloudNativePG through `spec.bootstrap.initdb.postInitApplicationSQL`, Crunchy
-through `spec.databaseInitSQL` pointing at a `<cluster>-init-sql` ConfigMap (`\c <cluster>` then
-`CREATE EXTENSION IF NOT EXISTS vector`). Both run only when the cluster is first created.
+| Option | Choices |
+| --- | --- |
+| Nodes | 1–3 k3s nodes (the first is the server) |
+| Kubernetes version | Any k3s release in the catalog; newest by default |
+| CPU / memory | A total split across the nodes; default 4 CPU / 8 GiB. Validate warns when it is too small (more for sharded MongoDB, async Percona Server or OpenEverest) |
+| Disk limits | Read/write MB/s per k3s node |
+| Operator | none, **PXC**, **Percona Server**, **MongoDB (PSMDB)**, **PostgreSQL** (Percona), **CloudNativePG**, **Crunchy PGO**, or **OpenEverest** |
+| Operator version | Any catalogued release; latest by default |
+| Namespace | Defaults to the operator's name |
+| Shape | PXC: HAProxy or ProxySQL. Percona Server: group replication (HAProxy or MySQL Router) or async with Orchestrator (HAProxy). MongoDB: replica set or sharded. PostgreSQL: Patroni behind pgBouncer. CloudNativePG: 1–5 instances, optional PgBouncer pooler and kube-prometheus-stack monitoring. Crunchy PGO: 1–5 instances, optional pgMonitor |
+| Expose | ClusterIP, NodePort or LoadBalancer per tier (database, proxy/router/pooler) |
+| Volumes | k3s local-path, or **Ceph** (needs a Ceph node; volumes can grow); size per pod |
+| Backups | A SeaweedFS node and bucket. Percona PostgreSQL and Crunchy PGO need **S3 TLS** on the SeaweedFS node |
+| PMM | A PMM node; DBCanvas creates a service token (default lifetime 365 days) so the pmm-client sidecars register |
+| Cluster add-ons | **cert-manager** (with version picker) |
+| Debugging | *Run the operator under Delve* (Percona operators) |
 
+Database users come from your `.env`, like every other DBCanvas database.
 
-### PgBouncer — connection pooling for the PostgreSQL family
+**Operator-specific options** (shown only when the selected operator version supports them):
 
-A **PgBouncer** node runs Percona's `percona-pgbouncer` (out of the same `ppg-NN` repository
-the rest of the PostgreSQL family installs from) in front of **exactly one** PostgreSQL
-backend drawn on the canvas: a standalone **PostgreSQL** node, or a **Patroni**, **repmgr**
-or **Spock** cluster frame. Draw an association line from the backend to the pool — the same
-mutual-exclusivity rule HAProxy has, and Validate refuses a node with none or with two.
+| Operator | Option |
+| --- | --- |
+| PXC | Point-in-time recovery (binlog collector) with its own bucket; data-at-rest encryption with OpenBao |
+| MongoDB | Data-at-rest encryption (1.13.0+); vector search with mongot (1.23.0+, tech preview); ClusterSync from a PSMDB frame on the canvas (1.23.0+) |
+| Percona PostgreSQL | pgvector (2.6.0+); logical replicas, 0–3 (3.1.0+); persistent logging, on by default (3.1.0+); transparent data encryption with optional WAL encryption (3.1.0+, needs OpenBao). Logical replicas and encryption cannot be combined. |
+| CloudNativePG, Crunchy PGO | pgvector (created in the application database at bootstrap) |
 
-It is not a second HAProxy. HAProxy balances TCP and then gets out of the way, so a thousand
-clients are a thousand PostgreSQL backend processes; PgBouncer terminates the PostgreSQL
-protocol, so those thousand clients share a few dozen server connections. Both nodes exist
-because both problems do.
+**OpenEverest** installs the OpenEverest platform from its Helm chart and the Percona operators you
+tick (PXC, MongoDB, PostgreSQL; all three by default) through OLM. It creates no database — use
+Everest's UI for that, including its backups and PMM. Open it with **Open OpenEverest** on the
+panel and sign in as `admin` with `EVEREST_PASSWORD` from `.env`. Give the frame at least 6 CPU /
+10 GiB.
 
-**Pool** — `pool_mode` (transaction, session or statement, each with what it costs written
-next to it), `max_client_conn`, `default_pool_size`, `min_pool_size`, `reserve_pool_size`,
-`max_db_connections`, `server_idle_timeout`, and `ignore_startup_parameters` — whose default
-(`extra_float_digits,options,search_path`) is three real driver failures, since PgBouncer
-rejects any startup parameter it was not told to ignore.
+### cert-manager and certificate issuers
+Tick **cert-manager** under **Cluster add-ons** to install it before the operator, so the operator
+issues database certificates through it instead of self-signing. The k3s node's panel shows
+whether cert-manager is actually present.
 
-**Authentication** — `auth_type` (`scram-sha-256`, matching what every PostgreSQL node here
-is deployed with; `md5`; `cert`; or `trust`), and **auth_query**, which looks the connecting
-role up in the backend's `pg_shadow` instead of requiring it in `userlist.txt`. With
-auth_query on, any role that exists in PostgreSQL can connect and a password change needs
-nothing done to the pooler.
+With cert-manager on, a PXC, Percona Server or MongoDB (1.23.0+) frame offers a **Certificate
+issuer**:
 
-**`cert`** authenticates clients by certificate instead of password, and is only selectable
-once the node has one — PgBouncer refuses to start otherwise (*auth_type=cert requires
-client_tls_sslmode=SSLMODE_VERIFY_FULL*), so ticking **Generate certificate from Intranet CA**
-is a prerequisite rather than a suggestion. A client certificate for the superuser is minted
-at deploy into `/etc/pgbouncer/client/`; PostgreSQL and PgBouncer both take the role name
-from its `CN`, so a certificate is per role and one whose CN does not match the user in the
-connection string is refused. Three consequences the node's form spells out before you pick
-it: the admin console over the unix socket stops working (no TLS there, so no certificate to
-present), an **application simulator cannot be driven through the pool** at all — it has no
-way to present one, and is refused at the TLS handshake — and `auth_query` does nothing,
-because `pg_shadow` returns a SCRAM *verifier* and a verifier cannot be used to authenticate
-to the server. Only roles with a plain-text secret in `userlist.txt` complete both legs.
+- **Operator's own self-signed CA** (default).
+- **Intranet CA** — trusted by every node, pod and the VNC desktop.
+- **OpenBao PKI** — a Vault Issuer signing with the Intranet CA through OpenBao (needs an OpenBao
+  node). Certificates stop renewing while OpenBao is sealed.
 
-**Backend topology** — the options that are aware of what is behind the pool:
+**Host names in the certificates and the Intranet DNS** puts `<service>.<domain>` names in the
+certificates and publishes every LoadBalancer Service in the Intranet DNS, so clients outside
+Kubernetes can verify host names (`VERIFY_IDENTITY`, `verify-full`). The panel marks each name
+**in cert** or **DNS only**.
+
+### Work with a running cluster
+The k3s server node's panel has these tabs (some depend on the operator):
+
+| Tab | What it does |
+| --- | --- |
+| **Overview** | Operator, namespace, endpoints, cert-manager and issuer |
+| **kubectl** | Run kubectl against the cluster |
+| **Kubeconfig** | Copyable admin kubeconfig that works from any node in the stack |
+| **Users** | Create Kubernetes users (X.509 client certificates) bound to `view`, `edit` or `admin` in a namespace, or `cluster-admin`, and copy their kubeconfig |
+| **Operator** | Operator details; with Delve published, an IDE `launch.json` and clone command |
+| **cr.yaml** | Edit the live custom resource as a form built from the cluster's CRD. **Review patch**, **Check** (server-side dry run) and **Apply** |
+| **Secrets & configs** | View and edit Secrets and ConfigMaps. Values are masked until revealed; every change is dry-run first |
+| **Certificates** | Every TLS Secret parsed and checked (dates, chain to `ca.crt`, strict `openssl verify`, key match), refreshed every 30 s |
+| **ClusterSync** | Start, pause, resume and finalize a MongoDB ClusterSync |
+| **Backups** | Backups, restores, bucket contents and manifests. See [Operator backups](OPERATOR_BACKUPS.md) |
+| **Storage** | Volume sizes and use; grow volumes on Ceph |
+| **Replication** | State of a cross-cluster replication link, and **Re-seed** |
+| **Logical replicas** | Add, remove and re-seed Percona PostgreSQL logical replicas |
+| **Diagnostics** | Capture the cluster with `pt-k8s-debug-collector` (amd64 only; needs `make k8scollector-image`) |
+
+Also:
+
+- **Enter pod console** (right-click the k3s server node): pick a namespace, pod and container,
+  then a shell or the database client (`mysql`, `psql` or `mongosh`) already logged in as an
+  administrator. The list is read live each time. From the CLI: `dbcanvas node pods` and
+  `dbcanvas node console --pod` ([CLI](CLI.md)).
+- **[Kubernetes States](KUBERNETES_STATES.md)**: every pod, workload, claim, service and custom
+  resource as a live card.
+- **[Operator Debugger](OPERATOR_DEBUGGER.md)**: with *Run the operator under Delve* ticked, the
+  operator is built from its release source and run under Delve, and you can set breakpoints and
+  force a reconcile from the browser. *Also publish the debugger to the host* (on by default)
+  exposes Delve on port 40000 for an external IDE; turn it off if two debugged clusters would
+  collide. Not available for CloudNativePG or Crunchy PGO.
+
+### Replicate one PXC cluster into another
+Draw a link between two K3D frames that both run the **PXC operator** and pick the direction.
+Both frames need a SeaweedFS backup store. On Deploy:
+
+1. The source's database pods get LoadBalancer addresses.
+2. Both clusters deploy.
+3. A backup of the source is taken and restored onto the replica.
+4. The replica's replication channel is attached.
+
+The **Replication** tab shows the channel state and last error, and **Re-seed** restores the
+replica again. Deploy never re-seeds. Removing the link stops the channel and keeps the data.
+Replication is one-way only. Start from the *Kubernetes — PXC operator, two clusters replicating*
+template.
+
+**Point-in-time recovery** (PXC) needs its own bucket. On the replica end it is turned on only
+after replication is running.
+
+## Linux Client
+
+A bare host joined to the stack's DNS and CA, with nothing installed. Use its terminal to install
+whatever you need, or tick tools to have them installed at deploy:
+
+| Option | What is installed |
+| --- | --- |
+| Install kubectl | kubectl matching the K3D frame's Kubernetes version |
+| Install Helm | Helm 3 |
+| Install cmctl | cert-manager's CLI |
+| Install cfssl and cfssljson | `cfssl` and `cfssljson` |
+| MySQL client / MySQL Shell | Percona Server client and `mysqlsh`, series 8.0, 8.4 or 9.7 (8.4 / 9.7 on Debian 13) |
+| mongosh | From Percona Server for MongoDB |
+| psql | Percona Distribution for PostgreSQL client, 13–18 |
+| ClusterSync | Percona ClusterSync for MongoDB (`pcsm`), installed but not started |
+| Use this client for core-dump analysis | See [Core Dump Analyzer](CORE_DUMP_ANALYZER.md). Host directories must be under `GDB_MOUNT_ROOT` |
+
+After deploy, the panel also has:
+
+- **Kubeconfig** — **Copy to /root/.kube/config** merges every running cluster's kubeconfig into
+  the node, one context per frame; **Current context** switches between them. Contexts you added
+  yourself are kept.
+- **Sample Client Code** (also on the right-click menu) — generates and runs a client program for
+  any database in the stack. See [Sample Client Code](SAMPLE_CODE.md).
+
+**CentOS 7** (`EOL=on` only): pick `centos (end of life)` / `7`. Yum points at
+vault.centos.org and `percona-release` is installed. It has no systemd, so services do not run;
+the terminal, file drops, Sample Client Code, kubectl/Helm/cmctl and the database clients
+(MySQL 8.0, psql 13, no ClusterSync) work. No core-dump analysis. Docker backend only. See
+[Sample Client Code](SAMPLE_CODE.md#centos-7).
+
+## Vector search on MongoDB (mongot)
+
+Tick **Vector search** on a **PSMDB Replica Set** or **PSMDB Sharded** frame to enable
+`$vectorSearch` and `$search`. DBCanvas runs one mongot (Percona Search for MongoDB) per replica
+set, on its first member; a sharded cluster gets one per shard.
+
+- Needs PSMDB 8.3 or later; ticking the box moves the frame to 8.3.
+- Needs Oracle Linux 8 or 9, or Ubuntu 22.04 or 24.04.
+- Not on a standalone node — use a one-member replica set.
+- If the member running mongot stops, `$vectorSearch` fails while ordinary queries keep working.
+- Search indexes are not part of a backup; mongot rebuilds them.
+
+On a K3D frame with the MongoDB operator 1.23.0 or later, the same box enables the operator's
+mongot. It is a **tech preview**. With search on, a replica set exposed as LoadBalancer gets an
+extra LoadBalancer Service per member and one for mongot's metrics (9946) and health (8080).
+
+## pgvector on PostgreSQL
+
+Tick **pgvector (vector similarity search)** on a PostgreSQL node or a Patroni, repmgr or Spock
+frame. Every member gets the `vector` type, the distance operators `<->`, `<=>` and `<#>`, and
+HNSW and IVFFlat indexes. The extension is created in `postgres` and `template1`, so databases
+created later have it. The deploy log reports the pgvector version.
+
+On a K3D frame it is available for the Percona PostgreSQL operator (2.6.0+), CloudNativePG and
+Crunchy PGO.
+
+## Pool PostgreSQL connections with PgBouncer
+
+A **PgBouncer** node pools connections for exactly one PostgreSQL node or Patroni, repmgr or
+Spock cluster. Draw an association line from the backend to the PgBouncer node. Clients connect
+on port **6432** and select a pool by database name. The node's **Pooling** tab has admin-console
+commands (`SHOW POOLS`, `SHOW SERVERS`). A running PgBouncer appears in Database Explorer and
+Sample Code.
 
 | Option | What it does |
 | --- | --- |
-| **Routing** | The pools published. `rw` is a single wildcard pool on the writable member. `rw-ro` adds a named `<database>_ro` pool on a standby (Patroni, repmgr). `mesh` adds one pool per member (Spock, where every node is a writer). Blank follows the linked backend. |
-| **Pooled database** | What the named pools open. The wildcard pool takes any database name. |
-| **Follow the writable member** | A pooler has no health checks. This installs a timer that asks the cluster who can currently take writes — Patroni's REST API (`:8008 /primary`), or `pg_is_in_recovery()` over psql for repmgr — rewrites the backend list and reloads with `SIGHUP`, which does not drop existing clients. On Spock there is no role to follow, so the pool stays pinned to one member and moves only when it stops answering. Ignored on a standalone backend. |
-| **Probe interval** | How long a failover can leave the pool aimed at the old member. |
-| **server_tls_sslmode** | How the pool connects to PostgreSQL behind it. |
+| `pool_mode` | transaction (default), session or statement |
+| `max_client_conn`, `default_pool_size`, `min_pool_size`, `reserve_pool_size`, `max_db_connections`, `server_idle_timeout` | Pool sizing; defaults 500, 20, 0, 0, 0, 0 |
+| `ignore_startup_parameters` | Default `extra_float_digits,options,search_path` |
+| `auth_type` | `scram-sha-256` (default), `md5`, `cert` or `trust`. `cert` needs **Generate certificate from Intranet CA**, disables the admin console over the Unix socket, cannot be used by simulators, and makes auth_query ineffective |
+| auth_query | On by default: any PostgreSQL role can connect without being listed in `userlist.txt` |
+| Routing | `rw` (a pool on the writable member), `rw-ro` (adds `<database>_ro` on a standby; Patroni, repmgr), `mesh` (one pool per member; Spock). Blank follows the backend |
+| Pooled database | What the named pools open |
+| Follow the writable member | On by default: re-points the pool after a failover without dropping clients |
+| Probe interval | Seconds between checks; default 5 |
+| `server_tls_sslmode` | How the pool connects to PostgreSQL; default `prefer` |
 
-Plus the usual node options: OS, the `ppg-NN` repository (blank = follow the backend, which
-keeps the pooler and the server on one distribution release), the Intranet Squid proxy,
-network conditions, VM sizing, an Intranet-CA certificate (PgBouncer *terminates* the
-connection, so the certificate carries the pool's own name and a client can genuinely verify
-it — unlike HAProxy, which passes through under its own hostname), and exporting **6432** to
-the host.
+From the CLI: `dbcanvas compose` with `kind=pgbouncer` (`to=` the backend, `mode=` the pool mode).
 
-Every pool is that one port: what selects a pool is the **database name** in the connection,
-not a second port. The node's panel spells the connection strings out, and its **Pooling** tab
-has the admin-console commands (`SHOW POOLS`, `SHOW SERVERS`) that show the pool doing its
-job. A running PgBouncer also appears in **Database Explorer** (the wildcard pool) and in
-**Sample Code** (every pool it publishes).
+## Client authentication on PostgreSQL (pg_hba)
 
-From the CLI, `dbcanvas compose` builds one with `kind=pgbouncer` (`to=` names the backend,
-`mode=` is the pool mode).
-
-### Client authentication on a PostgreSQL node or cluster (pg_hba)
-
-Every PostgreSQL node and every Patroni, repmgr or Spock frame has a **Client authentication**
-control: the password method for clients that present no certificate (`scram-sha-256` by
-default, `md5`, `trust`, or none at all), and a tick to **also accept client certificates**,
-which adds a `hostssl` rule above it. One server, two live methods — a client arriving over
-TLS with a certificate authenticated by it, one arriving without falling through to the
-password rule:
+Every PostgreSQL node and Patroni, repmgr or Spock frame has **Client authentication**: the
+password method (`scram-sha-256` by default, `md5`, `trust` or none), and **Also accept client
+certificates**, which adds a certificate rule above it:
 
 ```
 hostssl all all 0.0.0.0/0 cert
 host    all all 0.0.0.0/0 scram-sha-256
 ```
 
-The form previews the exact rules, in order, because the order is the whole subtlety.
-`pg_hba` is first-match-wins and does **not** fall through on failure: a plain `host` rule
-matches every connection, SSL or not, so anything below it is dead config, and the certificate
-rule is only reachable above the password one. The flip side is that with `cert` first,
-*every* client that speaks TLS to that server must present a certificate — including a
-connection pooler, which is why a PgBouncer node in front of such a backend is given a client
-certificate of its own for the server leg, and why Validate refuses a pool that has none.
-Certificates need the node to be listening for TLS, so the tick is disabled until its own
-certificate is enabled.
+The form previews the rules in order. With the certificate rule on, every client connecting over
+TLS must present a certificate, including a PgBouncer in front (DBCanvas gives it one). The option
+needs the node's own certificate turned on.
 
+## Back up and restore
 
+**SeaweedFS targets.** Databases that back up to SeaweedFS pick a bucket on it. pgBackRest needs
+the SeaweedFS node's **S3 TLS** on; Barman cloud works over plain HTTP.
 
-### Repository — a yum/apt mirror and a registry, holding only what you list
+**PostgreSQL Backup tab.** A PostgreSQL node or cluster with a backup store gets a **Backup** tab
+with **Backup now** and, under *How to back up and restore*, ready-to-paste commands for listing,
+checking WAL archiving, incremental backups, retention and point-in-time restore. Standalone and
+Patroni use pgBackRest. A **repmgr** frame's **Backups** setting chooses *pgBackRest* or *Barman
+cloud*; it is a deploy-time choice, and either keeps working after a switchover.
+
+**Query Analytics.** PMM's QAN needs `pg_stat_statements` or `pg_stat_monitor`. On a PostgreSQL
+node or Patroni frame with PMM picked, choose one under **Query Analytics extension**.
+
+**Operating repmgr.** Every repmgr member has a **repmgr** tab with ready-to-paste commands for
+`cluster show`, `node check`, switchover (with `--dry-run` first), manual promote/follow/rejoin,
+and starting or stopping repmgrd. Switchover works because the deploy sets up SSH between the
+members of each repmgr cluster.
+
+## Browse and manage S3 backups (SeaweedFS)
+
+A running SeaweedFS node's panel browses its buckets, so you can confirm a backup landed without
+opening a shell. Backups nest under prefixes such as `pbm/<cluster>/` and
+`pgbackrest/<cluster>/repo1/`.
+
+**Files…** (or **Bucket file manager** on the right-click menu) opens a two-pane manager:
+download, upload (drag and drop), delete, and copy objects between buckets, on the same or another
+SeaweedFS node. Deleting a folder asks first.
+
+![The SeaweedFS node's Buckets tab — a browser over what the databases wrote](screenshots/seaweedfs-buckets.png)
+
+> *A PBM snapshot of a replica set in `mongo-backups/pbm/psmrs-00`.*
+
+## Mirror packages and images with a Repository node
 
 A **Repository** node mirrors the Percona package repositories and runs a container registry, so
-the stack's database servers and Kubernetes operators install from it rather than from
-repo.percona.com and Docker Hub. That is how you rehearse an air-gapped or mirrored site, and how
-you stop a stack of twelve nodes downloading the same server twelve times.
+nodes and K3D frames install from it instead of repo.percona.com and Docker Hub. Use it to
+rehearse an air-gapped site or to avoid downloading the same packages repeatedly. It holds only
+what you list:
 
-It carries **what the design lists, not a copy of repo.percona.com**. A whole repository is every
-build ever published, with debug symbols; a Repository holds the slice you name:
+| Setting | What it holds |
+| --- | --- |
+| OS releases and architectures | Any of Oracle Linux 8/9/10, Ubuntu 22.04/24.04, Debian 12/13; amd64 and/or arm64 |
+| Package repositories | By repo.percona.com name (`ps-84-lts`, `ppg-17`, `psmdb-80`…), optionally pinned to versions and narrowed to package names or globs. Dependencies in the same repository come along. Without a version, only the newest build |
+| Operator releases | PXC, PS, PSMDB, PG: source, manifests rewritten for this registry, their images, and Helm charts under `/charts` |
+| Extra images | Any registry |
+| Debug symbols | Off by default |
 
-- **OS releases and architectures.** Any of Oracle Linux 8/9/10, Ubuntu 22.04/24.04 and Debian
-  12/13, for amd64 and/or arm64. Each one is a full copy of what you list, so tick only what your
-  nodes run.
-- **Package repositories**, by their repo.percona.com name (`ps-84-lts`, `pxc-80`, `ppg-17`,
-  `psmdb-80`, `pxb-84-lts`, `pmm3-client`…; the picker suggests the common ones with the versions the
-  node pickers offer). With no version, only the newest build of each package is fetched. Name
-  versions to carry exactly those: one spelling works for both families, so `8.4.7-7.1` also selects
-  Ubuntu's `8.4.7-7-1.noble`. A package on its own version series (mysql-shell, pgBackRest) keeps its
-  newest build, which is what a pinned install would pick beside it. Optionally narrow it to
-  **package names or globs**. What they depend on inside the same repository comes along;
-  `percona-server-server` brings the client, the shared libraries and the ICU data.
-- **Operator releases** (PXC, PS, PSMDB, PG, any catalogued version): the tag's source tarball,
-  `deploy/bundle.yaml`, `cr.yaml` and `secrets.yaml`, `*.local.yaml` copies with every `image:`
-  pointed at this registry, every image those manifests start, and the release's two Helm charts
-  (operator and database) in a chart repository at `/charts`.
-- **Extra images**, any registry. Docker Hub images keep their path (`percona/…`, `library/…`), so
-  a docker.io mirror finds them. Other registries' images are stored under their host name.
-- **Debug symbols** are off by default: they are most of the bytes, and only a core dump needs them.
+**Use it from a node.** Nodes and frames that install from Percona have a **Repository** field.
+In **Fallback** mode (default) anything not mirrored still comes from upstream. In **Strict** mode
+missing packages fail the install, which tests whether a mirror is complete. Repositories added
+later are used on a node's next install.
 
-**Using it from a node.** Every node and frame that installs from repo.percona.com has a
-**Repository** field (shown once the canvas has one): standalone and replication MySQL, PXC,
-InnoDB Cluster, PostgreSQL, Patroni, repmgr and Spock, MongoDB (standalone, replica set and
-sharded), Valkey, ProxySQL, HAProxy, PgBouncer, Orchestrator and the Linux Client. Nothing about
-how those nodes install changed: `percona-release` still writes its repositories. The node gets
-`/usr/local/sbin/dbcanvas-repo-rewrite` and thin `dnf`/`yum`/`apt-get`/`apt` wrappers that run it
-first. It swaps repo.percona.com for the Repository in whatever `.repo`/`.list` files exist, only for
-the repositories the Repository carries for that node's OS release and architecture, a list it
-re-reads from `/dbcanvas/carried/` every time. So a repository added to a running Repository is used
-by nodes already deployed, on their next install.
+**Use it from a K3D frame.** The frame's Repository field makes k3s pull images through the
+registry. Tick the architecture k3s runs on the Repository; Validate warns if they differ.
 
-- **Fallback (default):** anything it does not carry still comes from upstream. A Percona Server
-  node whose Repository carries `ps-84-lts` but not `pxb-84-lts` gets its server from the mirror and
-  XtraBackup from repo.percona.com.
-- **Strict:** the node disables the Percona repositories the Repository does not carry, so an
-  install that needs something missing fails and says what. That is the test of whether a mirror is
-  complete enough for an air-gapped site. OS repositories are never touched.
+The panel has **Overview** (contents, disk use, *Re-sync from upstream*), **How to use**
+(copyable steps for yum/dnf, apt, operators and Docker), **Add packages** and **Sync log**. The
+registry is on port 5000 inside the stack and on a published host port outside it. The first
+deploy includes the first sync, so a long list makes a slow first deploy.
 
-RPMs keep Percona's signature, so `gpgcheck` stays on over metadata the Repository regenerated. An
-apt `Release` cannot keep Percona's signature once its index is a subset, so the Repository signs
-its own with a key it creates on first deploy (`/dbcanvas-repo.gpg`, kept on its data volume across
-a redeploy), and a node's rewritten lines trust that key instead.
+## MClusterAdmin
 
-**Using it from a K3D frame.** The frame's Repository field hands k3d a `registries.yaml` at create
-time (k3s reads it only when it starts): docker.io, and every other registry the Repository holds
-images from, mirrored to its registry. containerd falls back to the real registry for anything the
-mirror lacks, such as k3s's own system images. The operator source is read from the Repository when
-it carries that release. Tick the architecture k3s runs (`K3D_PLATFORM`) on the Repository, or pods
-would be handed images they cannot run; validation warns when they differ.
+A node running [MClusterAdmin](https://github.com/PrzemekMalkowski/mclusteradmin), a web panel for
+MongoDB topology, sharding, current operations, slow queries, indexes, users and oplog. Its UI is
+published on a host port. It draws no lines: enter the connection URI in its own UI. amd64 image
+(emulated on arm64).
 
-**The running panel** has four tabs:
+Tick **Add MClusterAdmin credentials** on a MongoDB node or cluster to create two accounts
+(SCRAM-SHA-256) on it, including every shard of a sharded cluster:
 
-- **Overview:** the browse link (the host port for nginx on 80), what it holds per repository, OS
-  release and architecture, operators and images (each failure named), disk use, and *Re-sync from
-  upstream*.
-- **How to use:** copyable steps for yum/dnf, apt, an operator from `cr.yaml`, an operator from
-  Helm, and containerd/Docker, written with this node's names and a repository it actually carries.
-- **Add packages:** the same editor as the design. It downloads more, keeps what is there, and lists
-  what was added since deploy (kept across a redeploy).
-- **Sync log:** the last sync's per-item log.
+| Account | Roles | Default password |
+| --- | --- | --- |
+| `madmin` | `clusterMonitor`, `clusterManager`, `hostManager`, `dbAdminAnyDatabase`, `readAnyDatabase`, `userAdminAnyDatabase`, `read` on `local` | `MCLUSTERADMIN_PASSWORD` |
+| `madmin-ro` | `clusterMonitor`, `readAnyDatabase`, `read` on `local` | `MCLUSTERADMIN_RO_PASSWORD` |
 
-Its front page (`index.html`) lists everything it holds and links into the autoindexed trees:
-`/percona/` (laid out exactly like repo.percona.com), `/operators/`, `/charts/`, `/dbcanvas/` (the
-carried lists, `manifest.json`, `registries.yaml`) and the registry's `/v2/_catalog`. The registry
-is on port 5000 inside the stack and on a published host port outside it, where `docker pull
-localhost:<port>/percona/…` works without any daemon configuration.
+The passwords can be overridden on the MClusterAdmin node, whose panel shows them.
+**Read-only panel** disables every write in the UI; sign in as `madmin-ro` to match.
 
-It runs on the Ubuntu 24.04 systemd image, with nginx, the distribution's `docker-registry`,
-`createrepo_c`, `apt-ftparchive` and `skopeo`. The first deploy includes the first sync, and a node
-that uses the Repository waits for it, so a large list makes a slow first deploy.
+## Big Hole
+
+A node running [Big Hole](https://github.com/zelmario/Big-hole), a browser-only viewer for MongoDB
+`diagnostic.data`: drag a folder or support tarball onto the page and it charts every metric. It
+connects to nothing; nothing you open leaves your browser. Needs `make bighole-image`.
+
+> [!NOTE]
+> Open it on `localhost`. Over plain HTTP on another host name the browser denies the storage it
+> needs and decoding fails partway. When you browse DBCanvas remotely, the panel gives you the
+> `ssh -L` command to use.
+
+[FTDC Summary](FTDC_SUMMARY.md) reads the same files and gives verdicts and findings instead of
+every chart.
+
+## Work with deployed nodes
+
+![A deployed PXC node's panel — what it is, where it is, and how to open a console](screenshots/node-panel.png)
+
+> *A deployed node's panel: version, image, ports, container, credentials, certificate, and a root
+> console.*
+
+**Deployed versions.** A running node records the exact version it deployed (`PS 8.4.10-10`,
+`PMM 3.3.1`). It is in the node's properties and in the card's tooltip.
+
+**Web terminals.** Open a root (or service) shell on any node in the browser. Sessions survive
+navigation and open docked or undocked (set in **Settings**).
+
+![A live per-node web terminal, querying the cluster it is running on](screenshots/terminal.png)
+
+**Copy files onto a node.** Drag a file or folder from your desktop onto a node; DBCanvas asks
+which directory to copy it into.
+
+![Dropping a file on a node — DBCanvas asks which directory to copy it into](screenshots/file-drop.png)
+
+**File manager.** Right-click a running node and choose **File manager** to browse, upload,
+download, create, rename, change permissions, delete and edit files. **Split** opens a second
+pane on another node for copying between them.
+
+![The File Manager browsing a node's filesystem](screenshots/file-manager.png)
+
+**Reach a node from your own machine.** When `CONTAINER_BIND_IP` keeps published ports on the
+server's loopback, set `SSH_FORWARDING_HOST` in `.env` to the server's SSH address (`10.0.0.7` or
+`10.0.0.7:2222`). Right-clicking a running node then offers **Copy SSH tunnel command**, an
+`ssh -L` line forwarding every port the node publishes:
+
+```
+ssh -L 8443:127.0.0.1:8443 -L 8080:127.0.0.1:8080 dbuser@10.0.0.7 -p 22
+```
+
+Without `user@` in the setting, the login is your DBCanvas user name. Ports are read when you
+click, since they change when a container restarts.
+
+**Add DNS records.** The Intranet's **DNS** tab adds custom **A** (including wildcards such as
+`*.apps`), **CNAME** and **PTR** records. A custom record replaces the automatic one with the
+same name or address, survives redeploys, and is removed with the stack. Each has a copyable
+`dig` command.
+
+**Diagnostics captures.** From a running node's **Diagnostics** tab, capture and download
+**pg_gather** (`GatherReport.html`) on PostgreSQL, **pt-stalk** with `pt-summary` and
+`pt-mysql-summary` on MySQL/PXC, or a **pt-k8s-debug-collector** dump on a K3D server node. Open
+a pt-stalk archive in [Stalk Summary](STALK_SUMMARY.md) and a cluster dump in
+[Operator Summary](OPERATOR_SUMMARY.md).
 
 ## Templates — save a topology, deploy it again
 
-A **template** is a canvas design detached from any one stack: the nodes, the clusters, the
-links and every option set on them, reusable as the starting point for the next stack.
+A **template** is a saved canvas design — nodes, clusters, links and options — that you can reuse.
 
-**The built-in defaults.** Fourteen ship with the app, covering the engine families:
+**Built-in templates:**
 
 | Category | Template |
 | --- | --- |
-| Getting started | Starter — Percona Server (one node plus a desktop to reach it from) |
+| Getting started | Starter — Percona Server |
 | MySQL | PXC + ProxySQL + PMM · Percona Server replication + Orchestrator · InnoDB Cluster |
 | PostgreSQL | Patroni + HAProxy · PostgreSQL + pgBackRest · PostgreSQL + pgvector + Support Sim |
 | MongoDB | PSMDB replica set + PBM · PSMDB Vector Search + Support Sim · PSMDB sharded cluster |
 | Valkey | Valkey Cluster |
-| Kubernetes | Percona Operator for MySQL (PXC) on k3s · PXC operator, two clusters replicating |
-| All in One | Four engines in one container |
+| Kubernetes | Kubernetes — Percona Operator for MySQL (PXC) · Kubernetes — PXC operator, two clusters replicating |
+| All in One | All-in-One playground |
 
-None of them pins a minor version — they take whatever this installation's `make versions`
-found — so they deploy on any host regardless of which builds it probed.
+They do not pin minor versions, so they deploy with whatever this installation's catalog offers.
+Built-in templates can be applied and exported but not edited or deleted.
 
-**Two ways to apply one.** From the stack list, **New stack** offers a *Start from* picker
-that seeds the whole design. From inside the designer, **Insert template** merges one into
-what is already on the canvas — which means resolving the collisions a merge creates:
+**Use a template:**
+- **New stack → Start from** seeds a new stack.
+- **Insert template** in the designer merges one into the current canvas. Ids are renewed,
+  one-per-stack nodes (Intranet, Keycloak, VNC…) are not duplicated, clashing labels get a
+  suffix (`pxc-1` → `pxc-1-2`), and the block is placed clear of existing nodes. Any change is
+  reported.
 
-- Every node and cluster gets a fresh id, and every reference to it follows — the PMM node a
-  cluster is monitored by, the SeaweedFS node a backup targets, the frame a member belongs to.
-- A node the stack may only have one of (the Intranet, Keycloak, the VNC desktop) is **not
-  duplicated** — the template's copy is dropped and anything pointing at it is redirected to
-  the one already there.
-- Labels become DNS hostnames and must be unique, so a colliding one is numbered: a second
-  `pxc-1` arrives as `pxc-1-2`.
-- The block is placed clear of existing nodes rather than on top of them.
+**Save a template:** **Save as template** in the designer toolbar. Passwords and secrets, host
+paths and fixed host ports are not saved; they fall back to this installation's `.env` and
+auto-assigned ports.
 
-Whatever it had to change is reported when the insert lands, so a rename never surfaces later
-as a deploy error nobody can trace.
-
-**Saving one.** **Save as template** in the designer's toolbar captures the open canvas.
-Three classes of field are deliberately *not* saved, because a template is meant to be reused,
-exported and shared:
-
-- **Passwords and generated secrets** — root and admin passwords, the VNC password, SeaweedFS
-  S3 keys, a Stock Market Sim connection string. Every one of them already falls back to
-  `.env`, so the template picks up this installation's values each time it is used.
-- **Host paths** — the core-dump and library directories a Linux Client bind-mounts, and any
-  pinned block device. They name something about one machine.
-- **Fixed host ports** — reset to auto-assign, so instantiating one template twice on a host
-  does not collide on the second deploy.
-
-**Sharing and portability.** A template you save is yours alone. An **admin** can publish one
-instance-wide, and it then appears in everyone's picker alongside the built-ins. Any template —
-including a built-in — can be **exported** to a `.json` file and **imported** into another
-DBCanvas installation, so a topology can be checked into git or handed to a colleague. The
-design is sanitized again on import, since a file from elsewhere is not to be trusted.
-
-Built-in templates can be applied and exported but never renamed, edited or deleted.
+**Share:** a saved template is private. An admin can publish one to everyone. Any template can be
+**exported** to `.json` and **imported** into another installation.
 
 ## Deployment backends — Docker or Vagrant (hybrid)
 
-Each user picks a **Deployment** backend in **Settings**; it applies to the *next* deploy of
-each stack:
+Pick a **Deployment** backend in **Settings**. It applies to a stack's first deploy and is then
+fixed for that stack; to try the other backend, create a new stack.
 
 | Backend | What it provisions |
 | --- | --- |
-| **Docker** (default) | Every node is a Docker container on the local daemon. |
-| **Vagrant (hybrid)** | OS/database nodes become real **VirtualBox VMs**; everything else stays a Docker container **in the same stack**. |
+| **Docker** (default) | Every node is a Docker container. |
+| **Vagrant (hybrid)** | Database nodes become VirtualBox VMs; everything else stays a container in the same stack. |
 
-**Vagrant is hybrid-only by design — there is no all-VM mode.** Only the node types that are
-really *a machine running a database* are worth the cost of a VM; the rest are upstream images
-or depend on Docker itself:
-
-| Runs as a **VirtualBox VM** | Stays a **Docker container** |
+| VirtualBox VM | Docker container |
 | --- | --- |
-| Percona Server · PostgreSQL · PSMDB (standalone) | **Intranet** — its bind config forwards to Docker's embedded resolver (`127.0.0.11`), which only exists inside a container |
-| PXC · MySQL replication · InnoDB/GR · PSMDB replica set & sharded · Patroni · repmgr · Spock · Valkey cluster · ProxySQL cluster | **K3D** — k3s-in-Docker by definition |
-| Valkey · ProxySQL · HAProxy | Image-only infra: PMM, Keycloak, OpenBao, SeaweedFS, Samba AD, Ubuntu VNC, Watchtower |
+| Percona Server, PostgreSQL, PSMDB, Valkey, ProxySQL, HAProxy, PgBouncer, Linux Client (not Debian) | Intranet, K3D, PMM, Keycloak, OpenBao, SeaweedFS, Samba AD, Ubuntu VNC, Watchtower, and the other types |
+| PXC, PS Replication, InnoDB / GR, PSMDB Replica Set and Sharded, Patroni, repmgr, Spock, Valkey Cluster, ProxySQL Cluster | |
 
-Nothing is rejected: the deploy routes each node to the engine that supports it, and DBCanvas
-joins the two networks on the host (iptables + routes) so a VM database still resolves the
-Intranet's DNS, trusts its CA, gets scraped by PMM, and reaches SeaweedFS by name.
+VMs and containers share DNS, the CA, PMM and SeaweedFS. Each VM-capable node has **CPUs** and
+**Memory (GiB)**: VM size on Vagrant (blank → `DBCANVAS_VM_CPUS` / `DBCANVAS_VM_MEMORY`), container
+limits on Docker (blank → unlimited).
 
-Each of these node types carries its own **CPUs** and **Memory (GiB)** in its properties, on
-either backend: on Vagrant they size the VirtualBox VM (blank → the `DBCANVAS_VM_CPUS`/
-`DBCANVAS_VM_MEMORY` defaults below), and on Docker they become the container's `--cpus` and
-`--memory` limits (blank → unlimited, the daemon default).
-
-Two things to know before you switch:
-
-- **The backend is pinned per stack on its first deploy** and never changes for that stack's
-  life — redeploys, management and teardown all stay on the engine the stack was built with.
-  To try the other backend, create a **new stack**.
-- **The app must run on the host for hybrid** (next section). If you select *Vagrant (hybrid)*
-  while DBCanvas is running in its container — or on a host without `vagrant`/`VBoxManage` —
-  the deploy silently falls back to Docker.
+Hybrid needs DBCanvas running directly on the host with `vagrant` and `VBoxManage`; otherwise the
+deploy falls back to Docker. See
+[Configuration](CONFIGURATION.md#a-hybrid-stack-deployed-everything-as-containers).
 
 ## Around the stacks
 
 ### Dashboard
-Scope-aware overview: an **admin** sees everything, a regular user sees only their own
-stacks. Counters (stacks, nodes, containers, by engine/type, users) plus **live OS stats**
-(CPU, memory, and per-node network/disk rates as ranked bar charts). The live sampling is
-**focus-gated** — it polls only while the dashboard tab is visible and focused, so there's
-no background CPU/disk cost when you're not looking.
+An overview of stacks, nodes, containers and users (admins see everything; users see their own),
+plus live CPU, memory, network and disk charts. It samples only while visible.
 
 ![The live Dashboard](screenshots/dashboard.png)
 
 ### Scratchboard
+Boards of cards for notes, conversions and reading pasted output. Paste or drop text on a board
+and it suggests the card that reads it; right-click to add any card; select text in a card to open
+it in another.
 
-Canvases for notes, conversions and reading what you paste. Paste or drop text on the board and it
-suggests the card that reads it; right-click the board to add any card where you click; select text
-inside a card and the same suggestions open it in another card.
-
-**Boards.** Keep as many boards as you like, one tab each: **+** adds one, double-click a tab to
-rename it, **×** removes it (a second click confirms when it has cards). "Send to Scratchboard"
-lands on the board that is open.
-
-**Colours.** The palette on a card's title bar sets its background colour and its font colour. A
-background colour alone picks a readable font colour for itself.
-
-**Working on a board.**
-- **Size:** a card, and every text box in it, grows with its content until you resize the card
-  by hand; double-click the resize corner to fit it to its content again. Double-click a title bar
-  to collapse the card to it.
-- **Arrows:** a card opened from another (a selection, "open in a new card") is joined to it by an
-  arrow. Drag the dot on a card's right edge onto another card to draw one; click an arrow to
-  remove it.
-- **Undo:** closing a card (× or Delete), clearing or removing a board, and removing an arrow can
-  be undone with **Undo** or Ctrl/⌘+Z.
-- **Search:** finds text on every card of every board; pick a result to jump to its card.
-- **Board → Export / Import:** a board as a `.json` file, every card's content included, Secrets
-  too. Importing the file, or dropping it on the board, opens it as a new temporary board.
-  **Download as Markdown** and **Copy as Markdown** give the board's text for notes.
+- **Boards:** **+** adds one, double-click a tab to rename, **×** removes. "Send to Scratchboard"
+  lands on the open board.
+- **Cards:** grow with content until resized; double-click a title bar to collapse; the palette
+  sets colours.
+- **Arrows:** drag the dot on a card's right edge onto another card; click an arrow to remove it.
+- **Undo** (Ctrl/⌘+Z) restores a closed card, cleared board or removed arrow.
+- **Search** finds text on every board.
+- **Board → Export / Import** saves a board as `.json` (Secrets included). **Download as
+  Markdown** and **Copy as Markdown** give its text.
 
 | Card | What it does |
 | --- | --- |
-| **Quick Note** | Text with a Markdown preview. |
-| **Checklist** | Steps to tick off. |
-| **Transformer** | JSON pretty-print, minify and sort keys; JSON ↔ YAML; Base64 and URL encoding, both ways. |
-| **TLS Inspector** | A PEM bundle, a CSR or a Kubernetes TLS Secret. It shows subject, issuer, SANs, usages, dates and keys, a plain-English summary, and the same checks as the K3D **Certificates** tab: dates, the chain to `ca.crt`, the strict `openssl verify -CAfile` check PXC's SST runs, and whether the private key matches. It can also check whether a host name is covered by the certificate. |
-| **Text Diff** | Side by side or inline, optionally comparing JSON or YAML by meaning, so key order and formatting are ignored. |
-| **Certificate Compare** | Two certificates side by side, with every field that differs highlighted. |
-| **Secret decoder** | Every key of a Secret decoded, masked until shown; certificates open in the TLS Inspector. |
-| **GTID sets** | Union, A − B and B − A (errant transactions on a replica), containment, counts. |
-| **Log time** | Epoch (s, ms, µs, ns), ISO 8601, MySQL, PostgreSQL and mongod `$date` timestamps in each other's forms, in any time zone, and the time between two. |
-| **Database units** | Byte sizes both ways in decimal units (1 KB = 1,000 B) and binary units (1 KiB = 1,024 B) side by side; `my.cnf` K/M/G suffixes, which MySQL reads as binary; InnoDB and PostgreSQL page counts; durations. |
-| **MongoDB values** | An ObjectId's creation time, and what `$date`, `$timestamp`, `$numberLong`, `$binary` and the other Extended JSON wrappers hold. |
-| **Connection URI** | A MySQL, PostgreSQL or MongoDB URI (or a libpq `key=value` string) split into parts, with the password masked, and what its TLS settings make the client do. |
-| **Log filter** | Keep or drop lines by text or `/regex/`, and collapse repeats that differ only in numbers, ids and quoted values. |
-| **Query digest** | A MySQL slow log (or queries ending in `;`) read the way pt-query-digest 3.x reads it, with the same results: each query's fingerprint, its Query ID (MD5 of the fingerprint), the Item (verbs and tables), and the profile ranked by total response time with Calls, R/Call and V/M. Click a query for its example and its time, lock and row statistics; the profile or the full report can be copied as pt-query-digest text. |
-| **Redactor** | Masks IPv4 and IPv6 addresses, host names, e-mail addresses, user names, MAC addresses, optionally UUIDs (GTID ranges kept), extra words, and passwords and secrets: URI passwords, `password=`, `-p…`, `IDENTIFIED BY`, YAML and JSON keys, Authorization headers, AWS keys, JWTs, PEM private keys and Kubernetes Secret `data:`. The same value always gets the same replacement, and each replacement keeps its shape (an address stays an address). Counts per kind, and a mapping table whose originals stay masked until **Show originals**. |
-| **JWT / OIDC decoder** | A token's header and claims, with `exp`, `nbf`, `iat` and `auth_time` in UTC and relative to now, and Keycloak's realm and client roles. It verifies the signature against a pasted JWKS (the key is chosen by `kid`), JWK, PEM public key or certificate, or HMAC secret: RS, PS, ES and HS at 256/384/512, and EdDSA (Ed25519). It flags expired, not yet valid, `alg none`, a missing `exp` and a missing `aud`. An encrypted token (JWE) has only its header read. The JWKS is pasted, never fetched. |
-| **Replication status** | MySQL `SHOW REPLICA STATUS\G` / `SHOW SLAVE STATUS\G` (every channel, vertical or table form), MongoDB `rs.status()` (as mongosh prints it, or as JSON), and PostgreSQL `pg_stat_replication` / `pg_stat_wal_receiver` (psql aligned or `\x`) read into a verdict per channel, member or standby: running or not, lag in seconds and bytes, the last IO/SQL error with what its number usually means, source host, TLS, auto-position, the primary and each member's state, health, sync source and heartbeat message, and sync state; problems listed worst first. For MySQL it works out the GTIDs retrieved but not yet executed and opens Retrieved and Executed in the **GTID sets** card. |
-| **Config compare** | Two configurations compared by meaning: `my.cnf` (by option group; `-` = `_`, `loose-`, `skip-`/`disable-`/`enable-`, K/M/G as binary), `SHOW VARIABLES`, `postgresql.conf` and `pg_settings` (PostgreSQL's own units, such as 8kB pages, MB and min), and `mongod.conf` (dotted keys). Rows are different, only in A, only in B, or the same but written differently (`1G` and `1073741824`), plus options set more than once and which line wins, so a file can be checked against a running server. Open both texts in **Text Diff** with one click. |
-| **EXPLAIN reader** | A MySQL EXPLAIN (table, `\G`, `FORMAT=JSON` including `explain_json_format_version=2`, `FORMAT=TREE`, `EXPLAIN ANALYZE`) or a PostgreSQL EXPLAIN (text as psql prints it, `ANALYZE`/`BUFFERS`, `FORMAT JSON`) as an indented tree: node, table, index, estimated vs actual rows, loops, cost, time and conditions. Findings point at their node: full scans, `Using filesort`, `Using temporary`, join buffers, `possible_keys` with no key used, estimates off by 10× or more, nested-loop inner sides run 1,000+ times, filters that discard most rows, sorts on disk and multi-batch hashes. |
-| **InnoDB status reader** | `SHOW ENGINE INNODB STATUS` (with or without the `\G` rows, or as one `\n`-escaped line), MySQL 5.7 and 8.0: the latest deadlock per transaction (thread, query, locks held and waited for, table, index, lock mode, which one was rolled back), semaphore waits, history list length and the oldest active transactions, buffer pool hit rate and pages, LSN and checkpoint age, row operations. A deadlock pasted from the error log also reads. |
+| **Quick Note** | Text with Markdown preview |
+| **Checklist** | Steps to tick off |
+| **Transformer** | JSON pretty-print, minify, sort keys; JSON ↔ YAML; Base64 and URL encoding |
+| **TLS Inspector** | A PEM bundle, CSR or Kubernetes TLS Secret: fields, plain-English summary, chain and key checks, host-name coverage |
+| **Text Diff** | Side by side or inline; optionally JSON/YAML by meaning |
+| **Certificate Compare** | Two certificates with differences highlighted |
+| **Secret decoder** | Every key of a Secret decoded, masked until shown |
+| **GTID sets** | Union, differences (errant transactions), containment, counts |
+| **Log time** | Epoch, ISO 8601, MySQL, PostgreSQL and mongod timestamps converted, in any time zone |
+| **Database units** | Decimal and binary byte sizes, `my.cnf` suffixes, page counts, durations |
+| **MongoDB values** | ObjectId creation time and Extended JSON wrappers |
+| **Connection URI** | A MySQL, PostgreSQL or MongoDB URI (or libpq string) split into parts, password masked, TLS behaviour explained |
+| **Log filter** | Keep or drop lines by text or `/regex/`; collapse near-duplicate lines |
+| **Query digest** | A MySQL slow log summarized as pt-query-digest 3.x does |
+| **Redactor** | Masks addresses, host names, e-mails, user names, secrets and more, consistently; a mapping table shows originals on demand |
+| **JWT / OIDC decoder** | Header and claims with times, Keycloak roles, signature check against a pasted key, and warnings |
+| **Replication status** | MySQL `SHOW REPLICA STATUS`, MongoDB `rs.status()` and PostgreSQL replication views read into a verdict per channel or member |
+| **Config compare** | Two `my.cnf`, `SHOW VARIABLES`, `postgresql.conf`, `pg_settings` or `mongod.conf` compared by meaning |
+| **EXPLAIN reader** | MySQL or PostgreSQL EXPLAIN as a tree with findings |
+| **InnoDB status reader** | `SHOW ENGINE INNODB STATUS`: deadlocks, semaphores, history list, buffer pool, LSN |
 
-**Send to Scratchboard.** Several panels send content straight to the board:
-- **K3D Certificates tab:** a Secret's certificates go to a TLS Inspector. These are public
-  certificates only, never `tls.key`.
-- **Secrets & configs:** any value.
-- **cr.yaml form:** the spec, including pending changes, goes to a Transformer.
-- **Log Summary:** the source lines around an event go to a Log filter.
+**Send to Scratchboard** is available from the K3D **Certificates** tab (certificates only, never
+`tls.key`), **Secrets & configs**, the **cr.yaml** form, and Log Summary.
 
-**Temporary by default.** Closing the window or reloading the browser drops every board that is
-not kept; minimizing keeps them.
-- **Keeping boards:** off by default. With **Settings → Scratchboard → Allow keeping boards**, the
-  pin on a board's tab keeps that board: it is saved to your account, encrypted with the
-  installation's key, in the DBCanvas SQLite database on the `app-data` volume (`/data/dbcanvas.db`),
-  never in the image. Unpinning a board deletes its saved copy; unpinned boards stay temporary.
-  Switching the setting back off deletes every board you kept. If a kept board was saved from
-  another tab or browser since this one loaded it, the save is refused and the board asks which
-  version to keep, rather than overwriting either.
-- **No browser storage:** card content is never written to browser storage.
-- **Stays in the browser:** nothing but a kept board is sent to the DBCanvas server. Every card,
-  certificate checks included, runs in the page, using the browser's own WebCrypto for
-  signatures.
-- **In-memory hand-over:** "Send to Scratchboard" passes content in memory.
-- **Shared sessions:** cards are hidden from guests by default. The eye on a card shows that one
-  card to them.
-- **Recordings:** a session recording is a video of the tab and cannot hide anything, so the board
-  says so while one is running.
-
-This is about what DBCanvas keeps. Text you copy stays on the clipboard, and a file you download
-is yours to delete.
+**Privacy.** Boards are temporary: closing or reloading the browser drops them. With **Settings →
+Scratchboard → Allow keeping boards**, the pin on a tab saves that board to your account,
+encrypted, on the DBCanvas server; turning the setting off deletes kept boards. Card content is
+never written to browser storage, and every card runs in the browser. In a shared session cards
+are hidden from guests unless you click the eye on a card.
 
 ### Notifications
-A live bell (Server-Sent Events) that surfaces what happens across your stacks: node
-deployment failures, data-generation completed/failed, stacks destroyed or **expiring soon**
-(TTL), backups completed, high resource usage, and (for admins) new accounts awaiting
-approval.
+The bell shows node deployment failures, data generation results, stacks destroyed or **expiring
+soon**, completed backups, high resource usage, and (for admins) accounts awaiting approval.
 
 ### The desktop
 ![The DBCanvas desktop: a stack on the canvas in a window, the stack's nodes in a folder window, the stacks down the right, and the taskbar](screenshots/desktop.png)
 
-DBCanvas opens as a **desktop**. Every page — Database Stacks, Database Explorer, Query
-Runner, the summaries, Settings — opens in its own window over a desktop that has an icon
-for each page (double-click one to open it). The **Start** button at the left of the
-taskbar lists every page, grouped (Workspace, Data and queries, Diagnose, Learn, System),
-with a search box: type a few letters and press Enter. Right-click a page in the Start
-menu, or its icon, to open **another window** of it — two benchmarks side by side. ⌘K
-still finds a page from anywhere.
+DBCanvas opens as a desktop. Every page opens in its own window; double-click a desktop icon to
+open one. The **Menu** button at the left of the taskbar lists every page in groups (Workspace,
+Data and queries, Diagnose, Learn, System) with a search box. Right-click a page in the Menu, or
+its icon, to open another window of it. ⌘K finds a page from anywhere.
 
-The window in front is the page the top bar is about: its title, its **Refresh**, and
-the address (`#benchmark`), which still opens that page on a reload. Close the last window
-and you are back at the bare desktop. A minimized page stays open — it keeps its filters
-and its view — and stops polling until it is back on screen, as a hidden tab does. How
-many pages may be open at once is still **Settings → Tabs**.
+The front window sets the top bar's title, **Refresh** and address (`#benchmark`). A minimized
+page keeps its state and stops polling. **Settings → Tabs** limits how many pages can be open.
 
-Your **stacks** are icons down the right of the desktop, each with a dot for its state
-(green deployed, grey draft, red expired). Double-click one for a **folder** of its nodes:
-an icon per node, grouped by cluster, lit by what its container is doing. Double-click a
-node for the obvious thing — its web UI if it has one, else its root console — or
-right-click it for its console (PMM's root and pmm consoles), each web UI in a new tab or
-in the stack's VNC Browser, and **Open in Database Stacks**, which opens the stack on the
-canvas. The taskbar's right end shows how many nodes are running (and how many are
-starting or failed), who drives a shared session and how long it has left, and the time.
+Your **stacks** are icons down the right, each with a state dot (green deployed, grey draft, red
+expired). Double-click one for a folder of its nodes, grouped by cluster. Double-click a node to
+open its web UI or root console; right-click for consoles, web UIs (in a new tab or the stack's
+VNC browser) and **Open in Database Stacks**. The taskbar's right end shows running, starting
+and failed node counts, the shared-session driver and time left, and the clock.
 
-Prefer the old layout? **Appearance → Layout → Classic** brings back the sidebar and the
-tab strip, in this browser; **Desktop** returns to the desktop.
+To use the sidebar and tab strip instead, choose **Layout → Classic** in the Appearance menu (the
+sun icon in the top bar); **Desktop** switches back. This is saved per browser.
 
 ### Windows and the taskbar
-Pages, terminals you detach from the dock (or open undocked), browser windows on node web
-UIs and the file managers all open as **windows**, and they all behave alike. Each one moves by its title bar and resizes from any edge or corner; double-click
-the title bar (or press its maximize button) to fill the screen. Drag a window to the left
-or right edge for half the screen, into a corner for a quarter, or to the top edge to
-maximize — an outline shows where it will land — and drag it away to get its size back.
-The window you touch comes to the front, and windows always stay below dialogs and menus.
+Pages, undocked terminals, node web UIs and file managers open as **windows**. Drag the title bar
+to move; drag any edge or corner to resize; double-click the title bar to maximize. Drag to the
+left or right edge to snap to half the screen, to a corner for a quarter, or to the top to
+maximize. Right-click a title bar for Maximize, Minimize, Snap left, Snap right and Close (and Dock
+for a terminal).
 
-The **taskbar** runs along the bottom: **Start**, a button for each window (click to bring
-it forward, again to minimize it), the terminal dock's toggle, the session panel when it is
-hidden, and **Tile**, **Cascade** and **Show desktop** (minimize everything). Right-click
-the desktop for the same arrangements. Windows keep clear of the top bar and of the shared
-session panel. A minimized
-window keeps running — a terminal stays connected and a page stays loaded. Right-click a
-title bar for Maximize, Minimize, Snap left, Snap right and Close (and Dock, for a terminal).
+The **taskbar** has **Menu**, a button per window (click to raise, again to minimize), the
+terminal dock toggle, the session panel when hidden, and **Tile**, **Cascade** and **Show
+desktop**. Right-click the desktop for **Tile windows** and **Cascade windows**. Minimized windows
+keep running.
 
 ### Settings
-Per-user preferences, stored on the **account** rather than the browser, so they follow you to
-another machine: whether a node console opens **docked** (a tab in the bottom terminal dock, the
-default) or **undocked** (its own floating window), your **deployment backend**
-([Docker or Vagrant hybrid](#deployment-backends--docker-or-vagrant-hybrid)), how many **tabs**
-the main window will hold open at once (20 by default, 2–40 — a memory budget, since every open
-tab is a live page), and the two halves
-of the appearance — your **theme** (light, dark, midnight, solarized, synthwave, forest) and your
-**look** (modern, industrial, editorial, soft).
+Per-user preferences, saved to your account:
 
-A theme is the colour; a look is everything else about the feel — the typeface, the size it is all
-set at, corner radius, border weight, elevation, and the chrome on cards, buttons and tables. They
-are chosen independently, so every look works in every theme:
-
-| Look | What it is |
+| Setting | Choices |
 | --- | --- |
-| **Modern** | The default. A neutral sans, rounded cards, soft shadows, comfortable rows. |
-| **Industrial** | An instrument panel. Mono upper-case headings, buttons and inputs, square corners, flat surfaces, card title bars, zebra-striped tables, and the smallest and tightest rows — the most data per screen. |
-| **Editorial** | A printed report. A book serif throughout with sans controls, hairline rules, a double rule under each card title, generous whitespace, set largest. |
-| **Soft** | A rounded humanist face, with buttons, inputs and badges as full pills, borders faded back and elevation doing the layering. |
+| Terminal | Docked (default) or undocked |
+| Deployment | [Docker or Vagrant hybrid](#deployment-backends--docker-or-vagrant-hybrid) |
+| Tabs | How many pages can be open at once; 2–40, default 20 |
+| Adding nodes | Canvas menu or docked library |
+| Theme | Light, Dark, Midnight, Solarized, Synthwave, Forest |
+| Look | Modern (default), Industrial (dense, monospace headings), Editorial (serif, spacious), Soft (rounded pills) |
 
-Either can be switched from the sun icon in the top bar as well as from Settings; each option
-there is previewed in the look it offers. Every typeface is a system face — a lab with no route
-out to a font CDN gets the same looks as one with.
+Theme, Layout and Look can also be changed from the Appearance menu in the top bar. All
+typefaces are system fonts, so nothing is downloaded.
 
 ### Manage Users (admin)
-Registration is approval-gated by default: admins approve, reject, disable, re-approve, and
-delete accounts. **Settings → Registration** can open it, so that an account somebody
-registers is approved as it is created and they are signed in at once, with the user role.
-Accounts already pending stay pending, and administrators are notified of each new account
-either way.
+Registration needs admin approval by default: admins approve, reject, disable, re-approve and
+delete accounts. **Settings → Registration** can let new accounts in immediately with the user
+role; admins are notified either way.
 
-Deleting an account deletes its stacks and the containers they deployed. Over the API, an
-account's stacks can be handed to another account first, and a single stack can change owner;
-see [the API reference](API_REFERENCE.md#users-admin).
+Deleting an account deletes its stacks and their containers. Over the API you can first move an
+account's stacks to another owner; see [the API reference](API_REFERENCE.md#users-admin).
 
-**Locked out?** The image ships a password-reset tool, because the runtime is distroless —
-no shell, no `sqlite3` — and the database lives on a volume only that container mounts:
+**Locked out?** Reset an admin password from the host:
 
 ```bash
 docker exec -it dbcanvas-app-1 dbcanvas_reset_password
 ```
 
-It prompts for a new password and a confirmation (echo off), names the admin it is about to
-change, and signs out that account's existing sessions. With more than one admin, name one
-with `-user`.
+It prompts for the new password, names the admin it changes, and signs that account out
+everywhere. With more than one admin, add `-user <name>`.
 
 ---
 

@@ -1,13 +1,12 @@
 # Getting started
 
-Everything from an empty machine to a running cluster you can connect to, in order.
-If you have already installed DBCanvas, skip to [Your first stack](#your-first-stack).
+From an empty machine to a running cluster you can connect to. Already installed? Skip to
+[Your first stack](#your-first-stack).
 
 > [!IMPORTANT]
-> **DBCanvas is for previewing features, testing and learning — not for production.** It deploys
-> disposable lab infrastructure: credentials come from a `.env` file with working defaults,
-> nothing is hardened, and a stack is meant to be torn down. Do not deploy production
-> infrastructure with it, and do not put data you care about on it.
+> **DBCanvas is for previewing features, testing and learning — not for production.** It
+> deploys disposable lab infrastructure with default credentials from a `.env` file. Nothing is
+> hardened. Do not deploy production infrastructure with it or keep data you care about on it.
 
 - [Install](#install)
 - [Create the admin account](#create-the-admin-account)
@@ -26,310 +25,220 @@ If you have already installed DBCanvas, skip to [Your first stack](#your-first-s
 
 ## Install
 
-You need **Docker**, and DBCanvas needs access to its daemon socket — it drives the daemon
-to create your stacks. That is a privileged capability, so run it somewhere you trust.
+You need **Docker**. DBCanvas uses the Docker daemon's socket to create your stacks, which is a
+privileged capability — run it on a machine you trust.
 
 ```sh
 git clone https://github.com/jaimesicam/dbcanvas.git && cd dbcanvas
 make install
 ```
 
-`make install` does two things: builds the node images — the operating-system bases and
-everything layered on them, from the Intranet to the demo applications — and starts DBCanvas at
-**http://localhost:8080**. The version pickers are filled from the catalog that ships with the
-repo (`versions.yaml`), so they work from the first page load.
-
-**The first run takes a while** — it is building operating-system images with systemd in
-them, then the images on top. Later runs are just `make compose`, which is quick. An image
-that fails to build does not stop the install: it is reported, DBCanvas starts anyway, and
-the node types that need it say so when you validate a stack.
-
-What the install deliberately does *not* do is re-probe every package repository for version
-lists. That is `make versions`, it takes hours, and nothing in the install overwrites what it
-produced — run it when you want versions released since the catalog was last built.
+`make install` builds the node images and starts DBCanvas at **http://localhost:8080**. The
+first run takes a while. An image that fails to build does not stop the install; the node types
+that need it say so when you validate a stack.
 
 | Command | What it does |
 | --- | --- |
-| `make install` | Full first-time setup: every image, then start. |
+| `make install` | First-time setup: every image, then start. |
 | `make compose` | Rebuild the app and start it. The everyday command. |
 | `make up` / `make down` | Start / stop without rebuilding. |
 | `make logs` | Follow the application log. |
-| `make versions` | Re-probe the repositories for new database versions. Slow (hours) and optional — not part of `make install`. Restart DBCanvas afterwards (`make restart`), or the version pickers go empty. |
-| `make extra-images` | Rebuild the optional images (VNC, tool and demo images) on their own. |
+| `make versions` | Refresh the version pickers with newly released versions. Optional and slow (hours). Run `make restart` afterwards. |
 
-Every setting has a working default. **Before exposing DBCanvas beyond your own machine,
-change the passwords in `.env`** — see [Configuration](CONFIGURATION.md).
+Every setting has a working default. **Before exposing DBCanvas beyond your own machine, change
+the passwords in `.env`** — see [Configuration](CONFIGURATION.md).
 
 ## Create the admin account
 
-Open http://localhost:8080. The first time, you are asked to create an account — and
-because it is the first, **it becomes the administrator automatically**.
+Open http://localhost:8080. The first account you create **becomes the administrator**.
 
-Anyone who signs up afterwards is created as a *pending* user and cannot log in until an
-admin approves them under **Manage Users**. That is deliberate: an instance of DBCanvas can
-create containers on the host, so accounts are not self-serve.
+By default, later sign-ups wait until an administrator approves them under **Manage Users**
+(**Settings → Registration** changes this).
 
-> Lost the admin password? The app image ships a reset tool — see
-> [Recovering an admin password](CONFIGURATION.md#recovering-an-admin-password).
+Lost the admin password? See
+[Recovering an admin password](CONFIGURATION.md#recovering-an-admin-password).
 
 ## Where things are
 
-The sidebar is grouped by what you are trying to do.
+Every page opens from the **Menu** button on the taskbar, or by double-clicking its desktop
+icon. (Prefer a sidebar and tabs? Open **Appearance**, the sun icon at the top right, and choose
+**Layout → Classic**.)
 
-| | |
+| Section | Pages |
 | --- | --- |
-| **Dashboard** | What is running right now — containers, CPU, memory, recent activity. |
-| **Database Stacks** | Where you design, deploy and operate everything. This is the main screen. |
-| **Data Generator**, **Query Runner**, **Benchmark** | Put data and load on what you built. |
-| **Packet Inspector**, **Log Summary**, **Stalk Summary**, **FTDC Summary** | Find out what happened. |
-| **Kubernetes States** | Watch a Kubernetes cluster live — what is broken, and what just changed. |
-| **Operator Debugger**, **Core Dump Analyzer**, **Operator Summary** | The deep end — step through a Kubernetes operator, read a crashed server's core dump, or distil a `pt-k8s-debug-collector` cluster-dump. |
-| **Settings**, **Manage Users** | Your preferences; and, for admins, who may sign in. |
+| **Workspace** | **Dashboard** (what is running), **Database Stacks** (design, deploy and operate stacks — the main page), **Kanban** |
+| **Data and queries** | **Data Generator**, **Database Explorer**, **Query Runner**, **Benchmark**, **Sample Client Code** |
+| **Diagnose** | **Packet Inspector**, **Operator Debugger**, **Core Dump Analyzer**, **Stalk Summary**, **Log Summary**, **FTDC Summary**, **Operator Summary**, **Kubernetes States** |
+| **System** | **Profile**, **API**, **Settings**, and for administrators **Manage Users** |
 
-**Pages open as tabs.** Clicking a sidebar entry moves you to that page if it is already
-open, and opens it if it is not — so you never end up with two Dashboards by accident.
-**Right-click** a sidebar entry to open *another* tab of the same page: three benchmarks
-running side by side, or two stacks open at once. A tab keeps its scroll position, its
-filters and whatever it was in the middle of, because switching away hides it rather than
-throwing it away — and a hidden tab stops polling, so an open one you are not looking at
-costs nothing. Close a tab with its ✕ or a middle-click; the last one stays. Up to **20** at a time by
-default, adjustable between 2 and 40 in **Settings → Tabs** — it is a memory limit rather
-than a preference, because an open tab is a live page. The strip wraps onto further rows rather
-than scrolling sideways, so every open tab is visible at a glance — a tab you cannot see is
-one you forget is running something. Near the limit it starts counting (`18/20 tabs`), and at
-it a page simply does not open: the window says so and tells you where the number lives,
-rather than closing a tab of yours that might be running a benchmark.
-
-**Anything with a small `?` next to it explains itself.** Hover it — or tab to it — and
-DBCanvas tells you what the setting is for, what happens if you leave it alone, and when you
-would change it. That is true of every field, every value on a deployed node, every toolbar
-button and every entry in the node library. If you are unsure what something does, the
-answer is on the screen rather than in this document.
-
-Once you know your way around and they are in the way, turn them off: Settings →
-**Tooltips** → *Hidden*, which takes the `?` buttons with them and leaves the short hint
-under each field. It follows your account rather than the browser, like every other
-preference there, and tooltips are shown until you say otherwise. What stays is the
-browser's own label on a button that is only an icon — that is the control's name, not an
-explanation, and an unnamed icon is worse than one you have already learnt.
+- **Choosing a page that is already open switches to it.** Right-click an entry to open another
+  copy — two stacks side by side, say.
+- **Open pages keep their state** (scroll position, filters, running work) while you look
+  elsewhere. Up to 20 can be open at once; change this in **Settings → Tabs** (2–40). At the
+  limit a new page does not open, and nothing is closed for you.
+- **Hover a `?`** next to any field, panel value, toolbar button or library entry for what it is
+  for and when to change it. Turn these off in **Settings → Tooltips → Hidden**.
 
 ## Your first stack
 
-**The fastest route is a template.** Go to **Database Stacks** → **New stack**, give it a
-name, and pick something under **Start from**.
+The fastest route is a template.
+
+1. Go to **Database Stacks** → **New stack**.
+2. Enter a **Name** and pick a template under **Start from**.
+3. Pick a **Lifetime** — the stack is torn down when it elapses. Choose the shortest that covers
+   your work; **Infinity** never expires.
+4. Press **Create**. The topology appears on the canvas, ready to edit.
 
 ![The New stack dialog, with the PXC + ProxySQL + PMM template selected](screenshots/getting-started-new-stack.png)
 
-> *Fourteen templates ship with the app. Picking one describes what it builds and how many
-> nodes it takes before you commit — this one is the reference MySQL HA stack.*
+> *Picking a template shows what it builds and how many nodes it takes.*
 
-**Lifetime** is how long the stack lives before DBCanvas tears it down for you. Lab stacks
-are easy to forget and expensive to leave running, so pick the shortest one that covers what
-you are doing; `Infinity` is there when you genuinely need it.
-
-Press **Create** and the whole topology is on the canvas, ready to edit. Then:
-
-1. **Validate** — checks the design without building anything: missing links, impossible
-   topologies, host ports that clash. Cheap, and worth doing before a long deploy.
-2. **Deploy** — builds it. Nodes come up in dependency order and the console shows each step
-   as it happens.
-3. Watch the node cards turn **running**.
+5. Press **Validate** to check the design without building anything (missing links, impossible
+   topologies, clashing host ports).
+6. Press **Deploy**. Nodes come up in dependency order and the deployment console shows each
+   step.
+7. Wait for the node cards to show **running**.
 
 ![A deployed three-node stack: Intranet, PMM and a Percona Server node, all running](screenshots/getting-started-deployed.png)
 
-> *A deployed stack. Green `running` badges mean the container is up **and** provisioning
-> finished — a node that failed provisioning says `error` instead, and the deployment console
-> has the step that failed.*
+> *`running` means the container is up and provisioning finished. A node that failed shows
+> `error`, and the deployment console shows the failed step.*
 
-A first deploy pulls packages, so it takes minutes rather than seconds. Subsequent deploys of
-the same OS are faster, and faster still if you leave *Use Intranet proxy* on — the second
-and later nodes take their packages from the proxy's cache.
+A first deploy downloads packages, so it takes minutes. Later deploys are faster, especially
+with **Use Intranet proxy** left on, which caches packages.
 
 ## Building one by hand
 
-If you would rather assemble it yourself, the rule is: **the Intranet node goes on first.**
+**Add the Intranet node first.** Other node types stay greyed out until it is on the canvas,
+because it provides DNS, the certificate authority, OpenLDAP, mail and a package proxy for the
+whole stack.
 
-Every other node type in the library is greyed out until it is there, because the Intranet
-provides what the rest of the stack assumes exists — DNS for the stack's hostnames, a
-certificate authority the other nodes trust, OpenLDAP, mail, and the Squid proxy that caches
-package downloads.
-
-Then:
-
-1. **Add nodes** by **right-clicking the canvas** where you want one: the **Infrastructure
-   Library** opens as a menu with the categories at the first level, and what you pick lands
-   at the point you clicked. Hover any entry to see what that node type actually gets you
-   before you add it — or why it is greyed out. (Prefer a browsable column with a search box?
-   Settings → **Adding nodes** → *Docked library*.)
-2. **Connect them** by dragging from one node's port to another's — a database to a PMM
-   server to monitor it, a cluster to a ProxySQL in front of it, a backup tool to a SeaweedFS
-   S3 node.
-3. **Set the options** in the **Properties** panel on the right: the OS and version, whether
-   to publish a port to the host, whether to mint a TLS certificate, which PMM node watches
-   it.
+1. **Add nodes:** right-click the canvas and pick from the **Infrastructure Library** menu; the
+   node lands where you clicked. Hover an entry to see what it provides, or why it is greyed
+   out. (For a searchable column instead: **Settings → Adding nodes → Docked library**.)
+2. **Connect them:** drag from one node's port to another — a database to a PMM server, a
+   cluster to the ProxySQL in front of it, a backup tool to a SeaweedFS S3 node.
+3. **Set options** in the **Properties** panel: OS and version, port export, TLS certificate,
+   monitoring.
 4. **Validate**, then **Deploy**.
 
-Clusters live inside **frames** — a dashed box that owns its members. Add a *PXC Cluster* and
-you get the frame plus its nodes; the frame's own panel sets what is true of the whole
-cluster (its name, version, replication mode), and each member's panel sets what is true of
-just that node.
+Clusters live inside **frames** — a dashed box around the members. The frame's panel sets
+cluster-wide options (name, version, replication mode); each member's panel sets that node's
+options.
 
 ## Operating a running node
 
-Two places do everything.
-
-**Right-click any node** for the actions:
+**Right-click a node** for its actions:
 
 ![The right-click menu on a running node](screenshots/getting-started-node-menu.png)
 
-| Action | What it is for |
+| Action | What it does |
 | --- | --- |
-| **View config / profile** | Everything DBCanvas recorded: image, version, credentials, certificate, and the provisioning steps it ran. |
+| **View config / profile** | Image, version, credentials, certificate and the provisioning steps that ran. |
 | **Enter root console** | A root shell inside the node, in the browser. |
-| **File manager** | Browse the filesystem — upload, download, edit a config in place, change permissions. |
-| **Copy docker exec command** | The same shell, from your own terminal. |
-| **Copy SSH tunnel command** | Only when `SSH_FORWARDING_HOST` is set — see [connecting](#connecting-to-your-databases). |
-| **Stop** / **Restart** / **Start** | Lifecycle. The data survives a stop. |
-| **Delete node** | Removes it from the canvas and tears down its container. The data goes with it. |
+| **File manager** | Browse files — upload, download, edit, change permissions. |
+| **Copy docker exec command** | The command for a shell from your own terminal. |
+| **Copy SSH tunnel command** | Only when `SSH_FORWARDING_HOST` is set — see [Connecting](#connecting-to-your-databases). |
+| **Stop** / **Restart** / **Start** | Lifecycle. Data survives a stop. |
+| **Delete node** | Removes the node and its container, and its data. |
 
-**Click a node** for its panel, which is where the node explains itself:
+**Click a node** to open its panel:
 
 ![A deployed Percona Server node's panel](screenshots/getting-started-node-panel.png)
 
-> *The **Overview** tab: what it actually is, where it is on the network, what monitors it,
-> and the exact image and container it is running in. Every row has a `?` saying what to do
-> with that value.*
+> *The **Overview** tab: what the node is, its network address, what monitors it, and the image
+> and container it runs in.*
 
-The tabs differ by node type — a Percona Server node has **Overview**, **Credentials** and
-**Diagnostics**; a PXC member adds **Certificate**; an Intranet node has LDAP users and mail;
-a SeaweedFS node has a bucket browser. The **Diagnostics** tab is where you capture a
-`pg_gather` report or a `pt-stalk` archive to feed into
-[Stalk Summary](STALK_SUMMARY.md).
+The tabs depend on the node type — for example **Overview**, **Credentials** and
+**Diagnostics** on a database node, LDAP users and mail on the Intranet, a bucket browser on
+SeaweedFS. On database nodes, **Diagnostics** captures a `pg_gather` report or a `pt-stalk`
+archive for [Stalk Summary](STALK_SUMMARY.md).
 
 ## Connecting to your databases
 
-Four ways, roughly in the order you will want them.
+**1. Web terminal.** Right-click → **Enter root console**. The database client is already
+installed. **Settings → Terminal** chooses whether consoles open docked or in their own window.
 
-**1. The web terminal.** Right-click → **Enter root console**. You are root inside the node,
-with its client already installed. Nothing to set up, and it works no matter how the node is
-exposed. Consoles survive navigating away, and **Settings** decides whether they open docked
-at the bottom or in their own window.
+**2. From another node.** Nodes resolve each other by name, so from any shell in the stack
+`mysql -h ps-01.example.net -u root -p` works. The **Ubuntu VNC** node is a desktop with a
+browser that resolves the stack's names and trusts its CA — use it for consoles not published
+to the host, such as PMM or Keycloak.
 
-**2. From another node.** Every node resolves every other node by name, so from any shell in
-the stack, `mysql -h ps-01.example.net -u root -p` just works. The **Ubuntu VNC** desktop node
-is the version of this with a browser in it: it resolves the stack's DNS and trusts the
-Intranet CA, so it is how you open a PMM console or a Keycloak admin console that is not
-published to the host.
+**3. From your machine.** Tick **Export DB port to the host** before deploying. Leave **Host
+port** at `0` to get a free port; the node's panel shows which. Connect to
+`127.0.0.1:<port>`.
 
-**3. From your own machine.** Tick **Export DB port to the host** on the node before
-deploying. Leave **Host port** at `0` and Docker picks a free one; the node's panel then shows
-which. Connect a local `mysql`, `psql`, `mongosh` or a GUI to `127.0.0.1:<that port>`.
-
-The credentials are on the node's **Credentials** tab:
+Credentials are on the node's **Credentials** tab:
 
 ![The Credentials tab, with passwords masked until revealed](screenshots/getting-started-credentials.png)
 
-> *Passwords are masked until you click them. They come from the host's `.env`, so they are
-> the same across every node in the installation and a redeploy re-reads them — which also
-> means they are not secrets worth protecting. Treat everything in a DBCanvas stack as
-> disposable.*
+> *Click a password to reveal it. Passwords come from `.env` and are the same on every node.*
 
 **4. Through an SSH tunnel, when DBCanvas runs on a server.** Published ports bind to the
-server's loopback by default (`CONTAINER_BIND_IP`), which is right — an unauthenticated PMM
-should not be on the LAN — but it means the browser and the client on your laptop cannot reach
-them. Set `SSH_FORWARDING_HOST` in `.env` to where the server answers SSH, and a running
-node's right-click menu gains **Copy SSH tunnel command**: the exact `ssh -L` line forwarding
-every port that node publishes, each to the same port locally, so every address the UI shows
-works verbatim through the tunnel.
-
-The login is filled in from **whoever is signed in to DBCanvas** — sign in as `jaime` and you
-get `jaime@10.0.0.7`, which on a server install is usually the account you ssh in with anyway.
-Add `user@` to the `.env` value only if everyone should use one fixed login instead.
+server's loopback by default (`CONTAINER_BIND_IP`), so your laptop cannot reach them directly.
+Set `SSH_FORWARDING_HOST` in `.env` and right-click a running node → **Copy SSH tunnel
+command**. It forwards every port the node publishes to the same port locally, so every address
+DBCanvas shows works through the tunnel. The SSH login is your DBCanvas user name (signed in as
+`alex`, you get `alex@10.0.0.7`) unless `.env` names a fixed `user@`.
 
 ## Putting load on it
 
-An idle database does not show you very much.
-
-| | |
+| Tool | What it does |
 | --- | --- |
-| [**Data Generator**](DATA_GENERATOR.md) | Fills tables with realistic data at the scale it takes to see a problem. Start here — most of the other tools are more interesting against real data. |
-| [**Query Runner**](QUERY_RUNNER.md) | Runs SQL across nodes in parallel, gated on the processlist. Good for "do this a thousand times and watch". |
+| [**Data Generator**](DATA_GENERATOR.md) | Fills tables with realistic data at scale. Start here. |
+| [**Database Explorer**](DATABASE_EXPLORER.md) | Browse and query any database in your stacks. |
+| [**Query Runner**](QUERY_RUNNER.md) | Runs SQL across nodes in parallel, optionally gated on the processlist. |
 | [**Benchmark**](BENCHMARK.md) | OLTP, OLAP, read-write and read-only workloads with throughput and latency. |
-| **App simulators** | Nodes on the canvas that drive continuous, realistic traffic — a hotel booking system, an airline, a car rental fleet, a stock exchange. Link one to a database and it runs by itself. |
-
-The simulators are the closest thing to a real application, and the **Stock Market Sim** is
-the one you operate rather than watch — it will drive a Kubernetes operator's cluster too.
+| **Demo applications** | Canvas nodes that drive continuous traffic — Hotel Sim, Airline Sim, Car Rental Sim, Stock Market Sim and others. Connect one to a database and it runs on its own. |
 
 ## Watching it work
 
-| | |
+| Tool | What it shows |
 | --- | --- |
-| **PMM** | Add a PMM node and set **Monitored by (PMM)** on your databases. They register themselves at deploy, with metrics and Query Analytics. Open its console from the VNC desktop, or from your browser if you published its port. |
-| **Dashboard** | Containers, CPU, memory and recent activity across every stack. |
-| [**Log Summary**](LOG_SUMMARY.md) | Several nodes' logs on one timeline, sorted into the good, the warning and the bad. |
-| [**Packet Inspector**](PACKET_INSPECTOR.md) | Capture on a node and decode MySQL, PostgreSQL, MongoDB or Valkey off the wire — what the client actually sent, not what you think it sent. |
-| [**Stalk Summary**](STALK_SUMMARY.md) / [**FTDC Summary**](FTDC_SUMMARY.md) | Turn a pt-stalk archive or MongoDB's own diagnostic data into charts and a verdict. |
-| [**Kubernetes States**](KUBERNETES_STATES.md) | A Kubernetes cluster as a live board — every pod, workload, claim and custom resource, red when it says it is broken and lit when it changes. Deleted objects stay until you dismiss them. |
+| **PMM** | Add a PMM node and set **Monitored by (PMM)** on your databases; they register at deploy. Open PMM from the VNC desktop, or from your browser if you exported its port. |
+| **Dashboard** | Containers, CPU, memory and recent activity across your stacks. |
+| [**Log Summary**](LOG_SUMMARY.md) | Several nodes' logs on one timeline, sorted by severity. |
+| [**Packet Inspector**](PACKET_INSPECTOR.md) | Captures traffic on a node and decodes MySQL, PostgreSQL, MongoDB or Valkey. |
+| [**Stalk Summary**](STALK_SUMMARY.md) / [**FTDC Summary**](FTDC_SUMMARY.md) | Charts and findings from a pt-stalk archive or MongoDB diagnostic data. |
+| [**Kubernetes States**](KUBERNETES_STATES.md) | A live board of every object in a Kubernetes cluster — red when broken, highlighted when it changes. |
 
 ## Saving a topology for next time
 
-Once a canvas is worth keeping, **Save as template** in the toolbar turns it into one you can
-apply again. Passwords, host paths and pinned host ports are deliberately left out, so the
-template travels — to another stack, another user, or another installation as a `.json` file.
+- **Save as template** (designer toolbar) saves the canvas as a reusable template. Passwords,
+  host paths and fixed host ports are not saved, so a template can be shared as a `.json` file.
+- **Insert template** adds a saved topology to the current canvas. Nodes you can only have one
+  of (Intranet, Keycloak, VNC desktop) are reused, clashing hostnames are renumbered, and the
+  changes are reported.
 
-**Insert template** merges a saved topology into a canvas you are already building: ids are
-rewritten, a singleton you already have (the Intranet, Keycloak, the desktop) is reused rather
-than duplicated, and colliding hostnames are numbered. Whatever had to change is reported when
-it lands.
-
-Full detail in [Templates](STACKS.md#templates--save-a-topology-deploy-it-again).
+Details: [Templates](STACKS.md#templates--save-a-topology-deploy-it-again).
 
 ## Cleaning up
 
 ![The stack list, with each stack's lifetime and state](screenshots/getting-started-stacks.png)
 
-- **Destroy** (in the designer toolbar) tears down every container and volume but keeps the
-  design on the canvas, so you can deploy it again. The data inside the nodes is gone.
-- **Delete** (the bin icon in the stack list) removes the stack entirely, containers included.
-- **The lifetime** does it for you. A stack past its TTL is torn down automatically — which is
-  why picking a short one is the right default.
+- **Destroy** (designer toolbar) removes every container and volume but keeps the design, so you
+  can deploy again. Data is lost.
+- **Delete** (bin icon in the stack list) removes the stack and its containers.
+- **Lifetime** — a stack is torn down automatically when it expires.
 
-Containers are not free. If the Dashboard says more is running than you expect, that is where
-to look.
+If the Dashboard shows more running than you expect, look there first.
 
 ## When something goes wrong
 
-**A deploy failed.** Open the deployment console — it shows every provisioning step per node,
-and the one that failed is the one to read. A node that fails leaves the rest of the stack
-running on purpose, so you can get into it and look.
-
-**A node says `error`.** Right-click → **Enter root console** and look at the service:
-`systemctl status`, then the log. The **View config / profile** entry shows the steps DBCanvas
-ran, which tells you how far it got.
-
-**"Add an Intranet node first".** Every node type depends on the Intranet for DNS, the CA and
-the package proxy. Add it and the rest of the library becomes available.
-
-**A deploy fails on a port that is already taken.** A pinned **Host port** collides with
-something else on the machine — another stack, or something outside DBCanvas. Set it back to
-`0` and let Docker choose.
-
-**A version is missing from a picker.** The lists come from `make versions`, which probes the
-repositories and is not run by `make install`. Run it to pick up builds published since the
-catalog in the repo was made, then `make restart` — see
-[Troubleshooting](CONFIGURATION.md#troubleshooting) for the case where a specific minor never
-appears.
-
-**You cannot reach a published port.** If DBCanvas runs on another machine, that is expected —
-see the [SSH tunnel](#connecting-to-your-databases) above. If it is local, check the node
-actually has *Export ... to the host* ticked; without it the node is reachable from inside the
-stack only.
+| Problem | What to do |
+| --- | --- |
+| **A deploy failed** | Open the deployment console and read the step that failed. The rest of the stack keeps running so you can investigate. |
+| **A node shows `error`** | Right-click → **Enter root console** and check the service (`systemctl status`, then its log). **View config / profile** shows how far provisioning got. |
+| **"Add an Intranet node first"** | Add the Intranet node; the rest of the library becomes available. |
+| **A port is already taken** | A fixed **Host port** clashes with something else. Set it back to `0`. |
+| **A version is missing from a picker** | Run `make versions`, then `make restart`. See [Troubleshooting](CONFIGURATION.md#troubleshooting). |
+| **A published port is unreachable** | Check **Export … to the host** is ticked. If DBCanvas runs on another machine, use an [SSH tunnel](#connecting-to-your-databases). |
 
 ---
 
 ## Next
 
-- [Stacks](STACKS.md) — every node and cluster type in detail, and everything the canvas can do
-- [Feature guides](README.md) — the tools, one page each
+- [Stacks](STACKS.md) — every node and cluster type, and everything the canvas can do
+- [Feature guides](README.md) — one page per tool
 - [Configuration & commands](CONFIGURATION.md) — `.env`, `make` targets, troubleshooting
-- [Architecture](ARCHITECTURE.md) — how it is wired, and why
+- [Architecture](ARCHITECTURE.md) — how it is built
