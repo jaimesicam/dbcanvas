@@ -191,9 +191,81 @@ yourself.
 
 ## What's new
 
-### 0.0.21
+### 0.0.22
 
 <details open>
+<summary><b>The desktop's Menu, and K3D clusters named for every installation</b></summary>
+
+The desktop taskbar's **Start** button is now **Menu**. Every installation's K3D clusters now carry its
+`DBCANVAS_INSTANCE`, the one called `dbcanvas` included, as `<frame>-s<stack>-<tag>`; a cluster it created before
+keeps working and is recreated under the tagged name on its next redeploy. The MariaDB and MySQL Community forms
+use the same delete buttons, checkboxes and colours as the other designer forms, and every screenshot in the
+guides is new, in the Light theme, the Desktop shell and the Soft look. See [Configuration](docs/CONFIGURATION.md).
+</details>
+
+<details>
+<summary><b>Version catalog refresh</b></summary>
+
+New in the catalog: PS MongoDB 7.0.45, 8.0.34 and 8.3.13, MySQL Community 8.4.13 and 9.7.4, PMM 3.10.0,
+kube-prometheus-stack 92.14.1 and cert-manager v1.21.3. The Percona Operator for MySQL (PS) stays on 1.2.0 until
+1.3.0 has a release on GitHub, where its installer is downloaded from.
+</details>
+
+<details>
+<summary><b>Design catalogue and design-edit API</b></summary>
+
+`GET /api/stacks/design/catalog` lists every node and cluster type with its options, relations, lines and
+post-deployment actions, and the design endpoints add, change and remove one node, cluster or line at a time,
+checked against it. Compose takes the same options by name. Administrators get endpoints for one account, its
+stacks and tokens, and handing stacks to another account, and an **Open registration** setting, off by default,
+approves new sign-ups as they arrive. See [API reference](docs/API_REFERENCE.md).
+</details>
+
+<details>
+<summary><b>Scratchboard boards, kept boards and seven new cards</b></summary>
+
+The **Scratchboard** holds several boards as tabs, with card colours, collapsing, arrows between cards, undo,
+search across boards, and export to JSON or Markdown. An account setting, off by default, keeps boards on the
+server, sealed. New cards: a pt-query-digest port, an EXPLAIN reader, an InnoDB status reader, replication status,
+config compare, a redactor and a JWT / OIDC decoder.
+</details>
+
+<details>
+<summary><b>K3D certificates from the Intranet CA or OpenBao</b></summary>
+
+With cert-manager on, a PXC, Percona Server or MongoDB K3D frame names the CA its certificates come from: the
+Intranet CA or OpenBao PKI. A frame option puts the cluster's host names in its certificates and publishes its
+LoadBalancer Services in the Intranet DNS. The k3s server panel gets a **Certificates** tab that reads every TLS
+Secret live and checks dates, the chain and the key. See [Stacks](docs/STACKS.md).
+</details>
+
+<details>
+<summary><b>PXC operator replication over SSL</b></summary>
+
+A replica K3D frame running the PXC operator can replicate from its source over SSL, verified against the stack's
+CA or with `sslSkipVerify`. Both clusters take their certificates from the Intranet CA, the source's naming every
+address the replica may dial, and the **Replication** tab shows the channel's SSL mode and where its certificates
+came from. See [Stacks](docs/STACKS.md).
+</details>
+
+<details>
+<summary><b>Custom DNS records on the Intranet</b></summary>
+
+The Intranet panel's **DNS** tab adds, edits and deletes A, CNAME and PTR records beside the ones published for
+every node. A custom record replaces the automatic one of the same name, and a PTR outside the stack network gets
+a reverse zone of its own. See [Stacks](docs/STACKS.md).
+</details>
+
+<details>
+<summary><b>cfssl on the Linux Client</b></summary>
+
+One Linux Client option installs `cfssl` and `cfssljson` from their latest release, checked against the release's
+checksums, and the deployed node shows their version. See [Stacks](docs/STACKS.md).
+</details>
+
+### 0.0.21
+
+<details>
 <summary><b>Percona ClusterSync for MongoDB on the Linux Client</b></summary>
 
 A **Linux Client** with ClusterSync installed gets a panel that syncs one of the stack's MongoDB replica sets or
