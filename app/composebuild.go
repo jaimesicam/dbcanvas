@@ -386,7 +386,6 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 		{len(s.Buckets) > 0, kind.takes("buckets"), "buckets"},
 		{s.TLS, kind.takes("tls"), "tls"},
 		{s.AlertEmail != "", kind.takes("alertEmail"), "alertEmail"},
-		{s.Dataset != "", kind.takes("dataset"), "dataset"},
 		{s.MCA, kind.takes("mca"), "mca"},
 		{s.PGVector, kind.takes("pgvector"), "pgvector"},
 		{s.PGAudit, kind.takes("pgaudit"), "pgaudit"},
@@ -612,7 +611,7 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 		} else if u != "" {
 			n.CertTTLValue, n.CertTTLUnit = v, u
 		}
-		n.Mode, n.AlertEmail, n.MCDataset, n.TLS = s.Mode, s.AlertEmail, s.Dataset, s.TLS
+		n.Mode, n.AlertEmail, n.TLS = s.Mode, s.AlertEmail, s.TLS
 		n.MCACredentials, n.ViewOnly = s.MCA, s.ViewOnly
 		n.PGVector = s.PGVector
 		n.PGAudit, n.PGAuditLog, n.PGSetUser, n.PGBenchScale = s.PGAudit || s.PGAuditLog != "", s.PGAuditLog, s.SetUser, s.PGBench
@@ -731,7 +730,7 @@ func (b *composeBuilder) wire(ordered []composeNodeSpec) error {
 // an HAProxy could not even validate (haproxyClusterFrames requires exactly one
 // associated cluster), and every application simulator came up with nothing to drive.
 // No amount of field-setting substitutes, because the provisioners resolve these by
-// walking the edge graph — trafficSimTarget, backendFrameForProxySQL — and never by
+// walking the edge graph — stockSimTarget, backendFrameForProxySQL — and never by
 // reading a field.
 //
 // The endpoint may be a node id OR a frame id: the walkers check both, which is how

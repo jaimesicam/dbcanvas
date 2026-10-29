@@ -165,7 +165,7 @@ var catalogMySQLFamily = []catalogEntry{
 		),
 		Relations: []string{"monitor", "repository", "ldap", "oidc", "vault", "backup"},
 		Edges: []catalogEdge{
-			{To: []string{"airlinesim", "marketchaos", "stocksim", "ledgersim"}, Type: "directional",
+			{To: []string{"stocksim", "ledgersim"}, Type: "directional",
 				Desc: "Drive a simulator's workload against this server (stored from the server to the simulator; one per server)."},
 		},
 		Actions: mysqlCatActs(mysqlCatDBActions, []catalogAction{
@@ -233,9 +233,7 @@ var catalogMySQLFamily = []catalogEntry{
 			mysqlCatMemberExport,
 			mysqlCatSizing,
 		),
-		Edges: append(append([]catalogEdge{}, mysqlCatReplEdges...),
-			catalogEdge{To: []string{"marketchaos"}, Type: "directional",
-				Desc: "Drive a MarketChaos workload against this one member directly, bypassing any proxy."}),
+		Edges: append([]catalogEdge{}, mysqlCatReplEdges...),
 		Actions: mysqlCatActs(mysqlCatDBActions, mysqlCatGroupActions, []catalogAction{
 			{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/pxc/cert", Desc: "The member's server and cluster-internal certificates.", When: "role is regular"},
 			{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/pxc/cert", Desc: "Reissue the member's certificates from the Intranet CA.", Body: "value, unit (minutes|hours|days)", When: "role is regular; a running Intranet node"},
@@ -249,9 +247,7 @@ var catalogMySQLFamily = []catalogEntry{
 			mysqlCatMemberExport,
 			mysqlCatSizing,
 		),
-		Edges: append(append([]catalogEdge{}, mysqlCatReplEdges...),
-			catalogEdge{To: []string{"marketchaos"}, Type: "directional",
-				Desc: "Drive a MarketChaos workload against this one member directly, bypassing any proxy."}),
+		Edges:   append([]catalogEdge{}, mysqlCatReplEdges...),
 		Actions: mysqlCatActs(mysqlCatDBActions, mysqlCatGroupActions, mysqlCatSwitchActions),
 	},
 	{Type: "innodb", Label: "InnoDB Cluster / GR", Summary: "A Percona Server Group Replication member (InnoDB Cluster or raw Group Replication); the group elects its primary.", Placement: "member", FrameTypes: []string{"innodb"},
@@ -321,7 +317,7 @@ var catalogMySQLFamily = []catalogEntry{
 				Desc: "The backend cluster frame, stored from the frame to this node. A standalone ProxySQL takes one incoming line. A member uses its frame's line instead."},
 			{To: []string{"proxysql"}, Type: "directional",
 				Desc: "Chain to another standalone ProxySQL node; the backend is found by walking the lines undirected."},
-			{To: []string{"airlinesim", "stocksim", "ledgersim"}, Type: "directional",
+			{To: []string{"stocksim", "ledgersim"}, Type: "directional",
 				Desc: "Drive a simulator's workload through this proxy (one per proxy)."},
 		},
 		Actions: []catalogAction{
@@ -345,7 +341,7 @@ var catalogMySQLFamily = []catalogEntry{
 		Edges: []catalogEdge{
 			{To: []string{"pxc", "mysql", "patroni", "repmgr", "spock"}, Type: "directional", Required: true,
 				Desc: "The one backend cluster frame, stored from the frame to this node. PXC: writes to a single writer, reads round-robin (clustercheck on 9200); Patroni: the leader and replicas by the REST API."},
-			{To: []string{"airlinesim", "carsim", "marketchaos", "stocksim", "ledgersim", "pgvectorsim"}, Type: "directional",
+			{To: []string{"stocksim", "ledgersim", "pgvectorsim"}, Type: "directional",
 				Desc: "Drive a simulator's workload through this load balancer (one per node); the simulator must match the backend's engine."},
 		},
 	},
@@ -371,7 +367,7 @@ var catalogMySQLFamily = []catalogEntry{
 		),
 		Relations: []string{"monitor", "repository", "ldap", "oidc", "vault", "backup"},
 		Edges: []catalogEdge{mysqlCatProxyEdge,
-			{To: []string{"airlinesim", "marketchaos", "stocksim", "ledgersim"}, Type: "directional",
+			{To: []string{"stocksim", "ledgersim"}, Type: "directional",
 				Desc: "Drive a simulator's workload against the cluster directly (counts as the frame's one association line)."},
 		},
 		Actions: mysqlCatActs([]catalogAction{
@@ -399,7 +395,7 @@ var catalogMySQLFamily = []catalogEntry{
 		),
 		Relations: []string{"monitor", "orchestrator", "repository", "ldap", "oidc", "vault", "backup"},
 		Edges: []catalogEdge{mysqlCatProxyEdge,
-			{To: []string{"airlinesim", "marketchaos", "stocksim", "ledgersim"}, Type: "directional",
+			{To: []string{"stocksim", "ledgersim"}, Type: "directional",
 				Desc: "Drive a simulator's workload against the cluster's primary directly (counts as the frame's one association line)."},
 		},
 		Actions: mysqlCatActs([]catalogAction{
@@ -525,8 +521,6 @@ var catalogMySQLFamily = []catalogEntry{
 		Edges: []catalogEdge{
 			{To: []string{"pxc", "mysql"}, Type: "directional", Required: true,
 				Desc: "The backend cluster frame, stored from the backend frame to this frame (one incoming line)."},
-			{To: []string{"airlinesim"}, Type: "directional",
-				Desc: "Drive an Airline Sim workload through the ProxySQL cluster."},
 		},
 	},
 }

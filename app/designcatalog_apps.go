@@ -73,28 +73,6 @@ var catalogApps = []catalogEntry{
 		},
 	},
 
-	{Type: "trafficsim", Label: "Traffic Sim",
-		Summary:   "Valkey Traffic Lab: background agents simulate a city's vehicles, sensors, signals and incidents against the linked Valkey, with a live map." + catalogSimDashboard,
-		Placement: "standalone",
-		Requires:  []string{"an Intranet node", "an association line to a Valkey node or Valkey Cluster frame"},
-		Options:   []catalogOption{},
-		Edges: []catalogEdge{
-			{To: []string{"valkey", "valkeycluster"}, Type: "directional", Required: true,
-				Desc: "The Valkey the simulator reads and writes."},
-		},
-	},
-
-	{Type: "hotelsim", Label: "Hotel Sim",
-		Summary:   "MongoDB Hotel Reservation Lab: agents run a 100-hotel reservation chain (search, booking, modification, cancellation, check-in/out) against the linked MongoDB." + catalogSimDashboard,
-		Placement: "standalone",
-		Requires:  []string{"an Intranet node", "an association line to a PS MongoDB node, replica-set frame or sharded-cluster frame"},
-		Options:   []catalogOption{},
-		Edges: []catalogEdge{
-			{To: []string{"psm", "psmrs", "psmdb"}, Type: "directional", Required: true,
-				Desc: "The MongoDB the simulator reads and writes."},
-		},
-	},
-
 	{Type: "supportsim", Label: "Support Sim",
 		Summary:   "MongoDB Vector Search support desk: tickets are embedded in the node (all-MiniLM-L6-v2, 384 dimensions) and answered, routed and merged with $vectorSearch, scored against $search; includes a Search Showdown and a Vector Lab." + catalogSimDashboard,
 		Placement: "standalone",
@@ -120,55 +98,6 @@ var catalogApps = []catalogEntry{
 		Edges: []catalogEdge{
 			{To: []string{"pg", "patroni", "repmgr", "spock", "haproxy", "pgbouncer", "k3d"}, Type: "directional", Required: true,
 				Desc: "The PostgreSQL the desk runs on. A router must front one PostgreSQL backend; pgVector on that backend (k3dPgVector with the Percona operator on a k3d frame) enables the HNSW index."},
-		},
-	},
-
-	{Type: "airlinesim", Label: "Airline Sim",
-		Summary:   "MySQL Airline Reservation Lab: agents run a 200-route reservation workload on a 2000-aircraft fleet against the linked MySQL-family target." + catalogSimDashboard,
-		Placement: "standalone",
-		Requires: []string{
-			"an Intranet node",
-			"an association line to a standalone Percona Server node, a MySQL replication or PXC frame, or a ProxySQL/HAProxy node or ProxySQL cluster frame fronting one",
-		},
-		Options: []catalogOption{},
-		Edges: []catalogEdge{
-			{To: []string{"ps", "mysql", "pxc", "haproxy", "proxysql"}, Type: "directional", Required: true,
-				Desc: "The MySQL-family target. haproxy and proxysql (a standalone node or a ProxySQL cluster frame) must front a pxc or mysql frame."},
-		},
-	},
-
-	{Type: "carsim", Label: "Car Rental Sim",
-		Summary:   "PostgreSQL Car Rental Lab: agents run a 180-location rental workload on a 2000-vehicle fleet against the linked PostgreSQL target." + catalogSimDashboard,
-		Placement: "standalone",
-		Requires: []string{
-			"an Intranet node",
-			"an association line to a standalone PostgreSQL node, a Patroni, repmgr or Spock frame, or an HAProxy or PgBouncer node fronting one",
-		},
-		Options: []catalogOption{},
-		Edges: []catalogEdge{
-			{To: []string{"pg", "patroni", "repmgr", "spock", "haproxy", "pgbouncer"}, Type: "directional", Required: true,
-				Desc: "The PostgreSQL target. haproxy must front a patroni, repmgr or spock frame; pgbouncer a pg node or one of those frames."},
-		},
-	},
-
-	{Type: "marketchaos", Label: "Unoptimized MySQL Challenge",
-		Summary:   "MarketChaos: a stock exchange deployed with deliberately bad indexes, queries and transaction patterns, to diagnose and fix against the linked MySQL-family target. Seeding progress is shown on its dashboard." + catalogSimDashboard,
-		Placement: "standalone",
-		Requires: []string{
-			"an Intranet node",
-			"an association line to a standalone Percona Server node, a single PXC member node, a PXC or MySQL replication frame, or an HAProxy node fronting one",
-		},
-		Options: []catalogOption{
-			{Field: "mcDataset", Values: []string{"small", "medium", "large", "custom"}, Default: "medium",
-				Desc: "Dataset seeded at deploy: small (2K traders, about 575K rows, ~200 MB), medium (10K traders, about 5.8M rows, ~1.2 GB), large (25K traders, about 28M rows, ~5 GB), or custom row counts. Fixed once deployed; seeding against PXC is roughly 2-3x slower."},
-			{Field: "mcTraders", Desc: "Trader count, at least 100; 0 takes the medium preset's value. The designer fills 10000 when custom is chosen.", When: "mcDataset is \"custom\""},
-			{Field: "mcOrders", Desc: "Order count, at least 1000; 0 takes the medium preset's value. The designer fills 500000.", When: "mcDataset is \"custom\""},
-			{Field: "mcTrades", Desc: "Trade count, at least 500; 0 takes the medium preset's value. The designer fills 250000.", When: "mcDataset is \"custom\""},
-			{Field: "mcTicks", Desc: "Price-tick count, at least 10000; 0 takes the medium preset's value. The designer fills 5000000.", When: "mcDataset is \"custom\""},
-		},
-		Edges: []catalogEdge{
-			{To: []string{"ps", "pxc", "mysql", "haproxy"}, Type: "directional", Required: true,
-				Desc: "The MySQL-family target: a ps node, a pxc frame or one pxc member node directly, a mysql frame, or an haproxy node fronting a pxc or mysql frame."},
 		},
 	},
 

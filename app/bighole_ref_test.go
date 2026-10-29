@@ -157,7 +157,7 @@ func TestExtraImageCatalogAgreesWithTheScripts(t *testing.T) {
 
 	// And every node type that names a missing image has a catalogue entry, or
 	// missingImageIssue would silently produce a message with no Build button.
-	for _, id := range []string{"bighole", "hotelsim", "trafficsim", "airlinesim", "carsim", "marketchaos", "stocksim", "intranet", "vnc", "k8scollector"} {
+	for _, id := range []string{"bighole", "supportsim", "stocksim", "intranet", "vnc", "k8scollector"} {
 		if _, ok := extraImageByID(id); !ok {
 			t.Errorf("no catalogue entry for %q", id)
 		}
@@ -165,7 +165,7 @@ func TestExtraImageCatalogAgreesWithTheScripts(t *testing.T) {
 	if got := missingImageIssue("bighole"); got.Image != "bighole" || !strings.Contains(got.Message, bigHoleImage) {
 		t.Errorf("the missing-image issue does not carry the id and the tag: %+v", got)
 	}
-	if got := missingImageIssue("hotelsim"); got.Image != "hotelsim" || !strings.Contains(got.Message, "checkout") {
+	if got := missingImageIssue("stocksim"); got.Image != "stocksim" || !strings.Contains(got.Message, "checkout") {
 		t.Errorf("a non-buildable image should send you to a checkout: %+v", got)
 	}
 }

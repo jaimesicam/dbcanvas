@@ -189,7 +189,7 @@ DBCanvas shows works through the tunnel. The SSH login is your DBCanvas user nam
 | [**Database Explorer**](DATABASE_EXPLORER.md) | Browse and query any database in your stacks. |
 | [**Query Runner**](QUERY_RUNNER.md) | Runs SQL across nodes in parallel, optionally gated on the processlist. |
 | [**Benchmark**](BENCHMARK.md) | OLTP, OLAP, read-write and read-only workloads with throughput and latency. |
-| **Demo applications** | Canvas nodes that drive continuous traffic — Hotel Sim, Airline Sim, Car Rental Sim, Stock Market Sim and others. Connect one to a database and it runs on its own. |
+| **Demo applications** | Canvas nodes that drive continuous traffic — Stock Market Sim, Ledger Sim, Support Sim and pgvector Support Sim. Connect one to a database and it runs on its own. |
 
 ## Watching it work
 

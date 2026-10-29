@@ -448,7 +448,7 @@ func (s *pgStore) ServerVersion(ctx context.Context) (string, error) {
 }
 
 // pgQuoteIdent double-quotes an identifier for DDL where a bind parameter is
-// not allowed. Same helper carsim carries.
+// not allowed.
 func pgQuoteIdent(s string) string {
 	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }

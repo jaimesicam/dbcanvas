@@ -77,7 +77,7 @@ var pgcatBackRest = []catalogOption{
 
 // pgcatSimEdges are the simulator lines a PostgreSQL node, cluster or pool can draw.
 var pgcatSimEdges = []catalogEdge{
-	{To: []string{"carsim", "stocksim", "ledgersim"}, Type: "directional",
+	{To: []string{"stocksim", "ledgersim"}, Type: "directional",
 		Desc: "Drive a simulator's workload against this PostgreSQL (from the database to the simulator)."},
 }
 
@@ -344,7 +344,7 @@ var catalogPostgresFamily = []catalogEntry{
 		Edges: pgcatEdges(
 			[]catalogEdge{{To: []string{"pg", "patroni", "repmgr", "spock"}, Type: "directional", Required: true,
 				Desc: "The one PostgreSQL backend the pool fronts: a PostgreSQL node or a Patroni, repmgr or Spock cluster frame (from the backend to the pool)."}},
-			[]catalogEdge{{To: []string{"carsim", "stocksim", "ledgersim"}, Type: "directional",
+			[]catalogEdge{{To: []string{"stocksim", "ledgersim"}, Type: "directional",
 				Desc: "Drive a simulator's workload through this pool (from the pool to the simulator)."}},
 		),
 		Actions: []catalogAction{
@@ -367,7 +367,7 @@ var catalogPostgresFamily = []catalogEntry{
 			},
 		),
 		Relations: []string{"monitor", "repository"},
-		Edges: []catalogEdge{{To: []string{"trafficsim", "stocksim"}, Type: "directional",
+		Edges: []catalogEdge{{To: []string{"stocksim"}, Type: "directional",
 			Desc: "Drive a simulator's workload against this Valkey (from the server to the simulator)."}},
 	},
 	{Type: "valkeycluster", Label: "Valkey Cluster", Summary: "A Valkey Cluster shard member (an all-master shard).", Placement: "member",
@@ -396,7 +396,7 @@ var catalogPostgresFamily = []catalogEntry{
 			},
 		),
 		Relations: []string{"monitor", "repository"},
-		Edges: []catalogEdge{{To: []string{"trafficsim", "stocksim"}, Type: "directional",
+		Edges: []catalogEdge{{To: []string{"stocksim"}, Type: "directional",
 			Desc: "Drive a simulator's workload against this cluster (from the cluster to the simulator)."}},
 	},
 }

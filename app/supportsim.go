@@ -26,7 +26,7 @@ import (
 // searches with an in-app brute-force scan, and says plainly on every page that it
 // is doing so and how to turn the real thing on.
 //
-// Same shape as Hotel Sim: a first-party image (dbcanvas-supportsim:v<release>, built by
+// Same shape as the other simulators: a first-party image (dbcanvas-supportsim:v<release>, built by
 // `make supportsim-image`), dashboard published to the host on a port kept across
 // redeploys.
 
@@ -49,7 +49,7 @@ type supportSimConfig struct {
 
 // supportSimTarget resolves what a supportsim node is linked to: a standalone psm
 // node, a psmrs / psmdb frame, or a K3D frame (whose operator is checked by the
-// caller). An undirected-edge walk like hotelSimTarget's.
+// caller). An undirected-edge walk.
 func supportSimTarget(doc designDoc, startID string) (nodeID string, frame designFrame, kind string, ok bool) {
 	for _, e := range doc.Edges {
 		var other string
@@ -216,7 +216,7 @@ func (a *App) provisionSupportSim(st Stack, n designNode, doc designDoc) {
 			cfg.TargetName = res.displayName
 			metrics = a.k3dMongotMetrics(ctx, st, doc, frame.ID)
 		} else {
-			u, err := a.waitHotelSimTarget(ctx, st.ID, hosts, targetNodeID, frame, kind, doc, deployTimeout())
+			u, err := a.waitMongoTarget(ctx, st.ID, hosts, targetNodeID, frame, kind, doc, deployTimeout())
 			if err != nil {
 				pr.fail("%v", err)
 				return

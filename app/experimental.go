@@ -8,11 +8,10 @@ import (
 // experimental.go — EXPERIMENTAL: the switch that decides whether the parts of
 // DBCanvas that are not finished yet appear at all.
 //
-// Some features ship before they are ready — Labs writes its scenarios with an LLM
-// and the Unoptimized MySQL Challenge is a teaching toy that is still moving. They
-// were marked "(experimental)" in their own labels, which is a warning and not a
-// choice: an installation that did not want them still had them in its menus, and
-// the only way to hold a new feature back was to not merge it.
+// Some features ship before they are ready. Marking them "(experimental)" in their own
+// labels is a warning and not a choice: an installation that did not want them would
+// still have them in its menus, and the only way to hold a new feature back would be
+// to not merge it.
 //
 // So the label becomes a flag. Anything not ready is TAGGED experimental — in the
 // UI, next to the thing itself (NAV in App.jsx, the node palette in

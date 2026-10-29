@@ -3,12 +3,7 @@
 # Build the demo application images — the first-party simulators a stack can run
 # alongside its databases:
 #
-#   dbcanvas-trafficsim:latest     Valkey Traffic Lab
-#   dbcanvas-hotelsim:latest       MongoDB Hotel Reservation Lab
 #   dbcanvas-supportsim:latest     MongoDB Vector Search Support Desk
-#   dbcanvas-airlinesim:latest     MySQL Airline Reservation Lab
-#   dbcanvas-carsim:latest         PostgreSQL Car Rental Lab
-#   dbcanvas-marketchaos:latest    "Unoptimized MySQL Challenge" stock exchange
 #   dbcanvas-stocksim:latest       Stock Market Sim (CRUD + reports)
 #   dbcanvas-ledgersim:latest      Ledger Sim (JDBC + HikariCP)
 #
@@ -17,12 +12,12 @@
 # per OS. Ledger Sim is the one that is not a Go binary: it is a shaded jar on an
 # Eclipse Temurin JRE, because JDBC and HikariCP are the whole point of it. Its
 # build is therefore slower and pulls from Maven Central rather than the Go proxy. A node of
-# one of these types refuses to deploy without its image (see app/trafficsim.go and
+# one of these types refuses to deploy without its image (see app/stocksim.go and
 # friends), so they are built by `make images` along with everything else a node needs.
 #
 # Usage: apps.sh [name ...]        (default: all of them)
 #
-# Called at the end of images/build.sh, and on its own by `make trafficsim-image` and
+# Called at the end of images/build.sh, and on its own by `make stocksim-image` and
 # the other per-app targets. The tags below must match the *Image constants in the app.
 set -uo pipefail
 
@@ -34,7 +29,7 @@ ROOT="$(cd "$IMAGES_DIR/.." && pwd)"
 PLATFORM="$(resolve_platform "$ROOT")" || exit 1
 
 # name → build context, in the order they are built.
-APPS=(trafficsim hotelsim supportsim airlinesim carsim marketchaos stocksim ledgersim)
+APPS=(supportsim stocksim ledgersim)
 
 declare -a BUILT=() FAILED=()
 

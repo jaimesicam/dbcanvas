@@ -1207,7 +1207,7 @@ func (a *App) pgBouncerSimEndpoint(ctx context.Context, st Stack, hosts map[stri
 // builds its own connection string from what the provisioner resolved — so under
 // cert authentication they are a refusal rather than a warning.
 func pgBouncerLinkedSims(n designNode, doc designDoc) []string {
-	sim := map[string]bool{"carsim": true, "stocksim": true, "ledgersim": true, "pgvectorsim": true}
+	sim := map[string]bool{"stocksim": true, "ledgersim": true, "pgvectorsim": true}
 	var out []string
 	for _, e := range doc.Edges {
 		var other string

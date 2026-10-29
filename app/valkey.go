@@ -679,3 +679,38 @@ for i in $(seq 1 20); do
   sleep 2
 done
 echo "cluster did not reach state ok:"; valkey-cli -a "$PW" --no-auth-warning CLUSTER INFO 2>/dev/null | head; exit 1`
+
+// valkeyPasswordFor reads the shared default-user password from a member's
+// own stored secrets (set once at cluster creation, identical on every
+// member) rather than assuming the .env default directly.
+func valkeyPasswordFor(dep Deployment) string {
+	var sec valkeySecrets
+	json.Unmarshal(dep.Secrets, &sec)
+	if sec.Password == "" {
+		return envOr("VALKEY_PASSWORD", "valkey_password")
+	}
+	return sec.Password
+}
+
+// valkeyRunningMembers returns the running valkeycluster deployments for a
+// lab stack, mirroring runningPatroniMembers.
+func (a *App) valkeyRunningMembers(st Stack, doc designDoc) ([]Deployment, error) {
+	deps, err := a.store.ListDeployments(st.ID)
+	if err != nil {
+		return nil, err
+	}
+	byNode := map[string]Deployment{}
+	for _, d := range deps {
+		byNode[d.NodeID] = d
+	}
+	var running []Deployment
+	for _, n := range doc.Nodes {
+		if n.Type != "valkeycluster" {
+			continue
+		}
+		if d, ok := byNode[n.ID]; ok && d.State == DeployRunning && d.ContainerID != "" {
+			running = append(running, d)
+		}
+	}
+	return running, nil
+}

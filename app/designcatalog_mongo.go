@@ -76,7 +76,7 @@ var mongoDataGenActions = []catalogAction{
 
 // mongoSimEdges are the simulator association lines a MongoDB node or frame can draw.
 var mongoSimEdges = []catalogEdge{
-	{To: []string{"hotelsim", "supportsim", "stocksim"}, Type: "directional",
+	{To: []string{"supportsim", "stocksim"}, Type: "directional",
 		Desc: "Drive a simulator's workload against this MongoDB (from the database to the simulator)."},
 }
 

@@ -23,7 +23,6 @@ const GROUPS = [
   { title: 'Workspace', ids: ['dashboard', 'stack-designer', 'kanban'] },
   { title: 'Data and queries', ids: ['data-generator', 'database-explorer', 'queryrun', 'benchmark', 'sample-code'] },
   { title: 'Diagnose', ids: ['packet-inspector', 'operator-debugger', 'core-dump', 'stalk-summary', 'log-summary', 'ftdc-summary', 'operator-summary', 'k8s-states'] },
-  { title: 'Learn', ids: ['labs'] },
   { title: 'System', ids: ['profile', 'api', 'settings', 'users'] },
 ]
 

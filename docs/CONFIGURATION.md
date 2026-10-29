@@ -30,9 +30,8 @@ the app, and fixes for common problems.
 | `make smoke` | Render every page and fail on a render error; also loads the heavy pages in headless Chrome when Chrome is available (`CHROME=<path>` to point at it). |
 
 Rebuild one image: `make intranet-image`, `make vnc-image`, `make k8scollector-image`,
-`make bighole-image`, or one demo application — `make trafficsim-image`, `make hotelsim-image`,
-`make supportsim-image`, `make airlinesim-image`, `make carsim-image`, `make marketchaos-image`,
-`make stocksim-image`, `make ledgersim-image`.
+`make bighole-image`, or one demo application — `make supportsim-image`, `make stocksim-image`,
+`make ledgersim-image`.
 
 When Validate reports the Intranet, VNC, K3D collector or Big Hole image missing, an
 administrator gets a **Build** button that builds it from the web interface. The demo

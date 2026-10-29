@@ -1022,15 +1022,12 @@ func TestComposeDrawsAssociations(t *testing.T) {
 	doc, pos, res, _, err := buildCompose(composeSpec{Name: "x", Nodes: []composeNodeSpec{
 		{Kind: "pxc", Count: 3, OS: "el9"},
 		{Kind: "haproxy", OS: "el9"},
-		// Through the proxy rather than direct at the cluster — a real choice, which
-		// is why compose refuses to guess when both are present.
-		{Kind: "marketchaos", To: "haproxy-01"},
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(doc.Edges) != 2 {
-		t.Fatalf("drew %d association lines, want 2", len(doc.Edges))
+	if len(doc.Edges) != 1 {
+		t.Fatalf("drew %d association lines, want 1", len(doc.Edges))
 	}
 	// The endpoint must be the FRAME, not a member: one line covers the cluster, and
 	// haproxyClusterFrames looks the id up in the frame map.
@@ -1053,8 +1050,8 @@ func TestComposeDrawsAssociations(t *testing.T) {
 			}
 		}
 	}
-	if wired != 2 {
-		t.Errorf("the plan reports %d associations, want 2", wired)
+	if wired != 1 {
+		t.Errorf("the plan reports %d associations, want 1", wired)
 	}
 
 	// And they survive serialisation. designJSON wrote a hardcoded `[]designEdge{}`
@@ -1080,9 +1077,6 @@ func TestComposeDrawsAssociations(t *testing.T) {
 	// provisioner finds its target through it.
 	if got := haproxyClusterFrames(doc, nodesOfType(doc, "haproxy")[0].ID); len(got) != 1 {
 		t.Errorf("haproxyClusterFrames found %d backends, want 1", len(got))
-	}
-	if _, _, ok := marketChaosTarget(doc, nodesOfType(doc, "marketchaos")[0].ID); !ok {
-		t.Error("marketChaosTarget found nothing to drive")
 	}
 }
 

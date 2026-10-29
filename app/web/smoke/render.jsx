@@ -1604,10 +1604,10 @@ check('pgbouncer: cert auth spells out the two things it breaks', () => {
 
 check('pgbouncer: a simulator on a cert-auth pool is called out by name', () => {
   const d = pgbDesign('patroni')
-  d.nodes.push({ id: 'sim1', type: 'carsim', label: 'carsim-01' })
+  d.nodes.push({ id: 'sim1', type: 'pgvectorsim', label: 'pgvectorsim-01' })
   d.edges.push({ id: 'e2', from: { node: 'pgb1' }, to: { node: 'sim1' } })
   const html = renderPgb(d, { ...d.nodes[0], pgbAuthType: 'cert', generateCert: true })
-  if (!html.includes('carsim-01')) throw new Error('the simulator is not named')
+  if (!html.includes('pgvectorsim-01')) throw new Error('the simulator is not named')
   return html
 })
 
@@ -1982,7 +1982,7 @@ check('Health button: a check when nothing is open, else the count', () => {
 })
 
 check('the application simulators are named as such', () => {
-  for (const t of ['stocksim', 'airlinesim', 'carsim', 'hotelsim', 'trafficsim', 'marketchaos']) {
+  for (const t of ['stocksim', 'ledgersim', 'supportsim', 'pgvectorsim']) {
     if (!SIM_NODE_TYPES.has(t)) throw new Error(`${t} is a simulator and must carry the app-connection caption`)
     if (!NODE_TYPES[t]?.ports) throw new Error(`${t} needs connection ports for its line to exist`)
   }
@@ -3992,19 +3992,19 @@ check('experimental: tagged features are hidden until an installation asks for t
   if (showExperimental({ experimental: 'yes' })) throw new Error('only a real true is on')
   if (!showExperimental({ experimental: true })) throw new Error('experimental: true should be on')
 
-  // Labs is the tagged page. Off, it is not in the nav at all — which is also what
-  // makes #labs unreachable, since the tab strip and the pages read this same list.
-  const off = visible(NAV, false).map((n) => n.id)
-  const on = visible(NAV, true).map((n) => n.id)
-  if (off.includes('labs')) throw new Error('Labs is in the menu with experimental off')
-  if (!on.includes('labs')) throw new Error('Labs is missing with experimental on')
-  if (on.length !== off.length + 1) throw new Error(`the switch moved ${on.length - off.length} nav entries`)
-  if (!NAV.find((n) => n.id === 'labs')?.experimental) throw new Error('Labs lost its experimental tag')
+  // A tagged page is not in the nav with the switch off — which is also what makes it
+  // unreachable, since the tab strip and the pages read this same list.
+  const nav = [{ id: 'done' }, { id: 'unfinished', experimental: true }]
+  if (visible(nav, false).map((n) => n.id).join(',') !== 'done') throw new Error('a tagged page is in the menu with experimental off')
+  if (visible(nav, true).length !== 2) throw new Error('a tagged page is missing with experimental on')
+  // The app's own nav: the switch moves exactly the entries tagged there.
+  const tagged = NAV.filter((n) => n.experimental).length
+  if (visible(NAV, true).length - visible(NAV, false).length !== tagged) throw new Error('the switch moved an untagged nav entry')
 
   // A group is filtered item by item, and one left empty goes with its items
   // rather than leaving a heading over nothing.
   const groups = [
-    { title: 'App Simulators', items: [{ label: 'Traffic Sim' }, { label: 'Unoptimized MySQL Challenge', experimental: true }] },
+    { title: 'App Simulators', items: [{ label: 'Stock Market Sim' }, { label: 'Unfinished Sim', experimental: true }] },
     { title: 'Not ready', items: [{ label: 'Only this', experimental: true }] },
     { title: 'Whole category', experimental: true, items: [{ label: 'Something' }] },
     { title: 'Core', items: [{ label: 'Intranet' }] },
@@ -4012,7 +4012,7 @@ check('experimental: tagged features are hidden until an installation asks for t
   const titlesOff = visibleGroups(groups, false).map((g) => g.title)
   if (titlesOff.join(',') !== 'App Simulators,Core') throw new Error(`off shows ${titlesOff.join(',')}`)
   const sims = visibleGroups(groups, false)[0].items.map((i) => i.label)
-  if (sims.join(',') !== 'Traffic Sim') throw new Error(`the challenge survived: ${sims.join(',')}`)
+  if (sims.join(',') !== 'Stock Market Sim') throw new Error(`the tagged sim survived: ${sims.join(',')}`)
   if (visibleGroups(groups, true).length !== 4) throw new Error('on should show every category')
   // Filtering copies rather than mutating: the catalog is rebuilt on every render
   // from the same literal, and a filter that ate its input would empty it.
@@ -4554,7 +4554,7 @@ check('refresh: every page with server data offers the top-bar Refresh', () => {
       benchmark: 'Benchmark', 'sample-code': 'SampleCode', 'packet-inspector': 'PacketInspector',
       'operator-debugger': 'OperatorDebugger', 'core-dump': 'CoreDumpAnalyzer', 'stalk-summary': 'StalkSummary',
       'log-summary': 'LogSummary', 'ftdc-summary': 'FTDCSummary', 'operator-summary': 'OperatorSummary',
-      'k8s-states': 'K8sStates', labs: 'Labs', api: 'Api', dashboard: 'Dashboard', profile: 'Profile', kanban: 'Kanban' }[n.id]
+      'k8s-states': 'K8sStates', api: 'Api', dashboard: 'Dashboard', profile: 'Profile', kanban: 'Kanban' }[n.id]
     if (!file) { missing.push(`${n.id} (no file mapped — add it here)`); continue }
     const text = readFileSync(new URL(`../src/pages/${file}.jsx`, import.meta.url), 'utf8')
     if (!/useRefresh\(/.test(text)) missing.push(file)

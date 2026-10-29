@@ -79,3 +79,6 @@ app/web/.smoke/
 # create a directory in its place, and loadImageCatalog falls back to the image entries in the
 # committed versions.yaml until the next build writes this file.
 /images.yaml
+
+# Editor swap files — a swap of .env holds the same secrets as .env.
+*.swp

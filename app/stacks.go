@@ -362,6 +362,5 @@ func (a *App) reapExpiredStacks() {
 	for _, st := range expired {
 		a.teardownStack(st.ID)
 		a.store.SetStackStatus(st.ID, StackExpired)
-		a.store.FinishLabRunsForStack(st.ID)
 	}
 }

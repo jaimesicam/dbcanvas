@@ -612,10 +612,6 @@ export const HELP = {
     'Terminate TLS at the pool: PgBouncer gets its own certificate signed by the Intranet CA and clients connect ' +
     'to it over TLS. Unlike HAProxy, which passes the connection through under its own hostname, PgBouncer ends ' +
     'the connection itself — so the certificate carries the pool\'s name and a client can genuinely verify it.',
-  simTraders: 'How many trader accounts the generated dataset contains — the cardinality of the dimension most queries join against.',
-  simOrders: 'How many orders to generate. This is the big table, and the one that decides whether the dataset fits in memory.',
-  simTrades: 'How many executed trades to generate — the fact table the reporting queries aggregate over.',
-  simTicks: 'How many price ticks to generate. The time-series table, and the one that makes range scans expensive.',
   // --- deployed-node panel rows --------------------------------------------
   depInternalURL:
     'The address to use from inside the stack — another node\'s shell, or the browser on the VNC desktop, which ' +
@@ -933,13 +929,8 @@ const NODE_BLURB = {
   linuxclient: 'A plain Linux box on the stack network — a place to run clients and tools from, and the host for core-dump analysis.',
   stocksim: 'A stock-market simulator that drives realistic OLTP load at a database node.',
   ledgersim: 'An order/payment ledger driven over JDBC with a HikariCP pool — the simulator for client-side questions.',
-  marketchaos: 'A market-data load generator with knobs for lock contention, idle transactions and scan queries — the shapes real incidents take.',
-  trafficsim: 'A traffic simulator, for a different load profile against the same node.',
-  airlinesim: 'An airline-booking workload generator.',
-  hotelsim: 'A hotel-booking workload generator.',
   supportsim: 'A help desk run on MongoDB Vector Search, with a hands-on Vector Lab.',
   pgvectorsim: 'The Support Sim\'s help desk on PostgreSQL with pgvector (HNSW, <=>), with a hands-on Vector Lab. Link it to any PostgreSQL node or cluster; turn pgvector on there for real vector indexes.',
-  carsim: 'A vehicle-telemetry workload generator.',
   bighole: 'A MongoDB FTDC viewer that runs entirely in the browser — drag a diagnostic.data folder or a support tarball onto the page and it charts it. No backend, nothing uploaded. Open it on localhost: browsers only give a page the on-disk storage it decodes a capture into over HTTPS or localhost.',
   mclusteradmin: 'A MongoDB administration panel — topology, replica set and sharding status, current ops, slow queries, indexes, users and roles. Its web UI is published to the host, so you reach it straight from your browser.',
 }

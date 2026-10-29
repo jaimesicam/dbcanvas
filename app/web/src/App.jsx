@@ -39,7 +39,6 @@ import LogSummary from './pages/LogSummary.jsx'
 import FTDCSummary from './pages/FTDCSummary.jsx'
 import ManageUsers from './pages/ManageUsers.jsx'
 import Settings from './pages/Settings.jsx'
-import Labs from './pages/Labs.jsx'
 import Api from './pages/Api.jsx'
 import Profile from './pages/Profile.jsx'
 import Kanban from './pages/Kanban.jsx'
@@ -76,10 +75,6 @@ export const NAV = [
   // fill: this page is a board with a rail beside it, so it wants the height of the
   // workspace rather than the height of its own content — see <main> below.
   { id: 'k8s-states', label: 'Kubernetes States', icon: 'K8sStates', page: K8sStates, fill: true, hint: 'A live board of every object in a Kubernetes cluster — red for what is broken, lit for what just changed' },
-  // Tagged experimental, so it is in the menu only where EXPERIMENTAL is on (see
-  // lib/experimental.js). Its scenarios are LLM-written and still moving, which is
-  // what the label used to say and the flag now decides.
-  { id: 'labs', label: 'Labs (experimental)', icon: 'Flask', page: Labs, experimental: true, hint: 'Hands-on scenarios with real check-work verification' },
   { id: 'api', label: 'API', icon: 'Code', page: Api, hint: 'Every endpoint, and the tokens that authenticate against them' },
   // Your account: name, avatar, password, tokens. Settings is how the app behaves.
   { id: 'profile', label: 'Profile', icon: 'Users', page: Profile, hint: 'Your name, avatar, password and API tokens' },

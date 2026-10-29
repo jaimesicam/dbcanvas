@@ -66,7 +66,7 @@ func openValkey(ctx context.Context, c Config) (Store, error) {
 		Username: c.User, // empty means legacy AUTH with just the password
 	}
 	// NewUniversalClient transparently picks standalone vs cluster from the
-	// address count, the same way trafficsim's store does.
+	// address count.
 	return &valkeyStore{c: redis.NewUniversalClient(opts), prefix: c.Database}, nil
 }
 

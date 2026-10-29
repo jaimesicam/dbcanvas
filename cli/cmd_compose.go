@@ -77,7 +77,7 @@ func parseNodeSpec(arg string) (map[string]any, error) {
 		"to": "to",
 		// Per-engine.
 		"replmode": "replMode", "mode": "mode", "setup": "setup",
-		"dataset": "dataset", "certttl": "certTtl", "pgauditlog": "pgauditLog",
+		"certttl": "certTtl", "pgauditlog": "pgauditLog",
 		"alertemail": "alertEmail",
 	}
 	intOpts := map[string]string{
@@ -148,7 +148,7 @@ func parseNodeSpec(arg string) (map[string]any, error) {
 			"  flags:   export, cert, proxy, gtid, mysqlRouter, tls, netAllTraffic, pgvector,\n"+
 			"           pgaudit, setUser, tdeWal, mca, viewOnly\n"+
 			"  values:  name=, os=, arch=, version=, count=, cpus=, memoryGb=, exportPort=,\n"+
-			"           replMode=, mode=, setup=, dataset=, certTtl=, pgauditLog=, pgbench=,\n"+
+			"           replMode=, mode=, setup=, certTtl=, pgauditLog=, pgbench=,\n"+
 			"           alertEmail=, buckets=a+b\n"+
 			"  shaping: netLatencyMs=, netJitterMs=, netLossPct=, netRateMbit=,\n"+
 			"           deviceReadMbps=, deviceWriteMbps=\n"+

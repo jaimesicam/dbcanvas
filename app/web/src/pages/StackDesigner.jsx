@@ -229,7 +229,7 @@ export const NODE_TYPES = {
     color: '#059669',
     icon: 'Database',
     singleton: false,
-    ports: true, // connectable — a Hotel Sim node links to it
+    ports: true, // connectable — the Support Sim and Stock Market Sim link to it
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
     defaults: {
       os: 'oraclelinux', osVersion: '9', psmdbMajor: '8.0', psmdbVersion: '',
@@ -249,7 +249,7 @@ export const NODE_TYPES = {
     color: '#2563eb',
     icon: 'Database',
     singleton: false,
-    ports: true, // connectable — Airline Sim, MarketChaos and Stock Market Sim link to it
+    ports: true, // connectable — the Stock Market Sim and Ledger Sim link to it
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
     defaults: {
       os: 'oraclelinux', osVersion: '9', psMajor: '8.0', psVersion: '',
@@ -347,7 +347,7 @@ export const NODE_TYPES = {
     color: '#336791',
     icon: 'Database',
     singleton: false,
-    ports: true, // connectable — a Car Rental Sim or Stock Market Sim node links to it
+    ports: true, // connectable — the Stock Market Sim, Ledger Sim and pgvector Support Sim link to it
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
     defaults: {
       os: 'oraclelinux', osVersion: '9', pgMajor: '16', pgVersion: '',
@@ -545,7 +545,7 @@ export const NODE_TYPES = {
     color: '#7c3aed',
     icon: 'Database',
     singleton: false,
-    ports: true, // connectable — a Traffic Sim node links to it
+    ports: true, // connectable — a Stock Market Sim node links to it
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }],
     defaults: {
       os: 'oraclelinux', osVersion: '9', valkeyMajor: '9.1', valkeyVersion: '',
@@ -570,23 +570,6 @@ export const NODE_TYPES = {
     defaults: { os: 'oraclelinux', osVersion: '9', useProxy: false, lcKubectl: false, lcHelm: false, lcCmctl: false, lcCfssl: false,
       lcMysqlClient: false, lcMysqlShell: false, lcMongosh: false, lcPsql: false, lcClusterSync: false,
       lcInnodump: false, lcGcacheInspector: false },
-  },
-  // Traffic Sim — the "Valkey Traffic Lab" live demo app (background agents +
-  // a web map). Runs dbcanvas's own first-party image, not an OS/DB image, so it
-  // carries no os/osVersion/arch fields at all. Links to a standalone Valkey node
-  // or a Valkey Cluster frame via a drawn association line (see endpointKind/
-  // tryConnect) — its dashboard port is published to the host (like PMM), so no
-  // VNC desktop is needed to reach it.
-  trafficsim: {
-    label: 'Traffic Sim',
-    slug: 'trafficsim',
-    sub: 'Valkey Traffic Lab — live demo app',
-    color: '#f97316',
-    icon: 'Flask',
-    singleton: false,
-    ports: true,
-    osOptions: [{ id: 'trafficsim', label: 'dbcanvas-trafficsim' }],
-    defaults: {},
   },
   // Big Hole — a third-party MongoDB FTDC viewer that runs entirely in the browser
   // (built from source at a pinned commit; see images/bighole.Dockerfile). Runs its
@@ -631,24 +614,6 @@ export const NODE_TYPES = {
     osOptions: [{ id: 'mclusteradmin', label: 'ghcr.io/przemekmalkowski/mclusteradmin' }],
     defaults: { viewOnly: false, mcaAdminPassword: '', mcaReadonlyPassword: '' },
   },
-  // Hotel Sim — the "MongoDB Hotel Reservation Lab" live demo app (ten background
-  // agents + a web dashboard). Runs dbcanvas's own first-party image, not an OS/DB
-  // image, so it carries no os/osVersion/arch fields at all. Links to a standalone
-  // PS MongoDB node, a PS MongoDB replica-set frame, or a PS MongoDB sharded-cluster
-  // frame via a drawn association line (see endpointKind/tryConnect) — its
-  // dashboard port is published to the host (like PMM), so no VNC desktop is
-  // needed to reach it.
-  hotelsim: {
-    label: 'Hotel Sim',
-    slug: 'hotelsim',
-    sub: 'MongoDB Hotel Reservation Lab — live demo app',
-    color: '#f97316',
-    icon: 'Flask',
-    singleton: false,
-    ports: true,
-    osOptions: [{ id: 'hotelsim', label: 'dbcanvas-hotelsim' }],
-    defaults: {},
-  },
   // Support Sim — the MongoDB Vector Search Support Desk: a help desk whose tickets are
   // embedded in-process and acted on with $vectorSearch (answer, route, merge, raise an
   // incident), scored live against keyword search, plus a Vector Lab that teaches the
@@ -682,53 +647,6 @@ export const NODE_TYPES = {
     osOptions: [{ id: 'supportsim', label: 'dbcanvas-supportsim' }],
     defaults: {},
   },
-  // Airline Sim — the "MySQL Airline Reservation Lab" live demo app (ten background
-  // agents + a web dashboard) driving a 200-route reservation workload against a
-  // 2000-aircraft fleet. Runs dbcanvas's own first-party image, not an OS/DB image,
-  // so it carries no os/osVersion/arch fields at all. Links to a standalone Percona
-  // Server node, a MySQL replication frame, a PXC cluster frame, or a
-  // ProxySQL/HAProxy node or cluster fronting one of the latter two, via a drawn
-  // association line (see endpointKind/tryConnect) — its dashboard port is
-  // published to the host (like PMM), so no VNC desktop is needed to reach it.
-  airlinesim: {
-    label: 'Airline Sim',
-    slug: 'airlinesim',
-    sub: 'MySQL Airline Reservation Lab — live demo app',
-    color: '#f97316',
-    icon: 'Flask',
-    singleton: false,
-    ports: true,
-    osOptions: [{ id: 'airlinesim', label: 'dbcanvas-airlinesim' }],
-    defaults: {},
-  },
-  // Car Rental Sim — the "PostgreSQL Car Rental Lab" live demo app (ten background
-  // agents + a web dashboard) driving a 180-location rental workload against a
-  // 2000-vehicle fleet. Runs dbcanvas's own first-party image, not an OS/DB image,
-  // so it carries no os/osVersion/arch fields at all. Links to a standalone
-  // PostgreSQL node, a Patroni/repmgr/Spock cluster frame, or an HAProxy node
-  // fronting one of the latter three, via a drawn association line (see
-  // endpointKind/tryConnect) — its dashboard port is published to the host (like
-  // PMM), so no VNC desktop is needed to reach it.
-  carsim: {
-    label: 'Car Rental Sim',
-    slug: 'carsim',
-    sub: 'PostgreSQL Car Rental Lab — live demo app',
-    color: '#0ea5e9',
-    icon: 'Flask',
-    singleton: false,
-    ports: true,
-    osOptions: [{ id: 'carsim', label: 'dbcanvas-carsim' }],
-    defaults: {},
-  },
-  // MarketChaos — the "Unoptimized MySQL Challenge": a fictional stock-exchange
-  // demo app deliberately deployed with bad indexes, queries, and transaction
-  // patterns for a learner to diagnose and fix. Runs dbcanvas's own first-party
-  // image, not an OS/DB image, so it carries no os/osVersion/arch fields at all.
-  // Links to a standalone Percona Server node, a direct PXC member node, a PXC
-  // cluster or MySQL replication frame, or an HAProxy node fronting one of the
-  // latter two, via a drawn association line (see endpointKind/tryConnect) — its
-  // dashboard port is published to the host (like PMM), so no VNC desktop is
-  // needed to reach it.
   // All in One — ONE container running many database instances side by side,
   // instead of one product per node. It carries no connection endpoints
   // (ports:false) on purpose: every relationship an instance has (PMM, LDAP,
@@ -751,21 +669,8 @@ export const NODE_TYPES = {
       aioInstances: [],
     },
   },
-  marketchaos: {
-    label: 'Unoptimized MySQL Challenge',
-    slug: 'marketchaos',
-    sub: 'MarketChaos — stock-exchange performance troubleshooting lab',
-    color: '#dc2626',
-    icon: 'Flask',
-    singleton: false,
-    ports: true,
-    osOptions: [{ id: 'marketchaos', label: 'dbcanvas-marketchaos' }],
-    defaults: {},
-  },
   // Stock Market Sim — a stock-exchange app with full browser CRUD, a live
-  // dashboard and a printable report. Distinct from MarketChaos above, which is
-  // a MySQL performance-tuning *challenge* (deliberately bad indexes, no CRUD,
-  // no report); this one is a working application you operate. Runs dbcanvas's
+  // dashboard and a printable report: a working application you operate. Runs dbcanvas's
   // own first-party image, so no os/osVersion/arch fields. Two ways to reach a
   // database: linked to a standalone node on the canvas via an association line
   // (see endpointKind/tryConnect), or a manual connection typed into the form —
@@ -816,7 +721,7 @@ export const NODE_TYPES = {
 // database they drive — which is why the line gets a caption of its own ("app
 // connection"), and why the two panels that merely *display* data (Big Hole,
 // MClusterAdmin) are not in here: they carry no connector at all.
-export const SIM_NODE_TYPES = new Set(['stocksim', 'ledgersim', 'airlinesim', 'carsim', 'hotelsim', 'supportsim', 'pgvectorsim', 'trafficsim', 'marketchaos'])
+export const SIM_NODE_TYPES = new Set(['stocksim', 'ledgersim', 'supportsim', 'pgvectorsim'])
 
 // isReplEdge distinguishes the two kinds of line the canvas draws with one edge list: a
 // cross-cluster replication link ('async' / 'bidir'), and everything else — an
@@ -2168,15 +2073,10 @@ const PALETTE_ALIASES = {
   ceph: 'block storage rbd volumes pvc kubernetes k3d resize grow csi',
   watchtower: 'updates upgrade', intranet: 'dns gateway core',
   linuxclient: 'client host bare vm jump box test tools centos el7',
-  trafficsim: 'demo simulation city map live traffic',
-  hotelsim: 'demo simulation hotel reservation booking mongo mongodb',
   supportsim: 'demo simulation support help desk tickets vector search vectorsearch semantic embeddings ai rag mongot mongo mongodb lab learn',
   pgvectorsim: 'demo simulation support help desk tickets vector search pgvector hnsw semantic embeddings ai rag postgres postgresql patroni lab learn',
   mclusteradmin: 'mongodb admin panel administration mca mclusteradmin gui web ui manage replica set sharding balancer oplog users roles',
   bighole: 'mongodb ftdc diagnostic data viewer big hole bighole charts metrics support tarball browser offline',
-  airlinesim: 'demo simulation airline flight reservation booking mysql pxc',
-  carsim: 'demo simulation car rental booking postgres postgresql patroni repmgr spock',
-  marketchaos: 'demo simulation stock market exchange trading mysql pxc performance tuning index challenge unoptimized',
   stocksim: 'demo simulation stock market portfolio trading crud report dashboard external mysql postgres mongodb valkey',
 }
 // menuEntriesFor shapes the library catalog into context-menu entries: one per
@@ -3258,9 +3158,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       if (n.type === 'pgbouncer') return 'pgbouncer'
       if ((n.type === 'pxc' || n.type === 'mysql') && n.frameId) return 'replmember'
       if (n.type === 'valkey') return 'valkey'
-      if (n.type === 'trafficsim') return 'trafficsim'
       if (n.type === 'psm') return 'psm'
-      if (n.type === 'hotelsim') return 'hotelsim'
       if (n.type === 'supportsim') return 'supportsim'
       if (n.type === 'pgvectorsim') return 'pgvectorsim'
       if (n.type === 'ps' && !n.frameId) return 'ps'
@@ -3269,9 +3167,6 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       // Sim became able to drive them; nothing else links to them yet.
       if (n.type === 'mariadb' && !n.frameId) return 'mariadb'
       if (n.type === 'mysqlce' && !n.frameId) return 'mysqlce'
-      if (n.type === 'airlinesim') return 'airlinesim'
-      if (n.type === 'carsim') return 'carsim'
-      if (n.type === 'marketchaos') return 'marketchaos'
       if (n.type === 'stocksim') return 'stocksim'
       if (n.type === 'ledgersim') return 'ledgersim'
       return null
@@ -3364,82 +3259,17 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
     if (k2 === 'repmgr' && k1 === 'pgbouncer') return createFlow(e2, e1, { singleOutgoing: true })
     if (k1 === 'spock' && k2 === 'pgbouncer') return createFlow(e1, e2, { singleOutgoing: true })
     if (k2 === 'spock' && k1 === 'pgbouncer') return createFlow(e2, e1, { singleOutgoing: true })
-    // Standalone Valkey node OR Valkey Cluster frame → Traffic Sim node (the data
-    // source flows to its consumer, same shape as Patroni cluster frame → HAProxy
-    // above; a Traffic Sim node links to exactly one target, single incoming).
-    if (k1 === 'valkey' && k2 === 'trafficsim') return createFlow(e1, e2, { singleOutgoing: true })
-    if (k2 === 'valkey' && k1 === 'trafficsim') return createFlow(e2, e1, { singleOutgoing: true })
-    if (k1 === 'valkeycluster' && k2 === 'trafficsim') return createFlow(e1, e2, { singleOutgoing: true })
-    if (k2 === 'valkeycluster' && k1 === 'trafficsim') return createFlow(e2, e1, { singleOutgoing: true })
-    // Standalone PS MongoDB node OR a PSMDB replica-set/sharded-cluster frame →
-    // Hotel Sim node (same shape as the Valkey → Traffic Sim rules above; a Hotel
-    // Sim node links to exactly one target, single incoming).
-    if (k1 === 'psm' && k2 === 'hotelsim') return createFlow(e1, e2, { singleOutgoing: true })
-    if (k2 === 'psm' && k1 === 'hotelsim') return createFlow(e2, e1, { singleOutgoing: true })
-    if (k1 === 'psmrs' && k2 === 'hotelsim') return createFlow(e1, e2, { singleOutgoing: true })
-    if (k2 === 'psmrs' && k1 === 'hotelsim') return createFlow(e2, e1, { singleOutgoing: true })
-    if (k1 === 'psmdb' && k2 === 'hotelsim') return createFlow(e1, e2, { singleOutgoing: true })
-    if (k2 === 'psmdb' && k1 === 'hotelsim') return createFlow(e2, e1, { singleOutgoing: true })
-    // The same three → Support Sim, plus a K3D frame (its operator is checked by
-    // validation: it must be the MongoDB one).
+    // A standalone PS MongoDB node, a PSMDB replica-set or sharded-cluster frame, or a
+    // K3D frame → Support Sim (its operator is checked by validation: it must be the
+    // MongoDB one). A Support Sim node links to exactly one target, single incoming.
     if (['psm', 'psmrs', 'psmdb', 'k3d'].includes(k1) && k2 === 'supportsim') return createFlow(e1, e2, { singleOutgoing: true })
     if (['psm', 'psmrs', 'psmdb', 'k3d'].includes(k2) && k1 === 'supportsim') return createFlow(e2, e1, { singleOutgoing: true })
-    // Any PostgreSQL target → pgvector Support Sim: the Car Rental Sim's set plus a K3D
+    // Any PostgreSQL target → pgvector Support Sim: a pg node, a Patroni/repmgr/Spock
+    // frame, an HAProxy or PgBouncer node fronting one, or a K3D
     // frame (validation checks that it runs a PostgreSQL operator, and that an HAProxy
     // fronts PostgreSQL rather than MySQL).
     if (PGV_LINKABLE_KINDS.has(k1) && k2 === 'pgvectorsim') return createFlow(e1, e2, { singleOutgoing: true })
     if (PGV_LINKABLE_KINDS.has(k2) && k1 === 'pgvectorsim') return createFlow(e2, e1, { singleOutgoing: true })
-    // Standalone Percona Server node, a PXC/MySQL backend frame (direct), or a
-    // ProxySQL/HAProxy node or cluster fronting one of the latter two → Airline Sim
-    // node (same shape as the rules above; an Airline Sim node links to exactly one
-    // target, single incoming). A 'backend' frame's singleOutgoing already covers
-    // "connect Airline Sim directly OR front it with a proxy, not both" for free.
-    if (k1 === 'ps' && k2 === 'airlinesim') return createFlow(e1, e2, { singleOutgoing: true })
-    if (k2 === 'ps' && k1 === 'airlinesim') return createFlow(e2, e1, { singleOutgoing: true })
-    if (k1 === 'backend' && k2 === 'airlinesim') return createFlow(e1, e2, { singleOutgoing: true })
-    if (k2 === 'backend' && k1 === 'airlinesim') return createFlow(e2, e1, { singleOutgoing: true })
-    if (k1 === 'haproxy' && k2 === 'airlinesim') return createFlow(e1, e2, { singleOutgoing: true })
-    if (k2 === 'haproxy' && k1 === 'airlinesim') return createFlow(e2, e1, { singleOutgoing: true })
-    if (k1 === 'proxysql' && k2 === 'airlinesim') return createFlow(e1, e2, { singleOutgoing: true })
-    if (k2 === 'proxysql' && k1 === 'airlinesim') return createFlow(e2, e1, { singleOutgoing: true })
-    if (k1 === 'proxysql-frame' && k2 === 'airlinesim') return createFlow(e1, e2, { singleOutgoing: true })
-    if (k2 === 'proxysql-frame' && k1 === 'airlinesim') return createFlow(e2, e1, { singleOutgoing: true })
-    // Standalone PostgreSQL node, a Patroni/repmgr/Spock cluster frame (direct), or
-    // an HAProxy node fronting one of the latter three → Car Rental Sim node (same
-    // shape as the Airline Sim rules above; a Car Rental Sim node links to exactly
-    // one target, single incoming). Each of 'pg'/'patroni'/'repmgr'/'spock'/
-    // 'haproxy' already carries its own singleOutgoing semantics, so "connect Car
-    // Rental Sim directly OR front it with HAProxy, not both" falls out for free —
-    // there is no ProxySQL rule here at all: ProxySQL is MySQL-family only.
-    if (k1 === 'pg' && k2 === 'carsim') return createFlow(e1, e2, { singleOutgoing: true })
-    if (k2 === 'pg' && k1 === 'carsim') return createFlow(e2, e1, { singleOutgoing: true })
-    if (k1 === 'patroni' && k2 === 'carsim') return createFlow(e1, e2, { singleOutgoing: true })
-    if (k2 === 'patroni' && k1 === 'carsim') return createFlow(e2, e1, { singleOutgoing: true })
-    if (k1 === 'repmgr' && k2 === 'carsim') return createFlow(e1, e2, { singleOutgoing: true })
-    if (k2 === 'repmgr' && k1 === 'carsim') return createFlow(e2, e1, { singleOutgoing: true })
-    if (k1 === 'spock' && k2 === 'carsim') return createFlow(e1, e2, { singleOutgoing: true })
-    if (k2 === 'spock' && k1 === 'carsim') return createFlow(e2, e1, { singleOutgoing: true })
-    if (k1 === 'haproxy' && k2 === 'carsim') return createFlow(e1, e2, { singleOutgoing: true })
-    if (k2 === 'haproxy' && k1 === 'carsim') return createFlow(e2, e1, { singleOutgoing: true })
-    // ...and the same through a PgBouncer pool, which is the other way a
-    // PostgreSQL application reaches these clusters. Its single outgoing edge means
-    // a pool drives one sim, exactly as an HAProxy node does.
-    if (k1 === 'pgbouncer' && k2 === 'carsim') return createFlow(e1, e2, { singleOutgoing: true })
-    if (k2 === 'pgbouncer' && k1 === 'carsim') return createFlow(e2, e1, { singleOutgoing: true })
-    // Standalone Percona Server node, a single PXC member node linked directly
-    // ('replmember' — bypasses the cluster frame on purpose, for challenges about
-    // an app that never load-balances at all), a PXC/MySQL backend frame, or an
-    // HAProxy node fronting one of the latter two → MarketChaos node (same shape
-    // as the Airline Sim rules above; a MarketChaos node links to exactly one
-    // target, single incoming). No ProxySQL rule here — out of scope for V1.
-    if (k1 === 'ps' && k2 === 'marketchaos') return createFlow(e1, e2, { singleOutgoing: true })
-    if (k2 === 'ps' && k1 === 'marketchaos') return createFlow(e2, e1, { singleOutgoing: true })
-    if (k1 === 'replmember' && k2 === 'marketchaos') return createFlow(e1, e2, { singleOutgoing: true })
-    if (k2 === 'replmember' && k1 === 'marketchaos') return createFlow(e2, e1, { singleOutgoing: true })
-    if (k1 === 'backend' && k2 === 'marketchaos') return createFlow(e1, e2, { singleOutgoing: true })
-    if (k2 === 'backend' && k1 === 'marketchaos') return createFlow(e2, e1, { singleOutgoing: true })
-    if (k1 === 'haproxy' && k2 === 'marketchaos') return createFlow(e1, e2, { singleOutgoing: true })
-    if (k2 === 'haproxy' && k1 === 'marketchaos') return createFlow(e2, e1, { singleOutgoing: true })
     // Any database → Stock Market Sim node. This is the one sim that is not
     // tied to an engine, so its rule is a table rather than a pair of lines per
     // type; SS_LINKABLE_KINDS mirrors stockSimStandaloneTargets and
@@ -4619,16 +4449,8 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       { label: 'Repository', type: 'repository', onClick: () => addNode('repository') },
     ] },
     { title: 'App Simulators', items: [
-      { label: 'Traffic Sim', type: 'trafficsim', onClick: () => addNode('trafficsim') },
-      { label: 'Hotel Sim', type: 'hotelsim', onClick: () => addNode('hotelsim') },
       { label: 'Support Sim (Vector Search)', type: 'supportsim', onClick: () => addNode('supportsim') },
       { label: 'pgvector Support Sim', type: 'pgvectorsim', onClick: () => addNode('pgvectorsim') },
-      { label: 'Airline Sim', type: 'airlinesim', onClick: () => addNode('airlinesim') },
-      { label: 'Car Rental Sim', type: 'carsim', onClick: () => addNode('carsim') },
-      // The one simulator that is still moving, so it is tagged rather than
-      // labelled: the category itself is finished work and no longer says
-      // "(experimental)" over all six.
-      { label: 'Unoptimized MySQL Challenge', type: 'marketchaos', onClick: () => addNode('marketchaos'), experimental: true },
       { label: 'Stock Market Sim', type: 'stocksim', onClick: () => addNode('stocksim') },
       { label: 'Ledger Sim', type: 'ledgersim', onClick: () => addNode('ledgersim') },
     ] },
@@ -9131,155 +8953,7 @@ export function MClusterAdminManager({ dep, onDeleteNode }) {
   )
 }
 
-// TrafficSimForm edits a (not-yet-running) Traffic Sim node. No OS/version/arch (a
-// fixed first-party image) and no config fields — the only thing that matters is
-// which Valkey node or Valkey Cluster frame it's linked to, resolved from the
-// drawn edge exactly the way the backend's trafficSimTarget does.
-function TrafficSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep, deployed }) {
-  const linkedTarget = (() => {
-    for (const e of edges) {
-      const other = e.from.node === n.id ? e.to.node : (e.to.node === n.id ? e.from.node : null)
-      if (!other) continue
-      const vnode = nodes.find((x) => x.id === other && x.type === 'valkey')
-      if (vnode) return { kind: 'valkey', label: vnode.label }
-      const vframe = frames.find((x) => x.id === other && x.type === 'valkeycluster')
-      if (vframe) return { kind: 'valkeycluster', label: vframe.label }
-    }
-    return null
-  })()
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">Traffic Sim</span>
-        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
-      </div>
-      <p className="text-xs text-muted">
-        Background agents simulate a small fictional city's traffic — vehicles, sensors, signals,
-        incidents — continuously reading and writing the linked Valkey. A live map is served from
-        this node, published to the host (like PMM) once deployed — no VNC desktop needed. No
-        product besides the sim itself; not monitored by PMM.
-      </p>
-
-      {linkedTarget ? (
-        <div className="rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-xs text-primary">
-          Linked to {linkedTarget.kind === 'valkeycluster' ? 'Valkey Cluster' : 'Valkey'} <span className="font-mono font-medium">{linkedTarget.label}</span>
-        </div>
-      ) : (
-        <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
-          Not linked. Draw an association line from a Valkey or Valkey Cluster node to this node.
-        </div>
-      )}
-
-      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
-      </Field>
-
-      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
-        <Icon.Trash size={16} /> Delete node
-      </Button>
-    </div>
-  )
-}
-
-// TrafficSimManager shows a deployed Traffic Sim node's published dashboard URL
-// and what it's linked to.
-function TrafficSimManager({ dep, onDeleteNode }) {
-  const cfg = dep?.config || {}
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">Traffic Sim</span>
-        <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
-      </div>
-      <SimDashboardLink port={cfg.httpPort} />
-      <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
-        <InfoRow label="Internal URL" help={HELP.depInternalURL}><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8088</span></InfoRow>
-        <InfoRow label="Linked to" help={HELP.depLinkedTo}><span className="font-mono text-xs">{cfg.targetName} ({cfg.targetKind})</span></InfoRow>
-      </div>
-      <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
-        <Icon.Trash size={16} /> Delete node
-      </Button>
-    </div>
-  )
-}
-
-// HotelSimForm edits a (not-yet-running) Hotel Sim node. No OS/version/arch (a
-// fixed first-party image) and no config fields — the only thing that matters is
-// which PS MongoDB node/frame it's linked to, resolved from the drawn edge exactly
-// the way the backend's hotelSimTarget does.
-function HotelSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep, deployed }) {
-  const linkedTarget = (() => {
-    for (const e of edges) {
-      const other = e.from.node === n.id ? e.to.node : (e.to.node === n.id ? e.from.node : null)
-      if (!other) continue
-      const pnode = nodes.find((x) => x.id === other && x.type === 'psm')
-      if (pnode) return { kind: 'psm', label: pnode.label }
-      const pframe = frames.find((x) => x.id === other && (x.type === 'psmrs' || x.type === 'psmdb'))
-      if (pframe) return { kind: pframe.type, label: pframe.label }
-    }
-    return null
-  })()
-  const KIND_LABEL = { psm: 'PSMDB', psmrs: 'PSMDB Replica Set', psmdb: 'PSMDB Sharded' }
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">Hotel Sim</span>
-        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
-      </div>
-      <p className="text-xs text-muted">
-        Background agents run a 100-hotel reservation chain — guest search, booking, modification,
-        cancellation, check-in/out — continuously reading and writing the linked MongoDB. A live
-        dashboard is served from this node, published to the host (like PMM) once deployed — no
-        VNC desktop needed. No product besides the sim itself; not monitored by PMM.
-      </p>
-
-      {linkedTarget ? (
-        <div className="rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-xs text-primary">
-          Linked to {KIND_LABEL[linkedTarget.kind]} <span className="font-mono font-medium">{linkedTarget.label}</span>
-        </div>
-      ) : (
-        <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
-          Not linked. Draw an association line from a PSMDB, PSMDB Replica Set, or PSMDB Sharded node to this node.
-        </div>
-      )}
-
-      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
-      </Field>
-
-      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
-        <Icon.Trash size={16} /> Delete node
-      </Button>
-    </div>
-  )
-}
-
-// HotelSimManager shows a deployed Hotel Sim node's published dashboard URL and
-// what it's linked to.
-function HotelSimManager({ dep, onDeleteNode }) {
-  const cfg = dep?.config || {}
-  const KIND_LABEL = { psm: 'PSMDB', psmrs: 'PSMDB Replica Set', psmdb: 'PSMDB Sharded' }
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">Hotel Sim</span>
-        <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
-      </div>
-      <SimDashboardLink port={cfg.httpPort} />
-      <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
-        <InfoRow label="Internal URL" help={HELP.depInternalURL}><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8089</span></InfoRow>
-        <InfoRow label="Linked to" help={HELP.depLinkedTo}><span className="font-mono text-xs">{cfg.targetName} ({KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></InfoRow>
-      </div>
-      <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
-        <Icon.Trash size={16} /> Delete node
-      </Button>
-    </div>
-  )
-}
-
-// SupportSimForm edits a (not-yet-running) Support Sim node: like Hotel Sim, nothing to
+// SupportSimForm edits a (not-yet-running) Support Sim node: nothing to
 // configure but the link, resolved the way the backend's supportSimTarget does — and a
 // note on whether that target actually has mongot, since without it the desk runs on
 // an in-app scan and the point of the sim is $vectorSearch.
@@ -9484,339 +9158,6 @@ function PGVectorSimManager({ dep, onDeleteNode }) {
         <InfoRow label="pgvector" help={HELP.pgVector}><span className="text-xs">{cfg.pgVector ? 'on (HNSW index, <=>)' : 'off: real[] + in-app scan'}</span></InfoRow>
       </div>
       <p className="text-xs text-muted">Tabs: Live Desk · Search Showdown · Vector Lab · Under the Hood.</p>
-      <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
-        <Icon.Trash size={16} /> Delete node
-      </Button>
-    </div>
-  )
-}
-
-// AirlineSimForm edits a (not-yet-deployed) Airline Sim node. It resolves its own
-// linked target across all five source shapes: a standalone Percona Server node, a
-// PXC/MySQL backend frame (direct), an HAProxy node, or a ProxySQL node/cluster —
-// the last two only make sense once they're themselves fronting a PXC or MySQL
-// replication backend, but that's verified by dbcanvas at deploy time, not here.
-function AirlineSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep, deployed }) {
-  const AIRLINE_KIND_LABEL = { ps: 'Percona Server', pxc: 'PXC Cluster', mysql: 'MySQL Replication', haproxy: 'HAProxy', proxysql: 'ProxySQL', 'proxysql-frame': 'ProxySQL Cluster' }
-  const linkedTarget = (() => {
-    for (const e of edges) {
-      const other = e.from.node === n.id ? e.to.node : (e.to.node === n.id ? e.from.node : null)
-      if (!other) continue
-      const psNode = nodes.find((x) => x.id === other && x.type === 'ps' && !x.frameId)
-      if (psNode) return { kind: 'ps', label: psNode.label }
-      const backendFrame = frames.find((x) => x.id === other && (x.type === 'pxc' || x.type === 'mysql'))
-      if (backendFrame) return { kind: backendFrame.type, label: backendFrame.label }
-      const haproxyNode = nodes.find((x) => x.id === other && x.type === 'haproxy')
-      if (haproxyNode) return { kind: 'haproxy', label: haproxyNode.label }
-      const proxysqlNode = nodes.find((x) => x.id === other && x.type === 'proxysql' && !x.frameId)
-      if (proxysqlNode) return { kind: 'proxysql', label: proxysqlNode.label }
-      const proxysqlFrame = frames.find((x) => x.id === other && x.type === 'proxysql')
-      if (proxysqlFrame) return { kind: 'proxysql-frame', label: proxysqlFrame.label }
-    }
-    return null
-  })()
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">Airline Sim</span>
-        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
-      </div>
-      <p className="text-xs text-muted">
-        Background agents run a 200-route reservation workload against a 2000-aircraft fleet — route
-        search, booking, modification, cancellation, check-in, flight completion — continuously reading
-        and writing the linked MySQL-family target. A live dashboard is served from this node,
-        published to the host (like PMM) once deployed — no VNC desktop needed. No product besides
-        the sim itself; not monitored by PMM.
-      </p>
-
-      {linkedTarget ? (
-        <div className="rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-xs text-primary">
-          Linked to {AIRLINE_KIND_LABEL[linkedTarget.kind]} <span className="font-mono font-medium">{linkedTarget.label}</span>
-        </div>
-      ) : (
-        <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
-          Not linked. Draw an association line from a standalone Percona Server node, a MySQL
-          replication or PXC cluster frame, or a ProxySQL/HAProxy node or cluster fronting one, to this node.
-        </div>
-      )}
-
-      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
-      </Field>
-
-      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
-        <Icon.Trash size={16} /> Delete node
-      </Button>
-    </div>
-  )
-}
-
-// AirlineSimManager shows a deployed Airline Sim node's published dashboard URL
-// and what it's linked to. cfg.targetKind here is the fully-resolved 7-way kind
-// dbcanvas settled on (e.g. "haproxy-pxc"), not the coarser 5-way shape
-// AirlineSimForm resolves on the canvas before deploy.
-function AirlineSimManager({ dep, onDeleteNode }) {
-  const cfg = dep?.config || {}
-  const TARGET_KIND_LABEL = {
-    ps: 'Percona Server', mysql: 'MySQL Replication', pxc: 'PXC Cluster',
-    'haproxy-pxc': 'HAProxy → PXC', 'haproxy-mysql': 'HAProxy → MySQL Replication',
-    'proxysql-pxc': 'ProxySQL → PXC', 'proxysql-mysql': 'ProxySQL → MySQL Replication',
-  }
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">Airline Sim</span>
-        <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
-      </div>
-      <SimDashboardLink port={cfg.httpPort} />
-      <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
-        <InfoRow label="Internal URL" help={HELP.depInternalURL}><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8090</span></InfoRow>
-        <InfoRow label="Linked to" help={HELP.depLinkedTo}><span className="font-mono text-xs">{cfg.targetName} ({TARGET_KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></InfoRow>
-      </div>
-      <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
-        <Icon.Trash size={16} /> Delete node
-      </Button>
-    </div>
-  )
-}
-
-// CarSimForm edits a (not-yet-deployed) Car Rental Sim node. It resolves its own
-// linked target across all six source shapes: a standalone PostgreSQL node, a
-// Patroni/repmgr/Spock cluster frame (direct), or an HAProxy or PgBouncer node —
-// the proxies only make sense once they are themselves fronting a backend, but
-// that's verified by dbcanvas at deploy time, not here.
-function CarSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep, deployed }) {
-  const CARSIM_KIND_LABEL = { pg: 'PostgreSQL', patroni: 'Patroni Cluster', repmgr: 'repmgr Cluster', spock: 'Spock Cluster', haproxy: 'HAProxy', pgbouncer: 'PgBouncer' }
-  const linkedTarget = (() => {
-    for (const e of edges) {
-      const other = e.from.node === n.id ? e.to.node : (e.to.node === n.id ? e.from.node : null)
-      if (!other) continue
-      const pgNode = nodes.find((x) => x.id === other && x.type === 'pg' && !x.frameId)
-      if (pgNode) return { kind: 'pg', label: pgNode.label }
-      const backendFrame = frames.find((x) => x.id === other && (x.type === 'patroni' || x.type === 'repmgr' || x.type === 'spock'))
-      if (backendFrame) return { kind: backendFrame.type, label: backendFrame.label }
-      const haproxyNode = nodes.find((x) => x.id === other && x.type === 'haproxy')
-      if (haproxyNode) return { kind: 'haproxy', label: haproxyNode.label }
-      const poolNode = nodes.find((x) => x.id === other && x.type === 'pgbouncer')
-      if (poolNode) return { kind: 'pgbouncer', label: poolNode.label }
-    }
-    return null
-  })()
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">Car Rental Sim</span>
-        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
-      </div>
-      <p className="text-xs text-muted">
-        Background agents run a 180-location rental workload against a 2000-vehicle fleet — location
-        search, booking, modification, cancellation, check-out, check-in — continuously reading and
-        writing the linked PostgreSQL-family target. A live dashboard is served from this node,
-        published to the host (like PMM) once deployed — no VNC desktop needed. No product besides
-        the sim itself; not monitored by PMM.
-      </p>
-
-      {linkedTarget ? (
-        <div className="rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-xs text-primary">
-          Linked to {CARSIM_KIND_LABEL[linkedTarget.kind]} <span className="font-mono font-medium">{linkedTarget.label}</span>
-        </div>
-      ) : (
-        <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
-          Not linked. Draw an association line from a standalone PostgreSQL node, a Patroni/repmgr/Spock
-          cluster frame, or an HAProxy or PgBouncer node fronting one, to this node.
-        </div>
-      )}
-
-      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
-      </Field>
-
-      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
-        <Icon.Trash size={16} /> Delete node
-      </Button>
-    </div>
-  )
-}
-
-// CarSimManager shows a deployed Car Rental Sim node's published dashboard URL
-// and what it's linked to. cfg.targetKind here is the fully-resolved 7-way kind
-// dbcanvas settled on (e.g. "haproxy-spock"), not the coarser 6-way shape
-// CarSimForm resolves on the canvas before deploy.
-function CarSimManager({ dep, onDeleteNode }) {
-  const cfg = dep?.config || {}
-  const TARGET_KIND_LABEL = {
-    pg: 'PostgreSQL', patroni: 'Patroni Cluster', repmgr: 'repmgr Cluster', spock: 'Spock Cluster',
-    'haproxy-patroni': 'HAProxy → Patroni', 'haproxy-repmgr': 'HAProxy → repmgr', 'haproxy-spock': 'HAProxy → Spock',
-    'pgbouncer-pg': 'PgBouncer → PostgreSQL', 'pgbouncer-patroni': 'PgBouncer → Patroni',
-    'pgbouncer-repmgr': 'PgBouncer → repmgr', 'pgbouncer-spock': 'PgBouncer → Spock',
-  }
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">Car Rental Sim</span>
-        <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
-      </div>
-      <SimDashboardLink port={cfg.httpPort} />
-      <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
-        <InfoRow label="Internal URL" help={HELP.depInternalURL}><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8091</span></InfoRow>
-        <InfoRow label="Linked to" help={HELP.depLinkedTo}><span className="font-mono text-xs">{cfg.targetName} ({TARGET_KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></InfoRow>
-      </div>
-      <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
-        <Icon.Trash size={16} /> Delete node
-      </Button>
-    </div>
-  )
-}
-
-// MarketChaosForm edits a (not-yet-deployed) "Unoptimized MySQL Challenge"
-// (MarketChaos) node. It resolves its own linked target across all four source
-// shapes: a standalone Percona Server node, a single PXC member node linked
-// directly ('replmember' — bypasses cluster-wide resolution on purpose), a
-// PXC/MySQL backend frame, or an HAProxy node — the last one only makes sense
-// once it's itself fronting one of the former two, but that's verified by
-// dbcanvas at deploy time, not here.
-// MC_DATASET_PRESETS mirrors marketchaos/internal/sim/dataset.go's own preset
-// table — kept as a small display-only copy here (not fetched from the
-// engine) since the estimate needs to render before the node is ever
-// deployed. medium is the default profile everywhere else in the stack.
-const MC_DATASET_PRESETS = {
-  small: { label: 'Small', hint: '2K traders, ~575K rows total', size: '~200 MB', time: '~30s' },
-  medium: { label: 'Medium (default)', hint: '10K traders, ~5.8M rows total', size: '~1.2 GB', time: '~3-5 min' },
-  large: { label: 'Large', hint: '25K traders, ~28M rows total', size: '~5 GB', time: '~15-30 min' },
-  custom: { label: 'Custom', hint: 'set exact row counts below', size: null, time: null },
-}
-const MC_CUSTOM_DEFAULTS = { traders: 10000, orders: 500000, trades: 250000, ticks: 5000000 }
-
-function MarketChaosForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep, deployed }) {
-  const MARKETCHAOS_KIND_LABEL = { ps: 'Percona Server', pxcnode: 'PXC member (direct)', pxc: 'PXC Cluster', mysql: 'MySQL Replication', haproxy: 'HAProxy' }
-  const mcDataset = n.mcDataset || 'medium'
-  const preset = MC_DATASET_PRESETS[mcDataset]
-  const pxcTarget = (() => {
-    for (const e of edges) {
-      const other = e.from.node === n.id ? e.to.node : (e.to.node === n.id ? e.from.node : null)
-      if (!other) continue
-      if (nodes.find((x) => x.id === other && x.type === 'pxc')) return true
-      if (frames.find((x) => x.id === other && x.type === 'pxc')) return true
-    }
-    return false
-  })()
-  const linkedTarget = (() => {
-    for (const e of edges) {
-      const other = e.from.node === n.id ? e.to.node : (e.to.node === n.id ? e.from.node : null)
-      if (!other) continue
-      const psNode = nodes.find((x) => x.id === other && x.type === 'ps' && !x.frameId)
-      if (psNode) return { kind: 'ps', label: psNode.label }
-      const pxcMember = nodes.find((x) => x.id === other && x.type === 'pxc' && x.frameId)
-      if (pxcMember) return { kind: 'pxcnode', label: pxcMember.label }
-      const backendFrame = frames.find((x) => x.id === other && (x.type === 'pxc' || x.type === 'mysql'))
-      if (backendFrame) return { kind: backendFrame.type, label: backendFrame.label }
-      const haproxyNode = nodes.find((x) => x.id === other && x.type === 'haproxy')
-      if (haproxyNode) return { kind: 'haproxy', label: haproxyNode.label }
-    }
-    return null
-  })()
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">Unoptimized MySQL Challenge</span>
-        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
-      </div>
-      <p className="text-xs text-muted">
-        MarketChaos: a fictional stock exchange deliberately deployed with bad indexes,
-        queries, and transaction patterns. Diagnose and fix them against the linked
-        MySQL-family target without breaking correctness. A live dashboard is served from
-        this node, published to the host (like PMM) once deployed — no VNC desktop needed.
-        No product besides the sim itself; not monitored by PMM.
-      </p>
-
-      {linkedTarget ? (
-        <div className="rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-xs text-primary">
-          Linked to {MARKETCHAOS_KIND_LABEL[linkedTarget.kind]} <span className="font-mono font-medium">{linkedTarget.label}</span>
-        </div>
-      ) : (
-        <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
-          Not linked. Draw an association line from a standalone Percona Server node, a
-          direct PXC member node, a PXC/MySQL replication cluster frame, or an HAProxy node
-          fronting one, to this node.
-        </div>
-      )}
-
-      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
-      </Field>
-
-      <Field label="Dataset size" help={HELP.benchDataset} hint="Fixed at deploy — reseeding at a different size means deleting and redeploying this node.">
-        <select
-          className={`${inputCls} ${deployed ? 'opacity-70' : ''}`}
-          disabled={deployed}
-          value={mcDataset}
-          onChange={(e) => {
-            const v = e.target.value
-            if (v === 'custom' && !n.mcTraders) {
-              patchNode(n.id, { mcDataset: v, mcTraders: MC_CUSTOM_DEFAULTS.traders, mcOrders: MC_CUSTOM_DEFAULTS.orders, mcTrades: MC_CUSTOM_DEFAULTS.trades, mcTicks: MC_CUSTOM_DEFAULTS.ticks })
-            } else {
-              patchNode(n.id, { mcDataset: v })
-            }
-          }}
-        >
-          {Object.entries(MC_DATASET_PRESETS).map(([k, p]) => <option key={k} value={k}>{p.label}</option>)}
-        </select>
-      </Field>
-
-      {mcDataset === 'custom' ? (
-        <div className="grid grid-cols-2 gap-2">
-          <Field label="Traders" help={HELP.simTraders}><input type="number" min={100} className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} disabled={deployed} value={n.mcTraders || ''} onChange={(e) => patchNode(n.id, { mcTraders: parseInt(e.target.value, 10) || 0 })} /></Field>
-          <Field label="Orders" help={HELP.simOrders}><input type="number" min={1000} className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} disabled={deployed} value={n.mcOrders || ''} onChange={(e) => patchNode(n.id, { mcOrders: parseInt(e.target.value, 10) || 0 })} /></Field>
-          <Field label="Trades" help={HELP.simTrades}><input type="number" min={500} className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} disabled={deployed} value={n.mcTrades || ''} onChange={(e) => patchNode(n.id, { mcTrades: parseInt(e.target.value, 10) || 0 })} /></Field>
-          <Field label="Price ticks" help={HELP.simTicks}><input type="number" min={10000} className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} disabled={deployed} value={n.mcTicks || ''} onChange={(e) => patchNode(n.id, { mcTicks: parseInt(e.target.value, 10) || 0 })} /></Field>
-        </div>
-      ) : (
-        <div className="flex justify-between gap-3 rounded-lg bg-surface2 px-3 py-2 text-xs text-muted">
-          <span>{preset.hint}</span>
-          <span className="whitespace-nowrap font-mono">{preset.size} · {preset.time}</span>
-        </div>
-      )}
-      {pxcTarget && (mcDataset === 'large' || mcDataset === 'custom') && (
-        <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
-          Linked to a PXC cluster — certification overhead makes seeding roughly 2-3x slower than the same size against a standalone target. Medium is usually plenty for the PXC-specific challenges.
-        </div>
-      )}
-
-      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
-        <Icon.Trash size={16} /> Delete node
-      </Button>
-    </div>
-  )
-}
-
-// MarketChaosManager shows a deployed MarketChaos node's published dashboard URL
-// and what it's linked to. cfg.targetKind here is the fully-resolved 5-way kind
-// dbcanvas settled on (e.g. "haproxy-pxc"), not the coarser 4-way shape
-// MarketChaosForm resolves on the canvas before deploy.
-function MarketChaosManager({ node: n, dep, onDeleteNode }) {
-  const cfg = dep?.config || {}
-  const TARGET_KIND_LABEL = {
-    ps: 'Percona Server', pxcnode: 'PXC member (direct)', pxc: 'PXC Cluster', mysql: 'MySQL Replication',
-    'haproxy-pxc': 'HAProxy → PXC', 'haproxy-mysql': 'HAProxy → MySQL Replication',
-  }
-  const mcDataset = n?.mcDataset || 'medium'
-  const preset = MC_DATASET_PRESETS[mcDataset]
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">Unoptimized MySQL Challenge</span>
-        <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
-      </div>
-      <SimDashboardLink port={cfg.httpPort} />
-      <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
-        <InfoRow label="Internal URL" help={HELP.depInternalURL}><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8092</span></InfoRow>
-        <InfoRow label="Linked to" help={HELP.depLinkedTo}><span className="font-mono text-xs">{cfg.targetName} ({TARGET_KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></InfoRow>
-        <InfoRow label="Dataset" help={HELP.depDataset}><span className="font-mono text-xs">{preset.label}{mcDataset === 'custom' ? ` (${n.mcTraders || 0}/${n.mcOrders || 0}/${n.mcTrades || 0}/${n.mcTicks || 0})` : ''}</span></InfoRow>
-      </div>
-      <p className="text-xs text-muted">Seeding progress is shown live on the dashboard itself, not here.</p>
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
         <Icon.Trash size={16} /> Delete node
       </Button>
@@ -15528,13 +14869,6 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
       // frames: the Kubernetes clusters on the canvas decide which kubectl this node installs.
       return <LinuxClientForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} frames={frames} />
     }
-    // Traffic Sim node — the Valkey Traffic Lab live demo app.
-    if (n.type === 'trafficsim') {
-      if (dep && dep.state === 'running') {
-        return <TrafficSimManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
-      }
-      return <TrafficSimForm node={n} nodes={nodes} frames={frames} edges={edges} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
-    }
     // Big Hole node — the browser-only MongoDB FTDC viewer.
     if (n.type === 'bighole') {
       if (dep && dep.state === 'running') {
@@ -15549,7 +14883,7 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
       }
       return <MClusterAdminForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
-    // Hotel Sim node — the MongoDB Hotel Reservation Lab live demo app.
+    // Support Sim node — the MongoDB Vector Search Support Desk.
     if (n.type === 'supportsim') {
       if (dep && dep.state === 'running') {
         return <SupportSimManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
@@ -15562,33 +14896,6 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <PGVectorSimManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <PGVectorSimForm node={n} nodes={nodes} frames={frames} edges={edges} patchNode={patchNode} deleteNode={deleteNode} dep={dep} />
-    }
-    if (n.type === 'hotelsim') {
-      if (dep && dep.state === 'running') {
-        return <HotelSimManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
-      }
-      return <HotelSimForm node={n} nodes={nodes} frames={frames} edges={edges} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
-    }
-    // Airline Sim node — the MySQL Airline Reservation Lab live demo app.
-    if (n.type === 'airlinesim') {
-      if (dep && dep.state === 'running') {
-        return <AirlineSimManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
-      }
-      return <AirlineSimForm node={n} nodes={nodes} frames={frames} edges={edges} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
-    }
-    // Car Rental Sim node — the PostgreSQL Car Rental Lab live demo app.
-    if (n.type === 'carsim') {
-      if (dep && dep.state === 'running') {
-        return <CarSimManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
-      }
-      return <CarSimForm node={n} nodes={nodes} frames={frames} edges={edges} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
-    }
-    // MarketChaos node — the "Unoptimized MySQL Challenge" stock-exchange demo app.
-    if (n.type === 'marketchaos') {
-      if (dep && dep.state === 'running') {
-        return <MarketChaosManager node={n} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
-      }
-      return <MarketChaosForm node={n} nodes={nodes} frames={frames} edges={edges} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
     // Stock Market Sim node — the CRUD + report stock-exchange app. Its form
     // takes stackId because, uniquely, it can test a database connection before

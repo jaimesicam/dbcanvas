@@ -30,7 +30,7 @@ import (
 // engine chosen on the node's form.
 //
 // Second, it does not have to be linked to anything on the canvas. In "linked"
-// mode it resolves a drawn association line exactly as carsim/airlinesim do. In
+// mode it resolves a drawn association line, as every other simulator does. In
 // "manual" mode it takes connection options straight from the node's own form
 // and waits for nothing, so it can drive a database that is not part of the
 // stack — on the Docker host, on the LAN, or a managed cloud instance. That is
@@ -538,10 +538,10 @@ var stockSimFrameTargets = map[string]bool{
 }
 
 // stockSimTarget resolves the coarse kind and target id a stocksim node is
-// linked to via a drawn edge. Mirrors carSimTarget's undirected-edge walk, but
-// over a much wider set: this is the only sim that is not tied to one engine,
-// so it accepts every database node, cluster frame and router dbcanvas can
-// deploy. The kind returned is the node or frame type itself, except for the
+// linked to via a drawn edge: an undirected-edge walk over a wide set. It is
+// the only sim not tied to one engine, so it accepts every database node,
+// cluster frame and router dbcanvas can deploy. The kind returned is the node
+// or frame type itself, except for the
 // two routers, which are named for what they are rather than what they front —
 // waitStockSimTarget works that out from the backend they are attached to.
 //
@@ -1133,7 +1133,7 @@ func (a *App) stockSimPostgresTarget(ctx context.Context, st Stack, hosts map[st
 }
 
 // stockSimMongoTarget resolves a standalone node, a replica set or a sharded
-// cluster. The last two reuse hotelsim's resolver outright — it already returns
+// cluster. The last two use waitMongoTarget outright — it already returns
 // exactly the URI this app needs, including waiting for a replica-set majority
 // and picking a running mongos.
 func (a *App) stockSimMongoTarget(ctx context.Context, st Stack, hosts map[string]string, doc designDoc, domain, kind, targetID string, timeout time.Duration) (stockSimResolved, error) {
@@ -1142,7 +1142,7 @@ func (a *App) stockSimMongoTarget(ctx context.Context, st Stack, hosts map[strin
 		if werr != nil {
 			return stockSimResolved{}, werr
 		}
-		user, pass := hotelSimCreds(dep)
+		user, pass := mongoAdminCreds(dep)
 		h := fqdnOf(hosts[targetID], domain)
 		uri := fmt.Sprintf("mongodb://%s:%s@%s:%d/?authSource=admin&directConnection=true",
 			url.QueryEscape(user), url.QueryEscape(pass), h, mongoPort)
@@ -1155,9 +1155,9 @@ func (a *App) stockSimMongoTarget(ctx context.Context, st Stack, hosts map[strin
 	}
 
 	frame := frameByID(doc, targetID)
-	// hotelsim addresses members by bare hostname; this app's container resolves
+	// waitMongoTarget addresses members by bare hostname; this app's container resolves
 	// those through the same Intranet DNS, so the URI is usable as returned.
-	uri, werr := a.waitHotelSimTarget(ctx, st.ID, hosts, "", frame, kind, doc, timeout)
+	uri, werr := a.waitMongoTarget(ctx, st.ID, hosts, "", frame, kind, doc, timeout)
 	if werr != nil {
 		return stockSimResolved{}, werr
 	}
@@ -1175,7 +1175,7 @@ func (a *App) stockSimMongoTarget(ctx context.Context, st Stack, hosts map[strin
 }
 
 // stockSimValkeyTarget resolves a standalone node or a cluster frame. The
-// cluster case reuses trafficsim's resolver, and the sim's own store hands the
+// cluster case uses waitValkeyTarget, and the sim's own store hands the
 // address list to a UniversalClient, which picks cluster mode from the count —
 // so nothing downstream needs to know which of the two this was.
 func (a *App) stockSimValkeyTarget(ctx context.Context, st Stack, hosts map[string]string, doc designDoc, domain, kind, targetID string, timeout time.Duration) (stockSimResolved, error) {
@@ -1199,7 +1199,7 @@ func (a *App) stockSimValkeyTarget(ctx context.Context, st Stack, hosts map[stri
 	}
 
 	frame := frameByID(doc, targetID)
-	addrs, pw, werr := a.waitTrafficSimTarget(ctx, st.ID, hosts, "", frame, true, timeout)
+	addrs, pw, werr := a.waitValkeyTarget(ctx, st.ID, hosts, "", frame, true, timeout)
 	if werr != nil {
 		return stockSimResolved{}, werr
 	}
@@ -1619,7 +1619,7 @@ func (a *App) handleStockSimTest(w http.ResponseWriter, r *http.Request) {
 }
 
 // waitStockSimHealthy polls until the container's own /healthz answers 200. The
-// runtime image is distroless (no shell, no curl) — matching waitCarSimHealthy,
+// runtime image is distroless (no shell, no curl), so
 // this execs the check inside the container: `stocksim -healthcheck` exits 0
 // only if /healthz answers 200.
 func (a *App) waitStockSimHealthy(ctx context.Context, containerID string, timeout time.Duration) error {

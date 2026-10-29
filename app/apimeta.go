@@ -39,7 +39,6 @@ var paramDoc = map[string]string{
 	"src":      "A source's index within a log bundle.",
 	"user":     "The database username the certificate was issued for.",
 	"username": "The Kubernetes RBAC username.",
-	"stepId":   "The lab step's id.",
 	"action":   "What to do to the ClusterSync: pause, resume or finalize (a Linux Client also takes resume-failed).",
 	"jid":      "A Sample Client Code job id, as returned when the job was started.",
 	"cid":      "A Database Explorer connection id, as returned by GET /api/dbexplorer/connections. It is an opaque token that is re-resolved and re-authorized on every request.",
@@ -53,7 +52,6 @@ var paramDoc = map[string]string{
 var paramDocByPrefix = map[string]map[string]string{
 	"/api/users":                {"id": "The account's numeric id.", "sid": "A session's id, as listed by GET /api/users/{id}/sessions."},
 	"/api/templates":            {"id": "The template's id — a number, or `builtin:<name>` for one that ships with the app."},
-	"/api/labs":                 {"id": "The lab's id."},
 	"/api/queryrun/runs":        {"id": "The query run's id."},
 	"/api/benchmark/runs":       {"id": "The benchmark run's id."},
 	"/api/pktinspect/captures":  {"id": "The capture's id."},

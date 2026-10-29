@@ -7,7 +7,7 @@
 # platform.sh), so installations on one Docker daemon cannot replace each other's. After an
 # upgrade the installation looks for …-amd64-v0.0.15 and finds only the previous release's
 # …-v0.0.14 — or, from before releases were in tags, plain dbcanvas-systemd:oraclelinux-9-amd64
-# and dbcanvas-trafficsim:latest — and rebuilding the lot takes a long time. When the image
+# and dbcanvas-stocksim:latest — and rebuilding the lot takes a long time. When the image
 # definitions did not change between the two releases, this gives each image's newest earlier
 # build a second tag for the current release. Nothing is removed or rebuilt, and an image that
 # already has the current release's tag is left alone.
@@ -33,7 +33,7 @@ candidates() {
     esac
     case "$repo" in
       dbcanvas-systemd|dbcanvas-intranet|dbcanvas-vnc|dbcanvas-k8scollector) new="${repo}:${tag}-${RELEASE}" ;;
-      dbcanvas-*sim|dbcanvas-marketchaos) [ "$tag" = latest ] || continue; new="${repo}:${RELEASE}" ;;
+      dbcanvas-supportsim|dbcanvas-stocksim|dbcanvas-ledgersim) [ "$tag" = latest ] || continue; new="${repo}:${RELEASE}" ;;
       *) continue ;;
     esac
     [ "$ref" = "$new" ] && continue

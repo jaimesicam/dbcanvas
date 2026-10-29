@@ -77,7 +77,7 @@ other node. The version pickers list what `make versions` found for each OS.
 | Monitoring | PMM3 · PMM2 (`EOL=on` only) · Watchtower |
 | Identity & Secrets | Samba AD DC · Keycloak · OpenBao |
 | Storage & Clients | SeaweedFS · Ceph · Ubuntu VNC · Linux Client · Repository |
-| App Simulators | Traffic Sim · Hotel Sim · Support Sim (Vector Search) · pgvector Support Sim · Airline Sim · Car Rental Sim · Unoptimized MySQL Challenge (only when `EXPERIMENTAL` is on) · Stock Market Sim · Ledger Sim |
+| App Simulators | Support Sim (Vector Search) · pgvector Support Sim · Stock Market Sim · Ledger Sim |
 
 One per stack: Intranet, Samba AD DC, Keycloak, OpenBao, Ubuntu VNC and Watchtower.
 
@@ -203,13 +203,8 @@ dashboard on a host port. Draw an association line from the simulator to its tar
 
 | Simulator | Workload | Link it to |
 | --- | --- | --- |
-| **Traffic Sim** | City traffic: vehicles, sensors, signals, incidents. | Valkey node or Valkey Cluster |
-| **Hotel Sim** | 100-hotel reservation chain: CRUD, transactions, change streams. | PSMDB, replica set or sharded cluster |
 | **Support Sim (Vector Search)** | A help desk that embeds tickets in-process (all-MiniLM-L6-v2, 384 dimensions, no API key) and answers, routes and merges them with `$vectorSearch`, scored against `$search` and hybrid search. Tabs: Live Desk, Search Showdown, Vector Lab, Index Workshop, Under the Hood. | PSMDB replica set or sharded cluster with **Vector search** on, or a K3D frame running the MongoDB operator with it on. Without mongot it falls back to an in-app scan. |
 | **pgvector Support Sim** | The same desk on PostgreSQL, using a pgvector column and an HNSW index. Creates a `supportsim` database (or schema). | PostgreSQL, Patroni, repmgr or Spock; HAProxy or PgBouncer in front of one; or a K3D frame running a PostgreSQL operator. Turn on pgvector on the target. |
-| **Airline Sim** | 200-route reservation workload on a 2,000-aircraft fleet, including Galera certification-conflict retries. | Percona Server, PS Replication or PXC; or ProxySQL / HAProxy in front of one |
-| **Car Rental Sim** | 180-location rental workload on a 2,000-vehicle fleet, with `FOR UPDATE SKIP LOCKED`. | PostgreSQL, Patroni, repmgr or Spock; or HAProxy / PgBouncer in front of one |
-| **Unoptimized MySQL Challenge** | MarketChaos: a stock exchange deployed with deliberately bad indexes, queries and locking for you to diagnose and fix, scored on outcome. Small, medium, large or custom dataset. Shown only with `EXPERIMENTAL` on. | Percona Server, one PXC member, PXC or PS Replication; or HAProxy in front of one |
 | **Stock Market Sim** | A stock-exchange app you operate. See below. | Any database (see below) |
 | **Ledger Sim** | A JDBC order-and-payment ledger. See below. | MySQL-family or PostgreSQL |
 

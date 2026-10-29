@@ -411,8 +411,8 @@ func TestPgBouncerComposeKind(t *testing.T) {
 	if !k.takes("mode") {
 		t.Error("the pool mode must be settable from the CLI")
 	}
-	// Car Rental Sim reaches its database through the pool as well as directly.
-	cs, _ := composeKindByName("carsim")
+	// The pgvector Support Sim reaches its database through the pool as well as directly.
+	cs, _ := composeKindByName("pgvectorsim")
 	found := false
 	for _, e := range cs.EdgeTo {
 		if e == "pgbouncer" {
@@ -420,7 +420,7 @@ func TestPgBouncerComposeKind(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("carsim cannot be linked to a pool: %v", cs.EdgeTo)
+		t.Errorf("pgvectorsim cannot be linked to a pool: %v", cs.EdgeTo)
 	}
 }
 
@@ -512,10 +512,10 @@ func TestPgBouncerCertAuthIssues(t *testing.T) {
 	// "tlsv13 alert certificate required", after deploying successfully.
 	withSim := pgbDoc("patroni")
 	withSim.Nodes[0].PgbAuthType, withSim.Nodes[0].GenerateCert = "cert", true
-	withSim.Nodes = append(withSim.Nodes, designNode{ID: "sim", Type: "carsim", Label: "carsim-01"})
+	withSim.Nodes = append(withSim.Nodes, designNode{ID: "sim", Type: "pgvectorsim", Label: "pgvectorsim-01"})
 	withSim.Edges = append(withSim.Edges, designEdge{ID: "es", From: edgeEnd{Node: "pool"}, To: edgeEnd{Node: "sim"}})
 	got = errs(pgBouncerIssues(withSim.Nodes[0], withSim))
-	if len(got) != 1 || !strings.Contains(got[0], "carsim-01") {
+	if len(got) != 1 || !strings.Contains(got[0], "pgvectorsim-01") {
 		t.Errorf("a linked simulator should be refused under cert auth: %v", got)
 	}
 

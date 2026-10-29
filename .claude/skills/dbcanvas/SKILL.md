@@ -216,33 +216,33 @@ one a kind does not have and the error names the kind. Run `dbcanvas stack kinds
 you are unsure — it prints the matrix for that installation.
 
 **`to=` is different, and easy to miss.** A relationship above is a *field*. `to=` is
-an association **line**, and eight kinds do nothing without one — a ProxySQL or a
+an association **line**, and six kinds do nothing without one — a ProxySQL or a
 PgBouncer with no backend, a simulator with no database. Compose refuses rather than building those, so
 you will see the error; the fix is to add the target to the spec, or name it:
 
 ```sh
-dbcanvas stack compose chaos --ttl 4h \
-  --node 'pxc:3,version=8.4.5,os=el8' \
+dbcanvas stack compose pg --ttl 4h \
+  --node 'patroni:3,os=el9' \
   --node 'haproxy,os=el9' \
-  --node 'marketchaos,to=haproxy-01'
+  --node 'pgvectorsim,to=haproxy-01'
 ```
 
 The HAProxy needed no `to=` — one legal backend, so compose used it and said so in the
-plan. MarketChaos needed one, because driving the cluster directly and driving it
-through the proxy are different tests and it will not guess. `dbcanvas stack kinds`
+plan. The pgvector Support Sim needed one, because using the cluster directly and using
+it through the proxy are different tests and it will not guess. `dbcanvas stack kinds`
 prints each kind's legal targets in the LINKS TO column.
 
 **PgBouncer is the PostgreSQL pool**, as HAProxy is the TCP balancer: one `pgbouncer`
 node in front of one `pg` node or one Patroni, repmgr or Spock cluster. `mode=` is the
 pool mode (`transaction` by default, `session`, `statement`), `cert` terminates TLS at
 the pool, and compose turns on following the primary across a failover and
-`auth_query`. A Car Rental Sim can drive the cluster through it:
+`auth_query`. A pgvector Support Sim can use the cluster through it:
 
 ```sh
 dbcanvas stack compose pool-lab --ttl 4h \
   --node 'patroni:3,os=el9' \
   --node 'pgbouncer,os=el9,mode=transaction,cert' \
-  --node 'carsim,to=pgbouncer-01'
+  --node 'pgvectorsim,to=pgbouncer-01'
 ```
 
 With two PostgreSQL targets in the spec, the PgBouncer needs `to=` as well.

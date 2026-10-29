@@ -121,7 +121,6 @@ type composeNodeSpec struct {
 	Buckets     []string `json:"buckets"`     // seaweedfs: 1-10 bucket names
 	TLS         bool     `json:"tls"`         // seaweedfs: serve S3 over HTTPS
 	AlertEmail  string   `json:"alertEmail"`  // orchestrator: mailbox for failure alerts
-	Dataset     string   `json:"dataset"`     // marketchaos: small|medium|large
 	MCA         bool     `json:"mca"`         // psm/psmrs/psmdb: create the MClusterAdmin accounts
 	ViewOnly    bool     `json:"viewOnly"`    // mclusteradmin: start the panel with every write disabled
 	CertTTL     string   `json:"certTtl"`     // "365d", "30m", "2h" — short ones expire on purpose
@@ -437,8 +436,8 @@ type composeKind struct {
 	// (haproxyBackend requires exactly one associated cluster), and every app simulator
 	// came up with nothing to drive.
 	//
-	// Targets are per kind because they genuinely differ — an Airline Sim speaks MySQL,
-	// a Car Rental Sim speaks PostgreSQL — and the lists here mirror the validator's
+	// Targets are per kind because they genuinely differ — the Support Sim speaks MongoDB,
+	// the pgvector Support Sim PostgreSQL — and the lists here mirror the validator's
 	// own rules in app/intranet.go.
 	EdgeTo []string
 	// NoSizing marks a kind that never calls applyVMSize, so cpus/memoryGb would be
@@ -664,12 +663,6 @@ var composeKinds = []composeKind{
 	// an error in validateStack, not a warning, so EdgeTo is non-empty and compose
 	// either resolves the target or refuses. The legal targets differ per sim because
 	// each speaks one protocol, and the lists here are the validator's own.
-	{Kind: "trafficsim", Type: "trafficsim", NoSizing: true, ImageOnly: true,
-		EdgeTo: []string{"valkey", "valkey-cluster"},
-		About:  "Traffic Sim — drives load at a Valkey node or cluster."},
-	{Kind: "hotelsim", Type: "hotelsim", NoSizing: true, ImageOnly: true,
-		EdgeTo: []string{"psm", "psmrs", "psmdb"},
-		About:  "Hotel Sim — a booking workload on PS MongoDB."},
 	{Kind: "supportsim", Type: "supportsim", NoSizing: true, ImageOnly: true,
 		EdgeTo: []string{"psm", "psmrs", "psmdb", "k3d"},
 		About:  "Support Sim — a help desk run on MongoDB Vector Search ($vectorSearch), with a Vector Lab."},
@@ -692,15 +685,6 @@ var composeKinds = []composeKind{
 	{Kind: "mclusteradmin", Type: "mclusteradmin", NoSizing: true, ImageOnly: true,
 		Scalars: []string{"viewOnly"},
 		About:   "MClusterAdmin — a MongoDB administration panel. Prepares a connection string when the spec has exactly one MongoDB; viewOnly=true disables every write."},
-	{Kind: "airlinesim", Type: "airlinesim", NoSizing: true, ImageOnly: true,
-		EdgeTo: []string{"ps", "ps-repl", "pxc", "proxysql", "haproxy"},
-		About:  "Airline Sim — a reservation workload on MySQL."},
-	{Kind: "carsim", Type: "carsim", NoSizing: true, ImageOnly: true,
-		EdgeTo: []string{"pg", "patroni", "repmgr", "spock", "haproxy", "pgbouncer"},
-		About:  "Car Rental Sim — a rental workload on PostgreSQL, directly or through an HAProxy or PgBouncer node."},
-	{Kind: "marketchaos", Type: "marketchaos", NoSizing: true, Scalars: []string{"dataset"}, ImageOnly: true,
-		EdgeTo: []string{"ps", "pxc", "ps-repl", "haproxy"},
-		About:  "MarketChaos — a trading workload on MySQL. dataset= picks the size."},
 }
 
 // composeMember is one member of a fixed-topology frame.

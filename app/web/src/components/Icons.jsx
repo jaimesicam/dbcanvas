@@ -100,7 +100,7 @@ export const Icon = {
       <path d="M3 18v2M7.5 18v2M12 18v2M16.5 18v2M21 18v2" />
     </Svg>
   ),
-  // Labs: a lab flask, for the experimental hands-on scenarios feature.
+  // A lab flask, for the app simulators.
   Flask: (p) => (
     <Svg {...p}>
       <path d="M9 3h6" />

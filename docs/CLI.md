@@ -252,15 +252,15 @@ console is reachable from a browser on the VNC desktop.
 ### Example: a proxy and a demo app
 
 ```sh
-dbcanvas stack compose chaos-lab \
-  --node 'pxc:3,version=8.4.5,os=el8,netLatencyMs=40,netLossPct=0.5,monitor' \
+dbcanvas stack compose pg-lab \
+  --node 'patroni:3,os=el9,netLatencyMs=40,netLossPct=0.5,monitor' \
   --node 'haproxy,os=el9' \
-  --node 'marketchaos,to=haproxy-01' \
+  --node 'pgvectorsim,to=haproxy-01' \
   --node pmm
 ```
 
-The HAProxy has only one possible backend, so it needs no `to=`. The MarketChaos node could
-drive the cluster directly or through the proxy, so `to=` chooses.
+The HAProxy has only one possible backend, so it needs no `to=`. The pgvector Support Sim could
+use the cluster directly or through the proxy, so `to=` chooses.
 
 ### Example: slow network and slow disk
 
@@ -279,11 +279,11 @@ A sharded cluster has a fixed shape, so it takes `setup=` instead of a count:
 `setup=standard` (13 nodes) or `setup=minimum` (5).
 
 ```sh
-dbcanvas stack compose mongo-lab --node 'psmdb,setup=minimum,os=el9,mca' --node hotelsim \
+dbcanvas stack compose mongo-lab --node 'psmdb,setup=minimum,os=el9,mca' --node supportsim \
   --node mclusteradmin
 ```
 
-The Hotel Sim needs no `to=`: the cluster is the only database it can use. `mclusteradmin` is
+The Support Sim needs no `to=`: the cluster is the only database it can use. `mclusteradmin` is
 the MClusterAdmin panel, and `mca` creates its accounts on the MongoDB (on a `psm`, `psmrs` or
 `psmdb` node). Add `viewOnly` to the `mclusteradmin` entry to start the panel with writes
 disabled.

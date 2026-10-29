@@ -23,7 +23,7 @@ dbcanvas endpoints --long
 
 **Getting in** · [Sign-in & accounts](#sign-in--accounts) · [Your account](#your-account) · [API tokens](#api-tokens) · [Users (admin)](#users-admin) · [Instance settings (admin)](#instance-settings-admin)
 
-**Building** · [Stacks](#stacks) · [Templates](#templates) · [Nodes](#nodes) · [Clusters & backups](#clusters--backups) · [Version catalogues](#version-catalogues) · [Kubernetes frames](#kubernetes-frames) · [All in One](#all-in-one) · [Repository, Ceph and Linux Client nodes](#repository-ceph-and-linux-client-nodes) · [Labs](#labs)
+**Building** · [Stacks](#stacks) · [Templates](#templates) · [Nodes](#nodes) · [Clusters & backups](#clusters--backups) · [Version catalogues](#version-catalogues) · [Kubernetes frames](#kubernetes-frames) · [All in One](#all-in-one) · [Repository, Ceph and Linux Client nodes](#repository-ceph-and-linux-client-nodes)
 
 **Running load** · [Data Generator](#data-generator) · [Query Runner](#query-runner) · [Database Explorer](#database-explorer) · [Benchmark](#benchmark) · [Stock Market Sim](#stock-market-sim) · [Sample Client Code](#sample-client-code) · [Ledger Sim](#ledger-sim)
 
@@ -372,20 +372,15 @@ refuses and lists the candidates.
 | `proxysql`, `proxysql-cluster` | `pxc`, `ps-repl` |
 | `haproxy` | one of `patroni`, `repmgr`, `spock`, `pxc`, `ps-repl` |
 | `pgbouncer` | one of `pg`, `patroni`, `repmgr`, `spock` |
-| `trafficsim` | `valkey`, `valkey-cluster` |
-| `hotelsim` | `psm`, `psmrs`, `psmdb` |
 | `supportsim` | `psm`, `psmrs`, `psmdb`, `k3d` |
 | `pgvectorsim` | `pg`, `patroni`, `repmgr`, `spock`, `haproxy`, `pgbouncer`, `k3d` |
-| `airlinesim` | `ps`, `ps-repl`, `pxc`, `proxysql`, `haproxy` |
-| `carsim` | `pg`, `patroni`, `repmgr`, `spock`, `haproxy`, `pgbouncer` |
-| `marketchaos` | `ps`, `pxc`, `ps-repl`, `haproxy` |
 
 `mclusteradmin` and `bighole` take no line. MClusterAdmin gets a ready-made
 connection string when the spec has exactly one MongoDB.
 
 ```json
 {"kind": "haproxy", "os": "el9"}
-{"kind": "marketchaos", "to": "haproxy-01"}
+{"kind": "pgvectorsim", "to": "haproxy-01"}
 ```
 
 **Shaping the machine.** Per-node options; a kind that would ignore one refuses it.
@@ -400,7 +395,7 @@ connection string when the spec has exactly one MongoDB.
 **Per-engine choices**: `replMode` (`async`, `semisync`, `innodbcluster`,
 `groupreplication`), `mode` (ProxySQL `singlewrite`/`loadbal`; PgBouncer pool mode
 `transaction` by default, `session` or `statement`), `mysqlRouter`, `setup` (sharded
-PSMDB: `standard` or `minimum`; `count` is refused), `dataset` (MarketChaos),
+PSMDB: `standard` or `minimum`; `count` is refused),
 `buckets` and `tls` (SeaweedFS), `alertEmail` (Orchestrator), `certTtl` (`365d`,
 `2h`, `30m`). `dbcanvas stack kinds` lists exactly which options each kind takes.
 
@@ -408,7 +403,7 @@ PSMDB: `standard` or `minimum`; `count` is refused), `dataset` (MarketChaos),
 dbcanvas stack compose pool-lab --ttl 4h \
   --node 'patroni:3,os=el9' \
   --node 'pgbouncer,os=el9,mode=transaction,cert' \
-  --node 'carsim,to=pgbouncer-01'
+  --node 'pgvectorsim,to=pgbouncer-01'
 ```
 
 **What compose adds or refuses for you**
@@ -796,20 +791,6 @@ Many database instances inside one node.
 | Pause, resume, resume-failed or finalize it | `POST …/nodes/{nid}/pcsm/{action}` | `dbcanvas api POST …/pcsm/pause` |
 
 Repository `add` and `sync` return `202`; progress shows on the node.
-
-## Labs
-
-**UI:** **Labs (experimental)** — hands-on scenarios graded against a real cluster.
-
-| To do this | API | CLI |
-| --- | --- | --- |
-| The labs available, with steps and the stack each needs | `GET /api/labs` | `dbcanvas api GET /api/labs` |
-| Your attempts and step results | `GET /api/labs/runs` | `dbcanvas api GET /api/labs/runs` |
-| Start a lab (deploys its stack) | `POST /api/labs/{id}/start` | `dbcanvas api POST /api/labs/<id>/start` |
-| Check one step | `POST /api/labs/{id}/steps/{stepId}/check` | `dbcanvas api POST /api/labs/<id>/steps/<step>/check` |
-| Finish | `POST /api/labs/{id}/finish` | `dbcanvas api POST /api/labs/<id>/finish` |
-
----
 
 # Running load
 

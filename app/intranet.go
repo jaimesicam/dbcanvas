@@ -270,17 +270,6 @@ type designNode struct {
 	// (openbaopki.go). A K3D frame whose cert-manager issuer is OpenBao sets it up on
 	// its own; this is for using it by hand.
 	PKI bool `json:"pki"`
-	// MarketChaos node fields (Type=="marketchaos"). Unlike every other app
-	// simulator, dataset size is a deploy-time choice, not a fixed constant —
-	// re-seeding a large market after deploy would take the same many minutes
-	// as the initial seed, so the learner picks it up front. MCDataset selects
-	// a named preset; the MCTraders/.../MCTicks counts are only read when
-	// MCDataset=="custom" (0 → that preset's own default for the field).
-	MCDataset string `json:"mcDataset"` // "small" | "medium" (default) | "large" | "custom"
-	MCTraders int    `json:"mcTraders"`
-	MCOrders  int    `json:"mcOrders"`
-	MCTrades  int    `json:"mcTrades"`
-	MCTicks   int    `json:"mcTicks"`
 	// Stock Market Sim node fields (Type=="stocksim") — where its database is.
 	// Unlike every other app simulator, this one is not required to be linked
 	// to a node on the canvas: SSMode "" or "linked" resolves the target from a
@@ -1566,17 +1555,6 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			}
 			_, hostMem := a.engCtx(ctx).HostResources(ctx)
 			out = append(out, aioIssues(n, doc, exportReq, hostMem)...)
-		case "trafficsim":
-			others++
-			if !seenImg[trafficSimImage] {
-				seenImg[trafficSimImage] = true
-				if ok, _ := a.engCtx(ctx).ImageExists(ctx, trafficSimImage); !ok {
-					out = append(out, missingImageIssue("trafficsim"))
-				}
-			}
-			if _, _, _, ok := trafficSimTarget(doc, n.ID); !ok {
-				out = append(out, issue{Level: "error", Message: "Traffic Sim node " + n.Label + " must be linked to a Valkey or Valkey Cluster node — draw an association line from one to it"})
-			}
 		case "bighole":
 			others++
 			if !seenImg[bigHoleImage] {
@@ -1596,17 +1574,6 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			// which one it opens is a URI typed into its own UI. The MongoDB half that
 			// IS wired — the two accounts — is validated on the MongoDB, where the box
 			// that asks for them lives.
-		case "hotelsim":
-			others++
-			if !seenImg[hotelSimImage] {
-				seenImg[hotelSimImage] = true
-				if ok, _ := a.engCtx(ctx).ImageExists(ctx, hotelSimImage); !ok {
-					out = append(out, missingImageIssue("hotelsim"))
-				}
-			}
-			if _, _, _, ok := hotelSimTarget(doc, n.ID); !ok {
-				out = append(out, issue{Level: "error", Message: "Hotel Sim node " + n.Label + " must be linked to a PS MongoDB (standalone, replica set, or sharded cluster) node — draw an association line from one to it"})
-			}
 		case "supportsim":
 			others++
 			if !seenImg[supportSimImage] {
@@ -1626,39 +1593,6 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 				}
 			}
 			out = append(out, pgVectorSimIssues(doc, n)...)
-		case "airlinesim":
-			others++
-			if !seenImg[airlineSimImage] {
-				seenImg[airlineSimImage] = true
-				if ok, _ := a.engCtx(ctx).ImageExists(ctx, airlineSimImage); !ok {
-					out = append(out, missingImageIssue("airlinesim"))
-				}
-			}
-			if _, _, ok := airlineSimTarget(doc, n.ID); !ok {
-				out = append(out, issue{Level: "error", Message: "Airline Sim node " + n.Label + " must be linked to a standalone Percona Server node, a MySQL replication or PXC cluster, or a ProxySQL/HAProxy node fronting one — draw an association line from one to it"})
-			}
-		case "carsim":
-			others++
-			if !seenImg[carSimImage] {
-				seenImg[carSimImage] = true
-				if ok, _ := a.engCtx(ctx).ImageExists(ctx, carSimImage); !ok {
-					out = append(out, missingImageIssue("carsim"))
-				}
-			}
-			if _, _, ok := carSimTarget(doc, n.ID); !ok {
-				out = append(out, issue{Level: "error", Message: "Car Rental Sim node " + n.Label + " must be linked to a standalone PostgreSQL node, a Patroni/repmgr/Spock cluster, or an HAProxy node fronting one — draw an association line from one to it"})
-			}
-		case "marketchaos":
-			others++
-			if !seenImg[marketChaosImage] {
-				seenImg[marketChaosImage] = true
-				if ok, _ := a.engCtx(ctx).ImageExists(ctx, marketChaosImage); !ok {
-					out = append(out, missingImageIssue("marketchaos"))
-				}
-			}
-			if _, _, ok := marketChaosTarget(doc, n.ID); !ok {
-				out = append(out, issue{Level: "error", Message: "MarketChaos node " + n.Label + " must be linked to a standalone Percona Server node, a direct PXC member node, a PXC cluster or MySQL replication frame, or an HAProxy node fronting one — draw an association line from one to it"})
-			}
 		case "stocksim":
 			others++
 			if !seenImg[stockSimImage] {
@@ -2526,20 +2460,10 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionOrchestrator(st, n, doc)
 		case "linuxclient":
 			a.provisionLinuxClient(st, n, doc)
-		case "trafficsim":
-			a.provisionTrafficSim(st, n, doc)
-		case "hotelsim":
-			a.provisionHotelSim(st, n, doc)
 		case "supportsim":
 			a.provisionSupportSim(st, n, doc)
 		case "pgvectorsim":
 			a.provisionPGVectorSim(st, n, doc)
-		case "airlinesim":
-			a.provisionAirlineSim(st, n, doc)
-		case "carsim":
-			a.provisionCarSim(st, n, doc)
-		case "marketchaos":
-			a.provisionMarketChaos(st, n, doc)
 		case "stocksim":
 			a.provisionStockSim(st, n, doc)
 		case "ledgersim":

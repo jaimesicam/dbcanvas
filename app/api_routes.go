@@ -75,7 +75,6 @@ const (
 	gCatalog   = "Version catalogues"
 	gStacks    = "Stacks"
 	gTemplates = "Templates"
-	gLabs      = "Labs"
 	gNodes     = "Nodes"
 	gFS        = "Node file manager"
 	gCaptures  = "Diagnostic captures"
@@ -119,7 +118,7 @@ const (
 // missing from this list still renders, after the ones that are in it.
 var apiGroupOrder = []string{
 	gAuth, gPrefs, gUsers, gTokens, gMeta,
-	gStacks, gTemplates, gCatalog, gImages, gNodes, gClusters, gLabs,
+	gStacks, gTemplates, gCatalog, gImages, gNodes, gClusters,
 	gDataGen, gQueryRun, gExplorer, gBench, gSample, gStockSim, gLedgerSim,
 	gPkt, gLog, gFTDC, gStalk, gOpSum, gCaptures, gDebug, gGDB,
 	gDash, gNotif, gShare, gKanban,
@@ -393,18 +392,6 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "Publish a template instance-wide, or withdraw it again. Admins only."},
 		{Method: "GET", Path: "/api/templates/{id}/export", Group: gTemplates, Media: mediaDownload, Handler: m((*App).handleExportTemplate),
 			Summary: "Download a template as a `.json` document you can hand over or commit."},
-
-		// --- labs ---------------------------------------------------------------
-		{Method: "GET", Path: "/api/labs", Group: gLabs, Handler: m((*App).handleListLabs),
-			Summary: "The lab scenarios this installation ships, with their steps and the stack each needs."},
-		{Method: "GET", Path: "/api/labs/runs", Group: gLabs, Handler: m((*App).handleListMyLabRuns),
-			Summary: "Your lab attempts, finished and in progress, with the result of every graded step."},
-		{Method: "POST", Path: "/api/labs/{id}/start", Group: gLabs, Handler: m((*App).handleStartLab),
-			Summary: "Start a lab: deploy its disposable stack and record the cluster's starting state."},
-		{Method: "POST", Path: "/api/labs/{id}/finish", Group: gLabs, Handler: m((*App).handleFinishLab),
-			Summary: "Finish a lab run and stop grading it."},
-		{Method: "POST", Path: "/api/labs/{id}/steps/{stepId}/check", Group: gLabs, ReadOnly: true, Handler: m((*App).handleCheckLabStep),
-			Summary: "Grade one lab step against the real cluster and say why it passed or failed."},
 
 		// --- nodes --------------------------------------------------------------
 		{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}", Group: gNodes, Handler: m((*App).handleGetNode),

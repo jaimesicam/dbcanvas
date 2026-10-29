@@ -11,7 +11,7 @@ VERSION ?= $(shell cat VERSION 2>/dev/null || echo dev)
 # app/clidownload.go, which is what the API page offers for download.
 CLI_PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 
-.PHONY: install install-extras adopt-images compose env build up down logs restart rotate-key clean images extra-images versions smoke cli cli-test trafficsim-image hotelsim-image supportsim-image airlinesim-image carsim-image marketchaos-image stocksim-image ledgersim-image intranet-image vnc-image
+.PHONY: install install-extras adopt-images compose env build up down logs restart rotate-key clean images extra-images versions smoke cli cli-test supportsim-image stocksim-image ledgersim-image intranet-image vnc-image
 
 ## install: everything a first run needs — every image DBCanvas can build (the OS
 ## bases and the Intranet, then the optional ones on top: the VNC desktop, the K3D
@@ -47,7 +47,7 @@ install-extras:
 	@bash images/apps.sh || { \
 	  echo ""; \
 	  echo "  Some demo application images did not build — the rest of DBCanvas is unaffected."; \
-	  echo "  Retry with 'make extra-images' or the per-app target (e.g. 'make trafficsim-image')."; \
+	  echo "  Retry with 'make extra-images' or the per-app target (e.g. 'make stocksim-image')."; \
 	}
 
 ## adopt-images: give the images this host already built the current release's tag, instead
@@ -182,8 +182,8 @@ images:
 	}
 
 ## extra-images: everything OPTIONAL built on top of the bases — the pre-baked Ubuntu
-## VNC image, the Big Hole FTDC viewer, the K3D diagnostics collector, and the six
-## demo applications (Traffic/Hotel/Airline/Car Rental/MarketChaos/Stock Market Sim). `make install` builds these too (through
+## VNC image, the Big Hole FTDC viewer, the K3D diagnostics collector, and the
+## demo applications (Support/Stock Market/Ledger Sim). `make install` builds these too (through
 ## install-extras, which tolerates a failure); this is the target for rebuilding them
 ## on their own, and it fails if any of them fails. Kept separate from `make images`
 ## because these reach into npm, GitHub and Percona's repos, so they fail for reasons
@@ -241,45 +241,15 @@ bighole-image:
 versions:
 	bash images/versions.sh
 
-## trafficsim-image: build the Valkey Traffic Lab demo app image (first-party Go
-## binary + embedded static frontend, no systemd) — a Traffic Sim node needs this.
-trafficsim-image:
-	bash images/apps.sh trafficsim
-
-## hotelsim-image: build the MongoDB Hotel Reservation Lab demo app image
-## (first-party Go binary + embedded static frontend, no systemd) — a Hotel Sim
-## node needs this.
-hotelsim-image:
-	bash images/apps.sh hotelsim
-
 ## supportsim-image: build the MongoDB Vector Search Support Desk demo app image
 ## (first-party Go binary + embedded frontend + the all-MiniLM-L6-v2 weights,
 ## downloaded at build time) — a Support Sim node needs this.
 supportsim-image:
 	bash images/apps.sh supportsim
 
-## airlinesim-image: build the MySQL Airline Reservation Lab demo app image
-## (first-party Go binary + embedded static frontend, no systemd) — an Airline Sim
-## node needs this.
-airlinesim-image:
-	bash images/apps.sh airlinesim
-
-## carsim-image: build the PostgreSQL Car Rental Lab demo app image (first-party
-## Go binary + embedded static frontend, no systemd) — a Car Rental Sim node
-## needs this.
-carsim-image:
-	bash images/apps.sh carsim
-
-## marketchaos-image: build the "Unoptimized MySQL Challenge" (MarketChaos)
-## stock-exchange performance-troubleshooting demo app image (first-party Go
-## binary + embedded static frontend, no systemd) — an Unoptimized MySQL
-## Challenge node needs this.
-marketchaos-image:
-	bash images/apps.sh marketchaos
-
 ## stocksim-image: build the Stock Market Sim demo app image (first-party Go
 ## binary + embedded static frontend, no systemd) — a Stock Market Sim node
-## needs this. Unlike its sibling sims it speaks several database engines, and
+## needs this. It speaks several database engines, and
 ## can also be pointed at a database outside the stack entirely.
 stocksim-image:
 	bash images/apps.sh stocksim

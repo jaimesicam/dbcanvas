@@ -119,7 +119,7 @@ func helperName(kind string, n int64) string {
 
 // releaseTagRe finds a release-tagged image of ours in a validation message, and what it was
 // called before images carried a release: dbcanvas-systemd:oraclelinux-9-amd64-v0.0.14 was
-// dbcanvas-systemd:oraclelinux-9-amd64, dbcanvas-carsim:v0.0.14 was dbcanvas-carsim:latest.
+// dbcanvas-systemd:oraclelinux-9-amd64, dbcanvas-stocksim:v0.0.14 was dbcanvas-stocksim:latest.
 var releaseTagRe = regexp.MustCompile(`(dbcanvas-[a-z0-9]+):((?:[a-z0-9.]+-)*?)-?(v[0-9][0-9a-z.]*)\b`)
 
 // adoptableImageHints adds, to each "missing image" issue whose image this host has under its

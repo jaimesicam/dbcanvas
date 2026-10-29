@@ -136,18 +136,8 @@ func extraImageCatalog() []extraImage {
 		// a stack might be missing, and not buildable from here: their build context
 		// is a directory of this repository's own source, which a running container
 		// has no copy of.
-		{ID: "trafficsim", Tag: trafficSimImage, Label: "Traffic Sim", Make: "trafficsim-image", Needs: []string{"trafficsim"},
-			About: "The Valkey Traffic Lab demo app.", Why: whyNotBuildable("trafficsim")},
-		{ID: "hotelsim", Tag: hotelSimImage, Label: "Hotel Sim", Make: "hotelsim-image", Needs: []string{"hotelsim"},
-			About: "The MongoDB Hotel Reservation Lab demo app.", Why: whyNotBuildable("hotelsim")},
 		{ID: "supportsim", Tag: supportSimImage, Label: "Support Sim", Make: "supportsim-image", Needs: []string{"supportsim", "pgvectorsim"},
 			About: "The Vector Search Support Desk demo app — MongoDB ($vectorSearch) or PostgreSQL (pgvector); embeds all-MiniLM-L6-v2.", Why: whyNotBuildable("supportsim")},
-		{ID: "airlinesim", Tag: airlineSimImage, Label: "Airline Sim", Make: "airlinesim-image", Needs: []string{"airlinesim"},
-			About: "The MySQL Airline Reservation Lab demo app.", Why: whyNotBuildable("airlinesim")},
-		{ID: "carsim", Tag: carSimImage, Label: "Car Rental Sim", Make: "carsim-image", Needs: []string{"carsim"},
-			About: "The PostgreSQL Car Rental Lab demo app.", Why: whyNotBuildable("carsim")},
-		{ID: "marketchaos", Tag: marketChaosImage, Label: "Unoptimized MySQL Challenge", Make: "marketchaos-image", Needs: []string{"marketchaos"},
-			About: "The MarketChaos stock-exchange demo app.", Why: whyNotBuildable("marketchaos")},
 		{ID: "stocksim", Tag: stockSimImage, Label: "Stock Market Sim", Make: "stocksim-image", Needs: []string{"stocksim"},
 			About: "The CRUD-and-reports stock-exchange demo app.", Why: whyNotBuildable("stocksim")},
 	}

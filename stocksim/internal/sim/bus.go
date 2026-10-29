@@ -60,8 +60,7 @@ func (b *EventBus) Publish(msg []byte) {
 // busMessage is the envelope every WebSocket push uses — a "type" tag plus
 // whichever payload field is relevant, so the frontend's single onmessage
 // handler can dispatch by type instead of needing one message shape per kind
-// of event. Borrowed from MarketChaos, which needed the same thing once its
-// dashboard grew past one panel.
+// of event.
 type busMessage struct {
 	Type   string        `json:"type"`
 	Event  *store.Event  `json:"event,omitempty"`
