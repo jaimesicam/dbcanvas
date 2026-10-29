@@ -4,6 +4,7 @@ import { Badge, Button, Field, inputCls } from '../components/ui'
 import { Icon } from '../components/Icons.jsx'
 import { Help } from '../components/Tooltip.jsx'
 import { HELP } from '../lib/help.js'
+import { DBFileToolChecks } from '../components/FileTools.jsx'
 
 // Designer forms for the non-Percona upstreams: MariaDB (standalone, replication,
 // Galera) and MySQL Community (standalone, replication, InnoDB Cluster / GR).
@@ -117,9 +118,10 @@ function DeleteButton({ onClick, children }) {
   )
 }
 
-// Shared tail: PMM, package proxy, TLS. Kept together because every form offers the
-// same set and they behave identically across all six types.
-function CommonOptions({ obj, patch, nodes, deployed, showGtid, showRepl }) {
+// Shared tail: PMM, package proxy, file tools, TLS. Kept together because every form offers
+// the same set and they behave identically across all six types. galera adds gcache-inspector
+// to the file tools; cluster says they go on every member.
+function CommonOptions({ obj, patch, nodes, deployed, showGtid, showRepl, galera, cluster }) {
   const pmmNodes = nodes.filter((x) => x.type === 'pmm')
   return (
     <>
@@ -141,6 +143,7 @@ function CommonOptions({ obj, patch, nodes, deployed, showGtid, showRepl }) {
         <Check checked={obj.gtid !== false} onChange={(v) => patch({ gtid: v })} label="Enable GTID" help={HELP.gtid} />
       )}
       <Check checked={!!obj.useProxy} onChange={(v) => patch({ useProxy: v })} label="Install packages via the Intranet proxy" help={HELP.proxy} />
+      <DBFileToolChecks obj={obj} onPatch={patch} galera={galera} cluster={cluster} />
       <Check checked={!!obj.generateCert} onChange={(v) => patch({ generateCert: v })} label="Issue a TLS certificate from the Intranet CA" help={HELP.generateCert} />
       {obj.generateCert && (
         <div className="grid grid-cols-2 gap-2">
@@ -264,7 +267,7 @@ export function MariaDBFrameForm({ frame: f, stackId, nodes, patchFrame, deleteF
         <input className={inputCls} value={f.label} onChange={(e) => patch({ label: e.target.value })} />
       </Field>
       <VersionPickers obj={f} patch={patch} deployed={deployed} majorKey="mariadbMajor" versionKey="mariadbVersion" majorLabel="MariaDB" cat={cat} />
-      <CommonOptions obj={f} patch={patch} nodes={nodes} deployed={deployed} showGtid showRepl />
+      <CommonOptions obj={f} patch={patch} nodes={nodes} deployed={deployed} showGtid showRepl cluster />
       <OrchestratorPicker frame={f} stackId={stackId} nodes={nodes} patch={patch} running={running} />
       {/* MariaDB GTIDs are domain-server-seq; the domain is derived from the cluster
           name so every member shares it and two clusters never collide. */}
@@ -303,7 +306,7 @@ export function MariaDBGaleraFrameForm({ frame: f, nodes, patchFrame, deleteFram
         <input className={inputCls} value={f.label} onChange={(e) => patch({ label: e.target.value })} />
       </Field>
       <VersionPickers obj={f} patch={patch} deployed={deployed} majorKey="mariadbMajor" versionKey="mariadbVersion" majorLabel="MariaDB" cat={cat} />
-      <CommonOptions obj={f} patch={patch} nodes={nodes} deployed={deployed} />
+      <CommonOptions obj={f} patch={patch} nodes={nodes} deployed={deployed} galera cluster />
       <p className="text-xs text-muted">
         State transfer uses <code>mariabackup</code>. The seed is bootstrapped first, then each
         joiner starts in turn — Galera services one state transfer per donor at a time.
@@ -362,7 +365,7 @@ export function MySQLCEFrameForm({ frame: f, stackId, nodes, patchFrame, deleteF
         <input className={inputCls} value={f.label} onChange={(e) => patch({ label: e.target.value })} />
       </Field>
       <VersionPickers obj={f} patch={patch} deployed={deployed} majorKey="mysqlceMajor" versionKey="mysqlceVersion" majorLabel="MySQL" cat={cat} />
-      <CommonOptions obj={f} patch={patch} nodes={nodes} deployed={deployed} showGtid showRepl />
+      <CommonOptions obj={f} patch={patch} nodes={nodes} deployed={deployed} cluster showGtid showRepl />
       <OrchestratorPicker frame={f} stackId={stackId} nodes={nodes} patch={patch} running={running} />
       {primaries !== 1 && (
         <p className="text-xs text-danger">Needs exactly one primary (has {primaries}).</p>
@@ -397,7 +400,7 @@ export function MySQLCEInnoDBFrameForm({ frame: f, nodes, patchFrame, deleteFram
         </select>
       </Field>
       <Check checked={!!f.mysqlRouter} onChange={(v) => patch({ mysqlRouter: v })} label="Install MySQL Router on each member" />
-      <CommonOptions obj={f} patch={patch} nodes={nodes} deployed={deployed} />
+      <CommonOptions obj={f} patch={patch} nodes={nodes} deployed={deployed} cluster />
       {members.length < 3 && (
         <p className="text-xs text-danger">Needs at least 3 members (has {members.length}).</p>
       )}

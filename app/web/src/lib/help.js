@@ -658,9 +658,10 @@ export const HELP = {
     'The Percona database client tools installed on this node, as they answer for themselves — the versions are read ' +
     'off the binaries after the install. One that is missing here did not install; the deploy log says why.',
   depFileTools:
-    'innodump and gcache-inspector, read back off the binaries after the install. Both read files offline: innodump ' +
-    'a table\'s .ibd, .MYD or MyRocks files (or a datadir), gcache-inspector a Galera node\'s galera.cache. ' +
-    'Run either with --help from the node\'s terminal.',
+    'innodump, binlogsum and gcache-inspector, read back off the binaries after the install. All read files ' +
+    'offline: innodump a table\'s .ibd, .MYD or MyRocks files (or a datadir), binlogsum a binary log from ' +
+    'mysqlbinlog\'s output, gcache-inspector a Galera node\'s galera.cache. ' +
+    'Run any of them with --help from the node\'s terminal.',
   depCoreDumps:
     'The host directory holding the core file, mounted read-only inside the analyzer at /coredumps.',
   depLibraries:

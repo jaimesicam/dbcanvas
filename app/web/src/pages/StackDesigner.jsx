@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from '../components/Icons.jsx'
+import { FileToolChecks, DBFileToolChecks } from '../components/FileTools.jsx'
 import { Card, Button, Badge, Field, ConfirmButton, InfoRow, inputCls } from '../components/ui.jsx'
 import { Help, Hint } from '../components/Tooltip.jsx'
 import { HELP, MENU_HELP, nodeHelp } from '../lib/help.js'
@@ -569,7 +570,7 @@ export const NODE_TYPES = {
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }, { id: 'ubuntu', label: 'Ubuntu' }, { id: 'debian', label: 'Debian' }],
     defaults: { os: 'oraclelinux', osVersion: '9', useProxy: false, lcKubectl: false, lcHelm: false, lcCmctl: false, lcCfssl: false,
       lcMysqlClient: false, lcMysqlShell: false, lcMongosh: false, lcPsql: false, lcClusterSync: false,
-      lcInnodump: false, lcGcacheInspector: false },
+      lcInnodump: false, lcBinlogsum: false, lcGcacheInspector: false },
   },
   // Big Hole — a third-party MongoDB FTDC viewer that runs entirely in the browser
   // (built from source at a pinned commit; see images/bighole.Dockerfile). Runs its
@@ -6238,6 +6239,7 @@ function PXCFrameForm({ frame: f, stackId, nodes, frameNodes, patchFrame, delete
         <input type="checkbox" checked={!!f.useProxy} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for egress</span><Help text={HELP.proxy} />
       </label>
+      <DBFileToolChecks obj={f} onPatch={(p) => patchFrame(f.id, p)} galera cluster />
       <RepositoryPicker value={f.repositoryNodeId} nodes={nodes} deployed={deployed}
         onChange={(id) => patchFrame(f.id, { repositoryNodeId: id })} />
       <label className="flex items-center gap-2 text-sm">
@@ -6439,6 +6441,7 @@ function MySQLFrameForm({ frame: f, stackId, nodes, frames, edges, patchFrame, d
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
+      <DBFileToolChecks obj={f} onPatch={(p) => patchFrame(f.id, p)} cluster />
       <RepositoryPicker value={f.repositoryNodeId} nodes={nodes} deployed={deployed}
         onChange={(id) => patchFrame(f.id, { repositoryNodeId: id })} />
       <label className="flex items-center gap-2 text-sm">
@@ -7119,6 +7122,7 @@ function PerconaServerForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
+      <DBFileToolChecks obj={n} onPatch={(p) => patchNode(n.id, p)} />
       <RepositoryPicker value={n.repositoryNodeId} nodes={nodes} deployed={deployed}
         onChange={(id) => patchNode(n.id, { repositoryNodeId: id })} />
       <label className="flex items-center gap-2 text-sm">
@@ -8310,31 +8314,14 @@ export function DBClientFields({ node: n, patchNode, deployed }) {
   )
 }
 
-// FileToolFields — innodump and gcache-inspector on a Linux Client, chosen at design time. Both are
-// static binaries from their GitHub releases, so every release offers them (app/linuxclient_files.go).
+// FileToolFields — innodump, binlogsum and gcache-inspector on a Linux Client, chosen at design
+// time. All three are static binaries from their GitHub releases, so every release offers them
+// (app/linuxclient_files.go).
 export function FileToolFields({ node: n, patchNode, deployed }) {
-  const box = (key, label, note) => (
-    <label className="flex items-start gap-2 text-sm">
-      <input type="checkbox" className="mt-1" disabled={deployed} checked={!!n[key]}
-        onChange={(e) => patchNode(n.id, { [key]: e.target.checked })} />
-      <span className="min-w-0 flex-1">
-        {label}
-        <span className="block text-xs text-muted">{note}</span>
-      </span>
-    </label>
-  )
   return (
-    <div className="space-y-2 rounded-lg bg-surface2 p-2">
-      <span className="text-xs font-medium text-muted">MySQL file tools</span>
-      {box('lcInnodump', 'Install innodump',
-        <>Writes a table's definition and rows out of its <span className="font-mono">.ibd</span>,{' '}
-          <span className="font-mono">.MYD</span> or MyRocks files, or a whole datadir, with no server running.</>)}
-      {box('lcGcacheInspector', 'Install gcache-inspector',
-        <>Summarizes a Galera node's <span className="font-mono">galera.cache</span> and decodes its write-sets into rows.</>)}
-      {(n.lcInnodump || n.lcGcacheInspector) && (
-        <p className="text-[11px] text-muted">The latest GitHub release, checksum-verified, in <span className="font-mono">/usr/local/bin</span>.</p>
-      )}
-    </div>
+    <FileToolChecks obj={n} disabled={deployed} onPatch={(p) => patchNode(n.id, p)}
+      fields={[{ key: 'lcInnodump', tool: 'innodump' }, { key: 'lcBinlogsum', tool: 'binlogsum' }, { key: 'lcGcacheInspector', tool: 'gcache' }]}
+      footer={<>The latest GitHub release, checksum-verified, in <span className="font-mono">/usr/local/bin</span>.</>} />
   )
 }
 
@@ -11856,6 +11843,7 @@ function InnoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed })
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
+      <DBFileToolChecks obj={f} onPatch={(p) => patchFrame(f.id, p)} cluster />
       <RepositoryPicker value={f.repositoryNodeId} nodes={nodes} deployed={deployed}
         onChange={(id) => patchFrame(f.id, { repositoryNodeId: id })} />
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>

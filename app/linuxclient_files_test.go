@@ -9,9 +9,9 @@ func TestLCFileTools(t *testing.T) {
 	if got := lcFileTools(designNode{}); len(got) != 0 {
 		t.Errorf("nothing chosen, nothing to install: %v", got)
 	}
-	got := lcFileTools(designNode{LCInnodump: true, LCGcacheInspector: true})
-	if len(got) != 2 || got[0].ID != "innodump" || got[1].ID != "gcache-inspector" {
-		t.Fatalf("both chosen = %v", got)
+	got := lcFileTools(designNode{LCInnodump: true, LCBinlogsum: true, LCGcacheInspector: true})
+	if len(got) != 3 || got[0].ID != "innodump" || got[1].ID != "binlogsum" || got[2].ID != "gcache-inspector" {
+		t.Fatalf("all chosen = %v", got)
 	}
 	for _, tool := range got {
 		if !strings.HasPrefix(tool.Repo, "https://github.com/") || !strings.HasSuffix(tool.Repo, "/releases") {

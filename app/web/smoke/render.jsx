@@ -15,6 +15,7 @@
 // Run with `npm run smoke`.
 
 import { renderToString } from 'react-dom/server'
+import { DBFileToolChecks } from '../src/components/FileTools.jsx'
 import { CARD_TYPES, TlsView, DiffView, GtidView, UnitsView, TimeView, UriView, MongoView, LogFilterView, CompareView, SecretView } from '../src/components/scratch/Cards.jsx'
 import { CardFrame, SuggestMenu, AddCardMenu, BoardTab, cardStyle, LinkLayer } from '../src/pages/Scratchboard.jsx'
 import { exportBoard, importBoard, boardMarkdown, searchBoards } from '../src/lib/scratch/boardfile.js'
@@ -5495,15 +5496,26 @@ check('linux client: cfssl and cfssljson are one option, with no kubeconfig note
   return 'ok'
 })
 
-// innodump and gcache-inspector are offered on every release, and the download note shows only once one is ticked.
-check('linux client: innodump and gcache-inspector are offered on every release', () => {
+// innodump, binlogsum and gcache-inspector are offered on every release, and the download note shows only once one is ticked.
+check('linux client: innodump, binlogsum and gcache-inspector are offered on every release', () => {
   for (const os of ['oraclelinux', 'debian', 'centos']) {
     const off = renderToString(<FileToolFields node={{ id: 'lc5', os }} patchNode={noop} deployed={false} />)
-    if (!off.includes('Install innodump') || !off.includes('Install gcache-inspector')) throw new Error(`${os} must offer both file tools`)
+    if (!off.includes('Install innodump') || !off.includes('Install binlogsum') || !off.includes('Install gcache-inspector')) throw new Error(`${os} must offer all three file tools`)
     if (off.includes('checksum-verified')) throw new Error('the download note belongs to a node that installs something')
   }
   const on = renderToString(<FileToolFields node={{ id: 'lc5', lcInnodump: true }} patchNode={noop} deployed={false} />)
   if (!on.includes('checksum-verified')) throw new Error('a node installing innodump must say where it comes from')
+  return 'ok'
+})
+
+// A MySQL-family server offers innodump and binlogsum; gcache-inspector only on a Galera cluster.
+check('mysql servers: file tools, with gcache-inspector on Galera only', () => {
+  const plain = renderToString(<DBFileToolChecks obj={{}} onPatch={noop} />)
+  if (!plain.includes('Install innodump') || !plain.includes('Install binlogsum')) throw new Error('a server must offer innodump and binlogsum')
+  if (plain.includes('gcache-inspector')) throw new Error('gcache-inspector belongs to Galera clusters only')
+  const galera = renderToString(<DBFileToolChecks obj={{ installGcacheInspector: true }} onPatch={noop} galera cluster />)
+  if (!galera.includes('Install gcache-inspector')) throw new Error('a Galera cluster must offer gcache-inspector')
+  if (!galera.includes('every data member')) throw new Error('a cluster installs on every data member and should say so')
   return 'ok'
 })
 

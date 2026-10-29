@@ -91,7 +91,8 @@ One per stack: Intranet, Samba AD DC, Keycloak, OpenBao, Ubuntu VNC and Watchtow
 | **InnoDB / GR** | Group Replication, as an InnoDB Cluster (MySQL Shell) or raw GR, with optional MySQL Router on every member. | 1–9, default 3 |
 
 Options shared by these: GTIDs, PMM monitoring, an Intranet-CA certificate, XtraBackup to
-SeaweedFS, LDAP and Keycloak sign-in (below), OpenBao encryption (below), and resource limits.
+SeaweedFS, LDAP and Keycloak sign-in (below), OpenBao encryption (below), MySQL file tools (below)
+and resource limits.
 
 ### MySQL (Community) and MariaDB
 
@@ -104,7 +105,22 @@ SeaweedFS, LDAP and Keycloak sign-in (below), OpenBao encryption (below), and re
 | **MariaDB Replication** | Async or semi-sync replication using MariaDB GTIDs. | 2–9, default 3 |
 | **MariaDB Galera** | Galera cluster with `mariabackup` state transfers. | 3–9, default 3 |
 
-These do not offer OpenBao encryption.
+These do not offer OpenBao encryption. They do offer the MySQL file tools.
+
+### MySQL file tools
+Every Percona Server, PXC, MySQL and MariaDB node or cluster can have offline file readers
+installed into `/usr/local/bin`, from each project's latest GitHub release with its checksum
+verified:
+
+| Option | Tool | On |
+| --- | --- | --- |
+| Install innodump | [`innodump`](https://github.com/PrzemekMalkowski/innodump): a table's definition and rows from its `.ibd`, `.MYD` or MyRocks files | every server |
+| Install binlogsum | [`binlogsum`](https://github.com/PrzemekMalkowski/binlogsum): a summary of a binary log from `mysqlbinlog` output | every server |
+| Install gcache-inspector | [`gcache-inspector`](https://github.com/PrzemekMalkowski/gcache-inspector): the write-sets in `galera.cache` | PXC and MariaDB Galera |
+
+On a cluster the option is on the cluster and installs on every data member (not on `garbd`
+arbitrators). The tools are installed once each server is running, at the end of the deploy, and
+a notification says what was installed. To add one to a running server, tick it and redeploy.
 
 ### MongoDB
 
@@ -427,6 +443,7 @@ whatever you need, or tick tools to have them installed at deploy:
 | Install cmctl | cert-manager's CLI |
 | Install cfssl and cfssljson | `cfssl` and `cfssljson` |
 | Install innodump | [`innodump`](https://github.com/PrzemekMalkowski/innodump), which reads InnoDB, MyISAM and MyRocks table files offline |
+| Install binlogsum | [`binlogsum`](https://github.com/PrzemekMalkowski/binlogsum), which summarizes a binary log from `mysqlbinlog` output |
 | Install gcache-inspector | [`gcache-inspector`](https://github.com/PrzemekMalkowski/gcache-inspector), which reads a Galera `galera.cache` offline |
 | MySQL client / MySQL Shell | Percona Server client and `mysqlsh`, series 8.0, 8.4 or 9.7 (8.4 / 9.7 on Debian 13) |
 | mongosh | From Percona Server for MongoDB |

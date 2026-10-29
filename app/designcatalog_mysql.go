@@ -26,6 +26,16 @@ var mysqlCatCert = []catalogOption{
 
 var mysqlCatUseProxy = catalogOption{Field: "useProxy", Desc: "Download packages through the Intranet's Squid proxy."}
 
+// mysqlCatFileTools are the offline file readers a MySQL-family server installs once it is
+// running (dbfiletools.go): on a standalone node for itself, on a frame for every data member.
+var mysqlCatFileTools = []catalogOption{
+	{Field: "installInnodump", Desc: "Install innodump (github.com/PrzemekMalkowski/innodump), which writes out a table's definition and rows from its .ibd, .MYD or MyRocks files with no server running. The latest release, checksum-verified, in /usr/local/bin; a redeploy installs it on a running server."},
+	{Field: "installBinlogsum", Desc: "Install binlogsum (github.com/PrzemekMalkowski/binlogsum), which summarizes a binary log from mysqlbinlog's output: event counts, GTID ranges, busiest tables and writes over time. Installed like installInnodump."},
+}
+
+// mysqlCatGcache is gcache-inspector, for the two Galera frames (PXC, MariaDB Galera).
+var mysqlCatGcache = catalogOption{Field: "installGcacheInspector", Desc: "Install gcache-inspector (github.com/PrzemekMalkowski/gcache-inspector) on every data member, which summarizes the node's galera.cache and decodes its write-sets into rows. Installed like installInnodump."}
+
 var mysqlCatGTID = catalogOption{Field: "gtid", Default: true, Desc: "Enable GTIDs (gtid_mode=ON, enforce_gtid_consistency); replicas then use auto-positioning, otherwise binary-log file/position."}
 
 // mysqlCatXtraBackup are the Percona XtraBackup fields of a standalone Percona Server node
@@ -152,6 +162,7 @@ var catalogMySQLFamily = []catalogEntry{
 				mysqlCatUseProxy,
 			},
 			mysqlCatCert,
+			mysqlCatFileTools,
 			[]catalogOption{
 				{Field: "exportEnabled", Desc: "Publish the MySQL port (3306) on the Docker host. Locked once deployed."},
 				{Field: "exportHostPort", Desc: "Host port for 3306; 0 picks a free one.", When: "exportEnabled is on"},
@@ -186,6 +197,7 @@ var catalogMySQLFamily = []catalogEntry{
 				mysqlCatUseProxy,
 			},
 			mysqlCatCert,
+			mysqlCatFileTools,
 			[]catalogOption{
 				{Field: "exportEnabled", Desc: "Publish the MySQL port (3306) on the Docker host."},
 				{Field: "exportHostPort", Desc: "Host port for 3306; 0 picks a free one.", When: "exportEnabled is on"},
@@ -210,6 +222,7 @@ var catalogMySQLFamily = []catalogEntry{
 				mysqlCatUseProxy,
 			},
 			mysqlCatCert,
+			mysqlCatFileTools,
 			[]catalogOption{
 				{Field: "exportEnabled", Desc: "Publish the MySQL port (3306) on the Docker host."},
 				{Field: "exportHostPort", Desc: "Host port for 3306; 0 picks a free one.", When: "exportEnabled is on"},
@@ -359,6 +372,8 @@ var catalogMySQLFamily = []catalogEntry{
 				mysqlCatGTID,
 			},
 			mysqlCatCert,
+			mysqlCatFileTools,
+			[]catalogOption{mysqlCatGcache},
 			mysqlCatPSAuth("PXC"),
 			mysqlCatXtraBackup,
 			[]catalogOption{
@@ -387,6 +402,7 @@ var catalogMySQLFamily = []catalogEntry{
 				mysqlCatGTID,
 			},
 			mysqlCatCert,
+			mysqlCatFileTools,
 			mysqlCatPSAuth("Percona Server"),
 			mysqlCatXtraBackup,
 			[]catalogOption{
@@ -415,6 +431,7 @@ var catalogMySQLFamily = []catalogEntry{
 				mysqlCatUseProxy,
 			},
 			mysqlCatCert,
+			mysqlCatFileTools,
 		),
 		Relations: []string{"monitor", "repository"},
 		Edges: []catalogEdge{
@@ -435,6 +452,7 @@ var catalogMySQLFamily = []catalogEntry{
 				mysqlCatUseProxy,
 			},
 			mysqlCatCert,
+			mysqlCatFileTools,
 		),
 		Relations: []string{"monitor", "orchestrator"},
 		Edges: []catalogEdge{
@@ -456,6 +474,8 @@ var catalogMySQLFamily = []catalogEntry{
 				mysqlCatUseProxy,
 			},
 			mysqlCatCert,
+			mysqlCatFileTools,
+			[]catalogOption{mysqlCatGcache},
 		),
 		Relations: []string{"monitor"},
 		Edges: []catalogEdge{
@@ -476,6 +496,7 @@ var catalogMySQLFamily = []catalogEntry{
 				mysqlCatUseProxy,
 			},
 			mysqlCatCert,
+			mysqlCatFileTools,
 		),
 		Relations: []string{"monitor", "orchestrator"},
 		Edges: []catalogEdge{
@@ -499,6 +520,7 @@ var catalogMySQLFamily = []catalogEntry{
 				mysqlCatUseProxy,
 			},
 			mysqlCatCert,
+			mysqlCatFileTools,
 		),
 		Relations: []string{"monitor"},
 		Edges: []catalogEdge{

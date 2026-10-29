@@ -239,6 +239,7 @@ var catalogInfra = []catalogEntry{
 				Desc: "psql major; \"\" is 17. CentOS 7 has 13 only."},
 			{Field: "lcClusterSync", Default: false, Desc: "Install Percona ClusterSync for MongoDB (pcsm), driven from the node's ClusterSync actions. Not on CentOS 7."},
 			{Field: "lcInnodump", Default: false, Desc: "Install innodump, which reads InnoDB, MyISAM and MyRocks table files offline (latest GitHub release)."},
+			{Field: "lcBinlogsum", Default: false, Desc: "Install binlogsum, which summarizes a MySQL or MariaDB binary log from mysqlbinlog's output (latest GitHub release)."},
 			{Field: "lcGcacheInspector", Default: false, Desc: "Install gcache-inspector, which reads a Galera node's galera.cache offline (latest GitHub release)."},
 			{Field: "lcKubectl", Default: false, Desc: "Install kubectl matched to the first K3D frame's k3s version (or the newest in the catalog)."},
 			{Field: "lcHelm", Default: false, Desc: "Install Helm 3."},

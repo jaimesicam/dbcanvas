@@ -101,7 +101,12 @@ type designNode struct {
 	// Offline readers for a MySQL server's files on a Linux Client (Type=="linuxclient"; ignored
 	// elsewhere), from their GitHub releases. See linuxclient_files.go.
 	LCInnodump        bool `json:"lcInnodump"`        // InnoDB / MyISAM / MyRocks table files
+	LCBinlogsum       bool `json:"lcBinlogsum"`       // a binary log, from mysqlbinlog's output
 	LCGcacheInspector bool `json:"lcGcacheInspector"` // a Galera node's galera.cache
+	// The same offline readers on a standalone Percona Server, MySQL or MariaDB node, installed
+	// once it is running (dbfiletools.go). A cluster's members take them from the frame.
+	InstallInnodump  bool `json:"installInnodump"`
+	InstallBinlogsum bool `json:"installBinlogsum"`
 	// Standalone Percona Server node fields (Type=="ps"; ignored by other types).
 	PSMajor      string `json:"psMajor"`      // Percona Server "8.0" | "8.4"
 	PSVersion    string `json:"psVersion"`    // minor; "" → latest
@@ -528,10 +533,16 @@ type designFrame struct {
 	// RepositoryNodeID: the Repository node the members install Percona packages from — or, on a
 	// K3D frame, pull images through (registries.yaml) and take the operator source from.
 	RepositoryNodeID string `json:"repositoryNodeId"`
-	GTID             bool   `json:"gtid"`         // enable GTID (default on)
-	GenerateCert     bool   `json:"generateCert"` // per-node certs signed by the Intranet CA
-	CertTTLValue     int    `json:"certTtlValue"`
-	CertTTLUnit      string `json:"certTtlUnit"`
+	GTID             bool   `json:"gtid"` // enable GTID (default on)
+	// Offline readers on every data member of a MySQL-family cluster, installed once the member
+	// is running (dbfiletools.go). gcache-inspector is offered on the Galera kinds only (PXC,
+	// MariaDB Galera), the ones with a galera.cache to read.
+	InstallInnodump        bool   `json:"installInnodump"`
+	InstallBinlogsum       bool   `json:"installBinlogsum"`
+	InstallGcacheInspector bool   `json:"installGcacheInspector"`
+	GenerateCert           bool   `json:"generateCert"` // per-node certs signed by the Intranet CA
+	CertTTLValue           int    `json:"certTtlValue"`
+	CertTTLUnit            string `json:"certTtlUnit"`
 	// OrchestratorNodeID is a Percona Orchestrator node that discovers/monitors this
 	// cluster's topology (optional; "" → not monitored). Shared by the async/semi-sync
 	// replication frames ("mysql", "mariadbrepl", "mysqlcerepl" — see
@@ -2611,6 +2622,14 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer endNet()
 		a.reconcileNetem(netCtx, st, doc)
+	}()
+
+	// The offline file readers a MySQL-family server asked for, once it is running. See
+	// dbfiletools.go.
+	toolsCtx, endTools := a.deployScope(st.ID, a.eng(st))
+	go func() {
+		defer endTools()
+		a.reconcileDBFileTools(toolsCtx, st, doc)
 	}()
 
 	// Every provisioner has registered with the run by now; release it once they
