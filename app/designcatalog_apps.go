@@ -153,7 +153,7 @@ var catalogApps = []catalogEntry{
 	},
 
 	{Type: "perfsim", Label: "Performance Sim",
-		Summary: "Stressors that make a linked MySQL-family, PostgreSQL, MongoDB or Valkey server or cluster misbehave on purpose — replication lag from large transactions or bulk writes, a no-op ALTER TABLE, VACUUM FULL or index build, FLUSH TABLES WITH READ LOCK or fsyncLock on replicas, a stopped, paused or delayed applier, a single-threaded applier, a transaction on a replica that blocks replay — and network latency, packet loss and disk caps on chosen members, which DBCanvas applies for it, with a live timeline of their effect on the cluster and on a steady application workload. " +
+		Summary: "Stressors that make a linked MySQL-family, PostgreSQL, MongoDB or Valkey server or cluster misbehave on purpose — replication lag from large transactions or bulk writes, a no-op ALTER TABLE, VACUUM FULL or index build, FLUSH TABLES WITH READ LOCK or fsyncLock on replicas, a stopped, paused or delayed applier, a single-threaded applier, a transaction on a replica that blocks replay — contention and load on the writer from a connection storm, hot rows, a long-running transaction, a commit storm, CPU-heavy queries and a working set larger than memory, and network latency, packet loss and disk caps on chosen members, which DBCanvas applies for it, with a live timeline of their effect on the cluster and on a steady application workload. " +
 			"Every stressor, its settings and its targets are chosen on the dashboard while it runs; the node has no options of its own. Each lock, pause and setting releases itself after a maximum hold, and all of them are released when the sim stops." + catalogSimDashboard,
 		Placement: "standalone",
 		Requires: []string{

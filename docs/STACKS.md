@@ -224,7 +224,7 @@ dashboard on a host port. Draw an association line from the simulator to its tar
 | **pgvector Support Sim** | The same desk on PostgreSQL, using a pgvector column and an HNSW index. Creates a `supportsim` database (or schema). | PostgreSQL, Patroni, repmgr or Spock; HAProxy or PgBouncer in front of one; or a K3D frame running a PostgreSQL operator. Turn on pgvector on the target. |
 | **Stock Market Sim** | A stock-exchange app you operate. See below. | Any database (see below) |
 | **Ledger Sim** | A JDBC order-and-payment ledger. See below. | MySQL-family or PostgreSQL |
-| **Performance Sim** | Stressors that cause replication lag, with a live timeline of their effect. See below. | MySQL-family, PostgreSQL, MongoDB or Valkey |
+| **Performance Sim** | Stressors that cause replication lag, contention and load, with a live timeline of their effect. See below. | MySQL-family, PostgreSQL, MongoDB or Valkey |
 
 The templates **PSMDB Vector Search + Support Sim** and **PostgreSQL + pgvector + Support Sim**
 deploy a complete vector-search demo.
@@ -323,11 +323,26 @@ no options of its own: link it, deploy it, and choose everything on its dashboar
   | Large values | Writes multi-megabyte values at a fixed rate through every replica's stream |
   | Delete a big key | Builds a set of millions of members and deletes it with `DEL`, blocking the primary and then each replica; *blocking* turns `lazyfree-lazy-user-del` off on that primary for the one delete |
   | DEBUG SLEEP on replicas | Blocks chosen replicas' event loop repeatedly; offered only where `enable-debug-command` allows it |
-  | Sentinel failover | Asks Sentinel to promote a replica (`SENTINEL FAILOVER`), to watch writes ride through the switch; Valkey Sentinel only |
+  | Sentinel failover | Asks Sentinel to promote a replica (`SENTINEL FAILOVER`), to watch writes ride through the switch; Valkey Sentinel only. *Coordinated* (Valkey 9.0 and later, the default there) pauses writes on the old primary until the replica takes over; *forced* acts as if the primary had failed, so the old primary keeps taking writes until Sentinel demotes it and loses them when it resyncs. A probe counts the acknowledged writes that did not survive, and the dial reports how long the old primary stayed a primary |
 
   Valkey needs no prepared tables; the sim's keys start with `perfsim:`. Give the Valkey Cluster
   replicas (**Replicas per shard**) for there to be lag to cause; on an all-primary cluster the
   large-value and delete stressors still show their effect on the primaries' latency.
+- **Connection, lock, I/O, CPU and memory stressors.** They act on the writer (the primary), so a
+  standalone server has them too:
+
+  | Stressor | What it does | Where |
+  | --- | --- | --- |
+  | Connection storm | Opens connections and holds them idle, up to the number chosen; past `max_connections` (`maxclients` on Valkey) the refusals show on the dial | All |
+  | Hot-row contention | Workers update the same few rows in short transactions, optionally in opposite orders to cause deadlocks. On MongoDB, multi-document transactions on the same documents, counting write conflicts | MySQL family, PostgreSQL; MongoDB replica sets |
+  | Long-running transaction | Holds a consistent snapshot open; the history list length (MySQL) or the oldest snapshot's age (PostgreSQL) climbs while it holds | MySQL family, PostgreSQL |
+  | Commit storm | Many single-row autocommit writes from many workers; on MongoDB with `w: "majority", j: true` | MySQL family, PostgreSQL, MongoDB |
+  | CPU-heavy queries | Hashing queries that touch no data (`BENCHMARK`, `md5` over `generate_series`); on Valkey, a Lua script that spins on the single thread for a set time | MySQL family, PostgreSQL, Valkey |
+  | Working set larger than memory | Random point reads across a prepared table; when it is larger than the buffer pool, `shared_buffers` or the WiredTiger cache, most of them read from disk | MySQL family, PostgreSQL, MongoDB |
+
+  A **Server internals** chart shows what these move: history list length and buffer pool reads
+  from disk (MySQL family), oldest snapshot age and blocks read outside `shared_buffers`
+  (PostgreSQL), pages read into the WiredTiger cache (MongoDB).
 - **Network and disk stressors** on chosen members: added latency (with jitter), packet loss (100%
   cuts the member off), a bandwidth cap, and write bandwidth, write IOPS or read bandwidth caps.
   DBCanvas applies them with the same `tc netem` and `io.max` code as a node's own limits, and
@@ -343,7 +358,7 @@ no options of its own: link it, deploy it, and choose everything on its dashboar
   node's receive queue and flow control. A steady workload's throughput and p50/p99 latency, the
   writer's lock waits, threads and connections, a topology view, an impact card per stressor
   against a baseline with its recovery time, live sessions with blockers and waiters, and each
-  member's replication status.
+  member's replication status, and the Server internals chart.
 - **Safety:** every lock, pause and setting has a maximum hold and releases itself; **Stop all**
   releases everything; stopping the sim releases everything. Changes to a replica's settings are
   recorded in the `perfsim` schema first, so a sim that was killed undoes them when it starts again.

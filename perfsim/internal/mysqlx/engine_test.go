@@ -23,8 +23,9 @@ func TestWords(t *testing.T) {
 	}
 }
 
-// Every dial is listed on every topology; a standalone server has none available,
-// and the ones a topology cannot do say why.
+// Every dial is listed on every topology; a standalone server has no lag dial
+// available, and the ones a topology cannot do say why. The load dials act on
+// the writer alone, so every topology has them.
 func TestDialsAvailability(t *testing.T) {
 	avail := func(topo string) map[string]bool {
 		e := &Engine{topology: topo, vars: words("percona", "8.4.5")}
@@ -37,8 +38,12 @@ func TestDialsAvailability(t *testing.T) {
 		}
 		return out
 	}
+	load := map[string]bool{}
+	for _, d := range (&Engine{}).loadDials() {
+		load[d.ID] = true
+	}
 	for id, ok := range avail("standalone") {
-		if ok {
+		if ok != load[id] {
 			t.Errorf("standalone: %s available", id)
 		}
 	}

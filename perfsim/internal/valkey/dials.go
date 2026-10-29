@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -19,6 +20,7 @@ const groupLag = "Replication lag"
 func (e *Engine) Dials() []core.Dial {
 	e.mu.Lock()
 	topo := e.topology
+	coordinated := coordinatedFailover(e.version)
 	debug := false
 	for id, ok := range e.debugOK {
 		if _, replica := e.primaryOf[id]; replica && ok {
@@ -36,7 +38,7 @@ func (e *Engine) Dials() []core.Dial {
 		}
 		return d
 	}
-	return []core.Dial{
+	return append([]core.Dial{
 		avail(core.Dial{ID: "bigvalues", Name: "Large values", Kind: "toggle",
 			Desc:  "SETs multi-megabyte values at a fixed rate. Every byte goes through each replica's replication stream and output buffer.",
 			Watch: []string{"Replication lag", "p99 latency"},
@@ -58,12 +60,9 @@ func (e *Engine) Dials() []core.Dial {
 			Params: []core.Param{{Key: "sleep", Label: "Each sleep", Type: "pills", Opts: []any{5, 10, 30}, Def: 10, Unit: "s"}, {Key: "hold", Label: "Maximum hold, then release", Type: "pills", Opts: []any{30, 60, 120, 300}, Def: 120, Unit: "s"}},
 			SQL:    "DEBUG SLEEP {sleep}  -- repeated, a second apart"}, debug,
 			"DEBUG is disabled on these servers (enable-debug-command is no)."),
-		avail(core.Dial{ID: "failover", Name: "Sentinel failover", Kind: "run", Params: []core.Param{},
-			Desc:  "Asks Sentinel to promote a replica and demote the primary, as it would if the primary failed. Watch writes stall and error until clients learn the new primary, and the old primary rejoin as a replica.",
-			Watch: []string{"Errors", "p99 latency", "Replication lag"},
-			SQL:   "SENTINEL FAILOVER " + nzs(e.cfg.SentinelMaster, "<name>") + "  -- sent to one Sentinel"}, topo == "sentinel",
+		avail(failoverDial(nzs(e.cfg.SentinelMaster, "<name>"), coordinated), topo == "sentinel",
 			"Only Valkey with Sentinel promotes a replica on its own; link one to use this."),
-	}
+	}, e.loadDials()...)
 }
 
 func (e *Engine) Start(ctx context.Context, id string, p core.Params, targets []string, emit func(level, text string)) (core.Running, error) {
@@ -81,6 +80,9 @@ func (e *Engine) Start(ctx context.Context, id string, p core.Params, targets []
 		return core.NewJob(ctx, p, func(ctx context.Context, j *core.Job) { e.runDebugSleep(ctx, j, targets) }), nil
 	case "failover":
 		return core.NewJob(ctx, p, func(ctx context.Context, j *core.Job) { e.runFailover(ctx, j, emit) }), nil
+	}
+	if run, ok := e.startLoad(ctx, id, p); ok {
+		return run, nil
 	}
 	return nil, fmt.Errorf("no such stressor %q", id)
 }
@@ -186,35 +188,110 @@ func (e *Engine) runFailover(ctx context.Context, j *core.Job, emit func(string,
 	e.mu.Lock()
 	before := e.writerID
 	e.mu.Unlock()
+	coordinated := j.Param().Str("mode", "forced") == "coordinated" && coordinatedFailover(e.version)
+	args := []any{"SENTINEL", "FAILOVER", e.cfg.SentinelMaster}
+	if coordinated {
+		args = append(args, "COORDINATED")
+	}
+	// The probe writes through the application's client, which follows the
+	// primary Sentinel announces, exactly as the workload does.
+	probe := e.startFailoverProbe(ctx)
+	sleep(ctx, time.Second)
 	var err error
 	for _, addr := range e.cfg.Sentinels {
-		s := redis.NewSentinelClient(&redis.Options{Addr: addr, Password: e.cfg.Password, DialTimeout: 3 * time.Second})
-		err = s.Failover(ctx, e.cfg.SentinelMaster).Err()
+		// A plain client: SentinelClient has no way to add COORDINATED.
+		s := redis.NewClient(&redis.Options{Addr: addr, Password: e.cfg.Password, DialTimeout: 3 * time.Second})
+		err = s.Do(ctx, args...).Err()
 		s.Close()
 		if err == nil {
 			break
 		}
 	}
 	if err != nil {
+		probe.stop()
 		j.Finish(fmt.Errorf("no Sentinel accepted the failover: %w", err))
 		return
 	}
 	start := time.Now()
-	emit("warn", fmt.Sprintf("Sentinel failover of %s requested; %s is the primary until it completes", e.cfg.SentinelMaster, before))
+	mode := "forced"
+	if coordinated {
+		mode = "coordinated"
+	}
+	emit("warn", fmt.Sprintf("Sentinel failover (%s) of %s requested; %s is the primary until it completes", mode, e.cfg.SentinelMaster, before))
 	for ctx.Err() == nil {
 		e.mu.Lock()
 		now := e.writerID
 		e.mu.Unlock()
 		if now != "" && now != before {
-			emit("neutral", fmt.Sprintf("%s is the new primary, %.0f s after the request", now, time.Since(start).Seconds()))
-			e.waitSettled(ctx, j, "Replicas following "+now, true)
+			promoted := time.Since(start)
+			emit("neutral", fmt.Sprintf("%s is the new primary, %.0f s after the request", now, promoted.Seconds()))
+			e.waitDemoted(ctx, j, before, now, start, promoted, emit)
+			e.waitSettled(ctx, j, "Replicas following "+now, false)
+			acked, kept, err := probe.result(ctx)
+			switch {
+			case err != nil:
+				emit("warn", "Could not read the write probe back: "+err.Error())
+			case acked > kept:
+				emit("bad", fmt.Sprintf("%d of %d acknowledged probe writes were lost: the old primary took them and then resynced from %s", acked-kept, acked, now))
+			default:
+				emit("ok", fmt.Sprintf("All %d acknowledged probe writes survived the failover", acked))
+			}
+			j.Finish(nil)
 			return
 		}
 		if time.Since(start) > 2*time.Minute {
+			probe.stop()
 			j.Finish(fmt.Errorf("no new primary within 2 minutes"))
 			return
 		}
 		j.Set("Waiting for a replica to be promoted", -1, fmt.Sprintf("%.0f s since the request", time.Since(start).Seconds()))
+		sleep(ctx, time.Second)
+	}
+}
+
+// coordinatedFailover says whether this Valkey's Sentinel takes SENTINEL
+// FAILOVER ... COORDINATED, which arrived in Valkey 9.0.
+func coordinatedFailover(version string) bool {
+	major, _ := strconv.Atoi(strings.SplitN(version, ".", 2)[0])
+	return major >= 9
+}
+
+func failoverDial(name string, coordinated bool) core.Dial {
+	d := core.Dial{ID: "failover", Name: "Sentinel failover", Kind: "run",
+		Desc: "Asks Sentinel to promote a replica and demote the primary. Forced, it acts as if the primary had failed: the old primary keeps taking writes until Sentinel demotes it, and loses them when it resyncs from the new one. " +
+			"Coordinated, the old primary pauses writes until the replica has caught up and been promoted, so nothing acknowledged is lost. The dial counts acknowledged writes that did not survive.",
+		Watch: []string{"Errors", "p99 latency", "Replication lag"},
+		SQL:   "SENTINEL FAILOVER " + name + " {mode}  -- sent to one Sentinel; COORDINATED, or nothing for forced\nINCR perfsim:failover:probe  -- every 10 ms throughout, counting acknowledgements"}
+	if coordinated {
+		d.Params = []core.Param{{Key: "mode", Label: "Failover", Type: "pills", Opts: []any{"coordinated", "forced"}, Def: "coordinated"}}
+	} else {
+		d.Params = []core.Param{}
+		d.Note = "Coordinated failover needs Valkey 9.0 or later; this one is forced."
+	}
+	return d
+}
+
+// waitDemoted waits for the old primary to rejoin as a replica. Until then it
+// still answers as a primary, and anything still writing to it is writing to a
+// server whose data the resync will throw away.
+func (e *Engine) waitDemoted(ctx context.Context, j *core.Job, old, now string, start time.Time, promoted time.Duration, emit func(string, string)) {
+	for ctx.Err() == nil {
+		e.mu.Lock()
+		_, replica := e.primaryOf[old]
+		e.mu.Unlock()
+		if replica {
+			if two := time.Since(start) - promoted; two >= 2*time.Second {
+				emit("warn", fmt.Sprintf("%s rejoined as a replica of %s; it was still a primary for %.0f s after %s was promoted", old, now, two.Seconds(), now))
+			} else {
+				emit("neutral", fmt.Sprintf("%s rejoined as a replica of %s", old, now))
+			}
+			return
+		}
+		if time.Since(start) > 2*time.Minute {
+			emit("warn", fmt.Sprintf("%s has not rejoined as a replica within 2 minutes", old))
+			return
+		}
+		j.Set("Waiting for "+old+" to be demoted", -1, fmt.Sprintf("two primaries for %.0f s", (time.Since(start)-promoted).Seconds()))
 		sleep(ctx, time.Second)
 	}
 }
@@ -360,4 +437,45 @@ func fmtN(n int) string {
 		return strconv.FormatFloat(float64(n)/1e3, 'f', -1, 64) + "k"
 	}
 	return strconv.Itoa(n)
+}
+
+// failoverProbe increments one key through the application's client every
+// 10 ms while a failover runs, counting the increments the server acknowledged.
+// Afterwards the key on the new primary says how many of them survived.
+type failoverProbe struct {
+	e      *Engine
+	acked  atomic.Int64
+	cancel context.CancelFunc
+	done   chan struct{}
+}
+
+const probeKey = "perfsim:failover:probe"
+
+func (e *Engine) startFailoverProbe(ctx context.Context) *failoverProbe {
+	p := &failoverProbe{e: e, done: make(chan struct{})}
+	e.writer.Set(ctx, probeKey, 0, time.Hour)
+	pctx, cancel := context.WithCancel(ctx)
+	p.cancel = cancel
+	go func() {
+		defer close(p.done)
+		for pctx.Err() == nil {
+			if v, err := e.writer.Incr(pctx, probeKey).Result(); err == nil && v > 0 {
+				p.acked.Add(1)
+			}
+			sleep(pctx, 10*time.Millisecond)
+		}
+	}()
+	return p
+}
+
+func (p *failoverProbe) stop() {
+	p.cancel()
+	<-p.done
+}
+
+// result stops the probe and reads the key back from the current primary.
+func (p *failoverProbe) result(ctx context.Context) (acked, kept int64, err error) {
+	p.stop()
+	kept, err = p.e.writer.Get(ctx, probeKey).Int64()
+	return p.acked.Load(), kept, err
 }

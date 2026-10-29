@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"perfsim/internal/core"
 )
@@ -86,6 +87,7 @@ func (e *Engine) sampleMember(ctx context.Context, mc MemberConfig) memberSample
 	s.srv = core.ServerSample{Threads: active, Conns: total, LockWaits: locks}
 
 	if !rec {
+		e.sampleInternals(ctx, d, mc.ID, &s.srv)
 		s.primary, s.m.Role, s.m.Lag = true, "primary", 0
 		var streaming int
 		var syncNames, walLevel string
@@ -164,4 +166,24 @@ func short(s string, n int) string {
 		return s
 	}
 	return s[:n-1] + "…"
+}
+
+// sampleInternals reads what the load stressors move: the age of the oldest
+// snapshot a session holds, which is how far back vacuum must keep dead rows,
+// and reads that missed shared_buffers, as a rate.
+func (e *Engine) sampleInternals(ctx context.Context, d *sql.DB, id string, srv *core.ServerSample) {
+	var age, reads float64
+	d.QueryRowContext(ctx, "SELECT COALESCE(max(age(backend_xmin)), 0)::float8 FROM pg_stat_activity").Scan(&age)
+	srv.Backlog = age
+	if err := d.QueryRowContext(ctx, "SELECT blks_read::float8 FROM pg_stat_database WHERE datname = current_database()").Scan(&reads); err != nil {
+		return
+	}
+	now := float64(time.Now().UnixNano()) / 1e9
+	e.mu.Lock()
+	prev, ok := e.readsPrev[id]
+	e.readsPrev[id] = [2]float64{reads, now}
+	e.mu.Unlock()
+	if ok && now > prev[1] && reads >= prev[0] {
+		srv.DiskReads = (reads - prev[0]) / (now - prev[1])
+	}
 }

@@ -39,7 +39,7 @@ func (e *Engine) Dials() []core.Dial {
 		}
 		return d
 	}
-	return []core.Dial{
+	return append([]core.Dial{
 		avail(core.Dial{ID: "bigtxn", Name: "Large transactions", Kind: "toggle", NeedsTable: "pk",
 			Desc:  "One large UPDATE on a big table at a fixed interval. Every changed row is written to the WAL, and the standbys replay all of it before anything committed after it is visible there.",
 			Watch: []string{"Replay lag", "p99 latency"},
@@ -68,7 +68,7 @@ func (e *Engine) Dials() []core.Dial {
 			Watch: []string{"Replay lag"}, Note: delayNote,
 			Params: []core.Param{{Key: "delay", Label: "Delay", Type: "pills", Opts: []any{30, 60, 300}, Def: 60, Unit: "s"}, holdParam},
 			SQL:    delaySQL}),
-	}
+	}, e.loadDials()...)
 }
 
 var tableName = regexp.MustCompile(`^[a-z0-9_]+$`)
@@ -96,6 +96,9 @@ func (e *Engine) Start(ctx context.Context, id string, p core.Params, targets []
 		return core.NewJob(ctx, p, func(ctx context.Context, j *core.Job) { e.runConflict(ctx, j, targets, emit) }), nil
 	case "delay":
 		return core.NewJob(ctx, p, func(ctx context.Context, j *core.Job) { e.runDelay(ctx, j, targets, p.Int("delay", 60)) }), nil
+	}
+	if run, ok := e.startLoad(ctx, id, p, table); ok {
+		return run, nil
 	}
 	return nil, fmt.Errorf("no such stressor %q", id)
 }

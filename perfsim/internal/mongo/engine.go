@@ -53,10 +53,13 @@ type Engine struct {
 	writerID string
 	lag      map[string]float64
 	setName  string
+	// readsPrev is each member's pages read into the cache and the time at the
+	// last sample.
+	readsPrev map[string][2]float64
 }
 
 func New(cfg Config) *Engine {
-	e := &Engine{cfg: cfg, mc: map[string]*mongo.Client{}, lag: map[string]float64{}}
+	e := &Engine{cfg: cfg, mc: map[string]*mongo.Client{}, lag: map[string]float64{}, readsPrev: map[string][2]float64{}}
 	e.writer, _ = mongo.Connect(context.Background(), options.Client().ApplyURI(cfg.URI).
 		SetMaxPoolSize(80).SetServerSelectionTimeout(5*time.Second).SetAppName("perfsim"))
 	e.hb, _ = mongo.Connect(context.Background(), options.Client().ApplyURI(cfg.URI).
@@ -130,7 +133,8 @@ func (e *Engine) Info() core.TargetInfo {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return core.TargetInfo{Name: e.cfg.Name, Engine: "mongodb", Flavor: e.flavor, Version: e.version, Topology: e.topology, Writer: e.writerID,
-		LagTitle: "Replication lag", LagSub: "how far each member's copy of the heartbeat document is behind the primary", Status: "Replica set status"}
+		LagTitle: "Replication lag", LagSub: "how far each member's copy of the heartbeat document is behind the primary", Status: "Replica set status",
+		DiskReadsLabel: "pages read into the WiredTiger cache/s"}
 }
 
 func (e *Engine) Heartbeat(ctx context.Context) error {

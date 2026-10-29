@@ -18,11 +18,12 @@ func TestSameDelay(t *testing.T) {
 }
 
 // A standalone server offers no lag stressor and says why; a cluster offers all.
+// The load stressors act on the primary alone, so every topology has them.
 func TestDialsAvailability(t *testing.T) {
 	for topo, want := range map[string]bool{"standalone": false, "streaming": true} {
 		e := &Engine{topology: topo}
 		for _, d := range e.Dials() {
-			if d.Available != want {
+			if d.Group == groupLag && d.Available != want || d.Group != groupLag && !d.Available {
 				t.Errorf("%s: %s available %v", topo, d.ID, d.Available)
 			}
 			if !d.Available && d.Why == "" {

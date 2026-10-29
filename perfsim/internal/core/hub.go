@@ -204,7 +204,8 @@ func (h *Hub) tick(ctx context.Context, now time.Time) {
 
 	p := Point{T: now.Unix(), Lag: map[string]float64{}, RecvQ: map[string]float64{},
 		WQ: wq, RQ: rq, P50: p50, P99: p99, Errs: errs,
-		LockW: srv.LockWaits, Thr: srv.Threads, Conns: srv.Conns, FC: srv.FC, SendQ: srv.SendQ}
+		LockW: srv.LockWaits, Thr: srv.Threads, Conns: srv.Conns, FC: srv.FC, SendQ: srv.SendQ,
+		Backlog: srv.Backlog, DiskReads: srv.DiskReads}
 	for _, m := range members {
 		if m.Lag >= 0 {
 			p.Lag[m.ID] = m.Lag

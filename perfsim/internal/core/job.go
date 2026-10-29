@@ -3,7 +3,10 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
+	"sync/atomic"
+	"time"
 )
 
 // Job is the Running a dial returns. The dial's work runs in one goroutine
@@ -127,4 +130,16 @@ func (j *Job) Stop(ctx context.Context) error {
 		j.stopErr = errors.Join(errs...)
 	})
 	return j.stopErr
+}
+
+// RateNote shows a counter on the dial as a rate, once a second, until ctx
+// ends. what follows the number ("commits/s").
+func (j *Job) RateNote(ctx context.Context, phase string, n *atomic.Int64, what string) {
+	last, t := n.Load(), time.Now()
+	for ctx.Err() == nil {
+		sleepCtx(ctx, time.Second)
+		now := n.Load()
+		j.Set(phase, -1, fmt.Sprintf("%.0f %s", float64(now-last)/time.Since(t).Seconds(), what))
+		last, t = now, time.Now()
+	}
 }

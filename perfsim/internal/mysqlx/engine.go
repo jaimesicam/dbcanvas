@@ -75,10 +75,12 @@ type Engine struct {
 	fcPrev   map[string][2]float64 // flow-control paused ns and wall ns at the last sample
 	vars     map[string]string     // flavor-dependent statement words, see words()
 	applier  map[string]*applierState
+	// readsPrev is each member's buffer pool reads counter at the last sample.
+	readsPrev map[string][2]float64
 }
 
 func New(cfg Config) *Engine {
-	e := &Engine{cfg: cfg, mdb: map[string]*sql.DB{}, lag: map[string]float64{}, fcPrev: map[string][2]float64{}}
+	e := &Engine{cfg: cfg, mdb: map[string]*sql.DB{}, lag: map[string]float64{}, fcPrev: map[string][2]float64{}, readsPrev: map[string][2]float64{}}
 	wu, wp := cfg.User, cfg.Password
 	if cfg.WriterUser != "" {
 		wu, wp = cfg.WriterUser, cfg.WriterPassword
@@ -209,6 +211,9 @@ func (e *Engine) Init(ctx context.Context) error {
 			return fmt.Errorf("seeding perfsim.orders: %w", err)
 		}
 	}
+	if err := e.loadInit(ctx); err != nil {
+		return err
+	}
 	// The topology is known now, so the members' applier statements can run.
 	e.Sample(ctx)
 	e.replayUndo(ctx)
@@ -285,7 +290,8 @@ func (e *Engine) Info() core.TargetInfo {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	i := core.TargetInfo{Name: e.cfg.Name, Engine: "mysql", Flavor: e.flavor, Version: e.version, Topology: e.topology, Writer: e.writerID,
-		LagTitle: "Replication lag", LagSub: "how far each member's copy of the heartbeat row is behind the writer", Status: "Replica status"}
+		LagTitle: "Replication lag", LagSub: "how far each member's copy of the heartbeat row is behind the writer", Status: "Replica status",
+		BacklogLabel: "history list length", DiskReadsLabel: "buffer pool reads from disk/s"}
 	switch e.topology {
 	case "galera":
 		i.LagTitle, i.LagSub, i.Status = "Receive queue", "wsrep_local_recv_queue per node; flow control starts at gcs.fc_limit", "Galera status"

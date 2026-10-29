@@ -34,7 +34,7 @@ func (e *Engine) Dials() []core.Dial {
 		}
 		return d
 	}
-	return []core.Dial{
+	return append([]core.Dial{
 		avail(core.Dial{ID: "bulk", Name: "Bulk writes", Kind: "toggle", NeedsTable: "pk",
 			Desc:  "One large updateMany on a big collection at a fixed interval. Every changed document is its own oplog entry, and the secondaries apply them in batches behind everything else.",
 			Watch: []string{"Replication lag", "p99 latency"},
@@ -58,7 +58,7 @@ func (e *Engine) Dials() []core.Dial {
 			Params: []core.Param{{Key: "delay", Label: "Delay", Type: "pills", Opts: []any{30, 60, 300}, Def: 60, Unit: "s"}, holdParam},
 			Note:   "One replica set reconfiguration for all the chosen members; their previous priority, hidden and delay are restored on release.",
 			SQL:    "cfg = rs.conf()\n// for each chosen member:\ncfg.members[i].priority = 0\ncfg.members[i].hidden = true\ncfg.members[i].secondaryDelaySecs = {delay}\nrs.reconfig(cfg)"}),
-	}
+	}, e.loadDials()...)
 }
 
 var collName = regexp.MustCompile(`^big_[0-9a-z]+$`)
@@ -84,6 +84,9 @@ func (e *Engine) Start(ctx context.Context, id string, p core.Params, targets []
 		return core.NewJob(ctx, p, func(ctx context.Context, j *core.Job) { e.runFsyncLock(ctx, j, targets) }), nil
 	case "delay":
 		return core.NewJob(ctx, p, func(ctx context.Context, j *core.Job) { e.runDelay(ctx, j, targets, p.Int("delay", 60)) }), nil
+	}
+	if run, ok := e.startLoad(ctx, id, p, table); ok {
+		return run, nil
 	}
 	return nil, fmt.Errorf("no such stressor %q", id)
 }

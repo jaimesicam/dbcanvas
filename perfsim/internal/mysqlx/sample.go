@@ -74,6 +74,7 @@ func (e *Engine) Sample(ctx context.Context) ([]core.Member, core.ServerSample) 
 		}
 		if s.m.ID == writerID {
 			srv.LockWaits, srv.Threads, srv.Conns, srv.SendQ = s.srv.LockWaits, s.srv.Threads, s.srv.Conns, s.m.SendQ
+			srv.Backlog, srv.DiskReads = s.srv.Backlog, s.srv.DiskReads
 		}
 		if s.fcPause > srv.FC {
 			srv.FC = s.fcPause
@@ -101,8 +102,19 @@ func (e *Engine) sampleMember(ctx context.Context, mc MemberConfig, topo string)
 			s.m.Lag = 0
 		}
 	}
-	st := globalStatus(ctx, db, "Threads_running", "Threads_connected", "Innodb_row_lock_current_waits")
+	st := globalStatus(ctx, db, "Threads_running", "Threads_connected", "Innodb_row_lock_current_waits", "Innodb_buffer_pool_reads")
 	s.srv = core.ServerSample{Threads: num(st["Threads_running"]), Conns: num(st["Threads_connected"]), LockWaits: num(st["Innodb_row_lock_current_waits"])}
+	// Buffer pool reads are a counter; the chart wants a rate.
+	reads, now := num(st["Innodb_buffer_pool_reads"]), float64(time.Now().UnixNano())
+	e.mu.Lock()
+	if prev, ok := e.readsPrev[mc.ID]; ok && now > prev[1] && reads >= prev[0] {
+		s.srv.DiskReads = (reads - prev[0]) / ((now - prev[1]) / 1e9)
+	}
+	e.readsPrev[mc.ID] = [2]float64{reads, now}
+	e.mu.Unlock()
+	var hist sql.NullFloat64
+	db.QueryRowContext(ctx, "SELECT `COUNT` FROM information_schema.INNODB_METRICS WHERE NAME = 'trx_rseg_history_len'").Scan(&hist)
+	s.srv.Backlog = hist.Float64
 
 	switch topo {
 	case "galera":

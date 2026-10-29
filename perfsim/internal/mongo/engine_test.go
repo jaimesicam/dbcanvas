@@ -8,12 +8,14 @@ func TestRegexQuote(t *testing.T) {
 	}
 }
 
-// A standalone server offers no lag stressor and says why; a replica set offers all.
+// A standalone server offers no lag stressor and says why; a replica set offers
+// all. Of the load stressors, only the transactions need a replica set.
 func TestDialsAvailability(t *testing.T) {
 	for topo, want := range map[string]bool{"standalone": false, "replset": true} {
 		e := &Engine{topology: topo}
 		for _, d := range e.Dials() {
-			if d.Available != want || (!d.Available && d.Why == "") {
+			needsRS := d.Group == groupLag || d.ID == "hotrow"
+			if needsRS && d.Available != want || !needsRS && !d.Available || (!d.Available && d.Why == "") {
 				t.Errorf("%s: %s available %v why %q", topo, d.ID, d.Available, d.Why)
 			}
 		}

@@ -21,7 +21,7 @@ let S = null;                 // last state from the sim
 let points = [];              // the timeline, kept here and extended each poll
 let lastT = 0;
 let lastOk = 0;
-const ui = { open: { lag: true }, expanded: {}, draft: {}, tab: 'sessions', win: 300, paused: false, frozenT: null, hoverT: null, sessions: [], busy: {} };
+const ui = { open: {}, expanded: {}, draft: {}, tab: 'sessions', win: 300, paused: false, frozenT: null, hoverT: null, sessions: [], busy: {} };
 
 async function api(method, path, body) {
   const r = await fetch(path, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
@@ -309,6 +309,12 @@ function chartDefs() {
       fmt: (v) => fmtN(v) + '/s', axis: (v) => v >= 1000 ? +(v / 1000).toFixed(1) + 'k' : Math.round(v) + '' },
     { id: 'lat', title: 'Application latency', sub: 'the workload’s statements, log scale', h: 100, log: true,
       series: [{ name: 'p99', color: '--danger', get: (x) => x.p99 }, { name: 'p50', color: '--teal', get: (x) => x.p50 }], fmt: (v) => fmtMs(v) },
+    ...(S.info.backlogLabel || S.info.diskReadsLabel ? [{ id: 'int', title: 'Server internals', sub: 'on the writer', h: 90,
+      series: [
+        ...(S.info.backlogLabel ? [{ name: S.info.backlogLabel, color: '--band-b', get: (x) => x.backlog || 0 }] : []),
+        ...(S.info.diskReadsLabel ? [{ name: S.info.diskReadsLabel, color: '--info', get: (x) => x.diskReads || 0, dashed: true }] : []),
+      ],
+      fmt: (v) => fmtN(v), axis: (v) => v >= 1000 ? +(v / 1000).toFixed(1) + 'k' : Math.round(v) + '' }] : []),
     { id: 'srv', title: 'Writer', sub: 'row lock waits, threads running, connections ÷ 10', h: 90,
       series: [{ name: 'lock waits', color: '--warning', get: (x) => x.lockw }, { name: 'threads', color: '--brand', get: (x) => x.thr }, { name: 'conns÷10', color: '--neutral', get: (x) => x.conns / 10, dashed: true }],
       fmt: (v) => v.toFixed(0) },
@@ -467,6 +473,8 @@ function datasetsHtml() {
     <button class="btn small" id="prepBtn" ${S.prep ? 'disabled' : ''}>Prepare table</button></div>
     <div class="meta">Written in 20,000-row batches, so preparing does not lag the replicas by itself. It goes in the sim's own perfsim schema (the perfsim database on PostgreSQL).</div></div>`;
 }
+let defaultGroup = '';
+const groupOpen = (key) => ui.open[key] ?? key === defaultGroup;
 function renderGroups() {
   if (!S.ready) { $('#groups').innerHTML = '<div class="panel-b cap">Stressors appear once the sim has connected.</div>'; return; }
   const groups = [
@@ -476,13 +484,16 @@ function renderGroups() {
   if (S.info.engine !== 'valkey') groups.push({ key: 'data', title: 'Datasets', sub: `${(S.datasets || []).length} prepared${S.prep ? ' · preparing' : ''}`, body: datasetsHtml() });
   const byGroup = {};
   for (const d of S.dials) (byGroup[d.group] ||= []).push(d);
+  // Until one is toggled, the first group with a dial this target can run is open.
+  defaultGroup = '';
   for (const [gname, ds] of Object.entries(byGroup)) {
     const key = gname === 'Replication lag' ? 'lag' : gname;
     const avail = ds.filter((d) => d.available).length;
+    if (avail && !defaultGroup) defaultGroup = key;
     groups.push({ key, title: gname, sub: avail ? `${avail} of ${ds.length} available for this ${TOPO_NOUN[topo()] || 'target'}` : 'Not available here', body: ds.map(dialCard).join(''), on: ds.filter((d) => activeOf(d.id)).length });
   }
   $('#groups').innerHTML = groups.map((g) => {
-    const open = ui.open[g.key] ?? false;
+    const open = groupOpen(g.key);
     return `<div class="group" data-open="${open}"><button data-group="${esc(g.key)}" aria-expanded="${open}"><span style="display:grid;gap:2px;min-width:0"><b>${esc(g.title)}</b><span class="meta">${esc(g.sub)}</span></span><span style="display:flex;gap:8px;align-items:center">${g.on ? `<span class="chip warn">${g.on} on</span>` : ''}<svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg></span></button><div class="group-body">${g.body}</div></div>`;
   }).join('');
 }
@@ -520,7 +531,7 @@ async function renderTab() {
   } else if (ui.tab === 'status') {
     el.innerHTML = `<div class="kv">${S.members.map((m) => `<div class="kv-card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b class="mono">${esc(m.id)}</b><span class="chip ${m.chip === 'ok' ? 'ok' : m.chip === 'warn' ? 'warn' : m.chip === 'bad' ? 'bad' : ''}">${esc(m.chipText)}</span></div><div class="meta">${esc(m.role)}${m.lag >= 0 && m.id !== writerID() ? ' · ' + fmtS(m.lag) + ' behind' : ''}</div><dl>${(m.fields || []).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl></div>`).join('')}</div>`;
   } else if (ui.tab === 'events') {
-    const col = { info: 'var(--brand)', warn: 'var(--warning)', ok: 'var(--success)', neutral: 'var(--neutral)' };
+    const col = { info: 'var(--brand)', warn: 'var(--warning)', bad: 'var(--danger)', ok: 'var(--success)', neutral: 'var(--neutral)' };
     el.innerHTML = `<div class="log">${(S.events || []).slice().reverse().slice(0, 60).map((x) => `<div class="log-row"><span class="meta tnum">−${fmtClock(S.now - x.t)}</span><span class="dot" style="background:${col[x.level] || 'var(--neutral)'}"></span><span>${esc(x.text)}</span></div>`).join('') || '<span class="muted">Nothing yet.</span>'}</div>`;
   } else {
     const runs = S.runs || [];
@@ -550,7 +561,7 @@ async function act(fn, ok) { try { await fn(); if (ok) toast(ok); } catch (e) { 
 document.addEventListener('click', async (ev) => {
   const t = ev.target.closest('button, a'); if (!t || !S) return;
   const d = t.dataset;
-  if (d.group) { ui.open[d.group] = !(ui.open[d.group] ?? false); panelKey = ''; renderPanel(); return; }
+  if (d.group) { ui.open[d.group] = !groupOpen(d.group); panelKey = ''; renderPanel(); return; }
   if (d.expand) { const card = t.closest('.m'), now = card.dataset.expanded !== 'true'; ui.expanded[d.expand] = now; card.dataset.expanded = now; t.setAttribute('aria-expanded', now); return; }
   if (d.toggle || d.run) {
     const id = d.toggle || d.run, dial = dialOf(id), dr = draft(dial);

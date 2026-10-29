@@ -127,6 +127,12 @@ type ServerSample struct {
 	Conns     float64
 	FC        float64 // share of the last second Galera flow control paused the cluster
 	SendQ     float64
+	// Backlog is the undo a long transaction keeps from being purged: InnoDB's
+	// history list length, PostgreSQL's dead tuples. DiskReads is reads that
+	// missed the cache, per second. Both labelled by TargetInfo; 0 where an
+	// engine has no such number.
+	Backlog   float64
+	DiskReads float64
 }
 
 // Point is one second of the timeline.
@@ -146,6 +152,9 @@ type Point struct {
 	SendQ float64            `json:"sendq"`
 	Fsync float64            `json:"fsync"`
 	RTT   float64            `json:"rtt"`
+	// Backlog and DiskReads: see ServerSample.
+	Backlog   float64 `json:"backlog"`
+	DiskReads float64 `json:"diskReads"`
 }
 
 // Band is the time a dial was on, for the timeline's shading.
@@ -161,7 +170,7 @@ type Band struct {
 // Event is one line of the event log.
 type Event struct {
 	T     int64  `json:"t"`
-	Level string `json:"level"` // info | warn | ok | neutral
+	Level string `json:"level"` // info | warn | bad | ok | neutral
 	Text  string `json:"text"`
 }
 
@@ -196,6 +205,10 @@ type TargetInfo struct {
 	LagTitle string `json:"lagTitle"`
 	LagSub   string `json:"lagSub"`
 	Status   string `json:"statusTab"`
+	// What Backlog and DiskReads are on this engine; "" leaves that line off the
+	// Server internals chart.
+	BacklogLabel   string `json:"backlogLabel,omitempty"`
+	DiskReadsLabel string `json:"diskReadsLabel,omitempty"`
 }
 
 // errf is fmt.Errorf; kept short because dials build many messages.

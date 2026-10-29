@@ -146,8 +146,13 @@ func (e *Engine) Sample(ctx context.Context) ([]core.Member, core.ServerSample) 
 			} `bson:"activeClients"`
 		} `bson:"globalLock"`
 	}
-	if c := e.mc[primary]; c != nil && c.Database("admin").RunCommand(ctx, bson.D{{Key: "serverStatus", Value: 1}}).Decode(&ss) == nil {
+	var raw bson.Raw
+	if c := e.mc[primary]; c != nil && c.Database("admin").RunCommand(ctx, bson.D{{Key: "serverStatus", Value: 1}}).Decode(&raw) == nil && bson.Unmarshal(raw, &ss) == nil {
 		srv = core.ServerSample{Conns: ss.Connections.Current, LockWaits: ss.GlobalLock.CurrentQueue.Total, Threads: ss.GlobalLock.ActiveClients.Total}
+		var all bson.M
+		if bson.Unmarshal(raw, &all) == nil {
+			srv.DiskReads = e.readRate(primary, cacheStat(all, "pages read into cache"))
+		}
 	}
 	return out, srv
 }
@@ -192,4 +197,17 @@ func short(s string, n int) string {
 		return s
 	}
 	return s[:n-1] + "…"
+}
+
+// readRate turns a member's pages-read counter into a rate since the last sample.
+func (e *Engine) readRate(id string, reads float64) float64 {
+	now := float64(time.Now().UnixNano()) / 1e9
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	prev, ok := e.readsPrev[id]
+	e.readsPrev[id] = [2]float64{reads, now}
+	if ok && now > prev[1] && reads >= prev[0] {
+		return (reads - prev[0]) / (now - prev[1])
+	}
+	return 0
 }

@@ -63,10 +63,12 @@ type Engine struct {
 	writerID   string
 	lag        map[string]float64
 	recovering map[string]bool
+	// readsPrev is each member's blks_read and the time at the last sample.
+	readsPrev map[string][2]float64
 }
 
 func New(cfg Config) *Engine {
-	e := &Engine{cfg: cfg, mdb: map[string]*sql.DB{}, lag: map[string]float64{}, recovering: map[string]bool{}}
+	e := &Engine{cfg: cfg, mdb: map[string]*sql.DB{}, lag: map[string]float64{}, recovering: map[string]bool{}, readsPrev: map[string][2]float64{}}
 	e.writer.Store(open(cfg.User, cfg.Password, cfg.Writer.Host, cfg.Writer.Port, database, 80))
 	e.hb.Store(open(cfg.User, cfg.Password, cfg.Writer.Host, cfg.Writer.Port, database, 2))
 	e.writerHost = cfg.Writer.Host
@@ -178,6 +180,9 @@ func (e *Engine) Init(ctx context.Context) error {
 			return fmt.Errorf("seeding orders: %w", err)
 		}
 	}
+	if err := e.loadInit(ctx); err != nil {
+		return err
+	}
 	e.Sample(ctx)
 	e.replayUndo(ctx)
 	return e.Heartbeat(ctx)
@@ -187,7 +192,8 @@ func (e *Engine) Info() core.TargetInfo {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return core.TargetInfo{Name: e.cfg.Name, Engine: "postgres", Flavor: e.flavor, Version: e.version, Topology: e.topology, Writer: e.writerID,
-		LagTitle: "Replay lag", LagSub: "how far each standby's copy of the heartbeat row is behind the primary", Status: "Replication status"}
+		LagTitle: "Replay lag", LagSub: "how far each standby's copy of the heartbeat row is behind the primary", Status: "Replication status",
+		BacklogLabel: "oldest snapshot age (transactions)", DiskReadsLabel: "blocks read outside shared_buffers/s"}
 }
 
 func (e *Engine) Heartbeat(ctx context.Context) error {
