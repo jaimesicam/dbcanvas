@@ -127,12 +127,24 @@ type ServerSample struct {
 	Conns     float64
 	FC        float64 // share of the last second Galera flow control paused the cluster
 	SendQ     float64
-	// Backlog is the undo a long transaction keeps from being purged: InnoDB's
-	// history list length, PostgreSQL's dead tuples. DiskReads is reads that
+	// Backlog is what a long transaction holds back: InnoDB's history list
+	// length, the age of PostgreSQL's oldest snapshot. DiskReads is reads that
 	// missed the cache, per second. Both labelled by TargetInfo; 0 where an
 	// engine has no such number.
 	Backlog   float64
 	DiskReads float64
+}
+
+// Add sums another server's figures into s, for a writer that is several
+// servers (a sharded cluster's shard primaries).
+func (s *ServerSample) Add(o ServerSample) {
+	s.LockWaits += o.LockWaits
+	s.Threads += o.Threads
+	s.Conns += o.Conns
+	s.FC = max(s.FC, o.FC)
+	s.SendQ += o.SendQ
+	s.Backlog = max(s.Backlog, o.Backlog)
+	s.DiskReads += o.DiskReads
 }
 
 // Point is one second of the timeline.

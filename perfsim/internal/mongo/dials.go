@@ -28,9 +28,9 @@ func (e *Engine) Dials() []core.Dial {
 	topo := e.topology
 	e.mu.Unlock()
 	avail := func(d core.Dial) core.Dial {
-		d.Group, d.Available = groupLag, topo == "replset"
+		d.Group, d.Available = groupLag, topo == "replset" || topo == "sharded"
 		if !d.Available {
-			d.Why = "No secondaries to fall behind: link a replica set to use this."
+			d.Why = "No secondaries to fall behind: link a replica set or a sharded cluster to use this."
 		}
 		return d
 	}
@@ -225,29 +225,34 @@ func (e *Engine) runFsyncLock(ctx context.Context, j *core.Job, targets []string
 // lets a configuration change only once the previous one is committed, so one
 // change per member at once would refuse all but the first.
 func (e *Engine) runDelay(ctx context.Context, j *core.Job, targets []string, delay int) {
-	old := map[string]memberSettings{}
-	err := e.reconfig(ctx, func(m bson.M, id string) {
-		if !contains(targets, id) {
+	// One reconfiguration per replica set the targets are in: one, or on a
+	// sharded cluster one per shard.
+	for set, ids := range e.setsOf(targets) {
+		old := map[string]memberSettings{}
+		key := "undo:delay:" + set
+		err := e.reconfig(ctx, set, func(m bson.M, id string) {
+			if !contains(ids, id) {
+				return
+			}
+			old[id] = memberSettings{Priority: num(m["priority"], 1), Hidden: m["hidden"] == true, Delay: int64(num(m["secondaryDelaySecs"], 0))}
+			m["priority"], m["hidden"], m["secondaryDelaySecs"] = 0, true, delay
+		}, func() {
+			// Recorded before the change is sent.
+			b, _ := json.Marshal(old)
+			u := undo{Kind: "delay", Member: set, Value: string(b)}
+			e.saveUndo(ctx, key, u)
+			j.OnRelease(func(ctx context.Context) error {
+				err := e.restore(ctx, u)
+				if err == nil {
+					e.Delete(ctx, key)
+				}
+				return err
+			})
+		})
+		if err != nil {
+			j.Finish(err)
 			return
 		}
-		old[id] = memberSettings{Priority: num(m["priority"], 1), Hidden: m["hidden"] == true, Delay: int64(num(m["secondaryDelaySecs"], 0))}
-		m["priority"], m["hidden"], m["secondaryDelaySecs"] = 0, true, delay
-	}, func() {
-		// Recorded before the change is sent.
-		b, _ := json.Marshal(old)
-		u := undo{Kind: "delay", Value: string(b)}
-		e.saveUndo(ctx, "undo:delay", u)
-		j.OnRelease(func(ctx context.Context) error {
-			err := e.restore(ctx, u)
-			if err == nil {
-				e.Delete(ctx, "undo:delay")
-			}
-			return err
-		})
-	})
-	if err != nil {
-		j.Finish(err)
-		return
 	}
 	j.Set(fmt.Sprintf("Delayed by %d s: %s", delay, strings.Join(targets, ", ")), -1, "")
 	<-ctx.Done()
@@ -259,10 +264,15 @@ type memberSettings struct {
 	Delay    int64   `json:"delay"`
 }
 
-// reconfig reads the replica set configuration, lets change edit each member,
-// runs before() once the edits are known, and applies the result.
-func (e *Engine) reconfig(ctx context.Context, change func(m bson.M, id string), before func()) error {
-	admin := e.writer.Database("admin")
+// reconfig reads one replica set's configuration from its primary, lets change
+// edit each member, runs before() once the edits are known, and applies the
+// result. On a sharded cluster each shard is its own replica set.
+func (e *Engine) reconfig(ctx context.Context, set string, change func(m bson.M, id string), before func()) error {
+	c, _ := e.setPrimaryClient(set)
+	if c == nil {
+		return fmt.Errorf("replica set %s has no primary to reconfigure", nz(set, "?"))
+	}
+	admin := c.Database("admin")
 	var res struct {
 		Config bson.M `bson:"config"`
 	}
@@ -286,8 +296,8 @@ func (e *Engine) reconfig(ctx context.Context, change func(m bson.M, id string),
 
 // undo is a change made to the replica set, recorded before it is made.
 type undo struct {
-	Kind   string `json:"kind"` // fsyncunlock | delay
-	Member string `json:"member,omitempty"`
+	Kind   string `json:"kind"`             // fsyncunlock | delay
+	Member string `json:"member,omitempty"` // the member, or for delay its replica set
 	Value  string `json:"value,omitempty"`
 }
 
@@ -327,7 +337,17 @@ func (e *Engine) restore(ctx context.Context, u undo) error {
 		if err := json.Unmarshal([]byte(u.Value), &old); err != nil {
 			return err
 		}
-		return e.reconfig(ctx, func(m bson.M, id string) {
+		// Member is the replica set; an undo from before sets were tracked has
+		// none, and names the set of the members it lists.
+		set := u.Member
+		if set == "" {
+			for id := range old {
+				for s := range e.setsOf([]string{id}) {
+					set = s
+				}
+			}
+		}
+		return e.reconfig(ctx, set, func(m bson.M, id string) {
 			if s, ok := old[id]; ok {
 				m["priority"], m["hidden"], m["secondaryDelaySecs"] = s.Priority, s.Hidden, s.Delay
 			}

@@ -677,6 +677,10 @@ var composeKinds = []composeKind{
 	{Kind: "pgvectorsim", Type: "pgvectorsim", NoSizing: true, ImageOnly: true,
 		EdgeTo: []string{"pg", "patroni", "repmgr", "spock", "haproxy", "pgbouncer", "k3d"},
 		About:  "pgvector Support Sim — the Support Sim's help desk on PostgreSQL with pgvector (HNSW), directly or through an HAProxy or PgBouncer node."},
+	{Kind: "perfsim", Type: "perfsim", NoSizing: true, ImageOnly: true,
+		EdgeTo: []string{"ps", "mariadb", "mysql", "pxc", "ps-repl", "innodb", "mariadb-repl", "mariadb-galera", "mysql-repl", "mysql-innodb",
+			"pg", "patroni", "repmgr", "spock", "psm", "psmrs", "psmdb", "valkey", "valkey-cluster", "valkey-sentinel", "haproxy", "proxysql", "pgbouncer"},
+		About: "Performance Sim — stressors that make the linked server or cluster misbehave on purpose (replication lag, connections, locks, I/O, CPU, memory, network and disk), with a live timeline of their effect. Every stressor is chosen on its dashboard."},
 
 	// --- administration panels ----------------------------------------------
 	//

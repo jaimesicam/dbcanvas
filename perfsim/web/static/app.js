@@ -82,8 +82,8 @@ function tablesFor(d) {
 }
 
 // ---------- header and KPIs ----------
-const TOPO_LABEL = { standalone: 'standalone', async: 'async replication', gr: 'Group Replication', galera: 'Galera', streaming: 'streaming replication', replset: 'replica set', cluster: 'Valkey Cluster', replication: 'replication', sentinel: 'Sentinel' };
-const TOPO_NOUN = { async: 'replication', gr: 'Group Replication', galera: 'Galera cluster', streaming: 'cluster', replset: 'replica set', cluster: 'cluster', replication: 'replication', sentinel: 'Sentinel setup', standalone: 'server' };
+const TOPO_LABEL = { standalone: 'standalone', async: 'async replication', gr: 'Group Replication', galera: 'Galera', streaming: 'streaming replication', replset: 'replica set', cluster: 'Valkey Cluster', replication: 'replication', sentinel: 'Sentinel', sharded: 'sharded cluster', spock: 'Spock (logical, multi-master)' };
+const TOPO_NOUN = { async: 'replication', gr: 'Group Replication', galera: 'Galera cluster', streaming: 'cluster', replset: 'replica set', cluster: 'cluster', replication: 'replication', sentinel: 'Sentinel setup', sharded: 'sharded cluster', spock: 'Spock cluster', standalone: 'server' };
 function flavorLabel() {
   if (S.info.engine === 'valkey') return 'Valkey';
   if (S.info.engine === 'mongodb') return S.info.flavor === 'percona' ? 'Percona Server for MongoDB' : 'MongoDB';

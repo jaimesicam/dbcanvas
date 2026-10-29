@@ -39,7 +39,7 @@ func (e *Engine) Dials() []core.Dial {
 		}
 		return d
 	}
-	return append([]core.Dial{
+	return e.spockDials(append([]core.Dial{
 		avail(core.Dial{ID: "bigtxn", Name: "Large transactions", Kind: "toggle", NeedsTable: "pk",
 			Desc:  "One large UPDATE on a big table at a fixed interval. Every changed row is written to the WAL, and the standbys replay all of it before anything committed after it is visible there.",
 			Watch: []string{"Replay lag", "p99 latency"},
@@ -68,7 +68,7 @@ func (e *Engine) Dials() []core.Dial {
 			Watch: []string{"Replay lag"}, Note: delayNote,
 			Params: []core.Param{{Key: "delay", Label: "Delay", Type: "pills", Opts: []any{30, 60, 300}, Def: 60, Unit: "s"}, holdParam},
 			SQL:    delaySQL}),
-	}, e.loadDials()...)
+	}, e.loadDials()...))
 }
 
 var tableName = regexp.MustCompile(`^[a-z0-9_]+$`)
@@ -91,6 +91,9 @@ func (e *Engine) Start(ctx context.Context, id string, p core.Params, targets []
 	case "rewrite":
 		return core.NewJob(ctx, p, func(ctx context.Context, j *core.Job) { e.runRewrite(ctx, j, table, emit) }), nil
 	case "pause":
+		if e.spock() {
+			return core.NewJob(ctx, p, func(ctx context.Context, j *core.Job) { e.runSpockPause(ctx, j, targets) }), nil
+		}
 		return core.NewJob(ctx, p, func(ctx context.Context, j *core.Job) { e.runPause(ctx, j, targets) }), nil
 	case "conflict":
 		return core.NewJob(ctx, p, func(ctx context.Context, j *core.Job) { e.runConflict(ctx, j, targets, emit) }), nil
@@ -424,6 +427,8 @@ func (e *Engine) restore(ctx context.Context, u undo) error {
 		return fmt.Errorf("%s is no longer a member", u.Member)
 	}
 	switch u.Kind {
+	case "subenable":
+		return spockEnable(ctx, d)
 	case "resume":
 		_, err := d.ExecContext(ctx, "SELECT pg_wal_replay_resume()")
 		if err != nil && strings.Contains(err.Error(), "recovery is not in progress") {

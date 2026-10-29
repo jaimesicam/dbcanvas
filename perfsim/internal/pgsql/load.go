@@ -110,7 +110,7 @@ func (e *Engine) runStorm(ctx context.Context, j *core.Job) {
 	e.mu.Lock()
 	host := e.writerHost
 	e.mu.Unlock()
-	pool := open(e.cfg.User, e.cfg.Password, host, e.cfg.Writer.Port, database, want)
+	pool := e.open(host, e.cfg.Writer.Port, want)
 	defer pool.Close()
 	var conns []*sql.Conn
 	defer func() {

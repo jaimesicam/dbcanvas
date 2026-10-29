@@ -216,8 +216,9 @@ one a kind does not have and the error names the kind. Run `dbcanvas stack kinds
 you are unsure — it prints the matrix for that installation.
 
 **`to=` is different, and easy to miss.** A relationship above is a *field*. `to=` is
-an association **line**, and six kinds do nothing without one — a ProxySQL or a
-PgBouncer with no backend, a simulator with no database. Compose refuses rather than building those, so
+an association **line**, and seven kinds do nothing without one — a ProxySQL or a
+PgBouncer with no backend, a simulator with no database (the Performance Sim,
+`perfsim`, among them). Compose refuses rather than building those, so
 you will see the error; the fix is to add the target to the spec, or name it:
 
 ```sh
@@ -226,6 +227,11 @@ dbcanvas stack compose pg --ttl 4h \
   --node 'haproxy,os=el9' \
   --node 'pgvectorsim,to=haproxy-01'
 ```
+
+A Performance Sim is composed the same way, against any MySQL-family, PostgreSQL
+(including Spock), MongoDB (including a sharded cluster) or Valkey target, or a proxy
+in front of one: `--node 'pxc:3,os=el9' --node perfsim`. Linking one to a Kubernetes
+frame is done with the design endpoints, since compose does not build K3D frames.
 
 The HAProxy needed no `to=` — one legal backend, so compose used it and said so in the
 plan. The pgvector Support Sim needed one, because using the cluster directly and using

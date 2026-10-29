@@ -36,7 +36,7 @@ func (e *Engine) Sample(ctx context.Context) ([]core.Member, core.ServerSample) 
 			primary = s.m.ID
 		}
 	}
-	if primary != "" {
+	if primary != "" && !e.spock() {
 		e.followPrimary(primary)
 	}
 	e.mu.Lock()
@@ -86,6 +86,18 @@ func (e *Engine) sampleMember(ctx context.Context, mc MemberConfig) memberSample
 		FROM pg_stat_activity WHERE backend_type = 'client backend'`).Scan(&active, &total, &locks)
 	s.srv = core.ServerSample{Threads: active, Conns: total, LockWaits: locks}
 
+	if e.spock() {
+		// Every member takes writes; the writer is the one the heartbeat starts on.
+		e.mu.Lock()
+		writer := e.writerID
+		e.mu.Unlock()
+		s.primary = mc.ID == writer
+		if s.primary {
+			e.sampleInternals(ctx, d, mc.ID, &s.srv)
+		}
+		e.spockSample(ctx, d, &s.m, s.primary, writer)
+		return s
+	}
 	if !rec {
 		e.sampleInternals(ctx, d, mc.ID, &s.srv)
 		s.primary, s.m.Role, s.m.Lag = true, "primary", 0

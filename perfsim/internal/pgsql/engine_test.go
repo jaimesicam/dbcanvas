@@ -1,6 +1,10 @@
 package pgsql
 
-import "testing"
+import (
+	"testing"
+
+	"perfsim/internal/core"
+)
 
 // recovery_min_apply_delay reads back in whatever unit PostgreSQL prefers.
 func TestSameDelay(t *testing.T) {
@@ -30,5 +34,26 @@ func TestDialsAvailability(t *testing.T) {
 				t.Errorf("%s: %s unavailable with no reason", topo, d.ID)
 			}
 		}
+	}
+}
+
+// On Spock the pause dial disables subscriptions, and the dials that act on WAL
+// replay say why they do not apply.
+func TestSpockDials(t *testing.T) {
+	e := &Engine{topology: "spock", cfg: Config{Manager: "spock"}}
+	got := map[string]core.Dial{}
+	for _, d := range e.Dials() {
+		got[d.ID] = d
+	}
+	for _, id := range []string{"rewrite", "conflict", "delay"} {
+		if got[id].Available || got[id].Why == "" {
+			t.Errorf("%s: available %v why %q", id, got[id].Available, got[id].Why)
+		}
+	}
+	if p := got["pause"]; !p.Available || p.Name != "Disable subscriptions" {
+		t.Errorf("pause: %+v", p)
+	}
+	if !got["bigtxn"].Available {
+		t.Error("bigtxn unavailable")
 	}
 }

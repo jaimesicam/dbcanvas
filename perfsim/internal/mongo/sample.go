@@ -34,10 +34,33 @@ func (e *Engine) Sample(ctx context.Context) ([]core.Member, core.ServerSample) 
 	topo := e.topology
 	e.mu.Unlock()
 
-	// The replica set's own view, from whichever member answers.
+	out := make([]core.Member, len(e.cfg.Members))
+	info := make([]memberInfo, len(e.cfg.Members))
+	var wg sync.WaitGroup
+	for i, mc := range e.cfg.Members {
+		wg.Add(1)
+		go func(i int, mc MemberConfig) {
+			defer wg.Done()
+			out[i], info[i] = e.sampleMember(ctx, mc)
+		}(i, mc)
+	}
+	wg.Wait()
+
+	// Each replica set's own view, from one of its members that answers: one set
+	// for a replica set, one per shard for a sharded cluster.
 	status := map[string]rsMember{}
 	conf := map[string]rsConfigMember{}
-	if topo == "replset" {
+	setOf := map[string]string{}
+	asked := map[string]bool{}
+	for i, in := range info {
+		if in.set == "" {
+			continue
+		}
+		setOf[out[i].ID] = in.set
+		if asked[in.set] {
+			continue
+		}
+		asked[in.set] = true
 		var st struct {
 			Members []rsMember `bson:"members"`
 		}
@@ -46,7 +69,7 @@ func (e *Engine) Sample(ctx context.Context) ([]core.Member, core.ServerSample) 
 				Members []rsConfigMember `bson:"members"`
 			} `bson:"config"`
 		}
-		admin := e.writer.Database("admin")
+		admin := e.mc[out[i].ID].Database("admin")
 		if admin.RunCommand(ctx, bson.D{{Key: "replSetGetStatus", Value: 1}}).Decode(&st) == nil {
 			for _, m := range st.Members {
 				status[e.memberByAddr(m.Name)] = m
@@ -59,23 +82,12 @@ func (e *Engine) Sample(ctx context.Context) ([]core.Member, core.ServerSample) 
 		}
 	}
 
-	out := make([]core.Member, len(e.cfg.Members))
-	locked := make([]bool, len(e.cfg.Members))
-	var wg sync.WaitGroup
-	for i, mc := range e.cfg.Members {
-		wg.Add(1)
-		go func(i int, mc MemberConfig) {
-			defer wg.Done()
-			out[i], locked[i] = e.sampleMember(ctx, mc)
-		}(i, mc)
-	}
-	wg.Wait()
-
 	primary := ""
+	setPrimary := map[string]string{}
 	for i := range out {
 		m := &out[i]
 		s, ok := status[m.ID]
-		if topo != "replset" {
+		if topo == "standalone" {
 			primary = m.ID
 			m.Role, m.Chip, m.ChipText, m.Lag = "standalone", "ok", "standalone", 0
 			continue
@@ -89,16 +101,25 @@ func (e *Engine) Sample(ctx context.Context) ([]core.Member, core.ServerSample) 
 			m.Role = s.StateStr
 		}
 		if s.StateStr == "PRIMARY" {
-			primary = m.ID
+			setPrimary[setOf[m.ID]] = m.ID
+			// The writer the sim reports is the first shard's primary on a
+			// sharded cluster; the workload goes through mongos either way.
+			if primary == "" {
+				primary = m.ID
+			}
 		}
-		m.Fields = append([][2]string{
+		fields := [][2]string{
 			{"stateStr", s.StateStr},
 			{"syncSourceHost", nz(s.SyncSource, "—")},
 			{"optimeDate", s.OptimeDate.UTC().Format("15:04:05")},
 			{"secondaryDelaySecs", strconv.FormatInt(c.SecondDelay, 10)},
 			{"priority / hidden", fmt.Sprintf("%g / %v", c.Priority, c.Hidden)},
-			{"fsync locked", strconv.FormatBool(locked[i])},
-		}, m.Fields...)
+			{"fsync locked", strconv.FormatBool(info[i].locked)},
+		}
+		if topo == "sharded" {
+			fields = append([][2]string{{"shard (replica set)", setOf[m.ID]}}, fields...)
+		}
+		m.Fields = append(fields, m.Fields...)
 		if s.LastHeartbeat != "" {
 			m.Fields = append(m.Fields, [2]string{"lastHeartbeatMessage", short(s.LastHeartbeat, 100)})
 		}
@@ -106,10 +127,14 @@ func (e *Engine) Sample(ctx context.Context) ([]core.Member, core.ServerSample) 
 		case !m.Up:
 		case s.StateStr == "PRIMARY":
 			m.Chip, m.ChipText, m.Lag = "ok", "primary", 0
-		case locked[i]:
+		case info[i].locked:
 			m.Chip, m.ChipText = "bad", "fsync-locked"
 		case s.StateStr != "SECONDARY":
 			m.Chip, m.ChipText = "warn", s.StateStr
+		case m.Lag < 0:
+			// On a sharded cluster, until the balancer has moved this shard's
+			// heartbeat document to it.
+			m.Chip, m.ChipText = "neutral", "no heartbeat yet"
 		case m.Lag > 30:
 			m.Chip, m.ChipText = "bad", "lagging"
 		case m.Lag > 5:
@@ -118,6 +143,15 @@ func (e *Engine) Sample(ctx context.Context) ([]core.Member, core.ServerSample) 
 			m.Chip, m.ChipText = "ok", "in sync"
 		}
 	}
+	for i := range out {
+		if p := setPrimary[setOf[out[i].ID]]; p != "" && p != out[i].ID {
+			out[i].Source = p
+		}
+	}
+
+	e.mu.Lock()
+	e.memberSet, e.setPrimary = setOf, setPrimary
+	e.mu.Unlock()
 
 	e.mu.Lock()
 	if primary != "" {
@@ -132,7 +166,65 @@ func (e *Engine) Sample(ctx context.Context) ([]core.Member, core.ServerSample) 
 	}
 	e.mu.Unlock()
 
+	// The writer's figures: on a sharded cluster, every shard primary's summed.
 	var srv core.ServerSample
+	for _, p := range setPrimary {
+		srv.Add(e.serverSample(ctx, p))
+	}
+	if len(setPrimary) == 0 && primary != "" {
+		srv = e.serverSample(ctx, primary)
+	}
+	return out, srv
+}
+
+// memberInfo is what a member says about itself.
+type memberInfo struct {
+	set    string // its replica set
+	locked bool   // fsync-locked
+}
+
+// sampleMember reads the member's copy of its heartbeat, its replica set and
+// whether it is fsync-locked.
+func (e *Engine) sampleMember(ctx context.Context, mc MemberConfig) (core.Member, memberInfo) {
+	m := core.Member{ID: mc.ID, Role: mc.Role, Lag: -1}
+	c := e.mc[mc.ID]
+	var in memberInfo
+	var hello struct {
+		SetName string `bson:"setName"`
+	}
+	if err := c.Database("admin").RunCommand(ctx, bson.D{{Key: "hello", Value: 1}}).Decode(&hello); err != nil {
+		m.Chip, m.ChipText = "bad", "unreachable"
+		m.Fields = [][2]string{{"error", short(err.Error(), 120)}}
+		return m, in
+	}
+	in.set = hello.SetName
+	var hb struct {
+		TS time.Time `bson:"ts"`
+	}
+	err := c.Database(database).Collection("heartbeat").FindOne(ctx, bson.D{{Key: "_id", Value: e.hbID(in.set)}}).Decode(&hb)
+	if err != nil && err.Error() != "mongo: no documents in result" {
+		m.Chip, m.ChipText = "bad", "unreachable"
+		m.Fields = [][2]string{{"error", short(err.Error(), 120)}}
+		return m, in
+	}
+	m.Up = true
+	if !hb.TS.IsZero() {
+		m.Lag = time.Since(hb.TS).Seconds()
+		if m.Lag < 0 {
+			m.Lag = 0
+		}
+	}
+	var op struct {
+		FsyncLock bool `bson:"fsyncLock"`
+	}
+	c.Database("admin").RunCommand(ctx, bson.D{{Key: "currentOp", Value: 1}, {Key: "$all", Value: false}, {Key: "active", Value: false}, {Key: "op", Value: "none"}}).Decode(&op)
+	in.locked = op.FsyncLock
+	return m, in
+}
+
+// serverSample is one primary's connections, queue, active clients and pages
+// read into the cache.
+func (e *Engine) serverSample(ctx context.Context, id string) core.ServerSample {
 	var ss struct {
 		Connections struct {
 			Current float64 `bson:"current"`
@@ -147,42 +239,16 @@ func (e *Engine) Sample(ctx context.Context) ([]core.Member, core.ServerSample) 
 		} `bson:"globalLock"`
 	}
 	var raw bson.Raw
-	if c := e.mc[primary]; c != nil && c.Database("admin").RunCommand(ctx, bson.D{{Key: "serverStatus", Value: 1}}).Decode(&raw) == nil && bson.Unmarshal(raw, &ss) == nil {
-		srv = core.ServerSample{Conns: ss.Connections.Current, LockWaits: ss.GlobalLock.CurrentQueue.Total, Threads: ss.GlobalLock.ActiveClients.Total}
-		var all bson.M
-		if bson.Unmarshal(raw, &all) == nil {
-			srv.DiskReads = e.readRate(primary, cacheStat(all, "pages read into cache"))
-		}
+	c := e.mc[id]
+	if c == nil || c.Database("admin").RunCommand(ctx, bson.D{{Key: "serverStatus", Value: 1}}).Decode(&raw) != nil || bson.Unmarshal(raw, &ss) != nil {
+		return core.ServerSample{}
 	}
-	return out, srv
-}
-
-// sampleMember reads the member's copy of the heartbeat and whether it is
-// fsync-locked.
-func (e *Engine) sampleMember(ctx context.Context, mc MemberConfig) (core.Member, bool) {
-	m := core.Member{ID: mc.ID, Role: mc.Role, Lag: -1}
-	c := e.mc[mc.ID]
-	var hb struct {
-		TS time.Time `bson:"ts"`
+	srv := core.ServerSample{Conns: ss.Connections.Current, LockWaits: ss.GlobalLock.CurrentQueue.Total, Threads: ss.GlobalLock.ActiveClients.Total}
+	var all bson.M
+	if bson.Unmarshal(raw, &all) == nil {
+		srv.DiskReads = e.readRate(id, cacheStat(all, "pages read into cache"))
 	}
-	err := c.Database(database).Collection("heartbeat").FindOne(ctx, bson.D{{Key: "_id", Value: 1}}).Decode(&hb)
-	if err != nil && err.Error() != "mongo: no documents in result" {
-		m.Chip, m.ChipText = "bad", "unreachable"
-		m.Fields = [][2]string{{"error", short(err.Error(), 120)}}
-		return m, false
-	}
-	m.Up = true
-	if !hb.TS.IsZero() {
-		m.Lag = time.Since(hb.TS).Seconds()
-		if m.Lag < 0 {
-			m.Lag = 0
-		}
-	}
-	var op struct {
-		FsyncLock bool `bson:"fsyncLock"`
-	}
-	c.Database("admin").RunCommand(ctx, bson.D{{Key: "currentOp", Value: 1}, {Key: "$all", Value: false}, {Key: "active", Value: false}, {Key: "op", Value: "none"}}).Decode(&op)
-	return m, op.FsyncLock
+	return srv
 }
 
 func nz(s, def string) string {

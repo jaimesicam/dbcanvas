@@ -224,7 +224,7 @@ dashboard on a host port. Draw an association line from the simulator to its tar
 | **pgvector Support Sim** | The same desk on PostgreSQL, using a pgvector column and an HNSW index. Creates a `supportsim` database (or schema). | PostgreSQL, Patroni, repmgr or Spock; HAProxy or PgBouncer in front of one; or a K3D frame running a PostgreSQL operator. Turn on pgvector on the target. |
 | **Stock Market Sim** | A stock-exchange app you operate. See below. | Any database (see below) |
 | **Ledger Sim** | A JDBC order-and-payment ledger. See below. | MySQL-family or PostgreSQL |
-| **Performance Sim** | Stressors that cause replication lag, contention and load, with a live timeline of their effect. See below. | MySQL-family, PostgreSQL, MongoDB or Valkey |
+| **Performance Sim** | Stressors that cause replication lag, contention and load, with a live timeline of their effect. See below. | MySQL-family, PostgreSQL, MongoDB or Valkey, on the canvas or in Kubernetes |
 
 The templates **PSMDB Vector Search + Support Sim** and **PostgreSQL + pgvector + Support Sim**
 deploy a complete vector-search demo.
@@ -269,12 +269,36 @@ what each stressor does, to the cluster and to an application running against it
 no options of its own: link it, deploy it, and choose everything on its dashboard.
 
 - **Link:** an association line to a Percona Server, MySQL or MariaDB server or cluster frame
-  (asynchronous replication, Group Replication, PXC, MariaDB Galera), a PostgreSQL node or a Patroni
-  or repmgr cluster, a PS MongoDB node or PSMDB replica set, a Valkey node or Valkey Cluster, or an
-  HAProxy, ProxySQL or PgBouncer node in front of one. A Spock cluster (logical replication) and a sharded MongoDB cluster are not
-  targets yet. The sim connects to every data member (MySQL as `admin@'%'`, PostgreSQL as the
-  superuser, MongoDB as the admin user, Valkey with the default user's password) and runs its workload
-  through the write endpoint.
+  (asynchronous replication, Group Replication, PXC, MariaDB Galera), a PostgreSQL node or a Patroni,
+  repmgr or Spock cluster, a PS MongoDB node, PSMDB replica set or sharded cluster, a Valkey node,
+  Valkey Cluster or Valkey Sentinel, an HAProxy, ProxySQL or PgBouncer node in front of one, or a
+  Kubernetes frame running one of the database operators (see below). Compose builds one with
+  `--node 'perfsim,to=<name>'`. The sim connects to every data member (MySQL as `admin@'%'`,
+  PostgreSQL as the superuser, MongoDB as the admin user, Valkey with the default user's password)
+  and runs its workload through the write endpoint.
+- **Sharded MongoDB:** the workload goes through mongos and the members are the shards' mongods
+  (mongos and the config servers are left out). Lag is measured per shard: the sim shards its
+  heartbeat collection on a numeric `_id` and pins one document to each shard with a zone, so each
+  shard's secondaries are measured against their own primary. A shard has no admin user of its own,
+  so DBCanvas creates one there for the sim (with `directShardOperations` on 8.0 and later).
+- **Spock:** every member takes writes; the sim treats the first as the writer and measures every
+  other member's apply lag from the heartbeat written there. Spock replicates one database
+  (`spockdemo`) and no DDL, so the sim works in a `perfsim` schema there, creates its tables on
+  every member and adds the heartbeat, `orders` and prepared tables to the `default` replication
+  set. *Pause* disables the chosen members' subscriptions; the table rewrite, standby-conflict and
+  delay stressors act on WAL replay, which logical replication does not have, and say so.
+- **Kubernetes:** linked to a K3D frame, the sim drives the database its operator runs (PXC,
+  Percona Server, PSMDB, Percona PostgreSQL, Crunchy PGO or CloudNativePG). Each database pod
+  needs an address the sim can reach: a pod the operator already published keeps its own, and any
+  other gets a companion LoadBalancer Service selecting just that pod (a NodePort when MetalLB's
+  pool is used up), labelled `dbcanvas.io/exposed-for-tools` like the ones the Expose control
+  creates. The workload goes through the front door (HAProxy, ProxySQL, MySQL Router, mongos or
+  CloudNativePG's read/write Service), exposed the same way, or directly to the member taking
+  writes when there is none. On MongoDB DBCanvas creates a `perfsim` user with the operator's user
+  administrator, because no operator account can both reconfigure the replica set and write the
+  sim's data. Network and disk conditions need a container DBCanvas runs, so they are unavailable
+  on pods; on the PostgreSQL operators, pausing or delaying replay would be undone by the
+  operator, and those stressors say so.
 - **Replication lag stressors, MySQL family:**
 
   | Stressor | What it does | Where |

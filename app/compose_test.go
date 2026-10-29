@@ -1272,3 +1272,25 @@ func TestComposePgBackRestTurnsOnSeaweedTLS(t *testing.T) {
 		t.Errorf("the plan should say TLS was turned on: %v", added)
 	}
 }
+
+// A Performance Sim is composed with its line to the target, and the result is a
+// node the sim's own validator accepts: a frame target is linked by its frame.
+func TestComposePerfSim(t *testing.T) {
+	composeCatalogFixture(t)
+	doc, _, _, _, err := buildCompose(composeSpec{Name: "x", Nodes: []composeNodeSpec{
+		{Kind: "pxc", Name: "galera", OS: "el9"}, {Kind: "ps", Name: "solo", OS: "el9"},
+		{Kind: "perfsim", To: "galera"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sims := nodesOfType(doc, "perfsim")
+	if len(sims) != 1 || len(doc.Edges) != 1 {
+		t.Fatalf("%d sims, %d lines", len(sims), len(doc.Edges))
+	}
+	if issues := perfSimIssues(doc, sims[0]); len(issues) != 0 {
+		t.Errorf("issues: %+v", issues)
+	}
+	if kind, _, ok := perfSimLink(doc, sims[0].ID); !ok || kind != "pxc" {
+		t.Errorf("linked to %q (%v)", kind, ok)
+	}
+}

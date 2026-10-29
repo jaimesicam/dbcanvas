@@ -24,8 +24,8 @@ func (e *Engine) Datasets(ctx context.Context) ([]core.Dataset, error) {
 	rows, err := e.wdb().QueryContext(ctx, `SELECT c.relname, pg_total_relation_size(c.oid),
 			(CASE WHEN c.reltuples > 0 THEN c.reltuples ELSE pg_relation_size(c.oid) / 270 END)::bigint
 		FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-		WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relname LIKE 'big\_%'
-		ORDER BY c.relname`)
+		WHERE n.nspname = $1 AND c.relkind = 'r' AND c.relname LIKE 'big\_%'
+		ORDER BY c.relname`, e.schema())
 	if err != nil {
 		return nil, err
 	}
@@ -53,8 +53,21 @@ func (e *Engine) Prepare(ctx context.Context, name string, bytes int64, pk bool,
 	if !datasetName.MatchString(name) {
 		return fmt.Errorf("invalid table name %q", name)
 	}
-	if _, err := e.wdb().ExecContext(ctx, "CREATE TABLE IF NOT EXISTS "+name+" (id bigserial PRIMARY KEY, customer int NOT NULL, note int NOT NULL DEFAULT 0, pad text NOT NULL)"); err != nil {
+	create := "CREATE TABLE IF NOT EXISTS " + name + " (id bigserial PRIMARY KEY, customer int NOT NULL, note int NOT NULL DEFAULT 0, pad text NOT NULL)"
+	if _, err := e.wdb().ExecContext(ctx, create); err != nil {
 		return err
+	}
+	// On Spock the table must exist on every member and be replicated before
+	// any row is written, or the rows stay on the writer.
+	if e.spock() {
+		for id, d := range e.mdb {
+			if _, err := d.ExecContext(ctx, create); err != nil {
+				return fmt.Errorf("%s: %w", id, err)
+			}
+		}
+		if err := e.spockReplicate(ctx, name); err != nil {
+			return err
+		}
 	}
 	target := bytes / rowBytes
 	var have int64
@@ -78,6 +91,14 @@ func (e *Engine) Drop(ctx context.Context, name string) error {
 		return fmt.Errorf("only prepared tables can be dropped")
 	}
 	_, err := e.wdb().ExecContext(ctx, "DROP TABLE IF EXISTS "+name)
+	if err == nil && e.spock() {
+		// No DDL is replicated: drop it on every member.
+		for id, d := range e.mdb {
+			if _, derr := d.ExecContext(ctx, "DROP TABLE IF EXISTS "+name); derr != nil {
+				return fmt.Errorf("%s: %w", id, derr)
+			}
+		}
+	}
 	return err
 }
 

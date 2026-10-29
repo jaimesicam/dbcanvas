@@ -22,9 +22,14 @@ import (
 // Config is what DBCanvas resolved for the linked target; the same shape as the
 // MySQL engine's, so one PERFSIM_TARGET format serves both.
 type Config struct {
-	Name     string         `json:"name"`
-	Kind     string         `json:"kind"`
-	Manager  string         `json:"manager,omitempty"` // patroni | repmgr | "": see patroni.go
+	Name    string `json:"name"`
+	Kind    string `json:"kind"`
+	Manager string `json:"manager,omitempty"` // patroni | repmgr | spock | operator | "": see patroni.go, spock.go
+	// Database, when set, is where the sim works, in a perfsim schema: the one a
+	// Spock cluster replicates, or an operator's application database when the
+	// account cannot create databases. Otherwise the sim has its own perfsim
+	// database.
+	Database string         `json:"database,omitempty"`
 	User     string         `json:"user"`
 	Password string         `json:"password"`
 	Writer   Endpoint       `json:"writer"`
@@ -69,11 +74,11 @@ type Engine struct {
 
 func New(cfg Config) *Engine {
 	e := &Engine{cfg: cfg, mdb: map[string]*sql.DB{}, lag: map[string]float64{}, recovering: map[string]bool{}, readsPrev: map[string][2]float64{}}
-	e.writer.Store(open(cfg.User, cfg.Password, cfg.Writer.Host, cfg.Writer.Port, database, 80))
-	e.hb.Store(open(cfg.User, cfg.Password, cfg.Writer.Host, cfg.Writer.Port, database, 2))
+	e.writer.Store(e.open(cfg.Writer.Host, cfg.Writer.Port, 80))
+	e.hb.Store(e.open(cfg.Writer.Host, cfg.Writer.Port, 2))
 	e.writerHost = cfg.Writer.Host
 	for _, m := range cfg.Members {
-		e.mdb[m.ID] = open(cfg.User, cfg.Password, m.Host, m.Port, database, 12)
+		e.mdb[m.ID] = e.open(m.Host, m.Port, 12)
 	}
 	return e
 }
@@ -81,13 +86,26 @@ func New(cfg Config) *Engine {
 // open uses the simple query protocol: through PgBouncer in transaction mode a
 // prepared statement may not exist on the server connection the next statement
 // gets, and the sim's statements are short enough that it costs nothing.
-func open(user, pass, host string, port int, db string, pool int) *sql.DB {
+// open is a pool on the sim's database: perfsim, or on Spock the replicated
+// database with the perfsim schema first on the search path.
+func (e *Engine) open(host string, port, pool int) *sql.DB {
+	if e.cfg.Database != "" {
+		return open(e.cfg.User, e.cfg.Password, host, port, e.cfg.Database, pool, schema+",public")
+	}
+	return open(e.cfg.User, e.cfg.Password, host, port, database, pool, "")
+}
+
+func open(user, pass, host string, port int, db string, pool int, searchPath string) *sql.DB {
 	u := url.URL{Scheme: "postgres", User: url.UserPassword(user, pass), Host: fmt.Sprintf("%s:%d", host, port), Path: "/" + db}
 	q := url.Values{}
 	q.Set("sslmode", "prefer")
 	q.Set("connect_timeout", "3")
 	q.Set("default_query_exec_mode", "simple_protocol")
 	q.Set("application_name", "perfsim")
+	if searchPath != "" {
+		// pgx sends a parameter it does not know as a run-time setting.
+		q.Set("search_path", searchPath)
+	}
 	u.RawQuery = q.Encode()
 	d, _ := sql.Open("pgx", u.String())
 	d.SetMaxOpenConns(pool)
@@ -113,7 +131,7 @@ func (e *Engine) Init(ctx context.Context) error {
 	primary := ""
 	var firstErr error
 	for _, m := range e.cfg.Members {
-		d := open(e.cfg.User, e.cfg.Password, m.Host, m.Port, "postgres", 1)
+		d := open(e.cfg.User, e.cfg.Password, m.Host, m.Port, "postgres", 1, "")
 		var rec bool
 		var version string
 		err := d.QueryRowContext(ctx, "SELECT pg_is_in_recovery(), version()").Scan(&rec, &version)
@@ -128,8 +146,12 @@ func (e *Engine) Init(ctx context.Context) error {
 			e.mu.Lock()
 			e.flavor, e.version = flavor, strings.Fields(short + " ")[0]
 			e.mu.Unlock()
-			var exists bool
-			d.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)", database).Scan(&exists)
+			// With a named database the target already has it; otherwise the
+			// sim's own is created here once.
+			exists := e.cfg.Database != ""
+			if !exists {
+				d.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)", database).Scan(&exists)
+			}
 			if !exists {
 				if _, err := d.ExecContext(ctx, "CREATE DATABASE "+database); err != nil && !strings.Contains(err.Error(), "already exists") {
 					d.Close()
@@ -154,9 +176,22 @@ func (e *Engine) Init(ctx context.Context) error {
 	if len(e.cfg.Members) > 1 {
 		topo = "streaming"
 	}
+	if e.spock() {
+		topo = "spock"
+	}
 	e.mu.Lock()
 	e.topology, e.writerID = topo, primary
 	e.mu.Unlock()
+	if e.spock() {
+		if err := e.spockInit(ctx, primary); err != nil {
+			return err
+		}
+	} else if e.cfg.Database != "" {
+		// Physical replication: the schema reaches the standbys from the primary.
+		if _, err := e.wdb().ExecContext(ctx, "CREATE SCHEMA IF NOT EXISTS "+schema); err != nil {
+			return fmt.Errorf("creating the %s schema: %w", schema, err)
+		}
+	}
 
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS heartbeat (id int PRIMARY KEY, ts timestamptz NOT NULL)`,
@@ -169,6 +204,22 @@ func (e *Engine) Init(ctx context.Context) error {
 	for _, s := range stmts {
 		if _, err := e.wdb().ExecContext(ctx, s); err != nil {
 			return fmt.Errorf("creating the sim's tables: %w", err)
+		}
+	}
+	// Spock replicates no DDL here: the tables exist on every member, and the
+	// ones whose rows should reach the others join the replication set.
+	if e.spock() {
+		for id, d := range e.mdb {
+			for _, s := range stmts {
+				if _, err := d.ExecContext(ctx, s); err != nil {
+					return fmt.Errorf("creating the sim's tables on %s: %w", id, err)
+				}
+			}
+		}
+		for _, t := range []string{"heartbeat", "orders"} {
+			if err := e.spockReplicate(ctx, t); err != nil {
+				return err
+			}
 		}
 	}
 	var n int
@@ -191,9 +242,13 @@ func (e *Engine) Init(ctx context.Context) error {
 func (e *Engine) Info() core.TargetInfo {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return core.TargetInfo{Name: e.cfg.Name, Engine: "postgres", Flavor: e.flavor, Version: e.version, Topology: e.topology, Writer: e.writerID,
+	info := core.TargetInfo{Name: e.cfg.Name, Engine: "postgres", Flavor: e.flavor, Version: e.version, Topology: e.topology, Writer: e.writerID,
 		LagTitle: "Replay lag", LagSub: "how far each standby's copy of the heartbeat row is behind the primary", Status: "Replication status",
 		BacklogLabel: "oldest snapshot age (transactions)", DiskReadsLabel: "blocks read outside shared_buffers/s"}
+	if e.spock() {
+		info.LagTitle, info.LagSub, info.Status = "Replication lag", "how far each member's copy of the heartbeat row is behind the writer", "Spock status"
+	}
+	return info
 }
 
 func (e *Engine) Heartbeat(ctx context.Context) error {
@@ -249,8 +304,8 @@ func (e *Engine) followPrimary(primary string) {
 	}
 	e.writerHost = host
 	e.mu.Unlock()
-	oldW := e.writer.Swap(open(e.cfg.User, e.cfg.Password, host, e.cfg.Writer.Port, database, 80))
-	oldH := e.hb.Swap(open(e.cfg.User, e.cfg.Password, host, e.cfg.Writer.Port, database, 2))
+	oldW := e.writer.Swap(e.open(host, e.cfg.Writer.Port, 80))
+	oldH := e.hb.Swap(e.open(host, e.cfg.Writer.Port, 2))
 	log.Printf("perfsim: writes now go to %s, the primary", primary)
 	time.AfterFunc(2*time.Minute, func() { oldW.Close(); oldH.Close() })
 }

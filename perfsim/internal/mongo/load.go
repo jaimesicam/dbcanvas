@@ -33,7 +33,7 @@ const hotDocs = 16
 
 func (e *Engine) loadDials() []core.Dial {
 	e.mu.Lock()
-	replset := e.topology == "replset"
+	replset := e.topology == "replset" || e.topology == "sharded"
 	e.mu.Unlock()
 	hot := core.Dial{ID: "hotrow", Group: groupLocks, Name: "Hot-document write conflicts", Kind: "toggle", Available: replset,
 		Desc:  "Workers update the same few documents in short multi-document transactions. MongoDB does not queue a second writer: it aborts its transaction with a WriteConflict, and the worker retries, so the work done climbs while the work committed does not.",
@@ -44,7 +44,7 @@ func (e *Engine) loadDials() []core.Dial {
 		},
 		SQL: "session.startTransaction()\ndb.hot.updateOne({ _id: a }, { $inc: { n: 1 } })  // then 20 ms\ndb.hot.updateOne({ _id: b }, { $inc: { n: 1 } })\nsession.commitTransaction()  // retried on WriteConflict"}
 	if !replset {
-		hot.Why = "Multi-document transactions need a replica set: link one to use this."
+		hot.Why = "Multi-document transactions need a replica set or a sharded cluster: link one to use this."
 	}
 	return []core.Dial{
 		{ID: "storm", Group: groupConns, Name: "Connection storm", Kind: "toggle", Available: true,
@@ -92,7 +92,7 @@ func (e *Engine) startLoad(ctx context.Context, id string, p core.Params, table 
 func (e *Engine) runStorm(ctx context.Context, j *core.Job) {
 	want := j.Param().Int("conns", 250)
 	e.mu.Lock()
-	wid := e.writerID
+	wid, sharded := e.writerID, e.topology == "sharded"
 	e.mu.Unlock()
 	var host string
 	var port int
@@ -101,12 +101,15 @@ func (e *Engine) runStorm(ctx context.Context, j *core.Job) {
 			host, port = m.Host, m.Port
 		}
 	}
-	if host == "" {
+	u := fmt.Sprintf("mongodb://%s:%s@%s:%d/?authSource=admin&directConnection=true",
+		url.QueryEscape(e.cfg.User), url.QueryEscape(e.cfg.Password), host, port)
+	if sharded {
+		// The application's connections go to mongos.
+		u, wid = e.cfg.URI, "mongos"
+	} else if host == "" {
 		j.Finish(fmt.Errorf("no primary to connect to"))
 		return
 	}
-	u := fmt.Sprintf("mongodb://%s:%s@%s:%d/?authSource=admin&directConnection=true",
-		url.QueryEscape(e.cfg.User), url.QueryEscape(e.cfg.Password), host, port)
 	c, err := mongo.Connect(ctx, options.Client().ApplyURI(u).SetAppName("perfsim-storm").
 		SetMaxPoolSize(uint64(want)).SetMaxConnecting(64).SetMaxConnIdleTime(0))
 	if err != nil {
@@ -153,7 +156,11 @@ func (e *Engine) runStorm(ctx context.Context, j *core.Job) {
 			} `bson:"connections"`
 		}
 		admin.RunCommand(ctx, bson.D{{Key: "serverStatus", Value: 1}}).Decode(&ss)
-		note := fmt.Sprintf("the primary has %.0f connections in all", ss.Connections.Current)
+		who := "the primary"
+		if sharded {
+			who = "mongos"
+		}
+		note := fmt.Sprintf("%s has %.0f connections in all", who, ss.Connections.Current)
 		if v, _ := lastErr.Load().(string); v != "" {
 			note += " · last error: " + short(v, 80)
 		}
@@ -277,7 +284,15 @@ func (e *Engine) runScan(ctx context.Context, j *core.Job, table string) {
 		}
 	}
 	var ss bson.M
-	e.writer.Database("admin").RunCommand(ctx, bson.D{{Key: "serverStatus", Value: 1}}).Decode(&ss)
+	// The cache is a mongod's: on a sharded cluster, mongos has none, so a
+	// shard primary's (the collection lives on the database's primary shard).
+	status := e.writer
+	e.mu.Lock()
+	if c := e.mc[e.writerID]; c != nil && e.topology == "sharded" {
+		status = c
+	}
+	e.mu.Unlock()
+	status.Database("admin").RunCommand(ctx, bson.D{{Key: "serverStatus", Value: 1}}).Decode(&ss)
 	cache := cacheStat(ss, "maximum bytes configured")
 	compare := fmt.Sprintf("collection %s, WiredTiger cache %s", fmtBytes(float64(size)), fmtBytes(cache))
 	if size > 0 && float64(size) < cache {

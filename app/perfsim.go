@@ -34,20 +34,19 @@ const perfSimPort = 8096
 var perfSimImage = "dbcanvas-perfsim:" + imageRelease()
 
 // perfSimTargets are the canvas types a Performance Sim node can be linked to:
-// MySQL-family and PostgreSQL standalone servers and cluster frames (PostgreSQL
-// with physical streaming replication: Patroni, repmgr), and the routers and
-// pools in front of one, a MongoDB server or replica set, and a Valkey server or
-// Valkey Cluster. A Spock cluster
-// replicates logically and a sharded MongoDB cluster is many replica sets, so
-// neither is one yet.
+// MySQL-family and PostgreSQL standalone servers and cluster frames (Patroni,
+// repmgr, and Spock, multi-master with logical replication), and the routers
+// and pools in front of one, a MongoDB server, replica set or sharded cluster, and a
+// Valkey server or Valkey Cluster.
 var perfSimTargets = map[string]bool{
 	"ps": true, "mariadb": true, "mysqlce": true,
 	"pxc": true, "mysql": true, "innodb": true, "mariadbrepl": true, "mariadbgalera": true,
 	"mysqlcerepl": true, "mysqlceinnodb": true,
-	"pg": true, "patroni": true, "repmgr": true,
-	"psm": true, "psmrs": true,
+	"pg": true, "patroni": true, "repmgr": true, "spock": true,
+	"psm": true, "psmrs": true, "psmdb": true,
 	"valkey": true, "valkeycluster": true,
 	"haproxy": true, "proxysql": true, "pgbouncer": true,
+	"k3d": true, // the database its operator runs; see perfsim_k8s.go
 }
 
 // perfSimConfig is the non-secret profile shown for a deployed node.
@@ -86,7 +85,8 @@ type perfSimTarget struct {
 	Name           string          `json:"name"`
 	Engine         string          `json:"engine"` // mysql | postgres
 	Kind           string          `json:"kind"`
-	Manager        string          `json:"manager,omitempty"` // patroni | repmgr: what manages a PostgreSQL cluster
+	Manager        string          `json:"manager,omitempty"`  // patroni | repmgr | spock: what runs a PostgreSQL cluster
+	Database       string          `json:"database,omitempty"` // Spock: the database it replicates
 	User           string          `json:"user"`
 	Password       string          `json:"password"`
 	WriterUser     string          `json:"writerUser"`
@@ -113,7 +113,8 @@ func perfSimLink(doc designDoc, nodeID string) (kind, targetID string, ok bool) 
 // a router fronts. A standalone server has none.
 func perfSimFrame(doc designDoc, kind, targetID string) (designFrame, bool) {
 	switch kind {
-	case "ps", "mariadb", "mysqlce", "pg", "psm", "valkey":
+	case "ps", "mariadb", "mysqlce", "pg", "psm", "valkey", "k3d":
+		// A Kubernetes frame's members are pods, not canvas nodes.
 		return designFrame{}, false
 	case "pgbouncer":
 		_, f, _, ok := pgBouncerBackend(doc, targetID)
@@ -137,13 +138,21 @@ func perfSimIssues(doc designDoc, n designNode) []issue {
 		return []issue{{Level: "error", Message: "Performance Sim node " + n.Label +
 			" needs an association line to a MySQL-family, PostgreSQL, MongoDB or Valkey server or cluster, or to an HAProxy, ProxySQL or PgBouncer node in front of one."}}
 	case !ok:
-		return []issue{{Level: "error", Message: fmt.Sprintf("Performance Sim node %s is linked to %s, which it cannot drive yet: it supports Percona Server, MySQL, MariaDB, PostgreSQL (standalone, Patroni or repmgr) MongoDB (standalone or replica set) and Valkey (standalone or Valkey Cluster) servers and clusters.",
+		return []issue{{Level: "error", Message: fmt.Sprintf("Performance Sim node %s is linked to %s, which it cannot drive yet: it supports Percona Server, MySQL, MariaDB, PostgreSQL (standalone, Patroni or repmgr), MongoDB (standalone, replica set or sharded cluster) and Valkey (standalone, Valkey Cluster or Sentinel) servers and clusters.",
 			n.Label, nodeLabel(doc, targetID))}}
 	}
-	if kind == "haproxy" {
-		if _, back, ok := haproxyBackend(doc, targetID); !ok || back == "spock" {
+	if kind == "k3d" {
+		switch frameByID(doc, targetID).K3DOperator {
+		case "pxc", "ps", "psmdb", "pg", "pgo", "cnpg":
+		default:
 			return []issue{{Level: "error", Message: "Performance Sim node " + n.Label +
-				" is linked to an HAProxy node that does not front a PXC, MySQL replication, Patroni or repmgr cluster."}}
+				" is linked to Kubernetes frame " + nodeLabel(doc, targetID) + ", which runs none of the database operators it can drive (PXC, Percona Server, PSMDB, Percona PostgreSQL, Crunchy PGO, CloudNativePG)."}}
+		}
+	}
+	if kind == "haproxy" {
+		if _, _, ok := haproxyBackend(doc, targetID); !ok {
+			return []issue{{Level: "error", Message: "Performance Sim node " + n.Label +
+				" is linked to an HAProxy node that does not front a PXC, MySQL replication, Patroni, repmgr or Spock cluster."}}
 		}
 	}
 	if kind == "pgbouncer" {
@@ -162,12 +171,14 @@ func perfSimIssues(doc designDoc, n designNode) []issue {
 }
 
 // perfSimMembers lists the data members of the linked target, in label order.
-// A Galera arbitrator (garbd) holds no data and runs no mysqld, so it is left out.
+// A Galera arbitrator (garbd) holds no data and runs no mysqld, so it is left out;
+// so are a sharded MongoDB cluster's mongos and config servers, which hold none
+// of the sim's data: its members are the shards' mongods.
 func perfSimMembers(doc designDoc, kind, targetID string, hosts map[string]string, domain string) []designNode {
 	var out []designNode
 	if f, ok := perfSimFrame(doc, kind, targetID); ok {
 		for _, n := range doc.Nodes {
-			if n.FrameID == f.ID && n.Type == f.Type && n.Role != "arbitrator" {
+			if n.FrameID == f.ID && n.Type == f.Type && n.Role != "arbitrator" && n.Role != "mongos" && n.Role != "config" {
 				out = append(out, n)
 			}
 		}
@@ -237,6 +248,27 @@ func (a *App) provisionPerfSim(st Stack, n designNode, doc designDoc) {
 
 		pr.phase("Waiting for the linked database", 20)
 		engine := stockSimEngineForTarget(doc, kind, targetID)
+		if kind == "k3d" {
+			k, err := a.perfSimK8sTarget(ctx, st, doc, frameByID(doc, targetID), engine, deployTimeout(), pr)
+			if err != nil {
+				pr.fail("%v", err)
+				return
+			}
+			target := perfSimTarget{Name: k.name, Engine: engine, Kind: "k3d-" + k.operator,
+				User: k.user, Password: k.pass, WriterUser: k.user, WriterPassword: k.pass,
+				Writer: k.writer, URI: k.uri, Members: k.members, Database: k.database}
+			if engine == "postgres" {
+				target.Manager = "operator"
+			}
+			for _, m := range k.members {
+				cfg.Members = append(cfg.Members, m.ID)
+			}
+			cfg.TargetKind, cfg.TargetName = target.Kind, k.name
+			cfg.Writer = fmt.Sprintf("%s:%d", k.writer.Host, k.writer.Port)
+			pr.logln(fmt.Sprintf("target: %s, writes through %s, %d pod(s): %v", k.name, cfg.Writer, len(cfg.Members), cfg.Members))
+			a.startPerfSim(ctx, st, n, host, domain, intranetIP, cfg, target, pr)
+			return
+		}
 		var r stockSimResolved
 		switch engine {
 		case "postgres":
@@ -264,8 +296,11 @@ func (a *App) provisionPerfSim(st Stack, n designNode, doc designDoc) {
 			Writer: perfSimEndpoint{Host: r.host, Port: r.port},
 		}
 		memberPort := pxcMySQLPort
-		if f, ok := perfSimFrame(doc, kind, targetID); ok && (f.Type == "patroni" || f.Type == "repmgr") {
+		if f, ok := perfSimFrame(doc, kind, targetID); ok && (f.Type == "patroni" || f.Type == "repmgr" || f.Type == "spock") {
 			target.Manager = f.Type
+			if f.Type == "spock" {
+				target.Database = spockDefaultDB
+			}
 		}
 		switch engine {
 		case "postgres":
@@ -282,6 +317,12 @@ func (a *App) provisionPerfSim(st Stack, n designNode, doc designDoc) {
 				if uri, ok := strings.CutPrefix(kv, "MONGO_URI="); ok {
 					target.URI = uri
 				}
+			}
+			if kind == "psmdb" {
+				// The sim reads each shard member directly, as the admin user; a
+				// shard has none of its own unless PMM made one.
+				f, _ := perfSimFrame(doc, kind, targetID)
+				a.perfSimShardAccounts(ctx, st, members, f.PSMDBMajor, r.secrets.User, r.secrets.Password, pr)
 			}
 		case "valkey":
 			// The "default" user's password; every member has the same one.
@@ -324,6 +365,9 @@ func (a *App) provisionPerfSim(st Stack, n designNode, doc designDoc) {
 		cfg.Writer = fmt.Sprintf("%s:%d", r.host, r.port)
 		if engine == "mongodb" {
 			cfg.Writer = "the replica set's primary"
+			if kind == "psmdb" {
+				cfg.Writer = "mongos (" + r.host + ")"
+			}
 			if kind == "psm" {
 				cfg.Writer = fmt.Sprintf("%s:%d", r.host, r.port)
 			}
@@ -336,45 +380,74 @@ func (a *App) provisionPerfSim(st Stack, n designNode, doc designDoc) {
 		}
 		pr.logln(fmt.Sprintf("target: %s %s, writes through %s, %d member(s): %v", kind, r.displayName, cfg.Writer, len(cfg.Members), cfg.Members))
 
-		pr.phase("Creating container", 45)
-		name := containerName(st.ID, n.ID)
-		if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok {
-			a.engCtx(ctx).ContainerRemove(ctx, cid)
-		}
-		id, err := a.engCtx(ctx).ContainerCreate(ctx, ContainerSpec{
-			Name: name, Image: perfSimImage, Hostname: host,
-			Env:     []string{"PERFSIM_TARGET=" + string(mustJSON(target)), "PORT=" + strconv.Itoa(perfSimPort)},
-			Network: networkName(st.ID), Aliases: []string{host},
-			PublishMap: []PortMap{{ContainerPort: perfSimPort, HostPort: cfg.HTTPPort}},
-			DNS:        []string{intranetIP}, DNSSearch: []string{domain},
-		})
-		if err != nil {
-			pr.fail("create container: %v", err)
-			return
-		}
-		if err := a.engCtx(ctx).ContainerStart(ctx, id); err != nil {
-			pr.fail("start container: %v", err)
-			return
-		}
-		if hp, e := a.engCtx(ctx).ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", perfSimPort)); e == nil {
-			if p, e2 := strconv.Atoi(hp); e2 == nil {
-				cfg.HTTPPort = p
-			}
-		}
-		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployProvisioning, Config: mustJSON(cfg)})
-
-		pr.phase("Waiting for the dashboard", 80)
-		if err := a.waitPerfSimHealthy(ctx, id, 90*time.Second); err != nil {
-			pr.fail("perfsim did not become ready: %v", err)
-			return
-		}
-		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployRunning, Config: mustJSON(cfg)})
-		a.reconcileStackDNS(ctx, st.ID)
-		pr.logln(fmt.Sprintf("dashboard on http://localhost:%d — every stressor is chosen there", cfg.HTTPPort))
-		pr.phase("Running", 100)
-		pr.p.Message = "provisioned"
-		pr.save()
+		a.startPerfSim(ctx, st, n, host, domain, intranetIP, cfg, target, pr)
 	}()
+}
+
+// startPerfSim creates and starts the sim's container for a resolved target,
+// and waits for its dashboard.
+func (a *App) startPerfSim(ctx context.Context, st Stack, n designNode, host, domain, intranetIP string, cfg perfSimConfig, target perfSimTarget, pr *pxcProg) {
+	pr.phase("Creating container", 45)
+	name := containerName(st.ID, n.ID)
+	if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok {
+		a.engCtx(ctx).ContainerRemove(ctx, cid)
+	}
+	id, err := a.engCtx(ctx).ContainerCreate(ctx, ContainerSpec{
+		Name: name, Image: perfSimImage, Hostname: host,
+		Env:     []string{"PERFSIM_TARGET=" + string(mustJSON(target)), "PORT=" + strconv.Itoa(perfSimPort)},
+		Network: networkName(st.ID), Aliases: []string{host},
+		PublishMap: []PortMap{{ContainerPort: perfSimPort, HostPort: cfg.HTTPPort}},
+		DNS:        []string{intranetIP}, DNSSearch: []string{domain},
+	})
+	if err != nil {
+		pr.fail("create container: %v", err)
+		return
+	}
+	if err := a.engCtx(ctx).ContainerStart(ctx, id); err != nil {
+		pr.fail("start container: %v", err)
+		return
+	}
+	if hp, e := a.engCtx(ctx).ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", perfSimPort)); e == nil {
+		if p, e2 := strconv.Atoi(hp); e2 == nil {
+			cfg.HTTPPort = p
+		}
+	}
+	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployProvisioning, Config: mustJSON(cfg)})
+
+	pr.phase("Waiting for the dashboard", 80)
+	if err := a.waitPerfSimHealthy(ctx, id, 90*time.Second); err != nil {
+		pr.fail("perfsim did not become ready: %v", err)
+		return
+	}
+	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployRunning, Config: mustJSON(cfg)})
+	a.reconcileStackDNS(ctx, st.ID)
+	pr.logln(fmt.Sprintf("dashboard on http://localhost:%d — every stressor is chosen there", cfg.HTTPPort))
+	pr.phase("Running", 100)
+	pr.p.Message = "provisioned"
+	pr.save()
+}
+
+// perfSimShardAccounts makes sure every shard member of a sharded MongoDB
+// cluster accepts the admin user, the account the sim reads it with directly.
+// mongoAdminEvalScript creates it through the localhost exception where a shard
+// has no user yet; that only works on a shard's primary, so every member is
+// tried and a secondary's refusal is expected. From 8.0 a direct connection to
+// a shard needs directShardOperations as well.
+func (a *App) perfSimShardAccounts(ctx context.Context, st Stack, members []designNode, major, user, pass string, pr *pxcProg) {
+	js := "db.adminCommand({ping:1})"
+	if strings.HasPrefix(strings.TrimSpace(major), "8.") {
+		js = fmt.Sprintf(`db.getSiblingDB("admin").grantRolesToUser(%q,[{role:"directShardOperations",db:"admin"}])`, user)
+	}
+	env := []string{"ADMIN_USER=" + user, "ADMIN_PW=" + pass, "USER_JS=" + js}
+	for _, m := range members {
+		dep, err := a.store.GetDeployment(st.ID, m.ID)
+		if err != nil || dep.ContainerID == "" {
+			continue
+		}
+		if _, err := a.engCtx(ctx).Exec(ctx, dep.ContainerID, []string{"bash", "-c", mongoAdminEvalScript}, env); err != nil {
+			pr.logln(fmt.Sprintf("%s: %v", m.Label, err))
+		}
+	}
 }
 
 // waitPerfSimHealthy waits for the dashboard to answer. The image is

@@ -49,17 +49,24 @@ type Engine struct {
 	mu       sync.Mutex
 	flavor   string
 	version  string
-	topology string // standalone | replset
+	topology string // standalone | replset | sharded
 	writerID string
 	lag      map[string]float64
 	setName  string
 	// readsPrev is each member's pages read into the cache and the time at the
 	// last sample.
 	readsPrev map[string][2]float64
+	// memberSet is each member's replica set name and setPrimary each set's
+	// primary, as last sampled; on a sharded cluster there is one set per shard.
+	memberSet  map[string]string
+	setPrimary map[string]string
+	// hbIdx is the heartbeat document each shard owns (see shard.go).
+	hbIdx map[string]int
 }
 
 func New(cfg Config) *Engine {
-	e := &Engine{cfg: cfg, mc: map[string]*mongo.Client{}, lag: map[string]float64{}, readsPrev: map[string][2]float64{}}
+	e := &Engine{cfg: cfg, mc: map[string]*mongo.Client{}, lag: map[string]float64{}, readsPrev: map[string][2]float64{},
+		memberSet: map[string]string{}, setPrimary: map[string]string{}, hbIdx: map[string]int{}}
 	e.writer, _ = mongo.Connect(context.Background(), options.Client().ApplyURI(cfg.URI).
 		SetMaxPoolSize(80).SetServerSelectionTimeout(5*time.Second).SetAppName("perfsim"))
 	e.hb, _ = mongo.Connect(context.Background(), options.Client().ApplyURI(cfg.URI).
@@ -99,7 +106,10 @@ func (e *Engine) Init(ctx context.Context) error {
 	var hello bson.M
 	e.writer.Database("admin").RunCommand(ctx, bson.D{{Key: "hello", Value: 1}}).Decode(&hello)
 	topo := "standalone"
-	if name, ok := hello["setName"].(string); ok && name != "" {
+	if hello["msg"] == "isdbgrid" {
+		// mongos: a sharded cluster.
+		topo = "sharded"
+	} else if name, ok := hello["setName"].(string); ok && name != "" {
 		topo = "replset"
 		e.mu.Lock()
 		e.setName = name
@@ -108,6 +118,15 @@ func (e *Engine) Init(ctx context.Context) error {
 	e.mu.Lock()
 	e.flavor, e.version, e.topology = flavor, version, topo
 	e.mu.Unlock()
+	if topo == "sharded" {
+		idx, err := e.setupShardedHeartbeat(ctx)
+		if err != nil {
+			return err
+		}
+		e.mu.Lock()
+		e.hbIdx = idx
+		e.mu.Unlock()
+	}
 
 	orders := e.db().Collection("orders")
 	orders.Indexes().CreateOne(ctx, mongo.IndexModel{Keys: bson.D{{Key: "customer", Value: 1}}})
@@ -138,8 +157,24 @@ func (e *Engine) Info() core.TargetInfo {
 }
 
 func (e *Engine) Heartbeat(ctx context.Context) error {
-	_, err := e.hb.Database(database).Collection("heartbeat").UpdateOne(ctx, bson.D{{Key: "_id", Value: 1}},
-		bson.D{{Key: "$set", Value: bson.D{{Key: "ts", Value: time.Now()}}}}, options.Update().SetUpsert(true))
+	ids := []int{1}
+	e.mu.Lock()
+	if e.topology == "sharded" {
+		ids = ids[:0]
+		for _, i := range e.hbIdx {
+			ids = append(ids, i)
+		}
+	}
+	e.mu.Unlock()
+	now := time.Now()
+	var err error
+	for _, id := range ids {
+		_, werr := e.hb.Database(database).Collection("heartbeat").UpdateOne(ctx, bson.D{{Key: "_id", Value: id}},
+			bson.D{{Key: "$set", Value: bson.D{{Key: "ts", Value: now}}}}, options.Update().SetUpsert(true))
+		if werr != nil && err == nil {
+			err = werr
+		}
+	}
 	return err
 }
 
@@ -227,12 +262,17 @@ func (e *Engine) lagOf(id string) float64 {
 	return -1
 }
 
+// replicaIDs are the members that are not their replica set's primary.
 func (e *Engine) replicaIDs() []string {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	primary := map[string]bool{e.writerID: true}
+	for _, p := range e.setPrimary {
+		primary[p] = true
+	}
 	var out []string
 	for _, m := range e.cfg.Members {
-		if m.ID != e.writerID {
+		if !primary[m.ID] {
 			out = append(out, m.ID)
 		}
 	}
@@ -243,7 +283,10 @@ func (e *Engine) replicaIDs() []string {
 func (e *Engine) memberByAddr(addr string) string {
 	host := strings.Split(addr, ":")[0]
 	for _, m := range e.cfg.Members {
-		if m.Host == host || strings.Split(m.Host, ".")[0] == strings.Split(host, ".")[0] {
+		// On Kubernetes the member's id is its pod name, the first label of the
+		// in-cluster name the replica set reports, and its host an address.
+		short := strings.Split(host, ".")[0]
+		if m.Host == host || strings.Split(m.Host, ".")[0] == short || m.ID == short {
 			return m.ID
 		}
 	}
