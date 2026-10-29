@@ -39,7 +39,7 @@ func TestDialsAvailability(t *testing.T) {
 		return out
 	}
 	load := map[string]bool{}
-	for _, d := range (&Engine{}).loadDials() {
+	for _, d := range append((&Engine{}).loadDials(), (&Engine{}).labDials()...) {
 		load[d.ID] = true
 	}
 	for id, ok := range avail("standalone") {

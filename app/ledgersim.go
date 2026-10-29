@@ -36,7 +36,7 @@ import (
 // Connection modes mirror stocksim's: "linked" resolves a drawn association
 // line, "manual" takes a connection typed into the form and can point outside
 // the stack. Linked-mode resolution is stocksim's own resolver (see
-// waitStockSimTarget) rather than a second copy of it — every target it can
+// waitSimTarget) rather than a second copy of it — every target it can
 // reach, this node can reach, minus the two engines JDBC has no business
 // speaking to.
 const (
@@ -248,13 +248,13 @@ func ledgerSimEngineAndIssues(doc designDoc, n designNode) (string, []issue) {
 		return engine, out
 	}
 
-	kind, targetID, ok := stockSimTarget(doc, n.ID)
+	kind, targetID, ok := simLinkedTarget(doc, n.ID)
 	if !ok {
 		out = append(out, issue{Level: "error", Message: "Ledger Sim node " + n.Label +
 			" is not connected to a database — draw a line to one, or switch it to a manual connection"})
 		return "", out
 	}
-	engine := stockSimEngineForTarget(doc, kind, targetID)
+	engine := simEngineForTarget(doc, kind, targetID)
 	if engine == "" {
 		out = append(out, issue{Level: "error", Message: "Ledger Sim node " + n.Label +
 			" is linked to something whose database engine cannot be determined — link it to the database, or to a router that fronts exactly one cluster"})
@@ -387,7 +387,7 @@ func ledgerSimManualEnv(n designNode) (env []string, sec ledgerSimSecrets, displ
 // this node supports every cluster frame, router and Kubernetes operator that
 // the Stock Market Sim does. What differs is only the last step: stocksim emits
 // a Go DSN, and this emits the fields the JVM composes a JDBC URL from.
-func ledgerSimLinkedEnv(n designNode, r stockSimResolved) (env []string, sec ledgerSimSecrets) {
+func ledgerSimLinkedEnv(n designNode, r simResolved) (env []string, sec ledgerSimSecrets) {
 	driver := ledgerSimDriverFor(r.engine, n.LSDriver)
 	env = []string{
 		"DB_ENGINE=" + r.engine,
@@ -418,7 +418,7 @@ func ledgerSimLinkedEnv(n designNode, r stockSimResolved) (env []string, sec led
 // client should use.
 //
 // The node's own value wins: somebody who typed prepareThreshold in has a reason.
-func ledgerSimParams(n designNode, r stockSimResolved) string {
+func ledgerSimParams(n designNode, r simResolved) string {
 	params := strings.TrimSpace(n.LSParams)
 	if !r.noPrepare || r.engine != "postgres" || strings.Contains(params, "prepareThreshold") {
 		return params
@@ -465,7 +465,7 @@ func (a *App) provisionLedgerSim(st Stack, n designNode, doc designDoc) {
 	coarseKind, targetID := "", ""
 	if mode == "linked" {
 		var ok bool
-		coarseKind, targetID, ok = stockSimTarget(doc, n.ID)
+		coarseKind, targetID, ok = simLinkedTarget(doc, n.ID)
 		if !ok {
 			a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployError, Config: mustJSON(cfg)})
 			return
@@ -499,7 +499,7 @@ func (a *App) provisionLedgerSim(st Stack, n designNode, doc designDoc) {
 		switch mode {
 		case "linked":
 			pr.phase("Waiting for linked database", 20)
-			r, werr := a.waitStockSimTarget(ctx, st, hosts, doc, domain, coarseKind, targetID, deployTimeout(), false, pr.logln)
+			r, werr := a.waitSimTarget(ctx, st, hosts, doc, domain, coarseKind, targetID, deployTimeout(), false, pr.logln)
 			if werr != nil {
 				pr.fail("%v", werr)
 				return

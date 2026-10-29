@@ -131,9 +131,9 @@ func TestLedgerSimManualEnvFillsInThePort(t *testing.T) {
 // override says how to reach it — that is how a node linked to a cluster gets
 // aimed at one member of it.
 func TestLedgerSimLinkedEnvHonoursTheURLOverride(t *testing.T) {
-	r := stockSimResolved{
+	r := simResolved{
 		engine: "mysql", host: "pxc01.example.net", port: 3306,
-		secrets: stockSimSecrets{User: "app", Password: "app_password"},
+		secrets: simSecrets{User: "app", Password: "app_password"},
 	}
 	env, sec := ledgerSimLinkedEnv(designNode{LSJdbcURL: "jdbc:mysql://pxc02:3306/ledgersim"}, r)
 	joined := strings.Join(env, " ")

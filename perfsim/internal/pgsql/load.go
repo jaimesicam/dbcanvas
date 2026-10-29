@@ -59,11 +59,12 @@ func (e *Engine) loadDials() []core.Dial {
 			Params: []core.Param{{Key: "workers", Label: "Concurrent queries", Type: "steps", Opts: []any{1, 4, 8, 16}, Def: 4}},
 			SQL:    "SELECT count(md5(g::text)) FROM generate_series(1, 1000000) g;  -- back to back, from each worker"},
 		{ID: "scan", Group: groupMem, Name: "Working set larger than memory", Kind: "toggle", NeedsTable: "pk", Available: true,
-			Desc:   "Random point reads across a whole prepared table. When the table is larger than shared_buffers, most of them miss it and read the page from the operating system, and pages the workload needs are pushed out.",
-			Watch:  []string{"Reads outside shared_buffers", "p99 latency"},
-			Params: []core.Param{{Key: "workers", Label: "Readers", Type: "steps", Opts: []any{4, 16, 32}, Def: 16}},
-			Note:   "Prepare a table bigger than shared_buffers for the effect; the dial says how they compare when it starts. A read that misses shared_buffers may still be served from the operating system's page cache.",
-			SQL:    "SELECT * FROM {table} WHERE id = $1;  -- a random id each time"},
+			Desc:  "Random point reads across a whole prepared table. When the table is larger than shared_buffers, most of them miss it and read the page from the operating system, and pages the workload needs are pushed out.",
+			Watch: []string{"Reads outside shared_buffers", "p99 latency"},
+			Params: []core.Param{{Key: "workers", Label: "Readers", Type: "steps", Opts: []any{4, 16, 32}, Def: 16},
+				{Key: "share", Label: "Working set", Type: "pills", Opts: []any{10, 25, 50, 100}, Def: 100, Unit: "%"}},
+			Note: "Prepare a table bigger than shared_buffers for the effect; the dial says how they compare when it starts. A read that misses shared_buffers may still be served from the operating system's page cache.",
+			SQL:  "SELECT * FROM {table} WHERE id = $1;  -- a random id each time"},
 	}
 }
 
@@ -318,7 +319,7 @@ func (e *Engine) runScan(ctx context.Context, j *core.Job, table string) {
 			for ctx.Err() == nil {
 				// note is in the heap, so the read cannot be answered from the index alone.
 				var note int64
-				if err := e.wdb().QueryRowContext(ctx, "SELECT note FROM "+table+" WHERE id = $1", 1+rand.Int64N(maxID.Int64)).Scan(&note); err == nil || errors.Is(err, sql.ErrNoRows) {
+				if err := e.wdb().QueryRowContext(ctx, "SELECT note FROM "+table+" WHERE id = $1", 1+rand.Int64N(max(1, maxID.Int64*int64(j.Param().Int("share", 100))/100))).Scan(&note); err == nil || errors.Is(err, sql.ErrNoRows) {
 					n.Add(1)
 				} else {
 					sleep(ctx, 200*time.Millisecond)

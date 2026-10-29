@@ -28,14 +28,19 @@ import (
 // may use a different account (WriterUser): a router such as ProxySQL only
 // knows the application's.
 type Config struct {
-	Name           string         `json:"name"`
-	Kind           string         `json:"kind"`
-	User           string         `json:"user"`
-	Password       string         `json:"password"`
-	WriterUser     string         `json:"writerUser,omitempty"`
-	WriterPassword string         `json:"writerPassword,omitempty"`
-	Writer         Endpoint       `json:"writer"`
-	Members        []MemberConfig `json:"members"`
+	Name           string `json:"name"`
+	Kind           string `json:"kind"`
+	User           string `json:"user"`
+	Password       string `json:"password"`
+	WriterUser     string `json:"writerUser,omitempty"`
+	WriterPassword string `json:"writerPassword,omitempty"`
+	// TLS is a manual connection's mode (prefer, require, disable); "" leaves
+	// the driver's default, as for a target in the stack.
+	TLS    string   `json:"tls,omitempty"`
+	Writer Endpoint `json:"writer"`
+	// Reader, when set, is where the workload's reads go (an HAProxy read port).
+	Reader  *Endpoint      `json:"reader,omitempty"`
+	Members []MemberConfig `json:"members"`
 }
 
 type Endpoint struct {
@@ -60,6 +65,7 @@ type Engine struct {
 	cfg    Config
 	writer atomic.Pointer[sql.DB] // the application's endpoint: workload and dials that act on the writer
 	hb     atomic.Pointer[sql.DB] // heartbeat only, so a busy workload pool never delays it
+	reader *sql.DB                // the workload's reads, when the target splits them; nil otherwise
 	mdb    map[string]*sql.DB
 	// writerHost is where writer and hb point now. It starts as the configured
 	// endpoint and moves only on Group Replication reached without a router: see
@@ -85,17 +91,26 @@ func New(cfg Config) *Engine {
 	if cfg.WriterUser != "" {
 		wu, wp = cfg.WriterUser, cfg.WriterPassword
 	}
-	e.writer.Store(open(wu, wp, cfg.Writer.Host, cfg.Writer.Port, 80))
-	e.hb.Store(open(wu, wp, cfg.Writer.Host, cfg.Writer.Port, 2))
+	e.writer.Store(open(wu, wp, cfg.Writer.Host, cfg.Writer.Port, 80, cfg.TLS))
+	e.hb.Store(open(wu, wp, cfg.Writer.Host, cfg.Writer.Port, 2, cfg.TLS))
+	if cfg.Reader != nil {
+		e.reader = open(wu, wp, cfg.Reader.Host, cfg.Reader.Port, 80, cfg.TLS)
+	}
 	e.writerHost = cfg.Writer.Host
 	for _, m := range cfg.Members {
-		e.mdb[m.ID] = open(cfg.User, cfg.Password, m.Host, m.Port, 12)
+		e.mdb[m.ID] = open(cfg.User, cfg.Password, m.Host, m.Port, 12, cfg.TLS)
 	}
 	return e
 }
 
-func open(user, pass, host string, port, pool int) *sql.DB {
+func open(user, pass, host string, port, pool int, tls ...string) *sql.DB {
 	c := mysql.NewConfig()
+	if len(tls) > 0 {
+		// require encrypts without checking the certificate, as sslmode=require
+		// does on PostgreSQL: a server's own certificate is rarely signed for
+		// the name a lab reaches it by.
+		c.TLSConfig = map[string]string{"prefer": "preferred", "require": "skip-verify", "disable": "false"}[tls[0]]
+	}
 	c.User, c.Passwd, c.Net = user, pass, "tcp"
 	c.Addr = fmt.Sprintf("%s:%d", host, port)
 	c.Timeout = 3 * time.Second
@@ -111,6 +126,15 @@ func open(user, pass, host string, port, pool int) *sql.DB {
 
 func (e *Engine) wdb() *sql.DB  { return e.writer.Load() }
 func (e *Engine) hbdb() *sql.DB { return e.hb.Load() }
+
+// rdb is where the workload's reads go: the read endpoint when the target has
+// one, the write endpoint otherwise.
+func (e *Engine) rdb() *sql.DB {
+	if e.reader != nil {
+		return e.reader
+	}
+	return e.wdb()
+}
 
 // followPrimary points the workload and the heartbeat at the current primary
 // when the sim writes to Group Replication members directly, with no router to
@@ -139,8 +163,8 @@ func (e *Engine) followPrimary(primary string) {
 	if e.cfg.WriterUser != "" {
 		wu, wp = e.cfg.WriterUser, e.cfg.WriterPassword
 	}
-	oldW := e.writer.Swap(open(wu, wp, host, e.cfg.Writer.Port, 80))
-	oldH := e.hb.Swap(open(wu, wp, host, e.cfg.Writer.Port, 2))
+	oldW := e.writer.Swap(open(wu, wp, host, e.cfg.Writer.Port, 80, e.cfg.TLS))
+	oldH := e.hb.Swap(open(wu, wp, host, e.cfg.Writer.Port, 2, e.cfg.TLS))
 	log.Printf("perfsim: writes now go to %s, the group's primary", primary)
 	// Statements already running on the old pools finish there.
 	time.AfterFunc(2*time.Minute, func() { oldW.Close(); oldH.Close() })
@@ -149,6 +173,9 @@ func (e *Engine) followPrimary(primary string) {
 func (e *Engine) Close() {
 	e.wdb().Close()
 	e.hbdb().Close()
+	if e.reader != nil {
+		e.reader.Close()
+	}
 	for _, db := range e.mdb {
 		db.Close()
 	}
@@ -323,9 +350,9 @@ func (e *Engine) Op(ctx context.Context, write bool, n int) error {
 	var rows *sql.Rows
 	var err error
 	if n%10 == 0 {
-		rows, err = e.wdb().QueryContext(ctx, "SELECT id, amount, status FROM perfsim.orders WHERE customer = ? ORDER BY id LIMIT 20", n%10000)
+		rows, err = e.rdb().QueryContext(ctx, "SELECT id, amount, status FROM perfsim.orders WHERE customer = ? ORDER BY id LIMIT 20", n%10000)
 	} else {
-		rows, err = e.wdb().QueryContext(ctx, "SELECT id, amount, status FROM perfsim.orders WHERE id = ?", id)
+		rows, err = e.rdb().QueryContext(ctx, "SELECT id, amount, status FROM perfsim.orders WHERE id = ?", id)
 	}
 	if err != nil {
 		return err
@@ -445,4 +472,14 @@ func randBetween(lo, hi int64) int64 {
 		return lo
 	}
 	return lo + rand.Int64N(hi-lo)
+}
+
+// Probe connects to the writer and describes the server, for a connection
+// test.
+func (e *Engine) Probe(ctx context.Context) (string, error) {
+	var version, comment string
+	if err := e.wdb().QueryRowContext(ctx, "SELECT VERSION(), @@version_comment").Scan(&version, &comment); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s (%s)", version, comment), nil
 }

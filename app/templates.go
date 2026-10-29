@@ -58,6 +58,7 @@ var templateSecretKeys = map[string]bool{
 	"secretKey":     true, // SeaweedFS S3 AWS_SECRET_ACCESS_KEY
 	"ssPassword":    true, // Stock Market Sim, manual connection mode
 	"lsPassword":    true, // Ledger Sim, manual connection mode
+	"psPassword":    true, // Performance Sim, manual connection mode
 	"ssDSN":         true, // …and its raw-DSN override, which embeds one
 
 	"mcaAdminPassword":    true, // MClusterAdmin panel, MongoDB admin credential

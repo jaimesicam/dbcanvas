@@ -11,6 +11,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
@@ -32,11 +33,15 @@ var webDist embed.FS
 func main() {
 	// The runtime image is distroless, so DBCanvas checks readiness by
 	// executing the binary itself with this flag.
+	testconn := false
 	for _, arg := range os.Args[1:] {
 		if arg == "-healthcheck" || arg == "--healthcheck" {
 			healthcheck()
 			return
 		}
+		// DBCanvas tests a hand-entered connection by running this in a
+		// container with the target the sim would get.
+		testconn = testconn || arg == "-testconn" || arg == "--testconn"
 	}
 	raw := []byte(os.Getenv("PERFSIM_TARGET"))
 	var target struct {
@@ -67,6 +72,10 @@ func main() {
 		eng = valkey.New(cfg)
 	default:
 		log.Fatalf("perfsim: engine %q is not supported", target.Engine)
+	}
+	if testconn {
+		probe(eng)
+		return
 	}
 	port := envOr("PORT", "8096")
 
@@ -110,4 +119,24 @@ func envOr(k, def string) string {
 		return v
 	}
 	return def
+}
+
+// probe connects as the engine does, prints what it found, and exits non-zero
+// when it could not connect.
+func probe(eng core.Engine) {
+	p, ok := eng.(interface {
+		Probe(context.Context) (string, error)
+	})
+	if !ok {
+		fmt.Println("error: this engine has no connection test")
+		os.Exit(1)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	msg, err := p.Probe(ctx)
+	if err != nil {
+		fmt.Println("error: " + err.Error())
+		os.Exit(1)
+	}
+	fmt.Println("connected: " + msg)
 }

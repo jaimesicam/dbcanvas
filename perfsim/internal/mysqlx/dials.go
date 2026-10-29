@@ -128,7 +128,7 @@ func (e *Engine) Dials() []core.Dial {
 		avail(single, !gr, "Group Replication's applier threads can only be changed with the member out of the group."),
 		avail(delay, async, map[bool]string{true: "Group Replication has no delayed members.", false: notGalera}[gr]),
 		avail(mdl, !galera, "Galera applies DDL in total order and aborts a local transaction that holds the table, so it does not wait."),
-	}, e.loadDials()...)
+	}, append(e.loadDials(), e.labDials()...)...)
 }
 
 var tableName = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
@@ -188,6 +188,9 @@ func (e *Engine) Start(ctx context.Context, id string, p core.Params, targets []
 		return core.NewJob(ctx, p, func(ctx context.Context, j *core.Job) { e.runNoPK(ctx, j, table) }), nil
 	}
 	if run, ok := e.startLoad(ctx, id, p, table); ok {
+		return run, nil
+	}
+	if run, ok := e.startLab(ctx, id, p, table); ok {
 		return run, nil
 	}
 	return nil, fmt.Errorf("no such stressor %q", id)

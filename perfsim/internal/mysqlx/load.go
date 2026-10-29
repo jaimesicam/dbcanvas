@@ -59,11 +59,12 @@ func (e *Engine) loadDials() []core.Dial {
 			Params: []core.Param{{Key: "workers", Label: "Concurrent queries", Type: "steps", Opts: []any{1, 4, 8, 16}, Def: 4, Unit: ""}},
 			SQL:    "SELECT BENCHMARK(500000, SHA2(RAND(), 512));  -- back to back, from each worker"},
 		{ID: "scan", Group: groupMem, Name: "Working set larger than memory", Kind: "toggle", NeedsTable: "pk", Available: true,
-			Desc:   "Random point reads across a whole prepared table. When the table is larger than the buffer pool, most of them miss it and read from disk, and pages the workload needs are pushed out.",
-			Watch:  []string{"Reads from disk", "p99 latency"},
-			Params: []core.Param{{Key: "workers", Label: "Readers", Type: "steps", Opts: []any{4, 16, 32}, Def: 16, Unit: ""}},
-			Note:   "Prepare a table bigger than innodb_buffer_pool_size for the effect; the dial says how they compare when it starts.",
-			SQL:    "SELECT * FROM perfsim.{table} WHERE id = ?;  -- a random id each time"},
+			Desc:  "Random point reads across a whole prepared table. When the table is larger than the buffer pool, most of them miss it and read from disk, and pages the workload needs are pushed out.",
+			Watch: []string{"Reads from disk", "p99 latency"},
+			Params: []core.Param{{Key: "workers", Label: "Readers", Type: "steps", Opts: []any{4, 16, 32}, Def: 16},
+				{Key: "share", Label: "Working set", Type: "pills", Opts: []any{10, 25, 50, 100}, Def: 100, Unit: "%"}},
+			Note: "Prepare a table bigger than innodb_buffer_pool_size for the effect; the dial says how they compare when it starts.",
+			SQL:  "SELECT * FROM perfsim.{table} WHERE id = ?;  -- a random id each time"},
 	}
 }
 
@@ -109,7 +110,7 @@ func (e *Engine) runStorm(ctx context.Context, j *core.Job) {
 	}
 	_, wid := e.writerDB()
 	host, port := e.cfg.Writer.Host, e.cfg.Writer.Port
-	pool := open(wu, wp, host, port, want)
+	pool := open(wu, wp, host, port, want, e.cfg.TLS)
 	defer pool.Close()
 	var conns []*sql.Conn
 	defer func() {
@@ -313,7 +314,7 @@ func (e *Engine) runScan(ctx context.Context, j *core.Job, table string) {
 			defer wg.Done()
 			for ctx.Err() == nil {
 				var id int64
-				if err := e.wdb().QueryRowContext(ctx, "SELECT id FROM perfsim.`"+table+"` WHERE id = ?", 1+rand.Int64N(maxID.Int64)).Scan(&id); err == nil || errors.Is(err, sql.ErrNoRows) {
+				if err := e.wdb().QueryRowContext(ctx, "SELECT id FROM perfsim.`"+table+"` WHERE id = ?", 1+rand.Int64N(max(1, maxID.Int64*int64(j.Param().Int("share", 100))/100))).Scan(&id); err == nil || errors.Is(err, sql.ErrNoRows) {
 					n.Add(1)
 				}
 			}

@@ -32,3 +32,18 @@ func TestMemberByAddr(t *testing.T) {
 		}
 	}
 }
+
+// A connection string naming one member directly is followed to the primary; a
+// replica set or mongos connection string is not.
+func TestDirectMember(t *testing.T) {
+	ms := []MemberConfig{{ID: "k-rs0-0", Host: "192.0.2.10", Port: 27017}, {ID: "k-rs0-1", Host: "192.0.2.11", Port: 27017}}
+	for uri, want := range map[string]string{
+		"mongodb://u:p@192.0.2.11:27017/?authSource=admin&directConnection=true": "k-rs0-1",
+		"mongodb://u:p@192.0.2.11:27017/?authSource=admin":                       "",
+		"mongodb://u:p@192.0.2.99:27017/?directConnection=true":                  "",
+	} {
+		if got := directMember(Config{URI: uri, Members: ms}); got != want {
+			t.Errorf("%s: %q, want %q", uri, got, want)
+		}
+	}
+}

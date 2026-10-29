@@ -203,7 +203,7 @@ func (a *App) provisionSupportSim(st Stack, n designNode, doc designDoc) {
 			// The K3D resolver is Stock Market Sim's: it waits for the operator's
 			// custom resource to report ready, then picks the mongos or the primary's
 			// exposed Service and reads the credentials out of the cluster.
-			res, err := a.stockSimK3DTarget(ctx, st, doc, frame.ID, deployTimeout(), pr.logln)
+			res, err := a.simK3DTarget(ctx, st, doc, frame.ID, deployTimeout(), pr.logln)
 			if err != nil {
 				pr.fail("%v", err)
 				return

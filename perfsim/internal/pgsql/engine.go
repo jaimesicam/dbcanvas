@@ -6,6 +6,7 @@ package pgsql
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
@@ -14,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"perfsim/internal/core"
@@ -29,11 +31,15 @@ type Config struct {
 	// Spock cluster replicates, or an operator's application database when the
 	// account cannot create databases. Otherwise the sim has its own perfsim
 	// database.
-	Database string         `json:"database,omitempty"`
-	User     string         `json:"user"`
-	Password string         `json:"password"`
-	Writer   Endpoint       `json:"writer"`
-	Members  []MemberConfig `json:"members"`
+	Database string `json:"database,omitempty"`
+	// TLS is a manual connection's mode (prefer, require, disable); "" is prefer.
+	TLS      string   `json:"tls,omitempty"`
+	User     string   `json:"user"`
+	Password string   `json:"password"`
+	Writer   Endpoint `json:"writer"`
+	// Reader, when set, is where the workload's reads go (an HAProxy read port).
+	Reader  *Endpoint      `json:"reader,omitempty"`
+	Members []MemberConfig `json:"members"`
 }
 
 type Endpoint struct {
@@ -58,6 +64,7 @@ type Engine struct {
 	cfg    Config
 	writer atomic.Pointer[sql.DB]
 	hb     atomic.Pointer[sql.DB]
+	reader *sql.DB // the workload's reads, when the target splits them; nil otherwise
 	mdb    map[string]*sql.DB
 
 	mu         sync.Mutex
@@ -76,6 +83,9 @@ func New(cfg Config) *Engine {
 	e := &Engine{cfg: cfg, mdb: map[string]*sql.DB{}, lag: map[string]float64{}, recovering: map[string]bool{}, readsPrev: map[string][2]float64{}}
 	e.writer.Store(e.open(cfg.Writer.Host, cfg.Writer.Port, 80))
 	e.hb.Store(e.open(cfg.Writer.Host, cfg.Writer.Port, 2))
+	if cfg.Reader != nil {
+		e.reader = e.open(cfg.Reader.Host, cfg.Reader.Port, 80)
+	}
 	e.writerHost = cfg.Writer.Host
 	for _, m := range cfg.Members {
 		e.mdb[m.ID] = e.open(m.Host, m.Port, 12)
@@ -90,15 +100,19 @@ func New(cfg Config) *Engine {
 // database with the perfsim schema first on the search path.
 func (e *Engine) open(host string, port, pool int) *sql.DB {
 	if e.cfg.Database != "" {
-		return open(e.cfg.User, e.cfg.Password, host, port, e.cfg.Database, pool, schema+",public")
+		return open(e.cfg.User, e.cfg.Password, host, port, e.cfg.Database, pool, schema+",public", e.cfg.TLS)
 	}
-	return open(e.cfg.User, e.cfg.Password, host, port, database, pool, "")
+	return open(e.cfg.User, e.cfg.Password, host, port, database, pool, "", e.cfg.TLS)
 }
 
-func open(user, pass, host string, port int, db string, pool int, searchPath string) *sql.DB {
+func open(user, pass, host string, port int, db string, pool int, searchPath, tls string) *sql.DB {
 	u := url.URL{Scheme: "postgres", User: url.UserPassword(user, pass), Host: fmt.Sprintf("%s:%d", host, port), Path: "/" + db}
 	q := url.Values{}
-	q.Set("sslmode", "prefer")
+	sslmode := "prefer"
+	if tls == "require" || tls == "disable" {
+		sslmode = tls
+	}
+	q.Set("sslmode", sslmode)
 	q.Set("connect_timeout", "3")
 	q.Set("default_query_exec_mode", "simple_protocol")
 	q.Set("application_name", "perfsim")
@@ -117,9 +131,21 @@ func open(user, pass, host string, port int, db string, pool int, searchPath str
 func (e *Engine) wdb() *sql.DB  { return e.writer.Load() }
 func (e *Engine) hbdb() *sql.DB { return e.hb.Load() }
 
+// rdb is where the workload's reads go: the read endpoint when the target has
+// one, the write endpoint otherwise.
+func (e *Engine) rdb() *sql.DB {
+	if e.reader != nil {
+		return e.reader
+	}
+	return e.wdb()
+}
+
 func (e *Engine) Close() {
 	e.wdb().Close()
 	e.hbdb().Close()
+	if e.reader != nil {
+		e.reader.Close()
+	}
 	for _, d := range e.mdb {
 		d.Close()
 	}
@@ -131,7 +157,7 @@ func (e *Engine) Init(ctx context.Context) error {
 	primary := ""
 	var firstErr error
 	for _, m := range e.cfg.Members {
-		d := open(e.cfg.User, e.cfg.Password, m.Host, m.Port, "postgres", 1, "")
+		d := open(e.cfg.User, e.cfg.Password, m.Host, m.Port, "postgres", 1, "", e.cfg.TLS)
 		var rec bool
 		var version string
 		err := d.QueryRowContext(ctx, "SELECT pg_is_in_recovery(), version()").Scan(&rec, &version)
@@ -270,9 +296,9 @@ func (e *Engine) Op(ctx context.Context, write bool, n int) error {
 	var rows *sql.Rows
 	var err error
 	if n%10 == 0 {
-		rows, err = e.wdb().QueryContext(ctx, "SELECT id, amount, status FROM orders WHERE customer = $1 ORDER BY id LIMIT 20", n%10000)
+		rows, err = e.rdb().QueryContext(ctx, "SELECT id, amount, status FROM orders WHERE customer = $1 ORDER BY id LIMIT 20", n%10000)
 	} else {
-		rows, err = e.wdb().QueryContext(ctx, "SELECT id, amount, status FROM orders WHERE id = $1", id)
+		rows, err = e.rdb().QueryContext(ctx, "SELECT id, amount, status FROM orders WHERE id = $1", id)
 	}
 	if err != nil {
 		return err
@@ -403,4 +429,36 @@ func execCancelable(ctx context.Context, d *sql.DB, c *sql.Conn, pid int64, quer
 		<-done
 		return ctx.Err()
 	}
+}
+
+// Probe connects to the writer and describes the server and whether the sim
+// can make its own database there, for a connection test.
+func (e *Engine) Probe(ctx context.Context) (string, error) {
+	db := e.cfg.Database
+	if db == "" {
+		db = "postgres"
+	}
+	d := open(e.cfg.User, e.cfg.Password, e.cfg.Writer.Host, e.cfg.Writer.Port, db, 1, "", e.cfg.TLS)
+	defer d.Close()
+	var version string
+	var create bool
+	if err := d.QueryRowContext(ctx, "SELECT current_setting('server_version'), (SELECT rolsuper OR rolcreatedb FROM pg_roles WHERE rolname = current_user)").Scan(&version, &create); err != nil {
+		// pgx reports every address and TLS attempt it made; the server's own
+		// refusal is the part that says what to fix.
+		var pe *pgconn.PgError
+		if errors.As(err, &pe) {
+			return "", fmt.Errorf("%s (SQLSTATE %s)", pe.Message, pe.Code)
+		}
+		return "", err
+	}
+	msg := "PostgreSQL " + version
+	switch {
+	case e.cfg.Database != "":
+		msg += ", working in database " + e.cfg.Database
+	case create:
+		msg += ", and this account can create the sim's perfsim database"
+	default:
+		msg += "; this account cannot create a database, so name one to work in"
+	}
+	return msg, nil
 }

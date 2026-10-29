@@ -106,9 +106,10 @@ func (e *Engine) Prepare(ctx context.Context, name string, bytes int64, pk bool,
 	target := bytes / rowBytes
 	var have int64
 	e.wdb().QueryRowContext(ctx, "SELECT IFNULL(MAX(id), 0) FROM perfsim.`"+name+"`").Scan(&have)
-	ins := "INSERT INTO perfsim.`" + name + "` (customer, pad) SELECT FLOOR(RAND()*100000), RPAD(MD5(RAND()), 200, 'x') FROM perfsim.seq"
+	// SHA2 rather than MD5: MySQL 9 no longer has MD5().
+	ins := "INSERT INTO perfsim.`" + name + "` (customer, pad) SELECT FLOOR(RAND()*100000), RPAD(SHA2(RAND(), 256), 200, 'x') FROM perfsim.seq"
 	if !pk {
-		ins = "INSERT INTO perfsim.`" + name + "` (id, customer, pad) SELECT n + ? + 1, FLOOR(RAND()*100000), RPAD(MD5(RAND()), 200, 'x') FROM perfsim.seq"
+		ins = "INSERT INTO perfsim.`" + name + "` (id, customer, pad) SELECT n + ? + 1, FLOOR(RAND()*100000), RPAD(SHA2(RAND(), 256), 200, 'x') FROM perfsim.seq"
 	}
 	for have < target {
 		if ctx.Err() != nil {

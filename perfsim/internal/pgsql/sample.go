@@ -130,7 +130,7 @@ func (e *Engine) sampleMember(ctx context.Context, mc MemberConfig) memberSample
 		Scan(&paused, &recvLSN, &replayLSN, &behind, &applyDelay, &standbyDelay)
 	d.QueryRowContext(ctx, "SELECT status, sender_host FROM pg_stat_wal_receiver LIMIT 1").Scan(&status, &sender)
 	s.m.Fields = [][2]string{
-		{"WAL receiver", nz(status.String, "not running")},
+		{"WAL receiver", walReceiver(status)},
 		{"sender_host", nz(sender.String, "—")},
 		{"pg_is_wal_replay_paused()", strconv.FormatBool(paused)},
 		{"received, not replayed", fmtBytes(behind.Float64)},
@@ -142,7 +142,10 @@ func (e *Engine) sampleMember(ctx context.Context, mc MemberConfig) memberSample
 	switch {
 	case paused:
 		s.m.Chip, s.m.ChipText = "bad", "replay paused"
-	case status.String != "streaming":
+	case status.Valid && status.String != "streaming":
+		// A NULL status is a row this account may not read (it lacks
+		// pg_read_all_stats, like an operator's application user), not a
+		// stopped receiver; the measured lag says how replay is doing.
 		s.m.Chip, s.m.ChipText = "bad", "not streaming"
 	case s.m.Lag > 30:
 		s.m.Chip, s.m.ChipText = "bad", "lagging"
@@ -198,4 +201,12 @@ func (e *Engine) sampleInternals(ctx context.Context, d *sql.DB, id string, srv 
 	if ok && now > prev[1] && reads >= prev[0] {
 		srv.DiskReads = (reads - prev[0]) / (now - prev[1])
 	}
+}
+
+// walReceiver is the WAL receiver's status as the account can see it.
+func walReceiver(status sql.NullString) string {
+	if !status.Valid {
+		return "not visible to this account (needs pg_read_all_stats), or not running"
+	}
+	return nz(status.String, "not running")
 }

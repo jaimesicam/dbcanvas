@@ -18,7 +18,7 @@ import (
 // the search is an in-app brute-force scan, said plainly on every page.
 //
 // It is linked by a drawn edge to one PostgreSQL target, and the target is resolved to a
-// DSN by Stock Market Sim's resolvers (waitStockSimTarget), so every shape they reach
+// DSN by Stock Market Sim's resolvers (waitSimTarget), so every shape they reach
 // works here the same way: a standalone pg node, a Patroni / repmgr / Spock frame (a
 // multi-host DSN with target_session_attrs=read-write for the first two), an HAProxy node
 // in front of one of those, a PgBouncer node in front of any of them, or a K3D frame
@@ -120,7 +120,7 @@ func pgVectorSimIssues(doc designDoc, n designNode) []issue {
 			return []issue{{Level: "error", Message: who + " is linked to HAProxy node " + nodeLabel(doc, targetID) +
 				", which does not front exactly one cluster — link a Patroni, repmgr or Spock frame to the HAProxy node, or this node to the cluster directly"}}
 		}
-		if stockSimEngineForKind(backKind) != "postgres" {
+		if simEngineForKind(backKind) != "postgres" {
 			return []issue{{Level: "error", Message: who + " is linked to HAProxy node " + nodeLabel(doc, targetID) +
 				", which fronts " + back.Label + " — a MySQL-family cluster. This sim needs PostgreSQL"}}
 		}
@@ -226,7 +226,7 @@ func (a *App) provisionPGVectorSim(st Stack, n designNode, doc designDoc) {
 		// Stock Market Sim's resolver, which knows every PostgreSQL shape: it blocks until
 		// the target is running, then hands back DB_ENGINE=postgres and POSTGRES_DSN.
 		pr.phase("Waiting for linked PostgreSQL target", 20)
-		res, err := a.waitStockSimTarget(ctx, st, hosts, doc, domain, kind, targetID, deployTimeout(), false, pr.logln)
+		res, err := a.waitSimTarget(ctx, st, hosts, doc, domain, kind, targetID, deployTimeout(), false, pr.logln)
 		if err != nil {
 			pr.fail("%v", err)
 			return

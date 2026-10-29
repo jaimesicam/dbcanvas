@@ -68,7 +68,7 @@ func (e *Engine) Dials() []core.Dial {
 			Watch: []string{"Replay lag"}, Note: delayNote,
 			Params: []core.Param{{Key: "delay", Label: "Delay", Type: "pills", Opts: []any{30, 60, 300}, Def: 60, Unit: "s"}, holdParam},
 			SQL:    delaySQL}),
-	}, e.loadDials()...))
+	}, append(e.loadDials(), e.labDials()...)...))
 }
 
 var tableName = regexp.MustCompile(`^[a-z0-9_]+$`)
@@ -101,6 +101,9 @@ func (e *Engine) Start(ctx context.Context, id string, p core.Params, targets []
 		return core.NewJob(ctx, p, func(ctx context.Context, j *core.Job) { e.runDelay(ctx, j, targets, p.Int("delay", 60)) }), nil
 	}
 	if run, ok := e.startLoad(ctx, id, p, table); ok {
+		return run, nil
+	}
+	if run, ok := e.startLab(ctx, id, p, table); ok {
 		return run, nil
 	}
 	return nil, fmt.Errorf("no such stressor %q", id)

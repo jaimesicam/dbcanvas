@@ -152,6 +152,9 @@ func (e *Engine) Sample(ctx context.Context) ([]core.Member, core.ServerSample) 
 	e.mu.Lock()
 	e.memberSet, e.setPrimary = setOf, setPrimary
 	e.mu.Unlock()
+	if topo == "replset" {
+		e.followPrimary(primary)
+	}
 
 	e.mu.Lock()
 	if primary != "" {

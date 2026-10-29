@@ -22,7 +22,7 @@ import (
 // setupShardedHeartbeat shards perfsim.heartbeat and pins one _id to each shard.
 // It returns each shard's replica set name with the _id it owns.
 func (e *Engine) setupShardedHeartbeat(ctx context.Context) (map[string]int, error) {
-	admin := e.writer.Database("admin")
+	admin := e.wr().Database("admin")
 	var res struct {
 		Shards []struct {
 			ID   string `bson:"_id"`

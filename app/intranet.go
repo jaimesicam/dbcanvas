@@ -292,7 +292,7 @@ type designNode struct {
 	// is a picker), which makes "linked" structurally impossible for it.
 	// SSAIONode is the AIO node's id and SSAIOInstance the *declared* instance
 	// name on it — "ps01", "pxc-cluster-01" — resolved to a concrete running
-	// member at deploy time by stockSimAIOMember.
+	// member at deploy time by simAIOMember.
 	SSAIONode     string `json:"ssAIONode"`
 	SSAIOInstance string `json:"ssAIOInstance"`
 	SSMode        string `json:"ssMode"`   // "" | "linked" | "aio" | "manual"
@@ -418,6 +418,25 @@ type designNode struct {
 	// display move: see readPreference in stocksim/internal/api/http.go for why a read
 	// that a write depends on stays on the primary.
 	SSSplitReads bool `json:"ssSplitReads"`
+	// Performance Sim node fields (Type=="perfsim"). PSMode "" or "linked" drives
+	// the target an association line reaches; "aio" an instance on an All in One
+	// node (PSAIONode, PSAIOInstance: the declared name, every member of a
+	// cluster instance included); "manual" one server by address, inside the
+	// stack or outside it. PSPassword is stored as RootPassword is and kept out
+	// of exported templates. PSDatabase, on PostgreSQL, is a database to work in
+	// (in a perfsim schema) for an account that cannot create one. PSSplitReads
+	// sends the workload's reads to an HAProxy target's read port.
+	PSMode        string `json:"psMode"` // "" | "linked" | "aio" | "manual"
+	PSAIONode     string `json:"psAIONode"`
+	PSAIOInstance string `json:"psAIOInstance"`
+	PSEngine      string `json:"psEngine"` // "mysql" | "postgres" | "mongodb" | "valkey"
+	PSHost        string `json:"psHost"`
+	PSPort        int    `json:"psPort"` // 0 → the engine's default
+	PSUser        string `json:"psUser"`
+	PSPassword    string `json:"psPassword"`
+	PSDatabase    string `json:"psDatabase"`
+	PSTLS         string `json:"psTLS"` // "" (prefer) | "disable" | "prefer" | "require"
+	PSSplitReads  bool   `json:"psSplitReads"`
 	// Percona Orchestrator node fields (Type=="orchestrator"). A standalone topology
 	// visualization/failure-detection node — not a cluster frame — that async and
 	// semi-sync MySQL replication frames optionally point at
@@ -3189,6 +3208,15 @@ func (a *App) reconcileVanished(ctx context.Context, st Stack, doc designDoc, de
 			continue
 		}
 		cid, ok, err := docker.ContainerByName(ctx, containerName(st.ID, d.NodeID))
+		if err == nil && !ok {
+			// Not every node's container carries DBCanvas's name: a K3D node's is
+			// k3d's own (k3d-<cluster>-server-0). The id it recorded is the
+			// answer for those.
+			if _, serr := docker.ContainerState(ctx, d.ContainerID); serr == nil {
+				out = append(out, d)
+				continue
+			}
+		}
 		switch {
 		case err != nil:
 		case !ok:
@@ -3413,8 +3441,10 @@ func (a *App) handleDestroyStack(w http.ResponseWriter, r *http.Request) {
 // removing a resource that lives on the other engine is a harmless no-op (a wrong-id
 // ContainerRemove just 404s / hits a missing VM dir).
 func (a *App) removeNodeResources(ctx context.Context, st Stack, d Deployment) {
-	// A Performance Sim's network and disk conditions are on other nodes; undo them first.
+	// A Performance Sim's network and disk conditions are on other nodes, and on a
+	// Kubernetes frame it created Services there; undo them first.
 	a.clearPerfSimConditions(ctx, st, d)
+	a.clearPerfSimK8s(ctx, st, d)
 	for _, e := range a.stackEngines(st) {
 		if d.ContainerID != "" {
 			e.ContainerRemove(ctx, d.ContainerID)

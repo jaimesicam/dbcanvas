@@ -81,10 +81,10 @@ var pgcatSimEdges = []catalogEdge{
 		Desc: "Drive a simulator's workload against this PostgreSQL (from the database to the simulator)."},
 }
 
-// pgcatSpockSimEdges are a Spock cluster's: Performance Sim's lag stressors are
-// for physical streaming replication, which a Spock cluster does not use.
+// pgcatSpockSimEdges are a Spock cluster's. Performance Sim drives it too, with
+// the lag stressors that suit logical replication (see perfsim/internal/pgsql/spock.go).
 var pgcatSpockSimEdges = []catalogEdge{
-	{To: []string{"stocksim", "ledgersim"}, Type: "directional",
+	{To: []string{"stocksim", "ledgersim", "perfsim"}, Type: "directional",
 		Desc: "Drive a simulator's workload against this PostgreSQL (from the database to the simulator)."},
 }
 

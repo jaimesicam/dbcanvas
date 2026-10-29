@@ -276,6 +276,13 @@ no options of its own: link it, deploy it, and choose everything on its dashboar
   `--node 'perfsim,to=<name>'`. The sim connects to every data member (MySQL as `admin@'%'`,
   PostgreSQL as the superuser, MongoDB as the admin user, Valkey with the default user's password)
   and runs its workload through the write endpoint.
+- **Connection:** *linked* (the association line, above), *All in One* (an instance on an All in One
+  node: every member of a cluster instance is one of the sim's members, so the lag stressors work), or
+  *manual* (one server by address, inside the stack or outside it — `host.docker.internal` is the
+  Docker host — with a **Test connection** button, and on PostgreSQL an optional database to work in
+  for an account that cannot create one). Network and disk conditions need members that are canvas
+  nodes, so in the last two modes they say why they are unavailable. Linked to an HAProxy node,
+  **send reads to the read port** balances the workload's reads across the replicas.
 - **Sharded MongoDB:** the workload goes through mongos and the members are the shards' mongods
   (mongos and the config servers are left out). Lag is measured per shard: the sim shards its
   heartbeat collection on a numeric `_id` and pins one document to each shard with a zone, so each
@@ -292,9 +299,10 @@ no options of its own: link it, deploy it, and choose everything on its dashboar
   needs an address the sim can reach: a pod the operator already published keeps its own, and any
   other gets a companion LoadBalancer Service selecting just that pod (a NodePort when MetalLB's
   pool is used up), labelled `dbcanvas.io/exposed-for-tools` like the ones the Expose control
-  creates. The workload goes through the front door (HAProxy, ProxySQL, MySQL Router, mongos or
+  creates and marked as the sim's. Removing the sim removes them (and on MongoDB its user), except
+  what another sim on the same frame still uses; a Service the Expose control made stays. The workload goes through the front door (HAProxy, ProxySQL, MySQL Router, mongos or
   CloudNativePG's read/write Service), exposed the same way, or directly to the member taking
-  writes when there is none. On MongoDB DBCanvas creates a `perfsim` user with the operator's user
+  writes when there is none, following it to the new primary after a failover. On MongoDB DBCanvas creates a `perfsim` user with the operator's user
   administrator, because no operator account can both reconfigure the replica set and write the
   sim's data. Network and disk conditions need a container DBCanvas runs, so they are unavailable
   on pods; on the PostgreSQL operators, pausing or delaying replay would be undone by the
@@ -362,7 +370,11 @@ no options of its own: link it, deploy it, and choose everything on its dashboar
   | Long-running transaction | Holds a consistent snapshot open; the history list length (MySQL) or the oldest snapshot's age (PostgreSQL) climbs while it holds | MySQL family, PostgreSQL |
   | Commit storm | Many single-row autocommit writes from many workers; on MongoDB with `w: "majority", j: true` | MySQL family, PostgreSQL, MongoDB |
   | CPU-heavy queries | Hashing queries that touch no data (`BENCHMARK`, `md5` over `generate_series`); on Valkey, a Lua script that spins on the single thread for a set time | MySQL family, PostgreSQL, Valkey |
-  | Working set larger than memory | Random point reads across a prepared table; when it is larger than the buffer pool, `shared_buffers` or the WiredTiger cache, most of them read from disk | MySQL family, PostgreSQL, MongoDB |
+  | Working set larger than memory | Random point reads across a prepared table, or the first 10–50% of it (*working set*); when what is read is larger than the buffer pool, `shared_buffers` or the WiredTiger cache, most of them read from disk | MySQL family, PostgreSQL, MongoDB |
+  | Many tables | Creates up to 5,000 small tables (collections on MongoDB) and reads one row from each in turn, about 100 a second; on MySQL the dial shows `Opened_tables` per second. Kept after it stops unless *drop them* is chosen | MySQL family, PostgreSQL, MongoDB |
+  | Temporary tables | A rollup over orders that cannot use an index, with `tmp_table_size` (MySQL) or `work_mem` (PostgreSQL) set for the session so it spills to disk every time, or never; the dial counts the queries that spilled | MySQL family, PostgreSQL |
+  | Full table scans | Queries on a prepared table's unindexed column, so every row is read; the dial shows rows read by scans per second | MySQL family, PostgreSQL, MongoDB |
+  | Redo / WAL pressure | Transactions that each rewrite thousands of rows of orders, back to back; the dial shows MB of redo or WAL per second | MySQL family, PostgreSQL |
 
   A **Server internals** chart shows what these move: history list length and buffer pool reads
   from disk (MySQL family), oldest snapshot age and blocks read outside `shared_buffers`

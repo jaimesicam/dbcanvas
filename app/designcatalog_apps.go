@@ -154,11 +154,31 @@ var catalogApps = []catalogEntry{
 
 	{Type: "perfsim", Label: "Performance Sim",
 		Summary: "Stressors that make a linked MySQL-family, PostgreSQL, MongoDB or Valkey server or cluster (also a sharded MongoDB cluster, a Spock cluster, or an operator's database in a Kubernetes frame) misbehave on purpose — replication lag from large transactions or bulk writes, a no-op ALTER TABLE, VACUUM FULL or index build, FLUSH TABLES WITH READ LOCK or fsyncLock on replicas, a stopped, paused or delayed applier, a single-threaded applier, a transaction on a replica that blocks replay — contention and load on the writer from a connection storm, hot rows, a long-running transaction, a commit storm, CPU-heavy queries and a working set larger than memory, and network latency, packet loss and disk caps on chosen members, which DBCanvas applies for it, with a live timeline of their effect on the cluster and on a steady application workload. " +
-			"Every stressor, its settings and its targets are chosen on the dashboard while it runs; the node has no options of its own. Each lock, pause and setting releases itself after a maximum hold, and all of them are released when the sim stops." + catalogSimDashboard,
+			"Every stressor, its settings and its targets are chosen on the dashboard while it runs; the node's options say only where the database is. Each lock, pause and setting releases itself after a maximum hold, and all of them are released when the sim stops." + catalogSimDashboard,
 		Placement: "standalone",
 		Requires: []string{
 			"an Intranet node",
-			"an association line to a Percona Server, MySQL or MariaDB server or cluster frame, a PostgreSQL node or Patroni or repmgr frame, a PS MongoDB node or PSMDB replica set frame, a Valkey node or Valkey Cluster frame, or an HAProxy, ProxySQL or PgBouncer node in front of one",
+			"psMode \"linked\": an association line to a Percona Server, MySQL or MariaDB server or cluster frame, a PostgreSQL node or Patroni, repmgr or Spock frame, a PS MongoDB node, PSMDB replica set or sharded frame, a Valkey node or Valkey Cluster frame, a K3D frame with a database operator, or an HAProxy, ProxySQL or PgBouncer node in front of one",
+			"psMode \"aio\": psAIONode and psAIOInstance naming a MySQL-family, PostgreSQL or MongoDB instance",
+			"psMode \"manual\": psHost",
+		},
+		Options: []catalogOption{
+			{Field: "psMode", Values: []string{"linked", "aio", "manual"}, Default: "linked",
+				Desc: "Where the database is: linked (the association line), aio (an instance on an All in One node; every member of a cluster instance is one of the sim's members), or manual (one server by address, which may be outside the stack). \"\" means linked. Network and disk conditions need members that are canvas nodes, so only linked targets have them."},
+			{Field: "psAIONode", Desc: "The All in One node's id.", When: "psMode is \"aio\""},
+			{Field: "psAIOInstance", Desc: "Declared instance name on the All in One node (e.g. ps01, pxc-cluster-01). MySQL-family, PostgreSQL and MongoDB kinds only.", When: "psMode is \"aio\""},
+			{Field: "psEngine", Values: []string{"mysql", "postgres", "mongodb", "valkey"}, Default: "mysql", Desc: "Engine of the manual connection.", When: "psMode is \"manual\""},
+			{Field: "psHost", Desc: "Host name or address, e.g. db.example.net; host.docker.internal reaches the Docker host.", When: "psMode is \"manual\""},
+			{Field: "psPort", Desc: "Port; 0 uses the engine default (3306, 5432, 27017, 6379).", When: "psMode is \"manual\""},
+			{Field: "psUser", Desc: "User name. The stressors lock, reconfigure and create tables, so an administrative account lets the most of them run.", When: "psMode is \"manual\""},
+			{Field: "psPassword", Desc: "Password; stored in the deployment's secrets and left out of exported templates.", When: "psMode is \"manual\""},
+			{Field: "psDatabase", Desc: "PostgreSQL: an existing database to work in, in a perfsim schema, for an account that cannot create the sim's own perfsim database. \"\" lets the sim create perfsim.", When: "psMode is \"manual\" and psEngine is \"postgres\""},
+			{Field: "psTLS", Values: []string{"prefer", "require", "disable"}, Default: "prefer", Desc: "TLS mode of the manual connection (MySQL, PostgreSQL; require on MongoDB).", When: "psMode is \"manual\""},
+			{Field: "psSplitReads", Default: false, Desc: "Send the workload's reads to an HAProxy target's read port, balanced across the replicas; writes stay on the write port.", When: "psMode is \"linked\" and the link is to an HAProxy node"},
+		},
+		Actions: []catalogAction{
+			{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/perfsim/test", Desc: "Test a manual connection from inside the stack network; works before the node is deployed.",
+				Body: "engine, host, port, user, password, database, tls", When: "psMode is \"manual\""},
 		},
 		Edges: []catalogEdge{
 			{To: []string{

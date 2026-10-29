@@ -65,6 +65,17 @@ type perfSimConfig struct {
 	// Applied is the network and disk conditions DBCanvas has put on members for
 	// this sim, kept so they can be cleared after an app restart. See perfsimcond.go.
 	Applied map[string]perfSimApplied `json:"applied,omitempty"`
+	// On a Kubernetes frame: what the sim created there, removed with it (see
+	// perfsim_k8s.go). Only what it created: a Service that gave a pod an
+	// address before the sim came is left alone.
+	K8sFrame     string   `json:"k8sFrame,omitempty"`
+	K8sNamespace string   `json:"k8sNamespace,omitempty"`
+	K8sExposed   []string `json:"k8sExposed,omitempty"`
+	K8sMongoUser bool     `json:"k8sMongoUser,omitempty"`
+	// CondWhy says why no member can have network or disk conditions, for a
+	// sim whose members are not canvas nodes (Kubernetes pods, an All in One
+	// node's instances, a server named by address).
+	CondWhy string `json:"condWhy,omitempty"`
 }
 
 // perfSimMember and perfSimTarget are what the image reads from PERFSIM_TARGET
@@ -95,14 +106,22 @@ type perfSimTarget struct {
 	URI            string          `json:"uri,omitempty"` // MongoDB: the application's connection string
 	// Valkey in Sentinel mode: the name Sentinel monitors the primary under, and
 	// every Sentinel, so the workload follows a failover.
-	SentinelMaster string          `json:"sentinelMaster,omitempty"`
-	Sentinels      []string        `json:"sentinels,omitempty"`
-	Members        []perfSimMember `json:"members"`
+	SentinelMaster string   `json:"sentinelMaster,omitempty"`
+	Sentinels      []string `json:"sentinels,omitempty"`
+	// TLS is a manual connection's mode: prefer, require or disable.
+	TLS string `json:"tls,omitempty"`
+	// Reader, when set, is where the workload's reads go: an HAProxy target's
+	// read port, which balances them across the replicas.
+	Reader *perfSimEndpoint `json:"reader,omitempty"`
+	// CondWhy is why DBCanvas cannot apply network and disk conditions to
+	// these members; DBCanvas reads it, the sim does not.
+	CondWhy string          `json:"-"`
+	Members []perfSimMember `json:"members"`
 }
 
 // perfSimLink is the node's linked target, if it is one Performance Sim supports.
 func perfSimLink(doc designDoc, nodeID string) (kind, targetID string, ok bool) {
-	kind, targetID, ok = stockSimTarget(doc, nodeID)
+	kind, targetID, ok = simLinkedTarget(doc, nodeID)
 	if !ok || !perfSimTargets[kind] {
 		return kind, targetID, false
 	}
@@ -132,6 +151,9 @@ func perfSimFrame(doc designDoc, kind, targetID string) (designFrame, bool) {
 
 // perfSimIssues validates a Performance Sim node.
 func perfSimIssues(doc designDoc, n designNode) []issue {
+	if perfSimMode(n) != "linked" {
+		return perfSimModeIssues(doc, n)
+	}
 	kind, targetID, ok := perfSimLink(doc, n.ID)
 	switch {
 	case targetID == "":
@@ -166,6 +188,10 @@ func perfSimIssues(doc designDoc, n designNode) []issue {
 			return []issue{{Level: "error", Message: "Performance Sim node " + n.Label +
 				" is linked to a ProxySQL node with no PXC or MySQL replication cluster behind it."}}
 		}
+	}
+	if n.PSSplitReads && kind != "haproxy" {
+		return []issue{{Level: "warning", Message: "Performance Sim node " + n.Label +
+			" splits reads, which only an HAProxy target has a read port for; every statement goes to the write endpoint."}}
 	}
 	return nil
 }
@@ -209,11 +235,14 @@ func (a *App) provisionPerfSim(st Stack, n designNode, doc designDoc) {
 	}
 	cfg := perfSimConfig{Image: perfSimImage, Hostname: host, FQDN: fqdnOf(host, domain)}
 
-	// Keep the published port across a redeploy so a bookmarked dashboard still works.
+	// Keep the published port across a redeploy so a bookmarked dashboard still works,
+	// and what an earlier deploy created in Kubernetes, which this one reuses.
+	var prevExposed []string
 	if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Config) > 0 {
 		var old perfSimConfig
 		if json.Unmarshal(dep.Config, &old) == nil {
 			cfg.HTTPPort = old.HTTPPort
+			prevExposed = old.K8sExposed
 		}
 	}
 	if cfg.HTTPPort == 0 {
@@ -222,8 +251,9 @@ func (a *App) provisionPerfSim(st Stack, n designNode, doc designDoc) {
 		}
 	}
 
+	mode := perfSimMode(n)
 	kind, targetID, ok := perfSimLink(doc, n.ID)
-	if !ok {
+	if !ok && mode == "linked" {
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployError, Config: mustJSON(cfg)})
 		return
 	}
@@ -247,9 +277,29 @@ func (a *App) provisionPerfSim(st Stack, n designNode, doc designDoc) {
 		}
 
 		pr.phase("Waiting for the linked database", 20)
-		engine := stockSimEngineForTarget(doc, kind, targetID)
+		if mode != "linked" {
+			// An All in One instance, or a server named by address.
+			var target perfSimTarget
+			if mode == "aio" {
+				if target, err = a.perfSimAIOTarget(ctx, st, doc, n, deployTimeout()); err != nil {
+					pr.fail("%v", err)
+					return
+				}
+			} else {
+				target = perfSimManualTarget(n)
+			}
+			for _, m := range target.Members {
+				cfg.Members = append(cfg.Members, m.ID)
+			}
+			cfg.TargetKind, cfg.TargetName, cfg.CondWhy = target.Kind, target.Name, target.CondWhy
+			cfg.Writer = fmt.Sprintf("%s:%d", target.Writer.Host, target.Writer.Port)
+			pr.logln(fmt.Sprintf("target: %s, writes through %s, %d member(s): %v", target.Name, cfg.Writer, len(cfg.Members), cfg.Members))
+			a.startPerfSim(ctx, st, n, host, domain, intranetIP, cfg, target, pr)
+			return
+		}
+		engine := simEngineForTarget(doc, kind, targetID)
 		if kind == "k3d" {
-			k, err := a.perfSimK8sTarget(ctx, st, doc, frameByID(doc, targetID), engine, deployTimeout(), pr)
+			k, err := a.perfSimK8sTarget(ctx, st, doc, frameByID(doc, targetID), engine, prevExposed, deployTimeout(), pr)
 			if err != nil {
 				pr.fail("%v", err)
 				return
@@ -264,21 +314,22 @@ func (a *App) provisionPerfSim(st Stack, n designNode, doc designDoc) {
 				cfg.Members = append(cfg.Members, m.ID)
 			}
 			cfg.TargetKind, cfg.TargetName = target.Kind, k.name
+			cfg.K8sFrame, cfg.K8sNamespace, cfg.K8sExposed, cfg.K8sMongoUser = targetID, k.ns, k.exposed, engine == "mongodb"
 			cfg.Writer = fmt.Sprintf("%s:%d", k.writer.Host, k.writer.Port)
 			pr.logln(fmt.Sprintf("target: %s, writes through %s, %d pod(s): %v", k.name, cfg.Writer, len(cfg.Members), cfg.Members))
 			a.startPerfSim(ctx, st, n, host, domain, intranetIP, cfg, target, pr)
 			return
 		}
-		var r stockSimResolved
+		var r simResolved
 		switch engine {
 		case "postgres":
-			r, err = a.stockSimPostgresTarget(ctx, st, hosts, doc, domain, kind, targetID, deployTimeout(), false)
+			r, err = a.simPostgresTarget(ctx, st, hosts, doc, domain, kind, targetID, deployTimeout(), n.PSSplitReads)
 		case "mongodb":
-			r, err = a.stockSimMongoTarget(ctx, st, hosts, doc, domain, kind, targetID, deployTimeout())
+			r, err = a.simMongoTarget(ctx, st, hosts, doc, domain, kind, targetID, deployTimeout())
 		case "valkey":
-			r, err = a.stockSimValkeyTarget(ctx, st, hosts, doc, domain, kind, targetID, deployTimeout())
+			r, err = a.simValkeyTarget(ctx, st, hosts, doc, domain, kind, targetID, deployTimeout())
 		default:
-			r, err = a.stockSimMySQLTarget(ctx, st, hosts, doc, domain, kind, targetID, deployTimeout(), false)
+			r, err = a.simMySQLTarget(ctx, st, hosts, doc, domain, kind, targetID, deployTimeout(), n.PSSplitReads)
 		}
 		if err != nil {
 			pr.fail("%v", err)
@@ -294,6 +345,11 @@ func (a *App) provisionPerfSim(st Stack, n designNode, doc designDoc) {
 			Name: r.displayName, Engine: engine, Kind: kind,
 			WriterUser: r.secrets.User, WriterPassword: r.secrets.Password,
 			Writer: perfSimEndpoint{Host: r.host, Port: r.port},
+		}
+		if r.readPort > 0 {
+			// An HAProxy target with the split on: the workload's reads go to its
+			// read port, balanced across the replicas.
+			target.Reader = &perfSimEndpoint{Host: r.host, Port: r.readPort}
 		}
 		memberPort := pxcMySQLPort
 		if f, ok := perfSimFrame(doc, kind, targetID); ok && (f.Type == "patroni" || f.Type == "repmgr" || f.Type == "spock") {
@@ -398,6 +454,8 @@ func (a *App) startPerfSim(ctx context.Context, st Stack, n designNode, host, do
 		Network: networkName(st.ID), Aliases: []string{host},
 		PublishMap: []PortMap{{ContainerPort: perfSimPort, HostPort: cfg.HTTPPort}},
 		DNS:        []string{intranetIP}, DNSSearch: []string{domain},
+		// A manual connection may name the Docker host.
+		ExtraHosts: []string{"host.docker.internal:host-gateway"},
 	})
 	if err != nil {
 		pr.fail("create container: %v", err)

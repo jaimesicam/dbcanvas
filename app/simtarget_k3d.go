@@ -10,9 +10,9 @@ import (
 	"time"
 )
 
-// stocksim_k3d.go — resolving a K3D cluster frame to something a Stock Market
-// Sim node can connect to, for **every** operator DBCanvas can install, not
-// just CloudNativePG.
+// simtarget_k3d.go — resolving a K3D cluster frame to something a simulator
+// node can connect to, for **every** operator DBCanvas can install, not just
+// CloudNativePG. (Performance Sim reaches each pod as well: perfsim_k8s.go.)
 //
 // A K3D frame is unlike every other linked target in three ways, which is why
 // it gets its own file rather than another case in the family resolvers:
@@ -36,8 +36,8 @@ import (
 // a secret edited by hand, or an operator release that renames a key, should
 // change what the sim connects with rather than silently break it.
 
-// k3dOperatorEngine maps a K3D frame's operator to the engine a Stock Market
-// Sim node would speak to it. Empty for a frame with no operator selected — a
+// k3dOperatorEngine maps a K3D frame's operator to the engine a simulator
+// node would speak to it. Empty for a frame with no operator selected — a
 // bare Kubernetes cluster has no database in it to drive.
 func k3dOperatorEngine(operator string) string {
 	switch strings.TrimSpace(operator) {
@@ -241,7 +241,7 @@ func orDefault(s, def string) string {
 
 // ---------------------------------------------------------------- the resolver
 
-// stockSimK3DTarget resolves a database running inside a K3D frame, whichever
+// simK3DTarget resolves a database running inside a K3D frame, whichever
 // of the six operators built it.
 //
 // It polls, like every other waitStockSim*Target, because the frame and the sim
@@ -251,7 +251,7 @@ func orDefault(s, def string) string {
 // a database exposed only as ClusterIP — because waiting cannot fix either, and
 // a user staring at a deploy log deserves the answer now rather than at the
 // timeout.
-func (a *App) stockSimK3DTarget(ctx context.Context, st Stack, doc designDoc, frameID string, timeout time.Duration, logln func(string)) (stockSimResolved, error) {
+func (a *App) simK3DTarget(ctx context.Context, st Stack, doc designDoc, frameID string, timeout time.Duration, logln func(string)) (simResolved, error) {
 	frame := frameByID(doc, frameID)
 	deadline := time.Now().Add(timeout)
 	// What to say if the timeout wins. Until the frame's server node reports a
@@ -264,7 +264,7 @@ func (a *App) stockSimK3DTarget(ctx context.Context, st Stack, doc designDoc, fr
 		if ok {
 			engine := k3dOperatorEngine(cfg.Operator)
 			if engine == "" {
-				return stockSimResolved{}, fmt.Errorf(
+				return simResolved{}, fmt.Errorf(
 					"the linked Kubernetes cluster %s runs no database operator — choose one on the frame (PXC, Percona Server, PSMDB, Percona PostgreSQL, CloudNativePG or Crunchy PGO), or link this node to a database elsewhere in the stack",
 					frame.Label)
 			}
@@ -273,7 +273,7 @@ func (a *App) stockSimK3DTarget(ctx context.Context, st Stack, doc designDoc, fr
 			case err == nil:
 				return res, nil
 			case !retry:
-				return stockSimResolved{}, err
+				return simResolved{}, err
 			}
 			// Each distinct reason once, so the deploy log reads as a cluster
 			// coming up rather than as a hang — but a hundred identical lines
@@ -284,13 +284,13 @@ func (a *App) stockSimK3DTarget(ctx context.Context, st Stack, doc designDoc, fr
 			lastWhy = []string{err.Error()}
 		}
 		if time.Now().After(deadline) {
-			return stockSimResolved{}, fmt.Errorf(
+			return simResolved{}, fmt.Errorf(
 				"%s in %s did not report a reachable endpoint within %s: %s",
 				k3dOperatorLabel(frame.K3DOperator), frame.Label, timeout, strings.Join(lastWhy, "; "))
 		}
 		select {
 		case <-ctx.Done():
-			return stockSimResolved{}, ctx.Err()
+			return simResolved{}, ctx.Err()
 		case <-time.After(2 * time.Second):
 		}
 	}
@@ -299,7 +299,7 @@ func (a *App) stockSimK3DTarget(ctx context.Context, st Stack, doc designDoc, fr
 // k3dResolveOperator does one attempt for whichever operator the frame runs.
 // retry is true when the answer could still change on its own — the operator is
 // still creating Services, or a LoadBalancer address has not landed.
-func (a *App) k3dResolveOperator(ctx context.Context, serverID string, frame designFrame, cfg k3dConfig) (res stockSimResolved, retry bool, err error) {
+func (a *App) k3dResolveOperator(ctx context.Context, serverID string, frame designFrame, cfg k3dConfig) (res simResolved, retry bool, err error) {
 	if cfg.Operator == "cnpg" {
 		return a.k3dCNPGResolve(ctx, serverID, frame, cfg)
 	}
@@ -316,18 +316,18 @@ func (a *App) k3dResolveOperator(ctx context.Context, serverID string, frame des
 	if cfg.Operator != "pgo" {
 		if state, ready := a.k3dCRState(ctx, serverID, cfg); !ready {
 			if state == "error" {
-				return stockSimResolved{}, false, fmt.Errorf(
+				return simResolved{}, false, fmt.Errorf(
 					"%s in %s reports state %q — the cluster did not come up, so there is nothing to connect to",
 					k3dOperatorLabel(cfg.Operator), frame.Label, state)
 			}
-			return stockSimResolved{}, true, fmt.Errorf(
+			return simResolved{}, true, fmt.Errorf(
 				"%s in %s is %s, not ready yet", k3dOperatorLabel(cfg.Operator), frame.Label, orDefault(state, "still starting"))
 		}
 	}
 
 	svcs, serr := a.k3dServices(ctx, serverID, cfg.Namespace)
 	if serr != nil {
-		return stockSimResolved{}, true, serr
+		return simResolved{}, true, serr
 	}
 	switch cfg.Operator {
 	case "pxc":
@@ -339,7 +339,7 @@ func (a *App) k3dResolveOperator(ctx context.Context, serverID string, frame des
 	case "pg", "pgo":
 		return a.k3dPGResolve(ctx, serverID, frame, cfg, svcs)
 	}
-	return stockSimResolved{}, false, fmt.Errorf("unsupported Kubernetes operator %q", cfg.Operator)
+	return simResolved{}, false, fmt.Errorf("unsupported Kubernetes operator %q", cfg.Operator)
 }
 
 // k3dCRState reads the custom resource's own `.status.state`, which is how each
@@ -393,7 +393,7 @@ func (a *App) k3dSecretOr(ctx context.Context, serverID, ns, secret, key, fallba
 // is currently taking them, so a failover is invisible to the sim. The per-pod
 // Services (cluster1-pxc-0, …) are the fallback for a cluster deployed with no
 // proxy exposed — any PXC member accepts writes, so member 0 is as good as any.
-func (a *App) k3dPXCResolve(ctx context.Context, serverID string, frame designFrame, cfg k3dConfig, svcs []kubeService) (stockSimResolved, bool, error) {
+func (a *App) k3dPXCResolve(ctx context.Context, serverID string, frame designFrame, cfg k3dConfig, svcs []kubeService) (simResolved, bool, error) {
 	cr := cfg.ClusterName
 	names := []string{cr + "-haproxy"}
 	if cfg.Proxy == "proxysql" {
@@ -406,11 +406,11 @@ func (a *App) k3dPXCResolve(ctx context.Context, serverID string, frame designFr
 	}
 	ep, ok, retry, why := a.k3dPickEndpoint(ctx, serverID, svcs, pxcMySQLPort, []string{"mysql"}, names...)
 	if !ok {
-		return stockSimResolved{}, retry, k3dExposeAdvice(frame, "the proxy (or the PXC pods)", why)
+		return simResolved{}, retry, k3dExposeAdvice(frame, "the proxy (or the PXC pods)", why)
 	}
 	pass := a.k3dSecretOr(ctx, serverID, cfg.Namespace, cr+"-secrets", "root", "")
 	if pass == "" {
-		return stockSimResolved{}, true, fmt.Errorf(
+		return simResolved{}, true, fmt.Errorf(
 			"could not read the root password out of Secret %q in namespace %q", cr+"-secrets", cfg.Namespace)
 	}
 	return k3dMySQLResolved(frame, cfg, ep, "root", pass), false, nil
@@ -422,7 +422,7 @@ func (a *App) k3dPXCResolve(ctx context.Context, serverID string, frame designFr
 // either HAProxy or MySQL Router; Router answers read/write on 6446 rather than
 // 3306, which is why the port is picked by name. `-mysql-primary` is the
 // fallback: the operator's exposePrimary Service, which follows the primary.
-func (a *App) k3dPSResolve(ctx context.Context, serverID string, frame designFrame, cfg k3dConfig, svcs []kubeService) (stockSimResolved, bool, error) {
+func (a *App) k3dPSResolve(ctx context.Context, serverID string, frame designFrame, cfg k3dConfig, svcs []kubeService) (simResolved, bool, error) {
 	cr := cfg.ClusterName
 	front := cr + "-haproxy"
 	if psProxy(cfg.Proxy, psClusterType(cfg.ClusterType)) == "router" {
@@ -431,11 +431,11 @@ func (a *App) k3dPSResolve(ctx context.Context, serverID string, frame designFra
 	ep, ok, retry, why := a.k3dPickEndpoint(ctx, serverID, svcs, pxcMySQLPort,
 		[]string{"rw", "mysql"}, front, cr+"-mysql-primary")
 	if !ok {
-		return stockSimResolved{}, retry, k3dExposeAdvice(frame, "the proxy (or the MySQL primary)", why)
+		return simResolved{}, retry, k3dExposeAdvice(frame, "the proxy (or the MySQL primary)", why)
 	}
 	pass := a.k3dSecretOr(ctx, serverID, cfg.Namespace, cr+"-secrets", "root", "")
 	if pass == "" {
-		return stockSimResolved{}, true, fmt.Errorf(
+		return simResolved{}, true, fmt.Errorf(
 			"could not read the root password out of Secret %q in namespace %q", cr+"-secrets", cfg.Namespace)
 	}
 	return k3dMySQLResolved(frame, cfg, ep, "root", pass), false, nil
@@ -443,11 +443,11 @@ func (a *App) k3dPSResolve(ctx context.Context, serverID string, frame designFra
 
 // k3dMySQLResolved is the common tail of the two MySQL operators: the DSN, and
 // the profile fields the node panel renders.
-func k3dMySQLResolved(frame designFrame, cfg k3dConfig, ep k3dEndpoint, user, pass string) stockSimResolved {
+func k3dMySQLResolved(frame designFrame, cfg k3dConfig, ep k3dEndpoint, user, pass string) simResolved {
 	dsn := fmt.Sprintf("%s:%s@tcp(%s)/?tls=false", user, pass, ep.addr())
-	return stockSimResolved{
+	return simResolved{
 		env:         []string{"DB_ENGINE=mysql", "MYSQL_DSN=" + dsn},
-		secrets:     stockSimSecrets{User: user, Password: pass},
+		secrets:     simSecrets{User: user, Password: pass},
 		engine:      "mysql",
 		kind:        "k3d-" + cfg.Operator,
 		displayName: k3dTargetName(frame, cfg, ep),
@@ -480,12 +480,12 @@ func k3dMySQLResolved(frame designFrame, cfg k3dConfig, ep k3dEndpoint, user, pa
 // the primary, and the sim node has to be redeployed to follow it. Every write
 // endpoint DBCanvas resolves for a replica set elsewhere is a name that follows
 // the primary; this is the one that cannot be.
-func (a *App) k3dPSMDBResolve(ctx context.Context, serverID string, frame designFrame, cfg k3dConfig, svcs []kubeService) (stockSimResolved, bool, error) {
+func (a *App) k3dPSMDBResolve(ctx context.Context, serverID string, frame designFrame, cfg k3dConfig, svcs []kubeService) (simResolved, bool, error) {
 	cr := cfg.ClusterName
 	user := a.k3dSecretOr(ctx, serverID, cfg.Namespace, cr+"-secrets", "MONGODB_DATABASE_ADMIN_USER", "databaseAdmin")
 	pass := a.k3dSecretOr(ctx, serverID, cfg.Namespace, cr+"-secrets", "MONGODB_DATABASE_ADMIN_PASSWORD", "")
 	if pass == "" {
-		return stockSimResolved{}, true, fmt.Errorf(
+		return simResolved{}, true, fmt.Errorf(
 			"could not read MONGODB_DATABASE_ADMIN_PASSWORD out of Secret %q in namespace %q", cr+"-secrets", cfg.Namespace)
 	}
 	creds := url.QueryEscape(user) + ":" + url.QueryEscape(pass)
@@ -493,12 +493,12 @@ func (a *App) k3dPSMDBResolve(ctx context.Context, serverID string, frame design
 	if cfg.Sharding {
 		ep, ok, retry, why := a.k3dPickEndpoint(ctx, serverID, svcs, mongoPort, []string{"mongos"}, cr+"-mongos")
 		if !ok {
-			return stockSimResolved{}, retry, k3dExposeAdvice(frame, "the mongos routers", why)
+			return simResolved{}, retry, k3dExposeAdvice(frame, "the mongos routers", why)
 		}
 		uri := fmt.Sprintf("mongodb://%s@%s/?authSource=admin", creds, ep.addr())
-		return stockSimResolved{
+		return simResolved{
 			env:         []string{"DB_ENGINE=mongodb", "MONGO_URI=" + uri},
-			secrets:     stockSimSecrets{User: user, Password: pass},
+			secrets:     simSecrets{User: user, Password: pass},
 			engine:      "mongodb",
 			kind:        "k3d-psmdb",
 			displayName: k3dTargetName(frame, cfg, ep),
@@ -510,12 +510,12 @@ func (a *App) k3dPSMDBResolve(ctx context.Context, serverID string, frame design
 	rs := a.k3dPSMDBReplsetName(ctx, serverID, cfg)
 	members := servicesWithPrefix(svcs, cr+"-"+rs+"-")
 	if len(members) == 0 {
-		return stockSimResolved{}, true, fmt.Errorf(
+		return simResolved{}, true, fmt.Errorf(
 			"the %s replica set in %s has no member Services yet", rs, frame.Label)
 	}
 	primary, ok := a.k3dPSMDBPrimaryService(ctx, serverID, cfg, rs, len(members))
 	if !ok {
-		return stockSimResolved{}, true, fmt.Errorf(
+		return simResolved{}, true, fmt.Errorf(
 			"the %s replica set in %s has not elected a primary yet", rs, frame.Label)
 	}
 	// A search-enabled cluster has a LoadBalancer DBCanvas added beside the operator's
@@ -526,18 +526,18 @@ func (a *App) k3dPSMDBResolve(ctx context.Context, serverID string, frame design
 		svc, found = findService(svcs, primary)
 	}
 	if !found {
-		return stockSimResolved{}, true, fmt.Errorf(
+		return simResolved{}, true, fmt.Errorf(
 			"the %s replica set's primary is pod %s, which has no Service of its own — expose the replica set's pods on the Kubernetes frame",
 			rs, primary)
 	}
 	ep, retry, err := a.resolveService(ctx, serverID, svc, mongoPort, "mongodb")
 	if err != nil {
-		return stockSimResolved{}, retry, k3dExposeAdvice(frame, "the replica set's pods", []string{err.Error()})
+		return simResolved{}, retry, k3dExposeAdvice(frame, "the replica set's pods", []string{err.Error()})
 	}
 	uri := fmt.Sprintf("mongodb://%s@%s/?authSource=admin&directConnection=true", creds, ep.addr())
-	return stockSimResolved{
+	return simResolved{
 		env:         []string{"DB_ENGINE=mongodb", "MONGO_URI=" + uri},
-		secrets:     stockSimSecrets{User: user, Password: pass},
+		secrets:     simSecrets{User: user, Password: pass},
 		engine:      "mongodb",
 		kind:        "k3d-psmdb",
 		displayName: k3dTargetName(frame, cfg, ep),
@@ -610,12 +610,12 @@ func (a *App) k3dPSMDBReplsetName(ctx context.Context, serverID string, cfg k3dC
 //     database — the fallback that exists for exactly this shape of target.
 //   - direct to the primary: the `postgres` superuser, whose secret DBCanvas
 //     pre-creates with the `.env` password, so the sim gets a database of its own.
-func (a *App) k3dPGResolve(ctx context.Context, serverID string, frame designFrame, cfg k3dConfig, svcs []kubeService) (stockSimResolved, bool, error) {
+func (a *App) k3dPGResolve(ctx context.Context, serverID string, frame designFrame, cfg k3dConfig, svcs []kubeService) (simResolved, bool, error) {
 	cr := cfg.ClusterName
 	ep, ok, retry, why := a.k3dPickEndpoint(ctx, serverID, svcs, patroniPGPort,
 		[]string{"pgbouncer", "postgres"}, cr+"-pgbouncer", cr+"-ha")
 	if !ok {
-		return stockSimResolved{}, retry, k3dExposeAdvice(frame,
+		return simResolved{}, retry, k3dExposeAdvice(frame,
 			"the pgBouncer pool (or Expose · PostgreSQL, the primary Service)", why)
 	}
 	user := "postgres"
@@ -625,7 +625,7 @@ func (a *App) k3dPGResolve(ctx context.Context, serverID string, frame designFra
 	secret := cr + "-pguser-" + user
 	pass := a.k3dSecretOr(ctx, serverID, cfg.Namespace, secret, "password", envOr("POSTGRES_PASSWORD", ""))
 	if pass == "" {
-		return stockSimResolved{}, true, fmt.Errorf(
+		return simResolved{}, true, fmt.Errorf(
 			"could not read the %s password out of Secret %q in namespace %q", user, secret, cfg.Namespace)
 	}
 	return k3dPostgresResolved(frame, cfg, ep, user, pass, user), false, nil
@@ -644,22 +644,22 @@ func (a *App) k3dPGResolve(ctx context.Context, serverID string, frame designFra
 // resolve in, and the reason the pool can be the only thing a frame exposes.
 // The pool is a Pooler of type rw, so it follows the primary across a failover
 // and the credentials are the cluster's own either way.
-func (a *App) k3dCNPGResolve(ctx context.Context, serverID string, frame designFrame, cfg k3dConfig) (stockSimResolved, bool, error) {
+func (a *App) k3dCNPGResolve(ctx context.Context, serverID string, frame designFrame, cfg k3dConfig) (simResolved, bool, error) {
 	endpoint, tier, svc := strings.TrimSpace(cfg.CNPGEndpoint), "the CloudNativePG primary", cfg.ClusterName+"-rw-lb"
 	if cfg.CNPGPooler && cfg.CNPGPoolerExpose == "LoadBalancer" {
 		endpoint, tier, svc = strings.TrimSpace(cfg.CNPGPoolerEndpoint), "the PgBouncer pool", cnpgPoolerName(cfg.ClusterName)
 	} else if cfg.CNPGExpose != "LoadBalancer" {
-		return stockSimResolved{}, false, k3dExposeAdvice(frame, "the CloudNativePG primary or its PgBouncer pool",
+		return simResolved{}, false, k3dExposeAdvice(frame, "the CloudNativePG primary or its PgBouncer pool",
 			[]string{"the primary is exposed as " + orDefault(endpoint, "ClusterIP")})
 	}
 	if endpoint == "" || endpoint == "pending" {
-		return stockSimResolved{}, true, fmt.Errorf("CloudNativePG in %s has not reported an address for %s yet", frame.Label, tier)
+		return simResolved{}, true, fmt.Errorf("CloudNativePG in %s has not reported an address for %s yet", frame.Label, tier)
 	}
 	user := orDefault(cfg.CNPGAppUser, "app")
 	db := orDefault(cfg.CNPGAppDB, "app")
 	pass := a.k3dSecretOr(ctx, serverID, cfg.Namespace, cfg.CNPGAppSecret, "password", "")
 	if pass == "" {
-		return stockSimResolved{}, true, fmt.Errorf(
+		return simResolved{}, true, fmt.Errorf(
 			"could not read the CloudNativePG application password out of Secret %q in namespace %q",
 			cfg.CNPGAppSecret, cfg.Namespace)
 	}
@@ -673,15 +673,15 @@ func (a *App) k3dCNPGResolve(ctx context.Context, serverID string, frame designF
 // sslmode=prefer covers all of them: CNPG and the Percona operator accept
 // plaintext, Crunchy PGO refuses it, and `prefer` negotiates TLS first either
 // way.
-func k3dPostgresResolved(frame designFrame, cfg k3dConfig, ep k3dEndpoint, user, pass, db string) stockSimResolved {
+func k3dPostgresResolved(frame designFrame, cfg k3dConfig, ep k3dEndpoint, user, pass, db string) simResolved {
 	dsn := (&url.URL{
 		Scheme: "postgres", User: url.UserPassword(user, pass),
 		Host: ep.addr(), Path: "/" + db,
 		RawQuery: "sslmode=prefer&connect_timeout=10",
 	}).String()
-	return stockSimResolved{
+	return simResolved{
 		env:         []string{"DB_ENGINE=postgres", "POSTGRES_DSN=" + dsn},
-		secrets:     stockSimSecrets{User: user, Password: pass},
+		secrets:     simSecrets{User: user, Password: pass},
 		engine:      "postgres",
 		kind:        "k3d-" + cfg.Operator,
 		displayName: k3dTargetName(frame, cfg, ep),
@@ -754,40 +754,6 @@ func k3dExposedTiers(f designFrame) map[string]string {
 		return tiers
 	}
 	return nil
-}
-
-// stockSimK3DExposeIssues warns when a Stock Market Sim node is linked to a
-// Kubernetes frame whose database is exposed only inside the cluster.
-//
-// A warning rather than an error: the design says what will happen, but the
-// cluster is the one that decides, and an operator release that adds a Service
-// DBCanvas does not know about should not be able to block a deploy. The
-// resolver gives the definitive answer at deploy time — this just gives it
-// twenty minutes earlier.
-func stockSimK3DExposeIssues(doc designDoc, n designNode) []issue {
-	if stockSimMode(n) != "linked" {
-		return nil
-	}
-	kind, targetID, ok := stockSimTarget(doc, n.ID)
-	if !ok || kind != "k3d" {
-		return nil
-	}
-	f := frameByID(doc, targetID)
-	tiers := k3dExposedTiers(f)
-	if len(tiers) == 0 {
-		return nil // no operator: stockSimEngineAndIssues has already said so
-	}
-	var names []string
-	for tier, typ := range tiers {
-		if typ != "ClusterIP" {
-			return nil // at least one tier is routable from the stack network
-		}
-		names = append(names, tier)
-	}
-	sort.Strings(names)
-	return []issue{{Level: "warning", Message: fmt.Sprintf(
-		"Stock Market Sim node %s is linked to Kubernetes frame %s, where %s %s exposed as ClusterIP — an address that exists only inside the cluster. Set %s to LoadBalancer or NodePort on the frame, or the sim will have nothing to connect to.",
-		n.Label, f.Label, strings.Join(names, " and "), tierVerb(names), joinOr(names))}}
 }
 
 // tierVerb agrees "is"/"are" with the tier names, which are plural on their own as often

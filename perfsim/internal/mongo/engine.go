@@ -6,9 +6,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -42,8 +44,12 @@ const ordersDocs = 100000
 
 type Engine struct {
 	cfg    Config
-	writer *mongo.Client // the application's: default write concern (majority on a replica set)
-	hb     *mongo.Client // heartbeat: w:1, so a stalled majority does not stop the clock
+	writer atomic.Pointer[mongo.Client] // the application's: default write concern (majority on a replica set)
+	hb     atomic.Pointer[mongo.Client] // heartbeat: w:1, so a stalled majority does not stop the clock
+	// direct is the member the clients point at when the connection string
+	// names one member directly (a Kubernetes replica set reached through one
+	// pod's address); "" otherwise. See followPrimary.
+	direct string
 	mc     map[string]*mongo.Client
 
 	mu       sync.Mutex
@@ -67,10 +73,10 @@ type Engine struct {
 func New(cfg Config) *Engine {
 	e := &Engine{cfg: cfg, mc: map[string]*mongo.Client{}, lag: map[string]float64{}, readsPrev: map[string][2]float64{},
 		memberSet: map[string]string{}, setPrimary: map[string]string{}, hbIdx: map[string]int{}}
-	e.writer, _ = mongo.Connect(context.Background(), options.Client().ApplyURI(cfg.URI).
-		SetMaxPoolSize(80).SetServerSelectionTimeout(5*time.Second).SetAppName("perfsim"))
-	e.hb, _ = mongo.Connect(context.Background(), options.Client().ApplyURI(cfg.URI).
-		SetMaxPoolSize(2).SetServerSelectionTimeout(5*time.Second).SetAppName("perfsim").SetWriteConcern(writeconcern.W1()))
+	w, hb := connectWriter(cfg.URI)
+	e.writer.Store(w)
+	e.hb.Store(hb)
+	e.direct = directMember(cfg)
 	for _, m := range cfg.Members {
 		u := fmt.Sprintf("mongodb://%s:%s@%s:%d/?authSource=admin&directConnection=true",
 			url.QueryEscape(cfg.User), url.QueryEscape(cfg.Password), m.Host, m.Port)
@@ -81,21 +87,88 @@ func New(cfg Config) *Engine {
 	return e
 }
 
+func (e *Engine) wr() *mongo.Client  { return e.writer.Load() }
+func (e *Engine) hbc() *mongo.Client { return e.hb.Load() }
+
+// connectWriter opens the workload's client and the heartbeat's on a
+// connection string.
+func connectWriter(uri string) (w, hb *mongo.Client) {
+	w, _ = mongo.Connect(context.Background(), options.Client().ApplyURI(uri).
+		SetMaxPoolSize(80).SetServerSelectionTimeout(5*time.Second).SetAppName("perfsim"))
+	hb, _ = mongo.Connect(context.Background(), options.Client().ApplyURI(uri).
+		SetMaxPoolSize(2).SetServerSelectionTimeout(5*time.Second).SetAppName("perfsim").SetWriteConcern(writeconcern.W1()))
+	return w, hb
+}
+
+// directMember is the member a directConnection=true connection string names,
+// or "" for any other.
+func directMember(cfg Config) string {
+	u, err := url.Parse(cfg.URI)
+	if err != nil || u.Query().Get("directConnection") != "true" {
+		return ""
+	}
+	for _, m := range cfg.Members {
+		if u.Host == fmt.Sprintf("%s:%d", m.Host, m.Port) {
+			return m.ID
+		}
+	}
+	return ""
+}
+
+// followPrimary points the workload and the heartbeat at a replica set's new
+// primary when they reach it through one member directly, as on Kubernetes,
+// where the members' own names do not resolve outside the cluster and the
+// driver cannot follow a failover by itself. Through a replica set connection
+// string or mongos the driver follows it, and nothing changes here.
+func (e *Engine) followPrimary(primary string) {
+	e.mu.Lock()
+	cur := e.direct
+	e.mu.Unlock()
+	if cur == "" || primary == "" || primary == cur {
+		return
+	}
+	var to MemberConfig
+	for _, m := range e.cfg.Members {
+		if m.ID == primary {
+			to = m
+		}
+	}
+	u, err := url.Parse(e.cfg.URI)
+	if err != nil || to.ID == "" {
+		return
+	}
+	u.Host = fmt.Sprintf("%s:%d", to.Host, to.Port)
+	w, hb := connectWriter(u.String())
+	oldW, oldH := e.writer.Swap(w), e.hb.Swap(hb)
+	e.mu.Lock()
+	e.direct = primary
+	e.mu.Unlock()
+	log.Printf("perfsim: %s is the primary now; the workload follows it", primary)
+	// Statements in flight finish on the old clients first.
+	go func() {
+		time.Sleep(30 * time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		oldW.Disconnect(ctx)
+		oldH.Disconnect(ctx)
+	}()
+}
+
 func (e *Engine) Close() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	e.writer.Disconnect(ctx)
-	e.hb.Disconnect(ctx)
+	e.wr().Disconnect(ctx)
+	e.hbc().Disconnect(ctx)
 	for _, c := range e.mc {
 		c.Disconnect(ctx)
 	}
 }
 
-func (e *Engine) db() *mongo.Database { return e.writer.Database(database) }
+func (e *Engine) db() *mongo.Database { return e.wr().Database(database) }
 
 func (e *Engine) Init(ctx context.Context) error {
 	var build bson.M
-	if err := e.writer.Database("admin").RunCommand(ctx, bson.D{{Key: "buildInfo", Value: 1}}).Decode(&build); err != nil {
+	if err := e.wr().Database("admin").RunCommand(ctx, bson.D{{Key: "buildInfo", Value: 1}}).Decode(&build); err != nil {
 		return err
 	}
 	version, _ := build["version"].(string)
@@ -104,7 +177,7 @@ func (e *Engine) Init(ctx context.Context) error {
 		flavor = "percona"
 	}
 	var hello bson.M
-	e.writer.Database("admin").RunCommand(ctx, bson.D{{Key: "hello", Value: 1}}).Decode(&hello)
+	e.wr().Database("admin").RunCommand(ctx, bson.D{{Key: "hello", Value: 1}}).Decode(&hello)
 	topo := "standalone"
 	if hello["msg"] == "isdbgrid" {
 		// mongos: a sharded cluster.
@@ -169,7 +242,7 @@ func (e *Engine) Heartbeat(ctx context.Context) error {
 	now := time.Now()
 	var err error
 	for _, id := range ids {
-		_, werr := e.hb.Database(database).Collection("heartbeat").UpdateOne(ctx, bson.D{{Key: "_id", Value: id}},
+		_, werr := e.hbc().Database(database).Collection("heartbeat").UpdateOne(ctx, bson.D{{Key: "_id", Value: id}},
 			bson.D{{Key: "$set", Value: bson.D{{Key: "ts", Value: now}}}}, options.Update().SetUpsert(true))
 		if werr != nil && err == nil {
 			err = werr
@@ -291,4 +364,22 @@ func (e *Engine) memberByAddr(addr string) string {
 		}
 	}
 	return ""
+}
+
+// Probe connects as the workload does and describes the server, for a
+// connection test.
+func (e *Engine) Probe(ctx context.Context) (string, error) {
+	var build, hello bson.M
+	if err := e.wr().Database("admin").RunCommand(ctx, bson.D{{Key: "buildInfo", Value: 1}}).Decode(&build); err != nil {
+		return "", err
+	}
+	e.wr().Database("admin").RunCommand(ctx, bson.D{{Key: "hello", Value: 1}}).Decode(&hello)
+	what := "a standalone server"
+	switch {
+	case hello["msg"] == "isdbgrid":
+		what = "mongos"
+	case hello["setName"] != nil:
+		what = fmt.Sprintf("replica set %v", hello["setName"])
+	}
+	return fmt.Sprintf("MongoDB %v, %s", build["version"], what), nil
 }

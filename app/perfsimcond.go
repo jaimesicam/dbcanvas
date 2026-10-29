@@ -137,7 +137,10 @@ func (a *App) syncPerfSim(ctx context.Context, st Stack, doc designDoc, dep Depl
 		// Members that are not canvas nodes (an operator's pods in Kubernetes):
 		// nothing can be applied, and the sim is told why.
 		if len(cfg.Members) > 0 && dep.State == DeployRunning && dep.ContainerID != "" {
-			why := "These members are pods in Kubernetes; DBCanvas shapes the network and disk of the containers it runs, not of pods."
+			why := cfg.CondWhy
+			if why == "" {
+				why = "These members are pods in Kubernetes; DBCanvas shapes the network and disk of the containers it runs, not of pods."
+			}
 			a.perfSimCall(ctx, st, dep.ContainerID, perfSimCaps{NetWhy: why, DiskWhy: why}, nil)
 		}
 		return

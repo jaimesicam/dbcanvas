@@ -105,6 +105,7 @@ const (
 	gSample    = "Sample Client Code"
 	gStockSim  = "Stock Market Sim"
 	gLedgerSim = "Ledger Sim"
+	gPerfSim   = "Performance Sim"
 	gImages    = "Node images"
 	gTokens    = "API tokens"
 	gShare     = "Shared sessions"
@@ -119,7 +120,7 @@ const (
 var apiGroupOrder = []string{
 	gAuth, gPrefs, gUsers, gTokens, gMeta,
 	gStacks, gTemplates, gCatalog, gImages, gNodes, gClusters,
-	gDataGen, gQueryRun, gExplorer, gBench, gSample, gStockSim, gLedgerSim,
+	gDataGen, gQueryRun, gExplorer, gBench, gSample, gStockSim, gLedgerSim, gPerfSim,
 	gPkt, gLog, gFTDC, gStalk, gOpSum, gCaptures, gDebug, gGDB,
 	gDash, gNotif, gShare, gKanban,
 	gFS, gCerts, gMail, gLDAP, gDNS, gSamba, gK3D, gAIO, gSeaweed, gOpenBao, gRepo,
@@ -572,6 +573,10 @@ func buildAPIRoutes() []apiRoute {
 		// stack's network — see handleStockSimTest.
 		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/stocksim/test", Group: gStockSim, ReadOnly: true, Handler: m((*App).handleStockSimTest),
 			Summary: "Test a hand-entered database connection from inside the stack network before deploying with it."},
+
+		// --- Performance Sim ----------------------------------------------------
+		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/perfsim/test", Group: gPerfSim, ReadOnly: true, Handler: m((*App).handlePerfSimTest),
+			Summary: "Test a Performance Sim's manual connection from inside the stack network before deploying with it."},
 
 		// --- Ledger Sim ---------------------------------------------------------
 		// Same shape as the Stock Market Sim's check and for the same reason, but the

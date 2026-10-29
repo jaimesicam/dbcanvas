@@ -714,8 +714,9 @@ export const NODE_TYPES = {
       lsCustomers: 0, lsStartPaused: false,
     },
   },
-  // Performance Sim: stressors for a MySQL-family server or cluster, every one of
-  // them chosen on its dashboard, so the node has nothing to set but its line.
+  // Performance Sim: stressors for a MySQL-family, PostgreSQL, MongoDB or Valkey
+  // server or cluster, every one of them chosen on its dashboard; the node sets
+  // only where the database is (a line, an All in One instance or an address).
   perfsim: {
     label: 'Performance Sim',
     slug: 'perfsim',
@@ -9220,7 +9221,7 @@ const SS_ENGINES = [
   { id: 'mongodb', label: 'MongoDB', port: 27017, ready: true },
   { id: 'valkey', label: 'Valkey', port: 6379, ready: true },
 ]
-// SS_LINK_TYPES mirrors stockSimTarget in app/stocksim.go: every canvas target
+// SS_LINK_TYPES mirrors simLinkedTarget in app/simtarget.go: every canvas target
 // a Stock Market Sim node can be linked to, node or frame, with the label the
 // form shows for it. Keys are node/frame types — which for these are also the
 // coarse kinds the backend switches on.
@@ -9301,7 +9302,7 @@ export const SS_LINK_ENGINE = {
   valkey: 'valkey', valkeycluster: 'valkey',
 }
 
-// SS_K3D_ENGINE mirrors k3dOperatorEngine in app/stocksim_k3d.go: a Kubernetes
+// SS_K3D_ENGINE mirrors k3dOperatorEngine in app/simtarget_k3d.go: a Kubernetes
 // frame's engine is whichever of the six operators it runs, not the frame type,
 // so it is absent from SS_LINK_ENGINE for the same reason the routers are.
 // A frame with no operator selected has no database in it to drive.
@@ -9403,7 +9404,7 @@ function StockSimForm({ node: n, nodes, frames, edges, stackId, patchNode, delet
   const [test, setTest] = useState(null)
   const [testing, setTesting] = useState(false)
 
-  // Mirrors stockSimTarget's edge walk: a standalone database node, a router,
+  // Mirrors simLinkedTarget's edge walk: a standalone database node, a router,
   // or a cluster frame. Nodes are checked before frames, and a node inside a
   // frame is skipped, exactly as the backend does it — otherwise a line drawn
   // to a cluster member would read as a link to a database this app cannot
@@ -9741,7 +9742,7 @@ function StockSimForm({ node: n, nodes, frames, edges, stackId, patchNode, delet
 
       {/* Only an HAProxy target has a second port that means "a replica": every
           other shape here is one endpoint, and ProxySQL splits reads inside itself.
-          Mirrors the haproxy branches of stockSimMySQLTarget/stockSimPostgresTarget. */}
+          Mirrors the haproxy branches of simMySQLTarget/simPostgresTarget. */}
       {mode === 'linked' && linkedTarget?.kind === 'haproxy' && (
         <label className={`flex items-start gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
           <input type="checkbox" className="mt-0.5" checked={!!n.ssSplitReads} disabled={deployed}
@@ -9861,7 +9862,7 @@ function LedgerSimForm ({ node: n, nodes, frames, edges, stackId, patchNode, del
   const [test, setTest] = useState(null)
   const [testing, setTesting] = useState(false)
 
-  // The same undirected edge walk stockSimTarget does, over the JDBC subset.
+  // The same undirected edge walk simLinkedTarget does, over the JDBC subset.
   const linkedTarget = (() => {
     for (const e of edges) {
       const other = e.from.node === n.id ? e.to.node : (e.to.node === n.id ? e.from.node : null)
@@ -10090,17 +10091,19 @@ function LedgerSimForm ({ node: n, nodes, frames, edges, stackId, patchNode, del
 const PS_LINKABLE_KINDS = new Set([
   'ps', 'mariadb', 'mysqlce',
   'backend', 'innodb', 'mariadbrepl', 'mariadbgalera', 'mysqlcerepl', 'mysqlceinnodb',
-  'pg', 'patroni', 'repmgr',
-  'psm', 'psmrs',
+  'pg', 'patroni', 'repmgr', 'spock',
+  'psm', 'psmrs', 'psmdb',
   'valkey', 'valkeycluster',
   'haproxy', 'proxysql', 'pgbouncer',
+  'k3d',
 ])
 const PS_TARGET_LABEL = {
   ps: 'Percona Server', mariadb: 'MariaDB', mysqlce: 'MySQL',
   pxc: 'PXC cluster', mysql: 'MySQL replication', innodb: 'InnoDB Cluster', mariadbrepl: 'MariaDB replication',
   mariadbgalera: 'MariaDB Galera', mysqlcerepl: 'MySQL replication (CE)', mysqlceinnodb: 'MySQL InnoDB Cluster (CE)',
-  pg: 'PostgreSQL', patroni: 'Patroni cluster', repmgr: 'repmgr cluster',
-  psm: 'PS MongoDB', psmrs: 'PSMDB replica set', valkey: 'Valkey', valkeycluster: 'Valkey Cluster',
+  pg: 'PostgreSQL', patroni: 'Patroni cluster', repmgr: 'repmgr cluster', spock: 'Spock cluster',
+  psm: 'PS MongoDB', psmrs: 'PSMDB replica set', psmdb: 'sharded PSMDB cluster', valkey: 'Valkey', valkeycluster: 'Valkey Cluster',
+  k3d: 'Kubernetes cluster',
   haproxy: 'HAProxy', proxysql: 'ProxySQL', pgbouncer: 'PgBouncer',
 }
 
@@ -10119,8 +10122,42 @@ function perfSimLinked (n, nodes, frames, edges) {
 
 // PerfSimForm is a Performance Sim node before it runs: nothing to set but the
 // line, because every stressor is chosen on the dashboard.
-function PerfSimForm ({ node: n, nodes, frames, edges, patchNode, deleteNode, dep }) {
+// PS_AIO_ENGINE is the engine an All in One instance family speaks, for the
+// families Performance Sim can drive (mirrors aioEngineForKind).
+const PS_AIO_ENGINE = { mysql: 'mysql', postgres: 'postgres', mongodb: 'mongodb' }
+const PS_ENGINES = [
+  { id: 'mysql', label: 'MySQL family', port: 3306 },
+  { id: 'postgres', label: 'PostgreSQL', port: 5432 },
+  { id: 'mongodb', label: 'MongoDB', port: 27017 },
+  { id: 'valkey', label: 'Valkey', port: 6379 },
+]
+
+function PerfSimForm ({ node: n, nodes, frames, edges, stackId, patchNode, deleteNode, dep, deployed }) {
+  const mode = n.psMode === 'manual' || n.psMode === 'aio' ? n.psMode : 'linked'
   const linked = perfSimLinked(n, nodes, frames, edges)
+  const engine = PS_ENGINES.find((e) => e.id === n.psEngine) || PS_ENGINES[0]
+  const aioNodes = nodes.filter((x) => x.type === 'aio')
+  const aioInstances = (aioNodes.find((x) => x.id === n.psAIONode)?.aioInstances || []).map((i) => ({
+    name: i.name,
+    kindLabel: aioKindOf(i.kind)?.label || i.kind,
+    usable: !!PS_AIO_ENGINE[aioFamilyOf(i.kind)],
+  }))
+  const [testing, setTesting] = useState(false)
+  const [test, setTest] = useState(null)
+  async function runTest () {
+    setTesting(true)
+    setTest(null)
+    try {
+      setTest(await stackApi.perfsimTest(stackId, n.id, {
+        engine: engine.id, host: n.psHost || '', port: Number(n.psPort) || 0,
+        user: n.psUser || '', password: n.psPassword || '', database: n.psDatabase || '', tls: n.psTLS || 'prefer',
+      }))
+    } catch (err) {
+      setTest({ ok: false, message: err.message || String(err) })
+    } finally {
+      setTesting(false)
+    }
+  }
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -10128,18 +10165,134 @@ function PerfSimForm ({ node: n, nodes, frames, edges, patchNode, deleteNode, de
         {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
       </div>
       <p className="text-xs text-muted">
-        Stressors that make the linked server or cluster misbehave on purpose, starting with replication lag:
-        large transactions, a no-op ALTER TABLE, FLUSH TABLES WITH READ LOCK on replicas, a stopped or delayed
-        applier, and network latency, packet loss and disk caps on chosen members. Its dashboard shows each one's effect on the cluster and on a steady application workload, as it happens.
+        Stressors that make the server or cluster misbehave on purpose: replication lag (large transactions,
+        a no-op ALTER TABLE, FLUSH TABLES WITH READ LOCK, a stopped or delayed applier, a failover), connections,
+        locks, commit, redo and CPU load, many tables, temporary tables, full scans, a working set larger than
+        memory, and network latency, packet loss and disk caps on chosen members. Its dashboard shows each one's
+        effect on the cluster and on a steady application workload, as it happens.
       </p>
-      {linked ? (
-        <div className="rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-xs text-primary">
-          Linked to {PS_TARGET_LABEL[linked.type]} <span className="font-mono font-medium">{linked.label}</span>
+      <Field label="Database" help={HELP.benchTarget}>
+        <div className="flex gap-1">
+          {[['linked', 'Linked node'], ['aio', 'All in One'], ['manual', 'Manual']].map(([id, label]) => (
+            <button key={id} type="button" disabled={deployed}
+              className={`flex-1 rounded-md border px-2 py-1 text-xs ${mode === id ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted hover:text-fg'}`}
+              onClick={() => patchNode(n.id, { psMode: id })}>{label}</button>
+          ))}
+        </div>
+      </Field>
+      {mode === 'linked' ? (
+        linked ? (
+          <div className="rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-xs text-primary">
+            Linked to {PS_TARGET_LABEL[linked.type]} <span className="font-mono font-medium">{linked.label}</span>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
+            Not linked. Draw an association line from a Percona Server, MySQL, MariaDB, PostgreSQL, MongoDB or Valkey server or cluster (Spock and sharded MongoDB included), from an HAProxy, ProxySQL or PgBouncer in front of one, or from a Kubernetes frame running a database operator, to this node.
+          </div>
+        )
+      ) : mode === 'aio' ? (
+        <div className="space-y-2.5 rounded-lg border border-border bg-surface2 p-2.5">
+          <p className="text-xs text-muted">
+            An instance on an All in One node; every member of a cluster instance is one of the sim's members.
+            Network and disk conditions are unavailable here: the instances share one container.
+          </p>
+          {aioNodes.length === 0 ? (
+            <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
+              There is no All in One node in this stack. Add one, or choose another connection.
+            </div>
+          ) : (
+            <>
+              <Field label="All in One node" help={HELP.benchTarget}>
+                <select className={inputCls} value={n.psAIONode || ''} disabled={deployed}
+                  onChange={(e) => patchNode(n.id, { psAIONode: e.target.value, psAIOInstance: '' })}>
+                  <option value="">Choose a node…</option>
+                  {aioNodes.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+                </select>
+              </Field>
+              <Field label="Instance" help={HELP.benchTarget}>
+                <select className={inputCls} value={n.psAIOInstance || ''} disabled={deployed || !n.psAIONode}
+                  onChange={(e) => patchNode(n.id, { psAIOInstance: e.target.value })}>
+                  <option value="">Choose an instance…</option>
+                  {aioInstances.map((i) => (
+                    <option key={i.name} value={i.name} disabled={!i.usable}>
+                      {i.name} — {i.kindLabel}{i.usable ? '' : ' (not a database the sim can drive)'}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </>
+          )}
         </div>
       ) : (
-        <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
-          Not linked. Draw an association line from a Percona Server, MySQL, MariaDB, PostgreSQL, MongoDB or Valkey server or cluster, or from an HAProxy, ProxySQL or PgBouncer in front of one, to this node.
+        <div className="space-y-2.5 rounded-lg border border-border bg-surface2 p-2.5">
+          <p className="text-xs text-muted">
+            One server by address, in this stack or outside it; <span className="font-mono">host.docker.internal</span> is
+            the Docker host. The stressors lock, reconfigure and create tables, so an administrative account lets the most of
+            them run. Network and disk conditions are unavailable for a server DBCanvas does not run.
+          </p>
+          <Field label="Engine" help={HELP.benchEngine}>
+            <select className={inputCls} value={engine.id} disabled={deployed}
+              onChange={(e) => patchNode(n.id, { psEngine: e.target.value })}>
+              {PS_ENGINES.map((e) => <option key={e.id} value={e.id}>{e.label}</option>)}
+            </select>
+          </Field>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="col-span-2">
+              <Field label="Host" help={HELP.benchHost}>
+                <input className={inputCls} value={n.psHost || ''} placeholder="db.example.net"
+                  onChange={(e) => patchNode(n.id, { psHost: e.target.value })} />
+              </Field>
+            </div>
+            <Field label="Port" help={HELP.benchPort}>
+              <input className={inputCls} type="number" value={n.psPort || ''} placeholder={String(engine.port)}
+                onChange={(e) => patchNode(n.id, { psPort: Number(e.target.value) || 0 })} />
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="User" help={HELP.benchUser}>
+              <input className={inputCls} value={n.psUser || ''}
+                onChange={(e) => patchNode(n.id, { psUser: e.target.value })} />
+            </Field>
+            <Field label="Password" help={HELP.benchPassword}>
+              <input className={inputCls} type="password" value={n.psPassword || ''}
+                onChange={(e) => patchNode(n.id, { psPassword: e.target.value })} />
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {engine.id === 'postgres' && (
+              <Field label="Database" help={HELP.benchDatabase} hint="Blank lets the sim create its own perfsim database; name one for an account that cannot.">
+                <input className={inputCls} value={n.psDatabase || ''} placeholder="perfsim"
+                  onChange={(e) => patchNode(n.id, { psDatabase: e.target.value })} />
+              </Field>
+            )}
+            {engine.id !== 'valkey' && (
+              <Field label="TLS" help={HELP.benchTLS}>
+                <select className={inputCls} value={n.psTLS || 'prefer'}
+                  onChange={(e) => patchNode(n.id, { psTLS: e.target.value })}>
+                  <option value="prefer">Prefer</option>
+                  <option value="require">Require</option>
+                  <option value="disable">Disable</option>
+                </select>
+              </Field>
+            )}
+          </div>
+          <Button variant="secondary" size="sm" className="w-full" onClick={runTest} disabled={testing}>
+            {testing ? 'Testing…' : 'Test connection'}
+          </Button>
+          {test && (
+            <div className={`rounded-lg border px-2.5 py-1.5 text-xs ${
+              test.ok ? 'border-primary/30 bg-primary/10 text-primary' : 'border-danger/30 bg-danger/15 text-danger'}`}>
+              {test.message}
+            </div>
+          )}
         </div>
+      )}
+      {mode === 'linked' && linked?.type === 'haproxy' && (
+        <label className="flex items-start gap-2 text-xs">
+          <input type="checkbox" className="mt-0.5" checked={!!n.psSplitReads} disabled={deployed}
+            onChange={(e) => patchNode(n.id, { psSplitReads: e.target.checked })} />
+          <span>Send the workload's reads to HAProxy's read port, balanced across the replicas; writes stay on the write port.</span>
+        </label>
       )}
       <p className="text-xs text-muted">
         Every stressor, its settings and the members it acts on are chosen on the dashboard once the node is running.
@@ -15080,7 +15233,7 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     }
     if (n.type === 'perfsim') {
       if (dep && dep.state === 'running') return <PerfSimManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
-      return <PerfSimForm node={n} nodes={nodes} frames={frames} edges={edges} patchNode={patchNode} deleteNode={deleteNode} dep={dep} />
+      return <PerfSimForm node={n} nodes={nodes} frames={frames} edges={edges} stackId={stackId} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
     if (n.type === 'ledgersim') {
       if (dep && dep.state === 'running') {

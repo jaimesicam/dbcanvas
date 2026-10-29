@@ -273,7 +273,7 @@ func TestPgBouncerDSNExtra(t *testing.T) {
 }
 
 func TestLedgerSimParamsBehindAPool(t *testing.T) {
-	pooled := stockSimResolved{engine: "postgres", noPrepare: true}
+	pooled := simResolved{engine: "postgres", noPrepare: true}
 	if got := ledgerSimParams(designNode{}, pooled); got != "prepareThreshold=0" {
 		t.Errorf("pooled with no params: got %q", got)
 	}
@@ -285,10 +285,10 @@ func TestLedgerSimParamsBehindAPool(t *testing.T) {
 		t.Errorf("explicit prepareThreshold must win: got %q", got)
 	}
 	// Direct to a server, or a MySQL endpoint: nothing to add.
-	if got := ledgerSimParams(designNode{}, stockSimResolved{engine: "postgres"}); got != "" {
+	if got := ledgerSimParams(designNode{}, simResolved{engine: "postgres"}); got != "" {
 		t.Errorf("unpooled: got %q", got)
 	}
-	if got := ledgerSimParams(designNode{}, stockSimResolved{engine: "mysql", noPrepare: true}); got != "" {
+	if got := ledgerSimParams(designNode{}, simResolved{engine: "mysql", noPrepare: true}); got != "" {
 		t.Errorf("mysql: got %q", got)
 	}
 }

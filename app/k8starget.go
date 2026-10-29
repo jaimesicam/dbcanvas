@@ -93,6 +93,10 @@ type k8sEndpoint struct {
 	// one did. It is what lets the control say "Remove" rather than "Expose", and what
 	// distinguishes an address the operator published from one DBCanvas added.
 	ExposedBy string
+	// ExposeFor, when set, names the feature asking for a companion Service; it is
+	// recorded on the Service (k8sExposeForAnnotation) so that feature can find,
+	// adopt and remove its own later. The Expose control leaves it empty.
+	ExposeFor string
 
 	// Pod/Container are the exec route: a pod running this database and the container
 	// in it that has the client.

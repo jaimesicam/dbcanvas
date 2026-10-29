@@ -123,6 +123,7 @@ var catalogK3D = []catalogEntry{
 		Relations: []string{"monitor", "repository", "backup", "storage", "vault"},
 		Edges: []catalogEdge{
 			{To: []string{"k3d"}, Type: "async", Desc: "Cross-cluster replication from this frame (source) to another K3D frame (replica), drawn frame to frame. Both must run k3dOperator \"pxc\" and have a SeaweedFS backup store; the replica is seeded from a backup of the source, and the source's database Services become LoadBalancer."},
+			{To: []string{"stocksim", "supportsim", "pgvectorsim", "perfsim"}, Type: "directional", Desc: "Drive a simulator against the database the frame's operator runs (from the frame to the simulator). Performance Sim gives each database pod an address of its own with a companion LoadBalancer Service, removed with the sim."},
 		},
 		Actions: []catalogAction{
 			// Access

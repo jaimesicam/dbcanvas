@@ -52,7 +52,7 @@ func (e *Engine) loadDials() []core.Dial {
 			Watch: []string{"Connections", "Errors"},
 			Params: []core.Param{{Key: "conns", Label: "Connections", Type: "steps", Opts: []any{100, 250, 500, 1000, 2000}, Def: 250},
 				{Key: "hold", Label: "Maximum hold, then release", Type: "pills", Opts: []any{30, 60, 120, 300}, Def: 120, Unit: "s"}},
-			SQL: "// {conns} at once, then idle in the pool:\ndb.adminCommand({ hello: 1, topologyVersion: tv, maxAwaitTimeMS: 3000 })"},
+			SQL: "// {conns} at once, then idle in the pool:\ndb.storm.find().tailable({ awaitData: true }).maxAwaitTimeMS(3000)  // a capped collection"},
 		hot,
 		{ID: "commits", Group: groupIO, Name: "Commit storm", Kind: "toggle", Available: true,
 			Desc:   "Many single-document writes from many workers, each acknowledged only once it is journaled on a majority. Every write waits for a journal flush, and on a replica set for the secondaries too.",
@@ -60,11 +60,12 @@ func (e *Engine) loadDials() []core.Dial {
 			Params: []core.Param{{Key: "workers", Label: "Workers", Type: "steps", Opts: []any{8, 32, 64, 128}, Def: 32}},
 			SQL:    "db.commits.updateOne({ _id: n }, { $inc: { n: 1 } }, { upsert: true,\n  writeConcern: { w: \"majority\", j: true } })  // from every worker"},
 		{ID: "scan", Group: groupMem, Name: "Working set larger than memory", Kind: "toggle", NeedsTable: "pk", Available: true,
-			Desc:   "Random point reads across a whole prepared collection. When it is larger than the WiredTiger cache, most of them miss it and read the page from disk, and pages the workload needs are evicted.",
-			Watch:  []string{"Pages read into cache", "p99 latency"},
-			Params: []core.Param{{Key: "workers", Label: "Readers", Type: "steps", Opts: []any{4, 16, 32}, Def: 16}},
-			Note:   "Prepare a collection bigger than the WiredTiger cache for the effect; the dial says how they compare when it starts. A page read from disk may still come from the operating system's page cache.",
-			SQL:    "db.{table}.findOne({ _id: n })  // a random _id each time"},
+			Desc:  "Random point reads across a whole prepared collection. When it is larger than the WiredTiger cache, most of them miss it and read the page from disk, and pages the workload needs are evicted.",
+			Watch: []string{"Pages read into cache", "p99 latency"},
+			Params: []core.Param{{Key: "workers", Label: "Readers", Type: "steps", Opts: []any{4, 16, 32}, Def: 16},
+				{Key: "share", Label: "Working set", Type: "pills", Opts: []any{10, 25, 50, 100}, Def: 100, Unit: "%"}},
+			Note: "Prepare a collection bigger than the WiredTiger cache for the effect; the dial says how they compare when it starts. A page read from disk may still come from the operating system's page cache.",
+			SQL:  "db.{table}.findOne({ _id: n })  // a random _id each time"},
 	}
 }
 
@@ -85,10 +86,11 @@ func (e *Engine) startLoad(ctx context.Context, id string, p core.Params, table 
 	return core.NewJob(ctx, p, run), true
 }
 
-// runStorm keeps a client to the primary with a pool as large as the number
-// chosen, and fills it by checking that many connections out at once: each runs
-// an awaitable hello, which the server holds for a few seconds. Afterwards they
-// stay open, idle in the pool. Disconnecting is the whole release.
+// runStorm keeps a client to the primary (mongos on a sharded cluster) with a
+// pool as large as the number chosen, and fills it by checking that many
+// connections out at once: each waits in a tailable cursor's getMore, which the
+// server holds for a few seconds. Afterwards they stay open, idle in the pool.
+// Disconnecting is the whole release.
 func (e *Engine) runStorm(ctx context.Context, j *core.Job) {
 	want := j.Param().Int("conns", 250)
 	e.mu.Lock()
@@ -123,23 +125,30 @@ func (e *Engine) runStorm(ctx context.Context, j *core.Job) {
 	}()
 	admin := c.Database("admin")
 	var lastErr atomic.Value
+	// A tailable cursor on a capped collection: its getMore waits for new
+	// documents up to maxAwaitTime, and holds its connection meanwhile, on a
+	// mongod and through mongos alike (mongos answers an awaitable hello at
+	// once, so that cannot hold one).
+	db := c.Database(database)
+	db.CreateCollection(ctx, "storm", options.CreateCollection().SetCapped(true).SetSizeInBytes(4096))
+	db.Collection("storm").InsertOne(ctx, bson.D{{Key: "n", Value: 0}})
 	fill := func() {
-		var hello struct {
-			TopologyVersion bson.Raw `bson:"topologyVersion"`
-		}
-		if err := admin.RunCommand(ctx, bson.D{{Key: "hello", Value: 1}}).Decode(&hello); err != nil {
-			lastErr.Store(err.Error())
-			return
-		}
 		var wg sync.WaitGroup
 		for i := 0; i < want; i++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				err := admin.RunCommand(ctx, bson.D{{Key: "hello", Value: 1}, {Key: "topologyVersion", Value: hello.TopologyVersion}, {Key: "maxAwaitTimeMS", Value: 3000}}).Err()
-				if err != nil && ctx.Err() == nil {
-					lastErr.Store(err.Error())
+				cur, err := db.Collection("storm").Find(ctx, bson.D{},
+					options.Find().SetCursorType(options.TailableAwait).SetMaxAwaitTime(3*time.Second))
+				if err != nil {
+					if ctx.Err() == nil {
+						lastErr.Store(err.Error())
+					}
+					return
 				}
+				defer cur.Close(context.Background())
+				cur.TryNext(ctx) // the document already there
+				cur.TryNext(ctx) // one getMore, which waits up to maxAwaitTime
 			}()
 		}
 		wg.Wait()
@@ -156,11 +165,12 @@ func (e *Engine) runStorm(ctx context.Context, j *core.Job) {
 			} `bson:"connections"`
 		}
 		admin.RunCommand(ctx, bson.D{{Key: "serverStatus", Value: 1}}).Decode(&ss)
-		who := "the primary"
+		note := fmt.Sprintf("the primary has %.0f connections in all", ss.Connections.Current)
 		if sharded {
-			who = "mongos"
+			// One address may front several mongos (a Kubernetes Service does),
+			// which share the storm; the one that answered reports its own.
+			note = fmt.Sprintf("the mongos that answered has %.0f connections in all; with several mongos behind one address, the storm is spread across them", ss.Connections.Current)
 		}
-		note := fmt.Sprintf("%s has %.0f connections in all", who, ss.Connections.Current)
 		if v, _ := lastErr.Load().(string); v != "" {
 			note += " · last error: " + short(v, 80)
 		}
@@ -216,7 +226,7 @@ func (e *Engine) runHotDocs(ctx context.Context, j *core.Job) {
 }
 
 func (e *Engine) hotTxn(ctx context.Context, hot *mongo.Collection, ids []int) error {
-	s, err := e.writer.StartSession()
+	s, err := e.wr().StartSession()
 	if err != nil {
 		return err
 	}
@@ -286,7 +296,7 @@ func (e *Engine) runScan(ctx context.Context, j *core.Job, table string) {
 	var ss bson.M
 	// The cache is a mongod's: on a sharded cluster, mongos has none, so a
 	// shard primary's (the collection lives on the database's primary shard).
-	status := e.writer
+	status := e.wr()
 	e.mu.Lock()
 	if c := e.mc[e.writerID]; c != nil && e.topology == "sharded" {
 		status = c
@@ -307,7 +317,7 @@ func (e *Engine) runScan(ctx context.Context, j *core.Job, table string) {
 			defer wg.Done()
 			for ctx.Err() == nil {
 				var doc bson.Raw
-				err := c.FindOne(ctx, bson.D{{Key: "_id", Value: 1 + rand.Int64N(last.ID)}}).Decode(&doc)
+				err := c.FindOne(ctx, bson.D{{Key: "_id", Value: 1 + rand.Int64N(max(1, last.ID*int64(j.Param().Int("share", 100))/100))}}).Decode(&doc)
 				if err == nil || errors.Is(err, mongo.ErrNoDocuments) {
 					n.Add(1)
 				} else {

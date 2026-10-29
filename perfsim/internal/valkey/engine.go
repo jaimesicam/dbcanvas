@@ -231,3 +231,16 @@ func field(info, name, def string) string {
 	}
 	return def
 }
+
+// Probe connects to the first member and describes the server, for a
+// connection test.
+func (e *Engine) Probe(ctx context.Context) (string, error) {
+	if len(e.cfg.Members) == 0 {
+		return "", fmt.Errorf("no server to connect to")
+	}
+	info, err := e.mc[e.cfg.Members[0].ID].Info(ctx, "server", "replication").Result()
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Valkey %s, %s", field(info, "valkey_version", field(info, "redis_version", "?")), field(info, "role", "?")), nil
+}

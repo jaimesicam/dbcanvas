@@ -36,6 +36,10 @@ const k8sExposeLabel = "dbcanvas.io/exposed-for-tools"
 // one slash — the prefix — so appending a second path segment makes it invalid.
 const k8sExposeSourceAnnotation = "dbcanvas.io/exposed-source"
 
+// k8sExposeForAnnotation names the feature a companion Service was created for
+// ("perfsim"), when it was not the Expose control.
+const k8sExposeForAnnotation = "dbcanvas.io/exposed-for"
+
 // k8sExposeResult is what happened, in terms a user can act on.
 type k8sExposeResult struct {
 	Service string `json:"service"`
@@ -114,6 +118,9 @@ func k8sExposeManifest(name string, e k8sEndpoint, svcType string) string {
 	b.WriteString("    " + k8sExposeLabel + ": \"true\"\n")
 	b.WriteString("  annotations:\n")
 	b.WriteString("    " + k8sExposeSourceAnnotation + ": " + e.Service + "\n")
+	if e.ExposeFor != "" {
+		b.WriteString("    " + k8sExposeForAnnotation + ": " + jsonQuote(e.ExposeFor) + "\n")
+	}
 	b.WriteString("spec:\n  type: " + svcType + "\n  selector:\n")
 	for k, v := range e.Selector {
 		b.WriteString("    " + k + ": " + jsonQuote(v) + "\n")

@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
-	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -101,7 +99,7 @@ const (
 const stockSimDefaultWorkingSetPct = 0.5
 
 // stockSimConfig is the non-secret profile shown for a deployed Stock Market
-// Sim node. Credentials never appear here — see stockSimSecrets.
+// Sim node. Credentials never appear here — see simSecrets.
 type stockSimConfig struct {
 	Image      string `json:"image"`
 	Hostname   string `json:"hostname"`
@@ -132,14 +130,6 @@ type stockSimConfig struct {
 	LockContention string `json:"lockContention,omitempty"`
 	ScanQueries    int    `json:"scanQueries,omitempty"`
 	WritePressure  string `json:"writePressure,omitempty"`
-}
-
-// stockSimSecrets holds the credentials a manual-mode node was configured with,
-// kept out of stockSimConfig so the node properties panel never renders them.
-type stockSimSecrets struct {
-	User     string `json:"user,omitempty"`
-	Password string `json:"password,omitempty"`
-	DSN      string `json:"dsn,omitempty"`
 }
 
 // stockSimMode normalises the node's connection mode; an unset mode means
@@ -197,64 +187,6 @@ func stockSimParseSize(s string) (int64, error) {
 		return 0, fmt.Errorf("%q is negative", s)
 	}
 	return int64(n * float64(unit)), nil
-}
-
-// stockSimEngineForKind maps a linked canvas target's type to the engine the
-// sim will actually speak to it. In linked mode this — not the node's own
-// SSEngine field, which only manual mode fills in — is what the sim ends up
-// running, so it decides both the driver and whether a size target is possible.
-//
-// The two routers are absent on purpose: HAProxy fronts MySQL-family *or*
-// PostgreSQL clusters and ProxySQL only MySQL-family ones, so their engine is a
-// property of the backend behind them. So is a K3D frame's — it is whichever of
-// the six operators the frame runs. stockSimEngineForTarget resolves all three.
-func stockSimEngineForKind(kind string) string {
-	switch kind {
-	case "ps", "mariadb", "mysqlce",
-		"pxc", "mysql", "innodb", "mariadbrepl", "mariadbgalera", "mysqlcerepl", "mysqlceinnodb":
-		return "mysql"
-	case "pg", "patroni", "repmgr", "spock":
-		return "postgres"
-	case "psm", "psmrs", "psmdb":
-		return "mongodb"
-	case "valkey", "valkeycluster":
-		return "valkey"
-	}
-	return ""
-}
-
-// stockSimEngineForTarget is stockSimEngineForKind with the router and
-// Kubernetes cases resolved, which needs the design to see what the router
-// fronts and which operator the frame runs. Returns "" if the target is a
-// router with no single identifiable backend, or a K3D frame with no operator —
-// design errors the validator reports in its own words rather than guessing an
-// engine for.
-func stockSimEngineForTarget(doc designDoc, kind, targetID string) string {
-	switch kind {
-	case "haproxy":
-		if _, backKind, ok := haproxyBackend(doc, targetID); ok {
-			return stockSimEngineForKind(backKind)
-		}
-		return ""
-	case "pgbouncer":
-		// PgBouncer speaks the PostgreSQL protocol and fronts nothing else — but it
-		// still has to be linked to a backend, so an unlinked pool has no engine and
-		// the validator says so rather than the sim failing at deploy.
-		if _, _, _, ok := pgBouncerBackend(doc, targetID); ok {
-			return "postgres"
-		}
-		return ""
-	case "proxysql":
-		// ProxySQL is a MySQL-protocol proxy and fronts nothing else.
-		return "mysql"
-	case "k3d":
-		// A Kubernetes frame's engine is the one its operator manages: MySQL
-		// under PXC or PS, MongoDB under PSMDB, PostgreSQL under any of the
-		// three PostgreSQL operators. A frame with no operator has no database
-		// in it at all, and returns "" for the validator to report.
-		return k3dOperatorEngine(frameByID(doc, targetID).K3DOperator)
-	}
-	return stockSimEngineForKind(kind)
 }
 
 // stockSimTargetBytes resolves the size this node's dataset should grow to at
@@ -369,7 +301,7 @@ func stockSimEngineAndIssues(doc designDoc, n designNode) (string, []issue) {
 		return stockSimEngine(n), stockSimIssues(n)
 
 	case "aio":
-		in, ok := stockSimAIODeclared(doc, n)
+		in, ok := simAIODeclared(doc, n.SSAIONode, n.SSAIOInstance)
 		if !ok {
 			return "", []issue{{Level: "error", Message: "Stock Market Sim node " + n.Label +
 				" is set to use an All in One instance but none is selected — choose the node and the instance, or switch it to another connection mode"}}
@@ -383,12 +315,12 @@ func stockSimEngineAndIssues(doc designDoc, n designNode) (string, []issue) {
 		return engine, nil
 
 	default:
-		kind, targetID, ok := stockSimTarget(doc, n.ID)
+		kind, targetID, ok := simLinkedTarget(doc, n.ID)
 		if !ok {
 			return "", []issue{{Level: "error", Message: "Stock Market Sim node " + n.Label +
 				" must be linked to a database — a standalone Percona Server, MariaDB, MySQL, PostgreSQL, PS MongoDB or Valkey node, any MySQL, PostgreSQL, MongoDB or Valkey cluster frame, a Kubernetes frame running one of the six database operators, or a ProxySQL/HAProxy node fronting one. Draw an association line from one to it, or switch the node to an All in One instance or a manual connection"}}
 		}
-		engine := stockSimEngineForTarget(doc, kind, targetID)
+		engine := simEngineForTarget(doc, kind, targetID)
 		if engine == "" {
 			// Only two kinds can fail to name an engine: a router with no
 			// single backend, and a Kubernetes frame running no operator.
@@ -476,21 +408,6 @@ func stockSimLoadIssues(n designNode, engine string) []issue {
 	return out
 }
 
-// engineDisplayLabel mirrors engineDisplayName in the sim image.
-func engineDisplayLabel(engine string) string {
-	switch engine {
-	case "mysql":
-		return "MySQL"
-	case "postgres":
-		return "PostgreSQL"
-	case "mongodb":
-		return "MongoDB"
-	case "valkey":
-		return "Valkey"
-	}
-	return engine
-}
-
 // stockSimFormatSize mirrors sim.FormatBytes, for the node panel's benefit.
 func stockSimFormatSize(n int64) string {
 	switch {
@@ -506,76 +423,6 @@ func stockSimFormatSize(n int64) string {
 		return fmt.Sprintf("%.0f KiB", float64(n)/(1<<10))
 	}
 	return fmt.Sprintf("%d B", n)
-}
-
-// stockSimStandaloneTargets are the standalone database node types a Stock
-// Market Sim node can be linked to. The key is the node type, which is also the
-// coarse kind, because for a standalone node the two coincide.
-var stockSimStandaloneTargets = map[string]bool{
-	"ps": true, "mariadb": true, "mysqlce": true, // MySQL family
-	"pg":     true, // PostgreSQL
-	"psm":    true, // MongoDB
-	"valkey": true, // Valkey
-}
-
-// stockSimFrameTargets are the cluster frame types it can be linked to. Every
-// one resolves to a single write endpoint in waitStockSimTarget — the primary,
-// the leader, the router or the mongos, depending on what the cluster is.
-var stockSimFrameTargets = map[string]bool{
-	// MySQL family.
-	"pxc": true, "mysql": true, "innodb": true,
-	"mariadbrepl": true, "mariadbgalera": true,
-	"mysqlcerepl": true, "mysqlceinnodb": true,
-	// PostgreSQL.
-	"patroni": true, "repmgr": true, "spock": true,
-	// Kubernetes. A K3D frame is any of the three engines above, depending on
-	// which of the six operators it runs — see stocksim_k3d.go.
-	"k3d": true,
-	// MongoDB.
-	"psmrs": true, "psmdb": true,
-	// Valkey.
-	"valkeycluster": true,
-}
-
-// stockSimTarget resolves the coarse kind and target id a stocksim node is
-// linked to via a drawn edge: an undirected-edge walk over a wide set. It is
-// the only sim not tied to one engine, so it accepts every database node,
-// cluster frame and router dbcanvas can deploy. The kind returned is the node
-// or frame type itself, except for the
-// two routers, which are named for what they are rather than what they front —
-// waitStockSimTarget works that out from the backend they are attached to.
-//
-// A Stock Market Sim node still drives exactly one database; the singleOutgoing
-// rule on the canvas is what enforces that.
-func stockSimTarget(doc designDoc, startID string) (kind, targetID string, ok bool) {
-	for _, e := range doc.Edges {
-		var other string
-		switch startID {
-		case e.From.Node:
-			other = e.To.Node
-		case e.To.Node:
-			other = e.From.Node
-		default:
-			continue
-		}
-		for _, n := range doc.Nodes {
-			if n.ID != other || n.FrameID != "" {
-				continue
-			}
-			switch {
-			case stockSimStandaloneTargets[n.Type]:
-				return n.Type, n.ID, true
-			case n.Type == "haproxy", n.Type == "proxysql", n.Type == "pgbouncer":
-				return n.Type, n.ID, true
-			}
-		}
-		for _, f := range doc.Frames {
-			if f.ID == other && stockSimFrameTargets[f.Type] {
-				return f.Type, f.ID, true
-			}
-		}
-	}
-	return "", "", false
 }
 
 // stockSimConfigError reports the first setting that the sim binary itself
@@ -664,7 +511,7 @@ func (a *App) provisionStockSim(st Stack, n designNode, doc designDoc) {
 	coarseKind, targetID := "", ""
 	if mode == "linked" {
 		var ok bool
-		coarseKind, targetID, ok = stockSimTarget(doc, n.ID)
+		coarseKind, targetID, ok = simLinkedTarget(doc, n.ID)
 		if !ok {
 			a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployError, Config: mustJSON(cfg)})
 			return
@@ -691,13 +538,13 @@ func (a *App) provisionStockSim(st Stack, n designNode, doc designDoc) {
 		}
 
 		var env []string
-		var sec stockSimSecrets
+		var sec simSecrets
 		var extraHosts []string
 
 		switch mode {
 		case "linked":
 			pr.phase("Waiting for linked database", 20)
-			e, werr := a.waitStockSimTarget(ctx, st, hosts, doc, domain, coarseKind, targetID, deployTimeout(), n.SSSplitReads, pr.logln)
+			e, werr := a.waitSimTarget(ctx, st, hosts, doc, domain, coarseKind, targetID, deployTimeout(), n.SSSplitReads, pr.logln)
 			if werr != nil {
 				pr.fail("%v", werr)
 				return
@@ -712,7 +559,7 @@ func (a *App) provisionStockSim(st Stack, n designNode, doc designDoc) {
 
 		case "aio":
 			pr.phase("Waiting for the selected All in One instance", 20)
-			e, werr := a.stockSimAIOTarget(ctx, st, doc, n, deployTimeout())
+			e, werr := a.simAIOTarget(ctx, st, doc, n.SSAIONode, n.SSAIOInstance, deployTimeout())
 			if werr != nil {
 				pr.fail("%v", werr)
 				return
@@ -817,683 +664,10 @@ func (a *App) provisionStockSim(st Stack, n designNode, doc designDoc) {
 	}()
 }
 
-// stockSimSQLEnv builds the sim's connection environment for a SQL engine: the write DSN,
-// and — when the target publishes a read endpoint this node asked to use — a read DSN
-// beside it. One function for both engines, because they differ only in DSN dialect while
-// the rule about when a second endpoint exists is identical, and because the pair is what
-// the test can then check without a running stack.
-//
-// readPort 0 means no split: exactly the single-DSN environment every target produced
-// before the option existed, which is what keeps an untouched node's deploy unchanged.
-// extra is appended to the PostgreSQL DSN's query string verbatim ("" for none). It
-// exists for one endpoint: a PgBouncer pool, where pgx must stop preparing statements
-// it will not find again on the next transaction — see pgBouncerDSNExtra.
-func stockSimSQLEnv(engine, user, pass, host string, port, readPort int, extra string, failover ...string) []string {
-	dsn := func(p int) string {
-		if engine == "mysql" {
-			return fmt.Sprintf("%s:%s@tcp(%s:%d)/?tls=false", user, pass, host, p)
-		}
-		// Every member, not just the one that is primary today. libpq's URI format takes a
-		// comma-separated host list and `target_session_attrs=read-write` makes the client try
-		// them in turn until one accepts a read-write session — which is the primary, whichever
-		// member that is now. Without it the DSN names the member that happened to be primary
-		// at deploy, and a switchover leaves the sim pointed at a read-only standby: writes fail
-		// with SQLSTATE 25006 while reads keep working, so nothing looks broken.
-		//
-		// Built by hand rather than through url.URL, which percent-escapes the commas in a
-		// multi-host authority and produces a DSN libpq reads as one absurd hostname.
-		hostList := fmt.Sprintf("%s:%d", host, p)
-		query := "sslmode=prefer&connect_timeout=10"
-		if len(failover) > 0 {
-			var b strings.Builder
-			for i, h := range failover {
-				if i > 0 {
-					b.WriteByte(',')
-				}
-				fmt.Fprintf(&b, "%s:%d", h, p)
-			}
-			hostList = b.String()
-			// Only with somewhere to fail over to: on a single-host DSN this would merely add a
-			// round trip, and on a standalone node it would refuse to connect at all.
-			query += "&target_session_attrs=read-write"
-		}
-		if extra != "" {
-			query += "&" + extra
-		}
-		return "postgres://" + url.UserPassword(user, pass).String() + "@" + hostList + "/postgres?" + query
-	}
-	prefix := "POSTGRES"
-	if engine == "mysql" {
-		prefix = "MYSQL"
-	}
-	env := []string{"DB_ENGINE=" + engine, prefix + "_DSN=" + dsn(port)}
-	if readPort != 0 {
-		env = append(env, prefix+"_RO_DSN="+dsn(readPort))
-	}
-	return env
-}
-
-// stockSimResolved is what a linked target resolves to.
-type stockSimResolved struct {
-	env         []string
-	secrets     stockSimSecrets
-	engine      string
-	kind        string
-	displayName string
-	host        string
-	port        int
-	// readPort is the endpoint the sim's display-only reads go to, 0 when every
-	// statement goes to port. Only an HAProxy target with the split turned on sets
-	// it: it is the one target that publishes a second port meaning "a replica".
-	readPort int
-	// noPrepare says this endpoint does not keep a client on one server connection
-	// between transactions, so server-side prepared statements will not be there on
-	// the next one. Only a PgBouncer pool in transaction or statement mode sets it.
-	// Every client that goes through this resolver has to act on it in its own
-	// dialect — pgx wants default_query_exec_mode=simple_protocol, pgjdbc wants
-	// prepareThreshold=0 — which is why it is a fact here rather than a string.
-	noPrepare bool
-}
-
-// waitStockSimTarget resolves a linked canvas target down to a connectable
-// endpoint and credentials, blocking until it is actually running.
-//
-// It dispatches mostly on the *engine* rather than on the kind, because everything
-// after the endpoint has been found — the DSN dialect, the driver, the
-// credentials that exist — is a property of the engine, and everything before
-// it is a property of the kind. The four family resolvers below each do the
-// second half for one engine.
-func (a *App) waitStockSimTarget(ctx context.Context, st Stack, hosts map[string]string, doc designDoc, domain, coarseKind, targetID string, timeout time.Duration, splitReads bool, logln func(string)) (stockSimResolved, error) {
-	// A K3D frame is dispatched on the kind rather than the engine: all three
-	// engines share one resolver there, because what has to be found first — the
-	// operator's own Services, and the Secret it keeps its passwords in — is the
-	// same work whichever database came out the other end. See stocksim_k3d.go.
-	//
-	// It is also the only target that gets logln. Every other one is up in
-	// under a minute; an operator building a database cluster inside Kubernetes
-	// is minutes, and a deploy log that says nothing for that long reads as a
-	// hang rather than as waiting.
-	if coarseKind == "k3d" {
-		return a.stockSimK3DTarget(ctx, st, doc, targetID, timeout, logln)
-	}
-	switch stockSimEngineForTarget(doc, coarseKind, targetID) {
-	case "mysql":
-		return a.stockSimMySQLTarget(ctx, st, hosts, doc, domain, coarseKind, targetID, timeout, splitReads)
-	case "postgres":
-		return a.stockSimPostgresTarget(ctx, st, hosts, doc, domain, coarseKind, targetID, timeout, splitReads)
-	case "mongodb":
-		return a.stockSimMongoTarget(ctx, st, hosts, doc, domain, coarseKind, targetID, timeout)
-	case "valkey":
-		return a.stockSimValkeyTarget(ctx, st, hosts, doc, domain, coarseKind, targetID, timeout)
-	}
-	if coarseKind == "haproxy" {
-		return stockSimResolved{}, fmt.Errorf(
-			"the linked HAProxy node does not front exactly one database cluster, so there is nothing to connect to — link the cluster frame directly instead")
-	}
-	if coarseKind == "pgbouncer" {
-		return stockSimResolved{}, fmt.Errorf(
-			"the linked PgBouncer node does not pool for exactly one PostgreSQL backend, so there is nothing to connect to — link the node or cluster to it, or link this sim to the backend directly")
-	}
-	return stockSimResolved{}, fmt.Errorf("unresolved Stock Market Sim target %q", coarseKind)
-}
-
-// stockSimMySQLTarget resolves every MySQL-family shape to one write endpoint.
-func (a *App) stockSimMySQLTarget(ctx context.Context, st Stack, hosts map[string]string, doc designDoc, domain, kind, targetID string, timeout time.Duration, splitReads bool) (stockSimResolved, error) {
-	var (
-		h    string
-		port = pxcMySQLPort
-		// readPort is set only by the HAProxy branch below: it is the only target with a
-		// second port that means "a replica". ProxySQL splits reads inside itself, and
-		// every other shape here is one endpoint.
-		readPort int
-		s        pxcSecrets
-		name     = nodeLabel(doc, targetID)
-		err      error
-	)
-	frame := frameByID(doc, targetID)
-	if frame.ID != "" {
-		name = frame.Label
-	}
-
-	switch kind {
-	case "ps", "mariadb", "mysqlce":
-		h, s, err = a.waitMySQLFamilyNode(ctx, st.ID, targetID, hosts, domain, kind, timeout)
-
-	case "pxc":
-		h, s, err = a.waitPXCRunning(ctx, st.ID, frame, doc, domain, timeout)
-
-	case "mysql":
-		h, _, s, err = a.waitMySQLRunning(ctx, st.ID, frame, doc, domain, timeout)
-
-	case "mariadbrepl", "mysqlcerepl":
-		// Asynchronous replication: only the primary takes writes.
-		h, s, err = a.waitMySQLFamilyFrame(ctx, st.ID, frame, doc, domain, true, timeout)
-
-	case "mariadbgalera":
-		// Galera is multi-master — every member is a write endpoint.
-		h, s, err = a.waitMySQLFamilyFrame(ctx, st.ID, frame, doc, domain, false, timeout)
-
-	case "innodb", "mysqlceinnodb":
-		// With MySQL Router on (the frame's mysqlRouter option), every member runs
-		// one, and connecting to any member's read/write router port lands on the
-		// current primary wherever it is, which is what an application wants and
-		// what makes a failover invisible to the sim. Without it nothing listens on
-		// that port, and the cluster has no endpoint of its own (see innodb.go), so
-		// the sim is given a member: the first in label order, which is the one the
-		// group was bootstrapped on and so its primary until a failover.
-		h, s, err = a.waitMySQLFamilyFrame(ctx, st.ID, frame, doc, domain, false, timeout)
-		if frame.MySQLRouter {
-			port = routerRWPort
-		}
-
-	case "haproxy":
-		back, backKind, ok := haproxyBackend(doc, targetID)
-		if !ok {
-			return stockSimResolved{}, fmt.Errorf("the linked HAProxy node does not front exactly one cluster")
-		}
-		if !a.waitNodeRunning(st.ID, targetID, timeout) {
-			return stockSimResolved{}, fmt.Errorf("linked HAProxy node did not become ready within %s", timeout)
-		}
-		switch backKind {
-		case "pxc":
-			_, s, err = a.waitPXCRunning(ctx, st.ID, back, doc, domain, timeout)
-		case "mysql":
-			_, _, s, err = a.waitMySQLRunning(ctx, st.ID, back, doc, domain, timeout)
-		default:
-			_, s, err = a.waitMySQLFamilyFrame(ctx, st.ID, back, doc, domain, false, timeout)
-		}
-		h, port, kind = fqdnOf(hosts[targetID], domain), haproxyWritePort, "haproxy-"+backKind
-		if splitReads {
-			readPort = haproxyReadPort
-		}
-
-	case "proxysql":
-		var backKind string
-		h, backKind, s, name, err = a.waitProxySQLRunning(ctx, st.ID, doc, hosts, domain, targetID, timeout)
-		port, kind = proxysqlMySQLPort, "proxysql-"+backKind
-
-	default:
-		return stockSimResolved{}, fmt.Errorf("unresolved MySQL-family target %q", kind)
-	}
-	if err != nil {
-		return stockSimResolved{}, err
-	}
-
-	// Connect as the application user, never root: root@localhost cannot
-	// connect over TCP, which is what every sibling sim learned the hard way.
-	return stockSimResolved{
-		env:     stockSimSQLEnv("mysql", s.AppUser, s.AppPassword, h, port, readPort, ""),
-		secrets: stockSimSecrets{User: s.AppUser, Password: s.AppPassword},
-		engine:  "mysql", kind: kind, displayName: name,
-		host: h, port: port, readPort: readPort,
-	}, nil
-}
-
-// stockSimPostgresTarget resolves every PostgreSQL shape to one write endpoint.
-func (a *App) stockSimPostgresTarget(ctx context.Context, st Stack, hosts map[string]string, doc designDoc, domain, kind, targetID string, timeout time.Duration, splitReads bool) (stockSimResolved, error) {
-	var (
-		h    string
-		port = patroniPGPort
-		// See the same field in stockSimMySQLTarget: only an HAProxy target has a second
-		// port, and only when the node asked for the split.
-		readPort int
-		s        pgSecrets
-		name     = nodeLabel(doc, targetID)
-		err      error
-		// failover is every member of a clustered target, for the multi-host DSN. Empty for a
-		// standalone node and for either proxy — the proxy already is the indirection.
-		failover []string
-		// dsnExtra is connection-string parameters the endpoint itself demands, and
-		// noPrepare the fact behind it. Only a PgBouncer pool sets either.
-		dsnExtra  string
-		noPrepare bool
-	)
-	frame := frameByID(doc, targetID)
-	if frame.ID != "" {
-		name = frame.Label
-	}
-
-	switch kind {
-	case "pg":
-		h, s, err = a.waitPgNodeRunning(ctx, st.ID, targetID, hosts, domain, timeout)
-
-	// Patroni and repmgr both move their primary — by failover, or because somebody ran a
-	// switchover, which is the whole point of having the cluster. So every member goes into the
-	// DSN and the driver picks the one accepting writes; `h` stays the current primary because
-	// it is what the panel reports and what the read-split uses.
-	case "patroni":
-		var fqdns []string
-		fqdns, s, err = a.waitPatroniRunning(ctx, st.ID, frame, doc, domain, timeout)
-		if err == nil {
-			h = a.leaderOrFirst(ctx, st, frame, doc, hosts, domain, fqdns, a.patroniLeaderContainer(ctx, st, frame, doc))
-			failover = fqdns
-		}
-
-	case "repmgr":
-		var fqdns []string
-		fqdns, s, err = a.waitRepmgrRunning(ctx, st.ID, frame, doc, domain, timeout)
-		if err == nil {
-			h = a.leaderOrFirst(ctx, st, frame, doc, hosts, domain, fqdns, a.repmgrPrimaryContainer(ctx, st, frame, doc))
-			failover = fqdns
-		}
-
-	case "spock":
-		var fqdns []string
-		fqdns, s, err = a.waitSpockRunning(ctx, st.ID, frame, doc, domain, timeout)
-		if err == nil {
-			if len(fqdns) == 0 {
-				return stockSimResolved{}, fmt.Errorf("associated Spock cluster %s has no running member", frame.Label)
-			}
-			h = fqdns[0] // symmetric peers — any member is a valid write target
-		}
-
-	case "haproxy":
-		back, backKind, ok := haproxyBackend(doc, targetID)
-		if !ok {
-			return stockSimResolved{}, fmt.Errorf("the linked HAProxy node does not front exactly one cluster")
-		}
-		if !a.waitNodeRunning(st.ID, targetID, timeout) {
-			return stockSimResolved{}, fmt.Errorf("linked HAProxy node did not become ready within %s", timeout)
-		}
-		switch backKind {
-		case "patroni":
-			_, s, err = a.waitPatroniRunning(ctx, st.ID, back, doc, domain, timeout)
-		case "repmgr":
-			_, s, err = a.waitRepmgrRunning(ctx, st.ID, back, doc, domain, timeout)
-		default:
-			_, s, err = a.waitSpockRunning(ctx, st.ID, back, doc, domain, timeout)
-		}
-		h, port, kind = fqdnOf(hosts[targetID], domain), haproxyWritePort, "haproxy-"+backKind
-		if splitReads {
-			readPort = haproxyReadPort
-		}
-
-	// A PgBouncer pool. No failover list and no read port: the pool is already the
-	// indirection, and its read/write split is a database name rather than a second
-	// port, so a sim asking for the wildcard pool always lands on the member that can
-	// take writes — through a failover, without reconnecting anywhere else.
-	case "pgbouncer":
-		h, port, s, kind, dsnExtra, name, err = a.pgBouncerSimEndpoint(ctx, st, hosts, doc, domain, targetID, timeout)
-		noPrepare = dsnExtra != ""
-
-	default:
-		return stockSimResolved{}, fmt.Errorf("unresolved PostgreSQL target %q", kind)
-	}
-	if err != nil {
-		return stockSimResolved{}, err
-	}
-
-	// The superuser, because a stack node provisions no other PostgreSQL role
-	// and the app needs to create a database or a schema of its own.
-	// Same credentials and same database on both endpoints: the sim rewrites the database
-	// name onto the read DSN from the one it resolved on the writer (pgOpenRead), because
-	// which database it ends up using is decided there.
-	return stockSimResolved{
-		env:     stockSimSQLEnv("postgres", s.SuperUser, s.SuperPassword, h, port, readPort, dsnExtra, failover...),
-		secrets: stockSimSecrets{User: s.SuperUser, Password: s.SuperPassword},
-		engine:  "postgres", kind: kind, displayName: name,
-		host: h, port: port, readPort: readPort, noPrepare: noPrepare,
-	}, nil
-}
-
-// stockSimMongoTarget resolves a standalone node, a replica set or a sharded
-// cluster. The last two use waitMongoTarget outright — it already returns
-// exactly the URI this app needs, including waiting for a replica-set majority
-// and picking a running mongos.
-func (a *App) stockSimMongoTarget(ctx context.Context, st Stack, hosts map[string]string, doc designDoc, domain, kind, targetID string, timeout time.Duration) (stockSimResolved, error) {
-	if kind == "psm" {
-		dep, werr := a.waitStockSimNode(ctx, st.ID, targetID, timeout, "MongoDB")
-		if werr != nil {
-			return stockSimResolved{}, werr
-		}
-		user, pass := mongoAdminCreds(dep)
-		h := fqdnOf(hosts[targetID], domain)
-		uri := fmt.Sprintf("mongodb://%s:%s@%s:%d/?authSource=admin&directConnection=true",
-			url.QueryEscape(user), url.QueryEscape(pass), h, mongoPort)
-		return stockSimResolved{
-			env:     []string{"DB_ENGINE=mongodb", "MONGO_URI=" + uri},
-			secrets: stockSimSecrets{User: user, Password: pass},
-			engine:  "mongodb", kind: "psm", displayName: nodeLabel(doc, targetID),
-			host: h, port: mongoPort,
-		}, nil
-	}
-
-	frame := frameByID(doc, targetID)
-	// waitMongoTarget addresses members by bare hostname; this app's container resolves
-	// those through the same Intranet DNS, so the URI is usable as returned.
-	uri, werr := a.waitMongoTarget(ctx, st.ID, hosts, "", frame, kind, doc, timeout)
-	if werr != nil {
-		return stockSimResolved{}, werr
-	}
-	user, pass := "", ""
-	if u, uerr := url.Parse(uri); uerr == nil && u.User != nil {
-		user = u.User.Username()
-		pass, _ = u.User.Password()
-	}
-	return stockSimResolved{
-		env:     []string{"DB_ENGINE=mongodb", "MONGO_URI=" + uri},
-		secrets: stockSimSecrets{User: user, Password: pass},
-		engine:  "mongodb", kind: kind, displayName: frame.Label,
-		host: frame.Label, port: mongoPort,
-	}, nil
-}
-
-// stockSimValkeyTarget resolves a standalone node or a cluster frame. The
-// cluster case uses waitValkeyTarget, and the sim's own store hands the
-// address list to a UniversalClient, which picks cluster mode from the count —
-// so nothing downstream needs to know which of the two this was.
-func (a *App) stockSimValkeyTarget(ctx context.Context, st Stack, hosts map[string]string, doc designDoc, domain, kind, targetID string, timeout time.Duration) (stockSimResolved, error) {
-	if kind == "valkey" {
-		dep, werr := a.waitStockSimNode(ctx, st.ID, targetID, timeout, "Valkey")
-		if werr != nil {
-			return stockSimResolved{}, werr
-		}
-		pw := valkeyPasswordFor(dep)
-		h := fqdnOf(hosts[targetID], domain)
-		return stockSimResolved{
-			env: []string{
-				"DB_ENGINE=valkey",
-				fmt.Sprintf("VALKEY_ADDRS=%s:%d", h, valkeyPort),
-				"VALKEY_PASSWORD=" + pw,
-			},
-			secrets: stockSimSecrets{Password: pw},
-			engine:  "valkey", kind: "valkey", displayName: nodeLabel(doc, targetID),
-			host: h, port: valkeyPort,
-		}, nil
-	}
-
-	frame := frameByID(doc, targetID)
-	addrs, pw, werr := a.waitValkeyTarget(ctx, st.ID, hosts, "", frame, true, timeout)
-	if werr != nil {
-		return stockSimResolved{}, werr
-	}
-	if len(addrs) == 0 {
-		return stockSimResolved{}, fmt.Errorf("associated Valkey cluster %s has no running member", frame.Label)
-	}
-	// In Sentinel mode the members are one primary and its replicas, not a
-	// cluster: a client given all of them would take them for one. Give it the
-	// primary, which is the first member by label until a failover.
-	if frame.ValkeyMode == "sentinel" {
-		var first designNode
-		for _, n := range doc.Nodes {
-			if n.FrameID == frame.ID && n.Type == "valkeycluster" && (first.ID == "" || n.Label < first.Label) {
-				first = n
-			}
-		}
-		addrs = []string{fmt.Sprintf("%s:%d", hosts[first.ID], valkeyPort)}
-	}
-	return stockSimResolved{
-		env: []string{
-			"DB_ENGINE=valkey",
-			"VALKEY_ADDRS=" + strings.Join(addrs, ","),
-			"VALKEY_PASSWORD=" + pw,
-		},
-		secrets: stockSimSecrets{Password: pw},
-		engine:  "valkey", kind: "valkeycluster", displayName: frame.Label,
-		host: addrs[0], port: valkeyPort,
-	}, nil
-}
-
-// stockSimAIODeclared finds the instance the node's picker names, in the AIO
-// node's *design*. Working from the design rather than from a deployment is
-// what lets the engine — and so the size target and the validation — be known
-// before anything is provisioned.
-func stockSimAIODeclared(doc designDoc, n designNode) (aioInstance, bool) {
-	for _, other := range doc.Nodes {
-		if other.ID != n.SSAIONode || other.Type != "aio" {
-			continue
-		}
-		for _, in := range other.AIOInstances {
-			if in.Name == n.SSAIOInstance {
-				return in, true
-			}
-		}
-	}
-	return aioInstance{}, false
-}
-
-// stockSimAIOMember picks the concrete running member to connect to for a
-// declared instance name.
-//
-// The picker names an instance as the user declared it ("pxc-cluster-01"); a
-// deployed cluster instance is several members with generated names
-// ("pxc-cluster-01-n2"), tied back by aioInstanceRuntime.Group. A standalone
-// instance is one member whose Inst is the declared name and whose Group is
-// empty. Where the members are not interchangeable the write endpoint is
-// preferred, for the same reason waitMySQLFamilyFrame prefers a primary.
-func stockSimAIOMember(dep Deployment, declared string) (aioInstanceRuntime, bool) {
-	var fallback aioInstanceRuntime
-	found := false
-	for _, m := range aioTargetableInstances(dep) {
-		if m.Inst != declared && m.Group != declared {
-			continue
-		}
-		switch m.Role {
-		case "primary", "bootstrap", "mongos":
-			return m, true
-		}
-		if !found {
-			fallback, found = m, true
-		}
-	}
-	return fallback, found
-}
-
-// stockSimAIOTarget resolves an All in One instance to a connection, reusing
-// the same helpers the Query Runner, Benchmark and Data Generator use so an
-// instance behaves identically wherever it is addressed from.
-func (a *App) stockSimAIOTarget(ctx context.Context, st Stack, doc designDoc, n designNode, timeout time.Duration) (stockSimResolved, error) {
-	label := nodeLabel(doc, n.SSAIONode)
-
-	deadline := time.Now().Add(timeout)
-	for {
-		dep, err := a.store.GetDeployment(st.ID, n.SSAIONode)
-		switch {
-		case err == nil && dep.State == DeployError:
-			return stockSimResolved{}, fmt.Errorf("the selected All in One node %s failed to provision", label)
-		case err == nil && dep.State == DeployRunning && dep.ContainerID != "":
-			m, ok := stockSimAIOMember(dep, n.SSAIOInstance)
-			if !ok {
-				return stockSimResolved{}, fmt.Errorf(
-					"All in One node %s has no ready instance called %q — check the instance is still declared on that node and finished starting",
-					label, n.SSAIOInstance)
-			}
-			engine, port, user, pass := aioInstanceCreds(dep, m)
-			host := m.FQDN
-			display := aioTargetLabel(label, m)
-
-			res := stockSimResolved{
-				secrets: stockSimSecrets{User: user, Password: pass},
-				engine:  engine, kind: "aio-" + engine, displayName: display,
-				host: host, port: port,
-			}
-			switch engine {
-			case "mysql":
-				res.env = []string{"DB_ENGINE=mysql", fmt.Sprintf(
-					"MYSQL_DSN=%s:%s@tcp(%s:%d)/?tls=false", user, pass, host, port)}
-			case "postgres":
-				res.env = []string{"DB_ENGINE=postgres", "POSTGRES_DSN=" + (&url.URL{
-					Scheme: "postgres", User: url.UserPassword(user, pass),
-					Host: fmt.Sprintf("%s:%d", host, port), Path: "/postgres",
-					RawQuery: "sslmode=prefer&connect_timeout=10",
-				}).String()}
-			case "mongodb":
-				res.env = []string{"DB_ENGINE=mongodb", fmt.Sprintf(
-					"MONGO_URI=mongodb://%s:%s@%s:%d/?authSource=admin&directConnection=true",
-					url.QueryEscape(user), url.QueryEscape(pass), host, port)}
-			default:
-				return stockSimResolved{}, fmt.Errorf(
-					"All in One instance %q is a %s instance, which this application cannot drive", n.SSAIOInstance, m.Kind)
-			}
-			return res, nil
-		}
-		if time.Now().After(deadline) {
-			return stockSimResolved{}, fmt.Errorf(
-				"the selected All in One node %s did not become ready within %s", label, timeout)
-		}
-		select {
-		case <-ctx.Done():
-			return stockSimResolved{}, ctx.Err()
-		case <-time.After(2 * time.Second):
-		}
-	}
-}
-
-// k3dServerConfig returns the stored k3dConfig of a K3D frame's server node —
-// the one that carries the cluster-wide record, and whose container is the one
-// kubectl runs in — along with that container's id.
-func (a *App) k3dServerConfig(stackID int64, doc designDoc, frameID string) (k3dConfig, string, bool) {
-	for _, n := range doc.Nodes {
-		if n.FrameID != frameID || n.Type != "k3d" {
-			continue
-		}
-		dep, err := a.store.GetDeployment(stackID, n.ID)
-		if err != nil || dep.State != DeployRunning || dep.ContainerID == "" || len(dep.Config) == 0 {
-			continue
-		}
-		var cfg k3dConfig
-		if json.Unmarshal(dep.Config, &cfg) != nil || cfg.Role != "server" {
-			continue
-		}
-		return cfg, dep.ContainerID, true
-	}
-	return k3dConfig{}, "", false
-}
-
-// splitHostPortDefault splits "host:port", falling back to def when there is no
-// port to read.
-func splitHostPortDefault(addr string, def int) (string, int) {
-	h, p, err := net.SplitHostPort(addr)
-	if err != nil {
-		return addr, def
-	}
-	n, err := strconv.Atoi(p)
-	if err != nil {
-		return h, def
-	}
-	return h, n
-}
-
-// waitMySQLFamilyNode blocks until a standalone MySQL-family node is running
-// and returns its FQDN plus its stored credentials. Percona Server, MariaDB and
-// MySQL CE all provision the same credential set (mysqlFamilySecrets), so one
-// helper covers all three; only the wording of a timeout differs.
-func (a *App) waitMySQLFamilyNode(ctx context.Context, stackID int64, nodeID string, hosts map[string]string, domain, kind string, timeout time.Duration) (string, pxcSecrets, error) {
-	dep, err := a.waitStockSimNode(ctx, stackID, nodeID, timeout, engineDisplayLabel(stockSimEngineForKind(kind))+" ("+kind+")")
-	if err != nil {
-		return "", pxcSecrets{}, err
-	}
-	var sec pxcSecrets
-	json.Unmarshal(dep.Secrets, &sec)
-	return fqdnOf(hosts[nodeID], domain), sec, nil
-}
-
-// waitMySQLFamilyFrame blocks until a MySQL-family cluster frame has a usable
-// write endpoint, and returns that member's FQDN plus the frame's credentials.
-//
-// Members of every one of these frames are nodes whose own type equals the
-// frame's, which is what lets one helper serve MariaDB replication, Galera,
-// MySQL CE replication and both flavours of Group Replication. wantPrimary
-// selects the member marked primary — required where writes only work there
-// (asynchronous replication) and pointless where they work anywhere (Galera,
-// and Group Replication reached through its router).
-func (a *App) waitMySQLFamilyFrame(ctx context.Context, stackID int64, frame designFrame, doc designDoc, domain string, wantPrimary bool, timeout time.Duration) (string, pxcSecrets, error) {
-	hosts := stackHostnames(doc)
-	var members []designNode
-	for _, n := range doc.Nodes {
-		if n.FrameID == frame.ID && n.Type == frame.Type {
-			members = append(members, n)
-		}
-	}
-	if len(members) == 0 {
-		return "", pxcSecrets{}, fmt.Errorf("associated cluster %s has no members", frame.Label)
-	}
-	// Stable order so a redeploy picks the same member, matching how every
-	// provisioner in this codebase orders a frame's nodes.
-	sort.Slice(members, func(i, j int) bool { return members[i].Label < members[j].Label })
-
-	deadline := time.Now().Add(timeout)
-	for {
-		deps, err := a.store.ListDeployments(stackID)
-		if err == nil {
-			byNode := map[string]Deployment{}
-			for _, d := range deps {
-				byNode[d.NodeID] = d
-			}
-			othersUp := false
-			// usable counts the members that could serve writes: the primary when
-			// wantPrimary, else any member. Once all of them have failed, none will.
-			usable, failed := 0, 0
-			for _, n := range members {
-				d, ok := byNode[n.ID]
-				if !wantPrimary || n.Role == "primary" {
-					usable++
-					if ok && d.State == DeployError {
-						failed++
-					}
-				}
-				if !ok || d.State != DeployRunning || d.ContainerID == "" {
-					continue
-				}
-				if !wantPrimary || n.Role == "primary" {
-					var sec pxcSecrets
-					json.Unmarshal(d.Secrets, &sec)
-					return fqdnOf(hosts[n.ID], domain), sec, nil
-				}
-				othersUp = true
-			}
-			// A replication frame whose primary is down still has replicas up.
-			// Writing to one would fail, so once the wait is over say what is
-			// actually wrong rather than blaming readiness in general.
-			if wantPrimary && othersUp && time.Now().After(deadline) {
-				return "", pxcSecrets{}, fmt.Errorf(
-					"associated cluster %s has running members but no primary — writes have nowhere to go", frame.Label)
-			}
-			if usable > 0 && failed == usable {
-				return "", pxcSecrets{}, fmt.Errorf("associated cluster %s failed to provision", frame.Label)
-			}
-		}
-		if time.Now().After(deadline) {
-			return "", pxcSecrets{}, fmt.Errorf("associated cluster %s did not become ready within %s", frame.Label, timeout)
-		}
-		select {
-		case <-ctx.Done():
-			return "", pxcSecrets{}, ctx.Err()
-		case <-time.After(2 * time.Second):
-		}
-	}
-}
-
-// waitStockSimNode blocks until a standalone node is running and returns its
-// deployment, so the caller can read that node type's own stored secrets.
-// Neither MongoDB nor Valkey standalone nodes have a dedicated wait helper —
-// their sibling sims poll inline — so this is the shared one.
-func (a *App) waitStockSimNode(ctx context.Context, stackID int64, nodeID string, timeout time.Duration, what string) (Deployment, error) {
-	deadline := time.Now().Add(timeout)
-	for {
-		if dep, err := a.store.GetDeployment(stackID, nodeID); err == nil {
-			if dep.State == DeployError {
-				return Deployment{}, fmt.Errorf("linked %s node failed to provision", what)
-			}
-			if dep.State == DeployRunning && dep.ContainerID != "" {
-				return dep, nil
-			}
-		}
-		if time.Now().After(deadline) {
-			return Deployment{}, fmt.Errorf("linked %s node did not become ready within %s", what, timeout)
-		}
-		select {
-		case <-ctx.Done():
-			return Deployment{}, ctx.Err()
-		case <-time.After(2 * time.Second):
-		}
-	}
-}
-
 // stockSimManualEnv builds the container environment from the node's own
 // connection fields. Nothing is contacted here — that is the point of manual
 // mode, and it is why the node form offers Test connection instead.
-func stockSimManualEnv(n designNode) (env []string, sec stockSimSecrets, displayName string) {
+func stockSimManualEnv(n designNode) (env []string, sec simSecrets, displayName string) {
 	engine := stockSimEngine(n)
 	port := n.SSPort
 	if port == 0 {
@@ -1514,7 +688,7 @@ func stockSimManualEnv(n designNode) (env []string, sec stockSimSecrets, display
 	if dsn != "" {
 		env = append(env, "DB_DSN="+dsn)
 	}
-	sec = stockSimSecrets{User: n.SSUser, Password: n.SSPassword, DSN: dsn}
+	sec = simSecrets{User: n.SSUser, Password: n.SSPassword, DSN: dsn}
 
 	switch {
 	case strings.TrimSpace(n.SSLabel) != "":
@@ -1875,4 +1049,38 @@ func stockSimLabIssues(n designNode, engine string) []issue {
 		}
 	}
 	return out
+}
+
+// stockSimK3DExposeIssues warns when a Stock Market Sim node is linked to a
+// Kubernetes frame whose database is exposed only inside the cluster.
+//
+// A warning rather than an error: the design says what will happen, but the
+// cluster is the one that decides, and an operator release that adds a Service
+// DBCanvas does not know about should not be able to block a deploy. The
+// resolver gives the definitive answer at deploy time — this just gives it
+// twenty minutes earlier.
+func stockSimK3DExposeIssues(doc designDoc, n designNode) []issue {
+	if stockSimMode(n) != "linked" {
+		return nil
+	}
+	kind, targetID, ok := simLinkedTarget(doc, n.ID)
+	if !ok || kind != "k3d" {
+		return nil
+	}
+	f := frameByID(doc, targetID)
+	tiers := k3dExposedTiers(f)
+	if len(tiers) == 0 {
+		return nil // no operator: stockSimEngineAndIssues has already said so
+	}
+	var names []string
+	for tier, typ := range tiers {
+		if typ != "ClusterIP" {
+			return nil // at least one tier is routable from the stack network
+		}
+		names = append(names, tier)
+	}
+	sort.Strings(names)
+	return []issue{{Level: "warning", Message: fmt.Sprintf(
+		"Stock Market Sim node %s is linked to Kubernetes frame %s, where %s %s exposed as ClusterIP — an address that exists only inside the cluster. Set %s to LoadBalancer or NodePort on the frame, or the sim will have nothing to connect to.",
+		n.Label, f.Label, strings.Join(names, " and "), tierVerb(names), joinOr(names))}}
 }

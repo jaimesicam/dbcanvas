@@ -732,7 +732,7 @@ func (b *composeBuilder) wire(ordered []composeNodeSpec) error {
 // an HAProxy could not even validate (haproxyClusterFrames requires exactly one
 // associated cluster), and every application simulator came up with nothing to drive.
 // No amount of field-setting substitutes, because the provisioners resolve these by
-// walking the edge graph — stockSimTarget, backendFrameForProxySQL — and never by
+// walking the edge graph — simLinkedTarget, backendFrameForProxySQL — and never by
 // reading a field.
 //
 // The endpoint may be a node id OR a frame id: the walkers check both, which is how
