@@ -162,11 +162,18 @@ func valkeyConfFile(password, domain, baseDN string, ldap, cluster bool, ldapMod
 	}
 	// A Sentinel-mode replica starts out following the primary; after a failover
 	// Sentinel rewrites this line itself.
-	// replicaOf is the primary's host name and, second, this member's own, which
-	// it announces so Sentinel and the primary name it by host rather than IP.
-	if len(replicaOf) == 2 && replicaOf[0] != "" {
-		fmt.Fprintf(&b, "replicaof %s %d\n", replicaOf[0], valkeyPort)
-		b.WriteString("replica-announce-ip " + replicaOf[1] + "\n")
+	// replicaOf is the primary's host name ("" on the primary itself) and, second,
+	// this member's own, which it announces so Sentinel and the primary name it by
+	// host rather than IP. The first primary announces too: once a failover makes
+	// it a replica, an IP would give Sentinel a second name for the same server,
+	// and a later failover could then tell it to replicate from itself.
+	if len(replicaOf) == 2 {
+		if replicaOf[0] != "" {
+			fmt.Fprintf(&b, "replicaof %s %d\n", replicaOf[0], valkeyPort)
+		}
+		if replicaOf[1] != "" {
+			b.WriteString("replica-announce-ip " + replicaOf[1] + "\n")
+		}
 	}
 	return b.String()
 }
@@ -845,8 +852,12 @@ func (a *App) valkeyStartMember(ctx context.Context, st Stack, n designNode, hos
 
 	pr.phase("Writing valkey.conf", 60)
 	conf := valkeyConfFile(pw, domain, baseDN, useLdap, sentinelPrimary == "", valkeyLdapModulePath(os))
-	if self := fqdnOf(host, domain); sentinelPrimary != "" && self != sentinelPrimary {
-		conf = valkeyConfFile(pw, domain, baseDN, useLdap, false, valkeyLdapModulePath(os), sentinelPrimary, self)
+	if sentinelPrimary != "" {
+		self, follow := fqdnOf(host, domain), sentinelPrimary
+		if self == sentinelPrimary {
+			follow = ""
+		}
+		conf = valkeyConfFile(pw, domain, baseDN, useLdap, false, valkeyLdapModulePath(os), follow, self)
 	}
 	if err := a.engCtx(ctx).CopyFile(ctx, id, "/etc/valkey", valkeyConfFileName(os), 0o644, []byte(conf)); err != nil {
 		return pr.fail("write valkey.conf: %v", err)

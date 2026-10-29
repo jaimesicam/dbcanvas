@@ -48,3 +48,18 @@ func TestValkeySentinelConf(t *testing.T) {
 		t.Error("resolve-hostnames must come before the monitor line")
 	}
 }
+
+// Every Sentinel-mode member announces its host name, the first primary as
+// well, and only replicas start with a replicaof line.
+func TestValkeySentinelMemberConf(t *testing.T) {
+	primary := valkeyConfFile("pw", "example.net", "dc=example,dc=net", false, false, "", "", "valkey-1.example.net")
+	if !strings.Contains(primary, "replica-announce-ip valkey-1.example.net\n") || strings.Contains(primary, "replicaof") {
+		t.Errorf("primary:\n%s", primary)
+	}
+	replica := valkeyConfFile("pw", "example.net", "dc=example,dc=net", false, false, "", "valkey-1.example.net", "valkey-2.example.net")
+	for _, want := range []string{"replicaof valkey-1.example.net 6379\n", "replica-announce-ip valkey-2.example.net\n"} {
+		if !strings.Contains(replica, want) {
+			t.Errorf("replica: missing %q in\n%s", want, replica)
+		}
+	}
+}
