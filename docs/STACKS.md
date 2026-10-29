@@ -801,6 +801,13 @@ left or right edge to snap to half the screen, to a corner for a quarter, or to 
 maximize. Right-click a title bar for Maximize, Minimize, Snap left, Snap right and Close (and Dock
 for a terminal).
 
+Terminals can share a window as tabs. Drag a terminal window by its title bar, or drag a tab, onto
+another terminal window to add it there as a tab, or onto the terminal dock to dock it. Drag a tab
+along a tab strip to rearrange the tabs, or onto another strip to put it at that position. To detach a
+tab into a window of its own, drag it off onto the desktop, click its detach icon, or right-click it
+and choose **Detach into a window**. **Dock all tabs** docks every tab in the window, and closing
+the window closes all of its tabs.
+
 The **taskbar** has **Menu**, a button per window (click to raise, again to minimize), the
 terminal dock toggle, the session panel when hidden, and **Tile**, **Cascade** and **Show
 desktop**. Right-click the desktop for **Tile windows** and **Cascade windows**. Minimized windows

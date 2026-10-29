@@ -13,8 +13,12 @@ import { Window, useWindowManager, useTaskbarItem } from '../wm/WindowManager.js
 // navigation — sessions are not reset when you leave and return to a page.
 //
 // Each session lives in exactly one place at a time: a tab in the bottom dock, or
-// its own floating window — a managed one (wm/WindowManager.jsx), so it moves, snaps,
-// minimizes to the taskbar and stacks like every other window. Detaching/attaching does NOT re-create xterm — the
+// a tab in a floating window — a managed one (wm/WindowManager.jsx), so it moves, snaps,
+// minimizes to the taskbar and stacks like every other window. A floating window holds
+// one session until another is dragged onto it: dragging a window by its title bar, or a
+// tab by itself, onto a terminal window adds it there as tabs, and onto the dock docks
+// it. A tab dragged onto nothing becomes a window of its own, as Detach does.
+// Detaching/attaching does NOT re-create xterm — the
 // session's persistent host <div> (with xterm opened into it) is re-parented into
 // the correct slot via appendChild, so scrollback and the live socket survive.
 
@@ -36,8 +40,14 @@ const XTERM_THEME = {
 }
 
 export function TerminalProvider({ children }) {
-  const [sessions, setSessions] = useState([]) // [{id,title,status,floating,float}]
+  const [sessions, setSessions] = useState([]) // [{id,title,status,floating,win,float}]
   const [activeId, setActiveId] = useState(null)
+  // win is the floating window a session is a tab of; winActive is each window's shown tab.
+  const [winActive, setWinActive] = useState({}) // win -> session id
+  const sessionsRef = useRef(sessions)
+  sessionsRef.current = sessions
+  const winCounter = useRef(0)
+  const newWin = () => `w${++winCounter.current}`
   const [open, setOpen] = useState(false)
   const termsRef = useRef(new Map()) // id -> {term, fit, ws, host, opened}
   const counter = useRef(0)
@@ -89,7 +99,7 @@ export function TerminalProvider({ children }) {
     // its own floating window, cascaded like a detached one.
     setSessions((ss) => [...ss, {
       id, title, status: 'connecting', floating: undocked, shared: !!shared,
-      ...(undocked ? { float: floatRect() } : {}),
+      ...(undocked ? { float: floatRect(), win: newWin() } : {}),
     }])
     if (!undocked) {
       setActiveId(id)
@@ -184,14 +194,57 @@ export function TerminalProvider({ children }) {
     }
   }, [share.active, share.sid, share.terms, attach, dropTerminal])
 
-  const detachTerminal = useCallback((id) => {
-    setSessions((ss) => ss.map((s) => (s.id === id ? { ...s, floating: true, float: s.float || floatRect() } : s)))
+  // moveLast re-places the sessions in ids at the end of the list, changed by fn — the
+  // end, so a tab moved into the dock or a window lands after the ones already there.
+  const moveLast = (ss, ids, fn) => [...ss.filter((s) => !ids.includes(s.id)), ...ss.filter((s) => ids.includes(s.id)).map(fn)]
+
+  // detachTerminal gives a session a window of its own; at, when given, is where it opens.
+  const detachTerminal = useCallback((id, at) => {
+    const win = newWin()
+    setSessions((ss) => ss.map((s) => (s.id === id
+      ? { ...s, floating: true, win, float: { ...floatRect(), ...(s.float?.max ? { max: true } : {}), ...(at || {}) } }
+      : s)))
+    setWinActive((wa) => ({ ...wa, [win]: id }))
   }, [])
 
   const attachTerminal = useCallback((id) => {
-    setSessions((ss) => ss.map((s) => (s.id === id ? { ...s, floating: false } : s)))
+    setSessions((ss) => moveLast(ss, [id], (s) => ({ ...s, floating: false, win: null })))
     setActiveId(id)
     setOpen(true)
+  }, [])
+
+  // dockWindow docks every tab of a floating window, keeping the one it showed in front.
+  const dockWindow = useCallback((win, show) => {
+    setSessions((ss) => {
+      const ids = ss.filter((s) => s.floating && s.win === win).map((s) => s.id)
+      return moveLast(ss, ids, (s) => ({ ...s, floating: false, win: null }))
+    })
+    if (show) setActiveId(show)
+    setOpen(true)
+  }, [])
+
+  // placeTab moves session id next to the tab target (before it, or after when after is set),
+  // into whichever place target is in — the dock or a window — and shows it there. The
+  // order of the sessions list is the order of every tab strip.
+  const placeTab = useCallback((id, target, after) => {
+    const to = sessionsRef.current.find((s) => s.id === target)
+    if (id === target || !to) return
+    setSessions((ss) => {
+      const me = ss.find((s) => s.id === id)
+      const rest = ss.filter((s) => s.id !== id)
+      const at = rest.findIndex((s) => s.id === target)
+      if (!me || at < 0) return ss
+      rest.splice(at + (after ? 1 : 0), 0, { ...me, floating: to.floating, win: to.win })
+      return rest
+    })
+    if (to.floating) setWinActive((wa) => ({ ...wa, [to.win]: id }))
+    else { setActiveId(id); setOpen(true) }
+  }, [])
+
+  // tabInto makes the sessions in ids tabs of the floating window win, showing show.
+  const tabInto = useCallback((ids, win, show) => {
+    setSessions((ss) => moveLast(ss, ids, (s) => ({ ...s, floating: true, win })))
+    setWinActive((wa) => ({ ...wa, [win]: show || ids[0] }))
   }, [])
 
   const setFloat = useCallback((id, patch) => {
@@ -211,7 +264,7 @@ export function TerminalProvider({ children }) {
 
   const value = {
     sessions, activeId, open, setActiveId, setOpen, openTerminal, closeTerminal, canClose,
-    detachTerminal, attachTerminal, setFloat, termsRef,
+    detachTerminal, attachTerminal, dockWindow, tabInto, placeTab, winActive, setWinActive, setFloat, termsRef,
   }
   return (
     <TermCtx.Provider value={value}>
@@ -221,8 +274,27 @@ export function TerminalProvider({ children }) {
   )
 }
 
+// dropTargetAt is the terminal place under (x, y) that a drag would drop into: a floating
+// terminal window ({ win }) or the dock ({ dock: true }). The topmost thing there decides —
+// a terminal window behind another window is not a target. skipWin is the window being
+// dragged, which is under the pointer itself.
+export function dropTargetAt(x, y, skipWin) {
+  for (const el of document.elementsFromPoint(x, y)) {
+    const w = el.closest('[data-wm-window]')
+    const id = w?.getAttribute('data-wm-window') || ''
+    if (skipWin && id === `term:${skipWin}`) continue
+    if (id.startsWith('term:')) return { win: id.slice(5) }
+    if (el.closest('[data-terminal-dock]')) return { dock: true }
+    return null
+  }
+  return null
+}
+
 function TerminalLayer() {
-  const { sessions, activeId, open, setActiveId, setOpen, closeTerminal, canClose, detachTerminal, attachTerminal, setFloat, termsRef } = useTerminals()
+  const {
+    sessions, activeId, open, setActiveId, setOpen, closeTerminal, canClose, detachTerminal, attachTerminal,
+    dockWindow, tabInto, placeTab, winActive, setWinActive, setFloat, termsRef,
+  } = useTerminals()
   const closeTitle = (s) => (canClose(s) ? 'Close' : 'Only whoever has control can close a shared terminal')
   const [layout, setLayout] = useState(loadLayout)
   const [menu, setMenu] = useState(null) // { x, y, id } for the right-click context menu
@@ -242,16 +314,23 @@ function TerminalLayer() {
   const onTopRef = useRef(onTop)
   onTopRef.current = onTop
   const areaRef = useRef(null)
-  const floatRefs = useRef(new Map()) // id -> body slot element
+  const floatRefs = useRef(new Map()) // win -> body slot element
+  const slotRefs = useRef(new Map()) // win -> its ref callback, kept so React does not re-run it every render
   const drag = useRef(null)
   const wm = useWindowManager()
+  // dropOn is the place a drag in progress would drop into ('dock' or a window's win), for
+  // its highlight; tabDrag is a tab being dragged, drawn under the pointer.
+  const [dropOn, setDropOn] = useState(null)
+  const [tabDrag, setTabDrag] = useState(null) // { id, title, x, y }
+  const [insertAt, setInsertAt] = useState(null) // { id, after }: where a dragged tab would land in a strip
+  const tabPress = useRef(null)
 
   // Right-click actions, shared by docked tabs and floating windows.
   const openMenu = (id) => (e) => { e.preventDefault(); e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, id }) }
   // Maximize is offered only for docked tabs: detach into a maximized window.
   const maximize = (s) => { detachTerminal(s.id); setFloat(s.id, { max: true }) }
   const minimize = (s) => {
-    if (s.floating) wm.minimize(`term:${s.id}`)
+    if (s.floating) wm.minimize(`term:${s.win}`)
     else setOpen(false)
   }
 
@@ -261,6 +340,15 @@ function TerminalLayer() {
 
   const docked = sessions.filter((s) => !s.floating)
   const floating = sessions.filter((s) => s.floating)
+  // The floating windows, in the order their first tab was opened, each with its tabs.
+  const windows = []
+  for (const s of floating) {
+    let w = windows.find((x) => x.win === s.win)
+    if (!w) windows.push(w = { win: s.win, tabs: [] })
+    w.tabs.push(s)
+  }
+  const shownIn = (w) => w.tabs.find((s) => s.id === winActive[w.win]) || w.tabs[0]
+  const shownId = new Map(windows.map((w) => [w.win, shownIn(w).id]))
 
   // Place each session's persistent host div into its current slot (dock area or
   // its floating window), opening xterm into it the first time it is attached.
@@ -268,12 +356,13 @@ function TerminalLayer() {
     for (const s of sessions) {
       const t = termsRef.current.get(s.id)
       if (!t) continue
-      const slot = s.floating ? floatRefs.current.get(s.id) : (open ? areaRef.current : null)
+      const slot = s.floating ? floatRefs.current.get(s.win) : (open ? areaRef.current : null)
       if (!slot) continue
       if (t.host.parentElement !== slot) slot.appendChild(t.host)
       if (!t.opened) { try { t.term.open(t.host) } catch { /* */ } t.opened = true }
-      t.host.style.display = (!s.floating && s.id !== activeId) ? 'none' : 'block'
-      requestAnimationFrame(() => { try { t.fit.fit() } catch { /* */ } })
+      const shown = s.floating ? shownId.get(s.win) === s.id : s.id === activeId
+      t.host.style.display = shown ? 'block' : 'none'
+      if (shown) requestAnimationFrame(() => { try { t.fit.fit() } catch { /* */ } })
     }
   })
 
@@ -288,19 +377,99 @@ function TerminalLayer() {
     return () => ro.disconnect()
   }, [activeId, open, termsRef])
 
-  // Body-slot ref for a floating window — also fits the terminal as the window resizes.
-  const floatSlot = (id) => (el) => {
-    const t = termsRef.current.get(id)
-    if (el) {
-      floatRefs.current.set(id, el)
-      if (t && !t._ro) {
-        t._ro = new ResizeObserver(() => { try { t.fit.fit() } catch { /* */ } })
-        t._ro.observe(el)
-      }
-    } else {
-      floatRefs.current.delete(id)
-      if (t && t._ro) { try { t._ro.disconnect() } catch { /* */ } t._ro = null }
+  // Body-slot ref for a floating window — also fits the terminal it shows as the window resizes.
+  const floatSlot = (win) => {
+    if (!slotRefs.current.has(win)) {
+      let ro = null
+      slotRefs.current.set(win, (el) => {
+        if (ro) { ro.disconnect(); ro = null }
+        if (!el) { floatRefs.current.delete(win); slotRefs.current.delete(win); return }
+        floatRefs.current.set(win, el)
+        ro = new ResizeObserver(() => {
+          for (const t of termsRef.current.values()) {
+            if (t.opened && t.host.parentElement === el && t.host.style.display !== 'none') {
+              try { t.fit.fit() } catch { /* */ }
+            }
+          }
+        })
+        ro.observe(el)
+      })
     }
+    return slotRefs.current.get(win)
+  }
+
+  // dropAt moves the sessions in ids (the tabs of window from, or a single tab) to what is
+  // under (x, y), and reports whether there was anything there.
+  const dropAt = (x, y, ids, from, show) => {
+    const to = dropTargetAt(x, y, from)
+    if (!to) return false
+    if (to.dock) {
+      if (from) dockWindow(from, show)
+      else ids.forEach(attachTerminal)
+    } else if (to.win !== from) {
+      tabInto(ids, to.win, show)
+    }
+    return true
+  }
+
+  // A tab dragged out of the dock or a window's tab strip. It starts as a press, so a click
+  // still just selects the tab; past a few pixels it is a drag.
+  useEffect(() => {
+    const move = (e) => {
+      const p = tabPress.current
+      if (!p) return
+      if (!p.moved && Math.abs(e.clientX - p.sx) + Math.abs(e.clientY - p.sy) < 6) return
+      p.moved = true
+      const slot = tabSlotAt(e.clientX, e.clientY)
+      setInsertAt(slot && slot.id !== p.id ? slot : null)
+      setTabDrag({ id: p.id, title: p.title, x: e.clientX, y: e.clientY })
+      if (slot) { setDropOn(null); return }
+      const to = dropTargetAt(e.clientX, e.clientY)
+      const own = to && (to.dock ? !p.from : to.win === p.from)
+      setDropOn(!to || own ? null : to.dock ? 'dock' : to.win)
+    }
+    const up = (e) => {
+      const p = tabPress.current
+      if (!p) return
+      tabPress.current = null
+      document.body.style.userSelect = ''
+      setDropOn(null)
+      setTabDrag(null)
+      setInsertAt(null)
+      if (!p.moved || e.type === 'pointercancel') return
+      // Onto a tab strip: into that place, at that position — which, in its own strip, is
+      // rearranging the tabs.
+      const slot = tabSlotAt(e.clientX, e.clientY)
+      if (slot) { placeTab(p.id, slot.id, slot.after); return }
+      const to = dropTargetAt(e.clientX, e.clientY)
+      if (to && (to.dock ? !p.from : to.win === p.from)) return // back where it came from
+      if (!dropAt(e.clientX, e.clientY, [p.id], null, p.id)) {
+        // Onto nothing: a window of its own, its title bar under the pointer.
+        detachTerminal(p.id, { x: Math.max(0, e.clientX - 80), y: Math.max(0, e.clientY - 14) })
+      }
+    }
+    addEventListener('pointermove', move)
+    addEventListener('pointerup', up)
+    addEventListener('pointercancel', up)
+    return () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', up) }
+  })
+  // tabSlotAt is the position in a tab strip under (x, y): beside the tab there (after it when
+  // the pointer is past its middle), or after the last tab on the strip's empty end.
+  const tabSlotAt = (x, y) => {
+    const el = document.elementFromPoint(x, y)
+    const t = el?.closest('[data-term-tab]')
+    if (t) {
+      const r = t.getBoundingClientRect()
+      return { id: t.getAttribute('data-term-tab'), after: x > r.x + r.width / 2 }
+    }
+    const last = el?.closest('[data-term-strip]')?.querySelector('[data-term-tab]:last-of-type')
+    return last ? { id: last.getAttribute('data-term-tab'), after: true } : null
+  }
+  const pressTab = (s) => (e) => {
+    if (e.button !== 0 || e.target.closest('button')) return
+    e.stopPropagation()
+    document.body.style.userSelect = 'none'
+    tabPress.current = { id: s.id, title: s.title, from: s.floating ? s.win : null, sx: e.clientX, sy: e.clientY, moved: false }
   }
 
   // dragging the dock's height handle; floating windows are the window manager's.
@@ -341,24 +510,63 @@ function TerminalLayer() {
   if (sessions.length === 0) return null
 
   const statusDot = (status) => `h-1.5 w-1.5 rounded-full ${status === 'connected' ? 'bg-success' : status === 'error' || status === 'closed' ? 'bg-danger' : 'bg-warning'}`
+  const dropRing = <div className="pointer-events-none absolute inset-0 z-20 rounded-b-lg border-2 border-primary/70 bg-primary/10" />
+
+  // tab is one tab of the dock or of a window's strip: select on click, drag to move, the
+  // detach and close buttons.
+  const tab = (s, active, onSelect) => (
+    <div key={s.id} data-no-drag data-term-tab={s.id} onPointerDown={pressTab(s)} onClick={onSelect} onContextMenu={openMenu(s.id)}
+      style={{ touchAction: 'none' }}
+      className={`relative flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs ${tabDrag?.id === s.id ? 'opacity-40' : ''} ${active ? 'bg-surface text-fg shadow' : 'text-muted hover:bg-surface'}`}>
+      <span className={statusDot(s.status)} />
+      <span className="max-w-[140px] truncate">{s.title}</span>
+      <button title="Detach into a window" onClick={(e) => { e.stopPropagation(); detachTerminal(s.id) }} className="rounded text-muted hover:text-fg"><Icon.External size={12} /></button>
+      <button title={closeTitle(s)} disabled={!canClose(s)} onClick={(e) => { e.stopPropagation(); closeTerminal(s.id) }} className="rounded hover:text-danger disabled:cursor-not-allowed disabled:opacity-30">✕</button>
+      {insertAt?.id === s.id && (
+        <span className="pointer-events-none absolute inset-y-0.5 w-0.5 rounded bg-primary" style={insertAt.after ? { right: -3 } : { left: -3 }} />
+      )}
+    </div>
+  )
 
   return (
     <>
-      {/* floating per-tab windows */}
-      {floating.map((s) => (
-        <Window key={s.id} id={`term:${s.id}`} title={s.title} size={{ ...floatRect(), max: !!s.float?.max }} onTop
-          icon={<span className="flex items-center gap-1.5"><span className={statusDot(s.status)} /><Icon.Terminal size={13} /></span>}
-          onClose={() => closeTerminal(s.id)} canClose={canClose(s)} closeTitle={closeTitle(s)}
-          menu={[{ label: 'Dock', onClick: () => attachTerminal(s.id) }]}
-          header={(
-            <span className="flex min-w-0 flex-1 justify-end">
-              <button title="Dock" onClick={() => attachTerminal(s.id)} className="rounded p-1 text-muted hover:bg-surface hover:text-fg"><Icon.Frame size={13} /></button>
-            </span>
-          )}
-          bodyClass="bg-[#0e1117]">
-          <div ref={floatSlot(s.id)} className="absolute inset-0 overflow-hidden" />
-        </Window>
-      ))}
+      {/* floating windows, each one or more tabs */}
+      {windows.map((w) => {
+        const s = shownIn(w)
+        const many = w.tabs.length > 1
+        const closable = w.tabs.filter(canClose)
+        return (
+          <Window key={w.win} id={`term:${w.win}`} title={many ? `${s.title} (${w.tabs.length} tabs)` : s.title}
+            size={{ ...floatRect(), ...w.tabs[0].float, max: !!w.tabs[0].float?.max }} onTop
+            icon={<span className="flex items-center gap-1.5"><span className={statusDot(s.status)} /><Icon.Terminal size={13} /></span>}
+            onClose={() => closable.forEach((x) => closeTerminal(x.id))} canClose={closable.length > 0}
+            closeTitle={closeTitle(s)}
+            menu={[
+              { label: many ? 'Dock all tabs' : 'Dock', onClick: () => dockWindow(w.win, s.id) },
+              ...(many ? [{ label: 'Detach this tab', onClick: () => detachTerminal(s.id) }] : []),
+            ]}
+            onDragOver={(x, y) => {
+              const to = dropTargetAt(x, y, w.win)
+              setDropOn(to ? (to.dock ? 'dock' : to.win) : null)
+              return !!to
+            }}
+            onDrop={(x, y) => { setDropOn(null); dropAt(x, y, w.tabs.map((t) => t.id), w.win, s.id) }}
+            header={(
+              <span className="flex min-w-0 flex-1 justify-end">
+                <button title={many ? 'Dock all tabs' : 'Dock'} onClick={() => dockWindow(w.win, s.id)} className="rounded p-1 text-muted hover:bg-surface hover:text-fg"><Icon.Frame size={13} /></button>
+              </span>
+            )}
+            bodyClass="flex flex-col bg-[#0e1117]">
+            {many && (
+              <div data-term-strip className="flex shrink-0 gap-1 overflow-x-auto border-b bg-surface2 px-2 py-1">
+                {w.tabs.map((t) => tab(t, t.id === s.id, () => setWinActive((wa) => ({ ...wa, [w.win]: t.id }))))}
+              </div>
+            )}
+            <div ref={floatSlot(w.win)} className="relative min-h-0 flex-1 overflow-hidden" />
+            {dropOn === w.win && dropRing}
+          </Window>
+        )
+      })}
 
       {/* bottom dock (docked sessions) */}
       {docked.length > 0 && open && (
@@ -370,20 +578,21 @@ function TerminalLayer() {
             className="h-1.5 w-full cursor-ns-resize bg-border/60 hover:bg-primary"
           />
           <div className="flex items-center gap-1 border-b bg-surface2 px-2 py-1">
-            <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto">
-              {docked.map((s) => (
-                <div key={s.id} onClick={() => setActiveId(s.id)} onContextMenu={openMenu(s.id)}
-                  className={`flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs ${s.id === activeId ? 'bg-surface text-fg shadow' : 'text-muted hover:bg-surface'}`}>
-                  <span className={statusDot(s.status)} />
-                  <span className="max-w-[140px] truncate">{s.title}</span>
-                  <button title="Detach into a window" onClick={(e) => { e.stopPropagation(); detachTerminal(s.id) }} className="rounded text-muted hover:text-fg"><Icon.External size={12} /></button>
-                  <button title={closeTitle(s)} disabled={!canClose(s)} onClick={(e) => { e.stopPropagation(); closeTerminal(s.id) }} className="rounded hover:text-danger disabled:cursor-not-allowed disabled:opacity-30">✕</button>
-                </div>
-              ))}
+            <div data-term-strip className="flex min-w-0 flex-1 gap-1 overflow-x-auto">
+              {docked.map((s) => tab(s, s.id === activeId, () => setActiveId(s.id)))}
             </div>
             <button title="Minimize" onClick={() => setOpen(false)} className="rounded px-1.5 text-muted hover:bg-surface hover:text-fg">—</button>
           </div>
           <div ref={areaRef} className="relative flex-1 overflow-hidden bg-[#0e1117]" />
+          {dropOn === 'dock' && dropRing}
+        </div>
+      )}
+
+      {/* a tab being dragged, under the pointer */}
+      {tabDrag && (
+        <div className="pointer-events-none fixed z-[60] flex items-center gap-1.5 rounded-md border bg-surface px-2 py-1 text-xs text-fg shadow-xl"
+          style={{ left: tabDrag.x + 10, top: tabDrag.y + 8 }}>
+          <Icon.Terminal size={12} /><span className="max-w-[180px] truncate">{tabDrag.title}</span>
         </div>
       )}
 
@@ -402,8 +611,10 @@ function TerminalLayer() {
           <>
             <div className="fixed inset-0 z-50" onClick={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null) }} />
             <div className="fixed z-50 min-w-[160px] rounded-md border bg-surface py-1 text-xs shadow-xl"
-              style={{ left: Math.min(menu.x, window.innerWidth - 172), top: Math.min(menu.y, window.innerHeight - 108) }}>
+              style={{ left: Math.min(menu.x, window.innerWidth - 172), top: Math.min(menu.y, window.innerHeight - 160) }}>
               {!s.floating && item('Maximize', '⛶', run(maximize))}
+              {item('Detach into a window', '⧉', run((x) => detachTerminal(x.id)))}
+              {s.floating && item('Dock', '▁', run((x) => attachTerminal(x.id)))}
               {item('Minimize', '—', run(minimize))}
               {canClose(s) && item('Close', '✕', run((x) => closeTerminal(x.id)), true)}
             </div>

@@ -286,9 +286,13 @@ export function WindowManagerProvider({ children }) {
 //   onTop      stays above windows without it while the user's terminalsOnTop
 //              setting is on (terminals and both file managers pass it);
 //              minimizing still hides it
+//   onDragOver (x, y) on every move of a title-bar drag; true claims the pointer for a
+//              drop of the owner's (a terminal tabbing into another), so no snap
+//              zone is offered there
+//   onDrop     (x, y) at the end of a drag onDragOver claimed; the window does not snap
 const NO_WM = { register: () => {}, unregister: () => {}, wins: {}, layerEl: null, area: () => areaOf(false) }
 
-export function Window({ id, title, icon, size, header, onClose, canClose = true, closeTitle, menu, bodyClass = '', private: priv, onTop = false, children }) {
+export function Window({ id, title, icon, size, header, onClose, canClose = true, closeTitle, menu, bodyClass = '', private: priv, onTop = false, onDragOver, onDrop, children }) {
   const wm = useWindowManager() || NO_WM // outside the provider (a render check) it draws nothing
   const { settings } = useSettings()
   const pinned = onTop && settings.terminalsOnTop !== 'off'
@@ -296,6 +300,9 @@ export function Window({ id, title, icon, size, header, onClose, canClose = true
   const w = wm.wins[id]
   const drag = useRef(null)
   const [ctx, setCtx] = useState(null)
+  // The drop handlers as of this render, for the listeners below that outlive it.
+  const dropRef = useRef(null)
+  dropRef.current = { onDragOver, onDrop }
 
   useEffect(() => {
     register(id, { title, icon, ...size })
@@ -327,7 +334,8 @@ export function Window({ id, title, icon, size, header, onClose, canClose = true
         // title bar should not flicker the cursor.
         if (!d.moved) dragCursor('grabbing')
         d.moved = true
-        const zone = zoneAt(e.clientX, e.clientY, wm.area())
+        d.claimed = !!dropRef.current.onDragOver?.(e.clientX, e.clientY)
+        const zone = d.claimed ? null : zoneAt(e.clientX, e.clientY, wm.area())
         d.zone = zone
         wm.setPreview(zone ? snapRect(zone, wm.area()) : null)
         wm.patch(id, { rect: clampRect({ ...base, x: base.x + dx, y: base.y + dy }, wm.area()) })
@@ -341,7 +349,7 @@ export function Window({ id, title, icon, size, header, onClose, canClose = true
         wm.patch(id, { rect: r })
       }
     }
-    const up = () => {
+    const up = (e) => {
       const d = drag.current
       if (!d) return
       drag.current = null
@@ -349,6 +357,10 @@ export function Window({ id, title, icon, size, header, onClose, canClose = true
       wm.setPreview(null)
       dragCursor(null)
       document.body.style.userSelect = ''
+      if (d.kind === 'move' && d.moved && d.claimed) {
+        dropRef.current.onDrop?.(e.clientX, e.clientY)
+        return
+      }
       if (d.kind === 'move' && d.moved && d.zone) {
         if (d.zone === 'max') wm.patch(id, { max: true, snap: null })
         else wm.patch(id, { snap: d.zone })
