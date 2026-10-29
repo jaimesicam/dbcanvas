@@ -220,16 +220,31 @@ func TestBrowseIsTheOwnersAndTheirGuests(t *testing.T) {
 }
 
 func TestStackOfContainer(t *testing.T) {
-	for name, want := range map[string]int64{
-		"dbcanvas-91-pmm-mt1kvaak-3": 91, "k3d-k3d-01-s1-serverlb": 1, "k3d-everest-s12-server-0": 12,
-	} {
-		if id, _, ok := stackOfContainer(name); !ok || id != want {
-			t.Errorf("%s: %d %v, want %d", name, id, ok, want)
+	check := func(ours map[string]int64, theirs []string) {
+		t.Helper()
+		for name, want := range ours {
+			if id, _, ok := stackOfContainer(name); !ok || id != want {
+				t.Errorf("%s: %d %v, want %d", name, id, ok, want)
+			}
+		}
+		for _, name := range theirs {
+			if _, _, ok := stackOfContainer(name); ok {
+				t.Errorf("%s was taken for a stack's container", name)
+			}
 		}
 	}
-	for _, name := range []string{"dbcanvas-app-1", "postgres", "k3d-registry"} {
-		if _, _, ok := stackOfContainer(name); ok {
-			t.Errorf("%s was taken for a stack's container", name)
-		}
-	}
+	withInstance(t, legacyInstance, func() {
+		check(map[string]int64{
+			"dbcanvas-91-pmm-mt1kvaak-3": 91, "k3d-k3d-01-s1-serverlb": 1, "k3d-everest-s12-server-0": 12,
+			"k3d-everest-s12-dbcanvas-agent-1": 12,
+		}, []string{"dbcanvas-app-1", "postgres", "k3d-registry", "dbcanvas-lab2-3-pmm-mvt5lhx0-2",
+			"k3d-everest-s12-lab2-serverlb"})
+	})
+	withInstance(t, "dbcanvas-lab2", func() {
+		check(map[string]int64{
+			"dbcanvas-lab2-3-pmm-mvt5lhx0-2": 3, "k3d-everest-s12-lab2-serverlb": 12,
+			"k3d-k3d-01-s1-lab2-server-0": 1,
+		}, []string{"dbcanvas-91-pmm-mt1kvaak-3", "dbcanvas-lab2-app-1", "k3d-everest-s12-serverlb",
+			"k3d-everest-s12-dbcanvas-serverlb"})
+	})
 }

@@ -103,19 +103,20 @@ func browseLookup(key string) *browseTarget {
 	return t
 }
 
-var (
-	browseNodeRe = regexp.MustCompile(`^dbcanvas-(\d+)-(.+)$`)
-	browseK3dRe  = regexp.MustCompile(`^k3d-(.+)-s(\d+)-(serverlb|server-\d+|agent-\d+)$`)
-)
-
-// stackOfContainer reads which stack a container belongs to from its name: a node's
-// (containerName) or a K3D frame's load balancer or members (k3dClusterName).
+// stackOfContainer reads which stack of this installation a container belongs to from its name:
+// a node's (containerName: <instance>-<stackID>-<node>) or a K3D frame's load balancer or members
+// (k3dClusterName, which ends -s<stackID>-<instance tag>, or just -s<stackID> on the legacy
+// installation's clusters from before names were tagged).
 func stackOfContainer(name string) (stackID int64, label string, ok bool) {
-	if m := browseNodeRe.FindStringSubmatch(name); m != nil {
-		id, err := strconv.ParseInt(m[1], 10, 64)
-		return id, m[2], err == nil
+	if id, ok := stackIDFromInstanceName(name); ok {
+		return id, strings.TrimPrefix(name, stackContainerPrefix(id)), true
 	}
-	if m := browseK3dRe.FindStringSubmatch(name); m != nil {
+	tag := `-` + regexp.QuoteMeta(instanceTag())
+	if k3dLegacyNames() {
+		tag = `(?:` + tag + `)?`
+	}
+	re := regexp.MustCompile(`^` + k3dContainerPrefix + `(.+)-s(\d+)` + tag + `-(?:serverlb|server-\d+|agent-\d+)$`)
+	if m := re.FindStringSubmatch(name); m != nil {
 		id, err := strconv.ParseInt(m[2], 10, 64)
 		return id, m[1], err == nil
 	}
