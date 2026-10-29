@@ -336,7 +336,13 @@ func (d *Docker) ApplyDiskLimitsIOPS(ctx context.Context, image string, ids []st
 	if err != nil {
 		return "", fmt.Errorf("create io.max helper: %w", err)
 	}
-	defer d.ContainerRemove(ctx, cid)
+	// Removed on a context of its own: when ctx ran out during start or exec,
+	// removing on it would fail at once and leave the helper behind.
+	defer func() {
+		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		d.ContainerRemove(rctx, cid)
+		cancel()
+	}()
 	if err := d.ContainerStart(ctx, cid); err != nil {
 		return "", fmt.Errorf("start io.max helper: %w", err)
 	}
