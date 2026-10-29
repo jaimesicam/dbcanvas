@@ -305,7 +305,7 @@ func (a *App) provisionValkeyStandalone(st Stack, n designNode, doc designDoc) {
 		}
 
 		pr.phase("Starting Valkey", 70)
-		if err := a.runStep(ctx, id, valkeyStartScript, []string{"SERVICE=" + valkeyServiceName(os)}, pr.logln); err != nil {
+		if err := a.runStep(ctx, id, valkeyStartScript, a.valkeyStartEnv(ctx, os, arch, pr), pr.logln); err != nil {
 			pr.fail("start Valkey: %v", err)
 			return
 		}
@@ -359,9 +359,48 @@ mkdir -p ` + valkeyDataDir + `
 chown valkey:valkey ` + valkeyDataDir + `
 chmod 750 ` + valkeyDataDir
 
+// valkeyStartEnv is valkeyStartScript's environment: the unit, and whether the
+// node runs under emulation.
+func (a *App) valkeyStartEnv(ctx context.Context, os, arch string, pr *pxcProg) []string {
+	env := []string{"SERVICE=" + valkeyServiceName(os), "EMULATED="}
+	if ha, ok := a.emulatedAmd64(ctx, arch); ok {
+		env[1] = "EMULATED=1"
+		pr.logln("x86-64 emulation on an " + ha + " host: relaxing the Valkey unit's systemd sandboxing")
+	}
+	return env
+}
+
+// systemdImageArch reads the architecture out of a systemd image tag
+// (dbcanvas-systemd:<os>-<version>-<arch>-<release>).
+func systemdImageArch(image string) string {
+	if strings.Contains(image, "-arm64-") {
+		return "arm64"
+	}
+	return "amd64"
+}
+
 // valkeyStartScript (re)starts and enables the Valkey service, then confirms
 // systemd actually reports it active — mirrors pgStartScript's shape exactly.
+//
+// Under emulation (EMULATED set) the package's systemd hardening kills the
+// server at start: its SystemCallFilter and SystemCallArchitectures=native
+// refuse the translator's syscalls (a fatal signal, SIGSYS), and
+// MemoryDenyWriteExecute refuses its code cache. A drop-in clears those three
+// for this unit only, as the Intranet does for its daemons; on a native host
+// the unit is left exactly as packaged.
 const valkeyStartScript = `set -e
+if [ -n "$EMULATED" ]; then
+  install -d "/etc/systemd/system/${SERVICE}.service.d"
+  cat > "/etc/systemd/system/${SERVICE}.service.d/10-dbcanvas-emulation.conf" <<'UNIT'
+[Service]
+MemoryDenyWriteExecute=no
+SystemCallFilter=
+SystemCallArchitectures=
+Restart=always
+RestartSec=2
+UNIT
+  systemctl daemon-reload
+fi
 systemctl enable "$SERVICE" >/dev/null 2>&1 || true
 systemctl reset-failed "$SERVICE" 2>/dev/null || true
 systemctl restart "$SERVICE"
@@ -661,7 +700,7 @@ func (a *App) valkeyStartMember(ctx context.Context, st Stack, n designNode, hos
 	}
 
 	pr.phase("Starting Valkey", 68)
-	if err := a.runStep(ctx, id, valkeyStartScript, []string{"SERVICE=" + valkeyServiceName(os)}, pr.logln); err != nil {
+	if err := a.runStep(ctx, id, valkeyStartScript, a.valkeyStartEnv(ctx, os, systemdImageArch(image), pr), pr.logln); err != nil {
 		return pr.fail("start Valkey: %v", err)
 	}
 

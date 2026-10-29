@@ -2774,12 +2774,9 @@ func (a *App) provisionIntranet(st Stack, n designNode) {
 		// sandboxing for emulation" step keys off EMULATED to disarm the systemd
 		// hardening that breaks the translator's RW→RX code-cache mappings.
 		emulated := ""
-		if ha := a.engCtx(ctx).HostArch(ctx); ha != "" {
-			hostArm := strings.Contains(ha, "arm") || strings.Contains(ha, "aarch64")
-			if hostArm && archOr(n.Arch) == "amd64" {
-				emulated = "1"
-				logln("detected x86-64 emulation on an " + ha + " host — relaxing systemd sandboxing for php-fpm/dovecot")
-			}
+		if ha, ok := a.emulatedAmd64(ctx, n.Arch); ok {
+			emulated = "1"
+			logln("detected x86-64 emulation on an " + ha + " host — relaxing systemd sandboxing for php-fpm/dovecot")
 		}
 
 		env := []string{
@@ -3150,6 +3147,17 @@ var barrierFrames = map[string]bool{"pxc": true, "mysql": true, "mariadbrepl": t
 // still has its container and its data — Start brings it back as it was — so provisioning it
 // again would recreate the container and lose the data. Only a node never deployed, or one whose
 // provisioning failed (error, pending), is built again.
+// emulatedAmd64 reports whether an amd64 node runs under emulation on an arm64
+// Docker host (QEMU, or Rosetta on Apple Silicon), and names the host's
+// architecture. Some packages' systemd hardening fails there: the binary
+// translator needs memory that is writable then executable, and its syscalls
+// are not the native ones a SystemCallFilter allows.
+func (a *App) emulatedAmd64(ctx context.Context, arch string) (string, bool) {
+	ha := a.engCtx(ctx).HostArch(ctx)
+	hostArm := strings.Contains(ha, "arm") || strings.Contains(ha, "aarch64")
+	return ha, hostArm && archOr(arch) == "amd64"
+}
+
 func deployBuilt(d Deployment) bool {
 	return d.ContainerID != "" && (d.State == DeployRunning || d.State == DeployStopped)
 }
