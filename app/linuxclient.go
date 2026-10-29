@@ -34,6 +34,8 @@ type linuxClientConfig struct {
 	CfsslVersion   string `json:"cfsslVersion,omitempty"` // cfssl and cfssljson, one release
 	// The Percona database clients, read back the same way. See linuxclient_db.go.
 	DBClients []lcDBClient `json:"dbClients,omitempty"`
+	// innodump and gcache-inspector, read back the same way. See linuxclient_files.go.
+	FileTools []lcDBClient `json:"fileTools,omitempty"`
 	gdbNodeConfig
 }
 
@@ -193,6 +195,11 @@ func (a *App) provisionLinuxClient(st Stack, n designNode, doc designDoc) {
 
 		if lcWantsDBClients(n) {
 			a.linuxClientInstallDBClients(ctx, id, n, &cfg, pr)
+			cfgJSON, _ = json.Marshal(cfg)
+		}
+
+		if n.LCInnodump || n.LCGcacheInspector {
+			a.linuxClientInstallFileTools(ctx, id, n, &cfg, pr)
 			cfgJSON, _ = json.Marshal(cfg)
 		}
 

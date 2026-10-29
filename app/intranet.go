@@ -98,6 +98,10 @@ type designNode struct {
 	LCPsql        bool   `json:"lcPsql"`
 	LCPsqlMajor   string `json:"lcPsqlMajor"` // "13".."18"; "" → 17
 	LCClusterSync bool   `json:"lcClusterSync"`
+	// Offline readers for a MySQL server's files on a Linux Client (Type=="linuxclient"; ignored
+	// elsewhere), from their GitHub releases. See linuxclient_files.go.
+	LCInnodump        bool `json:"lcInnodump"`        // InnoDB / MyISAM / MyRocks table files
+	LCGcacheInspector bool `json:"lcGcacheInspector"` // a Galera node's galera.cache
 	// Standalone Percona Server node fields (Type=="ps"; ignored by other types).
 	PSMajor      string `json:"psMajor"`      // Percona Server "8.0" | "8.4"
 	PSVersion    string `json:"psVersion"`    // minor; "" → latest

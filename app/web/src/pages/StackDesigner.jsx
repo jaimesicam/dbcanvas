@@ -568,7 +568,8 @@ export const NODE_TYPES = {
     plainSequentialLabel: true,
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }, { id: 'ubuntu', label: 'Ubuntu' }, { id: 'debian', label: 'Debian' }],
     defaults: { os: 'oraclelinux', osVersion: '9', useProxy: false, lcKubectl: false, lcHelm: false, lcCmctl: false, lcCfssl: false,
-      lcMysqlClient: false, lcMysqlShell: false, lcMongosh: false, lcPsql: false, lcClusterSync: false },
+      lcMysqlClient: false, lcMysqlShell: false, lcMongosh: false, lcPsql: false, lcClusterSync: false,
+      lcInnodump: false, lcGcacheInspector: false },
   },
   // Traffic Sim — the "Valkey Traffic Lab" live demo app (background agents +
   // a web map). Runs dbcanvas's own first-party image, not an OS/DB image, so it
@@ -8402,6 +8403,8 @@ function LinuxClientForm({ node: n, nodes = [], patchNode, deleteNode, dep, depl
 
       <DBClientFields node={n} patchNode={patchNode} deployed={deployed} />
 
+      <FileToolFields node={n} patchNode={patchNode} deployed={deployed} />
+
       <K8sToolFields node={n} patchNode={patchNode} deployed={deployed} frames={frames} />
 
       {/* Core-dump analysis matches debug symbols to the crashed server's own OS; it is not
@@ -8480,6 +8483,34 @@ export function DBClientFields({ node: n, patchNode, deployed }) {
         : <p className="text-[11px] text-muted">Percona ClusterSync for MongoDB is not published for CentOS 7.</p>}
       {n.os === 'centos' && (n.lcMysqlClient || n.lcMysqlShell || n.lcPsql || n.lcMongosh) && (
         <p className="text-[11px] text-muted">CentOS 7 gets Percona's last el7 builds: MySQL 8.0.37, mongosh 2.1.5 and psql 13.</p>
+      )}
+    </div>
+  )
+}
+
+// FileToolFields — innodump and gcache-inspector on a Linux Client, chosen at design time. Both are
+// static binaries from their GitHub releases, so every release offers them (app/linuxclient_files.go).
+export function FileToolFields({ node: n, patchNode, deployed }) {
+  const box = (key, label, note) => (
+    <label className="flex items-start gap-2 text-sm">
+      <input type="checkbox" className="mt-1" disabled={deployed} checked={!!n[key]}
+        onChange={(e) => patchNode(n.id, { [key]: e.target.checked })} />
+      <span className="min-w-0 flex-1">
+        {label}
+        <span className="block text-xs text-muted">{note}</span>
+      </span>
+    </label>
+  )
+  return (
+    <div className="space-y-2 rounded-lg bg-surface2 p-2">
+      <span className="text-xs font-medium text-muted">MySQL file tools</span>
+      {box('lcInnodump', 'Install innodump',
+        <>Writes a table's definition and rows out of its <span className="font-mono">.ibd</span>,{' '}
+          <span className="font-mono">.MYD</span> or MyRocks files, or a whole datadir, with no server running.</>)}
+      {box('lcGcacheInspector', 'Install gcache-inspector',
+        <>Summarizes a Galera node's <span className="font-mono">galera.cache</span> and decodes its write-sets into rows.</>)}
+      {(n.lcInnodump || n.lcGcacheInspector) && (
+        <p className="text-[11px] text-muted">The latest GitHub release, checksum-verified, in <span className="font-mono">/usr/local/bin</span>.</p>
       )}
     </div>
   )
@@ -8682,6 +8713,7 @@ function LinuxClientManager({ dep, onDeleteNode, stackId }) {
   // The binaries that landed, for the "… are on PATH" line: "kubectl", "kubectl and helm", "kubectl, helm and cmctl".
   const toolNames = [cfg.kubectlVersion && 'kubectl', cfg.helmVersion && 'helm', cfg.cmctlVersion && 'cmctl'].filter(Boolean)
   const dbClients = cfg.dbClients || []
+  const fileTools = cfg.fileTools || []
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -8695,6 +8727,8 @@ function LinuxClientManager({ dep, onDeleteNode, stackId }) {
             ? "A jump box with the Kubernetes client tools on it. Open its terminal and point them at a cluster."
             : dbClients.length
               ? "A jump box with database client tools on it. Open its terminal and point them at this stack's databases."
+            : fileTools.length
+              ? "A jump box with MySQL file tools on it. Copy a table's files or a galera.cache onto it and read them from its terminal."
             : "No product installed — but Sample Client Code will put a runnable client program on it, install whatever that program needs, and run it against any database in this stack."}
       </p>
       {!!tools.length && (
@@ -8724,6 +8758,11 @@ function LinuxClientManager({ dep, onDeleteNode, stackId }) {
         {!!dbClients.length && (
           <InfoRow label="Database clients" help={HELP.depDBClients}>
             <span className="font-mono text-xs">{dbClients.map((c) => `${c.tool} ${c.version}`).join(' · ')}</span>
+          </InfoRow>
+        )}
+        {!!fileTools.length && (
+          <InfoRow label="MySQL file tools" help={HELP.depFileTools}>
+            <span className="font-mono text-xs">{fileTools.map((c) => `${c.tool} ${c.version}`).join(' · ')}</span>
           </InfoRow>
         )}
         {!!tools.length && (

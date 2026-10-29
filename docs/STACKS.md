@@ -431,6 +431,8 @@ whatever you need, or tick tools to have them installed at deploy:
 | Install Helm | Helm 3 |
 | Install cmctl | cert-manager's CLI |
 | Install cfssl and cfssljson | `cfssl` and `cfssljson` |
+| Install innodump | [`innodump`](https://github.com/PrzemekMalkowski/innodump), which reads InnoDB, MyISAM and MyRocks table files offline |
+| Install gcache-inspector | [`gcache-inspector`](https://github.com/PrzemekMalkowski/gcache-inspector), which reads a Galera `galera.cache` offline |
 | MySQL client / MySQL Shell | Percona Server client and `mysqlsh`, series 8.0, 8.4 or 9.7 (8.4 / 9.7 on Debian 13) |
 | mongosh | From Percona Server for MongoDB |
 | psql | Percona Distribution for PostgreSQL client, 13–18 |

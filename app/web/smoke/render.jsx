@@ -59,7 +59,7 @@ import {
   BigHoleForm, BigHoleManager, BigHoleLink,
   nodeCardTip, memberCardTip,
   k8sReplLinkable, ReplicationLinkForm, ReplicationLinkChoices, K3DIssuerField, K3DTLSHostsField,
-  associationBlocked, isReplEdge, k8sReplRoleOf, k8sReplSourceOf, k8sReplSslReplicasOf, ReplSSLFields, K3D_SOURCE_EXPOSE, K8sToolFields, DBClientFields, lcMysqlSeries, lcPsqlSeries,
+  associationBlocked, isReplEdge, k8sReplRoleOf, k8sReplSourceOf, k8sReplSslReplicasOf, ReplSSLFields, K3D_SOURCE_EXPOSE, K8sToolFields, DBClientFields, FileToolFields, lcMysqlSeries, lcPsqlSeries,
   frameHeaderW, layoutFrame, separateFrames, SIM_NODE_TYPES, frameVersionLabel, frameSubLabel,
   podMenuEntries, POD_SHELLS, POD_CLIENTS,
   Spinner, NodeStatus, nodeConfiguring, configPhaseOf, PITRFields,
@@ -5492,6 +5492,18 @@ check('linux client: cfssl and cfssljson are one option, with no kubeconfig note
   if (!off.includes('Install cfssl and cfssljson')) throw new Error('the form must offer cfssl and cfssljson together')
   const only = renderToString(<K8sToolFields node={{ id: 'lc4', lcCfssl: true }} patchNode={noop} deployed={false} frames={[]} />)
   if (only.includes('kubeconfig')) throw new Error('cfssl alone does not need a kubeconfig')
+  return 'ok'
+})
+
+// innodump and gcache-inspector are offered on every release, and the download note shows only once one is ticked.
+check('linux client: innodump and gcache-inspector are offered on every release', () => {
+  for (const os of ['oraclelinux', 'debian', 'centos']) {
+    const off = renderToString(<FileToolFields node={{ id: 'lc5', os }} patchNode={noop} deployed={false} />)
+    if (!off.includes('Install innodump') || !off.includes('Install gcache-inspector')) throw new Error(`${os} must offer both file tools`)
+    if (off.includes('checksum-verified')) throw new Error('the download note belongs to a node that installs something')
+  }
+  const on = renderToString(<FileToolFields node={{ id: 'lc5', lcInnodump: true }} patchNode={noop} deployed={false} />)
+  if (!on.includes('checksum-verified')) throw new Error('a node installing innodump must say where it comes from')
   return 'ok'
 })
 
