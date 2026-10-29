@@ -61,6 +61,9 @@ type Caps struct {
 	Disk    bool   `json:"disk"`
 	NetWhy  string `json:"netWhy,omitempty"`
 	DiskWhy string `json:"diskWhy,omitempty"`
+	// DiskWarn is shown on the disk stressors when they work but have a catch
+	// on this host (members under emulation).
+	DiskWarn string `json:"diskWarn,omitempty"`
 }
 
 type Conditions struct {
@@ -107,6 +110,9 @@ func (c *Conditions) Dials() []Dial {
 			d.Why = nz(caps.DiskWhy, "DBCanvas cannot limit these members' disk.")
 		default:
 			d.Available = true
+			if kind == "disk" {
+				d.Warn = caps.DiskWarn
+			}
 		}
 		return d
 	}
@@ -123,7 +129,7 @@ func (c *Conditions) Dials() []Dial {
 			Watch: []string{"p99 latency", "Errors"}, Note: net,
 			Params: []Param{{Key: "loss", Label: "Packets dropped", Type: "steps", Opts: []any{1, 5, 10, 30, 100}, Def: 5, Unit: "%"}, condHold}}, "net"),
 		avail(Dial{ID: "netbw", Group: groupNet, Name: "Bandwidth cap", Kind: "toggle", Members: "all",
-			Desc:  "Caps the chosen members' database and cluster traffic. Catch-up, state transfers and large transactions slow down first.",
+			Desc:  "Caps what the chosen members send on their database and cluster ports. A primary's replication stream is what it sends, so cap the primary to slow its replicas; capping a replica slows only its acknowledgements and its own clients' replies.",
 			Watch: []string{"Replication lag"}, Note: net,
 			Params: []Param{{Key: "mbit", Label: "Rate", Type: "steps", Opts: []any{100, 10, 1}, Def: 10, Unit: "Mbit/s"}, condHold}}, "net"),
 		avail(Dial{ID: "diskw", Group: groupDisk, Name: "Write bandwidth cap", Kind: "toggle", Members: "all",

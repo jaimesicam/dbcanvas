@@ -76,10 +76,11 @@ type perfSimApplied struct {
 }
 
 type perfSimCaps struct {
-	Net     bool   `json:"net"`
-	Disk    bool   `json:"disk"`
-	NetWhy  string `json:"netWhy,omitempty"`
-	DiskWhy string `json:"diskWhy,omitempty"`
+	Net      bool   `json:"net"`
+	Disk     bool   `json:"disk"`
+	NetWhy   string `json:"netWhy,omitempty"`
+	DiskWhy  string `json:"diskWhy,omitempty"`
+	DiskWarn string `json:"diskWarn,omitempty"`
 }
 
 var perfSimSeen = struct {
@@ -183,20 +184,35 @@ func (a *App) applyPerfSimConditions(ctx context.Context, st Stack, doc designDo
 		nodes[n.ID] = n
 	}
 
+	// Members are brought up to date in parallel, each step with its own time
+	// limit: a member can stop answering (a write cap under emulation slows
+	// starting any program in it to a crawl), and it must not keep the others,
+	// or its own release, waiting. Disk goes first for the same reason: lifting
+	// a write cap is what makes such a member answer again, and the network step
+	// runs a program inside the member.
+	var mu sync.Mutex
+	var wg sync.WaitGroup
 	changed := false
 	now := time.Now().Unix()
+	step := func() (context.Context, context.CancelFunc) {
+		return context.WithTimeout(context.Background(), 20*time.Second)
+	}
 	for _, m := range names {
+		mu.Lock()
+		have := cfg.Applied[m]
+		mu.Unlock()
 		want := desired[m]
 		if want.Until > 0 && now > want.Until {
 			want = perfSimDesired{} // past its maximum hold
 		}
-		have := cfg.Applied[m]
 		node, known := nodes[cfg.MemberNodes[m]]
 		if !known {
 			// Not one of this sim's members: refuse, and forget anything recorded.
 			if have.Net != nil || have.Disk != nil || have.Err != "" {
+				mu.Lock()
 				delete(cfg.Applied, m)
 				changed = true
+				mu.Unlock()
 			}
 			continue
 		}
@@ -204,56 +220,72 @@ func (a *App) applyPerfSimConditions(ctx context.Context, st Stack, doc designDo
 		if err != nil || mdep.ContainerID == "" {
 			continue
 		}
-		have.Err = ""
-		if !sameNet(have.Net, want.Net) {
-			spec := nodeNetemSpec(node)
-			if want.Net != nil {
-				spec = clampNetem(want.Net.LatencyMS, want.Net.JitterMS, want.Net.LossPct, want.Net.RateMbit, false, netemPortsFor(node.Type))
-			}
-			if _, err := applyNetem(ctx, a.nodeEngine(st, node.Type), mdep.ContainerID, spec); err != nil {
-				have.Err = err.Error()
-			} else {
-				have.Net, have.NetOut = want.Net, ""
-				if want.Net != nil {
-					have.NetOut = describeNetem(spec)
-				}
-				log.Printf("stack %d: %s network now %s", st.ID, node.Label, describeNetem(spec))
-			}
-			changed = true
+		if sameNet(have.Net, want.Net) && sameDisk(have.Disk, want.Disk) {
+			continue
 		}
-		if !sameDisk(have.Disk, want.Disk) {
-			read, write := int64(node.DeviceReadMBps)<<20, int64(node.DeviceWriteMBps)<<20
-			var iops int64
-			if d := want.Disk; d != nil {
-				if d.ReadMBps > 0 {
-					read = int64(d.ReadMBps) << 20
-				}
-				if d.WriteMBps > 0 {
-					write = int64(d.WriteMBps) << 20
-				}
-				iops = int64(d.WriteIOPS)
-			}
-			out, err := a.docker.ApplyDiskLimitsIOPS(ctx, intranetImage(stackIntranetArch(doc)), []string{mdep.ContainerID}, node.DevicePath, read, write, iops)
-			if err != nil {
-				have.Err = strings.TrimSpace(have.Err + " " + err.Error())
-			} else {
-				have.Disk, have.DiskOut = want.Disk, ""
-				if want.Disk != nil {
-					// The helper prints "<container id> <io.max line>".
-					if _, line, ok := strings.Cut(out, " "); ok {
-						have.DiskOut = "io.max " + line
+		wg.Add(1)
+		go func(m string, have perfSimApplied, want perfSimDesired, node designNode, cid string) {
+			defer wg.Done()
+			have.Err = ""
+			if !sameDisk(have.Disk, want.Disk) {
+				read, write := int64(node.DeviceReadMBps)<<20, int64(node.DeviceWriteMBps)<<20
+				var iops int64
+				if d := want.Disk; d != nil {
+					if d.ReadMBps > 0 {
+						read = int64(d.ReadMBps) << 20
 					}
+					if d.WriteMBps > 0 {
+						write = int64(d.WriteMBps) << 20
+					}
+					iops = int64(d.WriteIOPS)
 				}
-				log.Printf("stack %d: %s disk now %s", st.ID, node.Label, strings.TrimSpace(out))
+				c, cancel := step()
+				out, err := a.docker.ApplyDiskLimitsIOPS(c, intranetImage(stackIntranetArch(doc)), []string{cid}, node.DevicePath, read, write, iops)
+				cancel()
+				if err != nil {
+					have.Err = "disk: " + err.Error()
+					log.Printf("stack %d: %s disk limits not changed: %v", st.ID, node.Label, err)
+				} else {
+					have.Disk, have.DiskOut = want.Disk, ""
+					if want.Disk != nil {
+						// The helper prints "<container id> <io.max line>".
+						if _, line, ok := strings.Cut(out, " "); ok {
+							have.DiskOut = "io.max " + line
+						}
+					}
+					log.Printf("stack %d: %s disk now %s", st.ID, node.Label, strings.TrimSpace(out))
+				}
+			}
+			if !sameNet(have.Net, want.Net) {
+				spec := nodeNetemSpec(node)
+				if want.Net != nil {
+					spec = clampNetem(want.Net.LatencyMS, want.Net.JitterMS, want.Net.LossPct, want.Net.RateMbit, false, netemPortsFor(node.Type))
+				}
+				c, cancel := step()
+				_, err := applyNetem(c, a.nodeEngine(st, node.Type), cid, spec)
+				cancel()
+				if err != nil {
+					have.Err = strings.TrimSpace(have.Err + " network: " + err.Error())
+					log.Printf("stack %d: %s network not changed: %v", st.ID, node.Label, err)
+				} else {
+					have.Net, have.NetOut = want.Net, ""
+					if want.Net != nil {
+						have.NetOut = describeNetem(spec)
+					}
+					log.Printf("stack %d: %s network now %s", st.ID, node.Label, describeNetem(spec))
+				}
+			}
+			mu.Lock()
+			if have.Net == nil && have.Disk == nil && have.Err == "" {
+				delete(cfg.Applied, m)
+			} else {
+				cfg.Applied[m] = have
 			}
 			changed = true
-		}
-		if have.Net == nil && have.Disk == nil && have.Err == "" {
-			delete(cfg.Applied, m)
-		} else {
-			cfg.Applied[m] = have
-		}
+			mu.Unlock()
+		}(m, have, want, node, mdep.ContainerID)
 	}
+	wg.Wait()
 	return changed
 }
 
@@ -281,6 +313,9 @@ func (a *App) perfSimCaps(ctx context.Context, st Stack, doc designDoc, cfg perf
 		}
 		if _, docker := a.nodeEngine(st, n.Type).(*Docker); !docker {
 			c.Disk, c.DiskWhy = false, "These members run as Vagrant VMs; disk limits apply to Docker containers only."
+		}
+		if _, emulated := a.emulatedAmd64(ctx, n.Arch); emulated && c.DiskWarn == "" {
+			c.DiskWarn = "These members run under x86-64 emulation. There, a low write cap also slows the translator that starts every program in the member, so the member can stop answering until the cap is released. DBCanvas releases it on time regardless."
 		}
 	}
 	if c.Disk {
