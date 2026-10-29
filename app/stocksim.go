@@ -974,13 +974,17 @@ func (a *App) stockSimMySQLTarget(ctx context.Context, st Stack, hosts map[strin
 		h, s, err = a.waitMySQLFamilyFrame(ctx, st.ID, frame, doc, domain, false, timeout)
 
 	case "innodb", "mysqlceinnodb":
-		// Group Replication installs MySQL Router on every member, and the
-		// cluster exposes no endpoint of its own (see innodb.go). Connecting to
-		// any member's read/write router port lands on the current primary
-		// wherever it is, which is what an application wants and what makes a
-		// failover invisible to the sim.
+		// With MySQL Router on (the frame's mysqlRouter option), every member runs
+		// one, and connecting to any member's read/write router port lands on the
+		// current primary wherever it is, which is what an application wants and
+		// what makes a failover invisible to the sim. Without it nothing listens on
+		// that port, and the cluster has no endpoint of its own (see innodb.go), so
+		// the sim is given a member: the first in label order, which is the one the
+		// group was bootstrapped on and so its primary until a failover.
 		h, s, err = a.waitMySQLFamilyFrame(ctx, st.ID, frame, doc, domain, false, timeout)
-		port = routerRWPort
+		if frame.MySQLRouter {
+			port = routerRWPort
+		}
 
 	case "haproxy":
 		back, backKind, ok := haproxyBackend(doc, targetID)
