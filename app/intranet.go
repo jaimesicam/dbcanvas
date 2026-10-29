@@ -2382,6 +2382,7 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 	a.linkStackNetworks(bg, st)
 
 	deps, _ := a.store.ListDeployments(st.ID)
+	deps = a.reconcileVanished(bg, st, doc, deps)
 	existing := map[string]Deployment{}
 	for _, d := range deps {
 		existing[d.NodeID] = d
@@ -3147,6 +3148,44 @@ var barrierFrames = map[string]bool{"pxc": true, "mysql": true, "mariadbrepl": t
 // provisioning failed (error, pending), is built again.
 func deployBuilt(d Deployment) bool {
 	return d.ContainerID != "" && (d.State == DeployRunning || d.State == DeployStopped)
+}
+
+// reconcileVanished checks every built Docker node against the daemon before a
+// deploy decides what to leave alone. A node whose container is gone (removed by
+// hand, by a prune, or lost with the daemon) used to stay "running" in the store,
+// so a redeploy counted it as unchanged and never brought it back. Now it is
+// marked as an error, which a deploy provisions again. A container that is still
+// there under its name but with a new id (recreated out of band) keeps the node
+// and has its id updated instead. Only a definite answer from the daemon counts:
+// if it cannot be asked, nothing changes. Vagrant VMs are not containers and are
+// left alone.
+func (a *App) reconcileVanished(ctx context.Context, st Stack, doc designDoc, deps []Deployment) []Deployment {
+	types := map[string]string{}
+	for _, n := range doc.Nodes {
+		types[n.ID] = n.Type
+	}
+	out := make([]Deployment, 0, len(deps))
+	for _, d := range deps {
+		typ, inDesign := types[d.NodeID]
+		docker, isDocker := a.nodeEngine(st, typ).(*Docker)
+		if !inDesign || !isDocker || docker == nil || !deployBuilt(d) {
+			out = append(out, d)
+			continue
+		}
+		cid, ok, err := docker.ContainerByName(ctx, containerName(st.ID, d.NodeID))
+		switch {
+		case err != nil:
+		case !ok:
+			log.Printf("stack %d: %s's container is gone; the next deploy provisions it again", st.ID, d.NodeID)
+			d.ContainerID, d.State = "", DeployError
+			a.store.UpsertDeployment(d)
+		case cid != d.ContainerID:
+			d.ContainerID = cid
+			a.store.UpsertDeployment(d)
+		}
+		out = append(out, d)
+	}
+	return out
 }
 
 // refreshPublishedPorts re-reads a node container's auto-assigned host ports and

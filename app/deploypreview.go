@@ -149,5 +149,7 @@ func (a *App) handleDeployPreview(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "failed to read deployments")
 		return
 	}
-	writeJSON(w, http.StatusOK, previewDeploy(buildDoc(st), deps))
+	doc := buildDoc(st)
+	deps = a.reconcileVanished(r.Context(), st, doc, deps)
+	writeJSON(w, http.StatusOK, previewDeploy(doc, deps))
 }
