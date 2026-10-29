@@ -93,6 +93,10 @@ type perfSimTarget struct {
 	WriterPassword string          `json:"writerPassword"`
 	Writer         perfSimEndpoint `json:"writer"`
 	URI            string          `json:"uri,omitempty"` // MongoDB: the application's connection string
+	// Valkey in Sentinel mode: the name Sentinel monitors the primary under, and
+	// every Sentinel, so the workload follows a failover.
+	SentinelMaster string          `json:"sentinelMaster,omitempty"`
+	Sentinels      []string        `json:"sentinels,omitempty"`
 	Members        []perfSimMember `json:"members"`
 }
 
@@ -283,6 +287,12 @@ func (a *App) provisionPerfSim(st Stack, n designNode, doc designDoc) {
 			// The "default" user's password; every member has the same one.
 			target.Password = r.secrets.Password
 			memberPort = valkeyPort
+			if f, ok := perfSimFrame(doc, kind, targetID); ok && f.ValkeyMode == "sentinel" {
+				target.SentinelMaster = valkeySentinelName(f)
+				for _, m := range members {
+					target.Sentinels = append(target.Sentinels, fmt.Sprintf("%s:%d", fqdnOf(hosts[m.ID], domain), valkeySentinelPort))
+				}
+			}
 		default:
 			// admin@'%' is the same on every member of a cluster; read it from the
 			// first member that has deployed, falling back to the installation's own.
@@ -320,6 +330,9 @@ func (a *App) provisionPerfSim(st Stack, n designNode, doc designDoc) {
 		}
 		if engine == "valkey" && kind == "valkeycluster" {
 			cfg.Writer = "each key's primary (cluster client)"
+			if target.SentinelMaster != "" {
+				cfg.Writer = "the primary Sentinel names for " + target.SentinelMaster
+			}
 		}
 		pr.logln(fmt.Sprintf("target: %s %s, writes through %s, %d member(s): %v", kind, r.displayName, cfg.Writer, len(cfg.Members), cfg.Members))
 

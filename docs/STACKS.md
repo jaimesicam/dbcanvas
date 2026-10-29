@@ -156,7 +156,8 @@ Only the standalone node offers LDAP, Kerberos and Keycloak sign-in.
 | Type | What you get | Members |
 | --- | --- | --- |
 | **Valkey** | Standalone Valkey 9.1 from Percona. Optional OpenLDAP authentication (Oracle Linux only) and PMM. | — |
-| **Valkey Cluster** | An all-master Valkey Cluster. | 3–7, default 3 |
+| **Valkey Sentinel** | One primary (the first member), the others its replicas, and Valkey Sentinel on every member (port 26379). When the primary fails, a majority of the Sentinels agree and promote a replica. Compose kind `valkey-sentinel`. | 3–9, default 3 |
+| **Valkey Cluster** | A Valkey Cluster of 3–7 shards. **Replicas per shard** (0–2, locked once deployed) gives each shard a primary and that many replicas; with replicas, + and − add or remove a whole shard. | 3–7 with no replicas; 6 or 8 with 1; 9 with 2 |
 
 ### Kubernetes
 
@@ -313,18 +314,20 @@ no options of its own: link it, deploy it, and choose everything on its dashboar
 
   Writes use the default `w: "majority"`, so locking or delaying a majority of members also stalls
   them. The sim uses its own `perfsim` database.
-- **Replication lag stressors, Valkey** (Valkey Cluster; lag is measured with one heartbeat key per
-  shard, so every replica is measured against its own primary):
+- **Replication lag stressors, Valkey** (Valkey Cluster or Valkey Sentinel; lag is measured with one
+  heartbeat key per shard, so every replica is measured against its own primary; with Sentinel the
+  workload asks Sentinel for the primary, so it follows a failover):
 
   | Stressor | What it does |
   | --- | --- |
   | Large values | Writes multi-megabyte values at a fixed rate through every replica's stream |
   | Delete a big key | Builds a set of millions of members and deletes it with `DEL`, blocking the primary and then each replica; *blocking* turns `lazyfree-lazy-user-del` off on that primary for the one delete |
   | DEBUG SLEEP on replicas | Blocks chosen replicas' event loop repeatedly; offered only where `enable-debug-command` allows it |
+  | Sentinel failover | Asks Sentinel to promote a replica (`SENTINEL FAILOVER`), to watch writes ride through the switch; Valkey Sentinel only |
 
-  Valkey needs no prepared tables; the sim's keys start with `perfsim:`. A Valkey Cluster built by
-  DBCanvas has primaries only, so on one there is no lag to cause; the large-value and delete
-  stressors still show their effect on the primaries' latency.
+  Valkey needs no prepared tables; the sim's keys start with `perfsim:`. Give the Valkey Cluster
+  replicas (**Replicas per shard**) for there to be lag to cause; on an all-primary cluster the
+  large-value and delete stressors still show their effect on the primaries' latency.
 - **Network and disk stressors** on chosen members: added latency (with jitter), packet loss (100%
   cuts the member off), a bandwidth cap, and write bandwidth, write IOPS or read bandwidth caps.
   DBCanvas applies them with the same `tc netem` and `io.max` code as a node's own limits, and

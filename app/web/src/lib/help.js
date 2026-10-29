@@ -616,6 +616,7 @@ export const HELP = {
   depInternalURL:
     'The address to use from inside the stack — another node\'s shell, or the browser on the VNC desktop, which ' +
     'resolves these names and trusts the Intranet CA. It will not resolve from your own machine.',
+  valkeyReplicas: 'Replicas per shard. 0 makes every member a primary. With 1 or 2, valkey-cli --cluster create makes the first members the primaries and gives each that many replicas, so the node count is a whole number of shards. Changing it re-sizes the cluster to 3 shards. Locked once deployed.',
   perfSimWriter: 'The endpoint the steady workload writes through: the server itself, the cluster\'s writer, or the router in front of it. The stressors connect to each member directly.',
   perfSimMembers: 'The data members the stressors can act on. A Galera arbitrator holds no data and is left out.',
   depLinkedTo:

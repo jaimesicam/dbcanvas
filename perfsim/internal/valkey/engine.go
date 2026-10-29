@@ -23,6 +23,10 @@ type Config struct {
 	Kind     string         `json:"kind"`
 	Password string         `json:"password"`
 	Members  []MemberConfig `json:"members"`
+	// Sentinel mode: the monitored name and every Sentinel. The workload then
+	// asks Sentinel for the primary, so it follows a failover.
+	SentinelMaster string   `json:"sentinelMaster,omitempty"`
+	Sentinels      []string `json:"sentinels,omitempty"`
 }
 
 type MemberConfig struct {
@@ -64,8 +68,12 @@ func New(cfg Config) *Engine {
 			DialTimeout: 3 * time.Second, ReadTimeout: 3 * time.Second, WriteTimeout: 3 * time.Second,
 			OnConnect: func(ctx context.Context, cn *redis.Conn) error { cn.ReadOnly(ctx); return nil }})
 	}
-	e.writer = redis.NewUniversalClient(&redis.UniversalOptions{Addrs: addrs, Password: cfg.Password, PoolSize: 80,
-		DialTimeout: 3 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second})
+	opts := &redis.UniversalOptions{Addrs: addrs, Password: cfg.Password, PoolSize: 80,
+		DialTimeout: 3 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second}
+	if cfg.SentinelMaster != "" {
+		opts.MasterName, opts.Addrs, opts.SentinelPassword = cfg.SentinelMaster, cfg.Sentinels, cfg.Password
+	}
+	e.writer = redis.NewUniversalClient(opts)
 	return e
 }
 
@@ -82,9 +90,12 @@ func (e *Engine) Init(ctx context.Context) error {
 		return err
 	}
 	topo := "standalone"
-	if strings.Contains(info, "redis_mode:cluster") || strings.Contains(info, "server_mode:cluster") {
+	switch {
+	case strings.Contains(info, "redis_mode:cluster") || strings.Contains(info, "server_mode:cluster"):
 		topo = "cluster"
-	} else if len(e.cfg.Members) > 1 {
+	case e.cfg.SentinelMaster != "":
+		topo = "sentinel"
+	case len(e.cfg.Members) > 1:
 		topo = "replication"
 	}
 	e.mu.Lock()

@@ -645,7 +645,13 @@ type designFrame struct {
 	// extra fields — the demo database + git ref are fixed/env-driven (see spock.go).
 	// Valkey cluster frame config (Type=="valkeycluster"; reuses OS/OSVersion/Arch,
 	// RootPassword (default-user password), PMMNodeID, UseProxy above). Installed via
-	// percona-release (valkey-91 repo), not a pulled image. 3–7 all-master shards.
+	// percona-release (valkey-91 repo), not a pulled image. 3–7 shards, each a primary
+	// with ValkeyReplicas replicas (0–2).
+	ValkeyReplicas int `json:"valkeyReplicas"` // replicas per shard: 0 (all primaries), 1 or 2; locked once deployed
+	// ValkeyMode is "" (a Valkey Cluster) or "sentinel": one primary, the other
+	// members its replicas, and Valkey Sentinel on every member watching the
+	// primary and promoting a replica if it fails. Locked once deployed.
+	ValkeyMode    string `json:"valkeyMode"`
 	ValkeyMajor   string `json:"valkeyMajor"`   // Valkey "9.1"
 	ValkeyVersion string `json:"valkeyVersion"` // minor; "" → latest
 	UseLDAP       bool   `json:"useLdap"`       // wire valkey-ldap to the Intranet OpenLDAP (Oracle Linux only for now)
@@ -1918,7 +1924,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 		}
 	}
 
-	// --- Valkey cluster frames (3–7 all-master shards) ---
+	// --- Valkey cluster frames (3–7 shards, each a primary with 0–2 replicas) ---
 	valkeyNames := map[string]int{}
 	for _, f := range doc.Frames {
 		if f.Type != "valkeycluster" {
@@ -1935,10 +1941,8 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
 			}
 		}
-		if members < 3 {
-			out = append(out, issue{Level: "error", Message: "Valkey cluster " + f.Label + " needs at least 3 nodes"})
-		} else if members > 7 {
-			out = append(out, issue{Level: "error", Message: "Valkey cluster " + f.Label + " allows at most 7 nodes"})
+		if msg := valkeyClusterShapeIssue(f, members); msg != "" {
+			out = append(out, issue{Level: "error", Message: "Valkey cluster " + f.Label + " " + msg})
 		}
 		vos, vosVer, varch := valkeyNodeOS(f.OS, f.OSVersion, f.Arch)
 		img := pxcImage(vos, vosVer, varch)

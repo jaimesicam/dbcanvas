@@ -216,9 +216,9 @@ func netemPortsFor(nodeType string) []int {
 	// MongoDB replica sets and shards all speak on the client port.
 	case "psm", "psmdb", "psmrs":
 		return []int{27017}
-	// Valkey cluster bus is the client port + 10000.
+	// Valkey cluster bus is the client port + 10000; Sentinel mode adds Sentinel's port.
 	case "valkey", "valkeycluster":
-		return []int{6379, 16379}
+		return []int{6379, 16379, 26379}
 	// Routers: the port clients arrive on and the port they are sent to.
 	case "proxysql":
 		return []int{3306, 6032, 6033}

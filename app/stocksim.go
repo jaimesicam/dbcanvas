@@ -1210,6 +1210,18 @@ func (a *App) stockSimValkeyTarget(ctx context.Context, st Stack, hosts map[stri
 	if len(addrs) == 0 {
 		return stockSimResolved{}, fmt.Errorf("associated Valkey cluster %s has no running member", frame.Label)
 	}
+	// In Sentinel mode the members are one primary and its replicas, not a
+	// cluster: a client given all of them would take them for one. Give it the
+	// primary, which is the first member by label until a failover.
+	if frame.ValkeyMode == "sentinel" {
+		var first designNode
+		for _, n := range doc.Nodes {
+			if n.FrameID == frame.ID && n.Type == "valkeycluster" && (first.ID == "" || n.Label < first.Label) {
+				first = n
+			}
+		}
+		addrs = []string{fmt.Sprintf("%s:%d", hosts[first.ID], valkeyPort)}
+	}
 	return stockSimResolved{
 		env: []string{
 			"DB_ENGINE=valkey",

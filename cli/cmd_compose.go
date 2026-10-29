@@ -82,7 +82,7 @@ func parseNodeSpec(arg string) (map[string]any, error) {
 	}
 	intOpts := map[string]string{
 		"count": "count", "cpus": "cpus", "memorygb": "memoryGb", "exportport": "exportPort",
-		"pgbench": "pgbench",
+		"pgbench": "pgbench", "replicas": "replicas",
 		// Resource shaping.
 		"netlatencyms": "netLatencyMs", "netjitterms": "netJitterMs",
 		"netratembit":    "netRateMbit",
@@ -148,7 +148,7 @@ func parseNodeSpec(arg string) (map[string]any, error) {
 			"  flags:   export, cert, proxy, gtid, mysqlRouter, tls, netAllTraffic, pgvector,\n"+
 			"           pgaudit, setUser, tdeWal, mca, viewOnly\n"+
 			"  values:  name=, os=, arch=, version=, count=, cpus=, memoryGb=, exportPort=,\n"+
-			"           replMode=, mode=, setup=, certTtl=, pgauditLog=, pgbench=,\n"+
+			"           replMode=, mode=, setup=, certTtl=, pgauditLog=, pgbench=, replicas=,\n"+
 			"           alertEmail=, buckets=a+b\n"+
 			"  shaping: netLatencyMs=, netJitterMs=, netLossPct=, netRateMbit=,\n"+
 			"           deviceReadMbps=, deviceWriteMbps=\n"+

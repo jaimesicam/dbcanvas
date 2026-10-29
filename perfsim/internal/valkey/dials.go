@@ -30,7 +30,7 @@ func (e *Engine) Dials() []core.Dial {
 		d.Group, d.Available = groupLag, topo != "standalone" && ok
 		switch {
 		case topo == "standalone":
-			d.Why = "No replicas to fall behind: link a Valkey Cluster to use this."
+			d.Why = "No replicas to fall behind: link a Valkey Cluster with replicas, or Valkey with Sentinel, to use this."
 		case !ok:
 			d.Why = why
 		}
@@ -58,6 +58,11 @@ func (e *Engine) Dials() []core.Dial {
 			Params: []core.Param{{Key: "sleep", Label: "Each sleep", Type: "pills", Opts: []any{5, 10, 30}, Def: 10, Unit: "s"}, {Key: "hold", Label: "Maximum hold, then release", Type: "pills", Opts: []any{30, 60, 120, 300}, Def: 120, Unit: "s"}},
 			SQL:    "DEBUG SLEEP {sleep}  -- repeated, a second apart"}, debug,
 			"DEBUG is disabled on these servers (enable-debug-command is no)."),
+		avail(core.Dial{ID: "failover", Name: "Sentinel failover", Kind: "run", Params: []core.Param{},
+			Desc:  "Asks Sentinel to promote a replica and demote the primary, as it would if the primary failed. Watch writes stall and error until clients learn the new primary, and the old primary rejoin as a replica.",
+			Watch: []string{"Errors", "p99 latency", "Replication lag"},
+			SQL:   "SENTINEL FAILOVER " + nzs(e.cfg.SentinelMaster, "<name>") + "  -- sent to one Sentinel"}, topo == "sentinel",
+			"Only Valkey with Sentinel promotes a replica on its own; link one to use this."),
 	}
 }
 
@@ -74,6 +79,8 @@ func (e *Engine) Start(ctx context.Context, id string, p core.Params, targets []
 		return core.NewJob(ctx, p, func(ctx context.Context, j *core.Job) { e.runBigDel(ctx, j, emit) }), nil
 	case "debugsleep":
 		return core.NewJob(ctx, p, func(ctx context.Context, j *core.Job) { e.runDebugSleep(ctx, j, targets) }), nil
+	case "failover":
+		return core.NewJob(ctx, p, func(ctx context.Context, j *core.Job) { e.runFailover(ctx, j, emit) }), nil
 	}
 	return nil, fmt.Errorf("no such stressor %q", id)
 }
@@ -171,6 +178,45 @@ func (e *Engine) runBigDel(ctx context.Context, j *core.Job, emit func(string, s
 		emit("neutral", fmt.Sprintf("DEL of a %s-member set blocked the primary for %.1f s", fmtN(members), took.Seconds()))
 	}
 	e.waitSettled(ctx, j, "Replicas applying the delete", true)
+}
+
+// runFailover asks one Sentinel to fail the primary over, then waits until a
+// different member reports itself primary and every replica has caught up.
+func (e *Engine) runFailover(ctx context.Context, j *core.Job, emit func(string, string)) {
+	e.mu.Lock()
+	before := e.writerID
+	e.mu.Unlock()
+	var err error
+	for _, addr := range e.cfg.Sentinels {
+		s := redis.NewSentinelClient(&redis.Options{Addr: addr, Password: e.cfg.Password, DialTimeout: 3 * time.Second})
+		err = s.Failover(ctx, e.cfg.SentinelMaster).Err()
+		s.Close()
+		if err == nil {
+			break
+		}
+	}
+	if err != nil {
+		j.Finish(fmt.Errorf("no Sentinel accepted the failover: %w", err))
+		return
+	}
+	start := time.Now()
+	emit("warn", fmt.Sprintf("Sentinel failover of %s requested; %s is the primary until it completes", e.cfg.SentinelMaster, before))
+	for ctx.Err() == nil {
+		e.mu.Lock()
+		now := e.writerID
+		e.mu.Unlock()
+		if now != "" && now != before {
+			emit("neutral", fmt.Sprintf("%s is the new primary, %.0f s after the request", now, time.Since(start).Seconds()))
+			e.waitSettled(ctx, j, "Replicas following "+now, true)
+			return
+		}
+		if time.Since(start) > 2*time.Minute {
+			j.Finish(fmt.Errorf("no new primary within 2 minutes"))
+			return
+		}
+		j.Set("Waiting for a replica to be promoted", -1, fmt.Sprintf("%.0f s since the request", time.Since(start).Seconds()))
+		sleep(ctx, time.Second)
+	}
 }
 
 // waitSettled waits until every replica is caught up; finish ends the run then.
@@ -285,6 +331,13 @@ func (e *Engine) Sessions(ctx context.Context, held map[string][]string) ([]core
 	wg.Wait()
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Kind > out[j].Kind })
 	return out, nil
+}
+
+func nzs(s, def string) string {
+	if s == "" {
+		return def
+	}
+	return s
 }
 
 func sleep(ctx context.Context, d time.Duration) {

@@ -99,9 +99,9 @@ func valkeyLdapModulePath(os string) string {
 // than risk apt refusing the whole install over one missing dependency.
 func valkeyPackages(os string) string {
 	if isDebianOS(os) {
-		// Debian splits the CLI tools (valkey-cli, valkey-benchmark, ...) into their
-		// own package; percona-valkey-server doesn't carry them.
-		return "percona-valkey-server percona-valkey-bloom percona-valkey-json percona-valkey-search percona-valkey-tools"
+		// Debian splits the CLI tools (valkey-cli, valkey-benchmark, ...) and
+		// Sentinel into their own packages; percona-valkey-server carries neither.
+		return "percona-valkey-server percona-valkey-bloom percona-valkey-json percona-valkey-search percona-valkey-tools percona-valkey-sentinel"
 	}
 	// RHEL's percona-valkey already bundles valkey-cli/-server/-sentinel together —
 	// there is no separate "tools" package to install.
@@ -133,7 +133,7 @@ type valkeySecrets struct {
 // "supervised systemd" is required for the package's Type=notify unit to
 // ever report itself active — without it the service sits in "activating"
 // forever even though Valkey is actually up and serving.
-func valkeyConfFile(password, domain, baseDN string, ldap, cluster bool, ldapModulePath string) string {
+func valkeyConfFile(password, domain, baseDN string, ldap, cluster bool, ldapModulePath string, replicaOf ...string) string {
 	var b strings.Builder
 	if ldap {
 		// Must load the module before its ldap.* config directives are parsed.
@@ -160,8 +160,75 @@ func valkeyConfFile(password, domain, baseDN string, ldap, cluster bool, ldapMod
 		b.WriteString("cluster-config-file nodes.conf\n")
 		b.WriteString("cluster-node-timeout 5000\n")
 	}
+	// A Sentinel-mode replica starts out following the primary; after a failover
+	// Sentinel rewrites this line itself.
+	// replicaOf is the primary's host name and, second, this member's own, which
+	// it announces so Sentinel and the primary name it by host rather than IP.
+	if len(replicaOf) == 2 && replicaOf[0] != "" {
+		fmt.Fprintf(&b, "replicaof %s %d\n", replicaOf[0], valkeyPort)
+		b.WriteString("replica-announce-ip " + replicaOf[1] + "\n")
+	}
 	return b.String()
 }
+
+// valkeySentinelService and valkeySentinelConfPath mirror valkeyServiceName and
+// valkeyConfFileName for Sentinel: Debian's percona-valkey-sentinel installs a
+// fixed valkey-sentinel.service reading sentinel.conf; RHEL's percona-valkey a
+// templated valkey-sentinel@.service reading sentinel-<instance>.conf.
+func valkeySentinelService(os string) string {
+	if isDebianOS(os) {
+		return "valkey-sentinel"
+	}
+	return "valkey-sentinel@" + valkeyInstance
+}
+
+func valkeySentinelConfPath(os string) string {
+	if isDebianOS(os) {
+		return "/etc/valkey/sentinel.conf"
+	}
+	return "/etc/valkey/sentinel-" + valkeyInstance + ".conf"
+}
+
+// valkeySentinelName is the name Sentinel monitors the primary under, and the
+// one a client asks Sentinel about: the frame's label.
+func valkeySentinelName(f designFrame) string {
+	if n := sanitizeName(f.Label); n != "" {
+		return n
+	}
+	return "valkey"
+}
+
+// valkeySentinelConf is one member's sentinel.conf. Every member runs a
+// Sentinel; a failover needs a majority of them to agree the primary is down.
+// Host names are kept (resolve-hostnames, announce-hostnames) so the topology
+// reads the same on the dashboard as on the canvas. Sentinel rewrites this file
+// as it learns the topology, so it is owned by the valkey user.
+func valkeySentinelConf(name, primaryFQDN, selfFQDN, password string, members int) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "port %d\n", valkeySentinelPort)
+	b.WriteString("bind 0.0.0.0\n")
+	b.WriteString("protected-mode no\n")
+	b.WriteString("supervised systemd\n")
+	b.WriteString("dir " + valkeyDataDir + "\n")
+	b.WriteString("sentinel resolve-hostnames yes\n")
+	b.WriteString("sentinel announce-hostnames yes\n")
+	fmt.Fprintf(&b, "sentinel announce-ip %s\n", selfFQDN)
+	fmt.Fprintf(&b, "requirepass %s\n", password)
+	fmt.Fprintf(&b, "sentinel sentinel-pass %s\n", password)
+	fmt.Fprintf(&b, "sentinel monitor %s %s %d %d\n", name, primaryFQDN, valkeyPort, members/2+1)
+	fmt.Fprintf(&b, "sentinel auth-pass %s %s\n", name, password)
+	fmt.Fprintf(&b, "sentinel down-after-milliseconds %s 5000\n", name)
+	fmt.Fprintf(&b, "sentinel failover-timeout %s 60000\n", name)
+	fmt.Fprintf(&b, "sentinel parallel-syncs %s 1\n", name)
+	return b.String()
+}
+
+// valkeySentinelStartScript installs sentinel.conf (written to /tmp by the
+// caller) with the ownership Sentinel needs to rewrite it, then starts the
+// service the same way valkeyStartScript starts the server.
+const valkeySentinelInstallScript = `set -e
+install -o valkey -g valkey -m 0640 /tmp/dbcanvas-sentinel.conf "$CONF"
+rm -f /tmp/dbcanvas-sentinel.conf`
 
 // provisionValkeyStandalone records the deployment then brings up a single Valkey node.
 func (a *App) provisionValkeyStandalone(st Stack, n designNode, doc designDoc) {
@@ -490,9 +557,48 @@ func (a *App) valkeySetupPMM(ctx context.Context, st Stack, doc designDoc, conta
 
 // ------------------------------------------------------------ Valkey cluster
 
+// valkeyClusterShapeIssue says what is wrong with a Valkey Cluster's size, or
+// "". valkey-cli --cluster create needs at least 3 primaries, and with
+// --cluster-replicas N it makes every (N+1)th member a primary: so the member
+// count is a whole number of shards, 3 to 7 of them, and at most 9 nodes.
+func valkeyClusterShapeIssue(f designFrame, members int) string {
+	if f.ValkeyMode == "sentinel" {
+		// One primary and its replicas; Sentinel's quorum is a majority of them.
+		switch {
+		case f.ValkeyReplicas != 0:
+			return "has replicas per shard set, which is for Cluster mode; in Sentinel mode every member but the primary is a replica"
+		case members < 3:
+			return "needs at least 3 nodes in Sentinel mode (a primary and two replicas), so Sentinel can reach a majority"
+		case members > 9:
+			return "allows at most 9 nodes"
+		}
+		return ""
+	}
+	if f.ValkeyMode != "" {
+		return fmt.Sprintf("has an unknown mode %q; use \"\" (Cluster) or \"sentinel\"", f.ValkeyMode)
+	}
+	r := f.ValkeyReplicas
+	if r < 0 || r > 2 {
+		return fmt.Sprintf("has %d replicas per shard; choose 0, 1 or 2", r)
+	}
+	per := r + 1
+	switch {
+	case members > 9:
+		return "allows at most 9 nodes"
+	case members%per != 0:
+		return fmt.Sprintf("has %d nodes, which is not a whole number of shards of %d (a primary and %d replica%s)", members, per, r, map[bool]string{true: "", false: "s"}[r == 1])
+	case members/per < 3:
+		return fmt.Sprintf("needs at least 3 shards: %d nodes with %d replica%s per shard", 3*per, r, map[bool]string{true: "", false: "s"}[r == 1])
+	case members/per > 7:
+		return "allows at most 7 shards"
+	}
+	return ""
+}
+
 // provisionValkeyClusterFrame brings up a Valkey Cluster: every member installs
 // Valkey via percona-release with cluster-enabled, then one member runs
-// `valkey-cli --cluster create` over all members (all-master, 3–7 shards).
+// `valkey-cli --cluster create` over all members: 3–7 shards, each a primary
+// with the frame's ValkeyReplicas replicas.
 // Shared default-user password + optional LDAP across the cluster.
 func (a *App) provisionValkeyClusterFrame(st Stack, frame designFrame, doc designDoc) {
 	domain := envOr("DOMAIN", "example.net")
@@ -506,8 +612,8 @@ func (a *App) provisionValkeyClusterFrame(st Stack, frame designFrame, doc desig
 		}
 	}
 	sort.Slice(members, func(i, j int) bool { return members[i].Label < members[j].Label })
-	if len(members) < 3 {
-		log.Printf("stack %d valkeycluster %s: need >=3 members, have %d", st.ID, frame.Label, len(members))
+	if msg := valkeyClusterShapeIssue(frame, len(members)); msg != "" {
+		log.Printf("stack %d valkeycluster %s: %s", st.ID, frame.Label, msg)
 		return
 	}
 
@@ -536,12 +642,25 @@ func (a *App) provisionValkeyClusterFrame(st Stack, frame designFrame, doc desig
 	if useLdap {
 		ldapServers = fmt.Sprintf("ldap://intranet.%s:389", domain)
 	}
-	for _, n := range members {
+	// Sentinel mode: the first member (by label) is the primary.
+	sentinel := frame.ValkeyMode == "sentinel"
+	sentinelPrimary := ""
+	if sentinel {
+		sentinelPrimary = fqdnOf(hosts[members[0].ID], domain)
+	}
+	for i, n := range members {
 		host := hosts[n.ID]
+		role, ports := "cluster", []int{valkeyPort}
+		if sentinel {
+			role, ports = "replica", []int{valkeyPort, valkeySentinelPort}
+			if i == 0 {
+				role = "primary"
+			}
+		}
 		cfg := valkeyConfig{
-			Image: image, Role: "cluster", Hostname: host, FQDN: fqdnOf(host, domain),
+			Image: image, Role: role, Hostname: host, FQDN: fqdnOf(host, domain),
 			UseLDAP: useLdap, LDAPServers: ldapServers, MonitoredBy: monitoredBy,
-			UseProxy: frame.UseProxy, Ports: []int{valkeyPort},
+			UseProxy: frame.UseProxy, Ports: ports,
 		}
 		cfgJSON, _ := json.Marshal(cfg)
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
@@ -575,7 +694,7 @@ func (a *App) provisionValkeyClusterFrame(st Stack, frame designFrame, doc desig
 				if n.RepositoryNodeID == "" {
 					n.RepositoryNodeID = frame.RepositoryNodeID
 				}
-				if err := a.valkeyStartMember(ctx, st, n, hosts[n.ID], intranetIP, domain, baseDN, image, os, debian, pw, useLdap, frame.ValkeyVersion, progs[n.ID]); err != nil {
+				if err := a.valkeyStartMember(ctx, st, n, hosts[n.ID], intranetIP, domain, baseDN, image, os, debian, pw, useLdap, frame.ValkeyVersion, sentinelPrimary, progs[n.ID]); err != nil {
 					mu.Lock()
 					failed = true
 					mu.Unlock()
@@ -588,7 +707,33 @@ func (a *App) provisionValkeyClusterFrame(st Stack, frame designFrame, doc desig
 		}
 		a.reconcileStackDNS(ctx, st.ID)
 
-		// Phase 2: form the cluster from the first member.
+		// Phase 2, Sentinel mode: a Sentinel on every member, watching the primary.
+		if sentinel {
+			name := valkeySentinelName(frame)
+			for _, n := range members {
+				dep, _ := a.store.GetDeployment(st.ID, n.ID)
+				pr := progs[n.ID]
+				pr.phase("Starting Sentinel", 82)
+				conf := valkeySentinelConf(name, sentinelPrimary, fqdnOf(hosts[n.ID], domain), pw, len(members))
+				if err := a.engCtx(ctx).CopyFile(ctx, dep.ContainerID, "/tmp", "dbcanvas-sentinel.conf", 0o600, []byte(conf)); err != nil {
+					pr.fail("write sentinel.conf: %v", err)
+					return
+				}
+				if err := a.runStep(ctx, dep.ContainerID, valkeySentinelInstallScript, []string{"CONF=" + valkeySentinelConfPath(os)}, pr.logln); err != nil {
+					pr.fail("install sentinel.conf: %v", err)
+					return
+				}
+				env := a.valkeyStartEnv(ctx, os, systemdImageArch(image), pr)
+				env[0] = "SERVICE=" + valkeySentinelService(os)
+				if err := a.runStep(ctx, dep.ContainerID, valkeyStartScript, env, pr.logln); err != nil {
+					pr.fail("start Sentinel: %v", err)
+					return
+				}
+				pr.logln(fmt.Sprintf("Sentinel monitoring %q at %s (quorum %d of %d)", name, sentinelPrimary, len(members)/2+1, len(members)))
+			}
+		}
+
+		// Phase 2, Cluster mode: form the cluster from the first member.
 		first := members[0]
 		fdep, _ := a.store.GetDeployment(st.ID, first.ID)
 		var nodeArgs []string
@@ -596,7 +741,9 @@ func (a *App) provisionValkeyClusterFrame(st Stack, frame designFrame, doc desig
 			nodeArgs = append(nodeArgs, fmt.Sprintf("%s:%d", fqdnOf(hosts[n.ID], domain), valkeyPort))
 		}
 		progs[first.ID].phase("Forming cluster", 80)
-		if err := a.runStep(ctx, fdep.ContainerID, valkeyClusterCreateScript, []string{"PW=" + pw, "NODES=" + strings.Join(nodeArgs, " ")}, progs[first.ID].logln); err != nil {
+		if sentinel {
+			// Nothing to form: replication was configured at start.
+		} else if err := a.runStep(ctx, fdep.ContainerID, valkeyClusterCreateScript, []string{"PW=" + pw, "NODES=" + strings.Join(nodeArgs, " "), "REPLICAS=" + strconv.Itoa(frame.ValkeyReplicas)}, progs[first.ID].logln); err != nil {
 			progs[first.ID].fail("form cluster: %v", err)
 			return
 		}
@@ -618,7 +765,10 @@ func (a *App) provisionValkeyClusterFrame(st Stack, frame designFrame, doc desig
 
 // valkeyStartMember creates + installs + configures + starts one cluster
 // member and waits for PING.
-func (a *App) valkeyStartMember(ctx context.Context, st Stack, n designNode, host, intranetIP, domain, baseDN, image, os string, debian bool, pw string, useLdap bool, valkeyVersion string, pr *pxcProg) error {
+//
+// sentinelPrimary is "" for a Valkey Cluster member. In Sentinel mode it is the
+// primary's FQDN: every other member is configured as its replica.
+func (a *App) valkeyStartMember(ctx context.Context, st Stack, n designNode, host, intranetIP, domain, baseDN, image, os string, debian bool, pw string, useLdap bool, valkeyVersion, sentinelPrimary string, pr *pxcProg) error {
 	pr.phase("Creating container", 15)
 	name := containerName(st.ID, n.ID)
 	if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok {
@@ -694,7 +844,10 @@ func (a *App) valkeyStartMember(ctx context.Context, st Stack, n designNode, hos
 	}
 
 	pr.phase("Writing valkey.conf", 60)
-	conf := valkeyConfFile(pw, domain, baseDN, useLdap, true, valkeyLdapModulePath(os))
+	conf := valkeyConfFile(pw, domain, baseDN, useLdap, sentinelPrimary == "", valkeyLdapModulePath(os))
+	if self := fqdnOf(host, domain); sentinelPrimary != "" && self != sentinelPrimary {
+		conf = valkeyConfFile(pw, domain, baseDN, useLdap, false, valkeyLdapModulePath(os), sentinelPrimary, self)
+	}
 	if err := a.engCtx(ctx).CopyFile(ctx, id, "/etc/valkey", valkeyConfFileName(os), 0o644, []byte(conf)); err != nil {
 		return pr.fail("write valkey.conf: %v", err)
 	}
@@ -711,7 +864,7 @@ func (a *App) valkeyStartMember(ctx context.Context, st Stack, n designNode, hos
 // valkeyClusterCreateScript forms the cluster (idempotent: skips if already ok).
 const valkeyClusterCreateScript = `set -e
 valkey-cli -a "$PW" --no-auth-warning CLUSTER INFO 2>/dev/null | grep -q 'cluster_state:ok' && { echo "cluster already formed"; exit 0; }
-valkey-cli -a "$PW" --no-auth-warning --cluster create $NODES --cluster-replicas 0 --cluster-yes
+valkey-cli -a "$PW" --no-auth-warning --cluster create $NODES --cluster-replicas "${REPLICAS:-0}" --cluster-yes
 # Slot assignment is immediate but cluster_state:ok needs a few seconds of gossip.
 for i in $(seq 1 20); do
   valkey-cli -a "$PW" --no-auth-warning CLUSTER INFO 2>/dev/null | grep -q 'cluster_state:ok' && { echo "cluster_state:ok"; exit 0; }

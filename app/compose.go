@@ -129,6 +129,7 @@ type composeNodeSpec struct {
 	PGAuditLog  string   `json:"pgauditLog"`  // pgaudit.log, e.g. "ddl,role" (the default) or "all,-misc"
 	SetUser     bool     `json:"setUser"`     // pg/patroni: set_user, audited privilege escalation
 	PGBench     int      `json:"pgbench"`     // pg/patroni: pgbench -i -s N into database pgbench at deploy
+	Replicas    int      `json:"replicas"`    // valkey-cluster: replicas per shard, 0–2
 	TDEWal      bool     `json:"tdeWal"`      // pg/patroni with vault: pg_tde WAL encryption too
 
 	Export     bool `json:"export"`     // publish the database port to the host
@@ -588,11 +589,18 @@ var composeKinds = []composeKind{
 		Scalars: []string{"mca"},
 		Links:   []string{"monitor", "backup"},
 		About:   "A Percona Server for MongoDB replica set. mca=true adds the MClusterAdmin accounts; cert=true issues Intranet-CA certificates and turns TLS on (preferTLS)."},
-	{Kind: "valkey-cluster", Type: "valkeycluster", CanShape: true, Frame: true, Members: 3, MinMembers: 3, MaxMembers: 7,
+	{Kind: "valkey-cluster", Type: "valkeycluster", CanShape: true, Frame: true, Members: 3, MinMembers: 3, MaxMembers: 9, Scalars: []string{"replicas"},
 		Catalog:    "percona_valkey",
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) { f.ValkeyVersion = minor },
 		Links:      []string{"monitor", "ldap"},
-		About:      "A Valkey cluster of all-master shards."},
+		About:      "A Valkey cluster of 3–7 shards. replicas=N gives each shard N replicas (0–2), so count is a multiple of N+1: count=6,replicas=1 is three primaries with a replica each."},
+	{Kind: "valkey-sentinel", Type: "valkeycluster", CanShape: true, Frame: true, Members: 3, MinMembers: 3, MaxMembers: 9,
+		Catalog: "percona_valkey",
+		SetVersion: func(major, minor string, n *designNode, f *designFrame) {
+			f.ValkeyVersion, f.ValkeyMode = minor, "sentinel"
+		},
+		Links: []string{"monitor", "ldap"},
+		About: "Valkey with Sentinel: the first member the primary, the others its replicas, and Sentinel on every member promoting a replica if the primary fails."},
 	{Kind: "mariadb-galera", Type: "mariadbgalera", CanShape: true, Frame: true, Members: 3, MinMembers: 3, MaxMembers: 9,
 		Catalog: "mariadb",
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) {

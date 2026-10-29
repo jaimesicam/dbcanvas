@@ -1238,7 +1238,7 @@ export const frameVersionLabel = (f) => {
   if (f?.type === 'patroni') return `Percona PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · Patroni${f?.pgVector ? ' · pgvector' : ''}`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'repmgr') return `PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · repmgr (PGDG)${f?.pgVector ? ' · pgvector' : ''}`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'spock') return `PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · Spock multi-master${f?.pgVector ? ' · pgvector' : ''}`.replace(/\s+/g, ' ').trim()
-  if (f?.type === 'valkeycluster') return `Valkey Cluster ${f?.valkeyVersion || f?.valkeyMajor || ''}`.trim()
+  if (f?.type === 'valkeycluster') return `${f?.valkeyMode === 'sentinel' ? 'Valkey Sentinel' : 'Valkey Cluster'} ${f?.valkeyVersion || f?.valkeyMajor || ''}`.trim()
   if (f?.type === 'k3d') return `Kubernetes (k3s via k3d)${K3D_OPERATOR_LABEL[f?.k3dOperator] ? ` · ${K3D_OPERATOR_LABEL[f.k3dOperator]}` : ''}${['pg', 'cnpg', 'pgo'].includes(f?.k3dOperator) && f?.k3dPgVector ? ' · pgvector' : ''}`
   return pxcVersionLabel(f)
 }
@@ -3821,19 +3821,24 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
     setSelected({ kind: 'frame', id: fid })
   }
   function newValkeyMember(frameId) {
-    const used = new Set(nodes.filter((n) => n.type === 'valkeycluster').map((n) => n.label))
+    return newValkeyMemberFrom(nodes, frameId)
+  }
+  function newValkeyMemberFrom(list, frameId) {
+    const used = new Set(list.filter((n) => n.type === 'valkeycluster').map((n) => n.label))
     return { id: uid('valkey'), type: 'valkeycluster', label: nextMemberName(used, 'valkey'), frameId, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 }
   }
   // addValkeyCluster builds a Valkey Cluster frame with 3 members (resizable 3–7,
   // all-master shards via valkey-cli --cluster create).
-  function addValkeyCluster() {
+  // mode 'sentinel' builds Valkey with Sentinel instead: the same frame type,
+  // one primary and its replicas, with Sentinel on every member.
+  function addValkeyCluster(mode = '') {
     if (!nodes.some((n) => n.type === 'intranet')) return
     const fid = uid('frame')
     const { x: fx, y: fy } = placeAt(200, 200)
     const frame = {
-      id: fid, type: 'valkeycluster', label: nextNamedCluster(frames, 'valkey-cluster'), x: fx, y: fy, w: 0, h: 0,
+      id: fid, type: 'valkeycluster', label: nextNamedCluster(frames, mode === 'sentinel' ? 'valkey-sentinel' : 'valkey-cluster'), x: fx, y: fy, w: 0, h: 0,
       os: 'oraclelinux', osVersion: '9', valkeyMajor: '9.1', valkeyVersion: '',
-      rootPassword: '', pmmNodeId: '', useProxy: false, useLdap: false,
+      rootPassword: '', pmmNodeId: '', useProxy: false, useLdap: false, valkeyReplicas: 0, valkeyMode: mode,
     }
     const used = new Set(nodes.filter((n) => n.type === 'valkeycluster').map((n) => n.label))
     const newNodes = []
@@ -3889,8 +3894,13 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       setFrames(r.frames)
       setNodes(r.nodes)
     } else if (frame.type === 'valkeycluster') {
-      if (nodes.filter((n) => n.frameId === frame.id).length >= 7) return // max 7
-      const r = relayout(frame.id, frames, [...nodes, newValkeyMember(frame.id)])
+      // With replicas, + adds a whole shard (a primary and its replicas), so the
+      // count stays one valkey-cli --cluster create can split; at most 9 nodes.
+      const per = frame.valkeyMode === 'sentinel' ? 1 : (frame.valkeyReplicas || 0) + 1
+      if (nodes.filter((n) => n.frameId === frame.id).length + per > 9) return
+      let added = [...nodes]
+      for (let i = 0; i < per; i++) added = [...added, newValkeyMemberFrom(added, frame.id)]
+      const r = relayout(frame.id, frames, added)
       setFrames(r.frames)
       setNodes(r.nodes)
     } else if (UPSTREAM_FRAME_PREFIX[frame.type]) {
@@ -3910,10 +3920,37 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
     const frame = frames.find((f) => f.id === frameId)
     if ((frame?.type === 'patroni' || frame?.type === 'repmgr' || frame?.type === 'valkeycluster' || frame?.type === 'mariadbgalera' || frame?.type === 'mysqlceinnodb') && mine.length <= 3) return
     if (frame?.type === 'spock' && mine.length <= 2) return // Spock keeps ≥2 members
+    // A Valkey Cluster with replicas loses a whole shard at a time, never below 3.
+    if (frame?.type === 'valkeycluster' && frame.valkeyMode !== 'sentinel' && (frame.valkeyReplicas || 0) > 0) {
+      const per = frame.valkeyReplicas + 1
+      if (mine.length - per < 3 * per) return
+      const drop = mine.slice(mine.length - per)
+      const go = () => resizeFrameMembers(frameId, mine.length - per)
+      if (drop.some((n) => depByNode[n.id])) { askDelete('node', drop.map((n) => n.label).join(', '), go); return }
+      go()
+      return
+    }
     const target = mine[mine.length - 1]
     // Confirm when the member being dropped is deployed (its container + volume go).
     if (depByNode[target.id]) { askDelete('node', target.label || 'node', () => removePXCNodeById(frameId, target.id)); return }
     removePXCNodeById(frameId, target.id)
+  }
+  // resizeFrameMembers sets a Valkey Cluster frame to n members, adding new ones
+  // or dropping the last ones (and their lines).
+  function resizeFrameMembers(frameId, n) {
+    if (deploying) return
+    const mine = nodes.filter((x) => x.frameId === frameId)
+    let next = [...nodes]
+    if (mine.length > n) {
+      const drop = new Set(mine.slice(n).map((x) => x.id))
+      next = next.filter((x) => !drop.has(x.id))
+      setEdges((es) => es.filter((e) => !drop.has(e.from.node) && !drop.has(e.to.node)))
+    } else {
+      for (let i = mine.length; i < n; i++) next = [...next, newValkeyMemberFrom(next, frameId)]
+    }
+    const r = relayout(frameId, frames, next)
+    setFrames(r.frames)
+    setNodes(r.nodes)
   }
   function removePXCNodeById(frameId, id) {
     if (deploying) return
@@ -4436,7 +4473,8 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       { label: 'Spock Cluster', type: 'spock', onClick: addSpockCluster },
     ] },
     { title: 'Valkey', items: [
-      { label: 'Valkey Cluster', type: 'valkeycluster', onClick: addValkeyCluster },
+      { label: 'Valkey Cluster', type: 'valkeycluster', onClick: () => addValkeyCluster() },
+      { label: 'Valkey Sentinel', type: 'valkeycluster', onClick: () => addValkeyCluster('sentinel') },
       { label: 'Valkey', type: 'valkey', onClick: () => addNode('valkey') },
     ] },
     { title: 'Kubernetes', items: [
@@ -5182,6 +5220,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
         deleteNode={deleteNode}
         deleteEdge={deleteEdge}
         deleteFrame={deleteFrame}
+        resizeFrameMembers={resizeFrameMembers}
         rebuildMongoCluster={rebuildMongoCluster}
         live={liveOn ? live : null}
         deployOpen={deployPanel === 'open'}
@@ -11444,11 +11483,21 @@ function K3DMemberForm({ node: n, frame, frameNodes, patchNode, dep, deployed })
 // ValkeyClusterFrameForm edits a Valkey Cluster frame: catalog OS/version/arch +
 // Valkey major/minor, shared default-user password, optional LDAP, PMM monitor.
 // 3–7 all-master shards (resize with the frame +/-).
-function ValkeyClusterFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, deployed }) {
+function ValkeyClusterFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, deployed, resizeTo }) {
   const imgs = useValkeyCatalog(f, deployed, patchFrame)
   const lock = deployed ? 'opacity-70' : ''
   const pmmNodes = nodes.filter((x) => x.type === 'pmm')
   const count = frameNodes.length
+  const sentinel = f.valkeyMode === 'sentinel'
+  const replicas = f.valkeyReplicas || 0
+  const per = replicas + 1
+  const shards = Math.floor(count / per)
+  const shapeOK = sentinel ? count >= 3 && count <= 9 : count % per === 0 && shards >= 3 && shards <= 7 && count <= 9
+  // Changing the replicas re-sizes the cluster to 3 shards of the new shape.
+  function setReplicas(r) {
+    patchFrame(f.id, { valkeyReplicas: r })
+    resizeTo(3 * (r + 1))
+  }
 
   const osFamilies = [...new Set(imgs.filter((i) => Object.values(i.versions || {}).some((a) => a.length)).map((i) => i.os))]
   const osVersions = [...new Set(imgs.filter((i) => i.os === f.os).map((i) => i.osVersion))]
@@ -11460,13 +11509,33 @@ function ValkeyClusterFrameForm({ frame: f, nodes, frameNodes, patchFrame, delet
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">Valkey Cluster</span>
+        <span className="text-sm font-semibold">{sentinel ? 'Valkey Sentinel' : 'Valkey Cluster'}</span>
         <Badge tone="muted">{count} node{count === 1 ? '' : 's'}</Badge>
       </div>
+      {sentinel ? (
+        <p className="text-xs text-muted">
+          One primary ({frameNodes[0]?.label || 'the first member'}) and {Math.max(0, count - 1)} replica{count - 1 === 1 ? '' : 's'}, with
+          Valkey Sentinel on every member (port 26379). If the primary fails, a majority of the Sentinels
+          ({Math.floor(count / 2) + 1} of {count}) agree on it and promote a replica. Use the frame +/- to resize (3–9).
+        </p>
+      ) : (
       <p className="text-xs text-muted">
-        {count} all-master shard{count === 1 ? '' : 's'}, Valkey installed via percona-release, formed with
-        <span className="font-mono"> valkey-cli --cluster create</span>. Use the frame +/- to resize (3–7).
+        {replicas === 0
+          ? <>{count} shards, each a primary,</>
+          : <>{shards} shard{shards === 1 ? '' : 's'}, each a primary with {replicas} replica{replicas === 1 ? '' : 's'},</>}
+        {' '}Valkey installed via percona-release, formed with
+        <span className="font-mono"> valkey-cli --cluster create</span>. Use the frame +/- to resize
+        {replicas === 0 ? ' (3–7).' : ' a whole shard at a time (at most 9 nodes).'}
       </p>
+      )}
+
+      {!sentinel && <Field label="Replicas per shard" help={HELP.valkeyReplicas} hint={deployed ? 'Locked.' : ''}>
+        <select className={`${inputCls} ${lock}`} value={replicas} disabled={deployed} onChange={(e) => setReplicas(Number(e.target.value))}>
+          <option value={0}>0 — every member a primary (3–7 nodes)</option>
+          <option value={1}>1 — a primary and a replica per shard (6 or 8 nodes)</option>
+          <option value={2}>2 — a primary and two replicas per shard (9 nodes)</option>
+        </select>
+      </Field>}
 
       <Field label="Cluster name" help={HELP.clusterName} hint="Frame label; must be unique.">
         <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
@@ -11517,8 +11586,9 @@ function ValkeyClusterFrameForm({ frame: f, nodes, frameNodes, patchFrame, delet
         </select>
       </Field>
 
-      {count < 3 && <p className="text-xs text-amber-500">A Valkey cluster needs at least 3 nodes.</p>}
-      {count > 7 && <p className="text-xs text-amber-500">A Valkey cluster allows at most 7 nodes.</p>}
+      {!shapeOK && <p className="text-xs text-amber-500">
+        {sentinel ? 'Valkey with Sentinel needs 3 to 9 nodes, so a majority of Sentinels can agree.' : replicas === 0 ? 'A Valkey cluster needs 3 to 7 nodes.' : `With ${replicas} replica${replicas === 1 ? '' : 's'} per shard the node count must be a multiple of ${per}, with at least 3 shards and at most 9 nodes.`}
+      </p>}
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteFrame(f.id)}>
         <Icon.Trash size={16} /> Delete cluster
       </Button>
@@ -14511,7 +14581,7 @@ function loadProps() {
   try { return JSON.parse(localStorage.getItem(PROPS_KEY) || '{}') } catch { return {} }
 }
 
-function StackProperties({ host, locked, lockedBy, selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, rebuildMongoCluster, live, deployOpen, deployments, onDeployMinimize }) {
+function StackProperties({ host, locked, lockedBy, selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, resizeFrameMembers, rebuildMongoCluster, live, deployOpen, deployments, onDeployMinimize }) {
   // The Live tab sits above whatever the node's own panel is, so every node type has it without
   // each manager growing a tab of its own. Shown while Live is on and the node has figures.
   const [propTab, setPropTab] = useState('node')
@@ -14583,7 +14653,7 @@ function StackProperties({ host, locked, lockedBy, selected, stackId, nodes, edg
           {liveData.role && <ErrorLogTail stackId={stackId} nodeId={liveNode.id} />}
         </div>
       ) : (
-        <Body selected={selected} stackId={stackId} nodes={nodes} edges={edges} frames={frames} depByNode={depByNode} patchNode={patchNode} patchFrame={patchFrame} patchEdge={patchEdge} deleteNode={deleteNode} deleteEdge={deleteEdge} deleteFrame={deleteFrame} rebuildMongoCluster={rebuildMongoCluster} />
+        <Body selected={selected} stackId={stackId} nodes={nodes} edges={edges} frames={frames} depByNode={depByNode} patchNode={patchNode} patchFrame={patchFrame} patchEdge={patchEdge} deleteNode={deleteNode} deleteEdge={deleteEdge} deleteFrame={deleteFrame} resizeFrameMembers={resizeFrameMembers} rebuildMongoCluster={rebuildMongoCluster} />
       )}
     </fieldset>
   )
@@ -14637,7 +14707,7 @@ function StackProperties({ host, locked, lockedBy, selected, stackId, nodes, edg
   )
 }
 
-function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, rebuildMongoCluster }) {
+function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, resizeFrameMembers, rebuildMongoCluster }) {
   // "or cluster" rather than a list: this component edits fourteen frame types now, and
   // the empty state named only the first one for a long time after that stopped being true.
   if (!selected) return <p className="text-sm text-muted">Select a node, link or cluster to edit it. Right-click the canvas to add one.</p>
@@ -14685,7 +14755,7 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
       return <SpockFrameForm frame={f} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
     }
     if (f.type === 'valkeycluster') {
-      return <ValkeyClusterFrameForm frame={f} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
+      return <ValkeyClusterFrameForm frame={f} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} resizeTo={(n) => resizeFrameMembers?.(f.id, n)} />
     }
     if (f.type === 'k3d') {
       return <K3DFrameForm frame={f} nodes={nodes} frames={frames} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed}

@@ -377,7 +377,7 @@ var catalogPostgresFamily = []catalogEntry{
 		Edges: []catalogEdge{{To: []string{"stocksim", "perfsim"}, Type: "directional",
 			Desc: "Drive a simulator's workload against this Valkey (from the server to the simulator)."}},
 	},
-	{Type: "valkeycluster", Label: "Valkey Cluster", Summary: "A Valkey Cluster shard member (an all-master shard).", Placement: "member",
+	{Type: "valkeycluster", Label: "Valkey Cluster", Summary: "A Valkey Cluster member: a shard's primary or one of its replicas, as valkey-cli --cluster create assigns them.", Placement: "member",
 		FrameTypes: []string{"valkeycluster"},
 		Options: pgcatOpts(pgcatSizing, []catalogOption{
 			{Field: "exportEnabled", Desc: "Publish this member's port 6379 on the host."},
@@ -387,16 +387,18 @@ var catalogPostgresFamily = []catalogEntry{
 			{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/config-drift", Desc: "Every member's CONFIG GET settings, and the ones that differ."},
 		},
 	},
-	{Type: "valkeycluster", Label: "Valkey Cluster", Summary: "A Valkey Cluster of all-master shards, created with valkey-cli --cluster create; installed from percona-release.", Placement: "frame",
-		MemberType: "valkeycluster", DefaultMembers: 3, MinMembers: 3, MaxMembers: 7,
+	{Type: "valkeycluster", Label: "Valkey Cluster", Summary: "A Valkey Cluster of 3–7 shards, each a primary with 0–2 replicas, created with valkey-cli --cluster create; installed from percona-release.", Placement: "frame",
+		MemberType: "valkeycluster", DefaultMembers: 3, MinMembers: 3, MaxMembers: 9,
 		Requires: []string{
 			"an Intranet node",
-			"3 to 7 members",
+			"a whole number of shards: with valkeyReplicas N, members is a multiple of N+1, with 3 to 7 shards and at most 9 members (3–7 with 0, 6 or 8 with 1, 9 with 2)",
 			"useLdap: an Oracle Linux image (percona-valkey-ldap is not published for Ubuntu)",
 		},
 		Options: pgcatOpts(
 			pgcatValkeyVersion,
 			[]catalogOption{
+				{Field: "valkeyMode", Values: []string{"", "sentinel"}, Default: "", Desc: "\"\" is a Valkey Cluster (sharded). \"sentinel\" is one primary, the other members its replicas, and Valkey Sentinel on every member (port 26379) promoting a replica if the primary fails; 3–9 members, quorum a majority. Locked once deployed."},
+				{Field: "valkeyReplicas", Values: []string{"0", "1", "2"}, Default: 0, When: "valkeyMode is \"\"", Desc: "Replicas per shard. 0 makes every member a primary; with 1 or 2, valkey-cli --cluster create makes each shard a primary with that many replicas. Locked once deployed."},
 				{Field: "rootPassword", Desc: "The default user's password, shared by every member; \"\" uses the installation's VALKEY_PASSWORD."},
 				{Field: "useLdap", Desc: "Load the valkey-ldap module on every member and authenticate against the Intranet's OpenLDAP. Oracle Linux only."},
 				{Field: "useProxy", Desc: "Download packages through the Intranet's Squid proxy."},
