@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -644,7 +645,68 @@ func (d *Docker) ContainerCreate(ctx context.Context, spec ContainerSpec) (strin
 	if err := json.Unmarshal(drain(resp), &out); err != nil {
 		return "", err
 	}
+	if spec.Privileged && d.emulatesAmd64(ctx, spec) {
+		if err := d.relaxJournaldForEmulation(ctx, out.ID); err != nil {
+			log.Printf("container %s: could not relax journald's sandbox for emulation: %v", spec.Name, err)
+		}
+	}
 	return out.ID, nil
+}
+
+// emulatesAmd64 reports whether a container would run an amd64 image under
+// emulation on an arm64 Docker host (QEMU, or Rosetta on Apple Silicon).
+func (d *Docker) emulatesAmd64(ctx context.Context, spec ContainerSpec) bool {
+	amd64 := spec.Platform == "linux/amd64" || strings.Contains(spec.Image, "-amd64-")
+	if !amd64 {
+		return false
+	}
+	ha := d.HostArch(ctx)
+	return strings.Contains(ha, "arm") || strings.Contains(ha, "aarch64")
+}
+
+// journaldEmulationDropIn clears the systemd-journald sandboxing that kills it
+// under emulation: the translator needs writable-then-executable memory
+// (MemoryDenyWriteExecute) and makes syscalls a native-only SystemCallFilter
+// refuses. Without it journald dumps core on every boot of an emulated systemd
+// node (a 435 MB /core each time) and the journal stays empty. The Intranet's
+// daemons and Valkey get the same treatment when they start; journald has to
+// have it before the container first boots, so it goes in at create.
+const journaldEmulationDropIn = `[Service]
+MemoryDenyWriteExecute=no
+SystemCallFilter=
+SystemCallArchitectures=
+`
+
+func (d *Docker) relaxJournaldForEmulation(ctx context.Context, id string) error {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	now := time.Now()
+	if err := tw.WriteHeader(&tar.Header{Name: "systemd-journald.service.d/", Typeflag: tar.TypeDir, Mode: 0o755, ModTime: now}); err != nil {
+		return err
+	}
+	if err := tw.WriteHeader(&tar.Header{Name: "systemd-journald.service.d/10-dbcanvas-emulation.conf", Mode: 0o644, ModTime: now, Size: int64(len(journaldEmulationDropIn))}); err != nil {
+		return err
+	}
+	if _, err := tw.Write([]byte(journaldEmulationDropIn)); err != nil {
+		return err
+	}
+	if err := tw.Close(); err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, "PUT", "http://docker/containers/"+id+"/archive?path="+url.QueryEscape("/etc/systemd/system"), &buf)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-tar")
+	resp, err := d.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer drain(resp)
+	if resp.StatusCode != 200 {
+		return errBody("copy journald drop-in", resp)
+	}
+	return nil
 }
 
 func (d *Docker) simple(ctx context.Context, method, path, action string, okCodes ...int) error {
