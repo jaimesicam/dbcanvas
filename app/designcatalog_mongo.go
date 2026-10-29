@@ -76,6 +76,13 @@ var mongoDataGenActions = []catalogAction{
 
 // mongoSimEdges are the simulator association lines a MongoDB node or frame can draw.
 var mongoSimEdges = []catalogEdge{
+	{To: []string{"supportsim", "stocksim", "perfsim"}, Type: "directional",
+		Desc: "Drive a simulator's workload against this MongoDB (from the database to the simulator)."},
+}
+
+// mongoShardedSimEdges are a sharded cluster's: Performance Sim's lag stressors
+// act on one replica set's members, not yet on a sharded cluster's shards.
+var mongoShardedSimEdges = []catalogEdge{
 	{To: []string{"supportsim", "stocksim"}, Type: "directional",
 		Desc: "Drive a simulator's workload against this MongoDB (from the database to the simulator)."},
 }
@@ -148,7 +155,7 @@ var catalogMongoFamily = []catalogEntry{
 		Requires:  []string{"an Intranet node", "a SeaweedFS node when enablePBM is on"},
 		Options:   mongoOpts(mongoVersionOptions, mongoCommonFrameOptions, mongoCertOptions),
 		Relations: []string{"monitor", "repository", "backup"},
-		Edges:     mongoSimEdges,
+		Edges:     mongoShardedSimEdges,
 		Actions: []catalogAction{
 			{Method: "POST", Path: "/api/stacks/{id}/frames/{fid}/pbm/backup", Desc: "Run an on-demand PBM backup.", When: "enablePBM is on"},
 			{Method: "GET", Path: "/api/stacks/{id}/frames/{fid}/backup-status", Desc: "The newest PBM backup, how many there are, and whether one is running.", When: "enablePBM is on"},

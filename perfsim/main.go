@@ -20,7 +20,10 @@ import (
 	"time"
 
 	"perfsim/internal/core"
+	"perfsim/internal/mongo"
 	"perfsim/internal/mysqlx"
+	"perfsim/internal/pgsql"
+	"perfsim/internal/valkey"
 )
 
 //go:embed web/static
@@ -35,16 +38,42 @@ func main() {
 			return
 		}
 	}
-	var cfg mysqlx.Config
-	if err := json.Unmarshal([]byte(os.Getenv("PERFSIM_TARGET")), &cfg); err != nil || len(cfg.Members) == 0 {
+	raw := []byte(os.Getenv("PERFSIM_TARGET"))
+	var target struct {
+		Name    string            `json:"name"`
+		Engine  string            `json:"engine"`
+		Members []json.RawMessage `json:"members"`
+	}
+	if err := json.Unmarshal(raw, &target); err != nil || len(target.Members) == 0 {
 		log.Fatalf("perfsim: PERFSIM_TARGET must describe the linked target and its members: %v", err)
+	}
+	var eng core.Engine
+	switch target.Engine {
+	case "", "mysql":
+		var cfg mysqlx.Config
+		json.Unmarshal(raw, &cfg)
+		eng = mysqlx.New(cfg)
+	case "postgres":
+		var cfg pgsql.Config
+		json.Unmarshal(raw, &cfg)
+		eng = pgsql.New(cfg)
+	case "mongodb":
+		var cfg mongo.Config
+		json.Unmarshal(raw, &cfg)
+		eng = mongo.New(cfg)
+	case "valkey":
+		var cfg valkey.Config
+		json.Unmarshal(raw, &cfg)
+		eng = valkey.New(cfg)
+	default:
+		log.Fatalf("perfsim: engine %q is not supported", target.Engine)
 	}
 	port := envOr("PORT", "8096")
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	hub := core.NewHub(ctx, mysqlx.New(cfg))
+	hub := core.NewHub(ctx, eng)
 	go hub.Run(ctx)
 
 	static, err := fs.Sub(webDist, "web/static")
@@ -60,7 +89,7 @@ func main() {
 		defer cancel()
 		srv.Shutdown(shut)
 	}()
-	log.Printf("perfsim: %s (%d members), dashboard on :%s", cfg.Name, len(cfg.Members), port)
+	log.Printf("perfsim: %s (%s, %d members), dashboard on :%s", target.Name, target.Engine, len(target.Members), port)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("perfsim: %v", err)
 	}

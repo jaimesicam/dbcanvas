@@ -115,6 +115,9 @@ type Member struct {
 	ChipText string      `json:"chipText"`
 	Fields   [][2]string `json:"fields"`
 	Evicted  bool        `json:"evicted,omitempty"`
+	// Source is the member this one replicates from, when an engine knows it
+	// and it is not simply the writer: a Valkey Cluster has one per shard.
+	Source string `json:"source,omitempty"`
 }
 
 // ServerSample is the writer-side and cluster-wide numbers of one sample.

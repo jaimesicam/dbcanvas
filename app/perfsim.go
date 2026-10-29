@@ -6,14 +6,15 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
 // Performance Sim (Type=="perfsim"): a dashboard of stressors that make a linked
-// MySQL-family server or cluster misbehave on purpose — replication lag from a
-// large transaction, a no-op ALTER, FLUSH TABLES WITH READ LOCK on a replica, a
-// stopped or delayed applier — with a timeline that shows what each one does to
-// the cluster and to an application running against it. Runs DBCanvas's own
+// MySQL-family or PostgreSQL server or cluster misbehave on purpose —
+// replication lag from a large transaction, a no-op ALTER or VACUUM FULL, a
+// locked, stopped, paused or delayed replica — with a timeline that shows what
+// each one does to the cluster and to an application running against it. Runs DBCanvas's own
 // dbcanvas-perfsim:v<release> image (built by `make perfsim-image`).
 //
 // Everything about the stressors is chosen on the sim's dashboard while it runs;
@@ -23,22 +24,30 @@ import (
 // other sim needs one write endpoint; this one also needs each replica, because
 // that is where most of its stressors act.
 //
-// The workload connects as the application user through the cluster's write
-// endpoint, exactly as Stock Market Sim does (a ProxySQL in front of the
-// cluster only knows that user). The stressors connect to each member directly
-// as the network superuser admin@'%'.
+// The workload connects through the cluster's write endpoint with the account
+// Stock Market Sim uses there: the application user on MySQL (a ProxySQL in
+// front of the cluster only knows that user), the superuser on PostgreSQL. The
+// stressors connect to each member directly as the MySQL network superuser
+// admin@'%', or the PostgreSQL superuser.
 const perfSimPort = 8096
 
 var perfSimImage = "dbcanvas-perfsim:" + imageRelease()
 
 // perfSimTargets are the canvas types a Performance Sim node can be linked to:
-// MySQL-family standalone servers and cluster frames, and the two routers when
-// they front a MySQL-family cluster.
+// MySQL-family and PostgreSQL standalone servers and cluster frames (PostgreSQL
+// with physical streaming replication: Patroni, repmgr), and the routers and
+// pools in front of one, a MongoDB server or replica set, and a Valkey server or
+// Valkey Cluster. A Spock cluster
+// replicates logically and a sharded MongoDB cluster is many replica sets, so
+// neither is one yet.
 var perfSimTargets = map[string]bool{
 	"ps": true, "mariadb": true, "mysqlce": true,
 	"pxc": true, "mysql": true, "innodb": true, "mariadbrepl": true, "mariadbgalera": true,
 	"mysqlcerepl": true, "mysqlceinnodb": true,
-	"haproxy": true, "proxysql": true,
+	"pg": true, "patroni": true, "repmgr": true,
+	"psm": true, "psmrs": true,
+	"valkey": true, "valkeycluster": true,
+	"haproxy": true, "proxysql": true, "pgbouncer": true,
 }
 
 // perfSimConfig is the non-secret profile shown for a deployed node.
@@ -75,12 +84,15 @@ type perfSimEndpoint struct {
 
 type perfSimTarget struct {
 	Name           string          `json:"name"`
+	Engine         string          `json:"engine"` // mysql | postgres
 	Kind           string          `json:"kind"`
+	Manager        string          `json:"manager,omitempty"` // patroni | repmgr: what manages a PostgreSQL cluster
 	User           string          `json:"user"`
 	Password       string          `json:"password"`
 	WriterUser     string          `json:"writerUser"`
 	WriterPassword string          `json:"writerPassword"`
 	Writer         perfSimEndpoint `json:"writer"`
+	URI            string          `json:"uri,omitempty"` // MongoDB: the application's connection string
 	Members        []perfSimMember `json:"members"`
 }
 
@@ -97,8 +109,11 @@ func perfSimLink(doc designDoc, nodeID string) (kind, targetID string, ok bool) 
 // a router fronts. A standalone server has none.
 func perfSimFrame(doc designDoc, kind, targetID string) (designFrame, bool) {
 	switch kind {
-	case "ps", "mariadb", "mysqlce":
+	case "ps", "mariadb", "mysqlce", "pg", "psm", "valkey":
 		return designFrame{}, false
+	case "pgbouncer":
+		_, f, _, ok := pgBouncerBackend(doc, targetID)
+		return f, ok && f.ID != ""
 	case "haproxy":
 		f, _, ok := haproxyBackend(doc, targetID)
 		return f, ok
@@ -116,15 +131,21 @@ func perfSimIssues(doc designDoc, n designNode) []issue {
 	switch {
 	case targetID == "":
 		return []issue{{Level: "error", Message: "Performance Sim node " + n.Label +
-			" needs an association line to a MySQL-family server or cluster, or to an HAProxy or ProxySQL node in front of one."}}
+			" needs an association line to a MySQL-family, PostgreSQL, MongoDB or Valkey server or cluster, or to an HAProxy, ProxySQL or PgBouncer node in front of one."}}
 	case !ok:
-		return []issue{{Level: "error", Message: fmt.Sprintf("Performance Sim node %s is linked to %s, which it cannot drive yet: it supports Percona Server, MySQL and MariaDB servers and clusters.",
+		return []issue{{Level: "error", Message: fmt.Sprintf("Performance Sim node %s is linked to %s, which it cannot drive yet: it supports Percona Server, MySQL, MariaDB, PostgreSQL (standalone, Patroni or repmgr) MongoDB (standalone or replica set) and Valkey (standalone or Valkey Cluster) servers and clusters.",
 			n.Label, nodeLabel(doc, targetID))}}
 	}
 	if kind == "haproxy" {
-		if _, back, ok := haproxyBackend(doc, targetID); !ok || (back != "pxc" && back != "mysql") {
+		if _, back, ok := haproxyBackend(doc, targetID); !ok || back == "spock" {
 			return []issue{{Level: "error", Message: "Performance Sim node " + n.Label +
-				" is linked to an HAProxy node that does not front a PXC or MySQL replication cluster."}}
+				" is linked to an HAProxy node that does not front a PXC, MySQL replication, Patroni or repmgr cluster."}}
+		}
+	}
+	if kind == "pgbouncer" {
+		if back, _, _, ok := pgBouncerBackend(doc, targetID); !ok || back == "spock" {
+			return []issue{{Level: "error", Message: "Performance Sim node " + n.Label +
+				" is linked to a PgBouncer node that does not pool for a PostgreSQL node, or a Patroni or repmgr cluster."}}
 		}
 	}
 	if kind == "proxysql" {
@@ -147,8 +168,14 @@ func perfSimMembers(doc designDoc, kind, targetID string, hosts map[string]strin
 			}
 		}
 	} else {
+		standalone := targetID
+		if kind == "pgbouncer" {
+			if _, _, n, ok := pgBouncerBackend(doc, targetID); ok {
+				standalone = n.ID
+			}
+		}
 		for _, n := range doc.Nodes {
-			if n.ID == targetID {
+			if n.ID == standalone {
 				out = append(out, n)
 			}
 		}
@@ -205,7 +232,18 @@ func (a *App) provisionPerfSim(st Stack, n designNode, doc designDoc) {
 		}
 
 		pr.phase("Waiting for the linked database", 20)
-		r, err := a.stockSimMySQLTarget(ctx, st, hosts, doc, domain, kind, targetID, deployTimeout(), false)
+		engine := stockSimEngineForTarget(doc, kind, targetID)
+		var r stockSimResolved
+		switch engine {
+		case "postgres":
+			r, err = a.stockSimPostgresTarget(ctx, st, hosts, doc, domain, kind, targetID, deployTimeout(), false)
+		case "mongodb":
+			r, err = a.stockSimMongoTarget(ctx, st, hosts, doc, domain, kind, targetID, deployTimeout())
+		case "valkey":
+			r, err = a.stockSimValkeyTarget(ctx, st, hosts, doc, domain, kind, targetID, deployTimeout())
+		default:
+			r, err = a.stockSimMySQLTarget(ctx, st, hosts, doc, domain, kind, targetID, deployTimeout(), false)
+		}
 		if err != nil {
 			pr.fail("%v", err)
 			return
@@ -216,30 +254,56 @@ func (a *App) provisionPerfSim(st Stack, n designNode, doc designDoc) {
 			return
 		}
 
-		// admin@'%' is the same on every member of a cluster; read it from the
-		// first member that has deployed, falling back to the installation's own.
-		admin := mysqlFamilySecrets()
-		for _, m := range members {
-			if dep, err := a.store.GetDeployment(st.ID, m.ID); err == nil {
-				var s pxcSecrets
-				if json.Unmarshal(dep.Secrets, &s) == nil && s.AdminUser != "" && s.AdminPassword != "" {
-					admin = s
-					break
-				}
-			}
-		}
 		target := perfSimTarget{
-			Name: r.displayName, Kind: kind,
-			User: admin.AdminUser, Password: admin.AdminPassword,
+			Name: r.displayName, Engine: engine, Kind: kind,
 			WriterUser: r.secrets.User, WriterPassword: r.secrets.Password,
 			Writer: perfSimEndpoint{Host: r.host, Port: r.port},
+		}
+		memberPort := pxcMySQLPort
+		if f, ok := perfSimFrame(doc, kind, targetID); ok && (f.Type == "patroni" || f.Type == "repmgr") {
+			target.Manager = f.Type
+		}
+		switch engine {
+		case "postgres":
+			// The resolver already connects as the superuser, the one role a
+			// PostgreSQL node provisions; the stressors need it too.
+			target.User, target.Password = r.secrets.User, r.secrets.Password
+			memberPort = patroniPGPort
+		case "mongodb":
+			// The admin user, as the resolver gives it; the workload uses the
+			// replica set connection string it built.
+			target.User, target.Password = r.secrets.User, r.secrets.Password
+			memberPort = mongoPort
+			for _, kv := range r.env {
+				if uri, ok := strings.CutPrefix(kv, "MONGO_URI="); ok {
+					target.URI = uri
+				}
+			}
+		case "valkey":
+			// The "default" user's password; every member has the same one.
+			target.Password = r.secrets.Password
+			memberPort = valkeyPort
+		default:
+			// admin@'%' is the same on every member of a cluster; read it from the
+			// first member that has deployed, falling back to the installation's own.
+			admin := mysqlFamilySecrets()
+			for _, m := range members {
+				if dep, err := a.store.GetDeployment(st.ID, m.ID); err == nil {
+					var s pxcSecrets
+					if json.Unmarshal(dep.Secrets, &s) == nil && s.AdminUser != "" && s.AdminPassword != "" {
+						admin = s
+						break
+					}
+				}
+			}
+			target.User, target.Password = admin.AdminUser, admin.AdminPassword
 		}
 		for _, m := range members {
 			id := hosts[m.ID]
 			if id == "" {
 				id = sanitizeName(m.Label)
 			}
-			target.Members = append(target.Members, perfSimMember{ID: id, Host: fqdnOf(id, domain), Port: pxcMySQLPort, Role: m.Role})
+			target.Members = append(target.Members, perfSimMember{ID: id, Host: fqdnOf(id, domain), Port: memberPort, Role: m.Role})
 			cfg.Members = append(cfg.Members, id)
 			if cfg.MemberNodes == nil {
 				cfg.MemberNodes = map[string]string{}
@@ -248,6 +312,15 @@ func (a *App) provisionPerfSim(st Stack, n designNode, doc designDoc) {
 		}
 		cfg.TargetKind, cfg.TargetName = r.kind, r.displayName
 		cfg.Writer = fmt.Sprintf("%s:%d", r.host, r.port)
+		if engine == "mongodb" {
+			cfg.Writer = "the replica set's primary"
+			if kind == "psm" {
+				cfg.Writer = fmt.Sprintf("%s:%d", r.host, r.port)
+			}
+		}
+		if engine == "valkey" && kind == "valkeycluster" {
+			cfg.Writer = "each key's primary (cluster client)"
+		}
 		pr.logln(fmt.Sprintf("target: %s %s, writes through %s, %d member(s): %v", kind, r.displayName, cfg.Writer, len(cfg.Members), cfg.Members))
 
 		pr.phase("Creating container", 45)

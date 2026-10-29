@@ -223,7 +223,7 @@ dashboard on a host port. Draw an association line from the simulator to its tar
 | **pgvector Support Sim** | The same desk on PostgreSQL, using a pgvector column and an HNSW index. Creates a `supportsim` database (or schema). | PostgreSQL, Patroni, repmgr or Spock; HAProxy or PgBouncer in front of one; or a K3D frame running a PostgreSQL operator. Turn on pgvector on the target. |
 | **Stock Market Sim** | A stock-exchange app you operate. See below. | Any database (see below) |
 | **Ledger Sim** | A JDBC order-and-payment ledger. See below. | MySQL-family or PostgreSQL |
-| **Performance Sim** | Stressors that cause replication lag, with a live timeline of their effect. See below. | MySQL-family |
+| **Performance Sim** | Stressors that cause replication lag, with a live timeline of their effect. See below. | MySQL-family, PostgreSQL, MongoDB or Valkey |
 
 The templates **PSMDB Vector Search + Support Sim** and **PostgreSQL + pgvector + Support Sim**
 deploy a complete vector-search demo.
@@ -263,15 +263,18 @@ compare drivers and pool settings rather than servers.
   **balance check** shows zero on a consistent ledger.
 - Not for MongoDB or Valkey. Build it with `make ledgersim-image` (it downloads from Maven Central).
 
-**Performance Sim** makes a linked MySQL-family server or cluster misbehave on purpose and shows
+**Performance Sim** makes a linked MySQL-family, PostgreSQL, MongoDB or Valkey server or cluster misbehave on purpose and shows
 what each stressor does, to the cluster and to an application running against it. The node has
 no options of its own: link it, deploy it, and choose everything on its dashboard.
 
 - **Link:** an association line to a Percona Server, MySQL or MariaDB server or cluster frame
-  (asynchronous replication, Group Replication, PXC, MariaDB Galera), or to an HAProxy or ProxySQL
-  node in front of a PXC or MySQL replication cluster. The sim connects to every data member as
-  `admin@'%'`, and runs its workload through the write endpoint as the application user.
-- **Replication lag stressors:**
+  (asynchronous replication, Group Replication, PXC, MariaDB Galera), a PostgreSQL node or a Patroni
+  or repmgr cluster, a PS MongoDB node or PSMDB replica set, a Valkey node or Valkey Cluster, or an
+  HAProxy, ProxySQL or PgBouncer node in front of one. A Spock cluster (logical replication) and a sharded MongoDB cluster are not
+  targets yet. The sim connects to every data member (MySQL as `admin@'%'`, PostgreSQL as the
+  superuser, MongoDB as the admin user, Valkey with the default user's password) and runs its workload
+  through the write endpoint.
+- **Replication lag stressors, MySQL family:**
 
   | Stressor | What it does | Where |
   | --- | --- | --- |
@@ -285,6 +288,43 @@ no options of its own: link it, deploy it, and choose everything on its dashboar
   | Open transaction blocking DDL | Holds a table's metadata lock on chosen replicas, so a replicated ALTER waits | Async, Group Replication |
 
   A stressor the topology cannot support is listed with the reason.
+- **Replication lag stressors, PostgreSQL** (Patroni, repmgr):
+
+  | Stressor | What it does |
+  | --- | --- |
+  | Large transactions | One large UPDATE on a prepared table at a fixed interval |
+  | Table rewrite | `VACUUM FULL` of a prepared table, replayed in full by the standbys |
+  | Pause WAL replay | `pg_wal_replay_pause()` on chosen standbys |
+  | Conflicting standby query | A transaction on chosen standbys that replay has to wait for, up to `max_standby_streaming_delay`, before cancelling it |
+  | Delayed standby | `recovery_min_apply_delay` on chosen standbys |
+
+  On PostgreSQL the sim uses its own `perfsim` database. On Patroni, a replay pause puts the cluster
+  in maintenance mode while it holds (Patroni would otherwise resume replay), which turns off
+  automatic failover until it is released; the delay is set in Patroni's configuration and applies
+  to every standby.
+- **Replication lag stressors, MongoDB** (replica sets):
+
+  | Stressor | What it does |
+  | --- | --- |
+  | Bulk writes | One large `updateMany` on a prepared collection at a fixed interval |
+  | Index build | Builds an index on a prepared collection, on every member at once |
+  | fsyncLock on secondaries | `db.fsyncLock()` on chosen secondaries |
+  | Delayed secondary | Makes chosen secondaries delayed members (priority 0, hidden, `secondaryDelaySecs`) in one reconfiguration, restored on release |
+
+  Writes use the default `w: "majority"`, so locking or delaying a majority of members also stalls
+  them. The sim uses its own `perfsim` database.
+- **Replication lag stressors, Valkey** (Valkey Cluster; lag is measured with one heartbeat key per
+  shard, so every replica is measured against its own primary):
+
+  | Stressor | What it does |
+  | --- | --- |
+  | Large values | Writes multi-megabyte values at a fixed rate through every replica's stream |
+  | Delete a big key | Builds a set of millions of members and deletes it with `DEL`, blocking the primary and then each replica; *blocking* turns `lazyfree-lazy-user-del` off on that primary for the one delete |
+  | DEBUG SLEEP on replicas | Blocks chosen replicas' event loop repeatedly; offered only where `enable-debug-command` allows it |
+
+  Valkey needs no prepared tables; the sim's keys start with `perfsim:`. A Valkey Cluster built by
+  DBCanvas has primaries only, so on one there is no lag to cause; the large-value and delete
+  stressors still show their effect on the primaries' latency.
 - **Network and disk stressors** on chosen members: added latency (with jitter), packet loss (100%
   cuts the member off), a bandwidth cap, and write bandwidth, write IOPS or read bandwidth caps.
   DBCanvas applies them with the same `tc netem` and `io.max` code as a node's own limits, and

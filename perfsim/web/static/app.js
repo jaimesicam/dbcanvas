@@ -82,10 +82,20 @@ function tablesFor(d) {
 }
 
 // ---------- header and KPIs ----------
+const TOPO_LABEL = { standalone: 'standalone', async: 'async replication', gr: 'Group Replication', galera: 'Galera', streaming: 'streaming replication', replset: 'replica set', cluster: 'Valkey Cluster', replication: 'replication' };
+const TOPO_NOUN = { async: 'replication', gr: 'Group Replication', galera: 'Galera cluster', streaming: 'cluster', replset: 'replica set', cluster: 'cluster', replication: 'replication', standalone: 'server' };
+function flavorLabel() {
+  if (S.info.engine === 'valkey') return 'Valkey';
+  if (S.info.engine === 'mongodb') return S.info.flavor === 'percona' ? 'Percona Server for MongoDB' : 'MongoDB';
+  const pg = S.info.engine === 'postgres';
+  if (S.info.flavor === 'percona') return pg ? 'Percona Distribution for PostgreSQL' : 'Percona Server';
+  if (pg) return 'PostgreSQL';
+  return S.info.flavor === 'mariadb' ? 'MariaDB' : 'MySQL';
+}
 function renderHeader() {
   $('#targetName').textContent = S.info.name || '…';
-  const t = { standalone: 'standalone', async: 'async replication', gr: 'Group Replication', galera: 'Galera' }[topo()] || topo();
-  $('#targetKind').textContent = S.ready ? `${S.info.flavor === 'percona' ? 'Percona Server' : S.info.flavor === 'mariadb' ? 'MariaDB' : 'MySQL'} ${S.info.version} · ${t}` : 'connecting';
+  const t = TOPO_LABEL[topo()] || topo();
+  $('#targetKind').textContent = S.ready ? `${flavorLabel()} ${S.info.version} · ${t}` : 'connecting';
   const conn = $('#conn');
   conn.hidden = S.ready;
   if (!S.ready) conn.textContent = `Connecting to ${S.info.name || 'the linked database'}${S.initErr ? ': ' + S.initErr : '…'}`;
@@ -139,69 +149,112 @@ function renderKpis() {
 }
 
 // ---------- topology ----------
-function badge(x, y, color, frac, kind) {
-  const C = 2 * Math.PI * 13;
+function badge(x, y, color, frac, kind, r = 10) {
+  const C = 2 * Math.PI * r, k = r / 13;
   const icon = kind === 'net' ? `<path d="M-7 1 h3 l2 -5 l3 9 l2 -6 l1.5 2 h2.5" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>`
     : kind === 'disk' ? `<ellipse cx="0" cy="-4" rx="6" ry="2.4" fill="none" stroke="${color}" stroke-width="1.5"/><path d="M-6 -4 v8 a6 2.4 0 0 0 12 0 v-8" fill="none" stroke="${color}" stroke-width="1.5"/>`
     : kind === 'gear' ? `<circle r="4" fill="none" stroke="${color}" stroke-width="1.6"/><path d="M0 -7 v3 M0 4 v3 M-7 0 h3 M4 0 h3" stroke="${color}" stroke-width="1.6"/>`
     : `<rect x="-5" y="-2" width="10" height="8" rx="1.5" fill="${color}"/><path d="M-3 -2 v-2.5 a3 3 0 0 1 6 0 v2.5" fill="none" stroke="${color}" stroke-width="1.6"/>`;
-  return `<g transform="translate(${x},${y})"><circle r="13" fill="var(--surface)" stroke="var(--track)" stroke-width="3"/>
-    <circle r="13" fill="none" stroke="${color}" stroke-width="3" stroke-dasharray="${(C * frac).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90)" stroke-linecap="round"/>${icon}</g>`;
+  return `<g transform="translate(${x},${y})"><circle r="${r}" fill="var(--surface)" stroke="var(--track)" stroke-width="2.5"/>
+    <circle r="${r}" fill="none" stroke="${color}" stroke-width="2.5" stroke-dasharray="${(C * frac).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90)" stroke-linecap="round"/><g transform="scale(${k.toFixed(2)})">${icon}</g></g>`;
 }
-const BADGE_KIND = { ftwrl: 'lock', mdl: 'lock', stopapplier: 'lock', delay: 'gear', singlethread: 'gear' };
-function renderTopo() {
-  const ms = S.members, g = galera(), W = 280;
-  const H = ms.length > 4 ? 240 : 220;
-  const chipCol = { ok: 'var(--success)', warn: 'var(--warning)', bad: 'var(--danger)', neutral: 'var(--neutral)' };
-  const pos = {};
-  const wid = writerID();
-  if (g) {
-    ms.forEach((m, i) => { const a = -Math.PI / 2 + i * 2 * Math.PI / ms.length; pos[m.id] = [W / 2 + Math.cos(a) * 92, 112 + Math.sin(a) * 72]; });
-  } else {
-    pos[wid] = [W / 2, 42];
-    const rest = others();
-    rest.forEach((m, i) => { pos[m.id] = [rest.length === 1 ? W / 2 : 52 + i * ((W - 104) / (rest.length - 1)), 165]; });
+const BADGE_KIND = { ftwrl: 'lock', mdl: 'lock', stopapplier: 'lock', pause: 'lock', conflict: 'lock', fsynclock: 'lock', delay: 'gear', singlethread: 'gear' };
+const FOLLOWER_ROLES = new Set(['replica', 'standby', 'secondary', 'slave']);
+
+// topoLayout places the members. One primary: a spider, the primary in the
+// middle and its replicas on a circle around it. Several primaries with
+// replicas (a Valkey Cluster): the primaries on an inner circle, each with its
+// replicas just outside it. No one replicating from anyone in particular (a
+// Galera cluster, an all-primary cluster): a ring of peers.
+function topoLayout(ms, W, H) {
+  const cx = W / 2, cy = H / 2 - 6, pos = {}, edges = [], wid = writerID();
+  const sourceOf = (m) => m.source || (FOLLOWER_ROLES.has(m.role) && !galera() ? wid : '');
+  const followers = ms.filter((m) => sourceOf(m));
+  const hubs = ms.filter((m) => !sourceOf(m));
+  const ring = (list, r, a0 = -Math.PI / 2) => list.forEach((m, i) => {
+    const a = a0 + i * 2 * Math.PI / list.length;
+    pos[m.id] = [cx + Math.cos(a) * r, cy + Math.sin(a) * r * 0.82];
+  });
+  if (!followers.length) {
+    ring(ms, ms.length <= 3 ? 70 : 92);
+    return { pos, edges, peers: true, hubs: new Set(), cx, cy };
   }
-  let edges = '', nodes = '';
-  if (g) {
+  if (hubs.length <= 1) {
+    if (hubs[0]) pos[hubs[0].id] = [cx, cy];
+    // One replica below the primary, two either side, more around it from the top.
+    const a0 = { 1: Math.PI / 2, 2: 0 }[followers.length] ?? -Math.PI / 2;
+    ring(followers, followers.length <= 3 ? 82 : 100, a0);
+  } else {
+    ring(hubs, 56);
+    for (const h of hubs) {
+      const mine = followers.filter((f) => sourceOf(f) === h.id);
+      const [hx, hy] = pos[h.id], base = Math.atan2(hy - cy, hx - cx);
+      mine.forEach((f, i) => {
+        const a = base + (i - (mine.length - 1) / 2) * 0.6;
+        pos[f.id] = [hx + Math.cos(a) * 66, hy + Math.sin(a) * 66 * 0.82];
+      });
+    }
+  }
+  for (const f of followers) if (pos[sourceOf(f)]) edges.push([sourceOf(f), f.id]);
+  return { pos, edges, peers: false, hubs: new Set(hubs.map((h) => h.id)), cx, cy };
+}
+const PRIMARY_ROLES = new Set(['primary', 'source', 'writer', 'standalone']);
+
+function renderTopo() {
+  const ms = S.members, g = galera(), W = 300, H = 290;
+  const chipCol = { ok: 'var(--success)', warn: 'var(--warning)', bad: 'var(--danger)', neutral: 'var(--neutral)' };
+  const { pos, edges, peers, hubs, cx, cy } = topoLayout(ms, W, H);
+  const byId = Object.fromEntries(ms.map((m) => [m.id, m]));
+  const fc = (lastPoint()?.fc || 0) > 0.5;
+  let svgEdges = '';
+  if (peers && ms.length > 1) {
+    // Peers: a light mesh for Galera (everyone talks to everyone), a plain ring otherwise.
     for (let i = 0; i < ms.length; i++) for (let j = i + 1; j < ms.length; j++) {
+      if (!g && j !== i + 1 && !(i === 0 && j === ms.length - 1)) continue;
       const [x1, y1] = pos[ms[i].id], [x2, y2] = pos[ms[j].id];
       const cut = ms[i].evicted || ms[j].evicted || !ms[i].up || !ms[j].up;
-      const fc = (lastPoint()?.fc || 0) > 0.5;
-      edges += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${cut ? 'var(--track)' : fc ? 'var(--danger)' : 'var(--border)'}" stroke-width="2" ${cut || fc ? 'stroke-dasharray="5 4"' : ''}/>`;
-    }
-  } else if (pos[wid]) {
-    const [sx, sy] = pos[wid];
-    for (const m of others()) {
-      const [x, y] = pos[m.id], c = chipCol[m.chip] || 'var(--border)', v = m.lag;
-      const stopped = /stopped|disconnected|lock/.test(m.chipText);
-      edges += `<line x1="${sx}" y1="${sy + 20}" x2="${x}" y2="${y - 22}" stroke="${c}" stroke-width="${v > 5 ? 3 : 2}" ${stopped ? 'stroke-dasharray="6 5"' : ''}/>
-        <g transform="translate(${(sx + x) / 2},${(sy + y) / 2 + 2})"><rect x="-27" y="-10" width="54" height="20" rx="10" fill="var(--surface)" stroke="${c}"/>
-        <text text-anchor="middle" y="4" font-size="11" font-weight="600" fill="${c}" font-family="var(--mono)">${v < 0 ? '—' : v < 10 ? v.toFixed(1) + 's' : Math.round(v) + 's'}</text></g>`;
+      svgEdges += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${cut ? 'var(--track)' : g && fc ? 'var(--danger)' : 'var(--border)'}" stroke-width="1.5" ${cut || (g && fc) ? 'stroke-dasharray="5 4"' : ''}/>`;
     }
   }
+  for (const [a, b] of edges) {
+    const [x1, y1] = pos[a], [x2, y2] = pos[b], m = byId[b];
+    const c = chipCol[m.chip] || 'var(--border)';
+    const stopped = /stopped|disconnected|paused|lock|link/.test(m.chipText);
+    svgEdges += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${c}" stroke-width="${m.lag > 5 ? 2.5 : 1.5}" ${stopped ? 'stroke-dasharray="5 4"' : ''}/>`;
+  }
+  let nodes = '';
   for (const m of ms) {
     if (!pos[m.id]) continue;
     const [x, y] = pos[m.id];
-    const isW = m.id === wid && !g;
-    const c = !m.up || m.evicted ? 'var(--neutral)' : isW ? 'var(--brand)' : chipCol[m.chip] || 'var(--border)';
-    const label = m.id.length > 11 ? m.id.slice(0, 10) + '…' : m.id;
-    nodes += `<g><title>${esc(m.id)} · ${esc(m.chipText)}</title><rect x="${x - 44}" y="${y - 20}" width="88" height="40" rx="10" fill="var(--surface)" stroke="${isW ? 'var(--brand)' : 'var(--border)'}" stroke-width="${isW ? 1.5 : 1}"/>
-      <circle cx="${x - 32}" cy="${y - 4}" r="4" fill="${c}"/>
-      <text x="${x - 24}" y="${y}" font-size="12" font-weight="600" fill="var(--ink)" font-family="var(--mono)">${esc(label)}</text>
-      <text x="${x - 32}" y="${y + 13}" font-size="10" fill="var(--muted)">${esc(m.role)}${g ? ' · q ' + Math.round(m.recvq) : ''}</text></g>`;
-    const holders = (S.active || []).filter((a) => (a.targets || []).includes(m.id) && BADGE_KIND[a.id] || ((a.targets || []).includes(m.id) && /^(net|disk)/.test(a.id))).slice(0, 3);
+    const hub = hubs.has(m.id) && !peers;
+    const r = hub ? 15 : 11;
+    const c = !m.up || m.evicted ? 'var(--neutral)' : hub ? 'var(--brand)' : chipCol[m.chip] || 'var(--border)';
+    const name = m.id.length > 13 ? m.id.slice(0, 12) + '…' : m.id;
+    const primaryLike = PRIMARY_ROLES.has(m.role);
+    const sub = g ? 'q ' + Math.round(m.recvq) : hub || primaryLike || m.lag < 0 ? m.role : (m.lag < 10 ? m.lag.toFixed(1) : Math.round(m.lag)) + ' s behind';
+    const subCol = !hub && !primaryLike && !g && m.lag > 5 ? c : 'var(--muted)';
+    // Labels go on the outward side, so lines from the middle do not run through
+    // them; a halo in the card's colour hides any line that still passes behind.
+    const above = !hub && y < cy - 20;
+    const ly1 = above ? y - r - 19 : y + r + 12, ly2 = above ? y - r - 7 : y + r + 24;
+    const halo = 'paint-order="stroke" stroke="var(--surface)" stroke-width="4" stroke-linejoin="round"';
+    nodes += `<g><title>${esc(m.id)} · ${esc(m.role)} · ${esc(m.chipText)}</title>
+      <circle cx="${x}" cy="${y}" r="${r}" fill="var(--surface)" stroke="${c}" stroke-width="${hub ? 2.5 : 2}"/>
+      <circle cx="${x}" cy="${y}" r="${hub ? 5 : 4}" fill="${c}"/>
+      <text x="${x}" y="${ly1}" text-anchor="middle" font-size="11" font-weight="600" fill="var(--ink)" font-family="var(--mono)" ${halo}>${esc(name)}</text>
+      <text x="${x}" y="${ly2}" text-anchor="middle" font-size="10" fill="${subCol}" ${halo}>${esc(sub)}</text></g>`;
+    const holders = (S.active || []).filter((a) => (a.targets || []).includes(m.id) && (BADGE_KIND[a.id] || /^(net|disk)/.test(a.id))).slice(0, 3);
     holders.forEach((a, i) => {
       const frac = a.hold ? Math.max(0, 1 - (S.now - a.start) / a.hold) : 1;
       const kind = a.id.startsWith('net') ? 'net' : a.id.startsWith('disk') ? 'disk' : BADGE_KIND[a.id];
-      nodes += badge(Math.min(x + 44, W - 15), y - 20 + i * 28, css(BAND[a.color % 4]), frac, kind);
+      nodes += badge(x + r + 4 + i * 19, y - r - 2, css(BAND[a.color % 4]), frac, kind, 8);
     });
   }
-  $('#topoSvg').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Cluster topology">${edges}${nodes}</svg>
+  $('#topoSvg').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Cluster topology">${svgEdges}${nodes}</svg>
     <div class="topo-legend meta">${g ? '<span><span class="dot" style="background:var(--success)"></span> queue &lt; 20</span><span><span class="dot" style="background:var(--warning)"></span> 20–99</span><span><span class="dot" style="background:var(--danger)"></span> flow control</span>'
-      : '<span><span class="dot" style="background:var(--success)"></span> &lt; 5 s</span><span><span class="dot" style="background:var(--warning)"></span> 5–30 s</span><span><span class="dot" style="background:var(--danger)"></span> &gt; 30 s</span><span>dashed: applier stopped or blocked</span>'}<span>badges: lock, setting; the ring counts down to release</span></div>`;
-  $('#topoSub').textContent = ms.length + ' member' + (ms.length === 1 ? '' : 's');
-  $('#topoBanner').innerHTML = g && (lastPoint()?.fc || 0) > 0.5
+      : '<span><span class="dot" style="background:var(--success)"></span> &lt; 5 s</span><span><span class="dot" style="background:var(--warning)"></span> 5–30 s</span><span><span class="dot" style="background:var(--danger)"></span> &gt; 30 s</span><span>dashed: replication stopped or blocked</span>'}<span>badges: lock, setting, network, disk; the ring counts down to release</span></div>`;
+  $('#topoSub').textContent = ms.length + ' member' + (ms.length === 1 ? '' : 's') + (peers && !g && ms.length > 1 ? ' · all primaries' : '');
+  $('#topoBanner').innerHTML = g && fc
     ? `<div class="banner"><span class="dot" style="background:var(--danger);margin-top:5px"></span><span><b>Cluster paused by flow control.</b> A node's receive queue passed gcs.fc_limit, so no node can commit until it drains.</span></div>` : '';
 }
 
@@ -405,26 +458,28 @@ function cardHtml(d, a, on, dr, color, exp, blocked, state) {
 }
 function datasetsHtml() {
   const ds = S.datasets || [];
-  const noPK = topo() === 'async' || topo() === 'standalone';
-  return `<div class="ds">${ds.length ? ds.map((t) => `<div class="ds-row"><span class="mono">perfsim.${esc(t.name)}</span><span class="chip ${t.pk ? '' : 'warn'}">${fmtBytes(t.bytes)}</span><span class="meta">${fmtN(t.rows)} rows · ${t.pk ? 'primary key' : 'no primary key'} · <button class="btn link" data-drop="${esc(t.name)}">Drop</button></span></div>`).join('') : '<div class="cap">No tables yet. Large transactions, the no-op ALTER and the DDL lock need one.</div>'}
+  // Only MySQL's row-based replication looks rows up by key on the replica.
+  const noPK = S.info.engine === 'mysql' && (topo() === 'async' || topo() === 'standalone');
+  return `<div class="ds">${ds.length ? ds.map((t) => `<div class="ds-row"><span class="mono">perfsim.${esc(t.name)}</span><span class="chip ${t.pk ? '' : 'warn'}">${fmtBytes(t.bytes)}</span><span class="meta">${fmtN(t.rows)} rows · ${t.pk ? 'primary key' : 'no primary key'} · <button class="btn link" data-drop="${esc(t.name)}">Drop</button></span></div>`).join('') : '<div class="cap">No tables yet. The stressors that act on a big table use one prepared here.</div>'}
     ${S.prep ? `<div class="ds-row"><span class="mono">perfsim.${esc(S.prep.name)}</span><span class="chip brand">${Math.round(S.prep.done * 100)}%</span><div class="progress" style="grid-column:1/-1"><i style="width:${S.prep.done * 100}%"></i></div><span class="meta">${fmtBytes(S.prep.bytes * S.prep.done)} of ${fmtBytes(S.prep.bytes)} · <button class="btn link" data-cancelprep>Cancel</button></span></div>` : ''}
     <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><select id="prepSize" class="btn small" aria-label="Size">${[0.5, 1, 2, 5, 10, 20, 50].map((g) => `<option value="${g}" ${g === 2 ? 'selected' : ''}>${g < 1 ? g * 1024 + ' MB' : g + ' GB'}</option>`).join('')}</select>
     <select id="prepShape" class="btn small" aria-label="Shape"><option value="pk">with primary key</option>${noPK ? '<option value="nopk">without primary key</option>' : ''}</select>
     <button class="btn small" id="prepBtn" ${S.prep ? 'disabled' : ''}>Prepare table</button></div>
-    <div class="meta">Written in 20,000-row batches, so preparing does not lag the replicas by itself. The table lives in the perfsim schema on the writer.</div></div>`;
+    <div class="meta">Written in 20,000-row batches, so preparing does not lag the replicas by itself. It goes in the sim's own perfsim schema (the perfsim database on PostgreSQL).</div></div>`;
 }
 function renderGroups() {
   if (!S.ready) { $('#groups').innerHTML = '<div class="panel-b cap">Stressors appear once the sim has connected.</div>'; return; }
   const groups = [
     { key: 'work', title: 'Application workload', sub: `${S.threads} threads · always on`, body: `<div class="field"><label for="threads">Threads<output id="o-threads">${S.threads}</output></label><input type="range" id="threads" min="0" max="64" step="2" value="${S.threads}"></div><div class="cap">Point reads, small range reads and single-row writes on perfsim.orders, through the cluster's write endpoint. Its latency is the application's view on the timeline; more threads make every stressor bite harder.</div>` },
-    { key: 'data', title: 'Datasets', sub: `${(S.datasets || []).length} prepared${S.prep ? ' · preparing' : ''}`, body: datasetsHtml() },
   ];
+  // Valkey's stressors build what they need; there is nothing to prepare.
+  if (S.info.engine !== 'valkey') groups.push({ key: 'data', title: 'Datasets', sub: `${(S.datasets || []).length} prepared${S.prep ? ' · preparing' : ''}`, body: datasetsHtml() });
   const byGroup = {};
   for (const d of S.dials) (byGroup[d.group] ||= []).push(d);
   for (const [gname, ds] of Object.entries(byGroup)) {
     const key = gname === 'Replication lag' ? 'lag' : gname;
     const avail = ds.filter((d) => d.available).length;
-    groups.push({ key, title: gname, sub: avail ? `${avail} of ${ds.length} available for this ${{ async: 'replication', gr: 'Group Replication', galera: 'Galera cluster', standalone: 'server' }[topo()]}` : 'Not available here', body: ds.map(dialCard).join(''), on: ds.filter((d) => activeOf(d.id)).length });
+    groups.push({ key, title: gname, sub: avail ? `${avail} of ${ds.length} available for this ${TOPO_NOUN[topo()] || 'target'}` : 'Not available here', body: ds.map(dialCard).join(''), on: ds.filter((d) => activeOf(d.id)).length });
   }
   $('#groups').innerHTML = groups.map((g) => {
     const open = ui.open[g.key] ?? false;

@@ -719,7 +719,7 @@ export const NODE_TYPES = {
   perfsim: {
     label: 'Performance Sim',
     slug: 'perfsim',
-    sub: 'Stressors and their live impact on a MySQL-family cluster',
+    sub: 'Stressors and their live impact on a MySQL, PostgreSQL, MongoDB or Valkey cluster',
     color: '#e11d48',
     icon: 'Sliders',
     singleton: false,
@@ -10051,13 +10051,18 @@ function LedgerSimForm ({ node: n, nodes, frames, edges, stackId, patchNode, del
 const PS_LINKABLE_KINDS = new Set([
   'ps', 'mariadb', 'mysqlce',
   'backend', 'innodb', 'mariadbrepl', 'mariadbgalera', 'mysqlcerepl', 'mysqlceinnodb',
-  'haproxy', 'proxysql',
+  'pg', 'patroni', 'repmgr',
+  'psm', 'psmrs',
+  'valkey', 'valkeycluster',
+  'haproxy', 'proxysql', 'pgbouncer',
 ])
 const PS_TARGET_LABEL = {
   ps: 'Percona Server', mariadb: 'MariaDB', mysqlce: 'MySQL',
   pxc: 'PXC cluster', mysql: 'MySQL replication', innodb: 'InnoDB Cluster', mariadbrepl: 'MariaDB replication',
   mariadbgalera: 'MariaDB Galera', mysqlcerepl: 'MySQL replication (CE)', mysqlceinnodb: 'MySQL InnoDB Cluster (CE)',
-  haproxy: 'HAProxy', proxysql: 'ProxySQL',
+  pg: 'PostgreSQL', patroni: 'Patroni cluster', repmgr: 'repmgr cluster',
+  psm: 'PS MongoDB', psmrs: 'PSMDB replica set', valkey: 'Valkey', valkeycluster: 'Valkey Cluster',
+  haproxy: 'HAProxy', proxysql: 'ProxySQL', pgbouncer: 'PgBouncer',
 }
 
 // perfSimLinked is the node's target as perfSimLink resolves it, or null.
@@ -10094,7 +10099,7 @@ function PerfSimForm ({ node: n, nodes, frames, edges, patchNode, deleteNode, de
         </div>
       ) : (
         <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
-          Not linked. Draw an association line from a Percona Server, MySQL or MariaDB server or cluster, or from an HAProxy or ProxySQL in front of one, to this node.
+          Not linked. Draw an association line from a Percona Server, MySQL, MariaDB, PostgreSQL, MongoDB or Valkey server or cluster, or from an HAProxy, ProxySQL or PgBouncer in front of one, to this node.
         </div>
       )}
       <p className="text-xs text-muted">

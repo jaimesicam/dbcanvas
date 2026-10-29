@@ -154,19 +154,19 @@ func (e *Engine) Start(ctx context.Context, id string, p core.Params, targets []
 	}
 	switch id {
 	case "bigtxn":
-		return newJob(ctx, p, func(ctx context.Context, j *job) { e.runBigTxn(ctx, j, table, emit) }), nil
+		return core.NewJob(ctx, p, func(ctx context.Context, j *core.Job) { e.runBigTxn(ctx, j, table, emit) }), nil
 	case "alter":
-		return newJob(ctx, p, func(ctx context.Context, j *job) { e.runAlter(ctx, j, table, targets, emit) }), nil
+		return core.NewJob(ctx, p, func(ctx context.Context, j *core.Job) { e.runAlter(ctx, j, table, targets, emit) }), nil
 	case "ftwrl":
-		return newJob(ctx, p, func(ctx context.Context, j *job) {
+		return core.NewJob(ctx, p, func(ctx context.Context, j *core.Job) {
 			e.runHold(ctx, j, targets, "FLUSH TABLES WITH READ LOCK", "UNLOCK TABLES", "Holding the global read lock")
 		}), nil
 	case "mdl":
-		return newJob(ctx, p, func(ctx context.Context, j *job) {
+		return core.NewJob(ctx, p, func(ctx context.Context, j *core.Job) {
 			e.runHold(ctx, j, targets, "START TRANSACTION", "ROLLBACK", "Transaction open", "SELECT id FROM perfsim.`"+table+"` LIMIT 1")
 		}), nil
 	case "stopapplier":
-		return newJob(ctx, p, func(ctx context.Context, j *job) {
+		return core.NewJob(ctx, p, func(ctx context.Context, j *core.Job) {
 			e.runEach(ctx, j, targets, "Applier stopped", func(ctx context.Context, db *sql.DB, m string) (func(context.Context) error, error) {
 				key := "undo:stopapplier:" + m
 				e.saveUndo(ctx, key, undo{Kind: "start", Member: m})
@@ -181,11 +181,11 @@ func (e *Engine) Start(ctx context.Context, id string, p core.Params, targets []
 			})
 		}), nil
 	case "singlethread":
-		return newJob(ctx, p, func(ctx context.Context, j *job) { e.runSingle(ctx, j, targets) }), nil
+		return core.NewJob(ctx, p, func(ctx context.Context, j *core.Job) { e.runSingle(ctx, j, targets) }), nil
 	case "delay":
-		return newJob(ctx, p, func(ctx context.Context, j *job) { e.runDelay(ctx, j, targets, p.Int("delay", 60)) }), nil
+		return core.NewJob(ctx, p, func(ctx context.Context, j *core.Job) { e.runDelay(ctx, j, targets, p.Int("delay", 60)) }), nil
 	case "nopk":
-		return newJob(ctx, p, func(ctx context.Context, j *job) { e.runNoPK(ctx, j, table) }), nil
+		return core.NewJob(ctx, p, func(ctx context.Context, j *core.Job) { e.runNoPK(ctx, j, table) }), nil
 	}
 	return nil, fmt.Errorf("no such stressor %q", id)
 }
@@ -198,13 +198,13 @@ func wrap(member string, err error) error {
 }
 
 // runBigTxn commits one large UPDATE on the writer every few seconds.
-func (e *Engine) runBigTxn(ctx context.Context, j *job, table string, emit func(string, string)) {
+func (e *Engine) runBigTxn(ctx context.Context, j *core.Job, table string, emit func(string, string)) {
 	next := time.Now().Add(2 * time.Second)
 	for ctx.Err() == nil {
-		p := j.param()
+		p := j.Param()
 		rows, every := p.Int("rows", 1000000), p.Int("every", 60)
 		if wait := time.Until(next); wait > 0 {
-			j.set(fmt.Sprintf("Next in %d s", int(wait.Seconds()+0.5)), -1, "")
+			j.Set(fmt.Sprintf("Next in %d s", int(wait.Seconds()+0.5)), -1, "")
 			sleep(ctx, minDur(wait, time.Second))
 			continue
 		}
@@ -212,10 +212,10 @@ func (e *Engine) runBigTxn(ctx context.Context, j *job, table string, emit func(
 		db, wid := e.writerDB()
 		c, cid, err := connID(ctx, db)
 		if err != nil {
-			j.fail(err)
+			j.Fail(err)
 			continue
 		}
-		j.set(fmt.Sprintf("Updating %s rows on %s", fmtN(rows), wid), -1, "")
+		j.Set(fmt.Sprintf("Updating %s rows on %s", fmtN(rows), wid), -1, "")
 		start := time.Now()
 		err = execKillable(ctx, db, c, cid, "UPDATE perfsim.`"+table+"` SET note = note + 1 WHERE id <= ?", rows)
 		c.Close()
@@ -223,7 +223,7 @@ func (e *Engine) runBigTxn(ctx context.Context, j *job, table string, emit func(
 		case ctx.Err() != nil:
 			return
 		case err != nil:
-			j.fail(err)
+			j.Fail(err)
 			emit("warn", "Large transaction failed: "+err.Error())
 		default:
 			emit("neutral", fmt.Sprintf("Large transaction: %s rows committed on %s in %.1f s", fmtN(rows), wid, time.Since(start).Seconds()))
@@ -232,8 +232,8 @@ func (e *Engine) runBigTxn(ctx context.Context, j *job, table string, emit func(
 }
 
 // runAlter rebuilds the table, then waits for the replicas to apply it.
-func (e *Engine) runAlter(ctx context.Context, j *job, table string, targets []string, emit func(string, string)) {
-	p := j.param()
+func (e *Engine) runAlter(ctx context.Context, j *core.Job, table string, targets []string, emit func(string, string)) {
+	p := j.Param()
 	e.mu.Lock()
 	topo := e.topology
 	e.mu.Unlock()
@@ -258,31 +258,31 @@ func (e *Engine) runAlter(ctx context.Context, j *job, table string, targets []s
 	}
 	c, cid, err := connID(ctx, db)
 	if err != nil {
-		j.finish(err)
+		j.Finish(err)
 		return
 	}
 	defer c.Close()
 	if pre != "" {
 		if _, err := c.ExecContext(ctx, pre); err != nil {
-			j.finish(err)
+			j.Finish(err)
 			return
 		}
 	}
 	e.enableAlterProgress(ctx, db)
 	start := time.Now()
-	j.set("Running on "+where, -1, "")
+	j.Set("Running on "+where, -1, "")
 	stopProg := make(chan struct{})
 	go e.watchAlterProgress(ctx, db, cid, j, "Running on "+where, start, stopProg)
 	err = execKillable(ctx, db, c, cid, stmt)
 	close(stopProg)
 	if err != nil {
-		j.finish(err)
+		j.Finish(err)
 		return
 	}
 	took := time.Since(start)
 	if topo == "galera" {
 		emit("neutral", fmt.Sprintf("ALTER TABLE %s finished on %s in %.0f s", table, where, took.Seconds()))
-		j.finish(nil)
+		j.Finish(nil)
 		return
 	}
 	emit("neutral", fmt.Sprintf("ALTER TABLE %s committed on %s in %.0f s; replicas are applying it", table, where, took.Seconds()))
@@ -297,14 +297,14 @@ func (e *Engine) runAlter(ctx context.Context, j *job, table string, targets []s
 				worst = l
 			}
 		}
-		j.set("Replicas applying", -1, fmt.Sprintf("worst lag %.0f s · %s since commit", worst, fmtDur(time.Since(applyStart))))
+		j.Set("Replicas applying", -1, fmt.Sprintf("worst lag %.0f s · %s since commit", worst, fmtDur(time.Since(applyStart))))
 		if time.Since(applyStart) > 5*time.Second && worst < 2 {
 			settled++
 		} else {
 			settled = 0
 		}
 		if settled >= 3 {
-			j.finish(nil)
+			j.Finish(nil)
 			return
 		}
 		sleep(ctx, time.Second)
@@ -318,7 +318,7 @@ func (e *Engine) enableAlterProgress(ctx context.Context, db *sql.DB) {
 	db.ExecContext(ctx, "UPDATE performance_schema.setup_consumers SET ENABLED = 'YES' WHERE NAME LIKE 'events_stages_%'")
 }
 
-func (e *Engine) watchAlterProgress(ctx context.Context, db *sql.DB, cid int64, j *job, phase string, start time.Time, stop chan struct{}) {
+func (e *Engine) watchAlterProgress(ctx context.Context, db *sql.DB, cid int64, j *core.Job, phase string, start time.Time, stop chan struct{}) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -334,38 +334,38 @@ func (e *Engine) watchAlterProgress(ctx context.Context, db *sql.DB, cid int64, 
 		if est.Valid && est.Float64 > 0 {
 			prog = done.Float64 / est.Float64
 		}
-		j.set(phase, prog, fmtDur(time.Since(start))+" elapsed")
+		j.Set(phase, prog, fmtDur(time.Since(start))+" elapsed")
 	}
 }
 
 // runHold opens a connection on each target, takes something (a lock, an open
 // transaction), and keeps it until released.
-func (e *Engine) runHold(ctx context.Context, j *job, targets []string, take, release, phase string, after ...string) {
+func (e *Engine) runHold(ctx context.Context, j *core.Job, targets []string, take, release, phase string, after ...string) {
 	held := 0
 	for _, m := range targets {
 		db := e.member(m)
 		c, cid, err := connID(ctx, db)
 		if err != nil {
-			j.fail(wrap(m, err))
+			j.Fail(wrap(m, err))
 			continue
 		}
-		j.hold(m, strconv.FormatInt(cid, 10))
-		j.onRelease(func(rctx context.Context) error {
+		j.Hold(m, strconv.FormatInt(cid, 10))
+		j.OnRelease(func(rctx context.Context) error {
 			defer c.Close()
 			_, err := c.ExecContext(rctx, release)
 			return wrap(m, err)
 		})
-		j.set("Waiting for the lock on "+m, -1, "")
+		j.Set("Waiting for the lock on "+m, -1, "")
 		if err := execKillable(ctx, db, c, cid, take); err != nil {
 			if ctx.Err() == nil {
-				j.fail(wrap(m, err))
+				j.Fail(wrap(m, err))
 			}
 			continue
 		}
 		for _, q := range after {
 			rows, err := c.QueryContext(ctx, q)
 			if err != nil {
-				j.fail(wrap(m, err))
+				j.Fail(wrap(m, err))
 				continue
 			}
 			for rows.Next() {
@@ -375,10 +375,10 @@ func (e *Engine) runHold(ctx context.Context, j *job, targets []string, take, re
 		held++
 	}
 	if held == 0 && ctx.Err() == nil {
-		j.finish(fmt.Errorf("nothing could be held: %s", j.Status().Err))
+		j.Finish(fmt.Errorf("nothing could be held: %s", j.Status().Err))
 		return
 	}
-	j.set(phase+" on "+strings.Join(targets, ", "), -1, "")
+	j.Set(phase+" on "+strings.Join(targets, ", "), -1, "")
 	<-ctx.Done()
 }
 
@@ -391,11 +391,11 @@ const applyTimeout = 20 * time.Second
 // release. apply returns its undo even when the change failed or timed out: the
 // server may still finish a statement the client gave up on, so the release
 // has to run regardless.
-func (e *Engine) runEach(ctx context.Context, j *job, targets []string, phase string, apply func(context.Context, *sql.DB, string) (func(context.Context) error, error)) {
+func (e *Engine) runEach(ctx context.Context, j *core.Job, targets []string, phase string, apply func(context.Context, *sql.DB, string) (func(context.Context) error, error)) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var ok []string
-	j.set("Applying on "+strings.Join(targets, ", "), -1, "")
+	j.Set("Applying on "+strings.Join(targets, ", "), -1, "")
 	for _, m := range targets {
 		wg.Add(1)
 		go func(m string) {
@@ -405,13 +405,13 @@ func (e *Engine) runEach(ctx context.Context, j *job, targets []string, phase st
 			timedOut := actx.Err() == context.DeadlineExceeded
 			cancel()
 			if undo != nil {
-				j.onRelease(undo)
+				j.OnRelease(undo)
 			}
 			switch {
 			case timedOut:
-				j.fail(fmt.Errorf("%s: no answer after %s; another stressor may be holding a lock there", m, applyTimeout))
+				j.Fail(fmt.Errorf("%s: no answer after %s; another stressor may be holding a lock there", m, applyTimeout))
 			case err != nil:
-				j.fail(wrap(m, err))
+				j.Fail(wrap(m, err))
 			default:
 				mu.Lock()
 				ok = append(ok, m)
@@ -421,15 +421,15 @@ func (e *Engine) runEach(ctx context.Context, j *job, targets []string, phase st
 	}
 	wg.Wait()
 	if len(ok) == 0 {
-		j.finish(fmt.Errorf("could not apply on any member: %s", j.Status().Err))
+		j.Finish(fmt.Errorf("could not apply on any member: %s", j.Status().Err))
 		return
 	}
 	sort.Strings(ok)
-	j.set(phase+" on "+strings.Join(ok, ", "), -1, "")
+	j.Set(phase+" on "+strings.Join(ok, ", "), -1, "")
 	<-ctx.Done()
 }
 
-func (e *Engine) runSingle(ctx context.Context, j *job, targets []string) {
+func (e *Engine) runSingle(ctx context.Context, j *core.Job, targets []string) {
 	e.mu.Lock()
 	galera := e.topology == "galera"
 	e.mu.Unlock()
@@ -456,7 +456,7 @@ func (e *Engine) runSingle(ctx context.Context, j *job, targets []string) {
 	})
 }
 
-func (e *Engine) runDelay(ctx context.Context, j *job, targets []string, delay int) {
+func (e *Engine) runDelay(ctx context.Context, j *core.Job, targets []string, delay int) {
 	e.runEach(ctx, j, targets, fmt.Sprintf("Delayed by %d s", delay), func(ctx context.Context, db *sql.DB, m string) (func(context.Context) error, error) {
 		old := "0"
 		if row, ok := queryRow(ctx, db, e.w("status")); ok && row["SQL_Delay"] != "" {
@@ -478,26 +478,26 @@ func (e *Engine) runDelay(ctx context.Context, j *job, targets []string, delay i
 
 // runNoPK changes a band of rows each second in a table with no index, so the
 // replica has to search for every one of them.
-func (e *Engine) runNoPK(ctx context.Context, j *job, table string) {
+func (e *Engine) runNoPK(ctx context.Context, j *core.Job, table string) {
 	var maxID sql.NullInt64
-	j.set("Finding the table's range", -1, "")
+	j.Set("Finding the table's range", -1, "")
 	if err := e.wdb().QueryRowContext(ctx, "SELECT MAX(id) FROM perfsim.`"+table+"`").Scan(&maxID); err != nil || !maxID.Valid {
-		j.finish(fmt.Errorf("%s is empty or unreadable", table))
+		j.Finish(fmt.Errorf("%s is empty or unreadable", table))
 		return
 	}
 	n, total := 0, time.Duration(0)
 	for ctx.Err() == nil {
-		rows := int64(j.param().Int("rows", 50))
+		rows := int64(j.Param().Int("rows", 50))
 		lo := randBetween(1, maxID.Int64-rows)
 		start := time.Now()
 		_, err := e.wdb().ExecContext(ctx, "UPDATE perfsim.`"+table+"` SET note = note + 1 WHERE id BETWEEN ? AND ?", lo, lo+rows-1)
 		if err != nil && ctx.Err() == nil {
-			j.fail(err)
+			j.Fail(err)
 		}
 		took := time.Since(start)
 		n++
 		total += took
-		j.set(fmt.Sprintf("Changing %d rows a second", rows), -1, fmt.Sprintf("%d statements · %.0f ms each on the writer", n, float64(total.Milliseconds())/float64(n)))
+		j.Set(fmt.Sprintf("Changing %d rows a second", rows), -1, fmt.Sprintf("%d statements · %.0f ms each on the writer", n, float64(total.Milliseconds())/float64(n)))
 		sleep(ctx, time.Second-took)
 	}
 }

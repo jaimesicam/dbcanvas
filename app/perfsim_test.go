@@ -15,9 +15,10 @@ func perfSimDoc(edges ...designEdge) designDoc {
 			{ID: "g2", Type: "pxc", Label: "pxc-02", FrameID: "fpxc"},
 			{ID: "arb", Type: "pxc", Label: "garbd-01", FrameID: "fpxc", Role: "arbitrator"},
 			{ID: "pg1", Type: "pg", Label: "pg-01"},
+			{ID: "sp1", Type: "spock", Label: "spock-01", FrameID: "fspock"},
 			{ID: "hap", Type: "haproxy", Label: "haproxy-01"},
 		},
-		Frames: []designFrame{{ID: "fpxc", Type: "pxc", Label: "pxc-cluster"}},
+		Frames: []designFrame{{ID: "fpxc", Type: "pxc", Label: "pxc-cluster"}, {ID: "fspock", Type: "spock", Label: "spock-cluster"}},
 		Edges:  edges,
 	}
 }
@@ -47,7 +48,8 @@ func TestPerfSimMembers(t *testing.T) {
 		"cluster":    {perfSimDoc(line("fpxc", "sim")), "pxc:pxc-01,pxc-02,pxc-03"},
 		"standalone": {perfSimDoc(line("ps1", "sim")), "ps:ps-01"},
 		"router":     {perfSimDoc(line("fpxc", "hap"), line("hap", "sim")), "haproxy:pxc-01,pxc-02,pxc-03"},
-		"postgres":   {perfSimDoc(line("pg1", "sim")), "not linked"},
+		"postgres":   {perfSimDoc(line("pg1", "sim")), "pg:pg-01"},
+		"spock":      {perfSimDoc(line("fspock", "sim")), "not linked"},
 	} {
 		if got := ids(c.doc); got != c.want {
 			t.Errorf("%s: %s, want %s", name, got, c.want)
@@ -62,7 +64,8 @@ func TestPerfSimIssues(t *testing.T) {
 		want string // a substring of the one error, or "" for none
 	}{
 		"unlinked":        {perfSimDoc(), "needs an association line"},
-		"postgres":        {perfSimDoc(line("pg1", "sim")), "cannot drive yet"},
+		"postgres":        {perfSimDoc(line("pg1", "sim")), ""},
+		"spock":           {perfSimDoc(line("fspock", "sim")), "cannot drive yet"},
 		"router no back":  {perfSimDoc(line("hap", "sim")), "does not front"},
 		"cluster":         {perfSimDoc(line("fpxc", "sim")), ""},
 		"router to a pxc": {perfSimDoc(line("fpxc", "hap"), line("hap", "sim")), ""},

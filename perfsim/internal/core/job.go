@@ -1,33 +1,32 @@
-package mysqlx
+package core
 
 import (
 	"context"
 	"errors"
 	"sync"
-
-	"perfsim/internal/core"
 )
 
-// job is the Running every dial returns. The dial's work runs in one goroutine
+// Job is the Running a dial returns. The dial's work runs in one goroutine
 // under ctx; Stop cancels it, waits for it to return, and then runs the release
 // steps (UNLOCK TABLES, START REPLICA, restoring a setting) in the order they
 // were registered, newest first. Release always runs, also when the work failed
 // half-way, so nothing is left held.
-type job struct {
+type Job struct {
 	mu       sync.Mutex
-	st       core.RunStatus
+	st       RunStatus
 	holders  map[string][]string
 	releases []func(context.Context) error
 	cancel   context.CancelFunc
 	done     chan struct{}
 	once     sync.Once
 	stopErr  error
-	params   core.Params
+	params   Params
 }
 
-func newJob(parent context.Context, p core.Params, work func(ctx context.Context, j *job)) *job {
+// NewJob starts work in its own goroutine.
+func NewJob(parent context.Context, p Params, work func(ctx context.Context, j *Job)) *Job {
 	ctx, cancel := context.WithCancel(parent)
-	j := &job{st: core.RunStatus{Progress: -1}, holders: map[string][]string{}, cancel: cancel, done: make(chan struct{}), params: p}
+	j := &Job{st: RunStatus{Progress: -1}, holders: map[string][]string{}, cancel: cancel, done: make(chan struct{}), params: p}
 	go func() {
 		defer close(j.done)
 		work(ctx, j)
@@ -35,13 +34,13 @@ func newJob(parent context.Context, p core.Params, work func(ctx context.Context
 	return j
 }
 
-func (j *job) set(phase string, progress float64, note string) {
+func (j *Job) Set(phase string, progress float64, note string) {
 	j.mu.Lock()
 	j.st.Phase, j.st.Progress, j.st.Note = phase, progress, note
 	j.mu.Unlock()
 }
 
-func (j *job) note(note string) {
+func (j *Job) Note(note string) {
 	j.mu.Lock()
 	j.st.Note = note
 	j.mu.Unlock()
@@ -49,7 +48,7 @@ func (j *job) note(note string) {
 
 // finish marks the dial as having ended on its own; the hub then stops it,
 // which runs the release steps.
-func (j *job) finish(err error) {
+func (j *Job) Finish(err error) {
 	j.mu.Lock()
 	j.st.Done = true
 	if err != nil && !errors.Is(err, context.Canceled) {
@@ -59,7 +58,7 @@ func (j *job) finish(err error) {
 }
 
 // fail records an error without ending a dial that has other members to hold.
-func (j *job) fail(err error) {
+func (j *Job) Fail(err error) {
 	j.mu.Lock()
 	if j.st.Err == "" {
 		j.st.Err = err.Error()
@@ -67,38 +66,38 @@ func (j *job) fail(err error) {
 	j.mu.Unlock()
 }
 
-func (j *job) hold(member, connID string) {
+func (j *Job) Hold(member, connID string) {
 	j.mu.Lock()
 	j.holders[member] = append(j.holders[member], connID)
 	j.mu.Unlock()
 }
 
-func (j *job) onRelease(f func(context.Context) error) {
+func (j *Job) OnRelease(f func(context.Context) error) {
 	j.mu.Lock()
 	j.releases = append(j.releases, f)
 	j.mu.Unlock()
 }
 
-func (j *job) param() core.Params {
+func (j *Job) Param() Params {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	return j.params
 }
 
 // Update changes a running dial's settings; loops read them on each turn.
-func (j *job) Update(p core.Params) {
+func (j *Job) Update(p Params) {
 	j.mu.Lock()
 	j.params = p
 	j.mu.Unlock()
 }
 
-func (j *job) Status() core.RunStatus {
+func (j *Job) Status() RunStatus {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	return j.st
 }
 
-func (j *job) Holders() map[string][]string {
+func (j *Job) Holders() map[string][]string {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	out := map[string][]string{}
@@ -108,7 +107,7 @@ func (j *job) Holders() map[string][]string {
 	return out
 }
 
-func (j *job) Stop(ctx context.Context) error {
+func (j *Job) Stop(ctx context.Context) error {
 	j.once.Do(func() {
 		j.cancel()
 		select {
