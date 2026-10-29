@@ -261,13 +261,19 @@ func (d *Docker) throttleDeviceFor(ctx context.Context, override string) (thrott
 // ioMaxLine renders an io.max value. "max" clears a direction, which is how a limit is
 // removed — writing nothing would leave a previous deploy's ceiling in place.
 func ioMaxLine(dev throttleDevice, readBPS, writeBPS int64) string {
+	return ioMaxLineIOPS(dev, readBPS, writeBPS, 0)
+}
+
+// ioMaxLineIOPS is ioMaxLine with a write-IOPS ceiling too (0 clears it). Read IOPS
+// is always cleared: nothing here limits it, and a stale one would be invisible.
+func ioMaxLineIOPS(dev throttleDevice, readBPS, writeBPS, writeIOPS int64) string {
 	rate := func(v int64) string {
 		if v <= 0 {
 			return "max"
 		}
 		return strconv.FormatInt(v, 10)
 	}
-	return fmt.Sprintf("%d:%d rbps=%s wbps=%s", dev.Major, dev.Minor, rate(readBPS), rate(writeBPS))
+	return fmt.Sprintf("%d:%d rbps=%s wbps=%s riops=max wiops=%s", dev.Major, dev.Minor, rate(readBPS), rate(writeBPS), rate(writeIOPS))
 }
 
 // cgroupIOMaxScript writes (and reads back) io.max for each container id it is given.
@@ -304,6 +310,11 @@ done
 //
 // image must already be present locally. Zero for both rates clears any existing limit.
 func (d *Docker) ApplyDiskLimits(ctx context.Context, image string, ids []string, devPath string, readBPS, writeBPS int64) (string, error) {
+	return d.ApplyDiskLimitsIOPS(ctx, image, ids, devPath, readBPS, writeBPS, 0)
+}
+
+// ApplyDiskLimitsIOPS is ApplyDiskLimits with a write-IOPS ceiling (0 clears it).
+func (d *Docker) ApplyDiskLimitsIOPS(ctx context.Context, image string, ids []string, devPath string, readBPS, writeBPS, writeIOPS int64) (string, error) {
 	if len(ids) == 0 {
 		return "", nil
 	}
@@ -331,7 +342,7 @@ func (d *Docker) ApplyDiskLimits(ctx context.Context, image string, ids []string
 	}
 	res, err := d.Exec(ctx, cid, []string{"sh", "-c", cgroupIOMaxScript}, []string{
 		"IDS=" + strings.Join(ids, " "),
-		"LIMIT=" + ioMaxLine(dev, readBPS, writeBPS),
+		"LIMIT=" + ioMaxLineIOPS(dev, readBPS, writeBPS, writeIOPS),
 	})
 	if err != nil {
 		return "", fmt.Errorf("run io.max helper: %w", err)

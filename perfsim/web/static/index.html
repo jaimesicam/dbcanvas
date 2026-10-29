@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Performance Sim</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%236d28d9'/%3E%3Cpath d='M5 17a7 7 0 1 1 14 0M12 17l4-5' stroke='white' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+
+</head>
+<body>
+<div class="wrap">
+  <header class="card top">
+    <div class="logo">
+      <div class="logo-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="var(--on-brand)" stroke-width="2" stroke-linecap="round"><path d="M4 18a8 8 0 1 1 16 0"/><path d="M12 18l4.5-6"/></svg></div>
+      <div><b>Performance Sim</b><div class="meta mono" id="simHost"></div></div>
+    </div>
+    <div class="target">
+      <span class="cap">Linked to</span>
+      <b id="targetName">…</b><span class="chip" id="targetKind"></span>
+      
+    </div>
+    <span class="live cap"><span class="dot"></span><span id="fresh">Live · updated 1s ago</span></span>
+    <div class="actions">
+      <button class="btn" id="baselineBtn" title="Measure the current numbers as the reference for every delta">Set baseline</button>
+      <button class="btn" id="recBtn"><span class="dot" style="background:var(--danger)"></span><span id="recLabel">Record run</span></button>
+      <button class="btn stop" id="stopAll" title="Turn every stressor off and release every lock and pause">Stop all</button>
+    </div>
+  </header>
+
+  <p class="conn" id="conn" hidden></p>
+  <section class="kpis" id="kpis" aria-label="Health"></section>
+
+  <div class="main">
+    <div class="col left">
+      <section class="card" id="topo" aria-label="Topology">
+        <div class="panel-h"><h2>Topology</h2><span class="cap" id="topoSub"></span></div>
+        <div class="panel-b" id="topoSvg"></div>
+        <div id="topoBanner"></div>
+      </section>
+      <section class="card" aria-label="Impact">
+        <div class="panel-h"><h2>Impact vs. baseline</h2><span class="cap" id="baseAge"></span></div>
+        <div class="panel-b impact" id="impact"></div>
+      </section>
+    </div>
+
+    <section class="card" aria-label="Timeline">
+      <div class="panel-h">
+        <div><h2>Timeline</h2><div class="cap">Shaded bands show when each stressor was on. Hover to compare every chart at one moment.</div></div>
+        <div class="tl-tools">
+          <div class="seg" role="group" aria-label="Window"><button data-win="120" aria-pressed="false">2m</button><button data-win="300" aria-pressed="true">5m</button><button data-win="600" aria-pressed="false">10m</button></div>
+          <button class="btn small" id="pauseBtn" aria-pressed="false">Pause</button>
+        </div>
+      </div>
+      <div class="lanes" style="margin-top:10px"><canvas id="lanes" height="10"></canvas></div>
+      <div id="charts"></div>
+      <div class="hint meta" id="chartHint">Live. Times are relative to now.</div>
+    </section>
+
+    <aside class="card" aria-label="Stressors" id="stressPanel">
+      <div class="stress-h">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><h2>Stressors</h2><span class="chip" id="activeCount">0 active</span></div>
+        <div class="cap">Changes apply immediately. Every lock and pause releases itself after its maximum hold.</div>
+      </div>
+      <div id="groups"></div>
+    </aside>
+  </div>
+
+  <section class="card" aria-label="Diagnostics">
+    <div class="tabs" role="tablist">
+      <button role="tab" data-tab="sessions" aria-selected="true">Sessions</button>
+      <button role="tab" data-tab="status" aria-selected="false" id="statusTabBtn">Replica status</button>
+      <button role="tab" data-tab="events" aria-selected="false">Event log</button>
+      <button role="tab" data-tab="runs" aria-selected="false">Recorded runs</button>
+    </div>
+    <div class="tab-b" id="tabBody"></div>
+  </section>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>

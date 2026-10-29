@@ -616,6 +616,8 @@ export const HELP = {
   depInternalURL:
     'The address to use from inside the stack — another node\'s shell, or the browser on the VNC desktop, which ' +
     'resolves these names and trusts the Intranet CA. It will not resolve from your own machine.',
+  perfSimWriter: 'The endpoint the steady workload writes through: the server itself, the cluster\'s writer, or the router in front of it. The stressors connect to each member directly.',
+  perfSimMembers: 'The data members the stressors can act on. A Galera arbitrator holds no data and is left out.',
   depLinkedTo:
     'The node this one was wired to at deploy: where it sends its data, or which cluster it fronts. Change it by ' +
     'editing the link on the canvas and redeploying.',
@@ -930,6 +932,7 @@ const NODE_BLURB = {
   linuxclient: 'A plain Linux box on the stack network — a place to run clients and tools from, and the host for core-dump analysis.',
   stocksim: 'A stock-market simulator that drives realistic OLTP load at a database node.',
   ledgersim: 'An order/payment ledger driven over JDBC with a HikariCP pool — the simulator for client-side questions.',
+  perfsim: 'Stressors that make a MySQL-family cluster misbehave on purpose — replication lag first — with a live timeline of their effect. Everything is chosen on its dashboard.',
   supportsim: 'A help desk run on MongoDB Vector Search, with a hands-on Vector Lab.',
   pgvectorsim: 'The Support Sim\'s help desk on PostgreSQL with pgvector (HNSW, <=>), with a hands-on Vector Lab. Link it to any PostgreSQL node or cluster; turn pgvector on there for real vector indexes.',
   bighole: 'A MongoDB FTDC viewer that runs entirely in the browser — drag a diagnostic.data folder or a support tarball onto the page and it charts it. No backend, nothing uploaded. Open it on localhost: browsers only give a page the on-disk storage it decodes a capture into over HTTPS or localhost.',

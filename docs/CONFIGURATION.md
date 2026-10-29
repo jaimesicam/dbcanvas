@@ -31,7 +31,7 @@ the app, and fixes for common problems.
 
 Rebuild one image: `make intranet-image`, `make vnc-image`, `make k8scollector-image`,
 `make bighole-image`, or one demo application — `make supportsim-image`, `make stocksim-image`,
-`make ledgersim-image`.
+`make ledgersim-image`, `make perfsim-image`.
 
 When Validate reports the Intranet, VNC, K3D collector or Big Hole image missing, an
 administrator gets a **Build** button that builds it from the web interface. The demo

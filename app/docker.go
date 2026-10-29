@@ -133,6 +133,26 @@ func (d *Docker) HostResources(ctx context.Context) (ncpu int, memBytes int64) {
 	return info.NCPU, info.MemTotal
 }
 
+// CgroupVersion is the Docker host's cgroup version ("1" or "2") from /info, or ""
+// when it cannot be determined. Disk limits on a running container need "2".
+func (d *Docker) CgroupVersion(ctx context.Context) string {
+	resp, err := d.do(ctx, "GET", "/info", nil)
+	if err != nil {
+		return ""
+	}
+	defer drain(resp)
+	if resp.StatusCode != 200 {
+		return ""
+	}
+	var info struct {
+		CgroupVersion string `json:"CgroupVersion"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&info) != nil {
+		return ""
+	}
+	return info.CgroupVersion
+}
+
 // ContainerUpdate applies CPU/memory limits to an existing container. k3d has no CPU flag (only
 // --servers-memory/--agents-memory), so a K3D cluster's CPU budget is imposed here, after k3d has
 // created the k3s node containers. Zero values leave that limit untouched.

@@ -176,7 +176,7 @@ var catalogMySQLFamily = []catalogEntry{
 		),
 		Relations: []string{"monitor", "repository", "ldap", "oidc", "vault", "backup"},
 		Edges: []catalogEdge{
-			{To: []string{"stocksim", "ledgersim"}, Type: "directional",
+			{To: []string{"stocksim", "ledgersim", "perfsim"}, Type: "directional",
 				Desc: "Drive a simulator's workload against this server (stored from the server to the simulator; one per server)."},
 		},
 		Actions: mysqlCatActs(mysqlCatDBActions, []catalogAction{
@@ -206,7 +206,7 @@ var catalogMySQLFamily = []catalogEntry{
 		),
 		Relations: []string{"monitor"},
 		Edges: []catalogEdge{
-			{To: []string{"stocksim", "ledgersim"}, Type: "directional",
+			{To: []string{"stocksim", "ledgersim", "perfsim"}, Type: "directional",
 				Desc: "Drive a simulator's workload against this server (stored from the server to the simulator; one per server)."},
 		},
 		Actions: mysqlCatDBActions,
@@ -231,7 +231,7 @@ var catalogMySQLFamily = []catalogEntry{
 		),
 		Relations: []string{"monitor"},
 		Edges: []catalogEdge{
-			{To: []string{"stocksim", "ledgersim"}, Type: "directional",
+			{To: []string{"stocksim", "ledgersim", "perfsim"}, Type: "directional",
 				Desc: "Drive a simulator's workload against this server (stored from the server to the simulator; one per server)."},
 		},
 		Actions: mysqlCatDBActions,
@@ -330,7 +330,7 @@ var catalogMySQLFamily = []catalogEntry{
 				Desc: "The backend cluster frame, stored from the frame to this node. A standalone ProxySQL takes one incoming line. A member uses its frame's line instead."},
 			{To: []string{"proxysql"}, Type: "directional",
 				Desc: "Chain to another standalone ProxySQL node; the backend is found by walking the lines undirected."},
-			{To: []string{"stocksim", "ledgersim"}, Type: "directional",
+			{To: []string{"stocksim", "ledgersim", "perfsim"}, Type: "directional",
 				Desc: "Drive a simulator's workload through this proxy (one per proxy)."},
 		},
 		Actions: []catalogAction{
@@ -354,7 +354,7 @@ var catalogMySQLFamily = []catalogEntry{
 		Edges: []catalogEdge{
 			{To: []string{"pxc", "mysql", "patroni", "repmgr", "spock"}, Type: "directional", Required: true,
 				Desc: "The one backend cluster frame, stored from the frame to this node. PXC: writes to a single writer, reads round-robin (clustercheck on 9200); Patroni: the leader and replicas by the REST API."},
-			{To: []string{"stocksim", "ledgersim", "pgvectorsim"}, Type: "directional",
+			{To: []string{"stocksim", "ledgersim", "pgvectorsim", "perfsim"}, Type: "directional",
 				Desc: "Drive a simulator's workload through this load balancer (one per node); the simulator must match the backend's engine."},
 		},
 	},
@@ -382,7 +382,7 @@ var catalogMySQLFamily = []catalogEntry{
 		),
 		Relations: []string{"monitor", "repository", "ldap", "oidc", "vault", "backup"},
 		Edges: []catalogEdge{mysqlCatProxyEdge,
-			{To: []string{"stocksim", "ledgersim"}, Type: "directional",
+			{To: []string{"stocksim", "ledgersim", "perfsim"}, Type: "directional",
 				Desc: "Drive a simulator's workload against the cluster directly (counts as the frame's one association line)."},
 		},
 		Actions: mysqlCatActs([]catalogAction{
@@ -411,7 +411,7 @@ var catalogMySQLFamily = []catalogEntry{
 		),
 		Relations: []string{"monitor", "orchestrator", "repository", "ldap", "oidc", "vault", "backup"},
 		Edges: []catalogEdge{mysqlCatProxyEdge,
-			{To: []string{"stocksim", "ledgersim"}, Type: "directional",
+			{To: []string{"stocksim", "ledgersim", "perfsim"}, Type: "directional",
 				Desc: "Drive a simulator's workload against the cluster's primary directly (counts as the frame's one association line)."},
 		},
 		Actions: mysqlCatActs([]catalogAction{
@@ -435,7 +435,7 @@ var catalogMySQLFamily = []catalogEntry{
 		),
 		Relations: []string{"monitor", "repository"},
 		Edges: []catalogEdge{
-			{To: []string{"stocksim", "ledgersim"}, Type: "directional",
+			{To: []string{"stocksim", "ledgersim", "perfsim"}, Type: "directional",
 				Desc: "Drive a simulator's workload against the cluster (stored from the frame to the simulator)."},
 		},
 	},
@@ -456,7 +456,7 @@ var catalogMySQLFamily = []catalogEntry{
 		),
 		Relations: []string{"monitor", "orchestrator"},
 		Edges: []catalogEdge{
-			{To: []string{"stocksim", "ledgersim"}, Type: "directional",
+			{To: []string{"stocksim", "ledgersim", "perfsim"}, Type: "directional",
 				Desc: "Drive a simulator's workload against the cluster's primary (stored from the frame to the simulator)."},
 		},
 		Actions: []catalogAction{
@@ -479,7 +479,7 @@ var catalogMySQLFamily = []catalogEntry{
 		),
 		Relations: []string{"monitor"},
 		Edges: []catalogEdge{
-			{To: []string{"stocksim", "ledgersim"}, Type: "directional",
+			{To: []string{"stocksim", "ledgersim", "perfsim"}, Type: "directional",
 				Desc: "Drive a simulator's workload against the cluster (stored from the frame to the simulator)."},
 		},
 	},
@@ -500,7 +500,7 @@ var catalogMySQLFamily = []catalogEntry{
 		),
 		Relations: []string{"monitor", "orchestrator"},
 		Edges: []catalogEdge{
-			{To: []string{"stocksim", "ledgersim"}, Type: "directional",
+			{To: []string{"stocksim", "ledgersim", "perfsim"}, Type: "directional",
 				Desc: "Drive a simulator's workload against the cluster's primary (stored from the frame to the simulator)."},
 		},
 		Actions: []catalogAction{
@@ -524,7 +524,7 @@ var catalogMySQLFamily = []catalogEntry{
 		),
 		Relations: []string{"monitor"},
 		Edges: []catalogEdge{
-			{To: []string{"stocksim", "ledgersim"}, Type: "directional",
+			{To: []string{"stocksim", "ledgersim", "perfsim"}, Type: "directional",
 				Desc: "Drive a simulator's workload against the cluster (stored from the frame to the simulator)."},
 		},
 	},

@@ -4,7 +4,7 @@
 //
 // The panels build these one by one (VNCManager, PMMManager, SimDashboardLink, …), so
 // a node type that gains a web UI there needs a line here too.
-const SIMS = ['mclusteradmin', 'supportsim', 'pgvectorsim', 'ledgersim', 'stocksim']
+const SIMS = ['mclusteradmin', 'supportsim', 'pgvectorsim', 'ledgersim', 'stocksim', 'perfsim']
 
 export function nodeWebLinks(type, dep) {
   const cfg = dep?.config || {}

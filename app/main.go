@@ -94,6 +94,8 @@ func main() {
 	app.startReaper()
 	// Samples every deployed stack for its history and alerts (livewatch.go).
 	app.startLiveWatch()
+	// Network and disk conditions asked for by Performance Sim nodes (perfsimcond.go).
+	app.startPerfSimConditions()
 	// Turns deep performance_schema instrumentation off when its time is up (activitydeep.go).
 	app.startDeepReverter()
 	// Flushes buffered token last-used stamps and reaps long-dead tokens.

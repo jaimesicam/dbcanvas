@@ -152,6 +152,24 @@ var catalogApps = []catalogEntry{
 		},
 	},
 
+	{Type: "perfsim", Label: "Performance Sim",
+		Summary: "Stressors that make a linked MySQL-family server or cluster misbehave on purpose — replication lag from large transactions, a no-op ALTER TABLE, FLUSH TABLES WITH READ LOCK on replicas, a stopped or delayed applier, a single-threaded applier, an open transaction blocking DDL — and network latency, packet loss and disk caps on chosen members, which DBCanvas applies for it, with a live timeline of their effect on the cluster and on a steady application workload. " +
+			"Every stressor, its settings and its targets are chosen on the dashboard while it runs; the node has no options of its own. Each lock, pause and setting releases itself after a maximum hold, and all of them are released when the sim stops." + catalogSimDashboard,
+		Placement: "standalone",
+		Requires: []string{
+			"an Intranet node",
+			"an association line to a Percona Server, MySQL or MariaDB server or cluster frame, or to an HAProxy or ProxySQL node fronting a PXC or MySQL replication cluster",
+		},
+		Edges: []catalogEdge{
+			{To: []string{
+				"ps", "mariadb", "mysqlce",
+				"pxc", "mysql", "innodb", "mariadbrepl", "mariadbgalera", "mysqlcerepl", "mysqlceinnodb",
+				"haproxy", "proxysql",
+			}, Type: "directional",
+				Desc: "The server or cluster it stresses (required). It connects to every data member of the cluster as admin@'%', and runs its workload through the cluster's write endpoint as the application user."},
+		},
+	},
+
 	{Type: "ledgersim", Label: "Ledger Sim",
 		Summary:   "An order-and-payment ledger driven over JDBC with a HikariCP pool, on MySQL-family or PostgreSQL databases. The driver, URL properties and pool can be changed on its dashboard while it runs; these options set where it starts." + catalogSimDashboard,
 		Placement: "standalone",

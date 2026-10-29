@@ -223,6 +223,7 @@ dashboard on a host port. Draw an association line from the simulator to its tar
 | **pgvector Support Sim** | The same desk on PostgreSQL, using a pgvector column and an HNSW index. Creates a `supportsim` database (or schema). | PostgreSQL, Patroni, repmgr or Spock; HAProxy or PgBouncer in front of one; or a K3D frame running a PostgreSQL operator. Turn on pgvector on the target. |
 | **Stock Market Sim** | A stock-exchange app you operate. See below. | Any database (see below) |
 | **Ledger Sim** | A JDBC order-and-payment ledger. See below. | MySQL-family or PostgreSQL |
+| **Performance Sim** | Stressors that cause replication lag, with a live timeline of their effect. See below. | MySQL-family |
 
 The templates **PSMDB Vector Search + Support Sim** and **PostgreSQL + pgvector + Support Sim**
 deploy a complete vector-search demo.
@@ -261,6 +262,51 @@ compare drivers and pool settings rather than servers.
   deadlock share. Deadlocks, lock timeouts, retries and errors are counted separately, and a
   **balance check** shows zero on a consistent ledger.
 - Not for MongoDB or Valkey. Build it with `make ledgersim-image` (it downloads from Maven Central).
+
+**Performance Sim** makes a linked MySQL-family server or cluster misbehave on purpose and shows
+what each stressor does, to the cluster and to an application running against it. The node has
+no options of its own: link it, deploy it, and choose everything on its dashboard.
+
+- **Link:** an association line to a Percona Server, MySQL or MariaDB server or cluster frame
+  (asynchronous replication, Group Replication, PXC, MariaDB Galera), or to an HAProxy or ProxySQL
+  node in front of a PXC or MySQL replication cluster. The sim connects to every data member as
+  `admin@'%'`, and runs its workload through the write endpoint as the application user.
+- **Replication lag stressors:**
+
+  | Stressor | What it does | Where |
+  | --- | --- | --- |
+  | Large transactions | One large UPDATE on a prepared table at a fixed interval | All topologies |
+  | No-op ALTER TABLE | Rebuilds a prepared table; on Galera, TOI (whole cluster) or RSU (one node) | All topologies |
+  | FLUSH TABLES WITH READ LOCK | Holds the global read lock on chosen replicas. On Galera, one node, which desyncs and falls behind while the cluster keeps committing | All topologies |
+  | Stop the applier | Stops the SQL thread; the receiver keeps going | Async replication |
+  | Writes to a table without a primary key | Changes rows the replica has to search for | Async replication |
+  | Single-threaded applier | One applier worker (one `wsrep` applier thread on Galera) | Async, Galera |
+  | Delayed replica | A fixed `SOURCE_DELAY` (`MASTER_DELAY` on MariaDB) | Async replication |
+  | Open transaction blocking DDL | Holds a table's metadata lock on chosen replicas, so a replicated ALTER waits | Async, Group Replication |
+
+  A stressor the topology cannot support is listed with the reason.
+- **Network and disk stressors** on chosen members: added latency (with jitter), packet loss (100%
+  cuts the member off), a bandwidth cap, and write bandwidth, write IOPS or read bandwidth caps.
+  DBCanvas applies them with the same `tc netem` and `io.max` code as a node's own limits, and
+  polls the sim every two seconds for what it wants. They are applied only to the members it
+  resolved for that sim, each releases at its maximum hold, and all of them are cleared if the sim
+  stops answering for 20 seconds or is removed; clearing restores the node's own canvas settings.
+  Disk limits need a Docker host on cgroup v2; the dashboard says when one cannot be set. A slow
+  disk on one Galera node is the reliable way to make the cluster send flow control.
+- **Datasets:** the large tables these need are prepared on the dashboard (500 MB to 50 GB, with or
+  without a primary key) in 20,000-row batches, in the `perfsim` schema.
+- **What it shows:** lag per member, measured with a heartbeat row the sim writes every 250 ms (so a
+  stopped applier, a delayed replica and a Galera node are measured the same way); on Galera, each
+  node's receive queue and flow control. A steady workload's throughput and p50/p99 latency, the
+  writer's lock waits, threads and connections, a topology view, an impact card per stressor
+  against a baseline with its recovery time, live sessions with blockers and waiters, and each
+  member's replication status.
+- **Safety:** every lock, pause and setting has a maximum hold and releases itself; **Stop all**
+  releases everything; stopping the sim releases everything. Changes to a replica's settings are
+  recorded in the `perfsim` schema first, so a sim that was killed undoes them when it starts again.
+- **Record run** keeps a stretch of the timeline with its stressors, settings and events, exported
+  as JSON. Settings and runs are kept in the `perfsim` schema and survive a redeploy.
+- Build it with `make perfsim-image`.
 
 ### Resource limits and network conditions
 Database nodes and cluster members can be limited on **CPU** and **memory**, **disk** read and

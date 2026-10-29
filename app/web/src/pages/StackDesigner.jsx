@@ -714,6 +714,19 @@ export const NODE_TYPES = {
       lsCustomers: 0, lsStartPaused: false,
     },
   },
+  // Performance Sim: stressors for a MySQL-family server or cluster, every one of
+  // them chosen on its dashboard, so the node has nothing to set but its line.
+  perfsim: {
+    label: 'Performance Sim',
+    slug: 'perfsim',
+    sub: 'Stressors and their live impact on a MySQL-family cluster',
+    color: '#e11d48',
+    icon: 'Sliders',
+    singleton: false,
+    ports: true,
+    osOptions: [{ id: 'perfsim', label: 'dbcanvas-perfsim' }],
+    defaults: {},
+  },
 }
 
 // SIM_NODE_TYPES are the application simulators: the nodes that exist to put load on
@@ -722,7 +735,7 @@ export const NODE_TYPES = {
 // database they drive — which is why the line gets a caption of its own ("app
 // connection"), and why the two panels that merely *display* data (Big Hole,
 // MClusterAdmin) are not in here: they carry no connector at all.
-export const SIM_NODE_TYPES = new Set(['stocksim', 'ledgersim', 'supportsim', 'pgvectorsim'])
+export const SIM_NODE_TYPES = new Set(['stocksim', 'ledgersim', 'supportsim', 'pgvectorsim', 'perfsim'])
 
 // isReplEdge distinguishes the two kinds of line the canvas draws with one edge list: a
 // cross-cluster replication link ('async' / 'bidir'), and everything else — an
@@ -3170,6 +3183,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       if (n.type === 'mysqlce' && !n.frameId) return 'mysqlce'
       if (n.type === 'stocksim') return 'stocksim'
       if (n.type === 'ledgersim') return 'ledgersim'
+      if (n.type === 'perfsim') return 'perfsim'
       return null
     }
     const f = refs.current.frames.find((x) => x.id === id)
@@ -3285,6 +3299,10 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
     // node drives exactly one database, for the same reason.
     if (LS_LINKABLE_KINDS.has(k1) && k2 === 'ledgersim') return createFlow(e1, e2, { singleOutgoing: true })
     if (LS_LINKABLE_KINDS.has(k2) && k1 === 'ledgersim') return createFlow(e2, e1, { singleOutgoing: true })
+    // Performance Sim stresses one MySQL-family server or cluster, directly or
+    // through the router in front of it; PS_LINKABLE_KINDS mirrors perfSimTargets.
+    if (PS_LINKABLE_KINDS.has(k1) && k2 === 'perfsim') return createFlow(e1, e2, { singleOutgoing: true })
+    if (PS_LINKABLE_KINDS.has(k2) && k1 === 'perfsim') return createFlow(e2, e1, { singleOutgoing: true })
     // ProxySQL node ↔ ProxySQL node: a chained proxy. This used to open a modal
     // asking which way SQL traffic flows, but the answer was never read — the
     // backend BFSs the association graph undirected precisely so a ProxySQL behind
@@ -4454,6 +4472,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       { label: 'pgvector Support Sim', type: 'pgvectorsim', onClick: () => addNode('pgvectorsim') },
       { label: 'Stock Market Sim', type: 'stocksim', onClick: () => addNode('stocksim') },
       { label: 'Ledger Sim', type: 'ledgersim', onClick: () => addNode('ledgersim') },
+      { label: 'Performance Sim', type: 'perfsim', onClick: () => addNode('perfsim') },
     ] },
   ], showExperimental(system), showEOL(system))
 
@@ -10026,6 +10045,96 @@ function LedgerSimForm ({ node: n, nodes, frames, edges, stackId, patchNode, del
   )
 }
 
+// PS_LINKABLE_KINDS are the endpoint kinds a Performance Sim links to, as
+// endpointKind reports them ('backend' is a PXC or MySQL replication frame);
+// mirrors perfSimTargets in app/perfsim.go.
+const PS_LINKABLE_KINDS = new Set([
+  'ps', 'mariadb', 'mysqlce',
+  'backend', 'innodb', 'mariadbrepl', 'mariadbgalera', 'mysqlcerepl', 'mysqlceinnodb',
+  'haproxy', 'proxysql',
+])
+const PS_TARGET_LABEL = {
+  ps: 'Percona Server', mariadb: 'MariaDB', mysqlce: 'MySQL',
+  pxc: 'PXC cluster', mysql: 'MySQL replication', innodb: 'InnoDB Cluster', mariadbrepl: 'MariaDB replication',
+  mariadbgalera: 'MariaDB Galera', mysqlcerepl: 'MySQL replication (CE)', mysqlceinnodb: 'MySQL InnoDB Cluster (CE)',
+  haproxy: 'HAProxy', proxysql: 'ProxySQL',
+}
+
+// perfSimLinked is the node's target as perfSimLink resolves it, or null.
+function perfSimLinked (n, nodes, frames, edges) {
+  for (const e of edges) {
+    const other = e.from.node === n.id ? e.to.node : (e.to.node === n.id ? e.from.node : null)
+    if (!other) continue
+    const node = nodes.find((x) => x.id === other && !x.frameId)
+    if (node && PS_TARGET_LABEL[node.type]) return { type: node.type, label: node.label }
+    const f = frames.find((x) => x.id === other)
+    if (f && PS_TARGET_LABEL[f.type]) return { type: f.type, label: f.label }
+  }
+  return null
+}
+
+// PerfSimForm is a Performance Sim node before it runs: nothing to set but the
+// line, because every stressor is chosen on the dashboard.
+function PerfSimForm ({ node: n, nodes, frames, edges, patchNode, deleteNode, dep }) {
+  const linked = perfSimLinked(n, nodes, frames, edges)
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Performance Sim</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+      <p className="text-xs text-muted">
+        Stressors that make the linked server or cluster misbehave on purpose, starting with replication lag:
+        large transactions, a no-op ALTER TABLE, FLUSH TABLES WITH READ LOCK on replicas, a stopped or delayed
+        applier, and network latency, packet loss and disk caps on chosen members. Its dashboard shows each one's effect on the cluster and on a steady application workload, as it happens.
+      </p>
+      {linked ? (
+        <div className="rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-xs text-primary">
+          Linked to {PS_TARGET_LABEL[linked.type]} <span className="font-mono font-medium">{linked.label}</span>
+        </div>
+      ) : (
+        <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
+          Not linked. Draw an association line from a Percona Server, MySQL or MariaDB server or cluster, or from an HAProxy or ProxySQL in front of one, to this node.
+        </div>
+      )}
+      <p className="text-xs text-muted">
+        Every stressor, its settings and the members it acts on are chosen on the dashboard once the node is running.
+        Each lock, pause and setting releases itself after a maximum hold, and all of them are released when the sim stops.
+      </p>
+      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
+        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+      </Field>
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// PerfSimManager is a running Performance Sim: its dashboard and what it found.
+function PerfSimManager ({ dep, onDeleteNode }) {
+  const cfg = dep?.config || {}
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Performance Sim</span>
+        <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
+      </div>
+      <SimDashboardLink port={cfg.httpPort} />
+      <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
+        <InfoRow label="Internal URL" help={HELP.depInternalURL}><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8096</span></InfoRow>
+        <InfoRow label="Linked to" help={HELP.depLinkedTo}><span className="font-mono text-xs">{cfg.targetName} ({SS_TARGET_KIND_LABEL[cfg.targetKind] || cfg.targetKind})</span></InfoRow>
+        <InfoRow label="Writes through" help={HELP.perfSimWriter}><span className="font-mono text-xs">{cfg.writer}</span></InfoRow>
+        <InfoRow label="Members" help={HELP.perfSimMembers}><span className="font-mono text-xs">{(cfg.members || []).join(', ')}</span></InfoRow>
+      </div>
+      <p className="text-xs text-muted">Choose stressors on the dashboard. Stopping or deleting the node releases every lock, pause and setting it holds.</p>
+      <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
 function LedgerSimManager ({ dep, onDeleteNode }) {
   const cfg = dep?.config || {}
   return (
@@ -14893,6 +15002,10 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <StockSimManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <StockSimForm node={n} nodes={nodes} frames={frames} edges={edges} stackId={stackId} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+    }
+    if (n.type === 'perfsim') {
+      if (dep && dep.state === 'running') return <PerfSimManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      return <PerfSimForm node={n} nodes={nodes} frames={frames} edges={edges} patchNode={patchNode} deleteNode={deleteNode} dep={dep} />
     }
     if (n.type === 'ledgersim') {
       if (dep && dep.state === 'running') {

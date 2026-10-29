@@ -1983,7 +1983,7 @@ check('Health button: a check when nothing is open, else the count', () => {
 })
 
 check('the application simulators are named as such', () => {
-  for (const t of ['stocksim', 'ledgersim', 'supportsim', 'pgvectorsim']) {
+  for (const t of ['stocksim', 'ledgersim', 'supportsim', 'pgvectorsim', 'perfsim']) {
     if (!SIM_NODE_TYPES.has(t)) throw new Error(`${t} is a simulator and must carry the app-connection caption`)
     if (!NODE_TYPES[t]?.ports) throw new Error(`${t} needs connection ports for its line to exist`)
   }

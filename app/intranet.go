@@ -1627,6 +1627,8 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 				out = append(out, stockSimLoadIssues(n, engine)...)
 				out = append(out, stockSimLabIssues(n, engine)...)
 			}
+		case "perfsim":
+			out = append(out, perfSimIssues(doc, n)...)
 		case "ledgersim":
 			// Two shapes rather than stocksim's three — an All in One instance is
 			// reached the same way any other host is, so it needs no third mode.
@@ -2480,6 +2482,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionStockSim(st, n, doc)
 		case "ledgersim":
 			a.provisionLedgerSim(st, n, doc)
+		case "perfsim":
+			a.provisionPerfSim(st, n, doc)
 		case "aio":
 			a.provisionAIO(st, n, doc)
 		}
@@ -3397,6 +3401,8 @@ func (a *App) handleDestroyStack(w http.ResponseWriter, r *http.Request) {
 // removing a resource that lives on the other engine is a harmless no-op (a wrong-id
 // ContainerRemove just 404s / hits a missing VM dir).
 func (a *App) removeNodeResources(ctx context.Context, st Stack, d Deployment) {
+	// A Performance Sim's network and disk conditions are on other nodes; undo them first.
+	a.clearPerfSimConditions(ctx, st, d)
 	for _, e := range a.stackEngines(st) {
 		if d.ContainerID != "" {
 			e.ContainerRemove(ctx, d.ContainerID)
