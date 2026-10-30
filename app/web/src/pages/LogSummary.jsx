@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '../components/Icons.jsx'
-import { Card, Button, Badge, Field, inputCls } from '../components/ui.jsx'
+import { Card, Button, Badge, Field, inputCls, FirstUse } from '../components/ui.jsx'
 import { FilePick } from './PacketInspector.jsx'
 import {
   logApi, SEVS, SEV_LABEL, SEV_TEXT, SEV_ROW, SEV_CARD, SEV_MARK, SEV_FILL,
@@ -287,6 +287,14 @@ export default function LogSummary() {
           </div>
         )}
       </Card>
+
+      {!bundle && (
+        <FirstUse title="Several nodes' logs on one timeline" steps={[
+          { title: 'Pick the nodes', text: "One node's log says what that node could see; every member of a cluster says what the cluster was doing." },
+          { title: 'Read them, or upload', text: 'DBCanvas tails each node\'s log (Lines per node, above) — or upload logs you already have from somewhere else.' },
+          { title: 'Read the timeline', text: 'Every node on one timeline in good, warning and bad, with a verdict and findings that jump to the moment they describe.' },
+        ]} />
+      )}
 
       {bundle && s && (
         <>

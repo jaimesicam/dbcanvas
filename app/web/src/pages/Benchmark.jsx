@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Icon } from '../components/Icons.jsx'
-import { Card, Button, Badge, Field, inputCls, EngineDot } from '../components/ui.jsx'
+import { Card, Button, Badge, Field, inputCls, EngineDot, EmptyState } from '../components/ui.jsx'
 import { benchmarkApi, benchTargetKey } from '../lib/benchmarkApi.js'
 import { usePolling } from '../lib/usePolling.jsx'
 import { datagenApi } from '../lib/datagenApi.js'
@@ -231,7 +231,7 @@ export default function Benchmark() {
 
       <Card title="History" subtitle="Recent runs (this session)">
         {history.length === 0 ? (
-          <div className="py-6 text-center text-sm text-muted">No runs yet.</div>
+          <EmptyState icon={<Icon.Timeline size={18} />} title="No runs yet" text="Each benchmark you run is kept here for this session with its throughput and latency percentiles, so a run after a configuration change can be read against the one before." />
         ) : (
           <div className="space-y-2">{history.map((h) => <HistoryRow key={h.id} run={h} />)}</div>
         )}

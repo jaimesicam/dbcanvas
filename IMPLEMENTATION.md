@@ -28069,3 +28069,46 @@ Nothing is drawn for a node with no address.
   three members; no page errors.
 - The stack has no K3D frame, so the K3D exclusion is covered by the type check, not by a live
   run.
+
+## 482. First-use guidance, empty states, and Settings in sections — `app/web/src/components/ui.jsx`, `app/web/src/pages/{DataGenerator,LogSummary,QueryRunner,Benchmark,Settings}.jsx`
+
+Pages that opened on a form and a large empty area, or on an empty box saying "No runs yet", now
+say what they do. Settings is laid out in sections, with appearance first.
+
+**Shared components** (`ui.jsx`):
+- **`FirstUse({ title, steps, footer })`** is what a page says before it has anything to show:
+  what it does, as three numbered steps in a card. The caller renders it only while there is no
+  result yet, so it disappears by itself and never stands between a returning user and their
+  work.
+- **`EmptyState({ icon, title, text })`** is an empty list that says what will be in it and how it
+  gets there.
+
+**Where they're used:**
+- **Data Generator.** `FirstUse` under the connection card until a node is picked, and only when
+  there are running nodes to pick (otherwise the existing "deploy one first" text stands): pick a
+  running node, choose a table, shape the columns and generate.
+- **Log Summary.** `FirstUse` until a bundle is open: pick the nodes, read them or upload, read the
+  timeline (verdict and findings that jump to their moment).
+- **Query Runner and Benchmark.** Their History cards use `EmptyState`. Each says that runs are
+  kept for the session, and what a run records: each query's outcome against its server, or
+  throughput and latency percentiles.
+
+**Settings.**
+- **Appearance** comes first, full width, with Theme and Look side by side.
+- Then two columns: **Your workspace** (terminal, terminal stacking, deployment, adding nodes,
+  tooltips, tab limit, Scratchboard, password) and **This installation** (upload limit, token
+  lifetime, internal writes, open registration, guest sessions, Live watch). Several of the
+  installation rows are admin-only, as before.
+- `SectionLabel` heads each group, and the page widens from `max-w-2xl` to `max-w-6xl`. On a
+  narrow screen the columns stack.
+- Blocks were moved, not rewritten; no setting changes behaviour.
+
+**Verification performed.**
+- `npm run build`, SSR `smoke` passes; image rebuilt and redeployed.
+- Headless Chromium, each page maximized:
+  - Data Generator: the guide under three running PXC nodes
+  - Log Summary: the guide under the node picker
+  - Query Runner and Benchmark: the new empty History
+  - Settings: Appearance first, then the two columns; switching theme through the page still
+    applies (Glass Light, then back to Glass Dark)
+  - no horizontal scroll at 420 px; no page errors

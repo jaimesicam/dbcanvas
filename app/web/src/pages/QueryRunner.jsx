@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Icon } from '../components/Icons.jsx'
-import { Card, Button, Badge, Field, inputCls } from '../components/ui.jsx'
+import { Card, Button, Badge, Field, inputCls, EmptyState } from '../components/ui.jsx'
 import { queryrunApi, targetKey } from '../lib/queryrunApi.js'
 import { usePolling } from '../lib/usePolling.jsx'
 import { TOOL_HELP } from '../lib/help.js'
@@ -137,7 +137,7 @@ export default function QueryRunner() {
 
       <Card title="History" subtitle="Recent runs (this session)">
         {history.length === 0 ? (
-          <div className="py-6 text-center text-sm text-muted">No runs yet.</div>
+          <EmptyState icon={<Icon.Timeline size={18} />} title="No runs yet" text="Each run you start is kept here for this session, with every query's outcome against its server — run it again after a change to compare." />
         ) : (
           <div className="space-y-2">
             {history.map((h) => <HistoryRow key={h.id} run={h} />)}

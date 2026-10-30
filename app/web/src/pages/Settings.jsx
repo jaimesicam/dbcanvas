@@ -67,6 +67,11 @@ function splitSize(bytes) {
   return { value: Math.max(1, Math.round(bytes / SIZE_UNITS[0].bytes)), unit: 'MiB' }
 }
 
+// SectionLabel heads a group of rows on the Settings page.
+function SectionLabel({ children }) {
+  return <h2 className="px-1 pt-1 text-xs font-semibold uppercase tracking-wide text-muted">{children}</h2>
+}
+
 function Row({ title, hint, children }) {
   return (
     <div className="space-y-2 rounded-xl border bg-surface p-4">
@@ -789,131 +794,146 @@ export default function Settings() {
   }
 
   return (
-    <div className="max-w-2xl space-y-4">
+    <div className="max-w-6xl space-y-4">
       {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
       {!loaded && <div className="text-xs text-muted">Loading your settings…</div>}
 
-      <Row title="Terminal" hint="Where a node console opens when you launch one.">
-        <div className="grid gap-2 sm:grid-cols-2">
-          {TERMINAL_MODES.map((m) => {
-            const on = settings.terminalMode === m.id
-            return (
-              <button key={m.id} onClick={() => set({ terminalMode: m.id })}
-                className={`flex items-start gap-2.5 rounded-lg border p-3 text-left transition ${on ? 'border-primary bg-primary/10' : 'hover:bg-surface2'}`}>
-                <span className={`mt-0.5 ${on ? 'text-primary' : 'text-muted'}`}>
-                  <Icon.Nodes size={16} />
-                </span>
-                <span className="min-w-0">
-                  <span className="flex items-center gap-1.5 text-sm font-medium">
-                    {m.label}
-                    {m.id === 'docked' && <span className="text-[10px] font-normal text-muted">(default)</span>}
-                    {on && <Icon.Check size={14} />}
-                  </span>
-                  <span className="block text-xs text-muted">{m.hint}</span>
-                </span>
-              </button>
-            )
-          })}
+      {/* Appearance first, full width: it is what people come here for most, and the theme
+          and the look are one decision seen from two sides, so they sit side by side. Then
+          two columns — what is yours, and what belongs to the installation (several of which
+          only an admin can change) — instead of one long column of seventeen rows. */}
+      <SectionLabel>Appearance</SectionLabel>
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+          <Row title="Theme" hint="The colour palette. Applied now and whenever you sign in, on any browser.">
+            <div className="grid gap-2 sm:grid-cols-3">
+              {THEMES.map((t) => {
+                const on = settings.theme === t.id
+                return (
+                  <button key={t.id} onClick={() => set({ theme: t.id })}
+                    className={`flex items-center gap-2 rounded-lg border p-2.5 text-left transition ${on ? 'border-primary bg-primary/10' : 'hover:bg-surface2'}`}>
+                    <span className="h-5 w-5 shrink-0 rounded-full border" style={{ background: t.swatch }} />
+                    <span className="flex-1 truncate text-sm font-medium">{t.label}</span>
+                    {on && <Icon.Check size={16} />}
+                  </button>
+                )
+              })}
+            </div>
+          </Row>
+
+          <Row
+            title="Look"
+            hint="The shape of the UI — corners, border weight, elevation and how tightly rows are packed. Independent of the theme above: every look works in every colour."
+          >
+            <LookOptions value={settings.look || 'glass'} onPick={(id) => set({ look: id })} />
+          </Row>
+      </div>
+
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        <div className="space-y-4">
+          <SectionLabel>Your workspace</SectionLabel>
+          <Row title="Terminal" hint="Where a node console opens when you launch one.">
+            <div className="grid gap-2 sm:grid-cols-2">
+              {TERMINAL_MODES.map((m) => {
+                const on = settings.terminalMode === m.id
+                return (
+                  <button key={m.id} onClick={() => set({ terminalMode: m.id })}
+                    className={`flex items-start gap-2.5 rounded-lg border p-3 text-left transition ${on ? 'border-primary bg-primary/10' : 'hover:bg-surface2'}`}>
+                    <span className={`mt-0.5 ${on ? 'text-primary' : 'text-muted'}`}>
+                      <Icon.Nodes size={16} />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="flex items-center gap-1.5 text-sm font-medium">
+                        {m.label}
+                        {m.id === 'docked' && <span className="text-[10px] font-normal text-muted">(default)</span>}
+                        {on && <Icon.Check size={14} />}
+                      </span>
+                      <span className="block text-xs text-muted">{m.hint}</span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </Row>
+
+          <Row title="Terminal stacking" hint="Whether terminals and file managers stay in front when you select another window.">
+            <TerminalOnTopOptions value={settings.terminalsOnTop || 'on'} onPick={(id) => set({ terminalsOnTop: id })} />
+          </Row>
+
+          <Row title="Deployment" hint="How a stack's nodes are provisioned when you deploy. Applies to the next deploy of each stack.">
+            <div className="grid gap-2 sm:grid-cols-2">
+              {DEPLOY_BACKENDS.map((m) => {
+                const on = settings.deploymentBackend === m.id
+                return (
+                  <button key={m.id} onClick={() => set({ deploymentBackend: m.id })}
+                    className={`flex items-start gap-2.5 rounded-lg border p-3 text-left transition ${on ? 'border-primary bg-primary/10' : 'hover:bg-surface2'}`}>
+                    <span className={`mt-0.5 ${on ? 'text-primary' : 'text-muted'}`}>
+                      <Icon.Server size={16} />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="flex items-center gap-1.5 text-sm font-medium">
+                        {m.label}
+                        {m.id === 'docker' && <span className="text-[10px] font-normal text-muted">(default)</span>}
+                        {on && <Icon.Check size={14} />}
+                      </span>
+                      <span className="block text-xs text-muted">{m.hint}</span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </Row>
+
+          <Row title="Adding nodes" hint="How the Stack Designer offers the Infrastructure Library.">
+            <div className="grid gap-2 sm:grid-cols-2">
+              {NODE_LIBRARIES.map((m) => {
+                const on = (settings.nodeLibrary || 'menu') === m.id
+                return (
+                  <button key={m.id} onClick={() => set({ nodeLibrary: m.id })}
+                    className={`flex items-start gap-2.5 rounded-lg border p-3 text-left transition ${on ? 'border-primary bg-primary/10' : 'hover:bg-surface2'}`}>
+                    <span className={`mt-0.5 ${on ? 'text-primary' : 'text-muted'}`}>
+                      <Icon.Grid size={16} />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="flex items-center gap-1.5 text-sm font-medium">
+                        {m.label}
+                        {m.id === 'menu' && <span className="text-[10px] font-normal text-muted">(default)</span>}
+                        {on && <Icon.Check size={14} />}
+                      </span>
+                      <span className="block text-xs text-muted">{m.hint}</span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </Row>
+
+          <TooltipOptions value={settings.tooltips || 'on'} onPick={(id) => set({ tooltips: id })} />
+
+          <TabLimit value={clampTabs(settings.maxTabs)} onSave={(n) => save({ maxTabs: n })} />
+
+          <ScratchboardOptions value={settings.scratchboard || 'off'} onPick={(id) => set({ scratchboard: id })} />
+
+          <Row title="Password" hint="Your password, name and avatar are on your Profile now.">
+            <Button variant="outline" size="sm" onClick={() => { location.hash = 'profile' }}>
+              <Icon.Users size={15} /> Open your profile
+            </Button>
+          </Row>
         </div>
-      </Row>
+        <div className="space-y-4">
+          <SectionLabel>This installation</SectionLabel>
+          <UploadLimit />
 
-      <Row title="Terminal stacking" hint="Whether terminals and file managers stay in front when you select another window.">
-        <TerminalOnTopOptions value={settings.terminalsOnTop || 'on'} onPick={(id) => set({ terminalsOnTop: id })} />
-      </Row>
+          <TokenLifetime />
 
-      <Row title="Deployment" hint="How a stack's nodes are provisioned when you deploy. Applies to the next deploy of each stack.">
-        <div className="grid gap-2 sm:grid-cols-2">
-          {DEPLOY_BACKENDS.map((m) => {
-            const on = settings.deploymentBackend === m.id
-            return (
-              <button key={m.id} onClick={() => set({ deploymentBackend: m.id })}
-                className={`flex items-start gap-2.5 rounded-lg border p-3 text-left transition ${on ? 'border-primary bg-primary/10' : 'hover:bg-surface2'}`}>
-                <span className={`mt-0.5 ${on ? 'text-primary' : 'text-muted'}`}>
-                  <Icon.Server size={16} />
-                </span>
-                <span className="min-w-0">
-                  <span className="flex items-center gap-1.5 text-sm font-medium">
-                    {m.label}
-                    {m.id === 'docker' && <span className="text-[10px] font-normal text-muted">(default)</span>}
-                    {on && <Icon.Check size={14} />}
-                  </span>
-                  <span className="block text-xs text-muted">{m.hint}</span>
-                </span>
-              </button>
-            )
-          })}
+          <InternalWrites />
+
+          <OpenRegistration />
+
+          <GuestSessions />
+
+          <LiveWatch />
         </div>
-      </Row>
-
-      <Row title="Adding nodes" hint="How the Stack Designer offers the Infrastructure Library.">
-        <div className="grid gap-2 sm:grid-cols-2">
-          {NODE_LIBRARIES.map((m) => {
-            const on = (settings.nodeLibrary || 'menu') === m.id
-            return (
-              <button key={m.id} onClick={() => set({ nodeLibrary: m.id })}
-                className={`flex items-start gap-2.5 rounded-lg border p-3 text-left transition ${on ? 'border-primary bg-primary/10' : 'hover:bg-surface2'}`}>
-                <span className={`mt-0.5 ${on ? 'text-primary' : 'text-muted'}`}>
-                  <Icon.Grid size={16} />
-                </span>
-                <span className="min-w-0">
-                  <span className="flex items-center gap-1.5 text-sm font-medium">
-                    {m.label}
-                    {m.id === 'menu' && <span className="text-[10px] font-normal text-muted">(default)</span>}
-                    {on && <Icon.Check size={14} />}
-                  </span>
-                  <span className="block text-xs text-muted">{m.hint}</span>
-                </span>
-              </button>
-            )
-          })}
-        </div>
-      </Row>
-
-      <TooltipOptions value={settings.tooltips || 'on'} onPick={(id) => set({ tooltips: id })} />
-
-      <TabLimit value={clampTabs(settings.maxTabs)} onSave={(n) => save({ maxTabs: n })} />
-
-      <ScratchboardOptions value={settings.scratchboard || 'off'} onPick={(id) => set({ scratchboard: id })} />
-
-      <Row title="Password" hint="Your password, name and avatar are on your Profile now.">
-        <Button variant="outline" size="sm" onClick={() => { location.hash = 'profile' }}>
-          <Icon.Users size={15} /> Open your profile
-        </Button>
-      </Row>
-
-      <UploadLimit />
-
-      <TokenLifetime />
-
-      <InternalWrites />
-
-      <OpenRegistration />
-
-      <GuestSessions />
-      <LiveWatch />
-
-      <Row title="Theme" hint="The colour palette. Applied now and whenever you sign in, on any browser.">
-        <div className="grid gap-2 sm:grid-cols-3">
-          {THEMES.map((t) => {
-            const on = settings.theme === t.id
-            return (
-              <button key={t.id} onClick={() => set({ theme: t.id })}
-                className={`flex items-center gap-2 rounded-lg border p-2.5 text-left transition ${on ? 'border-primary bg-primary/10' : 'hover:bg-surface2'}`}>
-                <span className="h-5 w-5 shrink-0 rounded-full border" style={{ background: t.swatch }} />
-                <span className="flex-1 truncate text-sm font-medium">{t.label}</span>
-                {on && <Icon.Check size={16} />}
-              </button>
-            )
-          })}
-        </div>
-      </Row>
-
-      <Row
-        title="Look"
-        hint="The shape of the UI — corners, border weight, elevation and how tightly rows are packed. Independent of the theme above: every look works in every colour."
-      >
-        <LookOptions value={settings.look || 'glass'} onPick={(id) => set({ look: id })} />
-      </Row>
+      </div>
     </div>
   )
 }

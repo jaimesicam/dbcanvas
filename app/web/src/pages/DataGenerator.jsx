@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Icon } from '../components/Icons.jsx'
-import { Card, Button, Badge, Field, inputCls, EngineDot } from '../components/ui.jsx'
+import { Card, Button, Badge, Field, inputCls, EngineDot, FirstUse } from '../components/ui.jsx'
 import { datagenApi, genLabel, BSON_TYPES, mongoChoices, defaultGenFor } from '../lib/datagenApi.js'
 import { usePolling } from '../lib/usePolling.jsx'
 import { TOOL_HELP } from '../lib/help.js'
@@ -180,6 +180,14 @@ export default function DataGenerator() {
           </div>
         )}
       </Card>
+
+      {!conn && conns?.length > 0 && (
+        <FirstUse title="Fill a table with realistic test data" steps={[
+          { title: 'Pick a running node', text: 'Any running PostgreSQL, MySQL/PXC or MongoDB node in your Database Stacks — above.' },
+          { title: 'Choose a table', text: 'Browse its databases and pick the table or collection to fill.' },
+          { title: 'Shape the columns, then generate', text: 'Each column gets a generator you can change; set the rows, workers and batch size, and watch it fill.' },
+        ]} />
+      )}
 
       {/* Step 2 — database + table */}
       {conn && (

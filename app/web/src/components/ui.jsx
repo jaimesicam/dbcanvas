@@ -60,6 +60,42 @@ export function EngineChip({ engine, children }) {
   )
 }
 
+// FirstUse is what a page says before it has anything to show: what it does, as three
+// steps, in place of an empty box. It goes away by itself — the caller renders it only
+// while there is no result yet — so it never stands between a returning user and their
+// work.
+export function FirstUse({ title, steps, footer }) {
+  return (
+    <div className="ui-card rounded-xl border bg-surface p-5">
+      {title && <div className="mb-3 text-sm font-semibold text-fg">{title}</div>}
+      <ol className="grid gap-3 sm:grid-cols-3">
+        {steps.map((st, i) => (
+          <li key={st.title} className="flex gap-3">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary">{i + 1}</span>
+            <span className="min-w-0">
+              <span className="block text-sm font-medium text-fg">{st.title}</span>
+              <span className="mt-0.5 block text-xs leading-relaxed text-muted">{st.text}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
+      {footer && <div className="mt-4 border-t pt-3 text-xs text-muted">{footer}</div>}
+    </div>
+  )
+}
+
+// EmptyState is an empty list that says what will be in it and how it gets there, rather
+// than "nothing yet" alone.
+export function EmptyState({ icon, title, text }) {
+  return (
+    <div className="flex flex-col items-center px-4 py-7 text-center">
+      {icon && <span className="mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-surface2 text-muted">{icon}</span>}
+      <div className="text-sm font-medium text-fg">{title}</div>
+      {text && <div className="mt-1 max-w-md text-xs leading-relaxed text-muted">{text}</div>}
+    </div>
+  )
+}
+
 const BTN_VARIANTS = {
   primary: 'bg-primary text-primary-fg hover:opacity-90',
   ghost: 'text-fg hover:bg-surface2',
