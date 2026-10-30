@@ -70,8 +70,13 @@ requires.
 
 ## Simulator images and node images
 
-The demo application images built by `images/apps.sh` carry their own notices
-(`ledgersim/NOTICE`, `supportsim/NOTICE`). The node images under `images/` are built by
-each installation from upstream distribution packages (Percona, MariaDB, MySQL,
-PostgreSQL and others); the DBCanvas source does not include or redistribute those
-packages.
+The demo application images built by `images/apps.sh` carry the GPL text as well:
+`apps.sh` stages `LICENSE` and `app/scripts/go-third-party-licenses.sh` into each
+simulator's build context for the build. The Go simulators (perfsim, stocksim,
+supportsim) ship `/usr/share/doc/<name>/LICENSE` and `THIRD_PARTY_LICENSES.txt`;
+ledgersim ships `/opt/ledgersim/LICENSE` beside its `NOTICE`, and its dependencies'
+licences are inside the shaded jar. supportsim's `NOTICE` covers its embedding model.
+
+The node images under `images/` are built by each installation from upstream
+distribution packages (Percona, MariaDB, MySQL, PostgreSQL and others); the DBCanvas
+source does not include or redistribute those packages.

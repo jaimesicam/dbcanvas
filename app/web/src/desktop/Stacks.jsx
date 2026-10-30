@@ -11,6 +11,7 @@ import { useBrowser } from '../browser/BrowserProvider.jsx'
 import { useAuth } from '../auth/AuthProvider.jsx'
 import { useSession } from '../session/SessionProvider.jsx'
 import { NODE_TYPES } from '../pages/StackDesigner.jsx'
+import { engineTone } from '../lib/engines.js'
 import { toneTile } from '../components/ui.jsx'
 
 // Stacks.jsx — your stacks and their nodes on the desktop (desktop/Desktop.jsx).
@@ -29,12 +30,12 @@ const STACK_DOT = { deployed: 'bg-success', draft: 'bg-muted/60', expired: 'bg-d
 const TONE_DOT = { success: 'bg-success', warning: 'bg-warning', danger: 'bg-danger', muted: 'bg-muted/60' }
 const stateDot = (state) => TONE_DOT[DEPLOY_TONE[state]] || 'bg-muted/40'
 
-// A node's icon and colour are the canvas's own (NODE_TYPES), so a PXC member is the
-// same purple database here as on the design it came from; nodeIcon is the fallback
-// for a type the catalogue does not know.
+// A node's icon is the canvas's (NODE_TYPES; nodeIcon is the fallback for a type the
+// catalogue does not know) and its colour is its engine's (lib/engines.js), the same as
+// the icon tile on its canvas card — databases coloured, everything else neutral.
 const nodeLook = (type) => {
   const def = NODE_TYPES[type]
-  return { Ico: (def && Icon[def.icon]) || nodeIcon(type), tone: def?.color || 'var(--primary)' }
+  return { Ico: (def && Icon[def.icon]) || nodeIcon(type), tone: engineTone(type) }
 }
 function nodeIcon(type) {
   if (type === 'vnc') return Icon.Monitor

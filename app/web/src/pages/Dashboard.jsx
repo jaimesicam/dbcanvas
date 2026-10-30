@@ -7,15 +7,14 @@ import { usePolling } from '../lib/usePolling.jsx'
 import { relTime } from '../lib/notifApi.js'
 import { useRefresh } from '../lib/useRefresh.jsx'
 import { openStackInDesigner } from '../desktop/Stacks.jsx'
-import { NODE_TYPES } from './StackDesigner.jsx'
+import { ENGINE_TONE, engineTone } from '../lib/engines.js'
 
 // HISTORY is how many live samples a stat tile's trend line keeps: at the 4 s poll,
 // the last two minutes — long enough to see a load start, short enough to stay live.
 const HISTORY = 30
-// The engines' colours are the canvas's (NODE_TYPES), so MySQL is the same blue here as
-// on the design, and a bar says which engine it is before its label does.
-const ENGINE_COLOR = { mysql: NODE_TYPES.ps?.color, postgres: NODE_TYPES.pg?.color, mongodb: NODE_TYPES.psm?.color, valkey: NODE_TYPES.valkey?.color }
-const typeColor = (t) => NODE_TYPES[t]?.color
+// Bars are coloured by engine (lib/engines.js): the same validated four everywhere, so
+// MySQL is the same blue here, on the canvas and in a stack's folder, and a node type's bar
+// is its engine's colour (a support node's, neutral).
 
 // Dashboard — store-backed summary counters plus focus-gated live OS stats. The live sample
 // polls only while this page is on screen AND the tab is visible/focused, so there is no
@@ -139,7 +138,7 @@ export default function Dashboard() {
           {/* Empty while a deploy is still bringing its databases up said "Nothing running"
               beside a taskbar counting running nodes — true (those were not databases) but
               it read as a contradiction. */}
-          <Breakdown data={sum?.byEngine} labels={{ postgres: 'PostgreSQL', mysql: 'MySQL/PXC', mongodb: 'MongoDB', valkey: 'Valkey' }} colors={ENGINE_COLOR}
+          <Breakdown data={sum?.byEngine} labels={{ postgres: 'PostgreSQL', mysql: 'MySQL/PXC', mongodb: 'MongoDB', valkey: 'Valkey' }} colors={ENGINE_TONE}
             empty={sum?.nodes.other ? 'No database running yet — nodes are still provisioning' : 'No database nodes running'} />
         </Card>
       </div>
@@ -154,7 +153,7 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         <Card title="Node types">
-          <Breakdown data={sum?.byType} colorOf={typeColor} />
+          <Breakdown data={sum?.byType} colorOf={engineTone} />
         </Card>
         <Card title="Recent activity" subtitle="Notifications" className="lg:col-span-2">
           <Activity items={sum?.activity || []} />

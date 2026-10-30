@@ -17,6 +17,9 @@ RUN mvn -B -q package -DskipTests
 FROM eclipse-temurin:21-jre
 COPY --from=build /src/target/ledgersim.jar /opt/ledgersim/ledgersim.jar
 COPY NOTICE /opt/ledgersim/NOTICE
+# The GPL text itself, staged by images/apps.sh (the dependencies' own licences are
+# already inside the shaded jar — see NOTICE).
+COPY .dbcanvas-build/LICENSE /opt/ledgersim/LICENSE
 
 # dbcanvas waits for readiness by Exec'ing a check inside the container, the same
 # way it does for the Go sims (`/ledgersim -healthcheck`). This wrapper keeps that

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Icon } from '../components/Icons.jsx'
 import { FileToolChecks, DBFileToolChecks } from '../components/FileTools.jsx'
 import { Card, Button, Badge, Field, ConfirmButton, InfoRow, inputCls, toneTile } from '../components/ui.jsx'
+import { engineTone } from '../lib/engines.js'
 import { Help, Hint } from '../components/Tooltip.jsx'
 import { HELP, MENU_HELP, nodeHelp } from '../lib/help.js'
 import { usePolling } from '../lib/usePolling.jsx'
@@ -5077,8 +5078,13 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
                           onDragOver={(e) => nodeDragOver(e, n.id)}
                           onDragLeave={(e) => nodeDragLeave(e, n.id)}
                           onDrop={(e) => nodeDrop(e, n.id)}
-                          className={`absolute inset-0 flex cursor-pointer flex-col overflow-hidden rounded-lg border bg-surface shadow-sm ${non ? 'ring-2 ring-primary' : ''} ${dropNode === n.id ? 'ring-2 ring-success' : ''}`}
-                          style={multi.has(n.id) ? { boxShadow: '0 0 0 3px var(--primary)' } : findSet.has(n.id) && !non ? { boxShadow: '0 0 0 3px color-mix(in srgb, var(--primary) 60%, transparent)' } : liveOn && !non ? { boxShadow: healthRing(live[n.id]) || undefined } : undefined}
+                          className={`absolute inset-0 flex cursor-pointer flex-col overflow-hidden rounded-lg border shadow-sm ${non ? 'ring-2 ring-primary' : ''} ${dropNode === n.id ? 'ring-2 ring-success' : ''}`}
+                          style={{
+                            // A faint wash of the member's engine (lib/engines.js), so a cluster
+                            // reads as MySQL or MongoDB before any name is read.
+                            background: `color-mix(in srgb, ${engineTone(n.type)} 6%, var(--surface))`,
+                            ...(multi.has(n.id) ? { boxShadow: '0 0 0 3px var(--primary)' } : findSet.has(n.id) && !non ? { boxShadow: '0 0 0 3px color-mix(in srgb, var(--primary) 60%, transparent)' } : liveOn && !non ? { boxShadow: healthRing(live[n.id]) || undefined } : {}),
+                          }}
                         >
                           <div className="h-1 w-full shrink-0" style={{ background: barCol }} />
                           {/* Name and status. The role and the version are in the
@@ -5091,7 +5097,8 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
                               f.arch || platform)}
                             placement="top" display="flex" className={liveOn ? 'shrink-0' : 'min-h-0 flex-1'}
                           >
-                            <div className="flex w-full items-center gap-1 px-2" style={liveOn ? { height: PXC_NODE_H - 4 } : undefined}>
+                            <div className="flex w-full items-center gap-1.5 px-2" style={liveOn ? { height: PXC_NODE_H - 4 } : undefined}>
+                              <span className="shrink-0" style={{ color: engineTone(n.type) }}>{(Icon[fdef.icon] || Icon.Database)({ size: 13 })}</span>
                               <span className="min-w-0 flex-1 truncate text-xs font-semibold text-fg">{n.label}</span>
                               {liveOn && <ProblemBadge count={problemCount(live[n.id])} title={(live[n.id]?.role?.problems || []).join('\n')} />}
                               {dep?.state === 'provisioning' ? (
@@ -5154,7 +5161,9 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
                       moment it carries three lines of prose it stops being one. */}
                   <Hint text={nodeCardTip(n, def, depByNode[n.id], n.arch || platform)} placement="top" display="flex" className={liveOn ? 'shrink-0' : 'min-h-0 flex-1'}>
                     <div className="flex w-full items-center gap-2.5 px-3" style={liveOn ? { height: NODE_H - 6 } : undefined}>
-                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border" style={toneTile(def.color)}>
+                      {/* The tile says which ENGINE (lib/engines.js, a validated set);
+                          the stripe above keeps the catalogue's per-type colour. */}
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border" style={toneTile(engineTone(n.type))}>
                         {(Icon[def.icon] || Icon.Server)({ size: 18 })}
                       </span>
                       <span className="min-w-0 flex-1 leading-tight">

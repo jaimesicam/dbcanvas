@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Icon } from '../components/Icons.jsx'
-import { Card, Button, Badge, Field, inputCls } from '../components/ui.jsx'
+import { Card, Button, Badge, Field, inputCls, EngineDot } from '../components/ui.jsx'
 import { benchmarkApi, benchTargetKey } from '../lib/benchmarkApi.js'
 import { usePolling } from '../lib/usePolling.jsx'
 import { datagenApi } from '../lib/datagenApi.js'
@@ -316,7 +316,7 @@ function HistoryRow({ run }) {
       <div className="flex items-center gap-2">
         <StatusBadge status={run.status} />
         <span className="font-medium">{run.workload.toUpperCase()}</span>
-        <span className="text-muted">{run.label} · {run.engine} · scale {run.scale} · {run.threads}t</span>
+        <span className="flex items-center gap-1.5 text-muted"><EngineDot engine={run.engine} />{run.label} · {run.engine} · scale {run.scale} · {run.threads}t</span>
       </div>
       <div className="flex items-center gap-4 text-xs text-muted">
         <span><span className="font-semibold text-fg">{pm.value ?? 0}</span> {pm.label.toLowerCase()}</span>

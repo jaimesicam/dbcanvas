@@ -47,10 +47,21 @@ build_app() {
     FAILED+=("${tag} (missing ${name}/)")
     return
   fi
+  # The image conveys the simulator as a binary, so it carries the GPL text and the
+  # licences of the Go modules linked into it (GPLv3 s.4/6; see THIRD_PARTY_NOTICES.md).
+  # Each simulator builds from its own directory, which cannot reach the repository root,
+  # and plain `docker build` has no named build contexts without buildx — so the two
+  # files are staged into the context for the build and removed after it.
+  local stage="$ctx/.dbcanvas-build"
+  rm -rf "$stage" && mkdir -p "$stage"
+  cp "$ROOT/LICENSE" "$ROOT/app/scripts/go-third-party-licenses.sh" "$stage/"
   # --platform, unlike the plain `docker build` these used to get: an installation
   # targets one platform, and a simulator built natively on a host whose stacks are
   # emulated would be the one container in the stack of a different architecture.
-  if docker build --platform "$PLATFORM" -t "$tag" "$ctx"; then
+  local ok=0
+  docker build --platform "$PLATFORM" -t "$tag" "$ctx" && ok=1
+  rm -rf "$stage"
+  if [ "$ok" = 1 ]; then
     BUILT+=("$tag")
   else
     echo "    FAIL  ${tag}"

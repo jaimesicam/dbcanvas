@@ -275,6 +275,22 @@ body { margin:0; background:var(--bg); color:var(--fg); font-family:var(--ui-tex
 
   /* Editorial: a table header is a caption, not a cell. */
   [data-look="editorial"] th { text-transform: uppercase; letter-spacing: .07em; font-size: .8em; }
+
+  /* Every page, every look. The app has ~45 pages of hand-built tables and controls, so
+     the defaults they share are set here once rather than page by page — and in this
+     layer, so a page that styles its own header or row still wins. */
+  /* Keyboard focus is visible on everything you can tab to. Inputs are left out: they
+     already draw a ring on focus (inputCls), and two would be one too many. */
+  :is(button, a, summary, [tabindex]):focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+  ::selection { background: color-mix(in srgb, var(--primary) 28%, transparent); }
+  code, kbd, samp, pre { font-family: var(--ui-mono); }
+  /* Figures in a table line up digit under digit, so a column of numbers can be read
+     down as well as across. */
+  td { font-variant-numeric: tabular-nums; }
+  th { font-weight: 600; }
+  /* The row under the pointer, so a wide table can be followed across. After the
+     industrial zebra, which has the same specificity, so it also lights a striped row. */
+  [data-look] tbody tr:hover { background: color-mix(in srgb, var(--primary) 6%, transparent); }
 }
 
 /* Outside the layer: chrome that MUST beat a utility, because the utility is on

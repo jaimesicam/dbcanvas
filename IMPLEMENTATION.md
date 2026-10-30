@@ -27026,3 +27026,79 @@ Driven in headless Chromium against the running MySQL Replication Stack:
   of samples (CPU line moving, containers and memory level).
 - No page errors. Bug found and fixed during verification: the first More menu used an in-window
   backdrop and stayed open after Escape or a click outside the window.
+
+## 436. Validated engine colours, member cards, login screen, app-wide defaults, terminal font, simulator licences — `app/web/src/lib/engines.js`, `app/web/src/components/ui.jsx`, `app/web/src/auth/AuthScreens.jsx`, `app/web/src/index.css`, `app/web/src/terminal/TerminalProvider.jsx`, `images/apps.sh`, `*/Dockerfile`
+
+**Engine colours, validated.** §435 reused the catalogue's per-type colours (`NODE_TYPES[].color`)
+to mean "which engine". Run as a set through the dataviz skill's `validate_palette.js --pairs
+all`, they failed:
+- MySQL `#2563eb` against Valkey `#7c3aed` was ΔE 0.4 to a deuteranope (the same colour) and
+  12.4 to normal vision, under the floor of 15.
+- PostgreSQL `#336791` was under the chroma floor and read as grey.
+
+`lib/engines.js` now owns the engine colours. They are four of the existing node-identity
+slots, which were already searched per surface:
+
+| Engine | Slot |
+|---|---|
+| mysql | `--node-2` |
+| postgres | `--node-1` |
+| mongodb | `--node-4` |
+| valkey | `--node-5` |
+
+Re-validated as a four-slot all-pairs set: light `#ffffff`/`#fbf1d3` CVD ΔE 9.6, normal 16.6,
+all ≥ 3:1. Dark `#161b24`/`#0e1530`/`#241546`/`#122019` pass every check.
+
+- `engineOf` mirrors `dbEngineOf` in `app/dashboard.go`, so a colour and the *By engine* count
+  agree. Keep the two in step.
+- Non-databases (proxies, monitoring, Intranet) are `--muted`, so on a stack the databases carry
+  the colour.
+- Applied to: the canvas card's icon tile (the per-type stripe stays), cluster member cards (an
+  engine icon and a 6% engine wash; previously name and dot only), stack-folder nodes, and the
+  dashboard's *By engine* and *Node types* bars.
+- `EngineChip` and `EngineDot` (`ui.jsx`) name an engine in its colour: Packet Inspector's
+  capture header, Database Explorer's saved queries, the Data Generator's connection picker and
+  Benchmark's run line.
+- **Not** Log Summary: it already uses `--node-*` for *which node*, and engine dots there would
+  give "MySQL" and "pxc02" the same blue.
+
+**Login** (`AuthScreens.jsx` `Shell`). The page uses the `.desk-wallpaper`. At `lg` and wider, a
+panel beside the form gives the product line, a `StackSketch` (an SVG of a three-member cluster
+behind a proxy with an app on it, in the engine colours, with `.stk-flow` on the links) and the
+four engine chips. Narrower than that, the form is the whole screen as before; at 420 px there
+is no horizontal scroll.
+
+**Every page** (`index.css`, `@layer base`, so a page's own classes still win):
+- keyboard focus outline on button/a/summary/[tabindex] (inputs keep their own ring)
+- primary-tinted `::selection`
+- `code/kbd/samp/pre` in the mono face
+- `td` tabular figures and `th` weight 600
+- a primary-tinted row hover, placed after the industrial zebra so striped rows light too
+
+**Terminal** (`TerminalProvider.jsx`). The terminal uses the bundled `JetBrains Mono Variable`.
+xterm measures a character once at open, so `TERM_FONT_READY` asks for the face when the module
+loads. A terminal that opened before the font arrived is re-measured by toggling `fontFamily`
+(xterm only re-measures on a change) and re-fitted.
+
+**Simulator licences.** `images/apps.sh` stages `LICENSE` and
+`app/scripts/go-third-party-licenses.sh` into `<sim>/.dbcanvas-build/` (gitignored) for each
+build and removes them afterwards: a sim's context is its own directory, and plain `docker
+build` here has no buildx named contexts. perfsim, stocksim and supportsim ship
+`/usr/share/doc/<sim>/{LICENSE,THIRD_PARTY_LICENSES.txt}`; ledgersim ships
+`/opt/ledgersim/LICENSE`. `THIRD_PARTY_NOTICES.md` is updated.
+
+**Verification performed.**
+- Palette validator runs as above.
+- `npm run build`, SSR `smoke` passes, app image rebuilt and redeployed.
+- `apps.sh perfsim ledgersim` and `apps.sh stocksim` built; the licence files were listed from
+  each image, and the staging directory was gone afterwards. supportsim was not rebuilt (its
+  90 MB model fetch); its change is the same as perfsim's.
+- Headless Chromium:
+  - login in Light, Dark and at 420 px (no horizontal scroll)
+  - dashboard *By engine* in `--node-2`
+  - stack folder and canvas with blue PXC members and neutral support nodes, in Light and Dark
+  - a root console's xterm reports `"JetBrains Mono Variable"` and `document.fonts.check` true
+  - Manage Users row hover is `primary / 0.06`
+  - Tab gives a solid primary outline
+  - no page errors
+- The account was left on Light + Modern.

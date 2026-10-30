@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Icon } from '../components/Icons.jsx'
-import { Card, Button, Badge, Field, inputCls } from '../components/ui.jsx'
+import { Card, Button, Badge, Field, inputCls, EngineDot } from '../components/ui.jsx'
 import { datagenApi, genLabel, BSON_TYPES, mongoChoices, defaultGenFor } from '../lib/datagenApi.js'
 import { usePolling } from '../lib/usePolling.jsx'
 import { TOOL_HELP } from '../lib/help.js'
@@ -172,7 +172,7 @@ export default function DataGenerator() {
               return (
                 <button key={`${c.stackId}:${c.nodeId}`} onClick={() => pickConn(c)}
                   className={`rounded-lg border px-3 py-2 text-left text-sm transition ${on ? 'border-primary bg-primary/10' : 'hover:bg-surface2'}`}>
-                  <div className="font-medium">{c.label || c.nodeId}</div>
+                  <div className="flex items-center gap-1.5 font-medium"><EngineDot engine={c.engine} />{c.label || c.nodeId}</div>
                   <div className="text-xs text-muted">{c.stackName} · {c.type} · {engineLabel(c.engine)}</div>
                 </button>
               )

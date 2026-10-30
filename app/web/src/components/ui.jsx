@@ -1,6 +1,7 @@
 // Reusable Tailwind/theme primitives.
 import { useEffect, useState } from 'react'
 import { Help } from './Tooltip.jsx'
+import { ENGINE_TONE, NEUTRAL_TONE } from '../lib/engines.js'
 
 // The ui-* classes carry no styles of their own. They are the hooks a LOOK styles
 // (index.css): a look needs to reach the chrome that no token can describe — the
@@ -38,6 +39,23 @@ export const toneTile = (tone) => ({
   background: `color-mix(in srgb, ${tone} 14%, var(--surface))`,
   borderColor: `color-mix(in srgb, ${tone} 30%, transparent)`,
 })
+
+// EngineDot and EngineChip name an engine (mysql, postgres, mongodb, valkey — the keys
+// every page's ENGINE_LABEL uses) in its colour from lib/engines.js. The label is always
+// printed: the dot is a faster way to find MySQL in a list, never the only way to know.
+export function EngineDot({ engine, className = '' }) {
+  return <span className={`inline-block h-2 w-2 shrink-0 rounded-full align-middle ${className}`} style={{ background: ENGINE_TONE[engine] || NEUTRAL_TONE }} />
+}
+
+export function EngineChip({ engine, children }) {
+  const tone = ENGINE_TONE[engine] || NEUTRAL_TONE
+  return (
+    <span className="ui-badge inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium text-fg"
+      style={{ borderColor: `color-mix(in srgb, ${tone} 35%, transparent)`, background: `color-mix(in srgb, ${tone} 8%, transparent)` }}>
+      <EngineDot engine={engine} />{children}
+    </span>
+  )
+}
 
 const BTN_VARIANTS = {
   primary: 'bg-primary text-primary-fg hover:opacity-90',

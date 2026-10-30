@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '../components/Icons.jsx'
-import { Badge, Button, ConfirmButton, inputCls } from '../components/ui.jsx'
+import { Badge, Button, ConfirmButton, inputCls, EngineChip } from '../components/ui.jsx'
 import { Help } from '../components/Tooltip.jsx'
 import { useDialog } from '../components/Dialog.jsx'
 import { DbxGrid, ValueViewer } from '../components/DbxGrid.jsx'
@@ -1704,7 +1704,7 @@ function SavedPanel({ items, onOpen, onDelete }) {
           <div key={q.id} className="group border-b px-2 py-1.5 text-xs hover:bg-surface2/60">
             <div className="flex items-center gap-2">
               <button onClick={() => onOpen(q)} className="min-w-0 flex-1 truncate text-left font-medium hover:underline">{q.name}</button>
-              <Badge tone="muted">{ENGINE_LABEL[q.engine] || q.engine}</Badge>
+              <EngineChip engine={q.engine}>{ENGINE_LABEL[q.engine] || q.engine}</EngineChip>
               <button onClick={() => onDelete(q.id)} className="opacity-0 hover:text-danger group-hover:opacity-100"><Icon.Trash size={11} /></button>
             </div>
             {q.description && <p className="mt-0.5 text-[11px] text-muted">{q.description}</p>}

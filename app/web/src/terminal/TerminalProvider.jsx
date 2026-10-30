@@ -34,6 +34,17 @@ const loadLayout = () => {
 // floatRect is a new floating window's first size; the window manager places it.
 const floatRect = () => ({ w: 640, h: 360 })
 
+// The terminal is set in the app's bundled monospace (main.jsx imports it), not
+// whatever the OS calls ui-monospace. xterm measures one character when it opens and
+// lays the grid out from that, so a face that arrives later would leave every column
+// the wrong width: the font is asked for as soon as this module loads (a terminal is
+// never the first thing on screen, so it is normally there in time), and a terminal
+// that did open first is re-measured when it lands — see attach.
+const TERM_FONT = '"JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace'
+const TERM_FONT_READY = typeof document !== 'undefined' && document.fonts?.load
+  ? document.fonts.load('13px "JetBrains Mono Variable"').catch(() => {})
+  : Promise.resolve()
+
 const XTERM_THEME = {
   background: '#0e1117', foreground: '#e6eaf2', cursor: '#6366f1',
   selectionBackground: '#33415580',
@@ -70,10 +81,18 @@ export function TerminalProvider({ children }) {
   const attach = useCallback(({ id, title, url, shared }) => {
     const term = new Terminal({
       fontSize: 13, cursorBlink: true, convertEol: false,
-      fontFamily: 'ui-monospace, "JetBrains Mono", monospace', theme: XTERM_THEME,
+      fontFamily: TERM_FONT, theme: XTERM_THEME,
     })
     const fit = new FitAddon()
     term.loadAddon(fit)
+    // Re-measure once the face is in. xterm only re-measures when fontFamily CHANGES,
+    // hence the round trip through a fallback; a no-op for a terminal not yet opened.
+    TERM_FONT_READY.then(() => {
+      if (!term.element) return
+      term.options.fontFamily = 'monospace'
+      term.options.fontFamily = TERM_FONT
+      try { fit.fit() } catch { /* */ }
+    })
 
     const ws = new WebSocket(url)
     ws.binaryType = 'arraybuffer'

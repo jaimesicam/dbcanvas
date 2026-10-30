@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '../components/Icons.jsx'
-import { Card, Button, Badge, Field, inputCls } from '../components/ui.jsx'
+import { Card, Button, Badge, Field, inputCls, EngineChip } from '../components/ui.jsx'
 import {
   pktApi, pktTargetKey, pktBytesFmt, PROTO_TONE, isSevereIssue, issueKind,
   PORT_ROLE_TEXT, ENGINE_LABEL, MONGO_KIND_TEXT, TIME_MODES, pktFormatTime, pktDateTime, pktISO, pktTimeOfDay,
@@ -560,7 +560,7 @@ export function CaptureState({ cap }) {
       <Badge tone={tone}>{cap.state}</Badge>
       {/* Which protocol the capture was read as. It matters most for an upload, where
           nobody chose it and the decoder worked it out from the bytes. */}
-      {cap.engine && <Badge tone="accent">{ENGINE_LABEL[cap.engine] || cap.engine}</Badge>}
+      {cap.engine && <EngineChip engine={cap.engine}>{ENGINE_LABEL[cap.engine] || cap.engine}</EngineChip>}
       {cap.iface && <span>iface <span className="font-mono text-fg">{cap.iface}</span></span>}
       {cap.state === 'capturing' && <span>{pktBytesFmt(cap.bytes)} captured</span>}
       {cap.sizeCapped && <span className="text-warning">stopped at the 192 MB size limit</span>}

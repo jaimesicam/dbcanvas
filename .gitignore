@@ -82,3 +82,6 @@ app/web/.smoke/
 
 # Editor swap files — a swap of .env holds the same secrets as .env.
 *.swp
+
+# Licence files images/apps.sh stages into a simulator's build context for one build.
+/*/.dbcanvas-build/
