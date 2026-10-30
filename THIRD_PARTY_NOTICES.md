@@ -29,6 +29,7 @@ may not keep a reserved name. Check for one before adding a font.
 
 | Font | Used by | Copyright |
 |---|---|---|
+| Geist, Geist Mono | Glass look (the default) | Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font) |
 | Inter | Modern look; controls in Editorial | Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter) |
 | JetBrains Mono | monospace, all looks; Industrial headings and controls | Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono) |
 | Barlow | Industrial look | Copyright 2017 The Barlow Project Authors (https://github.com/jpt/barlow) |

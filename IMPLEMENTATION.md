@@ -27102,3 +27102,70 @@ build` here has no buildx named contexts. perfsim, stocksim and supportsim ship
   - Tab gives a solid primary outline
   - no page errors
 - The account was left on Light + Modern.
+
+## 437. The Glass direction: Glass Dark and Glass Light themes, the Glass look, the new defaults — `app/web/src/index.css`, `app/web/src/theme/ThemeProvider.jsx`, `app/web/src/settings/SettingsProvider.jsx`, `app/settings.go`, `app/web/src/components/ui.jsx`, `app/web/src/pages/StackDesigner.jsx`, `app/web/src/desktop/Stacks.jsx`, `app/web/src/main.jsx`
+
+Direction #4 from the art-direction mockups (artifact C7kJcnysxkmZgzA7hwAh8Q) is built into the
+existing appearance system as two themes and a look, not as a one-off skin. All six older themes
+and four older looks still work.
+
+**Themes** `glass-dark` (ground `#06070b`, surfaces `#11131a`/`#181b24`) and `glass-light` (ground
+`#f4f5f8`, surface `#ffffff`). Both use an indigo primary and a teal accent; the teal only appears
+as ambient light. Each theme adds two tokens:
+- `--glass-hi`: the 1px top-edge highlight that gives a translucent sheet an edge.
+- `--glass-shadow`
+
+Status and node slots are the shared triads, re-run through `validate_palette.js` on these
+surfaces:
+- Node and engine sets pass every check.
+- The dark status triad gives exactly the figures it gives on `#161b24` (CVD ΔE 12.0, normal 21.7,
+  lightness-band note unchanged). The light amber is under 3:1, as already documented. No palette
+  changed.
+
+**Look** `glass`:
+- Type: Geist Variable and Geist Mono Variable (`@fontsource-variable/geist`, `geist-mono`, OFL
+  1.1 with no Reserved Font Name; added to `THIRD_PARTY_NOTICES.md`).
+- Shape: radii one step larger, pill buttons, badges and inputs, and hairline borders.
+- Shadows: soft and deep, each with the inner highlight.
+
+**Glass chrome** (`index.css`):
+- Cards (`.ui-card`), windows (`[data-wm-window]`) and canvas nodes (`.stk-node`) are frosted:
+  the surface at 72–80% over `backdrop-filter: blur(20px) saturate(150%)`.
+- The frost sits on a **`::before` layer, not the element.** `backdrop-filter` makes an element
+  the containing block for every `position: fixed` descendant, and What's New, Share, the update
+  check and Database Explorer's grid open un-portalled modals from inside page windows; on the
+  window itself they would be trapped. Verified: What's New's overlay is 1440×900, the full
+  viewport.
+- Cards get `position: relative` in the base layer (for the pseudo-element), so a card a page
+  positions itself keeps its own positioning.
+- Window bodies are **opaque and lit from inside** (primary and accent washes over `--bg`). The
+  first build made them translucent, and the desktop's icons ghosted through the Dashboard.
+- The canvas gets the same light under its grid via a new `.stk-ambient` layer.
+- Primary buttons are lit from above (a gradient from 72% primary + white down to the primary,
+  with the inner highlight).
+- Engine tiles (`[data-engine-tile]`, set where `engineOf(type)`; `toneTile` now carries
+  `--tone`) are glossy: the engine colour as a lit gradient with a white glyph.
+- The desktop wallpaper is brighter: indigo from the top left, teal from the bottom right.
+- The canvas toolbar and the floating Properties panel opt in with `ui-card`. The docked panel
+  does not, because it scrolls and a `::before` layer would scroll away with its content.
+
+**Defaults.** New accounts and the pre-login screen use `glass-dark` + `glass`:
+`ThemeProvider` fallbacks, `SettingsProvider` defaults, and `defaultSettings()` in
+`app/settings.go`, whose `validThemes`/`validLooks` allowlists gain the three ids. An account
+that already saved a theme keeps it. The Glass pair lead the theme menu and Glass leads the
+looks; the Settings preview is generic, so it shows Glass correctly with no change.
+
+**Not done.** The mockup's edge-to-edge floating layout (a ⌘K bar centred over the canvas, a
+bottom pill toolbar, an inspector floating over the canvas) is a layout restructure of the stack
+editor, not a look, and is left for its own change.
+
+**Verification performed.**
+- `go test -run Settings ./...` passes; `npm run build`, SSR `smoke` passes; image rebuilt and
+  redeployed.
+- Headless Chromium:
+  - a fresh browser's login is `glass-dark`/`glass`; body font `"Geist Variable"`
+  - Dashboard, desktop, stack folder (glossy blue PXC tiles), canvas with Live on, Settings, in
+    both Glass themes
+  - What's New overlay full-viewport
+  - no page errors
+- The admin account was left on Glass Dark + Glass.

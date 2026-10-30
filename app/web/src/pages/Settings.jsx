@@ -912,7 +912,7 @@ export default function Settings() {
         title="Look"
         hint="The shape of the UI — corners, border weight, elevation and how tightly rows are packed. Independent of the theme above: every look works in every colour."
       >
-        <LookOptions value={settings.look || 'modern'} onPick={(id) => set({ look: id })} />
+        <LookOptions value={settings.look || 'glass'} onPick={(id) => set({ look: id })} />
       </Row>
     </div>
   )

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { Icon } from '../components/Icons.jsx'
 import { FileToolChecks, DBFileToolChecks } from '../components/FileTools.jsx'
 import { Card, Button, Badge, Field, ConfirmButton, InfoRow, inputCls, toneTile } from '../components/ui.jsx'
-import { engineTone } from '../lib/engines.js'
+import { engineOf, engineTone } from '../lib/engines.js'
 import { Help, Hint } from '../components/Tooltip.jsx'
 import { HELP, MENU_HELP, nodeHelp } from '../lib/help.js'
 import { usePolling } from '../lib/usePolling.jsx'
@@ -4685,7 +4685,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
         {/* toolbar — a container: narrow (a small window, or the browser zoomed in), the secondary
             buttons drop their labels so Validate and Deploy stay on the first rows instead of
             being wrapped out of sight. */}
-        <div className="@container flex flex-wrap items-center gap-2 rounded-xl border bg-surface px-3 py-2">
+        <div className="ui-card @container flex flex-wrap items-center gap-2 rounded-xl border bg-surface px-3 py-2">
           <Hint text={HELP.uiBack}><Button size="sm" variant="ghost" onClick={onBack}><Icon.ArrowLeft size={16} /> <span className="@max-3xl:hidden">Stacks</span></Button></Hint>
           <div className="mx-1 h-5 w-px bg-border" />
           <span className="text-sm font-semibold">{stack.name}</span>
@@ -4901,6 +4901,8 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
               {paletteBody}
             </div>
           )}
+          {/* The canvas's ambient light — drawn only by a look that has one (Glass, index.css). */}
+          <div className="stk-ambient pointer-events-none absolute inset-0" />
           <div
             className="pointer-events-none absolute inset-0"
             style={{
@@ -5078,7 +5080,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
                           onDragOver={(e) => nodeDragOver(e, n.id)}
                           onDragLeave={(e) => nodeDragLeave(e, n.id)}
                           onDrop={(e) => nodeDrop(e, n.id)}
-                          className={`absolute inset-0 flex cursor-pointer flex-col overflow-hidden rounded-lg border shadow-sm ${non ? 'ring-2 ring-primary' : ''} ${dropNode === n.id ? 'ring-2 ring-success' : ''}`}
+                          className={`stk-node absolute inset-0 flex cursor-pointer flex-col overflow-hidden rounded-lg border shadow-sm ${non ? 'ring-2 ring-primary' : ''} ${dropNode === n.id ? 'ring-2 ring-success' : ''}`}
                           style={{
                             // A faint wash of the member's engine (lib/engines.js), so a cluster
                             // reads as MySQL or MongoDB before any name is read.
@@ -5152,7 +5154,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
                   onDragOver={(e) => nodeDragOver(e, n.id)}
                   onDragLeave={(e) => nodeDragLeave(e, n.id)}
                   onDrop={(e) => nodeDrop(e, n.id)}
-                  className={`group absolute flex cursor-grab flex-col overflow-hidden rounded-xl border bg-surface shadow-sm active:cursor-grabbing ${on ? 'ring-2 ring-primary' : ''} ${dropNode === n.id ? 'ring-2 ring-success' : ''}`}
+                  className={`stk-node group absolute flex cursor-grab flex-col overflow-hidden rounded-xl border bg-surface shadow-sm active:cursor-grabbing ${on ? 'ring-2 ring-primary' : ''} ${dropNode === n.id ? 'ring-2 ring-success' : ''}`}
                   style={{ left: n.x, top: n.y, width: NODE_W, height: nodeH, boxShadow: multi.has(n.id) ? '0 0 0 3px var(--primary)' : findSet.has(n.id) && !on ? '0 0 0 3px color-mix(in srgb, var(--primary) 60%, transparent)' : liveOn && !on ? healthRing(live[n.id]) || undefined : undefined }}
                 >
                   <div className="h-1 w-full shrink-0" style={{ background: def.color }} />
@@ -5163,7 +5165,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
                     <div className="flex w-full items-center gap-2.5 px-3" style={liveOn ? { height: NODE_H - 6 } : undefined}>
                       {/* The tile says which ENGINE (lib/engines.js, a validated set);
                           the stripe above keeps the catalogue's per-type colour. */}
-                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border" style={toneTile(engineTone(n.type))}>
+                      <span data-engine-tile={engineOf(n.type) ? '' : undefined} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border" style={toneTile(engineTone(n.type))}>
                         {(Icon[def.icon] || Icon.Server)({ size: 18 })}
                       </span>
                       <span className="min-w-0 flex-1 leading-tight">
@@ -14883,7 +14885,7 @@ function StackProperties({ host, locked, lockedBy, selected, stackId, nodes, edg
   return (
     <>
       {createPortal(
-        <div className="fixed z-40 flex flex-col overflow-hidden rounded-xl border bg-surface shadow-2xl"
+        <div className="ui-card fixed z-40 flex flex-col overflow-hidden rounded-xl border bg-surface shadow-2xl"
           style={{ left: shown.x, top: shown.y, width: shown.w, height: shown.h }}>
           <div className="flex-1 overflow-auto p-4">
             <Header move />

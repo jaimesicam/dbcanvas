@@ -11,7 +11,7 @@ import { useBrowser } from '../browser/BrowserProvider.jsx'
 import { useAuth } from '../auth/AuthProvider.jsx'
 import { useSession } from '../session/SessionProvider.jsx'
 import { NODE_TYPES } from '../pages/StackDesigner.jsx'
-import { engineTone } from '../lib/engines.js'
+import { engineOf, engineTone } from '../lib/engines.js'
 import { toneTile } from '../components/ui.jsx'
 
 // Stacks.jsx — your stacks and their nodes on the desktop (desktop/Desktop.jsx).
@@ -240,7 +240,7 @@ export function StackFolder({ stack, onClose, onOpen }) {
                     onClick={() => setSel(n.id)} onDoubleClick={() => primary(n)}
                     onContextMenu={(e) => { e.preventDefault(); setSel(n.id); setMenu({ x: e.clientX, y: e.clientY, n }) }}
                     className={`flex w-24 flex-col items-center gap-1 rounded-lg px-1 py-2 text-center ${sel === n.id ? 'bg-primary/20 ring-1 ring-primary/50' : 'hover:bg-surface2'}`}>
-                    <span className="lift relative flex h-10 w-10 items-center justify-center rounded-xl border" style={toneTile(tone)}>
+                    <span data-engine-tile={engineOf(n.type) ? '' : undefined} className="lift relative flex h-10 w-10 items-center justify-center rounded-xl border" style={toneTile(tone)}>
                       <Ico size={20} />
                       <span className={`absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-bg ${stateDot(dep?.state)} ${dep?.state === 'provisioning' ? 'status-pulse' : ''}`} />
                     </span>

@@ -131,6 +131,33 @@
   --status-ok:#34d399; --status-warn:#fde047; --status-crit:#f43f5e;
   --node-1:#26a2bf; --node-2:#0f6ac3; --node-3:#887efb; --node-4:#9f13fd; --node-5:#c4039e;
 }
+/* Glass Dark and Glass Light — the 2026 direction (IMPLEMENTATION.md §437), meant to be
+ * worn with the Glass look below. Cool near-black and cool porcelain grounds, an indigo
+ * primary, and a teal accent that only ever appears as ambient light.
+ *
+ * --glass-hi is the 1px inner highlight along the top edge of every glass surface: the
+ * thing that makes a translucent panel read as a sheet with an edge rather than as a
+ * dim rectangle. The status and node slots are the shared triads, re-run through
+ * validate_palette.js on these surfaces: dark #11131a/#181b24 and light #ffffff/#eef0f4
+ * give the same figures as the surfaces above (node and engine sets pass all checks;
+ * the status triads carry the same documented notes as on every other theme).
+ */
+[data-theme="glass-dark"] {
+  --bg:#06070b; --surface:#11131a; --surface2:#181b24; --border:#252a37;
+  --fg:#eef0f6; --muted:#8d94a6; --primary:#6366f1; --primary-fg:#ffffff;
+  --accent:#14b8a6; --success:#22c55e; --warning:#f59e0b; --danger:#ef4444; --grid:#151822;
+  --status-ok:#34d399; --status-warn:#fde047; --status-crit:#f43f5e;
+  --node-1:#26a2bf; --node-2:#0f6ac3; --node-3:#887efb; --node-4:#9f13fd; --node-5:#c4039e;
+  --glass-hi:rgb(255 255 255 / .07); --glass-shadow:rgb(0 0 0 / .7);
+}
+[data-theme="glass-light"] {
+  --bg:#f4f5f8; --surface:#ffffff; --surface2:#eef0f4; --border:#dfe3ea;
+  --fg:#0f172a; --muted:#5b6478; --primary:#4f46e5; --primary-fg:#ffffff;
+  --accent:#0d9488; --success:#16a34a; --warning:#d97706; --danger:#dc2626; --grid:#e3e7ee;
+  --status-ok:#047857; --status-warn:#ca8a04; --status-crit:#b91c1c;
+  --node-1:#0e97b4; --node-2:#03539e; --node-3:#8273ff; --node-4:#8708d9; --node-5:#910574;
+  --glass-hi:rgb(255 255 255 / .9); --glass-shadow:rgb(15 23 42 / .28);
+}
 
 /* Looks: the second axis, and orthogonal to the colour themes above.
  *
@@ -238,6 +265,25 @@
   --ui-shadow-xl:0 24px 45px -18px var(--tw-shadow-color,#0000003d);
   --ui-shadow-2xl:0 32px 64px -20px var(--tw-shadow-color,#0000004d);
 }
+/* Glass — the 2026 look. Geist throughout, generous radii, pill controls, hairline
+ * borders and surfaces you can see the ambient light through. It is designed for the
+ * two Glass themes but, like every look, works in all of them: --glass-hi falls back
+ * to a faint white where a theme does not set one. */
+[data-look="glass"] {
+  --ui-text:"Geist Variable", "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --ui-mono:"Geist Mono Variable", "JetBrains Mono Variable", ui-monospace, monospace;
+  --ui-display:var(--ui-text); --ui-control:var(--ui-text);
+  --ui-heading-case:none; --ui-heading-tracking:-.015em;
+  --ui-border:color-mix(in srgb, var(--border) 75%, transparent);
+  --ui-root:16px;
+  --spacing:.25rem;
+  --radius-xs:.25rem; --radius-sm:.375rem; --radius-md:.5rem; --radius-lg:.75rem;
+  --radius-xl:1rem; --radius-2xl:1.25rem; --radius-3xl:1.5rem;
+  --ui-shadow-sm:inset 0 1px 0 var(--glass-hi, rgb(255 255 255 / .06)), 0 8px 24px -14px var(--glass-shadow, rgb(0 0 0 / .5));
+  --ui-shadow-lg:inset 0 1px 0 var(--glass-hi, rgb(255 255 255 / .06)), 0 20px 50px -24px var(--glass-shadow, rgb(0 0 0 / .55));
+  --ui-shadow-xl:inset 0 1px 0 var(--glass-hi, rgb(255 255 255 / .06)), 0 24px 60px -24px var(--glass-shadow, rgb(0 0 0 / .6));
+  --ui-shadow-2xl:inset 0 1px 0 var(--glass-hi, rgb(255 255 255 / .06)), 0 32px 72px -28px var(--glass-shadow, rgb(0 0 0 / .7));
+}
 
 html { font-size: var(--ui-root); }
 html, body, #root { height: 100%; }
@@ -291,6 +337,11 @@ body { margin:0; background:var(--bg); color:var(--fg); font-family:var(--ui-tex
   /* The row under the pointer, so a wide table can be followed across. After the
      industrial zebra, which has the same specificity, so it also lights a striped row. */
   [data-look] tbody tr:hover { background: color-mix(in srgb, var(--primary) 6%, transparent); }
+
+  /* Glass: a card is the positioning context for its frost layer (::before, below).
+     Here in the base layer, so a card a page positions itself (absolute, sticky) keeps
+     its own positioning. */
+  [data-look="glass"] .ui-card { position: relative; }
 }
 
 /* Outside the layer: chrome that MUST beat a utility, because the utility is on
@@ -316,6 +367,60 @@ body { margin:0; background:var(--bg); color:var(--fg); font-family:var(--ui-tex
 /* Soft: buttons, inputs and badges are full pills. A textarea is excluded — a
    pill around six lines of text is a lozenge, not a control. */
 [data-look="soft"] :is(.ui-btn, .ui-badge, .ui-input:not(textarea)) { border-radius: 9999px; }
+
+/* Glass chrome. A card, a window and a canvas node are frosted sheets: the surface at
+   ~72% over a blur, so the ambient light behind shows through, with the top-edge
+   highlight that gives a translucent sheet its edge. Text inputs stay opaque — text
+   typed over moving light is harder to read.
+
+   The frost is on a ::before layer behind the content, NOT on the element itself:
+   backdrop-filter makes an element the containing block of every position:fixed
+   descendant, and several pages open un-portalled modals (What's New, Share, the
+   update check, Database Explorer's grid) from inside a window — on the window itself
+   they would be trapped and clipped inside it. A pseudo-element captures nothing. */
+[data-look="glass"] :is(.ui-card, [data-wm-window], .stk-node) { background-color: transparent; isolation: isolate; }
+[data-look="glass"] :is(.ui-card, [data-wm-window], .stk-node)::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none;
+  background-color: color-mix(in srgb, var(--surface) 72%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  backdrop-filter: blur(20px) saturate(150%);
+}
+[data-look="glass"] .stk-node::before { background-color: color-mix(in srgb, var(--surface) 80%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+[data-look="glass"] .ui-card { box-shadow: var(--ui-shadow-lg); }
+/* A page window's body carries the ambient light itself, opaque: windows stack, and a
+   translucent body let the desktop's icons and the window beneath ghost through the
+   page. Lit from inside instead, the glass cards on the page still sit on light. The
+   canvas (.stk-ambient, pages/StackDesigner.jsx) gets the same light under its grid. */
+[data-look="glass"] :is([data-wm-window] > .bg-bg, .stk-ambient) {
+  background:
+    radial-gradient(1000px 640px at 12% 0%, color-mix(in srgb, var(--primary) 16%, transparent), transparent 65%),
+    radial-gradient(800px 560px at 96% 100%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 65%),
+    var(--bg);
+}
+[data-look="glass"] :is(.ui-btn, .ui-badge, .ui-input:not(textarea)) { border-radius: 9999px; }
+/* The primary button is lit from above: the primary, a step lighter at the top, with
+   the inner highlight — the one gradient in the look, so it is the obvious next step. */
+[data-look="glass"] .ui-btn.bg-primary {
+  background-image: linear-gradient(150deg, color-mix(in srgb, var(--primary) 72%, white), var(--primary) 70%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .3), 0 10px 24px -12px var(--primary);
+}
+/* An engine's tile (lib/engines.js, data-engine-tile) is glossy in glass: the engine's
+   colour as a lit gradient with a white glyph, where the other looks wear a tint. */
+[data-look="glass"] [data-engine-tile] {
+  background: linear-gradient(140deg, color-mix(in srgb, var(--tone) 68%, white), var(--tone) 72%) !important;
+  border-color: transparent !important;
+  color: #fff !important;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .35), 0 6px 16px -6px var(--tone);
+}
+/* The desktop wallpaper's light, brighter: indigo from the top left, teal from the
+   bottom right — the ambient light every glass surface is seen against. */
+[data-look="glass"] .desk-wallpaper {
+  background:
+    radial-gradient(circle, color-mix(in srgb, var(--fg) 7%, transparent) 1px, transparent 1.4px) 0 0 / 26px 26px,
+    radial-gradient(900px 620px at 16% 6%, color-mix(in srgb, var(--primary) 30%, transparent), transparent 62%),
+    radial-gradient(760px 520px at 90% 94%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 62%),
+    var(--bg);
+}
 
 /* slim themed scrollbars */
 ::-webkit-scrollbar { width: 10px; height: 10px; }

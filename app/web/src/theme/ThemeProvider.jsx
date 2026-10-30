@@ -11,6 +11,10 @@ import { createContext, useContext, useEffect, useState } from 'react'
 // lines of colour rather than four more variants to draw.
 
 export const THEMES = [
+  // The Glass pair lead the list: they are the default, and the two the Glass look
+  // was drawn for (index.css).
+  { id: 'glass-dark', label: 'Glass Dark', swatch: '#6366f1' },
+  { id: 'glass-light', label: 'Glass Light', swatch: '#c7d2fe' },
   { id: 'light', label: 'Light', swatch: '#4f46e5' },
   { id: 'dark', label: 'Dark', swatch: '#6366f1' },
   { id: 'midnight', label: 'Midnight', swatch: '#7c5cff' },
@@ -19,14 +23,19 @@ export const THEMES = [
   { id: 'forest', label: 'Forest', swatch: '#2fae66' },
 ]
 
-// The four looks. `hint` is what the Settings page prints under each one, so it
+// The five looks. `hint` is what the Settings page prints under each one, so it
 // says what the look is FOR rather than listing what it changes — the preview
 // beside it already shows that.
 export const LOOKS = [
   {
+    id: 'glass',
+    label: 'Glass',
+    hint: 'Frosted panels over soft ambient light, Geist type, pill controls and glossy engine tiles. The default; drawn for the two Glass themes.',
+  },
+  {
     id: 'modern',
     label: 'Modern',
-    hint: 'Rounded cards, soft shadows, comfortable rows. The default.',
+    hint: 'Rounded cards, soft shadows, comfortable rows.',
   },
   {
     id: 'industrial',
@@ -63,8 +72,8 @@ function stored(key, fallback, valid) {
 }
 
 export function ThemeProvider({ children }) {
-  const [theme, setTheme] = useState(() => stored(THEME_KEY, 'dark', THEMES))
-  const [look, setLook] = useState(() => stored(LOOK_KEY, 'modern', LOOKS))
+  const [theme, setTheme] = useState(() => stored(THEME_KEY, 'glass-dark', THEMES))
+  const [look, setLook] = useState(() => stored(LOOK_KEY, 'glass', LOOKS))
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)

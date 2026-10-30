@@ -12,7 +12,7 @@ import { TABS_DEFAULT } from '../lib/tabs.js'
 // fallback, which is what paints the login screen and avoids a flash before this fetch lands.
 
 const DEFAULTS = {
-  terminalMode: 'docked', theme: 'dark', look: 'modern',
+  terminalMode: 'docked', theme: 'glass-dark', look: 'glass',
   deploymentBackend: 'docker', nodeLibrary: 'menu', tooltips: 'on', terminalsOnTop: 'on', maxTabs: TABS_DEFAULT,
   // Off until the account says otherwise (app/scratchboard.go): no board is kept by default.
   scratchboard: 'off',

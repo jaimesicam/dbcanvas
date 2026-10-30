@@ -34,7 +34,10 @@ export function Card({ title, subtitle, action, className = '', children }) {
 // toneTile is a tinted icon tile in a group's (or an engine's) colour: the colour on
 // the glyph, a wash of it behind, and a rim of it — readable on all six themes because
 // the wash is mixed into the theme's own surface rather than laid over it.
+// --tone carries the colour on for a look that draws the tile differently (Glass makes
+// an engine's tile glossy — see [data-engine-tile] in index.css).
 export const toneTile = (tone) => ({
+  '--tone': tone,
   color: tone,
   background: `color-mix(in srgb, ${tone} 14%, var(--surface))`,
   borderColor: `color-mix(in srgb, ${tone} 30%, transparent)`,

@@ -67,6 +67,7 @@ const (
 
 // themes recognised by the web UI (theme/ThemeProvider.jsx — keep in sync).
 var validThemes = map[string]bool{
+	"glass-dark": true, "glass-light": true,
 	"light": true, "dark": true, "midnight": true,
 	"solarized": true, "synthwave": true, "forest": true,
 }
@@ -86,7 +87,7 @@ const (
 // density, heading typeface — and is chosen independently of the theme, which
 // is only its colour. Every look works in every theme.
 var validLooks = map[string]bool{
-	"modern": true, "industrial": true, "editorial": true, "soft": true,
+	"glass": true, "modern": true, "industrial": true, "editorial": true, "soft": true,
 }
 
 // UserSettings is a user's UI preferences. Defaults apply to every field that is missing or
@@ -109,7 +110,7 @@ type UserSettings struct {
 
 func defaultSettings() UserSettings {
 	return UserSettings{
-		TerminalMode: TerminalDocked, Theme: "dark", Look: "modern",
+		TerminalMode: TerminalDocked, Theme: "glass-dark", Look: "glass",
 		DeploymentBackend: BackendDocker, NodeLibrary: LibraryMenu,
 		Tooltips: TooltipsOn, TerminalsOnTop: TerminalsOnTopOn, MaxTabs: defaultMaxTabs,
 		Scratchboard: ScratchboardStoreOff,
