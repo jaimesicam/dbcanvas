@@ -1,7 +1,10 @@
 // Avatar — the picture beside a person's name: an account's (app/profile.go) or a
 // shared-session guest's.
 //
-// An avatar is one of a fixed set, stored by id: a glyph on a colour of its own.
+// An avatar is one of a fixed set, stored by id: a glyph on a colour of its own. The colour is
+// a tint, not a fill — .avatar-disc (index.css) blends it into the theme's surface as a frosted
+// disc, so the set sits in a glass UI rather than as 48 opaque coloured buttons, and works on
+// light and dark themes alike.
 // Nothing is uploaded, so there is nothing to store, scan or serve, and every
 // browser draws the same set. With none chosen, the person's initials stand in.
 //
@@ -37,6 +40,26 @@ export const AVATARS = [
   { id: 'rainbow', glyph: '🌈', bg: '#0ea5e9', label: 'Rainbow' },
   { id: 'robot', glyph: '🤖', bg: '#6366f1', label: 'Robot' },
   { id: 'alien', glyph: '👽', bg: '#7c3aed', label: 'Alien' },
+  { id: 'otter', glyph: '🦦', bg: '#a16207', label: 'Otter' },
+  { id: 'hedgehog', glyph: '🦔', bg: '#b45309', label: 'Hedgehog' },
+  { id: 'sloth', glyph: '🦥', bg: '#78716c', label: 'Sloth' },
+  { id: 'flamingo', glyph: '🦩', bg: '#ec4899', label: 'Flamingo' },
+  { id: 'parrot', glyph: '🦜', bg: '#16a34a', label: 'Parrot' },
+  { id: 'peacock', glyph: '🦚', bg: '#0d9488', label: 'Peacock' },
+  { id: 'hamster', glyph: '🐹', bg: '#f59e0b', label: 'Hamster' },
+  { id: 'chick', glyph: '🐥', bg: '#facc15', label: 'Chick' },
+  { id: 'elephant', glyph: '🐘', bg: '#64748b', label: 'Elephant' },
+  { id: 'giraffe', glyph: '🦒', bg: '#d97706', label: 'Giraffe' },
+  { id: 'zebra', glyph: '🦓', bg: '#334155', label: 'Zebra' },
+  { id: 'deer', glyph: '🦌', bg: '#92400e', label: 'Deer' },
+  { id: 'shark', glyph: '🦈', bg: '#0369a1', label: 'Shark' },
+  { id: 'dolphin', glyph: '🐬', bg: '#0ea5e9', label: 'Dolphin' },
+  { id: 'crab', glyph: '🦀', bg: '#dc2626', label: 'Crab' },
+  { id: 'snail', glyph: '🐌', bg: '#65a30d', label: 'Snail' },
+  { id: 'mushroom', glyph: '🍄', bg: '#e11d48', label: 'Mushroom' },
+  { id: 'sunflower', glyph: '🌻', bg: '#eab308', label: 'Sunflower' },
+  { id: 'planet', glyph: '🪐', bg: '#8b5cf6', label: 'Planet' },
+  { id: 'coffee', glyph: '☕', bg: '#7c2d12', label: 'Coffee' },
 ]
 
 const BY_ID = Object.fromEntries(AVATARS.map((a) => [a.id, a]))
@@ -57,11 +80,11 @@ export function fullName(u) {
 // initials when there is none, and the tooltip.
 export function Avatar({ avatar, name, size = 28, className = '', title }) {
   const a = BY_ID[avatar]
-  const style = { width: size, height: size, fontSize: a ? Math.round(size * 0.56) : Math.round(size * 0.4) }
+  const style = { width: size, height: size, fontSize: a ? Math.round(size * 0.52) : Math.round(size * 0.4) }
   if (a) {
     return (
-      <span title={title ?? name} className={`inline-flex shrink-0 select-none items-center justify-center rounded-full leading-none ${className}`}
-        style={{ ...style, background: a.bg }} aria-label={name ? `${name} (${a.label})` : a.label}>
+      <span title={title ?? name} className={`avatar-disc inline-flex shrink-0 select-none items-center justify-center rounded-full leading-none ${className}`}
+        style={{ ...style, '--av': a.bg }} aria-label={name ? `${name} (${a.label})` : a.label}>
         <span aria-hidden>{a.glyph}</span>
       </span>
     )
@@ -77,7 +100,7 @@ export function Avatar({ avatar, name, size = 28, className = '', title }) {
 // AvatarPicker is the grid to choose one from.
 export function AvatarPicker({ value, onChange, size = 36 }) {
   return (
-    <div className="grid max-w-[22rem] grid-cols-7 gap-1.5" role="radiogroup" aria-label="Avatar">
+    <div className="grid max-w-[24rem] grid-cols-8 gap-1.5" role="radiogroup" aria-label="Avatar">
       {AVATARS.map((a) => {
         const on = value === a.id
         return (

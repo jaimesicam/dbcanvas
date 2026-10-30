@@ -84,6 +84,9 @@ export default function Dashboard() {
   const cpuFrac = (t) => t.value / 100
   const memFrac = (t) => (t.row.memPercent || 0) / 100
   const rateFrac = (t, max) => t.value / Math.max(max, 1 << 20)
+  // On the system-wide dashboard a row also says whose stack it is; on a user's own every row
+  // would carry their name.
+  const showOwner = admin
   const openStack = (id) => openStackInDesigner((page) => { location.hash = page }, id)
   // With nothing running there will never be a second sample, so the rate charts say so
   // rather than wait on one.
@@ -129,10 +132,10 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         <Card title="Top containers" subtitle="By CPU — a full bar is one core">
-          <TopBars items={bars(stats?.nodes, 'cpuPercent', pct, cpuFrac)} empty="No running containers" accent="var(--color-primary)" onOpen={openStack} />
+          <TopBars items={bars(stats?.nodes, 'cpuPercent', pct, cpuFrac)} empty="No running containers" accent="var(--color-primary)" onOpen={openStack} showOwner={showOwner} />
         </Card>
         <Card title="Top containers" subtitle="By memory — a full bar is the container's limit">
-          <TopBars items={bars(stats?.nodes, 'memUsed', fmtBytes, memFrac)} empty="No running containers" accent="var(--color-accent)" onOpen={openStack} />
+          <TopBars items={bars(stats?.nodes, 'memUsed', fmtBytes, memFrac)} empty="No running containers" accent="var(--color-accent)" onOpen={openStack} showOwner={showOwner} />
         </Card>
         <Card title="By engine" subtitle="Running DB nodes">
           {/* Empty while a deploy is still bringing its databases up said "Nothing running"
@@ -145,10 +148,10 @@ export default function Dashboard() {
 
       {/* Per-node network / disk rates */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Card title="Top network in" subtitle="Per node (live)"><TopBars items={bars(rates, 'netIn', rate, rateFrac)} empty={idle} accent="var(--color-success)" onOpen={openStack} /></Card>
-        <Card title="Top network out" subtitle="Per node (live)"><TopBars items={bars(rates, 'netOut', rate, rateFrac)} empty={idle} accent="var(--color-accent)" onOpen={openStack} /></Card>
-        <Card title="Top disk in" subtitle="Per node (live)"><TopBars items={bars(rates, 'diskIn', rate, rateFrac)} empty={idle} accent="var(--color-warning)" onOpen={openStack} /></Card>
-        <Card title="Top disk out" subtitle="Per node (live)"><TopBars items={bars(rates, 'diskOut', rate, rateFrac)} empty={idle} accent="var(--color-primary)" onOpen={openStack} /></Card>
+        <Card title="Top network in" subtitle="Per node (live)"><TopBars items={bars(rates, 'netIn', rate, rateFrac)} empty={idle} accent="var(--color-success)" onOpen={openStack} showOwner={showOwner} /></Card>
+        <Card title="Top network out" subtitle="Per node (live)"><TopBars items={bars(rates, 'netOut', rate, rateFrac)} empty={idle} accent="var(--color-accent)" onOpen={openStack} showOwner={showOwner} /></Card>
+        <Card title="Top disk in" subtitle="Per node (live)"><TopBars items={bars(rates, 'diskIn', rate, rateFrac)} empty={idle} accent="var(--color-warning)" onOpen={openStack} showOwner={showOwner} /></Card>
+        <Card title="Top disk out" subtitle="Per node (live)"><TopBars items={bars(rates, 'diskOut', rate, rateFrac)} empty={idle} accent="var(--color-primary)" onOpen={openStack} showOwner={showOwner} /></Card>
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
@@ -208,7 +211,7 @@ const shortName = (n) => n.replace(/^(?!k3d-)[a-z][a-z0-9-]*?-(?=\d+-)/, '').rep
 // TopBars renders a ranked horizontal bar chart (top-N). HTML/CSS bars keep the app's
 // font crisp and animate smoothly — no distorted SVG text. Each item carries its own frac
 // (see bars() in Dashboard); a row with a known stack opens it in Database Stacks.
-function TopBars({ items, empty, accent = 'var(--color-primary)', onOpen }) {
+function TopBars({ items, empty, accent = 'var(--color-primary)', onOpen, showOwner }) {
   if (!items || !items.length) return empty ? <div className="py-6 text-center text-sm text-muted">{empty}</div> : <Pending />
   return (
     <div className="space-y-2">
@@ -218,9 +221,12 @@ function TopBars({ items, empty, accent = 'var(--color-primary)', onOpen }) {
         const click = onOpen && r.stackId ? () => onOpen(r.stackId) : undefined
         return (
           <div key={it.name} className={click ? 'cursor-pointer rounded hover:bg-surface2/60' : ''} onClick={click}
-            title={click ? `${it.name} — open ${r.stack || 'its stack'} in Database Stacks` : it.name}>
+            title={`${it.name}${r.owner ? ` · ${r.owner}` : ''}${click ? ` — open ${r.stack || 'its stack'} in Database Stacks` : ''}`}>
             <div className="mb-0.5 flex items-baseline justify-between gap-3">
-              <span className="truncate text-xs text-fg/90">{name}</span>
+              <span className="min-w-0 truncate text-xs text-fg/90">
+                {name}
+                {showOwner && r.owner && <span className="ml-1.5 text-[11px] text-muted">{r.owner}</span>}
+              </span>
               <span className="shrink-0 text-[11px] tabular-nums text-muted">{it.display}</span>
             </div>
             <div className="h-1.5 overflow-hidden rounded-full bg-surface2">

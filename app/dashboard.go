@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"sort"
 	"sync"
 	"time"
 )
@@ -162,20 +163,41 @@ type containerStatRow struct {
 	State   string `json:"state"`
 	// Stack and Label are what the canvas calls it — "core. dump" / "mysql01" — so a busy
 	// container can be traced to its card. The container name (dbcanvas-10-mysql-mv79p7lz-2) is
-	// built from the stack id and the node's internal id, neither of which is on screen.
+	// built from the stack id and the node's internal id, neither of which is on screen. Owner
+	// is the username of the stack's owner: on a system-wide dashboard, whose load it is.
 	Stack string `json:"stack,omitempty"`
 	Label string `json:"label,omitempty"`
+	Owner string `json:"owner,omitempty"`
 	ContainerStat
 }
 
-// containerLabels maps container names to their stack's name and node's canvas label, for the
-// given stacks: the deployments say which container is which node, the design says its label.
-func (a *App) containerLabels(stackIDs map[int64]bool) map[string][2]string {
-	out := map[string][2]string{}
+// canvasName is what the canvas calls a container: its stack, its node, and whose stack.
+type canvasName struct{ Stack, Label, Owner string }
+
+func (row *containerStatRow) name(n canvasName) {
+	row.Stack, row.Label, row.Owner = n.Stack, n.Label, n.Owner
+}
+
+// containerLabels maps container names to their stack's name, node's canvas label and owner, for
+// the given stacks: the deployments say which container is which node, the design says its label.
+//
+// A K3D frame's containers are not on any deployment — k3d names them (k3dNodeContainer) — so
+// they are worked out from the frame: its members in the order the deploy numbered them, and
+// the load balancer k3d puts in front of the servers, which is the frame's own.
+func (a *App) containerLabels(stackIDs map[int64]bool) map[string]canvasName {
+	out := map[string]canvasName{}
+	owners := map[int64]string{}
 	for id := range stackIDs {
 		st, err := a.store.GetStack(id)
 		if err != nil {
 			continue
+		}
+		owner, ok := owners[st.OwnerID]
+		if !ok {
+			if u, err := a.store.GetUser(st.OwnerID); err == nil {
+				owner = u.Username
+			}
+			owners[st.OwnerID] = owner
 		}
 		var doc designDoc
 		_ = json.Unmarshal(st.Design, &doc)
@@ -184,10 +206,32 @@ func (a *App) containerLabels(stackIDs map[int64]bool) map[string][2]string {
 			label[n.ID] = n.Label
 		}
 		deps, _ := a.store.ListDeployments(id)
+		depOf := map[string]Deployment{}
 		for _, d := range deps {
+			depOf[d.NodeID] = d
 			if d.ContainerName != "" {
-				out[d.ContainerName] = [2]string{st.Name, label[d.NodeID]}
+				out[d.ContainerName] = canvasName{st.Name, label[d.NodeID], owner}
 			}
+		}
+		for _, f := range doc.Frames {
+			if f.Type != "k3d" {
+				continue
+			}
+			var members []designNode
+			for _, n := range doc.Nodes {
+				if n.FrameID == f.ID && n.Type == "k3d" {
+					members = append(members, n)
+				}
+			}
+			if len(members) == 0 {
+				continue
+			}
+			sort.Slice(members, func(i, j int) bool { return members[i].Label < members[j].Label })
+			cluster := k3dDeployedCluster(id, f, depOf[members[0].ID])
+			for i, m := range members {
+				out[k3dNodeContainer(cluster, i)] = canvasName{st.Name, m.Label, owner}
+			}
+			out[k3dContainerPrefix+cluster+"-serverlb"] = canvasName{st.Name, f.Label + " load balancer", owner}
 		}
 	}
 	return out
@@ -272,7 +316,7 @@ func (a *App) checkThresholds(rows []containerStatRow, ci []ContainerInfo) {
 	for _, c := range ci {
 		idByName[c.Name] = c.ID
 	}
-	var names map[string][2]string // looked up only once something is over a threshold
+	var names map[string]canvasName // looked up only once something is over a threshold
 	for _, row := range rows {
 		if row.State != "running" {
 			continue
@@ -303,7 +347,7 @@ func (a *App) checkThresholds(rows []containerStatRow, ci []ContainerInfo) {
 			names = a.containerLabels(ids)
 		}
 		if n, ok := names[row.Name]; ok {
-			row.Stack, row.Label = n[0], n[1]
+			row.name(n)
 		}
 		a.notifyStack(row.StackID, "resource.alert", "warning", "High resource usage",
 			statDisplayName(row)+": "+msg, "")
@@ -349,7 +393,7 @@ func (a *App) handleDashboardStats(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if n, ok := names[row.Name]; ok {
-			row.Stack, row.Label = n[0], n[1]
+			row.name(n)
 		}
 		totCPU += row.CPUPercent
 		totMemUsed += float64(row.MemUsed)

@@ -80,7 +80,7 @@ export const NAV = [
   { id: 'k8s-states', label: 'Kubernetes States', icon: 'K8sStates', page: K8sStates, fill: true, hint: 'A live board of every object in a Kubernetes cluster — red for what is broken, lit for what just changed' },
   { id: 'api', label: 'API', icon: 'Code', page: Api, hint: 'Every endpoint, and the tokens that authenticate against them' },
   // Your account: name, avatar, password, tokens. Settings is how the app behaves.
-  { id: 'profile', label: 'Profile', icon: 'Users', page: Profile, hint: 'Your name, avatar, password and API tokens' },
+  { id: 'profile', label: 'Profile', icon: 'User', page: Profile, hint: 'Your name, avatar, password and API tokens' },
   { id: 'settings', label: 'Settings', icon: 'Settings', page: Settings, hint: 'Terminal & appearance preferences' },
 ]
 const ADMIN_NAV = { id: 'users', label: 'Manage Users', icon: 'Users', page: ManageUsers, hint: 'Approve & manage accounts' }
@@ -833,7 +833,7 @@ function AccountMenu({ user, onLogout }) {
             <Badge tone={user?.role === 'admin' ? 'primary' : 'muted'}>{user?.role}</Badge>
           </div>
           <Button variant="subtle" size="sm" className="mb-1 w-full" onClick={() => { setOpen(false); location.hash = 'profile' }}>
-            <Icon.Users size={16} /> Profile
+            <Icon.User size={16} /> Profile
           </Button>
           <Button variant="subtle" size="sm" className="w-full" onClick={onLogout}>
             <Icon.Logout size={16} /> Sign out

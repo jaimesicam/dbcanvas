@@ -29,7 +29,9 @@ var avatarIDs = []string{
 	"fox", "panda", "koala", "owl", "octopus", "whale", "lion", "tiger",
 	"frog", "monkey", "penguin", "unicorn", "bee", "turtle", "butterfly", "wolf",
 	"bear", "rabbit", "dino", "dragon", "cat", "dog", "rocket", "cactus",
-	"clover", "rainbow", "robot", "alien",
+	"clover", "rainbow", "robot", "alien", "otter", "hedgehog", "sloth", "flamingo",
+	"parrot", "peacock", "hamster", "chick", "elephant", "giraffe", "zebra", "deer",
+	"shark", "dolphin", "crab", "snail", "mushroom", "sunflower", "planet", "coffee",
 }
 
 func validAvatar(id string) bool {

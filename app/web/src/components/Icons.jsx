@@ -437,6 +437,14 @@ export const Icon = {
       <line x1="10" y1="10" x2="10" y2="20" />
     </Svg>
   ),
+  // One person in a circle: your own account. Users (two people) is everybody's.
+  User: (p) => (
+    <Svg {...p}>
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="10" r="3" />
+      <path d="M6.6 18.2c1.2-1.9 3.1-2.9 5.4-2.9s4.2 1 5.4 2.9" />
+    </Svg>
+  ),
   Users: (p) => (
     <Svg {...p}>
       <circle cx="9" cy="8" r="3" />

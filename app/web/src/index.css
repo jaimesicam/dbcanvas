@@ -505,3 +505,18 @@ html[data-mirroring] [data-wm-taskbar] { display: none; }
   .wm-open, .stk-flow, .status-pulse { animation: none; }
   .lift, .lift:hover { transition: none; transform: none; }
 }
+
+/* An avatar (components/Avatar.jsx): its colour (--av) as a frosted tint over the theme's
+   surface — lighter at the top left, where the light comes from, with the same 1px top
+   highlight every glass surface has and a hairline ring of the tint. Mixed into --surface
+   rather than drawn over it, so on a dark theme it is a deep tinted glass and on a light
+   one a pastel, and no avatar is louder than the panel it sits on. */
+.avatar-disc {
+  background:
+    radial-gradient(circle at 30% 22%, color-mix(in oklch, var(--av) 18%, var(--surface)) 0%,
+      color-mix(in oklch, var(--av) 42%, var(--surface)) 78%);
+  box-shadow:
+    inset 0 1px 0 var(--glass-hi, rgb(255 255 255 / .35)),
+    inset 0 0 0 1px color-mix(in oklch, var(--av) 45%, transparent),
+    0 4px 12px -6px color-mix(in oklch, var(--av) 60%, transparent);
+}

@@ -28209,3 +28209,56 @@ container IP (§481).
   Intranet did.
 - Headless Chromium: the list draws under the frame with both rows; no page errors.
 - The test stack was deleted afterwards.
+
+## 485. Dashboard top lists name every container and its owner; Profile gets its own icon — `app/dashboard.go`, `app/web/src/pages/Dashboard.jsx`, `app/web/src/components/Icons.jsx`, `app/web/src/App.jsx`
+
+**Symptom.** In the Dashboard's six "Top …" lists, a K3D frame's containers showed as their bare
+container names (`k3d-k3d-00-s2-builder-server-0`), with no stack, while every other row read
+"stack / node". On the system-wide (admin) dashboard nothing said whose stack a busy container
+belonged to. Separately, Profile and Manage Users used the same `Users` icon.
+
+**Cause.** `containerLabels` read names off the deployments' `ContainerName`, and k3d names its
+own containers, so no deployment carries them.
+
+**Fix.**
+- `containerLabels` now returns a `canvasName{Stack, Label, Owner}` per container. Owner is the
+  stack owner's username (looked up once per owner). For each `k3d` frame it works out the
+  members' containers the way `provisionK3DFrame` numbered them (members sorted by label,
+  `k3dNodeContainer(k3dDeployedCluster(…), i)`), plus `k3d-<cluster>-serverlb`, which is labelled
+  "<frame> load balancer".
+- `containerStatRow` gains `owner`; resource alerts use the same names (`row.name(n)`).
+- `TopBars` shows the owner as a muted suffix after "stack / node" on the system-wide dashboard
+  only (on a user's own dashboard every row would carry their name), and adds it to the tooltip.
+- New `Icon.User` (one person in a circle) for Profile, in the nav and in the account menu; Manage
+  Users keeps `Users` (two people).
+
+**Verification performed.**
+- `go build`, `go vet`, `go test` (dashboard/K3D subset); `npm run build`; image rebuilt and
+  redeployed.
+- Live: `GET /api/dashboard/stats` on a stack with a one-node K3D frame returned
+  `k3d-…-server-0 → TEst Stack / k3s01 / admin` and `k3d-…-serverlb → TEst Stack / k3d-00 load
+  balancer / admin`; every other container also carried stack, node and owner.
+- Headless Chromium: all six top lists show "stack / node owner"; the Menu shows distinct Profile
+  and Manage Users icons.
+
+## 486. Avatars as frosted glass discs, and 20 more of them — `app/web/src/components/Avatar.jsx`, `app/web/src/index.css`, `app/profile.go`
+
+**Why.** Avatars were emoji on opaque, fully saturated discs (Tailwind 500–700 fills): the only
+opaque, multicolour element in the glass UI, and the loudest thing on any panel they sat on.
+
+**Change.**
+- An avatar's `bg` is now a tint (`--av`), drawn by `.avatar-disc` (`index.css`): a radial
+  gradient of the tint mixed into `--surface` (18% at the top left, 42% at the rim), the
+  `--glass-hi` top highlight, a hairline ring of the tint and a soft tinted shadow. Mixing into the
+  surface rather than painting over it gives a pastel disc on light themes and a deep tinted glass
+  one on dark themes, with no per-theme rules. The glyph is 52% of the disc (was 56%).
+- 20 new avatars, appended so every saved id stays valid: otter, hedgehog, sloth, flamingo,
+  parrot, peacock, hamster, chick, elephant, giraffe, zebra, deer, shark, dolphin, crab, snail,
+  mushroom, sunflower, planet, coffee (48 in all). `avatarIDs` in `app/profile.go` lists the same
+  ids in the same order (`profile_test.go` checks it).
+- The picker is 8 columns (48 = 6 rows), `max-w-[24rem]`.
+
+**Verification performed.**
+- `go test` (avatar/profile), `npm run build`; image rebuilt and redeployed.
+- Headless Chromium: the Profile picker screenshotted under Glass Light and Glass Dark. All 48
+  glyphs render; the discs read as pastel glass on light and tinted glass on dark.
