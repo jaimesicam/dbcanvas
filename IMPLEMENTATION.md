@@ -26887,3 +26887,809 @@ rejected it and the click did nothing (`openThread` had always sent `String(n)`;
 Verified live against the `ps-locks-mdl` core, both directions: the UPDATE waiter (gdb thread 8)
 named the SLEEP holder (thread 10), and clicking through to thread 10 flipped the banner to "blocking
 thread 8", each with `root@localhost` and the holder's `SELECT SLEEP(3600)`. SSR `smoke` passes.
+
+## 434. All-in-One: Patroni EPEL and Spock `output_plugin_libraries` on Oracle Linux — `app/aio_pg.go`
+
+The two fixes the dedicated Patroni and Spock frames already had, applied to All-in-One instances:
+
+- **Patroni on EL8.** The Percona PostgreSQL/Patroni install enables EPEL first, because EL8's
+  `percona-patroni` needs `python3-wcwidth` and `python3.12-dns`.
+- **Spock on PostgreSQL 18.6+.** The instance names `spock_output` in `output_plugin_libraries`.
+
+Tested on an EL8 AiO with pg (17), patroni ×3 (17), repmgr ×3 (16) and spock ×3 (18.6): all
+running, Patroni and repmgr streaming, Spock replicating.
+
+## 435. Release 0.0.20 — `VERSION`, `app/whatsnew.go`, `README.md`
+
+Release notes for everything since 0.0.19, in the What's New dialog (`whatsnew.go`) and the
+README:
+- PostgreSQL 13–18 on Oracle Linux 8 across standalone, Patroni, repmgr, Spock and All-in-One
+  (EPEL for Patroni, `output_plugin_libraries` for Spock on 18.6)
+- restore and point-in-time recovery for PostgreSQL and Patroni
+- pg_tde on Patroni with WAL encryption and key rotation
+- pgAudit, set_user and pgbench
+- Patroni, repmgr and Keycloak OIDC on Ubuntu
+- Database Stacks fixes: Deploy locked while provisioning, panels in front of their window,
+  docker exec on k3s, and dashboard scales
+
+`VERSION` is 0.0.20.
+
+## 436. ProxySQL across 5.7–9.7 on EL8, deploy waits that fail fast, restart recovery — `app/proxysql.go`, `app/deployrun.go`, `app/store.go`, `app/main.go`, `app/{aio_mysql,aio_proxy,innodb,mariadb,mysql,pxc,intranet,stocksim}.go`, `app/deploywait_test.go`
+
+**ProxySQL** (`proxysql.go`):
+- **Client install.** It disables EL8's `mysql` module, which hid `percona-server-client`
+  ("Unable to find a match"). It then installs the backend series' own client package
+  (`Percona-Server-client-57` / `percona-server-client-5.7` for 5.7).
+- **ProxySQL before 2.6 cannot use `caching_sha2_password`** for backend connections. On PXC 8.0,
+  2.0.13–2.5.5 deployed and then refused every query as the app user. Those builds now get the app
+  user on `mysql_native_password`, noted in the deploy log. 8.4 and 9.x have no such fallback, so
+  those pairings are refused.
+- **Validation** refuses pairs `proxysql-admin` cannot run with. It knows clients up to 8.0 in
+  2.0–2.7.1, 8.4 from 2.7.3 / 3.0.1, and 9.6/9.7 only in 3.0.9 (`TestProxySQLBackendMatrix`,
+  `TestProxySQLBelow26`).
+- **Monitor user connection cap** goes from 10 to 100 on every backend kind (`mysql.go`, `pxc.go`,
+  `innodb.go`, `mariadb.go`, `aio_mysql.go`). Each ProxySQL holds one or two connections, so a
+  9-member ProxySQL cluster could not connect.
+
+**Deploy waits** (`deployrun.go`). A linked node waiting on a ProxySQL, or on a replication
+cluster whose primary (or every member) failed, now fails at once. Before, it held the stack
+"deploying" until the 60-minute timeout (`deploywait_test.go`: `waitProxySQLRunning`,
+`waitMySQLFamilyFrame`).
+
+**Restart recovery** (`store.go`, called from `main.go`). At startup,
+`failInterruptedDeployments` marks nodes a previous server process left pending or provisioning
+as failed, with the reason. A restart no longer leaves a stack locked; deploying again finishes
+them.
+
+Verified on Oracle Linux 8 with writes and reads through 6033:
+- PS 5.7 with ProxySQL 2.0.13 and 2.7.3
+- PXC 8.0 with 2.0.13, 2.5.5 and 2.7.3
+- PS 8.0 with 2.0.13 and 2.5.5
+- PXC 8.4 and PS 9.7 with 2.7.3
+
+## 437. Detached Deployment and Properties panels keep their title bars reachable — `app/web/src/pages/StackDesigner.jsx`, `app/web/src/App.jsx`
+
+Dragging either detached panel upward could put its title bar, its only handle, out of reach.
+Nothing bounded the move, and the app header (`z-50`) and desktop taskbar (`z-44`) are drawn over
+these panels (`z-40`), so stopping at the viewport edge still left the bar covered.
+
+`onScreen(f)` now clamps the position below the header, above the taskbar, and a grab-width
+inside the side edges. It is applied while dragging and when drawing, so a position already
+saved off-screen comes back on its own.
+
+## 438. LDAP and Keycloak on PS replication and PXC, XtraBackup to SeaweedFS, MongoDB TLS at deploy — `app/clusterauth.go` (new), `app/mysqlbackup.go` (new), `app/{compose,composebuild,dbauth,mysqloidc,mongodb,pbm,intranet,join,mysql,pxc}.go`, `app/web/src/components/XtraBackupPanel.jsx` (new), `app/web/src/pages/{MySQLManager,PXCManager,MongoDBManager,StackDesigner}.jsx`
+
+**Directory and OIDC authentication on clusters** (`clusterauth.go`). PS replication and PXC
+frames get the standalone Percona Server's LDAP (`authentication_ldap_simple`) and Keycloak
+(`auth_openid_connect`) options. They are set on the frame and wired into every member.
+
+Every member loads the plugins before the accounts that use them replicate:
+- **Replication:** replicas restart first, then the primary creates the Keycloak accounts.
+  Replicas reconnect right after the primary's restart instead of waiting out the 60 s retry.
+- **PXC:** the bootstrap member is set up while it is alone, and joiners get the options before
+  their first start.
+
+Compose and validation refuse:
+- Keycloak below 8.4.11-11 / 9.7.2-2. When no minor version is pinned, they check the catalog's
+  newest PXC build.
+- LDAP on 5.7.
+
+The LDAP step (`dbauth.go`) now takes the service name, verifies the plugin loaded, and reverts
+if it did not.
+
+**XtraBackup to SeaweedFS** (`mysqlbackup.go`, Backup tab `XtraBackupPanel.jsx`). Backups of
+standalone PS, PS replication and PXC go to a SeaweedFS bucket, full and incremental. Restore can
+target one backup, the latest point, or a point in time from shipped binary logs. Routes are in
+`api_routes.go`; the client is in `stackApi.js`.
+
+**MongoDB.** A node with a certificate turns TLS on at deploy (`preferTLS`, `mongotls_test.go`).
+PBM backups wait for completion (`pbm.go`).
+
+## 439. Percona ClusterSync for MongoDB: Linux Client panel and PSMDB operator option — `app/lcclustersync.go` (new), `app/k3dclustersync.go` (new), `app/k3dpsmdb.go`, `app/web/src/components/ClusterSyncPanel.jsx` (new), `app/web/src/components/K3DClusterSync.jsx` (new), `app/web/src/index.css`
+
+**Linux Client** (`lcclustersync.go`, `ClusterSyncPanel.jsx`). A deployed node with `pcsm` gets a
+ClusterSync panel that syncs one of the stack's MongoDB replica sets or sharded clusters into
+another.
+
+- **Unsupported pairs** are shown with the reason. Supported means:
+  - the same major version, or 6.0 → 7.0/8.0, or 7.0 → 8.0
+  - a matching topology, or sharded → replica set
+  - each side at its minimum version
+- **Setup.** DBCanvas creates `pcsm-source` / `pcsm-target` accounts with the documented roles,
+  and points `pcsm.service` at the pair through a drop-in.
+- **Live view:** clone bytes and rate, lag with history, events read and applied, the PCSM log,
+  and pause / resume / finalize / verify counts / stop.
+
+Tested end to end on Oracle Linux 8/9/10, Debian 12/13 and Ubuntu 22.04/24.04.
+
+**PSMDB operator 1.23.0+** (`k3dclustersync.go`, `K3DClusterSync.jsx`). A K3D frame can sync from
+a PS MongoDB cluster on the canvas through a `PerconaServerMongoDBClusterSync`, at deploy or from
+the node's ClusterSync tab. It has the same live view and `spec.mode` controls.
+
+- **Stop and remove** deletes the CR and its Secret and clears PCSM's state on the target, which
+  otherwise makes the next sync crash-loop.
+- **The CR** carries probes that give `/status` room to answer during a clone, and workers sized
+  to the frame's CPUs.
+
+**WiredTiger cache on K3D PSMDB** (`k3dpsmdb.go`). Each mongod's cache is now sized from the
+frame's memory budget. With resource limits commented out it had been sized from the whole
+Docker host (12 GB per pod in an 8 GB cluster) and starved under write load.
+
+Both views include "Do it by hand" instructions filled in with the stack's hosts and names,
+verified by running them as written. The `pcsm-flow` / `pcsm-flow-v` classes in `index.css`
+animate the source → target link while data moves.
+
+## 440. Release 0.0.21 — `VERSION`, `app/whatsnew.go`, `README.md`
+
+Release notes for everything since 0.0.20:
+- Percona ClusterSync for MongoDB on the Linux Client (all seven releases) and through the PSMDB
+  operator 1.23+, with K3D PSMDB caches sized to the frame
+- LDAP and Keycloak on PS Replication and PXC
+- XtraBackup backups with point-in-time restore to SeaweedFS
+- MongoDB TLS at deploy
+- ProxySQL across 5.7–9.7 on EL8, deploys that fail fast, restart recovery, and reachable
+  detached panels
+
+`VERSION` is 0.0.21.
+
+## 441. Linux Client: cfssl and cfssljson as one install option — `app/linuxclient_k8s.go`, `app/linuxclient.go`, `app/intranet.go`, `app/web/src/pages/StackDesigner.jsx`
+
+One checkbox beside kubectl, Helm and cmctl installs CloudFlare's PKI pair from the latest release
+(`lcCfsslRepo`):
+- **Version.** The tag is resolved from the `/latest` redirect, because the asset names carry the
+  version.
+- **Integrity.** Both binaries are checked against the release's checksums before either reaches
+  `PATH`.
+- **Proxy.** The Intranet proxy is honoured.
+
+The version is read back from both binaries and shown as "Certificate tools" on the deployed
+node, separate from the Kubernetes tools and their kubeconfig note.
+
+## 442. PXC operator cross-site replication over SSL, with `sslSkipVerify` — `app/k3dreplssl.go` (new), `app/k3drepl.go`, `app/k3dcr.go`, `app/k3d.go`, `app/certs.go`, `app/dns.go`, `app/intranet.go`, `app/web/src/pages/{K3DManager,StackDesigner}.jsx`
+
+A replica Kubernetes frame can replicate from its source over SSL. The channel gets `ssl`,
+`sslSkipVerify`, `ca`, and the operator's retry defaults (which the operator only fills in when a
+channel has no configuration).
+
+**Certificates.** Both clusters take their certificates from the stack's Intranet CA. They are
+made before `cr.yaml`, so the operator adopts them instead of minting its own CA.
+- **With cert-manager on the frame:** the CA becomes a CA Issuer. DBCanvas applies the two
+  Certificates itself, because they need `ipAddresses`, which the operator's `tls.SANs` cannot
+  express. `tls.issuerConf` / `tls.SANs` point at the same Issuer.
+- **Without cert-manager:** the operator's manual-certificate procedure. An external and an
+  internal certificate are signed in Go and stored as `<cluster>-ssl` / `<cluster>-ssl-internal`.
+
+**Verification on.** The source's certificates also name every address of its MetalLB block and
+`<cluster>-pxc-N.<domain>`. Those names are published in the Intranet DNS once the per-pod
+LoadBalancers have addresses, and the replica dials them.
+
+mysqld serves the internal certificate on 3306, so that is where the names matter. The
+certificates carry `clientAuth` for Galera's own TLS.
+
+**UI.** The Replication tab shows the channel's SSL mode, where the certificates came from and
+the extra names. Two frames sharing the source's cluster name are refused when verification is
+on, because the published names would clash.
+
+## 443. Replication over SSL verifies the source with the internal CA — `app/k3dreplssl.go`, `app/web/src/pages/StackDesigner.jsx`
+
+The replica's channel now takes its `ca` from `/etc/mysql/ssl-internal/ca.crt` instead of
+`cr.yaml`'s example `/etc/mysql/ssl/ca.crt`. The source serves its internal certificate on 3306,
+so the internal CA is the one that matches it, even though both Secrets currently carry the same
+Intranet CA.
+
+## 444. Intranet DNS tab: custom A, CNAME and PTR records — `app/dnscustom.go` (new), `app/dns.go`, `app/stacks.go`, `app/web/src/pages/IntranetManager.jsx`, `docs/{API_REFERENCE,STACKS}.md`
+
+The Intranet panel gets a DNS tab for adding, editing and deleting records beside the ones
+published for every node.
+
+**Storage.** The zones are rebuilt from scratch on every reconcile, so custom records are kept by
+DBCanvas in `app_settings` under `dns:<stack>`, merged in each time, and removed with the stack.
+
+**Precedence:**
+- A custom A or CNAME replaces the automatic record of the same name.
+- A custom PTR, or an A published with its reverse, replaces the automatic PTR for that address.
+- A PTR outside the stack network gets a `/24` reverse zone of its own. This also fixes addresses
+  outside a `/16` stack network being written into its reverse zone under the wrong owner name.
+
+**Code.** `dns.go` now builds the zones in a pure function (`buildDNSZones`) and writes them
+separately (`applyStackDNS`), so the tab can report a failed write. Generated zones were checked
+with `named-checkzone` and `named-checkconf -z`.
+
+## 445. K3D certificates: OpenBao PKI issuer, host names in certificates and DNS, Certificates tab — `app/k3dissuer.go`, `app/k3dtlshosts.go`, `app/k3dcerts.go`, `app/openbaopki.go` (all new), `app/{k3d,k3dps,k3dpsmdb,k3dreplssl,openbao,intranet}.go`, `app/web/src/pages/{K3DManager,OpenBaoManager,StackDesigner}.jsx`
+
+**Certificate issuer** (`k3dissuer.go`). With cert-manager on, a PXC, Percona Server or MongoDB
+frame can name the CA its certificates come from. It is written to `cr.yaml` as
+`tls.issuerConf`, and is either:
+- **the Intranet CA**, as a CA Issuer; or
+- **OpenBao PKI**, as a Vault Issuer (`openbaopki.go`). The OpenBao node's `pki` mount holds the
+  Intranet CA itself and signs through role `dbcanvas`. For MongoDB it uses role `psmdb`, which
+  sets the `O=PSMDB` its members match on for x509 cluster auth. cert-manager logs in with one
+  AppRole per cluster, whose secret-id does not expire.
+
+The mount is deliberately not an intermediate: PXC's SST verifies with
+`openssl verify -CAfile ca.crt tls.crt`, which ignores an intermediate in `tls.crt` and fails
+every joiner. MongoDB takes a named issuer only from operator 1.23.0. The OpenBao node also gets
+a PKI option.
+
+**Host names** (`k3dtlshosts.go`). A frame option puts `<service>.<domain>` for the cluster's
+endpoints into its certificates: `tls.SANs` for PXC and PS, split horizons for MongoDB 1.22+. Once
+the cluster is ready, its LoadBalancer Services are published in the Intranet DNS with PTR
+records, for clients that verify host names.
+
+**Certificates tab** (`k3dcerts.go`, `K3DManager.jsx`). The k3s server panel reads every TLS
+Secret in the cluster's namespace live, every 30 s. It shows `ca.crt` and `tls.crt` details and
+the cert-manager Certificate behind each. It checks dates, the chain, the strict
+`openssl -CAfile` verification and the key. A changed serial is shown as a renewal.
+
+Replication over SSL (§442) now takes its certificates from the frame's issuer.
+
+## 446. Scratchboard: boards, kept boards, card colours, arrows, undo and seven new cards — `app/web/src/pages/Scratchboard.jsx`, `app/web/src/components/scratch/*` (new cards), `app/web/src/lib/scratch/*`, `app/scratchboard.go` (new), `app/{settings,store,encryption,api_routes}.go`, `app/web/src/lib/scratchboardApi.js` (new)
+
+**Boards.**
+- Several boards as tabs, each with its own cards, view and arrows.
+- A right-click on the board opens the card menu and places the card at the pointer.
+- **Undo** (button or Ctrl/Cmd+Z) brings back a closed card, a cleared or removed board, or a
+  removed arrow.
+- **Search** covers every board and jumps to the card.
+- **Import and export.** A board exports to and imports from `.json`, and downloads or copies as
+  Markdown (`lib/scratch/boardfile.js`). A dropped export opens as a board.
+
+**Cards.**
+- Each card takes a background and a text colour, and collapses to its title bar.
+- A card grows with its content until it is resized by hand. Text areas grow up to 30 lines, then
+  scroll.
+- **Arrows** join a card to the card opened from it, or are drawn from the dot on a card's edge.
+  A click removes one.
+
+**Kept boards** (`scratchboard.go`, `scratchboardApi.js`). A new account setting, off by default,
+allows boards to be kept on the server; each board is then temporary or kept.
+- **Storage.** Kept boards are stored sealed (the app's encryption at rest) in the `scratchboards`
+  table on the app-data volume.
+- **Turning the setting off** deletes every kept board.
+- **Stale saves.** Saves carry the revision they were based on, and a save from a stale tab is
+  refused with the stored copy; the page offers both. A board unpinned while a save is in flight
+  has its saved copy deleted.
+
+**New cards** (`components/scratch/`, logic in `lib/scratch/`):
+- **Query digest** (`ptdigest.js`): a port of pt-query-digest 3.x (fingerprint, distill, 32-hex
+  query IDs, profile and per-class report) for slow logs and query lists.
+- **EXPLAIN reader** (`explain.js`): MySQL table, `\G`, JSON, TREE and ANALYZE; PostgreSQL text
+  and JSON.
+- **InnoDB status reader** (`innodb.js`): deadlocks, history list, semaphores, checkpoint age.
+- **Replication status** (`replstatus.js`): MySQL replica status, `rs.status()`,
+  `pg_stat_replication`.
+- **Config compare** (`cnfdiff.js`, `units.js`): my.cnf, SHOW VARIABLES, postgresql.conf,
+  pg_settings and mongod.conf, compared by value with units.
+- **Redactor** (`redact.js`): consistent placeholders for hosts, addresses, users and secrets.
+- **JWT / OIDC decoder** (`jwt.js`): claims, times, and a signature check against a pasted JWKS.
+
+**Send to Scratchboard** from other pages: the K3D Certificates tab (certificates only), the CR
+form spec, Kubernetes object values, and Log Summary lines.
+
+The card menus render into the document body, because the tab wrapper's fade-in leaves a
+transform that would place fixed elements relative to the wrapper. Covered by SSR `smoke` and the
+browser smoke (`smoke/browser.jsx`, `smoke/scratch-certs.js`).
+
+## 447. Design catalogue and design-edit API, user management API, open registration — `app/designcatalog*.go` (new), `app/designedit.go` (new), `app/{users,auth,syssettings,compose,composebuild,stacks,store}.go`, `app/web/src/pages/Settings.jsx`, `.claude/skills/dbcanvas/SKILL.md`, `docs/{API,API_REFERENCE,STACKS}.md`
+
+- **Design catalogue.** `GET /api/stacks/design/catalog` lists every node and cluster type with its
+  options, relations, edges and post-deployment actions. It is split by family across
+  `designcatalog_{mysql,postgres,mongo,k3d,apps,infra}.go`. A test holds it to the design structs,
+  the designer and the route table.
+- **Design editing.** `/api/stacks/{id}/design/nodes|frames|edges` add, change and remove one
+  node, cluster or line at a time, checked against the catalogue (`designedit.go`).
+- **Compose** accepts catalogue-checked `options` and `memberOptions` (`composebuild.go`).
+- **Admin user endpoints** (`users.go`): one account, its stacks and tokens, token revocation, and
+  stack ownership transfer. Deleting an account tears down its stacks, or transfers them with
+  `?transferStacksTo`.
+- **Open registration** (`syssettings.go`, Settings page): a setting, off by default, that
+  approves and signs in new sign-ups.
+- **Database Explorer** renders binary and big-number cells from `mysql.user`.
+- The API reference, `STACKS.md` and the dbcanvas skill cover all of the above.
+
+## 448. Version catalogue refresh: PSMDB 8.3.13, MySQL 8.4.13 and 9.7.4, PMM 3.10.0 — `versions.yaml`
+
+`versions.yaml` gains the new releases: PSMDB 8.3.13, MySQL 8.4.13 and 9.7.4, and PMM 3.10.0.
+
+## 449. K3D cluster names carry the instance; Menu on the desktop taskbar; upstream form styling — `app/instance.go`, `app/k3d.go`, `app/k3d_rbac.go`, `app/k8sdiag.go`, `app/linuxclient_kubeconfig.go`, `app/web/src/{App.jsx,desktop/Desktop.jsx,lib/shellMode.js,wm/WindowManager.jsx}`, `app/web/src/pages/UpstreamForms.jsx`
+
+- **K3D cluster names.** Clusters of every installation, including the one called `dbcanvas`, are
+  named `<frame>-s<stack>-<tag>`. Untagged clusters that installation created earlier are still
+  recognised (`k3dLegacyNames`, `k3dLegacyStackSuffix`), reached by the cluster name their deploy
+  recorded (`k3dDeployedCluster`), and recreated under the tagged name on redeploy.
+  `dbcanvas-dbcanvas` is refused as an instance name, because it would tag clusters the same way.
+- **Taskbar.** The desktop taskbar's Start button is now **Menu** (`MenuButton` in `Desktop.jsx`).
+- **Upstream forms.** The MariaDB and MySQL Community designer forms use the same delete buttons,
+  option checkboxes (`Check`) and theme colours as the other node and cluster forms.
+
+## 450. Documentation screenshots retaken — `docs/screenshots/*`
+
+Every documentation screenshot except the Core Dump Analyzer's was retaken from a running
+installation in the Light theme, Desktop shell and Soft look, showing the Menu button on the
+taskbar. Images only; no code changes.
+
+## 451. Version catalogue: Percona Operator for MySQL (PS) back to 1.2.0 — `versions.yaml`
+
+1.3.0 is on Docker Hub but has no GitHub release yet, and the operator is installed from the
+GitHub source archive, so a K3D frame on the default version failed with a 404. The default goes
+back to 1.2.0.
+
+## 452. Release 0.0.22 — `VERSION`, `app/whatsnew.go`, `README.md`
+
+Release notes for everything since 0.0.21:
+- the Menu button, and K3D cluster names for every installation
+- the version catalogue refresh
+- the design catalogue and design-edit API
+- Scratchboard boards and new cards
+- K3D certificates from the Intranet CA or OpenBao
+- PXC operator replication over SSL
+- custom Intranet DNS records
+- cfssl on the Linux Client
+
+`VERSION` is 0.0.22.
+
+## 453. CLI, Database Explorer and configuration fixes — `cli/cmd_diag.go`, `cli/cmd_compose.go`, `docker-compose.yml`, `app/web/src/pages/{DatabaseExplorer,Settings,StackDesigner}.jsx`, `app/designcatalog_mongo.go`
+
+- `dbcanvas logs events --severity` sends the parameter the server reads (`sev`), and takes a
+  comma-separated list of `bad`, `warn`, `ok` and `info`.
+- `dbcanvas logs collect` without `--nodes` reads every node of the stack that has logs, as its
+  help says, instead of sending an empty list the server rejects.
+- `dbcanvas stack compose --node` accepts `mca`, `viewOnly` and `alertEmail`, the remaining scalar
+  fields of the compose spec.
+- `docker-compose.yml` passes `ORCHESTRATOR_PASSWORD` and `SAMBA_PASSWORD` through to the app, so
+  the values set in `.env` take effect.
+- Database Explorer's Run button asks before a destructive statement, as the keyboard shortcut
+  already did (`runFromBar`).
+- The API token lifetime hint says the limit applies to administrators too.
+- PSMDB vector search no longer lists Debian 12, which database nodes are not offered on.
+
+## 454. Documentation: shorter, task-first, checked against the app — `README.md`, `docs/*.md`
+
+Every guide was rewritten to describe what DBCanvas does and how to use it, without source files,
+internal names or design history.
+
+Claims were checked against the UI, the API route table, the CLI and the version catalogue, and
+corrected where they disagreed:
+- database nodes run on Oracle Linux 8/9/10 and Ubuntu 22.04/24.04
+- the desktop button is Menu
+- Benchmark and Data Generator cover MongoDB
+- the CLI examples use flags that exist
+
+The guides index lists Operator Summary. The contributor notes on adding an endpoint and on
+versioning moved to `docs/ARCHITECTURE.md`. Documentation only.
+
+## 455. Linux Client: innodump and gcache-inspector install options — `app/linuxclient_files.go` (new), `app/linuxclient.go`, `app/intranet.go`, `app/designcatalog_infra.go`, `app/web/src/pages/StackDesigner.jsx`
+
+Two new Linux Client options (`lcFileTools`, `FileToolFields`) install:
+- **innodump**, which reads InnoDB, MyISAM and MyRocks table files offline;
+- **gcache-inspector**, which reads a Galera `galera.cache` offline.
+
+Both come from their latest GitHub releases (`linuxClientInstallFileTools`):
+- **Integrity.** The tarball for the node's architecture is the one `checksums.txt` names, and it
+  is verified before it is unpacked into `/usr/local/bin`.
+- **Proxy.** The Intranet proxy is used when the node uses it.
+- **Display.** The installed versions are read back from the binaries and shown in the deployed
+  panel as "MySQL file tools".
+- **Failure.** A failed install is logged and does not fail the deploy.
+
+Offered on every release, since both are statically linked.
+
+## 456. Terminals: tab windows together, detach and rearrange tabs — `app/web/src/terminal/TerminalProvider.jsx`, `app/web/src/wm/WindowManager.jsx`
+
+- **Joining.** Dragging a terminal window by its title bar, or a single tab, onto another
+  terminal window adds it there as tabs; dragging onto the terminal dock docks it. The place a
+  drag would drop into is highlighted, and only the topmost window under the pointer takes the
+  drop.
+- **Detaching.** A tab dragged onto empty space opens as a window of its own under the pointer.
+  The tab's detach icon and its right-click *Detach into a window* do the same.
+- **Whole windows.** *Dock all tabs* docks every tab of a window, and closing the window closes
+  its tabs.
+- **Reordering.** Dragging a tab along a tab strip rearranges the tabs, with a marker where it
+  will land. Dragged onto another strip, it lands at that position.
+- `Window` takes `onDragOver` / `onDrop`, so a title-bar drag its owner claims drops there instead
+  of snapping.
+- Sessions keep their xterm and socket through every move.
+
+## 457. Remove Labs and five app simulators — `app/labs*.go`, `app/{airlinesim,carsim,hotelsim,marketchaos,trafficsim}.go`, `app/web/src/pages/Labs.jsx`, `app/web/src/lib/labsApi.js`, `airlinesim/`, `carsim/`, `hotelsim/`, `trafficsim/` (all removed), `app/simwait.go`, `app/designutil.go`, `app/valkey.go`, `Makefile`, `images/apps.sh`
+
+- **Labs is gone:** the page, its API routes (`/api/labs…`) and its stored runs. Existing
+  databases keep the old `lab_runs` and `lab_step_results` tables, unused; new installations do
+  not create them.
+- **Five simulators are gone:** Traffic Sim, Hotel Sim, Airline Sim, Car Rental Sim and the
+  Unoptimized MySQL Challenge (MarketChaos). That covers their sources, node types, validation and
+  deploy, design catalogue entries, compose kinds (and compose's dataset option), designer forms
+  and panels, image list and build targets.
+- **What stays:** Support Sim, pgvector Support Sim, Stock Market Sim and Ledger Sim. The target
+  waits and helpers they shared with the removed simulators move to `simwait.go`, `designutil.go`
+  and `valkey.go`, renamed for what they do (`waitMongoTarget`, `waitValkeyTarget`,
+  `mongoAdminCreds`).
+- Docs, CLI help and the dbcanvas skill use the remaining simulators in their examples.
+  `.gitignore` ignores editor swap files.
+
+## 458. MySQL file tools on database servers; binlogsum on the Linux Client — `app/dbfiletools.go` (new), `app/linuxclient_files.go`, `app/intranet.go`, `app/designcatalog_{infra,mysql}.go`, `app/web/src/components/FileTools.jsx` (new), `app/web/src/pages/{StackDesigner,UpstreamForms}.jsx`, `docs/STACKS.md`
+
+**Which servers get which tools.** Percona Server, PXC, MySQL Community, MariaDB, MariaDB
+replication and Galera, and the InnoDB / Group Replication frames can install innodump and
+binlogsum. PXC and MariaDB Galera can also install gcache-inspector.
+- Standalone servers set this on the node, clusters on the frame (`DBFileToolChecks`).
+- Every data member installs them; Galera arbitrators are skipped (`dbFileToolsFor`).
+
+**When.** The tools are installed by a phase at the end of the deploy, once each server is running
+(`reconcileDBFileTools`).
+- Tools already present are skipped, so ticking one and redeploying adds it to a running server.
+- A failed install does not fail the deploy; the stack's notifications say what was installed or
+  not.
+
+**Also:**
+- The Linux Client gains a binlogsum option.
+- The install script (`lcFileToolsPrelude`) runs the package manager only when curl, tar or gzip
+  is missing, so servers without package access still install the tools.
+- `docs/STACKS.md` gains a "MySQL file tools" section.
+
+## 459. Browser window accepts containers of named installations — `app/browse.go`
+
+Opening a VNC desktop or a node's web page checked that the port belonged to a stack container by
+matching the name against `dbcanvas-<stack>-`. Installations with their own `DBCANVAS_INSTANCE`
+name their containers `<instance>-<stack>-`, so every such link was refused with "does not belong
+to a DBCanvas node". K3D cluster names, which now end in the installation's tag (§449), were
+refused the same way.
+
+The check now reads the stack from the installation's own prefix and K3D tag, and still accepts
+the untagged K3D names of the legacy installation (`browse_test.go`).
+
+## 460. Deploy provisions again a node whose container is gone — `app/intranet.go`, `app/deploypreview.go`
+
+A node whose container had been removed outside DBCanvas (by hand, by a prune, or lost with the
+daemon) stayed "running" in the store, so a redeploy counted it as unchanged and never brought it
+back.
+
+Before a deploy, and in its preview, `reconcileVanished` checks every built Docker node by
+container name:
+- **No container:** the node is marked as an error, which the deploy provisions again.
+- **Recreated under a new id:** the node keeps running with its id updated.
+- **Daemon unreachable:** nothing changes. Vagrant VMs are left alone.
+
+## 461. Simulators reach Group Replication clusters without MySQL Router — `app/stocksim.go`
+
+The shared target resolver sent writes for an InnoDB Cluster or MySQL Community Group Replication
+frame to MySQL Router's read/write port on a member. Router runs only when the frame's
+`mysqlRouter` option is on, which it is not by default, so Stock Market Sim and Ledger Sim could
+not connect to such a cluster.
+
+With Router on, nothing changes. Without it, the simulator is given the first member in label
+order, the one the group was bootstrapped on.
+
+## 462. Performance Sim: stressors with a live view of their impact — `perfsim/` (new image), `app/perfsim.go`, `app/perfsimcond.go` (new), `app/{blkio,docker,intranet,main}.go`, `app/designcatalog_{apps,mysql}.go`, `app/web/src/pages/StackDesigner.jsx`, `images/apps.sh`, `Makefile`, `docs/STACKS.md`
+
+A new application simulator, linked to one of:
+- a Percona Server, MySQL or MariaDB server;
+- a cluster of them (async replication, Group Replication, PXC, MariaDB Galera);
+- an HAProxy or ProxySQL in front of one.
+
+Every stressor is chosen on its dashboard while it runs; the node has no options of its own.
+
+**Image** (`perfsim/`, `make perfsim-image`): a Go binary with its dashboard embedded
+(`perfsim/web/static`). It runs a steady workload through the cluster's write endpoint, and
+measures lag on every member with a heartbeat row. A stopped applier, a delayed replica, a Galera
+node and a Group Replication secondary are therefore all measured the same way.
+
+- **Engine.** `perfsim/internal/core` holds the API, hub, workload and conditions;
+  `perfsim/internal/mysqlx` holds the MySQL-family engine, dials, data preparation and sampling.
+
+**Replication-lag stressors:**
+- large transactions
+- a no-op `ALTER TABLE` (TOI or RSU on Galera)
+- `FLUSH TABLES WITH READ LOCK`
+- stopping the applier
+- writes to a table without a primary key
+- a single-threaded applier
+- a delayed replica
+- an open transaction that blocks a replicated `ALTER`
+
+A stressor a topology cannot support is listed with the reason. Large tables for these stressors
+are prepared on the dashboard.
+
+**Network and disk stressors:** latency, packet loss and a bandwidth cap; write bandwidth, write
+IOPS and read bandwidth caps, on chosen members.
+- **How they're applied.** DBCanvas applies them with its netem and `io.max` code, polling each
+  running sim for what it wants (`perfsimcond.go`), and only on that sim's members.
+- **When they're cleared:** at their maximum hold, when the sim stops answering, or when it is
+  removed. The node's own settings are then restored.
+- Disk limits can now include a write IOPS cap (`blkio.go`).
+
+**Dashboard:**
+- health strip
+- topology with lag and held locks
+- a timeline with each stressor shaded across every chart
+- impact against a baseline, with recovery time
+- sessions with blockers and waiters
+- replication status per member
+- event log
+- recorded runs, exported as JSON
+
+**Safety:**
+- Every lock, pause and setting has a maximum hold.
+- *Stop all* and shutting down release everything.
+- Changes to a replica's settings are recorded first, so a sim that was killed undoes them on its
+  next start.
+- A stressor that would stop an applier while it waits on a lock is refused, rather than left
+  hanging.
+
+**DBCanvas side:** the `perfsim` node type, catalogue entry, designer form and panel, validation,
+and deploy. The deploy covers every data member, with `admin@'%'` for the stressors.
+
+## 463. Valkey starts under amd64 emulation on an arm64 host — `app/valkey.go`, `app/intranet.go`
+
+Every Valkey node failed to deploy on an arm64 Docker host running amd64 images (Apple Silicon):
+systemd reported "a fatal signal was delivered to the control process". The Percona Valkey unit's
+sandboxing kills it there:
+- `SystemCallFilter` with `SystemCallArchitectures=native` refuses the binary translator's
+  syscalls;
+- `MemoryDenyWriteExecute` refuses its code cache.
+
+When the node runs under emulation (`emulatedAmd64`), Valkey's start step (`valkeyStartEnv`) adds
+a drop-in that clears those three settings for its unit and restarts it on failure, as the
+Intranet already does for its own daemons. On a native host the unit is left as packaged. The
+emulation check (`systemdImageArch`) is shared by both.
+
+## 464. Performance Sim: PostgreSQL, MongoDB and Valkey — `perfsim/internal/{pgsql,mongo,valkey}/` (new), `perfsim/internal/core/job.go`, `perfsim/main.go`, `perfsim/web/static/app.js`, `app/perfsim.go`, `app/designcatalog_{apps,mongo,postgres}.go`, `docs/STACKS.md`
+
+Performance Sim now drives four database families. Each has its own engine in the image behind
+the same dashboard and the same heartbeat measurement of lag.
+
+**PostgreSQL** (a standalone node, Patroni or repmgr, directly or through HAProxy or PgBouncer):
+- large transactions
+- a `VACUUM FULL` rewrite
+- paused WAL replay
+- a standby query that replay must wait for, until `max_standby_streaming_delay` cancels it
+- a delayed standby
+
+Patroni resumes paused replay and owns `recovery_min_apply_delay`. On Patroni, therefore, the
+pause puts the cluster in maintenance mode while it holds, and the delay is set in Patroni's
+configuration through its REST API (`pgsql/patroni.go`).
+
+**MongoDB** (a standalone node or a replica set):
+- bulk writes
+- an index build
+- `fsyncLock` on secondaries
+- delayed secondaries, set in one reconfiguration
+
+Collections are prepared by their size on disk.
+
+**Valkey** (a standalone node, or a Valkey Cluster with one heartbeat key per shard):
+- large values
+- deleting a big key, optionally with lazy freeing turned off for that one delete
+- `DEBUG SLEEP` on replicas, where `DEBUG` is allowed
+
+Valkey has no prepared tables.
+
+**Across all four:**
+- Every change that outlives the sim (a pause, a delay, a lock, a setting) is recorded first, and
+  undone on release, or on the next start if the sim was killed.
+- Network and disk stressors work on all four.
+- **Topology view:** a spider (primary in the middle, replicas around it), a ring of peers for
+  Galera and all-primary clusters, and each primary with its replicas for a sharded cluster, with
+  labels that never overlap.
+
+`job.go` moves from `mysqlx` to `core`, since all engines share it. Spock and sharded MongoDB
+clusters are not targets yet.
+
+## 465. Performance Sim releases network and disk conditions even when a member hangs — `app/perfsimcond.go`, `perfsim/internal/core/conditions.go`
+
+DBCanvas applied a sim's conditions one member at a time, network first, within one time budget
+per pass. Under x86-64 emulation, a low write cap also slows the translator that starts every
+program in the member. The network step's exec into the member hung and used up the budget, and
+the disk cap was never released on any later pass either, so the member stayed frozen.
+
+**Fix:**
+- Members are brought up to date in parallel, each step with its own time limit.
+- A disk cap is applied or released before the network step, since releasing it is what makes
+  such a member answer again.
+- Failures are logged.
+
+**Dashboard hints:**
+- The sim's disk stressors carry a warning when the members run under emulation.
+- The bandwidth cap says what it shapes: what a member sends, so capping a primary is what slows
+  its replicas.
+
+## 466. Valkey: replicas per shard, and Valkey with Sentinel — `app/valkey.go`, `app/{compose,composebuild,netem,perfsim,stocksim,intranet}.go`, `app/designcatalog_postgres.go`, `app/web/src/pages/StackDesigner.jsx`, `cli/cmd_compose.go`, `perfsim/internal/valkey/`
+
+**Valkey Cluster.** Replicas per shard (0–2, locked once deployed):
+- `valkey-cli --cluster create` makes each shard a primary with that many replicas.
+- The member count is a whole number of shards, 3 to 7 of them, at most 9 nodes.
+- The designer's + and − add or remove a whole shard.
+- Compose takes `replicas=N` (`valkey-cluster:6,replicas=1`).
+
+**Valkey Sentinel** (a mode of the same frame, `valkeyMode: "sentinel"`):
+- **Topology.** The first member is the primary and the others its replicas. Valkey Sentinel runs
+  on every member (port 26379), monitoring the primary under the cluster's name, with a majority
+  quorum. 3–9 members.
+- **Entry points.** A Valkey Sentinel entry in the palette, and the `valkey-sentinel` compose kind.
+- **Packages.** Ubuntu installs `percona-valkey-sentinel`. Oracle Linux runs the
+  `valkey-sentinel@` unit its `percona-valkey` already ships. Sentinel's unit gets the same
+  emulation drop-in as the server's (§463).
+- Network shaping covers Sentinel's port (`netem.go`).
+
+**Simulators:**
+- Performance Sim reaches a Sentinel setup's primary through Sentinel, so its workload follows a
+  failover. It gains a Sentinel failover stressor (`SENTINEL FAILOVER`) to watch writes ride
+  through the switch.
+- Stock Market Sim is given the primary of a Sentinel setup, rather than every member (which it
+  would take for a cluster).
+
+## 467. Containers keep journald running under amd64 emulation — `app/docker.go`
+
+A privileged systemd container that runs amd64 on an arm64 host starts `systemd-journald` with
+`MemoryDenyWriteExecute` and a native-architecture system call filter, which kill it under
+emulation. The journal stays empty, and every crash leaves a core file.
+
+Such containers (`emulatesAmd64`) now get a drop-in (`journaldEmulationDropIn`) that clears those
+three settings. It is written before the container first starts (`relaxJournaldForEmulation`).
+
+## 468. Disk limits always remove the `io.max` helper — `app/blkio.go`
+
+The helper container was removed using the caller's context. When that context ran out while the
+helper started or ran, the removal failed at once, and the helper was left behind in the Created
+state. It is now removed on a context of its own, with a 30 s limit.
+
+## 469. Valkey Sentinel: every member announces its host name — `app/valkey.go`
+
+Only the members that start as replicas set `replica-announce-ip`. Once a failover made the first
+primary a replica, it reported itself by IP, so Sentinel knew one server under two names. A later
+failover could then tell that server to replicate from itself, leaving no primary. The first
+primary now announces its host name too (`valkeycluster_test.go`).
+
+## 470. Performance Sim: connection, lock, I/O, CPU and memory stressors — `perfsim/internal/{mysqlx,pgsql,mongo,valkey}/load.go` (new), `perfsim/internal/core/{hub,job,types}.go`, the engines' `dials.go` / `sample.go`, `perfsim/web/static/app.js`, `docs/STACKS.md`
+
+New stressor groups. They act on the writer, so a standalone server has them too:
+- **Connection storm:** opens and holds connections up to the number chosen. Refusals past the
+  server's limit show on the dial.
+- **Hot-row contention:** short transactions on the same few rows, with deadlocks optional (MySQL
+  family, PostgreSQL). On a MongoDB replica set, multi-document transactions, counting write
+  conflicts.
+- **Long-running transaction:** holds a snapshot open (MySQL family, PostgreSQL).
+- **Commit storm:** single-row autocommit writes from many workers; on MongoDB, with
+  `w: "majority", j: true`.
+- **CPU-heavy queries:** hashing queries that touch no data. On Valkey, a Lua script that spins on
+  the server's thread for a set time.
+- **Working set larger than memory:** random point reads across a prepared table, compared with
+  the buffer pool, `shared_buffers` or the WiredTiger cache when it starts.
+
+**Server internals chart.** Shows what these stressors move:
+- MySQL family: history list length, and buffer pool reads from disk
+- PostgreSQL: oldest snapshot age, and blocks read outside `shared_buffers`
+- MongoDB: pages read into the WiredTiger cache
+
+The stressor panel opens the first group the target can run.
+
+**Sentinel failover:**
+- Coordinated (Valkey 9.0 and later, the default there) or forced.
+- A probe writes through the application's client. The dial reports acknowledged writes that did
+  not survive, and how long the old primary stayed a primary. The run ends once the old primary
+  has rejoined as a replica.
+- A "bad" event level for the event log.
+
+## 471. Performance Sim: compose, sharded MongoDB, Spock and Kubernetes targets — `app/perfsim.go`, `app/perfsim_k8s.go` (new), `app/{compose,perfsimcond}.go`, `perfsim/internal/mongo/shard.go` (new), `perfsim/internal/pgsql/spock.go` (new), `perfsim/internal/{mongo,pgsql}/*`, `.claude/skills/dbcanvas/SKILL.md`, `docs/STACKS.md`
+
+**Compose.** A `perfsim` kind: `--node perfsim` links to the one MySQL-family, PostgreSQL, MongoDB
+or Valkey target in the spec, or to `to=<name>`.
+
+**Sharded MongoDB** (`mongo/shard.go`):
+- **Routing.** The workload goes through mongos; the members are the shards' mongods.
+- **Lag per shard.** The heartbeat collection is sharded on a numeric `_id`, with one document
+  pinned to each shard by a zone, so each shard's secondaries are measured against its own
+  primary.
+- **Sampling.** Each replica set's status is read from one of its own members. The delayed-member
+  dial reconfigures each shard separately, the writer's figures sum every shard primary, and the
+  storm goes to mongos.
+- **Accounts.** DBCanvas creates the admin user on each shard for the sim, with
+  `directShardOperations` on 8.0 and later.
+
+**Spock** (`pgsql/spock.go`):
+- **Schema.** The sim works in a `perfsim` schema of the replicated database. It creates its
+  tables on every member, and adds the heartbeat, orders and prepared tables to the default
+  replication set.
+- **Measurement.** The first member is the writer; every other member's apply lag is measured
+  from it.
+- **Stressors.** Pause disables the chosen members' subscriptions. The table rewrite, standby
+  conflict and delay stressors say why they do not apply.
+- Spock behind an HAProxy is a target too.
+
+**Kubernetes** (`perfsim_k8s.go`). A Performance Sim linked to a K3D frame drives the database its
+operator runs: PXC, Percona Server, PSMDB, Percona PostgreSQL, Crunchy PGO or CloudNativePG.
+- **Addresses.** Each database pod without an address gets a companion LoadBalancer Service
+  selecting just that pod (a NodePort when MetalLB's pool is used up), labelled like the Expose
+  control's.
+- **Routing.** The workload goes through the front door, exposed the same way, or to the member
+  taking writes.
+- **MongoDB:** a `perfsim` user is created with the operator's user administrator.
+- **PostgreSQL:** pause and delay say the operator would undo them. A named database lets the sim
+  work in a schema of an application database.
+- **Network and disk conditions** say that pods cannot be shaped.
+
+## 472. Performance Sim: lab stressors, connection modes, Kubernetes clean-up; shared simulator targets — `app/simtarget.go` (new), `app/simtarget_k3d.go` (renamed from `stocksim_k3d.go`), `app/perfsim_modes.go` (new), `app/{perfsim,perfsim_k8s,stocksim,ledgersim,pgvectorsim,supportsim,k8sexpose,k8starget,intranet,templates}.go`, `perfsim/internal/{mysqlx,pgsql,mongo}/lab.go` (new), `perfsim/main.go`, `app/web/src/pages/StackDesigner.jsx`
+
+**Shared simulator targets.** The target resolution that the simulators and compose share moves
+out of the Stock Market Sim's files into `simtarget.go` and `simtarget_k3d.go`, with neutral names
+(`simLinkedTarget`, `simResolved`, `simMySQLTarget`, …). `stocksim.go` keeps only what the Stock
+Market Sim node uses.
+
+**New stressors** (`lab.go` per engine):
+- **Many tables** (collections on MongoDB), up to 5,000, read in turn. They are kept after the dial
+  stops, unless "drop them" is chosen.
+- **Temporary tables / files:** a rollup with `tmp_table_size` or `work_mem` set so it spills to
+  disk every time, or never. PostgreSQL checks each query with `EXPLAIN ANALYZE`.
+- **Full table scans** on a prepared table's unindexed column.
+- **Redo / WAL pressure:** back-to-back multi-row rewrites, on any topology.
+- A working-set share on the working-set-larger-than-memory dial.
+
+**Connection modes** (`perfsim_modes.go`):
+- **`psMode: "aio"`:** an instance on an All-in-One node, including every member of a cluster
+  instance.
+- **`psMode: "manual"`:** one server by address, with TLS, an optional PostgreSQL database to work
+  in, and a *Test connection* endpoint that runs the image's new `-testconn`.
+- **`psSplitReads`:** the workload's reads go to an HAProxy target's read port.
+- Network and disk dials say why they are unavailable for members that are not canvas nodes.
+
+**Kubernetes:**
+- **Clean-up.** Removing a sim removes the companion Services it created and, on MongoDB, its user
+  and Secret. Services that another sim on the frame uses, or that the Expose control made, stay.
+- **Adoption.** Companions are marked as the sim's, so one left behind is adopted by the next sim.
+- **MongoDB:** without a front door, the workload follows a new primary. The storm fills its pool
+  with tailable cursors, which mongos holds too.
+- **CloudNativePG:** readiness is read from its Cluster phase.
+- **Errors.** A transient operator error no longer fails the sim.
+- The designer and catalogue link a sim to Spock, sharded PSMDB and K3D frames.
+
+**Fixes:**
+- A redeploy no longer rebuilds a running K3D cluster: a node whose container is not named by
+  DBCanvas is checked by its recorded id.
+- MySQL datasets use SHA2 rather than MD5, which MySQL 9 no longer has.
+- A PostgreSQL standby whose WAL receiver the account cannot see reads by its measured lag,
+  instead of "not streaming".
+
+## 473. Designer: lock deploy-time settings on deployed nodes — `app/web/src/pages/{StackDesigner,UpstreamForms,AllInOne,Repository}.jsx`, `app/web/src/components/FileTools.jsx`, `app/web/src/index.css`
+
+A setting that only a deploy applies is no longer editable once its node or cluster is deployed:
+- the label (host names and replica set names come from it)
+- GTID
+- the package proxy
+- the certificate and its lifetime
+- the replication mode
+- PMM, where it has no apply button
+- a PXC member's port export
+
+The MariaDB and MySQL Community forms' shared options were not locked at all; now they are.
+Settings that the panels apply to a running cluster (PMM on PXC, the Orchestrator link) stay
+editable.
+
+The MySQL file tools (innodump, binlogsum, gcache-inspector) are chosen at design time, so a
+deployed server or Linux Client no longer shows them (`FileToolChecks`, `DBFileToolChecks`). A
+disabled input is dimmed by one stylesheet rule (`.ui-input:disabled`). Covered by SSR `smoke`.
+
+## 474. MySQL family: re-issue a node's certificate with a chosen lifetime — `app/pxc_mgmt.go`, `app/pxc.go`, `app/api_routes.go`, `app/designcatalog_mysql.go`, `app/web/src/components/MySQLCertTab.jsx` (new), `app/web/src/pages/{PXCManager,MySQLManager,InnoDBManager}.jsx`, `app/web/src/lib/stackApi.js`
+
+Every deployed MySQL-family node (PXC, Percona Server, MySQL, MariaDB, InnoDB Cluster, MySQL
+Community) has a Certificate tab (`MySQLCertTab.jsx`). It shows the server certificate and
+re-issues it from the Intranet CA, valid for the minutes, hours or days chosen, over the files it
+was installed in. mysqld keeps running, and serves the new certificate after
+`ALTER INSTANCE RELOAD TLS` (`FLUSH SSL` on MariaDB) or a restart.
+
+The re-issue endpoint served PXC only. It now serves every MySQL-family type at
+`…/nodes/{nid}/mysql/cert` (`…/pxc/cert` still works). It updates only the `generateCert` key of
+the node's recorded config, instead of rewriting the whole config as a PXC config.
+
+## 475. Release 0.0.23 — `VERSION`, `app/whatsnew.go`, `README.md`, `Makefile`, `docs/{API_REFERENCE,GETTING_STARTED,STACKS}.md`
+
+Release notes for:
+- Performance Sim
+- Valkey replicas per shard, and Valkey with Sentinel
+- certificate re-issue
+- deploy-time locks
+- MySQL file tools
+- terminal tabs
+- the removed simulators
+- fixes
+
+The guides describe the Certificate tab and the locked settings, and the node panel screenshots
+are retaken. `VERSION` is 0.0.23.
