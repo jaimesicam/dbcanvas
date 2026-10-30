@@ -27984,3 +27984,49 @@ editor, not a look, and is left for its own change.
     both Glass themes
   - What's New overlay full-viewport
   - no page errors
+
+## 480. The Glass canvas layout: edge-to-edge canvas with floating toolbar, inspector and pill toolbar — `app/web/src/pages/StackDesigner.jsx`
+
+The second half of the Glass direction (§479): its layout. In the Glass look only, the stack
+editor is laid out as the mockup was. Every other look keeps the stacked layout (toolbar above,
+canvas below, Properties to the right), so nothing changes for anyone who chose one.
+
+- **Canvas edge to edge.** `StackEditor` reads `useTheme().look`. With `glass`, the editor root
+  is `relative`, the left column covers it (`absolute inset-0`), and the canvas loses its own
+  border and radius. The ambient light (`.stk-ambient`, §479) shows across the whole window.
+- **Floating toolbar.** The toolbar card floats over the top of the canvas (`absolute left-3
+  right-3 top-3`, `rounded-2xl`).
+  - Its height is measured by a ResizeObserver behind a **callback ref** (`barRef`), because the
+    editor first renders a loading state before the toolbar exists. An effect-based observer ran
+    then, never saw the toolbar, and left the height at 0, so the Properties panel floated over
+    the toolbar's right end; this was caught in the browser.
+  - `topInset` (toolbar height + 24 px) is where the clear canvas begins. The validation panel,
+    the Live-overlap banner, the flash toast and a docked node library all start there.
+- **Starting view.** Once per editor, a view that would start under the toolbar is moved down by
+  `topInset` (`insetApplied`). `resetView` (the More menu and the pill toolbar) resets to
+  `{ x: 40, y: 20 + topInset, z: 1 }`.
+- **Floating inspector.** `StackProperties` takes `overlay` and `top`. Docked, in overlay mode,
+  it floats at the right below the toolbar. It **sizes to its content**, capped at the canvas
+  height (`maxHeight`), so an empty Properties panel is a small card rather than a column hiding
+  the right of the design. A detached (floating) Properties panel is unchanged.
+- **Pill toolbar** (bottom centre, `role="toolbar"`):
+  - **Add** opens the add-node menu at the canvas centre (`openAddMenuAt`, split out of
+    `openAddMenu`).
+  - **Live** toggle with a glowing dot.
+  - **Zoom − / % / +** about the centre (`zoomBy`, via `zoomAt`), and **Reset view**.
+  - A **?** whose tooltip is the canvas legend, which the Glass layout no longer shows bottom-left
+    except as the file-drop hint.
+  - It stops pointer-down propagation, so it never starts a pan.
+- **Minimap and selection bar.** The minimap takes a `corner` prop and sits bottom-left in Glass,
+  clear of the inspector. The multi-selection bar sits above the pill (`bottom-20`).
+
+**Verification performed.**
+- `npm run build`, SSR `smoke` passes; image rebuilt and redeployed.
+- Headless Chromium on a deployed MySQL Replication Stack:
+  - Glass Dark and Glass Light: toolbar on top, an empty Properties panel as a small card below
+    it, a selected node's Properties panel growing to its content, the whole stack visible
+    behind them
+  - pill zoom 100% → 110%; Reset view; Add opens the add-node menu at the centre
+  - the pill's Live toggles Live view
+  - the Modern look keeps the stacked layout
+  - no page errors

@@ -4,6 +4,7 @@ import { Icon } from '../components/Icons.jsx'
 import { FileToolChecks, DBFileToolChecks } from '../components/FileTools.jsx'
 import { Card, Button, Badge, Field, ConfirmButton, InfoRow, inputCls, toneTile } from '../components/ui.jsx'
 import { engineOf, engineTone } from '../lib/engines.js'
+import { useTheme } from '../theme/ThemeProvider.jsx'
 import { Help, Hint } from '../components/Tooltip.jsx'
 import { HELP, MENU_HELP, nodeHelp } from '../lib/help.js'
 import { usePolling } from '../lib/usePolling.jsx'
@@ -2339,6 +2340,39 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
   const [edges, setEdgesRaw] = useState([])
   const [frames, setFramesRaw] = useState([])
   const [view, setView] = useState({ x: 40, y: 20, z: 1 })
+  // The Glass look lays the editor out as the 2026 mockup does: the canvas fills the
+  // window and the toolbar, the Properties panel and a pill toolbar float over it
+  // (IMPLEMENTATION.md §480). Every other look keeps the stacked layout. barH is the
+  // floating toolbar's height — it wraps to two rows in a narrow window — so what
+  // floats below it, and the view's starting offset, know where the clear canvas
+  // begins.
+  const { look } = useTheme()
+  const glass = look === 'glass'
+  const [barH, setBarH] = useState(0)
+  // A callback ref, not an effect: the editor renders a loading state before the toolbar
+  // exists, and an effect that ran then never saw it (barH stayed 0 and the Properties
+  // panel floated over the toolbar's right end).
+  const barObs = useRef(null)
+  const barRef = useCallback((el) => {
+    barObs.current?.disconnect()
+    barObs.current = null
+    if (!el) return
+    setBarH(el.offsetHeight)
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => setBarH(el.offsetHeight))
+    ro.observe(el)
+    barObs.current = ro
+  }, [])
+  const topInset = glass && barH ? barH + 24 : 0
+  // Once per editor: a view that would start under the floating toolbar is moved down
+  // by its height, so the first thing on screen is the design rather than the bar.
+  const insetApplied = useRef(false)
+  useEffect(() => {
+    if (!topInset || insetApplied.current) return
+    insetApplied.current = true
+    setView((v) => (v.y < topInset ? { ...v, y: v.y + topInset } : v))
+  }, [topInset])
+  const resetView = () => setView({ x: 40, y: 20 + topInset, z: 1 })
   // While someone else drives, the design is theirs: this canvas only shows it. The
   // save is off (below), and so is every edit — each one goes through these three
   // setters, so a drag, a delete, a menu action or a field in Properties that would
@@ -3009,15 +3043,26 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
   // stop propagation before this, so it only ever fires on bare canvas.
   function openAddMenu(e) {
     e.preventDefault()
+    openAddMenuAt(e.clientX, e.clientY)
+  }
+  // openAddMenuAt opens the add-node menu at a screen point, placing the node there —
+  // the right-click on the canvas, and the Glass pill toolbar's Add (at the centre).
+  function openAddMenuAt(clientX, clientY) {
     const r = wrapRef.current?.getBoundingClientRect()
     if (!r) return
     const v = refs.current.view
     setMenu(null)
     setAddMenu({
-      x: e.clientX,
-      y: e.clientY,
-      at: { x: (e.clientX - r.left - v.x) / v.z, y: (e.clientY - r.top - v.y) / v.z },
+      x: clientX,
+      y: clientY,
+      at: { x: (clientX - r.left - v.x) / v.z, y: (clientY - r.top - v.y) / v.z },
     })
+  }
+  // Zoom about the canvas's centre, for the Glass pill toolbar's − and +.
+  const zoomBy = (dir) => {
+    const r = wrapRef.current?.getBoundingClientRect()
+    if (!r) return
+    setView((v) => zoomAt(v, r.width / 2, r.height / 2, dir > 0 ? -1 : 1))
   }
   function openMenu(e, id) {
     e.preventDefault()
@@ -4679,13 +4724,13 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
   )
 
   return (
-    <div ref={designerRoot} className="flex h-full min-h-[520px] gap-4">
+    <div ref={designerRoot} className={glass ? 'relative h-full min-h-[520px] overflow-hidden' : 'flex h-full min-h-[520px] gap-4'}>
       {shareOpen && <ShareDialog stack={stack} onClose={() => setShareOpen(false)} />}
-      <div className="flex min-w-0 flex-1 flex-col gap-3">
+      <div className={glass ? 'absolute inset-0 flex min-w-0 flex-col' : 'flex min-w-0 flex-1 flex-col gap-3'}>
         {/* toolbar — a container: narrow (a small window, or the browser zoomed in), the secondary
             buttons drop their labels so Validate and Deploy stay on the first rows instead of
             being wrapped out of sight. */}
-        <div className="ui-card @container flex flex-wrap items-center gap-2 rounded-xl border bg-surface px-3 py-2">
+        <div ref={barRef} className={`ui-card @container flex flex-wrap items-center gap-2 border bg-surface px-3 py-2 ${glass ? 'absolute left-3 right-3 top-3 z-30 rounded-2xl' : 'rounded-xl'}`}>
           <Hint text={HELP.uiBack}><Button size="sm" variant="ghost" onClick={onBack}><Icon.ArrowLeft size={16} /> <span className="@max-3xl:hidden">Stacks</span></Button></Hint>
           <div className="mx-1 h-5 w-px bg-border" />
           <span className="text-sm font-semibold">{stack.name}</span>
@@ -4794,7 +4839,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
                     {[
                       { label: 'Insert template', icon: Icon.Copy, help: HELP.uiInsertTemplate, disabled: !!busy || deploying || locked, onClick: () => setInsertTpl(true) },
                       { label: 'Save as template', icon: Icon.File, help: HELP.uiSaveTemplate, disabled: !!busy || nodes.length === 0, onClick: () => setSaveTpl(true) },
-                      { label: 'Reset view', icon: Icon.Move, help: HELP.uiResetView, onClick: () => setView({ x: 40, y: 20, z: 1 }) },
+                      { label: 'Reset view', icon: Icon.Move, help: HELP.uiResetView, onClick: resetView },
                     ].map((it) => (
                       <button key={it.label} role="menuitem" type="button" disabled={it.disabled} title={typeof it.help === 'string' ? it.help : undefined}
                         onClick={() => { setMoreOpen(false); it.onClick() }}
@@ -4810,7 +4855,8 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
         </div>
 
         {issues && (
-          <div className="rounded-xl border bg-surface p-3">
+          <div className={`rounded-xl border bg-surface p-3 ${glass ? 'ui-card absolute left-3 z-30 max-h-[45%] w-[min(560px,calc(100%-24px))] overflow-auto' : ''}`}
+            style={glass ? { top: topInset } : undefined}>
             <div className="mb-2 flex items-center justify-between">
               <span className="text-xs font-semibold text-muted">Validation</span>
               <button onClick={() => setIssues(null)} className="text-xs text-muted hover:text-fg">dismiss</button>
@@ -4834,9 +4880,10 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
 
         {/* canvas + node palette (docked left, or floating) — never squeezed to nothing by a
             wrapped toolbar; the window scrolls instead. */}
-        <div className="flex min-h-[240px] flex-1 gap-3">
+        <div className={glass ? 'relative flex min-h-0 flex-1' : 'flex min-h-[240px] flex-1 gap-3'}>
         {libraryColumn && paletteDocked && (
-          <div className="flex w-[200px] shrink-0 flex-col overflow-hidden rounded-xl border bg-surface">
+          <div className={`flex w-[200px] shrink-0 flex-col overflow-hidden rounded-xl border bg-surface ${glass ? 'absolute left-3 z-30 shadow-xl' : ''}`}
+            style={glass ? { top: topInset, bottom: MINI_H + 24 } : undefined}>
             {paletteHeader(() => setPaletteDocked(false), HELP.uiDetachPanel, <Icon.PopOut size={14} />, null)}
             {paletteBody}
           </div>
@@ -4851,11 +4898,11 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
           onDragOver={(e) => { if (isFileDrag(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'none'; if (!fileDrag) setFileDrag(true) } }}
           onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) { setFileDrag(false); setDropNode(null) } }}
           onDrop={(e) => { if (isFileDrag(e)) { e.preventDefault(); setFileDrag(false); setDropNode(null) } }}
-          className="relative flex-1 overflow-hidden rounded-xl border bg-bg"
+          className={`relative flex-1 overflow-hidden bg-bg ${glass ? '' : 'rounded-xl border'}`}
           style={{ touchAction: 'none' }}
         >
           {multi.size > 0 && (
-            <div className="absolute bottom-3 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-lg border bg-surface px-3 py-1.5 text-sm shadow-lg"
+            <div className={`absolute ${glass ? 'bottom-20' : 'bottom-3'} left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-lg border bg-surface px-3 py-1.5 text-sm shadow-lg`}
               onPointerDown={(e) => e.stopPropagation()} onContextMenu={(e) => e.stopPropagation()}>
               <span className="font-semibold">{multi.size} selected</span>
               <span className="max-w-[260px] truncate text-xs text-muted">{nodes.filter((n) => multi.has(n.id)).map((n) => n.label).join(', ')}</span>
@@ -5227,6 +5274,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
           {/* What Live made overlap, and the way out of it. */}
           {liveOn && liveOverlaps > 0 && (
             <div className="absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-2 rounded-lg border bg-surface/95 px-3 py-1.5 text-xs shadow-lg backdrop-blur"
+              style={glass ? { top: topInset } : undefined}
               onPointerDown={(e) => e.stopPropagation()}>
               <span className="text-warning">⚠</span>
               <span className="text-fg">With Live on, {liveOverlaps} {liveOverlaps === 1 ? 'pair of things overlaps' : 'pairs of things overlap'}.</span>
@@ -5236,26 +5284,64 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
 
           {/* The legend swaps to the drop hint while files are being dragged over
               the canvas — saying it permanently pushes the line under the minimap. */}
-          <div className="pointer-events-none absolute bottom-3 left-3 rounded-lg border bg-surface/80 px-3 py-2 text-xs text-muted backdrop-blur">
-            {fileDrag
-              ? 'Drop on a running node to copy the files into it'
-              : 'Drag canvas to pan · scroll to zoom · drag a port to connect · right-click for actions'}
-          </div>
+          {(!glass || fileDrag) && (
+            <div className={`pointer-events-none absolute rounded-lg border bg-surface/80 px-3 py-2 text-xs text-muted backdrop-blur ${glass ? 'bottom-20 left-1/2 -translate-x-1/2' : 'bottom-3 left-3'}`}>
+              {fileDrag
+                ? 'Drop on a running node to copy the files into it'
+                : 'Drag canvas to pan · scroll to zoom · drag a port to connect · right-click for actions'}
+            </div>
+          )}
+
+          {/* Glass: the canvas's own tools as one floating pill, bottom centre — add a
+              node, Live, zoom and reset. The legend that sits bottom-left in the other
+              looks becomes this pill's ? tooltip. */}
+          {glass && (
+            <div role="toolbar" aria-label="Canvas tools"
+              className="ui-card absolute bottom-3 left-1/2 z-30 flex -translate-x-1/2 items-center gap-0.5 rounded-full border bg-surface p-1 shadow-xl"
+              onPointerDown={(e) => e.stopPropagation()} onContextMenu={(e) => e.stopPropagation()}>
+              <button type="button" aria-label="Add a node" title="Add a node here (or right-click the canvas)"
+                disabled={locked || deploying}
+                onClick={() => { const r = wrapRef.current?.getBoundingClientRect(); if (r) openAddMenuAt(r.left + r.width / 2, r.top + r.height / 2) }}
+                className="flex h-9 w-9 items-center justify-center rounded-full text-muted hover:bg-surface2 hover:text-fg disabled:opacity-40">
+                <Icon.Plus size={17} />
+              </button>
+              <span className="mx-1 h-5 w-px bg-border" />
+              <button type="button" aria-pressed={liveOn} onClick={toggleLive} title={liveError ? `${HELP.uiLive} — ${liveError}` : HELP.uiLive}
+                className={`flex h-9 items-center gap-2 rounded-full px-3 text-sm font-medium ${liveOn ? 'bg-success/15 text-success' : 'text-muted hover:bg-surface2 hover:text-fg'}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${liveOn ? 'bg-success' : 'bg-muted'}`} style={liveOn ? { boxShadow: '0 0 8px var(--success)' } : undefined} />
+                Live
+              </button>
+              <span className="mx-1 h-5 w-px bg-border" />
+              <button type="button" aria-label="Zoom out" onClick={() => zoomBy(-1)}
+                className="flex h-9 w-9 items-center justify-center rounded-full text-muted hover:bg-surface2 hover:text-fg"><Icon.Minus size={16} /></button>
+              <span className="w-12 text-center font-mono text-xs tabular-nums text-fg">{Math.round(view.z * 100)}%</span>
+              <button type="button" aria-label="Zoom in" onClick={() => zoomBy(1)}
+                className="flex h-9 w-9 items-center justify-center rounded-full text-muted hover:bg-surface2 hover:text-fg"><Icon.Plus size={16} /></button>
+              <button type="button" aria-label="Reset view" title={HELP.uiResetView} onClick={resetView}
+                className="flex h-9 w-9 items-center justify-center rounded-full text-muted hover:bg-surface2 hover:text-fg"><Icon.Move size={16} /></button>
+              <span className="mx-1 h-5 w-px bg-border" />
+              <span title="Drag canvas to pan · scroll to zoom · drag a port to connect · right-click for actions"
+                className="flex h-9 w-9 cursor-help items-center justify-center rounded-full text-muted"><Icon.Help size={16} /></span>
+            </div>
+          )}
 
           {/* Top-centre: the bottom of the canvas already holds the legend on
               the left and the minimap on the right, and they collide there. */}
           {flash && (
-            <div className={`pointer-events-none absolute top-3 left-1/2 max-w-[80%] -translate-x-1/2 rounded-lg border px-3 py-2 text-xs backdrop-blur ${flash.tone === 'err' ? 'border-danger/30 bg-danger/15 text-danger' : 'bg-surface/90 text-fg'}`}>
+            <div className={`pointer-events-none absolute top-3 left-1/2 max-w-[80%] -translate-x-1/2 rounded-lg border px-3 py-2 text-xs backdrop-blur ${flash.tone === 'err' ? 'border-danger/30 bg-danger/15 text-danger' : 'bg-surface/90 text-fg'}`}
+              style={glass ? { top: topInset + (liveOn && liveOverlaps > 0 ? 44 : 0) } : undefined}>
               {flash.text}
             </div>
           )}
 
-          <Minimap nodes={nodes} view={view} setView={setView} wrapRef={wrapRef} selectedId={selected?.kind === 'node' ? selected.id : null} />
+          <Minimap nodes={nodes} view={view} setView={setView} wrapRef={wrapRef} selectedId={selected?.kind === 'node' ? selected.id : null} corner={glass ? 'left' : 'right'} />
         </div>
         </div>
       </div>
 
       <StackProperties
+        overlay={glass}
+        top={topInset}
         host={deployHost}
         locked={locked}
         lockedBy={session.controllerName}
@@ -14215,7 +14301,7 @@ const MINI_W = 184
 const MINI_H = 124
 const MINI_PAD = 8
 
-function Minimap({ nodes, view, setView, wrapRef, selectedId }) {
+function Minimap({ nodes, view, setView, wrapRef, selectedId, corner = 'right' }) {
   const drag = useRef(false)
   const rect = wrapRef.current?.getBoundingClientRect()
   const vw = rect?.width || 800
@@ -14251,7 +14337,7 @@ function Minimap({ nodes, view, setView, wrapRef, selectedId }) {
 
   return (
     <div
-      className="absolute bottom-3 right-3 overflow-hidden rounded-lg border bg-surface/90 shadow backdrop-blur"
+      className={`absolute bottom-3 ${corner === 'left' ? 'left-3' : 'right-3'} z-20 overflow-hidden rounded-lg border bg-surface/90 shadow backdrop-blur`}
       style={{ width: MINI_W, height: MINI_H }}
       title={HELP.uiMinimap}
     >
@@ -14784,7 +14870,7 @@ function loadProps() {
   try { return JSON.parse(localStorage.getItem(PROPS_KEY) || '{}') } catch { return {} }
 }
 
-function StackProperties({ host, locked, lockedBy, selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, resizeFrameMembers, rebuildMongoCluster, live, deployOpen, deployments, onDeployMinimize }) {
+function StackProperties({ overlay = false, top = 0, host, locked, lockedBy, selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, resizeFrameMembers, rebuildMongoCluster, live, deployOpen, deployments, onDeployMinimize }) {
   // The Live tab sits above whatever the node's own panel is, so every node type has it without
   // each manager growing a tab of its own. Shown while Live is on and the node has figures.
   const [propTab, setPropTab] = useState('node')
@@ -14868,13 +14954,17 @@ function StackProperties({ host, locked, lockedBy, selected, stackId, nodes, edg
 
   if (docked) {
     return (
-      <div className="relative flex shrink-0 flex-col gap-4" style={{ width }}>
+      // Glass floats the docked column over the canvas's right edge, below the toolbar.
+      // It sizes to its content there, up to the canvas's height, so an empty
+      // Properties is a small card and not a column hiding the right of the design.
+      <div className={overlay ? 'absolute right-3 z-30 flex flex-col gap-3' : 'relative flex shrink-0 flex-col gap-4'}
+        style={overlay ? { width, top: top || 12, maxHeight: `calc(100% - ${(top || 12) + 12}px)` } : { width }}>
         <div
           onPointerDown={(e) => { drag.current = { kind: 'w', x0: e.clientX, w0: width } }}
           className="absolute left-0 top-0 z-10 h-full w-1.5 -translate-x-1 cursor-ew-resize hover:bg-primary"
           title={HELP.uiDragToResize}
         />
-        <div className="min-h-0 flex-1 overflow-auto rounded-xl border bg-surface p-4">
+        <div className={`min-h-0 overflow-auto border bg-surface p-4 ${overlay ? 'rounded-2xl shadow-2xl' : 'flex-1 rounded-xl'}`}>
           <Header move={false} />
           {body}
         </div>
