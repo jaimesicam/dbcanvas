@@ -256,6 +256,8 @@ body { margin:0; background:var(--bg); color:var(--fg); font-family:var(--ui-tex
     letter-spacing: var(--ui-heading-tracking);
   }
   .ui-btn, .ui-input { font-family: var(--ui-control); }
+  /* A setting locked because its node is deployed. */
+  .ui-input:disabled { opacity: 0.7; cursor: not-allowed; }
 
   /* Industrial: the labels are instrument labels — mono, upper case, tracked —
      and a card's header is a title bar rather than a line of text. The zebra is

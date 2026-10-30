@@ -233,7 +233,7 @@ export function RepositoryForm({ node: n, patchNode, deleteNode, dep, deployed }
         Repository field. Anything it does not carry still comes from upstream.
       </p>
       <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+        <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
       <div className="space-y-1">

@@ -117,7 +117,7 @@ export function AllInOneForm({ node: n, nodes, patchNode, deleteNode, dep, deplo
       </p>
 
       <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+        <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
       <div className="grid grid-cols-2 gap-2">

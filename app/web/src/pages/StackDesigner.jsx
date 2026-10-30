@@ -6237,7 +6237,7 @@ function PXCFrameForm({ frame: f, stackId, nodes, frameNodes, patchFrame, delete
       </div>
 
       <Field label="Cluster name" help={HELP.clusterName} hint="Must be unique across the stack.">
-        <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
+        <input className={inputCls} value={f.label} disabled={deployed} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
       </Field>
 
       <div className="grid grid-cols-2 gap-2">
@@ -6295,14 +6295,14 @@ function PXCFrameForm({ frame: f, stackId, nodes, frameNodes, patchFrame, delete
           in app/orchestrator.go, which no longer accepts this frame type. */}
 
       <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={!!f.useProxy} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
+        <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for egress</span><Help text={HELP.proxy} />
       </label>
-      <DBFileToolChecks obj={f} onPatch={(p) => patchFrame(f.id, p)} galera cluster />
+      <DBFileToolChecks obj={f} onPatch={(p) => patchFrame(f.id, p)} galera cluster deployed={deployed} />
       <RepositoryPicker value={f.repositoryNodeId} nodes={nodes} deployed={deployed}
         onChange={(id) => patchFrame(f.id, { repositoryNodeId: id })} />
       <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={f.gtid !== false} onChange={(e) => patchFrame(f.id, { gtid: e.target.checked })} />
+        <input type="checkbox" checked={f.gtid !== false} disabled={deployed} onChange={(e) => patchFrame(f.id, { gtid: e.target.checked })} />
         <span>Enable GTID</span><Help text={HELP.gtid} />
       </label>
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
@@ -6312,8 +6312,8 @@ function PXCFrameForm({ frame: f, stackId, nodes, frameNodes, patchFrame, delete
       {f.generateCert && (
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted">Cert TTL</span>
-          <input type="number" min="1" className={`${inputCls} w-20`} value={f.certTtlValue || 365} onChange={(e) => patchFrame(f.id, { certTtlValue: Number(e.target.value) })} />
-          <select className={inputCls} value={f.certTtlUnit || 'days'} onChange={(e) => patchFrame(f.id, { certTtlUnit: e.target.value })}>
+          <input type="number" min="1" className={`${inputCls} w-20`} value={f.certTtlValue || 365} disabled={deployed} onChange={(e) => patchFrame(f.id, { certTtlValue: Number(e.target.value) })} />
+          <select className={inputCls} value={f.certTtlUnit || 'days'} disabled={deployed} onChange={(e) => patchFrame(f.id, { certTtlUnit: e.target.value })}>
             <option value="minutes">minutes</option>
             <option value="hours">hours</option>
             <option value="days">days</option>
@@ -6368,13 +6368,13 @@ function PXCNodeForm({ node: n, frame, nodes, patchNode, dep, deployed }) {
         </select>
       </Field>
       <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={!!n.exportEnabled} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
+        <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
         <span>Export DB port to the host</span><Help text={HELP.exportPort} />
       </label>
       {n.exportEnabled && (
         <Field label="Host port" help={HELP.hostPort} hint="0 / empty = random unused port. Must not clash with another node.">
           <input type="number" min="0" max="65535" className={inputCls} value={n.exportHostPort || 0}
-            onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
+            disabled={deployed} onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
         </Field>
       )}
     </div>
@@ -6430,7 +6430,7 @@ function MySQLFrameForm({ frame: f, stackId, nodes, frames, edges, patchFrame, d
       </div>
 
       <Field label="Cluster name" help={HELP.clusterName} hint="Must be unique across the stack.">
-        <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
+        <input className={inputCls} value={f.label} disabled={deployed} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
       </Field>
 
       <div className="grid grid-cols-2 gap-2">
@@ -6500,7 +6500,7 @@ function MySQLFrameForm({ frame: f, stackId, nodes, frames, edges, patchFrame, d
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
-      <DBFileToolChecks obj={f} onPatch={(p) => patchFrame(f.id, p)} cluster />
+      <DBFileToolChecks obj={f} onPatch={(p) => patchFrame(f.id, p)} cluster deployed={deployed} />
       <RepositoryPicker value={f.repositoryNodeId} nodes={nodes} deployed={deployed}
         onChange={(id) => patchFrame(f.id, { repositoryNodeId: id })} />
       <label className="flex items-center gap-2 text-sm">
@@ -6514,8 +6514,8 @@ function MySQLFrameForm({ frame: f, stackId, nodes, frames, edges, patchFrame, d
       {f.generateCert && (
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted">Cert TTL</span>
-          <input type="number" min="1" className={`${inputCls} w-20`} value={f.certTtlValue || 365} onChange={(e) => patchFrame(f.id, { certTtlValue: Number(e.target.value) })} />
-          <select className={inputCls} value={f.certTtlUnit || 'days'} onChange={(e) => patchFrame(f.id, { certTtlUnit: e.target.value })}>
+          <input type="number" min="1" className={`${inputCls} w-20`} value={f.certTtlValue || 365} disabled={deployed} onChange={(e) => patchFrame(f.id, { certTtlValue: Number(e.target.value) })} />
+          <select className={inputCls} value={f.certTtlUnit || 'days'} disabled={deployed} onChange={(e) => patchFrame(f.id, { certTtlUnit: e.target.value })}>
             <option value="minutes">minutes</option>
             <option value="hours">hours</option>
             <option value="days">days</option>
@@ -7141,7 +7141,7 @@ function PerconaServerForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
       </div>
 
       <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+        <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
       <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
 
@@ -7181,7 +7181,7 @@ function PerconaServerForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
-      <DBFileToolChecks obj={n} onPatch={(p) => patchNode(n.id, p)} />
+      <DBFileToolChecks obj={n} onPatch={(p) => patchNode(n.id, p)} deployed={deployed} />
       <RepositoryPicker value={n.repositoryNodeId} nodes={nodes} deployed={deployed}
         onChange={(id) => patchNode(n.id, { repositoryNodeId: id })} />
       <label className="flex items-center gap-2 text-sm">
@@ -7195,8 +7195,8 @@ function PerconaServerForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
       {n.generateCert && (
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted">Cert TTL</span>
-          <input type="number" min="1" className={`${inputCls} w-20`} value={n.certTtlValue || 365} onChange={(e) => patchNode(n.id, { certTtlValue: Number(e.target.value) })} />
-          <select className={inputCls} value={n.certTtlUnit || 'days'} onChange={(e) => patchNode(n.id, { certTtlUnit: e.target.value })}>
+          <input type="number" min="1" className={`${inputCls} w-20`} value={n.certTtlValue || 365} disabled={deployed} onChange={(e) => patchNode(n.id, { certTtlValue: Number(e.target.value) })} />
+          <select className={inputCls} value={n.certTtlUnit || 'days'} disabled={deployed} onChange={(e) => patchNode(n.id, { certTtlUnit: e.target.value })}>
             <option value="minutes">minutes</option>
             <option value="hours">hours</option>
             <option value="days">days</option>
@@ -7258,7 +7258,7 @@ function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }
       </div>
 
       <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+        <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
       <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
 
@@ -7335,8 +7335,8 @@ function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }
       {n.generateCert && (
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted">Cert TTL</span>
-          <input type="number" min="1" className={`${inputCls} w-20`} value={n.certTtlValue || 365} onChange={(e) => patchNode(n.id, { certTtlValue: Number(e.target.value) })} />
-          <select className={inputCls} value={n.certTtlUnit || 'days'} onChange={(e) => patchNode(n.id, { certTtlUnit: e.target.value })}>
+          <input type="number" min="1" className={`${inputCls} w-20`} value={n.certTtlValue || 365} disabled={deployed} onChange={(e) => patchNode(n.id, { certTtlValue: Number(e.target.value) })} />
+          <select className={inputCls} value={n.certTtlUnit || 'days'} disabled={deployed} onChange={(e) => patchNode(n.id, { certTtlUnit: e.target.value })}>
             <option value="minutes">minutes</option>
             <option value="hours">hours</option>
             <option value="days">days</option>
@@ -7603,7 +7603,7 @@ function CephForm({ node: n, frames = [], patchNode, dep, deployed }) {
         not a store to trust.
       </p>
       <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+        <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
       <Field label="Capacity (GB)" help={HELP.cephOsdSize} hint="The OSD is a sparse file: it takes host disk only as volumes fill it. 5 to 1000.">
         <input type="number" min="5" max="1000" className={`${inputCls} ${lock}`} disabled={deployed} value={size}
@@ -7646,7 +7646,7 @@ function SeaweedFSForm({ node: n, patchNode, deleteNode, dep, deployed }) {
       </p>
 
       <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+        <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
       <Field label="AWS_ACCESS_KEY_ID" help={HELP.s3AccessKey} hint={deployed ? 'Set at deploy.' : 'Defaults to "seaweedfs".'}>
@@ -7747,7 +7747,7 @@ function WatchtowerForm({ node: n, patchNode, deleteNode, dep, deployed }) {
       </p>
 
       <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+        <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
       <div className="rounded-lg bg-surface2 px-3 py-2 text-xs text-muted">
@@ -7816,7 +7816,7 @@ function OpenBaoForm({ node: n, patchNode, deleteNode, dep, deployed }) {
       </p>
 
       <Field label="Label" help={HELP.label} hint="Becomes the node hostname and VAULT_ADDR; must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+        <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
 
@@ -7895,7 +7895,7 @@ function KeycloakForm({ node: n, patchNode, deleteNode, dep, deployed }) {
       </p>
 
       <Field label="Label" help={HELP.label} hint="Becomes the node hostname (also the OIDC issuer host); must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+        <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
@@ -7948,7 +7948,7 @@ function SambaForm({ node: n, patchNode, deleteNode, dep, deployed }) {
       </p>
 
       <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+        <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
       <Field label="Operating system" help={HELP.os} hint="Samba AD DC deploys on Ubuntu 24.04 only (complete packages).">
         <input className={`${inputCls} opacity-70`} value="Ubuntu 24.04" readOnly />
@@ -8052,7 +8052,7 @@ function VNCForm({ node: n, patchNode, deleteNode, dep, deployed }) {
       </p>
 
       <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+        <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
       <Field label="Desktop user" help={HELP.vncUser} hint="Linux login user (has passwordless sudo).">
@@ -8140,7 +8140,7 @@ function PMM2Form({ node: n, patchNode, deleteNode, dep, deployed }) {
         The admin login is <span className="font-mono">admin</span> / <span className="font-mono">PMM_ADMIN_PASSWORD</span> from .env.
       </p>
       <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+        <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
       <Field label="Version" help={HELP.pmm2Version} hint={deployed ? 'Locked — the node is deployed.' : 'percona/pmm-server tag. amd64 only.'}>
         <select className={`${inputCls} ${lock}`} value={n.version || ''} disabled={deployed}
@@ -8253,7 +8253,7 @@ function LinuxClientForm({ node: n, nodes = [], patchNode, deleteNode, dep, depl
       <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
 
       <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+        <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
       <div className="grid grid-cols-2 gap-2">
@@ -8378,7 +8378,7 @@ export function DBClientFields({ node: n, patchNode, deployed }) {
 // (app/linuxclient_files.go).
 export function FileToolFields({ node: n, patchNode, deployed }) {
   return (
-    <FileToolChecks obj={n} disabled={deployed} onPatch={(p) => patchNode(n.id, p)}
+    <FileToolChecks obj={n} deployed={deployed} onPatch={(p) => patchNode(n.id, p)}
       fields={[{ key: 'lcInnodump', tool: 'innodump' }, { key: 'lcBinlogsum', tool: 'binlogsum' }, { key: 'lcGcacheInspector', tool: 'gcache' }]}
       footer={<>The latest GitHub release, checksum-verified, in <span className="font-mono">/usr/local/bin</span>.</>} />
   )
@@ -8821,7 +8821,7 @@ export function BigHoleLink({ port }) {
 // BigHoleForm edits a (not-yet-deployed) Big Hole node. There is nothing to
 // configure — no OS, no version, no association, no credentials — because the app
 // talks to nothing: the only field is the label, and the rest is what to expect.
-export function BigHoleForm({ node: n, patchNode, deleteNode, dep }) {
+export function BigHoleForm({ node: n, patchNode, deleteNode, dep, deployed }) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -8848,7 +8848,7 @@ export function BigHoleForm({ node: n, patchNode, deleteNode, dep }) {
       </p>
 
       <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+        <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
@@ -8917,7 +8917,7 @@ export function MClusterAdminForm({ node: n, patchNode, deleteNode, dep, deploye
       </p>
 
       <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+        <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
       {/* The passwords live on the panel, not on each database: this is the node you
@@ -9003,7 +9003,7 @@ export function MClusterAdminManager({ dep, onDeleteNode }) {
 // configure but the link, resolved the way the backend's supportSimTarget does — and a
 // note on whether that target actually has mongot, since without it the desk runs on
 // an in-app scan and the point of the sim is $vectorSearch.
-function SupportSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep }) {
+function SupportSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep, deployed }) {
   const linked = (() => {
     for (const e of edges) {
       const other = e.from.node === n.id ? e.to.node : (e.to.node === n.id ? e.from.node : null)
@@ -9052,7 +9052,7 @@ function SupportSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, 
         </div>
       )}
       <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+        <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
         <Icon.Trash size={16} /> Delete node
@@ -9136,7 +9136,7 @@ function pgvLinked(n, nodes, frames, edges) {
 // PGVectorSimForm edits a (not-yet-running) pgvector Support Sim node: nothing to configure
 // but the link, plus a note when the PostgreSQL behind it has no pgvector — the desk then
 // stores embeddings as real[] and scans them in the app.
-function PGVectorSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep }) {
+function PGVectorSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep, deployed }) {
   const linked = pgvLinked(n, nodes, frames, edges)
   return (
     <div className="space-y-3">
@@ -9178,7 +9178,7 @@ function PGVectorSimForm({ node: n, nodes, frames, edges, patchNode, deleteNode,
         </div>
       )}
       <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+        <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
         <Icon.Trash size={16} /> Delete node
@@ -9770,7 +9770,7 @@ function StockSimForm({ node: n, nodes, frames, edges, stackId, patchNode, delet
       </Field>
 
       <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+        <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
@@ -9914,7 +9914,7 @@ function LedgerSimForm ({ node: n, nodes, frames, edges, stackId, patchNode, del
       </p>
 
       <Field label="Label" help={HELP.label}>
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+        <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
       <Field label="Connection" help={HELP.lsMode}>
@@ -10299,7 +10299,7 @@ function PerfSimForm ({ node: n, nodes, frames, edges, stackId, patchNode, delet
         Each lock, pause and setting releases itself after a maximum hold, and all of them are released when the sim stops.
       </p>
       <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+        <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
         <Icon.Trash size={16} /> Delete node
@@ -10472,7 +10472,7 @@ function ValkeyForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }) {
       </p>
 
       <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+        <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
       <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
 
@@ -10797,7 +10797,7 @@ function K3DFrameForm({ frame: f, nodes, frames = [], frameNodes, patchFrame, de
       </p>
 
       <Field label="Cluster name" help={HELP.clusterName} hint="Frame label; becomes the k3d cluster name.">
-        <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
+        <input className={inputCls} value={f.label} disabled={deployed} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
       </Field>
 
       <Field label="Kubernetes (k3s)" help={HELP.k3sVersion} hint="The k3s image the nodes run. From `make versions`.">
@@ -11620,7 +11620,7 @@ function K3DMemberForm({ node: n, frame, frameNodes, patchNode, dep, deployed })
         {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
       </div>
       <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+        <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
       <p className="text-xs text-muted">
         {isServer
@@ -11691,7 +11691,7 @@ function ValkeyClusterFrameForm({ frame: f, nodes, frameNodes, patchFrame, delet
       </Field>}
 
       <Field label="Cluster name" help={HELP.clusterName} hint="Frame label; must be unique.">
-        <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
+        <input className={inputCls} value={f.label} disabled={deployed} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
       </Field>
 
       <div className="grid grid-cols-2 gap-2">
@@ -11762,7 +11762,7 @@ function ValkeyClusterMemberForm({ node: n, frame: f, patchNode, dep, deployed }
       <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
 
       <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+        <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
@@ -11849,7 +11849,7 @@ function ProxySQLForm({ node: n, nodes, frames, edges, patchNode, deleteNode, de
       </div>
 
       <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+        <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
       <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
 
@@ -11997,7 +11997,7 @@ function ProxySQLFrameForm({ frame: f, nodes, frames, edges, patchFrame, deleteF
       </div>
 
       <Field label="Cluster name" help={HELP.clusterName} hint="Must be unique across the stack.">
-        <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
+        <input className={inputCls} value={f.label} disabled={deployed} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
       </Field>
 
       {linkedFrame ? (
@@ -12136,7 +12136,7 @@ function InnoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed })
       </div>
 
       <Field label="Cluster name" help={HELP.clusterName} hint="Must be unique across the stack.">
-        <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
+        <input className={inputCls} value={f.label} disabled={deployed} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
       </Field>
 
       <Field label="Replication mode" help={HELP.replMode} hint={deployed ? 'Locked.' : 'InnoDB Cluster adds MySQL Shell management + Router metadata.'}>
@@ -12180,7 +12180,7 @@ function InnoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed })
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
-      <DBFileToolChecks obj={f} onPatch={(p) => patchFrame(f.id, p)} cluster />
+      <DBFileToolChecks obj={f} onPatch={(p) => patchFrame(f.id, p)} cluster deployed={deployed} />
       <RepositoryPicker value={f.repositoryNodeId} nodes={nodes} deployed={deployed}
         onChange={(id) => patchFrame(f.id, { repositoryNodeId: id })} />
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
@@ -12190,8 +12190,8 @@ function InnoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed })
       {f.generateCert && (
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted">Cert TTL</span>
-          <input type="number" min="1" className={`${inputCls} w-20`} value={f.certTtlValue || 365} onChange={(e) => patchFrame(f.id, { certTtlValue: Number(e.target.value) })} />
-          <select className={inputCls} value={f.certTtlUnit || 'days'} onChange={(e) => patchFrame(f.id, { certTtlUnit: e.target.value })}>
+          <input type="number" min="1" className={`${inputCls} w-20`} value={f.certTtlValue || 365} disabled={deployed} onChange={(e) => patchFrame(f.id, { certTtlValue: Number(e.target.value) })} />
+          <select className={inputCls} value={f.certTtlUnit || 'days'} disabled={deployed} onChange={(e) => patchFrame(f.id, { certTtlUnit: e.target.value })}>
             <option value="minutes">minutes</option>
             <option value="hours">hours</option>
             <option value="days">days</option>
@@ -12468,7 +12468,7 @@ function MongoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, rebuildClu
       </div>
 
       <Field label="Cluster name" help={HELP.clusterName} hint="Must be unique across the stack.">
-        <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
+        <input className={inputCls} value={f.label} disabled={deployed} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
       </Field>
 
       <Field label="Setup" help={HELP.psmdbSetup} hint={deployed ? 'Locked.' : 'Standard is HA; minimum is the smallest working sharded cluster.'}>
@@ -12537,8 +12537,8 @@ function MongoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, rebuildClu
       {f.generateCert && (
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted">Cert TTL</span>
-          <input type="number" min="1" className={`${inputCls} w-20`} value={f.certTtlValue || 365} onChange={(e) => patchFrame(f.id, { certTtlValue: Number(e.target.value) })} />
-          <select className={inputCls} value={f.certTtlUnit || 'days'} onChange={(e) => patchFrame(f.id, { certTtlUnit: e.target.value })}>
+          <input type="number" min="1" className={`${inputCls} w-20`} value={f.certTtlValue || 365} disabled={deployed} onChange={(e) => patchFrame(f.id, { certTtlValue: Number(e.target.value) })} />
+          <select className={inputCls} value={f.certTtlUnit || 'days'} disabled={deployed} onChange={(e) => patchFrame(f.id, { certTtlUnit: e.target.value })}>
             <option value="minutes">minutes</option>
             <option value="hours">hours</option>
             <option value="days">days</option>
@@ -12673,7 +12673,7 @@ function PSMRSFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed }) 
       </div>
 
       <Field label="Replica-set name" help={HELP.clusterName} hint="Becomes the replica-set name; must be unique across the stack.">
-        <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
+        <input className={inputCls} value={f.label} disabled={deployed} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
       </Field>
 
       <MongoCatalogFields obj={f} imgs={imgs} deployed={deployed} patch={patchFrame} />
@@ -12705,8 +12705,8 @@ function PSMRSFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed }) 
       {f.generateCert && (
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted">Cert TTL</span>
-          <input type="number" min="1" className={`${inputCls} w-20`} value={f.certTtlValue || 365} onChange={(e) => patchFrame(f.id, { certTtlValue: Number(e.target.value) })} />
-          <select className={inputCls} value={f.certTtlUnit || 'days'} onChange={(e) => patchFrame(f.id, { certTtlUnit: e.target.value })}>
+          <input type="number" min="1" className={`${inputCls} w-20`} value={f.certTtlValue || 365} disabled={deployed} onChange={(e) => patchFrame(f.id, { certTtlValue: Number(e.target.value) })} />
+          <select className={inputCls} value={f.certTtlUnit || 'days'} disabled={deployed} onChange={(e) => patchFrame(f.id, { certTtlUnit: e.target.value })}>
             <option value="minutes">minutes</option>
             <option value="hours">hours</option>
             <option value="days">days</option>
@@ -13021,7 +13021,7 @@ function PatroniFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame
       </div>
 
       <Field label="Cluster name" help={HELP.clusterName} hint="Becomes the Patroni scope + pgBackRest stanza; must be unique across the stack.">
-        <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
+        <input className={inputCls} value={f.label} disabled={deployed} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
       </Field>
 
       <div className="grid grid-cols-2 gap-2">
@@ -13090,8 +13090,8 @@ function PatroniFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame
       {f.generateCert && (
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted">Cert TTL</span>
-          <input type="number" min="1" className={`${inputCls} w-20`} value={f.certTtlValue || 365} onChange={(e) => patchFrame(f.id, { certTtlValue: Number(e.target.value) })} />
-          <select className={inputCls} value={f.certTtlUnit || 'days'} onChange={(e) => patchFrame(f.id, { certTtlUnit: e.target.value })}>
+          <input type="number" min="1" className={`${inputCls} w-20`} value={f.certTtlValue || 365} disabled={deployed} onChange={(e) => patchFrame(f.id, { certTtlValue: Number(e.target.value) })} />
+          <select className={inputCls} value={f.certTtlUnit || 'days'} disabled={deployed} onChange={(e) => patchFrame(f.id, { certTtlUnit: e.target.value })}>
             <option value="minutes">minutes</option>
             <option value="hours">hours</option>
             <option value="days">days</option>
@@ -13168,7 +13168,7 @@ function RepmgrFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame,
       </div>
 
       <Field label="Cluster name" help={HELP.clusterName} hint="Becomes the Barman server name; must be unique across the stack.">
-        <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
+        <input className={inputCls} value={f.label} disabled={deployed} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
       </Field>
 
       <div className="grid grid-cols-2 gap-2">
@@ -13251,8 +13251,8 @@ function RepmgrFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame,
       {f.generateCert && (
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted">Cert TTL</span>
-          <input type="number" min="1" className={`${inputCls} w-20`} value={f.certTtlValue || 365} onChange={(e) => patchFrame(f.id, { certTtlValue: Number(e.target.value) })} />
-          <select className={inputCls} value={f.certTtlUnit || 'days'} onChange={(e) => patchFrame(f.id, { certTtlUnit: e.target.value })}>
+          <input type="number" min="1" className={`${inputCls} w-20`} value={f.certTtlValue || 365} disabled={deployed} onChange={(e) => patchFrame(f.id, { certTtlValue: Number(e.target.value) })} />
+          <select className={inputCls} value={f.certTtlUnit || 'days'} disabled={deployed} onChange={(e) => patchFrame(f.id, { certTtlUnit: e.target.value })}>
             <option value="minutes">minutes</option>
             <option value="hours">hours</option>
             <option value="days">days</option>
@@ -13330,7 +13330,7 @@ function SpockFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, 
       </div>
 
       <Field label="Cluster name" help={HELP.clusterName} hint="Must be unique across the stack.">
-        <input className={inputCls} value={f.label} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
+        <input className={inputCls} value={f.label} disabled={deployed} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
       </Field>
 
       <div className="grid grid-cols-2 gap-2">
@@ -13379,8 +13379,8 @@ function SpockFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, 
       {f.generateCert && (
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted">Cert TTL</span>
-          <input type="number" min="1" className={`${inputCls} w-20`} value={f.certTtlValue || 365} onChange={(e) => patchFrame(f.id, { certTtlValue: Number(e.target.value) })} />
-          <select className={inputCls} value={f.certTtlUnit || 'days'} onChange={(e) => patchFrame(f.id, { certTtlUnit: e.target.value })}>
+          <input type="number" min="1" className={`${inputCls} w-20`} value={f.certTtlValue || 365} disabled={deployed} onChange={(e) => patchFrame(f.id, { certTtlValue: Number(e.target.value) })} />
+          <select className={inputCls} value={f.certTtlUnit || 'days'} disabled={deployed} onChange={(e) => patchFrame(f.id, { certTtlUnit: e.target.value })}>
             <option value="minutes">minutes</option>
             <option value="hours">hours</option>
             <option value="days">days</option>
@@ -13499,7 +13499,7 @@ function HAProxyForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep
         </div>
       )}
 
-      <Field label="Label" help={HELP.label}><input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} /></Field>
+      <Field label="Label" help={HELP.label}><input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} /></Field>
 
       <div className="grid grid-cols-2 gap-2">
         <Field label="OS" help={HELP.os} hint={deployed ? 'Locked.' : ''}>
@@ -13670,7 +13670,7 @@ export function PgBouncerForm({ node: n, nodes, frames, edges, patchNode, delete
       )}
 
       <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+        <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
       <div className="grid grid-cols-2 gap-2">
@@ -13888,8 +13888,8 @@ export function PgBouncerForm({ node: n, nodes, frames, edges, patchNode, delete
       {n.generateCert && (
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted">Cert TTL</span>
-          <input type="number" min="1" className={`${inputCls} w-20`} value={n.certTtlValue || 365} onChange={(e) => patchNode(n.id, { certTtlValue: Number(e.target.value) })} />
-          <select className={inputCls} value={n.certTtlUnit || 'days'} onChange={(e) => patchNode(n.id, { certTtlUnit: e.target.value })}>
+          <input type="number" min="1" className={`${inputCls} w-20`} value={n.certTtlValue || 365} disabled={deployed} onChange={(e) => patchNode(n.id, { certTtlValue: Number(e.target.value) })} />
+          <select className={inputCls} value={n.certTtlUnit || 'days'} disabled={deployed} onChange={(e) => patchNode(n.id, { certTtlUnit: e.target.value })}>
             <option value="minutes">minutes</option>
             <option value="hours">hours</option>
             <option value="days">days</option>
@@ -13961,7 +13961,7 @@ function OrchestratorForm({ node: n, nodes = [], patchNode, deleteNode, dep, dep
 
       <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
 
-      <Field label="Label" help={HELP.label}><input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} /></Field>
+      <Field label="Label" help={HELP.label}><input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} /></Field>
 
       <div className="grid grid-cols-2 gap-2">
         <Field label="OS" help={HELP.os} hint={deployed ? 'Locked.' : ''}>
@@ -14059,7 +14059,7 @@ function PSMStandaloneForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
 
       <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
       <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+        <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
       </Field>
 
       <MongoCatalogFields obj={n} imgs={imgs} deployed={deployed} patch={patchNode} />
@@ -14087,8 +14087,8 @@ function PSMStandaloneForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
       {n.generateCert && (
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted">Cert TTL</span>
-          <input type="number" min="1" className={`${inputCls} w-20`} value={n.certTtlValue || 365} onChange={(e) => patchNode(n.id, { certTtlValue: Number(e.target.value) })} />
-          <select className={inputCls} value={n.certTtlUnit || 'days'} onChange={(e) => patchNode(n.id, { certTtlUnit: e.target.value })}>
+          <input type="number" min="1" className={`${inputCls} w-20`} value={n.certTtlValue || 365} disabled={deployed} onChange={(e) => patchNode(n.id, { certTtlValue: Number(e.target.value) })} />
+          <select className={inputCls} value={n.certTtlUnit || 'days'} disabled={deployed} onChange={(e) => patchNode(n.id, { certTtlUnit: e.target.value })}>
             <option value="minutes">minutes</option>
             <option value="hours">hours</option>
             <option value="days">days</option>
@@ -15199,7 +15199,7 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
       if (dep && dep.state === 'running') {
         return <BigHoleManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
-      return <BigHoleForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} />
+      return <BigHoleForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
     // MClusterAdmin node — the MongoDB administration panel.
     if (n.type === 'mclusteradmin') {
@@ -15220,7 +15220,7 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
       if (dep && dep.state === 'running') {
         return <PGVectorSimManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
-      return <PGVectorSimForm node={n} nodes={nodes} frames={frames} edges={edges} patchNode={patchNode} deleteNode={deleteNode} dep={dep} />
+      return <PGVectorSimForm node={n} nodes={nodes} frames={frames} edges={edges} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
     // Stock Market Sim node — the CRUD + report stock-exchange app. Its form
     // takes stackId because, uniquely, it can test a database connection before
@@ -15250,7 +15250,7 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
           </div>
         )}
         <Field label="Label" help={HELP.label}>
-          <input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+          <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
         </Field>
         <Field label="Type" help={HELP.nodeType}>
           <input className={`${inputCls} opacity-70`} value={def.label} readOnly />

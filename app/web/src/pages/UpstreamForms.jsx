@@ -127,31 +127,31 @@ function CommonOptions({ obj, patch, nodes, deployed, showGtid, showRepl, galera
     <>
       {showRepl && (
         <Field label="Replication mode" help={HELP.replMode} hint="Semi-sync makes the primary wait for one replica to acknowledge.">
-          <select className={inputCls} value={obj.replMode || 'async'} onChange={(e) => patch({ replMode: e.target.value })}>
+          <select className={inputCls} value={obj.replMode || 'async'} disabled={deployed} onChange={(e) => patch({ replMode: e.target.value })}>
             <option value="async">async</option>
             <option value="semisync">semisync</option>
           </select>
         </Field>
       )}
       <Field label="Monitored by" help={HELP.pmm}>
-        <select className={inputCls} value={obj.pmmNodeId || ''} onChange={(e) => patch({ pmmNodeId: e.target.value })}>
+        <select className={inputCls} value={obj.pmmNodeId || ''} disabled={deployed} onChange={(e) => patch({ pmmNodeId: e.target.value })}>
           <option value="">not monitored</option>
           {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
         </select>
       </Field>
       {showGtid && (
-        <Check checked={obj.gtid !== false} onChange={(v) => patch({ gtid: v })} label="Enable GTID" help={HELP.gtid} />
+        <Check disabled={deployed} checked={obj.gtid !== false} onChange={(v) => patch({ gtid: v })} label="Enable GTID" help={HELP.gtid} />
       )}
-      <Check checked={!!obj.useProxy} onChange={(v) => patch({ useProxy: v })} label="Install packages via the Intranet proxy" help={HELP.proxy} />
-      <DBFileToolChecks obj={obj} onPatch={patch} galera={galera} cluster={cluster} />
-      <Check checked={!!obj.generateCert} onChange={(v) => patch({ generateCert: v })} label="Issue a TLS certificate from the Intranet CA" help={HELP.generateCert} />
+      <Check disabled={deployed} checked={!!obj.useProxy} onChange={(v) => patch({ useProxy: v })} label="Install packages via the Intranet proxy" help={HELP.proxy} />
+      <DBFileToolChecks obj={obj} onPatch={patch} galera={galera} cluster={cluster} deployed={deployed} />
+      <Check disabled={deployed} checked={!!obj.generateCert} onChange={(v) => patch({ generateCert: v })} label="Issue a TLS certificate from the Intranet CA" help={HELP.generateCert} />
       {obj.generateCert && (
         <div className="grid grid-cols-2 gap-2">
           <Field label="Certificate TTL" help={HELP.certTTL}>
-            <input type="number" min="1" className={inputCls} value={obj.certTtlValue ?? 365} onChange={(e) => patch({ certTtlValue: Number(e.target.value) })} />
+            <input type="number" min="1" className={inputCls} value={obj.certTtlValue ?? 365} disabled={deployed} onChange={(e) => patch({ certTtlValue: Number(e.target.value) })} />
           </Field>
           <Field label="Unit" help={HELP.certTTL}>
-            <select className={inputCls} value={obj.certTtlUnit || 'days'} onChange={(e) => patch({ certTtlUnit: e.target.value })}>
+            <select className={inputCls} value={obj.certTtlUnit || 'days'} disabled={deployed} onChange={(e) => patch({ certTtlUnit: e.target.value })}>
               <option value="days">days</option>
               <option value="months">months</option>
               <option value="years">years</option>
@@ -216,10 +216,10 @@ function OrchestratorPicker({ frame: f, stackId, nodes, patch, running }) {
 function ExportRow({ node: n, patchNode, deployed }) {
   return (
     <>
-      <Check checked={!!n.exportEnabled} onChange={(v) => patchNode(n.id, { exportEnabled: v })} label="Publish port 3306 to the host" help={HELP.exportPort} />
+      <Check disabled={deployed} checked={!!n.exportEnabled} onChange={(v) => patchNode(n.id, { exportEnabled: v })} label="Publish port 3306 to the host" help={HELP.exportPort} />
       {n.exportEnabled && (
         <Field label="Host port" help={HELP.hostPort} hint={deployed ? 'Changing this needs a destroy + redeploy — published ports are fixed at container creation.' : '0 = pick a free port'}>
-          <input type="number" min="0" className={inputCls} value={n.exportHostPort || 0} onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
+          <input type="number" min="0" className={inputCls} value={n.exportHostPort || 0} disabled={deployed} onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
         </Field>
       )}
     </>
@@ -240,7 +240,7 @@ export function MariaDBNodeForm({ node: n, nodes, patchNode, deleteNode, deploye
         <span className="text-sm font-semibold">MariaDB</span>
         <Badge tone="primary">standalone</Badge>
       </div>
-      <Field label="Name" help={HELP.label}><input className={inputCls} value={n.label} onChange={(e) => patch({ label: e.target.value })} /></Field>
+      <Field label="Name" help={HELP.label}><input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patch({ label: e.target.value })} /></Field>
       <VersionPickers obj={n} patch={patch} deployed={deployed} majorKey="mariadbMajor" versionKey="mariadbVersion" majorLabel="MariaDB" cat={cat} />
       <CommonOptions obj={n} patch={patch} nodes={nodes} deployed={deployed} showGtid />
       <ExportRow node={n} patchNode={patchNode} deployed={deployed} />
@@ -264,7 +264,7 @@ export function MariaDBFrameForm({ frame: f, stackId, nodes, patchFrame, deleteF
         <Badge tone="primary">{members.length} node{members.length === 1 ? '' : 's'}</Badge>
       </div>
       <Field label="Cluster name" help={HELP.clusterName} hint="Must be unique across the stack.">
-        <input className={inputCls} value={f.label} onChange={(e) => patch({ label: e.target.value })} />
+        <input className={inputCls} value={f.label} disabled={deployed} onChange={(e) => patch({ label: e.target.value })} />
       </Field>
       <VersionPickers obj={f} patch={patch} deployed={deployed} majorKey="mariadbMajor" versionKey="mariadbVersion" majorLabel="MariaDB" cat={cat} />
       <CommonOptions obj={f} patch={patch} nodes={nodes} deployed={deployed} showGtid showRepl cluster />
@@ -303,7 +303,7 @@ export function MariaDBGaleraFrameForm({ frame: f, nodes, patchFrame, deleteFram
         <Badge tone="primary">{members.length} node{members.length === 1 ? '' : 's'}</Badge>
       </div>
       <Field label="Cluster name" help={HELP.clusterName} hint="Also the wsrep_cluster_name.">
-        <input className={inputCls} value={f.label} onChange={(e) => patch({ label: e.target.value })} />
+        <input className={inputCls} value={f.label} disabled={deployed} onChange={(e) => patch({ label: e.target.value })} />
       </Field>
       <VersionPickers obj={f} patch={patch} deployed={deployed} majorKey="mariadbMajor" versionKey="mariadbVersion" majorLabel="MariaDB" cat={cat} />
       <CommonOptions obj={f} patch={patch} nodes={nodes} deployed={deployed} galera cluster />
@@ -338,7 +338,7 @@ export function MySQLCENodeForm({ node: n, nodes, patchNode, deleteNode, deploye
         <span className="text-sm font-semibold">MySQL Community</span>
         <Badge tone="primary">standalone</Badge>
       </div>
-      <Field label="Name" help={HELP.label}><input className={inputCls} value={n.label} onChange={(e) => patch({ label: e.target.value })} /></Field>
+      <Field label="Name" help={HELP.label}><input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patch({ label: e.target.value })} /></Field>
       <VersionPickers obj={n} patch={patch} deployed={deployed} majorKey="mysqlceMajor" versionKey="mysqlceVersion" majorLabel="MySQL" cat={cat} />
       <CommonOptions obj={n} patch={patch} nodes={nodes} deployed={deployed} showGtid />
       <ExportRow node={n} patchNode={patchNode} deployed={deployed} />
@@ -362,7 +362,7 @@ export function MySQLCEFrameForm({ frame: f, stackId, nodes, patchFrame, deleteF
         <Badge tone="primary">{members.length} node{members.length === 1 ? '' : 's'}</Badge>
       </div>
       <Field label="Cluster name" help={HELP.clusterName} hint="Must be unique across the stack.">
-        <input className={inputCls} value={f.label} onChange={(e) => patch({ label: e.target.value })} />
+        <input className={inputCls} value={f.label} disabled={deployed} onChange={(e) => patch({ label: e.target.value })} />
       </Field>
       <VersionPickers obj={f} patch={patch} deployed={deployed} majorKey="mysqlceMajor" versionKey="mysqlceVersion" majorLabel="MySQL" cat={cat} />
       <CommonOptions obj={f} patch={patch} nodes={nodes} deployed={deployed} cluster showGtid showRepl />
@@ -390,7 +390,7 @@ export function MySQLCEInnoDBFrameForm({ frame: f, nodes, patchFrame, deleteFram
         <Badge tone="primary">{members.length} node{members.length === 1 ? '' : 's'}</Badge>
       </div>
       <Field label="Cluster name" help={HELP.clusterName} hint="Must be unique across the stack.">
-        <input className={inputCls} value={f.label} onChange={(e) => patch({ label: e.target.value })} />
+        <input className={inputCls} value={f.label} disabled={deployed} onChange={(e) => patch({ label: e.target.value })} />
       </Field>
       <VersionPickers obj={f} patch={patch} deployed={deployed} majorKey="mysqlceMajor" versionKey="mysqlceVersion" majorLabel="MySQL" cat={cat} />
       <Field label="Mode" help={HELP.k8sPsReplication} hint="InnoDB Cluster adds MySQL Shell orchestration and cluster metadata on top of Group Replication.">
@@ -399,7 +399,7 @@ export function MySQLCEInnoDBFrameForm({ frame: f, nodes, patchFrame, deleteFram
           <option value="groupreplication">Group Replication (raw)</option>
         </select>
       </Field>
-      <Check checked={!!f.mysqlRouter} onChange={(v) => patch({ mysqlRouter: v })} label="Install MySQL Router on each member" />
+      <Check disabled={deployed} checked={!!f.mysqlRouter} onChange={(v) => patch({ mysqlRouter: v })} label="Install MySQL Router on each member" />
       <CommonOptions obj={f} patch={patch} nodes={nodes} deployed={deployed} cluster />
       {members.length < 3 && (
         <p className="text-xs text-danger">Needs at least 3 members (has {members.length}).</p>
@@ -425,7 +425,7 @@ export function UpstreamMemberForm({ node: n, frame, patchNode, deleteNode, depl
         <span className="text-sm font-semibold">{frame?.label || 'Cluster'} member</span>
         {n.role ? <Badge tone={n.role === 'primary' ? 'primary' : 'muted'}>{n.role}</Badge> : null}
       </div>
-      <Field label="Name" help={HELP.label}><input className={inputCls} value={n.label} onChange={(e) => patchNode(n.id, { label: e.target.value })} /></Field>
+      <Field label="Name" help={HELP.label}><input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} /></Field>
       {roles && (
         <Field label="Role" help={HELP.role} hint="Exactly one primary per cluster.">
           <select className={inputCls} value={n.role || 'secondary'} disabled={deployed} onChange={(e) => patchNode(n.id, { role: e.target.value })}>

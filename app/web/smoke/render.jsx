@@ -5519,6 +5519,34 @@ check('mysql servers: file tools, with gcache-inspector on Galera only', () => {
   return 'ok'
 })
 
+// A deployed node does not offer the file tools: they are chosen at design time, and a
+// checkbox ticked afterwards would wait for a redeploy that does not install them.
+check('file tools: not offered once the node is deployed', () => {
+  if (renderToString(<DBFileToolChecks obj={{ installInnodump: true }} onPatch={noop} cluster deployed />) !== '') {
+    throw new Error('a deployed server must not offer the file tools')
+  }
+  if (renderToString(<FileToolFields node={{ id: 'lc6', lcInnodump: true }} patchNode={noop} deployed />) !== '') {
+    throw new Error('a deployed Linux Client must not offer the file tools')
+  }
+  return 'ok'
+})
+
+// Settings only a deploy applies are locked on a deployed cluster: GTID, the package proxy,
+// the certificate and the cluster's name. The Orchestrator link stays live — it has its own
+// apply button.
+check('mariadb replication: deploy-time settings are locked once deployed', () => {
+  const frame = { id: 'f1', type: 'mariadbrepl', label: 'mariadb-repl-01', gtid: true, generateCert: true, installInnodump: true }
+  const html = renderToString(<MariaDBFrameForm frame={frame} stackId={1} nodes={[]} patchFrame={noop} deleteFrame={noop} deployed running />)
+  const disabledInputs = (re) => [...html.matchAll(/<(input|select)[^>]*>/g)].filter((m) => re.test(m[0]))
+  const gtid = [...html.matchAll(/<label[^>]*>.*?<\/label>/gs)].find((m) => m[0].includes('Enable GTID'))
+  if (!gtid || !/disabled=""/.test(gtid[0])) throw new Error('GTID must be locked on a deployed cluster')
+  if (!disabledInputs(/value="mariadb-repl-01"/).some((m) => /disabled=""/.test(m[0]))) throw new Error('the cluster name must be locked on a deployed cluster')
+  if (html.includes('Install innodump')) throw new Error('a deployed cluster must not offer the file tools')
+  const open = renderToString(<MariaDBFrameForm frame={frame} stackId={1} nodes={[]} patchFrame={noop} deleteFrame={noop} deployed={false} />)
+  if (!open.includes('Install innodump')) throw new Error('an undeployed cluster offers the file tools')
+  return 'ok'
+})
+
 // ---- Percona database clients on a Linux Client ---------------------------------------
 // The series pickers offer only what Percona publishes for the node's release (mirrors
 // app/linuxclient_db.go), and say so when a saved choice no longer fits.
