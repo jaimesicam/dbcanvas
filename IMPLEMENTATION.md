@@ -27693,3 +27693,294 @@ Release notes for:
 
 The guides describe the Certificate tab and the locked settings, and the node panel screenshots
 are retaken. `VERSION` is 0.0.23.
+## 476. Self-hosted typefaces for the four Looks, and third-party licence notices in the image — `app/web/src/main.jsx`, `app/web/src/index.css`, `app/web/licenses/generate.mjs`, `app/scripts/go-third-party-licenses.sh`, `app/Dockerfile`, `.dockerignore`, `THIRD_PARTY_NOTICES.md`
+
+**Symptom.** The Looks named Inter, Helvetica Neue, Iowan Old Style and Avenir Next but shipped
+none of them, so every Look fell back to whatever the OS had: on Linux all four rendered in
+DejaVu Sans and differed only in spacing and radius. The interface read as bland whichever theme
+was chosen.
+
+**Fonts.** Self-hosted through Fontsource and imported in `main.jsx` ahead of `index.css`; Vite
+copies the `.woff2` files into `dist`, which the Go binary embeds, so they work in labs with no
+route out. Every font is SIL OFL 1.1 with **no Reserved Font Name**. IBM Plex ("Plex") and
+Source Serif 4 ("Source") were tried and dropped, because a format-converted font may not keep a
+reserved name.
+
+| Look | Text | Display / controls |
+|---|---|---|
+| Modern | Inter Variable | Inter |
+| Industrial | Barlow 400–700 | JetBrains Mono Variable |
+| Editorial | Newsreader Variable (opsz, with italic) | Inter (controls) |
+| Soft | Nunito Variable | Nunito |
+
+`--ui-mono` is JetBrains Mono Variable everywhere. Each stack keeps the old system faces behind
+the bundled one. Fontsource's variable builds register as `"<Name> Variable"`, which is the name
+the stacks use. The `woff2` total in `dist` is 1.2 MB; `unicode-range` means a browser fetches
+only the subsets a page uses (Latin, in practice). The xterm terminal's font is unchanged.
+
+**Wrapping.** Two spots broke words mid-word (`break-all`): desktop stack labels ("MySQL
+Replicat / ion Stack", `desktop/Stacks.jsx`) and the deploy-progress log (`StackDesigner.jsx`).
+Both now use `wrap-anywhere` (`overflow-wrap:anywhere`), which breaks at word boundaries first.
+
+**Licence compliance.** The runtime image conveyed the binaries without the GPL text or the
+bundled components' notices (MIT, BSD, ISC, Apache-2.0, MPL-2.0 and OFL all require them). The
+image now carries `/usr/share/doc/dbcanvas/` containing:
+
+- `LICENSE` and `THIRD_PARTY_NOTICES.md` (the readable summary at the repo root);
+- `THIRD_PARTY_LICENSES-web.txt`: `app/web/licenses/generate.mjs` walks
+  `npm ls --omit=dev --json` (skipping `extraneous` leftovers that `npm ci` never installs) and
+  concatenates each package's LICENSE/COPYING/NOTICE. The rrweb packages publish no licence
+  file, so their upstream MIT text is kept in `app/web/licenses/rrweb-io_rrweb.LICENSE`,
+  fetched from the `rrweb@2.1.6` tag;
+- `THIRD_PARTY_LICENSES-go.txt` and `-cli.txt`: `app/scripts/go-third-party-licenses.sh` runs
+  `go list -deps` over the built packages and adds the Go stdlib LICENSE and PATENTS, plus each
+  module's LICENSE, NOTICE (go.yaml.in/yaml/v2), THIRD-PARTY-NOTICES (mongo-driver's vendored
+  AWS/Stripe code) and PATENTS (golang.org/x/*);
+- `k3d.LICENSE`, fetched from the same release tag as the binary.
+
+Both generators **fail the build** when a dependency has no licence text, so a new dependency
+cannot ship unreviewed. `.dockerignore` (an allowlist) lets `LICENSE` and
+`THIRD_PARTY_NOTICES.md` back in. Every dependency was checked as GPLv3-compatible:
+go-sql-driver/mysql's MPL-2.0 does not carry the "Incompatible With Secondary Licenses" notice,
+and modernc/libc's `LICENSE-3RD-PARTY.md` (musl and others) is MIT/BSD. No vendored or
+CDN-loaded third-party code exists anywhere in the repo.
+
+Not covered: the simulator images (`images/apps.sh`) build with their own directory as context,
+which cannot reach the root `LICENSE` without BuildKit named contexts, and plain `docker build`
+on this host has no buildx. They are built locally and never published; ledgersim and supportsim
+already carry a NOTICE.
+
+**Verification performed.** Image rebuilt and redeployed. The four generated files were
+extracted from the image with `docker create` and `docker cp`: 24 npm packages, 28 Go modules,
+3 CLI modules. The Go script was also run in `golang:1.26-alpine`, and the mongo notices and Go
+PATENTS were confirmed present. Driven in headless Chromium: each Look's computed body family is
+its bundled font (`Inter Variable`, `Barlow`, `Newsreader Variable`, `Nunito Variable`); every
+`.woff2` is served `200 font/woff2`, Latin subsets only; screenshots of all four Looks are
+visibly distinct, and the desktop stack label wraps as "MySQL / Replication Stack". SSR `smoke`
+passes.
+
+## 477. Look and feel: group and engine colour, canvas cards and links, dashboard trends, window depth — `app/web/src/desktop/Desktop.jsx`, `app/web/src/desktop/Stacks.jsx`, `app/web/src/wm/WindowManager.jsx`, `app/web/src/pages/StackDesigner.jsx`, `app/web/src/pages/Dashboard.jsx`, `app/web/src/components/ui.jsx`, `app/web/src/App.jsx`, `app/web/src/index.css`
+
+The interface was one colour: wallpaper, every desktop icon, bars, badges and buttons all wore
+the theme's primary, so changing theme recoloured the page without changing what it looked like.
+This pass keeps the primary for actions and selection, and gives everything else a colour that
+means something.
+
+**Colour.**
+- Each Menu group has a tone (`GROUPS[].tone` in `Desktop.jsx`): Workspace `--primary`, Data
+  and queries `--node-1`, Diagnose `--node-5`, System `--muted`, Other `--node-3`. These are
+  identity hues from the cool arc, never the status triad, so a Diagnose tile is not read as a
+  warning. The tone tints the desktop tiles and the Menu rows.
+- `toneTile(tone)` in `components/ui.jsx` is the shared tinted tile. It mixes the colour into
+  `--surface` for the wash plus a 30% rim, so it reads on all six themes.
+- Engines use the canvas's own `NODE_TYPES[type].color`: the stack folder's node icons
+  (`nodeLook` in `Stacks.jsx`, using the type's own icon too), the canvas card's icon tile, and
+  the dashboard's *By engine* and *Node types* bars.
+- No vendor logos were used. MySQL's and MongoDB's marks are restricted trademarks, and colour
+  plus the type's name already identifies the engine.
+
+**Canvas** (`StackDesigner.jsx`).
+- The Database Stacks NAV entry is now `fill: true, max: true`. The designer is `h-full` instead
+  of `h-[78vh]`; the old height overflowed any window shorter than the browser and clipped the
+  minimap. `PageWindows` passes `max` through to `register`, so the window opens maximized.
+- A standalone node card has a tinted icon tile and one muted line under the name: the type
+  (`def.label`) until the node is deployed, then `deployedLabel` ("ProxySQL 3.0.9-percona-1.1").
+  It is a label, not the prose the `NODE_H` comment banished, and the card stays one row and
+  `NODE_H` tall. Member cards (116 px) are unchanged.
+- Links are 2.5 px (3.5 px when selected), up from 2. Link and relationship captions are 11 px,
+  up from 9, with a 4 px halo.
+- With Live on, an association link, or a replication link Live reports healthy, draws a
+  `.stk-flow` overlay: dashes travelling the line. A lagging or broken replication link gets no
+  motion, since motion would make it look fine.
+- Toolbar: *Insert template*, *Save as template* and *Reset view* moved into a **More** menu.
+  Each keeps its HELP text as a tooltip, and the menu closes on Escape or on a press anywhere
+  outside it. That needs a document listener, because a backdrop inside the window cannot see a
+  click on the top bar. The "Right-click the canvas to add a node" hint shows only on an empty
+  canvas, and *Saved* and the counts merged into one line. At 1440 px maximized the toolbar is
+  two rows instead of three.
+
+**Dashboard** (`Dashboard.jsx`).
+- Stat numerals are 1.65 rem with tabular figures.
+- Containers, CPU and Memory carry a `Sparkline` of the last 30 samples (2 minutes at the 4 s
+  poll), scaled to the series' own range, because against the host's 206 GB memory is a flat
+  floor. A band narrower than 10% of the peak is widened and centred, so a steady series is a
+  level line rather than a block.
+- A rate chart with no second sample yet shows `Pending`, a faint still skeleton of the chart,
+  instead of an empty card. With nothing running it says "No running containers" instead of
+  waiting forever.
+- *By engine*, when empty during a deploy, says "No database running yet — nodes are still
+  provisioning" instead of "Nothing running" next to a taskbar counting running nodes.
+
+**Depth and motion** (`WindowManager.jsx`, `index.css`).
+- The front window gets `.wm-front`: a deep shadow, a primary rim, a title bar washed 9% in the
+  primary, and a primary icon. Back windows get `shadow-lg` and a muted title; their content is
+  not dimmed. Industrial keeps only the rim.
+- The wallpaper is `.desk-wallpaper`: the canvas's 22 px dot grid over a primary and an accent
+  wash, so each theme gets its own.
+- Windows open with `.wm-open` (160 ms scale/fade). Tiles lift on hover (`.lift`). A
+  provisioning node in a stack folder pulses (`.status-pulse`). All of these are off under
+  `prefers-reduced-motion`.
+
+**Verification performed.** `npm run build`, SSR `smoke` passes, image rebuilt and redeployed.
+Driven in headless Chromium against the running MySQL Replication Stack:
+- The canvas window opens maximized with the minimap fully visible.
+- The More menu opens; Escape and a click on the top bar each leave 0 `[role=menu]`.
+- Live view draws 2 `path.stk-flow` (SQL traffic, app connection).
+- Screenshots in Light/Modern, Dark/Modern and Dark/Industrial for the canvas, the dark Menu
+  with the group tints, the stack folder with engine-coloured nodes, and the dashboard after 45 s
+  of samples (CPU line moving, containers and memory level).
+- No page errors. Bug found and fixed during verification: the first More menu used an in-window
+  backdrop and stayed open after Escape or a click outside the window.
+
+## 478. Validated engine colours, member cards, login screen, app-wide defaults, terminal font, simulator licences — `app/web/src/lib/engines.js`, `app/web/src/components/ui.jsx`, `app/web/src/auth/AuthScreens.jsx`, `app/web/src/index.css`, `app/web/src/terminal/TerminalProvider.jsx`, `images/apps.sh`, `*/Dockerfile`
+
+**Engine colours, validated.** §477 reused the catalogue's per-type colours (`NODE_TYPES[].color`)
+to mean "which engine". Run as a set through the dataviz skill's `validate_palette.js --pairs
+all`, they failed:
+- MySQL `#2563eb` against Valkey `#7c3aed` was ΔE 0.4 to a deuteranope (the same colour) and
+  12.4 to normal vision, under the floor of 15.
+- PostgreSQL `#336791` was under the chroma floor and read as grey.
+
+`lib/engines.js` now owns the engine colours. They are four of the existing node-identity
+slots, which were already searched per surface:
+
+| Engine | Slot |
+|---|---|
+| mysql | `--node-2` |
+| postgres | `--node-1` |
+| mongodb | `--node-4` |
+| valkey | `--node-5` |
+
+Re-validated as a four-slot all-pairs set: light `#ffffff`/`#fbf1d3` CVD ΔE 9.6, normal 16.6,
+all ≥ 3:1. Dark `#161b24`/`#0e1530`/`#241546`/`#122019` pass every check.
+
+- `engineOf` mirrors `dbEngineOf` in `app/dashboard.go`, so a colour and the *By engine* count
+  agree. Keep the two in step.
+- Non-databases (proxies, monitoring, Intranet) are `--muted`, so on a stack the databases carry
+  the colour.
+- Applied to: the canvas card's icon tile (the per-type stripe stays), cluster member cards (an
+  engine icon and a 6% engine wash; previously name and dot only), stack-folder nodes, and the
+  dashboard's *By engine* and *Node types* bars.
+- `EngineChip` and `EngineDot` (`ui.jsx`) name an engine in its colour: Packet Inspector's
+  capture header, Database Explorer's saved queries, the Data Generator's connection picker and
+  Benchmark's run line.
+- **Not** Log Summary: it already uses `--node-*` for *which node*, and engine dots there would
+  give "MySQL" and "pxc02" the same blue.
+
+**Login** (`AuthScreens.jsx` `Shell`). The page uses the `.desk-wallpaper`. At `lg` and wider, a
+panel beside the form gives the product line, a `StackSketch` (an SVG of a three-member cluster
+behind a proxy with an app on it, in the engine colours, with `.stk-flow` on the links) and the
+four engine chips. Narrower than that, the form is the whole screen as before; at 420 px there
+is no horizontal scroll.
+
+**Every page** (`index.css`, `@layer base`, so a page's own classes still win):
+- keyboard focus outline on button/a/summary/[tabindex] (inputs keep their own ring)
+- primary-tinted `::selection`
+- `code/kbd/samp/pre` in the mono face
+- `td` tabular figures and `th` weight 600
+- a primary-tinted row hover, placed after the industrial zebra so striped rows light too
+
+**Terminal** (`TerminalProvider.jsx`). The terminal uses the bundled `JetBrains Mono Variable`.
+xterm measures a character once at open, so `TERM_FONT_READY` asks for the face when the module
+loads. A terminal that opened before the font arrived is re-measured by toggling `fontFamily`
+(xterm only re-measures on a change) and re-fitted.
+
+**Simulator licences.** `images/apps.sh` stages `LICENSE` and
+`app/scripts/go-third-party-licenses.sh` into `<sim>/.dbcanvas-build/` (gitignored) for each
+build and removes them afterwards: a sim's context is its own directory, and plain `docker
+build` here has no buildx named contexts. perfsim, stocksim and supportsim ship
+`/usr/share/doc/<sim>/{LICENSE,THIRD_PARTY_LICENSES.txt}`; ledgersim ships
+`/opt/ledgersim/LICENSE`. `THIRD_PARTY_NOTICES.md` is updated.
+
+**Verification performed.**
+- Palette validator runs as above.
+- `npm run build`, SSR `smoke` passes, app image rebuilt and redeployed.
+- `apps.sh perfsim ledgersim` and `apps.sh stocksim` built; the licence files were listed from
+  each image, and the staging directory was gone afterwards. supportsim was not rebuilt (its
+  90 MB model fetch); its change is the same as perfsim's.
+- Headless Chromium:
+  - login in Light, Dark and at 420 px (no horizontal scroll)
+  - dashboard *By engine* in `--node-2`
+  - stack folder and canvas with blue PXC members and neutral support nodes, in Light and Dark
+  - a root console's xterm reports `"JetBrains Mono Variable"` and `document.fonts.check` true
+  - Manage Users row hover is `primary / 0.06`
+  - Tab gives a solid primary outline
+  - no page errors
+- The account was left on Light + Modern.
+
+## 479. The Glass direction: Glass Dark and Glass Light themes, the Glass look, the new defaults — `app/web/src/index.css`, `app/web/src/theme/ThemeProvider.jsx`, `app/web/src/settings/SettingsProvider.jsx`, `app/settings.go`, `app/web/src/components/ui.jsx`, `app/web/src/pages/StackDesigner.jsx`, `app/web/src/desktop/Stacks.jsx`, `app/web/src/main.jsx`
+
+**How the direction was chosen.** §476–478 polished the existing design, and the result still
+read as bland. Three themed art directions were then mocked up on the same screen (the stack
+canvas beside live stats): *Instrument* (dark, dense, mono labels), *Blueprint* (a technical
+drawing) and *Studio* (warm neutrals, big serif type). All three were rejected as dated. A fourth,
+*Glass*, was the one chosen: an edge-to-edge canvas, floating frosted panels, a ⌘K bar, a pill
+toolbar, Geist type and soft indigo/teal ambient light, shown in dark and light.
+
+A fifth variant, *Signal*, was also tried and dropped. It added a periwinkle accent, new engine
+glyph shapes, lit-edge borders, warm porcelain and a quirkier display face, to make Glass less
+derivative; its dark version read as gloomy and harsh.
+
+Glass is built into the existing appearance system as two themes and a look, not as a one-off
+skin. All six older themes
+and four older looks still work.
+
+**Themes** `glass-dark` (ground `#06070b`, surfaces `#11131a`/`#181b24`) and `glass-light` (ground
+`#f4f5f8`, surface `#ffffff`). Both use an indigo primary and a teal accent; the teal only appears
+as ambient light. Each theme adds two tokens:
+- `--glass-hi`: the 1px top-edge highlight that gives a translucent sheet an edge.
+- `--glass-shadow`
+
+Status and node slots are the shared triads, re-run through `validate_palette.js` on these
+surfaces:
+- Node and engine sets pass every check.
+- The dark status triad gives exactly the figures it gives on `#161b24` (CVD ΔE 12.0, normal 21.7,
+  lightness-band note unchanged). The light amber is under 3:1, as already documented. No palette
+  changed.
+
+**Look** `glass`:
+- Type: Geist Variable and Geist Mono Variable (`@fontsource-variable/geist`, `geist-mono`, OFL
+  1.1 with no Reserved Font Name; added to `THIRD_PARTY_NOTICES.md`).
+- Shape: radii one step larger, pill buttons, badges and inputs, and hairline borders.
+- Shadows: soft and deep, each with the inner highlight.
+
+**Glass chrome** (`index.css`):
+- Cards (`.ui-card`), windows (`[data-wm-window]`) and canvas nodes (`.stk-node`) are frosted:
+  the surface at 72–80% over `backdrop-filter: blur(20px) saturate(150%)`.
+- The frost sits on a **`::before` layer, not the element.** `backdrop-filter` makes an element
+  the containing block for every `position: fixed` descendant, and What's New, Share, the update
+  check and Database Explorer's grid open un-portalled modals from inside page windows; on the
+  window itself they would be trapped. Verified: What's New's overlay is 1440×900, the full
+  viewport.
+- Cards get `position: relative` in the base layer (for the pseudo-element), so a card a page
+  positions itself keeps its own positioning.
+- Window bodies are **opaque and lit from inside** (primary and accent washes over `--bg`). The
+  first build made them translucent, and the desktop's icons ghosted through the Dashboard.
+- The canvas gets the same light under its grid via a new `.stk-ambient` layer.
+- Primary buttons are lit from above (a gradient from 72% primary + white down to the primary,
+  with the inner highlight).
+- Engine tiles (`[data-engine-tile]`, set where `engineOf(type)`; `toneTile` now carries
+  `--tone`) are glossy: the engine colour as a lit gradient with a white glyph.
+- The desktop wallpaper is brighter: indigo from the top left, teal from the bottom right.
+- The canvas toolbar and the floating Properties panel opt in with `ui-card`. The docked panel
+  does not, because it scrolls and a `::before` layer would scroll away with its content.
+
+**Defaults.** New accounts and the pre-login screen use `glass-dark` + `glass`:
+`ThemeProvider` fallbacks, `SettingsProvider` defaults, and `defaultSettings()` in
+`app/settings.go`, whose `validThemes`/`validLooks` allowlists gain the three ids. An account
+that already saved a theme keeps it. The Glass pair lead the theme menu and Glass leads the
+looks; the Settings preview is generic, so it shows Glass correctly with no change.
+
+**Not done.** The mockup's edge-to-edge floating layout (a ⌘K bar centred over the canvas, a
+bottom pill toolbar, an inspector floating over the canvas) is a layout restructure of the stack
+editor, not a look, and is left for its own change.
+
+**Verification performed.**
+- `go test -run Settings ./...` passes; `npm run build`, SSR `smoke` passes; image rebuilt and
+  redeployed.
+- Headless Chromium:
+  - a fresh browser's login is `glass-dark`/`glass`; body font `"Geist Variable"`
+  - Dashboard, desktop, stack folder (glossy blue PXC tiles), canvas with Live on, Settings, in
+    both Glass themes
+  - What's New overlay full-viewport
+  - no page errors
