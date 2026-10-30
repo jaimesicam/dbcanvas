@@ -104,8 +104,9 @@ ProxySQL, HAProxy, PgBouncer, Orchestrator, SeaweedFS (S3), Ceph, Keycloak, Open
 Watchtower, a package Repository, MClusterAdmin, Big Hole, an Ubuntu VNC desktop and a Linux
 Client.
 
-**Simulated load**: applications that send realistic traffic to your databases, including hotel,
-airline, car rental, support desk, ledger and stock market simulators.
+**Simulated load**: applications that send realistic traffic to your databases — support desk,
+ledger and stock market simulators — and Performance Sim, whose stressors make a server or
+cluster misbehave on purpose and show the impact live.
 
 ## Tools
 
@@ -159,9 +160,93 @@ airline, car rental, support desk, ledger and stock market simulators.
 
 ## What's new
 
-### 0.0.22
+### 0.0.23
 
 <details open>
+<summary><b>Performance Sim: make a database misbehave and watch the impact</b></summary>
+
+A new simulator whose stressors make a MySQL-family, PostgreSQL, MongoDB or Valkey server or cluster misbehave on
+purpose, with a live timeline of the effect on every member and on a steady application workload. Replication lag
+from large transactions, a no-op ALTER, VACUUM FULL or an index build, a read lock, a stopped, paused or delayed
+applier, and a Sentinel failover (coordinated or forced, counting the writes a forced one loses); a connection
+storm, hot rows and deadlocks, a long transaction, a commit storm, CPU-heavy queries, many tables, temporary
+tables, full scans, redo or WAL pressure and a working set larger than memory; and network latency, loss and
+bandwidth, and disk caps, applied by DBCanvas to chosen members. It links to servers, clusters (sharded MongoDB and
+Spock included), proxies and Kubernetes frames, or connects to an All in One instance or a server by address.
+Compose builds one with `--node perfsim`. Build it with `make perfsim-image`. See [Stacks](docs/STACKS.md).
+</details>
+
+<details>
+<summary><b>Valkey: replicas per shard, and Valkey with Sentinel</b></summary>
+
+A Valkey Cluster can give each shard one or two replicas (`replicas=N` in compose). A new Valkey Sentinel cluster
+runs a primary and its replicas with Sentinel on every member, promoting a replica if the primary fails; every
+member announces its host name, so repeated failovers keep one primary. Valkey also starts on an arm64 host running
+amd64 images. See [Stacks](docs/STACKS.md).
+</details>
+
+<details>
+<summary><b>Re-issue a database certificate with the lifetime you choose</b></summary>
+
+Every MySQL-family node now has a Certificate tab, as PostgreSQL and MongoDB nodes do: it shows the server
+certificate and re-issues it from the Intranet CA, valid for the minutes, hours or days entered, over the installed
+files and without restarting the server. MySQL serves it after `ALTER INSTANCE RELOAD TLS` (`FLUSH SSL` on
+MariaDB), PostgreSQL after a reload. A short lifetime is how to test expiry. See [Stacks](docs/STACKS.md).
+</details>
+
+<details>
+<summary><b>Settings fixed at deploy are locked once deployed</b></summary>
+
+A deployed node's or cluster's form no longer lets you change what only a deploy applies — its name, GTID, the
+package proxy, the certificate and its lifetime, the replication mode, a member's port export — and no longer
+offers the MySQL file tools, which are chosen in the design. Settings the panel applies to running servers, such as
+PMM on a PXC cluster or the Orchestrator link, stay editable.
+</details>
+
+<details>
+<summary><b>MySQL file tools on database servers and the Linux Client</b></summary>
+
+Percona Server, PXC, MySQL, MariaDB and the InnoDB/Group Replication clusters can install `innodump` and
+`binlogsum`, and PXC and MariaDB Galera also `gcache-inspector`, from each project's latest GitHub release with its
+checksum verified. The Linux Client offers all three. See [Stacks](docs/STACKS.md).
+</details>
+
+<details>
+<summary><b>Terminal tabs move between windows</b></summary>
+
+Drag a terminal window or a tab onto another window to join it as tabs, onto the dock to dock it, or onto empty
+space to open it as a window of its own; drag tabs along a strip to reorder them. Sessions keep running through
+every move.
+</details>
+
+<details>
+<summary><b>Labs and five simulators removed</b></summary>
+
+Labs, Traffic Sim, Hotel Sim, Airline Sim, Car Rental Sim and the Unoptimized MySQL Challenge are gone. Support
+Sim, pgvector Support Sim, Stock Market Sim, Ledger Sim and the new Performance Sim remain.
+</details>
+
+<details>
+<summary><b>Fixes</b></summary>
+
+A redeploy brings back a node whose container was removed outside DBCanvas, and no longer rebuilds a running
+Kubernetes cluster. Simulators reach Group Replication clusters that run without MySQL Router. VNC desktops and
+node web pages open on installations with their own `DBCANVAS_INSTANCE`. `systemd-journald` keeps running in amd64
+containers on arm64 hosts. A disk-limit helper container is always removed. The CLI's log and compose commands send
+what the server expects, and the guides were rewritten to be shorter and checked against the app. See [Getting
+started](docs/GETTING_STARTED.md).
+</details>
+
+<details>
+<summary><b>Upgrading: build the Performance Sim image</b></summary>
+
+After `git pull`, run `make adopt-images`, then `make perfsim-image` to add Performance Sim, then `make compose`.
+No other image definition changed. The images of the removed simulators can be deleted with `docker image rm`.
+</details>
+
+### 0.0.22
+
+<details>
 <summary><b>The desktop's Menu, and K3D clusters named for every installation</b></summary>
 
 The desktop taskbar's **Start** button is now **Menu**. Every installation's K3D clusters now carry its

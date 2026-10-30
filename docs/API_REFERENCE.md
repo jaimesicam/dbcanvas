@@ -1166,7 +1166,7 @@ The Intranet node is the stack's certificate authority; every node trusts it.
 | The CA certificate | `GET …/nodes/{nid}/cert` (Intranet node) | `dbcanvas api GET …/cert` |
 | Reissue the Intranet node's certificate | `POST …/nodes/{nid}/cert` | `dbcanvas api POST …/cert` |
 | Client certificates: list · issue · fetch (with key and chain) · delete | `GET`/`POST …/nodes/{nid}/dbcerts` · `GET …/dbcerts/{user}` · `POST …/dbcerts/delete` | `dbcanvas api POST …/dbcerts --data '{"user":"appuser"}'` |
-| A database node's server certificate: read · reissue | `GET`/`POST …/nodes/{nid}/pxc/cert`, `/pg/cert`, `/mongo/cert`, `/pmm/cert` | `dbcanvas api POST …/pg/cert` |
+| A database node's server certificate: read · reissue with a lifetime (`{"value": 10, "unit": "minutes"}`; `minutes`, `hours` or `days`) over the installed files, without a restart | `GET`/`POST …/nodes/{nid}/mysql/cert` (every MySQL-family node; `/pxc/cert` also works), `/pg/cert`, `/mongo/cert`, `/pmm/cert` | `dbcanvas api POST …/mysql/cert --data '{"value":10,"unit":"minutes"}'` |
 
 ## Intranet mail
 

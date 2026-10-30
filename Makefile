@@ -183,7 +183,7 @@ images:
 
 ## extra-images: everything OPTIONAL built on top of the bases — the pre-baked Ubuntu
 ## VNC image, the Big Hole FTDC viewer, the K3D diagnostics collector, and the
-## demo applications (Support/Stock Market/Ledger Sim). `make install` builds these too (through
+## demo applications (Support/Stock Market/Ledger/Performance Sim). `make install` builds these too (through
 ## install-extras, which tolerates a failure); this is the target for rebuilding them
 ## on their own, and it fails if any of them fails. Kept separate from `make images`
 ## because these reach into npm, GitHub and Percona's repos, so they fail for reasons

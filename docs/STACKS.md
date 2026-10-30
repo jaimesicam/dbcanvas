@@ -120,7 +120,8 @@ verified:
 
 On a cluster the option is on the cluster and installs on every data member (not on `garbd`
 arbitrators). The tools are installed once each server is running, at the end of the deploy, and
-a notification says what was installed. To add one to a running server, tick it and redeploy.
+a notification says what was installed. They are chosen in the design: a deployed node's form
+does not offer them.
 
 ### MongoDB
 
@@ -768,6 +769,19 @@ every chart.
 
 > *A deployed node's panel: version, image, ports, container, credentials, certificate, and a root
 > console.*
+
+**Settings fixed at deploy.** Once a node or cluster is deployed, the settings only a deploy
+applies are locked in its form: its name (host names come from it), version, GTID, package proxy,
+certificate and its lifetime, replication mode, port export and the like. Settings the panel can
+apply to the running servers stay editable, with their own apply button: PMM monitoring on a PXC
+cluster and the Orchestrator link on a replication cluster.
+
+**Re-issue a certificate.** A database node's **Certificate** tab shows its server certificate
+and re-issues it from the Intranet CA, valid for the minutes, hours or days you enter — a short
+lifetime is how to test expiry. The files are replaced where they are installed and the server
+keeps running. MySQL-family servers serve the new certificate after `ALTER INSTANCE RELOAD TLS`
+(`FLUSH SSL` on MariaDB) or a restart, PostgreSQL after `SELECT pg_reload_conf()` or a restart,
+MongoDB after `db.adminCommand({ rotateCertificates: 1 })` or a restart.
 
 **Deployed versions.** A running node records the exact version it deployed (`PS 8.4.10-10`,
 `PMM 3.3.1`). It is in the node's properties and in the card's tooltip.

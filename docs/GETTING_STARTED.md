@@ -149,10 +149,11 @@ options.
 > *The **Overview** tab: what the node is, its network address, what monitors it, and the image
 > and container it runs in.*
 
-The tabs depend on the node type — for example **Overview**, **Credentials** and
-**Diagnostics** on a database node, LDAP users and mail on the Intranet, a bucket browser on
+The tabs depend on the node type — for example **Overview**, **Credentials**, **Certificate**
+and **Diagnostics** on a database node, LDAP users and mail on the Intranet, a bucket browser on
 SeaweedFS. On database nodes, **Diagnostics** captures a `pg_gather` report or a `pt-stalk`
-archive for [Stalk Summary](STALK_SUMMARY.md).
+archive for [Stalk Summary](STALK_SUMMARY.md), and **Certificate** re-issues the server
+certificate with a lifetime you choose (see [Stacks](STACKS.md#work-with-deployed-nodes)).
 
 ## Connecting to your databases
 
