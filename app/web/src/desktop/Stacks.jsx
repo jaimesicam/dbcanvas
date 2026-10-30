@@ -104,7 +104,7 @@ export function StackIcons({ stacks, onOpenFolder, onOpen }) {
             <Icon.Stacks size={22} />
             <span className={`absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-surface ${STACK_DOT[st.status] || 'bg-muted/60'}`} />
           </span>
-          <span className="line-clamp-2 break-all text-[11px] leading-tight text-fg drop-shadow">{st.name}</span>
+          <span className="line-clamp-2 wrap-anywhere text-[11px] leading-tight text-fg drop-shadow">{st.name}</span>
         </button>
       ))}
       {menu && (
@@ -235,7 +235,7 @@ export function StackFolder({ stack, onClose, onOpen }) {
                       <Ico size={20} />
                       <span className={`absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-bg ${stateDot(dep?.state)}`} />
                     </span>
-                    <span className="line-clamp-2 break-all text-[11px] leading-tight">{label(n)}</span>
+                    <span className="line-clamp-2 wrap-anywhere text-[11px] leading-tight">{label(n)}</span>
                     <span className="text-[10px] text-muted">{dep?.state || 'not deployed'}</span>
                   </button>
                 )

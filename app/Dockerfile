@@ -12,6 +12,8 @@ COPY app/web/package.json app/web/package-lock.json ./
 RUN npm ci
 COPY app/web/ ./
 RUN npm run build      # → /web/dist
+# The licence texts of everything that build bundled (see licenses/generate.mjs).
+RUN node licenses/generate.mjs > /web/THIRD_PARTY_LICENSES-web.txt
 
 # ---- stage 2: build the Go server with the SPA embedded ----
 FROM golang:1.26-alpine AS build
@@ -39,6 +41,10 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.appVersion=${APP_VE
 # mounted somewhere else entirely.
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
       -o /dbcanvas_reset_password ./cmd/dbcanvas_reset_password
+# The licence texts of every Go module those two binaries link (see the script).
+COPY app/scripts/go-third-party-licenses.sh /usr/local/bin/
+RUN sh /usr/local/bin/go-third-party-licenses.sh "DBCanvas server and dbcanvas_reset_password" \
+      . ./cmd/dbcanvas_reset_password > /THIRD_PARTY_LICENSES-go.txt
 
 # ---- stage 2a: dbcanvas-cli, for every platform the app will offer ----
 #
@@ -62,6 +68,8 @@ RUN set -eu; mkdir -p /out; \
       GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -trimpath \
         -ldflags="-s -w -X main.version=${APP_VERSION}" -o "$out" .; \
     done
+COPY app/scripts/go-third-party-licenses.sh /usr/local/bin/
+RUN sh /usr/local/bin/go-third-party-licenses.sh "dbcanvas-cli" . > /THIRD_PARTY_LICENSES-cli.txt
 
 # ---- stage 2b: the k3d binary (K3D cluster frame) ----
 # k3d is a Docker API *client*: it asks the daemon to create the k3s containers. DBCanvas already
@@ -74,7 +82,8 @@ ARG TARGETARCH
 RUN apk add --no-cache curl \
  && curl -fsSL -o /k3d "https://github.com/k3d-io/k3d/releases/download/${K3D_VERSION}/k3d-linux-${TARGETARCH:-amd64}" \
  && chmod 0755 /k3d \
- && /k3d version
+ && /k3d version \
+ && curl -fsSL -o /k3d.LICENSE "https://raw.githubusercontent.com/k3d-io/k3d/${K3D_VERSION}/LICENSE"
 
 # ---- stage 3: minimal runtime (single static binary) ----
 FROM gcr.io/distroless/static-debian12 AS runtime
@@ -82,6 +91,16 @@ COPY --from=build /dbcanvas /dbcanvas
 COPY --from=build /dbcanvas_reset_password /usr/local/bin/dbcanvas_reset_password
 COPY --from=cli /out/ /usr/local/share/dbcanvas/cli/
 COPY --from=k3d /k3d /usr/local/bin/k3d
+# GPLv3 section 4 and 6: the image conveys the binaries in object form, so it carries
+# the licence with them — and, for the bundled third-party code, each component's own
+# notice (MIT, BSD, ISC, Apache-2.0, MPL-2.0 and the fonts' OFL all require it). The
+# texts are generated at build time from what was actually compiled in, so they cannot
+# drift from the dependencies; THIRD_PARTY_NOTICES.md is the human-readable summary.
+COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/doc/dbcanvas/
+COPY --from=web /web/THIRD_PARTY_LICENSES-web.txt /usr/share/doc/dbcanvas/
+COPY --from=build /THIRD_PARTY_LICENSES-go.txt /usr/share/doc/dbcanvas/
+COPY --from=cli /THIRD_PARTY_LICENSES-cli.txt /usr/share/doc/dbcanvas/
+COPY --from=k3d /k3d.LICENSE /usr/share/doc/dbcanvas/k3d.LICENSE
 # The Dockerfiles for the images a node needs on top of the OS bases. They are here
 # so an admin can build a missing one from the web interface (app/extraimages.go):
 # none of them copies anything from its build context, so the Dockerfile IS the

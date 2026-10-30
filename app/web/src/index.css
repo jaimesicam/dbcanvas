@@ -159,13 +159,17 @@
  * data-look on ANY element re-looks that subtree. That is what makes the previews
  * on the Settings page honest — each is the real thing at card size.
  *
- * The typefaces are all system faces. This app is installed in labs that have no
- * route to fonts.googleapis.com, and a look that silently falls back to the same
- * face everywhere else would be no look at all.
+ * The typefaces are self-hosted (@fontsource, imported in main.jsx) rather than
+ * named system faces. This app is installed in labs that have no route to
+ * fonts.googleapis.com, and a look that silently falls back to the same face
+ * everywhere else would be no look at all — which is what naming Inter and Avenir
+ * without shipping them did: on Linux all four looks rendered in DejaVu Sans.
+ * Each stack leads with the bundled family (fontsource's variable builds register
+ * as "<Name> Variable") and keeps the old system faces behind it as fallbacks.
  */
 :root, [data-look="modern"] {
-  --ui-text:"Inter", ui-sans-serif, system-ui, sans-serif;
-  --ui-mono:"JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
+  --ui-text:"Inter Variable", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --ui-mono:"JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
   --ui-display:var(--ui-text);
   /* Controls are their own slot so a look can set prose in one face and buttons
      and inputs in another — editorial is serif prose with sans controls, because
@@ -187,7 +191,7 @@
  * table headers and the values in every input. Cards get a title bar and tables
  * get zebra rows, because this look is for the pages that are mostly table. */
 [data-look="industrial"] {
-  --ui-text:"Helvetica Neue", Helvetica, Arial, ui-sans-serif, system-ui, sans-serif;
+  --ui-text:"Barlow", "Helvetica Neue", Helvetica, Arial, ui-sans-serif, system-ui, sans-serif;
   --ui-display:var(--ui-mono); --ui-control:var(--ui-mono);
   --ui-heading-case:uppercase; --ui-heading-tracking:.08em;
   --ui-border:color-mix(in srgb, var(--border) 74%, var(--fg));
@@ -202,9 +206,9 @@
  * the largest size of the four, over hairline rules and a double rule under each
  * card title; controls stay sans so the page still reads as software. */
 [data-look="editorial"] {
-  --ui-text:"Iowan Old Style", Charter, Georgia, ui-serif, "Times New Roman", serif;
+  --ui-text:"Newsreader Variable", "Iowan Old Style", Charter, Georgia, ui-serif, "Times New Roman", serif;
   --ui-display:var(--ui-text);
-  --ui-control:ui-sans-serif, system-ui, "Helvetica Neue", sans-serif;
+  --ui-control:"Inter Variable", ui-sans-serif, system-ui, "Helvetica Neue", sans-serif;
   --ui-heading-case:none; --ui-heading-tracking:-.015em;
   --ui-border:color-mix(in srgb, var(--border) 58%, transparent);
   --ui-root:16.5px;
@@ -221,7 +225,7 @@
  * layering carried by elevation. Roomy, and the easiest of the four on the eye
  * for a long session. */
 [data-look="soft"] {
-  --ui-text:"Avenir Next", Avenir, ui-rounded, "Segoe UI", system-ui, sans-serif;
+  --ui-text:"Nunito Variable", "Avenir Next", Avenir, ui-rounded, "Segoe UI", system-ui, sans-serif;
   --ui-display:var(--ui-text); --ui-control:var(--ui-text);
   --ui-heading-case:none; --ui-heading-tracking:-.01em;
   --ui-border:color-mix(in srgb, var(--border) 50%, transparent);

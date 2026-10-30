@@ -26887,3 +26887,69 @@ rejected it and the click did nothing (`openThread` had always sent `String(n)`;
 Verified live against the `ps-locks-mdl` core, both directions: the UPDATE waiter (gdb thread 8)
 named the SLEEP holder (thread 10), and clicking through to thread 10 flipped the banner to "blocking
 thread 8", each with `root@localhost` and the holder's `SELECT SLEEP(3600)`. SSR `smoke` passes.
+
+## 434. Self-hosted typefaces for the four Looks, and third-party licence notices in the image — `app/web/src/main.jsx`, `app/web/src/index.css`, `app/web/licenses/generate.mjs`, `app/scripts/go-third-party-licenses.sh`, `app/Dockerfile`, `.dockerignore`, `THIRD_PARTY_NOTICES.md`
+
+**Symptom.** The Looks named Inter, Helvetica Neue, Iowan Old Style and Avenir Next but shipped
+none of them, so every Look fell back to whatever the OS had: on Linux all four rendered in
+DejaVu Sans and differed only in spacing and radius. The interface read as bland whichever theme
+was chosen.
+
+**Fonts.** Self-hosted through Fontsource and imported in `main.jsx` ahead of `index.css`; Vite
+copies the `.woff2` files into `dist`, which the Go binary embeds, so they work in labs with no
+route out. Every font is SIL OFL 1.1 with **no Reserved Font Name**. IBM Plex ("Plex") and
+Source Serif 4 ("Source") were tried and dropped, because a format-converted font may not keep a
+reserved name.
+
+| Look | Text | Display / controls |
+|---|---|---|
+| Modern | Inter Variable | Inter |
+| Industrial | Barlow 400–700 | JetBrains Mono Variable |
+| Editorial | Newsreader Variable (opsz, with italic) | Inter (controls) |
+| Soft | Nunito Variable | Nunito |
+
+`--ui-mono` is JetBrains Mono Variable everywhere. Each stack keeps the old system faces behind
+the bundled one. Fontsource's variable builds register as `"<Name> Variable"`, which is the name
+the stacks use. The `woff2` total in `dist` is 1.2 MB; `unicode-range` means a browser fetches
+only the subsets a page uses (Latin, in practice). The xterm terminal's font is unchanged.
+
+**Wrapping.** Two spots broke words mid-word (`break-all`): desktop stack labels ("MySQL
+Replicat / ion Stack", `desktop/Stacks.jsx`) and the deploy-progress log (`StackDesigner.jsx`).
+Both now use `wrap-anywhere` (`overflow-wrap:anywhere`), which breaks at word boundaries first.
+
+**Licence compliance.** The runtime image conveyed the binaries without the GPL text or the
+bundled components' notices (MIT, BSD, ISC, Apache-2.0, MPL-2.0 and OFL all require them). The
+image now carries `/usr/share/doc/dbcanvas/` containing:
+
+- `LICENSE` and `THIRD_PARTY_NOTICES.md` (the readable summary at the repo root);
+- `THIRD_PARTY_LICENSES-web.txt`: `app/web/licenses/generate.mjs` walks
+  `npm ls --omit=dev --json` (skipping `extraneous` leftovers that `npm ci` never installs) and
+  concatenates each package's LICENSE/COPYING/NOTICE. The rrweb packages publish no licence
+  file, so their upstream MIT text is kept in `app/web/licenses/rrweb-io_rrweb.LICENSE`,
+  fetched from the `rrweb@2.1.6` tag;
+- `THIRD_PARTY_LICENSES-go.txt` and `-cli.txt`: `app/scripts/go-third-party-licenses.sh` runs
+  `go list -deps` over the built packages and adds the Go stdlib LICENSE and PATENTS, plus each
+  module's LICENSE, NOTICE (go.yaml.in/yaml/v2), THIRD-PARTY-NOTICES (mongo-driver's vendored
+  AWS/Stripe code) and PATENTS (golang.org/x/*);
+- `k3d.LICENSE`, fetched from the same release tag as the binary.
+
+Both generators **fail the build** when a dependency has no licence text, so a new dependency
+cannot ship unreviewed. `.dockerignore` (an allowlist) lets `LICENSE` and
+`THIRD_PARTY_NOTICES.md` back in. Every dependency was checked as GPLv3-compatible:
+go-sql-driver/mysql's MPL-2.0 does not carry the "Incompatible With Secondary Licenses" notice,
+and modernc/libc's `LICENSE-3RD-PARTY.md` (musl and others) is MIT/BSD. No vendored or
+CDN-loaded third-party code exists anywhere in the repo.
+
+Not covered: the simulator images (`images/apps.sh`) build with their own directory as context,
+which cannot reach the root `LICENSE` without BuildKit named contexts, and plain `docker build`
+on this host has no buildx. They are built locally and never published; ledgersim and supportsim
+already carry a NOTICE.
+
+**Verification performed.** Image rebuilt and redeployed. The four generated files were
+extracted from the image with `docker create` and `docker cp`: 24 npm packages, 28 Go modules,
+3 CLI modules. The Go script was also run in `golang:1.26-alpine`, and the mongo notices and Go
+PATENTS were confirmed present. Driven in headless Chromium: each Look's computed body family is
+its bundled font (`Inter Variable`, `Barlow`, `Newsreader Variable`, `Nunito Variable`); every
+`.woff2` is served `200 font/woff2`, Latin subsets only; screenshots of all four Looks are
+visibly distinct, and the desktop stack label wraps as "MySQL / Replication Stack". SSR `smoke`
+passes.

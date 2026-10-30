@@ -5473,7 +5473,7 @@ function DeploymentConsole({ deployments, nodes, onMinimize, inline = false, col
               </div>
               {p.message && <div className={`mt-1 text-xs ${d.state === 'error' ? 'text-danger' : 'text-muted'}`}>{p.message}</div>}
               {Array.isArray(p.log) && p.log.length > 0 && (
-                <pre className="mt-1.5 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-surface2 p-1.5 text-[11px] leading-tight text-muted">{p.log.slice(-12).join('\n')}</pre>
+                <pre className="mt-1.5 max-h-32 overflow-auto whitespace-pre-wrap wrap-anywhere rounded bg-surface2 p-1.5 text-[11px] leading-tight text-muted">{p.log.slice(-12).join('\n')}</pre>
               )}
             </div>
           )
