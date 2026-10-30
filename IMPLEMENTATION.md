@@ -28030,3 +28030,42 @@ canvas below, Properties to the right), so nothing changes for anyone who chose 
   - the pill's Live toggles Live view
   - the Modern look keeps the stacked layout
   - no page errors
+
+## 481. Live view shows each node's Docker-assigned IP address — `app/livestate.go`, `app/web/src/components/LiveCard.jsx`
+
+With Live on, every Docker node shows the address Docker assigned its container on the stack
+network: what the other nodes, and a packet capture, see it as.
+
+**Server.** `liveNode` gains `IP` (`json:"ip,omitempty"`). `liveSnapshot` fills it for a running
+node whose engine is `*Docker` and whose type is not `k3d`:
+- A K3D member's databases are pods with addresses of their own.
+- A Vagrant VM is not on a Docker network.
+
+`liveIP` reads it with the existing `Docker.ContainerIP(ctx, id, networkName(stackID))`. It is
+cached per container id in `liveCache.ip`: a container keeps its address while it runs, so each is
+inspected once, not on every 5 s poll, and a recreated node has a new id. An empty answer (no
+address yet, or a failed inspect) is not cached, so the next poll asks again.
+
+**Canvas** (`LiveCard.jsx`, `IPLine`):
+- **Standalone cards:** the address sits at the right of the strip's role row, so the card's
+  height is unchanged.
+- **Cluster member cards** (116 px wide): the address gets a row of its own under the CPU / MEM /
+  DISK bars. `LIVE_MEMBER_EXTRA` goes from 62 to 74, and Live's card sizes, footprints and Fix
+  layout follow it. A member without an address keeps the row's height empty, so cards in one
+  cluster stay level.
+- **Table mode:** the cluster table gains an IP column after MEMBER. `TABLE_MIN_W` goes from 760
+  to 860 so the eleven columns stay readable.
+
+Nothing is drawn for a node with no address.
+
+**Verification performed.**
+- `go build`, `go vet`, `go test -run Live` pass; `npm run build` and SSR `smoke` pass; image
+  rebuilt and redeployed.
+- `GET /api/stacks/{id}/live` on a deployed nine-node stack (PXC ×3, ProxySQL, PMM, Intranet,
+  Performance Sim, Linux Client, VNC) returned an `ip` for every node, each equal to
+  `docker inspect`'s address on the stack network.
+- Headless Chromium with Live on: nine addresses on the canvas in Strips mode (role row on
+  standalone cards, IP row on the PXC members); in + Tables mode, the IP column filled for the
+  three members; no page errors.
+- The stack has no K3D frame, so the K3D exclusion is covered by the type check, not by a live
+  run.

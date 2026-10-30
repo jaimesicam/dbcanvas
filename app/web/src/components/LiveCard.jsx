@@ -15,9 +15,10 @@ import { fmtBytes } from '../lib/dashApi.js'
 // follows the mode (StackDesigner's card sizes, and its Fix layout for whatever that pushes into
 // something else). The heights below are what the layout reserves; the strips are built to them.
 
-// Extra height a card's strip takes: a cluster member's (116px wide, so the bars stack) and a
-// standalone node's (212px, so they sit side by side).
-export const LIVE_MEMBER_EXTRA = 62
+// Extra height a card's strip takes: a cluster member's (116px wide, so the bars stack, and the
+// container's address gets a row of its own under them) and a standalone node's (212px, so they
+// sit side by side and the address fits on the role row).
+export const LIVE_MEMBER_EXTRA = 74
 export const LIVE_NODE_EXTRA = 48
 
 // The cluster table: its gap under the frame, header and row heights, and the narrowest it gets —
@@ -25,7 +26,7 @@ export const LIVE_NODE_EXTRA = 48
 export const TABLE_GAP = 8
 const TABLE_HEAD = 22
 const TABLE_ROW = 24
-export const TABLE_MIN_W = 760
+export const TABLE_MIN_W = 860
 export const tableHeight = (members) => TABLE_HEAD + members * TABLE_ROW + 2
 export const tableWidth = (frame) => Math.max(frame.w || 0, TABLE_MIN_W)
 
@@ -131,6 +132,7 @@ export function LiveStrip({ data, node, frame, member }) {
             <span className="w-[24px] shrink-0 text-right font-mono text-[8px] tabular-nums text-fg">{pctText(b.pct)}</span>
           </div>
         ))}
+        <IPLine ip={data.ip} member />
       </div>
     )
   }
@@ -143,6 +145,7 @@ export function LiveStrip({ data, node, frame, member }) {
         <span className={`min-w-0 flex-1 truncate text-[10px] ${meta.tone ? '' : 'text-muted'}`} style={metaStyle} title={meta.all || meta.text}>
           {meta.tone === 'warning' ? '⚠ ' : ''}{meta.text}
         </span>
+        <IPLine ip={data.ip} />
       </div>
       <div className="grid grid-cols-3 gap-2">
         {bars.map((b) => (
@@ -156,6 +159,21 @@ export function LiveStrip({ data, node, frame, member }) {
       </div>
     </div>
   )
+}
+
+// IPLine is the address Docker gave the node's container on the stack network (app/livestate.go
+// liveNode.IP) — what the other nodes and a packet capture see it as. Absent for a K3D member or
+// a VM, which are not Docker nodes on that network, and then nothing is drawn.
+function IPLine({ ip, member }) {
+  if (!ip) return member ? <div className="h-2.5" /> : null
+  return member
+    ? (
+      <div className="flex h-2.5 items-center gap-1" title={`Container address on the stack network: ${ip}`}>
+        <span className="w-[22px] shrink-0 font-mono text-[8px] font-semibold text-muted">IP</span>
+        <span className="min-w-0 flex-1 truncate font-mono text-[8px] tabular-nums text-fg">{ip}</span>
+      </div>
+    )
+    : <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted" title={`Container address on the stack network: ${ip}`}>{ip}</span>
 }
 
 // ProblemBadge is the count on a card's or a cluster's header.
@@ -179,7 +197,7 @@ export function ClusterTable({ frame, members, live, onSelect, selectedId }) {
       <table className="w-full border-collapse">
         <thead>
           <tr className="bg-surface2 text-[9px] tracking-wide text-muted" style={{ height: TABLE_HEAD }}>
-            <th className={th}>MEMBER</th><th className={th}>ROLE</th><th className={th}>LAG</th>
+            <th className={th}>MEMBER</th><th className={th} title="Container address on the stack network">IP</th><th className={th}>ROLE</th><th className={th}>LAG</th>
             <th className={th}>CPU</th><th className={th}>MEM</th><th className={th}>DISK</th>
             <th className={th} title="Read / write operations per second">IOPS R / W</th>
             <th className={th} title="Statements / transactions a second, as the database counts them">QPS / TPS</th>
@@ -199,6 +217,7 @@ export function ClusterTable({ frame, members, live, onSelect, selectedId }) {
                   <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full align-middle" style={{ background: healthDot(d) || 'var(--muted)' }} />
                   {n.label}
                 </td>
+                <td className="whitespace-nowrap px-1.5 font-mono tabular-nums text-muted">{d?.ip || '—'}</td>
                 <td className="px-1.5">{d ? <ShortRole data={d} node={n} frame={frame} /> : '—'}</td>
                 <td className="px-1.5 font-mono tabular-nums">{d?.role?.lagSec != null ? `${d.role.lagSec < 10 ? d.role.lagSec.toFixed(1) : Math.round(d.role.lagSec)}s` : '—'}</td>
                 {[0, 1, 2].map((i) => (

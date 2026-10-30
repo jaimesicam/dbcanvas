@@ -121,6 +121,10 @@ type liveNode struct {
 	// State is "running", the deployment's state for a node that is not ("stopped", "error"), or
 	// "unreachable" for a running deployment whose container does not answer.
 	State string `json:"state"`
+	// IP is the address Docker assigned the node's container on the stack network — what the
+	// other nodes, and a capture, see it as. Docker nodes only: a K3D member's databases are pods
+	// with addresses of their own, and a Vagrant VM is not on a Docker network.
+	IP string `json:"ip,omitempty"`
 	ContainerStat
 	*liveIO
 	Role *liveRole `json:"role,omitempty"`
@@ -152,7 +156,30 @@ var liveCache = struct {
 	mu   sync.Mutex
 	role map[string]liveCacheEntry
 	disk map[string]liveCacheEntry
-}{role: map[string]liveCacheEntry{}, disk: map[string]liveCacheEntry{}}
+	// ip is keyed by container id: a container keeps its address for as long as it runs, so
+	// each one is inspected once rather than on every poll. A recreated node has a new id.
+	ip map[string]string
+}{role: map[string]liveCacheEntry{}, disk: map[string]liveCacheEntry{}, ip: map[string]string{}}
+
+// liveIP is a running Docker node's address on the stack network, from the cache or one
+// inspect. "" when the container has none yet (or the inspect failed); that is not cached,
+// so the next poll asks again.
+func (a *App) liveIP(ctx context.Context, d *Docker, stackID int64, cid string) string {
+	liveCache.mu.Lock()
+	ip, ok := liveCache.ip[cid]
+	liveCache.mu.Unlock()
+	if ok {
+		return ip
+	}
+	ip, err := d.ContainerIP(ctx, cid, networkName(stackID))
+	if err != nil || ip == "" {
+		return ""
+	}
+	liveCache.mu.Lock()
+	liveCache.ip[cid] = ip
+	liveCache.mu.Unlock()
+	return ip
+}
 
 // handleStackLive is the Live view's poll.
 func (a *App) handleStackLive(w http.ResponseWriter, r *http.Request) {
@@ -221,6 +248,9 @@ func (a *App) liveSnapshot(ctx context.Context, st Stack) (map[string]*liveNode,
 		n := &liveNode{State: "running", ContainerStat: cs.st, liveIO: cs.io}
 		out[dep.NodeID] = n
 		typ := types[dep.NodeID]
+		if d, ok := a.depEngine(st, dep.NodeID).(*Docker); ok && typ != "k3d" {
+			n.IP = a.liveIP(ctx, d, st.ID, dep.ContainerID)
+		}
 		if !liveProbed(typ) {
 			continue
 		}
