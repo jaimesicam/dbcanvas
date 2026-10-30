@@ -10,6 +10,8 @@ import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import { useBrowser } from '../browser/BrowserProvider.jsx'
 import { useAuth } from '../auth/AuthProvider.jsx'
 import { useSession } from '../session/SessionProvider.jsx'
+import { NODE_TYPES } from '../pages/StackDesigner.jsx'
+import { toneTile } from '../components/ui.jsx'
 
 // Stacks.jsx — your stacks and their nodes on the desktop (desktop/Desktop.jsx).
 //
@@ -27,7 +29,13 @@ const STACK_DOT = { deployed: 'bg-success', draft: 'bg-muted/60', expired: 'bg-d
 const TONE_DOT = { success: 'bg-success', warning: 'bg-warning', danger: 'bg-danger', muted: 'bg-muted/60' }
 const stateDot = (state) => TONE_DOT[DEPLOY_TONE[state]] || 'bg-muted/40'
 
-// A node's icon: the kind of thing it is, at a glance.
+// A node's icon and colour are the canvas's own (NODE_TYPES), so a PXC member is the
+// same purple database here as on the design it came from; nodeIcon is the fallback
+// for a type the catalogue does not know.
+const nodeLook = (type) => {
+  const def = NODE_TYPES[type]
+  return { Ico: (def && Icon[def.icon]) || nodeIcon(type), tone: def?.color || 'var(--primary)' }
+}
 function nodeIcon(type) {
   if (type === 'vnc') return Icon.Monitor
   if (type === 'linuxclient') return Icon.Terminal
@@ -100,7 +108,7 @@ export function StackIcons({ stacks, onOpenFolder, onOpen }) {
           onKeyDown={(e) => { if (e.key === 'Enter') onOpenFolder(st) }}
           onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setSel(st.id); setMenu({ x: e.clientX, y: e.clientY, st }) }}
           className={`pointer-events-auto flex w-24 flex-col items-center gap-1.5 rounded-lg px-1 py-2 text-center ${sel === st.id ? 'bg-primary/20 ring-1 ring-primary/50' : 'hover:bg-surface/60'}`}>
-          <span className="relative flex h-11 w-11 items-center justify-center rounded-xl border bg-surface/80 text-primary shadow-sm">
+          <span className="lift relative flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm" style={toneTile('var(--primary)')}>
             <Icon.Stacks size={22} />
             <span className={`absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-surface ${STACK_DOT[st.status] || 'bg-muted/60'}`} />
           </span>
@@ -224,16 +232,16 @@ export function StackFolder({ stack, onClose, onOpen }) {
             {g && <div className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide text-muted">{g}</div>}
             <div className="flex flex-wrap gap-1">
               {list.map((n) => {
-                const Ico = nodeIcon(n.type)
+                const { Ico, tone } = nodeLook(n.type)
                 const dep = deps[n.id]
                 return (
                   <button key={n.id} data-folder-node={n.id} title={`${label(n)} · ${n.type} · ${dep?.state || 'not deployed'}`}
                     onClick={() => setSel(n.id)} onDoubleClick={() => primary(n)}
                     onContextMenu={(e) => { e.preventDefault(); setSel(n.id); setMenu({ x: e.clientX, y: e.clientY, n }) }}
                     className={`flex w-24 flex-col items-center gap-1 rounded-lg px-1 py-2 text-center ${sel === n.id ? 'bg-primary/20 ring-1 ring-primary/50' : 'hover:bg-surface2'}`}>
-                    <span className="relative flex h-10 w-10 items-center justify-center rounded-xl border bg-surface text-primary">
+                    <span className="lift relative flex h-10 w-10 items-center justify-center rounded-xl border" style={toneTile(tone)}>
                       <Ico size={20} />
-                      <span className={`absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-bg ${stateDot(dep?.state)}`} />
+                      <span className={`absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-bg ${stateDot(dep?.state)} ${dep?.state === 'provisioning' ? 'status-pulse' : ''}`} />
                     </span>
                     <span className="line-clamp-2 wrap-anywhere text-[11px] leading-tight">{label(n)}</span>
                     <span className="text-[10px] text-muted">{dep?.state || 'not deployed'}</span>

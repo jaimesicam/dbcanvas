@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from 'react-dom'
 import { Icon } from '../components/Icons.jsx'
 import { FileToolChecks, DBFileToolChecks } from '../components/FileTools.jsx'
-import { Card, Button, Badge, Field, ConfirmButton, InfoRow, inputCls } from '../components/ui.jsx'
+import { Card, Button, Badge, Field, ConfirmButton, InfoRow, inputCls, toneTile } from '../components/ui.jsx'
 import { Help, Hint } from '../components/Tooltip.jsx'
 import { HELP, MENU_HELP, nodeHelp } from '../lib/help.js'
 import { usePolling } from '../lib/usePolling.jsx'
@@ -63,11 +63,13 @@ import { ActivityPanel } from '../components/Activity.jsx'
 import { useStackAlerts, HealthButton, StackHistoryPanel, ErrorLogTail, BackupChip } from '../components/StackHistory.jsx'
 
 const NODE_W = 212
-// A node card carries an icon, its name and its status, and nothing else — so it is
-// one row tall. It used to also print the type blurb and the OS/version line, which
-// is what a canvas is worst at: three lines of prose in 212px wrapped, clipped at
-// the card's bottom edge, and turned a diagram into a wall of half-sentences. Those
-// details moved into the card's tooltip, where they have room to be readable.
+// A node card carries an icon, its name, one short word on what it is, and its status
+// — so it is one row tall. It used to also print the type blurb and the OS/version
+// line, which is what a canvas is worst at: three lines of prose in 212px wrapped,
+// clipped at the card's bottom edge, and turned a diagram into a wall of
+// half-sentences. Those details moved into the card's tooltip, where they have room to
+// be readable. The one line that stayed under the name is a label, never prose: the
+// type ("ProxySQL") until the node is deployed, then what it runs ("PXC 8.4.5-5").
 const NODE_H = 56
 const SNAP = 26
 
@@ -2553,6 +2555,19 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
   const xferAbort = useRef(null)
   const [flash, setFlash] = useState(null) // transient bottom toast ({ tone, text })
   const [saveTpl, setSaveTpl] = useState(false)   // "Save as template" dialog
+  const [moreOpen, setMoreOpen] = useState(false)  // the toolbar's More menu
+  const moreRef = useRef(null)
+  // Closed by Escape or a press anywhere outside it — a document listener rather than a
+  // backdrop, because a backdrop inside this window cannot see a click on the top bar or
+  // another window.
+  useEffect(() => {
+    if (!moreOpen) return undefined
+    const down = (e) => { if (!moreRef.current?.contains(e.target)) setMoreOpen(false) }
+    const key = (e) => { if (e.key === 'Escape') setMoreOpen(false) }
+    document.addEventListener('pointerdown', down, true)
+    document.addEventListener('keydown', key)
+    return () => { document.removeEventListener('pointerdown', down, true); document.removeEventListener('keydown', key) }
+  }, [moreOpen])
   const [insertTpl, setInsertTpl] = useState(false) // "Insert template" dialog
   const { openTerminal } = useTerminals()
   const { settings, system } = useSettings() // per-user: how the library is offered; instance-wide: upload ceiling, SSH forwarding, experimental features
@@ -4663,7 +4678,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
   )
 
   return (
-    <div ref={designerRoot} className="flex h-[78vh] gap-4">
+    <div ref={designerRoot} className="flex h-full min-h-[520px] gap-4">
       {shareOpen && <ShareDialog stack={stack} onClose={() => setShareOpen(false)} />}
       <div className="flex min-w-0 flex-1 flex-col gap-3">
         {/* toolbar — a container: narrow (a small window, or the browser zoomed in), the secondary
@@ -4682,22 +4697,13 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
           {locked && <Badge tone="muted">Following {session.controllerName || 'the driver'} — view only</Badge>}
           <Hint text={HELP.uiStackStatus}><Badge tone={STATUS_TONE[stack.status] || 'muted'}>{stack.status}</Badge></Hint>
           <div className="mx-1 h-5 w-px bg-border @max-3xl:hidden" />
-          {!libraryColumn && <span className="text-xs text-muted @max-3xl:hidden">Right-click the canvas to add a node</span>}
-          {libraryColumn && paletteDocked && <span className="text-xs text-muted @max-3xl:hidden">Add nodes from the Infrastructure Library →</span>}
+          {/* How to add a node is said while there is nothing on the canvas — after the
+              first node it is known, and the line only pushed the actions onto a third row. */}
+          {nodes.length === 0 && !libraryColumn && <span className="text-xs text-muted @max-3xl:hidden">Right-click the canvas to add a node</span>}
+          {nodes.length === 0 && libraryColumn && paletteDocked && <span className="text-xs text-muted @max-3xl:hidden">Add nodes from the Infrastructure Library →</span>}
           {libraryColumn && !paletteDocked && (
             <Hint text={HELP.uiPalette}><Button size="sm" variant="outline" onClick={() => setPaletteDocked(true)}><Icon.Plus size={15} /> <span className="@max-3xl:hidden">Palette</span></Button></Hint>
           )}
-          <div className="mx-1 h-5 w-px bg-border @max-3xl:hidden" />
-          <Hint text={HELP.uiInsertTemplate}>
-            <Button size="sm" variant="outline" disabled={!!busy || deploying || locked} onClick={() => setInsertTpl(true)}>
-              <Icon.Copy size={15} /> <span className="@max-3xl:hidden">Insert template</span>
-            </Button>
-          </Hint>
-          <Hint text={HELP.uiSaveTemplate}>
-            <Button size="sm" variant="outline" disabled={!!busy || nodes.length === 0} onClick={() => setSaveTpl(true)}>
-              <Icon.File size={15} /> <span className="@max-3xl:hidden">Save as template</span>
-            </Button>
-          </Hint>
           <div className="mx-1 h-5 w-px bg-border @max-3xl:hidden" />
           <Hint text={HELP.uiValidate}>
             <Button size="sm" variant="outline" disabled={!!busy} onClick={runValidate}>
@@ -4719,8 +4725,10 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
             </Hint>
           )}
           <div className="ml-auto flex items-center gap-3">
-            <Hint text={HELP.uiSaveState}><span className="text-xs text-muted">{saveState === 'saving' ? 'Saving…' : 'Saved'}</span></Hint>
-            <Hint text={HELP.uiCounts}><span className="text-xs text-muted @max-3xl:hidden">{nodes.length} nodes · {edges.length} links</span></Hint>
+            <span className="flex items-center gap-1 whitespace-nowrap text-xs text-muted">
+              <Hint text={HELP.uiSaveState}><span>{saveState === 'saving' ? 'Saving…' : 'Saved'}</span></Hint>
+              <Hint text={HELP.uiCounts}><span className="@max-3xl:hidden">· {nodes.length} nodes · {edges.length} links</span></Hint>
+            </span>
             <Hint text={HELP.uiRelations}>
               <Button size="sm" variant={showRelations ? 'subtle' : 'ghost'} aria-pressed={showRelations}
                 className={showRelations ? 'text-primary' : ''} onClick={() => setShowRelations((v) => !v)}>
@@ -4771,11 +4779,32 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
                 <Button size="sm" variant="ghost" aria-label="Redo" disabled={!hist.current.redo.length} onClick={redo}>↷</Button>
               </span>
             </Hint>
-            <Hint text={HELP.uiResetView}>
-              <Button size="sm" variant="ghost" onClick={() => setView({ x: 40, y: 20, z: 1 })}>
-                <Icon.Move size={15} /> <span className="@max-3xl:hidden">Reset view</span>
+            {/* The occasional actions, behind one button: templates are a once-a-stack
+                thing and Reset view a recovery, and as three more buttons they were what
+                wrapped the toolbar onto a third row. Each keeps its explanation as the
+                entry's tooltip. */}
+            <div ref={moreRef} className="relative">
+              <Button size="sm" variant={moreOpen ? 'subtle' : 'ghost'} aria-haspopup="menu" aria-expanded={moreOpen} onClick={() => setMoreOpen((v) => !v)}>
+                <span className="@max-3xl:hidden">More</span> <Icon.Chevron size={14} />
               </Button>
-            </Hint>
+              {moreOpen && (
+                <>
+                  <div role="menu" className="absolute right-0 top-full z-50 mt-1 min-w-[200px] rounded-lg border bg-surface py-1 text-sm shadow-xl">
+                    {[
+                      { label: 'Insert template', icon: Icon.Copy, help: HELP.uiInsertTemplate, disabled: !!busy || deploying || locked, onClick: () => setInsertTpl(true) },
+                      { label: 'Save as template', icon: Icon.File, help: HELP.uiSaveTemplate, disabled: !!busy || nodes.length === 0, onClick: () => setSaveTpl(true) },
+                      { label: 'Reset view', icon: Icon.Move, help: HELP.uiResetView, onClick: () => setView({ x: 40, y: 20, z: 1 }) },
+                    ].map((it) => (
+                      <button key={it.label} role="menuitem" type="button" disabled={it.disabled} title={typeof it.help === 'string' ? it.help : undefined}
+                        onClick={() => { setMoreOpen(false); it.onClick() }}
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-fg hover:bg-surface2 disabled:cursor-not-allowed disabled:opacity-40">
+                        <it.icon size={15} className="text-muted" /> {it.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
 
@@ -4912,7 +4941,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
                     <path d={edgePath(p0, s0, p1, s1)} fill="none" stroke={col} strokeWidth="1.5"
                       strokeDasharray="2 4" strokeLinecap="round" markerEnd="url(#stk-rel-arrow)" />
                     <text x={mid.x} y={mid.y - 4} textAnchor="middle" className="pointer-events-auto cursor-help"
-                      style={{ fill: col, fontSize: '9px', fontWeight: 600, paintOrder: 'stroke', stroke: 'var(--bg)', strokeWidth: 3.5, strokeLinejoin: 'round' }}>
+                      style={{ fill: col, fontSize: '11px', fontWeight: 600, paintOrder: 'stroke', stroke: 'var(--bg)', strokeWidth: 4, strokeLinejoin: 'round' }}>
                       <title>{rl.detail}</title>
                       {rl.label}
                     </text>
@@ -4954,13 +4983,20 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
                   <g key={ed.id}>
                     <path d={d} fill="none" stroke="transparent" strokeWidth="16" className="pointer-events-auto cursor-pointer"
                       onPointerDown={(e) => { e.stopPropagation(); setSelected({ kind: 'edge', id: ed.id }) }} />
-                    <path d={d} fill="none" stroke={on ? 'var(--primary)' : repl ? replColor : 'var(--muted)'} strokeWidth={on ? 3 : rl ? 2.5 : 2}
+                    <path d={d} fill="none" stroke={on ? 'var(--primary)' : repl ? replColor : 'var(--muted)'} strokeWidth={on ? 3.5 : 2.5}
                       strokeDasharray={repl && (!rl || rl.tone !== 'success') ? '7 4' : undefined}
                       markerEnd={repl ? 'url(#stk-arrow)' : undefined}
                       markerStart={ed.type === 'bidir' ? 'url(#stk-arrow)' : undefined} />
+                    {/* Live and healthy: traffic travelling the line (index.css .stk-flow).
+                        Not on a replication link Live has found lagging or broken — that
+                        one stays dashed and coloured, and motion would make it look fine. */}
+                    {liveOn && (!repl || rl?.tone === 'success') && (
+                      <path d={d} fill="none" className="stk-flow" strokeLinecap="round" strokeWidth={2.5}
+                        stroke={repl ? 'var(--bg)' : 'var(--surface)'} opacity={0.9} />
+                    )}
                     {caption && (
                       <text x={(p0.x + p1.x) / 2} y={(p0.y + p1.y) / 2 - 5} textAnchor="middle" className={rl?.title ? 'pointer-events-auto cursor-help' : undefined}
-                        style={{ fill: rl && rl.tone !== 'success' ? `var(--${rl.tone})` : 'var(--muted)', fontSize: '9px', fontWeight: rl && rl.tone !== 'success' ? 600 : 400, paintOrder: 'stroke', stroke: 'var(--bg)', strokeWidth: 3.5, strokeLinejoin: 'round' }}>
+                        style={{ fill: rl && rl.tone !== 'success' ? `var(--${rl.tone})` : 'var(--muted)', fontSize: '11px', fontWeight: rl && rl.tone !== 'success' ? 600 : 500, paintOrder: 'stroke', stroke: 'var(--bg)', strokeWidth: 4, strokeLinejoin: 'round' }}>
                         {rl?.title && <title>{rl.title}</title>}
                         {caption}
                       </text>
@@ -5112,16 +5148,19 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
                   className={`group absolute flex cursor-grab flex-col overflow-hidden rounded-xl border bg-surface shadow-sm active:cursor-grabbing ${on ? 'ring-2 ring-primary' : ''} ${dropNode === n.id ? 'ring-2 ring-success' : ''}`}
                   style={{ left: n.x, top: n.y, width: NODE_W, height: nodeH, boxShadow: multi.has(n.id) ? '0 0 0 3px var(--primary)' : findSet.has(n.id) && !on ? '0 0 0 3px color-mix(in srgb, var(--primary) 60%, transparent)' : liveOn && !on ? healthRing(live[n.id]) || undefined : undefined }}
                 >
-                  <div className="h-1.5 w-full shrink-0" style={{ background: def.color }} />
-                  {/* One row: icon, name, status. Everything else is in the tooltip
+                  <div className="h-1 w-full shrink-0" style={{ background: def.color }} />
+                  {/* One row: icon, name (and its type), status. Everything else is in the tooltip
                       — see nodeCardTip. A card is a thing on a diagram, and the
                       moment it carries three lines of prose it stops being one. */}
                   <Hint text={nodeCardTip(n, def, depByNode[n.id], n.arch || platform)} placement="top" display="flex" className={liveOn ? 'shrink-0' : 'min-h-0 flex-1'}>
                     <div className="flex w-full items-center gap-2.5 px-3" style={liveOn ? { height: NODE_H - 6 } : undefined}>
-                      <span className="shrink-0" style={{ color: def.color }}>
-                        {(Icon[def.icon] || Icon.Server)({ size: 20 })}
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border" style={toneTile(def.color)}>
+                        {(Icon[def.icon] || Icon.Server)({ size: 18 })}
                       </span>
-                      <span className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">{n.label}</span>
+                      <span className="min-w-0 flex-1 leading-tight">
+                        <span className="block truncate text-sm font-semibold text-fg">{n.label}</span>
+                        <span className="block truncate text-[11px] text-muted">{deployedLabel(n.type, depByNode[n.id]) || def.label}</span>
+                      </span>
                       {liveOn && <ProblemBadge count={problemCount(live[n.id])} title={(live[n.id]?.role?.problems || []).join('\n')} />}
                       <span className="shrink-0"><NodeStatus dep={depByNode[n.id]} /></span>
                     </div>

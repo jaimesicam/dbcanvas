@@ -409,25 +409,30 @@ export function Window({ id, title, icon, size, header, onClose, canClose = true
     se: 'right-0 bottom-0 h-3 w-3 cursor-nwse-resize', sw: 'left-0 bottom-0 h-3 w-3 cursor-nesw-resize',
   }
   const active = wm.front === id
+  // Depth says which window has focus: the front one is lifted (the deepest shadow, a
+  // rim and a title bar washed in the primary), the rest sit back on a lighter shadow
+  // with their titles muted. Their content is NOT dimmed — a log you are reading in a
+  // second window has to stay readable while you type in the first. (.wm-front is in
+  // index.css, where the flat Industrial look can keep the rim and drop the shadow.)
 
   return createPortal(
     <div
       data-wm-window={id}
       data-mirror-private={priv ? '' : undefined}
-      className={`pointer-events-auto absolute flex flex-col overflow-hidden border bg-surface shadow-2xl ${fullish ? '' : 'rounded-lg'} ${active ? 'border-primary/40' : ''}`}
+      className={`wm-open pointer-events-auto absolute flex flex-col overflow-hidden border bg-surface transition-shadow duration-150 ${fullish ? '' : 'rounded-lg'} ${active ? 'wm-front border-primary/40' : 'shadow-lg'}`}
       style={{ left: geo.x, top: geo.y, width: geo.w, height: geo.h, zIndex: windowZ(w.order, pinned), visibility: w.min ? 'hidden' : 'visible' }}
       aria-hidden={w.min}
       onPointerDownCapture={() => wm.focus(id)}
     >
       <div
-        className={`flex shrink-0 items-center gap-1.5 border-b px-2 py-1 ${active ? 'bg-surface2' : 'bg-surface'}`}
-        style={{ cursor: 'default', touchAction: 'none' }}
+        className={`flex shrink-0 items-center gap-1.5 border-b px-2 py-1 ${active ? '' : 'bg-surface'}`}
+        style={{ cursor: 'default', touchAction: 'none', background: active ? 'color-mix(in srgb, var(--primary) 9%, var(--surface2))' : undefined }}
         onPointerDown={start('move')}
         onDoubleClick={(e) => { if (!e.target.closest('button, input, select, textarea, a')) wm.toggleMax(id) }}
         onContextMenu={(e) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY }) }}
       >
-        {icon && <span className="shrink-0 text-muted">{icon}</span>}
-        <span className={`truncate text-xs font-medium ${header ? 'mr-2 max-w-[220px] shrink-0' : 'min-w-0 flex-1'}`}>{title}</span>
+        {icon && <span className={`shrink-0 ${active ? 'text-primary' : 'text-muted'}`}>{icon}</span>}
+        <span className={`truncate text-xs font-medium ${active ? 'text-fg' : 'text-muted'} ${header ? 'mr-2 max-w-[220px] shrink-0' : 'min-w-0 flex-1'}`}>{title}</span>
         {header}
         <button className={btn} title="Minimize" onClick={() => wm.minimize(id)}><Icon.Minus size={13} /></button>
         <button className={btn} title={w.max || w.snap ? 'Restore' : 'Maximize'} onClick={() => wm.toggleMax(id)}>

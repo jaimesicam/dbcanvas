@@ -30,6 +30,15 @@ export function Card({ title, subtitle, action, className = '', children }) {
   )
 }
 
+// toneTile is a tinted icon tile in a group's (or an engine's) colour: the colour on
+// the glyph, a wash of it behind, and a rim of it — readable on all six themes because
+// the wash is mixed into the theme's own surface rather than laid over it.
+export const toneTile = (tone) => ({
+  color: tone,
+  background: `color-mix(in srgb, ${tone} 14%, var(--surface))`,
+  borderColor: `color-mix(in srgb, ${tone} 30%, transparent)`,
+})
+
 const BTN_VARIANTS = {
   primary: 'bg-primary text-primary-fg hover:opacity-90',
   ghost: 'text-fg hover:bg-surface2',

@@ -347,3 +347,40 @@ html[data-mirroring] [data-wm-taskbar] { display: none; }
   animation: pcsm-flow-v .6s linear infinite;
 }
 @media (prefers-reduced-motion: reduce) { .pcsm-flow-v { animation: none; } }
+
+/* ---- Depth and motion ------------------------------------------------------------
+ * The desktop's wallpaper: the canvas's own dot grid over two washes of the theme's
+ * primary and accent, so every theme gets a wallpaper of its own without a seventh
+ * colour, and the desktop reads as the same material as the canvas you design on. */
+.desk-wallpaper {
+  background:
+    radial-gradient(circle, color-mix(in srgb, var(--fg) 9%, transparent) 1px, transparent 1.5px) 0 0 / 22px 22px,
+    radial-gradient(ellipse at 12% 8%, color-mix(in srgb, var(--primary) 18%, transparent), transparent 55%),
+    radial-gradient(ellipse at 92% 96%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 50%),
+    var(--bg);
+}
+/* A window opening grows out of a slightly smaller self rather than popping in. */
+@keyframes wm-open { from { opacity: 0; transform: scale(.97) translateY(6px) } to { opacity: 1; transform: none } }
+.wm-open { animation: wm-open .16s ease-out both; }
+/* The front window (wm/WindowManager.jsx): the deepest shadow and a primary rim. The
+   flat Industrial look keeps the rim, which is what says "focused", and no shadow. */
+.wm-front { box-shadow: 0 24px 48px -12px rgb(0 0 0 / .35), 0 0 0 1px color-mix(in srgb, var(--primary) 35%, transparent); }
+[data-look="industrial"] .wm-front { box-shadow: 0 0 0 1px var(--primary); }
+/* A desktop tile or folder node lifts under the pointer. */
+.lift { transition: transform .12s ease, box-shadow .12s ease; }
+.lift:hover { transform: translateY(-2px); box-shadow: var(--ui-shadow-lg); }
+/* A link on the canvas while Live is on: dashes travelling the line, so a running
+   stack looks like one. Drawn over the static line, not instead of it. */
+@keyframes stk-flow { to { stroke-dashoffset: -20 } }
+.stk-flow { stroke-dasharray: 2 8; animation: stk-flow 1s linear infinite; }
+/* A node still being provisioned breathes, so "in progress" is not only a colour. */
+@keyframes status-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--warning) 60%, transparent); }
+  70% { box-shadow: 0 0 0 6px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.status-pulse { animation: status-pulse 1.6s ease-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .wm-open, .stk-flow, .status-pulse { animation: none; }
+  .lift, .lift:hover { transition: none; transform: none; }
+}

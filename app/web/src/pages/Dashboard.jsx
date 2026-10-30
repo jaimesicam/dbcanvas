@@ -7,6 +7,15 @@ import { usePolling } from '../lib/usePolling.jsx'
 import { relTime } from '../lib/notifApi.js'
 import { useRefresh } from '../lib/useRefresh.jsx'
 import { openStackInDesigner } from '../desktop/Stacks.jsx'
+import { NODE_TYPES } from './StackDesigner.jsx'
+
+// HISTORY is how many live samples a stat tile's trend line keeps: at the 4 s poll,
+// the last two minutes — long enough to see a load start, short enough to stay live.
+const HISTORY = 30
+// The engines' colours are the canvas's (NODE_TYPES), so MySQL is the same blue here as
+// on the design, and a bar says which engine it is before its label does.
+const ENGINE_COLOR = { mysql: NODE_TYPES.ps?.color, postgres: NODE_TYPES.pg?.color, mongodb: NODE_TYPES.psm?.color, valkey: NODE_TYPES.valkey?.color }
+const typeColor = (t) => NODE_TYPES[t]?.color
 
 // Dashboard — store-backed summary counters plus focus-gated live OS stats. The live sample
 // polls only while this page is on screen AND the tab is visible/focused, so there is no
@@ -22,12 +31,15 @@ export default function Dashboard() {
   const [stats, setStats] = useState(null)
   const [rates, setRates] = useState([])
   const [live, setLive] = useState(false)
+  const [hist, setHist] = useState({ cpu: [], mem: [], containers: [] })
   const prev = useRef(null) // { at, byName } for rate deltas
 
   const loadSummary = useCallback(() => dashApi.summary().then(setSum).catch(() => {}), [])
   const loadStats = useCallback(() => {
     return dashApi.stats().then((d) => {
       setStats(d)
+      const push = (a, v) => [...a, v].slice(-HISTORY)
+      setHist((h) => ({ cpu: push(h.cpu, d.cpuPercent || 0), mem: push(h.mem, d.memUsed || 0), containers: push(h.containers, d.containers || 0) }))
       const nodes = d.nodes || []
       const now = d.sampledAtSec || Date.now() / 1000
       const p = prev.current
@@ -74,6 +86,9 @@ export default function Dashboard() {
   const memFrac = (t) => (t.row.memPercent || 0) / 100
   const rateFrac = (t, max) => t.value / Math.max(max, 1 << 20)
   const openStack = (id) => openStackInDesigner((page) => { location.hash = page }, id)
+  // With nothing running there will never be a second sample, so the rate charts say so
+  // rather than wait on one.
+  const idle = stats && !(stats.nodes || []).length ? 'No running containers' : undefined
   const pct = (v) => `${v.toFixed(1)}%`
   const rate = (v) => `${fmtBytes(v)}/s`
 
@@ -105,9 +120,9 @@ export default function Dashboard() {
         <Stat label="Nodes running" value={sum ? `${sum.nodes.running}/${sum.nodes.total}` : '—'}
           sub={sum?.nodes.error ? `${sum.nodes.error} error` : (sum?.nodes.other ? `${sum.nodes.other} provisioning` : 'all healthy')}
           tone={sum?.nodes.error ? 'danger' : 'primary'} />
-        <Stat label="Containers" value={stats?.containers ?? '—'} sub="live" />
-        <Stat label="CPU" value={stats ? `${stats.cpuPercent.toFixed(0)}%` : '—'} sub="aggregate" />
-        <Stat label="Memory" value={stats ? fmtBytes(stats.memUsed) : '—'} sub={stats ? `of ${fmtBytes(stats.memLimit)}` : ''} />
+        <Stat label="Containers" value={stats?.containers ?? '—'} sub="live" trend={hist.containers} />
+        <Stat label="CPU" value={stats ? `${stats.cpuPercent.toFixed(0)}%` : '—'} sub="aggregate" trend={hist.cpu} />
+        <Stat label="Memory" value={stats ? fmtBytes(stats.memUsed) : '—'} sub={stats ? `of ${fmtBytes(stats.memLimit)}` : ''} trend={hist.mem} />
         {admin
           ? <Stat label="Users" value={sum?.users?.total ?? '—'} sub={sum?.users?.pending ? `${sum.users.pending} pending` : 'none pending'} tone={sum?.users?.pending ? 'warning' : 'muted'} />
           : <Stat label="Data-gen jobs" value={sum ? sum.dataGen.active + sum.dataGen.done + sum.dataGen.error : '—'} sub={`${sum?.dataGen.active ?? 0} active`} />}
@@ -121,21 +136,25 @@ export default function Dashboard() {
           <TopBars items={bars(stats?.nodes, 'memUsed', fmtBytes, memFrac)} empty="No running containers" accent="var(--color-accent)" onOpen={openStack} />
         </Card>
         <Card title="By engine" subtitle="Running DB nodes">
-          <Breakdown data={sum?.byEngine} labels={{ postgres: 'PostgreSQL', mysql: 'MySQL/PXC', mongodb: 'MongoDB', valkey: 'Valkey' }} />
+          {/* Empty while a deploy is still bringing its databases up said "Nothing running"
+              beside a taskbar counting running nodes — true (those were not databases) but
+              it read as a contradiction. */}
+          <Breakdown data={sum?.byEngine} labels={{ postgres: 'PostgreSQL', mysql: 'MySQL/PXC', mongodb: 'MongoDB', valkey: 'Valkey' }} colors={ENGINE_COLOR}
+            empty={sum?.nodes.other ? 'No database running yet — nodes are still provisioning' : 'No database nodes running'} />
         </Card>
       </div>
 
       {/* Per-node network / disk rates */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Card title="Top network in" subtitle="Per node (live)"><TopBars items={bars(rates, 'netIn', rate, rateFrac)} accent="var(--color-success)" onOpen={openStack} /></Card>
-        <Card title="Top network out" subtitle="Per node (live)"><TopBars items={bars(rates, 'netOut', rate, rateFrac)} accent="var(--color-accent)" onOpen={openStack} /></Card>
-        <Card title="Top disk in" subtitle="Per node (live)"><TopBars items={bars(rates, 'diskIn', rate, rateFrac)} accent="var(--color-warning)" onOpen={openStack} /></Card>
-        <Card title="Top disk out" subtitle="Per node (live)"><TopBars items={bars(rates, 'diskOut', rate, rateFrac)} accent="var(--color-primary)" onOpen={openStack} /></Card>
+        <Card title="Top network in" subtitle="Per node (live)"><TopBars items={bars(rates, 'netIn', rate, rateFrac)} empty={idle} accent="var(--color-success)" onOpen={openStack} /></Card>
+        <Card title="Top network out" subtitle="Per node (live)"><TopBars items={bars(rates, 'netOut', rate, rateFrac)} empty={idle} accent="var(--color-accent)" onOpen={openStack} /></Card>
+        <Card title="Top disk in" subtitle="Per node (live)"><TopBars items={bars(rates, 'diskIn', rate, rateFrac)} empty={idle} accent="var(--color-warning)" onOpen={openStack} /></Card>
+        <Card title="Top disk out" subtitle="Per node (live)"><TopBars items={bars(rates, 'diskOut', rate, rateFrac)} empty={idle} accent="var(--color-primary)" onOpen={openStack} /></Card>
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         <Card title="Node types">
-          <Breakdown data={sum?.byType} />
+          <Breakdown data={sum?.byType} colorOf={typeColor} />
         </Card>
         <Card title="Recent activity" subtitle="Notifications" className="lg:col-span-2">
           <Activity items={sum?.activity || []} />
@@ -145,14 +164,40 @@ export default function Dashboard() {
   )
 }
 
-function Stat({ label, value, sub, tone = 'muted' }) {
+function Stat({ label, value, sub, tone = 'muted', trend }) {
   const color = { primary: 'text-primary', danger: 'text-danger', warning: 'text-warning', muted: 'text-fg' }[tone]
   return (
-    <Card>
+    <Card className="relative overflow-hidden">
       <div className="text-xs text-muted">{label}</div>
-      <div className={`mt-0.5 text-xl font-semibold ${color}`}>{value}</div>
-      {sub && <div className="mt-0.5 text-xs text-muted">{sub}</div>}
+      <div className={`mt-1 text-[1.65rem] font-semibold leading-none tracking-tight tabular-nums ${color}`}>{value}</div>
+      {sub && <div className="mt-1.5 text-xs text-muted">{sub}</div>}
+      {trend && <Sparkline values={trend} />}
     </Card>
+  )
+}
+
+// Sparkline is a stat tile's last two minutes, drawn faintly along its foot: the shape
+// of the load, not a chart to read values off — the number above is the value. The
+// scale is the series' own range: against the host's capacity (memory against 206 GB)
+// every line would be flat along the floor, which is the one shape that says nothing.
+// A band narrower than a tenth of the peak is widened to that, so an idle series stays
+// a calm line rather than its jitter being stretched to full height.
+function Sparkline({ values }) {
+  if (values.length < 2) return <div className="mt-2 h-7" />
+  const hi = Math.max(...values), min = Math.min(...values)
+  // The widened band is centred on the data, so a steady series (seven containers, for
+  // two minutes) is a level line across the middle — not a block pinned to the top.
+  const span = Math.max(hi - min, hi * 0.1, 1e-9) * 1.15
+  const lo = Math.max(0, min - (span - (hi - min)) / 2)
+  const W = 100, H = 28
+  const pts = values.map((v, i) => [(i / (HISTORY - 1)) * W, H - ((v - lo) / span) * (H - 2) - 1])
+  const off = W - pts[pts.length - 1][0] // newest sample on the right edge
+  const line = pts.map(([x, y]) => `${(x + off).toFixed(1)},${y.toFixed(1)}`).join(' ')
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="mt-2 block h-7 w-full" aria-hidden="true">
+      <polygon points={`${(pts[0][0] + off).toFixed(1)},${H} ${line} ${W},${H}`} fill="var(--primary)" opacity="0.12" />
+      <polyline points={line} fill="none" stroke="var(--primary)" strokeWidth="1.5" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+    </svg>
   )
 }
 
@@ -164,8 +209,8 @@ const shortName = (n) => n.replace(/^(?!k3d-)[a-z][a-z0-9-]*?-(?=\d+-)/, '').rep
 // TopBars renders a ranked horizontal bar chart (top-N). HTML/CSS bars keep the app's
 // font crisp and animate smoothly — no distorted SVG text. Each item carries its own frac
 // (see bars() in Dashboard); a row with a known stack opens it in Database Stacks.
-function TopBars({ items, empty = 'Waiting for samples…', accent = 'var(--color-primary)', onOpen }) {
-  if (!items || !items.length) return <div className="py-6 text-center text-sm text-muted">{empty}</div>
+function TopBars({ items, empty, accent = 'var(--color-primary)', onOpen }) {
+  if (!items || !items.length) return empty ? <div className="py-6 text-center text-sm text-muted">{empty}</div> : <Pending />
   return (
     <div className="space-y-2">
       {items.map((it) => {
@@ -192,16 +237,35 @@ function TopBars({ items, empty = 'Waiting for samples…', accent = 'var(--colo
   )
 }
 
-function Breakdown({ data, labels = {} }) {
+// Pending stands in for a live chart until its second sample arrives (a rate needs two):
+// the chart's own shape, faint and still, so the page keeps its layout and does not
+// read as four empty boxes.
+function Pending() {
+  return (
+    <div className="space-y-2" aria-label="Waiting for samples">
+      {[72, 55, 40, 28, 18].map((w) => (
+        <div key={w}>
+          <div className="mb-1 h-2.5 rounded bg-surface2" style={{ width: `${w + 15}%` }} />
+          <div className="h-1.5 rounded-full bg-surface2/70" />
+        </div>
+      ))}
+      <div className="pt-0.5 text-center text-[11px] text-muted">Waiting for samples…</div>
+    </div>
+  )
+}
+
+function Breakdown({ data, labels = {}, colors = {}, colorOf, empty = 'Nothing running' }) {
   const entries = Object.entries(data || {}).sort((a, b) => b[1] - a[1])
-  if (!entries.length) return <div className="py-6 text-center text-sm text-muted">Nothing running</div>
+  if (!entries.length) return <div className="py-6 text-center text-sm text-muted">{empty}</div>
   const max = Math.max(...entries.map(([, v]) => v))
   return (
     <div className="space-y-2">
       {entries.map(([k, v]) => (
         <div key={k}>
           <div className="mb-0.5 flex justify-between text-xs"><span>{labels[k] || k}</span><span className="text-muted">{v}</span></div>
-          <div className="h-2 rounded-full bg-surface2"><div className="h-full rounded-full bg-primary" style={{ width: `${(v / max) * 100}%` }} /></div>
+          <div className="h-2 rounded-full bg-surface2">
+            <div className="h-full rounded-full" style={{ width: `${(v / max) * 100}%`, background: colors[k] || colorOf?.(k) || 'var(--primary)' }} />
+          </div>
         </div>
       ))}
     </div>

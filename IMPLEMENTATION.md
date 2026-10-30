@@ -26953,3 +26953,76 @@ its bundled font (`Inter Variable`, `Barlow`, `Newsreader Variable`, `Nunito Var
 `.woff2` is served `200 font/woff2`, Latin subsets only; screenshots of all four Looks are
 visibly distinct, and the desktop stack label wraps as "MySQL / Replication Stack". SSR `smoke`
 passes.
+
+## 435. Look and feel: group and engine colour, canvas cards and links, dashboard trends, window depth — `app/web/src/desktop/Desktop.jsx`, `app/web/src/desktop/Stacks.jsx`, `app/web/src/wm/WindowManager.jsx`, `app/web/src/pages/StackDesigner.jsx`, `app/web/src/pages/Dashboard.jsx`, `app/web/src/components/ui.jsx`, `app/web/src/App.jsx`, `app/web/src/index.css`
+
+The interface was one colour: wallpaper, every desktop icon, bars, badges and buttons all wore
+the theme's primary, so changing theme recoloured the page without changing what it looked like.
+This pass keeps the primary for actions and selection, and gives everything else a colour that
+means something.
+
+**Colour.**
+- Each Menu group has a tone (`GROUPS[].tone` in `Desktop.jsx`): Workspace `--primary`, Data
+  and queries `--node-1`, Diagnose `--node-5`, System `--muted`, Other `--node-3`. These are
+  identity hues from the cool arc, never the status triad, so a Diagnose tile is not read as a
+  warning. The tone tints the desktop tiles and the Menu rows.
+- `toneTile(tone)` in `components/ui.jsx` is the shared tinted tile. It mixes the colour into
+  `--surface` for the wash plus a 30% rim, so it reads on all six themes.
+- Engines use the canvas's own `NODE_TYPES[type].color`: the stack folder's node icons
+  (`nodeLook` in `Stacks.jsx`, using the type's own icon too), the canvas card's icon tile, and
+  the dashboard's *By engine* and *Node types* bars.
+- No vendor logos were used. MySQL's and MongoDB's marks are restricted trademarks, and colour
+  plus the type's name already identifies the engine.
+
+**Canvas** (`StackDesigner.jsx`).
+- The Database Stacks NAV entry is now `fill: true, max: true`. The designer is `h-full` instead
+  of `h-[78vh]`; the old height overflowed any window shorter than the browser and clipped the
+  minimap. `PageWindows` passes `max` through to `register`, so the window opens maximized.
+- A standalone node card has a tinted icon tile and one muted line under the name: the type
+  (`def.label`) until the node is deployed, then `deployedLabel` ("ProxySQL 3.0.9-percona-1.1").
+  It is a label, not the prose that §NODE_H's comment banished, and the card stays one row and
+  `NODE_H` tall. Member cards (116 px) are unchanged.
+- Links are 2.5 px (3.5 px when selected), up from 2. Link and relationship captions are 11 px,
+  up from 9, with a 4 px halo.
+- With Live on, an association link, or a replication link Live reports healthy, draws a
+  `.stk-flow` overlay: dashes travelling the line. A lagging or broken replication link gets no
+  motion, since motion would make it look fine.
+- Toolbar: *Insert template*, *Save as template* and *Reset view* moved into a **More** menu.
+  Each keeps its HELP text as a tooltip, and the menu closes on Escape or on a press anywhere
+  outside it. That needs a document listener, because a backdrop inside the window cannot see a
+  click on the top bar. The "Right-click the canvas to add a node" hint shows only on an empty
+  canvas, and *Saved* and the counts merged into one line. At 1440 px maximized the toolbar is
+  two rows instead of three.
+
+**Dashboard** (`Dashboard.jsx`).
+- Stat numerals are 1.65 rem with tabular figures.
+- Containers, CPU and Memory carry a `Sparkline` of the last 30 samples (2 minutes at the 4 s
+  poll), scaled to the series' own range, because against the host's 206 GB memory is a flat
+  floor. A band narrower than 10% of the peak is widened and centred, so a steady series is a
+  level line rather than a block.
+- A rate chart with no second sample yet shows `Pending`, a faint still skeleton of the chart,
+  instead of an empty card. With nothing running it says "No running containers" instead of
+  waiting forever.
+- *By engine*, when empty during a deploy, says "No database running yet — nodes are still
+  provisioning" instead of "Nothing running" next to a taskbar counting running nodes.
+
+**Depth and motion** (`WindowManager.jsx`, `index.css`).
+- The front window gets `.wm-front`: a deep shadow, a primary rim, a title bar washed 9% in the
+  primary, and a primary icon. Back windows get `shadow-lg` and a muted title; their content is
+  not dimmed. Industrial keeps only the rim.
+- The wallpaper is `.desk-wallpaper`: the canvas's 22 px dot grid over a primary and an accent
+  wash, so each theme gets its own.
+- Windows open with `.wm-open` (160 ms scale/fade). Tiles lift on hover (`.lift`). A
+  provisioning node in a stack folder pulses (`.status-pulse`). All of these are off under
+  `prefers-reduced-motion`.
+
+**Verification performed.** `npm run build`, SSR `smoke` passes, image rebuilt and redeployed.
+Driven in headless Chromium against the running MySQL Replication Stack:
+- The canvas window opens maximized with the minimap fully visible.
+- The More menu opens; Escape and a click on the top bar each leave 0 `[role=menu]`.
+- Live view draws 2 `path.stk-flow` (SQL traffic, app connection).
+- Screenshots in Light/Modern, Dark/Modern and Dark/Industrial for the canvas, the dark Menu
+  with the group tints, the stack folder with engine-coloured nodes, and the dashboard after 45 s
+  of samples (CPU line moving, containers and memory level).
+- No page errors. Bug found and fixed during verification: the first More menu used an in-window
+  backdrop and stayed open after Escape or a click outside the window.

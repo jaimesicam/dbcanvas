@@ -49,7 +49,10 @@ import { showExperimental, visible } from './lib/experimental.js'
 // with EXPERIMENTAL off never sees, and a tag is easy to lose in an edit.
 export const NAV = [
   { id: 'dashboard', label: 'Dashboard', icon: 'Dashboard', page: Dashboard, hint: 'Widgets & live charts' },
-  { id: 'stack-designer', label: 'Database Stacks', icon: 'Stacks', page: StackDesigner, hint: 'Design & deploy stacks' },
+  // fill: the canvas takes the window's height (it was 78vh, which overflowed any window
+  // shorter than the browser and cut the minimap off). max: it opens maximized — it is
+  // the page the app is for, and a diagram wants all the room there is.
+  { id: 'stack-designer', label: 'Database Stacks', icon: 'Stacks', page: StackDesigner, fill: true, max: true, hint: 'Design & deploy stacks' },
   // fill: a board is columns side by side, as tall as the window (pages/Kanban.jsx).
   { id: 'kanban', label: 'Kanban', icon: 'Kanban', page: Kanban, fill: true, hint: 'Boards of cards — plan and track the work, alone or together' },
   // fill: a canvas, as tall as the window. Nothing on it is saved — see pages/Scratchboard.jsx.

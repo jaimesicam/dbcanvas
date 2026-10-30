@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from '../components/Icons.jsx'
+import { toneTile } from '../components/ui.jsx'
 import { Window, useWindowManager, useWindowApi } from '../wm/WindowManager.jsx'
 import { StackIcons, StackFolder, useStacks } from './Stacks.jsx'
 
@@ -19,24 +20,33 @@ import { StackIcons, StackFolder, useStacks } from './Stacks.jsx'
 
 // The Menu's sections. A page not named here lands in the last one, so a new
 // page is never lost from the menu, only filed under Other until it is placed.
+//
+// Each section has a tone, which tints its icons on the desktop and in the Menu: 22
+// identical white tiles read as one undifferentiated block, while four tints sort them
+// at a glance. Workspace takes the theme's primary; the other two working groups take
+// identity hues from the cool arc (--node-*, see index.css), never the status colours,
+// so a Diagnose tile is not mistaken for a warning; System, the least visited, is
+// neutral.
 const GROUPS = [
-  { title: 'Workspace', ids: ['dashboard', 'stack-designer', 'kanban'] },
-  { title: 'Data and queries', ids: ['data-generator', 'database-explorer', 'queryrun', 'benchmark', 'sample-code'] },
-  { title: 'Diagnose', ids: ['packet-inspector', 'operator-debugger', 'core-dump', 'stalk-summary', 'log-summary', 'ftdc-summary', 'operator-summary', 'k8s-states'] },
-  { title: 'System', ids: ['profile', 'api', 'settings', 'users'] },
+  { title: 'Workspace', tone: 'var(--primary)', ids: ['dashboard', 'stack-designer', 'kanban'] },
+  { title: 'Data and queries', tone: 'var(--node-1)', ids: ['data-generator', 'database-explorer', 'queryrun', 'benchmark', 'sample-code'] },
+  { title: 'Diagnose', tone: 'var(--node-5)', ids: ['packet-inspector', 'operator-debugger', 'core-dump', 'stalk-summary', 'log-summary', 'ftdc-summary', 'operator-summary', 'k8s-states'] },
+  { title: 'System', tone: 'var(--muted)', ids: ['profile', 'api', 'settings', 'users'] },
 ]
+const OTHER_TONE = 'var(--node-3)'
 
 export function groupNav(nav) {
   const placed = new Set()
   const out = GROUPS.map((g) => {
-    const items = g.ids.map((id) => nav.find((n) => n.id === id)).filter(Boolean)
+    const items = g.ids.map((id) => nav.find((n) => n.id === id)).filter(Boolean).map((n) => ({ ...n, tone: g.tone }))
     items.forEach((n) => placed.add(n.id))
     return { title: g.title, items }
   })
-  const rest = nav.filter((n) => !placed.has(n.id))
+  const rest = nav.filter((n) => !placed.has(n.id)).map((n) => ({ ...n, tone: OTHER_TONE }))
   if (rest.length) out.push({ title: 'Other', items: rest })
   return out.filter((g) => g.items.length)
 }
+
 
 // pageWindowId is a page window's id in the window manager.
 export const pageWindowId = (key) => `page:${key}`
@@ -64,11 +74,14 @@ export function MenuButton({ navRef, openRef }) {
   const pick = (id, another) => { openRef.current?.(id, another); setOpen(false) }
   const row = (n) => {
     const Ico = Icon[n.icon] || Icon.Dashboard
+    const tone = n.tone || groups.flatMap((g) => g.items).find((x) => x.id === n.id)?.tone
     return (
       <button key={n.id} onClick={() => pick(n.id)} title={`${n.hint || ''}\nRight-click to open another window of it`}
         onContextMenu={(e) => { e.preventDefault(); pick(n.id, true) }}
         className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm hover:bg-surface2">
-        <Ico size={16} className="shrink-0 text-primary" />
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border" style={toneTile(tone || 'var(--primary)')}>
+          <Ico size={14} />
+        </span>
         <span className="truncate">{n.label}</span>
       </button>
     )
@@ -131,11 +144,7 @@ export function DesktopSurface({ nav, onOpen }) {
   return (
     <div
       data-desktop
-      className="relative min-h-0 flex-1 overflow-hidden"
-      style={{
-        background: 'radial-gradient(ellipse at 12% 8%, color-mix(in srgb, var(--primary) 16%, transparent), transparent 55%),'
-          + ' radial-gradient(ellipse at 90% 95%, color-mix(in srgb, var(--primary) 10%, transparent), transparent 50%), var(--bg)',
-      }}
+      className="desk-wallpaper relative min-h-0 flex-1 overflow-hidden"
       onPointerDown={(e) => { if (e.target === e.currentTarget) setSel(null) }}
       // A folder window is a child here in React but not in the page (it is portalled
       // to the window layer), so its events bubble in; only the desktop's own count.
@@ -155,8 +164,8 @@ export function DesktopSurface({ nav, onOpen }) {
               onDoubleClick={() => onOpen(n.id)}
               onKeyDown={(e) => { if (e.key === 'Enter') onOpen(n.id) }}
               onContextMenu={(e) => { e.preventDefault(); setSel(n.id); setMenu({ x: e.clientX, y: e.clientY, id: n.id }) }}
-              className={`flex w-24 flex-col items-center gap-1.5 rounded-lg px-1 py-2 text-center ${on ? 'bg-primary/20 ring-1 ring-primary/50' : 'hover:bg-surface/60'}`}>
-              <span className="flex h-11 w-11 items-center justify-center rounded-xl border bg-surface/80 text-primary shadow-sm">
+              className={`group flex w-24 flex-col items-center gap-1.5 rounded-lg px-1 py-2 text-center ${on ? 'bg-primary/20 ring-1 ring-primary/50' : 'hover:bg-surface/60'}`}>
+              <span className="lift flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm" style={toneTile(n.tone)}>
                 <Ico size={22} />
               </span>
               <span className="line-clamp-2 text-[11px] leading-tight text-fg drop-shadow">{n.label}</span>
@@ -219,7 +228,7 @@ export function PageWindows({ tabs, nav, activeKey, setActiveKey, closeTab, rend
     const min = !!wm.wins[pageWindowId(t.key)]?.min
     return (
       <Window key={t.key} id={pageWindowId(t.key)} title={n > 1 ? `${meta.label} · ${n}` : meta.label}
-        icon={<Ico size={13} />} size={size} onClose={() => closeTab(t.key)} private={privateIds.has(t.id)} bodyClass="bg-bg">
+        icon={<Ico size={13} />} size={meta.max ? { ...size, max: true } : size} onClose={() => closeTab(t.key)} private={privateIds.has(t.id)} bodyClass="bg-bg">
         <div className="absolute inset-0 overflow-auto p-5">
           <div className={meta.fill ? 'h-full' : ''}>{renderPage(t, !min)}</div>
         </div>
