@@ -95,6 +95,8 @@ export const TTL_OPTIONS = [
 
 export const stackApi = {
   list: () => request('GET', '/api/stacks'),
+  // listDetail adds each stack's owner, node counts and node types (the Database Stacks table).
+  listDetail: () => request('GET', '/api/stacks?detail=1'),
   // templateId seeds the new stack from a deployment template; the server reads
   // that template's design itself rather than taking a copy from here.
   create: (name, ttl, design, templateId) => request('POST', '/api/stacks', { name, ttl, design, templateId }),

@@ -21,28 +21,27 @@ import { StackIcons, StackFolder, useStacks } from './Stacks.jsx'
 // The Menu's sections. A page not named here lands in the last one, so a new
 // page is never lost from the menu, only filed under Other until it is placed.
 //
-// Each section has a tone, which tints its icons on the desktop and in the Menu: 22
-// identical white tiles read as one undifferentiated block, while four tints sort them
-// at a glance. Workspace takes the theme's primary; the other two working groups take
-// identity hues from the cool arc (--node-*, see index.css), never the status colours,
-// so a Diagnose tile is not mistaken for a warning; System, the least visited, is
-// neutral.
+// Every page icon wears the same tile: the theme's primary on a frosted tile (toneTile). The
+// sections used to tint their icons (primary, two node hues and grey), which sorted them in the
+// Menu, where the section headings say what the colours mean — but on the desktop there are no
+// headings, so four colours read as random. The labels tell the icons apart; one tint keeps
+// the desktop as calm as the rest of the glass UI.
 const GROUPS = [
-  { title: 'Workspace', tone: 'var(--primary)', ids: ['dashboard', 'stack-designer', 'kanban'] },
-  { title: 'Data and queries', tone: 'var(--node-1)', ids: ['data-generator', 'database-explorer', 'queryrun', 'benchmark', 'sample-code'] },
-  { title: 'Diagnose', tone: 'var(--node-5)', ids: ['packet-inspector', 'operator-debugger', 'core-dump', 'stalk-summary', 'log-summary', 'ftdc-summary', 'operator-summary', 'k8s-states'] },
-  { title: 'System', tone: 'var(--muted)', ids: ['profile', 'api', 'settings', 'users'] },
+  { title: 'Workspace', ids: ['dashboard', 'stack-designer', 'kanban'] },
+  { title: 'Data and queries', ids: ['data-generator', 'database-explorer', 'queryrun', 'benchmark', 'sample-code'] },
+  { title: 'Diagnose', ids: ['packet-inspector', 'operator-debugger', 'core-dump', 'stalk-summary', 'log-summary', 'ftdc-summary', 'operator-summary', 'k8s-states'] },
+  { title: 'System', ids: ['profile', 'api', 'settings', 'users'] },
 ]
-const OTHER_TONE = 'var(--node-3)'
+const PAGE_TONE = 'var(--primary)'
 
 export function groupNav(nav) {
   const placed = new Set()
   const out = GROUPS.map((g) => {
-    const items = g.ids.map((id) => nav.find((n) => n.id === id)).filter(Boolean).map((n) => ({ ...n, tone: g.tone }))
+    const items = g.ids.map((id) => nav.find((n) => n.id === id)).filter(Boolean).map((n) => ({ ...n, tone: PAGE_TONE }))
     items.forEach((n) => placed.add(n.id))
     return { title: g.title, items }
   })
-  const rest = nav.filter((n) => !placed.has(n.id)).map((n) => ({ ...n, tone: OTHER_TONE }))
+  const rest = nav.filter((n) => !placed.has(n.id)).map((n) => ({ ...n, tone: PAGE_TONE }))
   if (rest.length) out.push({ title: 'Other', items: rest })
   return out.filter((g) => g.items.length)
 }

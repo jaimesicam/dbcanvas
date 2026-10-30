@@ -3,7 +3,10 @@ import { createPortal } from 'react-dom'
 import { Icon } from '../components/Icons.jsx'
 import { FileToolChecks, DBFileToolChecks } from '../components/FileTools.jsx'
 import { Card, Button, Badge, Field, ConfirmButton, InfoRow, inputCls, toneTile, NodeCode } from '../components/ui.jsx'
-import { engineOf, engineTone } from '../lib/engines.js'
+import { engineOf, engineTone, nodeCode } from '../lib/engines.js'
+import { Avatar } from '../components/Avatar.jsx'
+import { relTime } from '../lib/notifApi.js'
+import { dashApi } from '../lib/dashApi.js'
 import { useTheme } from '../theme/ThemeProvider.jsx'
 import { Help, Hint } from '../components/Tooltip.jsx'
 import { HELP, MENU_HELP, nodeHelp } from '../lib/help.js'
@@ -13,7 +16,7 @@ import { useLiveStates, LIVE_INTERVALS } from '../lib/useLiveStates.js'
 import LiveOverlay, { LiveDetailsBody } from '../components/LiveOverlay.jsx'
 import NodeTable from '../components/NodeTable.jsx'
 import {
-  LiveStrip, ProblemBadge, ClusterTable, LBList, problemCount, healthRing, healthDot,
+  LiveStrip, ProblemBadge, ClusterTable, LBList, problemCount, healthRing, healthDot, Track,
   LIVE_MEMBER_EXTRA, LIVE_NODE_EXTRA, TABLE_GAP, tableHeight, tableWidth, lbHeight, LB_MIN_W, footprints, countOverlaps, fixLayout,
 } from '../components/LiveCard.jsx'
 import { sendHandoff, useHandoff } from '../lib/handoff.js'
@@ -1496,7 +1499,7 @@ export default function StackDesigner() {
   const load = useCallback(async () => {
     setError('')
     try {
-      setStacks(await stackApi.list())
+      setStacks(await stackApi.listDetail())
     } catch (err) {
       setError(err.message)
     } finally {
@@ -1645,34 +1648,7 @@ function StackList({ stacks, templates, loading, error, onOpen, onCreated, onCha
           </div>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {stacks.map((s) => (
-            <Card key={s.id} className="transition hover:border-primary">
-              <div className="flex items-start justify-between gap-2">
-                <button onClick={() => onOpen(s.id)} className="min-w-0 text-left">
-                  <div className="truncate text-sm font-semibold text-fg">{s.name}</div>
-                  <div className="mt-0.5 text-xs text-muted">{expiresIn(s.expiresAt)}</div>
-                </button>
-                <Badge tone={STATUS_TONE[s.status] || 'muted'}>{s.status}</Badge>
-              </div>
-              <div className="mt-3 flex items-center justify-between">
-                <Badge tone="primary">{ttlLabel(s.ttl)}</Badge>
-                <div className="flex gap-1">
-                  <Button size="sm" variant="outline" onClick={() => onOpen(s.id)}>Open</Button>
-                  <ConfirmButton
-                    size="sm"
-                    variant="ghost"
-                    title="Delete stack (tears down containers)"
-                    confirmLabel="Delete?"
-                    onConfirm={async () => { await stackApi.remove(s.id); onChanged() }}
-                  >
-                    <Icon.Trash size={16} />
-                  </ConfirmButton>
-                </div>
-              </div>
-            </Card>
-          ))}
-        </div>
+        <StackTable stacks={stacks} isAdmin={user?.role === 'admin'} me={user} onOpen={onOpen} onChanged={onChanged} />
       )}
 
       <TemplatesPanel templates={templates} isAdmin={user?.role === 'admin'} onChanged={onTemplatesChanged} />
@@ -1683,6 +1659,252 @@ function StackList({ stacks, templates, loading, error, onOpen, onCreated, onCha
           onClose={() => setShowNew(false)}
           onCreated={(s) => { setShowNew(false); onCreated(s) }}
         />
+      )}
+    </div>
+  )
+}
+
+// SOON is how close to its end a deployed stack counts as expiring soon: the last hour, when
+// ExpiryChip turns amber.
+const SOON = 60 * 60e3
+
+// stackEngines is a stack's node types as tiles: one per code (all Percona Server types are one
+// Ps), databases first, then the rest by how many there are.
+function stackEngines(types) {
+  const by = new Map()
+  for (const [t, n] of Object.entries(types || {})) {
+    const code = nodeCode(t, NODE_TYPES[t]?.label)
+    const cur = by.get(code) || { code, type: t, n: 0, labels: new Set() }
+    cur.n += n
+    cur.labels.add(NODE_TYPES[t]?.label || t)
+    by.set(code, cur)
+  }
+  return [...by.values()].sort((a, b) => (engineOf(b.type) ? 1 : 0) - (engineOf(a.type) ? 1 : 0) || b.n - a.n)
+}
+
+// WARN_CHIP spells the classes out: Tailwind only generates the ones it can find written whole.
+const WARN_CHIP = { warning: 'border-warning/40 bg-warning/10 text-warning', danger: 'border-danger/40 bg-danger/10 text-danger' }
+
+// expiresKey orders stacks by how soon they go: the soonest first, never-expiring after every
+// stack with a deadline, expired ones (already gone) last.
+const expiresKey = (s) => (s.status === 'expired' ? Number.MAX_SAFE_INTEGER : s.expiresAt ? Date.parse(s.expiresAt) : Number.MAX_SAFE_INTEGER - 1)
+
+// StackTable is the Database Stacks list: one row per stack with whose it is, how many of its
+// nodes run, what they are, what they use now (the dashboard's sample, app/dashboard.go) and how
+// long they have left — sorted by that last one by default, so what is about to be torn down is
+// at the top. An admin sees everyone's and can narrow it to their own.
+function StackTable({ stacks, isAdmin, me, onOpen, onChanged }) {
+  const [q, setQ] = useState('')
+  const [whose, setWhose] = useState('all') // all | mine (admin)
+  const [only, setOnly] = useState('all') // all | deployed | draft | expired | soon | errors
+  const [sort, setSort] = useState({ key: 'expires', dir: 1 })
+  const [picked, setPicked] = useState(() => new Set())
+  const [bulk, setBulk] = useState('')
+  const [usage, setUsage] = useState({}) // stack id → { cpu, mem }
+
+  const loadUsage = useCallback(() => dashApi.stats().then((d) => {
+    const u = {}
+    for (const n of d.nodes || []) {
+      const x = u[n.stackId] || (u[n.stackId] = { cpu: 0, mem: 0 })
+      x.cpu += n.cpuPercent || 0
+      x.mem += n.memUsed || 0
+    }
+    setUsage(u)
+  }).catch(() => {}), [])
+  useEffect(() => { loadUsage() }, [loadUsage])
+  usePolling(loadUsage, 10000)
+
+  const now = Date.now()
+  const soon = (s) => s.status === 'deployed' && s.expiresAt && Date.parse(s.expiresAt) - now < SOON
+  const errs = (s) => (s.nodes?.error || 0) > 0
+  const scoped = stacks.filter((s) => whose === 'all' || s.ownerId === me?.id)
+  const test = { all: () => true, deployed: (s) => s.status === 'deployed', draft: (s) => s.status === 'draft', expired: (s) => s.status === 'expired', soon, errors: errs }
+  const needle = q.trim().toLowerCase()
+  const rows = scoped
+    .filter(test[only])
+    .filter((s) => !needle || [s.name, s.owner, ...Object.keys(s.types || {}).map((t) => NODE_TYPES[t]?.label || t)].some((v) => (v || '').toLowerCase().includes(needle)))
+  const key = {
+    name: (s) => (s.name || '').toLowerCase(),
+    owner: (s) => (s.owner || '').toLowerCase(),
+    nodes: (s) => s.nodes?.total || 0,
+    cpu: (s) => usage[s.id]?.cpu || 0,
+    mem: (s) => usage[s.id]?.mem || 0,
+    created: (s) => Date.parse(s.createdAt) || 0,
+    expires: expiresKey,
+  }[sort.key]
+  rows.sort((a, b) => { const x = key(a), y = key(b); return (x < y ? -1 : x > y ? 1 : 0) * sort.dir || b.id - a.id })
+
+  const count = (id) => scoped.filter(test[id]).length
+  const sel = rows.filter((s) => picked.has(s.id))
+  const toggle = (id) => setPicked((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const allOn = rows.length > 0 && rows.every((s) => picked.has(s.id))
+  const showOwner = isAdmin && whose === 'all'
+  const runBulk = async (what, fn) => {
+    setBulk(what)
+    for (const s of sel) { try { await fn(s) } catch { /* the reload shows what stuck */ } }
+    setBulk('')
+    if (what === 'delete') setPicked(new Set())
+    onChanged()
+  }
+
+  const Head = ({ k, children, right }) => (
+    <th className={`whitespace-nowrap px-3 py-2 text-xs font-medium ${right ? 'text-right' : 'text-left'}`}>
+      {k ? (
+        <button type="button" onClick={() => setSort((s) => ({ key: k, dir: s.key === k ? -s.dir : 1 }))}
+          className={`inline-flex items-center gap-1 hover:text-fg ${sort.key === k ? 'text-fg' : 'text-muted'}`}>
+          {children}{sort.key === k && <span aria-label={sort.dir > 0 ? 'ascending' : 'descending'}>{sort.dir > 0 ? '↑' : '↓'}</span>}
+        </button>
+      ) : <span className="text-muted">{children}</span>}
+    </th>
+  )
+  const chip = (id, label, warn) => {
+    const n = count(id)
+    return (
+      <button key={id} type="button" aria-pressed={only === id} onClick={() => setOnly(id)}
+        className={`ui-btn rounded-full border px-3 py-1 text-xs ${only === id ? 'border-primary/40 bg-primary/10 font-medium text-primary'
+          : warn && n ? WARN_CHIP[warn] : 'bg-surface text-fg hover:bg-surface2'}`}>
+        {label} {n}
+      </button>
+    )
+  }
+
+  const deployed = scoped.filter((s) => s.status === 'deployed').length
+  const running = scoped.reduce((a, s) => a + (s.nodes?.running || 0), 0)
+  const total = scoped.reduce((a, s) => a + (s.status === 'deployed' ? s.nodes?.total || 0 : 0), 0)
+  const soonN = scoped.filter(soon).length
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-muted">
+        {scoped.length} stack{scoped.length === 1 ? '' : 's'} · {deployed} deployed{deployed ? ` · ${running} of ${total} nodes running` : ''}
+        {soonN > 0 && <> · <span className="font-medium text-warning">{soonN} expire{soonN === 1 ? 's' : ''} within the hour</span></>}
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="ui-input flex h-8 min-w-[220px] items-center gap-2 rounded-full border bg-surface px-3 text-sm text-muted">
+          <Icon.Search size={14} />
+          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={isAdmin ? 'Filter by name, owner or engine' : 'Filter by name or engine'}
+            aria-label="Filter stacks" className="w-full bg-transparent text-fg outline-none" />
+        </label>
+        {isAdmin && (
+          <div role="group" aria-label="Whose stacks" className="inline-flex overflow-hidden rounded-full border text-xs">
+            {[['all', 'Everyone'], ['mine', 'Mine']].map(([id, label], i) => (
+              <button key={id} type="button" aria-pressed={whose === id} onClick={() => setWhose(id)}
+                className={`px-3 py-1 ${i ? 'border-l' : ''} ${whose === id ? 'bg-primary text-primary-fg' : 'bg-surface text-fg hover:bg-surface2'}`}>{label}</button>
+            ))}
+          </div>
+        )}
+        {chip('all', 'All')}
+        {chip('deployed', 'Deployed')}
+        {chip('draft', 'Draft')}
+        {chip('expired', 'Expired')}
+        {chip('soon', 'Expiring soon', 'warning')}
+        {chip('errors', 'With errors', 'danger')}
+      </div>
+
+      <div className="ui-card overflow-x-auto rounded-2xl border bg-surface">
+        <table className="w-full border-collapse whitespace-nowrap text-sm">
+          <thead>
+            <tr className="border-b">
+              <th className="w-8 px-3 py-2"><input type="checkbox" aria-label="Select all stacks" checked={allOn}
+                onChange={() => setPicked(allOn ? new Set() : new Set(rows.map((s) => s.id)))} /></th>
+              <Head k="name">Name</Head>
+              {showOwner && <Head k="owner">Owner</Head>}
+              <Head>Status</Head>
+              <Head k="nodes" right>Nodes</Head>
+              <Head>Engines</Head>
+              <Head k="cpu" right>CPU</Head>
+              <Head k="mem" right>Memory</Head>
+              <Head k="created">Created</Head>
+              <Head k="expires">Expires</Head>
+              <th className="px-3 py-2"><span className="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 && (
+              <tr><td colSpan={11} className="py-10 text-center text-sm text-muted">No stacks match.</td></tr>
+            )}
+            {rows.map((s) => {
+              const use = usage[s.id]
+              const eng = stackEngines(s.types)
+              const on = picked.has(s.id)
+              return (
+                <tr key={s.id} onDoubleClick={() => onOpen(s.id)}
+                  className={`border-t ${on ? 'bg-primary/10' : errs(s) ? 'bg-danger/5 hover:bg-danger/10' : 'hover:bg-surface2/70'}`}>
+                  <td className="px-3 py-2"><input type="checkbox" aria-label={`Select ${s.name}`} checked={on} onChange={() => toggle(s.id)} /></td>
+                  <td className="px-3 py-2">
+                    <button type="button" onClick={() => onOpen(s.id)} className="text-left">
+                      <span className="block font-semibold text-fg hover:text-primary">{s.name}</span>
+                      <span className="block text-xs text-muted">{ttlLabel(s.ttl)} lifetime</span>
+                    </button>
+                  </td>
+                  {showOwner && (
+                    <td className="px-3 py-2">
+                      <span className="flex items-center gap-2"><Avatar avatar={s.ownerAvatar} name={s.owner} size={22} /> <span className="text-fg/90">{s.owner || '—'}</span></span>
+                    </td>
+                  )}
+                  <td className="px-3 py-2"><Badge tone={STATUS_TONE[s.status] || 'muted'}>{s.status}</Badge></td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    <span className="font-medium">{s.status === 'draft' ? s.nodes?.total ?? 0 : `${s.nodes?.running ?? 0}/${s.nodes?.total ?? 0}`}</span>
+                    {errs(s) && <span className="block text-xs font-medium text-danger">{s.nodes.error} error{s.nodes.error === 1 ? '' : 's'}</span>}
+                  </td>
+                  <td className="px-3 py-2">
+                    <span className="flex items-center gap-1">
+                      {eng.slice(0, 4).map((e) => (
+                        <span key={e.code} title={`${[...e.labels].join(', ')} ×${e.n}`} data-engine-tile={engineOf(e.type) ? '' : undefined}
+                          className="flex h-6 min-w-[26px] items-center justify-center rounded-md border px-1" style={toneTile(engineTone(e.type))}>
+                          <NodeCode type={e.type} label={[...e.labels][0]} size={24} />
+                        </span>
+                      ))}
+                      {eng.length > 4 && <span className="text-xs text-muted" title={eng.slice(4).map((e) => [...e.labels].join(', ')).join(', ')}>+{eng.length - 4}</span>}
+                      {eng.length === 0 && <span className="text-xs text-muted">empty</span>}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-right" title="Docker's figure: 100% is one full core">
+                    {use ? (
+                      <span className="inline-flex flex-col items-end gap-1">
+                        <span className="font-mono text-xs tabular-nums">{use.cpu.toFixed(0)}%</span>
+                        <span className="w-14"><Track pct={Math.min(100, use.cpu)} h={4} /></span>
+                      </span>
+                    ) : <span className="text-muted">—</span>}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono text-xs tabular-nums">{use ? fmtBytes(use.mem) : <span className="text-muted">—</span>}</td>
+                  <td className="px-3 py-2 text-xs text-muted" title={new Date(s.createdAt).toLocaleString()}>{relTime(s.createdAt)}</td>
+                  <td className="px-3 py-2">
+                    {s.status === 'expired'
+                      ? <span className="text-xs text-danger">Expired</span>
+                      : <ExpiryChip stack={s} onExtended={onChanged} />}
+                  </td>
+                  <td className="px-2 py-1">
+                    <span className="flex items-center justify-end gap-1">
+                      <Button size="sm" variant="outline" onClick={() => onOpen(s.id)}>Open</Button>
+                      <ConfirmButton size="sm" variant="ghost" title="Delete stack (tears down containers)" confirmLabel="Delete?"
+                        onConfirm={async () => { await stackApi.remove(s.id); onChanged() }}>
+                        <Icon.Trash size={16} />
+                      </ConfirmButton>
+                    </span>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {sel.length > 0 && (
+        <div className="sticky bottom-3 z-20 flex justify-center">
+          <div className="ui-card flex flex-wrap items-center gap-2 rounded-full border bg-surface px-4 py-1.5 text-sm shadow-xl">
+            <span className="font-semibold">{sel.length} selected</span>
+            {showOwner && <span className="text-xs text-muted">{[...new Set(sel.map((s) => s.owner))].join(', ')}</span>}
+            <Button size="sm" variant="outline" disabled={!!bulk} onClick={() => runBulk('extend', (s) => stackApi.extend(s.id, '2h'))}>
+              {bulk === 'extend' ? 'Extending…' : 'Extend by 2 hours'}
+            </Button>
+            <ConfirmButton size="sm" variant="danger" disabled={!!bulk} confirmLabel={`Delete ${sel.length}? Tears down containers`}
+              onConfirm={() => runBulk('delete', (s) => stackApi.remove(s.id))}>
+              {bulk === 'delete' ? 'Deleting…' : `Delete ${sel.length} stack${sel.length === 1 ? '' : 's'}`}
+            </ConfirmButton>
+            <Button size="sm" variant="ghost" onClick={() => setPicked(new Set())}>Clear</Button>
+          </div>
+        </div>
       )}
     </div>
   )
@@ -4911,7 +5133,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
             style={glass ? { paddingTop: topInset || 12, paddingRight: propsW ? propsW + 24 : 12 } : undefined}>
             <NodeTable
               nodes={nodes} frames={frames} edges={edges} depByNode={depByNode}
-              live={liveOn ? live : null} liveOn={liveOn} onLiveOn={() => setLiveOn(true)}
+              live={liveOn ? live : null} lbs={liveOn ? liveLbs : null} liveOn={liveOn} onLiveOn={() => setLiveOn(true)}
               selectedId={selected?.kind === 'node' ? selected.id : null}
               typeLabel={(t) => NODE_TYPES[t]?.label || t}
               versionOf={(n) => deployedLabel(n.type, depByNode[n.id])}

@@ -15,6 +15,9 @@ import { health, ROLE_LABEL, NOT_RUNNING, perSec, connText } from './LiveOverlay
 // "→ x" for a line drawn from this node, "← x" for one drawn to it. A line to or from a whole
 // cluster is said once, on the cluster's header, rather than on every member.
 //
+// A K3D cluster's LoadBalancer addresses (what MetalLB gave its Services, the list the canvas
+// draws under the frame) go on a line under the cluster's header, while Live is on.
+//
 // The figures are Live view's (lib/useLiveStates.js); with Live off the design columns stay and
 // the figures are dashes. Selecting a row selects the node, so the Properties panel beside the
 // table is the same one the canvas opens; right-click is the canvas's node menu.
@@ -67,7 +70,7 @@ function statusOf(dep, data) {
 }
 
 export default function NodeTable({
-  nodes, frames, edges, depByNode, live, liveOn, selectedId, typeLabel, versionOf, memberSub, frameSub,
+  nodes, frames, edges, depByNode, live, lbs, liveOn, selectedId, typeLabel, versionOf, memberSub, frameSub,
   onSelect, onMenu, onConsole, webLinks, onOpenWeb, onShowOnCanvas, onLiveOn,
 }) {
   const [q, setQ] = useState('')
@@ -318,7 +321,26 @@ export default function NodeTable({
                     </tr>
                   )
                 })()
-                return [header, ...(open ? g.nodes.flatMap((n) => row(n, g.frame || (n.frameId ? frames.find((f) => f.id === n.frameId) : null))) : [])]
+                const lbList = open && g.frame ? lbs?.[g.frame.id] || [] : []
+                const lbRow = lbList.length > 0 && (
+                  <tr key={`${key}:lb`} className="bg-surface2/30">
+                    <td colSpan={span + 1} className="px-3 pb-2 pt-0">
+                      <div className="flex flex-wrap items-center gap-1.5 pl-7 text-xs">
+                        <span className="mr-1 text-muted">LoadBalancer addresses · {lbList.length} in use</span>
+                        {lbList.slice(0, 12).map((lb) => (
+                          <span key={`${lb.namespace}/${lb.name}/${lb.ip}`} title={`${lb.namespace}/${lb.name} → ${lb.ip}${lb.ports?.length ? ':' + lb.ports.join(', ') : ''}`}
+                            className="inline-flex items-center gap-1.5 rounded-full border bg-surface px-2 py-0.5">
+                            <span className="font-mono tabular-nums text-fg">{lb.ip}</span>
+                            <span className="text-fg/80">{lb.name}</span>
+                            {lb.ports?.length > 0 && <span className="font-mono tabular-nums text-muted">:{lb.ports.join(',')}</span>}
+                          </span>
+                        ))}
+                        {lbList.length > 12 && <span className="text-muted">+{lbList.length - 12} more</span>}
+                      </div>
+                    </td>
+                  </tr>
+                )
+                return [header, lbRow, ...(open ? g.nodes.flatMap((n) => row(n, g.frame || (n.frameId ? frames.find((f) => f.id === n.frameId) : null))) : [])]
               })}
             </tbody>
           </table>

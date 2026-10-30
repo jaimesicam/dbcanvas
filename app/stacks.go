@@ -88,7 +88,59 @@ func (a *App) handleListStacks(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "failed to list stacks")
 		return
 	}
-	writeJSON(w, http.StatusOK, stacks)
+	if r.URL.Query().Get("detail") != "1" {
+		writeJSON(w, http.StatusOK, stacks)
+		return
+	}
+	writeJSON(w, http.StatusOK, a.stackSummaries(stacks))
+}
+
+// stackSummary is a stack as the Database Stacks table lists it (?detail=1): whose it is, how many
+// of its nodes are up, and what they are. CPU and memory are not here — the page takes them from
+// /api/dashboard/stats, the sample the dashboard already makes, rather than this list making one.
+type stackSummary struct {
+	Stack
+	Owner       string         `json:"owner"`
+	OwnerAvatar string         `json:"ownerAvatar,omitempty"`
+	Nodes       stackNodeCount `json:"nodes"`
+	Types       map[string]int `json:"types"` // node type → how many on the canvas
+}
+
+type stackNodeCount struct {
+	Total   int `json:"total"`
+	Running int `json:"running"`
+	Error   int `json:"error"`
+}
+
+func (a *App) stackSummaries(stacks []Stack) []stackSummary {
+	users := map[int64]User{}
+	out := make([]stackSummary, 0, len(stacks))
+	for _, s := range stacks {
+		d := stackSummary{Stack: s, Types: map[string]int{}}
+		u, ok := users[s.OwnerID]
+		if !ok {
+			u, _ = a.store.GetUser(s.OwnerID)
+			users[s.OwnerID] = u
+		}
+		d.Owner, d.OwnerAvatar = u.Username, u.Avatar
+		if full, err := a.store.GetStack(s.ID); err == nil {
+			for _, n := range buildDoc(full).Nodes {
+				d.Types[n.Type]++
+				d.Nodes.Total++
+			}
+		}
+		deps, _ := a.store.ListDeployments(s.ID)
+		for _, dep := range deps {
+			switch dep.State {
+			case DeployRunning:
+				d.Nodes.Running++
+			case DeployError:
+				d.Nodes.Error++
+			}
+		}
+		out = append(out, d)
+	}
+	return out
 }
 
 func (a *App) handleCreateStack(w http.ResponseWriter, r *http.Request) {

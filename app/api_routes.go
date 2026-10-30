@@ -317,7 +317,7 @@ func buildAPIRoutes() []apiRoute {
 
 		// --- stacks -------------------------------------------------------------
 		{Method: "GET", Path: "/api/stacks", Group: gStacks, Handler: m((*App).handleListStacks),
-			Summary: "The stacks you own; an admin sees every stack on the instance."},
+			Summary: "The stacks you own; an admin sees every stack on the instance. ?detail=1 adds each stack's owner, node counts and node types."},
 		{Method: "POST", Path: "/api/stacks", Group: gStacks, Handler: m((*App).handleCreateStack),
 			Summary: "Create a stack — a name, a TTL, and an initial canvas design."},
 		{Method: "GET", Path: "/api/stacks/{id}", Group: gStacks, Handler: m((*App).handleGetStack),

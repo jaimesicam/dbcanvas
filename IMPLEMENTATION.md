@@ -28317,3 +28317,45 @@ deployment state, the figures dashes, and the toolbar row offers "Turn on Live v
   lagging replica with two problems, and a down database. Role chips, QPS / TPS from the counter
   deltas, Connections, Lag, the warning and danger rows, the expanded problem list, Needs attention
   (2) and hiding a column all rendered as intended.
+
+## 488. Database Stacks list as a table; K3D LoadBalancer addresses in the node table; one tint for page icons — `app/stacks.go`, `app/stacks_test.go`, `app/api_routes.go`, `app/web/src/pages/StackDesigner.jsx`, `app/web/src/lib/stackApi.js`, `app/web/src/components/NodeTable.jsx`, `app/web/src/desktop/Desktop.jsx`
+
+**Stacks list as a table** (replaces the cards; `StackTable` in `StackDesigner.jsx`).
+- Server: `GET /api/stacks?detail=1` (`stackSummaries`) adds each stack's `owner` (username),
+  `ownerAvatar`, `nodes` `{total, running, error}` (total from the design, running/error from the
+  deployments) and `types` (node type → count). Without `detail=1` the response is unchanged, so
+  the CLI and API clients see nothing new. CPU and memory are not computed here: the page sums
+  `/api/dashboard/stats` per stack (polled every 10 s while visible), the sample the dashboard
+  already makes.
+- Columns: select, Name (with its lifetime), Owner (avatar + username; only on an admin's
+  Everyone view), Status, Nodes (running/total, a red "N errors" line; a draft shows its count),
+  Engines (one tile per node code, databases first, at most four then "+N"), CPU (Docker's figure,
+  100% = one core, with a bar capped at 100%), Memory, Created (relative), Expires (the canvas's
+  `ExpiryChip`, with its Extend menu), Open / Delete.
+- Sorted by Expires by default — soonest first, never-expiring after, expired last; Name, Owner,
+  Nodes, CPU, Memory, Created and Expires headers sort, a second click reverses.
+- A summary line (stacks, deployed, nodes running, how many expire within the hour), a filter box
+  (name, owner, node type), Everyone / Mine for admins, and chips All / Deployed / Draft / Expired
+  / Expiring soon (deployed, under an hour left) / With errors, with counts.
+- Selecting rows brings up a bar: who owns them (admin), Extend by 2 hours, Delete N stacks
+  (confirm), Clear. A row with failed nodes is tinted; double-click opens the stack.
+- Test: `TestStackSummaries` (owner, totals with a node that has no deployment, error count,
+  types).
+
+**Node table: K3D LoadBalancer addresses.** With Live on, a K3D cluster's header gets a line
+listing the addresses MetalLB gave its Services (`ip`, Service name, ports; the first 12, then
+"+N more"), the same list the canvas draws under the frame (`liveLbs`, passed as `lbs`).
+
+**Page icons in one tint.** The desktop and Menu icons were tinted by Menu section (primary, two
+node hues, grey). The Menu's headings explain those colours, but the desktop has none, so they read
+as random. Every page icon now uses the primary tint (`PAGE_TONE` in `Desktop.jsx`); the sections
+keep their headings in the Menu.
+
+**Verification performed.**
+- `go build`, `go vet`, `go test` (routes, stacks, `TestStackSummaries`); `npm run build`,
+  `npm run smoke` (all render checks pass); image rebuilt and redeployed.
+- API: `?detail=1` on three stacks returned the owner, node counts and types matching their designs
+  (8/8 running on the deployed one; drafts 0 running).
+- Headless Chromium, Glass Light: the table with two draft stacks (made from the Patroni and
+  Valkey templates for the test) and the deployed one; the Name sort; selecting the two drafts
+  shows the bar; Delete 2 stacks → confirm removed both (one row left); no page errors.
