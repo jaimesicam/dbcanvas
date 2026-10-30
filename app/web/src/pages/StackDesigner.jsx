@@ -11,6 +11,7 @@ import { usePolling } from '../lib/usePolling.jsx'
 import { usePPGComponents, ppgComponents, ppgAvailable } from '../lib/ppgComponents.js'
 import { useLiveStates, LIVE_INTERVALS } from '../lib/useLiveStates.js'
 import LiveOverlay, { LiveDetailsBody } from '../components/LiveOverlay.jsx'
+import NodeTable from '../components/NodeTable.jsx'
 import {
   LiveStrip, ProblemBadge, ClusterTable, LBList, problemCount, healthRing, healthDot,
   LIVE_MEMBER_EXTRA, LIVE_NODE_EXTRA, TABLE_GAP, tableHeight, tableWidth, lbHeight, LB_MIN_W, footprints, countOverlaps, fixLayout,
@@ -2068,6 +2069,9 @@ function TemplateMetaModal({ template, onClose, onSaved }) {
 const PALETTE_KEY = 'dbcanvas-palette'
 const RELATIONS_KEY = 'dbcanvas-relations'
 const LIVE_KEY = 'dbcanvas-live'
+// LAYOUT_KEY: the stack is shown as its canvas or as a table of its nodes (components/NodeTable.jsx).
+// A viewer preference, like Live, kept per browser rather than per stack.
+const LAYOUT_KEY = 'dbcanvas-stack-layout'
 const LIVE_MS_KEY = 'dbcanvas-live-ms'
 const LIVE_TABLES_KEY = 'dbcanvas-live-tables'
 const RECENT_MAX = 5
@@ -2478,6 +2482,12 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
   const [liveDismissed, setLiveDismissed] = useState(null) // the selected card whose details were closed
   const [liveOffsets, setLiveOffsets] = useState({})
   const { live, error: liveError, lbs: liveLbs } = useLiveStates(stackId, liveOn, liveMs)
+  // Canvas or Table: the same stack, read as a drawing or down a column. The canvas stays mounted
+  // while the table shows (hidden), so its view, selection and listeners are where they were.
+  const [layout, setLayout] = useState(() => { try { return localStorage.getItem(LAYOUT_KEY) === 'table' ? 'table' : 'canvas' } catch { return 'canvas' } })
+  useEffect(() => { try { localStorage.setItem(LAYOUT_KEY, layout) } catch { /* */ } }, [layout])
+  const tableView = layout === 'table'
+  const [propsW, setPropsW] = useState(0) // the docked Properties column's width, which the table leaves clear
   // Health: the server watcher's open alerts, timeline and trends (components/StackHistory.jsx).
   const [healthTab, setHealthTab] = useState(null) // null = closed, else the open tab
   const [{ alerts: stackAlerts, rules: alertRules, intervalSec: watchSec }, reloadAlerts] = useStackAlerts(stackId, stack?.status === 'deployed')
@@ -2963,6 +2973,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
         return
       }
       if ((e.metaKey || e.ctrlKey) && (e.key === 'f' || e.key === 'F') && !e.shiftKey && !e.altKey) {
+        if (tableView) return // the table has its own filter, and the browser's find works on it
         e.preventDefault()
         setFindQ((q) => (q == null ? '' : q))
         return
@@ -4746,6 +4757,16 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
           )}
           {locked && <Badge tone="muted">Following {session.controllerName || 'the driver'} — view only</Badge>}
           <Hint text={HELP.uiStackStatus}><Badge tone={STATUS_TONE[stack.status] || 'muted'}>{stack.status}</Badge></Hint>
+          <div role="group" aria-label="Show the stack as" className="inline-flex overflow-hidden rounded-full border text-xs">
+            {[['canvas', 'Canvas', Icon.Nodes, HELP.uiLayoutCanvas], ['table', 'Table', Icon.Table, HELP.uiLayoutTable]].map(([id, label, Ico, help], i) => (
+              <Hint key={id} text={help}>
+                <button type="button" aria-pressed={layout === id} onClick={() => setLayout(id)}
+                  className={`flex items-center gap-1 px-2.5 py-1 ${i ? 'border-l' : ''} ${layout === id ? 'bg-primary text-primary-fg' : 'bg-surface text-fg hover:bg-surface2'}`}>
+                  <Ico size={13} /> <span className="@max-3xl:hidden">{label}</span>
+                </button>
+              </Hint>
+            ))}
+          </div>
           <div className="mx-1 h-5 w-px bg-border @max-3xl:hidden" />
           {/* How to add a node is said while there is nothing on the canvas — after the
               first node it is known, and the line only pushed the actions onto a third row. */}
@@ -4779,12 +4800,12 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
               <Hint text={HELP.uiSaveState}><span>{saveState === 'saving' ? 'Saving…' : 'Saved'}</span></Hint>
               <Hint text={HELP.uiCounts}><span className="@max-3xl:hidden">· {nodes.length} nodes · {edges.length} links</span></Hint>
             </span>
-            <Hint text={HELP.uiRelations}>
+            {!tableView && <Hint text={HELP.uiRelations}>
               <Button size="sm" variant={showRelations ? 'subtle' : 'ghost'} aria-pressed={showRelations}
                 className={showRelations ? 'text-primary' : ''} onClick={() => setShowRelations((v) => !v)}>
                 <Icon.Link size={15} /> <span className="@max-3xl:hidden">Relationships</span>{showRelations && relations.length ? ` (${relations.length})` : ''}
               </Button>
-            </Hint>
+            </Hint>}
             {stack.status === 'deployed' && (
               <Hint text={HELP.uiHealth}>
                 <HealthButton alerts={stackAlerts} watching={watchSec > 0}
@@ -4803,7 +4824,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
                 {LIVE_INTERVALS.map((ms) => <option key={ms} value={ms}>{ms / 1000}s</option>)}
               </select>
             )}
-            {liveOn && (
+            {liveOn && !tableView && (
               <div role="group" aria-label="What Live shows" className="inline-flex overflow-hidden rounded-md border text-xs">
                 <Hint text={HELP.uiLiveStrips}>
                   <button type="button" aria-pressed={!liveTables} onClick={() => setLiveTables(false)}
@@ -4815,7 +4836,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
                 </Hint>
               </div>
             )}
-            {liveOn && (
+            {liveOn && !tableView && (
               <Hint text={HELP.uiFixLayout}>
                 <Button size="sm" variant="ghost" onClick={runFixLayout} disabled={locked}>
                   <Icon.Grid size={15} /> <span className="@max-3xl:hidden">Fix layout</span>
@@ -4885,7 +4906,30 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
         {/* canvas + node palette (docked left, or floating) — never squeezed to nothing by a
             wrapped toolbar; the window scrolls instead. */}
         <div className={glass ? 'relative flex min-h-0 flex-1' : 'flex min-h-[240px] flex-1 gap-3'}>
-        {libraryColumn && paletteDocked && (
+        {tableView && (
+          <div className={glass ? 'absolute inset-0 z-20 flex flex-col px-3 pb-3' : 'flex min-w-0 flex-1 flex-col'}
+            style={glass ? { paddingTop: topInset || 12, paddingRight: propsW ? propsW + 24 : 12 } : undefined}>
+            <NodeTable
+              nodes={nodes} frames={frames} edges={edges} depByNode={depByNode}
+              live={liveOn ? live : null} liveOn={liveOn} onLiveOn={() => setLiveOn(true)}
+              selectedId={selected?.kind === 'node' ? selected.id : null}
+              typeLabel={(t) => NODE_TYPES[t]?.label || t}
+              versionOf={(n) => deployedLabel(n.type, depByNode[n.id])}
+              memberSub={(f, n) => frameMemberSub(f, n, nodes.filter((x) => x.frameId === f.id))}
+              frameSub={(f, members) => frameSubLabel(f, members, depByNode)}
+              onSelect={(id, kind = 'node') => setSelected({ kind, id })}
+              onMenu={(e, id) => setMenu({ x: e.clientX, y: e.clientY, id })}
+              onConsole={(id) => {
+                const n = nodes.find((x) => x.id === id)
+                openTerminal({ stackId: stack.id, nodeId: id, title: `${n?.label || 'node'} · root`, user: n?.type === 'pmm' ? '0' : undefined })
+              }}
+              webLinks={(n) => nodeWebLinks(n.type, depByNode[n.id])}
+              onOpenWeb={(l) => (guest ? openInDesktop(l.url) : window.open(l.url, '_blank', 'noreferrer'))}
+              onShowOnCanvas={(id) => { setLayout('canvas'); setTimeout(() => focusNode(id), 0) }}
+            />
+          </div>
+        )}
+        {libraryColumn && paletteDocked && !tableView && (
           <div className={`flex w-[200px] shrink-0 flex-col overflow-hidden rounded-xl border bg-surface ${glass ? 'absolute left-3 z-30 shadow-xl' : ''}`}
             style={glass ? { top: topInset, bottom: MINI_H + 24 } : undefined}>
             {paletteHeader(() => setPaletteDocked(false), HELP.uiDetachPanel, <Icon.PopOut size={14} />, null)}
@@ -4902,7 +4946,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
           onDragOver={(e) => { if (isFileDrag(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'none'; if (!fileDrag) setFileDrag(true) } }}
           onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) { setFileDrag(false); setDropNode(null) } }}
           onDrop={(e) => { if (isFileDrag(e)) { e.preventDefault(); setFileDrag(false); setDropNode(null) } }}
-          className={`relative flex-1 overflow-hidden bg-bg ${glass ? '' : 'rounded-xl border'}`}
+          className={`relative flex-1 overflow-hidden bg-bg ${glass ? '' : 'rounded-xl border'} ${tableView ? 'hidden' : ''}`}
           style={{ touchAction: 'none' }}
         >
           {multi.size > 0 && (
@@ -5383,6 +5427,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
         deployOpen={deployPanel === 'open'}
         deployments={deployments}
         onDeployMinimize={() => setDeployPanel('min')}
+        onWidth={setPropsW}
       />
 
       {menu && (
@@ -14890,7 +14935,7 @@ function loadProps() {
   try { return JSON.parse(localStorage.getItem(PROPS_KEY) || '{}') } catch { return {} }
 }
 
-function StackProperties({ overlay = false, top = 0, host, locked, lockedBy, selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, resizeFrameMembers, rebuildMongoCluster, live, deployOpen, deployments, onDeployMinimize }) {
+function StackProperties({ overlay = false, top = 0, host, locked, lockedBy, selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, resizeFrameMembers, rebuildMongoCluster, live, deployOpen, deployments, onDeployMinimize, onWidth }) {
   // The Live tab sits above whatever the node's own panel is, so every node type has it without
   // each manager growing a tab of its own. Shown while Live is on and the node has figures.
   const [propTab, setPropTab] = useState('node')
@@ -14910,6 +14955,8 @@ function StackProperties({ overlay = false, top = 0, host, locked, lockedBy, sel
   // give management tabs room when a running Intranet is selected (docked)
   useEffect(() => { if (wide && docked && width < 440) setWidth(440) }, [wide, docked, width])
   useEffect(() => { try { localStorage.setItem(PROPS_KEY, JSON.stringify({ docked, width, float: flt })) } catch { /* */ } }, [docked, width, flt])
+  // The table view leaves the docked column's width clear rather than running under it.
+  useEffect(() => { onWidth?.(docked && overlay ? width : 0) }, [docked, overlay, width, onWidth])
 
   useEffect(() => {
     const onMove = (e) => {

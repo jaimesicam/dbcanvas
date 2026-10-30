@@ -28262,3 +28262,58 @@ opaque, multicolour element in the glass UI, and the loudest thing on any panel 
 - `go test` (avatar/profile), `npm run build`; image rebuilt and redeployed.
 - Headless Chromium: the Profile picker screenshotted under Glass Light and Glass Dark. All 48
   glyphs render; the discs read as pastel glass on light and tinted glass on dark.
+
+## 487. Database Stacks: a Table view of a stack's nodes — `app/web/src/components/NodeTable.jsx` (new), `app/web/src/pages/StackDesigner.jsx`, `app/web/src/components/LiveCard.jsx`, `app/web/src/lib/help.js`
+
+**What.** A **Canvas / Table** switch in the stack's toolbar (beside its status). Table shows the
+same stack as one row per node, for reading down a column what the canvas spreads across a
+drawing: which node is struggling, its address, what it is wired to.
+
+**Layout.**
+- Rows are grouped by cluster (frame), frames in canvas order (top to bottom, then left to right),
+  then "Not in a cluster". Members sort by their Live role (primary first), then canvas x. A group
+  header shows the frame's label, `frameSubLabel` (the version line the frame shows), the
+  canvas lines to or from the whole frame, its Live problem count, and "Cluster settings" (selects
+  the frame). Headers fold. "Grouped by cluster" can be turned off (flat, by name).
+- Columns: Node (health dot), Type (engine-coloured `NodeCode` tile, type label, and the
+  `deployedLabel` version line the card shows), Role, Status, then the optional IP, Connects to,
+  CPU, Memory, Disk, QPS / TPS, Connections and Lag (a Columns menu hides them; kept in
+  `localStorage` `dbcanvas.nodeTable.cols`), then actions. Status sits straight after Role so it
+  is not scrolled out of sight behind the Properties panel. The table never wraps; it scrolls
+  sideways.
+- **Connects to** is the canvas's lines as text: `→ x` for a line drawn from the node, `← x` for
+  one drawn to it, `(async)` on replication links, `↔` for bidirectional. A line to or from a whole
+  frame is shown once, on its header.
+- Filters: text (name, type, IP, cluster), **All / Databases / Needs attention** (Live verdict
+  down or warn, or a deployment in error), with counts.
+
+**Data.** Role, status, IP and the figures are Live view's (`useLiveStates`), through the same
+helpers as the canvas strips and cluster tables (`metaOf`, `figures`, `Track`, `pctText` are now
+exported from `LiveCard.jsx`; `health`, `ROLE_LABEL`, `perSec`, `connText` from
+`LiveOverlay.jsx`). Without Live, Role is the design's member role (`frameMemberSub`), Status the
+deployment state, the figures dashes, and the toolbar row offers "Turn on Live view".
+
+**Behaviour.**
+- Click a row selects the node (`setSelected`), so the Properties panel beside the table is the
+  canvas's. Right-click, or the ⋯ button, opens the canvas's node menu (`setMenu`). Double-click,
+  or the frame button, switches to Canvas and centres the node (`focusNode`, after the canvas is
+  shown, since a hidden canvas has no size). Console and web-UI buttons as the menu's.
+- A selected row with more than one problem lists them all under it.
+- The canvas stays mounted (`hidden`) while the table shows, so its view, selection and listeners
+  are untouched. Canvas-only controls hide in Table: Relationships, Strips / + Tables, Fix layout,
+  the docked palette; Ctrl+F is left to the browser.
+- With Glass, the table sits below the floating toolbar and leaves the docked Properties column's
+  width clear (`StackProperties` reports it through `onWidth`).
+- The choice is a viewer preference (`localStorage` `dbcanvas-stack-layout`), like Live.
+
+**Verification performed.**
+- `npm run build`; `npm run smoke` (all render checks pass); image rebuilt and redeployed. The
+  headless-browser smoke step timed out in this environment.
+- Headless Chromium on a deployed stack (K3D frame, Intranet, PMM, perfsim, Linux client, VNC,
+  OpenBao, SeaweedFS), Glass Dark: the table with Live off and on; select → Properties; right-click
+  → the full node menu; double-click → Canvas with the node centred and selected; no page errors.
+- Database roles could not be deployed here (this installation lacks the base images), so the
+  Live response was intercepted in the browser and given a primary (rw, load, connections), a
+  lagging replica with two problems, and a down database. Role chips, QPS / TPS from the counter
+  deltas, Connections, Lag, the warning and danger rows, the expanded problem list, Needs attention
+  (2) and hiding a column all rendered as intended.

@@ -81,7 +81,7 @@ function ShortRole({ data, node, frame }) {
 
 // meta is the short line beside the role: the first problem, the reason a database is down, lag,
 // or how many replicas a primary feeds — and, for a node with no database role, its network.
-function metaOf(data) {
+export function metaOf(data) {
   const r = data.role
   if (data.state !== 'running') return { text: (NOT_RUNNING[data.state] || [])[1] || '', tone: 'danger' }
   if (r?.down) return { text: r.error || 'the database is not answering', tone: 'danger' }
@@ -94,7 +94,7 @@ function metaOf(data) {
   return { text: '' }
 }
 
-function figures(data) {
+export function figures(data) {
   const fsPct = data.disk && data.disk.fsTotal ? (data.disk.fsUsed / data.disk.fsTotal) * 100 : null
   return [
     { label: 'CPU', pct: data.cpuPercent || 0, title: 'CPU' },
@@ -103,9 +103,9 @@ function figures(data) {
   ]
 }
 
-const pctText = (p) => (p == null ? '—' : `${Math.round(p)}%`)
+export const pctText = (p) => (p == null ? '—' : `${Math.round(p)}%`)
 
-function Track({ pct, h = 4 }) {
+export function Track({ pct, h = 4 }) {
   const p = Math.max(0, Math.min(100, pct || 0))
   return (
     <div className="min-w-0 flex-1 overflow-hidden rounded-full bg-surface2" style={{ height: h }}>
