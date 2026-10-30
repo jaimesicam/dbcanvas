@@ -8,11 +8,13 @@ import { SecretValue } from '../components/Secret.jsx'
 import { Help } from '../components/Tooltip.jsx'
 import { DEP_HELP } from '../lib/help.js'
 import { useFollowedState } from '../session/SessionProvider.jsx'
+import MySQLCertTab from '../components/MySQLCertTab.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'access', label: 'Access' },
   { id: 'creds', label: 'Credentials' },
+  { id: 'cert', label: 'Certificate' },
   { id: 'diag', label: 'Diagnostics' },
 ]
 
@@ -136,6 +138,7 @@ export default function InnoDBManager({ stackId, nodeId, dep, onDeleteNode }) {
           ))}
         </div>
       )}
+      {tab === 'cert' && <MySQLCertTab stackId={stackId} nodeId={nodeId} ttlValue={cfg.certTtlValue} ttlUnit={cfg.certTtlUnit} />}
       {tab === 'diag' && <PTStalkCard stackId={stackId} nodeId={nodeId} />}
     </div>
   )

@@ -29,6 +29,19 @@ func (a *App) handlePXCCertInfo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"info": strings.TrimSpace(out)})
 }
 
+// mysqlCertTypes are the node types whose server certificate pxcCertScript
+// writes: every MySQL-family server and cluster member.
+var mysqlCertTypes = map[string]bool{
+	"pxc": true, "ps": true, "mysql": true, "innodb": true,
+	"mariadb": true, "mariadbrepl": true, "mariadbgalera": true,
+	"mysqlce": true, "mysqlcerepl": true, "mysqlceinnodb": true,
+}
+
+// handlePXCCertGenerate re-issues a MySQL-family node's server certificate from
+// the Intranet CA with the lifetime asked for, over the files it was installed
+// in. mysqld is left running: it serves the new certificate once it reloads
+// TLS (ALTER INSTANCE RELOAD TLS; FLUSH SSL on MariaDB) or restarts. Served at …/pxc/cert and
+// …/mysql/cert.
 func (a *App) handlePXCCertGenerate(w http.ResponseWriter, r *http.Request) {
 	st, dep, ok := a.loadRunningPMM(w, r)
 	if !ok {
@@ -42,9 +55,18 @@ func (a *App) handlePXCCertGenerate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	var cfg pxcConfig
-	json.Unmarshal(dep.Config, &cfg)
-	if cfg.Role == "arbitrator" {
+	doc := buildDoc(st)
+	var n designNode
+	for _, x := range doc.Nodes {
+		if x.ID == dep.NodeID {
+			n = x
+		}
+	}
+	if !mysqlCertTypes[n.Type] {
+		writeErr(w, http.StatusBadRequest, "this node has no MySQL server certificate")
+		return
+	}
+	if n.Role == "arbitrator" {
 		writeErr(w, http.StatusBadRequest, "arbitrator nodes have no MySQL certificate")
 		return
 	}
@@ -53,22 +75,29 @@ func (a *App) handlePXCCertGenerate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "a running Intranet node (CA) is required to issue the certificate")
 		return
 	}
-	unit := "mysql"
-	if cfg.Bootstrap {
-		unit = "mysql@bootstrap"
+	os := n.OS
+	if f := frameByID(doc, n.FrameID); f.ID != "" && f.OS != "" {
+		os = f.OS
 	}
-	fqdn := cfg.FQDN
-	if fqdn == "" {
-		fqdn = fqdnOf(cfg.Hostname, envOr("DOMAIN", "example.net"))
+	// The unit is what a restart would act on; this re-issue does not restart.
+	unit := mysqlUnit(os)
+	switch {
+	case n.Type == "pxc":
+		unit = "mysql"
+	case strings.HasPrefix(n.Type, "mariadb"):
+		unit = mariadbUnit()
 	}
-	if err := a.pxcApplyCert(r.Context(), dep.ContainerID, intranetID, fqdn, unit, cfg.OS, b.Value, b.Unit, nil, true); err != nil {
+	fqdn := fqdnOf(stackHostnames(doc)[n.ID], envOr("DOMAIN", "example.net"))
+	if err := a.pxcApplyCert(r.Context(), dep.ContainerID, intranetID, fqdn, unit, os, b.Value, b.Unit, nil, true); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	// Reflect that the node now carries an Intranet-signed certificate.
-	if !cfg.GenerateCert {
-		cfg.GenerateCert = true
+	// Reflect that the node now carries an Intranet-signed certificate. The
+	// config is each type's own struct, so only this one key is changed.
+	var cfg map[string]any
+	if json.Unmarshal(dep.Config, &cfg) == nil && cfg != nil && cfg["generateCert"] != true {
+		cfg["generateCert"] = true
 		cfgJSON, _ := json.Marshal(cfg)
 		a.store.UpsertDeployment(Deployment{StackID: dep.StackID, NodeID: dep.NodeID, ContainerID: dep.ContainerID, State: dep.State, Config: cfgJSON, Secrets: dep.Secrets})
 	}

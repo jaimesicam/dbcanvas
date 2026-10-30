@@ -65,6 +65,8 @@ var mysqlCatMemberExport = []catalogOption{
 
 // mysqlCatDBActions apply to every deployed MySQL-family server: standalone or member.
 var mysqlCatDBActions = []catalogAction{
+	{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/mysql/cert", Desc: "The server certificate mysqld is configured with: subject, issuer, validity."},
+	{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/mysql/cert", Desc: "Re-issue the server certificate from the Intranet CA with this lifetime, over the installed files. mysqld keeps running and serves it after ALTER INSTANCE RELOAD TLS (FLUSH SSL on MariaDB) or a restart; a short lifetime is how to test expiry.", Body: "value, unit (minutes|hours|days)"},
 	{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/activity", Desc: "Sessions, lock waits (row and metadata), open transactions and DDL in flight. ?with=digests,resources,deadlock adds statement digests, per-session resources and the latest deadlock."},
 	{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/activity/kill", Desc: "KILL QUERY or KILL a session.", Body: "session, mode (query|connection)"},
 	{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/activity/explain", Desc: "The plan of a running session's statement (EXPLAIN FOR CONNECTION; SHOW EXPLAIN on MariaDB).", Body: "session, statement, db"},

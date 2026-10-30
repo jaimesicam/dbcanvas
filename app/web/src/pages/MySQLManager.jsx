@@ -5,6 +5,7 @@ import { PTStalkCard } from '../components/Diagnostics.jsx'
 import { DEPLOY_TONE } from '../lib/stackApi.js'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import DbLoginGuide from '../components/DbLoginGuide.jsx'
+import MySQLCertTab from '../components/MySQLCertTab.jsx'
 import VaultGuide from '../components/VaultGuide.jsx'
 import OidcLoginGuide from '../components/OidcLoginGuide.jsx'
 import { SecretValue } from '../components/Secret.jsx'
@@ -16,6 +17,7 @@ import XtraBackupPanel from '../components/XtraBackupPanel.jsx'
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'creds', label: 'Credentials' },
+  { id: 'cert', label: 'Certificate' },
   { id: 'dirlogin', label: 'Directory Login' },
   { id: 'sso', label: 'Keycloak SSO' },
   { id: 'encryption', label: 'Encryption' },
@@ -134,6 +136,7 @@ export default function MySQLManager({ stackId, nodeId, engine = 'ps', dep, onDe
           ))}
         </div>
       )}
+      {tab === 'cert' && <MySQLCertTab stackId={stackId} nodeId={nodeId} ttlValue={cfg.certTtlValue} ttlUnit={cfg.certTtlUnit} />}
       {tab === 'dirlogin' && <DbLoginGuide engine="ps" info={cfg.dirAuth} />}
       {tab === 'sso' && <OidcLoginGuide engine="ps" info={cfg.oidc} secrets={sec} />}
       {tab === 'encryption' && <VaultGuide engine={engine} info={cfg.vault} />}

@@ -1274,9 +1274,10 @@ ssl-key=/var/lib/mysql/server-key.pem
 EOF
 # NORESTART=1 (management re-issue on an already-running node): only overwrite the cert
 # files in place and leave mysqld untouched — restarting a PXC member would force it to
-# rejoin the cluster (slow/blocking). The operator restarts the service to apply the new cert.
+# rejoin the cluster (slow/blocking). mysqld serves the new cert after ALTER INSTANCE
+# RELOAD TLS (FLUSH SSL on MariaDB) or a restart.
 if [ "$NORESTART" = "1" ]; then
-  echo "certificate overwritten in place — restart this node's mysqld to apply it"
+  echo "certificate overwritten in place; mysqld serves it after ALTER INSTANCE RELOAD TLS (FLUSH SSL on MariaDB) or a restart"
   exit 0
 fi
 systemctl restart "$UNITSVC"

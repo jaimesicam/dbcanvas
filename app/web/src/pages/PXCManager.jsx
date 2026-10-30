@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Button, Badge, inputCls } from '../components/ui.jsx'
+import { useState } from 'react'
+import { Button, Badge } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
-import { pxcApi, DEPLOY_TONE } from '../lib/stackApi.js'
+import { DEPLOY_TONE } from '../lib/stackApi.js'
 import { PTStalkCard } from '../components/Diagnostics.jsx'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import { SecretValue } from '../components/Secret.jsx'
@@ -11,6 +11,7 @@ import { useFollowedState } from '../session/SessionProvider.jsx'
 import XtraBackupPanel from '../components/XtraBackupPanel.jsx'
 import DbLoginGuide from '../components/DbLoginGuide.jsx'
 import OidcLoginGuide from '../components/OidcLoginGuide.jsx'
+import MySQLCertTab from '../components/MySQLCertTab.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -52,7 +53,6 @@ function KV({ k, v, mono, help }) {
 // xb, when set, is the cluster frame whose XtraBackup backups the Backup tab shows.
 export default function PXCManager({ stackId, nodeId, dep, onDeleteNode, xb = null }) {
   const [tab, setTab] = useFollowedState(`tab:${nodeId}`, 'overview')
-  const api = pxcApi(stackId, nodeId)
   const { openTerminal } = useTerminals()
   const cfg = dep.config || {}
   const sec = dep.secrets || {}
@@ -80,7 +80,7 @@ export default function PXCManager({ stackId, nodeId, dep, onDeleteNode, xb = nu
           onOpenTerminal={() => openTerminal({ stackId, nodeId, title: `${cfg.hostname} · root` })} />
       )}
       {tab === 'creds' && !arbiter && <CredsTab cfg={cfg} sec={sec} />}
-      {tab === 'cert' && !arbiter && <CertTab api={api} cfg={cfg} />}
+      {tab === 'cert' && !arbiter && <MySQLCertTab stackId={stackId} nodeId={nodeId} ttlValue={cfg.certTtlValue} ttlUnit={cfg.certTtlUnit} />}
       {tab === 'dirlogin' && !arbiter && <DbLoginGuide engine="ps" info={cfg.dirAuth} />}
       {tab === 'sso' && !arbiter && <OidcLoginGuide engine="ps" info={cfg.oidc} secrets={sec} />}
       {tab === 'backup' && !arbiter && xb && <XtraBackupPanel stackId={stackId} scope={xb.scope} id={xb.id} kind="pxc" />}
@@ -155,48 +155,3 @@ function CredsTab({ cfg, sec }) {
   )
 }
 
-function CertTab({ api, cfg }) {
-  const [info, setInfo] = useState('')
-  const [value, setValue] = useState(cfg.certTtlValue || 365)
-  const [unit, setUnit] = useState(cfg.certTtlUnit || 'days')
-  const [err, setErr] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  const load = useCallback(async () => {
-    try { setInfo((await api.certInfo()).info || '') } catch (e) { setErr(e.message) }
-  }, [api])
-  useEffect(() => { load() }, [load])
-
-  async function generate() {
-    setBusy(true); setErr('')
-    try { await api.certGenerate(Number(value), unit); await load() } catch (e) { setErr(e.message) } finally { setBusy(false) }
-  }
-
-  return (
-    <div className="space-y-3">
-      <Err>{err}</Err>
-      <div>
-        <div className="mb-1 text-xs font-medium text-muted">Current certificate</div>
-        <pre className="whitespace-pre-wrap break-all rounded-lg border bg-bg p-2 text-xs text-fg">{info || '—'}</pre>
-        <div className="mt-1 text-xs text-muted">
-          mysqld serves <span className="font-mono">/var/lib/mysql/server-cert.pem</span> (+ client-cert.pem, ca.pem). Signed by the Intranet CA.
-        </div>
-      </div>
-      <div className="space-y-1.5 rounded-lg border border-dashed p-2">
-        <div className="text-xs font-medium text-muted">Re-issue from Intranet CA (overwrites the cert files in place)</div>
-        <div className="flex gap-1">
-          <input type="number" min="1" className={inputCls} value={value} onChange={(e) => setValue(e.target.value)} />
-          <select className={inputCls} value={unit} onChange={(e) => setUnit(e.target.value)}>
-            <option value="minutes">minutes</option>
-            <option value="hours">hours</option>
-            <option value="days">days</option>
-          </select>
-        </div>
-        <Button size="sm" className="w-full" disabled={busy} onClick={generate}>
-          {busy ? 'Generating…' : 'Generate certificate'}
-        </Button>
-        <div className="text-[11px] text-muted">Requires a running Intranet node. The new cert is written in place — restart this node's mysqld yourself to apply it.</div>
-      </div>
-    </div>
-  )
-}

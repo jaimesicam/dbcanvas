@@ -337,12 +337,13 @@ export function aioApi(id, nid) {
   }
 }
 
-// PXC node management.
-export function pxcApi(id, nid) {
+// A MySQL-family node's server certificate (PXC, Percona Server, MySQL, MariaDB,
+// InnoDB Cluster): re-issued in place with the lifetime given; mysqld keeps running.
+export function mysqlCertApi(id, nid) {
   const base = `/api/stacks/${id}/nodes/${nid}`
   return {
-    certInfo: () => request('GET', `${base}/pxc/cert`),
-    certGenerate: (value, unit) => request('POST', `${base}/pxc/cert`, { value, unit }),
+    certInfo: () => request('GET', `${base}/mysql/cert`),
+    certGenerate: (value, unit) => request('POST', `${base}/mysql/cert`, { value, unit }),
   }
 }
 
