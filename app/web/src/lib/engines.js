@@ -41,3 +41,36 @@ export const NEUTRAL_TONE = 'var(--muted)'
 
 export const engineOf = (type) => ENGINE_OF[type] || ''
 export const engineTone = (type) => ENGINE_TONE[engineOf(type)] || NEUTRAL_TONE
+
+// NODE_CODE is the short code a node's tile shows in place of a drawn icon (desktop stack
+// folders, canvas cards, cluster-member cards and cluster headers). A drawn icon could not
+// tell 44 node types apart — PXC, Percona Server, MySQL, MariaDB and PostgreSQL all wore the
+// same database glyph — where a code names the product outright, and the tile's colour
+// (engineTone) still says which engine family it belongs to.
+//
+// Codes are two letters, written like element symbols (capital, then lower case) so that two
+// that share a first letter are still easy to tell apart. The only three-letter codes are the
+// products whose own short name is three letters: PXC and PMM. Every member type of a family
+// shares the family's code (all Percona Server types are Ps, all PSMDB types Mo). The tile
+// always carries the full name as its tooltip and accessible label.
+export const NODE_CODE = {
+  pxc: 'PXC', ps: 'Ps', mysql: 'Ps', innodb: 'Ps',
+  mysqlce: 'My', mysqlcerepl: 'My', mysqlceinnodb: 'My',
+  mariadb: 'Ma', mariadbrepl: 'Ma', mariadbgalera: 'Ma',
+  psm: 'Mo', psmdb: 'Mo', psmrs: 'Mo',
+  pg: 'Pg', patroni: 'Pa', repmgr: 'Rm', spock: 'Sp',
+  valkey: 'Vk', valkeycluster: 'Vk',
+  proxysql: 'Pr', haproxy: 'Ha', pgbouncer: 'Pb',
+  pmm: 'PMM', pmm2: 'PMM', orchestrator: 'Or', watchtower: 'Wt',
+  intranet: 'In', sambaad: 'Ad', keycloak: 'Kc', openbao: 'Ob', seaweedfs: 'Sw', ceph: 'Ce',
+  repository: 'Re', linuxclient: 'Lc', vnc: 'Vn', k3d: 'K3', aio: 'Ai', bighole: 'Bh', mclusteradmin: 'Mc',
+  stocksim: 'St', ledgersim: 'Lg', supportsim: 'Su', pgvectorsim: 'Pv', perfsim: 'Pf',
+}
+
+// nodeCode is a type's code; a type missing from the map (a new one) gets the first two
+// letters of its name rather than nothing, so it is visible that it needs a code.
+export const nodeCode = (type, label = '') => {
+  if (NODE_CODE[type]) return NODE_CODE[type]
+  const s = String(label || type || '?').replace(/[^A-Za-z0-9]/g, '')
+  return (s[0] || '?').toUpperCase() + (s[1] || '').toLowerCase()
+}

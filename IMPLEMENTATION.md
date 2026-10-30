@@ -28112,3 +28112,54 @@ say what they do. Settings is laid out in sections, with appearance first.
   - Settings: Appearance first, then the two columns; switching theme through the page still
     applies (Glass Light, then back to Glass Dark)
   - no horizontal scroll at 420 px; no page errors
+
+## 483. Node tiles show a short code instead of a drawn icon — `app/web/src/lib/engines.js`, `app/web/src/components/ui.jsx`, `app/web/src/desktop/Stacks.jsx`, `app/web/src/pages/StackDesigner.jsx`
+
+A drawn icon could not tell 44 node types apart: PXC, Percona Server, MySQL, MariaDB and PostgreSQL
+all wore the same database glyph. A node's tile now shows a short code naming the product. The
+tile's colour still says the engine family (`engineTone`, §478): databases coloured, everything
+else neutral. That gives two cues, and neither is colour alone.
+
+**Codes** (`NODE_CODE`, `nodeCode` in `lib/engines.js`):
+- Two letters, written like element symbols (capital then lower case), so codes that share a first
+  letter stay easy to tell apart.
+- Three letters only for products whose own short name is three letters: **PXC** and **PMM**.
+- Every member type of a family shares the family's code.
+
+| Group | Codes |
+|---|---|
+| MySQL family | PXC · Ps Percona Server (`ps`, `mysql`, `innodb`) · My MySQL Community · Ma MariaDB |
+| PostgreSQL | Pg PostgreSQL · Pa Patroni · Rm repmgr · Sp Spock |
+| Others | Mo PSMDB · Vk Valkey |
+| Proxies | Pr ProxySQL · Ha HAProxy · Pb PgBouncer |
+| Operations | PMM · Or Orchestrator · Wt Watchtower |
+| Infrastructure | In Intranet · Ad Samba AD · Kc Keycloak · Ob OpenBao · Sw SeaweedFS · Ce Ceph · Re Repository · Lc Linux Client · Vn Ubuntu VNC · K3 k3s · Ai All-in-One · Bh Big Hole · Mc MClusterAdmin |
+| Simulators | St Stock Market · Lg Ledger · Su Support · Pv pgvector Support · Pf Performance |
+
+A type missing from the map gets the first two letters of its name, so a new type is visibly in
+need of a code rather than blank. Each code maps to exactly one product family; this was checked
+by inverting the map.
+
+**`NodeCode({ type, label, size })`** (`ui.jsx`) sets the code in the display face to fit its
+tile: 0.42 × the tile height for two letters, 0.34 for three, never below 10 px. Small chips widen
+to the code instead of shrinking it (`min-w`, `px-1`). The code is `aria-hidden`; each tile is
+`role="img"` with the type's full name as its `aria-label`.
+
+**Where codes replace drawn icons:**
+- desktop stack-folder nodes (40 px tiles)
+- canvas node cards (32 px)
+- cluster-member cards: a new small chip before the name, glossy in Glass via `data-engine-tile`
+- the cluster frame's header: the frame's code in the frame's colour
+
+`nodeIcon` in `Stacks.jsx` is gone. The library palette and add-node menu keep their icons.
+
+**Verification performed.**
+- `npm run build`, SSR `smoke` passes; image rebuilt and redeployed.
+- Headless Chromium on a deployed nine-node stack:
+  - the folder's tiles read `Intranet=In`, `PMM3=PMM`, `ProxySQL=Pr`, `Performance Sim=Pf`,
+    `Linux Client=Lc`, `Ubuntu VNC=Vn`, and `PXC Node=PXC` ×3 (from `aria-label` and text)
+  - the canvas shows the same codes on cards, member chips and the cluster header
+  - in Glass, the PXC chips are glossy
+  - "PXC" on member chips was too small at an 8 px floor; the floor was raised to 10 px and
+    re-checked
+  - no page errors

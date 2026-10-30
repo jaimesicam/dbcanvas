@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from 'react-dom'
 import { Icon } from '../components/Icons.jsx'
 import { FileToolChecks, DBFileToolChecks } from '../components/FileTools.jsx'
-import { Card, Button, Badge, Field, ConfirmButton, InfoRow, inputCls, toneTile } from '../components/ui.jsx'
+import { Card, Button, Badge, Field, ConfirmButton, InfoRow, inputCls, toneTile, NodeCode } from '../components/ui.jsx'
 import { engineOf, engineTone } from '../lib/engines.js'
 import { useTheme } from '../theme/ThemeProvider.jsx'
 import { Help, Hint } from '../components/Tooltip.jsx'
@@ -5081,7 +5081,14 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
                         belongs, and it stays visible when the frame is collapsed behind others. */}
                     {kids.some((n) => nodeConfiguring(depByNode[n.id]))
                       ? <Spinner size={15} />
-                      : <span style={{ color: col }}>{(Icon[fdef.icon] || Icon.Database)({ size: 15 })}</span>}
+                      : (
+                        // The cluster's code, in the frame's colour, like its members' tiles.
+                        <span role="img" aria-label={fdef.label || f.type}
+                          className="flex h-5 min-w-[24px] shrink-0 items-center justify-center rounded-md px-1"
+                          style={{ color: col, background: `color-mix(in srgb, ${col} 18%, transparent)` }}>
+                          <NodeCode type={f.type} label={fdef.label} size={20} />
+                        </span>
+                      )}
                     <div className="min-w-0 flex-1 leading-tight">
                       {/* The frame is sized to fit both these lines (frameHeaderW), so the
                           name is never abbreviated: a name is what you are looking for, and
@@ -5147,7 +5154,10 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
                             placement="top" display="flex" className={liveOn ? 'shrink-0' : 'min-h-0 flex-1'}
                           >
                             <div className="flex w-full items-center gap-1.5 px-2" style={liveOn ? { height: PXC_NODE_H - 4 } : undefined}>
-                              <span className="shrink-0" style={{ color: engineTone(n.type) }}>{(Icon[fdef.icon] || Icon.Database)({ size: 13 })}</span>
+                              <span data-engine-tile={engineOf(n.type) ? '' : undefined} role="img" aria-label={NODE_TYPES[n.type]?.label || n.type}
+                                className="flex h-5 min-w-[22px] shrink-0 items-center justify-center rounded-md border px-1" style={toneTile(engineTone(n.type))}>
+                                <NodeCode type={n.type} label={NODE_TYPES[n.type]?.label} size={20} />
+                              </span>
                               <span className="min-w-0 flex-1 truncate text-xs font-semibold text-fg">{n.label}</span>
                               {liveOn && <ProblemBadge count={problemCount(live[n.id])} title={(live[n.id]?.role?.problems || []).join('\n')} />}
                               {dep?.state === 'provisioning' ? (
@@ -5212,8 +5222,9 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
                     <div className="flex w-full items-center gap-2.5 px-3" style={liveOn ? { height: NODE_H - 6 } : undefined}>
                       {/* The tile says which ENGINE (lib/engines.js, a validated set);
                           the stripe above keeps the catalogue's per-type colour. */}
-                      <span data-engine-tile={engineOf(n.type) ? '' : undefined} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border" style={toneTile(engineTone(n.type))}>
-                        {(Icon[def.icon] || Icon.Server)({ size: 18 })}
+                      <span data-engine-tile={engineOf(n.type) ? '' : undefined} role="img" aria-label={def.label}
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border" style={toneTile(engineTone(n.type))}>
+                        <NodeCode type={n.type} label={def.label} size={32} />
                       </span>
                       <span className="min-w-0 flex-1 leading-tight">
                         <span className="block truncate text-sm font-semibold text-fg">{n.label}</span>

@@ -12,7 +12,7 @@ import { useAuth } from '../auth/AuthProvider.jsx'
 import { useSession } from '../session/SessionProvider.jsx'
 import { NODE_TYPES } from '../pages/StackDesigner.jsx'
 import { engineOf, engineTone } from '../lib/engines.js'
-import { toneTile } from '../components/ui.jsx'
+import { toneTile, NodeCode } from '../components/ui.jsx'
 
 // Stacks.jsx — your stacks and their nodes on the desktop (desktop/Desktop.jsx).
 //
@@ -30,21 +30,9 @@ const STACK_DOT = { deployed: 'bg-success', draft: 'bg-muted/60', expired: 'bg-d
 const TONE_DOT = { success: 'bg-success', warning: 'bg-warning', danger: 'bg-danger', muted: 'bg-muted/60' }
 const stateDot = (state) => TONE_DOT[DEPLOY_TONE[state]] || 'bg-muted/40'
 
-// A node's icon is the canvas's (NODE_TYPES; nodeIcon is the fallback for a type the
-// catalogue does not know) and its colour is its engine's (lib/engines.js), the same as
-// the icon tile on its canvas card — databases coloured, everything else neutral.
-const nodeLook = (type) => {
-  const def = NODE_TYPES[type]
-  return { Ico: (def && Icon[def.icon]) || nodeIcon(type), tone: engineTone(type) }
-}
-function nodeIcon(type) {
-  if (type === 'vnc') return Icon.Monitor
-  if (type === 'linuxclient') return Icon.Terminal
-  if (type === 'k3d') return Icon.Kubernetes || Icon.Nodes
-  if (/sim$|^mclusteradmin$|^bighole$|^pmm2?$|^orchestrator$/.test(type || '')) return Icon.Dashboard
-  if (/^(intranet|sambaad|keycloak|openbao|repository|seaweedfs|watchtower)$/.test(type || '')) return Icon.Nodes
-  return Icon.Database
-}
+// A node's tile shows its type's short code (lib/engines.js NODE_CODE) in its engine's colour,
+// the same as its card on the canvas — databases coloured, everything else neutral.
+const nodeLook = (type) => ({ tone: engineTone(type), label: NODE_TYPES[type]?.label || type })
 
 // openStackInDesigner opens Database Stacks on a stack: the handoff it reads, the
 // window brought forward, and a nudge in case that window was already on screen.
@@ -233,15 +221,16 @@ export function StackFolder({ stack, onClose, onOpen }) {
             {g && <div className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide text-muted">{g}</div>}
             <div className="flex flex-wrap gap-1">
               {list.map((n) => {
-                const { Ico, tone } = nodeLook(n.type)
+                const { tone, label: typeLabel } = nodeLook(n.type)
                 const dep = deps[n.id]
                 return (
                   <button key={n.id} data-folder-node={n.id} title={`${label(n)} · ${n.type} · ${dep?.state || 'not deployed'}`}
                     onClick={() => setSel(n.id)} onDoubleClick={() => primary(n)}
                     onContextMenu={(e) => { e.preventDefault(); setSel(n.id); setMenu({ x: e.clientX, y: e.clientY, n }) }}
                     className={`flex w-24 flex-col items-center gap-1 rounded-lg px-1 py-2 text-center ${sel === n.id ? 'bg-primary/20 ring-1 ring-primary/50' : 'hover:bg-surface2'}`}>
-                    <span data-engine-tile={engineOf(n.type) ? '' : undefined} className="lift relative flex h-10 w-10 items-center justify-center rounded-xl border" style={toneTile(tone)}>
-                      <Ico size={20} />
+                    <span data-engine-tile={engineOf(n.type) ? '' : undefined} role="img" aria-label={typeLabel}
+                      className="lift relative flex h-10 w-10 items-center justify-center rounded-xl border" style={toneTile(tone)}>
+                      <NodeCode type={n.type} label={typeLabel} size={40} />
                       <span className={`absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-bg ${stateDot(dep?.state)} ${dep?.state === 'provisioning' ? 'status-pulse' : ''}`} />
                     </span>
                     <span className="line-clamp-2 wrap-anywhere text-[11px] leading-tight">{label(n)}</span>

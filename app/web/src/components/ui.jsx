@@ -1,7 +1,7 @@
 // Reusable Tailwind/theme primitives.
 import { useEffect, useState } from 'react'
 import { Help } from './Tooltip.jsx'
-import { ENGINE_TONE, NEUTRAL_TONE } from '../lib/engines.js'
+import { ENGINE_TONE, NEUTRAL_TONE, nodeCode } from '../lib/engines.js'
 
 // The ui-* classes carry no styles of their own. They are the hooks a LOOK styles
 // (index.css): a look needs to reach the chrome that no token can describe — the
@@ -46,6 +46,21 @@ export const toneTile = (tone) => ({
 // EngineDot and EngineChip name an engine (mysql, postgres, mongodb, valkey — the keys
 // every page's ENGINE_LABEL uses) in its colour from lib/engines.js. The label is always
 // printed: the dot is a faster way to find MySQL in a list, never the only way to know.
+// NodeCode is a node type's short code (lib/engines.js NODE_CODE), set to fit the tile it sits
+// in: `size` is the tile's height in px, and a three-letter code is set a little smaller so it
+// fits a square tile; a small chip (a cluster member's) widens to the code instead of shrinking
+// it below 10px. Decorative — the tile around it carries the full name as its label.
+export function NodeCode({ type, label, size = 34 }) {
+  const code = nodeCode(type, label)
+  const fs = Math.max(10, Math.round(size * (code.length > 2 ? 0.34 : 0.42)))
+  return (
+    <span aria-hidden="true" className="select-none font-semibold leading-none tracking-tight"
+      style={{ fontFamily: 'var(--ui-display)', fontSize: fs }}>
+      {code}
+    </span>
+  )
+}
+
 export function EngineDot({ engine, className = '' }) {
   return <span className={`inline-block h-2 w-2 shrink-0 rounded-full align-middle ${className}`} style={{ background: ENGINE_TONE[engine] || NEUTRAL_TONE }} />
 }
