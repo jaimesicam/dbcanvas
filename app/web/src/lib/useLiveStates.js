@@ -15,6 +15,8 @@ const HISTORY = 40
 export function useLiveStates(stackId, enabled, intervalMs) {
   const [live, setLive] = useState({})
   const [error, setError] = useState('')
+  // K3D frames' LoadBalancer addresses, by frame id (app/livek3dlb.go).
+  const [lbs, setLbs] = useState({})
   const prev = useRef({}) // nodeId -> { t, netRx, netTx, blkRead, blkWrite, cpu: [], mem: [] }
   // A poll takes about as long as a container's stats sample (~1-2s), so at the 2s interval a slow
   // one could still be running when the next is due — that tick is skipped, not stacked.
@@ -25,6 +27,7 @@ export function useLiveStates(stackId, enabled, intervalMs) {
     if (!enabled) {
       prev.current = {}
       setLive({})
+      setLbs({})
       setError('')
     }
   }, [enabled])
@@ -70,6 +73,7 @@ export function useLiveStates(stackId, enabled, intervalMs) {
       }
       prev.current = seen
       setLive(out)
+      setLbs(res?.lbs || {})
       setError('')
     } catch (e) {
       setError(e?.message || 'live state unavailable')
@@ -79,5 +83,5 @@ export function useLiveStates(stackId, enabled, intervalMs) {
   }, [stackId])
 
   usePolling(poll, enabled ? intervalMs : 0, { enabled })
-  return { live, error }
+  return { live, error, lbs }
 }

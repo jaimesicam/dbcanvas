@@ -12,8 +12,8 @@ import { usePPGComponents, ppgComponents, ppgAvailable } from '../lib/ppgCompone
 import { useLiveStates, LIVE_INTERVALS } from '../lib/useLiveStates.js'
 import LiveOverlay, { LiveDetailsBody } from '../components/LiveOverlay.jsx'
 import {
-  LiveStrip, ProblemBadge, ClusterTable, problemCount, healthRing, healthDot,
-  LIVE_MEMBER_EXTRA, LIVE_NODE_EXTRA, TABLE_GAP, tableHeight, tableWidth, footprints, countOverlaps, fixLayout,
+  LiveStrip, ProblemBadge, ClusterTable, LBList, problemCount, healthRing, healthDot,
+  LIVE_MEMBER_EXTRA, LIVE_NODE_EXTRA, TABLE_GAP, tableHeight, tableWidth, lbHeight, LB_MIN_W, footprints, countOverlaps, fixLayout,
 } from '../components/LiveCard.jsx'
 import { sendHandoff, useHandoff } from '../lib/handoff.js'
 import { stackApi, templateApi, imageApi, mongoDownloadURL, k8sPods, isBuiltinTemplate, frameApi, TTL_OPTIONS, DEPLOY_TONE, NODE_UPLOAD_DESTS, PRODUCT_OS_FAMILIES } from '../lib/stackApi.js'
@@ -2477,7 +2477,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
   const [livePinned, setLivePinned] = useState(() => new Set())
   const [liveDismissed, setLiveDismissed] = useState(null) // the selected card whose details were closed
   const [liveOffsets, setLiveOffsets] = useState({})
-  const { live, error: liveError } = useLiveStates(stackId, liveOn, liveMs)
+  const { live, error: liveError, lbs: liveLbs } = useLiveStates(stackId, liveOn, liveMs)
   // Health: the server watcher's open alerts, timeline and trends (components/StackHistory.jsx).
   const [healthTab, setHealthTab] = useState(null) // null = closed, else the open tab
   const [{ alerts: stackAlerts, rules: alertRules, intervalSec: watchSec }, reloadAlerts] = useStackAlerts(stackId, stack?.status === 'deployed')
@@ -2517,10 +2517,14 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
   if (liveOn && selected?.kind === 'node' && selected.id !== liveDismissed) liveShow.add(selected.id)
   // tableMembers is how many rows a frame's Live table has, 0 when it has none.
   const tableMembers = (f) => (liveOn && liveTables && TABLE_FRAMES.has(f.type) ? nodes.filter((n) => n.frameId === f.id).length : 0)
+  // A K3D frame's LoadBalancer addresses, listed under it with Live on (LBList) — how many rows.
+  const lbCount = (f) => (liveOn && f.type === 'k3d' ? (liveLbs?.[f.id]?.length || 0) : 0)
   const tableBlocks = frames.filter((f) => tableMembers(f) > 0)
     .map((f) => ({ x: f.x, y: f.y + f.h + TABLE_GAP, w: tableWidth(f), h: tableHeight(tableMembers(f)) }))
-  // What Live made overlap: taller cards and tables run into whatever was placed under them.
-  const liveBoxes = liveOn ? footprints(nodes, frames, { node: [NODE_W, nodeH] }, tableMembers) : []
+    .concat(frames.filter((f) => lbCount(f) > 0)
+      .map((f) => ({ x: f.x, y: f.y + f.h + TABLE_GAP, w: Math.max(f.w, LB_MIN_W), h: lbHeight(lbCount(f)) })))
+  // What Live made overlap: taller cards, tables and address lists run into whatever was placed under them.
+  const liveBoxes = liveOn ? footprints(nodes, frames, { node: [NODE_W, nodeH] }, tableMembers, lbCount) : []
   const liveOverlaps = liveOn ? countOverlaps(liveBoxes) : 0
   // runFixLayout pulls overlapping cards, clusters and tables apart (components/LiveCard.jsx
   // fixLayout) and saves the result: an edit of the design, so not while someone else has control.
@@ -5194,6 +5198,11 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
                       <ClusterTable frame={f} members={kids} live={live}
                         selectedId={selected?.kind === 'node' ? selected.id : null}
                         onSelect={(id) => setSelected({ kind: 'node', id })} />
+                    </div>
+                  )}
+                  {lbCount(f) > 0 && (
+                    <div className="absolute left-0" style={{ top: f.h + TABLE_GAP }}>
+                      <LBList lbs={liveLbs[f.id]} frame={f} />
                     </div>
                   )}
                 </div>

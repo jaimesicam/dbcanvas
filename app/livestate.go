@@ -192,7 +192,13 @@ func (a *App) handleStackLive(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "failed to read deployments")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"sampledAtSec": time.Now().Unix(), "nodes": out})
+	resp := map[string]any{"sampledAtSec": time.Now().Unix(), "nodes": out}
+	// K3D clusters' LoadBalancer addresses, by frame (livek3dlb.go). Not part of liveSnapshot:
+	// the history sampler records nodes, and a cluster's address pool is not a node's state.
+	if lbs := a.liveK3DLBs(r.Context(), st); len(lbs) > 0 {
+		resp["lbs"] = lbs
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // liveSnapshot is every deployed node of a stack as Live sees it now — what the canvas polls, and

@@ -28163,3 +28163,49 @@ to the code instead of shrinking it (`min-w`, `px-1`). The code is `aria-hidden`
   - "PXC" on member chips was too small at an 8 px floor; the floor was raised to 10 px and
     re-checked
   - no page errors
+
+## 484. Live view lists a K3D cluster's LoadBalancer addresses — `app/livek3dlb.go` (new), `app/livek3dlb_test.go` (new), `app/livestate.go`, `app/web/src/lib/useLiveStates.js`, `app/web/src/components/LiveCard.jsx`, `app/web/src/pages/StackDesigner.jsx`
+
+A K3D frame's MetalLB pool is a block of the stack subnet, and every LoadBalancer Service in the
+cluster takes an address from it: the operator's own, the Expose control's, and Performance Sim's
+per-pod companions. With Live on, the canvas now lists which addresses are taken, under the
+frame. That is what a client, a capture or a DNS record would point at. K3D members still get no
+container IP (§481).
+
+**Server** (`livek3dlb.go`):
+- `liveK3DLBs(ctx, st)` finds each K3D frame's running server (`k3dServerConfig`), runs
+  `kubectl get svc -A -o json` on it (`a.kubectl`, Docker engine, 6 s limit), and returns
+  `{frameID: [liveLB]}`.
+- **Parsing.** `liveLBsFromServices` keeps every LoadBalancer Service with an ingress address, in
+  every namespace (the whole pool, not one cluster's names as `k3dLBAddrsFromServices` does), with
+  its ports. It orders them by address numerically (`ipLess`: `.9` before `.210`).
+- **Caching.** Results are cached per stack, frame and server container for 10 s (`liveLBCache`),
+  so a 2–5 s poll does not exec kubectl every time; addresses only change when a Service is created
+  or deleted.
+- **Unreachable servers.** A frame whose server cannot be asked is left out rather than reported
+  empty, because "no addresses" and "could not tell" are different answers.
+- `handleStackLive` adds the result as `lbs` beside `nodes`. It is not part of `liveSnapshot`: the
+  history sampler records nodes, and a cluster's address pool is not a node's state.
+
+**Canvas.**
+- `useLiveStates` returns `lbs` (cleared when Live goes off).
+- `LBList` (`LiveCard.jsx`) draws under the K3D frame, where a cluster table would be: a header
+  "LoadBalancer addresses · N in use", then one row per address (namespace/name, ports). At most
+  10 rows, then a "+N more" row; at least `LB_MIN_W` (380 px) wide. Each row's tooltip is
+  `namespace/name → ip:ports`.
+- **Layout.** `footprints(…, lbsFor)` takes the list's height (`lbHeight`) into the frame's
+  footprint, so the overlap banner and Fix layout account for it. The list is also among the
+  `blocks` the Live overlay avoids.
+
+**Verification performed.**
+- `go vet` and `go test` (`TestLiveLBsFromServices`: LoadBalancer with an address only, not
+  pending or ClusterIP, numeric order, ports, bad JSON; `TestIPLess`); `npm run build`, SSR
+  `smoke`; image rebuilt and redeployed.
+- **Live test.** A throwaway stack (Intranet + a one-node K3D frame with no operator, 2 h TTL) was
+  deployed. Before any Service, `lbs` held an empty list for the frame, and nothing is drawn. Two
+  Services were then created with kubectl (`default/lb-web` on 80; `demo/db-front` on 3306 and
+  33060). MetalLB gave them .246 and .247 of the stack's pool, and `GET …/live` returned exactly
+  those addresses, names and ports, matching kubectl. The K3D member carried no `ip` while the
+  Intranet did.
+- Headless Chromium: the list draws under the frame with both rows; no page errors.
+- The test stack was deleted afterwards.

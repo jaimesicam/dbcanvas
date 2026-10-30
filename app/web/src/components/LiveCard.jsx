@@ -28,6 +28,15 @@ const TABLE_HEAD = 22
 const TABLE_ROW = 24
 export const TABLE_MIN_W = 860
 export const tableHeight = (members) => TABLE_HEAD + members * TABLE_ROW + 2
+
+// A K3D frame's LoadBalancer addresses (LBList), under the frame the way a cluster table is: its
+// header and row heights, the most rows drawn (the rest is one "+N more" row), and its narrowest.
+const LB_HEAD = 24
+const LB_ROW = 20
+const LB_MAX_ROWS = 10
+export const LB_MIN_W = 380
+const lbRows = (n) => Math.min(n, LB_MAX_ROWS) + (n > LB_MAX_ROWS ? 1 : 0)
+export const lbHeight = (n) => (n > 0 ? LB_HEAD + lbRows(n) * LB_ROW + 2 : 0)
 export const tableWidth = (frame) => Math.max(frame.w || 0, TABLE_MIN_W)
 
 // problemCount is how many things are wrong with a node: one when it is down, else the problems
@@ -248,7 +257,7 @@ export function ClusterTable({ frame, members, live, onSelect, selectedId }) {
 
 // footprints are the world-space rectangles the canvas's objects take with Live as it is: a free
 // card at its live height, a frame with its table under it. What Fix layout keeps apart.
-export function footprints(nodes, frames, sizes, tablesFor) {
+export function footprints(nodes, frames, sizes, tablesFor, lbsFor = () => 0) {
   const out = []
   for (const n of nodes) {
     if (n.frameId) continue
@@ -256,11 +265,41 @@ export function footprints(nodes, frames, sizes, tablesFor) {
   }
   for (const f of frames) {
     const t = tablesFor(f)
-    const h = t ? f.h + TABLE_GAP + tableHeight(t) : f.h
-    const w = t ? Math.max(f.w, TABLE_MIN_W) : f.w
+    const l = lbsFor(f) // a K3D frame's LoadBalancer list sits where a table would
+    let h = f.h
+    let w = f.w
+    if (t) { h += TABLE_GAP + tableHeight(t); w = Math.max(w, TABLE_MIN_W) }
+    if (l) { h += TABLE_GAP + lbHeight(l); w = Math.max(w, LB_MIN_W) }
     out.push({ kind: 'frame', id: f.id, x: f.x, y: f.y, w, h })
   }
   return out
+}
+
+// LBList is a K3D cluster's LoadBalancer Services that have an address, under its frame with Live
+// on: the address MetalLB gave each, the Service (namespace/name) and its ports. The pool is a
+// block of the stack subnet, and this is which of it is taken — what a client, a capture or a
+// DNS record would point at.
+export function LBList({ lbs, frame }) {
+  const shown = lbs.slice(0, LB_MAX_ROWS)
+  const more = lbs.length - shown.length
+  return (
+    <div className="overflow-hidden rounded-lg border bg-surface text-[10px] shadow-sm" style={{ width: Math.max(frame.w || 0, LB_MIN_W) }}
+      onPointerDown={(e) => e.stopPropagation()}>
+      <div className="flex items-center gap-2 bg-surface2 px-2 font-semibold text-muted" style={{ height: LB_HEAD }}>
+        <span>LOADBALANCER ADDRESSES</span>
+        <span className="font-normal">· {lbs.length} in use</span>
+      </div>
+      {shown.map((lb) => (
+        <div key={`${lb.namespace}/${lb.name}/${lb.ip}`} className="flex items-center gap-2 border-t px-2" style={{ height: LB_ROW }}
+          title={`${lb.namespace}/${lb.name} → ${lb.ip}${lb.ports?.length ? ':' + lb.ports.join(', ') : ''}`}>
+          <span className="w-[92px] shrink-0 font-mono tabular-nums text-fg">{lb.ip}</span>
+          <span className="min-w-0 flex-1 truncate text-fg/90"><span className="text-muted">{lb.namespace}/</span>{lb.name}</span>
+          {lb.ports?.length > 0 && <span className="shrink-0 font-mono tabular-nums text-muted">{lb.ports.join(', ')}</span>}
+        </div>
+      ))}
+      {more > 0 && <div className="border-t px-2 text-muted" style={{ height: LB_ROW, lineHeight: `${LB_ROW}px` }}>+{more} more</div>}
+    </div>
+  )
 }
 
 const LAYOUT_GAP = 24
