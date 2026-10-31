@@ -110,7 +110,7 @@ type UserSettings struct {
 
 func defaultSettings() UserSettings {
 	return UserSettings{
-		TerminalMode: TerminalDocked, Theme: "glass-dark", Look: "glass",
+		TerminalMode: TerminalDocked, Theme: "glass-light", Look: "glass",
 		DeploymentBackend: BackendDocker, NodeLibrary: LibraryMenu,
 		Tooltips: TooltipsOn, TerminalsOnTop: TerminalsOnTopOn, MaxTabs: defaultMaxTabs,
 		Scratchboard: ScratchboardStoreOff,

@@ -28448,3 +28448,20 @@ whatever its own label does.
 Chromium at 1500×900: all 21 desktop icons measure 94px tall, at three x positions (12/112/212)
 that share the same eight y positions (68, 166, 263, …); screenshots of the desktop and of
 the TEst Stack folder (no gap above the state lines).
+
+## 492. Glass Light is the default theme — `app/settings.go`, `app/web/src/settings/SettingsProvider.jsx`, `app/web/src/theme/ThemeProvider.jsx`, `docs/API_REFERENCE.md`
+
+The default appearance is now Glass Light with the Glass look, in the Desktop shell. Look and shell
+were already the defaults (`look: 'glass'`; `shellMode.js` returns `desktop` unless Classic was
+chosen), so only the theme moves, from `glass-dark` to `glass-light`. It moves in all three places
+that hold it: the server's `defaultSettings()`, the client's `DEFAULTS` mirror, and
+ThemeProvider's pre-load fallback, which paints the sign-in screen before any account is known.
+
+Accounts that already saved a theme keep it; the default only applies where none is stored.
+
+`docs/API_REFERENCE.md` still listed the six pre-Glass themes, with `dark` and `modern` as the
+defaults. It now lists all eight themes and five looks, with `glass-light` and `glass` as defaults.
+
+**Verification performed.** `go test -run Settings`, `npm run build`, `make smoke`; image rebuilt
+and redeployed. A fresh headless Chromium profile (no localStorage) opens the sign-in screen
+with `data-theme="glass-light"` and `data-look="glass"`; screenshot checked.

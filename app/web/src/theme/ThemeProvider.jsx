@@ -72,7 +72,7 @@ function stored(key, fallback, valid) {
 }
 
 export function ThemeProvider({ children }) {
-  const [theme, setTheme] = useState(() => stored(THEME_KEY, 'glass-dark', THEMES))
+  const [theme, setTheme] = useState(() => stored(THEME_KEY, 'glass-light', THEMES))
   const [look, setLook] = useState(() => stored(LOOK_KEY, 'glass', LOOKS))
 
   useEffect(() => {

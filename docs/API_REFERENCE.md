@@ -83,8 +83,8 @@ to the default):
 
 | Field | Values |
 | --- | --- |
-| `theme` | `light`, `dark` (default), `midnight`, `solarized`, `synthwave`, `forest` |
-| `look` | `modern` (default), `industrial`, `editorial`, `soft` |
+| `theme` | `glass-light` (default), `glass-dark`, `light`, `dark`, `midnight`, `solarized`, `synthwave`, `forest` |
+| `look` | `glass` (default), `modern`, `industrial`, `editorial`, `soft` |
 | `maxTabs` | 2–40 (default 20) |
 | `terminalMode` | `docked`, `undocked` |
 | `terminalsOnTop` | `on` unless exactly `off` |
