@@ -783,6 +783,17 @@ keeps running. MySQL-family servers serve the new certificate after `ALTER INSTA
 (`FLUSH SSL` on MariaDB) or a restart, PostgreSQL after `SELECT pg_reload_conf()` or a restart,
 MongoDB after `db.adminCommand({ rotateCertificates: 1 })` or a restart.
 
+**Canvas or Table.** The switch in a stack's toolbar shows the same stack as a table: one row per
+node, grouped by cluster with the primary first, with its role, status, address, what it connects
+to and, with Live on, its CPU, memory, disk, QPS/TPS, connections and lag. **Columns** chooses
+what is shown. Click a row to show it in Properties; double-click to find it on the canvas.
+The Database Stacks list is a table too: owner,
+status, nodes running, engines, CPU, memory and lifetime, sortable and filterable.
+
+**Addresses.** With **Live** on, each Docker node shows the IP address Docker gave its container on
+the stack network, on its card and in the table. A K3D cluster lists, under its frame, the
+LoadBalancer addresses its Services took from the cluster's pool, with their ports.
+
 **Deployed versions.** A running node records the exact version it deployed (`PS 8.4.10-10`,
 `PMM 3.3.1`). It is in the node's properties and in the card's tooltip.
 
@@ -988,11 +999,11 @@ Per-user preferences, saved to your account:
 | Deployment | [Docker or Vagrant hybrid](#deployment-backends--docker-or-vagrant-hybrid) |
 | Tabs | How many pages can be open at once; 2–40, default 20 |
 | Adding nodes | Canvas menu or docked library |
-| Theme | Light, Dark, Midnight, Solarized, Synthwave, Forest |
-| Look | Modern (default), Industrial (dense, monospace headings), Editorial (serif, spacious), Soft (rounded pills) |
+| Theme | Glass Light (default), Glass Dark, Light, Dark, Midnight, Solarized, Synthwave, Forest |
+| Look | Glass (default: frosted panels, edge-to-edge canvas), Modern, Industrial (dense, monospace headings), Editorial (serif, spacious), Soft (rounded pills) |
 
-Theme, Layout and Look can also be changed from the Appearance menu in the top bar. All
-typefaces are system fonts, so nothing is downloaded.
+Theme, Layout and Look can also be changed from the Appearance menu in the top bar. Every
+typeface ships with DBCanvas, so a lab with no internet access looks the same.
 
 ### Manage Users (admin)
 Registration needs admin approval by default: admins approve, reject, disable, re-approve and

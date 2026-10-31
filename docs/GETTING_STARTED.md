@@ -215,11 +215,12 @@ Details: [Templates](STACKS.md#templates--save-a-topology-deploy-it-again).
 
 ## Cleaning up
 
-![The stack list, with each stack's lifetime and state](screenshots/getting-started-stacks.png)
+![The stack list: each stack's owner, state, nodes, engines, CPU, memory and lifetime](screenshots/getting-started-stacks.png)
 
 - **Destroy** (designer toolbar) removes every container and volume but keeps the design, so you
   can deploy again. Data is lost.
-- **Delete** (bin icon in the stack list) removes the stack and its containers.
+- **Delete** (bin icon in the stack list) removes the stack and its containers. Tick several rows
+  to delete them together.
 - **Lifetime** — a stack is torn down automatically when it expires.
 
 If the Dashboard shows more running than you expect, look there first.

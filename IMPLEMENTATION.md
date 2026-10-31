@@ -28465,3 +28465,32 @@ defaults. It now lists all eight themes and five looks, with `glass-light` and `
 **Verification performed.** `go test -run Settings`, `npm run build`, `make smoke`; image rebuilt
 and redeployed. A fresh headless Chromium profile (no localStorage) opens the sign-in screen
 with `data-theme="glass-light"` and `data-look="glass"`; screenshot checked.
+
+## 493. Release 0.0.24 — `VERSION`, `app/whatsnew.go`, `README.md`, `docs/{STACKS,GETTING_STARTED}.md`, `docs/screenshots/getting-started-stacks.png`
+
+Seven release notes, in the README's What's new and in the in-app dialog (`whatsNewNotes`; the
+README check keeps the titles in step):
+- the Glass look and Glass Light as default (§476–480, 486, 489, 491, 492)
+- Database Stacks as tables (§487–488)
+- Live view addresses (§481, 484)
+- node tiles naming the product (§478, 483)
+- the Dashboard naming every container and its owner (§485)
+- first-use guidance and Settings in sections (§482)
+- licences and source from the app (§490)
+
+0.0.23's first note is folded; only the newest release opens one.
+
+The guides caught up with what the notes link to:
+- **STACKS.md** Settings table: it said Modern was the default look, listed no Glass themes, and
+  said every typeface was a system font. It now lists Glass Light and Glass as the defaults, and
+  says the typefaces ship with DBCanvas.
+- **STACKS.md** gains *Canvas or Table* and *Addresses* paragraphs under "Work with deployed nodes".
+- **GETTING_STARTED.md**: the stack-list screenshot, which showed the old cards, is retaken at the
+  same 3200×1726 in Glass Light; the cleanup list notes that several stacks can be deleted
+  together.
+
+**Verification performed.**
+- `go test` (the whatsnew tests: order, completeness, linked docs exist, README match); `npm run
+  build`, `make smoke`.
+- The image was rebuilt with VERSION 0.0.24 and redeployed. The Dashboard's What's new link reads
+  0.0.24, and the dialog lists the seven notes.

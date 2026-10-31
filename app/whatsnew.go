@@ -37,6 +37,51 @@ type releaseNote struct {
 // expanded, and the tests assume the ordering.
 var whatsNewNotes = []releaseNote{
 	{
+		Version: "0.0.24",
+		Date:    "2026-10-31",
+		Title:   "A new look: Glass, now the default",
+		Body:    "DBCanvas has a new appearance, Glass, and it is now the default in Glass Light (Glass Dark is one click away; every older theme and look still works). Panels are frosted sheets over soft ambient light, set in Geist, with pill controls. In the stack editor the canvas runs edge to edge under a floating toolbar, Infrastructure Library and Properties panel; the Library pops out where it was docked and can no longer be dragged under the toolbar. Every look now ships its own typefaces, so they render the same in a lab with no internet access. Avatars are frosted discs, with 20 more to choose from, and the desktop's icons sit on a grid.",
+	},
+	{
+		Version: "0.0.24",
+		Date:    "2026-10-31",
+		Title:   "Database Stacks as tables",
+		Body:    "The Database Stacks list is a table: owner, status, running and failed nodes, engines, CPU and memory, created and expiry, sortable, with several stacks selectable for deletion at once. A stack itself has a Canvas / Table switch: Table shows one row per node, grouped by cluster with the primary first, with its role, status, address, what it connects to and its live figures, and a Columns menu to choose what is shown.",
+		Doc:     "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.24",
+		Date:    "2026-10-31",
+		Title:   "Live view shows every address",
+		Body:    "With Live on, each Docker node shows the IP address Docker gave its container on the stack network — what the other nodes and a packet capture see it as — on its card and in the table. A K3D cluster lists the LoadBalancer addresses its Services took from the cluster's pool, with their ports, under its frame.",
+		Doc:     "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.24",
+		Date:    "2026-10-31",
+		Title:   "Node tiles name the product",
+		Body:    "A node's tile shows a short code for the product — PXC, Ps, My, Ma, Pg, Pa, Mo, Vk, PMM and so on — instead of a drawn icon that could not tell PXC, Percona Server, MySQL, MariaDB and PostgreSQL apart. The tile's colour still says the engine family, and the engine colours were checked to stay distinct for colour-blind readers.",
+	},
+	{
+		Version: "0.0.24",
+		Date:    "2026-10-31",
+		Title:   "The Dashboard names every container and its owner",
+		Body:    "The Dashboard's top lists name a K3D cluster's containers by stack and node (and its load balancer) instead of bare container names, and the system-wide dashboard shows whose stack each container belongs to. Profile has an icon of its own.",
+	},
+	{
+		Version: "0.0.24",
+		Date:    "2026-10-31",
+		Title:   "Pages say what they do before you use them",
+		Body:    "Data Generator, Log Summary, Query Runner and Benchmark open with three steps saying what they do until there is something to show, and empty lists say what will appear in them and how. Settings is laid out in sections, with appearance first.",
+	},
+	{
+		Version: "0.0.24",
+		Date:    "2026-10-31",
+		Title:   "Licences and source, from the app",
+		Body:    "A running installation publishes the licence of DBCanvas and of everything it bundles at /licenses/, linked from the sign-in screen and the Dashboard, with where to get the source. The CLI downloads link their licence, dbcanvas version prints it, and Big Hole's image carries its own.",
+		Doc:     "README.md",
+	},
+	{
 		Version: "0.0.23",
 		Date:    "2026-10-30",
 		Title:   "Performance Sim: make a database misbehave and watch the impact",
