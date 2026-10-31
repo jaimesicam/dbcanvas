@@ -28428,3 +28428,23 @@ What changed:
   link and the index page screenshotted in headless Chromium.
 - Images: supportsim now has LICENSE and THIRD_PARTY_LICENSES.txt (15 modules); Big Hole has
   `/usr/share/doc/big-hole/LICENSE` (MIT, zelmario).
+
+## 491. Desktop icons sit on a grid — `app/web/src/desktop/Desktop.jsx`, `app/web/src/desktop/Stacks.jsx`
+
+The desktop's page icons fill columns top to bottom (`flex-col flex-wrap`), and each icon was only as
+tall as its label. A two-line label ("Core Dump Analyzer", "Operator Debugger") made a taller cell
+than a one-line one, so the rows drifted apart across columns: by the fifth row, the second column
+sat ~25px below the first. Every page label and stack label now reserves two lines
+(`min-h-[2lh]`, the most `line-clamp-2` allows), so every cell is the same height and the columns
+share rows. The taller cells mean one fewer icon per column at the same window height, so icons
+past the eighth move into the next column.
+
+A stack's folder lays its nodes out in rows instead, and a row's buttons already stretch to the
+tallest. There, reserving two lines would only open a gap above every state line when all the
+names are short. Instead the state line takes `mt-auto`, so it sits on the row's bottom edge
+whatever its own label does.
+
+**Verification performed.** `npm run build`, `make smoke`; image rebuilt and redeployed. Headless
+Chromium at 1500×900: all 21 desktop icons measure 94px tall, at three x positions (12/112/212)
+that share the same eight y positions (68, 166, 263, …); screenshots of the desktop and of
+the TEst Stack folder (no gap above the state lines).

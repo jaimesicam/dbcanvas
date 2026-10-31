@@ -167,7 +167,9 @@ export function DesktopSurface({ nav, onOpen }) {
               <span className="lift flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm" style={toneTile(n.tone)}>
                 <Ico size={22} />
               </span>
-              <span className="line-clamp-2 text-[11px] leading-tight text-fg drop-shadow">{n.label}</span>
+              {/* Two lines reserved whether used or not: the icons fill columns top to bottom,
+                  and a one-line label made a shorter cell, so the rows drifted apart across columns. */}
+              <span className="line-clamp-2 min-h-[2lh] text-[11px] leading-tight text-fg drop-shadow">{n.label}</span>
             </button>
           )
         })}

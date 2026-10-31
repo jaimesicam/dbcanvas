@@ -101,7 +101,7 @@ export function StackIcons({ stacks, onOpenFolder, onOpen }) {
             <Icon.Stacks size={22} />
             <span className={`absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-surface ${STACK_DOT[st.status] || 'bg-muted/60'}`} />
           </span>
-          <span className="line-clamp-2 wrap-anywhere text-[11px] leading-tight text-fg drop-shadow">{st.name}</span>
+          <span className="line-clamp-2 min-h-[2lh] wrap-anywhere text-[11px] leading-tight text-fg drop-shadow">{st.name}</span>
         </button>
       ))}
       {menu && (
@@ -234,7 +234,9 @@ export function StackFolder({ stack, onClose, onOpen }) {
                       <span className={`absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-bg ${stateDot(dep?.state)} ${dep?.state === 'provisioning' ? 'status-pulse' : ''}`} />
                     </span>
                     <span className="line-clamp-2 wrap-anywhere text-[11px] leading-tight">{label(n)}</span>
-                    <span className="text-[10px] text-muted">{dep?.state || 'not deployed'}</span>
+                    {/* Pinned to the bottom: a row's icons stretch to its tallest, so a two-line
+                        name no longer drops its own state line below its neighbours'. */}
+                    <span className="mt-auto text-[10px] text-muted">{dep?.state || 'not deployed'}</span>
                   </button>
                 )
               })}
