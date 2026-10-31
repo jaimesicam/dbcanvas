@@ -2684,7 +2684,8 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
   // Node palette: docked to the left by default; can be undocked into a floating,
   // resizable panel (drag by its header, resize via the corner handle) and re-docked.
   const [paletteDocked, setPaletteDocked] = useState(true)
-  const [palettePos, setPalettePos] = useState({ x: 24, y: 24 })
+  const [palettePos, setPalettePos] = useState({ x: 24, y: 24, w: 210, h: 380 })
+  const paletteDockRef = useRef(null)
   const [paletteQuery, setPaletteQuery] = useState('')
   const [collapsed, setCollapsed] = useState(() => loadPalettePrefs().collapsed)
   const [recent, setRecent] = useState(() => loadPalettePrefs().recent)
@@ -3105,7 +3106,11 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
         return
       }
       if (d.kind === 'palette') {
-        setPalettePos({ x: Math.max(0, d.ox + (e.clientX - d.sx)), y: Math.max(0, d.oy + (e.clientY - d.sy)) })
+        // Kept inside the canvas and below the toolbar (glass floats the toolbar over the
+        // canvas), so the title bar it is dragged by can never end up out of reach.
+        const r = wrapRef.current?.getBoundingClientRect()
+        const x = Math.max(0, d.ox + (e.clientX - d.sx)), y = Math.max(d.minY, d.oy + (e.clientY - d.sy))
+        setPalettePos((p) => ({ ...p, x: r ? Math.min(x, r.width - 80) : x, y: r ? Math.max(d.minY, Math.min(y, r.height - 40)) : y }))
         return
       }
       const w = getWorld(e.clientX, e.clientY)
@@ -4953,8 +4958,20 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       </div>
     </div>
   )
+  // popOutPalette lifts the library off its dock where it stands — same size, nudged
+  // down-right like a sheet picked up — instead of starting it at a fixed spot, which in
+  // glass was under the toolbar with its title bar (the only drag handle) hidden.
+  const popOutPalette = () => {
+    const d = paletteDockRef.current?.getBoundingClientRect(), c = wrapRef.current?.getBoundingClientRect()
+    if (d && c) {
+      const y = Math.max(topInset, d.top - c.top) + 12
+      setPalettePos({ x: Math.max(0, d.left - c.left) + 12, y, w: d.width, h: Math.max(220, Math.min(d.height, c.height - y - 12)) })
+    }
+    setPaletteDocked(false)
+  }
   const paletteHeader = (onToggle, dockHelp, dockIcon, onDrag) => (
-    <div className={`flex shrink-0 items-center justify-between border-b px-2 py-1.5 ${onDrag ? 'cursor-move' : ''}`} onPointerDown={onDrag}>
+    <div className={`flex shrink-0 items-center justify-between border-b px-2 py-1.5 ${glass ? 'pl-3' : ''} ${onDrag ? 'cursor-move' : ''}`}
+      onPointerDown={onDrag ? (e) => { if (!e.target.closest('button')) onDrag(e) } : undefined}>
       <span className="text-xs font-semibold">Infrastructure Library</span>
       <button title={dockHelp} onClick={onToggle} className="text-muted hover:text-fg">{dockIcon}</button>
     </div>
@@ -4994,7 +5011,9 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
               first node it is known, and the line only pushed the actions onto a third row. */}
           {nodes.length === 0 && !libraryColumn && <span className="text-xs text-muted @max-3xl:hidden">Right-click the canvas to add a node</span>}
           {nodes.length === 0 && libraryColumn && paletteDocked && <span className="text-xs text-muted @max-3xl:hidden">Add nodes from the Infrastructure Library →</span>}
-          {libraryColumn && !paletteDocked && (
+          {/* Glass leaves the toolbar alone: the button appearing shifted every control after
+              it, and the floating library, kept on the canvas, docks from its own title bar. */}
+          {libraryColumn && !paletteDocked && !glass && (
             <Hint text={HELP.uiPalette}><Button size="sm" variant="outline" onClick={() => setPaletteDocked(true)}><Icon.Plus size={15} /> <span className="@max-3xl:hidden">Palette</span></Button></Hint>
           )}
           <div className="mx-1 h-5 w-px bg-border @max-3xl:hidden" />
@@ -5152,9 +5171,9 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
           </div>
         )}
         {libraryColumn && paletteDocked && !tableView && (
-          <div className={`flex w-[200px] shrink-0 flex-col overflow-hidden rounded-xl border bg-surface ${glass ? 'absolute left-3 z-30 shadow-xl' : ''}`}
+          <div ref={paletteDockRef} className={`flex w-[200px] shrink-0 flex-col overflow-hidden border bg-surface ${glass ? 'ui-card absolute left-3 z-30 rounded-2xl shadow-xl' : 'rounded-xl'}`}
             style={glass ? { top: topInset, bottom: MINI_H + 24 } : undefined}>
-            {paletteHeader(() => setPaletteDocked(false), HELP.uiDetachPanel, <Icon.PopOut size={14} />, null)}
+            {paletteHeader(popOutPalette, HELP.uiDetachPanel, <Icon.PopOut size={14} />, null)}
             {paletteBody}
           </div>
         )}
@@ -5210,11 +5229,11 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
             </div>
           )}
           {libraryColumn && !paletteDocked && (
-            <div className="absolute z-20 flex flex-col rounded-xl border bg-surface shadow-lg"
+            <div className={`absolute z-20 flex flex-col border bg-surface ${glass ? 'ui-card rounded-2xl shadow-2xl' : 'rounded-xl shadow-lg'}`}
               onPointerDown={(e) => e.stopPropagation()}
               onContextMenu={(e) => e.stopPropagation()}
-              style={{ left: palettePos.x, top: palettePos.y, width: 210, height: 380, minWidth: 170, minHeight: 220, resize: 'both', overflow: 'hidden' }}>
-              {paletteHeader(() => setPaletteDocked(true), HELP.uiDockPanel, <Icon.DockIn side="left" size={14} />, (e) => { e.stopPropagation(); dragRef.current = { kind: 'palette', sx: e.clientX, sy: e.clientY, ox: palettePos.x, oy: palettePos.y } })}
+              style={{ left: palettePos.x, top: palettePos.y, width: palettePos.w, height: palettePos.h, minWidth: 170, minHeight: 220, resize: 'both', overflow: 'hidden' }}>
+              {paletteHeader(() => setPaletteDocked(true), HELP.uiDockPanel, <Icon.DockIn side="left" size={14} />, (e) => { e.stopPropagation(); e.preventDefault(); dragRef.current = { kind: 'palette', sx: e.clientX, sy: e.clientY, ox: palettePos.x, oy: palettePos.y, minY: topInset } })}
               {paletteBody}
             </div>
           )}

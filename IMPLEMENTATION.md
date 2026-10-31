@@ -28359,3 +28359,29 @@ keep their headings in the Menu.
 - Headless Chromium, Glass Light: the table with two draft stacks (made from the Patroni and
   Valkey templates for the test) and the deployed one; the Name sort; selecting the two drafts
   shows the bar; Delete 2 stacks → confirm removed both (one row left); no page errors.
+
+## 489. Glass: the Infrastructure Library pops out in place and stays reachable — `app/web/src/pages/StackDesigner.jsx`
+
+With the library set to the docked column (Settings → node library), detaching and re-attaching
+it in the Glass look was clunky in four ways, all seen in headless Chromium:
+
+- **Pop-out landed under the toolbar.** The floating panel started at a fixed (24, 24) of the
+  canvas. Glass floats the toolbar over the canvas, so the panel's title bar — its only drag
+  handle — was hidden behind it, and the panel could not be moved; only the toolbar's Palette
+  button brought it back. `popOutPalette` now lifts it off the dock where it stands (same width
+  and height, nudged 12px down-right), in every look; `palettePos` carries `w`/`h` for that.
+- **Dragging could lose it again.** A palette drag is clamped to the canvas and below
+  `topInset` (the floating toolbar's bottom), passed in the drag record as `minY`.
+- **The toolbar reflowed.** Detaching added a "+ Palette" button that shifted every control after
+  it. Glass no longer shows it; the floating panel docks from its own title bar. Other looks keep it.
+- **It did not look like Glass.** Both states were opaque `rounded-xl` boxes beside the frosted
+  `rounded-2xl` Properties card and toolbar; in Glass they are now `ui-card rounded-2xl`.
+
+Also, in every look: dragging the floating panel no longer selects text across the page
+(`preventDefault` on the header's pointerdown), and pressing the dock button no longer starts a drag.
+
+**Verification performed.**
+- `npm run build`, `make smoke`; image rebuilt and redeployed.
+- Headless Chromium, Glass Dark, docked library, a deployed 8-node stack: docked → pop out (panel
+  appears beside where it was docked, toolbar unchanged) → drag up 300px (stops at the toolbar's
+  bottom, no text selected) → dock (back in the column). Screenshots compared before/after.
