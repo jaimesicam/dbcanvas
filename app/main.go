@@ -105,6 +105,8 @@ func main() {
 
 	// A node's web UI through this port, for the browser window (browse.go).
 	mux.HandleFunc(browsePrefix, app.handleBrowseProxy)
+	// Licence texts and the GPL notice, public (licenses.go).
+	mux.HandleFunc("GET /licenses/", handleLicenses)
 	mux.Handle("/", spaHandler())
 
 	host := envOr("APP_HOST", "127.0.0.1")

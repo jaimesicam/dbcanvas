@@ -28385,3 +28385,46 @@ Also, in every look: dragging the floating panel no longer selects text across t
 - Headless Chromium, Glass Dark, docked library, a deployed 8-node stack: docked → pop out (panel
   appears beside where it was docked, toolbar unchanged) → drag up 300px (stops at the toolbar's
   bottom, no text selected) → dock (back in the column). Screenshots compared before/after.
+
+## 490. Licence notices reach every recipient, not only the image — `app/licenses.go` (new), `app/licenses_test.go` (new), `app/main.go`, `app/web/vite.config.js`, `app/web/src/auth/AuthScreens.jsx`, `app/web/src/pages/Dashboard.jsx`, `app/web/src/pages/Api.jsx`, `cli/main.go`, `images/bighole.Dockerfile`, `THIRD_PARTY_NOTICES.md`, `README.md`, `app/web/package.json`
+
+§476 put every licence text in the image under `/usr/share/doc/dbcanvas/`. An audit found three
+recipients of DBCanvas code who never open the image:
+
+- **The browser.** It receives React, xterm, rrweb, yaml and the fonts (MIT/ISC/BSD/OFL, which all
+  want their notice with the copy), and the minified bundles carried no comment at all.
+- **Whoever downloads dbcanvas-cli** from the API page. They got a GPL binary and three BSD/ISC
+  modules with no licence, no notices and no source pointer (GPLv3 §6).
+- **Anyone using the interface.** GPLv3 §5d wants an interactive UI to show Appropriate Legal
+  Notices, and there was none, including on the sign-in screen.
+
+What changed:
+- **`/licenses/`** (public, `licenses.go`): an index page with copyright, GPL-3.0-only, the
+  no-warranty statement, and the source link (§6d). Each file in `/usr/share/doc/dbcanvas` is
+  served as text/plain; only a bare filename is accepted. `DBCANVAS_LICENSE_DIR` overrides the
+  directory; a dev server with none still gets the notice and links to the texts in the repo.
+  The source link is the repository root, not `/tree/<version>`, because releases aren't tagged.
+- **JS bundles** open with a `/*!` comment naming the licence, the source and `/licenses/`. This
+  is Rolldown's `postBanner`; a plain `banner` is stripped by the minifier.
+- **Links:** a "Licences and source" line on the sign-in card, a Licences link beside What's new
+  on the Dashboard, and licence / third-party notices / source links under the CLI downloads.
+  `dbcanvas version` prints the licence and source URL.
+- **Big Hole** (MIT, built locally from upstream source) now ships upstream's LICENSE at
+  `/usr/share/doc/big-hole/LICENSE` and serves it at `/LICENSE.txt`.
+- **Declarations:** NOTICES states GPL-3.0-only and the copyright, adds a table of who receives
+  what and where their notices are, adds the three simulator-only Go modules (go-redis BSD-2,
+  xxhash MIT, atomic MIT), and covers the locally built k8scollector/Big Hole images and pulled
+  images. The README gains a License section; `package.json` gains `"license": "GPL-3.0-only"`.
+- **supportsim image rebuilt.** The local `dbcanvas-supportsim:v0.0.23` predated §476 and had no
+  `/usr/share/doc/supportsim/`; the Dockerfile was already right.
+
+**Verification performed.**
+- `go vet`, `TestLicenses` (index, LICENSE first, text/plain, 404 on missing/dotfile/encoded
+  traversal, notice with no texts); `cli` tests; `npm run build`, `make smoke` (the docs-links
+  check caught a longhand repo URL; now `docURL('cli')`). `TestRepoManifestImages` fails without
+  these changes too (missing `testdata/cr.yaml`), so it's unrelated.
+- Live, rebuilt image: `/licenses` → 307 → `/licenses/`, which lists all six files, each 200
+  text/plain; the served index JS opens with the banner; the sign-in screen, the Dashboard
+  link and the index page screenshotted in headless Chromium.
+- Images: supportsim now has LICENSE and THIRD_PARTY_LICENSES.txt (15 modules); Big Hole has
+  `/usr/share/doc/big-hole/LICENSE` (MIT, zelmario).

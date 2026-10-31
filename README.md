@@ -156,6 +156,16 @@ cluster misbehave on purpose and show the impact live.
 - Linux (recommended) or macOS, including Apple Silicon.
 - **Vagrant + VirtualBox**, only if you use the hybrid backend, which runs database nodes as VMs.
 
+## License
+
+Copyright © 2026 Jaime Sicam. DBCanvas is free software under the
+[GNU General Public License, version 3 only](LICENSE) (GPL-3.0-only), with no warranty.
+
+It bundles third-party software, each component under its own licence — all of them
+GPLv3-compatible. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists them. A running
+installation publishes the full texts at `/licenses/` (linked from the sign-in screen and the
+Dashboard), and the container image carries them under `/usr/share/doc/dbcanvas/`.
+
 ---
 
 ## What's new

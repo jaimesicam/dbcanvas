@@ -10,10 +10,11 @@
 # node's panel shows it.
 #
 # The two stages are upstream's own (node build → nginx serving the static
-# output, with their nginx.conf), with one change: the build stage runs on the
-# BUILD host's architecture and emits platform-neutral JavaScript, so an arm64
-# installation does not run `npm ci` under emulation for output that would be
-# byte-identical either way. Only the nginx runtime is pulled per platform.
+# output, with their nginx.conf), with two changes: the licence is copied in
+# (below), and the build stage runs on the BUILD host's architecture and emits
+# platform-neutral JavaScript, so an arm64 installation does not run `npm ci`
+# under emulation for output that would be byte-identical either way. Only the
+# nginx runtime is pulled per platform.
 
 ARG BIGHOLE_REF=896984fe9e9a7f1f59cc4ce29237625f8aaa713f
 
@@ -42,4 +43,8 @@ RUN npm run build
 FROM nginx:alpine
 COPY --from=build /src/dist /usr/share/nginx/html
 COPY --from=build /src/docker/nginx.conf /etc/nginx/conf.d/default.conf
+# Upstream's MIT licence travels with the copy, as MIT asks — beside the app it covers,
+# so the browser that loads Big Hole can read it too (/LICENSE.txt).
+COPY --from=build /src/LICENSE /usr/share/doc/big-hole/LICENSE
+COPY --from=build /src/LICENSE /usr/share/nginx/html/LICENSE.txt
 EXPOSE 80

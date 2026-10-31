@@ -249,6 +249,9 @@ func need(n int, what string) error {
 
 func cmdVersion(args []string) error {
 	fmt.Printf("dbcanvas-cli %s\n", version)
+	// The binary is downloaded on its own, so it says what it is licensed under itself.
+	fmt.Println("Free software under the GPL-3.0-only, with NO WARRANTY.")
+	fmt.Println("Source and licences: https://github.com/jaimesicam/dbcanvas")
 	// The server's version is worth having in the same breath, but not worth
 	// failing over: `dbcanvas version` has to work before anybody has signed in.
 	c, err := mustClient()

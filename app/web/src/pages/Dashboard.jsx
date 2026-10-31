@@ -105,6 +105,9 @@ export default function Dashboard() {
         <span className="ml-auto flex flex-wrap items-center gap-3">
           <UpdateCheckButton />
           <WhatsNewLink data={whatsNew.data} onClick={whatsNew.showAll} />
+          {/* The licence, its no-warranty notice and the source (app/licenses.go). */}
+          <a href="/licenses/" target="_blank" rel="noreferrer" title="DBCanvas is free software under the GPL-3.0. Licences of everything it bundles, and its source."
+            className="inline-flex items-center gap-1.5 text-xs text-muted transition hover:text-fg">Licences</a>
         </span>
       </div>
 

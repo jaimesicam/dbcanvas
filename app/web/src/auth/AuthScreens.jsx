@@ -104,6 +104,11 @@ export function Shell({ title, subtitle, children }) {
           </div>
         </div>
         {children}
+        {/* GPLv3 §5d: an interactive interface shows where its licence is — before sign-in too. */}
+        <p className="mt-5 text-center text-[11px] text-muted">
+          Free software under the GPL-3.0, with no warranty ·{' '}
+          <a href="/licenses/" target="_blank" rel="noreferrer" className="hover:text-fg hover:underline">Licences and source</a>
+        </p>
       </div>
     </div>
   )

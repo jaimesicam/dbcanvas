@@ -519,6 +519,13 @@ export function GettingStarted() {
                 </a>
               ))}
             </div>
+            {/* The binary goes out alone, so its licence, its modules' notices and its source are named here. */}
+            <p className="mt-1.5 text-xs">
+              GPL-3.0-only, no warranty —{' '}
+              <a href="/licenses/LICENSE" target="_blank" rel="noreferrer" className="text-primary hover:underline">licence</a>,{' '}
+              <a href="/licenses/THIRD_PARTY_LICENSES-cli.txt" target="_blank" rel="noreferrer" className="text-primary hover:underline">third-party notices</a>,{' '}
+              <a href={docURL('cli')} target="_blank" rel="noreferrer" className="text-primary hover:underline">source</a>.
+            </p>
           </li>
           <li>
             <span className="text-fg">Put it on your PATH.</span> One static binary, no

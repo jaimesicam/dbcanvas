@@ -1,9 +1,23 @@
 # Third-party notices
 
-DBCanvas is free software, licensed under the GNU General Public License, version 3
-(see `LICENSE`). It is built with, and its container image redistributes, the
-third-party components below. Every one is under a licence that is compatible with
-GPLv3; none of them is relicensed by being included, and each keeps its own terms.
+Copyright © 2026 Jaime Sicam.
+
+DBCanvas is free software, licensed under the GNU General Public License, **version 3
+only** (GPL-3.0-only; see `LICENSE`), and comes with no warranty. It is built with, and
+its container image redistributes, the third-party components below. Every one is under
+a licence that is compatible with GPLv3; none of them is relicensed by being included,
+and each keeps its own terms.
+
+## Where the notices reach each recipient
+
+| Who receives DBCanvas code | How | Where the licences are |
+|---|---|---|
+| Whoever runs the container image | the image | `/usr/share/doc/dbcanvas/` (below) |
+| Every browser that opens the web interface | the JS bundles and fonts | `/licenses/` on the installation, linked from the sign-in screen and the Dashboard; every JS file opens with a comment naming it |
+| Whoever downloads `dbcanvas-cli` from the API page | the binary | linked beside the downloads; `dbcanvas version` prints the licence and source |
+
+The Corresponding Source (GPLv3 §6d) is the public repository,
+https://github.com/jaimesicam/dbcanvas, which `/licenses/` links to.
 
 The full licence text of each component is generated at image build time from what was
 actually compiled in, and ships in the image under `/usr/share/doc/dbcanvas/`:
@@ -15,6 +29,9 @@ actually compiled in, and ships in the image under `/usr/share/doc/dbcanvas/`:
 | `THIRD_PARTY_LICENSES-go.txt` | Go modules in the server and `dbcanvas_reset_password` | `app/scripts/go-third-party-licenses.sh` |
 | `THIRD_PARTY_LICENSES-cli.txt` | Go modules in the `dbcanvas-cli` binaries the image offers for download | `app/scripts/go-third-party-licenses.sh` |
 | `k3d.LICENSE` | the bundled `k3d` binary | fetched from the release tag |
+
+A running installation serves the same files at `/licenses/` (`app/licenses.go`), with
+the GPL notice and the source link on its index page.
 
 Both generators fail the build if a dependency has no licence text to ship, so a new
 dependency cannot go out unreviewed.
@@ -57,6 +74,13 @@ The rrweb packages publish no licence file; their upstream MIT text is kept in
 | ISC | github.com/coder/websocket |
 | MPL-2.0 | github.com/go-sql-driver/mysql |
 
+The simulator images (below) also link three modules the server does not:
+
+| Licence | Modules |
+|---|---|
+| BSD-2-Clause | github.com/redis/go-redis/v9 |
+| MIT | github.com/cespare/xxhash/v2, go.uber.org/atomic |
+
 Apache-2.0 is GPLv3-compatible (not GPLv2); MPL-2.0 is GPL-compatible through its
 Secondary Licence clause, which go-sql-driver/mysql does not opt out of. Any NOTICE
 files these modules carry are reproduced in the generated texts, as Apache-2.0 §4(d)
@@ -80,4 +104,9 @@ licences are inside the shaded jar. supportsim's `NOTICE` covers its embedding m
 
 The node images under `images/` are built by each installation from upstream
 distribution packages (Percona, MariaDB, MySQL, PostgreSQL and others); the DBCanvas
-source does not include or redistribute those packages.
+source does not include or redistribute those packages. The same holds for the other
+images an installation builds for itself from a Dockerfile here: the K3D diagnostics
+image (Percona Toolkit, GPL-2.0; kubectl, Apache-2.0) and Big Hole (MIT, built from
+upstream source, which ships its licence at `/usr/share/doc/big-hole/LICENSE` and
+serves it at `/LICENSE.txt`). Images pulled as-is — Watchtower, PMM, k3s, the
+operators — come from their publishers with their own notices.
