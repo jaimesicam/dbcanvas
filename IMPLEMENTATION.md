@@ -28767,3 +28767,29 @@ naming repmgr; repmgr members keep their names, so a redeploy replaces the units
   installed through EPEL, the archiver at 0 failures from the first segment, a full backup, the
   slot; each member running `dbcanvas-pgrolechk` (`pgrolechk.socket` active), answering
   `/primary` 200 on the primary and 503 on the standby.
+
+## 498. Infrastructure Library entries say what they are for — `app/web/src/pages/StackDesigner.jsx`, `app/web/smoke/render.jsx`, `docs/STACKS.md`
+
+**Goal.** An entry named only by its product leaves the choice to someone who already knows the
+product: SeaweedFS and Ceph are both storage, and one is an S3 store for backups while the other is
+block volumes for Kubernetes. The role was only in the hover tooltip.
+
+- Every item in `paletteGroups` gains `role`, a few words on what it is for ("S3 store for
+  backups", "block volumes for Kubernetes", "streaming · no failover manager", "standalone
+  server"). Every entry has one, so the rows keep one height.
+- The docked library renders a button's inside with `PaletteEntry` (exported): the label, and the
+  role on a second line at 10px, slightly transparent over the type colour. Search matches the
+  role as well, so "s3" or "failover" find entries.
+- The canvas add menu, the default way to add nodes, gets the same line: `ContextMenu` entries take
+  an optional `note`, drawn under the label at 11px in the muted colour, and `addMenuActions` passes
+  each item's role as its note. `menuWidth` sizes a panel for the longer of the label and the note
+  (`MENU_NOTE_CHAR_W` = 5.6), and `menuRowHeight` adds `MENU_NOTE_H` (16px) for a row with a note,
+  so placement still keeps the panel on screen.
+- STACKS.md says the entries carry the description and that search matches it.
+
+### Verification performed
+- `npm run build`, `npm run smoke`: new checks render `PaletteEntry` with and without a role,
+  widen a panel for a long note while a plain short label keeps 208px, and carry roles through
+  `menuEntriesFor`; the EOL check's source pattern allows the new field between `label` and `type`.
+- The library button and the menu row were rendered with the built stylesheet in headless Chrome
+  and looked at: the second line fits under each label in both, without truncating.

@@ -1018,6 +1018,22 @@ const K3D_DEBUGGABLE = new Set(['pxc', 'ps', 'psmdb', 'pg'])
 // be tinted to match the node/frame it creates. addBtnStyle turns that into inline
 // styles (disabled buttons keep the tint but the shared disabled:opacity-50 fades it).
 const typeColor = (t) => FRAME_COLORS[t] || NODE_TYPES[t]?.color || null
+// PaletteEntry is the inside of a library button: the product on the first line and, under it,
+// what it is for. The label stays the name the canvas and the menus use; the role line is what
+// tells two similar-sounding entries apart (an S3 store for backups, block volumes for
+// Kubernetes) without hovering for the tooltip.
+export function PaletteEntry({ label, role }) {
+  return (
+    <>
+      <Icon.Plus size={13} className="shrink-0" />
+      <span className="flex min-w-0 flex-col leading-tight">
+        <span className="truncate">{label}</span>
+        {role && <span className="truncate text-[10px] font-normal opacity-80">{role}</span>}
+      </span>
+    </>
+  )
+}
+
 const addBtnStyle = (t) => {
   const c = typeColor(t)
   return c ? { backgroundColor: c, borderColor: c, color: '#fff' } : undefined
@@ -4796,80 +4812,80 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
   // items goes too, rather than leaving an empty heading.
   const paletteGroups = visibleGroups([
     { title: 'Core', items: [
-      { label: 'Intranet', type: 'intranet', onClick: () => addNode('intranet'), off: hasIntranet },
+      { label: 'Intranet', role: 'DNS · CA · LDAP · proxy', type: 'intranet', onClick: () => addNode('intranet'), off: hasIntranet },
     ] },
     { title: 'All in One', items: [
-      { label: 'All in One', type: 'aio', onClick: () => addNode('aio') },
+      { label: 'All in One', role: 'many servers, one container', type: 'aio', onClick: () => addNode('aio') },
     ] },
     { title: 'MySQL (Percona)', items: [
-      { label: 'PXC Cluster', type: 'pxc', onClick: addPXCCluster },
-      { label: 'Percona Server', type: 'ps', onClick: () => addNode('ps') },
-      { label: 'PS Replication', type: 'mysql', onClick: addMySQLCluster },
-      { label: 'InnoDB / GR', type: 'innodb', onClick: addInnoDBCluster },
+      { label: 'PXC Cluster', role: 'Galera · synchronous', type: 'pxc', onClick: addPXCCluster },
+      { label: 'Percona Server', role: 'standalone server', type: 'ps', onClick: () => addNode('ps') },
+      { label: 'PS Replication', role: 'async or semi-sync', type: 'mysql', onClick: addMySQLCluster },
+      { label: 'InnoDB / GR', role: 'Group Replication · Router', type: 'innodb', onClick: addInnoDBCluster },
     ] },
     { title: 'MySQL (Community)', items: [
-      { label: 'MySQL', type: 'mysqlce', onClick: () => addNode('mysqlce') },
-      { label: 'MySQL Replication', type: 'mysqlcerepl', onClick: addMySQLCECluster },
-      { label: 'MySQL InnoDB / GR', type: 'mysqlceinnodb', onClick: addMySQLCEInnoDBCluster },
+      { label: 'MySQL', role: 'standalone server', type: 'mysqlce', onClick: () => addNode('mysqlce') },
+      { label: 'MySQL Replication', role: 'async or semi-sync', type: 'mysqlcerepl', onClick: addMySQLCECluster },
+      { label: 'MySQL InnoDB / GR', role: 'Group Replication · Router', type: 'mysqlceinnodb', onClick: addMySQLCEInnoDBCluster },
     ] },
     { title: 'MariaDB', items: [
-      { label: 'MariaDB', type: 'mariadb', onClick: () => addNode('mariadb') },
-      { label: 'MariaDB Replication', type: 'mariadbrepl', onClick: addMariaDBCluster },
-      { label: 'MariaDB Galera', type: 'mariadbgalera', onClick: addMariaDBGaleraCluster },
+      { label: 'MariaDB', role: 'standalone server', type: 'mariadb', onClick: () => addNode('mariadb') },
+      { label: 'MariaDB Replication', role: 'async · MariaDB GTID', type: 'mariadbrepl', onClick: addMariaDBCluster },
+      { label: 'MariaDB Galera', role: 'synchronous multi-primary', type: 'mariadbgalera', onClick: addMariaDBGaleraCluster },
     ] },
     { title: 'MongoDB', items: [
-      { label: 'PSMDB Sharded', type: 'psmdb', onClick: () => addMongoDBCluster() },
-      { label: 'PSMDB Replica Set', type: 'psmrs', onClick: addMongoRSCluster },
-      { label: 'PSMDB', type: 'psm', onClick: () => addNode('psm') },
-      { label: 'MClusterAdmin', type: 'mclusteradmin', onClick: () => addNode('mclusteradmin') },
-      { label: 'Big Hole (FTDC viewer)', type: 'bighole', onClick: () => addNode('bighole') },
+      { label: 'PSMDB Sharded', role: 'mongos + config + shards', type: 'psmdb', onClick: () => addMongoDBCluster() },
+      { label: 'PSMDB Replica Set', role: 'automatic elections', type: 'psmrs', onClick: addMongoRSCluster },
+      { label: 'PSMDB', role: 'standalone server', type: 'psm', onClick: () => addNode('psm') },
+      { label: 'MClusterAdmin', role: 'MongoDB admin panel', type: 'mclusteradmin', onClick: () => addNode('mclusteradmin') },
+      { label: 'Big Hole (FTDC viewer)', role: 'reads diagnostic.data', type: 'bighole', onClick: () => addNode('bighole') },
     ] },
     { title: 'PostgreSQL', items: [
-      { label: 'PostgreSQL', type: 'pg', onClick: () => addNode('pg') },
-      { label: 'Patroni Cluster', type: 'patroni', onClick: addPatroniCluster },
-      { label: 'repmgr Cluster', type: 'repmgr', onClick: addRepmgrCluster },
-      { label: 'Streaming Replication', type: 'pgstream', onClick: addPGStreamCluster },
-      { label: 'Spock Cluster', type: 'spock', onClick: addSpockCluster },
+      { label: 'PostgreSQL', role: 'standalone server', type: 'pg', onClick: () => addNode('pg') },
+      { label: 'Patroni Cluster', role: 'automatic failover · etcd', type: 'patroni', onClick: addPatroniCluster },
+      { label: 'repmgr Cluster', role: 'automatic failover · repmgrd', type: 'repmgr', onClick: addRepmgrCluster },
+      { label: 'Streaming Replication', role: 'streaming · no failover manager', type: 'pgstream', onClick: addPGStreamCluster },
+      { label: 'Spock Cluster', role: 'multi-master · logical', type: 'spock', onClick: addSpockCluster },
     ] },
     { title: 'Valkey', items: [
-      { label: 'Valkey Cluster', type: 'valkeycluster', onClick: () => addValkeyCluster() },
-      { label: 'Valkey Sentinel', type: 'valkeycluster', onClick: () => addValkeyCluster('sentinel') },
-      { label: 'Valkey', type: 'valkey', onClick: () => addNode('valkey') },
+      { label: 'Valkey Cluster', role: 'sharded · replicas', type: 'valkeycluster', onClick: () => addValkeyCluster() },
+      { label: 'Valkey Sentinel', role: 'replicas · Sentinel failover', type: 'valkeycluster', onClick: () => addValkeyCluster('sentinel') },
+      { label: 'Valkey', role: 'standalone server', type: 'valkey', onClick: () => addNode('valkey') },
     ] },
     { title: 'Kubernetes', items: [
-      { label: 'K3D Cluster', type: 'k3d', onClick: addK3DCluster },
+      { label: 'K3D Cluster', role: 'k3s · Percona operators', type: 'k3d', onClick: addK3DCluster },
     ] },
     { title: 'Proxies & HA', items: [
-      { label: 'ProxySQL', type: 'proxysql', onClick: () => addNode('proxysql') },
-      { label: 'ProxySQL Cluster', type: 'proxysql', onClick: addProxySQLCluster },
-      { label: 'HAProxy', type: 'haproxy', onClick: () => addNode('haproxy') },
-      { label: 'PgBouncer', type: 'pgbouncer', onClick: () => addNode('pgbouncer') },
-      { label: 'Orchestrator', type: 'orchestrator', onClick: () => addNode('orchestrator') },
+      { label: 'ProxySQL', role: 'MySQL routing · pooling', type: 'proxysql', onClick: () => addNode('proxysql') },
+      { label: 'ProxySQL Cluster', role: 'ProxySQL with shared config', type: 'proxysql', onClick: addProxySQLCluster },
+      { label: 'HAProxy', role: 'TCP balancer · health checks', type: 'haproxy', onClick: () => addNode('haproxy') },
+      { label: 'PgBouncer', role: 'PostgreSQL connection pooler', type: 'pgbouncer', onClick: () => addNode('pgbouncer') },
+      { label: 'Orchestrator', role: 'MySQL topology & failover', type: 'orchestrator', onClick: () => addNode('orchestrator') },
     ] },
     { title: 'Monitoring', items: [
-      { label: 'PMM3', type: 'pmm', onClick: () => addNode('pmm') },
+      { label: 'PMM3', role: 'monitoring · Query Analytics', type: 'pmm', onClick: () => addNode('pmm') },
       // End of life: in the library only where EOL is on (lib/experimental.js).
-      { label: 'PMM2', type: 'pmm2', onClick: () => addNode('pmm2'), eol: true },
-      { label: 'Watchtower', type: 'watchtower', onClick: () => addNode('watchtower'), off: has('watchtower') },
+      { label: 'PMM2', role: 'end of life', type: 'pmm2', onClick: () => addNode('pmm2'), eol: true },
+      { label: 'Watchtower', role: 'PMM self-upgrade', type: 'watchtower', onClick: () => addNode('watchtower'), off: has('watchtower') },
     ] },
     { title: 'Identity & Secrets', items: [
-      { label: 'Samba AD DC', type: 'sambaad', onClick: () => addNode('sambaad'), off: has('sambaad') },
-      { label: 'Keycloak', type: 'keycloak', onClick: () => addNode('keycloak'), off: has('keycloak') },
-      { label: 'OpenBao', type: 'openbao', onClick: () => addNode('openbao'), off: has('openbao') },
+      { label: 'Samba AD DC', role: 'LDAP · Kerberos', type: 'sambaad', onClick: () => addNode('sambaad'), off: has('sambaad') },
+      { label: 'Keycloak', role: 'SSO · OIDC', type: 'keycloak', onClick: () => addNode('keycloak'), off: has('keycloak') },
+      { label: 'OpenBao', role: 'keys for encryption at rest', type: 'openbao', onClick: () => addNode('openbao'), off: has('openbao') },
     ] },
     { title: 'Storage & Clients', items: [
-      { label: 'SeaweedFS', type: 'seaweedfs', onClick: () => addNode('seaweedfs') },
-      { label: 'Ceph', type: 'ceph', onClick: () => addNode('ceph') },
-      { label: 'Ubuntu VNC', type: 'vnc', onClick: () => addNode('vnc'), off: has('vnc') },
-      { label: 'Linux Client', type: 'linuxclient', onClick: () => addNode('linuxclient') },
-      { label: 'Repository', type: 'repository', onClick: () => addNode('repository') },
+      { label: 'SeaweedFS', role: 'S3 store for backups', type: 'seaweedfs', onClick: () => addNode('seaweedfs') },
+      { label: 'Ceph', role: 'block volumes for Kubernetes', type: 'ceph', onClick: () => addNode('ceph') },
+      { label: 'Ubuntu VNC', role: 'desktop with a browser', type: 'vnc', onClick: () => addNode('vnc'), off: has('vnc') },
+      { label: 'Linux Client', role: 'database clients & tools', type: 'linuxclient', onClick: () => addNode('linuxclient') },
+      { label: 'Repository', role: 'yum/apt mirror · registry', type: 'repository', onClick: () => addNode('repository') },
     ] },
     { title: 'App Simulators', items: [
-      { label: 'Support Sim (Vector Search)', type: 'supportsim', onClick: () => addNode('supportsim') },
-      { label: 'pgvector Support Sim', type: 'pgvectorsim', onClick: () => addNode('pgvectorsim') },
-      { label: 'Stock Market Sim', type: 'stocksim', onClick: () => addNode('stocksim') },
-      { label: 'Ledger Sim', type: 'ledgersim', onClick: () => addNode('ledgersim') },
-      { label: 'Performance Sim', type: 'perfsim', onClick: () => addNode('perfsim') },
+      { label: 'Support Sim (Vector Search)', role: 'MongoDB vector search demo', type: 'supportsim', onClick: () => addNode('supportsim') },
+      { label: 'pgvector Support Sim', role: 'pgvector search demo', type: 'pgvectorsim', onClick: () => addNode('pgvectorsim') },
+      { label: 'Stock Market Sim', role: 'trading workload', type: 'stocksim', onClick: () => addNode('stocksim') },
+      { label: 'Ledger Sim', role: 'banking workload over JDBC', type: 'ledgersim', onClick: () => addNode('ledgersim') },
+      { label: 'Performance Sim', role: 'stressors · live timeline', type: 'perfsim', onClick: () => addNode('perfsim') },
     ] },
   ], showExperimental(system), showEOL(system))
 
@@ -4883,6 +4899,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       const { disabled, reason } = entryState(it)
       return {
         label: it.label,
+        note: it.role,
         help: reason,
         disabled,
         // dropAt is what turns "add" into "add here" — placeAt reads it, every
@@ -4904,11 +4921,11 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
   // Flat index for the search box and the recents lookup. Labels are unique across
   // groups, so a label doubles as an entry's stable id in the persisted recents.
   const paletteItems = paletteGroups.flatMap((g) => g.items.map((it) => ({ ...it, group: g.title })))
-  // Search matches label + category + node type, so "mongo" finds every PSMDB entry via
+  // Search matches label + role + category + node type, so "mongo" finds every PSMDB entry via
   // its category. Aliases cover the names people type that appear nowhere in the UI.
   const q = paletteQuery.trim().toLowerCase()
   const matches = (it, group) =>
-    !q || `${it.label} ${group} ${it.type} ${PALETTE_ALIASES[it.type] || ''}`.toLowerCase().includes(q)
+    !q || `${it.label} ${it.role || ''} ${group} ${it.type} ${PALETTE_ALIASES[it.type] || ''}`.toLowerCase().includes(q)
 
   const remember = (label) => setRecent((r) => [label, ...r.filter((l) => l !== label)].slice(0, RECENT_MAX))
   const toggleGroup = (title) =>
@@ -4933,8 +4950,8 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
         <button disabled={disabled}
           onClick={() => { remember(it.label); it.onClick() }}
           style={addBtnStyle(it.type)}
-          className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium shadow-sm disabled:opacity-40">
-          <Icon.Plus size={13} /> <span className="truncate">{it.label}</span>
+          className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs font-medium shadow-sm disabled:opacity-40">
+          <PaletteEntry label={it.label} role={it.role} />
         </button>
       </Hint>
     )
@@ -15167,6 +15184,7 @@ function MenuItem({ a, onClose }) {
         className={`block w-full break-words rounded-md px-2.5 py-1.5 text-left text-sm leading-snug hover:bg-surface2 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent ${a.danger ? 'text-danger' : 'text-fg'}`}
       >
         {a.label}
+        {a.note && <span className="block text-[11px] font-normal leading-snug text-muted">{a.note}</span>}
       </button>
     </Hint>
   )
@@ -15174,6 +15192,9 @@ function MenuItem({ a, onClose }) {
 
 // ContextMenu renders a right-click menu. An entry is a separator ({ sep: true }),
 // a heading ({ heading }), a leaf ({ label, fn }), or a submenu ({ label, items }).
+// A leaf may carry a `note`: a smaller second line under the label saying what the entry is
+// for, which the add menu uses so "SeaweedFS" and "Ceph" read as S3 backups and Kubernetes
+// volumes before anything is hovered.
 // Submenus open on hover and on click, nest to any depth, and flip to the left of
 // the parent when there is no room on the right — the add menu opens wherever the
 // pointer is, including hard against the right edge of the canvas.
@@ -15209,6 +15230,8 @@ const MENU_W_MAX = 340 // past this a cascade four deep walks off the canvas
 const MENU_CHAR_W = 6.9
 const MENU_CHROME = 28 // the panel's padding plus the row's, left and right
 const MENU_SUB_CHROME = 45 // a submenu row also carries its count and its chevron
+const MENU_NOTE_CHAR_W = 5.6 // a note is text-[11px]: MENU_CHAR_W scaled from 14px
+const MENU_NOTE_H = 16 // the note's own line under the label
 
 // menuChars is how many characters fit on one line of a row in a panel this wide.
 const menuChars = (W, sub) => Math.max(8, Math.floor((W - MENU_CHROME - (sub ? MENU_SUB_CHROME : 0)) / MENU_CHAR_W))
@@ -15221,14 +15244,15 @@ export function menuWidth(actions) {
   let want = MENU_W_MIN
   for (const a of actions || []) {
     if (a.sep || a.heading) continue
-    const need = Math.round((a.label || '').length * MENU_CHAR_W) + MENU_CHROME + (a.items ? MENU_SUB_CHROME : 0)
+    const text = Math.max((a.label || '').length * MENU_CHAR_W, (a.note || '').length * MENU_NOTE_CHAR_W)
+    const need = Math.round(text) + MENU_CHROME + (a.items ? MENU_SUB_CHROME : 0)
     if (need > want) want = need
   }
   return Math.min(MENU_W_MAX, want)
 }
 
 const menuLines = (a, W) => Math.max(1, Math.ceil((a.label || '').length / menuChars(W, !!a.items)))
-const menuRowHeight = (a, W) => (a.sep ? 9 : a.heading ? 22 : 30 + 21 * (menuLines(a, W) - 1))
+const menuRowHeight = (a, W) => (a.sep ? 9 : a.heading ? 22 : 30 + 21 * (menuLines(a, W) - 1) + (a.note ? MENU_NOTE_H : 0))
 const menuHeight = (actions, W = MENU_W_MIN) => actions.reduce((h, a) => h + menuRowHeight(a, W), 8)
 
 // MENU_ASYNC_PLACEHOLDER stands in for a submenu whose items are still being

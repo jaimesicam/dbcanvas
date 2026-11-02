@@ -20,9 +20,10 @@ deploy and connect. This page is the reference behind it.
    (CA) every node trusts, OpenLDAP, mail (Roundcube webmail) and a Squid proxy that caches
    package downloads.
 2. **Add nodes.** Right-click the canvas where you want a node and pick it from the
-   **Infrastructure Library**. Hover an entry to see what it gives you, or why it is unavailable.
-   To browse the whole catalog with search (it also matches aliases such as `redis`, `k8s` or
-   `vault`) and a recently-used list, set **Settings → Adding nodes** to *Docked library*.
+   **Infrastructure Library**. Each entry says under its name what it is for (*S3 store for
+   backups*, *block volumes for Kubernetes*); hover it for more, or for why it is unavailable.
+   To browse the whole catalog with search (it matches those descriptions and aliases such as
+   `redis`, `k8s` or `vault`) and a recently-used list, set **Settings → Adding nodes** to *Docked library*.
 3. **Add clusters.** A cluster is a **frame**: a dashed box that owns its members. The frame's
    panel sets what is true of the whole cluster (name, version, replication mode); each member's
    panel sets what is true of that node.

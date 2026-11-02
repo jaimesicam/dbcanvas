@@ -65,7 +65,7 @@ import {
   frameHeaderW, layoutFrame, separateFrames, SIM_NODE_TYPES, frameVersionLabel, frameSubLabel,
   podMenuEntries, POD_SHELLS, POD_CLIENTS,
   Spinner, NodeStatus, nodeConfiguring, configPhaseOf, PITRFields,
-  FrameVaultFields, PgBouncerForm, PGHostAuthFields, PGStreamFrameForm,
+  FrameVaultFields, PgBouncerForm, PGHostAuthFields, PGStreamFrameForm, PaletteEntry,
 } from '../src/pages/StackDesigner.jsx'
 import PGStreamManager from '../src/pages/PGStreamManager.jsx'
 import PgBouncerManager from '../src/pages/PgBouncerManager.jsx'
@@ -4047,7 +4047,7 @@ check('eol: end-of-life releases are offered only where EOL is on', () => {
 
   // PMM2 is in the real palette, tagged, and the palette passes the switch through.
   const text = nodeFs.readFileSync(new URL('../src/pages/StackDesigner.jsx', import.meta.url), 'utf8')
-  if (!/label: 'PMM2', type: 'pmm2'[^}]*eol: true/.test(text)) throw new Error('PMM2 is not in the palette with an eol tag')
+  if (!/label: 'PMM2',[^}]*type: 'pmm2'[^}]*eol: true/.test(text)) throw new Error('PMM2 is not in the palette with an eol tag')
   if (!/\], showExperimental\(system\), showEOL\(system\)\)/.test(text)) throw new Error('paletteGroups does not pass the EOL switch')
   return 'eol and experimental filter independently'
 })
@@ -6616,6 +6616,25 @@ check('streaming replication manager: a cluster with backups names its repositor
   const none = renderToString(<PGStreamManager stackId={1} nodeId="s1" dep={{ state: 'running', config: { role: 'primary' }, secrets: {} }} onDeleteNode={noop} />)
   if (none.includes('>Backup<')) throw new Error('a Backup tab on a cluster with no backups')
   return html
+})
+
+check('infrastructure library: an entry says what it is for under its name', () => {
+  const html = renderToString(<PaletteEntry label="SeaweedFS" role="S3 store for backups" />)
+  if (!html.includes('SeaweedFS') || !html.includes('S3 store for backups')) throw new Error('the role line is missing')
+  const bare = renderToString(<PaletteEntry label="Ceph" />)
+  if (!bare.includes('Ceph') || bare.includes('text-[10px]')) throw new Error('an entry with no role draws an empty second line')
+  return html
+})
+
+check('menu: a note under a label is counted in the panel width', () => {
+  const plain = [{ label: 'Ceph' }]
+  const noted = [{ label: 'Ceph', note: 'block volumes for Kubernetes, and a little more' }]
+  if (menuWidth(plain) !== 208) throw new Error(`a short label should keep the 208px panel, got ${menuWidth(plain)}`)
+  if (menuWidth(noted) <= 208) throw new Error(`a long note should widen the panel, got ${menuWidth(noted)}`)
+  const add = menuEntriesFor([{ title: 'Storage & Clients', items: [{ label: 'SeaweedFS', role: 'S3 store for backups' }, { label: 'Ceph', role: 'block volumes for Kubernetes' }] }],
+    (it) => ({ label: it.label, note: it.role }))
+  if (add[0].items.map((i) => i.note).join('|') !== 'S3 store for backups|block volumes for Kubernetes') throw new Error('the roles did not reach the menu entries')
+  return 'ok'
 })
 
 if (failures > 0) {
