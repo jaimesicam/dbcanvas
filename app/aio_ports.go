@@ -62,9 +62,9 @@ type aioKind struct {
 // aioKinds is the catalog. Order is the order the "Add feature" menu shows.
 var aioKinds = []aioKind{
 	{Kind: "ps", Label: "Percona Server", Family: famMySQL, EstMemMB: 700},
-	{Kind: "psrepl", Label: "PS Replication", Family: famMySQL, Cluster: true, MinMem: 2, MaxMem: 5, DefMem: 3, EstMemMB: 700},
+	{Kind: "psrepl", Label: "Percona Server Replication", Family: famMySQL, Cluster: true, MinMem: 2, MaxMem: 5, DefMem: 3, EstMemMB: 700},
 	{Kind: "innodb", Label: "InnoDB Cluster / GR", Family: famMySQL, Cluster: true, MinMem: 3, MaxMem: 9, DefMem: 3, OddOnly: true, EstMemMB: 800},
-	{Kind: "pxc", Label: "PXC Cluster", Family: famMySQL, Cluster: true, MinMem: 2, MaxMem: 5, DefMem: 3, EstMemMB: 900},
+	{Kind: "pxc", Label: "PXC", Family: famMySQL, Cluster: true, MinMem: 2, MaxMem: 5, DefMem: 3, EstMemMB: 900},
 	{Kind: "mysqlce", Label: "MySQL Community", Family: famMySQL, EstMemMB: 700},
 	{Kind: "mysqlcerepl", Label: "MySQL Replication", Family: famMySQL, Cluster: true, MinMem: 2, MaxMem: 5, DefMem: 3, EstMemMB: 700},
 	{Kind: "mysqlceinnodb", Label: "MySQL InnoDB / GR", Family: famMySQL, Cluster: true, MinMem: 3, MaxMem: 9, DefMem: 3, OddOnly: true, EstMemMB: 800},

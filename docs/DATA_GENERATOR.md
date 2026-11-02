@@ -111,7 +111,7 @@ Not generated: PostgreSQL interval, bytea, xml, arrays, range and domain types.
 
 | Engine | Nodes offered |
 | --- | --- |
-| PostgreSQL | PostgreSQL, Patroni, repmgr, Streaming Replication, Spock |
+| PostgreSQL | PostgreSQL, Patroni, repmgr, PostgreSQL Replication, Spock |
 | MySQL | Percona Server, PXC, InnoDB Cluster / GR, MySQL Community, MariaDB |
 | MongoDB | PSMDB standalone, PSMDB RS members, and the **mongos** router of a sharded cluster |
 

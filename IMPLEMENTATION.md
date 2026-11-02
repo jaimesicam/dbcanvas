@@ -28793,3 +28793,33 @@ block volumes for Kubernetes. The role was only in the hover tooltip.
   `menuEntriesFor`; the EOL check's source pattern allows the new field between `label` and `type`.
 - The library button and the menu row were rendered with the built stylesheet in headless Chrome
   and looked at: the second line fits under each label in both, without truncating.
+
+## 499. Library labels name the product, then the topology — `app/web/src/pages/{StackDesigner,PMMManager}.jsx`, `app/web/src/lib/{aioPorts,help}.js`, `app/{aio_ports,designcatalog_mysql,designcatalog_postgres,designcatalog_infra}.go`, `app/web/smoke/render.jsx`, `docs/{STACKS,ALL_IN_ONE,CONFIGURATION,DATA_GENERATOR,QUERY_RUNNER,BENCHMARK,DATABASE_EXPLORER,PACKET_INSPECTOR}.md`
+
+**Goal.** One rule for the database entries: a standalone server is its product; a cluster is the
+product and its topology (MySQL Replication, MariaDB Galera, Valkey Sentinel). PostgreSQL keeps the
+manager's name where the manager is what people look for (Patroni, repmgr, Spock). Entries that
+broke the rule:
+
+| Was | Now | Why |
+| --- | --- | --- |
+| Streaming Replication | PostgreSQL Replication | no product in the name, and Patroni and repmgr clusters stream too; it is the PostgreSQL counterpart of MySQL Replication and MariaDB Replication, which are likewise replication with no failover manager |
+| PS Replication | Percona Server Replication | an abbreviation beside "Percona Server"; the catalogue already used the full name |
+| InnoDB / GR | Percona Server InnoDB / GR | the Community group says "MySQL InnoDB / GR" |
+| PXC Cluster | PXC | the C already stands for Cluster |
+| PMM3, PMM2 | PMM 3, PMM 2 | the product's own spelling |
+
+The library, the add menu, the form headings, the PMM tiles, the catalogue labels, the All-in-One
+instance kinds (Go and JS) and the guides use the new names. Type names, compose kinds and every
+API field are unchanged, so saved designs, templates and scripts are unaffected; past release notes
+keep the names they shipped with. Ubuntu VNC and Repository keep theirs: the role line from §498
+already says what they are, and both names run through server messages, templates and five guides.
+
+Recents are stored by label, so `loadPalettePrefs` (now exported) maps the old labels through
+`PALETTE_RENAMED`, de-duplicated, and a renamed entry keeps its place on the list.
+
+### Verification performed
+- `go vet`, `go test .`, `npm run build`, `npm run smoke` pass. A new smoke check loads recents saved
+  under "Streaming Replication" and "PMM3" beside "PostgreSQL Replication" and gets
+  `PostgreSQL Replication|PMM 3|SeaweedFS`; the EOL check finds `PMM 2` in the palette, and the
+  PostgreSQL Replication form check its new heading.

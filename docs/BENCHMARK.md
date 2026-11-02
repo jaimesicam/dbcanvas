@@ -87,7 +87,7 @@ avg/p95/p99 ms). Finished runs are listed under **History** until DBCanvas resta
 | Engine | Nodes offered |
 | --- | --- |
 | MySQL family | Percona Server, PXC, InnoDB Cluster / GR, MySQL Community, MariaDB — standalone or clustered |
-| PostgreSQL family | PostgreSQL, Patroni, repmgr, Streaming Replication, Spock |
+| PostgreSQL family | PostgreSQL, Patroni, repmgr, PostgreSQL Replication, Spock |
 | MongoDB | PSMDB standalone, PSMDB RS members, and the **mongos** router of a sharded cluster (config servers and shard members are not offered) |
 
 Also offered:

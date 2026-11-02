@@ -23,7 +23,7 @@ its estimated memory exceeds the node's limit or the host.
 
 | Family | Kinds (as listed in **Add feature**) | Members |
 | --- | --- | --- |
-| MySQL | Percona Server · PS Replication · InnoDB Cluster / GR · PXC Cluster | Replication 2–5; GR 3–9, odd; PXC 2–5 |
+| MySQL | Percona Server · Percona Server Replication · InnoDB Cluster / GR · PXC | Replication 2–5; GR 3–9, odd; PXC 2–5 |
 | MySQL Community | MySQL Community · MySQL Replication · MySQL InnoDB / GR | Replication 2–5; GR 3–9, odd |
 | MariaDB | MariaDB · MariaDB Replication · MariaDB Galera | Replication 2–5; Galera 3–5, odd |
 | PostgreSQL | PostgreSQL · Patroni Cluster · repmgr Cluster · Spock Cluster | 2–5 each |

@@ -90,7 +90,7 @@ var catalogInfra = []catalogEntry{
 			{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/samba/cert", Desc: "Re-issue the LDAPS certificate from the Intranet CA and restart the DC.", Body: "value, unit (minutes|hours|days)"},
 		},
 	},
-	{Type: "pmm", Label: "PMM3", Summary: "Percona Monitoring and Management 3 server. Database nodes and clusters send it metrics through their monitor relation.",
+	{Type: "pmm", Label: "PMM 3", Summary: "Percona Monitoring and Management 3 server. Database nodes and clusters send it metrics through their monitor relation.",
 		Placement: "standalone",
 		Requires:  []string{"an Intranet node"},
 		Options: []catalogOption{
@@ -107,7 +107,7 @@ var catalogInfra = []catalogEntry{
 			{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/pmm/cert", Desc: "Issue a new certificate from the Intranet CA and install it.", Body: "value, unit (minutes|hours|days)"},
 		},
 	},
-	{Type: "pmm2", Label: "PMM2", Summary: "A PMM 2 server (end of life; offered only when EOL is turned on). No database node can point at it.",
+	{Type: "pmm2", Label: "PMM 2", Summary: "A PMM 2 server (end of life; offered only when EOL is turned on). No database node can point at it.",
 		Placement: "standalone",
 		Requires:  []string{"an Intranet node"},
 		Options: []catalogOption{

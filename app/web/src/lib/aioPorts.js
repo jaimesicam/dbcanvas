@@ -42,9 +42,9 @@ export const SLOTS_PER_FAMILY = 100
 // menu shows where the node type is going instead of quietly omitting things.
 export const AIO_KINDS = [
   { kind: 'ps', label: 'Percona Server', family: FAM.MYSQL, est: 700, supported: true },
-  { kind: 'psrepl', label: 'PS Replication', family: FAM.MYSQL, cluster: true, min: 2, max: 5, def: 3, est: 700, supported: true },
+  { kind: 'psrepl', label: 'Percona Server Replication', family: FAM.MYSQL, cluster: true, min: 2, max: 5, def: 3, est: 700, supported: true },
   { kind: 'innodb', label: 'InnoDB Cluster / GR', family: FAM.MYSQL, cluster: true, min: 3, max: 9, def: 3, odd: true, est: 800, supported: true },
-  { kind: 'pxc', label: 'PXC Cluster', family: FAM.MYSQL, cluster: true, min: 2, max: 5, def: 3, est: 900, supported: true },
+  { kind: 'pxc', label: 'PXC', family: FAM.MYSQL, cluster: true, min: 2, max: 5, def: 3, est: 900, supported: true },
   { kind: 'mysqlce', label: 'MySQL Community', family: FAM.MYSQL, est: 700, supported: true },
   { kind: 'mysqlcerepl', label: 'MySQL Replication', family: FAM.MYSQL, cluster: true, min: 2, max: 5, def: 3, est: 700, supported: true },
   { kind: 'mysqlceinnodb', label: 'MySQL InnoDB / GR', family: FAM.MYSQL, cluster: true, min: 3, max: 9, def: 3, odd: true, est: 800, supported: true },

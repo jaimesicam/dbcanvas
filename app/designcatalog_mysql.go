@@ -376,7 +376,7 @@ var catalogMySQLFamily = []catalogEntry{
 	},
 
 	// ------------------------------------------------------------------ cluster frames
-	{Type: "pxc", Label: "PXC Cluster", Summary: "A Percona XtraDB Cluster (Galera): synchronous multi-writer replication between data nodes, with optional garbd arbitrators.", Placement: "frame",
+	{Type: "pxc", Label: "PXC", Summary: "A Percona XtraDB Cluster (Galera): synchronous multi-writer replication between data nodes, with optional garbd arbitrators.", Placement: "frame",
 		MemberType: "pxc", DefaultMembers: 3, MinMembers: 1, MaxMembers: 9,
 		Requires: []string{"an Intranet node", "at least one regular (data) member; 3 or more and an odd total are recommended"},
 		Options: mysqlCatOpts(
@@ -436,7 +436,7 @@ var catalogMySQLFamily = []catalogEntry{
 			{Method: "POST", Path: "/api/stacks/{id}/frames/{fid}/orchestrator", Desc: "Seed or refresh topology discovery on the Orchestrator node now; \"\" clears the link (Orchestrator is not asked to forget the cluster).", Body: "orchestratorNodeId"},
 		}, mysqlCatXBFrameActions),
 	},
-	{Type: "innodb", Label: "InnoDB Cluster / GR", Summary: "Percona Server Group Replication, managed as an InnoDB Cluster through MySQL Shell or as raw Group Replication, with optional MySQL Router on every member.", Placement: "frame",
+	{Type: "innodb", Label: "Percona Server InnoDB / GR", Summary: "Percona Server Group Replication, managed as an InnoDB Cluster through MySQL Shell or as raw Group Replication, with optional MySQL Router on every member.", Placement: "frame",
 		MemberType: "innodb", DefaultMembers: 3, MinMembers: 1, MaxMembers: 9,
 		Requires: []string{"an Intranet node", "at least one member; 3 or more and an odd count are recommended for quorum"},
 		Options: mysqlCatOpts(

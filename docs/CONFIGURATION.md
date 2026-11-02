@@ -59,7 +59,7 @@ Restart the app (`make restart`) after editing `.env`.
 | `K3D_PLATFORM` | `linux/amd64` | `linux/amd64` or `linux/arm64`. The platform of K3D frames' k3s nodes, independent of `DOCKER_PLATFORM`. Set `linux/arm64` on Apple Silicon — an emulated k3s node can fail to create pods (e.g. "seccomp is not supported"). |
 | `GDB_MOUNT_ROOT` | `/srv/coredumps` | The only host directory a Linux Client set up for the [Core Dump Analyzer](CORE_DUMP_ANALYZER.md) may bind-mount from. Mounts are read-only; a path outside it fails validation. |
 | `EXPERIMENTAL` | `off` | `on` also offers unfinished features, which are not documented. |
-| `EOL` | `off` | `on` also offers end-of-life releases: **CentOS 7** as a Linux Client release (repositories pointed at vault.centos.org, no systemd) and a **PMM2** monitoring node (PMM 2.25.0–2.44.1, not connected to other nodes). |
+| `EOL` | `off` | `on` also offers end-of-life releases: **CentOS 7** as a Linux Client release (repositories pointed at vault.centos.org, no systemd) and a **PMM 2** monitoring node (PMM 2.25.0–2.44.1, not connected to other nodes). |
 
 `EXPERIMENTAL` and `EOL` accept `on`/`off`; `true`, `1` and `yes` also mean on. Turning either
 off again only hides those entries — anything already built with them is left alone.

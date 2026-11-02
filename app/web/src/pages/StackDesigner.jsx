@@ -104,7 +104,7 @@ export const NODE_TYPES = {
     defaults: { osVersion: '24.04', generateCert: false, certTtlValue: 365, certTtlUnit: 'days', useProxy: false },
   },
   pmm: {
-    label: 'PMM3',
+    label: 'PMM 3',
     slug: 'pmm',
     sub: 'Percona Monitoring & Management',
     color: '#0ea5e9',
@@ -137,7 +137,7 @@ export const NODE_TYPES = {
     },
   },
   pmm2: {
-    label: 'PMM2',
+    label: 'PMM 2',
     slug: 'pmm2',
     sub: 'PMM 2 server (end of life)',
     color: '#64748b',
@@ -2572,9 +2572,23 @@ export function BuildImageRow({ id, isAdmin, onBuilt }) {
   )
 }
 
-function loadPalettePrefs() {
-  try { return { collapsed: [], recent: [], ...JSON.parse(localStorage.getItem(PALETTE_KEY) || '{}') } }
-  catch { return { collapsed: [], recent: [] } }
+// PALETTE_RENAMED maps library labels that have since been renamed to their current label.
+// Recents are stored by label, so without it a renamed entry would quietly drop off the list.
+export const PALETTE_RENAMED = {
+  'PXC Cluster': 'PXC',
+  'PS Replication': 'Percona Server Replication',
+  'InnoDB / GR': 'Percona Server InnoDB / GR',
+  'Streaming Replication': 'PostgreSQL Replication',
+  PMM3: 'PMM 3',
+  PMM2: 'PMM 2',
+}
+
+export function loadPalettePrefs() {
+  try {
+    const p = { collapsed: [], recent: [], ...JSON.parse(localStorage.getItem(PALETTE_KEY) || '{}') }
+    p.recent = [...new Set((p.recent || []).map((l) => PALETTE_RENAMED[l] || l))]
+    return p
+  } catch { return { collapsed: [], recent: [] } }
 }
 
 // Exported for the browser smoke check, which opens a stack in it — the page-level mount
@@ -4818,10 +4832,10 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       { label: 'All in One', role: 'many servers, one container', type: 'aio', onClick: () => addNode('aio') },
     ] },
     { title: 'MySQL (Percona)', items: [
-      { label: 'PXC Cluster', role: 'Galera · synchronous', type: 'pxc', onClick: addPXCCluster },
+      { label: 'PXC', role: 'Galera · synchronous', type: 'pxc', onClick: addPXCCluster },
       { label: 'Percona Server', role: 'standalone server', type: 'ps', onClick: () => addNode('ps') },
-      { label: 'PS Replication', role: 'async or semi-sync', type: 'mysql', onClick: addMySQLCluster },
-      { label: 'InnoDB / GR', role: 'Group Replication · Router', type: 'innodb', onClick: addInnoDBCluster },
+      { label: 'Percona Server Replication', role: 'async or semi-sync', type: 'mysql', onClick: addMySQLCluster },
+      { label: 'Percona Server InnoDB / GR', role: 'Group Replication · Router', type: 'innodb', onClick: addInnoDBCluster },
     ] },
     { title: 'MySQL (Community)', items: [
       { label: 'MySQL', role: 'standalone server', type: 'mysqlce', onClick: () => addNode('mysqlce') },
@@ -4844,7 +4858,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       { label: 'PostgreSQL', role: 'standalone server', type: 'pg', onClick: () => addNode('pg') },
       { label: 'Patroni Cluster', role: 'automatic failover · etcd', type: 'patroni', onClick: addPatroniCluster },
       { label: 'repmgr Cluster', role: 'automatic failover · repmgrd', type: 'repmgr', onClick: addRepmgrCluster },
-      { label: 'Streaming Replication', role: 'streaming · no failover manager', type: 'pgstream', onClick: addPGStreamCluster },
+      { label: 'PostgreSQL Replication', role: 'streaming · no failover manager', type: 'pgstream', onClick: addPGStreamCluster },
       { label: 'Spock Cluster', role: 'multi-master · logical', type: 'spock', onClick: addSpockCluster },
     ] },
     { title: 'Valkey', items: [
@@ -4863,9 +4877,9 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       { label: 'Orchestrator', role: 'MySQL topology & failover', type: 'orchestrator', onClick: () => addNode('orchestrator') },
     ] },
     { title: 'Monitoring', items: [
-      { label: 'PMM3', role: 'monitoring · Query Analytics', type: 'pmm', onClick: () => addNode('pmm') },
+      { label: 'PMM 3', role: 'monitoring · Query Analytics', type: 'pmm', onClick: () => addNode('pmm') },
       // End of life: in the library only where EOL is on (lib/experimental.js).
-      { label: 'PMM2', role: 'end of life', type: 'pmm2', onClick: () => addNode('pmm2'), eol: true },
+      { label: 'PMM 2', role: 'end of life', type: 'pmm2', onClick: () => addNode('pmm2'), eol: true },
       { label: 'Watchtower', role: 'PMM self-upgrade', type: 'watchtower', onClick: () => addNode('watchtower'), off: has('watchtower') },
     ] },
     { title: 'Identity & Secrets', items: [
@@ -6746,7 +6760,7 @@ function PXCFrameForm({ frame: f, stackId, nodes, frameNodes, patchFrame, delete
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">PXC Cluster</span>
+        <span className="text-sm font-semibold">PXC</span>
         <Badge tone="primary">{total} node{total === 1 ? '' : 's'}</Badge>
       </div>
 
@@ -8648,7 +8662,7 @@ function PMM2Form({ node: n, patchNode, deleteNode, dep, deployed }) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">PMM2</span>
+        <span className="text-sm font-semibold">PMM 2</span>
         {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
       </div>
       <p className="text-xs text-muted">
@@ -8684,7 +8698,7 @@ function PMM2Manager({ dep, onDeleteNode }) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">PMM2</span>
+        <span className="text-sm font-semibold">PMM 2</span>
         <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
       </div>
       <p className="text-xs text-muted">
@@ -9607,7 +9621,7 @@ function SupportSimManager({ dep, onDeleteNode }) {
 // pgVectorSimTarget in app/pgvectorsim.go.
 const PGV_LINKABLE_KINDS = new Set(['pg', 'patroni', 'repmgr', 'pgstream', 'spock', 'haproxy', 'pgbouncer', 'k3d'])
 const PGV_KIND_LABEL = {
-  pg: 'PostgreSQL', patroni: 'Patroni Cluster', repmgr: 'repmgr Cluster', pgstream: 'Streaming Replication', spock: 'Spock Cluster',
+  pg: 'PostgreSQL', patroni: 'Patroni Cluster', repmgr: 'repmgr Cluster', pgstream: 'PostgreSQL Replication', spock: 'Spock Cluster',
   haproxy: 'HAProxy', pgbouncer: 'PgBouncer', k3d: 'Kubernetes',
 }
 
@@ -13822,7 +13836,7 @@ export function PGStreamFrameForm({ frame: f, nodes, frameNodes, patchFrame, del
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">Streaming Replication</span>
+        <span className="text-sm font-semibold">PostgreSQL Replication</span>
         <Badge tone="primary">{members} node{members === 1 ? '' : 's'}</Badge>
       </div>
 

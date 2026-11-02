@@ -82,7 +82,7 @@ export default function PMMManager({ stackId, nodeId, dep, onDeleteNode }) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">PMM3</span>
+        <span className="text-sm font-semibold">PMM 3</span>
         <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
       </div>
 

@@ -65,7 +65,7 @@ import {
   frameHeaderW, layoutFrame, separateFrames, SIM_NODE_TYPES, frameVersionLabel, frameSubLabel,
   podMenuEntries, POD_SHELLS, POD_CLIENTS,
   Spinner, NodeStatus, nodeConfiguring, configPhaseOf, PITRFields,
-  FrameVaultFields, PgBouncerForm, PGHostAuthFields, PGStreamFrameForm, PaletteEntry,
+  FrameVaultFields, PgBouncerForm, PGHostAuthFields, PGStreamFrameForm, PaletteEntry, loadPalettePrefs,
 } from '../src/pages/StackDesigner.jsx'
 import PGStreamManager from '../src/pages/PGStreamManager.jsx'
 import PgBouncerManager from '../src/pages/PgBouncerManager.jsx'
@@ -4047,7 +4047,7 @@ check('eol: end-of-life releases are offered only where EOL is on', () => {
 
   // PMM2 is in the real palette, tagged, and the palette passes the switch through.
   const text = nodeFs.readFileSync(new URL('../src/pages/StackDesigner.jsx', import.meta.url), 'utf8')
-  if (!/label: 'PMM2',[^}]*type: 'pmm2'[^}]*eol: true/.test(text)) throw new Error('PMM2 is not in the palette with an eol tag')
+  if (!/label: 'PMM 2',[^}]*type: 'pmm2'[^}]*eol: true/.test(text)) throw new Error('PMM2 is not in the palette with an eol tag')
   if (!/\], showExperimental\(system\), showEOL\(system\)\)/.test(text)) throw new Error('paletteGroups does not pass the EOL switch')
   return 'eol and experimental filter independently'
 })
@@ -6567,7 +6567,7 @@ const pgsMembers = (n) => Array.from({ length: n }, (_, i) => ({ id: `s${i + 1}`
 
 check('streaming replication frame: asynchronous by default, and says so', () => {
   const html = renderToString(<PGStreamFrameForm frame={pgsFrame()} nodes={pgsMembers(3)} frameNodes={pgsMembers(3)} patchFrame={noop} deleteFrame={noop} deployed={false} />)
-  for (const want of ['Streaming Replication', 'Asynchronous', 'replication slot', 'no failover manager']) {
+  for (const want of ['PostgreSQL Replication', 'Asynchronous', 'replication slot', 'no failover manager']) {
     if (!html.includes(want)) throw new Error(`the form omits "${want}"`)
   }
   if (html.includes('remote_apply')) throw new Error('the commit level is offered on an asynchronous cluster')
@@ -6634,6 +6634,17 @@ check('menu: a note under a label is counted in the panel width', () => {
   const add = menuEntriesFor([{ title: 'Storage & Clients', items: [{ label: 'SeaweedFS', role: 'S3 store for backups' }, { label: 'Ceph', role: 'block volumes for Kubernetes' }] }],
     (it) => ({ label: it.label, note: it.role }))
   if (add[0].items.map((i) => i.note).join('|') !== 'S3 store for backups|block volumes for Kubernetes') throw new Error('the roles did not reach the menu entries')
+  return 'ok'
+})
+
+check('infrastructure library: recents saved under a renamed label keep their place', () => {
+  const saved = globalThis.localStorage
+  const store = { 'dbcanvas-palette': JSON.stringify({ recent: ['Streaming Replication', 'PMM3', 'PostgreSQL Replication', 'SeaweedFS'] }) }
+  globalThis.localStorage = { getItem: (k) => store[k] ?? null }
+  try {
+    const got = loadPalettePrefs().recent.join('|')
+    if (got !== 'PostgreSQL Replication|PMM 3|SeaweedFS') throw new Error(`recents came back as ${got}`)
+  } finally { globalThis.localStorage = saved }
   return 'ok'
 })
 

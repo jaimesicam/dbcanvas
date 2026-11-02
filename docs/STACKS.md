@@ -51,7 +51,7 @@ exception: they need a DBCanvas checkout and `make <name>-image` (for example
 
 | Node | OS choices |
 | --- | --- |
-| Percona products (PXC, Percona Server, PSMDB, PostgreSQL, Patroni, repmgr, Streaming Replication, Valkey, ProxySQL, HAProxy, PgBouncer, Orchestrator), MariaDB, MySQL Community, All in One | Oracle Linux 8, 9, 10; Ubuntu 22.04, 24.04 — only those the installed version catalog has packages for |
+| Percona products (PXC, Percona Server, PSMDB, PostgreSQL, Patroni, repmgr, PostgreSQL Replication, Valkey, ProxySQL, HAProxy, PgBouncer, Orchestrator), MariaDB, MySQL Community, All in One | Oracle Linux 8, 9, 10; Ubuntu 22.04, 24.04 — only those the installed version catalog has packages for |
 | Spock | Oracle Linux 8, 9, 10 |
 | Linux Client | Oracle Linux 8, 9, 10; Ubuntu 22.04, 24.04; Debian 12, 13; CentOS 7 with `EOL=on` |
 | Intranet, OpenBao | Oracle Linux 9 |
@@ -67,15 +67,15 @@ other node. The version pickers list what `make versions` found for each OS.
 | --- | --- |
 | Core | Intranet |
 | All in One | All in One |
-| MySQL (Percona) | PXC Cluster · Percona Server · PS Replication · InnoDB / GR |
+| MySQL (Percona) | PXC · Percona Server · Percona Server Replication · Percona Server InnoDB / GR |
 | MySQL (Community) | MySQL · MySQL Replication · MySQL InnoDB / GR |
 | MariaDB | MariaDB · MariaDB Replication · MariaDB Galera |
 | MongoDB | PSMDB Sharded · PSMDB Replica Set · PSMDB · MClusterAdmin · Big Hole (FTDC viewer) |
-| PostgreSQL | PostgreSQL · Patroni Cluster · repmgr Cluster · Streaming Replication · Spock Cluster |
+| PostgreSQL | PostgreSQL · Patroni Cluster · repmgr Cluster · PostgreSQL Replication · Spock Cluster |
 | Valkey | Valkey Cluster · Valkey |
 | Kubernetes | K3D Cluster |
 | Proxies & HA | ProxySQL · ProxySQL Cluster · HAProxy · PgBouncer · Orchestrator |
-| Monitoring | PMM3 · PMM2 (`EOL=on` only) · Watchtower |
+| Monitoring | PMM 3 · PMM 2 (`EOL=on` only) · Watchtower |
 | Identity & Secrets | Samba AD DC · Keycloak · OpenBao |
 | Storage & Clients | SeaweedFS · Ceph · Ubuntu VNC · Linux Client · Repository |
 | App Simulators | Support Sim (Vector Search) · pgvector Support Sim · Stock Market Sim · Ledger Sim |
@@ -86,10 +86,10 @@ One per stack: Intranet, Samba AD DC, Keycloak, OpenBao, Ubuntu VNC and Watchtow
 
 | Type | What you get | Members |
 | --- | --- | --- |
-| **PXC Cluster** | Percona XtraDB Cluster: synchronous multi-writer replication. Members can be data nodes or `garbd` arbitrators. | 1–9, default 3 |
+| **PXC** | Percona XtraDB Cluster: synchronous multi-writer replication. Members can be data nodes or `garbd` arbitrators. | 1–9, default 3 |
 | **Percona Server** | A standalone server, 5.7 / 8.0 / 8.4 / 9.7. | — |
-| **PS Replication** | Async or semi-sync replication: one primary, read-only secondaries. Can be watched by an Orchestrator node. | 2–9, default 3 |
-| **InnoDB / GR** | Group Replication, as an InnoDB Cluster (MySQL Shell) or raw GR, with optional MySQL Router on every member. | 1–9, default 3 |
+| **Percona Server Replication** | Async or semi-sync replication: one primary, read-only secondaries. Can be watched by an Orchestrator node. | 2–9, default 3 |
+| **Percona Server InnoDB / GR** | Group Replication, as an InnoDB Cluster (MySQL Shell) or raw GR, with optional MySQL Router on every member. | 1–9, default 3 |
 
 Options shared by these: GTIDs, PMM monitoring, an Intranet-CA certificate, XtraBackup to
 SeaweedFS, LDAP and Keycloak sign-in (below), OpenBao encryption (below), MySQL tools (below),
@@ -165,7 +165,7 @@ directory, ready for [FTDC Summary](FTDC_SUMMARY.md) or Big Hole.
 | **PostgreSQL** | Percona Distribution for PostgreSQL 13–18, standalone. | — |
 | **Patroni Cluster** | Percona PostgreSQL with Patroni and etcd: a leader, streaming replicas, automatic failover. | 3–7, default 3 |
 | **repmgr Cluster** | PGDG PostgreSQL with repmgr and repmgrd. | 3–7, default 3 |
-| **Streaming Replication** | Percona PostgreSQL with PostgreSQL's own physical streaming replication and no failover manager: member 1 is the primary, the others hot standbys made with `pg_basebackup`. | 2–9, default 3 |
+| **PostgreSQL Replication** | Percona PostgreSQL with PostgreSQL's own physical streaming replication and no failover manager: member 1 is the primary, the others hot standbys made with `pg_basebackup`. | 2–9, default 3 |
 | **Spock Cluster** | Active-active (multi-master) PostgreSQL with pgEdge Spock; every member is writable. | 2–7, default 3 |
 
 Options on the standalone node and Patroni (Percona packages): pgBackRest backups, PMM Query
@@ -174,7 +174,7 @@ deploy, and pg_tde encryption. repmgr and Spock offer **Enable pg_stat_statement
 five offer [pgvector](#pgvector-on-postgresql) and [client authentication](#client-authentication-on-postgresql-pg_hba).
 Only the standalone node offers LDAP, Kerberos and Keycloak sign-in.
 
-**Streaming Replication** sets up what the PostgreSQL documentation describes, and nothing on top:
+**PostgreSQL Replication** sets up PostgreSQL's own streaming replication as the documentation describes it, and nothing on top:
 
 | Setting | What the frame does |
 | --- | --- |
@@ -215,7 +215,7 @@ and a manual rebuild. Compose kind `pg-stream`; `syncStandbys=N` makes it synchr
 | Type | What you get |
 | --- | --- |
 | **ProxySQL** / **ProxySQL Cluster** | ProxySQL in front of a PXC or Percona Server replication cluster. A cluster frame (1–9 nodes) shares one configuration. |
-| **HAProxy** | TCP load balancer in front of exactly one Patroni, repmgr, Streaming Replication, Spock, PXC or Percona Server replication cluster. Writes on 5000, reads on 5001, stats on 7000. |
+| **HAProxy** | TCP load balancer in front of exactly one Patroni, repmgr, PostgreSQL Replication, Spock, PXC or Percona Server replication cluster. Writes on 5000, reads on 5001, stats on 7000. |
 | **PgBouncer** | Connection pooler on 6432 in front of one PostgreSQL node or cluster. See [PgBouncer](#pool-postgresql-connections-with-pgbouncer). |
 | **Orchestrator** | Percona Orchestrator: topology discovery and failure detection for MySQL replication. A replication frame points at it with **Monitored by (Orchestrator)**. |
 
@@ -223,8 +223,8 @@ and a manual rebuild. Compose kind `pg-stream`; `syncStandbys=N` makes it synchr
 
 | Type | What you get |
 | --- | --- |
-| **PMM3** | Percona Monitoring and Management 3. Databases that pick it register themselves. Optional LDAP or Keycloak sign-in to Grafana. |
-| **PMM2** | A PMM 2 server, 2.25.0 to 2.44.1, offered only with `EOL=on`. Login `admin` / `PMM_ADMIN_PASSWORD`. Nothing can be pointed at it, and it gets no Intranet certificate, SMTP, LDAP or Keycloak. amd64 only. |
+| **PMM 3** | Percona Monitoring and Management 3. Databases that pick it register themselves. Optional LDAP or Keycloak sign-in to Grafana. |
+| **PMM 2** | A PMM 2 server, 2.25.0 to 2.44.1, offered only with `EOL=on`. Login `admin` / `PMM_ADMIN_PASSWORD`. Nothing can be pointed at it, and it gets no Intranet certificate, SMTP, LDAP or Keycloak. amd64 only. |
 | **Watchtower** | Lets a PMM node that points at it upgrade itself to a newer image from its own UI. |
 
 ![A PMM node's panel — the server, its components, and two ways into it](screenshots/pmm-node.png)
@@ -266,7 +266,7 @@ dashboard on a host port. Draw an association line from the simulator to its tar
 | Simulator | Workload | Link it to |
 | --- | --- | --- |
 | **Support Sim (Vector Search)** | A help desk that embeds tickets in-process (all-MiniLM-L6-v2, 384 dimensions, no API key) and answers, routes and merges them with `$vectorSearch`, scored against `$search` and hybrid search. Tabs: Live Desk, Search Showdown, Vector Lab, Index Workshop, Under the Hood. | PSMDB replica set or sharded cluster with **Vector search** on, or a K3D frame running the MongoDB operator with it on. Without mongot it falls back to an in-app scan. |
-| **pgvector Support Sim** | The same desk on PostgreSQL, using a pgvector column and an HNSW index. Creates a `supportsim` database (or schema). | PostgreSQL, Patroni, repmgr, Streaming Replication or Spock; HAProxy or PgBouncer in front of one; or a K3D frame running a PostgreSQL operator. Turn on pgvector on the target. |
+| **pgvector Support Sim** | The same desk on PostgreSQL, using a pgvector column and an HNSW index. Creates a `supportsim` database (or schema). | PostgreSQL, Patroni, repmgr, PostgreSQL Replication or Spock; HAProxy or PgBouncer in front of one; or a K3D frame running a PostgreSQL operator. Turn on pgvector on the target. |
 | **Stock Market Sim** | A stock-exchange app you operate. See below. | Any database (see below) |
 | **Ledger Sim** | A JDBC order-and-payment ledger. See below. | MySQL-family or PostgreSQL |
 | **Performance Sim** | Stressors that cause replication lag, contention and load, with a live timeline of their effect. See below. | MySQL-family, PostgreSQL, MongoDB or Valkey, on the canvas or in Kubernetes |
@@ -366,7 +366,7 @@ no options of its own: link it, deploy it, and choose everything on its dashboar
   | Open transaction blocking DDL | Holds a table's metadata lock on chosen replicas, so a replicated ALTER waits | Async, Group Replication |
 
   A stressor the topology cannot support is listed with the reason.
-- **Replication lag stressors, PostgreSQL** (Patroni, repmgr, Streaming Replication):
+- **Replication lag stressors, PostgreSQL** (Patroni, repmgr, PostgreSQL Replication):
 
   | Stressor | What it does |
   | --- | --- |
@@ -460,7 +460,7 @@ Pick a directory or identity provider in the database's panel and it is wired at
 
 | Method | Provider | Available on |
 | --- | --- | --- |
-| **LDAP** | Intranet OpenLDAP or Samba AD DC | Percona Server (not 5.7), PS Replication, PXC, PostgreSQL, PSMDB, PMM. Valkey: Intranet OpenLDAP, Oracle Linux only. |
+| **LDAP** | Intranet OpenLDAP or Samba AD DC | Percona Server (not 5.7), Percona Server Replication, PXC, PostgreSQL, PSMDB, PMM. Valkey: Intranet OpenLDAP, Oracle Linux only. |
 | **Kerberos (GSSAPI)** | Samba AD DC | PostgreSQL, PSMDB |
 | **Keycloak OIDC** | Keycloak | PMM; PostgreSQL 18; PSMDB; Percona Server and PXC 8.4.11-11 / 9.7.2-2 or newer |
 
@@ -486,7 +486,7 @@ later without recreating the data.
 | Target | How it is encrypted |
 | --- | --- |
 | Percona Server | `component_keyring_vault` on 8.4; the `keyring_vault` plugin on 5.7 / 8.0. Not with XtraBackup. |
-| PS Replication, PXC (frame) | Every member, each with its own mount; `default_table_encryption=ON`. |
+| Percona Server Replication, PXC (frame) | Every member, each with its own mount; `default_table_encryption=ON`. |
 | PSMDB (standalone) | `security.vault` |
 | PostgreSQL, Patroni | `pg_tde`, PostgreSQL 17 or 18 only. Tables use `tde_heap` by default (also in `template1`). Optional **Encrypt WAL too**. A Patroni cluster shares one key. |
 
@@ -669,7 +669,7 @@ extra LoadBalancer Service per member and one for mongot's metrics (9946) and he
 
 ## pgvector on PostgreSQL
 
-Tick **pgvector (vector similarity search)** on a PostgreSQL node or a Patroni, repmgr, Streaming Replication or Spock
+Tick **pgvector (vector similarity search)** on a PostgreSQL node or a Patroni, repmgr, PostgreSQL Replication or Spock
 frame. Every member gets the `vector` type, the distance operators `<->`, `<=>` and `<#>`, and
 HNSW and IVFFlat indexes. The extension is created in `postgres` and `template1`, so databases
 created later have it. The deploy log reports the pgvector version.
@@ -680,7 +680,7 @@ Crunchy PGO.
 ## Pool PostgreSQL connections with PgBouncer
 
 A **PgBouncer** node pools connections for exactly one PostgreSQL node or Patroni, repmgr,
-Streaming Replication or Spock cluster. Draw an association line from the backend to the PgBouncer node. Clients connect
+PostgreSQL Replication or Spock cluster. Draw an association line from the backend to the PgBouncer node. Clients connect
 on port **6432** and select a pool by database name. The node's **Pooling** tab has admin-console
 commands (`SHOW POOLS`, `SHOW SERVERS`). A running PgBouncer appears in Database Explorer and
 Sample Code.
@@ -692,7 +692,7 @@ Sample Code.
 | `ignore_startup_parameters` | Default `extra_float_digits,options,search_path` |
 | `auth_type` | `scram-sha-256` (default), `md5`, `cert` or `trust`. `cert` needs **Generate certificate from Intranet CA**, disables the admin console over the Unix socket, cannot be used by simulators, and makes auth_query ineffective |
 | auth_query | On by default: any PostgreSQL role can connect without being listed in `userlist.txt` |
-| Routing | `rw` (a pool on the writable member), `rw-ro` (adds `<database>_ro` on a standby; Patroni, repmgr, Streaming Replication), `mesh` (one pool per member; Spock). Blank follows the backend |
+| Routing | `rw` (a pool on the writable member), `rw-ro` (adds `<database>_ro` on a standby; Patroni, repmgr, PostgreSQL Replication), `mesh` (one pool per member; Spock). Blank follows the backend |
 | Pooled database | What the named pools open |
 | Follow the writable member | On by default: re-points the pool after a failover without dropping clients |
 | Probe interval | Seconds between checks; default 5 |
@@ -702,7 +702,7 @@ From the CLI: `dbcanvas compose` with `kind=pgbouncer` (`to=` the backend, `mode
 
 ## Client authentication on PostgreSQL (pg_hba)
 
-Every PostgreSQL node and Patroni, repmgr, Streaming Replication or Spock frame has **Client authentication**: the
+Every PostgreSQL node and Patroni, repmgr, PostgreSQL Replication or Spock frame has **Client authentication**: the
 password method (`scram-sha-256` by default, `md5`, `trust` or none), and **Also accept client
 certificates**, which adds a certificate rule above it:
 
@@ -723,11 +723,11 @@ the SeaweedFS node's **S3 TLS** on; Barman cloud works over plain HTTP.
 **PostgreSQL Backup tab.** A PostgreSQL node or cluster with a backup store gets a **Backup** tab
 with **Backup now** and, under *How to back up and restore*, ready-to-paste commands for listing,
 checking WAL archiving, incremental backups, retention and point-in-time restore. Standalone and
-Patroni use pgBackRest, and so does a Streaming Replication frame. A **repmgr** frame's **Backups** setting chooses *pgBackRest* or *Barman
+Patroni use pgBackRest, and so does a PostgreSQL Replication frame. A **repmgr** frame's **Backups** setting chooses *pgBackRest* or *Barman
 cloud*; it is a deploy-time choice, and either keeps working after a switchover.
 
 **Query Analytics.** PMM's QAN needs `pg_stat_statements` or `pg_stat_monitor`. On a PostgreSQL
-node, Patroni frame or Streaming Replication frame with PMM picked, choose one under **Query Analytics extension**.
+node, Patroni frame or PostgreSQL Replication frame with PMM picked, choose one under **Query Analytics extension**.
 
 **Operating repmgr.** Every repmgr member has a **repmgr** tab with ready-to-paste commands for
 `cluster show`, `node check`, switchover (with `--dry-run` first), manual promote/follow/rejoin,
@@ -927,7 +927,7 @@ fixed for that stack; to try the other backend, create a new stack.
 | VirtualBox VM | Docker container |
 | --- | --- |
 | Percona Server, PostgreSQL, PSMDB, Valkey, ProxySQL, HAProxy, PgBouncer, Linux Client (not Debian) | Intranet, K3D, PMM, Keycloak, OpenBao, SeaweedFS, Samba AD, Ubuntu VNC, Watchtower, and the other types |
-| PXC, PS Replication, InnoDB / GR, PSMDB Replica Set and Sharded, Patroni, repmgr, Streaming Replication, Spock, Valkey Cluster, ProxySQL Cluster | |
+| PXC, Percona Server Replication, Percona Server InnoDB / GR, PSMDB Replica Set and Sharded, Patroni, repmgr, PostgreSQL Replication, Spock, Valkey Cluster, ProxySQL Cluster | |
 
 VMs and containers share DNS, the CA, PMM and SeaweedFS. Each VM-capable node has **CPUs** and
 **Memory (GiB)**: VM size on Vagrant (blank → `DBCANVAS_VM_CPUS` / `DBCANVAS_VM_MEMORY`), container

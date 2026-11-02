@@ -19,7 +19,7 @@ Every running database in your stacks (every stack, for an administrator):
 | Tree heading | Includes |
 | --- | --- |
 | **MySQL / PXC** | Percona Server, PXC, MySQL Community, MariaDB, Group Replication/InnoDB Cluster members, and the proxies in front of them: HAProxy (write and read ports), ProxySQL (client port), MySQL Router (6446/6447) |
-| **PostgreSQL** | Standalone, Patroni, repmgr, Streaming Replication and Spock nodes; HAProxy in front of a cluster; a PgBouncer pool |
+| **PostgreSQL** | Standalone, Patroni, repmgr, PostgreSQL Replication and Spock nodes; HAProxy in front of a cluster; a PgBouncer pool |
 | **MongoDB** | Standalones, a replica set as a whole and each member, a sharded cluster through `mongos` |
 | **Valkey** | Standalones, and each shard of a Valkey cluster |
 | **PMM Server** | PMM's internal PostgreSQL and its ClickHouse Query Analytics store, read-only — see [PMM Server](#pmm-server) |

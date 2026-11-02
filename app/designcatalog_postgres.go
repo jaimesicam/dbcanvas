@@ -281,12 +281,12 @@ var catalogPostgresFamily = []catalogEntry{
 	},
 
 	// ---------------------------------------------------------- streaming replication
-	{Type: "pgstream", Label: "Streaming Replication member", Summary: "A member of a streaming replication cluster: Percona PostgreSQL, the primary or a hot standby streaming from it.", Placement: "member",
+	{Type: "pgstream", Label: "PostgreSQL Replication member", Summary: "A member of a streaming replication cluster: Percona PostgreSQL, the primary or a hot standby streaming from it.", Placement: "member",
 		FrameTypes: []string{"pgstream"},
 		Options:    pgcatOpts(pgcatSizing, pgcatExport),
 		Actions:    pgcatActs(pgcatNodeActions, pgcatReplicatedMemberActions),
 	},
-	{Type: "pgstream", Label: "Streaming Replication", Summary: "A Percona PostgreSQL cluster with PostgreSQL's own physical streaming replication and no failover manager: the first member is the primary, the rest are hot standbys made with pg_basebackup, each streaming through its own replication slot. A standby becomes primary only by a switchover.", Placement: "frame",
+	{Type: "pgstream", Label: "PostgreSQL Replication", Summary: "A Percona PostgreSQL cluster with PostgreSQL's own physical streaming replication and no failover manager: the first member is the primary, the rest are hot standbys made with pg_basebackup, each streaming through its own replication slot. A standby becomes primary only by a switchover.", Placement: "frame",
 		MemberType: "pgstream", DefaultMembers: 3, MinMembers: 2, MaxMembers: 9,
 		Requires: []string{
 			"an Intranet node",
