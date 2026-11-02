@@ -1112,7 +1112,7 @@ func buildAPIRoutes() []apiRoute {
 
 		// --- Browser window ----------------------------------------------------
 		{Method: "POST", Path: "/api/browse/desktop", Group: gNodes, Handler: m((*App).handleBrowseDesktop),
-			Summary: "Open a node's web UI in Firefox on the stack's Ubuntu VNC desktop, and return the desktop's link — the way to share a page in a session so everyone sees one copy of it."},
+			Summary: "Open a node's web UI in Firefox on the stack's VNC desktop, and return the desktop's link — the way to share a page in a session so everyone sees one copy of it."},
 		{Method: "POST", Path: "/api/browse", Group: gNodes, ReadOnly: true, Handler: m((*App).handleBrowse),
 			Summary: "Turn a link to a node's web UI (http://host:<published port>/…) into an address served through DBCanvas's own port, for the browser window."},
 

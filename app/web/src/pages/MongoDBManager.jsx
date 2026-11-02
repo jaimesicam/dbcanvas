@@ -291,7 +291,7 @@ function KeycloakSSOTab({ cfg, sec }) {
       <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
         This node accepts Keycloak logins over <span className="font-mono">MONGODB-OIDC</span>. Every flow
         opens a browser to Keycloak, so run mongosh where a browser is reachable — the
-        <span className="font-medium"> Ubuntu VNC</span> desktop node is the usual place. Manage users and
+        <span className="font-medium"> VNC</span> desktop node is the usual place. Manage users and
         groups on the Keycloak node.
       </div>
 

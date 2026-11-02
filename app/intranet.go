@@ -154,7 +154,7 @@ type designNode struct {
 	OIDCClientID     string `json:"oidcClientId"`     // OIDC client id == audience ("" → "mongodb-client")
 	OIDCAuthClaim    string `json:"oidcAuthClaim"`    // group/authorization token claim ("" → "MyClaim")
 	OIDCUseAuthClaim bool   `json:"oidcUseAuthClaim"` // true → authorize via group claim (creates keycloak/* roles)
-	// Ubuntu VNC node fields (Type=="vnc"; a desktop jump box). Reuses UseProxy above.
+	// VNC node fields (Type=="vnc"; a desktop jump box). Reuses UseProxy above.
 	VNCUser     string `json:"vncUser"`     // sudo login + VNC user ("" → "dbadmin")
 	VNCPassword string `json:"vncPassword"` // desktop/VNC password ("" → VNC_PASSWORD; capped at 8 chars)
 	// Valkey node fields (Type=="valkey" standalone / "valkeycluster" members). Reuses
@@ -1694,12 +1694,12 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 		out = append(out, issue{Level: "error", Message: "Only one OpenBao node is allowed per stack"})
 	}
 	if vnc > 1 {
-		out = append(out, issue{Level: "error", Message: "Only one Ubuntu VNC node is allowed per stack"})
+		out = append(out, issue{Level: "error", Message: "Only one VNC node is allowed per stack"})
 	}
 	// Keycloak publishes no host ports — its admin console lives on the stack
 	// network and is only reachable from a browser inside it, i.e. the VNC desktop.
 	if keycloak > 0 && vnc == 0 {
-		out = append(out, issue{Level: "error", Message: "A Keycloak node requires an Ubuntu VNC node — its admin console is only reachable from inside the stack network"})
+		out = append(out, issue{Level: "error", Message: "A Keycloak node requires a VNC node — its admin console is only reachable from inside the stack network"})
 	}
 	if samba > 1 {
 		out = append(out, issue{Level: "error", Message: "Only one Samba AD DC node is allowed per stack"})
@@ -3349,7 +3349,7 @@ func (a *App) refreshPublishedPorts(ctx context.Context, st Stack, nid string, d
 		}
 		save(cfg)
 	// keycloak publishes no host ports — its console is stack-network only and is
-	// reached from the Ubuntu VNC desktop, so there is nothing to re-read here.
+	// reached from the VNC desktop, so there is nothing to re-read here.
 	case "vnc":
 		var cfg vncConfig
 		json.Unmarshal(dep.Config, &cfg)

@@ -702,7 +702,7 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
 kubectl get pods -A`} />
           <Code label="MetalLB (LoadBalancer addresses come from the stack subnet)" text={`kubectl -n metallb-system get pods
 kubectl -n metallb-system get ipaddresspool dbcanvas -o yaml`} />
-          <Code label="From another node in the stack" text={`# LoadBalancer IPs are on the stack network, so any node (e.g. the Ubuntu VNC
+          <Code label="From another node in the stack" text={`# LoadBalancer IPs are on the stack network, so any node (e.g. the VNC
 # desktop) can reach them directly:
 kubectl get svc -n ${ns}`} />
         </div>

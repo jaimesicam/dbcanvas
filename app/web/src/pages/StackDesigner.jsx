@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from '../components/Icons.jsx'
 import { FileToolChecks, DBFileToolChecks } from '../components/FileTools.jsx'
@@ -537,12 +537,12 @@ export const NODE_TYPES = {
       generateCert: true, certTtlValue: 365, certTtlUnit: 'days',
     },
   },
-  // Ubuntu VNC — a desktop "jump box" (XFCE over web VNC) with the Percona client
+  // VNC — a desktop "jump box" (XFCE over web VNC) with the Percona client
   // tools preinstalled, for ad-hoc troubleshooting. Runs the pre-baked desktop image
   // dbcanvas-vnc:ubuntu-24.04-<arch> (`make vnc-image`), so the release is pinned and
   // the form asks for the architecture only.
   vnc: {
-    label: 'Ubuntu VNC',
+    label: 'VNC',
     slug: 'vnc',
     sub: 'Desktop + web VNC (DB clients)',
     color: '#dd4814',
@@ -1022,13 +1022,22 @@ const typeColor = (t) => FRAME_COLORS[t] || NODE_TYPES[t]?.color || null
 // what it is for. The label stays the name the canvas and the menus use; the role line is what
 // tells two similar-sounding entries apart (an S3 store for backups, block volumes for
 // Kubernetes) without hovering for the tooltip.
+//
+// The role wraps rather than truncating — a cut-off role loses its last phrase, and on PMM 2 that
+// is "end of life" — and it wraps only at its " · " separators, so a phrase such as "Group
+// Replication" is never split across the two lines.
 export function PaletteEntry({ label, role }) {
+  const parts = role ? role.split(' · ') : []
   return (
     <>
       <Icon.Plus size={13} className="shrink-0" />
       <span className="flex min-w-0 flex-col leading-tight">
         <span className="truncate">{label}</span>
-        {role && <span className="truncate text-[10px] font-normal opacity-80">{role}</span>}
+        {role && (
+          <span className="text-[10px] font-normal leading-snug opacity-80">
+            {parts.map((p, i) => <Fragment key={i}>{i > 0 && ' · '}<span className="whitespace-nowrap">{p}</span></Fragment>)}
+          </span>
+        )}
       </span>
     </>
   )
@@ -2581,6 +2590,7 @@ export const PALETTE_RENAMED = {
   'Streaming Replication': 'PostgreSQL Replication',
   PMM3: 'PMM 3',
   PMM2: 'PMM 2',
+  'Ubuntu VNC': 'VNC',
 }
 
 export function loadPalettePrefs() {
@@ -4699,7 +4709,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
           const vncUp = nodes.some((v) => v.type === 'vnc' && depByNode[v.id]?.state === 'running')
           if (node?.type !== 'vnc' && !(session.active && session.isGuest && !session.isDriver)) {
             const desk = (l) => () => openInDesktop(l.url)
-            const help = vncUp ? MENU_HELP.openVncBrowser : 'Add and deploy an Ubuntu VNC node in this stack first.'
+            const help = vncUp ? MENU_HELP.openVncBrowser : 'Add and deploy a VNC node in this stack first.'
             actions.push(one || !vncUp
               ? { label: 'Open in VNC Browser', help, disabled: !vncUp, fn: desk(links[0]) }
               : { label: 'Open in VNC Browser', help, items: links.map((l) => ({ label: l.label, fn: desk(l) })) })
@@ -4835,12 +4845,12 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       { label: 'PXC', role: 'Galera · synchronous', type: 'pxc', onClick: addPXCCluster },
       { label: 'Percona Server', role: 'standalone server', type: 'ps', onClick: () => addNode('ps') },
       { label: 'Percona Server Replication', role: 'async or semi-sync', type: 'mysql', onClick: addMySQLCluster },
-      { label: 'Percona Server InnoDB / GR', role: 'Group Replication · Router', type: 'innodb', onClick: addInnoDBCluster },
+      { label: 'Percona Server InnoDB / GR', role: 'InnoDB Cluster · Group Replication · Router', type: 'innodb', onClick: addInnoDBCluster },
     ] },
     { title: 'MySQL (Community)', items: [
       { label: 'MySQL', role: 'standalone server', type: 'mysqlce', onClick: () => addNode('mysqlce') },
       { label: 'MySQL Replication', role: 'async or semi-sync', type: 'mysqlcerepl', onClick: addMySQLCECluster },
-      { label: 'MySQL InnoDB / GR', role: 'Group Replication · Router', type: 'mysqlceinnodb', onClick: addMySQLCEInnoDBCluster },
+      { label: 'MySQL InnoDB / GR', role: 'InnoDB Cluster · Group Replication · Router', type: 'mysqlceinnodb', onClick: addMySQLCEInnoDBCluster },
     ] },
     { title: 'MariaDB', items: [
       { label: 'MariaDB', role: 'standalone server', type: 'mariadb', onClick: () => addNode('mariadb') },
@@ -4879,7 +4889,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
     { title: 'Monitoring', items: [
       { label: 'PMM 3', role: 'monitoring · Query Analytics', type: 'pmm', onClick: () => addNode('pmm') },
       // End of life: in the library only where EOL is on (lib/experimental.js).
-      { label: 'PMM 2', role: 'end of life', type: 'pmm2', onClick: () => addNode('pmm2'), eol: true },
+      { label: 'PMM 2', role: 'monitoring · Query Analytics · end of life', type: 'pmm2', onClick: () => addNode('pmm2'), eol: true },
       { label: 'Watchtower', role: 'PMM self-upgrade', type: 'watchtower', onClick: () => addNode('watchtower'), off: has('watchtower') },
     ] },
     { title: 'Identity & Secrets', items: [
@@ -4890,7 +4900,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
     { title: 'Storage & Clients', items: [
       { label: 'SeaweedFS', role: 'S3 store for backups', type: 'seaweedfs', onClick: () => addNode('seaweedfs') },
       { label: 'Ceph', role: 'block volumes for Kubernetes', type: 'ceph', onClick: () => addNode('ceph') },
-      { label: 'Ubuntu VNC', role: 'desktop with a browser', type: 'vnc', onClick: () => addNode('vnc'), off: has('vnc') },
+      { label: 'VNC', role: 'Ubuntu desktop with a browser', type: 'vnc', onClick: () => addNode('vnc'), off: has('vnc') },
       { label: 'Linux Client', role: 'database clients & tools', type: 'linuxclient', onClick: () => addNode('linuxclient') },
       { label: 'Repository', role: 'yum/apt mirror · registry', type: 'repository', onClick: () => addNode('repository') },
     ] },
@@ -8421,7 +8431,7 @@ function KeycloakForm({ node: n, patchNode, deleteNode, dep, deployed }) {
       </p>
       <p className="text-xs text-muted">
         The admin console is not published to this machine — it is served on the stack network only.
-        Add an <span className="font-semibold">Ubuntu VNC</span> node (required) and browse to the console
+        Add a <span className="font-semibold">VNC</span> node (required) and browse to the console
         from its desktop.
       </p>
 
@@ -8520,7 +8530,7 @@ function SambaForm({ node: n, patchNode, deleteNode, dep, deployed }) {
 // KeycloakManager shows a deployed Keycloak's console URL + bootstrap admin creds.
 // No host ports are published: because Keycloak issues tokens for its in-network
 // FQDN, a forwarded port never gave a working console from the host machine. The
-// console is opened from the Ubuntu VNC desktop instead (validateStack requires one).
+// console is opened from the VNC desktop instead (validateStack requires one).
 function KeycloakManager({ dep, onDeleteNode }) {
   const cfg = dep?.config || {}
   const sec = dep?.secrets || {}
@@ -8536,7 +8546,7 @@ function KeycloakManager({ dep, onDeleteNode }) {
       <p className="text-xs text-muted">OIDC identity provider. Set up the realm/client/groups/users in the console.</p>
       <div className="rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-xs text-primary">
         The admin console is not published to this machine. Open the{' '}
-        <span className="font-semibold">Ubuntu VNC</span> desktop node and browse to{' '}
+        <span className="font-semibold">VNC</span> desktop node and browse to{' '}
         <span className="break-all font-mono">{consoleURL}</span> — its browser resolves the stack&apos;s
         DNS names and trusts the Intranet CA.
       </div>
@@ -8557,7 +8567,7 @@ function KeycloakManager({ dep, onDeleteNode }) {
   )
 }
 
-// VNCForm edits a (not-yet-running) Ubuntu VNC node: the desktop login user + VNC
+// VNCForm edits a (not-yet-running) VNC node: the desktop login user + VNC
 // password and whether to route apt through the Intranet proxy.
 function VNCForm({ node: n, patchNode, deleteNode, dep, deployed }) {
   const lock = deployed ? 'opacity-70' : ''
@@ -8572,7 +8582,7 @@ function VNCForm({ node: n, patchNode, deleteNode, dep, deployed }) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">Ubuntu VNC</span>
+        <span className="text-sm font-semibold">VNC</span>
         {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
       </div>
       <p className="text-xs text-muted">
@@ -8616,7 +8626,7 @@ function VNCManager({ dep, onDeleteNode }) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">Ubuntu VNC</span>
+        <span className="text-sm font-semibold">VNC</span>
         <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
       </div>
       <p className="text-xs text-muted">XFCE desktop with Percona clients. Open the web desktop and enter the VNC password.</p>
@@ -15894,7 +15904,7 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
       }
       return <KeycloakForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
     }
-    // Ubuntu VNC desktop node.
+    // VNC desktop node.
     if (n.type === 'vnc') {
       if (dep && dep.state === 'running') {
         return <VNCManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />

@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Ubuntu VNC node (Type=="vnc"): a desktop "jump box" for troubleshooting. It runs the
+// VNC node (Type=="vnc"): a desktop "jump box" for troubleshooting. It runs the
 // pre-baked desktop image (images/vnc.Dockerfile) — the systemd Ubuntu 24.04 base with
 // the whole desktop already installed — so the stack runs as real systemd services that
 // survive restarts, and deploying the node is configuration only.
@@ -42,7 +42,7 @@ const (
 	vncOSVer = "24.04"
 )
 
-// vncImage is the pre-baked Ubuntu VNC image (images/vnc.Dockerfile): XFCE, TigerVNC +
+// vncImage is the pre-baked VNC image (images/vnc.Dockerfile): XFCE, TigerVNC +
 // noVNC, Firefox and the Percona clients on the systemd Ubuntu 24.04 base. Built by
 // `make images` / `make vnc-image`.
 func vncImage(arch string) string {

@@ -166,7 +166,7 @@ func (a *App) handleBrowseDesktop(w http.ResponseWriter, r *http.Request) {
 	}
 	desk, ok := a.desktopOf(nl.st)
 	if !ok {
-		writeErr(w, http.StatusConflict, "this stack has no running Ubuntu VNC desktop — add one to the canvas to share pages through it")
+		writeErr(w, http.StatusConflict, "this stack has no running VNC desktop — add one to the canvas to share pages through it")
 		return
 	}
 	desktopLink := "http://" + net.JoinHostPort(nl.link.Hostname(), strconv.Itoa(desk.WebPort)) + "/vnc.html"

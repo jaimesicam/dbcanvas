@@ -75,7 +75,7 @@ Its build is the one part that reaches Percona's repositories, so a failure ther
 and tolerated rather than taking the bases and the rest of `make install` down with it.
 
 Everything *optional* on top of the bases is `make extra-images` — which `make install` runs
-too, tolerating a failure the way it tolerates the Intranet's: the pre-baked Ubuntu VNC image
+too, tolerating a failure the way it tolerates the Intranet's: the pre-baked VNC image
 and the tool images (`images/service.sh`), whose package sets never vary so deploying one is
 configuration only, and the six demo application images (`images/apps.sh`), which are Go
 binaries with their frontends embedded — no OS matrix, one tag apiece, and nothing to record in

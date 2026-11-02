@@ -161,7 +161,7 @@ certificate with a lifetime you choose (see [Stacks](STACKS.md#work-with-deploye
 installed. **Settings → Terminal** chooses whether consoles open docked or in their own window.
 
 **2. From another node.** Nodes resolve each other by name, so from any shell in the stack
-`mysql -h ps-01.example.net -u root -p` works. The **Ubuntu VNC** node is a desktop with a
+`mysql -h ps-01.example.net -u root -p` works. The **VNC** node is a desktop with a
 browser that resolves the stack's names and trusts its CA — use it for consoles not published
 to the host, such as PMM or Keycloak.
 

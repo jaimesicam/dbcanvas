@@ -6621,6 +6621,12 @@ check('streaming replication manager: a cluster with backups names its repositor
 check('infrastructure library: an entry says what it is for under its name', () => {
   const html = renderToString(<PaletteEntry label="SeaweedFS" role="S3 store for backups" />)
   if (!html.includes('SeaweedFS') || !html.includes('S3 store for backups')) throw new Error('the role line is missing')
+  // A long role wraps, and only between its phrases: no phrase is split, none is cut off.
+  const pmm2 = renderToString(<PaletteEntry label="PMM 2" role="monitoring · Query Analytics · end of life" />)
+  if (pmm2.includes('truncate text-[10px]')) throw new Error('the role line truncates, which cuts off its last phrase')
+  for (const p of ['monitoring', 'Query Analytics', 'end of life']) {
+    if (!pmm2.includes(`<span class="whitespace-nowrap">${p}</span>`)) throw new Error(`"${p}" is not kept on one line`)
+  }
   const bare = renderToString(<PaletteEntry label="Ceph" />)
   if (!bare.includes('Ceph') || bare.includes('text-[10px]')) throw new Error('an entry with no role draws an empty second line')
   return html
@@ -6639,11 +6645,11 @@ check('menu: a note under a label is counted in the panel width', () => {
 
 check('infrastructure library: recents saved under a renamed label keep their place', () => {
   const saved = globalThis.localStorage
-  const store = { 'dbcanvas-palette': JSON.stringify({ recent: ['Streaming Replication', 'PMM3', 'PostgreSQL Replication', 'SeaweedFS'] }) }
+  const store = { 'dbcanvas-palette': JSON.stringify({ recent: ['Streaming Replication', 'PMM3', 'PostgreSQL Replication', 'Ubuntu VNC', 'SeaweedFS'] }) }
   globalThis.localStorage = { getItem: (k) => store[k] ?? null }
   try {
     const got = loadPalettePrefs().recent.join('|')
-    if (got !== 'PostgreSQL Replication|PMM 3|SeaweedFS') throw new Error(`recents came back as ${got}`)
+    if (got !== 'PostgreSQL Replication|PMM 3|VNC|SeaweedFS') throw new Error(`recents came back as ${got}`)
   } finally { globalThis.localStorage = saved }
   return 'ok'
 })

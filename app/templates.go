@@ -54,7 +54,7 @@ type templateExport struct {
 var templateSecretKeys = map[string]bool{
 	"rootPassword":  true, // MySQL-family root / PostgreSQL superuser / Valkey / PSMDB admin
 	"adminPassword": true, // PMM
-	"vncPassword":   true, // Ubuntu VNC desktop
+	"vncPassword":   true, // VNC desktop
 	"secretKey":     true, // SeaweedFS S3 AWS_SECRET_ACCESS_KEY
 	"ssPassword":    true, // Stock Market Sim, manual connection mode
 	"lsPassword":    true, // Ledger Sim, manual connection mode

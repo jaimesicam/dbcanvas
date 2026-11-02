@@ -179,7 +179,7 @@ export function StackFolder({ stack, onClose, onOpen }) {
         if (!guest) items.push({ label: `Open in new tab${name}`, onClick: () => window.open(l.url, '_blank', 'noreferrer') })
         else items.push({ label: `Open in a browser window${name}`, onClick: () => openBrowser(l.url) })
         if (n.type !== 'vnc' && !watcher) {
-          items.push({ label: `Open in VNC Browser${name}`, disabled: !vncUp, title: vncUp ? '' : 'Add and deploy an Ubuntu VNC node in this stack first.',
+          items.push({ label: `Open in VNC Browser${name}`, disabled: !vncUp, title: vncUp ? '' : 'Add and deploy a VNC node in this stack first.',
             onClick: () => openInDesktop(l.url) })
         }
       }

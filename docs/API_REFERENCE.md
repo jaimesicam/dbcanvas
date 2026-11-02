@@ -1345,7 +1345,7 @@ window the host or driver opens opens for everyone. A watching guest can view pr
 pages but not submit to them; a VNC desktop is shown to them view-only.
 
 **Opening a link in the VNC desktop.** `POST /api/browse/desktop {"url": "…"}` opens
-the link as a Firefox tab on the stack's running Ubuntu VNC desktop, using the node's
+the link as a Firefox tab on the stack's running VNC desktop, using the node's
 name on the stack network, and returns `{"desktopLink", "desktop", "opened"}`. `409`
 when the stack has no running VNC desktop; a watching guest gets `403`.
 

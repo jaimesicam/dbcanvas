@@ -28823,3 +28823,28 @@ Recents are stored by label, so `loadPalettePrefs` (now exported) maps the old l
   under "Streaming Replication" and "PMM3" beside "PostgreSQL Replication" and gets
   `PostgreSQL Replication|PMM 3|SeaweedFS`; the EOL check finds `PMM 2` in the palette, and the
   PostgreSQL Replication form check its new heading.
+
+## 500. Ubuntu VNC is VNC — `app/{api_routes,browsedesk,designcatalog_infra,extraimages,intranet,k3d,keycloak,templates,templates_builtin,vnc}.go`, `app/web/src/pages/{StackDesigner,MongoDBManager,K3DManager}.jsx`, `app/web/src/components/OidcLoginGuide.jsx`, `app/web/src/desktop/Stacks.jsx`, `app/web/src/lib/help.js`, `app/web/smoke/render.jsx`, `README.md`, `docs/{STACKS,API_REFERENCE,ARCHITECTURE,CONFIGURATION,GETTING_STARTED,SHARED_SESSIONS}.md`
+
+The desktop node is named **VNC** wherever it is named: the library and add menu, its tile type and
+form headings, the catalogue label and requirement, validation messages ("A Keycloak node requires
+a VNC node", "Only one VNC node is allowed per stack"), the share-a-page error, the extra-images
+list ("VNC desktop"), the built-in template's node, help text, comments, the README and the guides.
+"an Ubuntu VNC" became "a VNC". The OS moved to the library's role line ("Ubuntu desktop with a
+browser"), and the deployed tile keeps showing the release ("Ubuntu 24.04"). The type name `vnc`,
+the compose kind and every field are unchanged; release notes and earlier entries keep the old name.
+`PALETTE_RENAMED` maps "Ubuntu VNC" to "VNC", so a recently used entry keeps its place.
+
+**Role lines.** Percona Server InnoDB / GR and MySQL InnoDB / GR read "InnoDB Cluster · Group
+Replication · Router" (they deploy either), and PMM 2 "monitoring · Query Analytics · end of life".
+Both are wider than the 200px docked library, where a truncated role lost its last phrase — on PMM 2,
+"end of life". `PaletteEntry` now wraps the role instead, and only at its " · " separators (each
+phrase is a `whitespace-nowrap` span), so no phrase is split or cut off. The add menu already
+widens to a note's length.
+
+### Verification performed
+- `go vet`, `go test .`, `npm run build`, `npm run smoke` pass; the recents check now includes
+  "Ubuntu VNC" and gets "VNC" back, and the library check renders PMM 2's role with no truncation
+  and each phrase kept on one line. The three entries were rendered in headless Chrome at the
+  library's width: the role takes two lines, breaking between phrases. No "Ubuntu VNC" is left outside release notes and earlier
+  entries, and no "an VNC".

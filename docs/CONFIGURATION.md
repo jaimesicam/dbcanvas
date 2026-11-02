@@ -21,7 +21,7 @@ the app, and fixes for common problems.
 | `make logs` | Follow the app's logs. |
 | `make clean` | Stop the app, remove its locally built images and `dist/`. Deployed stacks are untouched. |
 | `make images` | Build what every stack needs: the OS base images (Oracle Linux 8/9/10, Ubuntu 22.04/24.04, Debian 12/13) for the one platform in `DOCKER_PLATFORM`, and the **Intranet** image. Slow — the long part of `make install`. If only the Intranet fails, retry with `make intranet-image` or the **Build** button that Validate offers. |
-| `make extra-images` | Build every optional image: the Ubuntu VNC desktop, the K3D diagnostics collector, the Big Hole FTDC viewer and the demo applications. Fails if any of them fails (unlike `make install`). |
+| `make extra-images` | Build every optional image: the VNC desktop, the K3D diagnostics collector, the Big Hole FTDC viewer and the demo applications. Fails if any of them fails (unlike `make install`). |
 | `make versions` | Probe every built image for the versions it can install and write `versions.yaml` — what the version pickers offer. Takes hours. **Run `make restart` afterwards**, or every picker is empty. `ONLY=percona` or `ONLY=upstream` re-probes one group and keeps the other. |
 | `make adopt-images` | After an upgrade, retag images this host already built with the current release instead of rebuilding them. Nothing is rebuilt or removed. |
 | `make rotate-key` | Re-encrypt stored secrets under a new key. See [The encryption key](#the-encryption-key). |
@@ -97,7 +97,7 @@ that engine.
 | `KEYCLOAK_PASSWORD` | `keycloak_password` | The Keycloak `admin` console user. |
 | `KEYCLOAK_USER_PASSWORD` | `keycloak_user_password` | The sample Keycloak users created for SSO (`alice` and `bob` for PMM; `jane` and `john` for PostgreSQL and Percona Server). |
 | `SAMBA_PASSWORD` | `SambaPassword2026` | The Samba AD DC administrator. Must meet Active Directory complexity (three of: uppercase, lowercase, digit, symbol). |
-| `VNC_PASSWORD` | `vnc_password` | The Ubuntu VNC desktop login. VNC uses only the first 8 characters. A password set on the node overrides it. |
+| `VNC_PASSWORD` | `vnc_password` | The VNC desktop login. VNC uses only the first 8 characters. A password set on the node overrides it. |
 
 ### Advanced
 

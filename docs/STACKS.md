@@ -55,7 +55,7 @@ exception: they need a DBCanvas checkout and `make <name>-image` (for example
 | Spock | Oracle Linux 8, 9, 10 |
 | Linux Client | Oracle Linux 8, 9, 10; Ubuntu 22.04, 24.04; Debian 12, 13; CentOS 7 with `EOL=on` |
 | Intranet, OpenBao | Oracle Linux 9 |
-| Samba AD DC, Ubuntu VNC, Repository | Ubuntu 24.04 |
+| Samba AD DC, VNC, Repository | Ubuntu 24.04 |
 | PMM, Keycloak, SeaweedFS, Ceph, Watchtower, MClusterAdmin, Big Hole, simulators | A fixed container image; no OS choice |
 
 Debian is for the Linux Client only, and only on the Docker backend; Validate rejects it on any
@@ -77,10 +77,10 @@ other node. The version pickers list what `make versions` found for each OS.
 | Proxies & HA | ProxySQL · ProxySQL Cluster · HAProxy · PgBouncer · Orchestrator |
 | Monitoring | PMM 3 · PMM 2 (`EOL=on` only) · Watchtower |
 | Identity & Secrets | Samba AD DC · Keycloak · OpenBao |
-| Storage & Clients | SeaweedFS · Ceph · Ubuntu VNC · Linux Client · Repository |
+| Storage & Clients | SeaweedFS · Ceph · VNC · Linux Client · Repository |
 | App Simulators | Support Sim (Vector Search) · pgvector Support Sim · Stock Market Sim · Ledger Sim |
 
-One per stack: Intranet, Samba AD DC, Keycloak, OpenBao, Ubuntu VNC and Watchtower.
+One per stack: Intranet, Samba AD DC, Keycloak, OpenBao, VNC and Watchtower.
 
 ### MySQL (Percona)
 
@@ -236,7 +236,7 @@ and a manual rebuild. Compose kind `pg-stream`; `syncStandbys=N` makes it synchr
 | Type | What you get |
 | --- | --- |
 | **Samba AD DC** | Active Directory domain controller: LDAP and Kerberos for database sign-in. |
-| **Keycloak** | OpenID Connect identity provider. Needs an Ubuntu VNC node, because its admin console is reachable only from inside the stack. |
+| **Keycloak** | OpenID Connect identity provider. Needs a VNC node, because its admin console is reachable only from inside the stack. |
 | **OpenBao** | Vault-compatible secrets manager, used as the key store for data-at-rest encryption. Initialized and unsealed at deploy; its 5 unseal keys and root token are on its panel, which can re-unseal it after a restart with one click. Optional **PKI** mount for signing certificates. |
 
 ### Storage and clients
@@ -245,11 +245,11 @@ and a manual rebuild. Compose kind `pg-stream`; `syncStandbys=N` makes it synchr
 | --- | --- |
 | **SeaweedFS** | S3-compatible backup store with 1–10 buckets, optional HTTPS (**S3 TLS**). See [S3 backups](#browse-and-manage-s3-backups-seaweedfs). |
 | **Ceph** | Block storage for K3D volumes (RBD images that can grow). OSD size 5–1000 GB, default 20. |
-| **Ubuntu VNC** | XFCE desktop over web VNC with Firefox and Percona clients (MySQL client 8.4 with the OpenID Connect plugin). |
+| **VNC** | XFCE desktop over web VNC with Firefox and Percona clients (MySQL client 8.4 with the OpenID Connect plugin). |
 | **Linux Client** | A bare host with nothing installed. Optional database clients, Kubernetes tools and core-dump analysis. See [Linux Client](#linux-client). |
 | **Repository** | A yum/apt mirror of Percona repositories plus a container registry. See [Repository](#mirror-packages-and-images-with-a-repository-node). |
 
-![The Ubuntu VNC desktop, querying a cluster node by name with the pre-installed client](screenshots/vnc-desktop.png)
+![The VNC desktop, querying a cluster node by name with the pre-installed client](screenshots/vnc-desktop.png)
 
 ### All in One
 One container running many database instances side by side — Percona Server, MySQL Community or
@@ -926,7 +926,7 @@ fixed for that stack; to try the other backend, create a new stack.
 
 | VirtualBox VM | Docker container |
 | --- | --- |
-| Percona Server, PostgreSQL, PSMDB, Valkey, ProxySQL, HAProxy, PgBouncer, Linux Client (not Debian) | Intranet, K3D, PMM, Keycloak, OpenBao, SeaweedFS, Samba AD, Ubuntu VNC, Watchtower, and the other types |
+| Percona Server, PostgreSQL, PSMDB, Valkey, ProxySQL, HAProxy, PgBouncer, Linux Client (not Debian) | Intranet, K3D, PMM, Keycloak, OpenBao, SeaweedFS, Samba AD, VNC, Watchtower, and the other types |
 | PXC, Percona Server Replication, Percona Server InnoDB / GR, PSMDB Replica Set and Sharded, Patroni, repmgr, PostgreSQL Replication, Spock, Valkey Cluster, ProxySQL Cluster | |
 
 VMs and containers share DNS, the CA, PMM and SeaweedFS. Each VM-capable node has **CPUs** and

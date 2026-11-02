@@ -112,7 +112,7 @@ func extraImageCatalog() []extraImage {
 			BaseOS: [2]string{"oraclelinux", "9"},
 		},
 		{
-			ID: "vnc", Tag: vncImage(""), Label: "Ubuntu VNC desktop",
+			ID: "vnc", Tag: vncImage(""), Label: "VNC desktop",
 			About: "XFCE, TigerVNC/noVNC, Firefox and the Percona clients on Ubuntu 24.04 — the way to open a node's web console from inside the stack network.",
 			Make:  "vnc-image", Needs: []string{"vnc"},
 			Dockerfile: "vnc.Dockerfile", Buildable: true,

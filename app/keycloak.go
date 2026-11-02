@@ -28,7 +28,7 @@ import (
 // No host ports are published. Because the issuer/hostname is the in-network FQDN,
 // a forwarded host port never produced a working console from the host machine.
 // The admin console is instead reached at http://<fqdn>:8080 (or https://<fqdn>:8443
-// with SSL) from the Ubuntu VNC desktop node, whose browser resolves the Intranet
+// with SSL) from the VNC desktop node, whose browser resolves the Intranet
 // DNS names and trusts the Intranet CA. validateStack therefore requires a VNC node
 // alongside a Keycloak node.
 
@@ -165,7 +165,7 @@ func (a *App) provisionKeycloak(st Stack, n designNode, doc designDoc) {
 				"KC_BOOTSTRAP_ADMIN_PASSWORD=" + adminPW,
 			},
 			// No PublishMap: the console is stack-network only, reached from the
-			// Ubuntu VNC desktop. A forwarded host port was never usable from the
+			// VNC desktop. A forwarded host port was never usable from the
 			// host machine (the issuer/hostname is the in-network FQDN).
 			Network: networkName(st.ID), Aliases: aliases,
 			DNS: []string{intranetIP}, DNSSearch: []string{domain},
@@ -196,7 +196,7 @@ func (a *App) provisionKeycloak(st Stack, n designNode, doc designDoc) {
 		pr.phase("Running", 100)
 		pr.p.Message = "provisioned"
 		pr.save()
-		log.Printf("stack %d keycloak %s: provisioned (console %s, reachable from the Ubuntu VNC desktop)", st.ID, n.Label, keycloakIssuer(fqdn, n.GenerateCert))
+		log.Printf("stack %d keycloak %s: provisioned (console %s, reachable from the VNC desktop)", st.ID, n.Label, keycloakIssuer(fqdn, n.GenerateCert))
 	}()
 }
 

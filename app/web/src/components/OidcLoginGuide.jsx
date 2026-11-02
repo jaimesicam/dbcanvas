@@ -71,7 +71,7 @@ export default function OidcLoginGuide({ engine, info, secrets }) {
         <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] leading-snug text-muted">
           <span className="font-medium text-fg">Keycloak sign-in needs a browser inside the stack.</span> The
           OAuth redirect goes to Keycloak's stack FQDN, which only the stack's Intranet DNS resolves —
-          your host browser cannot complete it. Add an <span className="font-medium">Ubuntu VNC</span> node
+          your host browser cannot complete it. Add a <span className="font-medium">VNC</span> node
           to the stack, open its desktop, and browse to <span className="font-mono">{info.loginUrl}</span> from
           there. (Reaching PMM on its published host port shows the login page, but the Keycloak
           round-trip still fails.)

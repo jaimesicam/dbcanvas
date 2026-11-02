@@ -167,7 +167,7 @@ var tplStarterPSDesign = json.RawMessage(`{
   "nodes": [
     {"id":"tpl-intranet","type":"intranet","label":"Intranet","x":40,"y":40},
     {"id":"tpl-ps","type":"ps","label":"ps-01","os":"oraclelinux","osVersion":"9","psMajor":"8.0","psVersion":"","gtid":true,"exportEnabled":false,"exportHostPort":0,"x":300,"y":40},
-    {"id":"tpl-vnc","type":"vnc","label":"Ubuntu VNC","os":"ubuntu","osVersion":"24.04","x":40,"y":220}
+    {"id":"tpl-vnc","type":"vnc","label":"VNC","os":"ubuntu","osVersion":"24.04","x":40,"y":220}
   ],
   "frames": [],
   "edges": [],

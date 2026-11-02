@@ -190,7 +190,7 @@ var catalogInfra = []catalogEntry{
 	{Type: "keycloak", Label: "Keycloak",
 		Summary:   "OpenID Connect identity provider (dev mode). Nodes enable single sign-on against it through the oidc relation; realms, clients and sample users are created for them at deploy.",
 		Placement: "standalone", Singleton: true,
-		Requires: []string{"an Intranet node", "an Ubuntu VNC node (the admin console is reachable only from inside the stack network)"},
+		Requires: []string{"an Intranet node", "a VNC node (the admin console is reachable only from inside the stack network)"},
 		Options: infraJoin([]catalogOption{
 			{Field: "generateCert", Default: true, Desc: "Serve HTTPS on 8443 with an Intranet-CA certificate (the OIDC issuer is https://<host>:8443). OIDC on database nodes requires it."},
 		}, infraCertTTL("generateCert is on")),
@@ -210,7 +210,7 @@ var catalogInfra = []catalogEntry{
 			{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/openbao/unseal", Desc: "Unseal with the stored unseal keys (OpenBao seals on every restart)."},
 		},
 	},
-	{Type: "vnc", Label: "Ubuntu VNC",
+	{Type: "vnc", Label: "VNC",
 		Summary:   "An XFCE desktop on Ubuntu 24.04 over web VNC, with Firefox and the Percona client tools, for reaching the stack's web consoles and databases from inside its network.",
 		Placement: "standalone", Singleton: true,
 		Requires: []string{"an Intranet node"},

@@ -82,7 +82,7 @@ Ways to connect:
 | From | How |
 | --- | --- |
 | **The browser** | Right-click → *Enter root console*. The database client is already installed. |
-| **Another node** | Nodes reach each other by name, for example `mysql -h ps-01.example.net -u root -p`. The **Ubuntu VNC** node gives you a desktop with a browser inside the stack. |
+| **Another node** | Nodes reach each other by name, for example `mysql -h ps-01.example.net -u root -p`. The **VNC** node gives you a desktop with a browser inside the stack. |
 | **Your machine** | Tick *Export … port to the host* before deploying. The node's panel shows the host port. |
 | **An SSH tunnel** | When DBCanvas runs on a server, set `SSH_FORWARDING_HOST` and copy the command from the node's menu. |
 
@@ -101,7 +101,7 @@ Ways to connect:
 
 **Infrastructure**: Intranet (DNS, mail, OpenLDAP, Squid proxy, certificate authority), PMM,
 ProxySQL, HAProxy, PgBouncer, Orchestrator, SeaweedFS (S3), Ceph, Keycloak, OpenBao, Samba AD DC,
-Watchtower, a package Repository, MClusterAdmin, Big Hole, an Ubuntu VNC desktop and a Linux
+Watchtower, a package Repository, MClusterAdmin, Big Hole, a VNC desktop and a Linux
 Client.
 
 **Simulated load**: applications that send realistic traffic to your databases — support desk,

@@ -30,7 +30,7 @@ import (
 // The cluster is created **on the stack network** (--network dbcanvas-stack-<id>). That one flag is
 // what makes the rest work: the k3s nodes get Intranet DNS names like any other node, pods can
 // reach the PMM and SeaweedFS nodes by FQDN, and MetalLB can hand out LoadBalancer IPs from the
-// stack subnet — reachable from every other container in the stack (e.g. the Ubuntu VNC desktop).
+// stack subnet — reachable from every other container in the stack (e.g. the VNC desktop).
 //
 // k3s ships kubectl, so every kubectl call is an exec into the first node; nothing else needs a
 // Kubernetes client. The operator source is unpacked into /root on that same node, which is where

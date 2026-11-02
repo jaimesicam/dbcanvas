@@ -147,10 +147,10 @@ deploys; it is not a sandbox for arbitrary websites.
 A browser window shares only the page's address: each viewer loads their own copy with their own
 logins, so a watcher sees a login page and cannot submit it. To show everyone exactly what the
 driver sees, right-click the link or node and choose **Open in VNC Browser**. The page opens as a
-Firefox tab on the stack's **Ubuntu VNC** desktop, shown as a shared window: one copy, one login,
+Firefox tab on the stack's **VNC** desktop, shown as a shared window: one copy, one login,
 only the driver's input.
 
-- The stack needs a deployed **Ubuntu VNC** node; without one, DBCanvas tells you so.
+- The stack needs a deployed **VNC** node; without one, DBCanvas tells you so.
 - Watching guests do not get the option; a driving guest does, and it is recorded like any change.
 - Firefox there never saves passwords, so a later driver cannot read your logins. The driver
   controls the whole desktop, terminal included.
