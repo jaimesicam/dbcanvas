@@ -574,6 +574,15 @@ export function mongoNodeApi(id, nid) {
 }
 
 // repmgr cluster (frame) management. `fid` is the design frame id.
+// Streaming replication cluster (frame) management. `fid` is the design frame id.
+export function pgStreamApi(id, fid) {
+  const base = `/api/stacks/${id}/frames/${fid}`
+  return {
+    // A pgBackRest full backup on whichever member is primary now.
+    backup: () => request('POST', `${base}/pgstream/backup`),
+  }
+}
+
 export function repmgrApi(id, fid) {
   const base = `/api/stacks/${id}/frames/${fid}`
   return {

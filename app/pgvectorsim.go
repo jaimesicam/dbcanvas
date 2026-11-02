@@ -64,7 +64,7 @@ func pgVectorSimTarget(doc designDoc, startID string) (kind, targetID string, ok
 			}
 		}
 		for _, f := range doc.Frames {
-			if f.ID == other && (f.Type == "patroni" || f.Type == "repmgr" || f.Type == "spock" || f.Type == "k3d") {
+			if f.ID == other && (f.Type == "patroni" || f.Type == "repmgr" || f.Type == "pgstream" || f.Type == "spock" || f.Type == "k3d") {
 				return f.Type, f.ID, true
 			}
 		}
@@ -84,7 +84,7 @@ func pgVectorSimHasPGVector(doc designDoc, kind, targetID string) (has bool, whe
 	case "pg":
 		n := nodeByID(doc, targetID)
 		return n.PGVector, "PostgreSQL node " + n.Label
-	case "patroni", "repmgr", "spock":
+	case "patroni", "repmgr", "pgstream", "spock":
 		f := frameByID(doc, targetID)
 		return f.PGVector, "cluster " + f.Label
 	case "haproxy":

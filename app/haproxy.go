@@ -153,7 +153,7 @@ func (a *App) provisionHAProxy(st Stack, n designNode, doc designDoc) {
 		// API; Spock's health check is HAProxy's own native protocol probe).
 		frame, kind, ok := haproxyBackend(doc, n.ID)
 		if !ok {
-			failNode("HAProxy must be linked to exactly one Patroni, repmgr, Spock, PXC, or MySQL replication cluster")
+			failNode("HAProxy must be linked to exactly one Patroni, repmgr, streaming replication, Spock, PXC, or MySQL replication cluster")
 			return
 		}
 		cfg.Backend = kind
@@ -170,8 +170,8 @@ func (a *App) provisionHAProxy(st Stack, n designNode, doc designDoc) {
 				return
 			}
 			members = m
-		case "repmgr":
-			setPhase("Waiting for repmgr cluster", 15)
+		case "repmgr", "pgstream":
+			setPhase("Waiting for "+pgClusterNoun(kind), 15)
 			ms, cerr := a.waitRepmgrMembers(ctx, st.ID, frame, doc, domain, deployTimeout())
 			if cerr != nil {
 				failNode("%v", cerr)
@@ -309,9 +309,11 @@ func (a *App) provisionHAProxy(st Stack, n designNode, doc designDoc) {
 		// since every member is always a valid target regardless of role).
 		var cfgFile string
 		switch kind {
-		case "repmgr":
-			setPhase("Configuring repmgr health check", 70)
-			if err := a.repmgrSetupHealthCheck(ctx, pxcMembers, logln); err != nil {
+		case "repmgr", "pgstream":
+			// A streaming replication cluster has no REST API either, and the question is the
+			// same one: is this member in recovery.
+			setPhase("Configuring the pg_is_in_recovery() health check", 70)
+			if err := a.repmgrSetupHealthCheck(ctx, kind, pxcMembers, logln); err != nil {
 				failNode("%v", err)
 				return
 			}
@@ -348,7 +350,7 @@ func (a *App) provisionHAProxy(st Stack, n designNode, doc designDoc) {
 		switch kind {
 		case "pxc", "spock":
 			logln("haproxy started (write :5000 → single writer, read :5001 → round-robin all members, stats :7000)")
-		case "mysql", "repmgr":
+		case "mysql", "repmgr", "pgstream":
 			logln("haproxy started (write :5000 → primary, read :5001 → round-robin secondaries (falls back to primary), stats :7000)")
 		default:
 			logln("haproxy started (write :5000 → leader, read :5001 → replicas, stats :7000)")
@@ -562,12 +564,13 @@ func (a *App) waitRepmgrMembers(ctx context.Context, stackID int64, frame design
 	hosts := stackHostnames(doc)
 	var mem []designNode
 	for _, n := range doc.Nodes {
-		if n.FrameID == frame.ID && n.Type == "repmgr" {
+		if n.FrameID == frame.ID && n.Type == frame.Type {
 			mem = append(mem, n)
 		}
 	}
+	noun := pgClusterNoun(frame.Type)
 	if len(mem) == 0 {
-		return nil, fmt.Errorf("repmgr cluster %s has no member", frame.Label)
+		return nil, fmt.Errorf("%s %s has no member", noun, frame.Label)
 	}
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
@@ -580,7 +583,7 @@ func (a *App) waitRepmgrMembers(ctx context.Context, stackID int64, frame design
 				break
 			}
 			if dep.State == DeployError {
-				return nil, fmt.Errorf("repmgr cluster %s failed to provision", frame.Label)
+				return nil, fmt.Errorf("%s %s failed to provision", noun, frame.Label)
 			}
 			if dep.State != DeployRunning || dep.ContainerID == "" {
 				allRunning = false
@@ -593,7 +596,7 @@ func (a *App) waitRepmgrMembers(ctx context.Context, stackID int64, frame design
 		}
 		time.Sleep(3 * time.Second)
 	}
-	return nil, fmt.Errorf("repmgr cluster %s did not become ready within %s", frame.Label, timeout)
+	return nil, fmt.Errorf("%s %s did not become ready within %s", noun, frame.Label, timeout)
 }
 
 // repmgrSetupHealthCheck installs the mysqlchk-shaped HTTP health endpoint on every
@@ -601,12 +604,13 @@ func (a *App) waitRepmgrMembers(ctx context.Context, stackID int64, frame design
 // socket-activated shape — only the check itself differs (pg_is_in_recovery()
 // instead of @@read_only, and no credential needed at all, peer-authenticated as
 // the postgres OS user exactly like repmgrIsPrimaryScript).
-func (a *App) repmgrSetupHealthCheck(ctx context.Context, members []pxcMember, logln func(string)) error {
+func (a *App) repmgrSetupHealthCheck(ctx context.Context, kind string, members []pxcMember, logln func(string)) error {
 	if len(members) == 0 {
-		return fmt.Errorf("no repmgr members to configure the health check on")
+		return fmt.Errorf("no %s members to configure the health check on", pgClusterNoun(kind))
 	}
+	script := pgRoleCheckServiceScript(kind)
 	for _, m := range members {
-		if err := a.runStep(ctx, m.ContainerID, repmgrCheckServiceScript, nil, logln); err != nil {
+		if err := a.runStep(ctx, m.ContainerID, script, nil, logln); err != nil {
 			return fmt.Errorf("configure health check on %s: %w", m.FQDN, err)
 		}
 	}
@@ -1160,6 +1164,24 @@ UNIT
 systemctl daemon-reload
 systemctl reset-failed repmgrchk.socket 2>/dev/null || true
 systemctl enable --now repmgrchk.socket`
+
+// pgRoleCheckServiceScript is repmgrCheckServiceScript for a cluster of the given kind. The check
+// is the same question on any streaming replication cluster — is this member in recovery — but a
+// node that has nothing to do with repmgr should not carry units and a script named after it, so
+// a streaming replication cluster gets them as pgrolechk. repmgr keeps its names: members deployed
+// before this already have them, and a redeploy must find the same units it would replace.
+func pgRoleCheckServiceScript(kind string) string {
+	if kind != "pgstream" {
+		return repmgrCheckServiceScript
+	}
+	return strings.NewReplacer(
+		"repmgrchk", "pgrolechk",
+		"repmgr streaming-replication health check", "streaming replication health check",
+		"repmgr has no\n# REST API of its own (unlike Patroni)", "there is no\n# REST API to ask (unlike Patroni)",
+		"repmgr node ", "PostgreSQL member ",
+		"repmgr replication health check", "PostgreSQL role health check",
+	).Replace(repmgrCheckServiceScript)
+}
 
 const haproxyInstallRHEL = `set -e
 dnf -y -q install haproxy >/dev/null`

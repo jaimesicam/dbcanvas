@@ -94,7 +94,7 @@ func (c dbConn) engine() Engine { return c.eng }
 // engineForType maps a design node type to a Data Generator engine ("" = unsupported).
 func engineForType(t string) string {
 	switch t {
-	case "pg", "patroni", "repmgr", "spock":
+	case "pg", "patroni", "repmgr", "pgstream", "spock":
 		return "postgres"
 	case "pxc", "ps", "mysql", "innodb",
 		"mariadb", "mariadbrepl", "mariadbgalera",

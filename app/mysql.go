@@ -345,6 +345,7 @@ func (a *App) provisionPerconaServer(st Stack, n designNode, doc designDoc) {
 		// through the shared path, so a standalone server and a replication member are wired
 		// by the same code — which is the only way they stay wired the same way.
 		EnableVault: n.EnableVault, OpenBaoNodeID: n.OpenBaoNodeID,
+		mysqlTuning: n.mysqlTuning,
 	}
 	major := psMajorOf(n.PSMajor)
 	image := pxcImage(n.OS, n.OSVersion, n.Arch)
@@ -822,6 +823,7 @@ func mysqlMyCnf(frame designFrame, host, vaultOptions string) string {
 	// The keyring, when this node has one. It is written here rather than appended to /etc/my.cnf
 	// afterwards because this is the file the server actually reads on both OS families — see
 	// mysqlWriteNodeCnf, and the note at the top of dbvault.go's staging section.
+	b.WriteString(mysqlTuningCnf(frame))
 	b.WriteString(vaultOptions)
 	return b.String()
 }

@@ -187,7 +187,7 @@ Each `--node` is **`kind[:count][,option][,key=value]`**:
 | `to=` | The node this one is wired to — the backend a proxy fronts, the database a demo app drives. |
 | `export`, `cert`, `proxy`, `gtid`, `mysqlRouter`, `tls`, `pgvector`, `pgaudit`, `setUser`, `tdeWal`, `mca`, `viewOnly` | Switches; `gtid=false` turns a default off. `pgvector` installs pgvector and creates the extension. `mca` creates the MClusterAdmin accounts on a MongoDB node; `viewOnly` starts an MClusterAdmin panel with writes disabled. |
 | `name=`, `count=`, `cpus=`, `memoryGb=`, `exportPort=`, `certTtl=` | Values. |
-| `replMode=`, `mode=`, `setup=`, `dataset=`, `pgauditLog=`, `pgbench=`, `alertEmail=`, `buckets=a+b` | Per-kind values. `alertEmail=` is the mailbox an Orchestrator sends failure alerts to. |
+| `replMode=`, `mode=`, `setup=`, `dataset=`, `pgauditLog=`, `pgbench=`, `syncStandbys=`, `alertEmail=`, `buckets=a+b` | Per-kind values. `syncStandbys=` is how many standbys of a `pg-stream` cluster confirm each commit (0, the default, is asynchronous). `alertEmail=` is the mailbox an Orchestrator sends failure alerts to. |
 | `netLatencyMs=`, `netJitterMs=`, `netLossPct=`, `netRateMbit=`, `netAllTraffic` | Network shaping. |
 | `deviceReadMbps=`, `deviceWriteMbps=` | Disk throughput limits. |
 

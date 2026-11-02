@@ -42,7 +42,7 @@ var perfSimTargets = map[string]bool{
 	"ps": true, "mariadb": true, "mysqlce": true,
 	"pxc": true, "mysql": true, "innodb": true, "mariadbrepl": true, "mariadbgalera": true,
 	"mysqlcerepl": true, "mysqlceinnodb": true,
-	"pg": true, "patroni": true, "repmgr": true, "spock": true,
+	"pg": true, "patroni": true, "repmgr": true, "pgstream": true, "spock": true,
 	"psm": true, "psmrs": true, "psmdb": true,
 	"valkey": true, "valkeycluster": true,
 	"haproxy": true, "proxysql": true, "pgbouncer": true,
@@ -352,7 +352,7 @@ func (a *App) provisionPerfSim(st Stack, n designNode, doc designDoc) {
 			target.Reader = &perfSimEndpoint{Host: r.host, Port: r.readPort}
 		}
 		memberPort := pxcMySQLPort
-		if f, ok := perfSimFrame(doc, kind, targetID); ok && (f.Type == "patroni" || f.Type == "repmgr" || f.Type == "spock") {
+		if f, ok := perfSimFrame(doc, kind, targetID); ok && (f.Type == "patroni" || f.Type == "repmgr" || f.Type == "pgstream" || f.Type == "spock") {
 			target.Manager = f.Type
 			if f.Type == "spock" {
 				target.Database = spockDefaultDB

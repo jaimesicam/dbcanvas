@@ -92,11 +92,11 @@ var catalogApps = []catalogEntry{
 		Placement: "standalone",
 		Requires: []string{
 			"an Intranet node",
-			"an association line to PostgreSQL: a standalone pg node, a Patroni, repmgr or Spock frame, an HAProxy or PgBouncer node fronting exactly one of those, or a K3D frame running a PostgreSQL operator (pg, cnpg or pgo); without pgVector on the backend it stores real[] and scans in the app",
+			"an association line to PostgreSQL: a standalone pg node, a Patroni, repmgr, streaming replication or Spock frame, an HAProxy or PgBouncer node fronting exactly one of those, or a K3D frame running a PostgreSQL operator (pg, cnpg or pgo); without pgVector on the backend it stores real[] and scans in the app",
 		},
 		Options: []catalogOption{},
 		Edges: []catalogEdge{
-			{To: []string{"pg", "patroni", "repmgr", "spock", "haproxy", "pgbouncer", "k3d"}, Type: "directional", Required: true,
+			{To: []string{"pg", "patroni", "repmgr", "pgstream", "spock", "haproxy", "pgbouncer", "k3d"}, Type: "directional", Required: true,
 				Desc: "The PostgreSQL the desk runs on. A router must front one PostgreSQL backend; pgVector on that backend (k3dPgVector with the Percona operator on a k3d frame) enables the HNSW index."},
 		},
 	},
@@ -141,7 +141,7 @@ var catalogApps = []catalogEntry{
 			{To: []string{
 				"ps", "mariadb", "mysqlce", "pg", "psm", "valkey",
 				"pxc", "mysql", "innodb", "mariadbrepl", "mariadbgalera", "mysqlcerepl", "mysqlceinnodb",
-				"patroni", "repmgr", "spock", "k3d", "psmrs", "psmdb", "valkeycluster",
+				"patroni", "repmgr", "pgstream", "spock", "k3d", "psmrs", "psmdb", "valkeycluster",
 				"haproxy", "proxysql", "pgbouncer",
 			}, Type: "directional",
 				Desc: "The database it drives when ssMode is \"linked\" (required then): a standalone database node, a cluster frame (its write endpoint), a k3d frame running pxc, ps, psmdb, pg, cnpg or pgo, or a router fronting exactly one cluster. Members inside a frame are not targets."},
@@ -158,7 +158,7 @@ var catalogApps = []catalogEntry{
 		Placement: "standalone",
 		Requires: []string{
 			"an Intranet node",
-			"psMode \"linked\": an association line to a Percona Server, MySQL or MariaDB server or cluster frame, a PostgreSQL node or Patroni, repmgr or Spock frame, a PS MongoDB node, PSMDB replica set or sharded frame, a Valkey node or Valkey Cluster frame, a K3D frame with a database operator, or an HAProxy, ProxySQL or PgBouncer node in front of one",
+			"psMode \"linked\": an association line to a Percona Server, MySQL or MariaDB server or cluster frame, a PostgreSQL node or Patroni, repmgr, streaming replication or Spock frame, a PS MongoDB node, PSMDB replica set or sharded frame, a Valkey node or Valkey Cluster frame, a K3D frame with a database operator, or an HAProxy, ProxySQL or PgBouncer node in front of one",
 			"psMode \"aio\": psAIONode and psAIOInstance naming a MySQL-family, PostgreSQL or MongoDB instance",
 			"psMode \"manual\": psHost",
 		},
@@ -184,7 +184,7 @@ var catalogApps = []catalogEntry{
 			{To: []string{
 				"ps", "mariadb", "mysqlce",
 				"pxc", "mysql", "innodb", "mariadbrepl", "mariadbgalera", "mysqlcerepl", "mysqlceinnodb",
-				"pg", "patroni", "repmgr",
+				"pg", "patroni", "repmgr", "pgstream",
 				"psm", "psmrs",
 				"valkey", "valkeycluster",
 				"haproxy", "proxysql", "pgbouncer",
@@ -230,7 +230,7 @@ var catalogApps = []catalogEntry{
 			{To: []string{
 				"ps", "mariadb", "mysqlce", "pg",
 				"pxc", "mysql", "innodb", "mariadbrepl", "mariadbgalera", "mysqlcerepl", "mysqlceinnodb",
-				"patroni", "repmgr", "spock", "k3d",
+				"patroni", "repmgr", "pgstream", "spock", "k3d",
 				"haproxy", "proxysql", "pgbouncer",
 			}, Type: "directional",
 				Desc: "The database it drives when lsMode is \"linked\" (required then). A k3d frame must run a MySQL or PostgreSQL operator (pxc, ps, pg, cnpg or pgo); MongoDB and Valkey targets are refused."},

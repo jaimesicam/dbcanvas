@@ -56,7 +56,7 @@ state. Finished runs are listed under **History** until DBCanvas restarts.
 ## Targets
 
 - Running MySQL-family nodes (Percona Server, PXC, InnoDB Cluster / GR, MySQL Community, MariaDB)
-  and PostgreSQL-family nodes (PostgreSQL, Patroni, repmgr, Spock). MongoDB is not supported —
+  and PostgreSQL-family nodes (PostgreSQL, Patroni, repmgr, Streaming Replication, Spock). MongoDB is not supported —
   use the Benchmark for MongoDB load.
 - **All-in-One** SQL instances, listed as `<node> / <instance>`.
 - **Databases deployed by an operator in a K3D frame** that have a LoadBalancer or NodePort Service.

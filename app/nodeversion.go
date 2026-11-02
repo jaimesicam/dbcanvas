@@ -45,10 +45,11 @@ var nodeVersionScripts = map[string]string{
 	"psmdb": "(mongod --version 2>/dev/null || mongos --version 2>/dev/null) | head -1",
 	"psmrs": "(mongod --version 2>/dev/null || mongos --version 2>/dev/null) | head -1",
 	// PostgreSQL family — "psql (PostgreSQL) 16.10 - Percona Distribution"
-	"pg":      "psql --version 2>/dev/null || postgres --version 2>/dev/null",
-	"patroni": "psql --version 2>/dev/null || postgres --version 2>/dev/null",
-	"repmgr":  "psql --version 2>/dev/null || postgres --version 2>/dev/null",
-	"spock":   "psql --version 2>/dev/null || postgres --version 2>/dev/null",
+	"pg":       "psql --version 2>/dev/null || postgres --version 2>/dev/null",
+	"patroni":  "psql --version 2>/dev/null || postgres --version 2>/dev/null",
+	"repmgr":   "psql --version 2>/dev/null || postgres --version 2>/dev/null",
+	"pgstream": "psql --version 2>/dev/null || postgres --version 2>/dev/null",
+	"spock":    "psql --version 2>/dev/null || postgres --version 2>/dev/null",
 	// The rest.
 	"proxysql": "proxysql --version 2>/dev/null | head -1",
 	"haproxy":  "haproxy -v 2>/dev/null | head -1",

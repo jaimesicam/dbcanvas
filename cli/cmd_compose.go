@@ -82,7 +82,7 @@ func parseNodeSpec(arg string) (map[string]any, error) {
 	}
 	intOpts := map[string]string{
 		"count": "count", "cpus": "cpus", "memorygb": "memoryGb", "exportport": "exportPort",
-		"pgbench": "pgbench", "replicas": "replicas",
+		"pgbench": "pgbench", "replicas": "replicas", "syncstandbys": "syncStandbys",
 		// Resource shaping.
 		"netlatencyms": "netLatencyMs", "netjitterms": "netJitterMs",
 		"netratembit":    "netRateMbit",
@@ -149,7 +149,7 @@ func parseNodeSpec(arg string) (map[string]any, error) {
 			"           pgaudit, setUser, tdeWal, mca, viewOnly\n"+
 			"  values:  name=, os=, arch=, version=, count=, cpus=, memoryGb=, exportPort=,\n"+
 			"           replMode=, mode=, setup=, certTtl=, pgauditLog=, pgbench=, replicas=,\n"+
-			"           alertEmail=, buckets=a+b\n"+
+			"           syncStandbys=, alertEmail=, buckets=a+b\n"+
 			"  shaping: netLatencyMs=, netJitterMs=, netLossPct=, netRateMbit=,\n"+
 			"           deviceReadMbps=, deviceWriteMbps=\n"+
 			"  `dbcanvas stack kinds` lists what each kind supports.", key, arg)

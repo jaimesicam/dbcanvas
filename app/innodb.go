@@ -426,6 +426,7 @@ func innodbMyCnf(frame designFrame, host, domain, groupName, seedList, mode stri
 		// with "Authentication requires secure connection". Allow the key fetch.
 		fmt.Fprintf(&b, "group_replication_recovery_get_public_key=ON\n")
 	}
+	b.WriteString(mysqlTuningCnf(frame))
 	return b.String()
 }
 

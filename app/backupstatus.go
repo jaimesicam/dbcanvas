@@ -137,6 +137,9 @@ func (a *App) frameBackupStatus(ctx context.Context, st Stack, doc designDoc, f 
 	case f.Type == "repmgr" && repmgrBackupEngine(f) == "pgbackrest":
 		cid := a.repmgrPrimaryContainer(ctx, st, f, doc)
 		return a.pgbrInfoOn(ctx, st, f, cid, repmgrStanza(f.Label))
+	case f.Type == "pgstream" && f.UsePgBackRest:
+		cid := a.pgStreamPrimaryContainer(ctx, st, f, doc)
+		return a.pgbrInfoOn(ctx, st, f, cid, patroniStanza(f.Label))
 	case f.Type == "repmgr" && repmgrBackupEngine(f) == "barman":
 		return backupInfo{Engine: "barman", Err: "Barman cloud backups are not listed here — see the cluster's Backup tab"}
 	case (f.Type == "psmrs" || f.Type == "psmdb") && f.EnablePBM:

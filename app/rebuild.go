@@ -44,9 +44,10 @@ var rebuildKinds = map[string]string{
 	"mysql": "mysql", "mysqlcerepl": "mysql",
 	"mariadbrepl": "mariadb",
 	"innodb":      "gr", "mysqlceinnodb": "gr",
-	"patroni": "patroni",
-	"repmgr":  "repmgr",
-	"psmrs":   "mongo", "psmdb": "mongo",
+	"patroni":  "patroni",
+	"repmgr":   "repmgr",
+	"pgstream": "pgstream",
+	"psmrs":    "mongo", "psmdb": "mongo",
 	"pxc": "galera", "mariadbgalera": "galera",
 }
 
@@ -165,6 +166,8 @@ func (a *App) planRebuild(ctx context.Context, st Stack, nid string) rebuildPlan
 		p.Method = "Group Replication clone: the member leaves the group and rejoins with the clone threshold at 1, so it is cloned from a donor and restarts on the copy."
 	case "patroni":
 		p.Method = "patronictl reinit: Patroni wipes the replica's data directory and takes a new base backup from the leader."
+	case "pgstream":
+		p.Method = pgStreamRebuildMethod
 	case "repmgr":
 		p.Method = "repmgr standby clone: PostgreSQL on the replica is stopped, its data directory emptied and cloned from the primary, then started and re-registered."
 	case "mongo":
@@ -384,6 +387,8 @@ func (a *App) runRebuild(ctx context.Context, st Stack, p rebuildPlan, j *rebuil
 		return a.rebuildPatroni(ctx, st, p, j)
 	case "repmgr":
 		return a.rebuildRepmgr(ctx, st, p, j)
+	case "pgstream":
+		return a.rebuildPGStream(ctx, st, p, j)
 	case "mongo":
 		return a.rebuildMongo(ctx, st, p, j)
 	case "galera":

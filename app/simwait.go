@@ -59,19 +59,20 @@ func (a *App) waitPgNodeRunning(ctx context.Context, stackID int64, nodeID strin
 	}
 }
 
-// waitRepmgrRunning waits for every member of a repmgr frame to be running and
+// waitRepmgrRunning waits for every member of a repmgr (or streaming replication) frame to be running and
 // returns their FQDNs plus the cluster credentials — the repmgr analog of
 // waitPatroniRunning.
 func (a *App) waitRepmgrRunning(ctx context.Context, stackID int64, frame designFrame, doc designDoc, domain string, timeout time.Duration) ([]string, pgSecrets, error) {
 	hosts := stackHostnames(doc)
 	var members []designNode
 	for _, n := range doc.Nodes {
-		if n.FrameID == frame.ID && n.Type == "repmgr" {
+		if n.FrameID == frame.ID && n.Type == frame.Type {
 			members = append(members, n)
 		}
 	}
+	noun := pgClusterNoun(frame.Type)
 	if len(members) == 0 {
-		return nil, pgSecrets{}, fmt.Errorf("associated repmgr cluster %s has no nodes", frame.Label)
+		return nil, pgSecrets{}, fmt.Errorf("associated %s %s has no nodes", noun, frame.Label)
 	}
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
@@ -85,7 +86,7 @@ func (a *App) waitRepmgrRunning(ctx context.Context, stackID int64, frame design
 				break
 			}
 			if dep.State == DeployError {
-				return nil, pgSecrets{}, fmt.Errorf("associated repmgr cluster %s failed to provision", frame.Label)
+				return nil, pgSecrets{}, fmt.Errorf("associated %s %s failed to provision", noun, frame.Label)
 			}
 			if dep.State != DeployRunning {
 				allRunning = false
@@ -99,7 +100,7 @@ func (a *App) waitRepmgrRunning(ctx context.Context, stackID int64, frame design
 		}
 		time.Sleep(3 * time.Second)
 	}
-	return nil, pgSecrets{}, fmt.Errorf("associated repmgr cluster %s did not become ready within %s", frame.Label, timeout)
+	return nil, pgSecrets{}, fmt.Errorf("associated %s %s did not become ready within %s", noun, frame.Label, timeout)
 }
 
 // waitProxySQLRunning blocks until at least one member of the linked ProxySQL

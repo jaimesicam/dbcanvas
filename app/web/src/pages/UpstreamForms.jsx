@@ -5,6 +5,7 @@ import { Icon } from '../components/Icons.jsx'
 import { Help } from '../components/Tooltip.jsx'
 import { HELP } from '../lib/help.js'
 import { DBFileToolChecks } from '../components/FileTools.jsx'
+import { MySQLTuningFields } from '../components/MySQLTuning.jsx'
 
 // Designer forms for the non-Percona upstreams: MariaDB (standalone, replication,
 // Galera) and MySQL Community (standalone, replication, InnoDB Cluster / GR).
@@ -118,7 +119,7 @@ function DeleteButton({ onClick, children }) {
   )
 }
 
-// Shared tail: PMM, package proxy, file tools, TLS. Kept together because every form offers
+// Shared tail: PMM, package proxy, file tools, InnoDB settings, TLS. Kept together because every form offers
 // the same set and they behave identically across all six types. galera adds gcache-inspector
 // to the file tools; cluster says they go on every member.
 function CommonOptions({ obj, patch, nodes, deployed, showGtid, showRepl, galera, cluster }) {
@@ -144,6 +145,7 @@ function CommonOptions({ obj, patch, nodes, deployed, showGtid, showRepl, galera
       )}
       <Check disabled={deployed} checked={!!obj.useProxy} onChange={(v) => patch({ useProxy: v })} label="Install packages via the Intranet proxy" help={HELP.proxy} />
       <DBFileToolChecks obj={obj} onPatch={patch} galera={galera} cluster={cluster} deployed={deployed} />
+      <MySQLTuningFields obj={obj} onPatch={patch} deployed={deployed} cluster={cluster} />
       <Check disabled={deployed} checked={!!obj.generateCert} onChange={(v) => patch({ generateCert: v })} label="Issue a TLS certificate from the Intranet CA" help={HELP.generateCert} />
       {obj.generateCert && (
         <div className="grid grid-cols-2 gap-2">

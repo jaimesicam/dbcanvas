@@ -7,9 +7,9 @@ import (
 	"strings"
 )
 
-// dbfiletools.go — innodump, binlogsum and gcache-inspector on the MySQL-family servers.
+// dbfiletools.go — innodump, binlogsum, gcache-inspector and mydumper on the MySQL-family servers.
 //
-// The Linux Client installs these three at provisioning (linuxclient_files.go); a database server
+// The Linux Client installs these at provisioning (linuxclient_files.go); a database server
 // is the other place they are wanted, because that is where the files are: the .ibd files, the
 // binary logs, the galera.cache. So a standalone Percona Server, MySQL or MariaDB node, and every
 // data member of a Percona Server, PXC, MySQL or MariaDB cluster, can ask for them too —
@@ -44,13 +44,13 @@ func dbFileToolsFor(n designNode, doc designDoc) dbFileToolTarget {
 	if !dbFileToolTypes[n.Type] {
 		return t
 	}
-	innodump, binlogsum, gcache := n.InstallInnodump, n.InstallBinlogsum, false
+	innodump, binlogsum, gcache, mydumper := n.InstallInnodump, n.InstallBinlogsum, false, n.InstallMydumper
 	if n.FrameID != "" {
 		f := frameByID(doc, n.FrameID)
 		if f.ID == "" || n.Role == "arbitrator" {
 			return t
 		}
-		innodump, binlogsum = f.InstallInnodump, f.InstallBinlogsum
+		innodump, binlogsum, mydumper = f.InstallInnodump, f.InstallBinlogsum, f.InstallMydumper
 		gcache = f.InstallGcacheInspector && (f.Type == "pxc" || f.Type == "mariadbgalera")
 		t.useProxy = t.useProxy || f.UseProxy
 		if t.os == "" {
@@ -68,6 +68,9 @@ func dbFileToolsFor(n designNode, doc designDoc) dbFileToolTarget {
 	}
 	if gcache {
 		t.tools = append(t.tools, lcToolGcacheInspector)
+	}
+	if mydumper {
+		t.tools = append(t.tools, lcToolMydumper)
 	}
 	return t
 }
@@ -93,13 +96,12 @@ func (a *App) reconcileDBFileTools(ctx context.Context, st Stack, doc designDoc)
 			continue
 		}
 		logln := func(s string) { log.Printf("stack %d file tools: %s: %s", st.ID, t.node.Label, s) }
-		script := lcFileToolsPrelude(t.os) + lcFileToolsBody
 		var got, failed []string
 		for _, tool := range t.tools {
 			if v := a.lcFileToolVersion(ctx, dep.ContainerID, tool); v != "" {
 				continue // already there from an earlier deploy
 			}
-			if err := a.runStep(ctx, dep.ContainerID, script, lcFileToolEnv(tool, t.arch, t.useProxy), logln); err != nil {
+			if err := a.runStep(ctx, dep.ContainerID, lcFileToolScript(t.os, tool), lcFileToolEnv(tool, t.arch, t.useProxy), logln); err != nil {
 				failed = append(failed, tool.ID+" ("+lastLines(err.Error(), 120)+")")
 				continue
 			}
@@ -111,7 +113,7 @@ func (a *App) reconcileDBFileTools(ctx context.Context, st Stack, doc designDoc)
 		}
 		if len(got) > 0 {
 			a.notifyStack(st.ID, "stack.filetools", "info", "File tools installed",
-				fmt.Sprintf("%s now has %s in /usr/local/bin.", t.node.Label, lcJoinAnd(got)), t.node.ID)
+				fmt.Sprintf("%s now has %s on its PATH.", t.node.Label, lcJoinAnd(got)), t.node.ID)
 		}
 		if len(failed) > 0 {
 			a.notifyStack(st.ID, "stack.filetools", "warning", "File tools not installed",

@@ -17,7 +17,7 @@ Open it from the sidebar (**Packet Inspector**) or at `#packet-inspector`.
 | Family | Nodes | Cluster traffic captured as well |
 | --- | --- | --- |
 | **MySQL** | Percona Server, PXC, MySQL Community, MariaDB (including Galera), All-in-One MySQL instances | Galera on 4567, 4568 and 4444 (PXC and MariaDB Galera) |
-| **PostgreSQL** | PostgreSQL, Patroni, repmgr, Spock, All-in-One PostgreSQL instances | Patroni REST API on 8008 and etcd on 2379/2380 (Patroni) |
+| **PostgreSQL** | PostgreSQL, Patroni, repmgr, Streaming Replication, Spock, All-in-One PostgreSQL instances | Patroni REST API on 8008 and etcd on 2379/2380 (Patroni) |
 | **MongoDB** | Percona Server for MongoDB: standalone, replica set and sharded cluster (mongod, mongos and config servers), All-in-One MongoDB instances | everything is on 27017 |
 | **Valkey** | Valkey standalone or clustered, All-in-One Valkey instances | cluster bus on the client port + 10000 (16379) and Sentinel on 26379 (clustered nodes) |
 

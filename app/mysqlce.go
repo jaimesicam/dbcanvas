@@ -93,6 +93,7 @@ func (a *App) provisionMySQLCE(st Stack, n designNode, doc designDoc) {
 		PSMajor: major, PSVersion: n.MySQLCEVersion,
 		GTID: n.GTID, UseProxy: n.UseProxy, RepositoryNodeID: n.RepositoryNodeID, GenerateCert: n.GenerateCert,
 		CertTTLValue: n.CertTTLValue, CertTTLUnit: n.CertTTLUnit, PMMNodeID: n.PMMNodeID,
+		mysqlTuning: n.mysqlTuning,
 	}
 	image := pxcImage(n.OS, n.OSVersion, n.Arch)
 	sec := mysqlFamilySecrets()

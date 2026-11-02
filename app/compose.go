@@ -124,13 +124,16 @@ type composeNodeSpec struct {
 	MCA         bool     `json:"mca"`         // psm/psmrs/psmdb: create the MClusterAdmin accounts
 	ViewOnly    bool     `json:"viewOnly"`    // mclusteradmin: start the panel with every write disabled
 	CertTTL     string   `json:"certTtl"`     // "365d", "30m", "2h" — short ones expire on purpose
-	PGVector    bool     `json:"pgvector"`    // pg/patroni/repmgr/spock: install pgvector, CREATE EXTENSION vector
+	PGVector    bool     `json:"pgvector"`    // pg/patroni/repmgr/pg-stream/spock: install pgvector, CREATE EXTENSION vector
 	PGAudit     bool     `json:"pgaudit"`     // pg/patroni: pgAudit, logging PGAuditLog's classes
 	PGAuditLog  string   `json:"pgauditLog"`  // pgaudit.log, e.g. "ddl,role" (the default) or "all,-misc"
 	SetUser     bool     `json:"setUser"`     // pg/patroni: set_user, audited privilege escalation
-	PGBench     int      `json:"pgbench"`     // pg/patroni: pgbench -i -s N into database pgbench at deploy
+	PGBench     int      `json:"pgbench"`     // pg/patroni/pg-stream: pgbench -i -s N into database pgbench at deploy
 	Replicas    int      `json:"replicas"`    // valkey-cluster: replicas per shard, 0–2
 	TDEWal      bool     `json:"tdeWal"`      // pg/patroni with vault: pg_tde WAL encryption too
+	// pg-stream: standbys that must confirm each commit (synchronous_standby_names = ANY N);
+	// 0 is asynchronous.
+	SyncStandbys int `json:"syncStandbys"`
 
 	Export     bool `json:"export"`     // publish the database port to the host
 	ExportPort int  `json:"exportPort"` // 0 → Docker picks a free one
@@ -345,7 +348,7 @@ var composeLinks = []composeLink{
 			if f != nil {
 				f.SeaweedFSNodeID = id
 				switch f.Type {
-				case "patroni":
+				case "patroni", "pgstream":
 					f.UsePgBackRest = true
 				case "repmgr":
 					// Barman, not pgBackRest, although the frame now offers both. compose's
@@ -541,15 +544,15 @@ var composeKinds = []composeKind{
 		About:      "Percona Orchestrator, for MySQL replication topologies."},
 	{Kind: "haproxy", Type: "haproxy", CanShape: true, CanExport: true,
 		// Exactly one: haproxyClusterFrames treats two as ambiguous, not as two pools.
-		EdgeTo: []string{"patroni", "repmgr", "spock", "pxc", "ps-repl"},
-		About:  "HAProxy, in front of one Patroni, repmgr, Spock, PXC or PS replication cluster."},
+		EdgeTo: []string{"patroni", "repmgr", "pg-stream", "spock", "pxc", "ps-repl"},
+		About:  "HAProxy, in front of one Patroni, repmgr, streaming replication, Spock, PXC or PS replication cluster."},
 	{Kind: "pgbouncer", Type: "pgbouncer", CanShape: true, CanExport: true, CanCert: true,
 		Scalars: []string{"mode"},
 		// The PostgreSQL half of the proxy pair. HAProxy balances TCP across members;
 		// this one terminates the PostgreSQL protocol and pools server connections,
 		// which is the different problem.
-		EdgeTo: []string{"pg", "patroni", "repmgr", "spock"},
-		About:  "PgBouncer (percona-pgbouncer), pooling for one PostgreSQL node or one Patroni, repmgr or Spock cluster. mode= is the pool mode: transaction (default), session or statement. cert=true terminates TLS at the pool."},
+		EdgeTo: []string{"pg", "patroni", "repmgr", "pg-stream", "spock"},
+		About:  "PgBouncer (percona-pgbouncer), pooling for one PostgreSQL node or one Patroni, repmgr, streaming replication or Spock cluster. mode= is the pool mode: transaction (default), session or statement. cert=true terminates TLS at the pool."},
 	{Kind: "seaweedfs", Type: "seaweedfs", NoSizing: true, Scalars: []string{"buckets", "tls"}, ImageOnly: true, CanCert: true,
 		About: "SeaweedFS S3, as a backup target."},
 	{Kind: "keycloak", Type: "keycloak", NoSizing: true, Singleton: true, ImageOnly: true, About: "Keycloak, as an OIDC identity provider."},
@@ -583,6 +586,13 @@ var composeKinds = []composeKind{
 		Scalars: []string{"pgvector"},
 		Links:   []string{"monitor", "backup"},
 		About:   "PostgreSQL streaming replication with repmgr."},
+	{Kind: "pg-stream", Type: "pgstream", CanShape: true, Frame: true, Members: 3, MinMembers: 2, MaxMembers: 9,
+		Catalog:    "percona_postgresql",
+		SetVersion: func(major, minor string, n *designNode, f *designFrame) { f.PGMajor, f.PGVersion = major, minor }, CanCert: true,
+		CanExport: true,
+		Scalars:   []string{"pgvector", "pgbench", "syncStandbys"},
+		Links:     []string{"monitor", "backup"},
+		About:     "PostgreSQL's own streaming replication, with no failover manager: the first member is the primary, the rest are hot standbys made with pg_basebackup, each with a replication slot. syncStandbys=N makes commits wait for N of them (ANY N); 0, the default, is asynchronous. backup=true is pgBackRest to SeaweedFS (served over HTTPS)."},
 	{Kind: "psmrs", Type: "psmrs", CanShape: true, Frame: true, Members: 3, MinMembers: 1, MaxMembers: 9,
 		Catalog:    "percona_server_mongodb",
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) { f.PSMDBMajor, f.PSMDBVersion = major, minor }, CanCert: true,
@@ -675,11 +685,11 @@ var composeKinds = []composeKind{
 		EdgeTo: []string{"psm", "psmrs", "psmdb", "k3d"},
 		About:  "Support Sim — a help desk run on MongoDB Vector Search ($vectorSearch), with a Vector Lab."},
 	{Kind: "pgvectorsim", Type: "pgvectorsim", NoSizing: true, ImageOnly: true,
-		EdgeTo: []string{"pg", "patroni", "repmgr", "spock", "haproxy", "pgbouncer", "k3d"},
+		EdgeTo: []string{"pg", "patroni", "repmgr", "pg-stream", "spock", "haproxy", "pgbouncer", "k3d"},
 		About:  "pgvector Support Sim — the Support Sim's help desk on PostgreSQL with pgvector (HNSW), directly or through an HAProxy or PgBouncer node."},
 	{Kind: "perfsim", Type: "perfsim", NoSizing: true, ImageOnly: true,
 		EdgeTo: []string{"ps", "mariadb", "mysql", "pxc", "ps-repl", "innodb", "mariadb-repl", "mariadb-galera", "mysql-repl", "mysql-innodb",
-			"pg", "patroni", "repmgr", "spock", "psm", "psmrs", "psmdb", "valkey", "valkey-cluster", "valkey-sentinel", "haproxy", "proxysql", "pgbouncer"},
+			"pg", "patroni", "repmgr", "pg-stream", "spock", "psm", "psmrs", "psmdb", "valkey", "valkey-cluster", "valkey-sentinel", "haproxy", "proxysql", "pgbouncer"},
 		About: "Performance Sim — stressors that make the linked server or cluster misbehave on purpose (replication lag, connections, locks, I/O, CPU, memory, network and disk), with a live timeline of their effect. Every stressor is chosen on its dashboard."},
 
 	// --- administration panels ----------------------------------------------

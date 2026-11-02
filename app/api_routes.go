@@ -946,6 +946,8 @@ func buildAPIRoutes() []apiRoute {
 		// renamed — it is a published endpoint, and the CLI and any script using it would break.
 		{Method: "POST", Path: "/api/stacks/{id}/frames/{fid}/barman/backup", Group: gClusters, Handler: m((*App).handleRepmgrBackup),
 			Summary: "Run an on-demand backup on a repmgr cluster's primary, with whichever engine it was deployed with (pgBackRest or Barman cloud)."},
+		{Method: "POST", Path: "/api/stacks/{id}/frames/{fid}/pgstream/backup", Group: gClusters, Handler: m((*App).handleRepmgrBackup),
+			Summary: "Run an on-demand pgBackRest full backup on a streaming replication cluster's current primary."},
 
 		// --- Kubernetes frames --------------------------------------------------
 		{Method: "GET", Path: "/api/stacks/{id}/frames/{fid}/k3d/clustersync", Group: gK3D, Handler: m((*App).handleK3DClusterSync),

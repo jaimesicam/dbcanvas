@@ -835,8 +835,9 @@ func (a *App) repmgrPrimaryContainer(ctx context.Context, st Stack, frame design
 	return ""
 }
 
-// handleRepmgrBackup runs an on-demand Barman cloud backup on the current primary
-// of a repmgr frame (owner-scoped).
+// handleRepmgrBackup runs an on-demand backup on the current primary of a repmgr frame, with
+// whichever engine it was deployed with, or of a streaming replication frame (pgBackRest, its
+// only engine). Owner-scoped.
 func (a *App) handleRepmgrBackup(w http.ResponseWriter, r *http.Request) {
 	st, _, ok := a.loadOwnedStack(w, r)
 	if !ok {
@@ -851,22 +852,28 @@ func (a *App) handleRepmgrBackup(w http.ResponseWriter, r *http.Request) {
 	var frame designFrame
 	found := false
 	for _, f := range doc.Frames {
-		if f.ID == fid && f.Type == "repmgr" {
+		if f.ID == fid && (f.Type == "repmgr" || f.Type == "pgstream") {
 			frame, found = f, true
 			break
 		}
 	}
 	if !found {
-		writeErr(w, http.StatusNotFound, "repmgr cluster not found")
+		writeErr(w, http.StatusNotFound, "repmgr or streaming replication cluster not found")
 		return
 	}
 	engine := repmgrBackupEngine(frame)
+	if frame.Type == "pgstream" && engine != "pgbackrest" {
+		engine = "" // Barman is not something this frame installs, whatever the design says
+	}
 	if engine == "" {
 		writeErr(w, http.StatusBadRequest, "backups are not enabled for this cluster")
 		return
 	}
 	ctx := r.Context()
 	cid := a.repmgrPrimaryContainer(ctx, st, frame, doc)
+	if frame.Type == "pgstream" {
+		cid = a.pgStreamPrimaryContainer(ctx, st, frame, doc)
+	}
 	if cid == "" {
 		writeErr(w, http.StatusConflict, "no running primary found for this cluster")
 		return

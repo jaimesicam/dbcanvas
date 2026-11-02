@@ -33,6 +33,7 @@ var joinKinds = map[string]bool{
 	"psmrs":         true,
 	"patroni":       true,
 	"repmgr":        true,
+	"pgstream":      true,
 	"innodb":        true,
 	"mysqlcerepl":   true,
 	"mysqlceinnodb": true,
@@ -89,6 +90,8 @@ func (a *App) joinFrame(st Stack, f designFrame, doc designDoc, fresh []designNo
 		a.joinPatroniFrame(st, f, doc, fresh)
 	case "repmgr":
 		a.joinRepmgrFrame(st, f, doc, fresh)
+	case "pgstream":
+		a.joinPGStreamFrame(st, f, doc, fresh)
 	case "innodb", "mysqlceinnodb":
 		a.joinInnoDBFrame(st, f, doc, fresh)
 	case "mariadbrepl":
@@ -1217,7 +1220,7 @@ func (a *App) joinMariaDBFrame(st Stack, frame designFrame, doc designDoc, fresh
 			pr := progs[n.ID]
 			markNodeAction(st.ID, n.ID)
 			host := hosts[n.ID]
-			cnf := mariadbReplCnf(frame.OS, host, mariadbServerID(host), gtidDomain, frame.GTID)
+			cnf := mariadbReplCnf(frame.OS, host, mariadbServerID(host), gtidDomain, frame.GTID) + mysqlTuningCnf(frame)
 			if a.mariadbPrepareNode(ctx, st, frame, n, host, image, intranetIP, domain, cnf, false) != nil {
 				continue
 			}

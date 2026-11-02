@@ -145,7 +145,7 @@ var vagrantVMNode = map[string]bool{
 }
 var vagrantVMFrame = map[string]bool{
 	"pxc": true, "mysql": true, "innodb": true, "psmdb": true, "psmrs": true,
-	"patroni": true, "repmgr": true, "spock": true, "valkeycluster": true, "proxysql": true,
+	"patroni": true, "repmgr": true, "pgstream": true, "spock": true, "valkeycluster": true, "proxysql": true,
 }
 
 // nodeEngine picks the engine for a node/frame of the given type. In a vagrant

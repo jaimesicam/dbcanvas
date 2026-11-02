@@ -26,15 +26,26 @@ var mysqlCatCert = []catalogOption{
 
 var mysqlCatUseProxy = catalogOption{Field: "useProxy", Desc: "Download packages through the Intranet's Squid proxy."}
 
-// mysqlCatFileTools are the offline file readers a MySQL-family server installs once it is
-// running (dbfiletools.go): on a standalone node for itself, on a frame for every data member.
+// mysqlCatFileTools are the offline file readers, and mydumper, a MySQL-family server installs
+// once it is running (dbfiletools.go): on a standalone node for itself, on a frame for every data member.
 var mysqlCatFileTools = []catalogOption{
 	{Field: "installInnodump", Desc: "Install innodump (github.com/PrzemekMalkowski/innodump), which writes out a table's definition and rows from its .ibd, .MYD or MyRocks files with no server running. The latest release, checksum-verified, in /usr/local/bin; a redeploy installs it on a running server."},
 	{Field: "installBinlogsum", Desc: "Install binlogsum (github.com/PrzemekMalkowski/binlogsum), which summarizes a binary log from mysqlbinlog's output: event counts, GTID ranges, busiest tables and writes over time. Installed like installInnodump."},
+	{Field: "installMydumper", Desc: "Install mydumper and myloader (github.com/mydumper/mydumper), parallel logical backup and restore. The latest release's package for the server's OS release and architecture, checked against the release's SHA-256 digest, in /usr/bin; a redeploy installs it on a running server. Ubuntu 22.04 has no arm64 build."},
 }
 
 // mysqlCatGcache is gcache-inspector, for the two Galera frames (PXC, MariaDB Galera).
 var mysqlCatGcache = catalogOption{Field: "installGcacheInspector", Desc: "Install gcache-inspector (github.com/PrzemekMalkowski/gcache-inspector) on every data member, which summarizes the node's galera.cache and decodes its write-sets into rows. Installed like installInnodump."}
+
+// mysqlCatTuning is the InnoDB sizing and durability a MySQL-family server writes into its
+// my.cnf (mysqltuning.go): a standalone node for itself, a frame for every member. Empty leaves
+// the server default.
+var mysqlCatTuning = []catalogOption{
+	{Field: "innodbBufferPoolSize", Desc: "innodb_buffer_pool_size (on a cluster, every member), as an option-file size (e.g. \"512M\", \"2G\"); \"\" keeps the default. A deploy warns when it is not smaller than the server's memoryGb. Locked once deployed."},
+	{Field: "innodbRedoLogCapacity", Desc: "Redo log size (on a cluster, every member; e.g. \"1G\"): innodb_redo_log_capacity on 8.0.30 and later; innodb_log_file_size, the size of each of the two redo files, on 5.7 and earlier 8.0 minors; innodb_log_file_size, the single redo file, on MariaDB. \"\" keeps the default. Locked once deployed."},
+	{Field: "syncBinlog", Desc: "sync_binlog (on a cluster, every member): 0 leaves flushing the binary log to the OS, 1 syncs it at every commit, N every N commit groups. \"\" keeps the default (1). Locked once deployed."},
+	{Field: "innodbFlushLogAtTrxCommit", Values: []string{"0", "1", "2"}, Desc: "innodb_flush_log_at_trx_commit (on a cluster, every member): 1 writes and syncs the redo log at every commit, 2 writes at commit and syncs once a second, 0 writes and syncs once a second. \"\" keeps the default (1). Locked once deployed."},
+}
 
 var mysqlCatGTID = catalogOption{Field: "gtid", Default: true, Desc: "Enable GTIDs (gtid_mode=ON, enforce_gtid_consistency); replicas then use auto-positioning, otherwise binary-log file/position."}
 
@@ -165,6 +176,7 @@ var catalogMySQLFamily = []catalogEntry{
 			},
 			mysqlCatCert,
 			mysqlCatFileTools,
+			mysqlCatTuning,
 			[]catalogOption{
 				{Field: "exportEnabled", Desc: "Publish the MySQL port (3306) on the Docker host. Locked once deployed."},
 				{Field: "exportHostPort", Desc: "Host port for 3306; 0 picks a free one.", When: "exportEnabled is on"},
@@ -200,6 +212,7 @@ var catalogMySQLFamily = []catalogEntry{
 			},
 			mysqlCatCert,
 			mysqlCatFileTools,
+			mysqlCatTuning,
 			[]catalogOption{
 				{Field: "exportEnabled", Desc: "Publish the MySQL port (3306) on the Docker host."},
 				{Field: "exportHostPort", Desc: "Host port for 3306; 0 picks a free one.", When: "exportEnabled is on"},
@@ -225,6 +238,7 @@ var catalogMySQLFamily = []catalogEntry{
 			},
 			mysqlCatCert,
 			mysqlCatFileTools,
+			mysqlCatTuning,
 			[]catalogOption{
 				{Field: "exportEnabled", Desc: "Publish the MySQL port (3306) on the Docker host."},
 				{Field: "exportHostPort", Desc: "Host port for 3306; 0 picks a free one.", When: "exportEnabled is on"},
@@ -340,8 +354,8 @@ var catalogMySQLFamily = []catalogEntry{
 			{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/activity/kill", Desc: "KILL CONNECTION on a ProxySQL client session.", Body: "session, mode"},
 		},
 	},
-	{Type: "haproxy", Label: "HAProxy", Summary: "A TCP load balancer fronting one cluster: Patroni, repmgr, Spock, PXC or Percona Server replication. Writes on 5000, reads on 5001, stats on 7000.", Placement: "standalone",
-		Requires: []string{"an Intranet node", "exactly one association line from a Patroni, repmgr, Spock, PXC or Percona Server replication cluster frame"},
+	{Type: "haproxy", Label: "HAProxy", Summary: "A TCP load balancer fronting one cluster: Patroni, repmgr, streaming replication, Spock, PXC or Percona Server replication. Writes on 5000, reads on 5001, stats on 7000.", Placement: "standalone",
+		Requires: []string{"an Intranet node", "exactly one association line from a Patroni, repmgr, streaming replication, Spock, PXC or Percona Server replication cluster frame"},
 		Options: mysqlCatOpts(
 			[]catalogOption{
 				{Field: "os", Default: "oraclelinux", Values: []string{"oraclelinux", "ubuntu"}, Desc: "OS family of the image, from GET /api/catalog/images. Locked once deployed."},
@@ -354,7 +368,7 @@ var catalogMySQLFamily = []catalogEntry{
 		),
 		Relations: []string{"monitor", "repository"},
 		Edges: []catalogEdge{
-			{To: []string{"pxc", "mysql", "patroni", "repmgr", "spock"}, Type: "directional", Required: true,
+			{To: []string{"pxc", "mysql", "patroni", "repmgr", "pgstream", "spock"}, Type: "directional", Required: true,
 				Desc: "The one backend cluster frame, stored from the frame to this node. PXC: writes to a single writer, reads round-robin (clustercheck on 9200); Patroni: the leader and replicas by the REST API."},
 			{To: []string{"stocksim", "ledgersim", "pgvectorsim", "perfsim"}, Type: "directional",
 				Desc: "Drive a simulator's workload through this load balancer (one per node); the simulator must match the backend's engine."},
@@ -375,6 +389,7 @@ var catalogMySQLFamily = []catalogEntry{
 			},
 			mysqlCatCert,
 			mysqlCatFileTools,
+			mysqlCatTuning,
 			[]catalogOption{mysqlCatGcache},
 			mysqlCatPSAuth("PXC"),
 			mysqlCatXtraBackup,
@@ -405,6 +420,7 @@ var catalogMySQLFamily = []catalogEntry{
 			},
 			mysqlCatCert,
 			mysqlCatFileTools,
+			mysqlCatTuning,
 			mysqlCatPSAuth("Percona Server"),
 			mysqlCatXtraBackup,
 			[]catalogOption{
@@ -434,6 +450,7 @@ var catalogMySQLFamily = []catalogEntry{
 			},
 			mysqlCatCert,
 			mysqlCatFileTools,
+			mysqlCatTuning,
 		),
 		Relations: []string{"monitor", "repository"},
 		Edges: []catalogEdge{
@@ -455,6 +472,7 @@ var catalogMySQLFamily = []catalogEntry{
 			},
 			mysqlCatCert,
 			mysqlCatFileTools,
+			mysqlCatTuning,
 		),
 		Relations: []string{"monitor", "orchestrator"},
 		Edges: []catalogEdge{
@@ -477,6 +495,7 @@ var catalogMySQLFamily = []catalogEntry{
 			},
 			mysqlCatCert,
 			mysqlCatFileTools,
+			mysqlCatTuning,
 			[]catalogOption{mysqlCatGcache},
 		),
 		Relations: []string{"monitor"},
@@ -499,6 +518,7 @@ var catalogMySQLFamily = []catalogEntry{
 			},
 			mysqlCatCert,
 			mysqlCatFileTools,
+			mysqlCatTuning,
 		),
 		Relations: []string{"monitor", "orchestrator"},
 		Edges: []catalogEdge{
@@ -523,6 +543,7 @@ var catalogMySQLFamily = []catalogEntry{
 			},
 			mysqlCatCert,
 			mysqlCatFileTools,
+			mysqlCatTuning,
 		),
 		Relations: []string{"monitor"},
 		Edges: []catalogEdge{

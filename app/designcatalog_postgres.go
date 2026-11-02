@@ -1,6 +1,6 @@
 package main
 
-// designcatalog_postgres.go — the catalogue's entries for PostgreSQL, Patroni, repmgr, Spock, PgBouncer and Valkey. See designcatalog.go.
+// designcatalog_postgres.go — the catalogue's entries for PostgreSQL, Patroni, repmgr, streaming replication, Spock, PgBouncer and Valkey. See designcatalog.go.
 
 // pgcatSizing are the per-node container sizing and network-shaping fields of every node
 // type in this family (standalone or member).
@@ -113,7 +113,7 @@ var pgcatNodeActions = []catalogAction{
 	{Method: "POST", Path: "/api/datagen/stacks/{id}/nodes/{nid}/generate", Desc: "Start a generation job; returns its id.", Body: "database, schema, table, rows, batch, threads, seed, stopOnError, fkSampleSize, columns"},
 }
 
-// pgcatReplicatedMemberActions apply to a deployed member of a Patroni or repmgr cluster:
+// pgcatReplicatedMemberActions apply to a deployed member of a Patroni, repmgr or streaming replication cluster:
 // clusters with one primary and streaming standbys.
 var pgcatReplicatedMemberActions = []catalogAction{
 	{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/switchover", Desc: "Whether the cluster can switch its primary, which member is primary, and each member's state."},
@@ -280,6 +280,44 @@ var catalogPostgresFamily = []catalogEntry{
 		},
 	},
 
+	// ---------------------------------------------------------- streaming replication
+	{Type: "pgstream", Label: "Streaming Replication member", Summary: "A member of a streaming replication cluster: Percona PostgreSQL, the primary or a hot standby streaming from it.", Placement: "member",
+		FrameTypes: []string{"pgstream"},
+		Options:    pgcatOpts(pgcatSizing, pgcatExport),
+		Actions:    pgcatActs(pgcatNodeActions, pgcatReplicatedMemberActions),
+	},
+	{Type: "pgstream", Label: "Streaming Replication", Summary: "A Percona PostgreSQL cluster with PostgreSQL's own physical streaming replication and no failover manager: the first member is the primary, the rest are hot standbys made with pg_basebackup, each streaming through its own replication slot. A standby becomes primary only by a switchover.", Placement: "frame",
+		MemberType: "pgstream", DefaultMembers: 3, MinMembers: 2, MaxMembers: 9,
+		Requires: []string{
+			"an Intranet node",
+			"2 to 9 members: one primary and 1 to 8 standbys",
+			"a cluster name (the frame label) unique among streaming replication clusters; it becomes the pgBackRest stanza",
+			"pgSyncStandbys no larger than the number of standbys",
+			"usePgBackRest: a SeaweedFS node with S3 TLS on, set as the backup relation",
+		},
+		Options: pgcatOpts(
+			pgcatPPGVersion("Percona PostgreSQL"),
+			pgcatBackRest,
+			[]catalogOption{
+				{Field: "pgSyncStandbys", Default: 0, Desc: "How many standbys must confirm each commit: synchronous_standby_names = 'ANY N (every standby)', applied on the primary once the standbys stream. 0 is asynchronous replication. At most the number of standbys; equal to it, writes stop while any standby is down."},
+				{Field: "pgSyncCommit", Values: []string{"", "remote_write", "remote_apply"}, Desc: "synchronous_commit on the primary when pgSyncStandbys > 0: \"\" (on: the standby has flushed the WAL), \"remote_write\" (written, not flushed) or \"remote_apply\" (replayed, so a read on the standby sees the commit).", When: "pgSyncStandbys > 0"},
+				{Field: "pgNoSlots", Desc: "Stream without replication slots. The primary then keeps only wal_keep_size (512MB) of WAL for a standby that falls behind, and one that falls further has to be rebuilt."},
+				{Field: "pgQuerySource", Values: []string{"", "pgstatements", "pgstatmonitor"},
+					Desc: "Statement statistics extension PMM Query Analytics reads: \"\" none, \"pgstatements\" or \"pgstatmonitor\" (Percona's pg_stat_monitor), on every member.", When: "the monitor relation is set"},
+				{Field: "pgbenchScale", Desc: "Load `pgbench -i -s N` into a database called pgbench on the primary at deploy; 0 = none, at most 1000."},
+			},
+			pgcatCommon,
+			pgcatCert,
+			[]catalogOption{pgcatHostAuth},
+		),
+		Relations: []string{"monitor", "repository", "backup"},
+		Edges:     pgcatEdges(pgcatClusterProxyEdges, pgcatSimEdges),
+		Actions: []catalogAction{
+			pgcatFrameBackupStatus,
+			{Method: "POST", Path: "/api/stacks/{id}/frames/{fid}/pgstream/backup", Desc: "Take a pgBackRest full backup now, on whichever member is primary.", When: "usePgBackRest is on"},
+		},
+	},
+
 	// ---------------------------------------------------------- Spock
 	{Type: "spock", Label: "Spock", Summary: "A Spock cluster member: PostgreSQL built from source with the pgEdge Spock extension, a writable node of the mesh.", Placement: "member",
 		FrameTypes: []string{"spock"},
@@ -315,7 +353,7 @@ var catalogPostgresFamily = []catalogEntry{
 	{Type: "pgbouncer", Label: "PgBouncer", Summary: "A PostgreSQL connection pooler (percona-pgbouncer) in front of one PostgreSQL node or Patroni, repmgr or Spock cluster, on port 6432.", Placement: "standalone",
 		Requires: []string{
 			"an Intranet node",
-			"exactly one backend: an association line from a PostgreSQL node or a Patroni, repmgr or Spock cluster",
+			"exactly one backend: an association line from a PostgreSQL node or a Patroni, repmgr, streaming replication or Spock cluster",
 			"pgbAuthType \"cert\": generateCert on, and no simulator linked to the pool",
 		},
 		Options: pgcatOpts(
@@ -349,8 +387,8 @@ var catalogPostgresFamily = []catalogEntry{
 		),
 		Relations: []string{"repository"},
 		Edges: pgcatEdges(
-			[]catalogEdge{{To: []string{"pg", "patroni", "repmgr", "spock"}, Type: "directional", Required: true,
-				Desc: "The one PostgreSQL backend the pool fronts: a PostgreSQL node or a Patroni, repmgr or Spock cluster frame (from the backend to the pool)."}},
+			[]catalogEdge{{To: []string{"pg", "patroni", "repmgr", "pgstream", "spock"}, Type: "directional", Required: true,
+				Desc: "The one PostgreSQL backend the pool fronts: a PostgreSQL node or a Patroni, repmgr, streaming replication or Spock cluster frame (from the backend to the pool)."}},
 			[]catalogEdge{{To: []string{"stocksim", "ledgersim", "perfsim"}, Type: "directional",
 				Desc: "Drive a simulator's workload through this pool (from the pool to the simulator)."}},
 		),

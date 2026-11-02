@@ -798,6 +798,7 @@ func pxcMyCnf(frame designFrame, n designNode, host, domain, clusterAddr, vaultO
 	// keys with a transition key, and the joiner re-encrypts them under a master key of its own —
 	// which is also what makes a mount per member work.
 	fmt.Fprintf(&b, "wsrep_sst_method=xtrabackup-v2\n")
+	b.WriteString(mysqlTuningCnf(frame))
 	b.WriteString(vaultOptions)
 	// The [sst] section is last because it ends [mysqld]: anything written after it would be an
 	// SST option rather than a server one. `encrypt=4` is SSL with the server's own certificate

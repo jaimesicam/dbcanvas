@@ -182,6 +182,21 @@ export const HELP = {
     'Asynchronous commits on the primary without waiting for anyone, which is fast and can lose the last few ' +
     'transactions if the primary dies. Semi-synchronous makes the primary wait for at least one replica to ' +
     'acknowledge each commit — slower, and the usual answer when the demo is about durability.',
+  bufferPoolSize:
+    'innodb_buffer_pool_size (on a cluster, every member): the memory InnoDB caches data and indexes in. An option-file size such ' +
+    'as 512M or 2G; empty keeps the server default (128M). Keep it well under the server\'s memory limit, or mysqld ' +
+    'is killed for running out of memory.',
+  redoLogSize:
+    'The redo log size (on a cluster, every member). MySQL 8.0.30 and later take the total as innodb_redo_log_capacity; 5.7 and ' +
+    'earlier 8.0 minors take innodb_log_file_size, the size of each of the two redo files; MariaDB takes ' +
+    'innodb_log_file_size for its single redo file. The field is named for the option this version writes.',
+  syncBinlog:
+    'sync_binlog (on a cluster, every member). 1 syncs the binary log to disk at every commit, so a power cut loses no committed ' +
+    'transaction from it; 0 leaves flushing to the operating system; N syncs every N commit groups. Empty keeps the default (1).',
+  flushLogAtTrxCommit:
+    'innodb_flush_log_at_trx_commit (on a cluster, every member). 1 writes and syncs the redo log at every commit (full durability); ' +
+    '2 writes at commit and syncs once a second, so an OS crash or power cut can lose up to a second; 0 writes and ' +
+    'syncs once a second, so a mysqld crash can lose it too. Empty keeps the default (1).',
   gtid:
     'Global Transaction IDs give every transaction a cluster-unique name, which is what lets a replica be ' +
     'repointed at a new primary with AUTO_POSITION instead of a hand-calculated binlog file and offset. Leave it ' +
@@ -492,6 +507,22 @@ export const HELP = {
     'every build has; pg_stat_monitor is Percona\'s, with time buckets, client addresses and error tracking, and ' +
     'is installed from its own package. Either is preloaded, set up as the PMM documentation configures it, created ' +
     'in the postgres database, and named to pmm-admin with --query-source.',
+  pgSyncStandbys:
+    'How many standbys must confirm a commit before it returns to the client. 0 is asynchronous replication: the ' +
+    'primary commits on its own and a standby catches up when it can, so a primary lost at the wrong moment takes ' +
+    'its last commits with it. 1 or more sets synchronous_standby_names to ANY N of the standbys (a quorum, so any ' +
+    'of them counts); a commit then waits for N confirmations, and waits indefinitely if fewer than N standbys are ' +
+    'connected. Applied on the primary once every standby streams.',
+  pgSyncCommit:
+    'What a synchronous standby has to have done before it confirms: flushed the WAL to its own disk (on, the ' +
+    'default), only written it (remote_write, faster, and lost if that standby\'s OS crashes), or replayed it ' +
+    '(remote_apply, so a query on that standby already sees the commit).',
+  pgReplicationSlots:
+    'Each standby streams through its own physical replication slot on the primary, so the primary keeps every WAL ' +
+    'segment a standby has not received yet — a standby that was stopped for an hour catches up instead of needing ' +
+    'a new base backup. The cost is the other side of that: a standby that stays away holds WAL on the primary ' +
+    'until its slot is dropped (pg_replication_slots shows how much). Without slots the primary keeps only ' +
+    'wal_keep_size (512MB).',
   pgStatStatements:
     'Preload pg_stat_statements and create it in the postgres database on every member, with the settings PMM ' +
     'expects (track = all, track_io_timing, 2 kB query text). Useful on its own for the pg_stat_statements view, ' +
@@ -661,9 +692,10 @@ export const HELP = {
     'The Percona database client tools installed on this node, as they answer for themselves — the versions are read ' +
     'off the binaries after the install. One that is missing here did not install; the deploy log says why.',
   depFileTools:
-    'innodump, binlogsum and gcache-inspector, read back off the binaries after the install. All read files ' +
-    'offline: innodump a table\'s .ibd, .MYD or MyRocks files (or a datadir), binlogsum a binary log from ' +
-    'mysqlbinlog\'s output, gcache-inspector a Galera node\'s galera.cache. ' +
+    'innodump, binlogsum, gcache-inspector and mydumper, read back off the binaries after the install. The first ' +
+    'three read files offline: innodump a table\'s .ibd, .MYD or MyRocks files (or a datadir), binlogsum a binary log ' +
+    'from mysqlbinlog\'s output, gcache-inspector a Galera node\'s galera.cache. mydumper and myloader take and ' +
+    'restore a parallel logical backup of a running server. ' +
     'Run any of them with --help from the node\'s terminal.',
   depCoreDumps:
     'The host directory holding the core file, mounted read-only inside the analyzer at /coredumps.',
@@ -926,6 +958,7 @@ const NODE_BLURB = {
   pg: 'A standalone PostgreSQL server.',
   patroni: 'A Patroni-managed PostgreSQL cluster: leader election, automatic failover, and a REST API to watch it happen.',
   repmgr: 'A PostgreSQL cluster managed by repmgr — the older, more manual HA approach, and still widely deployed.',
+  pgstream: 'PostgreSQL\'s own streaming replication, configured the way the documentation describes and with nothing on top: a primary, hot standbys made with pg_basebackup, replication slots, optional synchronous commit — and no failover manager, so promoting a standby is yours to do.',
   spock: 'A Spock cluster: logical, multi-master PostgreSQL replication.',
   valkey: 'A standalone Valkey (Redis-compatible) server.',
   valkeycluster: 'A Valkey Cluster — sharded key space with replicas, for demonstrating slots, resharding and failover.',
@@ -966,8 +999,8 @@ export const MENU_HELP = {
   dbUsers: 'The cluster\'s database accounts, with the members that have each one and whether its password is the same everywhere. Creating, rotating and dropping an account happens on the primary; the answer says which members it has reached — a replica that is not applying is one where the new account does not exist yet and the old password still works.',
   rollingRestart: 'Restart every member of this cluster one at a time — how a configuration change or a patched package is rolled out. Replicas first, each back and caught up before the next; then, optionally after handing the primary to a restarted replica, the old primary. Galera members one by one until Synced. It refuses to start while a member is unhealthy, and stops at the first member that does not come back.',
   configDrift: 'Ask every member of this cluster for its running settings and show the ones that differ, side by side — a buffer pool sized by hand on one member, a variable persisted on a replica and never on the primary, a parameter changed and not rolled out. Server ids, UUIDs and host names are left out; what differs by role (read_only on a replica) is listed apart as expected.',
-  rebuild: 'Throw this replica\'s data away and copy it afresh from the primary, then put it back into replication — the fix for replication that broke and will not resume, or a replica that drifted. Done with the cluster\'s own tool, on the node: the CLONE plugin (MySQL 8.0.17+), a consistent mysqldump / mariadb-dump (MariaDB, older MySQL), a Group Replication clone, patronictl reinit, repmgr standby clone, a MongoDB initial sync, or a Galera full state transfer. Runs in the background; the timeline and the notification bell say how it ended.',
-  replicationRole: 'Make a replica the primary, or hand the primary to a replica you choose. It is done the cluster\'s own way — Patroni and repmgr switchovers, a MongoDB step-down, Group Replication\'s set_as_primary — and for MySQL and MariaDB replication by freezing writes on the primary, waiting until every replica has applied exactly the same data, then promoting and re-pointing (by GTID, or by binlog position without it). Writes pause for a few seconds. HAProxy, ProxySQL, PgBouncer and MySQL Router follow the new primary by themselves; the design is updated to match.',
+  rebuild: 'Throw this replica\'s data away and copy it afresh from the primary, then put it back into replication — the fix for replication that broke and will not resume, or a replica that drifted. Done with the cluster\'s own tool, on the node: the CLONE plugin (MySQL 8.0.17+), a consistent mysqldump / mariadb-dump (MariaDB, older MySQL), a Group Replication clone, patronictl reinit, repmgr standby clone, pg_basebackup (streaming replication), a MongoDB initial sync, or a Galera full state transfer. Runs in the background; the timeline and the notification bell say how it ended.',
+  replicationRole: 'Make a replica the primary, or hand the primary to a replica you choose. It is done the cluster\'s own way — Patroni and repmgr switchovers, a clean shutdown of the primary and pg_promote() on the candidate for streaming replication, a MongoDB step-down, Group Replication\'s set_as_primary — and for MySQL and MariaDB replication by freezing writes on the primary, waiting until every replica has applied exactly the same data, then promoting and re-pointing (by GTID, or by binlog position without it). Writes pause for a few seconds. HAProxy, ProxySQL, PgBouncer and MySQL Router follow the new primary by themselves; the design is updated to match.',
   copyExec: 'Copies a ready-made `docker exec -it … bash` line, for when you would rather work in your own terminal than the browser.',
   sshTunnel: 'Copies an `ssh -L` line that forwards every port this node publishes to the same port on your own machine \u2014 for when DBCanvas runs on a server and the ports are bound to it, not to you. It logs in as your DBCanvas username, so on a server where that is also your ssh account the line is ready to paste.',
   stop: 'Stops the container. The data survives; start it again from this menu.',
@@ -1162,6 +1195,12 @@ export const DEP_HELP = {
   Spock: 'The Spock logical-replication setup on this node.',
   'Spock node': 'This node\'s identity in the Spock mesh — how the other members address it.',
   'Mesh peers': 'The other members this node replicates with. Spock is multi-master, so every pair is a two-way relationship.',
+  'Data directory': 'Where this PostgreSQL keeps its data. A base backup or a rebuild empties it and copies the primary\'s into it.',
+  Service: 'The systemd unit that runs PostgreSQL here: `systemctl status <this>` and `journalctl -u <this>`.',
+  'Streams from': 'The primary this standby\'s WAL receiver connects to (primary_conninfo). A switchover re-points it.',
+  'Replication slot': 'The physical slot this standby streams through, on whichever member is primary. pg_replication_slots there shows how much WAL it is holding back for it.',
+  'application_name': 'The name this standby gives the primary. It is how pg_stat_replication lists it and how synchronous_standby_names refers to it.',
+  'Synchronous commit': 'How many standbys must confirm each commit, and what they have to have done first — the synchronous_commit level. Asynchronous when none.',
   'repmgr node_id': 'This node\'s numeric id in the repmgr cluster. repmgr commands take it, and it must be unique.',
   'Bootstrap node': 'The member that started the cluster. It matters only at first boot — afterwards every member is equal.',
   'etcd endpoints': 'The distributed configuration store Patroni keeps its leader lock in. If these are unreachable there is no leader, whatever the databases are doing.',

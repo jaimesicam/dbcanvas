@@ -16,6 +16,7 @@
 
 import { renderToString } from 'react-dom/server'
 import { DBFileToolChecks } from '../src/components/FileTools.jsx'
+import { MySQLTuningFields, redoOption } from '../src/components/MySQLTuning.jsx'
 import { CARD_TYPES, TlsView, DiffView, GtidView, UnitsView, TimeView, UriView, MongoView, LogFilterView, CompareView, SecretView } from '../src/components/scratch/Cards.jsx'
 import { CardFrame, SuggestMenu, AddCardMenu, BoardTab, cardStyle, LinkLayer } from '../src/pages/Scratchboard.jsx'
 import { exportBoard, importBoard, boardMarkdown, searchBoards } from '../src/lib/scratch/boardfile.js'
@@ -64,8 +65,9 @@ import {
   frameHeaderW, layoutFrame, separateFrames, SIM_NODE_TYPES, frameVersionLabel, frameSubLabel,
   podMenuEntries, POD_SHELLS, POD_CLIENTS,
   Spinner, NodeStatus, nodeConfiguring, configPhaseOf, PITRFields,
-  FrameVaultFields, PgBouncerForm, PGHostAuthFields,
+  FrameVaultFields, PgBouncerForm, PGHostAuthFields, PGStreamFrameForm,
 } from '../src/pages/StackDesigner.jsx'
+import PGStreamManager from '../src/pages/PGStreamManager.jsx'
 import PgBouncerManager from '../src/pages/PgBouncerManager.jsx'
 import { LiveStrip, ClusterTable, fixLayout, countOverlaps, footprints, tableHeight } from '../src/components/LiveCard.jsx'
 import { HealthButton } from '../src/components/StackHistory.jsx'
@@ -421,6 +423,7 @@ check('every frame type describes its own members', () => {
     psmrs: 'replica-set member',
     patroni: 'Patroni node',
     repmgr: 'PostgreSQL + repmgr',
+    pgstream: 'PostgreSQL · streaming',
     spock: 'PostgreSQL + Spock',
     valkeycluster: 'Valkey shard',
   }
@@ -1497,6 +1500,7 @@ check('pgbouncer: each backend gets the routing that fits it', () => {
     pg: 'Writes only',
     patroni: 'Read/write split',
     repmgr: 'Read/write split',
+    pgstream: 'Read/write split',
     spock: 'Mesh',
   }
   let html = ''
@@ -1518,6 +1522,9 @@ check('pgbouncer: the failover explanation is the one that topology answers', ()
   }
   const rep = renderPgb(pgbDesign('repmgr'))
   if (!rep.includes('pg_is_in_recovery')) throw new Error('repmgr should be explained by pg_is_in_recovery()')
+  if (!renderPgb(pgbDesign('pgstream')).includes('only when someone switches over')) {
+    throw new Error('a streaming replication backend moves only by a switchover, and should say so')
+  }
   const sp = renderPgb(pgbDesign('spock'))
   if (!sp.includes('no role to follow')) throw new Error('Spock has no role to follow, and should say so')
   const pg = renderPgb(pgbDesign('pg'))
@@ -5501,6 +5508,7 @@ check('linux client: innodump, binlogsum and gcache-inspector are offered on eve
   for (const os of ['oraclelinux', 'debian', 'centos']) {
     const off = renderToString(<FileToolFields node={{ id: 'lc5', os }} patchNode={noop} deployed={false} />)
     if (!off.includes('Install innodump') || !off.includes('Install binlogsum') || !off.includes('Install gcache-inspector')) throw new Error(`${os} must offer all three file tools`)
+    if (!off.includes('Install mydumper')) throw new Error(`${os} must offer mydumper`)
     if (off.includes('checksum-verified')) throw new Error('the download note belongs to a node that installs something')
   }
   const on = renderToString(<FileToolFields node={{ id: 'lc5', lcInnodump: true }} patchNode={noop} deployed={false} />)
@@ -5513,9 +5521,42 @@ check('mysql servers: file tools, with gcache-inspector on Galera only', () => {
   const plain = renderToString(<DBFileToolChecks obj={{}} onPatch={noop} />)
   if (!plain.includes('Install innodump') || !plain.includes('Install binlogsum')) throw new Error('a server must offer innodump and binlogsum')
   if (plain.includes('gcache-inspector')) throw new Error('gcache-inspector belongs to Galera clusters only')
+  if (!plain.includes('Install mydumper')) throw new Error('a server must offer mydumper')
   const galera = renderToString(<DBFileToolChecks obj={{ installGcacheInspector: true }} onPatch={noop} galera cluster />)
   if (!galera.includes('Install gcache-inspector')) throw new Error('a Galera cluster must offer gcache-inspector')
+  if (!galera.includes('Install mydumper')) throw new Error('a Galera cluster must offer mydumper')
   if (!galera.includes('every data member')) throw new Error('a cluster installs on every data member and should say so')
+  return 'ok'
+})
+
+// A MySQL-family cluster names the redo option its version writes, and a deployed one locks the fields.
+check('mysql servers and clusters: InnoDB settings, with the redo option named for the version', () => {
+  const cases = [
+    [{ type: 'pxc', pxcMajor: '8.0' }, 'innodb_redo_log_capacity'],
+    [{ type: 'pxc', pxcMajor: '8.0', pxcVersion: '8.0.29-21.1' }, 'innodb_log_file_size'],
+    [{ type: 'mysql', psMajor: '5.7' }, 'innodb_log_file_size'],
+    [{ type: 'mysql', psMajor: '8.4' }, 'innodb_redo_log_capacity'],
+    [{ type: 'innodb', pdpsRepo: 'pdps-8.0.19' }, 'innodb_log_file_size'],
+    [{ type: 'innodb', pdpsRepo: 'pdps-84-lts' }, 'innodb_redo_log_capacity'],
+    [{ type: 'mysqlcerepl', mysqlceMajor: '8.0', mysqlceVersion: '8.0.28' }, 'innodb_log_file_size'],
+    [{ type: 'mariadbgalera' }, 'innodb_log_file_size'],
+    [{ type: 'ps', psMajor: '5.7' }, 'innodb_log_file_size'],
+    [{ type: 'mysqlce', mysqlceMajor: '8.4' }, 'innodb_redo_log_capacity'],
+    [{ type: 'mariadb' }, 'innodb_log_file_size'],
+  ]
+  for (const [f, want] of cases) {
+    if (redoOption(f) !== want) throw new Error(`${JSON.stringify(f)}: ${redoOption(f)}, want ${want}`)
+  }
+  const html = renderToString(<MySQLTuningFields obj={{ type: 'mysql', psMajor: '8.4', innodbBufferPoolSize: '2GB' }} onPatch={noop} cluster />)
+  for (const k of ['innodb_buffer_pool_size', 'innodb_redo_log_capacity', 'sync_binlog', 'innodb_flush_log_at_trx_commit']) {
+    if (!html.includes(k)) throw new Error(`missing ${k}`)
+  }
+  if (!html.includes('512M or 2G')) throw new Error('a malformed size must say what is expected')
+  const locked = renderToString(<MySQLTuningFields obj={{ type: 'pxc' }} onPatch={noop} deployed cluster />)
+  if ((locked.match(/disabled=""/g) || []).length !== 4) throw new Error('a deployed cluster must lock all four fields')
+  const node = renderToString(<MySQLTuningFields obj={{ type: 'mariadb' }} onPatch={noop} />)
+  if (node.includes('every member') || !node.includes('innodb_log_file_size')) throw new Error('a standalone MariaDB server sets its own innodb_log_file_size')
+  if (/<input[^>]*value="[^"]+"/.test(node)) throw new Error('an untouched server must show empty fields (server defaults)')
   return 'ok'
 })
 
@@ -6517,6 +6558,64 @@ check('scratchboard: no card content goes to browser storage or a handoff', () =
     }
   }
   return 'ok'
+})
+
+// ------------------------------------------------------------ streaming replication
+
+const pgsFrame = (extra = {}) => ({ id: 'fs', type: 'pgstream', label: 'pg-stream-00', os: 'oraclelinux', osVersion: '9', pgMajor: '17', pgVersion: '', ...extra })
+const pgsMembers = (n) => Array.from({ length: n }, (_, i) => ({ id: `s${i + 1}`, type: 'pgstream', label: `pgstream0${i + 1}`, frameId: 'fs' }))
+
+check('streaming replication frame: asynchronous by default, and says so', () => {
+  const html = renderToString(<PGStreamFrameForm frame={pgsFrame()} nodes={pgsMembers(3)} frameNodes={pgsMembers(3)} patchFrame={noop} deleteFrame={noop} deployed={false} />)
+  for (const want of ['Streaming Replication', 'Asynchronous', 'replication slot', 'no failover manager']) {
+    if (!html.includes(want)) throw new Error(`the form omits "${want}"`)
+  }
+  if (html.includes('remote_apply')) throw new Error('the commit level is offered on an asynchronous cluster')
+  return html
+})
+
+check('streaming replication frame: synchronous names the quorum and warns when it is everyone', () => {
+  const one = renderToString(<PGStreamFrameForm frame={pgsFrame({ pgSyncStandbys: 1 })} nodes={pgsMembers(3)} frameNodes={pgsMembers(3)} patchFrame={noop} deleteFrame={noop} deployed={false} />)
+  if (!one.includes('ANY 1')) throw new Error('the hint does not show the synchronous_standby_names it will set')
+  if (!one.includes('remote_apply')) throw new Error('no commit level on a synchronous cluster')
+  const all = renderToString(<PGStreamFrameForm frame={pgsFrame({ pgSyncStandbys: 2 })} nodes={pgsMembers(3)} frameNodes={pgsMembers(3)} patchFrame={noop} deleteFrame={noop} deployed={false} />)
+  if (!all.includes('writes stop while any one of them is down')) throw new Error('waiting on every standby is not called out')
+  const over = renderToString(<PGStreamFrameForm frame={pgsFrame({ pgSyncStandbys: 3 })} nodes={pgsMembers(3)} frameNodes={pgsMembers(3)} patchFrame={noop} deleteFrame={noop} deployed={false} />)
+  if (!over.includes('would hang every commit')) throw new Error('more synchronous standbys than standbys is not called out')
+  return one
+})
+
+check('streaming replication manager: a standby says where it streams from and through which slot', () => {
+  const dep = { state: 'running', containerId: 'abcdef0123456789', config: {
+    cluster: 'pg-stream-00', hostname: 'pgstream02', fqdn: 'pgstream02.example.net', role: 'standby',
+    sourceHost: 'pgstream01.example.net', slotName: 'pgstream02', syncStandbys: 1, syncCommit: 'remote_apply',
+    pgMajor: '17', service: 'postgresql-17', dataDir: '/var/lib/pgsql/17/data', binDir: '/usr/pgsql-17/bin',
+    peers: [{ hostname: 'pgstream01', fqdn: 'pgstream01.example.net', role: 'primary' }],
+  }, secrets: { superUser: 'postgres', replUser: 'replicator' } }
+  const html = renderToString(<PGStreamManager stackId={1} nodeId="s2" dep={dep} onDeleteNode={noop} />)
+  for (const want of ['pgstream01.example.net', 'pgstream02', 'ANY 1', 'remote_apply', 'hot standby']) {
+    if (!html.includes(want)) throw new Error(`the overview omits ${want}`)
+  }
+  return html
+})
+
+check('streaming replication frame: pgBackRest picks a TLS store and says why', () => {
+  const nodes = [...pgsMembers(3), { id: 'sw1', type: 'seaweedfs', label: 'seaweedfs-01', tls: false }]
+  const html = renderToString(<PGStreamFrameForm frame={pgsFrame({ usePgBackRest: true, seaweedfsNodeId: '' })} nodes={nodes} frameNodes={pgsMembers(3)} patchFrame={noop} deleteFrame={noop} deployed={false} />)
+  for (const want of ['Back up with pgBackRest', 'seaweedfs-01', 'needs S3 TLS', 'Barman is not offered']) {
+    if (!html.includes(want)) throw new Error(`the form omits "${want}"`)
+  }
+  return html
+})
+
+check('streaming replication manager: a cluster with backups names its repository', () => {
+  const dep = { state: 'running', config: { cluster: 'pg-stream-00', hostname: 'pgstream01', role: 'primary',
+    backupEngine: 'pgbackrest', backupRepo: 'pgBackRest → SeaweedFS S3 (backups/pgbackrest)', backupStanza: 'pg-stream-00' }, secrets: {} }
+  const html = renderToString(<PGStreamManager stackId={1} nodeId="s1" frame={{ id: 'fs' }} dep={dep} onDeleteNode={noop} />)
+  if (!html.includes('backups/pgbackrest') || !html.includes('>Backup<')) throw new Error('no Backup tab or repository')
+  const none = renderToString(<PGStreamManager stackId={1} nodeId="s1" dep={{ state: 'running', config: { role: 'primary' }, secrets: {} }} onDeleteNode={noop} />)
+  if (none.includes('>Backup<')) throw new Error('a Backup tab on a cluster with no backups')
+  return html
 })
 
 if (failures > 0) {

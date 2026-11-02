@@ -28494,3 +28494,276 @@ The guides caught up with what the notes link to:
   build`, `make smoke`.
 - The image was rebuilt with VERSION 0.0.24 and redeployed. The Dashboard's What's new link reads
   0.0.24, and the dialog lists the seven notes.
+
+## 494. mydumper among the MySQL tools, on the Linux Client and every MySQL-family server — `app/linuxclient_files.go`, `app/linuxclient_files_test.go`, `app/linuxclient.go`, `app/dbfiletools.go`, `app/dbfiletools_test.go`, `app/intranet.go`, `app/designcatalog_infra.go`, `app/designcatalog_mysql.go`, `app/web/src/components/FileTools.jsx`, `app/web/src/pages/StackDesigner.jsx`, `app/web/src/lib/help.js`, `docs/STACKS.md`
+
+**Goal.** mydumper and myloader (<https://github.com/mydumper/mydumper>), parallel logical backup
+and restore, installable the same way as the offline file readers (innodump, binlogsum,
+gcache-inspector): on a Linux Client node for itself, and on a standalone Percona Server, MySQL or
+MariaDB node or every data member of a MySQL-family cluster.
+
+### Data model — `app/intranet.go`
+`designNode` gains `LCMydumper` (`lcMydumper`, the Linux Client's choice) and `InstallMydumper`
+(`installMydumper`, a standalone server's); `designFrame` gains `InstallMydumper`, applied to every
+data member of any MySQL kind (a garbd arbitrator holds no data and is skipped, as for the others).
+
+### Installing — `app/linuxclient_files.go`, `app/dbfiletools.go`
+mydumper is not a static tarball like the file readers. It links the MySQL client library, so each
+release is a set of `.rpm` and `.deb` packages built per OS release (el7…el10, Ubuntu and Debian
+codenames), with no `checksums.txt`. `lcFileTool` gains `Pkg bool` (true only for
+`lcToolMydumper`), and `lcFileToolScript(os, tool)` picks the body: `lcFileToolsBody` for the
+tarballs, the new `lcFileToolsPkgBody` for a package. That script, after the OS prelude:
+1. honours the Intranet proxy, resolves the latest tag from `$REPO/latest`;
+2. reads `/etc/os-release` and names the asset — `mydumper_<ver>.<codename>_<arch>.deb` on
+   Debian/Ubuntu, `mydumper-<ver>.el<major>.<x86_64|aarch64>.rpm` on EL;
+3. fetches the release from the GitHub API and takes that asset's `sha256:` digest; an asset the
+   release does not have fails the step with "has no package for <PRETTY_NAME> on <arch>" (there is
+   no arm64 build for Ubuntu 22.04 or CentOS 7). When the API does not answer (60 unauthenticated
+   calls an hour), the package is installed over HTTPS without the digest check and the log says so;
+4. downloads the package, verifies it with `sha256sum -c` before anything installs it, and
+   installs it with `apt-get install ./…` or `dnf install ./…` (`yum localinstall` without dnf),
+   into `/usr/bin`.
+
+`lcFileToolVersion` reads a package tool's version from `mydumper --version` ("mydumper v1.0.11-1,
+built against …" → `1.0.11-1`), so an already-installed tool is skipped on a redeploy. The Linux
+Client installs file tools when `lcFileTools(n)` is non-empty (it used to test two of the flags by
+name, so binlogsum alone installed nothing). `dbFileToolsFor` adds mydumper for a server or frame
+that asked; `reconcileDBFileTools` runs each tool's own script, and its notification says the tools
+are "on its PATH" rather than in `/usr/local/bin`. A failed install never fails the deploy.
+
+### Catalogue, frontend, docs
+`lcMydumper` on the Linux Client entry; `installMydumper` in `mysqlCatFileTools`, so every
+MySQL-family node and frame lists it. `FILE_TOOLS.mydumper` and its checkbox in `FileToolChecks`
+(the Linux Client form) and `DBFileToolChecks` (every MySQL-family server and cluster form); the
+block is now titled **MySQL tools**, and its footer says the file readers go to `/usr/local/bin` and
+mydumper to `/usr/bin`. STACKS.md: "MySQL file tools" becomes **MySQL tools**, with the mydumper
+row, the package and digest note, and the Linux Client row.
+
+### Verification performed
+- `go test .`: `TestLCFileTools` (mydumper fourth in order), `TestLCFileToolsPkgScript` (the package
+  tool takes the package body and the file readers keep theirs; the `.deb` and `.rpm` asset names,
+  the arm64 mapping, the missing-package message, the digest check placed before the install, and
+  the apt-get / dnf / yum lines), `TestDBFileToolsFor` (a standalone MariaDB and a replication frame
+  asking for mydumper).
+- `npm run build`, `npm run smoke`.
+
+## 495. InnoDB and binary log settings on every MySQL-family server and cluster — `app/mysqltuning.go` (new), `app/mysqltuning_test.go` (new), `app/web/src/components/MySQLTuning.jsx` (new), `app/intranet.go`, `app/{mysql,mysqlce,mariadb,pxc,innodb}.go`, `app/designcatalog_mysql.go`, `app/web/src/pages/{StackDesigner,UpstreamForms}.jsx`, `app/web/src/lib/help.js`, `app/web/smoke/render.jsx`, `docs/STACKS.md`
+
+**Goal.** Four server options set at deploy on a Percona Server, PXC, MySQL Community or MariaDB
+server or cluster, so a server's sizing and durability are part of its design alongside its
+version: `innodb_buffer_pool_size`, the redo log size, `sync_binlog` and
+`innodb_flush_log_at_trx_commit`. Empty writes nothing and keeps the server default; once deployed
+they are locked.
+
+### Data model — `app/mysqltuning.go`, `app/intranet.go`
+`mysqlTuning` holds the four as `cnfValue` (`innodbBufferPoolSize`, `innodbRedoLogCapacity`,
+`syncBinlog`, `innodbFlushLogAtTrxCommit`) and is embedded in both `designNode` and `designFrame`,
+so the JSON fields are the same on a standalone server and a cluster. `cnfValue` is a string that
+also accepts a bare JSON number, so an API client can send `"syncBinlog": 1`.
+
+### Rendering
+`mysqlTuningCnf(frame)` writes one `[mysqld]` line per set option. It is appended by every renderer
+of a server's option file — `mysqlMyCnf` (before the keyring options), `pxcMyCnf` (before the
+keyring and the `[sst]` section, which ends `[mysqld]`), `innodbMyCnf`, `mariadbGaleraCnf`, and the
+`mariadbReplCnf` call sites of the MariaDB frame and the standalone MariaDB node. A standalone
+Percona Server, MySQL or MariaDB node copies its settings onto the synthetic frame its provisioner
+builds, so it goes through the same code.
+
+**The redo log has two names.** MySQL 8.0.30 replaced `innodb_log_file_size` and
+`innodb_log_files_in_group` with `innodb_redo_log_capacity`, the total, and an older server will not
+start on the new name. `mysqlRedoOption` writes `innodb_redo_log_capacity` on 8.0.30 and later
+(8.4, 9.x, and 8.0 with no pinned minor or a minor ≥ 30) and `innodb_log_file_size` — the size of
+each of the two files — on 5.7 and older 8.0 minors. MariaDB has had a single redo file since 10.5
+and still calls it `innodb_log_file_size`, which there is the total. `mysqlFrameSeries` reads the
+series and pinned minor per frame type (an InnoDB Cluster's from its `pdps-…` repository).
+
+### Validation
+`mysqlTuningIssues` (from `validateStack`) checks every MySQL-family frame and standalone server: a
+size must be digits with an optional K/M/G, `sync_binlog` a whole number from 0 to 4294967295,
+`innodb_flush_log_at_trx_commit` 0, 1 or 2 — each an error naming the option as it will be written.
+A buffer pool not smaller than a server's `memoryGb` is a warning, since mysqld would be killed for
+running out of memory.
+
+### Catalogue, frontend, docs
+`mysqlCatTuning` (four options) on every MySQL-family node and frame entry. `MySQLTuningFields`
+(`components/MySQLTuning.jsx`) draws them — buffer pool, redo log under the name it will be written
+as (`redoOption` mirrors `mysqlRedoOption`, with "Per redo file; there are two" where that applies),
+`sync_binlog`, and a 0/1/2 select — with inline format hints; it is on the Percona Server node, PXC,
+Percona Server replication and InnoDB Cluster / Group Replication frame forms in StackDesigner, and in `CommonOptions` of the MariaDB
+and MySQL Community forms. Help text `bufferPoolSize`, `redoLogSize`, `syncBinlog`,
+`flushLogAtTrxCommit`. STACKS.md gains *InnoDB and binary log settings*.
+
+### Verification performed
+- `go test .`: `TestMySQLRedoOption` (each frame type and version), `TestMySQLTuningInEveryCnf`
+  (every renderer writes the settings into `[mysqld]`, and an unset frame writes none),
+  `TestCnfValueJSON`, `TestMySQLTuningIssues` (malformed values, the memory warning, standalone
+  servers weighed against their own memory), `TestMySQLTuningStandalone`.
+- `npm run build`; `npm run smoke`, including the check that MySQL servers and clusters show the
+  settings with the redo option named for the version.
+
+## 496. PostgreSQL Streaming Replication frame — `app/pgstream.go` (new), `app/pgstream_test.go` (new), `app/{intranet,join,rebuild,switchover,haproxy,pgbouncer,simwait,simtarget,compose,composebuild,designcatalog_postgres,designcatalog_mysql,designcatalog_apps,datagen,dashboard,engine,deploypreview,nodeversion,netem,pktinspect,samba_mgmt,dbusers,samplecode_targets,perfsim,pgvectorsim,pgquerysource,versiongate}.go`, `cli/cmd_compose.go`, `app/web/src/pages/PGStreamManager.jsx` (new), `app/web/src/pages/StackDesigner.jsx`, `app/web/src/lib/help.js`, `app/web/smoke/render.jsx`, `docs/{STACKS,API_REFERENCE,CLI,DATA_GENERATOR,BENCHMARK,DATABASE_EXPLORER,PACKET_INSPECTOR,QUERY_RUNNER,SAMPLE_CODE}.md`, `.claude/skills/dbcanvas/SKILL.md`
+
+**Goal.** A PostgreSQL cluster frame that is PostgreSQL's own physical streaming replication and
+nothing else: no Patroni, no repmgr, no failover manager. Frame type and member type `pgstream`,
+compose kind `pg-stream`, 2–9 members (default 3).
+
+### Data model — `app/intranet.go`
+`designFrame` gains `PGSyncStandbys int` (`pgSyncStandbys`, standbys that confirm each commit; 0 is
+asynchronous), `PGSyncCommit string` (`pgSyncCommit`: "" = on, `remote_write`, `remote_apply`) and
+`PGNoSlots bool` (`pgNoSlots`, stream without replication slots). It reuses OS/OSVersion/Arch,
+PGMajor/PGVersion, PGHostAuth, PGQuerySource, PGVector, PGBenchScale, PMMNodeID, UseProxy,
+RepositoryNodeID and GenerateCert/CertTTL. The deploy dispatch, the member gate and
+`refreshPublishedPorts` gain a `pgstream` case; validation calls `pgStreamFrameIssues` per frame
+(2–9 members, `pgSyncStandbys` ≤ standbys with a warning when it equals them, a known commit level,
+pg_hba, query source, pgbench scale), checks the image, and rejects duplicate cluster names.
+
+### Provisioning — `app/pgstream.go`
+Percona Distribution for PostgreSQL from `percona-release setup ppg-NN` (the Patroni install
+scripts), so the paths, units and package names are the standalone node's.
+1. Every member in parallel: container, systemd, CA, repository, proxy, packages, pmm-client,
+   pg_stat_monitor and pgvector when chosen (every member, because any standby may be promoted),
+   the data directory (`pgInitScript`), and `~postgres/.pgpass` for `replicator`.
+2. Member 0: certificate, `pgStreamConfigureScript` (listen, `wal_level=replica`,
+   `max_wal_senders`/`max_replication_slots` 16, `wal_keep_size=512MB`, `hot_standby`,
+   `wal_log_hints`, TLS, the marked preload line, and `host replication replicator … scram-sha-256`
+   rules ahead of the client rules), start, superuser password, the `replicator` role, the query
+   extension and pgvector.
+3. Each standby in turn: its slot on the primary (`pg_create_physical_replication_slot`, skipped
+   when it exists), `pg_basebackup -X stream --checkpoint=fast --slot=…` into an emptied data
+   directory, `standby.signal` and `primary_conninfo` (passfile, `application_name` = hostname) in
+   `postgresql.auto.conf`, its own certificate, the same configuration on Debian (where it lives
+   outside the data directory), start, and a wait for `pg_stat_wal_receiver.status = streaming`.
+4. With `pgSyncStandbys > 0`, `ALTER SYSTEM SET synchronous_standby_names = 'ANY N ("h2", …)'`
+   and `synchronous_commit`, then a reload — after the standbys stream, so no commit waits on a
+   standby that does not exist yet. N is capped at the standbys present.
+5. pgbench data on the primary, PMM registration (`patroniRegisterPMM`), Running.
+
+The deployment config (`pgStreamConfig`) records the role, `sourceHost`, slot, sync settings,
+service, data and bin directories, and the peers.
+
+### Join, rebuild, switchover
+- **Join** (`joinKinds`): a fresh member is prepared like a first-deploy member and made a standby
+  of whichever member `joinPrimary` finds; on a synchronous cluster `synchronous_standby_names` is
+  re-applied with every member.
+- **Rebuild** (`rebuildKinds`): slot ensured on the primary, `pg_basebackup` again, certificate
+  re-issued, start, `waitHealthy`.
+- **Switchover** (`switchKinds`, `switchPGStream`): slots for every other member created on the
+  candidate while it is still a standby; `CHECKPOINT` and a clean stop of the primary; the
+  candidate waits until `pg_last_wal_replay_lsn() >= pg_last_wal_receive_lsn()` and runs
+  `pg_promote(true, 60)` (either failure starts the old primary again and changes nothing); the old
+  primary gets `standby.signal` and a `primary_conninfo` to the candidate, and if it does not stream
+  within a minute it is stopped, rewound with `pg_rewind --source-server`, and started again; its
+  idle slots are dropped; the other standbys re-point with `ALTER SYSTEM SET primary_conninfo` and
+  a reload; the new primary gets `synchronous_standby_names`. Anything after the promotion that
+  fails is reported as a `partialSwitch`. The recorded role of the old primary becomes `standby`.
+
+### Integrations
+HAProxy and PgBouncer treat a `pgstream` backend like repmgr — the `pg_is_in_recovery()` health
+check and follow timer — and `waitRepmgrMembers` / `waitRepmgrRunning` now select members by the
+frame's own type, with messages from `pgClusterNoun`. `pgstream` is added to: the Data Generator,
+dashboard, sim targets (with `pgStreamPrimaryContainer` as the known primary), Performance Sim
+(manager `pgstream`, which perfsim's PostgreSQL engine treats as plain streaming replication),
+pgvector Support Sim, Vagrant VM frames, deploy preview, node versions, network shaping (5432),
+Packet Inspector, Samba AD keytab targets, database users, sample-code labels and the version
+gate. `pgQuerySourceFor` treats it as a Percona frame (PMM-gated, either extension).
+
+### Catalogue, compose, CLI
+`designcatalog_postgres.go` gets the member and frame entries (options, requirements, the
+replicated-member actions, proxy and sim edges); the HAProxy, PgBouncer and sim edge lists name
+`pgstream`. Compose kind `pg-stream` (scalars `pgvector`, `pgbench`, `syncStandbys`; links
+`monitor`; `export` publishes the primary's 5432), legal behind `haproxy` and `pgbouncer` and in
+front of `pgvectorsim` and `perfsim`. The CLI's `--node` grammar gains `syncStandbys=`.
+
+### Frontend
+`NODE_TYPES.pgstream` and `FRAME_COLORS.pgstream` (`#1d4ed8`), the **Streaming Replication** item in
+the PostgreSQL palette (`addPGStreamCluster`: three members `pgstreamNN` in `pg-stream-NN`,
+PostgreSQL 17, asynchronous), +/− between 2 and 9, association rules to HAProxy, PgBouncer and every
+sim that takes PostgreSQL, `SWITCHABLE` (and so Rebuild and Config drift), Activity, network
+shaping. `PGStreamFrameForm` has the catalogue cascade, **Synchronous standbys** (0 to the standby
+count, with the `ANY N` it will set in the hint), the commit level when synchronous, **A
+replication slot for every standby**, PMM and Query Analytics, pgvector, pgbench, proxy,
+repository, TLS and client authentication, and warnings for an impossible or all-standby quorum.
+`PGStreamMemberForm` is sizing and the 5432 export. `PGStreamManager.jsx` (running members):
+Overview (deploy-time role, streams from, slot, application_name, synchronous commit, paths),
+Credentials (superuser, `replicator`, a multi-host `target_session_attrs=read-write` psql line),
+Certificate, Replication (queries for `pg_stat_replication`, slots, `pg_stat_wal_receiver`,
+changing synchronous replication, a manual promotion and rewind, a manual base backup) and
+Diagnostics. Help text: `pgSyncStandbys`, `pgSyncCommit`, `pgReplicationSlots`, the node blurb and
+five `DEP_HELP` labels.
+
+### Verification performed
+- `go build`, `go vet`, `gofmt -l` clean; `go test .` passes, including `pgstream_test.go` (slot
+  names, `synchronous_standby_names`, validation, member config, configure environment, and the
+  join / rebuild / switchover / HAProxy / PgBouncer wiring).
+- `npm run build` and `npm run smoke` pass; new smoke checks render the frame form asynchronous
+  and synchronous (the quorum hint, the all-standby and over-quorum warnings), the manager's
+  standby overview, the member sub-label, and PgBouncer's routing and follow text for the backend.
+- Live, on Oracle Linux 9 with PostgreSQL 18: `stack compose --node 'pg-stream:3,os=el9,syncStandbys=1'
+  --node 'haproxy,os=el9'` deployed; the primary listed both standbys `streaming` / `quorum`, both
+  slots active, and `synchronous_standby_names = ANY 1 ("pg-stream-2", "pg-stream-3")`. A row written on
+  the primary read back on a standby; the standby's health check answered `/replica` 200 and
+  `/primary` 503.
+- A switchover to the second member completed in about 2 s (clean stop, replay to the received
+  LSN, promote; the old primary followed the new timeline without `pg_rewind`); both others then
+  streamed from it, the quorum named them, and a write through HAProxy's port 5000 landed on it.
+- A fourth member added to the running cluster joined the current primary, carried the data, and
+  was added to `synchronous_standby_names`. A rebuild of a standby re-copied it through its slot
+  and it was back as a replica with no lag.
+- Not exercised live: Ubuntu (where `pg_createcluster` runs first and the data directory is then
+  emptied), the `pg_rewind` fallback of the switchover, and `pgNoSlots`.
+
+## 497. Streaming Replication: pgBackRest backups, a switchover that waits for the shutdown checkpoint, its own health-check units — `app/{pgstream,pgstream_test,haproxy,repmgr,backupstatus,compose,api_routes,designcatalog_postgres}.go`, `app/web/src/pages/{StackDesigner,PGStreamManager}.jsx`, `app/web/src/lib/stackApi.js`, `app/web/smoke/render.jsx`, `docs/{STACKS,API_REFERENCE}.md`
+
+**Backups.** The frame takes the existing `usePgBackRest`, `seaweedfsNodeId` and `seaweedfsBucket`
+fields. With them on, `percona-pgbackrest` is installed on every member (EPEL on Oracle Linux, for
+libssh2), `pgbackrest.conf` comes from `patroniPgBackRestConf`, and `pgStreamConfigureScript`
+writes `archive_mode = on` and `archive_command = 'pgbackrest --stanza=<label> archive-push %p'`
+on every member — only the primary archives, so archiving follows a switchover with nothing to
+change. The stanza is created as soon as the primary starts (archive_command runs from then, and
+before the stanza exists every attempt fails and is counted in `pg_stat_archiver.failed_count`); a
+full backup is taken at the end of the deploy, non-fatally. Joiners get the same configuration.
+Validation is Patroni's: `pgBackRestSeaweedIssues` (S3 TLS required) and `seaweedBucketIssues`.
+Barman is not offered: the frame runs Percona's packages and Barman is not one of them.
+`pgStreamConfig` records `backupEngine`, `backupRepo`, `backupStanza` and `backupBucket`.
+- `POST /api/stacks/{id}/frames/{fid}/pgstream/backup` (new route; `handleRepmgrBackup` now takes
+  a `pgstream` frame, finds its primary with `pgStreamPrimaryContainer`, and runs pgBackRest only)
+  and `GET …/backup-status` (`frameBackupStatus` gains the case).
+- Compose: `pg-stream` takes the `backup` link (`UsePgBackRest`; compose already turns S3 TLS on for
+  a pgBackRest store). The catalogue entry gains `pgcatBackRest`, the `backup` relation and the two
+  actions.
+- Frontend: **Back up with pgBackRest (SeaweedFS S3)**, the SeaweedFS picker (flagging a store
+  without S3 TLS) and the bucket field on the frame form; a **Backup** tab on running members, only
+  when the cluster backs up, with **Backup now** (`pgStreamApi(...).backup()`) and `BackupGuide`'s
+  pgBackRest commands; a *Backups* row on the overview.
+
+**Switchover.** The catch-up compared the candidate's replay position with its own receive
+position. A candidate whose stream had stopped would pass that and be promoted without the old
+primary's last commits. Now, after the clean stop, `pgStreamShutdownLSNScript` reads the old
+primary's `pg_control` with `pg_controldata`, requires `Database cluster state: shut down`, and
+takes `Latest checkpoint location`; the candidate must have `pg_last_wal_replay_lsn()` past it
+(the replay position is the end of the last record replayed). Either failing starts the old primary
+again and changes nothing.
+
+**Health check.** A streaming replication member behind HAProxy got `dbcanvas-repmgrchk` and
+`repmgrchk.socket`. `pgRoleCheckServiceScript(kind)` gives it `dbcanvas-pgrolechk` /
+`pgrolechk.socket` / `pgrolechk@.service`, with the descriptions and response bodies no longer
+naming repmgr; repmgr members keep their names, so a redeploy replaces the units already there.
+`repmgrSetupHealthCheck` takes the kind.
+
+### Verification performed
+- `go build`, `go vet`, `gofmt -l` clean, `go test .` passes; new tests cover the backup
+  validation, the archive_command, the recorded backup fields, the health-check naming (and that
+  repmgr's is unchanged) and the catch-up target. `npm run build` and `npm run smoke` pass, with
+  checks for the backup fields on the form and the Backup tab appearing only with backups.
+- Live, Ubuntu 24.04, PostgreSQL 18, 3 members, `pgNoSlots`, `syncStandbys=1`, pgBackRest to a TLS
+  SeaweedFS, HAProxy: both standbys streaming in the quorum with no slots; the deploy's full
+  backup present; Backup now and backup-status answered. A switchover to the third member logged
+  the old primary's stop LSN and the candidate replaying past it, and pgBackRest then archived from
+  the new primary with no failures. For the `pg_rewind` fallback, a standby was promoted by hand,
+  written to and stopped, and `pgStreamDemoteScript` run against it toward the real primary: it
+  did not stream, rewound ("servers diverged at WAL location …"), streamed, and the table written
+  while diverged was gone.
+- Live, Oracle Linux 9, 2 members with pgBackRest, then an HAProxy added: `percona-pgbackrest`
+  installed through EPEL, the archiver at 0 failures from the first segment, a full backup, the
+  slot; each member running `dbcanvas-pgrolechk` (`pgrolechk.socket` active), answering
+  `/primary` 200 on the primary and 503 on the standby.

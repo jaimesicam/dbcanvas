@@ -36,7 +36,7 @@ type deployPreview struct {
 var previewFrameTypes = map[string]bool{
 	"pxc": true, "proxysql": true, "mysql": true, "innodb": true, "mariadbrepl": true, "mariadbgalera": true,
 	"mysqlcerepl": true, "mysqlceinnodb": true, "psmdb": true, "psmrs": true, "patroni": true, "repmgr": true,
-	"spock": true, "valkeycluster": true, "k3d": true,
+	"pgstream": true, "spock": true, "valkeycluster": true, "k3d": true,
 }
 
 func previewDeploy(doc designDoc, deps []Deployment) deployPreview {

@@ -55,7 +55,7 @@ func pgQuerySourceOf(spec string) string {
 func pgQuerySourceFor(frameType, spec, pmmNodeID string) string {
 	qs := pgQuerySourceOf(spec)
 	switch frameType {
-	case "pg", "patroni":
+	case "pg", "patroni", "pgstream":
 		if pmmNodeID == "" {
 			return pgQSNone
 		}

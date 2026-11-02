@@ -223,6 +223,8 @@ func scProductLabel(nodeType string) string {
 		return "PostgreSQL (Patroni)"
 	case "repmgr":
 		return "PostgreSQL (repmgr)"
+	case "pgstream":
+		return "PostgreSQL (streaming replication)"
 	case "spock":
 		return "PostgreSQL (Spock)"
 	case "psm", "psmrs", "psmdb":

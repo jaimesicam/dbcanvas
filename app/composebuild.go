@@ -392,6 +392,7 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 		{s.PGAuditLog != "", kind.takes("pgauditLog"), "pgauditLog"},
 		{s.SetUser, kind.takes("setUser"), "setUser"},
 		{s.PGBench != 0, kind.takes("pgbench"), "pgbench"},
+		{s.SyncStandbys != 0, kind.takes("syncStandbys"), "syncStandbys"},
 		{s.Replicas != 0, kind.takes("replicas"), "replicas"},
 		{s.TDEWal, kind.takes("tdeWal"), "tdeWal"},
 		{s.ViewOnly, kind.takes("viewOnly"), "viewOnly"},
@@ -532,6 +533,7 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 		fr.PGVector = s.PGVector
 		fr.PGAudit, fr.PGAuditLog, fr.PGSetUser, fr.PGBenchScale = s.PGAudit || s.PGAuditLog != "", s.PGAuditLog, s.SetUser, s.PGBench
 		fr.PGTDEWal = s.TDEWal
+		fr.PGSyncStandbys = s.SyncStandbys
 		fr.MySQLRouter = s.MySQLRouter
 		if kind.SetVersion != nil {
 			kind.SetVersion(major, minor, nil, &fr)

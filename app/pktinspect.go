@@ -409,7 +409,7 @@ func (a *App) pktTargetRoles(u User, stackID int64, target string, port int, eng
 			return pktGaleraPortRoles(port), n.Type
 		case "patroni":
 			return pktPGPortRoles(port), n.Type
-		case "pg", "repmgr", "spock":
+		case "pg", "repmgr", "pgstream", "spock":
 			// No sidecar protocols: repmgr's daemon and Spock's apply workers are
 			// PostgreSQL connections like any other, and both are on 5432.
 			return roles, n.Type

@@ -318,7 +318,7 @@ func (a *App) handleDBUsersChange(w http.ResponseWriter, r *http.Request) {
 	switch t.Kind {
 	case "mongo":
 		key = firstNonEmpty(in.Database, "admin") + "." + in.Name
-	case "patroni", "repmgr":
+	case "patroni", "repmgr", "pgstream":
 	default:
 		key = in.Name + "@" + in.Host
 	}

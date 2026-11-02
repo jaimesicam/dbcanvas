@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from 'react-dom'
 import { Icon } from '../components/Icons.jsx'
 import { FileToolChecks, DBFileToolChecks } from '../components/FileTools.jsx'
+import { MySQLTuningFields } from '../components/MySQLTuning.jsx'
 import { Card, Button, Badge, Field, ConfirmButton, InfoRow, inputCls, toneTile, NodeCode } from '../components/ui.jsx'
 import { engineOf, engineTone, nodeCode } from '../lib/engines.js'
 import { Avatar } from '../components/Avatar.jsx'
@@ -41,6 +42,7 @@ import HAProxyManager from './HAProxyManager.jsx'
 import PgBouncerManager from './PgBouncerManager.jsx'
 import PGManager from './PGManager.jsx'
 import RepmgrManager from './RepmgrManager.jsx'
+import PGStreamManager from './PGStreamManager.jsx'
 import SpockManager from './SpockManager.jsx'
 import { AllInOneForm, AllInOneManager } from './AllInOne.jsx'
 import { RepositoryForm, RepositoryManager, RepositoryPicker } from './Repository.jsx'
@@ -213,6 +215,15 @@ export const NODE_TYPES = {
     slug: 'repmgr',
     sub: 'PostgreSQL + repmgr',
     color: '#0e7490',
+    icon: 'Database',
+  },
+  // Streaming replication members (PostgreSQL's own physical replication, no failover
+  // manager) live inside a streaming replication frame.
+  pgstream: {
+    label: 'Streaming',
+    slug: 'pgstream',
+    sub: 'PostgreSQL streaming replication',
+    color: '#1d4ed8',
     icon: 'Database',
   },
   spock: {
@@ -578,7 +589,7 @@ export const NODE_TYPES = {
     osOptions: [{ id: 'oraclelinux', label: 'Oracle Linux' }, { id: 'ubuntu', label: 'Ubuntu' }, { id: 'debian', label: 'Debian' }],
     defaults: { os: 'oraclelinux', osVersion: '9', useProxy: false, lcKubectl: false, lcHelm: false, lcCmctl: false, lcCfssl: false,
       lcMysqlClient: false, lcMysqlShell: false, lcMongosh: false, lcPsql: false, lcClusterSync: false,
-      lcInnodump: false, lcBinlogsum: false, lcGcacheInspector: false },
+      lcInnodump: false, lcBinlogsum: false, lcGcacheInspector: false, lcMydumper: false },
   },
   // Big Hole — a third-party MongoDB FTDC viewer that runs entirely in the browser
   // (built from source at a pinned commit; see images/bighole.Dockerfile). Runs its
@@ -929,7 +940,7 @@ function relayoutFrame(frame, frameNodes, sub, memberH = PXC_NODE_H) {
 // TABLE_FRAMES are the clusters that get a Live table under them: databases, not proxies or
 // Kubernetes.
 const TABLE_FRAMES = new Set(['pxc', 'mysql', 'mysqlcerepl', 'mariadbrepl', 'mariadbgalera', 'innodb', 'mysqlceinnodb',
-  'patroni', 'repmgr', 'spock', 'psmrs', 'psmdb', 'valkeycluster'])
+  'patroni', 'repmgr', 'pgstream', 'spock', 'psmrs', 'psmdb', 'valkeycluster'])
 
 // nextClusterName → pxc-cluster-NN, unique across all PXC frames (from 00).
 function nextClusterName(frames) {
@@ -970,7 +981,7 @@ function nextMemberName(usedSet, prefix) {
 
 // Per-frame-type presentation: accent color and the description line.
 
-const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb', innodb: '#0891b2', mariadbrepl: '#c0765a', mariadbgalera: '#a85d43', mysqlcerepl: '#00758f', mysqlceinnodb: '#005d72', psmdb: '#10b981', psmrs: '#059669', patroni: '#336791', repmgr: '#0e7490', spock: '#dc2626', valkeycluster: '#7c3aed', k3d: '#326ce5' }
+const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb', innodb: '#0891b2', mariadbrepl: '#c0765a', mariadbgalera: '#a85d43', mysqlcerepl: '#00758f', mysqlceinnodb: '#005d72', psmdb: '#10b981', psmrs: '#059669', patroni: '#336791', repmgr: '#0e7490', pgstream: '#1d4ed8', spock: '#dc2626', valkeycluster: '#7c3aed', k3d: '#326ce5' }
 
 // A SeaweedFS node creates up to ten buckets, so several databases can share one object store
 // without sharing a bucket. Every consumer picks which one it uses; "" means the node's first.
@@ -1043,7 +1054,7 @@ const pxcOSLabel = (f) => {
 const ENGINE_SHORT = {
   pxc: 'PXC', ps: 'PS', mysql: 'PS', innodb: 'PS',
   psm: 'PSMDB', psmdb: 'PSMDB', psmrs: 'PSMDB',
-  pg: 'PG', patroni: 'PG', repmgr: 'PG', spock: 'PG',
+  pg: 'PG', patroni: 'PG', repmgr: 'PG', pgstream: 'PG', spock: 'PG',
   proxysql: 'ProxySQL', haproxy: 'HAProxy', pgbouncer: 'PgBouncer',
   valkey: 'Valkey', valkeycluster: 'Valkey',
   pmm: 'PMM', pmm2: 'PMM', openbao: 'OpenBao', keycloak: 'Keycloak',
@@ -1226,6 +1237,7 @@ export function frameMemberSub(f, n, kids = []) {
     case 'psmrs': return 'replica-set member'
     case 'patroni': return 'Patroni node'
     case 'repmgr': return 'PostgreSQL + repmgr'
+    case 'pgstream': return 'PostgreSQL · streaming'
     case 'spock': return 'PostgreSQL + Spock'
     case 'valkeycluster': return 'Valkey shard'
     case 'k3d': return kids.indexOf(n) === 0 ? 'k3s server' : 'k3s agent'
@@ -1246,6 +1258,7 @@ export const frameVersionLabel = (f) => {
   if (f?.type === 'psmrs') return `PS MongoDB ${f?.psmdbVersion || f?.psmdbMajor || ''} replica set${f?.vectorSearch ? ' · vector search' : ''}`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'patroni') return `Percona PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · Patroni${f?.pgVector ? ' · pgvector' : ''}`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'repmgr') return `PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · repmgr (PGDG)${f?.pgVector ? ' · pgvector' : ''}`.replace(/\s+/g, ' ').trim()
+  if (f?.type === 'pgstream') return `Percona PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · streaming${f?.pgSyncStandbys > 0 ? ` · sync ${f.pgSyncStandbys}` : ' · async'}${f?.pgVector ? ' · pgvector' : ''}`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'spock') return `PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · Spock multi-master${f?.pgVector ? ' · pgvector' : ''}`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'valkeycluster') return `${f?.valkeyMode === 'sentinel' ? 'Valkey Sentinel' : 'Valkey Cluster'} ${f?.valkeyVersion || f?.valkeyMajor || ''}`.trim()
   if (f?.type === 'k3d') return `Kubernetes (k3s via k3d)${K3D_OPERATOR_LABEL[f?.k3dOperator] ? ` · ${K3D_OPERATOR_LABEL[f.k3dOperator]}` : ''}${['pg', 'cnpg', 'pgo'].includes(f?.k3dOperator) && f?.k3dPgVector ? ' · pgvector' : ''}`
@@ -2308,6 +2321,7 @@ const PALETTE_ALIASES = {
   pxc: 'galera mysql cluster', ps: 'mysql percona', mysql: 'replication source replica',
   innodb: 'mysql group replication gr',
   pg: 'postgres postgresql', patroni: 'postgres postgresql ha', repmgr: 'postgres postgresql ha',
+  pgstream: 'postgres postgresql streaming replication standby hot standby physical pg_basebackup slot synchronous',
   spock: 'postgres postgresql logical replication',
   proxysql: 'mysql lb load balancer', haproxy: 'lb load balancer',
   pgbouncer: 'postgres postgresql pool pooler connection pooling pgbouncer',
@@ -3496,6 +3510,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       if (f.type === 'proxysql') return 'proxysql-frame'
       if (f.type === 'patroni') return 'patroni'
       if (f.type === 'repmgr') return 'repmgr'
+      if (f.type === 'pgstream') return 'pgstream'
       if (f.type === 'spock') return 'spock'
       if (f.type === 'valkeycluster') return 'valkeycluster'
       if (f.type === 'psmrs') return 'psmrs'
@@ -3556,6 +3571,8 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
     if (k2 === 'patroni' && k1 === 'haproxy') return createFlow(e2, e1, { singleOutgoing: true })
     if (k1 === 'repmgr' && k2 === 'haproxy') return createFlow(e1, e2, { singleOutgoing: true })
     if (k2 === 'repmgr' && k1 === 'haproxy') return createFlow(e2, e1, { singleOutgoing: true })
+    if (k1 === 'pgstream' && k2 === 'haproxy') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'pgstream' && k1 === 'haproxy') return createFlow(e2, e1, { singleOutgoing: true })
     if (k1 === 'spock' && k2 === 'haproxy') return createFlow(e1, e2, { singleOutgoing: true })
     if (k2 === 'spock' && k1 === 'haproxy') return createFlow(e2, e1, { singleOutgoing: true })
     // PXC or MySQL-replication frame → HAProxy node. HAProxy fronts exactly one
@@ -3576,6 +3593,8 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
     if (k2 === 'patroni' && k1 === 'pgbouncer') return createFlow(e2, e1, { singleOutgoing: true })
     if (k1 === 'repmgr' && k2 === 'pgbouncer') return createFlow(e1, e2, { singleOutgoing: true })
     if (k2 === 'repmgr' && k1 === 'pgbouncer') return createFlow(e2, e1, { singleOutgoing: true })
+    if (k1 === 'pgstream' && k2 === 'pgbouncer') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'pgstream' && k1 === 'pgbouncer') return createFlow(e2, e1, { singleOutgoing: true })
     if (k1 === 'spock' && k2 === 'pgbouncer') return createFlow(e1, e2, { singleOutgoing: true })
     if (k2 === 'spock' && k1 === 'pgbouncer') return createFlow(e2, e1, { singleOutgoing: true })
     // A standalone PS MongoDB node, a PSMDB replica-set or sharded-cluster frame, or a
@@ -4096,6 +4115,36 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
     setNodes(r.nodes)
     setSelected({ kind: 'frame', id: fid })
   }
+  function newPGStreamMember(frameId) {
+    const used = new Set(nodes.filter((n) => n.type === 'pgstream').map((n) => n.label))
+    return { id: uid('pgstream'), type: 'pgstream', label: nextMemberName(used, 'pgstream'), frameId, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 }
+  }
+  // addPGStreamCluster builds a streaming replication frame: a primary and two hot standbys
+  // (resizable 2–9), PostgreSQL's own physical replication with no failover manager.
+  function addPGStreamCluster() {
+    if (!nodes.some((n) => n.type === 'intranet')) return
+    const fid = uid('frame')
+    const { x: fx, y: fy } = placeAt(200, 200)
+    const frame = {
+      id: fid, type: 'pgstream', label: nextNamedCluster(frames, 'pg-stream'), x: fx, y: fy, w: 0, h: 0,
+      os: 'oraclelinux', osVersion: '9', pgMajor: '17', pgVersion: '',
+      pmmNodeId: '', useProxy: false,
+      pgSyncStandbys: 0, pgSyncCommit: '', pgNoSlots: false,
+      usePgBackRest: false, seaweedfsNodeId: '', seaweedfsBucket: '',
+      generateCert: false, certTtlValue: 365, certTtlUnit: 'days',
+    }
+    const used = new Set(nodes.filter((n) => n.type === 'pgstream').map((n) => n.label))
+    const newNodes = []
+    for (let i = 0; i < 3; i++) {
+      const name = nextMemberName(used, 'pgstream')
+      used.add(name)
+      newNodes.push({ id: uid('pgstream'), type: 'pgstream', label: name, frameId: fid, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 })
+    }
+    const r = relayout(fid, [...frames, frame], [...nodes, ...newNodes])
+    setFrames(r.frames)
+    setNodes(r.nodes)
+    setSelected({ kind: 'frame', id: fid })
+  }
   function newSpockMember(frameId) {
     const used = new Set(nodes.filter((n) => n.type === 'spock').map((n) => n.label))
     return { id: uid('spock'), type: 'spock', label: nextMemberName(used, 'spock'), frameId, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 }
@@ -4187,6 +4236,11 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       const r = relayout(frame.id, frames, [...nodes, newRepmgrMember(frame.id)])
       setFrames(r.frames)
       setNodes(r.nodes)
+    } else if (frame.type === 'pgstream') {
+      if (nodes.filter((n) => n.frameId === frame.id).length >= 9) return // max 9: a primary + 8 standbys
+      const r = relayout(frame.id, frames, [...nodes, newPGStreamMember(frame.id)])
+      setFrames(r.frames)
+      setNodes(r.nodes)
     } else if (frame.type === 'spock') {
       if (nodes.filter((n) => n.frameId === frame.id).length >= 7) return // max 7
       const r = relayout(frame.id, frames, [...nodes, newSpockMember(frame.id)])
@@ -4223,7 +4277,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
     // Patroni/repmgr need ≥3 members: never drop below 3.
     const frame = frames.find((f) => f.id === frameId)
     if ((frame?.type === 'patroni' || frame?.type === 'repmgr' || frame?.type === 'valkeycluster' || frame?.type === 'mariadbgalera' || frame?.type === 'mysqlceinnodb') && mine.length <= 3) return
-    if (frame?.type === 'spock' && mine.length <= 2) return // Spock keeps ≥2 members
+    if ((frame?.type === 'spock' || frame?.type === 'pgstream') && mine.length <= 2) return // Spock and streaming replication keep ≥2 members
     // A Valkey Cluster with replicas loses a whole shard at a time, never below 3.
     if (frame?.type === 'valkeycluster' && frame.valkeyMode !== 'sentinel' && (frame.valkeyReplicas || 0) > 0) {
       const per = frame.valkeyReplicas + 1
@@ -4774,6 +4828,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       { label: 'PostgreSQL', type: 'pg', onClick: () => addNode('pg') },
       { label: 'Patroni Cluster', type: 'patroni', onClick: addPatroniCluster },
       { label: 'repmgr Cluster', type: 'repmgr', onClick: addRepmgrCluster },
+      { label: 'Streaming Replication', type: 'pgstream', onClick: addPGStreamCluster },
       { label: 'Spock Cluster', type: 'spock', onClick: addSpockCluster },
     ] },
     { title: 'Valkey', items: [
@@ -5944,14 +5999,14 @@ function DeploymentConsole({ deployments, nodes, onMinimize, inline = false, col
 // and volumes are torn down in real time (and can't be undone).
 // SWITCHABLE are the cluster types whose primary can be switched from the canvas
 // (app/switchover.go switchKinds).
-const SWITCHABLE = new Set(['mysql', 'mysqlcerepl', 'mariadbrepl', 'innodb', 'mysqlceinnodb', 'patroni', 'repmgr', 'psmrs', 'psmdb'])
+const SWITCHABLE = new Set(['mysql', 'mysqlcerepl', 'mariadbrepl', 'innodb', 'mysqlceinnodb', 'patroni', 'repmgr', 'pgstream', 'psmrs', 'psmdb'])
 // REBUILDABLE are the clusters whose members can be re-copied from the primary (app/rebuild.go):
 // every switchable one, and Galera, whose members rejoin with a full state transfer.
 const REBUILDABLE = new Set([...SWITCHABLE, 'pxc', 'mariadbgalera'])
 // ACTIVITY_TYPES are the nodes whose running sessions the Activity view reads (app/activity.go):
 // every MySQL-family, PostgreSQL and MongoDB node, and the two proxies.
 const ACTIVITY_TYPES = new Set(['ps', 'mysql', 'mysqlce', 'mysqlcerepl', 'mariadb', 'mariadbrepl', 'mariadbgalera', 'pxc', 'innodb', 'mysqlceinnodb',
-  'pg', 'patroni', 'repmgr', 'spock', 'psm', 'psmrs', 'psmdb', 'proxysql', 'pgbouncer'])
+  'pg', 'patroni', 'repmgr', 'pgstream', 'spock', 'psm', 'psmrs', 'psmdb', 'proxysql', 'pgbouncer'])
 
 // DRIFT_FRAMES are the clusters whose members' settings can be compared (app/drift.go).
 const DRIFT_FRAMES = new Set([...REBUILDABLE, 'spock', 'valkeycluster', 'valkey'])
@@ -5959,7 +6014,7 @@ const DRIFT_FRAMES = new Set([...REBUILDABLE, 'spock', 'valkeycluster', 'valkey'
 // pmmFamily is which PMM service type a database node registers as.
 function pmmFamily(type) {
   if (/valkey/.test(type)) return ''
-  if (/^(pg|patroni|repmgr|spock)/.test(type)) return 'postgresql'
+  if (/^(pg|patroni|repmgr|spock)/.test(type)) return 'postgresql' // pg… covers pgstream
   if (/^psm|mongo/.test(type)) return 'mongodb'
   return 'mysql'
 }
@@ -6021,7 +6076,7 @@ function DBUsersModal({ stackId, nodeId, onClose }) {
       await load()
     } catch (e) { setErr(e.message) } finally { setBusy(false) }
   }
-  const mysql = data && !['patroni', 'repmgr', 'mongo'].includes(data.kind)
+  const mysql = data && !['patroni', 'repmgr', 'pgstream', 'mongo'].includes(data.kind)
   const members = data?.members || []
   const users = (data?.users || []).filter((u) => showInternal || !u.internal)
   const who = (u) => (data?.kind === 'mongo' ? `${u.db}.${u.name}` : u.host ? `${u.name}@${u.host}` : u.name)
@@ -6092,7 +6147,7 @@ function DBUsersModal({ stackId, nodeId, onClose }) {
                   <input value={form.name} onChange={(e) => set('name', e.target.value)} className="w-32 rounded border bg-bg px-2 py-1" /></label>
                 {mysql && <label className="flex flex-col gap-0.5"><span className="text-muted">From host</span>
                   <input value={form.host} onChange={(e) => set('host', e.target.value)} className="w-28 rounded border bg-bg px-2 py-1" /></label>}
-                {data.kind !== 'patroni' && data.kind !== 'repmgr' && <label className="flex flex-col gap-0.5"><span className="text-muted">Database (empty: all)</span>
+                {data.kind !== 'patroni' && data.kind !== 'repmgr' && data.kind !== 'pgstream' && <label className="flex flex-col gap-0.5"><span className="text-muted">Database (empty: all)</span>
                   <input value={form.database} onChange={(e) => set('database', e.target.value)} className="w-32 rounded border bg-bg px-2 py-1" /></label>}
                 <label className="flex flex-col gap-0.5"><span className="text-muted">May</span>
                   <select value={form.privilege} onChange={(e) => set('privilege', e.target.value)} className="rounded border bg-bg px-2 py-1">
@@ -6741,6 +6796,7 @@ function PXCFrameForm({ frame: f, stackId, nodes, frameNodes, patchFrame, delete
         <span>Use Intranet proxy (Squid) for egress</span><Help text={HELP.proxy} />
       </label>
       <DBFileToolChecks obj={f} onPatch={(p) => patchFrame(f.id, p)} galera cluster deployed={deployed} />
+      <MySQLTuningFields obj={f} onPatch={(p) => patchFrame(f.id, p)} deployed={deployed} cluster />
       <RepositoryPicker value={f.repositoryNodeId} nodes={nodes} deployed={deployed}
         onChange={(id) => patchFrame(f.id, { repositoryNodeId: id })} />
       <label className="flex items-center gap-2 text-sm">
@@ -6943,6 +6999,7 @@ function MySQLFrameForm({ frame: f, stackId, nodes, frames, edges, patchFrame, d
         <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
       <DBFileToolChecks obj={f} onPatch={(p) => patchFrame(f.id, p)} cluster deployed={deployed} />
+      <MySQLTuningFields obj={f} onPatch={(p) => patchFrame(f.id, p)} deployed={deployed} cluster />
       <RepositoryPicker value={f.repositoryNodeId} nodes={nodes} deployed={deployed}
         onChange={(id) => patchFrame(f.id, { repositoryNodeId: id })} />
       <label className="flex items-center gap-2 text-sm">
@@ -7474,7 +7531,7 @@ function VMSizeFields({ node: n, patchNode, deployed }) {
 // not render for anything else.
 const NET_SHAPEABLE = new Set([
   'pxc', 'mariadbgalera', 'ps', 'mysql', 'innodb', 'mysqlce', 'mysqlcerepl',
-  'mysqlceinnodb', 'mariadb', 'mariadbrepl', 'patroni', 'pg', 'repmgr', 'spock',
+  'mysqlceinnodb', 'mariadb', 'mariadbrepl', 'patroni', 'pg', 'repmgr', 'pgstream', 'spock',
   'psm', 'psmdb', 'psmrs', 'valkey', 'valkeycluster', 'proxysql', 'haproxy',
   'pgbouncer',
 ])
@@ -7624,6 +7681,7 @@ function PerconaServerForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
         <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
       <DBFileToolChecks obj={n} onPatch={(p) => patchNode(n.id, p)} deployed={deployed} />
+      <MySQLTuningFields obj={n} onPatch={(p) => patchNode(n.id, p)} deployed={deployed} />
       <RepositoryPicker value={n.repositoryNodeId} nodes={nodes} deployed={deployed}
         onChange={(id) => patchNode(n.id, { repositoryNodeId: id })} />
       <label className="flex items-center gap-2 text-sm">
@@ -8815,14 +8873,15 @@ export function DBClientFields({ node: n, patchNode, deployed }) {
   )
 }
 
-// FileToolFields — innodump, binlogsum and gcache-inspector on a Linux Client, chosen at design
-// time. All three are static binaries from their GitHub releases, so every release offers them
+// FileToolFields — innodump, binlogsum, gcache-inspector and mydumper on a Linux Client, chosen at
+// design time. The first three are static binaries, so every release offers them; mydumper is a
+// per-release package, which every release but arm64 Ubuntu 22.04 and CentOS 7 has
 // (app/linuxclient_files.go).
 export function FileToolFields({ node: n, patchNode, deployed }) {
   return (
     <FileToolChecks obj={n} deployed={deployed} onPatch={(p) => patchNode(n.id, p)}
-      fields={[{ key: 'lcInnodump', tool: 'innodump' }, { key: 'lcBinlogsum', tool: 'binlogsum' }, { key: 'lcGcacheInspector', tool: 'gcache' }]}
-      footer={<>The latest GitHub release, checksum-verified, in <span className="font-mono">/usr/local/bin</span>.</>} />
+      fields={[{ key: 'lcInnodump', tool: 'innodump' }, { key: 'lcBinlogsum', tool: 'binlogsum' }, { key: 'lcGcacheInspector', tool: 'gcache' }, { key: 'lcMydumper', tool: 'mydumper' }]}
+      footer={<>The latest GitHub release, checksum-verified: the file readers in <span className="font-mono">/usr/local/bin</span>, mydumper in <span className="font-mono">/usr/bin</span>.</>} />
   )
 }
 
@@ -9071,7 +9130,7 @@ function LinuxClientManager({ dep, onDeleteNode, stackId }) {
           </InfoRow>
         )}
         {!!fileTools.length && (
-          <InfoRow label="MySQL file tools" help={HELP.depFileTools}>
+          <InfoRow label="MySQL tools" help={HELP.depFileTools}>
             <span className="font-mono text-xs">{fileTools.map((c) => `${c.tool} ${c.version}`).join(' · ')}</span>
           </InfoRow>
         )}
@@ -9529,9 +9588,9 @@ function SupportSimManager({ dep, onDeleteNode }) {
 
 // PGV_LINKABLE_KINDS are the endpoint kinds a pgvector Support Sim links to — mirrors
 // pgVectorSimTarget in app/pgvectorsim.go.
-const PGV_LINKABLE_KINDS = new Set(['pg', 'patroni', 'repmgr', 'spock', 'haproxy', 'pgbouncer', 'k3d'])
+const PGV_LINKABLE_KINDS = new Set(['pg', 'patroni', 'repmgr', 'pgstream', 'spock', 'haproxy', 'pgbouncer', 'k3d'])
 const PGV_KIND_LABEL = {
-  pg: 'PostgreSQL', patroni: 'Patroni Cluster', repmgr: 'repmgr Cluster', spock: 'Spock Cluster',
+  pg: 'PostgreSQL', patroni: 'Patroni Cluster', repmgr: 'repmgr Cluster', pgstream: 'Streaming Replication', spock: 'Spock Cluster',
   haproxy: 'HAProxy', pgbouncer: 'PgBouncer', k3d: 'Kubernetes',
 }
 
@@ -9549,8 +9608,8 @@ function pgvLinked(n, nodes, frames, edges) {
   }
   const backendOf = (id) => {
     for (const o of otherOf(id)) {
-      const f = frames.find((x) => x.id === o && ['patroni', 'repmgr', 'spock', 'pxc', 'mysql'].includes(x.type))
-      if (f) return { label: f.label, pgVector: !!f.pgVector, pg: ['patroni', 'repmgr', 'spock'].includes(f.type) }
+      const f = frames.find((x) => x.id === o && ['patroni', 'repmgr', 'pgstream', 'spock', 'pxc', 'mysql'].includes(x.type))
+      if (f) return { label: f.label, pgVector: !!f.pgVector, pg: ['patroni', 'repmgr', 'pgstream', 'spock'].includes(f.type) }
       const p = nodes.find((x) => x.id === o && x.type === 'pg' && !x.frameId)
       if (p) return { label: p.label, pgVector: !!p.pgVector, pg: true }
     }
@@ -9563,7 +9622,7 @@ function pgvLinked(n, nodes, frames, edges) {
       const back = backendOf(node.id)
       return { kind: node.type, label: node.label, back, pgVector: !!back?.pgVector, ok: !!back?.pg }
     }
-    const f = frames.find((x) => x.id === other && ['patroni', 'repmgr', 'spock', 'k3d'].includes(x.type))
+    const f = frames.find((x) => x.id === other && ['patroni', 'repmgr', 'pgstream', 'spock', 'k3d'].includes(x.type))
     if (f) {
       if (f.type === 'k3d') {
         const ok = ['pg', 'cnpg', 'pgo'].includes(f.k3dOperator)
@@ -9685,6 +9744,7 @@ export const SS_LINK_TYPES = {
   mysqlceinnodb: 'MySQL InnoDB Cluster (CE)',
   patroni: 'Patroni cluster',
   repmgr: 'repmgr cluster',
+  pgstream: 'streaming replication cluster',
   spock: 'Spock cluster',
   k3d: 'Kubernetes operator cluster',
   psmrs: 'PSMDB replica set',
@@ -9713,7 +9773,7 @@ const SS_LINKABLE_KINDS = new Set(Object.keys(SS_LINK_TYPES))
 export const CONNECTABLE_FRAMES = new Set([
   'pxc', 'proxysql', 'mysql', 'innodb',
   'mariadbrepl', 'mariadbgalera', 'mysqlcerepl', 'mysqlceinnodb',
-  'patroni', 'repmgr', 'spock', 'k3d',
+  'patroni', 'repmgr', 'pgstream', 'spock', 'k3d',
   'valkeycluster', 'psmrs', 'psmdb',
 ])
 
@@ -9738,7 +9798,7 @@ export const SS_LINK_ENGINE = {
   mariadbrepl: 'mysql', mariadbgalera: 'mysql',
   mysqlcerepl: 'mysql', mysqlceinnodb: 'mysql',
   proxysql: 'mysql',
-  pg: 'postgres', patroni: 'postgres', repmgr: 'postgres', spock: 'postgres',
+  pg: 'postgres', patroni: 'postgres', repmgr: 'postgres', pgstream: 'postgres', spock: 'postgres',
   pgbouncer: 'postgres',
   psm: 'mongodb', psmrs: 'mongodb', psmdb: 'mongodb',
   valkey: 'valkey', valkeycluster: 'valkey',
@@ -9818,10 +9878,12 @@ const SS_TARGET_KIND_LABEL = {
   'haproxy-mysql': 'HAProxy → MySQL replication',
   'haproxy-patroni': 'HAProxy → Patroni cluster',
   'haproxy-repmgr': 'HAProxy → repmgr cluster',
+  'haproxy-pgstream': 'HAProxy → streaming replication cluster',
   'haproxy-spock': 'HAProxy → Spock cluster',
   'pgbouncer-pg': 'PgBouncer → PostgreSQL',
   'pgbouncer-patroni': 'PgBouncer → Patroni cluster',
   'pgbouncer-repmgr': 'PgBouncer → repmgr cluster',
+  'pgbouncer-pgstream': 'PgBouncer → streaming replication cluster',
   'pgbouncer-spock': 'PgBouncer → Spock cluster',
   'proxysql-pxc': 'ProxySQL → PXC cluster',
   'proxysql-mysql': 'ProxySQL → MySQL replication',
@@ -10533,7 +10595,7 @@ function LedgerSimForm ({ node: n, nodes, frames, edges, stackId, patchNode, del
 const PS_LINKABLE_KINDS = new Set([
   'ps', 'mariadb', 'mysqlce',
   'backend', 'innodb', 'mariadbrepl', 'mariadbgalera', 'mysqlcerepl', 'mysqlceinnodb',
-  'pg', 'patroni', 'repmgr', 'spock',
+  'pg', 'patroni', 'repmgr', 'pgstream', 'spock',
   'psm', 'psmrs', 'psmdb',
   'valkey', 'valkeycluster',
   'haproxy', 'proxysql', 'pgbouncer',
@@ -10543,7 +10605,7 @@ const PS_TARGET_LABEL = {
   ps: 'Percona Server', mariadb: 'MariaDB', mysqlce: 'MySQL',
   pxc: 'PXC cluster', mysql: 'MySQL replication', innodb: 'InnoDB Cluster', mariadbrepl: 'MariaDB replication',
   mariadbgalera: 'MariaDB Galera', mysqlcerepl: 'MySQL replication (CE)', mysqlceinnodb: 'MySQL InnoDB Cluster (CE)',
-  pg: 'PostgreSQL', patroni: 'Patroni cluster', repmgr: 'repmgr cluster', spock: 'Spock cluster',
+  pg: 'PostgreSQL', patroni: 'Patroni cluster', repmgr: 'repmgr cluster', pgstream: 'streaming replication cluster', spock: 'Spock cluster',
   psm: 'PS MongoDB', psmrs: 'PSMDB replica set', psmdb: 'sharded PSMDB cluster', valkey: 'Valkey', valkeycluster: 'Valkey Cluster',
   k3d: 'Kubernetes cluster',
   haproxy: 'HAProxy', proxysql: 'ProxySQL', pgbouncer: 'PgBouncer',
@@ -12623,6 +12685,7 @@ function InnoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed })
         <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
       <DBFileToolChecks obj={f} onPatch={(p) => patchFrame(f.id, p)} cluster deployed={deployed} />
+      <MySQLTuningFields obj={f} onPatch={(p) => patchFrame(f.id, p)} deployed={deployed} cluster />
       <RepositoryPicker value={f.repositoryNodeId} nodes={nodes} deployed={deployed}
         onChange={(id) => patchFrame(f.id, { repositoryNodeId: id })} />
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
@@ -13720,6 +13783,182 @@ function RepmgrFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame,
 
 // RepmgrMemberForm edits a repmgr cluster member: only host-port export of 5432
 // (OS/version come from the frame; repmgr manages roles + failover).
+// PGStreamFrameForm edits a streaming replication frame: the Percona PostgreSQL catalog cascade,
+// synchronous replication (how many standbys confirm, and at which synchronous_commit level),
+// replication slots, PMM / query analytics, pgvector, pgbench data, proxy, TLS and pg_hba.
+// Members are resizable 2–9; a member added to a running cluster joins it as a standby.
+export function PGStreamFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, deployed }) {
+  const imgs = usePPGCatalog(f, deployed, patchFrame)
+  const lock = deployed ? 'opacity-70' : ''
+  const pmmNodes = nodes.filter((n) => n.type === 'pmm')
+  const seaweedNodes = nodes.filter((n) => n.type === 'seaweedfs')
+  const members = frameNodes.length
+  const standbys = Math.max(0, members - 1)
+  const sync = f.pgSyncStandbys || 0
+
+  const osFamilies = [...new Set(imgs.filter((i) => Object.values(i.versions || {}).some((a) => a.length)).map((i) => i.os))]
+  const osVersions = [...new Set(imgs.filter((i) => i.os === f.os).map((i) => i.osVersion))]
+  const entry = imgs.find((i) => i.os === f.os && i.osVersion === f.osVersion)
+  const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
+  const minors = (entry?.versions?.[f.pgMajor]) || []
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Streaming Replication</span>
+        <Badge tone="primary">{members} node{members === 1 ? '' : 's'}</Badge>
+      </div>
+
+      <Field label="Cluster name" help={HELP.clusterName} hint="Must be unique across the stack.">
+        <input className={inputCls} value={f.label} disabled={deployed} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
+      </Field>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="OS" help={HELP.os} hint={deployed ? 'Locked.' : ''}>
+          <select className={`${inputCls} ${lock}`} value={f.os} disabled={deployed} onChange={(e) => patchFrame(f.id, { os: e.target.value })}>
+            {osFamilies.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="OS version" help={HELP.osVersion}>
+          <select className={`${inputCls} ${lock}`} value={f.osVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { osVersion: e.target.value })}>
+            {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="PostgreSQL major" help={HELP.major('PostgreSQL')}>
+          <select className={`${inputCls} ${lock}`} value={f.pgMajor} disabled={deployed} onChange={(e) => patchFrame(f.id, { pgMajor: e.target.value, pgVersion: '' })}>
+            {majors.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+      </div>
+      <Field label="PostgreSQL minor version" help={HELP.minor('PostgreSQL')} hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+        <select className={`${inputCls} ${lock}`} value={f.pgVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { pgVersion: e.target.value })}>
+          <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
+          {minors.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+      </Field>
+
+      <Field label="Synchronous standbys" help={HELP.pgSyncStandbys}
+        hint={sync === 0
+          ? 'Asynchronous: a commit returns once the primary has flushed it.'
+          : `A commit waits until ${sync} of the ${standbys} standby${standbys === 1 ? '' : 's'} confirm${sync === 1 ? 's' : ''} it (synchronous_standby_names = ANY ${sync} (…)).`}>
+        <select className={`${inputCls} ${lock}`} value={sync} disabled={deployed}
+          onChange={(e) => patchFrame(f.id, { pgSyncStandbys: Number(e.target.value) })}>
+          <option value={0}>none (asynchronous)</option>
+          {Array.from({ length: Math.max(standbys, sync) }, (_, i) => i + 1).map((k) => <option key={k} value={k}>{k}</option>)}
+        </select>
+      </Field>
+      {sync > 0 && (
+        <Field label="Commit waits until the standby has" help={HELP.pgSyncCommit}>
+          <select className={`${inputCls} ${lock}`} value={f.pgSyncCommit || ''} disabled={deployed}
+            onChange={(e) => patchFrame(f.id, { pgSyncCommit: e.target.value })}>
+            <option value="">flushed the WAL (on)</option>
+            <option value="remote_write">written the WAL (remote_write)</option>
+            <option value="remote_apply">replayed it (remote_apply)</option>
+          </select>
+        </Field>
+      )}
+      <label className={`flex items-center gap-2 text-sm ${lock}`}>
+        <input type="checkbox" checked={!f.pgNoSlots} disabled={deployed} onChange={(e) => patchFrame(f.id, { pgNoSlots: !e.target.checked })} />
+        <span>A replication slot for every standby</span><Help text={HELP.pgReplicationSlots} />
+      </label>
+
+      <label className={`flex items-center gap-2 text-sm ${lock}`}>
+        <input type="checkbox" checked={!!f.usePgBackRest} disabled={deployed}
+          onChange={(e) => patchFrame(f.id, { usePgBackRest: e.target.checked, seaweedfsNodeId: e.target.checked ? f.seaweedfsNodeId : '' })} />
+        <span>Back up with pgBackRest (SeaweedFS S3)</span><Help text={HELP.seaweedfsBackup} />
+      </label>
+      {f.usePgBackRest && (
+        <Field label="SeaweedFS node (S3 repository)" help={HELP.seaweedfsBackup}
+          hint={seaweedNodes.length ? 'WAL archive and the initial full backup land here; every member is configured, so the primary archives whichever member it is. The node must serve S3 over TLS (pgBackRest needs HTTPS). Barman is not offered: this frame runs Percona\'s packages.' : 'Add a SeaweedFS node (with S3 TLS enabled) to the stack first.'}>
+          <select className={`${inputCls} ${lock}`} value={f.seaweedfsNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { seaweedfsNodeId: e.target.value })}>
+            <option value="">select a SeaweedFS node…</option>
+            {seaweedNodes.map((s) => <option key={s.id} value={s.id}>{s.label}{s.tls ? '' : ' — needs S3 TLS'}</option>)}
+          </select>
+        </Field>
+      )}
+      {f.usePgBackRest && !!f.seaweedfsNodeId && (
+        <SeaweedBucketField nodes={nodes} nodeId={f.seaweedfsNodeId} value={f.seaweedfsBucket} deployed={deployed}
+          onChange={(v) => patchFrame(f.id, { seaweedfsBucket: v })} />
+      )}
+
+      <Field label="Monitored by (PMM)" help={HELP.pmm} hint="Optional — registers each member's PostgreSQL with a PMM node.">
+        <select className={`${inputCls} ${lock}`} value={f.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { pmmNodeId: e.target.value })}>
+          <option value="">none</option>
+          {pmmNodes.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </select>
+      </Field>
+      <PGQuerySourceField obj={f} patch={patchFrame} deployed={deployed} />
+      <PGVectorOption obj={f} patch={patchFrame} deployed={deployed} />
+      <PGBenchOption obj={f} patch={patchFrame} deployed={deployed} />
+
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
+        <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
+      </label>
+      <RepositoryPicker value={f.repositoryNodeId} nodes={nodes} deployed={deployed}
+        onChange={(id) => patchFrame(f.id, { repositoryNodeId: id })} />
+      <label className={`flex items-center gap-2 text-sm ${lock}`}>
+        <input type="checkbox" checked={!!f.generateCert} disabled={deployed} onChange={(e) => patchFrame(f.id, { generateCert: e.target.checked })} />
+        <span>Generate per-node certificates from Intranet CA (PostgreSQL TLS)</span><Help text={HELP.generateCert} />
+      </label>
+      {f.generateCert && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted">Cert TTL</span>
+          <input type="number" min="1" className={`${inputCls} w-20`} value={f.certTtlValue || 365} disabled={deployed} onChange={(e) => patchFrame(f.id, { certTtlValue: Number(e.target.value) })} />
+          <select className={inputCls} value={f.certTtlUnit || 'days'} disabled={deployed} onChange={(e) => patchFrame(f.id, { certTtlUnit: e.target.value })}>
+            <option value="minutes">minutes</option>
+            <option value="hours">hours</option>
+            <option value="days">days</option>
+          </select>
+        </div>
+      )}
+      <PGHostAuthFields obj={f} patch={patchFrame} deployed={deployed} tls={!!f.generateCert} />
+
+      {(members < 2 || members > 9 || sync > standbys || (sync > 0 && sync === standbys)) && (
+        <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
+          {members < 2 && <div>At least 2 members are required: a primary and a standby ({members} now).</div>}
+          {members > 9 && <div>At most 9 members are allowed ({members} now).</div>}
+          {sync > standbys && <div>Waiting for {sync} synchronous standbys with only {standbys} would hang every commit.</div>}
+          {sync > 0 && sync === standbys && <div>Every standby must confirm each commit, so writes stop while any one of them is down.</div>}
+        </div>
+      )}
+      <p className="text-xs text-muted">Member 1 is the primary; the others are hot standbys copied from it with pg_basebackup. There is no failover manager: if the primary stops, nothing is promoted until you switch over from a standby's right-click menu. Use the +/− buttons on the frame to resize (2–9 members); a member added to a running cluster joins it as a standby.</p>
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteFrame(f.id)}>
+        <Icon.Trash size={16} /> Delete cluster
+      </Button>
+    </div>
+  )
+}
+
+// PGStreamMemberForm edits a streaming replication member before it is running: sizing and the
+// 5432 host export (everything else is the frame's).
+function PGStreamMemberForm({ node: n, frame, patchNode, dep, deployed }) {
+  return (
+    <div className="space-y-3">
+      {dep && (
+        <div className="flex items-center justify-between rounded-lg bg-surface2 px-3 py-2 text-sm">
+          <span className="text-muted">Deployment</span>
+          <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
+        </div>
+      )}
+      <Field label="Node name" help={HELP.nodeName} hint="Auto-assigned, unique across the stack."><input className={`${inputCls} opacity-70`} value={n.label} readOnly /></Field>
+      <Field label="Cluster" help={HELP.clusterReadonly}><input className={`${inputCls} opacity-70`} value={frame?.label || '—'} readOnly /></Field>
+      <p className="text-xs text-muted">Runs Percona PostgreSQL. The cluster's first node is the primary; every other node is a hot standby streaming from it.</p>
+      <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!n.exportEnabled} disabled={deployed} onChange={(e) => patchNode(n.id, { exportEnabled: e.target.checked })} />
+        <span>Export PostgreSQL port to the host (5432)</span><Help text={HELP.exportPort} />
+      </label>
+      {n.exportEnabled && (
+        <Field label="Host port" help={HELP.hostPort} hint="0 / empty = random unused port. Must not clash with another node.">
+          <input type="number" min="0" max="65535" className={`${inputCls} ${deployed ? 'opacity-70' : ''}`} value={n.exportHostPort || 0} disabled={deployed}
+            onChange={(e) => patchNode(n.id, { exportHostPort: Number(e.target.value) })} />
+        </Field>
+      )}
+    </div>
+  )
+}
+
 function RepmgrMemberForm({ node: n, frame, patchNode, dep, deployed }) {
   return (
     <div className="space-y-3">
@@ -14014,7 +14253,7 @@ function pgbBackendsOf(n, nodes, frames, edges) {
   for (const e of edges) {
     const other = e.from.node === n.id ? e.to.node : (e.to.node === n.id ? e.from.node : null)
     if (!other || seen.has(other)) continue
-    const f = frames.find((fr) => fr.id === other && (fr.type === 'patroni' || fr.type === 'repmgr' || fr.type === 'spock'))
+    const f = frames.find((fr) => fr.id === other && (fr.type === 'patroni' || fr.type === 'repmgr' || fr.type === 'pgstream' || fr.type === 'spock'))
     if (f) { seen.add(other); out.push({ kind: f.type, label: f.label, obj: f }); continue }
     const pg = nodes.find((x) => x.id === other && x.type === 'pg' && !x.frameId)
     if (pg) { seen.add(other); out.push({ kind: 'pg', label: pg.label, obj: pg }) }
@@ -14022,7 +14261,7 @@ function pgbBackendsOf(n, nodes, frames, edges) {
   return out
 }
 
-const PGB_BACKEND_LABEL = { pg: 'PostgreSQL', patroni: 'Patroni cluster', repmgr: 'repmgr cluster', spock: 'Spock cluster' }
+const PGB_BACKEND_LABEL = { pg: 'PostgreSQL', patroni: 'Patroni cluster', repmgr: 'repmgr cluster', pgstream: 'streaming replication cluster', spock: 'Spock cluster' }
 
 // pgbDefaults mirrors pgBouncerDefaults in app/pgbouncer.go: the two options whose
 // sensible value depends on which PostgreSQL topology is behind the pool. The node
@@ -14107,7 +14346,7 @@ export function PgBouncerForm({ node: n, nodes, frames, edges, patchNode, delete
         </div>
       ) : (
         <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
-          Not linked. Draw an association line from a PostgreSQL node or a Patroni, repmgr or Spock cluster frame to this PgBouncer node.
+          Not linked. Draw an association line from a PostgreSQL node or a Patroni, repmgr, streaming replication or Spock cluster frame to this PgBouncer node.
         </div>
       )}
 
@@ -14289,6 +14528,7 @@ export function PgBouncerForm({ node: n, nodes, frames, edges, patchNode, delete
           : kind === 'pg' ? 'A standalone PostgreSQL backend has no role that can move, so there is nothing to follow.'
           : kind === 'patroni' ? 'A timer asks each member’s Patroni REST API (:8008 /primary) who holds the leader lease and re-points the pool on failover, reloading with SIGHUP so existing clients are not dropped. Without it, a failover leaves the pool aimed at a server in recovery and every write fails.'
           : kind === 'repmgr' ? 'repmgr has no REST API, so the timer asks each member pg_is_in_recovery() over psql and re-points the pool when the answer changes — the same question repmgr’s own health check asks.'
+          : kind === 'pgstream' ? 'The timer asks each member pg_is_in_recovery() over psql and re-points the pool when the answer changes, so a switchover moves the pool with it. Nothing promotes a standby on its own here, so the answer changes only when someone switches over.'
           : 'Every Spock member is a writer, so there is no role to follow: the pool stays pinned to one member and the timer only moves it when that member stops answering. Pinning one writer is how you avoid spending the demo on write conflicts.'}
       </p>
       {n.pgbFollowPrimary && followable && (
@@ -15184,7 +15424,7 @@ function StackProperties({ overlay = false, top = 0, host, locked, lockedBy, sel
   const liveData = live && liveNode ? live[liveNode.id] : null
   const selNode = selected?.kind === 'node' ? nodes.find((n) => n.id === selected.id) : null
   const selDep = selNode ? depByNode[selNode.id] : null
-  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb' || selNode.type === 'psmdb' || selNode.type === 'psmrs' || selNode.type === 'psm' || selNode.type === 'seaweedfs' || selNode.type === 'patroni' || selNode.type === 'haproxy' || selNode.type === 'pgbouncer' || selNode.type === 'repository' || selNode.type === 'pg' || selNode.type === 'repmgr' || selNode.type === 'spock' || selNode.type === 'aio' || selNode.type === 'mariadb' || selNode.type === 'mariadbrepl' || selNode.type === 'mariadbgalera' || selNode.type === 'mysqlce' || selNode.type === 'mysqlcerepl' || selNode.type === 'mysqlceinnodb')) || selected?.kind === 'frame'
+  const wide = (selDep && selDep.state === 'running' && (selNode.type === 'intranet' || selNode.type === 'pmm' || selNode.type === 'pxc' || selNode.type === 'proxysql' || selNode.type === 'mysql' || selNode.type === 'ps' || selNode.type === 'innodb' || selNode.type === 'psmdb' || selNode.type === 'psmrs' || selNode.type === 'psm' || selNode.type === 'seaweedfs' || selNode.type === 'patroni' || selNode.type === 'haproxy' || selNode.type === 'pgbouncer' || selNode.type === 'repository' || selNode.type === 'pg' || selNode.type === 'repmgr' || selNode.type === 'pgstream' || selNode.type === 'spock' || selNode.type === 'aio' || selNode.type === 'mariadb' || selNode.type === 'mariadbrepl' || selNode.type === 'mariadbgalera' || selNode.type === 'mysqlce' || selNode.type === 'mysqlcerepl' || selNode.type === 'mysqlceinnodb')) || selected?.kind === 'frame'
 
   const saved = useRef(loadProps()).current
   const [docked, setDocked] = useState(saved.docked !== false)
@@ -15349,6 +15589,9 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     if (f.type === 'patroni') {
       return <PatroniFrameForm frame={f} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
     }
+    if (f.type === 'pgstream') {
+      return <PGStreamFrameForm frame={f} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
+    }
     if (f.type === 'repmgr') {
       return <RepmgrFrameForm frame={f} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
     }
@@ -15466,6 +15709,13 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
       return <PatroniMemberForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} patchNode={patchNode} dep={dep} deployed={deployed} />
     }
 
+    // Streaming replication member node.
+    if (n.type === 'pgstream') {
+      if (dep && dep.state === 'running') {
+        return <PGStreamManager stackId={stackId} nodeId={n.id} frame={frames.find((fr) => fr.id === n.frameId)} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+      }
+      return <PGStreamMemberForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} patchNode={patchNode} dep={dep} deployed={deployed} />
+    }
     // repmgr PostgreSQL cluster member node.
     if (n.type === 'repmgr') {
       if (dep && dep.state === 'running') {

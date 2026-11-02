@@ -51,9 +51,10 @@ var switchKinds = map[string]string{
 	"mysql": "mysql", "mysqlcerepl": "mysql",
 	"mariadbrepl": "mariadb",
 	"innodb":      "gr", "mysqlceinnodb": "gr",
-	"patroni": "patroni",
-	"repmgr":  "repmgr",
-	"psmrs":   "mongo", "psmdb": "mongo",
+	"patroni":  "patroni",
+	"repmgr":   "repmgr",
+	"pgstream": "pgstream",
+	"psmrs":    "mongo", "psmdb": "mongo",
 }
 
 // noPrimaryKinds are clusters with no single primary to move.
@@ -218,7 +219,7 @@ func (a *App) probeTopo(ctx context.Context, st Stack, t swTopo) ([]swState, int
 			s.Why = "its database is not answering"
 		case s.Role == "arbiter":
 			s.Why = "an arbiter holds no data"
-		case len(s.Problems) > 0 && (t.Kind == "mysql" || t.Kind == "mariadb" || t.Kind == "repmgr" || t.Kind == "patroni"):
+		case len(s.Problems) > 0 && (t.Kind == "mysql" || t.Kind == "mariadb" || t.Kind == "repmgr" || t.Kind == "pgstream" || t.Kind == "patroni"):
 			s.Why = "its replication is not healthy: " + s.Problems[0]
 		default:
 			s.Eligible = true
@@ -343,6 +344,8 @@ func (a *App) switchPrimary(ctx context.Context, st Stack, t swTopo, nid string,
 		err = a.switchPatroni(ctx, st, t, primary, cand, log)
 	case "repmgr":
 		err = a.switchRepmgr(ctx, st, t, primary, cand, log)
+	case "pgstream":
+		err = a.switchPGStream(ctx, st, t, primary, cand, others, log)
 	case "mongo":
 		err = a.switchMongo(ctx, st, t, primary, cand, others, log)
 	case "gr":
@@ -1181,7 +1184,7 @@ func (a *App) recordNewPrimary(st Stack, t swTopo, primary, cand swMember) (bool
 			next = map[string]string{"secondary": "primary", "replica": "leader", "standby": "primary"}[role]
 		case role == "primary" || role == "leader":
 			next = map[string]string{"primary": "secondary", "leader": "replica"}[role]
-			if t.Kind == "repmgr" {
+			if t.Kind == "repmgr" || t.Kind == "pgstream" {
 				next = "standby"
 			}
 		}

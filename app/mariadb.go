@@ -230,6 +230,7 @@ func mariadbGaleraCnf(frame designFrame, host, domain, clusterAddr string, sec p
 	// log_slave_updates is required for a Galera node that also serves as an async
 	// replication source, and harmless otherwise.
 	fmt.Fprintf(&b, "log_bin=binlog\nlog_slave_updates=ON\n")
+	b.WriteString(mysqlTuningCnf(frame))
 	return b.String()
 }
 
@@ -259,6 +260,7 @@ func (a *App) provisionMariaDB(st Stack, n designNode, doc designDoc) {
 		MariaDBMajor: n.MariaDBMajor, MariaDBVersion: n.MariaDBVersion, GTID: n.GTID,
 		UseProxy: n.UseProxy, GenerateCert: n.GenerateCert,
 		CertTTLValue: n.CertTTLValue, CertTTLUnit: n.CertTTLUnit, PMMNodeID: n.PMMNodeID,
+		mysqlTuning: n.mysqlTuning,
 	}
 	image := pxcImage(n.OS, n.OSVersion, n.Arch)
 	sec := mysqlFamilySecrets()
@@ -293,7 +295,7 @@ func (a *App) provisionMariaDB(st Stack, n designNode, doc designDoc) {
 			pr.fail("%v", werr)
 			return
 		}
-		cnf := mariadbReplCnf(n.OS, host, mariadbServerID(host), mariadbGTIDDomain(n.Label), n.GTID)
+		cnf := mariadbReplCnf(n.OS, host, mariadbServerID(host), mariadbGTIDDomain(n.Label), n.GTID) + mysqlTuningCnf(frame)
 		if err := a.mariadbPrepareNode(ctx, st, frame, n, host, image, intranetIP, domain, cnf, false); err != nil {
 			return // recorded its own error
 		}
@@ -427,7 +429,7 @@ func (a *App) provisionMariaDBFrame(st Stack, frame designFrame, doc designDoc) 
 			go func(n designNode) {
 				defer wg.Done()
 				host := hosts[n.ID]
-				cnf := mariadbReplCnf(frame.OS, host, mariadbServerID(host), gtidDomain, frame.GTID)
+				cnf := mariadbReplCnf(frame.OS, host, mariadbServerID(host), gtidDomain, frame.GTID) + mysqlTuningCnf(frame)
 				if err := a.mariadbPrepareNode(ctx, st, frame, n, host, image, intranetIP, domain, cnf, false); err != nil {
 					mu.Lock()
 					failed = true

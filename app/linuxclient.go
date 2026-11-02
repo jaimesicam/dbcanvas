@@ -198,7 +198,7 @@ func (a *App) provisionLinuxClient(st Stack, n designNode, doc designDoc) {
 			cfgJSON, _ = json.Marshal(cfg)
 		}
 
-		if n.LCInnodump || n.LCGcacheInspector {
+		if len(lcFileTools(n)) > 0 {
 			a.linuxClientInstallFileTools(ctx, id, n, &cfg, pr)
 			cfgJSON, _ = json.Marshal(cfg)
 		}

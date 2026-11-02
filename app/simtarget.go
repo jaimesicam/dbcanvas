@@ -40,7 +40,7 @@ func simEngineForKind(kind string) string {
 	case "ps", "mariadb", "mysqlce",
 		"pxc", "mysql", "innodb", "mariadbrepl", "mariadbgalera", "mysqlcerepl", "mysqlceinnodb":
 		return "mysql"
-	case "pg", "patroni", "repmgr", "spock":
+	case "pg", "patroni", "repmgr", "pgstream", "spock":
 		return "postgres"
 	case "psm", "psmrs", "psmdb":
 		return "mongodb"
@@ -118,7 +118,7 @@ var simFrameTargets = map[string]bool{
 	"mariadbrepl": true, "mariadbgalera": true,
 	"mysqlcerepl": true, "mysqlceinnodb": true,
 	// PostgreSQL.
-	"patroni": true, "repmgr": true, "spock": true,
+	"patroni": true, "repmgr": true, "pgstream": true, "spock": true,
 	// Kubernetes. A K3D frame is any of the three engines above, depending on
 	// which of the six operators it runs — see simtarget_k3d.go.
 	"k3d": true,
@@ -429,6 +429,15 @@ func (a *App) simPostgresTarget(ctx context.Context, st Stack, hosts map[string]
 			failover = fqdns
 		}
 
+	// A streaming replication cluster moves its primary only by a switchover, but it does move.
+	case "pgstream":
+		var fqdns []string
+		fqdns, s, err = a.waitRepmgrRunning(ctx, st.ID, frame, doc, domain, timeout)
+		if err == nil {
+			h = a.leaderOrFirst(ctx, st, frame, doc, hosts, domain, fqdns, a.pgStreamPrimaryContainer(ctx, st, frame, doc))
+			failover = fqdns
+		}
+
 	case "spock":
 		var fqdns []string
 		fqdns, s, err = a.waitSpockRunning(ctx, st.ID, frame, doc, domain, timeout)
@@ -450,7 +459,7 @@ func (a *App) simPostgresTarget(ctx context.Context, st Stack, hosts map[string]
 		switch backKind {
 		case "patroni":
 			_, s, err = a.waitPatroniRunning(ctx, st.ID, back, doc, domain, timeout)
-		case "repmgr":
+		case "repmgr", "pgstream":
 			_, s, err = a.waitRepmgrRunning(ctx, st.ID, back, doc, domain, timeout)
 		default:
 			_, s, err = a.waitSpockRunning(ctx, st.ID, back, doc, domain, timeout)

@@ -50,7 +50,7 @@ The **Client** list shows only the libraries for the target's engine.
 | Shell / native client | mysql (command line) | psql (command line) | mongosh | valkey-cli |
 
 The **MySQL family** is Percona Server, PXC, MySQL Community and MariaDB. **PostgreSQL** covers
-Percona Distribution for PostgreSQL, Patroni, repmgr and Spock. **MongoDB** is Percona Server for
+Percona Distribution for PostgreSQL, Patroni, repmgr, streaming replication and Spock. **MongoDB** is Percona Server for
 MongoDB, standalone, replica set or sharded. **Valkey** is standalone or cluster.
 
 Two drivers for the same server (PyMySQL beside mysql-connector-python, plain JDBC beside

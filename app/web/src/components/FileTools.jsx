@@ -1,6 +1,7 @@
-// FileTools — the offline MySQL file readers a node can have installed: innodump, binlogsum and
-// gcache-inspector. The Linux Client offers them (app/linuxclient_files.go), and so does every
-// MySQL-family server (app/dbfiletools.go); this is the one block of checkboxes both draw.
+// FileTools — the MySQL tools a node can have installed: the offline file readers innodump,
+// binlogsum and gcache-inspector, and mydumper. The Linux Client offers them
+// (app/linuxclient_files.go), and so does every MySQL-family server (app/dbfiletools.go); this is
+// the one block of checkboxes both draw.
 
 const mono = (s) => <span className="font-mono">{s}</span>
 
@@ -17,6 +18,10 @@ export const FILE_TOOLS = {
     label: 'Install gcache-inspector',
     note: <>Summarizes a Galera node's {mono('galera.cache')} and decodes its write-sets into rows.</>,
   },
+  mydumper: {
+    label: 'Install mydumper',
+    note: <>Parallel logical backup and restore: {mono('mydumper')} and {mono('myloader')}, from the package built for the node's OS release. Ubuntu 22.04 has no arm64 build.</>,
+  },
 }
 
 // FileToolChecks draws one checkbox per entry of fields ([{ key, tool }], tool a FILE_TOOLS id)
@@ -27,7 +32,7 @@ export function FileToolChecks({ obj, fields, onPatch, deployed, footer }) {
   const any = fields.some((f) => obj[f.key])
   return (
     <div className="space-y-2 rounded-lg bg-surface2 p-2">
-      <span className="text-xs font-medium text-muted">MySQL file tools</span>
+      <span className="text-xs font-medium text-muted">MySQL tools</span>
       {fields.map(({ key, tool }) => (
         <label key={key} className="flex items-start gap-2 text-sm">
           <input type="checkbox" className="mt-1" checked={!!obj[key]}
@@ -43,15 +48,16 @@ export function FileToolChecks({ obj, fields, onPatch, deployed, footer }) {
   )
 }
 
-// DBFileToolChecks is the block on a MySQL-family server or cluster: innodump and binlogsum on all
-// of them, gcache-inspector on the Galera kinds. The choice belongs to the design: once the node
+// DBFileToolChecks is the block on a MySQL-family server or cluster: innodump, binlogsum and
+// mydumper on all of them, gcache-inspector on the Galera kinds. The choice belongs to the design: once the node
 // is deployed the block is not shown, rather than offering a change that only a redeploy applies.
 export function DBFileToolChecks({ obj, onPatch, galera, cluster, deployed }) {
   if (deployed) return null
   const fields = [{ key: 'installInnodump', tool: 'innodump' }, { key: 'installBinlogsum', tool: 'binlogsum' }]
   if (galera) fields.push({ key: 'installGcacheInspector', tool: 'gcache' })
+  fields.push({ key: 'installMydumper', tool: 'mydumper' })
   return (
     <FileToolChecks obj={obj} fields={fields} onPatch={onPatch}
-      footer={<>The latest GitHub release, checksum-verified, in {mono('/usr/local/bin')} on {cluster ? 'every data member' : 'the server'} once it is running.</>} />
+      footer={<>The latest GitHub release, checksum-verified, on {cluster ? 'every data member' : 'the server'} once it is running: the file readers in {mono('/usr/local/bin')}, mydumper in {mono('/usr/bin')}.</>} />
   )
 }

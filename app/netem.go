@@ -211,7 +211,7 @@ func netemPortsFor(nodeType string) []int {
 	// failure mode. repmgr and spock use 5432 only.
 	case "patroni":
 		return []int{5432, 8008}
-	case "pg", "repmgr", "spock":
+	case "pg", "repmgr", "pgstream", "spock":
 		return []int{5432}
 	// MongoDB replica sets and shards all speak on the client port.
 	case "psm", "psmdb", "psmrs":

@@ -202,7 +202,7 @@ func pgBouncerAlias(fqdn string) string {
 func pgBouncerBackends(doc designDoc, startID string) (kinds []string, frames []designFrame, nodes []designNode) {
 	frameByID := map[string]designFrame{}
 	for _, f := range doc.Frames {
-		if f.Type == "patroni" || f.Type == "repmgr" || f.Type == "spock" {
+		if f.Type == "patroni" || f.Type == "repmgr" || f.Type == "pgstream" || f.Type == "spock" {
 			frameByID[f.ID] = f
 		}
 	}
@@ -313,7 +313,7 @@ func (a *App) provisionPgBouncer(st Stack, n designNode, doc designDoc) {
 		// to the backend with.
 		kind, frame, backNode, ok := pgBouncerBackend(doc, n.ID)
 		if !ok {
-			pr.fail("PgBouncer must be linked to exactly one PostgreSQL node or Patroni, repmgr or Spock cluster")
+			pr.fail("PgBouncer must be linked to exactly one PostgreSQL node or Patroni, repmgr, streaming replication or Spock cluster")
 			return
 		}
 		opt := pgBouncerDefaults(n, kind)
@@ -339,8 +339,8 @@ func (a *App) provisionPgBouncer(st Stack, n designNode, doc designDoc) {
 				return
 			}
 			members, sec, label = m, s, frame.Label
-		case "repmgr":
-			pr.phase("Waiting for repmgr cluster", 15)
+		case "repmgr", "pgstream":
+			pr.phase("Waiting for "+pgClusterNoun(kind), 15)
 			ms, cerr := a.waitRepmgrMembers(ctx, st.ID, frame, doc, domain, deployTimeout())
 			if cerr != nil {
 				pr.fail("%v", cerr)
@@ -1046,7 +1046,7 @@ case "$MODE" in
       rest "$h" replica && REPLICAS="$REPLICAS $h"
     done
     ;;
-  repmgr)
+  repmgr|pgstream)
     for h in $MEMBERS; do
       case "$(in_recovery "$h")" in
         f) [ -z "$PRIMARY" ] && PRIMARY="$h" ;;
@@ -1175,7 +1175,7 @@ func (a *App) pgBouncerSimEndpoint(ctx context.Context, st Stack, hosts map[stri
 		_, sec, err = a.waitPgNodeRunning(ctx, st.ID, backNode.ID, hosts, domain, timeout)
 	case "patroni":
 		_, sec, err = a.waitPatroniRunning(ctx, st.ID, frame, doc, domain, timeout)
-	case "repmgr":
+	case "repmgr", "pgstream":
 		_, sec, err = a.waitRepmgrRunning(ctx, st.ID, frame, doc, domain, timeout)
 	case "spock":
 		_, sec, err = a.waitSpockRunning(ctx, st.ID, frame, doc, domain, timeout)
@@ -1239,7 +1239,7 @@ func pgBouncerIssues(n designNode, doc designDoc) []issue {
 	switch {
 	case len(kinds) == 0:
 		out = append(out, issue{Level: "error", Message: who +
-			" must be linked to a PostgreSQL node or a Patroni, repmgr or Spock cluster — draw an association line from one to it"})
+			" must be linked to a PostgreSQL node or a Patroni, repmgr, streaming replication or Spock cluster — draw an association line from one to it"})
 	case len(kinds) > 1:
 		sorted := append([]string(nil), kinds...)
 		sort.Strings(sorted)

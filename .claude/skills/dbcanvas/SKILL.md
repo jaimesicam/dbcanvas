@@ -239,7 +239,7 @@ it through the proxy are different tests and it will not guess. `dbcanvas stack 
 prints each kind's legal targets in the LINKS TO column.
 
 **PgBouncer is the PostgreSQL pool**, as HAProxy is the TCP balancer: one `pgbouncer`
-node in front of one `pg` node or one Patroni, repmgr or Spock cluster. `mode=` is the
+node in front of one `pg` node or one Patroni, repmgr, streaming replication (`pg-stream`) or Spock cluster. `mode=` is the
 pool mode (`transaction` by default, `session`, `statement`), `cert` terminates TLS at
 the pool, and compose turns on following the primary across a failover and
 `auth_query`. A pgvector Support Sim can use the cluster through it:

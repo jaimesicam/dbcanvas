@@ -352,7 +352,7 @@ option (`monitorWith`, `ldapWith`, …).
 | `oidc` | Keycloak single sign-on | `keycloak` | `ps`, `pg`, `psm`, `pmm`, `pxc`, `ps-repl` |
 | `kerberos` | GSSAPI single sign-on | `sambaad` | `pg`, `psm` |
 | `vault` | data-at-rest keys in OpenBao | `openbao` | `ps`, `pg` (pg_tde: PostgreSQL 17/18), `psm`, `pxc`, `ps-repl`, `patroni` |
-| `backup` | backups to S3 | `seaweedfs` | `ps`, `pg`, `pxc`, `ps-repl`, `patroni`, `repmgr`, `psmrs`, `psmdb` |
+| `backup` | backups to S3 | `seaweedfs` | `ps`, `pg`, `pxc`, `ps-repl`, `patroni`, `repmgr`, `pg-stream`, `psmrs`, `psmdb` |
 | `orchestrator` | topology discovery and failover | `orchestrator` | `ps-repl`, `mariadb-repl`, `mysql-repl` |
 
 ```sh
@@ -370,10 +370,10 @@ refuses and lists the candidates.
 | Kind | Connects to |
 | --- | --- |
 | `proxysql`, `proxysql-cluster` | `pxc`, `ps-repl` |
-| `haproxy` | one of `patroni`, `repmgr`, `spock`, `pxc`, `ps-repl` |
-| `pgbouncer` | one of `pg`, `patroni`, `repmgr`, `spock` |
+| `haproxy` | one of `patroni`, `repmgr`, `pg-stream`, `spock`, `pxc`, `ps-repl` |
+| `pgbouncer` | one of `pg`, `patroni`, `repmgr`, `pg-stream`, `spock` |
 | `supportsim` | `psm`, `psmrs`, `psmdb`, `k3d` |
-| `pgvectorsim` | `pg`, `patroni`, `repmgr`, `spock`, `haproxy`, `pgbouncer`, `k3d` |
+| `pgvectorsim` | `pg`, `patroni`, `repmgr`, `pg-stream`, `spock`, `haproxy`, `pgbouncer`, `k3d` |
 
 `mclusteradmin` and `bighole` take no line. MClusterAdmin gets a ready-made
 connection string when the spec has exactly one MongoDB.
@@ -496,6 +496,7 @@ replica's lag. Members that cannot take over are greyed, with the reason.
 | --- | --- |
 | Patroni | `patronictl switchover --candidate` |
 | repmgr | `repmgr standby switchover --siblings-follow` |
+| Streaming replication | `CHECKPOINT` and a clean shutdown of the primary, the candidate replays past the primary's shutdown checkpoint, `pg_promote()`; the old primary becomes a standby (`pg_rewind` if it cannot follow) and the others re-point `primary_conninfo` |
 | MongoDB replica set (and each shard or config set) | other secondaries frozen, primary steps down, candidate elected |
 | Group Replication / InnoDB Cluster | `group_replication_set_as_primary()` |
 | MySQL and MariaDB replication (GTID or not) | writes frozen on the primary, every replica caught up, then the candidate made writable and the others re-pointed |
@@ -522,6 +523,7 @@ step failed if one did. PXC, Galera and Spock have no primary to move.
   | Group Replication / InnoDB Cluster | rejoin with clone recovery |
   | Patroni | `patronictl reinit` |
   | repmgr | `repmgr standby clone`, then `standby register` |
+  | Streaming replication | `pg_basebackup` through the member's replication slot |
   | MongoDB replica set | full initial sync |
   | PXC, MariaDB Galera | full SST |
 
@@ -570,6 +572,7 @@ Deploy works per member:
 | InnoDB Cluster / Group Replication | `addInstance` with clone recovery |
 | Patroni | joins etcd; Patroni takes a base backup from the leader |
 | repmgr | `repmgr standby clone` and `register` |
+| Streaming replication | `pg_basebackup` from the primary; added to `synchronous_standby_names` when the cluster is synchronous |
 | MongoDB replica set | added with `replSetReconfig`, initial sync |
 
 Sharded MongoDB, Spock, Valkey cluster and Kubernetes frames cannot take a new member
@@ -649,6 +652,7 @@ These act on a cluster (frame) or on one database node.
 | **Standalone PostgreSQL (pgBackRest)**: back up · list · restore | `POST …/nodes/{nid}/pg/backup` · `GET …/pg/backups` · `POST …/pg/restore` | `dbcanvas api POST …/pg/backup` |
 | **MongoDB (PBM)**: back up a replica set or sharded cluster | `POST …/frames/{fid}/pbm/backup` | `dbcanvas api POST …/pbm/backup` |
 | **repmgr**: back up from the primary (pgBackRest or Barman) | `POST …/frames/{fid}/barman/backup` | `dbcanvas api POST …/barman/backup` |
+| **Streaming replication**: a pgBackRest full backup on the current primary | `POST …/frames/{fid}/pgstream/backup` | `dbcanvas api POST …/pgstream/backup` |
 | **XtraBackup, PS replication or PXC cluster**: back up · list · restore · delete | `POST …/frames/{fid}/xb/backup` · `GET …/xb/backups` · `POST …/xb/restore` · `POST …/xb/delete` | `dbcanvas api POST …/xb/backup --data '{"type":"full"}'` |
 | **XtraBackup, standalone Percona Server**: the same four | `…/nodes/{nid}/xb/backup` · `/backups` · `/restore` · `/delete` | `dbcanvas api POST …/xb/backup --data '{"type":"incremental"}'` |
 | Run pgbench on a PostgreSQL node · a Patroni leader | `POST …/nodes/{nid}/pg/pgbench` · `POST …/frames/{fid}/patroni/pgbench` | `dbcanvas api POST …/pg/pgbench` |

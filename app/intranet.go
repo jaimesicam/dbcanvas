@@ -103,10 +103,15 @@ type designNode struct {
 	LCInnodump        bool `json:"lcInnodump"`        // InnoDB / MyISAM / MyRocks table files
 	LCBinlogsum       bool `json:"lcBinlogsum"`       // a binary log, from mysqlbinlog's output
 	LCGcacheInspector bool `json:"lcGcacheInspector"` // a Galera node's galera.cache
+	LCMydumper        bool `json:"lcMydumper"`        // mydumper and myloader, from its distro packages
 	// The same offline readers on a standalone Percona Server, MySQL or MariaDB node, installed
 	// once it is running (dbfiletools.go). A cluster's members take them from the frame.
 	InstallInnodump  bool `json:"installInnodump"`
 	InstallBinlogsum bool `json:"installBinlogsum"`
+	InstallMydumper  bool `json:"installMydumper"`
+	// InnoDB sizing and durability in a standalone Percona Server, MySQL or MariaDB node's
+	// my.cnf (mysqltuning.go). A cluster's members take them from the frame.
+	mysqlTuning
 	// Standalone Percona Server node fields (Type=="ps"; ignored by other types).
 	PSMajor      string `json:"psMajor"`      // Percona Server "8.0" | "8.4"
 	PSVersion    string `json:"psVersion"`    // minor; "" → latest
@@ -556,12 +561,15 @@ type designFrame struct {
 	// Offline readers on every data member of a MySQL-family cluster, installed once the member
 	// is running (dbfiletools.go). gcache-inspector is offered on the Galera kinds only (PXC,
 	// MariaDB Galera), the ones with a galera.cache to read.
-	InstallInnodump        bool   `json:"installInnodump"`
-	InstallBinlogsum       bool   `json:"installBinlogsum"`
-	InstallGcacheInspector bool   `json:"installGcacheInspector"`
-	GenerateCert           bool   `json:"generateCert"` // per-node certs signed by the Intranet CA
-	CertTTLValue           int    `json:"certTtlValue"`
-	CertTTLUnit            string `json:"certTtlUnit"`
+	InstallInnodump        bool `json:"installInnodump"`
+	InstallBinlogsum       bool `json:"installBinlogsum"`
+	InstallGcacheInspector bool `json:"installGcacheInspector"`
+	InstallMydumper        bool `json:"installMydumper"` // on every data member, any MySQL kind
+	GenerateCert           bool `json:"generateCert"`    // per-node certs signed by the Intranet CA
+	// InnoDB sizing and durability written into every member's my.cnf (mysqltuning.go).
+	mysqlTuning
+	CertTTLValue int    `json:"certTtlValue"`
+	CertTTLUnit  string `json:"certTtlUnit"`
 	// OrchestratorNodeID is a Percona Orchestrator node that discovers/monitors this
 	// cluster's topology (optional; "" → not monitored). Shared by the async/semi-sync
 	// replication frames ("mysql", "mariadbrepl", "mysqlcerepl" — see
@@ -657,6 +665,13 @@ type designFrame struct {
 	// PGMajor/PGVersion above). Each member runs PostgreSQL + repmgr (streaming
 	// replication + repmgrd failover); backups go to Barman cloud (→ SeaweedFS S3).
 	UseBarman bool `json:"useBarman"` // configure Barman cloud → SeaweedFS S3 (uses SeaweedFSNodeID)
+	// PostgreSQL Streaming Replication frame config (Type=="pgstream"; reuses OS/OSVersion/Arch,
+	// PGMajor/PGVersion, PGHostAuth, PGQuerySource, PGVector, PGBenchScale, PMMNodeID, UseProxy,
+	// GenerateCert/CertTTL above). Percona PostgreSQL, one primary and pg_basebackup standbys,
+	// no failover manager. See pgstream.go.
+	PGSyncStandbys int    `json:"pgSyncStandbys"` // standbys that must confirm a commit (ANY N); 0 = asynchronous
+	PGSyncCommit   string `json:"pgSyncCommit"`   // synchronous_commit when synchronous: "" (on), remote_write, remote_apply
+	PGNoSlots      bool   `json:"pgNoSlots"`      // stream without replication slots (wal_keep_size only)
 	// Spock PostgreSQL cluster frame config (Type=="spock"; reuses OS/OSVersion/Arch,
 	// PGMajor/PGVersion, PMMNodeID, UseProxy, GenerateCert/CertTTL above). Every member
 	// is a PGDG PostgreSQL with the pgEdge Spock extension compiled from source, wired
@@ -941,7 +956,7 @@ func backendFrameForProxySQL(doc designDoc, startID string) (designFrame, string
 func haproxyClusterFrames(doc designDoc, startID string) []designFrame {
 	cluster := map[string]designFrame{}
 	for _, f := range doc.Frames {
-		if f.Type == "patroni" || f.Type == "repmgr" || f.Type == "spock" || f.Type == "pxc" || f.Type == "mysql" {
+		if f.Type == "patroni" || f.Type == "repmgr" || f.Type == "pgstream" || f.Type == "spock" || f.Type == "pxc" || f.Type == "mysql" {
 			cluster[f.ID] = f
 		}
 	}
@@ -1261,6 +1276,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 		out = append(out, issue{Level: "warning", Message: "Stack has no nodes to deploy"})
 	}
 	out = append(out, catalogVersionIssues(doc)...)
+	out = append(out, mysqlTuningIssues(doc)...)
 	intranet := 0
 	watchtower := 0
 	keycloak := 0
@@ -1539,7 +1555,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			// MySQL replication frame (mutually exclusive; each uses a different
 			// config).
 			if hf := haproxyClusterFrames(doc, n.ID); len(hf) == 0 {
-				out = append(out, issue{Level: "error", Message: "HAProxy node " + n.Label + " must be linked to a Patroni, repmgr, Spock, PXC, or MySQL replication cluster — draw an association line from one to it"})
+				out = append(out, issue{Level: "error", Message: "HAProxy node " + n.Label + " must be linked to a Patroni, repmgr, streaming replication, Spock, PXC, or MySQL replication cluster — draw an association line from one to it"})
 			} else if len(hf) > 1 {
 				out = append(out, issue{Level: "error", Message: "HAProxy node " + n.Label + " can front only one cluster — remove the extra association (Patroni, repmgr, Spock, PXC, and MySQL replication are mutually exclusive)"})
 			}
@@ -2231,6 +2247,29 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 		}
 	}
 
+	// --- PostgreSQL Streaming Replication frames (Type=="pgstream") ---
+	// One primary, 1–8 standbys, no failover manager. See pgstream.go.
+	pgStreamNames := map[string]int{}
+	for _, f := range doc.Frames {
+		if f.Type != "pgstream" {
+			continue
+		}
+		pgStreamNames[strings.TrimSpace(f.Label)]++
+		out = append(out, pgStreamFrameIssues(f, doc, exportReq)...)
+		img := pxcImage(f.OS, f.OSVersion, f.Arch)
+		if !seenImg[img] {
+			seenImg[img] = true
+			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
+				out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+			}
+		}
+	}
+	for name, c := range pgStreamNames {
+		if c > 1 && name != "" {
+			out = append(out, issue{Level: "error", Message: "Duplicate streaming replication cluster name: " + name})
+		}
+	}
+
 	// --- Spock PostgreSQL cluster frames (Type=="spock") ---
 	// Multi-master active-active via pgEdge Spock logical replication; every member is
 	// writable (no quorum/failover), so 2–7 nodes with no odd-count requirement.
@@ -2567,6 +2606,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			memberType = "patroni"
 		case "repmgr":
 			memberType = "repmgr"
+		case "pgstream":
+			memberType = "pgstream"
 		case "spock":
 			memberType = "spock"
 		case "valkeycluster":
@@ -2612,6 +2653,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionPatroniFrame(st, f, doc)
 		case "repmgr":
 			a.provisionRepmgrFrame(st, f, doc)
+		case "pgstream":
+			a.provisionPGStreamFrame(st, f, doc)
 		case "spock":
 			a.provisionSpockFrame(st, f, doc)
 		case "valkeycluster":
@@ -3381,6 +3424,13 @@ func (a *App) refreshPublishedPorts(ctx context.Context, st Stack, nid string, d
 		save(cfg)
 	case "repmgr":
 		var cfg repmgrConfig
+		json.Unmarshal(dep.Config, &cfg)
+		if p, ok := readPort("5432/tcp"); ok {
+			cfg.ExportPort = p
+		}
+		save(cfg)
+	case "pgstream":
+		var cfg pgStreamConfig
 		json.Unmarshal(dep.Config, &cfg)
 		if p, ok := readPort("5432/tcp"); ok {
 			cfg.ExportPort = p

@@ -267,7 +267,7 @@ func (a *App) handleSambaTargets(w http.ResponseWriter, r *http.Request) {
 	for _, n := range doc.Nodes {
 		fqdn := fqdnOf(hosts[n.ID], domain)
 		switch n.Type {
-		case "pg", "patroni", "repmgr", "spock":
+		case "pg", "patroni", "repmgr", "pgstream", "spock":
 			pg = append(pg, fqdn)
 		case "psmdb", "psmrs", "psm":
 			mongo = append(mongo, fqdn)

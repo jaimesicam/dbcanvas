@@ -19,7 +19,7 @@ func TestDBFileToolsFor(t *testing.T) {
 	doc := designDoc{
 		Nodes: []designNode{
 			{ID: "ps1", Type: "ps", OS: "ubuntu", InstallInnodump: true, InstallBinlogsum: true},
-			{ID: "ma1", Type: "mariadb", InstallBinlogsum: true},
+			{ID: "ma1", Type: "mariadb", InstallBinlogsum: true, InstallMydumper: true},
 			{ID: "x1", Type: "pxc", FrameID: "fx", Role: "regular"},
 			{ID: "x2", Type: "pxc", FrameID: "fx", Role: "arbitrator"},
 			{ID: "r1", Type: "mysql", FrameID: "fr", Role: "primary"},
@@ -29,16 +29,16 @@ func TestDBFileToolsFor(t *testing.T) {
 		Frames: []designFrame{
 			{ID: "fx", Type: "pxc", OS: "oraclelinux", UseProxy: true, InstallInnodump: true, InstallGcacheInspector: true},
 			// gcache-inspector on a frame with no galera.cache is ignored.
-			{ID: "fr", Type: "mysql", InstallBinlogsum: true, InstallGcacheInspector: true},
+			{ID: "fr", Type: "mysql", InstallBinlogsum: true, InstallGcacheInspector: true, InstallMydumper: true},
 			{ID: "fg", Type: "mariadbgalera", InstallInnodump: true, InstallBinlogsum: true, InstallGcacheInspector: true},
 		},
 	}
 	want := map[string]string{
 		"ps1": "innodump,binlogsum",
-		"ma1": "binlogsum",
+		"ma1": "binlogsum,mydumper",
 		"x1":  "innodump,gcache-inspector",
 		"x2":  "", // garbd holds no data
-		"r1":  "binlogsum",
+		"r1":  "binlogsum,mydumper",
 		"g1":  "innodump,binlogsum,gcache-inspector",
 		"pg1": "", // not a MySQL-family server
 	}

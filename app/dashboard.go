@@ -18,7 +18,7 @@ import (
 // node types (intranet, pmm, proxysql, …) return "".
 func dbEngineOf(t string) string {
 	switch t {
-	case "pg", "patroni", "repmgr", "spock":
+	case "pg", "patroni", "repmgr", "pgstream", "spock":
 		return "postgres"
 	case "pxc", "ps", "mysql", "innodb",
 		"mariadb", "mariadbrepl", "mariadbgalera",
