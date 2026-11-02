@@ -37,6 +37,33 @@ type releaseNote struct {
 // expanded, and the tests assume the ordering.
 var whatsNewNotes = []releaseNote{
 	{
+		Version: "0.0.25",
+		Date:    "2026-11-02",
+		Title:   "PostgreSQL Replication: streaming replication with no failover manager",
+		Body:    "A new PostgreSQL cluster in the Library: Percona PostgreSQL with PostgreSQL's own streaming replication and nothing on top. Member 1 is the primary; the others are hot standbys made with pg_basebackup, each with its own replication slot (optional). Commits can wait for N standbys (ANY N, at on, remote_write or remote_apply), and pgBackRest backs it up to SeaweedFS. Nothing promotes a standby by itself: a switchover from the right-click menu stops the primary cleanly, waits until the candidate has replayed past its shutdown checkpoint, promotes it and re-points the others (rewinding the old primary with pg_rewind if it cannot follow). Members join a running cluster and rebuild from the primary; HAProxy, PgBouncer and every PostgreSQL tool and simulator work with it. Compose kind pg-stream, with syncStandbys=N.",
+		Doc:     "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.25",
+		Date:    "2026-11-02",
+		Title:   "mydumper among the MySQL tools",
+		Body:    "The Linux Client and every Percona Server, PXC, MySQL and MariaDB server or cluster member can install mydumper and myloader, for parallel logical backup and restore, beside innodump, binlogsum and gcache-inspector. It comes from the project's latest release, as the package built for the node's OS release and architecture, checked against the SHA-256 digest GitHub publishes for it.",
+		Doc:     "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.25",
+		Date:    "2026-11-02",
+		Title:   "InnoDB and binary log settings at deploy",
+		Body:    "Every Percona Server, PXC, MySQL and MariaDB server or cluster can set innodb_buffer_pool_size, the redo log size, sync_binlog and innodb_flush_log_at_trx_commit, written into its my.cnf at deploy (on a cluster, every member's). The redo log size goes in under the name the server knows: innodb_redo_log_capacity from MySQL 8.0.30, innodb_log_file_size before that and on MariaDB. A value the server would not start with is refused, and a buffer pool as large as the node's memory limit is warned about.",
+		Doc:     "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.25",
+		Date:    "2026-11-02",
+		Title:   "The Library says what each entry is for",
+		Body:    "Every entry in the Infrastructure Library and the canvas add menu carries a short line under its name — SeaweedFS is an S3 store for backups, Ceph is block volumes for Kubernetes, Patroni is automatic failover with etcd — and the Library's search matches it. Database entries are named product first, then topology: PostgreSQL Replication, Percona Server Replication, Percona Server InnoDB / GR, PXC and PMM 3; the desktop node is now VNC. Saved designs, templates and scripts are unaffected.",
+	},
+	{
 		Version: "0.0.24",
 		Date:    "2026-10-31",
 		Title:   "A new look: Glass, now the default",

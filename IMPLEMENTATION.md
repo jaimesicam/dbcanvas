@@ -28848,3 +28848,17 @@ widens to a note's length.
   and each phrase kept on one line. The three entries were rendered in headless Chrome at the
   library's width: the role takes two lines, breaking between phrases. No "Ubuntu VNC" is left outside release notes and earlier
   entries, and no "an VNC".
+
+## 501. Release 0.0.25 — `VERSION`, `app/whatsnew.go`, `README.md`
+
+Four release notes, in the README's What's new and in the in-app dialog (`whatsNewNotes`; the
+README check keeps the titles in step), dated 2026-11-02:
+- PostgreSQL Replication: streaming replication with no failover manager (§496, 497)
+- mydumper among the MySQL tools (§494)
+- InnoDB and binary log settings at deploy (§495)
+- The Library says what each entry is for, and the product-first names (§498–500)
+
+0.0.24's first note is folded; only the newest release opens one.
+
+**Verification performed.** `go test .` (the whatsnew tests: order, completeness, linked docs exist,
+README match).
