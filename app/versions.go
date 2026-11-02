@@ -48,6 +48,15 @@ var k3sCatalogFallback = PMMCatalog{
 	Latest:     "v1.33.13-k3s1",
 }
 
+// kubernetesCatalogFallback is used when versions.yaml has no kubernetes section (`make versions`
+// was never run, or the file predates the Kubeadm frame). The release is the stable one when the
+// frame was written; pkgs.k8s.io keeps every patch release of a minor, so it stays installable.
+var kubernetesCatalogFallback = PMMCatalog{
+	Repository: "pkgs.k8s.io/core:/stable",
+	Latest:     "v1.37.2",
+	Versions:   []string{"v1.37.2"},
+}
+
 // versionsFilePath returns the first existing candidate path for versions.yaml.
 // VERSIONS_FILE overrides; otherwise the in-container mount path is tried first,
 // then repo-relative locations for local `go run` development.
@@ -89,6 +98,17 @@ func loadPMMCatalog() PMMCatalog { return loadTagCatalog("pmm:", pmmCatalogFallb
 // loadK3SCatalog reads the `k3s:` section — the Kubernetes versions a K3D cluster frame can run.
 // k3d creates its nodes from rancher/k3s:<tag>, so the tag *is* the Kubernetes version.
 func loadK3SCatalog() PMMCatalog { return loadTagCatalog("k3s:", k3sCatalogFallback) }
+
+// loadKubernetesCatalog reads the `kubernetes:` section — the Kubernetes releases a Kubeadm frame
+// can install, as vX.Y.Z, newest first. They come from pkgs.k8s.io, one apt repository per minor,
+// so the minor picks the repository and the patch the package (see kubeadm.go).
+func loadKubernetesCatalog() PMMCatalog {
+	cat := loadTagCatalog("kubernetes:", kubernetesCatalogFallback)
+	if len(cat.Versions) == 0 {
+		cat.Versions = kubernetesCatalogFallback.Versions
+	}
+	return cat
+}
 
 // loadTagCatalog parses one of versions.yaml's two-level tag sections (`pmm:`, `k3s:`): a
 // repository, a latest, and a list of versions. It never fails — a missing or unreadable file
@@ -393,6 +413,14 @@ func (a *App) handleK3SCatalog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, loadK3SCatalog())
+}
+
+func (a *App) handleKubernetesCatalog(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.currentUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	writeJSON(w, http.StatusOK, loadKubernetesCatalog())
 }
 
 // PXCImage is one built image's installable Percona XtraDB Cluster versions,

@@ -280,7 +280,7 @@ func (a *App) k3dDebugInstall(ctx context.Context, st Stack, deployment string, 
 // something to hold in memory, and it has to be replayed once per node.
 //
 // The builder runs on the *daemon's own* architecture and cross-compiles to the cluster's
-// (GOARCH from k3dPlatform), rather than running an emulated builder: a K3D frame targets
+// (GOARCH from k8sPlatform), rather than running an emulated builder: a K3D frame targets
 // linux/amd64 by default even on an arm64 host, and a Go cross-compile is free while qemu is not.
 // dlv is static, and so is every operator but PostgreSQL's — see k3dDebugBuildScript. Nothing is
 // copied into the pod besides the two binaries; the image they run in is the operator's own.
@@ -482,10 +482,10 @@ func k3dDebugLeaderElectFlag(tarball []byte, srcDir, pkg string) bool {
 	}
 }
 
-// k3dDebugGOARCH is the cluster's architecture, as Go spells it. k3dPlatform is "linux/amd64" or
+// k3dDebugGOARCH is the cluster's architecture, as Go spells it. k8sPlatform is "linux/amd64" or
 // "linux/arm64" — the k3s nodes' platform, which is not necessarily the daemon's.
 func k3dDebugGOARCH() string {
-	p := k3dPlatform()
+	p := k8sPlatform()
 	if i := strings.LastIndex(p, "/"); i >= 0 {
 		return p[i+1:]
 	}

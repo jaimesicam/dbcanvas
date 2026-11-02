@@ -687,6 +687,7 @@ script that builds a design should read them rather than guess a version.
 | ProxySQL · Orchestrator | `GET /api/catalog/proxysql` · `/api/catalog/orchestrator` |
 | PMM 3 · PMM 2 | `GET /api/catalog/pmm` · `/api/catalog/pmm2` |
 | k3s · Kubernetes operators | `GET /api/catalog/k3s` · `/api/catalog/operators` |
+| Kubernetes releases (Kubeadm frame) | `GET /api/catalog/kubernetes` |
 | What a Repository node can mirror | `GET /api/catalog/repository` |
 | The OS base images built on this host | `GET /api/catalog/images` |
 

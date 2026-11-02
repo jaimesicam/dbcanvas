@@ -465,6 +465,18 @@ export const HELP = {
     'Directory.',
   nodeType:
     'What this node is. Fixed when the node was added to the canvas — delete it and add the right kind to change it.',
+  kubeadmVersion:
+    'The Kubernetes release kubeadm, kubelet and kubectl are installed at, from pkgs.k8s.io. Pick one a minor ' +
+    'behind the newest to have an upgrade to do: once deployed, the release changes only the way it does on any ' +
+    'cluster — kubeadm upgrade on the control plane, then each node in turn.',
+  kubeadmStage:
+    'How far the deploy takes the cluster. Ready: kubeadm init, every worker joined, the pod network installed. ' +
+    'Initialized: init and the joins but no pod network, so the nodes are NotReady and CoreDNS is Pending. ' +
+    'Prepared: every package, containerd and /root/kubeadm-config.yaml on the control plane, and nothing run — ' +
+    'kubeadm init and the joins are yours.',
+  kubeadmCni:
+    'The pod network a ready cluster gets. Calico enforces NetworkPolicy; Flannel carries the traffic but ' +
+    'ignores NetworkPolicy, so a policy you apply under Flannel is accepted and does nothing.',
   k3sVersion:
     'The k3s build the Kubernetes nodes run. Pin it when an operator you are testing only supports certain ' +
     'Kubernetes versions; otherwise take the default.',

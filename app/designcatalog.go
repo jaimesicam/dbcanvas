@@ -166,7 +166,7 @@ func catalogRelationByName(name string) (catalogRelation, bool) {
 // catalogFamilies are the per-family tables, in the order the catalogue lists them.
 func catalogFamilies() [][]catalogEntry {
 	return [][]catalogEntry{
-		catalogInfra, catalogMySQLFamily, catalogPostgresFamily, catalogMongoFamily, catalogK3D, catalogApps,
+		catalogInfra, catalogMySQLFamily, catalogPostgresFamily, catalogMongoFamily, catalogK3D, catalogKubeadm, catalogApps,
 	}
 }
 

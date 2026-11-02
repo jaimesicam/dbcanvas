@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -213,14 +214,35 @@ const platformAMD64 = "linux/amd64"
 // to be. See images/platform.sh.
 func pullPlatform() string { return envOr("DOCKER_PLATFORM", platformAMD64) }
 
-// k3dPlatform is the platform K3D/k3s node containers target. Deliberately
-// independent of pullPlatform/DOCKER_PLATFORM: forcing k3s nodes onto a
-// non-native platform runs their *own* inner containerd/runc under emulation,
-// which can fail pod-sandbox creation entirely (e.g. "seccomp is not
-// supported" under qemu/binfmt) — a K3D frame should be able to run
-// Kubernetes on the host's native architecture regardless of what platform
-// the rest of the installation targets.
-func k3dPlatform() string { return envOr("K3D_PLATFORM", platformAMD64) }
+// k8sPlatform is the platform every Kubernetes node targets: the k3s nodes of a K3D frame,
+// the nodes of a Kubeadm frame, and the Ceph node that serves them. Deliberately independent
+// of pullPlatform/DOCKER_PLATFORM: a Kubernetes node runs its *own* containerd/runc, and
+// under emulation that inner runtime cannot create a pod sandbox at all — containerd reports
+// "seccomp is not supported", because the translator refuses the seccomp prctl, and every
+// static pod and every pod that asks for RuntimeDefault fails. A Kubernetes node has to run
+// on the host's native architecture regardless of what platform the rest of the
+// installation targets.
+//
+// K8S_PLATFORM sets it. K3D_PLATFORM is its earlier name, from when K3D was the only
+// Kubernetes frame, and is still read when K8S_PLATFORM is unset: an installation whose .env
+// says K3D_PLATFORM=linux/arm64 keeps native nodes instead of silently going back to amd64.
+// Must match resolve_k8s_platform in images/platform.sh, which builds the kubeadm node image.
+func k8sPlatform() string {
+	for _, k := range []string{"K8S_PLATFORM", "K3D_PLATFORM"} {
+		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+			return v
+		}
+	}
+	return platformAMD64
+}
+
+// k8sArch is k8sPlatform's architecture — "amd64" or "arm64" — as image tags spell it.
+func k8sArch() string {
+	if k8sPlatform() == "linux/arm64" {
+		return "arm64"
+	}
+	return "amd64"
+}
 
 // ImagePull pulls an image reference (repo:tag) from its registry, blocking
 // until the pull stream completes. The streamed JSON progress is drained and
@@ -454,19 +476,30 @@ func (d *Docker) ImageRemove(ctx context.Context, ref string) {
 
 // ContainerSpec describes a container to create.
 type ContainerSpec struct {
-	Name         string
-	Image        string
-	Hostname     string
-	Cmd          []string // override the image command (empty = image default)
-	Env          []string
-	Network      string
-	Aliases      []string
-	Privileged   bool
-	PublishPort  int       // container TCP port to publish to an auto-assigned host port (0 = none)
-	PublishPorts []int     // additional container TCP ports to publish (auto-assigned host ports)
-	PublishMap   []PortMap // explicit container→host TCP publishes (HostPort 0 = auto-assign)
-	DNS          []string  // resolv.conf nameservers (empty = Docker default embedded DNS)
-	DNSSearch    []string  // resolv.conf search domains
+	Name       string
+	Image      string
+	Hostname   string
+	Cmd        []string // override the image command (empty = image default)
+	Env        []string
+	Network    string
+	Aliases    []string
+	Privileged bool
+	// CgroupnsPrivate gives a privileged container its own cgroup namespace instead of the
+	// host's. Every other systemd node shares the host cgroupns with /sys/fs/cgroup bound in,
+	// which is enough for systemd. A Kubernetes node is different: its kubelet creates
+	// kubepods.slice at the root of the cgroup tree it sees, which under the host cgroupns
+	// is the Docker host's own root — the pods then escape the container's CPU and memory
+	// limits, every such node on the daemon shares one kubepods.slice, and the slice
+	// outlives the container. In a private cgroupns the root is the container's own cgroup,
+	// which Docker mounts read-write at /sys/fs/cgroup for a privileged container. The image
+	// must not declare VOLUME /sys/fs/cgroup, or that volume hides the mount (see
+	// images/kubeadm.Dockerfile). Docker-only; the Vagrant engine ignores it.
+	CgroupnsPrivate bool
+	PublishPort     int       // container TCP port to publish to an auto-assigned host port (0 = none)
+	PublishPorts    []int     // additional container TCP ports to publish (auto-assigned host ports)
+	PublishMap      []PortMap // explicit container→host TCP publishes (HostPort 0 = auto-assign)
+	DNS             []string  // resolv.conf nameservers (empty = Docker default embedded DNS)
+	DNSSearch       []string  // resolv.conf search domains
 	// ExtraHosts adds /etc/hosts entries ("name:ip", or "name:host-gateway" for
 	// the Docker host itself). Needed by node types that may be pointed at a
 	// database outside the stack — see provisionStockSim, which sets
@@ -536,8 +569,12 @@ func (d *Docker) ContainerCreate(ctx context.Context, spec ContainerSpec) (strin
 		// Non-systemd images (e.g. PMM, which runs unprivileged as UID 1000)
 		// must NOT get a root-owned /run tmpfs — it blocks their own startup
 		// from creating runtime dirs like /run/postgresql.
-		host["CgroupnsMode"] = "host"
-		host["Binds"] = []string{"/sys/fs/cgroup:/sys/fs/cgroup:rw"}
+		if spec.CgroupnsPrivate {
+			host["CgroupnsMode"] = "private"
+		} else {
+			host["CgroupnsMode"] = "host"
+			host["Binds"] = []string{"/sys/fs/cgroup:/sys/fs/cgroup:rw"}
+		}
 		host["Tmpfs"] = map[string]string{"/run": "", "/run/lock": ""}
 	}
 	body := map[string]any{

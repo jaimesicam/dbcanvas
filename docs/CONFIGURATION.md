@@ -21,7 +21,7 @@ the app, and fixes for common problems.
 | `make logs` | Follow the app's logs. |
 | `make clean` | Stop the app, remove its locally built images and `dist/`. Deployed stacks are untouched. |
 | `make images` | Build what every stack needs: the OS base images (Oracle Linux 8/9/10, Ubuntu 22.04/24.04, Debian 12/13) for the one platform in `DOCKER_PLATFORM`, and the **Intranet** image. Slow — the long part of `make install`. If only the Intranet fails, retry with `make intranet-image` or the **Build** button that Validate offers. |
-| `make extra-images` | Build every optional image: the VNC desktop, the K3D diagnostics collector, the Big Hole FTDC viewer and the demo applications. Fails if any of them fails (unlike `make install`). |
+| `make extra-images` | Build every optional image: the VNC desktop, the K3D diagnostics collector, the Kubeadm node (for `K8S_PLATFORM`), the Big Hole FTDC viewer and the demo applications. Fails if any of them fails (unlike `make install`). |
 | `make versions` | Probe every built image for the versions it can install and write `versions.yaml` — what the version pickers offer. Takes hours. **Run `make restart` afterwards**, or every picker is empty. `ONLY=percona` or `ONLY=upstream` re-probes one group and keeps the other. |
 | `make adopt-images` | After an upgrade, retag images this host already built with the current release instead of rebuilding them. Nothing is rebuilt or removed. |
 | `make rotate-key` | Re-encrypt stored secrets under a new key. See [The encryption key](#the-encryption-key). |
@@ -30,7 +30,7 @@ the app, and fixes for common problems.
 | `make smoke` | Render every page and fail on a render error; also loads the heavy pages in headless Chrome when Chrome is available (`CHROME=<path>` to point at it). |
 
 Rebuild one image: `make intranet-image`, `make vnc-image`, `make k8scollector-image`,
-`make bighole-image`, or one demo application — `make supportsim-image`, `make stocksim-image`,
+`make kubeadm-image`, `make bighole-image`, or one demo application — `make supportsim-image`, `make stocksim-image`,
 `make ledgersim-image`, `make perfsim-image`.
 
 When Validate reports the Intranet, VNC, K3D collector or Big Hole image missing, an
@@ -56,7 +56,7 @@ Restart the app (`make restart`) after editing `.env`.
 | `DOMAIN` | `example.net` | Domain of deployed stacks (Intranet DNS, LDAP base DN, mail, CA). |
 | `DEPLOYMENT_TIMEOUT` | `60` | Minutes a deploy waits for a dependency (cluster, node, shared service) to become ready before failing. Raise it for large stacks. |
 | `DOCKER_PLATFORM` | `linux/amd64` | `linux/amd64` or `linux/arm64`. The platform of the app image and the OS base images; `make images` builds and `make versions` probes only this platform. |
-| `K3D_PLATFORM` | `linux/amd64` | `linux/amd64` or `linux/arm64`. The platform of K3D frames' k3s nodes, independent of `DOCKER_PLATFORM`. Set `linux/arm64` on Apple Silicon — an emulated k3s node can fail to create pods (e.g. "seccomp is not supported"). |
+| `K8S_PLATFORM` | `linux/amd64` | `linux/amd64` or `linux/arm64`. The platform of every Kubernetes node — a K3D frame's k3s nodes and a Kubeadm frame's nodes (`make kubeadm-image` builds for it) — independent of `DOCKER_PLATFORM`. Set it to the Docker host's own architecture, `linux/arm64` on Apple Silicon: under emulation a node cannot create pods ("seccomp is not supported"), and validation refuses a Kubeadm frame that would run emulated. `K3D_PLATFORM`, its earlier name, is still read when `K8S_PLATFORM` is unset. |
 | `GDB_MOUNT_ROOT` | `/srv/coredumps` | The only host directory a Linux Client set up for the [Core Dump Analyzer](CORE_DUMP_ANALYZER.md) may bind-mount from. Mounts are read-only; a path outside it fails validation. |
 | `EXPERIMENTAL` | `off` | `on` also offers unfinished features, which are not documented. |
 | `EOL` | `off` | `on` also offers end-of-life releases: **CentOS 7** as a Linux Client release (repositories pointed at vault.centos.org, no systemd) and a **PMM 2** monitoring node (PMM 2.25.0–2.44.1, not connected to other nodes). |

@@ -192,3 +192,25 @@ var catalogK3D = []catalogEntry{
 		},
 	},
 }
+
+// catalogKubeadm is the Kubeadm Cluster frame (kubeadm.go): Kubernetes built with kubeadm on
+// Ubuntu 24.04 nodes DBCanvas creates. Listed with the K3D frame, the other Kubernetes family.
+var catalogKubeadm = []catalogEntry{
+	{Type: "kubeadm", Label: "Kubeadm node", Summary: "One Ubuntu 24.04 node of a Kubeadm cluster frame, with systemd, containerd, and kubeadm, kubelet and kubectl at the frame's release. The first member by label is the control plane, where kubectl, etcdctl and SSH to every worker are set up; the rest are workers.",
+		Placement: "member", FrameTypes: []string{"kubeadm"},
+		Options: append([]catalogOption(nil), infraVMSize...),
+	},
+	{Type: "kubeadm", Label: "Kubeadm Cluster", Summary: "A Kubernetes cluster built with kubeadm: a control plane and up to three workers, taken as far as the stage says — every node Ready with a pod network, initialized without one, or only prepared so init and the joins are done by hand.",
+		Placement: "frame", MemberType: "kubeadm", DefaultMembers: 2, MinMembers: 1, MaxMembers: 4,
+		Requires: []string{
+			"an Intranet node (the nodes and their pods resolve through it)",
+			"the Kubeadm node image (make kubeadm-image), built for K8S_PLATFORM — which has to be the Docker host's own architecture",
+			"2 CPUs on the control plane when CPUs are limited; 2 GB of memory per node is kubeadm's minimum",
+		},
+		Options: []catalogOption{
+			{Field: "kubeadmVersion", Desc: "Kubernetes release vX.Y.Z from GET /api/catalog/kubernetes; \"\" is the catalog's newest. Pick one a minor behind it to have an upgrade to do."},
+			{Field: "kubeadmStage", Values: []string{"", "initialized", "prepared"}, Desc: "How far the deploy goes: \"\" (ready) runs kubeadm init, joins every worker and installs the pod network; \"initialized\" stops before the pod network, so the nodes are NotReady; \"prepared\" installs everything and runs nothing — kubeadm init --config /root/kubeadm-config.yaml on the control plane, then the joins, are yours."},
+			{Field: "kubeadmCni", Values: []string{"", "flannel"}, Desc: "The pod network a ready cluster gets: \"\" is Calico (enforces NetworkPolicy), \"flannel\" is Flannel (does not).", When: "kubeadmStage is \"\" (ready)"},
+		},
+	},
+}

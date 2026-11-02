@@ -878,7 +878,7 @@ export default function K8sStates() {
             <optgroup label="Live clusters">
               {targets.map((t) => (
                 <option key={targetKey(t)} value={sourceId(SOURCE_LIVE, targetKey(t))}>
-                  {`${t.stackName} · ${t.label}${t.operator ? ` (${t.operator})` : ''}`}
+                  {`${t.stackName} · ${t.label}${t.operator ? ` (${t.operator})` : t.kind === 'kubeadm' ? ' (kubeadm)' : ''}`}
                 </option>
               ))}
             </optgroup>

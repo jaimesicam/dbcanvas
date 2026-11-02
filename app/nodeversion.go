@@ -65,6 +65,8 @@ var nodeVersionScripts = map[string]string{
 	"ceph":          "ceph --version 2>/dev/null | head -1",
 	// A k3s node: "k3s version v1.31.5+k3s1 (…)".
 	"k3d": "k3s --version 2>/dev/null | head -1",
+	// A Kubeadm node: "Kubernetes v1.37.2" — the kubelet, which an upgrade changes per node.
+	"kubeadm": "kubelet --version 2>/dev/null | head -1",
 }
 
 // versionProbeCooldown is how long a fruitless probe waits before it is retried (an engine that

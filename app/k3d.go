@@ -1022,22 +1022,22 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 		// PullOptions, then ContainerCreate with a nil platform) never sends one either — see
 		// https://github.com/k3d-io/k3d/discussions/1031. Left alone, the daemon resolves
 		// rancher/k3s's multi-arch manifest against its OWN host architecture, which silently
-		// ignores K3D_PLATFORM (e.g. an arm64 daemon creates arm64 k3s nodes even though this
+		// ignores K8S_PLATFORM (e.g. an arm64 daemon creates arm64 k3s nodes even though this
 		// K3D frame targets linux/amd64).
 		//
-		// Pre-pulling the exact repo:tag for k3dPlatform() is not enough on its own: under the
+		// Pre-pulling the exact repo:tag for k8sPlatform() is not enough on its own: under the
 		// containerd image store, a tag can hold multiple platform variants at once, and k3d's
 		// platform-blind ContainerCreate then resolves to the HOST's architecture regardless of
 		// which variant we just pulled (verified live — see ImageRemove's doc comment in docker.go).
-		// Removing the reference first guarantees only k3dPlatform()'s variant is cached, so k3d's
+		// Removing the reference first guarantees only k8sPlatform()'s variant is cached, so k3d's
 		// create has nothing left to be ambiguous about.
 		pr.phase("Pulling the k3s image", 10)
 		a.engCtx(ctx).ImageRemove(ctx, k3sImage)
-		if err := a.engCtx(ctx).EnsureImage(ctx, k3sCat.Repository, k3sTag, k3dPlatform()); err != nil {
+		if err := a.engCtx(ctx).EnsureImage(ctx, k3sCat.Repository, k3sTag, k8sPlatform()); err != nil {
 			failAll("pull k3s image %s: %v", k3sImage, err)
 			return
 		}
-		pr.logln("k3s image " + k3sImage + " ready for " + k3dPlatform())
+		pr.logln("k3s image " + k3sImage + " ready for " + k8sPlatform())
 
 		// ---- a Repository node: containerd pulls through its registry ----
 		// k3s reads registries.yaml only when it starts, so it is handed to k3d at create time;
@@ -1469,10 +1469,17 @@ func k3dNodeImage(ctx context.Context, a *App, containerID string) string {
 
 // ---------------------------------------------------------------- kubectl
 
-// kubectl runs kubectl inside a k3s node (the k3s image ships it) against the cluster's own admin
-// kubeconfig. Nothing outside the cluster needs a Kubernetes client.
+// k8sKubeconfig is the KUBECONFIG kubectl runs with on a cluster's server node: k3s's admin
+// kubeconfig on a K3D server, kubeadm's on a Kubeadm control plane. kubectl skips a file in the list
+// that does not exist, so one value serves both, and on a k3s node it reads exactly what
+// k3dKubeconfig alone did.
+const k8sKubeconfig = k3dKubeconfig + ":" + kubeadmAdminConf
+
+// kubectl runs kubectl inside a cluster's server node — a k3s server (the k3s image ships it) or a
+// Kubeadm control plane — against the cluster's own admin kubeconfig. Nothing outside the cluster
+// needs a Kubernetes client.
 func (a *App) kubectl(ctx context.Context, serverID string, args ...string) (string, error) {
-	res, err := a.engCtx(ctx).Exec(ctx, serverID, append([]string{"kubectl"}, args...), []string{"KUBECONFIG=" + k3dKubeconfig})
+	res, err := a.engCtx(ctx).Exec(ctx, serverID, append([]string{"kubectl"}, args...), []string{"KUBECONFIG=" + k8sKubeconfig})
 	if err != nil {
 		return "", err
 	}

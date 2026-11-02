@@ -659,6 +659,28 @@ crunchy_pg_discover() {
 K3S_REPO="rancher/k3s"
 k3s_discover() { hub_tags "$K3S_REPO" '^v[0-9]+\.[0-9]+\.[0-9]+-k3s[0-9]+$'; }
 
+# ---- Kubernetes (the releases a Kubeadm cluster frame installs) ----
+# A Kubeadm frame installs kubeadm, kubelet and kubectl from pkgs.k8s.io, which has one apt
+# repository per minor (core:/stable:/vX.Y). The newest minor is dl.k8s.io's stable.txt; the
+# catalog keeps it and the three before it, every patch release of each, as vX.Y.Z — enough to
+# deploy a minor behind the newest and upgrade it. The package revision (the -1.1 in
+# 1.37.2-1.1) is not recorded: it differs between releases and is resolved at deploy.
+KUBERNETES_REPO="pkgs.k8s.io/core:/stable"
+KUBERNETES_MINORS=4
+kubernetes_discover() {
+  local stable major minor m i
+  stable="$(curl -fsSL --max-time 30 https://dl.k8s.io/release/stable.txt 2>/dev/null)" || return 0
+  major="$(printf '%s' "$stable" | sed -nE 's/^v([0-9]+)\.([0-9]+)\..*/\1/p')"
+  minor="$(printf '%s' "$stable" | sed -nE 's/^v([0-9]+)\.([0-9]+)\..*/\2/p')"
+  [ -n "$major" ] && [ -n "$minor" ] || return 0
+  for ((i = 0; i < KUBERNETES_MINORS && minor - i >= 0; i++)); do
+    m="v${major}.$((minor - i))"
+    curl -fsSL --max-time 60 "https://${KUBERNETES_REPO}:/${m}/deb/Packages" 2>/dev/null \
+      | awk '/^Package: /{k = ($2 == "kubeadm")} k && /^Version: /{print $2}' \
+      | sed -E 's/-[^-]+$//' | sort -u -V -r | sed 's/^/v/'
+  done
+}
+
 # ---- write the YAML, enriching each entry with its Percona Server versions ----
 TMP="$(mktemp)"
 trap 'rm -f "$TMP"' EXIT
@@ -1054,12 +1076,32 @@ echo "    k3s: ${k3s_n} version(s)${k3s_latest:+, latest ${k3s_latest}}" >&2
   fi
 } >>"$TMP"
 
+# ---- Kubernetes releases (what a Kubeadm cluster frame installs) ----
+echo "==> discovering Kubernetes releases from ${KUBERNETES_REPO}" >&2
+kubernetes_versions="$(kubernetes_discover)"
+kubernetes_n=$(printf '%s' "$kubernetes_versions" | grep -c . || true)
+kubernetes_latest="$(printf '%s\n' "$kubernetes_versions" | head -1)"
+echo "    kubernetes: ${kubernetes_n} release(s)${kubernetes_latest:+, latest ${kubernetes_latest}}" >&2
+{
+  echo "# Kubernetes releases a Kubeadm cluster frame installs from pkgs.k8s.io (newest minor and"
+  echo "# the three before it). \"latest\" means the first entry. Re-run: make versions"
+  echo "kubernetes:"
+  echo "  repository: ${KUBERNETES_REPO}"
+  echo "  latest: \"${kubernetes_latest}\""
+  if [ -n "$kubernetes_versions" ]; then
+    echo "  versions:"
+    while IFS= read -r v; do [ -n "$v" ] && echo "    - \"${v}\""; done <<<"$kubernetes_versions"
+  else
+    echo "  versions: []"
+  fi
+} >>"$TMP"
+
 mv "$TMP" "$OUT"
 trap - EXIT
 
 echo "" >&2
 echo "==================================================================" >&2
-echo "Probed ${count} ${PLATFORM} image(s) + ${pmm_n} PMM3 version(s) + ${op_total} operator version(s) + ${chart_total} chart version(s) + ${cnpg_pg_n} PostgreSQL major(s) + ${k3s_n} k3s version(s) → ${OUT}" >&2
+echo "Probed ${count} ${PLATFORM} image(s) + ${pmm_n} PMM3 version(s) + ${op_total} operator version(s) + ${chart_total} chart version(s) + ${cnpg_pg_n} PostgreSQL major(s) + ${k3s_n} k3s version(s) + ${kubernetes_n} Kubernetes release(s) → ${OUT}" >&2
 if [ "$skipped" -gt 0 ]; then
   echo "Skipped ${skipped} image(s) not on ${PLATFORM}" >&2
 fi

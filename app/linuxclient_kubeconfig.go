@@ -31,7 +31,10 @@ import (
 // overwritten, since it is somebody's.
 //
 // The `server:` of every entry is the cluster's serverlb on the stack network (k3dFetchKubeconfig),
-// which the client reaches by container name through the Intranet's resolver.
+// which the client reaches by container name through the Intranet's resolver. A Kubeadm cluster's is
+// its controlPlaneEndpoint, the control plane's FQDN, which kubeadm already wrote into admin.conf.
+// kubeadm names its entries kubernetes / kubernetes-admin whatever the cluster, so two Kubeadm
+// clusters would collide on every name exactly as two k3s ones do; the renaming covers both.
 
 const lcKubeDir = "/root/.kube"
 const lcKubeConfig = lcKubeDir + "/config"
@@ -168,10 +171,10 @@ func mergeKubeconfigs(existing kubeconfig, ours []kubeconfig, want string) kubec
 	return out
 }
 
-// lcKubeContextName is the name a K3D frame's entries get: its label, as a kube-safe name.
+// lcKubeContextName is the name a Kubernetes frame's entries get: its label, as a kube-safe name.
 func lcKubeContextName(f designFrame) string { return sanitizeName(f.Label) }
 
-// lcKubeCluster is one K3D frame as the client's panel sees it.
+// lcKubeCluster is one Kubernetes frame (K3D or Kubeadm) as the client's panel sees it.
 type lcKubeCluster struct {
 	FrameID string `json:"frameId"`
 	Context string `json:"context"`
@@ -183,7 +186,7 @@ type lcKubeCluster struct {
 type lcKubeContext struct {
 	Name    string `json:"name"`
 	Server  string `json:"server,omitempty"`
-	Managed bool   `json:"managed"` // named after a K3D frame in this stack
+	Managed bool   `json:"managed"` // named after a Kubernetes frame in this stack
 }
 
 // lcKubeState is what the panel shows: the clusters the stack has, and the kubeconfig on the node.
@@ -195,16 +198,17 @@ type lcKubeState struct {
 	Note     string          `json:"note,omitempty"`
 }
 
-// lcKubeFrames lists the stack's K3D frames, each with its running server's deployment if any.
+// lcKubeFrames lists the stack's Kubernetes frames — K3D and Kubeadm — each with its running
+// server's (or control plane's) deployment if any.
 func (a *App) lcKubeFrames(st Stack, doc designDoc) ([]designFrame, map[string]Deployment) {
 	var frames []designFrame
 	servers := map[string]Deployment{}
 	for _, f := range doc.Frames {
-		if f.Type != "k3d" {
+		if f.Type != "k3d" && f.Type != "kubeadm" {
 			continue
 		}
 		frames = append(frames, f)
-		if _, dep, err := a.k3dFrameAndServer(st, doc, f.ID); err == nil {
+		if _, dep, err := a.k8sFrameAndServer(st, doc, f.ID); err == nil {
 			servers[f.ID] = dep
 		}
 	}
@@ -245,6 +249,20 @@ func (a *App) lcWriteKubeconfig(ctx context.Context, containerID string, body []
 	return nil
 }
 
+// lcKubeServer is the address a frame's entry points the client at: a K3D cluster's serverlb, or a
+// Kubeadm cluster's controlPlaneEndpoint — the control plane's FQDN, which its API certificate
+// names and the client resolves through the Intranet.
+func lcKubeServer(st Stack, f designFrame, server Deployment) string {
+	if f.Type == "kubeadm" {
+		var cfg kubeadmConfig
+		if json.Unmarshal(server.Config, &cfg) != nil || cfg.ControlPlane == "" {
+			return ""
+		}
+		return fmt.Sprintf("https://%s:%d", cfg.ControlPlane, kubeadmAPIPort)
+	}
+	return k3dServerLBAddr(k3dDeployedCluster(st.ID, f, server))
+}
+
 // lcKubeStateOf describes a kubeconfig against the stack's frames.
 func lcKubeStateOf(raw string, frames []designFrame, servers map[string]Deployment, st Stack) lcKubeState {
 	state := lcKubeState{Clusters: []lcKubeCluster{}, Contexts: []lcKubeContext{}}
@@ -254,7 +272,7 @@ func lcKubeStateOf(raw string, frames []designFrame, servers map[string]Deployme
 		name := lcKubeContextName(f)
 		managed[name] = true
 		state.Clusters = append(state.Clusters, lcKubeCluster{FrameID: f.ID, Context: name, Running: running,
-			Server: k3dServerLBAddr(k3dDeployedCluster(st.ID, f, server))})
+			Server: lcKubeServer(st, f, server)})
 	}
 	if strings.TrimSpace(raw) == "" {
 		return state
@@ -320,7 +338,8 @@ func (a *App) handleLinuxClientKubeconfig(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, lcKubeStateOf(raw, frames, servers, st))
 }
 
-// POST — copy every running K3D cluster's admin kubeconfig into the node's, merged.
+// POST — copy every running Kubernetes cluster's admin kubeconfig (K3D and initialized Kubeadm)
+// into the node's, merged.
 // Body: {"context": "<name>"} to also make that one current (optional).
 func (a *App) handleLinuxClientKubeconfigCopy(w http.ResponseWriter, r *http.Request) {
 	st, doc, dep, ok := a.lcKubeRequest(w, r)
@@ -352,7 +371,18 @@ func (a *App) handleLinuxClientKubeconfigCopy(w http.ResponseWriter, r *http.Req
 		}
 		// The cluster's server node may live on another engine than the client: run kubectl there.
 		kctx := withEngine(r.Context(), a.depEngine(st, sdep.NodeID))
-		raw, err := a.k3dFetchKubeconfig(kctx, sdep.ContainerID, k3dDeployedCluster(st.ID, f, sdep))
+		var raw string
+		var err error
+		if f.Type == "kubeadm" {
+			if !a.kubeadmInitialized(kctx, sdep.ContainerID) {
+				skipped = append(skipped, f.Label+" (prepared — kubeadm init has not run)")
+				continue
+			}
+			// admin.conf already names the controlPlaneEndpoint, so nothing is rewritten.
+			raw, err = a.kubectl(kctx, sdep.ContainerID, "config", "view", "--raw")
+		} else {
+			raw, err = a.k3dFetchKubeconfig(kctx, sdep.ContainerID, k3dDeployedCluster(st.ID, f, sdep))
+		}
 		if err != nil {
 			skipped = append(skipped, f.Label+" ("+lastLines(err.Error(), 120)+")")
 			continue

@@ -6,6 +6,7 @@
 #   dbcanvas-vnc:ubuntu-24.04-<arch>         (images/vnc.Dockerfile)
 #   dbcanvas-k8scollector:debian-12-amd64    (images/k8scollector.Dockerfile)
 #   dbcanvas-bighole:<commit>                (images/bighole.Dockerfile)
+#   dbcanvas-kubeadm:ubuntu-24.04-<k8s arch> (images/kubeadm.Dockerfile)
 #
 # Each is the matching systemd base from `make images` with that node's packages already
 # installed, so deploying the node is configuration only: the Intranet's nine remaining
@@ -21,10 +22,14 @@
 # image, but there is no OS under it and no backend either: it is a third-party
 # browser app, built from source at a pinned commit and served by nginx.
 #
+# The kubeadm node image is not baked onto a base either: it is built from ubuntu:24.04 for
+# K8S_PLATFORM, which may not be the platform the bases were built for — a Kubernetes node
+# has to run natively (see images/kubeadm.Dockerfile).
+#
 # MClusterAdmin used to be built here too. Upstream now publishes its own image, so
 # the node pulls it at deploy (app/mclusteradmin.go) and there is nothing to build.
 #
-# Usage: service.sh [intranet|vnc|k8scollector|bighole|all]  (default: all)
+# Usage: service.sh [intranet|vnc|k8scollector|bighole|kubeadm|all]  (default: all)
 #
 # `make images` calls this with `intranet` once the bases are built — the Intranet is
 # the DNS and the CA a stack is built against, so it ships with the bases rather than
@@ -60,8 +65,8 @@ BIGHOLE_TAG="dbcanvas-bighole:896984f"
 
 WANT="${1:-all}"
 case "$WANT" in
-  intranet|vnc|k8scollector|bighole|all) ;;
-  *) echo "usage: $(basename "$0") [intranet|vnc|k8scollector|bighole|all]" >&2; exit 2 ;;
+  intranet|vnc|k8scollector|bighole|kubeadm|all) ;;
+  *) echo "usage: $(basename "$0") [intranet|vnc|k8scollector|bighole|kubeadm|all]" >&2; exit 2 ;;
 esac
 
 # shellcheck source=platform.sh
@@ -69,6 +74,11 @@ esac
 K8SCOLLECTOR_TAG="${K8SCOLLECTOR_TAG}-$(image_release "$ROOT")"
 PLATFORM="$(resolve_platform "$ROOT")" || exit 1
 ARCH="${PLATFORM#linux/}"
+
+# The kubeadm node image: its own platform (K8S_PLATFORM) and tag. Must match kubeadmImage()
+# in app/kubeadm.go.
+K8S_PLATFORM_RESOLVED="$(resolve_k8s_platform "$ROOT")" || exit 1
+KUBEADM_TAG="dbcanvas-kubeadm:ubuntu-24.04-${K8S_PLATFORM_RESOLVED#linux/}-$(image_release "$ROOT")"
 
 # ---- BuildKit or not -------------------------------------------------------------
 #
@@ -198,6 +208,10 @@ fi
 if [ "$WANT" = "bighole" ] || [ "$WANT" = "all" ]; then
   build_standalone bighole.Dockerfile "$BIGHOLE_TAG" "$PLATFORM" "BIGHOLE_REF=${BIGHOLE_REF}" \
     ${XPLATFORM_ARGS[@]+"${XPLATFORM_ARGS[@]}"}
+fi
+
+if [ "$WANT" = "kubeadm" ] || [ "$WANT" = "all" ]; then
+  build_standalone kubeadm.Dockerfile "$KUBEADM_TAG" "$K8S_PLATFORM_RESOLVED"
 fi
 
 echo ""

@@ -10,7 +10,8 @@ the fact, see [Operator Summary](OPERATOR_SUMMARY.md).
 ## Open it
 
 - **Kubernetes States** in the sidebar (`#k8s-states`), then pick a source.
-- **Watch Kubernetes states** on a K3D cluster's **server** node panel opens it on that cluster.
+- **Watch Kubernetes states** on a K3D cluster's **server** node panel, or a Kubeadm cluster's
+  **control plane** panel, opens it on that cluster.
 
 The page only reads. It never scales, deletes, restarts or patches anything.
 
@@ -18,7 +19,7 @@ The page only reads. It never scales, deletes, restarts or patches anything.
 
 | Source | What it is |
 | --- | --- |
-| **Live clusters** | Any running Kubernetes frame in your stacks, sampled on a timer. |
+| **Live clusters** | Any running Kubernetes frame in your stacks — K3D, or Kubeadm once `kubeadm init` has run — sampled on a timer. |
 | **Captures (pt-k8s-debug-collector)** | A `cluster-dump` kept by a cluster's **Diagnostics** tab. Captures remain after the cluster is gone. |
 | **Uploaded** | A `cluster-dump.tar.gz` from your computer, via **Upload a cluster-dump**. It can come from any cluster. Uploads are kept in memory for one hour, visible only to you. |
 

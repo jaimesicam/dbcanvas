@@ -902,6 +902,22 @@ type designFrame struct {
 	// K3DStorageGB is the database volume size each pod gets (PXC/PS/PSMDB/PG), in GiB;
 	// 0 keeps the operator's cr.yaml default.
 	K3DStorageGB int `json:"k3dStorageGb"`
+
+	// Kubeadm cluster frame config (Type=="kubeadm"): Kubernetes built with kubeadm on Ubuntu
+	// 24.04 nodes DBCanvas creates itself. The first member by label is the control plane and
+	// the console; the rest are workers. Sizing is per member node. See kubeadm.go.
+	//
+	// KubeadmVersion is the Kubernetes release, vX.Y.Z from GET /api/catalog/kubernetes
+	// ("" = the catalog's newest).
+	KubeadmVersion string `json:"kubeadmVersion"`
+	// KubeadmStage is how far the deploy takes the cluster: "" (ready) runs init, joins the
+	// workers and installs the pod network; "initialized" stops before the pod network, so the
+	// nodes are NotReady; "prepared" installs everything and runs nothing, leaving
+	// `kubeadm init` and every join to the person at the console.
+	KubeadmStage string `json:"kubeadmStage"`
+	// KubeadmCNI is the pod network a ready cluster gets: "" (calico) or "flannel". Calico
+	// enforces NetworkPolicy; Flannel does not.
+	KubeadmCNI string `json:"kubeadmCni"`
 }
 
 type designDoc struct {
@@ -2029,6 +2045,21 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 		}
 	}
 
+	// --- Kubeadm cluster frames (a control plane and up to 3 workers; see kubeadm.go) ---
+	kubeadmNames := map[string]int{}
+	for _, f := range doc.Frames {
+		if f.Type != "kubeadm" {
+			continue
+		}
+		kubeadmNames[strings.TrimSpace(f.Label)]++
+		out = append(out, a.kubeadmFrameIssues(ctx, f, doc)...)
+	}
+	for name, c := range kubeadmNames {
+		if c > 1 && name != "" {
+			out = append(out, issue{Level: "error", Message: "Duplicate Kubeadm cluster name: " + name})
+		}
+	}
+
 	// --- PS MongoDB sharded-cluster frames ---
 	// The topology is fixed by the designer (1 mongos + 3-node config RS + 3 shards
 	// × 3-node RS); validate the member set is intact and the image exists.
@@ -2614,6 +2645,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			memberType = "valkeycluster"
 		case "k3d":
 			memberType = "k3d"
+		case "kubeadm":
+			memberType = "kubeadm"
 		default:
 			continue
 		}
@@ -2661,6 +2694,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionValkeyClusterFrame(st, f, doc)
 		case "k3d":
 			a.provisionK3DFrame(st, f, doc)
+		case "kubeadm":
+			a.provisionKubeadmFrame(st, f, doc)
 		}
 	}
 

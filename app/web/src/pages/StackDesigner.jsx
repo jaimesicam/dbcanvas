@@ -241,6 +241,14 @@ export const NODE_TYPES = {
     color: '#326ce5',
     icon: 'Grid',
   },
+  // Nodes of a Kubeadm cluster frame (the first by label is the control plane, the rest workers).
+  kubeadm: {
+    label: 'Kubeadm node',
+    slug: 'kube',
+    sub: 'Kubernetes node (kubeadm)',
+    color: '#3f51b5',
+    icon: 'Grid',
+  },
   // Standalone single Percona Server for MongoDB instance (no replication).
   psm: {
     label: 'PSMDB',
@@ -981,7 +989,7 @@ function nextMemberName(usedSet, prefix) {
 
 // Per-frame-type presentation: accent color and the description line.
 
-const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb', innodb: '#0891b2', mariadbrepl: '#c0765a', mariadbgalera: '#a85d43', mysqlcerepl: '#00758f', mysqlceinnodb: '#005d72', psmdb: '#10b981', psmrs: '#059669', patroni: '#336791', repmgr: '#0e7490', pgstream: '#1d4ed8', spock: '#dc2626', valkeycluster: '#7c3aed', k3d: '#326ce5' }
+const FRAME_COLORS = { pxc: '#a855f7', proxysql: '#f59e0b', mysql: '#2563eb', innodb: '#0891b2', mariadbrepl: '#c0765a', mariadbgalera: '#a85d43', mysqlcerepl: '#00758f', mysqlceinnodb: '#005d72', psmdb: '#10b981', psmrs: '#059669', patroni: '#336791', repmgr: '#0e7490', pgstream: '#1d4ed8', spock: '#dc2626', valkeycluster: '#7c3aed', k3d: '#326ce5', kubeadm: '#3f51b5' }
 
 // A SeaweedFS node creates up to ten buckets, so several databases can share one object store
 // without sharing a bucket. Every consumer picks which one it uses; "" means the node's first.
@@ -1083,7 +1091,7 @@ const ENGINE_SHORT = {
   proxysql: 'ProxySQL', haproxy: 'HAProxy', pgbouncer: 'PgBouncer',
   valkey: 'Valkey', valkeycluster: 'Valkey',
   pmm: 'PMM', pmm2: 'PMM', openbao: 'OpenBao', keycloak: 'Keycloak',
-  seaweedfs: 'SeaweedFS', ceph: 'Ceph', sambaad: 'Samba', vnc: 'Ubuntu', watchtower: 'Watchtower', k3d: 'k3s',
+  seaweedfs: 'SeaweedFS', ceph: 'Ceph', sambaad: 'Samba', vnc: 'Ubuntu', watchtower: 'Watchtower', k3d: 'k3s', kubeadm: 'Kubernetes',
   orchestrator: 'Orchestrator', repository: 'Repository',
 }
 
@@ -1266,8 +1274,21 @@ export function frameMemberSub(f, n, kids = []) {
     case 'spock': return 'PostgreSQL + Spock'
     case 'valkeycluster': return 'Valkey shard'
     case 'k3d': return kids.indexOf(n) === 0 ? 'k3s server' : 'k3s agent'
+    case 'kubeadm': return kubeadmControlPlane(kids) === n ? 'control plane' : 'worker'
     default: return 'Cluster member'
   }
+}
+
+// KUBEADM_STAGES mirrors kubeadmStages in app/kubeadm.go: how far a deploy takes the cluster.
+const KUBEADM_STAGES = [
+  { value: '', label: 'Ready', note: 'kubeadm init, every worker joined, the pod network installed' },
+  { value: 'initialized', label: 'Initialized', note: 'init and the joins, no pod network — the nodes stay NotReady' },
+  { value: 'prepared', label: 'Prepared', note: 'packages and configuration only — init and the joins are yours' },
+]
+// kubeadmControlPlane is a Kubeadm frame's control plane: its first member by label, as
+// kubeadmMembers in app/kubeadm.go picks it (a byte-wise order, not a locale one).
+function kubeadmControlPlane(members) {
+  return [...members].sort((a, b) => ((a.label || '') < (b.label || '') ? -1 : (a.label || '') > (b.label || '') ? 1 : 0))[0]
 }
 
 // frameVersionLabel: the description line for a cluster-frame type.
@@ -1286,6 +1307,7 @@ export const frameVersionLabel = (f) => {
   if (f?.type === 'pgstream') return `Percona PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · streaming${f?.pgSyncStandbys > 0 ? ` · sync ${f.pgSyncStandbys}` : ' · async'}${f?.pgVector ? ' · pgvector' : ''}`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'spock') return `PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · Spock multi-master${f?.pgVector ? ' · pgvector' : ''}`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'valkeycluster') return `${f?.valkeyMode === 'sentinel' ? 'Valkey Sentinel' : 'Valkey Cluster'} ${f?.valkeyVersion || f?.valkeyMajor || ''}`.trim()
+  if (f?.type === 'kubeadm') return `Kubernetes ${f?.kubeadmVersion || ''} · kubeadm · ${(KUBEADM_STAGES.find((x) => x.value === (f?.kubeadmStage || '')) || KUBEADM_STAGES[0]).label.toLowerCase()}${!f?.kubeadmStage ? ` · ${f?.kubeadmCni || 'calico'}` : ''}`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'k3d') return `Kubernetes (k3s via k3d)${K3D_OPERATOR_LABEL[f?.k3dOperator] ? ` · ${K3D_OPERATOR_LABEL[f.k3dOperator]}` : ''}${['pg', 'cnpg', 'pgo'].includes(f?.k3dOperator) && f?.k3dPgVector ? ' · pgvector' : ''}`
   return pxcVersionLabel(f)
 }
@@ -2340,6 +2362,7 @@ const RECENT_MAX = 5
 const PALETTE_ALIASES = {
   valkey: 'redis cache kv', valkeycluster: 'redis cache kv',
   k3d: 'k8s kubernetes k3s cluster',
+  kubeadm: 'k8s kubernetes kubeadm kubelet kubectl etcd control plane cluster upgrade',
   pmm2: 'pmm monitoring eol end of life',
   repository: 'mirror yum apt dnf rpm deb registry docker offline air-gapped airgap helm charts packages',
   psmdb: 'mongo mongodb shard', psmrs: 'mongo mongodb replica', psm: 'mongo mongodb',
@@ -4001,6 +4024,28 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
     setNodes(r.nodes)
     setSelected({ kind: 'frame', id: fid })
   }
+  // A Kubeadm cluster's members are Ubuntu nodes: the first by label is the control plane, the
+  // rest workers. Default 2 (a control plane and a worker, so there is something to join),
+  // resizable 1–4.
+  function newKubeadmMember(frameId, list = nodes) {
+    const used = new Set(list.filter((n) => n.type === 'kubeadm').map((n) => n.label))
+    return { id: uid('kube'), type: 'kubeadm', label: nextMemberName(used, 'kube'), frameId, x: 0, y: 0 }
+  }
+  function addKubeadmCluster() {
+    if (!nodes.some((n) => n.type === 'intranet')) return
+    const fid = uid('frame')
+    const { x: fx, y: fy } = placeAt(200, 200)
+    const frame = {
+      id: fid, type: 'kubeadm', label: nextNamedCluster(frames, 'kubeadm'), x: fx, y: fy, w: 0, h: 0,
+      kubeadmVersion: '', kubeadmStage: '', kubeadmCni: '',
+    }
+    const first = newKubeadmMember(fid)
+    const second = newKubeadmMember(fid, [...nodes, first])
+    const r = relayout(fid, [...frames, frame], [...nodes, first, second])
+    setFrames(r.frames)
+    setNodes(r.nodes)
+    setSelected({ kind: 'frame', id: fid })
+  }
   // psmdbMembers builds the member nodes for a PS MongoDB sharded cluster of the
   // given setup, always 1 mongos + 3 shards + a config-server RS:
   //   standard → 3-node config RS + 3 shards × 3-node RS (13 nodes)
@@ -4284,6 +4329,11 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
     } else if (frame.type === 'spock') {
       if (nodes.filter((n) => n.frameId === frame.id).length >= 7) return // max 7
       const r = relayout(frame.id, frames, [...nodes, newSpockMember(frame.id)])
+      setFrames(r.frames)
+      setNodes(r.nodes)
+    } else if (frame.type === 'kubeadm') {
+      if (nodes.filter((n) => n.frameId === frame.id).length >= 4) return // a control plane + 3 workers
+      const r = relayout(frame.id, frames, [...nodes, newKubeadmMember(frame.id)])
       setFrames(r.frames)
       setNodes(r.nodes)
     } else if (frame.type === 'k3d') {
@@ -4878,6 +4928,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
     ] },
     { title: 'Kubernetes', items: [
       { label: 'K3D Cluster', role: 'k3s · Percona operators', type: 'k3d', onClick: addK3DCluster },
+      { label: 'Kubeadm Cluster', role: 'kubeadm · control plane + workers', type: 'kubeadm', onClick: addKubeadmCluster },
     ] },
     { title: 'Proxies & HA', items: [
       { label: 'ProxySQL', role: 'MySQL routing · pooling', type: 'proxysql', onClick: () => addNode('proxysql') },
@@ -9224,7 +9275,7 @@ function LinuxClientManager({ dep, onDeleteNode, stackId }) {
 }
 
 // LinuxClientKubeconfig puts the stack's Kubernetes clusters in a Linux Client's
-// /root/.kube/config — every running K3D frame's admin kubeconfig, merged, one context per
+// /root/.kube/config — every running K3D or Kubeadm frame's admin kubeconfig, merged, one context per
 // cluster named after its frame — and picks the current context. Hidden when the stack has no
 // Kubernetes frame. See app/linuxclient_kubeconfig.go.
 function LinuxClientKubeconfig({ stackId, nodeId }) {
@@ -12290,6 +12341,155 @@ function ValkeyClusterFrameForm({ frame: f, nodes, frameNodes, patchFrame, delet
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteFrame(f.id)}>
         <Icon.Trash size={16} /> Delete cluster
       </Button>
+    </div>
+  )
+}
+
+// KubeadmFrameForm edits a Kubeadm cluster frame (app/kubeadm.go): the Kubernetes release, how far
+// the deploy goes, and the pod network. The members are sized one by one, on their own forms.
+export function KubeadmFrameForm({ frame: f, frameNodes, patchFrame, deleteFrame, deployed }) {
+  const lock = deployed ? 'opacity-70' : ''
+  const [cat, setCat] = useState(null)
+  useEffect(() => {
+    let alive = true
+    stackApi.kubernetesCatalog().then((c) => { if (alive) setCat(c || null) }).catch(() => { /* keep the default */ })
+    return () => { alive = false }
+  }, [])
+  const versions = cat?.versions || []
+  const count = frameNodes.length
+  const cp = kubeadmControlPlane(frameNodes)
+  const stage = f.kubeadmStage || ''
+  const stageNote = (KUBEADM_STAGES.find((x) => x.value === stage) || KUBEADM_STAGES[0]).note
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Kubeadm Cluster</span>
+        <Badge tone="muted">{count} node{count === 1 ? '' : 's'}</Badge>
+      </div>
+      <p className="text-xs text-muted">
+        Kubernetes built with kubeadm on Ubuntu 24.04 nodes. <span className="font-mono">{cp?.label || 'The first node'}</span> is
+        the control plane and the console: kubectl, etcdctl and SSH to every worker are set up there.
+        {count > 1 ? ` The other ${count - 1} ${count - 1 === 1 ? 'node is a worker' : 'nodes are workers'}.` : ' With no workers, pods run on the control plane.'}
+        {' '}Use the frame +/- to resize (1–4).
+      </p>
+
+      <Field label="Cluster name" help={HELP.clusterName} hint="Frame label; must be unique.">
+        <input className={inputCls} value={f.label} disabled={deployed} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
+      </Field>
+
+      <Field label="Kubernetes version" help={HELP.kubeadmVersion} hint={deployed ? 'Locked — upgrade it with kubeadm on the nodes.' : 'Newest first; default is the latest.'}>
+        <select className={`${inputCls} ${lock}`} value={f.kubeadmVersion || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { kubeadmVersion: e.target.value })}>
+          <option value="">latest{versions[0] ? ` (${versions[0]})` : ''}</option>
+          {versions.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+      </Field>
+
+      <Field label="Stage" help={HELP.kubeadmStage} hint={deployed ? 'Locked.' : stageNote}>
+        <select className={`${inputCls} ${lock}`} value={stage} disabled={deployed} onChange={(e) => patchFrame(f.id, { kubeadmStage: e.target.value })}>
+          {KUBEADM_STAGES.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
+        </select>
+      </Field>
+
+      {stage === '' && (
+        <Field label="Pod network" help={HELP.kubeadmCni} hint={deployed ? 'Locked.' : ''}>
+          <select className={`${inputCls} ${lock}`} value={f.kubeadmCni || ''} disabled={deployed} onChange={(e) => patchFrame(f.id, { kubeadmCni: e.target.value })}>
+            <option value="">Calico — enforces NetworkPolicy</option>
+            <option value="flannel">Flannel — does not enforce NetworkPolicy</option>
+          </select>
+        </Field>
+      )}
+
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteFrame(f.id)}>
+        <Icon.Trash size={16} /> Delete cluster
+      </Button>
+    </div>
+  )
+}
+
+// KubeadmMemberForm is one node of a Kubeadm cluster: its sizing before the deploy, and once
+// deployed its role, release and the commands that come next at the stage the frame stopped at.
+export function KubeadmMemberForm({ stackId, node: n, frame: f, frameNodes, patchNode, dep, deployed, onDeleteNode }) {
+  const cfg = dep?.config || {}
+  // Null outside the terminal provider (the smoke renderer); the console button then hides.
+  const terms = useTerminals()
+  const running = dep?.state === 'running'
+  const isCP = (cfg.role || (kubeadmControlPlane(frameNodes) === n ? 'control-plane' : 'worker')) === 'control-plane'
+  const cmd = (text) => (
+    <div className="flex items-start gap-1 font-mono">
+      <span className="min-w-0 flex-1 break-all">{text}</span><CopyBtn text={text} />
+    </div>
+  )
+  const next = !dep || dep.state !== 'running' ? null
+    : isCP && cfg.stage === 'prepared' ? [
+      [`kubeadm init --config ${cfg.configFile || '/root/kubeadm-config.yaml'}`, 'build the control plane; then on each worker run the join command it prints'],
+      ['kubeadm token create --print-join-command', 'print a join command again'],
+    ]
+    : isCP && cfg.stage === 'initialized' ? [
+      ['kubectl get nodes', 'NotReady until a pod network is installed'],
+    ]
+    : isCP ? [
+      ['kubectl get nodes -o wide', ''],
+      ['kubectl get pods -A', ''],
+    ]
+    : cfg.stage === 'prepared' ? [
+      ['kubeadm join …', `the command kubeadm init printed on ${cfg.controlPlane || 'the control plane'}`],
+    ] : null
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">{isCP ? 'Kubeadm control plane' : 'Kubeadm worker'}</span>
+        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
+      </div>
+      <p className="text-xs text-muted">
+        {isCP
+          ? <>The control plane of <span className="font-mono">{f?.label || 'the cluster'}</span>, and its console: open its terminal to administer the cluster.</>
+          : <>A worker of <span className="font-mono">{f?.label || 'the cluster'}</span>. The control plane reaches it with <span className="font-mono">{`ssh ${n.label}`}</span>.</>}
+      </p>
+      {dep && (
+        <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
+          <InfoRow label="Image" help={HELP.depBaseImage}><span className="font-mono text-xs">{cfg.image || '—'}</span></InfoRow>
+          <InfoRow label="Host" help={HELP.depHost}><span className="font-mono text-xs">{cfg.fqdn || cfg.hostname || '—'}</span></InfoRow>
+          {cfg.ip && <InfoRow label="Node IP"><span className="font-mono text-xs">{cfg.ip}</span></InfoRow>}
+          <InfoRow label="Kubernetes" help={HELP.kubeadmVersion}><span className="font-mono text-xs">{cfg.version || '—'}{cfg.stage ? ` · ${cfg.stage}` : ''}{cfg.cni ? ` · ${cfg.cni}` : ''}</span></InfoRow>
+          {!isCP && <InfoRow label="Control plane"><span className="font-mono text-xs">{cfg.controlPlane || '—'}</span></InfoRow>}
+          {isCP && <InfoRow label="Pod / Service CIDR"><span className="font-mono text-xs">{cfg.podCidr} · {cfg.serviceCidr}</span></InfoRow>}
+        </div>
+      )}
+      {next && (
+        <div className="rounded-lg bg-surface2 px-3 py-2 text-xs space-y-1">
+          <div className="text-muted">In this node's terminal:</div>
+          {next.map(([c, why]) => (
+            <div key={c}>{cmd(c)}{why && <div className="text-muted">{why}</div>}</div>
+          ))}
+        </div>
+      )}
+      {running && isCP && f && (
+        // Kubernetes States reads the cluster through this node's kubectl, as it does a K3D
+        // server's (app/k3dstates.go). A prepared cluster appears there once kubeadm init has run.
+        <Button variant="outline" size="sm" className="w-full" title={HELP.k8sStatesWatch}
+          onClick={() => {
+            sendHandoff('dbcanvas.statesTarget', `${stackId}/${f.id}`)
+            location.hash = 'k8s-states'
+          }}>
+          <Icon.Kubernetes size={16} /> Watch Kubernetes states
+        </Button>
+      )}
+      {running && terms?.openTerminal && (
+        <Button variant="outline" size="sm" className="w-full"
+          onClick={() => terms.openTerminal({ stackId, nodeId: n.id, title: `${cfg.hostname || n.label} · root`, user: '0' })}>
+          <Icon.Nodes size={16} /> Open root console
+        </Button>
+      )}
+      <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
+      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique. The first label in the cluster is the control plane.">
+        <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
+      </Field>
+      {!deployed && <p className="text-xs text-muted">Use the frame +/- to add or remove nodes (1–4).</p>}
+      {dep && onDeleteNode && !isCP && (
+        <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
+          <Icon.Trash size={16} /> Delete node
+        </Button>
+      )}
     </div>
   )
 }
@@ -15649,6 +15849,9 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     if (f.type === 'valkeycluster') {
       return <ValkeyClusterFrameForm frame={f} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} resizeTo={(n) => resizeFrameMembers?.(f.id, n)} />
     }
+    if (f.type === 'kubeadm') {
+      return <KubeadmFrameForm frame={f} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
+    }
     if (f.type === 'k3d') {
       return <K3DFrameForm frame={f} nodes={nodes} frames={frames} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed}
         replRole={k8sReplRoleOf(f.id, edges, frames)} replSource={k8sReplSourceOf(f.id, edges, frames)}
@@ -15784,6 +15987,12 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <K3DManager stackId={stackId} nodeId={n.id} frame={frames.find((fr) => fr.id === n.frameId)} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <K3DMemberForm node={n} frame={frames.find((fr) => fr.id === n.frameId)} frameNodes={nodes.filter((x) => x.frameId === n.frameId)} patchNode={patchNode} dep={dep} deployed={deployed} />
+    }
+    // A node of a Kubeadm cluster frame: the design form, or once deployed what it is and what to
+    // run on it.
+    if (n.type === 'kubeadm') {
+      return <KubeadmMemberForm stackId={stackId} node={n} frame={frames.find((fr) => fr.id === n.frameId)} frameNodes={nodes.filter((x) => x.frameId === n.frameId)}
+        patchNode={patchNode} dep={dep} deployed={deployed} onDeleteNode={() => deleteNode(n.id)} />
     }
     // Valkey cluster member node.
     if (n.type === 'valkeycluster') {

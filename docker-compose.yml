@@ -84,9 +84,14 @@ services:
       # SeaweedFS, Valkey). PMM and Watchtower are pinned to linux/amd64 in code
       # because upstream publishes no arm64 image for them.
       DOCKER_PLATFORM: ${DOCKER_PLATFORM:-linux/amd64}
-      # The platform K3D frames' k3s nodes target. Independent of
-      # DOCKER_PLATFORM above — see K3D_PLATFORM in .env.example.
-      K3D_PLATFORM: ${K3D_PLATFORM:-linux/amd64}
+      # The platform every Kubernetes node targets (K3D's k3s nodes, Kubeadm
+      # nodes, and the Ceph node that serves them). Independent of
+      # DOCKER_PLATFORM above — see K8S_PLATFORM in .env.example. K3D_PLATFORM is
+      # its earlier name, read when K8S_PLATFORM is unset; both pass through empty
+      # so that fallback, and the linux/amd64 default, are decided in one place
+      # (k8sPlatform in app/docker.go).
+      K8S_PLATFORM: ${K8S_PLATFORM:-}
+      K3D_PLATFORM: ${K3D_PLATFORM:-}
       # Minutes a provisioner waits for a dependency (cluster/node/service) to
       # become ready before failing the deploy. Raise for large stacks.
       DEPLOYMENT_TIMEOUT: ${DEPLOYMENT_TIMEOUT:-60}

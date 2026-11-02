@@ -11,7 +11,7 @@ VERSION ?= $(shell cat VERSION 2>/dev/null || echo dev)
 # app/clidownload.go, which is what the API page offers for download.
 CLI_PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 
-.PHONY: install install-extras adopt-images compose env build up down logs restart rotate-key clean images extra-images versions smoke cli cli-test supportsim-image stocksim-image ledgersim-image perfsim-image intranet-image vnc-image
+.PHONY: install install-extras adopt-images compose env build up down logs restart rotate-key clean images extra-images versions smoke cli cli-test supportsim-image stocksim-image ledgersim-image perfsim-image intranet-image vnc-image kubeadm-image
 
 ## install: everything a first run needs — every image DBCanvas can build (the OS
 ## bases and the Intranet, then the optional ones on top: the VNC desktop, the K3D
@@ -182,7 +182,7 @@ images:
 	}
 
 ## extra-images: everything OPTIONAL built on top of the bases — the pre-baked Ubuntu
-## VNC image, the Big Hole FTDC viewer, the K3D diagnostics collector, and the
+## VNC image, the Big Hole FTDC viewer, the K3D diagnostics collector, the Kubeadm node, and the
 ## demo applications (Support/Stock Market/Ledger/Performance Sim). `make install` builds these too (through
 ## install-extras, which tolerates a failure); this is the target for rebuilding them
 ## on their own, and it fails if any of them fails. Kept separate from `make images`
@@ -227,6 +227,14 @@ k8scollector-image:
 ## it. `make extra-images` builds this too.
 bighole-image:
 	bash images/service.sh bighole
+
+## kubeadm-image: rebuild only the Kubeadm Cluster node image
+## (dbcanvas-kubeadm:ubuntu-24.04-<arch>) — Ubuntu 24.04 with systemd, containerd and the
+## node tools, built for K8S_PLATFORM rather than DOCKER_PLATFORM: a Kubernetes node has to
+## run on the host's native architecture. Kubernetes itself is installed at deploy, at the
+## version the frame asks for. `make extra-images` builds this too.
+kubeadm-image:
+	bash images/service.sh kubeadm
 
 ## versions: probe the images in images.yaml for the versions installable on each,
 ## plus the PMM, operator, Helm chart and k3s catalogs → versions.yaml. SLOW (a

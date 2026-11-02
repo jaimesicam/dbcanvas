@@ -314,6 +314,8 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "The six Kubernetes database operators a K3D frame can run, and their versions."},
 		{Method: "GET", Path: "/api/catalog/k3s", Group: gCatalog, Handler: m((*App).handleK3SCatalog),
 			Summary: "k3s versions a K3D cluster frame can be built on."},
+		{Method: "GET", Path: "/api/catalog/kubernetes", Group: gCatalog, Handler: m((*App).handleKubernetesCatalog),
+			Summary: "Kubernetes releases a Kubeadm cluster frame can install, newest first."},
 
 		// --- stacks -------------------------------------------------------------
 		{Method: "GET", Path: "/api/stacks", Group: gStacks, Handler: m((*App).handleListStacks),
@@ -447,11 +449,11 @@ func buildAPIRoutes() []apiRoute {
 		// own machine; off unless SSH_FORWARDING_HOST is set (see sshforward.go).
 		{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/sshforward", Group: gNodes, Handler: m((*App).handleNodeSSHForward),
 			Summary: "The exact `ssh -L` line forwarding every port this node publishes to the caller's machine."},
-		// A Linux Client's kubeconfig: every K3D cluster in the stack, merged (linuxclient_kubeconfig.go).
+		// A Linux Client's kubeconfig: every K3D and Kubeadm cluster in the stack, merged (linuxclient_kubeconfig.go).
 		{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/kubeconfig", Group: gNodes, Handler: m((*App).handleLinuxClientKubeconfig),
 			Summary: "A Linux Client's ~/.kube/config: its contexts and current one, and the stack's Kubernetes clusters."},
 		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/kubeconfig", Group: gNodes, Handler: m((*App).handleLinuxClientKubeconfigCopy),
-			Summary: "Merge every running K3D cluster's admin kubeconfig into a Linux Client's ~/.kube/config, one context per cluster."},
+			Summary: "Merge every running K3D and Kubeadm cluster's admin kubeconfig into a Linux Client's ~/.kube/config, one context per cluster."},
 		// Percona ClusterSync for MongoDB, driven from a Linux Client (lcclustersync.go).
 		{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/pcsm", Group: gNodes, Handler: m((*App).handlePCSMState),
 			Summary: "A Linux Client's ClusterSync: the stack's MongoDB clusters it can sync, which pairs PCSM supports, and the running sync's status and log."},

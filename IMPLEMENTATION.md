@@ -28862,3 +28862,150 @@ README check keeps the titles in step), dated 2026-11-02:
 
 **Verification performed.** `go test .` (the whatsnew tests: order, completeness, linked docs exist,
 README match).
+
+## 502. Kubeadm Cluster frame; `K8S_PLATFORM` — `app/{kubeadm,kubeadm_test,docker,intranet,join,deploypreview,compose,designcatalog,designcatalog_k3d,extraimages,nodeversion,versions,api_routes,ceph,k3d,k3ddebug,repository}.go`, `app/web/src/pages/StackDesigner.jsx`, `app/web/src/lib/{stackApi,help}.js`, `app/web/smoke/render.jsx`, `images/{kubeadm.Dockerfile,platform.sh,service.sh,versions.sh}`, `Makefile`, `docker-compose.yml`, `.env.example`, `versions.yaml`, `docs/{STACKS,CONFIGURATION,API_REFERENCE,ARCHITECTURE}.md`
+
+A **Kubeadm Cluster** frame: Kubernetes built with kubeadm on Ubuntu 24.04 nodes DBCanvas creates
+itself, as opposed to the K3D frame's k3s. Each member is a container with systemd, containerd, and
+kubeadm, kubelet and kubectl from `pkgs.k8s.io` at the frame's release, held with `apt-mark hold`.
+The first member by label is the control plane and the console: root's kubeconfig is
+`admin.conf`, `etcdctl`/`etcdutl` match the cluster's etcd (downloaded from etcd's releases at the
+version `kubeadm config images list` names), and the control plane's SSH key is trusted by every
+worker, whose host keys are in its `known_hosts`. 1–4 members, default 2; sizing is per member.
+
+**Stage** (`kubeadmStage`): `""` (ready) runs `kubeadm init`, joins every worker and installs the
+pod network, then waits for every node to be Ready and CoreDNS to roll out; `initialized` stops
+before the pod network; `prepared` installs and configures everything and runs nothing. **Pod
+network** (`kubeadmCni`, ready only): Calico v3.33.0 (`operator-crds.yaml` first, server-side
+applied — the CRDs are too large for client-side apply) or Flannel v0.28.10, both pinned. Pods use
+`10.244.0.0/16`, Services `10.96.0.0/12`; a deploy fails a stack network that overlaps either. A
+one-node ready cluster has its control-plane taint removed. A member added to a running cluster is
+a worker and joins with a fresh token (`joinKinds`); at `prepared` it is only prepared.
+
+**`/root/kubeadm-config.yaml`** is written on the control plane at every stage and is what init
+runs from, so a cluster built by hand from `prepared` gets the same settings. Three of them exist
+because the nodes are containers, and the file says so: `failSwapOn: false`; the kubelet's
+`resolvConf` is `/etc/kubernetes/resolv.conf`, naming the Intranet — Docker's 127.0.0.11, which a
+node's own resolv.conf names after every restart, answers only inside the node's namespace, so
+CoreDNS forwarded to itself and exited on its loop check; and `conntrack.maxPerCore: 0`, because
+`nf_conntrack_max` is host-wide and read-only from a container, and kube-proxy exited trying to set
+it. `controlPlaneEndpoint` is the control plane's FQDN. The worker needs no file: the kubelet
+settings reach it through the kubelet-config ConfigMap. Its node IP is `/etc/default/kubelet`.
+
+**The node image** (`images/kubeadm.Dockerfile`, `dbcanvas-kubeadm:ubuntu-24.04-<arch>-<release>`,
+`make kubeadm-image`, part of `make extra-images` and buildable from Validate) is FROM
+`ubuntu:24.04`, not a systemd base, for two reasons: it is built for `K8S_PLATFORM`, and the bases
+declare `VOLUME /sys/fs/cgroup`. It carries containerd (`SystemdCgroup = true`, the pause image set
+at deploy to the one kubeadm expects), crictl's config, a kubelet drop-in ordering it after
+containerd, `VOLUME /var/lib/containerd` (anonymous, so it goes with the container), and an
+entrypoint that runs on every start before systemd:
+- moves every process into `/init` and enables every controller on the cgroup root. Every
+  `docker exec` lands in the root, and cgroup v2 will not delegate a controller while processes sit
+  in the parent, so whether `kubepods.slice` got `pids` was timing: when it lost, the kubelet exited
+  on `openat2 /sys/fs/cgroup/kubepods.slice/pids.max: no such file or directory` until init timed out.
+- `mount --make-rshared /` — Calico's bpffs mount needs shared propagation ("path /sys/fs is
+  mounted on /sys but it is not a shared mount"); done once, it is lost on restart.
+- writes `/boot/config-$(uname -r)` from `/proc/config.gz`, or else lists the options kubeadm's
+  SystemVerification check requires, so `init`, `join` and `upgrade` need no
+  `--ignore-preflight-errors`. `ignorePreflightErrors` in the init configuration does not carry
+  over to `upgrade`.
+`systemd-nologin.conf` is masked: the trimmed boot never runs systemd-user-sessions, and every ssh
+printed "System is booting up".
+
+**`ContainerSpec.CgroupnsPrivate`** gives a privileged container its own cgroup namespace instead
+of the host's plus a `/sys/fs/cgroup` bind. Under the host namespace the kubelet created
+`kubepods.slice` at the Docker host's root: pods escaped the container's limits, every node on the
+daemon shared one slice, and it outlived the container.
+
+**`K8S_PLATFORM`** replaces `K3D_PLATFORM` as the platform of every Kubernetes node (K3D's k3s
+nodes, Kubeadm nodes, the Ceph node). `k8sPlatform()` reads `K8S_PLATFORM`, then `K3D_PLATFORM`,
+then defaults to linux/amd64, so an `.env` written with the old name keeps native nodes;
+`resolve_k8s_platform` in `images/platform.sh` is the same rule for the image build.
+`docker-compose.yml` passes both through empty so the default is decided in one place. Under
+emulation containerd cannot create a pod sandbox ("seccomp is not supported"), so validation
+refuses a Kubeadm frame whose `K8S_PLATFORM` is not the Docker host's architecture, naming the fix.
+
+**Catalog.** `make versions` writes a `kubernetes:` section: dl.k8s.io's stable minor and the three
+before it, every patch release of each from the per-minor `pkgs.k8s.io` repositories, as `vX.Y.Z`
+newest first (the package revision, `-1.1`, varies and is resolved with `apt-cache madison` at
+deploy). Served at `GET /api/catalog/kubernetes`. The section shipped in `versions.yaml` was written
+by running that discovery on its own (v1.37.2 down to v1.34.0). A release older than 1.31, the first
+kubeadm to read `kubeadm.k8s.io/v1beta4`, is refused.
+
+Validation also checks the member count, the stage and pod network values, 1 CPU on the control
+plane (an error: kubeadm refuses it) and under 2 GB on a node (a warning), the image, and duplicate
+frame names. Compose lists `kubeadm` as unsupported.
+
+**Designer.** Kubernetes → **Kubeadm Cluster** in the library. The frame form picks the release,
+the stage (with what each leaves to do) and, at ready, the pod network; +/− resizes 1–4. A node's
+form shows its role — "control plane" goes to the first label, as the backend picks it, not the
+first in the list — and its sizing; once deployed, its release, stage, address and the commands
+that come next (`kubeadm init --config …` and `kubeadm token create --print-join-command` on a
+prepared control plane).
+
+### Verification performed
+- `go vet`, `go test .` (new: the platform fallback in Go and in the shell, the image tag and
+  in-app build platform, the Dockerfile's requirements, the init configuration parsed document by
+  document, release parsing, CIDR overlap, the catalog, shape validation, the emulation check, and
+  line-based output tails), `npm run build`, `npm run smoke` (two new checks: the stage decides
+  whether a pod network is asked for; the control plane is the first label, and a deployed prepared
+  one shows the init and join commands).
+- By hand, before writing the frame: kubeadm in DBCanvas's existing privileged spec on Rosetta
+  (no pod sandbox: seccomp), natively with the host cgroupns (`kubepods.slice` at the host root),
+  then with each fix above in turn until init, join, Calico, Service DNS, NetworkPolicy, an etcd
+  snapshot, a v1.36 → v1.37 upgrade and a node restart all worked.
+- End to end on a separate test installation (its own compose project and instance name): a
+  two-node ready cluster at v1.36.6 with Calico deployed in about 2½ minutes; from the control
+  plane's console, kubectl as root, Service DNS, a stack host name resolved from a pod through the
+  Intranet, a NetworkPolicy that blocks, `ssh` to the worker by name, `etcdctl snapshot save`,
+  `kubeadm upgrade plan` with no preflight overrides, then `kubeadm upgrade apply v1.37.2` on the
+  control plane and its kubelet; a worker `docker restart` came back Ready with every pod running;
+  a destroy left no `kubepods.slice` on the host. Two more frames added to the running stack were
+  built without touching it: a one-node ready cluster with Flannel at v1.37.2 (no taint, a pod
+  scheduled on it resolves cluster DNS), and a two-node prepared one, where plain `kubeadm init
+  --config /root/kubeadm-config.yaml` and the join command run over `ssh` from the control plane
+  built a cluster whose nodes are NotReady until a pod network is installed. That run found four
+  bugs, fixed above: no
+  `/etc/bash_completion.d` on Ubuntu 24.04; `lastLines` keeps characters, so the worker was handed
+  "7" as its join command and the SSH key was truncated (`kubeadmTail` takes lines); a failed join
+  left the control plane at "provisioning" (every early return now fails every node it started);
+  and the cgroup delegation race.
+
+## 503. Kubernetes States and a Linux Client's kubeconfig take Kubeadm clusters — `app/{kubeadm,k3d,k3dstates,linuxclient_kubeconfig,linuxclient_k8s,api_routes,kubeadm_test}.go`, `app/web/src/pages/{StackDesigner,K8sStates}.jsx`, `docs/{KUBERNETES_STATES,STACKS}.md`
+
+**kubectl.** `a.kubectl` and `a.kubectlOut` run with `KUBECONFIG=/etc/rancher/k3s/k3s.yaml:/etc/kubernetes/admin.conf`
+(`k8sKubeconfig`). kubectl skips a file in the list that does not exist, so on a k3s server it reads
+what `k3dKubeconfig` alone did, and on a Kubeadm control plane it reads `admin.conf`. The other
+K3D paths that name `k3dKubeconfig` (the terminal, the Database Explorer, the CNPG and Everest
+scripts) are unchanged.
+
+**`k8sFrameAndServer`** finds a Kubeadm frame's running control plane (from its members'
+profiles), or defers to `k3dFrameAndServer`. Only the features below use it; the K3D-only handlers
+keep `k3dRBACContext`, so none of them is offered a cluster it cannot run on.
+`kubeadmInitialized` checks for `admin.conf`: a Prepared cluster has no API server until someone
+runs `kubeadm init`.
+
+**Kubernetes States.** The board, log and manifest endpoints go through `k8sStatesContext`. The
+target list includes Kubeadm frames once initialized, with a `kind` field; the picker labels them
+"(kubeadm)". A running control plane's panel has **Watch Kubernetes states** (the same handoff as
+a K3D server's) and **Open root console**.
+
+**Linux Client.** `lcKubeFrames` lists Kubeadm frames too. Their kubeconfig is `kubectl config view
+--raw` on the control plane, unrewritten: `admin.conf` already names the `controlPlaneEndpoint`,
+`https://<control plane FQDN>:6443`, which the API certificate covers and the client resolves
+through the Intranet (`lcKubeServer`). kubeadm names every cluster's entries `kubernetes` /
+`kubernetes-admin`, so the existing per-frame renaming is what keeps two of them apart. A Prepared
+cluster is skipped with "prepared — kubeadm init has not run". The kubectl a client installs
+matches a Kubeadm frame's release (`lcKubectlVersion`), and the hint names Kubeadm frames.
+
+### Verification performed
+- `go vet`, `go test .` (new: the server address per frame kind, the client's kubectl version from
+  a Kubeadm frame, two kubeadm admin kubeconfigs merging into two contexts with their own servers,
+  the shared KUBECONFIG), `npm run build`, `npm run smoke`.
+- On a live installation, the States board of a three-node Kubeadm cluster: 51 objects, no
+  warnings. On a test installation: a ready Kubeadm cluster, a prepared one and a Linux Client with
+  kubectl. The client's kubectl was v1.37.2; the copy merged the ready cluster and skipped the
+  prepared one with its reason; `kubectl get nodes` from the client listed the cluster's nodes.
+  The prepared cluster was absent from States until `kubeadm init` ran by hand, then present, with
+  its board, a container's log tail and a pod's YAML read through the control plane. A second copy
+  merged both, made the requested context current, and each context reached its own cluster.

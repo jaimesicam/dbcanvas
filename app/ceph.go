@@ -235,11 +235,11 @@ func (a *App) provisionCeph(st Stack, n designNode, doc designDoc) {
 		}
 		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 
-		// The node serves the K3D frames, so it runs on their platform (K3D_PLATFORM), natively,
+		// The node serves the K3D frames, so it runs on their platform (K8S_PLATFORM), natively,
 		// rather than on DOCKER_PLATFORM: an OSD under emulation is too slow to be worth having.
 		setPhase("Pulling image", 5)
-		logln("ensuring " + ref + " for " + k3dPlatform() + " (about 1.5 GB, the first time)")
-		if err := a.engCtx(ctx).EnsureImage(ctx, cephRepo, cephTag, k3dPlatform()); err != nil {
+		logln("ensuring " + ref + " for " + k8sPlatform() + " (about 1.5 GB, the first time)")
+		if err := a.engCtx(ctx).EnsureImage(ctx, cephRepo, cephTag, k8sPlatform()); err != nil {
 			failNode("pull image %s: %v", ref, err)
 			return
 		}
@@ -257,7 +257,7 @@ func (a *App) provisionCeph(st Stack, n designNode, doc designDoc) {
 			a.engCtx(ctx).ContainerRemove(ctx, cid)
 		}
 		id, err := a.engCtx(ctx).ContainerCreate(ctx, ContainerSpec{
-			Name: name, Image: ref, Hostname: host, Platform: k3dPlatform(),
+			Name: name, Image: ref, Hostname: host, Platform: k8sPlatform(),
 			Cmd:     []string{"bash", cephScript},
 			Env:     []string{"CEPH_OSD_SIZE_GB=" + strconv.Itoa(cfg.OSDSizeGB), "CEPH_POOL=" + cephPool},
 			Network: networkName(st.ID), Aliases: []string{host},

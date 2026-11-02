@@ -39,6 +39,7 @@ var joinKinds = map[string]bool{
 	"mysqlceinnodb": true,
 	"mariadbrepl":   true,
 	"mariadbgalera": true,
+	"kubeadm":       true, // a new member is a worker, and joins with a fresh token
 }
 
 // rebuildOnJoin are cluster kinds whose members hold nothing but configuration DBCanvas writes:
@@ -98,6 +99,8 @@ func (a *App) joinFrame(st Stack, f designFrame, doc designDoc, fresh []designNo
 		a.joinMariaDBFrame(st, f, doc, fresh)
 	case "mariadbgalera":
 		a.joinMariaDBGaleraFrame(st, f, doc, fresh)
+	case "kubeadm":
+		a.joinKubeadmFrame(st, f, doc, fresh)
 	default:
 		for _, n := range fresh {
 			a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployError})

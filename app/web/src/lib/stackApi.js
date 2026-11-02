@@ -195,6 +195,7 @@ export const stackApi = {
   pdpsCatalog: () => request('GET', '/api/catalog/pdps'),
   operatorsCatalog: () => request('GET', '/api/catalog/operators'),
   k3sCatalog: () => request('GET', '/api/catalog/k3s'),
+  kubernetesCatalog: () => request('GET', '/api/catalog/kubernetes'),
 }
 
 // Deployment templates (app/templates.go). Ids are opaque strings: a decimal for a

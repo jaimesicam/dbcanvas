@@ -66,6 +66,7 @@ import {
   podMenuEntries, POD_SHELLS, POD_CLIENTS,
   Spinner, NodeStatus, nodeConfiguring, configPhaseOf, PITRFields,
   FrameVaultFields, PgBouncerForm, PGHostAuthFields, PGStreamFrameForm, PaletteEntry, loadPalettePrefs,
+  KubeadmFrameForm, KubeadmMemberForm,
 } from '../src/pages/StackDesigner.jsx'
 import PGStreamManager from '../src/pages/PGStreamManager.jsx'
 import PgBouncerManager from '../src/pages/PgBouncerManager.jsx'
@@ -6641,6 +6642,38 @@ check('menu: a note under a label is counted in the panel width', () => {
     (it) => ({ label: it.label, note: it.role }))
   if (add[0].items.map((i) => i.note).join('|') !== 'S3 store for backups|block volumes for Kubernetes') throw new Error('the roles did not reach the menu entries')
   return 'ok'
+})
+
+const kubeFrame = (extra = {}) => ({ id: 'fk', type: 'kubeadm', label: 'kubeadm-00', kubeadmVersion: '', kubeadmStage: '', kubeadmCni: '', ...extra })
+const kubeMembers = (n) => Array.from({ length: n }, (_, i) => ({ id: `k${i + 1}`, type: 'kubeadm', label: `kube0${i + 1}`, frameId: 'fk' }))
+
+check('kubeadm frame: the stage decides whether a pod network is asked for', () => {
+  const ready = renderToString(<KubeadmFrameForm frame={kubeFrame()} frameNodes={kubeMembers(3)} patchFrame={noop} deleteFrame={noop} deployed={false} />)
+  for (const want of ['Kubeadm Cluster', 'kube01', 'control plane', 'Pod network', 'Calico', 'Flannel', 'Prepared', 'Initialized', 'The other 2 nodes are workers']) {
+    if (!ready.includes(want)) throw new Error(`the ready form omits "${want}"`)
+  }
+  const prepared = renderToString(<KubeadmFrameForm frame={kubeFrame({ kubeadmStage: 'prepared' })} frameNodes={kubeMembers(1)} patchFrame={noop} deleteFrame={noop} deployed={false} />)
+  if (prepared.includes('Pod network')) throw new Error('a pod network is offered at a stage that installs none')
+  if (!prepared.includes('init and the joins are yours')) throw new Error('the prepared stage does not say what is left to do')
+  if (!prepared.includes('pods run on the control plane')) throw new Error('a one-node cluster does not say where pods run')
+  return ready
+})
+
+check('kubeadm node: the control plane is the first label, and a deployed one says what to run next', () => {
+  // Out of label order on purpose: the control plane is kube01 wherever it sits in the list.
+  const members = [kubeMembers(2)[1], kubeMembers(2)[0]]
+  const design = renderToString(<KubeadmMemberForm node={members[1]} frame={kubeFrame()} frameNodes={members} patchNode={noop} deployed={false} />)
+  if (!design.includes('Kubeadm control plane')) throw new Error('kube01 is not the control plane')
+  const worker = renderToString(<KubeadmMemberForm node={members[0]} frame={kubeFrame()} frameNodes={members} patchNode={noop} deployed={false} />)
+  if (!worker.includes('ssh kube02')) throw new Error('a worker does not say how the control plane reaches it')
+  const dep = { state: 'running', config: { role: 'control-plane', stage: 'prepared', version: 'v1.37.2', configFile: '/root/kubeadm-config.yaml',
+    hostname: 'kube01', fqdn: 'kube01.example.net', ip: '172.20.0.3', podCidr: '10.244.0.0/16', serviceCidr: '10.96.0.0/12', image: 'dbcanvas-kubeadm:ubuntu-24.04-arm64-v0.0.25' } }
+  const prepared = renderToString(<KubeadmMemberForm node={members[1]} frame={kubeFrame({ kubeadmStage: 'prepared' })} frameNodes={members} patchNode={noop} dep={dep} deployed onDeleteNode={noop} />)
+  for (const want of ['kubeadm init --config /root/kubeadm-config.yaml', 'kubeadm token create --print-join-command', 'v1.37.2', '10.244.0.0/16']) {
+    if (!prepared.includes(want)) throw new Error(`a prepared control plane omits "${want}"`)
+  }
+  if (prepared.includes('Delete node')) throw new Error('the control plane can be deleted on its own')
+  return prepared
 })
 
 check('infrastructure library: recents saved under a renamed label keep their place', () => {

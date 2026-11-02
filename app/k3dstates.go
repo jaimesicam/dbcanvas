@@ -1088,7 +1088,7 @@ const k3dStateMaxEvents = 5
 // no events. Neither is a reason to show nothing, so both are reported in `warnings` and
 // the sample goes out with what it has.
 func (a *App) handleK3DStates(w http.ResponseWriter, r *http.Request) {
-	_, _, dep, ok := a.k3dRBACContext(w, r)
+	_, _, dep, ok := a.k8sStatesContext(w, r)
 	if !ok {
 		return
 	}
@@ -1148,6 +1148,27 @@ func sortedBoolKeys(m map[string]bool) []string {
 	return out
 }
 
+// k8sStatesContext is k3dRBACContext for this page's three endpoints, which read any Kubernetes
+// frame: a K3D cluster through its k3s server, a Kubeadm cluster through its control plane. The
+// K3D-only features keep k3dRBACContext, so nothing of theirs is offered a cluster it cannot run on.
+func (a *App) k8sStatesContext(w http.ResponseWriter, r *http.Request) (Stack, designFrame, Deployment, bool) {
+	st, _, ok := a.loadOwnedStack(w, r)
+	if !ok {
+		return Stack{}, designFrame{}, Deployment{}, false
+	}
+	var doc designDoc
+	if json.Unmarshal(st.Design, &doc) != nil {
+		writeErr(w, http.StatusInternalServerError, "invalid stack design")
+		return Stack{}, designFrame{}, Deployment{}, false
+	}
+	frame, dep, err := a.k8sFrameAndServer(st, doc, r.PathValue("fid"))
+	if err != nil {
+		writeErr(w, http.StatusConflict, err.Error())
+		return Stack{}, designFrame{}, Deployment{}, false
+	}
+	return st, frame, dep, true
+}
+
 // k3dStateTarget is one cluster the canvas can watch.
 type k3dStateTarget struct {
 	StackID   int64  `json:"stackId"`
@@ -1156,9 +1177,12 @@ type k3dStateTarget struct {
 	Label     string `json:"label"`
 	Operator  string `json:"operator,omitempty"`
 	Namespace string `json:"namespace,omitempty"`
+	// Kind is the frame type: "k3d" or "kubeadm".
+	Kind string `json:"kind"`
 }
 
-// handleK3DStateTargets lists every running K3D cluster the caller can see, so the page
+// handleK3DStateTargets lists every running Kubernetes cluster the caller can see — K3D, and
+// Kubeadm once initialized — so the page
 // opens with a picker rather than asking somebody to find a stack id.
 //
 // Unlike the debugger's target list next door (k3ddebugapi.go), there is no gate: any
@@ -1182,18 +1206,27 @@ func (a *App) handleK3DStateTargets(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		for _, f := range doc.Frames {
-			if f.Type != "k3d" {
+			if f.Type != "k3d" && f.Type != "kubeadm" {
 				continue
 			}
-			_, dep, err := a.k3dFrameAndServer(st, doc, f.ID)
+			_, dep, err := a.k8sFrameAndServer(st, doc, f.ID)
 			if err != nil {
 				continue // not running: nothing to watch
+			}
+			if f.Type == "kubeadm" {
+				// A prepared cluster nobody has run kubeadm init on has no API server yet.
+				if !a.kubeadmInitialized(withEngine(r.Context(), a.depEngine(st, dep.NodeID)), dep.ContainerID) {
+					continue
+				}
+				out = append(out, k3dStateTarget{StackID: st.ID, StackName: st.Name, FrameID: f.ID,
+					Label: orDefault(f.Label, f.ID), Kind: f.Type})
+				continue
 			}
 			var cfg k3dConfig
 			json.Unmarshal(dep.Config, &cfg)
 			out = append(out, k3dStateTarget{
 				StackID: st.ID, StackName: st.Name, FrameID: f.ID,
-				Label: orDefault(f.Label, f.ID), Operator: cfg.Operator, Namespace: cfg.Namespace,
+				Label: orDefault(f.Label, f.ID), Operator: cfg.Operator, Namespace: cfg.Namespace, Kind: f.Type,
 			})
 		}
 	}
@@ -1291,7 +1324,7 @@ const (
 // everything useful in the log of the run that died. That is one checkbox here and a thing
 // people forget `kubectl logs` can do.
 func (a *App) handleK3DStateLogs(w http.ResponseWriter, r *http.Request) {
-	_, _, dep, ok := a.k3dRBACContext(w, r)
+	_, _, dep, ok := a.k8sStatesContext(w, r)
 	if !ok {
 		return
 	}
@@ -1351,7 +1384,7 @@ func (a *App) handleK3DStateLogs(w http.ResponseWriter, r *http.Request) {
 // logs`, where stderr carries notes about a perfectly successful read.
 func (a *App) kubectlOut(ctx context.Context, serverID string, args ...string) (stdout, stderr string, code int, err error) {
 	res, err := a.engCtx(ctx).Exec(ctx, serverID, append([]string{"kubectl"}, args...),
-		[]string{"KUBECONFIG=" + k3dKubeconfig})
+		[]string{"KUBECONFIG=" + k8sKubeconfig})
 	if err != nil {
 		return "", "", 0, err
 	}
@@ -1366,7 +1399,7 @@ func (a *App) kubectlOut(ctx context.Context, serverID string, args ...string) (
 // and the Secrets editor (k3dobjects.go) are where a cluster is changed, and both do a
 // server-side dry run first. A YAML text box that applied would be neither.
 func (a *App) handleK3DStateManifest(w http.ResponseWriter, r *http.Request) {
-	_, _, dep, ok := a.k3dRBACContext(w, r)
+	_, _, dep, ok := a.k8sStatesContext(w, r)
 	if !ok {
 		return
 	}

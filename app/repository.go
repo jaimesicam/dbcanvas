@@ -388,14 +388,14 @@ func repositoryConsumerIssues(doc designDoc) []issue {
 		}
 		if k3d {
 			// The images are copied for the Repository's architectures, and a k3s node runs
-			// K3D_PLATFORM's — which is set apart from DOCKER_PLATFORM precisely so it can differ.
-			_, ka, _ := strings.Cut(k3dPlatform(), "/")
+			// K8S_PLATFORM's — which is set apart from DOCKER_PLATFORM precisely so it can differ.
+			_, ka, _ := strings.Cut(k8sPlatform(), "/")
 			for _, x := range repoArchesOf(r) {
 				if x == ka {
 					return
 				}
 			}
-			out = append(out, issue{Level: "warning", Message: label + " runs " + ka + " k3s nodes (K3D_PLATFORM), but Repository " + r.Label + " copies images for " + strings.Join(repoArchesOf(r), ", ") + " only — tick " + ka + " on it, or pods will be handed images they cannot run"})
+			out = append(out, issue{Level: "warning", Message: label + " runs " + ka + " k3s nodes (K8S_PLATFORM), but Repository " + r.Label + " copies images for " + strings.Join(repoArchesOf(r), ", ") + " only — tick " + ka + " on it, or pods will be handed images they cannot run"})
 			return
 		}
 		t, ok := repoTargetForNode(os, osVersion)

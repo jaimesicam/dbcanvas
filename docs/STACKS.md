@@ -73,7 +73,7 @@ other node. The version pickers list what `make versions` found for each OS.
 | MongoDB | PSMDB Sharded · PSMDB Replica Set · PSMDB · MClusterAdmin · Big Hole (FTDC viewer) |
 | PostgreSQL | PostgreSQL · Patroni Cluster · repmgr Cluster · PostgreSQL Replication · Spock Cluster |
 | Valkey | Valkey Cluster · Valkey |
-| Kubernetes | K3D Cluster |
+| Kubernetes | K3D Cluster · Kubeadm Cluster |
 | Proxies & HA | ProxySQL · ProxySQL Cluster · HAProxy · PgBouncer · Orchestrator |
 | Monitoring | PMM 3 · PMM 2 (`EOL=on` only) · Watchtower |
 | Identity & Secrets | Samba AD DC · Keycloak · OpenBao |
@@ -209,6 +209,7 @@ and a manual rebuild. Compose kind `pg-stream`; `syncStandbys=N` makes it synchr
 | Type | What you get | Members |
 | --- | --- | --- |
 | **K3D Cluster** | A k3s cluster on the stack network, with MetalLB LoadBalancer addresses, optionally running a database operator. See [Kubernetes (K3D)](#kubernetes-k3d). | 1–3 k3s nodes, default 1 |
+| **Kubeadm Cluster** | Kubernetes built with kubeadm on Ubuntu 24.04 nodes: a control plane that is also the console, and workers. Taken as far as a ready cluster, an initialized one without a pod network, or only prepared. See [Kubernetes (kubeadm)](#kubernetes-kubeadm). | 1–4 nodes, default 2 |
 
 ### Proxies and HA
 
@@ -616,6 +617,61 @@ template.
 **Point-in-time recovery** (PXC) needs its own bucket. On the replica end it is turned on only
 after replication is running.
 
+## Kubernetes (kubeadm)
+
+Add a **Kubeadm Cluster** frame for Kubernetes built the way kubeadm builds it. Each node is an
+Ubuntu 24.04 container with systemd, containerd, and kubeadm, kubelet and kubectl from
+`pkgs.k8s.io` at the release you pick. The kubelet and containerd are systemd units, the control
+plane is static pods under `/etc/kubernetes/manifests`, and `apt-mark hold` keeps the packages
+where they are — so `systemctl`, `journalctl -u kubelet`, `crictl` and the manifests all behave as
+they do on a machine.
+
+The first node by label is the **control plane**, and it is also the console. Open its terminal:
+`kubectl` works as root, `etcdctl` and `etcdutl` match the cluster's etcd, and `ssh <worker>`
+reaches every worker without a password. The other nodes are workers.
+
+The nodes need their image: `make kubeadm-image`, or the **Build** button Validate shows when
+it is missing. It is built for `K8S_PLATFORM`, which has to be the Docker host's own architecture
+(`linux/arm64` on Apple Silicon); see [Configuration](CONFIGURATION.md).
+
+### Frame options
+
+| Option | Choices |
+| --- | --- |
+| Nodes | 1–4: a control plane and up to three workers. With one node, pods run on the control plane |
+| Kubernetes version | Any release in the catalog (the newest minor and the three before it); newest by default |
+| Stage | **Ready**, **Initialized** or **Prepared** — see below |
+| Pod network | **Calico** (enforces NetworkPolicy) or **Flannel** (does not); Ready only |
+| CPU / memory | Per node, on the node's own form. kubeadm wants 2 CPUs on the control plane and 2 GB per node |
+
+### Stages
+
+| Stage | What the deploy does | What is left |
+| --- | --- | --- |
+| Ready | `kubeadm init`, every worker joined, the pod network installed, every node Ready | Workloads |
+| Initialized | `kubeadm init` and the joins, no pod network | Installing one: the nodes are NotReady and CoreDNS is Pending until you do |
+| Prepared | Packages, containerd, `/root/kubeadm-config.yaml` and the SSH keys | `kubeadm init --config /root/kubeadm-config.yaml`, then the join command it prints on each worker |
+
+At every stage the control plane has `/root/kubeadm-config.yaml`, the configuration a Ready or
+Initialized cluster was built from. It holds three settings a container node needs, explained in
+the file: the kubelet does not insist on swap being off, it resolves through the stack's DNS
+rather than Docker's, and kube-proxy leaves the host-wide connection-tracking table alone. Build a
+Prepared cluster from it (edit it first to change anything else) and the workers pick the kubelet
+settings up when they join.
+
+Pick a release a minor behind the newest to upgrade the cluster: change the apt repository in
+`/etc/apt/sources.list.d/kubernetes.list` to the next minor, then follow kubeadm's upgrade
+procedure — the control plane first, then each worker drained, upgraded and uncordoned.
+
+The control plane's panel has **Watch Kubernetes states**, which opens [Kubernetes
+States](KUBERNETES_STATES.md) on the cluster, and **Open root console**. A [Linux Client](#linux-client)
+in the stack can take the cluster's admin kubeconfig as a context named after the frame, pointing at
+`https://<control plane FQDN>:6443`, and installs a kubectl matching the frame's release.
+
+Adding a node to a running cluster builds it as a worker and, when the cluster was initialized,
+joins it with a new token; the rest of the cluster keeps running. Pods use `10.244.0.0/16` and
+Services `10.96.0.0/12`; a deploy refuses a stack network that overlaps either.
+
 ## Linux Client
 
 A bare host joined to the stack's DNS and CA, with nothing installed. Use its terminal to install
@@ -640,7 +696,8 @@ whatever you need, or tick tools to have them installed at deploy:
 After deploy, the panel also has:
 
 - **Kubeconfig** — **Copy to /root/.kube/config** merges every running cluster's kubeconfig into
-  the node, one context per frame; **Current context** switches between them. Contexts you added
+  the node, one context per frame, K3D and Kubeadm alike (a Prepared Kubeadm cluster is skipped
+  until `kubeadm init` has run); **Current context** switches between them. Contexts you added
   yourself are kept.
 - **Sample Client Code** (also on the right-click menu) — generates and runs a client program for
   any database in the stack. See [Sample Client Code](SAMPLE_CODE.md).

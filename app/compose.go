@@ -481,6 +481,7 @@ type composeKind struct {
 // instead — "unknown kind" would be a lie.
 var unsupportedKinds = map[string]string{
 	"k3d":         "a Kubernetes frame needs an operator choice, node budget and expose tiers",
+	"kubeadm":     "a Kubeadm frame is a Kubernetes cluster, not a database: draw it on the canvas",
 	"aio":         "an All-in-One node is a list of per-instance configurations",
 	"stocksim":    "the Stock Market Sim has three connection modes and a dozen lab knobs",
 	"linuxclient": "a core-dump host needs host directory paths and the crashed build's version",

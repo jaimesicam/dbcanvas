@@ -152,11 +152,17 @@ fi
 func lcKubectlVersion(doc designDoc) (version, why string) {
 	cat := loadK3SCatalog()
 	for _, f := range doc.Frames {
-		if f.Type != "k3d" {
-			continue
-		}
-		if tag, ok := cat.resolveK3SVersion(f.K3DK3SVersion); ok {
-			return lcKubectlFromK3S(tag), "matching " + f.Label + " (k3s " + tag + ")"
+		switch f.Type {
+		case "k3d":
+			if tag, ok := cat.resolveK3SVersion(f.K3DK3SVersion); ok {
+				return lcKubectlFromK3S(tag), "matching " + f.Label + " (k3s " + tag + ")"
+			}
+		case "kubeadm":
+			// The release it was deployed at; an upgrade by hand later is not something the
+			// design knows about.
+			if v, ok := kubeadmResolveVersion(f); ok {
+				return v, "matching " + f.Label + " (Kubernetes " + v + ")"
+			}
 		}
 	}
 	if cat.Latest != "" {
@@ -297,11 +303,11 @@ func lcJoinAnd(items []string) string {
 	return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
 }
 
-// k3dFrameLabels names the Kubernetes clusters on the canvas, for the hint above.
+// k3dFrameLabels names the Kubernetes clusters on the canvas, K3D and Kubeadm, for the hint above.
 func k3dFrameLabels(doc designDoc) []string {
 	var out []string
 	for _, f := range doc.Frames {
-		if f.Type == "k3d" {
+		if f.Type == "k3d" || f.Type == "kubeadm" {
 			out = append(out, f.Label)
 		}
 	}

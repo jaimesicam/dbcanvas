@@ -126,6 +126,13 @@ func extraImageCatalog() []extraImage {
 			Platform: platformAMD64,
 		},
 		{
+			ID: "kubeadm", Tag: kubeadmImage(), Label: "Kubeadm node",
+			About: "Ubuntu 24.04 with systemd and containerd, the node of a Kubeadm Cluster frame. Built for K8S_PLATFORM: a Kubernetes node has to run on the host's own architecture. Kubernetes is installed at deploy, at the frame's version.",
+			Make:  "kubeadm-image", Needs: []string{"kubeadm"},
+			Dockerfile: "kubeadm.Dockerfile", Buildable: true,
+			Platform: k8sPlatform(),
+		},
+		{
 			ID: "bighole", Tag: bigHoleImage, Label: "Big Hole",
 			About: "A browser-only MongoDB FTDC viewer, built from upstream source at a pinned commit (upstream publishes no image).",
 			Make:  "bighole-image", Needs: []string{"bighole"},
