@@ -78,7 +78,14 @@ RUN set -eux; \
 #     such file or directory" until kubeadm init timed out. Moving everything into /init and
 #     enabling every controller on the root first makes it deterministic: systemd starts in
 #     /init and treats it as its root, and later execs land in a leaf below it. (kind's
-#     entrypoint does the same.)
+#     entrypoint does the same.) It is retried until the root reports every controller
+#     delegated: one attempt lost the race on a WSL2 Docker host when three nodes booted at
+#     once — a process reached the root between the move and the enable, the enable failed
+#     with EBUSY, and the node ran with nothing delegated. Every provisioning exec then
+#     landed in the root (runc can join a cgroup with no controllers enabled) and kept
+#     delegation off for as long as it ran, so the kubelet failed on "missing controllers:
+#     cpu, cpuset, hugetlb, memory, pids" until kubeadm join gave up. Where the first attempt
+#     succeeds — as it did on Rancher Desktop — the loop runs once.
 #   - Shared mount propagation. Docker makes a container's mounts private; a CNI plugin that
 #     mounts with propagation (Calico's bpffs) then fails with "path /sys/fs is mounted on /sys
 #     but it is not a shared mount". It has to be redone on every start, not once.
@@ -95,8 +102,13 @@ RUN set -eux; \
       echo '# Written by images/kubeadm.Dockerfile. See the comment above it there.'; \
       echo 'if [ -f /sys/fs/cgroup/cgroup.controllers ]; then'; \
       echo '  mkdir -p /sys/fs/cgroup/init'; \
-      echo '  xargs -rn1 < /sys/fs/cgroup/cgroup.procs > /sys/fs/cgroup/init/cgroup.procs || :'; \
-      echo '  sed -e "s/ / +/g" -e "s/^/+/" < /sys/fs/cgroup/cgroup.controllers > /sys/fs/cgroup/cgroup.subtree_control || :'; \
+      echo '  want="$(cat /sys/fs/cgroup/cgroup.controllers)"'; \
+      echo '  i=0'; \
+      echo '  while [ "$(cat /sys/fs/cgroup/cgroup.subtree_control)" != "$want" ] && [ $i -lt 100 ]; do'; \
+      echo '    for p in $(cat /sys/fs/cgroup/cgroup.procs); do echo "$p" > /sys/fs/cgroup/init/cgroup.procs 2>/dev/null || :; done'; \
+      echo '    sed -e "s/ / +/g" -e "s/^/+/" < /sys/fs/cgroup/cgroup.controllers > /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null || :'; \
+      echo '    i=$((i+1)); [ "$(cat /sys/fs/cgroup/cgroup.subtree_control)" = "$want" ] || sleep 0.05'; \
+      echo '  done'; \
       echo 'fi'; \
       echo 'mount --make-rshared /'; \
       echo 'k="/boot/config-$(uname -r)"'; \

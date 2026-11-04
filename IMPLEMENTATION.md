@@ -29196,3 +29196,45 @@ two local origins: one sent 1 MiB and went silent, the other served ranges. curl
 app: an Intranet + Repository stack (pt, oraclelinux-9, Auto) synced 38 MiB from
 repo.percona.com. After switching the design to `http` on the running node, *Sync now* ran with
 `protocol: http` and finished. Test stack deleted.
+
+## 509. Kubeadm nodes keep cgroup delegation (WSL2 Docker host) — `images/kubeadm.Dockerfile`, `app/{kubeadm,kubeadm_test}.go`
+
+**Symptom.** A 3-node Kubeadm Cluster failed on this host (Docker 29.1.3, runc 1.4.0, cgroup v2,
+WSL2 kernel 6.18) but worked on Rancher Desktop on Apple silicon. Either `kubeadm init` failed
+(`connection refused` on 6443) or a worker's `kubeadm join` timed out on the kubelet health check
+after 4 minutes. Each time it was a different node.
+
+**Cause.** The failing node's kubelet exited every 10 s with `Failed to start ContainerManager …
+cgroup ["kubepods"] has some missing controllers: cpu, cpuset, hugetlb, memory, pids`. Watched from
+the host (`/sys/fs/cgroup/system.slice/docker-<id>.scope`, which does not perturb the node), that
+node's root `cgroup.subtree_control` was empty from boot while the others' were full. The image's
+entrypoint makes one attempt to move the root's processes into `/init` and enable every
+controller, ignoring failure (`|| :`). When a process reached the root between the move and the
+enable, the enable failed with EBUSY and the node ran with nothing delegated. With nothing
+delegated, runc puts every `docker exec` in the root itself. With it delegated, runc falls back to
+PID 1's `/init/init.scope`. While any exec sat there, the kubelet could not enable controllers
+for `kubepods.slice`. `kubeadm init`/`join` are such execs, and they wait 4 minutes for the
+kubelet. Stack 12's kube03 failed 24 times and came up 10 s after `kubeadm join` exited. It is a
+race, so it depends on timing; 12 containers started one at a time never lost it.
+
+**Fix.**
+- Entrypoint: the move and enable are retried (up to 100 × 50 ms) until `cgroup.subtree_control`
+  equals `cgroup.controllers`. When the first attempt succeeds, it runs once.
+- `kubeadmCgroupFix` opens `kubeadmPrepScript`, `kubeadmInitScript`, `kubeadmJoinScript` and
+  `kubeadmCNIScript`. If delegation is off, it moves everything in the root, itself included, into
+  `/init/init.scope` and enables every controller, logging one line. Otherwise it reads two files
+  and does nothing. It does not use `set -e`.
+- `TestKubeadmScriptsRepairDelegation` keeps the four scripts opening with it.
+
+Verification performed: a container booted to the broken state (delegation empty; execs landing
+in `0::/`; a 120 s exec in the root) was repaired by the snippet — all controllers delegated, the
+long exec moved to `/init/init.scope`, the next exec landing there. On a healthy node the snippet
+printed nothing and exited 0. `make kubeadm-image` rebuilt the image (`versions.yaml` untouched). Three back-to-back
+destroy+deploy cycles of a 3-node cluster (Intranet + Kubeadm frame, calico): no node ever ran
+without delegation past its first 0.7 s of boot, and every kubelet had zero "missing controllers"
+failures. Cycles 2 and 3 ended with all three nodes Ready in 140 s and 136 s. Cycle 1 initialized
+and joined, but Calico was not Ready within the 10-minute wait. Each node pulls Calico's images
+into a fresh containerd volume. Before this fix, init or join failed in two of two deploys.
+
+**Not done:** cycle 1's Calico timeout was not diagnosed (the cluster was gone before it was
+inspected). The host also has 180 dangling Docker volumes, not investigated.

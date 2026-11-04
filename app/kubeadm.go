@@ -312,11 +312,32 @@ conntrack:
 `, version, host, ip, fqdn, kubeadmConfigFile, kubeadmAPIPort, kubeadmPodCIDR, kubeadmServiceCIDR, kubeadmResolvConf)
 }
 
+// kubeadmCgroupFix opens every long-running kubeadm script. A kubeadm node runs in a private
+// cgroup namespace whose root must delegate every controller to its children, or the kubelet
+// cannot build kubepods.slice ("missing controllers: cpu, cpuset, hugetlb, memory, pids"). The
+// image's entrypoint sets that up at boot (images/kubeadm.Dockerfile); this repairs it if it is
+// off. With delegation off, a docker exec lands in the root itself, and for as long as it runs —
+// kubeadm init or join waits up to four minutes for the kubelet — the root cannot delegate. So
+// the script moves whatever is in the root, itself included, into /init/init.scope, which is
+// where runc puts an exec once delegation is on, and enables every controller. Where delegation
+// is already on, it reads two files and does nothing.
+const kubeadmCgroupFix = `if [ -f /sys/fs/cgroup/cgroup.controllers ] && [ -d /sys/fs/cgroup/init/init.scope ]; then
+  want="$(cat /sys/fs/cgroup/cgroup.controllers)"
+  i=0
+  while [ "$(cat /sys/fs/cgroup/cgroup.subtree_control)" != "$want" ] && [ $i -lt 100 ]; do
+    [ $i = 0 ] && echo "cgroup delegation was off at the node's root; repairing it" >&2
+    for p in $(cat /sys/fs/cgroup/cgroup.procs); do echo "$p" > /sys/fs/cgroup/init/init.scope/cgroup.procs 2>/dev/null || true; done
+    sed -e 's/ / +/g' -e 's/^/+/' /sys/fs/cgroup/cgroup.controllers > /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null || true
+    i=$((i+1)); [ "$(cat /sys/fs/cgroup/cgroup.subtree_control)" = "$want" ] || sleep 0.05
+  done
+fi
+`
+
 // kubeadmPrepScript installs one node's Kubernetes packages at the frame's release and points the
 // kubelet at the stack. Safe to run again: apt and the files it writes are idempotent.
 //
 // Env: REPO (v1.37), VER (1.37.2), NODE_IP, DNS_IP, DOMAIN.
-const kubeadmPrepScript = `set -e
+const kubeadmPrepScript = kubeadmCgroupFix + `set -e
 export DEBIAN_FRONTEND=noninteractive
 mkdir -p /etc/apt/keyrings /etc/kubernetes /etc/bash_completion.d
 curl -fsSL --retry 3 "https://pkgs.k8s.io/core:/stable:/$REPO/deb/Release.key" \
@@ -398,7 +419,7 @@ chmod 600 /root/.ssh/known_hosts
 `
 
 // kubeadmInitScript builds the control plane once and gives root the admin kubeconfig.
-const kubeadmInitScript = `set -e
+const kubeadmInitScript = kubeadmCgroupFix + `set -e
 if [ ! -f /etc/kubernetes/admin.conf ]; then
   kubeadm init --config ` + kubeadmConfigFile + `
 fi
@@ -409,14 +430,14 @@ chmod 600 /root/.kube/config
 
 // kubeadmJoinScript joins a worker once. Env: JOIN, the command `kubeadm token create
 // --print-join-command` printed on the control plane.
-const kubeadmJoinScript = `set -e
+const kubeadmJoinScript = kubeadmCgroupFix + `set -e
 [ -f /etc/kubernetes/kubelet.conf ] && exit 0
 $JOIN
 `
 
 // kubeadmCNIScript installs the pod network from the control plane. Env: CNI, VER (the CNI's
 // release), POD_CIDR.
-const kubeadmCNIScript = `set -e
+const kubeadmCNIScript = kubeadmCgroupFix + `set -e
 export KUBECONFIG=/etc/kubernetes/admin.conf
 case "$CNI" in
 calico)

@@ -343,3 +343,20 @@ func TestK8sKubeconfigNamesBothAdminConfigs(t *testing.T) {
 		t.Errorf("k8sKubeconfig = %q", k8sKubeconfig)
 	}
 }
+
+// TestKubeadmScriptsRepairDelegation: every long kubeadm step first makes sure the node's root
+// cgroup delegates its controllers, or an exec sitting in the root keeps the kubelet from
+// building kubepods.slice for as long as kubeadm waits on it (kubeadmCgroupFix).
+func TestKubeadmScriptsRepairDelegation(t *testing.T) {
+	for name, s := range map[string]string{
+		"prep": kubeadmPrepScript, "init": kubeadmInitScript, "join": kubeadmJoinScript, "cni": kubeadmCNIScript,
+	} {
+		if !strings.HasPrefix(s, kubeadmCgroupFix) {
+			t.Errorf("the %s script does not start with kubeadmCgroupFix", name)
+		}
+	}
+	// It must not stop a script that runs under set -e, and must leave a healthy node alone.
+	if strings.Contains(kubeadmCgroupFix, "set -e") || !strings.Contains(kubeadmCgroupFix, `!= "$want"`) {
+		t.Error("kubeadmCgroupFix changed shape")
+	}
+}
