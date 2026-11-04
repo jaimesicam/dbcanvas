@@ -33,9 +33,9 @@ func nodeDBVersionSpec(n designNode) (dbVersionSpec, bool) {
 	case "ps":
 		s.Section, s.Product, s.Major = "percona_server", "Percona Server", psMajorOf(n.PSMajor)
 	case "pg":
-		s.Section, s.Product, s.Major = "percona_postgresql", "PostgreSQL", ppgMajorOf(n.PGMajor)
+		s.Section, s.Product, s.Major = pgCatalogSection(n.Distribution), pgCatalogProduct(n.Distribution), ppgMajorOf(n.PGMajor)
 	case "psm":
-		s.Section, s.Product, s.Major = "percona_server_mongodb", "PS MongoDB", majorOr(n.PSMDBMajor, "8.0")
+		s.Section, s.Product, s.Major = mongoCatalogSection(n.Distribution), mongoCatalogProduct(n.Distribution), mongoMajorFor(n.Distribution, n.PSMDBMajor)
 	case "mariadb":
 		s.Section, s.Product, s.Major = "mariadb", "MariaDB", mariadbMajorOf(n.MariaDBMajor)
 	case "mysqlce":
@@ -63,12 +63,14 @@ func frameDBVersionSpec(f designFrame) (dbVersionSpec, bool) {
 		s.Section, s.Product, s.Major = "percona_xtradb_cluster", "PXC", majorOr(f.PXCMajor, "8.0")
 	case "mysql":
 		s.Section, s.Product, s.Major = "percona_server", "Percona Server", psMajorOf(f.PSMajor)
-	case "patroni", "repmgr", "pgstream":
+	case "patroni", "pgstream":
+		s.Section, s.Product, s.Major = pgCatalogSection(f.Distribution), pgCatalogProduct(f.Distribution), ppgMajorOf(f.PGMajor)
+	case "repmgr":
 		s.Section, s.Product, s.Major = "percona_postgresql", "PostgreSQL", ppgMajorOf(f.PGMajor)
 	case "spock":
 		s.Section, s.Product, s.Major = "spock", "PostgreSQL (Spock)", ppgMajorOf(f.PGMajor)
 	case "psmrs", "psmdb":
-		s.Section, s.Product, s.Major = "percona_server_mongodb", "PS MongoDB", majorOr(f.PSMDBMajor, "8.0")
+		s.Section, s.Product, s.Major = mongoCatalogSection(f.Distribution), mongoCatalogProduct(f.Distribution), mongoMajorFor(f.Distribution, f.PSMDBMajor)
 	case "valkeycluster":
 		s.Section, s.Product, s.Major = "percona_valkey", "Valkey", f.ValkeyMajor
 	case "mariadbgalera", "mariadbrepl":
@@ -197,12 +199,15 @@ func aioDBVersionSpecs(n designNode) []dbVersionSpec {
 			add("mysql_community", "MySQL Community", mysqlceMajorOf(n.AIOMySQLCEMajor))
 		}
 		switch in.Kind {
-		case "pg", "patroni", "repmgr", "pgstream":
+		case "pg", "patroni", "pgstream":
+			add(pgCatalogSection(in.Distribution), pgCatalogProduct(in.Distribution), ppgMajorOf(in.PGMajor))
+		case "repmgr":
 			add("percona_postgresql", "PostgreSQL", ppgMajorOf(in.PGMajor))
 		case "spock":
 			add("spock", "PostgreSQL (Spock)", ppgMajorOf(in.PGMajor))
 		case "psmdb", "psmrs", "psmdbsharded":
-			add("percona_server_mongodb", "PS MongoDB", aioPSMDBMajor(n))
+			m, _ := aioMongoMajorVersion(n)
+			add(mongoCatalogSection(aioMongoDist(n)), mongoCatalogProduct(aioMongoDist(n)), m)
 		case "valkey", "valkeycluster":
 			add("percona_valkey", "Valkey", n.AIOValkeyMajor)
 		case "proxysql":

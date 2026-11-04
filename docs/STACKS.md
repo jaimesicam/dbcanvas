@@ -70,8 +70,11 @@ other node. The version pickers list what `make versions` found for each OS.
 | MySQL (Percona) | PXC · Percona Server · Percona Server Replication · Percona Server InnoDB / GR |
 | MySQL (Community) | MySQL · MySQL Replication · MySQL InnoDB / GR |
 | MariaDB | MariaDB · MariaDB Replication · MariaDB Galera |
-| MongoDB | PSMDB Sharded · PSMDB Replica Set · PSMDB · MClusterAdmin · Big Hole (FTDC viewer) |
-| PostgreSQL | PostgreSQL · Patroni Cluster · repmgr Cluster · PostgreSQL Replication · Spock Cluster |
+| MongoDB (Percona) | PSMDB Sharded · PSMDB Replica Set · PSMDB |
+| MongoDB (Community) | MDB Sharded · MDB Replica Set · MDB |
+| MongoDB Tools | MClusterAdmin · Big Hole (FTDC viewer) |
+| PostgreSQL (Percona) | PostgreSQL · Patroni Cluster · PostgreSQL Replication |
+| PostgreSQL (PGDG) | PostgreSQL (PGDG) · Patroni Cluster (PGDG) · PostgreSQL Replication (PGDG) · repmgr Cluster · Spock Cluster |
 | Valkey | Valkey Cluster · Valkey |
 | Kubernetes | K3D Cluster · Kubeadm Cluster |
 | Proxies & HA | ProxySQL · ProxySQL Cluster · HAProxy · PgBouncer · Orchestrator |
@@ -151,8 +154,19 @@ smaller than the server's memory limit.
 | **PSMDB** | Percona Server for MongoDB, standalone. LDAP, Kerberos or Keycloak OIDC sign-in, and OpenBao encryption. | — |
 | **PSMDB Replica Set** | A replica set; the frame's label is the set name. PBM backups to SeaweedFS, optional [vector search](#vector-search-on-mongodb-mongot). | 1–9, default 3 |
 | **PSMDB Sharded** | One mongos, a config-server replica set and three shards. | 5 or 13, default 13 |
+| **MDB** | MongoDB Community Server from repo.mongodb.org, standalone: 6.0, 7.0, 8.0 or 8.2, where the image has them. | — |
+| **MDB Replica Set** | A Community Server replica set. PBM backups to SeaweedFS work as on PSMDB. | 1–9, default 3 |
+| **MDB Sharded** | A Community Server sharded cluster, in the same two topologies. | 5 or 13, default 13 |
 | **MClusterAdmin** | A third-party MongoDB web administration panel ([below](#mclusteradmin)). | — |
 | **Big Hole** | A third-party FTDC (`diagnostic.data`) viewer that runs in your browser ([below](#big-hole)). | — |
+
+**PSMDB or MDB.** The MDB entries are the same node types running MongoDB's own Community Server
+instead of Percona's build, with their own version list (`GET /api/catalog/psmdb?distribution=community`).
+The Community Server has no LDAP, Kerberos or Keycloak OIDC sign-in and no encryption at rest — those
+are MongoDB Enterprise features that PSMDB includes — and no vector search here (that is Percona's
+`mongot`), so the MDB forms leave them out and say why. PMM, PBM, TLS, MClusterAdmin and everything
+that reads a running MongoDB work the same. Which series each image has: Oracle Linux 8 and 9 and
+Ubuntu 22.04 all four; Ubuntu 24.04 8.0 and 8.2; Oracle Linux 10 7.0 and 8.0.
 
 Every MongoDB node has **Download diagnostic.data with mongod.log** on its right-click menu
 (mongos.log on a router): one `.tar.gz` containing a `<hostname>_log_diagnostic_data`
@@ -167,6 +181,17 @@ directory, ready for [FTDC Summary](FTDC_SUMMARY.md) or Big Hole.
 | **repmgr Cluster** | PGDG PostgreSQL with repmgr and repmgrd. | 3–7, default 3 |
 | **PostgreSQL Replication** | Percona PostgreSQL with PostgreSQL's own physical streaming replication and no failover manager: member 1 is the primary, the others hot standbys made with `pg_basebackup`. | 2–9, default 3 |
 | **Spock Cluster** | Active-active (multi-master) PostgreSQL with pgEdge Spock; every member is writable. | 2–7, default 3 |
+| **PostgreSQL (PGDG)** | The PostgreSQL Global Development Group's packages (download.postgresql.org, apt.postgresql.org), standalone. | — |
+| **Patroni Cluster (PGDG)** | PGDG PostgreSQL and Patroni. etcd comes from PGDG's extras repository on Oracle Linux, and from the etcd project's release (3.5) on Ubuntu, whose own etcd is built without the HTTP gateway Patroni needs. | 3–7, default 3 |
+| **PostgreSQL Replication (PGDG)** | PostgreSQL Replication on PGDG's packages. | 2–9, default 3 |
+
+**Percona or PGDG.** The (PGDG) entries are the same node types on PGDG's packages, with PGDG's
+version list (`GET /api/catalog/ppg?distribution=pgdg`). The layout, the services and every
+feature that works on a running server are the same. What a PGDG node does not offer: pg_tde,
+*pg_stat_monitor* (it gets **Enable pg_stat_statements**, as repmgr does), pgAudit and set_user
+(installed from Percona's repository here) and Keycloak sign-in (Percona's pg_oidc_validator).
+pgBackRest is PGDG's `pgbackrest` package. repmgr has always used PGDG, and Spock builds its own
+PostgreSQL from source; both sit in the PGDG group.
 
 Options on the standalone node and Patroni (Percona packages): pgBackRest backups, PMM Query
 Analytics extension (*pg_stat_statements* or *pg_stat_monitor*), pgAudit, set_user, pgbench data at

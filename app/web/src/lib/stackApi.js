@@ -188,8 +188,9 @@ export const stackApi = {
   orchestratorCatalog: () => request('GET', '/api/catalog/orchestrator'),
   mariadbCatalog: () => request('GET', '/api/catalog/mariadb'),
   mysqlceCatalog: () => request('GET', '/api/catalog/mysqlce'),
-  psmdbCatalog: () => request('GET', '/api/catalog/psmdb'),
-  ppgCatalog: () => request('GET', '/api/catalog/ppg'),
+  // dist picks the distribution's catalogue: 'community' (MDB) or 'pgdg' (lib/distribution.js).
+  psmdbCatalog: (dist) => request('GET', '/api/catalog/psmdb' + (dist ? `?distribution=${encodeURIComponent(dist)}` : '')),
+  ppgCatalog: (dist) => request('GET', '/api/catalog/ppg' + (dist ? `?distribution=${encodeURIComponent(dist)}` : '')),
   spockCatalog: () => request('GET', '/api/catalog/spock'),
   imagesCatalog: () => request('GET', '/api/catalog/images'),
   pdpsCatalog: () => request('GET', '/api/catalog/pdps'),

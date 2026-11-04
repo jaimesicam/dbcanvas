@@ -15,12 +15,18 @@ import (
 
 // design parsing (the canvas document stored in stacks.design_json)
 type designNode struct {
-	ID        string `json:"id"`
-	Type      string `json:"type"`
-	Label     string `json:"label"`
-	OS        string `json:"os"`
-	OSVersion string `json:"osVersion"` // OS release (e.g. "9", "24.04") — used by ProxySQL
-	Arch      string `json:"arch"`
+	ID    string `json:"id"`
+	Type  string `json:"type"`
+	Label string `json:"label"`
+	// Distribution is whose build a MongoDB or PostgreSQL node installs: "" is Percona's
+	// (PSMDB, Percona Distribution for PostgreSQL), "community" MongoDB's Community Server
+	// from repo.mongodb.org, "pgdg" the PostgreSQL Global Development Group's packages.
+	// Chosen by the library entry the node was added from and fixed after; frame members
+	// take their frame's. See distribution.go.
+	Distribution string `json:"distribution,omitempty"`
+	OS           string `json:"os"`
+	OSVersion    string `json:"osVersion"` // OS release (e.g. "9", "24.04") — used by ProxySQL
+	Arch         string `json:"arch"`
 	// Per-node sizing (VM-capable node types only). 0 → the Vagrant engine default
 	// (DBCANVAS_VM_CPUS / DBCANVAS_VM_MEMORY), or no limit on Docker. See applyVMSize.
 	// Network conditions applied to this node with tc once it is running —
@@ -478,11 +484,16 @@ type designNode struct {
 	AIOMySQLCEVersion string `json:"aioMysqlceVersion"`
 	AIOPSMDBMajor     string `json:"aioPsmdbMajor"`
 	AIOPSMDBVersion   string `json:"aioPsmdbVersion"`
-	AIOValkeyMajor    string `json:"aioValkeyMajor"`
-	AIOValkeyVer      string `json:"aioValkeyVersion"`
-	AIOProxySQLMajor  string `json:"aioProxysqlMajor"`
-	AIOProxySQLVer    string `json:"aioProxysqlVersion"`
-	AIOOrchVersion    string `json:"aioOrchestratorVersion"`
+	// The MongoDB Community Server pair, for a node whose MongoDB instances are MDB.
+	// Its own pair for the reason MariaDB's and MySQL Community's are: PSMDB and the
+	// Community Server number their builds differently (8.0.12-4 against 8.0.12).
+	AIOMDBMajor      string `json:"aioMdbMajor"`
+	AIOMDBVersion    string `json:"aioMdbVersion"`
+	AIOValkeyMajor   string `json:"aioValkeyMajor"`
+	AIOValkeyVer     string `json:"aioValkeyVersion"`
+	AIOProxySQLMajor string `json:"aioProxysqlMajor"`
+	AIOProxySQLVer   string `json:"aioProxysqlVersion"`
+	AIOOrchVersion   string `json:"aioOrchestratorVersion"`
 	// MClusterAdmin node fields (Type=="mclusteradmin"; see mclusteradmin.go).
 	//
 	// ViewOnly starts the panel with --view-only, which disables every write it can
@@ -539,13 +550,18 @@ type edgeEnd struct {
 // nodes) or a ProxySQL cluster frame (holds ProxySQL nodes), carrying the
 // cluster-wide configuration for its members.
 type designFrame struct {
-	ID    string  `json:"id"`
-	Type  string  `json:"type"` // "pxc" | "proxysql"
-	Label string  `json:"label"`
-	X     float64 `json:"x"`
-	Y     float64 `json:"y"`
-	W     float64 `json:"w"`
-	H     float64 `json:"h"`
+	ID    string `json:"id"`
+	Type  string `json:"type"` // "pxc" | "proxysql"
+	Label string `json:"label"`
+	// Distribution is whose build a MongoDB or PostgreSQL frame installs: "" is Percona's
+	// (PSMDB, Percona Distribution for PostgreSQL), "community" MongoDB's Community Server
+	// from repo.mongodb.org, "pgdg" the PostgreSQL Global Development Group's packages.
+	// Chosen by the library entry the frame was added from and fixed after. See distribution.go.
+	Distribution string  `json:"distribution,omitempty"`
+	X            float64 `json:"x"`
+	Y            float64 `json:"y"`
+	W            float64 `json:"w"`
+	H            float64 `json:"h"`
 	// PXC cluster config.
 	OS           string `json:"os"`           // os family: "oraclelinux" | "ubuntu"
 	OSVersion    string `json:"osVersion"`    // e.g. "9" | "24.04"
@@ -1293,6 +1309,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 		out = append(out, issue{Level: "warning", Message: "Stack has no nodes to deploy"})
 	}
 	out = append(out, catalogVersionIssues(doc)...)
+	out = append(out, distributionStackIssues(doc)...)
 	out = append(out, mysqlTuningIssues(doc)...)
 	intranet := 0
 	watchtower := 0

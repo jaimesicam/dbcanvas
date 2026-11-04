@@ -99,6 +99,36 @@ func aioIssues(n designNode, doc designDoc, exportReq map[int][]string, hostMemB
 			label, major, strings.Join(parts, " and "), major, major, major)})
 	}
 
+	// --- the MongoDB distribution ---------------------------------------------
+	// One MongoDB install serves the whole container, and PSMDB's and the Community
+	// Server's packages both own /usr/bin/mongod (aioMongoDist).
+	if by := aioMongoDistConflict(n); by != nil {
+		out = append(out, issue{Level: "error", Message: fmt.Sprintf(
+			"All-in-One node %s mixes Percona Server for MongoDB (%s) with MongoDB Community Server (%s). "+
+				"Both packages install /usr/bin/mongod and one container takes one MongoDB install — keep one or the other.",
+			label, strings.Join(by[distPercona], ", "), strings.Join(by[distMongoDB], ", "))})
+	}
+	for _, in := range n.AIOInstances {
+		d := strings.TrimSpace(in.Distribution)
+		switch {
+		case d == "":
+		case d == distMongoDB && aioFamilyOf(in.Kind) == famMongo:
+		case d == distPGDG && (in.Kind == "pg" || in.Kind == "patroni"):
+		default:
+			out = append(out, issue{Level: "error", Message: fmt.Sprintf(
+				"All-in-One node %s: instance %s (%s) has no %q distribution — MongoDB instances take \"community\", PostgreSQL and Patroni ones \"pgdg\".",
+				label, in.Name, in.Kind, d)})
+		}
+		if d == distMongoDB && in.EnableVault {
+			out = append(out, issue{Level: "error", Message: fmt.Sprintf(
+				"All-in-One node %s: instance %s runs MongoDB Community Server, which has no encryption at rest — that is a Percona Server for MongoDB feature.", label, in.Name)})
+		}
+		if d == distPGDG && in.EnableVault {
+			out = append(out, issue{Level: "error", Message: fmt.Sprintf(
+				"All-in-One node %s: instance %s runs PGDG PostgreSQL, and pg_tde needs Percona's server.", label, in.Name)})
+		}
+	}
+
 	// --- per-instance rules --------------------------------------------------
 	names := map[string]int{}
 	instIDs := map[string]bool{}

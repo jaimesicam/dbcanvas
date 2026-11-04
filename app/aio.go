@@ -46,6 +46,10 @@ type aioInstance struct {
 	Kind    string `json:"kind"`    // aioKinds: ps|psrepl|pxc|innodb|pg|patroni|…
 	Name    string `json:"name"`    // ps01, pxc-cluster-01 — unique within the node
 	Members int    `json:"members"` // cluster kinds only; 1 for standalone
+	// Distribution is whose build a MongoDB or PostgreSQL instance runs, as on a node:
+	// "" Percona, "community" MongoDB Community Server (the MDB kinds of the Add
+	// feature menu), "pgdg" PGDG PostgreSQL. See distribution.go and aioMongoDist.
+	Distribution string `json:"distribution,omitempty"`
 
 	// Shared knobs.
 	RootPassword   string `json:"rootPassword"` // "" → from .env, like every classic node

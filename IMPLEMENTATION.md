@@ -29258,3 +29258,85 @@ returns the same state when nothing moved.
 **Verified** in headless Chromium against the rebuilt app: maximized Database Stacks followed the
 browser 1600→1100→1900 px; restored after a shrink it sat inside the 900 px viewport; dragging its
 right edge 200 px left resized it to match.
+
+## 511. MongoDB Community Server (MDB) and PGDG PostgreSQL — `app/distribution.go`, `app/web/src/lib/distribution.js`, `images/versions.sh`
+
+**Asked for.** Community MongoDB as **MDB**, **MDB Replica Set** and **MDB Sharded**, and PGDG
+PostgreSQL as **PostgreSQL (PGDG)**, **Patroni Cluster (PGDG)** and **PostgreSQL Replication
+(PGDG)**, labelled so they are not confused with Percona's, and in All in One too.
+
+**A distribution, not new node types.** MySQL Community got its own types (session 191); here the
+whole node is reusable. mongod and postgres are the same servers, with the same config files,
+replication and layout, so `psm`/`psmrs`/`psmdb` and `pg`/`patroni`/`pgstream` keep their types and a
+node or frame carries `distribution`: `""` (Percona), `"community"` or `"pgdg"`. Everything that
+asks "is this MongoDB / PostgreSQL?" (PMM, PBM, Log Summary, FTDC, Data Generator, Explorer, packet
+captures, switchover, join) keeps working untouched. Only two things branch on it:
+- **Packaging.** `mongoInstallStep` and `pgInstallStep`, plus `pgServerPackagesFor` and `pgBackRestPackage`.
+- **Options the community build lacks.** `distributionIssues` refuses them, and the forms show a `CommunityNote` in their place:
+  - MDB: OIDC, LDAP, Kerberos, encryption at rest, and vector search (Percona's mongot).
+  - PGDG: pg_tde, pg_stat_monitor, pgAudit, set_user and OIDC.
+
+The version fields stay `psmdbMajor/Version` and `pgMajor/Version`, because every version gate reads them.
+The distribution is fixed when the node is added, so a version is never reinterpreted.
+
+**Labelling.**
+- **Library groups:**
+  - MongoDB (Percona): the PSMDB entries.
+  - MongoDB (Community): MDB Sharded, MDB Replica Set, MDB.
+  - MongoDB Tools: MClusterAdmin, Big Hole.
+  - PostgreSQL (Percona): the existing PostgreSQL, Patroni Cluster and PostgreSQL Replication.
+  - PostgreSQL (PGDG): the three (PGDG) entries, plus repmgr (always PGDG) and Spock (source-built).
+- **Host names:** new nodes are named after their build (`mdb-01`, `mdbrs01`, `mdb-rs-00`, `pgdg-patroni-00`, `pgdgpatroni01`).
+- **Frame descriptions:** "MDB 8.0 replica set" and "PGDG PostgreSQL 17 · Patroni".
+- **Deployed labels:** "MDB 8.2.12" and "PG (PGDG) 17.11", read from the deployed config's `distribution`.
+- **Forms:** titled "MDB (standalone)", "Patroni Cluster (PGDG)", and so on.
+
+**Packaging, as found by installing it.**
+- **MongoDB keys and repos.** MongoDB signs 8.2 with the 8.0 key; there is no `server-8.2.asc`. Ubuntu's tree is `multiverse`, Debian's is `main`.
+- **The `mongod` user.** The Debian package runs `mongod` as `mongodb`, while all the code chowns to `mongod`. So a drop-in runs it as `mongod` everywhere.
+- **PGDG etcd on EL.** It is in `pgdg-rhelN-extras` (disabled by default; enabled for the install). It is etcd 3.7, which has no v2 store, so `enable-v2` is left out for PGDG; Patroni speaks etcd3 here anyway.
+  - Its unit takes `ETCD_*` variables, so a drop-in starts it from `/etc/etcd/etcd.conf.yaml`.
+- **PGDG Patroni on Debian/Ubuntu.** The unit reads `/etc/patroni/config.yml`, so it gets the same link to `postgresql.yml` that `patroni.yml` has.
+- **No usable etcd on Debian/Ubuntu.** PGDG's apt repository has no etcd, and the distributions' etcd is built without the gRPC gateway (every `/v3/...` path is 404), which Patroni's etcd3 client needs.
+  - Patroni 4.1.5 against Ubuntu 24.04's etcd-server 3.4.30 looped on "Failed to get list of machines: AttributeError".
+  - Its etcdctl is a separate package, too, so the deploy's quorum check hung first.
+  - Debian/Ubuntu PGDG clusters therefore run the etcd project's release (`pgdgEtcdVersion` 3.5.35, the line Percona ships), downloaded like `kubeadmEtcdctlScript` does, with its own unit.
+
+**Catalogue.** `versions.sh` probes `mongodb_community` (6.0/7.0/8.0/8.2) and `pgdg_postgresql` (13–18) in its `upstream` group. PGDG is recorded as the bare release (`17.11`): PGDG rebuilds releases, and the rebuild is not a version anyone picks.
+- **What the probe found:**
+  - MDB: Oracle Linux 8/9 and Ubuntu 22.04 have all four series; Ubuntu 24.04 has 8.0 and 8.2; OL10 has 7.0 and 8.0.
+  - PGDG: no 13 on EL any more.
+- **versions.yaml:** the probe also refreshed the operator, chart and k3s sections, dropping some pinned versions, so only the two new per-image sections were kept.
+- **Endpoints and validation:**
+  - `GET /api/catalog/psmdb?distribution=community` and `/api/catalog/ppg?distribution=pgdg` serve the new catalogues.
+  - `catalogVersionIssues` and `distVersionIssues` validate against them. A PSMDB-style `8.0.12-4` on an MDB node is refused with the newest real build.
+
+**All in One.**
+- **Variants, not new kinds.** Instances carry `distribution`, and the Add-feature menu lists the variants (`AIO_DIST_VARIANTS`).
+- **MongoDB.** One MongoDB build per container: both packages install `mongod`, so the menu disables the other build and validation refuses a mix. MDB has its own `aioMdbMajor/aioMdbVersion` pair.
+- **PostgreSQL.** PGDG pg and Patroni join repmgr in the existing per-major PGDG flavor. One install carries the server, `repmgr_NN` and Patroni + etcd.
+
+**Compose.** The new kinds are `mdb`, `mdb-rs`, `mdb-sharded`, `pg-pgdg`, `patroni-pgdg` and `pg-stream-pgdg`. Each sets the distribution, and the sims, HAProxy and PgBouncer can link to them.
+
+**Verified live.** In each check, the packages, the server's own identity, and the cluster state were confirmed from inside the containers.
+- **OL9:**
+  - MDB 8.2.12: `mongod` running as `mongod`, buildInfo with no `psmdbVersion`.
+  - MDB 8.0.34 replica set: PRIMARY + 2 SECONDARY, PBM installed.
+  - PGDG PostgreSQL 17.11.
+  - Patroni (PGDG): a leader + 2 streaming replicas, etcd 3.7.3 from extras with 3 members.
+  - Replication (PGDG) 16.15: one streaming standby.
+  - Nothing Percona was installed beyond the image's own percona-release/toolkit.
+- **Ubuntu 24.04:**
+  - The same MDB and PGDG nodes.
+  - An MDB 8.2 sharded cluster (mongos + 3 shards).
+- **Patroni (PGDG) on Ubuntu 22.04 and 24.04**, with etcd 3.5.35:
+  - Leader + 2 streaming replicas on each.
+  - A `patronictl switchover` moved the leader on timeline 2, and the old leader rejoined as a replica.
+- **All in One (OL9):** an MDB replica set + MDB standalone, PGDG pg + Patroni (PGDG) leader/2 replicas + repmgr, all on PostgreSQL 17 in one container.
+- **Validation over the API** refused each Percona-only option, the bad version and the mixed AiO.
+- **UI:** checked in headless Chromium (library groups, add flow, the MDB and Patroni (PGDG) forms).
+- **Tests:**
+  - `distribution_test.go`.
+  - Four SSR smoke checks.
+  - `TestAIOSupportedKindsMatchJSCatalog`: the variant entries put `dist` first so its parser skips them.
+  - The minor-reaches-installer test now accepts `mongoInstallStep`.

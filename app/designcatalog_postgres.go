@@ -34,6 +34,12 @@ func pgcatPPGVersion(what string) []catalogOption {
 	}
 }
 
+// pgcatDistribution is whose PostgreSQL a PostgreSQL node, Patroni cluster or streaming
+// replication cluster installs (distribution.go). The library's "(PGDG)" entries set it.
+var pgcatDistribution = []catalogOption{
+	{Field: "distribution", Values: []string{"", "pgdg"}, Desc: "\"\" installs Percona Distribution for PostgreSQL; \"pgdg\" installs the PostgreSQL Global Development Group's packages (the \"(PGDG)\" library entries), with versions from GET /api/catalog/ppg?distribution=pgdg. Set when the node or cluster is created; Percona-only options (pg_tde, pg_stat_monitor, pgAudit, set_user, OIDC) are refused under pgdg."},
+}
+
 // pgcatCert are the Intranet-CA TLS fields of a PostgreSQL node or cluster.
 var pgcatCert = []catalogOption{
 	{Field: "generateCert", Desc: "Issue PostgreSQL's server certificate from the Intranet CA and turn on TLS."},
@@ -174,6 +180,7 @@ var catalogPostgresFamily = []catalogEntry{
 		},
 		Options: pgcatOpts(
 			pgcatSizing,
+			pgcatDistribution,
 			pgcatPPGVersion("Percona PostgreSQL"),
 			pgcatBackRest,
 			pgcatPercona,
@@ -222,6 +229,7 @@ var catalogPostgresFamily = []catalogEntry{
 			"enableVault: the OpenBao node, and a version and OS for which pg_tde is available",
 		},
 		Options: pgcatOpts(
+			pgcatDistribution,
 			pgcatPPGVersion("Percona PostgreSQL"),
 			pgcatBackRest,
 			pgcatPercona,
@@ -296,6 +304,7 @@ var catalogPostgresFamily = []catalogEntry{
 			"usePgBackRest: a SeaweedFS node with S3 TLS on, set as the backup relation",
 		},
 		Options: pgcatOpts(
+			pgcatDistribution,
 			pgcatPPGVersion("Percona PostgreSQL"),
 			pgcatBackRest,
 			[]catalogOption{

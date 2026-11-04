@@ -65,6 +65,7 @@ import { useSession } from '../session/SessionProvider.jsx'
 import { useBrowser } from '../browser/BrowserProvider.jsx'
 import { nodeWebLinks } from '../lib/nodeLinks.js'
 import { stackRelations, relationPorts, bezierMid, RELATION_KINDS } from '../lib/relations.js'
+import { DIST_MDB, DIST_PGDG, isMDB, isPGDG, distTypeLabel, distNamePrefix, mongoShort } from '../lib/distribution.js'
 import ShareDialog from '../components/ShareDialog.jsx'
 import { useDialog } from '../components/Dialog.jsx'
 import { ActivityPanel } from '../components/Activity.jsx'
@@ -1110,7 +1111,11 @@ const frameDeployedLabel = (f, members, depByNode) => {
 // design-time description.
 const deployedLabel = (type, dep) => {
   const v = dep?.config?.serverVersion
-  return v ? `${ENGINE_SHORT[type] || ''} ${v}`.trim() : ''
+  if (!v) return ''
+  // A community build deployed under a Percona type names itself (app/distribution.go).
+  const dist = dep?.config?.distribution || ''
+  const eng = dist === DIST_MDB ? 'MDB' : dist === DIST_PGDG ? 'PG (PGDG)' : ENGINE_SHORT[type] || ''
+  return `${eng} ${v}`.trim()
 }
 
 // NodeStatus is the status half of a node card, and it is a DOT for the state every
@@ -1300,6 +1305,10 @@ export const frameVersionLabel = (f) => {
   if (f?.type === 'mariadbgalera') return `MariaDB ${f?.mariadbVersion || f?.mariadbMajor || ''} Galera`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'mysqlcerepl') return `MySQL ${f?.mysqlceVersion || f?.mysqlceMajor || ''} replication`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'mysqlceinnodb') return `MySQL ${f?.mysqlceVersion || f?.mysqlceMajor || ''} · ${f?.replMode === 'groupreplication' ? 'Group Replication' : 'InnoDB Cluster'}`.replace(/\s+/g, ' ').trim()
+  if (f?.type === 'psmdb' && isMDB(f)) return `MDB ${f?.psmdbVersion || f?.psmdbMajor || ''} sharded · ${f?.psmdbSetup === 'minimum' ? 'minimum' : 'standard'}`.replace(/\s+/g, ' ').trim()
+  if (f?.type === 'psmrs' && isMDB(f)) return `MDB ${f?.psmdbVersion || f?.psmdbMajor || ''} replica set`.replace(/\s+/g, ' ').trim()
+  if (f?.type === 'patroni' && isPGDG(f)) return `PGDG PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · Patroni${f?.pgVector ? ' · pgvector' : ''}`.replace(/\s+/g, ' ').trim()
+  if (f?.type === 'pgstream' && isPGDG(f)) return `PGDG PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · streaming${f?.pgSyncStandbys > 0 ? ` · sync ${f.pgSyncStandbys}` : ' · async'}${f?.pgVector ? ' · pgvector' : ''}`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'psmdb') return `PS MongoDB ${f?.psmdbVersion || f?.psmdbMajor || ''} sharded · ${f?.psmdbSetup === 'minimum' ? 'minimum' : 'standard'}${f?.vectorSearch ? ' · vector search' : ''}`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'psmrs') return `PS MongoDB ${f?.psmdbVersion || f?.psmdbMajor || ''} replica set${f?.vectorSearch ? ' · vector search' : ''}`.replace(/\s+/g, ' ').trim()
   if (f?.type === 'patroni') return `Percona PostgreSQL ${f?.pgVersion || f?.pgMajor || ''} · Patroni${f?.pgVector ? ' · pgvector' : ''}`.replace(/\s+/g, ' ').trim()
@@ -1329,10 +1338,10 @@ const nodeOSLabel = (n) => (n.type === 'proxysql' || n.type === 'ps' || n.type =
 // NN zero-padded from 01 and increasing per node type (pmm-01, pmm-02, …, and in
 // future psmysql-01, psmysql-02, …). These labels become the node hostnames in
 // the Intranet DNS / FQDNs. The Intranet singleton keeps its plain label.
-function nextLabel(type, nodes) {
+function nextLabel(type, nodes, prefix) {
   const def = NODE_TYPES[type]
   if (def.singleton) return def.label
-  const base = def.slug || type
+  const base = prefix || def.slug || type
   // linuxclient1, linuxclient2, … — no dash, no zero-padding (unlike every other type).
   if (def.plainSequentialLabel) {
     const re = new RegExp(`^${base}(\\d+)$`)
@@ -4083,13 +4092,15 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
   // addMongoDBCluster builds a PS MongoDB sharded cluster frame. Topology is fixed
   // per setup (no add/remove); the setup can be switched in the frame form before
   // deploy.
-  function addMongoDBCluster(setup = 'standard') {
+  function addMongoDBCluster(setup = 'standard', dist = '') {
     if (!nodes.some((n) => n.type === 'intranet')) return
     setup = setup === 'minimum' ? 'minimum' : 'standard'
+    dist = typeof dist === 'string' ? dist : ''
     const fid = uid('frame')
     const { x: fx, y: fy } = placeAt(200, 200)
     const frame = {
-      id: fid, type: 'psmdb', label: nextNamedCluster(frames, 'psmdb'), x: fx, y: fy, w: 0, h: 0,
+      id: fid, type: 'psmdb', label: nextNamedCluster(frames, distNamePrefix('frame_psmdb', dist, 'psmdb')), x: fx, y: fy, w: 0, h: 0,
+      ...(dist ? { distribution: dist } : {}),
       os: 'oraclelinux', osVersion: '9', psmdbMajor: '8.0', psmdbVersion: '',
       psmdbSetup: setup, rootPassword: '', pmmNodeId: '', useProxy: false,
       enablePBM: false, seaweedfsNodeId: '',
@@ -4111,19 +4122,27 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
     setFrames(r.frames)
     setNodes(r.nodes)
   }
+  // memberPrefix names a new member after its frame's distribution (mdbrs01 in an MDB
+  // replica set): a member's label is its host name.
+  function memberPrefix(frameId, type) {
+    const f = frames.find((x) => x.id === frameId)
+    return distNamePrefix(type, f?.distribution || '', type)
+  }
   function newPSMRSMember(frameId) {
     const used = new Set(nodes.filter((n) => n.type === 'psmrs').map((n) => n.label))
-    return { id: uid('psmrs'), type: 'psmrs', label: nextMemberName(used, 'psmrs'), frameId, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 }
+    return { id: uid('psmrs'), type: 'psmrs', label: nextMemberName(used, memberPrefix(frameId, 'psmrs')), frameId, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 }
   }
   // addMongoRSCluster builds a PS MongoDB replica-set frame with 3 members
   // (resizable 1–9). Members all run mongod in one replica set; an admin user is
   // created on the elected primary.
-  function addMongoRSCluster() {
+  function addMongoRSCluster(dist = '') {
     if (!nodes.some((n) => n.type === 'intranet')) return
+    dist = typeof dist === 'string' ? dist : ''
     const fid = uid('frame')
     const { x: fx, y: fy } = placeAt(200, 200)
     const frame = {
-      id: fid, type: 'psmrs', label: nextNamedCluster(frames, 'psmrs'), x: fx, y: fy, w: 0, h: 0,
+      id: fid, type: 'psmrs', label: nextNamedCluster(frames, distNamePrefix('frame_psmrs', dist, 'psmrs')), x: fx, y: fy, w: 0, h: 0,
+      ...(dist ? { distribution: dist } : {}),
       os: 'oraclelinux', osVersion: '9', psmdbMajor: '8.0', psmdbVersion: '',
       rootPassword: '', pmmNodeId: '', useProxy: false,
       enablePBM: false, seaweedfsNodeId: '',
@@ -4132,7 +4151,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
     const used = new Set(nodes.filter((n) => n.type === 'psmrs').map((n) => n.label))
     const newNodes = []
     for (let i = 0; i < 3; i++) {
-      const name = nextMemberName(used, 'psmrs')
+      const name = nextMemberName(used, distNamePrefix('psmrs', dist, 'psmrs'))
       used.add(name)
       newNodes.push({ id: uid('psmrs'), type: 'psmrs', label: name, frameId: fid, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 })
     }
@@ -4143,17 +4162,19 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
   }
   function newPatroniMember(frameId) {
     const used = new Set(nodes.filter((n) => n.type === 'patroni').map((n) => n.label))
-    return { id: uid('patroni'), type: 'patroni', label: nextMemberName(used, 'patroni'), frameId, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 }
+    return { id: uid('patroni'), type: 'patroni', label: nextMemberName(used, memberPrefix(frameId, 'patroni')), frameId, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 }
   }
   // addPatroniCluster builds a Patroni PostgreSQL cluster frame with 3 members
   // (resizable 3–7). Each member co-locates PostgreSQL + Patroni + an etcd member;
   // one node is elected leader and the rest stream as replicas.
-  function addPatroniCluster() {
+  function addPatroniCluster(dist = '') {
     if (!nodes.some((n) => n.type === 'intranet')) return
+    dist = typeof dist === 'string' ? dist : ''
     const fid = uid('frame')
     const { x: fx, y: fy } = placeAt(200, 200)
     const frame = {
-      id: fid, type: 'patroni', label: nextNamedCluster(frames, 'patroni-cluster'), x: fx, y: fy, w: 0, h: 0,
+      id: fid, type: 'patroni', label: nextNamedCluster(frames, distNamePrefix('frame_patroni', dist, 'patroni-cluster')), x: fx, y: fy, w: 0, h: 0,
+      ...(dist ? { distribution: dist } : {}),
       os: 'oraclelinux', osVersion: '9', pgMajor: '16', pgVersion: '',
       rootPassword: '', pmmNodeId: '', useProxy: false,
       usePgBackRest: false, seaweedfsNodeId: '',
@@ -4162,7 +4183,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
     const used = new Set(nodes.filter((n) => n.type === 'patroni').map((n) => n.label))
     const newNodes = []
     for (let i = 0; i < 3; i++) {
-      const name = nextMemberName(used, 'patroni')
+      const name = nextMemberName(used, distNamePrefix('patroni', dist, 'patroni'))
       used.add(name)
       newNodes.push({ id: uid('patroni'), type: 'patroni', label: name, frameId: fid, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 })
     }
@@ -4202,16 +4223,18 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
   }
   function newPGStreamMember(frameId) {
     const used = new Set(nodes.filter((n) => n.type === 'pgstream').map((n) => n.label))
-    return { id: uid('pgstream'), type: 'pgstream', label: nextMemberName(used, 'pgstream'), frameId, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 }
+    return { id: uid('pgstream'), type: 'pgstream', label: nextMemberName(used, memberPrefix(frameId, 'pgstream')), frameId, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 }
   }
   // addPGStreamCluster builds a streaming replication frame: a primary and two hot standbys
   // (resizable 2–9), PostgreSQL's own physical replication with no failover manager.
-  function addPGStreamCluster() {
+  function addPGStreamCluster(dist = '') {
     if (!nodes.some((n) => n.type === 'intranet')) return
+    dist = typeof dist === 'string' ? dist : ''
     const fid = uid('frame')
     const { x: fx, y: fy } = placeAt(200, 200)
     const frame = {
-      id: fid, type: 'pgstream', label: nextNamedCluster(frames, 'pg-stream'), x: fx, y: fy, w: 0, h: 0,
+      id: fid, type: 'pgstream', label: nextNamedCluster(frames, distNamePrefix('frame_pgstream', dist, 'pg-stream')), x: fx, y: fy, w: 0, h: 0,
+      ...(dist ? { distribution: dist } : {}),
       os: 'oraclelinux', osVersion: '9', pgMajor: '17', pgVersion: '',
       pmmNodeId: '', useProxy: false,
       pgSyncStandbys: 0, pgSyncCommit: '', pgNoSlots: false,
@@ -4221,7 +4244,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
     const used = new Set(nodes.filter((n) => n.type === 'pgstream').map((n) => n.label))
     const newNodes = []
     for (let i = 0; i < 3; i++) {
-      const name = nextMemberName(used, 'pgstream')
+      const name = nextMemberName(used, distNamePrefix('pgstream', dist, 'pgstream'))
       used.add(name)
       newNodes.push({ id: uid('pgstream'), type: 'pgstream', label: name, frameId: fid, exportEnabled: false, exportHostPort: 0, x: 0, y: 0 })
     }
@@ -4418,7 +4441,9 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
     if (at) return at
     return { x: (-refs.current.view.x + dx) / refs.current.view.z, y: (-refs.current.view.y + dy) / refs.current.view.z }
   }
-  function addNode(type) {
+  // extra is merged over the type's defaults: the library's MDB and (PGDG) entries add
+  // a psm or pg node with its distribution set (lib/distribution.js).
+  function addNode(type, extra = {}) {
     const def = NODE_TYPES[type]
     if (def.singleton && nodes.some((n) => n.type === type)) return
     // The Intranet is required first — it provides DNS/mail/LDAP/CA for the stack.
@@ -4429,7 +4454,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
     // Docker platform (DOCKER_PLATFORM) and `make images` builds only that, so the
     // server resolves it — see archOr. A value saved here would override that.
     setNodes((ns) => [...ns, {
-      id, type, x, y, label: nextLabel(type, ns), os: def.osOptions[0].id, ...(def.defaults || {}),
+      id, type, x, y, label: nextLabel(type, ns, distNamePrefix(type, extra.distribution || '', '')), os: def.osOptions[0].id, ...(def.defaults || {}), ...extra,
     }])
     setSelected({ kind: 'node', id })
   }
@@ -4907,19 +4932,37 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       { label: 'MariaDB Replication', role: 'async · MariaDB GTID', type: 'mariadbrepl', onClick: addMariaDBCluster },
       { label: 'MariaDB Galera', role: 'synchronous multi-primary', type: 'mariadbgalera', onClick: addMariaDBGaleraCluster },
     ] },
-    { title: 'MongoDB', items: [
+    // Who built the server is in the group title, as for MySQL: Percona's MongoDB is PSMDB,
+    // MongoDB Inc.'s Community Server is MDB. Same node types underneath; the entry sets
+    // the distribution (lib/distribution.js).
+    { title: 'MongoDB (Percona)', items: [
       { label: 'PSMDB Sharded', role: 'mongos + config + shards', type: 'psmdb', onClick: () => addMongoDBCluster() },
-      { label: 'PSMDB Replica Set', role: 'automatic elections', type: 'psmrs', onClick: addMongoRSCluster },
+      { label: 'PSMDB Replica Set', role: 'automatic elections', type: 'psmrs', onClick: () => addMongoRSCluster() },
       { label: 'PSMDB', role: 'standalone server', type: 'psm', onClick: () => addNode('psm') },
+    ] },
+    { title: 'MongoDB (Community)', items: [
+      { blurb: 'A sharded MongoDB Community Server cluster (repo.mongodb.org): shards, config servers and a mongos router.', label: 'MDB Sharded', role: 'Community Server · mongos + config + shards', type: 'psmdb', onClick: () => addMongoDBCluster('standard', DIST_MDB) },
+      { blurb: 'A MongoDB Community Server replica set (repo.mongodb.org) — mongod members with automatic elections. PBM backups work with it too.', label: 'MDB Replica Set', role: 'Community Server · automatic elections', type: 'psmrs', onClick: () => addMongoRSCluster(DIST_MDB) },
+      { blurb: 'A standalone MongoDB Community Server, from repo.mongodb.org — for comparing behaviour against PSMDB.', label: 'MDB', role: 'Community Server · standalone', type: 'psm', onClick: () => addNode('psm', { distribution: DIST_MDB }) },
+    ] },
+    { title: 'MongoDB Tools', items: [
       { label: 'MClusterAdmin', role: 'MongoDB admin panel', type: 'mclusteradmin', onClick: () => addNode('mclusteradmin') },
       { label: 'Big Hole (FTDC viewer)', role: 'reads diagnostic.data', type: 'bighole', onClick: () => addNode('bighole') },
     ] },
-    { title: 'PostgreSQL', items: [
+    { title: 'PostgreSQL (Percona)', items: [
       { label: 'PostgreSQL', role: 'standalone server', type: 'pg', onClick: () => addNode('pg') },
-      { label: 'Patroni Cluster', role: 'automatic failover · etcd', type: 'patroni', onClick: addPatroniCluster },
+      { label: 'Patroni Cluster', role: 'automatic failover · etcd', type: 'patroni', onClick: () => addPatroniCluster() },
+      { label: 'PostgreSQL Replication', role: 'streaming · no failover manager', type: 'pgstream', onClick: () => addPGStreamCluster() },
+    ] },
+    // repmgr has always installed PGDG's packages (repmgr is not in Percona's repository);
+    // Spock builds its own patched PostgreSQL from source, so it sits here as the other
+    // non-Percona cluster rather than in a group of one.
+    { title: 'PostgreSQL (PGDG)', items: [
+      { blurb: "A standalone PostgreSQL from the PostgreSQL Global Development Group's packages (PGDG), rather than Percona's.", label: 'PostgreSQL (PGDG)', role: 'standalone server', type: 'pg', onClick: () => addNode('pg', { distribution: DIST_PGDG }) },
+      { blurb: "A Patroni cluster on PGDG's PostgreSQL and Patroni, with etcd from PGDG (Oracle Linux) or the distribution (Ubuntu).", label: 'Patroni Cluster (PGDG)', role: 'automatic failover · etcd', type: 'patroni', onClick: () => addPatroniCluster(DIST_PGDG) },
+      { blurb: "PostgreSQL's own streaming replication on PGDG's packages, with no failover manager.", label: 'PostgreSQL Replication (PGDG)', role: 'streaming · no failover manager', type: 'pgstream', onClick: () => addPGStreamCluster(DIST_PGDG) },
       { label: 'repmgr Cluster', role: 'automatic failover · repmgrd', type: 'repmgr', onClick: addRepmgrCluster },
-      { label: 'PostgreSQL Replication', role: 'streaming · no failover manager', type: 'pgstream', onClick: addPGStreamCluster },
-      { label: 'Spock Cluster', role: 'multi-master · logical', type: 'spock', onClick: addSpockCluster },
+      { label: 'Spock Cluster', role: 'multi-master · built from source', type: 'spock', onClick: addSpockCluster },
     ] },
     { title: 'Valkey', items: [
       { label: 'Valkey Cluster', role: 'sharded · replicas', type: 'valkeycluster', onClick: () => addValkeyCluster() },
@@ -5016,7 +5059,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       ? 'Locked while deploying'
       : it.off ? `${it.label} is already on the canvas`
       : !hasIntranet && it.type !== 'intranet' ? 'Add an Intranet node first'
-      : nodeHelp(it.type) || NODE_TYPES[it.type]?.sub || it.label,
+      : it.blurb || nodeHelp(it.type) || NODE_TYPES[it.type]?.sub || it.label,
   })
   const paletteButton = (it, key) => {
     const { disabled, reason } = entryState(it)
@@ -5669,7 +5712,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
                       </span>
                       <span className="min-w-0 flex-1 leading-tight">
                         <span className="block truncate text-sm font-semibold text-fg">{n.label}</span>
-                        <span className="block truncate text-[11px] text-muted">{deployedLabel(n.type, depByNode[n.id]) || def.label}</span>
+                        <span className="block truncate text-[11px] text-muted">{deployedLabel(n.type, depByNode[n.id]) || distTypeLabel(n.type, n.distribution) || def.label}</span>
                       </span>
                       {liveOn && <ProblemBadge count={problemCount(live[n.id])} title={(live[n.id]?.role?.problems || []).join('\n')} />}
                       <span className="shrink-0"><NodeStatus dep={depByNode[n.id]} /></span>
@@ -7845,7 +7888,7 @@ function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">PostgreSQL</span>
+        <span className="text-sm font-semibold">{isPGDG(n) ? 'PostgreSQL (PGDG)' : 'PostgreSQL'}</span>
         {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
       </div>
 
@@ -7953,10 +7996,14 @@ function PostgreSQLForm({ node: n, nodes, patchNode, deleteNode, dep, deployed }
       <DirectoryAuthFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} kerberos={true}
         ldapBlocked={n.enableOIDC ? 'PostgreSQL cannot do LDAP and Keycloak OIDC at once — turn off Keycloak SSO below to use LDAP.' : ''} />
 
-      <KeycloakOidcFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} label="OAuth login with Keycloak (pg_oidc_validator)" pin={PG_OIDC_PIN}
-        blocked={n.ldapAuth ? 'PostgreSQL cannot do LDAP and Keycloak OIDC at once — turn off LDAP above to use Keycloak SSO.' : ''} />
+      {isPGDG(n)
+        ? <CommunityNote what="Keycloak OAuth login and pg_tde encryption" why="they use Percona's pg_oidc_validator and Percona's server" />
+        : <>
+          <KeycloakOidcFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} label="OAuth login with Keycloak (pg_oidc_validator)" pin={PG_OIDC_PIN}
+            blocked={n.ldapAuth ? 'PostgreSQL cannot do LDAP and Keycloak OIDC at once — turn off LDAP above to use Keycloak SSO.' : ''} />
 
-      <VaultFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} />
+          <VaultFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} />
+        </>}
 
       {!deployed && <p className="text-xs text-muted">A single read/write PostgreSQL instance (no replication). Access links and credentials appear here after deploy.</p>}
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
@@ -13168,16 +13215,28 @@ function MCACredentialsOption({ value, onChange, deployed }) {
   )
 }
 
+// CommunityNote says, in a form, which options a community build (MDB, PGDG) does not
+// offer and why — in place of the controls, so the absence is explained rather than
+// silent. lib/distribution.js; app/distribution.go refuses the same options.
+function CommunityNote({ what, why }) {
+  return (
+    <p className="rounded-md border border-dashed px-2.5 py-1.5 text-xs text-muted">
+      {what}: not offered here — {why}.
+    </p>
+  )
+}
+
 // MongoDBFrameForm edits a PSMDB Sharded Cluster frame: catalog-driven
 // OS/version/arch + PS MongoDB major/minor, admin (root) password, PMM/proxy/cert.
 // The 13-node sharded topology is fixed — there are no replication options.
 function MongoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, rebuildCluster, deployed }) {
   const [cat, setCat] = useState(null)
+  const dist = f.distribution || ''
   useEffect(() => {
     let alive = true
-    stackApi.psmdbCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    stackApi.psmdbCatalog(dist).then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
     return () => { alive = false }
-  }, [])
+  }, [dist])
   const imgs = cat || []
   const lock = deployed ? 'opacity-70' : ''
 
@@ -13209,7 +13268,7 @@ function MongoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, rebuildClu
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">PSMDB Sharded Cluster</span>
+        <span className="text-sm font-semibold">{isMDB(f) ? 'MDB Sharded Cluster' : 'PSMDB Sharded Cluster'}</span>
         <Badge tone="primary">{total} node{total === 1 ? '' : 's'}</Badge>
       </div>
 
@@ -13242,14 +13301,14 @@ function MongoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, rebuildClu
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="PS MongoDB major" help={HELP.major('PS MongoDB')}>
+        <Field label={`${mongoShort(dist)} major`} help={HELP.major(mongoShort(dist))}>
           <select className={`${inputCls} ${lock}`} value={f.psmdbMajor} disabled={deployed} onChange={(e) => patchFrame(f.id, { psmdbMajor: e.target.value, psmdbVersion: '' })}>
             {majors.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
       </div>
 
-      <Field label="PS MongoDB minor version" help={HELP.minor('PS MongoDB')} hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+      <Field label={`${mongoShort(dist)} minor version`} help={HELP.minor(mongoShort(dist))} hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
         <select className={`${inputCls} ${lock}`} value={f.psmdbVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { psmdbVersion: e.target.value })}>
           <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
           {minors.map((v) => <option key={v} value={v}>{v}</option>)}
@@ -13265,7 +13324,9 @@ function MongoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, rebuildClu
 
       <PBMOptions f={f} nodes={nodes} patchFrame={patchFrame} deployed={deployed} />
 
-      <VectorSearchOption f={f} majors={majors} patchFrame={patchFrame} deployed={deployed} />
+      {isMDB(f)
+        ? <CommunityNote what="Vector search" why="it runs Percona's mongot, which needs PSMDB 8.3" />
+        : <VectorSearchOption f={f} majors={majors} patchFrame={patchFrame} deployed={deployed} />}
 
       <MCACredentialsOption value={f.mcaCredentials} deployed={deployed}
         onChange={(v) => patchFrame(f.id, { mcaCredentials: v })} />
@@ -13343,11 +13404,12 @@ function MongoDBMemberForm({ node: n, frame, patchNode, dep, deployed }) {
 // applies the change. Cascade-normalizes invalid dependent selects like PXCFrameForm.
 function useMongoCatalog(obj, deployed, patch) {
   const [cat, setCat] = useState(null)
+  const dist = obj.distribution || ''
   useEffect(() => {
     let alive = true
-    stackApi.psmdbCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    stackApi.psmdbCatalog(dist).then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
     return () => { alive = false }
-  }, [])
+  }, [dist])
   const imgs = cat || []
   const osVersions = [...new Set(imgs.filter((i) => i.os === obj.os).map((i) => i.osVersion))]
   useEffect(() => {
@@ -13386,13 +13448,13 @@ function MongoCatalogFields({ obj, imgs, deployed, patch }) {
             {osVersions.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
-        <Field label="PS MongoDB major" help={HELP.major('PS MongoDB')}>
+        <Field label={`${mongoShort(obj.distribution)} major`} help={HELP.major(mongoShort(obj.distribution))}>
           <select className={`${inputCls} ${lock}`} value={obj.psmdbMajor} disabled={deployed} onChange={(e) => patch(obj.id, { psmdbMajor: e.target.value, psmdbVersion: '' })}>
             {majors.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </Field>
       </div>
-      <Field label="PS MongoDB minor version" help={HELP.minor('PS MongoDB')} hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
+      <Field label={`${mongoShort(obj.distribution)} minor version`} help={HELP.minor(mongoShort(obj.distribution))} hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
         <select className={`${inputCls} ${lock}`} value={obj.psmdbVersion} disabled={deployed} onChange={(e) => patch(obj.id, { psmdbVersion: e.target.value })}>
           <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
           {minors.map((v) => <option key={v} value={v}>{v}</option>)}
@@ -13414,7 +13476,7 @@ function PSMRSFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed }) 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">PSMDB RS</span>
+        <span className="text-sm font-semibold">{isMDB(f) ? 'MDB Replica Set' : 'PSMDB RS'}</span>
         <Badge tone="primary">{members} node{members === 1 ? '' : 's'}</Badge>
       </div>
 
@@ -13433,7 +13495,9 @@ function PSMRSFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed }) 
 
       <PBMOptions f={f} nodes={nodes} patchFrame={patchFrame} deployed={deployed} />
 
-      <VectorSearchOption f={f} majors={majors} patchFrame={patchFrame} deployed={deployed} />
+      {isMDB(f)
+        ? <CommunityNote what="Vector search" why="it runs Percona's mongot, which needs PSMDB 8.3" />
+        : <VectorSearchOption f={f} majors={majors} patchFrame={patchFrame} deployed={deployed} />}
 
       <MCACredentialsOption value={f.mcaCredentials} deployed={deployed}
         onChange={(v) => patchFrame(f.id, { mcaCredentials: v })} />
@@ -13507,11 +13571,13 @@ function PSMRSMemberForm({ node: n, frame, patchNode, dep, deployed }) {
 // frame's OS/version/arch + PG major/minor selects (same shape as useMongoCatalog).
 function usePPGCatalog(obj, deployed, patch, fetchCat = stackApi.ppgCatalog) {
   const [cat, setCat] = useState(null)
+  // A PGDG node or frame reads PGDG's catalogue (lib/distribution.js).
+  const dist = obj.distribution || ''
   useEffect(() => {
     let alive = true
-    fetchCat().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    fetchCat(dist).then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
     return () => { alive = false }
-  }, [])
+  }, [dist])
   const imgs = cat || []
   const osVersions = [...new Set(imgs.filter((i) => i.os === obj.os).map((i) => i.osVersion))]
   useEffect(() => {
@@ -13654,6 +13720,8 @@ export function PGHostAuthFields({ obj, patch, deployed, tls }) {
 // only appears once a PMM node is selected (the server ignores it without one).
 // Mirrors pgQuerySourceFor in app/pgquerysource.go.
 export function PGQuerySourceField({ obj, patch, deployed }) {
+  // PGDG: pg_stat_statements is the one on offer, as for repmgr (pg_stat_monitor is Percona's).
+  if (isPGDG(obj)) return <PGStatStatementsOption obj={obj} patch={patch} deployed={deployed} />
   if (!obj.pmmNodeId) return null
   const lock = deployed ? 'opacity-70' : ''
   return (
@@ -13705,6 +13773,11 @@ export function PGVectorOption({ obj, patch, deployed }) {
 // table says the package does not exist for this major/OS (see lib/ppgComponents.js), with the
 // reason under it — the same words validation would use.
 export function PGSecurityOptions({ obj, patch, deployed }) {
+  if (isPGDG(obj)) return <CommunityNote what="pgAudit and set_user" why="they are installed from Percona's repository" />
+  return <PGSecurityOptionsPercona obj={obj} patch={patch} deployed={deployed} />
+}
+
+function PGSecurityOptionsPercona({ obj, patch, deployed }) {
   const comps = usePPGComponents()
   const audit = ppgAvailable(comps, 'pgaudit', obj)
   const setUser = ppgAvailable(comps, 'set_user', obj)
@@ -13762,7 +13835,7 @@ function PatroniFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">Patroni Cluster</span>
+        <span className="text-sm font-semibold">{isPGDG(f) ? 'Patroni Cluster (PGDG)' : 'Patroni Cluster'}</span>
         <Badge tone="primary">{members} node{members === 1 ? '' : 's'}</Badge>
       </div>
 
@@ -13821,7 +13894,9 @@ function PatroniFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame
       <PGVectorOption obj={f} patch={patchFrame} deployed={deployed} />
       <PGSecurityOptions obj={f} patch={patchFrame} deployed={deployed} />
       <PGBenchOption obj={f} patch={patchFrame} deployed={deployed} />
-      <PatroniVaultFields frame={f} nodes={nodes} patchFrame={patchFrame} deployed={deployed} />
+      {isPGDG(f)
+        ? <CommunityNote what="pg_tde encryption" why="it needs Percona's server" />
+        : <PatroniVaultFields frame={f} nodes={nodes} patchFrame={patchFrame} deployed={deployed} />}
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
@@ -14046,7 +14121,7 @@ export function PGStreamFrameForm({ frame: f, nodes, frameNodes, patchFrame, del
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">PostgreSQL Replication</span>
+        <span className="text-sm font-semibold">{isPGDG(f) ? 'PostgreSQL Replication (PGDG)' : 'PostgreSQL Replication'}</span>
         <Badge tone="primary">{members} node{members === 1 ? '' : 's'}</Badge>
       </div>
 
@@ -14976,7 +15051,7 @@ function PSMStandaloneForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">PSMDB (standalone)</span>
+        <span className="text-sm font-semibold">{isMDB(n) ? 'MDB (standalone)' : 'PSMDB (standalone)'}</span>
         {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
       </div>
 
@@ -15030,9 +15105,15 @@ function PSMStandaloneForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
         </Field>
       )}
 
+      {/* MongoDB Community Server has none of these: OIDC, LDAP and Kerberos sign-in and
+          encryption at rest are Enterprise features upstream that PSMDB ships in its free
+          build. Validation refuses them too (app/distribution.go). */}
+      {isMDB(n) && <CommunityNote what="Keycloak OIDC, LDAP and Kerberos sign-in and encryption at rest"
+        why="MongoDB Community Server does not have them (they are MongoDB Enterprise features that PSMDB includes)" />}
       {/* Keycloak OIDC excludes LDAP/Kerberos on MongoDB: OIDC and directory auth each render
           their own mongod.conf setParameter block, and mongod.conf can only carry one. LDAP and
           Kerberos share a block, so those two coexist. */}
+      {!isMDB(n) && <>
       <div className="rounded-md border border-border/60 p-2 space-y-2">
         <label className={`flex items-center gap-2 text-sm ${deployed || dirAuthOn ? 'opacity-70' : ''}`}>
           <input type="checkbox" checked={!!n.enableOIDC} disabled={deployed || dirAuthOn} onChange={(e) => patchNode(n.id, { enableOIDC: e.target.checked })} />
@@ -15072,6 +15153,7 @@ function PSMStandaloneForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
         ldapBlocked={oidcBlocks} kerberosBlocked={oidcBlocks} />
 
       <VaultFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} />
+      </>}
 
       {!deployed && <p className="text-xs text-muted">Access links and credentials appear here after deploy.</p>}
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>

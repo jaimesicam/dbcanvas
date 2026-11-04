@@ -762,6 +762,11 @@ func (a *App) handlePSMDBCatalog(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
+	// ?distribution=community serves MongoDB's Community Server catalogue instead (MDB nodes).
+	if isMongoCommunity(r.URL.Query().Get("distribution")) {
+		writeJSON(w, http.StatusOK, map[string]any{"images": loadMDBCatalog(), "majors": mdbMajors})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"images": loadPSMDBCatalog()})
 }
 
@@ -772,6 +777,12 @@ func (a *App) handlePPGCatalog(w http.ResponseWriter, r *http.Request) {
 	}
 	// components is ppgcomponents.go's table, so the form greys out exactly what
 	// validation would reject rather than keeping its own copy of the rules.
+	// ?distribution=pgdg serves PGDG's catalogue instead. No components: the Percona
+	// components are not offered on a PGDG node (distributionIssues).
+	if isPGDG(r.URL.Query().Get("distribution")) {
+		writeJSON(w, http.StatusOK, map[string]any{"images": loadPGDGCatalog(), "components": []any{}})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"images": loadPPGCatalog(), "components": ppgComponents})
 }
 

@@ -191,6 +191,8 @@ func pgHostAuthIssues(who, spec string, tls bool) []issue {
 
 // pgConfig is the non-secret profile shown for a deployed standalone PostgreSQL node.
 type pgConfig struct {
+	// Distribution is whose build the node runs ("" Percona; see distribution.go).
+	Distribution  string `json:"distribution,omitempty"`
 	Image         string `json:"image"`
 	OS            string `json:"os"`
 	Hostname      string `json:"hostname"`
@@ -284,7 +286,7 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 	}
 
 	cfg := pgConfig{
-		Image: image, OS: n.OS, Hostname: host, FQDN: fqdn,
+		Distribution: n.Distribution, Image: image, OS: n.OS, Hostname: host, FQDN: fqdn,
 		PGMajor: major, PGVersion: n.PGVersion, Role: "standalone",
 		UsePgBackRest: n.UsePgBackRest, BackupRepo: backupRepo, BackupStanza: backupStanza,
 		Service: pgServiceName(n.OS, major), DataDir: pgDataDir(n.OS, major),
@@ -388,24 +390,20 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 		}
 
 		// ---- install PostgreSQL (+ pgBackRest + pmm-client) ----
-		pr.phase("Installing PostgreSQL", 35)
-		pkgs := pgServerPackages(n.OS, major)
+		pr.phase("Installing "+pgDistName(n.Distribution), 35)
+		pkgs := pgServerPackagesFor(n.Distribution, n.OS, major)
 		if n.UsePgBackRest {
-			pkgs = append(pkgs, "percona-pgbackrest")
+			pkgs = append(pkgs, pgBackRestPackage(n.Distribution))
 		}
-		instScript := patroniInstallRHEL
-		if debian {
-			instScript = patroniInstallDebian
-		}
-		env := []string{"PRODUCT=" + ppgProduct(major), "PKGS=" + strings.Join(pkgs, " "), "VER=" + n.PGVersion}
-		if n.UsePgBackRest && !debian {
+		instScript, env := pgInstallStep(n.Distribution, n.OS, n.OSVersion, major, n.PGVersion, pkgs, false)
+		if n.UsePgBackRest && !debian && !isPGDG(n.Distribution) {
 			env = append(env, "WITH_EPEL=1", "EPELPKG="+epelPackage(n.OSVersion))
 		}
 		if err := a.runStep(ctx, id, instScript, env, pr.logln); err != nil {
 			pr.fail("install PostgreSQL: %v", err)
 			return
 		}
-		pr.logln("PostgreSQL " + major + " installed")
+		pr.logln(pgDistName(n.Distribution) + " " + major + " installed")
 		a.ensureRsyslog(ctx, id, n.OS, pr.logln)
 
 		// Install pmm-client only when this node is monitored by a PMM server;
@@ -436,7 +434,7 @@ func (a *App) provisionPG(st Stack, n designNode, doc designDoc) {
 		// harder of the two to diagnose.
 		if n.PGVector {
 			pr.phase("Installing pgvector", 48)
-			if err := a.installPGVector(ctx, id, n.OS, major, "ppg", pr.logln); err != nil {
+			if err := a.installPGVector(ctx, id, n.OS, major, pgVectorFlavor(n.Distribution), pr.logln); err != nil {
 				pr.fail("%v", err)
 				return
 			}

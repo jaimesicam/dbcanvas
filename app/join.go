@@ -469,7 +469,7 @@ func (a *App) joinMongoRSFrame(st Stack, frame designFrame, doc designDoc, fresh
 	for _, n := range fresh {
 		host := hosts[n.ID]
 		cfg := mongoConfig{
-			Cluster: frame.Label, Image: image, OS: frame.OS, Arch: archOr(frame.Arch),
+			Distribution: frame.Distribution, Cluster: frame.Label, Image: image, OS: frame.OS, Arch: archOr(frame.Arch),
 			Role: "member", ReplSet: rs, Hostname: host, FQDN: fqdnOf(host, domain),
 			PSMDBMajor: major, Version: frame.PSMDBVersion,
 			GenerateCert: frame.GenerateCert, TLS: mongoTLSOn(frame), UseProxy: frame.UseProxy, MonitoredBy: monitoredBy,
@@ -642,7 +642,7 @@ func (a *App) joinPatroniFrame(st Stack, frame designFrame, doc designDoc, fresh
 	for _, n := range fresh {
 		host := hosts[n.ID]
 		cfg := patroniConfig{
-			Cluster: frame.Label, Image: image, OS: frame.OS, Hostname: host, FQDN: fqdnOf(host, domain),
+			Distribution: frame.Distribution, Cluster: frame.Label, Image: image, OS: frame.OS, Hostname: host, FQDN: fqdnOf(host, domain),
 			PGMajor: ppgMajorOf(frame.PGMajor), PGVersion: frame.PGVersion, Role: "replica",
 			EtcdEndpoints: etcdEndpoints, UsePgBackRest: frame.UsePgBackRest, BackupRepo: backupRepo, BackupStanza: backupStanza,
 			GenerateCert: frame.GenerateCert, UseProxy: frame.UseProxy, MonitoredBy: monitoredBy,

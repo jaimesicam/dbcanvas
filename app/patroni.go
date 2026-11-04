@@ -43,6 +43,8 @@ var patroniPorts = []int{patroniPGPort, patroniRESTPort, etcdClientPort, etcdPee
 
 // patroniConfig is the non-secret profile shown for a deployed Patroni node.
 type patroniConfig struct {
+	// Distribution is whose build the node runs ("" Percona; see distribution.go).
+	Distribution string `json:"distribution,omitempty"`
 	// Vault is persisted by the pg_tde step (patronitde.go) after the cluster is keyed.
 	Vault         vaultInfo `json:"vault"`
 	Cluster       string    `json:"cluster"`
@@ -221,7 +223,7 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 	for _, n := range members {
 		host := hosts[n.ID]
 		cfg := patroniConfig{
-			Cluster: frame.Label, Image: image, OS: frame.OS,
+			Distribution: frame.Distribution, Cluster: frame.Label, Image: image, OS: frame.OS,
 			Hostname: host, FQDN: fqdnOf(host, domain),
 			PGMajor: ppgMajorOf(frame.PGMajor), PGVersion: frame.PGVersion,
 			EtcdEndpoints: etcdEndpoints, UsePgBackRest: frame.UsePgBackRest, BackupRepo: backupRepo,
@@ -553,25 +555,43 @@ func (a *App) patroniPrepareNode(ctx context.Context, st Stack, frame designFram
 		pr.logln("package egress via Intranet proxy")
 	}
 
-	pr.phase("Installing PostgreSQL + Patroni + etcd", 35)
-	pkgs := append(pgServerPackages(frame.OS, major), "percona-patroni", "etcd")
+	pgdg := isPGDG(frame.Distribution)
+	pr.phase("Installing "+pgDistName(frame.Distribution)+" + Patroni + etcd", 35)
+	pkgs := append(pgServerPackagesFor(frame.Distribution, frame.OS, major), "percona-patroni", "etcd")
+	if pgdg {
+		pkgs = append(pgdgServerPackages(frame.OS, major), pgdgPatroniPackages(frame.OS)...)
+	}
 	if frame.UsePgBackRest {
-		pkgs = append(pkgs, "percona-pgbackrest")
+		pkgs = append(pkgs, pgBackRestPackage(frame.Distribution))
 	}
-	instScript := patroniInstallRHEL
-	if debian {
-		instScript = patroniInstallDebian
-	}
-	env := []string{"PRODUCT=" + ppgProduct(major), "PKGS=" + strings.Join(pkgs, " "), "VER=" + frame.PGVersion}
+	// PGDG's etcd is in its extras repository on EL (pgdgPatroniPackages).
+	instScript, env := pgInstallStep(frame.Distribution, frame.OS, frame.OSVersion, major, frame.PGVersion, pkgs, pgdg)
 	// EPEL on Oracle Linux carries percona-patroni's Python deps on EL8
 	// (python3-wcwidth, python3.12-dns) and percona-pgbackrest's libssh2.
-	if !debian {
+	if !debian && !pgdg {
 		env = append(env, "WITH_EPEL=1", "EPELPKG="+epelPackage(frame.OSVersion))
 	}
 	if err := a.runStep(ctx, id, instScript, env, pr.logln); err != nil {
 		return pr.fail("install PostgreSQL/Patroni/etcd: %v", err)
 	}
-	pr.logln("PostgreSQL " + major + " + Patroni + etcd installed")
+	if pgdg && debian {
+		// Debian's and Ubuntu's etcd has no gRPC gateway, which Patroni needs: the etcd
+		// project's release instead (pgdgPatroniPackages).
+		env := []string{"VER=" + pgdgEtcdVersion}
+		if frame.UseProxy {
+			env = append(env, "HTTPS_PROXY=http://intranet."+domain+":3128")
+		}
+		if err := a.runStep(ctx, id, pgdgEtcdUpstreamScript, env, pr.logln); err != nil {
+			return pr.fail("install etcd %s: %v", pgdgEtcdVersion, err)
+		}
+	} else if pgdg {
+		// PGDG's EL etcd unit takes ETCD_* variables rather than a YAML config: point it at
+		// the file written below, as Percona's unit is.
+		if err := a.runStep(ctx, id, pgdgEtcdUnitScript, nil, pr.logln); err != nil {
+			return pr.fail("configure the etcd unit: %v", err)
+		}
+	}
+	pr.logln(pgDistName(frame.Distribution) + " " + major + " + Patroni + etcd installed")
 	a.ensureRsyslog(ctx, id, frame.OS, pr.logln)
 
 	// Install pmm-client only when the cluster is monitored by a PMM server.
@@ -600,7 +620,7 @@ func (a *App) patroniPrepareNode(ctx context.Context, st Stack, frame designFram
 	// that was designed.
 	if frame.PGVector {
 		pr.phase("Installing pgvector", 47)
-		if err := a.installPGVector(ctx, id, frame.OS, major, "ppg", pr.logln); err != nil {
+		if err := a.installPGVector(ctx, id, frame.OS, major, pgVectorFlavor(frame.Distribution), pr.logln); err != nil {
 			return pr.fail("%v", err)
 		}
 	}
@@ -637,6 +657,10 @@ func (a *App) patroniPrepareNode(ctx context.Context, st Stack, frame designFram
 		initialCluster = append(initialCluster, fmt.Sprintf("%s=http://%s:%d", mh, fqdnOf(mh, domain), etcdPeerPort))
 	}
 	etcdConf := patroniEtcdConf(host, fqdn, frame.Label, strings.Join(initialCluster, ","))
+	if pgdg {
+		// v2 is off: Patroni speaks etcd3 here, and etcd 3.6+ (PGDG ships 3.7 on EL) has no v2 store.
+		etcdConf = strings.Replace(etcdConf, "enable-v2: true\n", "", 1)
+	}
 	ecDir, ecBase := splitPath(etcdConfPath(frame.OS))
 	if err := a.engCtx(ctx).CopyFile(ctx, id, ecDir, ecBase, 0o644, []byte(etcdConf)); err != nil {
 		return pr.fail("write etcd config: %v", err)
@@ -676,7 +700,8 @@ func (a *App) patroniPrepareNode(ctx context.Context, st Stack, frame designFram
 	// Percona's Debian/Ubuntu unit reads /etc/patroni/patroni.yml rather than postgresql.yml
 	// (PATRONI_CONFIG_LOCATION in the packaged unit). A link, not a second copy: everything
 	// here — patronictl -c, the labs, restore — names postgresql.yml, and two copies drift.
-	if err := a.runStep(ctx, id, `ln -sfn postgresql.yml /etc/patroni/patroni.yml`, nil, pr.logln); err != nil {
+	// PGDG's Debian unit reads config.yml (and will not start without it), so it gets the same link.
+	if err := a.runStep(ctx, id, `ln -sfn postgresql.yml /etc/patroni/patroni.yml && ln -sfn postgresql.yml /etc/patroni/config.yml`, nil, pr.logln); err != nil {
 		return pr.fail("link patroni.yml: %v", err)
 	}
 	if err := a.runStep(ctx, id, patroniPrepDirsScript, []string{"DATADIR=" + pgDataDir(frame.OS, major), "MAJOR=" + major}, pr.logln); err != nil {

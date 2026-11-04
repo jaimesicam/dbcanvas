@@ -19,6 +19,7 @@ var mongoSizingOptions = []catalogOption{
 // mongoVersionOptions are the catalogue-driven OS and server version fields shared by the
 // standalone node and both cluster frames.
 var mongoVersionOptions = []catalogOption{
+	{Field: "distribution", Values: []string{"", "community"}, Desc: "\"\" installs Percona Server for MongoDB (PSMDB); \"community\" installs MongoDB Community Server from repo.mongodb.org (the library's MDB entries), with series and versions from GET /api/catalog/psmdb?distribution=community (6.0, 7.0, 8.0, 8.2). Set at creation; OIDC, LDAP, Kerberos and encryption at rest are refused under community."},
 	{Field: "os", Default: "oraclelinux", Desc: "OS family of the image; one of those GET /api/catalog/psmdb lists with Percona Server for MongoDB packages."},
 	{Field: "osVersion", Default: "9", Desc: "OS release of the image (e.g. \"9\", \"24.04\"), as GET /api/catalog/psmdb lists it for the chosen os."},
 	{Field: "psmdbMajor", Default: "8.0", Desc: "Percona Server for MongoDB series (e.g. \"7.0\", \"8.0\", \"8.3\"), from GET /api/catalog/psmdb for the chosen image."},

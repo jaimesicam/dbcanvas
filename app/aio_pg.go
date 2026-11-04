@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -60,7 +61,7 @@ func (a *App) aioProvisionPG(ctx context.Context, st Stack, n designNode, doc de
 	// resolved per major rather than per node.
 	flavorOf := map[string]string{}
 	for _, in := range n.AIOInstances {
-		if f := aioPGFlavorOfKind(in.Kind); f != "" {
+		if f := aioPGFlavorOf(in); f != "" {
 			flavorOf[aioPGMajor(in)] = f
 		}
 	}
@@ -76,12 +77,25 @@ func (a *App) aioProvisionPG(ctx context.Context, st Stack, n designNode, doc de
 			// repmgr/Spock are built against PGDG, not Percona — repmgr_NN
 			// requires postgresqlNN-server, which percona-postgresqlNN-server does
 			// not provide (verified by repoquery; see aio_pg.go's flavor section).
-			pr.phase(fmt.Sprintf("Installing PostgreSQL %s + repmgr (PGDG)", major), pct)
-			if err := a.runStep(ctx, id, repmgrInstallRHEL,
-				[]string{"PKGS=" + aioRepmgrPackages(major), "VER="}, pr.logln); err != nil {
-				return fmt.Errorf("install PGDG PostgreSQL %s + repmgr: %w", major, err)
+			// The PGDG kinds a major carries decide its package set: the server always,
+			// repmgr_NN for a repmgr instance, Patroni and etcd for a PGDG Patroni one
+			// (etcd from PGDG's extras repository).
+			pkgs := pgdgServerPackages(n.OS, major)
+			extras := false
+			for _, in := range byMajor[major] {
+				switch {
+				case in.Kind == "repmgr" && !slices.Contains(pkgs, "repmgr_"+major):
+					pkgs = append(pkgs, "repmgr_"+major)
+				case in.Kind == "patroni" && !extras:
+					pkgs, extras = append(pkgs, pgdgPatroniPackages(n.OS)...), true
+				}
 			}
-			pr.logln("PostgreSQL " + major + " + repmgr installed (PGDG)")
+			pr.phase(fmt.Sprintf("Installing PostgreSQL %s (PGDG)", major), pct)
+			script, env := pgInstallStep(distPGDG, n.OS, n.OSVersion, major, byMajor[major][0].PGVersion, pkgs, extras)
+			if err := a.runStep(ctx, id, script, env, pr.logln); err != nil {
+				return fmt.Errorf("install PGDG PostgreSQL %s: %w", major, err)
+			}
+			pr.logln("PostgreSQL " + major + " installed (PGDG: " + strings.Join(pkgs, " ") + ")")
 		} else {
 			pr.phase(fmt.Sprintf("Installing PostgreSQL %s", major), pct)
 			pkgs := pgServerPackages(n.OS, major)
@@ -329,7 +343,16 @@ var aioPGFlavorLabel = map[string]string{
 	pgFlavorSource:  "Spock (built from source)",
 }
 
-// aioPGFlavorOfKind is the PostgreSQL distribution a kind needs.
+// aioPGFlavorOf is the PostgreSQL distribution an instance needs: its kind's, or for
+// the kinds offered in both builds (pg, patroni), its distribution's.
+func aioPGFlavorOf(in aioInstance) string {
+	if (in.Kind == "pg" || in.Kind == "patroni") && isPGDG(in.Distribution) {
+		return pgFlavorPGDG
+	}
+	return aioPGFlavorOfKind(in.Kind)
+}
+
+// aioPGFlavorOfKind is the PostgreSQL distribution a kind needs by default.
 func aioPGFlavorOfKind(kind string) string {
 	switch kind {
 	case "pg", "patroni":
@@ -348,7 +371,7 @@ func aioPGFlavorOfKind(kind string) string {
 func aioPGFlavorConflicts(instances []aioInstance) map[string]map[string][]string {
 	byMajor := map[string]map[string][]string{}
 	for _, in := range instances {
-		f := aioPGFlavorOfKind(in.Kind)
+		f := aioPGFlavorOf(in)
 		if f == "" {
 			continue
 		}

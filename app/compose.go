@@ -545,14 +545,14 @@ var composeKinds = []composeKind{
 		About:      "Percona Orchestrator, for MySQL replication topologies."},
 	{Kind: "haproxy", Type: "haproxy", CanShape: true, CanExport: true,
 		// Exactly one: haproxyClusterFrames treats two as ambiguous, not as two pools.
-		EdgeTo: []string{"patroni", "repmgr", "pg-stream", "spock", "pxc", "ps-repl"},
+		EdgeTo: []string{"patroni", "patroni-pgdg", "repmgr", "pg-stream", "pg-stream-pgdg", "spock", "pxc", "ps-repl"},
 		About:  "HAProxy, in front of one Patroni, repmgr, streaming replication, Spock, PXC or PS replication cluster."},
 	{Kind: "pgbouncer", Type: "pgbouncer", CanShape: true, CanExport: true, CanCert: true,
 		Scalars: []string{"mode"},
 		// The PostgreSQL half of the proxy pair. HAProxy balances TCP across members;
 		// this one terminates the PostgreSQL protocol and pools server connections,
 		// which is the different problem.
-		EdgeTo: []string{"pg", "patroni", "repmgr", "pg-stream", "spock"},
+		EdgeTo: []string{"pg", "pg-pgdg", "patroni", "patroni-pgdg", "repmgr", "pg-stream", "pg-stream-pgdg", "spock"},
 		About:  "PgBouncer (percona-pgbouncer), pooling for one PostgreSQL node or one Patroni, repmgr, streaming replication or Spock cluster. mode= is the pool mode: transaction (default), session or statement. cert=true terminates TLS at the pool."},
 	{Kind: "seaweedfs", Type: "seaweedfs", NoSizing: true, Scalars: []string{"buckets", "tls"}, ImageOnly: true, CanCert: true,
 		About: "SeaweedFS S3, as a backup target."},
@@ -676,6 +676,61 @@ var composeKinds = []composeKind{
 		Links:      []string{"monitor", "backup"},
 		About:      "A sharded PS MongoDB cluster. setup=standard (13 nodes) or minimum (5). mca=true adds the MClusterAdmin accounts; cert=true issues Intranet-CA certificates and turns TLS on (preferTLS)."},
 
+	// --- community builds -----------------------------------------------------
+	//
+	// The same node types under another distribution (distribution.go): MongoDB's
+	// Community Server and PGDG's PostgreSQL. Their links are the Percona kinds' less
+	// what the community build does not have — no OIDC, LDAP, Kerberos or encryption at
+	// rest on MDB, no pg_tde, pgAudit, set_user or OIDC on PGDG.
+	{Kind: "mdb", Type: "psm", CanShape: true, Catalog: catMongoCommunity,
+		SetVersion: func(major, minor string, n *designNode, f *designFrame) {
+			n.PSMDBMajor, n.PSMDBVersion, n.Distribution = major, minor, distMongoDB
+		}, CanExport: true, CanCert: true,
+		Scalars: []string{"mca"},
+		Links:   []string{"monitor"},
+		About:   "MongoDB Community Server (MDB), standalone, from repo.mongodb.org."},
+	{Kind: "mdb-rs", Type: "psmrs", CanShape: true, Frame: true, Members: 3, MinMembers: 1, MaxMembers: 9,
+		Catalog: catMongoCommunity,
+		SetVersion: func(major, minor string, n *designNode, f *designFrame) {
+			f.PSMDBMajor, f.PSMDBVersion, f.Distribution = major, minor, distMongoDB
+		}, CanCert: true,
+		Scalars: []string{"mca"},
+		Links:   []string{"monitor", "backup"},
+		About:   "An MDB (MongoDB Community Server) replica set. backup=true is Percona Backup for MongoDB to SeaweedFS, which works with the Community Server too."},
+	{Kind: "mdb-sharded", Type: "psmdb", CanShape: true, Scalars: []string{"setup", "mca"}, Frame: true,
+		Topology: psmdbTopology,
+		Catalog:  catMongoCommunity,
+		SetVersion: func(major, minor string, n *designNode, f *designFrame) {
+			f.PSMDBMajor, f.PSMDBVersion, f.Distribution = major, minor, distMongoDB
+		},
+		CanCert: true,
+		Links:   []string{"monitor", "backup"},
+		About:   "A sharded MDB (MongoDB Community Server) cluster. setup=standard (13 nodes) or minimum (5)."},
+	{Kind: "pg-pgdg", Type: "pg", CanShape: true, Catalog: catPGDG,
+		SetVersion: func(major, minor string, n *designNode, f *designFrame) {
+			n.PGMajor, n.PGVersion, n.Distribution = major, minor, distPGDG
+		}, CanExport: true, CanCert: true,
+		Scalars: []string{"pgvector", "pgbench"},
+		Links:   []string{"monitor", "ldap", "kerberos", "backup"},
+		About:   "PostgreSQL (PGDG), standalone: the PostgreSQL Global Development Group's packages. Query Analytics uses pg_stat_statements."},
+	{Kind: "patroni-pgdg", Type: "patroni", CanShape: true, Frame: true, Members: 3, MinMembers: 2, MaxMembers: 7,
+		Catalog: catPGDG,
+		SetVersion: func(major, minor string, n *designNode, f *designFrame) {
+			f.PGMajor, f.PGVersion, f.Distribution = major, minor, distPGDG
+		}, CanCert: true,
+		Scalars: []string{"pgvector", "pgbench"},
+		Links:   []string{"monitor", "backup"},
+		About:   "Patroni Cluster (PGDG): PGDG PostgreSQL and Patroni, with etcd from PGDG's extras repository on Oracle Linux and from the distribution on Debian and Ubuntu."},
+	{Kind: "pg-stream-pgdg", Type: "pgstream", CanShape: true, Frame: true, Members: 3, MinMembers: 2, MaxMembers: 9,
+		Catalog: catPGDG,
+		SetVersion: func(major, minor string, n *designNode, f *designFrame) {
+			f.PGMajor, f.PGVersion, f.Distribution = major, minor, distPGDG
+		}, CanCert: true,
+		CanExport: true,
+		Scalars:   []string{"pgvector", "pgbench", "syncStandbys"},
+		Links:     []string{"monitor", "backup"},
+		About:     "PostgreSQL Replication (PGDG): streaming replication with no failover manager, on PGDG's packages."},
+
 	// --- application simulators ---------------------------------------------
 	//
 	// Every one of these needs an association line to the database it drives; that is
@@ -683,10 +738,10 @@ var composeKinds = []composeKind{
 	// either resolves the target or refuses. The legal targets differ per sim because
 	// each speaks one protocol, and the lists here are the validator's own.
 	{Kind: "supportsim", Type: "supportsim", NoSizing: true, ImageOnly: true,
-		EdgeTo: []string{"psm", "psmrs", "psmdb", "k3d"},
+		EdgeTo: []string{"psm", "mdb", "psmrs", "mdb-rs", "psmdb", "mdb-sharded", "k3d"},
 		About:  "Support Sim — a help desk run on MongoDB Vector Search ($vectorSearch), with a Vector Lab."},
 	{Kind: "pgvectorsim", Type: "pgvectorsim", NoSizing: true, ImageOnly: true,
-		EdgeTo: []string{"pg", "patroni", "repmgr", "pg-stream", "spock", "haproxy", "pgbouncer", "k3d"},
+		EdgeTo: []string{"pg", "pg-pgdg", "patroni", "patroni-pgdg", "repmgr", "pg-stream", "pg-stream-pgdg", "spock", "haproxy", "pgbouncer", "k3d"},
 		About:  "pgvector Support Sim — the Support Sim's help desk on PostgreSQL with pgvector (HNSW), directly or through an HAProxy or PgBouncer node."},
 	{Kind: "perfsim", Type: "perfsim", NoSizing: true, ImageOnly: true,
 		EdgeTo: []string{"ps", "mariadb", "mysql", "pxc", "ps-repl", "innodb", "mariadb-repl", "mariadb-galera", "mysql-repl", "mysql-innodb",

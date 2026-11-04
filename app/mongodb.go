@@ -34,6 +34,8 @@ const (
 
 // mongoConfig is the per-node profile stored on each deployment.
 type mongoConfig struct {
+	// Distribution is whose build the node runs ("" Percona; see distribution.go).
+	Distribution string `json:"distribution,omitempty"`
 	Cluster      string `json:"cluster"`
 	Image        string `json:"image"`
 	OS           string `json:"os"`
@@ -287,7 +289,7 @@ func (a *App) provisionMongoDBFrame(st Stack, frame designFrame, doc designDoc) 
 	for _, n := range members {
 		host := hosts[n.ID]
 		cfg := mongoConfig{
-			Cluster: frame.Label, Image: image, OS: frame.OS, Arch: archOr(frame.Arch),
+			Distribution: frame.Distribution, Cluster: frame.Label, Image: image, OS: frame.OS, Arch: archOr(frame.Arch),
 			Role: n.Role, Shard: n.Shard, ReplSet: replSetOf(n), Hostname: host, FQDN: fqdnOf(host, domain),
 			PSMDBMajor: major, Version: frame.PSMDBVersion, ConfigDB: configDB,
 			GenerateCert: frame.GenerateCert, TLS: mongoTLSOn(frame), UseProxy: frame.UseProxy, MonitoredBy: monitoredBy,
@@ -594,7 +596,7 @@ func (a *App) provisionMongoRSFrame(st Stack, frame designFrame, doc designDoc) 
 	for i, n := range members {
 		host := hosts[n.ID]
 		cfg := mongoConfig{
-			Cluster: frame.Label, Image: image, OS: frame.OS, Arch: archOr(frame.Arch),
+			Distribution: frame.Distribution, Cluster: frame.Label, Image: image, OS: frame.OS, Arch: archOr(frame.Arch),
 			Role: "member", ReplSet: rs, Hostname: host, FQDN: fqdnOf(host, domain),
 			PSMDBMajor: major, Version: frame.PSMDBVersion,
 			GenerateCert: frame.GenerateCert, TLS: mongoTLSOn(frame), UseProxy: frame.UseProxy, MonitoredBy: monitoredBy,
@@ -729,7 +731,7 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 	// Synthetic frame carrying the node's own image/options (mongoPrepareNode reads
 	// frame.OS/UseProxy/PSMDBVersion).
 	frame := designFrame{
-		Type: "psm", Label: n.Label,
+		Type: "psm", Label: n.Label, Distribution: n.Distribution,
 		OS: n.OS, OSVersion: n.OSVersion, Arch: n.Arch,
 		PSMDBMajor: n.PSMDBMajor, PSMDBVersion: n.PSMDBVersion,
 		UseProxy: n.UseProxy, RepositoryNodeID: n.RepositoryNodeID, GenerateCert: n.GenerateCert,
@@ -791,7 +793,7 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 	}
 
 	cfg := mongoConfig{
-		Cluster: "", Image: image, OS: n.OS, Arch: archOr(n.Arch), Role: "standalone",
+		Distribution: n.Distribution, Cluster: "", Image: image, OS: n.OS, Arch: archOr(n.Arch), Role: "standalone",
 		Hostname: host, FQDN: fqdnOf(host, domain), PSMDBMajor: major, Version: n.PSMDBVersion,
 		GenerateCert: n.GenerateCert, TLS: mongoTLSOn(frame), UseProxy: n.UseProxy, MonitoredBy: monitoredBy,
 		Ports:            []int{mongoPort},
@@ -1033,19 +1035,12 @@ func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame,
 		}
 	}
 
-	pr.phase("Installing Percona Server for MongoDB", 40)
-	pkgs := "percona-server-mongodb-server percona-server-mongodb-tools percona-mongodb-mongosh"
-	if n.Role == "mongos" {
-		pkgs = "percona-server-mongodb-mongos percona-server-mongodb-tools percona-mongodb-mongosh"
-	}
-	instScript := mongoInstallRHEL
-	if debian {
-		instScript = mongoInstallDebian
-	}
-	if err := a.runStep(ctx, id, instScript, []string{"PSMDB_REPO=" + psmdbRepo(major), "PKGS=" + pkgs, "VER=" + frame.PSMDBVersion}, pr.logln); err != nil {
+	instScript, instEnv, what := mongoInstallStep(frame.Distribution, frame.OS, major, frame.PSMDBVersion, n.Role)
+	pr.phase("Installing "+what, 40)
+	if err := a.runStep(ctx, id, instScript, instEnv, pr.logln); err != nil {
 		return pr.fail("install packages: %v", err)
 	}
-	pr.logln("installed: " + pkgs)
+	pr.logln("installed " + what)
 	a.ensureRsyslog(ctx, id, frame.OS, pr.logln)
 
 	// Install pmm-client only when monitored by a PMM server (the frame carries the

@@ -66,6 +66,38 @@ export const AIO_KINDS = [
 ]
 
 export const kindOf = (kind) => AIO_KINDS.find((k) => k.kind === kind)
+
+// AIO_DIST_VARIANTS are the Add-feature entries that install a community build of a
+// kind: the same kind (so every port, plan and provisioning rule applies unchanged)
+// with an instance-level `distribution` (lib/distribution.js, app/distribution.go).
+// `prefix` names new instances, which become host names — mdbrs-cluster-01 says what
+// it runs where psmrs-cluster-01 would not.
+export const AIO_DIST_VARIANTS = [
+  { dist: 'community', kind: 'psmdbsharded', label: 'MDB Sharded', prefix: 'mdbsharded-cluster-' },
+  { dist: 'community', kind: 'psmrs', label: 'MDB Replica Set', prefix: 'mdbrs-cluster-' },
+  { dist: 'community', kind: 'psmdb', label: 'MDB', prefix: 'mdb' },
+  { dist: 'pgdg', kind: 'pg', label: 'PostgreSQL (PGDG)', prefix: 'pgdg' },
+  { dist: 'pgdg', kind: 'patroni', label: 'Patroni Cluster (PGDG)', prefix: 'patroni-pgdg-cluster-' },
+]
+
+// AIO_MENU is the Add-feature menu: every kind, each followed by its community variants.
+export const AIO_MENU = AIO_KINDS.flatMap((k) => [
+  { ...k, dist: '' },
+  ...AIO_DIST_VARIANTS.filter((v) => v.kind === k.kind).map((v) => ({ ...k, dist: v.dist, label: v.label, prefix: v.prefix })),
+])
+
+// instanceKindLabel is what an instance is called: its variant's label when it runs a
+// community build, its kind's otherwise.
+export const instanceKindLabel = (inst) =>
+  AIO_DIST_VARIANTS.find((v) => v.kind === inst?.kind && v.dist === (inst?.distribution || ''))?.label || kindOf(inst?.kind)?.label || inst?.kind
+
+// mongoDist is the MongoDB build a node's MongoDB instances share ('' Percona,
+// 'community' MDB) — one install per container, decided by its first MongoDB instance,
+// as aioMongoDist does on the server.
+export function mongoDist(instances) {
+  const first = (instances || []).find((i) => kindOf(i.kind)?.family === FAM.MONGO)
+  return first ? (first.distribution || '') : ''
+}
 export const familyOf = (kind) => kindOf(kind)?.family || ''
 
 // Family display names for the grouped "Add feature" menu and version pickers.
@@ -265,10 +297,16 @@ export function mysqlFlavor(instances) {
 // addBlockedReason explains why a kind cannot be added to the current node, or
 // returns '' when it can. The menu shows the entry disabled with this text
 // rather than hiding it, so the constraint is discoverable instead of mysterious.
-export function addBlockedReason(kind, instances) {
+export function addBlockedReason(kind, instances, dist = '') {
   const k = kindOf(kind)
   if (!k) return 'Unknown feature'
   if (!k.supported) return `${k.label} instances are not implemented yet — use a dedicated ${k.label} node`
+  // PSMDB and the Community Server both install /usr/bin/mongod: one or the other per container.
+  if (k.family === FAM.MONGO && (instances || []).some((i) => kindOf(i.kind)?.family === FAM.MONGO) && mongoDist(instances) !== (dist || '')) {
+    return mongoDist(instances) === 'community'
+      ? "This node's MongoDB is MDB (MongoDB Community Server) — PSMDB can't share the container, both install mongod"
+      : "This node's MongoDB is PSMDB — MDB (MongoDB Community Server) can't share the container, both install mongod"
+  }
   const want = flavorOfKind(kind)
   if (!want) return ''
   const { byFlavor } = mysqlFlavor(instances)
@@ -283,9 +321,10 @@ export const estMemMB = (instances) =>
   instances.reduce((t, i) => t + (kindOf(i.kind)?.est || 0) * memberCount(i.kind, i.members), 0)
 
 // nextInstanceName picks the lowest unused "<prefix>NN" for a kind.
-export function nextInstanceName(instances, kind) {
+export function nextInstanceName(instances, kind, dist = '') {
   const k = kindOf(kind)
-  const prefix = k?.cluster ? `${kind}-cluster-` : kind
+  const variant = AIO_DIST_VARIANTS.find((v) => v.kind === kind && v.dist === dist)
+  const prefix = variant ? variant.prefix : k?.cluster ? `${kind}-cluster-` : kind
   const used = new Set(instances.map((i) => sanitizeInst(i.name)))
   for (let i = 1; ; i++) {
     const n = `${prefix}${String(i).padStart(2, '0')}`

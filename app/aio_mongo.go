@@ -41,26 +41,64 @@ func aioPSMDBMajor(n designNode) string {
 	return m
 }
 
-// aioProvisionMongo installs the PSMDB package set once, then brings up every
+// aioMongoDist is the MongoDB distribution a node installs: one install serves every
+// MongoDB instance in the container, and percona-server-mongodb-server and
+// mongodb-org-server both own /usr/bin/mongod, so they cannot both be there. The
+// first MongoDB instance decides; aioMongoDistConflict reports a mix.
+func aioMongoDist(n designNode) string {
+	for _, in := range n.AIOInstances {
+		if aioFamilyOf(in.Kind) == famMongo {
+			return strings.TrimSpace(in.Distribution)
+		}
+	}
+	return distPercona
+}
+
+// aioMongoDistConflict returns the MongoDB instance names per distribution when the
+// node has more than one, and nil when it is installable.
+func aioMongoDistConflict(n designNode) map[string][]string {
+	by := map[string][]string{}
+	for _, in := range n.AIOInstances {
+		if aioFamilyOf(in.Kind) == famMongo {
+			d := strings.TrimSpace(in.Distribution)
+			by[d] = append(by[d], in.Name)
+		}
+	}
+	if len(by) < 2 {
+		return nil
+	}
+	return by
+}
+
+// aioMongoMajorVersion is the series and minor the node's MongoDB install takes, from
+// the pair that belongs to its distribution.
+func aioMongoMajorVersion(n designNode) (major, version string) {
+	if isMongoCommunity(aioMongoDist(n)) {
+		return mdbMajorOf(n.AIOMDBMajor), n.AIOMDBVersion
+	}
+	return aioPSMDBMajor(n), n.AIOPSMDBVersion
+}
+
+// aioProvisionMongo installs the MongoDB package set once, then brings up every
 // MongoDB instance and initiates any replica sets / sharded clusters.
 func (a *App) aioProvisionMongo(ctx context.Context, st Stack, n designNode, doc designDoc, id string, cfg aioConfig, fresh map[string]bool, sec pxcSecrets, pr *pxcProg, base, span int) error {
-	major := aioPSMDBMajor(n)
-	pr.phase("Installing PS MongoDB "+major, base)
+	major, version := aioMongoMajorVersion(n)
+	dist := aioMongoDist(n)
+	instScript, env, what := mongoInstallStep(dist, n.OS, major, version, "")
+	pr.phase("Installing "+what, base)
 
 	// Both -server and -mongos: an All-in-One node may need mongod and a router
 	// in the same container, which no single-purpose node ever does.
-	pkgs := "percona-server-mongodb-server percona-server-mongodb-mongos " +
-		"percona-server-mongodb-tools percona-mongodb-mongosh"
-	instScript := mongoInstallRHEL
-	if isDebianOS(n.OS) {
-		instScript = mongoInstallDebian
+	if isMongoCommunity(dist) {
+		env = replaceEnv(env, "PKGS", "mongodb-org-server mongodb-org-mongos")
+	} else {
+		env = replaceEnv(env, "PKGS", "percona-server-mongodb-server percona-server-mongodb-mongos "+
+			"percona-server-mongodb-tools percona-mongodb-mongosh")
 	}
-	if err := a.runStep(ctx, id, instScript, []string{
-		"PSMDB_REPO=" + psmdbRepo(major), "PKGS=" + pkgs, "VER=" + n.AIOPSMDBVersion,
-	}, pr.logln); err != nil {
-		return fmt.Errorf("install PS MongoDB: %w", err)
+	if err := a.runStep(ctx, id, instScript, env, pr.logln); err != nil {
+		return fmt.Errorf("install %s: %w", what, err)
 	}
-	pr.logln("PS MongoDB " + major + " installed (mongod + mongos)")
+	pr.logln(what + " installed (mongod + mongos)")
 	if err := a.runStep(ctx, id, aioMaskVendorUnits, []string{"UNITS=mongod mongos"}, pr.logln); err != nil {
 		return fmt.Errorf("mask vendor mongod unit: %w", err)
 	}

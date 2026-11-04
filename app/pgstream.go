@@ -62,13 +62,15 @@ const pgStreamReplUser = "replicator"
 
 // pgStreamConfig is the non-secret profile shown for a deployed member.
 type pgStreamConfig struct {
-	Cluster   string `json:"cluster"`
-	Image     string `json:"image"`
-	OS        string `json:"os"`
-	Hostname  string `json:"hostname"`
-	FQDN      string `json:"fqdn"`
-	PGMajor   string `json:"pgMajor"`
-	PGVersion string `json:"pgVersion"`
+	// Distribution is whose build the node runs ("" Percona; see distribution.go).
+	Distribution string `json:"distribution,omitempty"`
+	Cluster      string `json:"cluster"`
+	Image        string `json:"image"`
+	OS           string `json:"os"`
+	Hostname     string `json:"hostname"`
+	FQDN         string `json:"fqdn"`
+	PGMajor      string `json:"pgMajor"`
+	PGVersion    string `json:"pgVersion"`
 	// Role is the role at deploy time ("primary" | "standby"); a switchover rewrites it.
 	Role string `json:"role"`
 	// SourceHost is the FQDN a standby streams from ("" on the primary). The switchover code
@@ -217,7 +219,7 @@ func pgStreamMemberConfig(frame designFrame, doc designDoc, members []designNode
 		engine, repo, stanza = "pgbackrest", "pgBackRest → SeaweedFS S3", patroniStanza(frame.Label)
 	}
 	return pgStreamConfig{
-		BackupEngine: engine, BackupRepo: repo, BackupStanza: stanza,
+		Distribution: frame.Distribution, BackupEngine: engine, BackupRepo: repo, BackupStanza: stanza,
 		Cluster: frame.Label, Image: pxcImage(frame.OS, frame.OSVersion, frame.Arch), OS: frame.OS,
 		Hostname: hosts[n.ID], FQDN: fqdnOf(hosts[n.ID], domain),
 		PGMajor: major, PGVersion: frame.PGVersion, Role: role, SourceHost: source, SlotName: slot,
@@ -472,24 +474,24 @@ func (a *App) pgStreamPrepareNode(ctx context.Context, st Stack, frame designFra
 		pr.logln("package egress via Intranet proxy")
 	}
 
-	pr.phase("Installing PostgreSQL", 35)
-	instScript := patroniInstallRHEL
-	if debian {
-		instScript = patroniInstallDebian
-	}
-	pkgs := pgServerPackages(frame.OS, major)
+	pr.phase("Installing "+pgDistName(frame.Distribution), 35)
+	pkgs := pgServerPackagesFor(frame.Distribution, frame.OS, major)
 	if frame.UsePgBackRest {
-		pkgs = append(pkgs, "percona-pgbackrest")
+		pkgs = append(pkgs, pgBackRestPackage(frame.Distribution))
 	}
-	env := []string{"PRODUCT=" + ppgProduct(major), "PKGS=" + strings.Join(pkgs, " "), "VER=" + frame.PGVersion}
-	if frame.UsePgBackRest && !debian {
+	instScript, env := pgInstallStep(frame.Distribution, frame.OS, frame.OSVersion, major, frame.PGVersion, pkgs, false)
+	if frame.UsePgBackRest && !debian && !isPGDG(frame.Distribution) {
 		// EPEL provides percona-pgbackrest's libssh2 on Oracle Linux.
 		env = append(env, "WITH_EPEL=1", "EPELPKG="+epelPackage(frame.OSVersion))
 	}
 	if err := a.runStep(ctx, id, instScript, env, pr.logln); err != nil {
 		return pr.fail("install PostgreSQL: %v", err)
 	}
-	pr.logln("Percona Distribution for PostgreSQL " + major + " installed")
+	if isPGDG(frame.Distribution) {
+		pr.logln("PGDG PostgreSQL " + major + " installed")
+	} else {
+		pr.logln("Percona Distribution for PostgreSQL " + major + " installed")
+	}
 	a.ensureRsyslog(ctx, id, frame.OS, pr.logln)
 
 	if frame.PMMNodeID != "" {
@@ -514,7 +516,7 @@ func (a *App) pgStreamPrepareNode(ctx context.Context, st Stack, frame designFra
 	}
 	if frame.PGVector {
 		pr.phase("Installing pgvector", 44)
-		if err := a.installPGVector(ctx, id, frame.OS, major, "ppg", pr.logln); err != nil {
+		if err := a.installPGVector(ctx, id, frame.OS, major, pgVectorFlavor(frame.Distribution), pr.logln); err != nil {
 			return pr.fail("%v", err)
 		}
 	}

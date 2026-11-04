@@ -6,7 +6,7 @@ import { usePolling } from '../lib/usePolling.jsx'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import SecretRow, { CopyButton as CopyBtn } from '../components/Secret.jsx'
 import {
-  AIO_KINDS, FAMILY_LABEL, kindOf, familyOf, memberCount, planMembers, portList,
+  AIO_MENU, instanceKindLabel, mongoDist, FAMILY_LABEL, kindOf, familyOf, memberCount, planMembers, portList,
   PORT_ROLE, estMemMB, mysqlFlavor, FLAVOR_LABEL, addBlockedReason, nextInstanceName, sanitizeInst,
   MEMBER_CHOICE_LABEL,
 } from '../lib/aioPorts.js'
@@ -61,12 +61,14 @@ export function AllInOneForm({ node: n, nodes, patchNode, deleteNode, dep, deplo
   }, [instances, setInstances])
   const removeInstance = (id) => setInstances(instances.filter((i) => i.id !== id))
 
-  const addInstance = (kind) => {
+  const addInstance = (kind, dist = '') => {
     const k = kindOf(kind)
     const inst = {
       id: uid(),
       kind,
-      name: nextInstanceName(instances, kind),
+      // A community build of the kind (MDB, PGDG): lib/aioPorts.js AIO_DIST_VARIANTS.
+      ...(dist ? { distribution: dist } : {}),
+      name: nextInstanceName(instances, kind, dist),
       members: k.cluster ? k.def : 1,
       gtid: true,
       replMode: kind === 'innodb' ? 'groupreplication' : 'async',
@@ -170,11 +172,18 @@ export function AllInOneForm({ node: n, nodes, patchNode, deleteNode, dep, deplo
               majorKey="aioMysqlceMajor" minorKey="aioMysqlceVersion"
               hint="Applies to every MySQL Community instance in this node — one install per container." />
           )}
-          {familiesUsed.includes('mongodb') && (
+          {familiesUsed.includes('mongodb') && mongoDist(instances) !== 'community' && (
             <VersionPicker
               label="PS MongoDB" catalog="psmdb" node={n} patchNode={patchNode} deployed={deployed}
               majorKey="aioPsmdbMajor" minorKey="aioPsmdbVersion"
               hint="One install serves the standalone, replica-set and sharded instances alike." />
+          )}
+          {/* MDB keeps its own pair: PSMDB and the Community Server number builds differently. */}
+          {familiesUsed.includes('mongodb') && mongoDist(instances) === 'community' && (
+            <VersionPicker
+              label="MongoDB Community" catalog="psmdb" dist="community" node={n} patchNode={patchNode} deployed={deployed}
+              majorKey="aioMdbMajor" minorKey="aioMdbVersion"
+              hint="One install serves the MDB standalone, replica-set and sharded instances alike." />
           )}
           {familiesUsed.includes('valkey') && (
             <VersionPicker
@@ -267,15 +276,15 @@ export function AllInOneForm({ node: n, nodes, patchNode, deleteNode, dep, deplo
 //
 // Omit majorKey for a product with no major series of its own (Orchestrator):
 // the minor list is then flattened across whatever the catalog reports.
-function VersionPicker({ label, catalog, node: n, patchNode, deployed, majorKey, minorKey, hint }) {
+function VersionPicker({ label, catalog, dist = '', node: n, patchNode, deployed, majorKey, minorKey, hint }) {
   const [cat, setCat] = useState(null)
   useEffect(() => {
     let alive = true
     const fn = stackApi[`${catalog}Catalog`]
     if (typeof fn !== 'function') return undefined
-    fn().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep whatever is set */ })
+    fn(dist).then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep whatever is set */ })
     return () => { alive = false }
-  }, [catalog])
+  }, [catalog, dist])
 
   const imgs = cat || []
   const lock = deployed ? 'opacity-70' : ''
@@ -378,11 +387,13 @@ function PGVersionPicker({ inst, node: n, patch, deployed }) {
   // catalog (15–18 today), and offering it the PPG list would advertise 13 and 14,
   // which cannot be built. Same split the classic Spock frame form makes.
   const catalogFn = inst.kind === 'spock' ? stackApi.spockCatalog : stackApi.ppgCatalog
+  // A PGDG instance lists PGDG's builds (lib/aioPorts.js AIO_DIST_VARIANTS).
+  const dist = inst.kind === 'spock' ? '' : (inst.distribution || '')
   useEffect(() => {
     let alive = true
-    catalogFn().then((c) => { if (alive) setCat(c.images || []) }).catch(() => {})
+    catalogFn(dist).then((c) => { if (alive) setCat(c.images || []) }).catch(() => {})
     return () => { alive = false }
-  }, [inst.kind]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [inst.kind, dist]) // eslint-disable-line react-hooks/exhaustive-deps
   const imgs = cat || []
   const lock = deployed ? 'opacity-70' : ''
   const entry = imgs.find((i) => i.os === n.os && i.osVersion === n.osVersion)
@@ -420,7 +431,7 @@ function PGVersionPicker({ inst, node: n, patch, deployed }) {
 // added are shown DISABLED with the reason inline rather than hidden — a missing
 // menu item reads as a bug, an explained one teaches the constraint.
 function AddFeatureMenu({ instances, onPick, onClose }) {
-  const families = [...new Set(AIO_KINDS.map((k) => k.family))]
+  const families = [...new Set(AIO_MENU.map((k) => k.family))]
   return (
     <div className="space-y-2 rounded-lg border border-border bg-surface2 p-2">
       <div className="flex items-center justify-between px-1">
@@ -431,12 +442,12 @@ function AddFeatureMenu({ instances, onPick, onClose }) {
         <div key={fam}>
           <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted">{FAMILY_LABEL[fam]}</div>
           <div className="space-y-1">
-            {AIO_KINDS.filter((k) => k.family === fam).map((k) => {
-              const reason = addBlockedReason(k.kind, instances)
+            {AIO_MENU.filter((k) => k.family === fam).map((k) => {
+              const reason = addBlockedReason(k.kind, instances, k.dist)
               return (
                 <button
-                  key={k.kind} disabled={!!reason} title={reason || `Add a ${k.label} instance`}
-                  onClick={() => onPick(k.kind)}
+                  key={`${k.kind}:${k.dist}`} disabled={!!reason} title={reason || `Add a ${k.label} instance`}
+                  onClick={() => onPick(k.kind, k.dist)}
                   className="flex w-full items-start gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50">
                   <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: FAMILY_COLOR[fam] }} />
                   <span className="min-w-0">
@@ -489,7 +500,7 @@ function InstanceCard({ inst, node, nodes, instances, open, onToggle, patch, onR
         <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
         <span className="min-w-0 flex-1 truncate">
           <span className="font-medium">{inst.name}</span>
-          <span className="text-muted"> · {k.label}{k.cluster ? ` · ${total} members` : ''}</span>
+          <span className="text-muted"> · {instanceKindLabel(inst)}{k.cluster ? ` · ${total} members` : ''}</span>
         </span>
         <span className="shrink-0 font-mono text-[10px] text-muted">
           {mine.length ? `${mine[0].ports.client}${mine.length > 1 ? `–${mine[mine.length - 1].ports.client}` : ''}` : ''}

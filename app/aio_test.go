@@ -2422,7 +2422,9 @@ func TestAIOMinorVersionsReachTheInstaller(t *testing.T) {
 		"orchestrator": readSrc(t, "aio_orch.go"),
 		"postgres":     readSrc(t, "aio_pg.go"),
 	} {
-		if !strings.Contains(src, `"VER="`) && !strings.Contains(src, `"VER=" +`) {
+		// MongoDB hands its minor to mongoInstallStep (distribution.go), which sets VER for
+		// either build; TestMongoInstallStep checks it arrives.
+		if !strings.Contains(src, `"VER="`) && !strings.Contains(src, `"VER=" +`) && !strings.Contains(src, "mongoInstallStep(dist, n.OS, major, version") {
 			t.Errorf("%s provisioner never passes VER= to its install script, so a chosen minor is ignored", name)
 		}
 	}

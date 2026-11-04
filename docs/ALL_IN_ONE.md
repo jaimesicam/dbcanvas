@@ -26,8 +26,8 @@ its estimated memory exceeds the node's limit or the host.
 | MySQL | Percona Server · Percona Server Replication · InnoDB Cluster / GR · PXC | Replication 2–5; GR 3–9, odd; PXC 2–5 |
 | MySQL Community | MySQL Community · MySQL Replication · MySQL InnoDB / GR | Replication 2–5; GR 3–9, odd |
 | MariaDB | MariaDB · MariaDB Replication · MariaDB Galera | Replication 2–5; Galera 3–5, odd |
-| PostgreSQL | PostgreSQL · Patroni Cluster · repmgr Cluster · Spock Cluster | 2–5 each |
-| MongoDB | PSMDB · PSMDB Replica Set · PSMDB Sharded | Replica set 3–7, odd; Sharded 5 or 13 |
+| PostgreSQL | PostgreSQL · PostgreSQL (PGDG) · Patroni Cluster · Patroni Cluster (PGDG) · repmgr Cluster · Spock Cluster | 2–5 each |
+| MongoDB | PSMDB · MDB · PSMDB Replica Set · MDB Replica Set · PSMDB Sharded · MDB Sharded | Replica set 3–7, odd; Sharded 5 or 13 |
 | Valkey | Valkey · Valkey Cluster | Cluster 3–7 |
 | Proxies | ProxySQL · HAProxy | ProxySQL 1–3 |
 | Topology | Orchestrator | — |
@@ -58,7 +58,12 @@ These are checked before deploy, naming the instances involved.
   with each other, so a node uses only one. Once you add one, the form disables the others. Several
   instances of the same flavor are fine and share its version.
 - **One PostgreSQL source per major.** Percona PostgreSQL (`PostgreSQL`, `Patroni Cluster`), PGDG
-  (`repmgr Cluster`) and Spock's own build cannot share a major. Put them on different majors.
+  (`PostgreSQL (PGDG)`, `Patroni Cluster (PGDG)`, `repmgr Cluster`) and Spock's own build cannot
+  share a major. Put them on different majors. The PGDG kinds share a major happily: one install
+  carries the server, repmgr and Patroni with etcd.
+- **One MongoDB build per node.** PSMDB and MDB (MongoDB Community Server) both install `mongod`,
+  so a node's MongoDB instances are all one or all the other. Once you add one, the menu disables
+  the other. MDB has its own **MongoDB Community** version picker under **Versions**.
 
 ## Ports
 

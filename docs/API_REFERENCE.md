@@ -350,11 +350,11 @@ option (`monitorWith`, `ldapWith`, …).
 | Option | Wires | Provided by | Available on |
 | --- | --- | --- | --- |
 | `monitor` | PMM monitoring | `pmm` | every engine, cluster and ProxySQL |
-| `ldap` | directory authentication | `intranet`, `sambaad` | `ps`, `pg`, `psm`, `valkey`, `pxc`, `ps-repl`, `valkey-cluster` |
+| `ldap` | directory authentication | `intranet`, `sambaad` | `ps`, `pg`, `pg-pgdg`, `psm`, `valkey`, `pxc`, `ps-repl`, `valkey-cluster` |
 | `oidc` | Keycloak single sign-on | `keycloak` | `ps`, `pg`, `psm`, `pmm`, `pxc`, `ps-repl` |
-| `kerberos` | GSSAPI single sign-on | `sambaad` | `pg`, `psm` |
+| `kerberos` | GSSAPI single sign-on | `sambaad` | `pg`, `pg-pgdg`, `psm` |
 | `vault` | data-at-rest keys in OpenBao | `openbao` | `ps`, `pg` (pg_tde: PostgreSQL 17/18), `psm`, `pxc`, `ps-repl`, `patroni` |
-| `backup` | backups to S3 | `seaweedfs` | `ps`, `pg`, `pxc`, `ps-repl`, `patroni`, `repmgr`, `pg-stream`, `psmrs`, `psmdb` |
+| `backup` | backups to S3 | `seaweedfs` | `ps`, `pg`, `pg-pgdg`, `pxc`, `ps-repl`, `patroni`, `patroni-pgdg`, `repmgr`, `pg-stream`, `pg-stream-pgdg`, `psmrs`, `mdb-rs`, `psmdb`, `mdb-sharded` |
 | `orchestrator` | topology discovery and failover | `orchestrator` | `ps-repl`, `mariadb-repl`, `mysql-repl` |
 
 ```sh
@@ -372,10 +372,10 @@ refuses and lists the candidates.
 | Kind | Connects to |
 | --- | --- |
 | `proxysql`, `proxysql-cluster` | `pxc`, `ps-repl` |
-| `haproxy` | one of `patroni`, `repmgr`, `pg-stream`, `spock`, `pxc`, `ps-repl` |
-| `pgbouncer` | one of `pg`, `patroni`, `repmgr`, `pg-stream`, `spock` |
-| `supportsim` | `psm`, `psmrs`, `psmdb`, `k3d` |
-| `pgvectorsim` | `pg`, `patroni`, `repmgr`, `pg-stream`, `spock`, `haproxy`, `pgbouncer`, `k3d` |
+| `haproxy` | one of `patroni`, `patroni-pgdg`, `repmgr`, `pg-stream`, `pg-stream-pgdg`, `spock`, `pxc`, `ps-repl` |
+| `pgbouncer` | one of `pg`, `pg-pgdg`, `patroni`, `patroni-pgdg`, `repmgr`, `pg-stream`, `pg-stream-pgdg`, `spock` |
+| `supportsim` | `psm`, `mdb`, `psmrs`, `mdb-rs`, `psmdb`, `mdb-sharded`, `k3d` |
+| `pgvectorsim` | `pg`, `pg-pgdg`, `patroni`, `patroni-pgdg`, `repmgr`, `pg-stream`, `pg-stream-pgdg`, `spock`, `haproxy`, `pgbouncer`, `k3d` |
 
 `mclusteradmin` and `bighole` take no line. MClusterAdmin gets a ready-made
 connection string when the spec has exactly one MongoDB.

@@ -89,7 +89,8 @@ parse_entries() {
 # ---- ONLY: probe a subset of the upstreams ----
 # ONLY is a comma-separated list of probe groups: "percona" (everything served by
 # percona-release) and "upstream" (MariaDB from mariadb.org, MySQL Community from
-# repo.mysql.com). Unset means both.
+# repo.mysql.com, MongoDB Community Server from repo.mongodb.org, PGDG PostgreSQL from
+# postgresql.org). Unset means both.
 #
 # This exists because the groups fail independently: internet connection issues can
 # make one upstream unreachable, and re-probing it would otherwise block recording
@@ -272,6 +273,40 @@ done
 echo '@@MYSQLCE80@@'; elsearch mysql-community-server | grep -E '^8\.0\.' | sort -rV -u
 echo '@@MYSQLCE84@@'; elsearch mysql-community-server | grep -E '^8\.4\.' | sort -rV -u
 echo '@@MYSQLCE97@@'; elsearch mysql-community-server | grep -E '^9\.7\.' | sort -rV -u
+# ---- MongoDB Community Server (MDB nodes) ----
+# One repo per series, like MariaDB's. Metadata only (nothing is installed here), so
+# gpgcheck is off; the install checks signatures (app/distribution.go). EL10 has no 6.0
+# repo and skip_if_unavailable keeps that 404 from emptying every other list.
+for V in 6.0 7.0 8.0 8.2; do
+  cat >"/etc/yum.repos.d/dbc-mongodb-$V.repo" <<EOF
+[dbc-mongodb-$V]
+name=MongoDB Community $V
+baseurl=https://repo.mongodb.org/yum/redhat/\$releasever/mongodb-org/$V/\$basearch/
+gpgcheck=0
+skip_if_unavailable=1
+EOF
+done
+# mongodb-org-server-8.0.34-1.el9 → 8.0.34: the build suffix is always -1.
+echo '@@MDB60@@'; elsearch mongodb-org-server | sed -E 's/-[0-9]+$//' | grep -E '^6\.0\.' | sort -rV -u
+echo '@@MDB70@@'; elsearch mongodb-org-server | sed -E 's/-[0-9]+$//' | grep -E '^7\.0\.' | sort -rV -u
+echo '@@MDB80@@'; elsearch mongodb-org-server | sed -E 's/-[0-9]+$//' | grep -E '^8\.0\.' | sort -rV -u
+echo '@@MDB82@@'; elsearch mongodb-org-server | sed -E 's/-[0-9]+$//' | grep -E '^8\.2\.' | sort -rV -u
+# ---- PGDG PostgreSQL (the (PGDG) PostgreSQL, Patroni and Replication nodes) ----
+# The same repository setup as the install (repmgrInstallRHEL): the repo RPM, the
+# releasever fix for Oracle Linux's dnf, and the AppStream module disabled above.
+# Recorded as the PostgreSQL version alone (17.11): PGDG rebuilds a release under the
+# same version (17.11-1PGDG, -4PGDG), and the server is the same release either way.
+dnf -y -q install "https://download.postgresql.org/pub/repos/yum/reporpms/EL-$(rpm -E %rhel)-$(uname -m)/pgdg-redhat-repo-latest.noarch.rpm" >/dev/null 2>&1
+if /usr/libexec/platform-python -c 'import sys, dnf.rpm; sys.exit(0 if dnf.rpm.detect_releasevers("/")[2] is None else 1)' 2>/dev/null \
+   && [ -f /etc/yum.repos.d/pgdg-redhat-all.repo ]; then
+  sed -i 's/\$releasever_major\.\$releasever_minor/$releasever_major/g' /etc/yum.repos.d/pgdg-redhat-all.repo
+fi
+for M in 13 14 15 16 17 18; do
+  echo "@@PGDG${M}@@"
+  dnf -q --showduplicates list available "postgresql${M}-server" 2>/dev/null \
+    | awk -v p="postgresql${M}-server" 'index($1, p".")==1 {print $2}' \
+    | sed -E 's/^[0-9]+://; s/-.*$//' | grep -E "^${M}\." | sort -rV -u
+done
 EOS
   echo "echo '@@END@@'"
 }
@@ -381,6 +416,33 @@ echo '@@MARIADB123@@';  madison mariadb-server | grep -E '^12\.3\..*\+maria'  | 
 echo '@@MYSQLCE80@@'; madison mysql-community-server | grep -E '^8\.0\.' | sort -rV -u
 echo '@@MYSQLCE84@@'; madison mysql-community-server | grep -E '^8\.4\.' | sort -rV -u
 echo '@@MYSQLCE97@@'; madison mysql-community-server | grep -E '^9\.7\.' | sort -rV -u
+# ---- MongoDB Community Server ----
+# Ubuntu's tree is multiverse, Debian's main. There is one key per x.0 series, and
+# 8.2 is signed with 8.0's (there is no server-8.2.asc). A codename a series was not
+# built for may still have a Release file and no packages (Debian 13): an empty list.
+case "$DISTRO" in ubuntu) MCOMP=multiverse ;; *) MCOMP=main ;; esac
+for V in 6.0 7.0 8.0 8.2; do
+  K=$V; [ "$V" = 8.2 ] && K=8.0
+  curl -fsSL "https://pgp.mongodb.com/server-$K.asc" 2>/dev/null | gpg --batch --yes --dearmor -o "/etc/apt/keyrings/dbc-mongodb-$K.gpg" 2>/dev/null
+  echo "deb [signed-by=/etc/apt/keyrings/dbc-mongodb-$K.gpg] https://repo.mongodb.org/apt/$DISTRO $CODE/mongodb-org/$V $MCOMP" \
+    >"/etc/apt/sources.list.d/dbc-mongodb-$V.list"
+done
+# ---- PGDG PostgreSQL ----
+# apt.postgresql.org, as repmgrInstallDebian adds it. Restricted to its own builds
+# (pgdg): Debian 13's archive carries postgresql-17 too, and that version is not the
+# one the PGDG install would pick.
+curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc 2>/dev/null | gpg --batch --yes --dearmor -o /etc/apt/keyrings/dbc-pgdg.gpg 2>/dev/null
+echo "deb [signed-by=/etc/apt/keyrings/dbc-pgdg.gpg] https://apt.postgresql.org/pub/repos/apt ${CODE}-pgdg main" \
+  >/etc/apt/sources.list.d/dbc-pgdg.list
+apt-get update >/dev/null 2>&1
+echo '@@MDB60@@'; madison mongodb-org-server | grep -E '^6\.0\.' | sort -rV -u
+echo '@@MDB70@@'; madison mongodb-org-server | grep -E '^7\.0\.' | sort -rV -u
+echo '@@MDB80@@'; madison mongodb-org-server | grep -E '^8\.0\.' | sort -rV -u
+echo '@@MDB82@@'; madison mongodb-org-server | grep -E '^8\.2\.' | sort -rV -u
+for M in 13 14 15 16 17 18; do
+  echo "@@PGDG${M}@@"
+  madison "postgresql-${M}" | grep -E "^${M}\..*pgdg" | sed -E 's/-.*$//' | sort -rV -u
+done
 EOS
   echo "echo '@@END@@'"
 }
@@ -732,6 +794,8 @@ while IFS=$'\t' read -r os version platform arch tag; do
   orch=""
   md106="" ; md1011="" ; md114="" ; md118="" ; md123=""
   myc80="" ; myc84="" ; myc97=""
+  mc60="" ; mc70="" ; mc80="" ; mc82=""
+  gd13="" ; gd14="" ; gd15="" ; gd16="" ; gd17="" ; gd18=""
   if [ -n "$probe" ]; then
     if out="$(docker run --rm "$tag" bash -lc "$probe" 2>/dev/null)"; then
       ps80="$(printf '%s\n' "$out" | section PS80)"
@@ -763,6 +827,16 @@ while IFS=$'\t' read -r os version platform arch tag; do
       myc80="$(printf '%s\n' "$out" | section MYSQLCE80)"
       myc84="$(printf '%s\n' "$out" | section MYSQLCE84)"
       myc97="$(printf '%s\n' "$out" | section MYSQLCE97)"
+      mc60="$(printf '%s\n' "$out" | section MDB60)"
+      mc70="$(printf '%s\n' "$out" | section MDB70)"
+      mc80="$(printf '%s\n' "$out" | section MDB80)"
+      mc82="$(printf '%s\n' "$out" | section MDB82)"
+      gd13="$(printf '%s\n' "$out" | section PGDG13)"
+      gd14="$(printf '%s\n' "$out" | section PGDG14)"
+      gd15="$(printf '%s\n' "$out" | section PGDG15)"
+      gd16="$(printf '%s\n' "$out" | section PGDG16)"
+      gd17="$(printf '%s\n' "$out" | section PGDG17)"
+      gd18="$(printf '%s\n' "$out" | section PGDG18)"
     else
       echo "    FAIL  could not run ${tag} (recording empty version lists)" >&2
     fi
@@ -796,7 +870,9 @@ while IFS=$'\t' read -r os version platform arch tag; do
   c80=$(printf '%s' "$myc80" | grep -c . || true)
   c84=$(printf '%s' "$myc84" | grep -c . || true)
   echo "    ps: ${n80}+${n84}+${n57}  pxc: ${px0}+${px4}+${px7}  proxysql: ${pq2}+${pq3}  psmdb: ${m6}+${m7}+${m8}+${m83}  ppg: ${g13}+${g14}+${g15}+${g16}+${g17}+${g18}  valkey: ${vk9}  orchestrator: ${orc}" >&2
+  cnt() { printf '%s' "$1" | grep -c . || true; }
   echo "    mariadb: ${d106}+${d1011}+${d114}+${d118}+${d123}  mysql_community: ${c80}+${c84}" >&2
+  echo "    mongodb_community: $(cnt "$mc60")+$(cnt "$mc70")+$(cnt "$mc80")+$(cnt "$mc82")  pgdg: $(cnt "$gd13")+$(cnt "$gd14")+$(cnt "$gd15")+$(cnt "$gd16")+$(cnt "$gd17")+$(cnt "$gd18")" >&2
 
   # emit_series <indent-key> <key1> <list1> [<key2> <list2> ...]: emit a major-series
   # map under `key:` with one or more series (e.g. "8.0"/"8.4", "2"/"3", or the three
@@ -868,6 +944,8 @@ while IFS=$'\t' read -r os version platform arch tag; do
     emit_group percona  percona_orchestrator   "3"   "$orch"
     emit_group upstream mariadb                "10.6" "$md106" "10.11" "$md1011" "11.4" "$md114" "11.8" "$md118" "12.3" "$md123"
     emit_group upstream mysql_community        "8.0" "$myc80" "8.4" "$myc84" "9.7" "$myc97"
+    emit_group upstream mongodb_community      "6.0" "$mc60" "7.0" "$mc70" "8.0" "$mc80" "8.2" "$mc82"
+    emit_group upstream pgdg_postgresql        "13" "$gd13" "14" "$gd14" "15" "$gd15" "16" "$gd16" "17" "$gd17" "18" "$gd18"
     emit_spock
   } >>"$TMP"
 done < <(parse_entries)

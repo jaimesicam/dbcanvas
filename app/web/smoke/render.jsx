@@ -66,8 +66,9 @@ import {
   podMenuEntries, POD_SHELLS, POD_CLIENTS,
   Spinner, NodeStatus, nodeConfiguring, configPhaseOf, PITRFields,
   FrameVaultFields, PgBouncerForm, PGHostAuthFields, PGStreamFrameForm, PaletteEntry, loadPalettePrefs,
-  KubeadmFrameForm, KubeadmMemberForm,
+  KubeadmFrameForm, KubeadmMemberForm, PGQuerySourceField, PGSecurityOptions,
 } from '../src/pages/StackDesigner.jsx'
+import { AIO_MENU, instanceKindLabel, addBlockedReason as aioAddBlocked } from '../src/lib/aioPorts.js'
 import PGStreamManager from '../src/pages/PGStreamManager.jsx'
 import PgBouncerManager from '../src/pages/PgBouncerManager.jsx'
 import { LiveStrip, ClusterTable, fixLayout, countOverlaps, footprints, tableHeight } from '../src/components/LiveCard.jsx'
@@ -6685,6 +6686,53 @@ check('infrastructure library: recents saved under a renamed label keep their pl
     if (got !== 'PostgreSQL Replication|PMM 3|VNC|SeaweedFS') throw new Error(`recents came back as ${got}`)
   } finally { globalThis.localStorage = saved }
   return 'ok'
+})
+
+// ------------------------------------------------------------ community distributions
+
+check('MDB and PGDG frames name their build in the description line', () => {
+  const rs = frameVersionLabel({ type: 'psmrs', distribution: 'community', psmdbMajor: '8.2' })
+  const sh = frameVersionLabel({ type: 'psmdb', distribution: 'community', psmdbMajor: '8.0', psmdbSetup: 'minimum' })
+  const pa = frameVersionLabel({ type: 'patroni', distribution: 'pgdg', pgMajor: '17' })
+  const ps = frameVersionLabel({ type: 'psmrs', psmdbMajor: '8.0' })
+  if (rs !== 'MDB 8.2 replica set') throw new Error(`MDB replica set reads "${rs}"`)
+  if (!sh.startsWith('MDB 8.0 sharded')) throw new Error(`MDB sharded reads "${sh}"`)
+  if (!pa.startsWith('PGDG PostgreSQL 17 · Patroni')) throw new Error(`PGDG Patroni reads "${pa}"`)
+  if (!ps.startsWith('PS MongoDB')) throw new Error(`a Percona replica set now reads "${ps}"`)
+  return rs
+})
+
+check('PGDG streaming replication frame: titled (PGDG), pg_stat_statements only', () => {
+  const html = renderToString(<PGStreamFrameForm frame={pgsFrame({ distribution: 'pgdg', pmmNodeId: 'pmm1' })} nodes={[...nodes, ...pgsMembers(3)]} frameNodes={pgsMembers(3)} patchFrame={noop} deleteFrame={noop} deployed={false} />)
+  if (!html.includes('PostgreSQL Replication (PGDG)')) throw new Error('the form does not say (PGDG)')
+  if (html.includes('pg_stat_monitor')) throw new Error('pg_stat_monitor is offered on a PGDG cluster')
+  if (!html.includes('pg_stat_statements')) throw new Error('pg_stat_statements is not offered')
+  return html
+})
+
+check('PGDG: pgAudit and set_user are explained, not offered', () => {
+  const html = renderToString(<PGSecurityOptions obj={{ id: 'p', distribution: 'pgdg', pgMajor: '17', os: 'oraclelinux' }} patch={noop} deployed={false} />)
+  if (html.includes('type="checkbox"')) throw new Error('a checkbox is offered')
+  if (!html.includes('Percona')) throw new Error('the note does not say why')
+  const percona = renderToString(<PGSecurityOptions obj={{ id: 'p', pgMajor: '17', os: 'oraclelinux' }} patch={noop} deployed={false} />)
+  if (!percona.includes('pgAudit (statement audit log)')) throw new Error('the Percona node lost pgAudit')
+  return html
+})
+
+check('All-in-One: the MDB and PGDG variants are in the Add menu, and MongoDB builds do not mix', () => {
+  const labels = AIO_MENU.map((k) => k.label)
+  for (const want of ['MDB', 'MDB Replica Set', 'MDB Sharded', 'PostgreSQL (PGDG)', 'Patroni Cluster (PGDG)', 'PSMDB Replica Set']) {
+    if (!labels.includes(want)) throw new Error(`the Add menu lacks ${want}`)
+  }
+  const mdb = [{ id: 'a', kind: 'psmrs', name: 'mdbrs-cluster-01', distribution: 'community', members: 3 }]
+  if (!aioAddBlocked('psmdb', mdb, '')) throw new Error('PSMDB can be added beside MDB')
+  if (aioAddBlocked('psmdb', mdb, 'community')) throw new Error('a second MDB instance is refused')
+  if (instanceKindLabel(mdb[0]) !== 'MDB Replica Set') throw new Error(`the instance reads ${instanceKindLabel(mdb[0])}`)
+  const html = form([...mdb, { id: 'b', kind: 'pg', name: 'pgdg01', distribution: 'pgdg', pgMajor: '17', members: 1 }])
+  for (const want of ['MDB Replica Set', 'PostgreSQL (PGDG)', 'MongoDB Community']) {
+    if (!html.includes(want)) throw new Error(`the form omits "${want}"`)
+  }
+  return html
 })
 
 if (failures > 0) {
