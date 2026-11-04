@@ -127,7 +127,7 @@ export function WindowManagerProvider({ children }) {
   insetRef.current = shell.inset
   const [preview, setPreview] = useState(null) // the snap preview rect while dragging
   const [dragging, setDragging] = useState(false)
-  const [, setVp] = useState(0)
+  const [vp, setVp] = useState(0)
   const order = useRef(0)
   const layer = useRef(null)
   const [layerEl, setLayerEl] = useState(null)
@@ -143,27 +143,37 @@ export function WindowManagerProvider({ children }) {
     return n.start === s.start && n.status === s.status && n.always === s.always && n.inset.top === s.inset.top && n.inset.right === s.inset.right ? s : n
   }), [])
 
-  // The viewport changing size re-lays maximized and snapped windows.
+  // The shell's reserved space changed (the desktop's top bar came up, the session
+  // panel opened) or the browser was resized: every window is brought back inside
+  // what is left. Maximized and snapped windows follow the area on their own (vp is
+  // in the context value, so they re-render); this is for the rect each one goes back
+  // to, which would otherwise keep edges past the viewport that nobody can grab.
+  const refit = useCallback(() => setWins((ws) => {
+    const a = areaOf(barRef.current, insetRef.current)
+    // Pulled in, and narrowed or shortened to fit when it ran past the new edge.
+    const fit = (r) => clampRect({
+      ...r,
+      w: r.x + r.w > a.x + a.w ? Math.max(MIN_W, a.x + a.w - Math.max(r.x, a.x)) : r.w,
+      h: r.y + r.h > a.y + a.h ? Math.max(MIN_H, a.y + a.h - Math.max(r.y, a.y)) : r.h,
+    }, a)
+    let changed = false
+    const out = {}
+    for (const [k, w] of Object.entries(ws)) {
+      const r = fit(w.rect)
+      const same = r.x === w.rect.x && r.y === w.rect.y && r.w === w.rect.w && r.h === w.rect.h
+      out[k] = same ? w : { ...w, rect: r }
+      changed ||= !same
+    }
+    return changed ? out : ws
+  }), [])
+
   useEffect(() => {
-    const on = () => setVp((n) => n + 1)
+    const on = () => { setVp((n) => n + 1); refit() }
     addEventListener('resize', on)
     return () => removeEventListener('resize', on)
-  }, [])
+  }, [refit])
 
-  // The shell's reserved space changed (the desktop's top bar came up, the session
-  // panel opened): every window is brought back inside what is left.
-  useEffect(() => {
-    setWins((ws) => {
-      const a = areaOf(barRef.current, shell.inset)
-      // Pulled in, and narrowed or shortened to fit when it ran past the new edge.
-      const fit = (r) => clampRect({
-        ...r,
-        w: r.x + r.w > a.x + a.w ? Math.max(MIN_W, a.x + a.w - Math.max(r.x, a.x)) : r.w,
-        h: r.y + r.h > a.y + a.h ? Math.max(MIN_H, a.y + a.h - Math.max(r.y, a.y)) : r.h,
-      }, a)
-      return Object.fromEntries(Object.entries(ws).map(([k, w]) => [k, { ...w, rect: fit(w.rect) }]))
-    })
-  }, [shell.inset])
+  useEffect(() => { refit() }, [shell.inset, refit])
 
   // Docked panels below the windows (the terminal dock) sit above the taskbar.
   useLayoutEffect(() => {
@@ -248,8 +258,10 @@ export function WindowManagerProvider({ children }) {
     register, unregister, patch, focus, minimize, maximize, toggleMax, tile, cascade, minimizeAll, setExtra,
     area, setPreview, setDragging, setShell,
   }), [register, unregister, patch, focus, minimize, maximize, toggleMax, tile, cascade, minimizeAll, setExtra, area, setShell])
-  const value = useMemo(() => ({ ...api, wins, extras, front, layerEl, start: shell.start, status: shell.status, desktop: shell.always }),
-    [api, wins, extras, front, layerEl, shell.start, shell.status, shell.always])
+  // vp is not read here: it makes a resized viewport a new value, so every Window
+  // re-renders and re-reads area() for its maximized or snapped geometry.
+  const value = useMemo(() => ({ ...api, wins, extras, front, layerEl, start: shell.start, status: shell.status, desktop: shell.always }), // eslint-disable-line react-hooks/exhaustive-deps
+    [api, wins, extras, front, layerEl, shell.start, shell.status, shell.always, vp])
 
   return (
     <ApiCtx.Provider value={api}>

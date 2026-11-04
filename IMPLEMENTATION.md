@@ -29238,3 +29238,23 @@ into a fresh containerd volume. Before this fix, init or join failed in two of t
 
 **Not done:** cycle 1's Calico timeout was not diagnosed (the cluster was gone before it was
 inspected). The host also has 180 dangling Docker volumes, not investigated.
+
+## 510. Desktop windows follow a resized browser — `app/web/src/wm/WindowManager.jsx`
+
+**Symptom.** In the desktop shell, a maximized window (Database Stacks) kept the size it had when it
+was maximized after the browser was resized. Grown, the window stopped short of the new edge but,
+being maximized, had no resize handles: it could only be resized after a title-bar drag restored it.
+Shrunk, it ran past the viewport. A restored window wider than a shrunk browser kept its right and
+bottom edges off screen too.
+
+**Cause.** The `resize` listener bumped a counter that nothing read. Windows take their maximized and
+snapped geometry from `wm.area()` during render, but the context value was memoized without the
+counter, so no window re-rendered. Restored rects were only refitted when the shell's inset changed.
+
+**Fix.** The counter (`vp`) is a dependency of the context value, so a viewport resize re-renders
+every Window against the new area. The inset refit became `refit()` and also runs on `resize`; it
+returns the same state when nothing moved.
+
+**Verified** in headless Chromium against the rebuilt app: maximized Database Stacks followed the
+browser 1600→1100→1900 px; restored after a shrink it sat inside the 900 px viewport; dragging its
+right edge 200 px left resized it to match.
