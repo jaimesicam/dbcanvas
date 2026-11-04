@@ -481,3 +481,18 @@ func TestRepositoryBlankRowIsIgnored(t *testing.T) {
 		t.Fatalf("only blank rows = the blank warning + carries nothing: %v", only)
 	}
 }
+
+func TestRepoOrigins(t *testing.T) {
+	for proto, want := range map[string]string{
+		"":      "https://repo.percona.com http://repo.percona.com",
+		"auto":  "https://repo.percona.com http://repo.percona.com",
+		"HTTPS": "https://repo.percona.com",
+		"http":  "http://repo.percona.com",
+		"ftp":   "https://repo.percona.com http://repo.percona.com",
+	} {
+		c := repositoryConfig{Protocol: proto}
+		if got := strings.Join(c.repoOrigins(), " "); got != want {
+			t.Errorf("protocol %q: %s, want %s", proto, got, want)
+		}
+	}
+}

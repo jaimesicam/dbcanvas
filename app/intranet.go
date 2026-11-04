@@ -511,6 +511,7 @@ type designNode struct {
 	RepoOperators []repoOperatorSpec `json:"repoOperators"` // operator releases: manifests, images, charts
 	RepoDebug     bool               `json:"repoDebug"`     // also carry -debuginfo / -dbgsym packages
 	RepoStrict    bool               `json:"repoStrict"`    // nodes using it disable repo.percona.com repositories it does not carry
+	RepoProtocol  string             `json:"repoProtocol"`  // "auto" (default) | "https" | "http": how repo.percona.com is downloaded from
 	// RepositoryNodeID is the Repository node this node installs Percona packages from (any node
 	// that installs from repo.percona.com; "" → upstream). The frame carries the same field.
 	RepositoryNodeID string `json:"repositoryNodeId"`

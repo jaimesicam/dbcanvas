@@ -128,6 +128,8 @@ var catalogInfra = []catalogEntry{
 			{Field: "repoImages", Desc: "Extra container images for the registry, e.g. \"percona/percona-server:8.4\"."},
 			{Field: "repoOperators", Desc: "Kubernetes operator releases to carry (manifests, images and Helm charts): [{kind: pxc|ps|psmdb|pg, version: \"\" for the latest}]."},
 			{Field: "repoDebug", Default: false, Desc: "Also carry the -debuginfo / -dbgsym packages."},
+			{Field: "repoProtocol", Values: []string{"auto", "https", "http"}, Default: "auto",
+				Desc: "How to download from repo.percona.com: auto tries HTTPS and falls back to HTTP for a file HTTPS fails or stalls on; https or http uses only that. Changeable on a running mirror; the next sync uses it."},
 			{Field: "repoStrict", Default: false, Desc: "Nodes using this repository disable every repo.percona.com repository it does not carry."},
 			infraUseProxy,
 		},

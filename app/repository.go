@@ -55,7 +55,7 @@ const (
 	repoGnupgHome    = repoRoot + "/gnupg"
 	repoHTTPPort     = 80
 	repoRegistryPort = 5000
-	repoUpstream     = "http://repo.percona.com"
+	repoUpstreamHost = "repo.percona.com"
 	repoHelmIndexURL = "https://percona.github.io/percona-helm-charts/index.yaml"
 	repoOSImage      = "ubuntu"
 	repoOSVersion    = "24.04"
@@ -167,6 +167,9 @@ type repositoryConfig struct {
 	Operators    []repoOperatorSpec `json:"operators"`
 	IncludeDebug bool               `json:"includeDebug"`
 	Strict       bool               `json:"strict"`
+	// Protocol is how repo.percona.com is reached: "auto" (HTTPS, falling back to HTTP for a
+	// file HTTPS fails on), "https" or "http". See repoOrigins.
+	Protocol string `json:"protocol,omitempty"`
 	// Added is what was asked for after deploy, from the node's "Add packages" tab. It is kept
 	// across a redeploy, alongside the design's own lists, because the data volume is.
 	Added    repoAdditions  `json:"added"`
@@ -511,7 +514,7 @@ func (a *App) provisionRepository(st Stack, n designNode, doc designDoc) {
 		Image: image, Hostname: host, FQDN: fqdn, UseProxy: n.UseProxy, Domain: domain,
 		Targets: repoTargetsOf(n), Arches: repoArchesOf(n),
 		Packages: n.RepoPackages, Images: n.RepoImages, Operators: n.RepoOperators,
-		IncludeDebug: n.RepoDebug, Strict: n.RepoStrict,
+		IncludeDebug: n.RepoDebug, Strict: n.RepoStrict, Protocol: repoProtocol(n.RepoProtocol),
 	}
 	// A redeploy keeps the published ports (links stay put), what was added after deploy, and what
 	// the volume already holds.
@@ -739,28 +742,88 @@ func (s *repoSyncer) fetch(url string) ([]byte, error) {
 	case strings.HasSuffix(url, ".bz2"):
 		dec = "bzip2 -dc"
 	}
-	out, err := s.sh(`curl -fsSL --retry 3 --connect-timeout 20 "$URL" | `+dec, "URL="+url)
+	// --speed-limit/--speed-time: a transfer that stalls (under 1 KiB/s for 30 s) is aborted and
+	// retried rather than waited on for ever — a connection can go silent mid-transfer and never
+	// recover, and curl has no other timeout once it is connected.
+	out, err := s.sh(`curl -fsSL --retry 3 --retry-all-errors --connect-timeout 20 --speed-limit 1024 --speed-time 30 "$URL" | `+dec, "URL="+url)
 	if err != nil {
 		return nil, err
 	}
 	return []byte(out), nil
 }
 
-// repoDownloadScript fetches a list of "url dest sha256 size" lines four at a time, skipping
+// repoProtocol normalizes a node's repoProtocol: "https", "http", or "auto" for anything else.
+func repoProtocol(p string) string {
+	switch p = strings.ToLower(strings.TrimSpace(p)); p {
+	case "https", "http":
+		return p
+	}
+	return "auto"
+}
+
+// repoOrigins are the bases repo.percona.com is fetched from, in order. Auto tries HTTPS first
+// and falls back to HTTP: the same files are served on both, and which one a network handles
+// well differs — measured on one host, plain HTTP from a container stalled mid-file where HTTPS
+// did not, while elsewhere HTTPS is the one a proxy or an old CA bundle gets in the way of.
+func (c *repositoryConfig) repoOrigins() []string {
+	switch repoProtocol(c.Protocol) {
+	case "https":
+		return []string{"https://" + repoUpstreamHost}
+	case "http":
+		return []string{"http://" + repoUpstreamHost}
+	}
+	return []string{"https://" + repoUpstreamHost, "http://" + repoUpstreamHost}
+}
+
+// fetchUpstream fetches a repo.percona.com path ("/pxc-80/yum/…") from each origin in turn.
+func (s *repoSyncer) fetchUpstream(rel string) ([]byte, error) {
+	var errs []string
+	for _, o := range s.cfg.repoOrigins() {
+		b, err := s.fetch(o + rel)
+		if err == nil {
+			return b, nil
+		}
+		errs = append(errs, o+": "+err.Error())
+	}
+	return nil, fmt.Errorf("%s", strings.Join(errs, "; "))
+}
+
+// repoDownloadScript fetches a list of "path dest sha256 size" lines four at a time, skipping
 // files already present at the right size and checking every new one against its checksum.
+//
+// Each file is tried from every origin in $ORIGINS (repoOrigins), up to five rounds. An attempt
+// that stalls — under 1 KiB/s for 30 s — is aborted, and the next one resumes the partial file
+// (-C -), from the same origin or the other. A stalled connection used to hang the whole sync:
+// it stays ESTABLISHED with nothing arriving, and curl's --retry never fires because nothing
+// failed. Each retry prints a "note:" line, which the sync log shows.
 const repoDownloadScript = `cd "$DEST"
 fetch_one() {
-  url=$1; f=$2; sum=$3; size=$4
+  rel=$1; f=$2; sum=$3; size=$4
   if [ -f "$f" ] && [ "$(stat -c %s "$f")" = "$size" ]; then exit 0; fi
   mkdir -p "$(dirname "$f")"
-  if ! curl -fsSL --retry 3 --connect-timeout 20 -o "$f.part" "$url"; then rm -f "$f.part"; echo "failed: $url" >&2; exit 1; fi
-  if [ "$sum" != "-" ] && ! echo "$sum  $f.part" | sha256sum -c --status; then rm -f "$f.part"; echo "checksum mismatch: $url" >&2; exit 1; fi
+  done=
+  for round in 1 2 3 4 5; do
+    for origin in $ORIGINS; do
+      have=$(stat -c %s "$f.part" 2>/dev/null || echo 0)
+      if [ "$size" -gt 0 ] && [ "$have" -gt "$size" ]; then rm -f "$f.part"; have=0; fi
+      if [ "$size" -gt 0 ] && [ "$have" = "$size" ]; then done=1; break 2; fi
+      curl -fsSL --connect-timeout 20 --speed-limit 1024 --speed-time 30 -C - -o "$f.part" "$origin$rel"
+      rc=$?
+      if [ $rc = 0 ]; then done=1; break 2; fi
+      now=$(stat -c %s "$f.part" 2>/dev/null || echo 0)
+      echo "note: $(basename "$f"): curl exit $rc from $origin after $now of $size bytes (round $round) — retrying"
+    done
+    sleep $round
+  done
+  if [ -z "$done" ]; then rm -f "$f.part"; echo "failed: $rel" >&2; exit 1; fi
+  if [ "$sum" != "-" ] && ! echo "$sum  $f.part" | sha256sum -c --status; then rm -f "$f.part"; echo "checksum mismatch: $rel" >&2; exit 1; fi
   mv "$f.part" "$f"
 }
 export -f fetch_one
 xargs -r -a "$LIST" -P 4 -n 4 bash -c 'fetch_one "$@"' _`
 
-// download fetches pkgs from base into dest (a directory under the web root).
+// download fetches pkgs from base — a repo.percona.com path, "/pxc-80/yum/…/" — into dest (a
+// directory under the web root), from the origins the node's protocol allows.
 func (s *repoSyncer) download(base, dest string, pkgs []repoPkg) error {
 	if len(pkgs) == 0 {
 		_, err := s.sh("mkdir -p " + shellQuote(dest))
@@ -782,7 +845,15 @@ func (s *repoSyncer) download(base, dest string, pkgs []repoPkg) error {
 		return err
 	}
 	defer s.sh("rm -f " + list)
-	_, err := s.sh(repoDownloadScript, "DEST="+dest, "LIST="+list)
+	out, err := s.sh(repoDownloadScript, "DEST="+dest, "LIST="+list, "ORIGINS="+strings.Join(s.cfg.repoOrigins(), " "))
+	// The retries, so a sync that recovered from a stall says it did.
+	notes := 0
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(l, "note: ") && notes < 40 {
+			s.logln(strings.TrimPrefix(l, "note: "))
+			notes++
+		}
+	}
 	return err
 }
 
@@ -974,9 +1045,9 @@ func (s *repoSyncer) syncYum(repo string, specs []repoPkgSpec, t repoTarget, arc
 		Path: "/percona/" + repo + "/yum/release/" + t.Version + "/RPMS/" + ra + "/"}
 	for _, dir := range []string{ra, "noarch"} {
 		rel := repo + "/yum/release/" + t.Version + "/RPMS/" + dir + "/"
-		base := repoUpstream + "/" + rel
+		base := "/" + rel
 		dest := repoWWW + "/percona/" + rel
-		repomd, err := s.fetch(base + "repodata/repomd.xml")
+		repomd, err := s.fetchUpstream(base + "repodata/repomd.xml")
 		if err != nil {
 			if dir == "noarch" {
 				// Not published: an empty repository keeps the node's noarch section answering.
@@ -994,7 +1065,7 @@ func (s *repoSyncer) syncYum(repo string, specs []repoPkgSpec, t repoTarget, arc
 			m.Error = err.Error()
 			return m
 		}
-		primary, err := s.fetch(base + href)
+		primary, err := s.fetchUpstream(base + href)
 		if err != nil {
 			m.Error = "primary metadata: " + err.Error()
 			return m
@@ -1031,11 +1102,11 @@ func (s *repoSyncer) syncApt(repo string, specs []repoPkgSpec, t repoTarget, arc
 	aa := repoArchName("apt", arch)
 	m := repoMirrored{Repo: repo, Target: t.ID(), Arch: arch, Family: "apt", Versions: repoSpecVersions(specs),
 		Path: "/percona/" + repo + "/apt/dists/" + t.Codename + "/"}
-	base := repoUpstream + "/" + repo + "/apt/"
+	base := "/" + repo + "/apt/"
 	idx := "dists/" + t.Codename + "/main/binary-" + aa + "/"
-	raw, err := s.fetch(base + idx + "Packages.gz")
+	raw, err := s.fetchUpstream(base + idx + "Packages.gz")
 	if err != nil {
-		if raw, err = s.fetch(base + idx + "Packages"); err != nil {
+		if raw, err = s.fetchUpstream(base + idx + "Packages"); err != nil {
 			m.Error = fmt.Sprintf("not published for %s %s (%v)", t.Label, aa, err)
 			return m
 		}
@@ -1594,6 +1665,18 @@ func (a *App) loadRunningRepository(w http.ResponseWriter, r *http.Request) (Sta
 // startRepoSync runs a sync in the background for a running Repository.
 func (a *App) startRepoSync(st Stack, dep Deployment, cfg repositoryConfig) {
 	ctx := withEngine(context.Background(), a.docker)
+	// The protocol is how to download, not what to carry, so it may change on a running mirror:
+	// a re-sync takes it from the design as it is now.
+	if cur, err := a.store.GetStack(st.ID); err == nil {
+		var doc designDoc
+		if json.Unmarshal(cur.Design, &doc) == nil {
+			for _, n := range doc.Nodes {
+				if n.ID == dep.NodeID {
+					cfg.Protocol = repoProtocol(n.RepoProtocol)
+				}
+			}
+		}
+	}
 	go func() {
 		c := cfg
 		s := a.newRepoSyncer(ctx, st.ID, dep.NodeID, dep.ContainerID, &c)

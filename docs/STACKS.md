@@ -819,6 +819,12 @@ what you list:
 | Operator releases | PXC, PS, PSMDB, PG: source, manifests rewritten for this registry, their images, and Helm charts under `/charts` |
 | Extra images | Any registry |
 | Debug symbols | Off by default |
+| Download from | **Auto** (default): HTTPS, falling back to HTTP for a file HTTPS fails or stalls on. Or **HTTPS only** / **HTTP only**. Can be changed on a running Repository; the next sync uses it |
+
+**Stalled downloads recover.** A download that slows below 1 KiB/s for 30 seconds is dropped and
+resumed from where it stopped, from the same origin or (in Auto) the other one, up to five rounds.
+Each retry is a line in the Sync log. Before, one connection that went silent mid-file hung the
+whole sync, and every node waiting on the mirror with it.
 
 **Use it from a node.** Nodes and frames that install from Percona have a **Repository** field.
 In **Fallback** mode (default) anything not mirrored still comes from upstream. In **Strict** mode

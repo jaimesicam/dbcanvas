@@ -280,6 +280,18 @@ export function RepositoryForm({ node: n, patchNode, deleteNode, dep, deployed }
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
         <span>Use Intranet proxy (Squid) for downloads</span><Help text={HELP.proxy} />
       </label>
+      {/* Not locked when deployed: how to download, not what to carry — the next sync uses it
+          (app/repository.go, startRepoSync). */}
+      <label className="flex items-center gap-2 text-sm">
+        <span className="shrink-0">Download from repo.percona.com over</span>
+        <select className={`${inputCls} text-sm`} value={n.repoProtocol || 'auto'}
+          onChange={(e) => patchNode(n.id, { repoProtocol: e.target.value })}>
+          <option value="auto">Auto (HTTPS, then HTTP)</option>
+          <option value="https">HTTPS only</option>
+          <option value="http">HTTP only</option>
+        </select>
+        <Help text={HELP.repoProtocol} />
+      </label>
       {!deployed && <p className="text-xs text-muted">Deploying downloads everything listed, so the first deploy takes as long as that takes. You can add more once it is running.</p>}
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
         <Icon.Trash size={16} /> Delete node

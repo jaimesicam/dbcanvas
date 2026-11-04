@@ -133,7 +133,7 @@ export const NODE_TYPES = {
     defaults: {
       osVersion: '24.04', repoTargets: ['oraclelinux-9'], repoArches: [],
       repoPackages: [], repoImages: [], repoOperators: [],
-      repoDebug: false, repoStrict: false, useProxy: false,
+      repoDebug: false, repoStrict: false, repoProtocol: 'auto', useProxy: false,
     },
   },
   pmm2: {

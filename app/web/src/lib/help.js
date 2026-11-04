@@ -157,6 +157,12 @@ export const HELP = {
   repoDebug:
     'Also carry the -debuginfo, -debugsource, -dbg and -dbgsym packages. They are most of a repository\'s size ' +
     'and only needed to read a core dump, so they are off by default.',
+  repoProtocol:
+    'How the Repository downloads from repo.percona.com. Auto tries HTTPS first and, for any file HTTPS fails ' +
+    'or stalls on, carries on over HTTP from where it stopped. HTTPS only or HTTP only use just that one. Every ' +
+    'download is watched: one that slows below 1 KiB/s for 30 seconds is dropped and resumed, up to five rounds, ' +
+    'and the sync log notes each retry. You can change this on a running Repository; the next sync (Sync now, or ' +
+    'adding packages) uses it. Also repoProtocol on the node: "auto", "https" or "http".',
   repoStrict:
     'Off: a node using this Repository still installs anything it does not carry from repo.percona.com. On: ' +
     'those upstream Percona repositories are disabled on the node, so an install needing something missing ' +

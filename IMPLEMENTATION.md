@@ -29153,3 +29153,46 @@ ports (PMM 46404/46850; Intranet webmail pinned at 45750, previously ephemeral),
 container left behind. After stopping PMM, a host process took its saved HTTPS port 47218 and the
 stack was redeployed: HTTP kept 46072, HTTPS moved to 47339, the app logged `port 47218 is taken
 by another program on the Docker host; using 47339`, and the container ran. Test stack deleted.
+
+## 508. Repository downloads recover from stalls; choose HTTPS, HTTP or Auto — `app/{repository,repository_test,intranet,designcatalog_infra}.go`, `app/web/src/{pages/Repository.jsx,pages/StackDesigner.jsx,lib/help.js}`, `docs/STACKS.md`
+
+**Symptom.** A Repository mirroring pxc-80 for el9 sat at "Mirroring pxc-80 …" while its three
+PXC nodes waited on it. Downloading the same RPM in a browser was fast.
+
+**Cause.** Individual connections from stack containers to repo.percona.com went silent
+mid-transfer. In two curls at 17.2 MB and 14.0 MB, `ss -tni` showed both ESTABLISHED,
+Recv-Q/Send-Q 0, `lastrcv` 480 s, and 130 out-of-order packets before the stop. Fresh connections
+from the same container were fast (68 KB/s one minute, 9.5 MB/s a few later); the host and a
+default-bridge container got 7.7–9.3 MB/s. No proxy was in the path and no tc on the interface.
+The downloader ran `curl --retry 3 --connect-timeout 20`, which has no limit once a connection
+is up, so one silent connection hung the sync for ever, and `--retry` never fired.
+
+**Fix.**
+- `repoDownloadScript`: each file is tried from every origin in `$ORIGINS`, up to five rounds.
+  Every attempt is `curl --speed-limit 1024 --speed-time 30 -C -`: a stall aborts it (exit 28),
+  and the next attempt resumes the `.part` file. An oversized `.part` is discarded; a complete
+  one skips the request. Each retry prints `note: …`, which `download` copies into the sync log
+  (at most 40). The list file now carries repo.percona.com paths, not URLs.
+- Metadata (`fetch`) gets the same stall limit plus `--retry-all-errors`; `fetchUpstream` tries
+  each origin for repo.percona.com paths (`fetch` stays for absolute URLs, e.g. the Helm index).
+- New node field `repoProtocol`: `auto` (default; HTTPS then HTTP), `https`, `http`
+  (`repositoryConfig.Protocol`, `repoOrigins`). It is in the design catalogue, and the panel has
+  a "Download from" selector that stays editable after deploy. `startRepoSync` re-reads it from
+  the current design, so a re-sync uses the new value without a redeploy.
+- `repoUpstream` became `repoUpstreamHost`.
+
+Considered and dropped at the user's request: skipping `-test` packages. Only
+`percona-xtradb-cluster-full` requires `-test`, and DBCanvas installs `percona-xtradb-cluster`.
+
+**Known, not changed:** a provisioned Repository whose re-sync is interrupted by an app restart
+keeps `sync.state = running`, so *Sync now* answers 409 until it is redeployed.
+
+Verification performed: `TestRepoOrigins`; the repository tests pass (the pre-existing
+`TestRepoManifestImages` still fails on a missing testdata file); `npm run smoke` passes. The
+script itself, extracted from `repository.go`, was run in a Repository-image container against
+two local origins: one sent 1 MiB and went silent, the other served ranges. curl gave up after
+30 s (exit 28), the note read `after 1048576 of 5242880 bytes`, the second origin received
+`Range: bytes=1048576-`, and the file landed with a matching sha256 in 36 s. Live on the rebuilt
+app: an Intranet + Repository stack (pt, oraclelinux-9, Auto) synced 38 MiB from
+repo.percona.com. After switching the design to `http` on the running node, *Sync now* ran with
+`protocol: http` and finished. Test stack deleted.
