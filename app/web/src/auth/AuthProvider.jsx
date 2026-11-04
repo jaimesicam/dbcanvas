@@ -14,11 +14,14 @@ export function AuthProvider({ children }) {
   const [guest, setGuest] = useState(null)
   // Whether a new sign-up is approved at once (app/auth.go), for the registration form.
   const [openRegistration, setOpenRegistration] = useState(false)
+  // Whether the sign-in screen offers "Continue as guest" (app/guestlogin.go).
+  const [guestLogin, setGuestLogin] = useState(false)
 
   const refresh = useCallback(async () => {
     try {
       const s = await api.status()
       setOpenRegistration(!!s.openRegistration)
+      setGuestLogin(!!s.guestLogin)
       if (!s.initialized) {
         setUser(null)
         setPhase('setup')
@@ -50,6 +53,11 @@ export function AuthProvider({ children }) {
     await refresh()
   }, [refresh])
 
+  const loginAsGuest = useCallback(async () => {
+    await api.guestLogin()
+    await refresh()
+  }, [refresh])
+
   // With open registration the server signs the new account in, so the status is read
   // again to enter the app.
   const register = useCallback(async (username, password, profile) => {
@@ -67,7 +75,7 @@ export function AuthProvider({ children }) {
   }, [refresh])
 
   return (
-    <AuthContext.Provider value={{ phase, user, guest, openRegistration, refresh, setup, login, register, logout, setUser }}>
+    <AuthContext.Provider value={{ phase, user, guest, openRegistration, guestLogin, refresh, setup, login, loginAsGuest, register, logout, setUser }}>
       {children}
     </AuthContext.Provider>
   )

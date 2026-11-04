@@ -542,6 +542,10 @@ func (a *App) handleSetUserRole(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if target.GuestAccount && in.Role == RoleAdmin {
+		writeErr(w, http.StatusBadRequest, "the guest account cannot be an administrator")
+		return
+	}
 	if target.Role == in.Role {
 		writeJSON(w, http.StatusOK, target)
 		return
@@ -575,6 +579,10 @@ func (a *App) handleSetUserPassword(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if target.GuestAccount {
+		writeErr(w, http.StatusBadRequest, errGuestAccountNoAuth)
+		return
+	}
 	if p := newPasswordProblem(in.NewPassword); p != "" {
 		writeErr(w, http.StatusBadRequest, p)
 		return
@@ -604,6 +612,10 @@ func (a *App) handleSetUserPassword(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleCreateResetLink(w http.ResponseWriter, r *http.Request) {
 	me, target, ok := a.targetUser(w, r, "change your own password from Settings")
 	if !ok {
+		return
+	}
+	if target.GuestAccount {
+		writeErr(w, http.StatusBadRequest, errGuestAccountNoAuth)
 		return
 	}
 	// An account whose invite was never used is still waiting on it: a new link for

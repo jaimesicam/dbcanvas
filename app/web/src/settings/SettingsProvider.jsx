@@ -37,6 +37,8 @@ const SYSTEM_DEFAULTS = {
   // Open registration (app/syssettings.go): new sign-ups wait for approval unless an
   // administrator turns this on.
   openRegistration: false,
+  // Guest sign-in (app/guestlogin.go): off until an administrator turns it on.
+  guestLogin: false,
   // Shared sessions (app/share.go): off until an administrator turns them on.
   allowGuestSessions: false, maxGuestMinutes: 120, sessionRetentionDays: 90, recordingRetentionDays: 30, publicUrl: '',
 }

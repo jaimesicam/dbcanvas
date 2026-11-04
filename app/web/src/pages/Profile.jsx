@@ -70,6 +70,20 @@ export default function Profile() {
         <Button variant="outline" size="sm" onClick={logout}><Icon.Logout size={15} /> Sign out</Button>
       </div>
 
+      {user.guestAccount ? (<>
+        <Section title="Guest account" hint="You are signed in as a guest.">
+          <div className="text-sm text-muted">
+            Everyone who continues as a guest shares this account, so its name and password cannot be changed from
+            it. What you build here is visible to the next guest. Register an account of your own to keep your work
+            to yourself.
+          </div>
+        </Section>
+        <Section title="API tokens" hint="Scripts and the dbcanvas CLI can work as the guest too (dbcanvas login --guest). Guest tokens stop working when an administrator turns guest sign-in off.">
+          <Button variant="outline" size="sm" onClick={() => { location.hash = 'api' }}>
+            <Icon.Code size={15} /> Manage API tokens
+          </Button>
+        </Section>
+      </>) : (<>
       <Section title="Name, email and avatar" hint="What colleagues see beside your work, on shared boards and in shared sessions. Your name and email are stored encrypted, and no other account can use the same email.">
         <form onSubmit={save} className="space-y-3">
           <ProfileFields value={p} onChange={(v) => { setP(v); setMsg(null) }} />
@@ -92,6 +106,7 @@ export default function Profile() {
           <Icon.Code size={15} /> Manage your API tokens
         </Button>
       </Section>
+      </>)}
     </div>
   )
 }

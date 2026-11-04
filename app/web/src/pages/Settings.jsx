@@ -422,6 +422,57 @@ export function OpenRegistration() {
   )
 }
 
+// GuestLogin is whether the sign-in page offers "Continue as guest" (app/guestlogin.go):
+// one shared account with the user role. Instance-wide and off by default.
+export function GuestLogin() {
+  const { system, saveSystem } = useSettings()
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
+  const on = !!system.guestLogin
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+
+  const apply = async (next) => {
+    setErr(''); setBusy(true)
+    try {
+      await saveSystem({ guestLogin: next })
+    } catch (e) {
+      setErr(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Row
+      title="Guest sign-in"
+      hint="Whether people can use DBCanvas without an account, as a shared guest user. Instance-wide, and off by default."
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+          on ? 'bg-warning/15 text-warning' : 'bg-muted/15 text-muted'}`}>
+          {on ? <Icon.StatusWarn size={13} /> : <Icon.Close size={13} />}
+          {on ? 'Guests can sign in' : 'Off'}
+        </span>
+        <Help text={HELP.guestLogin} />
+        {isAdmin && (
+          <Button variant={on ? 'subtle' : 'outline'} onClick={() => apply(!on)} disabled={busy}>
+            {busy ? 'Saving…' : on ? 'Turn off (signs guests out)' : 'Allow guest sign-in'}
+          </Button>
+        )}
+      </div>
+      {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
+      <div className="text-xs text-muted">
+        {on
+          ? 'Anyone who can reach the sign-in page can press \u201cContinue as guest\u201d and use DBCanvas as a regular user, without a password. All guests share one account and its stacks.'
+          : isAdmin
+            ? 'Only people with an account can sign in.'
+            : 'Set by an administrator.'}
+      </div>
+    </Row>
+  )
+}
+
 // GuestSessions is the switch for shared sessions (app/share.go): whether a stack's
 // owner may share a live session through a link, and the longest a link may last.
 // Instance-wide and off by default — a link admits people who have no account here.
@@ -928,6 +979,8 @@ export default function Settings() {
           <InternalWrites />
 
           <OpenRegistration />
+
+          <GuestLogin />
 
           <GuestSessions />
 

@@ -194,6 +194,8 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "Request an account. It is created pending until an admin approves it, or approved and signed in at once when open registration is on."},
 		{Method: "POST", Path: "/api/auth/login", Group: gAuth, Auth: authPublic, Handler: m((*App).handleLogin),
 			Summary: "Sign in with a username and password and receive a session cookie."},
+		{Method: "POST", Path: "/api/auth/guest", Group: gAuth, Auth: authPublic, Handler: m((*App).handleGuestLogin),
+			Summary: "Sign in as the shared guest account, a regular user, and receive a session cookie, which can create an API token like a password session (dbcanvas login --guest). Refused unless an administrator turned guest sign-in on; GET /api/setup/status says whether it is (guestLogin)."},
 		{Method: "POST", Path: "/api/auth/logout", Group: gAuth, Auth: authPublic, Handler: m((*App).handleLogout),
 			Summary: "Destroy the caller's session and clear the cookie."},
 		{Method: "GET", Path: "/api/auth/reset/{token}", Group: gAuth, Auth: authPublic, Handler: m((*App).handleResetLinkInfo),

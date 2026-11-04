@@ -51,6 +51,9 @@ type User struct {
 	// InvitePending is an account an admin created with a link that has not been
 	// used yet: a new link for it is an invite, not a reset (useradmin.go).
 	InvitePending bool `json:"invitePending,omitempty"`
+	// GuestAccount marks the one built-in account people sign in to without a
+	// password when guest sign-in is on (guestlogin.go).
+	GuestAccount bool `json:"guestAccount,omitempty"`
 }
 
 // Store wraps the SQLite database.
@@ -248,6 +251,8 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id, id DESC);`
 	db.Exec("ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0")
 	db.Exec("ALTER TABLE users ADD COLUMN last_login_at TEXT")
 	db.Exec("ALTER TABLE users ADD COLUMN invite_pending INTEGER NOT NULL DEFAULT 0")
+	// The built-in guest account (guestlogin.go).
+	db.Exec("ALTER TABLE users ADD COLUMN guest_account INTEGER NOT NULL DEFAULT 0")
 	db.Exec("ALTER TABLE sessions ADD COLUMN created_at TEXT NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE sessions ADD COLUMN last_seen_at TEXT NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE sessions ADD COLUMN ip TEXT NOT NULL DEFAULT ''")
@@ -316,7 +321,7 @@ func (s *Store) scanUser(row interface {
 	var u User
 	var approved, lastLogin sql.NullString
 	if err := row.Scan(&u.ID, &u.Username, &u.Role, &u.Status, &u.CreatedAt, &approved, &u.FirstName, &u.LastName, &u.Avatar, &u.Email,
-		&u.MustChangePassword, &lastLogin, &u.InvitePending); err != nil {
+		&u.MustChangePassword, &lastLogin, &u.InvitePending, &u.GuestAccount); err != nil {
 		return User{}, err
 	}
 	if approved.Valid {
@@ -343,7 +348,7 @@ func (s *Store) openProfile(u User) (User, error) {
 	return u, nil
 }
 
-const userCols = "id, username, role, status, created_at, approved_at, first_name, last_name, avatar, email, must_change_password, last_login_at, invite_pending"
+const userCols = "id, username, role, status, created_at, approved_at, first_name, last_name, avatar, email, must_change_password, last_login_at, invite_pending, guest_account"
 
 // CountUsers returns the total number of user accounts.
 func (s *Store) CountUsers() (int, error) {
@@ -409,7 +414,7 @@ func (s *Store) CredByUsername(username string) (User, string, error) {
 	var approved, lastLogin sql.NullString
 	var hash string
 	if err := row.Scan(&u.ID, &u.Username, &u.Role, &u.Status, &u.CreatedAt, &approved, &u.FirstName, &u.LastName, &u.Avatar, &u.Email,
-		&u.MustChangePassword, &lastLogin, &u.InvitePending, &hash); err != nil {
+		&u.MustChangePassword, &lastLogin, &u.InvitePending, &u.GuestAccount, &hash); err != nil {
 		return User{}, "", err
 	}
 	if approved.Valid {

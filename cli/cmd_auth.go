@@ -14,6 +14,7 @@ import (
 // `login` is three requests, in this order, and the order is the design:
 //
 //	POST /api/auth/login    →  a session cookie, held in memory
+//	                           (POST /api/auth/guest with --guest: no password)
 //	POST /api/tokens        →  an API token, which is what gets stored
 //	POST /api/auth/logout   →  the session is discarded immediately
 //
@@ -34,6 +35,7 @@ func cmdLogin(args []string) error {
 	scope := fs.String("scope", "write", "token scope: read, write or admin")
 	expires := fs.Int("expires", 90, "token lifetime in days; 0 = never (administrators only)")
 	name := fs.String("name", "", "token name (default \"dbcanvas-cli on <hostname>\")")
+	guest := fs.Bool("guest", false, "sign in as the shared guest account, when the administrator allows guest sign-in")
 	if err := parse(fs, args); err != nil {
 		return err
 	}
@@ -58,18 +60,23 @@ func cmdLogin(args []string) error {
 		return fmt.Errorf("which installation? pass --url http://localhost:8080")
 	}
 
-	username := *user
-	if username == "" {
-		if username, err = prompt("Username: "); err != nil {
+	if *guest && *user != "" {
+		return fmt.Errorf("--guest signs in as the shared guest account; leave out --user")
+	}
+	var username, password string
+	if !*guest {
+		username = *user
+		if username == "" {
+			if username, err = prompt("Username: "); err != nil {
+				return err
+			}
+		}
+		if password, err = promptSecret("Password: "); err != nil {
 			return err
 		}
-	}
-	password, err := promptSecret("Password: ")
-	if err != nil {
-		return err
-	}
-	if strings.TrimSpace(username) == "" || password == "" {
-		return fmt.Errorf("a username and password are both required")
+		if strings.TrimSpace(username) == "" || password == "" {
+			return fmt.Errorf("a username and password are both required")
+		}
 	}
 
 	c := newClient(baseURL, "")
@@ -77,14 +84,20 @@ func cmdLogin(args []string) error {
 		return err
 	}
 
-	// 1. Password sign-in. The cookie lives in this process and nowhere else.
+	// 1. Sign in. The cookie lives in this process and nowhere else.
 	var me struct {
 		ID                 int64  `json:"id"`
 		Username           string `json:"username"`
 		Role               string `json:"role"`
 		MustChangePassword bool   `json:"mustChangePassword"`
 	}
-	if err := c.post("/api/auth/login", map[string]string{
+	if *guest {
+		// The guest account has no password: the server lets anyone in while an
+		// administrator has guest sign-in on, and refuses with a 403 otherwise.
+		if err := c.post("/api/auth/guest", nil, &me); err != nil {
+			return err
+		}
+	} else if err := c.post("/api/auth/login", map[string]string{
 		"username": strings.TrimSpace(username), "password": password,
 	}, &me); err != nil {
 		return err
@@ -165,6 +178,10 @@ func cmdLogin(args []string) error {
 	}
 	fmt.Printf("Created token %q (%s…), %s scope, %s.\n",
 		created.Token.Name, created.Token.Prefix, created.Token.Scope, expText)
+	if *guest {
+		fmt.Printf("Signed in as the shared guest account %s. Other guests see the same stacks, and the token "+
+			"stops working if the administrator turns guest sign-in off.\n", me.Username)
+	}
 	fmt.Printf("Saved to %s as profile %q.\n", path, pname)
 	return nil
 }
@@ -240,9 +257,10 @@ func cmdWhoami(args []string) error {
 		return err
 	}
 	var me struct {
-		Username string `json:"username"`
-		Role     string `json:"role"`
-		Status   string `json:"status"`
+		Username     string `json:"username"`
+		Role         string `json:"role"`
+		Status       string `json:"status"`
+		GuestAccount bool   `json:"guestAccount,omitempty"`
 	}
 	if err := c.get("/api/me", &me); err != nil {
 		return err
@@ -259,7 +277,11 @@ func cmdWhoami(args []string) error {
 	p := cfg.Profiles[name]
 
 	fmt.Printf("%-12s %s\n", "account", me.Username)
-	fmt.Printf("%-12s %s\n", "role", me.Role)
+	if me.GuestAccount {
+		fmt.Printf("%-12s %s\n", "role", me.Role+" (shared guest account)")
+	} else {
+		fmt.Printf("%-12s %s\n", "role", me.Role)
+	}
 	fmt.Printf("%-12s %s\n", "server", c.BaseURL)
 	if name != "" {
 		fmt.Printf("%-12s %s\n", "profile", name)

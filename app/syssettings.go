@@ -92,9 +92,13 @@ type SystemSettings struct {
 	// them in, instead of leaving it pending until an administrator approves it. Off by
 	// default: who can use an installation is the installation's decision. Accounts that
 	// are already pending stay pending; turning it on approves nobody retroactively.
-	OpenRegistration bool                 `json:"openRegistration"`
-	SSHForwarding    SSHForwardingSetting `json:"sshForwarding"`
-	Experimental     bool                 `json:"experimental"`
+	OpenRegistration bool `json:"openRegistration"`
+	// GuestLogin offers "Continue as guest" on the sign-in screen, which signs in to one
+	// shared account with the user role (guestlogin.go). Off by default; turning it off
+	// signs every guest out.
+	GuestLogin    bool                 `json:"guestLogin"`
+	SSHForwarding SSHForwardingSetting `json:"sshForwarding"`
+	Experimental  bool                 `json:"experimental"`
 	// EOL is whether end-of-life releases are offered (EOL in .env; see eol.go). Derived and
 	// read-only like Experimental, and for the same reason it rides here: the designer needs it
 	// before it draws the node library and the Linux Client's OS picker.
@@ -194,6 +198,7 @@ func (a *App) systemSettings(appUser string) SystemSettings {
 		s.InternalWrites = v == "1"
 	}
 	s.OpenRegistration = a.openRegistration()
+	s.GuestLogin = a.guestLoginEnabled()
 	s.AllowGuestSessions, s.MaxGuestMinutes = a.guestSessionSettings()
 	s.SessionRetentionDays = a.shareRetentionDays()
 	s.RecordingRetentionDays = a.recordingRetentionDays()
@@ -284,6 +289,21 @@ func (a *App) handleUpdateSystemSettings(w http.ResponseWriter, r *http.Request)
 	if err := a.store.SetAppSetting(settingOpenRegistration, open); err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to save settings")
 		return
+	}
+	// Like openRegistration, left out means unchanged.
+	if _, ok := present["guestLogin"]; !ok {
+		s.GuestLogin = a.guestLoginEnabled()
+	}
+	guestLogin := "0"
+	if s.GuestLogin {
+		guestLogin = "1"
+	}
+	if err := a.store.SetAppSetting(settingGuestLogin, guestLogin); err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to save settings")
+		return
+	}
+	if !s.GuestLogin {
+		a.endGuestAccess()
 	}
 	guests := "0"
 	if s.AllowGuestSessions {

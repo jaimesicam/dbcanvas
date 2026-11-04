@@ -37,6 +37,8 @@ export const api = {
   register: (username, password, profile = {}) => request('POST', '/api/auth/register', { username, password, ...profile }),
   updateProfile: (profile) => request('PUT', '/api/me/profile', profile),
   login: (username, password) => request('POST', '/api/auth/login', { username, password }),
+  // Sign in as the shared guest account, when an administrator turned it on (app/guestlogin.go).
+  guestLogin: () => request('POST', '/api/auth/guest'),
   logout: () => request('POST', '/api/auth/logout'),
   me: () => request('GET', '/api/me'),
   settings: () => request('GET', '/api/me/settings'),

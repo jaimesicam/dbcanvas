@@ -21,6 +21,25 @@ curl -s -H "Authorization: Bearer $DBCANVAS_TOKEN" http://localhost:8080/api/sta
 A token acts as your account, with your permissions. It stops working when your
 account is disabled or rejected.
 
+### As a guest
+
+When an administrator turns on **Guest sign-in** (Settings → This installation, off by
+default), `POST /api/auth/guest` signs in without a password to one shared account with
+the user role, and sets the same session cookie as `POST /api/auth/login`. That session
+can create a token (`POST /api/tokens`) like any other, which is what
+`dbcanvas login --guest` does. `GET /api/setup/status` says whether guest sign-in is on
+(`"guestLogin": true`), and `GET /api/me` marks the account (`"guestAccount": true`).
+
+```sh
+curl -s -c jar -X POST http://localhost:8080/api/auth/guest
+curl -s -b jar -H 'Content-Type: application/json' \
+  -d '{"name":"my script","scope":"write","days":7}' http://localhost:8080/api/tokens
+```
+
+Every guest shares the account, its stacks and its tokens. A guest token is write scope
+at most; it cannot change the account's password or profile; and it stops working, and
+is revoked, the moment an administrator turns guest sign-in off.
+
 ## Create a token
 
 1. Open **API → Tokens** (or run `dbcanvas login` or `dbcanvas token create`).
@@ -123,7 +142,7 @@ A stack belongs to the account that created it. You can reach your own stacks; a
 administrator can reach any. A token sees exactly what its owner sees in the UI.
 
 These need no sign-in: `GET /api/setup/status`, `POST /api/setup`,
-`POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`,
+`POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/guest`, `POST /api/auth/logout`,
 `GET`/`POST /api/auth/reset/{token}`, and the `/api/join/{token}` endpoints a shared
 session's guests use.
 

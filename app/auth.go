@@ -110,6 +110,10 @@ func (a *App) currentUser(r *http.Request) (User, bool) {
 	if err != nil {
 		return User{}, false
 	}
+	// The guest account is signed out the moment guest sign-in is off (guestlogin.go).
+	if !a.guestAccountUsable(u) {
+		return User{}, false
+	}
 	return u, true
 }
 
@@ -148,6 +152,8 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"version": appVersion,
 		// Whether a new sign-up is approved at once, for the registration form to say so.
 		"openRegistration": a.openRegistration(),
+		// Whether the sign-in screen offers "Continue as guest" (guestlogin.go).
+		"guestLogin": a.guestLoginEnabled(),
 	}
 	if u, ok := a.currentUser(r); ok {
 		resp["authenticated"] = true

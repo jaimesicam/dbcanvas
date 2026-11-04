@@ -1297,3 +1297,46 @@ func TestQueryRunSendsOneQueryPerNode(t *testing.T) {
 		}
 	}
 }
+
+// TestLoginAsGuest: --guest uses the guest endpoint, asks for nothing, and stores the
+// token like any login.
+func TestLoginAsGuest(t *testing.T) {
+	isolateConfig(t)
+	ts := newTestServer(t, func(s *testServer, w http.ResponseWriter, r *http.Request) {
+		switch r.Method + " " + r.URL.Path {
+		case "POST /api/auth/guest":
+			http.SetCookie(w, &http.Cookie{Name: "dbcanvas_session", Value: "sess", Path: "/"})
+			json.NewEncoder(w).Encode(map[string]any{"id": 2, "username": "guest", "role": "user", "guestAccount": true})
+		case "POST /api/tokens":
+			if _, err := r.Cookie("dbcanvas_session"); err != nil {
+				t.Error("token creation did not carry the guest session cookie")
+			}
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(map[string]any{
+				"token":  map[string]any{"id": 9, "name": "cli", "prefix": "dbc_guest", "scope": "write", "expiresAt": "2026-12-01T00:00:00Z"},
+				"secret": "dbc_guestsecret",
+			})
+		case "POST /api/auth/logout":
+			json.NewEncoder(w).Encode(map[string]any{"status": "ok"})
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+	// Nothing on stdin: a guest login must not prompt.
+	withStdin(t, "")
+	if err := cmdLogin([]string{"--url", ts.URL, "--guest"}); err != nil {
+		t.Fatalf("guest login: %v", err)
+	}
+	want := []string{"POST /api/auth/guest", "POST /api/tokens", "POST /api/auth/logout"}
+	if strings.Join(ts.requests, ",") != strings.Join(want, ",") {
+		t.Fatalf("requests were %v, want %v", ts.requests, want)
+	}
+	cfg, _ := loadConfig()
+	if p := cfg.Profiles["default"]; p.Token != "dbc_guestsecret" || p.User != "guest" {
+		t.Errorf("stored profile %+v", p)
+	}
+	if err := cmdLogin([]string{"--url", ts.URL, "--guest", "--user", "bob"}); err == nil {
+		t.Error("--guest with --user was accepted")
+	}
+}

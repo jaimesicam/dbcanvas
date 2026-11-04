@@ -45,6 +45,14 @@ export DBCANVAS_URL=http://localhost:8080
 export DBCANVAS_TOKEN=dbc_...
 ```
 
+**Guest sign-in.** If `GET /api/setup/status` reports `"guestLogin": true`, an
+administrator allows signing in without a password as one shared guest account (a
+regular user): `dbcanvas login --url "$URL" --guest`, or `POST /api/auth/guest` for a
+session cookie. Use it when the user asks to work as a guest. Because every guest
+shares that account and sees its stacks, offer it to the user rather than
+falling back to it silently. A guest cannot change the account's password or profile,
+and its token dies when guest sign-in is turned off (401).
+
 **A password the user gave you is yours to use.** The CLI does not need a terminal:
 when stdin is not one, every password prompt reads one line from stdin, in the order
 the prompts appear. So pipe them in — never put a password in a flag, an environment

@@ -849,7 +849,7 @@ function AccountMenu({ user, onLogout }) {
 function ProfilePrompt({ user }) {
   const { setUser } = useAuth()
   const [open, setOpen] = useState(() => {
-    if (!user || (user.firstName && user.email)) return false
+    if (!user || user.guestAccount || (user.firstName && user.email)) return false
     try { return sessionStorage.getItem('dbcanvas-profile-asked') !== String(user.id) } catch { return true }
   })
   if (!open) return null

@@ -172,7 +172,7 @@ export function SetupScreen() {
 }
 
 export function AuthScreen() {
-  const { login, register, openRegistration } = useAuth()
+  const { login, loginAsGuest, register, openRegistration, guestLogin } = useAuth()
   const [tab, setTab] = useState('signin')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -210,6 +210,19 @@ export function AuthScreen() {
     setBusy(true)
     try {
       await login(username, password)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function onGuest() {
+    setError('')
+    setSuccess('')
+    setBusy(true)
+    try {
+      await loginAsGuest()
     } catch (err) {
       setError(err.message)
     } finally {
@@ -267,6 +280,19 @@ export function AuthScreen() {
           <Button type="submit" size="lg" className="w-full" disabled={busy}>
             {busy ? 'Signing in…' : 'Sign in'}
           </Button>
+          {guestLogin && (
+            <>
+              <div className="flex items-center gap-3 text-xs text-muted">
+                <span className="h-px flex-1 bg-border" />or<span className="h-px flex-1 bg-border" />
+              </div>
+              <Button type="button" variant="outline" size="lg" className="w-full" disabled={busy} onClick={onGuest}>
+                Continue as guest
+              </Button>
+              <p className="text-center text-xs text-muted">
+                Guests share one account: what you build is visible to the next guest.
+              </p>
+            </>
+          )}
         </form>
       ) : (
         <form onSubmit={onRegister} className="space-y-3">

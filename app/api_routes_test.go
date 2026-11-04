@@ -149,6 +149,8 @@ func TestPublicRoutesUnchanged(t *testing.T) {
 		"POST /api/auth/register",
 		"POST /api/auth/login",
 		"POST /api/auth/logout",
+		// Guest sign-in: refused unless an administrator turned it on (guestlogin.go).
+		"POST /api/auth/guest",
 		// A reset link an admin issued: its owner has no working password by
 		// definition, so the link is the credential (useradmin.go).
 		"GET /api/auth/reset/{token}",

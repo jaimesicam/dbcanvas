@@ -246,6 +246,7 @@ export default function ManageUsers() {
                       <div className="flex flex-wrap gap-1">
                         <Badge tone={STATUS_TONE[u.status]}>{u.status}</Badge>
                         {u.mustChangePassword && <Badge tone="warning">temporary password</Badge>}
+                        {u.guestAccount && <Badge tone="warning">guest sign-in</Badge>}
                       </div>
                     </td>
                     <td className="px-3 py-2.5">
@@ -283,7 +284,7 @@ export default function ManageUsers() {
                             Re-approve
                           </Button>
                         )}
-                        {!isYou && u.status === 'approved' && (
+                        {!isYou && u.status === 'approved' && !u.guestAccount && (
                           <Button size="sm" variant="outline" disabled={busy} onClick={() => changeRole(u, u.role === 'admin' ? 'user' : 'admin')}>
                             {u.role === 'admin' ? 'Make user' : 'Make admin'}
                           </Button>
@@ -294,7 +295,7 @@ export default function ManageUsers() {
                         <Button size="sm" variant="ghost" disabled={busy} onClick={() => setOpen({ kind: 'sessions', user: u })} title="Sessions">
                           <Icon.Monitor size={16} />
                         </Button>
-                        {!isYou && (
+                        {!isYou && !u.guestAccount && (
                           <Button size="sm" variant="ghost" disabled={busy} onClick={() => setOpen({ kind: 'reset', user: u })} title="Reset password">
                             <Icon.Key size={16} />
                           </Button>

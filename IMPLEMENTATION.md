@@ -29009,3 +29009,56 @@ matches a Kubeadm frame's release (`lcKubectlVersion`), and the hint names Kubea
   The prepared cluster was absent from States until `kubeadm init` ran by hand, then present, with
   its board, a container's log tail and a pod's YAML read through the control plane. A second copy
   merged both, made the requested context current, and each context reached its own cluster.
+
+## 504. Guest sign-in — `app/{guestlogin,guestlogin_test,auth,apitokens,store,syssettings,useradmin,api_routes,api_routes_test}.go`, `app/web/src/{App.jsx,auth/AuthProvider.jsx,auth/AuthScreens.jsx,lib/api.js,lib/help.js,pages/ManageUsers.jsx,pages/Profile.jsx,pages/Settings.jsx,settings/SettingsProvider.jsx}`
+
+An administrator can let people use DBCanvas without an account. Off by default.
+
+- **Setting.** `guestLogin` in `SystemSettings` (app_settings key `guestLogin`; anything but `"1"` is
+  off). Settings → This installation → *Guest sign-in*. A `PUT /api/system/settings` body that omits
+  it keeps the stored value, as with `openRegistration`. Turning it off calls `endGuestAccess`: every
+  guest session is deleted and the account's tokens revoked.
+- **Account.** One built-in account, `users.guest_account = 1` (new column, `User.GuestAccount`,
+  JSON `guestAccount`), role `user`, approved, a random bcrypt password that is thrown away. Created
+  on first guest sign-in as `guest` (or `guest-2`, … when the name is taken), profile "Guest User".
+  All guests share it and its stacks.
+- **Sign-in.** `POST /api/auth/guest` (public; added to `TestPublicRoutesUnchanged`). Refused before
+  setup (409, so the guest account never counts as the first account), while the setting is off
+  (403), or when an admin disabled the account (403). `GET /api/setup/status` carries `guestLogin` so
+  the sign-in form shows *Continue as guest*.
+- **Gates.** `guestGate` in `requireScope` (cookie and token paths) answers 401 for the guest account
+  while the setting is off, and 403 for `POST /api/me/password`, `PUT /api/me/profile`, `POST
+  /api/tokens`. `currentUser` also refuses the guest account while it is off, so even a public route
+  stops seeing the session. Admins cannot promote it (`handleSetUserRole`), set its password or
+  issue it a reset link.
+- **UI.** Profile shows a *Guest account* note in place of the profile, password and token sections;
+  the profile prompt skips it; Users badges it *guest sign-in* and hides *Make admin* and *Reset
+  password*.
+- Not the same as a shared-session guest (share.go), who joins one live session through a link.
+
+Verification performed: `TestGuestLogin` (off by default, pre-setup refusal, name collision → `guest-2`,
+one account for every guest, stack route reachable, blocked routes 403, no promotion or password,
+omitted field kept, turning off kills the open session, disabled account refused); full `go test .`
+passes except the pre-existing `TestRepoManifestImages` (missing `testdata/cr.yaml`); `npm run smoke`
+passes. Live against the rebuilt app: guest sign-in 403 while off; on → signed in as `guest` (role
+user, `guestAccount: true`), `GET /api/stacks` works, token creation 403, promotion refused; off →
+the same guest cookie got 401.
+
+## 505. Guest sign-in over the API and `dbcanvas login --guest` — `app/{guestlogin,guestlogin_test,api_routes}.go`, `cli/{cmd_auth,cli_test}.go`, `app/web/src/{pages/Profile.jsx,lib/help.js}`, `docs/{API,CLI,API_REFERENCE}.md`, `.claude/skills/dbcanvas/SKILL.md`
+
+Section 504's guest account now works from scripts and the CLI.
+
+- **API.** `POST /api/tokens` is no longer in `guestBlockedRoutes`, so the session from `POST
+  /api/auth/guest` can mint a token like a password session. It is an ordinary user's token: write
+  scope at most (admin scope 403), lifetime capped by `maxTokenDays`. It dies with the setting:
+  turning guest sign-in off revokes it (`endGuestAccess`), and `guestGate` answers 401 on the token
+  path meanwhile. Password and profile changes stay blocked. Discovery: `GET /api/setup/status` →
+  `guestLogin`, `GET /api/me` → `guestAccount`.
+- **CLI.** `dbcanvas login --guest` posts `/api/auth/guest` instead of prompting for credentials,
+  then creates and stores the token and signs the session out as usual (`--guest` with `--user` is
+  refused). `whoami` prints `user (shared guest account)`.
+- **UI.** The guest's Profile page links to API tokens again; the help text says the API and CLI work.
+
+Verification performed: `TestGuestLogin` (guest token creation reachable, admin scope refused, a guest
+token 200 while on and 401 after off), `TestLoginAsGuest` in `cli` (request order guest → tokens →
+logout, no prompt, token stored); `go test ./...` in `cli` passes; `npm run smoke` passes.

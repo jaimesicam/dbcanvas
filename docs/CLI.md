@@ -48,6 +48,16 @@ dbcanvas whoami                            # account, role, server, token scope 
 dbcanvas logout                            # revoke the token and remove the profile
 ```
 
+Where an administrator has turned on guest sign-in, `dbcanvas login --guest` signs in as the
+shared guest account instead, with no username or password. Everything else is the same: it
+stores a write-scope token. Guests share one account and its stacks, and the token stops working
+if guest sign-in is turned off. When guest sign-in is off, the server refuses with
+`guest sign-in is turned off`.
+
+```sh
+dbcanvas login --url http://localhost:8080 --guest --profile guest
+```
+
 | `login` flag | Default | Meaning |
 | --- | --- | --- |
 | `--url` | — | DBCanvas base URL. |
