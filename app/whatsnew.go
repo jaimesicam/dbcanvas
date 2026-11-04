@@ -37,6 +37,33 @@ type releaseNote struct {
 // expanded, and the tests assume the ordering.
 var whatsNewNotes = []releaseNote{
 	{
+		Version: "0.0.26",
+		Date:    "2026-11-05",
+		Title:   "MongoDB Community (MDB) and PGDG PostgreSQL",
+		Body:    "The Library has MongoDB Community Server beside Percona Server for MongoDB — MDB, MDB Replica Set and MDB Sharded, from repo.mongodb.org (6.0 to 8.2) — and PostgreSQL from the PostgreSQL Global Development Group: PostgreSQL (PGDG), Patroni Cluster (PGDG) and PostgreSQL Replication (PGDG). All in One can run them too. They are the same nodes as Percona's with a different build, so PMM, backups, Log Summary, FTDC, switchover and joining a running cluster all work. Options only Percona's builds have (Keycloak OIDC, LDAP and Kerberos sign-in, encryption at rest, vector search, pg_tde, pg_stat_monitor, pgAudit, set_user) are not offered, and the form says why. Compose kinds mdb, mdb-rs, mdb-sharded, pg-pgdg, patroni-pgdg and pg-stream-pgdg.",
+		Doc:     "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.26",
+		Date:    "2026-11-05",
+		Title:   "Kubeadm Cluster: Kubernetes built with kubeadm",
+		Body:    "A new Kubernetes frame beside K3D: Ubuntu 24.04 nodes with containerd and kubeadm, kubelet and kubectl at the release you pick, the first member as control plane and console. Stop it ready (Calico or Flannel installed, every node Ready), initialized (no pod network) or merely prepared, to run kubeadm init yourself from /root/kubeadm-config.yaml. Kubernetes States and a Linux Client's kubeconfig work with it, and members added later join as workers.",
+		Doc:     "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.26",
+		Date:    "2026-11-05",
+		Title:   "Guest sign-in and security groups",
+		Body:    "An administrator can turn on Continue as guest: one shared guest account, with no password or profile changes, which works from the API and dbcanvas login --guest too, and is signed out everywhere when the setting goes off. Settings also has security groups — Administrators, Regular Users and Guests — choosing which pages each may use, enforced by the server for the UI, the API and tokens (dbcanvas group list / set).",
+		Doc:     "docs/API.md",
+	},
+	{
+		Version: "0.0.26",
+		Date:    "2026-11-05",
+		Title:   "Sturdier Repository downloads and host ports",
+		Body:    "A Repository mirror no longer hangs on a connection that goes silent mid-file: a stalled download is dropped after 30 seconds and resumed, from HTTPS or HTTP (a new Protocol setting: Auto, HTTPS or HTTP). Host ports for PMM, Orchestrator, the simulators and the other published nodes are now chosen on the Docker host itself, kept across restarts and recorded, so a port something else on the host holds is no longer picked, and Docker's own error is shown when a start fails.",
+	},
+	{
 		Version: "0.0.25",
 		Date:    "2026-11-02",
 		Title:   "PostgreSQL Replication: streaming replication with no failover manager",

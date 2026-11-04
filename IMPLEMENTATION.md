@@ -29340,3 +29340,17 @@ The distribution is fixed when the node is added, so a version is never reinterp
   - Four SSR smoke checks.
   - `TestAIOSupportedKindsMatchJSCatalog`: the variant entries put `dist` first so its parser skips them.
   - The minor-reaches-installer test now accepts `mongoInstallStep`.
+
+## 512. Release 0.0.26 — `VERSION`, `app/whatsnew.go`, `README.md`
+
+Four release notes, in the README's What's new and in the in-app dialog, dated 2026-11-05:
+- MongoDB Community (MDB) and PGDG PostgreSQL (§511)
+- Kubeadm Cluster: Kubernetes built with kubeadm (§502, 503, 509)
+- Guest sign-in and security groups (§504–506)
+- Sturdier Repository downloads and host ports (§507, 508)
+
+0.0.25's first note is folded; only the newest release opens one. §510 (desktop windows following a
+resized browser) is a fix with no note.
+
+**Verification performed.** `go test -run 'WhatsNew|Note' .` (order, completeness, linked docs
+exist, README match).
