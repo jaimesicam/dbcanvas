@@ -1340,3 +1340,27 @@ func TestLoginAsGuest(t *testing.T) {
 		t.Error("--guest with --user was accepted")
 	}
 }
+
+// TestGroupSet: the cells reach the server as {"allowed": {group: {feature: bool}}}.
+func TestGroupSet(t *testing.T) {
+	isolateConfig(t)
+	var got map[string]map[string]map[string]bool
+	ts := newTestServer(t, func(s *testServer, w http.ResponseWriter, r *http.Request) {
+		if r.Method+" "+r.URL.Path != "PUT /api/security/groups" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		json.Unmarshal([]byte(s.bodies[len(s.bodies)-1]), &got)
+		json.NewEncoder(w).Encode(map[string]any{"features": []any{}, "groups": []any{}})
+	})
+	t.Setenv("DBCANVAS_URL", ts.URL)
+	t.Setenv("DBCANVAS_TOKEN", "dbc_x")
+	if err := groupSet([]string{"guest", "api=on", "kanban=off"}); err != nil {
+		t.Fatal(err)
+	}
+	if c := got["allowed"]["guest"]; !c["api"] || c["kanban"] || len(c) != 2 {
+		t.Errorf("sent %v", got)
+	}
+	if err := groupSet([]string{"guest", "api"}); err == nil {
+		t.Error("a cell without a value was accepted")
+	}
+}

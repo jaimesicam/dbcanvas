@@ -496,7 +496,7 @@ func (a *App) requireScope(rt apiRoute, next http.HandlerFunc) http.HandlerFunc 
 							writeErr(w, http.StatusForbidden, errPasswordChangeRequired)
 							return
 						}
-						if !a.guestGate(w, u, rt) {
+						if !a.guestGate(w, u, rt) || !a.featureGate(w, u, rt, false) {
 							return
 						}
 						r = withPrincipal(r, principal{User: u})
@@ -520,7 +520,7 @@ func (a *App) requireScope(rt apiRoute, next http.HandlerFunc) http.HandlerFunc 
 			writeErr(w, http.StatusForbidden, errPasswordChangeRequired)
 			return
 		}
-		if !a.guestGate(w, u, rt) {
+		if !a.guestGate(w, u, rt) || !a.featureGate(w, u, rt, true) {
 			return
 		}
 		if have := effectiveScope(tok, u); !scopeAllows(have, need) {

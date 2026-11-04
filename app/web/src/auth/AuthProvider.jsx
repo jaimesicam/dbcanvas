@@ -16,6 +16,9 @@ export function AuthProvider({ children }) {
   const [openRegistration, setOpenRegistration] = useState(false)
   // Whether the sign-in screen offers "Continue as guest" (app/guestlogin.go).
   const [guestLogin, setGuestLogin] = useState(false)
+  // The pages this account's security group may use (app/secgroups.go), or null
+  // when the server did not say (an older server): then nothing is filtered.
+  const [features, setFeatures] = useState(null)
 
   const refresh = useCallback(async () => {
     try {
@@ -28,6 +31,7 @@ export function AuthProvider({ children }) {
       } else if (s.authenticated) {
         setUser(s.user)
         setGuest(s.guest || null)
+        setFeatures(Array.isArray(s.features) ? s.features : null)
         setPhase('authed')
       } else {
         setUser(null)
@@ -75,7 +79,7 @@ export function AuthProvider({ children }) {
   }, [refresh])
 
   return (
-    <AuthContext.Provider value={{ phase, user, guest, openRegistration, guestLogin, refresh, setup, login, loginAsGuest, register, logout, setUser }}>
+    <AuthContext.Provider value={{ phase, user, guest, openRegistration, guestLogin, features, refresh, setup, login, loginAsGuest, register, logout, setUser }}>
       {children}
     </AuthContext.Provider>
   )

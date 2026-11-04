@@ -94,6 +94,8 @@ func TestRouteTableIsRegistrable(t *testing.T) {
 func TestAdminRoutesUnchanged(t *testing.T) {
 	want := map[string]bool{
 		"PUT /api/system/settings":              true,
+		"GET /api/security/groups":              true, // added with security groups
+		"PUT /api/security/groups":              true,
 		"GET /api/users":                        true,
 		"POST /api/users/{id}/approve":          true,
 		"POST /api/users/{id}/reject":           true,

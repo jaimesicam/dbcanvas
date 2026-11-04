@@ -49,7 +49,8 @@ dbcanvas logout                            # revoke the token and remove the pro
 ```
 
 Where an administrator has turned on guest sign-in, `dbcanvas login --guest` signs in as the
-shared guest account instead, with no username or password. Everything else is the same: it
+shared guest account instead, with no username or password. The Guests security group needs the
+**API** feature for this, which it does not have by default (see [Security groups](#security-groups)). Everything else is the same: it
 stores a write-scope token. Guests share one account and its stacks, and the token stops working
 if guest sign-in is turned off. When guest sign-in is off, the server refuses with
 `guest sign-in is turned off`.
@@ -135,6 +136,23 @@ dbcanvas --profile sam whoami                           # act as another profile
 disabling, changing roles or deleting accounts, use `dbcanvas api` with an admin-scoped token
 (see the [API reference](API_REFERENCE.md#users-admin)). Setting another account's password and
 issuing reset links are browser-only.
+
+## Security groups
+
+Which pages each group (`admin`, `user`, `guest`) may use is enforced for the CLI too: a command
+whose endpoint belongs to a feature your group lacks fails with `your security group (…) does not
+have access to …`, and a group without the **API** feature cannot sign in with `dbcanvas login` or
+use a token at all. Administrators manage it:
+
+```sh
+dbcanvas group list                                   # every feature, and which groups have it
+dbcanvas group set guest kanban=on api=on             # let guests use Kanban and the CLI
+dbcanvas group set user benchmark=off                 # take Benchmark from regular users
+```
+
+Granting a tool grants Database Stacks with it. `(fixed)` cells cannot be changed: administrators
+always keep Settings and Manage Users, and only administrators can have Manage Users. See
+[the API guide](API.md#security-groups).
 
 ## Configuration and profiles
 

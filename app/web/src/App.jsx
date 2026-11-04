@@ -116,7 +116,7 @@ export default function App({ onSessionEnded }) {
 const GUEST_HIDDEN = new Set(['settings', 'api', 'users', 'profile'])
 
 function Workspace({ onSessionEnded }) {
-  const { user, logout, guest } = useAuth()
+  const { user, logout, guest, features } = useAuth()
   const session = useSession()
   const { settings, system } = useSettings()
   const isAdmin = user?.role === 'admin'
@@ -126,6 +126,9 @@ function Workspace({ onSessionEnded }) {
   // the dashboard — which is the point of hiding it.
   const nav = visible(isAdmin ? [...NAV, ADMIN_NAV] : NAV, showExperimental(system))
     .filter((n) => !guest || !GUEST_HIDDEN.has(n.id))
+    // Security groups (app/secgroups.go): only the pages this account's group may
+    // use. The server refuses the rest anyway; this keeps them out of sight.
+    .filter((n) => !features || features.includes(n.id))
 
   // Tabs. A tab is { key, id }: the id says which page, the key is what makes two
   // tabs of the *same* page possible — three benchmarks at once was the case that

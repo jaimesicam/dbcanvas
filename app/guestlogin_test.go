@@ -59,6 +59,10 @@ func TestGuestLogin(t *testing.T) {
 		t.Errorf("a second guest sign-in made another account: %d accounts", len(users))
 	}
 
+	// Guests have neither API tokens nor much else by default (secgroups.go); this
+	// test is about the guest account, so give the group the API.
+	app.store.SetAppSetting(settingSecurityGroups, `{"guest":{"api":true}}`)
+
 	reached := false
 	call := func(pattern string) int {
 		reached = false

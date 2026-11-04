@@ -839,12 +839,24 @@ export const HELP = {
     'they are signed in at once, with the user role. Accounts already pending when it is turned on stay ' +
     'pending. Administrators get a notification for each new account either way. The setting is also ' +
     'openRegistration on PUT /api/system/settings.',
+  securityGroups:
+    'Every account belongs to one of three groups: Administrators (the admin role), Regular Users (the user role) ' +
+    'and Guests (the shared guest account). Each page of the app is a feature a group may or may not use. The ' +
+    'sidebar shows only what a group may use, and the server refuses the rest with a 403 \u2014 in the browser, ' +
+    'through the API and from dbcanvas-cli. The API feature is also the key to API tokens: without it a group ' +
+    'cannot create a token, sign in with dbcanvas-cli, or use a token it already has. Most tools need Database ' +
+    'Stacks, so ticking one ticks Database Stacks and unticking Database Stacks unticks them. Administrators ' +
+    'always keep Settings and Manage Users, so nobody can lock every administrator out; and Manage Users is never ' +
+    'given to another group, because whoever manages accounts can make one an administrator. The defaults: ' +
+    'Administrators everything, Regular Users everything but Manage Users, Guests the Dashboard and Database ' +
+    'Stacks. Also GET and PUT /api/security/groups.',
   guestLogin:
     'On, the sign-in page offers \u201cContinue as guest\u201d, which signs in without a password to one built-in ' +
     'account with the user role: a guest designs, deploys and tears down stacks like any registered user. Everyone ' +
     'who continues as a guest shares that account, and so sees and can change the same stacks. Because it is ' +
     'shared, a guest cannot change its password or profile, and it can never be made an administrator. The API and ' +
-    'the CLI work as a guest too (POST /api/auth/guest, dbcanvas login --guest), with a user\u2019s token. Off signs ' +
+    'the CLI work as a guest too (POST /api/auth/guest, dbcanvas login --guest), with a user\u2019s token, once the ' +
+    'Guests security group has the API feature. What guests may use is set under Security groups. Off signs ' +
     'every guest out at once and revokes the guest\u2019s API tokens. The account is listed under Users, where disabling it ' +
     'also refuses guests, and deleting it (with its stacks) gives the next guest a fresh one. Not to be confused ' +
     'with shared-session guests, who join one live session through a link. The setting is also guestLogin on ' +

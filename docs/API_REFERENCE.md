@@ -47,6 +47,7 @@ These endpoints need no session.
 | Create the first account (it becomes the administrator) | `POST /api/setup` | *(UI only)* |
 | Request an account | `POST /api/auth/register` `{"username", "password", "firstName", "lastName", "email", "avatar"}` | *(UI only)* |
 | Sign in and get a session cookie | `POST /api/auth/login` | `dbcanvas login` |
+| Which pages each security group may use · change it (admin) | `GET` · `PUT /api/security/groups` `{"allowed": {"guest": {"kanban": true}}}` | `dbcanvas group list` · `dbcanvas group set guest kanban=on` |
 | Sign in as the shared guest account (when guest sign-in is on; `guestLogin` in the status) | `POST /api/auth/guest` | `dbcanvas login --guest` |
 | Sign out | `POST /api/auth/logout` | `dbcanvas logout` (also revokes the CLI's token) |
 | Check a password reset link · set the new password | `GET` · `POST /api/auth/reset/{token}` | *(UI only)* |

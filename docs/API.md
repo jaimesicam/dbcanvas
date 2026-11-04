@@ -36,6 +36,10 @@ curl -s -b jar -H 'Content-Type: application/json' \
   -d '{"name":"my script","scope":"write","days":7}' http://localhost:8080/api/tokens
 ```
 
+Guests need the **API** feature in their security group to create or use a token (see
+[Security groups](#security-groups)); by default they do not have it, so an administrator
+ticks *API* for Guests first.
+
 Every guest shares the account, its stacks and its tokens. A guest token is write scope
 at most; it cannot change the account's password or profile; and it stops working, and
 is revoked, the moment an administrator turns guest sign-in off.
@@ -145,6 +149,44 @@ These need no sign-in: `GET /api/setup/status`, `POST /api/setup`,
 `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/guest`, `POST /api/auth/logout`,
 `GET`/`POST /api/auth/reset/{token}`, and the `/api/join/{token}` endpoints a shared
 session's guests use.
+
+## Security groups
+
+Every account is in one of three groups: **Administrators** (role `admin`), **Regular
+Users** (role `user`) and **Guests** (the shared guest account). An administrator decides
+which features — the pages of the app — each group may use, under Settings → Security
+groups, with `PUT /api/security/groups`, or with `dbcanvas group set`.
+
+The server enforces it on every request. A route that belongs to a feature the caller's
+group does not have answers `403` with `your security group (Guests) does not have access
+to Kanban`, whether the request came from the browser, a token or `dbcanvas-cli`. A few
+routes belong to no feature and are always allowed: who you are (`/api/me`,
+`/api/setup/status`), your preferences, notifications and signing out.
+
+**API** is the feature that lets a group use API tokens at all. Without it, creating a token
+(and so `dbcanvas login`) is refused, and so is every request made with a token the account
+already holds.
+
+| Group | Default |
+| --- | --- |
+| Administrators | everything |
+| Regular Users | everything but Manage Users |
+| Guests | Dashboard and Database Stacks |
+
+Some cells are fixed. Administrators always keep **Settings** and **Manage Users**, so nobody
+can lock every administrator out. No other group can be given **Manage Users**, because
+managing accounts includes making an administrator. Most tools work on a deployed stack, so
+they need **Database Stacks**: granting one grants Database Stacks, and removing Database
+Stacks removes them.
+
+```sh
+curl -s -H "Authorization: Bearer $ADMIN_TOKEN" http://localhost:8080/api/security/groups
+curl -s -X PUT -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"allowed":{"guest":{"kanban":true,"api":true}}}' http://localhost:8080/api/security/groups
+```
+
+Cells you leave out keep their value. `GET /api/setup/status` lists the features the caller
+may use (`features`) and their group (`securityGroup`).
 
 ## Example: deploy a stack and wait for it
 

@@ -39,6 +39,9 @@ export const api = {
   login: (username, password) => request('POST', '/api/auth/login', { username, password }),
   // Sign in as the shared guest account, when an administrator turned it on (app/guestlogin.go).
   guestLogin: () => request('POST', '/api/auth/guest'),
+  // Security groups (app/secgroups.go): admin only.
+  securityGroups: () => request('GET', '/api/security/groups'),
+  saveSecurityGroups: (allowed) => request('PUT', '/api/security/groups', { allowed }),
   logout: () => request('POST', '/api/auth/logout'),
   me: () => request('GET', '/api/me'),
   settings: () => request('GET', '/api/me/settings'),

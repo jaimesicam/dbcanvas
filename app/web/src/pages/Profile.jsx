@@ -31,7 +31,7 @@ function fmtDate(iso) {
 }
 
 export default function Profile() {
-  const { user, setUser, logout, refresh } = useAuth()
+  const { user, setUser, logout, refresh, features } = useAuth()
   // Refresh re-reads the account: a name changed in another tab, a role an admin moved.
   useRefresh(() => refresh())
   const [p, setP] = useState(() => ({ firstName: user?.firstName || '', lastName: user?.lastName || '', email: user?.email || '', avatar: user?.avatar || '' }))
@@ -78,11 +78,13 @@ export default function Profile() {
             to yourself.
           </div>
         </Section>
-        <Section title="API tokens" hint="Scripts and the dbcanvas CLI can work as the guest too (dbcanvas login --guest). Guest tokens stop working when an administrator turns guest sign-in off.">
-          <Button variant="outline" size="sm" onClick={() => { location.hash = 'api' }}>
-            <Icon.Code size={15} /> Manage API tokens
-          </Button>
-        </Section>
+        {(!features || features.includes('api')) && (
+          <Section title="API tokens" hint="Scripts and the dbcanvas CLI can work as the guest too (dbcanvas login --guest). Guest tokens stop working when an administrator turns guest sign-in off.">
+            <Button variant="outline" size="sm" onClick={() => { location.hash = 'api' }}>
+              <Icon.Code size={15} /> Manage API tokens
+            </Button>
+          </Section>
+        )}
       </>) : (<>
       <Section title="Name, email and avatar" hint="What colleagues see beside your work, on shared boards and in shared sessions. Your name and email are stored encrypted, and no other account can use the same email.">
         <form onSubmit={save} className="space-y-3">
@@ -101,11 +103,13 @@ export default function Profile() {
 
       <ChangePassword />
 
-      <Section title="API tokens" hint="Tokens let scripts and the dbcanvas CLI act as you, with the scope you give each one.">
-        <Button variant="outline" size="sm" onClick={() => { location.hash = 'api' }}>
-          <Icon.Code size={15} /> Manage your API tokens
-        </Button>
-      </Section>
+      {(!features || features.includes('api')) && (
+        <Section title="API tokens" hint="Tokens let scripts and the dbcanvas CLI act as you, with the scope you give each one.">
+          <Button variant="outline" size="sm" onClick={() => { location.hash = 'api' }}>
+            <Icon.Code size={15} /> Manage your API tokens
+          </Button>
+        </Section>
+      )}
       </>)}
     </div>
   )

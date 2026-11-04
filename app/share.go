@@ -257,6 +257,10 @@ func (a *App) serveGuest(rt apiRoute, next http.HandlerFunc, w http.ResponseWrit
 		writeErr(w, http.StatusForbidden, why)
 		return
 	}
+	// A guest can use no more of the app than their host's security group can (secgroups.go).
+	if !a.featureGate(w, host, rt, false) {
+		return
+	}
 	driving := shareHubs.controller(sess.ID) == g.ID
 	have := ScopeRead
 	if driving {

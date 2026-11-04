@@ -51,7 +51,14 @@ regular user): `dbcanvas login --url "$URL" --guest`, or `POST /api/auth/guest` 
 session cookie. Use it when the user asks to work as a guest. Because every guest
 shares that account and sees its stacks, offer it to the user rather than
 falling back to it silently. A guest cannot change the account's password or profile,
-and its token dies when guest sign-in is turned off (401).
+and its token dies when guest sign-in is turned off (401). Guests need the **API**
+feature in their security group to use the CLI at all.
+
+**Security groups.** A `403` reading `your security group (…) does not have access to
+<Feature>` is policy, not a bug: an administrator decides which pages Administrators,
+Regular Users and Guests may use (`dbcanvas group list` / `dbcanvas group set <group>
+<feature>=on|off`, or `GET`/`PUT /api/security/groups`). Do not work around it through
+another endpoint; tell the user which feature their group lacks.
 
 **A password the user gave you is yours to use.** The CLI does not need a terminal:
 when stdin is not one, every password prompt reads one line from stdin, in the order

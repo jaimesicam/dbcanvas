@@ -473,6 +473,83 @@ export function GuestLogin() {
   )
 }
 
+// SecurityGroups is the matrix of which pages each security group may use
+// (app/secgroups.go): Administrators, Regular Users, Guests. Administrators only — the
+// server enforces it on every API request, token and dbcanvas-cli included.
+export function SecurityGroups() {
+  const [view, setView] = useState(null) // { features, groups, allowed, locked }
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState('')
+  const { refresh } = useAuth()
+
+  useEffect(() => { api.securityGroups().then(setView, (e) => setErr(e.message)) }, [])
+
+  const toggle = async (group, feature, next) => {
+    setErr(''); setBusy(`${group}/${feature}`)
+    try {
+      setView(await api.saveSecurityGroups({ [group]: { [feature]: next } }))
+      // An administrator who changed their own group sees the sidebar follow.
+      if (group === 'admin') refresh()
+    } catch (e) {
+      setErr(e.message)
+    } finally {
+      setBusy('')
+    }
+  }
+
+  return (
+    <Row
+      title="Security groups"
+      hint="Which pages each group may use. Enforced by the server for the web UI, the API and dbcanvas-cli alike."
+    >
+      <div className="flex items-center gap-2 text-xs text-muted">
+        <Help text={HELP.securityGroups} />
+        <span>Administrators are accounts with the admin role, Regular Users the rest, and Guests the shared guest account.</span>
+      </div>
+      {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
+      {!view ? (!err && <div className="text-xs text-muted">Loading…</div>) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-muted">
+                <th className="py-1.5 pr-2 font-medium">Page</th>
+                {view.groups.map((g) => <th key={g.id} className="px-2 py-1.5 text-center font-medium">{g.label}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {view.features.map((f) => (
+                <tr key={f.id} className="border-t">
+                  <td className="py-1.5 pr-2">
+                    {f.label}
+                    {f.requires && <span className="block text-xs text-muted">needs {view.features.find((x) => x.id === f.requires)?.label}</span>}
+                  </td>
+                  {view.groups.map((g) => {
+                    const on = !!view.allowed[g.id]?.[f.id]
+                    const locked = !!view.locked[g.id]?.[f.id]
+                    return (
+                      <td key={g.id} className="px-2 py-1.5 text-center">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 disabled:opacity-50"
+                          aria-label={`${g.label}: ${f.label}`}
+                          title={locked ? (g.id === 'admin' ? 'Administrators always keep this' : 'Only administrators can have this') : undefined}
+                          checked={on}
+                          disabled={locked || !!busy}
+                          onChange={(e) => toggle(g.id, f.id, e.target.checked)}
+                        />
+                      </td>
+                    )
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Row>
+  )
+}
+
 // GuestSessions is the switch for shared sessions (app/share.go): whether a stack's
 // owner may share a live session through a link, and the longest a link may last.
 // Instance-wide and off by default — a link admits people who have no account here.
@@ -837,6 +914,8 @@ export function LookOptions({ value, onPick }) {
 
 export default function Settings() {
   const { settings, save, loaded } = useSettings()
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const [err, setErr] = useState('')
 
   const set = async (patch) => {
@@ -981,6 +1060,8 @@ export default function Settings() {
           <OpenRegistration />
 
           <GuestLogin />
+
+          {isAdmin && <SecurityGroups />}
 
           <GuestSessions />
 

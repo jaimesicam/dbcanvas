@@ -29062,3 +29062,42 @@ Section 504's guest account now works from scripts and the CLI.
 Verification performed: `TestGuestLogin` (guest token creation reachable, admin scope refused, a guest
 token 200 while on and 401 after off), `TestLoginAsGuest` in `cli` (request order guest → tokens →
 logout, no prompt, token stored); `go test ./...` in `cli` passes; `npm run smoke` passes.
+
+## 506. Security groups — `app/{secgroups,secgroups_test,apitokens,auth,share,api_routes,api_routes_test,guestlogin_test}.go`, `cli/{cmd_group,main,cli_test}.go`, `app/web/src/{App.jsx,auth/AuthProvider.jsx,lib/api.js,lib/help.js,pages/Settings.jsx,pages/Profile.jsx}`, `docs/{API,CLI,API_REFERENCE}.md`, `.claude/skills/dbcanvas/SKILL.md`
+
+Which pages each kind of account may use, set by an administrator and enforced by the server.
+
+- **Groups** follow from the account: Administrators (role admin), Regular Users (role user),
+  Guests (the guest account, section 504). `groupOf`.
+- **Features** are the web UI's page ids (`NAV` + `ADMIN_NAV` in `App.jsx`); `TestFeaturesMatchNav`
+  fails if the two lists drift. Fourteen tools carry `Requires: stack-designer`.
+- **Defaults:** Administrators everything; Regular Users everything but Manage Users; Guests Dashboard
+  and Database Stacks. **Fixed:** Administrators always keep Settings and Manage Users (no lock-out);
+  Manage Users is never given to another group (it amounts to admin). Granting a tool grants Database
+  Stacks unless the same request says otherwise; removing Database Stacks removes the tools.
+- **Storage:** app_settings `securityGroups`, `{group: {feature: bool}}`; a feature missing from it
+  takes its group's default, so a feature added later is neither opened nor closed by accident.
+- **Enforcement:** `routeFeature` maps every route — by group (`groupFeature`; unlisted groups belong
+  to Database Stacks) with path overrides (scratchboards → Scratchboard, profile/password → Profile,
+  PUT system settings → Settings, K3D states → Kubernetes States); auth, preferences and notifications
+  are core. `featureGate` runs in `requireScope` for cookie sessions and tokens, and in `serveGuest`
+  against the host. A bearer token additionally needs the **API** feature, which also gates `POST
+  /api/tokens` — so without it a group has no `dbcanvas login` and no working tokens.
+- **API:** `GET`/`PUT /api/security/groups` (admin; `PUT` takes partial `{"allowed": …}`).
+  `GET /api/setup/status` adds `features` and `securityGroup`.
+- **CLI:** `dbcanvas group list`, `dbcanvas group set <group> <feature>=on|off …`.
+- **UI:** the sidebar, desktop menu and command palette show only allowed pages (a hash for another
+  falls back to the first allowed page); Settings → This installation → *Security groups* matrix
+  (admins only), locked cells disabled; Profile hides API-token links without API.
+- Guests no longer have the API by default, so `dbcanvas login --guest` needs an administrator to
+  tick API for Guests; the docs say so.
+
+Verification performed: `TestFeaturesMatchNav`, `TestRouteFeatures`, `TestSecurityGroups` (defaults,
+browser and token refusals, API-feature token gate, requirement propagation, locks, unknown names),
+`TestGroupSet`; `go test .` passes but for the pre-existing `TestRepoManifestImages`; `go test` in `cli`
+and `npm run smoke` pass. Live (rebuilt app, port 9000): headless Chromium showed the matrix with
+Guests ticked only on Dashboard and Database Stacks and Manage Users locked for Administrators; a
+guest's sidebar showed only those two, `#kanban` fell back to the Dashboard and the Kanban API
+answered 403. CLI: `login --guest` refused for lack of API; after `group set guest api=on kanban=on`
+it signed in, Kanban answered, Benchmark and `group list` were refused by group; after turning API
+off the guest's token was refused. Guests restored to the defaults afterwards.

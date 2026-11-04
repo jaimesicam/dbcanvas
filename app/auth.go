@@ -158,6 +158,10 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 	if u, ok := a.currentUser(r); ok {
 		resp["authenticated"] = true
 		resp["user"] = u
+		// The pages this account's security group may use (secgroups.go): the UI
+		// shows only these; the server refuses the rest.
+		resp["features"] = a.allowedFeatures(u)
+		resp["securityGroup"] = groupOf(u)
 		// A shared-session guest is "signed in" as the host they act as; this says who
 		// they really are, so the UI can draw a guest's shell (share.go).
 		if p, ok := principalOf(r); ok && p.Guest != nil {
