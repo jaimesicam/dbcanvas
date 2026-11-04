@@ -114,13 +114,8 @@ func (a *App) provisionPMM2(st Stack, n designNode, doc designDoc) {
 			httpPort, httpsPort = old.HTTPPort, old.HTTPSPort
 		}
 	}
-	for _, p := range []*int{&httpPort, &httpsPort} {
-		if *p == 0 {
-			if free, err := freeHostPort(); err == nil {
-				*p = free
-			}
-		}
-	}
+	// Left at 0 on a first deploy: the host port is chosen on the Docker host when the
+	// container is created, pinned, and read back (hostports.go).
 	sec := pmmSecrets{AdminUser: "admin", AdminPassword: envOr("PMM_ADMIN_PASSWORD", "admin_password")}
 	cfg := pmm2Config{Image: ref, Version: tag, Hostname: host, FQDN: fqdn, AdminUser: sec.AdminUser,
 		HTTPPort: httpPort, HTTPSPort: httpsPort}
@@ -167,7 +162,7 @@ func (a *App) provisionPMM2(st Stack, n designNode, doc designDoc) {
 		id, err := a.engCtx(ctx).ContainerCreate(ctx, ContainerSpec{
 			Name: name, Image: ref, Hostname: host, Platform: platformAMD64,
 			Network: networkName(st.ID), Aliases: []string{host},
-			PublishMap: []PortMap{{ContainerPort: 80, HostPort: httpPort}, {ContainerPort: 443, HostPort: httpsPort}},
+			PublishMap: []PortMap{{ContainerPort: 80, HostPort: httpPort, Auto: true}, {ContainerPort: 443, HostPort: httpsPort, Auto: true}},
 			Binds:      []string{vol + ":/srv"},
 			DNS:        []string{intranetIP}, DNSSearch: []string{domain},
 		})

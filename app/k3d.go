@@ -1135,7 +1135,7 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 		// The Everest UI's host port, like the debugger's, can only be published at create.
 		// Picked after the delete, so a redeploy keeps its own port.
 		if operator == "everest" {
-			if hp, err := a.everestPickHostPort(ctx, base.EverestHostPort); err != nil {
+			if hp, err := a.everestPickHostPort(ctx, containerName(st.ID, frame.ID)+"#everest", base.EverestHostPort); err != nil {
 				pr.logln("the Everest UI will not be published on the host: " + err.Error())
 				base.EverestHostPort = 0
 			} else {

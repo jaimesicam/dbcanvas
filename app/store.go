@@ -265,6 +265,11 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id, id DESC);`
 		db.Close()
 		return nil, err
 	}
+	// Host-port reservations (hostports.go).
+	if _, err := db.Exec(hostPortsSchema); err != nil {
+		db.Close()
+		return nil, err
+	}
 	db.Exec("ALTER TABLE share_guests ADD COLUMN invite_hash TEXT NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE share_guests ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0")
 	db.Exec("ALTER TABLE share_guests ADD COLUMN account TEXT NOT NULL DEFAULT ''")
@@ -772,6 +777,9 @@ func (s *Store) SetStackStatus(id int64, status string) error {
 // DeleteStack removes a stack (cascading to its deployments).
 func (s *Store) DeleteStack(id int64) error {
 	_, err := s.db.Exec("DELETE FROM stacks WHERE id = ?", id)
+	if err == nil {
+		releaseStackPorts(s.db, id)
+	}
 	return err
 }
 
@@ -1077,6 +1085,9 @@ func (s *Store) GetDeployment(stackID int64, nodeID string) (Deployment, error) 
 // DeleteDeployment removes one node's deployment record.
 func (s *Store) DeleteDeployment(stackID int64, nodeID string) error {
 	_, err := s.db.Exec("DELETE FROM deployments WHERE stack_id = ? AND node_id = ?", stackID, nodeID)
+	if err == nil {
+		releaseNodePorts(s.db, stackID, nodeID)
+	}
 	return err
 }
 

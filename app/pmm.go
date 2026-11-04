@@ -121,19 +121,10 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 		}
 		sec = pmmSecrets{AdminUser: "admin", AdminPassword: pw}
 	}
-	// Pin fixed host ports (allocate free ones on first deploy). Publishing explicit
-	// HostPorts — rather than Docker's ephemeral empty binding — is what makes them
-	// survive Watchtower recreating the PMM container during an in-GUI upgrade.
-	if httpPort == 0 {
-		if p, e := freeHostPort(); e == nil {
-			httpPort = p
-		}
-	}
-	if httpsPort == 0 {
-		if p, e := freeHostPort(); e == nil {
-			httpsPort = p
-		}
-	}
+	// Fixed host ports, so the URLs survive a redeploy and Watchtower recreating the
+	// container during an in-GUI upgrade. Left at 0 on a first deploy: they are chosen
+	// on the Docker host when the container is created, pinned, and read back
+	// (hostports.go).
 
 	cfg := pmmConfig{
 		// PMM (percona/pmm-server) has no arm64 image yet — always amd64.
@@ -220,7 +211,7 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 			Name: name, Image: ref, Hostname: host, Platform: platformAMD64,
 			Env:     wtEnv,
 			Network: networkName(st.ID), Aliases: []string{host},
-			PublishMap: []PortMap{{ContainerPort: 8080, HostPort: httpPort}, {ContainerPort: 8443, HostPort: httpsPort}},
+			PublishMap: []PortMap{{ContainerPort: 8080, HostPort: httpPort, Auto: true}, {ContainerPort: 8443, HostPort: httpsPort, Auto: true}},
 			Binds:      []string{srvVol + ":/srv"},
 			DNS:        []string{intranetIP}, DNSSearch: []string{domain},
 		})

@@ -5,7 +5,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,6 +18,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -27,6 +30,11 @@ type Docker struct {
 	http          *http.Client
 	sock          string
 	throttleCache // resolved host block device for --device-read-bps/--device-write-bps
+	// portGuard chooses, checks and reserves every host port a create publishes
+	// (hostports.go). Nil in tests that build a bare client.
+	portGuard func(ctx context.Context, spec *ContainerSpec) error
+	selfOnce  sync.Once
+	selfImg   string // the app's own image when it runs in a container, else ""
 }
 
 // NewDocker returns a client bound to the given unix socket path.
@@ -538,23 +546,19 @@ type ContainerSpec struct {
 type PortMap struct {
 	ContainerPort int
 	HostPort      int
-}
-
-// freeHostPort asks the OS for an unused TCP port (bind :0, then release it). Used to
-// publish a container port to a *fixed* host port that survives an out-of-band recreate
-// (e.g. Watchtower upgrading the PMM server) — Docker's empty-HostPort ephemeral binding
-// is re-assigned on every recreate, so the published port changes.
-func freeHostPort() (int, error) {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, err
-	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port, nil
+	// Auto marks a HostPort DBCanvas chose (and saved, for a stable URL) rather than
+	// one a user asked for: if another node or a host process holds it now, a new one
+	// is chosen instead of failing (hostports.go). The node reads back what it got.
+	Auto bool
 }
 
 // ContainerCreate creates a container and returns its id.
 func (d *Docker) ContainerCreate(ctx context.Context, spec ContainerSpec) (string, error) {
+	if d.portGuard != nil {
+		if err := d.portGuard(ctx, &spec); err != nil {
+			return "", fmt.Errorf("container %s: %w", spec.Name, err)
+		}
+	}
 	restart := "unless-stopped"
 	if spec.NoRestart {
 		restart = "no"
@@ -751,12 +755,14 @@ func (d *Docker) simple(ctx context.Context, method, path, action string, okCode
 	if err != nil {
 		return err
 	}
-	drain(resp)
 	for _, c := range okCodes {
 		if resp.StatusCode == c {
+			drain(resp)
 			return nil
 		}
 	}
+	// errBody reads the body for Docker's message; draining it first lost the one
+	// line that says why (a start failing on "address already in use" read "(500)").
 	return errBody(action, resp)
 }
 
@@ -1471,4 +1477,142 @@ func (d *Docker) ResizeExec(ctx context.Context, execID string, w, h int) error 
 	}
 	drain(resp)
 	return nil
+}
+
+// selfImage is the image of the container the app runs in, when it does: the probe
+// container (hostports.go) is that image, so nothing has to be pulled. The container is
+// found by the hostname Docker gives it, its own id.
+func (d *Docker) selfImage(ctx context.Context) (string, bool) {
+	d.selfOnce.Do(func() {
+		host, err := os.Hostname()
+		if err != nil || host == "" {
+			return
+		}
+		if _, err := os.Stat("/.dockerenv"); err != nil {
+			return
+		}
+		resp, err := d.do(ctx, "GET", "/containers/"+host+"/json", nil)
+		if err != nil {
+			return
+		}
+		if resp.StatusCode != 200 {
+			drain(resp)
+			return
+		}
+		var out struct {
+			Image string `json:"Image"`
+		}
+		if json.Unmarshal(drain(resp), &out) == nil {
+			d.selfImg = out.Image
+		}
+	})
+	return d.selfImg, d.selfImg != ""
+}
+
+// runHostProbe runs the app's binary with args in a throwaway container sharing the
+// host's network namespace, and returns what it printed.
+func (d *Docker) runHostProbe(ctx context.Context, image string, args []string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	var nb [6]byte
+	rand.Read(nb[:])
+	name := instancePrefix() + "portprobe-" + hex.EncodeToString(nb[:])
+	body := map[string]any{
+		"Image": image, "Entrypoint": []string{"/dbcanvas"}, "Cmd": args,
+		"Env":        []string{},
+		"HostConfig": map[string]any{"NetworkMode": "host"},
+		"Labels":     map[string]string{"dbcanvas.role": "port-probe"},
+	}
+	resp, err := d.do(ctx, "POST", "/containers/create?name="+url.QueryEscape(name), body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != 201 {
+		return nil, errBody("create port probe", resp)
+	}
+	var created struct {
+		ID string `json:"Id"`
+	}
+	json.Unmarshal(drain(resp), &created)
+	defer func() {
+		// A fresh context: the probe is removed even when ctx was cancelled.
+		rctx, rcancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer rcancel()
+		if r, err := d.do(rctx, "DELETE", "/containers/"+created.ID+"?force=true", nil); err == nil {
+			drain(r)
+		}
+	}()
+	if err := d.simple(ctx, "POST", "/containers/"+created.ID+"/start", "start port probe", 204, 304); err != nil {
+		return nil, err
+	}
+	resp, err = d.do(ctx, "POST", "/containers/"+created.ID+"/wait", nil)
+	if err != nil {
+		return nil, err
+	}
+	var waited struct {
+		StatusCode int `json:"StatusCode"`
+	}
+	json.Unmarshal(drain(resp), &waited)
+	resp, err = d.do(ctx, "GET", "/containers/"+created.ID+"/logs?stdout=1&stderr=1", nil)
+	if err != nil {
+		return nil, err
+	}
+	stdout, stderr := demuxStream(resp.Body)
+	resp.Body.Close()
+	if waited.StatusCode != 0 {
+		return nil, fmt.Errorf("port probe exited %d: %s", waited.StatusCode, strings.TrimSpace(string(stderr)))
+	}
+	return stdout, nil
+}
+
+// pinnedHostPorts lists, for every container (running or not) whose name starts with
+// prefix, the host ports it is pinned to — explicit bindings only; a binding Docker
+// fills in at each start is nobody's to keep.
+func (d *Docker) pinnedHostPorts(ctx context.Context, prefix string) (map[string][]int, error) {
+	filters := `{"name":["^/` + prefix + `"]}`
+	resp, err := d.do(ctx, "GET", "/containers/json?all=true&filters="+url.QueryEscape(filters), nil)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != 200 {
+		return nil, errBody("list containers", resp)
+	}
+	var arr []struct {
+		ID    string   `json:"Id"`
+		Names []string `json:"Names"`
+	}
+	if err := json.Unmarshal(drain(resp), &arr); err != nil {
+		return nil, err
+	}
+	out := map[string][]int{}
+	for _, c := range arr {
+		r, err := d.do(ctx, "GET", "/containers/"+c.ID+"/json", nil)
+		if err != nil {
+			return nil, err
+		}
+		if r.StatusCode != 200 {
+			drain(r)
+			continue
+		}
+		var in struct {
+			Name       string `json:"Name"`
+			HostConfig struct {
+				PortBindings map[string][]struct {
+					HostPort string `json:"HostPort"`
+				} `json:"PortBindings"`
+			} `json:"HostConfig"`
+		}
+		if json.Unmarshal(drain(r), &in) != nil {
+			continue
+		}
+		name := strings.TrimPrefix(in.Name, "/")
+		for _, bs := range in.HostConfig.PortBindings {
+			for _, b := range bs {
+				if p, err := strconv.Atoi(b.HostPort); err == nil && p > 0 {
+					out[name] = append(out[name], p)
+				}
+			}
+		}
+	}
+	return out, nil
 }

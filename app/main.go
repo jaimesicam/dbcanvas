@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"io"
@@ -54,6 +55,11 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "-healthcheck" {
 		os.Exit(healthcheck())
 	}
+	// Port-probe mode: run in a throwaway container on the host's network to find
+	// host ports that are really free (hostports.go).
+	if len(os.Args) > 2 && os.Args[1] == "-probe-ports" {
+		os.Exit(probePortsMain(os.Args[2]))
+	}
 
 	dbPath := envOr("DB_PATH", "dbcanvas.db")
 	// Re-encrypt the database under a fresh key, then exit (encryption.go). Run with the
@@ -88,6 +94,11 @@ func main() {
 	// Every endpoint is declared in api_routes.go, which is also what the API
 	// page and the OpenAPI document are generated from.
 	app.registerRoutes(mux)
+
+	// Every published host port is chosen on the host, pinned and recorded
+	// (hostports.go); the record is rebuilt from the containers before anything deploys.
+	app.docker.portGuard = app.guardPublish
+	app.reseedHostPorts(context.Background())
 
 	// Nodes a previous process was still provisioning can never finish now (deployrun.go).
 	app.failInterruptedDeployments()

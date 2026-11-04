@@ -158,11 +158,8 @@ func (a *App) provisionSupportSim(st Stack, n designNode, doc designDoc) {
 			httpPort = old.HTTPPort
 		}
 	}
-	if httpPort == 0 {
-		if p, e := freeHostPort(); e == nil {
-			httpPort = p
-		}
-	}
+	// Left at 0 on a first deploy: the host port is chosen on the Docker host when the
+	// container is created, pinned, and read back (hostports.go).
 
 	targetNodeID, frame, kind, ok := supportSimTarget(doc, n.ID)
 	cfg := supportSimConfig{Image: supportSimImage, Hostname: host, FQDN: fqdnOf(host, domain), HTTPPort: httpPort}
@@ -243,7 +240,7 @@ func (a *App) provisionSupportSim(st Stack, n designNode, doc designDoc) {
 			Env: []string{"MONGO_URI=" + uri, "MONGO_DB=supportsim", "MONGO_TARGET_LABEL=" + cfg.TargetName, fmt.Sprintf("PORT=%d", supportSimPort),
 				"MONGOT_METRICS=" + metrics},
 			Network: networkName(st.ID), Aliases: []string{host},
-			PublishMap: []PortMap{{ContainerPort: supportSimPort, HostPort: httpPort}},
+			PublishMap: []PortMap{{ContainerPort: supportSimPort, HostPort: httpPort, Auto: true}},
 			DNS:        []string{intranetIP}, DNSSearch: []string{domain},
 		})
 		if err != nil {

@@ -191,26 +191,17 @@ func (a *App) everestPreviousHostPort(stackID int64, nodeID string) int {
 	return old.EverestHostPort
 }
 
-// everestPickHostPort keeps want when nothing else has published it, else picks a free port.
-// Called after the frame's old cluster is deleted, so a redeploy does not collide with its own
-// predecessor's load balancer.
-func (a *App) everestPickHostPort(ctx context.Context, want int) (int, error) {
-	used, _ := a.engCtx(ctx).ListPublishedPorts(ctx)
-	if want > 0 {
-		if _, taken := used[want]; !taken {
-			return want, nil
-		}
+// everestPickHostPort keeps want when it is still free on the host and nobody else holds
+// it, else picks another, and reserves the result for the frame (hostports.go). The load
+// balancer is published by k3d, not by a create of ours, so it is reserved here under
+// "<frame container>#everest". Called after the frame's old cluster is deleted, so a
+// redeploy does not collide with its own predecessor's load balancer.
+func (a *App) everestPickHostPort(ctx context.Context, owner string, want int) (int, error) {
+	ports, err := a.pickHostPorts(ctx, owner, []PortMap{{HostPort: want, Auto: true}})
+	if err != nil {
+		return 0, fmt.Errorf("no free host port for the Everest UI: %w", err)
 	}
-	for i := 0; i < 20; i++ {
-		p, err := freeHostPort()
-		if err != nil {
-			return 0, err
-		}
-		if _, taken := used[p]; !taken {
-			return p, nil
-		}
-	}
-	return 0, fmt.Errorf("no free host port for the Everest UI")
+	return ports[0], nil
 }
 
 // everestCreateArgs publishes the UI's NodePort on the host through k3d's load balancer,

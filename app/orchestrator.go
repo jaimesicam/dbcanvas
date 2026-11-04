@@ -105,11 +105,8 @@ func (a *App) provisionOrchestrator(st Stack, n designNode, doc designDoc) {
 			webPort = old.ExportPort
 		}
 	}
-	if webPort == 0 {
-		if p, e := freeHostPort(); e == nil {
-			webPort = p
-		}
-	}
+	// Left at 0 on a first deploy: the host port is chosen on the Docker host when the
+	// container is created, pinned, and read back (hostports.go).
 
 	cfg := orchestratorConfig{
 		Image: image, OS: n.OS, Arch: archOr(n.Arch), Hostname: host, FQDN: fqdnOf(host, domain),
@@ -141,7 +138,7 @@ func (a *App) provisionOrchestrator(st Stack, n designNode, doc designDoc) {
 			DNS: []string{intranetIP}, DNSSearch: []string{domain},
 		}
 		applyVMSize(&spec, n.limits())
-		spec.PublishMap = []PortMap{{ContainerPort: orchestratorPort, HostPort: webPort}}
+		spec.PublishMap = []PortMap{{ContainerPort: orchestratorPort, HostPort: webPort, Auto: true}}
 		id, err := a.engCtx(ctx).ContainerCreate(ctx, spec)
 		if err != nil {
 			pr.fail("create container: %v", err)

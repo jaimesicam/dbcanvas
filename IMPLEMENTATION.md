@@ -29101,3 +29101,55 @@ guest's sidebar showed only those two, `#kanban` fell back to the Dashboard and 
 answered 403. CLI: `login --guest` refused for lack of API; after `group set guest api=on kanban=on`
 it signed in, Kanban answered, Benchmark and `group list` were refused by group; after turning API
 off the guest's token was refused. Guests restored to the defaults afterwards.
+
+## 507. Host ports chosen on the host, pinned and recorded — `app/{hostports,hostports_test,docker,main,store,k3d,k3deverest,pmm,pmm2,orchestrator,ledgersim,stocksim,perfsim,supportsim,pgvectorsim,bighole,mclusteradmin,repository}.go`, `docs/ARCHITECTURE.md`
+
+**Symptom.** A guest's PMM node failed with `start container: docker start:  (500)`. Docker's real
+error was `failed to bind host port 127.0.0.1:45499/tcp: address already in use`: a root process
+on the host already held the port DBCanvas had chosen.
+
+**Causes.**
+1. `freeHostPort()` tested a port by binding `127.0.0.1:0` inside the app's own container, whose
+   network namespace is not the host's. A port held on the host looked free. Thirteen node types
+   used it (PMM, PMM 2, Orchestrator, the sims, Repository, MySQL Cluster Admin, Big Hole, Everest).
+2. Nodes that let Docker choose (`HostPort ""`) got a different port on every start (verified:
+   44623 → 44625 after stop/start), and Docker's allocator does not know about a stopped container's
+   pinned ports, so it could hand them to another node.
+3. `Docker.simple()` drained the response before `errBody` read it, so every start/stop/restart
+   failure lost Docker's message.
+4. A failed deploy saved the bad port, and a redeploy reuses saved ports, so it would fail again.
+
+**Fix.**
+- **Probe on the host:** `/dbcanvas -probe-ports '<json>'` (main.go) binds candidates at
+  `CONTAINER_BIND_IP` and returns `{free, picked}`. `App.probeHostPorts` runs it in a throwaway
+  container of the app's own image (`Docker.selfImage`, found by hostname) with
+  `NetworkMode: host` (`Docker.runHostProbe`), or in-process when not in a container. Candidates
+  come from the host's `ip_local_port_range`, excluding every reserved port.
+- **Central allocation:** `Docker.ContainerCreate` calls `portGuard` = `App.guardPublish`, which
+  turns every publish (`PublishPort(s)`, `PublishMap`) into explicit pinned ports via
+  `pickHostPorts`. That function holds one global lock. A port reserved by another owner, or busy
+  on the host, is re-picked when `PortMap.Auto` (DBCanvas chose it) and refused with
+  `errPortTaken` naming the holder otherwise (user-typed export ports). An owner's own reservations
+  are re-tested too, because no container of the same name can exist at create time.
+- **Reservations:** table `host_ports(port PK, owner, created_at)`; owner is the container name, or
+  `<name>#everest` for the k3d-published Everest UI. `SetHostPorts` makes an owner's set exactly
+  its publish. `DeleteDeployment` / `DeleteStack` release (`releaseNodePorts`,
+  `releaseStackPorts`). `reseedHostPorts` rebuilds the table from every instance container's
+  explicit `PortBindings` at start-up.
+- The 11 node types drop `freeHostPort` (port left 0 on a first deploy) and mark saved ports
+  `Auto: true`; they already read the actual port back after start. Everest uses `pickHostPorts`
+  directly. `freeHostPort` is gone.
+- `Docker.simple()` drains only on success, so the error carries Docker's message.
+
+**Not covered:** k3d-published debugger ports and Vagrant VM forwards are not reserved. When a port
+is re-picked, the reason goes to the app log; the node's own log shows only the new port.
+
+Verification performed: `TestProbePorts`, `TestPickHostPorts` (first pick, redeploy keeps,
+another node's auto/fixed request, host-held auto/fixed, own port held on the host, set
+replacement), `TestHostPortsReleased`, `TestDockerStartErrorKeepsMessage`, `TestDescribeOwner`;
+`go test .` passes but for the pre-existing `TestRepoManifestImages`. Live on the rebuilt app:
+start-up reseeded 5 ports across 3 containers. A new Intranet + PMM stack got host-probed, pinned
+ports (PMM 46404/46850; Intranet webmail pinned at 45750, previously ephemeral), with no probe
+container left behind. After stopping PMM, a host process took its saved HTTPS port 47218 and the
+stack was redeployed: HTTP kept 46072, HTTPS moved to 47339, the app logged `port 47218 is taken
+by another program on the Docker host; using 47339`, and the container ran. Test stack deleted.

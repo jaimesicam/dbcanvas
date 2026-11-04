@@ -448,11 +448,8 @@ func (a *App) provisionLedgerSim(st Stack, n designNode, doc designDoc) {
 			httpPort = old.HTTPPort
 		}
 	}
-	if httpPort == 0 {
-		if p, e := freeHostPort(); e == nil {
-			httpPort = p
-		}
-	}
+	// Left at 0 on a first deploy: the host port is chosen on the Docker host when the
+	// container is created, pinned, and read back (hostports.go).
 
 	mode := ledgerSimMode(n)
 	cfg := ledgerSimConfig{
@@ -570,7 +567,7 @@ func (a *App) provisionLedgerSim(st Stack, n designNode, doc designDoc) {
 		id, err := a.engCtx(ctx).ContainerCreate(ctx, ContainerSpec{
 			Name: name, Image: ledgerSimImage, Hostname: host, Env: env,
 			Network: networkName(st.ID), Aliases: []string{host},
-			PublishMap: []PortMap{{ContainerPort: ledgerSimPort, HostPort: httpPort}},
+			PublishMap: []PortMap{{ContainerPort: ledgerSimPort, HostPort: httpPort, Auto: true}},
 			DNS:        []string{intranetIP}, DNSSearch: []string{domain},
 			ExtraHosts: extraHosts,
 		})

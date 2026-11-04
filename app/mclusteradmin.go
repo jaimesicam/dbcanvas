@@ -120,11 +120,8 @@ func (a *App) provisionMClusterAdmin(st Stack, n designNode, doc designDoc) {
 			httpPort = old.HTTPPort
 		}
 	}
-	if httpPort == 0 {
-		if p, e := freeHostPort(); e == nil {
-			httpPort = p
-		}
-	}
+	// Left at 0 on a first deploy: the host port is chosen on the Docker host when the
+	// container is created, pinned, and read back (hostports.go).
 
 	cfg := mcaConfig{
 		Image: mcaImage, Version: mcaVersion, Hostname: host, FQDN: fqdn,
@@ -180,7 +177,7 @@ func (a *App) provisionMClusterAdmin(st Stack, n designNode, doc designDoc) {
 			Cmd:        cmd,
 			Network:    networkName(st.ID),
 			Aliases:    []string{host},
-			PublishMap: []PortMap{{ContainerPort: mcaPort, HostPort: httpPort}},
+			PublishMap: []PortMap{{ContainerPort: mcaPort, HostPort: httpPort, Auto: true}},
 			DNS:        []string{intranetIP}, DNSSearch: []string{domain},
 		})
 		if err != nil {

@@ -522,13 +522,8 @@ func (a *App) provisionRepository(st Stack, n designNode, doc designDoc) {
 			cfg.Added, cfg.Contents = old.Added, old.Contents
 		}
 	}
-	for _, p := range []*int{&cfg.HTTPPort, &cfg.RegistryPort} {
-		if *p == 0 {
-			if free, err := freeHostPort(); err == nil {
-				*p = free
-			}
-		}
-	}
+	// Left at 0 on a first deploy: the host port is chosen on the Docker host when the
+	// container is created, pinned, and read back (hostports.go).
 	cfgJSON, _ := json.Marshal(cfg)
 	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: []byte("{}")})
 
@@ -561,7 +556,7 @@ func (a *App) provisionRepository(st Stack, n designNode, doc designDoc) {
 			// through Docker's embedded DNS, not the Intranet, and must find the registry by the
 			// same name the Guide tab gives.
 			Aliases:    []string{host, fqdn},
-			PublishMap: []PortMap{{ContainerPort: repoHTTPPort, HostPort: cfg.HTTPPort}, {ContainerPort: repoRegistryPort, HostPort: cfg.RegistryPort}},
+			PublishMap: []PortMap{{ContainerPort: repoHTTPPort, HostPort: cfg.HTTPPort, Auto: true}, {ContainerPort: repoRegistryPort, HostPort: cfg.RegistryPort, Auto: true}},
 			Binds:      []string{vol + ":" + repoRoot},
 			DNS:        []string{intranetIP}, DNSSearch: []string{domain},
 		}

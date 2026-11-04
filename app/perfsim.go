@@ -245,11 +245,8 @@ func (a *App) provisionPerfSim(st Stack, n designNode, doc designDoc) {
 			prevExposed = old.K8sExposed
 		}
 	}
-	if cfg.HTTPPort == 0 {
-		if p, e := freeHostPort(); e == nil {
-			cfg.HTTPPort = p
-		}
-	}
+	// Left at 0 on a first deploy: the host port is chosen on the Docker host when the
+	// container is created, pinned, and read back (hostports.go).
 
 	mode := perfSimMode(n)
 	kind, targetID, ok := perfSimLink(doc, n.ID)
@@ -452,7 +449,7 @@ func (a *App) startPerfSim(ctx context.Context, st Stack, n designNode, host, do
 		Name: name, Image: perfSimImage, Hostname: host,
 		Env:     []string{"PERFSIM_TARGET=" + string(mustJSON(target)), "PORT=" + strconv.Itoa(perfSimPort)},
 		Network: networkName(st.ID), Aliases: []string{host},
-		PublishMap: []PortMap{{ContainerPort: perfSimPort, HostPort: cfg.HTTPPort}},
+		PublishMap: []PortMap{{ContainerPort: perfSimPort, HostPort: cfg.HTTPPort, Auto: true}},
 		DNS:        []string{intranetIP}, DNSSearch: []string{domain},
 		// A manual connection may name the Docker host.
 		ExtraHosts: []string{"host.docker.internal:host-gateway"},

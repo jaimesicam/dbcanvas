@@ -133,6 +133,27 @@ That split is why redeploying is not destructive: the design is edited freely, a
 reconciles the difference. It is also why the panels can show what a node *is* rather than
 what it was asked to be — they read the deployment, not the design.
 
+### Host ports
+
+Every TCP port a node publishes on the host (a PMM UI, a database export, a VNC desktop, the
+Intranet's webmail) is chosen by DBCanvas, pinned, and recorded (`app/hostports.go`):
+
+- **Chosen on the host.** The app runs in a container whose network namespace is not the host's,
+  so it cannot test a host port itself. A short-lived probe container — the app's own image, run
+  as `/dbcanvas -probe-ports` in the host network namespace — binds candidate ports at
+  `CONTAINER_BIND_IP` and reports which it could. When the app runs directly on the host, the same
+  test runs in-process.
+- **Pinned.** The container is created with that explicit host port, so its URL survives a restart
+  (a port Docker picks itself changes on every start).
+- **Recorded.** The `host_ports` table says which container owns each port, running or stopped, so
+  no other node is given it, even by two deploys at once (one lock serializes the choice). A node
+  keeps its ports across stop, start and redeploy; deleting the node, destroying or deleting the
+  stack releases them; the table is rebuilt from Docker's containers at start-up.
+- **Re-checked.** On every create the ports are tested again. A port DBCanvas chose is replaced if
+  something now holds it, and the node records the new one (the app log says why). A port a user
+  typed — an export port — is never moved: the deploy fails naming who holds it, another node or
+  another program on the host.
+
 ## Kubernetes frames
 
 A K3D frame creates a real k3s cluster with `k3d`, on the same Docker network as the rest of
