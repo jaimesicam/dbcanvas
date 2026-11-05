@@ -29442,3 +29442,26 @@ MySQL 9.7.4 node, and SeaweedFS, all composed with `dbcanvas-cli stack compose`.
 - Backups turned on after deploy (`PUT …/design/nodes/{nid}` on a running MySQL 8.0.46 node that
   was deployed without them): the first backup installed `percona-xtrabackup-80` 8.0.35-36 and
   completed.
+
+## 515. Compose's backup link leaves cluster members alone; design edits refuse unknown keys — `app/compose.go`, `app/designedit.go`
+
+**Compose.** `applyLink` hands a cluster's relationship to its frame and then to every member,
+because a few relations live on the members. The `backup` row handled the frame correctly, then
+took each member for a standalone server, and any standalone type other than Percona Server set
+`usePgBackRest`. So every member of a PXC, Percona Server or MySQL replication, PSMDB replica set
+or PostgreSQL cluster composed with `backup` carried `usePgBackRest=true` and a SeaweedFS id, and
+compose then switched the SeaweedFS node to HTTPS ("pgBackRest's S3 client speaks nothing else")
+for a pgBackRest that no PostgreSQL ran. Deploys still worked: nothing reads those fields on a
+member. The row now returns for a member and sets pgBackRest only on a standalone PostgreSQL node.
+`TestComposeBackupLeavesClusterMembersAlone` composes each cluster kind with `backup` and checks
+the members and that the store is HTTPS exactly when the frame runs pgBackRest.
+
+**Design edits.** `POST`/`PUT …/design/nodes` and `…/design/frames` decoded their body
+leniently, so a setting at the top level (`{"useXtraBackup":true}` instead of
+`{"options":{"useXtraBackup":true}}`) was dropped and the call answered 200, while a misspelt name
+under `options` was refused. `decodeItemBody` now refuses unknown top-level keys, naming the field
+and where settings go. Every example in the docs and the skill already used the documented shape;
+the designer and the CLI do not call these endpoints directly.
+
+**Verified.** `go test ./...`; new cases in `TestDesignEditNodesAndRelations` (a top-level option
+refused on add and on update, the node unchanged).

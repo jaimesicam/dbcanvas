@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"reflect"
@@ -464,9 +465,21 @@ type designItemBody struct {
 	MemberOptions map[string]json.RawMessage `json:"memberOptions"`
 }
 
+// decodeItemBody reads a design add/update body strictly. A top-level key it does not know is an
+// error, not something to drop: `{"useXtraBackup":true}` instead of `{"options":{…}}` used to be
+// accepted, answered 200 and change nothing, which a script only finds out from whatever fails
+// later. The options themselves are checked by name against the catalogue (applyCatalogOptions).
 func decodeItemBody(r *http.Request) (designItemBody, error) {
 	var b designItemBody
-	if err := decode(r, &b); err != nil {
+	defer io.Copy(io.Discard, r.Body)
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&b); err != nil {
+		if field, ok := strings.CutPrefix(err.Error(), "json: unknown field "); ok {
+			return b, fmt.Errorf("unknown field %s — the body takes type, label, x, y, frameId, members, "+
+				"memberOptions, options and relations; node and cluster settings go under \"options\" "+
+				"(e.g. {\"options\":{%s:…}}) and links to other nodes under \"relations\"", field, field)
+		}
 		return b, errors.New("invalid request body: " + err.Error())
 	}
 	b.Type, b.Label = strings.TrimSpace(b.Type), strings.TrimSpace(b.Label)

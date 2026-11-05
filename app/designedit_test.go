@@ -84,6 +84,8 @@ func TestDesignEditNodesAndRelations(t *testing.T) {
 		{`{"type":"nosuch"}`, `unknown node type`},
 		{`{"type":"psmrs"}`, `create one with POST`},
 		{`{"type":"intranet"}`, `at most one intranet`},
+		// A setting outside "options" is refused by name, not dropped.
+		{`{"type":"psm","generateCert":true}`, `unknown field "generateCert"`},
 	} {
 		code, _, body := f.call(t, add, "POST", c.body)
 		var e struct{ Error string }
@@ -106,6 +108,14 @@ func TestDesignEditNodesAndRelations(t *testing.T) {
 	}
 	if code, res, body = f.call(t, upd, "PUT", `{"type":"pmm"}`, "nid", psmID); code != http.StatusBadRequest {
 		t.Errorf("type change allowed: %d %s", code, body)
+	}
+	// An option at the top level instead of under "options": refused, the node unchanged.
+	if code, _, body = f.call(t, upd, "PUT", `{"generateCert":true}`, "nid", psmID); code != http.StatusBadRequest ||
+		!strings.Contains(body, `unknown field \"generateCert\"`) || !strings.Contains(body, `\"options\"`) {
+		t.Errorf("top-level option: %d %s", code, body)
+	}
+	if v, ok := f.design(t).node(psmID)["generateCert"]; ok && v == true {
+		t.Error("the refused update changed the node")
 	}
 	if code, res, body = f.call(t, upd, "PUT", `{"relations":{"monitor":null}}`, "nid", psmID); code != http.StatusOK || res.Node["pmmNodeId"] != nil {
 		t.Errorf("clear relation: %d %s", code, body)

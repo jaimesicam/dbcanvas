@@ -301,6 +301,9 @@ PUT /api/stacks/12/design/nodes/proxysql-mvqf0e3f-1
 - `PUT` changes only what the body names. An option set to `null` is removed; a
   relation set to `null` or `""` is cleared. On a cluster, `memberOptions` applies to
   every member.
+- The body takes `type`, `label`, `x`, `y`, `frameId`, `members`, `memberOptions`,
+  `options` and `relations`, and nothing else. A setting written at the top level
+  (`{"cpus": 2}` instead of `{"options": {"cpus": 2}}`) is refused by name, with a 400.
 - Removing a node or cluster also removes its lines and every relation pointing at it,
   and a deployed node's container.
 - Nodes cannot be added or removed while a deploy is running; options can change.

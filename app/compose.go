@@ -365,10 +365,19 @@ var composeLinks = []composeLink{
 				}
 				return
 			}
-			n.SeaweedFSNodeID = id
-			if n.Type == "ps" || n.Type == "mysqlce" {
+			// A cluster's backups live on its frame, handled above. applyLink offers the link
+			// to every member too (some relations live there), and treating a member as a
+			// standalone server here gave each MySQL and MongoDB member usePgBackRest — which
+			// also switched the SeaweedFS node to HTTPS for a pgBackRest nobody runs.
+			if n.FrameID != "" {
+				return
+			}
+			switch n.Type {
+			case "ps", "mysqlce":
+				n.SeaweedFSNodeID = id
 				n.UseXtraBackup, n.XBPITR = true, true
-			} else {
+			case "pg":
+				n.SeaweedFSNodeID = id
 				n.UsePgBackRest = true
 			}
 		}},

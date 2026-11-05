@@ -1297,3 +1297,42 @@ func TestComposePerfSim(t *testing.T) {
 		t.Errorf("linked to %q (%v)", kind, ok)
 	}
 }
+
+// The backup link sets up a cluster's backups on its frame only. applyLink also offers it to each
+// member; a member taken for a standalone server got usePgBackRest, and the SeaweedFS node was
+// switched to HTTPS for a pgBackRest nothing runs.
+func TestComposeBackupLeavesClusterMembersAlone(t *testing.T) {
+	composeCatalogFixture(t)
+	for _, k := range []string{"pxc", "ps-repl", "mysql-repl", "psmrs", "patroni", "repmgr", "pg-stream"} {
+		doc, _, _, added := composeBuild(t, composeSpec{Name: "x", Nodes: []composeNodeSpec{
+			{Kind: k, Count: 3, Backup: true}, {Kind: "seaweedfs"},
+		}})
+		pgbr := false
+		for _, f := range doc.Frames {
+			pgbr = pgbr || f.UsePgBackRest
+		}
+		for _, n := range doc.Nodes {
+			if n.FrameID == "" {
+				continue
+			}
+			if n.UsePgBackRest || n.UseXtraBackup || n.SeaweedFSNodeID != "" {
+				t.Errorf("%s: member %s got usePgBackRest=%v useXtraBackup=%v seaweedfsNodeId=%q",
+					k, n.Label, n.UsePgBackRest, n.UseXtraBackup, n.SeaweedFSNodeID)
+			}
+		}
+		// HTTPS on the store exactly when the frame runs pgBackRest (patroni, pg-stream).
+		for _, n := range nodesOfType(doc, "seaweedfs") {
+			if n.TLS != pgbr {
+				t.Errorf("%s: seaweedfs tls=%v, frame usePgBackRest=%v (added: %v)", k, n.TLS, pgbr, added)
+			}
+		}
+	}
+	// A standalone PostgreSQL node still gets pgBackRest, and its store HTTPS.
+	doc, _, _, _ := composeBuild(t, composeSpec{Name: "x", Nodes: []composeNodeSpec{{Kind: "pg", Backup: true}, {Kind: "seaweedfs"}}})
+	if pg := nodesOfType(doc, "pg"); len(pg) != 1 || !pg[0].UsePgBackRest || pg[0].SeaweedFSNodeID == "" {
+		t.Errorf("pg: %+v", pg)
+	}
+	if sw := nodesOfType(doc, "seaweedfs"); len(sw) != 1 || !sw[0].TLS {
+		t.Errorf("pg's store is not HTTPS: %+v", sw)
+	}
+}
