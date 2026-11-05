@@ -37,7 +37,7 @@ otherwise. The **compose kind** is what `dbcanvas-cli stack compose --node` take
 | --- | :-: | :-: | :-: | :-: | :-: | :-: | --- | --- |
 | Percona Server | yes | yes | yes (standalone, replication; not 5.7) | no | yes (standalone, replication; 8.4.11-11, 9.7.2-2 or newer) | yes (standalone, replication) | XtraBackup, full + incremental, binlog PITR (standalone, replication) | ProxySQL, HAProxy (replication); Orchestrator (replication); MySQL Router (InnoDB Cluster / Group Replication) |
 | Percona XtraDB Cluster | yes | yes | yes | no | yes (8.4.11-11, 9.7.2-2 or newer) | yes | XtraBackup, full + incremental, binlog PITR | ProxySQL, HAProxy |
-| MySQL Community | yes | yes | no | no | no | no | no | Orchestrator (replication); MySQL Router (InnoDB Cluster / Group Replication) |
+| MySQL Community | yes | yes | no | no | no | no | XtraBackup, full + incremental, binlog PITR (standalone, replication) | ProxySQL, HAProxy (replication); Orchestrator (replication); MySQL Router (InnoDB Cluster / Group Replication) |
 | MariaDB | yes | yes | no | no | no | no | no | Orchestrator (replication) |
 | Percona PostgreSQL | yes | yes (QAN from pg_stat_statements or pg_stat_monitor) | yes (standalone) | yes (standalone) | yes (standalone) | yes (pg_tde, WAL too; standalone, Patroni) | pgBackRest | HAProxy (clusters), PgBouncer |
 | PostgreSQL (PGDG) | yes | yes (QAN from pg_stat_statements) | no | no | no | no | pgBackRest (not Spock); repmgr also offers Barman | HAProxy (clusters), PgBouncer |

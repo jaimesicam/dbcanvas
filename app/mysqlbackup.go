@@ -14,9 +14,17 @@ import (
 	"time"
 )
 
-// mysqlbackup.go — Percona XtraBackup backups of a Percona Server standalone node, a Percona
-// Server replication cluster or a PXC cluster to a SeaweedFS S3 bucket (xbcloud), and restoring
-// them: one backup as it was taken, the latest point, or a point in time.
+// mysqlbackup.go — Percona XtraBackup backups of a Percona Server or MySQL Community standalone
+// node, a Percona Server or MySQL Community replication cluster, or a PXC cluster to a SeaweedFS
+// S3 bucket (xbcloud), and restoring them: one backup as it was taken, the latest point, or a
+// point in time.
+//
+// MySQL Community is the same server for everything here (datadir, binary logs, read_only
+// roles, GTID auto-position), so it runs the Percona Server paths: a standalone node is kind
+// "ps", a replication cluster kind "mysql", with Community set. What differs is that its nodes
+// do not get XtraBackup with the server — Oracle's repositories do not carry it — so it is
+// installed from Percona's repository (xbEnsureInstalled): at deploy when backups are on, and
+// before any backup or restore otherwise, so turning backups on after deploy works too.
 //
 // What lands in the bucket, under xtrabackup/<cluster>/:
 //
@@ -164,6 +172,9 @@ type xbTarget struct {
 	Bucket    string
 	PITR      bool
 	Members   []xbMember
+	// Community is a MySQL Community node or cluster: XtraBackup comes from Percona's
+	// repository rather than with the server (xbEnsureInstalled).
+	Community bool
 }
 
 func (t xbTarget) prefix() string { return xbPrefixOf(t.Label) }
@@ -200,23 +211,29 @@ func (a *App) xbTargetOf(st Stack, doc designDoc, scope, id string) (xbTarget, e
 	case "node":
 		var n designNode
 		for _, x := range doc.Nodes {
-			if x.ID == id && x.Type == "ps" && x.FrameID == "" {
+			if x.ID == id && (x.Type == "ps" || x.Type == "mysqlce") && x.FrameID == "" {
 				n = x
 			}
 		}
 		if n.ID == "" {
-			return t, errors.New("Percona Server node not found")
+			return t, errors.New("Percona Server or MySQL node not found")
 		}
 		if !n.UseXtraBackup {
 			return t, errors.New("XtraBackup backups are not enabled for this node")
 		}
 		t.Kind, t.Label, t.SeaweedID, t.Bucket, t.PITR = "ps", n.Label, n.SeaweedFSNodeID, n.SeaweedFSBucket, n.XBPITR
 		t.Frame = designFrame{Type: "mysql", Label: n.Label, OS: n.OS, PSMajor: n.PSMajor, PSVersion: n.PSVersion, GTID: n.GTID}
+		if n.Type == "mysqlce" {
+			// The frame provisionMySQLCE builds, so the series-dependent steps see the community major.
+			t.Community = true
+			t.Frame = mysqlceSyntheticFrame(designFrame{Type: "mysqlcerepl", Label: n.Label, OS: n.OS,
+				MySQLCEMajor: n.MySQLCEMajor, MySQLCEVersion: n.MySQLCEVersion, GTID: n.GTID})
+		}
 		members = []designNode{n}
 	default:
 		var f designFrame
 		for _, x := range doc.Frames {
-			if x.ID == id && (x.Type == "mysql" || x.Type == "pxc") {
+			if x.ID == id && (x.Type == "mysql" || x.Type == "pxc" || x.Type == "mysqlcerepl") {
 				f = x
 			}
 		}
@@ -227,6 +244,11 @@ func (a *App) xbTargetOf(st Stack, doc designDoc, scope, id string) (xbTarget, e
 			return t, errors.New("XtraBackup backups are not enabled for this cluster")
 		}
 		t.Kind, t.Label, t.Frame, t.SeaweedID, t.Bucket, t.PITR = f.Type, f.Label, f, f.SeaweedFSNodeID, f.SeaweedFSBucket, f.XBPITR
+		if f.Type == "mysqlcerepl" {
+			// Restored and re-attached as a Percona Server replication cluster is; the members
+			// keep their own type, which the loop below matches on.
+			t.Kind, t.Frame, t.Community = "mysql", mysqlceSyntheticFrame(f), true
+		}
 		for _, n := range doc.Nodes {
 			if n.FrameID == f.ID && n.Type == f.Type && n.Role != "arbitrator" {
 				members = append(members, n)
@@ -486,6 +508,9 @@ func xbcloudCnf(sw seaweedConfig, sec seaweedSecrets) (cnf, flags string) {
 // xbSetup (re)writes the xbcloud config, the binlog shipper and its timer on members, and
 // returns each one's binary-log epoch. epoch non-empty starts a new one (after a restore).
 func (a *App) xbSetup(ctx context.Context, t xbTarget, repo *xbRepo, members []xbMember, epoch string) (map[string]string, error) {
+	if err := a.xbEnsureInstalled(ctx, t, members); err != nil {
+		return nil, err
+	}
 	cnf, flags := xbcloudCnf(repo.cfg, repo.sec)
 	pitr := "0"
 	if t.PITR {
@@ -514,6 +539,48 @@ func (a *App) xbSetup(ctx context.Context, t xbTarget, repo *xbRepo, members []x
 }
 
 func xbEpochNow() string { return time.Now().UTC().Format("20060102T150405Z") }
+
+// xbEnsureInstalled installs Percona XtraBackup on the running members of a MySQL Community
+// target that do not have it yet: one whose backups were turned on after deploy, or a member
+// rebuilt since. Percona Server and PXC nodes always have it (it comes with the server), so
+// they are left alone.
+func (a *App) xbEnsureInstalled(ctx context.Context, t xbTarget, members []xbMember) error {
+	if !t.Community {
+		return nil
+	}
+	major := mysqlceMajorOf(t.Frame.MySQLCEMajor)
+	for _, m := range members {
+		if !m.running() {
+			continue
+		}
+		if _, err := a.xbRun(ctx, t, m, `command -v xtrabackup >/dev/null && command -v xbcloud >/dev/null`, nil); err == nil {
+			continue
+		}
+		c := withEngine(ctx, a.depEngine(t.St, m.Node.ID))
+		if err := a.installXtrabackupFor(c, m.Dep.ContainerID, t.Frame.OS, major, func(string) {}); err != nil {
+			return fmt.Errorf("%s: %w", m.Host, err)
+		}
+	}
+	return nil
+}
+
+// installXtrabackupFor installs the Percona XtraBackup series that backs up a MySQL server of
+// major (8.0 → percona-xtrabackup-80, 8.4 → -84, 9.7 → -97) from Percona's repository. Percona
+// Server and PXC install the same package with their server (mysql.go, pxc.go); MySQL Community
+// nodes get it here.
+func (a *App) installXtrabackupFor(ctx context.Context, id, os, major string, logln func(string)) error {
+	script := pxcInstallXtrabackupRHEL
+	if isDebianOS(os) {
+		script = pxcInstallXtrabackupDebian
+	}
+	pkg := pxbPackage(major)
+	if err := a.runStep(ctx, id, script, []string{
+		"PRODUCT=" + pxbProduct(major), "REPO=" + pxbRepoName(major), "PKG=" + pkg}, logln); err != nil {
+		return fmt.Errorf("install %s: %w", pkg, err)
+	}
+	logln(pkg + " installed")
+	return nil
+}
 
 // xbOutValue reads a KEY=value line from a script's output.
 func xbOutValue(out, key string) string {

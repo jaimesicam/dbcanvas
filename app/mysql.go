@@ -454,7 +454,9 @@ func (a *App) waitMySQLRunning(ctx context.Context, stackID int64, frame designF
 	var primary designNode
 	havePrimary := false
 	for _, n := range doc.Nodes {
-		if n.FrameID != frame.ID || n.Type != "mysql" {
+		// The members' type is the frame's: "mysql" (Percona Server) or "mysqlcerepl"
+		// (MySQL Community, which a proxy fronts the same way — see replBackendFrame).
+		if n.FrameID != frame.ID || n.Type != frame.Type {
 			continue
 		}
 		members = append(members, n)

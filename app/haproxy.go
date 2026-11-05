@@ -497,7 +497,7 @@ func (a *App) waitMySQLReplMembers(ctx context.Context, stackID int64, frame des
 	hosts := stackHostnames(doc)
 	var mem []designNode
 	for _, n := range doc.Nodes {
-		if n.FrameID == frame.ID && n.Type == "mysql" {
+		if n.FrameID == frame.ID && n.Type == frame.Type { // "mysql" or "mysqlcerepl"
 			mem = append(mem, n)
 		}
 	}

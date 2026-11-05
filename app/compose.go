@@ -360,13 +360,13 @@ var composeLinks = []composeLink{
 					f.UseBarman = true
 				case "psmrs", "psmdb":
 					f.EnablePBM = true
-				case "pxc", "mysql":
+				case "pxc", "mysql", "mysqlcerepl":
 					f.UseXtraBackup, f.XBPITR = true, true
 				}
 				return
 			}
 			n.SeaweedFSNodeID = id
-			if n.Type == "ps" {
+			if n.Type == "ps" || n.Type == "mysqlce" {
 				n.UseXtraBackup, n.XBPITR = true, true
 			} else {
 				n.UsePgBackRest = true
@@ -521,8 +521,8 @@ var composeKinds = []composeKind{
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) {
 			n.MySQLCEMajor, n.MySQLCEVersion = major, minor
 		}, CanExport: true, CanCert: true, CanGTID: true,
-		Links: []string{"monitor"},
-		About: "MySQL Community Server, standalone."},
+		Links: []string{"monitor", "backup"},
+		About: "MySQL Community Server, standalone. backup=true is Percona XtraBackup to SeaweedFS, with binary-log shipping for point-in-time restore."},
 	{Kind: "valkey", Type: "valkey", CanShape: true, Catalog: "percona_valkey",
 		// Only the version: valkey.go reads ValkeyVersion and nothing reads
 		// ValkeyMajor, on either struct. Writing it would look like it mattered.
@@ -537,16 +537,16 @@ var composeKinds = []composeKind{
 			n.ProxySQLMajor, n.ProxySQLVersion = major, minor
 		}, CanExport: true,
 		Links:  []string{"monitor"},
-		EdgeTo: []string{"pxc", "ps-repl"},
-		About:  "ProxySQL, in front of a PXC or Percona Server replication cluster."},
+		EdgeTo: []string{"pxc", "ps-repl", "mysql-repl"},
+		About:  "ProxySQL, in front of a PXC, Percona Server replication or MySQL Community replication cluster."},
 	{Kind: "orchestrator", Type: "orchestrator", Scalars: []string{"alertEmail"}, Catalog: "percona_orchestrator",
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) { n.OrchestratorVersion = minor },
 		CanExport:  true,
 		About:      "Percona Orchestrator, for MySQL replication topologies."},
 	{Kind: "haproxy", Type: "haproxy", CanShape: true, CanExport: true,
 		// Exactly one: haproxyClusterFrames treats two as ambiguous, not as two pools.
-		EdgeTo: []string{"patroni", "patroni-pgdg", "repmgr", "pg-stream", "pg-stream-pgdg", "spock", "pxc", "ps-repl"},
-		About:  "HAProxy, in front of one Patroni, repmgr, streaming replication, Spock, PXC or PS replication cluster."},
+		EdgeTo: []string{"patroni", "patroni-pgdg", "repmgr", "pg-stream", "pg-stream-pgdg", "spock", "pxc", "ps-repl", "mysql-repl"},
+		About:  "HAProxy, in front of one Patroni, repmgr, streaming replication, Spock, PXC, PS replication or MySQL Community replication cluster."},
 	{Kind: "pgbouncer", Type: "pgbouncer", CanShape: true, CanExport: true, CanCert: true,
 		Scalars: []string{"mode"},
 		// The PostgreSQL half of the proxy pair. HAProxy balances TCP across members;
@@ -633,8 +633,8 @@ var composeKinds = []composeKind{
 			f.MySQLCEMajor, f.MySQLCEVersion = major, minor
 		},
 		Roles: primaryFirst, CanCert: true, CanGTID: true,
-		Links: []string{"monitor", "orchestrator"},
-		About: "MySQL Community asynchronous replication."},
+		Links: []string{"monitor", "orchestrator", "backup"},
+		About: "MySQL Community asynchronous replication. backup=true is Percona XtraBackup to SeaweedFS, with binary-log shipping for point-in-time restore."},
 	{Kind: "innodb", Type: "innodb", CanShape: true, Scalars: []string{"replMode", "mysqlRouter"}, Frame: true, Members: 3, MinMembers: 1, MaxMembers: 9,
 		// Not a version pair: innodb.go installs from a percona-release repo name, so
 		// version= takes one of those (pdps-84-lts, pdps-9.7.1). `dbcanvas versions`
@@ -664,8 +664,8 @@ var composeKinds = []composeKind{
 			f.ProxySQLMajor, f.ProxySQLVersion = major, minor
 		},
 		Links:  []string{"monitor"},
-		EdgeTo: []string{"pxc", "ps-repl"},
-		About:  "A ProxySQL cluster, in front of a PXC or Percona Server replication cluster."},
+		EdgeTo: []string{"pxc", "ps-repl", "mysql-repl"},
+		About:  "A ProxySQL cluster, in front of a PXC, Percona Server replication or MySQL Community replication cluster."},
 	{Kind: "psmdb", Type: "psmdb", CanShape: true, Scalars: []string{"setup", "mca"}, Frame: true,
 		// No member count: the topology is fixed and comes from setup=. See
 		// psmdbTopology, which mirrors what validateStack requires.

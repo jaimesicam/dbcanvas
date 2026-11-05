@@ -944,13 +944,15 @@ type designDoc struct {
 }
 
 // backendFrameForProxySQL returns the backend database cluster frame a ProxySQL
-// node/cluster is associated with — a PXC cluster *or* a MySQL replication frame —
-// plus its type ("pxc"|"mysql"). It walks the canvas association graph (undirected),
-// so a ProxySQL chained behind another ProxySQL still resolves the upstream backend.
+// node/cluster is associated with — a PXC cluster, or a Percona Server or MySQL
+// Community replication frame — plus its kind ("pxc"|"mysql"). It walks the canvas
+// association graph (undirected), so a ProxySQL chained behind another ProxySQL still
+// resolves the upstream backend. A MySQL Community frame comes back as kind "mysql"
+// (see replBackendFrame).
 func backendFrameForProxySQL(doc designDoc, startID string) (designFrame, string, bool) {
 	frames := map[string]designFrame{}
 	for _, f := range doc.Frames {
-		if f.Type == "pxc" || f.Type == "mysql" {
+		if f.Type == "pxc" || f.Type == "mysql" || f.Type == "mysqlcerepl" {
 			frames[f.ID] = f
 		}
 	}
@@ -966,7 +968,8 @@ func backendFrameForProxySQL(doc designDoc, startID string) (designFrame, string
 		queue = queue[1:]
 		for _, nb := range adj[cur] {
 			if f, ok := frames[nb]; ok {
-				return f, f.Type, true
+				f, kind := replBackendFrame(f)
+				return f, kind, true
 			}
 			if !visited[nb] {
 				visited[nb] = true
@@ -989,7 +992,7 @@ func backendFrameForProxySQL(doc designDoc, startID string) (designFrame, string
 func haproxyClusterFrames(doc designDoc, startID string) []designFrame {
 	cluster := map[string]designFrame{}
 	for _, f := range doc.Frames {
-		if f.Type == "patroni" || f.Type == "repmgr" || f.Type == "pgstream" || f.Type == "spock" || f.Type == "pxc" || f.Type == "mysql" {
+		if f.Type == "patroni" || f.Type == "repmgr" || f.Type == "pgstream" || f.Type == "spock" || f.Type == "pxc" || f.Type == "mysql" || f.Type == "mysqlcerepl" {
 			cluster[f.ID] = f
 		}
 	}
@@ -1015,13 +1018,29 @@ func haproxyClusterFrames(doc designDoc, startID string) []designFrame {
 
 // haproxyBackend returns the single backend cluster frame + its kind
 // ("patroni" | "repmgr" | "spock" | "pxc" | "mysql") an HAProxy fronts, ok only when
-// exactly one is associated (the mutual-exclusivity rule).
+// exactly one is associated (the mutual-exclusivity rule). A MySQL Community
+// replication frame comes back as kind "mysql" (see replBackendFrame).
 func haproxyBackend(doc designDoc, startID string) (designFrame, string, bool) {
 	fr := haproxyClusterFrames(doc, startID)
 	if len(fr) != 1 {
 		return designFrame{}, "", false
 	}
-	return fr[0], fr[0].Type, true
+	f, kind := replBackendFrame(fr[0])
+	return f, kind, true
+}
+
+// replBackendFrame is how a proxy sees a cluster frame. A MySQL Community replication frame
+// ("mysqlcerepl") is fronted exactly like a Percona Server one: the same server, accounts,
+// read_only roles and health check. So it is reported as kind "mysql", and as the synthetic
+// frame its own provisioner uses (mysqlceSyntheticFrame), whose PSMajor carries the community
+// series for the per-series choices (client package, authentication plugin). Its Type stays
+// "mysqlcerepl": the member lookups (waitMySQLRunning, waitMySQLReplMembers) match members on
+// the frame's own type. Every other frame is returned as it is, with its type as the kind.
+func replBackendFrame(f designFrame) (designFrame, string) {
+	if f.Type == "mysqlcerepl" {
+		return mysqlceSyntheticFrame(f), "mysql"
+	}
+	return f, f.Type
 }
 
 // nodeConfig is the non-secret profile shown for a deployed node.
@@ -1512,6 +1531,9 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			}
 			out = append(out, upstreamVersionIssues(n.Type, n.Label, n.OS, n.OSVersion, n.Arch,
 				n.MariaDBMajor, n.MariaDBVersion, n.MySQLCEMajor, n.MySQLCEVersion)...)
+			if n.Type == "mysqlce" {
+				out = append(out, xbIssues("MySQL node "+n.Label, n.UseXtraBackup, n.SeaweedFSNodeID, n.SeaweedFSBucket, false, doc)...)
+			}
 		case "ps", "psm":
 			others++
 			img := pxcImage(n.OS, n.OSVersion, n.Arch)
@@ -1923,6 +1945,9 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			}
 			if members-primaries < 1 {
 				out = append(out, issue{Level: "error", Message: pretty + " " + f.Label + " needs at least one secondary"})
+			}
+			if f.Type == "mysqlcerepl" {
+				out = append(out, xbIssues(pretty+" cluster "+f.Label, f.UseXtraBackup, f.SeaweedFSNodeID, f.SeaweedFSBucket, false, doc)...)
 			}
 		case "mariadbgalera":
 			// Galera needs a majority to hold a primary component, so an even member

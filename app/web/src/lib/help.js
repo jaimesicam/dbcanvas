@@ -214,7 +214,9 @@ export const HELP = {
     'xtrabackup/<cluster>/. Full and incremental backups are taken on demand from the Backup tab; an incremental ' +
     'continues the newest backup, on the member that took it. Restore puts one backup back as it was taken, or ' +
     '(with binary-log shipping) the latest point or any moment since the first backup. A replication cluster ' +
-    'restores every member and re-attaches the replicas; PXC restores the bootstrap member and the rest rejoin by SST.',
+    'restores every member and re-attaches the replicas; PXC restores the bootstrap member and the rest rejoin by SST. ' +
+    'MySQL Community servers do not come with XtraBackup: the series that matches the server (8.0, 8.4 or 9.7) is ' +
+    'installed from Percona\'s repository at deploy, or by the first backup when this is turned on later.',
   xbPitr:
     'Ship every member\'s closed binary logs to the bucket every minute, closing the current one every five minutes ' +
     'when it has grown, so a restore can replay on top of a backup to a point in time. A restore closes and ships ' +

@@ -328,7 +328,9 @@ export function MariaDBGaleraFrameForm({ frame: f, nodes, patchFrame, deleteFram
 
 // ---------------------------------------------------------------- MySQL Community
 
-export function MySQLCENodeForm({ node: n, nodes, patchNode, deleteNode, deployed }) {
+// `backup` is the XtraBackup options element (StackDesigner's XtraBackupOptions), passed in so
+// this file does not import the designer.
+export function MySQLCENodeForm({ node: n, nodes, patchNode, deleteNode, deployed, backup }) {
   const patch = (p) => patchNode(n.id, p)
   const cat = useUpstreamCatalog({
     fetchCatalog: stackApi.mysqlceCatalog, obj: n,
@@ -343,13 +345,14 @@ export function MySQLCENodeForm({ node: n, nodes, patchNode, deleteNode, deploye
       <Field label="Name" help={HELP.label}><input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patch({ label: e.target.value })} /></Field>
       <VersionPickers obj={n} patch={patch} deployed={deployed} majorKey="mysqlceMajor" versionKey="mysqlceVersion" majorLabel="MySQL" cat={cat} />
       <CommonOptions obj={n} patch={patch} nodes={nodes} deployed={deployed} showGtid />
+      {backup}
       <ExportRow node={n} patchNode={patchNode} deployed={deployed} />
       <DeleteButton onClick={() => deleteNode(n.id)}>Delete node</DeleteButton>
     </div>
   )
 }
 
-export function MySQLCEFrameForm({ frame: f, stackId, nodes, patchFrame, deleteFrame, deployed, running }) {
+export function MySQLCEFrameForm({ frame: f, stackId, nodes, patchFrame, deleteFrame, deployed, running, backup }) {
   const patch = (p) => patchFrame(f.id, p)
   const cat = useUpstreamCatalog({
     fetchCatalog: stackApi.mysqlceCatalog, obj: f,
@@ -369,6 +372,7 @@ export function MySQLCEFrameForm({ frame: f, stackId, nodes, patchFrame, deleteF
       <VersionPickers obj={f} patch={patch} deployed={deployed} majorKey="mysqlceMajor" versionKey="mysqlceVersion" majorLabel="MySQL" cat={cat} />
       <CommonOptions obj={f} patch={patch} nodes={nodes} deployed={deployed} cluster showGtid showRepl />
       <OrchestratorPicker frame={f} stackId={stackId} nodes={nodes} patch={patch} running={running} />
+      {backup}
       {primaries !== 1 && (
         <p className="text-xs text-danger">Needs exactly one primary (has {primaries}).</p>
       )}

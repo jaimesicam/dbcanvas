@@ -502,7 +502,7 @@ func (a *App) dexHAProxyTargets(st Stack, doc designDoc, n designNode, dep Deplo
 				ID:      dexRef{StackID: st.ID, Shape: dexShapeHAProxy, Target: n.ID, Extra: extra}.String(),
 				StackID: st.ID, StackName: st.Name, NodeID: n.ID,
 				Label: n.Label + " · " + label, Engine: engine, Kind: "haproxy-" + extra,
-				Product: "HAProxy → " + scProductLabel(backKind), Version: p.major(),
+				Product: "HAProxy → " + scProductLabel(back.Type), Version: p.major(),
 				Group: dexGroupFor(engine), Role: role, Preferred: preferred,
 				Host: host, Port: port, Status: "running", User: user, Note: note,
 				Transport: "network", Caps: dexCapsFor(engine, false),
@@ -570,7 +570,7 @@ func (a *App) dexPgBouncerTarget(st Stack, doc designDoc, n designNode, dep Depl
 // dexProxySQLTarget is ProxySQL's client port; the read/write split happens inside
 // it, so unlike HAProxy it is one endpoint.
 func (a *App) dexProxySQLTarget(st Stack, doc designDoc, n designNode, dep Deployment, hosts map[string]string, domain string, running func(string) (Deployment, bool)) (dexTarget, bool) {
-	back, backKind, ok := backendFrameForProxySQL(doc, n.ID)
+	back, _, ok := backendFrameForProxySQL(doc, n.ID)
 	if !ok {
 		return dexTarget{}, false
 	}
@@ -591,7 +591,7 @@ func (a *App) dexProxySQLTarget(st Stack, doc designDoc, n designNode, dep Deplo
 			ID:      dexRef{StackID: st.ID, Shape: dexShapeProxySQL, Target: n.ID}.String(),
 			StackID: st.ID, StackName: st.Name, NodeID: n.ID,
 			Label: n.Label + " · client port", Engine: dexMySQL, Kind: "proxysql",
-			Product: "ProxySQL → " + scProductLabel(backKind), Version: p.major(),
+			Product: "ProxySQL → " + scProductLabel(back.Type), Version: p.major(),
 			Group: dexGroupMySQL, Role: "proxy", Preferred: true,
 			Host: fqdnOf(hosts[n.ID], domain), Port: proxysqlMySQLPort, Status: "running",
 			User: user, Note: "ProxySQL splits reads from writes itself, so this one port takes both",

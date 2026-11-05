@@ -103,13 +103,18 @@ InnoDB and binary log settings (below) and resource limits.
 | Type | What you get | Members |
 | --- | --- | --- |
 | **MySQL** | Oracle's MySQL Community from repo.mysql.com, 8.0 / 8.4 / 9.7. | — |
-| **MySQL Replication** | Async or semi-sync replication. | 2–9, default 3 |
+| **MySQL Replication** | Async or semi-sync replication. Can be watched by an Orchestrator node, and fronted by ProxySQL or HAProxy. | 2–9, default 3 |
 | **MySQL InnoDB / GR** | Group Replication, as InnoDB Cluster (MySQL Shell + MySQL Router) or raw GR. | 3–9, default 3 |
 | **MariaDB** | MariaDB from mariadb.org, 10.6 / 10.11 / 11.4 / 11.8 / 12.3. | — |
 | **MariaDB Replication** | Async or semi-sync replication using MariaDB GTIDs. | 2–9, default 3 |
 | **MariaDB Galera** | Galera cluster with `mariabackup` state transfers. | 3–9, default 3 |
 
 These do not offer OpenBao encryption. They do offer the MySQL tools.
+
+**MySQL** and **MySQL Replication** also offer XtraBackup to SeaweedFS, with the same backups,
+restores and point-in-time recovery as Percona Server. Oracle's packages do not include
+XtraBackup, so the series that matches the server (8.0, 8.4 or 9.7) is installed from Percona's
+repository: at deploy when backups are on, or by the first backup when they are turned on later.
 
 ### MySQL tools
 Every Percona Server, PXC, MySQL and MariaDB node or cluster can have offline file readers
@@ -240,8 +245,8 @@ and a manual rebuild. Compose kind `pg-stream`; `syncStandbys=N` makes it synchr
 
 | Type | What you get |
 | --- | --- |
-| **ProxySQL** / **ProxySQL Cluster** | ProxySQL in front of a PXC or Percona Server replication cluster. A cluster frame (1–9 nodes) shares one configuration. |
-| **HAProxy** | TCP load balancer in front of exactly one Patroni, repmgr, PostgreSQL Replication, Spock, PXC or Percona Server replication cluster. Writes on 5000, reads on 5001, stats on 7000. |
+| **ProxySQL** / **ProxySQL Cluster** | ProxySQL in front of a PXC, Percona Server replication or MySQL replication cluster. A cluster frame (1–9 nodes) shares one configuration. |
+| **HAProxy** | TCP load balancer in front of exactly one Patroni, repmgr, PostgreSQL Replication, Spock, PXC, Percona Server replication or MySQL replication cluster. Writes on 5000, reads on 5001, stats on 7000. |
 | **PgBouncer** | Connection pooler on 6432 in front of one PostgreSQL node or cluster. See [PgBouncer](#pool-postgresql-connections-with-pgbouncer). |
 | **Orchestrator** | Percona Orchestrator: topology discovery and failure detection for MySQL replication. A replication frame points at it with **Monitored by (Orchestrator)**. |
 

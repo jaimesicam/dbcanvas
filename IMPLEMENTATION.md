@@ -29378,3 +29378,67 @@ the name they shipped with. An existing install keeps working after `mv /usr/loc
 
 **Verified.** `go test ./...` in `cli/` and `app/`, `npm run smoke`; the built binary, saved under
 another file name, prints `dbcanvas-cli` in its usage, subcommand usage and errors.
+
+## 514. ProxySQL, HAProxy and XtraBackup for MySQL Community — `app/intranet.go`, `app/mysqlbackup.go`, `app/mysqlce.go`, `app/designcatalog_mysql.go`, `app/compose.go`, `app/web/src/pages/StackDesigner.jsx`, `app/web/src/pages/UpstreamForms.jsx`
+
+A MySQL Community replication cluster (`mysqlcerepl`) can now be fronted by a ProxySQL node or
+cluster or an HAProxy node, and a MySQL Community node or replication cluster can be backed up
+with Percona XtraBackup to SeaweedFS, with the same backups, restores and point-in-time recovery
+as Percona Server.
+
+**Proxies.** The server, its accounts (app, monitor, clustercheck), its read_only roles and its
+GTID model are the ones Percona Server replication has, because `mysqlce.go` already runs the
+shared baseline. So `replBackendFrame` reports a `mysqlcerepl` frame to both resolvers
+(`backendFrameForProxySQL`, `haproxyBackend`) as kind `"mysql"`, as the synthetic frame its own
+provisioner uses (`mysqlceSyntheticFrame`, whose PSMajor carries the community series for the
+client package and the authentication-plugin checks). Its Type stays `mysqlcerepl`, and the two
+member lookups (`waitMySQLRunning`, `waitMySQLReplMembers`) now match members on the frame's type
+instead of the literal `"mysql"`. Everything downstream of the kind — the read_only `mysqlchk`
+responder on 9200, ProxySQL's rwsplit/primary configuration, the ProxySQL 2.6 floor for 8.4 and
+9.x backends, the simulators and Sample Client Code targets through a proxy — is the replication
+path unchanged. The product labels of proxied targets now come from the frame's type, so they say
+MySQL Community Server rather than Percona Server. InnoDB Cluster / Group Replication keeps MySQL
+Router as its front end, as the Percona Server one does.
+
+**XtraBackup.** `xbTargetOf` accepts a standalone `mysqlce` node (kind `"ps"`) and a
+`mysqlcerepl` frame (kind `"mysql"`), with `Community` set and the synthetic frame. Oracle's
+repositories do not carry XtraBackup, so a Community node gets `percona-xtrabackup-80`, `-84` or
+`-97` from Percona's repository (`installXtrabackupFor`, the script Percona Server and PXC use):
+at deploy when backups are on, and otherwise before the first backup or restore that finds it
+missing (`xbEnsureInstalled`, called from `xbSetup`), so turning backups on after deploy works as
+it does for Percona Server. Validation, backup status, the history panel and compose's `backup`
+link cover both types.
+
+**Designer.** A `mysqlcerepl` frame links to ProxySQL and HAProxy (it keeps its own endpoint kind
+rather than joining `backend`, which also means cross-cluster replication). The ProxySQL forms
+offer the replication modes for it. The MySQL Community node and replication forms show the
+XtraBackup options, passed in from the designer as an element, and their running members get the
+Backup tab. The HAProxy form recognised only Patroni and PXC backends, so it reported repmgr,
+streaming replication, Spock and Percona Server replication clusters as not linked; it now covers
+every backend `haproxyClusterFrames` accepts.
+
+**Verified.** Percona XtraBackup installed beside Oracle's packages on the node images and took
+and prepared a backup: Oracle Linux 9 with MySQL 8.0.46 (`percona-xtrabackup-80` 8.0.35-36),
+8.4.13 (`-84` 8.4.0-7) and 9.7.4 (`-97` 9.7.2-2), and Ubuntu 24.04 with 8.4.13. No package
+conflicts; each server is a newer minor than its XtraBackup. `go test ./...`, `npm run smoke`;
+new tests: `TestProxiesFrontMySQLCommunity`, `TestReplBackendFrameLeavesOthersAlone`,
+`TestXBTargetMySQLCommunity`, `TestComposeXtraBackupMySQLCommunity`.
+
+Deployed on a rebuilt installation (Oracle Linux 9): a three-member MySQL Community 8.4.13
+replication cluster with a ProxySQL 3 node (rwsplit) and an HAProxy node in front, a standalone
+MySQL 9.7.4 node, and SeaweedFS, all composed with `dbcanvas-cli stack compose`.
+- XtraBackup was installed at deploy: 8.4.0-7 on the members, 9.7.2-2 on the standalone node.
+- ProxySQL: writer hostgroup 10 = the primary, reader hostgroup 20 = the two replicas
+  (`check_type read_only`). DDL, the insert and `SELECT … FOR UPDATE` ran on 10, plain SELECTs on
+  20, and the inserted row reached both replicas.
+- HAProxy: the write backend had only the primary UP and the replica backend only the two replicas
+  (L7OK from the `mysqlchk` responder). Port 5000 always answered from the primary, 5001 alternated
+  between the replicas, and a write through 5000 landed on the primary.
+- Cluster backups: a full and an incremental on the primary, then a point-in-time restore to a
+  moment between two later changes. All three members came back with exactly that moment's rows,
+  the replicas re-attached by GTID auto-position, and a write through ProxySQL afterwards reached
+  both replicas. HAProxy's checks were unchanged.
+- Standalone 9.7.4: a full backup, a change, a restore of the backup; the change was gone.
+- Backups turned on after deploy (`PUT …/design/nodes/{nid}` on a running MySQL 8.0.46 node that
+  was deployed without them): the first backup installed `percona-xtrabackup-80` 8.0.35-36 and
+  completed.

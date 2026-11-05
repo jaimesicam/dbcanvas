@@ -71,6 +71,9 @@ images:
     percona_orchestrator:
       "3":
         - 3.2.6-22
+    mysql_community:
+      "8.4":
+        - 8.4.13
   - os: ubuntu
     version: "24.04"
     platform: linux/amd64

@@ -614,7 +614,7 @@ func (a *App) scHAProxyTargets(st Stack, doc designDoc, n designNode, dep Deploy
 	p := scProbe(mdep)
 	host := fqdnOf(hosts[n.ID], domain)
 	base := scTarget{
-		Engine: engine, Product: "HAProxy → " + scProductLabel(backKind), Major: p.major(),
+		Engine: engine, Product: "HAProxy → " + scProductLabel(back.Type), Major: p.major(),
 		Host: host, User: user, Password: pass, Database: scDemoDatabase,
 		StackID: st.ID, StackName: st.Name, NodeID: members[0].ID,
 		// The certificate is the backend's, and HAProxy in DBCanvas passes TCP through
@@ -704,7 +704,7 @@ func (a *App) scPgBouncerTargets(st Stack, doc designDoc, n designNode, hosts ma
 // same way the provisioner resolves them (backendFrameForProxySQL walks the association graph, so
 // a ProxySQL chained behind another ProxySQL still finds the cluster).
 func (a *App) scProxySQLTarget(st Stack, doc designDoc, n designNode, hosts map[string]string, domain, clientOS string, running func(string) (Deployment, bool)) (scTarget, bool) {
-	back, backKind, ok := backendFrameForProxySQL(doc, n.ID)
+	back, _, ok := backendFrameForProxySQL(doc, n.ID)
 	if !ok {
 		return scTarget{}, false
 	}
@@ -720,7 +720,7 @@ func (a *App) scProxySQLTarget(st Stack, doc designDoc, n designNode, hosts map[
 	p := scProbe(mdep)
 	return scTarget{
 		ID: n.ID, Label: n.Label + " · client port", Engine: scMySQL, Kind: "proxysql",
-		Product: "ProxySQL → " + scProductLabel(backKind), Major: p.major(),
+		Product: "ProxySQL → " + scProductLabel(back.Type), Major: p.major(),
 		Host: fqdnOf(hosts[n.ID], domain), Port: proxysqlMySQLPort,
 		User: user, Password: pass, Database: scDemoDatabase, Role: "proxy",
 		Note:    "ProxySQL splits reads from writes itself, so this one port takes both",

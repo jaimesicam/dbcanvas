@@ -1321,6 +1321,18 @@ export const frameVersionLabel = (f) => {
   return pxcVersionLabel(f)
 }
 
+// HAPROXY_BACKENDS are the cluster frames an HAProxy node fronts (haproxyClusterFrames in
+// app/intranet.go), with what its two ports route to for each (app/haproxy.go).
+const HAPROXY_BACKENDS = {
+  patroni: { label: 'Patroni', routes: 'writes → leader (:5000), reads → replicas (:5001)' },
+  repmgr: { label: 'repmgr', routes: 'writes → primary (:5000), reads → standbys (:5001)' },
+  pgstream: { label: 'streaming replication', routes: 'writes → primary (:5000), reads → standbys (:5001)' },
+  spock: { label: 'Spock', routes: 'writes → single writer (:5000), reads → round-robin (:5001)' },
+  pxc: { label: 'PXC', routes: 'writes → single writer (:5000), reads → round-robin (:5001)' },
+  mysql: { label: 'Percona Server replication', routes: 'writes → primary (:5000), reads → replicas (:5001)' },
+  mysqlcerepl: { label: 'MySQL replication', routes: 'writes → primary (:5000), reads → replicas (:5001)' },
+}
+
 // ProxySQL implementation-mode options depend on the linked backend type: PXC
 // (proxysql-admin singlewrite/loadbal) vs MySQL replication (primary/rwsplit). The
 // "wrong" set is never shown — they switch with the associated cluster.
@@ -1328,7 +1340,12 @@ const PROXY_MODE_OPTS = {
   pxc: [{ id: 'singlewrite', label: 'single writer (default)' }, { id: 'loadbal', label: 'load balancer' }],
   mysql: [{ id: 'rwsplit', label: 'read/write split' }, { id: 'primary', label: 'primary only (all to primary)' }],
 }
-const proxyModeOpts = (backendType) => PROXY_MODE_OPTS[backendType === 'mysql' ? 'mysql' : 'pxc']
+// A MySQL Community replication frame is routed like a Percona Server one (app/intranet.go
+// replBackendFrame).
+const proxyModeOpts = (backendType) => PROXY_MODE_OPTS[backendType === 'mysql' || backendType === 'mysqlcerepl' ? 'mysql' : 'pxc']
+// PROXY_BACKEND_FRAMES are the cluster frames a ProxySQL fronts (backendFrameForProxySQL).
+const PROXY_BACKEND_FRAMES = new Set(['pxc', 'mysql', 'mysqlcerepl'])
+const proxyBackendLabel = (f) => (f.type === 'pxc' ? 'PXC' : f.type === 'mysqlcerepl' ? 'MySQL Community' : 'Percona Server')
 
 // nodeOSLabel renders a free node's OS line; ProxySQL carries its own os/version
 // (like a PXC frame), other nodes map via their osOptions.
@@ -3652,6 +3669,12 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
     // dest guard) enforces the mutual exclusivity.
     if (k1 === 'backend' && k2 === 'haproxy') return createFlow(e1, e2, { singleOutgoing: true })
     if (k2 === 'backend' && k1 === 'haproxy') return createFlow(e2, e1, { singleOutgoing: true })
+    // A MySQL Community replication frame takes a ProxySQL node or cluster, or an HAProxy
+    // node, like a Percona Server one. It keeps its own kind rather than joining 'backend',
+    // because 'backend' also means "its members can replicate across clusters", which
+    // MySQL Community members cannot.
+    if (k1 === 'mysqlcerepl' && (isProxyDest(k2) || k2 === 'haproxy')) return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'mysqlcerepl' && (isProxyDest(k1) || k1 === 'haproxy')) return createFlow(e2, e1, { singleOutgoing: true })
     // Standalone PostgreSQL node, or a Patroni, repmgr or Spock cluster frame →
     // PgBouncer node. Same shape as the HAProxy rules above — the backend is the
     // source with singleOutgoing, and PgBouncer's single incoming (the createFlow
@@ -12619,7 +12642,7 @@ function ProxySQLForm({ node: n, nodes, frames, edges, patchNode, deleteNode, de
     while (queue.length) {
       const cur = queue.shift()
       for (const nb of adj[cur] || []) {
-        const f = frames.find((fr) => fr.id === nb && (fr.type === 'pxc' || fr.type === 'mysql'))
+        const f = frames.find((fr) => fr.id === nb && PROXY_BACKEND_FRAMES.has(fr.type))
         if (f) return f
         if (!seen.has(nb)) { seen.add(nb); queue.push(nb) }
       }
@@ -12647,11 +12670,11 @@ function ProxySQLForm({ node: n, nodes, frames, edges, patchNode, deleteNode, de
 
       {linkedFrame ? (
         <div className="rounded-lg border border-success/30 bg-success/10 px-2.5 py-1.5 text-xs text-success">
-          Linked to {linkedFrame.type === 'mysql' ? 'MySQL' : 'PXC'} cluster <span className="font-semibold">{linkedFrame.label}</span> (data flows cluster → ProxySQL).
+          Linked to {proxyBackendLabel(linkedFrame)} cluster <span className="font-semibold">{linkedFrame.label}</span> (data flows cluster → ProxySQL).
         </div>
       ) : (
         <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
-          Not linked — drag an association line from a PXC cluster frame to this node.
+          Not linked — drag an association line from a PXC, Percona Server replication or MySQL replication cluster frame to this node.
         </div>
       )}
 
@@ -12731,7 +12754,7 @@ function frameLinkedCluster(startId, edges, frames) {
   while (queue.length) {
     const cur = queue.shift()
     for (const nb of adj[cur] || []) {
-      const f = frames.find((fr) => fr.id === nb && (fr.type === 'pxc' || fr.type === 'mysql'))
+      const f = frames.find((fr) => fr.id === nb && PROXY_BACKEND_FRAMES.has(fr.type))
       if (f) return f
       if (!seen.has(nb)) { seen.add(nb); queue.push(nb) }
     }
@@ -12794,11 +12817,11 @@ function ProxySQLFrameForm({ frame: f, nodes, frames, edges, patchFrame, deleteF
 
       {linkedFrame ? (
         <div className="rounded-lg border border-success/30 bg-success/10 px-2.5 py-1.5 text-xs text-success">
-          Linked to {linkedFrame.type === 'mysql' ? 'MySQL' : 'PXC'} cluster <span className="font-semibold">{linkedFrame.label}</span> (data flows cluster → ProxySQL).
+          Linked to {proxyBackendLabel(linkedFrame)} cluster <span className="font-semibold">{linkedFrame.label}</span> (data flows cluster → ProxySQL).
         </div>
       ) : (
         <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
-          Not linked — drag an association line from a PXC cluster frame to this cluster.
+          Not linked — drag an association line from a PXC, Percona Server replication or MySQL replication cluster frame to this cluster.
         </div>
       )}
 
@@ -13037,8 +13060,10 @@ function InnoDBMemberForm({ node: n, frame, patchNode, dep, deployed }) {
 // PBMOptions renders the "Enable Percona Backup for MongoDB" checkbox + the
 // SeaweedFS-node selector, shared by the PSMDB sharded-cluster and replica-set
 // frame forms. percona-backup-mongodb is installed on every member regardless;
-// XtraBackupOptions turns on Percona XtraBackup → SeaweedFS for a standalone Percona Server node
-// or a replication / PXC cluster (app/mysqlbackup.go). `v` is the node or frame, `patch` applies
+// XtraBackupOptions turns on Percona XtraBackup → SeaweedFS for a standalone Percona Server or
+// MySQL Community node, or a Percona Server / MySQL Community replication or PXC cluster
+// (app/mysqlbackup.go). The MySQL Community forms live in UpstreamForms.jsx and take it as
+// their `backup` element, which keeps this one implementation. `v` is the node or frame, `patch` applies
 // a change to it. Nothing about it happens at deploy — the bucket config and the binary-log
 // shipper are written by the first backup — so it stays editable on a deployed cluster.
 function XtraBackupOptions({ v, nodes, patch }) {
@@ -14458,21 +14483,21 @@ function HAProxyForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep
   }, [imgs, n.id, n.os, n.osVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const pmmNodes = nodes.filter((x) => x.type === 'pmm')
-  // Directly-linked backend cluster frame(s). HAProxy fronts exactly one — a Patroni
-  // PostgreSQL cluster OR a PXC cluster (mutually exclusive).
+  // Directly-linked backend cluster frame(s). HAProxy fronts exactly one (mutually
+  // exclusive); HAPROXY_BACKENDS mirrors haproxyClusterFrames in app/intranet.go.
   const linkedFrames = (() => {
     const out = []
     const seen = new Set()
     for (const e of edges) {
       const other = e.from.node === n.id ? e.to.node : (e.to.node === n.id ? e.from.node : null)
       if (!other) continue
-      const f = frames.find((fr) => fr.id === other && (fr.type === 'patroni' || fr.type === 'pxc'))
+      const f = frames.find((fr) => fr.id === other && HAPROXY_BACKENDS[fr.type])
       if (f && !seen.has(f.id)) { seen.add(f.id); out.push(f) }
     }
     return out
   })()
   const linkedFrame = linkedFrames.length === 1 ? linkedFrames[0] : null
-  const isPXC = linkedFrame?.type === 'pxc'
+  const backend = linkedFrame ? HAPROXY_BACKENDS[linkedFrame.type] : null
 
   return (
     <div className="space-y-3">
@@ -14484,15 +14509,15 @@ function HAProxyForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep
       <VMSizeFields node={n} patchNode={patchNode} deployed={deployed} />
       {linkedFrames.length > 1 ? (
         <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
-          Linked to multiple clusters — HAProxy fronts exactly one (Patroni and PXC are mutually exclusive). Remove the extra association line.
+          Linked to multiple clusters — HAProxy fronts exactly one. Remove the extra association line.
         </div>
       ) : linkedFrame ? (
         <div className="rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-xs text-primary">
-          Routes to {isPXC ? 'PXC' : 'Patroni'} cluster <span className="font-mono font-medium">{linkedFrame.label}</span> — {isPXC ? 'writes → single writer (:5000), reads → round-robin (:5001)' : 'writes → leader (:5000), reads → replicas (:5001)'}.
+          Routes to {backend.label} cluster <span className="font-mono font-medium">{linkedFrame.label}</span> — {backend.routes}.
         </div>
       ) : (
         <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
-          Not linked. Draw an association line from a Patroni or PXC cluster frame to this HAProxy node.
+          Not linked. Draw an association line from a Patroni, repmgr, streaming replication, Spock, PXC, Percona Server replication or MySQL replication cluster frame to this HAProxy node.
         </div>
       )}
 
@@ -15905,7 +15930,8 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
       return <MariaDBGaleraFrameForm frame={f} nodes={nodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
     }
     if (f.type === 'mysqlcerepl') {
-      return <MySQLCEFrameForm frame={f} stackId={stackId} nodes={nodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} running={running} />
+      return <MySQLCEFrameForm frame={f} stackId={stackId} nodes={nodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} running={running}
+        backup={<XtraBackupOptions v={f} nodes={nodes} patch={(p) => patchFrame(f.id, p)} />} />
     }
     if (f.type === 'mysqlceinnodb') {
       return <MySQLCEInnoDBFrameForm frame={f} nodes={nodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
@@ -15961,9 +15987,10 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
     }
     if (n.type === 'mysqlce') {
       if (dep && dep.state === 'running') {
-        return <MySQLManager stackId={stackId} nodeId={n.id} engine={n.type} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+        return <MySQLManager stackId={stackId} nodeId={n.id} engine={n.type} dep={dep} onDeleteNode={() => deleteNode(n.id)} xb={n.useXtraBackup ? { scope: 'nodes', id: n.id } : null} />
       }
-      return <MySQLCENodeForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} deployed={deployed} />
+      return <MySQLCENodeForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} deployed={deployed}
+        backup={<XtraBackupOptions v={n} nodes={nodes} patch={(p) => patchNode(n.id, p)} />} />
     }
     // Members of the four upstream cluster kinds. Replication members carry a role;
     // Galera and Group Replication members do not (both are multi-master).
@@ -15971,9 +15998,11 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
       if (dep && dep.state === 'running') {
         // The InnoDB/GR members record innodbConfig, so they get the manager that
         // understands it (cluster topology, group name, Router RW/RO ports).
+        const fr = frames.find((x) => x.id === n.frameId)
         return n.type === 'mysqlceinnodb'
           ? <InnoDBManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
-          : <MySQLManager stackId={stackId} nodeId={n.id} engine={n.type} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
+          : <MySQLManager stackId={stackId} nodeId={n.id} engine={n.type} dep={dep} onDeleteNode={() => deleteNode(n.id)}
+              xb={n.type === 'mysqlcerepl' && fr?.useXtraBackup ? { scope: 'frames', id: fr.id } : null} />
       }
       return (
         <UpstreamMemberForm

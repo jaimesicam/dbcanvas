@@ -93,6 +93,7 @@ func (a *App) provisionMySQLCE(st Stack, n designNode, doc designDoc) {
 		PSMajor: major, PSVersion: n.MySQLCEVersion,
 		GTID: n.GTID, UseProxy: n.UseProxy, RepositoryNodeID: n.RepositoryNodeID, GenerateCert: n.GenerateCert,
 		CertTTLValue: n.CertTTLValue, CertTTLUnit: n.CertTTLUnit, PMMNodeID: n.PMMNodeID,
+		UseXtraBackup: n.UseXtraBackup,
 		mysqlTuning: n.mysqlTuning,
 	}
 	image := pxcImage(n.OS, n.OSVersion, n.Arch)
@@ -527,6 +528,15 @@ func (a *App) mysqlcePrepareNode(ctx context.Context, st Stack, frame designFram
 	}
 	if err := a.mysqlceInstall(ctx, frame, id, false, false, pr); err != nil {
 		return err
+	}
+	// Percona XtraBackup, when backups are on: it does not come with the server here, as it does
+	// with Percona Server, so it is installed from Percona's repository now rather than slowing
+	// down the first backup (which installs it itself when it is missing — xbEnsureInstalled).
+	if frame.UseXtraBackup {
+		pr.phase("Installing Percona XtraBackup", 45)
+		if err := a.installXtrabackupFor(ctx, id, frame.OS, mysqlceMajorOf(frame.MySQLCEMajor), pr.logln); err != nil {
+			return pr.fail("%v", err)
+		}
 	}
 	// No keyring options: keyring_vault is a Percona Server component, and Oracle's community
 	// packages ship component_keyring_file only — so a MySQL Community frame has no OpenBao

@@ -355,7 +355,7 @@ export function backupEnabled(f) {
   if (f.type === 'patroni' && f.usePgBackRest) return 'patroni'
   if (f.type === 'repmgr' && (f.usePgBackRest || f.useBarman)) return 'repmgr'
   if ((f.type === 'psmrs' || f.type === 'psmdb') && f.enablePBM) return 'pbm'
-  if ((f.type === 'pxc' || f.type === 'mysql') && f.useXtraBackup) return 'xb'
+  if ((f.type === 'pxc' || f.type === 'mysql' || f.type === 'mysqlcerepl') && f.useXtraBackup) return 'xb'
   return ''
 }
 

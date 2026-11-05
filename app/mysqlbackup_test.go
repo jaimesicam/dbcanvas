@@ -145,3 +145,64 @@ func TestComposeXtraBackup(t *testing.T) {
 		}
 	}
 }
+
+// A MySQL Community node or replication cluster resolves to the Percona Server paths (kind "ps"
+// or "mysql"), marked Community so XtraBackup gets installed, with the community series as the
+// major the series-dependent steps read.
+func TestXBTargetMySQLCommunity(t *testing.T) {
+	app := newTestApp(t)
+	doc := designDoc{
+		Nodes: []designNode{
+			{ID: "ce", Type: "mysqlce", Label: "mysql-01", OS: "oraclelinux", MySQLCEMajor: "9.7", UseXtraBackup: true, SeaweedFSNodeID: "sw"},
+			{ID: "m1", Type: "mysqlcerepl", FrameID: "f", Label: "mysqlce-01", Role: "primary"},
+			{ID: "m2", Type: "mysqlcerepl", FrameID: "f", Label: "mysqlce-02", Role: "secondary"},
+			{ID: "x", Type: "mysql", FrameID: "other", Label: "not-a-member"},
+		},
+		Frames: []designFrame{{ID: "f", Type: "mysqlcerepl", Label: "mysqlce-cluster", OS: "ubuntu", MySQLCEMajor: "8.0", UseXtraBackup: true, XBPITR: true, SeaweedFSNodeID: "sw"}},
+	}
+	n, err := app.xbTargetOf(Stack{ID: 1}, doc, "node", "ce")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n.Kind != "ps" || !n.Community || n.Frame.PSMajor != "9.7" || len(n.Members) != 1 {
+		t.Errorf("standalone: kind=%q community=%v psMajor=%q members=%d", n.Kind, n.Community, n.Frame.PSMajor, len(n.Members))
+	}
+	f, err := app.xbTargetOf(Stack{ID: 1}, doc, "frame", "f")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Kind != "mysql" || !f.Community || f.Frame.PSMajor != "8.0" || f.Frame.OS != "ubuntu" || !f.PITR || len(f.Members) != 2 {
+		t.Errorf("cluster: kind=%q community=%v psMajor=%q os=%q pitr=%v members=%d", f.Kind, f.Community, f.Frame.PSMajor, f.Frame.OS, f.PITR, len(f.Members))
+	}
+	// Turned off, it is refused like a Percona Server one.
+	doc.Frames[0].UseXtraBackup = false
+	if _, err := app.xbTargetOf(Stack{ID: 1}, doc, "frame", "f"); err == nil || !strings.Contains(err.Error(), "not enabled") {
+		t.Errorf("disabled cluster: %v", err)
+	}
+}
+
+// The backup link turns XtraBackup on for the MySQL Community kinds too.
+func TestComposeXtraBackupMySQLCommunity(t *testing.T) {
+	composeCatalogFixture(t)
+	doc, _, _, _ := composeBuild(t, composeSpec{Name: "x", Nodes: []composeNodeSpec{
+		{Kind: "seaweedfs"},
+		{Kind: "mysql", Backup: true},
+		{Kind: "mysql-repl", Backup: true},
+	}})
+	ce := nodesOfType(doc, "mysqlce")
+	if len(ce) != 1 || !ce[0].UseXtraBackup || !ce[0].XBPITR || ce[0].UsePgBackRest || ce[0].SeaweedFSNodeID == "" {
+		t.Errorf("mysqlce: %+v", ce)
+	}
+	var seen bool
+	for _, f := range doc.Frames {
+		if f.Type == "mysqlcerepl" {
+			seen = true
+			if !f.UseXtraBackup || !f.XBPITR || f.SeaweedFSNodeID == "" {
+				t.Errorf("mysqlcerepl frame: useXtraBackup=%v xbPitr=%v seaweed=%q", f.UseXtraBackup, f.XBPITR, f.SeaweedFSNodeID)
+			}
+		}
+	}
+	if !seen {
+		t.Error("no mysqlcerepl frame built")
+	}
+}

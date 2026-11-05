@@ -162,7 +162,7 @@ func (a *App) frameBackupStatus(ctx context.Context, st Stack, doc designDoc, f 
 			return parsePBMList(res.Stdout)
 		}
 		return backupInfo{Engine: "pbm", Err: "no member is running"}
-	case (f.Type == "pxc" || f.Type == "mysql") && f.UseXtraBackup:
+	case (f.Type == "pxc" || f.Type == "mysql" || f.Type == "mysqlcerepl") && f.UseXtraBackup:
 		return a.xbFrameStatus(ctx, st, doc, f)
 	}
 	return backupInfo{}

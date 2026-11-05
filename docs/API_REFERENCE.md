@@ -371,8 +371,8 @@ refuses and lists the candidates.
 
 | Kind | Connects to |
 | --- | --- |
-| `proxysql`, `proxysql-cluster` | `pxc`, `ps-repl` |
-| `haproxy` | one of `patroni`, `patroni-pgdg`, `repmgr`, `pg-stream`, `pg-stream-pgdg`, `spock`, `pxc`, `ps-repl` |
+| `proxysql`, `proxysql-cluster` | `pxc`, `ps-repl`, `mysql-repl` |
+| `haproxy` | one of `patroni`, `patroni-pgdg`, `repmgr`, `pg-stream`, `pg-stream-pgdg`, `spock`, `pxc`, `ps-repl`, `mysql-repl` |
 | `pgbouncer` | one of `pg`, `pg-pgdg`, `patroni`, `patroni-pgdg`, `repmgr`, `pg-stream`, `pg-stream-pgdg`, `spock` |
 | `supportsim` | `psm`, `mdb`, `psmrs`, `mdb-rs`, `psmdb`, `mdb-sharded`, `k3d` |
 | `pgvectorsim` | `pg`, `pg-pgdg`, `patroni`, `patroni-pgdg`, `repmgr`, `pg-stream`, `pg-stream-pgdg`, `spock`, `haproxy`, `pgbouncer`, `k3d` |
@@ -655,8 +655,8 @@ These act on a cluster (frame) or on one database node.
 | **MongoDB (PBM)**: back up a replica set or sharded cluster | `POST …/frames/{fid}/pbm/backup` | `dbcanvas-cli api POST …/pbm/backup` |
 | **repmgr**: back up from the primary (pgBackRest or Barman) | `POST …/frames/{fid}/barman/backup` | `dbcanvas-cli api POST …/barman/backup` |
 | **Streaming replication**: a pgBackRest full backup on the current primary | `POST …/frames/{fid}/pgstream/backup` | `dbcanvas-cli api POST …/pgstream/backup` |
-| **XtraBackup, PS replication or PXC cluster**: back up · list · restore · delete | `POST …/frames/{fid}/xb/backup` · `GET …/xb/backups` · `POST …/xb/restore` · `POST …/xb/delete` | `dbcanvas-cli api POST …/xb/backup --data '{"type":"full"}'` |
-| **XtraBackup, standalone Percona Server**: the same four | `…/nodes/{nid}/xb/backup` · `/backups` · `/restore` · `/delete` | `dbcanvas-cli api POST …/xb/backup --data '{"type":"incremental"}'` |
+| **XtraBackup, PS or MySQL replication, or PXC cluster**: back up · list · restore · delete | `POST …/frames/{fid}/xb/backup` · `GET …/xb/backups` · `POST …/xb/restore` · `POST …/xb/delete` | `dbcanvas-cli api POST …/xb/backup --data '{"type":"full"}'` |
+| **XtraBackup, standalone Percona Server or MySQL**: the same four | `…/nodes/{nid}/xb/backup` · `/backups` · `/restore` · `/delete` | `dbcanvas-cli api POST …/xb/backup --data '{"type":"incremental"}'` |
 | Run pgbench on a PostgreSQL node · a Patroni leader | `POST …/nodes/{nid}/pg/pgbench` · `POST …/frames/{fid}/patroni/pgbench` | `dbcanvas-cli api POST …/pg/pgbench` |
 | Rotate the pg_tde principal key | `POST …/nodes/{nid}/pg/tde/rotate` · `POST …/frames/{fid}/patroni/tde/rotate` | `dbcanvas-cli api POST …/pg/tde/rotate` |
 

@@ -58,6 +58,15 @@ var mysqlCatXtraBackup = []catalogOption{
 	{Field: "seaweedfsBucket", Desc: "Which bucket of the SeaweedFS node backups go to; \"\" is its first (default) bucket.", When: "useXtraBackup is on"},
 }
 
+// mysqlCatXtraBackupCE are mysqlCatXtraBackup for a MySQL Community node or replication
+// cluster, whose servers do not come with XtraBackup: it is installed from Percona's repository
+// at deploy, or by the first backup when backups are turned on later.
+var mysqlCatXtraBackupCE = []catalogOption{
+	{Field: "useXtraBackup", Desc: "Back up with Percona XtraBackup (full and incremental) to the SeaweedFS node of the backup relation (seaweedfsNodeId). XtraBackup of the server's series (8.0, 8.4 or 9.7) is installed from Percona's repository: at deploy, or by the first backup when this is turned on later."},
+	mysqlCatXtraBackup[1],
+	mysqlCatXtraBackup[2],
+}
+
 // mysqlCatPSAuth are the directory and Keycloak login fields of Percona Server (standalone
 // node, replication frame) and PXC (frame). On a frame every member loads the plugins.
 func mysqlCatPSAuth(product string) []catalogOption {
@@ -114,8 +123,17 @@ var mysqlCatSwitchActions = []catalogAction{
 	{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/promote", Desc: "Make this member the primary, demoting the current one (async: writes frozen and every replica caught up first; Group Replication: group_replication_set_as_primary). Returns the steps taken."},
 }
 
-// mysqlCatXBFrameActions are a Percona Server replication or PXC cluster's XtraBackup
+// mysqlCatXBNodeActions are a standalone Percona Server or MySQL Community node's XtraBackup
 // endpoints.
+var mysqlCatXBNodeActions = []catalogAction{
+	{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/xb/backup", Desc: "Take an XtraBackup backup of the server to SeaweedFS.", Body: "type (full|incremental)", When: "useXtraBackup is on"},
+	{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/xb/backups", Desc: "The server's XtraBackup backups and the window a point-in-time restore can reach.", When: "useXtraBackup is on"},
+	{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/xb/restore", Desc: "Restore the server from XtraBackup: one backup, the latest point, or a time (with xbPitr).", Body: "mode (backup|latest|time), name (mode backup), time (RFC 3339, mode time)", When: "useXtraBackup is on"},
+	{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/xb/delete", Desc: "Delete a backup and every incremental built on it.", Body: "name", When: "useXtraBackup is on"},
+}
+
+// mysqlCatXBFrameActions are a Percona Server or MySQL Community replication cluster's or a
+// PXC cluster's XtraBackup endpoints.
 var mysqlCatXBFrameActions = []catalogAction{
 	{Method: "POST", Path: "/api/stacks/{id}/frames/{fid}/xb/backup", Desc: "Take an XtraBackup backup of the cluster to SeaweedFS.", Body: "type (full|incremental)", When: "useXtraBackup is on"},
 	{Method: "GET", Path: "/api/stacks/{id}/frames/{fid}/xb/backups", Desc: "The cluster's XtraBackup backups and the window a point-in-time restore can reach.", When: "useXtraBackup is on"},
@@ -124,8 +142,8 @@ var mysqlCatXBFrameActions = []catalogAction{
 	{Method: "GET", Path: "/api/stacks/{id}/frames/{fid}/backup-status", Desc: "When the cluster was last backed up: how many backups, the newest one's time, type and size, and whether one is running.", When: "useXtraBackup is on"},
 }
 
-// mysqlCatProxyEdge is the association a PXC or Percona Server replication frame draws to
-// the proxy in front of it.
+// mysqlCatProxyEdge is the association a PXC, Percona Server replication or MySQL Community
+// replication frame draws to the proxy in front of it.
 var mysqlCatProxyEdge = catalogEdge{To: []string{"proxysql", "haproxy"}, Type: "directional",
 	Desc: "Front the cluster with a ProxySQL node or cluster frame, or an HAProxy node. Stored from the cluster frame to the proxy; the frame takes one association line in all (a proxy or a simulator)."}
 
@@ -193,12 +211,7 @@ var catalogMySQLFamily = []catalogEntry{
 			{To: []string{"stocksim", "ledgersim", "perfsim"}, Type: "directional",
 				Desc: "Drive a simulator's workload against this server (stored from the server to the simulator; one per server)."},
 		},
-		Actions: mysqlCatActs(mysqlCatDBActions, []catalogAction{
-			{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/xb/backup", Desc: "Take an XtraBackup backup of the server to SeaweedFS.", Body: "type (full|incremental)", When: "useXtraBackup is on"},
-			{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/xb/backups", Desc: "The server's XtraBackup backups and the window a point-in-time restore can reach.", When: "useXtraBackup is on"},
-			{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/xb/restore", Desc: "Restore the server from XtraBackup: one backup, the latest point, or a time (with xbPitr).", Body: "mode (backup|latest|time), name (mode backup), time (RFC 3339, mode time)", When: "useXtraBackup is on"},
-			{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/xb/delete", Desc: "Delete a backup and every incremental built on it.", Body: "name", When: "useXtraBackup is on"},
-		}),
+		Actions: mysqlCatActs(mysqlCatDBActions, mysqlCatXBNodeActions),
 	},
 	{Type: "mariadb", Label: "MariaDB", Summary: "A standalone MariaDB server from mariadb.org packages.", Placement: "standalone",
 		Requires: []string{"an Intranet node"},
@@ -231,7 +244,7 @@ var catalogMySQLFamily = []catalogEntry{
 		Options: mysqlCatOpts(
 			mysqlCatImage("/api/catalog/mysqlce", "MySQL Community"),
 			[]catalogOption{
-				{Field: "mysqlceMajor", Default: "8.4", Desc: "MySQL series (\"8.0\" or \"8.4\"), from GET /api/catalog/mysqlce for the chosen image. Locked once deployed."},
+				{Field: "mysqlceMajor", Default: "8.4", Desc: "MySQL series (\"8.0\", \"8.4\" or \"9.7\"), from GET /api/catalog/mysqlce for the chosen image. Locked once deployed."},
 				{Field: "mysqlceVersion", Desc: "Exact MySQL version (e.g. \"8.4.5\"); \"\" is the newest of the series. Locked once deployed."},
 				mysqlCatGTID,
 				mysqlCatUseProxy,
@@ -243,14 +256,15 @@ var catalogMySQLFamily = []catalogEntry{
 				{Field: "exportEnabled", Desc: "Publish the MySQL port (3306) on the Docker host."},
 				{Field: "exportHostPort", Desc: "Host port for 3306; 0 picks a free one.", When: "exportEnabled is on"},
 			},
+			mysqlCatXtraBackupCE,
 			mysqlCatSizing,
 		),
-		Relations: []string{"monitor"},
+		Relations: []string{"monitor", "backup"},
 		Edges: []catalogEdge{
 			{To: []string{"stocksim", "ledgersim", "perfsim"}, Type: "directional",
 				Desc: "Drive a simulator's workload against this server (stored from the server to the simulator; one per server)."},
 		},
-		Actions: mysqlCatDBActions,
+		Actions: mysqlCatActs(mysqlCatDBActions, mysqlCatXBNodeActions),
 	},
 
 	// ------------------------------------------------------------------ cluster members
@@ -325,15 +339,15 @@ var catalogMySQLFamily = []catalogEntry{
 	},
 
 	// ------------------------------------------------------------------ proxies
-	{Type: "proxysql", Label: "ProxySQL", Summary: "A ProxySQL node in front of a PXC or Percona Server replication cluster: standalone, or a member of a ProxySQL cluster frame.", Placement: "standalone,member", FrameTypes: []string{"proxysql"},
-		Requires: []string{"an Intranet node", "standalone: an association line from a PXC or Percona Server replication cluster frame (directly, or through another ProxySQL node)"},
+	{Type: "proxysql", Label: "ProxySQL", Summary: "A ProxySQL node in front of a PXC, Percona Server replication or MySQL Community replication cluster: standalone, or a member of a ProxySQL cluster frame.", Placement: "standalone,member", FrameTypes: []string{"proxysql"},
+		Requires: []string{"an Intranet node", "standalone: an association line from a PXC, Percona Server replication or MySQL Community replication cluster frame (directly, or through another ProxySQL node)"},
 		Options: mysqlCatOpts(
 			[]catalogOption{
 				{Field: "os", Default: "oraclelinux", Values: []string{"oraclelinux", "ubuntu"}, Desc: "OS family of the image, from GET /api/catalog/proxysql. Locked once deployed.", When: "standalone (a member takes the frame's)"},
 				{Field: "osVersion", Default: "9", Desc: "OS release of the image (e.g. \"9\"), as GET /api/catalog/proxysql lists it. Locked once deployed.", When: "standalone"},
 				{Field: "proxysqlMajor", Default: "2", Values: []string{"2", "3"}, Desc: "ProxySQL series (proxysql2 or proxysql3), from GET /api/catalog/proxysql for the chosen image. Locked once deployed.", When: "standalone"},
 				{Field: "proxysqlVersion", Desc: "Exact ProxySQL package version (e.g. \"2.7.1-1\"); \"\" is the newest of the series. A backend on 8.4 or 9.x needs 2.6 or later; a PXC backend may need a newer proxysql-admin. Locked once deployed.", When: "standalone"},
-				{Field: "mode", Default: "singlewrite", Values: []string{"singlewrite", "loadbal", "rwsplit", "primary"}, Desc: "Routing. With a PXC backend, proxysql-admin's MODE: \"singlewrite\" (one writer) or \"loadbal\" (all members). With a Percona Server replication backend: \"rwsplit\" (writes to the primary, reads to replicas) or \"primary\" (everything to the primary); the designer snaps the value to the backend's first mode. Locked once deployed.", When: "standalone"},
+				{Field: "mode", Default: "singlewrite", Values: []string{"singlewrite", "loadbal", "rwsplit", "primary"}, Desc: "Routing. With a PXC backend, proxysql-admin's MODE: \"singlewrite\" (one writer) or \"loadbal\" (all members). With a Percona Server or MySQL Community replication backend: \"rwsplit\" (writes to the primary, reads to replicas) or \"primary\" (everything to the primary); the designer snaps the value to the backend's first mode. Locked once deployed.", When: "standalone"},
 				{Field: "useProxy", Desc: "Download packages through the Intranet's Squid proxy.", When: "standalone"},
 				{Field: "exportEnabled", Desc: "Publish ProxySQL's MySQL port 6033 on the Docker host at exportHostPort, and its admin port 6032 on a free port. Locked once deployed."},
 				{Field: "exportHostPort", Desc: "Host port for 6033; 0 picks a free one.", When: "exportEnabled is on"},
@@ -342,7 +356,7 @@ var catalogMySQLFamily = []catalogEntry{
 		),
 		Relations: []string{"monitor", "repository"},
 		Edges: []catalogEdge{
-			{To: []string{"pxc", "mysql"}, Type: "directional", Required: true,
+			{To: []string{"pxc", "mysql", "mysqlcerepl"}, Type: "directional", Required: true,
 				Desc: "The backend cluster frame, stored from the frame to this node. A standalone ProxySQL takes one incoming line. A member uses its frame's line instead."},
 			{To: []string{"proxysql"}, Type: "directional",
 				Desc: "Chain to another standalone ProxySQL node; the backend is found by walking the lines undirected."},
@@ -354,8 +368,8 @@ var catalogMySQLFamily = []catalogEntry{
 			{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/activity/kill", Desc: "KILL CONNECTION on a ProxySQL client session.", Body: "session, mode"},
 		},
 	},
-	{Type: "haproxy", Label: "HAProxy", Summary: "A TCP load balancer fronting one cluster: Patroni, repmgr, streaming replication, Spock, PXC or Percona Server replication. Writes on 5000, reads on 5001, stats on 7000.", Placement: "standalone",
-		Requires: []string{"an Intranet node", "exactly one association line from a Patroni, repmgr, streaming replication, Spock, PXC or Percona Server replication cluster frame"},
+	{Type: "haproxy", Label: "HAProxy", Summary: "A TCP load balancer fronting one cluster: Patroni, repmgr, streaming replication, Spock, PXC, or Percona Server or MySQL Community replication. Writes on 5000, reads on 5001, stats on 7000.", Placement: "standalone",
+		Requires: []string{"an Intranet node", "exactly one association line from a Patroni, repmgr, streaming replication, Spock, PXC, or Percona Server or MySQL Community replication cluster frame"},
 		Options: mysqlCatOpts(
 			[]catalogOption{
 				{Field: "os", Default: "oraclelinux", Values: []string{"oraclelinux", "ubuntu"}, Desc: "OS family of the image, from GET /api/catalog/images. Locked once deployed."},
@@ -368,8 +382,8 @@ var catalogMySQLFamily = []catalogEntry{
 		),
 		Relations: []string{"monitor", "repository"},
 		Edges: []catalogEdge{
-			{To: []string{"pxc", "mysql", "patroni", "repmgr", "pgstream", "spock"}, Type: "directional", Required: true,
-				Desc: "The one backend cluster frame, stored from the frame to this node. PXC: writes to a single writer, reads round-robin (clustercheck on 9200); Patroni: the leader and replicas by the REST API."},
+			{To: []string{"pxc", "mysql", "mysqlcerepl", "patroni", "repmgr", "pgstream", "spock"}, Type: "directional", Required: true,
+				Desc: "The one backend cluster frame, stored from the frame to this node. PXC: writes to a single writer, reads round-robin (clustercheck on 9200); MySQL replication: writes to the primary, reads to the replicas (a read_only check on 9200); Patroni: the leader and replicas by the REST API."},
 			{To: []string{"stocksim", "ledgersim", "pgvectorsim", "perfsim"}, Type: "directional",
 				Desc: "Drive a simulator's workload through this load balancer (one per node); the simulator must match the backend's engine."},
 		},
@@ -510,7 +524,7 @@ var catalogMySQLFamily = []catalogEntry{
 		Options: mysqlCatOpts(
 			mysqlCatImage("/api/catalog/mysqlce", "MySQL Community"),
 			[]catalogOption{
-				{Field: "mysqlceMajor", Default: "8.4", Desc: "MySQL series (\"8.0\" or \"8.4\"), from GET /api/catalog/mysqlce for the chosen image. Locked once deployed."},
+				{Field: "mysqlceMajor", Default: "8.4", Desc: "MySQL series (\"8.0\", \"8.4\" or \"9.7\"), from GET /api/catalog/mysqlce for the chosen image. Locked once deployed."},
 				{Field: "mysqlceVersion", Desc: "Exact MySQL version (e.g. \"8.4.5\"); \"\" is the newest of the series. Locked once deployed."},
 				{Field: "replMode", Default: "async", Values: []string{"async", "semisync"}, Desc: "\"async\" replication, or \"semisync\" (the primary waits for one replica to acknowledge each commit)."},
 				mysqlCatGTID,
@@ -519,15 +533,16 @@ var catalogMySQLFamily = []catalogEntry{
 			mysqlCatCert,
 			mysqlCatFileTools,
 			mysqlCatTuning,
+			mysqlCatXtraBackupCE,
 		),
-		Relations: []string{"monitor", "orchestrator"},
-		Edges: []catalogEdge{
+		Relations: []string{"monitor", "orchestrator", "backup"},
+		Edges: []catalogEdge{mysqlCatProxyEdge,
 			{To: []string{"stocksim", "ledgersim", "perfsim"}, Type: "directional",
 				Desc: "Drive a simulator's workload against the cluster's primary (stored from the frame to the simulator)."},
 		},
-		Actions: []catalogAction{
+		Actions: mysqlCatActs([]catalogAction{
 			{Method: "POST", Path: "/api/stacks/{id}/frames/{fid}/orchestrator", Desc: "Seed or refresh topology discovery on the Orchestrator node now; \"\" clears the link.", Body: "orchestratorNodeId"},
-		},
+		}, mysqlCatXBFrameActions),
 	},
 	{Type: "mysqlceinnodb", Label: "MySQL InnoDB / GR", Summary: "MySQL Community Group Replication, as an InnoDB Cluster through MySQL Shell or as raw Group Replication, with optional MySQL Router on every member.", Placement: "frame",
 		MemberType: "mysqlceinnodb", DefaultMembers: 3, MinMembers: 3, MaxMembers: 9,
@@ -551,20 +566,20 @@ var catalogMySQLFamily = []catalogEntry{
 				Desc: "Drive a simulator's workload against the cluster (stored from the frame to the simulator)."},
 		},
 	},
-	{Type: "proxysql", Label: "ProxySQL Cluster", Summary: "Several ProxySQL nodes sharing one configuration, in front of a PXC or Percona Server replication cluster.", Placement: "frame",
+	{Type: "proxysql", Label: "ProxySQL Cluster", Summary: "Several ProxySQL nodes sharing one configuration, in front of a PXC, Percona Server replication or MySQL Community replication cluster.", Placement: "frame",
 		MemberType: "proxysql", DefaultMembers: 3, MinMembers: 1, MaxMembers: 9,
-		Requires: []string{"an Intranet node", "an association line from a PXC or Percona Server replication cluster frame"},
+		Requires: []string{"an Intranet node", "an association line from a PXC, Percona Server replication or MySQL Community replication cluster frame"},
 		Options: []catalogOption{
 			{Field: "os", Default: "oraclelinux", Values: []string{"oraclelinux", "ubuntu"}, Desc: "OS family of the image, from GET /api/catalog/proxysql. Locked once deployed."},
 			{Field: "osVersion", Default: "9", Desc: "OS release of the image (e.g. \"9\"), as GET /api/catalog/proxysql lists it. Locked once deployed."},
 			{Field: "proxysqlMajor", Default: "2", Values: []string{"2", "3"}, Desc: "ProxySQL series (proxysql2 or proxysql3), from GET /api/catalog/proxysql for the chosen image. Locked once deployed."},
 			{Field: "proxysqlVersion", Desc: "Exact ProxySQL package version (e.g. \"2.7.1-1\"); \"\" is the newest of the series. A backend on 8.4 or 9.x needs 2.6 or later. Locked once deployed."},
-			{Field: "mode", Default: "singlewrite", Values: []string{"singlewrite", "loadbal", "rwsplit", "primary"}, Desc: "Routing. PXC backend: \"singlewrite\" or \"loadbal\" (proxysql-admin MODE). Percona Server replication backend: \"rwsplit\" or \"primary\". Locked once deployed."},
+			{Field: "mode", Default: "singlewrite", Values: []string{"singlewrite", "loadbal", "rwsplit", "primary"}, Desc: "Routing. PXC backend: \"singlewrite\" or \"loadbal\" (proxysql-admin MODE). Percona Server or MySQL Community replication backend: \"rwsplit\" or \"primary\". Locked once deployed."},
 			{Field: "useProxy", Desc: "Download packages through the Intranet's Squid proxy."},
 		},
 		Relations: []string{"monitor", "repository"},
 		Edges: []catalogEdge{
-			{To: []string{"pxc", "mysql"}, Type: "directional", Required: true,
+			{To: []string{"pxc", "mysql", "mysqlcerepl"}, Type: "directional", Required: true,
 				Desc: "The backend cluster frame, stored from the backend frame to this frame (one incoming line)."},
 		},
 	},
