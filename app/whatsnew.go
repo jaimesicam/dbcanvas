@@ -37,6 +37,33 @@ type releaseNote struct {
 // expanded, and the tests assume the ordering.
 var whatsNewNotes = []releaseNote{
 	{
+		Version: "0.0.27",
+		Date:    "2026-11-05",
+		Title:   "ProxySQL, HAProxy and XtraBackup for MySQL Community",
+		Body:    "A MySQL Community replication cluster can be fronted by a ProxySQL node or cluster (rwsplit or primary) or an HAProxy node, and a MySQL Community node or replication cluster can be backed up with Percona XtraBackup to SeaweedFS, with incrementals and point-in-time restore. XtraBackup of the server's series is installed at deploy when backups are on, or by the first backup when they are turned on later.",
+		Doc:     "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.27",
+		Date:    "2026-11-05",
+		Title:   "LDAP and Kerberos on PGDG PostgreSQL",
+		Body:    "Directory login (LDAP and Kerberos) on a standalone PostgreSQL node now works for PGDG builds and on Ubuntu, for PGDG and Percona alike. In compose, the Samba AD DC runs on Ubuntu 24.04 and a kerberos link keeps the directory an ldap link chose.",
+		Doc:     "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.27",
+		Date:    "2026-11-05",
+		Title:   "The CLI is dbcanvas-cli, with node exec and help on every command",
+		Body:    "The CLI download and command are now dbcanvas-cli; an existing install keeps its profiles after renaming the binary, and make cli installs this machine's build into ~/.local/bin. dbcanvas-cli node exec runs one command on a node without the console, returning its output and exit code (--stdin, --timeout, --user). -h/--help works on every command and subcommand, api accepts -d for --data, and whoami shows the token's scope and expiry from the server. An /api path no route matches answers with a JSON 404.",
+		Doc:     "docs/CLI.md",
+	},
+	{
+		Version: "0.0.27",
+		Date:    "2026-11-05",
+		Title:   "README stack matrix and fixes",
+		Body:    "The README opens with tables of each engine's topologies, versions and compose kinds, what a deploy configures per engine, the post-deployment operations per cluster type, and the dbcanvas-cli commands by task. Compose's backup link no longer touches the members of a cluster, the design add and update endpoints refuse keys they do not know instead of ignoring them, and Oracle Linux nodes have which installed.",
+	},
+	{
 		Version: "0.0.26",
 		Date:    "2026-11-05",
 		Title:   "MongoDB Community (MDB) and PGDG PostgreSQL",

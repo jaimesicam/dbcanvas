@@ -29572,3 +29572,16 @@ principal `krbtest@EXAMPLE.NET`).
 After a rebuild, a fresh deploy of the same stack configured both nodes by itself ("LDAP against
 intranet.example.net + Kerberos SSO (realm EXAMPLE.NET) configured" on each), and the same logins
 passed in both directions.
+
+## 518. Release 0.0.27 — `VERSION`, `app/whatsnew.go`, `README.md`
+
+Four release notes, in the README's What's new and in the in-app dialog, dated 2026-11-05:
+- ProxySQL, HAProxy and XtraBackup for MySQL Community (§514)
+- LDAP and Kerberos on PGDG PostgreSQL (§517)
+- The CLI is `dbcanvas-cli`, with `node exec` and help on every command (§513, 516, and `make cli` installing the host's build)
+- README stack matrix and fixes (§513, 515, and `which` on Oracle Linux images)
+
+0.0.26's first note is folded; only the newest release opens one.
+
+**Verification performed.** `go test -run 'WhatsNew|Note' .` (order, completeness, linked docs
+exist, README match).
