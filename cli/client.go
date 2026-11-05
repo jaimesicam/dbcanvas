@@ -74,6 +74,10 @@ func (e *APIError) Error() string {
 		// more specific than anything that could be said here.
 		return e.Message
 	case http.StatusNotFound:
+		// The server's "no endpoint …" already names the path.
+		if strings.Contains(e.Message, e.Path) {
+			return e.Message
+		}
 		return fmt.Sprintf("%s: %s", e.Message, e.Path)
 	default:
 		return e.Message
@@ -82,6 +86,13 @@ func (e *APIError) Error() string {
 
 // exitCode maps a failure onto the documented codes.
 func exitCodeFor(err error) int {
+	var rx *remoteExit
+	if errors.As(err, &rx) {
+		return rx.code
+	}
+	if errors.Is(err, errHelp) {
+		return 0
+	}
 	var apiErr *APIError
 	if errors.As(err, &apiErr) && apiErr.Status == http.StatusUnauthorized {
 		return 3
@@ -101,7 +112,18 @@ func exitCodeFor(err error) int {
 var (
 	errWaitFailed = errors.New("the operation did not finish successfully")
 	errUsage      = errors.New("usage")
+	// errHelp is -h or --help on a command: its usage was printed, and that is success.
+	errHelp = errors.New("help")
+	// errNotAPI is an /api path answered with a web page: the server has no such endpoint
+	// (it predates it) and is old enough to say so with a 200.
+	errNotAPI = errors.New("this DBCanvas server has no such endpoint (it answered with a web page; it may be older than this CLI)")
 )
+
+// remoteExit is the exit status of a command run in a node (node exec). The CLI exits with it,
+// as ssh does, and prints nothing of its own: the command's output already said what happened.
+type remoteExit struct{ code int }
+
+func (e *remoteExit) Error() string { return fmt.Sprintf("the command exited with status %d", e.code) }
 
 // request performs one call. body may be nil, a []byte of pre-encoded JSON, or any
 // value to marshal. out may be nil, a *[]byte for raw bytes, or a pointer to decode
@@ -167,7 +189,15 @@ func (c *Client) request(method, path string, body, out any) error {
 		if len(raw) == 0 {
 			return nil
 		}
-		return json.Unmarshal(raw, out)
+		if err := json.Unmarshal(raw, out); err != nil {
+			// A server older than an endpoint answers an /api path it does not have with the
+			// web app's page and a 200. Say that, rather than "invalid character '<'".
+			if bytes.HasPrefix(bytes.TrimSpace(raw), []byte("<")) {
+				return fmt.Errorf("%w: %s %s", errNotAPI, method, path)
+			}
+			return err
+		}
+		return nil
 	}
 }
 

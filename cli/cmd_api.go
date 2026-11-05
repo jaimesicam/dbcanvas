@@ -19,6 +19,9 @@ import (
 func cmdAPI(args []string) error {
 	fs := flagsFor("api")
 	data := fs.String("data", "", "request body: inline JSON, @file, or @- for stdin")
+	// -d, as curl spells it: people and agents reach for it, and an unknown flag here
+	// fails the call outright.
+	fs.StringVar(data, "d", "", "short for --data")
 	raw := fs.Bool("raw", false, "print the response exactly as received, without reformatting")
 	out := fs.String("out", "", "save the response body to this file (for download endpoints)")
 	if err := parse(fs, args); err != nil {

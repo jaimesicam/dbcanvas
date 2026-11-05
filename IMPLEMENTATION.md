@@ -29465,3 +29465,68 @@ the designer and the CLI do not call these endpoints directly.
 
 **Verified.** `go test ./...`; new cases in `TestDesignEditNodesAndRelations` (a top-level option
 refused on add and on update, the node unchanged).
+
+## 516. `node exec` without the console; CLI help and `-d`; unknown API paths are a JSON 404 — `app/nodeexec.go`, `app/main.go`, `app/auth.go`, `cli/cmd_node.go`, `cli/help.go`, `cli/main.go`, `cli/client.go`, `cli/cmd_auth.go`
+
+Agents driving DBCanvas through the CLI hit four things that were DBCanvas's, not theirs.
+
+**`node exec`.** There was no exec endpoint: the CLI typed the command into the node's console
+WebSocket and copied the screen back, so the output carried the shell prompt, the echoed command,
+terminal-title escapes and a trailing `exit`, and the command's exit status was lost. Callers
+filtered the noise with `grep -v` and could not tell success from failure. `POST
+/api/stacks/{id}/nodes/{nid}/exec` runs `argv` through the engine's `ExecInput` (as deploy steps
+do, no TTY) and answers `{exitCode, stdout, stderr}`. The command runs in a login bash where the
+image has one, so PATH matches the console, and under `timeout(1)` where there is one, so a command
+past its timeout (default 600 s, at most 3600) is killed in the container; `timedOut` reports it.
+Output that is not UTF-8 comes back base64 (`stdoutBase64`, `stderrBase64`); each stream is cut at
+16 MiB (`truncated`), stdin at 16 MiB. It is a POST in the Nodes group behind the same owner check
+as the console, so it needs write scope and grants nothing the console does not. `dbcanvas-cli
+node exec` uses it, prints the streams as received, and exits with the remote status (`remoteExit`,
+as ssh does). `--stdin` sends local stdin — only when asked, since reading an open but idle stdin
+by default would hang an automated caller — and `--timeout` and `--user` pass through. Against a
+server older than the endpoint (which answers with the web app's page) it falls back to the
+console with a note.
+
+**`parse` and `--`.** `node exec s n --timeout 1m -- mysql -e …` was refused: `parse` recognised
+`--` only right after a positional, not after a flag, so the remote command's `-e` was parsed as
+the CLI's. It now checks the argument just before what `fs.Parse` left, which is where `--` is
+whatever precedes it.
+
+**Help.** There was no `help` command and `-h` printed `Usage of node exec:` with nothing under
+it, exiting 2. `cli/help.go` gives every command and subcommand a usage line and one sentence;
+`-h`/`--help` prints them with the FlagSet's own flags and exits 0, `dbcanvas-cli help node exec`
+is the same, and `dbcanvas-cli help node` (or `node -h`) lists a group's subcommands with what each
+does. Every command parses its flags before it reads an argument or makes a request, so `-h` runs
+nothing — `TestHelpEverywhereAndNothingRuns` walks every command and subcommand against a server
+that fails the test on any request.
+
+**`-d`.** `dbcanvas-cli api` took only `--data`, while the skill's own examples used `-d` in ten
+places, which agents copied and the CLI rejected. The examples now say `--data`, and `-d` is
+accepted as its short form.
+
+**`whoami`.** It printed the token's scope and expiry from the local config, and "never" when the
+config had no expiry — which a config written by another tool did not. `/api/me` now includes the
+token a request was made with (name, prefix, scope, created, expires), and `whoami` prints that,
+for a token from the environment too, falling back to the config only on an older server and then
+claiming nothing it does not know.
+
+**Unknown API paths.** An `/api/…` path no route matched — a typo, a route the server does not
+have, or the right path with the wrong method — was answered by the web app's catch-all with its
+HTML page and a 200, which a script reads as success. It is now `{"error": "no endpoint POST
+/api/…"}` with a 404. The CLI also says "this DBCanvas server has no such endpoint" instead of
+"invalid character '<'" when an older server still answers with the page.
+
+**Verified.** `go test ./...` in `app/` and `cli/`. New: `TestNodeExecWrapperKeepsArgv`,
+`…ExitStatusAndStdin`, `…Timeout` (skipped where the host has no `timeout(1)`),
+`TestNodeExecField`, `TestUnknownAPIPathIsAJSON404`, `TestMeReportsItsToken`; in the CLI
+`TestNodeExecUsesTheExecEndpoint`, `…SuccessAndBinaryOutput`, `…StdinIsSentOnlyWhenAsked`,
+`…FallsBackOnAnOlderServer`, `TestAPIAcceptsDashD`, `TestHelpEverywhereAndNothingRuns`.
+
+Live, on a rebuilt installation, against Percona Server 8.4 on Oracle Linux 9, MySQL Community 8.4
+on Ubuntu 24.04 and SeaweedFS (alpine, no bash): clean stdout and exit 0; a failing `mysql` with
+its error on stderr only and exit 1; `test -f … &&`/`||` branching on the status; argv with
+spaces, quotes, `;` and `$HOME` arriving literally; `bash -c` pipes with the login PATH; `--stdin`
+into `mysql`; 4 KiB of random bytes read back with the same SHA-256; `--timeout 3s` on `sleep 60`
+stopped after 3 s with exit 124 (143 from busybox on the alpine node, which `timedOut` also counts);
+`--user mysql`. `whoami` showed the server's token name, scope and expiry; `node exec -h` and
+`help node` printed their usage and exited 0; an unknown path came back as the JSON 404.

@@ -261,6 +261,13 @@ func cmdWhoami(args []string) error {
 		Role         string `json:"role"`
 		Status       string `json:"status"`
 		GuestAccount bool   `json:"guestAccount,omitempty"`
+		// The token this request was made with, as the server has it (absent on servers
+		// older than that field, and for a password session).
+		Token *struct {
+			Name      string  `json:"name"`
+			Scope     string  `json:"scope"`
+			ExpiresAt *string `json:"expiresAt"`
+		} `json:"token,omitempty"`
 	}
 	if err := c.get("/api/me", &me); err != nil {
 		return err
@@ -286,15 +293,26 @@ func cmdWhoami(args []string) error {
 	if name != "" {
 		fmt.Printf("%-12s %s\n", "profile", name)
 	}
-	// The token's own details, when it came from the config. A token from the
-	// environment is not ours to describe, so nothing is printed for it.
-	if p.Scope != "" {
-		fmt.Printf("%-12s %s\n", "token scope", p.Scope)
-	}
-	if p.Expires != "" {
-		fmt.Printf("%-12s %s\n", "token expiry", shortDate(p.Expires))
-	} else if p.Token != "" {
-		fmt.Printf("%-12s %s\n", "token expiry", "never")
+	// The token's own details. The server's answer is the truth, and covers a token from the
+	// environment too. The config's copy is only a fallback for an older server: it may never
+	// have been written (a config written by another tool), in which case nothing is claimed —
+	// printing "never" for a missing date said something the server never did.
+	switch {
+	case me.Token != nil:
+		fmt.Printf("%-12s %s\n", "token", me.Token.Name)
+		fmt.Printf("%-12s %s\n", "token scope", me.Token.Scope)
+		if me.Token.ExpiresAt != nil && *me.Token.ExpiresAt != "" {
+			fmt.Printf("%-12s %s\n", "token expiry", shortDate(*me.Token.ExpiresAt))
+		} else {
+			fmt.Printf("%-12s %s\n", "token expiry", "never")
+		}
+	default:
+		if p.Scope != "" {
+			fmt.Printf("%-12s %s\n", "token scope", p.Scope)
+		}
+		if p.Expires != "" {
+			fmt.Printf("%-12s %s\n", "token expiry", shortDate(p.Expires))
+		}
 	}
 	var st struct {
 		Version string `json:"version"`

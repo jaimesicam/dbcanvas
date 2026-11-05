@@ -26,6 +26,9 @@ install dist/dbcanvas-cli_darwin_arm64 /usr/local/bin/dbcanvas-cli
 ```
 
 `dbcanvas-cli` with no arguments lists every command; the **API** page shows the same list.
+`-h` on any command or subcommand prints its arguments and flags and runs nothing:
+`dbcanvas-cli node exec -h`, or `dbcanvas-cli help node exec`. `dbcanvas-cli help node` lists a
+group's subcommands.
 `dbcanvas-cli version` prints the CLI's version and, when signed in, the server's.
 
 ## Signing in
@@ -356,6 +359,26 @@ dbcanvas-cli node tunnel pxc-lab pxc-01                       # print the ssh -L
 A node can be named by its **hostname** (`pxc-01`, as on the canvas) or its **node id**; `node
 list` shows both. Leave `console` with `Ctrl-D` or `exit`.
 
+`node exec` runs one command and **exits with that command's status**. Its stdout and stderr come
+back separately and exactly as written, with no console in between, so it works in scripts:
+
+```sh
+dbcanvas-cli node exec pxc-lab pxc-01 -- test -f /var/lib/mysql/auto.cnf && echo present
+dbcanvas-cli node exec pxc-lab pxc-01 --stdin -- mysql test < schema.sql
+dbcanvas-cli node exec pxc-lab pxc-01 -- bash -c 'tail -n 50 /var/log/mysqld.log | grep -i error'
+```
+
+| Flag | Meaning |
+| --- | --- |
+| `--stdin` | Send this terminal's standard input to the command (at most 16 MiB). Without it the command reads nothing. |
+| `--timeout` | Stop the command after this long (default `10m`, at most `1h`). |
+| `--user` | Run as this user (a name or uid) instead of root. |
+
+The command and its arguments are passed as given — no shell splits or expands them. For pipes,
+redirections or variables, run a shell: `-- bash -c '…'`. Each of stdout and stderr is cut at
+16 MiB; copy larger files with `node cp`. Against a DBCanvas server older than the exec endpoint,
+`node exec` types the command into the console instead, says so, and cannot report the status.
+
 ### Consoles inside Kubernetes pods
 
 On a K3D frame's k3s server node, `--pod` opens the console inside a pod's container instead of
@@ -475,7 +498,7 @@ dbcanvas-cli api PUT  /api/me/settings --data '{"theme":"forest"}'
 | Command | Flags |
 | --- | --- |
 | `endpoints` | `--group`, `-q` (match method, path, summary or group), `--scope` (`read`, `write`, `admin`), `--long` (include summaries) |
-| `api` | `--data` (inline JSON, `@file`, or `@-` for stdin), `--out FILE` (save the response, for downloads), `--raw` (print unformatted) |
+| `api` | `--data` or `-d` (inline JSON, `@file`, or `@-` for stdin), `--out FILE` (save the response, for downloads), `--raw` (print unformatted) |
 
 ## Exit codes
 
@@ -486,6 +509,9 @@ dbcanvas-cli api PUT  /api/me/settings --data '{"theme":"forest"}'
 | `2` | Wrong command line. |
 | `3` | Not signed in, or the token expired or was revoked — run `dbcanvas-cli login`. |
 | `4` | `--wait` gave up: the deploy or job failed, or did not finish in time. |
+
+`node exec` is the exception: once the command has run, the CLI exits with the command's own
+status, whatever it is, and prints nothing of its own.
 
 ## Scripting tips
 

@@ -149,6 +149,7 @@ var catalogCommonActions = []catalogAction{
 	{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/rebuild", Desc: "Recreate the node from the current design."},
 	{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/errorlog", Desc: "The tail of the node's main log."},
 	{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/sshforward", Desc: "The SSH port-forward command for the node's ports, when SSH forwarding is configured."},
+	{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/exec", Desc: "Run one command in the node and get its stdout, stderr and exit code.", Body: "argv, stdin, timeout (seconds), user"},
 	{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/term", Desc: "A shell in the node (WebSocket)."},
 	{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/upload", Desc: "Copy a file into the node (multipart)."},
 	{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/fs/list", Desc: "Browse the node's file system; the rest of the file manager is under …/fs/."},

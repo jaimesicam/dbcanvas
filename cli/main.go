@@ -69,6 +69,7 @@ func init() {
 		{"endpoints", "List the API endpoints this installation serves", cmdEndpoints},
 		{"api", "Call any endpoint directly: dbcanvas-cli api POST /api/stacks/1/deploy", cmdAPI},
 		{"version", "Print the CLI version, and the server's when signed in", cmdVersion},
+		{"help", "What a command takes: dbcanvas-cli help node exec (the same as node exec -h)", cmdHelpCmd},
 	}
 }
 
@@ -99,7 +100,8 @@ func main() {
 	for _, c := range commands {
 		if c.name == name {
 			if err := c.run(args[1:]); err != nil {
-				if !errors.Is(err, errUsage) {
+				var rx *remoteExit
+				if !errors.Is(err, errUsage) && !errors.Is(err, errHelp) && !errors.As(err, &rx) {
 					fmt.Fprintln(os.Stderr, "dbcanvas-cli: "+err.Error())
 				}
 				os.Exit(exitCodeFor(err))
@@ -172,6 +174,11 @@ func sub(group string, args []string, table map[string]func([]string) error, ord
 	if len(args) == 0 {
 		return subUsage(group, order, table)
 	}
+	switch args[0] {
+	case "-h", "-help", "--help", "help":
+		fmt.Fprint(os.Stderr, subUsageText(group, order, table))
+		return errHelp
+	}
 	fn, ok := table[args[0]]
 	if !ok {
 		fmt.Fprintf(os.Stderr, "dbcanvas-cli %s: unknown subcommand %q\n\n", group, args[0])
@@ -181,12 +188,7 @@ func sub(group string, args []string, table map[string]func([]string) error, ord
 }
 
 func subUsage(group string, order []string, table map[string]func([]string) error) error {
-	fmt.Fprintf(os.Stderr, "Usage: dbcanvas-cli %s <subcommand> [arguments]\n\nSubcommands:\n", group)
-	for _, n := range order {
-		if _, ok := table[n]; ok {
-			fmt.Fprintf(os.Stderr, "  %s\n", n)
-		}
-	}
+	fmt.Fprint(os.Stderr, subUsageText(group, order, table))
 	return errUsage
 }
 
@@ -194,6 +196,7 @@ func subUsage(group string, order []string, table map[string]func([]string) erro
 func flagsFor(name string) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	fs.Usage = usageFunc(name, fs)
 	return fs
 }
 
@@ -211,6 +214,11 @@ func parse(fs *flag.FlagSet, args []string) error {
 	positional = nil
 	for {
 		if err := fs.Parse(args); err != nil {
+			// -h / --help: the flag package has printed the usage already, and asking for it
+			// is not a mistake.
+			if errors.Is(err, flag.ErrHelp) {
+				return errHelp
+			}
 			return errUsage
 		}
 		rest := fs.Args()
@@ -218,8 +226,12 @@ func parse(fs *flag.FlagSet, args []string) error {
 			return nil
 		}
 		// `--` ends flag parsing: everything after it is positional, verbatim.
-		// node exec relies on this to pass a remote command through untouched.
-		if len(args) > 0 && args[0] == "--" {
+		// node exec relies on this to pass a remote command through untouched. fs.Parse
+		// consumes the `--` itself, so look at the argument just before what it left —
+		// checking only args[0] missed a `--` that came after a flag
+		// (`node exec s n --timeout 1m -- mysql -e …`), and the remote command's own
+		// flags were then parsed as ours.
+		if used := len(args) - len(rest); used > 0 && args[used-1] == "--" {
 			positional = append(positional, rest...)
 			return nil
 		}

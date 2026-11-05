@@ -134,7 +134,7 @@ Most endpoints take and return JSON. The catalogue marks the others:
 | `400` | a bad body or parameter; `error` says which |
 | `401` | not signed in, or the token is unknown, expired or revoked |
 | `403` | not permitted: not your stack, not an administrator, a token scope too narrow, or an endpoint that refuses tokens |
-| `404` | no such stack, node, capture or token |
+| `404` | no such stack, node, capture or token — or no such endpoint (a mistyped path, or the right path with the wrong method) |
 | `409` | wrong state for the request, for example the node is not running |
 | `502` | an outside service could not be reached (the update check) |
 

@@ -476,6 +476,8 @@ func buildAPIRoutes() []apiRoute {
 		// Drag files from the host onto a node's card in the designer (see nodeupload.go).
 		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/upload", Group: gNodes, Media: mediaMultipart, Handler: m((*App).handleNodeUpload),
 			Summary: "Copy files or a whole directory into a node, streamed rather than buffered."},
+		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/exec", Group: gNodes, Handler: m((*App).handleNodeExec),
+			Summary: "Run one command in a node and return its stdout, stderr and exit code, with no console in between. Body: argv (the command and its arguments, not split by a shell), stdin, timeout (seconds, default 600, at most 3600), user. Output that is not UTF-8 comes back base64 in stdoutBase64/stderrBase64; each stream is cut at 16 MiB (truncated)."},
 		{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/term", Group: gNodes, Media: mediaWebSocket, Handler: m((*App).handleNodeTerminal),
 			Summary: "Open a root console on a node: binary frames are keystrokes, text frames are resize messages. On a Kubernetes server node, `pod` (with `namespace`, `container` and `shell`) opens the console inside that pod's container instead — `shell` being a shell, or `mysql`, `psql` or `mongosh` for that database's own client, logged in with the credential the operator mounted in the container."},
 		{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/k8s/pods", Group: gNodes, Handler: m((*App).handleK3DPods),

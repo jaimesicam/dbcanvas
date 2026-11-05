@@ -351,5 +351,27 @@ func (a *App) handleMe(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	writeJSON(w, http.StatusOK, u)
+	// A request made with an API token also gets that token's name, scope and expiry, so a
+	// client can say what it is signed in with (`dbcanvas-cli whoami`) without keeping its own
+	// copy of those, which goes stale or was never written.
+	var tok *meToken
+	if p, ok := principalOf(r); ok && p.Token != nil {
+		tok = &meToken{ID: p.Token.ID, Name: p.Token.Name, Prefix: p.Token.Prefix, Scope: p.Token.Scope,
+			CreatedAt: p.Token.CreatedAt, ExpiresAt: p.Token.ExpiresAt}
+	}
+	writeJSON(w, http.StatusOK, struct {
+		User
+		Token *meToken `json:"token,omitempty"`
+	}{u, tok})
+}
+
+// meToken is the API token a /api/me request was made with. ExpiresAt is absent for a token
+// that never expires.
+type meToken struct {
+	ID        int64   `json:"id"`
+	Name      string  `json:"name"`
+	Prefix    string  `json:"prefix"`
+	Scope     string  `json:"scope"`
+	CreatedAt string  `json:"createdAt"`
+	ExpiresAt *string `json:"expiresAt,omitempty"`
 }

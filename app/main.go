@@ -145,6 +145,14 @@ func spaHandler() http.Handler {
 	fileServer := http.FileServer(http.FS(dist))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// An API path no route matched — a typo, a route this server does not have yet, or the
+		// right path with the wrong method — is a JSON 404, not the web app's page with a 200,
+		// which a script reads as success and then fails to parse.
+		if r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/") {
+			writeErr(w, http.StatusNotFound, "no endpoint "+r.Method+" "+r.URL.Path+
+				" — GET /api/meta/endpoints (dbcanvas-cli endpoints) lists every one")
+			return
+		}
 		p := strings.TrimPrefix(r.URL.Path, "/")
 		if p == "" {
 			p = "index.html"

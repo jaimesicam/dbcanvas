@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -367,9 +369,15 @@ func runConsole(c *Client, path, label string) error {
 	return err
 }
 
-// nodeExec runs one command and prints its output, without a TTY.
+// nodeExec runs one command in a node through POST …/exec (app/nodeexec.go): stdout and stderr
+// come back separately, exactly as the command wrote them, and the CLI exits with the command's
+// own status, as ssh does. Against a server older than that endpoint it falls back to typing the
+// command into the console, which is what it always did, with the noise and without a status.
 func nodeExec(args []string) error {
 	fs := flagsFor("node exec")
+	sendStdin := fs.Bool("stdin", false, "send this terminal's standard input to the command (e.g. -- mysql < dump.sql); without it the command's stdin is empty")
+	timeout := fs.Duration("timeout", 10*time.Minute, "kill the command if it runs longer than this (at most 1h)")
+	user := fs.String("user", "", "run as this user (a name or uid) instead of the container's default, root")
 	if err := parse(fs, args); err != nil {
 		return err
 	}
@@ -377,28 +385,82 @@ func nodeExec(args []string) error {
 	// remote command's own flags (`mysql -e 'SHOW …'`) arrive intact.
 	if nargs() < 3 {
 		fmt.Fprintln(os.Stderr,
-			"dbcanvas-cli: usage: dbcanvas-cli node exec <stack> <node> -- <command> [args…]")
+			"dbcanvas-cli: usage: dbcanvas-cli node exec <stack> <node> [--stdin] [--timeout 10m] [--user U] -- <command> [args…]")
 		return errUsage
+	}
+	if *timeout <= 0 || *timeout > time.Hour {
+		return fmt.Errorf("--timeout must be more than 0 and at most 1h")
 	}
 	cmdArgs := positional[2:]
 	c, st, node, err := stackAndNode(arg(0), arg(1))
 	if err != nil {
 		return err
 	}
-	// There is no exec endpoint in the API: the console WebSocket is the exec
-	// mechanism, and this is it with the command piped in and stdin closed after.
-	// Said plainly rather than pretending otherwise, because the exit status of the
-	// remote command is not available this way.
-	fmt.Fprintln(os.Stderr, "dbcanvas-cli: note — exec runs through the console, so the remote exit status is not reported")
-	path := fmt.Sprintf("/api/stacks/%d/nodes/%s/term", st.ID, url.PathEscape(node))
-	return execOverConsole(c, path, shellJoin(cmdArgs))
+	body := map[string]any{"argv": cmdArgs, "timeout": int((*timeout + time.Second - 1) / time.Second)}
+	if *user != "" {
+		body["user"] = *user
+	}
+	if *sendStdin {
+		in, err := readAll(os.Stdin)
+		if err != nil {
+			return fmt.Errorf("reading stdin: %w", err)
+		}
+		body["stdin"] = string(in)
+	}
+	// One request held open for as long as the command may run.
+	c.HTTP.Timeout = *timeout + time.Minute
+	var res struct {
+		ExitCode     int    `json:"exitCode"`
+		Stdout       string `json:"stdout"`
+		Stderr       string `json:"stderr"`
+		StdoutBase64 string `json:"stdoutBase64"`
+		StderrBase64 string `json:"stderrBase64"`
+		Truncated    bool   `json:"truncated"`
+		TimedOut     bool   `json:"timedOut"`
+	}
+	err = c.post(fmt.Sprintf("/api/stacks/%d/nodes/%s/exec", st.ID, url.PathEscape(node)), body, &res)
+	if errors.Is(err, errNotAPI) {
+		if *sendStdin || *user != "" {
+			return fmt.Errorf("this DBCanvas server is older than POST …/exec, so --stdin and --user are not available; upgrade it")
+		}
+		fmt.Fprintln(os.Stderr, "dbcanvas-cli: note — this DBCanvas server has no exec endpoint, so the command runs through the console and its exit status is not reported")
+		path := fmt.Sprintf("/api/stacks/%d/nodes/%s/term", st.ID, url.PathEscape(node))
+		return execOverConsole(c, path, shellJoin(cmdArgs))
+	}
+	if err != nil {
+		return err
+	}
+	for _, o := range []struct {
+		w          *os.File
+		text, b64v string
+	}{{os.Stdout, res.Stdout, res.StdoutBase64}, {os.Stderr, res.Stderr, res.StderrBase64}} {
+		data := []byte(o.text)
+		if o.b64v != "" {
+			if data, err = base64.StdEncoding.DecodeString(o.b64v); err != nil {
+				return fmt.Errorf("the server sent unreadable output: %w", err)
+			}
+		}
+		if _, err := o.w.Write(data); err != nil {
+			return err
+		}
+	}
+	if res.Truncated {
+		fmt.Fprintln(os.Stderr, "dbcanvas-cli: note — the output was longer than 16 MiB and was cut; copy large files with `node cp`")
+	}
+	if res.TimedOut {
+		fmt.Fprintf(os.Stderr, "dbcanvas-cli: the command was stopped after %s (--timeout)\n", *timeout)
+	}
+	if res.ExitCode != 0 {
+		return &remoteExit{code: res.ExitCode}
+	}
+	return nil
 }
 
 // shellJoin turns argv into one command line that a remote shell will split back into
 // exactly the same argv.
 //
-// This has to re-quote, and the reason is the sentence above: exec has no endpoint of
-// its own, so the command is TYPED INTO a login shell over the console. Joining with
+// It is only used where exec falls back to the console, on a server older than POST …/exec:
+// there the command is TYPED INTO a login shell, so it has to be re-quoted. Joining with
 // plain spaces threw every argument boundary away, and the remote shell then made up
 // its own — `printf '[%s]\n' 'one two' three` arrived as five words with the
 // backslash eaten, and, worse, an argument containing a metacharacter ran as a second

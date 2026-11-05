@@ -468,7 +468,7 @@ Saved templates are stripped of secrets, host paths and pinned host ports.
 | List a stack's nodes | `GET /api/stacks/{id}` | `dbcanvas-cli node list <stack>` |
 | Start · stop · restart | `POST …/nodes/{nid}/start` · `/stop` · `/restart` | `dbcanvas-cli node start\|stop\|restart <stack> <node>` |
 | Open a root console | `GET …/nodes/{nid}/term` *(WebSocket)* | `dbcanvas-cli node console <stack> <node> [--user U]` |
-| Run one command | *(the same WebSocket)* | `dbcanvas-cli node exec <stack> <node> -- mysql -e 'SHOW STATUS'` |
+| Run one command: stdout, stderr and its exit code | `POST …/nodes/{nid}/exec` `{"argv": [...], "stdin", "timeout", "user"}` | `dbcanvas-cli node exec <stack> <node> -- mysql -e 'SHOW STATUS'` |
 | List the pods on a Kubernetes server node | `GET …/nodes/{nid}/k8s/pods` | `dbcanvas-cli node pods <stack> <node>` |
 | Console inside a pod's container | `GET …/nodes/{nid}/term?namespace=&pod=&container=&shell=` *(WebSocket)* | `dbcanvas-cli node console <stack> <node> --pod P --container C [--namespace N] [--shell S]` |
 | The `ssh -L` tunnel line | `GET …/nodes/{nid}/sshforward` | `dbcanvas-cli node tunnel <stack> <node>` |

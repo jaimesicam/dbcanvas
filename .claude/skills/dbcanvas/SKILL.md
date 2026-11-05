@@ -152,12 +152,12 @@ them with `dbcanvas-cli endpoints -q users`). The ones you reach for most:
 dbcanvas-cli user list                                          # pending first
 dbcanvas-cli api GET    /api/users/7                            # one account: stacks, active tokens, sessions
 dbcanvas-cli api POST   /api/users/7/approve                    # or /reject, /disable
-dbcanvas-cli api POST   /api/users/7/role -d '{"role":"admin"}'
+dbcanvas-cli api POST   /api/users/7/role --data '{"role":"admin"}'
 dbcanvas-cli api GET    /api/users/7/stacks
 dbcanvas-cli api GET    /api/users/7/tokens                     # never the secrets
 dbcanvas-cli api DELETE /api/users/7/tokens                     # revoke them all; sessions untouched
 dbcanvas-cli api DELETE /api/users/7/sessions                   # sign it out everywhere
-dbcanvas-cli api POST   /api/stacks/12/owner -d '{"userId":3}'  # hand one stack over
+dbcanvas-cli api POST   /api/stacks/12/owner --data '{"userId":3}'  # hand one stack over
 dbcanvas-cli api DELETE '/api/users/7?transferStacksTo=3'       # delete, keeping its stacks
 ```
 
@@ -368,14 +368,14 @@ Then change a stack's design one thing at a time. Ids, not labels, in paths (§3
 
 ```sh
 S=12
-dbcanvas-cli api POST /api/stacks/$S/design/nodes  -d '{"type":"pmm"}'
-dbcanvas-cli api POST /api/stacks/$S/design/frames -d '{"type":"pxc","members":3,
+dbcanvas-cli api POST /api/stacks/$S/design/nodes  --data '{"type":"pmm"}'
+dbcanvas-cli api POST /api/stacks/$S/design/frames --data '{"type":"pxc","members":3,
   "options":{"pxcMajor":"8.4","generateCert":true},"relations":{"monitor":"<pmm id>"}}'
-dbcanvas-cli api POST /api/stacks/$S/design/nodes  -d '{"frameId":"<frame id>"}'        # one more member
-dbcanvas-cli api POST /api/stacks/$S/design/nodes  -d '{"type":"proxysql"}'
-dbcanvas-cli api POST /api/stacks/$S/design/edges  -d '{"from":"<frame id>","to":"<proxysql id>"}'
-dbcanvas-cli api PUT  /api/stacks/$S/design/frames/<frame id> -d '{"memberOptions":{"cpus":2}}'
-dbcanvas-cli api PUT  /api/stacks/$S/design/nodes/<id> -d '{"relations":{"monitor":null}}'  # null clears
+dbcanvas-cli api POST /api/stacks/$S/design/nodes  --data '{"frameId":"<frame id>"}'        # one more member
+dbcanvas-cli api POST /api/stacks/$S/design/nodes  --data '{"type":"proxysql"}'
+dbcanvas-cli api POST /api/stacks/$S/design/edges  --data '{"from":"<frame id>","to":"<proxysql id>"}'
+dbcanvas-cli api PUT  /api/stacks/$S/design/frames/<frame id> --data '{"memberOptions":{"cpus":2}}'
+dbcanvas-cli api PUT  /api/stacks/$S/design/nodes/<id> --data '{"relations":{"monitor":null}}'  # null clears
 dbcanvas-cli api DELETE /api/stacks/$S/design/nodes/<id>
 dbcanvas-cli stack validate $S && dbcanvas-cli stack deploy $S --wait
 ```
@@ -474,7 +474,7 @@ compose does not build, compose what it can and change the rest with the design
 endpoints ("Every option, by name", above):
 
 ```sh
-dbcanvas-cli api POST /api/stacks/12/design/frames -d '{"type":"k3d","options":{"k3dOperator":"pxc"}}'
+dbcanvas-cli api POST /api/stacks/12/design/frames --data '{"type":"k3d","options":{"k3dOperator":"pxc"}}'
 dbcanvas-cli stack validate 12                           # check before building
 dbcanvas-cli stack deploy 12 --wait
 ```
@@ -526,8 +526,16 @@ dbcanvas-cli node cp repro-1234:pxc-01:/etc/my.cnf repro-1234:pxc-02:/etc/my.cnf
 ```
 
 `node console` is interactive and will hang in an automated context — use `node exec`.
-Note that `exec` runs through the console, so **the remote exit status is not
-reported**; check the output, or have the command print a marker.
+It runs the command directly (`POST …/nodes/{nid}/exec`, no console): stdout and stderr come
+back exactly as written, and **the CLI exits with the command's own status**, so `&&` and
+`if` work. Arguments are passed as given, not through a shell — for pipes or redirections run
+`-- bash -c '…'`. `--stdin` sends local standard input (`-- mysql < dump.sql`), `--timeout`
+(default 10m, at most 1h) stops a command that runs too long, and `--user` runs as another
+user. A server older than the exec endpoint falls back to the console, with a note and no
+exit status.
+
+Every command takes `-h` (`dbcanvas-cli node exec -h`, or `dbcanvas-cli help node exec`) for
+its arguments and flags; nothing runs.
 
 ### F. Check whether the installation is current
 
