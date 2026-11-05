@@ -78,7 +78,7 @@ Every node also has a console, a file manager, its log, start / stop / restart a
 ## `dbcanvas-cli`
 
 Everything above, from a terminal. Download it from your installation's **API** page or build it
-with `make cli`, and put it on your PATH as `dbcanvas-cli`, the command every example uses.
+with `make cli` (which installs it as `~/.local/bin/dbcanvas-cli`); the command is `dbcanvas-cli`.
 
 | Task | Commands |
 | --- | --- |

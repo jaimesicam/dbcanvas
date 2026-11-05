@@ -25,7 +25,7 @@ the app, and fixes for common problems.
 | `make versions` | Probe every built image for the versions it can install and write `versions.yaml` — what the version pickers offer. Takes hours. **Run `make restart` afterwards**, or every picker is empty. `ONLY=percona` or `ONLY=upstream` re-probes one group and keeps the other. |
 | `make adopt-images` | After an upgrade, retag images this host already built with the current release instead of rebuilding them. Nothing is rebuilt or removed. |
 | `make rotate-key` | Re-encrypt stored secrets under a new key. See [The encryption key](#the-encryption-key). |
-| `make cli` | Cross-compile `dbcanvas-cli` into `dist/` for Linux (amd64, arm64), macOS (amd64, arm64) and Windows (amd64), with `SHA256SUMS`. See [`dbcanvas-cli`](CLI.md). |
+| `make cli` | Cross-compile `dbcanvas-cli` into `dist/` for Linux (amd64, arm64), macOS (amd64, arm64) and Windows (amd64), with `SHA256SUMS`, and install this machine's build as `~/.local/bin/dbcanvas-cli` (`CLI_INSTALL_DIR=` to change or skip). See [`dbcanvas-cli`](CLI.md). |
 | `make cli-test` | Build, vet and test the CLI. |
 | `make smoke` | Render every page and fail on a render error; also loads the heavy pages in headless Chrome when Chrome is available (`CHROME=<path>` to point at it). |
 

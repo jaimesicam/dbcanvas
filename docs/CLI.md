@@ -21,9 +21,12 @@ Builds exist for `linux` (`amd64`, `arm64`), `darwin` (`amd64`, `arm64`) and `wi
 **From a checkout:**
 
 ```sh
-make cli                      # → dist/dbcanvas-cli_<os>_<arch>
-install dist/dbcanvas-cli_darwin_arm64 /usr/local/bin/dbcanvas-cli
+make cli                      # → dist/dbcanvas-cli_<os>_<arch>, and ~/.local/bin/dbcanvas-cli
 ```
+
+`make cli` builds every platform into `dist/` and installs this machine's build as
+`~/.local/bin/dbcanvas-cli`. Install it elsewhere with `sudo make cli CLI_INSTALL_DIR=/usr/local/bin`,
+or only build with `make cli CLI_INSTALL_DIR=`.
 
 `dbcanvas-cli` with no arguments lists every command; the **API** page shows the same list.
 `-h` on any command or subcommand prints its arguments and flags and runs nothing:

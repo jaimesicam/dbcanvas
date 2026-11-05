@@ -10,6 +10,8 @@ VERSION ?= $(shell cat VERSION 2>/dev/null || echo dev)
 # The platforms `make cli` cross-compiles for. Keep in sync with cliPlatforms in
 # app/clidownload.go, which is what the API page offers for download.
 CLI_PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
+# Where `make cli` installs this machine's build as dbcanvas-cli; empty = build only.
+CLI_INSTALL_DIR ?= $(HOME)/.local/bin
 
 .PHONY: install install-extras adopt-images compose env build up down logs restart rotate-key clean images extra-images versions smoke cli cli-test supportsim-image stocksim-image ledgersim-image perfsim-image intranet-image vnc-image kubeadm-image
 
@@ -131,8 +133,13 @@ smoke:
 	cd app/web && npm run smoke && npm run smoke:browser
 
 ## cli: cross-compile dbcanvas-cli into dist/ for every platform the app image
-## ships, with a SHA256SUMS beside them. A single static binary per platform, no
-## dependencies — put one on your PATH and run `dbcanvas-cli login`.
+## ships, with a SHA256SUMS beside them, and install this machine's build as
+## $(CLI_INSTALL_DIR)/dbcanvas-cli — the command every example uses. A single
+## static binary per platform, no dependencies; then run `dbcanvas-cli login`.
+##
+## CLI_INSTALL_DIR defaults to ~/.local/bin, which needs no sudo; set it to put the
+## binary elsewhere (`sudo make cli CLI_INSTALL_DIR=/usr/local/bin`), or to an empty
+## value to only build.
 ##
 ## The app image builds the same matrix (see app/Dockerfile) so a running
 ## installation can hand the binary to somebody with no checkout; this target is
@@ -150,7 +157,20 @@ cli:
 	             || shasum -a 256 dbcanvas-cli_* > SHA256SUMS)
 	@echo ""
 	@echo "  dbcanvas-cli $(VERSION) → dist/"
-	@echo "  Install: install dist/dbcanvas-cli_$$(go env GOOS)_$$(go env GOARCH) /usr/local/bin/dbcanvas"
+	@if [ -n "$(CLI_INSTALL_DIR)" ]; then \
+	  host=dist/dbcanvas-cli_$$(go env GOHOSTOS)_$$(go env GOHOSTARCH); \
+	  if [ ! -f "$$host" ]; then \
+	    echo "  No build for this machine ($$(go env GOHOSTOS)/$$(go env GOHOSTARCH)) in CLI_PLATFORMS; nothing installed."; \
+	  else \
+	    mkdir -p "$(CLI_INSTALL_DIR)" && install -m 0755 "$$host" "$(CLI_INSTALL_DIR)/dbcanvas-cli" && \
+	    echo "  Installed $$host → $(CLI_INSTALL_DIR)/dbcanvas-cli"; \
+	    case ":$$PATH:" in *":$(CLI_INSTALL_DIR):"*) ;; \
+	      *) echo "  $(CLI_INSTALL_DIR) is not on your PATH — add it, or run $(CLI_INSTALL_DIR)/dbcanvas-cli";; esac; \
+	    if [ -e "$(CLI_INSTALL_DIR)/dbcanvas" ]; then \
+	      echo "  An older copy named dbcanvas is still in $(CLI_INSTALL_DIR); the command is dbcanvas-cli now, so it can go."; \
+	    fi; \
+	  fi; \
+	fi
 
 ## cli-test: build, vet and test the CLI module
 cli-test:
