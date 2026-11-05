@@ -366,7 +366,7 @@ func TestErrorMapping(t *testing.T) {
 		wantCode int
 		wantText string
 	}{
-		{401, `{"error":"invalid, expired or revoked API token"}`, 3, "dbcanvas login"},
+		{401, `{"error":"invalid, expired or revoked API token"}`, 3, "dbcanvas-cli login"},
 		{403, `{"error":"this endpoint needs a token with write scope; this token has read"}`, 1, "write scope"},
 		{404, `{"error":"stack not found"}`, 1, "stack not found"},
 		{409, `{"error":"node is not running"}`, 1, "node is not running"},

@@ -861,7 +861,7 @@ export const HELP = {
     'account with the user role: a guest designs, deploys and tears down stacks like any registered user. Everyone ' +
     'who continues as a guest shares that account, and so sees and can change the same stacks. Because it is ' +
     'shared, a guest cannot change its password or profile, and it can never be made an administrator. The API and ' +
-    'the CLI work as a guest too (POST /api/auth/guest, dbcanvas login --guest), with a user\u2019s token, once the ' +
+    'the CLI work as a guest too (POST /api/auth/guest, dbcanvas-cli login --guest), with a user\u2019s token, once the ' +
     'Guests security group has the API feature. What guests may use is set under Security groups. Off signs ' +
     'every guest out at once and revokes the guest\u2019s API tokens. The account is listed under Users, where disabling it ' +
     'also refuses guests, and deleting it (with its stacks) gives the next guest a fresh one. Not to be confused ' +
@@ -953,7 +953,7 @@ export const HELP = {
   cliDownload:
     'The `dbcanvas-cli` binary for a platform, served by this installation, so a machine with no ' +
     'checkout can still get it. It is a single static binary with no dependencies: put it on your ' +
-    'PATH and run `dbcanvas login`. From a checkout, `make cli` builds the same thing.',
+    'PATH and run `dbcanvas-cli login`. From a checkout, `make cli` builds the same thing.',
 }
 
 // NODE_BLURB — what a palette entry actually gets you, for the tooltip on the button

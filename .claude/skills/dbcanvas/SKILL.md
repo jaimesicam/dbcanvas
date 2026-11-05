@@ -20,7 +20,7 @@ the CLI is not installed or an endpoint has no subcommand.
 ### Establish that you can reach it
 
 ```sh
-dbcanvas whoami      # account, role, server, token scope and expiry
+dbcanvas-cli whoami      # account, role, server, token scope and expiry
 ```
 
 Non-zero exit? Read the message. **Exit 3 means not signed in** — you need a token,
@@ -35,10 +35,10 @@ curl -s -H "Authorization: Bearer $DBCANVAS_TOKEN" "$DBCANVAS_URL/api/me"
 
 ### Getting a credential — ask, do not improvise
 
-A token is created by `dbcanvas login`, which needs the user's **password**. Never
+A token is created by `dbcanvas-cli login`, which needs the user's **password**. Never
 invent, guess or brute-force one. If `DBCANVAS_TOKEN` is not set, no profile exists
 and the user has not given you a password, stop and ask them to either run
-`dbcanvas login` themselves or paste a token they created in **API → Tokens**:
+`dbcanvas-cli login` themselves or paste a token they created in **API → Tokens**:
 
 ```sh
 export DBCANVAS_URL=http://localhost:8080
@@ -47,7 +47,7 @@ export DBCANVAS_TOKEN=dbc_...
 
 **Guest sign-in.** If `GET /api/setup/status` reports `"guestLogin": true`, an
 administrator allows signing in without a password as one shared guest account (a
-regular user): `dbcanvas login --url "$URL" --guest`, or `POST /api/auth/guest` for a
+regular user): `dbcanvas-cli login --url "$URL" --guest`, or `POST /api/auth/guest` for a
 session cookie. Use it when the user asks to work as a guest. Because every guest
 shares that account and sees its stacks, offer it to the user rather than
 falling back to it silently. A guest cannot change the account's password or profile,
@@ -56,7 +56,7 @@ feature in their security group to use the CLI at all.
 
 **Security groups.** A `403` reading `your security group (…) does not have access to
 <Feature>` is policy, not a bug: an administrator decides which pages Administrators,
-Regular Users and Guests may use (`dbcanvas group list` / `dbcanvas group set <group>
+Regular Users and Guests may use (`dbcanvas-cli group list` / `dbcanvas-cli group set <group>
 <feature>=on|off`, or `GET`/`PUT /api/security/groups`). Do not work around it through
 another endpoint; tell the user which feature their group lacks.
 
@@ -66,7 +66,7 @@ the prompts appear. So pipe them in — never put a password in a flag, an envir
 variable, a file or your reply:
 
 ```sh
-printf '%s\n' "$PW" | dbcanvas login --url http://localhost:8080 --user alice
+printf '%s\n' "$PW" | dbcanvas-cli login --url http://localhost:8080 --user alice
 ```
 
 Whatever you pipe is still in your transcript, so say once that this suits a lab
@@ -86,21 +86,21 @@ Use one profile per account and revoke the admin's token when you are done.
 URL=http://localhost:8080
 # 1. A short-lived admin token, in its own profile.
 printf '%s\n' "$ADMIN_PW" |
-  dbcanvas login --url "$URL" --user admin --scope admin --expires 1 --profile admin
+  dbcanvas-cli login --url "$URL" --user admin --scope admin --expires 1 --profile admin
 
 # 2. The account. Prompts, in order: the admin's password, then U's temporary
 #    password twice. (--invite instead prints a 7-day link and asks only the first.)
 printf '%s\n' "$ADMIN_PW" "$TEMP_PW" "$TEMP_PW" |
-  dbcanvas --profile admin user create bob --first Bob --last Lee --email bob@example.net
+  dbcanvas-cli --profile admin user create bob --first Bob --last Lee --email bob@example.net
 
 # 3. U's first sign-in. Prompts: the temporary password, then U's own twice — an
 #    account with an admin-set password can do nothing else until it is replaced.
 printf '%s\n' "$TEMP_PW" "$USER_PW" "$USER_PW" |
-  dbcanvas login --url "$URL" --user bob --profile bob
+  dbcanvas-cli login --url "$URL" --user bob --profile bob
 
 # 4. Work as U, then drop the admin token.
-dbcanvas --profile bob whoami
-dbcanvas --profile admin logout
+dbcanvas-cli --profile bob whoami
+dbcanvas-cli --profile admin logout
 ```
 
 **With `curl`** (no CLI installed). Account creation and password changes refuse API
@@ -146,19 +146,19 @@ Keep the token out of your reply; it is a password for the account.
 ### Managing accounts (admin)
 
 Everything **Manage Users** does is an endpoint under `/api/users` (admin only; list
-them with `dbcanvas endpoints -q users`). The ones you reach for most:
+them with `dbcanvas-cli endpoints -q users`). The ones you reach for most:
 
 ```sh
-dbcanvas user list                                          # pending first
-dbcanvas api GET    /api/users/7                            # one account: stacks, active tokens, sessions
-dbcanvas api POST   /api/users/7/approve                    # or /reject, /disable
-dbcanvas api POST   /api/users/7/role -d '{"role":"admin"}'
-dbcanvas api GET    /api/users/7/stacks
-dbcanvas api GET    /api/users/7/tokens                     # never the secrets
-dbcanvas api DELETE /api/users/7/tokens                     # revoke them all; sessions untouched
-dbcanvas api DELETE /api/users/7/sessions                   # sign it out everywhere
-dbcanvas api POST   /api/stacks/12/owner -d '{"userId":3}'  # hand one stack over
-dbcanvas api DELETE '/api/users/7?transferStacksTo=3'       # delete, keeping its stacks
+dbcanvas-cli user list                                          # pending first
+dbcanvas-cli api GET    /api/users/7                            # one account: stacks, active tokens, sessions
+dbcanvas-cli api POST   /api/users/7/approve                    # or /reject, /disable
+dbcanvas-cli api POST   /api/users/7/role -d '{"role":"admin"}'
+dbcanvas-cli api GET    /api/users/7/stacks
+dbcanvas-cli api GET    /api/users/7/tokens                     # never the secrets
+dbcanvas-cli api DELETE /api/users/7/tokens                     # revoke them all; sessions untouched
+dbcanvas-cli api DELETE /api/users/7/sessions                   # sign it out everywhere
+dbcanvas-cli api POST   /api/stacks/12/owner -d '{"userId":3}'  # hand one stack over
+dbcanvas-cli api DELETE '/api/users/7?transferStacksTo=3'       # delete, keeping its stacks
 ```
 
 **Deleting an account deletes its stacks and their containers** unless
@@ -174,12 +174,12 @@ yourself an account — ask for one (§1).
 Endpoints and installable versions differ per installation. **Read, don't assume:**
 
 ```sh
-dbcanvas endpoints --long              # every endpoint this server serves
-dbcanvas endpoints -q backup           # find one
-dbcanvas stack kinds                   # what compose can build here
-dbcanvas api GET /api/stacks/design/catalog   # every node/cluster type, option, relation and action
-dbcanvas api GET /api/catalog/ps       # which Percona Server versions exist here
-dbcanvas template list                 # which templates exist here
+dbcanvas-cli endpoints --long              # every endpoint this server serves
+dbcanvas-cli endpoints -q backup           # find one
+dbcanvas-cli stack kinds                   # what compose can build here
+dbcanvas-cli api GET /api/stacks/design/catalog   # every node/cluster type, option, relation and action
+dbcanvas-cli api GET /api/catalog/ps       # which Percona Server versions exist here
+dbcanvas-cli template list                 # which templates exist here
 ```
 
 Never hardcode a version string you have not seen in a catalogue response.
@@ -194,9 +194,9 @@ Never hardcode a version string you have not seen in a catalogue response.
 cluster frame and its members, the monitoring and directory wiring, the layout.
 
 ```sh
-dbcanvas stack kinds            # what this installation can build, and the options
+dbcanvas-cli stack kinds            # what this installation can build, and the options
 
-dbcanvas stack compose repro-1234 --ttl 4h \
+dbcanvas-cli stack compose repro-1234 --ttl 4h \
   --node 'pxc:3,version=8.4.5,os=el8,monitor' \
   --node 'ps,version=8.0.45,os=el9,ldap,monitor' \
   --node 'pmm,version=3' \
@@ -227,7 +227,7 @@ this node to another one in the spec:
 | `orchestrator` | topology discovery, failover | `orchestrator` |
 
 Ask for one with no provider in the spec and the error names the node to add. Ask for
-one a kind does not have and the error names the kind. Run `dbcanvas stack kinds` if
+one a kind does not have and the error names the kind. Run `dbcanvas-cli stack kinds` if
 you are unsure — it prints the matrix for that installation.
 
 **`to=` is different, and easy to miss.** A relationship above is a *field*. `to=` is
@@ -237,7 +237,7 @@ PgBouncer with no backend, a simulator with no database (the Performance Sim,
 you will see the error; the fix is to add the target to the spec, or name it:
 
 ```sh
-dbcanvas stack compose pg --ttl 4h \
+dbcanvas-cli stack compose pg --ttl 4h \
   --node 'patroni:3,os=el9' \
   --node 'haproxy,os=el9' \
   --node 'pgvectorsim,to=haproxy-01'
@@ -250,7 +250,7 @@ frame is done with the design endpoints, since compose does not build K3D frames
 
 The HAProxy needed no `to=` — one legal backend, so compose used it and said so in the
 plan. The pgvector Support Sim needed one, because using the cluster directly and using
-it through the proxy are different tests and it will not guess. `dbcanvas stack kinds`
+it through the proxy are different tests and it will not guess. `dbcanvas-cli stack kinds`
 prints each kind's legal targets in the LINKS TO column.
 
 **PgBouncer is the PostgreSQL pool**, as HAProxy is the TCP balancer: one `pgbouncer`
@@ -260,7 +260,7 @@ the pool, and compose turns on following the primary across a failover and
 `auth_query`. A pgvector Support Sim can use the cluster through it:
 
 ```sh
-dbcanvas stack compose pool-lab --ttl 4h \
+dbcanvas-cli stack compose pool-lab --ttl 4h \
   --node 'patroni:3,os=el9' \
   --node 'pgbouncer,os=el9,mode=transaction,cert' \
   --node 'pgvectorsim,to=pgbouncer-01'
@@ -282,13 +282,13 @@ need:
 --node 'ps,os=el9,deviceReadMbps=20,deviceWriteMbps=10'             # a slow disk
 ```
 
-`dbcanvas stack validate` prints what each shaped node will get before anything is
+`dbcanvas-cli stack validate` prints what each shaped node will get before anything is
 built. Shaping covers the node's database and cluster ports; `netAllTraffic` widens it
 to every packet, which can make a node fail its own provisioning — use it deliberately.
 
 **An option a kind would ignore is refused, not accepted.** `cpus=` on a Keycloak node
 is an error, because nine node types never apply a CPU limit. Do not work around it —
-the refusal is telling you the knob does not exist there. `dbcanvas stack kinds` is
+the refusal is telling you the knob does not exist there. `dbcanvas-cli stack kinds` is
 generated from the same table, so it is never out of date with what will be accepted.
 
 **Anything the shorthand does not cover, set by name.** Every compose entry also takes
@@ -302,15 +302,15 @@ a core-dump host — it says why. Compose the rest, then add those with the desi
 endpoints (below), or start from a template:
 
 ```sh
-dbcanvas template list
-dbcanvas stack create repro-1234 --template "PXC + ProxySQL + PMM" --ttl 4h --deploy --wait
+dbcanvas-cli template list
+dbcanvas-cli stack create repro-1234 --template "PXC + ProxySQL + PMM" --ttl 4h --deploy --wait
 ```
 
 **Single sign-on is one command, and it deploys.** A worked example, because the
 prerequisites are the part that trips people up:
 
 ```sh
-dbcanvas stack compose sso-lab --ttl 8h \
+dbcanvas-cli stack compose sso-lab --ttl 8h \
   --node keycloak \
   --node 'ps,version=8.4.11,os=el9,oidc,monitor' \
   --node 'pmm,version=3' \
@@ -358,9 +358,9 @@ node type (`nodes`) and cluster type (`frames`) it lists:
 
 ```sh
 CAT='/api/stacks/design/catalog'
-dbcanvas api GET "$CAT?type=patroni" | jq '.frame.options[] | {field, type, values, default, when}'
-dbcanvas api GET "$CAT?type=patroni" | jq '.node.actions[] | "\(.method) \(.path) — \(.description)"'
-dbcanvas api GET "$CAT" | jq -r '.frames[].type'      # every cluster type
+dbcanvas-cli api GET "$CAT?type=patroni" | jq '.frame.options[] | {field, type, values, default, when}'
+dbcanvas-cli api GET "$CAT?type=patroni" | jq '.node.actions[] | "\(.method) \(.path) — \(.description)"'
+dbcanvas-cli api GET "$CAT" | jq -r '.frames[].type'      # every cluster type
 ```
 
 Then change a stack's design one thing at a time. Ids, not labels, in paths (§3);
@@ -368,16 +368,16 @@ Then change a stack's design one thing at a time. Ids, not labels, in paths (§3
 
 ```sh
 S=12
-dbcanvas api POST /api/stacks/$S/design/nodes  -d '{"type":"pmm"}'
-dbcanvas api POST /api/stacks/$S/design/frames -d '{"type":"pxc","members":3,
+dbcanvas-cli api POST /api/stacks/$S/design/nodes  -d '{"type":"pmm"}'
+dbcanvas-cli api POST /api/stacks/$S/design/frames -d '{"type":"pxc","members":3,
   "options":{"pxcMajor":"8.4","generateCert":true},"relations":{"monitor":"<pmm id>"}}'
-dbcanvas api POST /api/stacks/$S/design/nodes  -d '{"frameId":"<frame id>"}'        # one more member
-dbcanvas api POST /api/stacks/$S/design/nodes  -d '{"type":"proxysql"}'
-dbcanvas api POST /api/stacks/$S/design/edges  -d '{"from":"<frame id>","to":"<proxysql id>"}'
-dbcanvas api PUT  /api/stacks/$S/design/frames/<frame id> -d '{"memberOptions":{"cpus":2}}'
-dbcanvas api PUT  /api/stacks/$S/design/nodes/<id> -d '{"relations":{"monitor":null}}'  # null clears
-dbcanvas api DELETE /api/stacks/$S/design/nodes/<id>
-dbcanvas stack validate $S && dbcanvas stack deploy $S --wait
+dbcanvas-cli api POST /api/stacks/$S/design/nodes  -d '{"frameId":"<frame id>"}'        # one more member
+dbcanvas-cli api POST /api/stacks/$S/design/nodes  -d '{"type":"proxysql"}'
+dbcanvas-cli api POST /api/stacks/$S/design/edges  -d '{"from":"<frame id>","to":"<proxysql id>"}'
+dbcanvas-cli api PUT  /api/stacks/$S/design/frames/<frame id> -d '{"memberOptions":{"cpus":2}}'
+dbcanvas-cli api PUT  /api/stacks/$S/design/nodes/<id> -d '{"relations":{"monitor":null}}'  # null clears
+dbcanvas-cli api DELETE /api/stacks/$S/design/nodes/<id>
+dbcanvas-cli stack validate $S && dbcanvas-cli stack deploy $S --wait
 ```
 
 - Each call answers with what it made or changed, plus the validator's `issues` and
@@ -466,7 +466,7 @@ Tearing down is two calls and both are outward-facing — **ask first** (§5):
 Usually this is just compose with the version written out:
 
 ```sh
-dbcanvas stack compose bug-4821 --node 'ps,version=8.0.42,os=el9' --dry-run
+dbcanvas-cli stack compose bug-4821 --node 'ps,version=8.0.42,os=el9' --dry-run
 ```
 
 If the version is not available the error lists what is, in that series. For a shape
@@ -474,9 +474,9 @@ compose does not build, compose what it can and change the rest with the design
 endpoints ("Every option, by name", above):
 
 ```sh
-dbcanvas api POST /api/stacks/12/design/frames -d '{"type":"k3d","options":{"k3dOperator":"pxc"}}'
-dbcanvas stack validate 12                           # check before building
-dbcanvas stack deploy 12 --wait
+dbcanvas-cli api POST /api/stacks/12/design/frames -d '{"type":"k3d","options":{"k3dOperator":"pxc"}}'
+dbcanvas-cli stack validate 12                           # check before building
+dbcanvas-cli stack deploy 12 --wait
 ```
 
 Replacing the whole document (`stack export`, edit, `PUT /api/stacks/{id}`) still works,
@@ -488,20 +488,20 @@ before every deploy you assembled by hand.
 ### C. Put load on it
 
 ```sh
-dbcanvas datagen tables repro-1234 pxc-01 --database sbtest
-dbcanvas datagen run repro-1234 pxc-01 --database sbtest --table sbtest1 --rows 5000000 --wait
-dbcanvas benchmark run repro-1234 pxc-01 --workload oltp --duration 60 --wait
-dbcanvas query run --stack repro-1234 --nodes pxc-01,pxc-02 --sql 'SHOW STATUS LIKE "wsrep%"' --json
+dbcanvas-cli datagen tables repro-1234 pxc-01 --database sbtest
+dbcanvas-cli datagen run repro-1234 pxc-01 --database sbtest --table sbtest1 --rows 5000000 --wait
+dbcanvas-cli benchmark run repro-1234 pxc-01 --workload oltp --duration 60 --wait
+dbcanvas-cli query run --stack repro-1234 --nodes pxc-01,pxc-02 --sql 'SHOW STATUS LIKE "wsrep%"' --json
 ```
 
 ### D. Find out what happened
 
 ```sh
-dbcanvas logs collect repro-1234 --nodes pxc-01,pxc-02,pxc-03   # one timeline across members
-dbcanvas logs events <bundle-id> --severity bad
-dbcanvas capture start repro-1234 pxc-01 --seconds 30            # decoded packets
-dbcanvas stalk start repro-1234 pxc-01                           # pt-stalk
-dbcanvas ftdc node mongo-lab psmdb-01                            # MongoDB's black box
+dbcanvas-cli logs collect repro-1234 --nodes pxc-01,pxc-02,pxc-03   # one timeline across members
+dbcanvas-cli logs events <bundle-id> --severity bad
+dbcanvas-cli capture start repro-1234 pxc-01 --seconds 30            # decoded packets
+dbcanvas-cli stalk start repro-1234 pxc-01                           # pt-stalk
+dbcanvas-cli ftdc node mongo-lab psmdb-01                            # MongoDB's black box
 ```
 
 Collecting logs from **several** nodes at once is the point — the comparison across
@@ -512,17 +512,17 @@ WebSocket and so is UI-only; send the user there. From the CLI you can check tha
 core-dump host exists and that its symbols match the core:
 
 ```sh
-dbcanvas api GET /api/gdb/targets
-dbcanvas api GET /api/stacks/12/nodes/<node-id>/gdb/cores   # ids, not names — see §3
+dbcanvas-cli api GET /api/gdb/targets
+dbcanvas-cli api GET /api/stacks/12/nodes/<node-id>/gdb/cores   # ids, not names — see §3
 ```
 
 ### E. Get a shell or move a file
 
 ```sh
-dbcanvas node exec repro-1234 pxc-01 -- mysql -e 'SHOW ENGINE INNODB STATUS\G'
-dbcanvas node cp ./my.cnf repro-1234:pxc-01:/etc/my.cnf.d/
-dbcanvas node cp repro-1234:pxc-01:/var/log/mysqld.log ./
-dbcanvas node cp repro-1234:pxc-01:/etc/my.cnf repro-1234:pxc-02:/etc/my.cnf   # node → node
+dbcanvas-cli node exec repro-1234 pxc-01 -- mysql -e 'SHOW ENGINE INNODB STATUS\G'
+dbcanvas-cli node cp ./my.cnf repro-1234:pxc-01:/etc/my.cnf.d/
+dbcanvas-cli node cp repro-1234:pxc-01:/var/log/mysqld.log ./
+dbcanvas-cli node cp repro-1234:pxc-01:/etc/my.cnf repro-1234:pxc-02:/etc/my.cnf   # node → node
 ```
 
 `node console` is interactive and will hang in an automated context — use `node exec`.
@@ -532,8 +532,8 @@ reported**; check the output, or have the command print a marker.
 ### F. Check whether the installation is current
 
 ```sh
-dbcanvas updates          # this build, the latest on GitHub, and what changed in between
-dbcanvas updates --full   # with each release note's text
+dbcanvas-cli updates          # this build, the latest on GitHub, and what changed in between
+dbcanvas-cli updates --full   # with each release note's text
 ```
 
 This is the dashboard's **Check for updates** button. The *server* asks GitHub, so
@@ -547,14 +547,14 @@ what is available and do not run the update yourself.
 
 ## 3. Rules that will save you a wrong turn
 
-**Resolve by name — in the subcommands, not in `dbcanvas api`.** Every stack *and*
+**Resolve by name — in the subcommands, not in `dbcanvas-cli api`.** Every stack *and*
 node argument of a curated command takes a name or an id. A node's name is its
 hostname — `pxc-01`, what the compose plan and `node list` show; the id is internal,
 and on a stack drawn in the UI it looks like `pxc-mt1kvaak-3`. If two stacks share a
 name the CLI refuses and asks for an id rather than guessing — that refusal is
 correct, do not work around it by picking one.
 
-`dbcanvas api` is the exception, and it is the one that will catch you: it passes the
+`dbcanvas-cli api` is the exception, and it is the one that will catch you: it passes the
 path through verbatim, so a URL needs the **id**. A name there does not fail cleanly.
 The message depends on which endpoint you hit — `node is not deployed` on one, `this
 capture is not available for this node type` on another — and none of them say "no
@@ -563,9 +563,9 @@ node command works and the same thing through `api` does not, this is why. `node
 prints both columns; the id is also one line away:
 
 ```sh
-NODE=$(dbcanvas --json stack get my-lab \
+NODE=$(dbcanvas-cli --json stack get my-lab \
   | jq -r '.design.nodes[] | select(.label=="pxc-01") | .id')
-dbcanvas api GET "/api/stacks/12/nodes/$NODE/ptstalk"
+dbcanvas-cli api GET "/api/stacks/12/nodes/$NODE/ptstalk"
 ```
 
 **`--json` for anything you are going to parse.** It emits the server's own response
@@ -599,7 +599,7 @@ each with its method, path, body and when it applies.
 | `write` | everything the owning account can do in the UI |
 | `admin` | additionally `/api/users/*`, `/api/admin/*`, `PUT /api/system/settings` |
 
-`dbcanvas whoami` prints the scope. `dbcanvas endpoints --scope read` lists what a
+`dbcanvas-cli whoami` prints the scope. `dbcanvas-cli endpoints --scope read` lists what a
 read token could reach.
 
 **Things no token can ever do**, whatever its scope — all deliberate:
@@ -609,8 +609,8 @@ read token could reach.
 - `POST /api/users` — create an account (and setting another account's password or
   issuing it a reset link)
 
-All need a password sign-in: `dbcanvas token create`, `dbcanvas password` and
-`dbcanvas user create` sign in for the one request and sign out, reading the password
+All need a password sign-in: `dbcanvas-cli token create`, `dbcanvas-cli password` and
+`dbcanvas-cli user create` sign in for the one request and sign out, reading the password
 from stdin when there is no terminal (§1). With the password from the user, run them;
 without it, ask — do not report the 403 a token gets as a dead end. The curl form of
 creating an account is in §1, *Setting up an account for somebody*.
@@ -624,17 +624,17 @@ unless they explicitly asked for that exact action.
 
 | Command | Why |
 | --- | --- |
-| `dbcanvas stack destroy` | Removes every container in the stack. The design survives. |
-| `dbcanvas stack delete` | Removes the design too. Not recoverable. Prompts unless `--yes`. |
-| `dbcanvas api DELETE /api/users/{id}` | Deletes an account **and its stacks**. |
-| `dbcanvas user create` | Creates an account somebody can sign in with — an administrator if `--role admin`. |
-| `dbcanvas api POST /api/users/{id}/disable` | Cuts somebody's access, sessions and tokens. |
-| `dbcanvas api POST /api/users/{id}/role` | Grants or removes somebody's administrator access. |
-| `dbcanvas token revoke` | Breaks whatever was holding that token, immediately. |
-| `dbcanvas password --revoke-tokens` | Breaks every script of theirs, including your own session. |
-| `dbcanvas node stop` / `restart` | Interrupts a running database; ports move on restart. |
-| `dbcanvas api POST …/fs/delete`, `…/fs/write`, `…/fs/chmod` | Arbitrary writes inside a node. |
-| `dbcanvas api PUT /api/system/settings` | Instance-wide, affects every user. |
+| `dbcanvas-cli stack destroy` | Removes every container in the stack. The design survives. |
+| `dbcanvas-cli stack delete` | Removes the design too. Not recoverable. Prompts unless `--yes`. |
+| `dbcanvas-cli api DELETE /api/users/{id}` | Deletes an account **and its stacks**. |
+| `dbcanvas-cli user create` | Creates an account somebody can sign in with — an administrator if `--role admin`. |
+| `dbcanvas-cli api POST /api/users/{id}/disable` | Cuts somebody's access, sessions and tokens. |
+| `dbcanvas-cli api POST /api/users/{id}/role` | Grants or removes somebody's administrator access. |
+| `dbcanvas-cli token revoke` | Breaks whatever was holding that token, immediately. |
+| `dbcanvas-cli password --revoke-tokens` | Breaks every script of theirs, including your own session. |
+| `dbcanvas-cli node stop` / `restart` | Interrupts a running database; ports move on restart. |
+| `dbcanvas-cli api POST …/fs/delete`, `…/fs/write`, `…/fs/chmod` | Arbitrary writes inside a node. |
+| `dbcanvas-cli api PUT /api/system/settings` | Instance-wide, affects every user. |
 
 **Never print a token secret into a transcript, a commit or a log.** If you create
 one, hand it over once and tell the user it cannot be shown again. Prefer
@@ -653,7 +653,7 @@ memory limits. Do not deploy speculatively on someone's machine.
 | 1 | the request failed | read the message; it is the server's own |
 | 2 | bad command line | re-read the usage |
 | 3 | not signed in, or the token expired or was revoked | ask the user for a token; do not guess |
-| 4 | `--wait` gave up — the deploy failed or timed out | `dbcanvas stack get <stack>` for which node is in `error`, then `dbcanvas logs collect` |
+| 4 | `--wait` gave up — the deploy failed or timed out | `dbcanvas-cli stack get <stack>` for which node is in `error`, then `dbcanvas-cli logs collect` |
 
 HTTP statuses: `400` bad body, `401` bad credential, `403` not permitted (the message
 says which scope or which ownership), `404` no such thing, `409` wrong state (node
@@ -666,17 +666,17 @@ fix the design.
 
 ## 7. When there is no subcommand
 
-`dbcanvas api` reaches every endpoint, and there is nothing second-class about it:
+`dbcanvas-cli api` reaches every endpoint, and there is nothing second-class about it:
 
 ```sh
-dbcanvas api GET /api/stacks/12
-dbcanvas api POST /api/stacks/12/deploy
-dbcanvas api PUT  /api/me/settings --data '{"theme":"forest"}'
-dbcanvas api POST /api/templates/import --data @pxc.json
-dbcanvas api GET  /api/templates/3/export --out pxc.json
+dbcanvas-cli api GET /api/stacks/12
+dbcanvas-cli api POST /api/stacks/12/deploy
+dbcanvas-cli api PUT  /api/me/settings --data '{"theme":"forest"}'
+dbcanvas-cli api POST /api/templates/import --data @pxc.json
+dbcanvas-cli api GET  /api/templates/3/export --out pxc.json
 ```
 
-Find the endpoint first (`dbcanvas endpoints -q <term>`), then call it. The
+Find the endpoint first (`dbcanvas-cli endpoints -q <term>`), then call it. The
 `--data` value can be inline JSON, `@file` or `@-` for stdin.
 
 The one thing it does not do is resolve names: paths are sent as written, so
@@ -705,35 +705,35 @@ UI — a WebSocket cannot be curled).
 
 ```sh
 # 1. Can I reach it, and what does it have?
-dbcanvas whoami
-dbcanvas api GET /api/catalog/pxc | jq 'keys'
+dbcanvas-cli whoami
+dbcanvas-cli api GET /api/catalog/pxc | jq 'keys'
 
 # 2. Build it, with a lifetime, and wait for it. The latency and loss are the
 #    reproduction — a stall is a property of the network, not of 8.0.42.
-dbcanvas stack compose galera-stall --ttl 4h \
+dbcanvas-cli stack compose galera-stall --ttl 4h \
   --node 'pxc:3,version=8.0.42,os=el9,monitor,netLatencyMs=80,netLossPct=1' \
   --node pmm --dry-run
-dbcanvas stack compose galera-stall --ttl 4h \
+dbcanvas-cli stack compose galera-stall --ttl 4h \
   --node 'pxc:3,version=8.0.42,os=el9,monitor,netLatencyMs=80,netLossPct=1' \
   --node pmm
-dbcanvas stack validate galera-stall
-dbcanvas stack deploy galera-stall --wait
+dbcanvas-cli stack validate galera-stall
+dbcanvas-cli stack deploy galera-stall --wait
 
 # 3. Load it until the symptom appears
-dbcanvas datagen run galera-stall pxc-01 --database sbtest --table sbtest1 \
+dbcanvas-cli datagen run galera-stall pxc-01 --database sbtest --table sbtest1 \
   --rows 20000000 --wait
-dbcanvas benchmark run galera-stall pxc-01 --workload oltp --duration 300 --wait
+dbcanvas-cli benchmark run galera-stall pxc-01 --workload oltp --duration 300 --wait
 
 # 4. Capture the evidence, from every member
-dbcanvas logs collect galera-stall --nodes pxc-01,pxc-02,pxc-03 --json | tee bundle.json
+dbcanvas-cli logs collect galera-stall --nodes pxc-01,pxc-02,pxc-03 --json | tee bundle.json
 BUNDLE=$(jq -r .id bundle.json)
-dbcanvas logs get "$BUNDLE" --json | jq '.verdict'
-dbcanvas --json logs events "$BUNDLE" --severity bad --limit 50 > errors.json
-dbcanvas stalk start galera-stall pxc-01
-sleep 60 && dbcanvas stalk download galera-stall pxc-01 --out ./
+dbcanvas-cli logs get "$BUNDLE" --json | jq '.verdict'
+dbcanvas-cli --json logs events "$BUNDLE" --severity bad --limit 50 > errors.json
+dbcanvas-cli stalk start galera-stall pxc-01
+sleep 60 && dbcanvas-cli stalk download galera-stall pxc-01 --out ./
 
 # 5. Hand it back, and ask before tearing down
-dbcanvas stack get galera-stall
+dbcanvas-cli stack get galera-stall
 ```
 
 Note what that does **not** do: it does not destroy the stack. Leave the evidence
@@ -750,7 +750,7 @@ standing and ask; the TTL is the safety net if the user walks away.
 | CLI profiles, `--json`, `--wait`, exit codes, CI notes | [`docs/CLI.md`](https://github.com/jaimesicam/dbcanvas/blob/main/docs/CLI.md) |
 | What a node or cluster type actually is | [`docs/STACKS.md`](https://github.com/jaimesicam/dbcanvas/blob/main/docs/STACKS.md) |
 | Installing and configuring DBCanvas | [`docs/CONFIGURATION.md`](https://github.com/jaimesicam/dbcanvas/blob/main/docs/CONFIGURATION.md) |
-| **This installation's live endpoint list** | `dbcanvas endpoints --long` |
+| **This installation's live endpoint list** | `dbcanvas-cli endpoints --long` |
 
-When this file and `dbcanvas endpoints` disagree, `dbcanvas endpoints` is right: it
+When this file and `dbcanvas-cli endpoints` disagree, `dbcanvas-cli endpoints` is right: it
 comes from the running server, and this file is written by hand.

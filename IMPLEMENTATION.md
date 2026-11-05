@@ -29354,3 +29354,27 @@ resized browser) is a fix with no note.
 
 **Verification performed.** `go test -run 'WhatsNew|Note' .` (order, completeness, linked docs
 exist, README match).
+
+## 513. README stack matrix; the CLI command is `dbcanvas-cli` — `README.md`, `cli/`, `docs/`, `.claude/skills/dbcanvas/SKILL.md`, `app/web/src/pages/Api.jsx`
+
+**README.** Between the opening paragraphs and the production note, four tables describe what a
+stack can be: engines with their topologies, version series and compose kinds; what a deploy
+installs and configures per engine (TLS, PMM, LDAP, Kerberos, OIDC, OpenBao, backups, what can sit
+in front); the post-deployment operations per cluster type; and the `dbcanvas-cli` commands by
+task. Cells say `yes` or `no` and carry their conditions inline (`yes (standalone)`), with no
+footnotes, so each row reads on its own. The content comes from the design catalogue
+(`designCatalog()`: options, relations, edges, actions), the compose kinds (`compose.go`) and the
+major series in `versions.yaml`. "What you can build" became "Around the databases": its database
+list is now the matrix.
+
+**Command name.** The download is `dbcanvas-cli_<os>_<arch>` while every example said `dbcanvas`,
+so the file and the command had two names. The command is now `dbcanvas-cli` everywhere it is
+written as one: the binary's usage, errors and hints (`cli/`), the install steps (`docs/CLI.md`,
+the API page's quick start), `docs/`, the skill, and the UI hints that name a command. Event
+names (`dbcanvas:invalidate`), the `managed-by: dbcanvas` label, the config path
+(`~/.config/dbcanvas/config.json`) and the server's own flags are unchanged. Release notes keep
+the name they shipped with. An existing install keeps working after `mv /usr/local/bin/dbcanvas
+/usr/local/bin/dbcanvas-cli`; its profiles are where they were.
+
+**Verified.** `go test ./...` in `cli/` and `app/`, `npm run smoke`; the built binary, saved under
+another file name, prints `dbcanvas-cli` in its usage, subcommand usage and errors.

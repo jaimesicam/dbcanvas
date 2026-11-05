@@ -36,7 +36,7 @@ func TestMongoRecognisesAReplicaSet(t *testing.T) {
 		}
 		// The member names its own host in "Found self in config", which is a luxury the
 		// Galera and Group Replication catalogues do not have. "rs0-" is this fixture's
-		// real node prefix — `dbcanvas stack compose` ties a psmrs frame's member
+		// real node prefix — `dbcanvas-cli stack compose` ties a psmrs frame's member
 		// hostnames to the same frame name that becomes the replica set's own
 		// replSetName, and the accompanying FTDC fixtures need that name to be
 		// literally "rs0" (baked into their captured metadata document), so the frame

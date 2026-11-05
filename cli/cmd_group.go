@@ -8,8 +8,8 @@ import (
 
 // cmd_group.go — security groups (app/secgroups.go): which pages each group may use.
 //
-//	dbcanvas group list
-//	dbcanvas group set guest kanban=on api=on log-summary=off
+//	dbcanvas-cli group list
+//	dbcanvas-cli group set guest kanban=on api=on log-summary=off
 //
 // Administrators only; the server enforces the result on every request, this CLI's
 // included.
@@ -89,7 +89,7 @@ func groupSet(args []string) error {
 	}
 	rest := positional
 	if len(rest) < 2 {
-		return fmt.Errorf("usage: dbcanvas group set <admin|user|guest> <feature>=on|off ...  (features: dbcanvas group list)")
+		return fmt.Errorf("usage: dbcanvas-cli group set <admin|user|guest> <feature>=on|off ...  (features: dbcanvas-cli group list)")
 	}
 	group := rest[0]
 	cells := map[string]bool{}

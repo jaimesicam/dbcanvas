@@ -14,7 +14,7 @@ and each keeps its own terms.
 |---|---|---|
 | Whoever runs the container image | the image | `/usr/share/doc/dbcanvas/` (below) |
 | Every browser that opens the web interface | the JS bundles and fonts | `/licenses/` on the installation, linked from the sign-in screen and the Dashboard; every JS file opens with a comment naming it |
-| Whoever downloads `dbcanvas-cli` from the API page | the binary | linked beside the downloads; `dbcanvas version` prints the licence and source |
+| Whoever downloads `dbcanvas-cli` from the API page | the binary | linked beside the downloads; `dbcanvas-cli version` prints the licence and source |
 
 The Corresponding Source (GPLv3 §6d) is the public repository,
 https://github.com/jaimesicam/dbcanvas, which `/licenses/` links to.

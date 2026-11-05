@@ -452,12 +452,12 @@ The bundle is re-read with the corrected times.
 From [`dbcanvas-cli`](CLI.md):
 
 ```
-dbcanvas logs targets
-dbcanvas logs collect <stack> --nodes pxc-01,pxc-02,pxc-03
-dbcanvas logs list
-dbcanvas logs get <bundle-id>
-dbcanvas logs events <bundle-id> --severity bad,warn --limit 50
-dbcanvas logs delete <bundle-id>
+dbcanvas-cli logs targets
+dbcanvas-cli logs collect <stack> --nodes pxc-01,pxc-02,pxc-03
+dbcanvas-cli logs list
+dbcanvas-cli logs get <bundle-id>
+dbcanvas-cli logs events <bundle-id> --severity bad,warn --limit 50
+dbcanvas-cli logs delete <bundle-id>
 ```
 
 Without `--nodes`, `logs collect` reads every node in the stack that has logs to read.

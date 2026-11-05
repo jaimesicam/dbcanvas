@@ -615,8 +615,8 @@ Also:
 
 - **Enter pod console** (right-click the k3s server node): pick a namespace, pod and container,
   then a shell or the database client (`mysql`, `psql` or `mongosh`) already logged in as an
-  administrator. The list is read live each time. From the CLI: `dbcanvas node pods` and
-  `dbcanvas node console --pod` ([CLI](CLI.md)).
+  administrator. The list is read live each time. From the CLI: `dbcanvas-cli node pods` and
+  `dbcanvas-cli node console --pod` ([CLI](CLI.md)).
 - **[Kubernetes States](KUBERNETES_STATES.md)**: every pod, workload, claim, service and custom
   resource as a live card.
 - **[Operator Debugger](OPERATOR_DEBUGGER.md)**: with *Run the operator under Delve* ticked, the

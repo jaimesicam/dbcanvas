@@ -7,17 +7,17 @@ profiles, `--json`, `--wait` and exit codes, read [`dbcanvas-cli`](CLI.md).
 The always-current list is the **API** page in the app, or:
 
 ```sh
-dbcanvas endpoints --long
+dbcanvas-cli endpoints --long
 ```
 
 **Conventions on this page**
 
 - `…/nodes/{nid}` is short for `/api/stacks/{id}/nodes/{nid}`, and `…/frames/{fid}`
   for `/api/stacks/{id}/frames/{fid}`. A *frame* is a cluster on the canvas.
-- Where the CLI column says `dbcanvas api …`, there is no dedicated subcommand;
-  `dbcanvas api METHOD PATH [--data JSON|@file] [--out FILE]` calls any endpoint.
+- Where the CLI column says `dbcanvas-cli api …`, there is no dedicated subcommand;
+  `dbcanvas-cli api METHOD PATH [--data JSON|@file] [--out FILE]` calls any endpoint.
 - Global CLI flags such as `--json` go **before** the command:
-  `dbcanvas --json query run …`.
+  `dbcanvas-cli --json query run …`.
 
 ## Contents
 
@@ -43,24 +43,24 @@ These endpoints need no session.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Is this installation set up, and who am I | `GET /api/setup/status` | `dbcanvas version` (also prints the server version) |
+| Is this installation set up, and who am I | `GET /api/setup/status` | `dbcanvas-cli version` (also prints the server version) |
 | Create the first account (it becomes the administrator) | `POST /api/setup` | *(UI only)* |
 | Request an account | `POST /api/auth/register` `{"username", "password", "firstName", "lastName", "email", "avatar"}` | *(UI only)* |
-| Sign in and get a session cookie | `POST /api/auth/login` | `dbcanvas login` |
-| Which pages each security group may use · change it (admin) | `GET` · `PUT /api/security/groups` `{"allowed": {"guest": {"kanban": true}}}` | `dbcanvas group list` · `dbcanvas group set guest kanban=on` |
-| Sign in as the shared guest account (when guest sign-in is on; `guestLogin` in the status) | `POST /api/auth/guest` | `dbcanvas login --guest` |
-| Sign out | `POST /api/auth/logout` | `dbcanvas logout` (also revokes the CLI's token) |
+| Sign in and get a session cookie | `POST /api/auth/login` | `dbcanvas-cli login` |
+| Which pages each security group may use · change it (admin) | `GET` · `PUT /api/security/groups` `{"allowed": {"guest": {"kanban": true}}}` | `dbcanvas-cli group list` · `dbcanvas-cli group set guest kanban=on` |
+| Sign in as the shared guest account (when guest sign-in is on; `guestLogin` in the status) | `POST /api/auth/guest` | `dbcanvas-cli login --guest` |
+| Sign out | `POST /api/auth/logout` | `dbcanvas-cli logout` (also revokes the CLI's token) |
 | Check a password reset link · set the new password | `GET` · `POST /api/auth/reset/{token}` | *(UI only)* |
 
 Names and email are required to register, and an email belongs to one account. The
 response's `status` is `"pending"` (waiting for an administrator) or `"approved"`
 (when open registration is on).
 
-`dbcanvas login` signs in, creates an API token, signs out and keeps only the token —
+`dbcanvas-cli login` signs in, creates an API token, signs out and keeps only the token —
 see [`dbcanvas-cli`](CLI.md#signing-in).
 
 ```sh
-dbcanvas login --url http://localhost:8080
+dbcanvas-cli login --url http://localhost:8080
 ```
 
 ## Your account
@@ -69,16 +69,16 @@ dbcanvas login --url http://localhost:8080
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Who am I | `GET /api/me` | `dbcanvas whoami` |
+| Who am I | `GET /api/me` | `dbcanvas-cli whoami` |
 | Change your name, email and avatar | `PUT /api/me/profile` `{"firstName", "lastName", "email", "avatar"}` | — |
 | The avatars to choose from | `GET /api/avatars` | — |
-| Read your preferences | `GET /api/me/settings` | `dbcanvas api GET /api/me/settings` |
-| Change them | `PUT /api/me/settings` | `dbcanvas api PUT /api/me/settings --data '{"theme":"forest","look":"industrial","maxTabs":20}'` |
-| **Change your password** | `POST /api/me/password` | `dbcanvas password [--revoke-tokens]` |
+| Read your preferences | `GET /api/me/settings` | `dbcanvas-cli api GET /api/me/settings` |
+| Change them | `PUT /api/me/settings` | `dbcanvas-cli api PUT /api/me/settings --data '{"theme":"forest","look":"industrial","maxTabs":20}'` |
+| **Change your password** | `POST /api/me/password` | `dbcanvas-cli password [--revoke-tokens]` |
 | Your kept Scratchboard boards | `GET /api/me/scratchboards` · `PUT`/`DELETE /api/me/scratchboards/{bid}` | — |
-| Release notes, and whether you have read them | `GET /api/whatsnew` · `POST /api/whatsnew/seen` | `dbcanvas api GET /api/whatsnew` |
-| Node images beyond the OS bases, and which are present | `GET /api/images` | `dbcanvas api GET /api/images` |
-| Build one of them (admin) | `POST /api/images/{id}/build` | `dbcanvas api POST /api/images/bighole/build` |
+| Release notes, and whether you have read them | `GET /api/whatsnew` · `POST /api/whatsnew/seen` | `dbcanvas-cli api GET /api/whatsnew` |
+| Node images beyond the OS bases, and which are present | `GET /api/images` | `dbcanvas-cli api GET /api/images` |
+| Build one of them (admin) | `POST /api/images/{id}/build` | `dbcanvas-cli api POST /api/images/bighole/build` |
 
 Preference fields (`PUT` changes only the fields you send; an unknown value falls back
 to the default):
@@ -102,7 +102,7 @@ It signs out every other session and keeps yours. Your API tokens keep working u
 you tick **Also revoke my API tokens** (`revokeTokens`, or `--revoke-tokens`).
 
 ```sh
-$ dbcanvas password
+$ dbcanvas-cli password
 Changing the password for alice on http://localhost:8080.
 Current password: ********
 New password: ********
@@ -124,11 +124,11 @@ Your API tokens still work. Pass --revoke-tokens if you wanted them gone too.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| List your tokens (active, expired and revoked) | `GET /api/tokens` | `dbcanvas token list` |
-| Create one (password sign-in only) | `POST /api/tokens` `{"name", "scope", "days"}` | `dbcanvas token create --name N --scope write --expires 30` |
-| Revoke one of yours | `DELETE /api/tokens/{id}` | `dbcanvas token revoke <id>` |
-| List every token on the instance (admin) | `GET /api/admin/tokens` | `dbcanvas token list --all` |
-| Revoke anyone's (admin) | `DELETE /api/admin/tokens/{id}` | `dbcanvas token revoke <id> --admin` |
+| List your tokens (active, expired and revoked) | `GET /api/tokens` | `dbcanvas-cli token list` |
+| Create one (password sign-in only) | `POST /api/tokens` `{"name", "scope", "days"}` | `dbcanvas-cli token create --name N --scope write --expires 30` |
+| Revoke one of yours | `DELETE /api/tokens/{id}` | `dbcanvas-cli token revoke <id>` |
+| List every token on the instance (admin) | `GET /api/admin/tokens` | `dbcanvas-cli token list --all` |
+| Revoke anyone's (admin) | `DELETE /api/admin/tokens/{id}` | `dbcanvas-cli token revoke <id> --admin` |
 
 The secret is returned once, by the create call. `days: 0` means never expires
 (administrators only).
@@ -141,23 +141,23 @@ The secret is returned once, by the create call. `days: 0` means never expires
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| List accounts, pending first, with last sign-in, activity and session count | `GET /api/users` | `dbcanvas user list` |
-| Read one, with its stack and active token counts | `GET /api/users/{id}` | `dbcanvas api GET /api/users/1` |
-| The stacks it owns | `GET /api/users/{id}/stacks` | `dbcanvas api GET /api/users/1/stacks` |
-| Its API tokens (never the secrets) | `GET /api/users/{id}/tokens` | `dbcanvas api GET /api/users/1/tokens` |
-| Revoke all its API tokens | `DELETE /api/users/{id}/tokens` | `dbcanvas api DELETE /api/users/1/tokens` |
-| Create an approved account (password sign-in only) | `POST /api/users` | `dbcanvas user create bob --first Bob --last Lee --email bob@example.net [--role admin] [--invite]` |
-| Change its username and profile | `PUT /api/users/{id}` | `dbcanvas api PUT /api/users/1 --data '{"username":"pat"}'` |
-| Approve · reject · disable | `POST /api/users/{id}/approve` · `/reject` · `/disable` | `dbcanvas api POST /api/users/1/approve` |
-| Delete it and its stacks, or hand the stacks over first | `DELETE /api/users/{id}[?transferStacksTo={userId}]` | `dbcanvas api DELETE '/api/users/1?transferStacksTo=3'` |
-| Make it an administrator, or a user again | `POST /api/users/{id}/role` `{"role"}` | `dbcanvas api POST /api/users/1/role --data '{"role":"admin"}'` |
+| List accounts, pending first, with last sign-in, activity and session count | `GET /api/users` | `dbcanvas-cli user list` |
+| Read one, with its stack and active token counts | `GET /api/users/{id}` | `dbcanvas-cli api GET /api/users/1` |
+| The stacks it owns | `GET /api/users/{id}/stacks` | `dbcanvas-cli api GET /api/users/1/stacks` |
+| Its API tokens (never the secrets) | `GET /api/users/{id}/tokens` | `dbcanvas-cli api GET /api/users/1/tokens` |
+| Revoke all its API tokens | `DELETE /api/users/{id}/tokens` | `dbcanvas-cli api DELETE /api/users/1/tokens` |
+| Create an approved account (password sign-in only) | `POST /api/users` | `dbcanvas-cli user create bob --first Bob --last Lee --email bob@example.net [--role admin] [--invite]` |
+| Change its username and profile | `PUT /api/users/{id}` | `dbcanvas-cli api PUT /api/users/1 --data '{"username":"pat"}'` |
+| Approve · reject · disable | `POST /api/users/{id}/approve` · `/reject` · `/disable` | `dbcanvas-cli api POST /api/users/1/approve` |
+| Delete it and its stacks, or hand the stacks over first | `DELETE /api/users/{id}[?transferStacksTo={userId}]` | `dbcanvas-cli api DELETE '/api/users/1?transferStacksTo=3'` |
+| Make it an administrator, or a user again | `POST /api/users/{id}/role` `{"role"}` | `dbcanvas-cli api POST /api/users/1/role --data '{"role":"admin"}'` |
 | Set its password (password sign-in only) | `POST /api/users/{id}/password` | — |
 | Create a one-time reset link (password sign-in only) | `POST /api/users/{id}/reset-link` | — |
-| List its sessions | `GET /api/users/{id}/sessions` | `dbcanvas api GET /api/users/1/sessions` |
-| Sign it out everywhere, or of one session | `DELETE /api/users/{id}/sessions[/{sid}]` | `dbcanvas api DELETE /api/users/1/sessions` |
-| Sign every account out except your own session | `DELETE /api/users/sessions` | `dbcanvas api DELETE /api/users/sessions` |
-| Clear sign-in history for one account, or everyone | `DELETE /api/users/{id}/sign-ins` · `DELETE /api/users/sign-ins` | `dbcanvas api DELETE /api/users/sign-ins` |
-| Hand a stack to another account | `POST /api/stacks/{id}/owner` `{"userId"}` | `dbcanvas api POST /api/stacks/12/owner --data '{"userId":3}'` |
+| List its sessions | `GET /api/users/{id}/sessions` | `dbcanvas-cli api GET /api/users/1/sessions` |
+| Sign it out everywhere, or of one session | `DELETE /api/users/{id}/sessions[/{sid}]` | `dbcanvas-cli api DELETE /api/users/1/sessions` |
+| Sign every account out except your own session | `DELETE /api/users/sessions` | `dbcanvas-cli api DELETE /api/users/sessions` |
+| Clear sign-in history for one account, or everyone | `DELETE /api/users/{id}/sign-ins` · `DELETE /api/users/sign-ins` | `dbcanvas-cli api DELETE /api/users/sign-ins` |
+| Hand a stack to another account | `POST /api/stacks/{id}/owner` `{"userId"}` | `dbcanvas-cli api POST /api/stacks/12/owner --data '{"userId":3}'` |
 
 - **Reject** or **disable** revokes the account's sessions and API tokens together.
   Revoking tokens alone leaves sessions and password untouched; the owner is notified.
@@ -185,8 +185,8 @@ The secret is returned once, by the create call. `days: 0` means never expires
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Read the instance settings | `GET /api/system/settings` | `dbcanvas api GET /api/system/settings` |
-| Change them (admin) | `PUT /api/system/settings` | `dbcanvas api PUT /api/system/settings --data '{"maxTokenDays":30}'` |
+| Read the instance settings | `GET /api/system/settings` | `dbcanvas-cli api GET /api/system/settings` |
+| Change them (admin) | `PUT /api/system/settings` | `dbcanvas-cli api PUT /api/system/settings --data '{"maxTokenDays":30}'` |
 
 A `PUT` keeps any field it leaves out, and out-of-range values are clamped, not
 refused.
@@ -217,25 +217,25 @@ A stack is a design on the canvas plus the containers it deployed.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| List your stacks | `GET /api/stacks` | `dbcanvas stack list` |
-| **Build one from a short description** | `POST /api/stacks/compose` | `dbcanvas stack compose <name> --node …` |
-| What compose can build | `GET /api/stacks/compose/kinds` | `dbcanvas stack kinds` |
-| Create one from a template or a design | `POST /api/stacks` `{"name", "ttl", "templateId" or "design"}` | `dbcanvas stack create <name> --template <t> --ttl 4h` (or `--design file.json`) |
-| Read one, with every node's state | `GET /api/stacks/{id}` | `dbcanvas stack get <stack>` |
-| Replace its name, TTL or design | `PUT /api/stacks/{id}` | `dbcanvas api PUT /api/stacks/1 --data @design.json` |
-| Read the design alone | `GET /api/stacks/{id}/design` | `dbcanvas api GET /api/stacks/12/design` |
-| **What a design can hold** | `GET /api/stacks/design/catalog[?type=pxc]` | `dbcanvas api GET '/api/stacks/design/catalog?type=pxc'` |
-| Add · change · remove a node | `POST /api/stacks/{id}/design/nodes` · `PUT`/`DELETE …/design/nodes/{nid}` | `dbcanvas api POST /api/stacks/12/design/nodes --data '{"type":"pmm"}'` |
-| Add · change · remove a cluster | `POST /api/stacks/{id}/design/frames` · `PUT`/`DELETE …/design/frames/{fid}` | `dbcanvas api POST /api/stacks/12/design/frames --data '{"type":"pxc","members":3}'` |
-| Draw · remove a line | `POST /api/stacks/{id}/design/edges` · `DELETE …/design/edges/{eid}` | `dbcanvas api POST /api/stacks/12/design/edges --data '{"from":"…","to":"…"}'` |
-| Check the design without building | `POST /api/stacks/{id}/validate` | `dbcanvas stack validate <stack>` |
-| What a deploy would do now | `GET /api/stacks/{id}/deploy/preview` | `dbcanvas api GET /api/stacks/12/deploy/preview` |
-| Deploy | `POST /api/stacks/{id}/deploy` | `dbcanvas stack deploy <stack> [--wait] [--timeout 60m]` |
-| Live CPU, memory, I/O and replication role per node | `GET /api/stacks/{id}/live` | `dbcanvas api GET /api/stacks/12/live` |
-| Extend its lifetime | `POST /api/stacks/{id}/extend` `{"by": "4h"}` | `dbcanvas api POST /api/stacks/12/extend --data '{"by":"4h"}'` |
-| Remove the containers, keep the design | `POST /api/stacks/{id}/destroy` | `dbcanvas stack destroy <stack>` |
-| Delete both | `DELETE /api/stacks/{id}` | `dbcanvas stack delete <stack> [--yes]` |
-| Export the design as JSON | `GET /api/stacks/{id}` | `dbcanvas stack export <stack> > lab.json` |
+| List your stacks | `GET /api/stacks` | `dbcanvas-cli stack list` |
+| **Build one from a short description** | `POST /api/stacks/compose` | `dbcanvas-cli stack compose <name> --node …` |
+| What compose can build | `GET /api/stacks/compose/kinds` | `dbcanvas-cli stack kinds` |
+| Create one from a template or a design | `POST /api/stacks` `{"name", "ttl", "templateId" or "design"}` | `dbcanvas-cli stack create <name> --template <t> --ttl 4h` (or `--design file.json`) |
+| Read one, with every node's state | `GET /api/stacks/{id}` | `dbcanvas-cli stack get <stack>` |
+| Replace its name, TTL or design | `PUT /api/stacks/{id}` | `dbcanvas-cli api PUT /api/stacks/1 --data @design.json` |
+| Read the design alone | `GET /api/stacks/{id}/design` | `dbcanvas-cli api GET /api/stacks/12/design` |
+| **What a design can hold** | `GET /api/stacks/design/catalog[?type=pxc]` | `dbcanvas-cli api GET '/api/stacks/design/catalog?type=pxc'` |
+| Add · change · remove a node | `POST /api/stacks/{id}/design/nodes` · `PUT`/`DELETE …/design/nodes/{nid}` | `dbcanvas-cli api POST /api/stacks/12/design/nodes --data '{"type":"pmm"}'` |
+| Add · change · remove a cluster | `POST /api/stacks/{id}/design/frames` · `PUT`/`DELETE …/design/frames/{fid}` | `dbcanvas-cli api POST /api/stacks/12/design/frames --data '{"type":"pxc","members":3}'` |
+| Draw · remove a line | `POST /api/stacks/{id}/design/edges` · `DELETE …/design/edges/{eid}` | `dbcanvas-cli api POST /api/stacks/12/design/edges --data '{"from":"…","to":"…"}'` |
+| Check the design without building | `POST /api/stacks/{id}/validate` | `dbcanvas-cli stack validate <stack>` |
+| What a deploy would do now | `GET /api/stacks/{id}/deploy/preview` | `dbcanvas-cli api GET /api/stacks/12/deploy/preview` |
+| Deploy | `POST /api/stacks/{id}/deploy` | `dbcanvas-cli stack deploy <stack> [--wait] [--timeout 60m]` |
+| Live CPU, memory, I/O and replication role per node | `GET /api/stacks/{id}/live` | `dbcanvas-cli api GET /api/stacks/12/live` |
+| Extend its lifetime | `POST /api/stacks/{id}/extend` `{"by": "4h"}` | `dbcanvas-cli api POST /api/stacks/12/extend --data '{"by":"4h"}'` |
+| Remove the containers, keep the design | `POST /api/stacks/{id}/destroy` | `dbcanvas-cli stack destroy <stack>` |
+| Delete both | `DELETE /api/stacks/{id}` | `dbcanvas-cli stack delete <stack> [--yes]` |
+| Export the design as JSON | `GET /api/stacks/{id}` | `dbcanvas-cli stack export <stack> > lab.json` |
 
 ![The New stack dialog with a template selected](screenshots/getting-started-new-stack.png)
 
@@ -246,9 +246,9 @@ purpose). `--wait` polls for you and exits **4** if the deploy failed.
 ![A deployed stack — Intranet, PMM and a Percona Server node](screenshots/getting-started-deployed.png)
 
 ```sh
-dbcanvas stack create pxc-lab --template "PXC + ProxySQL + PMM" --ttl 4h --deploy --wait
-dbcanvas stack get pxc-lab
-dbcanvas stack destroy pxc-lab
+dbcanvas-cli stack create pxc-lab --template "PXC + ProxySQL + PMM" --ttl 4h --deploy --wait
+dbcanvas-cli stack get pxc-lab
+dbcanvas-cli stack destroy pxc-lab
 ```
 
 **Give every scripted stack a TTL**: `2h`, `4h`, `8h` (the CLI default), `24h`, `2w`
@@ -312,7 +312,7 @@ counts, versions, OS and relationships. It fills in package builds, cluster ids 
 node references for you.
 
 ```sh
-dbcanvas stack compose lab-1 --ttl 8h \
+dbcanvas-cli stack compose lab-1 --ttl 8h \
   --node 'pxc:3,version=8.4.5,os=el8,monitor' \
   --node 'ps,version=8.0.45,os=el9,ldap,monitor' \
   --node 'pmm,version=3' \
@@ -358,7 +358,7 @@ option (`monitorWith`, `ldapWith`, …).
 | `orchestrator` | topology discovery and failover | `orchestrator` | `ps-repl`, `mariadb-repl`, `mysql-repl` |
 
 ```sh
-dbcanvas stack compose sso-lab \
+dbcanvas-cli stack compose sso-lab \
   --node keycloak \
   --node 'ps,version=8.4.11,os=el9,oidc,monitor' \
   --node 'pmm,oidc' \
@@ -399,10 +399,10 @@ connection string when the spec has exactly one MongoDB.
 `transaction` by default, `session` or `statement`), `mysqlRouter`, `setup` (sharded
 PSMDB: `standard` or `minimum`; `count` is refused),
 `buckets` and `tls` (SeaweedFS), `alertEmail` (Orchestrator), `certTtl` (`365d`,
-`2h`, `30m`). `dbcanvas stack kinds` lists exactly which options each kind takes.
+`2h`, `30m`). `dbcanvas-cli stack kinds` lists exactly which options each kind takes.
 
 ```sh
-dbcanvas stack compose pool-lab --ttl 4h \
+dbcanvas-cli stack compose pool-lab --ttl 4h \
   --node 'patroni:3,os=el9' \
   --node 'pgbouncer,os=el9,mode=transaction,cert' \
   --node 'pgvectorsim,to=pgbouncer-01'
@@ -441,14 +441,14 @@ afterwards.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| List templates (built-in, yours, published) | `GET /api/templates` | `dbcanvas template list` |
-| Save a canvas as one | `POST /api/templates` | `dbcanvas api POST /api/templates --data @tpl.json` |
-| Read one, with its design | `GET /api/templates/{id}` | `dbcanvas api GET /api/templates/builtin:pxc-proxysql-pmm` |
-| Rename or re-describe it | `PUT /api/templates/{id}` | `dbcanvas api PUT /api/templates/3 --data '{"name":"…"}'` |
-| Delete one of yours | `DELETE /api/templates/{id}` | `dbcanvas api DELETE /api/templates/3` |
-| Publish or withdraw instance-wide (admin) | `POST /api/templates/{id}/share` | `dbcanvas api POST /api/templates/3/share` |
-| Download as `.json` | `GET /api/templates/{id}/export` | `dbcanvas template export <name> > pxc.json` |
-| Import one | `POST /api/templates/import` | `dbcanvas template import pxc.json` |
+| List templates (built-in, yours, published) | `GET /api/templates` | `dbcanvas-cli template list` |
+| Save a canvas as one | `POST /api/templates` | `dbcanvas-cli api POST /api/templates --data @tpl.json` |
+| Read one, with its design | `GET /api/templates/{id}` | `dbcanvas-cli api GET /api/templates/builtin:pxc-proxysql-pmm` |
+| Rename or re-describe it | `PUT /api/templates/{id}` | `dbcanvas-cli api PUT /api/templates/3 --data '{"name":"…"}'` |
+| Delete one of yours | `DELETE /api/templates/{id}` | `dbcanvas-cli api DELETE /api/templates/3` |
+| Publish or withdraw instance-wide (admin) | `POST /api/templates/{id}/share` | `dbcanvas-cli api POST /api/templates/3/share` |
+| Download as `.json` | `GET /api/templates/{id}/export` | `dbcanvas-cli template export <name> > pxc.json` |
+| Import one | `POST /api/templates/import` | `dbcanvas-cli template import pxc.json` |
 
 Built-in templates have ids like `builtin:pxc-proxysql-pmm`; saved ones are numbers.
 Saved templates are stripped of secrets, host paths and pinned host ports.
@@ -461,18 +461,18 @@ Saved templates are stripped of secrets, host paths and pinned host ports.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| A node's panel: type, address, published ports, credentials, certificate | `GET …/nodes/{nid}` | `dbcanvas api GET /api/stacks/1/nodes/<nid>` |
-| List a stack's nodes | `GET /api/stacks/{id}` | `dbcanvas node list <stack>` |
-| Start · stop · restart | `POST …/nodes/{nid}/start` · `/stop` · `/restart` | `dbcanvas node start\|stop\|restart <stack> <node>` |
-| Open a root console | `GET …/nodes/{nid}/term` *(WebSocket)* | `dbcanvas node console <stack> <node> [--user U]` |
-| Run one command | *(the same WebSocket)* | `dbcanvas node exec <stack> <node> -- mysql -e 'SHOW STATUS'` |
-| List the pods on a Kubernetes server node | `GET …/nodes/{nid}/k8s/pods` | `dbcanvas node pods <stack> <node>` |
-| Console inside a pod's container | `GET …/nodes/{nid}/term?namespace=&pod=&container=&shell=` *(WebSocket)* | `dbcanvas node console <stack> <node> --pod P --container C [--namespace N] [--shell S]` |
-| The `ssh -L` tunnel line | `GET …/nodes/{nid}/sshforward` | `dbcanvas node tunnel <stack> <node>` |
-| Copy files onto a node (drag and drop) | `POST …/nodes/{nid}/upload` *(multipart)* | `dbcanvas node cp ./my.cnf <stack>:<node>:/etc/` |
-| Download a MongoDB node's `diagnostic.data` and log | `GET …/nodes/{nid}/mongo/diagnostic` | `dbcanvas api GET …/mongo/diagnostic --out diag.tar.gz` |
-| Who is primary, and who could take over | `GET …/nodes/{nid}/switchover` | `dbcanvas api GET …/switchover` |
-| Make this member the primary | `POST …/nodes/{nid}/promote` | `dbcanvas api POST …/promote` |
+| A node's panel: type, address, published ports, credentials, certificate | `GET …/nodes/{nid}` | `dbcanvas-cli api GET /api/stacks/1/nodes/<nid>` |
+| List a stack's nodes | `GET /api/stacks/{id}` | `dbcanvas-cli node list <stack>` |
+| Start · stop · restart | `POST …/nodes/{nid}/start` · `/stop` · `/restart` | `dbcanvas-cli node start\|stop\|restart <stack> <node>` |
+| Open a root console | `GET …/nodes/{nid}/term` *(WebSocket)* | `dbcanvas-cli node console <stack> <node> [--user U]` |
+| Run one command | *(the same WebSocket)* | `dbcanvas-cli node exec <stack> <node> -- mysql -e 'SHOW STATUS'` |
+| List the pods on a Kubernetes server node | `GET …/nodes/{nid}/k8s/pods` | `dbcanvas-cli node pods <stack> <node>` |
+| Console inside a pod's container | `GET …/nodes/{nid}/term?namespace=&pod=&container=&shell=` *(WebSocket)* | `dbcanvas-cli node console <stack> <node> --pod P --container C [--namespace N] [--shell S]` |
+| The `ssh -L` tunnel line | `GET …/nodes/{nid}/sshforward` | `dbcanvas-cli node tunnel <stack> <node>` |
+| Copy files onto a node (drag and drop) | `POST …/nodes/{nid}/upload` *(multipart)* | `dbcanvas-cli node cp ./my.cnf <stack>:<node>:/etc/` |
+| Download a MongoDB node's `diagnostic.data` and log | `GET …/nodes/{nid}/mongo/diagnostic` | `dbcanvas-cli api GET …/mongo/diagnostic --out diag.tar.gz` |
+| Who is primary, and who could take over | `GET …/nodes/{nid}/switchover` | `dbcanvas-cli api GET …/switchover` |
+| Make this member the primary | `POST …/nodes/{nid}/promote` | `dbcanvas-cli api POST …/promote` |
 
 ![A deployed node's panel](screenshots/getting-started-node-panel.png)
 ![Credentials on a node's panel](screenshots/getting-started-credentials.png)
@@ -624,8 +624,8 @@ clients each can start (`clients`). Read it fresh each time: the operator recrea
 pods with new names.
 
 ```sh
-dbcanvas node pods k8s-lab k3s-01
-dbcanvas node console k8s-lab k3s-01 --namespace default --pod cluster1-pxc-0 --container pxc --shell mysql
+dbcanvas-cli node pods k8s-lab k3s-01
+dbcanvas-cli node console k8s-lab k3s-01 --namespace default --pod cluster1-pxc-0 --container pxc --shell mysql
 ```
 
 With `shell=mysql`, `psql` or `mongosh` the console opens that client already logged
@@ -647,18 +647,18 @@ These act on a cluster (frame) or on one database node.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Add or remove PMM monitoring on every member | `POST …/frames/{fid}/pmm` | `dbcanvas api POST /api/stacks/1/frames/<fid>/pmm` |
-| Add or remove Orchestrator on a MySQL replication cluster | `POST …/frames/{fid}/orchestrator` | `dbcanvas api POST …/orchestrator` |
-| When the cluster was last backed up | `GET …/frames/{fid}/backup-status` | `dbcanvas api GET …/backup-status` |
-| **Patroni (pgBackRest)**: back up · list backups · restore (latest, a time, or a set) | `POST …/frames/{fid}/patroni/backup` · `GET …/patroni/backups` · `POST …/patroni/restore` | `dbcanvas api POST …/patroni/backup` |
-| **Standalone PostgreSQL (pgBackRest)**: back up · list · restore | `POST …/nodes/{nid}/pg/backup` · `GET …/pg/backups` · `POST …/pg/restore` | `dbcanvas api POST …/pg/backup` |
-| **MongoDB (PBM)**: back up a replica set or sharded cluster | `POST …/frames/{fid}/pbm/backup` | `dbcanvas api POST …/pbm/backup` |
-| **repmgr**: back up from the primary (pgBackRest or Barman) | `POST …/frames/{fid}/barman/backup` | `dbcanvas api POST …/barman/backup` |
-| **Streaming replication**: a pgBackRest full backup on the current primary | `POST …/frames/{fid}/pgstream/backup` | `dbcanvas api POST …/pgstream/backup` |
-| **XtraBackup, PS replication or PXC cluster**: back up · list · restore · delete | `POST …/frames/{fid}/xb/backup` · `GET …/xb/backups` · `POST …/xb/restore` · `POST …/xb/delete` | `dbcanvas api POST …/xb/backup --data '{"type":"full"}'` |
-| **XtraBackup, standalone Percona Server**: the same four | `…/nodes/{nid}/xb/backup` · `/backups` · `/restore` · `/delete` | `dbcanvas api POST …/xb/backup --data '{"type":"incremental"}'` |
-| Run pgbench on a PostgreSQL node · a Patroni leader | `POST …/nodes/{nid}/pg/pgbench` · `POST …/frames/{fid}/patroni/pgbench` | `dbcanvas api POST …/pg/pgbench` |
-| Rotate the pg_tde principal key | `POST …/nodes/{nid}/pg/tde/rotate` · `POST …/frames/{fid}/patroni/tde/rotate` | `dbcanvas api POST …/pg/tde/rotate` |
+| Add or remove PMM monitoring on every member | `POST …/frames/{fid}/pmm` | `dbcanvas-cli api POST /api/stacks/1/frames/<fid>/pmm` |
+| Add or remove Orchestrator on a MySQL replication cluster | `POST …/frames/{fid}/orchestrator` | `dbcanvas-cli api POST …/orchestrator` |
+| When the cluster was last backed up | `GET …/frames/{fid}/backup-status` | `dbcanvas-cli api GET …/backup-status` |
+| **Patroni (pgBackRest)**: back up · list backups · restore (latest, a time, or a set) | `POST …/frames/{fid}/patroni/backup` · `GET …/patroni/backups` · `POST …/patroni/restore` | `dbcanvas-cli api POST …/patroni/backup` |
+| **Standalone PostgreSQL (pgBackRest)**: back up · list · restore | `POST …/nodes/{nid}/pg/backup` · `GET …/pg/backups` · `POST …/pg/restore` | `dbcanvas-cli api POST …/pg/backup` |
+| **MongoDB (PBM)**: back up a replica set or sharded cluster | `POST …/frames/{fid}/pbm/backup` | `dbcanvas-cli api POST …/pbm/backup` |
+| **repmgr**: back up from the primary (pgBackRest or Barman) | `POST …/frames/{fid}/barman/backup` | `dbcanvas-cli api POST …/barman/backup` |
+| **Streaming replication**: a pgBackRest full backup on the current primary | `POST …/frames/{fid}/pgstream/backup` | `dbcanvas-cli api POST …/pgstream/backup` |
+| **XtraBackup, PS replication or PXC cluster**: back up · list · restore · delete | `POST …/frames/{fid}/xb/backup` · `GET …/xb/backups` · `POST …/xb/restore` · `POST …/xb/delete` | `dbcanvas-cli api POST …/xb/backup --data '{"type":"full"}'` |
+| **XtraBackup, standalone Percona Server**: the same four | `…/nodes/{nid}/xb/backup` · `/backups` · `/restore` · `/delete` | `dbcanvas-cli api POST …/xb/backup --data '{"type":"incremental"}'` |
+| Run pgbench on a PostgreSQL node · a Patroni leader | `POST …/nodes/{nid}/pg/pgbench` · `POST …/frames/{fid}/patroni/pgbench` | `dbcanvas-cli api POST …/pg/pgbench` |
+| Rotate the pg_tde principal key | `POST …/nodes/{nid}/pg/tde/rotate` · `POST …/frames/{fid}/patroni/tde/rotate` | `dbcanvas-cli api POST …/pg/tde/rotate` |
 
 XtraBackup backups go to SeaweedFS. `xb/restore` takes `{"mode": "backup", "name"}`,
 `{"mode": "latest"}` or `{"mode": "time", "time"}`; `xb/delete` `{"name"}` also deletes
@@ -696,7 +696,7 @@ script that builds a design should read them rather than guess a version.
 Engine catalogues list versions per OS.
 
 ```sh
-dbcanvas api GET /api/catalog/ps
+dbcanvas-cli api GET /api/catalog/ps
 ```
 
 ## Kubernetes frames
@@ -708,30 +708,30 @@ the pod list and pod console are under [Nodes](#nodes).
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| An admin kubeconfig | `GET …/frames/{fid}/k3d/kubeconfig` | `dbcanvas api GET …/k3d/kubeconfig` |
-| Clusters you can watch live | `GET /api/k3d/states/targets` | `dbcanvas api GET /api/k3d/states/targets` |
-| Every object's state at once | `GET …/frames/{fid}/k3d/states` | `dbcanvas api GET …/k3d/states` |
-| One container's log (or the previous run's) | `GET …/k3d/states/logs?namespace=&name=&container=&previous=1` | `dbcanvas api GET '…/k3d/states/logs?namespace=pxc&name=cluster1-pxc-0&container=pxc'` |
-| One object as YAML | `GET …/k3d/states/manifest?kind=&namespace=&name=` | `dbcanvas api GET '…/k3d/states/manifest?kind=Pod&namespace=pxc&name=cluster1-pxc-0'` |
-| States board from a kept cluster-dump | `POST /api/k8sstates/dumps/{did}` | `dbcanvas api POST /api/k8sstates/dumps/2` |
+| An admin kubeconfig | `GET …/frames/{fid}/k3d/kubeconfig` | `dbcanvas-cli api GET …/k3d/kubeconfig` |
+| Clusters you can watch live | `GET /api/k3d/states/targets` | `dbcanvas-cli api GET /api/k3d/states/targets` |
+| Every object's state at once | `GET …/frames/{fid}/k3d/states` | `dbcanvas-cli api GET …/k3d/states` |
+| One container's log (or the previous run's) | `GET …/k3d/states/logs?namespace=&name=&container=&previous=1` | `dbcanvas-cli api GET '…/k3d/states/logs?namespace=pxc&name=cluster1-pxc-0&container=pxc'` |
+| One object as YAML | `GET …/k3d/states/manifest?kind=&namespace=&name=` | `dbcanvas-cli api GET '…/k3d/states/manifest?kind=Pod&namespace=pxc&name=cluster1-pxc-0'` |
+| States board from a kept cluster-dump | `POST /api/k8sstates/dumps/{did}` | `dbcanvas-cli api POST /api/k8sstates/dumps/2` |
 | States board from an uploaded cluster-dump | `POST /api/k8sstates/upload` *(multipart)* | — |
-| From an archive: an object's YAML · a pod's files · any file | `GET /api/k8sstates/archive/manifest?dump=&kind=&namespace=&name=` · `/archive/logs?dump=&namespace=&name=&file=` · `/archive/files?dump=&path=` | `dbcanvas api GET '/api/k8sstates/archive/files?dump=2'` |
-| RBAC users: list · create · delete | `GET`/`POST …/frames/{fid}/k3d/users` · `POST …/k3d/users/delete` | `dbcanvas api POST …/k3d/users --data '{"username":"dev","role":"view"}'` |
-| A kubeconfig for one user | `GET …/k3d/users/{username}/kubeconfig` | `dbcanvas api GET …/k3d/users/dev/kubeconfig` |
-| TLS Secrets, parsed and checked | `GET …/frames/{fid}/k3d/certs` | `dbcanvas api GET …/k3d/certs` |
-| Cross-cluster replication: read · re-seed the replica | `GET …/frames/{fid}/k3d/replication` · `POST …/k3d/replication/reseed` | `dbcanvas api GET …/k3d/replication` |
-| The custom resource: read as a form model · patch | `GET`/`POST …/frames/{fid}/k3d/cr` | `dbcanvas api POST …/k3d/cr --data '{"patch":{"pxc":{"size":5}}}'` |
-| Secrets and ConfigMaps: list · read one · write keys | `GET …/k3d/objects?kind=secret` · `GET …/k3d/object?kind=&namespace=&name=` · `POST …/k3d/object` | `dbcanvas api POST …/k3d/object --data '{"kind":"secret","name":"cluster1-secrets","set":{"root":"new"}}'` |
-| Volumes: read · grow | `GET`/`POST …/frames/{fid}/k3d/storage` `{"sizeGiB"}` | `dbcanvas api POST …/k3d/storage --data '{"sizeGiB":20}'` |
-| PostgreSQL logical replicas: list · add · remove · reseed · bootstrap log | `GET`/`POST …/k3d/logicalreplicas` · `POST …/logicalreplicas/remove` · `/reseed` · `GET …/logicalreplicas/bootstraplog` | `dbcanvas api GET …/k3d/logicalreplicas` |
-| PSMDB ClusterSync: status · start · stop · pause/resume/finalize | `GET …/k3d/clustersync` · `POST …/clustersync/start` `{"source": "<frame id>"}` · `/stop` · `/{action}` | `dbcanvas api GET …/k3d/clustersync` |
-| Backups and restores: list · take · delete · restore · delete a restore | `GET`/`POST …/k3d/backups` · `POST …/k3d/backups/delete` · `POST …/k3d/restores` · `POST …/k3d/restores/delete` | `dbcanvas api POST …/k3d/backups --data '{}'` |
-| Manifests the Backups tab applied | `GET …/k3d/backups/manifests[?name=]` | `dbcanvas api GET '…/k3d/backups/manifests?name=b1.yaml'` |
-| Backup bucket: list · delete · download (≤ 64 MiB) | `GET …/k3d/bucket?prefix=` · `POST …/k3d/bucket/delete` · `GET …/k3d/bucket/download?key=` | `dbcanvas api GET '…/k3d/bucket?prefix=cluster1-full'` |
-| The bucket toolbox pod: status · start/stop | `GET`/`POST …/k3d/bucket/toolbox` | `dbcanvas api POST …/k3d/bucket/toolbox --data '{"action":"stop"}'` |
+| From an archive: an object's YAML · a pod's files · any file | `GET /api/k8sstates/archive/manifest?dump=&kind=&namespace=&name=` · `/archive/logs?dump=&namespace=&name=&file=` · `/archive/files?dump=&path=` | `dbcanvas-cli api GET '/api/k8sstates/archive/files?dump=2'` |
+| RBAC users: list · create · delete | `GET`/`POST …/frames/{fid}/k3d/users` · `POST …/k3d/users/delete` | `dbcanvas-cli api POST …/k3d/users --data '{"username":"dev","role":"view"}'` |
+| A kubeconfig for one user | `GET …/k3d/users/{username}/kubeconfig` | `dbcanvas-cli api GET …/k3d/users/dev/kubeconfig` |
+| TLS Secrets, parsed and checked | `GET …/frames/{fid}/k3d/certs` | `dbcanvas-cli api GET …/k3d/certs` |
+| Cross-cluster replication: read · re-seed the replica | `GET …/frames/{fid}/k3d/replication` · `POST …/k3d/replication/reseed` | `dbcanvas-cli api GET …/k3d/replication` |
+| The custom resource: read as a form model · patch | `GET`/`POST …/frames/{fid}/k3d/cr` | `dbcanvas-cli api POST …/k3d/cr --data '{"patch":{"pxc":{"size":5}}}'` |
+| Secrets and ConfigMaps: list · read one · write keys | `GET …/k3d/objects?kind=secret` · `GET …/k3d/object?kind=&namespace=&name=` · `POST …/k3d/object` | `dbcanvas-cli api POST …/k3d/object --data '{"kind":"secret","name":"cluster1-secrets","set":{"root":"new"}}'` |
+| Volumes: read · grow | `GET`/`POST …/frames/{fid}/k3d/storage` `{"sizeGiB"}` | `dbcanvas-cli api POST …/k3d/storage --data '{"sizeGiB":20}'` |
+| PostgreSQL logical replicas: list · add · remove · reseed · bootstrap log | `GET`/`POST …/k3d/logicalreplicas` · `POST …/logicalreplicas/remove` · `/reseed` · `GET …/logicalreplicas/bootstraplog` | `dbcanvas-cli api GET …/k3d/logicalreplicas` |
+| PSMDB ClusterSync: status · start · stop · pause/resume/finalize | `GET …/k3d/clustersync` · `POST …/clustersync/start` `{"source": "<frame id>"}` · `/stop` · `/{action}` | `dbcanvas-cli api GET …/k3d/clustersync` |
+| Backups and restores: list · take · delete · restore · delete a restore | `GET`/`POST …/k3d/backups` · `POST …/k3d/backups/delete` · `POST …/k3d/restores` · `POST …/k3d/restores/delete` | `dbcanvas-cli api POST …/k3d/backups --data '{}'` |
+| Manifests the Backups tab applied | `GET …/k3d/backups/manifests[?name=]` | `dbcanvas-cli api GET '…/k3d/backups/manifests?name=b1.yaml'` |
+| Backup bucket: list · delete · download (≤ 64 MiB) | `GET …/k3d/bucket?prefix=` · `POST …/k3d/bucket/delete` · `GET …/k3d/bucket/download?key=` | `dbcanvas-cli api GET '…/k3d/bucket?prefix=cluster1-full'` |
+| The bucket toolbox pod: status · start/stop | `GET`/`POST …/k3d/bucket/toolbox` | `dbcanvas-cli api POST …/k3d/bucket/toolbox --data '{"action":"stop"}'` |
 
 ```sh
-dbcanvas api GET /api/stacks/1/frames/k3d-01/k3d/kubeconfig | jq -r .kubeconfig > kube.yaml
+dbcanvas-cli api GET /api/stacks/1/frames/k3d-01/k3d/kubeconfig | jq -r .kubeconfig > kube.yaml
 KUBECONFIG=kube.yaml kubectl get pods -A
 ```
 
@@ -745,7 +745,7 @@ backup of the source.
 nothing if it is rejected. Add `"dryRun": true` to validate only.
 
 ```sh
-dbcanvas api POST /api/stacks/1/frames/k3d-00/k3d/cr \
+dbcanvas-cli api POST /api/stacks/1/frames/k3d-00/k3d/cr \
   --data '{"patch":{"pxc":{"size":4}},"dryRun":true}'
 ```
 
@@ -767,8 +767,8 @@ true` returns the manifest without applying it.
 > the record is deleted.
 
 ```sh
-dbcanvas api POST /api/stacks/1/frames/k3d-01/k3d/backups --data '{}'
-dbcanvas api GET  /api/stacks/1/frames/k3d-01/k3d/backups | jq '.backups[] | {name, state, destination}'
+dbcanvas-cli api POST /api/stacks/1/frames/k3d-01/k3d/backups --data '{}'
+dbcanvas-cli api GET  /api/stacks/1/frames/k3d-01/k3d/backups | jq '.backups[] | {name, state, destination}'
 ```
 
 **Bucket** calls run `aws` in a toolbox pod on the cluster (`<cluster>-dbcanvas-s3`,
@@ -782,20 +782,20 @@ Many database instances inside one node.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| List instances, with engine, version, port and state | `GET …/nodes/{nid}/aio/instances` | `dbcanvas api GET …/aio/instances` |
-| Start · stop · restart one | `POST …/aio/instances/{inst}/start` · `/stop` · `/restart` | `dbcanvas api POST …/aio/instances/mysql-8.0/restart` |
-| Tail one instance's log | `GET …/aio/instances/{inst}/logs` | `dbcanvas api GET …/aio/instances/mysql-8.0/logs` |
+| List instances, with engine, version, port and state | `GET …/nodes/{nid}/aio/instances` | `dbcanvas-cli api GET …/aio/instances` |
+| Start · stop · restart one | `POST …/aio/instances/{inst}/start` · `/stop` · `/restart` | `dbcanvas-cli api POST …/aio/instances/mysql-8.0/restart` |
+| Tail one instance's log | `GET …/aio/instances/{inst}/logs` | `dbcanvas-cli api GET …/aio/instances/mysql-8.0/logs` |
 
 ## Repository, Ceph and Linux Client nodes
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Add packages, images or operator releases to a Repository node | `POST …/nodes/{nid}/repository/add` | `dbcanvas api POST …/repository/add --data '{…}'` |
-| Re-sync a Repository node | `POST …/nodes/{nid}/repository/sync` | `dbcanvas api POST …/repository/sync` |
-| A Ceph node's health, capacity and RBD images | `GET …/nodes/{nid}/ceph` | `dbcanvas api GET …/ceph` |
-| Set a Linux Client's current kubeconfig context | `PUT …/nodes/{nid}/kubeconfig/context` | `dbcanvas api PUT …/kubeconfig/context --data '{…}'` |
-| Linux Client ClusterSync (MongoDB to MongoDB): status · start · stop · document counts | `GET …/nodes/{nid}/pcsm` · `POST …/pcsm/start` `{source, target, include, exclude, fresh}` · `POST …/pcsm/stop` · `GET …/pcsm/compare` | `dbcanvas api GET …/pcsm` |
-| Pause, resume, resume-failed or finalize it | `POST …/nodes/{nid}/pcsm/{action}` | `dbcanvas api POST …/pcsm/pause` |
+| Add packages, images or operator releases to a Repository node | `POST …/nodes/{nid}/repository/add` | `dbcanvas-cli api POST …/repository/add --data '{…}'` |
+| Re-sync a Repository node | `POST …/nodes/{nid}/repository/sync` | `dbcanvas-cli api POST …/repository/sync` |
+| A Ceph node's health, capacity and RBD images | `GET …/nodes/{nid}/ceph` | `dbcanvas-cli api GET …/ceph` |
+| Set a Linux Client's current kubeconfig context | `PUT …/nodes/{nid}/kubeconfig/context` | `dbcanvas-cli api PUT …/kubeconfig/context --data '{…}'` |
+| Linux Client ClusterSync (MongoDB to MongoDB): status · start · stop · document counts | `GET …/nodes/{nid}/pcsm` · `POST …/pcsm/start` `{source, target, include, exclude, fresh}` · `POST …/pcsm/stop` · `GET …/pcsm/compare` | `dbcanvas-cli api GET …/pcsm` |
+| Pause, resume, resume-failed or finalize it | `POST …/nodes/{nid}/pcsm/{action}` | `dbcanvas-cli api POST …/pcsm/pause` |
 
 Repository `add` and `sync` return `202`; progress shows on the node.
 
@@ -809,16 +809,16 @@ Fill tables with realistic data. See [Data Generator](DATA_GENERATOR.md).
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Nodes it can write to | `GET /api/datagen/connections` | `dbcanvas datagen connections` |
-| Databases on a node | `GET /api/datagen/stacks/{id}/nodes/{nid}/databases` | `dbcanvas datagen databases <stack> <node>` |
-| Tables, with row counts | `…/tables?database=` | `dbcanvas datagen tables <stack> <node> --database sbtest` |
-| A table's columns and suggested generators | `…/columns?database=&table=` | `dbcanvas api GET '…/columns?database=sbtest&table=sbtest1'` |
-| Preview rows without writing | `POST …/preview` | `dbcanvas api POST …/preview --data '{…}'` |
-| Start a job | `POST …/generate` | `dbcanvas datagen run <stack> <node> --database D --table T --rows N [--wait] [--timeout 2h]` |
-| Poll · cancel a job | `GET /api/datagen/jobs/{job}` · `POST …/cancel` | `--wait` polls · `dbcanvas api POST /api/datagen/jobs/<job>/cancel` |
+| Nodes it can write to | `GET /api/datagen/connections` | `dbcanvas-cli datagen connections` |
+| Databases on a node | `GET /api/datagen/stacks/{id}/nodes/{nid}/databases` | `dbcanvas-cli datagen databases <stack> <node>` |
+| Tables, with row counts | `…/tables?database=` | `dbcanvas-cli datagen tables <stack> <node> --database sbtest` |
+| A table's columns and suggested generators | `…/columns?database=&table=` | `dbcanvas-cli api GET '…/columns?database=sbtest&table=sbtest1'` |
+| Preview rows without writing | `POST …/preview` | `dbcanvas-cli api POST …/preview --data '{…}'` |
+| Start a job | `POST …/generate` | `dbcanvas-cli datagen run <stack> <node> --database D --table T --rows N [--wait] [--timeout 2h]` |
+| Poll · cancel a job | `GET /api/datagen/jobs/{job}` · `POST …/cancel` | `--wait` polls · `dbcanvas-cli api POST /api/datagen/jobs/<job>/cancel` |
 
 ```sh
-dbcanvas datagen run pxc-lab pxc-01 --database sbtest --table sbtest1 --rows 5000000 --wait
+dbcanvas-cli datagen run pxc-lab pxc-01 --database sbtest --table sbtest1 --rows 5000000 --wait
 ```
 
 Rows already written stay written when a job is cancelled.
@@ -831,18 +831,18 @@ Run SQL on several nodes in parallel. See [Query Runner](QUERY_RUNNER.md).
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Nodes it can run against | `GET /api/queryrun/targets` | `dbcanvas query targets` |
-| Start a run | `POST /api/queryrun/runs` | `dbcanvas query run --stack S --nodes a,b --sql '…'` |
+| Nodes it can run against | `GET /api/queryrun/targets` | `dbcanvas-cli query targets` |
+| Start a run | `POST /api/queryrun/runs` | `dbcanvas-cli query run --stack S --nodes a,b --sql '…'` |
 | Poll it | `GET /api/queryrun/runs/{id}` | *(the CLI waits by default)* |
-| Stop it, killing the statements | `POST /api/queryrun/runs/{id}/stop` | `dbcanvas api POST /api/queryrun/runs/<id>/stop` |
-| Your previous runs | `GET /api/queryrun/history` | `dbcanvas query history` |
+| Stop it, killing the statements | `POST /api/queryrun/runs/{id}/stop` | `dbcanvas-cli api POST /api/queryrun/runs/<id>/stop` |
+| Your previous runs | `GET /api/queryrun/history` | `dbcanvas-cli query history` |
 
 `query run` flags: `--database`, `--count` (per node; `0` repeats until
 `--time-limit`, default 60 s), `--threads`, `--wait` (default true), `--timeout`.
 `--sql @file.sql` reads the statement from a file.
 
 ```sh
-dbcanvas --json query run --stack pxc-lab --nodes pxc-01,pxc-02,pxc-03 \
+dbcanvas-cli --json query run --stack pxc-lab --nodes pxc-01,pxc-02,pxc-03 \
   --sql 'SELECT @@hostname, @@server_id' | jq '.nodes[]'
 ```
 
@@ -857,24 +857,24 @@ user or password.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Every database you can reach, by stack and engine | `GET /api/dbexplorer/connections` | `dbcanvas api GET /api/dbexplorer/connections` |
+| Every database you can reach, by stack and engine | `GET /api/dbexplorer/connections` | `dbcanvas-cli api GET /api/dbexplorer/connections` |
 | One connection, with its server version | `GET /api/dbexplorer/connections/{cid}` | *(UI)* |
 | Its databases (or Valkey keyspaces) | `GET …/connections/{cid}/databases` | *(UI)* |
 | Its schemas | `GET …/connections/{cid}/schemas?database=` | *(UI)* |
 | One level of the object tree | `GET …/connections/{cid}/objects?database=&schema=&folder=&cursor=&filter=` | *(UI)* |
 | Describe one object: columns, indexes, keys, size, DDL | `GET …/connections/{cid}/object?database=&schema=&name=&kind=` | *(UI)* |
 | Its first page of rows, documents or values | `GET …/connections/{cid}/viewdata?database=&name=&kind=&limit=` | *(UI)* |
-| Run SQL, a MongoDB query or a Valkey command | `POST /api/dbexplorer/query` | `dbcanvas api POST /api/dbexplorer/query --data '{…}'` |
+| Run SQL, a MongoDB query or a Valkey command | `POST /api/dbexplorer/query` | `dbcanvas-cli api POST /api/dbexplorer/query --data '{…}'` |
 | Cancel your running query | `POST /api/dbexplorer/cancel` | *(UI)* |
 | Insert, edit or delete one row, or preview the statement | `POST /api/dbexplorer/mutate` | *(UI)* |
-| Query history · delete one · clear | `GET /api/dbexplorer/history` · `DELETE …/history/{hid}` · `DELETE …/history` | `dbcanvas api GET /api/dbexplorer/history` |
+| Query history · delete one · clear | `GET /api/dbexplorer/history` · `DELETE …/history/{hid}` · `DELETE …/history` | `dbcanvas-cli api GET /api/dbexplorer/history` |
 | Saved queries | `GET`/`POST /api/dbexplorer/saved` · `DELETE …/saved/{sid}` | *(UI)* |
 | Give a Kubernetes database an address the load tools can reach · remove it | `POST /api/dbexplorer/expose` · `POST /api/dbexplorer/unexpose` | *(UI)* |
 
 ```sh
-CID=$(dbcanvas api GET /api/dbexplorer/connections |
+CID=$(dbcanvas-cli api GET /api/dbexplorer/connections |
       jq -r '.stacks[0].groups[0].connections[0].id')
-dbcanvas api POST /api/dbexplorer/query --data "$(jq -n --arg c "$CID" \
+dbcanvas-cli api POST /api/dbexplorer/query --data "$(jq -n --arg c "$CID" \
   '{connectionId:$c, database:"shop", sql:"SELECT country, count(*) FROM orders GROUP BY 1", limit:500}')"
 ```
 
@@ -894,11 +894,11 @@ OLTP, OLAP, read-write and read-only workloads. See [Benchmark](BENCHMARK.md).
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Nodes, and the workloads each supports | `GET /api/benchmark/targets` | `dbcanvas benchmark targets` |
-| Start a run | `POST /api/benchmark/runs` | `dbcanvas benchmark run <stack> <node> --workload oltp --duration 60 --wait` |
+| Nodes, and the workloads each supports | `GET /api/benchmark/targets` | `dbcanvas-cli benchmark targets` |
+| Start a run | `POST /api/benchmark/runs` | `dbcanvas-cli benchmark run <stack> <node> --workload oltp --duration 60 --wait` |
 | Live throughput and latency | `GET /api/benchmark/runs/{id}` | *(`--wait` polls it)* |
-| Stop early, keeping the results | `POST /api/benchmark/runs/{id}/stop` | `dbcanvas api POST /api/benchmark/runs/<id>/stop` |
-| Previous runs | `GET /api/benchmark/history` | `dbcanvas benchmark history` |
+| Stop early, keeping the results | `POST /api/benchmark/runs/{id}/stop` | `dbcanvas-cli api POST /api/benchmark/runs/<id>/stop` |
+| Previous runs | `GET /api/benchmark/history` | `dbcanvas-cli benchmark history` |
 
 `benchmark run` flags: `--workload` (`oltp`, `olap`, `rw`, `ro`), `--duration` (s),
 `--threads`, `--database` (default `dbcanvas_bench`), `--create-db` (default true),
@@ -913,7 +913,7 @@ tests a hand-entered connection:
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Test a database connection from inside the stack network | `POST …/nodes/{nid}/stocksim/test` | `dbcanvas api POST …/stocksim/test --data '{…}'` |
+| Test a database connection from inside the stack network | `POST …/nodes/{nid}/stocksim/test` | `dbcanvas-cli api POST …/stocksim/test --data '{…}'` |
 
 ## Sample Client Code
 
@@ -922,12 +922,12 @@ and run it. See [Sample Client Code](SAMPLE_CODE.md).
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Every sample, with dependencies and licences | `GET /api/samplecode/catalog` | `dbcanvas api GET /api/samplecode/catalog` |
-| Linux Clients that can run one | `GET /api/samplecode/nodes` | `dbcanvas api GET /api/samplecode/nodes` |
-| The endpoints in that node's stack | `GET …/nodes/{nid}/samplecode/targets` | `dbcanvas api GET …/samplecode/targets` |
-| Render a sample (changes nothing) | `POST …/nodes/{nid}/samplecode/generate` | `dbcanvas api POST …/samplecode/generate --data '{…}'` |
-| Save · prepare · run · reset | `POST …/nodes/{nid}/samplecode/runs` | `dbcanvas api POST …/samplecode/runs --data '{…}'` |
-| Follow · stop the job | `GET …/samplecode/runs/{jid}` · `POST …/runs/{jid}/stop` | `dbcanvas api GET …/samplecode/runs/<jid>` |
+| Every sample, with dependencies and licences | `GET /api/samplecode/catalog` | `dbcanvas-cli api GET /api/samplecode/catalog` |
+| Linux Clients that can run one | `GET /api/samplecode/nodes` | `dbcanvas-cli api GET /api/samplecode/nodes` |
+| The endpoints in that node's stack | `GET …/nodes/{nid}/samplecode/targets` | `dbcanvas-cli api GET …/samplecode/targets` |
+| Render a sample (changes nothing) | `POST …/nodes/{nid}/samplecode/generate` | `dbcanvas-cli api POST …/samplecode/generate --data '{…}'` |
+| Save · prepare · run · reset | `POST …/nodes/{nid}/samplecode/runs` | `dbcanvas-cli api POST …/samplecode/runs --data '{…}'` |
+| Follow · stop the job | `GET …/samplecode/runs/{jid}` · `POST …/runs/{jid}/stop` | `dbcanvas-cli api GET …/samplecode/runs/<jid>` |
 
 ```json
 { "sample": "mysql/java/hikari/crud", "target": "ps1", "tls": "verify", "action": "run" }
@@ -946,7 +946,7 @@ HikariCP settings and workload are changed on its own dashboard while it runs.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Test a JDBC connection with the chosen driver, from inside the stack network | `POST …/nodes/{nid}/ledgersim/test` | `dbcanvas api POST …/ledgersim/test --data '{…}'` |
+| Test a JDBC connection with the chosen driver, from inside the stack network | `POST …/nodes/{nid}/ledgersim/test` | `dbcanvas-cli api POST …/ledgersim/test --data '{…}'` |
 
 The answer includes the driver's version string and any `SQLState`.
 
@@ -978,12 +978,12 @@ performance_schema instrumentation for 1–60 minutes and turns back off only wh
 turned on.
 
 ```sh
-N=/api/stacks/12/nodes/$NODE_ID      # a node id: see `dbcanvas node list`
-dbcanvas api GET "$N/activity?with=digests,resources,deadlock"
-dbcanvas api POST "$N/activity/kill" --data '{"session": "4711", "mode": "connection"}'
-dbcanvas api POST "$N/activity/explain" --data '{"session": "4711"}'
-dbcanvas api POST "$N/activity/deep" --data '{"minutes": 10}'
-dbcanvas api GET "$N/deadlocks"
+N=/api/stacks/12/nodes/$NODE_ID      # a node id: see `dbcanvas-cli node list`
+dbcanvas-cli api GET "$N/activity?with=digests,resources,deadlock"
+dbcanvas-cli api POST "$N/activity/kill" --data '{"session": "4711", "mode": "connection"}'
+dbcanvas-cli api POST "$N/activity/explain" --data '{"session": "4711"}'
+dbcanvas-cli api POST "$N/activity/deep" --data '{"minutes": 10}'
+dbcanvas-cli api GET "$N/deadlocks"
 ```
 
 ## Packet Inspector
@@ -995,23 +995,23 @@ and Valkey. See [Packet Inspector](PACKET_INSPECTOR.md).
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Nodes that can be captured, and on which port | `GET /api/pktinspect/targets` | `dbcanvas capture targets` |
-| Start a capture | `POST /api/pktinspect/captures` | `dbcanvas capture start <stack> <node> [--seconds 30] [--label L]` |
-| List your captures | `GET /api/pktinspect/captures` | `dbcanvas capture list` |
-| A capture's state and counters | `GET /api/pktinspect/captures/{id}` | `dbcanvas capture get <id>` |
-| Stop and decode | `POST …/captures/{id}/stop` | `dbcanvas capture stop <id>` |
-| A page of decoded packets | `GET …/captures/{id}/packets` | `dbcanvas capture packets <id> --limit 50` |
-| One packet in full | `GET …/captures/{id}/packets/{no}` | `dbcanvas api GET /api/pktinspect/captures/<id>/packets/42` |
-| The timeline | `GET …/captures/{id}/timeline` | `dbcanvas api GET …/timeline` |
-| Download the `.pcap` | `GET …/captures/{id}/download` | `dbcanvas capture download <id> [--out F]` |
-| Server-log records from the same window | `GET …/captures/{id}/serverlog` | `dbcanvas api GET …/serverlog` |
+| Nodes that can be captured, and on which port | `GET /api/pktinspect/targets` | `dbcanvas-cli capture targets` |
+| Start a capture | `POST /api/pktinspect/captures` | `dbcanvas-cli capture start <stack> <node> [--seconds 30] [--label L]` |
+| List your captures | `GET /api/pktinspect/captures` | `dbcanvas-cli capture list` |
+| A capture's state and counters | `GET /api/pktinspect/captures/{id}` | `dbcanvas-cli capture get <id>` |
+| Stop and decode | `POST …/captures/{id}/stop` | `dbcanvas-cli capture stop <id>` |
+| A page of decoded packets | `GET …/captures/{id}/packets` | `dbcanvas-cli capture packets <id> --limit 50` |
+| One packet in full | `GET …/captures/{id}/packets/{no}` | `dbcanvas-cli api GET /api/pktinspect/captures/<id>/packets/42` |
+| The timeline | `GET …/captures/{id}/timeline` | `dbcanvas-cli api GET …/timeline` |
+| Download the `.pcap` | `GET …/captures/{id}/download` | `dbcanvas-cli capture download <id> [--out F]` |
+| Server-log records from the same window | `GET …/captures/{id}/serverlog` | `dbcanvas-cli api GET …/serverlog` |
 | Upload a `.pcap` | `POST /api/pktinspect/upload` *(multipart, field `file`)* | `curl -F file=@x.pcap …` |
 
 ![One decoded packet in detail](screenshots/packet-inspector-detail.png)
 
 ```sh
-ID=$(dbcanvas capture start pxc-lab pxc-01 --seconds 20 | jq -r .id)
-sleep 25 && dbcanvas capture download "$ID"
+ID=$(dbcanvas-cli capture start pxc-lab pxc-01 --seconds 20 | jq -r .id)
+sleep 25 && dbcanvas-cli capture download "$ID"
 ```
 
 ## Log Summary
@@ -1023,21 +1023,21 @@ Several nodes' logs on one timeline, classified by severity. See
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| What can be collected | `GET /api/logsummary/targets` | `dbcanvas logs targets` |
-| Collect several nodes' logs as one bundle | `POST /api/logsummary/collect` | `dbcanvas logs collect <stack> [--nodes a,b,c]` (every node with logs if omitted) |
-| List your bundles | `GET /api/logsummary/bundles` | `dbcanvas logs list` |
-| A bundle's sources, verdict and counts | `GET /api/logsummary/bundles/{id}` | `dbcanvas logs get <id>` |
-| A page of events | `GET …/bundles/{id}/events` | `dbcanvas logs events <id> [--severity bad,warn] [--limit N]` |
-| The per-source timeline | `GET …/bundles/{id}/timeline` | `dbcanvas api GET …/timeline` |
-| What every node was doing at one instant | `GET …/bundles/{id}/at?t=` | `dbcanvas api GET '…/at?t=…'` |
-| Download one source's raw log | `GET …/bundles/{id}/sources/{src}/raw` | `dbcanvas api GET …/raw --out node.log` |
-| Correct a source's clock offset | `POST …/bundles/{id}/offset` | `dbcanvas api POST …/offset --data '{…}'` |
-| Delete a bundle | `DELETE /api/logsummary/bundles/{id}` | `dbcanvas logs delete <id>` |
+| What can be collected | `GET /api/logsummary/targets` | `dbcanvas-cli logs targets` |
+| Collect several nodes' logs as one bundle | `POST /api/logsummary/collect` | `dbcanvas-cli logs collect <stack> [--nodes a,b,c]` (every node with logs if omitted) |
+| List your bundles | `GET /api/logsummary/bundles` | `dbcanvas-cli logs list` |
+| A bundle's sources, verdict and counts | `GET /api/logsummary/bundles/{id}` | `dbcanvas-cli logs get <id>` |
+| A page of events | `GET …/bundles/{id}/events` | `dbcanvas-cli logs events <id> [--severity bad,warn] [--limit N]` |
+| The per-source timeline | `GET …/bundles/{id}/timeline` | `dbcanvas-cli api GET …/timeline` |
+| What every node was doing at one instant | `GET …/bundles/{id}/at?t=` | `dbcanvas-cli api GET '…/at?t=…'` |
+| Download one source's raw log | `GET …/bundles/{id}/sources/{src}/raw` | `dbcanvas-cli api GET …/raw --out node.log` |
+| Correct a source's clock offset | `POST …/bundles/{id}/offset` | `dbcanvas-cli api POST …/offset --data '{…}'` |
+| Delete a bundle | `DELETE /api/logsummary/bundles/{id}` | `dbcanvas-cli logs delete <id>` |
 | Upload logs | `POST /api/logsummary/upload` *(multipart, field `files`)* | `curl -F files=@mysqld.log …` |
 
 ```sh
-dbcanvas logs collect pxc-lab --nodes pxc-01,pxc-02,pxc-03 | jq '{id, verdict}'
-dbcanvas logs events <id> --severity bad --limit 20
+dbcanvas-cli logs collect pxc-lab --nodes pxc-01,pxc-02,pxc-03 | jq '{id, verdict}'
+dbcanvas-cli logs events <id> --severity bad --limit 20
 ```
 
 ## FTDC Summary
@@ -1048,9 +1048,9 @@ Charts and findings from MongoDB's `diagnostic.data`. See [FTDC Summary](FTDC_SU
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| MongoDB nodes that can be read | `GET /api/ftdc/targets` | `dbcanvas ftdc targets` |
-| Read a running node's `diagnostic.data` | `POST …/nodes/{nid}/ftdc` | `dbcanvas ftdc node <stack> <node>` |
-| Compare two windows | `POST /api/ftdc/compare` | `dbcanvas api POST /api/ftdc/compare --data '{…}'` |
+| MongoDB nodes that can be read | `GET /api/ftdc/targets` | `dbcanvas-cli ftdc targets` |
+| Read a running node's `diagnostic.data` | `POST …/nodes/{nid}/ftdc` | `dbcanvas-cli ftdc node <stack> <node>` |
+| Compare two windows | `POST /api/ftdc/compare` | `dbcanvas-cli api POST /api/ftdc/compare --data '{…}'` |
 | Upload `diagnostic.data` | `POST /api/ftdc/upload` *(multipart, field `files`)* | `curl -F files=@metrics.2026-09-02 …` |
 
 ## Stalk Summary
@@ -1062,9 +1062,9 @@ Charts, verdicts and configuration advice from a `pt-stalk` capture. See
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Capture and analyse in one request | `POST …/nodes/{nid}/stalksummary` | `dbcanvas api POST …/stalksummary` |
-| Analyse a kept archive | `POST /api/stalksummary/archive/{aid}` | `dbcanvas stalk analyse <aid>` |
-| Compare two captures | `POST /api/stalksummary/compare` | `dbcanvas api POST /api/stalksummary/compare --data '{…}'` |
+| Capture and analyse in one request | `POST …/nodes/{nid}/stalksummary` | `dbcanvas-cli api POST …/stalksummary` |
+| Analyse a kept archive | `POST /api/stalksummary/archive/{aid}` | `dbcanvas-cli stalk analyse <aid>` |
+| Compare two captures | `POST /api/stalksummary/compare` | `dbcanvas-cli api POST /api/stalksummary/compare --data '{…}'` |
 | Upload an archive | `POST /api/stalksummary/upload` *(multipart, field `file`)* | `curl -F file=@stalk.tar.gz …` |
 
 ## Operator Summary
@@ -1075,9 +1075,9 @@ Workload health, custom-resource status and operator errors from a
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Capture and analyse in one request | `POST …/frames/{fid}/k3d/opsummary` | `dbcanvas api POST …/k3d/opsummary` |
-| Analyse a kept cluster-dump | `POST /api/opsummary/dumps/{did}` | `dbcanvas api POST /api/opsummary/dumps/3` |
-| Every kept cluster-dump | `GET /api/opsummary/dumps` | `dbcanvas api GET /api/opsummary/dumps` |
+| Capture and analyse in one request | `POST …/frames/{fid}/k3d/opsummary` | `dbcanvas-cli api POST …/k3d/opsummary` |
+| Analyse a kept cluster-dump | `POST /api/opsummary/dumps/{did}` | `dbcanvas-cli api POST /api/opsummary/dumps/3` |
+| Every kept cluster-dump | `GET /api/opsummary/dumps` | `dbcanvas-cli api GET /api/opsummary/dumps` |
 | Upload a cluster-dump | `POST /api/opsummary/upload` *(multipart)* | `curl -F file=@cluster-dump.tar.gz …` |
 
 ## Diagnostic captures
@@ -1087,15 +1087,15 @@ Workload health, custom-resource status and operator errors from a
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Start pt-stalk | `POST …/nodes/{nid}/ptstalk` | `dbcanvas stalk start <stack> <node>` |
-| Its status and what it has collected | `GET …/nodes/{nid}/ptstalk` | `dbcanvas stalk status <stack> <node>` |
-| Download the current capture | `GET …/nodes/{nid}/ptstalk/download` | `dbcanvas stalk download <stack> <node> [--out F]` |
-| Kept archives from this node · from everywhere | `GET …/nodes/{nid}/ptstalk/archives` · `GET /api/ptstalk/archives` | `dbcanvas stalk archives` |
-| Download · annotate · delete a kept archive | `GET /api/ptstalk/archives/{aid}/download` · `POST …/{aid}/note` · `DELETE /api/ptstalk/archives/{aid}` | `dbcanvas api GET /api/ptstalk/archives/3/download --out stalk.tar.gz` |
-| Start pg_gather · status · report | `POST …/nodes/{nid}/pggather` · `GET …/pggather` · `GET …/pggather/download` | `dbcanvas api POST …/pggather` |
-| Start a Kubernetes cluster-dump · status | `POST`/`GET …/frames/{fid}/k3d/collect` | `dbcanvas api POST …/k3d/collect` |
-| Kept cluster-dumps for this cluster | `GET …/frames/{fid}/k3d/collect/dumps` | `dbcanvas api GET …/k3d/collect/dumps` |
-| Download · delete a kept cluster-dump | `GET /api/k8sdumps/{did}/download` · `DELETE /api/k8sdumps/{did}` | `dbcanvas api GET /api/k8sdumps/3/download --out cluster-dump.tar.gz` |
+| Start pt-stalk | `POST …/nodes/{nid}/ptstalk` | `dbcanvas-cli stalk start <stack> <node>` |
+| Its status and what it has collected | `GET …/nodes/{nid}/ptstalk` | `dbcanvas-cli stalk status <stack> <node>` |
+| Download the current capture | `GET …/nodes/{nid}/ptstalk/download` | `dbcanvas-cli stalk download <stack> <node> [--out F]` |
+| Kept archives from this node · from everywhere | `GET …/nodes/{nid}/ptstalk/archives` · `GET /api/ptstalk/archives` | `dbcanvas-cli stalk archives` |
+| Download · annotate · delete a kept archive | `GET /api/ptstalk/archives/{aid}/download` · `POST …/{aid}/note` · `DELETE /api/ptstalk/archives/{aid}` | `dbcanvas-cli api GET /api/ptstalk/archives/3/download --out stalk.tar.gz` |
+| Start pg_gather · status · report | `POST …/nodes/{nid}/pggather` · `GET …/pggather` · `GET …/pggather/download` | `dbcanvas-cli api POST …/pggather` |
+| Start a Kubernetes cluster-dump · status | `POST`/`GET …/frames/{fid}/k3d/collect` | `dbcanvas-cli api POST …/k3d/collect` |
+| Kept cluster-dumps for this cluster | `GET …/frames/{fid}/k3d/collect/dumps` | `dbcanvas-cli api GET …/k3d/collect/dumps` |
+| Download · delete a kept cluster-dump | `GET /api/k8sdumps/{did}/download` · `DELETE /api/k8sdumps/{did}` | `dbcanvas-cli api GET /api/k8sdumps/3/download --out cluster-dump.tar.gz` |
 
 Kept archives outlive the node they came from, so you can compare before and after a
 node is recreated.
@@ -1109,10 +1109,10 @@ Step through a Kubernetes operator under Delve. See
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Frames running their operator under Delve | `GET /api/k3d/debug/targets` | `dbcanvas api GET /api/k3d/debug/targets` |
-| The operator's source tree · one file | `GET …/frames/{fid}/k3d/debug/sources` · `GET …/k3d/debug/source?path=` | `dbcanvas api GET …/debug/sources` |
+| Frames running their operator under Delve | `GET /api/k3d/debug/targets` | `dbcanvas-cli api GET /api/k3d/debug/targets` |
+| The operator's source tree · one file | `GET …/frames/{fid}/k3d/debug/sources` · `GET …/k3d/debug/source?path=` | `dbcanvas-cli api GET …/debug/sources` |
 | The live debug session | `GET …/frames/{fid}/k3d/debug/ws` *(WebSocket)* | *(UI only)* |
-| Force a reconcile | `POST …/frames/{fid}/k3d/debug/reconcile` | `dbcanvas api POST …/debug/reconcile` |
+| Force a reconcile | `POST …/frames/{fid}/k3d/debug/reconcile` | `dbcanvas-cli api POST …/debug/reconcile` |
 
 ## Core Dump Analyzer
 
@@ -1123,8 +1123,8 @@ Read a crashed `mysqld`'s core dump and get a diagnosis. See
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Linux Clients set up as core-dump hosts | `GET /api/gdb/targets` | `dbcanvas api GET /api/gdb/targets` |
-| The cores available, and whether symbols and libraries match | `GET …/nodes/{nid}/gdb/cores` | `dbcanvas api GET …/gdb/cores` |
+| Linux Clients set up as core-dump hosts | `GET /api/gdb/targets` | `dbcanvas-cli api GET /api/gdb/targets` |
+| The cores available, and whether symbols and libraries match | `GET …/nodes/{nid}/gdb/cores` | `dbcanvas-cli api GET …/gdb/cores` |
 | The live gdb session | `GET …/nodes/{nid}/gdb/ws` *(WebSocket)* | *(UI only)* |
 
 The WebSocket takes one JSON command per message, `{"cmd": …}`: `open`, `backtrace`,
@@ -1151,15 +1151,15 @@ Read and write files inside a node.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Nodes that can be browsed | `GET /api/stacks/{id}/fs/nodes` | `dbcanvas api GET /api/stacks/1/fs/nodes` |
-| List a directory | `GET …/nodes/{nid}/fs/list?path=` | `dbcanvas api GET '…/fs/list?path=/etc'` |
-| Read a text file · write one | `GET …/fs/read?path=` · `POST …/fs/write` | `dbcanvas api GET '…/fs/read?path=/etc/my.cnf'` |
-| Download a file, or a directory as `.tar.gz` | `GET …/nodes/{nid}/fs/download?path=` | `dbcanvas node cp <stack>:<node>:/path ./` |
-| Upload into a directory | `POST …/nodes/{nid}/fs/upload` *(multipart)* | `dbcanvas node cp ./file <stack>:<node>:/dir/` |
-| mkdir · delete · rename | `POST …/fs/mkdir` · `/fs/delete` · `/fs/rename` | `dbcanvas api POST …/fs/mkdir --data '{"path":"/opt/x"}'` |
-| chmod · chown | `POST …/fs/chmod` · `/fs/chown` | `dbcanvas api POST …/fs/chmod --data '{…}'` |
-| Users and groups inside the node | `GET …/nodes/{nid}/fs/identities` | `dbcanvas api GET …/fs/identities` |
-| **Copy node to node directly** | `POST …/nodes/{nid}/fs/transfer` | `dbcanvas node cp <stack>:a:/f <stack>:b:/f` |
+| Nodes that can be browsed | `GET /api/stacks/{id}/fs/nodes` | `dbcanvas-cli api GET /api/stacks/1/fs/nodes` |
+| List a directory | `GET …/nodes/{nid}/fs/list?path=` | `dbcanvas-cli api GET '…/fs/list?path=/etc'` |
+| Read a text file · write one | `GET …/fs/read?path=` · `POST …/fs/write` | `dbcanvas-cli api GET '…/fs/read?path=/etc/my.cnf'` |
+| Download a file, or a directory as `.tar.gz` | `GET …/nodes/{nid}/fs/download?path=` | `dbcanvas-cli node cp <stack>:<node>:/path ./` |
+| Upload into a directory | `POST …/nodes/{nid}/fs/upload` *(multipart)* | `dbcanvas-cli node cp ./file <stack>:<node>:/dir/` |
+| mkdir · delete · rename | `POST …/fs/mkdir` · `/fs/delete` · `/fs/rename` | `dbcanvas-cli api POST …/fs/mkdir --data '{"path":"/opt/x"}'` |
+| chmod · chown | `POST …/fs/chmod` · `/fs/chown` | `dbcanvas-cli api POST …/fs/chmod --data '{…}'` |
+| Users and groups inside the node | `GET …/nodes/{nid}/fs/identities` | `dbcanvas-cli api GET …/fs/identities` |
+| **Copy node to node directly** | `POST …/nodes/{nid}/fs/transfer` | `dbcanvas-cli node cp <stack>:a:/f <stack>:b:/f` |
 
 Uploads are streamed and limited by **Settings → Node file uploads**. `fs/transfer`
 copies between nodes on the host without passing through your machine.
@@ -1170,17 +1170,17 @@ The Intranet node is the stack's certificate authority; every node trusts it.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| The CA certificate | `GET …/nodes/{nid}/cert` (Intranet node) | `dbcanvas api GET …/cert` |
-| Reissue the Intranet node's certificate | `POST …/nodes/{nid}/cert` | `dbcanvas api POST …/cert` |
-| Client certificates: list · issue · fetch (with key and chain) · delete | `GET`/`POST …/nodes/{nid}/dbcerts` · `GET …/dbcerts/{user}` · `POST …/dbcerts/delete` | `dbcanvas api POST …/dbcerts --data '{"user":"appuser"}'` |
-| A database node's server certificate: read · reissue with a lifetime (`{"value": 10, "unit": "minutes"}`; `minutes`, `hours` or `days`) over the installed files, without a restart | `GET`/`POST …/nodes/{nid}/mysql/cert` (every MySQL-family node; `/pxc/cert` also works), `/pg/cert`, `/mongo/cert`, `/pmm/cert` | `dbcanvas api POST …/mysql/cert --data '{"value":10,"unit":"minutes"}'` |
+| The CA certificate | `GET …/nodes/{nid}/cert` (Intranet node) | `dbcanvas-cli api GET …/cert` |
+| Reissue the Intranet node's certificate | `POST …/nodes/{nid}/cert` | `dbcanvas-cli api POST …/cert` |
+| Client certificates: list · issue · fetch (with key and chain) · delete | `GET`/`POST …/nodes/{nid}/dbcerts` · `GET …/dbcerts/{user}` · `POST …/dbcerts/delete` | `dbcanvas-cli api POST …/dbcerts --data '{"user":"appuser"}'` |
+| A database node's server certificate: read · reissue with a lifetime (`{"value": 10, "unit": "minutes"}`; `minutes`, `hours` or `days`) over the installed files, without a restart | `GET`/`POST …/nodes/{nid}/mysql/cert` (every MySQL-family node; `/pxc/cert` also works), `/pg/cert`, `/mongo/cert`, `/pmm/cert` | `dbcanvas-cli api POST …/mysql/cert --data '{"value":10,"unit":"minutes"}'` |
 
 ## Intranet mail
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| List · create mailboxes | `GET`/`POST …/nodes/{nid}/email/users` | `dbcanvas api GET …/email/users` |
-| Set a password · delete | `POST …/email/users/password` · `/email/users/delete` | `dbcanvas api POST …/email/users/delete --data '{…}'` |
+| List · create mailboxes | `GET`/`POST …/nodes/{nid}/email/users` | `dbcanvas-cli api GET …/email/users` |
+| Set a password · delete | `POST …/email/users/password` · `/email/users/delete` | `dbcanvas-cli api POST …/email/users/delete --data '{…}'` |
 
 ## Intranet LDAP
 
@@ -1188,10 +1188,10 @@ The directory LDAP authentication uses.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Users: list · create | `GET`/`POST …/nodes/{nid}/ldap/users` | `dbcanvas api GET …/ldap/users` |
-| Users: update · set password · delete | `POST …/ldap/users/update` · `/password` · `/delete` | `dbcanvas api POST …/ldap/users/password --data '{…}'` |
-| Groups (with members): list · create | `GET`/`POST …/nodes/{nid}/ldap/groups` | `dbcanvas api GET …/ldap/groups` |
-| Groups: set members · delete | `POST …/ldap/groups/members` · `/delete` | `dbcanvas api POST …/ldap/groups/members --data '{…}'` |
+| Users: list · create | `GET`/`POST …/nodes/{nid}/ldap/users` | `dbcanvas-cli api GET …/ldap/users` |
+| Users: update · set password · delete | `POST …/ldap/users/update` · `/password` · `/delete` | `dbcanvas-cli api POST …/ldap/users/password --data '{…}'` |
+| Groups (with members): list · create | `GET`/`POST …/nodes/{nid}/ldap/groups` | `dbcanvas-cli api GET …/ldap/groups` |
+| Groups: set members · delete | `POST …/ldap/groups/members` · `/delete` | `dbcanvas-cli api POST …/ldap/groups/members --data '{…}'` |
 
 ## Intranet DNS
 
@@ -1200,23 +1200,23 @@ one with the same name or address. Every write returns the updated view.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Automatic and custom records, and the reverse zones | `GET …/nodes/{nid}/dns` | `dbcanvas api GET …/dns` |
-| Add an A, CNAME or PTR record | `POST …/nodes/{nid}/dns/records` | `dbcanvas api POST …/dns/records --data '{"type":"A","name":"db","value":"10.1.2.3","ptr":true}'` |
-| Change · delete one, by id | `POST …/dns/records/update` · `/delete` | `dbcanvas api POST …/dns/records/delete --data '{"id":"…"}'` |
+| Automatic and custom records, and the reverse zones | `GET …/nodes/{nid}/dns` | `dbcanvas-cli api GET …/dns` |
+| Add an A, CNAME or PTR record | `POST …/nodes/{nid}/dns/records` | `dbcanvas-cli api POST …/dns/records --data '{"type":"A","name":"db","value":"10.1.2.3","ptr":true}'` |
+| Change · delete one, by id | `POST …/dns/records/update` · `/delete` | `dbcanvas-cli api POST …/dns/records/delete --data '{"id":"…"}'` |
 
 ## Samba AD DC
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Users: list · create | `GET`/`POST …/nodes/{nid}/samba/users` | `dbcanvas api GET …/samba/users` |
-| Users: update · set password · delete | `POST …/samba/users/update` · `/password` · `/delete` | `dbcanvas api POST …/samba/users/password --data '{…}'` |
-| Groups: list · create | `GET`/`POST …/nodes/{nid}/samba/groups` | `dbcanvas api GET …/samba/groups` |
-| Groups: set members · delete | `POST …/samba/groups/members` · `/delete` | `dbcanvas api POST …/samba/groups/members --data '{…}'` |
-| The `krb5.conf` a client needs | `GET …/samba/krb5` | `dbcanvas api GET …/samba/krb5` |
-| Nodes a service principal can be created for | `GET …/samba/targets` | `dbcanvas api GET …/samba/targets` |
-| Kerberos principals: list · register | `GET`/`POST …/samba/principals` | `dbcanvas api POST …/samba/principals --data '{…}'` |
-| Export a keytab | `GET …/samba/keytab` | `dbcanvas api GET …/samba/keytab` |
-| Issue the LDAPS certificate | `POST …/samba/cert` | `dbcanvas api POST …/samba/cert` |
+| Users: list · create | `GET`/`POST …/nodes/{nid}/samba/users` | `dbcanvas-cli api GET …/samba/users` |
+| Users: update · set password · delete | `POST …/samba/users/update` · `/password` · `/delete` | `dbcanvas-cli api POST …/samba/users/password --data '{…}'` |
+| Groups: list · create | `GET`/`POST …/nodes/{nid}/samba/groups` | `dbcanvas-cli api GET …/samba/groups` |
+| Groups: set members · delete | `POST …/samba/groups/members` · `/delete` | `dbcanvas-cli api POST …/samba/groups/members --data '{…}'` |
+| The `krb5.conf` a client needs | `GET …/samba/krb5` | `dbcanvas-cli api GET …/samba/krb5` |
+| Nodes a service principal can be created for | `GET …/samba/targets` | `dbcanvas-cli api GET …/samba/targets` |
+| Kerberos principals: list · register | `GET`/`POST …/samba/principals` | `dbcanvas-cli api POST …/samba/principals --data '{…}'` |
+| Export a keytab | `GET …/samba/keytab` | `dbcanvas-cli api GET …/samba/keytab` |
+| Issue the LDAPS certificate | `POST …/samba/cert` | `dbcanvas-cli api POST …/samba/cert` |
 
 ## SeaweedFS
 
@@ -1224,12 +1224,12 @@ one with the same name or address. Every write returns the updated view.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Running SeaweedFS nodes and their buckets | `GET /api/stacks/{id}/seaweed/nodes` | `dbcanvas api GET /api/stacks/1/seaweed/nodes` |
-| Browse a bucket | `GET …/nodes/{nid}/seaweed/objects` | `dbcanvas api GET …/seaweed/objects` |
-| Download one object | `GET …/nodes/{nid}/seaweed/download?bucket=&path=` | `dbcanvas api GET '…/seaweed/download?bucket=b&path=p' --out f` |
+| Running SeaweedFS nodes and their buckets | `GET /api/stacks/{id}/seaweed/nodes` | `dbcanvas-cli api GET /api/stacks/1/seaweed/nodes` |
+| Browse a bucket | `GET …/nodes/{nid}/seaweed/objects` | `dbcanvas-cli api GET …/seaweed/objects` |
+| Download one object | `GET …/nodes/{nid}/seaweed/download?bucket=&path=` | `dbcanvas-cli api GET '…/seaweed/download?bucket=b&path=p' --out f` |
 | Upload files into a folder | `POST …/nodes/{nid}/seaweed/upload` *(multipart)* | `curl -F` |
-| Copy objects to another bucket | `POST …/nodes/{nid}/seaweed/transfer` | `dbcanvas api POST …/seaweed/transfer --data '{…}'` |
-| Delete objects (a folder needs `recursive`) | `POST …/nodes/{nid}/seaweed/delete` | `dbcanvas api POST …/seaweed/delete --data '{…}'` |
+| Copy objects to another bucket | `POST …/nodes/{nid}/seaweed/transfer` | `dbcanvas-cli api POST …/seaweed/transfer --data '{…}'` |
+| Delete objects (a folder needs `recursive`) | `POST …/nodes/{nid}/seaweed/delete` | `dbcanvas-cli api POST …/seaweed/delete --data '{…}'` |
 
 **UI:** **Files…** on the node's Buckets tab, or **Bucket file manager** on its
 right-click menu: two panes, with download, drag-and-drop upload, delete and copy
@@ -1240,8 +1240,8 @@ S3 objects.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Initialised, sealed, key thresholds | `GET …/nodes/{nid}/openbao/status` | `dbcanvas api GET …/openbao/status` |
-| Unseal with the stored keys | `POST …/nodes/{nid}/openbao/unseal` | `dbcanvas api POST …/openbao/unseal` |
+| Initialised, sealed, key thresholds | `GET …/nodes/{nid}/openbao/status` | `dbcanvas-cli api GET …/openbao/status` |
+| Unseal with the stored keys | `POST …/nodes/{nid}/openbao/unseal` | `dbcanvas-cli api POST …/openbao/unseal` |
 
 ---
 
@@ -1253,9 +1253,9 @@ S3 objects.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Counters: stacks, nodes, engines, jobs, recent activity | `GET /api/dashboard/summary` | `dbcanvas dashboard` |
-| Live CPU, memory, network and disk per node | `GET /api/dashboard/stats` | `dbcanvas dashboard --live` |
-| Is a newer DBCanvas available, and what changed | `GET /api/dashboard/updates` | `dbcanvas updates [--full]` |
+| Counters: stacks, nodes, engines, jobs, recent activity | `GET /api/dashboard/summary` | `dbcanvas-cli dashboard` |
+| Live CPU, memory, network and disk per node | `GET /api/dashboard/stats` | `dbcanvas-cli dashboard --live` |
+| Is a newer DBCanvas available, and what changed | `GET /api/dashboard/updates` | `dbcanvas-cli updates [--full]` |
 
 `stats` is sampled on request and cached for two seconds.
 
@@ -1271,10 +1271,10 @@ says why and the check still succeeds. If GitHub cannot be reached, the answer i
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| List, with the unread count | `GET /api/notifications` | `dbcanvas notifications` |
+| List, with the unread count | `GET /api/notifications` | `dbcanvas-cli notifications` |
 | **Live stream** | `GET /api/notifications/stream` *(SSE)* | `curl -N -H "Authorization: Bearer $T" …/stream` |
-| Mark all read | `POST /api/notifications/read-all` | `dbcanvas notifications --read-all` |
-| Mark one read | `POST /api/notifications/{id}/read` | `dbcanvas api POST /api/notifications/7/read` |
+| Mark all read | `POST /api/notifications/read-all` | `dbcanvas-cli notifications --read-all` |
+| Mark one read | `POST /api/notifications/{id}/read` | `dbcanvas-cli api POST /api/notifications/7/read` |
 
 ![The notification bell, open](screenshots/notifications.png)
 
@@ -1290,15 +1290,15 @@ means the end.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| Your boards and shared ones | `GET /api/kanban/boards` | `dbcanvas api GET /api/kanban/boards` |
+| Your boards and shared ones | `GET /api/kanban/boards` | `dbcanvas-cli api GET /api/kanban/boards` |
 | Create a board | `POST /api/kanban/boards` `{"name", "shared", "columns": ["To do", …]}` | — |
-| A board with its columns and cards (`?since=<rev>` for a cheap poll) | `GET /api/kanban/boards/{id}` | `dbcanvas api GET /api/kanban/boards/3` |
+| A board with its columns and cards (`?since=<rev>` for a cheap poll) | `GET /api/kanban/boards/{id}` | `dbcanvas-cli api GET /api/kanban/boards/3` |
 | Rename or share it · delete it *(owner)* | `PUT /api/kanban/boards/{id}` `{"name", "shared"}` · `DELETE …` | — |
 | Add · change · delete a column | `POST /api/kanban/boards/{id}/columns` `{"name", "index"}` · `PUT /api/kanban/columns/{cid}` `{"name", "wipLimit"}` or `{"color"}` · `DELETE …` | — |
 | Move a column | `POST /api/kanban/columns/{cid}/move` `{"index"}` | — |
 | Add a card | `POST /api/kanban/columns/{cid}/cards` `{"title", "description", "labels", "assigneeId", "due", "color", "index"}` | — |
 | Change · delete a card | `PUT` · `DELETE /api/kanban/cards/{kid}` | — |
-| Move a card | `POST /api/kanban/cards/{kid}/move` `{"columnId", "index"}` | `dbcanvas api POST /api/kanban/cards/12/move --data '{"columnId":4,"index":0}'` |
+| Move a card | `POST /api/kanban/cards/{kid}/move` `{"columnId", "index"}` | `dbcanvas-cli api POST /api/kanban/cards/12/move --data '{"columnId":4,"index":0}'` |
 | Who a card can be assigned to | `GET /api/kanban/people` | — |
 
 ## Shared sessions
@@ -1317,24 +1317,24 @@ actions) are deleted after `sessionRetentionDays` (default 90). Recordings are k
 | --- | --- | --- |
 | Start a session and get its link *(password sign-in only)* | `POST /api/share/sessions` `{"minutes": 5–120, "hideSecrets": false, "mirror": true}`, or `POST /api/stacks/{id}/share` to file it on a stack | — |
 | Mirror everything on or off | `POST /api/share/sessions/{sid}/mirror` `{"mirror"}` | — |
-| Your sessions (`?live=1` for running ones) | `GET /api/share/sessions` | `dbcanvas api GET '/api/share/sessions?live=1'` |
-| One session: guests and who has control | `GET /api/share/sessions/{sid}` | `dbcanvas api GET /api/share/sessions/3` |
-| Admit · deny · remove a guest | `POST …/sessions/{sid}/guests/{gid}/admit` · `/deny` · `/remove` | `dbcanvas api POST /api/share/sessions/3/guests/5/admit` |
+| Your sessions (`?live=1` for running ones) | `GET /api/share/sessions` | `dbcanvas-cli api GET '/api/share/sessions?live=1'` |
+| One session: guests and who has control | `GET /api/share/sessions/{sid}` | `dbcanvas-cli api GET /api/share/sessions/3` |
+| Admit · deny · remove a guest | `POST …/sessions/{sid}/guests/{gid}/admit` · `/deny` · `/remove` | `dbcanvas-cli api POST /api/share/sessions/3/guests/5/admit` |
 | Mute or unmute a guest | `POST …/guests/{gid}/mute` `{"muted"}` | — |
 | Give or take back control | `POST /api/share/sessions/{sid}/control` `{"to": 5}` or `{"to": "host"}` | — |
 | Let every guest draw, or none · one guest | `POST …/sessions/{sid}/draw` `{"draw"}` · `POST …/guests/{gid}/draw` | — |
 | Start recording (video from the host's browser) | `POST /api/share/sessions/{sid}/recordings` `{"mime"}` | — |
 | Append a chunk, in order | `POST /api/share/recordings/{rid}/chunks?seq=N` *(raw bytes)* | — |
 | Stop a recording | `POST /api/share/recordings/{rid}/finish` `{"durationMs"}` | — |
-| Your recordings | `GET /api/share/recordings` | `dbcanvas api GET /api/share/recordings` |
-| Download one (`?inline=1` to play) | `GET /api/share/recordings/{rid}/file` | `dbcanvas api GET /api/share/recordings/4/file --out session.webm` |
-| Its chat transcript (text; `?format=json`) | `GET /api/share/recordings/{rid}/transcript` | `dbcanvas api GET /api/share/recordings/4/transcript --out chat.txt` |
+| Your recordings | `GET /api/share/recordings` | `dbcanvas-cli api GET /api/share/recordings` |
+| Download one (`?inline=1` to play) | `GET /api/share/recordings/{rid}/file` | `dbcanvas-cli api GET /api/share/recordings/4/file --out session.webm` |
+| Its chat transcript (text; `?format=json`) | `GET /api/share/recordings/{rid}/transcript` | `dbcanvas-cli api GET /api/share/recordings/4/transcript --out chat.txt` |
 | Rename it or move its purge date | `PUT /api/share/recordings/{rid}` `{"title", "purgeAt": "2026-12-31"}` | — |
-| Purge it now | `DELETE /api/share/recordings/{rid}` | `dbcanvas api DELETE /api/share/recordings/4` |
+| Purge it now | `DELETE /api/share/recordings/{rid}` | `dbcanvas-cli api DELETE /api/share/recordings/4` |
 | New invitation link (retires the old one) *(password sign-in only)* | `POST /api/share/sessions/{sid}/link` | — |
-| End it now | `POST /api/share/sessions/{sid}/end` | `dbcanvas api POST /api/share/sessions/3/end` |
+| End it now | `POST /api/share/sessions/{sid}/end` | `dbcanvas-cli api POST /api/share/sessions/3/end` |
 | Transcripts filed on a stack | `GET /api/stacks/{id}/share/transcripts` | — |
-| Download a session transcript (text; `?format=json`) | `GET /api/share/sessions/{sid}/transcript` | `dbcanvas api GET /api/share/sessions/3/transcript --out session.txt` |
+| Download a session transcript (text; `?format=json`) | `GET /api/share/sessions/{sid}/transcript` | `dbcanvas-cli api GET /api/share/sessions/3/transcript --out session.txt` |
 | **Live channel**: presence, follow, cursor, chat, control, drawings | `GET /api/share/sessions/{sid}/ws` *(WebSocket)* | — |
 | Shared terminal: open · close · watch | `POST …/sessions/{sid}/terms` · `DELETE …/terms/{tid}` · `GET …/terms/{tid}/ws` | — |
 | Guest side *(no sign-in)*: the join page · join · status · leave | `GET /api/join/{token}` · `POST /api/join/{token}` `{"name", "email", "avatar"}` · `GET …/status` · `POST …/leave` | — |
@@ -1365,8 +1365,8 @@ guest's name, in the transcript.
 
 | To do this | API | CLI |
 | --- | --- | --- |
-| The endpoint catalogue | `GET /api/meta/endpoints` | `dbcanvas endpoints [--group G] [--scope S] [-q term] [--long]` |
-| OpenAPI 3.1 document | `GET /api/meta/openapi.json` | `dbcanvas api GET /api/meta/openapi.json` |
+| The endpoint catalogue | `GET /api/meta/endpoints` | `dbcanvas-cli endpoints [--group G] [--scope S] [-q term] [--long]` |
+| OpenAPI 3.1 document | `GET /api/meta/openapi.json` | `dbcanvas-cli api GET /api/meta/openapi.json` |
 | Download the CLI for a platform | `GET /api/cli/download?os=&arch=` | *(how you get the CLI)* |
 | The CLI's own help, from the binary this server ships | `GET /api/cli/help` | `dbcanvas --help` |
 

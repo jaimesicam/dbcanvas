@@ -132,7 +132,7 @@ smoke:
 
 ## cli: cross-compile dbcanvas-cli into dist/ for every platform the app image
 ## ships, with a SHA256SUMS beside them. A single static binary per platform, no
-## dependencies — put one on your PATH and run `dbcanvas login`.
+## dependencies — put one on your PATH and run `dbcanvas-cli login`.
 ##
 ## The app image builds the same matrix (see app/Dockerfile) so a running
 ## installation can hand the binary to somebody with no checkout; this target is

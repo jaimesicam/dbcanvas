@@ -530,18 +530,18 @@ export function GettingStarted() {
           <li>
             <span className="text-fg">Put it on your PATH.</span> One static binary, no
             dependencies — the name it is saved under is the command you type.
-            <Snippet label="shell" text={`cd ~/Downloads\nchmod +x ${CLI_FILE}\nsudo mv ${CLI_FILE} /usr/local/bin/dbcanvas`} />
+            <Snippet label="shell" text={`cd ~/Downloads\nchmod +x ${CLI_FILE}\nsudo mv ${CLI_FILE} /usr/local/bin/dbcanvas-cli`} />
           </li>
           <li>
             <span className="text-fg">Sign in once.</span> It asks for your password, trades it for
             a scoped, expiring token and stores only the token — your password is never written to
             disk. In CI, set <code className="rounded bg-surface2 px-1">DBCANVAS_TOKEN</code> from
             the <b>Tokens</b> tab instead and skip this.
-            <Snippet label="shell" text={`dbcanvas login --url ${origin}\ndbcanvas whoami`} />
+            <Snippet label="shell" text={`dbcanvas-cli login --url ${origin}\ndbcanvas-cli whoami`} />
           </li>
           <li>
             <span className="text-fg">Then do something.</span>
-            <Snippet label="shell" text={'dbcanvas stack list\ndbcanvas stack deploy my-pxc-lab --wait\ndbcanvas node list my-pxc-lab'} />
+            <Snippet label="shell" text={'dbcanvas-cli stack list\ndbcanvas-cli stack deploy my-pxc-lab --wait\ndbcanvas-cli node list my-pxc-lab'} />
           </li>
         </ol>
         <CliCommands />

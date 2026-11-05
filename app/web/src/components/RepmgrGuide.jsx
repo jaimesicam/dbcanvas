@@ -76,7 +76,7 @@ export default function RepmgrGuide({ cfg = {}, nodeLabel }) {
       <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
         <span className="font-medium text-fg">Run these on the node</span>, not on your machine: right-click
         {nodeLabel ? ` ${nodeLabel}` : ' this node'} on the canvas → <span className="font-medium">Enter root console</span>
-        {' '}(or <span className="font-mono">dbcanvas node exec</span>). They step down to
+        {' '}(or <span className="font-mono">dbcanvas-cli node exec</span>). They step down to
         <span className="font-mono"> postgres</span> with <span className="font-mono">runuser</span>, because repmgr
         reads a postgres-owned config and writes into the data directory — run as root it either refuses or
         leaves files the server cannot read.

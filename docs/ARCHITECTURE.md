@@ -251,7 +251,7 @@ summary is registered, catalogued, published in the OpenAPI document and scope-c
 ## Versioning
 
 The `VERSION` file is stamped into both binaries at build time (`main.appVersion` for the
-server, `main.version` for the CLI). `/api/setup/status` and `dbcanvas version` report it,
+server, `main.version` for the CLI). `/api/setup/status` and `dbcanvas-cli version` report it,
 and the **What's new** dialog compares it with each account's read state. A plain
 `go build` reports `dev`, which sorts newer than every release.
 

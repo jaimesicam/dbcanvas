@@ -19,7 +19,7 @@ import (
 // client.go — the HTTP layer, and the error messages that come out of it.
 //
 // The errors are the interesting part. A CLI's failure output is its documentation
-// for everything that goes wrong, so a 401 says "run dbcanvas login" and a 403 says
+// for everything that goes wrong, so a 401 says "run dbcanvas-cli login" and a 403 says
 // which scope was needed, rather than printing a status code and leaving the reader
 // to guess which of the two problems they have. The exit codes divide the same way
 // (see main.go), because a CI job needs to tell "my token lapsed" from "the cluster
@@ -68,7 +68,7 @@ type APIError struct {
 func (e *APIError) Error() string {
 	switch e.Status {
 	case http.StatusUnauthorized:
-		return "not signed in, or the token has expired or been revoked — run `dbcanvas login`"
+		return "not signed in, or the token has expired or been revoked — run `dbcanvas-cli login`"
 	case http.StatusForbidden:
 		// The server's message names the scope or the ownership problem, and is
 		// more specific than anything that could be said here.

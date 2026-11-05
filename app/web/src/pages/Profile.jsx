@@ -79,7 +79,7 @@ export default function Profile() {
           </div>
         </Section>
         {(!features || features.includes('api')) && (
-          <Section title="API tokens" hint="Scripts and the dbcanvas CLI can work as the guest too (dbcanvas login --guest). Guest tokens stop working when an administrator turns guest sign-in off.">
+          <Section title="API tokens" hint="Scripts and dbcanvas-cli can work as the guest too (dbcanvas-cli login --guest). Guest tokens stop working when an administrator turns guest sign-in off.">
             <Button variant="outline" size="sm" onClick={() => { location.hash = 'api' }}>
               <Icon.Code size={15} /> Manage API tokens
             </Button>
@@ -104,7 +104,7 @@ export default function Profile() {
       <ChangePassword />
 
       {(!features || features.includes('api')) && (
-        <Section title="API tokens" hint="Tokens let scripts and the dbcanvas CLI act as you, with the scope you give each one.">
+        <Section title="API tokens" hint="Tokens let scripts and dbcanvas-cli act as you, with the scope you give each one.">
           <Button variant="outline" size="sm" onClick={() => { location.hash = 'api' }}>
             <Icon.Code size={15} /> Manage your API tokens
           </Button>

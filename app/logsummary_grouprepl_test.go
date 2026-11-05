@@ -236,7 +236,7 @@ func TestGRNeverRejoined(t *testing.T) {
 	if f.Sev != lsSevBad {
 		t.Errorf("severity %q, want bad", f.Sev)
 	}
-	// "gr0-2" is this fixture's real stranded member — a `dbcanvas stack compose`-built
+	// "gr0-2" is this fixture's real stranded member — a `dbcanvas-cli stack compose`-built
 	// group names its members "<frame>-N" (hyphenated), unlike the original hand-authored
 	// "gr0N" scheme this test used to check for. Which member gets killed is arbitrary to
 	// the mechanism under test; the name only has to be traceable to the real capture.

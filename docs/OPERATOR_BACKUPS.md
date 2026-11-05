@@ -142,9 +142,9 @@ Every action has an endpoint under the frame — see
 
 ```sh
 # take a backup, then watch its state
-dbcanvas api POST /api/stacks/1/frames/k3d-01/k3d/backups --data '{}'
-dbcanvas api GET  /api/stacks/1/frames/k3d-01/k3d/backups | jq '.backups[] | {name, state, destination}'
+dbcanvas-cli api POST /api/stacks/1/frames/k3d-01/k3d/backups --data '{}'
+dbcanvas-cli api GET  /api/stacks/1/frames/k3d-01/k3d/backups | jq '.backups[] | {name, state, destination}'
 
 # list the bucket under a prefix
-dbcanvas api GET '/api/stacks/1/frames/k3d-01/k3d/bucket?prefix=cluster1-2026-09-11'
+dbcanvas-cli api GET '/api/stacks/1/frames/k3d-01/k3d/bucket?prefix=cluster1-2026-09-11'
 ```

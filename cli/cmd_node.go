@@ -66,7 +66,7 @@ func nodeList(args []string) error {
 		return err
 	}
 	if len(d.Deployments) == 0 {
-		empty("deployed nodes in "+d.Name, "Deploy it first: `dbcanvas stack deploy "+d.Name+" --wait`.")
+		empty("deployed nodes in "+d.Name, "Deploy it first: `dbcanvas-cli stack deploy "+d.Name+" --wait`.")
 		return nil
 	}
 	// NAME first, because it is the thing every panel and the compose plan shows and
@@ -103,7 +103,7 @@ func nodeAction(action string) func([]string) error {
 		if err := parse(fs, args); err != nil {
 			return err
 		}
-		if err := need(2, "a stack and a node: dbcanvas node "+action+" <stack> <node>"); err != nil {
+		if err := need(2, "a stack and a node: dbcanvas-cli node "+action+" <stack> <node>"); err != nil {
 			return err
 		}
 		c, st, node, err := stackAndNode(arg(0), arg(1))
@@ -131,14 +131,14 @@ func nodeAction(action string) func([]string) error {
 //
 // --pod turns it into a console inside the Kubernetes cluster a k3s server node runs:
 // same endpoint, same protocol, and the server execs `kubectl exec -it` through that
-// node instead of a shell in it. `dbcanvas node pods` is where the three names come
+// node instead of a shell in it. `dbcanvas-cli node pods` is where the three names come
 // from — pods outlive nothing, so list them rather than remembering them.
 //
 // --shell also takes a database client: `--shell mysql` on a pxc or mysql container,
 // `--shell psql` on a Postgres one, `--shell mongosh` on a mongod or mongos, and the
 // prompt is that client already logged in as an administrator. No credential is passed
 // for it — the operator mounts the cluster's users Secret into the pod, and the server's
-// script reads it inside the container (app/k3dpods.go). `dbcanvas node pods` prints
+// script reads it inside the container (app/k3dpods.go). `dbcanvas-cli node pods` prints
 // which client each container has in its `console` column.
 func nodeConsole(args []string) error {
 	fs := flagsFor("node console")
@@ -150,11 +150,11 @@ func nodeConsole(args []string) error {
 	if err := parse(fs, args); err != nil {
 		return err
 	}
-	if err := need(2, "a stack and a node: dbcanvas node console <stack> <node>"); err != nil {
+	if err := need(2, "a stack and a node: dbcanvas-cli node console <stack> <node>"); err != nil {
 		return err
 	}
 	if *pod != "" && *container == "" {
-		return fmt.Errorf("--pod needs --container: a pod has more than one, and `dbcanvas node pods %s %s` lists them", arg(0), arg(1))
+		return fmt.Errorf("--pod needs --container: a pod has more than one, and `dbcanvas-cli node pods %s %s` lists them", arg(0), arg(1))
 	}
 	c, st, node, err := stackAndNode(arg(0), arg(1))
 	if err != nil {
@@ -189,7 +189,7 @@ func nodePods(args []string) error {
 	if err := parse(fs, args); err != nil {
 		return err
 	}
-	if err := need(2, "a stack and a Kubernetes server node: dbcanvas node pods <stack> <node>"); err != nil {
+	if err := need(2, "a stack and a Kubernetes server node: dbcanvas-cli node pods <stack> <node>"); err != nil {
 		return err
 	}
 	c, st, node, err := stackAndNode(arg(0), arg(1))
@@ -312,7 +312,7 @@ func runConsole(c *Client, path, label string) error {
 		stopResize := watchResize(fd, sendSize)
 		defer stopResize()
 	} else {
-		fmt.Fprintln(os.Stderr, "dbcanvas: stdin is not a terminal; running non-interactively")
+		fmt.Fprintln(os.Stderr, "dbcanvas-cli: stdin is not a terminal; running non-interactively")
 	}
 
 	// container → terminal
@@ -377,7 +377,7 @@ func nodeExec(args []string) error {
 	// remote command's own flags (`mysql -e 'SHOW …'`) arrive intact.
 	if nargs() < 3 {
 		fmt.Fprintln(os.Stderr,
-			"dbcanvas: usage: dbcanvas node exec <stack> <node> -- <command> [args…]")
+			"dbcanvas-cli: usage: dbcanvas-cli node exec <stack> <node> -- <command> [args…]")
 		return errUsage
 	}
 	cmdArgs := positional[2:]
@@ -389,7 +389,7 @@ func nodeExec(args []string) error {
 	// mechanism, and this is it with the command piped in and stdin closed after.
 	// Said plainly rather than pretending otherwise, because the exit status of the
 	// remote command is not available this way.
-	fmt.Fprintln(os.Stderr, "dbcanvas: note — exec runs through the console, so the remote exit status is not reported")
+	fmt.Fprintln(os.Stderr, "dbcanvas-cli: note — exec runs through the console, so the remote exit status is not reported")
 	path := fmt.Sprintf("/api/stacks/%d/nodes/%s/term", st.ID, url.PathEscape(node))
 	return execOverConsole(c, path, shellJoin(cmdArgs))
 }
@@ -485,7 +485,7 @@ func nodeCp(args []string) error {
 	if err := parse(fs, args); err != nil {
 		return err
 	}
-	if err := need(2, "a source and a destination: dbcanvas node cp <src> <dst>\n"+
+	if err := need(2, "a source and a destination: dbcanvas-cli node cp <src> <dst>\n"+
 		"  where one side is <stack>:<node>:<path>"); err != nil {
 		return err
 	}
@@ -508,7 +508,7 @@ func nodeCp(args []string) error {
 		return cpDown(c, srcRef, dst)
 	default:
 		fmt.Fprintln(os.Stderr,
-			"dbcanvas: one side must be <stack>:<node>:<path> — otherwise this is just `cp`")
+			"dbcanvas-cli: one side must be <stack>:<node>:<path> — otherwise this is just `cp`")
 		return errUsage
 	}
 }
@@ -625,7 +625,7 @@ func nodeTunnel(args []string) error {
 	if err := parse(fs, args); err != nil {
 		return err
 	}
-	if err := need(2, "a stack and a node: dbcanvas node tunnel <stack> <node>"); err != nil {
+	if err := need(2, "a stack and a node: dbcanvas-cli node tunnel <stack> <node>"); err != nil {
 		return err
 	}
 	c, st, node, err := stackAndNode(arg(0), arg(1))

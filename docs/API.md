@@ -27,7 +27,7 @@ When an administrator turns on **Guest sign-in** (Settings → This installation
 default), `POST /api/auth/guest` signs in without a password to one shared account with
 the user role, and sets the same session cookie as `POST /api/auth/login`. That session
 can create a token (`POST /api/tokens`) like any other, which is what
-`dbcanvas login --guest` does. `GET /api/setup/status` says whether guest sign-in is on
+`dbcanvas-cli login --guest` does. `GET /api/setup/status` says whether guest sign-in is on
 (`"guestLogin": true`), and `GET /api/me` marks the account (`"guestAccount": true`).
 
 ```sh
@@ -46,7 +46,7 @@ is revoked, the moment an administrator turns guest sign-in off.
 
 ## Create a token
 
-1. Open **API → Tokens** (or run `dbcanvas login` or `dbcanvas token create`).
+1. Open **API → Tokens** (or run `dbcanvas-cli login` or `dbcanvas-cli token create`).
 2. Give it a name, a scope and an expiry.
 3. Copy the secret. It is shown **once**: DBCanvas keeps only a hash of it, and the
    list shows only its first characters (`dbc_` plus eight).
@@ -87,8 +87,8 @@ These endpoints refuse a token, whatever its scope, and need a password sign-in:
 
 | Endpoint | Why |
 | --- | --- |
-| `POST /api/tokens` | create a token (`dbcanvas token create` and `dbcanvas login` ask for your password) |
-| `POST /api/me/password` | change your password (`dbcanvas password` asks for the current one) |
+| `POST /api/tokens` | create a token (`dbcanvas-cli token create` and `dbcanvas-cli login` ask for your password) |
+| `POST /api/me/password` | change your password (`dbcanvas-cli password` asks for the current one) |
 | `POST /api/users`, `POST /api/users/{id}/password`, `POST /api/users/{id}/reset-link` | create an account, or set or reset someone else's password |
 | `POST /api/share/sessions`, `POST /api/stacks/{id}/share`, `POST /api/share/sessions/{sid}/link` | start a shared session or issue its link |
 
@@ -113,7 +113,7 @@ curl -s -H "Authorization: Bearer $DBCANVAS_TOKEN" \
 | `GET /api/meta/openapi.json` | the same, as an OpenAPI 3.1 document for generated clients, Postman or Bruno. Request and response bodies are declared as free-form JSON. |
 | `GET /api/stacks/design/catalog` | every node and cluster type a design can hold, its options, relations and lines — see [the design catalogue](API_REFERENCE.md#the-design-catalogue-and-editing-a-design-one-piece-at-a-time) |
 
-`dbcanvas endpoints` prints the catalogue in a terminal.
+`dbcanvas-cli endpoints` prints the catalogue in a terminal.
 
 ## Endpoints that are not plain JSON
 
@@ -155,7 +155,7 @@ session's guests use.
 Every account is in one of three groups: **Administrators** (role `admin`), **Regular
 Users** (role `user`) and **Guests** (the shared guest account). An administrator decides
 which features — the pages of the app — each group may use, under Settings → Security
-groups, with `PUT /api/security/groups`, or with `dbcanvas group set`.
+groups, with `PUT /api/security/groups`, or with `dbcanvas-cli group set`.
 
 The server enforces it on every request. A route that belongs to a feature the caller's
 group does not have answers `403` with `your security group (Guests) does not have access
@@ -164,7 +164,7 @@ routes belong to no feature and are always allowed: who you are (`/api/me`,
 `/api/setup/status`), your preferences, notifications and signing out.
 
 **API** is the feature that lets a group use API tokens at all. Without it, creating a token
-(and so `dbcanvas login`) is refused, and so is every request made with a token the account
+(and so `dbcanvas-cli login`) is refused, and so is every request made with a token the account
 already holds.
 
 | Group | Default |
@@ -212,5 +212,5 @@ curl -s -H "$AUTH" $API/api/stacks/$ID | jq '.deployments[] | {nodeId, state}'
 curl -s -H "$AUTH" -X POST $API/api/stacks/$ID/destroy
 ```
 
-`dbcanvas stack create api-demo --template "PXC + ProxySQL + PMM" --ttl 4h --deploy --wait`
+`dbcanvas-cli stack create api-demo --template "PXC + ProxySQL + PMM" --ttl 4h --deploy --wait`
 does the same in one line — see [`dbcanvas-cli`](CLI.md).

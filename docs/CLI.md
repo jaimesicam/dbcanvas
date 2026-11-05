@@ -2,7 +2,7 @@
 
 Drive DBCanvas from a terminal: compose and deploy a stack, open a console on a node, run a
 benchmark, tear it down. It uses the same [HTTP API](API.md) as the web interface, and
-`dbcanvas api` reaches any endpoint that has no subcommand.
+`dbcanvas-cli api` reaches any endpoint that has no subcommand.
 
 ---
 
@@ -11,8 +11,8 @@ benchmark, tear it down. It uses the same [HTTP API](API.md) as the web interfac
 **From a running installation** (no checkout needed): the **API** page has download links, or
 
 ```sh
-curl -fL -o dbcanvas "http://localhost:8080/api/cli/download?os=linux&arch=amd64"
-chmod +x dbcanvas && sudo mv dbcanvas /usr/local/bin/
+curl -fL -o dbcanvas-cli "http://localhost:8080/api/cli/download?os=linux&arch=amd64"
+chmod +x dbcanvas-cli && sudo mv dbcanvas-cli /usr/local/bin/
 ```
 
 Builds exist for `linux` (`amd64`, `arm64`), `darwin` (`amd64`, `arm64`) and `windows`
@@ -22,16 +22,16 @@ Builds exist for `linux` (`amd64`, `arm64`), `darwin` (`amd64`, `arm64`) and `wi
 
 ```sh
 make cli                      # → dist/dbcanvas-cli_<os>_<arch>
-install dist/dbcanvas-cli_darwin_arm64 /usr/local/bin/dbcanvas
+install dist/dbcanvas-cli_darwin_arm64 /usr/local/bin/dbcanvas-cli
 ```
 
-`dbcanvas` with no arguments lists every command; the **API** page shows the same list.
-`dbcanvas version` prints the CLI's version and, when signed in, the server's.
+`dbcanvas-cli` with no arguments lists every command; the **API** page shows the same list.
+`dbcanvas-cli version` prints the CLI's version and, when signed in, the server's.
 
 ## Signing in
 
 ```
-$ dbcanvas login --url http://localhost:8080
+$ dbcanvas-cli login --url http://localhost:8080
 Username: alex
 Password: ********
 Created token "dbcanvas-cli on laptop" (dbc_a1b2c3d4…), write scope, expires 2026-12-01.
@@ -43,12 +43,12 @@ Only the token is saved (file mode `0600`); the password is never stored. The to
 under your API tokens, where you can revoke it.
 
 ```sh
-dbcanvas login --expires 30 --scope read   # a short-lived read-only token
-dbcanvas whoami                            # account, role, server, token scope and expiry
-dbcanvas logout                            # revoke the token and remove the profile
+dbcanvas-cli login --expires 30 --scope read   # a short-lived read-only token
+dbcanvas-cli whoami                            # account, role, server, token scope and expiry
+dbcanvas-cli logout                            # revoke the token and remove the profile
 ```
 
-Where an administrator has turned on guest sign-in, `dbcanvas login --guest` signs in as the
+Where an administrator has turned on guest sign-in, `dbcanvas-cli login --guest` signs in as the
 shared guest account instead, with no username or password. The Guests security group needs the
 **API** feature for this, which it does not have by default (see [Security groups](#security-groups)). Everything else is the same: it
 stores a write-scope token. Guests share one account and its stacks, and the token stops working
@@ -56,7 +56,7 @@ if guest sign-in is turned off. When guest sign-in is off, the server refuses wi
 `guest sign-in is turned off`.
 
 ```sh
-dbcanvas login --url http://localhost:8080 --guest --profile guest
+dbcanvas-cli login --url http://localhost:8080 --guest --profile guest
 ```
 
 | `login` flag | Default | Meaning |
@@ -73,9 +73,9 @@ Use `logout` rather than deleting the config file — deleting it leaves the tok
 ## API tokens
 
 ```sh
-dbcanvas token list                 # your tokens; --all for every token (administrators)
-dbcanvas token create --name ci --scope write --expires 30
-dbcanvas token revoke 12            # --admin to revoke somebody else's (administrators)
+dbcanvas-cli token list                 # your tokens; --all for every token (administrators)
+dbcanvas-cli token create --name ci --scope write --expires 30
+dbcanvas-cli token revoke 12            # --admin to revoke somebody else's (administrators)
 ```
 
 `token create` asks for your password: a token cannot create another token.
@@ -85,9 +85,9 @@ dbcanvas token revoke 12            # --admin to revoke somebody else's (adminis
 ![The same change in the web interface](screenshots/settings-password.png)
 
 ```sh
-dbcanvas password                    # prompts for the current password, then the new one twice
-dbcanvas password --revoke-tokens    # also revoke every API token, including this CLI's
-dbcanvas password --user alex        # when the profile does not name an account
+dbcanvas-cli password                    # prompts for the current password, then the new one twice
+dbcanvas-cli password --revoke-tokens    # also revoke every API token, including this CLI's
+dbcanvas-cli password --user alex        # when the profile does not name an account
 ```
 
 `password` asks for your current password: a token cannot change a password. The change signs
@@ -103,7 +103,7 @@ Forgotten your password? An administrator can set a new one or send a reset link
 Create an account for somebody, who then signs in with it:
 
 ```
-$ dbcanvas user create sam --first Sam --last Lee --email sam@example.net
+$ dbcanvas-cli user create sam --first Sam --last Lee --email sam@example.net
 Creating an account requires an administrator's password (a token cannot create accounts).
 Password for admin: ********
 Temporary password for sam: ********
@@ -112,16 +112,16 @@ Created sam (id 2, user).
 
 They must replace the temporary password at their first sign-in, which this does:
 
-  dbcanvas login --url http://localhost:8080 --user sam --profile sam
+  dbcanvas-cli login --url http://localhost:8080 --user sam --profile sam
 ```
 
 When `sam` runs that `login`, the CLI asks for a new password before creating the token.
 
 ```sh
-dbcanvas user list                                      # every account and its state
-dbcanvas user create pat --first Pat --last Kim --email pat@example.net --role admin
-dbcanvas user create kai --first Kai --last Oh --email kai@example.net --invite
-dbcanvas --profile sam whoami                           # act as another profile
+dbcanvas-cli user list                                      # every account and its state
+dbcanvas-cli user create pat --first Pat --last Kim --email pat@example.net --role admin
+dbcanvas-cli user create kai --first Kai --last Oh --email kai@example.net --invite
+dbcanvas-cli --profile sam whoami                           # act as another profile
 ```
 
 | `user create` flag | Meaning |
@@ -132,8 +132,8 @@ dbcanvas --profile sam whoami                           # act as another profile
 | `--admin NAME` | The administrator signing in, when the profile does not name one. |
 
 `user create` asks for your password even when signed in: a token cannot create accounts.
-`user list` works with an admin-scoped token (`dbcanvas login --scope admin`). For approving,
-disabling, changing roles or deleting accounts, use `dbcanvas api` with an admin-scoped token
+`user list` works with an admin-scoped token (`dbcanvas-cli login --scope admin`). For approving,
+disabling, changing roles or deleting accounts, use `dbcanvas-cli api` with an admin-scoped token
 (see the [API reference](API_REFERENCE.md#users-admin)). Setting another account's password and
 issuing reset links are browser-only.
 
@@ -141,13 +141,13 @@ issuing reset links are browser-only.
 
 Which pages each group (`admin`, `user`, `guest`) may use is enforced for the CLI too: a command
 whose endpoint belongs to a feature your group lacks fails with `your security group (…) does not
-have access to …`, and a group without the **API** feature cannot sign in with `dbcanvas login` or
+have access to …`, and a group without the **API** feature cannot sign in with `dbcanvas-cli login` or
 use a token at all. Administrators manage it:
 
 ```sh
-dbcanvas group list                                   # every feature, and which groups have it
-dbcanvas group set guest kanban=on api=on             # let guests use Kanban and the CLI
-dbcanvas group set user benchmark=off                 # take Benchmark from regular users
+dbcanvas-cli group list                                   # every feature, and which groups have it
+dbcanvas-cli group set guest kanban=on api=on             # let guests use Kanban and the CLI
+dbcanvas-cli group set user benchmark=off                 # take Benchmark from regular users
 ```
 
 Granting a tool grants Database Stacks with it. `(fixed)` cells cannot be changed: administrators
@@ -172,7 +172,7 @@ Windows), mode `0600`:
 | Setting | Effect |
 | --- | --- |
 | `--profile lab` | Use another installation for this command. |
-| `dbcanvas login --profile lab --url …` | Add or replace a profile. |
+| `dbcanvas-cli login --profile lab --url …` | Add or replace a profile. |
 | `--url`, `--token` | Override for one command. |
 | `DBCANVAS_URL`, `DBCANVAS_TOKEN` | Override the profile. Use these in CI — nothing is written to disk. |
 | `DBCANVAS_CONFIG` | Path to the config file. |
@@ -183,9 +183,9 @@ Windows), mode `0600`:
 `stack compose` builds a stack from a short description; the server fills in the rest.
 
 ```sh
-dbcanvas stack kinds          # every kind, its options, relationships and OS aliases
+dbcanvas-cli stack kinds          # every kind, its options, relationships and OS aliases
 
-dbcanvas stack compose pxc-lab --ttl 8h \
+dbcanvas-cli stack compose pxc-lab --ttl 8h \
   --node 'pxc:3,version=8.4.5,os=el8,monitor' \
   --node 'ps,version=8.0.45,os=el9,ldap,monitor' \
   --node 'pmm,version=3' \
@@ -220,7 +220,7 @@ Each `--node` is **`kind[:count][,option][,key=value]`**:
 | `deviceReadMbps=`, `deviceWriteMbps=` | Disk throughput limits. |
 
 Options are checked against the kind: one a kind does not support (`cpus=` on Keycloak, say) is
-refused, not ignored. `dbcanvas stack kinds` lists what each kind accepts.
+refused, not ignored. `dbcanvas-cli stack kinds` lists what each kind accepts.
 
 | `stack compose` flag | Meaning |
 | --- | --- |
@@ -249,7 +249,7 @@ Linux and `8.4.5-5-1` on Ubuntu).
 Percona Server with Keycloak SSO and PMM:
 
 ```sh
-dbcanvas stack compose sso-lab --ttl 8h \
+dbcanvas-cli stack compose sso-lab --ttl 8h \
   --node keycloak \
   --node 'ps,version=8.4.11,os=el9,oidc,monitor' \
   --node 'pmm,version=3' \
@@ -263,7 +263,7 @@ To check SSO works, open a console on the node and log in as a sample Keycloak u
 `john`, password `KEYCLOAK_USER_PASSWORD` from `.env`):
 
 ```sh
-dbcanvas node console sso-lab ps-01
+dbcanvas-cli node console sso-lab ps-01
 oidc-login jane
 ```
 
@@ -280,7 +280,7 @@ console is reachable from a browser on the VNC desktop.
 ### Example: a proxy and a demo app
 
 ```sh
-dbcanvas stack compose pg-lab \
+dbcanvas-cli stack compose pg-lab \
   --node 'patroni:3,os=el9,netLatencyMs=40,netLossPct=0.5,monitor' \
   --node 'haproxy,os=el9' \
   --node 'pgvectorsim,to=haproxy-01' \
@@ -293,12 +293,12 @@ use the cluster directly or through the proxy, so `to=` chooses.
 ### Example: slow network and slow disk
 
 ```sh
-dbcanvas stack compose flaky --node 'pxc:3,os=el9,netLatencyMs=80,netJitterMs=20,netLossPct=1'
-dbcanvas stack compose slowdisk --node 'ps,os=el9,deviceReadMbps=20,deviceWriteMbps=10'
+dbcanvas-cli stack compose flaky --node 'pxc:3,os=el9,netLatencyMs=80,netJitterMs=20,netLossPct=1'
+dbcanvas-cli stack compose slowdisk --node 'ps,os=el9,deviceReadMbps=20,deviceWriteMbps=10'
 ```
 
 Network shaping applies to the node's database and cluster ports. `netAllTraffic` shapes every
-packet, which can make the node fail its own provisioning. `dbcanvas stack validate` shows what
+packet, which can make the node fail its own provisioning. `dbcanvas-cli stack validate` shows what
 each shaped node will get.
 
 ### Example: sharded MongoDB
@@ -307,7 +307,7 @@ A sharded cluster has a fixed shape, so it takes `setup=` instead of a count:
 `setup=standard` (13 nodes) or `setup=minimum` (5).
 
 ```sh
-dbcanvas stack compose mongo-lab --node 'psmdb,setup=minimum,os=el9,mca' --node supportsim \
+dbcanvas-cli stack compose mongo-lab --node 'psmdb,setup=minimum,os=el9,mca' --node supportsim \
   --node mclusteradmin
 ```
 
@@ -319,14 +319,14 @@ disabled.
 ## Stacks
 
 ```sh
-dbcanvas stack list                          # id, name, status, nodes, expiry
-dbcanvas stack get pxc-lab                   # the design and every node's state
-dbcanvas stack create pxc-lab --template "PXC + ProxySQL + PMM" --ttl 4h
-dbcanvas stack validate pxc-lab              # check the design, build nothing
-dbcanvas stack deploy pxc-lab --wait         # deploy and wait for every node
-dbcanvas stack destroy pxc-lab               # remove the containers, keep the design
-dbcanvas stack delete pxc-lab                # remove both (asks first; --yes to skip)
-dbcanvas stack export pxc-lab > lab.json
+dbcanvas-cli stack list                          # id, name, status, nodes, expiry
+dbcanvas-cli stack get pxc-lab                   # the design and every node's state
+dbcanvas-cli stack create pxc-lab --template "PXC + ProxySQL + PMM" --ttl 4h
+dbcanvas-cli stack validate pxc-lab              # check the design, build nothing
+dbcanvas-cli stack deploy pxc-lab --wait         # deploy and wait for every node
+dbcanvas-cli stack destroy pxc-lab               # remove the containers, keep the design
+dbcanvas-cli stack delete pxc-lab                # remove both (asks first; --yes to skip)
+dbcanvas-cli stack export pxc-lab > lab.json
 ```
 
 | Command | Flags |
@@ -344,13 +344,13 @@ the deploy did not finish. Without it, `deploy` returns as soon as provisioning 
 ## Nodes
 
 ```sh
-dbcanvas node list pxc-lab                                # name, node id, state, container
-dbcanvas node stop pxc-lab pxc-01                         # also start, restart
-dbcanvas node console pxc-lab pxc-01                      # interactive root shell
-dbcanvas node exec pxc-lab pxc-01 -- mysql -e 'SHOW STATUS LIKE "wsrep%"'
-dbcanvas node cp ./my.cnf pxc-lab:pxc-01:/etc/my.cnf.d/
-dbcanvas node cp pxc-lab:pxc-01:/var/log/mysqld.log ./
-dbcanvas node tunnel pxc-lab pxc-01                       # print the ssh -L command
+dbcanvas-cli node list pxc-lab                                # name, node id, state, container
+dbcanvas-cli node stop pxc-lab pxc-01                         # also start, restart
+dbcanvas-cli node console pxc-lab pxc-01                      # interactive root shell
+dbcanvas-cli node exec pxc-lab pxc-01 -- mysql -e 'SHOW STATUS LIKE "wsrep%"'
+dbcanvas-cli node cp ./my.cnf pxc-lab:pxc-01:/etc/my.cnf.d/
+dbcanvas-cli node cp pxc-lab:pxc-01:/var/log/mysqld.log ./
+dbcanvas-cli node tunnel pxc-lab pxc-01                       # print the ssh -L command
 ```
 
 A node can be named by its **hostname** (`pxc-01`, as on the canvas) or its **node id**; `node
@@ -362,10 +362,10 @@ On a K3D frame's k3s server node, `--pod` opens the console inside a pod's conta
 the node. Nothing needs configuring on your machine.
 
 ```sh
-dbcanvas node pods k8s-lab k3s-01                            # pods and container states
-dbcanvas node console k8s-lab k3s-01 \
+dbcanvas-cli node pods k8s-lab k3s-01                            # pods and container states
+dbcanvas-cli node console k8s-lab k3s-01 \
   --namespace default --pod cluster1-pxc-0 --container pxc   # a shell in the pod
-dbcanvas node console k8s-lab k3s-01 \
+dbcanvas-cli node console k8s-lab k3s-01 \
   --pod cluster1-pxc-0 --container pxc --shell mysql         # a mysql prompt in it
 ```
 
@@ -386,27 +386,27 @@ console**.
 ## Templates
 
 ```sh
-dbcanvas template list
-dbcanvas template export "PXC + ProxySQL + PMM" > pxc.json
-dbcanvas template import pxc.json
+dbcanvas-cli template list
+dbcanvas-cli template export "PXC + ProxySQL + PMM" > pxc.json
+dbcanvas-cli template import pxc.json
 ```
 
 ## Load
 
 ```sh
-dbcanvas datagen connections
-dbcanvas datagen databases pxc-lab pxc-01
-dbcanvas datagen tables pxc-lab pxc-01 --database sbtest
-dbcanvas datagen run pxc-lab pxc-01 --database sbtest --table sbtest1 --rows 5000000 --wait
+dbcanvas-cli datagen connections
+dbcanvas-cli datagen databases pxc-lab pxc-01
+dbcanvas-cli datagen tables pxc-lab pxc-01 --database sbtest
+dbcanvas-cli datagen run pxc-lab pxc-01 --database sbtest --table sbtest1 --rows 5000000 --wait
 
-dbcanvas query targets
-dbcanvas query run --stack pxc-lab --nodes pxc-01,pxc-02 \
+dbcanvas-cli query targets
+dbcanvas-cli query run --stack pxc-lab --nodes pxc-01,pxc-02 \
                    --sql 'SELECT @@hostname, @@server_id' --json
-dbcanvas query history
+dbcanvas-cli query history
 
-dbcanvas benchmark targets
-dbcanvas benchmark run pxc-lab pxc-01 --workload oltp --duration 60 --wait
-dbcanvas benchmark history
+dbcanvas-cli benchmark targets
+dbcanvas-cli benchmark run pxc-lab pxc-01 --workload oltp --duration 60 --wait
+dbcanvas-cli benchmark history
 ```
 
 | Command | Flags |
@@ -420,43 +420,43 @@ dbcanvas benchmark history
 
 ```sh
 # Log Summary: several nodes' logs as one timeline
-dbcanvas logs targets
-dbcanvas logs collect pxc-lab --nodes pxc-01,pxc-02,pxc-03   # omit --nodes for every node with logs
-dbcanvas logs list
-dbcanvas logs get <bundle-id>
-dbcanvas logs events <bundle-id> --severity bad,warn --limit 50   # bad, warn, ok, info
-dbcanvas logs delete <bundle-id>
+dbcanvas-cli logs targets
+dbcanvas-cli logs collect pxc-lab --nodes pxc-01,pxc-02,pxc-03   # omit --nodes for every node with logs
+dbcanvas-cli logs list
+dbcanvas-cli logs get <bundle-id>
+dbcanvas-cli logs events <bundle-id> --severity bad,warn --limit 50   # bad, warn, ok, info
+dbcanvas-cli logs delete <bundle-id>
 
 # Packet Inspector: capture on a node, decoded
-dbcanvas capture targets
-dbcanvas capture start pxc-lab pxc-01 --seconds 30 --label login-burst
-dbcanvas capture list
-dbcanvas capture get <id>
-dbcanvas capture stop <id>
-dbcanvas capture packets <id> --limit 50
-dbcanvas capture download <id> --out cap.pcap     # the raw .pcap, for Wireshark
+dbcanvas-cli capture targets
+dbcanvas-cli capture start pxc-lab pxc-01 --seconds 30 --label login-burst
+dbcanvas-cli capture list
+dbcanvas-cli capture get <id>
+dbcanvas-cli capture stop <id>
+dbcanvas-cli capture packets <id> --limit 50
+dbcanvas-cli capture download <id> --out cap.pcap     # the raw .pcap, for Wireshark
 
 # Stalk Summary: pt-stalk
-dbcanvas stalk start pxc-lab pxc-01
-dbcanvas stalk status pxc-lab pxc-01
-dbcanvas stalk download pxc-lab pxc-01 --out ./
-dbcanvas stalk archives
-dbcanvas stalk analyse <archive-id>
+dbcanvas-cli stalk start pxc-lab pxc-01
+dbcanvas-cli stalk status pxc-lab pxc-01
+dbcanvas-cli stalk download pxc-lab pxc-01 --out ./
+dbcanvas-cli stalk archives
+dbcanvas-cli stalk analyse <archive-id>
 
 # FTDC Summary: MongoDB diagnostic data
-dbcanvas ftdc targets
-dbcanvas ftdc node mongo-lab psmdb-01
+dbcanvas-cli ftdc targets
+dbcanvas-cli ftdc node mongo-lab psmdb-01
 ```
 
 ## Watching
 
 ```sh
-dbcanvas dashboard              # the dashboard counters
-dbcanvas dashboard --live       # plus a live CPU/memory/network sample per node
-dbcanvas updates                # is a newer DBCanvas release available, and what changed
-dbcanvas updates --full         # with each release note's full text
-dbcanvas notifications
-dbcanvas notifications --read-all
+dbcanvas-cli dashboard              # the dashboard counters
+dbcanvas-cli dashboard --live       # plus a live CPU/memory/network sample per node
+dbcanvas-cli updates                # is a newer DBCanvas release available, and what changed
+dbcanvas-cli updates --full         # with each release note's full text
+dbcanvas-cli notifications
+dbcanvas-cli notifications --read-all
 ```
 
 Commands that print a table also accept `--json`. The diagnosis commands always print JSON.
@@ -464,12 +464,12 @@ Commands that print a table also accept `--json`. The diagnosis commands always 
 ## Any other endpoint
 
 ```sh
-dbcanvas endpoints                       # the whole catalogue
-dbcanvas endpoints --group Stacks -q backup
-dbcanvas api GET /api/stacks/12
-dbcanvas api POST /api/stacks/12/deploy
-dbcanvas api POST /api/templates/import --data @pxc.json
-dbcanvas api PUT  /api/me/settings --data '{"theme":"forest"}'
+dbcanvas-cli endpoints                       # the whole catalogue
+dbcanvas-cli endpoints --group Stacks -q backup
+dbcanvas-cli api GET /api/stacks/12
+dbcanvas-cli api POST /api/stacks/12/deploy
+dbcanvas-cli api POST /api/templates/import --data @pxc.json
+dbcanvas-cli api PUT  /api/me/settings --data '{"theme":"forest"}'
 ```
 
 | Command | Flags |
@@ -484,7 +484,7 @@ dbcanvas api PUT  /api/me/settings --data '{"theme":"forest"}'
 | `0` | Success. |
 | `1` | The request failed; the server's message is printed to stderr. |
 | `2` | Wrong command line. |
-| `3` | Not signed in, or the token expired or was revoked — run `dbcanvas login`. |
+| `3` | Not signed in, or the token expired or was revoked — run `dbcanvas-cli login`. |
 | `4` | `--wait` gave up: the deploy or job failed, or did not finish in time. |
 
 ## Scripting tips

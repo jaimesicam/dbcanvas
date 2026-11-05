@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// cmd_meta.go — `dbcanvas endpoints`, the discovery half of the escape hatch.
+// cmd_meta.go — `dbcanvas-cli endpoints`, the discovery half of the escape hatch.
 //
 // It prints what the *server* says it serves, not a list compiled into this binary.
 // So a CLI a few releases behind still describes the installation it is pointed at
@@ -92,7 +92,7 @@ func cmdEndpoints(args []string) error {
 		return nil
 	}
 	fmt.Printf("\n%d of %d endpoints on %s (DBCanvas %s).\n", shown, cat.Total, c.BaseURL, cat.Version)
-	fmt.Printf("Call any of them: dbcanvas api GET /api/stacks\n")
+	fmt.Printf("Call any of them: dbcanvas-cli api GET /api/stacks\n")
 	return nil
 }
 

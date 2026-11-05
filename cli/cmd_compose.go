@@ -8,11 +8,11 @@ import (
 	"strings"
 )
 
-// cmd_compose.go — `dbcanvas stack compose`.
+// cmd_compose.go — `dbcanvas-cli stack compose`.
 //
 // The point is to make the common ask a single line:
 //
-//	dbcanvas stack compose repro-1234 --ttl 8h \
+//	dbcanvas-cli stack compose repro-1234 --ttl 8h \
 //	  --node 'pxc:3,version=8.4.5,os=el8,monitor' \
 //	  --node 'ps,version=8.0.45,os=el9,ldap,monitor' \
 //	  --node 'pmm,version=3' \
@@ -152,7 +152,7 @@ func parseNodeSpec(arg string) (map[string]any, error) {
 			"           syncStandbys=, alertEmail=, buckets=a+b\n"+
 			"  shaping: netLatencyMs=, netJitterMs=, netLossPct=, netRateMbit=,\n"+
 			"           deviceReadMbps=, deviceWriteMbps=\n"+
-			"  `dbcanvas stack kinds` lists what each kind supports.", key, arg)
+			"  `dbcanvas-cli stack kinds` lists what each kind supports.", key, arg)
 	}
 	return out, nil
 }
@@ -160,7 +160,7 @@ func parseNodeSpec(arg string) (map[string]any, error) {
 func stackCompose(args []string) error {
 	fs := flagsFor("stack compose")
 	var nodes multiFlag
-	fs.Var(&nodes, "node", "kind[:count][,opt...] — repeatable; see `dbcanvas stack kinds`")
+	fs.Var(&nodes, "node", "kind[:count][,opt...] — repeatable; see `dbcanvas-cli stack kinds`")
 	specFile := fs.String("spec", "", "a JSON spec file (or - for stdin) instead of --node flags")
 	ttl := fs.String("ttl", "8h", "lifetime: 2h, 4h, 8h, 24h, 2w or infinity")
 	dryRun := fs.Bool("dry-run", false, "resolve and print the plan without creating anything")
@@ -195,18 +195,18 @@ func stackCompose(args []string) error {
 		spec["nodes"] = list
 	default:
 		fmt.Fprintln(os.Stderr,
-			"dbcanvas: give at least one --node, or --spec file.json\n\n"+
-				"  dbcanvas stack compose my-lab \\\n"+
+			"dbcanvas-cli: give at least one --node, or --spec file.json\n\n"+
+				"  dbcanvas-cli stack compose my-lab \\\n"+
 				"    --node 'pxc:3,version=8.4.5,os=el8,monitor' \\\n"+
 				"    --node 'ps,version=8.0.45,os=el9,ldap,monitor' \\\n"+
 				"    --node 'pmm,version=3'\n\n"+
-				"  `dbcanvas stack kinds` lists every kind and its options.")
+				"  `dbcanvas-cli stack kinds` lists every kind and its options.")
 		return errUsage
 	}
 
 	name := arg(0)
 	if name == "" && !*dryRun {
-		fmt.Fprintln(os.Stderr, "dbcanvas: a stack needs a name (or use --dry-run)")
+		fmt.Fprintln(os.Stderr, "dbcanvas-cli: a stack needs a name (or use --dry-run)")
 		return errUsage
 	}
 	spec["name"] = name
@@ -286,14 +286,14 @@ func stackCompose(args []string) error {
 		return fmt.Errorf("the design has problems (above) — fix them before deploying")
 	}
 	if !*deploy {
-		fmt.Printf("  Deploy it with `dbcanvas stack deploy %d --wait`.\n", res.Stack.ID)
+		fmt.Printf("  Deploy it with `dbcanvas-cli stack deploy %d --wait`.\n", res.Stack.ID)
 		return nil
 	}
 	return deployStack(c, *res.Stack, *wait, 0)
 }
 
 // stackKinds prints the spec language, from the server, for the same reason
-// `dbcanvas endpoints` does: the installation is the authority on what it can build.
+// `dbcanvas-cli endpoints` does: the installation is the authority on what it can build.
 func stackKinds(args []string) error {
 	fs := flagsFor("stack kinds")
 	if err := parse(fs, args); err != nil {

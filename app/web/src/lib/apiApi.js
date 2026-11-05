@@ -90,7 +90,7 @@ export function curlFor(ep, origin = '') {
 // cliFor is the equivalent dbcanvas-cli invocation. The raw `api` form is always
 // correct, which is the point of that command existing.
 export function cliFor(ep) {
-  return `dbcanvas api ${ep.method} ${samplePath(ep.path)}`
+  return `dbcanvas-cli api ${ep.method} ${samplePath(ep.path)}`
 }
 
 // matches filters an endpoint against the search box: the path, the summary and the

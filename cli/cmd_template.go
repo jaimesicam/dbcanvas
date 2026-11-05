@@ -97,7 +97,7 @@ func resolveTemplate(c *Client, ref string) (template, error) {
 	case 1:
 		return hits[0], nil
 	case 0:
-		return template{}, fmt.Errorf("no template matches %q (try `dbcanvas template list`)", ref)
+		return template{}, fmt.Errorf("no template matches %q (try `dbcanvas-cli template list`)", ref)
 	default:
 		var names []string
 		for _, tp := range hits {

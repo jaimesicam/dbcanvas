@@ -2,13 +2,13 @@
 //
 // It is a client of the same HTTP API the web UI uses (see docs/API.md) — there is
 // no privileged back door and no second implementation of anything. That is what
-// makes `dbcanvas api METHOD PATH` a complete escape hatch: every one of the app's
+// makes `dbcanvas-cli api METHOD PATH` a complete escape hatch: every one of the app's
 // endpoints is reachable from the day it exists, and the curated subcommands below
 // are ergonomics on top, not the boundary of what the tool can do.
 //
-//	dbcanvas login --url http://localhost:8080
-//	dbcanvas stack deploy my-pxc-lab --wait
-//	dbcanvas node console my-pxc-lab pxc-01
+//	dbcanvas-cli login --url http://localhost:8080
+//	dbcanvas-cli stack deploy my-pxc-lab --wait
+//	dbcanvas-cli node console my-pxc-lab pxc-01
 package main
 
 import (
@@ -67,13 +67,13 @@ func init() {
 		{"updates", "Check GitHub for a newer DBCanvas server, and what it would bring", cmdUpdates},
 		{"notifications", "Your notifications; --read-all to clear them", cmdNotifications},
 		{"endpoints", "List the API endpoints this installation serves", cmdEndpoints},
-		{"api", "Call any endpoint directly: dbcanvas api POST /api/stacks/1/deploy", cmdAPI},
+		{"api", "Call any endpoint directly: dbcanvas-cli api POST /api/stacks/1/deploy", cmdAPI},
 		{"version", "Print the CLI version, and the server's when signed in", cmdVersion},
 	}
 }
 
 func main() {
-	fs := flag.NewFlagSet("dbcanvas", flag.ContinueOnError)
+	fs := flag.NewFlagSet("dbcanvas-cli", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.StringVar(&g.profile, "profile", "", "which configured installation to use")
 	fs.StringVar(&g.url, "url", "", "DBCanvas base URL (overrides the profile and DBCANVAS_URL)")
@@ -100,21 +100,21 @@ func main() {
 		if c.name == name {
 			if err := c.run(args[1:]); err != nil {
 				if !errors.Is(err, errUsage) {
-					fmt.Fprintln(os.Stderr, "dbcanvas: "+err.Error())
+					fmt.Fprintln(os.Stderr, "dbcanvas-cli: "+err.Error())
 				}
 				os.Exit(exitCodeFor(err))
 			}
 			return
 		}
 	}
-	fmt.Fprintf(os.Stderr, "dbcanvas: unknown command %q\n\n", name)
+	fmt.Fprintf(os.Stderr, "dbcanvas-cli: unknown command %q\n\n", name)
 	usage()
 	os.Exit(2)
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "dbcanvas %s — drive a DBCanvas installation from your terminal\n\n", version)
-	fmt.Fprintln(os.Stderr, "Usage:\n  dbcanvas [global flags] <command> [arguments]\n\nCommands:")
+	fmt.Fprintf(os.Stderr, "dbcanvas-cli %s — drive a DBCanvas installation from your terminal\n\n", version)
+	fmt.Fprintln(os.Stderr, "Usage:\n  dbcanvas-cli [global flags] <command> [arguments]\n\nCommands:")
 	w := 0
 	for _, c := range commands {
 		if len(c.name) > w {
@@ -140,8 +140,8 @@ Exit codes:
   0 success   1 request failed   2 bad usage   3 not signed in   4 --wait gave up
 
 Every endpoint is reachable whether or not it has a subcommand:
-  dbcanvas endpoints              # the catalogue
-  dbcanvas api GET /api/stacks    # call any of them
+  dbcanvas-cli endpoints              # the catalogue
+  dbcanvas-cli api GET /api/stacks    # call any of them
 
 Docs: docs/API.md and docs/CLI.md in the DBCanvas repository.
 `)
@@ -174,14 +174,14 @@ func sub(group string, args []string, table map[string]func([]string) error, ord
 	}
 	fn, ok := table[args[0]]
 	if !ok {
-		fmt.Fprintf(os.Stderr, "dbcanvas %s: unknown subcommand %q\n\n", group, args[0])
+		fmt.Fprintf(os.Stderr, "dbcanvas-cli %s: unknown subcommand %q\n\n", group, args[0])
 		return subUsage(group, order, table)
 	}
 	return fn(args[1:])
 }
 
 func subUsage(group string, order []string, table map[string]func([]string) error) error {
-	fmt.Fprintf(os.Stderr, "Usage: dbcanvas %s <subcommand> [arguments]\n\nSubcommands:\n", group)
+	fmt.Fprintf(os.Stderr, "Usage: dbcanvas-cli %s <subcommand> [arguments]\n\nSubcommands:\n", group)
 	for _, n := range order {
 		if _, ok := table[n]; ok {
 			fmt.Fprintf(os.Stderr, "  %s\n", n)
@@ -204,7 +204,7 @@ var positional []string
 // parse runs a subcommand's flags and collects its positional arguments.
 //
 // It loops rather than calling Parse once because Go's flag package stops at the
-// first non-flag argument: `dbcanvas api POST /api/stacks --data '{}'` would leave
+// first non-flag argument: `dbcanvas-cli api POST /api/stacks --data '{}'` would leave
 // --data unparsed and silently send no body, which is exactly the documented form.
 // Re-parsing after each positional is the standard idiom for interspersed flags.
 func parse(fs *flag.FlagSet, args []string) error {
@@ -242,7 +242,7 @@ func nargs() int { return len(positional) }
 // need enforces a minimum number of positional arguments.
 func need(n int, what string) error {
 	if nargs() < n {
-		fmt.Fprintf(os.Stderr, "dbcanvas: expected %s\n", what)
+		fmt.Fprintf(os.Stderr, "dbcanvas-cli: expected %s\n", what)
 		return errUsage
 	}
 	return nil
@@ -254,7 +254,7 @@ func cmdVersion(args []string) error {
 	fmt.Println("Free software under the GPL-3.0-only, with NO WARRANTY.")
 	fmt.Println("Source and licences: https://github.com/jaimesicam/dbcanvas")
 	// The server's version is worth having in the same breath, but not worth
-	// failing over: `dbcanvas version` has to work before anybody has signed in.
+	// failing over: `dbcanvas-cli version` has to work before anybody has signed in.
 	c, err := mustClient()
 	if err != nil {
 		return nil

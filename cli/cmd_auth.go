@@ -45,7 +45,7 @@ func cmdLogin(args []string) error {
 		return err
 	}
 	// --url wins; otherwise reuse whatever this profile already pointed at, so
-	// re-authenticating an expired token is just `dbcanvas login`.
+	// re-authenticating an expired token is just `dbcanvas-cli login`.
 	baseURL := *url
 	if baseURL == "" && *profile != "" {
 		baseURL = cfg.Profiles[*profile].URL
@@ -312,7 +312,7 @@ func cmdWhoami(args []string) error {
 //
 // One shared reader, not one per prompt, and that is not tidiness: bufio reads
 // ahead, so a fresh reader per prompt swallows the lines the *next* prompt needs.
-// With three prompts in a row that means `printf 'old\nnew\nnew\n' | dbcanvas
+// With three prompts in a row that means `printf 'old\nnew\nnew\n' | dbcanvas-cli
 // password` fails on the second one with EOF, having already consumed the answer.
 // Keyed on the file so a test that swaps os.Stdin gets a reader over the new pipe.
 var (
@@ -340,7 +340,7 @@ func prompt(label string) (string, error) {
 // promptSecret reads a password without echoing it.
 //
 // When stdin is not a terminal it falls back to reading a line, which is what makes
-// `echo $PW | dbcanvas login --user x` work in a script. That is a deliberate
+// `echo $PW | dbcanvas-cli login --user x` work in a script. That is a deliberate
 // convenience and a documented one — but CI should use DBCANVAS_TOKEN and not have a
 // password to pipe in the first place.
 func promptSecret(label string) (string, error) {

@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// cmd_user.go — `dbcanvas user list | create`, for administrators.
+// cmd_user.go — `dbcanvas-cli user list | create`, for administrators.
 //
 // Listing works with the stored token (an admin-scoped one). Creating does not, and
 // that is the server's rule, not this file's: POST /api/users is marked NoToken
@@ -18,7 +18,7 @@ import (
 // signs in for the one request, and signs out.
 //
 // The new account gets either a temporary password, which the owner has to replace at
-// their first sign-in (`dbcanvas login` walks them through it), or with --invite a
+// their first sign-in (`dbcanvas-cli login` walks them through it), or with --invite a
 // one-time link, valid for 7 days, to choose their own in a browser.
 
 type userRow struct {
@@ -63,7 +63,7 @@ func userList(args []string) error {
 		return err
 	}
 	if len(users) == 0 {
-		empty("accounts", "Create one with `dbcanvas user create <username> --first … --last … --email …`.")
+		empty("accounts", "Create one with `dbcanvas-cli user create <username> --first … --last … --email …`.")
 		return nil
 	}
 	t := newTable("id", "username", "name", "email", "role", "status", "last sign-in", "sessions")
@@ -116,7 +116,7 @@ func userCreate(args []string) error {
 		}
 	}
 	if len(missing) > 0 {
-		fmt.Fprintf(os.Stderr, "dbcanvas: %s required — every account carries a name and an email address\n",
+		fmt.Fprintf(os.Stderr, "dbcanvas-cli: %s required — every account carries a name and an email address\n",
 			strings.Join(missing, ", "))
 		return errUsage
 	}
@@ -170,7 +170,7 @@ func userCreate(args []string) error {
 	// Both of these would be refused by the server anyway, with a less useful message.
 	if me.MustChangePassword {
 		return fmt.Errorf("%s has to choose their own password before doing anything else — "+
-			"run `dbcanvas login --user %s` first", who, who)
+			"run `dbcanvas-cli login --user %s` first", who, who)
 	}
 	if me.Role != "admin" {
 		return fmt.Errorf("%s is not an administrator — only an administrator can create accounts", who)
@@ -199,7 +199,7 @@ func userCreate(args []string) error {
 	} else {
 		fmt.Printf("\nThey must replace the temporary password at their first sign-in, which this does:\n\n")
 	}
-	fmt.Printf("  dbcanvas login --url %s --user %s --profile %s\n", p.URL, created.User.Username, created.User.Username)
+	fmt.Printf("  dbcanvas-cli login --url %s --user %s --profile %s\n", p.URL, created.User.Username, created.User.Username)
 	return nil
 }
 

@@ -5002,10 +5002,10 @@ check('api page: the CLI quick start takes you from a download to a command', ()
   for (const step of ['Download it', 'Put it on your PATH', 'Sign in once', 'Then do something']) {
     if (!html.includes(step)) throw new Error(`the quick start has no "${step}" step`)
   }
-  // The install line names the file the download actually hands over, and makes it `dbcanvas`.
+  // The install line names the file the download actually hands over, and makes it `dbcanvas-cli`.
   if (!/chmod \+x dbcanvas-cli_/.test(html)) throw new Error('nothing says to make it executable')
   if (!/\/usr\/local\/bin\/dbcanvas/.test(html)) throw new Error('nothing puts it on the PATH')
-  if (!html.includes('dbcanvas login --url')) throw new Error('the sign-in line is gone')
+  if (!html.includes('dbcanvas-cli login --url')) throw new Error('the sign-in line is gone')
   // And the way out of the four steps: the CLI's own command list, and the manual.
   if (!html.includes('Every command')) throw new Error('the command list is not offered')
   if (!html.includes('docs/CLI.md')) throw new Error('the manual link is gone')
@@ -5019,7 +5019,7 @@ check('api page: the command list, in each state it can be in', () => {
   const loading = renderToString(<ApiCliHelpText state={null} />)
   if (!/Asking the CLI/.test(loading)) throw new Error('nothing says it is loading')
 
-  const help = renderToString(<ApiCliHelpText state={{ help: 'Usage:\n  dbcanvas <command>\n\nCommands:\n  login  Sign in\n' }} />)
+  const help = renderToString(<ApiCliHelpText state={{ help: 'Usage:\n  dbcanvas-cli <command>\n\nCommands:\n  login  Sign in\n' }} />)
   if (!help.includes('login') || !help.includes('Usage:')) throw new Error('the usage text is not shown')
 
   const none = renderToString(<ApiCliHelpText state={{ unavailable: 'no bundled dbcanvas-cli — `make cli` builds it' }} />)

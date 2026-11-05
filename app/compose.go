@@ -45,7 +45,7 @@ type composeSpec struct {
 	TTL  string `json:"ttl"`
 	// DryRun resolves and validates without creating anything, so a caller can show
 	// the plan — which versions it settled on, what it added for you — before
-	// committing. This is what `dbcanvas stack compose --dry-run` prints.
+	// committing. This is what `dbcanvas-cli stack compose --dry-run` prints.
 	DryRun bool              `json:"dryRun"`
 	Nodes  []composeNodeSpec `json:"nodes"`
 }

@@ -4,7 +4,96 @@ Draw a database topology on a canvas, click **Deploy**, and get running nodes wi
 LDAP, replication, monitoring and backups already set up. Then load them, watch them and
 diagnose them with the tools that come with it.
 
+All of it can also be done from a terminal: [`dbcanvas-cli`](#dbcanvas-cli) composes, deploys,
+loads and diagnoses stacks without opening the browser.
+
 Use it for testing, demos, training, troubleshooting, benchmarking and application development.
+
+## Database stacks
+
+Every database runs on Oracle Linux 8, 9 or 10 or on Ubuntu 22.04 or 24.04, unless a row says
+otherwise. The **compose kind** is what `dbcanvas-cli stack compose --node` takes.
+
+| Engine | Topologies | Versions | Compose kind |
+| --- | --- | --- | --- |
+| **Percona Server for MySQL** | Standalone · async or semi-sync replication · InnoDB Cluster / Group Replication | 5.7, 8.0, 8.4, 9.7 | `ps` · `ps-repl` · `innodb` |
+| **Percona XtraDB Cluster** | Galera cluster of 1–9 members, optional garbd arbitrator | 8.0, 8.4, 9.7 | `pxc` |
+| **MySQL Community** | Standalone · async or semi-sync replication · InnoDB Cluster / Group Replication | 8.0, 8.4, 9.7 | `mysql` · `mysql-repl` · `mysql-innodb` |
+| **MariaDB** | Standalone · async or semi-sync replication · Galera | 10.6, 10.11, 11.4, 11.8, 12.3 | `mariadb` · `mariadb-repl` · `mariadb-galera` |
+| **Percona Distribution for PostgreSQL** | Standalone · streaming replication · Patroni | 13 – 18 | `pg` · `pg-stream` · `patroni` |
+| **PostgreSQL (PGDG)** | Standalone · streaming replication · Patroni · repmgr · Spock active-active (Oracle Linux only) | 13 – 18; Spock 15 – 18 | `pg-pgdg` · `pg-stream-pgdg` · `patroni-pgdg` · `repmgr` · `spock` |
+| **Percona Server for MongoDB** | Standalone · replica set · sharded cluster: 1 mongos, 1 config server and 3 single-member shards (5 nodes), or 1 mongos, 3 config servers and 3 shards of 3 (13 nodes) | 6.0, 7.0, 8.0, 8.3 | `psm` · `psmrs` · `psmdb` |
+| **MongoDB Community** | Standalone · replica set · sharded cluster (5 or 13 nodes, as for Percona Server for MongoDB) | 6.0, 7.0, 8.0, 8.2 | `mdb` · `mdb-rs` · `mdb-sharded` |
+| **Valkey** | Standalone · Valkey Cluster (3–7 shards) · Sentinel | 9.1 | `valkey` · `valkey-cluster` · `valkey-sentinel` |
+| **Kubernetes (K3D)** | k3s with one operator: Percona Operator for MySQL based on Percona XtraDB Cluster, Percona Operator for MySQL based on Percona Server, Percona Operator for MongoDB, Percona Operator for PostgreSQL, CloudNativePG, Crunchy Postgres for Kubernetes (PGO) or OpenEverest | k3s releases | designer or template |
+| **Kubernetes (kubeadm)** | Control plane + up to 3 workers, Calico or Flannel; ready, initialized, or prepared for a manual init | Kubernetes releases | designer or template |
+| **All in One** | Several of the engines above as instances in one node | as above | designer or template |
+
+### What DBCanvas installs and configures
+
+`yes` = set up at deploy from a switch or a line on the canvas.
+
+| Engine | TLS from the stack CA | PMM 3 | LDAP | Kerberos | OIDC (Keycloak) | Encryption keys in OpenBao | Backups to SeaweedFS S3 | In front |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: | --- | --- |
+| Percona Server | yes | yes | yes (standalone, replication; not 5.7) | no | yes (standalone, replication; 8.4.11-11, 9.7.2-2 or newer) | yes (standalone, replication) | XtraBackup, full + incremental, binlog PITR (standalone, replication) | ProxySQL, HAProxy (replication); Orchestrator (replication); MySQL Router (InnoDB Cluster / Group Replication) |
+| Percona XtraDB Cluster | yes | yes | yes | no | yes (8.4.11-11, 9.7.2-2 or newer) | yes | XtraBackup, full + incremental, binlog PITR | ProxySQL, HAProxy |
+| MySQL Community | yes | yes | no | no | no | no | no | Orchestrator (replication); MySQL Router (InnoDB Cluster / Group Replication) |
+| MariaDB | yes | yes | no | no | no | no | no | Orchestrator (replication) |
+| Percona PostgreSQL | yes | yes (QAN from pg_stat_statements or pg_stat_monitor) | yes (standalone) | yes (standalone) | yes (standalone) | yes (pg_tde, WAL too; standalone, Patroni) | pgBackRest | HAProxy (clusters), PgBouncer |
+| PostgreSQL (PGDG) | yes | yes (QAN from pg_stat_statements) | no | no | no | no | pgBackRest (not Spock); repmgr also offers Barman | HAProxy (clusters), PgBouncer |
+| Percona Server for MongoDB | yes | yes | yes (standalone) | yes (standalone) | yes (standalone) | yes (standalone) | PBM (replica set, sharded) | MClusterAdmin |
+| MongoDB Community | yes | yes | no | no | no | no | PBM (replica set, sharded) | MClusterAdmin |
+| Valkey | no | yes | yes | no | no | no | no | no |
+| Kubernetes (K3D) | cert-manager | yes | no | no | no | yes (PXC, MongoDB, Percona PostgreSQL pg_tde) | Operator backups; binlog PITR on PXC | no |
+
+Also per engine:
+
+- **MySQL family**: GTIDs, InnoDB sizing and durability (`innodb_buffer_pool_size`, redo log,
+  `sync_binlog`, `innodb_flush_log_at_trx_commit`), and innodump, binlogsum, mydumper and
+  gcache-inspector on request. Replication between two PXC or Percona Server clusters, one-way
+  or both ways.
+- **PostgreSQL**: pgvector, pgAudit, set_user, synchronous standbys, `pg_hba` methods
+  (scram-sha-256, md5, cert, trust), and a pgbench dataset at deploy.
+- **MongoDB**: Percona Search (`$search` / `$vectorSearch`) on 8.3.
+- **Kubernetes (K3D)**: volumes on k3s local-path or on a Ceph node (RBD, resizable), and
+  replication between two PXC clusters.
+- **Every database node**: a DNS name, CPU and memory limits, disk throughput limits, added
+  latency, jitter, packet loss and bandwidth caps, and a port published on the host.
+
+### Once it is running
+
+| Cluster | Switchover | Rolling restart | Failure drills | Users across members | Config drift | Diagnostics |
+| --- | :-: | :-: | :-: | :-: | :-: | --- |
+| MySQL, MariaDB replication and Group Replication | yes | yes | yes | yes | yes | Activity, deadlocks, pt-stalk |
+| PXC and MariaDB Galera | no | yes | yes | yes | yes | Activity, deadlocks, pt-stalk |
+| Patroni | yes | yes | yes | yes | yes | Activity, locks, pg_gather |
+| PostgreSQL streaming replication, repmgr | yes | yes | no | yes | yes | Activity, locks, pg_gather |
+| Spock | no | no | no | no | yes | Activity, locks, pg_gather |
+| MongoDB replica sets and sharded clusters | yes | yes | yes | yes | yes | Activity, FTDC |
+| Valkey Cluster and Sentinel | no | no | no | no | yes | Config drift only |
+| Kubernetes (K3D) | no | no | no | no | no | Live object board, pod consoles, operator debugger |
+
+Every node also has a console, a file manager, its log, start / stop / restart and rebuild.
+
+## `dbcanvas-cli`
+
+Everything above, from a terminal. Download it from your installation's **API** page or build it
+with `make cli`, and put it on your PATH as `dbcanvas-cli`, the command every example uses.
+
+| Task | Commands |
+| --- | --- |
+| Build a stack from one line per node | `stack kinds`, `stack compose NAME --node 'pxc:3,version=8.4,os=el9,monitor' --node pmm --deploy --wait` |
+| Manage stacks | `stack list`, `get`, `create --template`, `validate`, `deploy --wait`, `destroy`, `delete`, `export` |
+| Work on a node | `node list`, `console`, `exec … -- CMD`, `cp`, `start` / `stop` / `restart`, `tunnel`, `pods` |
+| Share designs | `template list`, `export`, `import` |
+| Load | `datagen run`, `query run` (several nodes at once), `benchmark run` (oltp, olap, rw, ro) |
+| Diagnose | `logs collect`, `capture start` (decoded packets, `.pcap` download), `stalk start` / `analyse`, `ftdc node` |
+| Watch | `dashboard --live`, `notifications`, `updates` |
+| Administer | `login`, `token`, `password`, `user`, `group` |
+| Anything else | `endpoints` to search the API, `api METHOD PATH` to call it |
+
+Kubernetes, kubeadm and All in One stacks come from a template or a design file rather than
+`stack compose`. Tables accept `--json`. → [`dbcanvas-cli` reference](docs/CLI.md)
 
 > [!IMPORTANT]
 > **DBCanvas is for testing and learning, not production.** Everything it deploys is disposable:
@@ -86,18 +175,9 @@ Ways to connect:
 | **Your machine** | Tick *Export … port to the host* before deploying. The node's panel shows the host port. |
 | **An SSH tunnel** | When DBCanvas runs on a server, set `SSH_FORWARDING_HOST` and copy the command from the node's menu. |
 
-## What you can build
+## Around the databases
 
-**Databases**, standalone or clustered, on Oracle Linux 8, 9 or 10 or Ubuntu 22.04 or 24.04
-(the versions offered depend on the engine).
-
-- **MySQL**: Percona Server, Percona XtraDB Cluster, MySQL Community, asynchronous replication,
-  InnoDB Cluster / Group Replication, and MariaDB (standalone, replication, Galera)
-- **PostgreSQL**: standalone, Patroni, repmgr and Spock
-- **MongoDB**: Percona Server for MongoDB, as a standalone, replica set or sharded cluster
-- **Valkey**: standalone and cluster
-- **Kubernetes**: a k3s cluster running a Percona operator (PXC, MySQL, MongoDB or PostgreSQL),
-  CloudNativePG, Crunchy PGO or OpenEverest
+The [database stacks](#database-stacks) above run alongside these nodes:
 
 **Infrastructure**: Intranet (DNS, mail, OpenLDAP, Squid proxy, certificate authority), PMM,
 ProxySQL, HAProxy, PgBouncer, Orchestrator, SeaweedFS (S3), Ceph, Keycloak, OpenBao, Samba AD DC,

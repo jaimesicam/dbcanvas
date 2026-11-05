@@ -11,8 +11,8 @@ import (
 //
 // DBCanvas has 200-odd endpoints and gains more most weeks. Hand-writing a
 // subcommand for each would be a second, always-lagging copy of the API's surface.
-// So `dbcanvas api METHOD PATH` reaches any of them with the token applied and the
-// same error reporting as everything else, `dbcanvas endpoints` is how you find the
+// So `dbcanvas-cli api METHOD PATH` reaches any of them with the token applied and the
+// same error reporting as everything else, `dbcanvas-cli endpoints` is how you find the
 // one you want, and the curated commands are ergonomics for the twenty verbs people
 // actually type daily — not the boundary of the tool.
 
@@ -25,9 +25,9 @@ func cmdAPI(args []string) error {
 		return err
 	}
 	if nargs() < 1 {
-		fmt.Fprintln(os.Stderr, "dbcanvas: usage: dbcanvas api [METHOD] <path> [--data '{…}']")
-		fmt.Fprintln(os.Stderr, "  e.g. dbcanvas api GET /api/stacks")
-		fmt.Fprintln(os.Stderr, "       dbcanvas api POST /api/stacks/1/deploy")
+		fmt.Fprintln(os.Stderr, "dbcanvas-cli: usage: dbcanvas-cli api [METHOD] <path> [--data '{…}']")
+		fmt.Fprintln(os.Stderr, "  e.g. dbcanvas-cli api GET /api/stacks")
+		fmt.Fprintln(os.Stderr, "       dbcanvas-cli api POST /api/stacks/1/deploy")
 		return errUsage
 	}
 
@@ -47,13 +47,13 @@ func cmdAPI(args []string) error {
 	switch method {
 	case "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD":
 	default:
-		return fmt.Errorf("%q is not an HTTP method — did you mean `dbcanvas api GET %s`?", method, method)
+		return fmt.Errorf("%q is not an HTTP method — did you mean `dbcanvas-cli api GET %s`?", method, method)
 	}
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
 	}
 	if !strings.HasPrefix(path, "/api/") {
-		return fmt.Errorf("%q is not an API path — they all start with /api/ (see `dbcanvas endpoints`)", path)
+		return fmt.Errorf("%q is not an API path — they all start with /api/ (see `dbcanvas-cli endpoints`)", path)
 	}
 
 	c, err := mustClient()

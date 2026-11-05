@@ -85,7 +85,7 @@ func datagenIntrospect(what string, args []string) error {
 	if err := parse(fs, args); err != nil {
 		return err
 	}
-	if err := need(2, "a stack and a node: dbcanvas datagen "+what+" <stack> <node>"); err != nil {
+	if err := need(2, "a stack and a node: dbcanvas-cli datagen "+what+" <stack> <node>"); err != nil {
 		return err
 	}
 	c, st, node, err := stackAndNode(arg(0), arg(1))
@@ -115,11 +115,11 @@ func datagenRun(args []string) error {
 	if err := parse(fs, args); err != nil {
 		return err
 	}
-	if err := need(2, "a stack and a node: dbcanvas datagen run <stack> <node> --table T --rows N"); err != nil {
+	if err := need(2, "a stack and a node: dbcanvas-cli datagen run <stack> <node> --table T --rows N"); err != nil {
 		return err
 	}
 	if *table == "" || *rows <= 0 {
-		fmt.Fprintln(os.Stderr, "dbcanvas: --table and --rows are both required")
+		fmt.Fprintln(os.Stderr, "dbcanvas-cli: --table and --rows are both required")
 		return errUsage
 	}
 	c, st, node, err := stackAndNode(arg(0), arg(1))
@@ -147,7 +147,7 @@ func datagenRun(args []string) error {
 	}
 	fmt.Printf("Generating %d rows into %s (job %s).\n", *rows, *table, job)
 	if !*wait {
-		fmt.Printf("  Follow it with `dbcanvas api GET /api/datagen/jobs/%s`.\n", job)
+		fmt.Printf("  Follow it with `dbcanvas-cli api GET /api/datagen/jobs/%s`.\n", job)
 		return nil
 	}
 	return waitForJob(c, "/api/datagen/jobs/"+url.PathEscape(job), *timeout)
@@ -253,7 +253,7 @@ func queryRun(args []string) error {
 		return err
 	}
 	if *stack == "" || *nodes == "" || *sql == "" {
-		fmt.Fprintln(os.Stderr, "dbcanvas: --stack, --nodes and --sql are all required")
+		fmt.Fprintln(os.Stderr, "dbcanvas-cli: --stack, --nodes and --sql are all required")
 		return errUsage
 	}
 	statement := *sql
@@ -377,7 +377,7 @@ func benchRun(args []string) error {
 	if err := parse(fs, args); err != nil {
 		return err
 	}
-	if err := need(2, "a stack and a node: dbcanvas benchmark run <stack> <node>"); err != nil {
+	if err := need(2, "a stack and a node: dbcanvas-cli benchmark run <stack> <node>"); err != nil {
 		return err
 	}
 	c, st, node, err := stackAndNode(arg(0), arg(1))
@@ -410,7 +410,7 @@ func benchRun(args []string) error {
 	fmt.Printf("Running the %s workload on %s for %ds (run %s).\n",
 		*workload, arg(1), *duration, started.ID)
 	if !*wait {
-		fmt.Printf("  Follow it with `dbcanvas api GET /api/benchmark/runs/%s`.\n", started.ID)
+		fmt.Printf("  Follow it with `dbcanvas-cli api GET /api/benchmark/runs/%s`.\n", started.ID)
 		return nil
 	}
 	// The duration is known, so wait a little past it rather than polling blindly.

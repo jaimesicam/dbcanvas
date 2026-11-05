@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// cmd_password.go — `dbcanvas password`.
+// cmd_password.go — `dbcanvas-cli password`.
 //
 // The endpoint is cookie-only (see app/password.go), so this cannot simply send the
 // stored token: it signs in with the current password, changes it, and signs out.
@@ -96,7 +96,7 @@ func cmdPassword(args []string) error {
 
 	fmt.Println("Password changed. Every other session was signed out.")
 	if *revoke {
-		fmt.Printf("Revoked %d API token(s), including this one — run `dbcanvas login` to get a new one.\n",
+		fmt.Printf("Revoked %d API token(s), including this one — run `dbcanvas-cli login` to get a new one.\n",
 			res.TokensRevoked)
 		// The stored token is dead, so leaving it in the config would only produce a
 		// confusing 401 later. Drop it and say so.

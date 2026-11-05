@@ -63,7 +63,7 @@ func logsCollect(args []string) error {
 	if err := parse(fs, args); err != nil {
 		return err
 	}
-	if err := need(1, "a stack name or id: dbcanvas logs collect <stack> [--nodes a,b]"); err != nil {
+	if err := need(1, "a stack name or id: dbcanvas-cli logs collect <stack> [--nodes a,b]"); err != nil {
 		return err
 	}
 	c, err := mustClient()
@@ -103,7 +103,7 @@ func logsGet(args []string) error {
 	if err := parse(fs, args); err != nil {
 		return err
 	}
-	if err := need(1, "a bundle id (see `dbcanvas logs list`)"); err != nil {
+	if err := need(1, "a bundle id (see `dbcanvas-cli logs list`)"); err != nil {
 		return err
 	}
 	c, err := mustClient()
@@ -124,7 +124,7 @@ func logsEvents(args []string) error {
 	if err := parse(fs, args); err != nil {
 		return err
 	}
-	if err := need(1, "a bundle id (see `dbcanvas logs list`)"); err != nil {
+	if err := need(1, "a bundle id (see `dbcanvas-cli logs list`)"); err != nil {
 		return err
 	}
 	c, err := mustClient()
@@ -186,7 +186,7 @@ func ftdcNode(args []string) error {
 	if err := parse(fs, args); err != nil {
 		return err
 	}
-	if err := need(2, "a stack and a MongoDB node: dbcanvas ftdc node <stack> <node>"); err != nil {
+	if err := need(2, "a stack and a MongoDB node: dbcanvas-cli ftdc node <stack> <node>"); err != nil {
 		return err
 	}
 	c, st, node, err := stackAndNode(arg(0), arg(1))
@@ -219,7 +219,7 @@ func stalkStart(args []string) error {
 	if err := parse(fs, args); err != nil {
 		return err
 	}
-	if err := need(2, "a stack and a node: dbcanvas stalk start <stack> <node>"); err != nil {
+	if err := need(2, "a stack and a node: dbcanvas-cli stalk start <stack> <node>"); err != nil {
 		return err
 	}
 	c, st, node, err := stackAndNode(arg(0), arg(1))
@@ -230,7 +230,7 @@ func stalkStart(args []string) error {
 		st.ID, url.PathEscape(node)), nil, nil); err != nil {
 		return err
 	}
-	fmt.Printf("pt-stalk started on %s. Follow it with `dbcanvas stalk status %s %s`.\n",
+	fmt.Printf("pt-stalk started on %s. Follow it with `dbcanvas-cli stalk status %s %s`.\n",
 		arg(1), arg(0), arg(1))
 	return nil
 }
@@ -286,7 +286,7 @@ func stalkAnalyse(args []string) error {
 	if err := parse(fs, args); err != nil {
 		return err
 	}
-	if err := need(1, "a kept archive id (see `dbcanvas stalk archives`)"); err != nil {
+	if err := need(1, "a kept archive id (see `dbcanvas-cli stalk archives`)"); err != nil {
 		return err
 	}
 	c, err := mustClient()
@@ -329,7 +329,7 @@ func captureStart(args []string) error {
 	if err := parse(fs, args); err != nil {
 		return err
 	}
-	if err := need(2, "a stack and a node: dbcanvas capture start <stack> <node> [--seconds N]"); err != nil {
+	if err := need(2, "a stack and a node: dbcanvas-cli capture start <stack> <node> [--seconds N]"); err != nil {
 		return err
 	}
 	c, st, node, err := stackAndNode(arg(0), arg(1))

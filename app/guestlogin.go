@@ -34,7 +34,7 @@ import (
 //
 // The API and dbcanvas-cli work as a guest too. POST /api/auth/guest gives a session
 // cookie like POST /api/auth/login, and that session may create an API token (which is
-// how `dbcanvas login --guest` works). A guest token is an ordinary user's token —
+// how `dbcanvas-cli login --guest` works). A guest token is an ordinary user's token —
 // write scope at most, its lifetime capped by maxTokenDays — and it lives no longer
 // than guest sign-in does: turning the setting off revokes it, and guestGate refuses
 // it on every request meanwhile. GET /api/setup/status says whether guest sign-in is

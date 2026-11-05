@@ -26,7 +26,7 @@ import (
 //
 // The API feature is also the key to programmatic access: a request made with an API
 // token is refused unless the token owner's group has it, and so is creating a token,
-// which is how `dbcanvas login` signs in. Without it a group uses DBCanvas in a
+// which is how `dbcanvas-cli login` signs in. Without it a group uses DBCanvas in a
 // browser only.
 //
 // Defaults: Administrators everything; Regular Users everything but Manage Users;

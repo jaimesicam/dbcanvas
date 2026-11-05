@@ -73,7 +73,7 @@ function WhereToRun({ who }) {
     <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
       <span className="font-medium text-fg">Run these on the node</span>, not on your machine: right-click
       {who ? ` ${who}` : ' the node'} on the canvas → <span className="font-medium">Enter root console</span> (or
-      use <span className="font-mono">dbcanvas node exec</span>). They run as root and step down to
+      use <span className="font-mono">dbcanvas-cli node exec</span>). They run as root and step down to
       <span className="font-mono"> postgres</span> with <span className="font-mono">runuser</span>, because that is
       the user whose configuration and S3 credentials the tools read.
     </div>

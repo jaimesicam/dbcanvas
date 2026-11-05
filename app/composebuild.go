@@ -88,7 +88,7 @@ func buildCompose(spec composeSpec) (designDoc, map[string][2]float64, []compose
 		if why, no := unsupportedKinds[kind]; no {
 			return designDoc{}, nil, nil, nil, fmt.Errorf(
 				"compose does not build %q: %s. Start from a template "+
-					"(`dbcanvas template list`) and edit the design instead", kind, why)
+					"(`dbcanvas-cli template list`) and edit the design instead", kind, why)
 		}
 		if _, ok := composeKindByName(kind); !ok {
 			unknown = append(unknown, kind)

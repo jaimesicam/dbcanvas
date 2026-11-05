@@ -65,7 +65,7 @@ func tokenList(args []string) error {
 		return err
 	}
 	if len(res.Tokens) == 0 {
-		empty("tokens", "Create one with `dbcanvas token create --name \"my script\"`.")
+		empty("tokens", "Create one with `dbcanvas-cli token create --name \"my script\"`.")
 		return nil
 	}
 	head := []string{"id", "name", "scope", "state", "expires", "last used"}
@@ -106,7 +106,7 @@ func tokenCreate(args []string) error {
 		return err
 	}
 	if *name == "" {
-		fmt.Fprintln(os.Stderr, "dbcanvas: --name is required — an unnamed token is one nobody dares revoke")
+		fmt.Fprintln(os.Stderr, "dbcanvas-cli: --name is required — an unnamed token is one nobody dares revoke")
 		return errUsage
 	}
 	cfg, err := loadConfig()
@@ -171,12 +171,12 @@ func tokenRevoke(args []string) error {
 	if err := parse(fs, args); err != nil {
 		return err
 	}
-	if err := need(1, "a token id (see `dbcanvas token list`)"); err != nil {
+	if err := need(1, "a token id (see `dbcanvas-cli token list`)"); err != nil {
 		return err
 	}
 	id, err := strconv.ParseInt(arg(0), 10, 64)
 	if err != nil {
-		return fmt.Errorf("%q is not a token id — `dbcanvas token list` shows them", arg(0))
+		return fmt.Errorf("%q is not a token id — `dbcanvas-cli token list` shows them", arg(0))
 	}
 	c, err := mustClient()
 	if err != nil {

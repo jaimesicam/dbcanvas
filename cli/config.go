@@ -27,7 +27,7 @@ const configPerm = 0o600
 type Profile struct {
 	URL   string `json:"url"`
 	Token string `json:"token"`
-	// User and Scope are cosmetic — `dbcanvas whoami` prints them without a round
+	// User and Scope are cosmetic — `dbcanvas-cli whoami` prints them without a round
 	// trip, and they make the file legible to whoever opens it. Neither is trusted:
 	// the server is the authority on what a token can do.
 	User    string `json:"user,omitempty"`
@@ -63,7 +63,7 @@ func configPath() (string, error) {
 }
 
 // loadConfig reads the config, returning an empty one when the file does not exist.
-// A missing config is the normal state before `dbcanvas login`, not an error.
+// A missing config is the normal state before `dbcanvas-cli login`, not an error.
 func loadConfig() (Config, error) {
 	c := Config{Profiles: map[string]Profile{}}
 	path, err := configPath()
@@ -165,5 +165,5 @@ func (c Config) resolve(profileFlag, urlFlag, tokenFlag string) (Profile, string
 }
 
 var errNotConfigured = errors.New(
-	"no DBCanvas installation configured — run `dbcanvas login --url http://localhost:8080`," +
+	"no DBCanvas installation configured — run `dbcanvas-cli login --url http://localhost:8080`," +
 		" or set DBCANVAS_URL and DBCANVAS_TOKEN")

@@ -171,7 +171,7 @@ function AccessTab({ cfg }) {
           in any of the commands below. The user name comes from the certificate’s
           <span className="font-mono"> CN</span> — the one minted at deploy is for
           <span className="font-mono"> {role}</span>, in <span className="font-mono">{dir}</span> on this node.
-          Copy it out with <span className="font-mono">dbcanvas node cp</span> to connect from anywhere else.
+          Copy it out with <span className="font-mono">dbcanvas-cli node cp</span> to connect from anywhere else.
         </div>
       )}
 

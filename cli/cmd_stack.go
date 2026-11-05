@@ -100,7 +100,7 @@ func resolveStack(c *Client, ref string) (Stack, error) {
 				len(set), ref, strings.Join(ids, ", "))
 		}
 	}
-	return Stack{}, fmt.Errorf("no stack called %q (try `dbcanvas stack list`)", ref)
+	return Stack{}, fmt.Errorf("no stack called %q (try `dbcanvas-cli stack list`)", ref)
 }
 
 func stackList(args []string) error {
@@ -124,7 +124,7 @@ func stackList(args []string) error {
 		return err
 	}
 	if len(stacks) == 0 {
-		empty("stacks", "Create one with `dbcanvas stack create <name> --template <name>`.")
+		empty("stacks", "Create one with `dbcanvas-cli stack create <name> --template <name>`.")
 		return nil
 	}
 	t := newTable("id", "name", "status", "ttl", "expires", "created")
@@ -168,7 +168,7 @@ func stackGet(args []string) error {
 	fmt.Printf("%-10s %s%s\n", "ttl", d.TTL, ttlSuffix(d.ExpiresAt))
 	fmt.Println()
 	if len(d.Deployments) == 0 {
-		empty("deployed nodes", "Deploy it with `dbcanvas stack deploy "+d.Name+" --wait`.")
+		empty("deployed nodes", "Deploy it with `dbcanvas-cli stack deploy "+d.Name+" --wait`.")
 		return nil
 	}
 	t := newTable("node", "state", "container")
@@ -262,7 +262,7 @@ func stackCreate(args []string) error {
 	}
 	fmt.Printf("Created %q (id %d), %s.\n", created.Name, created.ID, created.TTL)
 	if !*deploy {
-		fmt.Printf("  Deploy it with `dbcanvas stack deploy %d --wait`.\n", created.ID)
+		fmt.Printf("  Deploy it with `dbcanvas-cli stack deploy %d --wait`.\n", created.ID)
 		return nil
 	}
 	return deployStack(c, created, *wait, 0)
@@ -352,7 +352,7 @@ func deployStack(c *Client, st Stack, wait bool, timeout time.Duration) error {
 		return err
 	}
 	if !wait {
-		fmt.Printf("Deploying %s. Watch it with `dbcanvas stack get %d`.\n", st.Name, st.ID)
+		fmt.Printf("Deploying %s. Watch it with `dbcanvas-cli stack get %d`.\n", st.Name, st.ID)
 		return nil
 	}
 	if timeout == 0 {

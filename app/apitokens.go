@@ -47,7 +47,7 @@ const tokenPrefix = "dbc_"
 // SHA-256 rather than bcrypt — there is no dictionary to run against it.
 const tokenBytes = 32
 
-// maxTokenNameLen keeps a name usable as a label in the UI and in `dbcanvas token list`.
+// maxTokenNameLen keeps a name usable as a label in the UI and in `dbcanvas-cli token list`.
 const maxTokenNameLen = 64
 
 // ErrTokenNotFound is returned when no live token matches a secret.
