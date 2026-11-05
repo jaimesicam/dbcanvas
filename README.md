@@ -40,7 +40,7 @@ otherwise. The **compose kind** is what `dbcanvas-cli stack compose --node` take
 | MySQL Community | yes | yes | no | no | no | no | XtraBackup, full + incremental, binlog PITR (standalone, replication) | ProxySQL, HAProxy (replication); Orchestrator (replication); MySQL Router (InnoDB Cluster / Group Replication) |
 | MariaDB | yes | yes | no | no | no | no | no | Orchestrator (replication) |
 | Percona PostgreSQL | yes | yes (QAN from pg_stat_statements or pg_stat_monitor) | yes (standalone) | yes (standalone) | yes (standalone) | yes (pg_tde, WAL too; standalone, Patroni) | pgBackRest | HAProxy (clusters), PgBouncer |
-| PostgreSQL (PGDG) | yes | yes (QAN from pg_stat_statements) | no | no | no | no | pgBackRest (not Spock); repmgr also offers Barman | HAProxy (clusters), PgBouncer |
+| PostgreSQL (PGDG) | yes | yes (QAN from pg_stat_statements) | yes (standalone) | yes (standalone) | no | no | pgBackRest (not Spock); repmgr also offers Barman | HAProxy (clusters), PgBouncer |
 | Percona Server for MongoDB | yes | yes | yes (standalone) | yes (standalone) | yes (standalone) | yes (standalone) | PBM (replica set, sharded) | MClusterAdmin |
 | MongoDB Community | yes | yes | no | no | no | no | PBM (replica set, sharded) | MClusterAdmin |
 | Valkey | no | yes | yes | no | no | no | no | no |

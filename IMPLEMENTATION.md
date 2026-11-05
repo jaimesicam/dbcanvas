@@ -29530,3 +29530,45 @@ into `mysql`; 4 KiB of random bytes read back with the same SHA-256; `--timeout 
 stopped after 3 s with exit 124 (143 from busybox on the alpine node, which `timedOut` also counts);
 `--user mysql`. `whoami` showed the server's token name, scope and expiry; `node exec -h` and
 `help node` printed their usage and exited 0; an unknown path came back as the JSON 404.
+
+## 517. LDAP and Kerberos on PGDG (and Ubuntu) PostgreSQL; Samba and Kerberos in compose — `app/dbauth.go`, `app/compose.go`, `app/samba.go`, `README.md`
+
+A standalone PGDG PostgreSQL node was already offered LDAP and Kerberos (GSSAPI) by the designer,
+compose and validation, and the PGDG builds are compiled `--with-ldap --with-gssapi`; the README
+matrix said otherwise and now says yes (standalone), as for Percona's. Deploying it showed the
+setup had never worked on Ubuntu, for Percona's packages either:
+
+- **Configuration directory.** `pgDirAuthScript` looked for pg_hba.conf under `/var/lib` only. On
+  Ubuntu the packages keep it in `/etc/postgresql/<major>/main`. The server now passes `CONFDIR`
+  (`pgConfDir`), with a search that includes `/etc/postgresql` as the fallback.
+- **Keytab.** It went to `/var/lib/pgsql`, which exists only on Oracle Linux. `pgKeytabPath` puts
+  it in the postgres user's home on each OS (`/var/lib/postgresql` on Ubuntu).
+- **python3.** pg_hba.conf was edited with python3, which Ubuntu's images do not have. The edit is
+  now awk (gawk on Oracle Linux, mawk on Ubuntu): the rules still go in front of the first
+  catch-all scram rule, or at the top when there is none, and the file keeps its inode, owner and
+  mode. `krb5ClientInstall` refreshes apt's lists when the first install finds none.
+
+The MongoDB directory-auth script has the same python3 and dnf-only assumptions; it is unchanged
+here.
+
+**Compose.** A `sambaad` entry got the spec's default OS family (oraclelinux) beside the 24.04 its
+provisioner hard-codes, an image that does not exist, and failed to deploy. The kind is now pinned
+to ubuntu 24.04 and `provisionSambaNode` no longer reads `n.OS`. The `kerberos` link set
+`ldapDirNodeId` to the Samba DC unconditionally, so `ldap,ldapWith=intranet-01,kerberos` silently
+became LDAP against the DC; the keytab comes from the stack's DC regardless (`sambaNodeID`), so the
+link now only points a node at the DC when no directory is set.
+
+**Verified.** Unit tests: `TestPGKeytabPath`, `TestPGDirAuthScriptFindsTheConfigDirectory`,
+`TestPGHBAEditPlacesTheRules` (catch-all and top placement, a bind password with quotes, a
+backslash, `$` and `&` byte for byte, mode kept), `TestComposeSambaAndKerberosWithIntranetLDAP`;
+the same edit run with gawk (Oracle Linux 9 image) and mawk (Ubuntu 24.04 image). Live: a stack of
+an Intranet, a Samba AD DC and PGDG PostgreSQL 17 on Oracle Linux 9 and on Ubuntu 24.04, each with
+LDAP against the Intranet and Kerberos against the DC. The Oracle Linux node was configured at
+deploy; the Ubuntu node got its config directory and keytab right and stopped at python3, and the
+awk version of the script, run on it, completed. From each node to the other: an OpenLDAP user
+logged in with its password and was refused with a wrong one ("LDAP authentication failed"), and a
+Samba user logged in with a Kerberos ticket only (`pg_stat_gssapi`: authenticated, encrypted,
+principal `krbtest@EXAMPLE.NET`).
+After a rebuild, a fresh deploy of the same stack configured both nodes by itself ("LDAP against
+intranet.example.net + Kerberos SSO (realm EXAMPLE.NET) configured" on each), and the same logins
+passed in both directions.

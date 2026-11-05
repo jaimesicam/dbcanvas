@@ -65,11 +65,9 @@ func (a *App) provisionSambaNode(st Stack, n designNode, doc designDoc) {
 		host = sanitizeName(n.Label)
 	}
 	fqdn := fqdnOf(host, domain)
-	os := n.OS
-	if os == "" {
-		os = "ubuntu"
-	}
-	osVersion := "24.04" // Samba AD DC is Ubuntu 24.04 only
+	// Samba AD DC is Ubuntu 24.04 only. The family is fixed with the version: taking n.OS
+	// paired a design's "oraclelinux" with 24.04, an image that does not exist.
+	os, osVersion := "ubuntu", "24.04"
 	image := pxcImage(os, osVersion, n.Arch)
 	realm := sambaRealm(domain)
 	workgroup := sambaWorkgroup(domain)
@@ -138,7 +136,7 @@ func (a *App) provisionSambaNode(st Stack, n designNode, doc designDoc) {
 			pr.fail("systemd did not start: %v", err)
 			return
 		}
-		a.trustIntranetCA(ctx, st, id, n.OS, pr.logln)
+		a.trustIntranetCA(ctx, st, id, os, pr.logln)
 		if n.UseProxy {
 			if err := a.runStep(ctx, id, pkgProxyDebian, []string{"PROXY=http://intranet." + domain + ":3128"}, pr.logln); err != nil {
 				pr.logln("configure apt proxy skipped: " + err.Error())

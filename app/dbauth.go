@@ -209,7 +209,7 @@ func (a *App) applyDirectoryAuthStep(ctx context.Context, st Stack, n designNode
 	keytabPath := ""
 	if kerberos {
 		svc := "postgres"
-		keytabPath = "/var/lib/pgsql/dbcanvas.keytab"
+		keytabPath = pgKeytabPath(n.OS)
 		if engine == "psm" {
 			svc, keytabPath = "mongodb", "/etc/mongod.keytab"
 		}
@@ -233,6 +233,11 @@ func (a *App) applyDirectoryAuthStep(ctx context.Context, st Stack, n designNode
 		"NODEFQDN=" + nodeFQDN, "REALM=" + samba.Realm, "ROOTPW=" + rootPW,
 		"KEYTAB=" + keytabPath, "KRB=" + boolEnv(kerberos),
 		"UNIT=" + step.Unit, "RESTART=" + boolEnv(step.Restart),
+	}
+	if engine == "pg" {
+		// Where pg_hba.conf and postgresql.conf are: the data directory on Oracle Linux,
+		// /etc/postgresql/<major>/main on Ubuntu (Percona's and PGDG's packages alike).
+		env = append(env, "CONFDIR="+pgConfDir(n.OS, n.PGMajor))
 	}
 	var script string
 	switch engine {
@@ -263,6 +268,17 @@ func (a *App) applyDirectoryAuthStep(ctx context.Context, st Stack, n designNode
 	}
 	pr.logln(msg + " configured")
 	return nil
+}
+
+// pgKeytabPath is where a PostgreSQL node's Kerberos keytab goes: the postgres user's home,
+// which both distributions' packages create — /var/lib/pgsql on Oracle Linux,
+// /var/lib/postgresql on Ubuntu. (/var/lib/pgsql was used everywhere, and does not exist on
+// Ubuntu, so the keytab could not be staged there.)
+func pgKeytabPath(os string) string {
+	if isDebianOS(os) {
+		return "/var/lib/postgresql/dbcanvas.keytab"
+	}
+	return "/var/lib/pgsql/dbcanvas.keytab"
 }
 
 func boolEnv(b bool) string {
@@ -311,10 +327,14 @@ func (a *App) persistDirAuth(st Stack, nodeID string, info dirAuthInfo) {
 // ---------------------------------------------------------------- engine scripts
 
 // pgDirAuthScript wires pg_hba `ldap` (search+bind) and, when KRB=1, `hostgssenc … gss`
-// (krb_server_keyfile + staged krb5.conf). The postgres superuser keeps scram.
+// (krb_server_keyfile + staged krb5.conf). The postgres superuser keeps scram. CONFDIR is the
+// directory holding pg_hba.conf and postgresql.conf (pgConfDir); the search is only a fallback,
+// and it includes /etc/postgresql, where Ubuntu's packages keep them — it used to look under
+// /var/lib only, which on Ubuntu holds the data but not the configuration.
 const pgDirAuthScript = `set -e
-DATA=$(dirname "$(find /var/lib/pgsql /var/lib/postgresql -name pg_hba.conf 2>/dev/null | head -1)")
-[ -n "$DATA" ] || { echo "pg_hba.conf not found"; exit 1; }
+DATA="${CONFDIR:-}"
+[ -n "$DATA" ] && [ -f "$DATA/pg_hba.conf" ] || DATA=$(dirname "$(find /etc/postgresql /var/lib/pgsql /var/lib/postgresql -name pg_hba.conf 2>/dev/null | head -1)")
+[ -f "$DATA/pg_hba.conf" ] || { echo "pg_hba.conf not found"; exit 1; }
 HBA="$DATA/pg_hba.conf"; CONF="$DATA/postgresql.conf"
 sed -i "/# dbcanvas-dirauth/d" "$HBA" "$CONF"
 LDAPLINE=""; SU=""; GSS=""
@@ -327,25 +347,25 @@ if [ "$KRB" = "1" ]; then
   echo "krb_server_keyfile = '$KEYTAB' # dbcanvas-dirauth" >> "$CONF"
   GSS="hostgssenc all all 0.0.0.0/0 gss include_realm=0 # dbcanvas-dirauth"
 fi
-SU="$SU" GSS="$GSS" LDAPLINE="$LDAPLINE" python3 - "$HBA" <<'PY'
-import os,re,sys
-hba=sys.argv[1]
-add=[l for l in (os.environ["SU"],os.environ["GSS"],os.environ["LDAPLINE"]) if l]
-lines=open(hba).read().splitlines(); out=[]; done=False
-for ln in lines:
-    if not done and re.match(r"host\s+all\s+all\s+0\.0\.0\.0/0\s+scram-sha-256\s*$", ln):
-        out+=add; done=True
-    out.append(ln)
-if not done: out=add+out
-open(hba,"w").write("\n".join(out)+"\n")
-PY
+# The new rules go in front of the first catch-all scram rule, or at the top when there is
+# none: pg_hba is first-match-wins, so they must come before anything that would answer first.
+# awk, not python3: Ubuntu's images have no Python (this was why directory login failed there).
+ADD=$(mktemp); printf '%s\n' "$SU" "$GSS" "$LDAPLINE" | grep -v '^$' > "$ADD" || true
+CATCHALL='^host[ \t]+all[ \t]+all[ \t]+0[.]0[.]0[.]0[/]0[ \t]+scram-sha-256[ \t]*$'
+if awk -v re="$CATCHALL" '$0 ~ re { found = 1 } END { exit !found }' "$HBA"; then
+  awk -v re="$CATCHALL" -v add="$ADD" '!done && $0 ~ re { while ((getline l < add) > 0) print l; done = 1 } { print }' "$HBA" > "$HBA.dbcanvas"
+else
+  cat "$ADD" "$HBA" > "$HBA.dbcanvas"
+fi
+cat "$HBA.dbcanvas" > "$HBA"; rm -f "$HBA.dbcanvas" "$ADD"
 su - postgres -c "psql -tAc 'SELECT pg_reload_conf()'" >/dev/null
 echo "pg_hba.conf updated + reloaded"`
 
 // krb5ClientInstall installs the Kerberos client tools (kinit/klist): krb5-user on Debian/
 // Ubuntu, krb5-workstation on Oracle Linux / RHEL.
 const krb5ClientInstall = `if command -v apt-get >/dev/null 2>&1; then
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq krb5-user >/dev/null 2>&1 || true
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq krb5-user >/dev/null 2>&1 ||
+      { apt-get update -qq >/dev/null 2>&1; DEBIAN_FRONTEND=noninteractive apt-get install -y -qq krb5-user >/dev/null 2>&1; } || true
   else
     (microdnf install -y krb5-workstation >/dev/null 2>&1 || dnf install -y krb5-workstation >/dev/null 2>&1) || true
   fi`

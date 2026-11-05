@@ -319,9 +319,15 @@ var composeLinks = []composeLink{
 		Missing: `Kerberos needs a directory that issues tickets — add {"kind":"sambaad"}`,
 		Apply: func(id string, n *designNode, f *designFrame) {
 			if n != nil {
-				// GSSAPI is layered on the same directory binding, so the node has to
-				// be pointed at it as well.
-				n.KerberosAuth, n.LdapDirNodeID = true, id
+				// The keytab always comes from the stack's Samba DC (dbauth.go), so Kerberos
+				// needs no directory of its own. The node is pointed at the DC only when
+				// nothing else holds that field: with `ldap` too, LDAP keeps the directory it
+				// asked for (ldapWith=intranet-01 is LDAP against OpenLDAP plus Kerberos
+				// against the DC). Overwriting it sent LDAP to the DC instead, silently.
+				n.KerberosAuth = true
+				if n.LdapDirNodeID == "" {
+					n.LdapDirNodeID = id
+				}
 			}
 		}},
 	{Option: "vault", Provides: []string{"openbao"},
@@ -567,7 +573,7 @@ var composeKinds = []composeKind{
 		About: "SeaweedFS S3, as a backup target."},
 	{Kind: "keycloak", Type: "keycloak", NoSizing: true, Singleton: true, ImageOnly: true, About: "Keycloak, as an OIDC identity provider."},
 	{Kind: "openbao", Type: "openbao", NoSizing: true, Singleton: true, PinOS: [2]string{"oraclelinux", "9"}, About: "OpenBao, for data-at-rest encryption keys."},
-	{Kind: "sambaad", Type: "sambaad", NoSizing: true, About: "Samba AD DC, as a directory and Kerberos realm."},
+	{Kind: "sambaad", Type: "sambaad", NoSizing: true, PinOS: [2]string{"ubuntu", "24.04"}, About: "Samba AD DC, as a directory and Kerberos realm."},
 	{Kind: "vnc", Type: "vnc", NoSizing: true, Singleton: true, PinOS: [2]string{"ubuntu", "24.04"}, About: "An Ubuntu desktop with a browser and the database clients."},
 	{Kind: "watchtower", Type: "watchtower", NoSizing: true, Singleton: true, ImageOnly: true, About: "Watchtower, for in-app PMM upgrades."},
 

@@ -1336,3 +1336,34 @@ func TestComposeBackupLeavesClusterMembersAlone(t *testing.T) {
 		t.Errorf("pg's store is not HTTPS: %+v", sw)
 	}
 }
+
+// A Samba AD DC is Ubuntu 24.04 whatever else the spec runs, and Kerberos leaves the LDAP
+// directory a node asked for alone.
+func TestComposeSambaAndKerberosWithIntranetLDAP(t *testing.T) {
+	composeCatalogFixture(t)
+	doc, _, _, _ := composeBuild(t, composeSpec{Name: "x", Nodes: []composeNodeSpec{
+		{Kind: "sambaad"},
+		{Kind: "pg", OS: "el9", LDAP: true, LDAPWith: "intranet-01", Kerberos: true},
+	}})
+	for _, n := range doc.Nodes {
+		switch n.Type {
+		case "sambaad":
+			if n.OS != "ubuntu" || n.OSVersion != "24.04" {
+				t.Errorf("samba: %s %s", n.OS, n.OSVersion)
+			}
+		case "pg":
+			if !n.LdapAuth || !n.KerberosAuth || n.LdapDirNodeID != "n-intranet-01" {
+				t.Errorf("pg: ldap=%v kerberos=%v dir=%q", n.LdapAuth, n.KerberosAuth, n.LdapDirNodeID)
+			}
+		}
+	}
+	// Kerberos alone points the node at the DC.
+	doc, _, _, _ = composeBuild(t, composeSpec{Name: "x", Nodes: []composeNodeSpec{
+		{Kind: "sambaad"}, {Kind: "pg", OS: "el9", Kerberos: true},
+	}})
+	for _, n := range nodesOfType(doc, "pg") {
+		if n.LdapDirNodeID != "n-sambaad-01" {
+			t.Errorf("kerberos only: dir=%q", n.LdapDirNodeID)
+		}
+	}
+}
