@@ -29,7 +29,7 @@ var helpText = map[string]cmdHelp{
 	"password":      {"", "Change your own password."},
 	"api":           {"[METHOD] <path>", "Call any endpoint: GET by default, POST when --data is given. `endpoints` lists them."},
 	"endpoints":     {"", "List the API endpoints this installation serves."},
-	"version":       {"", "The CLI's version, the server's, and whether they match; --json (before it) as data."},
+	"version":       {"", "The CLI's version, the server's, and whether they match; --json (before it) as data. --verify checks this binary against the server's checksums; --verify --release against the signed list on its GitHub release."},
 	"doctor":        {"", "Check this installation: Docker, node images, version catalogue, passwords still at their example value, the encryption key, exposure. Needs an admin-scope token (`dbcanvas-cli login --scope admin`). Exits 1 when a check fails."},
 	"commands":      {"", "Every command with its arguments and flags. With the global --json, as data a program can read."},
 	"dashboard":     {"", "The dashboard's counters; --live adds a CPU, memory and network sample per node."},

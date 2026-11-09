@@ -30135,3 +30135,25 @@ naming them and giving the fix: `scripts/gen-secrets.sh .env`, then `make restar
 change them itself, since they are the services' own passwords, read from `.env` at start.
 Dismissing it hides it for the browser session; it returns on the next one while any remain. A Go
 test covers the admin-only field and a smoke check covers the notice.
+
+## 543. Signed CLI binaries on GitHub releases — `.github/workflows/release.yml`, `scripts/release.sh`, `cli/main.go`
+
+A version tag now starts a release workflow. It checks that `VERSION` matches the tag and builds
+`dbcanvas-cli` for the five platforms with the app image's flags (CGO off, `-trimpath`,
+`-s -w -X main.version=`). It writes `dbcanvas-cli_checksums.txt`, then signs every binary and the
+list with `cosign sign-blob --bundle`. The signing is keyless: GitHub's OIDC token gets a
+short-lived Sigstore certificate naming the repository, the workflow and the tag, and the signature
+goes into Sigstore's public transparency log. There is no private key to keep. The workflow checks
+one signature, then creates the release from the README notes (or updates one that exists) and
+attaches the files. Run by hand with a tag, it builds and signs and keeps the files as a workflow
+artifact without touching a release.
+
+`make github-release` (`scripts/release.sh publish`) now only pushes the tag; the workflow makes the
+release. Old tags start nothing, because their commits have no release workflow.
+
+`dbcanvas-cli version --verify --release` compares the running binary with the release's checksum
+list (fetched over HTTPS from `releases/download/v<version>/`). It refuses a `dev` build and names a
+release without a list. The signature itself is checked with `cosign verify-blob`, documented in
+docs/SECURITY.md. The CLI does not carry a Sigstore verifier. `selfSHA256`, `checksumFor` and
+`cliFileName` are shared with the server check. A test covers the five outcomes against a fake
+release server.

@@ -1,0 +1,116 @@
+# release: on a version tag, build dbcanvas-cli for every platform, sign each binary and the
+# checksum list with Sigstore (keyless: the signature says which workflow, repository and tag
+# built it, and there is no key to keep), and publish them on the tag's GitHub release with the
+# notes from README.md.
+#
+# The binaries are built the way the app image builds the ones a server offers (app/Dockerfile,
+# stage cli): CGO off, -trimpath, -ldflags "-s -w -X main.version=<VERSION>".
+#
+# Verify one:
+#
+#   cosign verify-blob dbcanvas-cli_linux_amd64 \
+#     --bundle dbcanvas-cli_linux_amd64.sigstore.json \
+#     --certificate-identity-regexp '^https://github.com/jaimesicam/dbcanvas/\.github/workflows/release\.yml@refs/tags/v' \
+#     --certificate-oidc-issuer https://token.actions.githubusercontent.com
+#
+# Run by hand (Actions → release → Run workflow), it builds and signs a tag — or, with none, the
+# branch it runs on at its VERSION — without touching any release, and keeps the files as a
+# workflow artifact. Signing writes an entry to Sigstore's public transparency log either way.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build (vX.Y.Z), or empty for this branch; nothing is published"
+        required: false
+
+permissions:
+  contents: write # create the release and upload its files
+  id-token: write # the OIDC token Sigstore signs with
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  cli:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TAG: ${{ github.event_name == 'push' && github.ref_name || github.event.inputs.tag }}
+      PUBLISH: ${{ github.event_name == 'push' }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: version matches the tag
+        run: |
+          ver="$(cat VERSION)"
+          if [ -n "$TAG" ]; then
+            [ "v$ver" = "$TAG" ] || { echo "::error::VERSION is $ver but the tag is $TAG"; exit 1; }
+          fi
+          echo "VERSION=$ver" >>"$GITHUB_ENV"
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+
+      - name: build
+        working-directory: cli
+        run: |
+          set -eu
+          mkdir -p ../dist
+          # Keep in step with CLI_PLATFORMS (Makefile), cliPlatforms (app/clidownload.go) and the
+          # app image's cli stage.
+          for p in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            os="${p%/*}"; arch="${p#*/}"; out="../dist/dbcanvas-cli_${os}_${arch}"
+            [ "$os" = windows ] && out="$out.exe"
+            GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -trimpath \
+              -ldflags="-s -w -X main.version=${VERSION}" -o "$out" .
+          done
+          cd ../dist && sha256sum dbcanvas-cli_* >dbcanvas-cli_checksums.txt && cat dbcanvas-cli_checksums.txt
+
+      - uses: sigstore/cosign-installer@v3
+
+      - name: sign
+        working-directory: dist
+        run: |
+          set -eu
+          for f in dbcanvas-cli_*; do
+            case "$f" in *.sigstore.json) continue ;; esac
+            cosign sign-blob --yes --bundle "$f.sigstore.json" "$f" >/dev/null
+          done
+          ls -l
+
+      - name: check a signature
+        working-directory: dist
+        run: |
+          cosign verify-blob dbcanvas-cli_checksums.txt \
+            --bundle dbcanvas-cli_checksums.txt.sigstore.json \
+            --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@${GITHUB_WORKFLOW_REF#*@}" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+      - name: keep the files (run by hand)
+        if: env.PUBLISH != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbcanvas-cli-${{ env.TAG || format('{0}-test', github.ref_name) }}
+          path: dist/
+
+      - name: publish
+        if: env.PUBLISH == 'true'
+        run: |
+          set -eu
+          bash scripts/release.sh notes "$VERSION" >notes.md
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "DBCanvas $VERSION" --notes-file notes.md
+          else
+            gh release create "$TAG" --title "DBCanvas $VERSION" --notes-file notes.md --verify-tag
+          fi
+          gh release upload "$TAG" dist/* --clobber

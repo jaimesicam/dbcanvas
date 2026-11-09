@@ -3,11 +3,13 @@
 #
 #   release.sh notes   <version>   print that release's notes (README "### <version>" section)
 #   release.sh tag     <version>   create the annotated tag v<version> on HEAD
-#   release.sh publish <version>   push the tag and create the GitHub release from the notes
+#   release.sh publish <version>   push the tag; the release workflow builds, signs and publishes
 #
 # `tag` refuses a dirty tree, an existing tag, and a VERSION file that disagrees, so a tag
 # always names the commit the release was built from. `publish` is the only one that
-# reaches the network: it pushes the tag to origin and runs `gh release create`.
+# reaches the network: it pushes the tag to origin. That starts .github/workflows/release.yml,
+# which builds dbcanvas-cli for every platform, signs the files with Sigstore and creates the
+# GitHub release from these notes with them attached.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -36,12 +38,12 @@ case "$cmd" in
     ;;
   publish)
     git rev-parse -q --verify "refs/tags/v$ver" >/dev/null || { echo "no tag v$ver — run 'make tag' first" >&2; exit 1; }
-    command -v gh >/dev/null || { echo "the GitHub CLI (gh) is not installed" >&2; exit 1; }
-    f="$(mktemp)"; trap 'rm -f "$f"' EXIT
-    notes >"$f"
-    [ -s "$f" ] || { echo "README.md has no notes for $ver" >&2; exit 1; }
+    [ -n "$(notes)" ] || { echo "README.md has no notes for $ver" >&2; exit 1; }
     git push origin "v$ver"
-    gh release create "v$ver" --title "DBCanvas $ver" --notes-file "$f" --verify-tag
+    echo "pushed v$ver: the release workflow now builds, signs and publishes it."
+    if command -v gh >/dev/null; then
+      echo "follow it with: gh run watch \$(gh run list --workflow release.yml --limit 1 --json databaseId -q '.[0].databaseId')"
+    fi
     ;;
   *) echo "usage: $0 notes|tag|publish <version>" >&2; exit 2 ;;
 esac

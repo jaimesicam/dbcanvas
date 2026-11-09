@@ -29,8 +29,9 @@ tag:
 release-notes:
 	@bash scripts/release.sh notes $(VERSION)
 
-## github-release: push tag v$(VERSION) and create the GitHub release from its notes. This
-## publishes — the repository is public — so it is never run by another target.
+## github-release: push tag v$(VERSION). The release workflow (.github/workflows/release.yml)
+## then builds dbcanvas-cli, signs it with Sigstore and creates the GitHub release from the notes.
+## This publishes — the repository is public — so it is never run by another target.
 github-release:
 	@bash scripts/release.sh publish $(VERSION)
 

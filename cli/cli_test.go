@@ -1420,3 +1420,46 @@ func TestVersionsMatch(t *testing.T) {
 		}
 	}
 }
+
+// version --verify --release compares the running binary with the release's checksum list.
+func TestVerifyAgainstRelease(t *testing.T) {
+	_, self, err := selfSHA256()
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := ""
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if list == "" {
+			http.NotFound(w, r)
+			return
+		}
+		io.WriteString(w, list)
+	}))
+	defer srv.Close()
+	old := version
+	defer func() { version = old }()
+
+	version = "dev"
+	if err := verifyAgainstRelease(srv.URL); err == nil || !strings.Contains(err.Error(), "development build") {
+		t.Errorf("dev build: %v", err)
+	}
+	version = "0.0.99"
+	if err := verifyAgainstRelease(srv.URL); err == nil || !strings.Contains(err.Error(), "no signed checksum list") {
+		t.Errorf("no list: %v", err)
+	}
+	list = "abc  dbcanvas-cli_plan9_mips\n"
+	if err := verifyAgainstRelease(srv.URL); err == nil || !strings.Contains(err.Error(), "lists no") {
+		t.Errorf("platform missing: %v", err)
+	}
+	list = strings.Repeat("0", 64) + "  " + cliFileName() + "\n"
+	if err := verifyAgainstRelease(srv.URL); err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Errorf("wrong digest: %v", err)
+	}
+	list = "1111  other\n" + self + " *" + cliFileName() + "\n"
+	if err := verifyAgainstRelease(srv.URL); err != nil {
+		t.Errorf("matching digest: %v", err)
+	}
+	if u := releaseChecksumsURL("v0.0.28"); u != "https://github.com/jaimesicam/dbcanvas/releases/download/v0.0.28/dbcanvas-cli_checksums.txt" {
+		t.Errorf("url: %s", u)
+	}
+}

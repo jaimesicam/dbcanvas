@@ -18,9 +18,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"runtime"
 	"strings"
+	"time"
 )
 
 // version is stamped at link time from the repo's VERSION file
@@ -274,8 +276,16 @@ func need(n int, what string) error {
 func cmdVersion(args []string) error {
 	fs := flagsFor("version")
 	verify := fs.Bool("verify", false, "check this binary's SHA-256 against the checksums the server publishes for its CLI")
+	release := fs.Bool("release", false, "with --verify: check against the signed checksum list on this version's GitHub release instead")
 	if err := parse(fs, args); err != nil {
 		return err
+	}
+	if *release && !*verify {
+		fmt.Fprintln(os.Stderr, "dbcanvas-cli: --release goes with --verify")
+		return errUsage
+	}
+	if *verify && *release {
+		return verifyAgainstRelease(releaseChecksumsURL(version))
 	}
 	if *verify {
 		return verifySelf()
@@ -351,6 +361,43 @@ func joinNonEmpty(sep string, parts ...string) string {
 	return strings.Join(out, sep)
 }
 
+// cliFileName is this platform's binary as the server and the release name it.
+func cliFileName() string {
+	name := "dbcanvas-cli_" + runtime.GOOS + "_" + runtime.GOARCH
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	return name
+}
+
+// checksumFor finds a file's digest in a sha256sum listing ("<hex>  <name>").
+func checksumFor(list, name string) string {
+	for _, line := range strings.Split(list, "\n") {
+		if f := strings.Fields(line); len(f) == 2 && strings.TrimPrefix(f[1], "*") == name {
+			return f[0]
+		}
+	}
+	return ""
+}
+
+// selfSHA256 is the running binary's path and SHA-256.
+func selfSHA256() (string, string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", "", err
+	}
+	f, err := os.Open(exe)
+	if err != nil {
+		return "", "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", "", err
+	}
+	return exe, hex.EncodeToString(h.Sum(nil)), nil
+}
+
 // verifySelf checks the running binary against GET /api/cli/checksums: the server's SHA-256 of
 // the binary it ships for this platform.
 func verifySelf() error {
@@ -362,37 +409,67 @@ func verifySelf() error {
 	if err := c.get("/api/cli/checksums", &raw); err != nil {
 		return err
 	}
-	name := "dbcanvas-cli_" + runtime.GOOS + "_" + runtime.GOARCH
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
-	want := ""
-	for _, line := range strings.Split(string(raw), "\n") {
-		if f := strings.Fields(line); len(f) == 2 && f[1] == name {
-			want = f[0]
-		}
-	}
+	name := cliFileName()
+	want := checksumFor(string(raw), name)
 	if want == "" {
 		return fmt.Errorf("the server publishes no checksum for %s", name)
 	}
-	exe, err := os.Executable()
+	exe, got, err := selfSHA256()
 	if err != nil {
 		return err
 	}
-	f, err := os.Open(exe)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return err
-	}
-	got := hex.EncodeToString(h.Sum(nil))
 	if got != want {
 		return fmt.Errorf("%s does not match the %s the server ships (sha256 %s, server %s) — "+
 			"it is another build or release; download the server's from %s/api/cli/download", exe, name, got, want, c.BaseURL)
 	}
 	fmt.Printf("%s matches the %s this server ships (sha256 %s).\n", exe, name, got)
+	return nil
+}
+
+// releaseRepo is where releases are published (.github/workflows/release.yml).
+const releaseRepo = "https://github.com/jaimesicam/dbcanvas"
+
+func releaseChecksumsURL(ver string) string {
+	return releaseRepo + "/releases/download/v" + strings.TrimPrefix(ver, "v") + "/dbcanvas-cli_checksums.txt"
+}
+
+// verifyAgainstRelease checks the running binary against the checksum list on its version's
+// GitHub release. That list is signed (Sigstore, keyless, by the release workflow); this compares
+// digests over HTTPS, and cosign verify-blob checks the signature itself.
+func verifyAgainstRelease(url string) error {
+	if version == "dev" {
+		return errors.New("this is a development build (version dev); only released versions are on GitHub")
+	}
+	hc := &http.Client{Timeout: 30 * time.Second}
+	resp, err := hc.Get(url)
+	if err != nil {
+		return fmt.Errorf("fetching %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("release v%s has no signed checksum list (%s) — releases before signed binaries have none", strings.TrimPrefix(version, "v"), url)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("fetching %s: %s", url, resp.Status)
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return err
+	}
+	name := cliFileName()
+	want := checksumFor(string(raw), name)
+	if want == "" {
+		return fmt.Errorf("release v%s lists no %s", strings.TrimPrefix(version, "v"), name)
+	}
+	exe, got, err := selfSHA256()
+	if err != nil {
+		return err
+	}
+	if got != want {
+		return fmt.Errorf("%s does not match the %s on release v%s (sha256 %s, release %s) — "+
+			"it was built elsewhere (a server's app image may use another Go patch release) or changed since", exe, name, strings.TrimPrefix(version, "v"), got, want)
+	}
+	fmt.Printf("%s matches the %s on GitHub release v%s (sha256 %s).\n", exe, name, strings.TrimPrefix(version, "v"), got)
+	fmt.Printf("To check the list's signature: download dbcanvas-cli_checksums.txt and its .sigstore.json from the release, then run cosign verify-blob (see docs/SECURITY.md).\n")
 	return nil
 }

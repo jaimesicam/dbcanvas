@@ -64,6 +64,28 @@ new actions. A stack that already exists is not torn down when a limit tightens.
 format. `dbcanvas-cli version --verify` checks the binary you are running against that list, and
 `dbcanvas-cli version` warns when the CLI and the server are different releases.
 
+## Signed releases
+
+Each GitHub release carries `dbcanvas-cli` for every platform, a `dbcanvas-cli_checksums.txt`, and
+a Sigstore bundle (`.sigstore.json`) for each file. They are built and signed by the release
+workflow (`.github/workflows/release.yml`) when a version is tagged. The signing is keyless: the
+signature records the repository, the workflow and the tag that built the file, so no private key
+exists to leak.
+
+Check a download with [cosign](https://docs.sigstore.dev/cosign/system_config/installation/):
+
+```sh
+cosign verify-blob dbcanvas-cli_linux_amd64 \
+  --bundle dbcanvas-cli_linux_amd64.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/jaimesicam/dbcanvas/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+`dbcanvas-cli version --verify --release` compares the running binary with the checksum list on its
+version's release. It compares digests over HTTPS and does not check the signature; cosign does.
+A server's app image builds its own copy of the CLI with the same flags, which matches the release
+only when it used the same Go patch release.
+
 ## Service passwords
 
 The passwords in `.env` (the database, proxy, PMM and directory accounts every stack is built

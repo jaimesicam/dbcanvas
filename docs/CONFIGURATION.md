@@ -22,7 +22,7 @@ the app, and fixes for common problems.
 | `make pull-images` | Pull this release's node images (the OS bases and the Intranet, VNC, K3D collector and Kubeadm images) from `IMAGE_REGISTRY` (default `ghcr.io/jaimesicam`) and write `images.yaml`. `ONLY=<regex>` pulls a subset. |
 | `make publish-images` | Push this release's locally built node images to `IMAGE_REGISTRY`. This publishes them. |
 | `make doctor` | Check the host: Docker, compose, buildx, disk, `.env` passwords and `APP_HOST`, the node images, and whether the app answers. `dbcanvas-cli doctor` checks the installation itself. |
-| `make tag` / `make release-notes` / `make github-release` | Tag `v$(VERSION)` on HEAD, print that release's notes, and publish the tag and a GitHub release from them. |
+| `make tag` / `make release-notes` / `make github-release` | Tag `v$(VERSION)` on HEAD, print that release's notes, and push the tag. The tag starts `.github/workflows/release.yml`, which builds `dbcanvas-cli` for every platform, signs it with Sigstore and creates the GitHub release from the notes. |
 | `make logs` | Follow the app's logs. |
 | `make clean` | Stop the app, remove its locally built images and `dist/`. Deployed stacks are untouched. |
 | `make images` | Build what every stack needs: the OS base images (Oracle Linux 8/9/10, Ubuntu 22.04/24.04, Debian 12/13) for the one platform in `DOCKER_PLATFORM`, and the **Intranet** image. Slow — the long part of `make install`. If only the Intranet fails, retry with `make intranet-image` or the **Build** button that Validate offers. |

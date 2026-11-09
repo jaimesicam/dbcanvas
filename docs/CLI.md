@@ -511,6 +511,11 @@ Each DBCanvas release is tagged `v<version>` in git, and its CLI is built from t
 different releases. `dbcanvas-cli --json version` gives `{"cli", "server", "url", "match"}`.
 Download the matching CLI from the server: `GET /api/cli/download?os=…&arch=…`.
 
+Each GitHub release also carries the CLI for every platform, signed with Sigstore. Check a binary
+against its source with `dbcanvas-cli version --verify` (the server's checksums) or
+`dbcanvas-cli version --verify --release` (the release's). To check the signature itself, see
+[Security](SECURITY.md#signed-releases).
+
 A program that drives the CLI should read what this build accepts, not keep its own list:
 
 ```sh
