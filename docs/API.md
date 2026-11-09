@@ -23,7 +23,7 @@ account is disabled or rejected.
 
 ### As a guest
 
-When an administrator turns on **Guest sign-in** (Settings → This installation, off by
+When an administrator turns on **Guest sign-in** (Settings → Access & security, off by
 default), `POST /api/auth/guest` creates a guest account of its own, without a password and with
 the user role, and signs it in, and sets the same session cookie as `POST /api/auth/login`. That session
 can create a token (`POST /api/tokens`) like any other, which is what

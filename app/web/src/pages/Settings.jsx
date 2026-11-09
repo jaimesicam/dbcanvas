@@ -67,11 +67,6 @@ function splitSize(bytes) {
   return { value: Math.max(1, Math.round(bytes / SIZE_UNITS[0].bytes)), unit: 'MiB' }
 }
 
-// SectionLabel heads a group of rows on the Settings page.
-function SectionLabel({ children }) {
-  return <h2 className="px-1 pt-1 text-xs font-semibold uppercase tracking-wide text-muted">{children}</h2>
-}
-
 function Row({ title, hint, children }) {
   return (
     <div className="space-y-2 rounded-xl border bg-surface p-4">
@@ -1031,38 +1026,63 @@ export default function Settings() {
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
   const [err, setErr] = useState('')
+  const [tab, setTab] = useState(() => {
+    try { return localStorage.getItem('dbcanvas.settingsTab') || 'appearance' } catch { return 'appearance' }
+  })
+  const pickTab = (id) => {
+    setTab(id)
+    try { localStorage.setItem('dbcanvas.settingsTab', id) } catch { /* not kept */ }
+  }
 
   const set = async (patch) => {
     setErr('')
     try { await save(patch) } catch (e) { setErr(e.message) }
   }
 
+  // Four tabs instead of one long page: how it looks, how you work, who can get in, and what
+  // the installation allows. The tab is remembered in this browser only.
+  const tabs = [
+    ['appearance', 'Appearance'],
+    ['workspace', 'Workspace'],
+    ['access', 'Access & security'],
+    ['system', 'System'],
+  ]
+  const two = 'grid items-start gap-4 lg:grid-cols-2'
+
   return (
     <div className="max-w-6xl space-y-4">
       {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
       {!loaded && <div className="text-xs text-muted">Loading your settings…</div>}
 
-      {/* Appearance first, full width: it is what people come here for most, and the theme
-          and the look are one decision seen from two sides, so they sit side by side. Then
-          two columns — what is yours, and what belongs to the installation (several of which
-          only an admin can change) — instead of one long column of seventeen rows. */}
-      <SectionLabel>Appearance</SectionLabel>
-      <div className="grid items-start gap-4 lg:grid-cols-2">
-          <Row title="Theme" hint="The colour palette. Applied now and whenever you sign in, on any browser.">
-            <div className="grid gap-2 sm:grid-cols-3">
-              {THEMES.map((t) => {
-                const on = settings.theme === t.id
-                return (
-                  <button key={t.id} onClick={() => set({ theme: t.id })}
-                    className={`flex items-center gap-2 rounded-lg border p-2.5 text-left transition ${on ? 'border-primary bg-primary/10' : 'hover:bg-surface2'}`}>
-                    <span className="h-5 w-5 shrink-0 rounded-full border" style={{ background: t.swatch }} />
-                    <span className="flex-1 truncate text-sm font-medium">{t.label}</span>
-                    {on && <Icon.Check size={16} />}
-                  </button>
-                )
-              })}
-            </div>
-          </Row>
+      <div className="flex gap-1 overflow-x-auto border-b text-sm" role="tablist" aria-label="Settings">
+        {tabs.map(([id, text]) => (
+          <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => pickTab(id)}
+            className={`whitespace-nowrap rounded-t-md px-3 py-1.5 ${tab === id ? 'border border-b-0 bg-bg font-semibold text-fg' : 'text-muted hover:text-fg'}`}>
+            {text}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'appearance' && (
+        <div className={two}>
+          <div className="space-y-4">
+            <Row title="Theme" hint="The colour palette. Applied now and whenever you sign in, on any browser.">
+              <div className="grid gap-2 sm:grid-cols-3">
+                {THEMES.map((t) => {
+                  const on = settings.theme === t.id
+                  return (
+                    <button key={t.id} onClick={() => set({ theme: t.id })}
+                      className={`flex items-center gap-2 rounded-lg border p-2.5 text-left transition ${on ? 'border-primary bg-primary/10' : 'hover:bg-surface2'}`}>
+                      <span className="h-5 w-5 shrink-0 rounded-full border" style={{ background: t.swatch }} />
+                      <span className="flex-1 truncate text-sm font-medium">{t.label}</span>
+                      {on && <Icon.Check size={16} />}
+                    </button>
+                  )
+                })}
+              </div>
+            </Row>
+            <TooltipOptions value={settings.tooltips || 'on'} onPick={(id) => set({ tooltips: id })} />
+          </div>
 
           <Row
             title="Look"
@@ -1070,11 +1090,12 @@ export default function Settings() {
           >
             <LookOptions value={settings.look || 'glass'} onPick={(id) => set({ look: id })} />
           </Row>
-      </div>
+        </div>
+      )}
 
-      <div className="grid items-start gap-4 lg:grid-cols-2">
-        <div className="space-y-4">
-          <SectionLabel>Your workspace</SectionLabel>
+      {tab === 'workspace' && (
+        <div className={two}>
+          <div className="space-y-4">
           <Row title="Terminal" hint="Where a node console opens when you launch one.">
             <div className="grid gap-2 sm:grid-cols-2">
               {TERMINAL_MODES.map((m) => {
@@ -1151,8 +1172,8 @@ export default function Settings() {
             </div>
           </Row>
 
-          <TooltipOptions value={settings.tooltips || 'on'} onPick={(id) => set({ tooltips: id })} />
-
+          </div>
+          <div className="space-y-4">
           <TabLimit value={clampTabs(settings.maxTabs)} onSave={(n) => save({ maxTabs: n })} />
 
           <ScratchboardOptions value={settings.scratchboard || 'off'} onPick={(id) => set({ scratchboard: id })} />
@@ -1162,28 +1183,36 @@ export default function Settings() {
               <Icon.Users size={15} /> Open your profile
             </Button>
           </Row>
+          </div>
         </div>
-        <div className="space-y-4">
-          <SectionLabel>This installation</SectionLabel>
-          <UploadLimit />
+      )}
 
-          <TokenLifetime />
-
-          <InternalWrites />
-
-          <OpenRegistration />
-
-          <GuestLogin />
-
-          {isAdmin && <SecurityGroups />}
-
-          {isAdmin && <GroupLimits />}
-
-          <GuestSessions />
-
-          <LiveWatch />
+      {tab === 'access' && (
+        <div className={two}>
+          <div className="space-y-4">
+            <OpenRegistration />
+            <GuestLogin />
+            <GuestSessions />
+            <TokenLifetime />
+          </div>
+          <div className="space-y-4">
+            {isAdmin && <SecurityGroups />}
+            {isAdmin && <GroupLimits />}
+          </div>
         </div>
-      </div>
+      )}
+
+      {tab === 'system' && (
+        <div className={two}>
+          <div className="space-y-4">
+            <UploadLimit />
+            <InternalWrites />
+          </div>
+          <div className="space-y-4">
+            <LiveWatch />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

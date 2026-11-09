@@ -30095,3 +30095,13 @@ installed), so anything on a node that calls it fails — the PgBouncer node's p
 `psql "host=$(hostname -f) …"` line among them. The base image now installs the `hostname`
 package from BaseOS beside `which`. The Intranet image, built on the Oracle Linux 9 base, gets it
 too. Takes effect on the next `make images`.
+
+## 539. Settings in tabs — `app/web/src/pages/Settings.jsx`
+
+The Settings page had grown to about twenty panels in one scroll. It now has four tabs:
+**Appearance** (theme, look, tooltips), **Workspace** (terminal, terminal stacking, deployment,
+adding nodes, tabs, Scratchboard, the link to the profile), **Access & security** (registration,
+guest sign-in, shared sessions, API token lifetime, and for administrators the security groups and
+their limits) and **System** (node file uploads, writes to internal databases, stack history and
+alerts). Each panel keeps its title, so every "Settings → <panel>" reference still finds it. The
+chosen tab is remembered in the browser (local storage, best effort).

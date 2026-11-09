@@ -80,6 +80,11 @@ icon. (Prefer a sidebar and tabs? Open **Appearance**, the sun icon at the top r
   limit a new page does not open, and nothing is closed for you.
 - **Hover a `?`** next to any field, panel value, toolbar button or library entry for what it is
   for and when to change it. Turn these off in **Settings → Tooltips → Hidden**.
+- **Settings has four tabs:** **Appearance** (theme, look, tooltips), **Workspace** (terminals,
+  deployment, the node library, tabs, Scratchboard), **Access & security** (registration, guest
+  sign-in, shared sessions, token lifetime, security groups and their limits) and **System**
+  (uploads, writes to internal databases, stack history and alerts). The last two are mostly for
+  administrators.
 
 ## Your first stack
 
