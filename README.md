@@ -111,12 +111,17 @@ You need **Docker** and access to its daemon socket.
 
 ```sh
 git clone https://github.com/jaimesicam/dbcanvas.git && cd dbcanvas
-make install
+make install-pull
 ```
 
-DBCanvas starts at **http://localhost:8080**. The first install builds every image and takes a
-while. If an image fails to build, DBCanvas still starts, and only the node types that need
-that image are unavailable.
+DBCanvas starts at **http://localhost:8080**. `make install-pull` pulls this release's node
+images from `ghcr.io/jaimesicam` instead of building them, so it takes minutes. They are
+published for `linux/amd64`, and the Kubeadm node for `linux/amd64` and `linux/arm64`. The demo
+application images are built only when you want them (`make extra-images`).
+
+To build every image yourself instead, for another platform or a changed image, run
+`make install`. It takes a while. If an image fails to build, DBCanvas still starts, and only the
+node types that need that image are unavailable.
 
 Open the URL and create an account. **The first account becomes the administrator**, and an
 administrator must approve later sign-ups.
@@ -128,13 +133,16 @@ passwords in `.env` (see [Configuration](docs/CONFIGURATION.md)).
 
 ```sh
 git pull
-make adopt-images     # tag the images you already have for this release (no rebuild)
+make pull-images      # this release's node images, from ghcr.io/jaimesicam
 make compose          # rebuild and restart DBCanvas
 ```
 
+Instead of `make pull-images`, `make adopt-images` tags the images you already have for the new
+release, without downloading or rebuilding anything.
+
 Running stacks keep running during the restart.
 
-If the release changed an image definition, rebuild that image. `git diff --stat ORIG_HEAD -- images`
+If you build your own images and the release changed an image definition, rebuild that image. `git diff --stat ORIG_HEAD -- images`
 lists the changes, and the release notes under [What's new](#whats-new) name the `make` target
 to run. If an image is missing, **Validate** tells you which one.
 

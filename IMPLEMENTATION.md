@@ -30178,3 +30178,23 @@ Six release notes, in the README's What's new and in the in-app dialog, dated 20
 
 0.0.27's first note is folded; only the newest release opens one. 0.0.28 is the first release the
 release workflow builds: pushing tag v0.0.28 creates the GitHub release with the signed CLI.
+
+## 545. Published node images, and `make install-pull` first in the docs — `scripts/registry.sh`, `README.md`, `docs/GETTING_STARTED.md`
+
+0.0.28's node images are on `ghcr.io/jaimesicam`, public: the seven OS bases, Intranet, VNC and
+the K3D collector for `linux/amd64`, and the Kubeadm node for both `linux/amd64` and `linux/arm64`.
+An anonymous client fetches every manifest, and one downloaded layer matched its digest. That is 12
+images in five packages.
+
+- **Kubeadm, both architectures.** A Kubeadm node runs only natively, so `registry.sh push` lists
+  the image for both architectures and pushes whichever are built here (`K8S_PLATFORM=linux/amd64`
+  and `linux/arm64 make kubeadm-image`). `pull` and `list` keep only the installation's
+  `K8S_PLATFORM`. `TestRegistryKubeadmBothArchitectures` checks both lists.
+- **The platform manifest only.** With Docker's containerd image store, `docker push` sends an OCI
+  index carrying attestation entries. ghcr.io took the layers and refused that index with a bare
+  `denied`. The script now pushes `--platform <the image's platform>`, which sends the image's own
+  manifest, or a plain push on Docker before 28, which has no such flag. A failed push stops the
+  script with the registry's message instead of being lost under `-q`.
+- **Docs.** The README's Install and Getting Started lead with `make install-pull`, with
+  `make install` as the build-it-yourself alternative. Upgrade uses `make pull-images`, or
+  `make adopt-images` to keep the images you have.

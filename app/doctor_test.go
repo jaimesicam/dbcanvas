@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -70,6 +71,36 @@ func TestRegistryMatrixMatchesBuild(t *testing.T) {
 	build, reg := read("../images/build.sh"), read("../scripts/registry.sh")
 	if len(build) == 0 || strings.Join(build, " ") != strings.Join(reg, " ") {
 		t.Fatalf("build.sh %v\nregistry.sh %v", build, reg)
+	}
+}
+
+// The Kubeadm node runs only natively, so both architectures are pushed and a pull takes only the
+// installation's own.
+func TestRegistryKubeadmBothArchitectures(t *testing.T) {
+	list := func(env string, args ...string) []string {
+		cmd := exec.Command("bash", append([]string{"../scripts/registry.sh", "list"}, args...)...)
+		cmd.Env = append(os.Environ(), "K8S_PLATFORM="+env, "DOCKER_PLATFORM=linux/amd64")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("registry.sh list %v: %v\n%s", args, err, out)
+		}
+		var k []string
+		for _, l := range strings.Split(string(out), "\n") {
+			if strings.HasPrefix(l, "dbcanvas-kubeadm:") {
+				k = append(k, l)
+			}
+		}
+		return k
+	}
+	push := list("linux/arm64", "push")
+	if len(push) != 2 || !strings.Contains(push[0], "-amd64-") || !strings.Contains(push[1], "-arm64-") {
+		t.Errorf("push: %v", push)
+	}
+	for _, p := range []string{"linux/amd64", "linux/arm64"} {
+		pull := list(p)
+		if len(pull) != 1 || !strings.Contains(pull[0], "-"+strings.TrimPrefix(p, "linux/")+"-") {
+			t.Errorf("pull with K8S_PLATFORM=%s: %v", p, pull)
+		}
 	}
 }
 

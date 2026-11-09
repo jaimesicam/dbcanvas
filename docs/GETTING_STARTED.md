@@ -30,17 +30,19 @@ privileged capability — run it on a machine you trust.
 
 ```sh
 git clone https://github.com/jaimesicam/dbcanvas.git && cd dbcanvas
-make install
+make install-pull
 ```
 
-`make install` builds the node images and starts DBCanvas at **http://localhost:8080**. The
-first run takes a while. An image that fails to build does not stop the install; the node types
-that need it say so when you validate a stack.
+`make install-pull` pulls this release's node images from `ghcr.io/jaimesicam` and starts
+DBCanvas at **http://localhost:8080**, in minutes. The images are published for `linux/amd64`
+(`DOCKER_PLATFORM` in `.env`), and the Kubeadm node for both `linux/amd64` and `linux/arm64`
+(`K8S_PLATFORM`). `make install` builds every image instead, which takes a while; an image that
+fails to build does not stop it, and the node types that need it say so when you validate a stack.
 
 | Command | What it does |
 | --- | --- |
-| `make install` | First-time setup: every image, then start. |
-| `make install-pull` | First-time setup from prebuilt node images in `IMAGE_REGISTRY` (default `ghcr.io/jaimesicam`), when they are published for this release: minutes instead of the image build. |
+| `make install-pull` | First-time setup from the published node images in `IMAGE_REGISTRY` (default `ghcr.io/jaimesicam`): minutes instead of the image build. |
+| `make install` | First-time setup that builds every image, then starts. |
 | `make doctor` | Check the host: Docker, disk, `.env`, images, and whether the app answers. |
 | `make compose` | Rebuild the app and start it. The everyday command. |
 | `make up` / `make down` | Start / stop without rebuilding. |

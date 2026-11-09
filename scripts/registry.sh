@@ -10,6 +10,10 @@
 #
 #   ghcr.io/jaimesicam/dbcanvas-systemd:oraclelinux-9-amd64-v0.0.28
 #
+# The Kubeadm node image has to run natively, so it is published for both architectures when both
+# are built here (K8S_PLATFORM=linux/amd64 and linux/arm64 `make kubeadm-image`); `pull` takes
+# only the one this installation's K8S_PLATFORM runs.
+#
 # `pull` is what `make install-pull` runs: a first install that takes minutes instead of the
 # hour `make images` does. `push` publishes, so nothing runs it but `make publish-images`.
 # The demo application images are not included: they build from this repository's source.
@@ -41,12 +45,14 @@ MATRIX=(
 # ONLY, a regular expression, keeps the tags it matches (ONLY=intranet, ONLY='oraclelinux-9').
 ONLY="${ONLY:-}"
 
-# images prints "<local tag>|<platform>|<kind>" for every image of this release.
+# images prints "<local tag>|<platform>|<kind>" for every image of this release. With "push",
+# the Kubeadm image is listed for both architectures; otherwise for K8S_PLATFORM only.
 images() {
-  all_images | { if [ -n "$ONLY" ]; then grep -E "^[^|]*(${ONLY})" || true; else cat; fi; }
+  all_images "${1:-}" | { if [ -n "$ONLY" ]; then grep -E "^[^|]*(${ONLY})" || true; else cat; fi; }
 }
 
 all_images() {
+  local mode="${1:-}" k8s
   local e base os ver
   for e in "${MATRIX[@]}"; do
     IFS='|' read -r base os ver <<<"$e"
@@ -56,22 +62,35 @@ all_images() {
   echo "dbcanvas-intranet:oraclelinux-9-${ARCH}-${REL}|${PLATFORM}|extra"
   echo "dbcanvas-vnc:ubuntu-24.04-${ARCH}-${REL}|${PLATFORM}|extra"
   echo "dbcanvas-k8scollector:debian-12-amd64-${REL}|linux/amd64|extra"
-  echo "dbcanvas-kubeadm:ubuntu-24.04-${K8S_PLATFORM#linux/}-${REL}|${K8S_PLATFORM}|extra"
+  if [ "$mode" = push ]; then
+    for k8s in linux/amd64 linux/arm64; do
+      echo "dbcanvas-kubeadm:ubuntu-24.04-${k8s#linux/}-${REL}|${k8s}|extra"
+    done
+  else
+    echo "dbcanvas-kubeadm:ubuntu-24.04-${K8S_PLATFORM#linux/}-${REL}|${K8S_PLATFORM}|extra"
+  fi
 }
 
 ts() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
 
 push() {
-  local line tag plat pushed=0 skipped=0
+  local line tag plat out pushed=0 skipped=0
   while IFS= read -r line; do
     IFS='|' read -r tag plat _ <<<"$line"
     if ! docker image inspect "$tag" >/dev/null 2>&1; then
       echo "  skip  $tag (not built here)"; skipped=$((skipped + 1)); continue
     fi
     docker tag "$tag" "$REGISTRY/$tag"
-    docker push -q "$REGISTRY/$tag" >/dev/null
+    # --platform pushes the image's own manifest. Without it, Docker's containerd image store
+    # pushes an OCI index with attestation entries, whose manifest ghcr.io refuses ("denied")
+    # after taking the layers. Docker before 28 has no --platform; it pushes the manifest anyway.
+    if docker push --help 2>/dev/null | grep -q -- '--platform'; then
+      out="$(docker push -q --platform "$plat" "$REGISTRY/$tag" 2>&1)" || { echo "  FAIL  $REGISTRY/$tag: $out" >&2; return 1; }
+    else
+      out="$(docker push -q "$REGISTRY/$tag" 2>&1)" || { echo "  FAIL  $REGISTRY/$tag: $out" >&2; return 1; }
+    fi
     echo "  push  $REGISTRY/$tag"; pushed=$((pushed + 1))
-  done < <(images)
+  done < <(images push)
   echo "==> pushed $pushed image(s) to $REGISTRY, skipped $skipped"
 }
 
@@ -111,6 +130,6 @@ pull() {
 case "${1:-}" in
   push) push ;;
   pull) pull ;;
-  list) images | cut -d'|' -f1 ;;
-  *) echo "usage: $0 push|pull|list   (IMAGE_REGISTRY=${REGISTRY})" >&2; exit 2 ;;
+  list) images "${2:-}" | cut -d'|' -f1 ;;
+  *) echo "usage: $0 push|pull|list [push]   (IMAGE_REGISTRY=${REGISTRY})" >&2; exit 2 ;;
 esac
