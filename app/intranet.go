@@ -460,6 +460,12 @@ type designNode struct {
 	// full user@domain address) that failure-detection alerts are sent to. "" → no
 	// alert hook is wired.
 	AlertEmail string `json:"alertEmail"`
+	// HAProxy node fields (Type=="haproxy"): where the haproxy package comes from — "" the
+	// OS repository, "percona" percona-haproxy from a ppg-NN repository, "pgdg" PGDG's
+	// pgdg-rhelN-extras repository (EL only) — and, for the last two, which build. See
+	// haproxysource.go.
+	HAProxySource  string `json:"haproxySource"`
+	HAProxyVersion string `json:"haproxyVersion"` // e.g. 2.8.16; "" → the newest the source has
 	// All-in-One node fields (Type=="aio"). ONE container running many database
 	// feature instances side by side, instead of one product per node — see aio.go.
 	// Reuses OS/OSVersion/Arch, CPUs/MemoryGB and UseProxy above; every other option
@@ -1615,6 +1621,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			} else if len(hf) > 1 {
 				out = append(out, issue{Level: "error", Message: "HAProxy node " + n.Label + " can front only one cluster — remove the extra association (Patroni, repmgr, Spock, PXC, and MySQL replication are mutually exclusive)"})
 			}
+			out = append(out, haproxySourceIssues(n)...)
 			if n.ExportEnabled && n.ExportHostPort > 0 {
 				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
 			}

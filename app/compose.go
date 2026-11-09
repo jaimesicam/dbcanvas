@@ -137,6 +137,9 @@ type composeNodeSpec struct {
 	// patroni: the name of another Patroni cluster in the spec that this one is a standby
 	// cluster of (patronistandby.go). Drawn as a replication link from that cluster.
 	StandbyOf string `json:"standbyOf"`
+	// haproxy: where the haproxy package comes from — "os" (or ""), "percona" or "pgdg"
+	// (haproxysource.go). version= then picks a build from that source.
+	Source string `json:"source"`
 
 	Export     bool `json:"export"`     // publish the database port to the host
 	ExportPort int  `json:"exportPort"` // 0 → Docker picks a free one
@@ -430,6 +433,9 @@ type composeKind struct {
 	// engine uses. A closure rather than field names as strings, so a renamed field
 	// is a compile error rather than a silently ignored design.
 	SetVersion func(major, minor string, n *designNode, f *designFrame)
+	// SourceCatalog: version= resolves against the catalogue of the entry's source= rather
+	// than one fixed section (HAProxy: percona_haproxy or pgdg_haproxy, resolveHAProxyVersion).
+	SourceCatalog bool
 	// Roles assigns each member's Role. nil → none.
 	Roles func(i, of int) string
 	// ImageOnly means the kind runs a pulled or pre-baked image, so it has no OS to
@@ -561,10 +567,10 @@ var composeKinds = []composeKind{
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) { n.OrchestratorVersion = minor },
 		CanExport:  true,
 		About:      "Percona Orchestrator, for MySQL replication topologies."},
-	{Kind: "haproxy", Type: "haproxy", CanShape: true, CanExport: true,
+	{Kind: "haproxy", Type: "haproxy", CanShape: true, CanExport: true, Scalars: []string{"source"}, SourceCatalog: true,
 		// Exactly one: haproxyClusterFrames treats two as ambiguous, not as two pools.
 		EdgeTo: []string{"patroni", "patroni-pgdg", "repmgr", "pg-stream", "pg-stream-pgdg", "spock", "pxc", "ps-repl", "mysql-repl"},
-		About:  "HAProxy, in front of one Patroni, repmgr, streaming replication, Spock, PXC, PS replication or MySQL Community replication cluster."},
+		About:  "HAProxy, in front of one Patroni, repmgr, streaming replication, Spock, PXC, PS replication or MySQL Community replication cluster. source= is where the package comes from: os (default), percona (percona-haproxy, 2.8 LTS) or pgdg (PGDG extras, 2.7 to 3.x, Oracle Linux only); version= then picks a build or a branch (3.2)."},
 	{Kind: "pgbouncer", Type: "pgbouncer", CanShape: true, CanExport: true, CanCert: true,
 		Scalars: []string{"mode"},
 		// The PostgreSQL half of the proxy pair. HAProxy balances TCP across members;

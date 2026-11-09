@@ -279,9 +279,24 @@ Each member's panel shows *Standby leader* or *Replica* and the cluster it follo
 | Type | What you get |
 | --- | --- |
 | **ProxySQL** / **ProxySQL Cluster** | ProxySQL in front of a PXC, Percona Server replication or MySQL replication cluster. A cluster frame (1–9 nodes) shares one configuration. |
-| **HAProxy** | TCP load balancer in front of exactly one Patroni, repmgr, PostgreSQL Replication, Spock, PXC, Percona Server replication or MySQL replication cluster. Writes on 5000, reads on 5001, stats on 7000. |
+| **HAProxy** | TCP load balancer in front of exactly one Patroni, repmgr, PostgreSQL Replication, Spock, PXC, Percona Server replication or MySQL replication cluster. Writes on 5000, reads on 5001, stats on 7000. **Package source** picks where HAProxy comes from (see below). |
 | **PgBouncer** | Connection pooler on 6432 in front of one PostgreSQL node or cluster. See [PgBouncer](#pool-postgresql-connections-with-pgbouncer). |
 | **Orchestrator** | Percona Orchestrator: topology discovery and failure detection for MySQL replication. A replication frame points at it with **Monitored by (Orchestrator)**. |
+
+#### HAProxy package source
+
+| Source | Package | Versions | Operating systems |
+| --- | --- | --- | --- |
+| OS repository (default) | `haproxy` from AppStream or the Ubuntu archive | the one the OS release ships | all |
+| Percona | `percona-haproxy` from a `ppg-NN` repository | the 2.8 LTS line; `ppg-13` to `ppg-15` also have 2.5 and 2.6 | Oracle Linux, Ubuntu |
+| PGDG | `haproxy` from PGDG's `pgdg-rhelN-extras` repository | 2.7 to 3.x (3.2 and later on Oracle Linux 10) | Oracle Linux only; apt.postgresql.org has no HAProxy |
+
+With Percona or PGDG, **HAProxy version** picks a build, or leaves it on the newest. Each `ppg-NN`
+repository carries its own range of builds. The install tries the linked PostgreSQL cluster's series
+first, then the others, newest first, until one has the build. All three install the same
+`haproxy.service` and `/etc/haproxy/haproxy.cfg`. The running node shows the repository it was
+installed from. In compose: `--node 'haproxy,os=el9,source=pgdg,version=3.2'`. The version lists come
+from `make versions`; `ONLY=haproxy make versions` refreshes only them.
 
 ### Monitoring
 

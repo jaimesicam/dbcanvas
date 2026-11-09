@@ -90,7 +90,8 @@ parse_entries() {
 # ONLY is a comma-separated list of probe groups: "percona" (everything served by
 # percona-release) and "upstream" (MariaDB from mariadb.org, MySQL Community from
 # repo.mysql.com, MongoDB Community Server from repo.mongodb.org, PGDG PostgreSQL from
-# postgresql.org). Unset means both.
+# postgresql.org), and "haproxy" (the HAProxy node's percona-haproxy and PGDG builds,
+# app/haproxysource.go). Unset means all three.
 #
 # This exists because the groups fail independently: internet connection issues can
 # make one upstream unreachable, and re-probing it would otherwise block recording
@@ -99,6 +100,7 @@ parse_entries() {
 # only what it actually measured.
 #
 #   ONLY=upstream make versions    # refresh MariaDB + MySQL CE, keep Percona as-is
+#   ONLY=haproxy make versions     # refresh only the HAProxy builds
 ONLY="${ONLY:-}"
 want_probe() {
   [ -z "$ONLY" ] && return 0
@@ -108,8 +110,8 @@ want_probe() {
 if [ -n "$ONLY" ]; then
   for g in ${ONLY//,/ }; do
     case "$g" in
-      percona|upstream) ;;
-      *) echo "ERROR: unknown ONLY group '${g}' (want: percona, upstream)" >&2; exit 1 ;;
+      percona|upstream|haproxy) ;;
+      *) echo "ERROR: unknown ONLY group '${g}' (want: percona, upstream, haproxy)" >&2; exit 1 ;;
     esac
   done
   echo "==> ONLY=${ONLY} — other product groups keep their recorded versions" >&2
@@ -308,6 +310,30 @@ for M in 13 14 15 16 17 18; do
     | sed -E 's/^[0-9]+://; s/-.*$//' | grep -E "^${M}\." | sort -rV -u
 done
 EOS
+  want_probe haproxy && cat <<'EOS'
+# ---- HAProxy (the HAProxy node's percona and pgdg sources, app/haproxysource.go) ----
+# percona-haproxy is in every ppg-NN repository, each with its own range of builds (2.5 and
+# 2.6 only in ppg-13 to ppg-15; ppg-18 starts at 2.8.16), so the list is the union of all six; the install finds the
+# series that has the one asked for. Recorded as the HAProxy release alone: 1:2.8.16-1 → 2.8.16.
+: >/tmp/dbc-pha
+for S in 13 14 15 16 17 18; do
+  percona-release setup -y "ppg-$S" >/dev/null 2>&1 || continue
+  elsearch percona-haproxy | sed -E 's/^[0-9]+://; s/-[^-]*$//' >>/tmp/dbc-pha
+done
+echo '@@PHAPROXY@@'; sort -rV -u /tmp/dbc-pha
+# PGDG's haproxy is in pgdg-rhelN-extras, disabled by default, and is named haproxy like the
+# OS's own — so only the lines from that repository count. The repository setup is the
+# install's (haproxyInstallPGDGRHEL).
+rpm -q pgdg-redhat-repo >/dev/null 2>&1 || dnf -y -q install "https://download.postgresql.org/pub/repos/yum/reporpms/EL-$(rpm -E %rhel)-$(uname -m)/pgdg-redhat-repo-latest.noarch.rpm" >/dev/null 2>&1
+if /usr/libexec/platform-python -c 'import sys, dnf.rpm; sys.exit(0 if dnf.rpm.detect_releasevers("/")[2] is None else 1)' 2>/dev/null \
+   && [ -f /etc/yum.repos.d/pgdg-redhat-all.repo ]; then
+  sed -i 's/\$releasever_major\.\$releasever_minor/$releasever_major/g' /etc/yum.repos.d/pgdg-redhat-all.repo
+fi
+X="pgdg-rhel$(rpm -E %rhel)-extras"
+echo '@@PGDGHAPROXY@@'
+dnf -q --showduplicates --enablerepo="$X" list available haproxy 2>/dev/null \
+  | awk -v r="$X" '$3==r {print $2}' | sed -E 's/^[0-9]+://; s/-.*$//' | sort -rV -u
+EOS
   echo "echo '@@END@@'"
 }
 
@@ -443,6 +469,17 @@ for M in 13 14 15 16 17 18; do
   echo "@@PGDG${M}@@"
   madison "postgresql-${M}" | grep -E "^${M}\..*pgdg" | sed -E 's/-.*$//' | sort -rV -u
 done
+EOS
+  want_probe haproxy && cat <<'EOS'
+# ---- HAProxy: percona-haproxy, as in rhel_probe. apt.postgresql.org has no HAProxy, so
+# there is no PGDG list here. madison() leaves 2.8.18-1; the release is dropped.
+: >/tmp/dbc-pha
+for S in 13 14 15 16 17 18; do
+  percona-release setup -y "ppg-$S" >/dev/null 2>&1 || continue
+  apt-get update >/dev/null 2>&1
+  madison percona-haproxy | sed -E 's/-[^-]*$//' >>/tmp/dbc-pha
+done
+echo '@@PHAPROXY@@'; sort -rV -u /tmp/dbc-pha
 EOS
   echo "echo '@@END@@'"
 }
@@ -796,6 +833,7 @@ while IFS=$'\t' read -r os version platform arch tag; do
   myc80="" ; myc84="" ; myc97=""
   mc60="" ; mc70="" ; mc80="" ; mc82=""
   gd13="" ; gd14="" ; gd15="" ; gd16="" ; gd17="" ; gd18=""
+  pha="" ; gha=""
   if [ -n "$probe" ]; then
     if out="$(docker run --rm "$tag" bash -lc "$probe" 2>/dev/null)"; then
       ps80="$(printf '%s\n' "$out" | section PS80)"
@@ -837,6 +875,8 @@ while IFS=$'\t' read -r os version platform arch tag; do
       gd16="$(printf '%s\n' "$out" | section PGDG16)"
       gd17="$(printf '%s\n' "$out" | section PGDG17)"
       gd18="$(printf '%s\n' "$out" | section PGDG18)"
+      pha="$(printf '%s\n' "$out" | section PHAPROXY)"
+      gha="$(printf '%s\n' "$out" | section PGDGHAPROXY)"
     else
       echo "    FAIL  could not run ${tag} (recording empty version lists)" >&2
     fi
@@ -872,6 +912,7 @@ while IFS=$'\t' read -r os version platform arch tag; do
   echo "    ps: ${n80}+${n84}+${n57}  pxc: ${px0}+${px4}+${px7}  proxysql: ${pq2}+${pq3}  psmdb: ${m6}+${m7}+${m8}+${m83}  ppg: ${g13}+${g14}+${g15}+${g16}+${g17}+${g18}  valkey: ${vk9}  orchestrator: ${orc}" >&2
   cnt() { printf '%s' "$1" | grep -c . || true; }
   echo "    mariadb: ${d106}+${d1011}+${d114}+${d118}+${d123}  mysql_community: ${c80}+${c84}" >&2
+  echo "    haproxy: percona $(cnt "$pha")  pgdg $(cnt "$gha")" >&2
   echo "    mongodb_community: $(cnt "$mc60")+$(cnt "$mc70")+$(cnt "$mc80")+$(cnt "$mc82")  pgdg: $(cnt "$gd13")+$(cnt "$gd14")+$(cnt "$gd15")+$(cnt "$gd16")+$(cnt "$gd17")+$(cnt "$gd18")" >&2
 
   # emit_series <indent-key> <key1> <list1> [<key2> <list2> ...]: emit a major-series
@@ -899,6 +940,24 @@ while IFS=$'\t' read -r os version platform arch tag; do
       emit_series "$key" "$@"
     elif ! carry_section "$tag" "$key"; then
       emit_series "$key" "$@"   # nothing recorded yet — emit the empty maps
+    fi
+  }
+
+  # emit_branches <group> <key> <list>: a flat newest-first version list, emitted as a map
+  # keyed by release branch (2.8.16 → "2.8"), the shape the app's catalogue parser reads.
+  emit_branches() {
+    local group="$1" key="$2" list="$3" args=() b
+    if ! want_probe "$group"; then
+      carry_section "$tag" "$key" || echo "    ${key}: {}"
+      return
+    fi
+    for b in $(printf '%s\n' "$list" | grep . | awk -F. '{print $1"."$2}' | sort -rV -u); do
+      args+=("$b" "$(printf '%s\n' "$list" | grep -E "^${b//./\\.}\\.")")
+    done
+    if [ "${#args[@]}" -eq 0 ]; then
+      echo "    ${key}: {}"
+    else
+      emit_series "$key" "${args[@]}"
     fi
   }
 
@@ -946,6 +1005,8 @@ while IFS=$'\t' read -r os version platform arch tag; do
     emit_group upstream mysql_community        "8.0" "$myc80" "8.4" "$myc84" "9.7" "$myc97"
     emit_group upstream mongodb_community      "6.0" "$mc60" "7.0" "$mc70" "8.0" "$mc80" "8.2" "$mc82"
     emit_group upstream pgdg_postgresql        "13" "$gd13" "14" "$gd14" "15" "$gd15" "16" "$gd16" "17" "$gd17" "18" "$gd18"
+    emit_branches haproxy percona_haproxy "$pha"
+    emit_branches haproxy pgdg_haproxy    "$gha"
     emit_spock
   } >>"$TMP"
 done < <(parse_entries)

@@ -29693,3 +29693,56 @@ streaming; `<cluster>-ha` and `<cluster>-pgbouncer` published with PTR records; 
 verification against both names succeeds and fails for another name), and the OpenBao issuer without
 Host names (every certificate in the cluster from OpenBao; replicas streaming). A standby link with
 issuers on both ends was not run live.
+
+## 522. HAProxy package source: OS, Percona or PGDG, with a version — `app/haproxysource.go`, `app/haproxy.go`, `app/intranet.go`, `app/versions.go`, `app/api_routes.go`, `app/compose.go`, `app/composebuild.go`, `app/designcatalog_mysql.go`, `cli/cmd_compose.go`, `images/versions.sh`, `app/web/src/pages/StackDesigner.jsx`, `app/web/src/pages/HAProxyManager.jsx`, `app/web/src/lib/help.js`, `app/web/src/lib/stackApi.js`
+
+An HAProxy node chooses where its package comes from (`haproxySource`) and, for the two non-OS
+sources, which build (`haproxyVersion`).
+
+- **Sources.** `""` keeps the OS package, so existing designs are unchanged. `percona` installs
+  `percona-haproxy` from a `ppg-NN` repository. `pgdg` installs `haproxy` from `pgdg-rhelN-extras`,
+  which `pgdg-redhat-repo` defines with `enabled=0`. PGDG's `common` repository and apt.postgresql.org
+  carry no HAProxy, so `pgdg` is EL only. `percona-haproxy` declares `Provides: haproxy`, and every
+  source installs `/usr/sbin/haproxy`, `haproxy.service` and `/etc/haproxy/haproxy.cfg`. Nothing after
+  the install branches on the source.
+- **Install.** `haproxyInstallStep` picks the script. The Percona script tries the `ppg-NN` series in
+  `haproxyPPGOrder`: the backend's PostgreSQL major first (none for a MySQL-family backend), then
+  18 down to 13. It installs from the first series that has the pinned build. The ranges differ:
+  2.5 and 2.6 are only in `ppg-13` to `ppg-15`, 2.8.18 and later are not in `ppg-13`, and `ppg-18`
+  starts at 2.8.16. The PGDG
+  script sets up the repository as `repmgrInstallRHEL` does, including the Oracle Linux releasever fix,
+  and enables the extras repository for the one install. The package name is the same as the OS
+  package, so the script then checks `From repo` and fails if the package came from elsewhere. Each
+  script writes the repository it used to `/etc/haproxy/.dbcanvas-repo`, which becomes
+  `haproxyConfig.Repo`. The running node shows it as **Package source**.
+- **Catalogue.** `images/versions.sh` has a third probe group, `haproxy`, recorded as the
+  `percona_haproxy` and `pgdg_haproxy` sections. Each is keyed by HAProxy branch (`"2.8"`, `"3.4"`).
+  The Percona list is the union over `ppg-13` to `ppg-18`; the PGDG list keeps only lines from the
+  extras repository. `ONLY=haproxy make versions` refreshes just these two sections.
+  `GET /api/catalog/haproxy?source=percona|pgdg` serves them. `versions.yaml` gains these two sections from an `ONLY=haproxy` run
+  (Percona: 2.5.10 to 2.8.27 on Oracle Linux 9; PGDG: 2.7.3 to 3.4.7 on Oracle Linux 8 and 9, 3.2.0 to
+  3.4.7 on Oracle Linux 10). The other catalogues that run refreshes from the network (charts, k3s,
+  Kubernetes) are left as recorded.
+- **Validation.** `haproxySourceIssues` refuses an unknown source, `pgdg` on Ubuntu or Debian, a version
+  with the OS source, and a version the source does not list for the node's image. An image with
+  nothing recorded is left to the install.
+- **Compose and CLI.** `source=os|percona|pgdg` on an `haproxy` entry. `version=` resolves against that
+  source's catalogue (`resolveHAProxyVersion`, `composeKind.SourceCatalog`); a branch resolves to its
+  newest build.
+- **Designer.** The HAProxy form has **Package source** and **HAProxy version** (grouped by branch). PGDG
+  is disabled on Ubuntu.
+
+**Verification performed.** In throwaway containers from the node images:
+- With the series order for a PostgreSQL 17 backend, `haproxyInstallPerconaRHEL` installs 2.5.11 from
+  `ppg-15`, the first series in that order that has it. A build no series has fails, naming the series
+  tried. `haproxyInstallPerconaDebian` installs the newest (2.8.27) from `ppg-17` on Ubuntu 24.04, and
+  `haproxyInstallPGDGRHEL` installs 3.2.8 on Oracle Linux 9 and the newest (3.4.7) on Oracle Linux 8
+  and 10, each recording the repository it used.
+- `percona-haproxy` 2.8.16 installs from `ppg-17` on Oracle Linux 9, and 2.8.18 from `ppg-17` on
+  Ubuntu 24.04. The madison version there carries an epoch, `2:2.8.18-1.noble`.
+- PGDG `haproxy` 2.7.3 and 3.4.7 install from `pgdg-rhel9-extras` on Oracle Linux 9.
+- The configuration `haproxy.go` generates for each of the five backends passes `haproxy -c` on 2.5.11,
+  2.7.3 and 3.4.7.
+
+`go test ./` in `app` and `cli` (`haproxysource_test.go`: catalogue, validation, series order, script
+choice, compose resolution), `npm run build`, `npm run smoke`.

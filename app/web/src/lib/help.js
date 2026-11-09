@@ -599,6 +599,15 @@ export const HELP = {
     'Which Percona repository (ppg-NN) percona-pgbouncer and the psql client are installed from. Left on "follow ' +
     'the backend" it takes the series the linked PostgreSQL node or cluster runs, which is what keeps the pooler ' +
     'and the server on one distribution release. Pin it only when the mismatch is the thing you are demonstrating.',
+  haproxySource:
+    'Where the haproxy package comes from. The OS repository gives the build that OS release ships. Percona ' +
+    'installs percona-haproxy, the HAProxy that ships with Percona Distribution for PostgreSQL (the 2.8 LTS line), ' +
+    'from a ppg-NN repository — the linked PostgreSQL cluster\'s series when it has the build, otherwise another. ' +
+    'PGDG installs haproxy from PGDG\'s extras repository, which carries current releases from 2.7 to 3.x; it is ' +
+    'Oracle Linux only, since apt.postgresql.org publishes no HAProxy. All three run the same unit and config file.',
+  haproxyVersion:
+    'The HAProxy build to install, from the versions this source has for the chosen OS. "Newest" takes the latest ' +
+    'at deploy time.',
   pgbPoolMode:
     'How long PgBouncer holds a server connection for a client. Transaction pooling is the one that actually ' +
     'multiplexes — a backend connection is borrowed for a transaction and handed back — and it is why a pooler ' +
@@ -1228,6 +1237,7 @@ export const DEP_HELP = {
   Backend: 'What this proxy sits in front of.',
   'Backend (CLUSTER_HOSTNAME)': 'The cluster proxysql-admin was told to manage. It is how ProxySQL discovers members as they come and go.',
   'Routes to cluster': 'The cluster this proxy sends traffic to.',
+  'Package source': 'The repository the haproxy package was installed from.',
   Mode: 'How this proxy decides where a query goes.',
   ProxySQL: 'The ProxySQL fronting this cluster.',
   'ProxySQL cluster': 'The ProxySQL cluster this member belongs to — they share configuration between themselves.',

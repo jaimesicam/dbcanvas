@@ -249,7 +249,10 @@ in front of one: `--node 'pxc:3,os=el9' --node perfsim`. Linking one to a Kubern
 frame is done with the design endpoints, since compose does not build K3D frames.
 
 The HAProxy needed no `to=` — one legal backend, so compose used it and said so in the
-plan. The pgvector Support Sim needed one, because using the cluster directly and using
+plan. Its package comes from the OS repository unless `source=` says otherwise: `percona`
+(percona-haproxy, the 2.8 line) or `pgdg` (PGDG's extras repository, 2.7 to 3.x, Oracle Linux
+only). `version=` then takes a build (`2.8.16`) or a branch (`3.2`, its newest build), checked
+against `GET /api/catalog/haproxy?source=…`. The pgvector Support Sim needed one, because using the cluster directly and using
 it through the proxy are different tests and it will not guess. `dbcanvas-cli stack kinds`
 prints each kind's legal targets in the LINKS TO column.
 

@@ -92,6 +92,7 @@ function Overview({ cfg, dep, onDeleteNode }) {
       <KV k="FQDN" help={DEP_HELP.FQDN} v={cfg.fqdn} mono />
       {cfg.serverVersion && <KV k="Version" help={DEP_HELP.Version} v={cfg.serverVersion} mono />}
       <KV k="Image" help={DEP_HELP.Image} v={cfg.image} mono />
+      <KV k="Package source" help={DEP_HELP['Package source']} v={cfg.repo || 'OS repository'} mono />
       <KV k="Backend" help={DEP_HELP.Backend} v={isPXC ? 'Percona XtraDB Cluster' : 'Patroni PostgreSQL'} />
       <KV k="Routes to cluster" help={DEP_HELP['Routes to cluster']} v={cfg.cluster} mono />
       <KV k="Backend members" help={DEP_HELP['Backend members']} v={(cfg.members || []).length ? `${(cfg.members || []).length} member(s)` : '—'} />

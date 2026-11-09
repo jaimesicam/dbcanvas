@@ -292,6 +292,8 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "Percona XtraDB Cluster versions installable per OS, as recorded by `make versions`."},
 		{Method: "GET", Path: "/api/catalog/proxysql", Group: gCatalog, Handler: m((*App).handleProxySQLCatalog),
 			Summary: "ProxySQL versions installable per OS."},
+		{Method: "GET", Path: "/api/catalog/haproxy", Group: gCatalog, Handler: m((*App).handleHAProxyCatalog),
+			Summary: "HAProxy versions a package source offers per OS: ?source=percona (percona-haproxy, ppg-NN) or ?source=pgdg (PGDG extras, EL only)."},
 		{Method: "GET", Path: "/api/catalog/valkey", Group: gCatalog, Handler: m((*App).handleValkeyCatalog),
 			Summary: "Valkey versions installable per OS."},
 		{Method: "GET", Path: "/api/catalog/ps", Group: gCatalog, Handler: m((*App).handlePSCatalog),

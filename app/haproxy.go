@@ -77,6 +77,12 @@ type haproxyConfig struct {
 	WritePort   int      `json:"writePort"` // host port mapped to 5000 (0 = not published)
 	ReadPort    int      `json:"readPort"`  // host port mapped to 5001
 	StatsPort   int      `json:"statsPort"` // host port mapped to 7000
+	// Source is the package source asked for ("" OS, "percona", "pgdg"; haproxysource.go) and
+	// Version the build pinned ("" newest); Repo is the repository the install actually used
+	// ("ppg-17", "pgdg-rhel9-extras"; "" for the OS's own).
+	Source  string `json:"source,omitempty"`
+	Version string `json:"version,omitempty"`
+	Repo    string `json:"repo,omitempty"`
 }
 
 func haproxyAlias(label string) string {
@@ -110,6 +116,7 @@ func (a *App) provisionHAProxy(st Stack, n designNode, doc designDoc) {
 		Image: image, OS: n.OS, Arch: archOr(n.Arch),
 		Hostname: host, FQDN: fqdnOf(host, domain),
 		UseProxy: n.UseProxy, MonitoredBy: monitoredBy, Ports: haproxyPorts,
+		Source: n.HAProxySource, Version: n.HAProxyVersion,
 	}
 	cfgJSON, _ := json.Marshal(cfg)
 	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON})
@@ -276,15 +283,19 @@ func (a *App) provisionHAProxy(st Stack, n designNode, doc designDoc) {
 		}
 
 		setPhase("Installing HAProxy", 50)
-		instScript := haproxyInstallRHEL
-		if debian {
-			instScript = haproxyInstallDebian
-		}
-		if err := a.runStep(ctx, id, instScript, nil, logln); err != nil {
-			failNode("install haproxy: %v", err)
+		instScript, instEnv := haproxyInstallStep(n, haproxyBackendPGMajor(kind, frame))
+		if err := a.runStep(ctx, id, instScript, instEnv, logln); err != nil {
+			failNode("install haproxy from %s: %v", haproxySourceLabel(n.HAProxySource), err)
 			return
 		}
-		logln("haproxy installed")
+		cfg.Repo = a.haproxyInstalledRepo(ctx, id)
+		cfgJSON, _ = json.Marshal(cfg)
+		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployProvisioning, Config: cfgJSON})
+		if cfg.Repo != "" {
+			logln("haproxy installed from " + cfg.Repo)
+		} else {
+			logln("haproxy installed from the OS repository")
+		}
 		a.ensureRsyslog(ctx, id, n.OS, logln)
 
 		// Install pmm-client only when this node is monitored by a PMM server.

@@ -1242,7 +1242,7 @@ func TestComposeCatalogueMatchesTheBuilder(t *testing.T) {
 		if has("count") != (k.Frame && k.Topology == nil) {
 			t.Errorf("%s: count advertised=%v, want %v", k.Kind, has("count"), k.Frame && k.Topology == nil)
 		}
-		if has("version") != (k.Catalog != "" || k.PDPSRepo) {
+		if has("version") != (k.Catalog != "" || k.PDPSRepo || k.SourceCatalog) {
 			t.Errorf("%s: version advertised=%v but it has no catalogue", k.Kind, has("version"))
 		}
 		for _, sc := range k.Scalars {

@@ -14554,6 +14554,21 @@ function HAProxyForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep
     if (Object.keys(patch).length) patchNode(n.id, patch)
   }, [imgs, n.id, n.os, n.osVersion, deployed]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Package source (app/haproxysource.go): the OS repository, Percona's percona-haproxy, or
+  // PGDG's extras repository (EL only). The two non-OS sources have a version catalogue.
+  const src = n.haproxySource || ''
+  const debianOS = n.os === 'ubuntu' || n.os === 'debian'
+  const [verCat, setVerCat] = useState({})
+  useEffect(() => {
+    if (!src || verCat[src]) return
+    let alive = true
+    stackApi.haproxyCatalog(src).then((c) => { if (alive) setVerCat((m) => ({ ...m, [src]: c.images || [] })) }).catch(() => { /* free text stays possible via the API */ })
+    return () => { alive = false }
+  }, [src]) // eslint-disable-line react-hooks/exhaustive-deps
+  const srcImg = (verCat[src] || []).find((i) => i.os === n.os && i.osVersion === n.osVersion)
+  const srcBranches = srcImg ? Object.keys(srcImg.versions || {}).filter((b) => (srcImg.versions[b] || []).length)
+    .sort((a, b) => b.localeCompare(a, undefined, { numeric: true })) : []
+
   const pmmNodes = nodes.filter((x) => x.type === 'pmm')
   // Directly-linked backend cluster frame(s). HAProxy fronts exactly one (mutually
   // exclusive); HAPROXY_BACKENDS mirrors haproxyClusterFrames in app/intranet.go.
@@ -14607,6 +14622,36 @@ function HAProxyForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep
           </select>
         </Field>
       </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Package source" help={HELP.haproxySource} hint={deployed ? 'Locked.' : ''}>
+          <select className={`${inputCls} ${lock}`} value={src} disabled={deployed}
+            onChange={(e) => patchNode(n.id, { haproxySource: e.target.value, haproxyVersion: '' })}>
+            <option value="">OS repository</option>
+            <option value="percona">Percona (percona-haproxy)</option>
+            <option value="pgdg" disabled={debianOS}>PGDG extras{debianOS ? ' — EL only' : ''}</option>
+          </select>
+        </Field>
+        <Field label="HAProxy version" help={HELP.haproxyVersion}>
+          <select className={`${inputCls} ${lock}`} value={src ? (n.haproxyVersion || '') : ''} disabled={deployed || !src}
+            onChange={(e) => patchNode(n.id, { haproxyVersion: e.target.value })}>
+            <option value="">{src ? 'Newest' : 'What the OS ships'}</option>
+            {srcBranches.map((b) => (
+              <optgroup key={b} label={b}>
+                {srcImg.versions[b].map((v) => <option key={v} value={v}>{v}</option>)}
+              </optgroup>
+            ))}
+            {n.haproxyVersion && src && !srcBranches.some((b) => srcImg.versions[b].includes(n.haproxyVersion)) && (
+              <option value={n.haproxyVersion}>{n.haproxyVersion} (not in the catalogue)</option>
+            )}
+          </select>
+        </Field>
+      </div>
+      {src === 'pgdg' && debianOS && (
+        <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
+          PGDG publishes HAProxy for EL only — choose Oracle Linux, or the Percona or OS package.
+        </div>
+      )}
 
       <Field label="Monitored by (PMM)" help={HELP.pmm} hint="Optional — registers the HAProxy service with a PMM node.">
         <select className={`${inputCls} ${lock}`} value={n.pmmNodeId || ''} disabled={deployed} onChange={(e) => patchNode(n.id, { pmmNodeId: e.target.value })}>

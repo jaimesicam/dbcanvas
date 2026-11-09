@@ -184,6 +184,8 @@ export const stackApi = {
   pxcCatalog: () => request('GET', '/api/catalog/pxc'),
   proxysqlCatalog: () => request('GET', '/api/catalog/proxysql'),
   valkeyCatalog: () => request('GET', '/api/catalog/valkey'),
+  // source: 'percona' or 'pgdg' (app/haproxysource.go); the OS package has no catalogue.
+  haproxyCatalog: (source) => request('GET', `/api/catalog/haproxy?source=${encodeURIComponent(source)}`),
   psCatalog: () => request('GET', '/api/catalog/ps'),
   orchestratorCatalog: () => request('GET', '/api/catalog/orchestrator'),
   mariadbCatalog: () => request('GET', '/api/catalog/mariadb'),

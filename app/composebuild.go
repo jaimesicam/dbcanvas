@@ -394,6 +394,7 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 		{s.PGBench != 0, kind.takes("pgbench"), "pgbench"},
 		{s.SyncStandbys != 0, kind.takes("syncStandbys"), "syncStandbys"},
 		{s.StandbyOf != "", kind.takes("standbyOf"), "standbyOf"},
+		{s.Source != "", kind.takes("source"), "source"},
 		{s.Replicas != 0, kind.takes("replicas"), "replicas"},
 		{s.TDEWal, kind.takes("tdeWal"), "tdeWal"},
 		{s.ViewOnly, kind.takes("viewOnly"), "viewOnly"},
@@ -462,6 +463,10 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 		}
 	case kind.Catalog == "pmm":
 		if minor, err = resolvePMMVersion(s.Version); err != nil {
+			return fmt.Errorf("%s: %w", kind.Kind, err)
+		}
+	case kind.SourceCatalog:
+		if major, minor, err = resolveHAProxyVersion(s.Source, os_, osVer, arch, s.Version); err != nil {
 			return fmt.Errorf("%s: %w", kind.Kind, err)
 		}
 	case kind.Catalog != "":
@@ -647,6 +652,8 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 			// not the other way round.
 			n.PgbFollowPrimary = true
 			n.PgbAuthQuery = true
+		case "haproxy":
+			n.HAProxySource, n.HAProxyVersion = composeHAProxySource(s.Source), minor
 		case "intranet":
 			// Always the first thing on the canvas, where the eye starts.
 			b.pos[n.ID] = [2]float64{composeColX, composeColX}
@@ -1099,7 +1106,7 @@ func composeKindsDoc() map[string]any {
 			// would be advertising a flag that does nothing.
 			d.Options = append(d.Options, "os", "arch")
 		}
-		if k.Catalog != "" || k.PDPSRepo {
+		if k.Catalog != "" || k.PDPSRepo || k.SourceCatalog {
 			d.Options = append(d.Options, "version")
 		}
 		if k.Frame && k.Topology == nil {

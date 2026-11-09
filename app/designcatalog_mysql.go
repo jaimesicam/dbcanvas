@@ -374,6 +374,9 @@ var catalogMySQLFamily = []catalogEntry{
 			[]catalogOption{
 				{Field: "os", Default: "oraclelinux", Values: []string{"oraclelinux", "ubuntu"}, Desc: "OS family of the image, from GET /api/catalog/images. Locked once deployed."},
 				{Field: "osVersion", Default: "9", Desc: "OS release of the image, as GET /api/catalog/images lists it for the chosen os. Locked once deployed."},
+				{Field: "haproxySource", Values: []string{"", "percona", "pgdg"}, Default: "",
+					Desc: "Where the haproxy package comes from: \"\" the OS repository (the version the OS release ships), \"percona\" percona-haproxy from a ppg-NN repository (2.8 LTS; the backend's PostgreSQL series first), \"pgdg\" PGDG's pgdg-rhelN-extras repository (2.7 to 3.x; Oracle Linux only). Locked once deployed."},
+				{Field: "haproxyVersion", Desc: "The HAProxy build to install, e.g. 2.8.16 or 3.2.8, as GET /api/catalog/haproxy?source=… lists it for the node's OS; \"\" is the newest the source has. Locked once deployed.", When: "haproxySource is percona or pgdg"},
 				{Field: "useProxy", Desc: "Download packages through the Intranet's Squid proxy."},
 				{Field: "exportEnabled", Desc: "Publish the write port 5000 on the Docker host at exportHostPort, and the read (5001) and stats (7000) ports on free ports. Locked once deployed."},
 				{Field: "exportHostPort", Desc: "Host port for the write port 5000; 0 picks a free one.", When: "exportEnabled is on"},

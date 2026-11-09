@@ -630,6 +630,22 @@ func (a *App) handleProxySQLCatalog(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"images": loadProxySQLCatalog()})
 }
 
+// handleHAProxyCatalog serves the HAProxy builds a package source offers per image
+// (?source=percona or pgdg; haproxysource.go). The OS package has no catalogue: it is
+// whatever the OS release ships.
+func (a *App) handleHAProxyCatalog(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.currentUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	src := strings.TrimSpace(r.URL.Query().Get("source"))
+	if haproxyCatalogSection(src) == "" {
+		writeErr(w, http.StatusBadRequest, "source must be percona or pgdg — the OS package has no version to choose")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"source": src, "images": loadHAProxyCatalog(src)})
+}
+
 func (a *App) handleValkeyCatalog(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.currentUser(r); !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
