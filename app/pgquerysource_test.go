@@ -64,7 +64,7 @@ func TestPGQuerySourceIssues(t *testing.T) {
 
 func TestPatroniYAMLCarriesQuerySource(t *testing.T) {
 	f := designFrame{Type: "patroni", Label: "c1", PGMajor: "17", PMMNodeID: "pmm1", PGQuerySource: "pgstatmonitor"}
-	y := patroniYAML(f, "h", "h.example.net", []string{"h:2379"}, pgSecrets{SuperUser: "postgres", ReplUser: "replicator"})
+	y := patroniYAML(f, "h", "h.example.net", []string{"h:2379"}, pgSecrets{SuperUser: "postgres", ReplUser: "replicator"}, nil)
 	for _, want := range []string{
 		`shared_preload_libraries: "pg_stat_statements,pg_stat_monitor"`,
 		`pg_stat_monitor.pgsm_enable_query_plan: "off"`,
@@ -74,7 +74,7 @@ func TestPatroniYAMLCarriesQuerySource(t *testing.T) {
 		}
 	}
 	f.PMMNodeID = ""
-	if strings.Contains(patroniYAML(f, "h", "h.example.net", nil, pgSecrets{}), "shared_preload_libraries") {
+	if strings.Contains(patroniYAML(f, "h", "h.example.net", nil, pgSecrets{}, nil), "shared_preload_libraries") {
 		t.Error("without PMM the Patroni frame must not preload anything")
 	}
 }

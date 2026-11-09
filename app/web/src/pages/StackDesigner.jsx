@@ -21,7 +21,7 @@ import {
   LIVE_MEMBER_EXTRA, LIVE_NODE_EXTRA, TABLE_GAP, tableHeight, tableWidth, lbHeight, LB_MIN_W, footprints, countOverlaps, fixLayout,
 } from '../components/LiveCard.jsx'
 import { sendHandoff, useHandoff } from '../lib/handoff.js'
-import { stackApi, templateApi, imageApi, mongoDownloadURL, k8sPods, isBuiltinTemplate, frameApi, TTL_OPTIONS, DEPLOY_TONE, NODE_UPLOAD_DESTS, PRODUCT_OS_FAMILIES } from '../lib/stackApi.js'
+import { stackApi, templateApi, imageApi, mongoDownloadURL, k8sPods, isBuiltinTemplate, frameApi, patroniApi, k3dPGPromote, TTL_OPTIONS, DEPLOY_TONE, NODE_UPLOAD_DESTS, PRODUCT_OS_FAMILIES } from '../lib/stackApi.js'
 import { kindOf as aioKindOf, familyOf as aioFamilyOf } from '../lib/aioPorts.js'
 import { showEOL, showExperimental, visibleGroups } from '../lib/experimental.js'
 import IntranetManager from './IntranetManager.jsx'
@@ -1206,7 +1206,34 @@ export const REPL_FRAME_TYPES = new Set(['mysql', 'mariadbrepl', 'mysqlcerepl'])
 export function k8sReplLinkable(f1, f2) {
   if (!f1 || !f2 || f1.id === f2.id) return false
   if (f1.type !== 'k3d' || f2.type !== 'k3d') return false
+  // Two Percona PostgreSQL operator clusters: a standby link (app/k3dpgstandby.go).
+  if (f1.k3dOperator === 'pg' && f2.k3dOperator === 'pg') return true
   return f1.k3dOperator === 'pxc' && f2.k3dOperator === 'pxc'
+}
+
+// k8sPGStandbyPair — is this a link between two Percona PostgreSQL operator clusters, which makes
+// the replica end a standby cluster rather than a replication channel?
+export function k8sPGStandbyPair(f1, f2) {
+  return f1?.type === 'k3d' && f2?.type === 'k3d' && f1.k3dOperator === 'pg' && f2.k3dOperator === 'pg'
+}
+
+// patroniStandbyLinkable — may a standby link be drawn between these two Patroni frames? Any
+// two different ones; the validator checks the rest (same major and build, no pgBackRest on
+// the standby, no pg_tde, no loop). See app/patronistandby.go.
+export function patroniStandbyLinkable(f1, f2) {
+  if (!f1 || !f2 || f1.id === f2.id) return false
+  return f1.type === 'patroni' && f2.type === 'patroni'
+}
+
+// patroniStandbySourceOf is the Patroni frame a Patroni frame is a standby of, or null.
+export function patroniStandbySourceOf(frameId, edges, frames) {
+  const byId = (id) => frames.find((f) => f.id === id && f.type === 'patroni')
+  for (const ed of edges || []) {
+    if (ed?.type !== 'async' || ed.to.node !== frameId) continue
+    const src = byId(ed.from.node)
+    if (src && byId(frameId)) return src
+  }
+  return null
 }
 
 // k8sReplRoleOf is what a Kubernetes frame is on the canvas's replication edges:
@@ -3122,6 +3149,14 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       if ((f.k3dExposePxc || 'clusterip') === K3D_SOURCE_EXPOSE) continue
       patchFrame(f.id, { k3dExposePxc: K3D_SOURCE_EXPOSE })
     }
+    // The same for a Percona PostgreSQL operator standby link: the standby dials the source's
+    // primary Service from another cluster.
+    for (const f of frames) {
+      if (f.type !== 'k3d' || f.k3dOperator !== 'pg') continue
+      if (k8sReplRoleOf(f.id, edges, frames) !== 'source') continue
+      if ((f.k3dExposePg || 'clusterip') === K3D_SOURCE_EXPOSE) continue
+      patchFrame(f.id, { k3dExposePg: K3D_SOURCE_EXPOSE })
+    }
   }, [edges, frames]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // debounced autosave — only when the design actually differs from the last
@@ -3740,6 +3775,17 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       setReplPrompt({ e1, e2 })
       return
     }
+    // Patroni frame ↔ Patroni frame: one becomes a standby cluster of the other. Drawn frame to
+    // frame because a standby follows a whole cluster, not one member. Async only: a standby
+    // takes no writes, so there is no other way round.
+    if (k1 === 'patroni' && k2 === 'patroni') {
+      const f1 = refs.current.frames.find((x) => x.id === e1.node)
+      const f2 = refs.current.frames.find((x) => x.id === e2.node)
+      if (!patroniStandbyLinkable(f1, f2)) return
+      if (refs.current.edges.some((ed) => isReplEdge(ed) && [ed.from.node, ed.to.node].includes(f1.id) && [ed.from.node, ed.to.node].includes(f2.id))) return
+      setReplPrompt({ e1, e2, kind: 'patroni' })
+      return
+    }
     // Kubernetes frame ↔ Kubernetes frame, both running the PXC operator: a
     // cross-cluster replication link between two operator-managed clusters. This is
     // the one frame↔frame connection there is, and it has to be one: a Kubernetes
@@ -3751,7 +3797,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       const f1 = refs.current.frames.find((x) => x.id === e1.node)
       const f2 = refs.current.frames.find((x) => x.id === e2.node)
       if (!k8sReplLinkable(f1, f2)) return
-      setReplPrompt({ e1, e2, kind: 'k8s' })
+      setReplPrompt({ e1, e2, kind: k8sPGStandbyPair(f1, f2) ? 'k8s-pg' : 'k8s' })
       return
     }
     // Everything else (the remaining frame↔frame pairs, ProxySQL cluster frame as
@@ -8134,14 +8180,18 @@ export function PITRFields({ f, nodes, patchFrame, deployed, replRole = '' }) {
 }
 
 // K3DIssuerField — which CA cert-manager issues the database certificates from (app/k3dissuer.go).
-// Offered for the three operators that read tls.issuerConf; PSMDB only from 1.23.0, because older
-// releases overwrite an Issuer of the configured name with their own CA. Hidden rather than
-// disabled below that, the way the other version-gated options are; the backend refuses it too.
-export const K3D_ISSUER_OPERATORS = new Set(['pxc', 'ps', 'psmdb'])
+// Offered for the four operators that read tls.issuerConf; PSMDB only from 1.23.0, because older
+// releases overwrite an Issuer of the configured name with their own CA, and PG only from 3.1.0,
+// the first CRD with the field. Hidden rather than disabled below that, the way the other
+// version-gated options are; the backend refuses it too.
+export const K3D_ISSUER_OPERATORS = new Set(['pxc', 'ps', 'psmdb', 'pg'])
 export function K3DIssuerField({ f, op, ver, baoNode, patchFrame, deployed, lock = '' }) {
   if (!K3D_ISSUER_OPERATORS.has(op)) return null
   if (op === 'psmdb' && !(ver && cmpDottedVersions(ver, '1.23.0') >= 0)) {
     return <p className="text-xs text-muted">The MongoDB operator issues from its own CA here: a named issuer needs operator 1.23.0 or newer.</p>
+  }
+  if (op === 'pg' && !(ver && cmpDottedVersions(ver, '3.1.0') >= 0)) {
+    return <p className="text-xs text-muted">The PostgreSQL operator issues from its own CA here: a named issuer needs operator 3.1.0 or newer.</p>
   }
   const v = f.k3dCertIssuer || ''
   return (
@@ -8171,7 +8221,9 @@ export function K3DTLSHostsField({ f, op, ver, patchFrame, deployed }) {
     pxc: <><span className="font-mono">{c}-haproxy</span>, <span className="font-mono">{c}-proxysql</span> and the per-pod <span className="font-mono">{c}-pxc-N</span>, added as <span className="font-mono">tls.SANs</span></>,
     ps: <><span className="font-mono">{c}-mysql-primary</span>, <span className="font-mono">{c}-haproxy</span>, <span className="font-mono">{c}-router</span>, added as <span className="font-mono">tls.SANs</span></>,
     psmdb: <>the replica set&rsquo;s <span className="font-mono">{c}-rs0-N</span>, added as split horizons (operator 1.22.0+, replica set on a LoadBalancer; mongos names are published but no setting puts them in its certificate)</>,
+    pg: <><span className="font-mono">{c}-ha</span>, <span className="font-mono">{c}-replicas</span> and <span className="font-mono">{c}-pgbouncer</span>, in server, replication and pgBouncer certificates DBCanvas issues from the certificate issuer (<span className="font-mono">spec.secrets.customTLSSecret</span>)</>,
   }[op]
+  const pgNoIssuer = op === 'pg' && (!f.k3dCertIssuer || !(ver && cmpDottedVersions(ver, '3.1.0') >= 0))
   return (
     <label className="flex items-start gap-2 text-sm">
       <input type="checkbox" className="mt-1" disabled={deployed} checked={!!f.k3dTlsHosts}
@@ -8182,6 +8234,7 @@ export function K3DTLSHostsField({ f, op, ver, patchFrame, deployed }) {
           For clients that verify the host name. Names {which}. Once the cluster is ready, every LoadBalancer
           Service it has is published as <span className="font-mono">&lt;service&gt;.&lt;domain&gt;</span> with its reverse record.
           {op === 'psmdb' && ver && cmpDottedVersions(ver, '1.22.0') < 0 && <> This operator release is older than 1.22.0, so the names reach DNS but not the certificate.</>}
+          {pgNoIssuer && <> Without the Intranet CA or OpenBao as the certificate issuer (operator 3.1.0+), the names reach DNS but not the certificates.</>}
         </span>
       </span>
     </label>
@@ -11862,8 +11915,15 @@ function K3DFrameForm({ frame: f, nodes, frames = [], frameNodes, patchFrame, de
         )}
         {op === 'pg' && (
           <>
-            <Field label="Expose · PostgreSQL" help={HELP.k8sExpose} hint="The primary's Service (the read/write endpoint).">
-              <select className={`${inputCls} ${lock}`} value={f.k3dExposePg || 'clusterip'} disabled={deployed}
+            <Field label="Expose · PostgreSQL" help={HELP.k8sExpose}
+              hint={replRole === 'source'
+                ? 'Held at LoadBalancer: this cluster is the source of a standby cluster, which dials its primary from another Kubernetes cluster.'
+                : replRole === 'replica'
+                  ? `A standby cluster of ${replSource?.label || 'its source'}: read-only, streaming from its primary.`
+                  : "The primary's Service (the read/write endpoint)."}>
+              <select className={`${inputCls} ${replRole === 'source' ? 'opacity-70' : lock}`}
+                value={replRole === 'source' ? K3D_SOURCE_EXPOSE : (f.k3dExposePg || 'clusterip')}
+                disabled={deployed || replRole === 'source'}
                 onChange={(e) => patchFrame(f.id, { k3dExposePg: e.target.value })}>
                 {K3D_EXPOSE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
               </select>
@@ -13844,7 +13904,7 @@ export function PGBenchOption({ obj, patch, deployed }) {
   )
 }
 
-function PatroniFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, deployed }) {
+function PatroniFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame, deployed, standbyOf, standbys = [] }) {
   const imgs = usePPGCatalog(f, deployed, patchFrame)
   const lock = deployed ? 'opacity-70' : ''
   const pmmNodes = nodes.filter((n) => n.type === 'pmm')
@@ -13863,6 +13923,18 @@ function PatroniFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame
         <span className="text-sm font-semibold">{isPGDG(f) ? 'Patroni Cluster (PGDG)' : 'Patroni Cluster'}</span>
         <Badge tone="primary">{members} node{members === 1 ? '' : 's'}</Badge>
       </div>
+
+      {(standbyOf || standbys.length > 0) && (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-xs">
+          {standbyOf && (
+            <p>Standby cluster of <span className="font-semibold">{standbyOf.label}</span>: read-only, following it. Its PostgreSQL
+              major and build must match, and it takes no pgBackRest backups of its own.</p>
+          )}
+          {standbys.length > 0 && (
+            <p>Source of the standby cluster{standbys.length === 1 ? '' : 's'} <span className="font-semibold">{standbys.map((x) => x.label).join(', ')}</span>.</p>
+          )}
+        </div>
+      )}
 
       <Field label="Cluster name" help={HELP.clusterName} hint="Becomes the Patroni scope + pgBackRest stanza; must be unique across the stack.">
         <input className={inputCls} value={f.label} disabled={deployed} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
@@ -15943,7 +16015,9 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
       return <PSMRSFrameForm frame={f} nodes={nodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
     }
     if (f.type === 'patroni') {
-      return <PatroniFrameForm frame={f} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
+      return <PatroniFrameForm frame={f} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed}
+        standbyOf={patroniStandbySourceOf(f.id, edges, frames)}
+        standbys={frames.filter((x) => patroniStandbySourceOf(x.id, edges, frames)?.id === f.id)} />
     }
     if (f.type === 'pgstream') {
       return <PGStreamFrameForm frame={f} nodes={nodes} frameNodes={frameNodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} />
@@ -16345,7 +16419,8 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
   const ed = edges.find((x) => x.id === selected.id)
   if (!ed) return null
   if (isReplEdge(ed)) {
-    return <ReplicationLinkForm ed={ed} nodes={nodes} frames={frames} patchEdge={patchEdge} deleteEdge={deleteEdge} />
+    return <ReplicationLinkForm ed={ed} nodes={nodes} frames={frames} patchEdge={patchEdge} deleteEdge={deleteEdge}
+      stackId={stackId} depByNode={depByNode} />
   }
   // An association line, and the separator says so: ↔, not →. Which end was drawn
   // first is an artifact of the gesture — everything that reads these edges walks
@@ -16369,13 +16444,17 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
 // (either direction) and bidirectional, or delete it. Changes take effect on the
 // next Deploy (replication is reconciled at deploy time). Options are anchored to a
 // stable node pair (sorted ids) so the active choice doesn't jump when reversed.
-export function ReplicationLinkForm({ ed, nodes, frames, patchEdge, deleteEdge }) {
+export function ReplicationLinkForm({ ed, nodes, frames, patchEdge, deleteEdge, stackId, depByNode }) {
   const ends = { [ed.from.node]: ed.from, [ed.to.node]: ed.to }
   const [idA, idB] = [ed.from.node, ed.to.node].sort()
   const endA = ends[idA]
   const endB = ends[idB]
-  // A link between two Kubernetes frames has frame ids at its ends, not node ids.
-  const k8s = (frames || []).some((f) => f.id === ed.from.node)
+  // A link between two frames has frame ids at its ends, not node ids: two Kubernetes
+  // clusters, or two Patroni clusters (a standby link).
+  const frameOf = (id) => (frames || []).find((f) => f.id === id)
+  const patroni = frameOf(ed.from.node)?.type === 'patroni' && frameOf(ed.to.node)?.type === 'patroni'
+  const k8sPG = k8sPGStandbyPair(frameOf(ed.from.node), frameOf(ed.to.node))
+  const k8s = !patroni && (frames || []).some((f) => f.id === ed.from.node)
   const labelOf = (id) =>
     nodes.find((n) => n.id === id)?.label || (frames || []).find((f) => f.id === id)?.label || id
   const lA = labelOf(idA)
@@ -16384,8 +16463,12 @@ export function ReplicationLinkForm({ ed, nodes, frames, patchEdge, deleteEdge }
   const opts = [
     { key: 'ab', label: `${lA} → ${lB}`, hint: 'async', apply: () => patchEdge(ed.id, { type: 'async', from: endA, to: endB }) },
     { key: 'ba', label: `${lB} → ${lA}`, hint: 'async', apply: () => patchEdge(ed.id, { type: 'async', from: endB, to: endA }) },
-    ...(k8s ? [] : [{ key: 'bidir', label: `${lA} ↔ ${lB}`, hint: 'bidirectional', apply: () => patchEdge(ed.id, { type: 'bidir' }) }]),
+    ...(k8s || patroni ? [] : [{ key: 'bidir', label: `${lA} ↔ ${lB}`, hint: 'bidirectional', apply: () => patchEdge(ed.id, { type: 'bidir' }) }]),
   ]
+  if (patroni || k8sPG) {
+    return <PatroniStandbyLinkForm ed={ed} opts={opts} current={current} frames={frames} nodes={nodes}
+      deleteEdge={deleteEdge} stackId={stackId} depByNode={depByNode} kubernetes={k8sPG} />
+  }
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -16425,6 +16508,72 @@ export function ReplicationLinkForm({ ed, nodes, frames, patchEdge, deleteEdge }
   )
 }
 
+// PatroniStandbyLinkForm is the properties panel of a link between two Patroni clusters: which
+// way it points (the arrow is at the standby), and Promote once the standby is deployed.
+function PatroniStandbyLinkForm({ ed, opts, current, frames, nodes, deleteEdge, stackId, depByNode, kubernetes }) {
+  const src = frames.find((f) => f.id === ed.from.node)
+  const dst = frames.find((f) => f.id === ed.to.node)
+  const dstDeployed = nodes.some((n) => n.frameId === dst?.id && depByNode?.[n.id])
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  async function promote() {
+    setBusy(true)
+    setMsg('')
+    try {
+      if (kubernetes) await k3dPGPromote(stackId, dst.id)
+      else await patroniApi(stackId, dst.id).promote()
+      deleteEdge(ed.id) // the server removed it from the design too
+    } catch (e) {
+      setMsg(e.message || String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Standby cluster link</span>
+        <Badge tone="success">standby</Badge>
+      </div>
+      {kubernetes ? (
+        <p className="text-xs text-muted">
+          <span className="font-semibold">{dst?.label}</span> is a standby cluster of <span className="font-semibold">{src?.label}</span>,
+          both on the Percona Operator for PostgreSQL: it streams from {src?.label}'s primary (a LoadBalancer, with {src?.label}'s root CA
+          copied in) and, when both back up to the same SeaweedFS bucket, also reads its pgBackRest repository. It is read-only until
+          promoted. A standby that was already deployed is <span className="font-semibold">deleted with its volumes and created again</span> on
+          the next Deploy. Deleting the link and deploying promotes it.
+        </p>
+      ) : (
+        <p className="text-xs text-muted">
+          <span className="font-semibold">{dst?.label}</span> is a standby cluster of <span className="font-semibold">{src?.label}</span>:
+          its leader streams from {src?.label}'s members and its own members replicate from it. It is read-only until promoted.
+          A standby that was already deployed is <span className="font-semibold">rebuilt as a copy of the source</span> on the next
+          Deploy, replacing its data. Deleting the link and deploying promotes it.
+        </p>
+      )}
+      <div className="space-y-2">
+        {opts.map((o) => (
+          <button key={o.key} onClick={o.apply}
+            className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-sm ${current === o.key ? 'border-primary bg-primary/10' : 'hover:border-primary hover:bg-primary/5'}`}>
+            <span className="font-mono">{o.label}</span>
+            <span className="text-[11px] text-muted">source → standby</span>
+          </button>
+        ))}
+      </div>
+      {dstDeployed && (
+        <ConfirmButton variant="secondary" size="sm" className="w-full" disabled={busy} onConfirm={promote}
+          confirmLabel={`Promote ${dst?.label}?`}>
+          Promote {dst?.label} now
+        </ConfirmButton>
+      )}
+      {msg && <p className="text-xs text-danger">{msg}</p>}
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteEdge(ed.id)}>
+        <Icon.Trash size={16} /> Delete standby link
+      </Button>
+    </div>
+  )
+}
+
 // ReplicationLinkModal asks for the direction/type when a replication link is drawn
 // between two cluster members (PXC or Percona Server, in different frames).
 export function ReplicationLinkModal({ prompt, nodes, frames, onClose, onChoose }) {
@@ -16446,7 +16595,8 @@ export function ReplicationLinkChoices({ prompt, nodes, frames, onClose, onChoos
   // Two shapes reach this dialog. Between cluster *members* the endpoints are nodes and the
   // parenthetical says which cluster each is in; between two Kubernetes *frames* the endpoint
   // IS the cluster, so there is nothing to qualify it with. See tryConnect.
-  const k8s = prompt.kind === 'k8s'
+  const patroni = prompt.kind === 'patroni' || prompt.kind === 'k8s-pg'
+  const k8s = prompt.kind === 'k8s' || patroni
   const node = (id) => nodes.find((n) => n.id === id)
   const frame = (id) => frames.find((f) => f.id === id)
   const n1 = node(e1.node)
@@ -16455,16 +16605,22 @@ export function ReplicationLinkChoices({ prompt, nodes, frames, onClose, onChoos
   const l1 = (k8s ? frame(e1.node)?.label : n1?.label) || 'node'
   const l2 = (k8s ? frame(e2.node)?.label : n2?.label) || 'node'
   const opts = [
-    { from: e1, to: e2, mode: 'async', label: `${l1} → ${l2}`, hint: 'async — replica reads from source' },
-    { from: e2, to: e1, mode: 'async', label: `${l2} → ${l1}`, hint: 'async — replica reads from source' },
+    { from: e1, to: e2, mode: 'async', label: `${l1} → ${l2}`, hint: patroni ? `${l2} is the standby` : 'async — replica reads from source' },
+    { from: e2, to: e1, mode: 'async', label: `${l2} → ${l1}`, hint: patroni ? `${l1} is the standby` : 'async — replica reads from source' },
     // Bidirectional is a MySQL-family-only option. The PXC operator holds a cluster that carries
     // an inbound channel read-only, so two-way between operator clusters has nowhere to write.
     ...(k8s ? [] : [{ from: e1, to: e2, mode: 'bidir', label: `${l1} ↔ ${l2}`, hint: 'bidirectional — each replicates from the other' }]),
   ]
   return (
     <>
-        <h3 className="mb-1 text-sm font-semibold">Set up replication</h3>
-        {k8s ? (
+        <h3 className="mb-1 text-sm font-semibold">{patroni ? 'Set up a standby cluster' : 'Set up replication'}</h3>
+        {patroni ? (
+          <p className="mb-3 text-xs text-muted">
+            Between the {prompt.kind === 'k8s-pg' ? 'Percona PostgreSQL operator' : 'Patroni'} clusters <span className="font-semibold">{l1}</span> and <span className="font-semibold">{l2}</span>.
+            The arrow points at the standby: its leader streams from the source and it takes no writes until promoted. A standby
+            that is already deployed is <span className="font-semibold">rebuilt as a copy of the source</span> on the next Deploy.
+          </p>
+        ) : k8s ? (
           <p className="mb-3 text-xs text-muted">
             Between the Kubernetes clusters <span className="font-semibold">{l1}</span> and <span className="font-semibold">{l2}</span>.
             On deploy, the replica is <span className="font-semibold">restored from a backup of the source</span> — replacing whatever

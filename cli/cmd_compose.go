@@ -75,6 +75,8 @@ func parseNodeSpec(arg string) (map[string]any, error) {
 		// simulator drives. Omit it and the server picks the only legal target, or
 		// refuses and names the choices.
 		"to": "to",
+		// "standbyOf" makes a Patroni cluster a standby cluster of another one in the spec.
+		"standbyof": "standbyOf",
 		// Per-engine.
 		"replmode": "replMode", "mode": "mode", "setup": "setup",
 		"certttl": "certTtl", "pgauditlog": "pgauditLog",
@@ -145,6 +147,7 @@ func parseNodeSpec(arg string) (map[string]any, error) {
 			"  links:   monitor, ldap, oidc, kerberos, vault, backup, orchestrator\n"+
 			"           (each takes an optional <link>With= naming which node)\n"+
 			"  wire to: to=<name>  — the backend a proxy fronts, the database a sim drives\n"+
+			"           standbyOf=<name> — a Patroni cluster as a standby of another\n"+
 			"  flags:   export, cert, proxy, gtid, mysqlRouter, tls, netAllTraffic, pgvector,\n"+
 			"           pgaudit, setUser, tdeWal, mca, viewOnly\n"+
 			"  values:  name=, os=, arch=, version=, count=, cpus=, memoryGb=, exportPort=,\n"+

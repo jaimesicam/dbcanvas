@@ -260,6 +260,13 @@ type k3dConfig struct {
 	// LoadBalancer addresses (short name → address), which a replica verifying the source's
 	// certificate dials instead of the bare addresses. Published by reconcileStackDNS.
 	ReplHosts map[string]string `json:"replHosts,omitempty"`
+	// A Percona PostgreSQL operator cluster built as a standby of another one (k3dpgstandby.go):
+	// the source's cluster name and frame id, the host:port it streams from, and the source's
+	// repository path when it reads that too.
+	PGStandbyOf   string `json:"pgStandbyOf,omitempty"`
+	PGStandbyOfID string `json:"pgStandbyOfId,omitempty"`
+	PGStandbyHost string `json:"pgStandbyHost,omitempty"`
+	PGStandbyRepo string `json:"pgStandbyRepo,omitempty"`
 	// GrafanaDashboard names the dashboard provisioned into Grafana ("" = none). Grafana
 	// with Prometheus wired up but no dashboard reads to a user as monitoring that does
 	// not work, so whether one landed is worth reporting rather than leaving to be
@@ -951,6 +958,11 @@ func (a *App) provisionK3DFrame(st Stack, frame designFrame, doc designDoc) {
 	}
 	if operator == "pg" {
 		base.ExposePG = k3dExposeOf(frame.K3DExposePG, frame.K3DExpose)
+		// The source of a standby link: a standby in another Kubernetes cluster dials its primary
+		// Service, which a ClusterIP would not let it reach (k3dpgstandby.go).
+		if k3dPGIsStandbySource(doc, frame.ID) {
+			base.ExposePG = "LoadBalancer"
+		}
 		base.ExposePGBouncer = k3dExposeOf(frame.K3DExposePGBouncer, frame.K3DExpose)
 		base.Expose = base.ExposePG
 		// The 3.1.0 features, seeded from the design so the cards say something before the

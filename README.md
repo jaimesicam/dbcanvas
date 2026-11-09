@@ -53,10 +53,11 @@ Also per engine:
   gcache-inspector on request. Replication between two PXC or Percona Server clusters, one-way
   or both ways.
 - **PostgreSQL**: pgvector, pgAudit, set_user, synchronous standbys, `pg_hba` methods
-  (scram-sha-256, md5, cert, trust), and a pgbench dataset at deploy.
+  (scram-sha-256, md5, cert, trust), a pgbench dataset at deploy, and a Patroni cluster as a
+  standby cluster of another.
 - **MongoDB**: Percona Search (`$search` / `$vectorSearch`) on 8.3.
-- **Kubernetes (K3D)**: volumes on k3s local-path or on a Ceph node (RBD, resizable), and
-  replication between two PXC clusters.
+- **Kubernetes (K3D)**: volumes on k3s local-path or on a Ceph node (RBD, resizable),
+  replication between two PXC clusters, and a Percona PostgreSQL cluster as a standby of another.
 - **Every database node**: a DNS name, CPU and memory limits, disk throughput limits, added
   latency, jitter, packet loss and bandwidth caps, and a port published on the host.
 

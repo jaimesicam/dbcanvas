@@ -75,7 +75,7 @@ export default function PatroniManager({ stackId, nodeId, frame, dep, onDeleteNo
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">Patroni · {cfg.role === 'leader' ? 'Leader' : 'Replica'}</span>
+        <span className="text-sm font-semibold">Patroni · {roleTitle(cfg.role)}</span>
         <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
       </div>
 
@@ -102,11 +102,20 @@ export default function PatroniManager({ stackId, nodeId, frame, dep, onDeleteNo
   )
 }
 
+// roleTitle is the member's role for the panel header. A standby cluster's leader is a
+// "standby leader": it holds the cluster's leader lock but replays from the source cluster.
+function roleTitle(role) {
+  if (role === 'leader') return 'Leader'
+  if (role === 'standby leader') return 'Standby leader'
+  return 'Replica'
+}
+
 function Overview({ cfg, dep, onDeleteNode }) {
   return (
     <div className="space-y-2 text-sm">
       <KV k="Cluster" help={DEP_HELP.Cluster} v={cfg.cluster} mono />
-      <KV k="Role" help={DEP_HELP.Role} v={cfg.role === 'leader' ? 'Leader (primary)' : 'Replica'} />
+      <KV k="Role" help={DEP_HELP.Role} v={cfg.role === 'leader' ? 'Leader (primary)' : cfg.role === 'standby leader' ? 'Standby leader' : 'Replica'} />
+      {cfg.standbyOf && <KV k="Standby of" v={cfg.standbyOf} mono />}
       <KV k="FQDN" help={DEP_HELP.FQDN} v={cfg.fqdn} mono />
       <KV k="PostgreSQL" help={DEP_HELP.PostgreSQL} v={cfg.pgVersion || cfg.pgMajor} mono />
       {cfg.serverVersion && <KV k="Version" help={DEP_HELP.Version} v={cfg.serverVersion} mono />}

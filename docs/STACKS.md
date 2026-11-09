@@ -31,7 +31,9 @@ deploy and connect. This page is the reference behind it.
    arrow) relates two things — a ProxySQL fronting a cluster, a simulator driving a database. A
    **replication link** (with an arrow) between two cluster members, or between two Kubernetes
    frames, sets up cross-cluster replication from source to replica; a head at each end means
-   bidirectional. Monitoring (PMM), backup targets, directories and key stores are picked from
+   bidirectional. Between two Patroni frames, or two K3D frames running the Percona Operator for
+   PostgreSQL, the link makes the frame the arrow points at a
+   [standby cluster](#patroni-standby-cluster). Monitoring (PMM), backup targets, directories and key stores are picked from
    fields in the database's own panel.
 5. **Set options** in the **Properties** panel on the right. Every field has a **?** that says
    what it does and when to change it.
@@ -225,6 +227,37 @@ front, each member answers its health check on port 9200 from the `pgrolechk` so
 `pg_stat_replication`, `pg_stat_wal_receiver` and the slots, and the commands for a manual promotion
 and a manual rebuild. Compose kind `pg-stream`; `syncStandbys=N` makes it synchronous, and
 `backup` turns on pgBackRest (compose serves the SeaweedFS node's S3 over HTTPS for it).
+
+### Patroni standby cluster
+
+Draw a link from one Patroni frame to another and pick the direction: the frame the arrow points
+at becomes a **standby cluster** of the other (Patroni's `standby_cluster`). Its leader, the
+*standby leader*, streams from the source and its own members replicate from it, so the standby is
+a read-only copy with its own failover. Nothing is written to it except what arrives from the source.
+
+| Setting | What the link does |
+| --- | --- |
+| Source hosts | Every source member, as libpq's host list (`standby_cluster.host`). Any member serves a base backup and streams WAL, so a failover on the source does not break the standby. |
+| First copy | `pg_basebackup` from the source when the standby cluster is created. A frame deployed with the link is created as a standby. |
+| WAL kept for it | The standby streams without a replication slot, so the source keeps `wal_keep_size = 512MB` (set on it if it has none). |
+| Credentials | The `replicator` user and `REPL_PASSWORD` from `.env`, which both clusters already use. |
+| Chains | A standby can be the source of another standby. A loop is refused. |
+
+Both frames need the same PostgreSQL major and the same build (Percona or PGDG). The standby
+cannot use pgBackRest (its leader is read-only, so it cannot create a stanza or take a backup),
+and pg_tde is not available on either end. pgbench data, pgvector and other extensions are
+created on the source and arrive on the standby by replication.
+
+On each Deploy the standby is compared with the link:
+
+- **A link to a standby that is already deployed** without it (or with another source) rebuilds
+  it: Patroni is stopped, the cluster's keys are removed from etcd, the data directories are
+  emptied and the cluster starts again as a standby. **Its data is replaced.**
+- **Deleting the link** promotes the standby: `standby_cluster` is removed and its leader takes writes.
+
+**Promote** on the link's properties panel promotes the standby at once and deletes the link.
+Each member's panel shows *Standby leader* or *Replica* and the cluster it follows. In compose,
+`standbyOf=<name>` on a `patroni` or `patroni-pgdg` entry draws the link.
 
 ### Valkey
 
@@ -583,8 +616,8 @@ Tick **cert-manager** under **Cluster add-ons** to install it before the operato
 issues database certificates through it instead of self-signing. The k3s node's panel shows
 whether cert-manager is actually present.
 
-With cert-manager on, a PXC, Percona Server or MongoDB (1.23.0+) frame offers a **Certificate
-issuer**:
+With cert-manager on, a PXC, Percona Server, MongoDB (1.23.0+) or PostgreSQL (3.1.0+) frame
+offers a **Certificate issuer**:
 
 - **Operator's own self-signed CA** (default).
 - **Intranet CA** — trusted by every node, pod and the VNC desktop.
@@ -595,6 +628,13 @@ issuer**:
 certificates and publishes every LoadBalancer Service in the Intranet DNS, so clients outside
 Kubernetes can verify host names (`VERIFY_IDENTITY`, `verify-full`). The panel marks each name
 **in cert** or **DNS only**.
+
+| Operator | Names | How they reach the certificate |
+| --- | --- | --- |
+| PXC | `<cluster>-haproxy`, `-haproxy-replicas`, `-proxysql`, `-pxc-N` | `tls.SANs` |
+| Percona Server | `<cluster>-mysql-primary`, `-haproxy`, `-router`, `-mysql-N` | `tls.SANs` |
+| MongoDB | `<cluster>-rs0-N` | Split horizons (1.22.0+, replica set on a LoadBalancer). Not mongos. |
+| PostgreSQL | `<cluster>-ha`, `-replicas`, `-pgbouncer` | Server, replication and pgBouncer certificates issued from the certificate issuer before `cr.yaml`, set as `spec.secrets.customTLSSecret`, `customReplicationTLSSecret` and `proxy.pgBouncer.customTLSSecret`. Needs the Intranet CA or OpenBao issuer; with the operator's own CA the names are in DNS only. The operator then signs its in-cluster Patroni and pgBackRest certificates with its own CA; without Host names, every certificate comes from the issuer. |
 
 ### Work with a running cluster
 The k3s server node's panel has these tabs (some depend on the operator):
@@ -646,6 +686,29 @@ template.
 
 **Point-in-time recovery** (PXC) needs its own bucket. On the replica end it is turned on only
 after replication is running.
+
+### Run a PostgreSQL cluster as a standby of another
+
+Draw a link between two K3D frames that both run the **Percona Operator for PostgreSQL** and pick
+the direction. The frame the arrow points at is created as a standby cluster (`spec.standby`) of
+the other, which the operator runs read-only. On Deploy:
+
+1. The source's primary Service becomes a LoadBalancer.
+2. The standby waits for the source to report ready.
+3. The source's root CA secret is copied into the standby's namespace, so both clusters'
+   certificates chain to it and the standby's replication certificate is accepted. When both
+   frames use the Intranet CA or OpenBao as the certificate issuer, nothing is copied: both
+   already chain to the Intranet CA. Both frames must make the same choice.
+4. The standby's `cr.yaml` gets `spec.standby` with the source's primary address and port 5432.
+5. When both frames back up to the **same bucket of the same SeaweedFS node**, the standby's
+   `repo1` is the source's repository and `spec.standby.repoName` is set too. The standby is then
+   created from the source's backup and can catch up from its archived WAL. Otherwise it streams only.
+
+A standby frame that is already deployed is **deleted with its volumes and created again** as a
+standby. Deleting the link promotes it (`spec.standby.enabled: false`), and **Promote** on the
+link's panel does that at once and deletes the link. The cluster panel shows the source, the
+address it streams from and the repository it reads. pg_tde and logical replicas are not available
+on a standby link.
 
 ## Kubernetes (kubeadm)
 

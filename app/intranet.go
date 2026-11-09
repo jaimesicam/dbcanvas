@@ -864,7 +864,7 @@ type designFrame struct {
 	K3DCertManagerVer string `json:"k3dCertManagerVer"`
 	// K3DCertIssuer is the CA cert-manager issues the database certificates from (k3dissuer.go):
 	// "" the operator's own self-signed CA, "intranet" the Intranet CA, "openbao" the same CA
-	// signing through OpenBao's PKI. Read only with cert-manager on, by the PXC, PS and PSMDB operators.
+	// signing through OpenBao's PKI. Read only with cert-manager on, by the PXC, PS, PSMDB and PG operators.
 	K3DCertIssuer string `json:"k3dCertIssuer"`
 	// K3DTLSHosts puts the cluster's endpoint host names in its certificates and publishes them in
 	// the stack DNS, for clients that verify the host name (k3dtlshosts.go). cert-manager only.
@@ -2390,8 +2390,20 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 	// collision between the endpoints breaks replication.
 	replPairs := map[string]bool{}
 	k8sReplPairs := map[string]bool{}
+	patroniStandbys := map[string]bool{}
 	for _, e := range doc.Edges {
 		if !isReplEdge(e) {
+			continue
+		}
+		// Between two Patroni frames the link makes a standby cluster (patronistandby.go).
+		if src, dst, ok := patroniStandbyEdgeFrames(doc, e); ok {
+			out = append(out, patroniStandbyIssues(doc, src, dst, e, patroniStandbys)...)
+			continue
+		}
+		// Between two Percona PostgreSQL operator frames, the same idea on Kubernetes
+		// (k3dpgstandby.go) — checked before the PXC-operator rules, which would refuse it.
+		if src, dst, ok := k3dPGStandbyEdgeFrames(doc, e); ok {
+			out = append(out, k3dPGStandbyIssues(doc, src, dst, e, patroniStandbys)...)
 			continue
 		}
 		// A link between two Kubernetes *frames* is the operator-managed kind (k3drepl.go), and has
@@ -2760,6 +2772,20 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer endK8sRepl()
 		a.reconcileK3DReplication(k8sReplCtx, st, doc)
+	}()
+
+	// Patroni standby clusters: follow, rebuild or promote each to match its link on the
+	// canvas, once both ends are running. See patronistandby.go.
+	standbyCtx, endStandby := a.deployScope(st.ID, a.eng(st))
+	go func() {
+		defer endStandby()
+		a.reconcilePatroniStandbys(standbyCtx, st, doc)
+	}()
+	// The same for Percona PostgreSQL operator clusters on K3D frames. See k3dpgstandby.go.
+	k8sStandbyCtx, endK8sStandby := a.deployScope(st.ID, a.eng(st))
+	go func() {
+		defer endK8sStandby()
+		a.reconcileK3DPGStandbys(k8sStandbyCtx, st, doc)
 	}()
 
 	// Last of all: impair the links that were asked to be impaired. This runs

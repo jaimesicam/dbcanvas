@@ -47,6 +47,14 @@ type pgOptions struct {
 	// shares the extensions mapping with TDE above, which is why both are rendered by one
 	// pgExtensionsBlock rather than each inserting its own.
 	PGVector bool
+	// Standby is spec.standby when this cluster is a standby of another one (k3dpgstandby.go).
+	Standby *pgStandby
+	// RepoPathCluster names the cluster whose repository path repo1 uses, when it is not this
+	// one: a standby reading its source's repository. "" is Name.
+	RepoPathCluster string
+	// CustomTLS is spec.secrets and pgBouncer's customTLSSecret: certificates DBCanvas issued
+	// with the host names in them (k3dpgtls.go). nil = the operator issues its own.
+	CustomTLS *pgCustomTLS
 }
 
 // pgTDE is spec.extensions.pg_tde — pg_tde keyed to the stack's OpenBao node.
@@ -215,11 +223,22 @@ func pgTransform(src string, o pgOptions) string {
 			if ext := pgExtensionsBlock(o); ext != "" {
 				out = append(out, crIndent(ext, 2)...)
 			}
+			if o.Standby != nil {
+				out = append(out, crIndent(pgStandbyBlock(o.Standby), 2)...)
+			}
+			if o.CustomTLS != nil {
+				out = append(out, crIndent(pgCustomTLSBlock(o.CustomTLS), 2)...)
+			}
 
 		// The connection pooler in front of the database.
-		case p == "spec.proxy.pgBouncer" && o.ExposePGBouncer != "":
+		case p == "spec.proxy.pgBouncer" && (o.ExposePGBouncer != "" || o.CustomTLS != nil):
 			out = append(out, ln)
-			out = append(out, crIndent("expose:\n  type: "+o.ExposePGBouncer, 6)...)
+			if o.ExposePGBouncer != "" {
+				out = append(out, crIndent("expose:\n  type: "+o.ExposePGBouncer, 6)...)
+			}
+			if o.CustomTLS != nil {
+				out = append(out, crIndent("customTLSSecret:\n  name: "+o.CustomTLS.PGBouncer, 6)...)
+			}
 
 		// Persistent logging. This is the one 3.1.0 knob that rewrites a line instead of inserting
 		// a block: cr.yaml ships spec.logcollector ACTIVE and enabled, so the only reason to touch
@@ -247,7 +266,7 @@ func pgTransform(src string, o pgOptions) string {
 		// have no CR field (path-style URIs, and skipping TLS verification of the stack's own CA).
 		case p == "spec.backups.pgbackrest" && o.S3 != nil:
 			out = append(out, ln)
-			out = append(out, crIndent(pgBackRestGlobal(o.Name, o.S3), 6)...)
+			out = append(out, crIndent(pgBackRestGlobal(orDefault(o.RepoPathCluster, o.Name), o.S3), 6)...)
 
 		// …and repo1 becomes that S3 repo instead of the shipped PVC.
 		case p == "spec.backups.pgbackrest.repos.volume" && o.S3 != nil:
@@ -521,6 +540,30 @@ func (a *App) installPGOperator(ctx context.Context, st Stack, frame designFrame
 	}
 	pr.logln("user secrets created for " + strings.Join(pgUsers(cfg.ClusterName), ", ") + " (password from .env)")
 
+	// ---- the certificate issuer, BEFORE cr.yaml: the operator looks it up on its first reconcile ----
+	// Only from pgIssuerMinVer, the first CRD with spec.tls.issuerConf — on an older one the field
+	// would have the API server refuse the whole cr.yaml. Validation refuses the combination
+	// (k3dIssuerIssues); this is the belt.
+	var issuer string
+	if k3dIssuerOf(frame) != "" && compareVersions(cfg.OperatorVer, pgIssuerMinVer) < 0 {
+		pr.logln("certificate issuer NOT used: operator " + orDefault(cfg.OperatorVer, "(unknown version)") +
+			" predates spec.tls.issuerConf (" + pgIssuerMinVer + "), so it issues its own certificates")
+	} else if issuer, err = a.k3dProvisionIssuer(ctx, st, frame, doc, serverID, cfg, pr); err != nil {
+		return fmt.Errorf("certificate issuer: %w", err)
+	}
+	// Host names: whole certificates from that Issuer, since the operator has no SANs field.
+	var customTLS *pgCustomTLS
+	if k3dTLSHostsOn(frame) {
+		if issuer == "" {
+			pr.logln("host names NOT added to the certificates: the PostgreSQL operator takes them only as certificates " +
+				"issued from the Intranet CA or OpenBao — they are still published in DNS")
+		} else if customTLS, err = a.k3dPGCustomTLS(ctx, serverID, cfg, issuer, pr); err != nil {
+			return fmt.Errorf("host names in the certificates: %w", err)
+		} else {
+			cfg.TLSHostsInCert = true
+		}
+	}
+
 	// ---- cr.yaml ----
 	pr.phase("Applying cr.yaml", 88)
 	raw, err := tarFile(tarball, "deploy/cr.yaml")
@@ -577,6 +620,24 @@ func (a *App) installPGOperator(ctx context.Context, st Stack, frame designFrame
 			pr.logln("backups → " + sw.InternalEndpoint + " (bucket " + sw.Bucket + ", pgBackRest repo1)")
 		}
 	}
+	// A standby cluster (k3dpgstandby.go): wait for the source, share its root CA, stream from its
+	// primary, and read its repository when both back up to the same bucket.
+	cfg.PGStandbyOf, cfg.PGStandbyOfID, cfg.PGStandbyHost, cfg.PGStandbyRepo = "", "", "", ""
+	if src, ok := k3dPGStandbySourceOf(doc, frame.ID); ok {
+		shared := opts.S3 != nil && k3dPGStandbySharesRepo(src, frame)
+		sb, host, serr := a.k3dPGStandbyPrepare(ctx, st, doc, src, serverID, cfg, shared, issuer != "", pr)
+		if serr != nil {
+			return fmt.Errorf("standby of %s: %w", src.Label, serr)
+		}
+		opts.Standby = sb
+		cfg.PGStandbyOf, cfg.PGStandbyOfID = k3dCRName(src), src.ID
+		cfg.PGStandbyHost = fmt.Sprintf("%s:%d", host, sb.Port)
+		if sb.RepoName != "" {
+			opts.RepoPathCluster = k3dCRName(src)
+			cfg.PGStandbyRepo = "/pgbackrest/" + k3dCRName(src) + "/repo1"
+		}
+	}
+
 	// PMM 3: the sidecar authenticates with a service token, from the cluster's own PMM secret.
 	opts.PMMHost = a.k3dPMMToken(ctx, st, frame, doc, serverID, cfg.ClusterName+"-pmm-secret", "PMM_SERVER_TOKEN", cfg, pr)
 
@@ -640,7 +701,9 @@ func (a *App) installPGOperator(ctx context.Context, st Stack, frame designFrame
 		}
 	}
 
+	opts.CustomTLS = customTLS
 	newCR := pgTransform(string(raw), opts)
+	newCR = k3dCRIssuer(newCR, string(raw), issuer, nil, cfg, pr.logln)
 	newCR = k3dStorageCR(newCR, frame, cfg.Operator, cfg.OperatorVer, pr.logln)
 	if err := a.engCtx(ctx).CopyFile(ctx, serverID, cfg.OperatorSrc+"/deploy", "cr.yaml", 0o644, []byte(newCR)); err != nil {
 		pr.logln("could not write the rewritten cr.yaml back to the source tree: " + err.Error())

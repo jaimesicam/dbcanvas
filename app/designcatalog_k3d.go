@@ -36,8 +36,8 @@ var catalogK3D = []catalogEntry{
 			// Add-ons
 			{Field: "k3dCertManager", Desc: "Install cert-manager and wait for it before the operator, so the operator issues its certificates through it instead of self-signing. Adds three pods."},
 			{Field: "k3dCertManagerVer", Desc: "cert-manager release, from GET /api/catalog/operators (chart:cert-manager); \"\" is the catalog's latest.", When: "k3dCertManager is on"},
-			{Field: "k3dCertIssuer", Values: []string{"", "intranet", "openbao"}, Desc: "CA cert-manager issues the database certificates from: \"\" the operator's own self-signed CA, \"intranet\" a CA Issuer holding the Intranet CA, \"openbao\" a Vault Issuer signing with the Intranet CA through OpenBao's PKI (needs an OpenBao node).", When: "k3dCertManager is on and k3dOperator is pxc, ps or psmdb (psmdb 1.23.0 or newer)"},
-			{Field: "k3dTlsHosts", Desc: "Put the cluster's endpoint host names in its certificates (tls.SANs; split horizons on PSMDB 1.22.0+) and publish every LoadBalancer Service as <service>.<domain> with its reverse record in the Intranet DNS.", When: "k3dCertManager is on and k3dOperator is pxc, ps or psmdb"},
+			{Field: "k3dCertIssuer", Values: []string{"", "intranet", "openbao"}, Desc: "CA cert-manager issues the database certificates from: \"\" the operator's own self-signed CA, \"intranet\" a CA Issuer holding the Intranet CA, \"openbao\" a Vault Issuer signing with the Intranet CA through OpenBao's PKI (needs an OpenBao node).", When: "k3dCertManager is on and k3dOperator is pxc, ps, psmdb (1.23.0 or newer) or pg (3.1.0 or newer)"},
+			{Field: "k3dTlsHosts", Desc: "Put the cluster's endpoint host names in its certificates (tls.SANs; split horizons on PSMDB 1.22.0+; on pg, custom server, replication and pgBouncer certificates issued from k3dCertIssuer, which must then be \"intranet\" or \"openbao\") and publish every LoadBalancer Service as <service>.<domain> with its reverse record in the Intranet DNS.", When: "k3dCertManager is on and k3dOperator is pxc, ps, psmdb or pg"},
 
 			// Operator
 			{Field: "k3dOperator", Values: []string{"", "pxc", "ps", "psmdb", "pg", "cnpg", "pgo", "everest"}, Desc: "What runs on the cluster: \"\" plain Kubernetes; Percona operators \"pxc\" (XtraDB Cluster), \"ps\" (Percona Server), \"psmdb\" (MongoDB), \"pg\" (PostgreSQL); \"cnpg\" CloudNativePG; \"pgo\" Crunchy Postgres for Kubernetes; \"everest\" OpenEverest, which installs Percona operators and creates no database of its own."},
@@ -122,12 +122,13 @@ var catalogK3D = []catalogEntry{
 		},
 		Relations: []string{"monitor", "repository", "backup", "storage", "vault"},
 		Edges: []catalogEdge{
-			{To: []string{"k3d"}, Type: "async", Desc: "Cross-cluster replication from this frame (source) to another K3D frame (replica), drawn frame to frame. Both must run k3dOperator \"pxc\" and have a SeaweedFS backup store; the replica is seeded from a backup of the source, and the source's database Services become LoadBalancer."},
+			{To: []string{"k3d"}, Type: "async", Desc: "Cross-cluster replication from this frame (source) to another K3D frame (replica), drawn frame to frame. With k3dOperator \"pxc\" on both, both need a SeaweedFS backup store; the replica is seeded from a backup of the source, and the source's database Services become LoadBalancer. With k3dOperator \"pg\" on both, the replica is a standby cluster (spec.standby): it streams from the source's primary (made a LoadBalancer) with the source's root CA copied in, and also reads the source's pgBackRest repository when both back up to the same SeaweedFS bucket; a standby already running is deleted with its volumes and created again, and deleting the link promotes it."},
 			{To: []string{"stocksim", "supportsim", "pgvectorsim", "perfsim"}, Type: "directional", Desc: "Drive a simulator against the database the frame's operator runs (from the frame to the simulator). Performance Sim gives each database pod an address of its own with a companion LoadBalancer Service, removed with the sim."},
 		},
 		Actions: []catalogAction{
 			// Access
 			{Method: "GET", Path: "/api/stacks/{id}/frames/{fid}/k3d/kubeconfig", Desc: "Admin kubeconfig for the cluster."},
+			{Method: "POST", Path: "/api/stacks/{id}/frames/{fid}/k3d/pg/promote", Desc: "Promote a standby cluster (spec.standby.enabled = false) and delete its standby link from the design.", When: "k3dOperator is pg and the frame is the standby end of a link"},
 			{Method: "GET", Path: "/api/stacks/{id}/frames/{fid}/k3d/users", Desc: "RBAC users created on the cluster."},
 			{Method: "POST", Path: "/api/stacks/{id}/frames/{fid}/k3d/users", Desc: "Create an RBAC user bound to a built-in role.", Body: "username, role (view|edit|admin|cluster-admin), namespace (ignored for cluster-admin; \"\" is default)"},
 			{Method: "POST", Path: "/api/stacks/{id}/frames/{fid}/k3d/users/delete", Desc: "Delete an RBAC user.", Body: "username"},

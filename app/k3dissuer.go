@@ -26,7 +26,7 @@ import (
 //
 // ------------------------------------------------------------------- which operators, which versions
 //
-// The PXC, PS and PSMDB operators all read `tls.issuerConf` and, given one, issue their leaf
+// The PXC, PS, PSMDB and PG operators all read `tls.issuerConf` and, given one, issue their leaf
 // certificates from it instead of making a CA. Verified against each operator's source, because
 // what they do with an issuer they did not make differs:
 //
@@ -36,9 +36,14 @@ import (
 //	PSMDB  only from 1.23.0. Before it, ApplyIssuer createOrUpdate()s an Issuer under the
 //	       issuerConf name with the operator's own CA spec — overwriting the one DBCanvas made.
 //	       From 1.23.0 IsUserIssuer leaves an issuer the operator did not label as its own alone.
+//	PG     only from 3.1.0, the first release with spec.tls.issuerConf. A namespaced Issuer it
+//	       finds under that name is used as it is: ApplyIssuer only adds the cluster as its
+//	       owner. The operator still makes a self-signed CA of its own through cert-manager,
+//	       but every leaf (server, replication, instance, pgBouncer, pgBackRest) is issued
+//	       from the named Issuer, and the ca.crt the pods trust comes with those leaves.
 //
-// cr.yaml ships the tls section live (PXC 1.15.0+) or commented out (older PXC, every PS and
-// PSMDB), so crTLSSection inserts whichever is missing. A release whose cr.yaml does not mention
+// cr.yaml ships the tls section live (PXC 1.15.0+) or commented out (older PXC, every PS, PSMDB
+// and PG), so crTLSSection inserts whichever is missing. A release whose cr.yaml does not mention
 // issuerConf at all (PS 0.1.0) is told so in the log and left to self-sign.
 //
 // The Issuer is namespaced and lives in the cluster's namespace: PS only looks up kind Issuer, and
@@ -53,10 +58,12 @@ const (
 	k3dOpenBaoAppRoleSecret = "dbcanvas-openbao-approle"
 	// psmdbUserIssuerMinVer is the first PSMDB operator that leaves a user's Issuer alone.
 	psmdbUserIssuerMinVer = "1.23.0"
+	// pgIssuerMinVer is the first PG operator with spec.tls.issuerConf.
+	pgIssuerMinVer = "3.1.0"
 )
 
 // k3dIssuerOperators are the operators that take `tls.issuerConf`.
-var k3dIssuerOperators = map[string]bool{"pxc": true, "ps": true, "psmdb": true}
+var k3dIssuerOperators = map[string]bool{"pxc": true, "ps": true, "psmdb": true, "pg": true}
 
 // k3dIssuerOf is the issuer a frame asks for: "" (the operator's own CA), "intranet" or "openbao".
 // Only meaningful with cert-manager installed on an operator that reads issuerConf.
@@ -115,7 +122,7 @@ func k3dIssuerIssues(f designFrame, doc designDoc, opCat OperatorCatalog, deploy
 			"so the operator issues its own certificates — tick Install cert-manager, or clear the issuer"}}
 	case !k3dIssuerOperators[op]:
 		return []issue{{Level: "warning", Message: "K3D cluster " + name + " names a certificate issuer, which " +
-			orDefault(k3dOperatorLabel(op), "no operator") + " does not read here — only the PXC, Percona Server and MongoDB operators take tls.issuerConf"}}
+			orDefault(k3dOperatorLabel(op), "no operator") + " does not read here — only the PXC, Percona Server, MongoDB and PostgreSQL operators take tls.issuerConf"}}
 	}
 	var out []issue
 	if want == k3dIssuerOpenBao && k3dOpenBaoNodeOf(f, doc) == "" {
@@ -128,6 +135,13 @@ func k3dIssuerIssues(f designFrame, doc designDoc, opCat OperatorCatalog, deploy
 			out = append(out, issue{Level: lvl, Message: "K3D cluster " + name + " names a certificate issuer, which the Percona Operator for MongoDB " +
 				"only leaves alone from " + psmdbUserIssuerMinVer + " — older releases overwrite an Issuer of that name with their own CA. " +
 				"Choose " + psmdbUserIssuerMinVer + " or newer, or let the operator issue its own" + tail})
+		}
+	}
+	if op == "pg" {
+		ver, ok := opCat.resolveOperatorVersion("pg", f.K3DOperatorVer)
+		if !ok || compareVersions(ver, pgIssuerMinVer) < 0 {
+			out = append(out, issue{Level: lvl, Message: "K3D cluster " + name + " names a certificate issuer, which the Percona Operator for PostgreSQL " +
+				"only takes from " + pgIssuerMinVer + " (spec.tls.issuerConf). Choose " + pgIssuerMinVer + " or newer, or let the operator issue its own" + tail})
 		}
 	}
 	return out

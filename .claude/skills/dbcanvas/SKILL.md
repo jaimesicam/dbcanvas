@@ -268,6 +268,23 @@ dbcanvas-cli stack compose pool-lab --ttl 4h \
 
 With two PostgreSQL targets in the spec, the PgBouncer needs `to=` as well.
 
+**A Patroni standby cluster is `standbyOf=`.** It draws a link from the named Patroni cluster,
+and the entry is created as a standby of it: read-only, streaming from every source member.
+Both need the same PostgreSQL major and build, and the standby has no `backup` or `vault`:
+
+```sh
+dbcanvas-cli stack compose dr-lab --ttl 4h \
+  --node 'patroni:3,os=el9,name=east' \
+  --node 'patroni:3,os=el9,name=west,standbyOf=east'
+```
+
+Deleting the link (`DELETE …/design/edges/{eid}`) and deploying promotes the standby, as does
+`POST …/frames/{fid}/patroni/promote`, which also deletes the link. Two K3D frames running the
+Percona Operator for PostgreSQL take the same link through the design endpoints
+(`POST …/design/edges` with `"type":"async"`, source frame first); the standby streams from the
+source's primary and, when both back up to the same SeaweedFS bucket, reads its repository too.
+`POST …/frames/{fid}/k3d/pg/promote` promotes it.
+
 **Encryption at rest on a cluster is the frame's flag.** `--node 'pxc:3,os=el9,vault'`
 with `--node openbao` keys every member, each with its own KV mount, and turns on
 encrypted cluster traffic, which PXC requires once a keyring is configured. The deploy

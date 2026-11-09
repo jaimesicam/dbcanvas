@@ -177,6 +177,7 @@ var catalogPostgresFamily = []catalogEntry{
 			"kerberosAuth: a Samba AD DC node",
 			"enableOIDC: a Keycloak node serving HTTPS and a PostgreSQL version that has pg_oidc_validator (18)",
 			"enableVault: the OpenBao node, and a version and OS for which pg_tde is available",
+			"as a standby cluster (the standby end of a link from another Patroni frame): the source's PostgreSQL major and build, no usePgBackRest, and no enableVault on either",
 		},
 		Options: pgcatOpts(
 			pgcatSizing,
@@ -242,9 +243,13 @@ var catalogPostgresFamily = []catalogEntry{
 			},
 		),
 		Relations: []string{"monitor", "repository", "backup", "vault"},
-		Edges:     pgcatEdges(pgcatClusterProxyEdges, pgcatSimEdges),
+		Edges: pgcatEdges(pgcatClusterProxyEdges, pgcatSimEdges, []catalogEdge{
+			{To: []string{"patroni"}, Type: "async", Desc: "Make the other Patroni cluster a standby cluster of this one, drawn frame to frame (from the source to the standby). The standby's leader streams from this cluster's members and its own members replicate from it; it takes no writes until promoted. Both need the same PostgreSQL major and build; the standby has no pgBackRest and neither has pg_tde. A standby that was already running is rebuilt as a copy of this cluster on the next deploy; deleting the link promotes it."},
+		}),
 		Actions: []catalogAction{
 			pgcatFrameBackupStatus,
+			{Method: "GET", Path: "/api/stacks/{id}/frames/{fid}/patroni/standby", Desc: "The cluster's standby links and live standby state: the cluster it follows, the ones following it, standby_cluster.host and each member's role and lag."},
+			{Method: "POST", Path: "/api/stacks/{id}/frames/{fid}/patroni/promote", Desc: "Promote a standby cluster to a primary cluster and delete its standby link from the design.", When: "the cluster is the standby end of a link"},
 			{Method: "POST", Path: "/api/stacks/{id}/frames/{fid}/patroni/backup", Desc: "Take a pgBackRest full backup on the current leader.", When: "usePgBackRest is on"},
 			{Method: "GET", Path: "/api/stacks/{id}/frames/{fid}/patroni/backups", Desc: "The cluster's pgBackRest backup sets (read on the leader) and the earliest point a restore can reach.", When: "usePgBackRest is on"},
 			{Method: "POST", Path: "/api/stacks/{id}/frames/{fid}/patroni/restore", Desc: "Restore the whole cluster from pgBackRest: the leader is restored and every replica is rebuilt from it.", Body: "mode (latest|time|backup), time (RFC 3339, for time), set (backup label, for backup)", When: "usePgBackRest is on"},

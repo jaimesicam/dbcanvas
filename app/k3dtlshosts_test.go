@@ -109,7 +109,8 @@ func TestK3DPublishedHostsInDNS(t *testing.T) {
 }
 
 func TestK3DTLSHostIssues(t *testing.T) {
-	cat := OperatorCatalog{"psmdb": {Latest: "1.23.1", Versions: []string{"1.23.1", "1.21.0"}}, "pxc": {Latest: "1.20.0", Versions: []string{"1.20.0"}}}
+	cat := OperatorCatalog{"psmdb": {Latest: "1.23.1", Versions: []string{"1.23.1", "1.21.0"}}, "pxc": {Latest: "1.20.0", Versions: []string{"1.20.0"}},
+		"pg": {Latest: "3.1.0", Versions: []string{"3.1.0", "3.0.0"}}}
 	base := designFrame{ID: "f1", Type: "k3d", Label: "k3d-00", K3DOperator: "pxc", K3DCertManager: true, K3DTLSHosts: true}
 	if iss := k3dTLSHostIssues(base, designDoc{Frames: []designFrame{base}}, cat, false); len(iss) != 0 {
 		t.Errorf("PXC with cert-manager: want silence, got %v", iss)
@@ -134,6 +135,28 @@ func TestK3DTLSHostIssues(t *testing.T) {
 		"old psmdb":    with(mongo, func(f *designFrame) { f.K3DOperatorVer = "1.21.0" }),
 		"sharded":      with(mongo, func(f *designFrame) { f.K3DSharding = true }),
 		"clusterip rs": with(mongo, func(f *designFrame) { f.K3DExposeReplset = "clusterip" }),
+	} {
+		if iss := k3dTLSHostIssues(f, designDoc{}, cat, false); len(iss) != 1 || iss[0].Level != "warning" {
+			t.Errorf("%s: want one warning, got %v", name, iss)
+		}
+	}
+
+	pg := with(base, func(f *designFrame) {
+		f.K3DOperator = "pg"
+		f.K3DOperatorVer = "3.1.0"
+		f.K3DCertIssuer = "intranet"
+		f.K3DExposePG = "LoadBalancer"
+	})
+	if iss := k3dTLSHostIssues(pg, designDoc{}, cat, false); len(iss) != 0 {
+		t.Errorf("PG 3.1.0 with the Intranet issuer on a LoadBalancer: want silence, got %v", iss)
+	}
+	if iss := k3dTLSHostIssues(with(pg, func(f *designFrame) { f.K3DExposePG = ""; f.K3DExposePGBouncer = "LoadBalancer" }), designDoc{}, cat, false); len(iss) != 0 {
+		t.Errorf("PG with pgBouncer on a LoadBalancer: want silence, got %v", iss)
+	}
+	for name, f := range map[string]designFrame{
+		"pg own CA":    with(pg, func(f *designFrame) { f.K3DCertIssuer = "" }),
+		"pg 3.0.0":     with(pg, func(f *designFrame) { f.K3DOperatorVer = "3.0.0" }),
+		"pg clusterip": with(pg, func(f *designFrame) { f.K3DExposePG = "ClusterIP" }),
 	} {
 		if iss := k3dTLSHostIssues(f, designDoc{}, cat, false); len(iss) != 1 || iss[0].Level != "warning" {
 			t.Errorf("%s: want one warning, got %v", name, iss)

@@ -198,14 +198,14 @@ func TestPGTDERefuses170(t *testing.T) {
 // encrypted cluster must run pg_tde's rewind and base backup; an unencrypted one the stock tools.
 func TestPatroniYAMLUsesPGTDETools(t *testing.T) {
 	f := designFrame{Label: "c1", Type: "patroni", OS: "oraclelinux", PGMajor: "17", EnableVault: true}
-	y := patroniYAML(f, "patroni-1", "patroni-1.example.net", []string{"patroni-1.example.net:2379"}, pgSecrets{})
+	y := patroniYAML(f, "patroni-1", "patroni-1.example.net", []string{"patroni-1.example.net:2379"}, pgSecrets{}, nil)
 	for _, want := range []string{"pg_rewind: pg_tde_rewind", "pg_basebackup: pg_tde_basebackup", "shared_preload_libraries: \"pg_tde"} {
 		if !strings.Contains(y, want) {
 			t.Errorf("encrypted cluster: patroni.yml lacks %q", want)
 		}
 	}
 	f.EnableVault = false
-	if y := patroniYAML(f, "patroni-1", "patroni-1.example.net", []string{"patroni-1.example.net:2379"}, pgSecrets{}); strings.Contains(y, "pg_tde") {
+	if y := patroniYAML(f, "patroni-1", "patroni-1.example.net", []string{"patroni-1.example.net:2379"}, pgSecrets{}, nil); strings.Contains(y, "pg_tde") {
 		t.Error("an unencrypted cluster must not mention pg_tde")
 	}
 }

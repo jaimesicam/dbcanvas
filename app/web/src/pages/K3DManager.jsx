@@ -619,6 +619,13 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
           {/* The Percona PostgreSQL operator's 3.1.0 features, and only when the cluster has
               them: on an older operator these rows would all read "off", which is true of every
               cluster below 3.1.0 and tells nobody anything. */}
+          {cfg.operator && isPG && !!cfg.pgStandbyOf && (
+            <>
+              <KV k="Standby of" v={cfg.pgStandbyOf} mono />
+              <KV k="Streams from" v={cfg.pgStandbyHost || '—'} mono />
+              <KV k="Source repository" v={cfg.pgStandbyRepo || 'not shared (streaming only)'} mono />
+            </>
+          )}
           {cfg.operator && isPG && !!cfg.pgLogicalReplicas && (
             <KV k="Logical replicas" help={DEP_HELP['Logical replicas']} v={cfg.pgLogicalReplicas} />
           )}

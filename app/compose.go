@@ -134,6 +134,9 @@ type composeNodeSpec struct {
 	// pg-stream: standbys that must confirm each commit (synchronous_standby_names = ANY N);
 	// 0 is asynchronous.
 	SyncStandbys int `json:"syncStandbys"`
+	// patroni: the name of another Patroni cluster in the spec that this one is a standby
+	// cluster of (patronistandby.go). Drawn as a replication link from that cluster.
+	StandbyOf string `json:"standbyOf"`
 
 	Export     bool `json:"export"`     // publish the database port to the host
 	ExportPort int  `json:"exportPort"` // 0 → Docker picks a free one
@@ -593,9 +596,9 @@ var composeKinds = []composeKind{
 	{Kind: "patroni", Type: "patroni", CanShape: true, Frame: true, Members: 3, MinMembers: 2, MaxMembers: 7,
 		Catalog:    "percona_postgresql",
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) { f.PGMajor, f.PGVersion = major, minor }, CanCert: true,
-		Scalars: []string{"pgvector", "pgaudit", "pgauditLog", "setUser", "pgbench", "tdeWal"},
+		Scalars: []string{"pgvector", "pgaudit", "pgauditLog", "setUser", "pgbench", "tdeWal", "standbyOf"},
 		Links:   []string{"monitor", "backup", "vault"},
-		About:   "PostgreSQL HA with Patroni and etcd. vault=true is pg_tde with one key for the cluster, which needs PostgreSQL 17.2 or newer."},
+		About:   "PostgreSQL HA with Patroni and etcd. vault=true is pg_tde with one key for the cluster, which needs PostgreSQL 17.2 or newer. standbyOf=<name> makes it a standby cluster of another patroni entry: same major, no backup or vault."},
 	{Kind: "repmgr", Type: "repmgr", CanShape: true, Frame: true, Members: 3, MinMembers: 2, MaxMembers: 7,
 		Catalog:    "percona_postgresql",
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) { f.PGMajor, f.PGVersion = major, minor }, CanCert: true,
@@ -733,9 +736,9 @@ var composeKinds = []composeKind{
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) {
 			f.PGMajor, f.PGVersion, f.Distribution = major, minor, distPGDG
 		}, CanCert: true,
-		Scalars: []string{"pgvector", "pgbench"},
+		Scalars: []string{"pgvector", "pgbench", "standbyOf"},
 		Links:   []string{"monitor", "backup"},
-		About:   "Patroni Cluster (PGDG): PGDG PostgreSQL and Patroni, with etcd from PGDG's extras repository on Oracle Linux and from the distribution on Debian and Ubuntu."},
+		About:   "Patroni Cluster (PGDG): PGDG PostgreSQL and Patroni, with etcd from PGDG's extras repository on Oracle Linux and from the distribution on Debian and Ubuntu. standbyOf=<name> makes it a standby cluster of another patroni-pgdg entry."},
 	{Kind: "pg-stream-pgdg", Type: "pgstream", CanShape: true, Frame: true, Members: 3, MinMembers: 2, MaxMembers: 9,
 		Catalog: catPGDG,
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) {

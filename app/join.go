@@ -684,7 +684,7 @@ func (a *App) joinPatroniFrame(st Stack, frame designFrame, doc designDoc, fresh
 		for _, n := range fresh {
 			pr := progs[n.ID]
 			markNodeAction(st.ID, n.ID)
-			if a.patroniPrepareNode(ctx, st, frame, n, members, hosts, domain, image, etcdEndpoints, intranetID, intranetIP, sec, swCfg, swSec) != nil {
+			if a.patroniPrepareNode(ctx, st, frame, n, members, hosts, domain, image, etcdEndpoints, intranetID, intranetIP, sec, swCfg, swSec, patroniStandbyFor(doc, frame.ID, domain)) != nil {
 				continue
 			}
 			a.reconcileStackDNS(ctx, st.ID)

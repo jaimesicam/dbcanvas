@@ -46,18 +46,22 @@ type patroniConfig struct {
 	// Distribution is whose build the node runs ("" Percona; see distribution.go).
 	Distribution string `json:"distribution,omitempty"`
 	// Vault is persisted by the pg_tde step (patronitde.go) after the cluster is keyed.
-	Vault         vaultInfo `json:"vault"`
-	Cluster       string    `json:"cluster"`
-	Image         string    `json:"image"`
-	OS            string    `json:"os"` // os family (oraclelinux | ubuntu | …) — drives paths
-	Hostname      string    `json:"hostname"`
-	FQDN          string    `json:"fqdn"`
-	PGMajor       string    `json:"pgMajor"`   // "13".."18"
-	PGVersion     string    `json:"pgVersion"` // selected minor (display)
-	Role          string    `json:"role"`      // leader | replica (best-effort, filled post-bootstrap)
-	EtcdEndpoints []string  `json:"etcdEndpoints"`
-	UsePgBackRest bool      `json:"usePgBackRest"`
-	BackupRepo    string    `json:"backupRepo"` // e.g. "s3://<bucket>/pgbackrest" when pgBackRest is on
+	Vault     vaultInfo `json:"vault"`
+	Cluster   string    `json:"cluster"`
+	Image     string    `json:"image"`
+	OS        string    `json:"os"` // os family (oraclelinux | ubuntu | …) — drives paths
+	Hostname  string    `json:"hostname"`
+	FQDN      string    `json:"fqdn"`
+	PGMajor   string    `json:"pgMajor"`   // "13".."18"
+	PGVersion string    `json:"pgVersion"` // selected minor (display)
+	Role      string    `json:"role"`      // leader | standby leader | replica (best-effort, filled post-bootstrap)
+	// StandbyOf / StandbyOfID name the Patroni cluster this one is a standby of, when it is
+	// one (patronistandby.go); the id is what the deploy compares with the canvas.
+	StandbyOf     string   `json:"standbyOf,omitempty"`
+	StandbyOfID   string   `json:"standbyOfId,omitempty"`
+	EtcdEndpoints []string `json:"etcdEndpoints"`
+	UsePgBackRest bool     `json:"usePgBackRest"`
+	BackupRepo    string   `json:"backupRepo"` // e.g. "s3://<bucket>/pgbackrest" when pgBackRest is on
 	// What the Backup tab's commands need to be runnable as they stand: the stanza every
 	// pgbackrest command takes, and the bucket the repository actually lives in (the frame
 	// picks one of the SeaweedFS node's, so it is not always that node's default).
@@ -219,6 +223,13 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 		pgVector = pgVectorSource(frame.Type, frame.OS, frame.PGMajor)
 	}
 
+	// A standby cluster is born following its source (patronistandby.go).
+	standby := patroniStandbyFor(doc, frame.ID, domain)
+	standbyOf, standbyOfID := "", ""
+	if standby != nil {
+		standbyOf, standbyOfID = standby.SourceLabel, standby.SourceID
+	}
+
 	// Record every member as pending with its profile.
 	for _, n := range members {
 		host := hosts[n.ID]
@@ -231,7 +242,8 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 			GenerateCert: frame.GenerateCert, UseProxy: frame.UseProxy, MonitoredBy: monitoredBy,
 			QuerySource: pgQuerySourceFor(frame.Type, frame.PGQuerySource, frame.PMMNodeID),
 			PGVector:    pgVector,
-			Ports:       patroniPorts,
+			StandbyOf:   standbyOf, StandbyOfID: standbyOfID,
+			Ports: patroniPorts,
 		}
 		cfgJSON, _ := json.Marshal(cfg)
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: cfgJSON, Secrets: secJSON})
@@ -301,7 +313,7 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 			wg.Add(1)
 			go func(n designNode) {
 				defer wg.Done()
-				if err := a.patroniPrepareNode(ctx, st, frame, n, members, hosts, domain, image, etcdEndpoints, intranetID, intranetIP, sec, swCfg, swSec); err != nil {
+				if err := a.patroniPrepareNode(ctx, st, frame, n, members, hosts, domain, image, etcdEndpoints, intranetID, intranetIP, sec, swCfg, swSec, standby); err != nil {
 					mu.Lock()
 					failed[n.ID] = true
 					mu.Unlock()
@@ -345,6 +357,21 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 				a.pxcNewProg(st.ID, n.ID).fail("%v", err)
 			}
 			return
+		}
+
+		// ---- Phase 2b: a standby cluster's source must be serving before its first member
+		// can be cloned from it.
+		if standby != nil {
+			src, _ := k3dFrameByID(doc, standby.SourceID)
+			for _, n := range members {
+				a.pxcNewProg(st.ID, n.ID).phase("Waiting for source cluster "+src.Label, 66)
+			}
+			if _, _, err := a.waitPatroniRunning(ctx, st.ID, src, doc, domain, deployTimeout()); err != nil {
+				for _, n := range members {
+					a.pxcNewProg(st.ID, n.ID).fail("standby of %s: %v", src.Label, err)
+				}
+				return
+			}
 		}
 
 		// ---- Phase 3: start Patroni on all nodes; one wins the leader lock ----
@@ -405,10 +432,18 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 			}
 		}
 
+		// A standby cluster's leader is read-only: the catalog changes below are made on its
+		// source, and arrive here by replication.
+		writable := leaderID
+		if standby != nil && leaderID != "" {
+			writable = ""
+			a.pxcNewProg(st.ID, leaderID).logln("standby of " + standby.SourceLabel + ": extensions and sample data come from the source by replication")
+		}
+
 		// ---- Phase 4b: query analytics extension, created once on the leader ----
 		// The preload is a DCS parameter every member started with; the extension itself
 		// is catalog state, so the replicas get it by streaming.
-		if qs := pgQuerySourceFor(frame.Type, frame.PGQuerySource, frame.PMMNodeID); qs != pgQSNone && leaderID != "" {
+		if qs := pgQuerySourceFor(frame.Type, frame.PGQuerySource, frame.PMMNodeID); qs != pgQSNone && writable != "" {
 			pr := a.pxcNewProg(st.ID, leaderID)
 			pr.phase("Enabling "+pgQueryExtension(qs), 91)
 			ldep, _ := a.store.GetDeployment(st.ID, leaderID)
@@ -421,7 +456,7 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 		// ---- Phase 4c: pgvector, created once on the leader (postgres + template1) ----
 		// Every member already has the package (patroniPrepareNode), so whichever one Patroni
 		// promotes later can serve vector columns; the extension is catalog state and streams.
-		if frame.PGVector && leaderID != "" {
+		if frame.PGVector && writable != "" {
 			pr := a.pxcNewProg(st.ID, leaderID)
 			pr.phase("Enabling pgvector", 92)
 			ldep, _ := a.store.GetDeployment(st.ID, leaderID)
@@ -438,7 +473,7 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 		// ---- Phase 4d: pgAudit / set_user, created once on the leader ----
 		// Same reasoning as pgvector: the packages are on every member and every member
 		// preloads them (bootstrap DCS parameters), so this is catalog state that streams.
-		if exts := pgFrameExtensions(frame); len(exts) > 0 && leaderID != "" {
+		if exts := pgFrameExtensions(frame); len(exts) > 0 && writable != "" {
 			pr := a.pxcNewProg(st.ID, leaderID)
 			pr.phase("Enabling "+pgExtNames(exts), 93)
 			ldep, _ := a.store.GetDeployment(st.ID, leaderID)
@@ -449,7 +484,7 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 		}
 
 		// ---- Phase 4e: pgbench sample data on the leader; it streams to the replicas ----
-		if frame.PGBenchScale > 0 && leaderID != "" {
+		if frame.PGBenchScale > 0 && writable != "" {
 			pr := a.pxcNewProg(st.ID, leaderID)
 			pr.phase(fmt.Sprintf("Loading pgbench data (scale %d)", frame.PGBenchScale), 94)
 			ldep, _ := a.store.GetDeployment(st.ID, leaderID)
@@ -469,7 +504,9 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 			dep, _ := a.store.GetDeployment(st.ID, n.ID)
 			var cfg patroniConfig
 			json.Unmarshal(dep.Config, &cfg)
-			if n.ID == leaderID {
+			if n.ID == leaderID && standby != nil {
+				cfg.Role = "standby leader"
+			} else if n.ID == leaderID {
 				cfg.Role = "leader"
 			} else {
 				cfg.Role = "replica"
@@ -488,7 +525,7 @@ func (a *App) provisionPatroniFrame(st Stack, frame designFrame, doc designDoc) 
 // patroniPrepareNode creates the node container, points it at the Intranet
 // resolver, installs PostgreSQL + Patroni + etcd (+ pgBackRest + pmm-client),
 // stages optional TLS certs, and writes the etcd / patroni / pgbackrest configs.
-func (a *App) patroniPrepareNode(ctx context.Context, st Stack, frame designFrame, n designNode, members []designNode, hosts map[string]string, domain, image string, etcdEndpoints []string, intranetID, intranetIP string, sec pgSecrets, swCfg seaweedConfig, swSec seaweedSecrets) error {
+func (a *App) patroniPrepareNode(ctx context.Context, st Stack, frame designFrame, n designNode, members []designNode, hosts map[string]string, domain, image string, etcdEndpoints []string, intranetID, intranetIP string, sec pgSecrets, swCfg seaweedConfig, swSec seaweedSecrets, standby *patroniStandby) error {
 	pr := a.pxcNewProg(st.ID, n.ID)
 	host := hosts[n.ID]
 	fqdn := fqdnOf(host, domain)
@@ -693,7 +730,7 @@ func (a *App) patroniPrepareNode(ctx context.Context, st Stack, frame designFram
 	// Write the Patroni config to the path the packaged unit reads by default
 	// (PATRONI_CONFIG_LOCATION=/etc/patroni/postgresql.yml; ExecStart=patroni $that).
 	pr.phase("Writing Patroni config", 58)
-	yml := patroniYAML(frame, host, fqdn, etcdEndpoints, sec)
+	yml := patroniYAML(frame, host, fqdn, etcdEndpoints, sec, standby)
 	if err := a.engCtx(ctx).CopyFile(ctx, id, "/etc/patroni", "postgresql.yml", 0o644, []byte(yml)); err != nil {
 		return pr.fail("write patroni config: %v", err)
 	}
@@ -1073,7 +1110,7 @@ func patroniEtcdConf(name, fqdn, token, initialCluster string) string {
 // patroniYAML renders /etc/patroni/patroni.yml for one member. PostgreSQL
 // parameters live under bootstrap.dcs (cluster-wide, applied at init); per-node
 // connection settings + auth live under postgresql.
-func patroniYAML(frame designFrame, host, fqdn string, etcdEndpoints []string, sec pgSecrets) string {
+func patroniYAML(frame designFrame, host, fqdn string, etcdEndpoints []string, sec pgSecrets, standby *patroniStandby) string {
 	major := ppgMajorOf(frame.PGMajor)
 	stanza := patroniStanza(frame.Label)
 	var b strings.Builder
@@ -1098,6 +1135,11 @@ func patroniYAML(frame designFrame, host, fqdn string, etcdEndpoints []string, s
 	fmt.Fprintf(&b, "    loop_wait: 10\n")
 	fmt.Fprintf(&b, "    retry_timeout: 10\n")
 	fmt.Fprintf(&b, "    maximum_lag_on_failover: 1048576\n")
+	if standby != nil {
+		// Born a standby: the first member is cloned from the source instead of running
+		// initdb, and the cluster follows it (patronistandby.go).
+		b.WriteString(patroniStandbyDCS(standby))
+	}
 	fmt.Fprintf(&b, "    postgresql:\n")
 	fmt.Fprintf(&b, "      use_pg_rewind: %t\n", !frame.DisablePgRewind)
 	fmt.Fprintf(&b, "      use_slots: true\n")

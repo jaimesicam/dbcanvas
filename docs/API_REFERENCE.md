@@ -660,6 +660,7 @@ These act on a cluster (frame) or on one database node.
 | **Streaming replication**: a pgBackRest full backup on the current primary | `POST …/frames/{fid}/pgstream/backup` | `dbcanvas-cli api POST …/pgstream/backup` |
 | **XtraBackup, PS or MySQL replication, or PXC cluster**: back up · list · restore · delete | `POST …/frames/{fid}/xb/backup` · `GET …/xb/backups` · `POST …/xb/restore` · `POST …/xb/delete` | `dbcanvas-cli api POST …/xb/backup --data '{"type":"full"}'` |
 | **XtraBackup, standalone Percona Server or MySQL**: the same four | `…/nodes/{nid}/xb/backup` · `/backups` · `/restore` · `/delete` | `dbcanvas-cli api POST …/xb/backup --data '{"type":"incremental"}'` |
+| **Patroni standby cluster**: links and live state · promote (and delete the link) | `GET …/frames/{fid}/patroni/standby` · `POST …/patroni/promote` | `dbcanvas-cli api GET …/patroni/standby` |
 | Run pgbench on a PostgreSQL node · a Patroni leader | `POST …/nodes/{nid}/pg/pgbench` · `POST …/frames/{fid}/patroni/pgbench` | `dbcanvas-cli api POST …/pg/pgbench` |
 | Rotate the pg_tde principal key | `POST …/nodes/{nid}/pg/tde/rotate` · `POST …/frames/{fid}/patroni/tde/rotate` | `dbcanvas-cli api POST …/pg/tde/rotate` |
 
@@ -726,6 +727,7 @@ the pod list and pod console are under [Nodes](#nodes).
 | The custom resource: read as a form model · patch | `GET`/`POST …/frames/{fid}/k3d/cr` | `dbcanvas-cli api POST …/k3d/cr --data '{"patch":{"pxc":{"size":5}}}'` |
 | Secrets and ConfigMaps: list · read one · write keys | `GET …/k3d/objects?kind=secret` · `GET …/k3d/object?kind=&namespace=&name=` · `POST …/k3d/object` | `dbcanvas-cli api POST …/k3d/object --data '{"kind":"secret","name":"cluster1-secrets","set":{"root":"new"}}'` |
 | Volumes: read · grow | `GET`/`POST …/frames/{fid}/k3d/storage` `{"sizeGiB"}` | `dbcanvas-cli api POST …/k3d/storage --data '{"sizeGiB":20}'` |
+| PostgreSQL standby cluster: promote (and delete the link) | `POST …/frames/{fid}/k3d/pg/promote` | `dbcanvas-cli api POST …/k3d/pg/promote` |
 | PostgreSQL logical replicas: list · add · remove · reseed · bootstrap log | `GET`/`POST …/k3d/logicalreplicas` · `POST …/logicalreplicas/remove` · `/reseed` · `GET …/logicalreplicas/bootstraplog` | `dbcanvas-cli api GET …/k3d/logicalreplicas` |
 | PSMDB ClusterSync: status · start · stop · pause/resume/finalize | `GET …/k3d/clustersync` · `POST …/clustersync/start` `{"source": "<frame id>"}` · `/stop` · `/{action}` | `dbcanvas-cli api GET …/k3d/clustersync` |
 | Backups and restores: list · take · delete · restore · delete a restore | `GET`/`POST …/k3d/backups` · `POST …/k3d/backups/delete` · `POST …/k3d/restores` · `POST …/k3d/restores/delete` | `dbcanvas-cli api POST …/k3d/backups --data '{}'` |

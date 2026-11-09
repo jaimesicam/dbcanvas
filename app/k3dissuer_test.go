@@ -122,9 +122,14 @@ func TestK3DIssuerOf(t *testing.T) {
 	noCM.K3DCertManager = false
 	pg := f
 	pg.K3DOperator = "pg"
+	if got := k3dIssuerOf(pg); got != k3dIssuerOpenBao {
+		t.Errorf("pg + cert-manager + openbao = %q", got)
+	}
+	cnpg := f
+	cnpg.K3DOperator = "cnpg"
 	junk := f
 	junk.K3DCertIssuer = "letsencrypt"
-	for name, fr := range map[string]designFrame{"no cert-manager": noCM, "pg operator": pg, "unknown issuer": junk} {
+	for name, fr := range map[string]designFrame{"no cert-manager": noCM, "cnpg operator": cnpg, "unknown issuer": junk} {
 		if got := k3dIssuerOf(fr); got != "" {
 			t.Errorf("%s: k3dIssuerOf = %q, want none", name, got)
 		}
@@ -135,6 +140,7 @@ func TestK3DIssuerIssues(t *testing.T) {
 	cat := OperatorCatalog{
 		"psmdb": {Latest: "1.23.1", Versions: []string{"1.23.1", "1.23.0", "1.22.0"}},
 		"pxc":   {Latest: "1.20.0", Versions: []string{"1.20.0", "1.7.0"}},
+		"pg":    {Latest: "3.1.0", Versions: []string{"3.1.0", "3.0.0", "2.8.2"}},
 	}
 	bao := designDoc{Nodes: []designNode{{ID: "b1", Type: "openbao"}}}
 	base := designFrame{Label: "k3d-00", K3DOperator: "pxc", K3DOperatorVer: "1.20.0", K3DCertManager: true}
@@ -171,6 +177,9 @@ func TestK3DIssuerIssues(t *testing.T) {
 			f.K3DOperator = "psmdb"
 			f.K3DOperatorVer = "1.22.0"
 		}), bao, 1, true},
+		{"pg 3.1.0", with(base, func(f *designFrame) { f.K3DCertIssuer = "intranet"; f.K3DOperator = "pg"; f.K3DOperatorVer = "3.1.0" }), designDoc{}, 0, false},
+		{"pg latest", with(base, func(f *designFrame) { f.K3DCertIssuer = "openbao"; f.K3DOperator = "pg"; f.K3DOperatorVer = "" }), bao, 0, false},
+		{"pg 3.0.0", with(base, func(f *designFrame) { f.K3DCertIssuer = "intranet"; f.K3DOperator = "pg"; f.K3DOperatorVer = "3.0.0" }), designDoc{}, 1, true},
 	}
 	for _, c := range cases {
 		iss := k3dIssuerIssues(c.f, c.doc, cat, false)

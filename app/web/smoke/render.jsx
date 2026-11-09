@@ -60,7 +60,7 @@ import {
   BuildImageRow,
   BigHoleForm, BigHoleManager, BigHoleLink,
   nodeCardTip, memberCardTip,
-  k8sReplLinkable, ReplicationLinkForm, ReplicationLinkChoices, K3DIssuerField, K3DTLSHostsField,
+  k8sReplLinkable, k8sPGStandbyPair, patroniStandbyLinkable, patroniStandbySourceOf, ReplicationLinkForm, ReplicationLinkChoices, K3DIssuerField, K3DTLSHostsField,
   associationBlocked, isReplEdge, k8sReplRoleOf, k8sReplSourceOf, k8sReplSslReplicasOf, ReplSSLFields, K3D_SOURCE_EXPOSE, K8sToolFields, DBClientFields, FileToolFields, lcMysqlSeries, lcPsqlSeries,
   frameHeaderW, layoutFrame, separateFrames, SIM_NODE_TYPES, frameVersionLabel, frameSubLabel,
   podMenuEntries, POD_SHELLS, POD_CLIENTS,
@@ -1707,6 +1707,9 @@ check('a Kubernetes replication link needs two different PXC-operator clusters',
   if (!k8sReplLinkable(a, b)) throw new Error('two PXC-operator clusters must be linkable')
   if (k8sReplLinkable(a, a)) throw new Error('a cluster must not link to itself')
   if (k8sReplLinkable(a, k('f2', 'psmdb'))) throw new Error('only the PXC operator replicates cross-cluster')
+  if (!k8sReplLinkable(k('f1', 'pg'), k('f2', 'pg'))) throw new Error('two Percona PostgreSQL operator clusters must be linkable (a standby)')
+  if (k8sReplLinkable(a, k('f2', 'pg'))) throw new Error('a PXC cluster cannot replicate into a PostgreSQL one')
+  if (!k8sPGStandbyPair(k('f1', 'pg'), k('f2', 'pg')) || k8sPGStandbyPair(a, b)) throw new Error('k8sPGStandbyPair must tell the two link kinds apart')
   if (k8sReplLinkable(a, k('f2', ''))) throw new Error('a frame with no operator has no cluster to replicate')
   if (k8sReplLinkable(a, { id: 'f3', type: 'pxc' })) throw new Error('a bare-metal PXC frame is not a Kubernetes cluster')
   if (k8sReplLinkable(a, null)) throw new Error('a missing frame is not linkable')
@@ -1737,6 +1740,53 @@ check('the replication link form reads a frame endpoint', () => {
   if (!html.includes('cluster1') || !html.includes('cluster2')) throw new Error('the cluster labels are missing')
   if (html.includes('bidirectional')) throw new Error('bidirectional must not be offered between Kubernetes clusters')
   return html
+})
+
+// --- Patroni standby clusters (app/patronistandby.go) ---
+
+const patroniFrames = [
+  { id: 'pf1', type: 'patroni', label: 'east' },
+  { id: 'pf2', type: 'patroni', label: 'west' },
+]
+const standbyEdge = { id: 'e9', type: 'async', from: { node: 'pf1', port: 'right' }, to: { node: 'pf2', port: 'left' } }
+
+check('a standby link joins two different Patroni clusters, and the arrow points at the standby', () => {
+  const [a, b] = patroniFrames
+  if (!patroniStandbyLinkable(a, b)) throw new Error('two Patroni clusters must be linkable')
+  if (patroniStandbyLinkable(a, a)) throw new Error('a cluster must not be a standby of itself')
+  if (patroniStandbyLinkable(a, { id: 'r', type: 'repmgr' })) throw new Error('only Patroni clusters take a standby link')
+  if (patroniStandbySourceOf('pf2', [standbyEdge], patroniFrames)?.id !== 'pf1') throw new Error('west must be a standby of east')
+  if (patroniStandbySourceOf('pf1', [standbyEdge], patroniFrames)) throw new Error('east is the source, not a standby')
+  return 'ok'
+})
+
+check('the standby dialogs name both clusters and offer no bidirectional link', () => {
+  const choices = renderToString(
+    <ReplicationLinkChoices prompt={{ e1: standbyEdge.from, e2: standbyEdge.to, kind: 'patroni' }}
+      nodes={[]} frames={patroniFrames} onClose={noop} onChoose={noop} />)
+  if (!choices.includes('east') || !choices.includes('west')) throw new Error('the cluster labels are missing')
+  if (choices.includes('↔')) throw new Error('a standby link is one way')
+  if (!choices.includes('standby')) throw new Error('the dialog must say which end is the standby')
+  const form = renderToString(
+    <ReplicationLinkForm ed={standbyEdge} nodes={[]} frames={patroniFrames} patchEdge={noop} deleteEdge={noop} stackId={1} depByNode={{}} />)
+  if (!form.includes('Standby cluster link')) throw new Error('the properties panel is not the standby one')
+  if (form.includes('Promote')) throw new Error('Promote is offered before the standby is deployed')
+  return form
+})
+
+check('a link between two PostgreSQL operator clusters is a standby link', () => {
+  const frames = [
+    { id: 'kp1', type: 'k3d', label: 'east', k3dOperator: 'pg' },
+    { id: 'kp2', type: 'k3d', label: 'west', k3dOperator: 'pg' },
+  ]
+  const ed = { id: 'e8', type: 'async', from: { node: 'kp1' }, to: { node: 'kp2' } }
+  const form = renderToString(
+    <ReplicationLinkForm ed={ed} nodes={[]} frames={frames} patchEdge={noop} deleteEdge={noop} stackId={1} depByNode={{}} />)
+  if (!form.includes('Standby cluster link') || !form.includes('Percona Operator for PostgreSQL')) throw new Error('not the standby form')
+  const choices = renderToString(
+    <ReplicationLinkChoices prompt={{ e1: ed.from, e2: ed.to, kind: 'k8s-pg' }} nodes={[]} frames={frames} onClose={noop} onChoose={noop} />)
+  if (!choices.includes('standby cluster')) throw new Error('the dialog must say it sets up a standby cluster')
+  return form
 })
 
 // ---- a replication link must not consume a cluster's association budget ----
@@ -6218,6 +6268,12 @@ check('K3D certificate issuer field', () => {
   if (renderToString(<K3DIssuerField f={f({})} op="psmdb" ver="1.23.1" patchFrame={noop} deployed={false} />).indexOf('<select') < 0) {
     throw new Error('PSMDB 1.23.1 offers the choice')
   }
+  if (!renderToString(<K3DIssuerField f={f({})} op="pg" ver="3.0.0" patchFrame={noop} deployed={false} />).includes('3.1.0')) {
+    throw new Error('PG below 3.1.0 must say why there is no choice')
+  }
+  if (renderToString(<K3DIssuerField f={f({})} op="pg" ver="3.1.0" patchFrame={noop} deployed={false} />).indexOf('<select') < 0) {
+    throw new Error('PG 3.1.0 offers the choice')
+  }
   if (renderToString(<K3DIssuerField f={f({})} op="cnpg" ver="" patchFrame={noop} deployed={false} />) !== '') {
     throw new Error('operators that do not read issuerConf show nothing')
   }
@@ -6233,7 +6289,14 @@ check('K3D host names field', () => {
   }
   const mongo = renderToString(<K3DTLSHostsField f={f} op="psmdb" ver="1.21.0" patchFrame={noop} deployed={false} />).replaceAll('<!-- -->', '')
   if (!mongo.includes('split horizons') || !mongo.includes('older than 1.22.0')) throw new Error('PSMDB below 1.22.0 must say the names reach DNS only')
-  if (renderToString(<K3DTLSHostsField f={f} op="pg" ver="" patchFrame={noop} deployed={false} />) !== '') throw new Error('pg shows nothing')
+  const pgIntranet = renderToString(<K3DTLSHostsField f={{ ...f, k3dCertIssuer: 'intranet' }} op="pg" ver="3.1.0" patchFrame={noop} deployed={false} />).replaceAll('<!-- -->', '')
+  for (const want of ['k3d-00-ha', 'k3d-00-pgbouncer', 'customTLSSecret']) {
+    if (!pgIntranet.includes(want)) throw new Error('the PG host names option must say ' + want)
+  }
+  if (pgIntranet.includes('reach DNS but not')) throw new Error('PG with the Intranet issuer puts the names in the certificates')
+  const pgOwn = renderToString(<K3DTLSHostsField f={f} op="pg" ver="3.1.0" patchFrame={noop} deployed={false} />).replaceAll('<!-- -->', '')
+  if (!pgOwn.includes('reach DNS but not')) throw new Error('PG on its own CA must say the names reach DNS only')
+  if (renderToString(<K3DTLSHostsField f={f} op="cnpg" ver="" patchFrame={noop} deployed={false} />) !== '') throw new Error('cnpg shows nothing')
   return pxc
 })
 

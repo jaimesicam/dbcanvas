@@ -36,12 +36,18 @@ import (
 // MongoDB's sharded routers are the one gap: the operator has no field that adds a name to the
 // mongos certificate, so <cluster>-mongos is published in DNS and said not to be in the
 // certificate.
+//
+// PostgreSQL has no SANs field either. Its operator takes whole certificates instead
+// (spec.secrets.customTLSSecret with customReplicationTLSSecret, and pgBouncer's customTLSSecret),
+// so DBCanvas has cert-manager issue those from the frame's Issuer with the names in them
+// (k3dpgtls.go). That needs the Intranet CA or OpenBao issuer: the operator's own CA does not
+// exist until the cluster does. With neither, the names reach DNS only.
 
 // psmdbHorizonMinVer is the first PSMDB operator that puts split-horizon names in its certificates.
 const psmdbHorizonMinVer = "1.22.0"
 
 // k3dTLSHostOperators are the operators this file can name.
-var k3dTLSHostOperators = map[string]bool{"pxc": true, "ps": true, "psmdb": true}
+var k3dTLSHostOperators = map[string]bool{"pxc": true, "ps": true, "psmdb": true, "pg": true}
 
 // k3dTLSHostsOn reports whether a frame asks for host names (cert-manager on, an operator that
 // takes them).
@@ -69,6 +75,10 @@ func k3dTLSHostCandidates(operator, cluster string, sharding bool) []string {
 			return nil // see the header: no field names the mongos certificate
 		}
 		return pods("rs0")
+	case "pg":
+		// The Patroni leader Service (spec.expose), the replicas Service and pgBouncer. The first
+		// two are PostgreSQL's server certificate, the last pgBouncer's (k3dpgtls.go).
+		return []string{cluster + "-ha", cluster + "-replicas", cluster + "-pgbouncer"}
 	}
 	return nil
 }
@@ -102,7 +112,7 @@ func k3dTLSHostIssues(f designFrame, doc designDoc, opCat OperatorCatalog, deplo
 	case !f.K3DCertManager:
 		return []issue{{Level: "warning", Message: "K3D cluster " + name + " asks for host names in its certificates, which is a cert-manager setting — tick Install cert-manager, or clear it"}}
 	case !k3dTLSHostOperators[op]:
-		return []issue{{Level: "warning", Message: "K3D cluster " + name + " asks for host names in its certificates, which only the PXC, Percona Server and MongoDB operators take here"}}
+		return []issue{{Level: "warning", Message: "K3D cluster " + name + " asks for host names in its certificates, which only the PXC, Percona Server, MongoDB and PostgreSQL operators take here"}}
 	}
 	lvl, tail := "error", ""
 	if deployed {
@@ -129,6 +139,24 @@ func k3dTLSHostIssues(f designFrame, doc designDoc, opCat OperatorCatalog, deplo
 		case !strings.EqualFold(f.K3DExposeReplset, "loadbalancer"):
 			out = append(out, issue{Level: "warning", Message: "K3D cluster " + name + " asks for host names, but its replica set is not exposed on a " +
 				"LoadBalancer, so there is no address to publish them at — set Replica set exposure to LoadBalancer"})
+		}
+	}
+	if op == "pg" {
+		ver, ok := opCat.resolveOperatorVersion("pg", f.K3DOperatorVer)
+		switch {
+		case k3dIssuerOf(f) == "":
+			out = append(out, issue{Level: "warning", Message: "K3D cluster " + name + " asks for host names in its certificates, which the PostgreSQL " +
+				"operator only takes as whole certificates issued from the Intranet CA or OpenBao — choose one as the certificate issuer. " +
+				"With the operator's own CA the names are published in DNS, but not in the certificates"})
+		case !ok || compareVersions(ver, pgIssuerMinVer) < 0:
+			// k3dIssuerIssues already refuses the issuer on this release; the names go with it.
+			out = append(out, issue{Level: "warning", Message: "K3D cluster " + name + " asks for host names in its certificates, which the PostgreSQL " +
+				"operator only gets here with a certificate issuer, from " + pgIssuerMinVer + " — the names are published in DNS, but not in the certificates"})
+		}
+		if !strings.EqualFold(k3dExposeOf(f.K3DExposePG, f.K3DExpose), "LoadBalancer") && !strings.EqualFold(k3dExposeOf(f.K3DExposePGBouncer, f.K3DExpose), "LoadBalancer") &&
+			!k3dPGIsStandbySource(doc, f.ID) {
+			out = append(out, issue{Level: "warning", Message: "K3D cluster " + name + " asks for host names, but neither PostgreSQL nor pgBouncer is " +
+				"exposed on a LoadBalancer, so there is no address to publish them at — set one of the two exposures to LoadBalancer"})
 		}
 	}
 	return out

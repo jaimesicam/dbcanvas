@@ -29585,3 +29585,111 @@ Four release notes, in the README's What's new and in the in-app dialog, dated 2
 
 **Verification performed.** `go test -run 'WhatsNew|Note' .` (order, completeness, linked docs
 exist, README match).
+
+## 519. Patroni standby clusters — `app/patronistandby.go`, `app/patroni.go`, `app/join.go`, `app/intranet.go`, `app/compose.go`, `app/composebuild.go`, `app/designcatalog_postgres.go`, `app/web/src/pages/StackDesigner.jsx`, `app/web/src/pages/PatroniManager.jsx`, `cli/cmd_compose.go`
+
+An `async` edge between two Patroni frames makes the frame it points at a standby cluster of the
+other (Patroni's `standby_cluster`).
+
+- **Config.** `patroniYAML` takes the standby (`*patroniStandby`, nil for none) and writes
+  `standby_cluster` under `bootstrap.dcs`: `host` is every source member's FQDN as a libpq host list,
+  `port` 5432, `create_replica_methods: [basebackup]`. No slot: with several hosts the standby may
+  connect to a member without it, so the source gets `wal_keep_size = 512MB` instead (through
+  `PATCH /config`, only when it has none).
+- **Deploy.** `provisionPatroniFrame` waits for the source to be running before starting Patroni
+  (phase 2b), records `standbyOf`/`standbyOfId` on the members, names the leader `standby leader`, and
+  skips the catalog steps a read-only leader cannot run (query extension, pgvector, pgAudit/set_user,
+  pgbench data). A member that joins later gets the same bootstrap section.
+- **Reconcile.** `reconcilePatroniStandbys` runs as a final deploy phase, comparing the canvas with
+  the live `GET /config` and the recorded source id: same source → host list updated in place if the
+  source's members changed; no link but a standby → `PATCH /config {"standby_cluster": null}`
+  (promote); link but not a standby of that source → rebuild (Patroni stopped on every member, the
+  scope's keys deleted from etcd, data directories emptied, configs rewritten, Patroni started).
+- **Validation.** One way only, one source per standby, no loops (chains are fine), same PostgreSQL
+  major and build, no pgBackRest on the standby, no pg_tde on either end; a warning lists what is
+  not created on the standby.
+- **API.** `GET …/frames/{fid}/patroni/standby` (links, `standby_cluster.host`, Patroni's
+  `/cluster`), `POST …/patroni/promote` (promotes and removes the link from the stored design, so the
+  next deploy does not rebuild it).
+- **Compose.** `standbyOf=<name>` on `patroni` / `patroni-pgdg` draws the edge frame to frame.
+- **Designer.** Patroni frame ↔ Patroni frame opens the link dialog (async only); the link's panel is
+  a standby form with **Promote** once the standby is deployed; the frame form says what it follows or
+  feeds; the member panel shows *Standby leader* and *Standby of*.
+
+**Verification performed.** `go test .` (including `TestPatroniStandbyForListsEverySourceMember`,
+`TestPatroniYAMLStandbyCluster`, `TestPatroniStandbyIssues`,
+`TestPatroniStandbyEdgeIsNotAK3DOrMemberLink`, `TestComposeStandbyOf`); `npm run smoke` (two new
+checks). Not yet run against a live deploy.
+
+## 520. Percona Operator for PostgreSQL standby clusters on K3D — `app/k3dpgstandby.go`, `app/k3dpg.go`, `app/k3d.go`, `app/intranet.go`, `app/designcatalog_k3d.go`, `app/web/src/pages/StackDesigner.jsx`, `app/web/src/pages/K3DManager.jsx`
+
+An `async` edge between two K3D frames running `k3dOperator: pg` makes the frame it points at a
+standby cluster (`spec.standby`). It is checked before the PXC-operator rules (`k3drepl.go`), which
+would refuse it.
+
+- **Source.** Its primary Service is a LoadBalancer (`provisionK3DFrame`, and patched in place by
+  the standby's deploy when the source was built before the link).
+- **Standby, before its `cr.yaml`** (`k3dPGStandbyPrepare`, from `installPGOperator`): waits for the
+  source frame and its custom resource to be ready, reads the `<source>-ha` LoadBalancer address, and
+  copies the source's root CA (`root.crt`/`root.key` from `<source>-cluster-ca-cert`, or
+  `pgo-root-cacert` before 2.5.0) into the standby's namespace under both names. The operator reuses
+  a valid root CA it finds there, so the standby's certificates, including its replication client
+  certificate, chain to the source's CA, and the source accepts it.
+- **`cr.yaml`.** `pgOptions.Standby` inserts `spec.standby` (`enabled`, `host`, `port: 5432`, and
+  `repoName: repo1` when both frames back up to the same SeaweedFS node and bucket). In that case
+  `pgOptions.RepoPathCluster` points `repo1-path` at the source's repository, and the deploy first
+  waits for the source's `replicaCreateBackupComplete`.
+- **Reconcile.** `reconcileK3DPGStandbys`: no link but recorded as a standby → `spec.standby.enabled:
+  false`; a link to a frame recorded without it (or with another source) → the `PerconaPGCluster` and
+  its PVCs are deleted, the old root CA secrets removed, and `installPGOperator` runs again.
+- **API.** `POST …/frames/{fid}/k3d/pg/promote` promotes and removes the link from the design
+  (`dropStandbyEdges`, shared with Patroni).
+- **Validation.** One way, one source, no loops, no pg_tde, no logical replicas on the standby;
+  warnings for differing operator versions, the source's expose override, and a standby that streams
+  only.
+- **Designer.** `k8sReplLinkable` accepts two `pg` frames; the dialog and link panel are the standby
+  ones (`k8s-pg`); the source's PostgreSQL expose field is held at LoadBalancer; the cluster panel
+  shows the source, the address it streams from and the repository it reads.
+
+**Verification performed.** `go test .` (`TestPGTransformStandby` against the 3.1.0 `cr.yaml`
+fixture, `TestK3DPGStandbyLinks`, `TestK3DPGStandbyIssues`); `npm run smoke`. Not yet run against a
+live deploy.
+
+## 521. cert-manager issuer and host names on the Percona Operator for PostgreSQL — `app/k3dissuer.go`, `app/k3dtlshosts.go`, `app/k3dpgtls.go`, `app/k3dpg.go`, `app/k3dpgstandby.go`, `app/designcatalog_k3d.go`, `app/web/src/pages/StackDesigner.jsx`, `app/web/src/lib/help.js`
+
+The K3D frame's **Certificate issuer** (`k3dCertIssuer`) and **Host names** (`k3dTlsHosts`) options,
+offered until now for `pxc`, `ps` and `psmdb`, also apply to `pg`.
+
+- **Issuer** (operator 3.1.0+, the first CRD with `spec.tls.issuerConf`). `installPGOperator` runs
+  `k3dProvisionIssuer` after the user secrets and writes `tls.issuerConf` through `k3dCRIssuer`, as the
+  other operators do. The operator uses a namespaced Issuer it finds under that name as it is and adds
+  itself as its owner. It still makes a self-signed CA of its own through cert-manager, but issues the
+  cluster, instance, pgBackRest, pgBouncer and replication certificates from the Issuer. Below 3.1.0
+  validation refuses the issuer and the deploy logs that it was not used.
+- **Host names.** The PG operator has no SANs field, so `k3dPGCustomTLS` (`app/k3dpgtls.go`) has
+  cert-manager issue three Certificates from the frame's Issuer before `cr.yaml`: the server certificate
+  (`<cluster>-primary`, `-replicas` and `-ha` in-cluster names, plus `<cluster>-ha` and `-replicas`
+  under the domain), the replication client certificate (CN `_crunchyrepl`) and a pgBouncer certificate
+  (`<cluster>-pgbouncer`). `pgOptions.CustomTLS` writes `spec.secrets.customTLSSecret`,
+  `customReplicationTLSSecret` and `proxy.pgBouncer.customTLSSecret`. This needs the `intranet` or
+  `openbao` issuer; with the operator's own CA the names are published in DNS only. With a
+  `customTLSSecret`, operator 3.1.0 signs its in-cluster Patroni REST and pgBackRest certificates with
+  its own CA instead of the Issuer. DNS publishing (`k3dPublishTLSHosts`) is unchanged;
+  `k3dTLSHostCandidates("pg", …)` lists `-ha`, `-replicas` and `-pgbouncer`.
+- **Standby link.** Both ends must use an issuer or both the operator's own CA (error otherwise). With
+  an issuer on the standby the source's root CA is not copied (`k3dPGCopyRootCA` is skipped): a plain
+  root CA Secret makes the operator ignore cert-manager, and both ends already chain to the Intranet CA.
+- **Validation.** `k3dIssuerIssues` checks the 3.1.0 floor; `k3dTLSHostIssues` warns when `pg` has no
+  named issuer, predates 3.1.0, or exposes neither PostgreSQL nor pgBouncer on a LoadBalancer.
+- **Designer.** `K3D_ISSUER_OPERATORS` includes `pg`; the issuer field explains the 3.1.0 floor; the
+  host names field lists the PostgreSQL names and says when they reach DNS only.
+
+**Verification performed.** `go test .` (`TestPGCustomTLSManifest`, `TestPGTransformIssuerAndCustomTLS`
+against the 3.1.0 `cr.yaml` fixture, `TestPGTLSHostCandidates`, and new `pg` cases in
+`TestK3DIssuerOf`, `TestK3DIssuerIssues`, `TestK3DTLSHostIssues`, `TestK3DPGStandbyIssues`);
+`npm run smoke`. Live, on operator 3.1.0 with cert-manager v1.21.3: the Intranet CA issuer with Host
+names (server, replication and pgBouncer certificates from the Intranet CA with the names; replicas
+streaming; `<cluster>-ha` and `<cluster>-pgbouncer` published with PTR records; TLS host-name
+verification against both names succeeds and fails for another name), and the OpenBao issuer without
+Host names (every certificate in the cluster from OpenBao; replicas streaming). A standby link with
+issuers on both ends was not run live.

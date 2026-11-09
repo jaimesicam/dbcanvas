@@ -292,7 +292,9 @@ export const HELP = {
     'tlsAllowInvalidHostnames). The certificate side is written into cr.yaml before the operator first reconciles; ' +
     'the DNS side happens once the cluster is ready, from the LoadBalancer Services it really has, with PTR ' +
     'records so a reverse lookup of the address returns the name. A Service on ClusterIP has no address outside ' +
-    'Kubernetes and is not published.',
+    'Kubernetes and is not published. The PostgreSQL operator has no field for extra names, so DBCanvas issues its ' +
+    'server, replication and pgBouncer certificates itself from the certificate issuer, which must then be the ' +
+    'Intranet CA or OpenBao.',
   openbaoPKI:
     'Turn on the PKI secrets engine at pki and give it the Intranet CA, so certificates it signs are trusted ' +
     'everywhere in the stack. Role dbcanvas signs any name and IP for up to three years; policy pki-dbcanvas ' +

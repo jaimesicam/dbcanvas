@@ -593,6 +593,10 @@ export function repmgrApi(id, fid) {
   }
 }
 
+// Promote a Percona PostgreSQL operator standby cluster on a K3D frame; the server also deletes
+// its standby link from the design (app/k3dpgstandby.go).
+export const k3dPGPromote = (id, fid) => request('POST', `/api/stacks/${id}/frames/${fid}/k3d/pg/promote`)
+
 // Patroni cluster (frame) management. `fid` is the design frame id.
 export function patroniApi(id, fid) {
   const base = `/api/stacks/${id}/frames/${fid}`
@@ -606,6 +610,10 @@ export function patroniApi(id, fid) {
     // Rotate the cluster's pg_tde principal key, on the leader.
     tdeRotate: () => request('POST', `${base}/patroni/tde/rotate`),
     pgbench: (body) => request('POST', `${base}/patroni/pgbench`, body),
+    // Standby clusters (app/patronistandby.go): the links and live state, and promoting a
+    // standby to a primary cluster, which also deletes its link from the design.
+    standby: () => request('GET', `${base}/patroni/standby`),
+    promote: () => request('POST', `${base}/patroni/promote`),
   }
 }
 

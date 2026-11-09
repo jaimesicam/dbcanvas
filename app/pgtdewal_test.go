@@ -38,7 +38,7 @@ func TestPGTDEWALBackRestConf(t *testing.T) {
 // restore_command for the WAL a replica replays.
 func TestPatroniYAMLWALEncryption(t *testing.T) {
 	f := designFrame{Label: "c1", Type: "patroni", OS: "oraclelinux", PGMajor: "17", EnableVault: true, PGTDEWal: true, UsePgBackRest: true}
-	y := patroniYAML(f, "patroni-1", "patroni-1.example.net", []string{"patroni-1.example.net:2379"}, pgSecrets{})
+	y := patroniYAML(f, "patroni-1", "patroni-1.example.net", []string{"patroni-1.example.net:2379"}, pgSecrets{}, nil)
 	for _, want := range []string{
 		"archive_command: '" + pgTDEArchiveCommand("/usr/pgsql-17/bin", "c1") + "'",
 		"restore_command: '" + pgTDERestoreCommand("/usr/pgsql-17/bin", "c1") + "'",

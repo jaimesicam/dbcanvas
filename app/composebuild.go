@@ -393,6 +393,7 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 		{s.SetUser, kind.takes("setUser"), "setUser"},
 		{s.PGBench != 0, kind.takes("pgbench"), "pgbench"},
 		{s.SyncStandbys != 0, kind.takes("syncStandbys"), "syncStandbys"},
+		{s.StandbyOf != "", kind.takes("standbyOf"), "standbyOf"},
 		{s.Replicas != 0, kind.takes("replicas"), "replicas"},
 		{s.TDEWal, kind.takes("tdeWal"), "tdeWal"},
 		{s.ViewOnly, kind.takes("viewOnly"), "viewOnly"},
@@ -723,8 +724,38 @@ func (b *composeBuilder) wire(ordered []composeNodeSpec) error {
 		if err := b.associate(s, res); err != nil {
 			return err
 		}
+		if err := b.standbyOf(s, res); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// standbyOf draws the replication link that makes a Patroni cluster a standby cluster of
+// another one in the spec: frame to frame, source → standby (patronistandby.go).
+func (b *composeBuilder) standbyOf(s composeNodeSpec, res *composeResolved) error {
+	if s.StandbyOf == "" {
+		return nil
+	}
+	var names []string
+	for _, r := range b.resolved {
+		if r.Name == res.Name || r.FrameID == "" || (r.Kind != "patroni" && r.Kind != "patroni-pgdg") {
+			continue
+		}
+		if r.Name == s.StandbyOf {
+			b.doc.Edges = append(b.doc.Edges, designEdge{
+				ID:   fmt.Sprintf("e-%s-%s-standby", r.Name, res.Name),
+				From: edgeEnd{Node: r.FrameID, Port: "right"},
+				To:   edgeEnd{Node: res.FrameID, Port: "left"},
+				Type: "async",
+			})
+			res.Links = append(res.Links, "standbyOf→"+r.Name)
+			return nil
+		}
+		names = append(names, r.Name)
+	}
+	return fmt.Errorf("%s: standbyOf names no other Patroni cluster called %q in this spec. Patroni clusters: %s",
+		res.Name, s.StandbyOf, orNone(names))
 }
 
 // associate draws the canvas association line for a kind that needs one.
