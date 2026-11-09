@@ -30165,3 +30165,16 @@ stamps the commit and a "modified" flag, which the image, having no `.git`, does
 and the image's build of the same source were compared and match byte for byte, so a server's CLI
 passes `--verify --release` against its release. `TestImageBuildsCLIWithGoModToolchain` keeps the
 Go version and the flag in step across the three.
+
+## 544. Release 0.0.28 — `VERSION`, `app/whatsnew.go`, `README.md`
+
+Six release notes, in the README's What's new and in the in-app dialog, dated 2026-11-09:
+- Standby clusters for Patroni and the PostgreSQL operator (§519, 520, 521)
+- HAProxy from Percona or PGDG, and upstream ProxySQL (§522, 523, 524)
+- Labels, scoped tokens and stack events for programs (§528–531, 537, 541)
+- Security group limits, guest accounts and doctor (§532, 534, 535, 536, 539, 540, 542)
+- Big Hole as an install option (§525)
+- Signed CLI releases and prebuilt node images (§526, 527, 533, 536, 538, 543)
+
+0.0.27's first note is folded; only the newest release opens one. 0.0.28 is the first release the
+release workflow builds: pushing tag v0.0.28 creates the GitHub release with the signed CLI.

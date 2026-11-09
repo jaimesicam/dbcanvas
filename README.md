@@ -251,6 +251,67 @@ Dashboard), and the container image carries them under `/usr/share/doc/dbcanvas/
 
 ## What's new
 
+### 0.0.28
+
+<details open>
+<summary><b>Standby clusters for Patroni and the PostgreSQL operator</b></summary>
+
+A link between two Patroni clusters makes one a standby cluster of the other: read-only, streaming from every source
+member, with promote and compose's `standbyOf=`. Two K3D frames running the Percona Operator for PostgreSQL take the
+same link, streaming from the source's primary and reading its repository when both back up to the same bucket. From
+operator 3.1.0 the certificates come from the Intranet CA or OpenBao through cert-manager, with the cluster's host
+names in the server, replication and pgBouncer certificates. See [Stacks](docs/STACKS.md).
+</details>
+
+<details>
+<summary><b>HAProxy from Percona or PGDG, and upstream ProxySQL</b></summary>
+
+An HAProxy node chooses where haproxy comes from: the OS, Percona's repositories or PGDG's (Oracle Linux), with a
+version. A ProxySQL node or cluster can run upstream ProxySQL from `repo.proxysql.com`, configured by `proxysql-admin`
+or natively with `mysql_galera_hostgroups`. Upstream ProxySQL 3 on a standalone node also fronts PostgreSQL: a node or
+a Patroni, repmgr, streaming replication or Spock cluster, with rwsplit or primary routing. The Watchtower node type
+is gone. See [Stacks](docs/STACKS.md).
+</details>
+
+<details>
+<summary><b>Labels, scoped tokens and stack events for programs</b></summary>
+
+Stack names are unique per owner. Stacks carry labels, set on create and compose, edited in the stack list or with
+`dbcanvas-cli stack label`, and used to filter list, destroy and delete. An API token can be limited to the stacks it
+creates or to labels. A deleted stack answers 410 Gone saying when, why and by whom, and `GET /api/stacks/events`
+streams stack lifecycle changes (`dbcanvas-cli stack events`). `dbcanvas-cli commands --json` describes every command
+for a program to read. See [API](docs/API.md).
+</details>
+
+<details>
+<summary><b>Security group limits, guest accounts and doctor</b></summary>
+
+Administrators can limit each security group's longest stack lifetime, stacks and deployed nodes per account, and node
+types it may not deploy. Each guest gets an account of its own, removed with its stacks after a week unused, and guest
+sign-in on an installation reachable beyond the machine needs an administrator's confirmation. `dbcanvas-cli doctor`
+and `make doctor` check an installation; a new `.env` gets random passwords, and administrators see a notice while any
+are still the example ones. Settings is split into tabs. [Security](docs/SECURITY.md) describes the security model.
+</details>
+
+<details>
+<summary><b>Big Hole as an install option</b></summary>
+
+Big Hole is no longer a node of its own. It is an option on a MongoDB replica set, sharded cluster or standalone node
+and on the Linux Client, installed on each data member from files built into the app image and opened from the node's
+links. See [Stacks](docs/STACKS.md).
+</details>
+
+<details>
+<summary><b>Signed CLI releases and prebuilt node images</b></summary>
+
+A version tag builds `dbcanvas-cli` for every platform on GitHub and signs it with Sigstore (keyless); the release
+carries the binaries, a checksum list and a signature for each. The builds are reproducible, so a server offers
+exactly the release's binaries, and `dbcanvas-cli version --verify` checks one against the server or, with
+`--release`, against GitHub. The node images can be published to and pulled from a container registry
+(`make pull-images`, `make install-pull`). Oracle Linux nodes have `hostname` installed. See
+[Security](docs/SECURITY.md).
+</details>
+
 ### 0.0.27
 
 <details open>
