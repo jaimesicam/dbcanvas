@@ -7,7 +7,7 @@ import { useAuth } from '../auth/AuthProvider.jsx'
 import { api } from '../lib/api.js'
 import { useSettings } from '../settings/SettingsProvider.jsx'
 import { LOOKS, THEMES } from '../theme/ThemeProvider.jsx'
-import { TABS_DEFAULT, TABS_MAX, TABS_MIN, clampTabs } from '../lib/tabs.js'
+import { TABS_DEFAULT, TABS_MAX, TABS_MIN, clampTabs, hashPage, hashSection } from '../lib/tabs.js'
 
 // Settings — per-user preferences, saved to the account (not the browser) as soon as they are
 // changed. Terminal mode applies to consoles opened from here on; existing sessions keep their
@@ -1026,27 +1026,39 @@ export default function Settings() {
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
   const [err, setErr] = useState('')
-  const [tab, setTab] = useState(() => {
-    try { return localStorage.getItem('dbcanvas.settingsTab') || 'appearance' } catch { return 'appearance' }
-  })
-  const pickTab = (id) => {
-    setTab(id)
-    try { localStorage.setItem('dbcanvas.settingsTab', id) } catch { /* not kept */ }
-  }
-
-  const set = async (patch) => {
-    setErr('')
-    try { await save(patch) } catch (e) { setErr(e.message) }
-  }
-
   // Four tabs instead of one long page: how it looks, how you work, who can get in, and what
-  // the installation allows. The tab is remembered in this browser only.
+  // the installation allows. The URL names the tab (#settings/access), so a link opens it; with
+  // none, the tab last used in this browser.
   const tabs = [
     ['appearance', 'Appearance'],
     ['workspace', 'Workspace'],
     ['access', 'Access & security'],
     ['system', 'System'],
   ]
+  const known = (id) => tabs.some(([t]) => t === id)
+  const [tab, setTab] = useState(() => {
+    if (hashPage() === 'settings' && known(hashSection())) return hashSection()
+    try {
+      const v = localStorage.getItem('dbcanvas.settingsTab')
+      if (known(v)) return v
+    } catch { /* not kept */ }
+    return 'appearance'
+  })
+  const pickTab = (id) => {
+    setTab(id)
+    try { localStorage.setItem('dbcanvas.settingsTab', id) } catch { /* not kept */ }
+    // replaceState, not location.hash: it fires no hashchange, so the shell does not treat it
+    // as navigation, and the back button is not filled with tab clicks.
+    if (hashPage() === 'settings') history.replaceState(null, '', `#settings/${id}`)
+  }
+  // A link to another tab while Settings is already open.
+  useEffect(() => {
+    const onHash = () => {
+      if (hashPage() === 'settings' && known(hashSection())) setTab(hashSection())
+    }
+    addEventListener('hashchange', onHash)
+    return () => removeEventListener('hashchange', onHash)
+  }, [])
   const two = 'grid items-start gap-4 lg:grid-cols-2'
 
   return (

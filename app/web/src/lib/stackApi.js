@@ -113,6 +113,7 @@ export const stackApi = {
   extend: (id, by) => request('POST', `/api/stacks/${id}/extend`, { by }),
   update: (id, name, design) => request('PUT', `/api/stacks/${id}`, { name, design }),
   remove: (id) => request('DELETE', `/api/stacks/${id}`),
+  setLabels: (id, labels) => request('PUT', `/api/stacks/${id}/labels`, { labels }),
   validate: (id) => request('POST', `/api/stacks/${id}/validate`),
   deploy: (id) => request('POST', `/api/stacks/${id}/deploy`),
   backupStatus: (id, fid) => request('GET', `/api/stacks/${id}/frames/${fid}/backup-status`),

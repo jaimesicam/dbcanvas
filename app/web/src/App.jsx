@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { useAuth } from './auth/AuthProvider.jsx'
 import { PageVisibleProvider } from './lib/usePolling.jsx'
 import { RefreshProvider, runAll } from './lib/useRefresh.jsx'
-import { openTab as openTabRule, closeTab as closeTabRule, tabCounts, clampTabs } from './lib/tabs.js'
+import { openTab as openTabRule, closeTab as closeTabRule, tabCounts, clampTabs, hashPage } from './lib/tabs.js'
 import { useTheme, LOOKS, THEMES } from './theme/ThemeProvider.jsx'
 import { SettingsProvider, useSettings } from './settings/SettingsProvider.jsx'
 import { Icon } from './components/Icons.jsx'
@@ -144,7 +144,7 @@ function Workspace({ onSessionEnded }) {
   const [shellMode] = useShellMode()
   const desktop = shellMode === 'desktop'
   const wmApi = useWindowApi()
-  const [tabs, setTabs] = useState(() => [{ key: 'tab-1', id: location.hash.replace('#', '') || 'dashboard' }])
+  const [tabs, setTabs] = useState(() => [{ key: 'tab-1', id: hashPage() || 'dashboard' }])
   const [activeKey, setActiveKey] = useState('tab-1')
   const [collapsed, setCollapsed] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -269,7 +269,7 @@ function Workspace({ onSessionEnded }) {
   // working, a refresh gives you one tab of what you were looking at, and the
   // arrangement stays ephemeral the way an editor's does.
   useEffect(() => {
-    if (active && location.hash.replace('#', '') !== active) location.hash = active
+    if (active && hashPage() !== active) location.hash = active
   }, [active])
 
   // A hash that names the active page is the effect above writing it — the browser
@@ -280,7 +280,7 @@ function Workspace({ onSessionEnded }) {
   activeRef.current = active
   useEffect(() => {
     const onHash = () => {
-      const id = location.hash.replace('#', '') || 'dashboard'
+      const id = hashPage() || 'dashboard'
       if (id === activeRef.current) return
       openTab(id)
     }
@@ -376,6 +376,7 @@ function Workspace({ onSessionEnded }) {
         <div className="flex min-w-0 flex-1 flex-col">
           {topbar}
           {capped && <TabCapNotice max={capped.max} onDismiss={() => setCapped(null)} />}
+          {isAdmin && <DefaultSecretsNotice names={system?.defaultSecrets} />}
           <DesktopSurface nav={nav} onOpen={openTab} />
         </div>
         <PageWindows tabs={tabs} nav={nav} activeKey={activeKey} setActiveKey={setActiveKey} closeTab={closeTab}
@@ -492,6 +493,7 @@ function Workspace({ onSessionEnded }) {
         )}
 
         {capped && <TabCapNotice max={capped.max} onDismiss={() => setCapped(null)} />}
+        {isAdmin && <DefaultSecretsNotice names={system?.defaultSecrets} />}
         <main className="flex-1 overflow-auto p-5">
           {/* Every open tab stays mounted and is hidden rather than unmounted, so a
               page keeps its scroll position, its filters and its in-flight view.
@@ -566,6 +568,35 @@ export function TabCapNotice({ max, onDismiss }) {
       >
         ✕
       </button>
+    </div>
+  )
+}
+
+// DefaultSecretsNotice tells an administrator that .env still holds passwords anybody can read
+// in the repository (the server sends the names to administrators only — doctor.go). The app
+// cannot change them itself: they are the services' passwords, set in .env and read at start.
+// Dismissing hides it for this browser session; it is back on the next one until they change.
+export function DefaultSecretsNotice({ names }) {
+  const key = 'dbcanvas.defaultSecretsDismissed'
+  const sig = (names || []).join(',')
+  const [hidden, setHidden] = useState(() => {
+    try { return typeof sessionStorage !== 'undefined' && sessionStorage.getItem(key) === sig } catch { return false }
+  })
+  if (!names || names.length === 0 || hidden) return null
+  const dismiss = () => {
+    setHidden(true)
+    try { sessionStorage.setItem(key, sig) } catch { /* not kept */ }
+  }
+  return (
+    <div role="status" className="flex shrink-0 items-start gap-2 border-b border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
+      <span className="mt-px shrink-0"><Icon.StatusWarn size={14} /></span>
+      <span className="min-w-0">
+        {names.length} {names.length === 1 ? 'password is' : 'passwords are'} still at the value in <b>.env.example</b>,
+        which anybody can read: <span className="font-mono" title={names.join(', ')}>{names.length > 4 ? `${names.slice(0, 4).join(', ')} and ${names.length - 4} more` : names.join(', ')}</span>.
+        On the host, run <span className="font-mono">scripts/gen-secrets.sh .env</span>, then <span className="font-mono">make restart</span>.
+        Stacks deployed before keep their old passwords.
+      </span>
+      <button onClick={dismiss} title="Hide until the next session" className="ml-auto shrink-0 rounded px-1.5 hover:bg-warning/20">✕</button>
     </div>
   )
 }

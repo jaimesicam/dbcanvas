@@ -106,11 +106,14 @@ type SystemSettings struct {
 	// GuestExposedAck is an administrator's confirmation that guest sign-in may be on while
 	// the installation is reachable beyond this machine (exposure.go). Exposed and
 	// PublishHost say whether it is, read-only.
-	GuestExposedAck bool                 `json:"guestExposedAck"`
-	Exposed         bool                 `json:"exposed"`
-	PublishHost     string               `json:"publishHost"`
-	SSHForwarding   SSHForwardingSetting `json:"sshForwarding"`
-	Experimental    bool                 `json:"experimental"`
+	GuestExposedAck bool   `json:"guestExposedAck"`
+	Exposed         bool   `json:"exposed"`
+	PublishHost     string `json:"publishHost"`
+	// DefaultSecrets names the .env passwords still at their .env.example value (doctor.go),
+	// for administrators only: the web app shows a notice until they are changed.
+	DefaultSecrets []string             `json:"defaultSecrets,omitempty"`
+	SSHForwarding  SSHForwardingSetting `json:"sshForwarding"`
+	Experimental   bool                 `json:"experimental"`
 	// EOL is whether end-of-life releases are offered (EOL in .env; see eol.go). Derived and
 	// read-only like Experimental, and for the same reason it rides here: the designer needs it
 	// before it draws the node library and the Linux Client's OS picker.
@@ -252,7 +255,11 @@ func (a *App) handleGetSystemSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	writeJSON(w, http.StatusOK, a.systemSettings(u.Username))
+	s := a.systemSettings(u.Username)
+	if u.Role == RoleAdmin {
+		s.DefaultSecrets = defaultSecrets()
+	}
+	writeJSON(w, http.StatusOK, s)
 }
 
 // handleUpdateSystemSettings is admin-only (wired through requireAdmin in main.go).

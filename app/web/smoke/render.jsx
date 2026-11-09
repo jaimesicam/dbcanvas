@@ -66,8 +66,7 @@ import {
   podMenuEntries, POD_SHELLS, POD_CLIENTS,
   Spinner, NodeStatus, nodeConfiguring, configPhaseOf, PITRFields,
   FrameVaultFields, PgBouncerForm, PGHostAuthFields, PGStreamFrameForm, PaletteEntry, loadPalettePrefs,
-  KubeadmFrameForm, KubeadmMemberForm, PGQuerySourceField, PGSecurityOptions,
-} from '../src/pages/StackDesigner.jsx'
+  KubeadmFrameForm, KubeadmMemberForm, PGQuerySourceField, PGSecurityOptions, labelsText, parseLabels } from '../src/pages/StackDesigner.jsx'
 import { AIO_MENU, instanceKindLabel, addBlockedReason as aioAddBlocked } from '../src/lib/aioPorts.js'
 import PGStreamManager from '../src/pages/PGStreamManager.jsx'
 import PgBouncerManager from '../src/pages/PgBouncerManager.jsx'
@@ -83,9 +82,9 @@ import SessionPanel from '../src/components/SessionPanel.jsx'
 import { SessionContext, useFollowedState } from '../src/session/SessionProvider.jsx'
 import { Mark as DrawMark } from '../src/session/DrawLayer.jsx'
 import { guestURL } from '../src/lib/guest.js'
-import { openTab, closeTab, tabCounts, clampTabs, TABS_DEFAULT, TABS_MIN, TABS_MAX } from '../src/lib/tabs.js'
+import { openTab, closeTab, tabCounts, clampTabs, hashPage, hashSection, TABS_DEFAULT, TABS_MIN, TABS_MAX } from '../src/lib/tabs.js'
 import { mongoDownloadURL } from '../src/lib/stackApi.js'
-import { TabCount, TabCapNotice, NAV } from '../src/App.jsx'
+import { TabCount, TabCapNotice, DefaultSecretsNotice, NAV } from '../src/App.jsx'
 import { showEOL, showExperimental, visible, visibleGroups } from '../src/lib/experimental.js'
 import MySQLManager from '../src/pages/MySQLManager.jsx'
 import OidcLoginGuide from '../src/components/OidcLoginGuide.jsx'
@@ -4350,6 +4349,28 @@ check('tabs: clicking a page you already have focuses it rather than opening ano
   return 'focus, open, and three of the same'
 })
 
+check('stack labels: the editor\'s text round-trips, and a line without = is refused', () => {
+  const labels = { team: 'dba', purpose: 'demo, with a comma', 'a.b/c': '' }
+  const back = parseLabels(labelsText(labels))
+  if (JSON.stringify(back) !== JSON.stringify({ 'a.b/c': '', purpose: 'demo, with a comma', team: 'dba' })) throw new Error(JSON.stringify(back))
+  if (Object.keys(parseLabels('\n  \n')).length !== 0) throw new Error('blank text should clear the labels')
+  if (parseLabels(' team = dba ').team !== 'dba') throw new Error('spaces around = were kept')
+  let threw = false
+  try { parseLabels('team') } catch { threw = true }
+  if (!threw) throw new Error('a line without = was accepted')
+  return 'ok'
+})
+
+check('URL hash: the page routes, the section is the page\'s own', () => {
+  const cases = [['#settings', 'settings', ''], ['#settings/access', 'settings', 'access'], ['', '', ''],
+    ['#stack-designer', 'stack-designer', ''], ['#settings/a/b', 'settings', 'a/b']]
+  for (const [h, page, sec] of cases) {
+    if (hashPage(h) !== page || hashSection(h) !== sec) throw new Error(`${h}: ${hashPage(h)} / ${hashSection(h)}`)
+  }
+  if (hashPage() !== '' || hashSection() !== '') throw new Error('no location should read as no hash')
+  return 'ok'
+})
+
 check('tabs: the cap refuses rather than evicting, and says that it did', () => {
   // A tab can hold a running benchmark. Closing one to make room is not a
   // decision to make on someone's behalf, so a capped open changes nothing —
@@ -4387,6 +4408,18 @@ check('tabs: the cap refuses rather than evicting, and says that it did', () => 
   if (clampTabs(undefined) !== TABS_DEFAULT) throw new Error('a missing setting is not the default')
   if (clampTabs('') !== TABS_DEFAULT) throw new Error('an empty field is not the default')
   return `capped at ${TABS_DEFAULT} by default, ${TABS_MIN}-${TABS_MAX} by setting`
+})
+
+check('default passwords: administrators are told which and how to change them', () => {
+  const one = renderToString(<DefaultSecretsNotice names={['APP_PASSWORD']} />).replaceAll('<!-- -->', '')
+  if (!/1 password is still/.test(one) || !/APP_PASSWORD/.test(one)) throw new Error('one name: ' + one)
+  if (!/gen-secrets\.sh/.test(one) || !/make restart/.test(one)) throw new Error('the notice does not say how to fix it')
+  const many = renderToString(<DefaultSecretsNotice names={['A', 'B', 'C', 'D', 'E', 'F']} />).replaceAll('<!-- -->', '')
+  if (!/6 passwords are/.test(many) || !/and 2 more/.test(many)) throw new Error('many names: ' + many)
+  if (renderToString(<DefaultSecretsNotice names={[]} />) !== '' || renderToString(<DefaultSecretsNotice />) !== '') {
+    throw new Error('the notice shows with nothing to report')
+  }
+  return one
 })
 
 check('tabs: the window tells you when the cap refused a click', () => {

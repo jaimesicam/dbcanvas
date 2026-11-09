@@ -1662,6 +1662,77 @@ function expiresIn(iso) {
 // ExpiryChip is the stack's lifetime in the canvas header: its TTL and how long is left, amber in
 // the last hour and red in the last quarter of it, and a menu to push the end out — so a lab in
 // use is extended from where it is being used, not torn down under somebody.
+// labelsText and parseLabels turn a stack's labels into the editor's text — one key=value a
+// line — and back. The server checks the keys and values (app/stacklabels.go); this only
+// splits the lines, so its message is the one shown.
+export function labelsText(labels) {
+  return Object.keys(labels || {}).sort().map((k) => `${k}=${labels[k]}`).join('\n')
+}
+
+export function parseLabels(text) {
+  const out = {}
+  for (const raw of text.split('\n')) {
+    const line = raw.trim()
+    if (!line) continue
+    const i = line.indexOf('=')
+    if (i <= 0) throw new Error(`"${line}": write key=value`)
+    out[line.slice(0, i).trim()] = line.slice(i + 1).trim()
+  }
+  return out
+}
+
+// StackLabels shows a stack's labels, sorted, and edits them in place: the same labels the CLI
+// sets with `stack label` and filters on with --label.
+function StackLabels({ stack, onSaved }) {
+  const [open, setOpen] = useState(false)
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const ref = useRef(null)
+  useEffect(() => {
+    if (!open) return undefined
+    const away = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    addEventListener('pointerdown', away)
+    return () => removeEventListener('pointerdown', away)
+  }, [open])
+  const labels = stack.labels || {}
+  const keys = Object.keys(labels).sort()
+  const start = () => { setText(labelsText(labels)); setErr(''); setOpen(true) }
+  const save = async () => {
+    setErr('')
+    let next
+    try { next = parseLabels(text) } catch (e) { setErr(e.message); return }
+    setBusy(true)
+    try { await stackApi.setLabels(stack.id, next); setOpen(false); onSaved() } catch (e) { setErr(e.message) } finally { setBusy(false) }
+  }
+  return (
+    <span ref={ref} className="relative mt-1 flex flex-wrap items-center gap-1">
+      {keys.map((k) => (
+        <span key={k} className="rounded border bg-surface2 px-1.5 py-px font-mono text-[10px] text-muted">{k}={labels[k]}</span>
+      ))}
+      <button type="button" onClick={() => (open ? setOpen(false) : start())} aria-expanded={open}
+        title={keys.length ? 'Edit labels' : 'Add labels'} aria-label={keys.length ? `Edit labels of ${stack.name}` : `Add labels to ${stack.name}`}
+        className="inline-flex items-center gap-0.5 rounded px-1 py-px text-[10px] text-muted hover:bg-surface2 hover:text-fg">
+        <Icon.Pencil size={11} />{keys.length ? '' : 'labels'}
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-30 mt-1 w-72 space-y-2 rounded-lg border bg-surface p-2 text-xs shadow-xl">
+          <div className="text-muted">One <span className="font-mono">key=value</span> a line. Empty removes them all.</div>
+          <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} autoFocus spellCheck={false}
+            aria-label="Labels" placeholder={'team=dba\npurpose=demo'}
+            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) save(); if (e.key === 'Escape') setOpen(false) }}
+            className={`${inputCls} w-full font-mono text-xs`} />
+          {err && <div className="text-danger">{err}</div>}
+          <div className="flex justify-end gap-1">
+            <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button size="sm" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</Button>
+          </div>
+        </div>
+      )}
+    </span>
+  )
+}
+
 function ExpiryChip({ stack, onExtended }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -1923,14 +1994,7 @@ function StackTable({ stacks, isAdmin, me, onOpen, onChanged }) {
                       <span className="block font-semibold text-fg hover:text-primary">{s.name}</span>
                       <span className="block text-xs text-muted">{ttlLabel(s.ttl)} lifetime</span>
                     </button>
-                    {s.labels && Object.keys(s.labels).length > 0 && (
-                      // Labels (app/stacklabels.go): set from the API or the CLI, shown sorted.
-                      <span className="mt-1 flex flex-wrap gap-1">
-                        {Object.keys(s.labels).sort().map((k) => (
-                          <span key={k} className="rounded border bg-surface2 px-1.5 py-px font-mono text-[10px] text-muted">{k}={s.labels[k]}</span>
-                        ))}
-                      </span>
-                    )}
+                    <StackLabels stack={s} onSaved={onChanged} />
                   </td>
                   {showOwner && (
                     <td className="px-3 py-2">

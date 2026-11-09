@@ -84,7 +84,7 @@ icon. (Prefer a sidebar and tabs? Open **Appearance**, the sun icon at the top r
   deployment, the node library, tabs, Scratchboard), **Access & security** (registration, guest
   sign-in, shared sessions, token lifetime, security groups and their limits) and **System**
   (uploads, writes to internal databases, stack history and alerts). The last two are mostly for
-  administrators.
+  administrators. A link can open one: `#settings/access`.
 
 ## Your first stack
 

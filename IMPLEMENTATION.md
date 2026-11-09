@@ -30105,3 +30105,33 @@ guest sign-in, shared sessions, API token lifetime, and for administrators the s
 their limits) and **System** (node file uploads, writes to internal databases, stack history and
 alerts). Each panel keeps its title, so every "Settings → <panel>" reference still finds it. The
 chosen tab is remembered in the browser (local storage, best effort).
+
+## 540. A link to a Settings tab — `app/web/src/lib/tabs.js`, `app/web/src/App.jsx`, `app/web/src/pages/Settings.jsx`
+
+The URL hash may now be `<page>/<section>`. `hashPage` and `hashSection` (lib/tabs.js) split it;
+the shell routes on the page alone, so `#settings/access` opens Settings and never names a page
+that does not exist. Settings opens on the tab the URL names, else the one last used in this
+browser, else Appearance. Choosing a tab rewrites the hash with `history.replaceState`, which fires
+no `hashchange`: the shell does not see it as navigation and the back button is not filled with
+tab clicks. A link followed while Settings is open switches its tab. A smoke check covers the
+split, including a render with no `location`.
+
+## 541. Editing stack labels in the web UI — `app/web/src/pages/StackDesigner.jsx`, `app/web/src/lib/stackApi.js`
+
+The stack list showed labels but could not change them. A pencil beside them (or "labels" on a
+stack with none) opens an editor: one `key=value` a line, Save with the button or Ctrl/Cmd+Enter,
+empty text removes them all. It calls `PUT /api/stacks/{id}/labels`, so the server's validation and
+its message apply, and the change goes out on the stack event stream as `labels`. Lines split on
+new lines only, since a value may hold a comma. `labelsText` and `parseLabels` are exported for a
+smoke check.
+
+## 542. A notice for example passwords still in `.env` — `app/syssettings.go`, `app/web/src/App.jsx`
+
+`doctor` listed the `.env` passwords still at their `.env.example` value, but only for whoever ran
+it. `GET /api/system/settings` now carries `defaultSecrets`, the names, for administrators only (a
+regular account is told nothing about the installation's secrets). The web shell shows
+administrators a warning strip above every page, in both the classic and the desktop layout,
+naming them and giving the fix: `scripts/gen-secrets.sh .env`, then `make restart`. The app cannot
+change them itself, since they are the services' own passwords, read from `.env` at start.
+Dismissing it hides it for the browser session; it returns on the next one while any remain. A Go
+test covers the admin-only field and a smoke check covers the notice.

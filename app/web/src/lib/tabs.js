@@ -69,3 +69,17 @@ export function tabCounts(tabs) {
   for (const t of tabs) out[t.id] = (out[t.id] || 0) + 1
   return out
 }
+
+const currentHash = () => (typeof location === 'undefined' ? '' : location.hash)
+
+// The URL hash is "<page>" or "<page>/<section>": the page picks the open tab, and the section
+// is the page's own to read (Settings opens on one of its tabs with #settings/access). Routing
+// looks at the page only, so a section never names a page that does not exist.
+export function hashPage(hash = currentHash()) {
+  return hash.replace(/^#/, '').split('/')[0]
+}
+
+export function hashSection(hash = currentHash()) {
+  const [, ...rest] = hash.replace(/^#/, '').split('/')
+  return rest.join('/')
+}

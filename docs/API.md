@@ -217,6 +217,8 @@ route takes the stack's id, which never changes.
   to 128 characters. A stack carries at most 32 labels.
 - **CLI:** `stack compose|create --label k=v`, `stack list --label k=v`, `stack label <stack>
   k=v k-`, and `stack destroy|delete --label k=v` for every match.
+- **Web:** the stack list shows each stack's labels under its name. The pencil beside them edits
+  them, one `key=value` a line.
 
 **Events.** `GET /api/stacks/events` is a server-sent event stream of your stacks' lifecycle:
 `created`, `deploying`, `destroyed`, `deleted` (with `reason` and `by`), `expired`, `extended` and

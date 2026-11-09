@@ -64,6 +64,14 @@ new actions. A stack that already exists is not torn down when a limit tightens.
 format. `dbcanvas-cli version --verify` checks the binary you are running against that list, and
 `dbcanvas-cli version` warns when the CLI and the server are different releases.
 
+## Service passwords
+
+The passwords in `.env` (the database, proxy, PMM and directory accounts every stack is built
+with) start at random values on a new installation. An older `.env` may still hold the ones in
+`.env.example`, which anybody can read. Administrators then see a notice naming them on every
+page. Run `scripts/gen-secrets.sh .env` and `make restart` on the host to replace them. Stacks
+deployed before keep their old passwords.
+
 ## Secrets at rest
 
 Passwords and stack secrets in the database are encrypted with a key kept on its own volume

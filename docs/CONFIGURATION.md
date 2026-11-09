@@ -17,7 +17,7 @@ the app, and fixes for common problems.
 | `make up` / `make down` | Start / stop the app without rebuilding. |
 | `make restart` | `make down`, then `make compose`. |
 | `make build` | Build the app image only. |
-| `make env` | Create `.env` from `.env.example` if it is missing, with a random value for every password (`scripts/gen-secrets.sh`). Run by `compose`, `build` and `up`. An existing `.env` is never changed; `bash scripts/gen-secrets.sh .env` replaces the passwords still at their example value. |
+| `make env` | Create `.env` from `.env.example` if it is missing, with a random value for every password (`scripts/gen-secrets.sh`). Run by `compose`, `build` and `up`. An existing `.env` is never changed; `bash scripts/gen-secrets.sh .env` replaces the passwords still at their example value. While any is, administrators see a notice naming them on every page, and `dbcanvas-cli doctor` lists them. |
 | `make install-pull` | A first install from prebuilt node images: `make env`, `make pull-images`, `make compose`. Minutes instead of `make images`' hour. |
 | `make pull-images` | Pull this release's node images (the OS bases and the Intranet, VNC, K3D collector and Kubeadm images) from `IMAGE_REGISTRY` (default `ghcr.io/jaimesicam`) and write `images.yaml`. `ONLY=<regex>` pulls a subset. |
 | `make publish-images` | Push this release's locally built node images to `IMAGE_REGISTRY`. This publishes them. |

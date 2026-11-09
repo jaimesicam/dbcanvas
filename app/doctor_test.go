@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -68,5 +70,31 @@ func TestRegistryMatrixMatchesBuild(t *testing.T) {
 	build, reg := read("../images/build.sh"), read("../scripts/registry.sh")
 	if len(build) == 0 || strings.Join(build, " ") != strings.Join(reg, " ") {
 		t.Fatalf("build.sh %v\nregistry.sh %v", build, reg)
+	}
+}
+
+// Administrators are told, on every page, which .env passwords are still the example ones; other
+// accounts are not told anything about the installation's secrets.
+func TestSystemSettingsNameDefaultSecretsToAdminsOnly(t *testing.T) {
+	app := newTestApp(t)
+	for k := range exampleSecrets {
+		t.Setenv(k, "changed-"+k)
+	}
+	t.Setenv("APP_PASSWORD", exampleSecrets["APP_PASSWORD"])
+	admin, _ := app.store.CreateUser("boss", "x", RoleAdmin, StatusApproved)
+	user, _ := app.store.CreateUser("plain", "x", RoleUser, StatusApproved)
+	get := func(u User) SystemSettings {
+		r, _ := signedIn(t, app, u, "")
+		w := httptest.NewRecorder()
+		app.handleGetSystemSettings(w, r)
+		var s SystemSettings
+		json.Unmarshal(w.Body.Bytes(), &s)
+		return s
+	}
+	if got := get(admin).DefaultSecrets; len(got) != 1 || got[0] != "APP_PASSWORD" {
+		t.Errorf("admin: %v", got)
+	}
+	if got := get(user).DefaultSecrets; got != nil {
+		t.Errorf("a regular account was told %v", got)
 	}
 }
