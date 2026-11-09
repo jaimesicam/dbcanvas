@@ -71,7 +71,7 @@ jobs:
           for p in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
             os="${p%/*}"; arch="${p#*/}"; out="../dist/dbcanvas-cli_${os}_${arch}"
             [ "$os" = windows ] && out="$out.exe"
-            GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -trimpath \
+            GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -trimpath -buildvcs=false \
               -ldflags="-s -w -X main.version=${VERSION}" -o "$out" .
           done
           cd ../dist && sha256sum dbcanvas-cli_* >dbcanvas-cli_checksums.txt && cat dbcanvas-cli_checksums.txt
@@ -98,7 +98,7 @@ jobs:
 
       - name: keep the files (run by hand)
         if: env.PUBLISH != 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: dbcanvas-cli-${{ env.TAG || format('{0}-test', github.ref_name) }}
           path: dist/

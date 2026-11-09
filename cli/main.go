@@ -467,7 +467,7 @@ func verifyAgainstRelease(url string) error {
 	}
 	if got != want {
 		return fmt.Errorf("%s does not match the %s on release v%s (sha256 %s, release %s) — "+
-			"it was built elsewhere (a server's app image may use another Go patch release) or changed since", exe, name, strings.TrimPrefix(version, "v"), got, want)
+			"it was built from other source, with another Go release, or changed since", exe, name, strings.TrimPrefix(version, "v"), got, want)
 	}
 	fmt.Printf("%s matches the %s on GitHub release v%s (sha256 %s).\n", exe, name, strings.TrimPrefix(version, "v"), got)
 	fmt.Printf("To check the list's signature: download dbcanvas-cli_checksums.txt and its .sigstore.json from the release, then run cosign verify-blob (see docs/SECURITY.md).\n")

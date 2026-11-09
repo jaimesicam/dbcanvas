@@ -185,7 +185,7 @@ cli:
 	  os=$${p%/*}; arch=$${p#*/}; out=dist/dbcanvas-cli_$${os}_$${arch}; \
 	  if [ "$$os" = "windows" ]; then out=$$out.exe; fi; \
 	  echo "  $$os/$$arch → $$out"; \
-	  ( cd cli && GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 go build -trimpath \
+	  ( cd cli && GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 go build -trimpath -buildvcs=false \
 	      -ldflags="-s -w -X main.version=$(VERSION)" -o ../$$out . ) || exit 1; \
 	done
 	@cd dist && (command -v sha256sum >/dev/null && sha256sum dbcanvas-cli_* > SHA256SUMS \

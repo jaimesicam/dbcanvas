@@ -1463,3 +1463,31 @@ func TestVerifyAgainstRelease(t *testing.T) {
 		t.Errorf("url: %s", u)
 	}
 }
+
+// The app image builds the CLI a server offers with exactly go.mod's Go, as the release workflow
+// does, so the two builds are byte for byte the same and --verify --release holds for both.
+func TestImageBuildsCLIWithGoModToolchain(t *testing.T) {
+	mod, err := os.ReadFile("go.mod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := ""
+	for _, l := range strings.Split(string(mod), "\n") {
+		if v, ok := strings.CutPrefix(l, "go "); ok {
+			want = strings.TrimSpace(v)
+		}
+	}
+	df, err := os.ReadFile(filepath.Join("..", "app", "Dockerfile"))
+	if err != nil {
+		t.Skipf("no app/Dockerfile beside the CLI: %v", err)
+	}
+	if !strings.Contains(string(df), "FROM golang:"+want+"-alpine AS cli\n") {
+		t.Errorf("app/Dockerfile's cli stage is not FROM golang:%s-alpine (go.mod's version)", want)
+	} // A build inside a git checkout stamps the commit and a "modified" flag; the image has no .git.
+	for _, f := range []string{filepath.Join("..", "app", "Dockerfile"), filepath.Join("..", ".github", "workflows", "release.yml"), filepath.Join("..", "Makefile")} {
+		b, err := os.ReadFile(f)
+		if err == nil && !strings.Contains(string(b), "-trimpath -buildvcs=false") {
+			t.Errorf("%s builds the CLI without -buildvcs=false", f)
+		}
+	}
+}

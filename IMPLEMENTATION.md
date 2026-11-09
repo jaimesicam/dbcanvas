@@ -30157,3 +30157,11 @@ release without a list. The signature itself is checked with `cosign verify-blob
 docs/SECURITY.md. The CLI does not carry a Sigstore verifier. `selfSHA256`, `checksumFor` and
 `cliFileName` are shared with the server check. A test covers the five outcomes against a fake
 release server.
+
+The builds are reproducible. The release workflow, the app image's cli stage and `make cli` use the
+same Go release (exactly `cli/go.mod`'s, now 1.26.10; the image is pinned to `golang:1.26.10-alpine`)
+and the same flags, now including `-buildvcs=false`. Without it, a build inside a git checkout
+stamps the commit and a "modified" flag, which the image, having no `.git`, does not. A local build
+and the image's build of the same source were compared and match byte for byte, so a server's CLI
+passes `--verify --release` against its release. `TestImageBuildsCLIWithGoModToolchain` keeps the
+Go version and the flag in step across the three.

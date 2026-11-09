@@ -55,7 +55,11 @@ RUN sh /usr/local/bin/go-third-party-licenses.sh "DBCanvas server and dbcanvas_r
 #
 # Keep the list in step with cliPlatforms in app/clidownload.go and CLI_PLATFORMS in
 # the Makefile.
-FROM golang:1.26-alpine AS cli
+#
+# The Go version is exact and equal to cli/go.mod's: the release workflow builds from go.mod, and the
+# same toolchain and flags give the same bytes, so the CLI a server offers matches the signed one
+# on its GitHub release (`dbcanvas-cli version --verify --release`). cli/cli_test.go checks this.
+FROM golang:1.26.10-alpine AS cli
 WORKDIR /src
 ARG APP_VERSION=dev
 COPY cli/go.mod cli/go.sum ./
@@ -65,7 +69,7 @@ RUN set -eu; mkdir -p /out; \
     for p in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do \
       os="${p%/*}"; arch="${p#*/}"; out="/out/dbcanvas-cli_${os}_${arch}"; \
       [ "$os" = windows ] && out="$out.exe"; \
-      GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -trimpath \
+      GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -trimpath -buildvcs=false \
         -ldflags="-s -w -X main.version=${APP_VERSION}" -o "$out" .; \
     done
 COPY app/scripts/go-third-party-licenses.sh /usr/local/bin/

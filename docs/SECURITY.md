@@ -83,8 +83,9 @@ cosign verify-blob dbcanvas-cli_linux_amd64 \
 
 `dbcanvas-cli version --verify --release` compares the running binary with the checksum list on its
 version's release. It compares digests over HTTPS and does not check the signature; cosign does.
-A server's app image builds its own copy of the CLI with the same flags, which matches the release
-only when it used the same Go patch release.
+A server's app image builds its own copy of the CLI with the same Go release and flags, so a server
+built from a release's source offers exactly the release's binaries, and the check holds for them
+too.
 
 ## Service passwords
 
