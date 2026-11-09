@@ -278,10 +278,34 @@ Each member's panel shows *Standby leader* or *Replica* and the cluster it follo
 
 | Type | What you get |
 | --- | --- |
-| **ProxySQL** / **ProxySQL Cluster** | ProxySQL in front of a PXC, Percona Server replication or MySQL replication cluster. A cluster frame (1–9 nodes) shares one configuration. |
+| **ProxySQL** / **ProxySQL Cluster** | ProxySQL in front of a PXC, Percona Server replication or MySQL replication cluster. A cluster frame (1–9 nodes) shares one configuration. **ProxySQL source** picks Percona's or the upstream package (see below). |
 | **HAProxy** | TCP load balancer in front of exactly one Patroni, repmgr, PostgreSQL Replication, Spock, PXC, Percona Server replication or MySQL replication cluster. Writes on 5000, reads on 5001, stats on 7000. **Package source** picks where HAProxy comes from (see below). |
 | **PgBouncer** | Connection pooler on 6432 in front of one PostgreSQL node or cluster. See [PgBouncer](#pool-postgresql-connections-with-pgbouncer). |
 | **Orchestrator** | Percona Orchestrator: topology discovery and failure detection for MySQL replication. A replication frame points at it with **Monitored by (Orchestrator)**. |
+
+#### ProxySQL source
+
+| Source | Package | PXC backend configured by | Notes |
+| --- | --- | --- | --- |
+| Percona (default) | `proxysql2` / `proxysql3` from the percona-release `proxysql` repository | the `proxysql-admin` the package bundles | |
+| Upstream + proxysql-admin | `proxysql` from repo.proxysql.com | `proxysql-admin` installed from a [percona/proxysql-admin-tool](https://github.com/percona/proxysql-admin-tool) release (v2.7.3 for 2.x, v3.0.6 for 3.x) | No PXC 9.x: no released `proxysql-admin` reads that client |
+| Upstream, native configuration | `proxysql` from repo.proxysql.com | ProxySQL's own Galera support (`mysql_galera_hostgroups`), over the admin interface | No client-version limit |
+
+The upstream repository has every release: 2.4.2 to 2.7.4 and 3.0.1 to 3.0.12 on Oracle Linux 9
+(3.0 only on Oracle Linux 10; 2.6.4 and later on Ubuntu 24.04). Both upstream options set up the same
+host groups and rules as `proxysql-admin`: writer 10, reader 11, backup writer 12, offline 13. In
+`singlewrite` there is one writer, its backups also take reads, and the app user's `SELECT`s go to the
+readers. In `loadbal` every member is a writer. A MySQL replication backend is configured the same way
+for all three sources. The running node shows where its package came from. In compose:
+`--node 'proxysql,os=el9,source=upstream-native,version=3.0.12'`.
+
+**PostgreSQL behind ProxySQL.** Upstream ProxySQL 3 also fronts PostgreSQL: link one PostgreSQL node
+or Patroni, repmgr, PostgreSQL Replication or Spock cluster directly to a standalone ProxySQL node
+(not a ProxySQL Cluster). Clients connect on 6133 with the PostgreSQL superuser; the admin interface
+answers PostgreSQL on 6132 as well as MySQL on 6032. ProxySQL's monitor sorts the members with
+`pg_is_in_recovery()` into writer group 10 and reader group 20, so a switchover or failover moves
+them. **Implementation mode** is `rwsplit` (plain `SELECT`s to the readers, `SELECT … FOR
+UPDATE/SHARE` and everything else to the primary) or `primary`.
 
 #### HAProxy package source
 

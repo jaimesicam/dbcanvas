@@ -252,7 +252,12 @@ The HAProxy needed no `to=` — one legal backend, so compose used it and said s
 plan. Its package comes from the OS repository unless `source=` says otherwise: `percona`
 (percona-haproxy, the 2.8 line) or `pgdg` (PGDG's extras repository, 2.7 to 3.x, Oracle Linux
 only). `version=` then takes a build (`2.8.16`) or a branch (`3.2`, its newest build), checked
-against `GET /api/catalog/haproxy?source=…`. The pgvector Support Sim needed one, because using the cluster directly and using
+against `GET /api/catalog/haproxy?source=…`. A `proxysql` entry takes `source=` too: `percona`
+(default), `upstream-admin` (repo.proxysql.com with proxysql-admin from a Percona release tag; no
+PXC 9.x) or `upstream-native` (repo.proxysql.com, configured with ProxySQL's own Galera host
+groups); `version=` then resolves against that source's builds. Upstream ProxySQL 3 also fronts
+PostgreSQL: `--node 'patroni:3,os=el9' --node 'proxysql,os=el9,source=upstream-native,version=3.0'`
+gives clients port 6133 and routes by `pg_is_in_recovery()`. The pgvector Support Sim needed one, because using the cluster directly and using
 it through the proxy are different tests and it will not guess. `dbcanvas-cli stack kinds`
 prints each kind's legal targets in the LINKS TO column.
 

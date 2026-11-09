@@ -345,6 +345,7 @@ var catalogMySQLFamily = []catalogEntry{
 			[]catalogOption{
 				{Field: "os", Default: "oraclelinux", Values: []string{"oraclelinux", "ubuntu"}, Desc: "OS family of the image, from GET /api/catalog/proxysql. Locked once deployed.", When: "standalone (a member takes the frame's)"},
 				{Field: "osVersion", Default: "9", Desc: "OS release of the image (e.g. \"9\"), as GET /api/catalog/proxysql lists it. Locked once deployed.", When: "standalone"},
+				{Field: "proxysqlSource", Values: []string{"", "upstream-admin", "upstream-native"}, Default: "", Desc: "Where ProxySQL comes from: \"\" Percona's proxysql2/proxysql3, configured for PXC with its bundled proxysql-admin; \"upstream-admin\" ProxySQL's own package from repo.proxysql.com, with proxysql-admin installed from a percona/proxysql-admin-tool release tag (v2.7.3 or v3.0.6; no PXC 9.x); \"upstream-native\" ProxySQL's own package, configured for PXC natively with mysql_galera_hostgroups. A MySQL replication backend is configured over the admin interface for all three. Versions per source from GET /api/catalog/proxysql?source=…; changing the source clears proxysqlVersion. Locked once deployed.", When: "standalone"},
 				{Field: "proxysqlMajor", Default: "2", Values: []string{"2", "3"}, Desc: "ProxySQL series (proxysql2 or proxysql3), from GET /api/catalog/proxysql for the chosen image. Locked once deployed.", When: "standalone"},
 				{Field: "proxysqlVersion", Desc: "Exact ProxySQL package version (e.g. \"2.7.1-1\"); \"\" is the newest of the series. A backend on 8.4 or 9.x needs 2.6 or later; a PXC backend may need a newer proxysql-admin. Locked once deployed.", When: "standalone"},
 				{Field: "mode", Default: "singlewrite", Values: []string{"singlewrite", "loadbal", "rwsplit", "primary"}, Desc: "Routing. With a PXC backend, proxysql-admin's MODE: \"singlewrite\" (one writer) or \"loadbal\" (all members). With a Percona Server or MySQL Community replication backend: \"rwsplit\" (writes to the primary, reads to replicas) or \"primary\" (everything to the primary); the designer snaps the value to the backend's first mode. Locked once deployed.", When: "standalone"},
@@ -358,6 +359,8 @@ var catalogMySQLFamily = []catalogEntry{
 		Edges: []catalogEdge{
 			{To: []string{"pxc", "mysql", "mysqlcerepl"}, Type: "directional", Required: true,
 				Desc: "The backend cluster frame, stored from the frame to this node. A standalone ProxySQL takes one incoming line. A member uses its frame's line instead."},
+			{To: []string{"pg", "patroni", "repmgr", "pgstream", "spock"}, Type: "directional",
+				Desc: "A PostgreSQL backend, stored from it to this node: one PostgreSQL node or Patroni, repmgr, streaming replication or Spock cluster, linked directly. Upstream ProxySQL 3 only (proxysqlSource upstream-admin or upstream-native); clients connect on 6133, and mode is rwsplit or primary."},
 			{To: []string{"proxysql"}, Type: "directional",
 				Desc: "Chain to another standalone ProxySQL node; the backend is found by walking the lines undirected."},
 			{To: []string{"stocksim", "ledgersim", "perfsim"}, Type: "directional",
@@ -575,6 +578,7 @@ var catalogMySQLFamily = []catalogEntry{
 		Options: []catalogOption{
 			{Field: "os", Default: "oraclelinux", Values: []string{"oraclelinux", "ubuntu"}, Desc: "OS family of the image, from GET /api/catalog/proxysql. Locked once deployed."},
 			{Field: "osVersion", Default: "9", Desc: "OS release of the image (e.g. \"9\"), as GET /api/catalog/proxysql lists it. Locked once deployed."},
+			{Field: "proxysqlSource", Values: []string{"", "upstream-admin", "upstream-native"}, Default: "", Desc: "Where ProxySQL comes from: \"\" Percona's proxysql2/proxysql3, configured for PXC with its bundled proxysql-admin; \"upstream-admin\" ProxySQL's own package from repo.proxysql.com, with proxysql-admin installed from a percona/proxysql-admin-tool release tag (v2.7.3 or v3.0.6; no PXC 9.x); \"upstream-native\" ProxySQL's own package, configured for PXC natively with mysql_galera_hostgroups. A MySQL replication backend is configured over the admin interface for all three. Versions per source from GET /api/catalog/proxysql?source=…; changing the source clears proxysqlVersion. Locked once deployed."},
 			{Field: "proxysqlMajor", Default: "2", Values: []string{"2", "3"}, Desc: "ProxySQL series (proxysql2 or proxysql3), from GET /api/catalog/proxysql for the chosen image. Locked once deployed."},
 			{Field: "proxysqlVersion", Desc: "Exact ProxySQL package version (e.g. \"2.7.1-1\"); \"\" is the newest of the series. A backend on 8.4 or 9.x needs 2.6 or later. Locked once deployed."},
 			{Field: "mode", Default: "singlewrite", Values: []string{"singlewrite", "loadbal", "rwsplit", "primary"}, Desc: "Routing. PXC backend: \"singlewrite\" or \"loadbal\" (proxysql-admin MODE). Percona Server or MySQL Community replication backend: \"rwsplit\" or \"primary\". Locked once deployed."},

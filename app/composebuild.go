@@ -469,6 +469,14 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 		if major, minor, err = resolveHAProxyVersion(s.Source, os_, osVer, arch, s.Version); err != nil {
 			return fmt.Errorf("%s: %w", kind.Kind, err)
 		}
+	case kind.Kind == "proxysql":
+		src, serr := composeProxySQLSource(s.Source)
+		if serr != nil {
+			return fmt.Errorf("%s: %w", kind.Kind, serr)
+		}
+		if major, minor, err = resolveCatalogVersion(proxysqlCatalogFor(src), os_, osVer, arch, s.Version); err != nil {
+			return fmt.Errorf("%s: %w", kind.Kind, err)
+		}
 	case kind.Catalog != "":
 		if major, minor, err = resolveCatalogVersion(
 			composeCatalog(kind.Catalog), os_, osVer, arch, s.Version); err != nil {
@@ -654,6 +662,8 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 			n.PgbAuthQuery = true
 		case "haproxy":
 			n.HAProxySource, n.HAProxyVersion = composeHAProxySource(s.Source), minor
+		case "proxysql":
+			n.ProxySQLSource, _ = composeProxySQLSource(s.Source)
 		case "intranet":
 			// Always the first thing on the canvas, where the eye starts.
 			b.pos[n.ID] = [2]float64{composeColX, composeColX}

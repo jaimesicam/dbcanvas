@@ -46,10 +46,10 @@ func TestProxiesFrontMySQLCommunity(t *testing.T) {
 
 	// A 9.7 backend has no mysql_native_password, so a ProxySQL older than 2.6 is refused —
 	// which needs the community series to reach the check.
-	if got := proxysqlBackendIssues(doc, "ProxySQL node proxysql-01", "psql", "2", "2.5.5"); len(got) != 1 {
+	if got := proxysqlBackendIssues(doc, "ProxySQL node proxysql-01", "psql", "2", "2.5.5", ""); len(got) != 1 {
 		t.Errorf("ProxySQL 2.5 in front of MySQL 9.7: %v", got)
 	}
-	if got := proxysqlBackendIssues(doc, "ProxySQL node proxysql-01", "psql", "2", ""); len(got) != 0 {
+	if got := proxysqlBackendIssues(doc, "ProxySQL node proxysql-01", "psql", "2", "", ""); len(got) != 0 {
 		t.Errorf("newest ProxySQL in front of MySQL 9.7: %v", got)
 	}
 }

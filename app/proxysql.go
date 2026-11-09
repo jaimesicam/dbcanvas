@@ -35,14 +35,17 @@ type proxysqlConfig struct {
 	ProxySQLVersion string `json:"proxysqlVersion"` // selected minor (display)
 	Hostname        string `json:"hostname"`
 	FQDN            string `json:"fqdn"`
-	Mode            string `json:"mode"`            // PXC: singlewrite|loadbal · MySQL: primary|rwsplit
-	BackendKind     string `json:"backendKind"`     // "pxc" | "mysql"
-	ProxySQLCluster string `json:"proxysqlCluster"` // ProxySQL cluster frame name (members only)
-	Cluster         string `json:"cluster"`         // associated PXC cluster name
-	ClusterHost     string `json:"clusterHost"`     // CLUSTER_HOSTNAME (a PXC FQDN)
-	MonitoredBy     string `json:"monitoredBy"`     // PMM node FQDN, if any
-	AdminPort       int    `json:"adminPort"`       // host port mapped to 6032 (0 = not published)
-	MySQLPort       int    `json:"mysqlPort"`       // host port mapped to 6033 (0 = not published)
+	Mode            string `json:"mode"`             // PXC: singlewrite|loadbal · MySQL: primary|rwsplit
+	BackendKind     string `json:"backendKind"`      // "pxc" | "mysql"
+	ProxySQLCluster string `json:"proxysqlCluster"`  // ProxySQL cluster frame name (members only)
+	Cluster         string `json:"cluster"`          // associated PXC cluster name
+	ClusterHost     string `json:"clusterHost"`      // CLUSTER_HOSTNAME (a PXC FQDN)
+	MonitoredBy     string `json:"monitoredBy"`      // PMM node FQDN, if any
+	Source          string `json:"source,omitempty"` // "" Percona | "upstream-admin" | "upstream-native" (proxysqlsource.go)
+	Repo            string `json:"repo,omitempty"`   // where the package came from, for the panel
+	AdminPort       int    `json:"adminPort"`        // host port mapped to 6032 (0 = not published)
+	MySQLPort       int    `json:"mysqlPort"`        // host port mapped to 6033 (0 = not published)
+	PGPort          int    `json:"pgPort,omitempty"` // host port mapped to 6133, a PostgreSQL backend\'s client port
 	Ports           []int  `json:"ports"`
 }
 
@@ -159,6 +162,7 @@ type proxysqlPlan struct {
 	OS, OSVersion    string
 	Arch             string
 	Major, Version   string
+	Source           string // proxysqlsource.go
 	Mode             string
 	UseProxy         bool
 	RepositoryNodeID string
@@ -176,7 +180,7 @@ func (a *App) provisionProxySQL(st Stack, n designNode, doc designDoc) {
 	a.provisionProxySQLInstance(st, doc, proxysqlPlan{
 		NodeID: n.ID, Label: n.Label, AssocID: n.ID,
 		OS: n.OS, OSVersion: n.OSVersion, Arch: n.Arch,
-		Major: proxysqlMajorOf(n.ProxySQLMajor), Version: n.ProxySQLVersion,
+		Major: proxysqlMajorOf(n.ProxySQLMajor), Version: n.ProxySQLVersion, Source: n.ProxySQLSource,
 		Mode: n.Mode, UseProxy: n.UseProxy, RepositoryNodeID: n.RepositoryNodeID, PMMNodeID: n.PMMNodeID,
 		ExportEnabled: n.ExportEnabled, ExportHostPort: n.ExportHostPort,
 		Limits: n.limits(),
@@ -229,7 +233,9 @@ func (a *App) provisionProxySQLFrame(st Stack, frame designFrame, doc designDoc)
 			Major: proxysqlMajorOf(frame.ProxySQLMajor), ProxySQLVersion: frame.ProxySQLVersion,
 			Hostname: host, FQDN: fqdnOf(host, domain), Mode: proxysqlMode(frame.Mode),
 			ProxySQLCluster: frame.Label, MonitoredBy: monitoredBy,
-			Ports: []int{proxysqlAdminPort, proxysqlMySQLPort},
+			Ports:  []int{proxysqlAdminPort, proxysqlMySQLPort},
+			Source: frame.ProxySQLSource,
+			Repo:   proxysqlRepoName(frame.ProxySQLSource, frame.OS, frame.OSVersion, frame.Arch, frame.ProxySQLMajor, frame.ProxySQLVersion),
 		}
 		cfgJSON, _ := json.Marshal(cfg)
 		secJSON, _ := json.Marshal(sec)
@@ -356,6 +362,18 @@ func (a *App) provisionProxySQLFrame(st Stack, frame designFrame, doc designDoc)
 				progs[primary.ID].fail("app user authentication for ProxySQL: %v", err)
 				return
 			}
+		} else if proxysqlPXCNative(frame.ProxySQLSource) {
+			progs[primary.ID].phase("Configuring ProxySQL for PXC (primary)", 88)
+			env := proxysqlGaleraEnv(proxysqlSecrets{AdminUser: "admin", AdminPassword: proxysqlAdminPassword(), AppUser: pxcSec.AppUser, AppPassword: pxcSec.AppPassword, MonitorUser: monUser, MonitorPassword: pxcSec.MonitorPassword}, pxcRegularFQDNs(doc, backFrame, domain), frame.Mode)
+			if err := a.runStep(ctx, pdep.ContainerID, proxysqlGaleraConfigureScript, env, progs[primary.ID].logln); err != nil {
+				progs[primary.ID].fail("configure ProxySQL for PXC: %v", err)
+				return
+			}
+			progs[primary.ID].logln("ProxySQL configured for PXC with mysql_galera_hostgroups on primary; syncs to the cluster")
+			if err := a.proxysqlLegacyAuth(ctx, pdep.ContainerID, pxcSec, clusterHost, progs[primary.ID].logln); err != nil {
+				progs[primary.ID].fail("app user authentication for ProxySQL: %v", err)
+				return
+			}
 		} else {
 			cfgEnv := []string{
 				"PSQL_ADMIN_USER=admin", "PSQL_ADMIN_PW=" + proxysqlAdminPassword(),
@@ -473,14 +491,15 @@ func (a *App) proxysqlPrepareMember(ctx context.Context, st Stack, frame designF
 	}
 
 	pr.phase("Installing ProxySQL", 55)
-	pkg := proxysqlPackage(proxysqlMajorOf(frame.ProxySQLMajor))
-	instScript, clientScript, pmmScript := proxysqlInstallRHEL, proxysqlInstallClientRHEL, pxcInstallPMMClientRHEL
+	instScript, instEnv, pkg := proxysqlInstallStep(frame.ProxySQLSource, frame.OS, frame.OSVersion, frame.Arch, frame.ProxySQLMajor, frame.ProxySQLVersion, frame.UseProxy, domain)
+	clientScript, pmmScript := proxysqlInstallClientRHEL, pxcInstallPMMClientRHEL
 	if debian {
-		instScript, clientScript, pmmScript = proxysqlInstallDebian, proxysqlInstallClientDebian, pxcInstallPMMClientDebian
+		clientScript, pmmScript = proxysqlInstallClientDebian, pxcInstallPMMClientDebian
 	}
-	if err := a.runStep(ctx, id, instScript, []string{"PKG=" + pkg, "VER=" + frame.ProxySQLVersion}, pr.logln); err != nil {
+	if err := a.runStep(ctx, id, instScript, instEnv, pr.logln); err != nil {
 		return pr.fail("install %s: %v", pkg, err)
 	}
+	pr.logln(pkg + " installed")
 	if err := a.runStep(ctx, id, clientScript, []string{"PRODUCT=" + psClientProduct(pxcMajor), "REPO=" + psRepoName(pxcMajor), "CLIENT_PKG=" + psClientPackage(frame.OS, pxcMajor)}, pr.logln); err != nil {
 		return pr.fail("install percona-server-client: %v", err)
 	}
@@ -533,6 +552,7 @@ func (a *App) provisionProxySQLInstance(st Stack, doc designDoc, p proxysqlPlan)
 		Hostname: host, FQDN: fqdnOf(host, domain), Mode: proxysqlMode(p.Mode),
 		ProxySQLCluster: p.ProxySQLCluster,
 		MonitoredBy:     monitoredBy, Ports: []int{proxysqlAdminPort, proxysqlMySQLPort},
+		Source: p.Source, Repo: proxysqlRepoName(p.Source, p.OS, p.OSVersion, p.Arch, p.Major, p.Version),
 	}
 	cfgJSON, _ := json.Marshal(cfg)
 	secJSON, _ := json.Marshal(sec)
@@ -573,15 +593,37 @@ func (a *App) provisionProxySQLInstance(st Stack, doc designDoc, p proxysqlPlan)
 		// Resolve the associated backend cluster (PXC or MySQL replication) and wait
 		// for it to be running so its users/credentials exist before we configure.
 		frame, backendKind, ok := backendFrameForProxySQL(doc, p.AssocID)
+		// A standalone node may front PostgreSQL instead (proxysqlpg.go).
+		var pgKind string
+		var pgFrame designFrame
+		var pgNode designNode
+		if !ok && p.ProxySQLCluster == "" {
+			if k, f, nd, ok2 := proxysqlPGBackend(doc, p.AssocID); ok2 {
+				backendKind, pgKind, pgFrame, pgNode, ok = proxysqlPGBackendKind, k, f, nd, true
+			}
+		}
 		if !ok {
-			failNode("no backend cluster is associated — link a PXC or MySQL cluster to this ProxySQL")
+			failNode("no backend is associated — link a PXC, MySQL or PostgreSQL backend to this ProxySQL")
 			return
 		}
 		setPhase("Waiting for backend cluster", 15)
 		var clusterHost, clientSeries string
-		var mysqlMembers []string
+		var mysqlMembers, pgMembers []string
 		var pxcSec pxcSecrets
-		if backendKind == "mysql" {
+		var pgSec pgSecrets
+		backLabel := frame.Label
+		if backendKind == proxysqlPGBackendKind {
+			ms, s, label, cerr := a.waitProxySQLPGBackend(ctx, st, doc, domain, pgKind, pgFrame, pgNode)
+			if cerr != nil {
+				failNode("%v", cerr)
+				return
+			}
+			if len(ms) == 0 {
+				failNode("PostgreSQL backend %s has no running member", label)
+				return
+			}
+			pgMembers, pgSec, backLabel, clusterHost = ms, s, label, ms[0]
+		} else if backendKind == "mysql" {
 			ph, ms, sc, cerr := a.waitMySQLRunning(ctx, st.ID, frame, doc, domain, deployTimeout())
 			if cerr != nil {
 				failNode("%v", cerr)
@@ -596,13 +638,17 @@ func (a *App) provisionProxySQLInstance(st Stack, doc designDoc, p proxysqlPlan)
 			}
 			clusterHost, pxcSec, clientSeries = ch, sc, frame.PXCMajor
 		}
-		cfg.Cluster, cfg.ClusterHost, cfg.BackendKind = frame.Label, clusterHost, backendKind
-		if backendKind == "mysql" {
+		cfg.Cluster, cfg.ClusterHost, cfg.BackendKind = backLabel, clusterHost, backendKind
+		if backendKind == "mysql" || backendKind == proxysqlPGBackendKind {
 			cfg.Mode = mysqlProxyMode(p.Mode)
 		} else {
 			cfg.Mode = proxysqlMode(p.Mode)
 		}
-		logln(backendKind + " cluster " + frame.Label + " is running (backend " + clusterHost + ")")
+		if backendKind == proxysqlPGBackendKind {
+			logln(proxysqlPGLabel(pgKind) + " " + backLabel + " is running (" + strings.Join(pgMembers, ", ") + ")")
+		} else {
+			logln(backendKind + " cluster " + frame.Label + " is running (backend " + clusterHost + ")")
+		}
 
 		setPhase("Creating container", 25)
 		name := containerName(st.ID, p.NodeID)
@@ -615,9 +661,13 @@ func (a *App) provisionProxySQLInstance(st Stack, doc designDoc, p proxysqlPlan)
 			DNS: []string{intranetIP}, DNSSearch: []string{domain},
 		}
 		applyVMSize(&spec, p.limits())
+		clientPort := proxysqlMySQLPort
+		if backendKind == proxysqlPGBackendKind {
+			clientPort = proxysqlPGPort
+		}
 		if p.ExportEnabled {
 			spec.PublishMap = []PortMap{
-				{ContainerPort: proxysqlMySQLPort, HostPort: p.ExportHostPort},
+				{ContainerPort: clientPort, HostPort: p.ExportHostPort},
 				{ContainerPort: proxysqlAdminPort, HostPort: 0},
 			}
 		}
@@ -632,6 +682,11 @@ func (a *App) provisionProxySQLInstance(st Stack, doc designDoc, p proxysqlPlan)
 		}
 		a.pointResolverAtIntranet(ctx, id, intranetIP, domain)
 		cfg.AdminPort, cfg.MySQLPort = a.readProxySQLPorts(ctx, id, p.ExportEnabled)
+		if backendKind == proxysqlPGBackendKind {
+			cfg.MySQLPort = 0
+			cfg.PGPort = a.readContainerPort(ctx, id, p.ExportEnabled, proxysqlPGPort)
+			cfg.Ports = []int{proxysqlAdminPort, proxysqlPGAdminPort, proxysqlPGPort}
+		}
 		cfgJSON, _ = json.Marshal(cfg)
 		a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: p.NodeID, ContainerID: id, State: DeployProvisioning, Config: cfgJSON, Secrets: secJSON})
 
@@ -664,16 +719,14 @@ func (a *App) provisionProxySQLInstance(st Stack, doc designDoc, p proxysqlPlan)
 		}
 
 		setPhase("Installing ProxySQL", 45)
-		pkg := proxysqlPackage(cfg.Major)
-		instScript := proxysqlInstallRHEL
+		instScript, instEnv, pkg := proxysqlInstallStep(p.Source, p.OS, p.OSVersion, p.Arch, cfg.Major, p.Version, p.UseProxy, domain)
 		clientScript := proxysqlInstallClientRHEL
 		pmmScript := pxcInstallPMMClientRHEL
 		if debian {
-			instScript = proxysqlInstallDebian
 			clientScript = proxysqlInstallClientDebian
 			pmmScript = pxcInstallPMMClientDebian
 		}
-		if err := a.runStep(ctx, id, instScript, []string{"PKG=" + pkg, "VER=" + p.Version}, logln); err != nil {
+		if err := a.runStep(ctx, id, instScript, instEnv, logln); err != nil {
 			failNode("install %s: %v", pkg, err)
 			return
 		}
@@ -681,13 +734,24 @@ func (a *App) provisionProxySQLInstance(st Stack, doc designDoc, p proxysqlPlan)
 
 		// ProxySQL talks to the backend with the mysql client, so the Percona Server
 		// client must be installed first (series matches the backend).
-		setPhase("Installing MySQL client", 58)
-		clientEnv := []string{"PRODUCT=" + psClientProduct(clientSeries), "REPO=" + psRepoName(clientSeries), "CLIENT_PKG=" + psClientPackage(p.OS, clientSeries)}
-		if err := a.runStep(ctx, id, clientScript, clientEnv, logln); err != nil {
-			failNode("install percona-server-client: %v", err)
-			return
+		if backendKind == proxysqlPGBackendKind {
+			setPhase("Installing the PostgreSQL client", 58)
+			major := proxysqlPGMajor(pgKind, pgFrame, pgNode)
+			pgScript, pgEnv := proxysqlPGClientStep(p.OS, major)
+			if err := a.runStep(ctx, id, pgScript, pgEnv, logln); err != nil {
+				failNode("install psql: %v", err)
+				return
+			}
+			logln("psql installed from " + ppgProduct(major))
+		} else {
+			setPhase("Installing MySQL client", 58)
+			clientEnv := []string{"PRODUCT=" + psClientProduct(clientSeries), "REPO=" + psRepoName(clientSeries), "CLIENT_PKG=" + psClientPackage(p.OS, clientSeries)}
+			if err := a.runStep(ctx, id, clientScript, clientEnv, logln); err != nil {
+				failNode("install percona-server-client: %v", err)
+				return
+			}
+			logln("percona-server-client installed")
 		}
-		logln("percona-server-client installed")
 
 		// Install pmm-client only when this ProxySQL is monitored by a PMM server.
 		if p.PMMNodeID != "" {
@@ -712,9 +776,26 @@ func (a *App) provisionProxySQLInstance(st Stack, doc designDoc, p proxysqlPlan)
 		if sec.ClusterUser == "" {
 			sec.ClusterUser = "cluster"
 		}
+		if backendKind == proxysqlPGBackendKind {
+			// PostgreSQL: the backend superuser is the client and monitor user (proxysqlpg.go).
+			sec.AppUser, sec.AppPassword = pgSec.SuperUser, pgSec.SuperPassword
+			sec.MonitorUser, sec.MonitorPassword = pgSec.SuperUser, pgSec.SuperPassword
+			sec.ClusterUser, sec.ClusterPassword = "", ""
+		}
 		secJSON, _ = json.Marshal(sec)
 
-		if backendKind == "mysql" {
+		if backendKind == proxysqlPGBackendKind {
+			setPhase("Configuring ProxySQL (PostgreSQL backend)", 80)
+			if err := a.runStep(ctx, id, proxysqlPGStartScript, proxysqlStartEnv(), logln); err != nil {
+				failNode("start proxysql: %v", err)
+				return
+			}
+			if err := a.runStep(ctx, id, proxysqlPGConfigureScript, proxysqlPGEnv(pgSec, pgMembers, cfg.Mode), logln); err != nil {
+				failNode("configure ProxySQL for PostgreSQL: %v", err)
+				return
+			}
+			logln("ProxySQL configured for PostgreSQL with pgsql_replication_hostgroups (mode=" + cfg.Mode + "); clients on 6133")
+		} else if backendKind == "mysql" {
 			// proxysql-admin only supports PXC; a MySQL replication backend is wired
 			// manually over the admin interface (6032), so proxysql must be running
 			// first (the proxysql-admin path starts it itself; here we do it).
@@ -728,6 +809,21 @@ func (a *App) provisionProxySQLInstance(st Stack, doc designDoc, p proxysqlPlan)
 				return
 			}
 			logln("ProxySQL manually configured for MySQL replication (mode=" + cfg.Mode + ")")
+			if err := a.proxysqlLegacyAuth(ctx, id, pxcSec, clusterHost, logln); err != nil {
+				failNode("app user authentication for ProxySQL: %v", err)
+				return
+			}
+		} else if proxysqlPXCNative(p.Source) {
+			setPhase("Configuring ProxySQL (native Galera)", 80)
+			if err := a.runStep(ctx, id, proxysqlStartScript, proxysqlStartEnv(), logln); err != nil {
+				failNode("start proxysql: %v", err)
+				return
+			}
+			if err := a.runStep(ctx, id, proxysqlGaleraConfigureScript, proxysqlGaleraEnv(sec, pxcRegularFQDNs(doc, frame, domain), cfg.Mode), logln); err != nil {
+				failNode("configure ProxySQL for PXC: %v", err)
+				return
+			}
+			logln("ProxySQL configured for PXC with mysql_galera_hostgroups (mode=" + cfg.Mode + ")")
 			if err := a.proxysqlLegacyAuth(ctx, id, pxcSec, clusterHost, logln); err != nil {
 				failNode("app user authentication for ProxySQL: %v", err)
 				return
@@ -838,8 +934,12 @@ func proxysqlBelow26(version string) bool {
 //     mysql_native_password at deploy (proxysqlLegacyAuthScript); 8.4 does not load that
 //     plugin by default and 9.x no longer has it, so those are refused.
 //
+// The proxysql-admin limit is the bundled tool's on Percona's package; with upstream ProxySQL
+// and proxysql-admin (upstream-admin) it is the release tag's (proxysqlAdminToolTag), and the
+// native configuration (upstream-native) has none.
+//
 // A blank version installs the newest build of the major, which is what is assumed here.
-func proxysqlBackendIssues(doc designDoc, what, startID, proxysqlMajor, proxysqlVersion string) []issue {
+func proxysqlBackendIssues(doc designDoc, what, startID, proxysqlMajor, proxysqlVersion, source string) []issue {
 	back, kind, ok := backendFrameForProxySQL(doc, startID)
 	if !ok {
 		return nil
@@ -850,7 +950,16 @@ func proxysqlBackendIssues(doc designDoc, what, startID, proxysqlMajor, proxysql
 	}
 	modern := series == "8.4" || strings.HasPrefix(series, "9.")
 	var out []issue
-	if kind == "pxc" {
+	switch {
+	case kind == "pxc" && strings.TrimSpace(source) == proxysqlSrcUpstreamAdmin:
+		// The tool comes from a release tag rather than with the package, so its client limits
+		// follow the tag: both releases read 8.0 and 8.4, neither 9.x.
+		if strings.HasPrefix(series, "9.") {
+			out = append(out, issue{Level: "error", Message: what + " installs proxysql-admin " + proxysqlAdminToolTag(proxysqlMajor) +
+				", whose newest release does not recognise the PXC " + series + " client of " + back.Label +
+				" — use upstream ProxySQL with native configuration (upstream-native), or Percona's ProxySQL 3.0.9 or later"})
+		}
+	case kind == "pxc" && !proxysqlIsUpstream(source):
 		if need := proxysqlAdminMinimum(series); need != "" && proxysqlBuildBefore(proxysqlMajor, proxysqlVersion, need) {
 			out = append(out, issue{Level: "error", Message: what + " uses " + proxysqlLabel(proxysqlMajor, proxysqlVersion) +
 				", whose proxysql-admin does not recognise the PXC " + series + " client of " + back.Label +
@@ -1155,3 +1264,16 @@ pmm-admin config --force --server-insecure-tls --server-url="$PMM_URL" >/dev/nul
 systemctl enable --now pmm-agent >/dev/null 2>&1 || true
 pmm-admin remove proxysql "$NODE" >/dev/null 2>&1 || true
 pmm-admin add proxysql --username="$ADMIN_USER" --password="$ADMIN_PW" --host=127.0.0.1 --port=6032 "$NODE"`
+
+// readContainerPort is the host port a published container port maps to (0 when not published).
+func (a *App) readContainerPort(ctx context.Context, id string, exported bool, port int) int {
+	if !exported {
+		return 0
+	}
+	if hp, e := a.engCtx(ctx).ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", port)); e == nil {
+		if p, e2 := strconv.Atoi(hp); e2 == nil {
+			return p
+		}
+	}
+	return 0
+}

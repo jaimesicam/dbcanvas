@@ -221,7 +221,8 @@ func netemPortsFor(nodeType string) []int {
 		return []int{6379, 16379, 26379}
 	// Routers: the port clients arrive on and the port they are sent to.
 	case "proxysql":
-		return []int{3306, 6032, 6033}
+		// 5432 and 6133 are a PostgreSQL backend's (proxysqlpg.go).
+		return []int{3306, 5432, 6032, 6033, 6133}
 	case "haproxy":
 		return []int{3306, 5000, 5432}
 	// PgBouncer: the port clients arrive on and the port it forwards to. Both, because

@@ -175,7 +175,7 @@ func TestProxySQLBackendMatrix(t *testing.T) {
 		{"mysql", "9.7", "2", "2.6.5-1.1", ok},
 		{"mysql", "9.7", "2", "2.4.8-1.1", refused},
 	} {
-		got := proxysqlBackendIssues(design(c.back, c.series), "ProxySQL node proxysql-01", "px", c.major, c.version)
+		got := proxysqlBackendIssues(design(c.back, c.series), "ProxySQL node proxysql-01", "px", c.major, c.version, "")
 		if (len(got) > 0) != c.want {
 			t.Errorf("%s %s behind ProxySQL %s/%q: issues = %v, want refused=%v", c.back, c.series, c.major, c.version, got, c.want)
 		}

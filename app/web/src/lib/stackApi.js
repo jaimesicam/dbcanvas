@@ -182,7 +182,8 @@ export const stackApi = {
   // What a Repository node can carry (OS releases, suggested repositories + versions, operators).
   repositoryCatalog: () => request('GET', '/api/catalog/repository'),
   pxcCatalog: () => request('GET', '/api/catalog/pxc'),
-  proxysqlCatalog: () => request('GET', '/api/catalog/proxysql'),
+  // source: '' (Percona), 'upstream-admin' or 'upstream-native' (app/proxysqlsource.go).
+  proxysqlCatalog: (source) => request('GET', '/api/catalog/proxysql' + (source ? `?source=${encodeURIComponent(source)}` : '')),
   valkeyCatalog: () => request('GET', '/api/catalog/valkey'),
   // source: 'percona' or 'pgdg' (app/haproxysource.go); the OS package has no catalogue.
   haproxyCatalog: (source) => request('GET', `/api/catalog/haproxy?source=${encodeURIComponent(source)}`),

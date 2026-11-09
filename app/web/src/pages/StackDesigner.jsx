@@ -1369,10 +1369,14 @@ const PROXY_MODE_OPTS = {
 }
 // A MySQL Community replication frame is routed like a Percona Server one (app/intranet.go
 // replBackendFrame).
-const proxyModeOpts = (backendType) => PROXY_MODE_OPTS[backendType === 'mysql' || backendType === 'mysqlcerepl' ? 'mysql' : 'pxc']
+const proxyModeOpts = (backendType) => PROXY_MODE_OPTS[backendType === 'mysql' || backendType === 'mysqlcerepl' || PROXY_PG_KINDS.has(backendType) ? 'mysql' : 'pxc']
 // PROXY_BACKEND_FRAMES are the cluster frames a ProxySQL fronts (backendFrameForProxySQL).
 const PROXY_BACKEND_FRAMES = new Set(['pxc', 'mysql', 'mysqlcerepl'])
-const proxyBackendLabel = (f) => (f.type === 'pxc' ? 'PXC' : f.type === 'mysqlcerepl' ? 'MySQL Community' : 'Percona Server')
+// PROXY_PG_KINDS are the PostgreSQL endpoints a standalone ProxySQL node may front, linked
+// directly (proxysqlPGBackend in app/proxysqlpg.go); they route like MySQL replication.
+const PROXY_PG_KINDS = new Set(['pg', 'patroni', 'repmgr', 'pgstream', 'spock'])
+const PROXY_PG_LABELS = { pg: 'PostgreSQL node', patroni: 'Patroni cluster', repmgr: 'repmgr cluster', pgstream: 'PostgreSQL replication cluster', spock: 'Spock cluster' }
+const proxyBackendLabel = (f) => (PROXY_PG_LABELS[f.type] ? PROXY_PG_LABELS[f.type].replace(/ (node|cluster)$/, '') : f.type === 'pxc' ? 'PXC' : f.type === 'mysqlcerepl' ? 'MySQL Community' : 'Percona Server')
 
 // nodeOSLabel renders a free node's OS line; ProxySQL carries its own os/version
 // (like a PXC frame), other nodes map via their osOptions.
@@ -3688,6 +3692,10 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
     // source, max 1 outgoing).
     if (k1 === 'backend' && isProxyDest(k2)) return createFlow(e1, e2, { singleOutgoing: true })
     if (k2 === 'backend' && isProxyDest(k1)) return createFlow(e2, e1, { singleOutgoing: true })
+    // A PostgreSQL node or cluster → a standalone ProxySQL node (upstream ProxySQL 3 only, which
+    // validation checks — app/proxysqlpg.go). Not a ProxySQL cluster frame.
+    if (PROXY_PG_KINDS.has(k1) && k2 === 'proxysql') return createFlow(e1, e2, { singleOutgoing: true })
+    if (PROXY_PG_KINDS.has(k2) && k1 === 'proxysql') return createFlow(e2, e1, { singleOutgoing: true })
     // Patroni, repmgr, or Spock cluster frame → HAProxy node (frame is the source,
     // max 1 outgoing; HAProxy takes a single incoming via the createFlow dest
     // guard, so a node can front at most one of these three PostgreSQL topologies).
@@ -12655,16 +12663,37 @@ function ValkeyClusterMemberForm({ node: n, frame: f, patchNode, dep, deployed }
   )
 }
 
+// PROXYSQL_SOURCES are where ProxySQL comes from and how a PXC backend is then configured
+// (app/proxysqlsource.go). A MySQL replication backend is configured the same way for all three.
+const PROXYSQL_SOURCES = [
+  { id: '', label: 'Percona (proxysql2 / proxysql3)', note: 'Percona\'s package, configured for PXC with the proxysql-admin it bundles.' },
+  { id: 'upstream-admin', label: 'Upstream + proxysql-admin', note: 'ProxySQL\'s own package from repo.proxysql.com, with proxysql-admin installed from a percona/proxysql-admin-tool release (v2.7.3 or v3.0.6). Configured for PXC exactly as Percona\'s; no PXC 9.x, which no released proxysql-admin reads.' },
+  { id: 'upstream-native', label: 'Upstream, native configuration', note: 'ProxySQL\'s own package, configured for PXC over the admin interface with mysql_galera_hostgroups — the host groups and rules proxysql-admin would set, without it.' },
+]
+
+function ProxySQLSourceField({ value, deployed, lock, onChange }) {
+  const cur = PROXYSQL_SOURCES.find((s) => s.id === (value || '')) || PROXYSQL_SOURCES[0]
+  return (
+    <Field label="ProxySQL source" help={HELP.proxysqlSource} hint={deployed ? 'Locked.' : cur.note}>
+      <select className={`${inputCls} ${lock}`} value={cur.id} disabled={deployed} onChange={(e) => onChange(e.target.value)}>
+        {PROXYSQL_SOURCES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+      </select>
+    </Field>
+  )
+}
+
 // ProxySQLForm edits a (not-yet-running) ProxySQL node: catalog-driven OS/version
 // + ProxySQL major/minor, implementation mode, host-port export and PMM monitor.
 // It must be linked to a PXC cluster frame by an association line on the canvas.
 function ProxySQLForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep, deployed }) {
   const [cat, setCat] = useState(null)
+  // The version catalogue is the source's: Percona's packages or repo.proxysql.com's.
+  const src = n.proxysqlSource || ''
   useEffect(() => {
     let alive = true
-    stackApi.proxysqlCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    stackApi.proxysqlCatalog(src).then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
     return () => { alive = false }
-  }, [])
+  }, [src])
   const imgs = cat || []
   const lock = deployed ? 'opacity-70' : ''
 
@@ -12707,8 +12736,16 @@ function ProxySQLForm({ node: n, nodes, frames, edges, patchNode, deleteNode, de
         if (!seen.has(nb)) { seen.add(nb); queue.push(nb) }
       }
     }
+    // Otherwise a PostgreSQL backend, linked directly.
+    for (const nb of adj[n.id] || []) {
+      const f = frames.find((fr) => fr.id === nb && PROXY_PG_KINDS.has(fr.type))
+      if (f) return f
+      const pn = nodes.find((x) => x.id === nb && x.type === 'pg' && !x.frameId)
+      if (pn) return pn
+    }
     return null
   })()
+  const pgBackend = !!linkedFrame && PROXY_PG_KINDS.has(linkedFrame.type)
   const modeOpts = proxyModeOpts(linkedFrame?.type)
   // Normalize the mode when the linked backend changes (PXC vs MySQL modes differ).
   useEffect(() => {
@@ -12730,11 +12767,16 @@ function ProxySQLForm({ node: n, nodes, frames, edges, patchNode, deleteNode, de
 
       {linkedFrame ? (
         <div className="rounded-lg border border-success/30 bg-success/10 px-2.5 py-1.5 text-xs text-success">
-          Linked to {proxyBackendLabel(linkedFrame)} cluster <span className="font-semibold">{linkedFrame.label}</span> (data flows cluster → ProxySQL).
+          Linked to {PROXY_PG_LABELS[linkedFrame.type] || `${proxyBackendLabel(linkedFrame)} cluster`} <span className="font-semibold">{linkedFrame.label}</span> (data flows {linkedFrame.type === 'pg' ? 'node' : 'cluster'} → ProxySQL).
         </div>
       ) : (
         <div className="rounded-lg border border-danger/30 bg-danger/15 px-2.5 py-1.5 text-xs text-danger">
-          Not linked — drag an association line from a PXC, Percona Server replication or MySQL replication cluster frame to this node.
+          Not linked — drag an association line from a PXC, Percona Server replication or MySQL replication cluster frame to this node (or, with upstream ProxySQL 3, from a PostgreSQL node or cluster).
+        </div>
+      )}
+      {pgBackend && (!(n.proxysqlSource || '').startsWith('upstream') || n.proxysqlMajor !== '3') && (
+        <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
+          PostgreSQL is fronted by upstream ProxySQL 3: choose an upstream source and the 3 series. Clients then connect on 6133.
         </div>
       )}
 
@@ -12751,11 +12793,12 @@ function ProxySQLForm({ node: n, nodes, frames, edges, patchNode, deleteNode, de
         </Field>
         <Field label="ProxySQL major" help={HELP.major('ProxySQL')}>
           <select className={`${inputCls} ${lock}`} value={n.proxysqlMajor} disabled={deployed} onChange={(e) => patchNode(n.id, { proxysqlMajor: e.target.value, proxysqlVersion: '' })}>
-            {majors.map((o) => <option key={o} value={o}>proxysql{o}</option>)}
+            {majors.map((o) => <option key={o} value={o}>{src ? `ProxySQL ${o}` : `proxysql${o}`}</option>)}
           </select>
         </Field>
       </div>
 
+      <ProxySQLSourceField value={src} deployed={deployed} lock={lock} onChange={(v) => patchNode(n.id, { proxysqlSource: v, proxysqlVersion: '' })} />
       <Field label="ProxySQL minor version" help={HELP.minor('ProxySQL')} hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
         <select className={`${inputCls} ${lock}`} value={n.proxysqlVersion} disabled={deployed} onChange={(e) => patchNode(n.id, { proxysqlVersion: e.target.value })}>
           <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>
@@ -12827,11 +12870,13 @@ function frameLinkedCluster(startId, edges, frames) {
 // options. Per-member host-port export lives on each member node.
 function ProxySQLFrameForm({ frame: f, nodes, frames, edges, patchFrame, deleteFrame, deployed }) {
   const [cat, setCat] = useState(null)
+  // The version catalogue is the source's: Percona's packages or repo.proxysql.com's.
+  const src = f.proxysqlSource || ''
   useEffect(() => {
     let alive = true
-    stackApi.proxysqlCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    stackApi.proxysqlCatalog(src).then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
     return () => { alive = false }
-  }, [])
+  }, [src])
   const imgs = cat || []
   const lock = deployed ? 'opacity-70' : ''
 
@@ -12898,11 +12943,12 @@ function ProxySQLFrameForm({ frame: f, nodes, frames, edges, patchFrame, deleteF
         </Field>
         <Field label="ProxySQL major" help={HELP.major('ProxySQL')}>
           <select className={`${inputCls} ${lock}`} value={f.proxysqlMajor} disabled={deployed} onChange={(e) => patchFrame(f.id, { proxysqlMajor: e.target.value, proxysqlVersion: '' })}>
-            {majors.map((o) => <option key={o} value={o}>proxysql{o}</option>)}
+            {majors.map((o) => <option key={o} value={o}>{src ? `ProxySQL ${o}` : `proxysql${o}`}</option>)}
           </select>
         </Field>
       </div>
 
+      <ProxySQLSourceField value={src} deployed={deployed} lock={lock} onChange={(v) => patchFrame(f.id, { proxysqlSource: v, proxysqlVersion: '' })} />
       <Field label="ProxySQL minor version" help={HELP.minor('ProxySQL')} hint={deployed ? 'Locked.' : 'Newest first; default is the latest.'}>
         <select className={`${inputCls} ${lock}`} value={f.proxysqlVersion} disabled={deployed} onChange={(e) => patchFrame(f.id, { proxysqlVersion: e.target.value })}>
           <option value="">latest{minors[0] ? ` (${minors[0]})` : ''}</option>

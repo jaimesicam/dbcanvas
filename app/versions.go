@@ -627,7 +627,10 @@ func (a *App) handleProxySQLCatalog(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"images": loadProxySQLCatalog()})
+	// ?source=upstream-admin or upstream-native serves repo.proxysql.com's builds
+	// (proxysqlsource.go); anything else, Percona's.
+	src := strings.TrimSpace(r.URL.Query().Get("source"))
+	writeJSON(w, http.StatusOK, map[string]any{"source": src, "images": proxysqlCatalogFor(src)})
 }
 
 // handleHAProxyCatalog serves the HAProxy builds a package source offers per image

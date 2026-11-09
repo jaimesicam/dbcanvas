@@ -71,9 +71,12 @@ type designNode struct {
 	// shared image fields above; these add the ProxySQL series + behaviour.
 	ProxySQLMajor   string `json:"proxysqlMajor"`   // "2" | "3"
 	ProxySQLVersion string `json:"proxysqlVersion"` // minor (e.g. 2.7.1-1); "" → latest
-	Mode            string `json:"mode"`            // "singlewrite" (default) | "loadbal"
-	PMMNodeID       string `json:"pmmNodeId"`       // PMM node monitoring this ProxySQL (optional)
-	UseProxy        bool   `json:"useProxy"`        // route package egress via the Intranet Squid proxy
+	// ProxySQLSource: "" Percona's package, "upstream-admin" or "upstream-native" ProxySQL's own
+	// (proxysqlsource.go).
+	ProxySQLSource string `json:"proxysqlSource"`
+	Mode           string `json:"mode"`      // "singlewrite" (default) | "loadbal"
+	PMMNodeID      string `json:"pmmNodeId"` // PMM node monitoring this ProxySQL (optional)
+	UseProxy       bool   `json:"useProxy"`  // route package egress via the Intranet Squid proxy
 	// Linux Client core-dump analysis (Type=="linuxclient"; ignored by other types). The two
 	// paths are directories **on the Docker host**, bind-mounted read-only into the node, so a
 	// core file the size of a server's memory is read where it lies rather than copied. The
@@ -604,6 +607,7 @@ type designFrame struct {
 	// PMMNodeID, UseProxy above).
 	ProxySQLMajor   string `json:"proxysqlMajor"`   // "2" | "3"
 	ProxySQLVersion string `json:"proxysqlVersion"` // minor; "" → latest
+	ProxySQLSource  string `json:"proxysqlSource"`  // "" | "upstream-admin" | "upstream-native" (proxysqlsource.go)
 	Mode            string `json:"mode"`            // "singlewrite" | "loadbal"
 	// MySQL replication frame config (Type=="mysql"; reuses OS/OSVersion/Arch,
 	// RootPassword, PMMNodeID, OrchestratorNodeID, UseProxy, GTID, GenerateCert/CertTTL
@@ -1517,9 +1521,14 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 				}
 			}
 			if _, _, ok := backendFrameForProxySQL(doc, n.ID); !ok {
-				out = append(out, issue{Level: "error", Message: "ProxySQL node " + n.Label + " must be linked to a PXC or MySQL cluster — draw an association line from one to it"})
+				if _, _, _, pg := proxysqlPGBackend(doc, n.ID); pg {
+					out = append(out, proxysqlPGIssues("ProxySQL node "+n.Label, n)...)
+				} else {
+					out = append(out, issue{Level: "error", Message: "ProxySQL node " + n.Label + " must be linked to a PXC or MySQL cluster, or (upstream ProxySQL 3) to one PostgreSQL node or Patroni, repmgr, streaming replication or Spock cluster — draw an association line from one to it"})
+				}
 			}
-			out = append(out, proxysqlBackendIssues(doc, "ProxySQL node "+n.Label, n.ID, n.ProxySQLMajor, n.ProxySQLVersion)...)
+			out = append(out, proxysqlBackendIssues(doc, "ProxySQL node "+n.Label, n.ID, n.ProxySQLMajor, n.ProxySQLVersion, n.ProxySQLSource)...)
+			out = append(out, proxysqlSourceIssues("ProxySQL node "+n.Label, n.ProxySQLSource, n.OS, n.OSVersion, n.Arch, n.ProxySQLMajor, n.ProxySQLVersion)...)
 			if n.ExportEnabled && n.ExportHostPort > 0 {
 				exportReq[n.ExportHostPort] = append(exportReq[n.ExportHostPort], n.Label)
 			}
@@ -1858,9 +1867,14 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			}
 		}
 		if _, _, ok := backendFrameForProxySQL(doc, f.ID); !ok {
-			out = append(out, issue{Level: "error", Message: "ProxySQL cluster " + f.Label + " must be linked to a PXC or MySQL cluster — draw an association line from one to it"})
+			msg := "ProxySQL cluster " + f.Label + " must be linked to a PXC or MySQL cluster — draw an association line from one to it"
+			if _, _, _, pg := proxysqlPGBackend(doc, f.ID); pg {
+				msg = "ProxySQL cluster " + f.Label + " is linked to PostgreSQL, which DBCanvas configures on a standalone ProxySQL node only — use a ProxySQL node"
+			}
+			out = append(out, issue{Level: "error", Message: msg})
 		}
-		out = append(out, proxysqlBackendIssues(doc, "ProxySQL cluster "+f.Label, f.ID, f.ProxySQLMajor, f.ProxySQLVersion)...)
+		out = append(out, proxysqlBackendIssues(doc, "ProxySQL cluster "+f.Label, f.ID, f.ProxySQLMajor, f.ProxySQLVersion, f.ProxySQLSource)...)
+		out = append(out, proxysqlSourceIssues("ProxySQL cluster "+f.Label, f.ProxySQLSource, f.OS, f.OSVersion, f.Arch, f.ProxySQLMajor, f.ProxySQLVersion)...)
 	}
 	for name, c := range proxyClusterNames {
 		if c > 1 && name != "" {

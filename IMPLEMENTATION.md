@@ -29746,3 +29746,84 @@ sources, which build (`haproxyVersion`).
 
 `go test ./` in `app` and `cli` (`haproxysource_test.go`: catalogue, validation, series order, script
 choice, compose resolution), `npm run build`, `npm run smoke`.
+
+## 523. Upstream ProxySQL (with proxysql-admin, or configured natively) and PostgreSQL behind ProxySQL — `app/proxysqlsource.go`, `app/proxysqlpg.go`, `app/proxysql.go`, `app/intranet.go`, `app/versions.go`, `app/api_routes.go`, `app/compose.go`, `app/composebuild.go`, `app/designcatalog_mysql.go`, `app/netem.go`, `images/versions.sh`, `app/web/src/pages/StackDesigner.jsx`, `app/web/src/pages/ProxySQLManager.jsx`, `app/web/src/lib/help.js`, `app/web/src/lib/stackApi.js`
+
+A ProxySQL node and a ProxySQL Cluster frame choose where ProxySQL comes from (`proxysqlSource`).
+
+- **Sources.**
+  - `""`: Percona's `proxysql2`/`proxysql3`, unchanged.
+  - `upstream-admin`: `proxysql` from repo.proxysql.com (one repository per series, EL builds labelled
+    AlmaLinux), plus `proxysql-admin` and its helpers from a percona/proxysql-admin-tool release tag
+    (v2.7.3 for 2.x, v3.0.6 for 3.x; `proxysqlAdminToolTag`). The upstream package has no
+    `proxysql-admin`, and Percona's packages bundle it with their own binary and conflict with
+    upstream's. The tool talks to the ordinary admin interface and checks no build. PXC is then
+    configured by the unchanged `proxysqlConfigureScript`.
+  - `upstream-native`: the same package, with PXC configured by `proxysqlGaleraConfigureScript` over the
+    admin interface. It writes the host groups and rules `proxysql-admin` writes: `mysql_galera_hostgroups`
+    10/12/11/13, `max_transactions_behind` 100, and per mode:
+    - `singlewrite`: `max_writers` 1, `writer_is_also_reader` 2, and the app user's `^SELECT.*FOR UPDATE`
+      → 10 and `^SELECT ` → 11 rules.
+    - `loadbal`: every member a writer, `writer_is_also_reader` 0, no rules.
+- **Install.** `proxysqlInstallStep` picks the script. The upstream script writes the repository for
+  the series (`proxysqlUpstreamSeries`: the pinned build's, else the newest recorded), installs the
+  build, and fails unless `From repo` is `proxysql-upstream`, because Percona's packages also provide
+  `proxysql`. The Debian half pins the exact madison version. The deployment records `source` and `repo`,
+  and the ProxySQL panel shows them.
+- **Validation.**
+  - `proxysqlSourceIssues` refuses an unknown source, a version from the other major, and a build
+    repo.proxysql.com lacks for the image.
+  - `proxysqlBackendIssues` takes the source. `upstream-admin` refuses PXC 9.x, since no released
+    `proxysql-admin` reads that client (only the unreleased `v3.0.9-dev` branch does). `upstream-native`
+    has no client limit. The rule that ProxySQL before 2.6 cannot use `caching_sha2_password` applies
+    to every source.
+- **Catalogue.** `images/versions.sh` (`upstream` group) records `upstream_proxysql`, keyed `"2"` and
+  `"3"`. `GET /api/catalog/proxysql?source=upstream-…` serves it. `versions.yaml` gains only that section:
+  - 2.4.2–2.7.4 and 3.0.1–3.0.12 on Oracle Linux 9
+  - 3.0 only on Oracle Linux 10
+  - 2.6.4 and later on Ubuntu 24.04
+
+  The other catalogues the run refreshed are left as recorded.
+- **PostgreSQL behind ProxySQL** (`proxysqlpg.go`).
+  - **Where:** upstream ProxySQL 3 on a standalone node, linked directly to what PgBouncer can front:
+    a PostgreSQL node, or a Patroni, repmgr, streaming replication or Spock cluster.
+  - **Install:** `psql` is installed from the backend's `ppg-NN`.
+  - **Configuration** goes over the PostgreSQL admin interface (6132):
+    - `pgsql_replication_hostgroups` 10/20, with every member listed in both groups. The monitor
+      removes a standby from 10 by `pg_is_in_recovery()` but does not add the primary to 20 on its
+      own, which left reads with no server when there was no standby.
+    - The backend superuser as client and monitor user (SCRAM-SHA-256, ProxySQL's default).
+    - In `rwsplit`, `^SELECT.*FOR (UPDATE|SHARE)` → 10 and `^SELECT` → 20.
+  - **Clients and shaping:** clients connect on 6133, which export publishes. `netemPortsFor("proxysql")`
+    adds 5432 and 6133.
+  - **Refused:**
+    - The ProxySQL Cluster frame, because syncing the `pgsql_*` tables across a cluster is not verified.
+    - Percona's ProxySQL and the 2 series. Percona's `proxysql3` 3.0.9 also opens 6132 and 6133, but
+      it is not offered here.
+- **Compose, CLI and designer.** `source=percona|upstream-admin|upstream-native` on a `proxysql` entry,
+  with `version=` resolved against that source. The ProxySQL kind's `EdgeTo` adds the PostgreSQL kinds.
+  The designer has a **ProxySQL source** field on both forms, accepts a link from a PostgreSQL node or
+  cluster to a ProxySQL node, warns when that backend lacks upstream 3, and shows the PostgreSQL client
+  command on the panel.
+
+**Verification performed.**
+- **Throwaway containers from the node images:**
+  - Upstream 3.0.11 with proxysql-admin v3.0.6 on Oracle Linux 9.
+  - Upstream 2.7.4 with v2.7.3 on Ubuntu 24.04.
+  - Upstream 2.5.5 on Oracle Linux 8.
+  - A missing build fails.
+  - Upstream 3.0.12 listens on 6032, 6033, 6132 and 6133 by default, with `pgsql-authentication_method` 3.
+  - The PostgreSQL start and configure scripts against PostgreSQL 17 with SCRAM: the admin credential
+    rotates, and reads and writes route as above.
+- **Live, three stacks on Oracle Linux 9, each behind upstream ProxySQL 3.0.12:**
+  - **PXC 8.0, `upstream-admin`, and PXC 8.4, `upstream-native`, both `singlewrite`:** identical
+    runtime host groups, servers, users and rules. Writes reached the one writer and reads alternated
+    between the other two members.
+  - **A 3-member Patroni cluster (PostgreSQL 18), `upstream-native`, `rwsplit`:** writes and
+    `… FOR UPDATE` reached the primary, and reads were spread over all three. After
+    `patronictl switchover` to patroni-2, the writer group held patroni-2 alone, writes succeeded there,
+    and no rows were lost.
+- **Tests:** `go test ./` in `app` and `cli` (`proxysqlsource_test.go`), `npm run build`, `npm run smoke`.
+  `loadbal`, the ProxySQL Cluster frame with an upstream source, and repmgr, streaming replication and
+  Spock backends behind ProxySQL were not run live.
+

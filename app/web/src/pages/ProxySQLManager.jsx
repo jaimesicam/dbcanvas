@@ -76,15 +76,22 @@ export default function ProxySQLManager({ stackId, nodeId, dep, onDeleteNode }) 
       {tab === 'overview' && (
         <div className="space-y-2 text-sm">
           {cfg.proxysqlCluster && <KV k="ProxySQL cluster" help={DEP_HELP['ProxySQL cluster']} v={cfg.proxysqlCluster} />}
-          <KV k="PXC cluster" help={DEP_HELP['PXC cluster']} v={cfg.cluster} />
-          <KV k="Backend (CLUSTER_HOSTNAME)" help={DEP_HELP['Backend (CLUSTER_HOSTNAME)']} v={cfg.clusterHost} mono />
-          <KV k="Mode" help={DEP_HELP.Mode} v={cfg.backendKind === 'mysql'
+          {cfg.backendKind === 'postgresql' ? (
+            <KV k="PostgreSQL backend" help={DEP_HELP.Backend} v={cfg.cluster} />
+          ) : (
+            <>
+              <KV k="PXC cluster" help={DEP_HELP['PXC cluster']} v={cfg.cluster} />
+              <KV k="Backend (CLUSTER_HOSTNAME)" help={DEP_HELP['Backend (CLUSTER_HOSTNAME)']} v={cfg.clusterHost} mono />
+            </>
+          )}
+          <KV k="Mode" help={DEP_HELP.Mode} v={cfg.backendKind === 'mysql' || cfg.backendKind === 'postgresql'
             ? (cfg.mode === 'primary' ? 'primary only' : 'read/write split')
             : (cfg.mode === 'loadbal' ? 'load balancer' : 'single writer')} />
           <KV k="FQDN" help={DEP_HELP.FQDN} v={cfg.fqdn} mono />
           {cfg.serverVersion && <KV k="Version" help={DEP_HELP.Version} v={cfg.serverVersion} mono />}
           <KV k="Image" help={DEP_HELP.Image} v={cfg.image} mono />
-          <KV k="ProxySQL" help={DEP_HELP.ProxySQL} v={`proxysql${cfg.major}${cfg.proxysqlVersion ? ` · ${cfg.proxysqlVersion}` : ''}`} />
+          <KV k="ProxySQL" help={DEP_HELP.ProxySQL} v={`${cfg.source ? `ProxySQL ${cfg.major}` : `proxysql${cfg.major}`}${cfg.proxysqlVersion ? ` · ${cfg.proxysqlVersion}` : ''}`} />
+          {cfg.repo && <KV k="Package source" help={DEP_HELP['Package source']} v={cfg.repo + (cfg.source === 'upstream-native' ? ' · native Galera config' : cfg.source === 'upstream-admin' ? ' · proxysql-admin from GitHub' : '')} mono />}
           <KV k="Monitored by" help={DEP_HELP['Monitored by']} v={cfg.monitoredBy} mono />
           <KV k="Ports" help={DEP_HELP.Ports} v={(cfg.ports || []).join(', ')} mono />
           <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
@@ -99,8 +106,17 @@ export default function ProxySQLManager({ stackId, nodeId, dep, onDeleteNode }) 
 
       {tab === 'access' && (
         <div className="space-y-2">
-          <div className="text-[11px] text-muted">Applications connect to the MySQL traffic port; the admin interface manages ProxySQL.</div>
-          {cfg.mysqlPort ? (
+          {cfg.backendKind === 'postgresql' ? (
+            <>
+              <div className="text-[11px] text-muted">PostgreSQL clients connect on 6133; the admin interface answers PostgreSQL on 6132 and MySQL on 6032.</div>
+              {cfg.pgPort ? (
+                <CopyRow label={`PostgreSQL traffic (6133) — connect as ${sec.appUser || 'postgres'}`} value={`psql "host=${host} port=${cfg.pgPort} dbname=postgres user=${sec.appUser || 'postgres'}"`} />
+              ) : (
+                <div className="text-xs text-muted">PostgreSQL port not published to the host (enable export to expose 6133). Inside the stack: psql -h {cfg.fqdn} -p 6133.</div>
+              )}
+            </>
+          ) : <div className="text-[11px] text-muted">Applications connect to the MySQL traffic port; the admin interface manages ProxySQL.</div>}
+          {cfg.backendKind === 'postgresql' ? null : cfg.mysqlPort ? (
             <CopyRow label={`MySQL traffic (6033) — connect as ${sec.appUser || 'app'}`} value={`mysql -h ${host} -P ${cfg.mysqlPort} -u ${sec.appUser || 'app'} -p`} />
           ) : (
             <div className="text-xs text-muted">MySQL port not published to the host (enable export to expose 6033).</div>

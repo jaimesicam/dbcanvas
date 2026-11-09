@@ -309,6 +309,21 @@ for M in 13 14 15 16 17 18; do
     | awk -v p="postgresql${M}-server" 'index($1, p".")==1 {print $2}' \
     | sed -E 's/^[0-9]+://; s/-.*$//' | grep -E "^${M}\." | sort -rV -u
 done
+# ---- ProxySQL from its own repository (repo.proxysql.com, the ProxySQL node's upstream
+# sources, app/proxysqlsource.go). One repository per release series; the EL builds are
+# labelled AlmaLinux. Recorded by major ("2", "3") as the release alone: 3.0.12-1 → 3.0.12.
+for S in 2.4.x 2.5.x 2.6.x 2.7.x 3.0.x; do
+  cat >"/etc/yum.repos.d/dbc-proxysql-$S.repo" <<EOF
+[dbc-proxysql-$S]
+name=ProxySQL $S
+baseurl=https://repo.proxysql.com/ProxySQL/proxysql-$S/almalinux/$(rpm -E %rhel)
+gpgcheck=0
+skip_if_unavailable=1
+EOF
+done
+UPS="$(dnf -q --showduplicates list available proxysql 2>/dev/null | awk '$3 ~ /^dbc-proxysql-/ {print $2}' | sed -E 's/-.*$//')"
+echo '@@UPSQL2@@'; printf '%s\n' "$UPS" | grep -E '^2\.' | sort -rV -u
+echo '@@UPSQL3@@'; printf '%s\n' "$UPS" | grep -E '^3\.' | sort -rV -u
 EOS
   want_probe haproxy && cat <<'EOS'
 # ---- HAProxy (the HAProxy node's percona and pgdg sources, app/haproxysource.go) ----
@@ -469,6 +484,15 @@ for M in 13 14 15 16 17 18; do
   echo "@@PGDG${M}@@"
   madison "postgresql-${M}" | grep -E "^${M}\..*pgdg" | sed -E 's/-.*$//' | sort -rV -u
 done
+# ---- ProxySQL from repo.proxysql.com, as in rhel_probe: a flat apt repository per
+# series and codename. Metadata only, so it is trusted rather than keyed here.
+for S in 2.4.x 2.5.x 2.6.x 2.7.x 3.0.x; do
+  echo "deb [trusted=yes] https://repo.proxysql.com/ProxySQL/proxysql-$S/$CODE/ ./" >"/etc/apt/sources.list.d/dbc-proxysql-$S.list"
+done
+apt-get update >/dev/null 2>&1
+UPS="$(apt-cache madison proxysql 2>/dev/null | awk -F'|' '$3 ~ /repo\.proxysql\.com/ {gsub(/ /,"",$2); print $2}' | sed -E 's/^[0-9]+://; s/-.*$//')"
+echo '@@UPSQL2@@'; printf '%s\n' "$UPS" | grep -E '^2\.' | sort -rV -u
+echo '@@UPSQL3@@'; printf '%s\n' "$UPS" | grep -E '^3\.' | sort -rV -u
 EOS
   want_probe haproxy && cat <<'EOS'
 # ---- HAProxy: percona-haproxy, as in rhel_probe. apt.postgresql.org has no HAProxy, so
@@ -834,6 +858,7 @@ while IFS=$'\t' read -r os version platform arch tag; do
   mc60="" ; mc70="" ; mc80="" ; mc82=""
   gd13="" ; gd14="" ; gd15="" ; gd16="" ; gd17="" ; gd18=""
   pha="" ; gha=""
+  ups2="" ; ups3=""
   if [ -n "$probe" ]; then
     if out="$(docker run --rm "$tag" bash -lc "$probe" 2>/dev/null)"; then
       ps80="$(printf '%s\n' "$out" | section PS80)"
@@ -875,6 +900,8 @@ while IFS=$'\t' read -r os version platform arch tag; do
       gd16="$(printf '%s\n' "$out" | section PGDG16)"
       gd17="$(printf '%s\n' "$out" | section PGDG17)"
       gd18="$(printf '%s\n' "$out" | section PGDG18)"
+      ups2="$(printf '%s\n' "$out" | section UPSQL2)"
+      ups3="$(printf '%s\n' "$out" | section UPSQL3)"
       pha="$(printf '%s\n' "$out" | section PHAPROXY)"
       gha="$(printf '%s\n' "$out" | section PGDGHAPROXY)"
     else
@@ -912,6 +939,7 @@ while IFS=$'\t' read -r os version platform arch tag; do
   echo "    ps: ${n80}+${n84}+${n57}  pxc: ${px0}+${px4}+${px7}  proxysql: ${pq2}+${pq3}  psmdb: ${m6}+${m7}+${m8}+${m83}  ppg: ${g13}+${g14}+${g15}+${g16}+${g17}+${g18}  valkey: ${vk9}  orchestrator: ${orc}" >&2
   cnt() { printf '%s' "$1" | grep -c . || true; }
   echo "    mariadb: ${d106}+${d1011}+${d114}+${d118}+${d123}  mysql_community: ${c80}+${c84}" >&2
+  echo "    upstream_proxysql: $(cnt "$ups2")+$(cnt "$ups3")" >&2
   echo "    haproxy: percona $(cnt "$pha")  pgdg $(cnt "$gha")" >&2
   echo "    mongodb_community: $(cnt "$mc60")+$(cnt "$mc70")+$(cnt "$mc80")+$(cnt "$mc82")  pgdg: $(cnt "$gd13")+$(cnt "$gd14")+$(cnt "$gd15")+$(cnt "$gd16")+$(cnt "$gd17")+$(cnt "$gd18")" >&2
 
@@ -1005,6 +1033,7 @@ while IFS=$'\t' read -r os version platform arch tag; do
     emit_group upstream mysql_community        "8.0" "$myc80" "8.4" "$myc84" "9.7" "$myc97"
     emit_group upstream mongodb_community      "6.0" "$mc60" "7.0" "$mc70" "8.0" "$mc80" "8.2" "$mc82"
     emit_group upstream pgdg_postgresql        "13" "$gd13" "14" "$gd14" "15" "$gd15" "16" "$gd16" "17" "$gd17" "18" "$gd18"
+    emit_group upstream upstream_proxysql      "2"   "$ups2" "3"   "$ups3"
     emit_branches haproxy percona_haproxy "$pha"
     emit_branches haproxy pgdg_haproxy    "$gha"
     emit_spock

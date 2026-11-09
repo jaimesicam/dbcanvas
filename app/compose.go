@@ -138,7 +138,8 @@ type composeNodeSpec struct {
 	// cluster of (patronistandby.go). Drawn as a replication link from that cluster.
 	StandbyOf string `json:"standbyOf"`
 	// haproxy: where the haproxy package comes from — "os" (or ""), "percona" or "pgdg"
-	// (haproxysource.go). version= then picks a build from that source.
+	// (haproxysource.go). proxysql: "percona" (or ""), "upstream-admin" or "upstream-native"
+	// (proxysqlsource.go). version= then picks a build from that source.
 	Source string `json:"source"`
 
 	Export     bool `json:"export"`     // publish the database port to the host
@@ -556,13 +557,14 @@ var composeKinds = []composeKind{
 		About:      "Valkey, standalone."},
 
 	// --- infrastructure -----------------------------------------------------
-	{Kind: "proxysql", Type: "proxysql", CanShape: true, Scalars: []string{"mode"}, Catalog: "proxysql",
+	{Kind: "proxysql", Type: "proxysql", CanShape: true, Scalars: []string{"mode", "source"}, Catalog: "proxysql",
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) {
 			n.ProxySQLMajor, n.ProxySQLVersion = major, minor
 		}, CanExport: true,
-		Links:  []string{"monitor"},
-		EdgeTo: []string{"pxc", "ps-repl", "mysql-repl"},
-		About:  "ProxySQL, in front of a PXC, Percona Server replication or MySQL Community replication cluster."},
+		Links: []string{"monitor"},
+		// The PostgreSQL targets need upstream ProxySQL 3 (proxysqlpg.go); validation says so.
+		EdgeTo: []string{"pxc", "ps-repl", "mysql-repl", "pg", "pg-pgdg", "patroni", "patroni-pgdg", "repmgr", "pg-stream", "pg-stream-pgdg", "spock"},
+		About:  "ProxySQL, in front of a PXC, Percona Server replication or MySQL Community replication cluster, or — upstream ProxySQL 3 only — one PostgreSQL node or Patroni, repmgr, streaming replication or Spock cluster (clients on 6133). source= is percona (default), upstream-admin (repo.proxysql.com with proxysql-admin) or upstream-native (repo.proxysql.com, native Galera configuration); version= resolves against that source's builds."},
 	{Kind: "orchestrator", Type: "orchestrator", Scalars: []string{"alertEmail"}, Catalog: "percona_orchestrator",
 		SetVersion: func(major, minor string, n *designNode, f *designFrame) { n.OrchestratorVersion = minor },
 		CanExport:  true,
