@@ -1,7 +1,7 @@
 package main
 
 // designcatalog_infra.go — the catalogue's shared-service node types: Intranet, Samba
-// AD DC, PMM, Repository, Orchestrator, SeaweedFS, Ceph, Watchtower, Keycloak,
+// AD DC, PMM, Repository, Orchestrator, SeaweedFS, Ceph, Keycloak,
 // OpenBao, the VNC desktop, the Linux Client and Big Hole. See designcatalog.go.
 
 // infraCertTTL is the certificate lifetime pair several of these types share.
@@ -101,7 +101,7 @@ var catalogInfra = []catalogEntry{
 			{Field: "enableOIDC", Desc: "Grafana sign-in through Keycloak (OAuth), chosen with the oidc relation; the Keycloak node must use Intranet CA SSL."},
 			{Field: "oidcRealm", When: "enableOIDC is on", Desc: "Keycloak realm holding PMM's client; \"\" is \"dbcanvas\"."},
 		},
-		Relations: []string{"upgrade", "ldap", "oidc"},
+		Relations: []string{"ldap", "oidc"},
 		Actions: []catalogAction{
 			{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/pmm/cert", Desc: "Read the certificate PMM serves."},
 			{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/pmm/cert", Desc: "Issue a new certificate from the Intranet CA and install it.", Body: "value, unit (minutes|hours|days)"},
@@ -182,12 +182,6 @@ var catalogInfra = []catalogEntry{
 		Actions: []catalogAction{
 			{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/ceph", Desc: "Health, capacity, and each RBD image with its size, what it holds and the PVC it backs."},
 		},
-	},
-	{Type: "watchtower", Label: "Watchtower",
-		Summary:   "percona/watchtower with its HTTP API on, so a PMM node that points at it through the upgrade relation can upgrade itself from its own UI.",
-		Placement: "standalone", Singleton: true,
-		Requires: []string{"an Intranet node"},
-		Options:  []catalogOption{},
 	},
 	{Type: "keycloak", Label: "Keycloak",
 		Summary:   "OpenID Connect identity provider (dev mode). Nodes enable single sign-on against it through the oidc relation; realms, clients and sample users are created for them at deploy.",

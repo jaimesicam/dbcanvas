@@ -440,7 +440,7 @@ type composeKind struct {
 	// Roles assigns each member's Role. nil → none.
 	Roles func(i, of int) string
 	// ImageOnly means the kind runs a pulled or pre-baked image, so it has no OS to
-	// choose — PMM, SeaweedFS, Keycloak, OpenBao, Watchtower and the Intranet all
+	// choose — PMM, SeaweedFS, Keycloak, OpenBao and the Intranet all
 	// ignore the field. Carrying a resolved OS on one of these puts noise in the
 	// design and a lie in the plan table ("pmm-01 … oraclelinux 9"), so it is
 	// cleared. The built-in templates do the same: their pmm and seaweedfs nodes
@@ -586,7 +586,6 @@ var composeKinds = []composeKind{
 	{Kind: "openbao", Type: "openbao", NoSizing: true, Singleton: true, PinOS: [2]string{"oraclelinux", "9"}, About: "OpenBao, for data-at-rest encryption keys."},
 	{Kind: "sambaad", Type: "sambaad", NoSizing: true, PinOS: [2]string{"ubuntu", "24.04"}, About: "Samba AD DC, as a directory and Kerberos realm."},
 	{Kind: "vnc", Type: "vnc", NoSizing: true, Singleton: true, PinOS: [2]string{"ubuntu", "24.04"}, About: "An Ubuntu desktop with a browser and the database clients."},
-	{Kind: "watchtower", Type: "watchtower", NoSizing: true, Singleton: true, ImageOnly: true, About: "Watchtower, for in-app PMM upgrades."},
 
 	// --- clusters -----------------------------------------------------------
 	{Kind: "pxc", Type: "pxc", CanShape: true, Frame: true, Members: 3, MinMembers: 1, MaxMembers: 9,

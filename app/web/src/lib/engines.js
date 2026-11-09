@@ -61,7 +61,7 @@ export const NODE_CODE = {
   pg: 'Pg', patroni: 'Pa', repmgr: 'Rm', spock: 'Sp',
   valkey: 'Vk', valkeycluster: 'Vk',
   proxysql: 'Pr', haproxy: 'Ha', pgbouncer: 'Pb',
-  pmm: 'PMM', pmm2: 'PMM', orchestrator: 'Or', watchtower: 'Wt',
+  pmm: 'PMM', pmm2: 'PMM', orchestrator: 'Or',
   intranet: 'In', sambaad: 'Ad', keycloak: 'Kc', openbao: 'Ob', seaweedfs: 'Sw', ceph: 'Ce',
   repository: 'Re', linuxclient: 'Lc', vnc: 'Vn', k3d: 'K3', aio: 'Ai', bighole: 'Bh', mclusteradmin: 'Mc',
   stocksim: 'St', ledgersim: 'Lg', supportsim: 'Su', pgvectorsim: 'Pv', perfsim: 'Pf',

@@ -113,7 +113,7 @@ export const NODE_TYPES = {
     singleton: false,
     ports: false,
     osOptions: [{ id: 'pmm', label: 'percona/pmm-server' }],
-    defaults: { version: '', adminPassword: '', generateCert: false, watchtowerNodeId: '' },
+    defaults: { version: '', adminPassword: '', generateCert: false },
   },
   // PMM 2 — end of life, offered only where EOL is on (app/eol.go, app/pmm2.go). Its own
   // type rather than a version of PMM3 because nothing about the two is shared past the
@@ -499,20 +499,6 @@ export const NODE_TYPES = {
     ports: false,
     osOptions: [{ id: 'ceph', label: 'quay.io/ceph/ceph' }],
     defaults: { cephOsdSizeGb: 20 },
-  },
-  // Watchtower — a per-stack singleton running percona/watchtower with the docker
-  // socket mounted and its HTTP API enabled. A PMM node associated with it can
-  // trigger in-app server upgrades. Runs a ready-made image (pulled at deploy).
-  watchtower: {
-    label: 'Watchtower',
-    slug: 'watchtower',
-    sub: 'Container auto-upgrades (PMM)',
-    color: '#475569',
-    icon: 'Server',
-    singleton: true,
-    ports: false,
-    osOptions: [{ id: 'watchtower', label: 'percona/watchtower' }],
-    defaults: {},
   },
   // Keycloak — a per-stack singleton OpenID Connect identity provider. A standalone
   // PSMDB node can enable MONGODB-OIDC authentication against it. Runs the upstream
@@ -1092,7 +1078,7 @@ const ENGINE_SHORT = {
   proxysql: 'ProxySQL', haproxy: 'HAProxy', pgbouncer: 'PgBouncer',
   valkey: 'Valkey', valkeycluster: 'Valkey',
   pmm: 'PMM', pmm2: 'PMM', openbao: 'OpenBao', keycloak: 'Keycloak',
-  seaweedfs: 'SeaweedFS', ceph: 'Ceph', sambaad: 'Samba', vnc: 'Ubuntu', watchtower: 'Watchtower', k3d: 'k3s', kubeadm: 'Kubernetes',
+  seaweedfs: 'SeaweedFS', ceph: 'Ceph', sambaad: 'Samba', vnc: 'Ubuntu', k3d: 'k3s', kubeadm: 'Kubernetes',
   orchestrator: 'Orchestrator', repository: 'Repository',
 }
 
@@ -1427,7 +1413,7 @@ function uniqueLabel(label, used) {
 
 // remapIds deep-copies an object, replacing any string that is a key of idMap with
 // its mapped value. Design objects reference other nodes and frames through a dozen
-// differently-named fields — frameId, pmmNodeId, watchtowerNodeId, keycloakNodeId,
+// differently-named fields — frameId, pmmNodeId, keycloakNodeId,
 // seaweedfsNodeId, ldapDirNodeId, openbaoNodeId, orchestratorNodeId, ssAIONode, both
 // edge endpoints, and more inside aioInstances[] — and the set grows with every new
 // node type. Matching on the *value* covers all of them, including the ones that do
@@ -2435,7 +2421,7 @@ const PALETTE_ALIASES = {
   sambaad: 'ldap active directory domain', keycloak: 'sso oidc identity',
   seaweedfs: 's3 object storage', vnc: 'desktop gui ubuntu',
   ceph: 'block storage rbd volumes pvc kubernetes k3d resize grow csi',
-  watchtower: 'updates upgrade', intranet: 'dns gateway core',
+  intranet: 'dns gateway core',
   linuxclient: 'client host bare vm jump box test tools centos el7',
   supportsim: 'demo simulation support help desk tickets vector search vectorsearch semantic embeddings ai rag mongot mongo mongodb lab learn',
   pgvectorsim: 'demo simulation support help desk tickets vector search pgvector hnsw semantic embeddings ai rag postgres postgresql patroni lab learn',
@@ -5061,7 +5047,6 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       { label: 'PMM 3', role: 'monitoring · Query Analytics', type: 'pmm', onClick: () => addNode('pmm') },
       // End of life: in the library only where EOL is on (lib/experimental.js).
       { label: 'PMM 2', role: 'monitoring · Query Analytics · end of life', type: 'pmm2', onClick: () => addNode('pmm2'), eol: true },
-      { label: 'Watchtower', role: 'PMM self-upgrade', type: 'watchtower', onClick: () => addNode('watchtower'), off: has('watchtower') },
     ] },
     { title: 'Identity & Secrets', items: [
       { label: 'Samba AD DC', role: 'LDAP · Kerberos', type: 'sambaad', onClick: () => addNode('sambaad'), off: has('sambaad') },
@@ -6826,7 +6811,6 @@ function PMMOptions({ n, nodes = [], patchNode, deployed }) {
   }, [])
   const versions = cat?.versions || []
   const defaultTag = cat?.defaultTag || '3'
-  const watchtowers = nodes.filter((x) => x.type === 'watchtower')
   return (
     <>
       <Field
@@ -6871,22 +6855,6 @@ function PMMOptions({ n, nodes = [], patchNode, deployed }) {
           Requires an Intranet node in the stack. New certs are written to <span className="font-mono">/srv/nginx</span> at deploy.
         </p>
       )}
-      <Field
-        label="Watchtower"
-        hint={deployed ? 'Set at deploy time.' : watchtowers.length ? 'Associate a Watchtower so PMM can perform in-app server upgrades.' : 'Add a Watchtower node to enable in-app upgrades.'}
-      >
-        <select
-          className={`${inputCls} ${deployed ? 'opacity-70' : ''}`}
-          value={n.watchtowerNodeId || ''}
-          disabled={deployed || watchtowers.length === 0}
-          onChange={(e) => patchNode(n.id, { watchtowerNodeId: e.target.value })}
-        >
-          <option value="">none</option>
-          {watchtowers.map((w) => (
-            <option key={w.id} value={w.id}>{w.label}</option>
-          ))}
-        </select>
-      </Field>
       <DirectoryAuthFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} kerberos={false} />
       <KeycloakOidcFields node={n} nodes={nodes} patchNode={patchNode} deployed={deployed} label="Single sign-on with Keycloak (Grafana OAuth)" />
     </>
@@ -8447,67 +8415,6 @@ function SeaweedFSForm({ node: n, patchNode, deleteNode, dep, deployed }) {
 
       {!deployed && <p className="text-xs text-muted">The endpoint URL and copy-paste backup snippets appear here after deploy.</p>}
       <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
-        <Icon.Trash size={16} /> Delete node
-      </Button>
-    </div>
-  )
-}
-
-// WatchtowerForm edits a (not-yet-running) Watchtower node. It is a per-stack
-// singleton with no tunables — it runs percona/watchtower with the docker socket
-// mounted and its HTTP API enabled so an associated PMM node can drive upgrades.
-function WatchtowerForm({ node: n, patchNode, deleteNode, dep, deployed }) {
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">Watchtower</span>
-        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
-      </div>
-      <p className="text-xs text-muted">
-        Runs <span className="font-mono">percona/watchtower</span> with the Docker socket mounted and its
-        HTTP API enabled. Associate it from a PMM node (its options) so PMM can trigger in-app server
-        upgrades. One Watchtower per stack.
-      </p>
-
-      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
-      </Field>
-
-      <div className="rounded-lg bg-surface2 px-3 py-2 text-xs text-muted">
-        Reachable in-network at <span className="font-mono">http://watchtower:8080</span>. A unique HTTP API
-        token is generated at deploy and shown here; nothing is published to the host.
-      </div>
-
-      {!deployed && <p className="text-xs text-muted">The API token appears here after deploy.</p>}
-      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
-        <Icon.Trash size={16} /> Delete node
-      </Button>
-    </div>
-  )
-}
-
-// WatchtowerManager shows a deployed Watchtower's profile (image, alias, API token).
-function WatchtowerManager({ stackId, nodeId, dep, onDeleteNode }) {
-  const cfg = dep?.config || {}
-  const sec = dep?.secrets || {}
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">Watchtower</span>
-        <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
-      </div>
-      <p className="text-xs text-muted">
-        Container auto-upgrades for PMM. Associate it from a PMM node to enable in-app upgrades.
-      </p>
-      <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
-        <InfoRow label="Image" help={HELP.depImage}><span className="font-mono text-xs">{cfg.image || 'percona/watchtower:latest'}</span></InfoRow>
-        <InfoRow label="Host" help={HELP.depHost}><span className="font-mono text-xs">{cfg.fqdn || cfg.hostname}</span></InfoRow>
-        <InfoRow label="API" help={HELP.depInternalURL}><span className="font-mono text-xs">http://{cfg.alias || 'watchtower'}:{cfg.apiPort || 8080}</span></InfoRow>
-        {sec.apiToken && (
-          <InfoRow label="API token" help={HELP.depAPIToken}><span className="break-all font-mono text-xs">{sec.apiToken}</span></InfoRow>
-        )}
-      </div>
-      <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
         <Icon.Trash size={16} /> Delete node
       </Button>
     </div>
@@ -16368,12 +16275,20 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
       if (dep && dep.state === 'running') return <CephManager stackId={stackId} nodeId={n.id} dep={dep} />
       return <CephForm node={n} nodes={nodes} frames={frames} patchNode={patchNode} dep={dep} deployed={deployed} />
     }
-    // Watchtower singleton node (container auto-upgrades for PMM).
+    // A node type DBCanvas no longer has (Watchtower), from a design saved before it was
+    // removed: say so, and offer the one thing left to do with it.
     if (n.type === 'watchtower') {
-      if (dep && dep.state === 'running') {
-        return <WatchtowerManager stackId={stackId} nodeId={n.id} dep={dep} onDeleteNode={() => deleteNode(n.id)} />
-      }
-      return <WatchtowerForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+      return (
+        <div className="space-y-3">
+          <span className="text-sm font-semibold">{n.label}</span>
+          <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
+            Watchtower is no longer supported. Delete this node; the stack will not deploy while it is on the canvas.
+          </div>
+          <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+            <Icon.Trash size={16} /> Delete node
+          </Button>
+        </div>
+      )
     }
     // OpenBao secrets-manager node (Vault-compatible KMS for Percona encryption).
     if (n.type === 'openbao') {

@@ -17,7 +17,7 @@ import (
 // that matter here: different ports (80/443 rather than 8080/8443), a different client, and an API
 // that moved. So this is its own node type rather than a version of the PMM node, and it is
 // deliberately small. It deploys a PMM 2 server at the version you pick, sets its admin password,
-// publishes its console, and stops there: no Watchtower, no Intranet certificate, no Grafana SMTP,
+// publishes its console, and stops there: no Intranet certificate, no Grafana SMTP,
 // no LDAP or Keycloak, and nothing on the canvas can be pointed at it for monitoring. Every
 // association picker in the designer and every provisioner here looks for Type "pmm", so a
 // "pmm2" node is invisible to all of them by construction.

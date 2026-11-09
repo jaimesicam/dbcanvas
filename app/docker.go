@@ -209,7 +209,7 @@ func (d *Docker) ImageExists(ctx context.Context, ref string) (bool, error) {
 }
 
 // platformAMD64 pins images that are published for linux/amd64 only (the PMM
-// server and Watchtower). Without it the daemon resolves the manifest list
+// server, MClusterAdmin). Without it the daemon resolves the manifest list
 // against the *host* platform, so on Apple Silicon it looks for a linux/arm64
 // entry that does not exist and mis-resolves against the buildkit
 // "unknown/unknown" attestation manifest. Under Rosetta/qemu the amd64 image
@@ -789,7 +789,7 @@ func (d *Docker) ContainerRemove(ctx context.Context, id string) {
 
 // VolumeCreate ensures a named Docker volume exists (idempotent — creating one that
 // already exists returns it). Used to persist a container's data across recreate (e.g.
-// PMM's /srv survives an in-GUI/Watchtower upgrade).
+// PMM's /srv survives an upgrade that recreates the container).
 func (d *Docker) VolumeCreate(ctx context.Context, name string) error {
 	resp, err := d.do(ctx, "POST", "/volumes/create", map[string]any{"Name": name})
 	if err != nil {

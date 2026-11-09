@@ -23,7 +23,7 @@ import (
 // fails simply keeps showing its design-time label.
 
 // nodeVersionScripts maps a node type to the command that prints its engine's version banner.
-// Types not listed here (intranet — it runs a dozen services, watchtower, vnc) are not probed;
+// Types not listed here (intranet — it runs a dozen services, vnc) are not probed;
 // pulled-image nodes fall back to their image tag (see probeVersion).
 var nodeVersionScripts = map[string]string{
 	// MySQL family — "…/mysqld  Ver 8.4.10-10 for Linux…"
@@ -150,7 +150,7 @@ func (a *App) ensureNodeVersions(st Stack, deps []Deployment) {
 }
 
 // probeVersion asks a node's engine for its version, falling back to the image tag for the
-// image-only nodes that have no useful CLI to ask — Keycloak, Watchtower, and MClusterAdmin,
+// image-only nodes that have no useful CLI to ask — Keycloak and MClusterAdmin,
 // whose image is `scratch` and so has no shell to exec into at all.
 //
 // The probe is tried with bash and then with sh: a k3s node (the K3D frame) is busybox — it has no

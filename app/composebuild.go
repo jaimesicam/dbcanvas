@@ -441,8 +441,8 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 			return fmt.Errorf("%s takes %d–%d members, not %d", kind.Kind, lo, hi, count)
 		}
 	} else if count > 1 && (kind.Singleton || kind.Kind == "pmm") {
-		// The validator allows exactly one Intranet, Keycloak, OpenBao, VNC and
-		// Watchtower per stack. PMM is not on that list, but two of them is never
+		// The validator allows exactly one Intranet, Keycloak, OpenBao and VNC per
+		// stack. PMM is not on that list, but two of them is never
 		// what a terse spec meant and it makes `monitor: true` ambiguous.
 		return fmt.Errorf("%s: only one per stack", kind.Kind)
 	}

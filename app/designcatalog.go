@@ -132,8 +132,6 @@ var catalogRelations = []catalogRelation{
 		Desc: "Users authenticate against the Intranet's OpenLDAP or a Samba AD DC directory."},
 	{Name: "kerberos", Field: "ldapDirNodeId", Enable: []string{"ldapAuth", "kerberosAuth"}, Targets: []string{"sambaad"},
 		Desc: "GSSAPI (Kerberos) sign-in against a Samba AD DC, on top of its LDAP binding."},
-	{Name: "upgrade", Field: "watchtowerNodeId", Targets: []string{"watchtower"},
-		Desc: "Watchtower lets the node upgrade itself from inside its own UI."},
 	{Name: "app", Field: "ssAIONode", Targets: []string{"aio"},
 		Desc: "The simulator drives its workload against an instance on an All-in-One node (ssMode \"aio\", ssAIOInstance names the instance)."},
 }

@@ -13,8 +13,8 @@ import (
 // the balancer, current ops, slow queries with explain, index and profile
 // management, users and roles, oplog stats.
 //
-// Runs upstream's own published image, pulled at deploy the way PMM's and
-// Watchtower's are rather than built here, and its web UI port is published to the
+// Runs upstream's own published image, pulled at deploy the way PMM's is
+// rather than built here, and its web UI port is published to the
 // host like PMM's and the simulators' dashboards, so it is reached straight from the
 // host browser with no VNC desktop in the way.
 //
@@ -36,7 +36,7 @@ import (
 //
 //   - Its image is amd64 and only amd64, because that is the one upstream builds.
 //     So this node is pinned to linux/amd64 whatever platform the installation
-//     targets — the same treatment PMM and Watchtower get, and the same
+//     targets — the same treatment PMM gets, and the same
 //     consequence: on arm64 it needs Rosetta or qemu to run at all.
 //
 // No TLS option, deliberately. The panel can serve HTTPS (--tls) with a cert we
@@ -135,7 +135,7 @@ func (a *App) provisionMClusterAdmin(st Stack, n designNode, doc designDoc) {
 		pr := a.pxcNewProg(st.ID, n.ID)
 		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 
-		// Pinned to amd64, like PMM's and Watchtower's images and for the same
+		// Pinned to amd64, like PMM's image and for the same
 		// reason: upstream publishes one architecture, not a manifest list. Asking
 		// for the platform this installation targets would fail the pull outright on
 		// an arm64 one, where this at least runs under Rosetta/qemu — and where it

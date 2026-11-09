@@ -79,11 +79,6 @@ const RULES = [
     detail: (s, t, o) => `${s} authenticates its users against the ${t} directory${o.kerberosAuth ? ', with Kerberos single sign-on' : ''}.`,
   },
   {
-    field: 'watchtowerNodeId', kind: 'upgrade',
-    label: () => 'upgraded by',
-    detail: (s, t) => `${t} lets ${s} upgrade itself from inside its own UI.`,
-  },
-  {
     field: 'ssAIONode', kind: 'app',
     when: (o) => o.ssMode === 'aio',
     label: () => 'app connection',

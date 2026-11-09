@@ -135,7 +135,7 @@ func (a *App) userBackend(u User) string {
 // vagrantVMNode / vagrantVMFrame are the node/frame types that run as VirtualBox
 // VMs in hybrid mode: the OS/DB nodes and their cluster frames. Everything not
 // listed stays on Docker even in a vagrant stack, so those well-tested paths are
-// unchanged — image-only infra (PMM, Keycloak, OpenBao, SeaweedFS, VNC, Watchtower,
+// unchanged — image-only infra (PMM, Keycloak, OpenBao, SeaweedFS, VNC,
 // Samba AD), K3D (k3s-in-Docker), and crucially the **Intranet**: its bind config
 // forwards to Docker's embedded resolver (127.0.0.11), which only exists in a
 // container. VM nodes reach the Docker Intranet's DNS/CA over VirtualBox NAT.

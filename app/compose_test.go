@@ -961,7 +961,7 @@ func TestComposePinnedOS(t *testing.T) {
 // composing two is refused here rather than at deploy time.
 func TestComposeSingletons(t *testing.T) {
 	composeCatalogFixture(t)
-	for _, kind := range []string{"keycloak", "openbao", "vnc", "watchtower"} {
+	for _, kind := range []string{"keycloak", "openbao", "vnc"} {
 		_, _, _, _, err := buildCompose(composeSpec{Name: "x", Nodes: []composeNodeSpec{
 			{Kind: kind}, {Kind: kind},
 		}})
@@ -1365,5 +1365,13 @@ func TestComposeSambaAndKerberosWithIntranetLDAP(t *testing.T) {
 		if n.LdapDirNodeID != "n-sambaad-01" {
 			t.Errorf("kerberos only: dir=%q", n.LdapDirNodeID)
 		}
+	}
+}
+
+// Watchtower was removed as a node type: compose no longer knows the kind.
+func TestComposeNoWatchtower(t *testing.T) {
+	composeCatalogFixture(t)
+	if _, _, _, _, err := buildCompose(composeSpec{Name: "x", Nodes: []composeNodeSpec{{Kind: "watchtower"}}}); err == nil {
+		t.Fatal("a watchtower entry was accepted")
 	}
 }

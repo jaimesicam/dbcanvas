@@ -29827,3 +29827,29 @@ A ProxySQL node and a ProxySQL Cluster frame choose where ProxySQL comes from (`
   `loadbal`, the ProxySQL Cluster frame with an upstream source, and repmgr, streaming replication and
   Spock backends behind ProxySQL were not run live.
 
+## 524. Watchtower node type removed — `app/watchtower.go` (deleted), `app/pmm.go`, `app/intranet.go`, `app/designcatalog.go`, `app/designcatalog_infra.go`, `app/compose.go`, `app/web/src/pages/StackDesigner.jsx`, `app/web/src/lib/relations.js`, `app/web/src/lib/engines.js`, `app/web/src/lib/help.js`, docs
+
+The Watchtower node — `percona/watchtower` with its HTTP API on, which a PMM node pointed at
+through the `upgrade` relation (`watchtowerNodeId`, `PMM_WATCHTOWER_HOST`/`TOKEN`) to upgrade
+itself from its own UI — is no longer a node type.
+
+- **Removed:**
+  - the provisioner (`watchtower.go`)
+  - PMM's wait-for-Watchtower step and its environment
+  - `designNode.WatchtowerNodeId`
+  - the catalogue entry and the `upgrade` relation
+  - the compose kind
+  - from the designer: the Add-menu entry, `NODE_TYPES` entry, form, panel, PMM's Watchtower picker
+    and the relation line
+- **Designs saved before.** A design that still has a Watchtower node is refused by validation
+  ("no longer supported — delete it from the canvas"), and its properties panel offers only Delete.
+  The other canvas lookups already tolerate an unknown type. A PMM node's stored `watchtowerNodeId`
+  is dropped when the design is decoded. PMM keeps its `/srv` volume and fixed host ports, which also
+  serve redeploys.
+- **Docs.** `docs/STACKS.md`, `docs/API_REFERENCE.md`, the README's node list,
+  `THIRD_PARTY_NOTICES.md` and the CLI skill no longer list it. Past release notes are left as written.
+
+**Verification performed.** `go test ./` (`TestComposeSingletons` without Watchtower, the new
+`TestComposeNoWatchtower`, `TestDesignCatalog`'s designer/catalogue cross-check), `npm run build`,
+`npm run smoke`. No stack on the installation had a Watchtower node, so none needed migrating.
+

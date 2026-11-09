@@ -56,10 +56,9 @@ type designNode struct {
 	DeviceWriteMBps int    `json:"deviceWriteMbps"` // container --device-write-bps, in MB/s
 	DevicePath      string `json:"devicePath"`      // "" → auto-detect
 	// PMM node fields (ignored by other node types).
-	Version          string `json:"version"`          // PMM minor version tag ("" → catalog default)
-	AdminPassword    string `json:"adminPassword"`    // PMM admin password ("" → PMM_ADMIN_PASSWORD)
-	GenerateCert     bool   `json:"generateCert"`     // sign nginx certs from the Intranet CA on deploy
-	WatchtowerNodeID string `json:"watchtowerNodeId"` // PMM: Watchtower node enabling in-app upgrades (optional)
+	Version       string `json:"version"`       // PMM minor version tag ("" → catalog default)
+	AdminPassword string `json:"adminPassword"` // PMM admin password ("" → PMM_ADMIN_PASSWORD)
+	GenerateCert  bool   `json:"generateCert"`  // sign nginx certs from the Intranet CA on deploy
 	// PXC node fields — a PXC node belongs to a PXC frame (FrameID) and is either
 	// a data member ("regular") or a voting-only "arbitrator" (garbd).
 	FrameID        string `json:"frameId"`
@@ -1341,7 +1340,6 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 	out = append(out, distributionStackIssues(doc)...)
 	out = append(out, mysqlTuningIssues(doc)...)
 	intranet := 0
-	watchtower := 0
 	keycloak := 0
 	openbao := 0
 	vnc := 0
@@ -1350,16 +1348,12 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 	labels := map[string]int{}
 	seenImg := map[string]bool{}
 	exportReq := map[int][]string{} // requested host port → node labels (PXC + ProxySQL)
-	watchtowerIDs := map[string]bool{}
 	keycloakIDs := map[string]bool{}
 	keycloakSSL := map[string]bool{}
 	dirNodes := map[string]string{} // node id → "intranet" | "sambaad" (directory nodes)
 	openbaoIDs := map[string]bool{} // OpenBao nodes a ps/psm node can key its encryption to
 	pmmCat := loadPMMCatalog()
 	for _, n := range doc.Nodes {
-		if n.Type == "watchtower" {
-			watchtowerIDs[n.ID] = true
-		}
 		if n.Type == "keycloak" {
 			keycloakIDs[n.ID] = true
 			keycloakSSL[n.ID] = n.GenerateCert
@@ -1428,9 +1422,6 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			if !pmmCat.validPMMTag(n.Version) {
 				out = append(out, issue{Level: "warning", Message: "Unknown PMM version " + n.Version + " for node " + n.Label + " — run `make versions`"})
 			}
-			if n.WatchtowerNodeID != "" && !watchtowerIDs[n.WatchtowerNodeID] {
-				out = append(out, issue{Level: "error", Message: "PMM node " + n.Label + " is associated with a Watchtower node that is not on the canvas — add a Watchtower node or clear the association"})
-			}
 			out = append(out, oidcIssues(n, keycloakIDs, keycloakSSL)...)
 			out = append(out, dirAuthIssues(n, dirNodes)...)
 		case "pmm2":
@@ -1452,8 +1443,9 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			}
 			out = append(out, repositoryIssues(n)...)
 		case "watchtower":
-			watchtower++
-			others++
+			// The node type was removed (IMPLEMENTATION.md 524). A design saved before then
+			// still decodes, so say what to do rather than deploying nothing in its place.
+			out = append(out, issue{Level: "error", Message: "Watchtower node " + n.Label + " is no longer supported — delete it from the canvas"})
 		case "keycloak":
 			keycloak++
 			others++
@@ -1692,8 +1684,8 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 		case "mclusteradmin":
 			others++
 			// Nothing to check, and no image check either: the panel runs upstream's
-			// published image, which the deploy pulls the way it pulls PMM's and
-			// Watchtower's, so there is nothing for an admin to build first. The panel
+			// published image, which the deploy pulls the way it pulls PMM's, so there
+			// is nothing for an admin to build first. The panel
 			// takes no association line and needs no database to be present, because
 			// which one it opens is a URI typed into its own UI. The MongoDB half that
 			// IS wired — the two accounts — is validated on the MongoDB, where the box
@@ -1755,9 +1747,6 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 	}
 	if intranet > 1 {
 		out = append(out, issue{Level: "error", Message: "Only one Intranet node is allowed per stack"})
-	}
-	if watchtower > 1 {
-		out = append(out, issue{Level: "error", Message: "Only one Watchtower node is allowed per stack"})
 	}
 	if keycloak > 1 {
 		out = append(out, issue{Level: "error", Message: "Only one Keycloak node is allowed per stack"})
@@ -2621,8 +2610,6 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionSeaweedFS(st, n, doc)
 		case "ceph":
 			a.provisionCeph(st, n, doc)
-		case "watchtower":
-			a.provisionWatchtower(st, n, doc)
 		case "keycloak":
 			a.provisionKeycloak(st, n, doc)
 		case "mclusteradmin":

@@ -108,5 +108,5 @@ source does not include or redistribute those packages. The same holds for the o
 images an installation builds for itself from a Dockerfile here: the K3D diagnostics
 image (Percona Toolkit, GPL-2.0; kubectl, Apache-2.0) and Big Hole (MIT, built from
 upstream source, which ships its licence at `/usr/share/doc/big-hole/LICENSE` and
-serves it at `/LICENSE.txt`). Images pulled as-is — Watchtower, PMM, k3s, the
+serves it at `/LICENSE.txt`). Images pulled as-is — PMM, k3s, the
 operators — come from their publishers with their own notices.

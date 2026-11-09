@@ -373,7 +373,7 @@ node type (`nodes`) and cluster type (`frames`) it lists:
   member node entry's (`memberType`).
 - `relations` — named references to another node: `monitor` (PMM), `backup`
   (SeaweedFS), `vault` (OpenBao), `oidc` (Keycloak), `ldap`/`kerberos` (a directory),
-  `orchestrator`, `repository`, `storage` (Ceph), `upgrade` (Watchtower), `app` (an
+  `orchestrator`, `repository`, `storage` (Ceph), `app` (an
   All-in-One). Top-level `relations` says which field each is stored in.
 - `edges` — the lines it draws (a proxy's backend, a simulator's database, replication
   between clusters) and what may be at the other end. Provisioners walk these.

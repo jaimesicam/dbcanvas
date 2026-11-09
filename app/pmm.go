@@ -100,7 +100,7 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 
 	// Reuse the admin password across redeploys; otherwise take the user's value
 	// or generate one when left empty. Also reuse the published host ports so the PMM
-	// server keeps the same URLs across a redeploy AND across a Watchtower upgrade.
+	// server keeps the same URLs across a redeploy AND across an upgrade that recreates it.
 	var sec pmmSecrets
 	httpPort, httpsPort := 0, 0
 	if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil {
@@ -121,7 +121,7 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 		}
 		sec = pmmSecrets{AdminUser: "admin", AdminPassword: pw}
 	}
-	// Fixed host ports, so the URLs survive a redeploy and Watchtower recreating the
+	// Fixed host ports, so the URLs survive a redeploy and an upgrade recreating the
 	// container during an in-GUI upgrade. Left at 0 on a first deploy: they are chosen
 	// on the Docker host when the container is created, pinned, and read back
 	// (hostports.go).
@@ -180,27 +180,13 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 		}
 		logln("Intranet is running (resolver at " + intranetIP + ")")
 
-		// If a Watchtower node is associated, point PMM at it so the UI can trigger
-		// server upgrades (PMM_WATCHTOWER_HOST/TOKEN). Best-effort: if the Watchtower
-		// node never comes up we still bring PMM online without the integration.
-		var wtEnv []string
-		if n.WatchtowerNodeID != "" {
-			setPhase("Waiting for Watchtower", 18)
-			if wfqdn, wtoken, ok := a.waitWatchtower(ctx, st.ID, n.WatchtowerNodeID, deployTimeout()); ok {
-				wtEnv = watchtowerHostEnv(wfqdn, wtoken)
-				logln("associated with Watchtower at " + wfqdn)
-			} else {
-				logln("warning: Watchtower node not ready; PMM upgrades via Watchtower disabled")
-			}
-		}
-
 		setPhase("Creating container", 20)
 		name := containerName(st.ID, n.ID)
 		if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok {
 			a.engCtx(ctx).ContainerRemove(ctx, cid)
 		}
 		// Persist /srv (Grafana DB, VictoriaMetrics, ClickHouse, etc.) in a stable named
-		// volume so a PMM server upgrade (in-GUI/Watchtower recreate) keeps all data —
+		// volume so a PMM server upgrade (a recreate on a newer image) keeps all data —
 		// otherwise the recreated container starts empty and you get "session closed" on
 		// login (the Grafana DB / signing key are gone).
 		srvVol := pmmDataVolume(st.ID, n.ID)
@@ -209,7 +195,6 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 		}
 		id, err := a.engCtx(ctx).ContainerCreate(ctx, ContainerSpec{
 			Name: name, Image: ref, Hostname: host, Platform: platformAMD64,
-			Env:     wtEnv,
 			Network: networkName(st.ID), Aliases: []string{host},
 			PublishMap: []PortMap{{ContainerPort: 8080, HostPort: httpPort, Auto: true}, {ContainerPort: 8443, HostPort: httpsPort, Auto: true}},
 			Binds:      []string{srvVol + ":/srv"},

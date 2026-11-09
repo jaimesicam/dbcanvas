@@ -993,7 +993,6 @@ const NODE_BLURB = {
   pmm2:
     'A PMM 2 server at the release you pick — end of life, offered because EOL is on. It stands alone: no node ' +
     'on the canvas can be pointed at it, so register clients by hand if you need them. Separate from PMM 3.',
-  watchtower: 'Watches for newer images of the nodes it manages and updates them, for demonstrating an upgrade rollout.',
   keycloak: 'An OIDC identity provider, so databases in the stack can do single sign-on instead of holding their own passwords.',
   openbao: 'A key-management server, so a database can keep its data-at-rest encryption keys somewhere other than beside the data.',
   aio: 'One container running MySQL, PostgreSQL, MongoDB and Valkey at once. The fastest way to get a client connected to something.',

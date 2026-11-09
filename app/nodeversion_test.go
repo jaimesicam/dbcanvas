@@ -39,7 +39,7 @@ func TestImageTagVersion(t *testing.T) {
 		{"percona/pmm-server:3.3.1", "3.3.1"},
 		{"chrislusf/seaweedfs:latest", ""},
 		{"valkey/valkey-bundle:latest", ""},
-		{"percona/watchtower", ""},
+		{"percona/percona-server", ""}, // no tag at all
 		{"registry:5000/foo/bar", ""}, // a port, not a tag
 	}
 	for _, tc := range tests {

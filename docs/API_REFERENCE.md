@@ -262,7 +262,7 @@ is marked `expired`.
 | Key | Contents |
 | --- | --- |
 | `nodes`, `frames` | one entry per node type and cluster type: its `placement` (`standalone`, `member` of listed `frameTypes`, or `frame`), whether it is a `singleton`, what it `requires`, and its `options` (field, JSON `type`, accepted `values`, `default`, `description`, and `when` it applies). Clusters add `memberType`, `defaultMembers`, `minMembers`, `maxMembers`. |
-| `relations` | references a node holds to another node — `monitor` (PMM), `backup` (SeaweedFS), `vault` (OpenBao), `oidc` (Keycloak), `ldap`, `kerberos`, `orchestrator`, `repository`, `storage` (Ceph), `upgrade` (Watchtower), `app` (All in One) — with the field each is stored in |
+| `relations` | references a node holds to another node — `monitor` (PMM), `backup` (SeaweedFS), `vault` (OpenBao), `oidc` (Keycloak), `ldap`, `kerberos`, `orchestrator`, `repository`, `storage` (Ceph), `app` (All in One) — with the field each is stored in |
 | `edges` (per entry) | the lines a type draws and what may be at the other end: a proxy's backend, a simulator's database, replication between clusters (`async` or `bidir`) |
 | `actions` (per entry) | endpoints that apply once deployed, with request body and when each applies; `commonActions` apply to every node |
 
@@ -417,7 +417,7 @@ dbcanvas-cli stack compose pool-lab --ttl 4h \
   Ubuntu desktop it needs (its admin console is reachable only from inside the stack).
 - `oidc` on Percona Server is refused below 8.4.11-11 (9.7.2-2 on the 9.7 series).
 - OpenBao runs only on Oracle Linux 9 and the VNC desktop only on Ubuntu 24.04.
-- Only one each of `intranet`, `keycloak`, `openbao`, `vnc` and `watchtower` per stack.
+- Only one each of `intranet`, `keycloak`, `openbao` and `vnc` per stack.
 - Not composable: Kubernetes frames, All in One, Stock Market Sim and Linux Client
   nodes. Add them with the design endpoints, or start from a template.
 

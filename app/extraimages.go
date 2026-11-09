@@ -24,7 +24,7 @@ import (
 //
 // A third-party tool whose upstream publishes an image of its own is not in here at
 // all: MClusterAdmin used to be, and now the deploy pulls it (mclusteradmin.go), the
-// way PMM's and Watchtower's images have always been pulled.
+// way PMM's image has always been pulled.
 //
 // The Intranet is still in the catalog below, because the question this file answers
 // is "the image this node needs is missing, now what" — and it is missing whenever

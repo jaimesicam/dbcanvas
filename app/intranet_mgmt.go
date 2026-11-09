@@ -54,10 +54,10 @@ func (a *App) loadRunningNode(w http.ResponseWriter, r *http.Request) (Deploymen
 }
 
 // reconcileContainerID re-resolves a node's container by name and persists the stored
-// deployment if the id drifted. An out-of-band recreate — e.g. Watchtower upgrading the
-// PMM server — keeps the container *name* but assigns a new id, leaving the persisted id
-// stale so exec/cert/terminal fail with "No such container" (404). Resolving by name
-// (which Watchtower preserves) repairs it transparently.
+// deployment if the id drifted. An out-of-band recreate — e.g. a PMM server upgraded
+// outside DBCanvas — keeps the container *name* but assigns a new id, leaving the
+// persisted id stale so exec/cert/terminal fail with "No such container" (404). Resolving
+// by name repairs it transparently.
 func (a *App) reconcileContainerID(ctx context.Context, stackID int64, nid string, dep Deployment) Deployment {
 	name := containerName(stackID, nid)
 	if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok && cid != "" && cid != dep.ContainerID {

@@ -58,7 +58,7 @@ exception: they need a DBCanvas checkout and `make <name>-image` (for example
 | Linux Client | Oracle Linux 8, 9, 10; Ubuntu 22.04, 24.04; Debian 12, 13; CentOS 7 with `EOL=on` |
 | Intranet, OpenBao | Oracle Linux 9 |
 | Samba AD DC, VNC, Repository | Ubuntu 24.04 |
-| PMM, Keycloak, SeaweedFS, Ceph, Watchtower, MClusterAdmin, Big Hole, simulators | A fixed container image; no OS choice |
+| PMM, Keycloak, SeaweedFS, Ceph, MClusterAdmin, Big Hole, simulators | A fixed container image; no OS choice |
 
 Debian is for the Linux Client only, and only on the Docker backend; Validate rejects it on any
 other node. The version pickers list what `make versions` found for each OS.
@@ -80,12 +80,12 @@ other node. The version pickers list what `make versions` found for each OS.
 | Valkey | Valkey Cluster · Valkey |
 | Kubernetes | K3D Cluster · Kubeadm Cluster |
 | Proxies & HA | ProxySQL · ProxySQL Cluster · HAProxy · PgBouncer · Orchestrator |
-| Monitoring | PMM 3 · PMM 2 (`EOL=on` only) · Watchtower |
+| Monitoring | PMM 3 · PMM 2 (`EOL=on` only) |
 | Identity & Secrets | Samba AD DC · Keycloak · OpenBao |
 | Storage & Clients | SeaweedFS · Ceph · VNC · Linux Client · Repository |
 | App Simulators | Support Sim (Vector Search) · pgvector Support Sim · Stock Market Sim · Ledger Sim |
 
-One per stack: Intranet, Samba AD DC, Keycloak, OpenBao, VNC and Watchtower.
+One per stack: Intranet, Samba AD DC, Keycloak, OpenBao and VNC.
 
 ### MySQL (Percona)
 
@@ -328,7 +328,6 @@ from `make versions`; `ONLY=haproxy make versions` refreshes only them.
 | --- | --- |
 | **PMM 3** | Percona Monitoring and Management 3. Databases that pick it register themselves. Optional LDAP or Keycloak sign-in to Grafana. |
 | **PMM 2** | A PMM 2 server, 2.25.0 to 2.44.1, offered only with `EOL=on`. Login `admin` / `PMM_ADMIN_PASSWORD`. Nothing can be pointed at it, and it gets no Intranet certificate, SMTP, LDAP or Keycloak. amd64 only. |
-| **Watchtower** | Lets a PMM node that points at it upgrade itself to a newer image from its own UI. |
 
 ![A PMM node's panel — the server, its components, and two ways into it](screenshots/pmm-node.png)
 
@@ -1121,7 +1120,7 @@ fixed for that stack; to try the other backend, create a new stack.
 
 | VirtualBox VM | Docker container |
 | --- | --- |
-| Percona Server, PostgreSQL, PSMDB, Valkey, ProxySQL, HAProxy, PgBouncer, Linux Client (not Debian) | Intranet, K3D, PMM, Keycloak, OpenBao, SeaweedFS, Samba AD, VNC, Watchtower, and the other types |
+| Percona Server, PostgreSQL, PSMDB, Valkey, ProxySQL, HAProxy, PgBouncer, Linux Client (not Debian) | Intranet, K3D, PMM, Keycloak, OpenBao, SeaweedFS, Samba AD, VNC, and the other types |
 | PXC, Percona Server Replication, Percona Server InnoDB / GR, PSMDB Replica Set and Sharded, Patroni, repmgr, PostgreSQL Replication, Spock, Valkey Cluster, ProxySQL Cluster | |
 
 VMs and containers share DNS, the CA, PMM and SeaweedFS. Each VM-capable node has **CPUs** and

@@ -182,8 +182,7 @@ The [database stacks](#database-stacks) above run alongside these nodes:
 
 **Infrastructure**: Intranet (DNS, mail, OpenLDAP, Squid proxy, certificate authority), PMM,
 ProxySQL, HAProxy, PgBouncer, Orchestrator, SeaweedFS (S3), Ceph, Keycloak, OpenBao, Samba AD DC,
-Watchtower, a package Repository, MClusterAdmin, Big Hole, a VNC desktop and a Linux
-Client.
+a package Repository, MClusterAdmin, Big Hole, a VNC desktop and a Linux Client.
 
 **Simulated load**: applications that send realistic traffic to your databases — support desk,
 ledger and stock market simulators — and Performance Sim, whose stressors make a server or
