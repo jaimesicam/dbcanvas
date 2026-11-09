@@ -38,8 +38,15 @@ func TestPGDirAuthScriptFindsTheConfigDirectory(t *testing.T) {
 		t.Errorf("with CONFDIR: %v %q, want %q", err, out, want)
 	}
 
+	// The script falls back to searching the machine, so "none anywhere" can only be tested on one
+	// without PostgreSQL installed (a CI runner may have it).
+	for _, d := range []string{"/etc/postgresql", "/var/lib/pgsql", "/var/lib/postgresql"} {
+		if found, _ := exec.Command("find", d, "-name", "pg_hba.conf").Output(); len(strings.TrimSpace(string(found))) > 0 {
+			t.Skipf("this machine has a pg_hba.conf under %s", d)
+		}
+	}
 	cmd = exec.Command("/bin/sh", "-c", head)
-	cmd.Env = append(os.Environ(), "CONFDIR="+t.TempDir()) // no pg_hba.conf there, none in /etc here
+	cmd.Env = append(os.Environ(), "CONFDIR="+t.TempDir()) // no pg_hba.conf there, none on this machine
 	if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "pg_hba.conf not found") {
 		t.Errorf("without a pg_hba.conf: %v %q", err, out)
 	}

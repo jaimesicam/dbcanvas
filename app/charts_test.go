@@ -135,6 +135,10 @@ func TestK3DFrameIssuesCNPGVersion(t *testing.T) {
 	// A client on a dead socket keeps this hermetic: k3dFrameIssues asks the engine for host
 	// resources, and HostResources returns zeroes on any error, which makes it skip that check.
 	a := &App{docker: NewDocker(filepath.Join(t.TempDir(), "absent.sock"))}
+	// The validator also wants a k3d binary; a stand-in keeps the test off the host's PATH.
+	fake := filepath.Join(t.TempDir(), "k3d")
+	os.WriteFile(fake, []byte("#!/bin/sh\n"), 0o755)
+	t.Setenv("K3D_BIN", fake)
 	ops := loadOperatorCatalog()
 
 	ok := a.k3dFrameIssues(t.Context(), designFrame{
