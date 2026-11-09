@@ -29,8 +29,6 @@ func TestGuestLogin(t *testing.T) {
 	}
 	app.store.SetAppSetting(settingGuestLogin, "0")
 	admin, _ := app.store.CreateUser("admin", "x", RoleAdmin, StatusApproved)
-	// Somebody already registered the name; the guest account takes another.
-	app.store.CreateUser("guest", "x", RoleUser, StatusApproved)
 
 	// Off by default.
 	if app.systemSettings("").GuestLogin {
@@ -39,8 +37,8 @@ func TestGuestLogin(t *testing.T) {
 	if code := login().Code; code != http.StatusForbidden {
 		t.Fatalf("guest sign-in while off returned %d", code)
 	}
-	if _, err := app.store.GuestAccount(); err == nil {
-		t.Fatal("a refused guest sign-in created the guest account")
+	if gs, _ := app.store.ListGuestAccounts(); len(gs) != 0 {
+		t.Fatal("a refused guest sign-in created a guest account")
 	}
 
 	// On: a regular user, signed in.
@@ -49,14 +47,27 @@ func TestGuestLogin(t *testing.T) {
 	if w.Code != http.StatusOK || len(w.Result().Cookies()) == 0 {
 		t.Fatalf("guest sign-in: %d, cookies %d", w.Code, len(w.Result().Cookies()))
 	}
-	g, err := app.store.GuestAccount()
-	if err != nil || !g.GuestAccount || g.Role != RoleUser || g.Status != StatusApproved || g.Username != "guest-2" {
-		t.Fatalf("guest account: %+v %v", g, err)
+	gs, _ := app.store.ListGuestAccounts()
+	if len(gs) != 1 {
+		t.Fatalf("guest accounts: %d", len(gs))
 	}
-	// A second guest gets the same account.
+	g := gs[0]
+	if !g.GuestAccount || g.Role != RoleUser || g.Status != StatusApproved || !strings.HasPrefix(g.Username, "guest-") {
+		t.Fatalf("guest account: %+v", g)
+	}
+	// A second guest gets an account of its own…
 	login()
-	if users, _ := app.store.ListUsers(); len(users) != 3 {
-		t.Errorf("a second guest sign-in made another account: %d accounts", len(users))
+	if gs, _ := app.store.ListGuestAccounts(); len(gs) != 2 || gs[1].ID == g.ID {
+		t.Errorf("a second guest sign-in: %d guest accounts", len(gs))
+	}
+	// …while a browser that already has a guest session keeps its account.
+	{
+		r, _ := signedIn(t, app, g, "")
+		w := httptest.NewRecorder()
+		app.handleGuestLogin(w, r)
+		if gs, _ := app.store.ListGuestAccounts(); w.Code != http.StatusOK || len(gs) != 2 {
+			t.Errorf("signing in again from a guest session: %d, %d guest accounts", w.Code, len(gs))
+		}
 	}
 
 	// Guests have neither API tokens nor much else by default (secgroups.go); this
@@ -80,10 +91,13 @@ func TestGuestLogin(t *testing.T) {
 	if code := call("POST /api/tokens"); code != http.StatusOK || !reached {
 		t.Errorf("a guest creating an API token returned %d", code)
 	}
-	for _, p := range []string{"POST /api/me/password", "PUT /api/me/profile"} {
-		if code := call(p); code != http.StatusForbidden || reached {
-			t.Errorf("%s as the guest returned %d", p, code)
-		}
+	if code := call("POST /api/me/password"); code != http.StatusForbidden || reached {
+		t.Errorf("setting a password as a guest returned %d", code)
+	}
+	// The profile is the guest's own now, so the guest rule lets it change it (whether the
+	// Guests group has the page that does is the group's setting, secgroups.go).
+	if !app.guestGate(httptest.NewRecorder(), g, routeFor(t, "PUT /api/me/profile")) {
+		t.Error("the guest rule refused a guest's own profile")
 	}
 
 	// Never an admin, never a password.
@@ -139,10 +153,44 @@ func TestGuestLogin(t *testing.T) {
 		t.Errorf("turning guest sign-in off left %d guest sessions", stats[g.ID].Count)
 	}
 
-	// An administrator disabling the account refuses guest sign-in too.
+	// Keeping existing guests: turning sign-in off then refuses only new ones.
 	setSettings(`{"guestLogin":true}`)
-	app.store.SetStatus(g.ID, StatusDisabled)
+	guestSecret, _ = tokenFor(t, app, g.ID, ScopeWrite, 30)
+	setSettings(`{"guestKeepAccess":true}`)
+	setSettings(`{"guestLogin":false}`)
+	if code := tokenCall(); code != http.StatusOK {
+		t.Errorf("a kept guest's token after sign-in was turned off returned %d", code)
+	}
 	if code := login().Code; code != http.StatusForbidden {
-		t.Errorf("guest sign-in to a disabled guest account returned %d", code)
+		t.Errorf("a new guest while sign-in is off returned %d", code)
+	}
+}
+
+func TestReapIdleGuests(t *testing.T) {
+	app := newTestApp(t)
+	fresh, _ := app.store.CreateGuestAccount()
+	idle, _ := app.store.CreateGuestAccount()
+	regular, _ := app.store.CreateUser("ann", "x", RoleUser, StatusApproved)
+	old := "2020-01-01T00:00:00Z"
+	for _, id := range []int64{idle.ID, regular.ID} {
+		app.store.db.Exec("UPDATE users SET created_at = ?, last_login_at = ? WHERE id = ?", old, old, id)
+	}
+	app.store.SetAppSetting(settingGuestIdleDays, "7")
+	app.reapIdleGuests()
+	if _, err := app.store.GetUser(idle.ID); err == nil {
+		t.Error("an idle guest account was kept")
+	}
+	if _, err := app.store.GetUser(fresh.ID); err != nil {
+		t.Error("a fresh guest account was removed")
+	}
+	if _, err := app.store.GetUser(regular.ID); err != nil {
+		t.Error("an idle regular account was removed")
+	}
+	// 0 keeps them.
+	app.store.db.Exec("UPDATE users SET created_at = ?, last_login_at = ? WHERE id = ?", old, old, fresh.ID)
+	app.store.SetAppSetting(settingGuestIdleDays, "0")
+	app.reapIdleGuests()
+	if _, err := app.store.GetUser(fresh.ID); err != nil {
+		t.Error("guestIdleDays=0 removed a guest account")
 	}
 }

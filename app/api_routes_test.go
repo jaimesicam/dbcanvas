@@ -96,6 +96,9 @@ func TestAdminRoutesUnchanged(t *testing.T) {
 		"PUT /api/system/settings":              true,
 		"GET /api/security/groups":              true, // added with security groups
 		"PUT /api/security/groups":              true,
+		"GET /api/system/doctor":                true, // added with the doctor
+		"GET /api/security/policies":            true, // added with group limits
+		"PUT /api/security/policies":            true,
 		"GET /api/users":                        true,
 		"POST /api/users/{id}/approve":          true,
 		"POST /api/users/{id}/reject":           true,

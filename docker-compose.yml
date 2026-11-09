@@ -25,6 +25,9 @@ services:
       # Dockerfile sets APP_HOST=0.0.0.0); host-side exposure is controlled by
       # the publish binding below, not by this value.
       APP_PORT: ${APP_PORT:-8080}
+      # The host interface the port is published on (APP_HOST in .env), so the app knows
+      # whether it is reachable beyond this machine (app/exposure.go).
+      PUBLISH_HOST: ${APP_HOST:-127.0.0.1}
       # See `name:` above — the app prefixes what it deploys with it (app/instance.go).
       DBCANVAS_INSTANCE: ${DBCANVAS_INSTANCE:-dbcanvas}
       DB_PATH: /data/dbcanvas.db

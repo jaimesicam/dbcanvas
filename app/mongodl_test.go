@@ -76,7 +76,7 @@ func TestIsMongoNodeType(t *testing.T) {
 			t.Errorf("%s should be a MongoDB node", ok)
 		}
 	}
-	for _, no := range []string{"ps", "pg", "mclusteradmin", "bighole", "aio", "valkey", ""} {
+	for _, no := range []string{"ps", "pg", "mclusteradmin", "aio", "valkey", ""} {
 		if isMongoNodeType(no) {
 			t.Errorf("%s should not be a MongoDB node", no)
 		}

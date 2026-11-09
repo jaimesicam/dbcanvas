@@ -24,8 +24,8 @@ account is disabled or rejected.
 ### As a guest
 
 When an administrator turns on **Guest sign-in** (Settings → This installation, off by
-default), `POST /api/auth/guest` signs in without a password to one shared account with
-the user role, and sets the same session cookie as `POST /api/auth/login`. That session
+default), `POST /api/auth/guest` creates a guest account of its own, without a password and with
+the user role, and signs it in, and sets the same session cookie as `POST /api/auth/login`. That session
 can create a token (`POST /api/tokens`) like any other, which is what
 `dbcanvas-cli login --guest` does. `GET /api/setup/status` says whether guest sign-in is on
 (`"guestLogin": true`), and `GET /api/me` marks the account (`"guestAccount": true`).
@@ -74,6 +74,18 @@ shortened, not refused.
 
 An expired or revoked token stays in your list, marked as such, for 30 days and is
 then deleted.
+
+### Limit a token to some stacks
+
+A token can also be limited to the stacks it creates itself, and/or to stacks carrying given
+labels. Pass `"limit": {"ownStacks": true, "labels": {"tool": "ci"}}` to `POST /api/tokens`, or use
+`dbcanvas-cli token create --own-stacks --limit-label tool=ci`.
+
+- **What it can call:** a limited token may call any route of a stack within its limit, list
+  stacks (filtered to its limit), create and compose stacks, and read the catalogues and
+  `/api/me`. Everything else answers `403`, whatever its scope.
+- **Labels on new stacks:** a stack it creates gets its labels, and it cannot set labels that
+  would drop them.
 
 ### Revoke a token
 
@@ -135,7 +147,8 @@ Most endpoints take and return JSON. The catalogue marks the others:
 | `401` | not signed in, or the token is unknown, expired or revoked |
 | `403` | not permitted: not your stack, not an administrator, a token scope too narrow, or an endpoint that refuses tokens |
 | `404` | no such stack, node, capture or token — or no such endpoint (a mistyped path, or the right path with the wrong method) |
-| `409` | wrong state for the request, for example the node is not running |
+| `409` | wrong state for the request, for example the node is not running, or a stack name you already use |
+| `410` | the stack was deleted: `deleted` says when, by whom and why (`user`, `admin`, `account`, `guest-idle`); kept 30 days |
 | `502` | an outside service could not be reached (the update check) |
 
 Errors are always `{"error": "…"}`.
@@ -153,7 +166,7 @@ session's guests use.
 ## Security groups
 
 Every account is in one of three groups: **Administrators** (role `admin`), **Regular
-Users** (role `user`) and **Guests** (the shared guest account). An administrator decides
+Users** (role `user`) and **Guests** (every guest account). An administrator decides
 which features — the pages of the app — each group may use, under Settings → Security
 groups, with `PUT /api/security/groups`, or with `dbcanvas-cli group set`.
 
@@ -187,6 +200,57 @@ curl -s -X PUT -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: applica
 
 Cells you leave out keep their value. `GET /api/setup/status` lists the features the caller
 may use (`features`) and their group (`securityGroup`).
+
+## Stacks for programs
+
+**Names.** An account's stack names are unique, compared without regard to case. Creating,
+renaming or transferring onto a name in use answers `409`, naming the existing stack's id. Every
+route takes the stack's id, which never changes.
+
+**Labels.** Labels are `key=value` tags a program can find its stacks by.
+
+- **Set:** on `POST /api/stacks` or a compose spec as `"labels": {"tool": "ci", "run": "12"}`, or
+  replace them with `PUT /api/stacks/{id}/labels`.
+- **Select:** `GET /api/stacks?label=tool=ci&label=run` keeps the stacks carrying every term (`run`
+  alone means any value).
+- **Rules:** keys are lowercase letters, digits and `. _ / -` (up to 63 characters); values are up
+  to 128 characters. A stack carries at most 32 labels.
+- **CLI:** `stack compose|create --label k=v`, `stack list --label k=v`, `stack label <stack>
+  k=v k-`, and `stack destroy|delete --label k=v` for every match.
+
+**Events.** `GET /api/stacks/events` is a server-sent event stream of your stacks' lifecycle:
+`created`, `deploying`, `destroyed`, `deleted` (with `reason` and `by`), `expired`, `extended` and
+`labels`. Each event carries the stack's id, name, owner and labels. `?label=` narrows it, and an
+administrator's `?all=1` covers every stack. `dbcanvas-cli stack events` follows it. A stack that
+was deleted answers `410` with how it went, instead of `404`.
+
+## Limits and checks (administrators)
+
+**Limits per security group.** `GET`/`PUT /api/security/policies` (`dbcanvas-cli group policy`)
+sets, per group:
+
+- `maxTtl`: the longest lifetime a stack is created or extended with
+- `maxStacks`: stacks per account
+- `maxContainers`: deployed nodes per account
+- `deniedNodeTypes`: node and cluster types the group may not deploy (refused at validation)
+
+Empty or 0 is no limit. See [Security model](SECURITY.md).
+
+**Doctor.** `GET /api/system/doctor` (`dbcanvas-cli doctor`) checks:
+
+- Docker
+- the node images for this release
+- the version catalogue's age
+- passwords still at their `.env.example` value
+- the encryption key
+- exposure and sign-in settings
+- the CLI and Big Hole files
+
+Each check is `ok`, `warn` or `fail`, and every one that is not `ok` says what to do.
+
+**The CLI download.** `GET /api/cli/download` sends `X-Checksum-Sha256` (and `Digest`) and
+`X-DBCanvas-Version`. `GET /api/cli/checksums` lists every shipped binary's SHA-256 in `sha256sum`
+format.
 
 ## Example: deploy a stack and wait for it
 

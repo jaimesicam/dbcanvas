@@ -598,3 +598,17 @@ func TestTokenStateDerivation(t *testing.T) {
 		t.Errorf("an unparseable expiry is %q, want active", got)
 	}
 }
+
+// A too-narrow token is told how to get one that is wide enough.
+func TestScopeRefusalSaysHowToFixIt(t *testing.T) {
+	admin := User{Role: RoleAdmin}
+	if m := scopeRefusal(ScopeAdmin, ScopeWrite, admin); !strings.Contains(m, "login --scope admin") {
+		t.Errorf("admin, write token: %s", m)
+	}
+	if m := scopeRefusal(ScopeAdmin, ScopeWrite, User{Role: RoleUser}); !strings.Contains(m, "only an administrator") || strings.Contains(m, "--scope admin") {
+		t.Errorf("user, write token: %s", m)
+	}
+	if m := scopeRefusal(ScopeWrite, ScopeRead, admin); !strings.Contains(m, "login --scope write") {
+		t.Errorf("read token on a write route: %s", m)
+	}
+}

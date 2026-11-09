@@ -12,8 +12,8 @@ Open it from the sidebar (**FTDC Summary**).
 ![FTDC Summary: a decoded capture, with the charts worth looking at called out](screenshots/ftdc-summary.png)
 
 > [!NOTE]
-> A stack can also include a **Big Hole** node, a separate browser-based FTDC viewer (see
-> [Stacks](STACKS.md)). FTDC Summary gives you findings and selected charts. Big Hole plots
+> A MongoDB node or cluster, or a Linux Client, can also serve **Big Hole**, a separate
+> browser-based FTDC viewer (see [Stacks](STACKS.md#big-hole)). FTDC Summary gives you findings and selected charts. Big Hole plots
 > every metric so you can explore them yourself. Both read the same files.
 
 ## Load a capture

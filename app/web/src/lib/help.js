@@ -824,7 +824,9 @@ export const HELP = {
     'never expires, because a permanent credential against a host that drives Docker should be a ' +
     'deliberate decision. Expiry is checked when the token is used, and an expired token stays in the ' +
     'list marked expired — which is how "why did my script start failing" gets an answer.',
-  bigHoleRef: 'The upstream commit this viewer was built from. It is the version: the project publishes no tags and its package.json still says 0.0.0, so the revision is the only honest answer to which Big Hole this is. Change it in images/bighole.Dockerfile and app/bighole.go together, then rebuild with `make bighole-image`.',
+  groupLimits: 'Limits per security group. Longest lifetime caps the TTL a stack can be created or extended with (and refuses never-expiring stacks unless it is infinity). Stacks and Deployed nodes count per account. Node types are the type ids — k3d, kubeadm, vnc, … — and a stack holding one fails validation for that group. Changing a limit does not touch stacks that already exist.',
+  tokenLimit: 'Narrows the token to some stacks: the ones it creates itself, and/or the ones carrying every label given (a stack it creates gets those labels). It can then call only those stacks\' routes, list (filtered), create and compose stacks, and read the catalogues — every other endpoint answers 403, whatever its scope.',
+  bigHole: 'Big Hole is a MongoDB FTDC viewer that runs entirely in the browser — drag a diagnostic.data folder or a support tarball onto the page and it charts every metric. Installed here, nginx serves it from the node on a port published to the host. Open it on localhost: browsers only give a page the on-disk storage it decodes a capture into over HTTPS or localhost.',
   vectorSearch: 'Run Percona Search for MongoDB (mongot) beside this cluster so $vectorSearch (semantic / AI search) and $search (full-text) work. ' +
     'Needs PSMDB 8.3 or later. One mongot per replica set — for a sharded cluster, one per shard — co-located on the set\'s first member, which is what the Percona Operator does too. ' +
     'Every mongod (and mongos) gets the mongotHost / searchIndexManagementHostAndPort parameters at first start, and mongot logs in as a searchCoordinator user. ' +
@@ -866,7 +868,7 @@ export const HELP = {
     'openRegistration on PUT /api/system/settings.',
   securityGroups:
     'Every account belongs to one of three groups: Administrators (the admin role), Regular Users (the user role) ' +
-    'and Guests (the shared guest account). Each page of the app is a feature a group may or may not use. The ' +
+    'and Guests (every guest account). Each page of the app is a feature a group may or may not use. The ' +
     'sidebar shows only what a group may use, and the server refuses the rest with a 403 \u2014 in the browser, ' +
     'through the API and from dbcanvas-cli. The API feature is also the key to API tokens: without it a group ' +
     'cannot create a token, sign in with dbcanvas-cli, or use a token it already has. Most tools need Database ' +
@@ -876,16 +878,16 @@ export const HELP = {
     'Administrators everything, Regular Users everything but Manage Users, Guests the Dashboard and Database ' +
     'Stacks. Also GET and PUT /api/security/groups.',
   guestLogin:
-    'On, the sign-in page offers \u201cContinue as guest\u201d, which signs in without a password to one built-in ' +
-    'account with the user role: a guest designs, deploys and tears down stacks like any registered user. Everyone ' +
-    'who continues as a guest shares that account, and so sees and can change the same stacks. Because it is ' +
-    'shared, a guest cannot change its password or profile, and it can never be made an administrator. The API and ' +
-    'the CLI work as a guest too (POST /api/auth/guest, dbcanvas-cli login --guest), with a user\u2019s token, once the ' +
-    'Guests security group has the API feature. What guests may use is set under Security groups. Off signs ' +
-    'every guest out at once and revokes the guest\u2019s API tokens. The account is listed under Users, where disabling it ' +
-    'also refuses guests, and deleting it (with its stacks) gives the next guest a fresh one. Not to be confused ' +
-    'with shared-session guests, who join one live session through a link. The setting is also guestLogin on ' +
-    'PUT /api/system/settings.',
+    'On, the sign-in page offers \u201cContinue as guest\u201d, which creates a guest account of its own for that ' +
+    'browser, with no password and the user role: a guest designs, deploys and tears down stacks like any registered ' +
+    'user, and its stacks are its own \u2014 other guests neither see nor change them. A guest account cannot be ' +
+    'given a password or made an administrator. The API and the CLI work as a guest too (POST /api/auth/guest, ' +
+    'dbcanvas-cli login --guest), with a user\u2019s token, once the Guests security group has the API feature. What ' +
+    'guests may use and how much they may deploy is set under Security groups and Security group limits. A guest ' +
+    'account unused for the idle period is removed with its stacks. Off refuses new guests and, unless \u201ckeep ' +
+    'existing guests\u201d is on, signs every guest out and revokes their tokens. Guest accounts are listed under Users. ' +
+    'Not to be confused with shared-session guests, who join one live session through a link. The settings are ' +
+    'guestLogin, guestKeepAccess and guestIdleDays on PUT /api/system/settings.',
   internalWrites:
     'DBCanvas exposes PMM Server\u2019s own PostgreSQL (its inventory) and ClickHouse (Query Analytics) ' +
     'read-only, and the databases enforce that themselves \u2014 PostgreSQL inside a READ ONLY transaction, ' +
@@ -1029,7 +1031,6 @@ const NODE_BLURB = {
   perfsim: 'Stressors that make a MySQL, PostgreSQL, MongoDB or Valkey cluster misbehave on purpose — replication lag first — with a live timeline of their effect. Everything is chosen on its dashboard.',
   supportsim: 'A help desk run on MongoDB Vector Search, with a hands-on Vector Lab.',
   pgvectorsim: 'The Support Sim\'s help desk on PostgreSQL with pgvector (HNSW, <=>), with a hands-on Vector Lab. Link it to any PostgreSQL node or cluster; turn pgvector on there for real vector indexes.',
-  bighole: 'A MongoDB FTDC viewer that runs entirely in the browser — drag a diagnostic.data folder or a support tarball onto the page and it charts it. No backend, nothing uploaded. Open it on localhost: browsers only give a page the on-disk storage it decodes a capture into over HTTPS or localhost.',
   mclusteradmin: 'A MongoDB administration panel — topology, replica set and sharding status, current ops, slow queries, indexes, users and roles. Its web UI is published to the host, so you reach it straight from your browser.',
 }
 export const nodeHelp = (type) => NODE_BLURB[type] || ''

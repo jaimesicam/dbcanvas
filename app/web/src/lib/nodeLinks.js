@@ -21,9 +21,13 @@ export function nodeWebLinks(type, dep) {
       add('PMM (HTTPS)', cfg.httpsPort ? `https://${host}:${cfg.httpsPort}/` : null)
       add('PMM (HTTP)', http(cfg.httpPort))
       break
-    case 'bighole':
-      // Always localhost: the app needs a secure context (see BigHoleLink).
-      add('Big Hole', cfg.httpPort ? `http://localhost:${cfg.httpPort}/` : null)
+    case 'psm':
+    case 'psmrs':
+    case 'psmdb':
+    case 'linuxclient':
+      // Big Hole, when installed (app/bighole.go). Always localhost: the app needs a secure
+      // context (see BigHoleLink).
+      add('Big Hole', cfg.bigHolePort ? `http://localhost:${cfg.bigHolePort}/` : null)
       break
     case 'orchestrator':
       add('Orchestrator', http(cfg.exportPort))

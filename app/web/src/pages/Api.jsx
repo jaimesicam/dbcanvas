@@ -145,6 +145,9 @@ export function CreateToken({ scopes, maxDays, canNeverExpire, onCreated, onErro
   const [scope, setScope] = useState('write')
   const [days, setDays] = useState(90)
   const [busy, setBusy] = useState(false)
+  // A stack limit (app/tokenlimit.go): only the stacks it creates, and/or only stacks with labels.
+  const [ownStacks, setOwnStacks] = useState(false)
+  const [limitLabels, setLimitLabels] = useState('')
 
   // The choices offered are clamped to what this account can actually be given, so
   // nobody picks a lifetime the server is going to silently shorten.
@@ -154,7 +157,14 @@ export function CreateToken({ scopes, maxDays, canNeverExpire, onCreated, onErro
     e.preventDefault()
     setBusy(true)
     try {
-      onCreated(await apiApi.createToken({ name: name.trim(), scope, days: Number(days) }))
+      const labels = {}
+      for (const part of limitLabels.split(',').map((x) => x.trim()).filter(Boolean)) {
+        const i = part.indexOf('=')
+        if (i < 1) throw new Error(`limit label "${part}": want key=value`)
+        labels[part.slice(0, i).trim()] = part.slice(i + 1)
+      }
+      const limit = ownStacks || Object.keys(labels).length ? { ownStacks, labels } : undefined
+      onCreated(await apiApi.createToken({ name: name.trim(), scope, days: Number(days), limit }))
       setName('')
     } catch (e2) {
       onError(e2.message)
@@ -181,6 +191,15 @@ export function CreateToken({ scopes, maxDays, canNeverExpire, onCreated, onErro
           <select className={inputCls} value={days} onChange={(e) => setDays(e.target.value)}>
             {choices.map((c) => <option key={c.days} value={c.days}>{c.label}</option>)}
           </select>
+        </Field>
+        <Field label="Limit to stacks" help={HELP.tokenLimit}
+          hint="Optional. A limited token reaches only these stacks, plus listing, composing and the catalogues — nothing else.">
+          <label className="mb-1.5 flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={ownStacks} onChange={(e) => setOwnStacks(e.target.checked)} />
+            <span>Only the stacks this token creates</span>
+          </label>
+          <input className={inputCls} value={limitLabels} onChange={(e) => setLimitLabels(e.target.value)}
+            placeholder="and/or labels: tool=ci,host=builder-2" />
         </Field>
         <Button type="submit" className="w-full" disabled={busy || !name.trim()}>
           <Icon.Plus size={16} /> {busy ? 'Creating…' : 'Create token'}
@@ -226,7 +245,14 @@ export function TokenTable({ tokens, onRevoke, showOwner = false }) {
               </td>
               {showOwner && <td className="py-2 pr-3">{tk.username || '—'}</td>}
               <td className="py-2 pr-3 font-mono text-xs">{tk.prefix}…</td>
-              <td className="py-2 pr-3"><Badge tone={tk.scope === 'admin' ? 'warning' : 'muted'}>{tk.scope}</Badge></td>
+              <td className="py-2 pr-3">
+                <Badge tone={tk.scope === 'admin' ? 'warning' : 'muted'}>{tk.scope}</Badge>
+                {tk.limit && (
+                  <div className="mt-0.5 text-[11px] text-muted" title="This token reaches only these stacks">
+                    {[tk.limit.ownStacks && 'own stacks', ...Object.entries(tk.limit.labels || {}).map(([k, v]) => `${k}=${v}`)].filter(Boolean).join(' · ')}
+                  </div>
+                )}
+              </td>
               <td className="py-2 pr-3">
                 <Badge tone={TOKEN_STATE_TONE[tk.state] || 'muted'}>{expiryText(tk)}</Badge>
               </td>

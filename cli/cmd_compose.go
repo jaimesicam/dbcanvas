@@ -171,11 +171,17 @@ func stackCompose(args []string) error {
 	dryRun := fs.Bool("dry-run", false, "resolve and print the plan without creating anything")
 	deploy := fs.Bool("deploy", false, "deploy it once composed")
 	wait := fs.Bool("wait", false, "with --deploy, wait for every node to come up")
+	var labelFlags multiFlag
+	fs.Var(&labelFlags, "label", "a key=value label for the stack — repeatable")
 	if err := parse(fs, args); err != nil {
 		return err
 	}
 
 	spec := map[string]any{"ttl": *ttl}
+	labels, err := labelsFromFlags(labelFlags)
+	if err != nil {
+		return err
+	}
 	switch {
 	case *specFile != "":
 		raw, err := readFileOrStdin(*specFile)
@@ -209,6 +215,9 @@ func stackCompose(args []string) error {
 		return errUsage
 	}
 
+	if len(labels) > 0 {
+		spec["labels"] = labels
+	}
 	name := arg(0)
 	if name == "" && !*dryRun {
 		fmt.Fprintln(os.Stderr, "dbcanvas-cli: a stack needs a name (or use --dry-run)")

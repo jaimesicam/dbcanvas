@@ -85,6 +85,21 @@ RUN apk add --no-cache curl \
  && /k3d version \
  && curl -fsSL -o /k3d.LICENSE "https://raw.githubusercontent.com/k3d-io/k3d/${K3D_VERSION}/LICENSE"
 
+# ---- stage 2c: Big Hole, the MongoDB FTDC viewer nodes can serve (app/bighole.go) ----
+# Built from source at a pinned commit (upstream publishes no release or image) and shipped as a
+# tarball the deploy copies onto a MongoDB node or Linux Client with Big Hole on. The output is
+# static JavaScript, the same on every architecture. BIGHOLE_REF must equal bigHoleRef in
+# app/bighole.go; a test checks. Upstream's MIT licence travels inside the tarball and beside it.
+FROM node:20-alpine AS bighole
+ARG BIGHOLE_REF=896984fe9e9a7f1f59cc4ce29237625f8aaa713f
+RUN apk add --no-cache git
+WORKDIR /src
+RUN git clone -q https://github.com/zelmario/Big-hole.git . && git checkout -q "${BIGHOLE_REF}"
+RUN npm ci && npm run build \
+ && cp LICENSE dist/LICENSE.txt \
+ && tar -czf /bighole.tar.gz -C dist . \
+ && cp LICENSE /big-hole.LICENSE
+
 # ---- stage 3: minimal runtime (single static binary) ----
 FROM gcr.io/distroless/static-debian12 AS runtime
 COPY --from=build /dbcanvas /dbcanvas
@@ -101,6 +116,8 @@ COPY --from=web /web/THIRD_PARTY_LICENSES-web.txt /usr/share/doc/dbcanvas/
 COPY --from=build /THIRD_PARTY_LICENSES-go.txt /usr/share/doc/dbcanvas/
 COPY --from=cli /THIRD_PARTY_LICENSES-cli.txt /usr/share/doc/dbcanvas/
 COPY --from=k3d /k3d.LICENSE /usr/share/doc/dbcanvas/k3d.LICENSE
+COPY --from=bighole /bighole.tar.gz /usr/local/share/dbcanvas/bighole/bighole.tar.gz
+COPY --from=bighole /big-hole.LICENSE /usr/share/doc/dbcanvas/big-hole.LICENSE
 # The Dockerfiles for the images a node needs on top of the OS bases. They are here
 # so an admin can build a missing one from the web interface (app/extraimages.go):
 # none of them copies anything from its build context, so the Dockerfile IS the

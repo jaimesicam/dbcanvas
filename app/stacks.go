@@ -64,7 +64,10 @@ func (a *App) loadOwnedStack(w http.ResponseWriter, r *http.Request) (Stack, Use
 	st, err := a.store.GetStack(id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			writeErr(w, http.StatusNotFound, "stack not found")
+			// Deleted rather than never there: say how (stackevents.go).
+			if !a.writeStackGone(w, u, id) {
+				writeErr(w, http.StatusNotFound, "stack not found")
+			}
 			return Stack{}, User{}, false
 		}
 		writeErr(w, http.StatusInternalServerError, "failed to read stack")
@@ -88,6 +91,13 @@ func (a *App) handleListStacks(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "failed to list stacks")
 		return
 	}
+	// ?label=tool=ci&label=run=12 keeps the stacks carrying every term (stacklabels.go).
+	sel, err := parseLabelSelector(r.URL.Query()["label"])
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	stacks = filterStacksForToken(r, filterStacksByLabel(stacks, sel))
 	if r.URL.Query().Get("detail") != "1" {
 		writeJSON(w, http.StatusOK, stacks)
 		return
@@ -158,6 +168,11 @@ func (a *App) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 		// round-tripped copy from the client, so what gets created is what the
 		// template actually says. Ignored when Design is given explicitly.
 		TemplateID string `json:"templateId"`
+		// DefaultName is used, numbered to the first free one ("Untitled stack 2"), when
+		// Name is empty: a name the user did not type should not fail on a clash.
+		DefaultName string `json:"defaultName"`
+		// Labels are set on the new stack (stacklabels.go).
+		Labels map[string]string `json:"labels"`
 	}
 	if err := decode(r, &body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
@@ -165,10 +180,29 @@ func (a *App) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 	}
 	name := strings.TrimSpace(body.Name)
 	if name == "" {
-		name = "Untitled stack"
+		name = a.store.FreeStackName(u.ID, orDefault(strings.TrimSpace(body.DefaultName), "Untitled stack"))
 	}
+	if err := validateLabels(body.Labels); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	labels, err := labelsForNewStack(r, body.Labels)
+	if err != nil {
+		writeErr(w, http.StatusForbidden, err.Error())
+		return
+	}
+	body.Labels = labels
 	if !validTTL(body.TTL) {
 		writeErr(w, http.StatusBadRequest, "invalid ttl")
+		return
+	}
+	// The security group's limits (grouppolicy.go).
+	if ok, why := a.policyFor(u).ttlAllowed(body.TTL); !ok {
+		writeErr(w, http.StatusForbidden, why)
+		return
+	}
+	if ok, why := a.stackCountAllowed(u); !ok {
+		writeErr(w, http.StatusForbidden, why)
 		return
 	}
 	design := []byte(defaultDesign)
@@ -187,9 +221,21 @@ func (a *App) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 		design = t.Design
 	}
 	st, err := a.store.CreateStack(name, u.ID, body.TTL, expiryFor(body.TTL), design)
+	if errors.Is(err, ErrStackNameTaken) {
+		a.writeStackNameTaken(w, u.ID, name)
+		return
+	}
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to create stack")
 		return
+	}
+	if len(body.Labels) > 0 {
+		a.store.SetStackLabels(st.ID, body.Labels)
+		st.Labels = body.Labels
+	}
+	a.recordStackCreator(r, st.ID)
+	if fresh, err := a.store.GetStack(st.ID); err == nil {
+		a.stackEvent(fresh, "created", "", u.Username)
 	}
 	writeJSON(w, http.StatusCreated, st)
 }
@@ -311,17 +357,21 @@ func (a *App) cleanupRemovedNodes(stackID int64, design json.RawMessage) {
 }
 
 func (a *App) handleDeleteStack(w http.ResponseWriter, r *http.Request) {
-	st, _, ok := a.loadOwnedStack(w, r)
+	st, u, ok := a.loadOwnedStack(w, r)
 	if !ok {
 		return
 	}
 	// Tear down any deployed containers before removing the record.
 	a.teardownStack(st.ID)
-	if err := a.store.DeleteStack(st.ID); err != nil {
+	reason := "user"
+	if u.ID != st.OwnerID {
+		reason = "admin"
+	}
+	// Also drops the Intranet DNS tab's records (dnscustom.go) and leaves a tombstone.
+	if err := a.deleteStackRecord(st, reason, u.Username); err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to delete stack")
 		return
 	}
-	a.store.DeleteAppSetting(dnsCustomKey(st.ID)) // the Intranet DNS tab's records (dnscustom.go)
 	writeJSON(w, http.StatusOK, map[string]any{"status": "deleted"})
 }
 
@@ -332,9 +382,16 @@ func (a *App) startReaper() {
 		defer ticker.Stop()
 		a.reapExpiredStacks()
 		a.warnExpiringStacks()
+		lastGuestReap := time.Time{}
 		for range ticker.C {
 			a.reapExpiredStacks()
 			a.warnExpiringStacks()
+			// Idle guest accounts are a slower clock: hourly is plenty (guestlogin.go).
+			if time.Since(lastGuestReap) > time.Hour {
+				lastGuestReap = time.Now()
+				a.reapIdleGuests()
+				a.store.PurgeStackTombstones()
+			}
 		}
 	}()
 }
@@ -391,10 +448,17 @@ func (a *App) handleExtendStack(w http.ResponseWriter, r *http.Request) {
 			ttl = body.By // it never expired before; now it does, by this much
 		}
 	}
+	// The owner's security group may cap how long a stack lives (grouppolicy.go).
+	policy, _ := a.ownerPolicy(st)
+	if ok, why := policy.expiryAllowed(exp); !ok {
+		writeErr(w, http.StatusForbidden, why)
+		return
+	}
 	if err := a.store.SetStackExpiry(st.ID, ttl, exp); err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to extend the stack")
 		return
 	}
+	a.stackEvent(st, "extended", "", u.Username)
 	expiryWarned.Delete(st.ID) // warn again before the new end
 	what := "never expires"
 	if exp != nil {
@@ -414,5 +478,16 @@ func (a *App) reapExpiredStacks() {
 	for _, st := range expired {
 		a.teardownStack(st.ID)
 		a.store.SetStackStatus(st.ID, StackExpired)
+		a.stackEvent(st, "expired", "", "")
 	}
+}
+
+// writeStackNameTaken answers a create, rename or transfer that would give an owner two
+// stacks of one name.
+func (a *App) writeStackNameTaken(w http.ResponseWriter, ownerID int64, name string) {
+	msg := fmt.Sprintf("a stack called %q already exists — choose another name", name)
+	if id := a.store.StackIDByName(ownerID, name); id != 0 {
+		msg = fmt.Sprintf("a stack called %q already exists (id %d) — choose another name", name, id)
+	}
+	writeErr(w, http.StatusConflict, msg)
 }

@@ -46,12 +46,13 @@ export DBCANVAS_TOKEN=dbc_...
 ```
 
 **Guest sign-in.** If `GET /api/setup/status` reports `"guestLogin": true`, an
-administrator allows signing in without a password as one shared guest account (a
+administrator allows signing in without a password as a guest account of your own (a
 regular user): `dbcanvas-cli login --url "$URL" --guest`, or `POST /api/auth/guest` for a
-session cookie. Use it when the user asks to work as a guest. Because every guest
-shares that account and sees its stacks, offer it to the user rather than
-falling back to it silently. A guest cannot change the account's password or profile,
-and its token dies when guest sign-in is turned off (401). Guests need the **API**
+session cookie. Use it when the user asks to work as a guest, and offer it rather than
+falling back to it silently. Each login is a new guest account whose stacks are its own;
+it is removed with its stacks after a period unused. A guest account cannot be given a
+password, and its token dies when guest sign-in is turned off (401) unless the
+administrator keeps existing guests. Guests need the **API**
 feature in their security group to use the CLI at all.
 
 **Security groups.** A `403` reading `your security group (…) does not have access to

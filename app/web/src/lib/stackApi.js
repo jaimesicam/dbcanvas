@@ -99,7 +99,8 @@ export const stackApi = {
   listDetail: () => request('GET', '/api/stacks?detail=1'),
   // templateId seeds the new stack from a deployment template; the server reads
   // that template's design itself rather than taking a copy from here.
-  create: (name, ttl, design, templateId) => request('POST', '/api/stacks', { name, ttl, design, templateId }),
+  // defaultName stands in for an empty name; the server numbers it to the first free one.
+  create: (name, ttl, design, templateId, defaultName) => request('POST', '/api/stacks', { name, ttl, design, templateId, defaultName }),
   get: (id) => request('GET', `/api/stacks/${id}`),
   // live is the canvas's Live view: per running node, container figures plus the
   // replication role and data size its engine reports (app/livestate.go).

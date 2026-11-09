@@ -1,0 +1,68 @@
+# CI: the checks a change is expected to pass before it lands — the same ones run by hand:
+# the web build and its off-browser smoke test, then go vet and go test for the app and the
+# CLI. No Docker: the Go tests use fixtures and fake servers, and nothing here deploys.
+#
+# The app embeds web/dist (//go:embed all:web/dist in app/main.go), so the web build comes
+# first. The headless-Chrome half of `make smoke` is not run here; the off-browser pass is
+# the hard gate there too.
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: app/web/package-lock.json
+      - name: web — install
+        working-directory: app/web
+        run: npm ci
+      - name: web — build
+        working-directory: app/web
+        run: npm run build
+      - name: web — smoke (off-browser render of every page)
+        working-directory: app/web
+        run: npm run smoke
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: app/go.mod
+          cache-dependency-path: |
+            app/go.sum
+            cli/go.sum
+      - name: gofmt
+        run: |
+          out="$(gofmt -l app cli)"
+          if [ -n "$out" ]; then echo "not gofmt-formatted:"; echo "$out"; exit 1; fi
+      - name: app — vet
+        working-directory: app
+        run: go vet ./
+      - name: app — test
+        working-directory: app
+        run: go test -count=1 -timeout 20m ./
+      - name: cli — vet and test
+        working-directory: cli
+        run: |
+          go vet ./
+          go test -count=1 ./
+      - name: scripts — syntax
+        run: |
+          for f in images/*.sh scripts/*.sh; do bash -n "$f" || exit 1; done

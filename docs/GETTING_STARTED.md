@@ -40,6 +40,8 @@ that need it say so when you validate a stack.
 | Command | What it does |
 | --- | --- |
 | `make install` | First-time setup: every image, then start. |
+| `make install-pull` | First-time setup from prebuilt node images in `IMAGE_REGISTRY` (default `ghcr.io/jaimesicam`), when they are published for this release: minutes instead of the image build. |
+| `make doctor` | Check the host: Docker, disk, `.env`, images, and whether the app answers. |
 | `make compose` | Rebuild the app and start it. The everyday command. |
 | `make up` / `make down` | Start / stop without rebuilding. |
 | `make logs` | Follow the application log. |

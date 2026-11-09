@@ -205,7 +205,8 @@ func (c *Client) get(path string, out any) error { return c.request("GET", path,
 func (c *Client) post(path string, body, out any) error {
 	return c.request("POST", path, body, out)
 }
-func (c *Client) delete(path string, out any) error { return c.request("DELETE", path, nil, out) }
+func (c *Client) delete(path string, out any) error    { return c.request("DELETE", path, nil, out) }
+func (c *Client) put(path string, body, out any) error { return c.request("PUT", path, body, out) }
 
 // download streams a file endpoint to disk, honouring the server's
 // Content-Disposition filename. Returns the path written.

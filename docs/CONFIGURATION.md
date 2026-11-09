@@ -17,12 +17,17 @@ the app, and fixes for common problems.
 | `make up` / `make down` | Start / stop the app without rebuilding. |
 | `make restart` | `make down`, then `make compose`. |
 | `make build` | Build the app image only. |
-| `make env` | Create `.env` from `.env.example` if it is missing. Run by `compose`, `build` and `up`. |
+| `make env` | Create `.env` from `.env.example` if it is missing, with a random value for every password (`scripts/gen-secrets.sh`). Run by `compose`, `build` and `up`. An existing `.env` is never changed; `bash scripts/gen-secrets.sh .env` replaces the passwords still at their example value. |
+| `make install-pull` | A first install from prebuilt node images: `make env`, `make pull-images`, `make compose`. Minutes instead of `make images`' hour. |
+| `make pull-images` | Pull this release's node images (the OS bases and the Intranet, VNC, K3D collector and Kubeadm images) from `IMAGE_REGISTRY` (default `ghcr.io/jaimesicam`) and write `images.yaml`. `ONLY=<regex>` pulls a subset. |
+| `make publish-images` | Push this release's locally built node images to `IMAGE_REGISTRY`. This publishes them. |
+| `make doctor` | Check the host: Docker, compose, buildx, disk, `.env` passwords and `APP_HOST`, the node images, and whether the app answers. `dbcanvas-cli doctor` checks the installation itself. |
+| `make tag` / `make release-notes` / `make github-release` | Tag `v$(VERSION)` on HEAD, print that release's notes, and publish the tag and a GitHub release from them. |
 | `make logs` | Follow the app's logs. |
 | `make clean` | Stop the app, remove its locally built images and `dist/`. Deployed stacks are untouched. |
 | `make images` | Build what every stack needs: the OS base images (Oracle Linux 8/9/10, Ubuntu 22.04/24.04, Debian 12/13) for the one platform in `DOCKER_PLATFORM`, and the **Intranet** image. Slow — the long part of `make install`. If only the Intranet fails, retry with `make intranet-image` or the **Build** button that Validate offers. |
-| `make extra-images` | Build every optional image: the VNC desktop, the K3D diagnostics collector, the Kubeadm node (for `K8S_PLATFORM`), the Big Hole FTDC viewer and the demo applications. Fails if any of them fails (unlike `make install`). |
-| `make versions` | Probe every built image for the versions it can install and write `versions.yaml` — what the version pickers offer. Takes hours. **Run `make restart` afterwards**, or every picker is empty. `ONLY=percona` or `ONLY=upstream` re-probes one group and keeps the other. |
+| `make extra-images` | Build every optional image: the VNC desktop, the K3D diagnostics collector, the Kubeadm node (for `K8S_PLATFORM`) and the demo applications. Fails if any of them fails (unlike `make install`). |
+| `make versions` | Probe every built image for the versions it can install and write `versions.yaml` — what the version pickers offer. Takes hours. **Run `make restart` afterwards**, or every picker is empty. `ONLY=percona`, `ONLY=upstream` or `ONLY=haproxy` re-probes one group and keeps the others. |
 | `make adopt-images` | After an upgrade, retag images this host already built with the current release instead of rebuilding them. Nothing is rebuilt or removed. |
 | `make rotate-key` | Re-encrypt stored secrets under a new key. See [The encryption key](#the-encryption-key). |
 | `make cli` | Cross-compile `dbcanvas-cli` into `dist/` for Linux (amd64, arm64), macOS (amd64, arm64) and Windows (amd64), with `SHA256SUMS`, and install this machine's build as `~/.local/bin/dbcanvas-cli` (`CLI_INSTALL_DIR=` to change or skip). See [`dbcanvas-cli`](CLI.md). |
@@ -30,10 +35,10 @@ the app, and fixes for common problems.
 | `make smoke` | Render every page and fail on a render error; also loads the heavy pages in headless Chrome when Chrome is available (`CHROME=<path>` to point at it). |
 
 Rebuild one image: `make intranet-image`, `make vnc-image`, `make k8scollector-image`,
-`make kubeadm-image`, `make bighole-image`, or one demo application — `make supportsim-image`, `make stocksim-image`,
+`make kubeadm-image`, or one demo application — `make supportsim-image`, `make stocksim-image`,
 `make ledgersim-image`, `make perfsim-image`.
 
-When Validate reports the Intranet, VNC, K3D collector or Big Hole image missing, an
+When Validate reports the Intranet, VNC or K3D collector image missing, an
 administrator gets a **Build** button that builds it from the web interface. The demo
 applications need a checkout and their `make` target.
 
@@ -69,6 +74,9 @@ K3D cluster names have the form `<frame>-s<stack>-<instance tag>`, where the tag
 that name).
 
 ### Credentials
+
+A `.env` created by `make env` gets a random value for each of these passwords. Change them before
+the first deploy: stacks deployed earlier keep the passwords they were deployed with.
 
 Passwords for deployed nodes come only from `.env` — they cannot be set per node on the canvas,
 except where noted — and a redeploy re-reads them. Variables named after an engine apply only to

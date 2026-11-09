@@ -1,138 +1,171 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"os"
 	"strconv"
+	"strings"
 )
 
-// Big Hole node (Type=="bighole") — a third-party MongoDB FTDC viewer
-// (github.com/zelmario/Big-hole, MIT) that runs entirely in the browser: you drag a
-// mongod's `diagnostic.data` folder, or a whole support tarball, onto the page and
-// it decodes and charts it. Nothing is uploaded and there is no backend; the
-// container is the built app behind nginx and nothing else.
+// bighole.go — Big Hole, a MongoDB FTDC viewer, as an install option on the nodes that have FTDC
+// to look at: a standalone MongoDB node, every mongod of a replica set or sharded cluster (not
+// mongos, which writes no diagnostic.data of its own), and the Linux Client.
 //
-// It is the loosest-coupled node this app has, and deliberately so. It takes no
-// association line, no credentials and no configuration, because it talks to
-// nothing — not to a database, not to an API, not even to DBCanvas. What it gives a
-// stack is the tool, at a URL, without anybody installing Node.
+// Big Hole (github.com/zelmario/Big-hole, MIT) runs entirely in the browser: you drag a
+// mongod's `diagnostic.data` folder, or a whole support tarball, onto the page and it decodes
+// and charts it. Nothing is uploaded and there is no backend, so "installing" it on a node is
+// serving its static files: nginx from the OS packages, on bigHoleNodePort, published to the
+// host. The files are built once, at a pinned upstream commit, in DBCanvas's own image
+// (app/Dockerfile, stage "bighole") and copied onto the node at deploy — no Node toolchain on
+// the node and no image of its own to build. It used to be a node type with its own image;
+// IMPLEMENTATION.md 525.
 //
-// DBCanvas has its own FTDC Summary page, which reads the same files and answers a
-// different question: it distils one capture into verdicts and findings, where this
-// charts every metric it can find and lets you go looking. Having both is the point
-// — see docs/FTDC_SUMMARY.md.
+// DBCanvas has its own FTDC Summary page, which reads the same files and answers a different
+// question: it distils one capture into verdicts and findings, where Big Hole charts every
+// metric it can find and lets you go looking. See docs/FTDC_SUMMARY.md.
 //
-// THE ONE TRAP, and it is upstream's own warning: browsers grant private on-disk
-// storage (OPFS) and workers only in a *secure context*, which means HTTPS or
-// localhost. Opened as http://<some-host>:<port> the app cannot keep a capture and
-// fails during ingest, which reads like a broken decoder rather than a deployment
-// mistake. So the node's panel links to http://localhost:<port> and, when DBCanvas
-// itself is not being browsed on localhost, hands over the ssh -L line that puts it
-// there. Nothing in here can enforce that, which is exactly why it is said out loud
-// in the UI rather than only in this comment.
+// THE ONE TRAP, and it is upstream's own warning: browsers grant private on-disk storage
+// (OPFS) and workers only in a *secure context*, which means HTTPS or localhost. Opened as
+// http://<some-host>:<port> the app cannot keep a capture and fails during ingest, which reads
+// like a broken decoder rather than a deployment mistake. So the panel links to
+// http://localhost:<port> and, when DBCanvas itself is not browsed on localhost, hands over the
+// ssh -L line that puts it there.
+//
+// Like the other tools, a failed install is logged and never fails the deploy.
 
 const (
-	// bigHoleRef is the upstream commit this node runs, and bigHoleImage's tag is
-	// its short form. A commit rather than a version because the project has
-	// neither tags nor a package.json version — the revision is the only honest
-	// answer to "which Big Hole is this". images/service.sh must build that tag
-	// from this ref; the two are checked against each other by test.
-	bigHoleRef   = "896984fe9e9a7f1f59cc4ce29237625f8aaa713f"
-	bigHoleImage = "dbcanvas-bighole:896984f"
-	// The port nginx listens on inside the container (images/bighole.Dockerfile).
-	bigHolePort = 80
+	// bigHoleRef is the upstream commit the files are built from — the project publishes no
+	// tags and its package.json says 0.0.0, so the revision is its version. app/Dockerfile's
+	// BIGHOLE_REF must be the same; a test checks.
+	bigHoleRef = "896984fe9e9a7f1f59cc4ce29237625f8aaa713f"
+	// bigHoleNodePort is the port nginx serves Big Hole on inside a node. Not 80: a node
+	// may run something of its own there.
+	bigHoleNodePort = 8070
+	// bigHoleTarballDefault is where the image keeps the built files (app/Dockerfile).
+	bigHoleTarballDefault = "/usr/local/share/dbcanvas/bighole/bighole.tar.gz"
 )
 
-// bigHoleConfig is the non-secret profile shown for a deployed Big Hole node. There
-// are no secrets at all — hence no bigHoleSecrets to go with it.
-type bigHoleConfig struct {
-	Image    string `json:"image"`
-	Ref      string `json:"ref"` // the upstream commit the image was built from
-	Hostname string `json:"hostname"`
-	FQDN     string `json:"fqdn"`
-	HTTPPort int    `json:"httpPort"` // host port mapped to nginx's 80
+// bigHoleTarball is the built app's path: BIGHOLE_TARBALL, else the image's.
+func bigHoleTarball() string { return envOr("BIGHOLE_TARBALL", bigHoleTarballDefault) }
+
+// bigHoleOn reports whether a MongoDB member serves Big Hole: the option is on, and the member
+// runs a mongod (mongos keeps no diagnostic.data).
+func bigHoleOn(on bool, role string) bool { return on && role != "mongos" }
+
+// bigHolePortMap is the published port for a node, keeping the host port a previous deploy
+// pinned so a bookmarked URL — and an ssh -L forwarding it — keeps working.
+func bigHolePortMap(prevHostPort int) PortMap {
+	return PortMap{ContainerPort: bigHoleNodePort, HostPort: prevHostPort, Auto: true}
 }
 
-// provisionBigHole records the deployment then starts the viewer.
-func (a *App) provisionBigHole(st Stack, n designNode, doc designDoc) {
-	domain := envOr("DOMAIN", "example.net")
-	host := stackHostnames(doc)[n.ID]
-	if host == "" {
-		host = sanitizeName(n.Label)
+// bigHolePrevPort reads the host port a node's last deployment published Big Hole on.
+func (a *App) bigHolePrevPort(stackID int64, nodeID string) int {
+	dep, err := a.store.GetDeployment(stackID, nodeID)
+	if err != nil || len(dep.Config) == 0 {
+		return 0
 	}
-	fqdn := fqdnOf(host, domain)
-
-	// Reuse the published host port across a redeploy, so a bookmarked URL — and
-	// any ssh -L already forwarding it — keeps working.
-	httpPort := 0
-	if dep, err := a.store.GetDeployment(st.ID, n.ID); err == nil && len(dep.Config) > 0 {
-		var old bigHoleConfig
-		if json.Unmarshal(dep.Config, &old) == nil {
-			httpPort = old.HTTPPort
-		}
+	var c struct {
+		BigHolePort int `json:"bigHolePort"`
 	}
-	// Left at 0 on a first deploy: the host port is chosen on the Docker host when the
-	// container is created, pinned, and read back (hostports.go).
+	json.Unmarshal(dep.Config, &c)
+	return c.BigHolePort
+}
 
-	cfg := bigHoleConfig{Image: bigHoleImage, Ref: bigHoleRef, Hostname: host, FQDN: fqdn, HTTPPort: httpPort}
-	a.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: n.ID, State: DeployPending, Config: mustJSON(cfg)})
+// installBigHole copies the built app onto a node, serves it with nginx on bigHoleNodePort and
+// returns the host port it is published on (0 when the install did not happen). Every failure
+// is logged and returned as 0, never as a failed deploy.
+func (a *App) installBigHole(ctx context.Context, id, nodeOS string, logln func(string)) int {
+	data, err := os.ReadFile(bigHoleTarball())
+	if err != nil {
+		logln("Big Hole not installed: this DBCanvas build has no Big Hole files (" + err.Error() + ")")
+		return 0
+	}
+	if err := a.engCtx(ctx).CopyFile(ctx, id, "/tmp", "bighole.tar.gz", 0o644, data); err != nil {
+		logln("Big Hole not installed: copy the files: " + err.Error())
+		return 0
+	}
+	script := bigHoleInstallRHEL
+	if isDebianOS(nodeOS) {
+		script = bigHoleInstallDebian
+	}
+	if err := a.runStep(ctx, id, script+bigHoleServeScript, []string{"PORT=" + strconv.Itoa(bigHoleNodePort)}, logln); err != nil {
+		logln("Big Hole not installed: " + err.Error())
+		return 0
+	}
+	hp, err := a.engCtx(ctx).ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", bigHoleNodePort))
+	if err != nil {
+		logln("Big Hole installed, but its port is not published: " + err.Error())
+		return 0
+	}
+	p, _ := strconv.Atoi(strings.TrimSpace(hp))
+	logln(fmt.Sprintf("Big Hole (%s) serving on port %d — open http://localhost:%d", bigHoleRef[:7], bigHoleNodePort, p))
+	return p
+}
 
-	ctx, endScope := a.deployScope(st.ID, a.nodeEngine(st, n.Type))
-	go func() {
-		defer endScope()
-		pr := a.pxcNewProg(st.ID, n.ID)
-		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
+// bigHoleInstallRHEL / Debian install nginx; bigHoleServeScript unpacks the app and serves it.
+const bigHoleInstallRHEL = `set -e
+command -v nginx >/dev/null 2>&1 || dnf -y -q install nginx >/dev/null
+`
 
-		if ok, _ := a.engCtx(ctx).ImageExists(ctx, bigHoleImage); !ok {
-			pr.fail("image %s not found — run `make bighole-image` first", bigHoleImage)
-			return
-		}
+const bigHoleInstallDebian = `set -e
+export DEBIAN_FRONTEND=noninteractive
+command -v nginx >/dev/null 2>&1 || { apt-get update -qq >/dev/null; apt-get install -y -qq nginx >/dev/null; }
+# The packaged default site listens on 80; Big Hole is on its own port, and nothing here needs it.
+rm -f /etc/nginx/sites-enabled/default
+`
 
-		// The app resolves nothing, so this wait buys it no capability of its own.
-		// It is here for the other direction: the node joins the stack's DNS like
-		// every other node, so it can be reached by name from the VNC desktop, and
-		// reconcileStackDNS needs the Intranet up to record it.
-		pr.phase("Waiting for Intranet to be ready", 25)
-		_, intranetIP, werr := a.waitIntranet(ctx, st.ID, doc, deployTimeout())
-		if werr != nil {
-			pr.fail("%v", werr)
-			return
-		}
+// bigHoleServeScript is upstream's nginx.conf (docker/nginx.conf) on PORT, with the files from
+// /tmp/bighole.tar.gz in /usr/share/big-hole.
+const bigHoleServeScript = `rm -rf /usr/share/big-hole && mkdir -p /usr/share/big-hole
+tar -xzf /tmp/bighole.tar.gz -C /usr/share/big-hole && rm -f /tmp/bighole.tar.gz
+mkdir -p /etc/nginx/conf.d
+cat > /etc/nginx/conf.d/big-hole.conf <<CONF
+server {
+    listen $PORT;
+    server_name _;
+    root /usr/share/big-hole;
+    index index.html;
+    gzip on;
+    gzip_types application/javascript text/css application/json image/svg+xml;
+    gzip_min_length 1024;
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+    location / {
+        try_files \$uri \$uri/ /index.html;
+        add_header Cache-Control "no-store";
+    }
+}
+CONF
+nginx -t >/dev/null 2>&1 || { nginx -t; exit 1; }
+systemctl enable nginx >/dev/null 2>&1 || true
+systemctl restart nginx
+curl -fsS -o /dev/null "http://127.0.0.1:$PORT/" || { echo "nginx is not answering on $PORT"; exit 1; }`
 
-		pr.phase("Creating container", 60)
-		name := containerName(st.ID, n.ID)
-		if cid, ok, _ := a.engCtx(ctx).ContainerByName(ctx, name); ok {
-			a.engCtx(ctx).ContainerRemove(ctx, cid)
-		}
-		id, err := a.engCtx(ctx).ContainerCreate(ctx, ContainerSpec{
-			Name: name, Image: bigHoleImage, Hostname: host,
-			Network:    networkName(st.ID),
-			Aliases:    []string{host},
-			PublishMap: []PortMap{{ContainerPort: bigHolePort, HostPort: httpPort, Auto: true}},
-			DNS:        []string{intranetIP}, DNSSearch: []string{domain},
-		})
-		if err != nil {
-			pr.fail("create container: %v", err)
-			return
-		}
-		if err := a.engCtx(ctx).ContainerStart(ctx, id); err != nil {
-			pr.fail("start container: %v", err)
-			return
-		}
-		if hp, e := a.engCtx(ctx).ContainerPort(ctx, id, fmt.Sprintf("%d/tcp", bigHolePort)); e == nil {
-			if p, e2 := strconv.Atoi(hp); e2 == nil {
-				cfg.HTTPPort = p
-			}
-		}
+// setDeploymentConfigField sets one key of a deployment's stored config, keeping the rest.
+func (a *App) setDeploymentConfigField(stackID int64, nodeID, key string, value any) {
+	dep, err := a.store.GetDeployment(stackID, nodeID)
+	if err != nil {
+		return
+	}
+	m := map[string]any{}
+	if len(dep.Config) > 0 {
+		json.Unmarshal(dep.Config, &m)
+	}
+	m[key] = value
+	b, _ := json.Marshal(m)
+	dep.Config = b
+	a.store.UpsertDeployment(dep)
+}
 
-		a.store.UpsertDeployment(Deployment{
-			StackID: st.ID, NodeID: n.ID, ContainerID: id, State: DeployRunning, Config: mustJSON(cfg),
-		})
-		a.reconcileStackDNS(ctx, st.ID)
-		pr.phase("Running", 100)
-		pr.p.Message = "provisioned"
-		pr.save()
-		log.Printf("stack %d bighole %s: provisioned (viewer on host port %d — open it as localhost)", st.ID, n.Label, cfg.HTTPPort)
-	}()
+// bigHoleIssues checks a node's or cluster's Big Hole option: the Linux Client on CentOS 7 has
+// no systemd to run nginx.
+func bigHoleIssues(what, nodeType, os string, on bool) []issue {
+	if on && nodeType == "linuxclient" && isEL7OS(os) {
+		return []issue{{Level: "error", Message: what + ": Big Hole is served by nginx as a service, and CentOS 7 here has no systemd — choose another OS release or turn Big Hole off"}}
+	}
+	return nil
 }

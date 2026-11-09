@@ -17,7 +17,7 @@ import (
 //
 // `make images` builds the OS bases and the Intranet baked onto one of them — the
 // DNS and CA a stack is built against, which is why it ships with the bases rather
-// than here. Everything else — the VNC image, Big Hole, the K3D collector, the six
+// than here. Everything else — the VNC image, the K3D collector, the six
 // demo applications — is `make extra-images`, because those reach into npm, GitHub
 // and Percona's repositories and fail for reasons that have nothing to do with the
 // machine you are on. Most stacks need none of them.
@@ -42,9 +42,9 @@ import (
 // this process can produce without the repository being anywhere near it.
 //
 // WHY IT IS NOT the Docker API's /build endpoint: that is the classic builder, and
-// one of these Dockerfiles uses BuildKit — Big Hole's, with `FROM
-// --platform=$BUILDPLATFORM` and $TARGETARCH, which is how a cross-compiled image
-// gets built at native speed instead of under emulation. The classic builder does
+// a Dockerfile may use BuildKit — `FROM --platform=$BUILDPLATFORM` and $TARGETARCH,
+// which is how a cross-compiled image gets built at native speed instead of under
+// emulation (Big Hole's did, before it moved into the app image). The classic builder does
 // not set those, and fails outright:
 //
 //	failed to parse platform : "" is an invalid OS component
@@ -131,13 +131,6 @@ func extraImageCatalog() []extraImage {
 			Make:  "kubeadm-image", Needs: []string{"kubeadm"},
 			Dockerfile: "kubeadm.Dockerfile", Buildable: true,
 			Platform: k8sPlatform(),
-		},
-		{
-			ID: "bighole", Tag: bigHoleImage, Label: "Big Hole",
-			About: "A browser-only MongoDB FTDC viewer, built from upstream source at a pinned commit (upstream publishes no image).",
-			Make:  "bighole-image", Needs: []string{"bighole"},
-			Dockerfile: "bighole.Dockerfile", Buildable: true,
-			Args: map[string]string{"BIGHOLE_REF": bigHoleRef},
 		},
 		// The demo applications. Listed so the page tells the whole truth about what
 		// a stack might be missing, and not buildable from here: their build context

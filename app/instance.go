@@ -108,8 +108,7 @@ func stackContainerPrefix(stackID int64) string {
 // imageRelease is the release every image DBCanvas builds is tagged with — v<VERSION>, the same
 // string images/platform.sh's image_release reads from the VERSION file. Installations on one
 // daemon share an image only when they are on the same release, so one checkout's `make images`
-// cannot replace what another, older or newer, deploys from. Big Hole is the exception: its tag
-// is the upstream commit, which already says exactly what is in it.
+// cannot replace what another, older or newer, deploys from.
 func imageRelease() string { return "v" + appVersion }
 
 // helperName names a transient container that belongs to no stack (an image build, a probe).

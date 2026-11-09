@@ -30,9 +30,10 @@ type groupsView struct {
 
 func cmdGroup(args []string) error {
 	return sub("group", args, map[string]func([]string) error{
-		"list": groupList,
-		"set":  groupSet,
-	}, []string{"list", "set"})
+		"list":   groupList,
+		"set":    groupSet,
+		"policy": groupPolicyCmd,
+	}, []string{"list", "set", "policy"})
 }
 
 func groupList(args []string) error {

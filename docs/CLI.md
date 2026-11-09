@@ -54,11 +54,12 @@ dbcanvas-cli whoami                            # account, role, server, token sc
 dbcanvas-cli logout                            # revoke the token and remove the profile
 ```
 
-Where an administrator has turned on guest sign-in, `dbcanvas-cli login --guest` signs in as the
-shared guest account instead, with no username or password. The Guests security group needs the
+Where an administrator has turned on guest sign-in, `dbcanvas-cli login --guest` signs in as a
+new guest account of your own instead, with no username or password. The Guests security group needs the
 **API** feature for this, which it does not have by default (see [Security groups](#security-groups)). Everything else is the same: it
-stores a write-scope token. Guests share one account and its stacks, and the token stops working
-if guest sign-in is turned off. When guest sign-in is off, the server refuses with
+stores a write-scope token. Each guest account's stacks are its own; the account is removed with
+its stacks after a period unused, and the token stops working if guest sign-in is turned off (unless
+the administrator keeps existing guests). When guest sign-in is off, the server refuses with
 `guest sign-in is turned off`.
 
 ```sh
@@ -502,6 +503,23 @@ dbcanvas-cli api PUT  /api/me/settings --data '{"theme":"forest"}'
 | --- | --- |
 | `endpoints` | `--group`, `-q` (match method, path, summary or group), `--scope` (`read`, `write`, `admin`), `--long` (include summaries) |
 | `api` | `--data` or `-d` (inline JSON, `@file`, or `@-` for stdin), `--out FILE` (save the response, for downloads), `--raw` (print unformatted) |
+
+## Versions and compatibility
+
+Each DBCanvas release is tagged `v<version>` in git, and its CLI is built from the same commit.
+`dbcanvas-cli version` prints both versions and warns when the CLI and the server it talks to are
+different releases. `dbcanvas-cli --json version` gives `{"cli", "server", "url", "match"}`.
+Download the matching CLI from the server: `GET /api/cli/download?os=…&arch=…`.
+
+A program that drives the CLI should read what this build accepts, not keep its own list:
+
+```sh
+dbcanvas-cli --json commands      # every command, its arguments, and each flag's name, type, default and usage
+dbcanvas-cli --json endpoints     # every API endpoint the server serves, with its method, path and scope
+```
+
+Commands, flags and API paths are not renamed or removed without the old spelling being kept as
+an alias for at least one release. The release notes say when an old spelling will go away.
 
 ## Exit codes
 

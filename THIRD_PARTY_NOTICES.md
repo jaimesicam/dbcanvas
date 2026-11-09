@@ -106,7 +106,8 @@ The node images under `images/` are built by each installation from upstream
 distribution packages (Percona, MariaDB, MySQL, PostgreSQL and others); the DBCanvas
 source does not include or redistribute those packages. The same holds for the other
 images an installation builds for itself from a Dockerfile here: the K3D diagnostics
-image (Percona Toolkit, GPL-2.0; kubectl, Apache-2.0) and Big Hole (MIT, built from
-upstream source, which ships its licence at `/usr/share/doc/big-hole/LICENSE` and
-serves it at `/LICENSE.txt`). Images pulled as-is — PMM, k3s, the
+image (Percona Toolkit, GPL-2.0; kubectl, Apache-2.0). Big Hole (MIT) is built from
+upstream source into the DBCanvas image, which carries its licence at
+`/usr/share/doc/dbcanvas/big-hole.LICENSE`; a node that serves it has the licence at
+`/LICENSE.txt` beside the app. Images pulled as-is — PMM, k3s, the
 operators — come from their publishers with their own notices.

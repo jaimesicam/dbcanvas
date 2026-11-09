@@ -30,6 +30,8 @@ type Stack struct {
 	CreatedAt string `json:"createdAt"`
 	ExpiresAt string `json:"expiresAt"`
 	OwnerID   int64  `json:"ownerId"`
+	// Labels are key=value tags to select stacks by (cmd_labels.go).
+	Labels map[string]string `json:"labels,omitempty"`
 }
 
 type Deployment struct {
@@ -57,7 +59,9 @@ func cmdStack(args []string) error {
 		"destroy":  stackDestroy,
 		"delete":   stackDelete,
 		"export":   stackExport,
-	}, []string{"list", "get", "create", "compose", "kinds", "validate", "deploy", "destroy", "delete", "export"})
+		"label":    stackLabel,
+		"events":   stackEventsCmd,
+	}, []string{"list", "get", "create", "compose", "kinds", "validate", "deploy", "destroy", "delete", "export", "label", "events"})
 }
 
 // resolveStack turns a name or an id into a stack.
@@ -100,11 +104,22 @@ func resolveStack(c *Client, ref string) (Stack, error) {
 				len(set), ref, strings.Join(ids, ", "))
 		}
 	}
+	// An id that is not in the list may be a stack that was deleted: the server says how
+	// (410 Gone, with the reason) rather than leaving it at "not found".
+	if id, err := strconv.ParseInt(ref, 10, 64); err == nil {
+		var st Stack
+		if err := c.get(fmt.Sprintf("/api/stacks/%d", id), &st); err != nil {
+			return Stack{}, err
+		}
+		return st, nil
+	}
 	return Stack{}, fmt.Errorf("no stack called %q (try `dbcanvas-cli stack list`)", ref)
 }
 
 func stackList(args []string) error {
 	fs := flagsFor("stack list")
+	var sel multiFlag
+	fs.Var(&sel, "label", "only stacks carrying this label: key=value, or key for any value — repeatable, all must match")
 	if err := parse(fs, args); err != nil {
 		return err
 	}
@@ -113,7 +128,7 @@ func stackList(args []string) error {
 		return err
 	}
 	var raw []byte
-	if err := c.get("/api/stacks", &raw); err != nil {
+	if err := c.get("/api/stacks"+labelQuery(sel), &raw); err != nil {
 		return err
 	}
 	if g.json {
@@ -127,10 +142,22 @@ func stackList(args []string) error {
 		empty("stacks", "Create one with `dbcanvas-cli stack create <name> --template <name>`.")
 		return nil
 	}
-	t := newTable("id", "name", "status", "ttl", "expires", "created")
+	labelled := false
 	for _, s := range stacks {
-		t.add(strconv.FormatInt(s.ID, 10), truncate(s.Name, 32), s.Status, s.TTL,
-			untilText(s.ExpiresAt), shortDate(s.CreatedAt))
+		labelled = labelled || len(s.Labels) > 0
+	}
+	cols := []string{"id", "name", "status", "ttl", "expires", "created"}
+	if labelled {
+		cols = append(cols, "labels")
+	}
+	t := newTable(cols...)
+	for _, s := range stacks {
+		row := []string{strconv.FormatInt(s.ID, 10), truncate(s.Name, 32), s.Status, s.TTL,
+			untilText(s.ExpiresAt), shortDate(s.CreatedAt)}
+		if labelled {
+			row = append(row, truncate(labelText(s.Labels), 48))
+		}
+		t.add(row...)
 	}
 	t.print()
 	return nil
@@ -220,10 +247,16 @@ func stackCreate(args []string) error {
 	design := fs.String("design", "", "path to a design JSON file, or - for stdin")
 	deploy := fs.Bool("deploy", false, "deploy it immediately after creating it")
 	wait := fs.Bool("wait", false, "with --deploy, wait for every node to come up")
+	var labelFlags multiFlag
+	fs.Var(&labelFlags, "label", "a key=value label for the stack — repeatable")
 	if err := parse(fs, args); err != nil {
 		return err
 	}
 	if err := need(1, "a name for the stack"); err != nil {
+		return err
+	}
+	labels, err := labelsFromFlags(labelFlags)
+	if err != nil {
 		return err
 	}
 	c, err := mustClient()
@@ -232,6 +265,9 @@ func stackCreate(args []string) error {
 	}
 
 	body := map[string]any{"name": arg(0), "ttl": *ttl}
+	if len(labels) > 0 {
+		body["labels"] = labels
+	}
 	switch {
 	case *design != "":
 		raw, err := readFileOrStdin(*design)
@@ -409,49 +445,49 @@ func waitForNodes(c *Client, st Stack, timeout time.Duration) error {
 
 func stackDestroy(args []string) error {
 	fs := flagsFor("stack destroy")
+	var sel multiFlag
+	fs.Var(&sel, "label", "instead of naming a stack, destroy every stack carrying this label (key=value or key) — repeatable, all must match")
 	if err := parse(fs, args); err != nil {
-		return err
-	}
-	if err := need(1, "a stack name or id"); err != nil {
 		return err
 	}
 	c, err := mustClient()
 	if err != nil {
 		return err
 	}
-	st, err := resolveStack(c, arg(0))
+	stacks, err := stacksForBulk(c, sel, "destroy")
 	if err != nil {
 		return err
 	}
-	if err := c.post(fmt.Sprintf("/api/stacks/%d/destroy", st.ID), nil, nil); err != nil {
-		return err
+	for _, st := range stacks {
+		if err := c.post(fmt.Sprintf("/api/stacks/%d/destroy", st.ID), nil, nil); err != nil {
+			return fmt.Errorf("%s (id %d): %w", st.Name, st.ID, err)
+		}
+		fmt.Printf("Destroyed the nodes of %s (id %d). The design is kept — deploy it again any time.\n", st.Name, st.ID)
 	}
-	fmt.Printf("Destroyed the nodes of %s. The design is kept — deploy it again any time.\n", st.Name)
 	return nil
 }
 
 func stackDelete(args []string) error {
 	fs := flagsFor("stack delete")
 	yes := fs.Bool("yes", false, "do not ask for confirmation")
+	var sel multiFlag
+	fs.Var(&sel, "label", "instead of naming a stack, delete every stack carrying this label (key=value or key) — repeatable, all must match")
 	if err := parse(fs, args); err != nil {
-		return err
-	}
-	if err := need(1, "a stack name or id"); err != nil {
 		return err
 	}
 	c, err := mustClient()
 	if err != nil {
 		return err
 	}
-	st, err := resolveStack(c, arg(0))
-	if err != nil {
+	stacks, err := stacksForBulk(c, sel, "delete")
+	if err != nil || len(stacks) == 0 {
 		return err
 	}
 	// Deleting takes the design with it, which is the part that cannot be rebuilt
 	// from anything the CLI holds — so this is the one command that confirms.
 	if !*yes {
 		answer, err := prompt(fmt.Sprintf(
-			"Delete %q (id %d) and its design? This cannot be undone. [y/N] ", st.Name, st.ID))
+			"Delete %s and the design of each? This cannot be undone. [y/N] ", stackNames(stacks)))
 		if err != nil {
 			return err
 		}
@@ -460,10 +496,12 @@ func stackDelete(args []string) error {
 			return nil
 		}
 	}
-	if err := c.delete(fmt.Sprintf("/api/stacks/%d", st.ID), nil); err != nil {
-		return err
+	for _, st := range stacks {
+		if err := c.delete(fmt.Sprintf("/api/stacks/%d", st.ID), nil); err != nil {
+			return fmt.Errorf("%s (id %d): %w", st.Name, st.ID, err)
+		}
+		fmt.Printf("Deleted %s (id %d).\n", st.Name, st.ID)
 	}
-	fmt.Printf("Deleted %s.\n", st.Name)
 	return nil
 }
 

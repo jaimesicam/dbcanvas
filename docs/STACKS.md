@@ -58,7 +58,7 @@ exception: they need a DBCanvas checkout and `make <name>-image` (for example
 | Linux Client | Oracle Linux 8, 9, 10; Ubuntu 22.04, 24.04; Debian 12, 13; CentOS 7 with `EOL=on` |
 | Intranet, OpenBao | Oracle Linux 9 |
 | Samba AD DC, VNC, Repository | Ubuntu 24.04 |
-| PMM, Keycloak, SeaweedFS, Ceph, MClusterAdmin, Big Hole, simulators | A fixed container image; no OS choice |
+| PMM, Keycloak, SeaweedFS, Ceph, MClusterAdmin, simulators | A fixed container image; no OS choice |
 
 Debian is for the Linux Client only, and only on the Docker backend; Validate rejects it on any
 other node. The version pickers list what `make versions` found for each OS.
@@ -74,7 +74,7 @@ other node. The version pickers list what `make versions` found for each OS.
 | MariaDB | MariaDB · MariaDB Replication · MariaDB Galera |
 | MongoDB (Percona) | PSMDB Sharded · PSMDB Replica Set · PSMDB |
 | MongoDB (Community) | MDB Sharded · MDB Replica Set · MDB |
-| MongoDB Tools | MClusterAdmin · Big Hole (FTDC viewer) |
+| MongoDB Tools | MClusterAdmin |
 | PostgreSQL (Percona) | PostgreSQL · Patroni Cluster · PostgreSQL Replication |
 | PostgreSQL (PGDG) | PostgreSQL (PGDG) · Patroni Cluster (PGDG) · PostgreSQL Replication (PGDG) · repmgr Cluster · Spock Cluster |
 | Valkey | Valkey Cluster · Valkey |
@@ -165,7 +165,6 @@ smaller than the server's memory limit.
 | **MDB Replica Set** | A Community Server replica set. PBM backups to SeaweedFS work as on PSMDB. | 1–9, default 3 |
 | **MDB Sharded** | A Community Server sharded cluster, in the same two topologies. | 5 or 13, default 13 |
 | **MClusterAdmin** | A third-party MongoDB web administration panel ([below](#mclusteradmin)). | — |
-| **Big Hole** | A third-party FTDC (`diagnostic.data`) viewer that runs in your browser ([below](#big-hole)). | — |
 
 **PSMDB or MDB.** The MDB entries are the same node types running MongoDB's own Community Server
 instead of Percona's build, with their own version list (`GET /api/catalog/psmdb?distribution=community`).
@@ -177,7 +176,7 @@ Ubuntu 22.04 all four; Ubuntu 24.04 8.0 and 8.2; Oracle Linux 10 7.0 and 8.0.
 
 Every MongoDB node has **Download diagnostic.data with mongod.log** on its right-click menu
 (mongos.log on a router): one `.tar.gz` containing a `<hostname>_log_diagnostic_data`
-directory, ready for [FTDC Summary](FTDC_SUMMARY.md) or Big Hole.
+directory, ready for [FTDC Summary](FTDC_SUMMARY.md) or [Big Hole](#big-hole).
 
 ### PostgreSQL
 
@@ -990,14 +989,23 @@ The passwords can be overridden on the MClusterAdmin node, whose panel shows the
 
 ## Big Hole
 
-A node running [Big Hole](https://github.com/zelmario/Big-hole), a browser-only viewer for MongoDB
+[Big Hole](https://github.com/zelmario/Big-hole) is a browser-only viewer for MongoDB
 `diagnostic.data`: drag a folder or support tarball onto the page and it charts every metric. It
-connects to nothing; nothing you open leaves your browser. Needs `make bighole-image`.
+connects to nothing; nothing you open leaves your browser.
+
+It is an install option, like the other tools: **Install Big Hole** on a MongoDB node, on a replica
+set or sharded cluster (every mongod member serves it; mongos does not), or on a Linux Client (not
+CentOS 7). nginx serves it from the node on port 8070, published to the host, and the node's panel
+links to it. The files are built into the DBCanvas image at a pinned upstream commit, so there is
+no image to build.
 
 > [!NOTE]
 > Open it on `localhost`. Over plain HTTP on another host name the browser denies the storage it
 > needs and decoding fails partway. When you browse DBCanvas remotely, the panel gives you the
 > `ssh -L` command to use.
+
+A design saved with a Big Hole *node* (before this became an option) is refused at Validate:
+delete the node and turn the option on where you want it.
 
 [FTDC Summary](FTDC_SUMMARY.md) reads the same files and gives verdicts and findings instead of
 every chart.

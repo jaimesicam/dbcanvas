@@ -103,6 +103,9 @@ type designNode struct {
 	LCMySQLShell  bool   `json:"lcMysqlShell"`
 	LCMySQLMajor  string `json:"lcMysqlMajor"` // "8.0" | "8.4" | "9.7"; "" → 8.4
 	LCMongosh     bool   `json:"lcMongosh"`
+	// BigHole serves the Big Hole FTDC viewer from this node: a standalone MongoDB node or the
+	// Linux Client (bighole.go).
+	BigHole       bool   `json:"bigHole"`
 	LCPsql        bool   `json:"lcPsql"`
 	LCPsqlMajor   string `json:"lcPsqlMajor"` // "13".."18"; "" → 17
 	LCClusterSync bool   `json:"lcClusterSync"`
@@ -647,6 +650,9 @@ type designFrame struct {
 	// every mongod (and mongos) at it, so $search and $vectorSearch work. PSMDB 8.3+ only;
 	// see mongosearch.go.
 	VectorSearch bool `json:"vectorSearch"`
+	// BigHole serves the Big Hole FTDC viewer from every mongod of a replica set or sharded
+	// cluster (bighole.go).
+	BigHole bool `json:"bigHole"`
 	// Patroni PostgreSQL cluster frame config (Type=="patroni"; reuses OS/OSVersion/
 	// Arch, RootPassword (postgres superuser pw), PMMNodeID, UseProxy, GenerateCert/
 	// CertTTL above). Each member co-locates PostgreSQL + Patroni + an etcd member.
@@ -1320,6 +1326,8 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 	if err := json.Unmarshal(st.Design, &doc); err != nil {
 		return append(out, issue{Level: "error", Message: "stack design is invalid"})
 	}
+	// Node types the owner's security group may not deploy (grouppolicy.go).
+	out = append(out, a.nodeTypeIssues(st, doc)...)
 	// A member added to a running cluster of a kind that cannot take one yet (join.go).
 	if deps, err := a.store.ListDeployments(st.ID); err == nil && len(deps) > 0 {
 		existing := map[string]Deployment{}
@@ -1404,6 +1412,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 		if n.Type == "linuxclient" {
 			out = append(out, lcDBClientIssues(n)...)
 		}
+		out = append(out, bigHoleIssues("Linux Client "+n.Label, n.Type, n.OS, n.BigHole)...)
 		if n.Type == "linuxclient" && n.GDBEnabled && !isEL7OS(n.OS) {
 			out = append(out, a.gdbNodeIssues(n, st)...)
 		}
@@ -1672,15 +1681,9 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			_, hostMem := a.engCtx(ctx).HostResources(ctx)
 			out = append(out, aioIssues(n, doc, exportReq, hostMem)...)
 		case "bighole":
-			others++
-			if !seenImg[bigHoleImage] {
-				seenImg[bigHoleImage] = true
-				if ok, _ := a.engCtx(ctx).ImageExists(ctx, bigHoleImage); !ok {
-					out = append(out, missingImageIssue("bighole"))
-				}
-			}
-			// Nothing else to check: the viewer takes no association, no
-			// credentials and no configuration, because it talks to nothing.
+			// No longer a node type: Big Hole is an install option on MongoDB nodes and the
+			// Linux Client (bighole.go, IMPLEMENTATION.md 525).
+			out = append(out, issue{Level: "error", Message: "Big Hole node " + n.Label + " is no longer supported — delete it, and turn on Big Hole on a MongoDB node or cluster, or on a Linux Client, instead"})
 		case "mclusteradmin":
 			others++
 			// Nothing to check, and no image check either: the panel runs upstream's
@@ -2497,6 +2500,14 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "issues": issues})
 		return
 	}
+	// The owner's container limit (grouppolicy.go).
+	var limitDoc designDoc
+	json.Unmarshal(st.Design, &limitDoc)
+	if ok, why := a.containerCountAllowed(st, limitDoc); !ok {
+		writeErr(w, http.StatusForbidden, why)
+		return
+	}
+	a.stackEvent(st, "deploying", "", u.Username)
 
 	var doc designDoc
 	json.Unmarshal(st.Design, &doc)
@@ -2614,8 +2625,6 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionKeycloak(st, n, doc)
 		case "mclusteradmin":
 			a.provisionMClusterAdmin(st, n, doc)
-		case "bighole":
-			a.provisionBigHole(st, n, doc)
 		case "openbao":
 			a.provisionOpenBao(st, n, doc)
 		case "vnc":
@@ -3590,6 +3599,7 @@ func (a *App) handleDestroyStack(w http.ResponseWriter, r *http.Request) {
 	}
 	a.teardownStack(st.ID)
 	a.store.SetStackStatus(st.ID, StackDraft)
+	a.stackEvent(st, "destroyed", "", "")
 	writeJSON(w, http.StatusOK, map[string]any{"status": StackDraft, "deployments": []Deployment{}})
 }
 

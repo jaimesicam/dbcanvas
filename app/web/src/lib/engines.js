@@ -63,7 +63,7 @@ export const NODE_CODE = {
   proxysql: 'Pr', haproxy: 'Ha', pgbouncer: 'Pb',
   pmm: 'PMM', pmm2: 'PMM', orchestrator: 'Or',
   intranet: 'In', sambaad: 'Ad', keycloak: 'Kc', openbao: 'Ob', seaweedfs: 'Sw', ceph: 'Ce',
-  repository: 'Re', linuxclient: 'Lc', vnc: 'Vn', k3d: 'K3', aio: 'Ai', bighole: 'Bh', mclusteradmin: 'Mc',
+  repository: 'Re', linuxclient: 'Lc', vnc: 'Vn', k3d: 'K3', aio: 'Ai', mclusteradmin: 'Mc',
   stocksim: 'St', ledgersim: 'Lg', supportsim: 'Su', pgvectorsim: 'Pv', perfsim: 'Pf',
 }
 

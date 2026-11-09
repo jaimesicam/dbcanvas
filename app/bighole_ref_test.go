@@ -7,42 +7,33 @@ import (
 	"testing"
 )
 
-// The commit is the version here, and it is written down in three places that have
-// to agree: the Go constant the node asks Docker for, the Dockerfile's default ARG,
-// and the ref images/service.sh builds with. Two of them drifting means a node that
-// deploys an image built from something else, silently.
+// The commit is the version here, and it is written in two places that have to agree: the Go
+// constant the panel reports and app/Dockerfile's BIGHOLE_REF, which builds the files every node
+// serves. Drifting means a node claiming one Big Hole and serving another.
 func TestBigHoleRefIsPinnedEverywhere(t *testing.T) {
 	if len(bigHoleRef) != 40 {
 		t.Fatalf("bigHoleRef = %q, want a full 40-character commit", bigHoleRef)
 	}
-	short := bigHoleRef[:7]
-	if !strings.HasSuffix(bigHoleImage, ":"+short) {
-		t.Errorf("image %q does not carry the short ref %q", bigHoleImage, short)
-	}
-
-	for _, f := range []string{"../images/bighole.Dockerfile", "../images/service.sh"} {
-		b, err := os.ReadFile(f)
-		if err != nil {
-			t.Fatalf("read %s: %v", f, err)
-		}
-		if !strings.Contains(string(b), bigHoleRef) {
-			t.Errorf("%s does not pin %s", f, bigHoleRef)
-		}
-	}
-	b, err := os.ReadFile("../images/service.sh")
+	b, err := os.ReadFile("Dockerfile")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(b), bigHoleImage) {
-		t.Errorf("images/service.sh does not build the tag %s the node asks for", bigHoleImage)
+	if !strings.Contains(string(b), "ARG BIGHOLE_REF="+bigHoleRef) {
+		t.Errorf("app/Dockerfile does not build Big Hole at %s", bigHoleRef)
+	}
+	if !strings.Contains(string(b), bigHoleTarballDefault) {
+		t.Errorf("app/Dockerfile does not put the files where bighole.go reads them (%s)", bigHoleTarballDefault)
+	}
+	for _, gone := range []string{"../images/bighole.Dockerfile"} {
+		if _, err := os.Stat(gone); err == nil {
+			t.Errorf("%s is back: Big Hole is built into the app image, not an image of its own", gone)
+		}
+	}
+	if sh, _ := os.ReadFile("../images/service.sh"); strings.Contains(string(sh), "bighole") {
+		t.Error("images/service.sh still builds a Big Hole image")
 	}
 }
 
-// The panel is the other way round: nothing here builds it, because upstream
-// publishes its own image and the node pulls it. What can still go wrong is the pin
-// — a :latest that makes a redeploy a different panel — and a half-finished revert,
-// where the node asks a registry for a tag while a make target still tries to build
-// a local one.
 func TestMCAImageIsUpstreamAndPinned(t *testing.T) {
 	const upstream = "ghcr.io/przemekmalkowski/mclusteradmin"
 	if mcaImageRepo != upstream {
@@ -157,12 +148,12 @@ func TestExtraImageCatalogAgreesWithTheScripts(t *testing.T) {
 
 	// And every node type that names a missing image has a catalogue entry, or
 	// missingImageIssue would silently produce a message with no Build button.
-	for _, id := range []string{"bighole", "supportsim", "stocksim", "intranet", "vnc", "k8scollector"} {
+	for _, id := range []string{"supportsim", "stocksim", "intranet", "vnc", "k8scollector"} {
 		if _, ok := extraImageByID(id); !ok {
 			t.Errorf("no catalogue entry for %q", id)
 		}
 	}
-	if got := missingImageIssue("bighole"); got.Image != "bighole" || !strings.Contains(got.Message, bigHoleImage) {
+	if got := missingImageIssue("vnc"); got.Image != "vnc" || !strings.Contains(got.Message, vncImage("")) {
 		t.Errorf("the missing-image issue does not carry the id and the tag: %+v", got)
 	}
 	if got := missingImageIssue("stocksim"); got.Image != "stocksim" || !strings.Contains(got.Message, "checkout") {

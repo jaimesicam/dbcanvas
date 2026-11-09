@@ -2,7 +2,7 @@ package main
 
 // designcatalog_infra.go — the catalogue's shared-service node types: Intranet, Samba
 // AD DC, PMM, Repository, Orchestrator, SeaweedFS, Ceph, Keycloak,
-// OpenBao, the VNC desktop, the Linux Client and Big Hole. See designcatalog.go.
+// OpenBao, the VNC desktop and the Linux Client. See designcatalog.go.
 
 // infraCertTTL is the certificate lifetime pair several of these types share.
 func infraCertTTL(when string) []catalogOption {
@@ -242,6 +242,7 @@ var catalogInfra = []catalogEntry{
 			{Field: "lcHelm", Default: false, Desc: "Install Helm 3."},
 			{Field: "lcCmctl", Default: false, Desc: "Install cmctl, cert-manager's CLI."},
 			{Field: "lcCfssl", Default: false, Desc: "Install cfssl and cfssljson."},
+			{Field: "bigHole", Default: false, Desc: "Serve the Big Hole MongoDB FTDC viewer from this node: nginx on port 8070, published to the host; drag a diagnostic.data folder or support tarball onto it. Open it as http://localhost:<port>. Not on CentOS 7."},
 			{Field: "gdbEnabled", Desc: "Core-dump analysis: mount a core and the crashed host's libraries read-only, install gdb and the matching debug symbols. Docker backend only; not on CentOS 7. Set os/osVersion to the crashed server's."},
 			{Field: "gdbCoreDir", When: "gdbEnabled is on", Desc: "Directory on the Docker host holding the core file(s), mounted read-only at /coredumps."},
 			{Field: "gdbLibDir", When: "gdbEnabled is on", Desc: "Directory on the Docker host holding the crashed host's mysqld and its ldd libraries, mounted read-only at /sysroot."},
@@ -267,11 +268,5 @@ var catalogInfra = []catalogEntry{
 			{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/gdb/cores", Desc: "The mounted core files and whether the symbols and libraries match them.", When: "gdbEnabled is on"},
 			{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/gdb/ws", Desc: "The live gdb session (WebSocket): diagnosis, threads, backtraces, frame arguments and expressions.", When: "gdbEnabled is on"},
 		},
-	},
-	{Type: "bighole", Label: "Big Hole",
-		Summary:   "A MongoDB FTDC viewer that runs in the browser; a diagnostic.data folder is dropped onto its page. It connects to nothing and takes no configuration.",
-		Placement: "standalone",
-		Requires:  []string{"an Intranet node"},
-		Options:   []catalogOption{},
 	},
 }

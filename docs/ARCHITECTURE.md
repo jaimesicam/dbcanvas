@@ -90,11 +90,10 @@ anything from its build context — every `COPY` is `--from=<stage>` — so the 
 context, and the app carries a copy. The build itself runs in a throwaway `docker:cli` container
 with the daemon's socket mounted, the same shape as the K3D collector, because the Engine API's
 own `/build` endpoint is the classic builder, which sets neither `BUILDPLATFORM` nor
-`TARGETARCH` — the two variables that let Big Hole compile on the host's
-architecture for the target one. (On the command line the same gap is closed differently:
-`images/service.sh` notices a Docker with no `buildx`, passes both by hand and builds the whole
-image for one platform, so a legacy builder works — just without the free cross-build.) The demo applications stay CLI-only: their context
-is a directory of this repository's source.
+`TARGETARCH`, the two variables a cross-compiling Dockerfile relies on. The demo applications stay
+CLI-only: their context is a directory of this repository's source. Big Hole is not one of these
+images: its static files are built in the app image (`app/Dockerfile`, stage `bighole`) and copied
+onto the nodes that serve it.
 
 An installation targets **exactly one platform**. `DOCKER_PLATFORM` selects it,
 `make images` builds only that, and `make versions` only probes and records it. There is

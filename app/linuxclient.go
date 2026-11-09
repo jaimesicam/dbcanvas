@@ -36,6 +36,8 @@ type linuxClientConfig struct {
 	DBClients []lcDBClient `json:"dbClients,omitempty"`
 	// innodump and gcache-inspector, read back the same way. See linuxclient_files.go.
 	FileTools []lcDBClient `json:"fileTools,omitempty"`
+	// BigHolePort is the host port the Big Hole FTDC viewer is published on (bighole.go).
+	BigHolePort int `json:"bigHolePort,omitempty"`
 	gdbNodeConfig
 }
 
@@ -131,6 +133,10 @@ func (a *App) provisionLinuxClient(st Stack, n designNode, doc designDoc) {
 			spec.Binds = append(spec.Binds, gdbBinds(cfg.CoreDir, cfg.LibDir)...)
 		}
 		applyVMSize(&spec, n.limits())
+		bigHole := n.BigHole && !el7 // nginx runs as a service; CentOS 7 has no systemd (validation says so)
+		if bigHole {
+			spec.PublishMap = append(spec.PublishMap, bigHolePortMap(a.bigHolePrevPort(st.ID, n.ID)))
+		}
 		id, err := a.engCtx(ctx).ContainerCreate(ctx, spec)
 		if err != nil {
 			pr.fail("create container: %v", err)
@@ -200,6 +206,12 @@ func (a *App) provisionLinuxClient(st Stack, n designNode, doc designDoc) {
 
 		if len(lcFileTools(n)) > 0 {
 			a.linuxClientInstallFileTools(ctx, id, n, &cfg, pr)
+			cfgJSON, _ = json.Marshal(cfg)
+		}
+
+		if bigHole {
+			pr.phase("Installing Big Hole", 85)
+			cfg.BigHolePort = a.installBigHole(ctx, id, n.OS, pr.logln)
 			cfgJSON, _ = json.Marshal(cfg)
 		}
 

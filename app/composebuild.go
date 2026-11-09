@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -1011,6 +1012,15 @@ func (a *App) handleComposeStack(w http.ResponseWriter, r *http.Request) {
 			"ttl must be one of 2h, 4h, 8h, 24h, 2w, infinity")
 		return
 	}
+	// The security group's limits (grouppolicy.go), before anything is resolved.
+	if ok, why := a.policyFor(u).ttlAllowed(ttl); !ok {
+		writeErr(w, http.StatusForbidden, why)
+		return
+	}
+	if ok, why := a.stackCountAllowed(u); !ok {
+		writeErr(w, http.StatusForbidden, why)
+		return
+	}
 
 	doc, pos, resolved, added, err := buildCompose(spec)
 	if err != nil {
@@ -1034,6 +1044,19 @@ func (a *App) handleComposeStack(w http.ResponseWriter, r *http.Request) {
 	// skip validation and say ok, so `--dry-run` approved plans the real compose then
 	// refused (pg_tde on a 17.0 node). The validator reads the stack id only to find the
 	// stack's own deployments and containers, and an unsaved stack (id 0) has none.
+	if err := validateLabels(spec.Labels); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if spec.Labels, err = labelsForNewStack(r, spec.Labels); err != nil {
+		writeErr(w, http.StatusForbidden, err.Error())
+		return
+	}
+	// Checked before the dry run returns, so the plan says so rather than the build.
+	if n := strings.TrimSpace(spec.Name); n != "" && a.store.StackIDByName(u.ID, n) != 0 {
+		a.writeStackNameTaken(w, u.ID, n)
+		return
+	}
 	if spec.DryRun {
 		if issues := a.validateStack(r.Context(), Stack{Name: strings.TrimSpace(spec.Name), Design: design}); issues != nil {
 			out.Issues = issues
@@ -1044,10 +1067,20 @@ func (a *App) handleComposeStack(w http.ResponseWriter, r *http.Request) {
 	}
 
 	st, err := a.store.CreateStack(strings.TrimSpace(spec.Name), u.ID, ttl, expiryFor(ttl), design)
+	if errors.Is(err, ErrStackNameTaken) {
+		a.writeStackNameTaken(w, u.ID, strings.TrimSpace(spec.Name))
+		return
+	}
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to create the stack")
 		return
 	}
+	if len(spec.Labels) > 0 {
+		a.store.SetStackLabels(st.ID, spec.Labels)
+		st.Labels = spec.Labels
+	}
+	a.recordStackCreator(r, st.ID)
+	a.stackEventByID(st.ID, "created")
 	out.Stack = &st
 
 	// Held to the same standard as a hand-drawn design: the caller gets the problems

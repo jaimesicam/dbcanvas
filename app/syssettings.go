@@ -93,12 +93,24 @@ type SystemSettings struct {
 	// default: who can use an installation is the installation's decision. Accounts that
 	// are already pending stay pending; turning it on approves nobody retroactively.
 	OpenRegistration bool `json:"openRegistration"`
-	// GuestLogin offers "Continue as guest" on the sign-in screen, which signs in to one
-	// shared account with the user role (guestlogin.go). Off by default; turning it off
-	// signs every guest out.
-	GuestLogin    bool                 `json:"guestLogin"`
-	SSHForwarding SSHForwardingSetting `json:"sshForwarding"`
-	Experimental  bool                 `json:"experimental"`
+	// GuestLogin offers "Continue as guest" on the sign-in screen, which creates a guest
+	// account of its own for each guest (guestlogin.go). Off by default; turning it off
+	// signs every guest out unless GuestKeepAccess is on.
+	GuestLogin bool `json:"guestLogin"`
+	// GuestKeepAccess keeps existing guests working when GuestLogin is turned off; only new
+	// guests are refused.
+	GuestKeepAccess bool `json:"guestKeepAccess"`
+	// GuestIdleDays removes a guest account, with its stacks, after this many days unused;
+	// 0 keeps them.
+	GuestIdleDays int `json:"guestIdleDays"`
+	// GuestExposedAck is an administrator's confirmation that guest sign-in may be on while
+	// the installation is reachable beyond this machine (exposure.go). Exposed and
+	// PublishHost say whether it is, read-only.
+	GuestExposedAck bool                 `json:"guestExposedAck"`
+	Exposed         bool                 `json:"exposed"`
+	PublishHost     string               `json:"publishHost"`
+	SSHForwarding   SSHForwardingSetting `json:"sshForwarding"`
+	Experimental    bool                 `json:"experimental"`
 	// EOL is whether end-of-life releases are offered (EOL in .env; see eol.go). Derived and
 	// read-only like Experimental, and for the same reason it rides here: the designer needs it
 	// before it draws the node library and the Linux Client's OS picker.
@@ -199,6 +211,10 @@ func (a *App) systemSettings(appUser string) SystemSettings {
 	}
 	s.OpenRegistration = a.openRegistration()
 	s.GuestLogin = a.guestLoginEnabled()
+	s.GuestKeepAccess = a.guestKeepAccess()
+	s.GuestIdleDays = a.guestIdleDays()
+	s.GuestExposedAck = a.guestExposedAck()
+	s.Exposed, s.PublishHost = exposed(), publishHost()
 	s.AllowGuestSessions, s.MaxGuestMinutes = a.guestSessionSettings()
 	s.SessionRetentionDays = a.shareRetentionDays()
 	s.RecordingRetentionDays = a.recordingRetentionDays()
@@ -294,6 +310,20 @@ func (a *App) handleUpdateSystemSettings(w http.ResponseWriter, r *http.Request)
 	if _, ok := present["guestLogin"]; !ok {
 		s.GuestLogin = a.guestLoginEnabled()
 	}
+	if _, ok := present["guestExposedAck"]; ok {
+		ack := "0"
+		if s.GuestExposedAck {
+			ack = "1"
+		}
+		a.store.SetAppSetting(settingGuestExposedAck, ack)
+	}
+	// Turning guest sign-in on while exposed needs the confirmation (exposure.go).
+	if s.GuestLogin && !a.guestLoginEnabled() {
+		if why := a.guestExposureBlocks(); why != "" {
+			writeErr(w, http.StatusBadRequest, why)
+			return
+		}
+	}
 	guestLogin := "0"
 	if s.GuestLogin {
 		guestLogin = "1"
@@ -301,6 +331,21 @@ func (a *App) handleUpdateSystemSettings(w http.ResponseWriter, r *http.Request)
 	if err := a.store.SetAppSetting(settingGuestLogin, guestLogin); err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to save settings")
 		return
+	}
+	// Left out means unchanged, as above.
+	if _, ok := present["guestKeepAccess"]; ok {
+		keep := "0"
+		if s.GuestKeepAccess {
+			keep = "1"
+		}
+		a.store.SetAppSetting(settingGuestKeepAccess, keep)
+	}
+	if _, ok := present["guestIdleDays"]; ok {
+		if s.GuestIdleDays < 0 || s.GuestIdleDays > 3650 {
+			writeErr(w, http.StatusBadRequest, "guestIdleDays is a number of days, 0 (keep) to 3650")
+			return
+		}
+		a.store.SetAppSetting(settingGuestIdleDays, strconv.Itoa(s.GuestIdleDays))
 	}
 	if !s.GuestLogin {
 		a.endGuestAccess()

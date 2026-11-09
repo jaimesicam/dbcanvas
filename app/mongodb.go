@@ -73,6 +73,9 @@ type mongoConfig struct {
 	VectorSearch bool   `json:"vectorSearch,omitempty"`
 	SearchHost   string `json:"searchHost,omitempty"`
 	MongotHere   bool   `json:"mongotHere,omitempty"`
+	// BigHolePort is the host port the Big Hole FTDC viewer is published on (bighole.go);
+	// 0 when it is not installed.
+	BigHolePort int `json:"bigHolePort,omitempty"`
 }
 
 // mongoSecrets holds the cluster admin credentials and the shared internal-auth
@@ -736,6 +739,7 @@ func (a *App) provisionMongoStandalone(st Stack, n designNode, doc designDoc) {
 		PSMDBMajor: n.PSMDBMajor, PSMDBVersion: n.PSMDBVersion,
 		UseProxy: n.UseProxy, RepositoryNodeID: n.RepositoryNodeID, GenerateCert: n.GenerateCert,
 		CertTTLValue: n.CertTTLValue, CertTTLUnit: n.CertTTLUnit, PMMNodeID: n.PMMNodeID,
+		BigHole: n.BigHole,
 	}
 	image := pxcImage(n.OS, n.OSVersion, n.Arch)
 	major := n.PSMDBMajor
@@ -985,6 +989,10 @@ func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	if n.ExportEnabled {
 		spec.PublishMap = []PortMap{{ContainerPort: mongoPort, HostPort: n.ExportHostPort}}
 	}
+	bigHole := bigHoleOn(frame.BigHole, n.Role)
+	if bigHole {
+		spec.PublishMap = append(spec.PublishMap, bigHolePortMap(a.bigHolePrevPort(st.ID, n.ID)))
+	}
 	id, err := a.engCtx(ctx).ContainerCreate(ctx, spec)
 	if err != nil {
 		return pr.fail("create container: %v", err)
@@ -1042,6 +1050,12 @@ func (a *App) mongoPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	}
 	pr.logln("installed " + what)
 	a.ensureRsyslog(ctx, id, frame.OS, pr.logln)
+	if bigHole {
+		pr.phase("Installing Big Hole", 42)
+		if p := a.installBigHole(ctx, id, frame.OS, pr.logln); p > 0 {
+			a.setDeploymentConfigField(st.ID, n.ID, "bigHolePort", p)
+		}
+	}
 
 	// Install pmm-client only when monitored by a PMM server (the frame carries the
 	// association; a standalone node passes a synthetic frame with it set).

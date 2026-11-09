@@ -13,7 +13,40 @@ CLI_PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 # Where `make cli` installs this machine's build as dbcanvas-cli; empty = build only.
 CLI_INSTALL_DIR ?= $(HOME)/.local/bin
 
-.PHONY: install install-extras adopt-images compose env build up down logs restart rotate-key clean images extra-images versions smoke cli cli-test supportsim-image stocksim-image ledgersim-image perfsim-image intranet-image vnc-image kubeadm-image
+.PHONY: doctor tag release-notes github-release pull-images publish-images install-pull install install-extras adopt-images compose env build up down logs restart rotate-key clean images extra-images versions smoke cli cli-test supportsim-image stocksim-image ledgersim-image perfsim-image intranet-image vnc-image kubeadm-image
+
+## doctor: check the host side — Docker, compose, buildx, disk, .env passwords and exposure, the
+## node images, whether the app answers. `dbcanvas-cli doctor` checks the installation itself.
+doctor:
+	@bash scripts/doctor.sh
+
+## tag: create the annotated tag v$(VERSION) on HEAD, the commit this release is built from.
+## Refuses a dirty tree or a tag that already exists. Local only; github-release publishes.
+tag:
+	@bash scripts/release.sh tag $(VERSION)
+
+## release-notes: print this release's notes (the README's "### $(VERSION)" section).
+release-notes:
+	@bash scripts/release.sh notes $(VERSION)
+
+## github-release: push tag v$(VERSION) and create the GitHub release from its notes. This
+## publishes — the repository is public — so it is never run by another target.
+github-release:
+	@bash scripts/release.sh publish $(VERSION)
+
+## pull-images: pull this release's node images (the systemd bases and the extra images) from
+## IMAGE_REGISTRY (default ghcr.io/jaimesicam) instead of building them, and write images.yaml.
+pull-images:
+	@bash scripts/registry.sh pull
+
+## install-pull: a first install from pulled images — minutes instead of `make images`' hour.
+## The demo application images are still built from source (make extra-images) when wanted.
+install-pull: env pull-images compose
+
+## publish-images: push this release's locally built node images to IMAGE_REGISTRY. This
+## publishes, so no other target runs it.
+publish-images:
+	@bash scripts/registry.sh push
 
 ## install: everything a first run needs — every image DBCanvas can build (the OS
 ## bases and the Intranet, then the optional ones on top: the VNC desktop, the K3D
@@ -84,6 +117,7 @@ env:
 	  inst="dbcanvas-$$(printf '%s' "$${USER:-$$(id -un)}" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9\n' '-' | sed 's/^-*//;s/-*$$//')"; \
 	  sed -i.bak "s/^DBCANVAS_INSTANCE=.*/DBCANVAS_INSTANCE=$$inst/" .env && rm -f .env.bak; \
 	  echo "Created .env from .env.example (instance: $$inst)"; \
+	  bash scripts/gen-secrets.sh .env; \
 	elif ! grep -qE '^DBCANVAS_INSTANCE=.+' .env; then \
 	  sed -i.bak '/^DBCANVAS_INSTANCE=/d' .env && rm -f .env.bak; \
 	  printf '\n# Added by make env: the name this installation already had (see .env.example).\nDBCANVAS_INSTANCE=dbcanvas\n' >> .env; \
@@ -240,13 +274,6 @@ vnc-image:
 ## Percona's apt repo has no arm64 percona-toolkit. `make extra-images` builds this too.
 k8scollector-image:
 	bash images/service.sh k8scollector
-
-## bighole-image: rebuild only the Big Hole image (dbcanvas-bighole:<commit>) — a
-## third-party browser-only MongoDB FTDC viewer (github.com/zelmario/Big-hole),
-## built from source at a pinned commit and served by nginx. A Big Hole node needs
-## it. `make extra-images` builds this too.
-bighole-image:
-	bash images/service.sh bighole
 
 ## kubeadm-image: rebuild only the Kubeadm Cluster node image
 ## (dbcanvas-kubeadm:ubuntu-24.04-<arch>) — Ubuntu 24.04 with systemd, containerd and the

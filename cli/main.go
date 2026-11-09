@@ -12,10 +12,14 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
+	"runtime"
 	"strings"
 )
 
@@ -69,6 +73,8 @@ func init() {
 		{"endpoints", "List the API endpoints this installation serves", cmdEndpoints},
 		{"api", "Call any endpoint directly: dbcanvas-cli api POST /api/stacks/1/deploy", cmdAPI},
 		{"version", "Print the CLI version, and the server's when signed in", cmdVersion},
+		{"doctor", "Check this installation (administrators): Docker, images, catalogue, default passwords, exposure", cmdDoctor},
+		{"commands", "Every command with its arguments and flags; --json (before it) for a program to read", cmdCommands},
 		{"help", "What a command takes: dbcanvas-cli help node exec (the same as node exec -h)", cmdHelpCmd},
 	}
 }
@@ -212,6 +218,11 @@ var positional []string
 // Re-parsing after each positional is the standard idiom for interspersed flags.
 func parse(fs *flag.FlagSet, args []string) error {
 	positional = nil
+	// `dbcanvas-cli commands` (cmd_commands.go): record the flags and stop, before anything runs.
+	if describing != nil {
+		*describing = describeFlags(fs)
+		return errHelp
+	}
 	for {
 		if err := fs.Parse(args); err != nil {
 			// -h / --help: the flag package has printed the usage already, and asking for it
@@ -261,23 +272,51 @@ func need(n int, what string) error {
 }
 
 func cmdVersion(args []string) error {
+	fs := flagsFor("version")
+	verify := fs.Bool("verify", false, "check this binary's SHA-256 against the checksums the server publishes for its CLI")
+	if err := parse(fs, args); err != nil {
+		return err
+	}
+	if *verify {
+		return verifySelf()
+	}
+	// The server's version is worth having in the same breath, but not worth
+	// failing over: `dbcanvas-cli version` has to work before anybody has signed in.
+	server, url := "", ""
+	if c, err := mustClient(); err == nil {
+		var st struct {
+			Version string `json:"version"`
+		}
+		if err := c.get("/api/setup/status", &st); err == nil {
+			server, url = st.Version, c.BaseURL
+		}
+	}
+	match := versionsMatch(version, server)
+	if g.json {
+		return printJSON(map[string]any{"cli": version, "server": server, "url": url, "match": match})
+	}
 	fmt.Printf("dbcanvas-cli %s\n", version)
 	// The binary is downloaded on its own, so it says what it is licensed under itself.
 	fmt.Println("Free software under the GPL-3.0-only, with NO WARRANTY.")
 	fmt.Println("Source and licences: https://github.com/jaimesicam/dbcanvas")
-	// The server's version is worth having in the same breath, but not worth
-	// failing over: `dbcanvas-cli version` has to work before anybody has signed in.
-	c, err := mustClient()
-	if err != nil {
-		return nil
-	}
-	var st struct {
-		Version string `json:"version"`
-	}
-	if err := c.get("/api/setup/status", &st); err == nil && st.Version != "" {
-		fmt.Printf("server      %s (%s)\n", st.Version, c.BaseURL)
+	if server != "" {
+		fmt.Printf("server      %s (%s)\n", server, url)
+		if !match {
+			fmt.Fprintf(os.Stderr, "warning: this CLI is %s and the server is %s — commands and flags may differ; "+
+				"download the matching CLI from %s/api/cli/download\n", version, server, url)
+		}
 	}
 	return nil
+}
+
+// versionsMatch reports whether a CLI and a server are the same release. A development
+// build on either side matches anything (it is somebody working on DBCanvas itself), and
+// an unknown server is not reported as a mismatch.
+func versionsMatch(cli, server string) bool {
+	if server == "" || cli == "dev" || server == "dev" {
+		return true
+	}
+	return strings.TrimPrefix(cli, "v") == strings.TrimPrefix(server, "v")
 }
 
 // truncate keeps a table column from wrapping. Counted and cut in runes, so a
@@ -310,4 +349,50 @@ func joinNonEmpty(sep string, parts ...string) string {
 		}
 	}
 	return strings.Join(out, sep)
+}
+
+// verifySelf checks the running binary against GET /api/cli/checksums: the server's SHA-256 of
+// the binary it ships for this platform.
+func verifySelf() error {
+	c, err := mustClient()
+	if err != nil {
+		return err
+	}
+	var raw []byte
+	if err := c.get("/api/cli/checksums", &raw); err != nil {
+		return err
+	}
+	name := "dbcanvas-cli_" + runtime.GOOS + "_" + runtime.GOARCH
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	want := ""
+	for _, line := range strings.Split(string(raw), "\n") {
+		if f := strings.Fields(line); len(f) == 2 && f[1] == name {
+			want = f[0]
+		}
+	}
+	if want == "" {
+		return fmt.Errorf("the server publishes no checksum for %s", name)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	f, err := os.Open(exe)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return err
+	}
+	got := hex.EncodeToString(h.Sum(nil))
+	if got != want {
+		return fmt.Errorf("%s does not match the %s the server ships (sha256 %s, server %s) — "+
+			"it is another build or release; download the server's from %s/api/cli/download", exe, name, got, want, c.BaseURL)
+	}
+	fmt.Printf("%s matches the %s this server ships (sha256 %s).\n", exe, name, got)
+	return nil
 }

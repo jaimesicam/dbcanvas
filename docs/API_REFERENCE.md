@@ -48,7 +48,7 @@ These endpoints need no session.
 | Request an account | `POST /api/auth/register` `{"username", "password", "firstName", "lastName", "email", "avatar"}` | *(UI only)* |
 | Sign in and get a session cookie | `POST /api/auth/login` | `dbcanvas-cli login` |
 | Which pages each security group may use · change it (admin) | `GET` · `PUT /api/security/groups` `{"allowed": {"guest": {"kanban": true}}}` | `dbcanvas-cli group list` · `dbcanvas-cli group set guest kanban=on` |
-| Sign in as the shared guest account (when guest sign-in is on; `guestLogin` in the status) | `POST /api/auth/guest` | `dbcanvas-cli login --guest` |
+| Sign in as a new guest account (when guest sign-in is on; `guestLogin` in the status) | `POST /api/auth/guest` | `dbcanvas-cli login --guest` |
 | Sign out | `POST /api/auth/logout` | `dbcanvas-cli logout` (also revokes the CLI's token) |
 | Check a password reset link · set the new password | `GET` · `POST /api/auth/reset/{token}` | *(UI only)* |
 
@@ -78,7 +78,7 @@ dbcanvas-cli login --url http://localhost:8080
 | Your kept Scratchboard boards | `GET /api/me/scratchboards` · `PUT`/`DELETE /api/me/scratchboards/{bid}` | — |
 | Release notes, and whether you have read them | `GET /api/whatsnew` · `POST /api/whatsnew/seen` | `dbcanvas-cli api GET /api/whatsnew` |
 | Node images beyond the OS bases, and which are present | `GET /api/images` | `dbcanvas-cli api GET /api/images` |
-| Build one of them (admin) | `POST /api/images/{id}/build` | `dbcanvas-cli api POST /api/images/bighole/build` |
+| Build one of them (admin) | `POST /api/images/{id}/build` | `dbcanvas-cli api POST /api/images/vnc/build` |
 
 Preference fields (`PUT` changes only the fields you send; an unknown value falls back
 to the default):
@@ -380,7 +380,7 @@ refuses and lists the candidates.
 | `supportsim` | `psm`, `mdb`, `psmrs`, `mdb-rs`, `psmdb`, `mdb-sharded`, `k3d` |
 | `pgvectorsim` | `pg`, `pg-pgdg`, `patroni`, `patroni-pgdg`, `repmgr`, `pg-stream`, `pg-stream-pgdg`, `spock`, `haproxy`, `pgbouncer`, `k3d` |
 
-`mclusteradmin` and `bighole` take no line. MClusterAdmin gets a ready-made
+`mclusteradmin` takes no line. MClusterAdmin gets a ready-made
 connection string when the spec has exactly one MongoDB.
 
 ```json

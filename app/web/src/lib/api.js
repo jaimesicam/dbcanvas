@@ -37,11 +37,14 @@ export const api = {
   register: (username, password, profile = {}) => request('POST', '/api/auth/register', { username, password, ...profile }),
   updateProfile: (profile) => request('PUT', '/api/me/profile', profile),
   login: (username, password) => request('POST', '/api/auth/login', { username, password }),
-  // Sign in as the shared guest account, when an administrator turned it on (app/guestlogin.go).
+  // Sign in as a guest (a guest account of its own), when an administrator turned it on (app/guestlogin.go).
   guestLogin: () => request('POST', '/api/auth/guest'),
   // Security groups (app/secgroups.go): admin only.
   securityGroups: () => request('GET', '/api/security/groups'),
   saveSecurityGroups: (allowed) => request('PUT', '/api/security/groups', { allowed }),
+  // Each group's limits (app/grouppolicy.go): admin only.
+  groupPolicies: () => request('GET', '/api/security/policies'),
+  saveGroupPolicies: (policies) => request('PUT', '/api/security/policies', { policies }),
   logout: () => request('POST', '/api/auth/logout'),
   me: () => request('GET', '/api/me'),
   settings: () => request('GET', '/api/me/settings'),

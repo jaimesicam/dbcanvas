@@ -40,7 +40,7 @@ func TestImageTagVersion(t *testing.T) {
 		{"chrislusf/seaweedfs:latest", ""},
 		{"valkey/valkey-bundle:latest", ""},
 		{"percona/percona-server", ""}, // no tag at all
-		{"registry:5000/foo/bar", ""}, // a port, not a tag
+		{"registry:5000/foo/bar", ""},  // a port, not a tag
 	}
 	for _, tc := range tests {
 		if got := imageTagVersion(tc.image); got != tc.want {

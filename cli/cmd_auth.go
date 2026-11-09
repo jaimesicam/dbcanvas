@@ -35,7 +35,7 @@ func cmdLogin(args []string) error {
 	scope := fs.String("scope", "write", "token scope: read, write or admin")
 	expires := fs.Int("expires", 90, "token lifetime in days; 0 = never (administrators only)")
 	name := fs.String("name", "", "token name (default \"dbcanvas-cli on <hostname>\")")
-	guest := fs.Bool("guest", false, "sign in as the shared guest account, when the administrator allows guest sign-in")
+	guest := fs.Bool("guest", false, "sign in as a new guest account of your own, when the administrator allows guest sign-in")
 	if err := parse(fs, args); err != nil {
 		return err
 	}
@@ -61,7 +61,7 @@ func cmdLogin(args []string) error {
 	}
 
 	if *guest && *user != "" {
-		return fmt.Errorf("--guest signs in as the shared guest account; leave out --user")
+		return fmt.Errorf("--guest signs in as a guest account, which has no username to give; leave out --user")
 	}
 	var username, password string
 	if !*guest {
@@ -179,8 +179,9 @@ func cmdLogin(args []string) error {
 	fmt.Printf("Created token %q (%s…), %s scope, %s.\n",
 		created.Token.Name, created.Token.Prefix, created.Token.Scope, expText)
 	if *guest {
-		fmt.Printf("Signed in as the shared guest account %s. Other guests see the same stacks, and the token "+
-			"stops working if the administrator turns guest sign-in off.\n", me.Username)
+		fmt.Printf("Signed in as guest account %s, which is yours alone: other guests do not see its stacks. "+
+			"It is removed with its stacks after a period unused, and the token can stop working if the "+
+			"administrator turns guest sign-in off.\n", me.Username)
 	}
 	fmt.Printf("Saved to %s as profile %q.\n", path, pname)
 	return nil
@@ -285,7 +286,7 @@ func cmdWhoami(args []string) error {
 
 	fmt.Printf("%-12s %s\n", "account", me.Username)
 	if me.GuestAccount {
-		fmt.Printf("%-12s %s\n", "role", me.Role+" (shared guest account)")
+		fmt.Printf("%-12s %s\n", "role", me.Role+" (guest account)")
 	} else {
 		fmt.Printf("%-12s %s\n", "role", me.Role)
 	}
@@ -319,6 +320,9 @@ func cmdWhoami(args []string) error {
 	}
 	if c.get("/api/setup/status", &st) == nil && st.Version != "" {
 		fmt.Printf("%-12s %s\n", "version", st.Version)
+		if !versionsMatch(version, st.Version) {
+			fmt.Fprintf(os.Stderr, "warning: this CLI is %s and the server is %s — run `dbcanvas-cli version` for where to get the matching one\n", version, st.Version)
+		}
 	}
 	return nil
 }

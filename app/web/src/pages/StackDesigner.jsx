@@ -39,6 +39,7 @@ import OpenBaoManager from './OpenBaoManager.jsx'
 import K3DManager from './K3DManager.jsx'
 import PatroniManager from './PatroniManager.jsx'
 import HAProxyManager from './HAProxyManager.jsx'
+import { BigHoleLink, BigHoleOption } from '../components/BigHole.jsx'
 import PgBouncerManager from './PgBouncerManager.jsx'
 import PGManager from './PGManager.jsx'
 import RepmgrManager from './RepmgrManager.jsx'
@@ -585,24 +586,6 @@ export const NODE_TYPES = {
     defaults: { os: 'oraclelinux', osVersion: '9', useProxy: false, lcKubectl: false, lcHelm: false, lcCmctl: false, lcCfssl: false,
       lcMysqlClient: false, lcMysqlShell: false, lcMongosh: false, lcPsql: false, lcClusterSync: false,
       lcInnodump: false, lcBinlogsum: false, lcGcacheInspector: false, lcMydumper: false },
-  },
-  // Big Hole — a third-party MongoDB FTDC viewer that runs entirely in the browser
-  // (built from source at a pinned commit; see images/bighole.Dockerfile). Runs its
-  // own image, so it carries no os/osVersion/arch.
-  //
-  // ports:false, unlike every other tool node here: it draws no association line
-  // because it talks to nothing at all. You drag a diagnostic.data folder onto the
-  // page; there is no database for it to point at.
-  bighole: {
-    label: 'Big Hole',
-    slug: 'bighole',
-    sub: 'MongoDB FTDC viewer — in the browser',
-    color: '#10b981',
-    icon: 'Monitor',
-    singleton: false,
-    ports: false,
-    osOptions: [{ id: 'bighole', label: 'dbcanvas-bighole' }],
-    defaults: {},
   },
   // MClusterAdmin — a third-party MongoDB administration panel. Runs upstream's own
   // published image, pulled at deploy like PMM's and Keycloak's, so it carries no
@@ -1825,7 +1808,8 @@ function StackTable({ stacks, isAdmin, me, onOpen, onChanged }) {
   const needle = q.trim().toLowerCase()
   const rows = scoped
     .filter(test[only])
-    .filter((s) => !needle || [s.name, s.owner, ...Object.keys(s.types || {}).map((t) => NODE_TYPES[t]?.label || t)].some((v) => (v || '').toLowerCase().includes(needle)))
+    .filter((s) => !needle || [s.name, s.owner, ...Object.keys(s.types || {}).map((t) => NODE_TYPES[t]?.label || t),
+      ...Object.entries(s.labels || {}).map(([k, v]) => `${k}=${v}`)].some((v) => (v || '').toLowerCase().includes(needle)))
   const key = {
     name: (s) => (s.name || '').toLowerCase(),
     owner: (s) => (s.owner || '').toLowerCase(),
@@ -1939,6 +1923,14 @@ function StackTable({ stacks, isAdmin, me, onOpen, onChanged }) {
                       <span className="block font-semibold text-fg hover:text-primary">{s.name}</span>
                       <span className="block text-xs text-muted">{ttlLabel(s.ttl)} lifetime</span>
                     </button>
+                    {s.labels && Object.keys(s.labels).length > 0 && (
+                      // Labels (app/stacklabels.go): set from the API or the CLI, shown sorted.
+                      <span className="mt-1 flex flex-wrap gap-1">
+                        {Object.keys(s.labels).sort().map((k) => (
+                          <span key={k} className="rounded border bg-surface2 px-1.5 py-px font-mono text-[10px] text-muted">{k}={s.labels[k]}</span>
+                        ))}
+                      </span>
+                    )}
                   </td>
                   {showOwner && (
                     <td className="px-3 py-2">
@@ -2030,7 +2022,7 @@ function NewStackModal({ onClose, onCreated, templates }) {
       // Naming a stack after the template it came from beats "Untitled stack"
       // when someone picks one and skips the name field.
       const fallback = chosen ? chosen.name : 'Untitled stack'
-      const s = await stackApi.create(name.trim() || fallback, ttl, undefined, templateId || undefined)
+      const s = await stackApi.create(name.trim(), ttl, undefined, templateId || undefined, fallback)
       onCreated(s)
     } catch (err) {
       setError(err.message)
@@ -2426,7 +2418,6 @@ const PALETTE_ALIASES = {
   supportsim: 'demo simulation support help desk tickets vector search vectorsearch semantic embeddings ai rag mongot mongo mongodb lab learn',
   pgvectorsim: 'demo simulation support help desk tickets vector search pgvector hnsw semantic embeddings ai rag postgres postgresql patroni lab learn',
   mclusteradmin: 'mongodb admin panel administration mca mclusteradmin gui web ui manage replica set sharding balancer oplog users roles',
-  bighole: 'mongodb ftdc diagnostic data viewer big hole bighole charts metrics support tarball browser offline',
   stocksim: 'demo simulation stock market portfolio trading crud report dashboard external mysql postgres mongodb valkey',
 }
 // menuEntriesFor shapes the library catalog into context-menu entries: one per
@@ -5010,7 +5001,6 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
     ] },
     { title: 'MongoDB Tools', items: [
       { label: 'MClusterAdmin', role: 'MongoDB admin panel', type: 'mclusteradmin', onClick: () => addNode('mclusteradmin') },
-      { label: 'Big Hole (FTDC viewer)', role: 'reads diagnostic.data', type: 'bighole', onClick: () => addNode('bighole') },
     ] },
     { title: 'PostgreSQL (Percona)', items: [
       { label: 'PostgreSQL', role: 'standalone server', type: 'pg', onClick: () => addNode('pg') },
@@ -9081,6 +9071,9 @@ export function K8sToolFields({ node: n, patchNode, deployed, frames = [] }) {
           </span>
         </span>
       </label>
+      <BigHoleOption value={n.bigHole} deployed={deployed} where="this node"
+        disabledReason={n.os === 'centos' ? 'Not on CentOS 7: nginx runs as a service, and this image has no systemd.' : ''}
+        onChange={(v) => patchNode(n.id, { bigHole: v })} />
       {on && (
         <p className="rounded-md border border-accent/30 bg-accent/10 px-2 py-1.5 text-[11px] leading-snug text-muted">
           They need a kubeconfig, which this node is not given: the clusters deploy at the same time as
@@ -9230,6 +9223,7 @@ function LinuxClientManager({ dep, onDeleteNode, stackId }) {
               ? "A jump box with MySQL file tools on it. Copy a table's files or a galera.cache onto it and read them from its terminal."
             : "No product installed — but Sample Client Code will put a runnable client program on it, install whatever that program needs, and run it against any database in this stack."}
       </p>
+      <BigHoleLink port={cfg.bigHolePort} />
       {!!tools.length && (
         <div className="rounded-lg border border-accent/30 bg-accent/10 px-3 py-2 text-[11px] leading-snug text-muted">
           {toolNames.map((t, i) => (
@@ -9405,114 +9399,6 @@ function SimDashboardLink({ port }) {
       className="flex items-center justify-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-sm font-medium text-primary hover:bg-primary/15">
       <Icon.External size={15} /> Open Dashboard
     </a>
-  )
-}
-
-// BigHoleLink is the way into a deployed Big Hole, and it is NOT SimDashboardLink.
-//
-// The app needs a secure context — HTTPS or localhost — for the private on-disk
-// storage and workers it decodes a capture into. Opened as http://<host>:<port> it
-// cannot keep a capture and fails partway through ingest, which reads like a broken
-// decoder rather than a deployment mistake. SimDashboardLink builds its URL from
-// location.hostname, which is right for a dashboard and wrong here: on a DBCanvas
-// browsed at http://192.168.x.y:8080 it would hand over the one address that does
-// not work.
-//
-// So the link is always localhost, and when this browser is somewhere else the row
-// says so and gives the tunnel that fixes it.
-export function BigHoleLink({ port }) {
-  if (!port) return null
-  const onLocalhost = typeof location === 'undefined' ||
-    location.hostname === 'localhost' || location.hostname === '127.0.0.1'
-  const url = `http://localhost:${port}/`
-  const tunnel = `ssh -N -L ${port}:127.0.0.1:${port} <you>@<docker-host>`
-  return (
-    <div className="space-y-1.5">
-      <a href={url} target="_blank" rel="noreferrer"
-        className="flex items-center justify-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-sm font-medium text-primary hover:bg-primary/15">
-        <Icon.External size={15} /> Open Big Hole
-      </a>
-      {!onLocalhost && (
-        <div className="space-y-1 rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
-          <div>
-            You are not browsing DBCanvas on localhost, and this viewer only works there — a
-            browser gives a page the on-disk storage it decodes a capture into over HTTPS or
-            localhost, nowhere else. Forward the port and open it as localhost:
-          </div>
-          <div className="flex items-center gap-1 rounded border bg-bg px-2 py-1">
-            <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-fg">{tunnel}</span>
-            <CopyBtn text={tunnel} />
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// BigHoleForm edits a (not-yet-deployed) Big Hole node. There is nothing to
-// configure — no OS, no version, no association, no credentials — because the app
-// talks to nothing: the only field is the label, and the rest is what to expect.
-export function BigHoleForm({ node: n, patchNode, deleteNode, dep, deployed }) {
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">Big Hole</span>
-        {dep && <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>}
-      </div>
-      <p className="text-xs text-muted">
-        A MongoDB FTDC viewer that runs entirely in your browser. Drag a mongod&apos;s{' '}
-        <span className="font-mono">diagnostic.data</span> folder — or a whole support tarball —
-        onto the page and it decodes and charts it. Nothing is uploaded and there is no backend;
-        this node is the built app behind nginx, published to a host port.
-      </p>
-      <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
-        Open it on <span className="font-mono">localhost</span>. Browsers only give a page the
-        private on-disk storage it needs over HTTPS or localhost, so reaching it by host address
-        leaves it unable to keep a capture — it fails partway through reading one. The node&apos;s
-        panel gives you the port-forward line if you are not on the Docker host.
-      </div>
-      <p className="text-xs text-muted">
-        For a capture from a node in this stack, take <span className="font-mono">diagnostic.data</span>{' '}
-        from that node&apos;s File Manager first. DBCanvas&apos;s own <span className="font-medium">FTDC
-        Summary</span> page reads the same files and answers a different question — verdicts and
-        findings rather than every metric charted.
-      </p>
-
-      <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
-        <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
-      </Field>
-
-      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
-        <Icon.Trash size={16} /> Delete node
-      </Button>
-    </div>
-  )
-}
-
-// BigHoleManager shows a deployed Big Hole: the way in, and the commit it was built
-// from — which is its only version, the project having no tags.
-export function BigHoleManager({ dep, onDeleteNode }) {
-  const cfg = dep?.config || {}
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">Big Hole</span>
-        <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
-      </div>
-      <BigHoleLink port={cfg.httpPort} />
-      <p className="text-xs text-muted">
-        Drag a <span className="font-mono">diagnostic.data</span> folder or a support tarball onto
-        the page. Nothing leaves your browser — there is no backend to send it to.
-      </p>
-      <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
-        <InfoRow label="Internal URL" help={HELP.depInternalURL}><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}</span></InfoRow>
-        <InfoRow label="Image" help={HELP.depImage}><span className="font-mono text-xs">{cfg.image || 'dbcanvas-bighole'}</span></InfoRow>
-        <InfoRow label="Built from" help={HELP.bigHoleRef}><span className="font-mono text-xs">{(cfg.ref || '').slice(0, 12) || '—'}</span></InfoRow>
-      </div>
-      <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
-        <Icon.Trash size={16} /> Delete node
-      </Button>
-    </div>
   )
 }
 
@@ -13368,6 +13254,8 @@ function MongoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, rebuildClu
 
       <MCACredentialsOption value={f.mcaCredentials} deployed={deployed}
         onChange={(v) => patchFrame(f.id, { mcaCredentials: v })} />
+      <BigHoleOption value={f.bigHole} deployed={deployed} where="every mongod member (not mongos)"
+        onChange={(v) => patchFrame(f.id, { bigHole: v })} />
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
@@ -13539,6 +13427,8 @@ function PSMRSFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed }) 
 
       <MCACredentialsOption value={f.mcaCredentials} deployed={deployed}
         onChange={(v) => patchFrame(f.id, { mcaCredentials: v })} />
+      <BigHoleOption value={f.bigHole} deployed={deployed} where="every mongod member (not mongos)"
+        onChange={(v) => patchFrame(f.id, { bigHole: v })} />
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!f.useProxy} disabled={deployed} onChange={(e) => patchFrame(f.id, { useProxy: e.target.checked })} />
@@ -15166,6 +15056,8 @@ function PSMStandaloneForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
 
       <MCACredentialsOption value={n.mcaCredentials} deployed={deployed}
         onChange={(v) => patchNode(n.id, { mcaCredentials: v })} />
+      <BigHoleOption value={n.bigHole} deployed={deployed} where="this node"
+        onChange={(v) => patchNode(n.id, { bigHole: v })} />
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={!!n.useProxy} disabled={deployed} onChange={(e) => patchNode(n.id, { useProxy: e.target.checked })} />
@@ -16340,12 +16232,21 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
       // frames: the Kubernetes clusters on the canvas decide which kubectl this node installs.
       return <LinuxClientForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} frames={frames} />
     }
-    // Big Hole node — the browser-only MongoDB FTDC viewer.
+    // A Big Hole node, from a design saved before Big Hole became an install option on MongoDB
+    // nodes and the Linux Client: say so, and offer the one thing left to do with it.
     if (n.type === 'bighole') {
-      if (dep && dep.state === 'running') {
-        return <BigHoleManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
-      }
-      return <BigHoleForm node={n} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+      return (
+        <div className="space-y-3">
+          <span className="text-sm font-semibold">{n.label}</span>
+          <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
+            Big Hole is now an install option on a MongoDB node or cluster and on the Linux Client, not a node of
+            its own. Delete this node and turn it on there; the stack will not deploy while it is on the canvas.
+          </div>
+          <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+            <Icon.Trash size={16} /> Delete node
+          </Button>
+        </div>
+      )
     }
     // MClusterAdmin node — the MongoDB administration panel.
     if (n.type === 'mclusteradmin') {

@@ -66,6 +66,8 @@ type APIToken struct {
 	ExpiresAt  *string `json:"expiresAt,omitempty"`
 	LastUsedAt *string `json:"lastUsedAt,omitempty"`
 	RevokedAt  *string `json:"revokedAt,omitempty"`
+	// Limit narrows the token to some stacks (tokenlimit.go); nil for none.
+	Limit *tokenLimit `json:"limit,omitempty"`
 	// State is derived rather than stored: active | expired | revoked. An expired
 	// token stays listed precisely so that "why is my script getting 401" has a
 	// visible answer.
@@ -136,21 +138,22 @@ func (s *Store) CreateAPIToken(userID int64, name, hash, prefix, scope string, e
 	return s.GetAPIToken(id)
 }
 
-const apiTokenCols = `id, user_id, name, prefix, scope, created_at, expires_at, last_used_at, revoked_at`
+const apiTokenCols = `id, user_id, name, prefix, scope, created_at, expires_at, last_used_at, revoked_at, limit_json`
 
 // apiTokenColsT is the same list qualified to the api_tokens alias, for the two
 // queries that join users. Unqualified `id` is ambiguous there, and SQLite reports
 // that as a query error rather than picking one — which, the first time round, was
 // swallowed as "no such token" and looked like a token bug.
-const apiTokenColsT = `t.id, t.user_id, t.name, t.prefix, t.scope, t.created_at, t.expires_at, t.last_used_at, t.revoked_at`
+const apiTokenColsT = `t.id, t.user_id, t.name, t.prefix, t.scope, t.created_at, t.expires_at, t.last_used_at, t.revoked_at, t.limit_json`
 
 func scanAPIToken(row interface{ Scan(...any) error }) (APIToken, error) {
 	var t APIToken
-	var expires, lastUsed, revoked sql.NullString
+	var expires, lastUsed, revoked, limit sql.NullString
 	if err := row.Scan(&t.ID, &t.UserID, &t.Name, &t.Prefix, &t.Scope,
-		&t.CreatedAt, &expires, &lastUsed, &revoked); err != nil {
+		&t.CreatedAt, &expires, &lastUsed, &revoked, &limit); err != nil {
 		return APIToken{}, err
 	}
+	t.Limit = decodeTokenLimit(limit.String)
 	if expires.Valid {
 		t.ExpiresAt = &expires.String
 	}
@@ -199,11 +202,12 @@ func (s *Store) ListAllAPITokens() ([]APIToken, error) {
 	out := []APIToken{}
 	for rows.Next() {
 		var t APIToken
-		var expires, lastUsed, revoked sql.NullString
+		var expires, lastUsed, revoked, limit sql.NullString
 		if err := rows.Scan(&t.ID, &t.UserID, &t.Name, &t.Prefix, &t.Scope,
-			&t.CreatedAt, &expires, &lastUsed, &revoked, &t.Username); err != nil {
+			&t.CreatedAt, &expires, &lastUsed, &revoked, &limit, &t.Username); err != nil {
 			return nil, err
 		}
+		t.Limit = decodeTokenLimit(limit.String)
 		if expires.Valid {
 			t.ExpiresAt = &expires.String
 		}
@@ -229,9 +233,9 @@ func (s *Store) APITokenByHash(hash string) (APIToken, User, error) {
 		WHERE t.token_hash = ?`, hash)
 	var t APIToken
 	var u User
-	var expires, lastUsed, revoked, approved, lastLogin sql.NullString
+	var expires, lastUsed, revoked, approved, lastLogin, limit sql.NullString
 	err := row.Scan(&t.ID, &t.UserID, &t.Name, &t.Prefix, &t.Scope,
-		&t.CreatedAt, &expires, &lastUsed, &revoked,
+		&t.CreatedAt, &expires, &lastUsed, &revoked, &limit,
 		&u.ID, &u.Username, &u.Role, &u.Status, &u.CreatedAt, &approved, &u.FirstName, &u.LastName, &u.Avatar, &u.Email,
 		&u.MustChangePassword, &lastLogin, &u.InvitePending, &u.GuestAccount)
 	if err != nil {
@@ -240,6 +244,7 @@ func (s *Store) APITokenByHash(hash string) (APIToken, User, error) {
 		}
 		return APIToken{}, User{}, err
 	}
+	t.Limit = decodeTokenLimit(limit.String)
 	if u, err = s.openProfile(u); err != nil {
 		return APIToken{}, User{}, err
 	}
@@ -524,8 +529,11 @@ func (a *App) requireScope(rt apiRoute, next http.HandlerFunc) http.HandlerFunc 
 			return
 		}
 		if have := effectiveScope(tok, u); !scopeAllows(have, need) {
-			writeErr(w, http.StatusForbidden,
-				"this endpoint needs a token with "+need+" scope; this token has "+have)
+			writeErr(w, http.StatusForbidden, scopeRefusal(need, have, u))
+			return
+		}
+		if why := a.tokenLimitAllows(rt, r, tok); why != "" {
+			writeErr(w, http.StatusForbidden, why)
 			return
 		}
 		noteTokenUse(tok.ID)
@@ -592,6 +600,8 @@ type tokenRequest struct {
 	Name  string `json:"name"`
 	Scope string `json:"scope"`
 	Days  int    `json:"days"`
+	// Limit narrows the token to some stacks (tokenlimit.go).
+	Limit *tokenLimit `json:"limit"`
 }
 
 func (a *App) handleCreateToken(w http.ResponseWriter, r *http.Request) {
@@ -635,10 +645,24 @@ func (a *App) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "failed to generate a token")
 		return
 	}
+	if in.Limit != nil {
+		if err := validateLabels(in.Limit.Labels); err != nil {
+			writeErr(w, http.StatusBadRequest, "limit: "+err.Error())
+			return
+		}
+	}
 	tok, err := a.store.CreateAPIToken(u.ID, name, hash, prefix, scope, expires)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to save the token")
 		return
+	}
+	if !in.Limit.empty() {
+		if err := a.store.SetAPITokenLimit(tok.ID, in.Limit); err != nil {
+			a.store.RevokeAPIToken(tok.ID)
+			writeErr(w, http.StatusInternalServerError, "failed to save the token's limit")
+			return
+		}
+		tok.Limit = in.Limit
 	}
 	a.notify(Notification{UserID: u.ID, Scope: "user", Type: "token.created", Severity: "info",
 		Title: "API token created", Body: name + " (" + scope + " scope) can now act as your account."})
@@ -736,4 +760,24 @@ func maxTokenDaysFromSetting(v string) int {
 		return maxMaxTokenDays
 	}
 	return n
+}
+
+// SetAPITokenLimit stores a token's stack limit (tokenlimit.go); nil clears it.
+func (s *Store) SetAPITokenLimit(id int64, l *tokenLimit) error {
+	_, err := s.db.Exec("UPDATE api_tokens SET limit_json = ? WHERE id = ?", encodeTokenLimit(l), id)
+	return err
+}
+
+// scopeRefusal is the 403 for a token whose scope is too narrow, with how to get one that is
+// wide enough — `dbcanvas-cli login` creates a write-scope token unless asked otherwise, so an
+// administrator meets this on the first admin command.
+func scopeRefusal(need, have string, u User) string {
+	msg := "this endpoint needs a token with " + need + " scope; this token has " + have
+	switch {
+	case need == ScopeAdmin && u.Role != RoleAdmin:
+		return msg + " — only an administrator's account can have one"
+	case need == ScopeAdmin:
+		return msg + " — sign in for one with `dbcanvas-cli login --scope admin` (add --profile admin to keep this token as the default), or create one on the API page"
+	}
+	return msg + " — sign in for one with `dbcanvas-cli login --scope " + need + "`, or create one on the API page"
 }

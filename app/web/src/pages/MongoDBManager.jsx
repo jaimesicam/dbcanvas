@@ -10,6 +10,7 @@ import { SecretValue } from '../components/Secret.jsx'
 import { Help } from '../components/Tooltip.jsx'
 import { DEP_HELP } from '../lib/help.js'
 import { useFollowedState } from '../session/SessionProvider.jsx'
+import { BigHoleLink } from '../components/BigHole.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -111,6 +112,7 @@ export default function MongoDBManager({ stackId, nodeId, frameId, dep, onDelete
         ))}
       </div>
 
+      {tab === 'overview' && <BigHoleLink port={cfg.bigHolePort} />}
       {tab === 'overview' && (
         <div className="space-y-2 text-sm">
           <KV k="Cluster" help={DEP_HELP.Cluster} v={cfg.cluster} />

@@ -1364,3 +1364,59 @@ func TestGroupSet(t *testing.T) {
 		t.Error("a cell without a value was accepted")
 	}
 }
+
+// Every command must parse its flags before it does anything, or `commands` (describe mode)
+// would run it — and so would -h. Describe mode prints nothing and makes no request.
+func TestDescribeCommandsRunsNothing(t *testing.T) {
+	t.Setenv("DBCANVAS_URL", "http://127.0.0.1:1") // nothing listens: a request would show up as an error
+	t.Setenv("DBCANVAS_TOKEN", "x")
+	r, w, _ := os.Pipe()
+	stdout, stderr := os.Stdout, os.Stderr
+	os.Stdout, os.Stderr = w, w
+	cmds := describeCommands()
+	os.Stdout, os.Stderr = stdout, stderr
+	w.Close()
+	out, _ := io.ReadAll(r)
+	if len(out) != 0 {
+		t.Fatalf("describe mode printed:\n%s", out)
+	}
+	seen := map[string]bool{}
+	for _, c := range cmds {
+		seen[c.Name] = true
+		if c.Summary == "" {
+			t.Errorf("%s has no summary", c.Name)
+		}
+	}
+	for k := range helpText {
+		if !seen[k] {
+			t.Errorf("help names %q, which describe mode did not reach", k)
+		}
+	}
+	var exec commandDesc
+	for _, c := range cmds {
+		if c.Name == "node exec" {
+			exec = c
+		}
+	}
+	names := map[string]string{}
+	for _, f := range exec.Flags {
+		names[f.Name] = f.Type
+	}
+	if names["stdin"] != "bool" || names["timeout"] != "duration" {
+		t.Fatalf("node exec flags: %v", names)
+	}
+}
+
+func TestVersionsMatch(t *testing.T) {
+	for _, c := range []struct {
+		cli, server string
+		want        bool
+	}{
+		{"0.0.28", "0.0.28", true}, {"v0.0.28", "0.0.28", true}, {"0.0.27", "0.0.28", false},
+		{"dev", "0.0.28", true}, {"0.0.28", "dev", true}, {"0.0.28", "", true},
+	} {
+		if got := versionsMatch(c.cli, c.server); got != c.want {
+			t.Errorf("%s/%s: %v", c.cli, c.server, got)
+		}
+	}
+}

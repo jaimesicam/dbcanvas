@@ -422,8 +422,9 @@ export function OpenRegistration() {
   )
 }
 
-// GuestLogin is whether the sign-in page offers "Continue as guest" (app/guestlogin.go):
-// one shared account with the user role. Instance-wide and off by default.
+// GuestLogin is whether the sign-in page offers "Continue as guest" (app/guestlogin.go): a guest
+// account of its own for each guest, with the user role. Instance-wide and off by default. Also
+// whether turning it off keeps existing guests, and how long an unused guest account is kept.
 export function GuestLogin() {
   const { system, saveSystem } = useSettings()
   const { user } = useAuth()
@@ -435,7 +436,7 @@ export function GuestLogin() {
   const apply = async (next) => {
     setErr(''); setBusy(true)
     try {
-      await saveSystem({ guestLogin: next })
+      await saveSystem(typeof next === 'object' ? next : { guestLogin: next })
     } catch (e) {
       setErr(e.message)
     } finally {
@@ -446,7 +447,7 @@ export function GuestLogin() {
   return (
     <Row
       title="Guest sign-in"
-      hint="Whether people can use DBCanvas without an account, as a shared guest user. Instance-wide, and off by default."
+      hint="Whether people can use DBCanvas without an account, each as a guest account of their own. Instance-wide, and off by default."
     >
       <div className="flex flex-wrap items-center gap-2">
         <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
@@ -457,18 +458,51 @@ export function GuestLogin() {
         <Help text={HELP.guestLogin} />
         {isAdmin && (
           <Button variant={on ? 'subtle' : 'outline'} onClick={() => apply(!on)} disabled={busy}>
-            {busy ? 'Saving…' : on ? 'Turn off (signs guests out)' : 'Allow guest sign-in'}
+            {busy ? 'Saving…' : on ? (system.guestKeepAccess ? 'Turn off (existing guests stay)' : 'Turn off (signs guests out)') : 'Allow guest sign-in'}
           </Button>
         )}
       </div>
       {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
       <div className="text-xs text-muted">
         {on
-          ? 'Anyone who can reach the sign-in page can press \u201cContinue as guest\u201d and use DBCanvas as a regular user, without a password. All guests share one account and its stacks.'
+          ? 'Anyone who can reach the sign-in page can press \u201cContinue as guest\u201d and use DBCanvas as a regular user, without a password. Each guest gets an account of its own, and its stacks are its own.'
           : isAdmin
             ? 'Only people with an account can sign in.'
             : 'Set by an administrator.'}
       </div>
+      {isAdmin && system.exposed && (
+        // app/exposure.go: reachable beyond this machine, a guest is anybody on the network, and
+        // a guest can deploy privileged containers on this Docker host.
+        <div className="space-y-1.5 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
+          <div>
+            DBCanvas is published on <span className="font-mono">{system.publishHost}</span>, so it is reachable beyond this
+            machine. Anyone who can reach the sign-in page could continue as a guest, and a guest can deploy privileged
+            containers on this Docker host — in effect root on it. Prefer <span className="font-mono">APP_HOST=127.0.0.1</span> and
+            an SSH tunnel for people who need it.
+          </div>
+          <label className="flex items-center gap-2 text-fg">
+            <input type="checkbox" checked={!!system.guestExposedAck} disabled={busy}
+              onChange={(e) => apply({ guestExposedAck: e.target.checked })} />
+            <span>I understand: allow guest sign-in on this exposed installation</span>
+          </label>
+        </div>
+      )}
+      {isAdmin && (
+        <div className="flex flex-wrap items-center gap-4 text-sm">
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={!!system.guestKeepAccess} disabled={busy}
+              onChange={(e) => apply({ guestKeepAccess: e.target.checked })} />
+            <span>Keep existing guests when turning it off</span>
+          </label>
+          <label className="flex items-center gap-2">
+            <span>Remove guest accounts unused for</span>
+            <input type="number" min="0" max="3650" className={`${inputCls} w-20`} disabled={busy}
+              defaultValue={system.guestIdleDays ?? 7} key={system.guestIdleDays ?? 7}
+              onBlur={(e) => Number(e.target.value) !== (system.guestIdleDays ?? 7) && apply({ guestIdleDays: Math.max(0, Number(e.target.value) || 0) })} />
+            <span>days (0 keeps them)</span>
+          </label>
+        </div>
+      )}
     </Row>
   )
 }
@@ -504,7 +538,7 @@ export function SecurityGroups() {
     >
       <div className="flex items-center gap-2 text-xs text-muted">
         <Help text={HELP.securityGroups} />
-        <span>Administrators are accounts with the admin role, Regular Users the rest, and Guests the shared guest account.</span>
+        <span>Administrators are accounts with the admin role, Regular Users the rest, and Guests every guest account.</span>
       </div>
       {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
       {!view ? (!err && <div className="text-xs text-muted">Loading…</div>) : (
@@ -542,6 +576,86 @@ export function SecurityGroups() {
                   })}
                 </tr>
               ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Row>
+  )
+}
+
+// GroupLimits sets each security group's limits (app/grouppolicy.go): the longest a stack may
+// live, how many stacks and deployed nodes one account may have, and node types it may not
+// deploy. Empty or 0 is no limit. Saved per group on blur or change.
+export function GroupLimits() {
+  const [view, setView] = useState(null) // { policies: {group: policy}, ttls }
+  const [err, setErr] = useState('')
+  const [draft, setDraft] = useState({}) // group → denied types as typed
+
+  useEffect(() => { api.groupPolicies().then(setView, (e) => setErr(e.message)) }, [])
+
+  const save = async (group, patch) => {
+    setErr('')
+    try {
+      setView(await api.saveGroupPolicies({ [group]: { ...view.policies[group], ...patch } }))
+    } catch (e) {
+      setErr(e.message)
+    }
+  }
+  const groups = [['admin', 'Administrators'], ['user', 'Regular Users'], ['guest', 'Guests']]
+
+  return (
+    <Row title="Security group limits" hint="What each group's accounts may deploy. Empty or 0 means no limit.">
+      <div className="flex items-center gap-2 text-xs text-muted">
+        <Help text={HELP.groupLimits} />
+        <span>Enforced by the server when a stack is created, composed, extended, validated and deployed.</span>
+      </div>
+      {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
+      {!view ? (!err && <div className="text-xs text-muted">Loading…</div>) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-muted">
+                <th className="py-1.5 pr-2 font-medium">Group</th>
+                <th className="px-2 py-1.5 font-medium">Longest lifetime</th>
+                <th className="px-2 py-1.5 font-medium">Stacks</th>
+                <th className="px-2 py-1.5 font-medium">Deployed nodes</th>
+                <th className="px-2 py-1.5 font-medium">Node types it may not deploy</th>
+              </tr>
+            </thead>
+            <tbody>
+              {groups.map(([g, label]) => {
+                const p = view.policies[g] || {}
+                const denied = draft[g] ?? (p.deniedNodeTypes || []).join(', ')
+                return (
+                  <tr key={g} className="border-t">
+                    <td className="py-1.5 pr-2">{label}</td>
+                    <td className="px-2 py-1.5">
+                      <select className={inputCls} aria-label={`${label}: longest lifetime`} value={p.maxTtl || ''}
+                        onChange={(e) => save(g, { maxTtl: e.target.value })}>
+                        <option value="">no limit</option>
+                        {(view.ttls || []).map((t) => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </td>
+                    {['maxStacks', 'maxContainers'].map((k) => (
+                      <td key={k} className="px-2 py-1.5">
+                        <input type="number" min="0" className={`${inputCls} w-20`} aria-label={`${label}: ${k}`}
+                          defaultValue={p[k] || 0} key={`${g}-${k}-${p[k] || 0}`}
+                          onBlur={(e) => Number(e.target.value) !== (p[k] || 0) && save(g, { [k]: Math.max(0, Number(e.target.value) || 0) })} />
+                      </td>
+                    ))}
+                    <td className="px-2 py-1.5">
+                      <input className={inputCls} aria-label={`${label}: denied node types`} placeholder="none — e.g. k3d, kubeadm"
+                        value={denied} onChange={(e) => setDraft((d) => ({ ...d, [g]: e.target.value }))}
+                        onBlur={() => {
+                          const list = denied.split(',').map((x) => x.trim()).filter(Boolean)
+                          setDraft((d) => { const n = { ...d }; delete n[g]; return n })
+                          if (list.join(',') !== (p.deniedNodeTypes || []).join(',')) save(g, { deniedNodeTypes: list })
+                        }} />
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -1062,6 +1176,8 @@ export default function Settings() {
           <GuestLogin />
 
           {isAdmin && <SecurityGroups />}
+
+          {isAdmin && <GroupLimits />}
 
           <GuestSessions />
 

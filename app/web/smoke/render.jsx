@@ -14,6 +14,7 @@
 //
 // Run with `npm run smoke`.
 
+import { BigHoleOption, BigHoleLink } from '../src/components/BigHole.jsx'
 import { renderToString } from 'react-dom/server'
 import { DBFileToolChecks } from '../src/components/FileTools.jsx'
 import { MySQLTuningFields, redoOption } from '../src/components/MySQLTuning.jsx'
@@ -58,7 +59,6 @@ import {
   insertTemplateDesign, groupTemplates, templateSizeLabel, menuEntriesFor, submenuPos, menuPos, menuWidth,
   MClusterAdminForm, MClusterAdminManager, MCA_DEFAULT_ADMIN_PW, MCA_DEFAULT_RO_PW,
   BuildImageRow,
-  BigHoleForm, BigHoleManager, BigHoleLink,
   nodeCardTip, memberCardTip,
   k8sReplLinkable, k8sPGStandbyPair, patroniStandbyLinkable, patroniStandbySourceOf, ReplicationLinkForm, ReplicationLinkChoices, K3DIssuerField, K3DTLSHostsField,
   associationBlocked, isReplEdge, k8sReplRoleOf, k8sReplSourceOf, k8sReplSslReplicasOf, ReplSSLFields, K3D_SOURCE_EXPOSE, K8sToolFields, DBClientFields, FileToolFields, lcMysqlSeries, lcPsqlSeries,
@@ -4277,29 +4277,17 @@ check('canvas: a node card is one row, and its tooltip still answers for it', ()
   return 'both tooltips carry what the cards stopped printing'
 })
 
-check('bighole: the FTDC viewer says where it has to be opened', () => {
-  const form = renderToString(
-    <BigHoleForm node={{ id: 'bh1', type: 'bighole', label: 'bighole-01' }} patchNode={noop} deleteNode={noop} />)
-  // The one thing that will otherwise waste somebody's afternoon: the app needs a
-  // secure context, and over a host address it fails partway through ingest, which
-  // reads like a broken decoder.
-  if (!/localhost/.test(form)) throw new Error('the form does not say to open it on localhost')
-  if (!/diagnostic\.data/.test(form)) throw new Error('the form does not say what to drag onto it')
-  // And it points at the page in DBCanvas that reads the same files differently,
-  // rather than pretending the two do not overlap.
-  if (!/FTDC\s*Summary/.test(form.replace(/<[^>]+>/g, ' '))) {
-    throw new Error('the form does not mention the built-in FTDC Summary')
-  }
-
-  const dep = { state: 'running', config: { httpPort: 41999, fqdn: 'bighole-01.example.net', image: 'dbcanvas-bighole:896984f', ref: '896984fe9e9a7f1f59cc4ce29237625f8aaa713f' } }
-  const html = renderToString(<BigHoleManager dep={dep} onDeleteNode={noop} />)
-  // The link is localhost, NOT location.hostname — under SSR there is no location
-  // at all, which is the case that would throw if this used the sim link.
-  if (!/http:\/\/localhost:41999/.test(html)) throw new Error('the link is not localhost')
-  // The commit is the version, shown short.
-  if (!/896984fe9e9a/.test(html)) throw new Error('the built-from commit is not shown')
-  if (renderToString(<BigHoleLink port={0} />) !== '') throw new Error('a portless node still rendered a link')
-  return 'form, manager and a localhost link'
+check('bighole: the install option says where it is opened, and the link is localhost', () => {
+  const opt = renderToString(<BigHoleOption value={true} where="every mongod member" onChange={noop} />)
+  if (!/diagnostic\.data/.test(opt)) throw new Error('the option does not say what to drag onto it')
+  if (!/localhost/.test(opt)) throw new Error('the option does not say to open it on localhost')
+  const off = renderToString(<BigHoleOption value={true} disabledReason="Not on CentOS 7" onChange={noop} />)
+  if (!/Not on CentOS 7/.test(off) || /checked=""/.test(off)) throw new Error('a disabled option still reads as on')
+  // The link is localhost, NOT location.hostname — the app needs a secure context, and under
+  // SSR there is no location at all.
+  if (!/http:\/\/localhost:41999/.test(renderToString(<BigHoleLink port={41999} />))) throw new Error('the link is not localhost')
+  if (renderToString(<BigHoleLink port={0} />) !== '') throw new Error('a node without Big Hole still rendered a link')
+  return 'an option and a localhost link'
 })
 
 check('mongo downloads: the menu link at the right endpoint', () => {
@@ -4339,31 +4327,6 @@ check('mclusteradmin: the panel owns the credentials, not a connection string', 
   if (!/mongodb:\/\/madmin/.test(html)) throw new Error('the manager does not show the URI shape')
   if (/Connection string/.test(html)) throw new Error('the manager still offers a prepared connection string')
   return 'credentials, a URI template, and no line'
-})
-
-check('bighole: the FTDC viewer says where it has to be opened', () => {
-  const form = renderToString(
-    <BigHoleForm node={{ id: 'bh1', type: 'bighole', label: 'bighole-01' }} patchNode={noop} deleteNode={noop} />)
-  // The one thing that will otherwise waste somebody's afternoon: the app needs a
-  // secure context, and over a host address it fails partway through ingest, which
-  // reads like a broken decoder.
-  if (!/localhost/.test(form)) throw new Error('the form does not say to open it on localhost')
-  if (!/diagnostic\.data/.test(form)) throw new Error('the form does not say what to drag onto it')
-  // And it points at the page in DBCanvas that reads the same files differently,
-  // rather than pretending the two do not overlap.
-  if (!/FTDC\s*Summary/.test(form.replace(/<[^>]+>/g, ' '))) {
-    throw new Error('the form does not mention the built-in FTDC Summary')
-  }
-
-  const dep = { state: 'running', config: { httpPort: 41999, fqdn: 'bighole-01.example.net', image: 'dbcanvas-bighole:896984f', ref: '896984fe9e9a7f1f59cc4ce29237625f8aaa713f' } }
-  const html = renderToString(<BigHoleManager dep={dep} onDeleteNode={noop} />)
-  // The link is localhost, NOT location.hostname — under SSR there is no location
-  // at all, which is the case that would throw if this used the sim link.
-  if (!/http:\/\/localhost:41999/.test(html)) throw new Error('the link is not localhost')
-  // The commit is the version, shown short.
-  if (!/896984fe9e9a/.test(html)) throw new Error('the built-from commit is not shown')
-  if (renderToString(<BigHoleLink port={0} />) !== '') throw new Error('a portless node still rendered a link')
-  return 'form, manager and a localhost link'
 })
 
 check('tabs: clicking a page you already have focuses it rather than opening another', () => {

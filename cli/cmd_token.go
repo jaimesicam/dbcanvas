@@ -25,6 +25,26 @@ type token struct {
 	ExpiresAt  string `json:"expiresAt"`
 	LastUsedAt string `json:"lastUsedAt"`
 	State      string `json:"state"`
+	// Limit narrows the token to some stacks (the server's tokenlimit.go).
+	Limit *struct {
+		OwnStacks bool              `json:"ownStacks"`
+		Labels    map[string]string `json:"labels"`
+	} `json:"limit"`
+}
+
+// limitText is a token's stack limit for the list; "-" when it has none.
+func (tk token) limitText() string {
+	if tk.Limit == nil {
+		return "-"
+	}
+	var parts []string
+	if tk.Limit.OwnStacks {
+		parts = append(parts, "own stacks")
+	}
+	if len(tk.Limit.Labels) > 0 {
+		parts = append(parts, labelText(tk.Limit.Labels))
+	}
+	return strings.Join(parts, " + ")
 }
 
 func cmdToken(args []string) error {
@@ -68,9 +88,9 @@ func tokenList(args []string) error {
 		empty("tokens", "Create one with `dbcanvas-cli token create --name \"my script\"`.")
 		return nil
 	}
-	head := []string{"id", "name", "scope", "state", "expires", "last used"}
+	head := []string{"id", "name", "scope", "state", "expires", "last used", "limited to"}
 	if *all {
-		head = []string{"id", "owner", "name", "scope", "state", "expires", "last used"}
+		head = []string{"id", "owner", "name", "scope", "state", "expires", "last used", "limited to"}
 	}
 	t := newTable(head...)
 	for _, tk := range res.Tokens {
@@ -86,7 +106,7 @@ func tokenList(args []string) error {
 		if tk.ExpiresAt == "" {
 			exp = "never"
 		}
-		row = append(row, truncate(tk.Name, 30), tk.Scope, tk.State, exp, shortDate(tk.LastUsedAt))
+		row = append(row, truncate(tk.Name, 30), tk.Scope, tk.State, exp, shortDate(tk.LastUsedAt), truncate(tk.limitText(), 40))
 		t.add(row...)
 	}
 	t.print()
@@ -102,7 +122,14 @@ func tokenCreate(args []string) error {
 	name := fs.String("name", "", "what the token is for")
 	scope := fs.String("scope", "write", "read, write or admin")
 	days := fs.Int("expires", 90, "lifetime in days; 0 = never (administrators only)")
+	ownStacks := fs.Bool("own-stacks", false, "limit the token to the stacks it creates itself")
+	var limitLabels multiFlag
+	fs.Var(&limitLabels, "limit-label", "limit the token to stacks carrying this key=value label — repeatable; stacks it creates get it")
 	if err := parse(fs, args); err != nil {
+		return err
+	}
+	limLabels, err := labelsFromFlags(limitLabels)
+	if err != nil {
 		return err
 	}
 	if *name == "" {
@@ -148,8 +175,11 @@ func tokenCreate(args []string) error {
 		Token  token  `json:"token"`
 		Secret string `json:"secret"`
 	}
-	if err := c.post("/api/tokens", map[string]any{
-		"name": *name, "scope": *scope, "days": *days}, &created); err != nil {
+	body := map[string]any{"name": *name, "scope": *scope, "days": *days}
+	if *ownStacks || len(limLabels) > 0 {
+		body["limit"] = map[string]any{"ownStacks": *ownStacks, "labels": limLabels}
+	}
+	if err := c.post("/api/tokens", body, &created); err != nil {
 		return err
 	}
 	if g.json {
@@ -161,6 +191,9 @@ func tokenCreate(args []string) error {
 	}
 	fmt.Printf("Created %q (id %d), %s scope, %s.\n\n%s\n\n",
 		created.Token.Name, created.Token.ID, created.Token.Scope, exp, created.Secret)
+	if created.Token.Limit != nil {
+		fmt.Printf("It can reach only %s, and the stack routes, catalogues and listing that go with them.\n", created.Token.limitText())
+	}
 	fmt.Println("Copy it now — the server keeps only a hash, so it cannot be shown again.")
 	return nil
 }

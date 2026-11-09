@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -28,6 +29,10 @@ const (
 
 // ErrUserExists is returned when a username is already taken.
 var ErrUserExists = errors.New("username already exists")
+
+// ErrStackNameTaken is returned when an owner already has a stack of that name. Names are
+// compared case-insensitively, as the CLI resolves them, so "Lab" and "lab" are one name.
+var ErrStackNameTaken = errors.New("stack name already in use")
 
 // User is the JSON-facing representation of an account (never includes the hash).
 type User struct {
@@ -258,6 +263,13 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id, id DESC);`
 	db.Exec("ALTER TABLE sessions ADD COLUMN ip TEXT NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE sessions ADD COLUMN user_agent TEXT NOT NULL DEFAULT ''")
 	db.Exec("ALTER TABLE stacks ADD COLUMN backend TEXT")
+	db.Exec("ALTER TABLE stacks ADD COLUMN labels_json TEXT")         // stacklabels.go
+	db.Exec("ALTER TABLE stacks ADD COLUMN created_by_token INTEGER") // tokenlimit.go
+	db.Exec("ALTER TABLE api_tokens ADD COLUMN limit_json TEXT")      // tokenlimit.go
+	db.Exec(`CREATE TABLE IF NOT EXISTS stack_tombstones (
+  id INTEGER PRIMARY KEY, name TEXT NOT NULL, owner_id INTEGER NOT NULL, labels_json TEXT,
+  reason TEXT NOT NULL, by_user TEXT NOT NULL DEFAULT '', deleted_at TEXT NOT NULL)`) // stackevents.go
+	ensureStackNameIndex(db)
 
 	// Shared sessions (share_store.go). Kept in their own constant so the feature's
 	// tables read in one place; created here like every other table.
@@ -635,6 +647,40 @@ type Stack struct {
 	// ("docker" | "vagrant"). Empty until the first deploy stamps it; callers
 	// treat empty as "docker" (see App.eng). Only populated by GetStack.
 	Backend string `json:"backend,omitempty"`
+	// Labels are key=value tags a program can select stacks by (stacklabels.go).
+	Labels map[string]string `json:"labels,omitempty"`
+	// CreatedByToken is the API token that created the stack, 0 for any other way
+	// (tokenlimit.go: a token limited to its own stacks).
+	CreatedByToken int64 `json:"createdByToken,omitempty"`
+}
+
+// SetStackCreatedByToken records the token a stack was created with.
+func (s *Store) SetStackCreatedByToken(id, tokenID int64) error {
+	_, err := s.db.Exec("UPDATE stacks SET created_by_token = ? WHERE id = ?", tokenID, id)
+	return err
+}
+
+// decodeLabels reads a labels_json column; nil when empty or unreadable.
+func decodeLabels(ns sql.NullString) map[string]string {
+	if !ns.Valid || ns.String == "" {
+		return nil
+	}
+	var m map[string]string
+	if json.Unmarshal([]byte(ns.String), &m) != nil || len(m) == 0 {
+		return nil
+	}
+	return m
+}
+
+// SetStackLabels replaces a stack's labels (nil or empty clears them).
+func (s *Store) SetStackLabels(id int64, labels map[string]string) error {
+	var v any
+	if len(labels) > 0 {
+		b, _ := json.Marshal(labels)
+		v = string(b)
+	}
+	_, err := s.db.Exec("UPDATE stacks SET labels_json = ? WHERE id = ?", v, id)
+	return err
 }
 
 // Deployment is the runtime record for one node in a stack.
@@ -652,7 +698,8 @@ type Deployment struct {
 	ContainerName string `json:"containerName,omitempty"`
 }
 
-// CreateStack inserts a new stack. expiresAt is nil for an infinite TTL.
+// CreateStack inserts a new stack. expiresAt is nil for an infinite TTL. An owner's stack
+// names are unique (ErrStackNameTaken).
 func (s *Store) CreateStack(name string, ownerID int64, ttl string, expiresAt *string, design []byte) (Stack, error) {
 	created := nowRFC3339()
 	tx, err := s.db.Begin()
@@ -660,6 +707,11 @@ func (s *Store) CreateStack(name string, ownerID int64, ttl string, expiresAt *s
 		return Stack{}, err
 	}
 	defer tx.Rollback()
+	if taken, err := stackNameTaken(tx, ownerID, name, 0); err != nil {
+		return Stack{}, err
+	} else if taken {
+		return Stack{}, ErrStackNameTaken
+	}
 	res, err := tx.Exec(
 		"INSERT INTO stacks (name, owner_id, ttl, status, created_at, expires_at, design_json) VALUES (?,?,?,?,?,?,'')",
 		name, ownerID, ttl, StackDraft, created, nullStr(expiresAt),
@@ -690,9 +742,9 @@ func (s *Store) ListStacks(ownerID int64, isAdmin bool) ([]Stack, error) {
 	var rows *sql.Rows
 	var err error
 	if isAdmin {
-		rows, err = s.db.Query("SELECT id, name, owner_id, ttl, status, created_at, expires_at FROM stacks ORDER BY created_at DESC, id DESC")
+		rows, err = s.db.Query("SELECT id, name, owner_id, ttl, status, created_at, expires_at, labels_json, created_by_token FROM stacks ORDER BY created_at DESC, id DESC")
 	} else {
-		rows, err = s.db.Query("SELECT id, name, owner_id, ttl, status, created_at, expires_at FROM stacks WHERE owner_id = ? ORDER BY created_at DESC, id DESC", ownerID)
+		rows, err = s.db.Query("SELECT id, name, owner_id, ttl, status, created_at, expires_at, labels_json, created_by_token FROM stacks WHERE owner_id = ? ORDER BY created_at DESC, id DESC", ownerID)
 	}
 	if err != nil {
 		return nil, err
@@ -701,13 +753,16 @@ func (s *Store) ListStacks(ownerID int64, isAdmin bool) ([]Stack, error) {
 	stacks := []Stack{}
 	for rows.Next() {
 		var st Stack
-		var exp sql.NullString
-		if err := rows.Scan(&st.ID, &st.Name, &st.OwnerID, &st.TTL, &st.Status, &st.CreatedAt, &exp); err != nil {
+		var exp, labels sql.NullString
+		var byTok sql.NullInt64
+		if err := rows.Scan(&st.ID, &st.Name, &st.OwnerID, &st.TTL, &st.Status, &st.CreatedAt, &exp, &labels, &byTok); err != nil {
 			return nil, err
 		}
 		if exp.Valid {
 			st.ExpiresAt = &exp.String
 		}
+		st.Labels = decodeLabels(labels)
+		st.CreatedByToken = byTok.Int64
 		stacks = append(stacks, st)
 	}
 	return stacks, rows.Err()
@@ -723,11 +778,12 @@ func (s *Store) SetStackExpiry(id int64, ttl string, expiresAt *string) error {
 func (s *Store) GetStack(id int64) (Stack, error) {
 	var st Stack
 	var exp sql.NullString
-	var backend sql.NullString
+	var backend, labels sql.NullString
+	var byTok sql.NullInt64
 	var design string
 	err := s.db.QueryRow(
-		"SELECT id, name, owner_id, ttl, status, created_at, expires_at, design_json, backend FROM stacks WHERE id = ?", id,
-	).Scan(&st.ID, &st.Name, &st.OwnerID, &st.TTL, &st.Status, &st.CreatedAt, &exp, &design, &backend)
+		"SELECT id, name, owner_id, ttl, status, created_at, expires_at, design_json, backend, labels_json, created_by_token FROM stacks WHERE id = ?", id,
+	).Scan(&st.ID, &st.Name, &st.OwnerID, &st.TTL, &st.Status, &st.CreatedAt, &exp, &design, &backend, &labels, &byTok)
 	if err != nil {
 		return Stack{}, err
 	}
@@ -735,6 +791,8 @@ func (s *Store) GetStack(id int64) (Stack, error) {
 		st.ExpiresAt = &exp.String
 	}
 	st.Backend = backend.String
+	st.Labels = decodeLabels(labels)
+	st.CreatedByToken = byTok.Int64
 	design, err = s.openVal(aadID("stacks", "design_json", st.ID), design)
 	if err != nil {
 		return Stack{}, err
@@ -757,6 +815,15 @@ func (s *Store) UpdateStack(id int64, name string, design []byte) error {
 	if err != nil {
 		return err
 	}
+	var owner int64
+	if err := s.db.QueryRow("SELECT owner_id FROM stacks WHERE id = ?", id).Scan(&owner); err != nil {
+		return err
+	}
+	if taken, err := stackNameTaken(s.db, owner, name, id); err != nil {
+		return err
+	} else if taken {
+		return ErrStackNameTaken
+	}
 	_, err = s.db.Exec("UPDATE stacks SET name = ?, design_json = ? WHERE id = ?", name, sealed, id)
 	return err
 }
@@ -764,6 +831,15 @@ func (s *Store) UpdateStack(id int64, name string, design []byte) error {
 // SetStackOwner hands a stack to another account. The design is sealed per stack id,
 // not per owner, so it needs no re-sealing.
 func (s *Store) SetStackOwner(id, ownerID int64) error {
+	var name string
+	if err := s.db.QueryRow("SELECT name FROM stacks WHERE id = ?", id).Scan(&name); err != nil {
+		return err
+	}
+	if taken, err := stackNameTaken(s.db, ownerID, name, id); err != nil {
+		return err
+	} else if taken {
+		return ErrStackNameTaken
+	}
 	_, err := s.db.Exec("UPDATE stacks SET owner_id = ? WHERE id = ?", ownerID, id)
 	return err
 }
@@ -1137,4 +1213,89 @@ func deploymentContainerName(d Deployment) string {
 		return k3dNodeContainer(k.Cluster, 0)
 	}
 	return ""
+}
+
+// queryRower is what stackNameTaken needs from a *sql.DB or a *sql.Tx.
+type queryRower interface {
+	QueryRow(query string, args ...any) *sql.Row
+}
+
+// stackNameTaken reports whether an owner has another stack (not exceptID) of this name,
+// compared case-insensitively.
+func stackNameTaken(q queryRower, ownerID int64, name string, exceptID int64) (bool, error) {
+	var n int
+	err := q.QueryRow("SELECT COUNT(*) FROM stacks WHERE owner_id = ? AND name = ? COLLATE NOCASE AND id != ?",
+		ownerID, name, exceptID).Scan(&n)
+	return n > 0, err
+}
+
+// ensureStackNameIndex makes an owner's stack names unique in the database as well, so two
+// creates racing each other cannot both pass stackNameTaken. A database that already holds
+// duplicates keeps working without the index — the store's own check still refuses new ones —
+// and says which names collide, so they can be renamed.
+func ensureStackNameIndex(db *sql.DB) {
+	if _, err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_stacks_owner_name ON stacks(owner_id, name COLLATE NOCASE)"); err == nil {
+		return
+	}
+	rows, err := db.Query(`SELECT owner_id, name, GROUP_CONCAT(id) FROM stacks
+		GROUP BY owner_id, name COLLATE NOCASE HAVING COUNT(*) > 1`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var owner int64
+		var name, ids string
+		if rows.Scan(&owner, &name, &ids) == nil {
+			log.Printf("stacks: owner %d has several stacks called %q (ids %s); rename all but one so names can be made unique", owner, name, ids)
+		}
+	}
+}
+
+// StackIDByName is the id of an owner's stack of this name (case-insensitive), or 0.
+func (s *Store) StackIDByName(ownerID int64, name string) int64 {
+	var id int64
+	s.db.QueryRow("SELECT id FROM stacks WHERE owner_id = ? AND name = ? COLLATE NOCASE ORDER BY id LIMIT 1", ownerID, name).Scan(&id)
+	return id
+}
+
+// TransferStackKeepingNames hands a stack to another owner and, when that owner already has
+// one of the same name, renames it "<name> (from <from>)" — numbered when even that is taken —
+// so a bulk handover (an account being deleted) never stops on a name. Returns the name the
+// stack ends up with.
+func (s *Store) TransferStackKeepingNames(id, ownerID int64, from string) (string, error) {
+	var name string
+	if err := s.db.QueryRow("SELECT name FROM stacks WHERE id = ?", id).Scan(&name); err != nil {
+		return "", err
+	}
+	want := name
+	for i := 1; ; i++ {
+		taken, err := stackNameTaken(s.db, ownerID, want, id)
+		if err != nil {
+			return "", err
+		}
+		if !taken {
+			break
+		}
+		want = fmt.Sprintf("%s (from %s)", name, from)
+		if i > 1 {
+			want = fmt.Sprintf("%s (from %s) %d", name, from, i)
+		}
+	}
+	if want != name {
+		if _, err := s.db.Exec("UPDATE stacks SET name = ? WHERE id = ?", want, id); err != nil {
+			return "", err
+		}
+	}
+	_, err := s.db.Exec("UPDATE stacks SET owner_id = ? WHERE id = ?", ownerID, id)
+	return want, err
+}
+
+// FreeStackName is base, or "base 2", "base 3", … — the first name the owner does not have.
+func (s *Store) FreeStackName(ownerID int64, base string) string {
+	name := base
+	for i := 2; s.StackIDByName(ownerID, name) != 0; i++ {
+		name = fmt.Sprintf("%s %d", base, i)
+	}
+	return name
 }

@@ -1,7 +1,8 @@
 # Feature guides
 
 One page per part of DBCanvas. To install and configure it, see
-[Configuration & commands](CONFIGURATION.md).
+[Configuration & commands](CONFIGURATION.md); for who can do what on the host, the
+[Security model](SECURITY.md).
 
 > [!IMPORTANT]
 > **DBCanvas is for testing and learning, not production.** Everything it deploys is disposable.

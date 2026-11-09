@@ -380,6 +380,10 @@ func (a *App) saveStackDesign(w http.ResponseWriter, st Stack, name string, desi
 		return false
 	}
 	if err := a.store.UpdateStack(st.ID, name, design); err != nil {
+		if errors.Is(err, ErrStackNameTaken) {
+			a.writeStackNameTaken(w, st.OwnerID, name)
+			return false
+		}
 		writeErr(w, http.StatusInternalServerError, "failed to update stack")
 		return false
 	}

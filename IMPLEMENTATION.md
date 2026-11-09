@@ -29853,3 +29853,245 @@ itself from its own UI — is no longer a node type.
 `TestComposeNoWatchtower`, `TestDesignCatalog`'s designer/catalogue cross-check), `npm run build`,
 `npm run smoke`. No stack on the installation had a Watchtower node, so none needed migrating.
 
+## 525. Big Hole is an install option, not a node type — `app/bighole.go`, `app/Dockerfile`, `app/mongodb.go`, `app/linuxclient.go`, `app/intranet.go`, `app/designcatalog_mongo.go`, `app/designcatalog_infra.go`, `app/compose.go`, `app/extraimages.go`, `images/service.sh`, `Makefile`, `app/web/src/components/BigHole.jsx`, `app/web/src/pages/StackDesigner.jsx`, `app/web/src/pages/MongoDBManager.jsx`, `app/web/src/lib/nodeLinks.js`
+
+Big Hole (the browser-only MongoDB FTDC viewer) was a node type with an image of its own
+(`dbcanvas-bighole:<commit>`, `make bighole-image`). It is now the `bigHole` install option, like
+the other tools:
+- on a standalone MongoDB node
+- on a replica set or sharded cluster, where every mongod member serves it (`bigHoleOn`: not
+  mongos, which keeps no `diagnostic.data`)
+- on the Linux Client, except CentOS 7 (no systemd; `bigHoleIssues`)
+
+- **Build.** `app/Dockerfile` stage `bighole` clones upstream at `BIGHOLE_REF` (= `bigHoleRef`), runs
+  upstream's `npm ci && npm run build`, and packs `dist/` with the licence into
+  `/usr/local/share/dbcanvas/bighole/bighole.tar.gz` (4.5 MB). The licence also goes to
+  `/usr/share/doc/dbcanvas/big-hole.LICENSE`. `images/bighole.Dockerfile`, its `service.sh` branch and
+  the BuildKit/legacy-builder handling that existed only for it, the Make target and the extra-image
+  entry are removed.
+- **Install** (`installBigHole`).
+  - The deploy copies the tarball onto the node and installs nginx from the OS packages, removing
+    Debian's default site.
+  - It serves upstream's `docker/nginx.conf` on port 8070 and checks it answers.
+  - The port is published at container creation (`bigHolePortMap`, keeping the previous host port).
+    The host port is recorded as `bigHolePort` in the node's deployment config:
+    `setDeploymentConfigField` for MongoDB, the config struct for the Linux Client.
+  - A failure is logged and does not fail the deploy. A build without the tarball (a development run
+    without `BIGHOLE_TARBALL`) logs that and skips it.
+- **UI.** `components/BigHole.jsx` holds `BigHoleLink` (always `http://localhost:<port>`, with the
+  `ssh -L` hint when DBCanvas is browsed remotely) and `BigHoleOption`. The option is on the replica
+  set and sharded cluster forms, the standalone MongoDB form and the Linux Client form, which disables
+  it on CentOS 7. The link is on the MongoDB node panel's overview, on the Linux Client panel and in
+  the canvas right-click links (`nodeLinks.js`).
+- **Designs saved before.** A `bighole` node is refused by validation with a message to delete it and
+  use the option. Its panel offers only Delete.
+
+**Verification performed.**
+- The `bighole` stage built.
+- The real install scripts ran in systemd containers on Oracle Linux 9 and Ubuntu 24.04: the page,
+  the decoder worker (as JavaScript), the in-app route fallback and `Cache-Control: no-store` on the
+  entry page are all served on 8070.
+- `go test ./` (`TestBigHoleRefIsPinnedEverywhere` now checks `app/Dockerfile` and that the old
+  image build is gone), `npm run build`, `npm run smoke` (the option and the localhost link).
+- A deploy through a rebuilt installation has not been run.
+
+## 526. Release tags and release tooling — `scripts/release.sh`, `Makefile`, `cli/main.go`, `cli/cmd_auth.go`
+
+- **Tags.** Every release has an annotated tag `v<version>` on the commit that set `VERSION`
+  (v0.0.3 … v0.0.27).
+- **`make tag`** tags HEAD with `v$(VERSION)`. It refuses a dirty tree, an existing tag, and a
+  `VERSION` that disagrees.
+- **`make release-notes`** prints the README's `### <version>` section.
+- **`make github-release`** pushes the tag and creates the GitHub release from those notes. It
+  publishes, so no other target runs it.
+- **`dbcanvas-cli version`** prints the CLI's and the server's versions and warns when they differ
+  (a development build matches anything). `--json` gives `{cli, server, url, match}`, and `whoami`
+  warns the same way.
+
+## 527. Continuous integration — `.github/workflows/ci.yml`
+
+On push to `main`, on tags and on pull requests:
+- `npm ci`, `npm run build` and `npm run smoke`. The app embeds `web/dist`, so this comes first.
+- A `gofmt` check.
+- `go vet` and `go test` for `app` and `cli`.
+- `bash -n` on the image and release scripts.
+
+No Docker: the tests use fixtures and fake servers.
+
+## 528. A machine-readable CLI — `cli/cmd_commands.go`, `cli/main.go`, `docs/CLI.md`
+
+`dbcanvas-cli commands` (with `--json`) lists every command and subcommand with its arguments,
+summary and flags (name, type, default, usage).
+- **How it works:** the flags are not written down anywhere. In describe mode `parse` records the
+  FlagSet each command builds and stops before the command does anything; every command parses
+  first.
+- **Test:** `TestDescribeCommandsRunsNothing` fails if a command prints or makes a request in that
+  mode (`version` was changed to parse first).
+- **Compatibility:** `docs/CLI.md` → "Versions and compatibility" states the rule: no rename or
+  removal of a command, flag or API path without the old spelling kept as an alias for a release.
+
+## 529. Unique stack names per owner — `app/store.go`, `app/stacks.go`, `app/composebuild.go`, `app/designedit.go`, `app/users.go`
+
+- **Rule:** an owner's stack names are unique, compared case-insensitively (`stackNameTaken`), on
+  create, rename and transfer, with `ErrStackNameTaken` → `409` naming the existing id.
+- **Database:** the unique index `idx_stacks_owner_name (owner_id, name COLLATE NOCASE)` is created
+  where the data allows; a database holding duplicates logs them and keeps the store check.
+- **Compose:** refuses a taken name before a dry run returns.
+- **Account deletion:** the bulk handover renames instead of failing
+  (`TransferStackKeepingNames`: `<name> (from <user>)`, numbered).
+- **Default names:** an empty name with `defaultName` (the web form's template name or "Untitled
+  stack") becomes the first free one (`FreeStackName`).
+- **CLI:** it already refused ambiguous names, and every command takes an id.
+
+## 530. Stack labels — `app/stacklabels.go`, `app/store.go`, `app/stacks.go`, `app/composebuild.go`, `cli/cmd_labels.go`, Database Stacks table
+
+- **Storage:** `stacks.labels_json`, validated by `validateLabels` (Kubernetes-style keys, values up
+  to 128 characters, at most 32).
+- **Setting them:** on `POST /api/stacks` and compose specs, or replaced with
+  `PUT /api/stacks/{id}/labels`.
+- **Selecting:** `GET /api/stacks?label=k=v&label=k` keeps the stacks carrying every term.
+- **CLI:** `--label` on `stack compose`, `create` and `list`; `stack label <stack> k=v k-`;
+  `stack destroy|delete --label` for every match (delete confirms once for all).
+- **UI:** the Database Stacks table shows them under the name and searches them.
+
+## 531. API tokens limited to some stacks — `app/tokenlimit.go`, `app/apitokens.go`, `app/stacks.go`, `app/composebuild.go`, `app/stacklabels.go`, `cli/cmd_token.go`, `app/web/src/pages/Api.jsx`
+
+- **The limit:** `api_tokens.limit_json` holds `{"ownStacks": bool, "labels": {...}}`, and
+  `stacks.created_by_token` records the creator.
+- **Enforcement:** `requireScope` calls `tokenLimitAllows`.
+  - Routes under `/api/stacks/{id}` are allowed for a stack within the limit.
+  - A fixed set of stackless routes is allowed: list (filtered by `filterStacksForToken`), create,
+    compose, the catalogues and templates, `/api/me`, `/api/meta`, the CLI download and checksums,
+    and the events stream.
+  - Everything else answers 403.
+- **Label-limited tokens:** stacks they create get the token's labels (`labelsForNewStack`), and
+  they cannot set labels that drop them.
+- **Creating and listing:** `dbcanvas-cli token create --own-stacks --limit-label k=v` and the API
+  page create them; both lists show the limit.
+
+## 532. Limits per security group — `app/grouppolicy.go`, `app/stacks.go`, `app/composebuild.go`, `app/intranet.go`, `cli/cmd_policy.go`, `app/web/src/pages/Settings.jsx`
+
+`GET`/`PUT /api/security/policies` (setting `groupPolicies`) holds, per group: `maxTtl`,
+`deniedNodeTypes`, `maxStacks` and `maxContainers`. Everything defaults to no limit.
+
+**Enforced:**
+- the TTL on create, compose and extend (`expiryAllowed`, which also refuses never-expiring stacks
+  below `infinity`)
+- the stack count on create and compose
+- node types in validation (`nodeTypeIssues`), which deploy and compose obey
+- deployed nodes at deploy (`containerCountAllowed`: the nodes running in the owner's other
+  stacks plus this stack's design)
+
+**Interfaces:** `dbcanvas-cli group policy`, and Settings → Security group limits.
+
+## 533. Checksums for the CLI download — `app/clidownload.go`, `cli/main.go`
+
+- **Download headers:** `GET /api/cli/download` sends `X-Checksum-Sha256`, `Digest: sha-256=…` and
+  `X-DBCanvas-Version`.
+- **Checksum list:** `GET /api/cli/checksums` lists every shipped binary in `sha256sum` format.
+  Digests are cached by path, size and modification time.
+- **Self-check:** `dbcanvas-cli version --verify` hashes the running binary against that list.
+
+## 534. One account per guest — `app/guestlogin.go`, `app/syssettings.go`, `app/stacks.go`, `cli/cmd_auth.go`, `app/web/src/pages/Settings.jsx`
+
+- **Sign-in:** "Continue as guest" creates `guest-<6 hex>` for that browser. A request that already
+  carries a guest session gets the same account back. The previous shared account stays a guest
+  account like the others.
+- **Isolation:** each guest's stacks are its own, the Guests group's pages and limits apply to
+  every one, and a guest may edit its own profile (setting a password is still refused).
+- **Idle removal:** `guestIdleDays` (default 7, 0 keeps them). The reaper removes idle guest
+  accounts hourly with their stacks (`reapIdleGuests`, `GuestLastActivity`).
+- **Turning it off:** with `guestKeepAccess` on, turning guest sign-in off refuses only new guests;
+  otherwise every guest session and token ends (`endGuestAccess` over `ListGuestAccounts`).
+- **Text:** the UI, the CLI and the docs no longer describe a shared account.
+
+## 535. Exposure and the security model — `app/exposure.go`, `docker-compose.yml`, `app/guestlogin.go`, `app/syssettings.go`, `docs/SECURITY.md`
+
+- **Detecting exposure:** `docker-compose.yml` passes the publish address (`APP_HOST`) in as
+  `PUBLISH_HOST`; the container itself always binds `0.0.0.0`. Anything not loopback counts as
+  exposed.
+- **Guest sign-in:** while exposed, it needs `guestExposedAck`, both to turn it on and on every
+  guest sign-in (403 otherwise).
+- **Settings:** the page shows the warning with the confirmation, and the system settings report
+  `exposed` and `publishHost`.
+- **Security model:** `docs/SECURITY.md` describes:
+  - what an account can do on the host
+  - guest sign-in
+  - the group limits and token limits
+  - the CLI checksums
+  - why a Docker socket proxy is not offered: privileged containers, and the socket mounted into
+    helper containers
+
+## 536. Lighter install — `scripts/registry.sh`, `scripts/gen-secrets.sh`, `scripts/doctor.sh`, `app/doctor.go`, `cli/cmd_doctor.go`, `Makefile`
+
+- **Prebuilt images:** `make pull-images` pulls this release's node images from `IMAGE_REGISTRY`
+  (default `ghcr.io/jaimesicam`), retags them with their local names and writes `images.yaml`.
+  - The images are the bases, Intranet, VNC, K3D collector and Kubeadm.
+  - `make install-pull` is a first install from them. `make publish-images` pushes them; it
+    publishes, so nothing else runs it.
+  - The script's base matrix is checked against `images/build.sh` by `TestRegistryMatrixMatchesBuild`.
+- **Passwords:** a `.env` created by `make env` gets a random value for every password still at
+  its `.env.example` value (VNC 8 characters, Samba with mixed case and a digit). An existing
+  `.env` is never touched.
+- **Doctor:** `GET /api/system/doctor` / `dbcanvas-cli doctor` (admin) check:
+  - Docker, the base and Intranet images, and the catalogue's age
+  - default passwords (`exampleSecrets`, tested against `.env.example`)
+  - the encryption key, exposure, guest sign-in and open registration
+  - the CLI and Big Hole files
+
+  `make doctor` checks the host.
+- **Not done:** the version catalogue was already shipped pre-generated, so a first install does
+  not probe. Refreshing it still needs `make versions` on the host, because the app image has
+  neither the scripts nor the images to probe.
+
+## 537. Stack tombstones and lifecycle events — `app/stackevents.go`, `app/stacks.go`, `app/users.go`, `app/guestlogin.go`, `app/intranet.go`, `cli/cmd_events.go`
+
+- **Tombstones:** deleting a stack goes through `deleteStackRecord`, which leaves a
+  `stack_tombstones` row (reason `user`, `admin`, `account` or `guest-idle`; by whom; when) and
+  publishes `deleted`. The reaper purges rows after 30 days.
+- **410 Gone:** `loadOwnedStack` answers a deleted id with 410 and the record, to the owner or an
+  administrator; anyone else still gets 404.
+- **Events:** `GET /api/stacks/events` is a server-sent event stream of `created`, `deploying`,
+  `destroyed`, `deleted`, `expired`, `extended` and `labels`.
+  - It is filtered to the caller's stacks (an administrator's `?all=1` covers every stack), by
+    `?label=`, and by a token's limit.
+  - A slow reader drops events rather than blocking the publisher.
+- **CLI:** `dbcanvas-cli stack events` follows the stream, and `resolveStack` surfaces the 410 for
+  a deleted id.
+
+**Verification performed (526–537).**
+- `go test ./` in `app` and `cli`, `npm run build`, `npm run smoke`.
+- New tests: stack names, labels, token limits, group policies, CLI checksums, guest accounts,
+  exposure, the doctor's secrets and catalogue date, the registry matrix, tombstones and the event
+  bus.
+- `scripts/registry.sh` pushed to and pulled from a throwaway local registry. That restored a base
+  image and wrote `images.yaml`, which was then put back.
+- `scripts/gen-secrets.sh` was run on a copy of `.env.example`: all 22 passwords were replaced,
+  nothing else changed, and a second run changed nothing.
+- `make doctor` was run on this host.
+- Live, on the rebuilt installation:
+  - `dbcanvas-cli doctor` with an admin token.
+  - A token limited to its own stacks labelled `tool=livetest`:
+    - It composed and deployed a 2-member replica set with `bigHole` on. The stack got its label.
+    - Each mongod served Big Hole on its own published port, and the page and licence answered on
+      localhost.
+    - It was refused another stack and an unrelated endpoint.
+    - It could not drop its label.
+    - It saw only its own stack in the list and in `stack events` (created, deploying, deleted).
+    - `stack delete --label` removed the stack, which then answered 410 with the reason.
+  - Two guest sign-ins gave two accounts (a re-used session kept its own), each saw only its own
+    stacks, and setting a guest password was refused. Deleting a guest account left its stack
+    answering 410 ("with the account that owned it").
+  - The Guests group's `maxTtl=4h` and `maxStacks=1` refused a 24h stack and a second stack, and
+    were then cleared.
+  - The downloaded macOS CLI matched `X-Checksum-Sha256` and passed `version --verify`; a
+    development build failed it.
+
+
+## 538. `hostname` in the Oracle Linux base images — `images/rhel.Dockerfile`
+
+The minimal Oracle Linux 8, 9 and 10 images have no `hostname` command (`rpm -q hostname`: not
+installed), so anything on a node that calls it fails — the PgBouncer node's printed
+`psql "host=$(hostname -f) …"` line among them. The base image now installs the `hostname`
+package from BaseOS beside `which`. The Intranet image, built on the Oracle Linux 9 base, gets it
+too. Takes effect on the next `make images`.

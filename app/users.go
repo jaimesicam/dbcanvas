@@ -87,7 +87,8 @@ func (a *App) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "you cannot delete your own account")
 		return
 	}
-	if _, ok := a.loadUser(w, id); !ok {
+	gone, ok := a.loadUser(w, id)
+	if !ok {
 		return
 	}
 	var heir int64
@@ -112,15 +113,16 @@ func (a *App) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 	// deployed do not: those are torn down here, as DELETE /api/stacks/{id} does.
 	for _, st := range stacks {
 		if heir != 0 {
-			if err := a.store.SetStackOwner(st.ID, heir); err != nil {
+			// The heir may already have a stack of this name; it is renamed rather than
+			// stopping the deletion half-way (TransferStackKeepingNames).
+			if _, err := a.store.TransferStackKeepingNames(st.ID, heir, gone.Username); err != nil {
 				writeErr(w, http.StatusInternalServerError, "failed to transfer a stack")
 				return
 			}
 			continue
 		}
 		a.teardownStack(st.ID)
-		a.store.DeleteStack(st.ID)
-		a.store.DeleteAppSetting(dnsCustomKey(st.ID))
+		a.deleteStackRecord(st, "account", me.Username)
 	}
 	if err := a.store.DeleteUser(id); err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to delete user")
@@ -258,6 +260,10 @@ func (a *App) handleSetStackOwner(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.store.SetStackOwner(st.ID, u.ID); err != nil {
+		if errors.Is(err, ErrStackNameTaken) {
+			a.writeStackNameTaken(w, u.ID, st.Name)
+			return
+		}
 		writeErr(w, http.StatusInternalServerError, "failed to change the owner")
 		return
 	}

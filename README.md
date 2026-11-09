@@ -182,7 +182,7 @@ The [database stacks](#database-stacks) above run alongside these nodes:
 
 **Infrastructure**: Intranet (DNS, mail, OpenLDAP, Squid proxy, certificate authority), PMM,
 ProxySQL, HAProxy, PgBouncer, Orchestrator, SeaweedFS (S3), Ceph, Keycloak, OpenBao, Samba AD DC,
-a package Repository, MClusterAdmin, Big Hole, a VNC desktop and a Linux Client.
+a package Repository, MClusterAdmin, a VNC desktop and a Linux Client.
 
 **Simulated load**: applications that send realistic traffic to your databases — support desk,
 ledger and stock market simulators — and Performance Sim, whose stressors make a server or
@@ -217,6 +217,7 @@ cluster misbehave on purpose and show the impact live.
 - **[Getting started](docs/GETTING_STARTED.md)**: from install to a running cluster
 - [Feature guides](docs/README.md): one page per tool
 - [Configuration & commands](docs/CONFIGURATION.md): `.env`, `make` targets, troubleshooting
+- [Security model](docs/SECURITY.md): what an account can do to the host, guest sign-in, limits, tokens
 - [HTTP API](docs/API.md) and the [API & CLI reference](docs/API_REFERENCE.md)
 - [`dbcanvas-cli`](docs/CLI.md)
 - [Agent Skill](.claude/skills/dbcanvas/SKILL.md) for driving DBCanvas from Claude Code. It loads
@@ -435,7 +436,7 @@ appearance first.
 
 A running installation publishes the licence of DBCanvas and of everything it bundles at `/licenses/`, linked from
 the sign-in screen and the Dashboard, with where to get the source. The CLI downloads link their licence, `dbcanvas
-version` prints it, and Big Hole's image carries its own. See [License](#license).
+version` prints it, and the Big Hole files a node serves carry their own. See [License](#license).
 </details>
 
 ### 0.0.23
@@ -1764,16 +1765,18 @@ and both deliberately exclude `root` and `clusterAdmin` — the panel cannot dro
 <details>
 <summary><b>Big Hole</b> — MongoDB FTDC in the browser</summary>
 
-A node that runs [Big Hole](https://github.com/zelmario/Big-hole), a third-party viewer for
-MongoDB's `diagnostic.data`: drag a folder — or a whole support tarball, however it is nested —
+[Big Hole](https://github.com/zelmario/Big-hole), a third-party viewer for MongoDB's
+`diagnostic.data`, served from a MongoDB node or cluster or a Linux Client that has **Install Big
+Hole** on: drag a folder — or a whole support tarball, however it is nested —
 onto the page and it decodes and charts it, every metric it can find, with the replica set laid
 out so an election is somewhere to land rather than something to hunt for.
 
-It is the loosest-coupled node in DBCanvas, deliberately: no association line, no credentials, no
-configuration, because the app talks to nothing at all — no database, no API, not even DBCanvas.
+It is an install option like the other tools rather than a node of its own: the static app is built
+into the DBCanvas image and nginx serves it from the node, with no configuration, because the app
+talks to nothing at all — no database, no API, not even DBCanvas.
 There is no backend, and nothing you open in it leaves your browser. Open it on **localhost**:
-browsers grant a page the on-disk storage this needs only over HTTPS or localhost, and the node's
-panel hands you the `ssh -L` line when you are browsing DBCanvas from somewhere else.
+browsers grant a page the on-disk storage this needs only over HTTPS or localhost, and the
+node's panel hands you the `ssh -L` line when you are browsing DBCanvas from somewhere else.
 [MongoDB nodes →](docs/STACKS.md)
 </details>
 

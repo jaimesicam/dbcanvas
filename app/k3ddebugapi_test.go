@@ -27,7 +27,7 @@ func debugTestStack(t *testing.T, app *App, ownerID int64, tweak func(cfg *k3dCo
 	if err != nil {
 		t.Fatalf("marshal design: %v", err)
 	}
-	st, err := app.store.CreateStack("debug", ownerID, ttlInfinity, nil, design)
+	st, err := app.store.CreateStack(app.store.FreeStackName(ownerID, "debug"), ownerID, ttlInfinity, nil, design)
 	if err != nil {
 		t.Fatalf("create stack: %v", err)
 	}

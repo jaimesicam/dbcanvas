@@ -1,10 +1,17 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 )
 
 // clidownload.go — hand out the `dbcanvas-cli` binary the app image was built with.
@@ -93,7 +100,77 @@ func (a *App) handleCLIDownload(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
+	// What the client can check the download against, and which release it is: the same
+	// digest GET /api/cli/checksums lists (SHA256SUMS format).
+	if sum, err := cliChecksum(path, st.Size(), st.ModTime()); err == nil {
+		raw, _ := hex.DecodeString(sum)
+		w.Header().Set("X-Checksum-Sha256", sum)
+		w.Header().Set("Digest", "sha-256="+base64.StdEncoding.EncodeToString(raw))
+	}
+	w.Header().Set("X-DBCanvas-Version", appVersion)
 	// ServeContent rather than io.Copy: it handles Range requests and conditional
 	// GETs, which matters for a 15 MB file on a slow link.
 	http.ServeContent(w, r, name, st.ModTime(), f)
+}
+
+// cliSums caches each binary's SHA-256 by path, size and modification time: the files are
+// ~15 MB and change only when the image does.
+var cliSums sync.Map // path → cliSum
+
+type cliSum struct {
+	size int64
+	mod  time.Time
+	sum  string
+}
+
+// cliChecksum is a binary's hex SHA-256.
+func cliChecksum(path string, size int64, mod time.Time) (string, error) {
+	if v, ok := cliSums.Load(path); ok {
+		if c := v.(cliSum); c.size == size && c.mod.Equal(mod) {
+			return c.sum, nil
+		}
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	sum := hex.EncodeToString(h.Sum(nil))
+	cliSums.Store(path, cliSum{size: size, mod: mod, sum: sum})
+	return sum, nil
+}
+
+// handleCLIChecksums is GET /api/cli/checksums: every shipped binary's SHA-256 in sha256sum's
+// format ("<hex>  <file>"), so `sha256sum -c` — or `dbcanvas-cli version --verify` — can check a
+// download. The release is in the X-DBCanvas-Version header.
+func (a *App) handleCLIChecksums(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.currentUser(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	var b strings.Builder
+	for _, p := range cliPlatforms {
+		name := cliBinaryName(p.OS, p.Arch)
+		path := filepath.Join(cliDir(), name)
+		st, err := os.Stat(path)
+		if err != nil || st.IsDir() {
+			continue
+		}
+		sum, err := cliChecksum(path, st.Size(), st.ModTime())
+		if err != nil {
+			continue
+		}
+		fmt.Fprintf(&b, "%s  %s\n", sum, name)
+	}
+	if b.Len() == 0 {
+		writeErr(w, http.StatusNotFound, "this installation does not ship the CLI binaries — build one with `make cli` from a checkout")
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("X-DBCanvas-Version", appVersion)
+	io.WriteString(w, b.String())
 }

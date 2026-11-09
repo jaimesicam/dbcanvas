@@ -39,6 +39,7 @@ var mongoCommonFrameOptions = []catalogOption{
 	{Field: "seaweedfsBucket", Desc: "Which bucket of the SeaweedFS node backups go to; \"\" is its first (default) bucket. Backups land under pbm/<cluster name>.", When: "enablePBM is on"},
 	{Field: "vectorSearch", Desc: "Run Percona Search for MongoDB (mongot) so $search and $vectorSearch work: one mongot per data-bearing replica set, on its first member. Needs psmdbMajor 8.3 or later and Oracle Linux 8/9 or Ubuntu 22.04/24.04."},
 	{Field: "mcaCredentials", Desc: "Create the MClusterAdmin accounts madmin and madmin-ro (SCRAM-SHA-256) at deploy; their passwords come from the stack's MClusterAdmin node."},
+	{Field: "bigHole", Desc: "Serve the Big Hole MongoDB FTDC viewer from every mongod member (not mongos): nginx on port 8070, published to the host. Open it as http://localhost:<port> — the browser needs a secure context — and drag the member's diagnostic.data onto it."},
 	{Field: "useProxy", Desc: "Download packages through the Intranet's Squid proxy."},
 }
 
@@ -109,6 +110,7 @@ var catalogMongoFamily = []catalogEntry{
 		Requires: []string{"an Intranet node"},
 		Options: mongoOpts(mongoVersionOptions, mongoSizingOptions, []catalogOption{
 			{Field: "mcaCredentials", Desc: "Create the MClusterAdmin accounts madmin and madmin-ro (SCRAM-SHA-256) at deploy; their passwords come from the stack's MClusterAdmin node."},
+			{Field: "bigHole", Desc: "Serve the Big Hole MongoDB FTDC viewer from this node: nginx on port 8070, published to the host. Open it as http://localhost:<port> — the browser needs a secure context."},
 			{Field: "useProxy", Desc: "Download packages through the Intranet's Squid proxy."},
 		}, mongoCertOptions, []catalogOption{
 			{Field: "exportEnabled", Desc: "Publish mongod's port 27017 on the host."},

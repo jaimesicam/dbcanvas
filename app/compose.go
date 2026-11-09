@@ -48,6 +48,8 @@ type composeSpec struct {
 	// committing. This is what `dbcanvas-cli stack compose --dry-run` prints.
 	DryRun bool              `json:"dryRun"`
 	Nodes  []composeNodeSpec `json:"nodes"`
+	// Labels are set on the stack it creates (stacklabels.go).
+	Labels map[string]string `json:"labels,omitempty"`
 }
 
 // composeNodeSpec is one entry. The zero value of every option means "the default the
@@ -778,13 +780,10 @@ var composeKinds = []composeKind{
 	// Not a simulator, despite sitting next to them: it drives no load and its
 	// association is optional (EdgeOptional), because the panel is a general tool
 	// that connects to any URI typed into it.
-	// Neither of these takes an association. Big Hole reads files dragged into the
-	// browser; MClusterAdmin connects to a URI typed into its own UI, and finds the
-	// stack's MongoDB by itself when there is exactly one (mcaTarget). A line on
-	// either would carry a hint rather than any wiring, which is not what an
-	// association line is for anywhere else in this app.
-	{Kind: "bighole", Type: "bighole", NoSizing: true, ImageOnly: true,
-		About: "Big Hole — a browser-only MongoDB FTDC viewer. Open it on localhost; it needs a secure context."},
+	// It takes no association: MClusterAdmin connects to a URI typed into its own UI,
+	// and finds the stack's MongoDB by itself when there is exactly one (mcaTarget). A
+	// line would carry a hint rather than any wiring, which is not what an association
+	// line is for anywhere else in this app.
 	{Kind: "mclusteradmin", Type: "mclusteradmin", NoSizing: true, ImageOnly: true,
 		Scalars: []string{"viewOnly"},
 		About:   "MClusterAdmin — a MongoDB administration panel. Prepares a connection string when the spec has exactly one MongoDB; viewOnly=true disables every write."},
