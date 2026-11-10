@@ -1,7 +1,7 @@
 # release: on a version tag, build dbcanvas-cli for every platform, sign each binary and the
 # checksum list with Sigstore (keyless: the signature says which workflow, repository and tag
 # built it, and there is no key to keep), and publish them on the tag's GitHub release with the
-# notes from README.md.
+# notes from CHANGELOG.md.
 #
 # The binaries are built the way the app image builds the ones a server offers (app/Dockerfile,
 # stage cli): CGO off, -trimpath, -ldflags "-s -w -X main.version=<VERSION>".

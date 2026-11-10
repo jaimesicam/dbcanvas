@@ -48,28 +48,23 @@ func TestNoteDocsExist(t *testing.T) {
 	}
 }
 
-// TestWhatsNewMatchesREADME is the drift guard. The dialog and the README's
-// "What's new" section are written separately — deliberately, because one is read
-// once in a modal and the other is read on GitHub — so the thing to check is that
-// nobody added an entry to one and forgot the other.
-func TestWhatsNewMatchesREADME(t *testing.T) {
-	raw, err := os.ReadFile("../README.md")
+// TestWhatsNewMatchesChangelog is the drift guard. The dialog and CHANGELOG.md are
+// written separately — deliberately, because one is read once in a modal and the
+// other is read on GitHub — so the thing to check is that nobody added an entry to
+// one and forgot the other.
+func TestWhatsNewMatchesChangelog(t *testing.T) {
+	raw, err := os.ReadFile("../CHANGELOG.md")
 	if err != nil {
-		t.Skipf("README.md not readable from here: %v", err)
+		t.Skipf("CHANGELOG.md not readable from here: %v", err)
 	}
-	readme := string(raw)
-	i := strings.Index(readme, "## What's new")
-	if i < 0 {
-		t.Fatal(`README.md has no "## What's new" section`)
-	}
-	// The README's version of a title carries markup — <code>dbcanvas-cli</code>,
+	// The changelog's version of a title carries markup — <code>dbcanvas-cli</code>,
 	// <b>…</b> — so both sides are flattened before comparing. Matching the raw
 	// text would fail on formatting rather than on drift, which would make this
 	// guard something people disable instead of something they trust.
-	section := flattenMarkup(readme[i:])
+	changelog := flattenMarkup(string(raw))
 	for _, n := range whatsNewNotes {
-		if !strings.Contains(section, flattenMarkup(n.Title)) {
-			t.Errorf("note %q is not in the README's What's new section — add it there too", n.Title)
+		if !strings.Contains(changelog, flattenMarkup(n.Title)) {
+			t.Errorf("note %q is not in CHANGELOG.md — add it there too", n.Title)
 		}
 	}
 }

@@ -25,7 +25,7 @@ doctor:
 tag:
 	@bash scripts/release.sh tag $(VERSION)
 
-## release-notes: print this release's notes (the README's "### $(VERSION)" section).
+## release-notes: print this release's notes (CHANGELOG.md's "## $(VERSION)" section).
 release-notes:
 	@bash scripts/release.sh notes $(VERSION)
 

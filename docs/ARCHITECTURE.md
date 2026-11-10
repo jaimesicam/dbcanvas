@@ -255,7 +255,7 @@ and the **What's new** dialog compares it with each account's read state. A plai
 `go build` reports `dev`, which sorts newer than every release.
 
 To release: edit `VERSION`, add an entry to `whatsNewNotes` in `app/whatsnew.go` and the
-matching prose to the README's *What's new* section (`TestWhatsNewMatchesREADME` checks
+matching prose to `CHANGELOG.md` (`TestWhatsNewMatchesChangelog` checks
 they agree), rebuild, and run `make adopt-images`.
 
 ## Tech stack

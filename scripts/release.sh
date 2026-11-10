@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scripts/release.sh — the release bookkeeping that is not building.
 #
-#   release.sh notes   <version>   print that release's notes (README "### <version>" section)
+#   release.sh notes   <version>   print that release's notes (CHANGELOG.md "## <version>" section)
 #   release.sh tag     <version>   create the annotated tag v<version> on HEAD
 #   release.sh publish <version>   push the tag; the release workflow builds, signs and publishes
 #
@@ -18,13 +18,13 @@ cmd="${1:-}"; ver="${2:-}"
 ver="${ver#v}"
 
 notes() {
-  awk -v v="### $ver" '$0==v {f=1; next} f && /^### / {exit} f && /^## / {exit} f' README.md
+  awk -v v="## $ver" '$0==v {f=1; next} f && /^## / {exit} f' CHANGELOG.md
 }
 
 case "$cmd" in
   notes)
     out="$(notes)"
-    [ -n "$out" ] || { echo "README.md has no \"### $ver\" section under What's new" >&2; exit 1; }
+    [ -n "$out" ] || { echo "CHANGELOG.md has no \"## $ver\" section" >&2; exit 1; }
     printf '%s\n' "$out"
     ;;
   tag)
@@ -38,7 +38,7 @@ case "$cmd" in
     ;;
   publish)
     git rev-parse -q --verify "refs/tags/v$ver" >/dev/null || { echo "no tag v$ver — run 'make tag' first" >&2; exit 1; }
-    [ -n "$(notes)" ] || { echo "README.md has no notes for $ver" >&2; exit 1; }
+    [ -n "$(notes)" ] || { echo "CHANGELOG.md has no notes for $ver" >&2; exit 1; }
     git push origin "v$ver"
     echo "pushed v$ver: the release workflow now builds, signs and publishes it."
     if command -v gh >/dev/null; then

@@ -8,11 +8,10 @@ import (
 // a build you have not seen.
 //
 // The notes are Go literals, the same way templates_builtin.go carries its
-// content. The alternative — parsing the README's "What's new" section at run
-// time — was tempting because that prose already exists, but that section is
-// <details> blocks, screenshots and relative links written for somebody reading
-// GitHub. It is good prose and a bad data source. So these are written separately,
-// and whatsnew_test.go asserts that every Title here appears in README.md, which
+// content. The alternative — parsing CHANGELOG.md at run time — was tempting
+// because that prose already exists, but it is <details> blocks, screenshots and
+// relative links written for somebody reading GitHub. It is good prose and a bad data source. So these are written separately,
+// and whatsnew_test.go asserts that every Title here appears in CHANGELOG.md, which
 // catches the one thing that actually goes wrong: the two drifting apart.
 //
 // Read-state lives on the account (UserSettings.WhatsNewSeen), not in the browser.
