@@ -203,6 +203,10 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	for _, n := range buildDoc(st).Nodes {
 		if containerName(stackID, n.ID) == pp.Name {
 			label = n.Label
+			if n.Type == "pagerpanic" {
+				// The desktop takes terminal requests from this page (BrowserProvider).
+				kind = "pagerpanic"
+			}
 			if n.Type == "vnc" {
 				kind = "vnc"
 				if dep, err := a.store.GetDeployment(stackID, n.ID); err == nil {

@@ -7,6 +7,7 @@
 #   dbcanvas-stocksim:latest       Stock Market Sim (CRUD + reports)
 #   dbcanvas-ledgersim:latest      Ledger Sim (JDBC + HikariCP)
 #   dbcanvas-perfsim:latest        Performance Sim (stressors and their impact)
+#   dbcanvas-pagerpanic:latest     Pager Panic (an on-call game against a Kubeadm Cluster)
 #
 # Each is a single-binary service with its frontend embedded — no systemd, no OS
 # matrix, one tag apiece — which is why they are not in versions.yaml and not built
@@ -30,7 +31,7 @@ ROOT="$(cd "$IMAGES_DIR/.." && pwd)"
 PLATFORM="$(resolve_platform "$ROOT")" || exit 1
 
 # name → build context, in the order they are built.
-APPS=(supportsim stocksim ledgersim perfsim)
+APPS=(supportsim stocksim ledgersim perfsim pagerpanic)
 
 declare -a BUILT=() FAILED=()
 

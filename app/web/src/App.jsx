@@ -16,7 +16,7 @@ import { WorkspaceDrawing } from './session/DrawLayer.jsx'
 import { BrowserProvider } from './browser/BrowserProvider.jsx'
 import { WindowManagerProvider, useWindowApi, useTaskbarItem } from './wm/WindowManager.jsx'
 import { MenuButton, DesktopSurface, PageWindows, pageWindowId } from './desktop/Desktop.jsx'
-import { DesktopStatus } from './desktop/Stacks.jsx'
+import { DesktopStatus, openStackInDesigner } from './desktop/Stacks.jsx'
 import { useShellMode, SHELL_MODES } from './lib/shellMode.js'
 import { Avatar, fullName } from './components/Avatar.jsx'
 import { ProfileDialog } from './components/ProfileFields.jsx'
@@ -247,6 +247,13 @@ function Workspace({ onSessionEnded }) {
     addEventListener('dbcanvas:invalidate', on)
     return () => { clearTimeout(t); removeEventListener('dbcanvas:invalidate', on) }
   }, [activeTab, refreshTab])
+
+  // A Pager Panic page asked for its stack (BrowserProvider passes it on).
+  useEffect(() => {
+    const on = (e) => { if (e.detail) openStackInDesigner(openTab, e.detail) }
+    addEventListener('dbcanvas:open-stack', on)
+    return () => removeEventListener('dbcanvas:open-stack', on)
+  }, [openTab])
 
   // A guest's session ending hands the tab back to the closed screen.
   useEffect(() => {

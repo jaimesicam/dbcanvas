@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pager Panic</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23140d26'/%3E%3Crect x='2' y='3' width='12' height='10' fill='%23ff3d7f'/%3E%3Crect x='4' y='5' width='8' height='3' fill='%2339ffb6'/%3E%3Crect x='4' y='10' width='2' height='1' fill='%23140d26'/%3E%3Crect x='7' y='10' width='2' height='1' fill='%23140d26'/%3E%3Crect x='10' y='10' width='2' height='1' fill='%23140d26'/%3E%3C/svg%3E">
+</head>
+<body>
+<div id="room" class="room" aria-hidden="true">
+  <div class="racks" id="racks"></div>
+  <div class="floor"></div>
+</div>
+<div class="crt" aria-hidden="true"></div>
+
+<main id="app">
+
+  <!-- ---------------------------------------------------------------- title -->
+  <section id="screen-title" class="screen">
+    <div class="logo">
+      <div class="pager" aria-hidden="true"><div class="pager-screen"><span>!!</span></div><div class="pager-keys"><i></i><i></i><i></i></div></div>
+      <h1>PAGER<br>PANIC</h1>
+    </div>
+    <p class="subtitle" id="bankTitle">…</p>
+    <p class="status" id="connStatus">Waiting for DBCanvas…</p>
+    <div class="modes" id="modes">
+      <button class="mode" data-mode="arcade">
+        <b>ARCADE</b><span>3 lives · 5 stages · a boss</span>
+      </button>
+      <button class="mode" data-mode="marathon">
+        <b>MARATHON</b><span>60 minutes · no lives · max score</span>
+      </button>
+      <button class="mode" data-mode="practice">
+        <b>PRACTICE</b><span>one ticket · untimed · hints</span>
+      </button>
+    </div>
+    <div class="practice-list hidden" id="practiceList"></div>
+    <p class="blink press" id="pressStart">PRESS START</p>
+    <div class="boards">
+      <div class="board">
+        <h2>HIGH SCORES</h2>
+        <ol id="highScores" class="scores"></ol>
+      </div>
+      <div class="board">
+        <h2>MEDALS</h2>
+        <div id="medalShelf" class="medals"></div>
+      </div>
+    </div>
+    <p class="foot">Tickets are real faults on <b id="clusterName">the cluster</b>. Fix them from a terminal on its nodes. <span class="key">M</span> sound · <span class="key">P</span> pause · <span class="key">1</span>–<span class="key">3</span> pick a ticket</p>
+  </section>
+
+  <!-- ---------------------------------------------------------------- systems check -->
+  <section id="screen-check" class="screen hidden">
+    <h2 class="big">SYSTEMS CHECK</h2>
+    <p class="subtitle" id="checkFor"></p>
+    <ul class="diag" id="diagSteps"></ul>
+    <p class="verdict" id="diagVerdict"></p>
+    <div class="row">
+      <button class="btn" id="btnBack">BACK</button>
+      <button class="btn hot hidden" id="btnStart">START SHIFT</button>
+      <button class="btn hidden" id="btnRecheck">CHECK AGAIN</button>
+    </div>
+  </section>
+
+  <!-- ---------------------------------------------------------------- play -->
+  <section id="screen-play" class="screen hidden">
+    <header class="hud">
+      <div class="hud-cell lives" id="lives" title="Lives"></div>
+      <div class="hud-cell"><span class="cap">SCORE</span><b id="score" class="num">0</b></div>
+      <div class="hud-cell"><span class="cap">COMBO</span><b id="combo" class="num">×1</b></div>
+      <div class="hud-cell"><span class="cap">STAGE</span><b id="stage" class="num">1/5</b></div>
+      <div class="hud-cell shift"><span class="cap">SHIFT</span><b id="shiftClock" class="num">60:00</b>
+        <div class="bar"><i id="shiftBar"></i></div></div>
+      <div class="hud-cell tools">
+        <button class="icon" id="btnSound" title="Sound (M)">♪</button>
+        <button class="icon" id="btnPause" title="Pause (P)">II</button>
+        <button class="icon" id="btnQuit" title="End the shift">✕</button>
+      </div>
+    </header>
+    <div class="field">
+      <div class="queue" id="tickets"></div>
+      <aside class="detail" id="detail">
+        <div class="empty">Tickets appear here. Pick one to read it.<br><br>Right-click a ticket for a terminal.</div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ---------------------------------------------------------------- debrief -->
+  <section id="screen-over" class="screen hidden">
+    <h2 class="big" id="overHeadline">SHIFT COMPLETE</h2>
+    <div class="final">
+      <div><span class="cap">SCORE</span><b id="finalScore" class="num">0</b></div>
+      <div><span class="cap">RANK</span><b id="finalRank">—</b></div>
+      <div><span class="cap">STAGE</span><b id="finalStage">—</b></div>
+      <div><span class="cap">BEST COMBO</span><b id="finalCombo">—</b></div>
+    </div>
+    <div class="initials hidden" id="initials">
+      <p>NEW HIGH SCORE! ENTER YOUR INITIALS</p>
+      <input id="initialsInput" maxlength="3" autocomplete="off" spellcheck="false">
+      <button class="btn hot" id="btnInitials">OK</button>
+    </div>
+    <div class="newmedals" id="newMedals"></div>
+    <p class="status" id="cleaning"></p>
+    <div class="cats" id="catResults"></div>
+    <h3>DEBRIEF</h3>
+    <div class="debrief" id="debrief"></div>
+    <div class="row">
+      <button class="btn" id="btnCopy">COPY AS MARKDOWN</button>
+      <button class="btn" id="btnJSON">DOWNLOAD JSON</button>
+      <button class="btn hot" id="btnAgain">NEW SHIFT</button>
+    </div>
+  </section>
+</main>
+
+<div id="pause" class="overlay hidden"><div><h2 class="big">PAUSED</h2><p id="pausesLeft"></p><button class="btn hot" id="btnResume">RESUME</button></div></div>
+<div id="dialog" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
+  <div class="dialog">
+    <h2 class="big" id="dlgTitle"></h2>
+    <p id="dlgText"></p>
+    <textarea id="dlgCopy" class="hidden" readonly spellcheck="false"></textarea>
+    <div class="row">
+      <button class="btn" id="dlgNo">CANCEL</button>
+      <button class="btn hot" id="dlgYes">OK</button>
+    </div>
+  </div>
+</div>
+<div id="banner" class="banner hidden"></div>
+<div id="flash" class="flash"></div>
+<canvas id="fx" class="fx"></canvas>
+<div id="toasts" class="toasts"></div>
+<div id="ctx" class="ctx hidden"></div>
+<div id="continue" class="overlay hidden"><div><h2 class="big" id="contTitle">GAME OVER</h2><p class="big-num" id="contCount">10</p><p>CONTINUE?</p>
+  <div class="row"><button class="btn hot" id="btnReplay">SAME SEED</button><button class="btn" id="btnNew">NEW SHIFT</button><button class="btn" id="btnDebrief">DEBRIEF</button></div></div></div>
+
+<script src="app.js"></script>
+</body>
+</html>

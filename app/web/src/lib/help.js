@@ -687,6 +687,8 @@ export const HELP = {
   valkeyReplicas: 'Replicas per shard. 0 makes every member a primary. With 1 or 2, valkey-cli --cluster create makes the first members the primaries and gives each that many replicas, so the node count is a whole number of shards. Changing it re-sizes the cluster to 3 shards. Locked once deployed.',
   perfSimWriter: 'The endpoint the steady workload writes through: the server itself, the cluster\'s writer, or the router in front of it. The stressors connect to each member directly.',
   perfSimMembers: 'The data members the stressors can act on. A Galera arbitrator holds no data and is left out.',
+  pagerPanicBank: 'The YAML task bank the game draws its tickets from (pagerpanic/banks in the repository). Edit it to change or add tasks; the next game reads it.',
+  pagerPanicActive: 'Tickets set up on the cluster and not yet put back. Each is cleaned up when it closes, when the game ends, and when this node is removed.',
   depLinkedTo:
     'The node this one was wired to at deploy: where it sends its data, or which cluster it fronts. Change it by ' +
     'editing the link on the canvas and redeploying.',
@@ -1029,6 +1031,7 @@ const NODE_BLURB = {
   stocksim: 'A stock-market simulator that drives realistic OLTP load at a database node.',
   ledgersim: 'An order/payment ledger driven over JDBC with a HikariCP pool — the simulator for client-side questions.',
   perfsim: 'Stressors that make a MySQL, PostgreSQL, MongoDB or Valkey cluster misbehave on purpose — replication lag first — with a live timeline of their effect. Everything is chosen on its dashboard.',
+  pagerpanic: 'An on-call game. Tickets pop up with a timer each: real faults on a linked Kubeadm Cluster (3+ nodes) that you fix from a terminal. Arcade, Marathon and Practice modes, medals and high scores.',
   supportsim: 'A help desk run on MongoDB Vector Search, with a hands-on Vector Lab.',
   pgvectorsim: 'The Support Sim\'s help desk on PostgreSQL with pgvector (HNSW, <=>), with a hands-on Vector Lab. Link it to any PostgreSQL node or cluster; turn pgvector on there for real vector indexes.',
   mclusteradmin: 'A MongoDB administration panel — topology, replica set and sharding status, current ops, slow queries, indexes, users and roles. Its web UI is published to the host, so you reach it straight from your browser.',

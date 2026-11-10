@@ -128,6 +128,8 @@ COPY --from=bighole /big-hole.LICENSE /usr/share/doc/dbcanvas/big-hole.LICENSE
 # context and this is everything the build needs. A few KB, and it keeps the feature
 # working on an installation that has no checkout of this repository.
 COPY images/*.Dockerfile /opt/dbcanvas/images/
+# Pager Panic's task banks, for an installation that does not mount the repository's copy.
+COPY pagerpanic/banks/ /usr/share/dbcanvas/pagerpanic/
 ENV DBCANVAS_IMAGES_DIR=/opt/dbcanvas/images
 ENV APP_HOST=0.0.0.0
 ENV APP_PORT=8080

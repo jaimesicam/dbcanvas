@@ -193,6 +193,28 @@ var catalogApps = []catalogEntry{
 		},
 	},
 
+	{Type: "pagerpanic", Label: "Pager Panic",
+		Summary: "An on-call game played against a Kubeadm Cluster on the canvas. After a systems check, tickets pop up at random over a 60-minute shift, each with its own timer: an incident (a stopped kubelet, a broken static pod, a Service with no endpoints) or a request (an etcd snapshot, a NetworkPolicy, a PersistentVolume). The player fixes them on the real nodes from a terminal; DBCanvas checks the cluster and the ticket clears. " +
+			"Arcade mode has 3 lives and 5 stages that get faster, ending with a boss ticket; Marathon plays the whole shift for score; Practice plays one task untimed. The debrief lists every ticket with what was still wrong and the solution. " +
+			"Tasks come from a YAML task bank (pagerpanic/banks); DBCanvas runs their scripts as root on the cluster's nodes and the game holds no credentials." + catalogSimDashboard,
+		Placement: "standalone",
+		Requires: []string{
+			"an Intranet node",
+			"an association line to a Kubeadm Cluster frame of 3 or more nodes at the Ready stage, used only by the game (its tickets stop services and edit manifests on purpose)",
+			"the dbcanvas-pagerpanic image (make pagerpanic-image)",
+		},
+		Options: []catalogOption{},
+		Actions: []catalogAction{
+			{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/pagerpanic/selftest", Desc: "Play every task of the bank on the cluster (or the ones named): setup, checks, the task's solve script, checks, cleanup. Refused while a game has tickets out.",
+				Body: "tasks (optional list of task ids)"},
+			{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/pagerpanic/selftest", Desc: "The latest self-test's progress and results."},
+		},
+		Edges: []catalogEdge{
+			{To: []string{"kubeadm"}, Type: "directional", Required: true,
+				Desc: "The Kubeadm Cluster the game plays against: 3 or more nodes, at the Ready stage."},
+		},
+	},
+
 	{Type: "ledgersim", Label: "Ledger Sim",
 		Summary:   "An order-and-payment ledger driven over JDBC with a HikariCP pool, on MySQL-family or PostgreSQL databases. The driver, URL properties and pool can be changed on its dashboard while it runs; these options set where it starts." + catalogSimDashboard,
 		Placement: "standalone",

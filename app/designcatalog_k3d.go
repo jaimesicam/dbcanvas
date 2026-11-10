@@ -213,5 +213,8 @@ var catalogKubeadm = []catalogEntry{
 			{Field: "kubeadmStage", Values: []string{"", "initialized", "prepared"}, Desc: "How far the deploy goes: \"\" (ready) runs kubeadm init, joins every worker and installs the pod network; \"initialized\" stops before the pod network, so the nodes are NotReady; \"prepared\" installs everything and runs nothing — kubeadm init --config /root/kubeadm-config.yaml on the control plane, then the joins, are yours."},
 			{Field: "kubeadmCni", Values: []string{"", "flannel"}, Desc: "The pod network a ready cluster gets: \"\" is Calico (enforces NetworkPolicy), \"flannel\" is Flannel (does not).", When: "kubeadmStage is \"\" (ready)"},
 		},
+		Edges: []catalogEdge{
+			{To: []string{"pagerpanic"}, Type: "directional", Desc: "Play Pager Panic against this cluster (from the frame to the game). Needs 3 or more nodes at the Ready stage."},
+		},
 	},
 }

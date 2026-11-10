@@ -15,6 +15,9 @@
 # needed, since each one is its own whole build context.
 !images/*.Dockerfile
 
+# Pager Panic's task banks, copied into the image as the default the app reads.
+!pagerpanic/banks/
+
 # The licence and third-party notices travel in the runtime image (GPLv3 s.4/6).
 !LICENSE
 !THIRD_PARTY_NOTICES.md

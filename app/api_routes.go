@@ -106,6 +106,7 @@ const (
 	gStockSim  = "Stock Market Sim"
 	gLedgerSim = "Ledger Sim"
 	gPerfSim   = "Performance Sim"
+	gPager     = "Pager Panic"
 	gImages    = "Node images"
 	gTokens    = "API tokens"
 	gShare     = "Shared sessions"
@@ -120,7 +121,7 @@ const (
 var apiGroupOrder = []string{
 	gAuth, gPrefs, gUsers, gTokens, gMeta,
 	gStacks, gTemplates, gCatalog, gImages, gNodes, gClusters,
-	gDataGen, gQueryRun, gExplorer, gBench, gSample, gStockSim, gLedgerSim, gPerfSim,
+	gDataGen, gQueryRun, gExplorer, gBench, gSample, gStockSim, gLedgerSim, gPerfSim, gPager,
 	gPkt, gLog, gFTDC, gStalk, gOpSum, gCaptures, gDebug, gGDB,
 	gDash, gNotif, gShare, gKanban,
 	gFS, gCerts, gMail, gLDAP, gDNS, gSamba, gK3D, gAIO, gSeaweed, gOpenBao, gRepo,
@@ -595,6 +596,12 @@ func buildAPIRoutes() []apiRoute {
 		// stack's network — see handleStockSimTest.
 		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/stocksim/test", Group: gStockSim, ReadOnly: true, Handler: m((*App).handleStockSimTest),
 			Summary: "Test a hand-entered database connection from inside the stack network before deploying with it."},
+
+		// --- Pager Panic --------------------------------------------------------
+		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/pagerpanic/selftest", Group: gPager, Handler: m((*App).handlePagerPanicSelfTest),
+			Summary: "Play every task of the node's bank on its cluster, or the ones in {\"tasks\": [...]}: setup, checks, the task's solve script, checks again, cleanup."},
+		{Method: "GET", Path: "/api/stacks/{id}/nodes/{nid}/pagerpanic/selftest", Group: gPager, Handler: m((*App).handlePagerPanicSelfTestGet),
+			Summary: "The latest self-test's progress and results, per task."},
 
 		// --- Performance Sim ----------------------------------------------------
 		{Method: "POST", Path: "/api/stacks/{id}/nodes/{nid}/perfsim/test", Group: gPerfSim, ReadOnly: true, Handler: m((*App).handlePerfSimTest),

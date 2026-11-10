@@ -176,6 +176,9 @@ export const stackApi = {
   // own one-line verdict, shown to the user verbatim.
   stocksimTest: (id, nid, conn) => request('POST', `/api/stacks/${id}/nodes/${nid}/stocksim/test`, conn),
   perfsimTest: (id, nid, conn) => request('POST', `/api/stacks/${id}/nodes/${nid}/perfsim/test`, conn),
+  // Pager Panic: play every task of the bank on the linked cluster, and read how it went.
+  pagerpanicSelfTestStart: (id, nid, body) => request('POST', `/api/stacks/${id}/nodes/${nid}/pagerpanic/selftest`, body),
+  pagerpanicSelfTest: (id, nid) => request('GET', `/api/stacks/${id}/nodes/${nid}/pagerpanic/selftest`),
   ledgersimTest: (id, nid, conn) => request('POST', `/api/stacks/${id}/nodes/${nid}/ledgersim/test`, conn),
   pmmCatalog: () => request('GET', '/api/catalog/pmm'),
   // PMM 2's releases — a fixed list served by app/pmm2.go, since an end-of-life product

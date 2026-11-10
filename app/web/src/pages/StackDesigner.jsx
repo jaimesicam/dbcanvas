@@ -725,6 +725,19 @@ export const NODE_TYPES = {
     osOptions: [{ id: 'perfsim', label: 'dbcanvas-perfsim' }],
     defaults: {},
   },
+  // Pager Panic: an on-call game played against a Kubeadm Cluster of 3 or more nodes.
+  // Its only setting is the line to that cluster; everything else happens in the game.
+  pagerpanic: {
+    label: 'Pager Panic',
+    slug: 'pagerpanic',
+    sub: 'An on-call game: real faults on a Kubeadm Cluster, a timer on each ticket',
+    color: '#ff3d7f',
+    icon: 'Sparkles',
+    singleton: false,
+    ports: true,
+    osOptions: [{ id: 'pagerpanic', label: 'dbcanvas-pagerpanic' }],
+    defaults: {},
+  },
 }
 
 // SIM_NODE_TYPES are the application simulators: the nodes that exist to put load on
@@ -733,7 +746,7 @@ export const NODE_TYPES = {
 // database they drive — which is why the line gets a caption of its own ("app
 // connection"), and why the two panels that merely *display* data (Big Hole,
 // MClusterAdmin) are not in here: they carry no connector at all.
-export const SIM_NODE_TYPES = new Set(['stocksim', 'ledgersim', 'supportsim', 'pgvectorsim', 'perfsim'])
+export const SIM_NODE_TYPES = new Set(['stocksim', 'ledgersim', 'supportsim', 'pgvectorsim', 'perfsim', 'pagerpanic'])
 
 // isReplEdge distinguishes the two kinds of line the canvas draws with one edge list: a
 // cross-cluster replication link ('async' / 'bidir'), and everything else — an
@@ -3671,6 +3684,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       if (n.type === 'stocksim') return 'stocksim'
       if (n.type === 'ledgersim') return 'ledgersim'
       if (n.type === 'perfsim') return 'perfsim'
+      if (n.type === 'pagerpanic') return 'pagerpanic'
       return null
     }
     const f = refs.current.frames.find((x) => x.id === id)
@@ -3694,6 +3708,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       if (f.type === 'mysqlcerepl') return 'mysqlcerepl'
       if (f.type === 'mysqlceinnodb') return 'mysqlceinnodb'
       if (f.type === 'k3d') return 'k3d'
+      if (f.type === 'kubeadm') return 'kubeadm'
       return null
     }
     return null
@@ -3805,6 +3820,9 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
     // through the router in front of it; PS_LINKABLE_KINDS mirrors perfSimTargets.
     if (PS_LINKABLE_KINDS.has(k1) && k2 === 'perfsim') return createFlow(e1, e2, { singleOutgoing: true })
     if (PS_LINKABLE_KINDS.has(k2) && k1 === 'perfsim') return createFlow(e2, e1, { singleOutgoing: true })
+    // Pager Panic plays against one Kubeadm Cluster (frame → game).
+    if (k1 === 'kubeadm' && k2 === 'pagerpanic') return createFlow(e1, e2, { singleOutgoing: true })
+    if (k2 === 'kubeadm' && k1 === 'pagerpanic') return createFlow(e2, e1, { singleOutgoing: true })
     // ProxySQL node ↔ ProxySQL node: a chained proxy. This used to open a modal
     // asking which way SQL traffic flows, but the answer was never read — the
     // backend BFSs the association graph undirected precisely so a ProxySQL behind
@@ -5120,6 +5138,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       { label: 'Stock Market Sim', role: 'trading workload', type: 'stocksim', onClick: () => addNode('stocksim') },
       { label: 'Ledger Sim', role: 'banking workload over JDBC', type: 'ledgersim', onClick: () => addNode('ledgersim') },
       { label: 'Performance Sim', role: 'stressors · live timeline', type: 'perfsim', onClick: () => addNode('perfsim') },
+      { label: 'Pager Panic', role: 'on-call game on a Kubeadm Cluster', type: 'pagerpanic', onClick: () => addNode('pagerpanic') },
     ] },
   ], showExperimental(system), showEOL(system))
 
@@ -9855,6 +9874,8 @@ export const CONNECTABLE_FRAMES = new Set([
   'mariadbrepl', 'mariadbgalera', 'mysqlcerepl', 'mysqlceinnodb',
   'patroni', 'repmgr', 'pgstream', 'spock', 'k3d',
   'valkeycluster', 'psmrs', 'psmdb',
+  // A Kubeadm Cluster takes one line, to the Pager Panic game played against it.
+  'kubeadm',
 ])
 
 // SS_AIO_ENGINE mirrors aioEngineForKind in app/aio_target.go: which All in One
@@ -10909,6 +10930,114 @@ function PerfSimManager ({ dep, onDeleteNode }) {
         <InfoRow label="Members" help={HELP.perfSimMembers}><span className="font-mono text-xs">{(cfg.members || []).join(', ')}</span></InfoRow>
       </div>
       <p className="text-xs text-muted">Choose stressors on the dashboard. Stopping or deleting the node releases every lock, pause and setting it holds.</p>
+      <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+// pagerPanicFrame is the Kubeadm Cluster a Pager Panic node is linked to (app/pagerpanic.go).
+function pagerPanicFrame (n, frames, edges) {
+  for (const e of edges) {
+    const other = e.from.node === n.id ? e.to.node : e.to.node === n.id ? e.from.node : null
+    const f = other && frames.find((x) => x.id === other && x.type === 'kubeadm')
+    if (f) return f
+  }
+  return null
+}
+
+function PagerPanicForm ({ node: n, nodes, frames, edges, deleteNode, dep }) {
+  const f = pagerPanicFrame(n, frames, edges)
+  const members = f ? nodes.filter((x) => x.frameId === f.id && x.type === 'kubeadm').length : 0
+  const problems = []
+  if (!f) problems.push('Draw a line from a Kubeadm Cluster to this node: that cluster is what the game plays against.')
+  else {
+    if (members < 3) problems.push(`${f.label} has ${members} node(s); Pager Panic needs 3 or more (a control plane and 2 workers).`)
+    if (f.kubeadmStage) problems.push(`${f.label} is set to stop at the ${f.kubeadmStage} stage; Pager Panic needs it Ready.`)
+  }
+  return (
+    <div className="space-y-3">
+      {dep && (
+        <div className="flex items-center justify-between rounded-lg bg-surface2 px-3 py-2 text-sm">
+          <span className="text-muted">Deployment</span>
+          <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
+        </div>
+      )}
+      <div className="rounded-lg bg-surface2 px-3 py-2 text-sm">
+        <InfoRow label="Plays against" help={HELP.depLinkedTo}><span className="font-mono text-xs">{f ? `${f.label} (${members} nodes)` : 'nothing yet'}</span></InfoRow>
+      </div>
+      {problems.map((p) => <p key={p} className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">{p}</p>)}
+      <p className="text-xs text-muted">Tickets are real faults: they stop kubelet, edit static pod manifests and scale system Deployments on that cluster, and every one is put back when it closes. Give the game a Kubeadm Cluster of its own. Tasks come from the YAML bank in <span className="font-mono">pagerpanic/banks</span>.</p>
+      <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
+        <Icon.Trash size={16} /> Delete node
+      </Button>
+    </div>
+  )
+}
+
+function PagerPanicManager ({ dep, stackId, nodeId, onDeleteNode }) {
+  const cfg = dep?.config || {}
+  const [test, setTest] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  useEffect(() => {
+    let stop = false
+    let t = null
+    const load = async () => {
+      try {
+        const r = await stackApi.pagerpanicSelfTest(stackId, nodeId)
+        if (!stop) setTest(r)
+        if (!stop && r.running) t = setTimeout(load, 3000)
+      } catch { /* none yet */ }
+    }
+    load()
+    return () => { stop = true; clearTimeout(t) }
+  }, [stackId, nodeId, busy])
+  async function start () {
+    if (!confirm('Run every task of the bank on the cluster now? This takes a while, and the game must have no tickets out.')) return
+    setErr('')
+    setBusy(true)
+    try { setTest(await stackApi.pagerpanicSelfTestStart(stackId, nodeId, {})) } catch (e) { setErr(e.message) }
+    setBusy(false)
+  }
+  const tone = { passed: 'text-success', failed: 'text-danger', running: 'text-primary', skipped: 'text-muted', pending: 'text-muted' }
+  const tally = (test?.tasks || []).reduce((m, t) => ({ ...m, [t.state]: (m[t.state] || 0) + 1 }), {})
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Pager Panic</span>
+        <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
+      </div>
+      <SimDashboardLink port={cfg.httpPort} />
+      <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
+        <InfoRow label="Internal URL" help={HELP.depInternalURL}><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8097</span></InfoRow>
+        <InfoRow label="Plays against" help={HELP.depLinkedTo}><span className="font-mono text-xs">{cfg.frameLabel}</span></InfoRow>
+        <InfoRow label="Task bank" help={HELP.pagerPanicBank}><span className="font-mono text-xs">{cfg.bank}</span></InfoRow>
+        <InfoRow label="Tickets on the cluster" help={HELP.pagerPanicActive}><span className="font-mono text-xs">{(cfg.active || []).length}</span></InfoRow>
+      </div>
+      <div className="space-y-2 rounded-lg border border-border px-3 py-2 text-sm">
+        <div className="flex items-center justify-between">
+          <span className="font-medium">Self-test</span>
+          <Button size="sm" variant="secondary" disabled={busy || test?.running} onClick={start}>{test?.running ? 'Running…' : 'Test every task'}</Button>
+        </div>
+        <p className="text-xs text-muted">Plays each task for real: setup, the checks must fail, the task's solve script, the checks must pass, cleanup, and the cluster must be healthy again.</p>
+        {err && <p className="text-xs text-danger">{err}</p>}
+        {test && (
+          <>
+            <p className="text-xs">{['passed', 'failed', 'skipped', 'running', 'pending'].filter((k) => tally[k]).map((k) => `${tally[k]} ${k}`).join(' · ')}</p>
+            <ul className="max-h-64 space-y-1 overflow-auto text-xs">
+              {test.tasks.map((t) => (
+                <li key={t.task} className="flex flex-col">
+                  <span><span className={`font-mono ${tone[t.state] || ''}`}>{t.state}</span> <span className="font-mono">{t.task}</span>{t.stage ? <span className="text-muted"> · {t.stage}</span> : null}{t.seconds ? <span className="text-muted"> · {Math.round(t.seconds)}s</span> : null}</span>
+                  {t.error && <span className="pl-3 text-muted">{t.error}</span>}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
+      <p className="text-xs text-muted">Removing the node puts back every ticket still on the cluster.</p>
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
         <Icon.Trash size={16} /> Delete node
       </Button>
@@ -16341,6 +16470,10 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
         return <StockSimManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />
       }
       return <StockSimForm node={n} nodes={nodes} frames={frames} edges={edges} stackId={stackId} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} />
+    }
+    if (n.type === 'pagerpanic') {
+      if (dep && dep.state === 'running') return <PagerPanicManager dep={dep} stackId={stackId} nodeId={n.id} onDeleteNode={() => deleteNode(n.id)} />
+      return <PagerPanicForm node={n} nodes={nodes} frames={frames} edges={edges} deleteNode={deleteNode} dep={dep} />
     }
     if (n.type === 'perfsim') {
       if (dep && dep.state === 'running') return <PerfSimManager dep={dep} onDeleteNode={() => deleteNode(n.id)} />

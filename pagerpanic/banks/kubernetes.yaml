@@ -1,0 +1,1632 @@
+# Pager Panic task bank: Kubernetes on-call.
+#
+# Every task is a ticket the game can draw. DBCanvas runs a task's setup, check, solve and
+# cleanup scripts as root on the nodes of the linked Kubeadm Cluster; the game only ever
+# sees the title, brief, hints and (in the debrief) the solution.
+#
+#   node:      control-plane (default) | worker (the task's chosen worker) | worker-N |
+#              workers | all-nodes
+#   vars:      values chosen when the ticket is drawn. {{rand N}}, {{pick a b c}},
+#              {{int lo hi}}; {{worker}}, {{other_worker}}, {{worker_1}}…, {{control_plane}}
+#              are always there
+#   record:    (setup only) commands whose output is kept as a var, for guards
+#   expect:    equals | contains | regex | exit | nonempty | empty | min / max
+#   guard:     a check that catches a shortcut; shown only when it fails
+#   locks:     tasks sharing a lock never run at the same time
+#   blocks /   capabilities a task takes away while it is open, and the ones a task
+#   needs:     depends on: scheduling, controllers, dns
+#   solve:     how a player would fix it, run only by the self-test
+#
+# Scripts get these helpers: pp_backup FILE, pp_restore, pp_wait SECONDS COMMAND…
+# Setup and solve scripts stop at the first failing command; checks and cleanups do not.
+# kubectl uses /etc/kubernetes/admin.conf on the control plane.
+
+bank: kubernetes
+title: Kubernetes on-call
+target: kubeadm
+min_nodes: 3
+shift: 60m
+lives: 3
+images: [nginx:1.27, nginx:1.27-alpine, busybox:1.36]
+
+categories:
+  - {id: troubleshooting, title: Troubleshooting, medal: Firefighter, medal_at: 5}
+  - {id: cluster, title: Cluster, medal: Cluster Keeper, medal_at: 5}
+  - {id: networking, title: Networking, medal: Network Whisperer, medal_at: 5}
+  - {id: workloads, title: Workloads, medal: Workload Wrangler, medal_at: 5}
+  - {id: storage, title: Storage, medal: Storage Keeper, medal_at: 3}
+
+stages:
+  - {open: 1, spawn_every: 150s, time_scale: 1.0, difficulty: [1]}
+  - {open: 2, spawn_every: 120s, time_scale: 1.0, difficulty: [1, 2]}
+  - {open: 2, spawn_every: 100s, time_scale: 0.9, difficulty: [1, 2]}
+  - {open: 3, spawn_every: 90s, time_scale: 0.9, difficulty: [2, 3]}
+  - {open: 3, spawn_every: 80s, time_scale: 0.8, difficulty: [2, 3]}
+
+ranks:
+  - {min: 0, title: Intern}
+  - {min: 2000, title: Junior On-Call}
+  - {min: 5000, title: On-Call Engineer}
+  - {min: 9000, title: Site Lead}
+  - {min: 14000, title: Legend}
+
+tasks:
+
+  # ------------------------------------------------------------------ networking
+
+  - id: svc-no-endpoints
+    title: "Shop is down: the Service has no endpoints"
+    kind: incident
+    category: networking
+    difficulty: 1
+    time_limit: 5m
+    needs: [scheduling, controllers]
+    vars: {ns: "arcade-shop-{{rand 4}}"}
+    setup:
+      - run: |
+          kubectl create ns {{ns}}
+          kubectl -n {{ns}} create deployment web --image=nginx:1.27 --replicas=3
+          kubectl -n {{ns}} expose deployment web --port=80
+          kubectl -n {{ns}} patch svc web -p '{"spec":{"selector":{"app":"webb"}}}'
+        record:
+          deploy_uid: kubectl -n {{ns}} get deploy web -o jsonpath='{.metadata.uid}'
+    brief: |
+      Shoppers get connection refused from the shop in namespace {{ns}}.
+      Make the web Service reach its pods. Do not recreate the Deployment.
+    hints:
+      - {cost: 25, text: "Compare the Service's selector with the labels on the web pods."}
+      - {cost: 50, text: "kubectl -n {{ns}} get pods --show-labels, then edit the Service's spec.selector."}
+    check:
+      - name: Service web has 3 ready endpoints
+        run: kubectl -n {{ns}} get endpointslices -l kubernetes.io/service-name=web -o jsonpath='{range .items[*].endpoints[?(@.conditions.ready==true)]}{.addresses[0]}{"\n"}{end}' | grep -c .
+        expect: {equals: "3"}
+      - name: The Deployment was not recreated
+        guard: true
+        run: kubectl -n {{ns}} get deploy web -o jsonpath='{.metadata.uid}'
+        expect: {equals: "{{deploy_uid}}"}
+    solution: |
+      kubectl -n {{ns}} patch svc web -p '{"spec":{"selector":{"app":"web"}}}'
+    explain: A Service sends traffic only to pods whose labels match its selector. The selector said app=webb, so no pod matched and the Service had no endpoints.
+    solve:
+      - run: kubectl -n {{ns}} patch svc web -p '{"spec":{"selector":{"app":"web"}}}'
+    cleanup:
+      - run: kubectl delete ns {{ns}} --ignore-not-found --wait=false
+
+  - id: svc-wrong-target-port
+    title: "API answers nothing on port 80"
+    kind: incident
+    category: networking
+    difficulty: 1
+    time_limit: 5m
+    needs: [scheduling, controllers]
+    vars: {ns: "arcade-api-{{rand 4}}"}
+    setup:
+      - run: |
+          kubectl create ns {{ns}}
+          kubectl -n {{ns}} create deployment api --image=nginx:1.27 --replicas=2
+          kubectl -n {{ns}} create service clusterip api --tcp=80:8080
+    brief: |
+      The api Service in {{ns}} has endpoints, yet every request to it on port 80 hangs
+      and then fails. nginx in those pods listens on port 80. Make http://api.{{ns}} answer.
+    hints:
+      - {cost: 25, text: "Look at the Service's targetPort and at the port the container listens on."}
+    check:
+      - name: The api Service answers HTTP 200 on port 80
+        run: |
+          ip=$(kubectl -n {{ns}} get svc api -o jsonpath='{.spec.clusterIP}')
+          curl -s -o /dev/null -m 5 -w '%{http_code}' "http://$ip:80/"
+        expect: {equals: "200"}
+    solution: |
+      kubectl -n {{ns}} patch svc api --type=json -p '[{"op":"replace","path":"/spec/ports/0/targetPort","value":80}]'
+    explain: port is what clients connect to; targetPort is where the Service forwards inside the pod. It pointed at 8080, where nothing listens.
+    solve:
+      - run: |
+          kubectl -n {{ns}} patch svc api --type=json -p '[{"op":"replace","path":"/spec/ports/0/targetPort","value":80}]'
+          pp_wait 90 sh -c 'ip=$(kubectl -n {{ns}} get svc api -o jsonpath="{.spec.clusterIP}"); curl -sf -m 3 http://$ip/'
+    cleanup:
+      - run: kubectl delete ns {{ns}} --ignore-not-found --wait=false
+
+  - id: nodeport-expose
+    title: "Expose the dashboard on a NodePort"
+    kind: request
+    category: networking
+    difficulty: 1
+    time_limit: 5m
+    needs: [scheduling, controllers]
+    vars:
+      ns: "arcade-dash-{{rand 4}}"
+      port: "{{int 30100 30799}}"
+    setup:
+      - run: |
+          kubectl create ns {{ns}}
+          kubectl -n {{ns}} create deployment dashboard --image=nginx:1.27 --replicas=2
+    brief: |
+      The dashboard Deployment in {{ns}} has to be reachable from outside the cluster.
+      Create a NodePort Service named dashboard on node port {{port}}, forwarding to port 80.
+    hints:
+      - {cost: 25, text: "kubectl expose can create the Service; set the node port in its spec.ports."}
+    check:
+      - name: Service dashboard is a NodePort on {{port}}
+        run: kubectl -n {{ns}} get svc dashboard -o jsonpath='{.spec.type}/{.spec.ports[0].nodePort}'
+        expect: {equals: "NodePort/{{port}}"}
+      - name: http://{{worker}}:{{port}} answers 200
+        run: curl -s -o /dev/null -m 5 -w '%{http_code}' http://{{worker}}:{{port}}/
+        expect: {equals: "200"}
+    solution: |
+      kubectl -n {{ns}} create service nodeport dashboard --tcp=80:80 --node-port={{port}}
+    explain: A NodePort Service opens the same port on every node and forwards it to the pods its selector matches.
+    solve:
+      - run: |
+          kubectl -n {{ns}} create service nodeport dashboard --tcp=80:80 --node-port={{port}}
+          pp_wait 90 curl -sf -m 3 http://{{worker}}:{{port}}/
+    cleanup:
+      - run: kubectl delete ns {{ns}} --ignore-not-found --wait=false
+
+  - id: netpol-frontend-blocked
+    title: "Frontend cannot reach the backend"
+    kind: incident
+    category: networking
+    difficulty: 2
+    time_limit: 7m
+    requires: [calico]
+    needs: [scheduling, controllers, dns]
+    vars: {ns: "arcade-net-{{rand 4}}"}
+    setup:
+      - run: |
+          kubectl create ns {{ns}}
+          kubectl -n {{ns}} run backend --image=nginx:1.27 --labels=app=backend --expose --port=80
+          kubectl -n {{ns}} run frontend --image=busybox:1.36 --labels=app=frontend -- sleep 86400
+          kubectl -n {{ns}} run intruder --image=busybox:1.36 --labels=app=intruder -- sleep 86400
+          cat <<'EOF' | kubectl -n {{ns}} apply -f -
+          apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          metadata: {name: default-deny}
+          spec:
+            podSelector: {}
+            policyTypes: [Ingress]
+          EOF
+          pp_wait 120 kubectl -n {{ns}} wait --for=condition=Ready pod --all --timeout=5s
+    brief: |
+      In {{ns}} a default-deny policy now blocks everything, including the frontend's calls
+      to the backend Service. Let pods labelled app=frontend reach backend on port 80.
+      Keep default-deny, and keep everything else (app=intruder) blocked.
+    hints:
+      - {cost: 25, text: "Add a second NetworkPolicy that selects the backend pods and allows ingress from app=frontend."}
+      - {cost: 50, text: "podSelector: {matchLabels: {app: backend}}, ingress: [{from: [{podSelector: {matchLabels: {app: frontend}}}], ports: [{port: 80}]}]"}
+    check:
+      - name: frontend reaches backend
+        run: kubectl -n {{ns}} exec frontend -- wget -qO- -T 3 http://backend >/dev/null
+        expect: {exit: 0}
+      - name: intruder is still blocked
+        guard: true
+        run: kubectl -n {{ns}} exec intruder -- wget -qO- -T 3 http://backend >/dev/null 2>&1; echo $?
+        expect: {regex: "^[1-9]"}
+      - name: default-deny is still there
+        guard: true
+        run: kubectl -n {{ns}} get networkpolicy default-deny -o name
+        expect: {equals: "networkpolicy.networking.k8s.io/default-deny"}
+    solution: |
+      cat <<'EOF' | kubectl -n {{ns}} apply -f -
+      apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      metadata: {name: allow-frontend}
+      spec:
+        podSelector: {matchLabels: {app: backend}}
+        ingress:
+          - from: [{podSelector: {matchLabels: {app: frontend}}}]
+            ports: [{port: 80}]
+      EOF
+    explain: NetworkPolicies add up. default-deny selects every pod and allows nothing; a second policy on the backend pods allows exactly the frontend.
+    solve:
+      - run: |
+          cat <<'EOF' | kubectl -n {{ns}} apply -f -
+          apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          metadata: {name: allow-frontend}
+          spec:
+            podSelector: {matchLabels: {app: backend}}
+            ingress:
+              - from: [{podSelector: {matchLabels: {app: frontend}}}]
+                ports: [{port: 80}]
+          EOF
+          pp_wait 60 kubectl -n {{ns}} exec frontend -- wget -qO- -T 3 http://backend
+    cleanup:
+      - run: kubectl delete ns {{ns}} --ignore-not-found --wait=false
+
+  # ------------------------------------------------------------------ troubleshooting
+
+  - id: image-pull-backoff
+    title: "Release stuck: ImagePullBackOff"
+    kind: incident
+    category: troubleshooting
+    difficulty: 1
+    time_limit: 5m
+    needs: [scheduling, controllers]
+    vars: {ns: "arcade-rel-{{rand 4}}"}
+    setup:
+      - run: |
+          kubectl create ns {{ns}}
+          kubectl -n {{ns}} create deployment checkout --image=nginx:1.27 --replicas=2
+          kubectl -n {{ns}} set image deployment/checkout nginx=nginx:1.277
+        record:
+          deploy_uid: kubectl -n {{ns}} get deploy checkout -o jsonpath='{.metadata.uid}'
+    brief: |
+      The checkout Deployment in {{ns}} was just updated and its new pods never start.
+      Get checkout running on the image nginx:1.27, with both replicas available.
+    hints:
+      - {cost: 25, text: "kubectl -n {{ns}} describe pod on one of the new pods shows the pull error."}
+    check:
+      - name: checkout runs nginx:1.27
+        run: kubectl -n {{ns}} get deploy checkout -o jsonpath='{.spec.template.spec.containers[0].image}'
+        expect: {equals: "nginx:1.27"}
+      - name: 2 replicas available and up to date
+        run: kubectl -n {{ns}} get deploy checkout -o jsonpath='{.status.availableReplicas}/{.status.updatedReplicas}/{.status.replicas}'
+        expect: {equals: "2/2/2"}
+      - name: The Deployment was not recreated
+        guard: true
+        run: kubectl -n {{ns}} get deploy checkout -o jsonpath='{.metadata.uid}'
+        expect: {equals: "{{deploy_uid}}"}
+    solution: |
+      kubectl -n {{ns}} set image deployment/checkout nginx=nginx:1.27
+      # or: kubectl -n {{ns}} rollout undo deployment/checkout
+    explain: The image tag nginx:1.277 does not exist, so the kubelet could not pull it and kept backing off.
+    solve:
+      - run: |
+          kubectl -n {{ns}} set image deployment/checkout nginx=nginx:1.27
+          kubectl -n {{ns}} rollout status deployment/checkout --timeout=120s
+    cleanup:
+      - run: kubectl delete ns {{ns}} --ignore-not-found --wait=false
+
+  - id: crashloop-liveness
+    title: "Pods restart every few seconds"
+    kind: incident
+    category: troubleshooting
+    difficulty: 2
+    time_limit: 6m
+    needs: [scheduling, controllers]
+    vars: {ns: "arcade-crash-{{rand 4}}"}
+    setup:
+      - run: |
+          kubectl create ns {{ns}}
+          cat <<'EOF' | kubectl -n {{ns}} apply -f -
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata: {name: catalog}
+          spec:
+            replicas: 2
+            selector: {matchLabels: {app: catalog}}
+            template:
+              metadata: {labels: {app: catalog}}
+              spec:
+                containers:
+                  - name: nginx
+                    image: nginx:1.27
+                    livenessProbe:
+                      httpGet: {path: /, port: 8080}
+                      initialDelaySeconds: 3
+                      periodSeconds: 3
+                      failureThreshold: 1
+          EOF
+        record:
+          deploy_uid: kubectl -n {{ns}} get deploy catalog -o jsonpath='{.metadata.uid}'
+    brief: |
+      The catalog pods in {{ns}} keep getting killed and restarted. nginx itself is fine.
+      Stop the restarts without removing the liveness probe.
+    hints:
+      - {cost: 25, text: "kubectl -n {{ns}} describe pod shows why the kubelet kills the container."}
+      - {cost: 50, text: "The probe checks a port nginx does not listen on."}
+    check:
+      - name: The liveness probe checks port 80
+        run: kubectl -n {{ns}} get deploy catalog -o jsonpath='{.spec.template.spec.containers[0].livenessProbe.httpGet.port}'
+        expect: {equals: "80"}
+      - name: 2 replicas available
+        run: kubectl -n {{ns}} get deploy catalog -o jsonpath='{.status.availableReplicas}/{.status.updatedReplicas}'
+        expect: {equals: "2/2"}
+      - name: The Deployment was not recreated
+        guard: true
+        run: kubectl -n {{ns}} get deploy catalog -o jsonpath='{.metadata.uid}'
+        expect: {equals: "{{deploy_uid}}"}
+    solution: |
+      kubectl -n {{ns}} patch deploy catalog --type=json \
+        -p '[{"op":"replace","path":"/spec/template/spec/containers/0/livenessProbe/httpGet/port","value":80}]'
+    explain: A liveness probe that fails makes the kubelet restart the container. It probed port 8080, where nothing listens, so every container was restarted as soon as it started.
+    solve:
+      - run: |
+          kubectl -n {{ns}} patch deploy catalog --type=json -p '[{"op":"replace","path":"/spec/template/spec/containers/0/livenessProbe/httpGet/port","value":80}]'
+          kubectl -n {{ns}} rollout status deployment/catalog --timeout=120s
+    cleanup:
+      - run: kubectl delete ns {{ns}} --ignore-not-found --wait=false
+
+  - id: kubelet-stopped
+    title: "A worker went NotReady"
+    kind: incident
+    category: troubleshooting
+    difficulty: 2
+    time_limit: 6m
+    requires: ["workers>=2"]
+    locks: [worker-node]
+    setup:
+      - node: worker
+        run: systemctl stop kubelet
+      - run: pp_wait 120 sh -c 'kubectl get node {{worker}} -o jsonpath="{.status.conditions[?(@.type==\"Ready\")].status}" | grep -qv True'
+        timeout: 150s
+    brief: |
+      Node {{worker}} reports NotReady and nothing new lands on it. Bring it back to Ready.
+    hints:
+      - {cost: 25, text: "The node's status comes from one service running on the node itself."}
+      - {cost: 50, text: "On {{worker}}: systemctl status kubelet."}
+    check:
+      - name: "{{worker}} is Ready"
+        run: kubectl get node {{worker}} -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+        expect: {equals: "True"}
+      - name: kubelet is running on {{worker}}
+        node: worker
+        run: systemctl is-active kubelet
+        expect: {equals: "active"}
+    solution: |
+      # on {{worker}}
+      systemctl start kubelet
+      systemctl status kubelet
+    explain: The kubelet on each node reports the node's status to the API server. With it stopped, the node's lease expired and the node was marked NotReady.
+    solve:
+      - node: worker
+        run: systemctl start kubelet
+      - run: pp_wait 120 sh -c 'kubectl get node {{worker}} -o jsonpath="{.status.conditions[?(@.type==\"Ready\")].status}" | grep -q True'
+        timeout: 150s
+    cleanup:
+      - node: worker
+        run: systemctl enable --now kubelet
+
+  - id: kubelet-bad-flag
+    title: "kubelet will not start on a worker"
+    kind: incident
+    category: troubleshooting
+    difficulty: 3
+    time_limit: 8m
+    requires: ["workers>=2"]
+    locks: [worker-node]
+    setup:
+      - node: worker
+        run: |
+          pp_backup /etc/default/kubelet
+          echo 'KUBELET_EXTRA_ARGS="--pod-max-pids=-1 --node-labels-typo=arcade"' > /etc/default/kubelet
+          systemctl restart kubelet || true
+      - run: pp_wait 120 sh -c 'kubectl get node {{worker}} -o jsonpath="{.status.conditions[?(@.type==\"Ready\")].status}" | grep -qv True'
+        timeout: 150s
+    brief: |
+      Node {{worker}} is NotReady again, and this time restarting kubelet does not help.
+      Find out why it fails and get the node Ready.
+    hints:
+      - {cost: 25, text: "On {{worker}}: journalctl -u kubelet -n 30 says what it refuses."}
+      - {cost: 50, text: "kubelet reads extra flags from /etc/default/kubelet."}
+    check:
+      - name: "{{worker}} is Ready"
+        run: kubectl get node {{worker}} -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+        expect: {equals: "True"}
+      - name: kubelet is running on {{worker}}
+        node: worker
+        run: systemctl is-active kubelet
+        expect: {equals: "active"}
+    solution: |
+      # on {{worker}}
+      journalctl -u kubelet -n 30          # "unknown flag: --node-labels-typo"
+      vi /etc/default/kubelet              # remove the bad flag
+      systemctl restart kubelet
+    explain: kubelet exits on any flag it does not know. The flag came from KUBELET_EXTRA_ARGS in /etc/default/kubelet, which the systemd unit passes on every start.
+    solve:
+      - node: worker
+        run: |
+          echo 'KUBELET_EXTRA_ARGS=' > /etc/default/kubelet
+          systemctl restart kubelet
+      - run: pp_wait 120 sh -c 'kubectl get node {{worker}} -o jsonpath="{.status.conditions[?(@.type==\"Ready\")].status}" | grep -q True'
+        timeout: 150s
+    cleanup:
+      - node: worker
+        run: |
+          pp_restore
+          [ -f /etc/default/kubelet ] || echo 'KUBELET_EXTRA_ARGS=' > /etc/default/kubelet
+          systemctl daemon-reload
+          systemctl enable kubelet
+          systemctl restart kubelet
+
+  - id: scheduler-down
+    title: "New pods sit in Pending"
+    kind: incident
+    category: troubleshooting
+    difficulty: 3
+    time_limit: 8m
+    locks: [scheduler]
+    blocks: [scheduling]
+    needs: [controllers]
+    vars: {ns: "arcade-sched-{{rand 4}}"}
+    setup:
+      - run: |
+          pp_backup /etc/kubernetes/manifests/kube-scheduler.yaml
+          sed -i 's/^\(\s*- \)kube-scheduler$/\1kube-schedulerr/' /etc/kubernetes/manifests/kube-scheduler.yaml
+          grep -q 'kube-schedulerr$' /etc/kubernetes/manifests/kube-scheduler.yaml
+          sleep 20
+          kubectl create ns {{ns}}
+          kubectl -n {{ns}} create deployment reports --image=nginx:1.27 --replicas=2
+    brief: |
+      Nothing new gets scheduled: the reports pods in {{ns}} have been Pending since they
+      were created, on a cluster with plenty of room. Get them running.
+    hints:
+      - {cost: 25, text: "Pending with no events at all means no scheduler looked at them. Is it running?"}
+      - {cost: 50, text: "The scheduler is a static pod; its manifest is in /etc/kubernetes/manifests on the control plane."}
+    check:
+      - name: kube-scheduler is running
+        run: kubectl -n kube-system get pods -l component=kube-scheduler -o jsonpath='{.items[0].status.containerStatuses[0].ready}'
+        expect: {equals: "true"}
+      - name: reports has 2 replicas available
+        run: kubectl -n {{ns}} get deploy reports -o jsonpath='{.status.availableReplicas}'
+        expect: {equals: "2"}
+    solution: |
+      # on the control plane
+      kubectl -n kube-system get pods -l component=kube-scheduler     # CrashLoopBackOff
+      kubectl -n kube-system logs -l component=kube-scheduler          # or crictl logs
+      vi /etc/kubernetes/manifests/kube-scheduler.yaml                 # command: kube-schedulerr → kube-scheduler
+    explain: The scheduler runs as a static pod that the kubelet starts from its manifest. The command in the manifest had a typo, so the container could not start and no pod was ever assigned a node.
+    solve:
+      - run: |
+          sed -i 's/kube-schedulerr$/kube-scheduler/' /etc/kubernetes/manifests/kube-scheduler.yaml
+          pp_wait 150 sh -c '[ "$(kubectl -n {{ns}} get deploy reports -o jsonpath={.status.availableReplicas})" = 2 ]'
+        timeout: 200s
+    cleanup:
+      - run: |
+          pp_restore
+          pp_wait 150 sh -c 'kubectl -n kube-system get pods -l component=kube-scheduler -o jsonpath="{.items[0].status.containerStatuses[0].ready}" | grep -q true'
+          kubectl delete ns {{ns}} --ignore-not-found --wait=false
+        timeout: 200s
+
+  - id: controller-manager-down
+    title: "Deployments do not scale"
+    kind: incident
+    category: troubleshooting
+    difficulty: 3
+    time_limit: 8m
+    locks: [controller-manager]
+    blocks: [controllers]
+    needs: [scheduling]
+    vars: {ns: "arcade-kcm-{{rand 4}}"}
+    setup:
+      - run: |
+          kubectl create ns {{ns}}
+          kubectl -n {{ns}} create deployment orders --image=nginx:1.27 --replicas=1
+          kubectl -n {{ns}} rollout status deployment/orders --timeout=120s
+          pp_backup /etc/kubernetes/manifests/kube-controller-manager.yaml
+          sed -i 's#--kubeconfig=/etc/kubernetes/controller-manager.conf#--kubeconfig=/etc/kubernetes/controller-manager.conff#' /etc/kubernetes/manifests/kube-controller-manager.yaml
+          grep -q 'controller-manager.conff' /etc/kubernetes/manifests/kube-controller-manager.yaml
+          sleep 20
+          kubectl -n {{ns}} scale deployment orders --replicas=3
+    brief: |
+      orders in {{ns}} was scaled to 3 replicas a while ago and still runs just 1. The
+      Deployment says 3; nobody creates the pods. Get orders to 3 available replicas.
+    hints:
+      - {cost: 25, text: "Turning a Deployment into ReplicaSets and pods is the controller manager's job."}
+      - {cost: 50, text: "Its manifest is /etc/kubernetes/manifests/kube-controller-manager.yaml; check every path in it."}
+    check:
+      - name: kube-controller-manager is running
+        run: kubectl -n kube-system get pods -l component=kube-controller-manager -o jsonpath='{.items[0].status.containerStatuses[0].ready}'
+        expect: {equals: "true"}
+      - name: orders has 3 replicas available
+        run: kubectl -n {{ns}} get deploy orders -o jsonpath='{.status.availableReplicas}'
+        expect: {equals: "3"}
+    solution: |
+      # on the control plane
+      crictl ps -a | grep controller-manager; crictl logs <container>   # no such file: controller-manager.conff
+      vi /etc/kubernetes/manifests/kube-controller-manager.yaml          # --kubeconfig=/etc/kubernetes/controller-manager.conf
+    explain: The controller manager runs the loops that create ReplicaSets and pods. Its --kubeconfig pointed at a file that does not exist, so it could not reach the API server and nothing reacted to the new replica count.
+    solve:
+      - run: |
+          sed -i 's#controller-manager.conff#controller-manager.conf#' /etc/kubernetes/manifests/kube-controller-manager.yaml
+          pp_wait 180 sh -c '[ "$(kubectl -n {{ns}} get deploy orders -o jsonpath={.status.availableReplicas})" = 3 ]'
+        timeout: 220s
+    cleanup:
+      - run: |
+          pp_restore
+          pp_wait 150 sh -c 'kubectl -n kube-system get pods -l component=kube-controller-manager -o jsonpath="{.items[0].status.containerStatuses[0].ready}" | grep -q true'
+          kubectl delete ns {{ns}} --ignore-not-found --wait=false
+        timeout: 200s
+
+  - id: coredns-scaled-down
+    title: "Name lookups fail everywhere"
+    kind: incident
+    category: troubleshooting
+    difficulty: 2
+    time_limit: 6m
+    locks: [coredns]
+    blocks: [dns]
+    setup:
+      # The replica count is recorded first, so the check and the cleanup put back what was there.
+      - run: "true"
+        record:
+          replicas: kubectl -n kube-system get deploy coredns -o jsonpath='{.spec.replicas}'
+      - run: kubectl -n kube-system scale deployment coredns --replicas=0
+    brief: |
+      Every pod in the cluster suddenly fails to resolve service names, even
+      kubernetes.default. Restore cluster DNS with {{replicas}} replicas.
+    hints:
+      - {cost: 25, text: "Cluster DNS is a Deployment in kube-system."}
+    check:
+      - name: coredns has {{replicas}} ready replicas
+        run: kubectl -n kube-system get deploy coredns -o jsonpath='{.status.readyReplicas}'
+        expect: {equals: "{{replicas}}"}
+    solution: |
+      kubectl -n kube-system get deploy coredns          # 0/0
+      kubectl -n kube-system scale deployment coredns --replicas={{replicas}}
+    explain: Pods resolve names through the kube-dns Service, which is backed by the coredns pods. With the Deployment at 0 replicas, the Service had no endpoints.
+    solve:
+      - run: |
+          kubectl -n kube-system scale deployment coredns --replicas={{replicas}}
+          kubectl -n kube-system rollout status deployment/coredns --timeout=120s
+    cleanup:
+      - run: kubectl -n kube-system scale deployment coredns --replicas={{replicas}}
+
+  - id: most-restarts
+    title: "Which pod keeps crashing?"
+    kind: request
+    category: troubleshooting
+    difficulty: 1
+    time_limit: 5m
+    needs: [scheduling, controllers]
+    vars:
+      ns: "arcade-flaky-{{rand 4}}"
+      file: "/opt/arcade/flaky-{{rand 4}}.txt"
+      flaky: "{{pick ledger mailer billing}}"
+    setup:
+      - run: |
+          kubectl create ns {{ns}}
+          for p in ledger mailer billing; do
+            if [ "$p" = "{{flaky}}" ]; then
+              kubectl -n {{ns}} run $p --image=busybox:1.36 -- sh -c 'sleep 5; exit 1'
+            else
+              kubectl -n {{ns}} run $p --image=busybox:1.36 -- sleep 86400
+            fi
+          done
+          pp_wait 120 sh -c '[ "$(kubectl -n {{ns}} get pod {{flaky}} -o jsonpath={.status.containerStatuses[0].restartCount})" -ge 1 ]'
+    brief: |
+      One of the pods in {{ns}} keeps crashing. Write the name of the pod with the most
+      restarts, and nothing else, to {{file}} on the control plane.
+    hints:
+      - {cost: 25, text: "kubectl get pods shows a RESTARTS column; --sort-by can order by it."}
+    check:
+      - name: "{{file}} names the crashing pod"
+        run: cat {{file}}
+        expect: {equals: "{{flaky}}"}
+    solution: |
+      kubectl -n {{ns}} get pods --sort-by='.status.containerStatuses[0].restartCount'
+      mkdir -p /opt/arcade && echo {{flaky}} > {{file}}
+    explain: The restart count is on each container's status; sorting by it puts the crashing pod last.
+    solve:
+      - run: |
+          name=$(kubectl -n {{ns}} get pods --sort-by='.status.containerStatuses[0].restartCount' -o jsonpath='{.items[-1:].metadata.name}')
+          mkdir -p "$(dirname {{file}})" && echo "$name" > {{file}}
+    cleanup:
+      - run: |
+          rm -f {{file}}
+          kubectl delete ns {{ns}} --ignore-not-found --wait=false
+
+  # ------------------------------------------------------------------ cluster
+
+  - id: rbac-reporter
+    title: "Give the reporter account read access to pods"
+    kind: request
+    category: cluster
+    difficulty: 2
+    time_limit: 6m
+    vars: {ns: "arcade-rbac-{{rand 4}}"}
+    setup:
+      - run: kubectl create ns {{ns}}
+    brief: |
+      A reporting job in {{ns}} runs as the ServiceAccount reporter, which does not exist
+      yet. Create it, and let it get, list and watch pods in {{ns}} — and nothing more.
+    hints:
+      - {cost: 25, text: "A ServiceAccount, a Role and a RoleBinding, all in {{ns}}."}
+      - {cost: 50, text: "kubectl create role … --verb=get,list,watch --resource=pods; kubectl create rolebinding … --serviceaccount={{ns}}:reporter"}
+    check:
+      - name: reporter can list pods in {{ns}}
+        run: kubectl auth can-i list pods -n {{ns}} --as=system:serviceaccount:{{ns}}:reporter
+        expect: {equals: "yes"}
+      - name: reporter can watch pods in {{ns}}
+        run: kubectl auth can-i watch pods -n {{ns}} --as=system:serviceaccount:{{ns}}:reporter
+        expect: {equals: "yes"}
+      - name: reporter cannot delete pods
+        guard: true
+        run: kubectl auth can-i delete pods -n {{ns}} --as=system:serviceaccount:{{ns}}:reporter
+        expect: {equals: "no"}
+      - name: reporter cannot read secrets
+        guard: true
+        run: kubectl auth can-i get secrets -n {{ns}} --as=system:serviceaccount:{{ns}}:reporter
+        expect: {equals: "no"}
+    solution: |
+      kubectl -n {{ns}} create serviceaccount reporter
+      kubectl -n {{ns}} create role pod-reader --verb=get,list,watch --resource=pods
+      kubectl -n {{ns}} create rolebinding reporter-pod-reader --role=pod-reader --serviceaccount={{ns}}:reporter
+      kubectl auth can-i list pods -n {{ns}} --as=system:serviceaccount:{{ns}}:reporter
+    explain: A Role grants verbs on resources within one namespace, and a RoleBinding gives the Role to a subject. kubectl auth can-i --as checks the result without running anything as that account.
+    solve:
+      - run: |
+          kubectl -n {{ns}} create serviceaccount reporter
+          kubectl -n {{ns}} create role pod-reader --verb=get,list,watch --resource=pods
+          kubectl -n {{ns}} create rolebinding reporter-pod-reader --role=pod-reader --serviceaccount={{ns}}:reporter
+    cleanup:
+      - run: kubectl delete ns {{ns}} --ignore-not-found --wait=false
+
+  - id: rbac-forbidden-list
+    title: "Forbidden: the auditor cannot list deployments"
+    kind: incident
+    category: cluster
+    difficulty: 2
+    time_limit: 6m
+    vars: {ns: "arcade-audit-{{rand 4}}"}
+    setup:
+      - run: |
+          kubectl create ns {{ns}}
+          kubectl -n {{ns}} create serviceaccount auditor
+          kubectl -n {{ns}} create role auditor --verb=get --resource=deployments
+          kubectl -n {{ns}} create rolebinding auditor --role=auditor --serviceaccount={{ns}}:auditor
+    brief: |
+      The auditor ServiceAccount in {{ns}} gets "Forbidden" when it lists deployments. It
+      should be able to get and list deployments in {{ns}}, and still not change them.
+    hints:
+      - {cost: 25, text: "kubectl -n {{ns}} describe role auditor"}
+    check:
+      - name: auditor can list deployments
+        run: kubectl auth can-i list deployments.apps -n {{ns}} --as=system:serviceaccount:{{ns}}:auditor
+        expect: {equals: "yes"}
+      - name: auditor can get deployments
+        run: kubectl auth can-i get deployments.apps -n {{ns}} --as=system:serviceaccount:{{ns}}:auditor
+        expect: {equals: "yes"}
+      - name: auditor cannot change deployments
+        guard: true
+        run: kubectl auth can-i patch deployments.apps -n {{ns}} --as=system:serviceaccount:{{ns}}:auditor
+        expect: {equals: "no"}
+    solution: |
+      kubectl -n {{ns}} describe role auditor         # only get
+      kubectl -n {{ns}} patch role auditor --type=json -p '[{"op":"add","path":"/rules/0/verbs/-","value":"list"}]'
+    explain: list is a separate verb from get. The Role granted get only, so naming one deployment worked and listing them was forbidden.
+    solve:
+      - run: kubectl -n {{ns}} patch role auditor --type=json -p '[{"op":"add","path":"/rules/0/verbs/-","value":"list"}]'
+    cleanup:
+      - run: kubectl delete ns {{ns}} --ignore-not-found --wait=false
+
+  - id: etcd-snapshot
+    title: "Back up etcd before the change window"
+    kind: request
+    category: cluster
+    difficulty: 2
+    time_limit: 6m
+    locks: [etcd]
+    vars: {file: "/opt/arcade/etcd-{{rand 5}}.db"}
+    setup:
+      - run: mkdir -p /opt/arcade
+    brief: |
+      Take a snapshot of the cluster's etcd and save it on the control plane as {{file}}.
+      The etcd certificates are in /etc/kubernetes/pki/etcd.
+    hints:
+      - {cost: 25, text: "etcdctl snapshot save, against https://127.0.0.1:2379, with --cacert, --cert and --key."}
+      - {cost: 50, text: "The server certificate and key are server.crt and server.key; the CA is ca.crt."}
+    check:
+      - name: "{{file}} is a valid etcd snapshot"
+        run: etcdutl snapshot status {{file}} -w simple >/dev/null 2>&1 || ETCDCTL_API=3 etcdctl snapshot status {{file}} >/dev/null 2>&1
+        expect: {exit: 0}
+    solution: |
+      ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 \
+        --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+        --cert=/etc/kubernetes/pki/etcd/server.crt \
+        --key=/etc/kubernetes/pki/etcd/server.key \
+        snapshot save {{file}}
+      etcdutl snapshot status {{file}}
+    explain: etcd holds every object in the cluster. A snapshot needs etcd's own client certificates, because etcd only accepts TLS clients its CA signed.
+    solve:
+      - run: |
+          ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+            --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key snapshot save {{file}}
+    cleanup:
+      - run: rm -f {{file}} {{file}}.part
+
+  - id: drain-for-maintenance
+    title: "Drain a worker for maintenance"
+    kind: request
+    category: cluster
+    difficulty: 2
+    time_limit: 6m
+    requires: ["workers>=2"]
+    locks: [worker-node, cordon]
+    needs: [scheduling, controllers]
+    vars: {ns: "arcade-maint-{{rand 4}}"}
+    setup:
+      - run: |
+          kubectl create ns {{ns}}
+          kubectl -n {{ns}} create deployment web --image=nginx:1.27 --replicas=4
+          kubectl -n {{ns}} rollout status deployment/web --timeout=120s
+    brief: |
+      {{worker}} goes down for maintenance. Stop new pods landing on it and move its
+      workloads to the other nodes. The web Deployment in {{ns}} must stay at 4 available
+      replicas. DaemonSet pods can stay.
+    hints:
+      - {cost: 25, text: "kubectl drain cordons the node and evicts its pods; DaemonSet pods need a flag."}
+    check:
+      - name: "{{worker}} is cordoned"
+        run: kubectl get node {{worker}} -o jsonpath='{.spec.unschedulable}'
+        expect: {equals: "true"}
+      - name: no web pods on {{worker}}
+        run: kubectl -n {{ns}} get pods -o wide --field-selector spec.nodeName={{worker}} --no-headers 2>/dev/null | grep -c .
+        expect: {equals: "0"}
+      - name: web has 4 replicas available
+        run: kubectl -n {{ns}} get deploy web -o jsonpath='{.status.availableReplicas}'
+        expect: {equals: "4"}
+    solution: |
+      kubectl drain {{worker}} --ignore-daemonsets --delete-emptydir-data
+    explain: drain marks the node unschedulable and evicts its pods; their controllers recreate them on other nodes. DaemonSet pods would just come back, so drain refuses to touch them unless told to skip them.
+    solve:
+      - run: |
+          kubectl drain {{worker}} --ignore-daemonsets --delete-emptydir-data --timeout=120s
+          kubectl -n {{ns}} rollout status deployment/web --timeout=120s
+        timeout: 260s
+    cleanup:
+      - run: |
+          kubectl uncordon {{worker}}
+          kubectl delete ns {{ns}} --ignore-not-found --wait=false
+
+  - id: cordoned-after-maintenance
+    title: "Pods pinned to a worker stay Pending"
+    kind: incident
+    category: cluster
+    difficulty: 1
+    time_limit: 5m
+    requires: ["workers>=2"]
+    locks: [worker-node, cordon]
+    needs: [scheduling, controllers]
+    vars: {ns: "arcade-pin-{{rand 4}}"}
+    setup:
+      - run: |
+          kubectl cordon {{worker}}
+          kubectl create ns {{ns}}
+          cat <<'EOF' | kubectl -n {{ns}} apply -f -
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata: {name: gpu-jobs}
+          spec:
+            replicas: 2
+            selector: {matchLabels: {app: gpu-jobs}}
+            template:
+              metadata: {labels: {app: gpu-jobs}}
+              spec:
+                nodeSelector: {kubernetes.io/hostname: "{{worker}}"}
+                containers: [{name: nginx, image: "nginx:1.27"}]
+          EOF
+    brief: |
+      Maintenance on {{worker}} finished an hour ago, but the gpu-jobs pods in {{ns}}, which
+      must run on {{worker}}, are still Pending. Get them running there.
+    hints:
+      - {cost: 25, text: "kubectl get nodes shows a status that is more than Ready."}
+    check:
+      - name: "{{worker}} accepts pods again"
+        run: kubectl get node {{worker}} -o jsonpath='{.spec.unschedulable}'
+        expect: {empty: true}
+      - name: gpu-jobs has 2 replicas available
+        run: kubectl -n {{ns}} get deploy gpu-jobs -o jsonpath='{.status.availableReplicas}'
+        expect: {equals: "2"}
+      - name: gpu-jobs still runs only on {{worker}}
+        guard: true
+        run: kubectl -n {{ns}} get deploy gpu-jobs -o jsonpath='{.spec.template.spec.nodeSelector.kubernetes\.io/hostname}'
+        expect: {equals: "{{worker}}"}
+    solution: |
+      kubectl get nodes          # {{worker}}  Ready,SchedulingDisabled
+      kubectl uncordon {{worker}}
+    explain: A cordoned node stays unschedulable until it is uncordoned, so pods that may only run there wait in Pending.
+    solve:
+      - run: |
+          kubectl uncordon {{worker}}
+          kubectl -n {{ns}} rollout status deployment/gpu-jobs --timeout=120s
+    cleanup:
+      - run: |
+          kubectl uncordon {{worker}}
+          kubectl delete ns {{ns}} --ignore-not-found --wait=false
+
+  - id: kubeconfig-broken
+    title: "kubectl on the control plane cannot connect"
+    kind: incident
+    category: cluster
+    difficulty: 2
+    time_limit: 6m
+    locks: [kubeconfig]
+    setup:
+      - run: |
+          test -f /root/.kube/config
+          pp_backup /root/.kube/config
+          sed -i -E 's#(server: https://[^:]+):[0-9]+#\1:6444#' /root/.kube/config
+          grep -q ':6444' /root/.kube/config
+    brief: |
+      On the control plane, plain kubectl (as root, no flags) now fails with "connection
+      refused". The API server is fine. Fix root's kubectl configuration.
+    hints:
+      - {cost: 25, text: "kubectl config view shows which server it talks to."}
+      - {cost: 50, text: "The API server listens on port 6443; ss -ltnp | grep kube-apiserver confirms it."}
+    check:
+      - name: root's kubectl reaches the API server
+        run: KUBECONFIG=/root/.kube/config kubectl get --raw /readyz
+        expect: {equals: "ok"}
+    solution: |
+      kubectl config view --minify          # server: https://…:6444
+      sed -i 's/:6444/:6443/' /root/.kube/config
+      # or: cp /etc/kubernetes/admin.conf /root/.kube/config
+    explain: kubectl reads its server address from the kubeconfig. It pointed at port 6444, where nothing listens; the API server is on 6443.
+    solve:
+      - run: sed -i 's/:6444/:6443/' /root/.kube/config
+    cleanup:
+      - run: pp_restore
+
+  # ------------------------------------------------------------------ workloads
+
+  - id: requests-and-limits
+    title: "Ship the api with requests and limits"
+    kind: request
+    category: workloads
+    difficulty: 1
+    time_limit: 5m
+    needs: [scheduling, controllers]
+    vars: {ns: "arcade-limits-{{rand 4}}"}
+    setup:
+      - run: kubectl create ns {{ns}}
+    brief: |
+      Create a Deployment named api in {{ns}}: image nginx:1.27, 2 replicas, each container
+      requesting 100m CPU and 64Mi memory, with a memory limit of 128Mi.
+    hints:
+      - {cost: 25, text: "kubectl create deployment, then kubectl set resources."}
+    check:
+      - name: api runs nginx:1.27 with 2 replicas available
+        run: kubectl -n {{ns}} get deploy api -o jsonpath='{.spec.template.spec.containers[0].image}/{.status.availableReplicas}'
+        expect: {equals: "nginx:1.27/2"}
+      - name: requests are 100m CPU and 64Mi memory
+        run: kubectl -n {{ns}} get deploy api -o jsonpath='{.spec.template.spec.containers[0].resources.requests.cpu}/{.spec.template.spec.containers[0].resources.requests.memory}'
+        expect: {equals: "100m/64Mi"}
+      - name: the memory limit is 128Mi
+        run: kubectl -n {{ns}} get deploy api -o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'
+        expect: {equals: "128Mi"}
+    solution: |
+      kubectl -n {{ns}} create deployment api --image=nginx:1.27 --replicas=2
+      kubectl -n {{ns}} set resources deployment api --requests=cpu=100m,memory=64Mi --limits=memory=128Mi
+    explain: Requests are what the scheduler reserves for a container; limits are where the kubelet stops it. A memory limit protects the node from a container that keeps growing.
+    solve:
+      - run: |
+          kubectl -n {{ns}} create deployment api --image=nginx:1.27 --replicas=2
+          kubectl -n {{ns}} set resources deployment api --requests=cpu=100m,memory=64Mi --limits=memory=128Mi
+          kubectl -n {{ns}} rollout status deployment/api --timeout=120s
+    cleanup:
+      - run: kubectl delete ns {{ns}} --ignore-not-found --wait=false
+
+  - id: rollout-undo
+    title: "The last rollout broke the landing page"
+    kind: incident
+    category: workloads
+    difficulty: 1
+    time_limit: 5m
+    needs: [scheduling, controllers]
+    vars: {ns: "arcade-roll-{{rand 4}}"}
+    setup:
+      - run: |
+          kubectl create ns {{ns}}
+          kubectl -n {{ns}} create deployment landing --image=nginx:1.27 --replicas=2
+          kubectl -n {{ns}} rollout status deployment/landing --timeout=120s
+          kubectl -n {{ns}} patch deployment landing --type=json -p '[{"op":"add","path":"/spec/template/spec/containers/0/command","value":["sh","-c","echo starting; exit 3"]}]'
+        record:
+          deploy_uid: kubectl -n {{ns}} get deploy landing -o jsonpath='{.metadata.uid}'
+    brief: |
+      The newest rollout of landing in {{ns}} crashes on start. Roll landing back to the
+      revision that worked, without recreating the Deployment.
+    hints:
+      - {cost: 25, text: "kubectl rollout history and kubectl rollout undo."}
+    check:
+      - name: landing runs without a command override
+        run: kubectl -n {{ns}} get deploy landing -o jsonpath='{.spec.template.spec.containers[0].command}'
+        expect: {empty: true}
+      - name: 2 replicas available and up to date
+        run: kubectl -n {{ns}} get deploy landing -o jsonpath='{.status.availableReplicas}/{.status.updatedReplicas}'
+        expect: {equals: "2/2"}
+      - name: The Deployment was not recreated
+        guard: true
+        run: kubectl -n {{ns}} get deploy landing -o jsonpath='{.metadata.uid}'
+        expect: {equals: "{{deploy_uid}}"}
+    solution: |
+      kubectl -n {{ns}} rollout history deployment/landing
+      kubectl -n {{ns}} rollout undo deployment/landing
+    explain: Every change to a Deployment's pod template is a revision, kept as a ReplicaSet. rollout undo switches back to the previous one.
+    solve:
+      - run: |
+          kubectl -n {{ns}} rollout undo deployment/landing
+          kubectl -n {{ns}} rollout status deployment/landing --timeout=120s
+    cleanup:
+      - run: kubectl delete ns {{ns}} --ignore-not-found --wait=false
+
+  - id: rolling-update-safe
+    title: "Update the frontend with no capacity loss"
+    kind: request
+    category: workloads
+    difficulty: 2
+    time_limit: 6m
+    needs: [scheduling, controllers]
+    vars: {ns: "arcade-update-{{rand 4}}"}
+    setup:
+      - run: |
+          kubectl create ns {{ns}}
+          kubectl -n {{ns}} create deployment frontend --image=nginx:1.27 --replicas=3
+          kubectl -n {{ns}} rollout status deployment/frontend --timeout=120s
+        record:
+          deploy_uid: kubectl -n {{ns}} get deploy frontend -o jsonpath='{.metadata.uid}'
+    brief: |
+      Move frontend in {{ns}} to nginx:1.27-alpine. During the update it may never drop
+      below 3 available pods, and may add at most 1 extra pod at a time.
+    hints:
+      - {cost: 25, text: "spec.strategy.rollingUpdate has maxUnavailable and maxSurge."}
+    check:
+      - name: frontend runs nginx:1.27-alpine with 3 available
+        run: kubectl -n {{ns}} get deploy frontend -o jsonpath='{.spec.template.spec.containers[0].image}/{.status.availableReplicas}/{.status.updatedReplicas}'
+        expect: {equals: "nginx:1.27-alpine/3/3"}
+      - name: maxUnavailable 0, maxSurge 1
+        run: kubectl -n {{ns}} get deploy frontend -o jsonpath='{.spec.strategy.rollingUpdate.maxUnavailable}/{.spec.strategy.rollingUpdate.maxSurge}'
+        expect: {equals: "0/1"}
+      - name: The Deployment was not recreated
+        guard: true
+        run: kubectl -n {{ns}} get deploy frontend -o jsonpath='{.metadata.uid}'
+        expect: {equals: "{{deploy_uid}}"}
+    solution: |
+      kubectl -n {{ns}} patch deploy frontend -p '{"spec":{"strategy":{"rollingUpdate":{"maxUnavailable":0,"maxSurge":1}}}}'
+      kubectl -n {{ns}} set image deployment/frontend nginx=nginx:1.27-alpine
+    explain: With maxUnavailable 0 the rollout only removes an old pod once a new one is ready, and maxSurge 1 lets it run one extra pod while it does.
+    solve:
+      - run: |
+          kubectl -n {{ns}} patch deploy frontend -p '{"spec":{"strategy":{"rollingUpdate":{"maxUnavailable":0,"maxSurge":1}}}}'
+          kubectl -n {{ns}} set image deployment/frontend nginx=nginx:1.27-alpine
+          kubectl -n {{ns}} rollout status deployment/frontend --timeout=120s
+    cleanup:
+      - run: kubectl delete ns {{ns}} --ignore-not-found --wait=false
+
+  - id: config-and-secret
+    title: "Configure the worker from a ConfigMap and a Secret"
+    kind: request
+    category: workloads
+    difficulty: 2
+    time_limit: 7m
+    needs: [scheduling]
+    vars:
+      ns: "arcade-conf-{{rand 4}}"
+      mode: "{{pick blue green amber}}"
+      token: "{{rand 12}}"
+    setup:
+      - run: kubectl create ns {{ns}}
+    brief: |
+      In {{ns}}: create a ConfigMap app-config with MODE={{mode}} and a Secret app-secret
+      with TOKEN={{token}}. Then run a pod named worker (busybox:1.36, command sleep 3600)
+      that gets both as environment variables MODE and TOKEN.
+    hints:
+      - {cost: 25, text: "kubectl create configmap … --from-literal, kubectl create secret generic … --from-literal"}
+      - {cost: 50, text: "In the pod spec, envFrom: [{configMapRef: {name: app-config}}, {secretRef: {name: app-secret}}]"}
+    check:
+      - name: worker sees MODE={{mode}}
+        run: kubectl -n {{ns}} exec worker -- printenv MODE
+        expect: {equals: "{{mode}}"}
+      - name: worker sees the token
+        run: kubectl -n {{ns}} exec worker -- printenv TOKEN
+        expect: {equals: "{{token}}"}
+      - name: TOKEN comes from the Secret app-secret
+        guard: true
+        run: kubectl -n {{ns}} get secret app-secret -o jsonpath='{.data.TOKEN}' | base64 -d
+        expect: {equals: "{{token}}"}
+    solution: |
+      kubectl -n {{ns}} create configmap app-config --from-literal=MODE={{mode}}
+      kubectl -n {{ns}} create secret generic app-secret --from-literal=TOKEN={{token}}
+      cat <<'EOF' | kubectl -n {{ns}} apply -f -
+      apiVersion: v1
+      kind: Pod
+      metadata: {name: worker}
+      spec:
+        containers:
+          - name: worker
+            image: busybox:1.36
+            command: [sleep, "3600"]
+            envFrom:
+              - configMapRef: {name: app-config}
+              - secretRef: {name: app-secret}
+      EOF
+    explain: envFrom turns every key of a ConfigMap or Secret into an environment variable. Secrets keep the value out of the pod spec, so it is not visible to everyone who can read the spec.
+    solve:
+      - run: |
+          kubectl -n {{ns}} create configmap app-config --from-literal=MODE={{mode}}
+          kubectl -n {{ns}} create secret generic app-secret --from-literal=TOKEN={{token}}
+          cat <<'EOF' | kubectl -n {{ns}} apply -f -
+          apiVersion: v1
+          kind: Pod
+          metadata: {name: worker}
+          spec:
+            containers:
+              - name: worker
+                image: busybox:1.36
+                command: [sleep, "3600"]
+                envFrom:
+                  - configMapRef: {name: app-config}
+                  - secretRef: {name: app-secret}
+          EOF
+          kubectl -n {{ns}} wait --for=condition=Ready pod/worker --timeout=120s
+    cleanup:
+      - run: kubectl delete ns {{ns}} --ignore-not-found --wait=false
+
+  - id: pin-to-ssd
+    title: "Run the cache only on SSD nodes"
+    kind: request
+    category: workloads
+    difficulty: 2
+    time_limit: 6m
+    requires: ["workers>=2"]
+    locks: [node-labels]
+    needs: [scheduling, controllers]
+    vars: {ns: "arcade-ssd-{{rand 4}}"}
+    setup:
+      - run: kubectl create ns {{ns}}
+    brief: |
+      {{worker}} has the fast disks. Label it disktype=ssd, then create a Deployment named
+      cache in {{ns}} (image nginx:1.27, 2 replicas) whose pods may only run on nodes
+      labelled disktype=ssd.
+    hints:
+      - {cost: 25, text: "kubectl label node; then a nodeSelector (or a node affinity) in the pod template."}
+    check:
+      - name: "{{worker}} is labelled disktype=ssd"
+        run: kubectl get node {{worker}} -o jsonpath='{.metadata.labels.disktype}'
+        expect: {equals: "ssd"}
+      - name: cache has 2 replicas available
+        run: kubectl -n {{ns}} get deploy cache -o jsonpath='{.status.availableReplicas}'
+        expect: {equals: "2"}
+      - name: every cache pod runs on {{worker}}
+        run: kubectl -n {{ns}} get pods -l app=cache -o jsonpath='{range .items[*]}{.spec.nodeName}{"\n"}{end}' | sort -u
+        expect: {equals: "{{worker}}"}
+      - name: the pod template requires disktype=ssd
+        run: kubectl -n {{ns}} get deploy cache -o json | grep -c '"disktype"'
+        expect: {min: 1}
+    solution: |
+      kubectl label node {{worker}} disktype=ssd
+      kubectl -n {{ns}} create deployment cache --image=nginx:1.27 --replicas=2 --dry-run=client -o yaml > cache.yaml
+      # add under spec.template.spec:  nodeSelector: {disktype: ssd}
+      kubectl -n {{ns}} apply -f cache.yaml
+    explain: A nodeSelector (or a required node affinity) limits which nodes the scheduler may choose, by node label.
+    solve:
+      - run: |
+          kubectl label node {{worker}} disktype=ssd --overwrite
+          kubectl -n {{ns}} create deployment cache --image=nginx:1.27 --replicas=2
+          kubectl -n {{ns}} patch deploy cache -p '{"spec":{"template":{"spec":{"nodeSelector":{"disktype":"ssd"}}}}}'
+          kubectl -n {{ns}} rollout status deployment/cache --timeout=120s
+    cleanup:
+      - run: |
+          kubectl label node --all disktype- >/dev/null 2>&1 || true
+          kubectl delete ns {{ns}} --ignore-not-found --wait=false
+
+  - id: static-pod
+    title: "Run a static pod on a worker"
+    kind: request
+    category: workloads
+    difficulty: 2
+    time_limit: 6m
+    requires: ["workers>=2"]
+    locks: [worker-node]
+    setup:
+      - node: worker
+        run: test -d /etc/kubernetes/manifests
+    brief: |
+      Run a static pod named static-web (image nginx:1.27) on {{worker}}, so that the kubelet
+      there keeps it running even if the API server is unreachable.
+    hints:
+      - {cost: 25, text: "The kubelet starts every manifest it finds in its staticPodPath."}
+      - {cost: 50, text: "On {{worker}}: put a Pod manifest in /etc/kubernetes/manifests."}
+    check:
+      - name: static-web-{{worker}} is running
+        run: kubectl -n default get pod static-web-{{worker}} -o jsonpath='{.status.phase}'
+        expect: {equals: "Running"}
+      - name: it is a static pod
+        run: kubectl -n default get pod static-web-{{worker}} -o jsonpath='{.metadata.annotations.kubernetes\.io/config\.source}'
+        expect: {equals: "file"}
+    solution: |
+      # on {{worker}}
+      kubectl run static-web --image=nginx:1.27 --dry-run=client -o yaml > /etc/kubernetes/manifests/static-web.yaml
+      # (on the control plane: kubectl run … --dry-run=client -o yaml, then copy the file over)
+    explain: Static pods are started by the kubelet from files, not by the scheduler. The API server shows a read-only mirror of each one, named after the pod and the node.
+    solve:
+      - node: worker
+        run: |
+          cat > /etc/kubernetes/manifests/static-web.yaml <<'EOF'
+          apiVersion: v1
+          kind: Pod
+          metadata: {name: static-web}
+          spec:
+            containers: [{name: nginx, image: "nginx:1.27"}]
+          EOF
+      - run: pp_wait 120 sh -c '[ "$(kubectl -n default get pod static-web-{{worker}} -o jsonpath={.status.phase})" = Running ]'
+        timeout: 150s
+    cleanup:
+      - node: workers
+        run: |
+          for f in /etc/kubernetes/manifests/*; do
+            grep -q 'name: *static-web' "$f" 2>/dev/null && rm -f "$f"
+          done
+          true
+
+  - id: sidecar-logs
+    title: "Add a log-shipping sidecar"
+    kind: request
+    category: workloads
+    difficulty: 3
+    time_limit: 8m
+    needs: [scheduling]
+    vars: {ns: "arcade-side-{{rand 4}}"}
+    setup:
+      - run: kubectl create ns {{ns}}
+    brief: |
+      In {{ns}}, run a pod named logger with two containers sharing an emptyDir volume
+      mounted at /var/log/app:
+        app   busybox:1.36, appends the date to /var/log/app/app.log every 2 seconds
+        ship  busybox:1.36, runs tail -F /var/log/app/app.log
+      kubectl logs logger -c ship must show the app's lines.
+    hints:
+      - {cost: 25, text: "Both containers mount the same volume; the sidecar only has to tail the file."}
+      - {cost: 50, text: "app: sh -c 'while true; do date >> /var/log/app/app.log; sleep 2; done'"}
+    check:
+      - name: logger has 2 ready containers
+        run: kubectl -n {{ns}} get pod logger -o jsonpath='{range .status.containerStatuses[*]}{.ready}{"\n"}{end}' | grep -c true
+        expect: {equals: "2"}
+      - name: the ship container shows the app's log
+        run: kubectl -n {{ns}} logs logger -c ship --tail=5 | grep -c .
+        expect: {min: 1}
+      - name: they share an emptyDir volume
+        run: kubectl -n {{ns}} get pod logger -o jsonpath='{.spec.volumes[*].emptyDir}'
+        expect: {nonempty: true}
+    solution: |
+      cat <<'EOF' | kubectl -n {{ns}} apply -f -
+      apiVersion: v1
+      kind: Pod
+      metadata: {name: logger}
+      spec:
+        volumes: [{name: logs, emptyDir: {}}]
+        containers:
+          - name: app
+            image: busybox:1.36
+            command: [sh, -c, 'while true; do date >> /var/log/app/app.log; sleep 2; done']
+            volumeMounts: [{name: logs, mountPath: /var/log/app}]
+          - name: ship
+            image: busybox:1.36
+            command: [sh, -c, 'tail -F /var/log/app/app.log']
+            volumeMounts: [{name: logs, mountPath: /var/log/app}]
+      EOF
+    explain: Containers in one pod can share a volume. A sidecar that tails a file the app writes turns that file into the container's log stream.
+    solve:
+      - run: |
+          cat <<'EOF' | kubectl -n {{ns}} apply -f -
+          apiVersion: v1
+          kind: Pod
+          metadata: {name: logger}
+          spec:
+            volumes: [{name: logs, emptyDir: {}}]
+            containers:
+              - name: app
+                image: busybox:1.36
+                command: [sh, -c, 'while true; do date >> /var/log/app/app.log; sleep 2; done']
+                volumeMounts: [{name: logs, mountPath: /var/log/app}]
+              - name: ship
+                image: busybox:1.36
+                command: [sh, -c, 'tail -F /var/log/app/app.log']
+                volumeMounts: [{name: logs, mountPath: /var/log/app}]
+          EOF
+          kubectl -n {{ns}} wait --for=condition=Ready pod/logger --timeout=120s
+          sleep 5
+    cleanup:
+      - run: kubectl delete ns {{ns}} --ignore-not-found --wait=false
+
+  - id: taint-left-behind
+    title: "Nothing schedules on the workers"
+    kind: incident
+    category: workloads
+    difficulty: 2
+    time_limit: 6m
+    requires: ["workers>=2"]
+    locks: [taints]
+    needs: [scheduling, controllers]
+    vars: {ns: "arcade-taint-{{rand 4}}"}
+    setup:
+      - run: |
+          for w in {{worker_1}} {{worker_2}}; do kubectl taint node $w arcade-maintenance=true:NoSchedule --overwrite; done
+          kubectl create ns {{ns}}
+          kubectl -n {{ns}} create deployment queue --image=nginx:1.27 --replicas=2
+    brief: |
+      The queue pods in {{ns}} are Pending: "untolerated taint". An old maintenance taint
+      was never removed from the workers. Remove it so queue runs, without adding
+      tolerations to queue.
+    hints:
+      - {cost: 25, text: "kubectl describe node | grep -i taint"}
+    check:
+      - name: no worker carries the maintenance taint
+        run: kubectl get nodes -o jsonpath='{range .items[*]}{.spec.taints[*].key}{"\n"}{end}' | grep -c arcade-maintenance
+        expect: {equals: "0"}
+      - name: queue has 2 replicas available
+        run: kubectl -n {{ns}} get deploy queue -o jsonpath='{.status.availableReplicas}'
+        expect: {equals: "2"}
+      - name: queue has no tolerations
+        guard: true
+        run: kubectl -n {{ns}} get deploy queue -o jsonpath='{.spec.template.spec.tolerations}'
+        expect: {empty: true}
+    solution: |
+      kubectl taint node {{worker_1}} arcade-maintenance-
+      kubectl taint node {{worker_2}} arcade-maintenance-
+    explain: A NoSchedule taint keeps off every pod that does not tolerate it. Removing a taint is the taint command with a trailing dash.
+    solve:
+      - run: |
+          for w in {{worker_1}} {{worker_2}}; do kubectl taint node $w arcade-maintenance- || true; done
+          kubectl -n {{ns}} rollout status deployment/queue --timeout=120s
+    cleanup:
+      - run: |
+          for n in $(kubectl get nodes -o name); do kubectl taint $n arcade-maintenance- >/dev/null 2>&1 || true; done
+          kubectl delete ns {{ns}} --ignore-not-found --wait=false
+
+  - id: quota-exceeded
+    title: "Only one of three replicas starts"
+    kind: incident
+    category: workloads
+    difficulty: 2
+    time_limit: 6m
+    needs: [scheduling, controllers]
+    vars: {ns: "arcade-quota-{{rand 4}}"}
+    setup:
+      - run: |
+          kubectl create ns {{ns}}
+          kubectl -n {{ns}} create quota team-quota --hard=pods=1
+          kubectl -n {{ns}} create deployment search --image=nginx:1.27 --replicas=3
+    brief: |
+      search in {{ns}} wants 3 replicas and only 1 exists. The team's ResourceQuota is
+      the reason. Let search run 3 replicas: keep the quota, but allow at least 3 pods.
+    hints:
+      - {cost: 25, text: "kubectl -n {{ns}} describe quota; the ReplicaSet's events say what was refused."}
+    check:
+      - name: search has 3 replicas available
+        run: kubectl -n {{ns}} get deploy search -o jsonpath='{.status.availableReplicas}'
+        expect: {equals: "3"}
+      - name: the quota is still there
+        guard: true
+        run: kubectl -n {{ns}} get quota team-quota -o jsonpath='{.spec.hard.pods}'
+        expect: {min: 3}
+    solution: |
+      kubectl -n {{ns}} describe quota team-quota
+      kubectl -n {{ns}} patch quota team-quota -p '{"spec":{"hard":{"pods":"3"}}}'
+    explain: A ResourceQuota caps what a namespace may use. Pods beyond the cap are refused when the ReplicaSet creates them; once the cap is raised, the ReplicaSet creates them on its next try.
+    solve:
+      - run: |
+          kubectl -n {{ns}} patch quota team-quota -p '{"spec":{"hard":{"pods":"3"}}}'
+          pp_wait 180 sh -c '[ "$(kubectl -n {{ns}} get deploy search -o jsonpath={.status.availableReplicas})" = 3 ]'
+        timeout: 220s
+    cleanup:
+      - run: kubectl delete ns {{ns}} --ignore-not-found --wait=false
+
+  - id: request-too-big
+    title: "The batch job cannot find a node"
+    kind: incident
+    category: workloads
+    difficulty: 1
+    time_limit: 5m
+    needs: [scheduling, controllers]
+    vars: {ns: "arcade-big-{{rand 4}}"}
+    setup:
+      - run: |
+          kubectl create ns {{ns}}
+          kubectl -n {{ns}} create deployment batch --image=nginx:1.27 --replicas=1
+          kubectl -n {{ns}} set resources deployment batch --requests=cpu=64,memory=64Mi
+    brief: |
+      batch in {{ns}} has been Pending since it was deployed: "Insufficient cpu". Someone
+      asked for 64 CPUs instead of 64 millicores. Make it request 100m CPU and run.
+    hints:
+      - {cost: 25, text: "kubectl set resources can change a request in place."}
+    check:
+      - name: batch requests 100m CPU
+        run: kubectl -n {{ns}} get deploy batch -o jsonpath='{.spec.template.spec.containers[0].resources.requests.cpu}'
+        expect: {equals: "100m"}
+      - name: batch is available
+        run: kubectl -n {{ns}} get deploy batch -o jsonpath='{.status.availableReplicas}'
+        expect: {equals: "1"}
+    solution: |
+      kubectl -n {{ns}} set resources deployment batch --requests=cpu=100m
+    explain: The scheduler places a pod only on a node with enough unreserved capacity for its requests. No node has 64 CPUs, so it stayed Pending.
+    solve:
+      - run: |
+          kubectl -n {{ns}} set resources deployment batch --requests=cpu=100m
+          kubectl -n {{ns}} rollout status deployment/batch --timeout=120s
+    cleanup:
+      - run: kubectl delete ns {{ns}} --ignore-not-found --wait=false
+
+  # ------------------------------------------------------------------ storage
+
+  - id: pvc-no-volume
+    title: "The database claim is stuck Pending"
+    kind: incident
+    category: storage
+    difficulty: 2
+    time_limit: 6m
+    requires: ["workers>=2"]
+    needs: [scheduling]
+    vars:
+      ns: "arcade-pvc-{{rand 4}}"
+      pv: "arcade-pv-{{rand 5}}"
+    setup:
+      - run: |
+          kubectl create ns {{ns}}
+          cat <<'EOF' | kubectl -n {{ns}} apply -f -
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata: {name: data}
+          spec:
+            storageClassName: manual
+            accessModes: [ReadWriteOnce]
+            resources: {requests: {storage: 1Gi}}
+          ---
+          apiVersion: v1
+          kind: Pod
+          metadata: {name: db}
+          spec:
+            containers:
+              - name: db
+                image: busybox:1.36
+                command: [sleep, "86400"]
+                volumeMounts: [{name: data, mountPath: /data}]
+            volumes: [{name: data, persistentVolumeClaim: {claimName: data}}]
+          EOF
+    brief: |
+      The data claim in {{ns}} is Pending, and so is the db pod that uses it. The cluster has
+      no dynamic provisioner. Create a 1Gi hostPath PersistentVolume named {{pv}} at
+      /mnt/{{pv}} that the claim binds to, so db starts.
+    hints:
+      - {cost: 25, text: "kubectl -n {{ns}} get pvc data -o yaml: match its storageClassName, size and access mode."}
+    check:
+      - name: data is Bound to {{pv}}
+        run: kubectl -n {{ns}} get pvc data -o jsonpath='{.status.phase}/{.spec.volumeName}'
+        expect: {equals: "Bound/{{pv}}"}
+      - name: db is running
+        run: kubectl -n {{ns}} get pod db -o jsonpath='{.status.phase}'
+        expect: {equals: "Running"}
+    solution: |
+      cat <<'EOF' | kubectl apply -f -
+      apiVersion: v1
+      kind: PersistentVolume
+      metadata: {name: {{pv}}}
+      spec:
+        storageClassName: manual
+        capacity: {storage: 1Gi}
+        accessModes: [ReadWriteOnce]
+        hostPath: {path: /mnt/{{pv}}, type: DirectoryOrCreate}
+      EOF
+    explain: Without a provisioner a claim waits for a PersistentVolume that matches its class, size and access mode. A PV is cluster-wide, not in a namespace.
+    solve:
+      - run: |
+          cat <<'EOF' | kubectl apply -f -
+          apiVersion: v1
+          kind: PersistentVolume
+          metadata: {name: {{pv}}}
+          spec:
+            storageClassName: manual
+            capacity: {storage: 1Gi}
+            accessModes: [ReadWriteOnce]
+            hostPath: {path: /mnt/{{pv}}, type: DirectoryOrCreate}
+          EOF
+          kubectl -n {{ns}} wait --for=condition=Ready pod/db --timeout=150s
+        timeout: 200s
+    cleanup:
+      - run: |
+          kubectl delete ns {{ns}} --ignore-not-found --wait=true --timeout=90s || true
+          kubectl delete pv {{pv}} --ignore-not-found --wait=false
+        timeout: 150s
+      - node: all-nodes
+        run: rm -rf /mnt/{{pv}}
+
+  - id: volume-for-uploads
+    title: "Give the uploads pod persistent storage"
+    kind: request
+    category: storage
+    difficulty: 2
+    time_limit: 7m
+    needs: [scheduling]
+    vars:
+      ns: "arcade-up-{{rand 4}}"
+      pv: "arcade-uploads-{{rand 5}}"
+    setup:
+      - run: kubectl create ns {{ns}}
+    brief: |
+      In {{ns}}: create a 500Mi hostPath PersistentVolume {{pv}} (path /mnt/{{pv}},
+      storageClassName manual), a claim named uploads bound to it, and a pod named uploader
+      (busybox:1.36, sleep 3600) that mounts the claim at /uploads. Then write the word
+      saved to /uploads/check.txt from inside the pod.
+    hints:
+      - {cost: 25, text: "PV (cluster-wide), PVC (in {{ns}}), then a pod whose volume is persistentVolumeClaim: {claimName: uploads}."}
+    check:
+      - name: uploads is Bound to {{pv}}
+        run: kubectl -n {{ns}} get pvc uploads -o jsonpath='{.status.phase}/{.spec.volumeName}'
+        expect: {equals: "Bound/{{pv}}"}
+      - name: /uploads/check.txt says saved
+        run: kubectl -n {{ns}} exec uploader -- cat /uploads/check.txt
+        expect: {equals: "saved"}
+      - name: /uploads is the claim
+        run: kubectl -n {{ns}} get pod uploader -o jsonpath='{.spec.volumes[*].persistentVolumeClaim.claimName}'
+        expect: {equals: "uploads"}
+    solution: |
+      cat <<'EOF' | kubectl apply -f -
+      apiVersion: v1
+      kind: PersistentVolume
+      metadata: {name: {{pv}}}
+      spec:
+        storageClassName: manual
+        capacity: {storage: 500Mi}
+        accessModes: [ReadWriteOnce]
+        hostPath: {path: /mnt/{{pv}}, type: DirectoryOrCreate}
+      ---
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata: {name: uploads, namespace: {{ns}}}
+      spec:
+        storageClassName: manual
+        accessModes: [ReadWriteOnce]
+        resources: {requests: {storage: 500Mi}}
+      ---
+      apiVersion: v1
+      kind: Pod
+      metadata: {name: uploader, namespace: {{ns}}}
+      spec:
+        containers:
+          - name: uploader
+            image: busybox:1.36
+            command: [sleep, "3600"]
+            volumeMounts: [{name: uploads, mountPath: /uploads}]
+        volumes: [{name: uploads, persistentVolumeClaim: {claimName: uploads}}]
+      EOF
+      kubectl -n {{ns}} exec uploader -- sh -c 'echo saved > /uploads/check.txt'
+    explain: A pod mounts a claim, the claim binds to a volume, and the volume is where the data lives. The data outlives the pod.
+    solve:
+      - run: |
+          cat <<'EOF' | kubectl apply -f -
+          apiVersion: v1
+          kind: PersistentVolume
+          metadata: {name: {{pv}}}
+          spec:
+            storageClassName: manual
+            capacity: {storage: 500Mi}
+            accessModes: [ReadWriteOnce]
+            hostPath: {path: /mnt/{{pv}}, type: DirectoryOrCreate}
+          ---
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata: {name: uploads, namespace: {{ns}}}
+          spec:
+            storageClassName: manual
+            accessModes: [ReadWriteOnce]
+            resources: {requests: {storage: 500Mi}}
+          ---
+          apiVersion: v1
+          kind: Pod
+          metadata: {name: uploader, namespace: {{ns}}}
+          spec:
+            containers:
+              - name: uploader
+                image: busybox:1.36
+                command: [sleep, "3600"]
+                volumeMounts: [{name: uploads, mountPath: /uploads}]
+            volumes: [{name: uploads, persistentVolumeClaim: {claimName: uploads}}]
+          EOF
+          kubectl -n {{ns}} wait --for=condition=Ready pod/uploader --timeout=150s
+          kubectl -n {{ns}} exec uploader -- sh -c 'echo saved > /uploads/check.txt'
+        timeout: 200s
+    cleanup:
+      - run: |
+          kubectl delete ns {{ns}} --ignore-not-found --wait=true --timeout=90s || true
+          kubectl delete pv {{pv}} --ignore-not-found --wait=false
+        timeout: 150s
+      - node: all-nodes
+        run: rm -rf /mnt/{{pv}}
+
+  # ------------------------------------------------------------------ boss tickets
+
+  - id: boss-dark-worker
+    title: "BOSS: a worker is dark and DNS is gone"
+    kind: incident
+    category: troubleshooting
+    difficulty: 3
+    time_limit: 12m
+    boss: true
+    requires: ["workers>=2"]
+    locks: [worker-node, coredns]
+    blocks: [dns]
+    setup:
+      - run: "true"
+        record:
+          replicas: kubectl -n kube-system get deploy coredns -o jsonpath='{.spec.replicas}'
+      - node: worker
+        run: systemctl stop kubelet
+      - run: |
+          kubectl -n kube-system scale deployment coredns --replicas=0
+          pp_wait 120 sh -c 'kubectl get node {{worker}} -o jsonpath="{.status.conditions[?(@.type==\"Ready\")].status}" | grep -qv True'
+        timeout: 150s
+    brief: |
+      Two alarms at once: {{worker}} is NotReady, and no pod in the cluster can resolve a
+      service name. Bring {{worker}} back to Ready and restore cluster DNS with {{replicas}}
+      ready replicas.
+    hints:
+      - {cost: 50, text: "Two separate faults: one on {{worker}} itself, one in kube-system."}
+    check:
+      - name: "{{worker}} is Ready"
+        run: kubectl get node {{worker}} -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+        expect: {equals: "True"}
+      - name: coredns has {{replicas}} ready replicas
+        run: kubectl -n kube-system get deploy coredns -o jsonpath='{.status.readyReplicas}'
+        expect: {equals: "{{replicas}}"}
+    solution: |
+      # on {{worker}}
+      systemctl start kubelet
+      # on the control plane
+      kubectl -n kube-system scale deployment coredns --replicas={{replicas}}
+    explain: Two unrelated faults with similar symptoms. Fix them one at a time, checking each against what you expect it to change.
+    solve:
+      - node: worker
+        run: systemctl start kubelet
+      - run: |
+          kubectl -n kube-system scale deployment coredns --replicas={{replicas}}
+          pp_wait 150 sh -c 'kubectl get node {{worker}} -o jsonpath="{.status.conditions[?(@.type==\"Ready\")].status}" | grep -q True'
+          kubectl -n kube-system rollout status deployment/coredns --timeout=150s
+        timeout: 320s
+    cleanup:
+      - node: worker
+        run: systemctl enable --now kubelet
+      - run: kubectl -n kube-system scale deployment coredns --replicas={{replicas}}
+
+  - id: boss-frozen-release
+    title: "BOSS: the release is frozen and unreachable"
+    kind: incident
+    category: troubleshooting
+    difficulty: 3
+    time_limit: 12m
+    boss: true
+    locks: [scheduler]
+    blocks: [scheduling]
+    needs: [controllers]
+    vars: {ns: "arcade-boss-{{rand 4}}"}
+    setup:
+      - run: |
+          pp_backup /etc/kubernetes/manifests/kube-scheduler.yaml
+          sed -i 's/^\(\s*- \)kube-scheduler$/\1kube-schedulerr/' /etc/kubernetes/manifests/kube-scheduler.yaml
+          grep -q 'kube-schedulerr$' /etc/kubernetes/manifests/kube-scheduler.yaml
+          sleep 20
+          kubectl create ns {{ns}}
+          kubectl -n {{ns}} create deployment storefront --image=nginx:1.27 --replicas=2
+          kubectl -n {{ns}} expose deployment storefront --port=80
+          kubectl -n {{ns}} patch svc storefront -p '{"spec":{"selector":{"app":"store"}}}'
+    brief: |
+      The storefront release in {{ns}} never came up: its pods are Pending, and its
+      Service would not find them anyway. Get 2 storefront replicas running and make the
+      storefront Service route to them.
+    hints:
+      - {cost: 50, text: "Pending with no events: who assigns pods to nodes? Then compare the Service's selector with the pod labels."}
+    check:
+      - name: kube-scheduler is running
+        run: kubectl -n kube-system get pods -l component=kube-scheduler -o jsonpath='{.items[0].status.containerStatuses[0].ready}'
+        expect: {equals: "true"}
+      - name: storefront has 2 replicas available
+        run: kubectl -n {{ns}} get deploy storefront -o jsonpath='{.status.availableReplicas}'
+        expect: {equals: "2"}
+      - name: the storefront Service has 2 ready endpoints
+        run: kubectl -n {{ns}} get endpointslices -l kubernetes.io/service-name=storefront -o jsonpath='{range .items[*].endpoints[?(@.conditions.ready==true)]}{.addresses[0]}{"\n"}{end}' | grep -c .
+        expect: {equals: "2"}
+    solution: |
+      vi /etc/kubernetes/manifests/kube-scheduler.yaml      # command: kube-schedulerr → kube-scheduler
+      kubectl -n {{ns}} patch svc storefront -p '{"spec":{"selector":{"app":"storefront"}}}'
+    explain: The scheduler's static pod manifest had a typo in its command, so nothing was scheduled; and the Service's selector matched no pod label.
+    solve:
+      - run: |
+          sed -i 's/kube-schedulerr$/kube-scheduler/' /etc/kubernetes/manifests/kube-scheduler.yaml
+          kubectl -n {{ns}} patch svc storefront -p '{"spec":{"selector":{"app":"storefront"}}}'
+          pp_wait 150 sh -c '[ "$(kubectl -n {{ns}} get deploy storefront -o jsonpath={.status.availableReplicas})" = 2 ]'
+        timeout: 200s
+    cleanup:
+      - run: |
+          pp_restore
+          pp_wait 150 sh -c 'kubectl -n kube-system get pods -l component=kube-scheduler -o jsonpath="{.items[0].status.containerStatuses[0].ready}" | grep -q true'
+          kubectl delete ns {{ns}} --ignore-not-found --wait=false
+        timeout: 200s

@@ -3,6 +3,7 @@ import { Icon } from '../components/Icons.jsx'
 import { useAuth } from '../auth/AuthProvider.jsx'
 import { useSession } from '../session/SessionProvider.jsx'
 import { Window, useWindowManager } from '../wm/WindowManager.jsx'
+import { useTerminals } from '../terminal/TerminalProvider.jsx'
 
 // BrowserProvider — node web UIs in a window of their own, through DBCanvas's port
 // (app/browse.go).
@@ -115,6 +116,30 @@ export function BrowserProvider({ children }) {
 
   const focus = useCallback((id) => wmRef.current.focus(wmId(id)), [])
 
+  // A Pager Panic page asks for a terminal on one of its cluster's nodes, or for its stack,
+  // with postMessage. Only a Pager Panic window is heard, and only about its own stack;
+  // the terminal itself is the ordinary one, with the ordinary checks on the server.
+  const terms = useTerminals()
+  useEffect(() => {
+    const on = (ev) => {
+      const d = ev.data
+      if (ev.origin !== location.origin || !d || typeof d !== 'object') return
+      if (d.type !== 'dbcanvas:open-terminal' && d.type !== 'dbcanvas:open-stack') return
+      let win = null
+      for (const f of document.querySelectorAll('iframe[data-win]')) {
+        if (f.contentWindow === ev.source) win = winsRef.current.find((w) => w.id === f.dataset.win)
+      }
+      if (!win || win.kind !== 'pagerpanic' || Number(d.stackId) !== win.stackId) return
+      if (d.type === 'dbcanvas:open-stack') {
+        dispatchEvent(new CustomEvent('dbcanvas:open-stack', { detail: win.stackId }))
+        return
+      }
+      terms?.openTerminal?.({ stackId: win.stackId, nodeId: String(d.nodeId || ''), title: String(d.title || 'Terminal').slice(0, 80) })
+    }
+    addEventListener('message', on)
+    return () => removeEventListener('message', on)
+  }, [terms])
+
   // openBrowser opens a window on a node link. remote is a window someone else in
   // the session opened, arriving here; otherwise, in a session, the driver's or the
   // host's window is announced to everyone.
@@ -127,7 +152,7 @@ export function BrowserProvider({ children }) {
     try {
       const r = await resolve(href)
       const title = `${r.title} · ${r.stackName}`
-      setWins((ws) => ws.map((w) => (w.id === id ? { ...w, base: r.url, kind: r.kind, vncPassword: r.vncPassword, title } : w)))
+      setWins((ws) => ws.map((w) => (w.id === id ? { ...w, base: r.url, kind: r.kind, stackId: r.stackId, vncPassword: r.vncPassword, title } : w)))
       if (share) sh.shareBrowser('browser-open', { id, link: href, title })
     } catch (e) {
       setWins((ws) => ws.map((w) => (w.id === id ? { ...w, title: 'Could not open', error: e.message } : w)))
@@ -342,7 +367,7 @@ function BrowserWindow({ win, src, viewOnly, driving, following, canClose, onNav
             <div><div className="mb-1 font-medium text-fg">{win.title}</div>{win.error}</div>
           </div>
         ) : src ? (
-          <iframe ref={frame} src={src} title={win.title} onLoad={sync} className="absolute inset-0 h-full w-full border-0"
+          <iframe ref={frame} src={src} title={win.title} onLoad={sync} data-win={win.id} className="absolute inset-0 h-full w-full border-0"
             allow="clipboard-read; clipboard-write; fullscreen" />
         ) : (
           <div className="flex h-full items-center justify-center bg-bg"><div className="h-6 w-6 animate-spin rounded-full border-2 border-surface2 border-t-primary" /></div>

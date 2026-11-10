@@ -1737,6 +1737,8 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			}
 		case "perfsim":
 			out = append(out, perfSimIssues(doc, n)...)
+		case "pagerpanic":
+			out = append(out, pagerPanicIssues(doc, n)...)
 		case "ledgersim":
 			// Two shapes rather than stocksim's three — an All in One instance is
 			// reached the same way any other host is, so it needs no third mode.
@@ -2649,6 +2651,8 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			a.provisionLedgerSim(st, n, doc)
 		case "perfsim":
 			a.provisionPerfSim(st, n, doc)
+		case "pagerpanic":
+			a.provisionPagerPanic(st, n, doc)
 		case "aio":
 			a.provisionAIO(st, n, doc)
 		}
@@ -3617,6 +3621,8 @@ func (a *App) removeNodeResources(ctx context.Context, st Stack, d Deployment) {
 	// Kubernetes frame it created Services there; undo them first.
 	a.clearPerfSimConditions(ctx, st, d)
 	a.clearPerfSimK8s(ctx, st, d)
+	// A Pager Panic game's open tickets are faults on its cluster; put them back.
+	a.clearPagerPanic(ctx, st, d)
 	for _, e := range a.stackEngines(st) {
 		if d.ContainerID != "" {
 			e.ContainerRemove(ctx, d.ContainerID)

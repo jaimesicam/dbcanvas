@@ -64,7 +64,7 @@ export const NODE_CODE = {
   pmm: 'PMM', pmm2: 'PMM', orchestrator: 'Or',
   intranet: 'In', sambaad: 'Ad', keycloak: 'Kc', openbao: 'Ob', seaweedfs: 'Sw', ceph: 'Ce',
   repository: 'Re', linuxclient: 'Lc', vnc: 'Vn', k3d: 'K3', aio: 'Ai', mclusteradmin: 'Mc',
-  stocksim: 'St', ledgersim: 'Lg', supportsim: 'Su', pgvectorsim: 'Pv', perfsim: 'Pf',
+  stocksim: 'St', ledgersim: 'Lg', supportsim: 'Su', pgvectorsim: 'Pv', perfsim: 'Pf', pagerpanic: 'Pp',
 }
 
 // nodeCode is a type's code; a type missing from the map (a new one) gets the first two

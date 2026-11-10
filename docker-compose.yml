@@ -141,6 +141,9 @@ services:
       # what the OS pickers offer. Separate from the catalog above so that
       # rebuilding images does not discard hours of version probing.
       - ./images.yaml:/etc/dbcanvas/images.yaml:ro
+      # Pager Panic's task banks. A directory mount, so an edited or added bank is read
+      # by the next game without a rebuild or a restart (app/pagerpanic.go).
+      - ./pagerpanic/banks:/etc/dbcanvas/pagerpanic:ro
       # Stack Designer drives Docker on the host to deploy/manage stack
       # containers (Docker-out-of-Docker). The app talks to this socket via the
       # Engine API using only the Go stdlib — no docker CLI in the image.
