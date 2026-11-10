@@ -39,6 +39,26 @@ type Deployment struct {
 	NodeID      string `json:"nodeId"`
 	ContainerID string `json:"containerId"`
 	State       string `json:"state"`
+	// Progress.Configuring is set while DBCanvas is still working on a node whose
+	// container already runs: an operator building its cluster, a replica being seeded.
+	Progress *deployProgress `json:"progress,omitempty"`
+}
+
+type deployProgress struct {
+	Configuring bool   `json:"configuring,omitempty"`
+	ConfigPhase string `json:"configPhase,omitempty"`
+}
+
+// waitState is the state --wait reports and waits on: "running" only once nothing is still
+// being configured on the node.
+func (d Deployment) waitState() string {
+	if d.State == "running" && d.Progress != nil && d.Progress.Configuring {
+		if d.Progress.ConfigPhase != "" {
+			return "running, configuring: " + d.Progress.ConfigPhase
+		}
+		return "running, configuring"
+	}
+	return d.State
 }
 
 type stackDetail struct {
@@ -399,7 +419,8 @@ func deployStack(c *Client, st Stack, wait bool, timeout time.Duration) error {
 }
 
 // waitForNodes polls the stack until every node reaches a terminal state, printing
-// each change once.
+// each change once. A node whose container runs while DBCanvas is still configuring it
+// (a Kubernetes operator building its cluster, a replica being seeded) is not done yet.
 //
 // It reports per-node transitions rather than a spinner because the useful
 // information during a five-minute deploy is *which* node is still provisioning —
@@ -414,11 +435,12 @@ func waitForNodes(c *Client, st Stack, timeout time.Duration) error {
 		}
 		running, failed, pending := 0, 0, 0
 		for _, dep := range d.Deployments {
-			if seen[dep.NodeID] != dep.State {
-				fmt.Printf("  %-24s %s\n", dep.NodeID, dep.State)
-				seen[dep.NodeID] = dep.State
+			state := dep.waitState()
+			if seen[dep.NodeID] != state {
+				fmt.Printf("  %-24s %s\n", dep.NodeID, state)
+				seen[dep.NodeID] = state
 			}
-			switch dep.State {
+			switch state {
 			case "running":
 				running++
 			case "error":

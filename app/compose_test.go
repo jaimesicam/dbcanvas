@@ -430,6 +430,10 @@ func TestComposeRefusals(t *testing.T) {
 		{"deliberately unsupported kind",
 			composeSpec{Name: "x", Nodes: []composeNodeSpec{{Kind: "k3d"}}},
 			"operator choice"},
+		// Copies of a standalone ProxySQL cannot share a backend; a ProxySQL Cluster can.
+		{"several standalone ProxySQL nodes",
+			composeSpec{Name: "x", Nodes: []composeNodeSpec{{Kind: "pxc", Count: 3}, {Kind: "proxysql", Count: 2}}},
+			"proxysql-cluster:2"},
 		// A fixed-topology frame has no count to give it.
 		{"a count on a fixed topology",
 			composeSpec{Name: "x", Nodes: []composeNodeSpec{{Kind: "psmdb", Count: 3}}},
@@ -1373,5 +1377,58 @@ func TestComposeNoWatchtower(t *testing.T) {
 	composeCatalogFixture(t)
 	if _, _, _, _, err := buildCompose(composeSpec{Name: "x", Nodes: []composeNodeSpec{{Kind: "watchtower"}}}); err == nil {
 		t.Fatal("a watchtower entry was accepted")
+	}
+}
+
+// TestComposeWiresEveryCopy covers count > 1 on a standalone kind that needs a line:
+// every copy gets one, not just the first, or the rest have nothing to work on.
+func TestComposeWiresEveryCopy(t *testing.T) {
+	composeCatalogFixture(t)
+	doc, _, _, _, err := buildCompose(composeSpec{Name: "x", Nodes: []composeNodeSpec{
+		{Kind: "pg", OS: "el9"},
+		{Kind: "pgbouncer", Count: 2, OS: "el9"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wired := map[string]bool{}
+	ids := map[string]bool{}
+	for _, e := range doc.Edges {
+		wired[e.To.Node] = true
+		ids[e.ID] = true
+	}
+	var pools int
+	for _, n := range doc.Nodes {
+		if n.Type != "pgbouncer" {
+			continue
+		}
+		pools++
+		if !wired[n.ID] {
+			t.Errorf("%s has no line to its backend", n.Label)
+		}
+	}
+	if pools != 2 || len(doc.Edges) != 2 || len(ids) != 2 {
+		t.Errorf("%d pools, %d lines, %d distinct line ids; want 2 of each", pools, len(doc.Edges), len(ids))
+	}
+}
+
+// TestComposeClusterKindLabels: a kind whose name already ends in -cluster is not
+// labelled "-cluster-cluster".
+func TestComposeClusterKindLabels(t *testing.T) {
+	composeCatalogFixture(t)
+	b := &composeBuilder{usedLabels: map[string]bool{}}
+	for _, c := range []struct{ kind, want string }{
+		{"proxysql-cluster", "proxysql-cluster-01"},
+		{"valkey-cluster", "valkey-cluster-01"},
+		{"pxc", "pxc-cluster-01"},
+		{"ps", "ps-01"},
+	} {
+		k, ok := composeKindByName(c.kind)
+		if !ok {
+			t.Fatalf("no kind %q", c.kind)
+		}
+		if got := b.label(k, ""); got != c.want {
+			t.Errorf("%s is labelled %q, want %q", c.kind, got, c.want)
+		}
 	}
 }

@@ -107,10 +107,7 @@ func (a *App) ensureKeycloakClientUsers(ctx context.Context, kcContainerID, admi
 // keycloakClientScript ensures realm + client (from $CLIENT_JSON) + optional groups mapper,
 // groups and sample users. It prints USERID=<username>:<id> per sample user and finally
 // SECRET=<client secret> (empty for public clients).
-const keycloakClientScript = `set -e
-KC=/opt/keycloak/bin/kcadm.sh
-$KC config credentials --server http://localhost:8080 --realm master --user admin --password "$KC_ADMIN_PW" >/dev/null
-$KC get "realms/$REALM" >/dev/null 2>&1 || $KC create realms -s realm="$REALM" -s enabled=true -s sslRequired=external >/dev/null
+const keycloakClientScript = "set -e\n" + keycloakLogin + `$KC get "realms/$REALM" >/dev/null 2>&1 || $KC create realms -s realm="$REALM" -s enabled=true -s sslRequired=external >/dev/null
 CID=$($KC get clients -r "$REALM" -q clientId="$CLIENT_ID" --fields id --format csv --noquotes 2>/dev/null | tail -n1)
 if [ -z "$CID" ]; then
   printf '%s' "$CLIENT_JSON" > /tmp/kc-client.json

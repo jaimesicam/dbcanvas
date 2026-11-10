@@ -313,7 +313,8 @@ func (b *composeBuilder) label(kind composeKind, want string) string {
 		}
 	}
 	base := kind.Kind
-	if kind.Frame {
+	if kind.Frame && !strings.HasSuffix(base, "-cluster") {
+		// valkey-cluster and proxysql-cluster already say so.
 		base = kind.Kind + "-cluster"
 	}
 	for i := 1; ; i++ {
@@ -441,6 +442,12 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 		if lo > 0 && count < lo || hi > 0 && count > hi {
 			return fmt.Errorf("%s takes %d–%d members, not %d", kind.Kind, lo, hi, count)
 		}
+	} else if count > 1 && kind.Kind == "proxysql" {
+		// Copies of a standalone ProxySQL cannot share a backend: a PXC or MySQL
+		// replication frame takes one association line in all. Several ProxySQLs in
+		// front of one cluster is what a ProxySQL Cluster frame is.
+		return fmt.Errorf("proxysql is one node — for %d ProxySQL nodes sharing one configuration "+
+			"in front of a cluster, use proxysql-cluster:%d", count, count)
 	} else if count > 1 && (kind.Singleton || kind.Kind == "pmm") {
 		// The validator allows exactly one Intranet, Keycloak, OpenBao and VNC per
 		// stack. PMM is not on that list, but two of them is never
@@ -841,12 +848,25 @@ func (b *composeBuilder) associate(s composeNodeSpec, res *composeResolved) erro
 	}
 	// Source first: a "directional" edge means data flows from → to (intranet.go),
 	// and every one of these is the database feeding the thing in front of it.
-	b.doc.Edges = append(b.doc.Edges, designEdge{
-		ID:   fmt.Sprintf("e-%s-%s", target.Name, res.Name),
-		From: edgeEnd{Node: endpoint(target), Port: "right"},
-		To:   edgeEnd{Node: endpoint(*res), Port: "left"},
-		Type: "directional",
-	})
+	// Copies of a standalone kind (count > 1) each get their own line: an entry
+	// with no frame is that many unconnected nodes otherwise, and only the first
+	// would have anything to work on.
+	ends := []string{endpoint(*res)}
+	if res.FrameID == "" && len(res.NodeIDs) > 1 {
+		ends = res.NodeIDs
+	}
+	for i, end := range ends {
+		id := fmt.Sprintf("e-%s-%s", target.Name, res.Name)
+		if len(ends) > 1 {
+			id = fmt.Sprintf("%s-%d", id, i+1)
+		}
+		b.doc.Edges = append(b.doc.Edges, designEdge{
+			ID:   id,
+			From: edgeEnd{Node: endpoint(target), Port: "right"},
+			To:   edgeEnd{Node: end, Port: "left"},
+			Type: "directional",
+		})
+	}
 	res.Links = append(res.Links, "to→"+target.Name)
 	return nil
 }

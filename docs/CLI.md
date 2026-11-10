@@ -346,7 +346,9 @@ A stack can be named by **name or id**. Names match exactly first, then case-ins
 two stacks share a name, use the id.
 
 `--wait` prints node state changes until every node is `running` or one fails, and exits `4` if
-the deploy did not finish. Without it, `deploy` returns as soon as provisioning starts.
+the deploy did not finish. A node counts as done only when nothing is still being configured on
+it: a Kubernetes frame waits for its operator to report the cluster ready, and a replica cluster
+for its seed and replication channel. Without it, `deploy` returns as soon as provisioning starts.
 
 ## Nodes
 

@@ -467,10 +467,12 @@ STACK=$(echo "$SPEC" | api -X POST "$URL/api/stacks/compose" --data @- |
 [ -n "$STACK" ] || { echo "compose refused or validation failed — see above"; exit 1; }
 
 # 3. Deploy, then wait the way `--wait` does: poll until every node is "running"
-#    or "error". A single Percona Server takes a few minutes; a cluster, longer.
+#    (with no progress.configuring still set) or "error". A single Percona Server takes
+#    a few minutes; a cluster, longer; a Kubernetes operator's cluster, longer again.
 api -X POST "$URL/api/stacks/$STACK/deploy" >/dev/null
 for i in $(seq 1 120); do
-  STATES=$(api "$URL/api/stacks/$STACK" | jq -r '.deployments[] | "\(.nodeId) \(.state)"')
+  STATES=$(api "$URL/api/stacks/$STACK" | jq -r '.deployments[]
+    | "\(.nodeId) \(if .state == "running" and .progress.configuring then "configuring" else .state end)"')
   echo "$STATES"; echo ---
   [ -n "$STATES" ] && ! echo "$STATES" | grep -vqE ' (running|error)$' && break
   sleep 10

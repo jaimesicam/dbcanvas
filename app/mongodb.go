@@ -1863,10 +1863,7 @@ done
 // audience protocol mappers, the dbadmins/developers groups, and two sample users
 // joined to those groups. Replaces the manual console walkthrough. Env: KC_ADMIN_PW,
 // REALM, CLIENT_ID, AUTH_CLAIM, USE_CLAIM, DOMAIN, SAMPLE_PW.
-const keycloakSetupScript = `set -e
-KC=/opt/keycloak/bin/kcadm.sh
-$KC config credentials --server http://localhost:8080 --realm master --user admin --password "$KC_ADMIN_PW" >/dev/null
-# Realm
+const keycloakSetupScript = "set -e\n" + keycloakLogin + `# Realm
 $KC get "realms/$REALM" >/dev/null 2>&1 || $KC create realms -s realm="$REALM" -s enabled=true -s sslRequired=external >/dev/null
 # Public OIDC client with standard + device-authorization-grant flows.
 CID=$($KC get clients -r "$REALM" -q clientId="$CLIENT_ID" --fields id --format csv --noquotes 2>/dev/null | tail -n1)

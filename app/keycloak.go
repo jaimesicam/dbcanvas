@@ -40,6 +40,48 @@ const (
 	keycloakHTTPSPort = 8443
 )
 
+// keycloakStartTimeout bounds how long a new Keycloak may take to accept its admin login.
+const keycloakStartTimeout = 5 * time.Minute
+
+// keycloakLoginPoll is the pause between login attempts while Keycloak starts. A var so
+// tests can shorten it.
+var keycloakLoginPoll = 3 * time.Second
+
+// keycloakLogin is the kcadm sign-in every Keycloak script starts with. It retries for up
+// to two minutes: Keycloak can be up as a container but not yet listening, and a script that
+// signs in once and gives up turns that into an integration that is silently skipped.
+const keycloakLogin = `KC=/opt/keycloak/bin/kcadm.sh
+kc_login() {
+  for _ in $(seq 1 40); do
+    $KC config credentials --server http://localhost:8080 --realm master --user admin --password "$KC_ADMIN_PW" >/dev/null 2>&1 && return 0
+    sleep 3
+  done
+  $KC config credentials --server http://localhost:8080 --realm master --user admin --password "$KC_ADMIN_PW" >/dev/null
+}
+kc_login
+`
+
+// waitKeycloakLogin waits until kcadm can sign in to the Keycloak in containerID.
+func (a *App) waitKeycloakLogin(ctx context.Context, containerID, adminPW string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	var last error
+	for time.Now().Before(deadline) {
+		_, err := a.execScript(ctx, containerID,
+			`/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080 --realm master --user admin --password "$KC_ADMIN_PW" >/dev/null`,
+			[]string{"KC_ADMIN_PW=" + adminPW})
+		if err == nil {
+			return nil
+		}
+		last = err
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(keycloakLoginPoll):
+		}
+	}
+	return fmt.Errorf("Keycloak did not accept the admin login within %s: %v", timeout, last)
+}
+
 // keycloakConfig is the non-secret profile shown for a deployed Keycloak node.
 type keycloakConfig struct {
 	Image     string `json:"image"`
@@ -187,6 +229,16 @@ func (a *App) provisionKeycloak(st Stack, n designNode, doc designDoc) {
 		}
 		if err := a.engCtx(ctx).ContainerStart(ctx, id); err != nil {
 			pr.fail("start container: %v", err)
+			return
+		}
+
+		// Running is what every OIDC integration waits for (waitKeycloak), and each
+		// of them logs straight in with kcadm. Keycloak takes a while after the
+		// container starts before it listens, so the state is set only once an admin
+		// login succeeds.
+		pr.phase("Waiting for Keycloak to accept the admin login", 80)
+		if err := a.waitKeycloakLogin(ctx, id, adminPW, keycloakStartTimeout); err != nil {
+			pr.fail("%v", err)
 			return
 		}
 

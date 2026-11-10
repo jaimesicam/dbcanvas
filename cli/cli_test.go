@@ -483,6 +483,38 @@ func TestWaitForNodesOutcomes(t *testing.T) {
 		}
 	})
 
+	t.Run("running but still configuring", func(t *testing.T) {
+		// A k3s node is "running" while its operator builds the database. That is not
+		// done: --wait has to hold until the configuring marker clears.
+		calls := 0
+		ts := newTestServer(t, func(s *testServer, w http.ResponseWriter, r *http.Request) {
+			calls++
+			dep := map[string]any{"nodeId": "k3s", "state": "running"}
+			if calls < 2 {
+				dep["progress"] = map[string]any{"configuring": true, "configPhase": "the operator is building the cluster"}
+			}
+			json.NewEncoder(w).Encode(map[string]any{"id": 1, "name": "s", "deployments": []map[string]any{dep}})
+		})
+		if err := waitForNodes(newClient(ts.URL, "t"), Stack{ID: 1, Name: "s"}, 30*time.Second); err != nil {
+			t.Fatalf("wait ended with %v", err)
+		}
+		if calls < 2 {
+			t.Errorf("wait returned after %d poll(s), while the node was still configuring", calls)
+		}
+	})
+
+	t.Run("still configuring at the deadline", func(t *testing.T) {
+		ts := newTestServer(t, func(s *testServer, w http.ResponseWriter, r *http.Request) {
+			json.NewEncoder(w).Encode(map[string]any{
+				"id": 1, "name": "s", "deployments": []map[string]any{
+					{"nodeId": "k3s", "state": "running", "progress": map[string]any{"configuring": true}}}})
+		})
+		err := waitForNodes(newClient(ts.URL, "t"), Stack{ID: 1, Name: "s"}, 1*time.Millisecond)
+		if err == nil || exitCodeFor(err) != 4 {
+			t.Errorf("a node still configuring at the deadline gave %v (exit %d), want a wait failure", err, exitCodeFor(err))
+		}
+	})
+
 	t.Run("timeout", func(t *testing.T) {
 		ts := newTestServer(t, func(s *testServer, w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]any{
