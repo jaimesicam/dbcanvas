@@ -32,8 +32,9 @@ candidates() {
       *-v[0-9]*) rel="${tag##*-v}"; tag="${tag%-v*}" ;;
     esac
     case "$repo" in
-      dbcanvas-systemd|dbcanvas-intranet|dbcanvas-vnc|dbcanvas-k8scollector) new="${repo}:${tag}-${RELEASE}" ;;
-      dbcanvas-supportsim|dbcanvas-stocksim|dbcanvas-ledgersim) [ "$tag" = latest ] || continue; new="${repo}:${RELEASE}" ;;
+      dbcanvas-systemd|dbcanvas-intranet|dbcanvas-vnc|dbcanvas-k8scollector|dbcanvas-kubeadm) new="${repo}:${tag}-${RELEASE}" ;;
+      # Every demo application images/apps.sh builds (its APPS).
+      dbcanvas-supportsim|dbcanvas-stocksim|dbcanvas-ledgersim|dbcanvas-perfsim|dbcanvas-pagerpanic) [ "$tag" = latest ] || continue; new="${repo}:${RELEASE}" ;;
       *) continue ;;
     esac
     [ "$ref" = "$new" ] && continue
