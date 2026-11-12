@@ -36,6 +36,34 @@ type releaseNote struct {
 // expanded, and the tests assume the ordering.
 var whatsNewNotes = []releaseNote{
 	{
+		Version: "0.0.29",
+		Date:    "2026-11-12",
+		Title:   "Pager Panic — an on-call game on a Kubeadm Cluster",
+		Body:    "A Pager Panic node is a game played against a Kubeadm Cluster on the canvas. After a systems check, tickets arrive over a 60-minute shift, each with a timer: incidents such as a stopped kubelet or a Service with no endpoints, and requests such as an etcd snapshot or a NetworkPolicy. The player fixes them on the real nodes from terminals inside the game, watches the ticket's app come back in its browser, and DBCanvas checks the cluster to clear the ticket. Arcade, Marathon and Practice modes, a debrief with every solution, a progress display while the next ticket is prepared, and sounds for hovering, choosing and a failed check. The new Kubernetes (kubeadm) + Pager Panic template starts one ready to play, and a Kubeadm Cluster now starts with three nodes.",
+		Doc:     "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.29",
+		Date:    "2026-11-12",
+		Title:   "APP_HOST_OVERRIDE: exposing DBCanvas is asked for twice",
+		Body:    "DBCanvas no longer starts while APP_HOST is anything but a loopback address unless APP_HOST_OVERRIDE=on is set in .env as well: whoever can reach the sign-in page and has an account can deploy privileged containers on the Docker host. make compose and make up stop with the reason before starting anything, and the app refuses at startup too. An installation already published on 0.0.0.0 or a LAN address needs APP_HOST_OVERRIDE=on added to its .env before upgrading.",
+		Doc:     "docs/SECURITY.md",
+	},
+	{
+		Version: "0.0.29",
+		Date:    "2026-11-12",
+		Title:   "Deleted and expired stacks",
+		Body:    "A stack stops being openable the moment its delete is sent: its row in Database Stacks is dimmed while it is torn down, an open canvas of it returns to the list, and its desktop icon and folder window go. A stack deleted elsewhere is noticed the same way. Deploying an expired stack starts its lifetime over, within the security group's longest, instead of being torn down again by the expiry reaper.",
+		Doc:     "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.29",
+		Date:    "2026-11-12",
+		Title:   "make images builds every image",
+		Body:    "make images, and so make install, now builds every image a node can need: the operating-system bases, the Intranet, VNC desktop, K3D collector and Kubeadm node, and the demo applications. A failed image is reported and the rest still build. make extra-images is gone, and make install-pull pulls the demo applications too. The Kubeadm node has the full vim, and Keycloak counts as running once it accepts a login.",
+		Doc:     "docs/CONFIGURATION.md",
+	},
+	{
 		Version: "0.0.28",
 		Date:    "2026-11-09",
 		Title:   "Standby clusters for Patroni and the PostgreSQL operator",
