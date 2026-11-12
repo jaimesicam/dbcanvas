@@ -271,7 +271,6 @@ function renderTitle() {
   const waiting = S.waiting || '';
   $('connStatus').textContent = waiting ? waiting + '…' : (S.diag && S.diag.done && !S.diag.ok ? 'The last systems check failed: ' + (S.diag.error || 'see the check') : '');
   document.querySelectorAll('.mode').forEach((b) => { b.disabled = !!waiting; b.classList.toggle('on', b.dataset.mode === wantMode); });
-  $('pressStart').classList.toggle('hidden', !!waiting);
   const hs = (S.highScores || []).slice(0, 10);
   $('highScores').innerHTML = hs.length ? hs.map((h) => `<li><b>${esc(h.initials)}</b><span>${h.score.toLocaleString()}</span><small>${esc(h.mode)} · ${esc(h.rank)}</small></li>`).join('') : '<li class="muted">No shifts played yet.</li>';
   $('medalShelf').innerHTML = (S.medals || []).length ? S.medals.map((m) => `<span class="medal" title="${esc(m.why)}">${esc(m.title)}</span>`).join('') : '<span class="muted">Medals you earn are kept here.</span>';

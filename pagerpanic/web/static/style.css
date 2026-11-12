@@ -46,7 +46,7 @@ main { position: relative; z-index: 1; min-height: 100vh; display: flex; justify
 .screen { width: min(1200px, 100%); padding: 28px 18px 40px; display: flex; flex-direction: column; align-items: center; }
 
 /* ---------------------------------------------------------------- type */
-h1, h2, h3, .big, .num, .mode b, .btn, .cap, .press, .hud, .banner { font-family: var(--px); letter-spacing: 0.06em; }
+h1, h2, h3, .big, .num, .mode b, .btn, .cap, .hud, .banner { font-family: var(--px); letter-spacing: 0.06em; }
 h1 { font-size: clamp(42px, 9vw, 92px); line-height: 0.92; margin: 0; color: var(--hot); text-shadow: 4px 4px 0 #5b1335, 8px 8px 0 #2a0b1d, 0 0 30px rgba(255, 61, 127, 0.5); }
 h2 { font-size: 14px; color: var(--cool); margin: 0 0 10px; }
 h3 { font-size: 14px; color: var(--cool); margin: 28px 0 10px; align-self: flex-start; }
@@ -74,7 +74,6 @@ h3 { font-size: 14px; color: var(--cool); margin: 28px 0 10px; align-self: flex-
 .mode span { color: var(--dim); font-size: 12px; }
 .mode:hover, .mode:focus-visible, .mode.on { border-color: var(--hot); transform: translate(-2px, -2px); box-shadow: 7px 7px 0 #05030a; outline: none; }
 .mode:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
-.press { color: var(--good); margin-top: 22px; font-size: 14px; }
 .practice-list { margin-top: 18px; width: min(820px, 100%); max-height: 300px; overflow: auto; background: var(--panel); border: 2px solid var(--edge); padding: 8px; }
 .practice-list button { display: flex; width: 100%; justify-content: space-between; gap: 12px; background: none; border: 0; border-bottom: 1px solid #241a45; padding: 8px 6px; text-align: left; }
 .practice-list button:hover { background: #22173f; }
