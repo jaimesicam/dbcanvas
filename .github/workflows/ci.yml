@@ -1,6 +1,8 @@
 # CI: the checks a change is expected to pass before it lands — the same ones run by hand:
 # the web build and its off-browser smoke test, then go vet and go test for the app and the
-# CLI. No Docker: the Go tests use fixtures and fake servers, and nothing here deploys.
+# CLI. The sims job does the same for the demo applications: gofmt, go vet and go test for
+# the four Go ones (each its own module), and a compile of Ledger Sim, which is Java and has
+# no tests. No Docker: the tests use fixtures and fake servers, and nothing here deploys.
 #
 # The app embeds web/dist (//go:embed all:web/dist in app/main.go), so the web build comes
 # first. The headless-Chrome half of `make smoke` is not run here; the off-browser pass is
@@ -66,3 +68,39 @@ jobs:
       - name: scripts — syntax
         run: |
           for f in images/*.sh scripts/*.sh; do bash -n "$f" || exit 1; done
+
+  sims:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      # The sims' modules ask for an older Go than the app; the app's newer release builds them.
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: app/go.mod
+          cache-dependency-path: |
+            supportsim/go.sum
+            stocksim/go.sum
+            perfsim/go.sum
+      - name: Go sims — gofmt, vet and test
+        run: |
+          fail=0
+          for d in supportsim stocksim perfsim pagerpanic; do
+            echo "::group::$d"
+            out="$(gofmt -l "$d")"
+            if [ -n "$out" ]; then echo "not gofmt-formatted:"; echo "$out"; fail=1; fi
+            (cd "$d" && go vet ./... && go test -count=1 ./...) || fail=1
+            echo "::endgroup::"
+          done
+          exit $fail
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: ledgersim/pom.xml
+      - name: Ledger Sim — compile
+        working-directory: ledgersim
+        run: mvn -B -q package -DskipTests
