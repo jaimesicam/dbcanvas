@@ -53,12 +53,13 @@ function alarm(level) {
 
 // ---------------------------------------------------------------- sound
 const Sound = {
-  on: (() => { try { return localStorage.getItem('pp-sound') === 'on'; } catch { return false; } })(),
+  on: (() => { try { return localStorage.getItem('pp-sound') !== 'off'; } catch { return true; } })(),
   ctx: null,
   tone(freq, dur, type = 'square', vol = 0.06, slide = 0, when = 0) {
     if (!this.on) return;
     try {
       this.ctx ||= new (window.AudioContext || window.webkitAudioContext)();
+      if (this.ctx.state === 'suspended') this.ctx.resume();
       const t = this.ctx.currentTime + when;
       const o = this.ctx.createOscillator();
       const g = this.ctx.createGain();
@@ -95,6 +96,8 @@ const Sound = {
   },
 };
 $('btnSound').classList.toggle('off', !Sound.on);
+// Sound is on from the start, but browsers hold audio until the first click or key.
+for (const ev of ['pointerdown', 'keydown']) document.addEventListener(ev, () => Sound.ctx?.resume?.(), { capture: true });
 
 // Everything that can be chosen sounds when the pointer reaches it and when it is chosen:
 // every enabled button, and a ticket card. The sound button keeps its own blip.
