@@ -534,3 +534,47 @@ func TestPlayHidesWhatACheckWants(t *testing.T) {
 		t.Errorf("the debrief: %+v", d)
 	}
 }
+
+// A check the player asked for and that fails is reported (the page plays its sound); the
+// periodic checks behind it are not, and neither is what the check wants.
+func TestAFailedManualCheckIsReported(t *testing.T) {
+	f := newFake(t, testBank())
+	f.start(ModeArcade, "")
+	f.step(5 * time.Second)
+	f.step(11 * time.Second)
+	f.step(time.Second)
+	open := f.open()
+	if len(open) == 0 {
+		t.Fatal("no open ticket")
+	}
+	notyet := func() []Event {
+		var out []Event
+		for _, e := range f.g.View(0).Events {
+			if e.Kind == "notyet" {
+				out = append(out, e)
+			}
+		}
+		return out
+	}
+	for i := 0; i < 20; i++ { // periodic checks come and go
+		f.step(time.Second)
+	}
+	if n := notyet(); len(n) != 0 {
+		t.Fatalf("a periodic check was reported: %+v", n)
+	}
+	if err := f.g.CheckNow(open[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	f.step(time.Second) // the check goes out and comes back unsolved
+	n := notyet()
+	if len(n) != 1 || n[0].Ticket != open[0].ID || n[0].Text != "Not fixed yet: c" {
+		t.Fatalf("after a failed manual check: %+v", n)
+	}
+	if strings.Contains(n[0].Text, "the answer") {
+		t.Error("the event gives away what the check wants")
+	}
+	f.step(time.Second)
+	if len(notyet()) != 1 {
+		t.Error("the next periodic check was reported too")
+	}
+}

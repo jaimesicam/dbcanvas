@@ -92,18 +92,21 @@ type Ticket struct {
 	explain   string
 	checkedAt time.Time
 	checkID   string
-	cleanID   string
-	cleaned   bool
-	setupID   string
-	locks     []string
-	blocks    []string
-	needs     []string
-	hintSpent int
-	page      *MonitorPage
-	pageAt    time.Time
-	clearedAt time.Time // wall time, for clearLinger
-	spawnedAt time.Time // wall time its setup was asked for
-	spawnPlay time.Duration
+	// manualCheck is set when the player asked for the check that is pending: its answer is
+	// reported to them (a notyet event when it fails), where the periodic checks stay quiet.
+	manualCheck bool
+	cleanID     string
+	cleaned     bool
+	setupID     string
+	locks       []string
+	blocks      []string
+	needs       []string
+	hintSpent   int
+	page        *MonitorPage
+	pageAt      time.Time
+	clearedAt   time.Time // wall time, for clearLinger
+	spawnedAt   time.Time // wall time its setup was asked for
+	spawnPlay   time.Duration
 }
 
 // MonitorInfo is what the page needs to draw a ticket's app pane; Rev changes whenever
@@ -121,7 +124,7 @@ type MonitorInfo struct {
 // Event is something the page animates: a ticket arriving, a clear, a lost life.
 type Event struct {
 	Seq    int    `json:"seq"`
-	Kind   string `json:"kind"` // spawn | clear | expire | giveup | hint | stage | lifeup | victory | gameover | quit | timeup | practice-done | medal | error
+	Kind   string `json:"kind"` // spawn | clear | expire | giveup | hint | stage | lifeup | victory | gameover | quit | timeup | practice-done | medal | error | notyet
 	Text   string `json:"text,omitempty"`
 	Points int    `json:"points,omitempty"`
 	Ticket string `json:"ticket,omitempty"`
@@ -480,6 +483,7 @@ func (g *Game) CheckNow(id string) error {
 	if tk.checkID == "" {
 		g.requestCheck(tk)
 	}
+	tk.manualCheck = true
 	return nil
 }
 
@@ -936,7 +940,7 @@ func (g *Game) next() *NextView {
 		nv.Stage = "waiting"
 		nv.In = math.Max(0, (g.nextSpawn - g.played).Seconds())
 		waitTotal = math.Max(0, (g.nextSpawn - from).Seconds())
-		waited = math.Min(waitTotal, math.Max(0, (g.played - from).Seconds()))
+		waited = math.Min(waitTotal, math.Max(0, (g.played-from).Seconds()))
 		nv.SetupEst = g.setupEstimate("")
 	}
 	// A setup that runs past its estimate creeps on towards the end instead of stopping.
@@ -982,14 +986,32 @@ func (g *Game) checkDone(r Result) {
 	if tk == nil {
 		return
 	}
-	tk.checkID, tk.checkedAt = "", g.now()
+	manual := tk.manualCheck
+	tk.checkID, tk.checkedAt, tk.manualCheck = "", g.now(), false
+	inPlay := tk.State == TicketOpen && (g.phase == PhasePlaying || g.phase == PhasePaused)
 	if !r.OK {
+		if manual && inPlay {
+			g.emit(Event{Kind: "notyet", Text: "The check could not run: " + r.Error, Ticket: tk.ID})
+		}
 		return
 	}
 	tk.Checks = r.Checks
 	g.setPage(tk, r.Monitor)
-	if tk.State == TicketOpen && r.Solved && (g.phase == PhasePlaying || g.phase == PhasePaused) {
+	if inPlay && r.Solved {
 		g.clear(tk)
+		return
+	}
+	// The player asked, and it is not fixed: say which check failed — its name, never what it
+	// wants (the view hides that during play).
+	if manual && inPlay {
+		text := "Not fixed yet"
+		for _, c := range r.Checks {
+			if !c.OK {
+				text += ": " + c.Name
+				break
+			}
+		}
+		g.emit(Event{Kind: "notyet", Text: text, Ticket: tk.ID})
 	}
 }
 

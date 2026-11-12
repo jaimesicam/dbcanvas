@@ -161,6 +161,8 @@ h3 { font-size: 14px; color: var(--cool); margin: 28px 0 10px; align-self: flex-
 .ticket.amber { border-color: var(--warn); }
 .ticket.red { border-color: var(--bad); animation: pulse 0.6s infinite; }
 .ticket.shake { animation: shake 0.25s infinite; border-color: var(--bad); }
+.ticket.nope { animation: nope 0.45s; }
+@keyframes nope { 0%, 100% { transform: translateX(0); } 15% { transform: translateX(-7px); border-color: var(--bad); } 30% { transform: translateX(6px); } 45% { transform: translateX(-5px); border-color: var(--bad); } 60% { transform: translateX(4px); } 80% { transform: translateX(-2px); } }
 .ticket.cleared { border-color: var(--good); background: linear-gradient(135deg, rgba(57, 255, 182, 0.16), var(--panel)); animation: fadeaway 5s forwards; }
 .ticket.cleared .ring .left { stroke: var(--good); }
 .ticket.cleared .ring span { color: var(--good); font-size: 18px; }

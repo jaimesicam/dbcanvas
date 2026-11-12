@@ -81,6 +81,12 @@ const Sound = {
   win() { this.seq([523, 523, 523, 659, 784, 659, 784, 1047, 1047], 'square', 0.12); },
   over() { this.seq([392, 330, 262, 196, 131], 'triangle', 0.28); },
   blip() { this.tone(1200, 0.04, 'square', 0.03); },
+  // The pointer moving onto something that can be chosen: a short, soft tick.
+  hover() { this.tone(1760, 0.025, 'triangle', 0.025); },
+  // Choosing it: a quick two-note rise.
+  select() { this.tone(660, 0.05, 'square', 0.045); this.tone(990, 0.07, 'square', 0.045, 0, 0.05); },
+  // A check the player ran came back not fixed: two low buzzes, falling.
+  fail() { this.tone(196, 0.12, 'sawtooth', 0.07); this.tone(147, 0.2, 'sawtooth', 0.07, -40, 0.14); },
   toggle() {
     this.on = !this.on;
     try { localStorage.setItem('pp-sound', this.on ? 'on' : 'off'); } catch { /* private mode */ }
@@ -89,6 +95,19 @@ const Sound = {
   },
 };
 $('btnSound').classList.toggle('off', !Sound.on);
+
+// Everything that can be chosen sounds when the pointer reaches it and when it is chosen:
+// every enabled button, and a ticket card. The sound button keeps its own blip.
+const PICKABLE = 'button:not(:disabled):not(#btnSound), .ticket';
+let hovered = null;
+document.addEventListener('pointerover', (ev) => {
+  if (ev.pointerType && ev.pointerType !== 'mouse') return; // a tap is a choice, not a hover
+  const el = ev.target.closest?.(PICKABLE);
+  if (el === hovered) return;
+  hovered = el;
+  if (el) Sound.hover();
+});
+document.addEventListener('click', (ev) => { if (ev.target.closest?.(PICKABLE)) Sound.select(); }, true);
 
 // ---------------------------------------------------------------- effects
 const fx = $('fx');
@@ -214,6 +233,12 @@ function animate(e) {
       } else toast(e.text);
       break;
     case 'giveup': toast(e.text); break;
+    case 'notyet': {
+      toast(e.text, 'error'); Sound.fail();
+      const card = document.querySelector(`.ticket[data-id="${CSS.escape(e.ticket || '')}"]`);
+      if (card) { card.classList.remove('nope'); void card.offsetWidth; card.classList.add('nope'); }
+      break;
+    }
     case 'hint': floater(`${e.points}`, c.x - 20, c.y - 10, true); Sound.blip(); break;
     case 'stage': banner(e.text.split(' · ')[0], '', (e.text.split(' · ')[1] || '') + (e.points ? `  +${e.points}` : '')); Sound.stage(); fireworks(1200); break;
     case 'lifeup': toast('+1 LIFE', 'medal'); Sound.seq([660, 880, 1320], 'square', 0.08); break;
@@ -291,7 +316,6 @@ function renderPracticeList() {
 $('modes').addEventListener('click', async (ev) => {
   const b = ev.target.closest('.mode');
   if (!b || b.disabled) return;
-  Sound.blip();
   wantMode = b.dataset.mode; wantSeed = 0; wantTask = '';
   if (wantMode === 'practice') { renderPracticeList(); render(); return; }
   $('practiceList').classList.add('hidden');
@@ -511,7 +535,7 @@ function brief(s) {
 $('tickets').addEventListener('click', (ev) => {
   const el = ev.target.closest('.ticket');
   if (!el) return;
-  sel = el.dataset.id; Sound.blip(); renderPlay();
+  sel = el.dataset.id; renderPlay();
 });
 $('tickets').addEventListener('contextmenu', (ev) => {
   const el = ev.target.closest('.ticket');
@@ -852,7 +876,7 @@ addEventListener('keydown', (ev) => {
   if (k === 'p') play({ do: S.phase === 'paused' ? 'resume' : 'pause' }).catch(() => {});
   if (S.phase === 'playing' && ['1', '2', '3'].includes(k)) {
     const t = S.tickets.filter((x) => x.state !== 'cleared')[Number(k) - 1];
-    if (t) { sel = t.id; Sound.blip(); renderPlay(); }
+    if (t) { sel = t.id; Sound.select(); renderPlay(); }
   }
   if (S.phase === 'playing' && k === 'h' && sel) play({ do: 'hint', ticket: sel }).catch(() => {});
   if (S.phase === 'playing' && k === 'c' && sel) play({ do: 'check-now', ticket: sel }).catch(() => {});
