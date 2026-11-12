@@ -153,7 +153,9 @@ type Game struct {
 	events []Event
 	seq    int
 
-	// Work for DBCanvas.
+	// Work for DBCanvas. boot keeps one run of the game's IDs apart from another's: DBCanvas
+	// remembers finished actions for a while, so an ID the last run used would be skipped.
+	boot    string
 	actions map[string]Action
 	acked   []string
 	nextID  int
@@ -176,7 +178,8 @@ func New(now func() time.Time) *Game {
 	if now == nil {
 		now = time.Now
 	}
-	return &Game{now: now, phase: PhaseTitle, actions: map[string]Action{}, drawn: map[string]int{}}
+	return &Game{now: now, phase: PhaseTitle, actions: map[string]Action{}, drawn: map[string]int{},
+		boot: fmt.Sprintf("%06x", rand.Int63()&0xffffff)}
 }
 
 // ---------------------------------------------------------------- DBCanvas sync
@@ -235,7 +238,7 @@ func (g *Game) Sync(req SyncRequest) SyncResponse {
 
 func (g *Game) newAction(op string, fill func(*Action)) Action {
 	g.nextID++
-	a := Action{ID: fmt.Sprintf("%s-%d-%d", op, g.seed&0xffffff, g.nextID), Op: op}
+	a := Action{ID: fmt.Sprintf("%s-%s-%d", op, g.boot, g.nextID), Op: op}
 	if fill != nil {
 		fill(&a)
 	}

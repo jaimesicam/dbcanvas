@@ -358,3 +358,21 @@ func TestASlowClearGivesNoHeadStart(t *testing.T) {
 		t.Errorf("a slow clear gave a head start: limit %v, extra %v", open[0].Limit, open[0].Extra)
 	}
 }
+
+// DBCanvas skips an action ID it finished recently, so a restarted game must not reuse
+// the last run's IDs.
+func TestARestartedGameUsesNewActionIDs(t *testing.T) {
+	ids := map[string]bool{}
+	for i := 0; i < 5; i++ {
+		f := newFake(t, testBank())
+		if err := f.g.CheckSystem(); err != nil {
+			t.Fatal(err)
+		}
+		for id := range f.g.actions {
+			if ids[id] {
+				t.Fatalf("a new game reused action ID %s", id)
+			}
+			ids[id] = true
+		}
+	}
+}
