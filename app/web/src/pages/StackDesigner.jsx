@@ -2992,7 +2992,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
   // non-admin is told which make target does it instead of shown a button that
   // would be refused.
   const { user: authUser, guest } = useAuth()
-  const { openInDesktop } = useBrowser()
+  const { openBrowser, openInDesktop } = useBrowser()
   const isAdmin = authUser?.role === 'admin'
   const [busy, setBusy] = useState('') // 'validate' | 'deploy' | ''
   const [configNode, setConfigNode] = useState(null) // node whose profile is shown
@@ -4864,7 +4864,20 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
   function nodeMenuActions(id) {
     const dep = depByNode[id]
     const actions = []
-    if (dep) {
+    // Pager Panic is a game, not a server: its image has no shell or files worth opening,
+    // no Live figures, and its terminals work only inside a DBCanvas window. So its menu
+    // is Play, and starting and stopping it.
+    if (dep && nodes.find((n) => n.id === id)?.type === 'pagerpanic') {
+      if (dep.state === 'running') {
+        const link = nodeWebLinks('pagerpanic', dep)[0]
+        if (link) actions.push({ label: 'Play', help: MENU_HELP.playPagerPanic, fn: () => openBrowser(link.url) })
+        actions.push({ label: 'Stop', help: MENU_HELP.stop, fn: () => nodeAction(id, 'stop') })
+        actions.push({ label: 'Restart', help: MENU_HELP.restart, fn: () => nodeAction(id, 'restart') })
+      } else if (dep.state === 'stopped' || dep.state === 'error') {
+        actions.push({ label: 'Start', help: MENU_HELP.start, fn: () => nodeAction(id, 'start') })
+      }
+      actions.push({ sep: true })
+    } else if (dep) {
       actions.push({ label: 'View config / profile', help: MENU_HELP.config, fn: () => showConfig(id) })
       // The Live view's details, from the node: pin them so they stay open while other cards are
       // selected. Pinning switches Live on if it was off.
@@ -9473,14 +9486,18 @@ function LinuxClientKubeconfig({ stackId, nodeId }) {
 // (like PMM's own HTTP/HTTPS ports; see provisionPMM/each sim's provision* for
 // the backend half of this), so it opens directly in the host's own browser
 // instead of requiring a VNC desktop.
-function SimDashboardLink({ port }) {
+//
+// inWindow makes a plain click open the page in a DBCanvas browser window
+// (browser/BrowserProvider.jsx) rather than a new tab: Pager Panic's terminals work
+// only there. Ctrl/Cmd-click and the right-click menu still open a tab.
+function SimDashboardLink({ port, inWindow, label = 'Open Dashboard' }) {
   if (!port) return null
   const host = typeof location !== 'undefined' ? location.hostname : 'localhost'
   const url = `http://${host}:${port}/`
   return (
-    <a href={url} target="_blank" rel="noreferrer"
+    <a href={url} target="_blank" rel="noreferrer" data-open-in-window={inWindow ? '1' : undefined}
       className="flex items-center justify-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-sm font-medium text-primary hover:bg-primary/15">
-      <Icon.External size={15} /> Open Dashboard
+      <Icon.External size={15} /> {label}
     </a>
   )
 }
@@ -11009,7 +11026,7 @@ function PagerPanicManager ({ dep, stackId, nodeId, onDeleteNode }) {
         <span className="text-sm font-semibold">Pager Panic</span>
         <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>
       </div>
-      <SimDashboardLink port={cfg.httpPort} />
+      <SimDashboardLink port={cfg.httpPort} inWindow label="Play" />
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
         <InfoRow label="Internal URL" help={HELP.depInternalURL}><span className="font-mono text-xs">http://{cfg.fqdn || cfg.hostname}:8097</span></InfoRow>
         <InfoRow label="Plays against" help={HELP.depLinkedTo}><span className="font-mono text-xs">{cfg.frameLabel}</span></InfoRow>

@@ -278,7 +278,9 @@ export function BrowserProvider({ children }) {
   }, [])
   const patch = useCallback((id, p) => setWins((ws) => ws.map((w) => (w.id === id ? { ...w, ...p } : w))), [])
 
-  // Node links: right-click for the menu; for a guest, a plain click opens the window.
+  // Node links: right-click for the menu; for a guest, a plain click opens the window,
+  // and for everyone on a link marked data-open-in-window (Pager Panic, whose terminals
+  // work only inside a window).
   useEffect(() => {
     const linkOf = (e) => {
       const a = e.target?.closest?.('a[href]')
@@ -294,7 +296,7 @@ export function BrowserProvider({ children }) {
     const onClick = (e) => {
       if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return
       const a = linkOf(e)
-      if (!a) return
+      if (!a || (!guest && !a.dataset.openInWindow)) return
       e.preventDefault()
       openBrowser(a.href)
     }

@@ -164,6 +164,13 @@ export function StackFolder({ stack, onClose, onOpen }) {
     const running = dep?.state === 'running'
     const links = running ? nodeWebLinks(n.type, dep) : []
     const items = []
+    // Pager Panic: Play, in a DBCanvas window, where its terminals work (its image has no shell).
+    if (n.type === 'pagerpanic') {
+      if (links.length) items.push({ label: 'Play', onClick: () => openBrowser(links[0].url) })
+      items.push({ sep: true })
+      items.push({ label: 'Open in Database Stacks', onClick: () => openStackInDesigner(onOpen, stack.id) })
+      return items
+    }
     if (running) {
       if (n.type === 'pmm') {
         items.push({ label: 'Enter root console', onClick: () => terminal(n, '0') })
