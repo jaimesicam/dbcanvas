@@ -36,6 +36,9 @@ categories:
   - {id: workloads, title: Workloads, medal: Workload Wrangler, medal_at: 5}
   - {id: storage, title: Storage, medal: Storage Keeper, medal_at: 3}
 
+# open: tickets in play at once. spawn_every: the gap between tickets, except that a
+# ticket arrives within 30s once none is in play. A ticket cleared in half its time or
+# less gives that next ticket a head start of half the time it left unused.
 stages:
   - {open: 1, spawn_every: 150s, time_scale: 1.0, difficulty: [1]}
   - {open: 2, spawn_every: 120s, time_scale: 1.0, difficulty: [1, 2]}

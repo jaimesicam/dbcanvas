@@ -300,3 +300,61 @@ func TestWaitingForDBCanvas(t *testing.T) {
 		t.Errorf("view %+v", v)
 	}
 }
+
+func TestAnEmptyQueueRefillsWithinThirtySecondsWithAHeadStart(t *testing.T) {
+	b := testBank()
+	b.Stages[0].SpawnEvery = 600 // the stage's own gap would leave the queue empty for minutes
+	f := newFake(t, b)
+	f.start(ModeArcade, "")
+	f.step(5 * time.Second)
+	f.step(time.Second)
+	tk := f.open()[0]
+	f.solved[tk.setupID] = true
+	f.step(11 * time.Second) // cleared after about 12s of a 60s limit: a fast clear
+	f.step(time.Second)
+	if len(f.open()) != 0 {
+		t.Fatal("the ticket did not clear")
+	}
+	var next *TicketView
+	for i := 0; i < 31 && next == nil; i++ {
+		f.step(time.Second)
+		for _, o := range f.open() {
+			if o.ID != tk.ID {
+				next = &o
+			}
+		}
+	}
+	if next == nil {
+		t.Fatal("no new ticket within 30 seconds of the queue emptying")
+	}
+	if next.Extra <= 0 || next.Limit != 60+next.Extra {
+		t.Errorf("after a fast clear the next ticket has limit %v, extra %v; want a head start on 60s", next.Limit, next.Extra)
+	}
+	if next.Extra > 30 {
+		t.Errorf("head start %v is more than half the ticket's limit", next.Extra)
+	}
+}
+
+func TestASlowClearGivesNoHeadStart(t *testing.T) {
+	b := testBank()
+	b.Stages[0].SpawnEvery = 600
+	f := newFake(t, b)
+	f.start(ModeArcade, "")
+	f.step(5 * time.Second)
+	f.step(time.Second)
+	tk := f.open()[0]
+	f.step(40 * time.Second) // well past half of the 60s limit
+	f.solved[tk.setupID] = true
+	f.step(11 * time.Second)
+	f.step(time.Second)
+	for i := 0; i < 32; i++ {
+		f.step(time.Second)
+	}
+	open := f.open()
+	if len(open) != 1 || open[0].ID == tk.ID {
+		t.Fatalf("want one new ticket within 30 seconds, have %d", len(open))
+	}
+	if open[0].Extra != 0 || open[0].Limit != 60 {
+		t.Errorf("a slow clear gave a head start: limit %v, extra %v", open[0].Limit, open[0].Extra)
+	}
+}

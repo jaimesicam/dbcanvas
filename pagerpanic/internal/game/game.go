@@ -47,6 +47,12 @@ const (
 	maxPauses      = 3
 	firstSpawnAt   = 4 * time.Second
 	highScoreSlots = 10
+
+	// With no ticket left in play, the next one arrives within emptyQueueWait.
+	emptyQueueWait = 30 * time.Second
+	// A ticket cleared within fastClear of its time limit gives the next ticket a head
+	// start: half the time it left unused, up to half of the next ticket's own limit.
+	fastClear = 0.5
 )
 
 // Ticket is one drawn task.
@@ -62,7 +68,8 @@ type Ticket struct {
 	Boss       bool    `json:"boss,omitempty"`
 	Stage      int     `json:"stage"`
 	State      string  `json:"state"`
-	Limit      float64 `json:"limit"` // seconds; 0 is untimed
+	Limit      float64 `json:"limit"`           // seconds; 0 is untimed
+	Extra      float64 `json:"extra,omitempty"` // seconds of Limit that are a head start
 	Worker     string  `json:"worker,omitempty"`
 	Error      string  `json:"error,omitempty"`
 
@@ -126,6 +133,7 @@ type Game struct {
 	stageLost   int
 	bossSpawned bool
 	pauses      int
+	headStart   float64 // seconds the next ticket gets on top of its limit
 
 	lives      int
 	score      int
@@ -352,7 +360,7 @@ func (g *Game) Begin(mode, task string, seed int64) error {
 
 func (g *Game) resetRun() {
 	g.tickets, g.drawn, g.events = nil, map[string]int{}, nil
-	g.played, g.stage, g.stageLost, g.bossSpawned, g.pauses = 0, 0, 0, false, 0
+	g.played, g.stage, g.stageLost, g.bossSpawned, g.pauses, g.headStart = 0, 0, 0, false, 0, 0
 	g.score, g.streak, g.bestStreak, g.hintsUsed, g.catTurn = 0, 0, 0, 0, 0
 	g.outcome, g.newMedals, g.enterInitial, g.rank = "", nil, false, ""
 	for id, a := range g.actions {
@@ -765,10 +773,16 @@ func (g *Game) spawn(pt PublicTask) {
 	if g.mode == ModePractice {
 		limit = 0
 	}
+	extra := 0.0
+	if limit > 0 && g.headStart > 0 {
+		extra = math.Round(math.Min(g.headStart, limit*0.5))
+		limit += extra
+		g.headStart = 0
+	}
 	a := g.newAction("setup", func(a *Action) { a.Task, a.Seed = pt.ID, g.rng.Int63() })
 	tk := &Ticket{ID: a.ID, setupID: a.ID, TaskID: pt.ID, Title: pt.Title, Kind: pt.Kind, Category: pt.Category,
 		Difficulty: pt.Difficulty, Points: pt.Points, Boss: pt.Boss, Stage: g.stage + 1, State: TicketIncoming,
-		Limit: math.Round(limit), HintCosts: pt.Hints, locks: pt.Locks, blocks: pt.Blocks, needs: pt.Needs}
+		Limit: math.Round(limit), Extra: extra, HintCosts: pt.Hints, locks: pt.Locks, blocks: pt.Blocks, needs: pt.Needs}
 	g.tickets = append(g.tickets, tk)
 }
 
@@ -801,6 +815,9 @@ func (g *Game) setupDone(r Result) {
 	text := tk.Title
 	if tk.Boss {
 		text = "BOSS INCOMING · " + text
+	}
+	if tk.Extra > 0 {
+		text += fmt.Sprintf(" · +%.0fs HEAD START", tk.Extra)
 	}
 	g.emit(Event{Kind: "spawn", Text: text, Ticket: tk.ID})
 }
@@ -849,6 +866,9 @@ func (g *Game) clear(tk *Ticket) {
 	}
 	tk.Earned = earned
 	g.score += earned
+	if tk.Limit > 0 && tk.TookSecs <= tk.Limit*fastClear && g.inPlay() == 0 && g.mode != ModePractice {
+		g.headStart = (tk.Limit - tk.TookSecs) / 2
+	}
 	g.save.CategoryClears = addCount(g.save.CategoryClears, tk.Category)
 	g.saveDirty = true
 	text := "CLEARED · " + tk.Title
@@ -881,6 +901,13 @@ func (g *Game) close(tk *Ticket, state string) {
 	tk.closedAt = g.played
 	tk.TookSecs = math.Round((g.played - tk.openedAt).Seconds())
 	g.requestCleanup(tk)
+	// An empty queue does not wait out the stage's spawn gap.
+	if g.phase == PhasePlaying && g.mode != ModePractice && g.inPlay() == 0 {
+		soon := g.played + emptyQueueWait/2 + time.Duration(g.rng.Int63n(int64(emptyQueueWait/2)+1))
+		if soon < g.nextSpawn {
+			g.nextSpawn = soon
+		}
+	}
 }
 
 func (g *Game) requestCleanup(tk *Ticket) {
