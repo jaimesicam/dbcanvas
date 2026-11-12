@@ -36,7 +36,7 @@ RUN set -eux; \
       containerd conntrack socat ebtables iptables ipset kmod \
       iproute2 iputils-ping net-tools dnsutils \
       openssh-server openssh-client \
-      bash-completion vim-tiny less jq; \
+      bash-completion vim less jq; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
