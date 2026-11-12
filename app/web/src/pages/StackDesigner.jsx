@@ -21,6 +21,7 @@ import {
   LIVE_MEMBER_EXTRA, LIVE_NODE_EXTRA, TABLE_GAP, tableHeight, tableWidth, lbHeight, LB_MIN_W, footprints, countOverlaps, fixLayout,
 } from '../components/LiveCard.jsx'
 import { sendHandoff, useHandoff } from '../lib/handoff.js'
+import { stackGoneState, stackUnavailable, markStackDeleting, useStacksGone } from '../lib/stackGone.js'
 import { stackApi, templateApi, imageApi, mongoDownloadURL, k8sPods, isBuiltinTemplate, frameApi, patroniApi, k3dPGPromote, TTL_OPTIONS, DEPLOY_TONE, NODE_UPLOAD_DESTS, PRODUCT_OS_FAMILIES } from '../lib/stackApi.js'
 import { kindOf as aioKindOf, familyOf as aioFamilyOf } from '../lib/aioPorts.js'
 import { showEOL, showExperimental, visibleGroups } from '../lib/experimental.js'
@@ -592,7 +593,7 @@ export const NODE_TYPES = {
   // os/osVersion/arch. Its web UI port is published to the host like PMM's, so no
   // VNC desktop is needed.
   //
-  // ports:false, like Big Hole and unlike the simulators. A simulator's association
+  // ports:false, unlike the simulators. A simulator's association
   // line is load-bearing — its provisioner walks the edge graph to find the database
   // it drives — but this panel talks to nothing at deploy time, so a connector on it
   // offered a line that carried a hint and no wiring. What replaces it: if the stack
@@ -744,8 +745,8 @@ export const NODE_TYPES = {
 // a database rather than to be one. What they have in common on the canvas is a
 // load-bearing association line — their provisioner walks the edge graph to find the
 // database they drive — which is why the line gets a caption of its own ("app
-// connection"), and why the two panels that merely *display* data (Big Hole,
-// MClusterAdmin) are not in here: they carry no connector at all.
+// connection"), and why MClusterAdmin, a panel that merely *displays* data, is not in
+// here: it carries no connector at all.
 export const SIM_NODE_TYPES = new Set(['stocksim', 'ledgersim', 'supportsim', 'pgvectorsim', 'perfsim', 'pagerpanic'])
 
 // isReplEdge distinguishes the two kinds of line the canvas draws with one edge list: a
@@ -1591,9 +1592,18 @@ const STATUS_TONE = { draft: 'muted', deployed: 'success', expired: 'danger' }
 export default function StackDesigner() {
   const [stacks, setStacks] = useState([])
   const [templates, setTemplates] = useState([])
-  const [openId, setOpenId] = useState(null)
+  const [openId, setOpenIdRaw] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  // A stack being deleted, or found gone (lib/stackGone.js), cannot be opened: not from a
+  // row, a desktop icon's handoff, a Pager Panic page or a session being followed.
+  const setOpenId = useCallback((id) => {
+    if (id != null && stackUnavailable(id)) { setNotice('That stack has been deleted.'); return }
+    setNotice('')
+    setOpenIdRaw(id)
+  }, [])
+  const gone = useStacksGone()
 
   const load = useCallback(async () => {
     setError('')
@@ -1631,7 +1641,16 @@ export default function StackDesigner() {
     if (followStack !== undefined && followStack !== openId) setOpenId(followStack ?? null)
   }, [followStack]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (openId != null) {
+  // The open stack was deleted (here, in another tab, by the CLI or at expiry): back to the list.
+  useEffect(() => {
+    if (openId == null || !stackUnavailable(openId)) return
+    setOpenIdRaw(null)
+    setNotice('That stack has been deleted.')
+    load()
+  }, [openId, gone, load])
+  const listed = useMemo(() => stacks.filter((s) => stackGoneState(s.id) !== 'gone'), [stacks, gone])
+
+  if (openId != null && !stackUnavailable(openId)) {
     return (
       <StackEditor
         stackId={openId}
@@ -1644,10 +1663,11 @@ export default function StackDesigner() {
 
   return (
     <StackList
-      stacks={stacks}
+      stacks={listed}
       templates={templates}
       loading={loading}
       error={error}
+      notice={notice}
       onOpen={setOpenId}
       onCreated={(s) => setOpenId(s.id)}
       onChanged={load}
@@ -1791,7 +1811,7 @@ function ExpiryChip({ stack, onExtended }) {
   )
 }
 
-function StackList({ stacks, templates, loading, error, onOpen, onCreated, onChanged, onTemplatesChanged }) {
+function StackList({ stacks, templates, loading, error, notice, onOpen, onCreated, onChanged, onTemplatesChanged }) {
   const [showNew, setShowNew] = useState(false)
   const { user } = useAuth()
 
@@ -1808,6 +1828,7 @@ function StackList({ stacks, templates, loading, error, onOpen, onCreated, onCha
       </div>
 
       {error && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-sm text-danger">{error}</div>}
+      {notice && <div className="rounded-lg border bg-surface2 px-3 py-2 text-sm text-muted">{notice}</div>}
 
       {loading ? (
         <div className="py-10 text-center text-muted">Loading…</div>
@@ -1870,6 +1891,7 @@ function StackTable({ stacks, isAdmin, me, onOpen, onChanged }) {
   const [sort, setSort] = useState({ key: 'expires', dir: 1 })
   const [picked, setPicked] = useState(() => new Set())
   const [bulk, setBulk] = useState('')
+  const [delErr, setDelErr] = useState('')
   const [usage, setUsage] = useState({}) // stack id → { cpu, mem }
 
   const loadUsage = useCallback(() => dashApi.stats().then((d) => {
@@ -1912,6 +1934,7 @@ function StackTable({ stacks, isAdmin, me, onOpen, onChanged }) {
   const showOwner = isAdmin && whose === 'all'
   const runBulk = async (what, fn) => {
     setBulk(what)
+    if (what === 'delete') sel.forEach((s) => markStackDeleting(s.id))
     for (const s of sel) { try { await fn(s) } catch { /* the reload shows what stuck */ } }
     setBulk('')
     if (what === 'delete') setPicked(new Set())
@@ -1972,6 +1995,7 @@ function StackTable({ stacks, isAdmin, me, onOpen, onChanged }) {
         {chip('errors', 'With errors', 'danger')}
       </div>
 
+      {delErr && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-sm text-danger">Delete failed — {delErr}</div>}
       <div className="ui-card overflow-x-auto rounded-2xl border bg-surface">
         <table className="w-full border-collapse whitespace-nowrap text-sm">
           <thead>
@@ -1998,12 +2022,14 @@ function StackTable({ stacks, isAdmin, me, onOpen, onChanged }) {
               const use = usage[s.id]
               const eng = stackEngines(s.types)
               const on = picked.has(s.id)
+              // Being torn down: still listed, so the delete is seen to happen, but not openable.
+              const dying = stackGoneState(s.id) === 'deleting'
               return (
-                <tr key={s.id} onDoubleClick={() => onOpen(s.id)}
-                  className={`border-t ${on ? 'bg-primary/10' : errs(s) ? 'bg-danger/5 hover:bg-danger/10' : 'hover:bg-surface2/70'}`}>
+                <tr key={s.id} onDoubleClick={() => { if (!dying) onOpen(s.id) }} aria-disabled={dying || undefined}
+                  className={`border-t ${dying ? 'opacity-50' : on ? 'bg-primary/10' : errs(s) ? 'bg-danger/5 hover:bg-danger/10' : 'hover:bg-surface2/70'}`}>
                   <td className="px-3 py-2"><input type="checkbox" aria-label={`Select ${s.name}`} checked={on} onChange={() => toggle(s.id)} /></td>
                   <td className="px-3 py-2">
-                    <button type="button" onClick={() => onOpen(s.id)} className="text-left">
+                    <button type="button" disabled={dying} onClick={() => onOpen(s.id)} className="text-left disabled:cursor-default">
                       <span className="block font-semibold text-fg hover:text-primary">{s.name}</span>
                       <span className="block text-xs text-muted">{ttlLabel(s.ttl)} lifetime</span>
                     </button>
@@ -2014,7 +2040,7 @@ function StackTable({ stacks, isAdmin, me, onOpen, onChanged }) {
                       <span className="flex items-center gap-2"><Avatar avatar={s.ownerAvatar} name={s.owner} size={22} /> <span className="text-fg/90">{s.owner || '—'}</span></span>
                     </td>
                   )}
-                  <td className="px-3 py-2"><Badge tone={STATUS_TONE[s.status] || 'muted'}>{s.status}</Badge></td>
+                  <td className="px-3 py-2">{dying ? <Badge tone="muted">deleting…</Badge> : <Badge tone={STATUS_TONE[s.status] || 'muted'}>{s.status}</Badge>}</td>
                   <td className="px-3 py-2 text-right tabular-nums">
                     <span className="font-medium">{s.status === 'draft' ? s.nodes?.total ?? 0 : `${s.nodes?.running ?? 0}/${s.nodes?.total ?? 0}`}</span>
                     {errs(s) && <span className="block text-xs font-medium text-danger">{s.nodes.error} error{s.nodes.error === 1 ? '' : 's'}</span>}
@@ -2048,9 +2074,12 @@ function StackTable({ stacks, isAdmin, me, onOpen, onChanged }) {
                   </td>
                   <td className="px-2 py-1">
                     <span className="flex items-center justify-end gap-1">
-                      <Button size="sm" variant="outline" onClick={() => onOpen(s.id)}>Open</Button>
-                      <ConfirmButton size="sm" variant="ghost" title="Delete stack (tears down containers)" confirmLabel="Delete?"
-                        onConfirm={async () => { await stackApi.remove(s.id); onChanged() }}>
+                      <Button size="sm" variant="outline" disabled={dying} onClick={() => onOpen(s.id)}>Open</Button>
+                      <ConfirmButton size="sm" variant="ghost" disabled={dying} title="Delete stack (tears down containers)" confirmLabel="Delete?"
+                        onConfirm={async () => {
+                          try { await stackApi.remove(s.id) } catch (e) { setDelErr(`${s.name}: ${e.message}`) }
+                          onChanged()
+                        }}>
                         <Icon.Trash size={16} />
                       </ConfirmButton>
                     </span>
@@ -2619,11 +2648,9 @@ export function podMenuEntries(pods, onPick) {
 // BuildImageRow is the offer to build a missing node image, under the validation
 // error that named it.
 //
-// It exists because of the split in `make images`: that command builds the operating
-// system bases and the Intranet, and every optional image on top of them is another
-// (`make extra-images`), so a stack can be designed against an image nobody has built
-// yet — including the Intranet, whose build `make images` reports and tolerates
-// rather than failing a first run over. Sending somebody to a terminal in
+// It exists because `make images` reports a failed image and carries on rather than
+// failing a first run over it, so a stack can be designed against an image nobody has
+// built yet. Sending somebody to a terminal in
 // a checkout is a poor answer when DBCanvas is already talking to the daemon that
 // would do the build — so an admin can do it here, and everyone else is told the
 // target that does it.
@@ -3149,6 +3176,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
   // nodes (the server rejects it too). Option/position edits stay live. Cleared once
   // every node finishes provisioning.
   const deploying = busy === 'deploy' || deployments.some((d) => d.state === 'pending' || d.state === 'provisioning')
+  const expired = stack?.status === 'expired'
 
   // A redeploy leaves running and stopped nodes alone (app/deploypreview.go), so on a built stack
   // whose canvas adds, removes and repairs nothing, Deploy does nothing — and said only "Deploy".
@@ -4666,7 +4694,8 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       setDeployPreview(null)
       const r = await stackApi.deploy(stack.id)
       setDeployments(r.deployments || [])
-      setStack((p) => ({ ...p, status: 'deployed' }))
+      // An expired stack's lifetime starts over with the deploy (app/intranet.go renewExpiredStack).
+      setStack((p) => ({ ...p, status: 'deployed', ...(r.ttl ? { ttl: r.ttl, expiresAt: r.expiresAt ?? null } : {}) }))
       setDeployPanel('open')
     } catch (err) {
       setError(err.message)
@@ -5362,9 +5391,11 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
           </Hint>
           {/* deploying, not just busy: a deploy started from the CLI or another tab, or one whose
               POST has returned, is still provisioning — and the server refuses a second with a 409. */}
-          <Hint text={deploying ? 'Locked while deploying' : pendingChanges === 0 ? HELP.uiDeployUpToDate : HELP.uiDeploy}>
-            <Button size="sm" variant={pendingChanges === 0 ? 'outline' : undefined} disabled={!!busy || deploying || nodes.length === 0 || locked || pendingChanges === 0} onClick={() => runDeploy(false)}>
-              <Icon.Arrow size={15} /> {deploying ? 'Deploying…' : pendingChanges === 0 ? 'Up to date' : pendingChanges > 0 ? `Deploy ${pendingChanges} change${pendingChanges === 1 ? '' : 's'}` : 'Deploy'}
+          {/* An expired stack was torn down at the end of its lifetime; deploying it builds it afresh and
+              starts that lifetime over (app/intranet.go renewExpiredStack). The poll flips this when it is reaped. */}
+          <Hint text={expired ? `This stack expired and was torn down. Deploying builds it again from this design, with no data from before, and starts a new ${ttlLabel(stack.ttl).toLowerCase()} lifetime.` : deploying ? 'Locked while deploying' : pendingChanges === 0 ? HELP.uiDeployUpToDate : HELP.uiDeploy}>
+            <Button size="sm" variant={pendingChanges === 0 && !expired ? 'outline' : undefined} disabled={!!busy || deploying || nodes.length === 0 || locked || (pendingChanges === 0 && !expired)} onClick={() => runDeploy(false)}>
+              <Icon.Arrow size={15} /> {expired ? `Redeploy (restarts ${ttlLabel(stack.ttl)})` : deploying ? 'Deploying…' : pendingChanges === 0 ? 'Up to date' : pendingChanges > 0 ? `Deploy ${pendingChanges} change${pendingChanges === 1 ? '' : 's'}` : 'Deploy'}
             </Button>
           </Hint>
           {(deployments.length > 0 || stack.status === 'deployed') && (
@@ -16441,22 +16472,6 @@ function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, p
       }
       // frames: the Kubernetes clusters on the canvas decide which kubectl this node installs.
       return <LinuxClientForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} dep={dep} deployed={deployed} frames={frames} />
-    }
-    // A Big Hole node, from a design saved before Big Hole became an install option on MongoDB
-    // nodes and the Linux Client: say so, and offer the one thing left to do with it.
-    if (n.type === 'bighole') {
-      return (
-        <div className="space-y-3">
-          <span className="text-sm font-semibold">{n.label}</span>
-          <div className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
-            Big Hole is now an install option on a MongoDB node or cluster and on the Linux Client, not a node of
-            its own. Delete this node and turn it on there; the stack will not deploy while it is on the canvas.
-          </div>
-          <Button variant="danger" size="sm" className="w-full" onClick={() => deleteNode(n.id)}>
-            <Icon.Trash size={16} /> Delete node
-          </Button>
-        </div>
-      )
     }
     // MClusterAdmin node — the MongoDB administration panel.
     if (n.type === 'mclusteradmin') {

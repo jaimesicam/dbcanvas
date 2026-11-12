@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Icon } from '../components/Icons.jsx'
 import { Window } from '../wm/WindowManager.jsx'
 import { stackApi, DEPLOY_TONE } from '../lib/stackApi.js'
+import { stackUnavailable, useStacksGone } from '../lib/stackGone.js'
 import { dashApi } from '../lib/dashApi.js'
 import { nodeWebLinks } from '../lib/nodeLinks.js'
 import { sendHandoff, nudgeHandoff } from '../lib/handoff.js'
@@ -56,7 +57,10 @@ export function useStacks() {
     addEventListener('focus', on)
     return () => { clearInterval(t); clearTimeout(deb); removeEventListener('dbcanvas:invalidate', on); removeEventListener('focus', on) }
   }, [load])
-  return [stacks, load]
+  // A stack being deleted, or found gone, leaves the desktop now rather than at the next poll.
+  const gone = useStacksGone()
+  const shown = useMemo(() => stacks.filter((s) => !stackUnavailable(s.id)), [stacks, gone])
+  return [shown, load]
 }
 
 // PopMenu is a right-click menu at a point. An entry is { label, onClick } or

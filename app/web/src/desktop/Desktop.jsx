@@ -4,6 +4,7 @@ import { Icon } from '../components/Icons.jsx'
 import { toneTile } from '../components/ui.jsx'
 import { Window, useWindowManager, useWindowApi } from '../wm/WindowManager.jsx'
 import { StackIcons, StackFolder, useStacks } from './Stacks.jsx'
+import { stackUnavailable } from '../lib/stackGone.js'
 
 // Desktop.jsx — DBCanvas as a desktop (lib/shellMode.js picks it; it is the default).
 //
@@ -136,7 +137,10 @@ export function DesktopSurface({ nav, onOpen }) {
   const showStacks = nav.some((n) => n.id === 'stack-designer')
   const [stacks] = useStacks()
   const [folders, setFolders] = useState([])
+  // useStacks hands back a new list when a stack is deleted or found gone: its folder closes.
+  useEffect(() => { setFolders((fs) => (fs.some((f) => stackUnavailable(f.id)) ? fs.filter((f) => !stackUnavailable(f.id)) : fs)) }, [stacks])
   const openFolder = (st) => {
+    if (stackUnavailable(st.id)) return
     setFolders((fs) => (fs.some((f) => f.id === st.id) ? fs : [...fs, st]))
     setTimeout(() => api.focus(`stackfolder:${st.id}`), 0)
   }
@@ -175,7 +179,7 @@ export function DesktopSurface({ nav, onOpen }) {
         })}
       </div>
       {showStacks && <StackIcons stacks={stacks} onOpenFolder={openFolder} onOpen={onOpen} />}
-      {folders.map((st) => (
+      {folders.filter((st) => !stackUnavailable(st.id)).map((st) => (
         <StackFolder key={st.id} stack={stacks.find((x) => x.id === st.id) || st} onOpen={onOpen}
           onClose={() => setFolders((fs) => fs.filter((f) => f.id !== st.id))} />
       ))}

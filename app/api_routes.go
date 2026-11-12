@@ -390,7 +390,7 @@ func buildAPIRoutes() []apiRoute {
 		{Method: "DELETE", Path: "/api/stacks/{id}/design/edges/{eid}", Group: gStacks, Handler: m((*App).handleDesignDeleteEdge),
 			Summary: "Remove a line from the design; what the provisioners resolved through it changes on the next deploy."},
 		{Method: "POST", Path: "/api/stacks/{id}/deploy", Group: gStacks, Handler: m((*App).handleDeployStack),
-			Summary: "Provision every node in the design. Returns at once; watch the deployments for progress."},
+			Summary: "Provision every node in the design. Returns at once; watch the deployments for progress. On an expired stack, its lifetime starts over first."},
 		{Method: "POST", Path: "/api/stacks/{id}/destroy", Group: gStacks, Handler: m((*App).handleDestroyStack),
 			Summary: "Cancel any deploy in flight and remove every container or VM the stack created."},
 

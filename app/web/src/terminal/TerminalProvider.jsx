@@ -7,6 +7,7 @@ import { useSettings } from '../settings/SettingsProvider.jsx'
 import { useSession } from '../session/SessionProvider.jsx'
 import { shareApi } from '../lib/shareApi.js'
 import { Window, useWindowManager, useTaskbarItem } from '../wm/WindowManager.jsx'
+import { stackUnavailable } from '../lib/stackGone.js'
 
 // A top-level terminal manager. Because the provider (and its dock) live above
 // the page switch, xterm instances + their WebSockets stay mounted across
@@ -131,6 +132,8 @@ export function TerminalProvider({ children }) {
   // ({ namespace, name, container, shell } — see app/k3dpods.go). Same socket, same
   // protocol; the server decides what to exec.
   const openTerminal = useCallback(({ stackId, nodeId, title, user, pod }) => {
+    // A stack being deleted, or already gone, has no node to open a console on (lib/stackGone.js).
+    if (stackUnavailable(stackId)) return
     const sh = shareRef.current
     if (sh.active) {
       if (!sh.isDriver && !sh.isHost) {

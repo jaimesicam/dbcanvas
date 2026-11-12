@@ -1,6 +1,8 @@
 // Stack Designer API wrapper. Same conventions as lib/api.js: same-origin JSON,
 // cookies ride along, throws Error with .status on non-2xx.
 
+import { markStackDeleting, markStackGone, clearStackGone, noteStackError } from './stackGone.js'
+
 async function request(method, path, body) {
   const opts = {
     method,
@@ -101,7 +103,8 @@ export const stackApi = {
   // that template's design itself rather than taking a copy from here.
   // defaultName stands in for an empty name; the server numbers it to the first free one.
   create: (name, ttl, design, templateId, defaultName) => request('POST', '/api/stacks', { name, ttl, design, templateId, defaultName }),
-  get: (id) => request('GET', `/api/stacks/${id}`),
+  // A 404 here means the stack was deleted elsewhere; everything showing it is told (lib/stackGone.js).
+  get: (id) => request('GET', `/api/stacks/${id}`).catch((e) => { noteStackError(id, e); throw e }),
   // live is the canvas's Live view: per running node, container figures plus the
   // replication role and data size its engine reports (app/livestate.go).
   live: (id) => request('GET', `/api/stacks/${id}/live`),
@@ -112,7 +115,19 @@ export const stackApi = {
   alertSummary: () => request('GET', '/api/alerts/summary'),
   extend: (id, by) => request('POST', `/api/stacks/${id}/extend`, { by }),
   update: (id, name, design) => request('PUT', `/api/stacks/${id}`, { name, design }),
-  remove: (id) => request('DELETE', `/api/stacks/${id}`),
+  // The stack stops being openable the moment its delete is sent, not at the next poll.
+  remove: async (id) => {
+    markStackDeleting(id)
+    try {
+      const r = await request('DELETE', `/api/stacks/${id}`)
+      markStackGone(id)
+      return r
+    } catch (e) {
+      if (e.status === 404) markStackGone(id)
+      else clearStackGone(id)
+      throw e
+    }
+  },
   setLabels: (id, labels) => request('PUT', `/api/stacks/${id}/labels`, { labels }),
   validate: (id) => request('POST', `/api/stacks/${id}/validate`),
   deploy: (id) => request('POST', `/api/stacks/${id}/deploy`),

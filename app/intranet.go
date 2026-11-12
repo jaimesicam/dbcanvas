@@ -1680,10 +1680,6 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			}
 			_, hostMem := a.engCtx(ctx).HostResources(ctx)
 			out = append(out, aioIssues(n, doc, exportReq, hostMem)...)
-		case "bighole":
-			// No longer a node type: Big Hole is an install option on MongoDB nodes and the
-			// Linux Client (bighole.go, IMPLEMENTATION.md 525).
-			out = append(out, issue{Level: "error", Message: "Big Hole node " + n.Label + " is no longer supported — delete it, and turn on Big Hole on a MongoDB node or cluster, or on a Linux Client, instead"})
 		case "mclusteradmin":
 			others++
 			// Nothing to check, and no image check either: the panel runs upstream's
@@ -2509,6 +2505,14 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, why)
 		return
 	}
+	// An expired stack was torn down at the end of its lifetime. Deploying it again starts that
+	// lifetime over, before anything is built: left past its expiry, the reaper (stacks.go)
+	// would tear the new build straight down.
+	if st.Status == StackExpired {
+		if !a.renewExpiredStack(w, &st, u) {
+			return
+		}
+	}
 	a.stackEvent(st, "deploying", "", u.Username)
 
 	var doc designDoc
@@ -2836,7 +2840,45 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 	a.notifyStack(st.ID, "stack.deploying", "info", "Deployment started",
 		"Provisioning "+st.Name+" — you'll be notified of any node failures.", "")
 	out, _ := a.store.ListDeployments(st.ID)
-	writeJSON(w, http.StatusAccepted, map[string]any{"deployments": out})
+	writeJSON(w, http.StatusAccepted, map[string]any{"deployments": out, "ttl": st.TTL, "expiresAt": st.ExpiresAt})
+}
+
+// renewExpiredStack gives an expired stack its lifetime again, counted from now: its own TTL,
+// held to the owner's security group's longest (grouppolicy.go). It answers the request
+// itself when it cannot.
+func (a *App) renewExpiredStack(w http.ResponseWriter, st *Stack, u User) bool {
+	ttl := st.TTL
+	if policy, _ := a.ownerPolicy(*st); policy.MaxTTL != "" {
+		if ok, _ := policy.ttlAllowed(ttl); !ok {
+			ttl = policy.MaxTTL
+		}
+	}
+	var exp *string
+	if ttl != ttlInfinity {
+		dur, ok := ttlDurations[ttl]
+		if !ok {
+			writeErr(w, http.StatusInternalServerError, "the stack's lifetime "+ttl+" is not one DBCanvas knows")
+			return false
+		}
+		e := time.Now().Add(dur).UTC().Format(time.RFC3339)
+		exp = &e
+	}
+	if err := a.store.SetStackExpiry(st.ID, ttl, exp); err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to renew the stack's lifetime")
+		return false
+	}
+	if err := a.store.SetStackStatus(st.ID, StackDraft); err != nil {
+		writeErr(w, http.StatusInternalServerError, "failed to renew the stack")
+		return false
+	}
+	st.TTL, st.ExpiresAt, st.Status = ttl, exp, StackDraft
+	expiryWarned.Delete(st.ID) // warn again before the new end
+	what := "never expires"
+	if exp != nil {
+		what = "expires " + *exp
+	}
+	a.recordStackEvent(st.ID, "", "action", "info", "Expired stack redeployed; lifetime started over: "+what, "", u.Username)
+	return true
 }
 
 // provisionIntranet records the deployment and starts an async provisioning
