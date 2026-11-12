@@ -12,6 +12,8 @@ type Save struct {
 	Medals         map[string]Medal `json:"medals,omitempty"`
 	Runs           []RunSummary     `json:"runs,omitempty"`
 	CategoryClears map[string]int   `json:"categoryClears,omitempty"`
+	// SetupSecs is how long each task's setup takes on this cluster (a running average).
+	SetupSecs map[string]float64 `json:"setupSecs,omitempty"`
 }
 
 type HighScore struct {
@@ -100,6 +102,7 @@ type View struct {
 	Multiplier float64      `json:"multiplier"`
 	Pauses     int          `json:"pausesLeft"`
 	Tickets    []TicketView `json:"tickets"`
+	Next       *NextView    `json:"next,omitempty"`
 	Events     []Event      `json:"events"`
 	Seq        int          `json:"seq"`
 
@@ -107,6 +110,19 @@ type View struct {
 	HighScores   []HighScore `json:"highScores"`
 	Medals       []MedalView `json:"medals"`
 	EnterInitial bool        `json:"enterInitials,omitempty"`
+}
+
+// NextView is the next ticket while none is open: drawn in In seconds ("waiting"), or
+// being set up on the cluster ("setup"). Progress (0..1) is an estimate from how long
+// setups of the task took before.
+type NextView struct {
+	Stage    string  `json:"stage"`
+	Title    string  `json:"title,omitempty"`
+	In       float64 `json:"in"`
+	SetupFor float64 `json:"setupFor"`
+	SetupEst float64 `json:"setupEst"`
+	Cleaning int     `json:"cleaning"`
+	Progress float64 `json:"progress"`
 }
 
 type TaskInfo struct {
@@ -136,6 +152,9 @@ type TicketView struct {
 	Checking  bool          `json:"checking"`
 	Checks    []CheckResult `json:"checks,omitempty"`
 	Monitor   *MonitorInfo  `json:"monitor,omitempty"`
+	// While it is being set up: seconds so far, and seconds it usually takes.
+	SetupFor float64 `json:"setupFor,omitempty"`
+	SetupEst float64 `json:"setupEst,omitempty"`
 }
 
 type MedalView struct {
@@ -236,21 +255,29 @@ func (g *Game) View(since int) View {
 				continue
 			}
 			tv := TicketView{Ticket: tk, Remaining: math.Max(0, g.remaining(tk)), Checking: tk.checkID != ""}
+			if tk.State == TicketIncoming {
+				tv.SetupFor = math.Round(math.Max(0, g.now().Sub(tk.spawnedAt).Seconds()))
+				tv.SetupEst = math.Round(g.setupEstimate(tk.TaskID))
+			}
 			if tk.Monitor != nil {
 				m := *tk.Monitor
 				m.Age = math.Round(g.now().Sub(tk.pageAt).Seconds())
 				tv.Monitor = &m
 			}
 			tv.Hints = append([]string(nil), tk.hints[:min(tk.HintsBought, len(tk.hints))]...)
-			// A guard is a hint in disguise until it fails, so it shows only then.
+			// A guard is a hint in disguise until it fails, so it shows only then. What a
+			// check wants is the answer (a ticket that asks for a pod's name wants that
+			// name), so it stays out of play; the debrief shows it.
 			for _, c := range tk.Checks {
 				if !c.Guard || !c.OK {
+					c.Want = ""
 					tv.Checks = append(tv.Checks, c)
 				}
 			}
 			v.Tickets = append(v.Tickets, tv)
 		}
 	}
+	v.Next = g.next()
 	for id, m := range g.save.Medals {
 		mv := MedalView{ID: id, Title: m.Title, Why: m.Why, At: m.At}
 		for _, n := range g.newMedals {

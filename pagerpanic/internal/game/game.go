@@ -55,6 +55,8 @@ const (
 	fastClear = 0.5
 	// A cleared ticket stays in view this long, with its app as the fix left it.
 	clearLinger = 5 * time.Second
+	// A setup the game has not timed yet is expected to take this long.
+	setupGuess = 30 * time.Second
 )
 
 // Ticket is one drawn task.
@@ -100,6 +102,8 @@ type Ticket struct {
 	page      *MonitorPage
 	pageAt    time.Time
 	clearedAt time.Time // wall time, for clearLinger
+	spawnedAt time.Time // wall time its setup was asked for
+	spawnPlay time.Duration
 }
 
 // MonitorInfo is what the page needs to draw a ticket's app pane; Rev changes whenever
@@ -148,6 +152,7 @@ type Game struct {
 	played      time.Duration
 	lastTick    time.Time
 	nextSpawn   time.Duration
+	waitFrom    time.Duration // played time the queue last emptied
 	stage       int
 	stageLost   int
 	bossSpawned bool
@@ -382,7 +387,7 @@ func (g *Game) Begin(mode, task string, seed int64) error {
 
 func (g *Game) resetRun() {
 	g.tickets, g.drawn, g.events = nil, map[string]int{}, nil
-	g.played, g.stage, g.stageLost, g.bossSpawned, g.pauses, g.headStart = 0, 0, 0, false, 0, 0
+	g.played, g.stage, g.stageLost, g.bossSpawned, g.pauses, g.headStart, g.waitFrom = 0, 0, 0, false, 0, 0, 0
 	g.score, g.streak, g.bestStreak, g.hintsUsed, g.catTurn = 0, 0, 0, 0, 0
 	g.outcome, g.newMedals, g.enterInitial, g.rank = "", nil, false, ""
 	for id, a := range g.actions {
@@ -804,7 +809,8 @@ func (g *Game) spawn(pt PublicTask) {
 	a := g.newAction("setup", func(a *Action) { a.Task, a.Seed = pt.ID, g.rng.Int63() })
 	tk := &Ticket{ID: a.ID, setupID: a.ID, TaskID: pt.ID, Title: pt.Title, Kind: pt.Kind, Category: pt.Category,
 		Difficulty: pt.Difficulty, Points: pt.Points, Boss: pt.Boss, Stage: g.stage + 1, State: TicketIncoming,
-		Limit: math.Round(limit), Extra: extra, HintCosts: pt.Hints, locks: pt.Locks, blocks: pt.Blocks, needs: pt.Needs}
+		Limit: math.Round(limit), Extra: extra, HintCosts: pt.Hints, locks: pt.Locks, blocks: pt.Blocks, needs: pt.Needs,
+		spawnedAt: g.now(), spawnPlay: g.played}
 	g.tickets = append(g.tickets, tk)
 }
 
@@ -827,6 +833,7 @@ func (g *Game) setupDone(r Result) {
 		return
 	}
 	tk.State, tk.Worker = TicketOpen, r.Worker
+	g.timeSetup(tk.TaskID, g.now().Sub(tk.spawnedAt))
 	tk.Title, tk.Brief = r.View.Title, r.View.Brief
 	tk.hints, tk.solution, tk.explain = r.View.Hints, r.View.Solution, r.View.Explain
 	if len(tk.hints) < len(tk.HintCosts) {
@@ -859,6 +866,89 @@ func (g *Game) setPage(tk *Ticket, p *MonitorPage) {
 	}
 	tk.page, tk.pageAt = p, g.now()
 	tk.Monitor = &MonitorInfo{Title: p.Title, URL: p.URL, Status: p.Status, OK: p.OK, Error: p.Error, Rev: rev}
+}
+
+// timeSetup remembers how long a task's setup took, as a running average, so the next
+// one's progress can be estimated.
+func (g *Game) timeSetup(task string, d time.Duration) {
+	if task == "" || d <= 0 {
+		return
+	}
+	if g.save.SetupSecs == nil {
+		g.save.SetupSecs = map[string]float64{}
+	}
+	secs := d.Seconds()
+	if old, ok := g.save.SetupSecs[task]; ok {
+		secs = 0.6*old + 0.4*secs
+	}
+	g.save.SetupSecs[task] = math.Round(secs*10) / 10
+	g.saveDirty = true
+}
+
+// setupEstimate is how long a task's setup is expected to take: its own average, else
+// the average of the tasks timed so far, else setupGuess.
+func (g *Game) setupEstimate(task string) float64 {
+	if v, ok := g.save.SetupSecs[task]; ok && v > 0 {
+		return v
+	}
+	sum, n := 0.0, 0
+	for _, v := range g.save.SetupSecs {
+		sum, n = sum+v, n+1
+	}
+	if n > 0 {
+		return sum / float64(n)
+	}
+	return setupGuess.Seconds()
+}
+
+// next is what the player sees while no ticket is open: the next one being drawn and
+// set up on the cluster, with an estimate of how far along that is.
+func (g *Game) next() *NextView {
+	if g.phase != PhasePlaying && g.phase != PhasePaused {
+		return nil
+	}
+	var incoming *Ticket
+	nv := &NextView{}
+	for _, tk := range g.tickets {
+		switch {
+		case tk.State == TicketOpen:
+			return nil
+		case tk.State == TicketIncoming && incoming == nil:
+			incoming = tk
+		}
+		if tk.cleanID != "" && !tk.cleaned {
+			nv.Cleaning++
+		}
+	}
+	from := g.waitFrom
+	var waitTotal, waited float64
+	if incoming != nil {
+		nv.Stage = "setup"
+		nv.Title = incoming.Title
+		nv.SetupFor = math.Max(0, g.now().Sub(incoming.spawnedAt).Seconds())
+		nv.SetupEst = g.setupEstimate(incoming.TaskID)
+		waitTotal = math.Max(0, (incoming.spawnPlay - from).Seconds())
+		waited = waitTotal
+	} else {
+		if g.mode == ModePractice {
+			return nil
+		}
+		nv.Stage = "waiting"
+		nv.In = math.Max(0, (g.nextSpawn - g.played).Seconds())
+		waitTotal = math.Max(0, (g.nextSpawn - from).Seconds())
+		waited = math.Min(waitTotal, math.Max(0, (g.played - from).Seconds()))
+		nv.SetupEst = g.setupEstimate("")
+	}
+	// A setup that runs past its estimate creeps on towards the end instead of stopping.
+	est := math.Max(nv.SetupEst, nv.SetupFor*1.15)
+	if total := waitTotal + est; total > 0 {
+		nv.Progress = math.Min(0.97, (waited+nv.SetupFor)/total)
+	}
+	nv.Progress = math.Round(nv.Progress*1000) / 1000
+	nv.SetupFor = math.Round(nv.SetupFor)
+	nv.SetupEst = math.Round(nv.SetupEst)
+	nv.In = math.Round(nv.In)
+	return nv
 }
 
 // lingering is a ticket cleared less than clearLinger ago, still shown as fixed.
@@ -958,6 +1048,9 @@ func (g *Game) close(tk *Ticket, state string) {
 	tk.closedAt = g.played
 	tk.TookSecs = math.Round((g.played - tk.openedAt).Seconds())
 	g.requestCleanup(tk)
+	if g.inPlay() == 0 {
+		g.waitFrom = g.played
+	}
 	// An empty queue does not wait out the stage's spawn gap.
 	if g.phase == PhasePlaying && g.mode != ModePractice && g.inPlay() == 0 {
 		soon := g.played + emptyQueueWait/2 + time.Duration(g.rng.Int63n(int64(emptyQueueWait/2)+1))

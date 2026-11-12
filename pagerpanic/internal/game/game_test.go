@@ -47,7 +47,7 @@ func (f *fake) step(d time.Duration) SyncResponse {
 				Monitor: f.page(a.ID)})
 		case "check":
 			results = append(results, Result{ID: a.ID, Op: a.Op, Done: true, OK: true, Instance: a.Instance,
-				Solved: f.solved[a.Instance], Checks: []CheckResult{{Name: "c", OK: f.solved[a.Instance]}}, Monitor: f.page(a.Instance)})
+				Solved: f.solved[a.Instance], Checks: []CheckResult{{Name: "c", OK: f.solved[a.Instance], Got: "nope", Want: "the answer"}}, Monitor: f.page(a.Instance)})
 		case "cleanup":
 			f.cleans[a.Instance] = true
 			results = append(results, Result{ID: a.ID, Op: a.Op, Done: true, OK: true, Instance: a.Instance})
@@ -463,5 +463,74 @@ func TestARestartedGameUsesNewActionIDs(t *testing.T) {
 			}
 			ids[id] = true
 		}
+	}
+}
+
+// While no ticket is open the view says the next one is coming, and how far along it is:
+// the wait for it to be drawn, then its setup, estimated from setups timed before.
+func TestTheNextTicketShowsItsProgress(t *testing.T) {
+	f := newFake(t, testBank())
+	f.start(ModeArcade, "")
+	tick := func(d time.Duration) *NextView {
+		f.clock = f.clock.Add(d)
+		f.g.Tick()
+		return f.g.View(0).Next
+	}
+	n0 := tick(0)
+	if n0 == nil || n0.Stage != "waiting" || n0.In != firstSpawnAt.Seconds() || n0.Progress != 0 {
+		t.Fatalf("at the start: %+v", n0)
+	}
+	n1 := tick(2 * time.Second)
+	if n1.In != 2 || n1.Progress <= 0 {
+		t.Errorf("two seconds in: %+v", n1)
+	}
+	n2 := tick(2 * time.Second) // the ticket is drawn; its setup is out on the cluster
+	if n2 == nil || n2.Stage != "setup" || n2.SetupEst != setupGuess.Seconds() || n2.Progress < n1.Progress {
+		t.Fatalf("once drawn: %+v (before %+v)", n2, n1)
+	}
+	n3 := tick(20 * time.Second)
+	if n3.SetupFor != 20 || n3.Progress <= n2.Progress || n3.Progress > 0.97 {
+		t.Errorf("twenty seconds into the setup: %+v", n3)
+	}
+	if n4 := tick(2 * time.Minute); n4 == nil || n4.Progress > 0.97 {
+		t.Errorf("a long setup reached the end: %+v", n4)
+	}
+	f.step(time.Second) // DBCanvas answers: the ticket opens
+	if v := f.g.View(0); v.Next != nil || len(f.open()) != 1 {
+		t.Fatalf("with a ticket open: next %+v, open %d", v.Next, len(f.open()))
+	}
+	task := f.open()[0].TaskID
+	if got := f.g.save.SetupSecs[task]; got < 140 {
+		t.Errorf("the setup was timed at %v seconds", got)
+	}
+	if est := f.g.setupEstimate("other"); est != f.g.save.SetupSecs[task] {
+		t.Errorf("an untimed task's estimate %v is not the average of the timed ones", est)
+	}
+}
+
+// What a check wants is the answer to the ticket, so play shows only what it got; the
+// debrief shows both.
+func TestPlayHidesWhatACheckWants(t *testing.T) {
+	f := newFake(t, testBank())
+	f.start(ModeArcade, "")
+	f.step(5 * time.Second)
+	f.step(11 * time.Second)
+	f.step(time.Second)
+	open := f.open()
+	if len(open) == 0 || len(open[0].Checks) != 1 {
+		t.Fatalf("an open ticket with its checks: %+v", open)
+	}
+	if c := open[0].Checks[0]; c.Want != "" || c.Got != "nope" {
+		t.Errorf("a check in play: %+v", c)
+	}
+	if err := f.g.Quit(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 5; i++ {
+		f.step(time.Second)
+	}
+	d := f.g.View(0).Debrief
+	if d == nil || len(d.Tickets) == 0 || len(d.Tickets[0].Wrong) != 1 || d.Tickets[0].Wrong[0].Want != "the answer" {
+		t.Errorf("the debrief: %+v", d)
 	}
 }

@@ -361,6 +361,7 @@ function renderPlay() {
   const box = $('tickets');
   const ids = new Set(S.tickets.map((t) => t.id));
   for (const el of [...box.children]) {
+    if (el.classList.contains('next-card')) continue;
     if (!ids.has(el.dataset.id)) { ticketBoxes[el.dataset.id] = el.getBoundingClientRect(); el.remove(); }
   }
   let red = 0, num = 0;
@@ -398,9 +399,23 @@ function renderPlay() {
     el.querySelector('.left').style.strokeDashoffset = String(169.6 * (1 - Math.max(0, Math.min(1, frac))));
     el.querySelector('.ring span').textContent = incoming ? '...' : (t.limit > 0 ? fmt(t.remaining) : '∞');
     el.querySelector('.t-title').innerHTML = incoming ? `<span class="ringing">INCOMING PAGE…</span>` : `<span class="muted">${n}</span> ${esc(t.title)}`;
+    let bar = el.querySelector('.t-prog');
+    if (incoming) {
+      if (!bar) { bar = document.createElement('div'); bar.className = 't-prog'; bar.innerHTML = '<i></i>'; el.appendChild(bar); }
+      const p = S.next && S.next.stage === 'setup' ? S.next.progress : incomingPrep(t).progress;
+      bar.firstChild.style.width = `${Math.max(3, Math.round(p * 100))}%`;
+    } else if (bar) bar.remove();
     el.querySelector('.t-meta').innerHTML = `${t.boss ? '<span class="chip boss">boss</span>' : ''}<span class="chip cat-${esc(t.category)}">${esc(catTitle(t.category))}</span><span class="chip">${esc(t.kind)}</span><span class="stars">${'★'.repeat(t.difficulty)}</span><span>${(t.points * (t.boss ? 3 : 1)).toLocaleString()} pts</span>${t.checking ? '<span class="muted">checking…</span>' : ''}`;
   });
-  if (!S.tickets.length) box.innerHTML = `<div class="quiet">All quiet… for now.</div>`;
+  // While the next ticket is still to be drawn, a card in the queue counts down to it.
+  let nc = box.querySelector('.next-card');
+  if (S.next && S.next.stage === 'waiting') {
+    if (!nc) { nc = document.createElement('div'); nc.className = 'next-card'; nc.innerHTML = '<b>NEXT PAGE</b><span></span><div class="t-prog"><i></i></div>'; box.appendChild(nc); }
+    nc.querySelector('span').textContent = S.next.in > 0 ? `in ${fmt(S.next.in)} · then set up on the cluster` : 'coming in now…';
+    nc.querySelector('.t-prog i').style.width = `${Math.max(3, Math.round(S.next.progress * 100))}%`;
+    if (box.lastChild !== nc) box.appendChild(nc);
+  } else if (nc) nc.remove();
+  if (!S.tickets.length && !nc) box.innerHTML = `<div class="quiet">All quiet… for now.</div>`;
   else box.querySelectorAll('.quiet').forEach((n) => n.remove());
   if (sel && !ids.has(sel)) sel = null;
   if (!sel) { const first = S.tickets.find((t) => t.state === 'open') || S.tickets.find((t) => t.state === 'cleared'); if (first) sel = first.id; }
@@ -414,6 +429,7 @@ function catTitle(id) { return (S.categories || []).find((c) => c.id === id)?.ti
 function renderDetail() {
   const d = $('detail');
   const t = S.tickets.find((x) => x.id === sel);
+  if ((!t || t.state === 'incoming') && (S.next || t)) { drawPrep(d, S.next || incomingPrep(t)); return; }
   if (!t) { d.dataset.key = ''; d.innerHTML = '<div class="empty">Tickets appear here. Pick one to read it.<br>Right-click a ticket for more ways in.</div>'; return; }
   if (t.state === 'cleared') {
     if (d.dataset.key === 'cleared:' + t.id) return;
@@ -423,13 +439,12 @@ function renderDetail() {
       <div class="fixed-note">✓ Fixed in ${fmt(t.took)}${t.earned ? ` · +${t.earned.toLocaleString()} pts` : ''}</div><ul class="checks">${checks}</ul>`;
     return;
   }
-  if (t.state === 'incoming') { d.dataset.key = ''; d.innerHTML = `<div class="empty"><span class="ringing">INCOMING PAGE…</span><br><br>The fault is being set up on the cluster.<br>Its clock starts when it lands.</div>`; return; }
   const m = t.monitor;
   const key = JSON.stringify([t.id, t.brief, t.hints, t.checks, t.checking, t.hintsBought, m && [m.ok, m.status, m.error]]);
   if (d.dataset.key === key) return;
   d.dataset.key = key;
   const nextCost = t.hintCosts && t.hintsBought < t.hintCosts.length ? t.hintCosts[t.hintsBought] : null;
-  const checks = (t.checks || []).map((c) => `<li class="${c.ok ? 'ok' : 'no'}"><span class="m">${c.ok ? 'OK' : 'XX'}</span><span>${esc(c.name)}${c.guard ? ' <span class="chip">rule</span>' : ''}</span>${c.ok ? '' : `<small>got ${esc(c.got)}${c.want ? ' · want ' + esc(c.want) : ''}</small>`}</li>`).join('');
+  const checks = (t.checks || []).map((c) => `<li class="${c.ok ? 'ok' : 'no'}"><span class="m">${c.ok ? 'OK' : 'XX'}</span><span>${esc(c.name)}${c.guard ? ' <span class="chip">rule</span>' : ''}</span>${c.ok ? '' : `<small>got ${esc(c.got)}</small>`}</li>`).join('');
   d.innerHTML = `<div class="d-head"><div><h4>${esc(t.title)}</h4>
     <div class="t-meta">${t.boss ? '<span class="chip boss">boss</span>' : ''}<span class="chip cat-${esc(t.category)}">${esc(catTitle(t.category))}</span><span class="chip">${esc(t.kind)}</span><span class="stars">${'★'.repeat(t.difficulty)}</span>${t.extra ? `<span class="chip ok">+${t.extra}s head start</span>` : ''}</div></div>
     ${m ? `<button class="app-chip ${m.ok ? 'ok' : 'bad'}" data-act="show-app" title="Show the app"><i></i>${esc(m.title)} · ${esc(appState(m))}</button>` : ''}</div>
@@ -442,6 +457,41 @@ function renderDetail() {
       <button class="btn small" data-act="give-up">GIVE UP</button>
       <button class="btn small" data-act="menu">MORE ▾</button>
     </div>`;
+}
+// incomingPrep is the preparing panel's model for one ticket being set up while others
+// are open (the game reports S.next only while none is).
+function incomingPrep(t) {
+  const est = Math.max(t.setupEst || 30, (t.setupFor || 0) * 1.15);
+  return { stage: 'setup', in: 0, setupFor: t.setupFor || 0, setupEst: t.setupEst || 30, cleaning: 0, progress: Math.min(0.97, (t.setupFor || 0) / est) };
+}
+// drawPrep shows the next ticket being prepared: a progress bar and what is happening
+// now, so a quiet stretch never looks like a hang. It is built once and then updated in
+// place, so the bar moves smoothly between polls.
+function drawPrep(d, n) {
+  if (d.dataset.key !== 'prep') {
+    d.dataset.key = 'prep';
+    d.innerHTML = `<div class="prep"><h4 class="prep-title">PREPARING THE NEXT TICKET</h4>
+      <div class="prep-bar"><i></i><span></span></div>
+      <ul class="prep-steps"></ul>
+      <p class="prep-note">The cluster is being set up for it; this takes a little while. Its clock starts when it lands.</p></div>`;
+  }
+  const pct = Math.round((n.progress || 0) * 100);
+  d.querySelector('.prep-bar i').style.width = `${Math.max(3, pct)}%`;
+  d.querySelector('.prep-bar span').textContent = `${pct}%`;
+  const left = Math.max(0, Math.round(n.setupEst - n.setupFor));
+  const steps = [];
+  if (n.cleaning) steps.push(['run', 'Removing the last fault from the cluster', '']);
+  if (n.stage === 'waiting') {
+    steps.push(['run', 'The next page comes in', n.in > 0 ? `in ${fmt(n.in)}` : 'now']);
+    steps.push(['wait', 'Set up its fault on the cluster', `about ${fmt(n.setupEst)}`]);
+  } else {
+    steps.push(['ok', 'The next page came in', '']);
+    steps.push(['run', 'Setting up its fault on the cluster', n.setupFor > n.setupEst ? `taking longer than usual · ${fmt(n.setupFor)}` : `about ${fmt(left)} left`]);
+  }
+  const mark = { ok: '✓', run: '<i class="spin-dot"></i>', wait: '·' };
+  const html = steps.map(([st, text, sub]) => `<li class="${st}"><span class="m">${mark[st]}</span><span>${esc(text)}</span><small>${esc(sub)}</small></li>`).join('');
+  const ul = d.querySelector('.prep-steps');
+  if (ul.innerHTML !== html) ul.innerHTML = html;
 }
 function appState(m) { return m.error ? 'DOWN' : (m.ok ? `UP · ${m.status}` : `HTTP ${m.status}`); }
 // brief joins the lines a YAML block wrapped, keeping blank lines and indented lines
