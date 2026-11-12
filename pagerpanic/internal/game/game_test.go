@@ -267,6 +267,10 @@ func TestPracticeIsUntimedAndOneTask(t *testing.T) {
 	f.step(11 * time.Second)
 	f.step(time.Second)
 	f.step(time.Second)
+	if v := f.g.View(0); v.Phase != PhaseEnding || len(v.Tickets) != 1 || v.Tickets[0].State != TicketCleared {
+		t.Errorf("the cleared practice ticket is not shown before the debrief: %s %+v", v.Phase, v.Tickets)
+	}
+	f.step(clearLinger)
 	if p := f.g.View(0).Phase; p != PhaseOver {
 		t.Errorf("phase %s after the practice ticket cleared", p)
 	}
@@ -407,6 +411,40 @@ func TestATicketsAppIsDownUntilItIsFixed(t *testing.T) {
 	}
 	if v := f.open()[0].Monitor; v == nil || !v.OK || v.Rev != 2 {
 		t.Errorf("the ticket's app in the view: %+v", v)
+	}
+}
+
+// A cleared ticket stays in view for clearLinger, its app as the fix left it, then goes.
+func TestAClearedTicketLingersWithItsApp(t *testing.T) {
+	f := newFake(t, testBank())
+	f.monitor = true
+	f.start(ModeArcade, "")
+	f.step(5 * time.Second)
+	f.step(time.Second)
+	tk := f.open()[0]
+	f.solved[tk.setupID] = true
+	f.step(11 * time.Second)
+	f.step(time.Second)
+	var got *TicketView
+	for _, v := range f.g.View(0).Tickets {
+		if v.ID == tk.ID {
+			got = &v
+		}
+	}
+	if got == nil || got.State != TicketCleared || got.Monitor == nil || !got.Monitor.OK {
+		t.Fatalf("the cleared ticket in the view: %+v", got)
+	}
+	if page, _, ok := f.g.Page(tk.ID); !ok || !page.OK {
+		t.Errorf("the cleared ticket's page: %+v %v", page, ok)
+	}
+	f.step(clearLinger)
+	for _, v := range f.g.View(0).Tickets {
+		if v.ID == tk.ID {
+			t.Errorf("the cleared ticket is still shown after %s", clearLinger)
+		}
+	}
+	if _, _, ok := f.g.Page(tk.ID); ok {
+		t.Error("the cleared ticket's page is still served")
 	}
 }
 

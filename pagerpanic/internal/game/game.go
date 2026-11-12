@@ -53,6 +53,8 @@ const (
 	// A ticket cleared within fastClear of its time limit gives the next ticket a head
 	// start: half the time it left unused, up to half of the next ticket's own limit.
 	fastClear = 0.5
+	// A cleared ticket stays in view this long, with its app as the fix left it.
+	clearLinger = 5 * time.Second
 )
 
 // Ticket is one drawn task.
@@ -97,6 +99,7 @@ type Ticket struct {
 	hintSpent int
 	page      *MonitorPage
 	pageAt    time.Time
+	clearedAt time.Time // wall time, for clearLinger
 }
 
 // MonitorInfo is what the page needs to draw a ticket's app pane; Rev changes whenever
@@ -858,12 +861,17 @@ func (g *Game) setPage(tk *Ticket, p *MonitorPage) {
 	tk.Monitor = &MonitorInfo{Title: p.Title, URL: p.URL, Status: p.Status, OK: p.OK, Error: p.Error, Rev: rev}
 }
 
-// Page is an open ticket's app as last fetched, for the page's browser pane.
+// lingering is a ticket cleared less than clearLinger ago, still shown as fixed.
+func (g *Game) lingering(tk *Ticket) bool {
+	return tk.State == TicketCleared && !tk.clearedAt.IsZero() && g.now().Sub(tk.clearedAt) < clearLinger
+}
+
+// Page is an open (or just cleared) ticket's app as last fetched, for the page's browser pane.
 func (g *Game) Page(id string) (MonitorPage, int, bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	tk := g.ticket(id)
-	if tk == nil || tk.page == nil || (tk.State != TicketOpen && tk.State != TicketIncoming) {
+	if tk == nil || tk.page == nil || (tk.State != TicketOpen && tk.State != TicketIncoming && !g.lingering(tk)) {
 		return MonitorPage{}, 0, false
 	}
 	return *tk.page, tk.Monitor.Rev, true
@@ -897,6 +905,7 @@ func (g *Game) checkDone(r Result) {
 
 func (g *Game) clear(tk *Ticket) {
 	g.close(tk, TicketCleared)
+	tk.clearedAt = g.now()
 	g.streak++
 	g.bestStreak = max(g.bestStreak, g.streak)
 	base := float64(tk.Points)
@@ -1016,6 +1025,9 @@ func (g *Game) endingTick(t time.Time) {
 		}
 		if !tk.cleaned && tk.State != TicketSkipped {
 			g.requestCleanup(tk)
+			waiting = true
+		}
+		if g.lingering(tk) {
 			waiting = true
 		}
 	}

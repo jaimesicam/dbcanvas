@@ -79,7 +79,22 @@
       </div>
     </header>
     <div class="field">
-      <div class="queue" id="tickets"></div>
+      <div class="side">
+        <div class="queue" id="tickets"></div>
+        <section class="browser hidden" id="appPane" aria-label="The ticket's app">
+          <div class="b-bar">
+            <span class="b-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            <button class="b-btn" id="appReload" title="Fetch it again (checks the ticket too)">⟳</button>
+            <div class="b-url"><span class="b-scheme">http://</span><span id="appUrl"></span></div>
+            <span class="b-status" id="appStatus"></span>
+          </div>
+          <div class="b-frame">
+            <iframe class="b-view" id="appView" sandbox="" referrerpolicy="no-referrer" title="The ticket's app"></iframe>
+            <div class="b-stamp" aria-hidden="true">FIXED ✓</div>
+          </div>
+          <div class="b-foot" id="appFoot"></div>
+        </section>
+      </div>
       <div class="desk" id="desk">
         <aside class="detail" id="detail">
           <div class="empty">Tickets appear here. Pick one to read it.</div>
@@ -90,16 +105,6 @@
           <div class="bench-body" id="benchBody">
             <div class="pane term-pane" id="termPane">
               <div class="launch" id="termLaunch"></div>
-            </div>
-            <div class="pane app-pane hidden" id="appPane">
-              <div class="b-bar">
-                <span class="b-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-                <button class="b-btn" id="appReload" title="Fetch it again (checks the ticket too)">⟳</button>
-                <div class="b-url"><span class="b-scheme">http://</span><span id="appUrl"></span></div>
-                <span class="b-status" id="appStatus"></span>
-              </div>
-              <iframe class="b-view" id="appView" sandbox="" referrerpolicy="no-referrer" title="The ticket's app"></iframe>
-              <div class="b-foot" id="appFoot"></div>
             </div>
           </div>
         </section>

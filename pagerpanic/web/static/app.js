@@ -249,7 +249,9 @@ async function poll() {
 
 function render() {
   const phase = S.phase;
-  const screen = { title: 'title', checking: 'check', ready: 'check', playing: 'play', paused: 'play', ending: 'over', over: 'over' }[phase] || 'title';
+  let screen = { title: 'title', checking: 'check', ready: 'check', playing: 'play', paused: 'play', ending: 'over', over: 'over' }[phase] || 'title';
+  // A ticket just cleared stays on the field for a few seconds, even when it ended the shift.
+  if (phase === 'ending' && (S.tickets || []).some((t) => t.state === 'cleared')) screen = 'play';
   for (const s of ['title', 'check', 'play', 'over']) $('screen-' + s).classList.toggle('hidden', s !== screen);
   $('pause').classList.toggle('hidden', phase !== 'paused');
   if (phase !== lastPhase) {
@@ -361,8 +363,8 @@ function renderPlay() {
   for (const el of [...box.children]) {
     if (!ids.has(el.dataset.id)) { ticketBoxes[el.dataset.id] = el.getBoundingClientRect(); el.remove(); }
   }
-  let red = 0;
-  S.tickets.forEach((t, i) => {
+  let red = 0, num = 0;
+  S.tickets.forEach((t) => {
     let el = box.querySelector(`.ticket[data-id="${CSS.escape(t.id)}"]`);
     if (!el) {
       el = document.createElement('button');
@@ -373,6 +375,19 @@ function renderPlay() {
     }
     const frac = t.limit > 0 ? t.remaining / t.limit : 1;
     const incoming = t.state === 'incoming';
+    const fixed = t.state === 'cleared';
+    if (fixed) {
+      if (!el.classList.contains('cleared')) {
+        el.className = 'ticket cleared' + (sel === t.id ? ' sel' : '');
+        el.querySelector('.left').style.strokeDashoffset = '0';
+        el.querySelector('.ring span').textContent = '✓';
+        el.querySelector('.t-title').innerHTML = `<span class="ok-tag">FIXED</span> ${esc(t.title)}`;
+        el.querySelector('.t-meta').innerHTML = `<span class="chip cat-${esc(t.category)}">${esc(catTitle(t.category))}</span>${t.earned ? `<span>+${t.earned.toLocaleString()} pts</span>` : ''}<span>in ${fmt(t.took)}</span>`;
+      }
+      el.classList.toggle('sel', sel === t.id);
+      return;
+    }
+    const n = ++num;
     el.classList.toggle('incoming', incoming);
     el.classList.toggle('boss', !!t.boss);
     el.classList.toggle('sel', sel === t.id);
@@ -382,15 +397,16 @@ function renderPlay() {
     if (!incoming && t.limit > 0 && t.remaining <= 30) red++;
     el.querySelector('.left').style.strokeDashoffset = String(169.6 * (1 - Math.max(0, Math.min(1, frac))));
     el.querySelector('.ring span').textContent = incoming ? '...' : (t.limit > 0 ? fmt(t.remaining) : '∞');
-    el.querySelector('.t-title').innerHTML = incoming ? `<span class="ringing">INCOMING PAGE…</span>` : `<span class="muted">${i + 1}</span> ${esc(t.title)}`;
+    el.querySelector('.t-title').innerHTML = incoming ? `<span class="ringing">INCOMING PAGE…</span>` : `<span class="muted">${n}</span> ${esc(t.title)}`;
     el.querySelector('.t-meta').innerHTML = `${t.boss ? '<span class="chip boss">boss</span>' : ''}<span class="chip cat-${esc(t.category)}">${esc(catTitle(t.category))}</span><span class="chip">${esc(t.kind)}</span><span class="stars">${'★'.repeat(t.difficulty)}</span><span>${(t.points * (t.boss ? 3 : 1)).toLocaleString()} pts</span>${t.checking ? '<span class="muted">checking…</span>' : ''}`;
   });
   if (!S.tickets.length) box.innerHTML = `<div class="quiet">All quiet… for now.</div>`;
   else box.querySelectorAll('.quiet').forEach((n) => n.remove());
   if (sel && !ids.has(sel)) sel = null;
-  if (!sel) { const first = S.tickets.find((t) => t.state === 'open'); if (first) sel = first.id; }
+  if (!sel) { const first = S.tickets.find((t) => t.state === 'open') || S.tickets.find((t) => t.state === 'cleared'); if (first) sel = first.id; }
   renderDetail();
   Bench.render();
+  App.render();
   const stageLevel = c.practicing ? 0.1 : (c.stage - 1) / Math.max(1, c.stages - 1);
   alarm(Math.min(1, stageLevel * 0.6 + red * 0.2));
 }
@@ -399,6 +415,14 @@ function renderDetail() {
   const d = $('detail');
   const t = S.tickets.find((x) => x.id === sel);
   if (!t) { d.dataset.key = ''; d.innerHTML = '<div class="empty">Tickets appear here. Pick one to read it.<br>Right-click a ticket for more ways in.</div>'; return; }
+  if (t.state === 'cleared') {
+    if (d.dataset.key === 'cleared:' + t.id) return;
+    d.dataset.key = 'cleared:' + t.id;
+    const checks = (t.checks || []).map((c) => `<li class="ok"><span class="m">OK</span><span>${esc(c.name)}</span></li>`).join('');
+    d.innerHTML = `<div class="d-head"><div><h4>${esc(t.title)}</h4><div class="t-meta"><span class="chip ok">fixed</span><span class="chip cat-${esc(t.category)}">${esc(catTitle(t.category))}</span></div></div></div>
+      <div class="fixed-note">✓ Fixed in ${fmt(t.took)}${t.earned ? ` · +${t.earned.toLocaleString()} pts` : ''}</div><ul class="checks">${checks}</ul>`;
+    return;
+  }
   if (t.state === 'incoming') { d.dataset.key = ''; d.innerHTML = `<div class="empty"><span class="ringing">INCOMING PAGE…</span><br><br>The fault is being set up on the cluster.<br>Its clock starts when it lands.</div>`; return; }
   const m = t.monitor;
   const key = JSON.stringify([t.id, t.brief, t.hints, t.checks, t.checking, t.hintsBought, m && [m.ok, m.status, m.error]]);
@@ -450,7 +474,7 @@ $('detail').addEventListener('click', async (ev) => {
   const b = ev.target.closest('button');
   if (!b) return;
   const act = b.dataset.act;
-  if (act === 'show-app') { Bench.show('app'); return; }
+  if (act === 'show-app') { App.nudge(); return; }
   if (act === 'menu') { const r = b.getBoundingClientRect(); menu(r.left, r.bottom + 4, sel); return; }
   if (act === 'give-up' && !(await confirmGiveUp())) return;
   if (act) await play({ do: act, ticket: sel }).catch(() => {});
@@ -478,11 +502,9 @@ const TERM_THEME = { background: '#0d081b', foreground: '#e9e4ff', cursor: '#39f
 
 const Bench = {
   sessions: [],  // {id, nodeId, host, n, term, fit, el, port, status}
-  tab: null,     // the shown tab: a session id, or 'app'
+  tab: null,     // the shown session's id
   count: 0,
-  // Terminal and app side by side: 'on', 'off', or '' for when the workbench is wide.
-  split: (() => { try { return localStorage.getItem('pp-split') || ''; } catch { return ''; } })(),
-  appTicket: '', appRev: 0, appFetching: false, lastKey: '', wasOK: {},
+  lastKey: '',
 
   // open shows the node's terminal, opening one if it has none (or always, with fresh).
   open(nodeId, fresh) {
@@ -566,40 +588,22 @@ const Bench = {
   render(force) {
     if (!S) return;
     const t = S.tickets.find((x) => x.id === sel && x.state === 'open');
-    const m = t?.monitor || null;
-    if (this.tab === 'app' && !m) this.tab = this.sessions[this.sessions.length - 1]?.id || null;
-    const w = $('bench').offsetWidth;
-    const wide = w >= 720;
-    const splitOn = this.split === 'on' || (this.split === '' && w >= 1000);
-    const split = !!m && splitOn && wide;
-    const showApp = !!m && (split || this.tab === 'app');
-    const termTab = this.tab === 'app' ? (split ? this.sessions[this.sessions.length - 1]?.id : null) : this.tab;
-    if (m && t) {
-      // Tell the player when the app comes back, or goes down.
-      const was = this.wasOK[t.id];
-      if (was === false && m.ok) { toast(`✓ ${m.title} is back up`); Sound.blip(); }
-      this.wasOK[t.id] = m.ok;
-    }
-    const key = JSON.stringify([this.tab, split, termTab, this.sessions.map((x) => [x.id, x.status]), m && [t.id, m.title, m.ok, m.status, m.error, m.rev, m.age, t.checking], (S.nodes || []).map((n) => n.nodeId), t?.worker]);
+    if (this.tab && !this.sessions.some((x) => x.id === this.tab)) this.tab = this.sessions[this.sessions.length - 1]?.id || null;
+    const termTab = this.tab;
+    const key = JSON.stringify([termTab, this.sessions.map((x) => [x.id, x.status]), (S.nodes || []).map((n) => n.nodeId), t?.worker]);
     if (!force && key === this.lastKey) return;
     this.lastKey = key;
 
     const star = (n) => (t && n.host === t.worker ? ' ★' : '');
-    const tabs = this.sessions.map((x) => `<button class="tab ${x.id === termTab || (x.id === this.tab) ? 'on' : ''}" data-tab="${x.id}" title="${esc(x.host)}"><span class="lamp ${x.status}"></span>${esc(x.host)}${x.n > 1 ? ' #' + x.n : ''}<span class="x" data-close="${x.id}" title="Close">×</span></button>`).join('');
+    const tabs = this.sessions.map((x) => `<button class="tab ${x.id === termTab ? 'on' : ''}" data-tab="${x.id}" title="${esc(x.host)}"><span class="lamp ${x.status}"></span>${esc(x.host)}${x.n > 1 ? ' #' + x.n : ''}<span class="x" data-close="${x.id}" title="Close">×</span></button>`).join('');
     const adds = inDBCanvas ? (S.nodes || []).map((n) => `<button class="add" data-add="${esc(n.nodeId)}" title="New terminal on ${esc(nodeLabel(n))}">+ ${esc(n.host)}${star(n)}</button>`).join('') : '';
-    const app = m ? `<button class="tab ${showApp ? 'on' : ''}" data-tab="app" title="${esc(m.url)}"><span class="lamp ${m.ok ? 'ok' : 'bad'}"></span>${esc(m.title)}</button>` : '';
-    const tools = `${m && wide ? `<button class="tool ${splitOn ? 'on' : ''}" data-split="1" title="Terminal and app side by side">⇆</button>` : ''}${termTab && inDBCanvas ? `<button class="tool" data-pop="${termTab}" title="Pop this terminal out into a DBCanvas window">⧉</button>` : ''}`;
-    $('benchTabs').innerHTML = `${tabs}${adds}<span class="spacer"></span>${app}${tools}`;
+    const tools = termTab && inDBCanvas ? `<button class="tool" data-pop="${termTab}" title="Pop this terminal out into a DBCanvas window">⧉</button>` : '';
+    $('benchTabs').innerHTML = `${tabs}${adds}<span class="spacer"></span>${tools}`;
 
-    $('bench').classList.toggle('split', split);
-    const termShown = split || this.tab !== 'app';
-    $('termPane').classList.toggle('hidden', !termShown);
-    $('appPane').classList.toggle('hidden', !showApp);
     for (const x of this.sessions) x.el.style.display = x.id === termTab ? '' : 'none';
     const launch = $('termLaunch');
-    launch.classList.toggle('hidden', !!termTab && this.sessions.some((x) => x.id === termTab));
-    if (!launch.classList.contains('hidden')) launch.innerHTML = this.launcher(t);
-    if (showApp) this.drawApp(t, m);
+    launch.classList.toggle('hidden', !!termTab);
+    if (!termTab) launch.innerHTML = this.launcher(t);
     requestAnimationFrame(() => this.fitAll());
   },
   launcher(t) {
@@ -613,25 +617,54 @@ const Bench = {
       <h5>OR FROM THE DOCKER HOST</h5>${docker}`;
   },
 
-  // drawApp fills the browser pane with the ticket's app as DBCanvas last fetched it.
-  drawApp(t, m) {
+};
+
+// App is the small browser under the queue: the selected ticket's app as DBCanvas last
+// fetched it from the cluster. When the fix lands it shakes, stamps FIXED, and stays up
+// with the working page until the game drops the ticket a few seconds later.
+const App = {
+  ticket: '', rev: 0, fetching: false, wasOK: {}, quaked: {},
+  render() {
+    const pane = $('appPane');
+    const t = S.tickets.find((x) => x.id === sel && (x.state === 'open' || x.state === 'cleared'));
+    const m = t?.monitor || null;
+    pane.classList.toggle('hidden', !m);
+    $('tickets').classList.toggle('with-app', !!m);
+    if (!m) return;
+    const fixed = t.state === 'cleared';
+    // Tell the player when the app comes back, or goes down.
+    const was = this.wasOK[t.id];
+    if (!fixed && was === false && m.ok) { toast(`✓ ${m.title} is back up`); Sound.blip(); }
+    this.wasOK[t.id] = m.ok;
+    pane.classList.toggle('fixed', fixed);
+    if (fixed && !this.quaked[t.id]) {
+      this.quaked[t.id] = true;
+      pane.classList.remove('quake'); void pane.offsetWidth; pane.classList.add('quake');
+    }
     $('appUrl').textContent = m.url.replace(/^https?:\/\//, '');
     const st = $('appStatus');
     st.textContent = m.error ? 'DOWN' : `${m.status}`;
     st.className = 'b-status ' + (m.ok ? 'ok' : 'bad');
     const rl = $('appReload');
-    rl.disabled = !!t.checking;
+    rl.disabled = fixed || !!t.checking;
     rl.classList.toggle('spin', !!t.checking);
-    $('appFoot').textContent = `Fetched from the cluster with every check · ${m.age < 2 ? 'just now' : m.age + 's ago'}${m.ok ? '' : ' · it comes back when the ticket is fixed'}`;
-    if (this.appTicket === t.id && this.appRev === m.rev) return;
-    if (this.appFetching) return;
-    this.appFetching = true;
-    const want = { id: t.id, rev: m.rev };
-    api('GET', 'api/monitor?ticket=' + encodeURIComponent(t.id)).then((d) => {
-      if (sel !== want.id) return;
-      this.appTicket = want.id; this.appRev = d.rev;
+    $('appFoot').textContent = fixed ? `${m.title} answers again · the fix is confirmed`
+      : `Fetched from the cluster with every check · ${m.age < 2 ? 'just now' : m.age + 's ago'}${m.ok ? '' : ' · it comes back when the ticket is fixed'}`;
+    if (this.ticket === t.id && this.rev === m.rev) return;
+    if (this.fetching) return;
+    this.fetching = true;
+    const want = t.id;
+    api('GET', 'api/monitor?ticket=' + encodeURIComponent(want)).then((d) => {
+      if (sel !== want) return;
+      this.ticket = want; this.rev = d.rev;
       $('appView').srcdoc = pageDoc(d.page);
-    }).catch(() => {}).finally(() => { this.appFetching = false; });
+    }).catch(() => {}).finally(() => { this.fetching = false; });
+  },
+  // nudge points the player at the browser (the app chip in the ticket).
+  nudge() {
+    const pane = $('appPane');
+    pane.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    pane.classList.remove('nudge'); void pane.offsetWidth; pane.classList.add('nudge');
   },
 };
 
@@ -661,22 +694,16 @@ function pageDoc(p) {
 }
 
 $('benchTabs').addEventListener('click', (ev) => {
-  const b = ev.target.closest('[data-close],[data-tab],[data-add],[data-split],[data-pop]');
+  const b = ev.target.closest('[data-close],[data-tab],[data-add],[data-pop]');
   if (!b) return;
   if (b.dataset.close) { ev.stopPropagation(); Bench.close(b.dataset.close); return; }
   if (b.dataset.tab) { Bench.show(b.dataset.tab); return; }
   if (b.dataset.add) { Bench.open(b.dataset.add, true); return; }
-  if (b.dataset.split) {
-    Bench.split = b.classList.contains('on') ? 'off' : 'on';
-    try { localStorage.setItem('pp-split', Bench.split); } catch { /* */ }
-    Bench.render(true);
-    return;
-  }
   if (b.dataset.pop) { const s = Bench.sessions.find((x) => x.id === b.dataset.pop); if (s) popOut(s.nodeId); }
 });
 $('benchTabs').addEventListener('auxclick', (ev) => {
   const b = ev.target.closest('[data-tab]');
-  if (ev.button === 1 && b && b.dataset.tab !== 'app') Bench.close(b.dataset.tab);
+  if (ev.button === 1 && b) Bench.close(b.dataset.tab);
 });
 $('termLaunch').addEventListener('click', (ev) => {
   const b = ev.target.closest('button');
@@ -692,31 +719,40 @@ new ResizeObserver(() => { Bench.render(true); }).observe($('bench'));
 
 // The grip between the ticket and the workbench; the workbench's height is remembered.
 (function grip() {
+  // The workbench's share of the desk, so it grows and shrinks with the window.
   const g = $('grip');
   const desk = $('desk');
-  const setH = (px) => {
-    const max = desk.clientHeight - 110;
-    const h = Math.max(150, Math.min(max, px));
-    $('bench').style.setProperty('--bench', `${h}px`);
-    return h;
+  const KEY = 'pp-bench-share';
+  const setShare = (px) => {
+    const total = desk.clientHeight;
+    if (!total) return null;
+    const h = Math.max(150, Math.min(total - 110, px));
+    const share = Math.round((h / total) * 1000) / 10;
+    $('bench').style.setProperty('--bench', `${share}%`);
+    return share;
   };
-  try { const h = Number(localStorage.getItem('pp-bench')); if (h) requestAnimationFrame(() => setH(h)); } catch { /* */ }
+  try {
+    localStorage.removeItem('pp-bench'); // the old setting, in pixels
+    const v = Number(localStorage.getItem(KEY));
+    if (v > 0 && v < 100) $('bench').style.setProperty('--bench', `${v}%`);
+  } catch { /* */ }
   g.addEventListener('pointerdown', (ev) => {
     ev.preventDefault();
     g.setPointerCapture(ev.pointerId);
     g.classList.add('drag');
     const bottom = desk.getBoundingClientRect().bottom;
-    const move = (e) => setH(bottom - e.clientY - 6);
-    const up = (e) => {
+    let share = null;
+    const move = (e) => { share = setShare(bottom - e.clientY - 6); };
+    const up = () => {
       g.classList.remove('drag');
       g.removeEventListener('pointermove', move);
       g.removeEventListener('pointerup', up);
-      try { localStorage.setItem('pp-bench', String(Math.round(bottom - e.clientY - 6))); } catch { /* */ }
+      try { if (share) localStorage.setItem(KEY, String(share)); } catch { /* */ }
     };
     g.addEventListener('pointermove', move);
     g.addEventListener('pointerup', up);
   });
-  g.addEventListener('dblclick', () => { $('bench').style.removeProperty('--bench'); try { localStorage.removeItem('pp-bench'); } catch { /* */ } });
+  g.addEventListener('dblclick', () => { $('bench').style.removeProperty('--bench'); try { localStorage.removeItem(KEY); } catch { /* */ } });
 })();
 
 // ---------------------------------------------------------------- the context menu
@@ -765,7 +801,7 @@ addEventListener('keydown', (ev) => {
   if (!S) return;
   if (k === 'p') play({ do: S.phase === 'paused' ? 'resume' : 'pause' }).catch(() => {});
   if (S.phase === 'playing' && ['1', '2', '3'].includes(k)) {
-    const t = S.tickets[Number(k) - 1];
+    const t = S.tickets.filter((x) => x.state !== 'cleared')[Number(k) - 1];
     if (t) { sel = t.id; Sound.blip(); renderPlay(); }
   }
   if (S.phase === 'playing' && k === 'h' && sel) play({ do: 'hint', ticket: sel }).catch(() => {});

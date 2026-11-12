@@ -12,6 +12,7 @@
   --panel: rgba(20, 13, 38, 0.86);
   --edge: #3b2a6b;
   --alarm: 0; /* 0 calm … 1 every light red; raised per stage */
+  --scan: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.18) 0 1px, transparent 1px 3px);
   --px: "Press Start 2P", "VT323", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
@@ -37,9 +38,13 @@ button { font: inherit; color: inherit; cursor: pointer; }
   repeating-linear-gradient(90deg, rgba(71, 200, 255, 0.07) 0 1px, transparent 1px 60px),
   repeating-linear-gradient(0deg, rgba(71, 200, 255, 0.07) 0 1px, transparent 1px 30px);
   transform: perspective(300px) rotateX(55deg); transform-origin: bottom; }
-.crt { position: fixed; inset: 0; z-index: 50; pointer-events: none; background:
-  repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.18) 0 1px, transparent 1px 3px);
+.crt { position: fixed; inset: 0; z-index: 50; pointer-events: none; background: var(--scan);
   mix-blend-mode: multiply; }
+/* While playing, the lines sit behind the field: the ticket text, the browser and the
+   terminals stay sharp. The HUD and the ticket cards keep lines of their own. */
+body:has(#screen-play:not(.hidden)) .crt { z-index: 0; }
+.hud, .ticket { position: relative; }
+.hud::after, .ticket::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: var(--scan); mix-blend-mode: multiply; }
 body.lights-out .room { filter: brightness(0.15) saturate(0.3); transition: filter 3s; }
 
 main { position: relative; z-index: 1; min-height: 100vh; display: flex; justify-content: center; }
@@ -142,8 +147,10 @@ h3 { font-size: 14px; color: var(--cool); margin: 28px 0 10px; align-self: flex-
 @keyframes bump { 40% { transform: scale(1.35); color: var(--good); } }
 
 /* ---------------------------------------------------------------- the field */
-.field { display: grid; grid-template-columns: clamp(250px, 24vw, 340px) minmax(0, 1fr); gap: 14px; width: 100%; min-height: 0; }
-.queue { display: flex; flex-direction: column; gap: 12px; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 4px 10px 10px 4px; margin: -4px 0 0 -4px; }
+.field { display: grid; grid-template-columns: clamp(280px, 30vw, 460px) minmax(0, 1fr); gap: 14px; width: 100%; min-height: 0; }
+.side { display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; }
+.queue { display: flex; flex-direction: column; gap: 12px; min-height: 0; flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; padding: 4px 10px 10px 4px; margin: -4px 0 0 -4px; }
+.queue.with-app { flex: 0 1 auto; max-height: 46%; }
 .queue .quiet { color: var(--dim); text-align: center; margin-top: 80px; }
 .ticket { position: relative; display: grid; grid-template-columns: 56px 1fr; gap: 12px; align-items: center; background: var(--panel); flex: none;
   border: 3px solid var(--edge); padding: 10px 12px; box-shadow: 5px 5px 0 #05030a; cursor: pointer; animation: drop 0.45s cubic-bezier(.2, 1.6, .4, 1); text-align: left; width: 100%; }
@@ -154,6 +161,11 @@ h3 { font-size: 14px; color: var(--cool); margin: 28px 0 10px; align-self: flex-
 .ticket.amber { border-color: var(--warn); }
 .ticket.red { border-color: var(--bad); animation: pulse 0.6s infinite; }
 .ticket.shake { animation: shake 0.25s infinite; border-color: var(--bad); }
+.ticket.cleared { border-color: var(--good); background: linear-gradient(135deg, rgba(57, 255, 182, 0.16), var(--panel)); animation: fadeaway 5s forwards; }
+.ticket.cleared .ring .left { stroke: var(--good); }
+.ticket.cleared .ring span { color: var(--good); font-size: 18px; }
+.ticket .ok-tag { font: 10px var(--px); color: var(--good); }
+@keyframes fadeaway { 0% { transform: scale(1.04); } 8% { transform: none; } 82% { opacity: 1; } 100% { opacity: 0.25; } }
 @keyframes drop { 0% { transform: translateY(-40px) scale(0.6); opacity: 0; } 100% { transform: none; opacity: 1; } }
 @keyframes pulse { 50% { box-shadow: 5px 5px 0 #05030a, 0 0 24px rgba(255, 77, 77, 0.7); } }
 @keyframes shake { 25% { transform: translate(-2px, 1px) rotate(-0.6deg); } 75% { transform: translate(2px, -1px) rotate(0.6deg); } }
@@ -193,6 +205,7 @@ h3 { font-size: 14px; color: var(--cool); margin: 28px 0 10px; align-self: flex-
 .checks li.ok .m { color: var(--good); }
 .checks li.no .m { color: var(--bad); }
 .checks li small { grid-column: 2; color: var(--dim); word-break: break-word; }
+.detail .fixed-note { margin: 12px 0; padding: 10px 12px; border: 2px solid #145c45; background: rgba(57, 255, 182, 0.08); color: var(--good); font: 12px var(--px); }
 .detail .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .app-chip { display: inline-flex; align-items: center; gap: 6px; background: #0d081b; border: 2px solid var(--edge); padding: 3px 9px; font-size: 12px; color: var(--ink); }
 .app-chip i { width: 9px; height: 9px; border-radius: 50%; background: var(--dim); }
@@ -204,7 +217,7 @@ h3 { font-size: 14px; color: var(--cool); margin: 28px 0 10px; align-self: flex-
 .grip { flex: none; height: 12px; cursor: row-resize; position: relative; touch-action: none; }
 .grip::after { content: ""; position: absolute; left: 50%; top: 4px; width: 56px; height: 4px; margin-left: -28px; background: var(--edge); border-radius: 2px; }
 .grip:hover::after, .grip.drag::after { background: var(--cool); }
-.bench { flex: none; height: var(--bench, 58%); min-height: 150px; max-height: calc(100% - 108px); display: flex; flex-direction: column; background: #0d081b; border: 3px solid var(--edge); box-shadow: 5px 5px 0 #05030a; }
+.bench { flex: none; height: var(--bench, 64%); min-height: 150px; max-height: calc(100% - 108px); display: flex; flex-direction: column; background: #0d081b; border: 3px solid var(--edge); box-shadow: 5px 5px 0 #05030a; }
 .tabs { display: flex; align-items: stretch; gap: 2px; background: var(--bg2); border-bottom: 2px solid var(--edge); min-height: 34px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
 .tabs button { background: none; border: 0; border-right: 1px solid #241a45; color: var(--dim); padding: 0 10px; font-size: 12px; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
 .tabs button:hover { color: var(--ink); background: #1b1235; }
@@ -222,8 +235,6 @@ h3 { font-size: 14px; color: var(--cool); margin: 28px 0 10px; align-self: flex-
 .tabs .tool.on { color: var(--cool); }
 .bench-body { flex: 1; min-height: 0; display: flex; }
 .pane { position: relative; min-width: 0; min-height: 0; flex: 1; }
-.bench.split .term-pane { flex: 1.35; }
-.bench.split .app-pane { border-left: 3px solid var(--edge); }
 .term-host { position: absolute; inset: 0; padding: 6px 4px 4px 8px; }
 .term-host .xterm { height: 100%; }
 .term-host .xterm-viewport { scrollbar-width: thin; }
@@ -240,8 +251,18 @@ h3 { font-size: 14px; color: var(--cool); margin: 28px 0 10px; align-self: flex-
 .launch .who { flex: none; width: 110px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .launch .cmd button { background: none; border: 1px solid var(--edge); color: var(--cool); font-size: 11px; padding: 3px 8px; }
 
-/* The app pane is a small browser: what DBCanvas last fetched from the cluster. */
-.app-pane { display: flex; flex-direction: column; }
+/* The browser under the queue: what DBCanvas last fetched from the cluster. */
+.browser { flex: 1 1 0; min-height: 220px; display: flex; flex-direction: column; background: #fff; border: 3px solid var(--edge); box-shadow: 5px 5px 0 #05030a; overflow: hidden; }
+.browser.fixed { border-color: var(--good); box-shadow: 5px 5px 0 #05030a, 0 0 26px rgba(57, 255, 182, 0.45); }
+.browser.quake { animation: quake 0.6s; }
+.browser.nudge { animation: nudge 0.8s; }
+@keyframes quake { 10%, 90% { transform: translate(-2px, 1px) rotate(-0.4deg); } 20%, 80% { transform: translate(4px, -2px) rotate(0.6deg); } 30%, 50%, 70% { transform: translate(-6px, 3px) rotate(-0.8deg); } 40%, 60% { transform: translate(6px, -3px) rotate(0.8deg); } }
+@keyframes nudge { 30% { border-color: var(--cool); box-shadow: 5px 5px 0 #05030a, 0 0 22px rgba(71, 200, 255, 0.6); } }
+.b-frame { position: relative; flex: 1; min-height: 0; display: flex; }
+.b-stamp { position: absolute; z-index: 2; right: 14px; top: 14px; font: 13px var(--px); color: #0f7a4f; border: 3px solid #15925f; padding: 6px 10px; background: rgba(255, 255, 255, 0.9);
+  transform: rotate(-6deg); letter-spacing: 0.06em; opacity: 0; pointer-events: none; }
+.browser.fixed .b-stamp { opacity: 1; transform: rotate(-6deg); animation: stamp 0.85s; }
+@keyframes stamp { 0%, 40% { opacity: 0; transform: rotate(-6deg) scale(2.4); } 100% { opacity: 1; transform: rotate(-6deg) scale(1); } }
 .b-bar { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: #e8e6ef; border-bottom: 1px solid #c9c5d6; color: #2a2540; }
 .b-dots { display: inline-flex; gap: 5px; } .b-dots i { width: 10px; height: 10px; border-radius: 50%; background: #ff5f57; } .b-dots i:nth-child(2) { background: #febc2e; } .b-dots i:nth-child(3) { background: #28c840; }
 .b-btn { background: none; border: 0; color: #2a2540; font-size: 16px; width: 26px; height: 24px; border-radius: 4px; padding: 0; }
@@ -259,12 +280,11 @@ h3 { font-size: 14px; color: var(--cool); margin: 28px 0 10px; align-self: flex-
 @media (max-width: 860px), (max-height: 520px) {
   #screen-play { height: auto; min-height: 100vh; }
   .field { grid-template-columns: 1fr; }
-  .queue { max-height: none; overflow: visible; }
+  .queue, .queue.with-app { max-height: none; overflow: visible; }
+  .browser { flex: none; height: 360px; }
   .detail { flex: none; max-height: none; }
   .grip { display: none; }
   .bench { height: 420px !important; }
-  .bench.split .bench-body { flex-direction: column; }
-  .bench.split .app-pane { border-left: 0; border-top: 3px solid var(--edge); }
 }
 
 /* ---------------------------------------------------------------- overlays and effects */

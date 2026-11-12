@@ -232,7 +232,7 @@ func (g *Game) View(since int) View {
 	}
 	if g.phase == PhasePlaying || g.phase == PhasePaused || g.phase == PhaseEnding {
 		for _, tk := range g.tickets {
-			if tk.State != TicketOpen && tk.State != TicketIncoming {
+			if tk.State != TicketOpen && tk.State != TicketIncoming && !g.lingering(tk) {
 				continue
 			}
 			tv := TicketView{Ticket: tk, Remaining: math.Max(0, g.remaining(tk)), Checking: tk.checkID != ""}
