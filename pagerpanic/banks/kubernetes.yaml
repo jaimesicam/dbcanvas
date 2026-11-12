@@ -172,7 +172,7 @@ tasks:
     difficulty: 2
     time_limit: 7m
     requires: [calico]
-    needs: [scheduling, controllers, dns]
+    needs: [scheduling, controllers, dns, unmanaged-pods]
     vars: {ns: "arcade-net-{{rand 4}}"}
     setup:
       - run: |
@@ -234,7 +234,7 @@ tasks:
           EOF
           pp_wait 60 kubectl -n {{ns}} exec frontend -- wget -qO- -T 3 http://backend
     cleanup:
-      - run: kubectl delete ns {{ns}} --ignore-not-found --wait=false
+      - run: kubectl delete ns {{ns}} --ignore-not-found --wait=true --timeout=90s || true
 
   # ------------------------------------------------------------------ troubleshooting
 
@@ -571,7 +571,7 @@ tasks:
     category: troubleshooting
     difficulty: 1
     time_limit: 5m
-    needs: [scheduling, controllers]
+    needs: [scheduling, controllers, unmanaged-pods]
     vars:
       ns: "arcade-flaky-{{rand 4}}"
       file: "/opt/arcade/flaky-{{rand 4}}.txt"
@@ -607,7 +607,7 @@ tasks:
     cleanup:
       - run: |
           rm -f {{file}}
-          kubectl delete ns {{ns}} --ignore-not-found --wait=false
+          kubectl delete ns {{ns}} --ignore-not-found --wait=true --timeout=90s || true
 
   # ------------------------------------------------------------------ cluster
 
@@ -711,8 +711,12 @@ tasks:
       - {cost: 50, text: "The server certificate and key are server.crt and server.key; the CA is ca.crt."}
     check:
       - name: "{{file}} is a valid etcd snapshot"
-        run: etcdutl snapshot status {{file}} -w simple >/dev/null 2>&1 || ETCDCTL_API=3 etcdctl snapshot status {{file}} >/dev/null 2>&1
-        expect: {exit: 0}
+        # etcdctl 3.6+ has no snapshot status (it prints its help and exits 0), so
+        # etcdutl reads the file where it exists, and the check wants its key count.
+        run: |
+          if command -v etcdutl >/dev/null; then etcdutl snapshot status {{file}} -w json
+          else ETCDCTL_API=3 etcdctl snapshot status {{file}} -w json; fi 2>&1
+        expect: {contains: '"totalKey"'}
     solution: |
       ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 \
         --cacert=/etc/kubernetes/pki/etcd/ca.crt \
@@ -736,6 +740,9 @@ tasks:
     time_limit: 6m
     requires: ["workers>=2"]
     locks: [worker-node, cordon]
+    # A pod with no controller stops kubectl drain; tasks that run bare pods need
+    # unmanaged-pods, so drain is never drawn while one of theirs is on a worker.
+    blocks: [unmanaged-pods]
     needs: [scheduling, controllers]
     vars: {ns: "arcade-maint-{{rand 4}}"}
     setup:
@@ -992,7 +999,7 @@ tasks:
     category: workloads
     difficulty: 2
     time_limit: 7m
-    needs: [scheduling]
+    needs: [scheduling, unmanaged-pods]
     vars:
       ns: "arcade-conf-{{rand 4}}"
       mode: "{{pick blue green amber}}"
@@ -1053,7 +1060,7 @@ tasks:
           EOF
           kubectl -n {{ns}} wait --for=condition=Ready pod/worker --timeout=120s
     cleanup:
-      - run: kubectl delete ns {{ns}} --ignore-not-found --wait=false
+      - run: kubectl delete ns {{ns}} --ignore-not-found --wait=true --timeout=90s || true
 
   - id: pin-to-ssd
     title: "Run the cache only on SSD nodes"
@@ -1158,7 +1165,7 @@ tasks:
     category: workloads
     difficulty: 3
     time_limit: 8m
-    needs: [scheduling]
+    needs: [scheduling, unmanaged-pods]
     vars: {ns: "arcade-side-{{rand 4}}"}
     setup:
       - run: kubectl create ns {{ns}}
@@ -1220,7 +1227,7 @@ tasks:
           kubectl -n {{ns}} wait --for=condition=Ready pod/logger --timeout=120s
           sleep 5
     cleanup:
-      - run: kubectl delete ns {{ns}} --ignore-not-found --wait=false
+      - run: kubectl delete ns {{ns}} --ignore-not-found --wait=true --timeout=90s || true
 
   - id: taint-left-behind
     title: "Nothing schedules on the workers"
@@ -1349,7 +1356,7 @@ tasks:
     difficulty: 2
     time_limit: 6m
     requires: ["workers>=2"]
-    needs: [scheduling]
+    needs: [scheduling, unmanaged-pods]
     vars:
       ns: "arcade-pvc-{{rand 4}}"
       pv: "arcade-pv-{{rand 5}}"
@@ -1429,7 +1436,7 @@ tasks:
     category: storage
     difficulty: 2
     time_limit: 7m
-    needs: [scheduling]
+    needs: [scheduling, unmanaged-pods]
     vars:
       ns: "arcade-up-{{rand 4}}"
       pv: "arcade-uploads-{{rand 5}}"
