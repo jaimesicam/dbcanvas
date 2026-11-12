@@ -10,18 +10,13 @@
 # Each image installs systemd (PID 1) plus net-tools, the OpenLDAP client,
 # sysstat, percona-release and percona-toolkit (see images/*.Dockerfile).
 #
-# THE BASES AND NOTHING ELSE — this script. `make images` runs it and then bakes the
-# Intranet on top (images/service.sh intranet), because the Intranet is the DNS and
-# the CA every other node in a stack is built against, not an optional extra.
-#
-# Everything that IS optional — the Ubuntu VNC desktop, the Big Hole FTDC viewer, the
-# K3D collector and the demo applications — is `make extra-images`
-# (images/service.sh, images/apps.sh). They used to be built from
-# here, which made a first run one long command whose failures were mostly other
-# people's networks: an npm registry, a GitHub clone, a Percona repo. The split is so
-# that the thing every stack needs is quick and reliable, and the rest is asked for
-# separately — including from DBCanvas itself, where an admin can build a missing one
-# from the web interface (app/extraimages.go).
+# THE BASES AND NOTHING ELSE — this script. `make images` runs it first and then builds
+# everything on top of the bases: the Intranet, VNC desktop, K3D collector and Kubeadm node
+# (images/service.sh) and the demo applications (images/apps.sh). Those are separate scripts
+# so each can be rebuilt on its own (`make vnc-image`, `make stocksim-image`, …), and so a
+# failure in one — they reach npm, GitHub and Percona's repositories — is reported without
+# losing the bases. An admin can also build a missing one from the web interface
+# (app/extraimages.go).
 #
 # Successful builds are recorded in images.yaml at the repo root; that file drives
 # an OS/version picker for creating container instances later. A build may fail
@@ -120,9 +115,9 @@ echo ""
 echo "=================================================================="
 echo "Recorded ${#SUCCESS[@]} successful build(s) → ${OUT}"
 echo ""
-echo "These are the operating-system bases. For the images a node needs on top of"
-echo "them — Intranet, VNC desktop, Big Hole, the K3D collector and the demo"
-echo "applications — run: make extra-images"
+echo "These are the operating-system bases; \`make images\` builds the images a node"
+echo "needs on top of them next (Intranet, VNC desktop, K3D collector, Kubeadm node and"
+echo "the demo applications)."
 echo ""
 echo "versions.yaml is untouched: the version pickers keep the catalog they had. If an"
 echo "OS image is new here, or you want newer package versions offered, run:"

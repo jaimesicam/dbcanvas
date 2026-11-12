@@ -13,7 +13,7 @@ CLI_PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 # Where `make cli` installs this machine's build as dbcanvas-cli; empty = build only.
 CLI_INSTALL_DIR ?= $(HOME)/.local/bin
 
-.PHONY: doctor tag release-notes github-release pull-images publish-images install-pull install install-extras adopt-images compose env build up down logs restart rotate-key clean images extra-images versions smoke cli cli-test supportsim-image stocksim-image ledgersim-image perfsim-image pagerpanic-image intranet-image vnc-image kubeadm-image
+.PHONY: doctor tag release-notes github-release pull-images publish-images install-pull install adopt-images compose env build up down logs restart rotate-key clean images versions smoke cli cli-test supportsim-image stocksim-image ledgersim-image perfsim-image pagerpanic-image intranet-image vnc-image kubeadm-image
 
 ## doctor: check the host side — Docker, compose, buildx, disk, .env passwords and exposure, the
 ## node images, whether the app answers. `dbcanvas-cli doctor` checks the installation itself.
@@ -35,13 +35,13 @@ release-notes:
 github-release:
 	@bash scripts/release.sh publish $(VERSION)
 
-## pull-images: pull this release's node images (the systemd bases and the extra images) from
+## pull-images: pull this release's node images (the systemd bases, the images baked on them
+## and the demo applications) from
 ## IMAGE_REGISTRY (default ghcr.io/jaimesicam) instead of building them, and write images.yaml.
 pull-images:
 	@bash scripts/registry.sh pull
 
 ## install-pull: a first install from pulled images — minutes instead of `make images`' hour.
-## The demo application images are still built from source (make extra-images) when wanted.
 install-pull: env pull-images compose
 
 ## publish-images: push this release's locally built node images to IMAGE_REGISTRY. This
@@ -49,9 +49,9 @@ install-pull: env pull-images compose
 publish-images:
 	@bash scripts/registry.sh push
 
-## install: everything a first run needs — every image DBCanvas can build (the OS
-## bases and the Intranet, then the optional ones on top: the VNC desktop, the K3D
-## collector, the Big Hole FTDC viewer and the six demo apps), then DBCanvas itself.
+## install: everything a first run needs — every image a node can need (`make images`:
+## the OS bases, the Intranet, VNC desktop, K3D collector and Kubeadm node, and the five
+## demo applications), then DBCanvas itself.
 ## Safe to re-run; `make compose` alone is enough once the images exist.
 ##
 ## `make versions` is deliberately NOT part of this. It starts a container and queries
@@ -63,28 +63,9 @@ publish-images:
 ## pickers are populated the moment DBCanvas comes up. Run `make versions` when you want
 ## it refreshed — newly released minors, or an OS image that was not in the matrix before.
 ##
-## The optional half runs through install-extras rather than extra-images so that a
-## failure in somebody else's npm registry, GitHub or Percona repo cannot stop a
-## first run from ending with DBCanvas up: what failed is reported here, said again
-## at Validate by the node that needs it, and can be retried from the web interface
-## or the per-image target. `make extra-images` on its own still fails loudly.
-install: images install-extras compose
-
-## install-extras: the optional images, built the way `make install` wants them —
-## every one of them, and a failure reported rather than fatal. Not the target to
-## use by hand; that is `make extra-images`.
-install-extras:
-	@bash images/service.sh all || { \
-	  echo ""; \
-	  echo "  Some images above did not build — DBCanvas will still start, and only the"; \
-	  echo "  node types that need them are affected."; \
-	  echo "  Retry with 'make extra-images', or from the Build button DBCanvas shows at Validate."; \
-	}
-	@bash images/apps.sh || { \
-	  echo ""; \
-	  echo "  Some demo application images did not build — the rest of DBCanvas is unaffected."; \
-	  echo "  Retry with 'make extra-images' or the per-app target (e.g. 'make stocksim-image')."; \
-	}
+## A failed image does not stop it: `make images` reports what failed, Validate says it
+## again at the node that needs it, and it can be retried from there or its own target.
+install: images compose
 
 ## adopt-images: give the images this host already built the current release's tag, instead
 ## of rebuilding them. Every image is tagged with its release (dbcanvas-systemd:…-amd64-v0.0.14)
@@ -211,47 +192,33 @@ cli:
 cli-test:
 	cd cli && go build ./... && go vet ./... && go test ./...
 
-## images: what every stack needs — the operating-system bases (systemd images for
-## each OS × the one platform this installation targets, recorded in images.yaml)
-## and the pre-baked Intranet, baked onto the Oracle Linux 9 base.
+## images: every image a node can need, built here — the operating-system bases (systemd
+## images for each OS × the one platform this installation targets, recorded in images.yaml),
+## then the images baked on top of them (Intranet, VNC desktop, K3D diagnostics collector,
+## Kubeadm node; images/service.sh), then the demo applications (Support, Stock Market,
+## Ledger and Performance Sim, Pager Panic; images/apps.sh).
 ##
 ## It writes images.yaml and nothing else: versions.yaml, the catalog of what those
 ## bases can install, is `make versions` and is left alone here.
 ##
-## The Intranet is here rather than in extra-images because it is not an extra: it is
-## the DNS and the CA the rest of a stack is built against, so a canvas with no
-## Intranet node is a canvas where almost nothing validates. Everything genuinely
-## optional stays in extra-images.
-##
-## Its build is the one part of this that reaches Percona's repositories, so a
-## failure there is reported and tolerated rather than taking the OS bases and the
-## rest of `make install` down with it — DBCanvas still starts, Validate says which
-## image is missing, and an admin can build it from the Build button under that error
-## or come back here for `make intranet-image`.
+## The bases come first because everything else is built on them. After that, a failure
+## is reported and the rest still builds: those builds reach Percona's repositories, npm,
+## GitHub and Maven Central, so they can fail for reasons that have nothing to do with this
+## machine, and one missing image should not stop `make install` from ending with DBCanvas
+## up. A node whose image is missing says so at Validate; retry with its own target below
+## (`make vnc-image`, `make stocksim-image`, …) or the Build button DBCanvas shows there.
+## `make install-pull` fetches the same images from the registry instead of building them.
 images:
 	bash images/build.sh
-	@bash images/service.sh intranet || { \
+	@failed=""; \
+	bash images/service.sh all || failed="$$failed node"; \
+	bash images/apps.sh || failed="$$failed application"; \
+	if [ -n "$$failed" ]; then \
 	  echo ""; \
-	  echo "  The Intranet image did not build — the OS bases above are fine and DBCanvas will start."; \
-	  echo "  Retry with 'make intranet-image', or from the Build button DBCanvas shows at Validate."; \
-	}
-
-## extra-images: everything OPTIONAL built on top of the bases — the pre-baked Ubuntu
-## VNC image, the Big Hole FTDC viewer, the K3D diagnostics collector, the Kubeadm node, and the
-## demo applications (Support/Stock Market/Ledger/Performance Sim). `make install` builds these too (through
-## install-extras, which tolerates a failure); this is the target for rebuilding them
-## on their own, and it fails if any of them fails. Kept separate from `make images`
-## because these reach into npm, GitHub and Percona's repos, so they fail for reasons
-## that have nothing to do with your machine. A node whose image is missing says so at
-## Validate, and an admin can build the ones with no local build context from the web
-## interface rather than coming back here.
-##
-## It runs service.sh over the whole set, Intranet included, so this one command still
-## guarantees every image above the bases exists; a good Intranet image is already
-## built and costs a cached no-op.
-extra-images:
-	bash images/service.sh all
-	bash images/apps.sh
+	  echo "  Some$$failed images did not build (listed above). DBCanvas will still start;"; \
+	  echo "  only the node types that need them are affected. Retry with the image's own"; \
+	  echo "  target (e.g. 'make vnc-image', 'make stocksim-image') or the Build button at Validate."; \
+	fi
 
 ## intranet-image: rebuild only the pre-baked Intranet image
 ## (dbcanvas-intranet:oraclelinux-9-<arch>) — the systemd Oracle Linux 9 base plus
@@ -262,7 +229,7 @@ intranet-image:
 
 ## vnc-image: rebuild only the pre-baked Ubuntu VNC image
 ## (dbcanvas-vnc:ubuntu-24.04-<arch>) — the systemd Ubuntu 24.04 base plus the XFCE
-## desktop, TigerVNC/noVNC, Firefox and the Percona clients. `make extra-images`
+## desktop, TigerVNC/noVNC, Firefox and the Percona clients. `make images`
 ## builds this too.
 vnc-image:
 	bash images/service.sh vnc
@@ -272,7 +239,7 @@ vnc-image:
 ## carries pt-k8s-debug-collector along with pt-mysql-summary and
 ## pt-mongodb-summary. A K3D node's Diagnostics capture runs one throwaway
 ## container from this image against the cluster's kubeconfig. amd64 only:
-## Percona's apt repo has no arm64 percona-toolkit. `make extra-images` builds this too.
+## Percona's apt repo has no arm64 percona-toolkit. `make images` builds this too.
 k8scollector-image:
 	bash images/service.sh k8scollector
 
@@ -280,7 +247,7 @@ k8scollector-image:
 ## (dbcanvas-kubeadm:ubuntu-24.04-<arch>) — Ubuntu 24.04 with systemd, containerd and the
 ## node tools, built for K8S_PLATFORM rather than DOCKER_PLATFORM: a Kubernetes node has to
 ## run on the host's native architecture. Kubernetes itself is installed at deploy, at the
-## version the frame asks for. `make extra-images` builds this too.
+## version the frame asks for. `make images` builds this too.
 kubeadm-image:
 	bash images/service.sh kubeadm
 

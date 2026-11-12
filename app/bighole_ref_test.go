@@ -24,14 +24,6 @@ func TestBigHoleRefIsPinnedEverywhere(t *testing.T) {
 	if !strings.Contains(string(b), bigHoleTarballDefault) {
 		t.Errorf("app/Dockerfile does not put the files where bighole.go reads them (%s)", bigHoleTarballDefault)
 	}
-	for _, gone := range []string{"../images/bighole.Dockerfile"} {
-		if _, err := os.Stat(gone); err == nil {
-			t.Errorf("%s is back: Big Hole is built into the app image, not an image of its own", gone)
-		}
-	}
-	if sh, _ := os.ReadFile("../images/service.sh"); strings.Contains(string(sh), "bighole") {
-		t.Error("images/service.sh still builds a Big Hole image")
-	}
 }
 
 func TestMCAImageIsUpstreamAndPinned(t *testing.T) {
@@ -74,7 +66,7 @@ func TestMCAImageIsUpstreamAndPinned(t *testing.T) {
 
 // The catalogue behind the in-app build (app/extraimages.go) has to agree with the
 // scripts, or an admin's Build button produces a different image from `make
-// extra-images`. Everything here is checked against the shell rather than assumed:
+// images`. Everything here is checked against the shell rather than assumed:
 // the tag, the Dockerfile's existence, and the fact that nothing needs a build
 // context, which is the property the whole feature rests on.
 func TestExtraImageCatalogAgreesWithTheScripts(t *testing.T) {
@@ -161,12 +153,11 @@ func TestExtraImageCatalogAgreesWithTheScripts(t *testing.T) {
 	}
 }
 
-// The Intranet is not an optional image: it is the DNS and the CA every other node
-// in a stack is built against, so `make images` bakes it along with the OS bases.
-// This is a drift test with history — the target's own documentation claimed it
-// built the Intranet for a while after the recipe had stopped doing so, and a
-// comment cannot fail a build.
-func TestMakeImagesBuildsTheIntranet(t *testing.T) {
+// `make images` builds every image a node can need: the OS bases, then the images baked on
+// them (the Intranet among them — the DNS and CA every other node is built against), then the
+// demo applications. A drift test with history: the target's documentation once claimed it built
+// the Intranet after the recipe had stopped doing so, and a comment cannot fail a build.
+func TestMakeImagesBuildsEveryImage(t *testing.T) {
 	mk, err := os.ReadFile("../Makefile")
 	if err != nil {
 		t.Fatal(err)
@@ -175,17 +166,18 @@ func TestMakeImagesBuildsTheIntranet(t *testing.T) {
 	if recipe == "" {
 		t.Fatal("the Makefile has no `images` target")
 	}
-	if !strings.Contains(recipe, "images/build.sh") {
-		t.Error("`make images` does not build the OS bases")
+	for _, want := range []string{"images/build.sh", "images/service.sh all", "images/apps.sh"} {
+		if !strings.Contains(recipe, want) {
+			t.Errorf("`make images` does not run %s:\n%s", want, recipe)
+		}
 	}
-	if !strings.Contains(recipe, "images/service.sh intranet") {
-		t.Errorf("`make images` does not build the Intranet image:\n%s", recipe)
+	// And it does not fail the rest of a first run over one image, which is what lets
+	// `make install` finish with DBCanvas running and the missing image reported at Validate.
+	if strings.Count(recipe, "||") < 2 {
+		t.Errorf("a failed node or application image would abort `make images`:\n%s", recipe)
 	}
-	// And it does not fail the rest of a first run over that one build, which is
-	// what lets `make install` finish with DBCanvas running and the missing image
-	// reported at Validate instead.
-	if !strings.Contains(recipe, "||") {
-		t.Errorf("a failed Intranet build would abort `make images`:\n%s", recipe)
+	if !strings.Contains(string(mk), "\ninstall: images compose") {
+		t.Error("`make install` is not `images compose`")
 	}
 }
 

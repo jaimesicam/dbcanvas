@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Build the pre-baked service images — the two node types whose software never varies:
+# Build the pre-baked service images — the node and tool images whose software never varies:
 #
 #   dbcanvas-intranet:oraclelinux-9-<arch>   (images/intranet.Dockerfile)
 #   dbcanvas-vnc:ubuntu-24.04-<arch>         (images/vnc.Dockerfile)
@@ -17,9 +17,7 @@
 # The last two are not node images built from a systemd base. The collector is the
 # throwaway container a K3D Diagnostics capture runs pt-k8s-debug-collector in, and
 # it is pinned to linux/amd64 because Percona's apt repo publishes percona-toolkit
-# for that architecture only (see images/k8scollector.Dockerfile). Big Hole IS a node
-# image, but there is no OS under it and no backend either: it is a third-party
-# browser app, built from source at a pinned commit and served by nginx.
+# for that architecture only (see images/k8scollector.Dockerfile).
 #
 # The kubeadm node image is not baked onto a base either: it is built from ubuntu:24.04 for
 # K8S_PLATFORM, which may not be the platform the bases were built for — a Kubernetes node
@@ -30,11 +28,8 @@
 #
 # Usage: service.sh [intranet|vnc|k8scollector|kubeadm|all]  (default: all)
 #
-# `make images` calls this with `intranet` once the bases are built — the Intranet is
-# the DNS and the CA a stack is built against, so it ships with the bases rather than
-# with the optional images. `make extra-images` calls it with `all`, which re-checks
-# the Intranet (a cached no-op when it is already there) and builds the rest; the
-# per-image make targets call it with one name. The base pins below must match
+# `make images` calls this with `all` once the bases are built; the per-image make targets
+# call it with one name. The base pins below must match
 # intranetImage() in app/intranet.go and vncImage() in app/vnc.go — those are what a
 # deployed node asks Docker for.
 

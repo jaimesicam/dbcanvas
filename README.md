@@ -336,7 +336,7 @@ make install-pull
 DBCanvas starts at **http://localhost:8080**. `make install-pull` pulls this release's node
 images from `ghcr.io/jaimesicam` instead of building them, so it takes minutes. They are
 published for `linux/amd64`, and the Kubeadm node for `linux/amd64` and `linux/arm64`. The demo
-application images are built only when you want them (`make extra-images`).
+application images are pulled with them.
 
 To build every image yourself instead, for another platform or a changed image, run
 `make install`. It takes a while. If an image fails to build, DBCanvas still starts, and only the

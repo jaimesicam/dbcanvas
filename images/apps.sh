@@ -15,12 +15,13 @@
 # Eclipse Temurin JRE, because JDBC and HikariCP are the whole point of it. Its
 # build is therefore slower and pulls from Maven Central rather than the Go proxy. A node of
 # one of these types refuses to deploy without its image (see app/stocksim.go and
-# friends), so they are built by `make images` along with everything else a node needs.
+# friends), so they are built by `make images` along with everything else a node needs,
+# and published and pulled with the rest (scripts/registry.sh, whose APPS must match).
 #
 # Usage: apps.sh [name ...]        (default: all of them)
 #
-# Called at the end of images/build.sh, and on its own by `make stocksim-image` and
-# the other per-app targets. The tags below must match the *Image constants in the app.
+# Run last by `make images`, and on its own by `make stocksim-image` and the other
+# per-app targets. The tags below must match the *Image constants in the app.
 set -uo pipefail
 
 IMAGES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

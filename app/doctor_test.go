@@ -74,6 +74,25 @@ func TestRegistryMatrixMatchesBuild(t *testing.T) {
 	}
 }
 
+// scripts/registry.sh pushes and pulls the demo applications images/apps.sh builds; the lists must agree.
+func TestRegistryAppsMatchBuild(t *testing.T) {
+	re := regexp.MustCompile(`(?m)^APPS=\(([^)]*)\)`)
+	read := func(p string) string {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := re.FindStringSubmatch(string(b))
+		if m == nil {
+			t.Fatalf("%s has no APPS=(...) list", p)
+		}
+		return strings.Join(strings.Fields(m[1]), " ")
+	}
+	if build, reg := read("../images/apps.sh"), read("../scripts/registry.sh"); build != reg {
+		t.Fatalf("apps.sh (%s)\nregistry.sh (%s)", build, reg)
+	}
+}
+
 // The Kubeadm node runs only natively, so both architectures are pushed and a pull takes only the
 // installation's own.
 func TestRegistryKubeadmBothArchitectures(t *testing.T) {

@@ -1004,9 +1004,6 @@ no image to build.
 > needs and decoding fails partway. When you browse DBCanvas remotely, the panel gives you the
 > `ssh -L` command to use.
 
-A design saved with a Big Hole *node* (before this became an option) is refused at Validate:
-delete the node and turn the option on where you want it.
-
 [FTDC Summary](FTDC_SUMMARY.md) reads the same files and gives verdicts and findings instead of
 every chart.
 

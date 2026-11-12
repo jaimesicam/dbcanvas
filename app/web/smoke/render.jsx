@@ -2045,10 +2045,8 @@ check('the application simulators are named as such', () => {
     if (!SIM_NODE_TYPES.has(t)) throw new Error(`${t} is a simulator and must carry the app-connection caption`)
     if (!NODE_TYPES[t]?.ports) throw new Error(`${t} needs connection ports for its line to exist`)
   }
-  // The two display-only panels draw no line at all, so they are not simulators here.
-  for (const t of ['bighole', 'mclusteradmin']) {
-    if (SIM_NODE_TYPES.has(t)) throw new Error(`${t} carries no association line`)
-  }
+  // The display-only panel draws no line at all, so it is not a simulator here.
+  if (SIM_NODE_TYPES.has('mclusteradmin')) throw new Error('mclusteradmin carries no association line')
   return 'ok'
 })
 
@@ -4242,7 +4240,7 @@ check('validate: a missing node image offers to build itself', () => {
   // Renders before its fetch lands (no effects under SSR), which is the state the
   // panel is in for a moment on every open — it must not throw and must not claim
   // anything it does not know yet.
-  const cold = renderToString(<BuildImageRow id="bighole" isAdmin onBuilt={noop} />)
+  const cold = renderToString(<BuildImageRow id="vnc" isAdmin onBuilt={noop} />)
   if (cold !== '') throw new Error('the row rendered something before it knew the image')
   return 'renders nothing until it has the catalogue'
 })

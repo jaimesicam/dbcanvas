@@ -16,8 +16,7 @@ import (
 // tag the node asks for is what comes out.
 //
 // The K3D collector is the subject: unlike the Intranet and the VNC desktop it is not
-// baked onto a systemd base that `make images` would have to produce first. (Big Hole
-// was the subject until it moved into the app image, and MClusterAdmin before that.)
+// baked onto a systemd base that `make images` would have to produce first.
 //
 // Opt-in (needs the daemon socket and network):
 //

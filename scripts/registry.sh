@@ -4,8 +4,9 @@
 #   registry.sh push   tag this release's images with the registry's name and push them
 #   registry.sh pull   pull them, give them the local names DBCanvas deploys, write images.yaml
 #
-# The images are the systemd bases `make images` builds (for DOCKER_PLATFORM) and the extra
-# images (Intranet, VNC desktop, K3D collector, Kubeadm node), each tagged with the release
+# The images are every one `make images` builds: the systemd bases (for DOCKER_PLATFORM), the
+# images baked on them (Intranet, VNC desktop, K3D collector, Kubeadm node) and the demo
+# applications (images/apps.sh), each tagged with the release
 # (-v<VERSION>) as they are locally. In the registry they are <IMAGE_REGISTRY>/<local name>:
 #
 #   ghcr.io/jaimesicam/dbcanvas-systemd:oraclelinux-9-amd64-v0.0.28
@@ -16,7 +17,6 @@
 #
 # `pull` is what `make install-pull` runs: a first install that takes minutes instead of the
 # hour `make images` does. `push` publishes, so nothing runs it but `make publish-images`.
-# The demo application images are not included: they build from this repository's source.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -30,6 +30,9 @@ PLATFORM="$(resolve_platform "$ROOT")" || exit 1
 ARCH="${PLATFORM#linux/}"
 K8S_PLATFORM="$(resolve_k8s_platform "$ROOT")" || exit 1
 REL="$(image_release "$ROOT")"
+
+# The demo applications, as images/apps.sh has them; a test keeps the two equal.
+APPS=(supportsim stocksim ledgersim perfsim pagerpanic)
 
 # The base matrix, as images/build.sh has it (base|os|version); a test keeps the two equal.
 MATRIX=(
@@ -69,6 +72,11 @@ all_images() {
   else
     echo "dbcanvas-kubeadm:ubuntu-24.04-${K8S_PLATFORM#linux/}-${REL}|${K8S_PLATFORM}|extra"
   fi
+  # Must match the *SimImage / pagerPanicImage tags in app/; built for DOCKER_PLATFORM like the bases.
+  local a
+  for a in "${APPS[@]}"; do
+    echo "dbcanvas-${a}:${REL}|${PLATFORM}|app"
+  done
 }
 
 ts() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
@@ -124,7 +132,7 @@ pull() {
     rm -f "$tmp"
   fi
   echo "==> pulled $pulled image(s) from $REGISTRY, $failed failed"
-  [ "$failed" -eq 0 ] || { echo "    Build what failed with 'make images' / 'make extra-images'." >&2; exit 1; }
+  [ "$failed" -eq 0 ] || { echo "    Build what failed with 'make images', or its own target (e.g. 'make vnc-image')." >&2; exit 1; }
 }
 
 case "${1:-}" in

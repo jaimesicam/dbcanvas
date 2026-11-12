@@ -68,32 +68,27 @@ Deployed nodes run systemd inside a container so that a database behaves the way
 real host — services, journald, unit files. Those base images are built ahead of time by
 `make images` (`images/build.sh`), one per OS × platform.
 
-`make images` also bakes **the Intranet** onto the Oracle Linux 9 base (`images/service.sh
-intranet`). It is not an extra: it is the DNS, the CA and the package proxy the rest of a stack
-is built against, so an installation without that image is one where almost nothing validates.
-Its build is the one part that reaches Percona's repositories, so a failure there is reported
-and tolerated rather than taking the bases and the rest of `make install` down with it.
+`make images` then builds everything that sits on top of the bases. The Intranet, the VNC
+desktop, the K3D collector and the Kubeadm node come from `images/service.sh`. Their package
+sets never vary, so deploying one is configuration only. The Kubeadm node is built for
+`K8S_PLATFORM` rather than `DOCKER_PLATFORM`, because a Kubernetes node has to run natively.
+The five demo application images come from `images/apps.sh`. They are Go binaries (Ledger Sim
+is a jar) with their frontends embedded: no OS matrix, one tag apiece, and nothing to record in
+the version catalogue. `make install-pull` fetches the same set from the registry
+(`scripts/registry.sh`) instead.
 
-Everything *optional* on top of the bases is `make extra-images` — which `make install` runs
-too, tolerating a failure the way it tolerates the Intranet's: the pre-baked VNC image
-and the tool images (`images/service.sh`), whose package sets never vary so deploying one is
-configuration only — the Kubeadm node among them, built for `K8S_PLATFORM` rather than
-`DOCKER_PLATFORM` because a Kubernetes node has to run natively — and the six demo application images (`images/apps.sh`), which are Go
-binaries with their frontends embedded — no OS matrix, one tag apiece, and nothing to record in
-the version catalogue. The split is not cosmetic: those builds fetch from npm, GitHub and
-Percona's repositories, so they fail for reasons that have nothing to do with the machine
-running them, and most stacks need none of them.
+Those builds fetch from npm, GitHub, Maven Central and Percona's repositories, so they can fail
+for reasons that have nothing to do with the machine running them. A failure is reported, and
+the rest still build, rather than taking `make install` down with it.
 
-Which is why an admin can build most of them from the web interface at the moment a Validate
+That is why an admin can build most of them from the web interface at the moment a Validate
 says one is missing (`app/extraimages.go`). It works because no `images/*.Dockerfile` copies
 anything from its build context — every `COPY` is `--from=<stage>` — so the Dockerfile *is* the
 context, and the app carries a copy. The build itself runs in a throwaway `docker:cli` container
 with the daemon's socket mounted, the same shape as the K3D collector, because the Engine API's
 own `/build` endpoint is the classic builder, which sets neither `BUILDPLATFORM` nor
 `TARGETARCH`, the two variables a cross-compiling Dockerfile relies on. The demo applications stay
-CLI-only: their context is a directory of this repository's source. Big Hole is not one of these
-images: its static files are built in the app image (`app/Dockerfile`, stage `bighole`) and copied
-onto the nodes that serve it.
+CLI-only: their context is a directory of this repository's source.
 
 An installation targets **exactly one platform**. `DOCKER_PLATFORM` selects it,
 `make images` builds only that, and `make versions` only probes and records it. There is

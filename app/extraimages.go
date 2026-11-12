@@ -15,23 +15,17 @@ import (
 // extraimages.go — the images a node needs on top of the operating-system bases,
 // and building one from the web interface.
 //
-// `make images` builds the OS bases and the Intranet baked onto one of them — the
-// DNS and CA a stack is built against, which is why it ships with the bases rather
-// than here. Everything else — the VNC image, the K3D collector, the six
-// demo applications — is `make extra-images`, because those reach into npm, GitHub
-// and Percona's repositories and fail for reasons that have nothing to do with the
-// machine you are on. Most stacks need none of them.
+// `make images` builds the OS bases and then every image here on top of them, and
+// `make install-pull` fetches them all from the registry. Those builds reach into npm,
+// GitHub and Percona's repositories, so one can still fail for reasons that have nothing
+// to do with the machine you are on — and that failure is reported, not fatal, which
+// leaves an installation with a node type whose image is missing.
 //
 // A third-party tool whose upstream publishes an image of its own is not in here at
 // all: MClusterAdmin used to be, and now the deploy pulls it (mclusteradmin.go), the
 // way PMM's image has always been pulled.
 //
-// The Intranet is still in the catalog below, because the question this file answers
-// is "the image this node needs is missing, now what" — and it is missing whenever
-// its build was the one thing that failed, which is exactly the case `make images`
-// tolerates so that the rest of a first run can finish.
-//
-// The cost of that split is the moment this file exists for: you design a stack,
+// The cost of tolerating a failure is the moment this file exists for: you design a stack,
 // hit Validate, and are told to go back to a terminal, in the repository, and run a
 // make target — which is a poor answer when DBCanvas is already talking to the same
 // Docker daemon that would do the build. So an admin can build one from here.
@@ -44,7 +38,7 @@ import (
 // WHY IT IS NOT the Docker API's /build endpoint: that is the classic builder, and
 // a Dockerfile may use BuildKit — `FROM --platform=$BUILDPLATFORM` and $TARGETARCH,
 // which is how a cross-compiled image gets built at native speed instead of under
-// emulation (Big Hole's did, before it moved into the app image). The classic builder does
+// emulation. The classic builder does
 // not set those, and fails outright:
 //
 //	failed to parse platform : "" is an invalid OS component
@@ -75,7 +69,8 @@ const (
 	extraImageLogLines = 200
 )
 
-// extraImage is one image that a node needs and `make images` does not build.
+// extraImage is one image that a node needs on top of the OS bases — built by `make images`
+// too, and from here when that build failed.
 type extraImage struct {
 	ID    string   `json:"id"`    // stable id used by the API and the UI
 	Tag   string   `json:"tag"`   // the reference a node asks Docker for
