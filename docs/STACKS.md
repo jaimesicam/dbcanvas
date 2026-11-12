@@ -271,7 +271,7 @@ Each member's panel shows *Standby leader* or *Replica* and the cluster it follo
 | Type | What you get | Members |
 | --- | --- | --- |
 | **K3D Cluster** | A k3s cluster on the stack network, with MetalLB LoadBalancer addresses, optionally running a database operator. See [Kubernetes (K3D)](#kubernetes-k3d). | 1–3 k3s nodes, default 1 |
-| **Kubeadm Cluster** | Kubernetes built with kubeadm on Ubuntu 24.04 nodes: a control plane that is also the console, and workers. Taken as far as a ready cluster, an initialized one without a pod network, or only prepared. See [Kubernetes (kubeadm)](#kubernetes-kubeadm). | 1–4 nodes, default 2 |
+| **Kubeadm Cluster** | Kubernetes built with kubeadm on Ubuntu 24.04 nodes: a control plane that is also the console, and workers. Taken as far as a ready cluster, an initialized one without a pod network, or only prepared. See [Kubernetes (kubeadm)](#kubernetes-kubeadm). | 1–4 nodes, default 3 |
 
 ### Proxies and HA
 
@@ -768,7 +768,7 @@ it is missing. It is built for `K8S_PLATFORM`, which has to be the Docker host's
 
 | Option | Choices |
 | --- | --- |
-| Nodes | 1–4: a control plane and up to three workers. With one node, pods run on the control plane |
+| Nodes | 1–4, default 3: a control plane and up to three workers. With one node, pods run on the control plane |
 | Kubernetes version | Any release in the catalog (the newest minor and the three before it); newest by default |
 | Stage | **Ready**, **Initialized** or **Prepared** — see below |
 | Pod network | **Calico** (enforces NetworkPolicy) or **Flannel** (does not); Ready only |
@@ -1093,7 +1093,7 @@ A **template** is a saved canvas design — nodes, clusters, links and options �
 | PostgreSQL | Patroni + HAProxy · PostgreSQL + pgBackRest · PostgreSQL + pgvector + Support Sim |
 | MongoDB | PSMDB replica set + PBM · PSMDB Vector Search + Support Sim · PSMDB sharded cluster |
 | Valkey | Valkey Cluster |
-| Kubernetes | Kubernetes — Percona Operator for MySQL (PXC) · Kubernetes — PXC operator, two clusters replicating |
+| Kubernetes | Kubernetes — Percona Operator for MySQL (PXC) · Kubernetes — PXC operator, two clusters replicating · Kubernetes (kubeadm) + Pager Panic |
 | All in One | All-in-One playground |
 
 They do not pin minor versions, so they deploy with whatever this installation's catalog offers.

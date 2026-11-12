@@ -125,6 +125,13 @@ var builtinTemplateDefs = []struct {
 		Design:      tplK3DPXCReplicationDesign,
 	},
 	{
+		Slug:        "kubeadm-pager-panic",
+		Name:        "Kubernetes (kubeadm) + Pager Panic",
+		Description: "A 3-node Kubernetes cluster built with kubeadm — a control plane and two workers, Ready with Calico — and Pager Panic playing against it: on-call tickets to fix on the real nodes from a terminal.",
+		Category:    "Kubernetes",
+		Design:      tplKubeadmPagerPanicDesign,
+	},
+	{
 		Slug:        "aio-playground",
 		Name:        "All-in-One playground",
 		Description: "One container running a Percona Server, a PostgreSQL, a PSMDB and a Valkey instance side by side. The cheapest way to have four engines up at once.",
@@ -399,6 +406,26 @@ var tplK3DPXCReplicationDesign = json.RawMessage(`{
 
 // Four engines in one container. Instance ids are node-local (aio.go), so they
 // need no "tpl-" prefixing the way node ids do.
+// A Kubeadm cluster of three — Pager Panic's minimum: a control plane and two workers — at the
+// Ready stage, with the game's association line drawn from the frame, the way the canvas draws it
+// (kubeadm → pagerpanic). The cluster is the game's alone: its tickets break things on purpose.
+var tplKubeadmPagerPanicDesign = json.RawMessage(`{
+  "nodes": [
+    {"id":"tpl-intranet","type":"intranet","label":"Intranet","x":40,"y":40},
+    {"id":"tpl-kube-1","type":"kubeadm","label":"kube01","frameId":"tpl-kubeadm","x":574,"y":66},
+    {"id":"tpl-kube-2","type":"kubeadm","label":"kube02","frameId":"tpl-kubeadm","x":702,"y":66},
+    {"id":"tpl-kube-3","type":"kubeadm","label":"kube03","frameId":"tpl-kubeadm","x":830,"y":66},
+    {"id":"tpl-pagerpanic","type":"pagerpanic","label":"pagerpanic-01","x":700,"y":240}
+  ],
+  "frames": [
+    {"id":"tpl-kubeadm","type":"kubeadm","label":"kubeadm-01","kubeadmVersion":"","kubeadmStage":"","kubeadmCni":"","x":560,"y":20,"w":400,"h":138}
+  ],
+  "edges": [
+    {"id":"tpl-pp-edge","from":{"node":"tpl-kubeadm","port":"bottom"},"to":{"node":"tpl-pagerpanic","port":"top"},"type":"directional"}
+  ],
+  "view": {"x":0,"y":0,"z":1}
+}`)
+
 var tplAIOPlaygroundDesign = json.RawMessage(`{
   "nodes": [
     {"id":"tpl-intranet","type":"intranet","label":"Intranet","x":40,"y":40},

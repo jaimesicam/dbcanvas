@@ -202,7 +202,7 @@ var catalogKubeadm = []catalogEntry{
 		Options: append([]catalogOption(nil), infraVMSize...),
 	},
 	{Type: "kubeadm", Label: "Kubeadm Cluster", Summary: "A Kubernetes cluster built with kubeadm: a control plane and up to three workers, taken as far as the stage says — every node Ready with a pod network, initialized without one, or only prepared so init and the joins are done by hand.",
-		Placement: "frame", MemberType: "kubeadm", DefaultMembers: 2, MinMembers: 1, MaxMembers: 4,
+		Placement: "frame", MemberType: "kubeadm", DefaultMembers: 3, MinMembers: 1, MaxMembers: 4,
 		Requires: []string{
 			"an Intranet node (the nodes and their pods resolve through it)",
 			"the Kubeadm node image (make kubeadm-image), built for K8S_PLATFORM — which has to be the Docker host's own architecture",

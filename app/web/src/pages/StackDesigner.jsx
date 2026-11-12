@@ -4198,8 +4198,8 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
     setSelected({ kind: 'frame', id: fid })
   }
   // A Kubeadm cluster's members are Ubuntu nodes: the first by label is the control plane, the
-  // rest workers. Default 2 (a control plane and a worker, so there is something to join),
-  // resizable 1–4.
+  // rest workers. Default 3 (a control plane and two workers — what Pager Panic needs, and
+  // enough for a drain to have somewhere to go), resizable 1–4.
   function newKubeadmMember(frameId, list = nodes) {
     const used = new Set(list.filter((n) => n.type === 'kubeadm').map((n) => n.label))
     return { id: uid('kube'), type: 'kubeadm', label: nextMemberName(used, 'kube'), frameId, x: 0, y: 0 }
@@ -4212,9 +4212,9 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       id: fid, type: 'kubeadm', label: nextNamedCluster(frames, 'kubeadm'), x: fx, y: fy, w: 0, h: 0,
       kubeadmVersion: '', kubeadmStage: '', kubeadmCni: '',
     }
-    const first = newKubeadmMember(fid)
-    const second = newKubeadmMember(fid, [...nodes, first])
-    const r = relayout(fid, [...frames, frame], [...nodes, first, second])
+    const members = []
+    for (let i = 0; i < 3; i++) members.push(newKubeadmMember(fid, [...nodes, ...members]))
+    const r = relayout(fid, [...frames, frame], [...nodes, ...members])
     setFrames(r.frames)
     setNodes(r.nodes)
     setSelected({ kind: 'frame', id: fid })
@@ -11029,6 +11029,7 @@ function PagerPanicManager ({ dep, stackId, nodeId, onDeleteNode }) {
   const [test, setTest] = useState(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [dialog, ask] = useDialog()
   useEffect(() => {
     let stop = false
     let t = null
@@ -11043,7 +11044,12 @@ function PagerPanicManager ({ dep, stackId, nodeId, onDeleteNode }) {
     return () => { stop = true; clearTimeout(t) }
   }, [stackId, nodeId, busy])
   async function start () {
-    if (!confirm('Run every task of the bank on the cluster now? This takes a while, and the game must have no tickets out.')) return
+    const go = await ask.confirm({
+      title: 'Run the self-test?',
+      body: 'Every task of the bank runs on the cluster now. This takes a while, and the game must have no tickets out.',
+      confirmLabel: 'Run self-test',
+    })
+    if (!go) return
     setErr('')
     setBusy(true)
     try { setTest(await stackApi.pagerpanicSelfTestStart(stackId, nodeId, {})) } catch (e) { setErr(e.message) }
@@ -11053,6 +11059,7 @@ function PagerPanicManager ({ dep, stackId, nodeId, onDeleteNode }) {
   const tally = (test?.tasks || []).reduce((m, t) => ({ ...m, [t.state]: (m[t.state] || 0) + 1 }), {})
   return (
     <div className="space-y-3">
+      {dialog}
       <div className="flex items-center justify-between">
         <span className="text-sm font-semibold">Pager Panic</span>
         <Badge tone={DEPLOY_TONE[dep.state] || 'muted'}>{dep.state}</Badge>

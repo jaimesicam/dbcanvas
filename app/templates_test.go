@@ -64,7 +64,7 @@ func TestBuiltinTemplatesAreDeployableDesigns(t *testing.T) {
 var pinnedVersionKeys = []string{
 	"pxcVersion", "psVersion", "pgVersion", "psmdbVersion", "valkeyVersion",
 	"proxysqlVersion", "mariadbVersion", "mysqlceVersion", "orchestratorVersion",
-	"version", "k3dK3sVersion", "k3dOperatorVer", "k3dPgoVersion",
+	"version", "kubeadmVersion", "k3dK3sVersion", "k3dOperatorVer", "k3dPgoVersion",
 	"aioPsVersion", "aioPxcVersion", "aioMariadbVersion", "aioMysqlceVersion",
 	"aioPsmdbVersion", "aioValkeyVersion", "aioProxysqlVersion", "aioOrchestratorVersion",
 }
@@ -266,5 +266,35 @@ func TestTemplateIsBuiltin(t *testing.T) {
 	}
 	if _, ok := findBuiltinTemplate("builtin:nope"); ok {
 		t.Error("findBuiltinTemplate invented a template")
+	}
+}
+
+// The Kubeadm + Pager Panic template is a game Validate accepts: the line reaches a Ready
+// Kubeadm Cluster of three, and nothing about the cluster is refused.
+func TestKubeadmPagerPanicTemplateIsPlayable(t *testing.T) {
+	var doc designDoc
+	if err := json.Unmarshal(tplKubeadmPagerPanicDesign, &doc); err != nil {
+		t.Fatal(err)
+	}
+	var game designNode
+	for _, n := range doc.Nodes {
+		if n.Type == "pagerpanic" {
+			game = n
+		}
+	}
+	if game.ID == "" {
+		t.Fatal("the template has no Pager Panic node")
+	}
+	f, ok := pagerPanicLink(doc, game.ID)
+	if !ok {
+		t.Fatal("the Pager Panic node is not linked to a Kubeadm Cluster")
+	}
+	if got := len(kubeadmMembers(f, doc)); got != 3 {
+		t.Errorf("the cluster has %d nodes, want 3", got)
+	}
+	for _, i := range pagerPanicIssues(doc, game) {
+		if i.Level == "error" {
+			t.Errorf("Validate refuses it: %s", i.Message)
+		}
 	}
 }

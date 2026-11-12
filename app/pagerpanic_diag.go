@@ -205,16 +205,16 @@ echo "$fail"`
 // again. It is how a task proves it can be won before a player meets it.
 
 type ppSelfTestTask struct {
-	Task    string                   `json:"task"`
-	State   string                   `json:"state"` // pending | running | passed | failed | skipped
-	Stage   string                   `json:"stage,omitempty"`
-	Error   string                   `json:"error,omitempty"`
-	Before  []pagerpanic.CheckResult `json:"before,omitempty"`
-	After   []pagerpanic.CheckResult `json:"after,omitempty"`
+	Task   string                   `json:"task"`
+	State  string                   `json:"state"` // pending | running | passed | failed | skipped
+	Stage  string                   `json:"stage,omitempty"`
+	Error  string                   `json:"error,omitempty"`
+	Before []pagerpanic.CheckResult `json:"before,omitempty"`
+	After  []pagerpanic.CheckResult `json:"after,omitempty"`
 	// MonitorBefore and MonitorAfter are what the task's monitor showed (no page body).
-	MonitorBefore string `json:"monitorBefore,omitempty"`
-	MonitorAfter  string `json:"monitorAfter,omitempty"`
-	Seconds float64                  `json:"seconds"`
+	MonitorBefore string  `json:"monitorBefore,omitempty"`
+	MonitorAfter  string  `json:"monitorAfter,omitempty"`
+	Seconds       float64 `json:"seconds"`
 }
 
 type ppSelfTest struct {
