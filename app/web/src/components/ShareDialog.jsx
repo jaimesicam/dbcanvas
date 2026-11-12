@@ -98,7 +98,7 @@ export default function ShareDialog({ stack, onClose }) {
             {unreachable && (
               <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
                 This page is on {location.host}, so the link will be too — guests on other machines cannot open it.
-                Set PUBLIC_URL (and APP_HOST) in .env to an address they can reach.
+                Set PUBLIC_URL (and APP_HOST, with APP_HOST_OVERRIDE=on) in .env to an address they can reach.
               </div>
             )}
             {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}

@@ -23,7 +23,11 @@ if [ -f .env ]; then
   while IFS= read -r line; do grep -qxF "$line" .env && n=$((n + 1)); done < <(grep -E '^[A-Z_]*PASSWORD=' .env.example)
   if [ "$n" -gt 0 ]; then warn passwords "$n password(s) in .env still at their .env.example value — bash scripts/gen-secrets.sh .env"; else ok passwords "none at their example value"; fi
   host="$(grep -E '^APP_HOST=' .env | cut -d= -f2)"
-  case "${host:-127.0.0.1}" in 127.*|localhost|::1) ok exposure "APP_HOST=${host:-127.0.0.1}" ;; *) warn exposure "APP_HOST=$host: reachable beyond this machine (docs/SECURITY.md)" ;; esac
+  case "${host:-127.0.0.1}" in
+    127.*|localhost|::1|'[::1]') ok exposure "APP_HOST=${host:-127.0.0.1}" ;;
+    *) if bash scripts/exposure-check.sh >/dev/null 2>&1; then warn exposure "APP_HOST=$host with APP_HOST_OVERRIDE=on: reachable beyond this machine (docs/SECURITY.md)"
+       else bad exposure "APP_HOST=$host but APP_HOST_OVERRIDE is off: DBCanvas will not start — set APP_HOST=127.0.0.1, or APP_HOST_OVERRIDE=on"; fi ;;
+  esac
 else
   warn env ".env does not exist yet — make env"
 fi

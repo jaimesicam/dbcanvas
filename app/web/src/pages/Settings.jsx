@@ -744,7 +744,7 @@ export function GuestSessions() {
       <div className="text-xs text-muted">
         {system.publicUrl
           ? <>Links are built on <span className="font-mono text-fg">{system.publicUrl}</span> (PUBLIC_URL).</>
-          : 'Links use the address your browser is on. Set PUBLIC_URL in .env to the address colleagues use, and APP_HOST to an interface they can reach.'}
+          : 'Links use the address your browser is on. Set PUBLIC_URL in .env to the address colleagues use, and APP_HOST to an interface they can reach (with APP_HOST_OVERRIDE=on).'}
       </div>
     </Row>
   )

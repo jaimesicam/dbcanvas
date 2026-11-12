@@ -16,6 +16,8 @@ Two things follow:
 - **Who can reach the sign-in page matters.** Keep `APP_HOST=127.0.0.1` (the default in `.env`)
   unless the people on that network are people you would give a shell on the host. Colleagues can
   reach a loopback installation through an SSH tunnel: `ssh -N -L 8080:127.0.0.1:8080 you@host`.
+  DBCanvas will not start on any other address unless `APP_HOST_OVERRIDE=on` is set as well, so
+  exposing it is always a choice made twice.
 - **Who has an account matters.** Leave **Open registration** off, so an administrator approves
   every account.
 

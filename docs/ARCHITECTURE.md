@@ -194,7 +194,8 @@ re-reads both. Passwords are not stored per-node on the canvas.
   lab credentials with working defaults; change them before exposing anything beyond
   localhost.
 - **Exposure** is two separate settings: `APP_HOST` for the app itself and
-  `CONTAINER_BIND_IP` for the ports deployed nodes publish. Both default to `127.0.0.1`.
+  `CONTAINER_BIND_IP` for the ports deployed nodes publish. Both default to `127.0.0.1`. The app
+  refuses to start on a non-loopback `APP_HOST` unless `APP_HOST_OVERRIDE=on` (`app/exposure.go`).
 - **The Docker socket** is the real trust boundary — see above.
 
 ## The frontend

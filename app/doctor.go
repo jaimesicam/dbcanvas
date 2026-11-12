@@ -137,7 +137,7 @@ func (a *App) doctorChecks(ctx context.Context) []doctorCheck {
 
 	// Who can get in.
 	if exposed() {
-		add("exposure", "warn", "published on "+publishHost()+": reachable beyond this machine, and an account can deploy privileged containers",
+		add("exposure", "warn", "published on "+publishHost()+" with APP_HOST_OVERRIDE=on: reachable beyond this machine, and an account can deploy privileged containers",
 			"prefer APP_HOST=127.0.0.1 with an SSH tunnel (docs/SECURITY.md)")
 	} else {
 		add("exposure", "ok", "published on "+publishHost()+" only", "")

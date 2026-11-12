@@ -52,7 +52,8 @@ Restart the app (`make restart`) after editing `.env`.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `DBCANVAS_INSTANCE` | `dbcanvas-<login>` | This installation's name on the Docker daemon: its compose project, app image and volumes, and the prefix of every container, network and K3D cluster it deploys. Lets several people share one Docker host — each also needs their own `APP_PORT`. `make env` sets it to `dbcanvas-<your login>` for a new `.env`, and to `dbcanvas` for an existing `.env` without it. Lowercase letters, digits and single dashes, starting with a letter, at most 40 characters; no dash-separated part may be only digits, or `s` followed by digits. **Changing it starts the installation with new, empty volumes** (the old ones are kept). |
-| `APP_HOST` | `127.0.0.1` | Host interface the app is published on. `0.0.0.0` exposes it on all interfaces. |
+| `APP_HOST` | `127.0.0.1` | Host interface the app is published on. `0.0.0.0` exposes it on all interfaces. Anything but a loopback address also needs `APP_HOST_OVERRIDE=on`. |
+| `APP_HOST_OVERRIDE` | `off` | While `off`, DBCanvas refuses to start if `APP_HOST` is not a loopback address (`127.x`, `::1` or `localhost`). `make compose` and `make up` stop with the reason, and so does the app itself. Set it to `on` to expose DBCanvas deliberately. See [Security](SECURITY.md). |
 | `APP_PORT` | `8080` | Port the app listens on. |
 | `PUBLIC_URL` | *(empty)* | The address other people use to reach this installation (e.g. `http://10.0.4.12:8080`). Shared-session links are built on it; empty uses the address your browser used. Shared sessions are off until an administrator enables them in **Settings → Shared sessions**. |
 | `CONTAINER_BIND_IP` | `127.0.0.1` | Host interface that deployed nodes publish their exported ports on. `0.0.0.0` publishes on all interfaces. |

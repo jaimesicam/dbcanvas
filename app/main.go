@@ -70,6 +70,10 @@ func main() {
 		}
 		return
 	}
+	// Refuse to be reachable beyond this machine unless that was asked for twice (exposure.go).
+	if why := exposureRefusal(); why != "" {
+		log.Fatalf("refusing to start: %s", why)
+	}
 	// Refuse a malformed instance name rather than deploy under it: every name this installation
 	// gives a container is built on it, and so is how it tells its own from another's (instance.go).
 	if why := validInstance(instanceName); why != "" {

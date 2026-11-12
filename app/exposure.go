@@ -43,6 +43,30 @@ func isLoopbackHost(h string) bool {
 // exposed reports whether the installation is reachable beyond this machine.
 func exposed() bool { return !isLoopbackHost(publishHost()) }
 
+// appHostOverride reports whether APP_HOST_OVERRIDE (.env) allows a non-loopback APP_HOST.
+// Off unless set to on (or true, yes, 1).
+func appHostOverride() bool {
+	switch strings.ToLower(strings.TrimSpace(envOr("APP_HOST_OVERRIDE", "off"))) {
+	case "on", "true", "yes", "1":
+		return true
+	}
+	return false
+}
+
+// exposureRefusal is why DBCanvas will not start, or "". Reaching it from beyond this machine
+// gives everyone who can open its sign-in page a way to deploy privileged containers on the
+// Docker host, so binding anything but loopback has to be asked for twice: APP_HOST, and
+// APP_HOST_OVERRIDE=on beside it.
+func exposureRefusal() string {
+	if !exposed() || appHostOverride() {
+		return ""
+	}
+	return "APP_HOST is " + publishHost() + ", which makes DBCanvas reachable beyond this machine, and " +
+		"APP_HOST_OVERRIDE is off. Anyone who can reach the sign-in page and has an account can deploy " +
+		"privileged containers on this Docker host. Set APP_HOST=127.0.0.1 in .env (colleagues can use an " +
+		"SSH tunnel), or set APP_HOST_OVERRIDE=on to expose it deliberately (docs/SECURITY.md)"
+}
+
 // guestExposedAck reports whether an administrator confirmed guest sign-in on an exposed
 // installation.
 func (a *App) guestExposedAck() bool {

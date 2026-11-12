@@ -902,7 +902,7 @@ export const HELP = {
     'host does across every tab, and chat. A guest the host gives control to can do anything the host can ' +
     'in their workspace \u2014 but never reach the host\u2019s account, API tokens or administration. A link ' +
     'lasts at most the time set here, two hours at most. Turning this off ends every live session at once. ' +
-    'Guests reach DBCanvas at the address in PUBLIC_URL (.env), and APP_HOST must be an interface they can reach.',
+    'Guests reach DBCanvas at the address in PUBLIC_URL (.env), and APP_HOST must be an interface they can reach (with APP_HOST_OVERRIDE=on).',
   sessionRetention:
     'How long the record of an ended shared session is kept: its guests (with the names, emails and ' +
     'addresses they gave), the chat and event transcript, and the log of what guests changed. After ' +

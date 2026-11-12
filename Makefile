@@ -77,6 +77,7 @@ adopt-images:
 
 ## compose: create .env if needed, then build and start the stack
 compose: env
+	@bash scripts/exposure-check.sh
 	APP_VERSION=$(VERSION) docker compose up --build -d
 	@echo ""
 	@echo "  dbcanvas is up → http://localhost:$(APP_PORT)"
@@ -113,6 +114,7 @@ build: env
 
 ## up: start containers (no rebuild)
 up: env
+	@bash scripts/exposure-check.sh
 	APP_VERSION=$(VERSION) docker compose up -d
 
 ## down: stop and remove containers

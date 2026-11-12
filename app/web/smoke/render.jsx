@@ -5135,8 +5135,9 @@ check('api page: search matches path, summary and method', () => {
 check('api page: expiry is described in the units that matter', () => {
   const at = (ms) => new Date(Date.now() + ms).toISOString()
   const cases = [
-    [{ state: 'active', expiresAt: at(30 * 86400000) }, /30 days left/],
-    [{ state: 'active', expiresAt: at(5 * 3600000) }, /5 hours left/],
+    // A minute of slack: the text floors, and a millisecond between here and expiryText made it 29.
+    [{ state: 'active', expiresAt: at(30 * 86400000 + 60000) }, /30 days left/],
+    [{ state: 'active', expiresAt: at(5 * 3600000 + 60000) }, /5 hours left/],
     [{ state: 'active', expiresAt: at(60000) }, /Under an hour/],
     [{ state: 'expired', expiresAt: at(-86400000) }, /Expired/],
     [{ state: 'revoked', expiresAt: at(86400000) }, /Revoked/],

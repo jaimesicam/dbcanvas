@@ -29,7 +29,7 @@ Guests must be able to reach the address in the link:
 
 | Where guests are | Set in `.env` |
 | --- | --- |
-| Same network | `APP_HOST=0.0.0.0` and `PUBLIC_URL=http://<this machine's address>:8080` |
+| Same network | `APP_HOST=0.0.0.0`, `APP_HOST_OVERRIDE=on` and `PUBLIC_URL=http://<this machine's address>:8080` |
 | Through an SSH tunnel (`ssh -L 8080:127.0.0.1:8080 user@server.example.com`) | Nothing — the link's `localhost:8080` is their end of the tunnel |
 | Through a port forward or proxy | `PUBLIC_URL` set to the forwarded address; websockets must pass through |
 
