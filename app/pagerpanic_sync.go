@@ -192,6 +192,12 @@ func (a *App) syncPagerPanic(ctx context.Context, st Stack, doc designDoc, n des
 	} else {
 		req.ClusterErr = "the game is not linked to a Kubeadm Cluster"
 	}
+	// A self-test changes the cluster on its own; a shift played at the same time would
+	// collide with it. The self-test refuses to start while the game has tickets out.
+	selfTest := ppSelfTestRunning(st.ID, n.ID)
+	if selfTest && req.ClusterErr == "" {
+		req.ClusterErr = "a self-test is running on the cluster; play when it finishes"
+	}
 	req.Nodes, req.Env = nodes, env
 	var pub pagerpanic.PublicBank
 	if bank != nil {
@@ -271,6 +277,10 @@ func (a *App) syncPagerPanic(ctx context.Context, st Stack, doc designDoc, n des
 			owned[id] = true
 		}
 		for _, act := range cfg.Active {
+			// A running self-test's tasks are on the cluster too, and are never the game's.
+			if selfTest && strings.HasPrefix(act.Instance.ID, ppSelfTestPrefix) {
+				continue
+			}
 			if !owned[act.Instance.ID] && !run.isInflightFor(act.Instance.ID) {
 				a.pagerPanicCleanupAll(st, n.ID, nodes, env, act.Instance.ID)
 			}

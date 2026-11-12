@@ -222,6 +222,19 @@ type ppSelfTest struct {
 	Tasks    []ppSelfTestTask `json:"tasks"`
 }
 
+// ppSelfTestPrefix starts the instance id of every task a self-test sets up.
+const ppSelfTestPrefix = "selftest-"
+
+// ppSelfTestRunning reports whether a self-test is running on the node. While one is,
+// the sync leaves its tasks alone; once none is (DBCanvas restarted mid-test, say),
+// any left on the cluster are orphans and are cleaned up like any other.
+func ppSelfTestRunning(stackID int64, nodeID string) bool {
+	ppSelfTests.Lock()
+	defer ppSelfTests.Unlock()
+	t := ppSelfTests.m[fmt.Sprintf("%d/%s", stackID, nodeID)]
+	return t != nil && t.Running
+}
+
 var ppSelfTests = struct {
 	sync.Mutex
 	m map[string]*ppSelfTest
@@ -364,7 +377,7 @@ exit 1`, false), nil, 4*time.Minute)
 			})
 		}
 		update(i, func(t *ppSelfTestTask) { t.State, t.Stage = "running", "setup" })
-		actID := fmt.Sprintf("selftest-%s-%d", id, time.Now().UnixNano())
+		actID := fmt.Sprintf("%s%s-%d", ppSelfTestPrefix, id, time.Now().UnixNano())
 		res := a.pagerPanicSetup(ctx, st, nodeID, bank, nodes, env, ppAction{ID: actID, Op: "setup", Task: id, Seed: time.Now().UnixNano()})
 		if !res.OK {
 			fail("setup", res.Error)
