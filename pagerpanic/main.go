@@ -64,6 +64,17 @@ func main() {
 		writeJSON(w, http.StatusOK, g.View(since))
 	})
 
+	// The page of a ticket's app, as DBCanvas last fetched it from the cluster.
+	mux.HandleFunc("GET /api/monitor", func(w http.ResponseWriter, r *http.Request) {
+		page, rev, ok := g.Page(r.URL.Query().Get("ticket"))
+		w.Header().Set("Cache-Control", "no-store")
+		if !ok {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "no app for that ticket"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"rev": rev, "page": page})
+	})
+
 	mux.HandleFunc("POST /api/play", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Do     string `json:"do"`

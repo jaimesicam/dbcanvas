@@ -119,12 +119,18 @@ export function BrowserProvider({ children }) {
   // A Pager Panic page asks for a terminal on one of its cluster's nodes, or for its stack,
   // with postMessage. Only a Pager Panic window is heard, and only about its own stack;
   // the terminal itself is the ordinary one, with the ordinary checks on the server.
+  //
+  // dbcanvas:term-attach is a terminal the page draws itself, inside the game. It comes
+  // with a MessagePort: DBCanvas opens the same node terminal socket and relays it over
+  // the port, so the page gets a shell and never a credential. In a shared session a
+  // terminal is everyone's, so the page is told to open the ordinary one instead.
   const terms = useTerminals()
+  const relays = useRef(new Map()) // window id → Set of relay closers
   useEffect(() => {
     const on = (ev) => {
       const d = ev.data
       if (ev.origin !== location.origin || !d || typeof d !== 'object') return
-      if (d.type !== 'dbcanvas:open-terminal' && d.type !== 'dbcanvas:open-stack') return
+      if (d.type !== 'dbcanvas:open-terminal' && d.type !== 'dbcanvas:open-stack' && d.type !== 'dbcanvas:term-attach') return
       let win = null
       for (const f of document.querySelectorAll('iframe[data-win]')) {
         if (f.contentWindow === ev.source) win = winsRef.current.find((w) => w.id === f.dataset.win)
@@ -134,11 +140,65 @@ export function BrowserProvider({ children }) {
         dispatchEvent(new CustomEvent('dbcanvas:open-stack', { detail: win.stackId }))
         return
       }
+      if (d.type === 'dbcanvas:term-attach') {
+        const port = ev.ports?.[0]
+        if (port) relayTerminal(win, String(d.nodeId || ''), port)
+        return
+      }
       terms?.openTerminal?.({ stackId: win.stackId, nodeId: String(d.nodeId || ''), title: String(d.title || 'Terminal').slice(0, 80) })
+    }
+    const relayTerminal = (win, nodeId, port) => {
+      if (sessRef.current.active) {
+        port.postMessage({ type: 'unavailable', reason: 'In a shared session a terminal opens in DBCanvas, where everyone sees it.' })
+        port.close()
+        return
+      }
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+      const ws = new WebSocket(`${proto}://${location.host}/api/stacks/${win.stackId}/nodes/${encodeURIComponent(nodeId)}/term`)
+      ws.binaryType = 'arraybuffer'
+      // The page pings while it is alive; a page that reloaded or closed stops, and its
+      // shell is closed rather than left running.
+      let seen = Date.now()
+      let done = false
+      const set = relays.current.get(win.id) || new Set()
+      relays.current.set(win.id, set)
+      const stop = () => {
+        if (done) return
+        done = true
+        clearInterval(watch)
+        set.delete(stop)
+        try { ws.close() } catch { /* */ }
+        try { port.postMessage({ type: 'closed' }) } catch { /* */ }
+        port.close()
+      }
+      const watch = setInterval(() => { if (Date.now() - seen > 45000) stop() }, 5000)
+      set.add(stop)
+      ws.onopen = () => port.postMessage({ type: 'open' })
+      ws.onmessage = (e) => port.postMessage({ type: 'data', data: e.data }, [e.data])
+      ws.onclose = stop
+      ws.onerror = () => { port.postMessage({ type: 'error' }); stop() }
+      port.onmessage = (e) => {
+        const m = e.data || {}
+        seen = Date.now()
+        if (m.type === 'data' && ws.readyState === WebSocket.OPEN) ws.send(m.data)
+        else if (m.type === 'resize' && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'resize', cols: m.cols | 0, rows: m.rows | 0 }))
+        else if (m.type === 'close') stop()
+      }
     }
     addEventListener('message', on)
     return () => removeEventListener('message', on)
   }, [terms])
+  // A window that closes takes the shells relayed into it along.
+  useEffect(() => {
+    for (const [id, set] of relays.current) {
+      if (wins.some((w) => w.id === id)) continue
+      for (const stop of [...set]) stop()
+      relays.current.delete(id)
+    }
+  }, [wins])
+  useEffect(() => () => {
+    for (const set of relays.current.values()) for (const stop of [...set]) stop()
+  }, [])
 
   // openBrowser opens a window on a node link. remote is a window someone else in
   // the session opened, arriving here; otherwise, in a session, the driver's or the
@@ -232,7 +292,7 @@ export function BrowserProvider({ children }) {
       setMenu({ x: e.clientX, y: e.clientY, href: a.href })
     }
     const onClick = (e) => {
-      if (!guest || e.button !== 0 || e.metaKey || e.ctrlKey) return
+      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return
       const a = linkOf(e)
       if (!a) return
       e.preventDefault()

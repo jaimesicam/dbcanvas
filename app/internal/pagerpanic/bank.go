@@ -96,6 +96,25 @@ type Task struct {
 	// prove that the checks pass once the task is done.
 	Solve   []Step `json:"solve"`
 	Cleanup []Step `json:"cleanup"`
+	// Monitor is an app the fault shows on. The game draws it in a browser pane, broken
+	// until the ticket is fixed.
+	Monitor *Monitor `json:"monitor"`
+}
+
+// Monitor is a web page DBCanvas fetches from a node with every check of the ticket: a
+// Service in the cluster (at its ClusterIP), or a URL. Every field takes the task's vars.
+type Monitor struct {
+	// Title names the app on the pane's tab ("Shop front").
+	Title     string `json:"title"`
+	Service   string `json:"service"`
+	Namespace string `json:"namespace"` // the Service's; default "default"
+	// Port is the Service port; empty is its first.
+	Port string `json:"port"`
+	Path string `json:"path"` // default "/"
+	// URL is fetched as it is, instead of a Service ("http://{{worker}}:{{port}}/").
+	URL string `json:"url"`
+	// On is the node it is fetched from; the control plane by default.
+	On string `json:"node"`
 }
 
 // Step is one script on one or more nodes.
@@ -337,6 +356,20 @@ func (b *Bank) Validate() []string {
 				}
 			}
 		}
+		if m := t.Monitor; m != nil {
+			if (m.Service == "") == (m.URL == "") {
+				bad("%s: monitor needs a service or a url, not both", where)
+			}
+			if m.Title == "" {
+				bad("%s: monitor needs a title", where)
+			}
+			if !validOn(m.On) {
+				bad("%s: monitor: node %q is not control-plane, worker, worker-N, workers or all-nodes", where, m.On)
+			}
+			if m.On == "workers" || m.On == "all-nodes" {
+				bad("%s: monitor is fetched from one node; %q names several", where, m.On)
+			}
+		}
 		for _, c := range t.Check {
 			if !validOn(c.On) {
 				bad("%s: check %q: node %q is not control-plane, worker, worker-N, workers or all-nodes", where, c.Name, c.On)
@@ -398,6 +431,9 @@ func (t Task) textFields() []string {
 				out = append(out, *p)
 			}
 		}
+	}
+	if m := t.Monitor; m != nil {
+		out = append(out, m.Title, m.Service, m.Namespace, m.Port, m.Path, m.URL)
 	}
 	for _, ss := range [][]Step{t.Setup, t.Solve, t.Cleanup} {
 		for _, s := range ss {

@@ -135,6 +135,7 @@ type TicketView struct {
 	Hints     []string      `json:"hints,omitempty"`
 	Checking  bool          `json:"checking"`
 	Checks    []CheckResult `json:"checks,omitempty"`
+	Monitor   *MonitorInfo  `json:"monitor,omitempty"`
 }
 
 type MedalView struct {
@@ -235,6 +236,11 @@ func (g *Game) View(since int) View {
 				continue
 			}
 			tv := TicketView{Ticket: tk, Remaining: math.Max(0, g.remaining(tk)), Checking: tk.checkID != ""}
+			if tk.Monitor != nil {
+				m := *tk.Monitor
+				m.Age = math.Round(g.now().Sub(tk.pageAt).Seconds())
+				tv.Monitor = &m
+			}
 			tv.Hints = append([]string(nil), tk.hints[:min(tk.HintsBought, len(tk.hints))]...)
 			// A guard is a hint in disguise until it fails, so it shows only then.
 			for _, c := range tk.Checks {

@@ -101,6 +101,9 @@ simulator's build context for the build. The Go simulators (perfsim, stocksim,
 supportsim) ship `/usr/share/doc/<name>/LICENSE` and `THIRD_PARTY_LICENSES.txt`;
 ledgersim ships `/opt/ledgersim/LICENSE` beside its `NOTICE`, and its dependencies'
 licences are inside the shaded jar. supportsim's `NOTICE` covers its embedding model.
+pagerpanic (also a Go simulator) embeds xterm.js 6.0.0 and @xterm/addon-fit 0.11.0 (MIT)
+for its in-game terminal; their licence files are beside them in
+`pagerpanic/web/static/vendor/xterm/`, and the game serves them at `vendor/xterm/`.
 
 The node images under `images/` are built by each installation from upstream
 distribution packages (Percona, MariaDB, MySQL, PostgreSQL and others); the DBCanvas

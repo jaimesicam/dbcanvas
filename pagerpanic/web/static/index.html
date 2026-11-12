@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pager Panic</title>
+<link rel="stylesheet" href="vendor/xterm/xterm.css">
 <link rel="stylesheet" href="style.css">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23140d26'/%3E%3Crect x='2' y='3' width='12' height='10' fill='%23ff3d7f'/%3E%3Crect x='4' y='5' width='8' height='3' fill='%2339ffb6'/%3E%3Crect x='4' y='10' width='2' height='1' fill='%23140d26'/%3E%3Crect x='7' y='10' width='2' height='1' fill='%23140d26'/%3E%3Crect x='10' y='10' width='2' height='1' fill='%23140d26'/%3E%3C/svg%3E">
 </head>
@@ -80,9 +81,30 @@
     </header>
     <div class="field">
       <div class="queue" id="tickets"></div>
-      <aside class="detail" id="detail">
-        <div class="empty">Tickets appear here. Pick one to read it.<br><br>Right-click a ticket for a terminal.</div>
-      </aside>
+      <div class="desk" id="desk">
+        <aside class="detail" id="detail">
+          <div class="empty">Tickets appear here. Pick one to read it.</div>
+        </aside>
+        <div class="grip" id="grip" title="Drag to resize" role="separator" aria-orientation="horizontal"></div>
+        <section class="bench" id="bench">
+          <nav class="tabs" id="benchTabs"></nav>
+          <div class="bench-body" id="benchBody">
+            <div class="pane term-pane" id="termPane">
+              <div class="launch" id="termLaunch"></div>
+            </div>
+            <div class="pane app-pane hidden" id="appPane">
+              <div class="b-bar">
+                <span class="b-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                <button class="b-btn" id="appReload" title="Fetch it again (checks the ticket too)">⟳</button>
+                <div class="b-url"><span class="b-scheme">http://</span><span id="appUrl"></span></div>
+                <span class="b-status" id="appStatus"></span>
+              </div>
+              <iframe class="b-view" id="appView" sandbox="" referrerpolicy="no-referrer" title="The ticket's app"></iframe>
+              <div class="b-foot" id="appFoot"></div>
+            </div>
+          </div>
+        </section>
+      </div>
     </div>
   </section>
 
@@ -133,6 +155,8 @@
 <div id="continue" class="overlay hidden"><div><h2 class="big" id="contTitle">GAME OVER</h2><p class="big-num" id="contCount">10</p><p>CONTINUE?</p>
   <div class="row"><button class="btn hot" id="btnReplay">SAME SEED</button><button class="btn" id="btnNew">NEW SHIFT</button><button class="btn" id="btnDebrief">DEBRIEF</button></div></div></div>
 
+<script src="vendor/xterm/xterm.js"></script>
+<script src="vendor/xterm/addon-fit.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

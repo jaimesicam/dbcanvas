@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The banks in the repository must load cleanly: a bank error found here is one a player
@@ -196,5 +197,67 @@ func TestPublicHidesScriptsAndSolutions(t *testing.T) {
 	}
 	if unsupported == 0 {
 		t.Error("on Flannel, the Calico-only tasks should be marked unsupported")
+	}
+}
+
+func TestMonitorPlanAndParse(t *testing.T) {
+	task := Task{ID: "m", Vars: map[string]string{"ns": "shop-1"},
+		Monitor: &Monitor{Title: "Shop", Service: "web", Namespace: "{{ns}}"}}
+	inst, err := task.Instantiate(1, Env{ControlPlane: "cp", Workers: []string{"w1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, ok, err := task.MonitorPlan(inst)
+	if !ok || err != nil {
+		t.Fatalf("plan: %v %v", ok, err)
+	}
+	if p.URL != "http://web.shop-1.svc/" {
+		t.Errorf("address bar %q", p.URL)
+	}
+	v := ParseMonitor(p, "PPMON 0 200 text/html\n<h1>hi</h1>")
+	if !v.OK || v.Status != 200 || v.Body != "<h1>hi</h1>" || v.Type != "text/html" {
+		t.Errorf("a page that answered: %+v", v)
+	}
+	v = ParseMonitor(p, "PPMON 0 503 text/html\n<h1>503</h1>")
+	if v.OK || v.Status != 503 {
+		t.Errorf("a 503 counts as working: %+v", v)
+	}
+	v = ParseMonitor(p, "PPMON 7 000\ncurl: (7) Failed to connect")
+	if v.OK || !strings.Contains(v.Error, "ERR_CONNECTION_REFUSED") || !strings.Contains(v.Detail, "Failed to connect") {
+		t.Errorf("connection refused: %+v", v)
+	}
+	v = ParseMonitor(p, "PPMON nosvc 0 -\nError from server (NotFound): services \"web\" not found")
+	if v.OK || v.Error == "" {
+		t.Errorf("a missing Service: %+v", v)
+	}
+	if _, ok, _ := (Task{}).MonitorPlan(inst); ok {
+		t.Error("a task with no monitor has a plan")
+	}
+}
+
+func TestMonitorValidation(t *testing.T) {
+	b := Bank{Bank: "b", Title: "B", Target: "kubeadm", MinNodes: 1, Lives: 1,
+		Stages:     []Stage{{Open: 1, SpawnEvery: Duration{time.Minute}, TimeScale: 1, Difficulty: []int{1}}},
+		Categories: []Category{{ID: "c", Title: "C"}}}
+	base := Task{ID: "t", Title: "T", Brief: "b", Kind: "incident", Category: "c", Difficulty: 1,
+		TimeLimit: Duration{time.Minute}, Check: []Check{{Name: "c", Run: "true"}}, Solution: "s",
+		Cleanup: []Step{{Run: "true"}}}
+	for _, tc := range []struct {
+		m    Monitor
+		want string
+	}{
+		{Monitor{Title: "A", Service: "s", URL: "http://x/"}, "a service or a url"},
+		{Monitor{Title: "A"}, "a service or a url"},
+		{Monitor{Service: "s"}, "needs a title"},
+		{Monitor{Title: "A", URL: "http://{{nope}}/"}, "nope"},
+		{Monitor{Title: "A", URL: "http://x/", On: "workers"}, "one node"},
+	} {
+		task := base
+		m := tc.m
+		task.Monitor = &m
+		b.Tasks = []Task{task}
+		if errs := strings.Join(b.Validate(), "; "); !strings.Contains(errs, tc.want) {
+			t.Errorf("monitor %+v: errors %q, want %q", tc.m, errs, tc.want)
+		}
 	}
 }

@@ -78,6 +78,8 @@ type Ticket struct {
 	Checks      []CheckResult `json:"checks,omitempty"`
 	Earned      int           `json:"earned"`
 	TookSecs    float64       `json:"took"`
+	// Monitor is the ticket's app at the last look, without the page itself (Page has it).
+	Monitor *MonitorInfo `json:"monitor,omitempty"`
 
 	openedAt  time.Duration // played time when its clock started
 	closedAt  time.Duration
@@ -93,6 +95,20 @@ type Ticket struct {
 	blocks    []string
 	needs     []string
 	hintSpent int
+	page      *MonitorPage
+	pageAt    time.Time
+}
+
+// MonitorInfo is what the page needs to draw a ticket's app pane; Rev changes whenever
+// what the app shows does, so the page fetches the body only then.
+type MonitorInfo struct {
+	Title  string  `json:"title"`
+	URL    string  `json:"url"`
+	Status int     `json:"status"`
+	OK     bool    `json:"ok"`
+	Error  string  `json:"error,omitempty"`
+	Rev    int     `json:"rev"`
+	Age    float64 `json:"age"` // seconds since it was fetched
 }
 
 // Event is something the page animates: a ticket arriving, a clear, a lost life.
@@ -815,6 +831,7 @@ func (g *Game) setupDone(r Result) {
 	}
 	tk.openedAt = g.played
 	tk.checkedAt = g.now()
+	g.setPage(tk, r.Monitor)
 	text := tk.Title
 	if tk.Boss {
 		text = "BOSS INCOMING · " + text
@@ -823,6 +840,33 @@ func (g *Game) setupDone(r Result) {
 		text += fmt.Sprintf(" · +%.0fs HEAD START", tk.Extra)
 	}
 	g.emit(Event{Kind: "spawn", Text: text, Ticket: tk.ID})
+}
+
+// setPage keeps what the ticket's app showed at the last look.
+func (g *Game) setPage(tk *Ticket, p *MonitorPage) {
+	if p == nil {
+		return
+	}
+	rev := 1
+	if tk.Monitor != nil {
+		rev = tk.Monitor.Rev
+		if old := tk.page; old == nil || old.Status != p.Status || old.Error != p.Error || old.Detail != p.Detail || old.Body != p.Body || old.URL != p.URL {
+			rev++
+		}
+	}
+	tk.page, tk.pageAt = p, g.now()
+	tk.Monitor = &MonitorInfo{Title: p.Title, URL: p.URL, Status: p.Status, OK: p.OK, Error: p.Error, Rev: rev}
+}
+
+// Page is an open ticket's app as last fetched, for the page's browser pane.
+func (g *Game) Page(id string) (MonitorPage, int, bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	tk := g.ticket(id)
+	if tk == nil || tk.page == nil || (tk.State != TicketOpen && tk.State != TicketIncoming) {
+		return MonitorPage{}, 0, false
+	}
+	return *tk.page, tk.Monitor.Rev, true
 }
 
 func (g *Game) requestCheck(tk *Ticket) {
@@ -845,6 +889,7 @@ func (g *Game) checkDone(r Result) {
 		return
 	}
 	tk.Checks = r.Checks
+	g.setPage(tk, r.Monitor)
 	if tk.State == TicketOpen && r.Solved && (g.phase == PhasePlaying || g.phase == PhasePaused) {
 		g.clear(tk)
 	}

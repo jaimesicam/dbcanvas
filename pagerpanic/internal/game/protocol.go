@@ -28,6 +28,20 @@ type Result struct {
 	View     *TaskView     `json:"view,omitempty"`
 	Checks   []CheckResult `json:"checks,omitempty"`
 	Solved   bool          `json:"solved,omitempty"`
+	Monitor  *MonitorPage  `json:"monitor,omitempty"`
+}
+
+// MonitorPage is an app a ticket's fault shows on, as DBCanvas last fetched it from the
+// cluster.
+type MonitorPage struct {
+	Title  string `json:"title"`
+	URL    string `json:"url"`
+	Status int    `json:"status"`
+	OK     bool   `json:"ok"`
+	Error  string `json:"error,omitempty"`
+	Detail string `json:"detail,omitempty"`
+	Type   string `json:"type,omitempty"`
+	Body   string `json:"body,omitempty"`
 }
 
 type DiagStep struct {

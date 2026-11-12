@@ -211,6 +211,9 @@ type ppSelfTestTask struct {
 	Error   string                   `json:"error,omitempty"`
 	Before  []pagerpanic.CheckResult `json:"before,omitempty"`
 	After   []pagerpanic.CheckResult `json:"after,omitempty"`
+	// MonitorBefore and MonitorAfter are what the task's monitor showed (no page body).
+	MonitorBefore string `json:"monitorBefore,omitempty"`
+	MonitorAfter  string `json:"monitorAfter,omitempty"`
 	Seconds float64                  `json:"seconds"`
 }
 
@@ -390,7 +393,13 @@ exit 1`, false), nil, 4*time.Minute)
 		active, _ := a.pagerPanicActive(st.ID, nodeID, actID)
 		update(i, func(t *ppSelfTestTask) { t.Stage = "checks before the fix" })
 		before, solved := a.ppRunChecks(ctx, nodes, env, active.Instance, task)
-		update(i, func(t *ppSelfTestTask) { t.Before = before })
+		monBefore := a.ppFetchMonitor(ctx, nodes, env, active.Instance, task)
+		update(i, func(t *ppSelfTestTask) { t.Before, t.MonitorBefore = before, ppMonitorLine(monBefore) })
+		if monBefore != nil && monBefore.OK {
+			a.pagerPanicCleanup(ctx, st, nodeID, nodes, env, actID)
+			fail("checks before the fix", "the monitored page already works before anything was fixed")
+			continue
+		}
 		if solved {
 			a.pagerPanicCleanup(ctx, st, nodeID, nodes, env, actID)
 			fail("checks before the fix", "every check already passes before anything was fixed")
@@ -415,19 +424,25 @@ exit 1`, false), nil, 4*time.Minute)
 		}
 		update(i, func(t *ppSelfTestTask) { t.Stage = "checks after the fix" })
 		var after []pagerpanic.CheckResult
+		var monAfter *pagerpanic.MonitorView
 		for try := 0; try < 6; try++ {
-			if after, solved = a.ppRunChecks(ctx, nodes, env, active.Instance, task); solved {
+			after, solved = a.ppRunChecks(ctx, nodes, env, active.Instance, task)
+			monAfter = a.ppFetchMonitor(ctx, nodes, env, active.Instance, task)
+			if solved && (monAfter == nil || monAfter.OK) {
 				break
 			}
 			time.Sleep(10 * time.Second)
 		}
-		update(i, func(t *ppSelfTestTask) { t.After = after })
+		update(i, func(t *ppSelfTestTask) { t.After, t.MonitorAfter = after, ppMonitorLine(monAfter) })
+		monitorBroken := monAfter != nil && !monAfter.OK
 		update(i, func(t *ppSelfTestTask) { t.Stage = "cleanup" })
 		cerr := a.pagerPanicCleanup(ctx, st, nodeID, nodes, env, actID)
 		h := healthy()
 		switch {
 		case !solved:
 			fail("checks after the fix", "the checks still fail after the solve script")
+		case monitorBroken:
+			fail("checks after the fix", "the checks pass but the monitored page still fails: "+ppMonitorLine(monAfter))
 		case cerr != nil:
 			fail("cleanup", cerr.Error())
 		case h != "":
@@ -447,4 +462,15 @@ exit 1`, false), nil, 4*time.Minute)
 		}
 	}
 	ppSelfTests.Unlock()
+}
+
+// ppMonitorLine is a monitor's outcome on one line, for the self-test report.
+func ppMonitorLine(v *pagerpanic.MonitorView) string {
+	if v == nil {
+		return ""
+	}
+	if v.Error != "" {
+		return v.URL + ": " + v.Error + firstNonEmpty(" — "+pagerpanic.Summarize(v.Detail), "")
+	}
+	return fmt.Sprintf("%s: HTTP %d", v.URL, v.Status)
 }

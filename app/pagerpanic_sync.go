@@ -53,6 +53,7 @@ type ppResult struct {
 	View     *pagerpanic.TaskView     `json:"view,omitempty"`
 	Checks   []pagerpanic.CheckResult `json:"checks,omitempty"`
 	Solved   bool                     `json:"solved,omitempty"`
+	Monitor  *pagerpanic.MonitorView  `json:"monitor,omitempty"`
 }
 
 type ppDiagStep struct {
@@ -511,6 +512,7 @@ func (a *App) pagerPanicSetup(ctx context.Context, st Stack, nodeID string, bank
 		return res
 	}
 	res.OK, res.View, res.Worker = true, &view, inst.Worker
+	res.Monitor = a.ppFetchMonitor(ctx, nodes, env, inst, task)
 	return res
 }
 
@@ -535,8 +537,40 @@ func (a *App) pagerPanicCheck(ctx context.Context, st Stack, nodeID string, bank
 		return res
 	}
 	res.Checks, res.Solved = a.ppRunChecks(ctx, nodes, env, active.Instance, task)
+	res.Monitor = a.ppFetchMonitor(ctx, nodes, env, active.Instance, task)
 	res.OK = true
 	return res
+}
+
+// ppFetchMonitor fetches the page a task's monitor watches; nil when the task has none.
+func (a *App) ppFetchMonitor(ctx context.Context, nodes []pagerPanicNode, env pagerpanic.Env, inst pagerpanic.Instance, task pagerpanic.Task) *pagerpanic.MonitorView {
+	plan, ok, err := task.MonitorPlan(inst)
+	if !ok {
+		return nil
+	}
+	v := pagerpanic.MonitorView{Title: plan.Title, URL: plan.URL}
+	if err != nil {
+		v.Error, v.Detail = "The page could not be fetched", err.Error()
+		return &v
+	}
+	hosts, err := inst.Hosts(plan.On, env)
+	if err != nil || len(hosts) == 0 {
+		v.Error, v.Detail = "The page could not be fetched", fmt.Sprint(err)
+		return &v
+	}
+	node, ok := ppNodeByHost(nodes, hosts[0])
+	if !ok {
+		v.Error, v.Detail = "The page could not be fetched", "no node "+hosts[0]
+		return &v
+	}
+	out, errOut, _, err := a.ppExec(ctx, node, pagerpanic.Script(pagerpanic.MonitorScript, false),
+		append([]string{"PP_INSTANCE=" + inst.ID}, plan.Env...), 20*time.Second)
+	if err != nil {
+		v.Error, v.Detail = "The page could not be fetched", pagerpanic.Summarize(firstNonEmpty(errOut, err.Error()))
+		return &v
+	}
+	v = pagerpanic.ParseMonitor(plan, out)
+	return &v
 }
 
 // ppRunChecks runs a task's checks and says whether all of them pass.

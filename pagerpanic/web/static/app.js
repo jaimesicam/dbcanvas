@@ -386,11 +386,12 @@ function renderPlay() {
     el.querySelector('.t-title').innerHTML = incoming ? `<span class="ringing">INCOMING PAGE…</span>` : `<span class="muted">${i + 1}</span> ${esc(t.title)}`;
     el.querySelector('.t-meta').innerHTML = `${t.boss ? '<span class="chip boss">boss</span>' : ''}<span class="chip cat-${esc(t.category)}">${esc(catTitle(t.category))}</span><span class="chip">${esc(t.kind)}</span><span class="stars">${'★'.repeat(t.difficulty)}</span><span>${(t.points * (t.boss ? 3 : 1)).toLocaleString()} pts</span>${t.checking ? '<span class="muted">checking…</span>' : ''}`;
   });
-  if (!S.tickets.length) box.innerHTML = `<div class="muted" style="text-align:center;margin-top:120px">All quiet… for now.</div>`;
-  else box.querySelectorAll('.muted[style]').forEach((n) => n.remove());
+  if (!S.tickets.length) box.innerHTML = `<div class="quiet">All quiet… for now.</div>`;
+  else box.querySelectorAll('.quiet').forEach((n) => n.remove());
   if (sel && !ids.has(sel)) sel = null;
   if (!sel) { const first = S.tickets.find((t) => t.state === 'open'); if (first) sel = first.id; }
   renderDetail();
+  Bench.render();
   const stageLevel = c.practicing ? 0.1 : (c.stage - 1) / Math.max(1, c.stages - 1);
   alarm(Math.min(1, stageLevel * 0.6 + red * 0.2));
 }
@@ -398,15 +399,17 @@ function catTitle(id) { return (S.categories || []).find((c) => c.id === id)?.ti
 function renderDetail() {
   const d = $('detail');
   const t = S.tickets.find((x) => x.id === sel);
-  if (!t) { d.innerHTML = '<div class="empty">Tickets appear here. Pick one to read it.<br><br>Right-click a ticket for a terminal.</div>'; return; }
-  if (t.state === 'incoming') { d.innerHTML = `<div class="empty"><span class="ringing">INCOMING PAGE…</span><br><br>The fault is being set up on the cluster.<br>Its clock starts when it lands.</div>`; return; }
-  const key = JSON.stringify([t.id, t.brief, t.hints, t.checks, t.checking, t.hintsBought]);
+  if (!t) { d.dataset.key = ''; d.innerHTML = '<div class="empty">Tickets appear here. Pick one to read it.<br>Right-click a ticket for more ways in.</div>'; return; }
+  if (t.state === 'incoming') { d.dataset.key = ''; d.innerHTML = `<div class="empty"><span class="ringing">INCOMING PAGE…</span><br><br>The fault is being set up on the cluster.<br>Its clock starts when it lands.</div>`; return; }
+  const m = t.monitor;
+  const key = JSON.stringify([t.id, t.brief, t.hints, t.checks, t.checking, t.hintsBought, m && [m.ok, m.status, m.error]]);
   if (d.dataset.key === key) return;
   d.dataset.key = key;
   const nextCost = t.hintCosts && t.hintsBought < t.hintCosts.length ? t.hintCosts[t.hintsBought] : null;
   const checks = (t.checks || []).map((c) => `<li class="${c.ok ? 'ok' : 'no'}"><span class="m">${c.ok ? 'OK' : 'XX'}</span><span>${esc(c.name)}${c.guard ? ' <span class="chip">rule</span>' : ''}</span>${c.ok ? '' : `<small>got ${esc(c.got)}${c.want ? ' · want ' + esc(c.want) : ''}</small>`}</li>`).join('');
-  d.innerHTML = `<h4>${esc(t.title)}</h4>
-    <div class="t-meta">${t.boss ? '<span class="chip boss">boss</span>' : ''}<span class="chip cat-${esc(t.category)}">${esc(catTitle(t.category))}</span><span class="chip">${esc(t.kind)}</span><span class="stars">${'★'.repeat(t.difficulty)}</span></div>
+  d.innerHTML = `<div class="d-head"><div><h4>${esc(t.title)}</h4>
+    <div class="t-meta">${t.boss ? '<span class="chip boss">boss</span>' : ''}<span class="chip cat-${esc(t.category)}">${esc(catTitle(t.category))}</span><span class="chip">${esc(t.kind)}</span><span class="stars">${'★'.repeat(t.difficulty)}</span>${t.extra ? `<span class="chip ok">+${t.extra}s head start</span>` : ''}</div></div>
+    ${m ? `<button class="app-chip ${m.ok ? 'ok' : 'bad'}" data-act="show-app" title="Show the app"><i></i>${esc(m.title)} · ${esc(appState(m))}</button>` : ''}</div>
     <div class="brief">${brief(t.brief)}</div>
     ${(t.hints || []).map((h) => `<div class="hint">${brief(h)}</div>`).join('')}
     <ul class="checks">${checks || '<li class="muted">Checked every 10 seconds; it clears the moment the cluster is right.</li>'}</ul>
@@ -414,10 +417,10 @@ function renderDetail() {
       <button class="btn small hot" data-act="check-now">CHECK NOW</button>
       ${nextCost !== null && S.mode !== 'marathon' ? `<button class="btn small" data-act="hint">HINT −${nextCost}</button>` : ''}
       <button class="btn small" data-act="give-up">GIVE UP</button>
-      <button class="btn small" data-act="menu">TERMINAL ▾</button>
-    </div>
-    <div class="nodes">Open a terminal: ${(S.nodes || []).map((n) => `<button data-node="${esc(n.nodeId)}">${esc(n.host)}${n.role === 'control-plane' ? ' (control plane)' : ''}${n.host === t.worker ? ' ★' : ''}</button>`).join('')}</div>`;
+      <button class="btn small" data-act="menu">MORE ▾</button>
+    </div>`;
 }
+function appState(m) { return m.error ? 'DOWN' : (m.ok ? `UP · ${m.status}` : `HTTP ${m.status}`); }
 // brief joins the lines a YAML block wrapped, keeping blank lines and indented lines
 // (a list a task lays out on purpose) on lines of their own.
 function brief(s) {
@@ -447,23 +450,277 @@ $('tickets').addEventListener('contextmenu', (ev) => {
 $('detail').addEventListener('click', async (ev) => {
   const b = ev.target.closest('button');
   if (!b) return;
-  if (b.dataset.node) { terminal(b.dataset.node); return; }
   const act = b.dataset.act;
+  if (act === 'show-app') { Bench.show('app'); return; }
   if (act === 'menu') { const r = b.getBoundingClientRect(); menu(r.left, r.bottom + 4, sel); return; }
   if (act === 'give-up' && !(await confirmGiveUp())) return;
   if (act) await play({ do: act, ticket: sel }).catch(() => {});
 });
 
-// ---------------------------------------------------------------- terminals and the context menu
+// ---------------------------------------------------------------- terminals
+// Inside DBCanvas a terminal is drawn here, in the workbench. DBCanvas opens the node's
+// shell and relays it over a MessagePort (dbcanvas:term-attach), so this page gets a shell
+// and never a credential. A terminal can also pop out into a DBCanvas window, and outside
+// DBCanvas the docker exec command is the way in.
 const inDBCanvas = window.parent !== window;
-function terminal(nodeId) {
-  const n = (S.nodes || []).find((x) => x.nodeId === nodeId);
+const nodeOf = (id) => (S?.nodes || []).find((x) => x.nodeId === id);
+const dockerCmd = (n) => `docker exec -it ${n.container} bash`;
+const nodeLabel = (n) => `${n.host}${n.role === 'control-plane' ? ' (control plane)' : ''}`;
+function popOut(nodeId) {
+  const n = nodeOf(nodeId);
   if (!n) return;
-  if (inDBCanvas) {
-    window.parent.postMessage({ type: 'dbcanvas:open-terminal', stackId: S.stack.id, nodeId: n.nodeId, title: `${n.host} · Pager Panic` }, location.origin);
-    toast(`Opening a terminal on ${n.host}`);
-  } else copy(`docker exec -it ${n.container} bash`, `Copied: docker exec -it ${n.container} bash`);
+  if (!inDBCanvas) { copy(dockerCmd(n), `Copied: ${dockerCmd(n)}`); return; }
+  window.parent.postMessage({ type: 'dbcanvas:open-terminal', stackId: S.stack.id, nodeId: n.nodeId, title: `${n.host} · Pager Panic` }, location.origin);
+  toast(`Opening a DBCanvas terminal on ${n.host}`);
 }
+const TERM_THEME = { background: '#0d081b', foreground: '#e9e4ff', cursor: '#39ffb6', cursorAccent: '#0d081b', selectionBackground: '#47c8ff55',
+  black: '#140d26', red: '#ff4d4d', green: '#39ffb6', yellow: '#ffcb3d', blue: '#47c8ff', magenta: '#ff3d7f', cyan: '#5ee6e6', white: '#e9e4ff',
+  brightBlack: '#6b6290', brightRed: '#ff7a7a', brightGreen: '#7dffd0', brightYellow: '#ffe07a', brightBlue: '#8adcff', brightMagenta: '#ff7aa8', brightCyan: '#9af2f2', brightWhite: '#ffffff' };
+
+const Bench = {
+  sessions: [],  // {id, nodeId, host, n, term, fit, el, port, status}
+  tab: null,     // the shown tab: a session id, or 'app'
+  count: 0,
+  // Terminal and app side by side: 'on', 'off', or '' for when the workbench is wide.
+  split: (() => { try { return localStorage.getItem('pp-split') || ''; } catch { return ''; } })(),
+  appTicket: '', appRev: 0, appFetching: false, lastKey: '', wasOK: {},
+
+  // open shows the node's terminal, opening one if it has none (or always, with fresh).
+  open(nodeId, fresh) {
+    const n = nodeOf(nodeId);
+    if (!n) return;
+    if (!inDBCanvas || !window.Terminal || !window.FitAddon) { popOut(nodeId); return; }
+    if (!fresh) {
+      const have = this.sessions.find((x) => x.nodeId === nodeId && x.status !== 'closed');
+      if (have) { this.show(have.id); return; }
+    }
+    const id = `t${++this.count}`;
+    const el = document.createElement('div');
+    el.className = 'term-host';
+    $('termPane').appendChild(el);
+    const term = new window.Terminal({ fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace', fontSize: 13, lineHeight: 1.1,
+      cursorBlink: true, scrollback: 5000, allowProposedApi: false, theme: TERM_THEME });
+    const fit = new window.FitAddon.FitAddon();
+    term.loadAddon(fit);
+    term.open(el);
+    const ch = new MessageChannel();
+    const same = this.sessions.filter((x) => x.nodeId === nodeId).length;
+    const s = { id, nodeId, host: n.host, n: same + 1, term, fit, el, port: ch.port1, status: 'connecting' };
+    this.sessions.push(s);
+    const enc = new TextEncoder();
+    const send = (m) => { if (s.status !== 'closed') s.port.postMessage(m); };
+    const ended = (why) => {
+      if (s.status === 'closed') return;
+      s.status = 'closed';
+      clearTimeout(s.timer);
+      term.write(`\r\n\x1b[33m[${why}]\x1b[0m\r\n`);
+      this.render(true);
+    };
+    s.port.onmessage = (e) => {
+      const m = e.data || {};
+      if (m.type === 'data') term.write(new Uint8Array(m.data));
+      else if (m.type === 'open') {
+        s.status = 'open'; clearTimeout(s.timer);
+        this.fitOne(s);
+        send({ type: 'resize', cols: term.cols, rows: term.rows });
+        this.render(true);
+      } else if (m.type === 'unavailable') {
+        ended(m.reason || 'not available here');
+        popOut(nodeId);
+      } else if (m.type === 'closed' || m.type === 'error') ended('session closed');
+    };
+    term.onData((d) => send({ type: 'data', data: enc.encode(d) }));
+    term.onBinary((d) => send({ type: 'data', data: Uint8Array.from(d, (c) => c.charCodeAt(0) & 255) }));
+    term.onResize(({ cols, rows }) => { if (s.status === 'open') send({ type: 'resize', cols, rows }); });
+    s.timer = setTimeout(() => { if (s.status === 'connecting') ended('DBCanvas did not answer; right-click a ticket to pop a terminal out'); }, 12000);
+    window.parent.postMessage({ type: 'dbcanvas:term-attach', stackId: S.stack.id, nodeId }, location.origin, [ch.port2]);
+    this.show(id);
+  },
+  close(id) {
+    const i = this.sessions.findIndex((x) => x.id === id);
+    if (i < 0) return;
+    const s = this.sessions[i];
+    try { if (s.status !== 'closed') s.port.postMessage({ type: 'close' }); } catch { /* */ }
+    s.status = 'closed';
+    clearTimeout(s.timer);
+    s.port.close();
+    s.term.dispose();
+    s.el.remove();
+    this.sessions.splice(i, 1);
+    if (this.tab === id) this.tab = this.sessions[Math.max(0, i - 1)]?.id || null;
+    this.render(true);
+  },
+  show(tab) {
+    this.tab = tab;
+    this.render(true);
+    const s = this.sessions.find((x) => x.id === tab);
+    if (s) setTimeout(() => s.term.focus(), 0);
+  },
+  fitOne(s) {
+    if (!s || !s.el.offsetWidth || !s.el.offsetHeight) return;
+    try { s.fit.fit(); } catch { /* not laid out yet */ }
+  },
+  fitAll() { for (const s of this.sessions) if (s.el.style.display !== 'none') this.fitOne(s); },
+
+  // render draws the tabs and shows the right pane. It runs on every poll, so it only
+  // touches the DOM when something it draws changed (or force).
+  render(force) {
+    if (!S) return;
+    const t = S.tickets.find((x) => x.id === sel && x.state === 'open');
+    const m = t?.monitor || null;
+    if (this.tab === 'app' && !m) this.tab = this.sessions[this.sessions.length - 1]?.id || null;
+    const w = $('bench').offsetWidth;
+    const wide = w >= 720;
+    const splitOn = this.split === 'on' || (this.split === '' && w >= 1000);
+    const split = !!m && splitOn && wide;
+    const showApp = !!m && (split || this.tab === 'app');
+    const termTab = this.tab === 'app' ? (split ? this.sessions[this.sessions.length - 1]?.id : null) : this.tab;
+    if (m && t) {
+      // Tell the player when the app comes back, or goes down.
+      const was = this.wasOK[t.id];
+      if (was === false && m.ok) { toast(`✓ ${m.title} is back up`); Sound.blip(); }
+      this.wasOK[t.id] = m.ok;
+    }
+    const key = JSON.stringify([this.tab, split, termTab, this.sessions.map((x) => [x.id, x.status]), m && [t.id, m.title, m.ok, m.status, m.error, m.rev, m.age, t.checking], (S.nodes || []).map((n) => n.nodeId), t?.worker]);
+    if (!force && key === this.lastKey) return;
+    this.lastKey = key;
+
+    const star = (n) => (t && n.host === t.worker ? ' ★' : '');
+    const tabs = this.sessions.map((x) => `<button class="tab ${x.id === termTab || (x.id === this.tab) ? 'on' : ''}" data-tab="${x.id}" title="${esc(x.host)}"><span class="lamp ${x.status}"></span>${esc(x.host)}${x.n > 1 ? ' #' + x.n : ''}<span class="x" data-close="${x.id}" title="Close">×</span></button>`).join('');
+    const adds = inDBCanvas ? (S.nodes || []).map((n) => `<button class="add" data-add="${esc(n.nodeId)}" title="New terminal on ${esc(nodeLabel(n))}">+ ${esc(n.host)}${star(n)}</button>`).join('') : '';
+    const app = m ? `<button class="tab ${showApp ? 'on' : ''}" data-tab="app" title="${esc(m.url)}"><span class="lamp ${m.ok ? 'ok' : 'bad'}"></span>${esc(m.title)}</button>` : '';
+    const tools = `${m && wide ? `<button class="tool ${splitOn ? 'on' : ''}" data-split="1" title="Terminal and app side by side">⇆</button>` : ''}${termTab && inDBCanvas ? `<button class="tool" data-pop="${termTab}" title="Pop this terminal out into a DBCanvas window">⧉</button>` : ''}`;
+    $('benchTabs').innerHTML = `${tabs}${adds}<span class="spacer"></span>${app}${tools}`;
+
+    $('bench').classList.toggle('split', split);
+    const termShown = split || this.tab !== 'app';
+    $('termPane').classList.toggle('hidden', !termShown);
+    $('appPane').classList.toggle('hidden', !showApp);
+    for (const x of this.sessions) x.el.style.display = x.id === termTab ? '' : 'none';
+    const launch = $('termLaunch');
+    launch.classList.toggle('hidden', !!termTab && this.sessions.some((x) => x.id === termTab));
+    if (!launch.classList.contains('hidden')) launch.innerHTML = this.launcher(t);
+    if (showApp) this.drawApp(t, m);
+    requestAnimationFrame(() => this.fitAll());
+  },
+  launcher(t) {
+    const nodes = S.nodes || [];
+    const docker = nodes.map((n) => `<div class="cmd"><span class="who">${esc(n.host)}${t && n.host === t.worker ? ' ★' : ''}</span><code>${esc(dockerCmd(n))}</code><button data-copy="${esc(dockerCmd(n))}">COPY</button></div>`).join('');
+    if (!inDBCanvas) {
+      return `<h5>TERMINALS</h5><p>Terminals open right here when the game is opened from its node in DBCanvas (Play). From a shell on the Docker host:</p>${docker}`;
+    }
+    const btns = nodes.map((n) => `<button class="node ${t && n.host === t.worker ? 'star' : ''}" data-add="${esc(n.nodeId)}"><b>▸ ${esc(n.host)}${t && n.host === t.worker ? ' ★' : ''}</b><small>${n.role === 'control-plane' ? 'control plane · kubectl is here' : (t && n.host === t.worker ? "this ticket's worker" : 'worker')}</small></button>`).join('');
+    return `<h5>OPEN A SHELL ON A NODE</h5><div class="nodes">${btns || '<span>Waiting for the cluster…</span>'}</div>
+      <h5>OR FROM THE DOCKER HOST</h5>${docker}`;
+  },
+
+  // drawApp fills the browser pane with the ticket's app as DBCanvas last fetched it.
+  drawApp(t, m) {
+    $('appUrl').textContent = m.url.replace(/^https?:\/\//, '');
+    const st = $('appStatus');
+    st.textContent = m.error ? 'DOWN' : `${m.status}`;
+    st.className = 'b-status ' + (m.ok ? 'ok' : 'bad');
+    const rl = $('appReload');
+    rl.disabled = !!t.checking;
+    rl.classList.toggle('spin', !!t.checking);
+    $('appFoot').textContent = `Fetched from the cluster with every check · ${m.age < 2 ? 'just now' : m.age + 's ago'}${m.ok ? '' : ' · it comes back when the ticket is fixed'}`;
+    if (this.appTicket === t.id && this.appRev === m.rev) return;
+    if (this.appFetching) return;
+    this.appFetching = true;
+    const want = { id: t.id, rev: m.rev };
+    api('GET', 'api/monitor?ticket=' + encodeURIComponent(t.id)).then((d) => {
+      if (sel !== want.id) return;
+      this.appTicket = want.id; this.appRev = d.rev;
+      $('appView').srcdoc = pageDoc(d.page);
+    }).catch(() => {}).finally(() => { this.appFetching = false; });
+  },
+};
+
+// pageDoc is what the browser pane shows: the page itself, or an error page like a
+// browser's. Either way it runs no script and loads nothing (sandbox, and the CSP).
+const CSP = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:">`;
+function pageDoc(p) {
+  const host = esc(String(p.url || '').replace(/^https?:\/\//, '').split('/')[0]);
+  const errPage = (title, line, detail, code) => `<!doctype html>${CSP}<style>
+    body{margin:0;font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;background:#f6f6f8;color:#3c3c43;display:flex;align-items:center;justify-content:center;min-height:100vh}
+    .w{max-width:520px;padding:28px}.i{font-size:42px;color:#9a98a6;margin-bottom:8px}h1{font-size:22px;font-weight:600;color:#202124;margin:0 0 10px}
+    pre{white-space:pre-wrap;word-break:break-word;background:#ececf1;border-radius:6px;padding:10px 12px;font:12px ui-monospace,Menlo,monospace;color:#55536a;max-height:40vh;overflow:auto}
+    .c{font:12px ui-monospace,Menlo,monospace;color:#8a8899;letter-spacing:.04em;margin-top:14px}</style>
+    <div class="w"><div class="i">☹</div><h1>${title}</h1><p>${line}</p>${detail ? `<pre>${esc(detail)}</pre>` : ''}${code ? `<div class="c">${esc(code)}</div>` : ''}</div>`;
+  if (p.error) {
+    const m = /^(.*?)\s*\((ERR_[A-Z_]+)\)$/.exec(p.error);
+    return errPage(esc(m ? m[1] : p.error), `<b>${host}</b> did not answer.`, p.detail, m ? m[2] : '');
+  }
+  const body = String(p.body || '');
+  const type = String(p.type || '').toLowerCase();
+  if (!body.trim()) return errPage(`HTTP ${p.status}`, `<b>${host}</b> answered with an empty page.`, '', '');
+  if (type.includes('html') || (!type && /^\s*</.test(body))) {
+    const dt = /^\s*<!doctype[^>]*>/i.exec(body);
+    return dt ? dt[0] + CSP + body.slice(dt[0].length) : CSP + body;
+  }
+  return `<!doctype html>${CSP}<style>body{margin:0;background:#fff}pre{margin:0;padding:12px;font:12px/1.5 ui-monospace,Menlo,monospace;white-space:pre-wrap;word-break:break-word}</style><pre>${esc(body)}</pre>`;
+}
+
+$('benchTabs').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-close],[data-tab],[data-add],[data-split],[data-pop]');
+  if (!b) return;
+  if (b.dataset.close) { ev.stopPropagation(); Bench.close(b.dataset.close); return; }
+  if (b.dataset.tab) { Bench.show(b.dataset.tab); return; }
+  if (b.dataset.add) { Bench.open(b.dataset.add, true); return; }
+  if (b.dataset.split) {
+    Bench.split = b.classList.contains('on') ? 'off' : 'on';
+    try { localStorage.setItem('pp-split', Bench.split); } catch { /* */ }
+    Bench.render(true);
+    return;
+  }
+  if (b.dataset.pop) { const s = Bench.sessions.find((x) => x.id === b.dataset.pop); if (s) popOut(s.nodeId); }
+});
+$('benchTabs').addEventListener('auxclick', (ev) => {
+  const b = ev.target.closest('[data-tab]');
+  if (ev.button === 1 && b && b.dataset.tab !== 'app') Bench.close(b.dataset.tab);
+});
+$('termLaunch').addEventListener('click', (ev) => {
+  const b = ev.target.closest('button');
+  if (!b) return;
+  if (b.dataset.add) Bench.open(b.dataset.add);
+  else if (b.dataset.copy) copy(b.dataset.copy);
+});
+$('appReload').onclick = () => { if (sel) play({ do: 'check-now', ticket: sel }).catch(() => {}); };
+// The page pings DBCanvas's relay while it lives; a page that goes away closes its shells.
+setInterval(() => { for (const s of Bench.sessions) if (s.status !== 'closed') s.port.postMessage({ type: 'ping' }); }, 10000);
+addEventListener('pagehide', () => { for (const s of Bench.sessions) if (s.status !== 'closed') s.port.postMessage({ type: 'close' }); });
+new ResizeObserver(() => { Bench.render(true); }).observe($('bench'));
+
+// The grip between the ticket and the workbench; the workbench's height is remembered.
+(function grip() {
+  const g = $('grip');
+  const desk = $('desk');
+  const setH = (px) => {
+    const max = desk.clientHeight - 110;
+    const h = Math.max(150, Math.min(max, px));
+    $('bench').style.setProperty('--bench', `${h}px`);
+    return h;
+  };
+  try { const h = Number(localStorage.getItem('pp-bench')); if (h) requestAnimationFrame(() => setH(h)); } catch { /* */ }
+  g.addEventListener('pointerdown', (ev) => {
+    ev.preventDefault();
+    g.setPointerCapture(ev.pointerId);
+    g.classList.add('drag');
+    const bottom = desk.getBoundingClientRect().bottom;
+    const move = (e) => setH(bottom - e.clientY - 6);
+    const up = (e) => {
+      g.classList.remove('drag');
+      g.removeEventListener('pointermove', move);
+      g.removeEventListener('pointerup', up);
+      try { localStorage.setItem('pp-bench', String(Math.round(bottom - e.clientY - 6))); } catch { /* */ }
+    };
+    g.addEventListener('pointermove', move);
+    g.addEventListener('pointerup', up);
+  });
+  g.addEventListener('dblclick', () => { $('bench').style.removeProperty('--bench'); try { localStorage.removeItem('pp-bench'); } catch { /* */ } });
+})();
+
+// ---------------------------------------------------------------- the context menu
 function copy(text, msg) {
   const manual = () => ask('COPY', 'Select the text and copy it.', 'DONE', '', text);
   // The clipboard API exists only on https or localhost; anywhere else, show the text to copy.
@@ -473,10 +730,12 @@ function copy(text, msg) {
 function menu(x, y, ticketId) {
   const m = $('ctx');
   const t = S.tickets.find((z) => z.id === ticketId);
-  const nodes = (S.nodes || []).map((n) => `<button data-node="${esc(n.nodeId)}">▸ Terminal: ${esc(n.host)}${n.role === 'control-plane' ? ' (control plane)' : ''}${t && n.host === t.worker ? ' ★' : ''}</button>`).join('');
-  const docker = (S.nodes || []).map((n) => `<button data-copy="docker exec -it ${esc(n.container)} bash">⧉ docker exec: ${esc(n.host)}</button>`).join('');
-  m.innerHTML = `${inDBCanvas ? '<small>DBCanvas terminal</small>' + nodes + '<button data-stack="1">▸ Open the stack in DBCanvas</button><hr>' : ''}
-    <small>From a shell on the Docker host</small>${docker}
+  const star = (n) => (t && n.host === t.worker ? ' ★' : '');
+  const here = (S.nodes || []).map((n) => `<button data-node="${esc(n.nodeId)}">▸ ${esc(nodeLabel(n))}${star(n)}</button>`).join('');
+  const out = (S.nodes || []).map((n) => `<button data-pop="${esc(n.nodeId)}">⧉ ${esc(n.host)}${star(n)}</button>`).join('');
+  const docker = (S.nodes || []).map((n) => `<button data-copy="${esc(dockerCmd(n))}">⧉ docker exec: ${esc(n.host)}${star(n)}</button>`).join('');
+  m.innerHTML = `${inDBCanvas ? `<small>Terminal in the game</small>${here}<small>Terminal in a DBCanvas window</small>${out}<button data-stack="1">▸ Open the stack in DBCanvas</button><hr>` : ''}
+    <small>Copy, for a shell on the Docker host</small>${docker}
     ${t && t.state === 'open' ? `<hr><button data-act="check-now">✓ Check now</button>${t.hintCosts && t.hintsBought < t.hintCosts.length && S.mode !== 'marathon' ? `<button data-act="hint">? Hint (−${t.hintCosts[t.hintsBought]})</button>` : ''}<button data-act="give-up">✕ Give up</button>` : ''}`;
   m.style.left = `${Math.min(x, innerWidth - 280)}px`;
   m.style.top = `${Math.min(y, innerHeight - m.offsetHeight - 20)}px`;
@@ -488,7 +747,8 @@ $('ctx').addEventListener('click', async (ev) => {
   const m = $('ctx');
   m.classList.add('hidden');
   if (!b) return;
-  if (b.dataset.node) terminal(b.dataset.node);
+  if (b.dataset.node) Bench.open(b.dataset.node);
+  else if (b.dataset.pop) popOut(b.dataset.pop);
   else if (b.dataset.copy) copy(b.dataset.copy);
   else if (b.dataset.stack) window.parent.postMessage({ type: 'dbcanvas:open-stack', stackId: S.stack.id }, location.origin);
   else if (b.dataset.act) {
@@ -499,6 +759,7 @@ $('ctx').addEventListener('click', async (ev) => {
 addEventListener('click', (ev) => { if (!ev.target.closest('#ctx') && !ev.target.closest('[data-act="menu"]')) $('ctx').classList.add('hidden'); });
 addEventListener('keydown', (ev) => {
   if (ev.target.tagName === 'INPUT' || dlgDone) return; // the dialog owns the keyboard while it is open
+  if (ev.target.tagName === 'TEXTAREA' || ev.target.closest?.('.xterm')) return; // typing in a terminal
   const k = ev.key.toLowerCase();
   if (k === 'm') Sound.toggle();
   if (k === 'escape') $('ctx').classList.add('hidden');

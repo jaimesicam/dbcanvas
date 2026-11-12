@@ -8,14 +8,15 @@ import (
 
 // fake plays DBCanvas: it answers every action the game asks for.
 type fake struct {
-	t      *testing.T
-	g      *Game
-	clock  time.Time
-	solved map[string]bool // instance → the cluster is fixed
-	setups int
-	cleans map[string]bool
-	fail   map[string]bool // task → setup fails
-	locks  map[string][]string
+	t       *testing.T
+	g       *Game
+	clock   time.Time
+	solved  map[string]bool // instance → the cluster is fixed
+	setups  int
+	cleans  map[string]bool
+	fail    map[string]bool // task → setup fails
+	locks   map[string][]string
+	monitor bool // tickets have an app
 }
 
 func newFake(t *testing.T, bank Bank) *fake {
@@ -42,10 +43,11 @@ func (f *fake) step(d time.Duration) SyncResponse {
 				continue
 			}
 			results = append(results, Result{ID: a.ID, Op: a.Op, Done: true, OK: true, Instance: a.ID,
-				View: &TaskView{Title: "T " + a.Task, Brief: "fix " + a.Task, Hints: []string{"h1"}, Solution: "sol", Explain: "why"}})
+				View:    &TaskView{Title: "T " + a.Task, Brief: "fix " + a.Task, Hints: []string{"h1"}, Solution: "sol", Explain: "why"},
+				Monitor: f.page(a.ID)})
 		case "check":
 			results = append(results, Result{ID: a.ID, Op: a.Op, Done: true, OK: true, Instance: a.Instance,
-				Solved: f.solved[a.Instance], Checks: []CheckResult{{Name: "c", OK: f.solved[a.Instance]}}})
+				Solved: f.solved[a.Instance], Checks: []CheckResult{{Name: "c", OK: f.solved[a.Instance]}}, Monitor: f.page(a.Instance)})
 		case "cleanup":
 			f.cleans[a.Instance] = true
 			results = append(results, Result{ID: a.ID, Op: a.Op, Done: true, OK: true, Instance: a.Instance})
@@ -53,6 +55,17 @@ func (f *fake) step(d time.Duration) SyncResponse {
 	}
 	f.g.Sync(SyncRequest{BankHash: "h", Env: Env{ControlPlane: "cp", Workers: []string{"w1", "w2"}}, Results: results})
 	return resp
+}
+
+// page is the ticket's app as the fake cluster serves it: down until the ticket is solved.
+func (f *fake) page(instance string) *MonitorPage {
+	if !f.monitor {
+		return nil
+	}
+	if f.solved[instance] {
+		return &MonitorPage{Title: "Shop", URL: "http://web.shop.svc/", Status: 200, OK: true, Type: "text/html", Body: "<h1>Shop</h1>"}
+	}
+	return &MonitorPage{Title: "Shop", URL: "http://web.shop.svc/", Error: "Connection refused (ERR_CONNECTION_REFUSED)"}
 }
 
 func (f *fake) open() []TicketView {
@@ -356,6 +369,44 @@ func TestASlowClearGivesNoHeadStart(t *testing.T) {
 	}
 	if open[0].Extra != 0 || open[0].Limit != 60 {
 		t.Errorf("a slow clear gave a head start: limit %v, extra %v", open[0].Limit, open[0].Extra)
+	}
+}
+
+func TestATicketsAppIsDownUntilItIsFixed(t *testing.T) {
+	f := newFake(t, testBank())
+	f.monitor = true
+	f.start(ModeArcade, "")
+	f.step(5 * time.Second)
+	f.step(time.Second)
+	tk := f.open()[0]
+	if tk.Monitor == nil || tk.Monitor.OK || tk.Monitor.Error == "" {
+		t.Fatalf("a new ticket's app: %+v", tk.Monitor)
+	}
+	page, rev, ok := f.g.Page(tk.ID)
+	if !ok || page.Body != "" || rev != 1 {
+		t.Fatalf("the page while it is down: %+v rev %d ok %v", page, rev, ok)
+	}
+	f.step(11 * time.Second) // a check that still fails: the same page, the same rev
+	f.step(time.Second)
+	if _, rev, _ := f.g.Page(tk.ID); rev != 1 {
+		t.Errorf("rev %d after a check that changed nothing", rev)
+	}
+	if _, _, ok := f.g.Page("nope"); ok {
+		t.Error("a page for a ticket that does not exist")
+	}
+	f.g.mu.Lock()
+	f.g.ticket(tk.ID).Limit = 0 // keep it open while the app comes back
+	f.g.mu.Unlock()
+	f.solved[tk.setupID] = true
+	f.g.mu.Lock()
+	f.g.setPage(f.g.ticket(tk.ID), f.page(tk.setupID))
+	f.g.mu.Unlock()
+	page, rev, _ = f.g.Page(tk.ID)
+	if !page.OK || page.Body == "" || rev != 2 {
+		t.Errorf("the page once fixed: %+v rev %d", page, rev)
+	}
+	if v := f.open()[0].Monitor; v == nil || !v.OK || v.Rev != 2 {
+		t.Errorf("the ticket's app in the view: %+v", v)
 	}
 }
 

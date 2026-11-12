@@ -16,6 +16,9 @@
 #   blocks /   capabilities a task takes away while it is open, and the ones a task
 #   needs:     depends on: scheduling, controllers, dns
 #   solve:     how a player would fix it, run only by the self-test
+#   monitor:   an app the fault shows on, drawn in the game's browser pane and fetched from
+#              a node with every check: {title, service, namespace, port, path} for a
+#              Service at its ClusterIP, or {title, url}; node: picks where (control plane)
 #
 # Scripts get these helpers: pp_backup FILE, pp_restore, pp_wait SECONDS COMMAND…
 # Setup and solve scripts stop at the first failing command; checks and cleanups do not.
@@ -68,7 +71,22 @@ tasks:
     setup:
       - run: |
           kubectl create ns {{ns}}
+          page=$(mktemp)
+          cat > "$page" <<'EOF'
+          <!doctype html><html><head><meta charset="utf-8"><title>Arcade Shop</title><style>
+          body{margin:0;font:15px/1.5 system-ui,sans-serif;background:#fff8ef;color:#2b1d0e}
+          header{background:#ff6b35;color:#fff;padding:14px 22px;font-weight:700;font-size:20px}
+          main{padding:18px 22px}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+          .card{background:#fff;border:1px solid #f0dcc4;border-radius:8px;padding:12px}.p{color:#ff6b35;font-weight:700}
+          </style></head><body><header>Arcade Shop</header><main><p>Today's specials</p><div class="grid">
+          <div class="card">Joystick<div class="p">$24</div></div><div class="card">Token roll<div class="p">$5</div></div>
+          <div class="card">Neon sign<div class="p">$60</div></div><div class="card">Cabinet key<div class="p">$9</div></div>
+          </div></main></body></html>
+          EOF
+          kubectl -n {{ns}} create configmap shop-page --from-file=index.html="$page"
+          rm -f "$page"
           kubectl -n {{ns}} create deployment web --image=nginx:1.27 --replicas=3
+          kubectl -n {{ns}} patch deployment web --type=json -p '[{"op":"add","path":"/spec/template/spec/volumes","value":[{"name":"page","configMap":{"name":"shop-page"}}]},{"op":"add","path":"/spec/template/spec/containers/0/volumeMounts","value":[{"name":"page","mountPath":"/usr/share/nginx/html"}]}]'
           kubectl -n {{ns}} expose deployment web --port=80
           kubectl -n {{ns}} patch svc web -p '{"spec":{"selector":{"app":"webb"}}}'
         record:
@@ -76,6 +94,7 @@ tasks:
     brief: |
       Shoppers get connection refused from the shop in namespace {{ns}}.
       Make the web Service reach its pods. Do not recreate the Deployment.
+    monitor: {title: Arcade Shop, service: web, namespace: "{{ns}}"}
     hints:
       - {cost: 25, text: "Compare the Service's selector with the labels on the web pods."}
       - {cost: 50, text: "kubectl -n {{ns}} get pods --show-labels, then edit the Service's spec.selector."}
@@ -111,6 +130,7 @@ tasks:
     brief: |
       The api Service in {{ns}} has endpoints, yet every request to it on port 80 hangs
       and then fails. nginx in those pods listens on port 80. Make http://api.{{ns}} answer.
+    monitor: {title: API, service: api, namespace: "{{ns}}"}
     hints:
       - {cost: 25, text: "Look at the Service's targetPort and at the port the container listens on."}
     check:
@@ -146,6 +166,7 @@ tasks:
     brief: |
       The dashboard Deployment in {{ns}} has to be reachable from outside the cluster.
       Create a NodePort Service named dashboard on node port {{port}}, forwarding to port 80.
+    monitor: {title: Dashboard, url: "http://{{worker}}:{{port}}/"}
     hints:
       - {cost: 25, text: "kubectl expose can create the Service; set the node port in its spec.ports."}
     check:
@@ -1605,13 +1626,28 @@ tasks:
           grep -q 'kube-schedulerr$' /etc/kubernetes/manifests/kube-scheduler.yaml
           sleep 20
           kubectl create ns {{ns}}
+          page=$(mktemp)
+          cat > "$page" <<'EOF'
+          <!doctype html><html><head><meta charset="utf-8"><title>Storefront</title><style>
+          body{margin:0;font:15px/1.5 system-ui,sans-serif;background:#f3f7ff;color:#14213d}
+          header{background:#1d4ed8;color:#fff;padding:14px 22px;font-weight:700;font-size:20px}
+          main{padding:18px 22px}.banner{background:#fff;border:1px solid #d5e0f5;border-radius:8px;padding:16px}
+          b{color:#1d4ed8}
+          </style></head><body><header>Storefront</header><main><div class="banner">
+          <b>Release 2.0 is live.</b> New arrivals, faster checkout, free shipping this week.
+          </div></main></body></html>
+          EOF
+          kubectl -n {{ns}} create configmap storefront-page --from-file=index.html="$page"
+          rm -f "$page"
           kubectl -n {{ns}} create deployment storefront --image=nginx:1.27 --replicas=2
+          kubectl -n {{ns}} patch deployment storefront --type=json -p '[{"op":"add","path":"/spec/template/spec/volumes","value":[{"name":"page","configMap":{"name":"storefront-page"}}]},{"op":"add","path":"/spec/template/spec/containers/0/volumeMounts","value":[{"name":"page","mountPath":"/usr/share/nginx/html"}]}]'
           kubectl -n {{ns}} expose deployment storefront --port=80
           kubectl -n {{ns}} patch svc storefront -p '{"spec":{"selector":{"app":"store"}}}'
     brief: |
       The storefront release in {{ns}} never came up: its pods are Pending, and its
       Service would not find them anyway. Get 2 storefront replicas running and make the
       storefront Service route to them.
+    monitor: {title: Storefront, service: storefront, namespace: "{{ns}}"}
     hints:
       - {cost: 50, text: "Pending with no events: who assigns pods to nodes? Then compare the Service's selector with the pod labels."}
     check:
