@@ -92,10 +92,10 @@ func (d *Docker) Ping(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	drain(resp)
 	if resp.StatusCode != 200 {
-		return errBody("ping", resp)
+		return errBody("ping", resp) // reads the body for Docker's message, so it is not drained first
 	}
+	drain(resp)
 	return nil
 }
 
@@ -299,10 +299,10 @@ func (d *Docker) PutArchiveStream(ctx context.Context, id, dir string, r io.Read
 	if err != nil {
 		return err
 	}
-	drain(resp)
 	if resp.StatusCode != 200 {
-		return errBody("put archive", resp)
+		return errBody("put archive", resp) // reads the body for Docker's message, so it is not drained first
 	}
+	drain(resp)
 	return nil
 }
 
@@ -339,10 +339,10 @@ func (d *Docker) NetworkEnsure(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
-	drain(resp)
 	if resp.StatusCode != 201 {
-		return errBody("create network", resp)
+		return errBody("create network", resp) // reads the body for Docker's message, so it is not drained first
 	}
+	drain(resp)
 	return nil
 }
 
@@ -1366,10 +1366,10 @@ func (d *Docker) CopyFile(ctx context.Context, id, dir, name string, mode int64,
 	if err != nil {
 		return err
 	}
-	drain(resp)
 	if resp.StatusCode != 200 {
-		return errBody("copy archive", resp)
+		return errBody("copy archive", resp) // reads the body for Docker's message, so it is not drained first
 	}
+	drain(resp)
 	return nil
 }
 
