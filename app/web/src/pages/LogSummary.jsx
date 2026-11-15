@@ -300,6 +300,11 @@ export default function LogSummary() {
         <>
           <SourcesCard bundle={bundle} id={id} />
           <MongoWork bundle={bundle} />
+          <SlowDigest bundle={bundle}
+            onWindow={(a, b) => {
+              const pad = Math.max(1, (b - a) * 0.02)
+              setRange((r) => ({ ...r, fromTs: (a - pad).toFixed(6), toTs: (b + pad).toFixed(6) }))
+            }} />
           <Verdict
             findings={findings} onGo={goToFinding}
             from={range.fromTs ? Number(range.fromTs) : 0}
@@ -582,6 +587,268 @@ export function MongoWork({ bundle }) {
         })}
       </div>
     </Card>
+  )
+}
+
+// ---------------------------------------------------------------- slow query digest
+
+// SlowDigest — the slow-query lines grouped by query shape, worst first.
+//
+// MongoWork says how much work there was; this says which query did it. Operations that
+// differ only in their values are one row (the backend replaces every literal with ?), and
+// rows are ranked by total time by default, because a 40 ms query run fifty thousand times
+// costs more than one 30-second outlier. The members can be read one at a time or merged:
+// the backend sends each shape's duration histogram rather than a percentile, so p95 is
+// right for the merged view too.
+const DIGEST_SORTS = [
+  ['millis', 'total time'], ['cpu', 'CPU'], ['ops', 'count'], ['max', 'slowest'],
+  ['ratio', 'examined ÷ returned'], ['bytes', 'disk read'],
+]
+const SEV_RANK = { bad: 3, warn: 2, ok: 1, info: 0 }
+
+// digestPct reads a percentile out of a sparse [bucket, count] histogram (four buckets per
+// doubling; see lsDigestBucket in logsummary_mongo_digest.go), capped at the true maximum.
+function digestPct(hist, p, max) {
+  const total = hist.reduce((a, [, n]) => a + n, 0)
+  if (!total) return 0
+  let seen = 0
+  for (const [b, n] of hist) {
+    seen += n
+    if (seen >= p * total) return Math.min(max, Math.round(2 ** ((b + 1) / 4) - 1))
+  }
+  return max
+}
+
+function mergeShapes(sources, only) {
+  const byKey = new Map()
+  for (const src of sources) {
+    if (only >= 0 && src.idx !== only) continue
+    for (const d of src.mongo?.digest || []) {
+      let m = byKey.get(d.key)
+      if (!m) {
+        m = { ...d, plans: [], hist: [], members: [], _plans: {}, _hist: {}, sampleSrc: src.node }
+        for (const k of ['ops', 'millis', 'waitedMs', 'cpuNanos', 'cpuOps', 'docsExamined', 'keysExamined', 'returned',
+          'bytesRead', 'timeReadingMicros', 'collscans', 'inMemSorts', 'spilled', 'yields', 'writeConflicts', 'maxMs']) m[k] = 0
+        m.firstTs = d.firstTs; m.lastTs = d.lastTs
+        byKey.set(d.key, m)
+      }
+      for (const k of ['ops', 'millis', 'waitedMs', 'cpuNanos', 'cpuOps', 'docsExamined', 'keysExamined', 'returned',
+        'bytesRead', 'timeReadingMicros', 'collscans', 'inMemSorts', 'spilled', 'yields', 'writeConflicts']) m[k] += d[k] || 0
+      if ((d.maxMs || 0) >= m.maxMs) {
+        m.maxMs = d.maxMs || 0
+        m.sample = d.sample; m.sampleLine = d.sampleLine; m.sampleTs = d.sampleTs; m.sampleMs = d.sampleMs; m.sampleSrc = src.node
+      }
+      if (d.firstTs && (!m.firstTs || d.firstTs < m.firstTs)) m.firstTs = d.firstTs
+      if (d.lastTs > m.lastTs) m.lastTs = d.lastTs
+      for (const p of d.plans || []) m._plans[p.name] = (m._plans[p.name] || 0) + p.ops
+      for (const [b, n] of d.hist || []) m._hist[b] = (m._hist[b] || 0) + n
+      if (!m.hash && d.hash) m.hash = d.hash
+      if (!m.app && d.app) m.app = d.app
+      m.members.push({ idx: src.idx, node: src.node, ops: d.ops })
+    }
+  }
+  return [...byKey.values()].map((m) => ({
+    ...m,
+    plans: Object.entries(m._plans).sort((a, b) => b[1] - a[1]).map(([name, ops]) => ({ name, ops })),
+    hist: Object.entries(m._hist).map(([b, n]) => [Number(b), n]).sort((a, b) => a[0] - b[0]),
+  }))
+}
+
+// digestReasons is why a shape is where it is: each reason carries a severity, and the
+// row's tier is the worst of them. Share of time is measured against the user (non-internal)
+// slow time of whatever is in view, so it means the same thing for one member or all.
+function digestReasons(d, userMillis) {
+  const out = []
+  const add = (sev, text) => out.push({ sev, text })
+  const share = userMillis > 0 ? d.millis / userMillis : 0
+  const avgDocs = d.ops ? d.docsExamined / d.ops : 0
+  if (share >= 0.25) add('bad', `${(share * 100).toFixed(0)}% of all slow-query time`)
+  else if (share >= 0.05) add('warn', `${(share * 100).toFixed(0)}% of all slow-query time`)
+  if (/\$where|\$function|\$accumulator/.test(d.shape)) add('bad', 'runs server-side JavaScript')
+  if (d.collscans > 0) {
+    const sev = avgDocs >= 10000 ? 'bad' : avgDocs >= 1000 ? 'warn' : 'info'
+    add(sev, `collection scan${d.collscans < d.ops ? ` on ${d.collscans} of ${d.ops} runs` : ''} — ${Math.round(avgDocs).toLocaleString()} documents each`)
+  }
+  if (d.docsExamined >= 10000) {
+    if (d.returned === 0) add('bad', `examined ${d.docsExamined.toLocaleString()} documents and returned none`)
+    else {
+      const r = d.docsExamined / d.returned
+      if (r >= 1000) add('bad', `examines ${Math.round(r).toLocaleString()} documents per document returned`)
+      else if (r >= 100) add('warn', `examines ${Math.round(r).toLocaleString()} documents per document returned`)
+    }
+  }
+  if (d.maxMs >= 10000) add('bad', `one run took ${logDur(d.maxMs / 1000)}`)
+  const p95 = digestPct(d.hist, 0.95, d.maxMs)
+  if (p95 >= 1000) add('warn', `p95 ≈ ${logDur(p95 / 1000)}`)
+  if (d.inMemSorts > 0) add('warn', `sorted in memory on ${d.inMemSorts.toLocaleString()} run(s) — no index gives the order`)
+  if (d.spilled > 0) add('warn', `spilled to disk on ${d.spilled.toLocaleString()} run(s) — exceeded its memory limit`)
+  if (d.millis >= 1000 && d.waitedMs / d.millis >= 0.5) add('warn', `${Math.round((d.waitedMs / d.millis) * 100)}% of its time waiting rather than working`)
+  if (d.writeConflicts > 0) add('warn', `${d.writeConflicts.toLocaleString()} write conflict(s)`)
+  out.sort((a, b) => SEV_RANK[b.sev] - SEV_RANK[a.sev])
+  return out
+}
+
+export function SlowDigest({ bundle, onWindow, defaultOpen = '' }) {
+  const sources = useMemo(() => (bundle.sources || []).filter((s) => s.mongo?.digest?.length), [bundle])
+  const [only, setOnly] = useState(-1)
+  const [sortBy, setSortBy] = useState('millis')
+  const [internal, setInternal] = useState(false)
+  const [all, setAll] = useState(false)
+  const [open, setOpen] = useState(defaultOpen)
+
+  const rows = useMemo(() => {
+    const merged = mergeShapes(sources, only)
+    const userMillis = merged.filter((d) => !d.internal).reduce((a, d) => a + d.millis, 0)
+    const shown = merged.filter((d) => internal || !d.internal).map((d) => {
+      const reasons = digestReasons(d, userMillis)
+      return {
+        ...d, reasons, share: userMillis > 0 && !d.internal ? d.millis / userMillis : 0,
+        tier: reasons[0] && reasons[0].sev !== 'info' ? reasons[0].sev : 'info',
+        ratio: d.returned > 0 ? d.docsExamined / d.returned : d.docsExamined,
+        p95: digestPct(d.hist, 0.95, d.maxMs),
+      }
+    })
+    const key = { millis: (d) => d.millis, cpu: (d) => d.cpuNanos, ops: (d) => d.ops, max: (d) => d.maxMs,
+      ratio: (d) => d.ratio, bytes: (d) => d.bytesRead }[sortBy]
+    // Worst first: the chosen measure, then the tier, so equal costs still put the worse on top.
+    return shown.sort((a, b) => key(b) - key(a) || SEV_RANK[b.tier] - SEV_RANK[a.tier] || b.ops - a.ops)
+  }, [sources, only, sortBy, internal])
+
+  if (!sources.length) return null
+  const anyCpu = rows.some((d) => d.cpuOps > 0)
+  const visible = all ? rows : rows.slice(0, 15)
+  const pill = (on) => `rounded-md border px-2 py-0.5 text-[11px] ${on ? 'border-primary bg-primary/10 text-primary' : 'bg-bg text-muted hover:bg-surface2'}`
+
+  return (
+    <Card title="Slow query digest"
+      subtitle="the slow-query lines grouped by shape — literals replaced by ?, worst first. Only operations over the slow-query threshold are logged, so this ranks what the log caught, not every query the server ran">
+      <div className="mb-2 flex flex-wrap items-center gap-1.5">
+        <button type="button" className={pill(only < 0)} onClick={() => setOnly(-1)}>all members</button>
+        {sources.map((s) => (
+          <button type="button" key={s.idx} className={pill(only === s.idx)} onClick={() => setOnly(s.idx)}>{s.node || s.name}</button>
+        ))}
+        <span className="mx-1 h-4 w-px bg-border" />
+        <span className="text-[10px] uppercase tracking-wide text-muted">rank by</span>
+        {DIGEST_SORTS.map(([k, label]) => (
+          <button type="button" key={k} className={pill(sortBy === k)} onClick={() => setSortBy(k)}>{label}</button>
+        ))}
+        <label className="ml-auto flex items-center gap-1 text-[11px] text-muted"
+          title="Handshakes, heartbeats and tailing cursors (the oplog fetcher, change streams). They wait by design and would top a ranking by time without costing anything.">
+          <input type="checkbox" checked={internal} onChange={(e) => setInternal(e.target.checked)} />
+          include internal
+        </label>
+      </div>
+      {!rows.length ? <p className="text-xs text-muted">No slow queries for this selection.</p> : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-[11px]">
+            <thead>
+              <tr className="text-left text-[10px] uppercase tracking-wide text-muted">
+                <th className="py-1 pr-2">#</th>
+                <th className="py-1 pr-2">shape</th>
+                <th className="py-1 pr-2 text-right">count</th>
+                <th className="py-1 pr-2 text-right">total</th>
+                <th className="py-1 pr-2 text-right">avg</th>
+                <th className="py-1 pr-2 text-right">p95</th>
+                <th className="py-1 pr-2 text-right">max</th>
+                {anyCpu && <th className="py-1 pr-2 text-right">CPU</th>}
+                <th className="py-1 pr-2 text-right">examined → returned</th>
+                <th className="py-1 text-right">disk</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((d, i) => {
+                const isOpen = open === d.key
+                return (
+                  <FragmentRow key={d.key} d={d} i={i} isOpen={isOpen} anyCpu={anyCpu}
+                    onToggle={() => setOpen(isOpen ? '' : d.key)} onWindow={onWindow} />
+                )
+              })}
+            </tbody>
+          </table>
+          {rows.length > 15 && (
+            <button type="button" className="mt-2 text-[11px] text-primary hover:underline" onClick={() => setAll(!all)}>
+              {all ? 'show the worst 15' : `show all ${rows.length} shapes`}
+            </button>
+          )}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function FragmentRow({ d, i, isOpen, anyCpu, onToggle, onWindow }) {
+  const ms = (v) => logDur(v / 1000)
+  const cols = 9 + (anyCpu ? 1 : 0)
+  return (
+    <>
+      <tr onClick={onToggle} className={`cursor-pointer border-t align-top hover:bg-surface2 ${isOpen ? 'bg-surface2' : ''}`}>
+        <td className="py-1.5 pr-2">
+          <span className={`inline-flex items-center gap-1 font-mono ${SEV_TEXT[d.tier]}`} title={d.reasons.map((r) => r.text).join('\n')}>
+            <span className={`inline-block h-2 w-2 rounded-full ${SEV_FILL[d.tier]}`} />{i + 1}
+          </span>
+        </td>
+        <td className="max-w-[28rem] py-1.5 pr-2">
+          <div className="flex flex-wrap items-baseline gap-x-1.5">
+            <span className="font-mono font-medium text-fg">{d.ns || '—'}</span>
+            <span className="rounded bg-surface2 px-1 font-mono text-[10px] text-muted">{d.op}</span>
+            {d.internal && <span className="text-[10px] text-muted">internal</span>}
+            {d.share >= 0.01 && <span className="text-[10px] text-muted">{(d.share * 100).toFixed(0)}% of time</span>}
+          </div>
+          <div className="truncate font-mono text-[10.5px] text-muted" title={d.shape}>{d.shape || '(no predicate)'}</div>
+          {d.reasons[0] && d.reasons[0].sev !== 'info' && (
+            <div className={`text-[10.5px] ${SEV_TEXT[d.reasons[0].sev]}`}>{d.reasons[0].text}</div>
+          )}
+        </td>
+        <td className="py-1.5 pr-2 text-right font-mono">{d.ops.toLocaleString()}</td>
+        <td className="py-1.5 pr-2 text-right font-mono font-medium">{ms(d.millis)}</td>
+        <td className="py-1.5 pr-2 text-right font-mono">{ms(d.millis / d.ops)}</td>
+        <td className="py-1.5 pr-2 text-right font-mono" title="read from a histogram — within about 20%">≈{ms(d.p95)}</td>
+        <td className="py-1.5 pr-2 text-right font-mono">{ms(d.maxMs)}</td>
+        {anyCpu && <td className="py-1.5 pr-2 text-right font-mono">{d.cpuOps ? ms(d.cpuNanos / 1e6) : '—'}</td>}
+        <td className="py-1.5 pr-2 text-right font-mono">{logNum(d.docsExamined)} → {logNum(d.returned)}</td>
+        <td className="py-1.5 text-right font-mono">{d.bytesRead ? logBytes(d.bytesRead) : '—'}</td>
+      </tr>
+      {isOpen && (
+        <tr className="bg-surface2/50">
+          <td colSpan={cols} className="px-2 pb-3 pt-1">
+            {d.reasons.length > 0 && (
+              <ul className="mb-2 space-y-0.5 text-[11px]">
+                {d.reasons.map((r, k) => (
+                  <li key={k} className={SEV_TEXT[r.sev]}>{SEV_MARK[r.sev]} {r.text}</li>
+                ))}
+              </ul>
+            )}
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] sm:grid-cols-4">
+              <Stat k="first → last seen" v={`${logStamp(d.firstTs, 0)} → ${logStamp(d.lastTs, 0)}`} />
+              <Stat k="keys examined" v={logNum(d.keysExamined)}
+                hint={d.ops ? `${Math.round(d.docsExamined / d.ops).toLocaleString()} documents per run` : ''} />
+              <Stat k="time waiting" v={d.millis ? `${Math.round((d.waitedMs / d.millis) * 100)}%` : '—'}
+                hint={d.yields ? `${logNum(d.yields)} yields` : ''} />
+              <Stat k="read from disk" v={d.bytesRead ? logBytes(d.bytesRead) : 'none — served from cache'}
+                hint={d.timeReadingMicros ? `${(d.timeReadingMicros / 1e6).toFixed(1)}s waiting for the device` : ''} />
+              <Stat k="plans" v={d.plans.length ? d.plans.slice(0, 3).map((p) => `${p.name} (${p.ops})`).join(', ') : '—'} />
+              <Stat k="members" v={d.members.map((m) => `${m.node} (${m.ops})`).join(', ')} />
+              {d.app && <Stat k="application" v={d.app} />}
+              {d.hash && <Stat k="query hash" v={d.hash} hint="queryShapeHash on 8.0+, queryHash before — the key $queryStats and the plan cache use" />}
+            </div>
+            {d.sample && (
+              <div className="mt-2">
+                <div className="text-[10px] uppercase tracking-wide text-muted">
+                  slowest run — {ms(d.sampleMs)} on {d.sampleSrc}, {logStamp(d.sampleTs)}{d.sampleLine ? `, line ${d.sampleLine}` : ''}
+                </div>
+                <pre className="mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded border bg-bg p-1.5 font-mono text-[10.5px]">{d.sample}</pre>
+              </div>
+            )}
+            {onWindow && d.firstTs > 0 && (
+              <button type="button" className="mt-2 text-[11px] text-primary hover:underline"
+                onClick={() => onWindow(d.firstTs, d.lastTs)}>
+                narrow the timeline to when this shape ran
+              </button>
+            )}
+          </td>
+        </tr>
+      )}
+    </>
   )
 }
 

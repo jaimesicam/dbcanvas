@@ -70,6 +70,9 @@ type lsMongoStats struct {
 	// Top namespaces and plans, biggest first, capped.
 	Namespaces []lsSlowCount `json:"namespaces,omitempty"`
 	Plans      []lsSlowCount `json:"plans,omitempty"`
+	// Digest is the same lines grouped by query shape, worst first by total time — see
+	// logsummary_mongo_digest.go.
+	Digest []lsSlowShape `json:"digest,omitempty"`
 }
 
 // lsSlowCount is one namespace or plan and how many slow operations it accounted for.
@@ -91,6 +94,7 @@ func lsMongoScanSlow(recs []lsMongoRecord) (lsMongoStats, []lsEvent) {
 	ns := map[string]*lsSlowCount{}
 	plans := map[string]*lsSlowCount{}
 	var worst []lsEvent
+	dg := newLsDigest()
 	for _, r := range recs {
 		if strings.HasPrefix(r.Level, "D") {
 			st.Debug++
@@ -101,7 +105,8 @@ func lsMongoScanSlow(recs []lsMongoRecord) (lsMongoStats, []lsEvent) {
 		st.Ops++
 		dur, _ := r.num("durationMillis")
 		st.Millis += dur
-		if work, ok := r.num("workingMillis"); ok && dur > work {
+		work, _ := r.num("workingMillis")
+		if _, ok := r.Attr["workingMillis"]; ok && dur > work {
 			st.WaitedMs += dur - work
 		}
 		docs, _ := r.num("docsExamined")
@@ -157,6 +162,7 @@ func lsMongoScanSlow(recs []lsMongoRecord) (lsMongoStats, []lsEvent) {
 			n.Docs += docs
 			n.Bytes += bytes
 		}
+		dg.add(r, dur, work, docs, keys, ret, bytes, micros, plan)
 		if dur >= lsSlowEventMs {
 			worst = append(worst, lsSlowEvent(r, dur, docs, ret, bytes))
 		}
@@ -166,6 +172,7 @@ func lsMongoScanSlow(recs []lsMongoRecord) (lsMongoStats, []lsEvent) {
 	}
 	st.Namespaces = lsSlowTop(ns, 6)
 	st.Plans = lsSlowTop(plans, 6)
+	st.Digest = dg.result()
 	// Keep the worst by duration, then put them back in time order — a timeline reads in
 	// time order, and picking by duration is only how they were chosen.
 	sort.SliceStable(worst, func(i, j int) bool { return worst[i].Members > worst[j].Members })

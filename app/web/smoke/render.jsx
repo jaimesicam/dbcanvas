@@ -158,7 +158,7 @@ import LogSummary, {
   SourcesCard as LogSources, EventList as LogEvents, EventDetail as LogDetail,
   Filters as LogFilters, TopStrip as LogTop, Legend as LogLegend,
   RangeControls as LogRange, UploadPanel as LogUpload, Pager as LogPager,
-  NodeChip as LogNodeChip,
+  NodeChip as LogNodeChip, SlowDigest as LogSlowDigest,
 } from '../src/pages/LogSummary.jsx'
 import {
   SEVS, SEV_TEXT, SEV_FILL, STATE_SEV, STATE_TEXT, CLASS_LABEL, logDur, FLAVOUR_LABEL,
@@ -2317,6 +2317,39 @@ const logRange = { fromTs: '', toTs: '', src: -1, class: '', q: '', sev: [] }
 
 check('log summary: page shell', () => renderToString(<LogSummary />))
 check('log summary: legend', () => renderToString(<LogLegend />))
+{
+  // Two members with the same shape (merged into one row) and a costlier one on one member.
+  const shape = (o) => ({ ns: 'shop.orders', op: 'find', hist: [[4, 1]], plans: [{ name: 'COLLSCAN', ops: 1 }],
+    waitedMs: 0, cpuNanos: 0, cpuOps: 0, keysExamined: 0, bytesRead: 0, timeReadingMicros: 0, collscans: 0,
+    inMemSorts: 0, spilled: 0, yields: 0, writeConflicts: 0, firstTs: 1, lastTs: 2, ...o })
+  const where = shape({ key: 'w', op: 'getMore:find', shape: '{filter: {$where: {$code: ?}}}', ops: 10, millis: 90000,
+    maxMs: 10316, docsExamined: 500000, returned: 2, collscans: 10, cpuNanos: 28e9, cpuOps: 10,
+    hist: [[52, 10]], sample: '{"find":"orders","filter":{"$where":"sleep(1000)"}}', sampleMs: 10316, sampleTs: 2, sampleLine: 9 })
+  const amt = (n) => shape({ key: 'a', shape: '{filter: {amount: {$gt: ?}}}', ops: n, millis: n * 10, maxMs: 100,
+    docsExamined: n * 1000, returned: n, hist: [[13, n]] })
+  const hb = shape({ key: 'h', ns: 'admin.$cmd', op: 'replSetHeartbeat', shape: '{}', internal: true, ops: 900, millis: 999999, maxMs: 5000 })
+  const bundle = { sources: [
+    { idx: 0, node: 'mongo01', mongo: { ops: 20, digest: [where, amt(100), hb] } },
+    { idx: 1, node: 'mongo02', mongo: { ops: 50, digest: [amt(50)] } },
+  ] }
+  check('log summary: slow query digest, worst first, merged across members', () => {
+    const html = renderToString(<LogSlowDigest bundle={bundle} onWindow={noop} defaultOpen="w" />)
+    for (const want of ['Slow query digest', '$where', 'runs server-side JavaScript', 'mongo01 (10)', 'sleep(1000)']) {
+      if (!html.includes(want.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#x27;' }[c])))) {
+        throw new Error(`digest render is missing ${want}`)
+      }
+    }
+    if (!/>150</.test(html)) throw new Error('the amount shape was not merged across both members (100 + 50)')
+    if (html.indexOf('$where') > html.indexOf('amount')) throw new Error('the costlier shape is not first')
+    if (html.includes('replSetHeartbeat')) throw new Error('an internal shape is shown by default')
+    return html
+  })
+  check('log summary: slow query digest with no slow queries renders nothing', () => {
+    const html = renderToString(<div id="probe"><LogSlowDigest bundle={{ sources: [{ idx: 0, node: 'm', mongo: { ops: 0 } }] }} /></div>)
+    if (html !== '<div id="probe"></div>') throw new Error('rendered something')
+    return html
+  })
+}
 check('log summary: sources card', () =>
   renderToString(<LogSources bundle={logBundle} id="log-1" />))
 check('log summary: sources card with a disjoint bundle', () =>
