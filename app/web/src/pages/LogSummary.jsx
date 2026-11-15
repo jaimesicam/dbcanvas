@@ -4,7 +4,7 @@ import { Card, Button, Badge, Field, inputCls, FirstUse } from '../components/ui
 import { FilePick } from './PacketInspector.jsx'
 import {
   logApi, SEVS, SEV_LABEL, SEV_TEXT, SEV_ROW, SEV_CARD, SEV_MARK, SEV_FILL,
-  CLASS_LABEL, STATE_TEXT, STATE_SEV, ENGINE_LABEL, FLAVOUR_LABEL,
+  CLASS_LABEL, STATE_TEXT, STATE_SEV, STATE_SHORT, WRITER_STATES, ENGINE_LABEL, FLAVOUR_LABEL,
   nodeFill, nodeTint, nodeEdge, nodeEdgeSoft, NODE_SLOTS,
   logTimeOfDay, logStamp, logDateTime, logISO, logDur, logBytes,
 } from '../lib/logApi.js'
@@ -745,6 +745,16 @@ export function Swimlane({ timeline, sources, first, onSelect, onPick }) {
   // which is exactly the kind of bug that reaches users.
   const dragRef = useRef(null)
   const [drag, setDrag] = useState(null)
+  // The lane's width in pixels decides whether a state stripe gets its full name, its
+  // short form or nothing: a percentage alone cannot tell "PRIMARY" fits.
+  const [lanePx, setLanePx] = useState(0)
+  useEffect(() => {
+    const el = ref.current
+    if (!el || typeof ResizeObserver === 'undefined') return undefined
+    const ro = new ResizeObserver(() => setLanePx(el.clientWidth - 24))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [timeline != null])
 
   const from = timeline?.fromTs ?? 0
   const to = timeline?.toTs ?? 0
@@ -805,8 +815,20 @@ export function Swimlane({ timeline, sources, first, onSelect, onPick }) {
                     node, and "pxc01 pxc01" is noise. An uploaded file often is not. */}
                 {src.name !== src.node && <span className="text-[10px] text-muted">{src.name}</span>}
               </div>
-              {/* the event ticks */}
+              {/* the event ticks, over a band for every stretch this node was the writer */}
               <div className="relative h-8">
+                {phases.filter((p) => WRITER_STATES.has(p.state)).map((p, i) => {
+                  const pct = Math.max(0.15, ((p.to - p.from) / width) * 100)
+                  return (
+                    <div key={`w${i}`}
+                      className={`pointer-events-none absolute inset-y-0 border-x border-dashed border-fg/30 bg-fg/[0.07] ${p.inferred ? 'opacity-60' : ''}`}
+                      style={{ left: `${((p.from - from) / width) * 100}%`, width: `${pct}%` }}>
+                      {(pct / 100) * lanePx >= 56 && (
+                        <span className="absolute left-1 top-0 font-mono text-[9px] font-semibold tracking-wide text-muted">{p.state}</span>
+                      )}
+                    </div>
+                  )
+                })}
                 {bks.map((b) => {
                   if (!b.count) return null
                   const sev = b.bad ? 'bad' : b.warn ? 'warn' : b.ok ? 'ok' : 'info'
@@ -825,7 +847,15 @@ export function Swimlane({ timeline, sources, first, onSelect, onPick }) {
               </div>
               {/* the state track */}
               <div className="relative h-4 overflow-hidden rounded-sm bg-surface2">
-                {phases.map((p, i) => (
+                {phases.map((p, i) => {
+                  // A stripe says which state it is: PRIMARY and SECONDARY share a colour,
+                  // so without the word a failover is invisible on the track.
+                  const px = (Math.max(0.15, ((p.to - p.from) / width) * 100) / 100) * lanePx
+                  const label = px >= p.state.length * 6 + 8 ? p.state
+                    : STATE_SHORT[p.state] && px >= STATE_SHORT[p.state].length * 6 + 6 ? STATE_SHORT[p.state] : ''
+                  const writer = WRITER_STATES.has(p.state)
+                  const sev = p.sev || STATE_SEV[p.state] || 'info'
+                  return (
                   <div key={i}
                     title={`${p.state}${p.inferred ? ' (deduced — the log does not state it)' : ''} · ${logStamp(p.from, 0)} → ${logStamp(p.to, 0)}` +
                       `${p.members ? ` · ${p.members} member(s)` : ''}${p.primary ? `, primary = ${p.primary}` : ''}\n${STATE_TEXT[p.state] || ''}`}
@@ -835,13 +865,18 @@ export function Swimlane({ timeline, sources, first, onSelect, onPick }) {
                     // the Go catalogue and not to the JS table used to paint as 'info',
                     // which reads as a state nobody has an opinion about rather than a bad
                     // one.
-                    className={`absolute inset-y-0 ${SEV_FILL[p.sev || STATE_SEV[p.state] || 'info']} ${p.inferred ? 'opacity-45' : ''}`}
+                    className={`absolute inset-y-0 flex items-center overflow-hidden ${SEV_FILL[sev]} ${p.inferred ? 'opacity-45' : ''} ${writer ? 'ring-1 ring-inset ring-fg/60' : ''}`}
                     style={{
                       left: `${((p.from - from) / width) * 100}%`,
                       width: `${Math.max(0.15, ((p.to - p.from) / width) * 100)}%`,
                     }}
-                  />
-                ))}
+                  >
+                    {label && (
+                      <span className={`whitespace-nowrap px-1 font-mono text-[9px] leading-none tracking-wide ${sev === 'info' ? 'text-fg/70' : 'text-bg'} ${writer ? 'font-bold' : 'font-medium'}`}>{label}</span>
+                    )}
+                  </div>
+                  )
+                })}
               </div>
             </div>
           )
@@ -851,6 +886,12 @@ export function Swimlane({ timeline, sources, first, onSelect, onPick }) {
             style={{ left: `${sel.left}%`, width: `${sel.width}%` }} />
         )}
       </div>
+      {(timeline.phases || []).some((p) => WRITER_STATES.has(p.state)) && (
+        <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted">
+          <span className="inline-block h-2.5 w-4 rounded-sm border-x border-dashed border-fg/30 bg-fg/[0.07]" />
+          shaded = the stretch that node was PRIMARY, accepting writes · a stripe is labelled with its state (P = PRIMARY, S = SECONDARY when narrow)
+        </div>
+      )}
       <div className="mt-1 flex justify-between font-mono text-[10px] text-muted">
         <span title={logISO(from)}>{logStamp(from)} · +{(from - first).toFixed(3)}s</span>
         <span>{(timeline.matched || 0).toLocaleString()} events in window · click for a readout, drag to narrow</span>

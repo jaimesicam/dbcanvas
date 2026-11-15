@@ -273,6 +273,19 @@ export const STATE_SEV = {
   UNKNOWN: 'info',
 }
 
+// STATE_SHORT is the label a state stripe falls back to when the full word does not fit.
+// Only the states a replica set cycles through get one: PRIMARY and SECONDARY are the same
+// green, so on a narrow stripe the letter is the only way to tell them apart.
+export const STATE_SHORT = {
+  PRIMARY: 'P', SECONDARY: 'S', STARTUP2: 'S2', ROLLBACK: 'RB', ARBITER: 'A', REMOVED: 'RM',
+  STANDBY: 'SB', REPLICA: 'R', RECOVERING: 'REC',
+}
+
+// WRITER_STATES are the states in which a node is the one accepting writes. The swimlane
+// shades the whole lane for those stretches, so which member was primary when — and the
+// moment it moved — reads across every lane at a glance rather than stripe by stripe.
+export const WRITER_STATES = new Set(['PRIMARY'])
+
 // --- time -------------------------------------------------------------------
 
 const pad = (n, w = 2) => String(n).padStart(w, '0')
