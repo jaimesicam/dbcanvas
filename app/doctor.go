@@ -114,7 +114,7 @@ func (a *App) doctorChecks(ctx context.Context) []doctorCheck {
 
 	// Version catalogue.
 	if t, ok := versionsGeneratedAt(); !ok {
-		add("version catalogue", "warn", "versions.yaml has no generation date", "run `make versions`")
+		add("version catalogue", "warn", versionsFileName()+" has no generation date", "run `make versions`")
 	} else if age := time.Since(t); age > 60*24*time.Hour {
 		add("version catalogue", "warn", fmt.Sprintf("probed %d days ago; newer releases are not offered", int(age.Hours()/24)), "run `make versions` (ONLY=percona|upstream|haproxy for one group)")
 	} else {

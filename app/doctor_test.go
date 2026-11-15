@@ -93,12 +93,13 @@ func TestRegistryAppsMatchBuild(t *testing.T) {
 	}
 }
 
-// The Kubeadm node runs only natively, so both architectures are pushed and a pull takes only the
-// installation's own.
-func TestRegistryKubeadmBothArchitectures(t *testing.T) {
-	list := func(env string, args ...string) []string {
+// A run pushes and pulls one Kubeadm image, for the run's Kubernetes platform: K8S_PLATFORM when
+// it is given, else a DOCKER_PLATFORM given on the command line (see run_k8s_platform). A release
+// publishes both architectures as two runs, like every other image.
+func TestRegistryKubeadmOneArchitecturePerRun(t *testing.T) {
+	list := func(env []string, args ...string) []string {
 		cmd := exec.Command("bash", append([]string{"../scripts/registry.sh", "list"}, args...)...)
-		cmd.Env = append(os.Environ(), "K8S_PLATFORM="+env, "DOCKER_PLATFORM=linux/amd64")
+		cmd.Env = append(os.Environ(), env...)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("registry.sh list %v: %v\n%s", args, err, out)
@@ -111,14 +112,20 @@ func TestRegistryKubeadmBothArchitectures(t *testing.T) {
 		}
 		return k
 	}
-	push := list("linux/arm64", "push")
-	if len(push) != 2 || !strings.Contains(push[0], "-amd64-") || !strings.Contains(push[1], "-arm64-") {
-		t.Errorf("push: %v", push)
-	}
-	for _, p := range []string{"linux/amd64", "linux/arm64"} {
-		pull := list(p)
-		if len(pull) != 1 || !strings.Contains(pull[0], "-"+strings.TrimPrefix(p, "linux/")+"-") {
-			t.Errorf("pull with K8S_PLATFORM=%s: %v", p, pull)
+	for _, c := range []struct {
+		env  []string
+		arch string
+	}{
+		{[]string{"DOCKER_PLATFORM=linux/amd64", "K8S_PLATFORM=linux/arm64"}, "arm64"},
+		{[]string{"DOCKER_PLATFORM=linux/arm64", "K8S_PLATFORM=linux/amd64"}, "amd64"},
+		{[]string{"DOCKER_PLATFORM=linux/arm64", "K8S_PLATFORM=", "K3D_PLATFORM="}, "arm64"},
+		{[]string{"DOCKER_PLATFORM=linux/amd64", "K8S_PLATFORM=", "K3D_PLATFORM="}, "amd64"},
+	} {
+		for _, mode := range [][]string{{"push"}, nil} {
+			got := list(c.env, mode...)
+			if len(got) != 1 || !strings.Contains(got[0], "-"+c.arch+"-") {
+				t.Errorf("%v %v: %v, want the %s image only", c.env, mode, got, c.arch)
+			}
 		}
 	}
 }

@@ -70,6 +70,7 @@ func TestImagesCatalogOffersCentOS7OnlyWithEOL(t *testing.T) {
 		t.Errorf("EOL off still offers %v", eol)
 	}
 	t.Setenv(eolEnv, "on")
+	t.Setenv("DOCKER_PLATFORM", "linux/amd64")
 	images, eol := get()
 	if len(eol) != 1 || eol[0].OS != "centos" || eol[0].OSVersion != "7" {
 		t.Errorf("EOL on should offer exactly CentOS 7, got %v", eol)
@@ -78,6 +79,11 @@ func TestImagesCatalogOffersCentOS7OnlyWithEOL(t *testing.T) {
 		if isEL7OS(i.OS) {
 			t.Error("CentOS 7 leaked into the main images catalogue")
 		}
+	}
+	// Percona publishes no CentOS 7 packages for arm64, so an arm64 installation never offers it.
+	t.Setenv("DOCKER_PLATFORM", "linux/arm64")
+	if _, eol := get(); len(eol) != 0 {
+		t.Errorf("an arm64 installation offers %v", eol)
 	}
 }
 
@@ -232,5 +238,17 @@ func TestPMM2Versions(t *testing.T) {
 	}
 	if !strings.Contains(pmm2AdminPasswordScript, "change-admin-password") || !strings.Contains(pmm2AdminPasswordScript, "grafana-cli") {
 		t.Error("the password step needs both the helper and the grafana-cli fallback older releases require")
+	}
+}
+
+// CentOS 7 is amd64 only: Percona publishes no CentOS 7 packages for arm64 (see el7Available).
+func TestEL7AvailableOnAMD64Only(t *testing.T) {
+	t.Setenv("DOCKER_PLATFORM", "linux/amd64")
+	if !el7Available() {
+		t.Error("CentOS 7 must be available on an amd64 installation")
+	}
+	t.Setenv("DOCKER_PLATFORM", "linux/arm64")
+	if el7Available() {
+		t.Error("CentOS 7 must not be available on an arm64 installation")
 	}
 }

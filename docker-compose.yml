@@ -42,7 +42,8 @@ services:
       DOMAIN: ${DOMAIN:-example.net}
       # Catalog of installable versions (produced by `make versions`) and the list of
       # base images that exist here (produced by `make images`). Two files because
-      # `make images` runs often and `make versions` takes hours.
+      # `make images` runs often and `make versions` takes hours. On linux/arm64
+      # the app reads versions-arm64.yaml from the same directory instead.
       VERSIONS_FILE: /etc/dbcanvas/versions.yaml
       IMAGES_FILE: /etc/dbcanvas/images.yaml
       # Default DB users created on deployed Percona XtraDB Cluster nodes.
@@ -139,6 +140,11 @@ services:
       # `make restart` — make versions replaces the file, and this single-file
       # mount keeps pointing at the old one until the container is recreated.
       - ./versions.yaml:/etc/dbcanvas/versions.yaml:ro
+      # The same catalog probed on arm64 images; an installation with
+      # DOCKER_PLATFORM=linux/arm64 reads this one instead (the app picks by
+      # platform). Both are always mounted, so the file must exist — the repo
+      # ships it, and `make env` creates an empty one if it is missing.
+      - ./versions-arm64.yaml:/etc/dbcanvas/versions-arm64.yaml:ro
       # The base images this installation has built, produced by `make images` —
       # what the OS pickers offer. Separate from the catalog above so that
       # rebuilding images does not discard hours of version probing.

@@ -2,7 +2,8 @@
 #
 # Probe the systemd base images built by `make images` for the Percona Server
 # versions installable on each (OS × platform), and record them in
-# versions.yaml at the repo root.
+# versions.yaml at the repo root — versions-arm64.yaml when DOCKER_PLATFORM is
+# linux/arm64, so the two architectures' catalogs never overwrite each other.
 #
 # Two files, two jobs: `make images` writes images.yaml (what was built), this
 # writes versions.yaml (what can be installed on it). This script reads the image
@@ -35,8 +36,20 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUT="$ROOT/versions.yaml"
 IMAGES="$ROOT/images.yaml"
+
+# Only probe/record the single platform selected by DOCKER_PLATFORM (see
+# platform.sh). Image entries on the other platform are skipped — they stay in
+# images.yaml, they just get no catalog here — so the host never probes (or
+# advertises) an architecture it does not target.
+# shellcheck source=platform.sh
+. "$(dirname "${BASH_SOURCE[0]}")/platform.sh"
+PLATFORM="$(resolve_platform "$ROOT")" || exit 1
+echo "==> selected platform: ${PLATFORM}" >&2
+
+# Each platform has its own catalog: versions.yaml for linux/amd64, versions-arm64.yaml
+# for linux/arm64. A probe of one never touches the other's.
+OUT="$(versions_file "$ROOT" "$PLATFORM")"
 
 if [ ! -f "$IMAGES" ]; then
   # An installation from before images.yaml existed has its image entries in
@@ -54,18 +67,14 @@ fi
 # (see carry_section and ONLY). /dev/null on a first run, which reads as "nothing
 # recorded yet" everywhere it is used.
 PREV="$OUT"
+# A platform's first probe starts from the other catalog: the sections that do not depend
+# on the architecture (PDPS repositories and the like) are the same, and every per-image
+# section is keyed by a tag that names its architecture, so nothing of amd64's is carried
+# into an arm64 image.
+[ -f "$PREV" ] || PREV="$ROOT/versions.yaml"
 [ -f "$PREV" ] || PREV=/dev/null
 
 ts() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
-
-# Only probe/record the single platform selected by DOCKER_PLATFORM (see
-# platform.sh). Image entries on the other platform are skipped — they stay in
-# images.yaml, they just get no catalog here — so the host never probes (or
-# advertises) an architecture it does not target.
-# shellcheck source=platform.sh
-. "$(dirname "${BASH_SOURCE[0]}")/platform.sh"
-PLATFORM="$(resolve_platform "$ROOT")" || exit 1
-echo "==> selected platform: ${PLATFORM}" >&2
 
 # When the images were built, recorded here too so a reader can tell at a glance
 # whether the catalog predates the images it describes.
@@ -1274,6 +1283,6 @@ if [ "$skipped" -gt 0 ]; then
   echo "Skipped ${skipped} image(s) not on ${PLATFORM}" >&2
 fi
 echo "==================================================================" >&2
-# The mv above replaces versions.yaml rather than rewriting it, and a running app's
+# The mv above replaces the catalog rather than rewriting it, and a running app's
 # single-file bind mount stays on the old one — so its pickers are empty until it restarts.
 echo "If DBCanvas is running, restart it so it reads the new catalog:  make restart" >&2

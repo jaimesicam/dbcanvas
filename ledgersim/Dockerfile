@@ -3,7 +3,9 @@
 # ---- build the shaded jar ----
 # Eclipse Temurin, not Oracle JDK: Temurin is GPL-2.0 WITH Classpath-exception-2.0,
 # which is what lets this GPL-3.0 program ship on it. See NOTICE.
-FROM maven:3.9-eclipse-temurin-21 AS build
+# The jar is the same bytes on every architecture, so Maven runs on the building host's
+# own ($BUILDPLATFORM) rather than under emulation; only the runtime stage is the target.
+FROM --platform=$BUILDPLATFORM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /src
 # Dependencies resolve in their own layer so a source edit does not re-download
 # the drivers every build.

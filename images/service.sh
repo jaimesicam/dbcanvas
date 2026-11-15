@@ -21,7 +21,8 @@
 #
 # The kubeadm node image is not baked onto a base either: it is built from ubuntu:24.04 for
 # K8S_PLATFORM, which may not be the platform the bases were built for — a Kubernetes node
-# has to run natively (see images/kubeadm.Dockerfile).
+# has to run natively (see images/kubeadm.Dockerfile). A DOCKER_PLATFORM given on the command
+# line sets it too, so one run builds one architecture of everything (see run_k8s_platform).
 #
 # MClusterAdmin used to be built here too. Upstream now publishes its own image, so
 # the node pulls it at deploy (app/mclusteradmin.go) and there is nothing to build.
@@ -63,9 +64,9 @@ K8SCOLLECTOR_TAG="${K8SCOLLECTOR_TAG}-$(image_release "$ROOT")"
 PLATFORM="$(resolve_platform "$ROOT")" || exit 1
 ARCH="${PLATFORM#linux/}"
 
-# The kubeadm node image: its own platform (K8S_PLATFORM) and tag. Must match kubeadmImage()
-# in app/kubeadm.go.
-K8S_PLATFORM_RESOLVED="$(resolve_k8s_platform "$ROOT")" || exit 1
+# The kubeadm node image: its own platform and tag. Must match kubeadmImage() in app/kubeadm.go.
+# .env's K8S_PLATFORM, unless DOCKER_PLATFORM is given on the command line (see run_k8s_platform).
+K8S_PLATFORM_RESOLVED="$(run_k8s_platform "$ROOT")" || exit 1
 KUBEADM_TAG="dbcanvas-kubeadm:ubuntu-24.04-${K8S_PLATFORM_RESOLVED#linux/}-$(image_release "$ROOT")"
 
 declare -a BUILT=() SKIPPED=() FAILED=()

@@ -3,11 +3,13 @@
 # Build the demo application images — the first-party simulators a stack can run
 # alongside its databases:
 #
-#   dbcanvas-supportsim:latest     MongoDB Vector Search Support Desk
-#   dbcanvas-stocksim:latest       Stock Market Sim (CRUD + reports)
-#   dbcanvas-ledgersim:latest      Ledger Sim (JDBC + HikariCP)
-#   dbcanvas-perfsim:latest        Performance Sim (stressors and their impact)
-#   dbcanvas-pagerpanic:latest     Pager Panic (an on-call game against a Kubeadm Cluster)
+#   dbcanvas-supportsim:<release>     MongoDB Vector Search Support Desk
+#   dbcanvas-stocksim:<release>       Stock Market Sim (CRUD + reports)
+#   dbcanvas-ledgersim:<release>      Ledger Sim (JDBC + HikariCP)
+#   dbcanvas-perfsim:<release>        Performance Sim (stressors and their impact)
+#   dbcanvas-pagerpanic:<release>     Pager Panic (an on-call game against a Kubeadm Cluster)
+#
+# each also tagged <release>-<arch> (see build_app).
 #
 # Each is a single-binary service with its frontend embedded — no systemd, no OS
 # matrix, one tag apiece — which is why they are not in versions.yaml and not built
@@ -30,6 +32,10 @@ ROOT="$(cd "$IMAGES_DIR/.." && pwd)"
 # shellcheck source=platform.sh
 . "$IMAGES_DIR/platform.sh"
 PLATFORM="$(resolve_platform "$ROOT")" || exit 1
+ARCH="${PLATFORM#linux/}"
+# The platform this installation runs (.env), which may differ from PLATFORM when a release
+# is built for the other architecture from this host.
+HOME_PLATFORM="$(home_platform "$ROOT")" || exit 1
 
 # name → build context, in the order they are built.
 APPS=(supportsim stocksim ledgersim perfsim pagerpanic)
@@ -39,7 +45,13 @@ declare -a BUILT=() FAILED=()
 build_app() {
   local name="$1"
   local ctx="$ROOT/$name"
-  local tag="dbcanvas-${name}:$(image_release "$ROOT")"
+  # Every build is tagged with its architecture (dbcanvas-perfsim:v0.0.30-arm64), which is
+  # what scripts/registry.sh publishes and joins into one multi-architecture tag. The plain
+  # tag the app deploys (dbcanvas-perfsim:v0.0.30) is moved only by a build for the platform
+  # this installation runs: building the other architecture for a release must not swap the
+  # simulators this installation's own stacks run for emulated ones.
+  local plain="dbcanvas-${name}:$(image_release "$ROOT")"
+  local tag="${plain}-${ARCH}"
 
   echo "=================================================================="
   echo "==> building ${tag}  (platform=${PLATFORM})"
@@ -63,8 +75,15 @@ build_app() {
   local ok=0
   docker build --platform "$PLATFORM" -t "$tag" "$ctx" && ok=1
   rm -rf "$stage"
+  if [ "$ok" = 1 ] && [ "$PLATFORM" = "$HOME_PLATFORM" ]; then
+    docker tag "$tag" "$plain" || ok=0
+  fi
   if [ "$ok" = 1 ]; then
-    BUILT+=("$tag")
+    if [ "$PLATFORM" = "$HOME_PLATFORM" ]; then
+      BUILT+=("$tag → $plain")
+    else
+      BUILT+=("$tag (not $plain: this installation runs $HOME_PLATFORM)")
+    fi
   else
     echo "    FAIL  ${tag}"
     FAILED+=("$tag")

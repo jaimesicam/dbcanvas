@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -57,12 +58,32 @@ var kubernetesCatalogFallback = PMMCatalog{
 	Versions:   []string{"v1.37.2"},
 }
 
-// versionsFilePath returns the first existing candidate path for versions.yaml.
-// VERSIONS_FILE overrides; otherwise the in-container mount path is tried first,
-// then repo-relative locations for local `go run` development.
+// versionsFilePath returns the first existing candidate path for this installation's version
+// catalog: versions.yaml on linux/amd64, versions-arm64.yaml on linux/arm64 (each written by
+// `make versions` for its own platform; images/platform.sh versions_file is the same rule).
+// VERSIONS_FILE overrides — on arm64 it names the directory's versions-arm64.yaml, since
+// docker-compose.yml sets it to the amd64 file's path and mounts both side by side. Otherwise
+// the in-container mount path is tried first, then repo-relative locations for local `go run`
+// development.
+//
+// An arm64 installation never falls back to versions.yaml: it was probed on amd64 images,
+// and offering it would offer versions with no arm64 packages behind them. No catalog is the
+// honest answer until `make versions` has run on arm64.
 func versionsFilePath() string {
-	return firstExisting(os.Getenv("VERSIONS_FILE"),
-		"/etc/dbcanvas/versions.yaml", "versions.yaml", "../versions.yaml")
+	name := versionsFileName()
+	env := os.Getenv("VERSIONS_FILE")
+	if env != "" && name != "versions.yaml" {
+		env = filepath.Join(filepath.Dir(env), name)
+	}
+	return firstExisting(env, "/etc/dbcanvas/"+name, name, "../"+name)
+}
+
+// versionsFileName is the catalog's file name for DOCKER_PLATFORM.
+func versionsFileName() string {
+	if platformArch() == "arm64" {
+		return "versions-arm64.yaml"
+	}
+	return "versions.yaml"
 }
 
 // imagesFilePath returns the first existing candidate path for images.yaml, resolved
@@ -498,20 +519,40 @@ func productOSFamily(os string) bool { return os != "debian" }
 // named section is a version map, which is versions.yaml's. Both files carry an
 // `images:` block of the same shape, so one parser reads either.
 func loadImageCatalog(wantSection string) []PXCImage {
-	path := versionsFilePath()
 	if wantSection == "" {
-		path = imagesFilePath()
-		// An images.yaml that exists but lists nothing is either a `make images` where
-		// every build failed or the empty stand-in `make env` drops so that Docker cannot
-		// bind-mount a directory in its place. Either way, if versions.yaml still has image
-		// entries they describe images that were built at some point, which is a better
-		// answer for an OS picker than none at all.
-		if imgs := parseImageCatalog(path, ""); len(imgs) > 0 || path == versionsFilePath() {
-			return imgs
-		}
-		path = versionsFilePath()
+		return onPlatform(loadImageList())
 	}
-	return parseImageCatalog(path, wantSection)
+	return parseImageCatalog(versionsFilePath(), wantSection)
+}
+
+// onPlatform keeps the images of the platform this installation runs. images.yaml holds both
+// when a release has been built for both architectures on this host (images/build.sh keeps the
+// other platform's entries), and only this platform's are images a node here can run. An entry
+// that does not say is kept, as it always was.
+func onPlatform(imgs []PXCImage) []PXCImage {
+	arch := platformArch()
+	out := imgs[:0:0]
+	for _, im := range imgs {
+		if im.Arch == "" || im.Arch == arch {
+			out = append(out, im)
+		}
+	}
+	return out
+}
+
+// loadImageList is the image list itself: images.yaml, or the catalog's image entries when
+// images.yaml lists nothing.
+func loadImageList() []PXCImage {
+	path := imagesFilePath()
+	// An images.yaml that exists but lists nothing is either a `make images` where every
+	// build failed or the empty stand-in `make env` drops so that Docker cannot bind-mount
+	// a directory in its place. Either way, if the version catalog still has image entries
+	// they describe images that were built at some point, which is a better answer for an
+	// OS picker than none at all.
+	if imgs := parseImageCatalog(path, ""); len(imgs) > 0 || path == versionsFilePath() {
+		return imgs
+	}
+	return parseImageCatalog(versionsFilePath(), "")
 }
 
 func parseImageCatalog(path, wantSection string) []PXCImage {
@@ -826,7 +867,7 @@ func (a *App) handleImagesCatalog(w http.ResponseWriter, r *http.Request) {
 	// eol.go). A list of its own rather than more entries in images: this catalogue is also what
 	// the HAProxy and All in One forms pick an OS from, and neither installs anything on them.
 	eol := []PXCImage{}
-	if eolEnabled() {
+	if eolEnabled() && el7Available() {
 		eol = append(eol, el7EOLImage())
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"images": loadImagesCatalog(), "platform": platformArch(), "eol": eol})

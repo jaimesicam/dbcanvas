@@ -45,7 +45,13 @@ pull-images:
 install-pull: env pull-images compose
 
 ## publish-images: push this release's locally built node images to IMAGE_REGISTRY. This
-## publishes, so no other target runs it.
+## publishes, so no other target runs it. One run is one architecture of every image, so a
+## release is two runs, in either order, from one host or two:
+##   DOCKER_PLATFORM=linux/amd64 make images publish-images
+##   DOCKER_PLATFORM=linux/arm64 make images publish-images
+## A DOCKER_PLATFORM given on the command line sets the Kubeadm node image's architecture too.
+## The demo applications are pushed per architecture and joined into one multi-architecture
+## tag after each push (needs docker buildx).
 publish-images:
 	@bash scripts/registry.sh push
 
@@ -106,7 +112,7 @@ env:
 	  printf '\n# Added by make env: the name this installation already had (see .env.example).\nDBCANVAS_INSTANCE=dbcanvas\n' >> .env; \
 	  echo "Set DBCANVAS_INSTANCE=dbcanvas in .env — this installation's existing name, so its data stays where it is"; \
 	fi
-	@for f in images.yaml versions.yaml; do 	  test -e $$f || { echo "images: []" >$$f; 	    echo "Created empty $$f — run 'make images' (and 'make versions') to fill it"; }; 	done
+	@for f in images.yaml versions.yaml versions-arm64.yaml; do 	  test -e $$f || { echo "images: []" >$$f; 	    echo "Created empty $$f — run 'make images' (and 'make versions') to fill it"; }; 	done
 
 ## build: build the image only
 build: env
@@ -247,14 +253,18 @@ k8scollector-image:
 
 ## kubeadm-image: rebuild only the Kubeadm Cluster node image
 ## (dbcanvas-kubeadm:ubuntu-24.04-<arch>) — Ubuntu 24.04 with systemd, containerd and the
-## node tools, built for K8S_PLATFORM rather than DOCKER_PLATFORM: a Kubernetes node has to
-## run on the host's native architecture. Kubernetes itself is installed at deploy, at the
+## node tools, built for K8S_PLATFORM rather than .env's DOCKER_PLATFORM: a Kubernetes node has
+## to run on the host's native architecture. A DOCKER_PLATFORM given on the command line
+## overrides it, so a release run builds one architecture of everything (unless K8S_PLATFORM
+## is given there too). Kubernetes itself is installed at deploy, at the
 ## version the frame asks for. `make images` builds this too.
 kubeadm-image:
 	bash images/service.sh kubeadm
 
 ## versions: probe the images in images.yaml for the versions installable on each,
-## plus the PMM, operator, Helm chart and k3s catalogs → versions.yaml. SLOW (a
+## plus the PMM, operator, Helm chart and k3s catalogs → versions.yaml, or
+## versions-arm64.yaml when DOCKER_PLATFORM=linux/arm64 (one catalog per platform, so a
+## probe on one never overwrites the other's). SLOW (a
 ## container and a pile of repository queries per image — hours, not minutes), which
 ## is why `make install` does not run it: the repo ships a versions.yaml, and
 ## `make images` no longer overwrites it. Run this when the pickers should offer

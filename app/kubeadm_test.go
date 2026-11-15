@@ -63,6 +63,39 @@ func TestResolveK8sPlatformAgreesWithTheApp(t *testing.T) {
 	}
 }
 
+// A run builds, publishes or pulls one architecture of every image: a DOCKER_PLATFORM given on the
+// command line selects the Kubeadm image's too, unless K8S_PLATFORM (or K3D_PLATFORM) is given
+// there as well. Without either, it is .env's K8S_PLATFORM, the one the app asks for.
+func TestRunK8sPlatformFollowsTheCommandLine(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("no bash")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(dir+"/.env", []byte("DOCKER_PLATFORM=linux/arm64\nK8S_PLATFORM=linux/amd64\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		env  []string
+		want string
+	}{
+		{nil, "linux/amd64"},
+		{[]string{"DOCKER_PLATFORM=linux/arm64"}, "linux/arm64"},
+		{[]string{"DOCKER_PLATFORM=linux/amd64"}, "linux/amd64"},
+		{[]string{"DOCKER_PLATFORM=linux/arm64", "K8S_PLATFORM=linux/amd64"}, "linux/amd64"},
+		{[]string{"DOCKER_PLATFORM=linux/arm64", "K3D_PLATFORM=linux/amd64"}, "linux/amd64"},
+	} {
+		cmd := exec.Command("bash", "-c", `. ../images/platform.sh; run_k8s_platform "$ROOT"`)
+		cmd.Env = append([]string{"PATH=" + os.Getenv("PATH"), "ROOT=" + dir}, c.env...)
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("%v: %v", c.env, err)
+		}
+		if got := strings.TrimSpace(string(out)); got != c.want {
+			t.Errorf("env %v: run_k8s_platform = %q, want %q", c.env, got, c.want)
+		}
+	}
+}
+
 // The tag the node asks for is the one images/service.sh builds, for K8S_PLATFORM — not
 // DOCKER_PLATFORM, which is how an amd64 installation on Apple Silicon gets arm64 nodes.
 func TestKubeadmImageFollowsK8sPlatform(t *testing.T) {

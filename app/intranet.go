@@ -1399,6 +1399,12 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			out = append(out, issue{Level: "error", Message: "Node " + n.Label + " is set to CentOS 7 — CentOS 7 is available for Linux Client nodes only"})
 		}
 		if isEL7OS(n.OS) && n.Type == "linuxclient" {
+			// Unlike the EOL switch, this is not presentation: on arm64 the node's package
+			// installs would fail, so a design that has one (a template, an import, a canvas
+			// from an amd64 installation) is refused here rather than half-deployed.
+			if !el7Available() {
+				out = append(out, issue{Level: "error", Message: "Linux Client " + n.Label + ": " + el7UnavailableWhy})
+			}
 			if st.Backend == BackendVagrant && a.vagrant != nil {
 				out = append(out, issue{Level: "error", Message: "Linux Client " + n.Label + " is set to CentOS 7, which this stack would provision as a VM — CentOS 7 is available on the Docker backend only"})
 			}

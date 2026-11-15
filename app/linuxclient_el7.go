@@ -39,10 +39,22 @@ const (
 	el7OS        = "centos"
 	el7OSVersion = "7"
 	// el7ImageRepo/el7ImageTag is the image, pulled rather than built. It is multi-arch (amd64 and
-	// arm64), so it is pulled for the platform this installation targets.
+	// arm64), so it is pulled for the platform this installation targets — which is amd64, see
+	// el7Available.
 	el7ImageRepo = "centos"
 	el7ImageTag  = "7"
 )
+
+// el7Available reports whether CentOS 7 can be offered on this installation: on linux/amd64
+// only. CentOS 7 itself exists for aarch64 (its vault keeps an altarch tree, which
+// el7BootstrapScript knows how to point at), but Percona publishes no CentOS 7 packages for it —
+// repo.percona.com has no el7 aarch64 tree for the MySQL, PXC, MongoDB, PBM, Shell, toolkit or
+// PMM 3 client repositories — so a node there could bootstrap and then install none of the
+// clients it exists to run.
+func el7Available() bool { return platformArch() == "amd64" }
+
+// el7UnavailableWhy is what a CentOS 7 node on a platform el7Available rejects is told.
+const el7UnavailableWhy = "CentOS 7 is available on linux/amd64 installations only — Percona publishes no CentOS 7 packages for arm64"
 
 // isEL7OS reports whether an OS id is CentOS 7. See el7OS.
 func isEL7OS(os string) bool { return os == el7OS }
