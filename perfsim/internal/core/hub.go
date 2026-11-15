@@ -36,6 +36,8 @@ type Hub struct {
 	baseline  *Baseline
 	datasets  []Dataset
 	prep      *prepState
+	tableSets []TableSet
+	tsJob     *tableSetJob
 	recording *recording
 	runs      []RunSummary
 	settings  settings
@@ -149,6 +151,7 @@ func (h *Hub) Run(ctx context.Context) {
 	h.event("neutral", fmt.Sprintf("Connected to %s (%s %s, %s)", h.info.Name, h.info.Flavor, h.info.Version, h.info.Topology))
 	h.work.SetThreads(ctx, threads)
 	h.refreshDatasets(ctx)
+	h.refreshTableSets(ctx)
 
 	go h.heartbeat(ctx)
 	tick := time.NewTicker(time.Second)
@@ -164,6 +167,7 @@ func (h *Hub) Run(ctx context.Context) {
 			n++
 			if n%10 == 0 {
 				h.refreshDatasets(ctx)
+				h.refreshTableSets(ctx)
 			}
 			if n%30 == 0 {
 				// Topology can change underneath: a failover, a member added.
@@ -396,8 +400,11 @@ func (h *Hub) StopAll(why string) int {
 		go func(id string) { defer wg.Done(); h.Stop(id, why) }(id)
 	}
 	wg.Wait()
-	if prep != nil && why == "shutdown" {
-		prep.cancel()
+	if why == "shutdown" {
+		if prep != nil {
+			prep.cancel()
+		}
+		h.CancelTableSet()
 	}
 	return len(ids)
 }

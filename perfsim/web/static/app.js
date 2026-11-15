@@ -21,7 +21,7 @@ let S = null;                 // last state from the sim
 let points = [];              // the timeline, kept here and extended each poll
 let lastT = 0;
 let lastOk = 0;
-const ui = { open: {}, expanded: {}, draft: {}, tab: 'sessions', win: 300, paused: false, frozenT: null, hoverT: null, sessions: [], busy: {} };
+const ui = { open: {}, expanded: {}, draft: {}, tab: 'sessions', win: 300, paused: false, frozenT: null, hoverT: null, sessions: [], busy: {}, ts: { name: 'tables', tables: 1000, rows: 10 } };
 
 async function api(method, path, body) {
   const r = await fetch(path, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
@@ -473,6 +473,26 @@ function datasetsHtml() {
     <button class="btn small" id="prepBtn" ${S.prep ? 'disabled' : ''}>Prepare table</button></div>
     <div class="meta">Written in 20,000-row batches, so preparing does not lag the replicas by itself. It goes in the sim's own perfsim schema (the perfsim database on PostgreSQL).</div></div>`;
 }
+// Table sets: a database (schema on PostgreSQL) of many small tables, created and dropped
+// as one timed job each. The form's values live in ui.ts because the panel is rebuilt.
+function tableSetsHtml() {
+  const T = S.tableSets, f = ui.ts, c = T.container, m = T.member, j = T.job;
+  const rows = T.sets.map((s) => {
+    const busy = j && j.db === s.db;
+    return `<div class="ds-row"><span class="mono">${esc(s.db)}</span><span class="chip">${fmtN(s.tables)} ${m}s</span><span class="meta">${fmtN(s.rows)} ${m === 'collection' ? 'documents' : 'rows'} · drop ${busy ? 'once the job ends' : `<button class="btn link" data-tsdrop="${esc(s.db)}" data-mode="database" title="One statement for the whole ${c}">whole ${c}</button> or <button class="btn link" data-tsdrop="${esc(s.db)}" data-mode="tables" title="One DROP per ${m}, then the empty ${c}">one ${m} at a time</button>`}</span></div>`;
+  }).join('');
+  const pct = j ? (j.total ? j.done / j.total : 0) : 0;
+  const job = j ? `<div class="ds-row"><span class="mono">${esc(j.db)}</span><span class="chip brand">${j.op === 'create' ? 'creating' : j.mode === 'tables' ? `dropping ${m} by ${m}` : `dropping the ${c}`}</span><div class="progress" style="grid-column:1/-1"><i style="width:${pct * 100}%"></i></div><span class="meta">${j.op === 'drop' && j.mode !== 'tables' ? 'one statement — waiting for it to return' : `${fmtN(j.done)} of ${fmtN(j.total)} ${m}s · ${j.rate >= 1 ? Math.round(j.rate) : j.rate.toFixed(1)}/s`} · <button class="btn link" data-tscancel>Cancel</button></span></div>` : '';
+  return `<div class="ds">${rows || (j ? '' : `<div class="cap">No table sets. Each one is a ${c} of its own, named ${esc(TS_PREFIX)}…, so dropping it never touches the sim's own tables.</div>`)}${job}
+    <div class="ts-form">
+      <div class="field"><label for="tsName">${c[0].toUpperCase() + c.slice(1)}</label><span class="ts-name"><span class="mono">${TS_PREFIX}</span><input id="tsName" class="btn small mono" value="${esc(f.name)}" maxlength="40" spellcheck="false" autocomplete="off"></span></div>
+      <div class="field"><label for="tsTables">${m[0].toUpperCase() + m.slice(1)}s</label><input id="tsTables" class="btn small" type="number" min="1" max="100000" step="1" value="${f.tables}"></div>
+      <div class="field"><label for="tsRows">${m === 'collection' ? 'Documents' : 'Rows'} each</label><input id="tsRows" class="btn small" type="number" min="0" max="1000000" step="1" value="${f.rows}"></div>
+      <button class="btn small" id="tsCreate" ${j ? 'disabled' : ''}>Create</button>
+    </div>
+    <div class="meta">${m[0].toUpperCase() + m.slice(1)}s are named t00001, t00002…; creating into an existing ${c} adds only the ones missing. Both creating and dropping are timed and shaded on the timeline, so their effect on the workload's latency is visible.${S.info.engine === 'postgres' ? ' Dropping the whole schema takes a lock on every table, index and TOAST table in one transaction: with thousands of tables that can fail with "out of shared memory" (max_locks_per_transaction), where one at a time does not.' : ''}</div></div>`;
+}
+const TS_PREFIX = 'perfsim_';
 let defaultGroup = '';
 const groupOpen = (key) => ui.open[key] ?? key === defaultGroup;
 function renderGroups() {
@@ -482,6 +502,10 @@ function renderGroups() {
   ];
   // Valkey's stressors build what they need; there is nothing to prepare.
   if (S.info.engine !== 'valkey') groups.push({ key: 'data', title: 'Datasets', sub: `${(S.datasets || []).length} prepared${S.prep ? ' · preparing' : ''}`, body: datasetsHtml() });
+  if (S.tableSets) {
+    const T = S.tableSets, n = T.sets.reduce((a, x) => a + x.tables, 0);
+    groups.push({ key: 'tablesets', title: `Many ${T.member}s`, sub: `${T.sets.length} set${T.sets.length === 1 ? '' : 's'} · ${fmtN(n)} ${T.member}s${T.job ? ` · ${T.job.op === 'create' ? 'creating' : 'dropping'}` : ''}`, body: tableSetsHtml() });
+  }
   const byGroup = {};
   for (const d of S.dials) (byGroup[d.group] ||= []).push(d);
   // Until one is toggled, the first group with a dial this target can run is open.
@@ -501,7 +525,7 @@ function renderGroups() {
 // dragged or an open "What it runs" is not reset every second.
 let panelKey = '';
 function renderPanel() {
-  const key = JSON.stringify([S.ready, topo(), (S.active || []).map((a) => [a.id, a.status?.err]), S.dials.map((d) => d.available), (S.datasets || []).map((d) => d.name + Math.round(d.bytes / 1e7)), S.prep && Math.round(S.prep.done * 100), S.threads, S.members.map((m) => m.id + m.role)]);
+  const key = JSON.stringify([S.ready, topo(), (S.active || []).map((a) => [a.id, a.status?.err]), S.dials.map((d) => d.available), (S.datasets || []).map((d) => d.name + Math.round(d.bytes / 1e7)), S.prep && Math.round(S.prep.done * 100), S.tableSets && [S.tableSets.sets.map((x) => x.db + x.tables + ':' + x.rows), S.tableSets.job && [S.tableSets.job.op, S.tableSets.job.done]], S.threads, S.members.map((m) => m.id + m.role)]);
   if (key === panelKey) { refreshLive(); return; }
   const focus = document.activeElement && document.activeElement.id;
   const openSql = [...document.querySelectorAll('#groups details[open] pre')].map((p) => p.id);
@@ -588,6 +612,12 @@ document.addEventListener('click', async (ev) => {
   if (d.win) { ui.win = Number(d.win); document.querySelectorAll('[data-win]').forEach((b) => b.setAttribute('aria-pressed', b === t)); drawAll(); return; }
   if (d.drop) { await act(() => api('POST', `api/datasets/${encodeURIComponent(d.drop)}/drop`), 'Dropped perfsim.' + d.drop); return; }
   if ('cancelprep' in d) { await act(() => api('POST', 'api/datasets/cancel')); return; }
+  if (d.tsdrop) {
+    const T = S.tableSets, set = T.sets.find((x) => x.db === d.tsdrop), how = d.mode === 'tables' ? `one ${T.member} at a time (${fmtN(set ? set.tables : 0)} DROPs)` : `as a whole ${T.container}, in one statement`;
+    if (!confirm(`Drop ${d.tsdrop} ${how}?`)) return;
+    await act(() => api('POST', `api/tablesets/${encodeURIComponent(d.tsdrop)}/drop`, { mode: d.mode }), 'Dropping ' + d.tsdrop); return;
+  }
+  if ('tscancel' in d) { await act(() => api('POST', 'api/tablesets/cancel'), 'Cancelled'); return; }
   if ('stoprec' in d) { await act(() => api('POST', 'api/record/stop', {}), 'Run saved'); return; }
   if (d.delrun) { await act(() => api('DELETE', `api/runs/${encodeURIComponent(d.delrun)}`), 'Run deleted'); return; }
   switch (t.id) {
@@ -595,6 +625,10 @@ document.addEventListener('click', async (ev) => {
     case 'baselineBtn': await act(() => api('POST', 'api/baseline'), 'Baseline set from the last 20 seconds'); return;
     case 'stopAll': await act(async () => { const r = await api('POST', 'api/stop-all'); toast(r.stopped ? 'Everything stopped and released' : 'Nothing was on'); }); return;
     case 'recBtn': await act(() => api('POST', S.recording ? 'api/record/stop' : 'api/record/start', {}), S.recording ? 'Run saved' : 'Recording'); return;
+    case 'tsCreate': {
+      const f = ui.ts, db = TS_PREFIX + f.name.trim().toLowerCase();
+      await act(() => api('POST', 'api/tablesets', { db, tables: Math.floor(Number(f.tables)), rows: Math.floor(Number(f.rows)) }), 'Creating ' + db); return;
+    }
     case 'prepBtn': await act(() => api('POST', 'api/datasets/prepare', { gb: Number($('#prepSize').value), pk: $('#prepShape').value === 'pk' }), 'Preparing the table'); return;
   }
 });
@@ -607,6 +641,9 @@ function setParam(id, key, value) {
 document.addEventListener('input', (ev) => {
   const t = ev.target;
   if (t.id === 'threads') { $('#o-threads').textContent = t.value; return; }
+  if (t.id === 'tsName') { ui.ts.name = t.value; return; }
+  if (t.id === 'tsTables') { ui.ts.tables = t.value; return; }
+  if (t.id === 'tsRows') { ui.ts.rows = t.value; return; }
   if (t.dataset.m && t.type === 'range') {
     const p = dialOf(t.dataset.m).params.find((x) => x.key === t.dataset.k), v = p.opts[Number(t.value)];
     $('#o-' + t.id).textContent = fmtUnit(v, p.unit);

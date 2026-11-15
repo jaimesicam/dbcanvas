@@ -25,6 +25,7 @@ type State struct {
 	Baseline  *Baseline           `json:"baseline"`
 	Datasets  []Dataset           `json:"datasets"`
 	Prep      *prepState          `json:"prep"`
+	TableSets *tableSetState      `json:"tableSets"`
 	Recording *int64              `json:"recording"`
 	Runs      []RunSummary        `json:"runs"`
 	Dials     []Dial              `json:"dials"`
@@ -54,7 +55,7 @@ func (h *Hub) State(since int64) State {
 	}
 	s := State{Ready: h.ready, InitErr: h.initErr, Now: time.Now().Unix(), Info: info,
 		Threads: h.settings.Threads, Members: h.members, Baseline: h.baseline, Datasets: h.datasets,
-		Prep: h.prep, Runs: h.runs, Dials: dials, Params: h.settings.Params, Targets: h.settings.Targets,
+		Prep: h.prep, TableSets: h.tableSetStateLocked(), Runs: h.runs, Dials: dials, Params: h.settings.Params, Targets: h.settings.Targets,
 		Bands: append([]Band(nil), h.bands...)}
 	for _, p := range h.points {
 		if p.T > since {
@@ -164,6 +165,37 @@ func (h *Hub) Routes(static fs.FS) http.Handler {
 			httpErr(w, 409, err.Error())
 			return
 		}
+		writeJSON(w, map[string]bool{"ok": true})
+	})
+	mux.HandleFunc("POST /api/tablesets", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			DB     string `json:"db"`
+			Tables int    `json:"tables"`
+			Rows   int    `json:"rows"`
+		}
+		if json.NewDecoder(r.Body).Decode(&in) != nil {
+			httpErr(w, 400, "invalid request body")
+			return
+		}
+		if err := h.CreateTableSet(in.DB, in.Tables, in.Rows); err != nil {
+			httpErr(w, 409, err.Error())
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
+	})
+	mux.HandleFunc("POST /api/tablesets/{db}/drop", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Mode string `json:"mode"`
+		}
+		json.NewDecoder(r.Body).Decode(&in)
+		if err := h.DropTableSet(r.PathValue("db"), in.Mode); err != nil {
+			httpErr(w, 409, err.Error())
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
+	})
+	mux.HandleFunc("POST /api/tablesets/cancel", func(w http.ResponseWriter, r *http.Request) {
+		h.CancelTableSet()
 		writeJSON(w, map[string]bool{"ok": true})
 	})
 	mux.HandleFunc("GET /api/sessions", func(w http.ResponseWriter, r *http.Request) {

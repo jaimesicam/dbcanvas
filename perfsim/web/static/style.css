@@ -167,6 +167,12 @@ input[type=range] { width: 100%; accent-color: var(--brand); }
 .ds { display: grid; gap: 6px; }
 .ds-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center; padding: 6px 8px; border-radius: var(--r-sm); background: var(--raised); font-size: 12px; }
 .ds-row .meta { grid-column: 1 / -1; }
+.ts-form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; align-items: end; }
+.ts-form .field:first-child { grid-column: 1 / -1; }
+.ts-form input { width: 100%; min-width: 0; text-align: left; cursor: text; }
+.ts-name { display: flex; align-items: center; gap: 2px; min-width: 0; font-size: 12px; }
+.ts-name input { flex: 1; }
+.ts-name .mono { color: var(--muted); }
 .readback { display: grid; gap: 3px; padding: 6px 8px; border-radius: var(--r-sm); background: var(--raised); border: 1px solid var(--border); }
 .readback code { font: 11px/15px var(--mono); word-break: break-all; }
 .m.blocked .m-h b { color: var(--muted); }
