@@ -50,12 +50,14 @@ RUN grep -q '^ip_resolve=' /etc/dnf/dnf.conf 2>/dev/null || echo 'ip_resolve=4' 
 #   - which               → `which`; the minimal Oracle Linux images leave it out
 #   - hostname            → `hostname`; also left out of the minimal images, and scripts and
 #                           tools on the nodes (installers, diagnostics) call it
+#   - sudo                → `sudo`, which the minimal images leave out as well; installers,
+#                           how-tos and users on a node expect it
 #
 # iproute-tc is its own package on RHEL: `iproute` is installed already as a
 # dependency and provides `ip`, but *not* `tc`, which is what the network
 # shaping needs. Installing iproute and expecting tc is the trap here.
 RUN set -eux; \
-    yum -y install systemd net-tools openldap-clients sysstat git iproute-tc which hostname; \
+    yum -y install systemd net-tools openldap-clients sysstat git iproute-tc which hostname sudo; \
     yum -y install https://repo.percona.com/yum/percona-release-latest.noarch.rpm; \
     percona-release setup pt; \
     percona-release enable tools release; \

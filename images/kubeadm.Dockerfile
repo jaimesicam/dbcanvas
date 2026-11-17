@@ -28,7 +28,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # systemd, containerd and what a node is administered with. conntrack, socat, ebtables and
 # iptables are kubeadm's preflight requirements; openssh lets the control plane reach the
-# workers by name; bash-completion, vim, less and jq are for the person at the console.
+# workers by name; bash-completion, vim, less, jq and sudo are for the person at the console.
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
@@ -36,7 +36,7 @@ RUN set -eux; \
       containerd conntrack socat ebtables iptables ipset kmod \
       iproute2 iputils-ping net-tools dnsutils \
       openssh-server openssh-client \
-      bash-completion vim less jq; \
+      bash-completion vim less jq sudo; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 

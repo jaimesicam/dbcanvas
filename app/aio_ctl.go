@@ -302,8 +302,8 @@ cmd_connect() {
   client="$(field "$i" 11)"; port="$(field "$i" 7)"
   sock=""
   [ -r "/etc/dbcanvas/aio/$i.env" ] && sock=$(. "/etc/dbcanvas/aio/$i.env" 2>/dev/null; echo "$AIO_SOCKET")
-  # runuser, not sudo: sudo is not installed on the dbcanvas-systemd base images
-  # (the rest of the codebase uses runuser for the postgres user too).
+  # runuser, not sudo: a node built from a base image of a release before 0.0.30 has no
+  # sudo (the rest of the codebase uses runuser for the postgres user too).
   # PGBIN/AIO_VALKEY_PW come from the instance env file sourced above.
   local pgbin vkpw
   pgbin=$(. "/etc/dbcanvas/aio/$i.env" 2>/dev/null; echo "${PGBIN:-/usr/bin}")

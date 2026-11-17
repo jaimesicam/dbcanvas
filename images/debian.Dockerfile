@@ -19,10 +19,12 @@ ENV DEBIAN_FRONTEND=noninteractive
 #   - sysstat    → sar/iostat/mpstat
 #   - iproute2   → tc, for the per-node network conditions (see netem.go). Debian
 #                  ships tc inside iproute2; RHEL splits it into iproute-tc.
+#   - sudo       → `sudo`, which the Debian and Ubuntu container images leave out;
+#                  installers, how-tos and users on a node expect it
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
-      systemd systemd-sysv net-tools ldap-utils sysstat git iproute2 \
+      systemd systemd-sysv net-tools ldap-utils sysstat git iproute2 sudo \
       wget gnupg2 lsb-release ca-certificates; \
     wget -qO /tmp/percona-release.deb \
       "https://repo.percona.com/apt/percona-release_latest.$(lsb_release -sc)_all.deb"; \
