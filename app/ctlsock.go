@@ -12,7 +12,6 @@ import (
 	"os/user"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -27,8 +26,9 @@ import (
 // authentication: a request that arrives on it acts as the owner, the account every
 // stack belongs to. Nothing else listens beyond 127.0.0.1.
 
-// dataDir is dbcanvas's data folder: DBCANVAS_DATA, else the OS's place for an
-// application's data.
+// dataDir is dbcanvas's data folder: DBCANVAS_DATA, else ~/.dbcanvas. It holds the
+// configuration (config.yaml), the database and its key, the engine lock, the control
+// socket, and an updated version catalogue when there is one.
 func dataDir() (string, error) {
 	if d := strings.TrimSpace(os.Getenv("DBCANVAS_DATA")); d != "" {
 		return filepath.Abs(d)
@@ -37,13 +37,7 @@ func dataDir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("no home folder to keep data in (set DBCANVAS_DATA): %v", err)
 	}
-	if runtime.GOOS == "darwin" {
-		return filepath.Join(home, "Library", "Application Support", "DBCanvas"), nil
-	}
-	if x := os.Getenv("XDG_DATA_HOME"); filepath.IsAbs(x) {
-		return filepath.Join(x, "dbcanvas"), nil
-	}
-	return filepath.Join(home, ".local", "share", "dbcanvas"), nil
+	return filepath.Join(home, ".dbcanvas"), nil
 }
 
 // ensureDataDir creates the data folder, owner-only, and refuses one others can enter.

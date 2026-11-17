@@ -63,8 +63,9 @@ var kubernetesCatalogFallback = PMMCatalog{
 // `make versions` for its own platform; images/platform.sh versions_file is the same rule).
 // VERSIONS_FILE overrides — on arm64 it names the directory's versions-arm64.yaml, since
 // docker-compose.yml sets it to the amd64 file's path and mounts both side by side. Otherwise
-// the in-container mount path is tried first, then repo-relative locations for local `go run`
-// development.
+// the in-container mount path is tried first, then the dbcanvas command's data folder
+// (~/.dbcanvas, where an updated catalogue goes), then repo-relative locations for local
+// `go run` development, and last the copy built into the binary (catalogembed.go).
 //
 // An arm64 installation never falls back to versions.yaml: it was probed on amd64 images,
 // and offering it would offer versions with no arm64 packages behind them. No catalog is the
@@ -75,10 +76,20 @@ func versionsFilePath() string {
 	if env != "" && name != "versions.yaml" {
 		env = filepath.Join(filepath.Dir(env), name)
 	}
-	if p := firstExisting(env, "/etc/dbcanvas/"+name, name, "../"+name); p != "" {
+	if p := firstExisting(env, "/etc/dbcanvas/"+name, dataDirFile(name), name, "../"+name); p != "" {
 		return p
 	}
 	return embeddedCatalog(name)
+}
+
+// dataDirFile is name in the dbcanvas command's data folder (~/.dbcanvas), where an
+// updated catalogue goes; "" when there is no home folder.
+func dataDirFile(name string) string {
+	dir, err := dataDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, name)
 }
 
 // versionsFileName is the catalog's file name for DOCKER_PLATFORM.
@@ -97,7 +108,7 @@ func versionsFileName() string {
 // shaped identically, so the OS pickers keep working until the next `make images`.
 func imagesFilePath() string {
 	if p := firstExisting(os.Getenv("IMAGES_FILE"),
-		"/etc/dbcanvas/images.yaml", "images.yaml", "../images.yaml"); p != "" {
+		"/etc/dbcanvas/images.yaml", dataDirFile("images.yaml"), "images.yaml", "../images.yaml"); p != "" {
 		return p
 	}
 	return versionsFilePath()

@@ -53,11 +53,24 @@ Usage:
   dbcanvas rm STACK             delete a stack and everything it deployed
   dbcanvas version              print the version
 
-Data folder: %s (DBCANVAS_DATA overrides it)
+Data folder: %s (DBCANVAS_DATA overrides it). Settings are in its config.yaml.
 `
 
 func runCLI(args []string) int {
 	log.SetFlags(log.LstdFlags)
+	// ~/.dbcanvas/config.yaml, below the environment, before any default is chosen.
+	switch firstArg(args) {
+	case "help", "--help", "-h", "version", "--version", "-v":
+	default:
+		dir, err := ensureDataDir()
+		if err == nil {
+			err = applySoloConfig(dir)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "dbcanvas:", err)
+			return 1
+		}
+	}
 	// Everything this dbcanvas creates on the Docker host carries its instance name, so
 	// several people can share one host (instance.go). It is the OS login unless set.
 	if strings.TrimSpace(os.Getenv("DBCANVAS_INSTANCE")) == "" {
@@ -558,4 +571,11 @@ func soloInstance() string {
 		}
 	}
 	return legacyInstance + "-solo"
+}
+
+func firstArg(args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+	return args[0]
 }
