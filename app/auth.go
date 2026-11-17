@@ -150,6 +150,8 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 		// /api/me because the client already calls it on every load, and because
 		// /api/me returns a bare User that nothing should be appended to.
 		"version": appVersion,
+		// The dbcanvas command: no passwords; a browser signs in by start link (soloweb.go).
+		"solo": a.solo,
 		// Whether a new sign-up is approved at once, for the registration form to say so.
 		"openRegistration": a.openRegistration(),
 		// Whether the sign-in screen offers "Continue as guest" (guestlogin.go).

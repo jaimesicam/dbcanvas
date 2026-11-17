@@ -15,7 +15,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"os/user"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -120,14 +119,15 @@ func cliServe(open bool) error {
 	}
 	lock, err := lockEngine(dir)
 	if errors.Is(err, errEngineRunning) {
-		addr, _ := os.ReadFile(filepath.Join(dir, "url"))
-		u := strings.TrimSpace(string(addr))
-		if u == "" {
-			return errors.New("dbcanvas is already running (it is not serving a browser: a command is using it)")
+		u, err := startLinkFrom(dir)
+		if err != nil {
+			return fmt.Errorf("dbcanvas is already running, but %v", err)
 		}
-		fmt.Println("dbcanvas is already running at", u)
+		fmt.Println("dbcanvas is already running.")
 		if open {
 			openBrowser(u)
+		} else {
+			fmt.Println("Open it signed in (the link works once, for a minute):", u)
 		}
 		return nil
 	}
@@ -145,12 +145,16 @@ func cliServe(open bool) error {
 	case err := <-done:
 		return err
 	case addr := <-ready:
-		u := "http://" + addr + "/"
-		os.WriteFile(filepath.Join(dir, "url"), []byte(u+"\n"), 0o600)
-		defer os.Remove(filepath.Join(dir, "url"))
-		fmt.Printf("dbcanvas is running at %s — Ctrl-C stops it.\n", u)
-		if open {
+		fmt.Printf("dbcanvas is running at %s/ — Ctrl-C stops it.\n", loopbackURL(addr))
+		u, err := startLinkFrom(dir)
+		switch {
+		case err != nil:
+			fmt.Fprintln(os.Stderr, "no start link:", err)
+		case open:
 			openBrowser(u)
+		default:
+			fmt.Println("Open it signed in (the link works once, for a minute):", u)
+			fmt.Println("`dbcanvas` gives a new link at any time.")
 		}
 	}
 	return <-done
@@ -164,6 +168,17 @@ func openBrowser(u string) {
 	if err := exec.Command(cmd, u).Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "could not open a browser (%v); open %s\n", err, u)
 	}
+}
+
+// startLinkFrom asks the running dbcanvas for a one-time sign-in link (soloweb.go).
+func startLinkFrom(dir string) (string, error) {
+	var out struct {
+		URL string `json:"url"`
+	}
+	if err := (ctl{c: ctlClient(dir)}).do("POST", "/api/solo/start-link", nil, &out); err != nil {
+		return "", err
+	}
+	return out.URL, nil
 }
 
 // withDBCanvas runs f against the running dbcanvas, or, with none running, against an

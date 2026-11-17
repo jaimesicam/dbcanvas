@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useAuth } from './auth/AuthProvider.jsx'
-import { Splash, SetupScreen, AuthScreen, ForcePasswordChange } from './auth/AuthScreens.jsx'
+import { Splash, SetupScreen, AuthScreen, SoloSignInScreen, ForcePasswordChange } from './auth/AuthScreens.jsx'
 import App from './App.jsx'
 
 // onSessionEnded is set only for a shared-session guest (auth/GuestScreens.jsx): it
@@ -11,6 +11,7 @@ export default function Root({ onSessionEnded }) {
   if (onSessionEnded && phase === 'anon') return <GuestSignedOut onSessionEnded={onSessionEnded} />
   if (phase === 'loading') return <Splash />
   if (phase === 'setup') return <SetupScreen />
+  if (phase === 'solo') return <SoloSignInScreen />
   if (phase === 'anon') return <AuthScreen />
   // An admin set this account's password; the server allows nothing else until the
   // owner picks their own (app/useradmin.go).

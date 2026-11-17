@@ -25,6 +25,11 @@ var embeddedFS embed.FS
 type App struct {
 	store  *Store
 	docker *Docker
+	// solo is set when DBCanvas runs as the dbcanvas command (not the app container):
+	// one owner, no passwords, browsers signed in by start link (soloweb.go). soloURL is
+	// the browser's address then, once it listens.
+	solo    bool
+	soloURL string
 	// vagrant provisions nodes as VirtualBox VMs (the "vagrant" backend). nil
 	// when the host has no vagrant/VirtualBox; App.eng then falls back to docker.
 	vagrant *Vagrant
@@ -116,7 +121,14 @@ func runServer(o serveOpts) error {
 	}
 	defer store.Close()
 
-	app := &App{store: store, docker: NewDocker(dockerSocket())}
+	app := &App{store: store, docker: NewDocker(dockerSocket()), solo: o.dataDir != ""}
+	if app.solo {
+		// The owner exists before anything listens, so the first-run setup never offers
+		// to create an administrator.
+		if _, err := app.ensureOwner(); err != nil {
+			return fmt.Errorf("owner account: %v", err)
+		}
+	}
 	// The vagrant backend is optional: only usable when the host has vagrant +
 	// VirtualBox and DBCanvas runs on that host (not in the distroless container).
 	if v := NewVagrant(); v != nil {
@@ -154,7 +166,14 @@ func runServer(o serveOpts) error {
 	// Licence texts and the GPL notice, public (licenses.go).
 	mux.HandleFunc("GET /licenses/", handleLicenses)
 	mux.Handle("/", spaHandler())
+	if app.solo {
+		mux.HandleFunc("GET /start/{token}", app.handleStartLink)
+		mux.HandleFunc("POST /api/solo/start-link", app.handleNewStartLink)
+	}
 	handler := app.browseFallback(mux)
+	if app.solo {
+		handler = soloRefusePasswords(handler)
+	}
 
 	errc := make(chan error, 2)
 	var servers []*http.Server
@@ -174,7 +193,13 @@ func runServer(o serveOpts) error {
 			return fmt.Errorf("listen: %v", err)
 		}
 		addr = l.Addr().String()
-		srv := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
+		web := handler
+		if app.solo {
+			_, lport, _ := net.SplitHostPort(addr)
+			web = soloGuard(lport, handler)
+			app.soloURL = loopbackURL(addr)
+		}
+		srv := &http.Server{Handler: web, ReadHeaderTimeout: 10 * time.Second}
 		servers = append(servers, srv)
 		log.Printf("DBCanvas listening on %s", addr)
 		go func() { errc <- srv.Serve(l) }()

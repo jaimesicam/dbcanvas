@@ -1,7 +1,8 @@
 import { createContext, useContext, useCallback, useEffect, useState } from 'react'
 import { api } from '../lib/api.js'
 
-// phase ∈ {loading, setup, anon, authed}
+// phase ∈ {loading, setup, anon, solo, authed}. solo is the dbcanvas command's signed-out
+// state: it has no passwords, and a browser signs in through the link the command opens.
 // Exported for the browser smoke check (smoke/browser.jsx), which mounts the stack editor
 // without signing in.
 export const AuthContext = createContext(null)
@@ -25,7 +26,10 @@ export function AuthProvider({ children }) {
       const s = await api.status()
       setOpenRegistration(!!s.openRegistration)
       setGuestLogin(!!s.guestLogin)
-      if (!s.initialized) {
+      if (s.solo && !s.authenticated) {
+        setUser(null)
+        setPhase('solo')
+      } else if (!s.initialized) {
         setUser(null)
         setPhase('setup')
       } else if (s.authenticated) {

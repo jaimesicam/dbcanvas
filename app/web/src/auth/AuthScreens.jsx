@@ -123,6 +123,21 @@ function Banner({ kind, children }) {
   return <div className={`mb-3 rounded-lg border px-3 py-2 text-sm ${tones}`}>{children}</div>
 }
 
+// SoloSignInScreen is what a browser sees without a session when DBCanvas runs as the
+// dbcanvas command: there are no passwords, and the command opens a one-time sign-in link.
+export function SoloSignInScreen() {
+  return (
+    <Shell title="Open DBCanvas from the terminal" subtitle="This browser is not signed in">
+      <p className="text-sm leading-relaxed text-fg">
+        Run <code className="rounded bg-surface2 px-1.5 py-0.5 font-mono text-[13px]">dbcanvas</code> in a terminal on this computer. It opens DBCanvas here, signed in.
+      </p>
+      <p className="mt-3 text-sm leading-relaxed text-muted">
+        Each link it opens works once and only for a minute, so a link from your history will not sign anyone in.
+      </p>
+    </Shell>
+  )
+}
+
 export function SetupScreen() {
   const { setup } = useAuth()
   const [username, setUsername] = useState('')
