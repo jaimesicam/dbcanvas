@@ -1,13 +1,11 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/cookiejar"
 	"net/url"
 	"os"
 	"slices"
@@ -280,26 +278,14 @@ func TestDelveLiveSession(t *testing.T) {
 //
 // It needs a running DBCanvas with a deployed K3D frame whose debugger is listening:
 //
-//	DBCANVAS_IT=http://127.0.0.1:8080 DBCANVAS_IT_USER=admin DBCANVAS_IT_PASS=… \
+//	DBCANVAS_IT=http://127.0.0.1:8080 DBCANVAS_IT_TOKEN=dbc_… \
 //	  go test -run TestDebuggerAPILive -v .
 func TestDebuggerAPILive(t *testing.T) {
 	base := os.Getenv("DBCANVAS_IT")
 	if base == "" {
-		t.Skip("integration test; set DBCANVAS_IT=<url> (plus DBCANVAS_IT_USER/PASS) to run against a running app")
+		t.Skip("integration test; set DBCANVAS_IT=<url> and DBCANVAS_IT_TOKEN=<write token> to run against a running dbcanvas")
 	}
-	jar, _ := cookiejar.New(nil)
-	hc := &http.Client{Jar: jar, Timeout: 30 * time.Second}
-
-	login, _ := json.Marshal(map[string]string{
-		"username": os.Getenv("DBCANVAS_IT_USER"), "password": os.Getenv("DBCANVAS_IT_PASS")})
-	res, err := hc.Post(base+"/api/auth/login", "application/json", bytes.NewReader(login))
-	if err != nil {
-		t.Fatalf("login: %v", err)
-	}
-	res.Body.Close()
-	if res.StatusCode != 200 {
-		t.Fatalf("login: status %d", res.StatusCode)
-	}
+	hc := itClient(30 * time.Second)
 
 	// ---- what is there to debug
 	var targets struct {
@@ -365,7 +351,7 @@ func TestDebuggerAPILive(t *testing.T) {
 	wsURL := strings.Replace(frameBase, "http", "ws", 1) + "/ws"
 	// A client with no Timeout: coder/websocket turns HTTPClient.Timeout into a deadline on the
 	// whole connection, so the 30s one above would hang up on the session mid-session.
-	wsClient := &http.Client{Jar: jar}
+	wsClient := itClient(0)
 	c, _, err := websocket.Dial(context.Background(), wsURL, &websocket.DialOptions{HTTPClient: wsClient})
 	if err != nil {
 		t.Fatalf("dial the session socket: %v", err)
@@ -523,12 +509,12 @@ func getJSON(t *testing.T, hc *http.Client, url string, out any) {
 // silently — no probe fails, nothing is logged — and that is the failure this whole feature
 // has to be trusted not to cause.
 //
-//	DBCANVAS_IT=http://127.0.0.1:8080 DBCANVAS_IT_USER=admin DBCANVAS_IT_PASS=… \
+//	DBCANVAS_IT=http://127.0.0.1:8080 DBCANVAS_IT_TOKEN=dbc_… \
 //	  go test -run TestDebuggerLiveTeardown -v .
 func TestDebuggerLiveTeardownResumes(t *testing.T) {
 	base := os.Getenv("DBCANVAS_IT")
 	if base == "" {
-		t.Skip("integration test; set DBCANVAS_IT=<url> (plus DBCANVAS_IT_USER/PASS)")
+		t.Skip("integration test; set DBCANVAS_IT=<url> and DBCANVAS_IT_TOKEN=<write token>")
 	}
 	hc, tgt := debugLiveTarget(t, base)
 	wsURL := fmt.Sprintf("%s/api/stacks/%d/frames/%s/k3d/debug/ws",
@@ -566,18 +552,26 @@ func TestDebuggerLiveTeardownResumes(t *testing.T) {
 		len(st.Functions))
 }
 
-// debugLiveTarget logs in and returns the first debuggable frame.
+// itToken sends DBCANVAS_IT_TOKEN as a bearer token on every request, the websocket
+// handshakes included.
+type itToken struct{ next http.RoundTripper }
+
+func (t itToken) RoundTrip(r *http.Request) (*http.Response, error) {
+	r = r.Clone(r.Context())
+	r.Header.Set("Authorization", "Bearer "+os.Getenv("DBCANVAS_IT_TOKEN"))
+	return t.next.RoundTrip(r)
+}
+
+// itClient is an HTTP client for a running dbcanvas. A websocket client needs timeout 0:
+// coder/websocket turns HTTPClient.Timeout into a deadline on the whole connection.
+func itClient(timeout time.Duration) *http.Client {
+	return &http.Client{Transport: itToken{http.DefaultTransport}, Timeout: timeout}
+}
+
+// debugLiveTarget returns the first debuggable frame.
 func debugLiveTarget(t *testing.T, base string) (*http.Client, k3dDebugTarget) {
 	t.Helper()
-	jar, _ := cookiejar.New(nil)
-	hc := &http.Client{Jar: jar}
-	login, _ := json.Marshal(map[string]string{
-		"username": os.Getenv("DBCANVAS_IT_USER"), "password": os.Getenv("DBCANVAS_IT_PASS")})
-	res, err := hc.Post(base+"/api/auth/login", "application/json", bytes.NewReader(login))
-	if err != nil {
-		t.Fatalf("login: %v", err)
-	}
-	res.Body.Close()
+	hc := itClient(0)
 	var targets struct {
 		Targets []k3dDebugTarget `json:"targets"`
 	}
