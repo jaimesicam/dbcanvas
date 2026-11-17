@@ -6,6 +6,7 @@ import { Icon } from '../components/Icons.jsx'
 import { useSettings } from '../settings/SettingsProvider.jsx'
 import { useSession } from '../session/SessionProvider.jsx'
 import { shareApi } from '../lib/shareApi.js'
+import { termClaimed } from '../lib/termClaims.js'
 import { Window, useWindowManager, useTaskbarItem } from '../wm/WindowManager.jsx'
 import { stackUnavailable } from '../lib/stackGone.js'
 
@@ -202,12 +203,13 @@ export function TerminalProvider({ children }) {
   const canClose = useCallback((s) => !s.shared || !share.active || share.isDriver, [share.active, share.isDriver])
 
   // The session's shared terminals, kept in step with the hub: a viewer for each one
-  // open, and gone when it closes (or when the session does).
+  // open, and gone when it closes (or when the session does). One a Pager Panic window
+  // draws in its game is left to that window (lib/termClaims.js).
   useEffect(() => {
     const open = new Set(share.active ? share.terms.map((t) => t.id) : [])
     for (const t of share.active ? share.terms : []) {
       const id = `share:${t.id}`
-      if (!termsRef.current.has(id) && !dismissed.current.has(t.id)) {
+      if (!termsRef.current.has(id) && !dismissed.current.has(t.id) && !termClaimed(t)) {
         attach({ id, title: `${t.title} · shared`, url: shareApi.termURL(share.sid, t.id), shared: t.id })
       }
     }

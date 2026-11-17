@@ -275,6 +275,7 @@ async function refresh() {
       if (e.seq > lastSeq) { animate(e); lastSeq = e.seq; }
     }
     render();
+    sayHello();
   } catch (e) {
     $('connStatus').textContent = 'The game server is not answering…';
   }
@@ -722,6 +723,10 @@ $('detail').addEventListener('click', async (ev) => {
 // shell and relays it over a MessagePort (dbcanvas:term-attach), so this page gets a shell
 // and never a credential. A terminal can also pop out into a DBCanvas window, and outside
 // DBCanvas the docker exec command is the way in.
+//
+// In a DBCanvas shared session the terminal is everyone's: DBCanvas offers it to every
+// copy of this page (dbcanvas:term-shared, with its port), and tells each whether it has
+// control and so the keyboard (control). Without it the terminal is watched, not typed in.
 const inDBCanvas = window.parent !== window;
 const nodeOf = (id) => (S?.nodes || []).find((x) => x.nodeId === id);
 const dockerCmd = (n) => `docker exec -it ${n.container} bash`;
@@ -752,6 +757,23 @@ const Bench = {
       const have = this.sessions.find((x) => x.nodeId === nodeId && x.status !== 'closed');
       if (have) { this.show(have.id); return; }
     }
+    const ch = new MessageChannel();
+    const s = this.mount(nodeId, n.host, ch.port1, '');
+    s.timer = setTimeout(() => { if (s.status === 'connecting') s.ended('DBCanvas did not answer; right-click a ticket to pop a terminal out'); }, 12000);
+    window.parent.postMessage({ type: 'dbcanvas:term-attach', stackId: S.stack.id, nodeId, title: `${n.host} · Pager Panic` }, location.origin, [ch.port2]);
+    this.show(s.id);
+  },
+  // adopt shows a shared terminal DBCanvas offered: one someone else in the session
+  // opened, or this page's own from before it loaded again.
+  adopt(m, port) {
+    if (!window.Terminal || !window.FitAddon) { port.close(); return; }
+    if (this.sessions.some((x) => x.shared === m.id && x.status !== 'closed')) { port.close(); return; }
+    const host = nodeOf(m.nodeId)?.host || String(m.title || m.nodeId).split(' · ')[0];
+    const s = this.mount(String(m.nodeId || ''), host, port, String(m.id));
+    this.show(s.id, true);
+  },
+  // mount draws a terminal and wires it to the port DBCanvas relays its shell over.
+  mount(nodeId, host, port, shared) {
     const id = `t${++this.count}`;
     const el = document.createElement('div');
     el.className = 'term-host';
@@ -761,13 +783,12 @@ const Bench = {
     const fit = new window.FitAddon.FitAddon();
     term.loadAddon(fit);
     term.open(el);
-    const ch = new MessageChannel();
     const same = this.sessions.filter((x) => x.nodeId === nodeId).length;
-    const s = { id, nodeId, host: n.host, n: same + 1, term, fit, el, port: ch.port1, status: 'connecting' };
+    const s = { id, nodeId, host, n: same + 1, term, fit, el, port, status: 'connecting', shared, driving: true };
     this.sessions.push(s);
     const enc = new TextEncoder();
     const send = (m) => { if (s.status !== 'closed') s.port.postMessage(m); };
-    const ended = (why) => {
+    s.ended = (why) => {
       if (s.status === 'closed') return;
       s.status = 'closed';
       clearTimeout(s.timer);
@@ -776,29 +797,37 @@ const Bench = {
     };
     s.port.onmessage = (e) => {
       const m = e.data || {};
-      if (m.type === 'data') term.write(new Uint8Array(m.data));
+      if (m.type === 'data') term.write(typeof m.data === 'string' ? m.data : new Uint8Array(m.data));
       else if (m.type === 'open') {
         s.status = 'open'; clearTimeout(s.timer);
         this.fitOne(s);
-        send({ type: 'resize', cols: term.cols, rows: term.rows });
+        if (s.driving) send({ type: 'resize', cols: term.cols, rows: term.rows });
+        this.render(true);
+      } else if (m.type === 'reset') term.reset();
+      else if (m.type === 'shared') { s.shared = String(m.id || ''); this.render(true); }
+      else if (m.type === 'control') {
+        s.driving = !!m.driving;
+        term.options.disableStdin = !s.driving;
+        if (s.driving && s.status === 'open') send({ type: 'resize', cols: term.cols, rows: term.rows });
         this.render(true);
       } else if (m.type === 'unavailable') {
-        ended(m.reason || 'not available here');
+        if (m.stay) { toast(m.reason || 'A terminal cannot be opened here', 'error'); this.close(s.id, true); return; }
+        s.ended(m.reason || 'not available here');
         popOut(nodeId);
-      } else if (m.type === 'closed' || m.type === 'error') ended('session closed');
+      } else if (m.type === 'closed' || m.type === 'error') s.ended(s.shared ? 'the shared terminal was closed' : 'session closed');
     };
-    term.onData((d) => send({ type: 'data', data: enc.encode(d) }));
-    term.onBinary((d) => send({ type: 'data', data: Uint8Array.from(d, (c) => c.charCodeAt(0) & 255) }));
-    term.onResize(({ cols, rows }) => { if (s.status === 'open') send({ type: 'resize', cols, rows }); });
-    s.timer = setTimeout(() => { if (s.status === 'connecting') ended('DBCanvas did not answer; right-click a ticket to pop a terminal out'); }, 12000);
-    window.parent.postMessage({ type: 'dbcanvas:term-attach', stackId: S.stack.id, nodeId }, location.origin, [ch.port2]);
-    this.show(id);
+    term.onData((d) => { if (s.driving) send({ type: 'data', data: enc.encode(d) }); });
+    term.onBinary((d) => { if (s.driving) send({ type: 'data', data: Uint8Array.from(d, (c) => c.charCodeAt(0) & 255) }); });
+    term.onResize(({ cols, rows }) => { if (s.status === 'open' && s.driving) send({ type: 'resize', cols, rows }); });
+    return s;
   },
-  close(id) {
+  // close takes the terminal off the workbench. A shared one closes for everyone when
+  // this player has control, and otherwise only here. quiet: DBCanvas already ended it.
+  close(id, quiet) {
     const i = this.sessions.findIndex((x) => x.id === id);
     if (i < 0) return;
     const s = this.sessions[i];
-    try { if (s.status !== 'closed') s.port.postMessage({ type: 'close' }); } catch { /* */ }
+    try { if (s.status !== 'closed' && !quiet) s.port.postMessage({ type: 'close' }); } catch { /* */ }
     s.status = 'closed';
     clearTimeout(s.timer);
     s.port.close();
@@ -808,11 +837,11 @@ const Bench = {
     if (this.tab === id) this.tab = this.sessions[Math.max(0, i - 1)]?.id || null;
     this.render(true);
   },
-  show(tab) {
+  show(tab, noFocus) {
     this.tab = tab;
     this.render(true);
     const s = this.sessions.find((x) => x.id === tab);
-    if (s) setTimeout(() => s.term.focus(), 0);
+    if (s && !noFocus) setTimeout(() => s.term.focus(), 0);
   },
   fitOne(s) {
     if (!s || !s.el.offsetWidth || !s.el.offsetHeight) return;
@@ -827,12 +856,17 @@ const Bench = {
     const t = S.tickets.find((x) => x.id === sel && x.state === 'open');
     if (this.tab && !this.sessions.some((x) => x.id === this.tab)) this.tab = this.sessions[this.sessions.length - 1]?.id || null;
     const termTab = this.tab;
-    const key = JSON.stringify([termTab, this.sessions.map((x) => [x.id, x.status]), (S.nodes || []).map((n) => n.nodeId), t?.worker]);
+    const key = JSON.stringify([termTab, this.sessions.map((x) => [x.id, x.status, x.driving]), (S.nodes || []).map((n) => n.nodeId), t?.worker]);
     if (!force && key === this.lastKey) return;
     this.lastKey = key;
 
     const star = (n) => (t && n.host === t.worker ? ' ★' : '');
-    const tabs = this.sessions.map((x) => `<button class="tab ${x.id === termTab ? 'on' : ''}" data-tab="${x.id}" title="${esc(x.host)}"><span class="lamp ${x.status}"></span>${esc(x.host)}${x.n > 1 ? ' #' + x.n : ''}<span class="x" data-close="${x.id}" title="Close">×</span></button>`).join('');
+    const tabs = this.sessions.map((x) => {
+      const watch = x.shared && !x.driving;
+      const tip = `${x.host}${x.shared ? (watch ? ' · shared: watching, whoever has control types' : ' · shared: everyone in the session sees it') : ''}`;
+      const closeTip = x.shared && x.driving ? 'Close for everyone' : 'Close';
+      return `<button class="tab ${x.id === termTab ? 'on' : ''}${watch ? ' watch' : ''}" data-tab="${x.id}" title="${esc(tip)}"><span class="lamp ${x.status}"></span>${esc(x.host)}${x.n > 1 ? ' #' + x.n : ''}${x.shared ? `<span class="shared-tag">${watch ? 'WATCHING' : 'SHARED'}</span>` : ''}<span class="x" data-close="${x.id}" title="${closeTip}">×</span></button>`;
+    }).join('');
     const adds = inDBCanvas ? (S.nodes || []).map((n) => `<button class="add" data-add="${esc(n.nodeId)}" title="New terminal on ${esc(nodeLabel(n))}">+ ${esc(n.host)}${star(n)}</button>`).join('') : '';
     const tools = termTab && inDBCanvas ? `<button class="tool" data-pop="${termTab}" title="Pop this terminal out into a DBCanvas window">⧉</button>` : '';
     $('benchTabs').innerHTML = `${tabs}${adds}<span class="spacer"></span>${tools}`;
@@ -949,9 +983,26 @@ $('termLaunch').addEventListener('click', (ev) => {
   else if (b.dataset.copy) copy(b.dataset.copy);
 });
 $('appReload').onclick = () => { if (sel) play({ do: 'check-now', ticket: sel }).catch(() => {}); };
+// DBCanvas offers a shared session's terminals of this window, each with its own port.
+addEventListener('message', (ev) => {
+  const m = ev.data;
+  if (ev.source !== window.parent || ev.origin !== location.origin || !m || m.type !== 'dbcanvas:term-shared') return;
+  const port = ev.ports?.[0];
+  if (port) Bench.adopt(m, port);
+});
+// sayHello tells DBCanvas this page is up, once it knows its stack: DBCanvas then offers
+// the shared terminals it should show.
+let helloSent = false;
+function sayHello() {
+  if (helloSent || !inDBCanvas || !S?.stack?.id) return;
+  helloSent = true;
+  window.parent.postMessage({ type: 'dbcanvas:term-hello', stackId: S.stack.id }, location.origin);
+}
 // The page pings DBCanvas's relay while it lives; a page that goes away closes its shells.
 setInterval(() => { for (const s of Bench.sessions) if (s.status !== 'closed') s.port.postMessage({ type: 'ping' }); }, 10000);
-addEventListener('pagehide', () => { for (const s of Bench.sessions) if (s.status !== 'closed') s.port.postMessage({ type: 'close' }); });
+// unload: the page is going, not the player closing the tab — a shared terminal stays
+// open for everyone else, and comes back when the page loads again.
+addEventListener('pagehide', () => { for (const s of Bench.sessions) if (s.status !== 'closed') s.port.postMessage({ type: 'close', unload: true }); });
 new ResizeObserver(() => { Bench.render(true); }).observe($('bench'));
 
 // The grip between the ticket and the workbench; the workbench's height is remembered.

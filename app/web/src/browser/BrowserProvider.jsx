@@ -4,6 +4,8 @@ import { useAuth } from '../auth/AuthProvider.jsx'
 import { useSession } from '../session/SessionProvider.jsx'
 import { Window, useWindowManager } from '../wm/WindowManager.jsx'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
+import { shareApi } from '../lib/shareApi.js'
+import { claimTerms } from '../lib/termClaims.js'
 
 // BrowserProvider — node web UIs in a window of their own, through DBCanvas's port
 // (app/browse.go).
@@ -121,16 +123,128 @@ export function BrowserProvider({ children }) {
   // the terminal itself is the ordinary one, with the ordinary checks on the server.
   //
   // dbcanvas:term-attach is a terminal the page draws itself, inside the game. It comes
-  // with a MessagePort: DBCanvas opens the same node terminal socket and relays it over
-  // the port, so the page gets a shell and never a credential. In a shared session a
-  // terminal is everyone's, so the page is told to open the ordinary one instead.
+  // with a MessagePort: DBCanvas opens the node terminal socket and relays it over the
+  // port, so the page gets a shell and never a credential.
+  //
+  // In a shared session a terminal is everyone's, so the game's is opened as a shared
+  // terminal (app/shareterm.go) tagged with its window: owner pp:<window id>:<tag>, the tag
+  // unique to this browser's request. Every
+  // browser that has the window relays it into its own copy of the game, offering it over
+  // a new port (dbcanvas:term-shared) to a page that did not ask for it (the page that did
+  // is told the shared terminal's id: shared), and the terminal
+  // panel leaves it alone (lib/termClaims.js). Whoever has control types; everyone else
+  // watches, and the page is told which it is (control). A page says dbcanvas:term-hello
+  // when it loads, and is offered every shared terminal of its window.
   const terms = useTerminals()
   const relays = useRef(new Map()) // window id → Set of relay closers
+  const relayed = useRef(new Map()) // shared terminal id → its relay's closer here
+  const asked = useRef(new Map()) // owner tag → { win, port } of the page that asked
+  const declined = useRef(new Set()) // shared terminals closed in this browser's game only
+  const ready = useRef(new Set()) // windows whose page said hello
+  const ownerSeq = useRef(0)
+  // Every browser numbers its own requests, so the tag carries a part of its own too.
+  const ownerNonce = useRef(Math.random().toString(36).slice(2, 8))
+  const ownerWin = (t) => /^pp:(.+):[a-z0-9]+$/.exec(t?.owner || '')?.[1] || ''
+  const frameOf = (id) => document.querySelector(`iframe[data-win="${CSS.escape(id)}"]`)
+
+  // A shared terminal of a Pager Panic window this browser has is drawn in that window.
+  useEffect(() => claimTerms((t) => {
+    const id = ownerWin(t)
+    return !!id && winsRef.current.some((w) => w.id === id && w.kind === 'pagerpanic')
+  }), [])
+
+  // pipe relays one terminal socket over a page's port until either side ends. A shared
+  // one (sharedId) reconnects when the server drops a viewer that fell behind, and the
+  // page starts it over from the scrollback.
+  const pipe = useCallback((win, url, port, sharedId) => {
+    // The page pings while it is alive; a page that reloaded or closed stops, and its
+    // shell is closed rather than left running.
+    let seen = Date.now()
+    let done = false
+    let ws = null
+    let tries = 0 // reconnects since the socket last opened
+    const set = relays.current.get(win.id) || new Set()
+    relays.current.set(win.id, set)
+    const tell = (m, transfer) => { try { port.postMessage(m, transfer || []) } catch { /* */ } }
+    const stop = () => {
+      if (done) return
+      done = true
+      clearInterval(watch)
+      set.delete(stop)
+      if (sharedId && relayed.current.get(sharedId) === stop) relayed.current.delete(sharedId)
+      try { ws?.close() } catch { /* */ }
+      tell({ type: 'closed' })
+      port.close()
+    }
+    stop.control = (driving) => tell({ type: 'control', driving })
+    const watch = setInterval(() => { if (Date.now() - seen > 45000) stop() }, 5000)
+    set.add(stop)
+    if (sharedId) relayed.current.set(sharedId, stop)
+    const connect = (again) => {
+      ws = new WebSocket(url)
+      ws.binaryType = 'arraybuffer'
+      ws.onopen = () => {
+        tries = 0
+        if (again) tell({ type: 'reset' })
+        tell({ type: 'open' })
+        if (sharedId) stop.control(!!sessRef.current.isDriver)
+      }
+      ws.onmessage = (e) => tell({ type: 'data', data: e.data }, typeof e.data === 'string' ? [] : [e.data])
+      ws.onclose = () => {
+        if (done) return
+        const still = sharedId && sessRef.current.active && sessRef.current.terms.some((t) => t.id === sharedId)
+        if (still && ++tries <= 5) setTimeout(() => { if (!done) connect(true) }, 1000)
+        else stop()
+      }
+    }
+    connect(false)
+    port.onmessage = (e) => {
+      const m = e.data || {}
+      seen = Date.now()
+      const open = ws && ws.readyState === WebSocket.OPEN
+      if (m.type === 'data' && open) ws.send(m.data)
+      else if (m.type === 'resize' && open && (!sharedId || sessRef.current.isDriver)) {
+        ws.send(JSON.stringify({ type: 'resize', cols: m.cols | 0, rows: m.rows | 0 }))
+      } else if (m.type === 'close') {
+        // A page unloading only lets go of its relays; a shared terminal stays open.
+        if (sharedId && !m.unload) {
+          const sh = sessRef.current
+          // Whoever has control closes it for everyone; anyone else only in their own game.
+          if (sh.active && sh.isDriver) sh.closeSharedTerm(sharedId)
+          else declined.current.add(sharedId)
+        }
+        stop()
+      }
+    }
+  }, [])
+
+  // claimAsked relays a shared terminal to the page that asked for it, whichever arrives
+  // first: the hub's terminal-open or the answer to the open.
+  const claimAsked = useCallback((t) => {
+    const a = asked.current.get(t.owner)
+    if (!a) return false
+    asked.current.delete(t.owner)
+    try { a.port.postMessage({ type: 'shared', id: t.id }) } catch { /* */ }
+    if (!relayed.current.has(t.id)) pipe(a.win, shareApi.termURL(sessRef.current.sid, t.id), a.port, t.id)
+    return true
+  }, [pipe])
+
+  // offer hands a shared terminal of the window to its page over a new port.
+  const offer = useCallback((win, t) => {
+    if (relayed.current.has(t.id) || declined.current.has(t.id)) return
+    const frame = frameOf(win.id)
+    if (!frame?.contentWindow) return
+    const ch = new MessageChannel()
+    frame.contentWindow.postMessage({ type: 'dbcanvas:term-shared', id: t.id, nodeId: t.nodeId, title: t.title },
+      location.origin, [ch.port2])
+    pipe(win, shareApi.termURL(sessRef.current.sid, t.id), ch.port1, t.id)
+  }, [pipe])
+
   useEffect(() => {
     const on = (ev) => {
       const d = ev.data
       if (ev.origin !== location.origin || !d || typeof d !== 'object') return
-      if (d.type !== 'dbcanvas:open-terminal' && d.type !== 'dbcanvas:open-stack' && d.type !== 'dbcanvas:term-attach') return
+      if (!['dbcanvas:open-terminal', 'dbcanvas:open-stack', 'dbcanvas:term-attach', 'dbcanvas:term-hello'].includes(d.type)) return
       let win = null
       for (const f of document.querySelectorAll('iframe[data-win]')) {
         if (f.contentWindow === ev.source) win = winsRef.current.find((w) => w.id === f.dataset.win)
@@ -140,60 +254,77 @@ export function BrowserProvider({ children }) {
         dispatchEvent(new CustomEvent('dbcanvas:open-stack', { detail: win.stackId }))
         return
       }
+      if (d.type === 'dbcanvas:term-hello') {
+        // A page that loaded again starts with no terminals: its old relays go, and it
+        // is offered every shared terminal of its window.
+        for (const stop of [...(relays.current.get(win.id) || [])]) stop()
+        ready.current.add(win.id)
+        const sh = sessRef.current
+        if (sh.active) for (const t of sh.terms) if (ownerWin(t) === win.id) offer(win, t)
+        return
+      }
       if (d.type === 'dbcanvas:term-attach') {
         const port = ev.ports?.[0]
-        if (port) relayTerminal(win, String(d.nodeId || ''), port)
+        if (port) relayTerminal(win, String(d.nodeId || ''), String(d.title || ''), port)
         return
       }
       terms?.openTerminal?.({ stackId: win.stackId, nodeId: String(d.nodeId || ''), title: String(d.title || 'Terminal').slice(0, 80) })
     }
-    const relayTerminal = (win, nodeId, port) => {
-      if (sessRef.current.active) {
-        port.postMessage({ type: 'unavailable', reason: 'In a shared session a terminal opens in DBCanvas, where everyone sees it.' })
-        port.close()
+    const relayTerminal = (win, nodeId, title, port) => {
+      const sh = sessRef.current
+      if (!sh.active) {
+        const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+        pipe(win, `${proto}://${location.host}/api/stacks/${win.stackId}/nodes/${encodeURIComponent(nodeId)}/term`, port)
         return
       }
-      const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-      const ws = new WebSocket(`${proto}://${location.host}/api/stacks/${win.stackId}/nodes/${encodeURIComponent(nodeId)}/term`)
-      ws.binaryType = 'arraybuffer'
-      // The page pings while it is alive; a page that reloaded or closed stops, and its
-      // shell is closed rather than left running.
-      let seen = Date.now()
-      let done = false
-      const set = relays.current.get(win.id) || new Set()
-      relays.current.set(win.id, set)
-      const stop = () => {
-        if (done) return
-        done = true
-        clearInterval(watch)
-        set.delete(stop)
-        try { ws.close() } catch { /* */ }
-        try { port.postMessage({ type: 'closed' }) } catch { /* */ }
+      const refuse = (reason) => {
+        try { port.postMessage({ type: 'unavailable', reason, stay: true }) } catch { /* */ }
         port.close()
       }
-      const watch = setInterval(() => { if (Date.now() - seen > 45000) stop() }, 5000)
-      set.add(stop)
-      ws.onopen = () => port.postMessage({ type: 'open' })
-      ws.onmessage = (e) => port.postMessage({ type: 'data', data: e.data }, [e.data])
-      ws.onclose = stop
-      ws.onerror = () => { port.postMessage({ type: 'error' }); stop() }
-      port.onmessage = (e) => {
-        const m = e.data || {}
-        seen = Date.now()
-        if (m.type === 'data' && ws.readyState === WebSocket.OPEN) ws.send(m.data)
-        else if (m.type === 'resize' && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'resize', cols: m.cols | 0, rows: m.rows | 0 }))
-        else if (m.type === 'close') stop()
-      }
+      if (!sh.isDriver && !sh.isHost) { refuse('Ask for control to open a terminal.'); return }
+      const owner = `pp:${win.id}:${ownerNonce.current}${++ownerSeq.current}`
+      asked.current.set(owner, { win, port })
+      sh.openSharedTerm({ stackId: win.stackId, nodeId, title: (title || nodeId).slice(0, 80), owner })
+        .then((t) => { if (t?.id) claimAsked(t) })
+        .catch((e) => { if (asked.current.delete(owner)) refuse(e.message) })
     }
     addEventListener('message', on)
     return () => removeEventListener('message', on)
-  }, [terms])
-  // A window that closes takes the shells relayed into it along.
+  }, [terms, pipe, offer, claimAsked])
+
+  // The session's shared terminals: one a page here asked for goes to it, and one of a
+  // window here is offered to its page. The relays end with their terminal, whose socket
+  // the server closes, or with the session.
+  useEffect(() => {
+    if (!session.active) {
+      for (const stop of [...relayed.current.values()]) stop()
+      declined.current.clear()
+      return
+    }
+    for (const t of session.terms) {
+      if (!t.owner || claimAsked(t)) continue
+      const win = winsRef.current.find((w) => w.id === ownerWin(t) && w.kind === 'pagerpanic')
+      if (win && ready.current.has(win.id)) offer(win, t)
+    }
+  }, [session.active, session.sid, session.terms, claimAsked, offer])
+
+  // Control moving tells every game here whether its shared terminals take its keys.
+  useEffect(() => {
+    for (const stop of relayed.current.values()) stop.control?.(!!session.isDriver)
+  }, [session.isDriver])
+
+  // A window that closes takes the shells relayed into it along. Whoever has control
+  // closes the window's shared terminals too: nobody else could see them.
   useEffect(() => {
     for (const [id, set] of relays.current) {
       if (wins.some((w) => w.id === id)) continue
       for (const stop of [...set]) stop()
       relays.current.delete(id)
+      ready.current.delete(id)
+      const sh = sessRef.current
+      if (sh.active && sh.isDriver) {
+        for (const t of sh.terms) if (ownerWin(t) === id) sh.closeSharedTerm(t.id)
+      }
     }
   }, [wins])
   useEffect(() => () => {

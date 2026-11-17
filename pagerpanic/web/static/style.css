@@ -280,6 +280,8 @@ h3 { font-size: 14px; color: var(--cool); margin: 28px 0 10px; align-self: flex-
 .tabs .lamp.open, .tabs .lamp.ok { background: var(--good); }
 .tabs .lamp.connecting { background: var(--warn); animation: blink 0.5s infinite steps(2); }
 .tabs .lamp.closed { background: #3a2a55; }
+.tabs .shared-tag { font: 7px var(--px); letter-spacing: 0.06em; color: var(--cool); border: 1px solid #1d4a63; padding: 2px 4px; }
+.tabs .tab.watch .shared-tag { color: var(--warn); border-color: #5c4a10; }
 .tabs .lamp.bad { background: var(--bad); animation: blink 0.8s infinite steps(2); }
 .tabs .add { color: var(--cool); font-size: 11px; }
 .tabs .spacer { flex: 1; min-width: 8px; }

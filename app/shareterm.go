@@ -29,6 +29,10 @@ type sharedTerm struct {
 	StackID int64  `json:"stackId"`
 	NodeID  string `json:"nodeId"`
 	Opener  string `json:"opener"`
+	// Owner is the part of the page that shows the terminal itself, when it is not the
+	// terminal panel: a Pager Panic window draws the terminals its game opened. The
+	// browsers read it; the server only carries it.
+	Owner string `json:"owner,omitempty"`
 
 	hub     *shareHub
 	app     *App
@@ -131,9 +135,14 @@ func (a *App) handleShareTermOpen(w http.ResponseWriter, r *http.Request) {
 		Pod       string `json:"pod"`
 		Container string `json:"container"`
 		Shell     string `json:"shell"`
+		Owner     string `json:"owner"`
 	}
 	if err := decode(r, &in); err != nil || in.StackID == 0 || in.NodeID == "" {
 		writeErr(w, http.StatusBadRequest, "stackId and nodeId are required")
+		return
+	}
+	if len(in.Owner) > 120 {
+		writeErr(w, http.StatusBadRequest, "owner is too long")
 		return
 	}
 	// Resolve the node exactly as the terminal socket does, through the same
@@ -173,7 +182,7 @@ func (a *App) handleShareTermOpen(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	h.termSeq++
 	t := &sharedTerm{ID: fmt.Sprintf("t%d", h.termSeq), Title: title, StackID: in.StackID, NodeID: in.NodeID,
-		Opener: c.name, hub: h, app: a, stream: stream, execCtx: ctx, cancel: cancel, viewers: map[*termViewer]bool{}}
+		Opener: c.name, Owner: in.Owner, hub: h, app: a, stream: stream, execCtx: ctx, cancel: cancel, viewers: map[*termViewer]bool{}}
 	h.terms[t.ID] = t
 	h.mu.Unlock()
 	go t.pump()
