@@ -10,8 +10,7 @@ import (
 )
 
 // Dashboard — cheap summary counters (from the store) and focus-gated live OS stats (Docker
-// stats, sampled lazily on request with a short cache). Admins see everything; a regular
-// user sees only their own stacks' data.
+// stats, sampled lazily on request with a short cache).
 
 // dbEngineOf maps a node type to a database-engine family for the "By engine" breakdown.
 // Broader than engineForType (which is scoped to the Data Generator's engines); non-DB
@@ -34,11 +33,6 @@ func dbEngineOf(t string) string {
 
 // ------------------------------------------------------------- summary
 
-type dashUsers struct {
-	Total   int `json:"total"`
-	Pending int `json:"pending"`
-}
-
 type dashSummary struct {
 	Scope  string `json:"scope"`
 	Stacks struct {
@@ -60,7 +54,6 @@ type dashSummary struct {
 		Done   int `json:"done"`
 		Error  int `json:"error"`
 	} `json:"dataGen"`
-	Users    *dashUsers     `json:"users,omitempty"`
 	Activity []Notification `json:"activity"`
 }
 
@@ -140,18 +133,6 @@ func (a *App) handleDashboardSummary(w http.ResponseWriter, r *http.Request) {
 		sum.Activity = []Notification{}
 	}
 
-	if admin {
-		total, _ := a.store.CountUsers()
-		pending := 0
-		if users, err := a.store.ListUsers(); err == nil {
-			for _, us := range users {
-				if us.Status == StatusPending {
-					pending++
-				}
-			}
-		}
-		sum.Users = &dashUsers{Total: total, Pending: pending}
-	}
 	writeJSON(w, http.StatusOK, sum)
 }
 

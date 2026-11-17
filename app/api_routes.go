@@ -1082,7 +1082,7 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "Turn a link to a node's web UI (http://host:<published port>/…) into an address served through DBCanvas's own port, for the browser window."},
 
 		// --- Kanban --------------------------------------------------------------
-		// Boards of columns of cards (kanban.go): a person's own, and the shared ones.
+		// Boards of columns of cards (kanban.go).
 		{Method: "GET", Path: "/api/kanban/boards", Group: gKanban, Handler: m((*App).handleKanbanBoards),
 			Summary: "Your Kanban boards, most recently changed first, with each one's card count."},
 		{Method: "POST", Path: "/api/kanban/boards", Group: gKanban, Handler: m((*App).handleKanbanCreateBoard),
@@ -1102,15 +1102,13 @@ func buildAPIRoutes() []apiRoute {
 		{Method: "POST", Path: "/api/kanban/columns/{cid}/move", Group: gKanban, Handler: m((*App).handleKanbanMoveColumn),
 			Summary: "Move a column to a place among the board's columns: {index} (0 is the leftmost)."},
 		{Method: "POST", Path: "/api/kanban/columns/{cid}/cards", Group: gKanban, Handler: m((*App).handleKanbanAddCard),
-			Summary: "Add a card to a column: {title, description, labels, assigneeId, due, index} (index omitted: at the bottom)."},
+			Summary: "Add a card to a column: {title, description, labels, due, color, index} (index omitted: at the bottom)."},
 		{Method: "PUT", Path: "/api/kanban/cards/{kid}", Group: gKanban, Handler: m((*App).handleKanbanUpdateCard),
-			Summary: "Change a card: {title, description, labels: [{color, text}], assigneeId, due: YYYY-MM-DD, color}."},
+			Summary: "Change a card: {title, description, labels: [{color, text}], due: YYYY-MM-DD, color}."},
 		{Method: "DELETE", Path: "/api/kanban/cards/{kid}", Group: gKanban, Handler: m((*App).handleKanbanDeleteCard),
 			Summary: "Delete a card from its column, for good."},
 		{Method: "POST", Path: "/api/kanban/cards/{kid}/move", Group: gKanban, Handler: m((*App).handleKanbanMoveCard),
 			Summary: "Move a card to a column of its board, at a place in it: {columnId, index} (0 is the top)."},
-		{Method: "GET", Path: "/api/kanban/people", Group: gKanban, Handler: m((*App).handleKanbanPeople),
-			Summary: "Who a card can be assigned to: the owner and the guests of shared sessions, by name and avatar."},
 
 		// --- Shared sessions ---------------------------------------------------
 		// A host shares a live session through a link; guests act as the host with a

@@ -3,7 +3,7 @@
 **Kanban** keeps boards of work: a column for each stage, a card for each piece of work. Open
 it from **Menu → Workspace → Kanban**.
 
-![A Kanban board: four columns, two of them coloured, cards with labels, colours, due dates and assignees](screenshots/kanban.png)
+![A Kanban board: four columns, two of them coloured, cards with labels, colours and due dates](screenshots/kanban.png)
 
 ## Boards
 
@@ -33,7 +33,7 @@ in two windows shows the other window's changes within a few seconds.
 - **From the keyboard** — **Tab** to a card, **Space** to pick it up, the arrow keys to move
   it (up and down within a column, left and right across columns), **Space** to drop it,
   **Escape** to cancel. **Enter** opens it.
-- **Open** — click a card for its title, description, assignee, due date and labels (a
+- **Open** — click a card for its title, description, due date and labels (a
   colour, with a word if you like). Closing the card saves it; **⌘/Ctrl+Enter** saves and
   closes too. A due date shows on the card, amber when it is today or tomorrow and red once
   it has passed.
@@ -42,8 +42,7 @@ in two windows shows the other window's changes within a few seconds.
   The same menu moves a card to the top or the bottom of its column, or deletes it.
 - **Delete** — from the open card, or its right-click menu. **Undo** in the notice that
   follows puts it back where it was.
-- **Filter** — type in **Filter cards** to see only the cards that mention something, or
-  click a face to see only that person's cards.
+- **Filter** — type in **Filter cards** to see only the cards that mention something.
 
 ## Columns
 
@@ -56,5 +55,5 @@ deletes the column, together with its cards once you confirm.
 ## What is stored
 
 Board, column and card text — names, titles, descriptions — is encrypted at rest with the
-rest of what people type into DBCanvas (see [Configuration](CONFIGURATION.md)). The
+rest of what you type into DBCanvas (see [Configuration](CONFIGURATION.md)). The
 endpoints are under `/api/kanban/` in the [API reference](API_REFERENCE.md).

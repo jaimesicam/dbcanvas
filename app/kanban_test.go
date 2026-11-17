@@ -188,7 +188,6 @@ func TestCardInputIsChecked(t *testing.T) {
 		`{"title":""}`,
 		`{"title":"x","labels":[{"color":"chartreuse"}]}`,
 		`{"title":"x","due":"tomorrow"}`,
-		`{"title":"x","assigneeId":9999}`,
 	} {
 		if w := f.do(f.ann, "POST", "/", map[string]string{"cid": id(f.cols[0])}, body, m((*App).handleKanbanAddCard)); w.Code != http.StatusBadRequest {
 			t.Errorf("%s accepted: %d", body, w.Code)

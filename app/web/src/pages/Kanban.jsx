@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom'
 import { Icon } from '../components/Icons.jsx'
 import { Button, inputCls } from '../components/ui.jsx'
 import { useDialog } from '../components/Dialog.jsx'
-import { Avatar } from '../components/Avatar.jsx'
 import { useRefresh } from '../lib/useRefresh.jsx'
 import { usePageVisible } from '../lib/usePolling.jsx'
 import { kanbanApi, LABEL_COLORS, labelHex, tint, BOARD_TEMPLATES, moveLocal, cardsIn } from '../lib/kanbanApi.js'
@@ -55,13 +54,11 @@ export default function Kanban() {
   const [boards, setBoards] = useState(null)
   const [boardId, setBoardId] = useState(readLast)
   const [data, setData] = useState(null) // { board, columns, cards }
-  const [people, setPeople] = useState([])
   const [err, setErr] = useState('')
   const [creating, setCreating] = useState(false)
   const [openCard, setOpenCard] = useState(null) // card id
   const [toast, setToast] = useState(null) // { text, undo }
   const [query, setQuery] = useState('')
-  const [who, setWho] = useState(null) // assignee filter
   const busy = useRef(0) // writes in flight: a poll then would show a half-applied state
   const dataRef = useRef(data)
   dataRef.current = data
@@ -91,7 +88,6 @@ export default function Kanban() {
     loadBoards().then((l) => {
       setBoardId((cur) => (cur && l.some((b) => b.id === cur) ? cur : l[0]?.id ?? null))
     })
-    kanbanApi.people().then((p) => setPeople(Array.isArray(p) ? p : [])).catch(() => {})
   }, [loadBoards])
   useEffect(() => { writeLast(boardId); setOpenCard(null); loadBoard(boardId) }, [boardId, loadBoard])
   useRefresh(() => Promise.all([loadBoards(), loadBoard(boardId)]))
@@ -198,7 +194,7 @@ export default function Kanban() {
   const addCard = (colId, title, top) => {
     const id = tempId.current--
     const index = top ? 0 : cardsIn(dataRef.current.cards, colId).length
-    const tmp = { id, columnId: colId, title, description: '', labels: [], assigneeId: 0, due: '', position: 1e9 }
+    const tmp = { id, columnId: colId, title, description: '', labels: [], due: '', position: 1e9 }
     write(
       (d) => ({ ...d, cards: moveLocal([...d.cards, tmp], id, colId, index) }),
       () => kanbanApi.addCard(colId, { title, index }),
@@ -223,7 +219,7 @@ export default function Kanban() {
     setToast({
       text: `Deleted “${card.title.length > 40 ? `${card.title.slice(0, 40)}…` : card.title}”`,
       undo: () => write(null, () => kanbanApi.addCard(card.columnId, {
-        title: card.title, description: card.description, labels: card.labels, assigneeId: card.assigneeId, due: card.due, color: card.color, index,
+        title: card.title, description: card.description, labels: card.labels, due: card.due, color: card.color, index,
       })),
     })
   }
@@ -235,11 +231,11 @@ export default function Kanban() {
 
   const board = data?.board
   const card = openCard && data?.cards.find((c) => c.id === openCard)
-  const filtering = !!(query.trim() || who)
+  const filtering = !!query.trim()
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return (c) => (!who || c.assigneeId === who) && (!q || `${c.title} ${c.description} ${c.labels.map((l) => l.text).join(' ')}`.toLowerCase().includes(q))
-  }, [query, who])
+    return (c) => (!q || `${c.title} ${c.description} ${c.labels.map((l) => l.text).join(' ')}`.toLowerCase().includes(q))
+  }, [query])
 
   return (
     <div className="flex h-full min-h-[480px] gap-4">
@@ -283,11 +279,10 @@ export default function Kanban() {
                   <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filter cards…"
                     className={`${inputCls} h-8 w-48 pl-7 text-xs`} />
                 </div>
-                <PeopleFilter people={people} cards={data.cards} value={who} onChange={setWho} />
                 <Button size="sm" variant="outline" onClick={addColumn}><Icon.Plus size={14} /> Column</Button>
               </div>
             </div>
-            <Board data={data} people={people} filtering={filtering} matches={matches}
+            <Board data={data} filtering={filtering} matches={matches}
               dragging={dragging} onMoveCard={moveCard} onMoveColumn={moveColumn} onOpenCard={setOpenCard}
               onAddCard={addCard} onRenameColumn={renameColumn} onWip={setWip} onDeleteColumn={deleteColumn}
               onColorColumn={colorColumn} onColorCard={colorCard} onDeleteCard={deleteCard} />
@@ -297,7 +292,7 @@ export default function Kanban() {
 
       {creating && <NewBoardDialog onClose={() => setCreating(false)} onCreate={createBoard} />}
       {card && (
-        <CardDialog card={card} columns={data.columns} people={people} onClose={() => setOpenCard(null)}
+        <CardDialog card={card} columns={data.columns} onClose={() => setOpenCard(null)}
           onSave={saveCard} onDelete={() => deleteCard(card)}
           onMove={(colId) => moveCard(card.id, colId, cardsIn(data.cards, colId).length)} />
       )}
@@ -374,22 +369,6 @@ function Swatches({ value, onPick, size = 18 }) {
   )
 }
 
-function PeopleFilter({ people, cards, value, onChange }) {
-  const assigned = useMemo(() => new Set(cards.map((c) => c.assigneeId).filter(Boolean)), [cards])
-  const list = people.filter((p) => assigned.has(p.id))
-  if (!list.length) return null
-  return (
-    <div className="flex items-center -space-x-1" title="Show only one person's cards">
-      {list.slice(0, 8).map((p) => (
-        <button key={p.id} onClick={() => onChange(value === p.id ? null : p.id)}
-          className={`rounded-full ring-2 transition ${value === p.id ? 'z-10 ring-primary' : value ? 'opacity-40 ring-surface' : 'ring-surface hover:z-10'}`}>
-          <Avatar avatar={p.avatar} name={p.name} size={24} />
-        </button>
-      ))}
-    </div>
-  )
-}
-
 function EmptyState({ onCreate, hasBoards }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed p-10 text-center">
@@ -439,7 +418,7 @@ function NewBoardDialog({ onClose, onCreate }) {
 
 // Board draws the columns and runs the dragging: cards by their body, columns by
 // their header, with the pointer or the keyboard.
-function Board({ data, people, filtering, matches, dragging, onMoveCard, onMoveColumn, onOpenCard, onAddCard, onRenameColumn, onWip, onDeleteColumn, onColorColumn, onColorCard, onDeleteCard }) {
+function Board({ data, filtering, matches, dragging, onMoveCard, onMoveColumn, onOpenCard, onAddCard, onRenameColumn, onWip, onDeleteColumn, onColorColumn, onColorCard, onDeleteCard }) {
   const scroller = useRef(null)
   const colEls = useRef(new Map()) // colId -> column element
   const bodyEls = useRef(new Map()) // colId -> card list element
@@ -451,7 +430,6 @@ function Board({ data, people, filtering, matches, dragging, onMoveCard, onMoveC
   const [announce, setAnnounce] = useState('')
   const cols = data.columns
   const byCol = useMemo(() => Object.fromEntries(cols.map((c) => [c.id, cardsIn(data.cards, c.id)])), [cols, data.cards])
-  const personOf = useMemo(() => Object.fromEntries(people.map((p) => [p.id, p])), [people])
 
   // A card's place, as the cards on screen show it, turned into its place in the
   // whole column (a filter hides some).
@@ -672,7 +650,7 @@ function Board({ data, people, filtering, matches, dragging, onMoveCard, onMoveC
       {shownCols.map((c, i) => (c.gap
         ? <div key={`gap${i}`} className="h-40 shrink-0 rounded-xl border-2 border-dashed border-primary/40 bg-primary/5" style={{ width: drag.w }} />
         : (
-          <Column key={c.id} col={c} cards={byCol[c.id]} matches={filtering ? matches : null} personOf={personOf}
+          <Column key={c.id} col={c} cards={byCol[c.id]} matches={filtering ? matches : null}
             setColEl={(el) => (el ? colEls.current.set(c.id, el) : colEls.current.delete(c.id))}
             setBodyEl={(el) => (el ? bodyEls.current.set(c.id, el) : bodyEls.current.delete(c.id))}
             drag={drag} kbd={kbd} kbdCard={kbd ? data.cards.find((x) => x.id === kbd.id) : null} onHeaderPress={startPress('column', c.id)} onCardPress={(id) => startPress('card', id)}
@@ -683,7 +661,7 @@ function Board({ data, people, filtering, matches, dragging, onMoveCard, onMoveC
         )))}
       {drag && createPortal(
         <div ref={ghost} className="pointer-events-none fixed left-0 top-0 z-[100] opacity-95" style={{ width: drag.w }}>
-          {draggedCard && <CardFace card={draggedCard} person={personOf[draggedCard.assigneeId]} lifted />}
+          {draggedCard && <CardFace card={draggedCard} lifted />}
           {draggedCol && (
             <div className="rounded-xl border-2 border-primary/60 bg-surface p-3 shadow-2xl">
               <div className="text-sm font-semibold">{draggedCol.name}</div>
@@ -697,7 +675,7 @@ function Board({ data, people, filtering, matches, dragging, onMoveCard, onMoveC
   )
 }
 
-function Column({ col, cards, matches, personOf, setColEl, setBodyEl, drag, kbd, kbdCard, onHeaderPress, onCardPress, onCardKey, onOpenCard, onAddCard, onRename, onWip, onDelete, onColor, onColorCard, onDeleteCard, onMoveCard }) {
+function Column({ col, cards, matches, setColEl, setBodyEl, drag, kbd, kbdCard, onHeaderPress, onCardPress, onCardKey, onOpenCard, onAddCard, onRename, onWip, onDelete, onColor, onColorCard, onDeleteCard, onMoveCard }) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(col.name)
   const [menu, setMenu] = useState(null)
@@ -753,7 +731,7 @@ function Column({ col, cards, matches, personOf, setColEl, setBodyEl, drag, kbd,
               className="rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-primary"
               style={{ touchAction: 'manipulation' }}
               aria-label={`${it.card.title}. Space to move, Enter to open.`}>
-              <CardFace card={it.card} person={personOf[it.card.assigneeId]} lifted={it.lifted} />
+              <CardFace card={it.card} lifted={it.lifted} />
             </div>
           ) : null))}
         {!matches && cards.length === 0 && !draggingCard && adding !== 'bottom' && (
@@ -820,7 +798,7 @@ function Composer({ onAdd, onClose }) {
   )
 }
 
-function CardFace({ card, person, lifted }) {
+function CardFace({ card, lifted }) {
   const due = dueInfo(card.due)
   return (
     <div className={`cursor-pointer select-none rounded-lg border bg-surface p-2.5 text-sm transition-shadow ${lifted ? 'border-primary/60 shadow-2xl ring-2 ring-primary/40' : 'shadow-sm hover:border-primary/40 hover:shadow'}`}
@@ -835,24 +813,22 @@ function CardFace({ card, person, lifted }) {
         </div>
       )}
       <div className="whitespace-pre-wrap break-words leading-snug">{card.title}</div>
-      {(due || card.description || person) && (
+      {(due || card.description) && (
         <div className="mt-2 flex items-center gap-2 text-[11px] text-muted">
           {due && <span className={`rounded px-1.5 py-px ${due.tone}`} title={due.title}>{due.label}</span>}
           {card.description && <span title="Has a description"><Icon.Logs size={12} /></span>}
-          {person && <span className="ml-auto"><Avatar avatar={person.avatar} name={person.name} size={20} /></span>}
         </div>
       )}
     </div>
   )
 }
 
-function CardDialog({ card, columns, people, onClose, onSave, onDelete, onMove }) {
+function CardDialog({ card, columns, onClose, onSave, onDelete, onMove }) {
   const [c, setC] = useState(() => ({ ...card, labels: card.labels || [] }))
-  const dirty = JSON.stringify([c.title, c.description, c.labels, c.assigneeId, c.due, c.color || '']) !== JSON.stringify([card.title, card.description, card.labels || [], card.assigneeId, card.due, card.color || ''])
+  const dirty = JSON.stringify([c.title, c.description, c.labels, c.due, c.color || '']) !== JSON.stringify([card.title, card.description, card.labels || [], card.due, card.color || ''])
   const save = () => { if (c.title.trim()) { onSave({ ...c, title: c.title.trim() }); onClose() } }
   const close = () => { if (dirty && c.title.trim()) onSave({ ...c, title: c.title.trim() }); onClose() }
   const setLabel = (i, patch) => setC((x) => ({ ...x, labels: x.labels.map((l, n) => (n === i ? { ...l, ...patch } : l)) }))
-  const creator = people.find((p) => p.id === card.createdBy)
   return createPortal(
     <div className="fixed inset-0 z-[90] flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-[8vh]" onMouseDown={close}>
       <div onMouseDown={(e) => e.stopPropagation()}
@@ -868,7 +844,6 @@ function CardDialog({ card, columns, people, onClose, onSave, onDelete, onMove }
           <select value={card.columnId} onChange={(e) => onMove(Number(e.target.value))} className="rounded border bg-bg px-1.5 py-0.5 text-xs text-fg">
             {columns.map((col) => <option key={col.id} value={col.id}>{col.name}</option>)}
           </select>
-          {creator && <span>· added by {creator.name}</span>}
         </div>
 
         <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_200px]">
@@ -878,13 +853,6 @@ function CardDialog({ card, columns, people, onClose, onSave, onDelete, onMove }
               placeholder="Details, steps, links…" className={`${inputCls} resize-y text-sm`} />
           </div>
           <div className="space-y-4">
-            <div className="space-y-1">
-              <div className="text-xs font-medium text-muted">Assignee</div>
-              <select value={c.assigneeId || 0} onChange={(e) => setC({ ...c, assigneeId: Number(e.target.value) })} className={`${inputCls} text-sm`}>
-                <option value={0}>Nobody</option>
-                {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </div>
             <div className="space-y-1">
               <div className="text-xs font-medium text-muted">Due</div>
               <div className="flex gap-1">

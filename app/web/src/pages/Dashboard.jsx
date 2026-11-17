@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Card, Badge } from '../components/ui.jsx'
+import { Card } from '../components/ui.jsx'
 import WhatsNew, { WhatsNewLink, useWhatsNew } from '../components/WhatsNew.jsx'
 import { UpdateCheckButton } from '../components/UpdateCheck.jsx'
 import { dashApi, fmtBytes } from '../lib/dashApi.js'
@@ -65,7 +65,6 @@ export default function Dashboard() {
   usePolling(loadStats, 4000, { onActive: setLive })
   useRefresh(() => Promise.all([loadSummary(), loadStats()]))
 
-  const admin = sum?.scope === 'admin'
   // Each bar knows its own scale (frac, 0–1) rather than being drawn against the busiest row:
   // relative bars made a container at 0.8% CPU look pinned. labelOf/stackOf are the canvas's
   // names for the container (app/dashboard.go), so a row can be traced — and clicked — to its stack.
@@ -84,8 +83,6 @@ export default function Dashboard() {
   const cpuFrac = (t) => t.value / 100
   const memFrac = (t) => (t.row.memPercent || 0) / 100
   const rateFrac = (t, max) => t.value / Math.max(max, 1 << 20)
-  // Every stack has the one owner, so a row never needs to say whose it is.
-  const showOwner = false
   const openStack = (id) => openStackInDesigner((page) => { location.hash = page }, id)
   // With nothing running there will never be a second sample, so the rate charts say so
   // rather than wait on one.
@@ -96,7 +93,6 @@ export default function Dashboard() {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge tone={admin ? 'primary' : 'muted'}>{admin ? 'System-wide' : 'Your account'}</Badge>
         <span className="flex items-center gap-1.5 text-xs text-muted">
           <span className={`h-2 w-2 rounded-full ${live ? 'animate-pulse bg-primary' : 'bg-muted'}`} />
           {live ? 'Live · monitoring active' : 'Paused (focus the tab to resume)'}
@@ -132,10 +128,10 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         <Card title="Top containers" subtitle="By CPU — a full bar is one core">
-          <TopBars items={bars(stats?.nodes, 'cpuPercent', pct, cpuFrac)} empty="No running containers" accent="var(--color-primary)" onOpen={openStack} showOwner={showOwner} />
+          <TopBars items={bars(stats?.nodes, 'cpuPercent', pct, cpuFrac)} empty="No running containers" accent="var(--color-primary)" onOpen={openStack} />
         </Card>
         <Card title="Top containers" subtitle="By memory — a full bar is the container's limit">
-          <TopBars items={bars(stats?.nodes, 'memUsed', fmtBytes, memFrac)} empty="No running containers" accent="var(--color-accent)" onOpen={openStack} showOwner={showOwner} />
+          <TopBars items={bars(stats?.nodes, 'memUsed', fmtBytes, memFrac)} empty="No running containers" accent="var(--color-accent)" onOpen={openStack} />
         </Card>
         <Card title="By engine" subtitle="Running DB nodes">
           {/* Empty while a deploy is still bringing its databases up said "Nothing running"
@@ -148,10 +144,10 @@ export default function Dashboard() {
 
       {/* Per-node network / disk rates */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Card title="Top network in" subtitle="Per node (live)"><TopBars items={bars(rates, 'netIn', rate, rateFrac)} empty={idle} accent="var(--color-success)" onOpen={openStack} showOwner={showOwner} /></Card>
-        <Card title="Top network out" subtitle="Per node (live)"><TopBars items={bars(rates, 'netOut', rate, rateFrac)} empty={idle} accent="var(--color-accent)" onOpen={openStack} showOwner={showOwner} /></Card>
-        <Card title="Top disk in" subtitle="Per node (live)"><TopBars items={bars(rates, 'diskIn', rate, rateFrac)} empty={idle} accent="var(--color-warning)" onOpen={openStack} showOwner={showOwner} /></Card>
-        <Card title="Top disk out" subtitle="Per node (live)"><TopBars items={bars(rates, 'diskOut', rate, rateFrac)} empty={idle} accent="var(--color-primary)" onOpen={openStack} showOwner={showOwner} /></Card>
+        <Card title="Top network in" subtitle="Per node (live)"><TopBars items={bars(rates, 'netIn', rate, rateFrac)} empty={idle} accent="var(--color-success)" onOpen={openStack} /></Card>
+        <Card title="Top network out" subtitle="Per node (live)"><TopBars items={bars(rates, 'netOut', rate, rateFrac)} empty={idle} accent="var(--color-accent)" onOpen={openStack} /></Card>
+        <Card title="Top disk in" subtitle="Per node (live)"><TopBars items={bars(rates, 'diskIn', rate, rateFrac)} empty={idle} accent="var(--color-warning)" onOpen={openStack} /></Card>
+        <Card title="Top disk out" subtitle="Per node (live)"><TopBars items={bars(rates, 'diskOut', rate, rateFrac)} empty={idle} accent="var(--color-primary)" onOpen={openStack} /></Card>
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
@@ -211,7 +207,7 @@ const shortName = (n) => n.replace(/^(?!k3d-)[a-z][a-z0-9-]*?-(?=\d+-)/, '').rep
 // TopBars renders a ranked horizontal bar chart (top-N). HTML/CSS bars keep the app's
 // font crisp and animate smoothly — no distorted SVG text. Each item carries its own frac
 // (see bars() in Dashboard); a row with a known stack opens it in Database Stacks.
-function TopBars({ items, empty, accent = 'var(--color-primary)', onOpen, showOwner }) {
+function TopBars({ items, empty, accent = 'var(--color-primary)', onOpen }) {
   if (!items || !items.length) return empty ? <div className="py-6 text-center text-sm text-muted">{empty}</div> : <Pending />
   return (
     <div className="space-y-2">
@@ -221,11 +217,10 @@ function TopBars({ items, empty, accent = 'var(--color-primary)', onOpen, showOw
         const click = onOpen && r.stackId ? () => onOpen(r.stackId) : undefined
         return (
           <div key={it.name} className={click ? 'cursor-pointer rounded hover:bg-surface2/60' : ''} onClick={click}
-            title={`${it.name}${r.owner ? ` · ${r.owner}` : ''}${click ? ` — open ${r.stack || 'its stack'} in Database Stacks` : ''}`}>
+            title={`${it.name}${click ? ` — open ${r.stack || 'its stack'} in Database Stacks` : ''}`}>
             <div className="mb-0.5 flex items-baseline justify-between gap-3">
               <span className="min-w-0 truncate text-xs text-fg/90">
                 {name}
-                {showOwner && r.owner && <span className="ml-1.5 text-[11px] text-muted">{r.owner}</span>}
               </span>
               <span className="shrink-0 text-[11px] tabular-nums text-muted">{it.display}</span>
             </div>

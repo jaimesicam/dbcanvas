@@ -1304,10 +1304,9 @@ top of a column (or leftmost on the board); an index past the end means the end.
 | Rename it · delete it | `PUT /api/kanban/boards/{id}` `{"name"}` · `DELETE …` |
 | Add · change · delete a column | `POST /api/kanban/boards/{id}/columns` `{"name", "index"}` · `PUT /api/kanban/columns/{cid}` `{"name", "wipLimit"}` or `{"color"}` · `DELETE …` |
 | Move a column | `POST /api/kanban/columns/{cid}/move` `{"index"}` |
-| Add a card | `POST /api/kanban/columns/{cid}/cards` `{"title", "description", "labels", "assigneeId", "due", "color", "index"}` |
+| Add a card | `POST /api/kanban/columns/{cid}/cards` `{"title", "description", "labels", "due", "color", "index"}` |
 | Change · delete a card | `PUT` · `DELETE /api/kanban/cards/{kid}` |
 | Move a card | `POST /api/kanban/cards/{kid}/move` `{"columnId", "index"}` |
-| Who a card can be assigned to | `GET /api/kanban/people` |
 
 ## Shared sessions
 

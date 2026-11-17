@@ -30,7 +30,6 @@ export const kanbanApi = {
   updateCard: (id, card) => request('PUT', `/api/kanban/cards/${id}`, card),
   deleteCard: (id) => request('DELETE', `/api/kanban/cards/${id}`),
   moveCard: (id, columnId, index) => request('POST', `/api/kanban/cards/${id}/move`, { columnId, index }),
-  people: () => request('GET', '/api/kanban/people'),
 }
 
 // The label palette (app/kanban.go's kanbanLabelColors).

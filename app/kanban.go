@@ -111,7 +111,7 @@ type KanbanCard struct {
 	Title       string        `json:"title"`
 	Description string        `json:"description"`
 	Labels      []KanbanLabel `json:"labels"`
-	AssigneeID  int64         `json:"assigneeId"`
+	AssigneeID  int64         `json:"-"` // an old multi-account field, kept in the table
 	Due         string        `json:"due"`
 	Color       string        `json:"color"`
 	Position    int           `json:"position"`
@@ -869,7 +869,6 @@ type cardInput struct {
 	Title       string        `json:"title"`
 	Description string        `json:"description"`
 	Labels      []KanbanLabel `json:"labels"`
-	AssigneeID  int64         `json:"assigneeId"`
 	Due         string        `json:"due"`
 	Color       string        `json:"color"`
 	Index       *int          `json:"index"`
@@ -900,15 +899,10 @@ func (a *App) checkCard(in cardInput) (KanbanCard, error) {
 			return KanbanCard{}, errors.New("a due date is YYYY-MM-DD")
 		}
 	}
-	if in.AssigneeID != 0 {
-		if u, err := a.store.GetUser(in.AssigneeID); err != nil || u.Status != StatusApproved {
-			return KanbanCard{}, errors.New("no such person to assign")
-		}
-	}
 	if in.Color != "" && !kanbanLabelColors[in.Color] {
 		return KanbanCard{}, errors.New("a colour is one of the palette's, or empty for none")
 	}
-	return KanbanCard{Title: title, Description: strings.TrimRight(in.Description, " \n\t"), Labels: labels, AssigneeID: in.AssigneeID, Due: due, Color: in.Color}, nil
+	return KanbanCard{Title: title, Description: strings.TrimRight(in.Description, " \n\t"), Labels: labels, Due: due, Color: in.Color}, nil
 }
 
 func (a *App) handleKanbanAddCard(w http.ResponseWriter, r *http.Request) {
@@ -1007,25 +1001,4 @@ func (a *App) handleKanbanMoveCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": id})
-}
-
-// handleKanbanPeople is who a card can be assigned to: every approved account, by
-// name and avatar (and nothing else about them).
-func (a *App) handleKanbanPeople(w http.ResponseWriter, r *http.Request) {
-	if _, ok := a.currentUser(r); !ok {
-		writeErr(w, http.StatusUnauthorized, "authentication required")
-		return
-	}
-	users, err := a.store.ListUsers()
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "failed to list people")
-		return
-	}
-	out := []map[string]any{}
-	for _, u := range users {
-		if u.Status == StatusApproved {
-			out = append(out, map[string]any{"id": u.ID, "name": u.displayName(), "username": u.Username, "avatar": u.Avatar})
-		}
-	}
-	writeJSON(w, http.StatusOK, out)
 }
