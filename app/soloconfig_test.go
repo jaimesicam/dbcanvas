@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSoloConfig(t *testing.T) {
@@ -44,6 +45,15 @@ func TestSoloConfig(t *testing.T) {
 		write(in)
 		if _, err := readSoloConfig(dir); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: %v, want %q", in, err, want)
+		}
+	}
+}
+
+func TestDeploymentTimeoutTakesMinutesOrADuration(t *testing.T) {
+	for v, want := range map[string]time.Duration{"": time.Hour, "90": 90 * time.Minute, "45m": 45 * time.Minute, "2h": 2 * time.Hour, "junk": time.Hour} {
+		t.Setenv("DEPLOYMENT_TIMEOUT", v)
+		if got := deployTimeout(); got != want {
+			t.Errorf("DEPLOYMENT_TIMEOUT=%q: %v, want %v", v, got, want)
 		}
 	}
 }

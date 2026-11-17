@@ -188,7 +188,7 @@ func buildAPIRoutes() []apiRoute {
 	return []apiRoute{
 		// --- setup & sign-in ----------------------------------------------------
 		{Method: "GET", Path: "/api/setup/status", Group: gAuth, Auth: authPublic, Handler: m((*App).handleStatus),
-			Summary: "Report whether this installation has an account yet, and who the caller is signed in as."},
+			Summary: "Report the version, and who the caller is: the owner, a token or a guest."},
 		{Method: "POST", Path: "/api/auth/logout", Group: gAuth, Auth: authPublic, Handler: m((*App).handleLogout),
 			Summary: "Destroy the caller's session and clear the cookie."},
 		{Method: "GET", Path: "/api/me", Group: gAuth, Handler: m((*App).handleMe),
@@ -224,8 +224,8 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "Build one of those images on the Docker daemon DBCanvas already uses. Returns at once; poll GET /api/images for progress."},
 
 		// --- users --------------------------------------------------------------
-		{Method: "GET", Path: "/api/system/doctor", Group: gUsers, Auth: authAdmin, Handler: m((*App).handleDoctor),
-			Summary: "Checks on this installation: Docker, node images, version catalogue age, passwords still at their example value, the encryption key, exposure and sign-in settings, CLI and Big Hole files. Each ok, warn or fail with what to do."},
+		{Method: "GET", Path: "/api/system/doctor", Group: gMeta, Auth: authAdmin, Handler: m((*App).handleDoctor),
+			Summary: "Checks on this installation: Docker, the architecture, node images, the version catalogues, the data folder, disk space, the encryption key, stack networks, k3d and the bundled files. Each ok, warn or fail with what to do (dbcanvas doctor)."},
 
 		// --- version catalogues -------------------------------------------------
 		{Method: "GET", Path: "/api/catalog/pmm", Group: gCatalog, Handler: m((*App).handlePMMCatalog),
@@ -1072,7 +1072,7 @@ func buildAPIRoutes() []apiRoute {
 		{Method: "GET", Path: "/api/tokens", Group: gTokens, Handler: m((*App).handleListTokens),
 			Summary: "Your API tokens, with what each may do and when it expires. Never the secret."},
 		{Method: "POST", Path: "/api/tokens", Group: gTokens, NoToken: true, Handler: m((*App).handleCreateToken),
-			Summary: "Create an API token and return its secret, once. Requires a password sign-in, not a token."},
+			Summary: "Create an API token and return its secret, once. Requires the owner's browser session, not a token."},
 		{Method: "DELETE", Path: "/api/tokens/{id}", Group: gTokens, Handler: m((*App).handleRevokeToken),
 			Summary: "Revoke one of your own tokens. It stops working immediately and stays listed as revoked."},
 
@@ -1111,16 +1111,16 @@ func buildAPIRoutes() []apiRoute {
 		{Method: "POST", Path: "/api/kanban/cards/{kid}/move", Group: gKanban, Handler: m((*App).handleKanbanMoveCard),
 			Summary: "Move a card to a column of its board, at a place in it: {columnId, index} (0 is the top)."},
 		{Method: "GET", Path: "/api/kanban/people", Group: gKanban, Handler: m((*App).handleKanbanPeople),
-			Summary: "Who a card can be assigned to: every approved account, by name and avatar."},
+			Summary: "Who a card can be assigned to: the owner and the guests of shared sessions, by name and avatar."},
 
 		// --- Shared sessions ---------------------------------------------------
 		// A host shares a live session through a link; guests act as the host with a
 		// read or write scope (share.go). Only the routes marked GuestOK are reachable
 		// by a guest; the rest manage the session and are the host's alone.
 		{Method: "POST", Path: "/api/stacks/{id}/share", Group: gShare, NoToken: true, Handler: m((*App).handleCreateShare),
-			Summary: "Start a shared session from a stack and return its link, once; it covers the whole application. Requires a password sign-in."},
+			Summary: "Start a shared session from a stack and return its link, once; it covers the whole application. Requires the owner's browser session, not a token."},
 		{Method: "POST", Path: "/api/share/sessions", Group: gShare, NoToken: true, Handler: m((*App).handleCreateAppShare),
-			Summary: "Start a shared session from anywhere — it covers the whole application — and return its link, once. Requires a password sign-in. Body: {minutes, hideSecrets, mirror}."},
+			Summary: "Start a shared session from anywhere — it covers the whole application — and return its link, once. Requires the owner's browser session, not a token. Body: {minutes, hideSecrets, mirror}."},
 		{Method: "POST", Path: "/api/share/sessions/{sid}/mirror", Group: gShare, Handler: m((*App).handleShareMirror),
 			Summary: "Turn Mirror everything on or off: {\"mirror\": true} shows everyone exactly the driver's screen."},
 		{Method: "GET", Path: "/api/stacks/{id}/share/transcripts", Group: gShare, Handler: m((*App).handleStackTranscripts),

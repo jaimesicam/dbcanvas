@@ -48,7 +48,7 @@ func cliToken(args []string) error {
 
 func cliTokenCreate(args []string) error {
 	fs := flag.NewFlagSet("dbcanvas token create", flag.ContinueOnError)
-	scope := fs.String("scope", ScopeWrite, "read (look only) or write (create, deploy, change)")
+	scope := fs.String("scope", ScopeWrite, "read (look only), write (create, deploy, change) or admin (also settings, tokens, images)")
 	days := fs.Int("days", 30, "days until it expires; 0 never expires")
 	own := fs.Bool("own-stacks", false, "reach only the stacks this token creates")
 	labels := labelFlags{}
@@ -60,7 +60,7 @@ func cliTokenCreate(args []string) error {
 		return err
 	}
 	if len(rest) != 1 {
-		return errors.New("usage: dbcanvas token create NAME [--scope read|write] [--days 30] [--own-stacks] [--label k=v]... [--max-ttl 8h] [--deny TYPE,...]")
+		return errors.New("usage: dbcanvas token create NAME [--scope read|write|admin] [--days 30] [--own-stacks] [--label k=v]... [--max-ttl 8h] [--deny TYPE,...]")
 	}
 	limit := &tokenLimit{OwnStacks: *own, MaxTTL: strings.TrimSpace(*maxTTL)}
 	if len(labels) > 0 {

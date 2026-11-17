@@ -87,6 +87,9 @@ func runServer(o serveOpts) error {
 	dbPath := envOr("DB_PATH", "dbcanvas.db")
 	if o.dataDir != "" {
 		dbPath = filepath.Join(o.dataDir, "dbcanvas.db")
+		// Recordings, pt-stalk archives and diagnostics are kept beside the database, found
+		// through DB_PATH; without it they would land in whatever folder started the service.
+		os.Setenv("DB_PATH", dbPath)
 	}
 	// Refuse a malformed instance name rather than deploy under it: every name this installation
 	// gives a container is built on it, and so is how it tells its own from another's (instance.go).
@@ -173,15 +176,17 @@ func runServer(o serveOpts) error {
 		if o.dataDir != "" && os.Getenv("APP_PORT") == "" {
 			port = soloPort
 		}
+		defaultPort := o.dataDir != "" && os.Getenv("APP_PORT") == ""
 		l, err := net.Listen("tcp", net.JoinHostPort(host, port))
-		// A port that is busy may be held by a service on its way out: one whose data folder
-		// was replaced stops within seconds (watchDataDir). Wait for it before settling for
-		// another port, or failing when the port was asked for.
-		for deadline := time.Now().Add(15 * time.Second); err != nil && o.service && errors.Is(err, syscall.EADDRINUSE) && time.Now().Before(deadline); {
+		// A port that was asked for and is busy may be held by a service on its way out: one
+		// whose data folder was replaced stops within seconds (watchDataDir). Wait for it
+		// before failing. The default port is often held by something else entirely (8080
+		// is a common one), so a busy default goes straight to a free port instead.
+		for deadline := time.Now().Add(15 * time.Second); err != nil && !defaultPort && o.service && errors.Is(err, syscall.EADDRINUSE) && time.Now().Before(deadline); {
 			time.Sleep(500 * time.Millisecond)
 			l, err = net.Listen("tcp", net.JoinHostPort(host, port))
 		}
-		if err != nil && o.dataDir != "" && os.Getenv("APP_PORT") == "" {
+		if err != nil && defaultPort {
 			// The default port is taken: any free one will do for a browser opened by link.
 			l, err = net.Listen("tcp", net.JoinHostPort(host, "0"))
 		}
@@ -310,12 +315,15 @@ func envOr(key, def string) string {
 
 // deployTimeout is how long a provisioner waits for a dependency (a cluster,
 // node, or shared service) to become ready before giving up. Configurable via
-// DEPLOYMENT_TIMEOUT (in minutes); defaults to 60. Large stacks with many
-// containers routinely need well over the old fixed 15m before everything is up.
+// DEPLOYMENT_TIMEOUT, in minutes (60) or as a duration (45m, 2h); defaults to 60 minutes.
+// Large stacks with many containers routinely need well over 15 minutes.
 func deployTimeout() time.Duration {
 	if v := strings.TrimSpace(os.Getenv("DEPLOYMENT_TIMEOUT")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			return time.Duration(n) * time.Minute
+		}
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
 		}
 	}
 	return 60 * time.Minute

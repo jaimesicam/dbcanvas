@@ -29,7 +29,7 @@ import (
 
 // soloPort is the browser's port when APP_PORT does not set one; a free one is taken
 // when it is busy.
-const soloPort = "7480"
+const soloPort = "8080"
 
 const cliUsage = `dbcanvas — database labs on Docker
 
@@ -45,8 +45,8 @@ Usage:
                                 --platform sets the database nodes' architecture
   dbcanvas down STACK           remove a stack's containers, keep its design
   dbcanvas rm STACK             delete a stack and everything it deployed
-  dbcanvas token create NAME [--scope read|write] [--days 30] [--own-stacks]
-                     [--label k=v]... [--max-ttl 8h] [--deny TYPE,...]
+  dbcanvas token create NAME [--scope read|write|admin] [--days 30]
+                     [--own-stacks] [--label k=v]... [--max-ttl 8h] [--deny TYPE,...]
                                 an API token for a script or another user of this computer
   dbcanvas token ls | token rm ID
   dbcanvas passwords [NAME]     the passwords of the accounts on nodes (root, admin, …):

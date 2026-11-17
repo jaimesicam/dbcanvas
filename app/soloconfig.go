@@ -46,8 +46,8 @@ const soloConfigTemplate = `# dbcanvas settings. Uncomment a line to set it. A s
 # Default: dbcanvas-<your login>.
 #instance: dbcanvas-me
 
-# The browser's port on 127.0.0.1 (APP_PORT). Default: 7480, or a free one when it is taken.
-#port: 7480
+# The browser's port on 127.0.0.1 (APP_PORT). Default: 8080, or a free one when it is taken.
+#port: 8080
 
 # The address your own tunnel or reverse proxy gives dbcanvas, used in shared-session join
 # links (PUBLIC_URL). dbcanvas itself listens on 127.0.0.1 only.
