@@ -141,6 +141,7 @@ func (a *App) handleSoloStatus(w http.ResponseWriter, r *http.Request) {
 		"startedAt": soloStartedAt.UTC().Format(time.RFC3339), "keepAlive": a.soloKeepAlive(),
 		"idleGraceSeconds": int(soloIdleGrace().Seconds()),
 		"hostArch":         a.hostArch, "defaultArch": platformArch(), "kubernetesArch": k8sArch(),
+		"binaryUpdated": binaryUpdated(),
 	})
 }
 
@@ -181,12 +182,77 @@ func runService() int {
 	defer stop()
 	go watchDataDir(ctx, lock, dir, stop)
 	log.Printf("dbcanvas %s service starting (pid %d)", appVersion, os.Getpid())
+	recordBinary()
 	if err := runServer(serveOpts{ctx: ctx, stop: stop, tcp: true, dataDir: dir, service: true}); err != nil {
 		log.Print(err)
 		return 1
 	}
+	if restartRequested.Load() {
+		// The binary was replaced (make dbcanvas, a new release): carry on as the new one. The
+		// lock goes first, so the new process can take it; the log stays open across the exec.
+		lock.release()
+		log.Printf("restarting as the updated %s", soloBinary.path)
+		if err := syscall.Exec(soloBinary.path, []string{soloBinary.path, serviceArg}, os.Environ()); err != nil {
+			log.Printf("could not restart (%v); the next dbcanvas command starts it", err)
+		}
+		return 0
+	}
 	log.Print("dbcanvas service stopped")
 	return 0
+}
+
+// soloBinary is the file the service runs from, as it was when the service started.
+var soloBinary struct {
+	path    string
+	size    int64
+	modTime time.Time
+}
+
+// restartRequested is set when the service stops to restart as an updated binary.
+var restartRequested atomic.Bool
+
+func recordBinary() {
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	if fi, err := os.Stat(exe); err == nil {
+		soloBinary.path, soloBinary.size, soloBinary.modTime = exe, fi.Size(), fi.ModTime()
+	}
+}
+
+// binaryUpdated reports whether the file the service started from has been replaced since.
+// A file that is gone is not an update: there is nothing to restart as.
+func binaryUpdated() bool {
+	if soloBinary.path == "" {
+		return false
+	}
+	fi, err := os.Stat(soloBinary.path)
+	return err == nil && (fi.Size() != soloBinary.size || !fi.ModTime().Equal(soloBinary.modTime))
+}
+
+// watchBinary restarts the service as its updated binary once nothing would notice: no deploy
+// running and nothing connected (an open browser tab keeps it as it is until closed).
+func (a *App) watchBinary(ctx context.Context, stop func()) {
+	t := time.NewTicker(10 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		if !binaryUpdated() {
+			continue
+		}
+		if k := a.soloKeepAlive(); k.Deploying > 0 || k.Connections > 0 {
+			continue
+		}
+		log.Printf("%s was updated: restarting", soloBinary.path)
+		restartRequested.Store(true)
+		stop()
+		return
+	}
 }
 
 // ensureService makes sure the service answers on the control socket, starting it when it

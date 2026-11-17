@@ -212,6 +212,7 @@ func cliStatus() error {
 		HostArch  string        `json:"hostArch"`
 		Default   string        `json:"defaultArch"`
 		K8s       string        `json:"kubernetesArch"`
+		Updated   bool          `json:"binaryUpdated"`
 		Keep      soloKeepAlive `json:"keepAlive"`
 	}
 	if err := (ctl{c: ctlClient(dir)}).do("GET", "/api/solo/status", nil, &st); err != nil {
@@ -220,6 +221,9 @@ func cliStatus() error {
 	fmt.Printf("dbcanvas %s is running (pid %d, since %s) at %s/\n", st.Version, st.PID, st.StartedAt, st.URL)
 	fmt.Printf("Instance %s, data in %s\n", st.Instance, dir)
 	fmt.Printf("Docker runs on %s; nodes default to %s, Kubernetes nodes run on %s\n", firstNonEmpty(st.HostArch, "an unknown architecture"), st.Default, st.K8s)
+	if st.Updated {
+		fmt.Println("Its binary was updated since it started: it restarts as the new one once no deploy runs and nothing is connected (close browser tabs, or run dbcanvas stop).")
+	}
 	var why []string
 	if st.Keep.Containers > 0 {
 		why = append(why, fmt.Sprintf("%d node(s) with containers", st.Keep.Containers))

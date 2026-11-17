@@ -106,3 +106,24 @@ func TestEngineLockNoticesTheFolderReplaced(t *testing.T) {
 		t.Error("the folder was replaced, and the old lock still counts as ours")
 	}
 }
+
+// The service notices its binary replaced, and not merely removed.
+func TestBinaryUpdated(t *testing.T) {
+	f := t.TempDir() + "/dbcanvas"
+	os.WriteFile(f, []byte("v1"), 0o755)
+	fi, _ := os.Stat(f)
+	old := soloBinary
+	defer func() { soloBinary = old }()
+	soloBinary.path, soloBinary.size, soloBinary.modTime = f, fi.Size(), fi.ModTime()
+	if binaryUpdated() {
+		t.Fatal("unchanged, but updated")
+	}
+	os.WriteFile(f, []byte("version 2"), 0o755)
+	if !binaryUpdated() {
+		t.Error("replaced, but not noticed")
+	}
+	os.Remove(f)
+	if binaryUpdated() {
+		t.Error("removed counts as an update")
+	}
+}

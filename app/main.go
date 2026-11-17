@@ -194,6 +194,7 @@ func runServer(o serveOpts) error {
 		app.soloStop = o.stop
 		handler = app.activity.wrap(handler)
 		go app.watchIdle(o.ctx, o.stop)
+		go app.watchBinary(o.ctx, o.stop)
 	}
 
 	errc := make(chan error, 2)
