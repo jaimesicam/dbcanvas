@@ -95,6 +95,16 @@ export const TTL_OPTIONS = [
   { id: 'infinity', label: 'Infinity' },
 ]
 
+// catalogURL is a catalogue route with its query: the parameters given, empty ones left out.
+// arch (amd64, arm64) asks for one architecture's catalogue (app/versions.go, catalogArch);
+// without it the server answers for its default, which is what a node on Automatic runs as.
+function catalogURL(path, params) {
+  const q = new URLSearchParams()
+  for (const [k, v] of Object.entries(params)) if (v) q.set(k, v)
+  const s = q.toString()
+  return s ? `${path}?${s}` : path
+}
+
 export const stackApi = {
   list: () => request('GET', '/api/stacks'),
   // listDetail adds each stack's owner, node counts and node types (the Database Stacks table).
@@ -200,22 +210,22 @@ export const stackApi = {
   // has no new version for `make versions` to find.
   pmm2Catalog: () => request('GET', '/api/catalog/pmm2'),
   // What a Repository node can carry (OS releases, suggested repositories + versions, operators).
-  repositoryCatalog: () => request('GET', '/api/catalog/repository'),
-  pxcCatalog: () => request('GET', '/api/catalog/pxc'),
+  repositoryCatalog: (arch) => request('GET', catalogURL('/api/catalog/repository', { arch })),
+  pxcCatalog: (arch) => request('GET', catalogURL('/api/catalog/pxc', { arch })),
   // source: '' (Percona), 'upstream-admin' or 'upstream-native' (app/proxysqlsource.go).
-  proxysqlCatalog: (source) => request('GET', '/api/catalog/proxysql' + (source ? `?source=${encodeURIComponent(source)}` : '')),
-  valkeyCatalog: () => request('GET', '/api/catalog/valkey'),
+  proxysqlCatalog: (source, arch) => request('GET', catalogURL('/api/catalog/proxysql', { source, arch })),
+  valkeyCatalog: (arch) => request('GET', catalogURL('/api/catalog/valkey', { arch })),
   // source: 'percona' or 'pgdg' (app/haproxysource.go); the OS package has no catalogue.
-  haproxyCatalog: (source) => request('GET', `/api/catalog/haproxy?source=${encodeURIComponent(source)}`),
-  psCatalog: () => request('GET', '/api/catalog/ps'),
-  orchestratorCatalog: () => request('GET', '/api/catalog/orchestrator'),
-  mariadbCatalog: () => request('GET', '/api/catalog/mariadb'),
-  mysqlceCatalog: () => request('GET', '/api/catalog/mysqlce'),
+  haproxyCatalog: (source, arch) => request('GET', catalogURL('/api/catalog/haproxy', { source, arch })),
+  psCatalog: (arch) => request('GET', catalogURL('/api/catalog/ps', { arch })),
+  orchestratorCatalog: (arch) => request('GET', catalogURL('/api/catalog/orchestrator', { arch })),
+  mariadbCatalog: (arch) => request('GET', catalogURL('/api/catalog/mariadb', { arch })),
+  mysqlceCatalog: (arch) => request('GET', catalogURL('/api/catalog/mysqlce', { arch })),
   // dist picks the distribution's catalogue: 'community' (MDB) or 'pgdg' (lib/distribution.js).
-  psmdbCatalog: (dist) => request('GET', '/api/catalog/psmdb' + (dist ? `?distribution=${encodeURIComponent(dist)}` : '')),
-  ppgCatalog: (dist) => request('GET', '/api/catalog/ppg' + (dist ? `?distribution=${encodeURIComponent(dist)}` : '')),
-  spockCatalog: () => request('GET', '/api/catalog/spock'),
-  imagesCatalog: () => request('GET', '/api/catalog/images'),
+  psmdbCatalog: (dist, arch) => request('GET', catalogURL('/api/catalog/psmdb', { distribution: dist, arch })),
+  ppgCatalog: (dist, arch) => request('GET', catalogURL('/api/catalog/ppg', { distribution: dist, arch })),
+  spockCatalog: (arch) => request('GET', catalogURL('/api/catalog/spock', { arch })),
+  imagesCatalog: (arch) => request('GET', catalogURL('/api/catalog/images', { arch })),
   pdpsCatalog: () => request('GET', '/api/catalog/pdps'),
   operatorsCatalog: () => request('GET', '/api/catalog/operators'),
   k3sCatalog: () => request('GET', '/api/catalog/k3s'),

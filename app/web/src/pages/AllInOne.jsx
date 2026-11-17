@@ -49,9 +49,9 @@ export function AllInOneForm({ node: n, nodes, patchNode, deleteNode, dep, deplo
 
   useEffect(() => {
     let alive = true
-    stackApi.imagesCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => {})
+    stackApi.imagesCatalog(n.arch).then((c) => { if (alive) setCat(c.images || []) }).catch(() => {})
     return () => { alive = false }
-  }, [])
+  }, [n.arch])
   const imgs = cat || []
   const lock = deployed ? 'opacity-70' : ''
 
@@ -386,14 +386,14 @@ function PGVersionPicker({ inst, node: n, patch, deployed }) {
   // from source, and only some majors carry the patch set. It therefore has its own
   // catalog (15–18 today), and offering it the PPG list would advertise 13 and 14,
   // which cannot be built. Same split the classic Spock frame form makes.
-  const catalogFn = inst.kind === 'spock' ? stackApi.spockCatalog : stackApi.ppgCatalog
+  const catalogFn = inst.kind === 'spock' ? (_d, arch) => stackApi.spockCatalog(arch) : stackApi.ppgCatalog
   // A PGDG instance lists PGDG's builds (lib/aioPorts.js AIO_DIST_VARIANTS).
   const dist = inst.kind === 'spock' ? '' : (inst.distribution || '')
   useEffect(() => {
     let alive = true
-    catalogFn(dist).then((c) => { if (alive) setCat(c.images || []) }).catch(() => {})
+    catalogFn(dist, n.arch).then((c) => { if (alive) setCat(c.images || []) }).catch(() => {})
     return () => { alive = false }
-  }, [inst.kind, dist]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [inst.kind, dist, n.arch]) // eslint-disable-line react-hooks/exhaustive-deps
   const imgs = cat || []
   const lock = deployed ? 'opacity-70' : ''
   const entry = imgs.find((i) => i.os === n.os && i.osVersion === n.osVersion)

@@ -16,6 +16,7 @@
 
 import { BigHoleOption, BigHoleLink } from '../src/components/BigHole.jsx'
 import { renderToString } from 'react-dom/server'
+import { ArchField, archFacts, archCardLabel } from '../src/components/ArchField.jsx'
 import { DBFileToolChecks } from '../src/components/FileTools.jsx'
 import { MySQLTuningFields, redoOption } from '../src/components/MySQLTuning.jsx'
 import { CARD_TYPES, TlsView, DiffView, GtidView, UnitsView, TimeView, UriView, MongoView, LogFilterView, CompareView, SecretView } from '../src/components/scratch/Cards.jsx'
@@ -6802,6 +6803,34 @@ check('All-in-One: the MDB and PGDG variants are in the Add menu, and MongoDB bu
     if (!html.includes(want)) throw new Error(`the form omits "${want}"`)
   }
   return html
+})
+
+check('architecture field: Automatic, a choice, emulation, the fixed and the deployed', () => {
+  const system = { hostArch: 'arm64', defaultArch: 'arm64', kubernetesArch: 'arm64' }
+  const noop = () => {}
+  const field = (obj, extra = {}) => renderToString(
+    <SettingsCtx.Provider value={{ settings: {}, save: noop, system, saveSystem: noop, loaded: true }}>
+      <ArchField obj={obj} onChange={noop} {...extra} />
+    </SettingsCtx.Provider>,
+  )
+  const auto = field({ type: 'ps' })
+  if (!auto.includes('Automatic (arm64, this Docker host)') || !auto.includes('amd64 — emulated')) {
+    throw new Error('the choices do not say what Automatic is or which one is emulated')
+  }
+  if (!field({ type: 'ps', arch: 'amd64' }).includes('Runs under emulation on this arm64 Docker host')) {
+    throw new Error('an amd64 node on an arm64 host is not said to be emulated')
+  }
+  const k3d = field({ type: 'k3d', arch: 'amd64' })
+  if (k3d.includes('<select') || !k3d.includes('Kubernetes cannot create pods under emulation')) {
+    throw new Error('a K3D cluster offers a choice')
+  }
+  if (field({ type: 'pmm' }).includes('<select')) throw new Error('PMM offers a choice')
+  if (field({ type: 'ps' }, { member: 'amd64' }).includes('<select')) throw new Error('a cluster member offers a choice')
+  const built = field({ type: 'ps' }, { deployed: true })
+  if (!/<select[^>]*disabled/.test(built) || !built.includes('Built as arm64')) throw new Error('a deployed node can change')
+  if (archCardLabel(archFacts({ type: 'ps', arch: 'amd64' }, system)) !== 'amd64 · emulated') throw new Error('the card label')
+  if (archCardLabel(archFacts({ type: 'k3d', arch: 'amd64' }, system)) !== 'arm64') throw new Error('a K3D card says its own arch')
+  return auto
 })
 
 if (failures > 0) {

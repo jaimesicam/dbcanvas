@@ -31,9 +31,9 @@ export function useUpstreamCatalog({ fetchCatalog, obj, majorKey, versionKey, pa
   const [cat, setCat] = useState(null)
   useEffect(() => {
     let alive = true
-    fetchCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    fetchCatalog(obj.arch).then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
     return () => { alive = false }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [obj.arch]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const imgs = cat || []
   const hasAny = (i) => Object.values(i.versions || {}).some((a) => a.length)

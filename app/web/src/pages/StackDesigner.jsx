@@ -4,6 +4,7 @@ import { Icon } from '../components/Icons.jsx'
 import { FileToolChecks, DBFileToolChecks } from '../components/FileTools.jsx'
 import { MySQLTuningFields } from '../components/MySQLTuning.jsx'
 import { Card, Button, Badge, Field, ConfirmButton, InfoRow, inputCls, toneTile, NodeCode } from '../components/ui.jsx'
+import { ArchField, archFacts, archCardLabel } from '../components/ArchField.jsx'
 import { engineOf, engineTone, nodeCode } from '../lib/engines.js'
 import { Avatar } from '../components/Avatar.jsx'
 import { relTime } from '../lib/notifApi.js'
@@ -5808,7 +5809,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
                           <Hint
                             text={memberCardTip(f, n, dep, sub,
                               deployedLabel(n.type, dep) || (f.type === 'k3d' ? 'rancher/k3s' : ''),
-                              f.arch || platform)}
+                              archCardLabel(archFacts(n, system, f.arch || '')) || platform)}
                             placement="top" display="flex" className={liveOn ? 'shrink-0' : 'min-h-0 flex-1'}
                           >
                             <div className="flex w-full items-center gap-1.5 px-2" style={liveOn ? { height: PXC_NODE_H - 4 } : undefined}>
@@ -5881,7 +5882,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
                   {/* One row: icon, name (and its type), status. Everything else is in the tooltip
                       — see nodeCardTip. A card is a thing on a diagram, and the
                       moment it carries three lines of prose it stops being one. */}
-                  <Hint text={nodeCardTip(n, def, depByNode[n.id], n.arch || platform)} placement="top" display="flex" className={liveOn ? 'shrink-0' : 'min-h-0 flex-1'}>
+                  <Hint text={nodeCardTip(n, def, depByNode[n.id], archCardLabel(archFacts(n, system)) || platform)} placement="top" display="flex" className={liveOn ? 'shrink-0' : 'min-h-0 flex-1'}>
                     <div className="flex w-full items-center gap-2.5 px-3" style={liveOn ? { height: NODE_H - 6 } : undefined}>
                       {/* The tile says which ENGINE (lib/engines.js, a validated set);
                           the stripe above keeps the catalogue's per-type colour. */}
@@ -6989,9 +6990,9 @@ function PXCFrameForm({ frame: f, stackId, nodes, frameNodes, patchFrame, delete
   const [monErr, setMonErr] = useState('')
   useEffect(() => {
     let alive = true
-    stackApi.pxcCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    stackApi.pxcCatalog(f.arch).then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
     return () => { alive = false }
-  }, [])
+  }, [f.arch])
   const imgs = cat || []
   const lock = deployed ? 'opacity-70' : ''
 
@@ -7185,9 +7186,9 @@ function MySQLFrameForm({ frame: f, stackId, nodes, frames, edges, patchFrame, d
   const [orchErr, setOrchErr] = useState('')
   useEffect(() => {
     let alive = true
-    stackApi.psCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    stackApi.psCatalog(f.arch).then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
     return () => { alive = false }
-  }, [])
+  }, [f.arch])
   const imgs = cat || []
   const lock = deployed ? 'opacity-70' : ''
 
@@ -7901,9 +7902,9 @@ function PerconaServerForm({ node: n, nodes, patchNode, deleteNode, dep, deploye
   const [cat, setCat] = useState(null)
   useEffect(() => {
     let alive = true
-    stackApi.psCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    stackApi.psCatalog(n.arch).then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
     return () => { alive = false }
-  }, [])
+  }, [n.arch])
   const imgs = cat || []
   const lock = deployed ? 'opacity-70' : ''
 
@@ -8953,13 +8954,13 @@ function LinuxClientForm({ node: n, nodes = [], patchNode, deleteNode, dep, depl
   const [eolImgs, setEolImgs] = useState([])
   useEffect(() => {
     let alive = true
-    stackApi.imagesCatalog().then((c) => {
+    stackApi.imagesCatalog(n.arch).then((c) => {
       if (!alive) return
       setCat(c.images || [])
       setEolImgs(c.eol || [])
     }).catch(() => { /* keep defaults */ })
     return () => { alive = false }
-  }, [])
+  }, [n.arch])
   // CentOS 7 comes from the catalogue's separate `eol` list, which the server fills only when EOL
   // is on (app/linuxclient_el7.go). A node that already says CentOS keeps it in the picker even with
   // EOL off — the switch decides what is offered, and must not rewrite a design built while it was on.
@@ -9231,9 +9232,9 @@ function GDBFields({ node: n, patchNode, deployed }) {
   const product = n.gdbProduct || 'ps'
   useEffect(() => {
     if (!n.gdbEnabled) return
-    const load = product === 'pxc' ? stackApi.pxcCatalog() : stackApi.psCatalog()
+    const load = product === 'pxc' ? stackApi.pxcCatalog(n.arch) : stackApi.psCatalog(n.arch)
     load.then((r) => setCat(r?.images || r || [])).catch(() => setCat([]))
-  }, [n.gdbEnabled, product])
+  }, [n.gdbEnabled, product, n.arch])
 
   const imgs = cat || []
   const entry = imgs.find((i) => i.os === n.os && i.osVersion === n.osVersion)
@@ -12732,9 +12733,9 @@ function ProxySQLForm({ node: n, nodes, frames, edges, patchNode, deleteNode, de
   const src = n.proxysqlSource || ''
   useEffect(() => {
     let alive = true
-    stackApi.proxysqlCatalog(src).then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    stackApi.proxysqlCatalog(src, n.arch).then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
     return () => { alive = false }
-  }, [src])
+  }, [src, n.arch])
   const imgs = cat || []
   const lock = deployed ? 'opacity-70' : ''
 
@@ -12915,9 +12916,9 @@ function ProxySQLFrameForm({ frame: f, nodes, frames, edges, patchFrame, deleteF
   const src = f.proxysqlSource || ''
   useEffect(() => {
     let alive = true
-    stackApi.proxysqlCatalog(src).then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    stackApi.proxysqlCatalog(src, f.arch).then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
     return () => { alive = false }
-  }, [src])
+  }, [src, f.arch])
   const imgs = cat || []
   const lock = deployed ? 'opacity-70' : ''
 
@@ -13065,10 +13066,10 @@ function InnoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed })
   const [repos, setRepos] = useState([])
   useEffect(() => {
     let alive = true
-    stackApi.psCatalog().then((c) => { if (alive) setImgs(c.images || []) }).catch(() => { /* */ })
+    stackApi.psCatalog(f.arch).then((c) => { if (alive) setImgs(c.images || []) }).catch(() => { /* */ })
     stackApi.pdpsCatalog().then((c) => { if (alive) setRepos(c.repos || []) }).catch(() => { /* */ })
     return () => { alive = false }
-  }, [])
+  }, [f.arch])
   const lock = deployed ? 'opacity-70' : ''
 
   const osFamilies = [...new Set(imgs.map((i) => i.os))]
@@ -13406,9 +13407,9 @@ function MongoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, rebuildClu
   const dist = f.distribution || ''
   useEffect(() => {
     let alive = true
-    stackApi.psmdbCatalog(dist).then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    stackApi.psmdbCatalog(dist, f.arch).then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
     return () => { alive = false }
-  }, [dist])
+  }, [dist, f.arch])
   const imgs = cat || []
   const lock = deployed ? 'opacity-70' : ''
 
@@ -13581,9 +13582,9 @@ function useMongoCatalog(obj, deployed, patch) {
   const dist = obj.distribution || ''
   useEffect(() => {
     let alive = true
-    stackApi.psmdbCatalog(dist).then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    stackApi.psmdbCatalog(dist, obj.arch).then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
     return () => { alive = false }
-  }, [dist])
+  }, [dist, obj.arch])
   const imgs = cat || []
   const osVersions = [...new Set(imgs.filter((i) => i.os === obj.os).map((i) => i.osVersion))]
   useEffect(() => {
@@ -13751,9 +13752,9 @@ function usePPGCatalog(obj, deployed, patch, fetchCat = stackApi.ppgCatalog) {
   const dist = obj.distribution || ''
   useEffect(() => {
     let alive = true
-    fetchCat(dist).then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    fetchCat(dist, obj.arch).then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
     return () => { alive = false }
-  }, [dist])
+  }, [dist, obj.arch])
   const imgs = cat || []
   const osVersions = [...new Set(imgs.filter((i) => i.os === obj.os).map((i) => i.osVersion))]
   useEffect(() => {
@@ -13780,9 +13781,9 @@ function useValkeyCatalog(obj, deployed, patch) {
   const [cat, setCat] = useState(null)
   useEffect(() => {
     let alive = true
-    stackApi.valkeyCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    stackApi.valkeyCatalog(obj.arch).then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
     return () => { alive = false }
-  }, [])
+  }, [obj.arch])
   const imgs = cat || []
   const osVersions = [...new Set(imgs.filter((i) => i.os === obj.os).map((i) => i.osVersion))]
   useEffect(() => {
@@ -13806,8 +13807,11 @@ function useValkeyCatalog(obj, deployed, patch) {
 // compiles PostgreSQL from source, so its available majors/minors and OS/platforms
 // differ from PPG packages (e.g. it is offered on Oracle Linux 8, which has no PPG
 // packages). Same cascade-normalization shape.
+// spockCatalogFor has ppgCatalog's shape (distribution, arch); Spock has no distribution.
+const spockCatalogFor = (_dist, arch) => stackApi.spockCatalog(arch)
+
 function useSpockCatalog(obj, deployed, patch) {
-  return usePPGCatalog(obj, deployed, patch, stackApi.spockCatalog)
+  return usePPGCatalog(obj, deployed, patch, spockCatalogFor)
 }
 
 // PatroniFrameForm edits a Patroni PostgreSQL cluster frame: catalog OS/version/arch
@@ -14625,9 +14629,9 @@ function HAProxyForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep
   const [cat, setCat] = useState(null)
   useEffect(() => {
     let alive = true
-    stackApi.imagesCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    stackApi.imagesCatalog(n.arch).then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
     return () => { alive = false }
-  }, [])
+  }, [n.arch])
   const imgs = cat || []
   const lock = deployed ? 'opacity-70' : ''
 
@@ -14650,13 +14654,15 @@ function HAProxyForm({ node: n, nodes, frames, edges, patchNode, deleteNode, dep
   const src = n.haproxySource || ''
   const debianOS = n.os === 'ubuntu' || n.os === 'debian'
   const [verCat, setVerCat] = useState({})
+  // Kept per source and architecture: a node moved to the other architecture reads that one's.
+  const catKey = `${src}/${n.arch || ''}`
   useEffect(() => {
-    if (!src || verCat[src]) return
+    if (!src || verCat[catKey]) return
     let alive = true
-    stackApi.haproxyCatalog(src).then((c) => { if (alive) setVerCat((m) => ({ ...m, [src]: c.images || [] })) }).catch(() => { /* free text stays possible via the API */ })
+    stackApi.haproxyCatalog(src, n.arch).then((c) => { if (alive) setVerCat((m) => ({ ...m, [catKey]: c.images || [] })) }).catch(() => { /* free text stays possible via the API */ })
     return () => { alive = false }
-  }, [src]) // eslint-disable-line react-hooks/exhaustive-deps
-  const srcImg = (verCat[src] || []).find((i) => i.os === n.os && i.osVersion === n.osVersion)
+  }, [src, n.arch]) // eslint-disable-line react-hooks/exhaustive-deps
+  const srcImg = (verCat[catKey] || []).find((i) => i.os === n.os && i.osVersion === n.osVersion)
   const srcBranches = srcImg ? Object.keys(srcImg.versions || {}).filter((b) => (srcImg.versions[b] || []).length)
     .sort((a, b) => b.localeCompare(a, undefined, { numeric: true })) : []
 
@@ -14829,15 +14835,15 @@ export function PgBouncerForm({ node: n, nodes, frames, edges, patchNode, delete
   const [cat, setCat] = useState(null)
   useEffect(() => {
     let alive = true
-    stackApi.imagesCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    stackApi.imagesCatalog(n.arch).then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
     return () => { alive = false }
-  }, [])
+  }, [n.arch])
   const [ppg, setPpg] = useState(null)
   useEffect(() => {
     let alive = true
-    stackApi.ppgCatalog().then((c) => { if (alive) setPpg(c.images || []) }).catch(() => { /* keep defaults */ })
+    stackApi.ppgCatalog(undefined, n.arch).then((c) => { if (alive) setPpg(c.images || []) }).catch(() => { /* keep defaults */ })
     return () => { alive = false }
-  }, [])
+  }, [n.arch])
   const imgs = cat || []
   const lock = deployed ? 'opacity-70' : ''
   const num = (v) => (v === '' ? 0 : Number(v))
@@ -15156,9 +15162,9 @@ function OrchestratorForm({ node: n, nodes = [], patchNode, deleteNode, dep, dep
   const [cat, setCat] = useState(null)
   useEffect(() => {
     let alive = true
-    stackApi.orchestratorCatalog().then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
+    stackApi.orchestratorCatalog(n.arch).then((c) => { if (alive) setCat(c.images || []) }).catch(() => { /* keep defaults */ })
     return () => { alive = false }
-  }, [])
+  }, [n.arch])
   const imgs = cat || []
   const lock = deployed ? 'opacity-70' : ''
 
@@ -16113,7 +16119,31 @@ function StackProperties({ overlay = false, top = 0, host, locked, lockedBy, sel
   )
 }
 
-function Body({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, resizeFrameMembers, rebuildMongoCluster }) {
+// Body is the selected item's form, under the architecture it runs on (components/ArchField.jsx),
+// which every node and cluster has and no form draws itself.
+function Body(props) {
+  const { selected, nodes, frames, depByNode, patchNode, patchFrame } = props
+  const form = <BodyForm {...props} />
+  if (!selected || (selected.kind !== 'node' && selected.kind !== 'frame')) return form
+  let arch = null
+  if (selected.kind === 'frame') {
+    const f = frames.find((x) => x.id === selected.id)
+    if (f) {
+      const deployed = nodes.some((n) => n.frameId === f.id && depByNode[n.id])
+      arch = <ArchField obj={f} deployed={deployed} onChange={(a) => patchFrame(f.id, { arch: a })} />
+    }
+  } else {
+    const n = nodes.find((x) => x.id === selected.id)
+    if (n) {
+      const f = n.frameId ? frames.find((x) => x.id === n.frameId) : null
+      arch = <ArchField obj={n} member={f ? (f.arch || '') : undefined} deployed={!!depByNode[n.id]}
+        onChange={(a) => patchNode(n.id, { arch: a })} />
+    }
+  }
+  return <>{arch && <div className="mb-3">{arch}</div>}{form}</>
+}
+
+function BodyForm({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, resizeFrameMembers, rebuildMongoCluster }) {
   // "or cluster" rather than a list: this component edits fourteen frame types now, and
   // the empty state named only the first one for a long time after that stopped being true.
   if (!selected) return <p className="text-sm text-muted">Select a node, link or cluster to edit it. Right-click the canvas to add one.</p>
