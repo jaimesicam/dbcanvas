@@ -204,8 +204,8 @@ export function CreateToken({ scopes, maxDays, canNeverExpire, onCreated, onErro
           <Icon.Plus size={16} /> {busy ? 'Creating…' : 'Create token'}
         </Button>
         <p className="text-xs text-muted">
-          Creating a token needs your password, which is why this page is the only place it can be
-          done — a token can never create another one.
+          Tokens are made here or with <code>dbcanvas token create</code>; a token can never
+          create another one.
         </p>
       </form>
     </Card>

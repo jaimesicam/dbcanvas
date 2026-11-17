@@ -84,9 +84,8 @@ export default function Dashboard() {
   const cpuFrac = (t) => t.value / 100
   const memFrac = (t) => (t.row.memPercent || 0) / 100
   const rateFrac = (t, max) => t.value / Math.max(max, 1 << 20)
-  // On the system-wide dashboard a row also says whose stack it is; on a user's own every row
-  // would carry their name.
-  const showOwner = admin
+  // Every stack has the one owner, so a row never needs to say whose it is.
+  const showOwner = false
   const openStack = (id) => openStackInDesigner((page) => { location.hash = page }, id)
   // With nothing running there will never be a second sample, so the rate charts say so
   // rather than wait on one.

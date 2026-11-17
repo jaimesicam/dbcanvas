@@ -69,7 +69,7 @@ const (
 // Groups. These are the headings the API page renders under and the OpenAPI tags,
 // so they read as feature names rather than file names.
 const (
-	gAuth      = "Setup & sign-in"
+	gAuth      = "Who you are"
 	gPrefs     = "Preferences"
 	gUsers     = "Users"
 	gCatalog   = "Version catalogues"
@@ -192,11 +192,11 @@ func buildAPIRoutes() []apiRoute {
 		{Method: "POST", Path: "/api/auth/logout", Group: gAuth, Auth: authPublic, Handler: m((*App).handleLogout),
 			Summary: "Destroy the caller's session and clear the cookie."},
 		{Method: "GET", Path: "/api/me", Group: gAuth, Handler: m((*App).handleMe),
-			Summary: "The signed-in account: id, username, role and approval status."},
+			Summary: "The owner, as the caller is signed in or holds a token for: id, username and name."},
 
 		// --- preferences --------------------------------------------------------
 		{Method: "GET", Path: "/api/me/settings", Group: gPrefs, Handler: m((*App).handleGetSettings),
-			Summary: "The caller's own UI preferences — terminal mode, theme, look, tab limit, deployment backend, tooltips."},
+			Summary: "The caller's own UI preferences — terminal mode, theme, look, tab limit, tooltips."},
 		{Method: "PUT", Path: "/api/me/settings", Group: gPrefs, Handler: m((*App).handleUpdateSettings),
 			Summary: "Replace the caller's UI preferences. Unrecognised values fall back to the defaults. Switching scratchboard from on to off deletes every kept Scratchboard board."},
 		{Method: "GET", Path: "/api/me/scratchboards", Group: gPrefs, Handler: m((*App).handleScratchboards),
@@ -208,7 +208,7 @@ func buildAPIRoutes() []apiRoute {
 		{Method: "PUT", Path: "/api/me/profile", Group: gPrefs, Handler: m((*App).handleUpdateProfile),
 			Summary: "Change your first name, last name, email and avatar: {\"firstName\", \"lastName\", \"email\", \"avatar\"} (an id from GET /api/avatars)."},
 		{Method: "GET", Path: "/api/avatars", Group: gPrefs, Handler: m((*App).handleAvatars),
-			Summary: "The avatar ids an account or a guest may choose."},
+			Summary: "The avatar ids the owner or a guest may choose."},
 		// Instance-wide settings: anyone signed in may read them (the designer needs
 		// the upload ceiling to refuse an over-size drop client-side); only an admin
 		// may change them.
@@ -269,7 +269,7 @@ func buildAPIRoutes() []apiRoute {
 
 		// --- stacks -------------------------------------------------------------
 		{Method: "GET", Path: "/api/stacks", Group: gStacks, Handler: m((*App).handleListStacks),
-			Summary: "The stacks you own; an admin sees every stack on the instance. ?detail=1 adds each stack's owner, node counts and node types."},
+			Summary: "Your stacks. ?detail=1 adds each stack's node counts and node types."},
 		{Method: "POST", Path: "/api/stacks", Group: gStacks, Handler: m((*App).handleCreateStack),
 			Summary: "Create a stack — a name, a TTL, and an initial canvas design."},
 		{Method: "GET", Path: "/api/stacks/{id}", Group: gStacks, Handler: m((*App).handleGetStack),
@@ -336,7 +336,7 @@ func buildAPIRoutes() []apiRoute {
 		// route it is. Go's mux prefers it regardless of order; the ordering is for
 		// whoever adds the next route here.
 		{Method: "GET", Path: "/api/templates", Group: gTemplates, Handler: m((*App).handleListTemplates),
-			Summary: "Deployment templates available to you: the built-ins, your own, and any an admin published."},
+			Summary: "Deployment templates: the built-ins and your own."},
 		{Method: "POST", Path: "/api/templates", Group: gTemplates, Handler: m((*App).handleCreateTemplate),
 			Summary: "Save a canvas as a reusable template, stripped of secrets, host paths and pinned ports."},
 		{Method: "POST", Path: "/api/templates/import", Group: gTemplates, Handler: m((*App).handleImportTemplate),

@@ -53,7 +53,7 @@ export const NAV = [
   // the page the app is for, and a diagram wants all the room there is.
   { id: 'stack-designer', label: 'Database Stacks', icon: 'Stacks', page: StackDesigner, fill: true, max: true, hint: 'Design & deploy stacks' },
   // fill: a board is columns side by side, as tall as the window (pages/Kanban.jsx).
-  { id: 'kanban', label: 'Kanban', icon: 'Kanban', page: Kanban, fill: true, hint: 'Boards of cards — plan and track the work, alone or together' },
+  { id: 'kanban', label: 'Kanban', icon: 'Kanban', page: Kanban, fill: true, hint: 'Boards of cards — plan and track the work' },
   // fill: a canvas, as tall as the window. Nothing on it is saved — see pages/Scratchboard.jsx.
   { id: 'scratchboard', label: 'Scratchboard', icon: 'Pencil', page: Scratchboard, fill: true, hint: 'A disposable canvas for notes, conversions and inspecting what you paste — certificates, Secrets, JSON/YAML, GTID sets, timestamps. Temporary unless you choose to keep a board' },
   { id: 'data-generator', label: 'Data Generator', icon: 'Table', page: DataGenerator, hint: 'Generate test data for stack tables' },

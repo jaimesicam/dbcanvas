@@ -1878,13 +1878,11 @@ const WARN_CHIP = { warning: 'border-warning/40 bg-warning/10 text-warning', dan
 // stack with a deadline, expired ones (already gone) last.
 const expiresKey = (s) => (s.status === 'expired' ? Number.MAX_SAFE_INTEGER : s.expiresAt ? Date.parse(s.expiresAt) : Number.MAX_SAFE_INTEGER - 1)
 
-// StackTable is the Database Stacks list: one row per stack with whose it is, how many of its
-// nodes run, what they are, what they use now (the dashboard's sample, app/dashboard.go) and how
-// long they have left — sorted by that last one by default, so what is about to be torn down is
-// at the top. An admin sees everyone's and can narrow it to their own.
+// StackTable is the Database Stacks list: one row per stack with how many of its nodes run, what
+// they are, what they use now (the dashboard's sample, app/dashboard.go) and how long they have
+// left — sorted by that last one by default, so what is about to be torn down is at the top.
 function StackTable({ stacks, isAdmin, me, onOpen, onChanged }) {
   const [q, setQ] = useState('')
-  const [whose, setWhose] = useState('all') // all | mine (admin)
   const [only, setOnly] = useState('all') // all | deployed | draft | expired | soon | errors
   const [sort, setSort] = useState({ key: 'expires', dir: 1 })
   const [picked, setPicked] = useState(() => new Set())
@@ -1907,7 +1905,7 @@ function StackTable({ stacks, isAdmin, me, onOpen, onChanged }) {
   const now = Date.now()
   const soon = (s) => s.status === 'deployed' && s.expiresAt && Date.parse(s.expiresAt) - now < SOON
   const errs = (s) => (s.nodes?.error || 0) > 0
-  const scoped = stacks.filter((s) => whose === 'all' || s.ownerId === me?.id)
+  const scoped = stacks
   const test = { all: () => true, deployed: (s) => s.status === 'deployed', draft: (s) => s.status === 'draft', expired: (s) => s.status === 'expired', soon, errors: errs }
   const needle = q.trim().toLowerCase()
   const rows = scoped
@@ -1929,7 +1927,8 @@ function StackTable({ stacks, isAdmin, me, onOpen, onChanged }) {
   const sel = rows.filter((s) => picked.has(s.id))
   const toggle = (id) => setPicked((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })
   const allOn = rows.length > 0 && rows.every((s) => picked.has(s.id))
-  const showOwner = isAdmin && whose === 'all'
+  // One owner: a row never needs to say whose stack it is.
+  const showOwner = false
   const runBulk = async (what, fn) => {
     setBulk(what)
     if (what === 'delete') sel.forEach((s) => markStackDeleting(s.id))
@@ -1974,17 +1973,9 @@ function StackTable({ stacks, isAdmin, me, onOpen, onChanged }) {
       <div className="flex flex-wrap items-center gap-2">
         <label className="ui-input flex h-8 min-w-[220px] items-center gap-2 rounded-full border bg-surface px-3 text-sm text-muted">
           <Icon.Search size={14} />
-          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={isAdmin ? 'Filter by name, owner or engine' : 'Filter by name or engine'}
+          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by name or engine"
             aria-label="Filter stacks" className="w-full bg-transparent text-fg outline-none" />
         </label>
-        {isAdmin && (
-          <div role="group" aria-label="Whose stacks" className="inline-flex overflow-hidden rounded-full border text-xs">
-            {[['all', 'Everyone'], ['mine', 'Mine']].map(([id, label], i) => (
-              <button key={id} type="button" aria-pressed={whose === id} onClick={() => setWhose(id)}
-                className={`px-3 py-1 ${i ? 'border-l' : ''} ${whose === id ? 'bg-primary text-primary-fg' : 'bg-surface text-fg hover:bg-surface2'}`}>{label}</button>
-            ))}
-          </div>
-        )}
         {chip('all', 'All')}
         {chip('deployed', 'Deployed')}
         {chip('draft', 'Draft')}
