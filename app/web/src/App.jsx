@@ -127,8 +127,10 @@ function Workspace({ onSessionEnded }) {
   const nav = visible(isAdmin ? [...NAV, ADMIN_NAV] : NAV, showExperimental(system))
     .filter((n) => !guest || !GUEST_HIDDEN.has(n.id))
     // Security groups (app/secgroups.go): only the pages this account's group may
-    // use. The server refuses the rest anyway; this keeps them out of sight.
-    .filter((n) => !features || features.includes(n.id))
+    // use. The server refuses the rest anyway; this keeps them out of sight. Settings
+    // stays for everyone: its preference tabs are every account's own, and the group's
+    // Installation settings decides only whether the installation's tabs show.
+    .filter((n) => !features || features.includes(n.id) || n.id === 'settings')
 
   // Tabs. A tab is { key, id }: the id says which page, the key is what makes two
   // tabs of the *same* page possible — three benchmarks at once was the case that

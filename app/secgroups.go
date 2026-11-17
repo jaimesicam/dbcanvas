@@ -123,7 +123,9 @@ var features = []Feature{
 	{featK8sStates, "Kubernetes States", featStacks},
 	{featAPI, "API", ""},
 	{featProfile, "Profile", ""},
-	{featSettings, "Settings", ""},
+	// Settings here is the installation's tabs of the Settings page. Every account has the
+	// page for its own preferences (theme, look, terminals), which are core.
+	{featSettings, "Installation settings", ""},
 	{featManageUsers, "Manage Users", ""},
 }
 

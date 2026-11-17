@@ -67,15 +67,50 @@ function splitSize(bytes) {
   return { value: Math.max(1, Math.round(bytes / SIZE_UNITS[0].bytes)), unit: 'MiB' }
 }
 
-function Row({ title, hint, children }) {
+// Row is one setting. scope says whose it is, and the badge in its corner says so:
+// "you" is a preference saved to the signed-in account, which changes nothing for anyone
+// else (app/settings.go); "everyone" is instance-wide (app/syssettings.go), changed only by
+// an administrator and shown read-only to everybody else.
+function Row({ title, hint, scope, children }) {
   return (
     <div className="space-y-2 rounded-xl border bg-surface p-4">
       <div>
-        <div className="text-sm font-semibold">{title}</div>
+        <div className="flex items-start justify-between gap-2">
+          <div className="text-sm font-semibold">{title}</div>
+          <ScopeBadge scope={scope} />
+        </div>
         <div className="text-xs text-muted">{hint}</div>
       </div>
       {children}
     </div>
+  )
+}
+
+const SCOPE_TEXT = {
+  you: ['Only you', 'Saved to your account, on every browser you sign in from. Nobody else sees the change.'],
+  everyone: ['Everyone', 'Instance-wide: a change here applies to every account.'],
+  locked: ['Everyone · admins only', 'Instance-wide. Only an administrator can change it; you can see what it is set to.'],
+}
+function ScopeBadge({ scope }) {
+  if (scope === 'you') return <Badge kind="you" />
+  if (scope === 'everyone') return <EveryoneBadge />
+  return null
+}
+// EveryoneBadge reads the account to tell an administrator from everybody else; a
+// preference's badge does not need it, so a card rendered on its own still mounts.
+function EveryoneBadge() {
+  const { user } = useAuth()
+  return <Badge kind={user?.role === 'admin' ? 'everyone' : 'locked'} />
+}
+function Badge({ kind: key }) {
+  const [text, tip] = SCOPE_TEXT[key]
+  return (
+    <span title={tip} aria-label={`${text}. ${tip}`}
+      className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+        key === 'you' ? 'border-primary/40 bg-primary/10 text-primary' : 'text-muted'}`}>
+      {key === 'you' ? <Icon.User size={11} /> : <Icon.Users size={11} />}
+      {text}
+    </span>
   )
 }
 
@@ -115,7 +150,7 @@ function UploadLimit() {
 
   return (
     <Row
-      title="Node file uploads"
+      scope="everyone" title="Node file uploads"
       hint="The largest single drop of host files onto a deployed node, in the Stack Designer. Instance-wide — it applies to every user."
     >
       {/* inputCls carries w-full, so the width has to come from a wrapper —
@@ -192,7 +227,7 @@ export function ChangePassword() {
   }
 
   return (
-    <Row title="Password" hint="Changing it signs out every other browser and device. This one stays signed in.">
+    <Row scope="you" title="Password" hint="Changing it signs out every other browser and device. This one stays signed in.">
       <form onSubmit={submit} className="space-y-3">
         <div className="grid gap-3 sm:grid-cols-3">
           <Field label="Current password" help={HELP.currentPassword}>
@@ -271,7 +306,7 @@ function TokenLifetime() {
 
   return (
     <Row
-      title="API token lifetime"
+      scope="everyone" title="API token lifetime"
       hint="The longest expiry anyone may give an API token, administrators included. Only an administrator can create a token that never expires. Instance-wide."
     >
       <div className="flex flex-wrap items-center gap-2">
@@ -338,7 +373,7 @@ export function InternalWrites() {
 
   return (
     <Row
-      title="Writes to internal databases"
+      scope="everyone" title="Writes to internal databases"
       hint="Whether the Database Explorer may write to PMM Server's own PostgreSQL and ClickHouse. Instance-wide, and off by default."
     >
       <div className="flex flex-wrap items-center gap-2">
@@ -389,7 +424,7 @@ export function OpenRegistration() {
 
   return (
     <Row
-      title="Registration"
+      scope="everyone" title="Registration"
       hint="Whether an account somebody registers can be used at once, or waits for an administrator to approve it. Instance-wide, and approval is the default."
     >
       <div className="flex flex-wrap items-center gap-2">
@@ -441,7 +476,7 @@ export function GuestLogin() {
 
   return (
     <Row
-      title="Guest sign-in"
+      scope="everyone" title="Guest sign-in"
       hint="Whether people can use DBCanvas without an account, each as a guest account of their own. Instance-wide, and off by default."
     >
       <div className="flex flex-wrap items-center gap-2">
@@ -528,7 +563,7 @@ export function SecurityGroups() {
 
   return (
     <Row
-      title="Security groups"
+      scope="everyone" title="Security groups"
       hint="Which pages each group may use. Enforced by the server for the web UI, the API and dbcanvas-cli alike."
     >
       <div className="flex items-center gap-2 text-xs text-muted">
@@ -600,7 +635,7 @@ export function GroupLimits() {
   const groups = [['admin', 'Administrators'], ['user', 'Regular Users'], ['guest', 'Guests']]
 
   return (
-    <Row title="Security group limits" hint="What each group's accounts may deploy. Empty or 0 means no limit.">
+    <Row scope="everyone" title="Security group limits" hint="What each group's accounts may deploy. Empty or 0 means no limit.">
       <div className="flex items-center gap-2 text-xs text-muted">
         <Help text={HELP.groupLimits} />
         <span>Enforced by the server when a stack is created, composed, extended, validated and deployed.</span>
@@ -686,7 +721,7 @@ export function GuestSessions() {
 
   return (
     <Row
-      title="Shared sessions"
+      scope="everyone" title="Shared sessions"
       hint="Whether a stack's owner may share a live session with guests through a link, and how long a link may last. Instance-wide, and off by default."
     >
       <div className="flex flex-wrap items-center gap-2">
@@ -767,7 +802,7 @@ export function LiveWatch() {
   const on = (system.liveWatchSeconds ?? 30) > 0
   return (
     <Row
-      title="Stack history and alerts"
+      scope="everyone" title="Stack history and alerts"
       hint="How often the server samples every deployed stack: the trend lines of the last day, the timeline of role changes and failovers, and the alerts in the notification bell. Off means none of these are recorded."
     >
       <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -826,7 +861,7 @@ export function TabLimit({ value, onSave }) {
 
   return (
     <Row
-      title="Tabs"
+      scope="you" title="Tabs"
       hint="How many pages the main window keeps open at once. Applies to the next page you open."
     >
       <div className="flex flex-wrap items-center gap-2">
@@ -926,7 +961,7 @@ export function TerminalOnTopOptions({ value, onPick }) {
 // render check has to be reachable without one.
 export function TooltipOptions({ value, onPick }) {
   return (
-    <Row title="Tooltips" hint="The hover explanations on labels, fields and menu rows, across the whole app.">
+    <Row scope="you" title="Tooltips" hint="The hover explanations on labels, fields and menu rows, across the whole app.">
       <div className="grid gap-2 sm:grid-cols-2">
         {TOOLTIP_MODES.map((m) => {
           const on = value === m.id
@@ -975,7 +1010,7 @@ export function ScratchboardOptions({ value, onPick }) {
     onPick(id)
   }
   return (
-    <Row title="Scratchboard" hint="Whether Scratchboard boards can be kept across reloads.">
+    <Row scope="you" title="Scratchboard" hint="Whether Scratchboard boards can be kept across reloads.">
       <div className="grid gap-2 sm:grid-cols-2">
         {SCRATCHBOARD_MODES.map((m) => {
           const on = value === m.id
@@ -1023,17 +1058,20 @@ export function LookOptions({ value, onPick }) {
 
 export default function Settings() {
   const { settings, save, loaded } = useSettings()
-  const { user } = useAuth()
+  const { user, features } = useAuth()
   const isAdmin = user?.role === 'admin'
   const [err, setErr] = useState('')
+  // What this account's security group may use (app/secgroups.go). The preference tabs
+  // are everyone's; the installation's tabs need Installation settings, and a row that
+  // belongs to another page (Scratchboard, Profile) needs that page.
+  const may = (f) => !features || features.includes(f)
   // Four tabs instead of one long page: how it looks, how you work, who can get in, and what
   // the installation allows. The URL names the tab (#settings/access), so a link opens it; with
   // none, the tab last used in this browser.
   const tabs = [
     ['appearance', 'Appearance'],
     ['workspace', 'Workspace'],
-    ['access', 'Access & security'],
-    ['system', 'System'],
+    ...(may('settings') ? [['access', 'Access & security'], ['system', 'System']] : []),
   ]
   const known = (id) => tabs.some(([t]) => t === id)
   const [tab, setTab] = useState(() => {
@@ -1060,17 +1098,34 @@ export default function Settings() {
     return () => removeEventListener('hashchange', onHash)
   }, [])
   const two = 'grid items-start gap-4 lg:grid-cols-2'
+  // set saves one of this account's preferences, and shows why when it cannot.
+  const set = async (patch) => {
+    setErr('')
+    try { await save(patch) } catch (e) { setErr(e.message) }
+  }
+  // The tabs that hold only instance-wide settings are view-only for a non-administrator.
+  const adminOnly = new Set(['access', 'system'])
 
   return (
     <div className="max-w-6xl space-y-4">
       {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
       {!loaded && <div className="text-xs text-muted">Loading your settings…</div>}
 
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
+        <span className="inline-flex items-center gap-1"><ScopeBadge scope="you" /> saved to your account; changes nothing for anyone else.</span>
+        {may('settings') && (
+          <span className="inline-flex items-center gap-1"><ScopeBadge scope="everyone" />
+            {isAdmin ? 'applies to every account on this installation.' : 'set by an administrator for the whole installation; shown so you know the limits you work under.'}</span>
+        )}
+      </div>
+
       <div className="flex gap-1 overflow-x-auto border-b text-sm" role="tablist" aria-label="Settings">
         {tabs.map(([id, text]) => (
           <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => pickTab(id)}
-            className={`whitespace-nowrap rounded-t-md px-3 py-1.5 ${tab === id ? 'border border-b-0 bg-bg font-semibold text-fg' : 'text-muted hover:text-fg'}`}>
+            title={!isAdmin && adminOnly.has(id) ? 'Instance-wide settings: view only. An administrator changes them.' : undefined}
+            className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-t-md px-3 py-1.5 ${tab === id ? 'border border-b-0 bg-bg font-semibold text-fg' : 'text-muted hover:text-fg'}`}>
             {text}
+            {!isAdmin && adminOnly.has(id) && <span className="rounded border px-1 text-[10px] font-normal text-muted">view only</span>}
           </button>
         ))}
       </div>
@@ -1078,7 +1133,7 @@ export default function Settings() {
       {tab === 'appearance' && (
         <div className={two}>
           <div className="space-y-4">
-            <Row title="Theme" hint="The colour palette. Applied now and whenever you sign in, on any browser.">
+            <Row scope="you" title="Theme" hint="The colour palette. Applied now and whenever you sign in, on any browser.">
               <div className="grid gap-2 sm:grid-cols-3">
                 {THEMES.map((t) => {
                   const on = settings.theme === t.id
@@ -1097,7 +1152,7 @@ export default function Settings() {
           </div>
 
           <Row
-            title="Look"
+            scope="you" title="Look"
             hint="The shape of the UI — corners, border weight, elevation and how tightly rows are packed. Independent of the theme above: every look works in every colour."
           >
             <LookOptions value={settings.look || 'glass'} onPick={(id) => set({ look: id })} />
@@ -1108,7 +1163,7 @@ export default function Settings() {
       {tab === 'workspace' && (
         <div className={two}>
           <div className="space-y-4">
-          <Row title="Terminal" hint="Where a node console opens when you launch one.">
+          <Row scope="you" title="Terminal" hint="Where a node console opens when you launch one.">
             <div className="grid gap-2 sm:grid-cols-2">
               {TERMINAL_MODES.map((m) => {
                 const on = settings.terminalMode === m.id
@@ -1132,11 +1187,11 @@ export default function Settings() {
             </div>
           </Row>
 
-          <Row title="Terminal stacking" hint="Whether terminals and file managers stay in front when you select another window.">
+          <Row scope="you" title="Terminal stacking" hint="Whether terminals and file managers stay in front when you select another window.">
             <TerminalOnTopOptions value={settings.terminalsOnTop || 'on'} onPick={(id) => set({ terminalsOnTop: id })} />
           </Row>
 
-          <Row title="Deployment" hint="How a stack's nodes are provisioned when you deploy. Applies to the next deploy of each stack.">
+          <Row scope="you" title="Deployment" hint="How a stack's nodes are provisioned when you deploy. Applies to the next deploy of each stack.">
             <div className="grid gap-2 sm:grid-cols-2">
               {DEPLOY_BACKENDS.map((m) => {
                 const on = settings.deploymentBackend === m.id
@@ -1160,7 +1215,7 @@ export default function Settings() {
             </div>
           </Row>
 
-          <Row title="Adding nodes" hint="How the Stack Designer offers the Infrastructure Library.">
+          <Row scope="you" title="Adding nodes" hint="How the Stack Designer offers the Infrastructure Library.">
             <div className="grid gap-2 sm:grid-cols-2">
               {NODE_LIBRARIES.map((m) => {
                 const on = (settings.nodeLibrary || 'menu') === m.id
@@ -1188,13 +1243,13 @@ export default function Settings() {
           <div className="space-y-4">
           <TabLimit value={clampTabs(settings.maxTabs)} onSave={(n) => save({ maxTabs: n })} />
 
-          <ScratchboardOptions value={settings.scratchboard || 'off'} onPick={(id) => set({ scratchboard: id })} />
+          {may('scratchboard') && <ScratchboardOptions value={settings.scratchboard || 'off'} onPick={(id) => set({ scratchboard: id })} />}
 
-          <Row title="Password" hint="Your password, name and avatar are on your Profile now.">
+          {may('profile') && <Row scope="you" title="Password" hint="Your password, name and avatar are on your Profile now.">
             <Button variant="outline" size="sm" onClick={() => { location.hash = 'profile' }}>
               <Icon.Users size={15} /> Open your profile
             </Button>
-          </Row>
+          </Row>}
           </div>
         </div>
       )}

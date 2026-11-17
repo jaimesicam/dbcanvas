@@ -875,10 +875,11 @@ export const HELP = {
     'through the API and from dbcanvas-cli. The API feature is also the key to API tokens: without it a group ' +
     'cannot create a token, sign in with dbcanvas-cli, or use a token it already has. Most tools need Database ' +
     'Stacks, so ticking one ticks Database Stacks and unticking Database Stacks unticks them. Administrators ' +
-    'always keep Settings and Manage Users, so nobody can lock every administrator out; and Manage Users is never ' +
+    'always keep Installation settings and Manage Users, so nobody can lock every administrator out; and Manage Users is never ' +
     'given to another group, because whoever manages accounts can make one an administrator. The defaults: ' +
     'Administrators everything, Regular Users everything but Manage Users, Guests the Dashboard and Database ' +
-    'Stacks. Also GET and PUT /api/security/groups.',
+    'Stacks. Installation settings is the Settings page\'s Access & security and System tabs: every account, whatever ' +
+    'its group, has the page\'s Appearance and Workspace tabs for its own preferences. Also GET and PUT /api/security/groups.',
   guestLogin:
     'On, the sign-in page offers \u201cContinue as guest\u201d, which creates a guest account of its own for that ' +
     'browser, with no password and the user role: a guest designs, deploys and tears down stacks like any registered ' +
