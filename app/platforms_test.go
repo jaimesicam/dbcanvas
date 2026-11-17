@@ -20,8 +20,8 @@ func TestArchIssues(t *testing.T) {
 		Nodes: []designNode{
 			{ID: "a", Label: "ps-auto", Type: "ps"},
 			{ID: "b", Label: "ps-amd", Type: "ps", Arch: "amd64"},
-			{ID: "c", Label: "pmm-arm", Type: "pmm", Arch: "arm64"},
-			{ID: "d", Label: "pmm-auto", Type: "pmm"},
+			{ID: "c", Label: "pmm-arm", Type: "pmm2", Arch: "arm64"},
+			{ID: "d", Label: "pmm-auto", Type: "pmm2"},
 			{ID: "e", Label: "odd", Type: "ps", Arch: "x86"},
 			{ID: "f", Label: "member", Type: "pxc", Arch: "amd64", FrameID: "px"},
 		},
@@ -40,7 +40,7 @@ func TestArchIssues(t *testing.T) {
 		}
 	}
 	all := strings.Join(errs, "\n")
-	for _, want := range []string{"k3d-amd: K3D nodes run on this Docker host's own architecture (arm64)", "pmm-arm: PMM runs on amd64 only", `odd: architecture "x86"`} {
+	for _, want := range []string{"k3d-amd: K3D nodes run on this Docker host's own architecture (arm64)", "pmm-arm: PMM 2 runs on amd64 only", `odd: architecture "x86"`} {
 		if !strings.Contains(all, want) {
 			t.Errorf("missing error %q in:\n%s", want, all)
 		}

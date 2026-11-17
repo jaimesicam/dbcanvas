@@ -548,6 +548,11 @@ func (a *App) annotateArch(design json.RawMessage, p *stackPlan) {
 			frameArch = arch["frame/"+n.FrameID]
 		}
 		arch["node/"+n.ID] = effectiveArch(n.Type, n.Arch, frameArch)
+		if n.Type == "pmm" { // its release decides (pmmarch.go)
+			if v, _, err := a.pmmArch(context.Background(), p.StackID, n); err == nil {
+				arch["node/"+n.ID] = v
+			}
+		}
 	}
 	fill := func(items []stackPlanItem) {
 		for i := range items {

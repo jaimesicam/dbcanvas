@@ -9,7 +9,10 @@ import { Field, inputCls } from './ui.jsx'
 
 // K8S and AMD64_ONLY mirror kubernetesFrames and amd64Only in app/platforms.go.
 export const K8S = { k3d: 'K3D', kubeadm: 'Kubeadm' }
-export const AMD64_ONLY = { pmm: 'PMM', pmm2: 'PMM 2', mclusteradmin: 'MClusterAdmin' }
+export const AMD64_ONLY = { pmm2: 'PMM 2', mclusteradmin: 'MClusterAdmin' }
+
+// PMM_NOTE says what a node's release decides (app/pmmarch.go).
+const PMM_NOTE = { pmm: 'PMM publishes arm64 images from 3.10.0; an earlier release runs as amd64, emulated on an arm64 host.' }
 
 // archFacts is what an item runs as, and whether and why that is fixed. member is set for a
 // cluster member, with its cluster's arch ('' for Automatic).
@@ -41,7 +44,7 @@ export function ArchField({ obj, member, deployed, onChange }) {
   }
   const hint = deployed
     ? `Built as ${f.arch}; it cannot change while the node is deployed.${note ? ' ' + note : ''}`
-    : note || 'Automatic follows the Docker host the stack is deployed on.'
+    : [note || 'Automatic follows the Docker host the stack is deployed on.', PMM_NOTE[obj.type]].filter(Boolean).join(' ')
   return (
     <Field label="Architecture" hint={hint}>
       <select className={inputCls} value={obj.arch || ''} disabled={deployed}

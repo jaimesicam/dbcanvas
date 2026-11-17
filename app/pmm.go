@@ -126,9 +126,14 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 	// on the Docker host when the container is created, pinned, and read back
 	// (hostports.go).
 
+	// arm64 from PMM 3.10.0, else amd64; a deployed PMM keeps its own (pmmarch.go).
+	arch, _, archErr := a.pmmArch(context.Background(), st.ID, n)
+	if archErr != nil {
+		arch = "amd64" // validation refuses the deploy before this; amd64 is what every release has
+	}
+	platform := "linux/" + arch
 	cfg := pmmConfig{
-		// PMM (percona/pmm-server) has no arm64 image yet — always amd64.
-		Image: ref, Version: tag, Arch: "amd64",
+		Image: ref, Version: tag, Arch: arch,
 		Hostname: host, FQDN: fqdn, Alias: host,
 		AdminUser: sec.AdminUser, SMTPHost: "intranet." + domain + ":25",
 		GenerateCert: n.GenerateCert, HTTPPort: httpPort, HTTPSPort: httpsPort,
@@ -163,8 +168,8 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 
 		setPhase("Pulling image", 5)
-		logln("ensuring " + ref + " for " + platformAMD64 + " (this can take a while)")
-		if err := a.engCtx(ctx).EnsureImage(ctx, repo, tag, platformAMD64); err != nil {
+		logln("ensuring " + ref + " for " + platform + " (this can take a while)")
+		if err := a.engCtx(ctx).EnsureImage(ctx, repo, tag, platform); err != nil {
 			failNode("pull image %s: %v", ref, err)
 			return
 		}
@@ -194,7 +199,7 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 			logln("warning: could not create PMM data volume: " + err.Error())
 		}
 		id, err := a.engCtx(ctx).ContainerCreate(ctx, ContainerSpec{
-			Name: name, Image: ref, Hostname: host, Platform: platformAMD64,
+			Name: name, Image: ref, Hostname: host, Platform: platform,
 			Network: networkName(st.ID), Aliases: []string{host},
 			PublishMap: []PortMap{{ContainerPort: 8080, HostPort: httpPort, Auto: true}, {ContainerPort: 8443, HostPort: httpsPort, Auto: true}},
 			Binds:      []string{srvVol + ":/srv"},

@@ -1332,6 +1332,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 	}
 	// Each node's architecture (platforms.go).
 	out = append(out, archIssues(doc, a.hostArch)...)
+	out = append(out, a.pmmArchIssues(ctx, st.ID, doc)...)
 	// A member added to a running cluster of a kind that cannot take one yet (join.go).
 	if deps, err := a.store.ListDeployments(st.ID); err == nil && len(deps) > 0 {
 		existing := map[string]Deployment{}

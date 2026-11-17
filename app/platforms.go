@@ -22,7 +22,6 @@ import (
 
 // amd64Only are the node types whose images exist for amd64 alone.
 var amd64Only = map[string]string{
-	"pmm":           "PMM",
 	"pmm2":          "PMM 2",
 	"mclusteradmin": "MClusterAdmin",
 }
@@ -72,8 +71,8 @@ func archIssues(doc designDoc, host string) []issue {
 			}
 			continue
 		}
-		if _, ok := kubernetesFrames[n.Type]; ok {
-			continue
+		if _, ok := kubernetesFrames[n.Type]; ok || n.Type == "pmm" {
+			continue // PMM depends on its release (pmmArchIssues)
 		}
 		emulated(what, n.Arch)
 	}

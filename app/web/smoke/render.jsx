@@ -6824,7 +6824,8 @@ check('architecture field: Automatic, a choice, emulation, the fixed and the dep
   if (k3d.includes('<select') || !k3d.includes('Kubernetes cannot create pods under emulation')) {
     throw new Error('a K3D cluster offers a choice')
   }
-  if (field({ type: 'pmm' }).includes('<select')) throw new Error('PMM offers a choice')
+  if (field({ type: 'pmm2' }).includes('<select')) throw new Error('PMM 2 offers a choice')
+  if (!field({ type: 'pmm' }).includes('arm64 images from 3.10.0')) throw new Error('PMM does not say which releases have arm64')
   if (field({ type: 'ps' }, { member: 'amd64' }).includes('<select')) throw new Error('a cluster member offers a choice')
   const built = field({ type: 'ps' }, { deployed: true })
   if (!/<select[^>]*disabled/.test(built) || !built.includes('Built as arm64')) throw new Error('a deployed node can change')
