@@ -25,18 +25,32 @@
     </div>
     <p class="subtitle" id="bankTitle">…</p>
     <p class="status" id="connStatus">Waiting for DBCanvas…</p>
-    <div class="modes" id="modes">
-      <button class="mode" data-mode="arcade">
+    <div class="modes" id="modes" role="radiogroup" aria-label="Mode">
+      <button class="mode" data-mode="arcade" role="radio" aria-checked="false">
         <b>ARCADE</b><span>3 lives · 5 stages · a boss</span>
       </button>
-      <button class="mode" data-mode="marathon">
+      <button class="mode" data-mode="marathon" role="radio" aria-checked="false">
         <b>MARATHON</b><span>60 minutes · no lives · max score</span>
       </button>
-      <button class="mode" data-mode="practice">
+      <button class="mode" data-mode="practice" role="radio" aria-checked="false">
         <b>PRACTICE</b><span>one ticket · untimed · hints</span>
       </button>
     </div>
-    <div class="practice-list hidden" id="practiceList"></div>
+    <div class="mode-panel" id="modePanel">
+      <p class="mode-hint" id="modeHint">Pick a mode to see its rules. <span class="key">←</span> <span class="key">→</span> choose · <span class="key">Enter</span> start</p>
+      <ul class="rules hidden" id="modeRules"></ul>
+      <div class="practice-pick hidden" id="practicePick">
+        <div class="filters" id="practiceFilters"></div>
+        <div class="practice-list" id="practiceList" role="listbox" aria-label="Ticket to practise"></div>
+      </div>
+      <div class="start-row">
+        <button class="btn hot big-btn" id="btnGo" disabled>START SHIFT</button>
+        <div class="syscheck" id="sysCheck" aria-live="polite">
+          <span class="lamp" id="sysLamp"></span><span id="sysText">Systems check: waiting for DBCanvas…</span>
+          <div class="mini-bar hidden" id="sysBar"><i></i></div>
+        </div>
+      </div>
+    </div>
     <div class="boards">
       <div class="board">
         <h2>HIGH SCORES</h2>
@@ -54,6 +68,8 @@
   <section id="screen-check" class="screen hidden">
     <h2 class="big">SYSTEMS CHECK</h2>
     <p class="subtitle" id="checkFor"></p>
+    <div class="prep-bar check-bar" id="diagBar"><i></i><span></span></div>
+    <p class="check-time" id="diagTime"></p>
     <ul class="diag" id="diagSteps"></ul>
     <p class="verdict" id="diagVerdict"></p>
     <div class="row">

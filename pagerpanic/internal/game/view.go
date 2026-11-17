@@ -93,6 +93,8 @@ type View struct {
 	Categories []Category `json:"categories,omitempty"`
 	Tasks      []TaskInfo `json:"tasks,omitempty"`
 	Diag       *Diag      `json:"diag,omitempty"`
+	// Pending is the START waiting on the systems check.
+	Pending *startReq `json:"pending,omitempty"`
 
 	Clock      Clock        `json:"clock"`
 	Lives      int          `json:"lives"`
@@ -213,8 +215,9 @@ func (g *Game) View(since int) View {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.tick()
+	g.lastView = g.now()
 	v := View{Phase: g.phase, Mode: g.mode, Stack: g.stack, Nodes: g.nodes, Env: g.env,
-		BankErrors: g.bankErrors, Diag: g.diag, Lives: g.lives, Score: g.score, Streak: g.streak, Seq: g.seq,
+		BankErrors: g.bankErrors, Diag: g.diagView(), Pending: g.pending, Lives: g.lives, Score: g.score, Streak: g.streak, Seq: g.seq,
 		EnterInitial: g.enterInitial, Tickets: []TicketView{}, Events: []Event{}, HighScores: g.save.HighScores, Medals: []MedalView{}}
 	v.Connected = !g.lastSync.IsZero() && g.now().Sub(g.lastSync) <= connectedFor
 	if err := g.connectedErr(); err != nil {

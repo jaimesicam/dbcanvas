@@ -25,6 +25,9 @@ import (
 // until the game acknowledges them.
 const (
 	pagerPanicSyncEvery = 2 * time.Second
+	// pagerPanicSyncSoon is the gap while a game asks for it (ppSyncResponse.Soon):
+	// someone has it open, so a move such as START waits on the next sync.
+	pagerPanicSyncSoon = 500 * time.Millisecond
 	// pagerPanicQuiet is how long a game may go unanswered, with tickets still on the
 	// cluster, before DBCanvas cleans them up itself.
 	pagerPanicQuiet = 90 * time.Second
@@ -102,16 +105,21 @@ func (r *ppRunner) put(res ppResult) {
 func (a *App) startPagerPanicSync() {
 	go func() {
 		for {
-			a.pagerPanicPass(context.Background())
-			time.Sleep(pagerPanicSyncEvery)
+			wait := pagerPanicSyncEvery
+			if a.pagerPanicPass(context.Background()) {
+				wait = pagerPanicSyncSoon
+			}
+			time.Sleep(wait)
 		}
 	}()
 }
 
-func (a *App) pagerPanicPass(ctx context.Context) {
+// pagerPanicPass syncs every running game once. It reports whether one asked for the
+// next sync soon.
+func (a *App) pagerPanicPass(ctx context.Context) (soon bool) {
 	stacks, err := a.store.ListStacks(0, true)
 	if err != nil {
-		return
+		return false
 	}
 	for _, sum := range stacks {
 		if sum.Status != StackDeployed {
@@ -131,10 +139,13 @@ func (a *App) pagerPanicPass(ctx context.Context) {
 				continue
 			}
 			c, cancel := context.WithTimeout(ctx, 20*time.Second)
-			a.syncPagerPanic(c, st, doc, n, dep)
+			if a.syncPagerPanic(c, st, doc, n, dep) {
+				soon = true
+			}
 			cancel()
 		}
 	}
+	return soon
 }
 
 // ppSyncRequest is what DBCanvas posts to the game.
@@ -166,9 +177,12 @@ type ppSyncResponse struct {
 	// Active is every ticket the game still owns. One DBCanvas set up that is not in it
 	// (the game restarted, say) is cleaned up.
 	Active []string `json:"active"`
+	// Soon asks for the next sync after pagerPanicSyncSoon instead of pagerPanicSyncEvery.
+	Soon bool `json:"soon,omitempty"`
 }
 
-func (a *App) syncPagerPanic(ctx context.Context, st Stack, doc designDoc, n designNode, dep Deployment) {
+// syncPagerPanic syncs one game. It reports whether the game asked for the next sync soon.
+func (a *App) syncPagerPanic(ctx context.Context, st Stack, doc designDoc, n designNode, dep Deployment) (soon bool) {
 	var cfg pagerPanicConfig
 	if json.Unmarshal(dep.Config, &cfg) != nil {
 		return
@@ -239,6 +253,7 @@ func (a *App) syncPagerPanic(ctx context.Context, st Stack, doc designDoc, n des
 		}
 		return
 	}
+	soon = resp.Soon
 	run.mu.Lock()
 	run.lastOK = time.Now()
 	for _, id := range resp.Ack {
@@ -297,6 +312,7 @@ func (a *App) syncPagerPanic(ctx context.Context, st Stack, doc designDoc, n des
 		act := act
 		go a.pagerPanicDo(st, n.ID, bank, nodes, env, act, run)
 	}
+	return
 }
 
 func (r *ppRunner) isInflightFor(instanceID string) bool {

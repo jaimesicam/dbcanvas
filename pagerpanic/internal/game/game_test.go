@@ -17,6 +17,7 @@ type fake struct {
 	fail    map[string]bool // task → setup fails
 	locks   map[string][]string
 	monitor bool // tickets have an app
+	badDiag bool // the systems check fails
 }
 
 func newFake(t *testing.T, bank Bank) *fake {
@@ -35,7 +36,13 @@ func (f *fake) step(d time.Duration) SyncResponse {
 	for _, a := range resp.Actions {
 		switch a.Op {
 		case "diagnose":
-			results = append(results, Result{ID: a.ID, Op: a.Op, Done: true, OK: true})
+			if f.badDiag {
+				results = append(results, Result{ID: a.ID, Op: a.Op, Done: true, Error: "a node is down",
+					Steps: []DiagStep{{Name: "Nodes Ready", State: "fail"}}})
+				continue
+			}
+			results = append(results, Result{ID: a.ID, Op: a.Op, Done: true, OK: true,
+				Steps: []DiagStep{{Name: "Nodes Ready", State: "ok"}}})
 		case "setup":
 			f.setups++
 			if f.fail[a.Task] {
@@ -576,5 +583,131 @@ func TestAFailedManualCheckIsReported(t *testing.T) {
 	f.step(time.Second)
 	if len(notyet()) != 1 {
 		t.Error("the next periodic check was reported too")
+	}
+}
+
+// The title screen checks the cluster in the background, so START begins at once; the
+// check is not run again while it is fresh.
+func TestABackgroundCheckLetsStartBeginAtOnce(t *testing.T) {
+	f := newFake(t, testBank())
+	if err := f.g.Precheck(); err != nil {
+		t.Fatal(err)
+	}
+	if v := f.g.View(0); v.Phase != PhaseTitle || v.Diag == nil || !v.Diag.Background || v.Diag.Done {
+		t.Fatalf("a background check changed the screen or did not start: %+v", v.Diag)
+	}
+	f.step(time.Second)
+	v := f.g.View(0)
+	if v.Phase != PhaseTitle || !v.Diag.Fresh || v.Diag.Progress != 1 {
+		t.Fatalf("after the background check: phase %s, diag %+v", v.Phase, v.Diag)
+	}
+	if err := f.g.Precheck(); err != nil || len(f.g.actions) != 0 {
+		t.Fatalf("a fresh check was run again (%v, %d actions)", err, len(f.g.actions))
+	}
+	if err := f.g.Start(ModeArcade, "", 7); err != nil {
+		t.Fatal(err)
+	}
+	if p := f.g.View(0).Phase; p != PhasePlaying {
+		t.Fatalf("START after a fresh check: phase %s", p)
+	}
+}
+
+// Without a fresh check, START runs it on the check screen and begins when it passes.
+func TestStartWaitsForTheCheckThenBegins(t *testing.T) {
+	f := newFake(t, testBank())
+	if err := f.g.Start(ModeMarathon, "", 7); err != nil {
+		t.Fatal(err)
+	}
+	v := f.g.View(0)
+	if v.Phase != PhaseChecking || v.Pending == nil || v.Pending.Mode != ModeMarathon {
+		t.Fatalf("START with no check: phase %s, pending %+v", v.Phase, v.Pending)
+	}
+	f.step(time.Second)
+	if v := f.g.View(0); v.Phase != PhasePlaying || v.Mode != ModeMarathon || v.Pending != nil {
+		t.Fatalf("after the check passed: phase %s, mode %s, pending %+v", v.Phase, v.Mode, v.Pending)
+	}
+}
+
+// A START while the background check runs moves that check onto the check screen
+// instead of starting another.
+func TestStartTakesOverARunningBackgroundCheck(t *testing.T) {
+	f := newFake(t, testBank())
+	if err := f.g.Precheck(); err != nil {
+		t.Fatal(err)
+	}
+	id := f.g.diag.ID
+	if err := f.g.Start(ModeArcade, "", 7); err != nil {
+		t.Fatal(err)
+	}
+	if f.g.diag.ID != id || f.g.diag.Background || f.g.View(0).Phase != PhaseChecking {
+		t.Fatalf("START did not take the running check over")
+	}
+	f.step(time.Second)
+	if p := f.g.View(0).Phase; p != PhasePlaying {
+		t.Fatalf("phase %s", p)
+	}
+}
+
+// A failed check stays on the check screen; checking again after the fix begins the
+// waiting START.
+func TestAFailedCheckStaysOnTheCheckScreen(t *testing.T) {
+	f := newFake(t, testBank())
+	f.badDiag = true
+	if err := f.g.Start(ModeArcade, "", 7); err != nil {
+		t.Fatal(err)
+	}
+	f.step(time.Second)
+	v := f.g.View(0)
+	if v.Phase != PhaseChecking || !v.Diag.Done || v.Diag.OK || v.Diag.Fresh || v.Pending == nil {
+		t.Fatalf("after a failed check: phase %s, diag %+v, pending %+v", v.Phase, v.Diag, v.Pending)
+	}
+	f.badDiag = false
+	if err := f.g.CheckSystem(); err != nil {
+		t.Fatal(err)
+	}
+	f.step(time.Second)
+	if p := f.g.View(0).Phase; p != PhasePlaying {
+		t.Fatalf("after checking again: phase %s", p)
+	}
+}
+
+// The check's progress comes from how long each step took the last time.
+func TestTheCheckProgressUsesTheLastTimings(t *testing.T) {
+	f := newFake(t, testBank())
+	f.g.diagTimes["Slow"], f.g.diagTimes["Fast"] = 30, 10
+	if err := f.g.CheckSystem(); err != nil {
+		t.Fatal(err)
+	}
+	id := f.g.diag.ID
+	report := func(slow, fast string) {
+		f.g.Sync(SyncRequest{BankHash: "h", Results: []Result{{ID: id, Op: "diagnose",
+			Steps: []DiagStep{{Name: "Slow", State: slow}, {Name: "Fast", State: fast}}}}})
+	}
+	report("running", "pending")
+	f.clock = f.clock.Add(15 * time.Second)
+	d := f.g.View(0).Diag
+	if d.Progress < 0.37 || d.Progress > 0.38 || d.Steps[0].For != 15 || d.Steps[0].Est != 30 {
+		t.Fatalf("halfway through the slow step: %+v", d)
+	}
+	f.clock = f.clock.Add(15 * time.Second)
+	report("ok", "running")
+	if d := f.g.View(0).Diag; d.Progress < 0.74 || d.Progress > 0.76 || d.Steps[0].For != 30 {
+		t.Fatalf("after the slow step: %+v", d)
+	}
+}
+
+// DBCanvas syncs sooner while someone has the game open.
+func TestSyncIsSoonWhileThePageIsOpen(t *testing.T) {
+	f := newFake(t, testBank())
+	if f.step(time.Second).Soon {
+		t.Error("soon with nobody looking")
+	}
+	f.g.View(0)
+	if !f.step(time.Second).Soon {
+		t.Error("not soon with the page open")
+	}
+	f.clock = f.clock.Add(watchedFor + time.Second)
+	if f.step(0).Soon {
+		t.Error("still soon after the page went away")
 	}
 }

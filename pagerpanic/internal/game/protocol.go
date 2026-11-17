@@ -48,6 +48,10 @@ type DiagStep struct {
 	Name   string `json:"name"`
 	State  string `json:"state"`
 	Detail string `json:"detail,omitempty"`
+	// For the page only, filled in by the game: seconds the step has been running, or
+	// took, and how long it took the last time.
+	For float64 `json:"for,omitempty"`
+	Est float64 `json:"est,omitempty"`
 }
 
 type Env struct {
@@ -151,4 +155,7 @@ type SyncResponse struct {
 	NeedSaved bool            `json:"needSaved"`
 	Save      json.RawMessage `json:"save,omitempty"`
 	Active    []string        `json:"active"`
+	// Soon asks DBCanvas to sync again shortly: someone has the game open, or a systems
+	// check is running, so a move may be waiting on the next sync.
+	Soon bool `json:"soon,omitempty"`
 }

@@ -79,7 +79,32 @@ h3 { font-size: 14px; color: var(--cool); margin: 28px 0 10px; align-self: flex-
 .mode span { color: var(--dim); font-size: 12px; }
 .mode:hover, .mode:focus-visible, .mode.on { border-color: var(--hot); transform: translate(-2px, -2px); box-shadow: 7px 7px 0 #05030a; outline: none; }
 .mode:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
-.practice-list { margin-top: 18px; width: min(820px, 100%); max-height: 300px; overflow: auto; background: var(--panel); border: 2px solid var(--edge); padding: 8px; }
+/* The mode panel: the picked mode's rules, the practice ticket list, and START with the
+   background systems check beside it. */
+.mode-panel { margin-top: 18px; width: min(820px, 100%); background: var(--panel); border: 3px solid var(--edge); padding: 14px 18px 16px; box-shadow: 5px 5px 0 #05030a; }
+.mode-hint { color: var(--dim); margin: 0 0 4px; text-align: center; }
+.rules { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.rules li { padding-left: 18px; position: relative; color: var(--dim); }
+.rules li::before { content: "▸"; position: absolute; left: 0; color: var(--hot); }
+.rules li b { color: var(--ink); font-weight: 600; }
+.practice-pick { margin-top: 12px; }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.filters .sep { width: 10px; }
+.filter { background: #22173f; border: 2px solid var(--edge); padding: 3px 8px; font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.04em; }
+.filter:hover { color: var(--ink); }
+.filter.on { color: var(--ink); border-color: var(--cool); background: #10283a; }
+.start-row { display: flex; align-items: center; gap: 16px; margin-top: 16px; flex-wrap: wrap; }
+.big-btn { font-size: 13px; padding: 12px 22px; }
+.syscheck { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px 8px; color: var(--dim); font-size: 12px; flex: 1; min-width: 220px; }
+.syscheck .lamp { width: 9px; height: 9px; border-radius: 50%; background: var(--dim); }
+.syscheck .lamp.ok { background: var(--good); box-shadow: 0 0 8px var(--good); }
+.syscheck .lamp.run { background: var(--cool); animation: blink 0.5s infinite steps(2); }
+.syscheck .lamp.fail { background: var(--bad); }
+.mini-bar { grid-column: 2; height: 6px; background: #0d081b; border: 1px solid var(--edge); overflow: hidden; }
+.mini-bar i { display: block; height: 100%; width: 3%; background: var(--cool); transition: width 0.6s linear; }
+.practice-list { margin-top: 10px; width: 100%; max-height: 300px; overflow: auto; background: #0d081b; border: 2px solid var(--edge); padding: 8px; }
+.practice-list button.on { background: #22173f; box-shadow: inset 3px 0 0 var(--hot); }
+.practice-list p { margin: 8px 6px; }
 .practice-list button { display: flex; width: 100%; justify-content: space-between; gap: 12px; background: none; border: 0; border-bottom: 1px solid #241a45; padding: 8px 6px; text-align: left; }
 .practice-list button:hover { background: #22173f; }
 .practice-list button:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -109,10 +134,14 @@ h3 { font-size: 14px; color: var(--cool); margin: 28px 0 10px; align-self: flex-
 
 /* ---------------------------------------------------------------- systems check */
 .diag { list-style: none; padding: 0; margin: 20px 0 0; width: min(760px, 100%); }
-.diag li { display: grid; grid-template-columns: 30px 1fr; gap: 6px 12px; background: var(--panel); border: 2px solid var(--edge); padding: 10px 14px; margin-bottom: 8px; }
+.diag li { display: grid; grid-template-columns: 30px 1fr auto; gap: 6px 12px; background: var(--panel); border: 2px solid var(--edge); padding: 10px 14px; margin-bottom: 8px; }
 .diag li .st { font-family: var(--px); font-size: 13px; }
 .diag li b { font-weight: 600; }
 .diag li small { grid-column: 2; color: var(--dim); }
+.diag li .t { font-style: normal; color: var(--dim); font-size: 12px; font-variant-numeric: tabular-nums; }
+.check-bar { width: min(760px, 100%); margin-top: 18px; }
+.check-bar.failed i { background: var(--bad); animation: none; }
+.check-time { color: var(--dim); font-size: 12px; margin: 6px 0 0; min-height: 1.4em; }
 .diag li.ok .st { color: var(--good); }
 .diag li.warn .st { color: var(--warn); }
 .diag li.fail { border-color: var(--bad); }

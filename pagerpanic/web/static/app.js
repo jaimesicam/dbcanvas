@@ -9,9 +9,13 @@ const fmt = (secs) => { secs = Math.max(0, Math.round(secs)); return `${String(M
 let S = null;            // the last state
 let lastSeq = -1;        // the last event animated
 let sel = null;          // the selected ticket's id
-let wantMode = null;     // the mode the player picked, waiting for the systems check
-let wantTask = '';
+let wantMode = null;     // the mode picked on the title screen
+let wantTask = '';       // practice: the ticket picked
 let wantSeed = 0;        // a replay's seed
+let practiceCat = '';    // practice list filters: a category, a difficulty (0 is any)
+let practiceDiff = 0;
+let prechecked = false;  // the background systems check was asked for on this title screen
+let starting = false;    // START was pressed and its answer is still coming
 let shownScore = 0;
 let continueTimer = null;
 let lastPhase = '';
@@ -260,7 +264,9 @@ function animate(e) {
 }
 
 // ---------------------------------------------------------------- polling
-async function poll() {
+// refresh fetches the state and draws it; poll does so on a timer, and a move refreshes
+// at once so the screen answers the click without waiting for the next poll.
+async function refresh() {
   try {
     const since = lastSeq < 0 ? 1e9 : lastSeq;
     S = await api('GET', 'api/state?since=' + since);
@@ -272,6 +278,9 @@ async function poll() {
   } catch (e) {
     $('connStatus').textContent = 'The game server is not answering…';
   }
+}
+async function poll() {
+  await refresh();
   setTimeout(poll, S && (S.phase === 'playing' || S.phase === 'checking') ? 500 : 1000);
 }
 
@@ -285,6 +294,9 @@ function render() {
   if (phase !== lastPhase) {
     if (phase === 'title' || phase === 'checking') document.body.classList.remove('lights-out');
     if (phase === 'playing' && lastPhase !== 'paused') { sel = null; shownScore = 0; }
+    // The shift began: from START at once, or by itself when the check it waited on passed.
+    if (phase === 'playing' && ['title', 'checking', 'ready'].includes(lastPhase)) Sound.stage();
+    if (phase !== 'title') prechecked = false;
     lastPhase = phase;
   }
   if (screen === 'title') renderTitle();
@@ -295,69 +307,217 @@ function render() {
 }
 
 // ---------------------------------------------------------------- title
+// The title screen picks a mode, then START. Picking only chooses: the panel below shows
+// the mode's rules (and for practice, the ticket list), and nothing starts until START.
+// Meanwhile a systems check runs in the background, so START usually begins at once.
+const MODES = ['arcade', 'marathon', 'practice'];
+// setHTML redraws el only when what it would draw changed, so a poll does not reset the
+// pointer's hover or the keyboard's focus.
+const drawn = new WeakMap();
+function setHTML(el, html) {
+  if (drawn.get(el) === html) return;
+  drawn.set(el, html);
+  el.innerHTML = html;
+}
 function renderTitle() {
   $('bankTitle').textContent = S.bankTitle ? `${S.bankTitle} · ${S.stack?.frame || ''}` : 'loading the task bank…';
   $('clusterName').textContent = S.stack?.frame || 'the cluster';
   const waiting = S.waiting || '';
-  $('connStatus').textContent = waiting ? waiting + '…' : (S.diag && S.diag.done && !S.diag.ok ? 'The last systems check failed: ' + (S.diag.error || 'see the check') : '');
-  document.querySelectorAll('.mode').forEach((b) => { b.disabled = !!waiting; b.classList.toggle('on', b.dataset.mode === wantMode); });
+  $('connStatus').textContent = waiting ? waiting + '…' : '';
+  document.querySelectorAll('.mode').forEach((b) => {
+    const on = b.dataset.mode === wantMode;
+    b.disabled = !!waiting;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-checked', String(on));
+  });
   const hs = (S.highScores || []).slice(0, 10);
   $('highScores').innerHTML = hs.length ? hs.map((h) => `<li><b>${esc(h.initials)}</b><span>${h.score.toLocaleString()}</span><small>${esc(h.mode)} · ${esc(h.rank)}</small></li>`).join('') : '<li class="muted">No shifts played yet.</li>';
   $('medalShelf').innerHTML = (S.medals || []).length ? S.medals.map((m) => `<span class="medal" title="${esc(m.why)}">${esc(m.title)}</span>`).join('') : '<span class="muted">Medals you earn are kept here.</span>';
+  renderModePanel();
+  renderSysCheck();
+  if (!waiting && !prechecked) {
+    prechecked = true;
+    api('POST', 'api/play', { do: 'precheck' }).catch(() => { prechecked = false; });
+  }
+}
+
+// modeRules is what the panel says about a mode, from the bank's own numbers.
+function modeRules(mode) {
+  const mins = Math.round((S.clock?.shift || 3600) / 60);
+  const stages = S.clock?.stages || 1;
+  const lives = S.maxLives || 3;
+  return {
+    arcade: [
+      `<b>${lives} lives.</b> A ticket that runs out of time escalates and costs one.`,
+      `<b>${stages} stage${stages > 1 ? 's' : ''} over ${mins} minutes,</b> each harder than the last, with a boss in the final one.`,
+      '<b>3 pauses</b> per shift.',
+      '<b>Hints cost points.</b> Fast fixes build a combo.',
+    ],
+    marathon: [
+      `<b>${mins} minutes,</b> ending on the clock.`,
+      '<b>No lives.</b> A ticket that runs out of time scores nothing and breaks your combo.',
+      '<b>No pauses, no hints.</b>',
+      'Play for the highest score.',
+    ],
+    practice: [
+      '<b>One ticket you choose,</b> with no time limit.',
+      '<b>Hints are free.</b> Pause whenever you like.',
+      'The debrief shows the solution.',
+    ],
+  }[mode] || [];
+}
+function renderModePanel() {
+  const rules = $('modeRules');
+  $('modeHint').classList.toggle('hidden', !!wantMode);
+  rules.classList.toggle('hidden', !wantMode);
+  const html = modeRules(wantMode).map((r) => `<li>${r}</li>`).join('');
+  setHTML(rules, html);
+  $('practicePick').classList.toggle('hidden', wantMode !== 'practice');
   if (wantMode === 'practice') renderPracticeList();
+  const go = $('btnGo');
+  go.textContent = starting ? 'STARTING…' : wantMode === 'practice' ? 'START PRACTICE' : 'START SHIFT';
+  go.disabled = !wantMode || !!S.waiting || starting || (wantMode === 'practice' && !wantTask);
+  go.title = !wantMode ? 'Pick a mode first' : wantMode === 'practice' && !wantTask ? 'Pick a ticket to practise' : '';
 }
 function renderPracticeList() {
-  const list = $('practiceList');
-  list.classList.remove('hidden');
-  if (list.dataset.n === String(S.tasks?.length || 0)) return;
-  list.dataset.n = String(S.tasks?.length || 0);
-  const cats = Object.fromEntries((S.categories || []).map((c) => [c.id, c.title]));
-  list.innerHTML = (S.tasks || []).map((t) => `<button data-task="${esc(t.id)}" ${t.unsupported ? 'disabled' : ''}>
-      <span><span class="chip cat-${esc(t.category)}">${esc(cats[t.category] || t.category)}</span> ${esc(t.title)} ${t.boss ? '<span class="chip boss">boss</span>' : ''}</span>
-      <small>${'★'.repeat(t.difficulty)}${t.unsupported ? ' · ' + esc(t.unsupported) : ''}</small></button>`).join('');
+  const cats = S.categories || [];
+  const tasks = S.tasks || [];
+  const maxDiff = Math.max(1, ...tasks.map((t) => t.difficulty || 1));
+  const chip = (attr, val, on, label) => `<button class="filter ${on ? 'on' : ''}" ${attr}="${esc(val)}" aria-pressed="${on}">${label}</button>`;
+  const filters = chip('data-cat', '', !practiceCat, 'ALL')
+    + cats.map((c) => chip('data-cat', c.id, practiceCat === c.id, esc(c.title))).join('')
+    + '<span class="sep"></span>'
+    + chip('data-diff', '0', !practiceDiff, 'ANY ★')
+    + Array.from({ length: maxDiff }, (_, i) => chip('data-diff', String(i + 1), practiceDiff === i + 1, '★'.repeat(i + 1))).join('');
+  setHTML($('practiceFilters'), filters);
+  const names = Object.fromEntries(cats.map((c) => [c.id, c.title]));
+  const shown = tasks.filter((t) => (!practiceCat || t.category === practiceCat) && (!practiceDiff || t.difficulty === practiceDiff));
+  const html = shown.map((t) => `<button data-task="${esc(t.id)}" role="option" aria-selected="${t.id === wantTask}" class="${t.id === wantTask ? 'on' : ''}" ${t.unsupported ? 'disabled' : ''}>
+      <span><span class="chip cat-${esc(t.category)}">${esc(names[t.category] || t.category)}</span> ${esc(t.title)} ${t.boss ? '<span class="chip boss">boss</span>' : ''}</span>
+      <small>${'★'.repeat(t.difficulty)}${t.unsupported ? ' · ' + esc(t.unsupported) : ''}</small></button>`).join('')
+    || '<p class="muted">No ticket matches these filters.</p>';
+  setHTML($('practiceList'), html);
 }
-$('modes').addEventListener('click', async (ev) => {
+const ago = (secs) => (secs < 60 ? 'just now' : `${Math.round(secs / 60)} min ago`);
+// renderSysCheck is the line beside START: how the background systems check is doing.
+function renderSysCheck() {
+  const d = S.diag;
+  let state = '', text, prog = null;
+  if (S.waiting) text = 'Systems check: waiting for DBCanvas…';
+  else if (!d) text = 'Systems check: starting…';
+  else if (!d.done) { state = 'run'; prog = d.progress || 0; text = `Checking the cluster · ${Math.round(prog * 100)}%`; }
+  else if (d.fresh) { state = 'ok'; text = `Systems OK · checked ${ago(d.age || 0)}`; }
+  else if (d.ok) text = `Last check ${ago(d.age || 0)} · START checks again`;
+  else { state = 'fail'; text = `Systems check failed${d.error ? ': ' + d.error : ''} · START checks again`; }
+  $('sysLamp').className = 'lamp ' + state;
+  $('sysText').textContent = text;
+  $('sysBar').classList.toggle('hidden', prog === null);
+  if (prog !== null) $('sysBar').firstElementChild.style.width = `${Math.max(3, Math.round(prog * 100))}%`;
+}
+function pickMode(mode) {
+  if (!MODES.includes(mode) || S?.waiting) return;
+  if (mode !== wantMode) { wantTask = ''; wantSeed = 0; }
+  wantMode = mode;
+  renderTitle();
+}
+// startShift is START: the game begins at once after a fresh check, or runs the check
+// (the check screen shows it) and begins when it passes.
+async function startShift() {
+  if (!wantMode || starting) return;
+  if (wantMode === 'practice' && !wantTask) { toast('Pick a ticket to practise'); return; }
+  starting = true;
+  renderModePanel();
+  try {
+    await play({ do: 'start', mode: wantMode, task: wantTask, seed: wantSeed });
+    wantSeed = 0;
+  } catch { /* the toast says why */ }
+  starting = false;
+  await refresh();
+}
+$('modes').addEventListener('click', (ev) => {
   const b = ev.target.closest('.mode');
-  if (!b || b.disabled) return;
-  wantMode = b.dataset.mode; wantSeed = 0; wantTask = '';
-  if (wantMode === 'practice') { renderPracticeList(); render(); return; }
-  $('practiceList').classList.add('hidden');
-  await play({ do: 'check-system' }).catch(() => {});
+  if (b && !b.disabled) pickMode(b.dataset.mode);
 });
-$('practiceList').addEventListener('click', async (ev) => {
+$('practiceFilters').addEventListener('click', (ev) => {
+  const b = ev.target.closest('button');
+  if (!b) return;
+  if (b.dataset.cat !== undefined) practiceCat = b.dataset.cat;
+  if (b.dataset.diff !== undefined) practiceDiff = Number(b.dataset.diff) || 0;
+  renderPracticeList();
+});
+$('practiceList').addEventListener('click', (ev) => {
   const b = ev.target.closest('button[data-task]');
   if (!b || b.disabled) return;
   wantTask = b.dataset.task;
-  await play({ do: 'check-system' }).catch(() => {});
+  renderModePanel();
 });
+$('practiceList').addEventListener('dblclick', (ev) => {
+  const b = ev.target.closest('button[data-task]');
+  if (b && !b.disabled) { wantTask = b.dataset.task; startShift(); }
+});
+$('btnGo').onclick = startShift;
+// titleKeys: arrows choose the mode (and in practice, the ticket); Enter starts.
+function titleKeys(ev, k) {
+  if (k === 'arrowleft' || k === 'arrowright') {
+    ev.preventDefault();
+    const i = MODES.indexOf(wantMode);
+    const next = i < 0 ? 0 : (i + (k === 'arrowright' ? 1 : MODES.length - 1)) % MODES.length;
+    pickMode(MODES[next]);
+    document.querySelector(`.mode[data-mode="${MODES[next]}"]`)?.focus();
+  } else if ((k === 'arrowdown' || k === 'arrowup') && wantMode === 'practice') {
+    ev.preventDefault();
+    const opts = [...document.querySelectorAll('#practiceList button[data-task]:not(:disabled)')];
+    if (!opts.length) return;
+    const i = opts.findIndex((b) => b.dataset.task === wantTask);
+    const b = opts[i < 0 ? 0 : (i + (k === 'arrowdown' ? 1 : opts.length - 1)) % opts.length];
+    wantTask = b.dataset.task;
+    renderModePanel();
+    $('practiceList').querySelector(`[data-task="${CSS.escape(wantTask)}"]`)?.scrollIntoView({ block: 'nearest' });
+  } else if (k === 'enter') {
+    ev.preventDefault();
+    startShift();
+  }
+}
 
 // ---------------------------------------------------------------- systems check
+// The check screen shows a check START is waiting on, or one run again by hand: a bar
+// weighted by how long each step took last time, and each step's own time.
 function renderCheck() {
-  const d = S.diag || { steps: [] };
-  const label = { arcade: 'ARCADE', marathon: 'MARATHON', practice: 'PRACTICE' }[wantMode] || '';
+  const d = S.diag || { steps: [], progress: 0, elapsed: 0 };
+  const mode = S.pending?.mode || wantMode;
+  const label = { arcade: 'ARCADE', marathon: 'MARATHON', practice: 'PRACTICE' }[mode] || '';
   $('checkFor').textContent = `${label ? label + ' · ' : ''}${S.bankTitle || ''} on ${S.stack?.frame || 'the cluster'}`;
   const mark = { pending: '···', running: '>>', ok: 'OK', warn: '!!', fail: 'XX' };
-  $('diagSteps').innerHTML = (d.steps || []).map((s) => `<li class="${esc(s.state)}"><span class="st">${mark[s.state] || '··'}</span><b>${esc(s.name)}</b>${s.detail ? `<small>${esc(s.detail)}</small>` : ''}</li>`).join('');
+  const steps = d.steps || [];
+  const time = (st) => (st.state === 'running' ? `${fmt(st.for || 0)}${st.est ? ` / ~${fmt(st.est)}` : ''}`
+    : ['ok', 'warn', 'fail'].includes(st.state) ? fmt(st.for || 0) : '');
+  const html = steps.length || d.done
+    ? steps.map((st) => `<li class="${esc(st.state)}"><span class="st">${mark[st.state] || '··'}</span><b>${esc(st.name)}</b><em class="t">${time(st)}</em>${st.detail ? `<small>${esc(st.detail)}</small>` : ''}</li>`).join('')
+    : `<li class="running"><span class="st">>></span><b>Contacting DBCanvas</b><em class="t">${fmt(d.elapsed || 0)}</em><small>The check starts on DBCanvas's next sync.</small></li>`;
+  setHTML($('diagSteps'), html);
+  const pct = Math.round((d.progress || 0) * 100);
+  const bar = $('diagBar');
+  bar.querySelector('i').style.width = `${Math.max(3, pct)}%`;
+  bar.querySelector('span').textContent = `${pct}%`;
+  bar.classList.toggle('failed', !!(d.done && !d.ok));
+  const usual = steps.reduce((n, st) => n + (st.est || 0), 0);
+  $('diagTime').textContent = d.done ? `took ${fmt(d.elapsed || 0)}` : `${fmt(d.elapsed || 0)} so far${usual ? ` · usually about ${fmt(usual)}` : ''}`;
   const v = $('diagVerdict');
   const ready = S.phase === 'ready';
   if (ready) { v.textContent = 'SYSTEMS NOMINAL'; v.className = 'verdict ok'; }
   else if (d.done && !d.ok) { v.textContent = 'SYSTEMS CHECK FAILED' + (d.error ? ' · ' + d.error : ''); v.className = 'verdict fail'; }
-  else { v.textContent = 'checking…'; v.className = 'verdict'; }
+  else if (d.done && d.ok) { v.textContent = 'SYSTEMS NOMINAL · STARTING…'; v.className = 'verdict ok'; }
+  else { v.textContent = S.pending ? 'checking… the shift starts when it passes' : 'checking…'; v.className = 'verdict'; }
   $('btnStart').classList.toggle('hidden', !ready);
   $('btnRecheck').classList.toggle('hidden', !(d.done && !d.ok) || ready);
   if (ready && !renderCheck.chimed) { renderCheck.chimed = true; Sound.seq([523, 784], 'square', 0.1); }
   if (!ready) renderCheck.chimed = false;
-  if (ready && wantSeed && wantMode) begin(); // a replay starts as soon as the check passes
 }
-async function begin() {
-  if (!wantMode) { toast('Pick a mode first'); return; }
-  const seed = wantSeed; wantSeed = 0;
-  await play({ do: 'begin', mode: wantMode, task: wantTask, seed }).catch(() => {});
-  Sound.stage();
-}
-$('btnStart').onclick = begin;
-$('btnRecheck').onclick = () => play({ do: 'check-system' }).catch(() => {});
-$('btnBack').onclick = () => play({ do: 'quit' }).catch(() => {});
+// The check screen's START, after a check run by hand: begins with the mode picked on
+// the title screen, or goes back there to pick one.
+$('btnStart').onclick = () => (wantMode ? startShift() : play({ do: 'title' }).catch(() => {}));
+$('btnRecheck').onclick = () => play({ do: 'check-system' }).then(refresh).catch(() => {});
+$('btnBack').onclick = () => play({ do: 'quit' }).then(refresh).catch(() => {});
 
 // ---------------------------------------------------------------- play
 function renderPlay() {
@@ -876,6 +1036,9 @@ addEventListener('keydown', (ev) => {
   if (k === 'm') Sound.toggle();
   if (k === 'escape') $('ctx').classList.add('hidden');
   if (!S) return;
+  if (S.phase === 'title') { titleKeys(ev, k); return; }
+  if ((S.phase === 'checking' || S.phase === 'ready') && k === 'escape') { $('btnBack').click(); return; }
+  if (S.phase === 'ready' && k === 'enter') { ev.preventDefault(); $('btnStart').click(); return; }
   if (k === 'p') play({ do: S.phase === 'paused' ? 'resume' : 'pause' }).catch(() => {});
   if (S.phase === 'playing' && ['1', '2', '3'].includes(k)) {
     const t = S.tickets.filter((x) => x.state !== 'cleared')[Number(k) - 1];
@@ -913,12 +1076,14 @@ function hideContinue() { clearInterval(continueTimer); $('continue').classList.
 $('btnDebrief').onclick = hideContinue;
 $('btnReplay').onclick = async () => {
   hideContinue();
-  wantSeed = S.debrief?.seed || 0;
+  const seed = S.debrief?.seed || 0;
   wantMode = S.debrief?.mode || 'arcade';
   await play({ do: 'title' }).catch(() => {});
-  await play({ do: 'check-system' }).catch(() => {});
+  wantSeed = seed;
+  await startShift();
 };
-$('btnNew').onclick = $('btnAgain').onclick = async () => { hideContinue(); wantSeed = 0; wantMode = null; await play({ do: 'title' }).catch(() => {}); };
+// A new shift goes back to the title screen with the last mode still picked.
+$('btnNew').onclick = $('btnAgain').onclick = async () => { hideContinue(); wantSeed = 0; await play({ do: 'title' }).catch(() => {}); await refresh(); };
 
 function renderOver() {
   const d = S.debrief;

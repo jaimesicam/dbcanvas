@@ -93,6 +93,10 @@ func main() {
 		switch body.Do {
 		case "check-system":
 			err = g.CheckSystem()
+		case "precheck":
+			err = g.Precheck()
+		case "start":
+			err = g.Start(body.Mode, body.Task, body.Seed)
 		case "begin":
 			err = g.Begin(body.Mode, body.Task, body.Seed)
 		case "pause":

@@ -57,6 +57,13 @@ const (
 	clearLinger = 5 * time.Second
 	// A setup the game has not timed yet is expected to take this long.
 	setupGuess = 30 * time.Second
+	// A passed systems check is good for this long: START within it begins the shift at
+	// once. A check that failed is not run again in the background for as long.
+	checkFresh = 10 * time.Minute
+	// A systems-check step the game has not timed yet is expected to take this long.
+	diagStepGuess = 4 * time.Second
+	// The page counts as open while it asked for the state this recently.
+	watchedFor = 10 * time.Second
 )
 
 // Ticket is one drawn task.
@@ -149,6 +156,11 @@ type Game struct {
 	mode     string
 	practice string
 	diag     *Diag
+	// pending is a START waiting on the systems check: the shift begins when it passes.
+	pending *startReq
+	// diagTimes is how long each systems-check step took last time, by name, in seconds.
+	diagTimes map[string]float64
+	lastView  time.Time
 
 	seed        int64
 	rng         *rand.Rand
@@ -199,6 +211,25 @@ type Diag struct {
 	Done  bool       `json:"done"`
 	OK    bool       `json:"ok"`
 	Error string     `json:"error,omitempty"`
+	// Background is a check the title screen started before anyone pressed START.
+	Background bool `json:"background,omitempty"`
+	// For the page: how far along it is (0..1, from how long each step took before), the
+	// seconds it has run, and once done, how long ago it finished and whether it still counts.
+	Progress float64 `json:"progress"`
+	Elapsed  float64 `json:"elapsed"`
+	Age      float64 `json:"age,omitempty"`
+	Fresh    bool    `json:"fresh,omitempty"`
+
+	startedAt, doneAt, lastAt time.Time
+	stepStart                 map[string]time.Time
+	stepTook                  map[string]float64
+}
+
+// startReq is a START that waits for the systems check.
+type startReq struct {
+	Mode string `json:"mode"`
+	Task string `json:"task,omitempty"`
+	seed int64
 }
 
 func New(now func() time.Time) *Game {
@@ -206,7 +237,7 @@ func New(now func() time.Time) *Game {
 		now = time.Now
 	}
 	return &Game{now: now, phase: PhaseTitle, actions: map[string]Action{}, drawn: map[string]int{},
-		boot: fmt.Sprintf("%06x", rand.Int63()&0xffffff)}
+		diagTimes: map[string]float64{}, boot: fmt.Sprintf("%06x", rand.Int63()&0xffffff)}
 }
 
 // ---------------------------------------------------------------- DBCanvas sync
@@ -260,6 +291,7 @@ func (g *Game) Sync(req SyncRequest) SyncResponse {
 		resp.Save, _ = json.Marshal(g.save)
 		g.saveDirty = false
 	}
+	resp.Soon = (!g.lastView.IsZero() && t.Sub(g.lastView) <= watchedFor) || (g.diag != nil && !g.diag.Done)
 	return resp
 }
 
@@ -283,22 +315,10 @@ func (g *Game) apply(r Result) bool {
 	switch r.Op {
 	case "diagnose":
 		if g.diag != nil && g.diag.ID == r.ID {
+			g.timeSteps(r.Steps)
 			g.diag.Steps = r.Steps
 			if r.Done {
-				g.diag.Done, g.diag.OK, g.diag.Error = true, r.OK && r.Error == "", r.Error
-				if r.Env != nil {
-					g.env = *r.Env
-				}
-				if g.phase == PhaseChecking {
-					if g.diag.OK && g.playable() > 0 {
-						g.phase = PhaseReady
-					} else {
-						if g.diag.OK {
-							g.diag.OK, g.diag.Error = false, "no task in the bank can run on this cluster"
-						}
-						g.phase = PhaseTitle
-					}
-				}
+				g.diagDone(r)
 			}
 		}
 	case "setup":
@@ -326,12 +346,18 @@ func (g *Game) apply(r Result) bool {
 
 // ---------------------------------------------------------------- the player's moves
 
-// CheckSystem starts the systems check.
+// CheckSystem runs the systems check in front of the player: the check screen shows it.
+// A check already running (one the title screen started) is taken over instead of
+// started again. A START waiting on the check stays waiting.
 func (g *Game) CheckSystem() error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	switch g.phase {
 	case PhaseTitle, PhaseReady, PhaseOver:
+	case PhaseChecking:
+		if g.diag != nil && !g.diag.Done {
+			return nil
+		}
 	default:
 		return fmt.Errorf("a game is in progress")
 	}
@@ -339,22 +365,197 @@ func (g *Game) CheckSystem() error {
 		return err
 	}
 	if g.diag != nil && !g.diag.Done {
+		g.diag.Background = false
+		g.phase = PhaseChecking
 		return nil
 	}
-	a := g.newAction("diagnose", nil)
-	g.diag = &Diag{ID: a.ID}
-	g.phase = PhaseChecking
-	g.resetRun()
+	g.startDiag(false)
 	return nil
 }
 
-// Begin starts a shift. A mode needs a passed systems check, at most 10 minutes old.
+// Precheck runs the systems check quietly while the title screen is up, so START can
+// begin the shift at once. It does nothing while a check runs, or when one finished
+// within checkFresh, passed or failed: a failed one is run again by START.
+func (g *Game) Precheck() error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.phase != PhaseTitle {
+		return nil
+	}
+	if err := g.connectedErr(); err != nil {
+		return err
+	}
+	if d := g.diag; d != nil && (!d.Done || g.now().Sub(d.doneAt) <= checkFresh) {
+		return nil
+	}
+	g.startDiag(true)
+	return nil
+}
+
+// Start is the title screen's START. With a systems check passed in the last checkFresh
+// the shift begins at once; otherwise the check runs on the check screen (or the one
+// already running moves there) and the shift begins the moment it passes.
+func (g *Game) Start(mode, task string, seed int64) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	switch g.phase {
+	case PhaseTitle, PhaseReady, PhaseChecking:
+	default:
+		return fmt.Errorf("a game is in progress")
+	}
+	if err := g.connectedErr(); err != nil {
+		return err
+	}
+	if err := g.canBegin(mode, task); err != nil {
+		return err
+	}
+	if g.checkPassed() {
+		g.begin(mode, task, seed)
+		return nil
+	}
+	g.pending = &startReq{Mode: mode, Task: task, seed: seed}
+	if g.diag != nil && !g.diag.Done {
+		g.diag.Background = false
+		g.phase = PhaseChecking
+		return nil
+	}
+	g.startDiag(false)
+	return nil
+}
+
+// startDiag asks DBCanvas for a systems check. In the background the title screen stays up
+// and nothing of the last shift is reset.
+func (g *Game) startDiag(background bool) {
+	a := g.newAction("diagnose", nil)
+	t := g.now()
+	g.diag = &Diag{ID: a.ID, Background: background, startedAt: t, lastAt: t,
+		stepStart: map[string]time.Time{}, stepTook: map[string]float64{}}
+	if !background {
+		g.phase = PhaseChecking
+		g.resetRun()
+	}
+}
+
+// checkPassed reports whether a systems check passed recently enough to begin a shift.
+func (g *Game) checkPassed() bool {
+	d := g.diag
+	return d != nil && d.Done && d.OK && g.now().Sub(d.doneAt) <= checkFresh && g.playable() > 0
+}
+
+// diagDone takes in the systems check's result. On the check screen a pass begins the
+// waiting START's shift, or offers START; a failure stays on the screen with the failed
+// step, to be checked again. In the background the result is only kept.
+func (g *Game) diagDone(r Result) {
+	d := g.diag
+	d.Done, d.OK, d.Error = true, r.OK && r.Error == "", r.Error
+	d.doneAt = g.now()
+	for name, took := range d.stepTook {
+		g.diagTimes[name] = took
+	}
+	if r.Env != nil {
+		g.env = *r.Env
+	}
+	if d.OK && g.playable() == 0 {
+		d.OK, d.Error = false, "no task in the bank can run on this cluster"
+	}
+	if g.phase != PhaseChecking || !d.OK {
+		return
+	}
+	if p := g.pending; p != nil {
+		err := g.canBegin(p.Mode, p.Task)
+		if err == nil {
+			g.begin(p.Mode, p.Task, p.seed)
+			return
+		}
+		g.emit(Event{Kind: "error", Text: err.Error()})
+		g.pending = nil
+	}
+	g.phase = PhaseReady
+}
+
+// timeSteps notes when each step started and how long it took, in the game's own time.
+// A step DBCanvas reports already finished is timed from the last report.
+func (g *Game) timeSteps(steps []DiagStep) {
+	d := g.diag
+	t := g.now()
+	for _, s := range steps {
+		switch s.State {
+		case "running":
+			if d.stepStart[s.Name].IsZero() {
+				d.stepStart[s.Name] = t
+			}
+		case "ok", "warn", "fail":
+			if _, ok := d.stepTook[s.Name]; !ok {
+				from := d.stepStart[s.Name]
+				if from.IsZero() {
+					from = d.lastAt
+				}
+				d.stepTook[s.Name] = math.Max(0, t.Sub(from).Seconds())
+			}
+		}
+	}
+	d.lastAt = t
+}
+
+// diagView is the systems check for the page, with its progress worked out.
+func (g *Game) diagView() *Diag {
+	if g.diag == nil {
+		return nil
+	}
+	t := g.now()
+	d := *g.diag
+	d.Steps = append([]DiagStep(nil), g.diag.Steps...)
+	var total, done float64
+	for i, s := range d.Steps {
+		est := g.diagTimes[s.Name]
+		if est <= 0 {
+			est = diagStepGuess.Seconds()
+		}
+		d.Steps[i].Est = math.Round(est)
+		total += est
+		switch s.State {
+		case "ok", "warn", "fail":
+			done += est
+			d.Steps[i].For = math.Round(g.diag.stepTook[s.Name])
+		case "running":
+			run := 0.0
+			if from := g.diag.stepStart[s.Name]; !from.IsZero() {
+				run = t.Sub(from).Seconds()
+			}
+			d.Steps[i].For = math.Round(run)
+			done += math.Min(run, est*0.9)
+		}
+	}
+	if total > 0 {
+		d.Progress = math.Min(0.99, done/total)
+	}
+	end := t
+	if d.Done {
+		end = d.doneAt
+		d.Progress = 1
+		d.Age = math.Round(t.Sub(d.doneAt).Seconds())
+		d.Fresh = d.OK && t.Sub(d.doneAt) <= checkFresh
+	}
+	d.Elapsed = math.Round(end.Sub(d.startedAt).Seconds())
+	return &d
+}
+
+// Begin starts a shift from the check screen's START, after a check passed.
 func (g *Game) Begin(mode, task string, seed int64) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.phase != PhaseReady {
 		return fmt.Errorf("run the systems check first")
 	}
+	if err := g.canBegin(mode, task); err != nil {
+		return err
+	}
+	g.begin(mode, task, seed)
+	return nil
+}
+
+// canBegin reports why a shift in mode (and for practice, task) cannot begin.
+func (g *Game) canBegin(mode, task string) error {
 	if g.bank == nil {
 		return fmt.Errorf("no task bank yet")
 	}
@@ -371,7 +572,12 @@ func (g *Game) Begin(mode, task string, seed int64) error {
 	default:
 		return fmt.Errorf("mode is arcade, marathon or practice")
 	}
+	return nil
+}
+
+func (g *Game) begin(mode, task string, seed int64) {
 	g.resetRun()
+	g.pending = nil
 	if seed == 0 {
 		seed = g.now().UnixNano() & 0x7fffffff
 	}
@@ -385,7 +591,6 @@ func (g *Game) Begin(mode, task string, seed int64) error {
 		pt, _ := g.publicTask(task)
 		g.spawn(pt)
 	}
-	return nil
 }
 
 func (g *Game) resetRun() {
@@ -495,7 +700,9 @@ func (g *Game) Quit() error {
 		g.end("quit")
 		return nil
 	case PhaseChecking, PhaseReady:
+		// A check still running carries on in the background; its result is kept.
 		g.phase = PhaseTitle
+		g.pending = nil
 		return nil
 	}
 	return fmt.Errorf("nothing to quit")
@@ -510,6 +717,7 @@ func (g *Game) Title() error {
 	}
 	g.phase = PhaseTitle
 	g.enterInitial = false
+	g.pending = nil
 	return nil
 }
 
