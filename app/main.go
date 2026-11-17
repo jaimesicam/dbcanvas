@@ -102,6 +102,7 @@ func main() {
 	// Every published host port is chosen on the host, pinned and recorded
 	// (hostports.go); the record is rebuilt from the containers before anything deploys.
 	app.docker.portGuard = app.guardPublish
+	app.docker.pullMissing = app.pullMissing
 	app.reseedHostPorts(context.Background())
 
 	// Nodes a previous process was still provisioning can never finish now (deployrun.go).

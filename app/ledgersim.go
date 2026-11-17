@@ -476,8 +476,8 @@ func (a *App) provisionLedgerSim(st Stack, n designNode, doc designDoc) {
 		pr := a.pxcNewProg(st.ID, n.ID)
 		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 
-		if ok, _ := a.engCtx(ctx).ImageExists(ctx, ledgerSimImage); !ok {
-			pr.fail("image %s not found — run `make ledgersim-image` first", ledgerSimImage)
+		if err := a.ensureImage(ctx, a.engCtx(ctx), ledgerSimImage, pr.logln); err != nil {
+			pr.fail("%v", err)
 			return
 		}
 
@@ -692,9 +692,8 @@ func (a *App) handleLedgerSimTest(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	eng := a.engCtx(ctx)
-	if ok, _ := eng.ImageExists(ctx, ledgerSimImage); !ok {
-		writeErr(w, http.StatusPreconditionFailed,
-			"image "+ledgerSimImage+" not found — run `make ledgersim-image` first")
+	if err := a.ensureImage(ctx, eng, ledgerSimImage, nil); err != nil {
+		writeErr(w, http.StatusPreconditionFailed, err.Error())
 		return
 	}
 

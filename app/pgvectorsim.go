@@ -209,8 +209,8 @@ func (a *App) provisionPGVectorSim(st Stack, n designNode, doc designDoc) {
 		pr := a.pxcNewProg(st.ID, n.ID)
 		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 
-		if ok, _ := a.engCtx(ctx).ImageExists(ctx, supportSimImage); !ok {
-			pr.fail("image %s not found — run `make supportsim-image` first", supportSimImage)
+		if err := a.ensureImage(ctx, a.engCtx(ctx), supportSimImage, pr.logln); err != nil {
+			pr.fail("%v", err)
 			return
 		}
 		pr.phase("Waiting for Intranet to be ready", 8)

@@ -119,8 +119,8 @@ func (a *App) provisionVNC(st Stack, n designNode, doc designDoc) {
 		pr := a.pxcNewProg(st.ID, n.ID)
 		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 
-		if ok, _ := a.engCtx(ctx).ImageExists(ctx, image); !ok {
-			pr.fail("image %s not found — run `make vnc-image` first", image)
+		if err := a.ensureImage(ctx, a.engCtx(ctx), image, pr.logln); err != nil {
+			pr.fail("%v", err)
 			return
 		}
 

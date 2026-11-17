@@ -263,8 +263,8 @@ func (a *App) provisionPagerPanic(st Stack, n designNode, doc designDoc) {
 		defer endScope()
 		pr := a.pxcNewProg(st.ID, n.ID)
 		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
-		if ok, _ := a.engCtx(ctx).ImageExists(ctx, pagerPanicImage); !ok {
-			pr.fail("image %s not found — run `make pagerpanic-image` first", pagerPanicImage)
+		if err := a.ensureImage(ctx, a.engCtx(ctx), pagerPanicImage, pr.logln); err != nil {
+			pr.fail("%v", err)
 			return
 		}
 		banks, errs := pagerPanicBanks()

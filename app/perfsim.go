@@ -262,8 +262,8 @@ func (a *App) provisionPerfSim(st Stack, n designNode, doc designDoc) {
 		pr := a.pxcNewProg(st.ID, n.ID)
 		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 
-		if ok, _ := a.engCtx(ctx).ImageExists(ctx, perfSimImage); !ok {
-			pr.fail("image %s not found — run `make perfsim-image` first", perfSimImage)
+		if err := a.ensureImage(ctx, a.engCtx(ctx), perfSimImage, pr.logln); err != nil {
+			pr.fail("%v", err)
 			return
 		}
 		pr.phase("Waiting for Intranet to be ready", 8)

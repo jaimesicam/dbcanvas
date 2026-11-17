@@ -1311,7 +1311,7 @@ func (a *App) runningFrames(st Stack, doc designDoc) map[string]bool {
 }
 
 func (a *App) validateStack(ctx context.Context, st Stack) []issue {
-	return a.adoptableImageHints(ctx, a.validateStackIssues(ctx, st))
+	return a.adoptableImageHints(ctx, a.pullableImageIssues(ctx, a.validateStackIssues(ctx, st)))
 }
 
 func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
@@ -2945,11 +2945,11 @@ func (a *App) provisionIntranet(st Stack, n designNode) {
 		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 
 		// The Intranet runs the pre-baked image, not a base image: without it there is
-		// nothing to configure, so say which command builds it rather than letting the
-		// container create fail with "no such image".
+		// nothing to configure. A missing one is pulled (imagepull.go), and one that cannot
+		// be is the node's error, with the reason.
 		img := intranetImage(n.Arch)
-		if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
-			failNode("image %s not found — run `make intranet-image` first", img)
+		if err := a.ensureImage(ctx, a.engCtx(ctx), img, logln); err != nil {
+			failNode("%v", err)
 			return
 		}
 

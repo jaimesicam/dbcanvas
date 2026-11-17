@@ -205,8 +205,8 @@ func (a *App) handlePerfSimTest(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	eng := a.engCtx(ctx)
-	if ok, _ := eng.ImageExists(ctx, perfSimImage); !ok {
-		writeErr(w, http.StatusPreconditionFailed, "image "+perfSimImage+" not found — run `make perfsim-image` first")
+	if err := a.ensureImage(ctx, eng, perfSimImage, nil); err != nil {
+		writeErr(w, http.StatusPreconditionFailed, err.Error())
 		return
 	}
 	network := networkName(st.ID)

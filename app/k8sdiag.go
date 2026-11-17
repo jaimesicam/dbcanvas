@@ -187,8 +187,8 @@ func (a *App) runK8sCollect(ctx context.Context, st Stack, frame designFrame, se
 	}
 
 	eng := a.engCtx(ctx)
-	if ok, _ := eng.ImageExists(ctx, k8sCollectorImage()); !ok {
-		return nil, fmt.Errorf("the collector image %s is not built — run `make k8scollector-image`", k8sCollectorImage())
+	if err := a.ensureImage(ctx, eng, k8sCollectorImage(), nil); err != nil {
+		return nil, fmt.Errorf("the collector image: %w", err)
 	}
 	cid, err := eng.ContainerCreate(ctx, ContainerSpec{
 		Name:      helperName("k8scollect", time.Now().UnixNano()),

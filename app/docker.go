@@ -33,8 +33,11 @@ type Docker struct {
 	// portGuard chooses, checks and reserves every host port a create publishes
 	// (hostports.go). Nil in tests that build a bare client.
 	portGuard func(ctx context.Context, spec *ContainerSpec) error
-	selfOnce  sync.Once
-	selfImg   string // the app's own image when it runs in a container, else ""
+	// pullMissing fetches an image a container create found missing (imagepull.go); the
+	// create is then tried once more. Nil leaves a missing image an error.
+	pullMissing func(ctx context.Context, ref string) error
+	selfOnce    sync.Once
+	selfImg     string // the app's own image when it runs in a container, else ""
 }
 
 // NewDocker returns a client bound to the given unix socket path.
@@ -273,9 +276,89 @@ func (d *Docker) ImagePull(ctx context.Context, repo, tag, platform string) erro
 		return errBody("pull image", resp)
 	}
 	// The body streams newline-delimited JSON until the pull finishes; reading
-	// it to EOF is what makes this call block until the image is present.
-	io.Copy(io.Discard, resp.Body)
+	// it to EOF is what makes this call block until the image is present. A pull
+	// that fails after it started (an unknown manifest, a denied layer) still
+	// answers 200 and says so in the stream, so the stream is read for it.
+	dec := json.NewDecoder(resp.Body)
+	for {
+		var m struct {
+			Error       string `json:"error"`
+			ErrorDetail struct {
+				Message string `json:"message"`
+			} `json:"errorDetail"`
+		}
+		if err := dec.Decode(&m); err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return fmt.Errorf("pull image: %v", err)
+		}
+		if msg := firstNonEmpty(m.ErrorDetail.Message, m.Error); msg != "" {
+			io.Copy(io.Discard, resp.Body)
+			return fmt.Errorf("%s", msg)
+		}
+	}
+}
+
+// ImageArch is a local image's architecture (amd64, arm64).
+func (d *Docker) ImageArch(ctx context.Context, ref string) (string, error) {
+	resp, err := d.do(ctx, "GET", "/images/"+ref+"/json", nil)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode != 200 {
+		return "", errBody("inspect image", resp)
+	}
+	var out struct {
+		Architecture string `json:"Architecture"`
+	}
+	if err := json.Unmarshal(drain(resp), &out); err != nil {
+		return "", err
+	}
+	return out.Architecture, nil
+}
+
+// ImageTag gives the local image src the name repo:tag as well.
+func (d *Docker) ImageTag(ctx context.Context, src, repo, tag string) error {
+	q := url.Values{"repo": {repo}, "tag": {tag}}
+	resp, err := d.do(ctx, "POST", "/images/"+src+"/tag?"+q.Encode(), nil)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != 201 {
+		return errBody("tag image", resp)
+	}
+	drain(resp)
 	return nil
+}
+
+// RemoteImageExists asks the registry, through the daemon and without pulling, whether it
+// has ref (registry/repo:tag) — for platform, when the registry lists platforms for it.
+func (d *Docker) RemoteImageExists(ctx context.Context, ref, platform string) error {
+	resp, err := d.do(ctx, "GET", "/distribution/"+ref+"/json", nil)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != 200 {
+		return errBody("look up image", resp)
+	}
+	var out struct {
+		Platforms []struct {
+			Architecture string `json:"architecture"`
+			OS           string `json:"os"`
+		} `json:"Platforms"`
+	}
+	if json.Unmarshal(drain(resp), &out) != nil || len(out.Platforms) == 0 || platform == "" {
+		return nil
+	}
+	var have []string
+	for _, p := range out.Platforms {
+		if p.OS+"/"+p.Architecture == platform {
+			return nil
+		}
+		have = append(have, p.OS+"/"+p.Architecture)
+	}
+	return fmt.Errorf("it has %s, not %s", strings.Join(have, ", "), platform)
 }
 
 // PutArchive extracts a tar archive into dir inside a container (the Docker
@@ -676,6 +759,19 @@ func (d *Docker) ContainerCreate(ctx context.Context, spec ContainerSpec) (strin
 	resp, err := d.do(ctx, "POST", "/containers/create?"+q.Encode(), body)
 	if err != nil {
 		return "", err
+	}
+	// An image this host does not have yet is pulled, and the create tried once more.
+	if resp.StatusCode == 404 && d.pullMissing != nil && ownImage(spec.Image) {
+		cerr := errBody("create container", resp)
+		if !strings.Contains(strings.ToLower(cerr.Error()), "no such image") {
+			return "", cerr
+		}
+		if err := d.pullMissing(ctx, spec.Image); err != nil {
+			return "", fmt.Errorf("container %s: %w", spec.Name, err)
+		}
+		if resp, err = d.do(ctx, "POST", "/containers/create?"+q.Encode(), body); err != nil {
+			return "", err
+		}
 	}
 	if resp.StatusCode != 201 {
 		return "", errBody("create container", resp)

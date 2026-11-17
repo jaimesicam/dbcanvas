@@ -44,6 +44,9 @@ services:
       # base images that exist here (produced by `make images`). Two files because
       # `make images` runs often and `make versions` takes hours. On linux/arm64
       # the app reads versions-arm64.yaml from the same directory instead.
+      # Where a deploy pulls a DBCanvas node image this host is missing (app/imagepull.go);
+      # the same registry `make pull-images` uses. `off` turns those pulls off.
+      IMAGE_REGISTRY: ${IMAGE_REGISTRY:-ghcr.io/jaimesicam}
       VERSIONS_FILE: /etc/dbcanvas/versions.yaml
       IMAGES_FILE: /etc/dbcanvas/images.yaml
       # Default DB users created on deployed Percona XtraDB Cluster nodes.
