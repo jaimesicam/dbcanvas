@@ -58,6 +58,8 @@ Usage:
                                 show the version catalogue in use; update downloads the
                                 newest into the data folder, reset goes back to the built-in one
   dbcanvas network check        where the next stack network would go, and what rules ranges out
+  dbcanvas rotate-key           re-encrypt the database's secrets under a new key (stops the
+                                service while it runs; stacks keep running)
   dbcanvas version              print the version
 
 Any command that needs the service starts it, in the background, and returns at once.
@@ -131,6 +133,8 @@ func runCLI(args []string) int {
 		err = cliVersions(rest)
 	case "network":
 		err = cliNetwork(rest)
+	case "rotate-key":
+		err = cliRotateKey(rest)
 	case "down":
 		err = cliStackAction(rest, "down", "POST", "/destroy", "Removed the containers of %s; its design is kept.")
 	case "rm":
