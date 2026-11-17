@@ -24,12 +24,21 @@ RUN grep -q '^ip_resolve=' /etc/dnf/dnf.conf 2>/dev/null || echo 'ip_resolve=4' 
 # bind (DNS), postfix + dovecot (mail), OpenLDAP, and the webmail stack. httpd/php-fpm
 # arrive with roundcubemail but are never started — dbcanvas-roundcube.service serves
 # Roundcube with php's built-in server instead (see "Configure webmail").
+#
+# openldap-servers comes from EPEL and requires one exact openldap version, which
+# can trail Oracle Linux's own (EPEL's 2.6.8 needs openldap = 2.6.8 while baseos
+# moved to 2.6.13, and the base image has the newer one installed). So openldap and
+# openldap-clients are installed at whatever version openldap-servers asks for —
+# a downgrade when EPEL trails, nothing when the two agree.
 RUN set -eux; \
     (dnf -y install oracle-epel-release-el9 || dnf -y install epel-release); \
     (dnf config-manager --set-enabled ol9_codeready_builder || true); \
+    ldapver="$(dnf -q repoquery --requires openldap-servers 2>/dev/null | sed -n 's/^openldap(.*) = //p' | sort -V | tail -1)"; \
+    ldap="openldap-clients"; \
+    [ -z "$ldapver" ] || ldap="openldap-$ldapver openldap-clients-$ldapver"; \
     dnf -y install \
       rsyslog squid bind bind-utils postfix dovecot \
-      openldap-servers openldap-clients \
+      $ldap openldap-servers \
       httpd php php-fpm roundcubemail mod_ssl \
       openssl net-tools; \
     dnf clean all; \
