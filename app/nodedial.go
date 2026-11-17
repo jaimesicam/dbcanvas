@@ -67,10 +67,18 @@ func (a *App) stackDial(stackID int64, prefer string) dialFunc {
 	}
 }
 
-// relayScript connects to $H:$P and copies both ways: the exec's stdin to the socket and
-// the socket to the exec's stdout. When the caller closes its side, the reader is stopped
-// rather than left waiting on a server that may never close.
-const relayScript = `exec 3<>"/dev/tcp/$H/$P" || exit 7; cat <&3 & r=$!; cat >&3; kill "$r" 2>/dev/null; wait "$r" 2>/dev/null; exit 0`
+// relayScript connects to $H:$P, announces it on stderr (relayOK), and copies both ways:
+// the exec's stdin to the socket and the socket to the exec's stdout. When the caller
+// closes its side, the reader is stopped rather than left waiting on a server that may
+// never close.
+const relayScript = `exec 3<>"/dev/tcp/$H/$P" || exit 7; printf 'dbcanvas-relay-ok\n' >&2; cat <&3 & r=$!; cat >&3; kill "$r" 2>/dev/null; wait "$r" 2>/dev/null; exit 0`
+
+// relayOK is what the relay writes on stderr once its socket is open.
+const relayOK = "dbcanvas-relay-ok\n"
+
+// relayConnectTimeout bounds a relay's connect, like the direct dialer's timeout: bash's
+// /dev/tcp has none of its own, and an address that drops packets would hang for minutes.
+const relayConnectTimeout = 10 * time.Second
 
 // relays remembers the relay found for a stack, so a dial does not search every time.
 var relays = struct {
@@ -98,7 +106,7 @@ func (a *App) tunnelDial(ctx context.Context, stackID int64, prefer, addr string
 		if err != nil {
 			return nil, err
 		}
-		return c.ready(addr)
+		return c.ready(ctx, addr)
 	}
 	for _, cid := range []string{prefer, cached} {
 		if cid == "" || tried[cid] {
@@ -232,35 +240,73 @@ func (d *Docker) StreamExec(ctx context.Context, containerID string, cmd, env []
 	return &execStream{c: conn, r: br, d: d, execID: ec.ID}, nil
 }
 
-// ready waits for the relay to either connect or fail. Nothing is written before the
-// target answers in some protocols (MySQL's server speaks first), so this cannot wait for
-// data; it waits a moment for an early exit instead, which is how a refused connection
-// or a container without bash shows.
-func (s *execStream) ready(addr string) (net.Conn, error) {
+// ready waits for the relay to connect or fail. The relay writes relayOK on stderr once
+// its socket is open, so a connection is ready as soon as that arrives, whichever side of
+// the protocol speaks first; a failed connect or a container without bash ends the exec
+// instead, and its exit code and stderr say which.
+func (s *execStream) ready(ctx context.Context, addr string) (net.Conn, error) {
 	s.addr = addr
-	deadline := time.Now().Add(150 * time.Millisecond)
-	for time.Now().Before(deadline) {
-		code, running, err := s.d.execState(context.Background(), s.execID)
+	deadline := time.Now().Add(relayConnectTimeout)
+	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+		deadline = d
+	}
+	s.c.SetReadDeadline(deadline)
+	defer s.c.SetReadDeadline(time.Time{})
+	var hdr [8]byte
+	for {
+		_, err := io.ReadFull(s.r, hdr[:])
+		if err == nil {
+			buf := make([]byte, binary.BigEndian.Uint32(hdr[4:]))
+			_, err = io.ReadFull(s.r, buf)
+			if err == nil {
+				if hdr[0] == 1 {
+					// Output before the announcement can only follow a connect: keep it.
+					s.pending = append(s.pending, buf...)
+					return s, nil
+				}
+				s.stderr.Write(buf)
+				if msg := s.stderr.String(); strings.Contains(msg, relayOK) {
+					s.stderr.Reset()
+					s.stderr.WriteString(strings.Replace(msg, relayOK, "", 1))
+					return s, nil
+				}
+				continue
+			}
+		}
+		s.c.Close()
+		var ne net.Error
+		if errors.As(err, &ne) && ne.Timeout() {
+			return nil, fmt.Errorf("tunnel to %s: timed out connecting", addr)
+		}
+		return nil, s.relayFailure(addr)
+	}
+}
+
+// relayFailure explains a relay that ended before connecting, from its exit code and stderr.
+func (s *execStream) relayFailure(addr string) error {
+	code := -1
+	for i := 0; i < 10; i++ {
+		c, running, err := s.d.execState(context.Background(), s.execID)
 		if err != nil {
 			break
 		}
 		if !running {
-			s.c.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
-			io.Copy(io.Discard, s) // collect stderr for the message
-			s.c.Close()
-			msg := strings.TrimSpace(s.stderr.String())
-			if code == 126 || code == 127 || strings.Contains(msg, "executable file not found") {
-				return nil, fmt.Errorf("%w: %s", errRelayUnusable, firstNonEmpty(msg, "no bash"))
-			}
-			if code == 0 && msg == "" {
-				// It connected and the target closed at once: still a connection, but empty.
-				return nil, fmt.Errorf("tunnel to %s: the connection closed at once", addr)
-			}
-			return nil, fmt.Errorf("tunnel to %s: %s", addr, firstNonEmpty(msg, "connection refused"))
+			code = c
+			break
 		}
-		time.Sleep(40 * time.Millisecond)
+		time.Sleep(20 * time.Millisecond)
 	}
-	return s, nil
+	msg := strings.TrimSpace(s.stderr.String())
+	if code == 126 || code == 127 || strings.Contains(msg, "executable file not found") {
+		return fmt.Errorf("%w: %s", errRelayUnusable, firstNonEmpty(msg, "no bash"))
+	}
+	if msg != "" {
+		// bash's message names the script; keep its last part ("Connection refused").
+		if k := strings.LastIndex(msg, ": "); k >= 0 {
+			msg = msg[k+2:]
+		}
+	}
+	return fmt.Errorf("tunnel to %s: %s", addr, firstNonEmpty(msg, "connection refused"))
 }
 
 // execState reports an exec's exit code and whether it still runs.

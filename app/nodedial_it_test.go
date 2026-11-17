@@ -88,5 +88,19 @@ func TestTunnelReachesAStackNode(t *testing.T) {
 	// A refused port is an error at dial time, not a connection that hangs.
 	if _, err := a.tunnelDial(ctx, 0, cid, strings.Split(addr, ":")[0]+":1"); err == nil {
 		t.Fatal("a closed port was accepted")
+	} else {
+		t.Logf("closed port: %v", err)
+	}
+
+	// An address that drops packets fails at the caller's deadline instead of hanging.
+	short, cancelShort := context.WithTimeout(ctx, 2*time.Second)
+	defer cancelShort()
+	start = time.Now()
+	if _, err := a.tunnelDial(short, 0, cid, "192.0.2.1:3306"); err == nil {
+		t.Fatal("an unreachable address was accepted")
+	} else if took := time.Since(start); took > 4*time.Second {
+		t.Fatalf("unreachable address took %s: %v", took, err)
+	} else {
+		t.Logf("unreachable address after %s: %v", took.Round(time.Millisecond), err)
 	}
 }
