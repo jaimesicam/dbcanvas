@@ -320,11 +320,13 @@ dbcanvas rm pxc-lab                  # remove everything
 | Task | Commands |
 | --- | --- |
 | Open the browser, signed in | `dbcanvas`, `dbcanvas open --print` |
-| Stacks | `ls`, `export`, `up -f FILE [--platform amd64\|arm64] [--dry-run] [--wait]`, `down`, `rm` |
+| Stacks | `ls`, `export`, `up -f FILE` or `up NAME --node SPEC… [--ttl 8h]`, with `[--dry-run] [--wait] [--json]`, `down`, `rm` |
+| Nodes | `exec STACK NODE -- CMD` (the command's output and exit status), `cp STACK NODE:/path ./file` and back |
 | Scripts and other programs | `token create NAME [--scope read\|write\|admin] [--own-stacks] [--label k=v] [--max-ttl 8h]`, `token ls`, `token rm` |
 | Node passwords | `passwords [NAME]` |
 | The service | `status`, `stop` |
 | Upkeep | `versions [update\|reset]`, `doctor`, `network check`, `rotate-key`, `version` |
+| Scripts | `--json` on `ls`, `status`, `up` and `exec`; `kinds`, `commands --json` |
 
 Everything else is in the [HTTP API](docs/API.md), with a token. → [The `dbcanvas` command](docs/CLI.md)
 

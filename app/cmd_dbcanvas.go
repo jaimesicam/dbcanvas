@@ -31,46 +31,6 @@ import (
 // when it is busy.
 const soloPort = "8080"
 
-const cliUsage = `dbcanvas — database labs on Docker
-
-Usage:
-  dbcanvas                      open dbcanvas in the browser, signed in
-  dbcanvas open [--print]       the same; --print prints the one-time sign-in link instead
-                                (for another browser, or over an SSH tunnel)
-  dbcanvas ls                   list your stacks
-  dbcanvas export STACK [-o FILE]
-                                write a stack as a stack file (YAML)
-  dbcanvas up -f FILE [--platform amd64|arm64] [--dry-run] [--wait] [--timeout 1h]
-                                create or update the stack in FILE, then deploy it;
-                                --platform sets the database nodes' architecture
-  dbcanvas down STACK           remove a stack's containers, keep its design
-  dbcanvas rm STACK             delete a stack and everything it deployed
-  dbcanvas token create NAME [--scope read|write|admin] [--days 30]
-                     [--own-stacks] [--label k=v]... [--max-ttl 8h] [--deny TYPE,...]
-                                an API token for a script or another user of this computer
-  dbcanvas token ls | token rm ID
-  dbcanvas passwords [NAME]     the passwords of the accounts on nodes (root, admin, …):
-                                generated on first run, or set in config.yaml's env:
-  dbcanvas status               whether the dbcanvas service runs, and what keeps it up
-  dbcanvas stop                 stop the service (stacks keep running; it starts again
-                                with the next command that needs it)
-  dbcanvas versions [update|reset]
-                                show the version catalogue in use; update downloads the
-                                newest into the data folder, reset goes back to the built-in one
-  dbcanvas doctor               check Docker, images, catalogues, data folder, networks, k3d,
-                                the bundled files and the service, and say how to fix what fails
-  dbcanvas network check        where the next stack network would go, and what rules ranges out
-  dbcanvas rotate-key           re-encrypt the database's secrets under a new key (stops the
-                                service while it runs; stacks keep running)
-  dbcanvas version              print the version
-
-Any command that needs the service starts it, in the background, and returns at once.
-It stops by itself when no stack has containers and nothing has used it for 10 minutes.
-
-Data folder: %s (DBCANVAS_DATA overrides it). Settings are in its config.yaml;
-the service's log is dbcanvas.log there.
-`
-
 func runCLI(args []string) int {
 	log.SetFlags(log.LstdFlags)
 	// ~/.dbcanvas/config.yaml, below the environment, before any default is chosen.
@@ -116,7 +76,7 @@ func runCLI(args []string) int {
 	case "", "open":
 		err = cliOpen(rest)
 	case "status":
-		err = cliStatus()
+		err = cliStatus(rest)
 	case "stop":
 		err = cliStop()
 	case "passwords", "password":
@@ -126,7 +86,15 @@ func runCLI(args []string) int {
 	case "serve":
 		err = errors.New("dbcanvas has no serve command any more: any command starts it in the background (dbcanvas opens the browser)")
 	case "ls", "list":
-		err = withDBCanvas(func(c ctl) error { return cliList(c) })
+		err = cliList(rest)
+	case "exec":
+		err = cliExec(rest)
+	case "cp":
+		err = cliCp(rest)
+	case "kinds":
+		err = cliKinds(rest)
+	case "commands":
+		err = cliCommandsList(rest)
 	case "export":
 		err = cliExport(rest)
 	case "up":
@@ -154,8 +122,16 @@ func runCLI(args []string) int {
 		return 2
 	}
 	if err != nil {
+		var exit errExit
+		if errors.As(err, &exit) {
+			return exit.code
+		}
 		fmt.Fprintln(os.Stderr, "dbcanvas:", err)
-		if errors.Is(err, errDeployFailed) {
+		var usage errUsage
+		switch {
+		case errors.As(err, &usage):
+			return 2
+		case errors.Is(err, errDeployFailed):
 			return 3
 		}
 		return 1
@@ -165,11 +141,14 @@ func runCLI(args []string) int {
 
 // cliOpen opens dbcanvas in the browser, signed in, or prints the one-time link.
 func cliOpen(args []string) error {
-	fs := flag.NewFlagSet("dbcanvas open", flag.ContinueOnError)
-	print := fs.Bool("print", false, "print the one-time sign-in link instead of opening a browser")
+	fs := cmdFlags("open")
 	if err := fs.Parse(args); err != nil {
-		return err
+		return flagErr(err)
 	}
+	if fs.NArg() > 0 {
+		return usageErr("open")
+	}
+	print := flagBool(fs, "print")
 	dir, err := ensureDataDir()
 	if err != nil {
 		return err
@@ -181,7 +160,7 @@ func cliOpen(args []string) error {
 	if err != nil {
 		return err
 	}
-	if *print {
+	if print {
 		fmt.Println(u)
 		fmt.Fprintln(os.Stderr, "It works once, for a minute.")
 		return nil
@@ -201,12 +180,23 @@ func openBrowser(u string) {
 }
 
 // cliStatus says whether the service runs and what keeps it up. It never starts it.
-func cliStatus() error {
+func cliStatus(args []string) error {
+	fs := cmdFlags("status")
+	if err := fs.Parse(args); err != nil {
+		return flagErr(err)
+	}
+	if fs.NArg() > 0 {
+		return usageErr("status")
+	}
+	asJSON := flagBool(fs, "json")
 	dir, err := ensureDataDir()
 	if err != nil {
 		return err
 	}
 	if !ctlReachable(dir) {
+		if asJSON {
+			return printJSON(map[string]any{"running": false, "version": appVersion, "dataDir": dir})
+		}
 		fmt.Println("dbcanvas is not running. Any command that needs it starts it (dbcanvas opens the browser).")
 		return nil
 	}
@@ -223,7 +213,19 @@ func cliStatus() error {
 		Updated   bool          `json:"binaryUpdated"`
 		Keep      soloKeepAlive `json:"keepAlive"`
 	}
-	if err := (ctl{c: ctlClient(dir)}).do("GET", "/api/solo/status", nil, &st); err != nil {
+	raw, err := (ctl{c: ctlClient(dir)}).raw("GET", "/api/solo/status", nil)
+	if err != nil {
+		return err
+	}
+	if asJSON {
+		var m map[string]any
+		if err := json.Unmarshal(raw, &m); err != nil {
+			return err
+		}
+		m["running"], m["dataDir"] = true, dir
+		return printJSON(m)
+	}
+	if err := json.Unmarshal(raw, &st); err != nil {
 		return err
 	}
 	fmt.Printf("dbcanvas %s is running (pid %d, since %s) at %s/\n", st.Version, st.PID, st.StartedAt, st.URL)
@@ -385,10 +387,36 @@ func (c ctl) findStack(ref string) (Stack, error) {
 	return Stack{}, fmt.Errorf("no stack called %q", ref)
 }
 
-func cliList(c ctl) error {
+func cliList(args []string) error {
+	fs := cmdFlags("ls")
+	if err := fs.Parse(args); err != nil {
+		return flagErr(err)
+	}
+	if fs.NArg() > 0 {
+		return usageErr("ls")
+	}
+	return withDBCanvas(func(c ctl) error { return listStacks(c, flagBool(fs, "json")) })
+}
+
+func listStacks(c ctl, asJSON bool) error {
 	var stacks []Stack
 	if err := c.do("GET", "/api/stacks", nil, &stacks); err != nil {
 		return err
+	}
+	if asJSON {
+		type row struct {
+			ID        int64             `json:"id"`
+			Name      string            `json:"name"`
+			Status    string            `json:"status"`
+			TTL       string            `json:"ttl"`
+			ExpiresAt *string           `json:"expiresAt"`
+			Labels    map[string]string `json:"labels,omitempty"`
+		}
+		out := []row{}
+		for _, st := range stacks {
+			out = append(out, row{st.ID, st.Name, st.Status, st.TTL, st.ExpiresAt, st.Labels})
+		}
+		return printJSON(out)
 	}
 	if len(stacks) == 0 {
 		fmt.Println("No stacks. Create one in the browser (dbcanvas) or from a file (dbcanvas up -f FILE).")
@@ -407,15 +435,16 @@ func cliList(c ctl) error {
 }
 
 func cliExport(args []string) error {
-	fs := flag.NewFlagSet("dbcanvas export", flag.ContinueOnError)
-	out := fs.String("o", "", "write to this file instead of standard output")
+	fs := cmdFlags("export")
 	stack, err := parseInterspersed(fs, args)
 	if err != nil {
-		return err
+		return flagErr(err)
 	}
 	if len(stack) != 1 {
-		return errors.New("usage: dbcanvas export STACK [-o FILE]")
+		return usageErr("export")
 	}
+	out := new(string)
+	*out = flagString(fs, "o")
 	return withDBCanvas(func(c ctl) error {
 		st, err := c.findStack(stack[0])
 		if err != nil {
@@ -439,8 +468,12 @@ func cliExport(args []string) error {
 
 // cliStackAction runs one request against a named stack.
 func cliStackAction(args []string, name, method, suffix, done string) error {
-	if len(args) != 1 {
-		return fmt.Errorf("usage: dbcanvas %s STACK", name)
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
+		fmt.Printf("usage: %s\n\n%s\n", usageLine(cliCommandByName(name)), cliCommandByName(name).Summary)
+		return nil
+	}
+	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
+		return usageErr(name)
 	}
 	return withDBCanvas(func(c ctl) error {
 		st, err := c.findStack(args[0])
@@ -459,61 +492,115 @@ func cliStackAction(args []string, name, method, suffix, done string) error {
 var errDeployFailed = errors.New("deploy failed")
 
 func cliUp(args []string) error {
-	fs := flag.NewFlagSet("dbcanvas up", flag.ContinueOnError)
-	file := fs.String("f", "", "the stack file (- for standard input)")
-	dry := fs.Bool("dry-run", false, "show what would change, and change nothing")
-	wait := fs.Bool("wait", false, "wait until every node is running, or one fails")
-	timeout := fs.Duration("timeout", time.Hour, "how long --wait waits")
-	platform := fs.String("platform", "", "amd64 or arm64 for the database nodes that do not choose their own (overrides the file's platform:)")
-	rest, err := parseInterspersed(fs, args)
+	fs := cmdFlags("up")
+	pos, err := parseInterspersed(fs, args)
 	if err != nil {
-		return err
+		return flagErr(err)
 	}
-	if *file == "" || len(rest) > 0 {
-		return errors.New("usage: dbcanvas up -f FILE [--platform amd64|arm64] [--dry-run] [--wait] [--timeout 1h]")
-	}
+	file, nodes := flagString(fs, "f"), flagList(fs, "node")
+	ttl, labels := flagString(fs, "ttl"), flagList(fs, "label")
+	dry, wait, asJSON := flagBool(fs, "dry-run"), flagBool(fs, "wait"), flagBool(fs, "json")
+	timeout, platform := flagDuration(fs, "timeout"), flagString(fs, "platform")
 	var raw []byte
-	if *file == "-" {
-		raw, err = io.ReadAll(os.Stdin)
-	} else {
-		raw, err = os.ReadFile(*file)
-	}
-	if err != nil {
-		return err
+	switch {
+	case file != "" && (len(pos) > 0 || len(nodes) > 0 || ttl != "" || len(labels) > 0):
+		return errUsage{"up takes a stack file (-f) or a NAME with --node entries, not both; --ttl and --label go with NAME (a file has its own ttl: and labels:)"}
+	case file != "":
+		if file == "-" {
+			raw, err = io.ReadAll(os.Stdin)
+		} else {
+			raw, err = os.ReadFile(file)
+		}
+		if err != nil {
+			return err
+		}
+	case len(pos) == 1 && len(nodes) > 0:
+		raw, err = composeStackFile(pos[0], nodes, ttl, labels)
+		if err != nil {
+			return flagErr(err)
+		}
+		file = "the command line"
+	default:
+		return usageErr("up")
 	}
 	// Refuse a malformed file or platform before starting anything.
 	if _, err := parseStackFile(raw); err != nil {
-		return fmt.Errorf("%s: %v", *file, err)
+		return fmt.Errorf("%s: %v", file, err)
 	}
-	if *platform != "" {
-		if _, err := normalizePlatform(*platform); err != nil {
+	if platform != "" {
+		if _, err := normalizePlatform(platform); err != nil {
 			return err
 		}
 	}
 	return withDBCanvas(func(c ctl) error {
 		var p stackPlan
-		if err := c.do("POST", "/api/stacks/apply", map[string]any{"file": string(raw), "dryRun": *dry, "platform": *platform}, &p); err != nil {
+		if err := c.do("POST", "/api/stacks/apply", map[string]any{"file": string(raw), "dryRun": dry, "platform": platform}, &p); err != nil {
 			return err
 		}
-		printPlan(p, *dry)
-		if *dry {
-			if !p.OK {
-				return errors.New("the design has errors; nothing was changed")
+		report := map[string]any{"plan": p, "deployed": false}
+		finish := func(err error) error {
+			if asJSON {
+				printJSON(report)
 			}
-			return nil
+			return err
+		}
+		if !asJSON {
+			printPlan(p, dry)
+		}
+		if dry {
+			if !p.OK {
+				return finish(errors.New("the design has errors; nothing was changed"))
+			}
+			return finish(nil)
 		}
 		if !p.OK {
-			return fmt.Errorf("%s was saved, but its design has errors, so it was not deployed", p.Name)
+			return finish(fmt.Errorf("%s was saved, but its design has errors, so it was not deployed", p.Name))
 		}
 		if err := c.do("POST", fmt.Sprintf("/api/stacks/%d/deploy", p.StackID), nil, nil); err != nil {
-			return err
+			return finish(err)
 		}
-		if !*wait {
-			fmt.Printf("Deploying %s in the background. `dbcanvas ls` shows it; the browser shows each node.\n", p.Name)
-			return nil
+		report["deployed"] = true
+		if !wait {
+			if !asJSON {
+				fmt.Printf("Deploying %s in the background. `dbcanvas ls` shows it; the browser shows each node.\n", p.Name)
+			}
+			return finish(nil)
 		}
-		return waitDeploy(c, p.StackID, p.Name, *timeout)
+		out := io.Writer(os.Stdout)
+		if asJSON {
+			out = io.Discard
+		}
+		states, err := waitDeploy(c, p.StackID, p.Name, timeout, out)
+		report["nodes"] = states
+		if err != nil && !asJSON {
+			for _, n := range states {
+				if n.Error != "" {
+					fmt.Fprintf(os.Stderr, "  %s: %s\n", firstNonEmpty(n.Label, n.NodeID), n.Error)
+				}
+			}
+		}
+		return finish(err)
 	})
+}
+
+// composeStackFile is the stack file `up NAME --node …` stands for.
+func composeStackFile(name string, nodes []string, ttl string, labels []string) ([]byte, error) {
+	sf := map[string]any{"apiVersion": stackFileAPIVersion, "kind": "Stack", "name": name, "nodes": nodes}
+	if ttl != "" {
+		sf["ttl"] = ttl
+	}
+	if len(labels) > 0 {
+		m := map[string]string{}
+		for _, l := range labels {
+			k, v, ok := strings.Cut(l, "=")
+			if !ok || strings.TrimSpace(k) == "" {
+				return nil, fmt.Errorf("--label %q: want key=value", l)
+			}
+			m[strings.TrimSpace(k)] = strings.TrimSpace(v)
+		}
+		sf["labels"] = m
+	}
+	return json.Marshal(sf)
 }
 
 // parseInterspersed parses flags that may come before or after the arguments.
@@ -579,10 +666,19 @@ func printPlan(p stackPlan, dry bool) {
 // waitDeploy polls the stack until every node is running or one failed, printing each
 // node's state as it changes. A node still being configured after its container started
 // (a cluster forming, a replica seeding) is not done yet.
-func waitDeploy(c ctl, id int64, name string, timeout time.Duration) error {
+// nodeState is a node's state at the end of `up --wait`.
+type nodeState struct {
+	NodeID string `json:"nodeId"`
+	Label  string `json:"label"`
+	State  string `json:"state"`
+	Error  string `json:"error,omitempty"`
+}
+
+func waitDeploy(c ctl, id int64, name string, timeout time.Duration, w io.Writer) ([]nodeState, error) {
 	type progress struct {
 		Configuring bool   `json:"configuring"`
 		ConfigPhase string `json:"configPhase"`
+		Message     string `json:"message"`
 	}
 	type dep struct {
 		NodeID   string          `json:"nodeId"`
@@ -593,11 +689,22 @@ func waitDeploy(c ctl, id int64, name string, timeout time.Duration) error {
 	seen := map[string]string{}
 	for {
 		var d struct {
+			Design struct {
+				Nodes []struct {
+					ID    string `json:"id"`
+					Label string `json:"label"`
+				} `json:"nodes"`
+			} `json:"design"`
 			Deployments []dep `json:"deployments"`
 		}
 		if err := c.do("GET", "/api/stacks/"+url.PathEscape(strconv.FormatInt(id, 10)), nil, &d); err != nil {
-			return err
+			return nil, err
 		}
+		labels := map[string]string{}
+		for _, n := range d.Design.Nodes {
+			labels[n.ID] = n.Label
+		}
+		states := []nodeState{}
 		running, failed, pending := 0, 0, 0
 		for _, x := range d.Deployments {
 			state := x.State
@@ -606,9 +713,14 @@ func waitDeploy(c ctl, id int64, name string, timeout time.Duration) error {
 				state = strings.TrimSuffix("running, configuring: "+pr.ConfigPhase, ": ")
 			}
 			if seen[x.NodeID] != state {
-				fmt.Printf("  %-24s %s\n", x.NodeID, state)
+				fmt.Fprintf(w, "  %-24s %s\n", firstNonEmpty(labels[x.NodeID], x.NodeID), state)
 				seen[x.NodeID] = state
 			}
+			ns := nodeState{NodeID: x.NodeID, Label: labels[x.NodeID], State: x.State}
+			if x.State == DeployError {
+				ns.Error = pr.Message
+			}
+			states = append(states, ns)
 			switch state {
 			case DeployRunning:
 				running++
@@ -620,13 +732,13 @@ func waitDeploy(c ctl, id int64, name string, timeout time.Duration) error {
 		}
 		if len(d.Deployments) > 0 && pending == 0 {
 			if failed > 0 {
-				return fmt.Errorf("%w: %d of %d nodes failed in %s", errDeployFailed, failed, len(d.Deployments), name)
+				return states, fmt.Errorf("%w: %d of %d nodes failed in %s", errDeployFailed, failed, len(d.Deployments), name)
 			}
-			fmt.Printf("%s is up: %d node(s) running.\n", name, running)
-			return nil
+			fmt.Fprintf(w, "%s is up: %d node(s) running.\n", name, running)
+			return states, nil
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("%w: %s still had %d node(s) provisioning after %s", errDeployFailed, name, pending, timeout)
+			return states, fmt.Errorf("%w: %s still had %d node(s) provisioning after %s", errDeployFailed, name, pending, timeout)
 		}
 		time.Sleep(3 * time.Second)
 	}

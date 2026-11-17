@@ -87,6 +87,13 @@ var whatsNewNotes = []releaseNote{
 	{
 		Version: "0.1.0",
 		Date:    "2026-11-18",
+		Title:   "Scripts: compose on the command line, exec, cp and JSON",
+		Body:    "dbcanvas up NAME --node SPEC... --ttl 8h creates and deploys a stack from compose entries without a file. dbcanvas exec STACK NODE -- CMD runs a command in a node with the command's own output and exit status, and dbcanvas cp copies a file to or from a node. ls, status, up and exec take --json; dbcanvas kinds lists the compose kinds, and dbcanvas commands --json every command and flag this build accepts. Exit status 2 is a usage error and 3 a failed deploy.",
+		Doc:     "docs/CLI.md",
+	},
+	{
+		Version: "0.1.0",
+		Date:    "2026-11-18",
 		Title:   "Every stack expires: 30 days at most",
 		Body:    "A stack's lifetime is 2 hours, 4 hours, 8 hours, 24 hours, 2 weeks or 30 days; none is kept forever. Extending a stack never takes its end further than 30 days from now. A stack set to never expire in an earlier release gets 30 days, counted from the first start of 0.1.0.",
 		Doc:     "docs/CLI.md",

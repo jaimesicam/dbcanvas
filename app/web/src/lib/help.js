@@ -812,7 +812,7 @@ export const HELP = {
     'What this token is for, so that in three months you can tell which one to revoke. The name is ' +
     'the only thing distinguishing two tokens in the list — the secret is never shown again, and the ' +
     'prefix is eight characters of noise. Name it after the machine or the job that will hold it: ' +
-    '"kb-assistant on my laptop", "nightly CI deploy".',
+    '"scripts on my laptop", "nightly CI deploy".',
   tokenScope:
     'How much of the API this token may reach. "read" covers every GET plus the handful of POSTs that ' +
     'compute something without changing anything (validate, compare, preview); "write" covers ' +

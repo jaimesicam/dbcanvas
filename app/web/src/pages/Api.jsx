@@ -177,7 +177,7 @@ export function CreateToken({ scopes, maxDays, canNeverExpire, onCreated, onErro
       <form onSubmit={submit} className="space-y-3">
         <Field label="Name" help={HELP.tokenName} hint="What it is for, so you know later what you are revoking.">
           <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)}
-            placeholder="kb-assistant on my laptop" maxLength={64} required />
+            placeholder="scripts on my laptop" maxLength={64} required />
         </Field>
         <Field label="Scope" help={HELP.tokenScope}>
           <select className={inputCls} value={scope} onChange={(e) => setScope(e.target.value)}>
@@ -469,7 +469,7 @@ export function CliHelpText({ state }) {
 }
 
 export function GettingStarted() {
-  const origin = typeof location === 'undefined' ? 'http://127.0.0.1:7480' : location.origin
+  const origin = typeof location === 'undefined' ? 'http://127.0.0.1:8080' : location.origin
   return (
     <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
       <Card title="Call it with curl" subtitle="A token, then any endpoint">

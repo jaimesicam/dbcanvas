@@ -7,16 +7,22 @@ binary. This page covers every command. For the browser, start with
 ```text
 dbcanvas                      open dbcanvas in the browser, signed in
 dbcanvas open [--print]       the same; --print prints the one-time sign-in link instead
-dbcanvas ls                   list your stacks
+dbcanvas ls [--json]          list your stacks
 dbcanvas export STACK [-o FILE]
-dbcanvas up -f FILE [--platform amd64|arm64] [--dry-run] [--wait] [--timeout 1h]
+dbcanvas up -f FILE [--platform amd64|arm64] [--dry-run] [--wait] [--timeout 1h] [--json]
+dbcanvas up NAME --node SPEC... [--ttl 8h] [--label k=v]... [--platform …] [--dry-run]
+            [--wait] [--timeout 1h] [--json]
 dbcanvas down STACK           remove a stack's containers, keep its design
 dbcanvas rm STACK             delete a stack and everything it deployed
+dbcanvas exec STACK NODE [--user USER] [--timeout 10m] [-i] [--json] -- CMD [ARG...]
+dbcanvas cp STACK NODE:/path ./file | dbcanvas cp STACK ./file NODE:/path
 dbcanvas token create NAME [--scope read|write|admin] [--days 30]
                [--own-stacks] [--label k=v]... [--max-ttl 8h] [--deny TYPE,...]
 dbcanvas token ls | token rm ID
 dbcanvas passwords [NAME]
-dbcanvas status               whether the service runs, and what keeps it up
+dbcanvas kinds [--json]       the compose kinds and their options
+dbcanvas commands [--json]    every command with its arguments and flags
+dbcanvas status [--json]      whether the service runs, and what keeps it up
 dbcanvas stop                 stop the service
 dbcanvas versions [update|reset]
 dbcanvas doctor
@@ -25,7 +31,8 @@ dbcanvas rotate-key
 dbcanvas version
 ```
 
-`STACK` is a stack's name or its ID, as `dbcanvas ls` shows them.
+`STACK` is a stack's name or its ID, as `dbcanvas ls` shows them. `NODE` is a node's label
+(`ps-01`) or its ID. `dbcanvas COMMAND -h` prints one command's flags.
 
 ## The service
 
@@ -92,10 +99,18 @@ ID  NAME      STATUS    TTL  EXPIRES
 Writes the stack as a stack file to standard output, or to `FILE`. The file carries the whole
 canvas design, so applying it again gives the same stack.
 
-### `dbcanvas up -f FILE`
+### `dbcanvas up`
 
-Creates the stack the file names, or updates it when a stack of that name exists, then
-deploys it. `-f -` reads standard input.
+Creates a stack, or updates it when a stack of that name exists, then deploys it. The stack
+comes from a [stack file](#stack-files) (`-f FILE`, or `-f -` for standard input), or from
+[compose entries](#compose-entries) on the command line:
+
+```sh
+dbcanvas up pxc-lab --node 'pxc:3,version=8.4,monitor' --node pmm --ttl 8h --label team=qa --wait
+```
+
+which is the same as a stack file with that `name`, `ttl`, `labels` and `nodes` list. Without
+`--ttl` or `--label`, a stack that exists keeps its own.
 
 | Flag | |
 | --- | --- |
@@ -103,6 +118,10 @@ deploys it. `-f -` reads standard input.
 | `--wait` | Wait until every node is running, or one fails. The exit status is non-zero on a failure. |
 | `--timeout 1h` | How long `--wait` waits. |
 | `--platform amd64\|arm64` | The architecture of the database nodes that do not choose their own. Overrides the file's `platform:`. |
+| `--node SPEC` | A compose entry, repeatable. With `NAME`, instead of `-f`. |
+| `--ttl 8h` | The stack's lifetime: `2h`, `4h`, `8h`, `24h`, `2w` or `30d`. With `NAME`. |
+| `--label k=v` | A label on the stack, repeatable. With `NAME`. |
+| `--json` | Print the plan, whether the deploy started, and with `--wait` each node's final state and error, as one JSON object. |
 
 Without `--wait`, `up` returns once the deploy has started; `dbcanvas ls` and the browser show
 its progress.
@@ -126,6 +145,63 @@ running node whose settings changed keeps running as it is, and the plan says so
 
 `down` removes the stack's containers and networks and keeps its design, to deploy again
 later. `rm` removes everything, the design included.
+
+## Working on nodes
+
+### `dbcanvas exec STACK NODE -- CMD [ARG...]`
+
+Runs one command in a node, without a terminal, and returns when it ends. The command's
+standard output and standard error are dbcanvas's, and dbcanvas exits with the command's exit
+status, so it works in scripts like a local command:
+
+```console
+$ dbcanvas exec pxc-lab pxc-01 -- mysql -N -e 'select @@version'
+8.4.6-6.1
+$ dbcanvas exec pxc-lab pxc-01 -- test -f /var/lib/mysql/auto.cnf; echo $?
+0
+```
+
+The command runs as the node's default user (root on every node image) in a login shell, so
+`PATH` is the one the node's console has. The arguments are passed as they are, with no shell in
+between: write `-- sh -c '…'` for pipes and redirections. Without `--`, everything after `NODE`
+is the command, and dbcanvas's own flags must come before `STACK`.
+
+| Flag | |
+| --- | --- |
+| `--user USER` | Run as this user. |
+| `--timeout 10m` | Stop the command after this long, at most `1h`. A stopped command exits with 124. |
+| `-i` | Pass standard input to the command, up to 16 MiB: `dbcanvas exec -i lab ps-01 -- mysql < dump.sql`. |
+| `--json` | Print `exitCode`, `stdout`, `stderr`, `timedOut` and `durationMs` as one object instead (binary output comes base64-encoded in `stdoutBase64`). The exit status is still the command's. |
+
+Output is limited in size; for a large result, write it to a file on the node and copy it with
+`dbcanvas cp`.
+
+### `dbcanvas cp`
+
+Copies one regular file between this machine and a node:
+
+```sh
+dbcanvas cp pxc-lab pxc-01:/etc/my.cnf ./my.cnf       # from the node
+dbcanvas cp pxc-lab ./my.cnf pxc-01:/etc/my.cnf       # to the node
+dbcanvas cp pxc-lab ./dump.sql pxc-01:/root/          # into a directory, keeping the name
+```
+
+The node side is written `NODE:/absolute/path`. Copying to a node, the destination is a file
+name, or a directory that exists (with or without a trailing `/`). Copying from a node into a
+local directory keeps the file's name. Directories are not copied: archive one on the node with
+`dbcanvas exec … -- tar czf /tmp/x.tgz …` and copy the archive. The browser's file manager copies
+directories and between nodes.
+
+## Scripting
+
+- `--json` on `ls`, `status`, `up` and `exec` prints JSON instead of text. `dbcanvas status
+  --json` answers `{"running": false}` without starting the service.
+- `dbcanvas kinds` lists the compose kinds with their options and what they need, from the
+  binary itself; `--json` prints the same as `GET /api/stacks/compose/kinds`.
+- `dbcanvas commands --json` lists every command, its arguments, its flags (name, kind, default)
+  and whether it starts the service. It is built from the same table as the help and the flag
+  parsing, so it is exactly what this build accepts.
+- The exit status says what happened (below).
 
 ## Stack files
 
@@ -169,15 +245,11 @@ The same entry can be written as a map (`{kind: pxc, count: 3, version: "8.4"}`)
 node every stack needs is added for you. A short version such as `8.4` resolves to the newest
 build of that line in the version catalogue, and `up --dry-run` shows what it resolved to.
 
-The kinds include `ps`, `pxc`, `ps-repl`, `mysql`, `mysql-repl`, `innodb`, `mariadb`,
+`dbcanvas kinds` lists them all with their options. The kinds include `ps`, `pxc`, `ps-repl`, `mysql`, `mysql-repl`, `innodb`, `mariadb`,
 `mariadb-galera`, `pg`, `pg-pgdg`, `patroni`, `pg-stream`, `repmgr`, `spock`, `psmdb`, `psmrs`,
 `mdb`, `mdb-rs`, `valkey`, `valkey-cluster`, `valkey-sentinel`, `proxysql`, `haproxy`,
 `pgbouncer`, `orchestrator`, `pmm`, `seaweedfs`, `keycloak`, `openbao`, `sambaad`, `vnc` and
-the simulators. Every kind, its options and the OS aliases are listed by the API:
-
-```sh
-curl -s -H "Authorization: Bearer $DBCANVAS_TOKEN" http://127.0.0.1:8080/api/stacks/compose/kinds
-```
+the simulators.
 
 Kubernetes (K3D, kubeadm), sharded MongoDB and All in One stacks have too many options for a
 one-line entry: start them from a template in the browser, then `dbcanvas export` the stack and
@@ -272,5 +344,10 @@ Prints the version.
 
 ## Exit status
 
-`0` on success. Non-zero when a command fails, when `up --wait` sees a node fail or time out,
-and when `doctor` finds a failing check. Errors are written to standard error.
+| Status | |
+| --- | --- |
+| `0` | Success. |
+| `1` | The command failed; the reason is on standard error. `doctor` exits 1 when a check fails. |
+| `2` | A usage error: an unknown command or flag, or missing arguments. |
+| `3` | `up --wait` saw a node fail, or the deploy did not finish within `--timeout`. |
+| any | `exec` exits with the command's own status (124 when `--timeout` stopped it). |

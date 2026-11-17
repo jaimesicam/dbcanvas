@@ -1,8 +1,6 @@
 package main
 
 import (
-	"errors"
-	"flag"
 	"fmt"
 	"os"
 	"strconv"
@@ -39,7 +37,7 @@ func cliToken(args []string) error {
 		return withDBCanvas(cliTokenList)
 	case "rm", "revoke", "delete":
 		if len(args) != 1 {
-			return errors.New("usage: dbcanvas token rm ID")
+			return usageErr("token rm")
 		}
 		return withDBCanvas(func(c ctl) error { return cliTokenRevoke(c, args[0]) })
 	}
@@ -47,26 +45,27 @@ func cliToken(args []string) error {
 }
 
 func cliTokenCreate(args []string) error {
-	fs := flag.NewFlagSet("dbcanvas token create", flag.ContinueOnError)
-	scope := fs.String("scope", ScopeWrite, "read (look only), write (create, deploy, change) or admin (also settings, tokens, images)")
-	days := fs.Int("days", 30, "days until it expires; 0 never expires")
-	own := fs.Bool("own-stacks", false, "reach only the stacks this token creates")
-	labels := labelFlags{}
-	fs.Var(labels, "label", "reach only stacks with this label, which it puts on every stack it creates (key=value, repeatable)")
-	maxTTL := fs.String("max-ttl", "", "the longest a stack it creates may live (2h, 4h, 8h, 24h, 2w); none that never expire, none extended")
-	deny := fs.String("deny", "", "node types it may not deploy, comma separated")
+	fs := cmdFlags("token create")
 	rest, err := parseInterspersed(fs, args)
 	if err != nil {
-		return err
+		return flagErr(err)
 	}
 	if len(rest) != 1 {
-		return errors.New("usage: dbcanvas token create NAME [--scope read|write|admin] [--days 30] [--own-stacks] [--label k=v]... [--max-ttl 8h] [--deny TYPE,...]")
+		return usageErr("token create")
 	}
-	limit := &tokenLimit{OwnStacks: *own, MaxTTL: strings.TrimSpace(*maxTTL)}
+	scope, days := new(string), new(int)
+	*scope, *days = flagString(fs, "scope"), flagInt(fs, "days")
+	labels := labelFlags{}
+	for _, l := range flagList(fs, "label") {
+		if err := labels.Set(l); err != nil {
+			return flagErr(err)
+		}
+	}
+	limit := &tokenLimit{OwnStacks: flagBool(fs, "own-stacks"), MaxTTL: strings.TrimSpace(flagString(fs, "max-ttl"))}
 	if len(labels) > 0 {
 		limit.Labels = labels
 	}
-	for _, t := range strings.Split(*deny, ",") {
+	for _, t := range strings.Split(flagString(fs, "deny"), ",") {
 		if t = strings.TrimSpace(t); t != "" {
 			limit.Deny = append(limit.Deny, t)
 		}

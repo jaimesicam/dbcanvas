@@ -4986,7 +4986,7 @@ check('settings: the tooltip switch', () => {
 // new) blanking the page the first time somebody opens it.
 
 const apiTokens = [
-  { id: 1, name: 'kb-assistant on thinkpad', prefix: 'dbc_a1b2c3d4', scope: 'write',
+  { id: 1, name: 'scripts on thinkpad', prefix: 'dbc_a1b2c3d4', scope: 'write',
     createdAt: '2026-09-01T10:00:00Z', expiresAt: '2026-12-01T10:00:00Z',
     lastUsedAt: '2026-09-02T08:00:00Z', state: 'active', username: 'jaime' },
   { id: 2, name: 'read-only dashboard', prefix: 'dbc_9f8e7d6c', scope: 'read',

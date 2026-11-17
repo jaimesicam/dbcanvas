@@ -72,11 +72,11 @@ func TestTokenApplyStaysInItsStacks(t *testing.T) {
 		t.Fatalf("applying over the owner's stack: %d %s", w.Code, w.Body)
 	}
 	w = httptest.NewRecorder()
-	app.handleApplyStackFile(w, asToken(t, app, u, l, "POST", "/api/stacks/apply", file("kbrun-1")))
+	app.handleApplyStackFile(w, asToken(t, app, u, l, "POST", "/api/stacks/apply", file("ci-run-1")))
 	if w.Code != http.StatusOK {
 		t.Fatalf("applying a new stack: %d %s", w.Code, w.Body)
 	}
-	id := app.store.StackIDByName(u.ID, "kbrun-1")
+	id := app.store.StackIDByName(u.ID, "ci-run-1")
 	st, _ := app.store.GetStack(id)
 	if st.Labels["kb-run"] != "1" {
 		t.Errorf("the new stack's labels: %v", st.Labels)
