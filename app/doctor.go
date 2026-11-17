@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"dbcanvas/internal/seal"
@@ -65,16 +66,27 @@ func (a *App) doctorChecks(ctx context.Context) []doctorCheck {
 	}
 
 	// Docker.
-	dockerOK := a.engCtx(ctx).Ping(ctx) == nil
+	sock := dockerSocket()
+	pingErr := a.engCtx(ctx).Ping(ctx)
+	dockerOK := pingErr == nil
+	switch {
+	case dockerOK:
+		add("docker", "ok", "answers on "+sock, "")
+	case strings.Contains(strings.ToLower(pingErr.Error()), "permission denied"):
+		add("docker", "fail", "permission denied on "+sock,
+			"add your user to the docker group (sudo usermod -aG docker $USER), then log in again")
+	default:
+		add("docker", "fail", "does not answer on "+sock+": "+pingErr.Error(),
+			"start Docker (Docker Desktop, Rancher Desktop, Colima, OrbStack or dockerd), or set dockerSocket in ~/.dbcanvas/config.yaml")
+	}
 	if dockerOK {
-		add("docker", "ok", "the Docker daemon answers", "")
-	} else {
-		add("docker", "fail", "the Docker daemon does not answer", "check that the socket is mounted (DOCKER_SOCK) and the daemon is running")
+		host := firstNonEmpty(a.hostArch, hostArchName(a.docker.HostArch(ctx)))
+		add("architecture", "ok", fmt.Sprintf("Docker runs on %s; nodes default to %s, Kubernetes nodes run on %s", firstNonEmpty(host, "an unknown architecture"), platformArch(), k8sArch()), "")
 	}
 
-	// Node images.
+	// Node images: pulled from the registry when a deploy needs them, so a missing one is a
+	// note, not a fault — unless this release's images are not published.
 	if dockerOK {
-		// The default platform's: an image of the other architecture is pulled when a node asks for it.
 		imgs := onPlatform(loadImagesCatalog())
 		var missing []string
 		for _, img := range imgs {
@@ -84,48 +96,109 @@ func (a *App) doctorChecks(ctx context.Context) []doctorCheck {
 		}
 		switch {
 		case len(imgs) == 0:
-			add("base images", "fail", "images.yaml lists no base image", "run `make images`, or `make pull-images` to pull them")
+			add("base images", "fail", "the version catalogue lists no base image", "dbcanvas versions update")
 		case len(missing) > 0:
-			add("base images", "warn", fmt.Sprintf("%d of %d missing for this release: %s", len(missing), len(imgs), strings.Join(missing, ", ")),
-				"run `make images` or `make pull-images` (after an upgrade, `make adopt-images` retags what was built)")
+			add("base images", "ok", fmt.Sprintf("%d of %d here; the rest are pulled when a node needs them: %s", len(imgs)-len(missing), len(imgs), strings.Join(missing, ", ")), "")
 		default:
-			add("base images", "ok", fmt.Sprintf("%d present", len(imgs)), "")
+			add("base images", "ok", fmt.Sprintf("all %d here", len(imgs)), "")
 		}
 		if ok, _ := a.engCtx(ctx).ImageExists(ctx, intranetImage("")); ok {
 			add("intranet image", "ok", intranetImage(""), "")
 		} else {
-			add("intranet image", "fail", intranetImage("")+" is missing — every stack needs it", "run `make intranet-image`, or the Build button at Validate")
+			add("intranet image", "ok", intranetImage("")+" is pulled on the first deploy", "")
 		}
 	}
 
-	// Version catalogue.
-	if t, ok := versionsGeneratedAt(); !ok {
-		add("version catalogue", "warn", versionsFileName()+" has no generation date", "run `make versions`")
-	} else if age := time.Since(t); age > 60*24*time.Hour {
-		add("version catalogue", "warn", fmt.Sprintf("probed %d days ago; newer releases are not offered", int(age.Hours()/24)), "run `make versions` (ONLY=percona|upstream|haproxy for one group)")
-	} else {
-		add("version catalogue", "ok", "probed "+t.Format("2006-01-02"), "")
+	// Version catalogues, one per architecture.
+	for _, arch := range catalogArches {
+		path := versionsFilePathFor(arch)
+		name := "catalogue (" + arch + ")"
+		t, ok := catalogGeneratedAt(path)
+		switch {
+		case path == "":
+			add(name, "warn", "none", "dbcanvas versions update")
+		case !ok:
+			add(name, "warn", describeCatalog(path)+" has no generation date", "dbcanvas versions update")
+		case time.Since(t) > 60*24*time.Hour:
+			add(name, "warn", fmt.Sprintf("generated %d days ago; newer releases are not offered", int(time.Since(t).Hours()/24)), "dbcanvas versions update")
+		default:
+			add(name, "ok", describeCatalog(path), "")
+		}
 	}
 
-	// Secrets.
-	if d := defaultSecrets(); len(d) > 0 {
-		add("default passwords", "warn", fmt.Sprintf("%d still at their .env.example value: %s", len(d), strings.Join(d, ", ")),
-			"set them in .env (scripts/gen-secrets.sh .env does it for you), then `make restart`; stacks deployed before keep their old passwords")
-	} else {
-		add("default passwords", "ok", "none at their .env.example value", "")
-	}
-	keyPath := seal.KeyPath(envOr("DB_PATH", "dbcanvas.db"))
-	if _, err := os.Stat(keyPath); err == nil {
-		add("encryption key", "ok", keyPath+" — back it up apart from the database", "")
-	} else {
-		add("encryption key", "fail", "no key at "+keyPath, "the database cannot be read without it; see docs/CONFIGURATION.md")
+	// The data folder.
+	if dir, err := dataDir(); err == nil {
+		if fi, err := os.Stat(dir); err == nil && fi.Mode().Perm()&0o077 != 0 {
+			add("data folder", "fail", fmt.Sprintf("%s is open to other users (%s)", dir, fi.Mode().Perm()), "chmod 700 "+dir)
+		} else if err == nil {
+			add("data folder", "ok", dir, "")
+		}
+		var fs syscall.Statfs_t
+		if syscall.Statfs(dir, &fs) == nil {
+			free := int64(fs.Bavail) * int64(fs.Bsize)
+			gb := float64(free) / (1 << 30)
+			switch {
+			case gb < 1:
+				add("disk space", "fail", fmt.Sprintf("%.1f GB free where the data folder is", gb), "free some space: the database and its log live there")
+			case gb < 5:
+				add("disk space", "warn", fmt.Sprintf("%.1f GB free where the data folder is", gb), "")
+			default:
+				add("disk space", "ok", fmt.Sprintf("%.0f GB free where the data folder is", gb), "")
+			}
+		}
+		keyPath := seal.KeyPath(filepath.Join(dir, "dbcanvas.db"))
+		if _, err := os.Stat(keyPath); err == nil {
+			add("encryption key", "ok", keyPath+" — back it up with the data folder", "")
+		} else if _, err := os.Stat(filepath.Join(dir, "dbcanvas.db")); err == nil {
+			add("encryption key", "fail", "no key at "+keyPath+", so the database cannot be read", "restore it from a backup of ~/.dbcanvas")
+		}
 	}
 
-	// What it hands out.
-	if _, err := os.Stat(bigHoleTarball()); err == nil {
-		add("Big Hole", "ok", "files present ("+filepath.Base(bigHoleTarball())+")", "")
+	// Stack networks.
+	if dockerOK {
+		space, err := subnetSearchSpace()
+		avoid, aerr := a.docker.stackSubnetAvoid(ctx)
+		switch {
+		case err != nil:
+			add("stack networks", "fail", err.Error(), "fix networkRange in ~/.dbcanvas/config.yaml")
+		case aerr != nil:
+			add("stack networks", "warn", "could not list Docker's networks: "+aerr.Error(), "")
+		default:
+			if next, ok := pickSubnet(space, avoid, instanceName); ok {
+				add("stack networks", "ok", "the next stack gets "+next.String()+" (dbcanvas network check shows why)", "")
+			} else {
+				add("stack networks", "fail", "no free /24 in "+cidrList(space), "remove unused Docker networks, or name more room in networkRange")
+			}
+		}
+	}
+
+	// What K3D clusters and the bundled features need.
+	if k3dInstalled() {
+		if p := k3dPinnedPath(); p != "" {
+			if _, err := os.Stat(p); err == nil {
+				add("k3d", "ok", p, "")
+			} else {
+				add("k3d", "ok", "k3d "+k3dVersion+" is downloaded when the first K3D cluster is deployed", "")
+			}
+		} else {
+			add("k3d", "ok", "found", "")
+		}
 	} else {
-		add("Big Hole", "warn", "no Big Hole files — the option installs nothing", "they ship in the app image (app/Dockerfile, stage bighole)")
+		add("k3d", "warn", "no k3d for "+k3dPlatform()+", so K3D clusters cannot be deployed", "install k3d, or set K3D_BIN")
+	}
+	for _, b := range []struct{ name, env, what string }{
+		{"Big Hole", "BIGHOLE_TARBALL", "the Big Hole option installs nothing"},
+		{"node Dockerfiles", "DBCANVAS_IMAGES_DIR", "the Build button cannot build a missing image"},
+		{"Pager Panic banks", "PAGERPANIC_BANKS", "Pager Panic has no questions"},
+		{"licences", "DBCANVAS_LICENSE_DIR", "/licenses/ lists no texts"},
+	} {
+		if p := os.Getenv(b.env); p != "" {
+			if _, err := os.Stat(p); err == nil {
+				add(b.name, "ok", p, "")
+				continue
+			}
+		}
+		add(b.name, "warn", "not in this build: "+b.what, "build with make dbcanvas, which bundles it")
 	}
 	return out
 }

@@ -156,3 +156,28 @@ func TestSystemSettingsNameDefaultSecretsToAdminsOnly(t *testing.T) {
 		t.Errorf("a regular account was told %v", got)
 	}
 }
+
+// With Docker unreachable the doctor says so and how to fix it, and still checks the rest; a
+// build without the bundled files says which feature that leaves out.
+func TestDoctorWithoutDocker(t *testing.T) {
+	t.Setenv("DBCANVAS_DATA", t.TempDir())
+	t.Setenv("DOCKER_SOCK", filepath.Join(t.TempDir(), "absent.sock"))
+	for _, e := range []string{"BIGHOLE_TARBALL", "DBCANVAS_IMAGES_DIR", "PAGERPANIC_BANKS", "DBCANVAS_LICENSE_DIR"} {
+		t.Setenv(e, "")
+		os.Unsetenv(e)
+	}
+	a := &App{docker: NewDocker(os.Getenv("DOCKER_SOCK"))}
+	got := map[string]doctorCheck{}
+	for _, c := range a.doctorChecks(httptest.NewRequest("GET", "/", nil).Context()) {
+		got[c.Name] = c
+	}
+	if d := got["docker"]; d.Status != "fail" || !strings.Contains(d.Detail, "absent.sock") || d.Fix == "" {
+		t.Errorf("docker: %+v", d)
+	}
+	if b := got["Big Hole"]; b.Status != "warn" || !strings.Contains(b.Detail, "installs nothing") {
+		t.Errorf("Big Hole: %+v", b)
+	}
+	if _, ok := got["data folder"]; !ok {
+		t.Error("the data folder was not checked")
+	}
+}

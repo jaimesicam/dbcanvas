@@ -57,6 +57,8 @@ Usage:
   dbcanvas versions [update|reset]
                                 show the version catalogue in use; update downloads the
                                 newest into the data folder, reset goes back to the built-in one
+  dbcanvas doctor               check Docker, images, catalogues, data folder, networks, k3d,
+                                the bundled files and the service, and say how to fix what fails
   dbcanvas network check        where the next stack network would go, and what rules ranges out
   dbcanvas rotate-key           re-encrypt the database's secrets under a new key (stops the
                                 service while it runs; stacks keep running)
@@ -135,6 +137,8 @@ func runCLI(args []string) int {
 		err = cliNetwork(rest)
 	case "rotate-key":
 		err = cliRotateKey(rest)
+	case "doctor":
+		err = cliDoctor(rest)
 	case "down":
 		err = cliStackAction(rest, "down", "POST", "/destroy", "Removed the containers of %s; its design is kept.")
 	case "rm":
