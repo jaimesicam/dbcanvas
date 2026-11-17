@@ -864,19 +864,18 @@ func composeKindByName(name string) (composeKind, bool) {
 func resolveCatalogVersion(images []PXCImage, os, osVer, arch, want string) (string, string, error) {
 	var entry *PXCImage
 	for i := range images {
-		if images[i].OS == os && images[i].OSVersion == osVer &&
-			(arch == "" || images[i].Arch == arch) {
+		if images[i].OS == os && images[i].OSVersion == osVer && images[i].Arch == archOr(arch) {
 			entry = &images[i]
 			break
 		}
 	}
 	if entry == nil {
-		return "", "", fmt.Errorf("this installation has no %s %s image — run `make images`, "+
-			"or see GET /api/catalog/images for what it does have", os, osVer)
+		return "", "", fmt.Errorf("the version catalogue has no %s %s image for %s — "+
+			"see GET /api/catalog/images?arch=%s for what it does have", os, osVer, archOr(arch), archOr(arch))
 	}
 	if len(entry.Versions) == 0 {
-		return "", "", fmt.Errorf("nothing installable on %s %s for this engine "+
-			"(the catalogue is empty — has `make versions` run?)", os, osVer)
+		return "", "", fmt.Errorf("nothing installable on %s %s (%s) for this engine: "+
+			"its catalogue lists no versions", os, osVer, archOr(arch))
 	}
 
 	majors := make([]string, 0, len(entry.Versions))

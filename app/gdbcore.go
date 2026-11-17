@@ -789,7 +789,7 @@ func (a *App) gdbNodeIssues(n designNode, st Stack) []issue {
 	}
 	var entry *PXCImage
 	for i := range cat {
-		if cat[i].OS == n.OS && cat[i].OSVersion == n.OSVersion {
+		if cat[i].OS == n.OS && cat[i].OSVersion == n.OSVersion && cat[i].Arch == archOr(n.Arch) {
 			entry = &cat[i]
 			break
 		}

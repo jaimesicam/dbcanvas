@@ -74,7 +74,8 @@ func (a *App) doctorChecks(ctx context.Context) []doctorCheck {
 
 	// Node images.
 	if dockerOK {
-		imgs := loadImagesCatalog()
+		// The default platform's: an image of the other architecture is pulled when a node asks for it.
+		imgs := onPlatform(loadImagesCatalog())
 		var missing []string
 		for _, img := range imgs {
 			if ok, _ := a.engCtx(ctx).ImageExists(ctx, pxcImage(img.OS, img.OSVersion, img.Arch)); !ok {

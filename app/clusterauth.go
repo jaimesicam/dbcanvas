@@ -249,7 +249,7 @@ func frameAuthIssues(f designFrame, dirNodes map[string]string, keycloakIDs, key
 // when it offers none — the version a design's empty "latest" minor resolves to at deploy.
 func catalogNewest(section, os, osVer, arch, major string) string {
 	for _, img := range loadImageCatalog(section) {
-		if img.OS == os && img.OSVersion == osVer && (arch == "" || img.Arch == archOr(arch)) {
+		if img.OS == os && img.OSVersion == osVer && img.Arch == archOr(arch) {
 			if vs := img.Versions[major]; len(vs) > 0 {
 				return vs[0]
 			}

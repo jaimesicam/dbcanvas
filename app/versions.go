@@ -58,8 +58,15 @@ var kubernetesCatalogFallback = PMMCatalog{
 	Versions:   []string{"v1.37.2"},
 }
 
-// versionsFilePath returns the first existing candidate path for this installation's version
-// catalog: versions.yaml on linux/amd64, versions-arm64.yaml on linux/arm64 (each written by
+// versionsFilePath is the version catalogue of the default platform (DOCKER_PLATFORM); see
+// versionsFilePathFor.
+func versionsFilePath() string { return versionsFilePathFor(platformArch()) }
+
+// catalogArches are the architectures a node can run on, each with its own catalogue.
+var catalogArches = []string{"amd64", "arm64"}
+
+// versionsFilePathFor returns the first existing candidate path for one architecture's version
+// catalog: versions.yaml for amd64, versions-arm64.yaml for arm64 (each written by
 // `make versions` for its own platform; images/platform.sh versions_file is the same rule).
 // VERSIONS_FILE overrides — on arm64 it names the directory's versions-arm64.yaml, since
 // docker-compose.yml sets it to the amd64 file's path and mounts both side by side. Otherwise
@@ -70,13 +77,17 @@ var kubernetesCatalogFallback = PMMCatalog{
 // An arm64 installation never falls back to versions.yaml: it was probed on amd64 images,
 // and offering it would offer versions with no arm64 packages behind them. No catalog is the
 // honest answer until `make versions` has run on arm64.
-func versionsFilePath() string {
-	name := versionsFileName()
-	env := os.Getenv("VERSIONS_FILE")
-	if env != "" && name != "versions.yaml" {
-		env = filepath.Join(filepath.Dir(env), name)
+func versionsFilePathFor(arch string) string {
+	name := versionsFileNameFor(arch)
+	// VERSIONS_FILE names where the catalogues are: both architectures' files are in its
+	// folder, and nowhere else is looked at.
+	if env := os.Getenv("VERSIONS_FILE"); env != "" {
+		if name != "versions.yaml" {
+			env = filepath.Join(filepath.Dir(env), name)
+		}
+		return firstExisting(env)
 	}
-	if p := firstExisting(env, "/etc/dbcanvas/"+name, dataDirFile(name), name, "../"+name); p != "" {
+	if p := firstExisting("/etc/dbcanvas/"+name, dataDirFile(name), name, "../"+name); p != "" {
 		return p
 	}
 	return embeddedCatalog(name)
@@ -93,8 +104,11 @@ func dataDirFile(name string) string {
 }
 
 // versionsFileName is the catalog's file name for DOCKER_PLATFORM.
-func versionsFileName() string {
-	if platformArch() == "arm64" {
+func versionsFileName() string { return versionsFileNameFor(platformArch()) }
+
+// versionsFileNameFor is one architecture's catalog file name.
+func versionsFileNameFor(arch string) string {
+	if arch == "arm64" {
 		return "versions-arm64.yaml"
 	}
 	return "versions.yaml"
@@ -107,11 +121,16 @@ func versionsFileName() string {
 // predates the split has its image entries in the catalog file, and those entries are
 // shaped identically, so the OS pickers keep working until the next `make images`.
 func imagesFilePath() string {
-	if p := firstExisting(os.Getenv("IMAGES_FILE"),
-		"/etc/dbcanvas/images.yaml", dataDirFile("images.yaml"), "images.yaml", "../images.yaml"); p != "" {
+	if p := imagesYAMLPath(); p != "" {
 		return p
 	}
 	return versionsFilePath()
+}
+
+// imagesYAMLPath is images.yaml itself, or "" when there is none.
+func imagesYAMLPath() string {
+	return firstExisting(os.Getenv("IMAGES_FILE"),
+		"/etc/dbcanvas/images.yaml", dataDirFile("images.yaml"), "images.yaml", "../images.yaml")
 }
 
 func firstExisting(candidates ...string) string {
@@ -525,48 +544,87 @@ func loadImagesCatalog() []PXCImage { return loadImageCatalog("") }
 // rejects the combination for every node type but the Linux Client.
 func productOSFamily(os string) bool { return os != "debian" }
 
-// loadImageCatalog parses the per-image `<wantSection>` major-series map of
-// versions.yaml (each image's installable versions keyed by series). It mirrors
-// the YAML the generator emits. Never errors — returns nil on any problem.
+// loadImageCatalog parses the per-image `<wantSection>` major-series map of the version
+// catalogues (each image's installable versions keyed by series), for every architecture: a
+// node picks the entries of its own (forArch, archOr). It mirrors the YAML the generator emits.
+// Never errors — returns nil on any problem.
 //
 // The empty section is the image list itself, which is images.yaml's job; every
 // named section is a version map, which is versions.yaml's. Both files carry an
 // `images:` block of the same shape, so one parser reads either.
 func loadImageCatalog(wantSection string) []PXCImage {
 	if wantSection == "" {
-		return onPlatform(loadImageList())
+		return loadImageList()
 	}
-	return parseImageCatalog(versionsFilePath(), wantSection)
+	return catalogEntries(wantSection)
 }
 
-// onPlatform keeps the images of the platform this installation runs. images.yaml holds both
-// when a release has been built for both architectures on this host (images/build.sh keeps the
-// other platform's entries), and only this platform's are images a node here can run. An entry
-// that does not say is kept, as it always was.
-func onPlatform(imgs []PXCImage) []PXCImage {
-	arch := platformArch()
+// catalogEntries reads one section from each architecture's catalogue. Each file was probed on
+// its own platform, so its entries are that architecture's: an entry that does not say is
+// marked with it, and one that names another is left out.
+func catalogEntries(wantSection string) []PXCImage {
+	var out []PXCImage
+	for _, arch := range catalogArches {
+		path := versionsFilePathFor(arch)
+		if path == "" {
+			continue
+		}
+		for _, im := range parseImageCatalog(path, wantSection) {
+			if im.Arch == "" {
+				im.Arch = arch
+			}
+			if im.Arch == arch {
+				out = append(out, im)
+			}
+		}
+	}
+	return out
+}
+
+// catalogArch is the architecture a catalogue request asks for (?arch=amd64|arm64), else
+// the default platform's: a node form asks for its node's.
+func catalogArch(r *http.Request) string {
+	return archOr(strings.TrimSpace(r.URL.Query().Get("arch")))
+}
+
+// forArch keeps the images of one architecture ("" is the default platform's), and any
+// entry that does not say (the loaders mark every entry they read, so only a hand-written
+// list has one).
+func forArch(imgs []PXCImage, arch string) []PXCImage {
+	arch = archOr(arch)
 	out := imgs[:0:0]
 	for _, im := range imgs {
-		if im.Arch == "" || im.Arch == arch {
+		if im.Arch == arch || im.Arch == "" {
 			out = append(out, im)
 		}
 	}
 	return out
 }
 
-// loadImageList is the image list itself: images.yaml, or the catalog's image entries when
-// images.yaml lists nothing.
+// onPlatform keeps the images of the default platform.
+func onPlatform(imgs []PXCImage) []PXCImage { return forArch(imgs, "") }
+
+// loadImageList is the image list itself, for every architecture: images.yaml, which lists what
+// `make images` built on this machine, and for an architecture it does not cover, the catalogue's
+// image entries — the images a node of that architecture is pulled from.
 func loadImageList() []PXCImage {
-	path := imagesFilePath()
-	// An images.yaml that exists but lists nothing is either a `make images` where every
-	// build failed or the empty stand-in `make env` drops so that Docker cannot bind-mount
-	// a directory in its place. Either way, if the version catalog still has image entries
-	// they describe images that were built at some point, which is a better answer for an
-	// OS picker than none at all.
-	if imgs := parseImageCatalog(path, ""); len(imgs) > 0 || path == versionsFilePath() {
-		return imgs
+	var out []PXCImage
+	covered := map[string]bool{}
+	if p := imagesYAMLPath(); p != "" {
+		for _, im := range parseImageCatalog(p, "") {
+			if im.Arch == "" {
+				im.Arch = platformArch() // an entry from before images.yaml said
+			}
+			covered[im.Arch] = true
+			out = append(out, im)
+		}
 	}
-	return parseImageCatalog(versionsFilePath(), "")
+	for _, im := range catalogEntries("") {
+		if !covered[im.Arch] {
+			out = append(out, im)
+		}
+	}
+	return out
 }
 
 func parseImageCatalog(path, wantSection string) []PXCImage {
@@ -674,7 +732,7 @@ func (a *App) handlePXCCatalog(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"images": loadPXCCatalog()})
+	writeJSON(w, http.StatusOK, map[string]any{"images": forArch(loadPXCCatalog(), catalogArch(r)), "arch": catalogArch(r)})
 }
 
 func (a *App) handleProxySQLCatalog(w http.ResponseWriter, r *http.Request) {
@@ -685,7 +743,7 @@ func (a *App) handleProxySQLCatalog(w http.ResponseWriter, r *http.Request) {
 	// ?source=upstream-admin or upstream-native serves repo.proxysql.com's builds
 	// (proxysqlsource.go); anything else, Percona's.
 	src := strings.TrimSpace(r.URL.Query().Get("source"))
-	writeJSON(w, http.StatusOK, map[string]any{"source": src, "images": proxysqlCatalogFor(src)})
+	writeJSON(w, http.StatusOK, map[string]any{"source": src, "images": forArch(proxysqlCatalogFor(src), catalogArch(r)), "arch": catalogArch(r)})
 }
 
 // handleHAProxyCatalog serves the HAProxy builds a package source offers per image
@@ -701,7 +759,7 @@ func (a *App) handleHAProxyCatalog(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "source must be percona or pgdg — the OS package has no version to choose")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"source": src, "images": loadHAProxyCatalog(src)})
+	writeJSON(w, http.StatusOK, map[string]any{"source": src, "images": forArch(loadHAProxyCatalog(src), catalogArch(r)), "arch": catalogArch(r)})
 }
 
 func (a *App) handleValkeyCatalog(w http.ResponseWriter, r *http.Request) {
@@ -709,7 +767,7 @@ func (a *App) handleValkeyCatalog(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"images": loadValkeyCatalog()})
+	writeJSON(w, http.StatusOK, map[string]any{"images": forArch(loadValkeyCatalog(), catalogArch(r)), "arch": catalogArch(r)})
 }
 
 func (a *App) handlePSCatalog(w http.ResponseWriter, r *http.Request) {
@@ -717,7 +775,7 @@ func (a *App) handlePSCatalog(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"images": loadPSCatalog()})
+	writeJSON(w, http.StatusOK, map[string]any{"images": forArch(loadPSCatalog(), catalogArch(r)), "arch": catalogArch(r)})
 }
 
 // upstreamVersionIssues checks a MariaDB or MySQL-Community selection against the
@@ -812,7 +870,7 @@ func (a *App) handleMariaDBCatalog(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"images": loadMariaDBCatalog()})
+	writeJSON(w, http.StatusOK, map[string]any{"images": forArch(loadMariaDBCatalog(), catalogArch(r)), "arch": catalogArch(r)})
 }
 
 func (a *App) handleMySQLCECatalog(w http.ResponseWriter, r *http.Request) {
@@ -820,7 +878,7 @@ func (a *App) handleMySQLCECatalog(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"images": loadMySQLCECatalog()})
+	writeJSON(w, http.StatusOK, map[string]any{"images": forArch(loadMySQLCECatalog(), catalogArch(r)), "arch": catalogArch(r)})
 }
 
 func (a *App) handleOrchestratorCatalog(w http.ResponseWriter, r *http.Request) {
@@ -828,7 +886,7 @@ func (a *App) handleOrchestratorCatalog(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"images": loadOrchestratorCatalog()})
+	writeJSON(w, http.StatusOK, map[string]any{"images": forArch(loadOrchestratorCatalog(), catalogArch(r)), "arch": catalogArch(r)})
 }
 
 func (a *App) handlePSMDBCatalog(w http.ResponseWriter, r *http.Request) {
@@ -838,10 +896,10 @@ func (a *App) handlePSMDBCatalog(w http.ResponseWriter, r *http.Request) {
 	}
 	// ?distribution=community serves MongoDB's Community Server catalogue instead (MDB nodes).
 	if isMongoCommunity(r.URL.Query().Get("distribution")) {
-		writeJSON(w, http.StatusOK, map[string]any{"images": loadMDBCatalog(), "majors": mdbMajors})
+		writeJSON(w, http.StatusOK, map[string]any{"images": forArch(loadMDBCatalog(), catalogArch(r)), "arch": catalogArch(r), "majors": mdbMajors})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"images": loadPSMDBCatalog()})
+	writeJSON(w, http.StatusOK, map[string]any{"images": forArch(loadPSMDBCatalog(), catalogArch(r)), "arch": catalogArch(r)})
 }
 
 func (a *App) handlePPGCatalog(w http.ResponseWriter, r *http.Request) {
@@ -854,10 +912,10 @@ func (a *App) handlePPGCatalog(w http.ResponseWriter, r *http.Request) {
 	// ?distribution=pgdg serves PGDG's catalogue instead. No components: the Percona
 	// components are not offered on a PGDG node (distributionIssues).
 	if isPGDG(r.URL.Query().Get("distribution")) {
-		writeJSON(w, http.StatusOK, map[string]any{"images": loadPGDGCatalog(), "components": []any{}})
+		writeJSON(w, http.StatusOK, map[string]any{"images": forArch(loadPGDGCatalog(), catalogArch(r)), "arch": catalogArch(r), "components": []any{}})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"images": loadPPGCatalog(), "components": ppgComponents})
+	writeJSON(w, http.StatusOK, map[string]any{"images": forArch(loadPPGCatalog(), catalogArch(r)), "arch": catalogArch(r), "components": ppgComponents})
 }
 
 func (a *App) handleSpockCatalog(w http.ResponseWriter, r *http.Request) {
@@ -865,7 +923,7 @@ func (a *App) handleSpockCatalog(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"images": loadSpockCatalog()})
+	writeJSON(w, http.StatusOK, map[string]any{"images": forArch(loadSpockCatalog(), catalogArch(r)), "arch": catalogArch(r)})
 }
 
 func (a *App) handleImagesCatalog(w http.ResponseWriter, r *http.Request) {
@@ -884,7 +942,7 @@ func (a *App) handleImagesCatalog(w http.ResponseWriter, r *http.Request) {
 	if eolEnabled() && el7Available() {
 		eol = append(eol, el7EOLImage())
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"images": loadImagesCatalog(), "platform": platformArch(), "eol": eol})
+	writeJSON(w, http.StatusOK, map[string]any{"images": forArch(loadImagesCatalog(), catalogArch(r)), "arch": catalogArch(r), "platform": platformArch(), "eol": eol})
 }
 
 // loadPDPSCatalog reads the top-level `pdps:` list of percona-release repositories

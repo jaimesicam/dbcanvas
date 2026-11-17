@@ -90,8 +90,7 @@ func frameDBVersionSpec(f designFrame) (dbVersionSpec, bool) {
 func emptyCatalogReason(images []PXCImage, s dbVersionSpec) string {
 	var entry *PXCImage
 	for i := range images {
-		if images[i].OS == s.OS && images[i].OSVersion == s.OSVersion &&
-			(s.Arch == "" || images[i].Arch == s.Arch) {
+		if images[i].OS == s.OS && images[i].OSVersion == s.OSVersion && images[i].Arch == archOr(s.Arch) {
 			entry = &images[i]
 			break
 		}
@@ -99,10 +98,7 @@ func emptyCatalogReason(images []PXCImage, s dbVersionSpec) string {
 	if entry == nil {
 		return ""
 	}
-	on := s.OS + " " + s.OSVersion
-	if s.Arch != "" {
-		on += " (" + s.Arch + ")"
-	}
+	on := s.OS + " " + s.OSVersion + " (" + archOr(s.Arch) + ")"
 	if major := strings.TrimSpace(s.Major); major != "" {
 		if len(entry.Versions[major]) == 0 {
 			return "no " + s.Product + " " + major + " builds are available on " + on

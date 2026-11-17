@@ -76,7 +76,7 @@ func loadHAProxyCatalog(src string) []PXCImage {
 // whether the catalogue has an entry for that image at all.
 func haproxyCatalogVersions(src, os, osVer, arch string) ([]string, bool) {
 	for _, img := range loadHAProxyCatalog(src) {
-		if img.OS == os && img.OSVersion == osVer && (arch == "" || img.Arch == archOr(arch)) {
+		if img.OS == os && img.OSVersion == osVer && img.Arch == archOr(arch) {
 			var out []string
 			for _, vs := range img.Versions {
 				out = append(out, vs...)

@@ -1601,7 +1601,7 @@ func (a *App) handleRepositoryCatalog(w http.ResponseWriter, r *http.Request) {
 	versionsOf := func(key, major string) []string {
 		var out []string
 		for _, img := range loadImageCatalog(key) {
-			if img.OS != "oraclelinux" {
+			if img.OS != "oraclelinux" || img.Arch != catalogArch(r) {
 				continue
 			}
 			for _, v := range img.Versions[major] {

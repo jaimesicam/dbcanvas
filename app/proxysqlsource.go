@@ -71,7 +71,7 @@ func proxysqlCatalogFor(src string) []PXCImage {
 // newest first, and whether it has the image at all.
 func proxysqlUpstreamVersions(os, osVer, arch, major string) ([]string, bool) {
 	for _, img := range loadUpstreamProxySQLCatalog() {
-		if img.OS == os && img.OSVersion == osVer && (arch == "" || img.Arch == archOr(arch)) {
+		if img.OS == os && img.OSVersion == osVer && img.Arch == archOr(arch) {
 			return img.Versions[proxysqlMajorOf(major)], true
 		}
 	}
