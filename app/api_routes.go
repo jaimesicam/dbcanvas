@@ -209,13 +209,12 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "Change your first name, last name, email and avatar: {\"firstName\", \"lastName\", \"email\", \"avatar\"} (an id from GET /api/avatars)."},
 		{Method: "GET", Path: "/api/avatars", Group: gPrefs, Handler: m((*App).handleAvatars),
 			Summary: "The avatar ids the owner or a guest may choose."},
-		// Instance-wide settings: anyone signed in may read them (the designer needs
-		// the upload ceiling to refuse an over-size drop client-side); only an admin
-		// may change them.
+		// System settings (the designer reads the upload ceiling to refuse an
+		// over-size drop client-side).
 		{Method: "GET", Path: "/api/system/settings", Group: gPrefs, Handler: m((*App).handleGetSystemSettings),
-			Summary: "Instance-wide settings: the file-upload ceiling, whether SSH tunnelling is configured, and whether experimental features are shown."},
+			Summary: "System settings: the file-upload ceiling, whether SSH tunnelling is configured, and whether experimental features are shown."},
 		{Method: "PUT", Path: "/api/system/settings", Group: gPrefs, Auth: authAdmin, Handler: m((*App).handleUpdateSystemSettings),
-			Summary: "Change the instance-wide settings. Out-of-range values are clamped rather than rejected."},
+			Summary: "Change the system settings. Out-of-range values are clamped rather than rejected."},
 
 		// --- node images --------------------------------------------------------
 		{Method: "GET", Path: "/api/images", Group: gImages, Handler: m((*App).handleListExtraImages),
@@ -1085,15 +1084,15 @@ func buildAPIRoutes() []apiRoute {
 		// --- Kanban --------------------------------------------------------------
 		// Boards of columns of cards (kanban.go): a person's own, and the shared ones.
 		{Method: "GET", Path: "/api/kanban/boards", Group: gKanban, Handler: m((*App).handleKanbanBoards),
-			Summary: "The boards you can open: your own, then the ones others shared."},
+			Summary: "Your Kanban boards, most recently changed first, with each one's card count."},
 		{Method: "POST", Path: "/api/kanban/boards", Group: gKanban, Handler: m((*App).handleKanbanCreateBoard),
-			Summary: "Create a board: {name, shared, columns} (columns default to To do, In progress, Done)."},
+			Summary: "Create a board: {name, columns} (columns default to To do, In progress, Done)."},
 		{Method: "GET", Path: "/api/kanban/boards/{id}", Group: gKanban, Handler: m((*App).handleKanbanGetBoard),
 			Summary: "A board with its columns and cards in order; ?since=<rev> answers {unchanged: true} when nothing moved."},
 		{Method: "PUT", Path: "/api/kanban/boards/{id}", Group: gKanban, Handler: m((*App).handleKanbanUpdateBoard),
-			Summary: "Rename a board or share it with everyone: {name, shared}. The owner only."},
+			Summary: "Rename a board: {name}."},
 		{Method: "DELETE", Path: "/api/kanban/boards/{id}", Group: gKanban, Handler: m((*App).handleKanbanDeleteBoard),
-			Summary: "Delete a board with every column and card on it. The owner only."},
+			Summary: "Delete a board with every column and card on it."},
 		{Method: "POST", Path: "/api/kanban/boards/{id}/columns", Group: gKanban, Handler: m((*App).handleKanbanAddColumn),
 			Summary: "Add a column: {name, index} (index omitted: at the right end)."},
 		{Method: "PUT", Path: "/api/kanban/columns/{cid}", Group: gKanban, Handler: m((*App).handleKanbanUpdateColumn),

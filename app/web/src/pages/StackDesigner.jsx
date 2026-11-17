@@ -2983,9 +2983,6 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
   const [pendingChanges, setPendingChanges] = useState(null)
   const [deployments, setDeployments] = useState([])
   const [issues, setIssues] = useState(null) // validate results panel
-  // Building a missing node image is an admin action (the server enforces it); a
-  // non-admin is told which make target does it instead of shown a button that
-  // would be refused.
   const { guest } = useAuth()
   const { openBrowser, openInDesktop } = useBrowser()
   const [busy, setBusy] = useState('') // 'validate' | 'deploy' | ''
@@ -3024,7 +3021,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
   }, [moreOpen])
   const [insertTpl, setInsertTpl] = useState(false) // "Insert template" dialog
   const { openTerminal } = useTerminals()
-  const { settings, system } = useSettings() // per-user: how the library is offered; instance-wide: upload ceiling, SSH forwarding, experimental features
+  const { settings, system } = useSettings() // how the library is offered; the upload ceiling, SSH forwarding, experimental features
   // 'menu' (the default) drops the docked column and adds nodes from the canvas
   // right-click instead. The add menu works in both modes — this only decides
   // whether the Infrastructure Library column is there as well.

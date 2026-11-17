@@ -1298,10 +1298,10 @@ top of a column (or leftmost on the board); an index past the end means the end.
 
 | To do this | API |
 | --- | --- |
-| Your boards and shared ones | `GET /api/kanban/boards` |
-| Create a board | `POST /api/kanban/boards` `{"name", "shared", "columns": ["To do", …]}` |
+| Your boards | `GET /api/kanban/boards` |
+| Create a board | `POST /api/kanban/boards` `{"name", "columns": ["To do", …]}` |
 | A board with its columns and cards (`?since=<rev>` for a cheap poll) | `GET /api/kanban/boards/{id}` |
-| Rename or share it · delete it | `PUT /api/kanban/boards/{id}` `{"name", "shared"}` · `DELETE …` |
+| Rename it · delete it | `PUT /api/kanban/boards/{id}` `{"name"}` · `DELETE …` |
 | Add · change · delete a column | `POST /api/kanban/boards/{id}/columns` `{"name", "index"}` · `PUT /api/kanban/columns/{cid}` `{"name", "wipLimit"}` or `{"color"}` · `DELETE …` |
 | Move a column | `POST /api/kanban/columns/{cid}/move` `{"index"}` |
 | Add a card | `POST /api/kanban/columns/{cid}/cards` `{"title", "description", "labels", "assigneeId", "due", "color", "index"}` |

@@ -17,7 +17,7 @@ async function request(method, path, body) {
 
 export const kanbanApi = {
   boards: () => request('GET', '/api/kanban/boards'),
-  createBoard: (name, shared, columns) => request('POST', '/api/kanban/boards', { name, shared, columns }),
+  createBoard: (name, columns) => request('POST', '/api/kanban/boards', { name, columns }),
   board: (id, since) => request('GET', `/api/kanban/boards/${id}${since ? `?since=${since}` : ''}`),
   updateBoard: (id, patch) => request('PUT', `/api/kanban/boards/${id}`, patch),
   deleteBoard: (id) => request('DELETE', `/api/kanban/boards/${id}`),

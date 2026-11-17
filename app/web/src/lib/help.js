@@ -757,7 +757,7 @@ export const HELP = {
     'to change is reported when it lands.',
   uiSaveTemplate:
     'Save this canvas as a reusable template. Passwords, host paths and pinned host ports are deliberately left ' +
-    'out, so the template travels to another stack, another user, or another installation.',
+    'out, so the template travels to another stack or another installation.',
   uiValidate:
     'Check the design without deploying anything: missing links, impossible topologies, host ports that clash, ' +
     'paths outside the allowed root. Cheap, and worth doing before a long deploy.',
@@ -816,18 +816,16 @@ export const HELP = {
   tokenScope:
     'How much of the API this token may reach. "read" covers every GET plus the handful of POSTs that ' +
     'compute something without changing anything (validate, compare, preview); "write" covers ' +
-    'everything you can do in the UI; "admin" adds the owner-only endpoints (settings, tokens, images). ' +
+    'everything you can do in the UI; "admin" adds the system endpoints (settings, tokens, images). ' +
     'Pick the narrowest one that does the job — a read token on a laptop ' +
-    'cannot destroy a stack, however it is misused. Whatever you pick is also capped by your own ' +
-    'account: if your role changes, the token narrows with it.',
+    'cannot destroy a stack, however it is misused.',
   tokenExpiry:
     'When this token stops working. Shorter is better: a token you have to renew is one you notice ' +
     'when it is no longer needed, and one forgotten on an old machine stops mattering by itself. The ' +
-    'ceiling is set instance-wide by the owner; only the owner can create a token that ' +
-    'never expires, because a permanent credential against a host that drives Docker should be a ' +
+    'ceiling is set in Settings → Access & security; a token that never expires has to be ' +
+    'asked for explicitly, because a permanent credential against a host that drives Docker should be a ' +
     'deliberate decision. Expiry is checked when the token is used, and an expired token stays in the ' +
     'list marked expired — which is how "why did my script start failing" gets an answer.',
-  groupLimits: 'Limits per security group. Longest lifetime caps the TTL a stack can be created or extended with (and refuses never-expiring stacks unless it is infinity). Stacks and Deployed nodes count per account. Node types are the type ids — k3d, kubeadm, vnc, … — and a stack holding one fails validation for that group. Changing a limit does not touch stacks that already exist.',
   tokenLimit: 'Narrows the token to some stacks: the ones it creates itself, and/or the ones carrying every label given (a stack it creates gets those labels). It can then call only those stacks\' routes, list (filtered), create and compose stacks, and read the catalogues — every other endpoint answers 403, whatever its scope.',
   bigHole: 'Big Hole is a MongoDB FTDC viewer that runs entirely in the browser — drag a diagnostic.data folder or a support tarball onto the page and it charts every metric. Installed here, nginx serves it from the node on a port published to the host. Open it on localhost: browsers only give a page the on-disk storage it decodes a capture into over HTTPS or localhost.',
   vectorSearch: 'Run Percona Search for MongoDB (mongot) beside this cluster so $vectorSearch (semantic / AI search) and $search (full-text) work. ' +

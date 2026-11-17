@@ -4,7 +4,6 @@ import { Icon } from '../components/Icons.jsx'
 import { Button, inputCls } from '../components/ui.jsx'
 import { useDialog } from '../components/Dialog.jsx'
 import { Avatar } from '../components/Avatar.jsx'
-import { useAuth } from '../auth/AuthProvider.jsx'
 import { useRefresh } from '../lib/useRefresh.jsx'
 import { usePageVisible } from '../lib/usePolling.jsx'
 import { kanbanApi, LABEL_COLORS, labelHex, tint, BOARD_TEMPLATES, moveLocal, cardsIn } from '../lib/kanbanApi.js'
@@ -51,7 +50,6 @@ function readLast() { try { return Number(localStorage.getItem(LAST_BOARD)) || n
 function writeLast(id) { try { localStorage.setItem(LAST_BOARD, String(id || '')) } catch { /* */ } }
 
 export default function Kanban() {
-  const { user } = useAuth()
   const visible = usePageVisible()
   const [dialog, ask] = useDialog()
   const [boards, setBoards] = useState(null)
@@ -83,7 +81,7 @@ export default function Kanban() {
       setData(d)
       setErr('')
       // The list beside the board keeps its count and name in step.
-      setBoards((bs) => bs?.map((b) => (b.id === d.board.id ? { ...b, name: d.board.name, shared: d.board.shared, cards: d.cards.length } : b)))
+      setBoards((bs) => bs?.map((b) => (b.id === d.board.id ? { ...b, name: d.board.name, cards: d.cards.length } : b)))
     } catch (e) {
       if (e.status === 404) { setData(null); setBoardId(null); writeLast(null) } else setErr(e.message)
     }
@@ -130,7 +128,7 @@ export default function Kanban() {
   const createBoard = async (name, template) => {
     const t = BOARD_TEMPLATES.find((x) => x.id === template) || BOARD_TEMPLATES[0]
     try {
-      const b = await kanbanApi.createBoard(name, false, t.columns)
+      const b = await kanbanApi.createBoard(name, t.columns)
       await loadBoards()
       setBoardId(b.id)
       setCreating(false)
@@ -236,7 +234,6 @@ export default function Kanban() {
   }, [toast])
 
   const board = data?.board
-  const mine = board && board.ownerId === user?.id
   const card = openCard && data?.cards.find((c) => c.id === openCard)
   const filtering = !!(query.trim() || who)
   const matches = useMemo(() => {
@@ -255,7 +252,7 @@ export default function Kanban() {
         <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-1.5">
           {boards?.length === 0 && <div className="px-2 py-3 text-xs text-muted">No boards yet.</div>}
           {boards?.map((b) => (
-            <BoardRow key={b.id} b={b} on={b.id === boardId} mine={b.ownerId === user?.id} onOpen={() => setBoardId(b.id)}
+            <BoardRow key={b.id} b={b} on={b.id === boardId} onOpen={() => setBoardId(b.id)}
               onRename={() => renameBoard(b)} onDelete={() => deleteBoard(b)} />
           ))}
         </div>
@@ -278,9 +275,8 @@ export default function Kanban() {
         ) : (
           <>
             <div className="mb-3 flex flex-wrap items-center gap-2">
-              <h2 className="mr-1 min-w-0 truncate text-lg font-semibold" title={mine ? 'Double-click to rename' : undefined}
-                onDoubleClick={() => mine && renameBoard(board)}>{board.name}</h2>
-              {!mine && <span className="text-xs text-muted">by {board.ownerName}</span>}
+              <h2 className="mr-1 min-w-0 truncate text-lg font-semibold" title="Double-click to rename"
+                onDoubleClick={() => renameBoard(board)}>{board.name}</h2>
               <div className="ml-auto flex items-center gap-2">
                 <div className="relative">
                   <Icon.Search size={14} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted" />
@@ -318,20 +314,18 @@ export default function Kanban() {
   )
 }
 
-function BoardRow({ b, on, mine, onOpen, onRename, onDelete }) {
+function BoardRow({ b, on, onOpen, onRename, onDelete }) {
   const [menu, setMenu] = useState(null)
   return (
     <div className={`group flex items-center gap-1 rounded-md ${on ? 'bg-primary/15 text-primary' : 'hover:bg-surface2'}`}
-      onContextMenu={(e) => { if (mine) { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY }) } }}>
-      <button onClick={onOpen} onDoubleClick={() => mine && onRename()} className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left text-sm">
+      onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY }) }}>
+      <button onClick={onOpen} onDoubleClick={() => onRename()} className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left text-sm">
         <Icon.Kanban size={14} className="shrink-0" />
         <span className="min-w-0 flex-1 truncate">{b.name}</span>
         <span className="shrink-0 text-[10px] tabular-nums text-muted">{b.cards}</span>
       </button>
-      {mine && (
-        <button onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setMenu({ x: r.left, y: r.bottom }) }}
-          className="mr-1 rounded px-1 text-muted opacity-0 hover:bg-surface hover:text-fg group-hover:opacity-100" title="Board actions">⋯</button>
-      )}
+      <button onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setMenu({ x: r.left, y: r.bottom }) }}
+        className="mr-1 rounded px-1 text-muted opacity-0 hover:bg-surface hover:text-fg group-hover:opacity-100" title="Board actions">⋯</button>
       {menu && (
         <Menu at={menu} onClose={() => setMenu(null)} items={[
           { label: 'Rename', onClick: onRename },

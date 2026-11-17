@@ -19,9 +19,7 @@ import (
 // item out, puts it in at the index asked for, and renumbers what is left, so the
 // stored order is always exactly what the person last saw.
 //
-// A board is its owner's. Marked shared, every signed-in user may see and change
-// it — its cards, its columns — though only the owner renames it, shares it or
-// deletes it. Everything a person writes on a board (its name, column names, card
+// Everything a person writes on a board (its name, column names, card
 // titles and descriptions) is sealed at rest like the rest of what they type
 // (encryption.go).
 //
@@ -87,7 +85,7 @@ type KanbanBoard struct {
 	OwnerID   int64  `json:"ownerId"`
 	OwnerName string `json:"ownerName"`
 	Name      string `json:"name"`
-	Shared    bool   `json:"shared"`
+	Shared    bool   `json:"-"` // an old multi-account flag, kept in the table
 	Rev       int64  `json:"rev"`
 	Cards     int    `json:"cards"`
 	CreatedAt string `json:"createdAt"`
@@ -600,9 +598,8 @@ func (s *Store) MoveKanbanCard(boardID, cardID, toCol int64, index int) error {
 
 // ------------------------------------------------------------------ handlers
 
-// kanbanBoardFor loads the board a request is about and checks the caller may use
-// it: owner for anything, any signed-in user for a shared board's contents.
-// ownerOnly is for renaming, sharing and deleting the board itself.
+// kanbanBoardFor loads the board a request is about and checks the caller may use it.
+// ownerOnly is for renaming and deleting the board itself.
 func (a *App) kanbanBoardFor(w http.ResponseWriter, r *http.Request, boardID int64, ownerOnly bool) (KanbanBoard, User, bool) {
 	u, ok := a.currentUser(r)
 	if !ok {
@@ -659,7 +656,6 @@ func (a *App) handleKanbanCreateBoard(w http.ResponseWriter, r *http.Request) {
 	}
 	var in struct {
 		Name    string   `json:"name"`
-		Shared  bool     `json:"shared"`
 		Columns []string `json:"columns"`
 	}
 	if err := decode(r, &in); err != nil {
@@ -683,7 +679,7 @@ func (a *App) handleKanbanCreateBoard(w http.ResponseWriter, r *http.Request) {
 	if len(cols) > kanbanColsMax {
 		cols = cols[:kanbanColsMax]
 	}
-	b, err := a.store.CreateKanbanBoard(u.ID, name, in.Shared, cols)
+	b, err := a.store.CreateKanbanBoard(u.ID, name, false, cols)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to create the board")
 		return
@@ -715,14 +711,13 @@ func (a *App) handleKanbanUpdateBoard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Name   *string `json:"name"`
-		Shared *bool   `json:"shared"`
+		Name *string `json:"name"`
 	}
 	if err := decode(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	name, shared := b.Name, b.Shared
+	name := b.Name
 	if in.Name != nil {
 		n, err := cleanText(*in.Name, kanbanNameMax, "a board's name")
 		if err != nil {
@@ -731,10 +726,7 @@ func (a *App) handleKanbanUpdateBoard(w http.ResponseWriter, r *http.Request) {
 		}
 		name = n
 	}
-	if in.Shared != nil {
-		shared = *in.Shared
-	}
-	if err := a.store.UpdateKanbanBoard(b.ID, name, shared); err != nil {
+	if err := a.store.UpdateKanbanBoard(b.ID, name, b.Shared); err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to save the board")
 		return
 	}

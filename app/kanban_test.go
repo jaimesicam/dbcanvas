@@ -149,17 +149,6 @@ func TestPrivateBoardsArePrivate(t *testing.T) {
 	if len(list) != 0 {
 		t.Errorf("bob's list shows %d boards", len(list))
 	}
-	// Shared: bob works on it, but the board itself stays ann's.
-	f.do(f.ann, "PUT", "/", vals, `{"shared":true}`, m((*App).handleKanbanUpdateBoard))
-	if w := f.do(f.bob, "POST", "/", map[string]string{"cid": id(f.cols[0])}, `{"title":"from bob"}`, m((*App).handleKanbanAddCard)); w.Code != http.StatusCreated {
-		t.Errorf("bob could not add to a shared board: %d", w.Code)
-	}
-	if w := f.do(f.bob, "DELETE", "/", vals, "", m((*App).handleKanbanDeleteBoard)); w.Code != http.StatusForbidden {
-		t.Errorf("bob deleted ann's board: %d", w.Code)
-	}
-	if w := f.do(f.bob, "PUT", "/", vals, `{"name":"mine now"}`, m((*App).handleKanbanUpdateBoard)); w.Code != http.StatusForbidden {
-		t.Errorf("bob renamed ann's board: %d", w.Code)
-	}
 }
 
 func TestACardMovesOnlyWithinItsBoard(t *testing.T) {
