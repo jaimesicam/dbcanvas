@@ -145,9 +145,19 @@ func TestSoloGuardLetsGuestsIn(t *testing.T) {
 	if code := get("POST", "/api/join/"+f.token, nil); code != http.StatusTeapot {
 		t.Errorf("joining with a live link: %d", code)
 	}
-	c, _ := f.join(t, "Jane")
+	c, g := f.join(t, "Jane")
 	if code := get("GET", "/api/stacks", c); code != http.StatusTeapot {
 		t.Errorf("a joined guest's cookie: %d", code)
+	}
+	// A guest who has been removed, or whose session ended, is a request without a cookie.
+	f.app.store.SetShareGuestState(g.ID, guestRemoved)
+	if code := get("GET", "/api/stacks", c); code != http.StatusUnauthorized {
+		t.Errorf("a removed guest's cookie: %d", code)
+	}
+	c2, _ := f.join(t, "John")
+	f.app.store.EndShareSession(f.sess.ID, "test")
+	if code := get("GET", "/api/stacks", c2); code != http.StatusUnauthorized {
+		t.Errorf("a guest's cookie after the session ended: %d", code)
 	}
 	f.app.store.SetAppSetting(settingAllowGuestSessions, "0")
 	if code := get("GET", "/join/"+f.token, nil); code != http.StatusUnauthorized {

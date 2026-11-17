@@ -153,11 +153,21 @@ func (a *App) soloCredential(r *http.Request) bool {
 		}
 	}
 	if c, err := r.Cookie(guestCookieName); err == nil && c.Value != "" {
-		if _, err := a.store.ShareGuestByCookie(hashTokenSecret(c.Value)); err == nil {
-			return true
-		}
+		return a.liveGuest(hashTokenSecret(c.Value))
 	}
 	return false
+}
+
+// liveGuest reports whether a guest cookie belongs to a guest still in the lobby or
+// admitted, of a shared session that is still live: once the session ends or the guest
+// leaves, is denied or removed, the cookie gets no further than a request without one.
+func (a *App) liveGuest(cookieHash string) bool {
+	g, err := a.store.ShareGuestByCookie(cookieHash)
+	if err != nil || (g.State != guestWaiting && g.State != guestAdmitted) {
+		return false
+	}
+	sess, err := a.store.GetShareSession(g.SessionID)
+	return err == nil && sess.live(time.Now())
 }
 
 // soloPublic is what answers without a credential: the start link and the web app's
