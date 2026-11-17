@@ -44,6 +44,10 @@ import Kanban from './pages/Kanban.jsx'
 import Scratchboard from './pages/Scratchboard.jsx'
 import { showExperimental, visible } from './lib/experimental.js'
 
+// The page a plain link to DBCanvas opens on, and the classic shell's fallback when
+// every tab is closed: the stacks, which are what most visits are for.
+export const HOME_PAGE = 'stack-designer'
+
 // Exported for the smoke suite: the tags on these entries are what an installation
 // with EXPERIMENTAL off never sees, and a tag is easy to lose in an edit.
 export const NAV = [
@@ -139,7 +143,7 @@ function Workspace({ onSessionEnded }) {
   const [shellMode] = useShellMode()
   const desktop = shellMode === 'desktop'
   const wmApi = useWindowApi()
-  const [tabs, setTabs] = useState(() => [{ key: 'tab-1', id: hashPage() || 'dashboard' }])
+  const [tabs, setTabs] = useState(() => [{ key: 'tab-1', id: hashPage() || HOME_PAGE }])
   const [activeKey, setActiveKey] = useState('tab-1')
   const [collapsed, setCollapsed] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -155,7 +159,7 @@ function Workspace({ onSessionEnded }) {
   const maxTabs = clampTabs(settings.maxTabs)
 
   const activeTab = tabs.find((t) => t.key === activeKey) ?? tabs[0]
-  const active = activeTab?.id ?? (desktop ? null : 'dashboard')
+  const active = activeTab?.id ?? (desktop ? null : HOME_PAGE)
 
   // The rules live in lib/tabs.js so they can be tested; this wires them to state.
   // Updaters stay pure: React may call a setState updater twice, so the key is
@@ -221,7 +225,7 @@ function Workspace({ onSessionEnded }) {
   }, [tabs, activeKey, desktop])
 
   // Back to the classic shell with every window closed: it needs a tab to show.
-  useEffect(() => { if (!desktop && tabs.length === 0) openTab('dashboard') }, [desktop, tabs.length]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!desktop && tabs.length === 0) openTab(HOME_PAGE) }, [desktop, tabs.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Follow mode (session/SessionProvider.jsx). The driver says which page they are
   // on; everyone following goes there — the same tab if one is open, a new one if not.
@@ -282,7 +286,7 @@ function Workspace({ onSessionEnded }) {
   activeRef.current = active
   useEffect(() => {
     const onHash = () => {
-      const id = hashPage() || 'dashboard'
+      const id = hashPage() || HOME_PAGE
       if (id === activeRef.current) return
       openTab(id)
     }
