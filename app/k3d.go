@@ -325,8 +325,17 @@ func (a *App) runK3D(ctx context.Context, logln func(string), args ...string) (s
 		return "", fmt.Errorf("k3d is not installed: %w", err)
 	}
 	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Env = append(os.Environ(),
-		"DOCKER_HOST=unix://"+envOr("DOCKER_SOCK", "/var/run/docker.sock"),
+	// k3d talks to the daemon through DOCKER_HOST (this host's socket), and bind-mounts
+	// DOCKER_SOCK into its tools node, a path the daemon must have (daemonSocket).
+	env := []string{}
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "DOCKER_SOCK=") && !strings.HasPrefix(kv, "DOCKER_HOST=") {
+			env = append(env, kv)
+		}
+	}
+	cmd.Env = append(env,
+		"DOCKER_HOST=unix://"+dockerSocket(),
+		"DOCKER_SOCK="+daemonSocket(),
 		"HOME=/tmp",
 	)
 	var out bytes.Buffer

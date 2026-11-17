@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -250,6 +251,19 @@ func dockerSocket() string {
 	}
 	if s := dockerContextSocket(); s != "" {
 		return s
+	}
+	return "/var/run/docker.sock"
+}
+
+// daemonSocket is the Docker socket's path as the Docker daemon sees it, for bind-mounting
+// into a container (k3d's tools node, image builds). On Linux the daemon runs on this host,
+// so it is dockerSocket(), rootless Docker's /run/user/<uid>/docker.sock included. On macOS
+// the daemon runs in a VM (Docker Desktop, Rancher Desktop, OrbStack, Colima), where the
+// client's socket path (~/.rd/docker.sock, ~/.docker/run/docker.sock) does not exist and
+// the daemon's own socket is /var/run/docker.sock.
+func daemonSocket() string {
+	if runtime.GOOS == "linux" {
+		return dockerSocket()
 	}
 	return "/var/run/docker.sock"
 }

@@ -244,7 +244,7 @@ func (a *App) buildExtraImage(ctx context.Context, e extraImage) error {
 		Image: buildhelperImage,
 		// Long enough to outlive the build; the container is removed either way.
 		Cmd:       []string{"sleep", fmt.Sprintf("%d", int(extraImageBuildTimeout.Seconds())+60)},
-		Binds:     []string{"/var/run/docker.sock:/var/run/docker.sock"},
+		Binds:     []string{daemonSocket() + ":/var/run/docker.sock"},
 		NoRestart: true,
 	})
 	if err != nil {
