@@ -205,8 +205,8 @@ func (a *App) provisionSeaweedFS(st Stack, n designNode, doc designDoc) {
 		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 
 		setPhase("Pulling image", 5)
-		logln("ensuring " + ref + " for " + pullPlatform() + " (this can take a while)")
-		if err := a.engCtx(ctx).EnsureImage(ctx, seaweedRepo, seaweedDefaultTag, pullPlatform()); err != nil {
+		logln("ensuring " + ref + " for " + nodePlatform(n) + " (this can take a while)")
+		if err := a.engCtx(ctx).EnsureImage(ctx, seaweedRepo, seaweedDefaultTag, nodePlatform(n)); err != nil {
 			failNode("pull image %s: %v", ref, err)
 			return
 		}
@@ -268,7 +268,7 @@ func (a *App) provisionSeaweedFS(st Stack, n designNode, doc designDoc) {
 			cmd = append(cmd, "-s3.cert.file="+seaweedTLSCert, "-s3.key.file="+seaweedTLSKey)
 		}
 		id, err := a.engCtx(ctx).ContainerCreate(ctx, ContainerSpec{
-			Name: name, Image: ref, Hostname: host, Platform: pullPlatform(),
+			Name: name, Image: ref, Hostname: host, Platform: nodePlatform(n),
 			Cmd:     cmd,
 			Network: networkName(st.ID), Aliases: []string{host},
 			PublishPorts: []int{seaweedWebPort},

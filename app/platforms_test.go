@@ -1,0 +1,78 @@
+package main
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestHostArchName(t *testing.T) {
+	for in, want := range map[string]string{"aarch64": "arm64", "arm64": "arm64", "x86_64": "amd64", "amd64": "amd64", "": "", "riscv64": ""} {
+		if got := hostArchName(in); got != want {
+			t.Errorf("%q: %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestArchIssues(t *testing.T) {
+	t.Setenv("DOCKER_PLATFORM", "linux/arm64")
+	t.Setenv("K8S_PLATFORM", "linux/arm64")
+	doc := designDoc{
+		Nodes: []designNode{
+			{ID: "a", Label: "ps-auto", Type: "ps"},
+			{ID: "b", Label: "ps-amd", Type: "ps", Arch: "amd64"},
+			{ID: "c", Label: "pmm-arm", Type: "pmm", Arch: "arm64"},
+			{ID: "d", Label: "pmm-auto", Type: "pmm"},
+			{ID: "e", Label: "odd", Type: "ps", Arch: "x86"},
+			{ID: "f", Label: "member", Type: "pxc", Arch: "amd64", FrameID: "px"},
+		},
+		Frames: []designFrame{
+			{ID: "k", Label: "k3d-amd", Type: "k3d", Arch: "amd64"},
+			{ID: "k2", Label: "k3d-auto", Type: "k3d"},
+			{ID: "px", Label: "pxc-amd", Type: "pxc", Arch: "amd64"},
+		},
+	}
+	var errs, infos []string
+	for _, is := range archIssues(doc, "arm64") {
+		if is.Level == "error" {
+			errs = append(errs, is.Message)
+		} else {
+			infos = append(infos, is.Message)
+		}
+	}
+	all := strings.Join(errs, "\n")
+	for _, want := range []string{"k3d-amd: K3D nodes run on this Docker host's own architecture (arm64)", "pmm-arm: PMM runs on amd64 only", `odd: architecture "x86"`} {
+		if !strings.Contains(all, want) {
+			t.Errorf("missing error %q in:\n%s", want, all)
+		}
+	}
+	if len(errs) != 3 {
+		t.Errorf("want 3 errors, got:\n%s", all)
+	}
+	notes := strings.Join(infos, "\n")
+	if !strings.Contains(notes, "ps-amd runs as amd64 under emulation") || !strings.Contains(notes, "pxc-amd runs as amd64") {
+		t.Errorf("emulation notes:\n%s", notes)
+	}
+	if strings.Contains(notes, "ps-auto") || strings.Contains(notes, "member") || strings.Contains(notes, "pmm-auto") {
+		t.Errorf("a note for a node that is native, a member or fixed:\n%s", notes)
+	}
+	// Unknown host: no notes, the errors still stand.
+	for _, is := range archIssues(doc, "") {
+		if is.Level == "info" {
+			t.Errorf("a note with no host architecture: %s", is.Message)
+		}
+	}
+}
+
+// Compose writes an architecture into the design only when the spec asks for one.
+func TestComposeLeavesArchOnAutomatic(t *testing.T) {
+	composeCatalogFixture(t)
+	doc, _, _, _ := composeBuild(t, composeSpec{Name: "lab", Nodes: []composeNodeSpec{{Kind: "ps", OS: "el9"}, {Kind: "ps", Name: "pinned", OS: "el9", Arch: "amd64"}}})
+	for _, n := range doc.Nodes {
+		switch {
+		case n.Label == "pinned" && n.Arch != "amd64":
+			t.Errorf("an asked-for arch was not kept: %+v", n)
+		case n.Label != "pinned" && n.Arch != "":
+			t.Errorf("%s was pinned to %s without being asked", n.Label, n.Arch)
+		}
+	}
+}

@@ -85,7 +85,12 @@ type SystemSettings struct {
 	// be armed for writes explicitly before one is sent (dexQueryRequest.AllowWrites),
 	// so a tab left open from before the setting changed cannot write into a PMM
 	// database because somebody pressed Run.
-	InternalWrites bool   `json:"internalWrites"`
+	InternalWrites bool `json:"internalWrites"`
+	// HostArch is the Docker host's architecture, DefaultArch what a node on Automatic runs
+	// as, KubernetesArch what K3D and Kubeadm nodes run as (platforms.go). Read-only.
+	HostArch       string `json:"hostArch"`
+	DefaultArch    string `json:"defaultArch"`
+	KubernetesArch string `json:"kubernetesArch"`
 	Exposed        bool   `json:"exposed"`
 	PublishHost    string `json:"publishHost"`
 	// DefaultSecrets names the .env passwords still at their .env.example value (doctor.go),
@@ -192,6 +197,7 @@ func (a *App) systemSettings(appUser string) SystemSettings {
 		s.InternalWrites = v == "1"
 	}
 	s.Exposed, s.PublishHost = exposed(), publishHost()
+	s.HostArch, s.DefaultArch, s.KubernetesArch = a.hostArch, platformArch(), k8sArch()
 	s.AllowGuestSessions, s.MaxGuestMinutes = a.guestSessionSettings()
 	s.SessionRetentionDays = a.shareRetentionDays()
 	s.RecordingRetentionDays = a.recordingRetentionDays()

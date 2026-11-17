@@ -376,7 +376,7 @@ func TestResolveVersionErrorsAreUseful(t *testing.T) {
 	if err == nil {
 		t.Fatal("an OS with no image was accepted")
 	}
-	if !strings.Contains(err.Error(), "make images") {
+	if !strings.Contains(err.Error(), "/api/catalog/images") {
 		t.Errorf("the error should say how to fix it: %v", err)
 	}
 

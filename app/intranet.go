@@ -1245,6 +1245,10 @@ func archOr(a string) string {
 	return platformArch()
 }
 
+// nodePlatform is the platform a node's pulled images run as: its own architecture, else the
+// default platform's.
+func nodePlatform(n designNode) string { return "linux/" + archOr(n.Arch) }
+
 // platformArch is DOCKER_PLATFORM's architecture — "amd64" or "arm64". See
 // pullPlatform, which is the same single-platform rule for the images DBCanvas pulls
 // rather than builds.
@@ -1326,6 +1330,8 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 	if err := json.Unmarshal(st.Design, &doc); err != nil {
 		return append(out, issue{Level: "error", Message: "stack design is invalid"})
 	}
+	// Each node's architecture (platforms.go).
+	out = append(out, archIssues(doc, a.hostArch)...)
 	// A member added to a running cluster of a kind that cannot take one yet (join.go).
 	if deps, err := a.store.ListDeployments(st.ID); err == nil && len(deps) > 0 {
 		existing := map[string]Deployment{}

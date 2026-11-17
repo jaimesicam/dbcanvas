@@ -30,6 +30,8 @@ type App struct {
 	// the browser's address then, once it listens.
 	solo    bool
 	soloURL string
+	// hostArch is the Docker host's architecture (amd64, arm64), when detectPlatforms asked.
+	hostArch string
 	// activity and soloStop belong to the background service (soloservice.go): what it is
 	// serving, for the idle check, and how it stops itself.
 	activity *soloActivity
@@ -128,6 +130,7 @@ func runServer(o serveOpts) error {
 
 	app := &App{store: store, docker: NewDocker(dockerSocket()), solo: o.dataDir != ""}
 	if app.solo {
+		app.detectPlatforms(context.Background())
 		// The owner exists before anything listens, so the first-run setup never offers
 		// to create an administrator.
 		if _, err := app.ensureOwner(); err != nil {

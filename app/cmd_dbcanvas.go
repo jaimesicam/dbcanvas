@@ -84,7 +84,10 @@ func runCLI(args []string) int {
 		instanceName = soloInstance()
 	}
 	// Node images for this machine's architecture, and the lab domain, unless set: the
-	// container edition takes both from its .env.
+	// container edition takes both from its .env. The service replaces the architecture with
+	// the Docker host's own when it starts (detectPlatforms); this is the stand-in until then.
+	platformsSet = soloPlatforms{docker: os.Getenv("DOCKER_PLATFORM") != "",
+		k8s: os.Getenv("K8S_PLATFORM") != "" || os.Getenv("K3D_PLATFORM") != ""}
 	if os.Getenv("DOCKER_PLATFORM") == "" {
 		os.Setenv("DOCKER_PLATFORM", "linux/"+runtime.GOARCH)
 	}
@@ -195,6 +198,9 @@ func cliStatus() error {
 		Instance  string        `json:"instance"`
 		StartedAt string        `json:"startedAt"`
 		Grace     int           `json:"idleGraceSeconds"`
+		HostArch  string        `json:"hostArch"`
+		Default   string        `json:"defaultArch"`
+		K8s       string        `json:"kubernetesArch"`
 		Keep      soloKeepAlive `json:"keepAlive"`
 	}
 	if err := (ctl{c: ctlClient(dir)}).do("GET", "/api/solo/status", nil, &st); err != nil {
@@ -202,6 +208,7 @@ func cliStatus() error {
 	}
 	fmt.Printf("dbcanvas %s is running (pid %d, since %s) at %s/\n", st.Version, st.PID, st.StartedAt, st.URL)
 	fmt.Printf("Instance %s, data in %s\n", st.Instance, dir)
+	fmt.Printf("Docker runs on %s; nodes default to %s, Kubernetes nodes run on %s\n", firstNonEmpty(st.HostArch, "an unknown architecture"), st.Default, st.K8s)
 	var why []string
 	if st.Keep.Containers > 0 {
 		why = append(why, fmt.Sprintf("%d node(s) with containers", st.Keep.Containers))

@@ -143,8 +143,8 @@ func (a *App) provisionKeycloak(st Stack, n designNode, doc designDoc) {
 		a.store.SetDeploymentState(st.ID, n.ID, DeployProvisioning)
 
 		pr.phase("Pulling image", 10)
-		pr.logln("ensuring " + keycloakImage + " for " + pullPlatform())
-		if err := a.engCtx(ctx).EnsureImage(ctx, keycloakImageRepo, keycloakImageTag, pullPlatform()); err != nil {
+		pr.logln("ensuring " + keycloakImage + " for " + nodePlatform(n))
+		if err := a.engCtx(ctx).EnsureImage(ctx, keycloakImageRepo, keycloakImageTag, nodePlatform(n)); err != nil {
 			pr.fail("pull image: %v", err)
 			return
 		}
@@ -200,7 +200,7 @@ func (a *App) provisionKeycloak(st Stack, n designNode, doc designDoc) {
 			}
 		}
 		id, err := a.engCtx(ctx).ContainerCreate(ctx, ContainerSpec{
-			Name: name, Image: keycloakImage, Hostname: host, Platform: pullPlatform(),
+			Name: name, Image: keycloakImage, Hostname: host, Platform: nodePlatform(n),
 			Cmd: cmd,
 			Env: []string{
 				"KC_BOOTSTRAP_ADMIN_USERNAME=" + cfg.AdminUser,

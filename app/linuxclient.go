@@ -83,7 +83,7 @@ func (a *App) provisionLinuxClient(st Stack, n designNode, doc designDoc) {
 
 		if el7 {
 			pr.phase("Pulling "+image, 20)
-			if err := a.engCtx(ctx).EnsureImage(ctx, el7ImageRepo, el7ImageTag, pullPlatform()); err != nil {
+			if err := a.engCtx(ctx).EnsureImage(ctx, el7ImageRepo, el7ImageTag, nodePlatform(n)); err != nil {
 				pr.fail("pull %s: %v", image, err)
 				return
 			}
@@ -100,7 +100,7 @@ func (a *App) provisionLinuxClient(st Stack, n designNode, doc designDoc) {
 			DNS: []string{intranetIP}, DNSSearch: []string{domain},
 		}
 		if el7 {
-			spec.Cmd, spec.Platform = el7Cmd, pullPlatform()
+			spec.Cmd, spec.Platform = el7Cmd, nodePlatform(n)
 		}
 		if cfg.gdbNodeConfig.Enabled {
 			// Probe the two host directories *before* creating the node. Docker resolves a bind

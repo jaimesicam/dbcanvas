@@ -249,7 +249,7 @@ func (b *composeBuilder) fixPrerequisites() {
 		x, y := b.placeNode()
 		n := designNode{
 			ID: "n-" + lbl, Type: "vnc", Label: lbl,
-			OS: kind.PinOS[0], OSVersion: kind.PinOS[1], Arch: platformArch(),
+			OS: kind.PinOS[0], OSVersion: kind.PinOS[1],
 			CertTTLValue: 365, CertTTLUnit: "days",
 		}
 		b.pos[n.ID] = [2]float64{x, y}
@@ -356,10 +356,10 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 		}
 		os_, osVer = kind.PinOS[0], kind.PinOS[1]
 	}
-	arch := strings.TrimSpace(s.Arch)
-	if arch == "" {
-		arch = platformArch()
-	}
+	// The architecture versions are resolved for; only one asked for is written into the
+	// design (pinned), so a node left on Automatic follows the host it is deployed on.
+	pinned := strings.TrimSpace(s.Arch)
+	arch := archOr(pinned)
 
 	// Reject an option the kind does not have, rather than accepting it and doing
 	// nothing — a flag that is silently ignored is worse than one that is refused.
@@ -533,7 +533,7 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 		res.Name = b.label(kind, s.Name)
 		fr := designFrame{
 			ID: "c-" + res.Name, Type: kind.Type, Label: res.Name,
-			OS: os_, OSVersion: osVer, Arch: arch,
+			OS: os_, OSVersion: osVer, Arch: pinned,
 			GTID: true, UseProxy: s.Proxy,
 			CertTTLValue: 365, CertTTLUnit: "days",
 			X: composeFrameX, Y: float64(composeFrameY + b.nextFrame*(composeFrameH+composeFrameGap)),
@@ -618,7 +618,7 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 		x, y := b.placeNode()
 		n := designNode{
 			ID: "n-" + lbl, Type: kind.Type, Label: lbl,
-			OS: os_, OSVersion: osVer, Arch: arch,
+			OS: os_, OSVersion: osVer, Arch: pinned,
 			UseProxy: s.Proxy, CPUs: s.CPUs, MemoryGB: s.MemoryGB,
 			ExportEnabled: s.Export, ExportHostPort: s.ExportPort,
 			CertTTLValue: 365, CertTTLUnit: "days",

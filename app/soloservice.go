@@ -140,6 +140,7 @@ func (a *App) handleSoloStatus(w http.ResponseWriter, r *http.Request) {
 		"pid": os.Getpid(), "url": a.soloURL, "version": appVersion, "instance": instanceName,
 		"startedAt": soloStartedAt.UTC().Format(time.RFC3339), "keepAlive": a.soloKeepAlive(),
 		"idleGraceSeconds": int(soloIdleGrace().Seconds()),
+		"hostArch":         a.hostArch, "defaultArch": platformArch(), "kubernetesArch": k8sArch(),
 	})
 }
 
@@ -255,4 +256,43 @@ func logTail(path string, offset int64) string {
 		lines = lines[len(lines)-5:]
 	}
 	return strings.Join(lines, " | ")
+}
+
+// soloPlatforms says which platforms the configuration or the environment set.
+type soloPlatforms struct{ docker, k8s bool }
+
+// platformsSet is what the command found set, before any default was filled in.
+var platformsSet soloPlatforms
+
+// hostArchName turns the Docker daemon's architecture (x86_64, aarch64, arm64) into amd64 or
+// arm64; "" when it is neither or unknown.
+func hostArchName(a string) string {
+	switch {
+	case strings.Contains(a, "arm") || strings.Contains(a, "aarch64"):
+		return "arm64"
+	case strings.Contains(a, "x86_64") || strings.Contains(a, "amd64"):
+		return "amd64"
+	}
+	return ""
+}
+
+// detectPlatforms makes the Docker host's own architecture the default for what the
+// configuration does not set: the platform of nodes (DOCKER_PLATFORM) and of Kubernetes nodes
+// (K8S_PLATFORM), which must be native. A node can still ask for the other architecture.
+func (a *App) detectPlatforms(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	arch := hostArchName(a.docker.HostArch(ctx))
+	a.hostArch = arch
+	if arch == "" {
+		log.Printf("could not ask Docker for its architecture; nodes default to %s", pullPlatform())
+		return
+	}
+	if !platformsSet.docker {
+		os.Setenv("DOCKER_PLATFORM", "linux/"+arch)
+	}
+	if !platformsSet.k8s {
+		os.Setenv("K8S_PLATFORM", "linux/"+arch)
+	}
+	log.Printf("Docker runs on %s: nodes default to %s, Kubernetes nodes run on %s", arch, pullPlatform(), k8sPlatform())
 }
