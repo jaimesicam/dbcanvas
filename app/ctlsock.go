@@ -88,6 +88,21 @@ func lockEngine(dir string) (*engineLock, error) {
 	return &engineLock{f: f}, nil
 }
 
+// stillOurs reports whether the lock file in the data folder is still the one this process
+// locked. It is not when the folder was deleted, or deleted and made again, under a running
+// service: that service is then an orphan holding a database nobody can reach.
+func (l *engineLock) stillOurs() bool {
+	if l == nil || l.f == nil {
+		return false
+	}
+	onDisk, err := os.Stat(l.f.Name())
+	if err != nil {
+		return false
+	}
+	held, err := l.f.Stat()
+	return err == nil && os.SameFile(onDisk, held)
+}
+
 func (l *engineLock) release() {
 	if l != nil && l.f != nil {
 		syscall.Flock(int(l.f.Fd()), syscall.LOCK_UN)

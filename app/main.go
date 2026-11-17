@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -15,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -199,6 +201,13 @@ func runServer(o serveOpts) error {
 			port = soloPort
 		}
 		l, err := net.Listen("tcp", net.JoinHostPort(host, port))
+		// A port that is busy may be held by a service on its way out: one whose data folder
+		// was replaced stops within seconds (watchDataDir). Wait for it before settling for
+		// another port, or failing when the port was asked for.
+		for deadline := time.Now().Add(15 * time.Second); err != nil && o.service && errors.Is(err, syscall.EADDRINUSE) && time.Now().Before(deadline); {
+			time.Sleep(500 * time.Millisecond)
+			l, err = net.Listen("tcp", net.JoinHostPort(host, port))
+		}
 		if err != nil && o.dataDir != "" && os.Getenv("APP_PORT") == "" {
 			// The default port is taken: any free one will do for a browser opened by link.
 			l, err = net.Listen("tcp", net.JoinHostPort(host, "0"))
@@ -223,7 +232,14 @@ func runServer(o serveOpts) error {
 		if err != nil {
 			return fmt.Errorf("control socket: %v", err)
 		}
-		defer os.Remove(ctlSocketPath(o.dataDir))
+		// Removed on the way out only if it is still this server's: after the data folder was
+		// replaced, the socket at that path is a newer service's.
+		ours, _ := os.Stat(ctlSocketPath(o.dataDir))
+		defer func() {
+			if now, err := os.Stat(ctlSocketPath(o.dataDir)); err == nil && ours != nil && os.SameFile(ours, now) {
+				os.Remove(ctlSocketPath(o.dataDir))
+			}
+		}()
 		srv := &http.Server{Handler: app.ctlSocketHandler(handler), ReadHeaderTimeout: 10 * time.Second}
 		servers = append(servers, srv)
 		go func() { errc <- srv.Serve(l) }()

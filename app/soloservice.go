@@ -179,6 +179,7 @@ func runService() int {
 	defer lock.release()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	go watchDataDir(ctx, lock, dir, stop)
 	log.Printf("dbcanvas %s service starting (pid %d)", appVersion, os.Getpid())
 	if err := runServer(serveOpts{ctx: ctx, stop: stop, tcp: true, dataDir: dir, service: true}); err != nil {
 		log.Print(err)
@@ -295,4 +296,25 @@ func (a *App) detectPlatforms(ctx context.Context) {
 		os.Setenv("K8S_PLATFORM", "linux/"+arch)
 	}
 	log.Printf("Docker runs on %s: nodes default to %s, Kubernetes nodes run on %s", arch, pullPlatform(), k8sPlatform())
+}
+
+// watchDataDir stops the service when its data folder is deleted or replaced under it (an
+// `rm -rf ~/.dbcanvas` while it runs). Its database and lock are then gone for everyone else,
+// and the next command starts a service on the new folder, so this one would only linger,
+// holding the browser's port.
+func watchDataDir(ctx context.Context, lock *engineLock, dir string, stop func()) {
+	t := time.NewTicker(10 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		if !lock.stillOurs() {
+			log.Printf("the data folder %s was removed or replaced while dbcanvas ran: stopping", dir)
+			stop()
+			return
+		}
+	}
 }

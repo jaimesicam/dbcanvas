@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -74,5 +75,34 @@ func TestLeanJSONMap(t *testing.T) {
 func TestSoloInstanceIsValid(t *testing.T) {
 	if why := validInstance(soloInstance()); why != "" {
 		t.Fatalf("%q: %s", soloInstance(), why)
+	}
+}
+
+// A lock is no longer this process's once its data folder is deleted, or deleted and made again.
+func TestEngineLockNoticesTheFolderReplaced(t *testing.T) {
+	dir := t.TempDir() + "/data"
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	l, err := lockEngine(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.release()
+	if !l.stillOurs() {
+		t.Fatal("a fresh lock is not ours")
+	}
+	os.RemoveAll(dir)
+	if l.stillOurs() {
+		t.Error("the folder is gone, and the lock still counts as ours")
+	}
+	os.MkdirAll(dir, 0o700)
+	l2, err := lockEngine(dir)
+	if err != nil {
+		t.Fatalf("a new service on the new folder: %v", err)
+	}
+	defer l2.release()
+	if l.stillOurs() {
+		t.Error("the folder was replaced, and the old lock still counts as ours")
 	}
 }
