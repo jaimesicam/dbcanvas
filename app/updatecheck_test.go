@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"reflect"
+	"runtime"
 	"testing"
 )
 
@@ -37,18 +38,20 @@ var whatsNewNotes = []releaseNote{
 `)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/VERSION":
-			w.Write([]byte("0.0.11\n"))
-		case "/app/whatsnew.go":
+		case "/api/releases/latest":
+			w.Write([]byte(`{"tag_name":"v0.0.11","html_url":"https://example.com/r","assets":[` +
+				`{"name":"dbcanvas-linux-amd64","browser_download_url":"https://example.com/l"},` +
+				`{"name":"dbcanvas-` + runtime.GOOS + `-` + runtime.GOARCH + `.tar.gz","browser_download_url":"https://example.com/mine"}]}`))
+		case "/raw/v0.0.11/app/whatsnew.go":
 			w.Write(src)
 		default:
 			http.NotFound(w, r)
 		}
 	}))
 	defer srv.Close()
-	old := updateRawBase
-	updateRawBase = srv.URL
-	defer func() { updateRawBase = old }()
+	oldAPI, oldRaw := updateAPIBase, updateRawBase
+	updateAPIBase, updateRawBase = srv.URL+"/api", srv.URL+"/raw"
+	defer func() { updateAPIBase, updateRawBase = oldAPI, oldRaw }()
 
 	res, err := checkForUpdates(context.Background(), "0.0.9")
 	if err != nil {
@@ -56,6 +59,9 @@ var whatsNewNotes = []releaseNote{
 	}
 	if !res.Available || res.Latest != "0.0.11" {
 		t.Fatalf("want 0.0.11 available, got %+v", res)
+	}
+	if res.ReleaseURL != "https://example.com/r" || res.Download != "https://example.com/mine" {
+		t.Fatalf("release links: %+v", res)
 	}
 	var titles []string
 	for _, n := range res.Notes {

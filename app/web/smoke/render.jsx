@@ -194,6 +194,7 @@ import {
 import realDeps from './real-deps.json' with { type: 'json' }
 import { withEmoji, onlyEmoji } from '../src/lib/emoji.js'
 import { DialogBox } from '../src/components/Dialog.jsx'
+import { UpdateDialog } from '../src/components/UpdateCheck.jsx'
 
 const noop = () => {}
 let failures = 0
@@ -6809,6 +6810,16 @@ check('architecture field: Automatic, a choice, emulation, the fixed and the dep
   if (archCardLabel(archFacts({ type: 'ps', arch: 'amd64' }, system)) !== 'amd64 · emulated') throw new Error('the card label')
   if (archCardLabel(archFacts({ type: 'k3d', arch: 'amd64' }, system)) !== 'arm64') throw new Error('a K3D card says its own arch')
   return auto
+})
+
+check('update dialog: links the binary for this machine, or the release page', () => {
+  const base = { current: '0.0.30', latest: '0.1.0', available: true, notes: [] }
+  const withAsset = renderToString(<UpdateDialog res={{ ...base, download: 'https://example.com/d', asset: 'dbcanvas-darwin-arm64', releaseUrl: 'https://example.com/r' }} onClose={noop} />).replaceAll('<!-- -->', '')
+  if (!withAsset.includes('href="https://example.com/d"') || !withAsset.includes('Download dbcanvas-darwin-arm64')) throw new Error('no download link: ' + withAsset)
+  if (/make compose|git pull/.test(withAsset)) throw new Error('still tells you to git pull')
+  const page = renderToString(<UpdateDialog res={{ ...base, releaseUrl: 'https://example.com/r' }} onClose={noop} />)
+  if (!page.includes('href="https://example.com/r"')) throw new Error('no release page link')
+  return 'ok'
 })
 
 if (failures > 0) {

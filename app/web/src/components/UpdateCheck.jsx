@@ -94,7 +94,7 @@ export function UpdateCheckButton() {
   )
 }
 
-function UpdateDialog({ res, onClose }) {
+export function UpdateDialog({ res, onClose }) {
   const notes = res.notes || []
   const [expanded, setExpanded] = useState(() => new Set([0]))
 
@@ -196,7 +196,10 @@ function UpdateDialog({ res, onClose }) {
 
         <div className="flex items-center justify-between gap-3 border-t px-5 py-3">
           <span className="text-xs text-muted">
-            Update by replacing the dbcanvas binary with the new release; the service restarts itself on it
+            {res.download
+              ? <><a className="text-primary hover:underline" href={res.download} target="_blank" rel="noreferrer">Download {res.asset}</a> and put it in place of this dbcanvas; </>
+              : <>Replace this dbcanvas with the new release{res.releaseUrl && <> (<a className="text-primary hover:underline" href={res.releaseUrl} target="_blank" rel="noreferrer">release page</a>)</>}; </>}
+            the running service switches to it once no deploy is running and no DBCanvas tab is open.
           </span>
           <Button onClick={onClose}>Close</Button>
         </div>

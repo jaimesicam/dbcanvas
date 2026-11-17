@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"io"
 	"net/http"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -20,17 +23,19 @@ import (
 // find out about and turn off; so the dashboard has a button, and pressing it is
 // the only thing that makes a request leave the machine.
 //
-// What it reads is the repository's main branch, raw: VERSION for the number, and
-// app/whatsnew.go for what changed. The release notes are Go literals (see
-// whatsnew.go for why), so they are read back with go/parser rather than scraped —
-// the same source the What's New dialog is compiled from, which means an update
-// check shows exactly the notes the next build would show, in the same shape. The
-// repository has no tags or GitHub releases to read instead, and main is what
-// `git pull` delivers.
+// What it reads is the repository's latest GitHub release: its tag for the number and
+// its assets for the dbcanvas binary that fits this machine (dbcanvas-<os>-<arch>), and
+// app/whatsnew.go at that tag for what changed. The release notes are Go literals (see
+// whatsnew.go for why), so they are read back with go/parser rather than scraped — the
+// same source the What's New dialog is compiled from, so an update check shows exactly
+// the notes the new binary will show, in the same shape.
 
-// updateRawBase is where the repository's files are fetched from. A var so tests
-// can point it at an httptest server.
-var updateRawBase = "https://raw.githubusercontent.com/jaimesicam/dbcanvas/main"
+// updateAPIBase is the repository on the GitHub API, and updateRawBase its raw files
+// (a ref and a path follow). Vars so tests can point them at an httptest server.
+var (
+	updateAPIBase = "https://api.github.com/repos/jaimesicam/dbcanvas"
+	updateRawBase = "https://raw.githubusercontent.com/jaimesicam/dbcanvas"
+)
 
 type updateCheck struct {
 	Current   string `json:"current"`
@@ -39,6 +44,11 @@ type updateCheck struct {
 	// Dev is set when this build is unstamped, so there is no number to compare
 	// against; the latest version is still reported.
 	Dev bool `json:"dev,omitempty"`
+	// ReleaseURL is the release's page; Download is its binary for this machine's
+	// OS and architecture, when the release has one.
+	ReleaseURL string `json:"releaseUrl,omitempty"`
+	Download   string `json:"download,omitempty"`
+	Asset      string `json:"asset,omitempty"`
 	// Notes are the release notes for every version after Current up to and
 	// including Latest, newest first.
 	Notes []releaseNote `json:"notes"`
@@ -63,16 +73,47 @@ func (a *App) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
+// latestRelease is the part of GitHub's release object the check reads.
+type latestRelease struct {
+	Tag     string `json:"tag_name"`
+	HTMLURL string `json:"html_url"`
+	Assets  []struct {
+		Name string `json:"name"`
+		URL  string `json:"browser_download_url"`
+	} `json:"assets"`
+}
+
+// releaseAsset is the binary for goos/goarch: dbcanvas-<os>-<arch>, bare or with an
+// archive extension.
+func releaseAsset(rel latestRelease, goos, goarch string) (name, url string) {
+	want := "dbcanvas-" + goos + "-" + goarch
+	for _, a := range rel.Assets {
+		if a.Name == want || strings.HasPrefix(a.Name, want+".") {
+			return a.Name, a.URL
+		}
+	}
+	return "", ""
+}
+
 func checkForUpdates(ctx context.Context, current string) (updateCheck, error) {
 	res := updateCheck{Current: current, Notes: []releaseNote{}, CheckedAt: time.Now().UTC().Format(time.RFC3339)}
-	raw, err := fetchRepoFile(ctx, "VERSION")
+	raw, err := fetchURL(ctx, updateAPIBase+"/releases/latest")
+	if errors.Is(err, errNotFound) {
+		return res, fmt.Errorf("no dbcanvas release is published yet")
+	}
 	if err != nil {
 		return res, err
 	}
-	res.Latest = strings.TrimSpace(string(raw))
-	if res.Latest == "" {
-		return res, fmt.Errorf("VERSION on main is empty")
+	var rel latestRelease
+	if err := json.Unmarshal(raw, &rel); err != nil {
+		return res, fmt.Errorf("the latest release: %v", err)
 	}
+	res.Latest = strings.TrimPrefix(strings.TrimSpace(rel.Tag), "v")
+	if res.Latest == "" {
+		return res, fmt.Errorf("the latest release has no tag")
+	}
+	res.ReleaseURL = rel.HTMLURL
+	res.Asset, res.Download = releaseAsset(rel, runtime.GOOS, runtime.GOARCH)
 	if current == devVersion {
 		res.Dev = true
 		return res, nil
@@ -82,7 +123,7 @@ func checkForUpdates(ctx context.Context, current string) (updateCheck, error) {
 	}
 	res.Available = true
 
-	src, err := fetchRepoFile(ctx, "app/whatsnew.go")
+	src, err := fetchURL(ctx, updateRawBase+"/"+rel.Tag+"/app/whatsnew.go")
 	if err == nil {
 		var notes []releaseNote
 		if notes, err = parseReleaseNotes(src); err == nil {
@@ -108,18 +149,24 @@ func notesBetween(notes []releaseNote, current, latest string) []releaseNote {
 	return out
 }
 
-func fetchRepoFile(ctx context.Context, path string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, updateRawBase+"/"+path, nil)
+var errNotFound = errors.New("not found")
+
+func fetchURL(ctx context.Context, url string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Set("User-Agent", "dbcanvas/"+appVersion)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("%s: %w", url, errNotFound)
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: HTTP %d", path, resp.StatusCode)
+		return nil, fmt.Errorf("%s: HTTP %d", url, resp.StatusCode)
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 }

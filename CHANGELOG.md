@@ -3,9 +3,71 @@
 What changed in each DBCanvas release, newest first. To upgrade, see
 [Upgrade](README.md#upgrade).
 
-## 0.0.30
+## 0.1.0
 
 <details open>
+<summary><b>One dbcanvas binary, nothing else to install</b></summary>
+
+DBCanvas is now a single dbcanvas program for macOS and Linux that drives the Docker you already have; there is no container, compose file or checkout to install. A command that needs it starts it in the background when it is not running, and returns the prompt at once. It listens on 127.0.0.1 only, stops by itself once it has been idle for ten minutes with nothing deployed, and switches to a replaced binary once no deploy is running and no tab is open. dbcanvas stop stops it; nothing is installed as a system service. See [Getting started](docs/GETTING_STARTED.md).
+</details>
+
+<details>
+<summary><b>Signing in with a one-time start link</b></summary>
+
+There are no accounts any more: whoever runs dbcanvas owns it. dbcanvas open opens the browser through a one-time start link, which sets a session cookie; the port refuses everything without a credential, so another user on the same host cannot use it. API tokens stay, created with dbcanvas token create or on the API page, and shared sessions still let guests join a stack. See [Security](docs/SECURITY.md).
+</details>
+
+<details>
+<summary><b>Everything in ~/.dbcanvas</b></summary>
+
+The database, the encryption key, settings, downloaded tools and the files the binary unpacks live in ~/.dbcanvas (DBCANVAS_DATA moves it). config.yaml there takes the settings that used to be in .env: port, publicUrl, dockerSocket, platform, imageRegistry, networkRange, and anything else under env:. The version catalogue is built into the binary; dbcanvas versions update downloads a newer one, only when asked, and dbcanvas versions reset goes back. See [Configuration](docs/CONFIGURATION.md).
+</details>
+
+<details>
+<summary><b>Stacks from the command line: stack files, up, down, rm</b></summary>
+
+dbcanvas ls lists stacks, dbcanvas export writes one as a YAML stack file, and dbcanvas up -f applies a stack file and deploys it, as the canvas would. dbcanvas down and dbcanvas rm take a stack down or remove it. A stack file names its nodes or a design, its TTL and labels, and optionally the platform its database nodes run as. See [The dbcanvas command](docs/CLI.md).
+</details>
+
+<details>
+<summary><b>Choose each node's architecture</b></summary>
+
+The default architecture is the Docker host's own, detected at start. Each database node can be set to amd64 or arm64 on the canvas or in a stack file (dbcanvas up --platform), with a note when it runs under emulation; each architecture reads its own version catalogue. K3D and Kubeadm clusters always run natively, and PMM 3 runs arm64 from 3.10.0. See [Configuration](docs/CONFIGURATION.md).
+</details>
+
+<details>
+<summary><b>Node passwords are generated and sealed</b></summary>
+
+The passwords the nodes' accounts use (APP_PASSWORD, PMM_ADMIN_PASSWORD, VNC_PASSWORD and the rest) are generated on first run and kept encrypted in the database instead of an example file. dbcanvas passwords shows them, and a value set under env: in config.yaml takes precedence. dbcanvas rotate-key re-encrypts the database under a new key. See [Configuration](docs/CONFIGURATION.md).
+</details>
+
+<details>
+<summary><b>Each stack network is a free /24</b></summary>
+
+A stack's network is now a /24 DBCanvas finds free when it creates it, instead of a range Docker hands out from its few default pools, which run out on a host many people share. It avoids every Docker network, Docker's own pools, the host's interfaces and routes, and the Kubernetes ranges; networkRange in config.yaml limits where it looks. dbcanvas network check shows where the next one would go without creating anything. See [Configuration](docs/CONFIGURATION.md).
+</details>
+
+<details>
+<summary><b>dbcanvas doctor</b></summary>
+
+dbcanvas doctor checks everything in one place: Docker and access to its socket, the architecture, the base images, both version catalogues, the data folder's permissions and free space, the encryption key, stack networks, k3d and the bundled files, with how to fix each problem it finds. See [The dbcanvas command](docs/CLI.md).
+</details>
+
+<details>
+<summary><b>Nodes are reached through Docker on macOS too</b></summary>
+
+Database connections, node web pages, VNC, the simulators and the K3D debugger reach stack nodes through the Docker API, so they work where the host cannot route to container addresses, as with Docker Desktop and Rancher Desktop on macOS.
+</details>
+
+<details>
+<summary><b>Removed: the container install, accounts, dbcanvas-cli and Vagrant</b></summary>
+
+0.1.0 drops the docker-compose installation, user accounts and roles, the separate dbcanvas-cli (its commands are in dbcanvas), and the Vagrant VM backend. Stacks from a 0.0.x installation can be carried over as stack files: export them there and apply them with dbcanvas up -f.
+</details>
+
+## 0.0.30
+
+<details>
 <summary><b>Missing images are pulled at deploy</b></summary>
 
 A deploy that needs one of DBCanvas's own images this host does not have pulls it from IMAGE_REGISTRY
