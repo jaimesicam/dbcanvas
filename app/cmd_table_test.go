@@ -142,3 +142,23 @@ func TestNodePath(t *testing.T) {
 		}
 	}
 }
+
+func TestStackStateFromItsNodes(t *testing.T) {
+	for _, c := range []struct {
+		status             string
+		total, run, failed int
+		want               string
+	}{
+		{StackDeployed, 3, 3, 0, "running"},
+		{StackDeployed, 3, 1, 0, "deploying"},
+		{StackDeployed, 3, 0, 0, "deploying"},
+		{StackDeployed, 3, 2, 1, "failed"},
+		{StackDraft, 3, 0, 0, "not deployed"},
+		{StackExpired, 3, 0, 0, "expired"},
+	} {
+		s := stackSummary{Stack: Stack{Status: c.status}, Nodes: stackNodeCount{Total: c.total, Running: c.run, Error: c.failed}}
+		if got := stackState(s); got != c.want {
+			t.Errorf("%+v: %s, want %s", c, got, c.want)
+		}
+	}
+}

@@ -91,7 +91,7 @@ type SystemSettings struct {
 	HostArch       string `json:"hostArch"`
 	DefaultArch    string `json:"defaultArch"`
 	KubernetesArch string `json:"kubernetesArch"`
-	// DefaultSecrets names the .env passwords still at their .env.example value (doctor.go),
+	// DefaultSecrets names the node passwords set to a published example value (doctor.go),
 	// for administrators only: the web app shows a notice until they are changed.
 	DefaultSecrets []string             `json:"defaultSecrets,omitempty"`
 	SSHForwarding  SSHForwardingSetting `json:"sshForwarding"`

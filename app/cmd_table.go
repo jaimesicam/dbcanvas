@@ -96,7 +96,7 @@ var cliCommands = []cliCommand{
 	{Name: "stop", Summary: "stop the service (stacks keep running; it starts again with the next command that needs it)"},
 	{Name: "versions", Args: "[update|reset]",
 		Summary: "show the version catalogue in use; update downloads the newest into the data folder, reset goes back to the built-in one"},
-	{Name: "doctor", Summary: "check Docker, images, catalogues, data folder, networks, k3d, the bundled files and the service, and say how to fix what fails"},
+	{Name: "doctor", Summary: "check Docker, images, catalogues, data folder, node passwords, networks, k3d, the bundled files and the service, and say how to fix what fails"},
 	{Name: "network check", Summary: "where the next stack network would go, and what rules ranges out"},
 	{Name: "rotate-key", Summary: "re-encrypt the database's secrets under a new key (stops the service while it runs; stacks keep running)"},
 	{Name: "version", Summary: "print the version"},

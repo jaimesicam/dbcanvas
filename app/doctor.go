@@ -27,9 +27,10 @@ type doctorCheck struct {
 	Fix    string `json:"fix,omitempty"`
 }
 
-// exampleSecrets are the passwords .env.example ships with — the values a fresh `make env` no
-// longer keeps (scripts/gen-secrets.sh). A setting still equal to one is a password anybody can
-// read in the repository.
+// exampleSecrets are the node account settings (nodepasswords.go) with the example value each
+// had in DBCanvas's published configuration. dbcanvas generates its own on the first run; a
+// value set under env: in config.yaml, or in the environment, that equals one of these is a
+// password anybody can read in the repository.
 var exampleSecrets = map[string]string{
 	"APP_PASSWORD": "app_password", "REPL_PASSWORD": "repl_password", "MONITOR_PASSWORD": "monitor_password",
 	"CLUSTER_PASSWORD": "cluster_password", "CLUSTERCHECK_PASSWORD": "cluster_password",
@@ -43,12 +44,12 @@ var exampleSecrets = map[string]string{
 	"VNC_PASSWORD": "vnc_password", "PMM_PASSWORD": "pmm_password", "SAMBA_PASSWORD": "SambaPassword2026",
 }
 
-// defaultSecrets lists the settings still at their example value (unset counts: the code falls
-// back to the same value).
+// defaultSecrets lists the settings set to their published example value. Unset is not one: an
+// unset setting gets its generated password.
 func defaultSecrets() []string {
 	var out []string
 	for k, v := range exampleSecrets {
-		if cur := os.Getenv(k); cur == "" || cur == v {
+		if os.Getenv(k) == v {
 			out = append(out, k)
 		}
 	}
@@ -152,6 +153,15 @@ func (a *App) doctorChecks(ctx context.Context) []doctorCheck {
 		} else if _, err := os.Stat(filepath.Join(dir, "dbcanvas.db")); err == nil {
 			add("encryption key", "fail", "no key at "+keyPath+", so the database cannot be read", "restore it from a backup of ~/.dbcanvas")
 		}
+	}
+
+	// Node passwords: generated, unless config.yaml's env: (or the environment) sets one
+	// to the example value DBCanvas once published.
+	if bad := defaultSecrets(); len(bad) > 0 {
+		add("node passwords", "warn", strings.Join(bad, ", ")+" set to a published example value",
+			"remove them from env: in config.yaml to use the generated ones (dbcanvas passwords), then dbcanvas stop")
+	} else {
+		add("node passwords", "ok", "generated on the first run, or set in config.yaml (dbcanvas passwords)", "")
 	}
 
 	// Stack networks.

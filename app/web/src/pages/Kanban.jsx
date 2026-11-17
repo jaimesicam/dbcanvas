@@ -28,7 +28,7 @@ import { kanbanApi, LABEL_COLORS, labelHex, tint, BOARD_TEMPLATES, moveLocal, ca
 //
 // Every change is shown at once and then saved; a refusal puts the board back as
 // the server has it. A board open here is re-read every few seconds (only when it
-// changed — app/kanban.go's rev), so a shared board shows what colleagues do.
+// changed — app/kanban.go's rev), so a board shows changes made in another tab or window.
 
 const LAST_BOARD = 'dbcanvas-kanban-board'
 const POLL_MS = 4000
@@ -98,7 +98,7 @@ export default function Kanban() {
   useEffect(() => { writeLast(boardId); setOpenCard(null); loadBoard(boardId) }, [boardId, loadBoard])
   useRefresh(() => Promise.all([loadBoards(), loadBoard(boardId)]))
 
-  // Follow colleagues on a shared board: a cheap "anything since rev N?" now and then.
+  // Follow changes made elsewhere: a cheap "anything since rev N?" now and then.
   const dragging = useRef(false)
   useEffect(() => {
     if (!visible || !boardId) return undefined
@@ -127,10 +127,10 @@ export default function Kanban() {
   }, [boardId, loadBoard])
 
   // ---- board actions
-  const createBoard = async (name, template, shared) => {
+  const createBoard = async (name, template) => {
     const t = BOARD_TEMPLATES.find((x) => x.id === template) || BOARD_TEMPLATES[0]
     try {
-      const b = await kanbanApi.createBoard(name, shared, t.columns)
+      const b = await kanbanApi.createBoard(name, false, t.columns)
       await loadBoards()
       setBoardId(b.id)
       setCreating(false)
@@ -142,14 +142,10 @@ export default function Kanban() {
     await kanbanApi.updateBoard(b.id, { name: name.trim() }).catch((e) => setErr(e.message))
     loadBoards(); if (b.id === boardId) loadBoard(boardId)
   }
-  const shareBoard = async (b, shared) => {
-    await kanbanApi.updateBoard(b.id, { shared }).catch((e) => setErr(e.message))
-    loadBoards(); if (b.id === boardId) loadBoard(boardId)
-  }
   const deleteBoard = async (b) => {
     const yes = await ask.confirm({
       title: `Delete “${b.name}”?`,
-      body: `The board and its ${b.cards} card${b.cards === 1 ? '' : 's'} are deleted for good${b.shared ? ', for everyone it is shared with' : ''}.`,
+      body: `The board and its ${b.cards} card${b.cards === 1 ? '' : 's'} are deleted for good.`,
       confirmLabel: 'Delete board', danger: true,
     })
     if (!yes) return
@@ -260,7 +256,7 @@ export default function Kanban() {
           {boards?.length === 0 && <div className="px-2 py-3 text-xs text-muted">No boards yet.</div>}
           {boards?.map((b) => (
             <BoardRow key={b.id} b={b} on={b.id === boardId} mine={b.ownerId === user?.id} onOpen={() => setBoardId(b.id)}
-              onRename={() => renameBoard(b)} onShare={(s) => shareBoard(b, s)} onDelete={() => deleteBoard(b)} />
+              onRename={() => renameBoard(b)} onDelete={() => deleteBoard(b)} />
           ))}
         </div>
         <div className="border-t p-2">
@@ -284,9 +280,6 @@ export default function Kanban() {
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <h2 className="mr-1 min-w-0 truncate text-lg font-semibold" title={mine ? 'Double-click to rename' : undefined}
                 onDoubleClick={() => mine && renameBoard(board)}>{board.name}</h2>
-              {board.shared
-                ? <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[11px] text-primary" title="Every signed-in user can see and change it">Shared</span>
-                : <span className="rounded-full bg-surface2 px-2 py-0.5 text-[11px] text-muted">Private</span>}
               {!mine && <span className="text-xs text-muted">by {board.ownerName}</span>}
               <div className="ml-auto flex items-center gap-2">
                 <div className="relative">
@@ -325,7 +318,7 @@ export default function Kanban() {
   )
 }
 
-function BoardRow({ b, on, mine, onOpen, onRename, onShare, onDelete }) {
+function BoardRow({ b, on, mine, onOpen, onRename, onDelete }) {
   const [menu, setMenu] = useState(null)
   return (
     <div className={`group flex items-center gap-1 rounded-md ${on ? 'bg-primary/15 text-primary' : 'hover:bg-surface2'}`}
@@ -333,7 +326,6 @@ function BoardRow({ b, on, mine, onOpen, onRename, onShare, onDelete }) {
       <button onClick={onOpen} onDoubleClick={() => mine && onRename()} className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left text-sm">
         <Icon.Kanban size={14} className="shrink-0" />
         <span className="min-w-0 flex-1 truncate">{b.name}</span>
-        {b.shared && <Icon.Users size={12} className="shrink-0 text-muted" title="Shared" />}
         <span className="shrink-0 text-[10px] tabular-nums text-muted">{b.cards}</span>
       </button>
       {mine && (
@@ -343,7 +335,6 @@ function BoardRow({ b, on, mine, onOpen, onRename, onShare, onDelete }) {
       {menu && (
         <Menu at={menu} onClose={() => setMenu(null)} items={[
           { label: 'Rename', onClick: onRename },
-          { label: b.shared ? 'Make private' : 'Share with everyone', onClick: () => onShare(!b.shared) },
           { sep: true },
           { label: 'Delete board', danger: true, onClick: onDelete },
         ]} />
@@ -412,7 +403,6 @@ function EmptyState({ onCreate, hasBoards }) {
       <div className="text-base font-semibold">{hasBoards ? 'Pick a board' : 'Plan the work on a board'}</div>
       <p className="mt-1 max-w-md text-sm text-muted">
         Columns for each stage, cards for each piece of work — drag them where they belong, in the order you want.
-        Keep a board to yourself or share it with everyone here.
       </p>
       <Button className="mt-4" onClick={onCreate}><Icon.Plus size={15} /> New board</Button>
     </div>
@@ -422,8 +412,7 @@ function EmptyState({ onCreate, hasBoards }) {
 function NewBoardDialog({ onClose, onCreate }) {
   const [name, setName] = useState('')
   const [tpl, setTpl] = useState('basic')
-  const [shared, setShared] = useState(false)
-  const submit = (e) => { e.preventDefault(); if (name.trim()) onCreate(name.trim(), tpl, shared) }
+  const submit = (e) => { e.preventDefault(); if (name.trim()) onCreate(name.trim(), tpl) }
   return createPortal(
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-4" onMouseDown={onClose}>
       <form onSubmit={submit} onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && onClose()}
@@ -442,10 +431,6 @@ function NewBoardDialog({ onClose, onCreate }) {
             ))}
           </div>
         </div>
-        <label className="flex items-start gap-2 text-sm">
-          <input type="checkbox" checked={shared} onChange={(e) => setShared(e.target.checked)} className="mt-1" />
-          <span>Share with everyone<span className="block text-xs text-muted">Every signed-in user can see it and work on its cards. Only you can rename, share or delete it.</span></span>
-        </label>
         <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={!name.trim()}>Create board</Button>

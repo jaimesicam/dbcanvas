@@ -225,7 +225,7 @@ func buildAPIRoutes() []apiRoute {
 
 		// --- users --------------------------------------------------------------
 		{Method: "GET", Path: "/api/system/doctor", Group: gMeta, Auth: authAdmin, Handler: m((*App).handleDoctor),
-			Summary: "Checks on this installation: Docker, the architecture, node images, the version catalogues, the data folder, disk space, the encryption key, stack networks, k3d and the bundled files. Each ok, warn or fail with what to do (dbcanvas doctor)."},
+			Summary: "Checks on this installation: Docker, the architecture, node images, the version catalogues, the data folder, disk space, the encryption key, node passwords, stack networks, k3d and the bundled files. Each ok, warn or fail with what to do (dbcanvas doctor)."},
 
 		// --- version catalogues -------------------------------------------------
 		{Method: "GET", Path: "/api/catalog/pmm", Group: gCatalog, Handler: m((*App).handlePMMCatalog),

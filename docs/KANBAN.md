@@ -3,12 +3,12 @@
 **Kanban** keeps boards of work: a column for each stage, a card for each piece of work. Open
 it from **Menu → Workspace → Kanban**.
 
-![A shared Kanban board: four columns, two of them coloured, cards with labels, colours, due dates and assignees](screenshots/kanban.png)
+![A Kanban board: four columns, two of them coloured, cards with labels, colours, due dates and assignees](screenshots/kanban.png)
 
 ## Boards
 
-The list on the left shows your boards, then the ones colleagues shared. **New board** asks
-for a name, a starting layout, and whether to share it:
+The list on the left shows your boards. **New board** asks for a name and a starting
+layout:
 
 | Layout | Columns |
 | --- | --- |
@@ -18,9 +18,8 @@ for a name, a starting layout, and whether to share it:
 | Support repro | Reported, Reproducing, Reproduced, Fix verified, Closed |
 | Blank | One column |
 
-A board is yours. **Share with everyone** lets every signed-in user see it and work on its
-cards and columns; only you can rename it, make it private, or delete it (right-click it in
-the list, or its **⋯**). A shared board shows others' changes within a few seconds.
+Rename or delete a board by right-clicking it in the list, or with its **⋯**. A board open
+in two windows shows the other window's changes within a few seconds.
 
 ## Cards
 

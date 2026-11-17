@@ -41,8 +41,8 @@ func TestDefaultSecrets(t *testing.T) {
 		t.Fatalf("all set: %v", d)
 	}
 	t.Setenv("POSTGRES_PASSWORD", "postgres_password")
-	t.Setenv("VNC_PASSWORD", "")
-	if d := strings.Join(defaultSecrets(), ","); d != "POSTGRES_PASSWORD,VNC_PASSWORD" {
+	t.Setenv("VNC_PASSWORD", "") // unset: it gets a generated one, so it is not the example
+	if d := strings.Join(defaultSecrets(), ","); d != "POSTGRES_PASSWORD" {
 		t.Fatalf("got %s", d)
 	}
 }

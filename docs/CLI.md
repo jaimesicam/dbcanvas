@@ -311,8 +311,9 @@ catalogue from its next deploy.
 ### `dbcanvas doctor`
 
 Checks Docker and access to its socket, the architecture, the base images, both catalogues,
-the data folder's permissions and free space, the encryption key, stack networks, k3d, the
-bundled files and the service, and says how to fix each problem:
+the data folder's permissions and free space, the encryption key, the node passwords (a
+warning for one set to a published example value), stack networks, k3d, the bundled files
+and the service, and says how to fix each problem:
 
 ```console
 $ dbcanvas doctor

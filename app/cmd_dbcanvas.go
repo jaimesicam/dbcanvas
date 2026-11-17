@@ -399,22 +399,24 @@ func cliList(args []string) error {
 }
 
 func listStacks(c ctl, asJSON bool) error {
-	var stacks []Stack
-	if err := c.do("GET", "/api/stacks", nil, &stacks); err != nil {
+	var stacks []stackSummary
+	if err := c.do("GET", "/api/stacks?detail=1", nil, &stacks); err != nil {
 		return err
 	}
 	if asJSON {
 		type row struct {
 			ID        int64             `json:"id"`
 			Name      string            `json:"name"`
+			State     string            `json:"state"`
 			Status    string            `json:"status"`
+			Nodes     stackNodeCount    `json:"nodes"`
 			TTL       string            `json:"ttl"`
 			ExpiresAt *string           `json:"expiresAt"`
 			Labels    map[string]string `json:"labels,omitempty"`
 		}
 		out := []row{}
 		for _, st := range stacks {
-			out = append(out, row{st.ID, st.Name, st.Status, st.TTL, st.ExpiresAt, st.Labels})
+			out = append(out, row{st.ID, st.Name, stackState(st), st.Status, st.Nodes, st.TTL, st.ExpiresAt, st.Labels})
 		}
 		return printJSON(out)
 	}
@@ -423,15 +425,41 @@ func listStacks(c ctl, asJSON bool) error {
 		return nil
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tNAME\tSTATUS\tTTL\tEXPIRES")
+	fmt.Fprintln(tw, "ID\tNAME\tSTATE\tNODES\tTTL\tEXPIRES")
 	for _, st := range stacks {
 		exp := "-"
 		if st.ExpiresAt != nil {
 			exp = *st.ExpiresAt
 		}
-		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\n", st.ID, st.Name, st.Status, st.TTL, exp)
+		nodes := fmt.Sprintf("%d/%d", st.Nodes.Running, st.Nodes.Total)
+		if st.Nodes.Error > 0 {
+			nodes += fmt.Sprintf(", %d failed", st.Nodes.Error)
+		}
+		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\n", st.ID, st.Name, stackState(st), nodes, st.TTL, exp)
 	}
 	return tw.Flush()
+}
+
+// stackState is what `ls` says a stack is doing, from its nodes rather than its record:
+// a stack is marked deployed as soon as its deploy starts, while its nodes still come up.
+//
+//	running        every node is running
+//	deploying      deployed, and some nodes are not running yet
+//	failed         a node is in error
+//	not deployed   nothing is running (never deployed, or taken down)
+//	expired        its TTL ran out and it was torn down
+func stackState(s stackSummary) string {
+	switch {
+	case s.Status == StackExpired:
+		return "expired"
+	case s.Nodes.Error > 0:
+		return "failed"
+	case s.Nodes.Total > 0 && s.Nodes.Running >= s.Nodes.Total:
+		return "running"
+	case s.Status == StackDeployed:
+		return "deploying"
+	}
+	return "not deployed"
 }
 
 func cliExport(args []string) error {
