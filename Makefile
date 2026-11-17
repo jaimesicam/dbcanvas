@@ -13,7 +13,7 @@ CLI_PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 # Where `make cli` installs this machine's build as dbcanvas-cli; empty = build only.
 CLI_INSTALL_DIR ?= $(HOME)/.local/bin
 
-.PHONY: doctor tag release-notes github-release pull-images publish-images install-pull install adopt-images compose env build up down logs restart rotate-key clean images versions smoke cli cli-test supportsim-image stocksim-image ledgersim-image perfsim-image pagerpanic-image intranet-image vnc-image kubeadm-image relaybin
+.PHONY: doctor tag release-notes github-release pull-images publish-images install-pull install adopt-images compose env build up down logs restart rotate-key clean images versions smoke cli cli-test supportsim-image stocksim-image ledgersim-image perfsim-image pagerpanic-image intranet-image vnc-image kubeadm-image relaybin catalog dbcanvas
 
 ## doctor: check the host side — Docker, compose, buildx, disk, .env passwords and exposure, the
 ## node images, whether the app answers. `dbcanvas-cli doctor` checks the installation itself.
@@ -195,6 +195,20 @@ cli:
 	    fi; \
 	  fi; \
 	fi
+
+## catalog: copy the version catalogue (versions.yaml, versions-arm64.yaml) into app/catalog,
+## where the dbcanvas binary embeds it (app/catalogembed.go).
+catalog:
+	@cp versions.yaml versions-arm64.yaml app/catalog/ && ls -l app/catalog/*.yaml
+
+## dbcanvas: build the dbcanvas binary for this machine into dist/dbcanvas — the web app,
+## the relay forwarders and the catalogue embedded, the version stamped from VERSION.
+dbcanvas: relaybin catalog
+	cd app/web && npm ci && npm run build
+	mkdir -p dist
+	cd app && CGO_ENABLED=0 go build -trimpath -buildvcs=false \
+	  -ldflags="-s -w -X main.appVersion=$(VERSION)" -o ../dist/dbcanvas .
+	@ls -l dist/dbcanvas
 
 ## relaybin: build the relay forwarder (app/cmd/dbcanvas-relay) for linux/amd64 and
 ## linux/arm64 into app/relaybin, gzipped, where DBCanvas embeds it (app/noderelay.go).

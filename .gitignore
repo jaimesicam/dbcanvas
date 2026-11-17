@@ -88,3 +88,6 @@ app/web/.smoke/
 
 # Built relay forwarders, embedded into DBCanvas (app/relaybin/README.md).
 app/relaybin/*.gz
+
+# The version catalogue's copies, embedded into the dbcanvas binary (app/catalog/README.md).
+app/catalog/*.yaml

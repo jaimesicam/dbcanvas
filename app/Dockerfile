@@ -35,6 +35,9 @@ COPY --from=web /web/dist ./web/dist
 # Embedded into the binary (go:embed in noderelay.go): the relay forwarder for containers
 # without bash, built here for both Linux architectures (the Makefile's relaybin target).
 COPY app/relaybin/README.md ./relaybin/
+# The directory the version catalogue is embedded from (catalogembed.go). The image reads
+# the catalogue mounted at /etc/dbcanvas, so only the README comes in: the embed needs a file.
+COPY app/catalog/README.md ./catalog/
 RUN for arch in amd64 arm64; do \
       GOOS=linux GOARCH=$arch CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w" \
         -o relaybin/dbcanvas-relay-linux-$arch ./cmd/dbcanvas-relay && gzip -9 relaybin/dbcanvas-relay-linux-$arch; \

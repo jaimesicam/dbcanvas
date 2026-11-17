@@ -58,7 +58,7 @@ func defaultSecrets() []string {
 
 // versionsGeneratedAt reads versions.yaml's versions_generated_at.
 func versionsGeneratedAt() (time.Time, bool) {
-	f, err := os.Open(versionsFilePath())
+	f, err := openCatalog(versionsFilePath())
 	if err != nil {
 		return time.Time{}, false
 	}

@@ -75,7 +75,10 @@ func versionsFilePath() string {
 	if env != "" && name != "versions.yaml" {
 		env = filepath.Join(filepath.Dir(env), name)
 	}
-	return firstExisting(env, "/etc/dbcanvas/"+name, name, "../"+name)
+	if p := firstExisting(env, "/etc/dbcanvas/"+name, name, "../"+name); p != "" {
+		return p
+	}
+	return embeddedCatalog(name)
 }
 
 // versionsFileName is the catalog's file name for DOCKER_PLATFORM.
@@ -139,7 +142,7 @@ func loadTagCatalog(section string, fallback PMMCatalog) PMMCatalog {
 	if path == "" {
 		return fallback
 	}
-	f, err := os.Open(path)
+	f, err := openCatalog(path)
 	if err != nil {
 		return fallback
 	}
@@ -302,7 +305,7 @@ func loadVersionSection(section string) OperatorCatalog {
 	if path == "" {
 		return cat
 	}
-	f, err := os.Open(path)
+	f, err := openCatalog(path)
 	if err != nil {
 		return cat
 	}
@@ -559,7 +562,7 @@ func parseImageCatalog(path, wantSection string) []PXCImage {
 	if path == "" {
 		return nil
 	}
-	f, err := os.Open(path)
+	f, err := openCatalog(path)
 	if err != nil {
 		return nil
 	}
@@ -880,7 +883,7 @@ func loadPDPSCatalog() []string {
 	if path == "" {
 		return nil
 	}
-	f, err := os.Open(path)
+	f, err := openCatalog(path)
 	if err != nil {
 		return nil
 	}
