@@ -32,6 +32,7 @@ import { AuthContext } from '../src/auth/AuthProvider.jsx'
 import stackDesign from './stack-design.json'
 import { Help } from '../src/components/Tooltip.jsx'
 import { SettingsCtx } from '../src/settings/SettingsProvider.jsx'
+import { ThemeProvider } from '../src/theme/ThemeProvider.jsx'
 
 const failures = []
 const record = (what, err) => failures.push(`${what}: ${err?.message || err}\n${(err?.stack || '').split('\n').slice(1, 4).join('\n')}`)
@@ -455,17 +456,19 @@ async function driveStackEditor() {
   host.id = 'stack-editor'
   host.style.height = '800px'
   document.body.appendChild(host)
-  const auth = { phase: 'ready', user: { id: 1, username: 'admin', role: 'admin' }, guest: false,
-    refresh: async () => {}, setup: async () => {}, login: async () => {}, register: async () => {}, logout: async () => {}, setUser: () => {} }
+  const auth = { phase: 'authed', user: { id: 1, username: 'owner', role: 'admin' }, guest: null,
+    refresh: async () => {}, logout: async () => {}, setUser: () => {} }
   createRoot(host).render(
     <StrictMode>
-      <AuthContext.Provider value={auth}>
-        <TerminalProvider>
-          <PageVisibleProvider visible>
-            <Boundary name="StackEditor"><StackEditor stackId={77} templates={[]} onBack={() => {}} /></Boundary>
-          </PageVisibleProvider>
-        </TerminalProvider>
-      </AuthContext.Provider>
+      <ThemeProvider>
+        <AuthContext.Provider value={auth}>
+          <TerminalProvider>
+            <PageVisibleProvider visible>
+              <Boundary name="StackEditor"><StackEditor stackId={77} templates={[]} onBack={() => {}} /></Boundary>
+            </PageVisibleProvider>
+          </TerminalProvider>
+        </AuthContext.Provider>
+      </ThemeProvider>
     </StrictMode>,
   )
   let text = ''
