@@ -388,6 +388,9 @@ type principal struct {
 	// Guest is set when a shared-session guest sent the request; User is then the
 	// host they act as (share.go).
 	Guest *guestPrincipal
+	// Socket is set on a request that came in on the owner-only control socket, which
+	// acts as the owner with no other credential (ctlsock.go).
+	Socket bool
 }
 
 type principalKey struct{}
@@ -485,6 +488,11 @@ func effectiveScope(tok APIToken, u User) string {
 func (a *App) requireScope(rt apiRoute, next http.HandlerFunc) http.HandlerFunc {
 	need := routeScope(rt)
 	return func(w http.ResponseWriter, r *http.Request) {
+		// The control socket's request is the owner's, resolved before routing.
+		if p, ok := principalOf(r); ok && p.Socket {
+			next(w, r)
+			return
+		}
 		// A shared-session guest acts as the host with a read or write scope, so it
 		// is resolved here, beside the token that it resembles (share.go).
 		if isGuestRequest(r) && bearerToken(r) == "" {

@@ -79,15 +79,15 @@ func TestStackFileReadsTheOldJSONExport(t *testing.T) {
 
 func TestStackFileRefusals(t *testing.T) {
 	cases := map[string]string{
-		"apiVersion: dbcanvas/v9\nkind: Stack\nname: a\nnodes: [ps]":                  "apiVersion",
-		"kind: Pod\nname: a\nnodes: [ps]":                                                "kind Stack",
-		"name: a":                                                                        "needs a design",
-		"name: a\nnodes: [ps]\ndesign: {nodes: []}":                                     "not both",
-		"name: a\nnodes: [ps]\nreplicas: 3":                                             `unknown key "replicas"`,
-		"nodes: [ps]":                                                                    "needs a name",
-		"name: a\nnodes: ['ps,colour=blue']":                                            `unknown option "colour"`,
+		"apiVersion: dbcanvas/v9\nkind: Stack\nname: a\nnodes: [ps]": "apiVersion",
+		"kind: Pod\nname: a\nnodes: [ps]":                            "kind Stack",
+		"name: a":                                                    "needs a design",
+		"name: a\nnodes: [ps]\ndesign: {nodes: []}":                  "not both",
+		"name: a\nnodes: [ps]\nreplicas: 3":                          `unknown key "replicas"`,
+		"nodes: [ps]":                                                "needs a name",
+		"name: a\nnodes: ['ps,colour=blue']":                         `unknown option "colour"`,
 		"name: a\ndesign:\n  nodes:\n    - {id: n1, type: pxc, label: x, osVersion: 9.0}": "quote it",
-		"name: a\nname: b\nnodes: [ps]":                                                 "given twice",
+		"name: a\nname: b\nnodes: [ps]": "given twice",
 	}
 	for in, want := range cases {
 		if _, err := parseStackFile([]byte(in)); err == nil || !strings.Contains(err.Error(), want) {

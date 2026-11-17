@@ -4,12 +4,14 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/fs"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -60,34 +62,61 @@ func main() {
 	if len(os.Args) > 2 && os.Args[1] == "-probe-ports" {
 		os.Exit(probePortsMain(os.Args[2]))
 	}
-
-	dbPath := envOr("DB_PATH", "dbcanvas.db")
 	// Re-encrypt the database under a fresh key, then exit (encryption.go). Run with the
 	// server stopped: `make rotate-key`.
 	if len(os.Args) > 1 && os.Args[1] == "-rotate-encryption-key" {
-		if err := rotateKey(dbPath); err != nil {
+		if err := rotateKey(envOr("DB_PATH", "dbcanvas.db")); err != nil {
 			log.Fatalf("rotate encryption key: %v", err)
 		}
 		return
 	}
+	// The app container: the server alone, configured from the environment.
+	if appIsContainerized() && len(os.Args) == 1 {
+		if err := runServer(serveOpts{ctx: context.Background(), tcp: true}); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+	os.Exit(runCLI(os.Args[1:]))
+}
+
+// serveOpts is how runServer runs.
+type serveOpts struct {
+	ctx context.Context // the server stops when it is done
+	// tcp listens on the loopback address for the browser; without it only the
+	// control socket listens (a command running the engine itself).
+	tcp bool
+	// dataDir, when set, is the data folder: the database lives in it and the control
+	// socket listens in it. Empty in the container, which is configured by DB_PATH.
+	dataDir string
+	// ready is closed once the server listens; addr is then the browser's address.
+	ready chan<- string
+}
+
+// runServer runs the engine and serves the API and the web app until o.ctx ends.
+func runServer(o serveOpts) error {
+	dbPath := envOr("DB_PATH", "dbcanvas.db")
+	if o.dataDir != "" {
+		dbPath = filepath.Join(o.dataDir, "dbcanvas.db")
+	}
 	// Refuse to be reachable beyond this machine unless that was asked for twice (exposure.go).
 	if why := exposureRefusal(); why != "" {
-		log.Fatalf("refusing to start: %s", why)
+		return fmt.Errorf("refusing to start: %s", why)
 	}
 	// Refuse a malformed instance name rather than deploy under it: every name this installation
 	// gives a container is built on it, and so is how it tells its own from another's (instance.go).
 	if why := validInstance(instanceName); why != "" {
-		log.Fatalf("DBCANVAS_INSTANCE=%q: %s", instanceName, why)
+		return fmt.Errorf("DBCANVAS_INSTANCE=%q: %s", instanceName, why)
 	}
 	log.Printf("instance %s", instanceName)
 	useDataTempDir(dbPath)
 	store, err := OpenStore(dbPath)
 	if err != nil {
-		log.Fatalf("failed to open database: %v", err)
+		return fmt.Errorf("failed to open database: %v", err)
 	}
 	defer store.Close()
 
-	app := &App{store: store, docker: NewDocker(envOr("DOCKER_SOCK", "/var/run/docker.sock"))}
+	app := &App{store: store, docker: NewDocker(dockerSocket())}
 	// The vagrant backend is optional: only usable when the host has vagrant +
 	// VirtualBox and DBCanvas runs on that host (not in the distroless container).
 	if v := NewVagrant(); v != nil {
@@ -125,20 +154,71 @@ func main() {
 	// Licence texts and the GPL notice, public (licenses.go).
 	mux.HandleFunc("GET /licenses/", handleLicenses)
 	mux.Handle("/", spaHandler())
+	handler := app.browseFallback(mux)
 
-	host := envOr("APP_HOST", "127.0.0.1")
-	port := envOr("APP_PORT", "8080")
-	addr := net.JoinHostPort(host, port)
+	errc := make(chan error, 2)
+	var servers []*http.Server
+	addr := ""
+	if o.tcp {
+		host := envOr("APP_HOST", "127.0.0.1")
+		port := envOr("APP_PORT", "8080")
+		if o.dataDir != "" && os.Getenv("APP_PORT") == "" {
+			port = soloPort
+		}
+		l, err := net.Listen("tcp", net.JoinHostPort(host, port))
+		if err != nil && o.dataDir != "" && os.Getenv("APP_PORT") == "" {
+			// The default port is taken: any free one will do for a browser opened by link.
+			l, err = net.Listen("tcp", net.JoinHostPort(host, "0"))
+		}
+		if err != nil {
+			return fmt.Errorf("listen: %v", err)
+		}
+		addr = l.Addr().String()
+		srv := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
+		servers = append(servers, srv)
+		log.Printf("DBCanvas listening on %s", addr)
+		go func() { errc <- srv.Serve(l) }()
+	}
+	if o.dataDir != "" {
+		l, err := listenCtlSocket(o.dataDir)
+		if err != nil {
+			return fmt.Errorf("control socket: %v", err)
+		}
+		defer os.Remove(ctlSocketPath(o.dataDir))
+		srv := &http.Server{Handler: app.ctlSocketHandler(handler), ReadHeaderTimeout: 10 * time.Second}
+		servers = append(servers, srv)
+		go func() { errc <- srv.Serve(l) }()
+	}
+	if o.ready != nil {
+		o.ready <- addr
+		close(o.ready)
+	}
+	select {
+	case err := <-errc:
+		return fmt.Errorf("server error: %v", err)
+	case <-o.ctx.Done():
+	}
+	sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for _, s := range servers {
+		s.Shutdown(sctx)
+	}
+	return nil
+}
 
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           app.browseFallback(mux),
-		ReadHeaderTimeout: 10 * time.Second,
+// dockerSocket is the Docker API socket: DOCKER_SOCK, else DOCKER_HOST's unix path,
+// else the current Docker context's, else the standard one.
+func dockerSocket() string {
+	if s := os.Getenv("DOCKER_SOCK"); s != "" {
+		return s
 	}
-	log.Printf("DBCanvas listening on %s", addr)
-	if err := srv.ListenAndServe(); err != nil {
-		log.Fatalf("server error: %v", err)
+	if h := os.Getenv("DOCKER_HOST"); strings.HasPrefix(h, "unix://") {
+		return strings.TrimPrefix(h, "unix://")
 	}
+	if s := dockerContextSocket(); s != "" {
+		return s
+	}
+	return "/var/run/docker.sock"
 }
 
 // spaHandler serves embedded static files, falling back to index.html for

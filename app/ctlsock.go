@@ -1,0 +1,188 @@
+package main
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	"os"
+	"os/user"
+	"path/filepath"
+	"regexp"
+	"runtime"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+)
+
+// ctlsock.go — where dbcanvas keeps its data, the lock that lets one engine run at a time,
+// and the control socket the command line uses to talk to a running dbcanvas.
+//
+// The data folder holds the database, its encryption key and the socket. It is the
+// owner's alone (0700), and so is the socket in it, which is the whole of its
+// authentication: a request that arrives on it acts as the owner, the account every
+// stack belongs to. Nothing else listens beyond 127.0.0.1.
+
+// dataDir is dbcanvas's data folder: DBCANVAS_DATA, else the OS's place for an
+// application's data.
+func dataDir() (string, error) {
+	if d := strings.TrimSpace(os.Getenv("DBCANVAS_DATA")); d != "" {
+		return filepath.Abs(d)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("no home folder to keep data in (set DBCANVAS_DATA): %v", err)
+	}
+	if runtime.GOOS == "darwin" {
+		return filepath.Join(home, "Library", "Application Support", "DBCanvas"), nil
+	}
+	if x := os.Getenv("XDG_DATA_HOME"); filepath.IsAbs(x) {
+		return filepath.Join(x, "dbcanvas"), nil
+	}
+	return filepath.Join(home, ".local", "share", "dbcanvas"), nil
+}
+
+// ensureDataDir creates the data folder, owner-only, and refuses one others can enter.
+func ensureDataDir() (string, error) {
+	dir, err := dataDir()
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	fi, err := os.Stat(dir)
+	if err != nil {
+		return "", err
+	}
+	if fi.Mode().Perm()&0o077 != 0 {
+		if err := os.Chmod(dir, 0o700); err != nil {
+			return "", fmt.Errorf("%s is open to other users and could not be made private: %v", dir, err)
+		}
+	}
+	return dir, nil
+}
+
+func ctlSocketPath(dir string) string { return filepath.Join(dir, "dbcanvas.sock") }
+
+// engineLock is held by the one process running the engine: `dbcanvas serve`, or a
+// command that found none running.
+type engineLock struct{ f *os.File }
+
+// errEngineRunning is another process holding the engine lock.
+var errEngineRunning = errors.New("another dbcanvas is running")
+
+// lockEngine takes the engine lock without waiting.
+func lockEngine(dir string) (*engineLock, error) {
+	f, err := os.OpenFile(filepath.Join(dir, "engine.lock"), os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		f.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, errEngineRunning
+		}
+		return nil, err
+	}
+	f.Truncate(0)
+	f.WriteAt([]byte(strconv.Itoa(os.Getpid())+"\n"), 0)
+	return &engineLock{f: f}, nil
+}
+
+func (l *engineLock) release() {
+	if l != nil && l.f != nil {
+		syscall.Flock(int(l.f.Fd()), syscall.LOCK_UN)
+		l.f.Close()
+	}
+}
+
+// listenCtlSocket listens on the control socket, owner-only. The caller holds the
+// engine lock, so a socket file already there is a previous run's.
+func listenCtlSocket(dir string) (net.Listener, error) {
+	path := ctlSocketPath(dir)
+	// A Unix socket's path is limited to about a hundred bytes.
+	if len(path) > 100 {
+		return nil, fmt.Errorf("the control socket's path is too long for the OS (%d bytes): set DBCANVAS_DATA to a shorter folder", len(path))
+	}
+	os.Remove(path)
+	old := syscall.Umask(0o077)
+	l, err := net.Listen("unix", path)
+	syscall.Umask(old)
+	if err != nil {
+		return nil, err
+	}
+	os.Chmod(path, 0o600)
+	return l, nil
+}
+
+// ctlConnKey marks a request that arrived on the control socket.
+type ctlConnKey struct{}
+
+// ctlSocketHandler serves the control socket: every request acts as the owner.
+func (a *App) ctlSocketHandler(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		owner, err := a.ensureOwner()
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "no owner account: "+err.Error())
+			return
+		}
+		r = withPrincipal(r, principal{User: owner, Socket: true})
+		next.ServeHTTP(w, r)
+	})
+}
+
+var ownerNameRe = regexp.MustCompile(`[^a-z0-9._-]+`)
+
+// ensureOwner returns the owner: the first approved administrator, created on first
+// use and named after the OS login.
+func (a *App) ensureOwner() (User, error) {
+	users, err := a.store.ListUsers()
+	if err != nil {
+		return User{}, err
+	}
+	for _, u := range users {
+		if u.Role == RoleAdmin && u.Status == StatusApproved {
+			return u, nil
+		}
+	}
+	name := "owner"
+	if cu, err := user.Current(); err == nil {
+		if n := strings.Trim(ownerNameRe.ReplaceAllString(strings.ToLower(cu.Username), "-"), "-."); n != "" {
+			name = n
+		}
+	}
+	// The owner signs in with the start link, never a password: this one is random
+	// and not kept.
+	b := make([]byte, 24)
+	rand.Read(b)
+	hash, err := hashPassword(hex.EncodeToString(b))
+	if err != nil {
+		return User{}, err
+	}
+	return a.store.CreateUser(name, hash, RoleAdmin, StatusApproved)
+}
+
+// ctlClient is an HTTP client that reaches dbcanvas over the control socket.
+func ctlClient(dir string) *http.Client {
+	path := ctlSocketPath(dir)
+	return &http.Client{Transport: &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, "unix", path)
+		},
+	}}
+}
+
+// ctlReachable reports whether a dbcanvas answers on the control socket.
+func ctlReachable(dir string) bool {
+	c, err := net.DialTimeout("unix", ctlSocketPath(dir), time.Second)
+	if err != nil {
+		return false
+	}
+	c.Close()
+	return true
+}

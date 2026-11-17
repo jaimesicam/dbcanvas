@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"slices"
 	"sort"
 	"strconv"
@@ -978,18 +979,22 @@ func (b *composeBuilder) labelOf(id string) string {
 func designJSON(doc designDoc, pos map[string][2]float64) ([]byte, error) {
 	nodes := make([]map[string]any, 0, len(doc.Nodes))
 	for _, n := range doc.Nodes {
-		raw, err := json.Marshal(n)
+		m, err := leanJSONMap(n)
 		if err != nil {
-			return nil, err
-		}
-		var m map[string]any
-		if err := json.Unmarshal(raw, &m); err != nil {
 			return nil, err
 		}
 		if p, ok := pos[n.ID]; ok {
 			m["x"], m["y"] = p[0], p[1]
 		}
 		nodes = append(nodes, m)
+	}
+	frames := make([]map[string]any, 0, len(doc.Frames))
+	for _, f := range doc.Frames {
+		m, err := leanJSONMap(f)
+		if err != nil {
+			return nil, err
+		}
+		frames = append(frames, m)
 	}
 	// Edges, not a hardcoded empty list. It was literal `[]designEdge{}` back when
 	// compose drew no associations, and it stayed that way after it started to —
@@ -1001,9 +1006,43 @@ func designJSON(doc designDoc, pos map[string][2]float64) ([]byte, error) {
 		edges = []designEdge{}
 	}
 	return json.Marshal(map[string]any{
-		"nodes": nodes, "frames": doc.Frames, "edges": edges,
+		"nodes": nodes, "frames": frames, "edges": edges,
 		"view": map[string]any{"x": 0, "y": 0, "z": 1},
 	})
+}
+
+// leanJSONMap is a design struct as a JSON map holding only the fields that are set, as
+// the canvas writes a node: compose fills in a struct with dozens of options, and saving
+// every one of them as "" or 0 made an exported stack file mostly empty values. A field
+// is left out when its Go value is the zero value, which is also what reading the design
+// back gives it; a pointer set to false (an option turned off) is not zero, and stays.
+func leanJSONMap(v any) (map[string]any, error) {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, err
+	}
+	rv := reflect.Indirect(reflect.ValueOf(v))
+	for _, f := range reflect.VisibleFields(rv.Type()) {
+		if f.Anonymous || !f.IsExported() {
+			continue
+		}
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if name == "" || name == "-" {
+			continue
+		}
+		switch name {
+		case "id", "type", "label":
+			continue // what identifies the item is always written
+		}
+		if fv, err := rv.FieldByIndexErr(f.Index); err == nil && fv.IsZero() {
+			delete(m, name)
+		}
+	}
+	return m, nil
 }
 
 // ------------------------------------------------------------- handler
