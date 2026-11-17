@@ -75,9 +75,11 @@ type dexRESPConn struct {
 	br *bufio.Reader
 }
 
-func dexRESPDial(ctx context.Context, addr, password string, db int) (*dexRESPConn, error) {
-	d := net.Dialer{Timeout: 10 * time.Second}
-	c, err := d.DialContext(ctx, "tcp", addr)
+func dexRESPDial(ctx context.Context, dial dialFunc, addr, password string, db int) (*dexRESPConn, error) {
+	if dial == nil {
+		dial = (&net.Dialer{Timeout: 10 * time.Second}).DialContext
+	}
+	c, err := dial(ctx, "tcp", addr)
 	if err != nil {
 		return nil, err
 	}
@@ -266,6 +268,7 @@ type dexValkeyAdapter struct {
 	addr string
 	pass string
 	caps dexCaps
+	dial dialFunc // nil: a plain TCP dial
 }
 
 func (v *dexValkeyAdapter) Capabilities() dexCaps { return v.caps }
@@ -275,7 +278,7 @@ func (v *dexValkeyAdapter) Close() error          { return nil }
 // stateful (SELECT picks a database), so one per request is simpler and safer than a
 // pool whose state depends on which request touched it last.
 func (v *dexValkeyAdapter) conn(ctx context.Context, db int) (*dexRESPConn, *dexError) {
-	c, err := dexRESPDial(ctx, v.addr, v.pass, db)
+	c, err := dexRESPDial(ctx, v.dial, v.addr, v.pass, db)
 	if err != nil {
 		return nil, dexValkeyError(err.Error(), ctx)
 	}

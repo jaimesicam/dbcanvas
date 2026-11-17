@@ -312,7 +312,7 @@ func (a *App) benchCreateDatabase(ctx context.Context, run *benchRun) error {
 	if err != nil {
 		return err
 	}
-	db, err := sql.Open(run.driver, dsn)
+	db, err := a.openStackDB(run.cfg.StackID, run.nodeContainerID, run.driver, dsn)
 	if err != nil {
 		return err
 	}

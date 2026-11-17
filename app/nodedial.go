@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"database/sql"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/go-sql-driver/mysql"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 )
 
 // nodedial.go — every connection DBCanvas opens to an address on a stack's network goes
@@ -56,6 +61,12 @@ func nodeDialMode() string {
 // dialFunc is the shape every driver's dial hook takes.
 type dialFunc func(ctx context.Context, network, addr string) (net.Conn, error)
 
+// DialContext makes a dialFunc a dialer for the drivers that take one (the MongoDB
+// driver's ContextDialer, http.Transport.DialContext).
+func (f dialFunc) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	return f(ctx, network, addr)
+}
+
 // stackDial is the dialer for addresses on stack stackID's network. prefer, when not empty,
 // is the container the address belongs to, tried first as the relay.
 func (a *App) stackDial(stackID int64, prefer string) dialFunc {
@@ -65,6 +76,70 @@ func (a *App) stackDial(stackID int64, prefer string) dialFunc {
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
 		return a.tunnelDial(ctx, stackID, prefer, addr)
 	}
+}
+
+// stackNodeDial is stackDial for a connection to containerID's node. A node on another
+// engine than Docker (a Vagrant VM, whose host-only address the host routes itself) is
+// dialled directly.
+func (a *App) stackNodeDial(stackID int64, containerID string) dialFunc {
+	if containerID != "" && nodeDialMode() == nodeDialTunnel {
+		if d, ok := a.dialEngine(stackID, containerID).(*Docker); !ok || d != a.docker {
+			return (&net.Dialer{Timeout: 10 * time.Second}).DialContext
+		}
+	}
+	return a.stackDial(stackID, containerID)
+}
+
+// mysqlStackNet is the go-sql-driver "net" for a connection to containerID's node on
+// stack stackID: plain "tcp" where addresses are routable, else a dial registered under
+// a name of its own that goes through stackNodeDial.
+func (a *App) mysqlStackNet(stackID int64, containerID string) string {
+	if nodeDialMode() == nodeDialDirect {
+		return "tcp"
+	}
+	name := fmt.Sprintf("dbcanvas-stack-%d-%s", stackID, containerID)
+	dial := a.stackNodeDial(stackID, containerID)
+	mysql.RegisterDialContext(name, func(ctx context.Context, addr string) (net.Conn, error) {
+		return dial(ctx, "tcp", addr)
+	})
+	return name
+}
+
+// openStackDB is sql.Open for a "mysql" or "pgx" DSN that addresses a node on stack
+// stackID's network (containerID's, when known), dialling through stackNodeDial.
+func (a *App) openStackDB(stackID int64, containerID, driver, dsn string) (*sql.DB, error) {
+	if nodeDialMode() == nodeDialDirect {
+		return sql.Open(driver, dsn)
+	}
+	switch driver {
+	case "mysql":
+		cfg, err := mysql.ParseDSN(dsn)
+		if err != nil {
+			return nil, err
+		}
+		cfg.Net = a.mysqlStackNet(stackID, containerID)
+		c, err := mysql.NewConnector(cfg)
+		if err != nil {
+			return nil, err
+		}
+		return sql.OpenDB(c), nil
+	case "pgx":
+		cfg, err := pgx.ParseConfig(dsn)
+		if err != nil {
+			return nil, err
+		}
+		dial := a.stackNodeDial(stackID, containerID)
+		cfg.DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return dial(ctx, network, addr)
+		}
+		// Names are resolved by the relay, on the stack network, where the Intranet's
+		// DNS answers; the host's resolver does not know them.
+		cfg.LookupFunc = func(ctx context.Context, host string) ([]string, error) {
+			return []string{host}, nil
+		}
+		return stdlib.OpenDB(*cfg), nil
+	}
+	return sql.Open(driver, dsn)
 }
 
 // relayScript connects to $H:$P, announces it on stderr (relayOK), and copies both ways:

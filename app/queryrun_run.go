@@ -271,7 +271,7 @@ func (run *qrRun) runQuery(ctx context.Context, q *qrQuery) {
 		q.fail(err.Error())
 		return
 	}
-	db, err := sql.Open(q.driver, q.dsn)
+	db, err := run.app.openStackDB(q.stackID, q.nodeContainerID, q.driver, q.dsn)
 	if err != nil {
 		q.fail(fmt.Sprintf("open: %v", err))
 		return

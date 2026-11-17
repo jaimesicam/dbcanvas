@@ -625,9 +625,10 @@ func dexPGExplainStmt(stmt string) string {
 // pool is held per database name and opened on first use — switching database in the
 // tree must not cost a reconnect every time you click.
 type dexPGNet struct {
-	dsn func(database string) string
-	mu  sync.Mutex
-	db  map[string]*sql.DB
+	dsn  func(database string) string
+	open func(dsn string) (*sql.DB, error) // sql.Open("pgx", …) through the stack's dialer
+	mu   sync.Mutex
+	db   map[string]*sql.DB
 }
 
 func (n *dexPGNet) readOnly() bool { return false }
@@ -650,7 +651,11 @@ func (n *dexPGNet) pool(database string) (*sql.DB, error) {
 	if d, ok := n.db[database]; ok {
 		return d, nil
 	}
-	d, err := sql.Open("pgx", n.dsn(database))
+	open := n.open
+	if open == nil {
+		open = func(dsn string) (*sql.DB, error) { return sql.Open("pgx", dsn) }
+	}
+	d, err := open(n.dsn(database))
 	if err != nil {
 		return nil, err
 	}

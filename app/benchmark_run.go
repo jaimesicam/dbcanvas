@@ -222,7 +222,7 @@ func (run *benchRun) execute(ctx context.Context) {
 		run.fail(err.Error())
 		return
 	}
-	db, err := sql.Open(run.driver, dsn)
+	db, err := run.app.openStackDB(run.cfg.StackID, run.nodeContainerID, run.driver, dsn)
 	if err != nil {
 		run.fail("open: " + err.Error())
 		return

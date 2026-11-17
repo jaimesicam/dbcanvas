@@ -95,7 +95,11 @@ func (a *App) mongoClientFor(ctx context.Context, c dbConn) (*mongo.Client, func
 
 	cctx, cancel := context.WithTimeout(ctx, mongoConnectTimeout)
 	defer cancel()
-	client, err := mongo.Connect(cctx, options.Client().ApplyURI(uri))
+	opts := options.Client().ApplyURI(uri)
+	if nodeDialMode() == nodeDialTunnel {
+		opts.SetDialer(a.stackNodeDial(c.StackID, c.ContainerID))
+	}
+	client, err := mongo.Connect(cctx, opts)
 	if err != nil {
 		return nil, nil, fmt.Errorf("connect: %v", err)
 	}

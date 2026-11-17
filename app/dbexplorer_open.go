@@ -106,7 +106,7 @@ func (a *App) dexOpenMySQL(ctx context.Context, t dexTarget) (dexAdapter, error)
 	}
 	cfg := mysql.NewConfig()
 	cfg.User, cfg.Passwd = t.User, t.Pass
-	cfg.Net, cfg.Addr = "tcp", addr
+	cfg.Net, cfg.Addr = a.mysqlStackNet(t.Conn.StackID, t.ContainerID), addr
 	cfg.Timeout = 15 * time.Second
 	cfg.AllowNativePasswords = true
 	cfg.ParseTime = true
@@ -222,7 +222,9 @@ func (a *App) dexOpenPostgres(ctx context.Context, t dexTarget) (dexAdapter, err
 		// "postgres" would fail on the endpoint most likely to be picked.
 		defaultDB = t.K8s.Database
 	}
-	ad := &dexPGAdapter{t: &dexPGNet{dsn: mk}, defaultDB: defaultDB, caps: t.Conn.Caps}
+	ad := &dexPGAdapter{t: &dexPGNet{dsn: mk, open: func(dsn string) (*sql.DB, error) {
+		return a.openStackDB(t.Conn.StackID, t.ContainerID, "pgx", dsn)
+	}}, defaultDB: defaultDB, caps: t.Conn.Caps}
 	pingCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	if err := ad.TestConnection(pingCtx); err != nil {
@@ -250,7 +252,11 @@ func (a *App) dexOpenMongo(ctx context.Context, t dexTarget) (dexAdapter, error)
 		url.QueryEscape(t.User), url.QueryEscape(t.Pass), addr, url.QueryEscape(authDB))
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	client, err := mongo.Connect(cctx, options.Client().ApplyURI(uri))
+	opts := options.Client().ApplyURI(uri)
+	if nodeDialMode() == nodeDialTunnel {
+		opts.SetDialer(a.stackNodeDial(t.Conn.StackID, t.ContainerID))
+	}
+	client, err := mongo.Connect(cctx, opts)
 	if err != nil {
 		return nil, dexMongoError(err, nil)
 	}
@@ -267,7 +273,7 @@ func (a *App) dexOpenValkey(ctx context.Context, t dexTarget) (dexAdapter, error
 	if err != nil {
 		return nil, err
 	}
-	ad := &dexValkeyAdapter{addr: addr, pass: t.Pass, caps: t.Conn.Caps}
+	ad := &dexValkeyAdapter{addr: addr, pass: t.Pass, caps: t.Conn.Caps, dial: a.stackNodeDial(t.Conn.StackID, t.ContainerID)}
 	pingCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	if err := ad.TestConnection(pingCtx); err != nil {
@@ -302,7 +308,9 @@ func (a *App) dexOpenClickHouse(ctx context.Context, t dexTarget) (dexAdapter, e
 	return &dexCHAdapter{
 		t: &dexCHHTTP{
 			base: "http://" + addr, user: t.User, pass: t.Pass,
-			client: &http.Client{Timeout: 5 * time.Minute},
+			client: &http.Client{Timeout: 5 * time.Minute, Transport: &http.Transport{
+				DialContext: a.stackNodeDial(t.Conn.StackID, t.ContainerID).DialContext,
+			}},
 		},
 		defaultDB: db, readOnly: t.Conn.ReadOnly, caps: t.Conn.Caps,
 	}, nil
