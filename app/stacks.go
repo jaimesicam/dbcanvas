@@ -12,30 +12,40 @@ import (
 	"time"
 )
 
-// TTL options and their durations. "infinity" maps to no expiry.
+// TTL options and their durations. Every stack expires: the longest lifetime is 30 days,
+// and no extension takes a stack's end further than that from now (maxStackLife).
 var ttlDurations = map[string]time.Duration{
 	"2h":  2 * time.Hour,
 	"4h":  4 * time.Hour,
 	"8h":  8 * time.Hour,
 	"24h": 24 * time.Hour,
 	"2w":  14 * 24 * time.Hour,
+	"30d": 30 * 24 * time.Hour,
 }
 
-const ttlInfinity = "infinity"
+// ttlLongest is the longest TTL, and maxStackLife how far from now a stack may end.
+const ttlLongest = "30d"
+
+var maxStackLife = ttlDurations[ttlLongest]
+
+// ttlChoices names the TTLs for a message.
+const ttlChoices = "2h, 4h, 8h, 24h, 2w or 30d"
 
 func validTTL(ttl string) bool {
-	if ttl == ttlInfinity {
-		return true
-	}
 	_, ok := ttlDurations[ttl]
 	return ok
 }
 
-// expiryFor returns the RFC3339 expiry for a TTL, or nil for infinity.
-func expiryFor(ttl string) *string {
-	if ttl == ttlInfinity {
-		return nil
+// ttlRefusal says why ttl is not a lifetime DBCanvas gives, for an error message.
+func ttlRefusal(ttl string) string {
+	if ttl == "infinity" {
+		return "a stack cannot be kept forever: the longest lifetime is 30d (30 days)"
 	}
+	return fmt.Sprintf("ttl %q: use %s", ttl, ttlChoices)
+}
+
+// expiryFor returns the RFC3339 expiry for a TTL.
+func expiryFor(ttl string) *string {
 	t := time.Now().Add(ttlDurations[ttl]).UTC().Format(time.RFC3339)
 	return &t
 }
@@ -193,7 +203,7 @@ func (a *App) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 	}
 	body.Labels = labels
 	if !validTTL(body.TTL) {
-		writeErr(w, http.StatusBadRequest, "invalid ttl")
+		writeErr(w, http.StatusBadRequest, ttlRefusal(body.TTL))
 		return
 	}
 	if why := tokenTTLRefusal(r, body.TTL); why != "" {
@@ -412,8 +422,8 @@ func (a *App) warnExpiringStacks() {
 }
 
 // handleExtendStack pushes a stack's expiry out by one of the TTL steps, from whichever is later of
-// now and its current expiry, or makes it never expire. The canvas offers it when the stack is
-// close to its end, so a lab in use is not torn down under somebody.
+// now and its current expiry, but never further than maxStackLife from now. The canvas offers it
+// when the stack is close to its end, so a lab in use is not torn down under somebody.
 func (a *App) handleExtendStack(w http.ResponseWriter, r *http.Request) {
 	st, u, ok := a.loadOwnedStack(w, r)
 	if !ok {
@@ -423,7 +433,11 @@ func (a *App) handleExtendStack(w http.ResponseWriter, r *http.Request) {
 		By string `json:"by"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<12)).Decode(&body); err != nil || !validTTL(body.By) {
-		writeErr(w, http.StatusBadRequest, "by must be one of the TTLs (2h, 4h, 8h, 24h, 2w, infinity)")
+		why := "by must be one of the TTLs: " + ttlChoices
+		if body.By == "infinity" {
+			why = ttlRefusal(body.By)
+		}
+		writeErr(w, http.StatusBadRequest, why)
 		return
 	}
 	if why := tokenExtendRefusal(r); why != "" {
@@ -434,21 +448,22 @@ func (a *App) handleExtendStack(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "this stack has already expired and been torn down")
 		return
 	}
-	ttl, exp := st.TTL, (*string)(nil)
-	if body.By == ttlInfinity {
-		ttl = ttlInfinity
-	} else {
-		from := time.Now()
-		if st.ExpiresAt != nil {
-			if t, err := time.Parse(time.RFC3339, *st.ExpiresAt); err == nil && t.After(from) {
-				from = t
-			}
+	ttl := st.TTL
+	now := time.Now()
+	from := now
+	if st.ExpiresAt != nil {
+		if t, err := time.Parse(time.RFC3339, *st.ExpiresAt); err == nil && t.After(from) {
+			from = t
 		}
-		e := from.Add(ttlDurations[body.By]).UTC().Format(time.RFC3339)
-		exp = &e
-		if st.ExpiresAt == nil {
-			ttl = body.By // it never expired before; now it does, by this much
-		}
+	}
+	end := from.Add(ttlDurations[body.By])
+	if limit := now.Add(maxStackLife); end.After(limit) {
+		end = limit
+	}
+	e := end.UTC().Format(time.RFC3339)
+	exp := &e
+	if !validTTL(ttl) {
+		ttl = body.By
 	}
 	if err := a.store.SetStackExpiry(st.ID, ttl, exp); err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to extend the stack")
@@ -456,11 +471,7 @@ func (a *App) handleExtendStack(w http.ResponseWriter, r *http.Request) {
 	}
 	a.stackEvent(st, "extended", "", u.Username)
 	expiryWarned.Delete(st.ID) // warn again before the new end
-	what := "never expires"
-	if exp != nil {
-		what = "expires " + *exp
-	}
-	a.recordStackEvent(st.ID, "", "action", "info", "Lifetime extended: "+what, "", u.Username)
+	a.recordStackEvent(st.ID, "", "action", "info", "Lifetime extended: expires "+*exp, "", u.Username)
 	writeJSON(w, http.StatusOK, map[string]any{"ttl": ttl, "expiresAt": exp})
 }
 

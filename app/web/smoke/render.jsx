@@ -195,6 +195,7 @@ import realDeps from './real-deps.json' with { type: 'json' }
 import { withEmoji, onlyEmoji } from '../src/lib/emoji.js'
 import { DialogBox } from '../src/components/Dialog.jsx'
 import { UpdateDialog } from '../src/components/UpdateCheck.jsx'
+import { TTL_OPTIONS as STACK_TTLS } from '../src/lib/stackApi.js'
 
 const noop = () => {}
 let failures = 0
@@ -6820,6 +6821,13 @@ check('update dialog: links the binary for this machine, or the release page', (
   const page = renderToString(<UpdateDialog res={{ ...base, releaseUrl: 'https://example.com/r' }} onClose={noop} />)
   if (!page.includes('href="https://example.com/r"')) throw new Error('no release page link')
   return 'ok'
+})
+
+check('stack lifetimes: every one expires, the longest is 30 days', () => {
+  const ids = STACK_TTLS.map((t) => t.id)
+  if (ids.includes('infinity')) throw new Error('a lifetime that never expires is offered')
+  if (ids[ids.length - 1] !== '30d') throw new Error('the longest lifetime is not 30 days: ' + ids.join(','))
+  return ids.join(' ')
 })
 
 if (failures > 0) {

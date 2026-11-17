@@ -67,7 +67,7 @@ func TestDexConnectionIDRejectsNonsense(t *testing.T) {
 func seedStack(t *testing.T, app *App, owner User, name string) Stack {
 	t.Helper()
 	design := `{"nodes":[{"id":"pg1","type":"pg","label":"pg-01"}],"frames":[],"edges":[]}`
-	st, err := app.store.CreateStack(name, owner.ID, ttlInfinity, nil, []byte(design))
+	st, err := app.store.CreateStack(name, owner.ID, ttlLongest, nil, []byte(design))
 	if err != nil {
 		t.Fatalf("create stack: %v", err)
 	}
@@ -278,7 +278,7 @@ func TestDexPMMConnectionsAreReadOnlyAndLabelled(t *testing.T) {
 	app := newTestApp(t)
 	u, _ := app.store.CreateUser("alice", "x", RoleUser, StatusApproved)
 	design := `{"nodes":[{"id":"pmm1","type":"pmm","label":"pmm-01"}],"frames":[],"edges":[]}`
-	st, _ := app.store.CreateStack("lab", u.ID, ttlInfinity, nil, []byte(design))
+	st, _ := app.store.CreateStack("lab", u.ID, ttlLongest, nil, []byte(design))
 	cfg, _ := json.Marshal(map[string]any{"fqdn": "pmm-01.example.net", "version": "3"})
 	app.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: "pmm1", ContainerID: "c-pmm",
 		State: DeployRunning, Config: cfg})
@@ -347,7 +347,7 @@ func setInternalWrites(t *testing.T, app *App, on bool) {
 func seedPMM(t *testing.T, app *App, owner User) Stack {
 	t.Helper()
 	design := `{"nodes":[{"id":"pmm1","type":"pmm","label":"pmm-01"}],"frames":[],"edges":[]}`
-	st, err := app.store.CreateStack("lab", owner.ID, ttlInfinity, nil, []byte(design))
+	st, err := app.store.CreateStack("lab", owner.ID, ttlLongest, nil, []byte(design))
 	if err != nil {
 		t.Fatalf("create stack: %v", err)
 	}

@@ -1068,7 +1068,7 @@ func (a *App) handleComposeStack(w http.ResponseWriter, r *http.Request) {
 	}
 	if !validTTL(ttl) {
 		writeErr(w, http.StatusBadRequest,
-			"ttl must be one of 2h, 4h, 8h, 24h, 2w, infinity")
+			ttlRefusal(ttl))
 		return
 	}
 	if why := tokenTTLRefusal(r, ttl); why != "" {

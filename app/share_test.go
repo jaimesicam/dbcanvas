@@ -37,7 +37,7 @@ func newShareFixture(t *testing.T, role string) *shareFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	st, err := app.store.CreateStack("lab", host.ID, ttlInfinity, nil, []byte(defaultDesign))
+	st, err := app.store.CreateStack("lab", host.ID, ttlLongest, nil, []byte(defaultDesign))
 	if err != nil {
 		t.Fatal(err)
 	}

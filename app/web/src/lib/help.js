@@ -452,7 +452,8 @@ export const HELP = {
   tplPick: 'The template to merge into the canvas. Ids are rewritten, singleton nodes you already have are reused rather than duplicated, and colliding hostnames are numbered.',
   stackTTL:
     'When this stack tears itself down. Lab stacks are easy to forget and expensive to leave running; pick the ' +
-    'shortest lifetime that covers what you are doing, and extend it later if you need to.',
+    'shortest lifetime that covers what you are doing, and extend it later if you need to. Every stack expires: ' +
+    'the longest lifetime is 30 days, and extending never takes a stack further than 30 days from now.',
 
   // --- misc ----------------------------------------------------------------
   oidcRealm: 'The Keycloak realm holding the OIDC client this node authenticates against.',

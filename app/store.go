@@ -115,10 +115,10 @@ CREATE TABLE IF NOT EXISTS stacks (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   name        TEXT NOT NULL,
   owner_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  ttl         TEXT NOT NULL,        -- '2h'|'4h'|'8h'|'24h'|'2w'|'infinity'
+  ttl         TEXT NOT NULL,        -- '2h'|'4h'|'8h'|'24h'|'2w'|'30d'
   status      TEXT NOT NULL,        -- 'draft'|'deployed'|'expired'
   created_at  TEXT NOT NULL,        -- RFC3339
-  expires_at  TEXT,                 -- RFC3339, NULL for infinity
+  expires_at  TEXT,                 -- RFC3339 (NULL only in releases before 0.1.0: infinity)
   design_json TEXT NOT NULL         -- canvas: {nodes,edges,view}
 );
 CREATE TABLE IF NOT EXISTS deployments (
@@ -317,6 +317,10 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id, id DESC);`
 		return nil, err
 	}
 	db.Exec("ALTER TABLE live_events ADD COLUMN actor TEXT NOT NULL DEFAULT ''")
+	// Every stack expires: one kept forever (infinity, before 0.1.0) gets the longest
+	// lifetime, counted from the first start that sees it.
+	db.Exec(`UPDATE stacks SET ttl = ?, expires_at = ? WHERE expires_at IS NULL OR ttl = 'infinity'`,
+		ttlLongest, time.Now().Add(maxStackLife).UTC().Format(time.RFC3339))
 	if err := migrateShareSessions(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate share_sessions: %w", err)

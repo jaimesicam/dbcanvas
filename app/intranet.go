@@ -2838,16 +2838,12 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 // It answers the request itself when it cannot.
 func (a *App) renewExpiredStack(w http.ResponseWriter, st *Stack, u User) bool {
 	ttl := st.TTL
-	var exp *string
-	if ttl != ttlInfinity {
-		dur, ok := ttlDurations[ttl]
-		if !ok {
-			writeErr(w, http.StatusInternalServerError, "the stack's lifetime "+ttl+" is not one DBCanvas knows")
-			return false
-		}
-		e := time.Now().Add(dur).UTC().Format(time.RFC3339)
-		exp = &e
+	dur, ok := ttlDurations[ttl]
+	if !ok {
+		ttl, dur = ttlLongest, maxStackLife // a lifetime from an older release (infinity)
 	}
+	e := time.Now().Add(dur).UTC().Format(time.RFC3339)
+	exp := &e
 	if err := a.store.SetStackExpiry(st.ID, ttl, exp); err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to renew the stack's lifetime")
 		return false

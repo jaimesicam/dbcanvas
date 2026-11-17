@@ -30,7 +30,7 @@ func TestCredentialsAreSealedAtRest(t *testing.T) {
 		t.Fatal(err)
 	}
 	design := `{"nodes":[{"id":"n1","rootPassword":"hunter2"}]}`
-	stack, err := st.CreateStack("s", u.ID, ttlInfinity, nil, []byte(design))
+	stack, err := st.CreateStack("s", u.ID, ttlLongest, nil, []byte(design))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func TestRotateKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	u, _ := st.CreateUser("alice", "$2a$10$hash", RoleAdmin, StatusApproved)
-	stack, _ := st.CreateStack("s", u.ID, ttlInfinity, nil, []byte(`{"pw":"x"}`))
+	stack, _ := st.CreateStack("s", u.ID, ttlLongest, nil, []byte(`{"pw":"x"}`))
 	old := st.seal.KeyID()
 	st.Close()
 

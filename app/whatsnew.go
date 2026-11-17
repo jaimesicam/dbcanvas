@@ -86,6 +86,13 @@ var whatsNewNotes = []releaseNote{
 	},
 	{
 		Version: "0.1.0",
+		Date:    "2026-11-18",
+		Title:   "Every stack expires: 30 days at most",
+		Body:    "A stack's lifetime is 2 hours, 4 hours, 8 hours, 24 hours, 2 weeks or 30 days; none is kept forever. Extending a stack never takes its end further than 30 days from now. A stack set to never expire in an earlier release gets 30 days, counted from the first start of 0.1.0.",
+		Doc:     "docs/CLI.md",
+	},
+	{
+		Version: "0.1.0",
 		Date:    "2026-11-17",
 		Title:   "dbcanvas doctor",
 		Body:    "dbcanvas doctor checks everything in one place: Docker and access to its socket, the architecture, the base images, both version catalogues, the data folder's permissions and free space, the encryption key, stack networks, k3d and the bundled files, with how to fix each problem it finds.",

@@ -146,7 +146,7 @@ nodes:
 | Key | |
 | --- | --- |
 | `name` | The stack's name. Required. |
-| `ttl` | How long the stack lives: `2h`, `4h`, `8h`, `24h`, `2w` or `infinity`. A new stack without one gets the default; an existing stack keeps its own. |
+| `ttl` | How long the stack lives: `2h`, `4h`, `8h`, `24h`, `2w` or `30d`. Every stack expires; extending one never takes it further than 30 days from now. A new stack without one gets the default; an existing stack keeps its own. |
 | `labels` | Key/value labels. An empty map clears them. |
 | `platform` | `amd64` or `arm64` for every database node that does not choose its own architecture. |
 | `nodes` | Compose entries, one per node or cluster (below). |

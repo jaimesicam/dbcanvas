@@ -182,7 +182,7 @@ A stack is a design on the canvas plus the containers it deployed.
 | What a deploy would do now | `GET /api/stacks/{id}/deploy/preview` |
 | Deploy | `POST /api/stacks/{id}/deploy` |
 | Live CPU, memory, I/O and replication role per node | `GET /api/stacks/{id}/live` |
-| Extend its lifetime | `POST /api/stacks/{id}/extend` `{"by": "4h"}` |
+| Extend its lifetime, never more than 30 days from now | `POST /api/stacks/{id}/extend` `{"by": "4h"}` |
 | Remove the containers, keep the design (`dbcanvas down STACK`) | `POST /api/stacks/{id}/destroy` |
 | Delete both (`dbcanvas rm STACK`) | `DELETE /api/stacks/{id}` |
 | Follow your stacks' lifecycle | `GET /api/stacks/events` *(SSE)* |
@@ -201,7 +201,7 @@ curl -s -H "$AUTH" -H 'Content-Type: application/json' \
   -d "$(jq -n --rawfile f pxc-lab.yaml '{file: $f, dryRun: true}')" $API/stacks/apply
 ```
 
-**Give every scripted stack a TTL**: `2h`, `4h`, `8h`, `24h`, `2w` or `infinity`. When
+**Give every scripted stack a TTL**: `2h`, `4h`, `8h`, `24h`, `2w` or `30d`. When
 the TTL runs out, the stack's containers are removed and the stack is marked
 `expired`.
 

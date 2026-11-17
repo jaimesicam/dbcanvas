@@ -313,7 +313,7 @@ func (a *App) planStackFile(ctx context.Context, ownerID int64, sf stackFile) (s
 	p := stackPlan{Name: sf.Name, Added: []stackPlanItem{}, Removed: []stackPlanItem{},
 		Changed: []stackPlanItem{}, Notes: []string{}, Issues: []issue{}}
 	if sf.TTL != nil && !validTTL(*sf.TTL) {
-		return p, nil, fmt.Errorf("ttl %q: use 2h, 4h, 8h, 24h, 2w or infinity", *sf.TTL)
+		return p, nil, errors.New(ttlRefusal(*sf.TTL))
 	}
 	if err := validateLabels(sf.Labels); err != nil {
 		return p, nil, err

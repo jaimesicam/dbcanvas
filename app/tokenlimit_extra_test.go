@@ -22,7 +22,7 @@ func TestTokenMaxTTL(t *testing.T) {
 	app := newTestApp(t)
 	u, _ := app.ensureOwner()
 	l := &tokenLimit{MaxTTL: "8h"}
-	for ttl, want := range map[string]int{"4h": http.StatusCreated, "8h": http.StatusCreated, "24h": http.StatusForbidden, "infinity": http.StatusForbidden} {
+	for ttl, want := range map[string]int{"4h": http.StatusCreated, "8h": http.StatusCreated, "24h": http.StatusForbidden, "30d": http.StatusForbidden, "infinity": http.StatusBadRequest} {
 		w := httptest.NewRecorder()
 		app.handleCreateStack(w, asToken(t, app, u, l, "POST", "/api/stacks", `{"name":"lab-`+ttl+`","ttl":"`+ttl+`"}`))
 		if w.Code != want {

@@ -93,7 +93,7 @@ A token can be narrowed further:
   and `/api/meta`. Everything else answers `403`, whatever its scope.
 - **Labels on new stacks:** a stack it creates gets its labels, and it cannot set
   labels that would drop them.
-- **`maxTtl`:** a stack it creates cannot be set to never expire, and cannot be
+- **`maxTtl`:** a stack it creates cannot be given a longer lifetime, and cannot be
   extended.
 
 ### Revoke a token

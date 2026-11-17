@@ -15,7 +15,7 @@ func waitFixture(t *testing.T) (*App, Stack) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	st, err := app.store.CreateStack("waits", u.ID, ttlInfinity, nil, []byte(defaultDesign))
+	st, err := app.store.CreateStack("waits", u.ID, ttlLongest, nil, []byte(defaultDesign))
 	if err != nil {
 		t.Fatal(err)
 	}

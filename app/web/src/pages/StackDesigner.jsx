@@ -1797,14 +1797,11 @@ function ExpiryChip({ stack, onExtended }) {
       {open && (
         <div role="menu" className="absolute left-0 top-full z-30 mt-1 w-48 rounded-lg border bg-surface p-1 text-xs shadow-xl">
           <div className="px-2 py-1 text-muted">{left == null ? 'Never expires' : `Torn down ${expiresIn(stack.expiresAt).replace('expires ', '')}`}</div>
-          {['2h', '4h', '8h', '24h', '2w'].map((by) => (
+          {['2h', '4h', '8h', '24h', '2w', '30d'].map((by) => (
             <button key={by} type="button" role="menuitem" disabled={busy} onClick={() => extend(by)}
               className="block w-full rounded px-2 py-1 text-left hover:bg-surface2">Extend by {ttlLabel(by)}</button>
           ))}
-          {left != null && (
-            <button type="button" role="menuitem" disabled={busy} onClick={() => extend('infinity')}
-              className="block w-full rounded px-2 py-1 text-left hover:bg-surface2">Never expire</button>
-          )}
+          <div className="px-2 py-1 text-muted">A stack lives at most 30 days from now.</div>
           {err && <div className="px-2 py-1 text-danger">{err}</div>}
         </div>
       )}

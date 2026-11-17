@@ -21,7 +21,7 @@ func scTestStack(t *testing.T, app *App, doc designDoc, deps []Deployment) Stack
 		t.Fatalf("create user: %v", err)
 	}
 	design, _ := json.Marshal(doc)
-	st, err := app.store.CreateStack("lab", u.ID, ttlInfinity, nil, design)
+	st, err := app.store.CreateStack("lab", u.ID, ttlLongest, nil, design)
 	if err != nil {
 		t.Fatalf("create stack: %v", err)
 	}

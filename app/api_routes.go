@@ -287,7 +287,7 @@ func buildAPIRoutes() []apiRoute {
 		{Method: "GET", Path: "/api/stacks/{id}/deploy/preview", Group: gStacks, Handler: m((*App).handleDeployPreview),
 			Summary: "What Deploy would do to this stack now: nodes removed (deleted from the canvas), created, provisioned again from scratch (deployed but not running), running members recreated because their cluster is provisioned as a whole, and how many are left alone."},
 		{Method: "POST", Path: "/api/stacks/{id}/extend", Group: gStacks, Handler: m((*App).handleExtendStack),
-			Summary: "Push the stack's expiry out: {\"by\": \"2h\"|\"4h\"|\"8h\"|\"24h\"|\"2w\"} from the later of now and its current expiry, or \"infinity\" to keep it."},
+			Summary: "Push the stack's expiry out: {\"by\": \"2h\"|\"4h\"|\"8h\"|\"24h\"|\"2w\"|\"30d\"} from the later of now and its current expiry, never more than 30 days from now."},
 		{Method: "GET", Path: "/api/stacks/events", Group: gStacks, Media: mediaSSE, Handler: m((*App).handleStackEvents),
 			Summary: "Server-sent events for your stacks' lifecycle: created, deploying, destroyed, deleted (with the reason), expired, extended, labels. ?label=k=v narrows them. A deleted stack's id answers 410 Gone with how it went."},
 		{Method: "PUT", Path: "/api/stacks/{id}/labels", Group: gStacks, Handler: m((*App).handleSetStackLabels),

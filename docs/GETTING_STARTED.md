@@ -98,7 +98,7 @@ The fastest route is a template.
 1. Go to **Database Stacks** → **New stack**.
 2. Enter a **Name** and pick a template under **Start from**.
 3. Pick a **Lifetime** — the stack is torn down when it elapses. Choose the shortest that covers
-   your work; **Infinity** never expires.
+   your work. The longest is **30 days**; every stack expires.
 4. Press **Create**. The topology appears on the canvas, ready to edit.
 
 ![The New stack dialog, with the PXC + ProxySQL + PMM template selected](screenshots/getting-started-new-stack.png)

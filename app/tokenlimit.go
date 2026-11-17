@@ -235,7 +235,7 @@ func tokenTTLRefusal(r *http.Request, ttl string) string {
 	if l == nil || l.MaxTTL == "" {
 		return ""
 	}
-	if ttl == ttlInfinity || ttlDurations[ttl] > ttlDurations[l.MaxTTL] {
+	if ttlDurations[ttl] > ttlDurations[l.MaxTTL] {
 		return fmt.Sprintf("this token's stacks live at most %s; ask for --ttl %s or less", l.MaxTTL, l.MaxTTL)
 	}
 	return ""

@@ -196,7 +196,7 @@ func TestBrowseIsTheOwnersAndTheirGuests(t *testing.T) {
 
 	// A guest of the owner's session: watching may look, not act.
 	app.store.SetAppSetting(settingAllowGuestSessions, "1")
-	st, _ := app.store.CreateStack("lab", owner.ID, ttlInfinity, nil, []byte(defaultDesign))
+	st, _ := app.store.CreateStack("lab", owner.ID, ttlLongest, nil, []byte(defaultDesign))
 	sess, _ := app.store.CreateShareSession(owner.ID, st.ID, "h", false, false, time.Now().Add(time.Hour))
 	g, _ := app.store.CreateShareGuest(sess.ID, "Jane", "j@example.com", hashTokenSecret("gsecret"), "", "")
 	app.store.SetShareGuestState(g.ID, guestAdmitted)

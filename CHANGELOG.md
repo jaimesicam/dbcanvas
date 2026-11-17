@@ -48,6 +48,12 @@ A stack's network is now a /24 DBCanvas finds free when it creates it, instead o
 </details>
 
 <details>
+<summary><b>Every stack expires: 30 days at most</b></summary>
+
+A stack's lifetime is 2 hours, 4 hours, 8 hours, 24 hours, 2 weeks or 30 days; none is kept forever. Extending a stack never takes its end further than 30 days from now. A stack set to never expire in an earlier release gets 30 days, counted from the first start of 0.1.0. See [The dbcanvas command](docs/CLI.md).
+</details>
+
+<details>
 <summary><b>dbcanvas doctor</b></summary>
 
 dbcanvas doctor checks everything in one place: Docker and access to its socket, the architecture, the base images, both version catalogues, the data folder's permissions and free space, the encryption key, stack networks, k3d and the bundled files, with how to fix each problem it finds. See [The dbcanvas command](docs/CLI.md).

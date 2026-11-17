@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -38,9 +39,9 @@ func TestReaperExpiresPastStacks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create live stack: %v", err)
 	}
-	inf, err := app.store.CreateStack("forever", u.ID, ttlInfinity, nil, []byte(defaultDesign))
+	month, err := app.store.CreateStack("month", u.ID, ttlLongest, expiryFor(ttlLongest), []byte(defaultDesign))
 	if err != nil {
-		t.Fatalf("create infinite stack: %v", err)
+		t.Fatalf("create 30-day stack: %v", err)
 	}
 
 	app.reapExpiredStacks()
@@ -51,14 +52,18 @@ func TestReaperExpiresPastStacks(t *testing.T) {
 	if got, _ := app.store.GetStack(live.ID); got.Status != StackDraft {
 		t.Errorf("live stack status = %q, want %q (must not be reaped)", got.Status, StackDraft)
 	}
-	if got, _ := app.store.GetStack(inf.ID); got.Status != StackDraft {
-		t.Errorf("infinite stack status = %q, want %q (never expires)", got.Status, StackDraft)
+	if got, _ := app.store.GetStack(month.ID); got.Status != StackDraft {
+		t.Errorf("30-day stack status = %q, want %q", got.Status, StackDraft)
 	}
 }
 
 func TestExpiryForTTL(t *testing.T) {
-	if expiryFor(ttlInfinity) != nil {
-		t.Error("infinity TTL must have nil expiry")
+	if validTTL("infinity") {
+		t.Error("a stack must not be kept forever")
+	}
+	p := expiryFor(ttlLongest)
+	if e, err := time.Parse(time.RFC3339, *p); err != nil || time.Until(e) < 29*24*time.Hour || time.Until(e) > 30*24*time.Hour {
+		t.Errorf("30d expiry = %v", *p)
 	}
 	if p := expiryFor("24h"); p == nil {
 		t.Error("24h TTL must have an expiry")
@@ -115,4 +120,55 @@ func signedIn(t *testing.T, app *App, u User, body string) (*http.Request, strin
 	r := httptest.NewRequest("POST", "/", strings.NewReader(body))
 	r.AddCookie(&http.Cookie{Name: cookieName, Value: token})
 	return r, token
+}
+
+// Extending never takes a stack's end further than 30 days from now, whatever it asks for.
+func TestExtendIsCappedAtThirtyDays(t *testing.T) {
+	app := newTestApp(t)
+	u, _ := app.ensureOwner()
+	in20 := time.Now().Add(20 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	st, _ := app.store.CreateStack("lab", u.ID, "2w", &in20, []byte(defaultDesign))
+	for _, by := range []string{"2w", "30d"} {
+		w := httptest.NewRecorder()
+		r := withPrincipal(httptest.NewRequest("POST", "/x", strings.NewReader(`{"by":"`+by+`"}`)), principal{User: u})
+		r.SetPathValue("id", strconv.FormatInt(st.ID, 10))
+		app.handleExtendStack(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("extend by %s: %d %s", by, w.Code, w.Body)
+		}
+		got, _ := app.store.GetStack(st.ID)
+		e, _ := time.Parse(time.RFC3339, *got.ExpiresAt)
+		if left := time.Until(e); left > 30*24*time.Hour || left < 30*24*time.Hour-time.Minute {
+			t.Errorf("extend by %s: %v left, want 30 days", by, left)
+		}
+	}
+	w := httptest.NewRecorder()
+	r := withPrincipal(httptest.NewRequest("POST", "/x", strings.NewReader(`{"by":"infinity"}`)), principal{User: u})
+	r.SetPathValue("id", strconv.FormatInt(st.ID, 10))
+	app.handleExtendStack(w, r)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "30 days") {
+		t.Errorf("extend forever: %d %s", w.Code, w.Body)
+	}
+}
+
+// A stack kept forever by an older release gets the longest lifetime when the database opens.
+func TestForeverStacksGetThirtyDays(t *testing.T) {
+	path := t.TempDir() + "/dbcanvas.db"
+	s, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, _ := s.CreateUser("owner", "x", RoleAdmin, StatusApproved)
+	st, _ := s.CreateStack("old", u.ID, "2h", nil, []byte(defaultDesign))
+	s.db.Exec(`UPDATE stacks SET ttl = 'infinity', expires_at = NULL WHERE id = ?`, st.ID)
+	s.db.Close()
+	s, err = OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.db.Close()
+	got, _ := s.GetStack(st.ID)
+	if got.TTL != ttlLongest || got.ExpiresAt == nil {
+		t.Fatalf("after reopening: ttl %q, expires %v", got.TTL, got.ExpiresAt)
+	}
 }

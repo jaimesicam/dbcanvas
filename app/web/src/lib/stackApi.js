@@ -92,7 +92,7 @@ export const TTL_OPTIONS = [
   { id: '8h', label: '8 hours' },
   { id: '24h', label: '24 hours' },
   { id: '2w', label: '2 weeks' },
-  { id: 'infinity', label: 'Infinity' },
+  { id: '30d', label: '30 days' },
 ]
 
 // catalogURL is a catalogue route with its query: the parameters given, empty ones left out.
