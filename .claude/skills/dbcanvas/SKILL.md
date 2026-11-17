@@ -191,8 +191,20 @@ older builds. To prove it on the node: `oidc-login jane` (seeded users `jane` an
 password `KEYCLOAK_USER_PASSWORD` from `dbcanvas passwords`), then **`SET ROLE accounting;`**
 before querying `oidc_demo`: the role is granted but not activated.
 
-**Not built by compose**: Kubernetes (`k3d`, `kubeadm`), All in One, the Stock Market Sim,
-a core-dump host. `dbcanvas kinds` lists them with the reason. Start from a template, or add
+**Kubernetes operators are a compose entry**: `k3d` with the operator and any other K3D
+setting as `opt.FIELD=VALUE` (by its design catalogue name; `member.FIELD=VALUE` sets a field
+on every member of a cluster):
+
+```sh
+dbcanvas up k8s-lab --node 'k3d:2,opt.k3dOperator=pxc,opt.k3dOperatorVer=1.20.0' --ttl 8h --wait
+dbcanvas exec k8s-lab k3d-1 -- kubectl get pods -A
+```
+
+`opt.k3dOperator` is `pxc`, `ps`, `psmdb`, `pg`, `cnpg`, `pgo` or `everest`; `""` is plain
+Kubernetes.
+
+**Not built by compose**: Kubeadm, All in One, the Stock Market Sim, a core-dump host.
+`dbcanvas kinds` lists them with the reason. Start from a template, or add
 them with the design endpoints (§2, *Every option, by name*), then deploy and wait with the
 command:
 

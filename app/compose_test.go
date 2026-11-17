@@ -428,8 +428,8 @@ func TestComposeRefusals(t *testing.T) {
 			"unknown kind"},
 		// Refused by name with the reason, not silently absent.
 		{"deliberately unsupported kind",
-			composeSpec{Name: "x", Nodes: []composeNodeSpec{{Kind: "k3d"}}},
-			"operator choice"},
+			composeSpec{Name: "x", Nodes: []composeNodeSpec{{Kind: "aio"}}},
+			"per-instance"},
 		// Copies of a standalone ProxySQL cannot share a backend; a ProxySQL Cluster can.
 		{"several standalone ProxySQL nodes",
 			composeSpec{Name: "x", Nodes: []composeNodeSpec{{Kind: "pxc", Count: 3}, {Kind: "proxysql", Count: 2}}},
@@ -1430,5 +1430,53 @@ func TestComposeClusterKindLabels(t *testing.T) {
 		if got := b.label(k, ""); got != c.want {
 			t.Errorf("%s is labelled %q, want %q", c.kind, got, c.want)
 		}
+	}
+}
+
+// A K3D cluster composes from one line: the catalogue's defaults, the member count on the
+// frame, and any setting by its design name through opt. and member.
+func TestComposeK3D(t *testing.T) {
+	spec, err := parseComposeNode("k3d:2,opt.k3dOperator=pxc,opt.k3dOperatorVer=1.20.0,opt.k3dCpus=6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(spec)
+	var s composeNodeSpec
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Fatal(err)
+	}
+	doc, _, _, _, err := buildCompose(composeSpec{Name: "k", Nodes: []composeNodeSpec{s}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fr *designFrame
+	for i := range doc.Frames {
+		if doc.Frames[i].Type == "k3d" {
+			fr = &doc.Frames[i]
+		}
+	}
+	if fr == nil {
+		t.Fatal("no k3d frame")
+	}
+	if fr.K3DOperator != "pxc" || fr.K3DOperatorVer != "1.20.0" || fr.K3DCPUs != 6 || fr.K3DNodes != 2 {
+		t.Fatalf("frame %+v", *fr)
+	}
+	members := 0
+	for _, n := range doc.Nodes {
+		if n.FrameID == fr.ID {
+			members++
+		}
+	}
+	if members != 2 {
+		t.Fatalf("%d members", members)
+	}
+	// A default the catalogue records, with no option given for it.
+	if fe, _ := designCatalog().frame("k3d"); fe != nil {
+		if o, ok := fe.option("k3dNamespace"); ok && o.Default != nil && fr.K3DNamespace == "" {
+			t.Errorf("k3dNamespace default %v not applied", o.Default)
+		}
+	}
+	if _, err := parseComposeNode("k3d,opt.k3dNodes=two"); err == nil {
+		t.Error("a non-number for an integer option was accepted")
 	}
 }

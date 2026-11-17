@@ -561,6 +561,16 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 		if kind.SetVersion != nil {
 			kind.SetVersion(major, minor, nil, &fr)
 		}
+		if kind.CatalogDefaults {
+			if fe, ok := designCatalog().frame(kind.Type); ok {
+				if err := withCatalogDefaults(fe, &fr); err != nil {
+					return fmt.Errorf("%s: %w", kind.Kind, err)
+				}
+			}
+		}
+		if kind.NodeCount != nil {
+			kind.NodeCount(&fr, count)
+		}
 		b.nextFrame++
 		b.doc.Frames = append(b.doc.Frames, fr)
 		res.FrameID = fr.ID
@@ -598,6 +608,15 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 				Role:    m.Role, Shard: m.Shard,
 				CPUs: s.CPUs, MemoryGB: s.MemoryGB,
 				ExportEnabled: s.Export && i == 0, ExportHostPort: s.ExportPort,
+			}
+			if kind.CatalogDefaults {
+				if fe, ok := designCatalog().frame(kind.Type); ok {
+					if me, ok := designCatalog().node(fe.MemberType); ok {
+						if err := withCatalogDefaults(me, &n); err != nil {
+							return fmt.Errorf("%s: %w", kind.Kind, err)
+						}
+					}
+				}
 			}
 			b.applyShaping(&n, s)
 			b.usedLabels[n.Label] = true
@@ -1305,4 +1324,22 @@ func parseCertTTL(ttl string) (int, string, error) {
 		return 0, "", fmt.Errorf("certTtl %q: expected a number and d, h or m — 365d, 2h, 30m", ttl)
 	}
 	return v, unit, nil
+}
+
+// withCatalogDefaults sets the catalogue's defaults on a new designNode or designFrame,
+// through its JSON form, leaving every field the catalogue gives no default alone.
+func withCatalogDefaults[T any](e *catalogEntry, v *T) error {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return err
+	}
+	applyCatalogDefaults(e, m)
+	if raw, err = json.Marshal(m); err != nil {
+		return err
+	}
+	return json.Unmarshal(raw, v)
 }

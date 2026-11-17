@@ -83,6 +83,33 @@ func parseComposeNode(arg string) (map[string]any, error) {
 		if opt == "" {
 			continue
 		}
+		// opt.FIELD=VALUE and member.FIELD=VALUE set any catalogued field by its design
+		// name, as a stack file's options and memberOptions do: the frame's (or the
+		// node's) own, and every member's.
+		if k, v, ok := strings.Cut(opt, "="); ok {
+			for _, pfx := range []string{"opt.", "member."} {
+				if field, isOpt := strings.CutPrefix(strings.TrimSpace(k), pfx); isOpt && field != "" {
+					key := "options"
+					if pfx == "member." {
+						key = "memberOptions"
+					}
+					m, _ := out[key].(map[string]any)
+					if m == nil {
+						m = map[string]any{}
+						out[key] = m
+					}
+					val, err := composeOptionValue(fmt.Sprint(out["kind"]), pfx == "member.", field, strings.TrimSpace(v))
+					if err != nil {
+						return nil, err
+					}
+					m[field] = val
+					opt = ""
+				}
+			}
+			if opt == "" {
+				continue
+			}
+		}
 		key, val, hasVal := strings.Cut(opt, "=")
 		key = strings.ToLower(strings.TrimSpace(key))
 		val = strings.TrimSpace(val)
@@ -134,6 +161,7 @@ func parseComposeNode(arg string) (map[string]any, error) {
 			"           standbyOf=<name> — a Patroni cluster as a standby of another\n"+
 			"  flags:   export, cert, proxy, gtid, mysqlRouter, tls, netAllTraffic, pgvector,\n"+
 			"           pgaudit, setUser, tdeWal, mca, viewOnly\n"+
+			"  any:     opt.<field>=, member.<field>= — a catalogued field by its design name\n"+
 			"  values:  name=, os=, arch=, version=, count=, cpus=, memoryGb=, exportPort=,\n"+
 			"           replMode=, mode=, setup=, certTtl=, pgauditLog=, pgbench=, replicas=,\n"+
 			"           syncStandbys=, alertEmail=, source=, buckets=a+b\n"+
@@ -142,4 +170,50 @@ func parseComposeNode(arg string) (map[string]any, error) {
 			"  `dbcanvas kinds` lists what each kind supports.", key, arg)
 	}
 	return out, nil
+}
+
+// composeOptionValue types an opt. or member. value as the design catalogue types the
+// field, so opt.k3dNodes=2 is a number and opt.k3dOperatorVer=1.20.0 stays a string. A
+// field the catalogue does not know is left a string; applying it reports the error.
+func composeOptionValue(kind string, member bool, field, val string) (any, error) {
+	typ := "string"
+	if k, ok := composeKindByName(kind); ok {
+		var e *catalogEntry
+		var found bool
+		if k.Frame && !member {
+			e, found = designCatalog().frame(k.Type)
+		} else if k.Frame {
+			if fe, ok := designCatalog().frame(k.Type); ok {
+				e, found = designCatalog().node(fe.MemberType)
+			}
+		} else {
+			e, found = designCatalog().node(k.Type)
+		}
+		if found {
+			if o, ok := e.option(field); ok {
+				typ = o.Type
+			}
+		}
+	}
+	switch typ {
+	case "boolean":
+		b, err := strconv.ParseBool(val)
+		if err != nil {
+			return nil, fmt.Errorf("%s=%s: want true or false", field, val)
+		}
+		return b, nil
+	case "integer":
+		n, err := strconv.Atoi(val)
+		if err != nil {
+			return nil, fmt.Errorf("%s=%s: want a whole number", field, val)
+		}
+		return n, nil
+	case "number":
+		f, err := strconv.ParseFloat(val, 64)
+		if err != nil {
+			return nil, fmt.Errorf("%s=%s: want a number", field, val)
+		}
+		return f, nil
+	}
+	return val, nil
 }

@@ -251,9 +251,19 @@ build of that line in the version catalogue, and `up --dry-run` shows what it re
 `pgbouncer`, `orchestrator`, `pmm`, `seaweedfs`, `keycloak`, `openbao`, `sambaad`, `vnc` and
 the simulators.
 
-Kubernetes (K3D, kubeadm), sharded MongoDB and All in One stacks have too many options for a
-one-line entry: start them from a template in the browser, then `dbcanvas export` the stack and
-keep the file.
+Any field the design catalogue lists can be set in a one-line entry too: `opt.FIELD=VALUE`
+sets it on the node (or a cluster's frame), and `member.FIELD=VALUE` on every member of a
+cluster. That is how a K3D cluster is composed, for example a Percona Operator for MySQL
+cluster on two k3s nodes:
+
+```sh
+dbcanvas up k8s-lab --node 'k3d:2,opt.k3dOperator=pxc,opt.k3dOperatorVer=1.20.0' --ttl 8h --wait
+dbcanvas exec k8s-lab k3d-1 -- kubectl get pods -A
+```
+
+`dbcanvas kinds` lists the K3D settings that matter most; the design catalogue lists them all.
+Kubeadm, All in One, the Stock Market Sim and core-dump hosts are not built by compose: start
+them from a template in the browser, then `dbcanvas export` the stack and keep the file.
 
 ## Tokens: `dbcanvas token`
 

@@ -500,6 +500,13 @@ type composeKind struct {
 	CanExport bool
 	CanCert   bool
 	CanGTID   bool
+	// CatalogDefaults gives a composed frame and its members the defaults the design
+	// catalogue records, as a frame added through the design endpoints gets them: for a
+	// kind whose many settings have no compose option of their own (K3D), so it starts
+	// from what the canvas would draw and opt./member. change the rest.
+	CatalogDefaults bool
+	// NodeCount records the member count on the frame, for a kind that keeps one.
+	NodeCount func(f *designFrame, n int)
 	About     string
 }
 
@@ -507,7 +514,6 @@ type composeKind struct {
 // the reason. Listed rather than omitted so the error can say why and what to do
 // instead — "unknown kind" would be a lie.
 var unsupportedKinds = map[string]string{
-	"k3d":         "a Kubernetes frame needs an operator choice, node budget and expose tiers",
 	"kubeadm":     "a Kubeadm frame is a Kubernetes cluster, not a database: draw it on the canvas",
 	"aio":         "an All-in-One node is a list of per-instance configurations",
 	"stocksim":    "the Stock Market Sim has three connection modes and a dozen lab knobs",
@@ -515,6 +521,14 @@ var unsupportedKinds = map[string]string{
 }
 
 var composeKinds = []composeKind{
+	{Kind: "k3d", Type: "k3d", Frame: true, Members: 1, MinMembers: 1, MaxMembers: 3,
+		ImageOnly: true, NoSizing: true, CatalogDefaults: true,
+		NodeCount: func(f *designFrame, n int) { f.K3DNodes = n },
+		About: "A Kubernetes cluster of 1–3 k3s nodes (\"count\"), running an operator: " +
+			"opt.k3dOperator=pxc|ps|psmdb|pg|cnpg|pgo|everest (\"\" for plain Kubernetes), " +
+			"opt.k3dOperatorVer=, opt.k3dK3sVersion=, opt.k3dCpus=, opt.k3dMemoryGb=. " +
+			"Every other K3D setting is an opt. too, by its design name (the design catalogue's k3d frame)."},
+
 	{Kind: "intranet", Type: "intranet", NoSizing: true, Singleton: true, ImageOnly: true,
 		About: "DNS, mail, OpenLDAP, a Squid proxy and the certificate authority. Every stack needs one; compose adds it for you."},
 
