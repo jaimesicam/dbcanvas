@@ -6,7 +6,7 @@ a lobby until you admit them, then follow you across the whole application. Noth
 installed or port-forwarded on their side: pages, terminals and VNC desktops all go through
 DBCanvas's own address. A link lasts at most two hours.
 
-![A shared session from the host's side: the stack on the canvas in a desktop window, and the session panel with one guest waiting in the lobby, one signed in with their account, one joined as a guest, and the chat](screenshots/shared-session-host.png)
+![A shared session from the host's side: the stack on the canvas in a desktop window, and the session panel with guests in the lobby and in the session, and the chat](screenshots/shared-session-host.png)
 
 > [!IMPORTANT]
 > A guest you give control to can do everything you can in your workspace — deploy, destroy, open
@@ -14,7 +14,7 @@ DBCanvas's own address. A link lasts at most two hours.
 
 ## Enable shared sessions
 
-Shared sessions are off by default. An administrator turns them on in **Settings → Shared
+Shared sessions are off by default. Turn them on in **Settings → Shared
 sessions** with **Allow shared sessions**. The same row sets:
 
 | Setting | Range | Default |
@@ -25,15 +25,17 @@ sessions** with **Allow shared sessions**. The same row sets:
 
 **Turn off (ends live sessions)** ends every live session at once.
 
-Guests must be able to reach the address in the link:
+Guests must be able to reach the address in the link. DBCanvas listens on `127.0.0.1` only
+(port 8080 by default), so guests on other machines come through a reverse proxy or an SSH tunnel
+in front of it:
 
-| Where guests are | Set in `.env` |
+| Where guests are | Set in `~/.dbcanvas/config.yaml` |
 | --- | --- |
-| Same network | `APP_HOST=0.0.0.0`, `APP_HOST_OVERRIDE=on` and `PUBLIC_URL=http://<this machine's address>:8080` |
-| Through an SSH tunnel (`ssh -L 8080:127.0.0.1:8080 user@server.example.com`) | Nothing — the link's `localhost:8080` is their end of the tunnel |
-| Through a port forward or proxy | `PUBLIC_URL` set to the forwarded address; websockets must pass through |
+| Through an SSH tunnel to the DBCanvas machine (`ssh -L 8080:127.0.0.1:8080 user@server.example.com`) | Nothing — the link's `127.0.0.1:8080` is their end of the tunnel |
+| Through a reverse proxy or port forward | `publicUrl` set to the address guests use (`publicUrl: https://lab.example.com`); websockets must pass through |
 
-See [Configuration](CONFIGURATION.md) for both variables.
+A change to config.yaml applies after `dbcanvas stop` (the next command starts DBCanvas again).
+See [Configuration](CONFIGURATION.md).
 
 ## Start a session
 
@@ -50,16 +52,10 @@ stops admitting new people; guests already in stay.
 
 The link opens a join screen:
 
-- **I have an account** — a DBCanvas user signs in (or, if already signed in, joins with one
-  click). You see their real name and avatar, marked **signed in as** their username. They still
-  work in your workspace, not their own. You cannot join your own session.
-- **Join as a guest** — anyone else enters a name and email (required, not verified) and picks an
-  avatar.
-
-![The join screen, opened in a browser already signed in to DBCanvas: join as that account in one click, or as a guest](screenshots/shared-session-join.png)
+Each guest enters a name and email (required, not verified) and picks an avatar.
 
 Guests wait in the **Lobby**. You get a notification and a lobby entry with their avatar, name,
-email or account, and address, with **Admit** and **Deny**. Nobody sees anything before you admit
+email and address, with **Admit** and **Deny**. Nobody sees anything before you admit
 them.
 
 A guest's tab stays on the `/join/…` address; reloading it returns them to the session. Their other
@@ -76,8 +72,7 @@ and zoom, the selected node, and the pointer on the canvas. Following cannot be 
 around on their own, a guest asks for control.
 
 On the desktop shell, a page the driver opens also opens on every follower's desktop. A guest's
-**Menu** and desktop leave out the pages that belong to your account (Settings, API tokens, Manage
-Users), and guests never see your notifications. The top bar always shows who has control.
+**Menu** and desktop leave out your own pages (Settings, API tokens), and guests never see your notifications. The top bar always shows who has control.
 
 ![The same session from a guest's side with Mirror everything on: the host's screen, right-click menu and all, beside the guest's own session panel](screenshots/shared-session-guest.png)
 
@@ -89,8 +84,8 @@ for a new session; the host can switch it in the panel), followers see a live, n
 picture of the driver's screen beside their own session panel. When control moves, the mirror
 follows the new driver. DBCanvas relays the picture and stores none of it.
 
-Kept out of the mirror: your account pages (Settings, API tokens, Manage Users), your account and
-notification menus and your session panel (shown as empty boxes), and password fields (always
+Kept out of the mirror: your own pages (Settings, API tokens), your
+notification menu and your session panel (shown as empty boxes), and password fields (always
 masked). With **Hide secrets** on, masked credentials are also blanked wherever else they appear,
 including connection strings and terminal lines.
 
@@ -115,10 +110,8 @@ Watchers can read but not change anything; the server enforces this.
 | **Open in VNC Browser** | — | Yes |
 | Close a shared terminal or window | No | Yes |
 
-Never available to a guest, driving or not: your account, password, API tokens and notifications;
-other users; administration and instance settings; and managing the session itself (admitting,
-removing, giving control, ending). An administrator's guests are not administrators — they see the
-host's stacks only.
+Never available to a guest, driving or not: API tokens, notifications and settings, and managing
+the session itself (admitting, removing, giving control, ending).
 
 ## Terminals and browser windows
 
@@ -220,7 +213,7 @@ The file is WebM (MP4 in Safari), at most about 1 GB per hour.
 
 ### Download or purge a recording
 
-Only the host can download a recording — not guests, other users or administrators. Find it under
+Only the host can download a recording, not guests. Find it under
 **Your recordings** in the **Share** dialog (and in the panel right after the session ends):
 
 | Item | What it does |
@@ -230,13 +223,12 @@ Only the host can download a recording — not guests, other users or administra
 | **purged on** | The deletion date (default 30 days after the recording starts); pick another date to change it |
 | Bin icon | Purge it now |
 
-Recordings are deleted on their date, independently of the session's other records. Deleting your
-account deletes your recordings. They are stored as files beside the database (`/data/recordings`
-in the container), so back them up with it.
+Recordings are deleted on their date, independently of the session's other records. They are stored as files
+beside the database, in `~/.dbcanvas/recordings`, so back them up with it.
 
 ## End a session
 
-A session ends when its time is up, when you click **End session**, or when an administrator turns
+A session ends when its time is up, when you click **End session**, or when you turn
 shared sessions off. Guests are disconnected, control returns to you, shared terminals close, and a
 running recording is saved. The panel then offers the transcript (**Download transcript**) and the
 recording.

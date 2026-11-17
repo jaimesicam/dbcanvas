@@ -95,7 +95,7 @@ type UserSettings struct {
 	TerminalMode      string `json:"terminalMode"`      // docked | undocked
 	Theme             string `json:"theme"`             // one of validThemes
 	Look              string `json:"look"`              // one of validLooks
-	DeploymentBackend string `json:"deploymentBackend"` // docker | vagrant
+	DeploymentBackend string `json:"deploymentBackend"` // docker (the only backend)
 	NodeLibrary       string `json:"nodeLibrary"`       // menu | docked
 	Tooltips          string `json:"tooltips"`          // on | off
 	TerminalsOnTop    string `json:"terminalsOnTop"`    // on | off

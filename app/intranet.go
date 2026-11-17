@@ -27,8 +27,8 @@ type designNode struct {
 	OS           string `json:"os"`
 	OSVersion    string `json:"osVersion"` // OS release (e.g. "9", "24.04") — used by ProxySQL
 	Arch         string `json:"arch"`
-	// Per-node sizing (VM-capable node types only). 0 → the Vagrant engine default
-	// (DBCANVAS_VM_CPUS / DBCANVAS_VM_MEMORY), or no limit on Docker. See applyVMSize.
+	// Per-node sizing: CPU and memory limits on the container; 0 is no limit. See
+	// applyVMSize.
 	// Network conditions applied to this node with tc once it is running —
 	// latency, jitter, packet loss and a bandwidth cap. All zero means the node
 	// is left alone. The fourth constrainable resource alongside CPUs, MemoryGB

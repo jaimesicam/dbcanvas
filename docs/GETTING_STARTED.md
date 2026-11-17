@@ -5,11 +5,10 @@ From an empty machine to a running cluster you can connect to. Already installed
 
 > [!IMPORTANT]
 > **DBCanvas is for previewing features, testing and learning — not for production.** It
-> deploys disposable lab infrastructure with default credentials from a `.env` file. Nothing is
-> hardened. Do not deploy production infrastructure with it or keep data you care about on it.
+> deploys disposable lab infrastructure. Nothing is hardened. Do not deploy production infrastructure with it or keep data you care about on it.
 
 - [Install](#install)
-- [Create the admin account](#create-the-admin-account)
+- [Open it](#open-it)
 - [Where things are](#where-things-are)
 - [Your first stack](#your-first-stack)
 - [Building one by hand](#building-one-by-hand)
@@ -25,42 +24,47 @@ From an empty machine to a running cluster you can connect to. Already installed
 
 ## Install
 
-You need **Docker**. DBCanvas uses the Docker daemon's socket to create your stacks, which is a
-privileged capability — run it on a machine you trust.
+You need **Docker** (Docker Engine on Linux; Docker Desktop, Rancher Desktop or OrbStack on
+macOS) and a user that can use it. DBCanvas uses the Docker socket to create your stacks, which
+is a privileged capability: run it on a machine you trust.
+
+Download `dbcanvas` for your system from the
+[releases page](https://github.com/jaimesicam/dbcanvas/releases) (`dbcanvas-linux-amd64`,
+`dbcanvas-linux-arm64`, `dbcanvas-darwin-arm64`, `dbcanvas-darwin-amd64`), put it on your `PATH`
+and make it executable:
 
 ```sh
-git clone https://github.com/jaimesicam/dbcanvas.git && cd dbcanvas
-make install-pull
+install -m 0755 dbcanvas-linux-amd64 ~/.local/bin/dbcanvas
+dbcanvas doctor
 ```
 
-`make install-pull` pulls this release's node images from `ghcr.io/jaimesicam` and starts
-DBCanvas at **http://localhost:8080**, in minutes. The images are published for `linux/amd64`
-(`DOCKER_PLATFORM` in `.env`), and the Kubeadm node for both `linux/amd64` and `linux/arm64`
-(`K8S_PLATFORM`). `make install` builds every image instead, which takes a while; an image that
-fails to build does not stop it, and the node types that need it say so when you validate a stack.
+To build it from a checkout instead (Go and Node.js needed): `make dbcanvas`, which writes
+`dist/dbcanvas`.
 
-| Command | What it does |
-| --- | --- |
-| `make install-pull` | First-time setup from the published node images in `IMAGE_REGISTRY` (default `ghcr.io/jaimesicam`): minutes instead of the image build. |
-| `make install` | First-time setup that builds every image, then starts. |
-| `make doctor` | Check the host: Docker, disk, `.env`, images, and whether the app answers. |
-| `make compose` | Rebuild the app and start it. The everyday command. |
-| `make up` / `make down` | Start / stop without rebuilding. |
-| `make logs` | Follow the application log. |
-| `make versions` | Refresh the version pickers with newly released versions. Optional and slow (hours). Run `make restart` afterwards. |
+`dbcanvas doctor` checks Docker, the architecture, the images, the version catalogues and the
+data folder, and says how to fix anything that fails. Node images that are not on the host yet
+are pulled from `ghcr.io/jaimesicam` when a stack first needs them, so the first deploy of each
+node type takes longer.
 
-Every setting has a working default. **Before exposing DBCanvas beyond your own machine, change
-the passwords in `.env`** — see [Configuration](CONFIGURATION.md).
+## Open it
 
-## Create the admin account
+```sh
+dbcanvas
+```
 
-Open http://localhost:8080. The first account you create **becomes the administrator**.
+This starts DBCanvas in the background (if it is not running), opens your browser on it signed
+in, and returns the prompt. There is no account to create: whoever runs `dbcanvas` owns it. The
+web app listens on `http://127.0.0.1:8080` (or a free port when 8080 is taken), and refuses any
+request without a credential, so other users of the machine cannot use it.
 
-By default, later sign-ups wait until an administrator approves them under **Manage Users**
-(**Settings → Registration** changes this).
+- `dbcanvas open --print` prints the sign-in link instead, for another browser or a browser at
+  the end of an SSH tunnel. It works once, for one minute.
+- `dbcanvas status` shows whether it runs and on which port; `dbcanvas stop` stops it. Stacks
+  keep running, and any command that needs it starts it again.
+- It stops by itself when no stack is deployed and nothing has used it for 10 minutes.
 
-Lost the admin password? See
-[Recovering an admin password](CONFIGURATION.md#recovering-an-admin-password).
+Settings live in `~/.dbcanvas/config.yaml`; every one has a working default. See
+[Configuration](CONFIGURATION.md) and [The `dbcanvas` command](CLI.md).
 
 ## Where things are
 
@@ -73,7 +77,7 @@ icon. (Prefer a sidebar and tabs? Open **Appearance**, the sun icon at the top r
 | **Workspace** | **Dashboard** (what is running), **Database Stacks** (design, deploy and operate stacks — the main page), **Kanban** |
 | **Data and queries** | **Data Generator**, **Database Explorer**, **Query Runner**, **Benchmark**, **Sample Client Code** |
 | **Diagnose** | **Packet Inspector**, **Operator Debugger**, **Core Dump Analyzer**, **Stalk Summary**, **Log Summary**, **FTDC Summary**, **Operator Summary**, **Kubernetes States** |
-| **System** | **Profile**, **API**, **Settings**, and for administrators **Manage Users** |
+| **System** | **Profile**, **API**, **Settings** |
 
 - **Choosing a page that is already open switches to it.** Right-click an entry to open another
   copy — two stacks side by side, say.
@@ -83,10 +87,9 @@ icon. (Prefer a sidebar and tabs? Open **Appearance**, the sun icon at the top r
 - **Hover a `?`** next to any field, panel value, toolbar button or library entry for what it is
   for and when to change it. Turn these off in **Settings → Tooltips → Hidden**.
 - **Settings has four tabs:** **Appearance** (theme, look, tooltips), **Workspace** (terminals,
-  deployment, the node library, tabs, Scratchboard), **Access & security** (registration, guest
-  sign-in, shared sessions, token lifetime, security groups and their limits) and **System**
-  (uploads, writes to internal databases, stack history and alerts). The last two are mostly for
-  administrators. A link can open one: `#settings/access`.
+  deployment, the node library, tabs, Scratchboard), **Access & security** (shared sessions,
+  token lifetime) and **System** (uploads, writes to internal databases, stack history and
+  alerts). A link can open one: `#settings/access`.
 
 ## Your first stack
 
@@ -147,7 +150,7 @@ options.
 | **Enter root console** | A root shell inside the node, in the browser. |
 | **File manager** | Browse files — upload, download, edit, change permissions. |
 | **Copy docker exec command** | The command for a shell from your own terminal. |
-| **Copy SSH tunnel command** | Only when `SSH_FORWARDING_HOST` is set — see [Connecting](#connecting-to-your-databases). |
+| **Copy SSH tunnel command** | Only when `SSH_FORWARDING_HOST` is set under `env:` in `config.yaml` — see [Connecting](#connecting-to-your-databases). |
 | **Stop** / **Restart** / **Start** | Lifecycle. Data survives a stop. |
 | **Delete node** | Removes the node and its container, and its data. |
 
@@ -182,14 +185,14 @@ Credentials are on the node's **Credentials** tab:
 
 ![The Credentials tab, with passwords masked until revealed](screenshots/getting-started-credentials.png)
 
-> *Click a password to reveal it. Passwords come from `.env` and are the same on every node.*
+> *Click a password to reveal it. Passwords are generated on the first run and are the same on every node; `dbcanvas passwords` lists them.*
 
-**4. Through an SSH tunnel, when DBCanvas runs on a server.** Published ports bind to the
+**4. Through an SSH tunnel, when DBCanvas runs on another machine.** Published ports bind to the
 server's loopback by default (`CONTAINER_BIND_IP`), so your laptop cannot reach them directly.
-Set `SSH_FORWARDING_HOST` in `.env` and right-click a running node → **Copy SSH tunnel
+Set `SSH_FORWARDING_HOST` under `env:` in `~/.dbcanvas/config.yaml` and right-click a running node → **Copy SSH tunnel
 command**. It forwards every port the node publishes to the same port locally, so every address
-DBCanvas shows works through the tunnel. The SSH login is your DBCanvas user name (signed in as
-`alex`, you get `alex@10.0.0.7`) unless `.env` names a fixed `user@`.
+DBCanvas shows works through the tunnel. The SSH login is your login on that machine (`alex@10.0.0.7`)
+unless the setting names a fixed `user@`.
 
 ## Putting load on it
 
@@ -224,7 +227,7 @@ Details: [Templates](STACKS.md#templates--save-a-topology-deploy-it-again).
 
 ## Cleaning up
 
-![The stack list: each stack's owner, state, nodes, engines, CPU, memory and lifetime](screenshots/getting-started-stacks.png)
+![The stack list: each stack's state, nodes, engines, CPU, memory and lifetime](screenshots/getting-started-stacks.png)
 
 - **Destroy** (designer toolbar) removes every container and volume but keeps the design, so you
   can deploy again. Data is lost.
@@ -242,7 +245,7 @@ If the Dashboard shows more running than you expect, look there first.
 | **A node shows `error`** | Right-click → **Enter root console** and check the service (`systemctl status`, then its log). **View config / profile** shows how far provisioning got. |
 | **"Add an Intranet node first"** | Add the Intranet node; the rest of the library becomes available. |
 | **A port is already taken** | A fixed **Host port** clashes with something else. Set it back to `0`. |
-| **A version is missing from a picker** | Run `make versions`, then `make restart`. See [Troubleshooting](CONFIGURATION.md#troubleshooting). |
+| **A version is missing from a picker** | Run `dbcanvas versions update`. See [Troubleshooting](CONFIGURATION.md#troubleshooting). |
 | **A published port is unreachable** | Check **Export … to the host** is ticked. If DBCanvas runs on another machine, use an [SSH tunnel](#connecting-to-your-databases). |
 
 ---
@@ -251,5 +254,6 @@ If the Dashboard shows more running than you expect, look there first.
 
 - [Stacks](STACKS.md) — every node and cluster type, and everything the canvas can do
 - [Feature guides](README.md) — one page per tool
-- [Configuration & commands](CONFIGURATION.md) — `.env`, `make` targets, troubleshooting
+- [Configuration](CONFIGURATION.md) — `config.yaml`, node passwords, troubleshooting
+- [The `dbcanvas` command](CLI.md) — stack files, tokens and every command
 - [Architecture](ARCHITECTURE.md) — how it is built

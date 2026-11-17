@@ -432,7 +432,7 @@ appearance first.
 
 A running installation publishes the licence of DBCanvas and of everything it bundles at `/licenses/`, linked from
 the sign-in screen and the Dashboard, with where to get the source. The CLI downloads link their licence, `dbcanvas
-version` prints it, and the Big Hole files a node serves carry their own. See [License](#license).
+version` prints it, and the Big Hole files a node serves carry their own. See [License](README.md#license).
 </details>
 
 ## 0.0.23
@@ -765,7 +765,7 @@ and `pxc-97-lts` repositories through `percona-release`.
 `dbcanvas user list` shows the accounts, and `dbcanvas user create` adds one with a temporary password or an
 invitation link, after asking for your administrator password. The new user's first `dbcanvas login` asks them
 to replace the temporary password, then creates their token. Passwords can be piped in when there is no
-terminal, so a script or an agent can set an account up and work as it. See [CLI](docs/CLI.md#accounts-administrators).
+terminal, so a script or an agent can set an account up and work as it. See [CLI](docs/CLI.md).
 </details>
 
 <details>
@@ -868,7 +868,7 @@ email and avatar can be edited.
 **Reset password** sets a new one outright — temporary by default, so only the owner ends up
 knowing it — or creates a one-time link, valid for 24 hours, for them to choose it. Either signs
 the account out everywhere, and can revoke its API tokens too. Neither works with an API token.
-See [API & CLI reference](docs/API_REFERENCE.md#users-admin).
+See [API & CLI reference](docs/API_REFERENCE.md).
 </details>
 
 <details>

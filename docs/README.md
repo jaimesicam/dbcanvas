@@ -1,7 +1,7 @@
 # Feature guides
 
-One page per part of DBCanvas. To install and configure it, see
-[Configuration & commands](CONFIGURATION.md); for who can do what on the host, the
+One page per part of DBCanvas. To install it, see [Getting started](GETTING_STARTED.md); to
+configure it, [Configuration](CONFIGURATION.md); for what it exposes and who can reach it, the
 [Security model](SECURITY.md).
 
 > [!IMPORTANT]
@@ -11,7 +11,7 @@ One page per part of DBCanvas. To install and configure it, see
 
 | Guide | What it covers |
 | --- | --- |
-| [**Getting started**](GETTING_STARTED.md) | Install, the admin account, your first stack, connecting to it, and fixing a failed deploy. |
+| [**Getting started**](GETTING_STARTED.md) | Install, your first stack, connecting to it, and fixing a failed deploy. |
 
 ## Build and run databases
 
@@ -61,7 +61,7 @@ One page per part of DBCanvas. To install and configure it, see
 | Guide | What it covers |
 | --- | --- |
 | [HTTP API](API.md) | Tokens, scopes, status codes and the OpenAPI document. Read this first. |
-| [API & CLI reference](API_REFERENCE.md) | Every feature's endpoints and the matching `dbcanvas-cli` command. |
-| [`dbcanvas-cli`](CLI.md) | Drive DBCanvas from a terminal or CI. |
+| [API reference](API_REFERENCE.md) | Every feature's endpoints. |
+| [The `dbcanvas` command](CLI.md) | The service, stack files (`ls`, `export`, `up`, `down`, `rm`), tokens, node passwords and maintenance. |
 
 For contributors: [Architecture](ARCHITECTURE.md).

@@ -92,7 +92,7 @@ reconciled at all. To keep that from lasting:
 **Expressions can run code.** An expression that calls a method runs it inside the live operator.
 Such expressions are refused until you tick **Allow function calls**.
 
-**Who can use it.** You can debug clusters in stacks you own; admins can debug any. A debugger can
+**Access.** A debugger can
 read the operator's memory and run its code, so treat access like a root shell on the node.
 
 ## See also

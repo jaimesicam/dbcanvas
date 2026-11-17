@@ -1,235 +1,211 @@
-# Configuration & commands
+# Configuration
 
-What DBCanvas reads from `.env`, every `make` target, the settings an administrator changes in
-the app, and fixes for common problems.
+Where DBCanvas keeps its data, what `config.yaml` sets, the node passwords, the settings in the
+app, and fixes for common problems. The commands are in [The `dbcanvas` command](CLI.md).
 
 > [!IMPORTANT]
-> **DBCanvas is for previewing features, testing and learning — not for production.** The
-> credential defaults are published in `.env.example` and the nodes are not hardened. Change the
-> passwords before anyone else can reach the installation.
+> **DBCanvas is for previewing features, testing and learning — not for production.** The nodes
+> are built for quick setup, not hardened.
 
-## Commands
+## The data folder
 
-| Command | What it does |
+Everything DBCanvas keeps is in `~/.dbcanvas`, or the folder `DBCANVAS_DATA` names. The folder is
+readable by your user only.
+
+| File | |
 | --- | --- |
-| `make install` | First run: `make images`, then the optional images, then `make compose`. Safe to re-run. An optional image that fails is reported and skipped; DBCanvas still starts. Does not run `make versions`. |
-| `make compose` | Create `.env` if missing, build the app image and start it. The everyday command once the node images exist. |
-| `make up` / `make down` | Start / stop the app without rebuilding. |
-| `make restart` | `make down`, then `make compose`. |
-| `make build` | Build the app image only. |
-| `make env` | Create `.env` from `.env.example` if it is missing, with a random value for every password (`scripts/gen-secrets.sh`). Run by `compose`, `build` and `up`. An existing `.env` is never changed; `bash scripts/gen-secrets.sh .env` replaces the passwords still at their example value. While any is, administrators see a notice naming them on every page, and `dbcanvas-cli doctor` lists them. |
-| `make install-pull` | A first install from prebuilt node images: `make env`, `make pull-images`, `make compose`. Minutes instead of `make images`' hour. |
-| `make pull-images` | Pull this release's node images (the OS bases, the Intranet, VNC, K3D collector and Kubeadm images, and the demo applications) from `IMAGE_REGISTRY` (default `ghcr.io/jaimesicam`) and write `images.yaml`. `ONLY=<regex>` pulls a subset. |
-| `make publish-images` | Push this release's locally built node images to `IMAGE_REGISTRY`. This publishes them. |
-| `make doctor` | Check the host: Docker, compose, buildx, disk, `.env` passwords and `APP_HOST`, the node images, and whether the app answers. `dbcanvas-cli doctor` checks the installation itself. |
-| `make tag` / `make release-notes` / `make github-release` | Tag `v$(VERSION)` on HEAD, print that release's notes, and push the tag. The tag starts `.github/workflows/release.yml`, which builds `dbcanvas-cli` for every platform, signs it with Sigstore and creates the GitHub release from the notes. |
-| `make logs` | Follow the app's logs. |
-| `make clean` | Stop the app, remove its locally built images and `dist/`. Deployed stacks are untouched. |
-| `make images` | Build every node image: the OS bases (Oracle Linux 8/9/10, Ubuntu 22.04/24.04, Debian 12/13) for the one platform in `DOCKER_PLATFORM`, then the **Intranet**, VNC desktop, K3D diagnostics collector and Kubeadm node (for `K8S_PLATFORM`), then the demo applications. Slow — the long part of `make install`. An image that fails is reported and the rest still build; retry it with its own target (`make intranet-image`, `make vnc-image`, `make stocksim-image`, …) or the **Build** button that Validate offers. |
-| `make versions` | Probe every built image for the versions it can install and write `versions.yaml` — what the version pickers offer. Takes hours. **Run `make restart` afterwards**, or every picker is empty. `ONLY=percona`, `ONLY=upstream` or `ONLY=haproxy` re-probes one group and keeps the others. |
-| `make adopt-images` | After an upgrade, retag images this host already built with the current release instead of rebuilding them. Nothing is rebuilt or removed. |
-| `make rotate-key` | Re-encrypt stored secrets under a new key. See [The encryption key](#the-encryption-key). |
-| `make cli` | Cross-compile `dbcanvas-cli` into `dist/` for Linux (amd64, arm64), macOS (amd64, arm64) and Windows (amd64), with `SHA256SUMS`, and install this machine's build as `~/.local/bin/dbcanvas-cli` (`CLI_INSTALL_DIR=` to change or skip). See [`dbcanvas-cli`](CLI.md). |
-| `make cli-test` | Build, vet and test the CLI. |
-| `make smoke` | Render every page and fail on a render error; also loads the heavy pages in headless Chrome when Chrome is available (`CHROME=<path>` to point at it). |
+| `config.yaml` | Settings (below). Written on the first run with every setting commented out. |
+| `dbcanvas.db` | The database: stacks, designs, tokens, settings, history. |
+| `dbcanvas-encryption.key` | The key the database's secrets are encrypted with. See [The encryption key](#the-encryption-key). |
+| `dbcanvas.log` | The service's log. |
+| `dbcanvas.sock` | The service's control socket. |
+| `versions.yaml`, `versions-arm64.yaml` | A version catalogue downloaded by `dbcanvas versions update`, read ahead of the built-in one. |
+| `assets/<version>/` | Files the binary carries and unpacks on start: node image Dockerfiles, licence texts, Pager Panic banks, Big Hole. |
+| `bin/k3d` | k3d, downloaded and checksum-verified the first time a K3D cluster is deployed. |
 
-Rebuild one image: `make intranet-image`, `make vnc-image`, `make k8scollector-image`,
-`make kubeadm-image`, or one demo application — `make supportsim-image`, `make stocksim-image`,
-`make ledgersim-image`, `make perfsim-image`.
+**Back up** the whole folder with the service stopped (`dbcanvas stop`). The database cannot be
+read without the key, so keep them together, or the key somewhere safer.
 
-When Validate reports the Intranet, VNC or K3D collector image missing, an
-administrator gets a **Build** button that builds it from the web interface. The demo
-applications need a checkout and their `make` target.
+**Uninstall:** `dbcanvas rm` every stack (or `dbcanvas down` them), `dbcanvas stop`, then delete
+the `dbcanvas` binary and `~/.dbcanvas`.
 
-## `.env`
+## `config.yaml`
 
-`make compose` creates `.env` from [`.env.example`](../.env.example) on first run. Every setting
-has a working default — **change the passwords before exposing anything beyond localhost.**
-Restart the app (`make restart`) after editing `.env`.
+```yaml
+# ~/.dbcanvas/config.yaml
+port: 8080
+publicUrl: https://lab.example.com
+networkRange: 10.20.0.0/16
+env:
+  SSH_FORWARDING_HOST: 192.0.2.10
+  EXPERIMENTAL: "on"
+```
 
-### App and networking
+The service reads it when it starts: after a change, run `dbcanvas stop`, and the next command
+starts it with the new settings. A setting also set as an environment variable (the name in
+brackets) uses the environment's value.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `instance` (`DBCANVAS_INSTANCE`) | `dbcanvas-<login>` | The prefix of every container, network and K3D cluster this dbcanvas creates, so several people can share one Docker host. Lowercase letters, digits and single dashes, starting with a letter, at most 40 characters. Changing it leaves what the old name created alone. |
+| `port` (`APP_PORT`) | `8080` | The browser's port on 127.0.0.1. When it is taken, a free one is used; `dbcanvas status` shows which. |
+| `publicUrl` (`PUBLIC_URL`) | *(empty)* | The address a reverse proxy or tunnel of yours gives DBCanvas. Shared-session join links are built on it; empty uses the address your browser is on. DBCanvas itself listens on 127.0.0.1 only. |
+| `domain` (`DOMAIN`) | `example.net` | The DNS domain of every stack's nodes (Intranet DNS, LDAP base DN, mail, CA). |
+| `dockerSocket` (`DOCKER_SOCK`) | the current Docker context's | The Docker API socket. |
+| `platform` (`DOCKER_PLATFORM`) | the Docker host's | `linux/amd64` or `linux/arm64`: what a node on Automatic runs as. See [Architecture](#architecture). |
+| `imageRegistry` (`IMAGE_REGISTRY`) | `ghcr.io/jaimesicam` | Where DBCanvas's own node images are pulled from when this host does not have them. `off` turns the pulls off. |
+| `deploymentTimeout` (`DEPLOYMENT_TIMEOUT`) | `60` | How long a deploy waits for a dependency to become ready: minutes (`90`) or a duration (`45m`, `2h`). Raise it for large stacks. |
+| `networkRange` (`DBCANVAS_NETWORK_RANGE`) | `10.0.0.0/8` | Where stack networks may be placed, as CIDRs separated by commas. See [Stack networks](#stack-networks). |
+| `env` | — | Any other setting, by its variable name (below). |
+
+### Other settings, under `env:`
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `DBCANVAS_INSTANCE` | `dbcanvas-<login>` | This installation's name on the Docker daemon: its compose project, app image and volumes, and the prefix of every container, network and K3D cluster it deploys. Lets several people share one Docker host — each also needs their own `APP_PORT`. `make env` sets it to `dbcanvas-<your login>` for a new `.env`, and to `dbcanvas` for an existing `.env` without it. Lowercase letters, digits and single dashes, starting with a letter, at most 40 characters; no dash-separated part may be only digits, or `s` followed by digits. **Changing it starts the installation with new, empty volumes** (the old ones are kept). |
-| `APP_HOST` | `127.0.0.1` | Host interface the app is published on. `0.0.0.0` exposes it on all interfaces. Anything but a loopback address also needs `APP_HOST_OVERRIDE=on`. |
-| `APP_HOST_OVERRIDE` | `off` | While `off`, DBCanvas refuses to start if `APP_HOST` is not a loopback address (`127.x`, `::1` or `localhost`). `make compose` and `make up` stop with the reason, and so does the app itself. Set it to `on` to expose DBCanvas deliberately. See [Security](SECURITY.md). |
-| `APP_PORT` | `8080` | Port the app listens on. |
-| `PUBLIC_URL` | *(empty)* | The address other people use to reach this installation (e.g. `http://10.0.4.12:8080`). Shared-session links are built on it; empty uses the address your browser used. Shared sessions are off until an administrator enables them in **Settings → Shared sessions**. |
-| `CONTAINER_BIND_IP` | `127.0.0.1` | Host interface that deployed nodes publish their exported ports on. `0.0.0.0` publishes on all interfaces. |
-| `SSH_FORWARDING_HOST` | *(empty)* | Where this server answers SSH, as `IP[:port]` (port defaults to 22). When set, right-clicking a running node offers **Copy SSH tunnel command**: an `ssh -L` line that forwards every port the node publishes to the same port on your machine. With no `user@`, the login is the name of whoever is signed in to DBCanvas; write `user@IP[:port]` to use one login for everybody. Empty = off. |
-| `DOMAIN` | `example.net` | Domain of deployed stacks (Intranet DNS, LDAP base DN, mail, CA). |
-| `DEPLOYMENT_TIMEOUT` | `60` | Minutes a deploy waits for a dependency (cluster, node, shared service) to become ready before failing. Raise it for large stacks. |
-| `DOCKER_PLATFORM` | the Docker host's | `linux/amd64` or `linux/arm64`. What a node on Automatic runs as. The `dbcanvas` command asks Docker for its architecture when its service starts and uses that unless this is set (`platform` in `~/.dbcanvas/config.yaml`). A node or cluster can run on the other architecture (its Architecture field, `arch=` in compose, `platform:` in a stack file, `dbcanvas up --platform`), under emulation when that is not the host's; its versions come from that architecture's catalogue (`versions.yaml` for amd64, `versions-arm64.yaml` for arm64). The app container defaults to `linux/amd64`. |
-| `IMAGE_REGISTRY` | `ghcr.io/jaimesicam` | Where DBCanvas's own node images come from: `make pull-images` pulls them from it, and a deploy pulls any one this host is missing (an OS base, the Intranet, VNC, Kubeadm or K3D collector image, a demo application) before creating the node. Validate says which images the deploy will pull; one the registry cannot provide is an error with the registry's reason, and so is a pull that fails during the deploy. `off` turns the deploy's pulls off: a missing image is then an error naming the `make` target that builds it. |
-| `K8S_PLATFORM` | the Docker host's | `linux/amd64` or `linux/arm64`. The platform of every Kubernetes node — a K3D frame's k3s nodes and a Kubeadm frame's nodes (`make kubeadm-image` builds for it) — independent of `DOCKER_PLATFORM`. It must be the Docker host's own architecture: under emulation a node cannot create pods ("seccomp is not supported"), so validation refuses a K3D or Kubeadm cluster set to another. The `dbcanvas` command sets it to the host's when it is not set; the app container defaults to `linux/amd64`. `K3D_PLATFORM`, its earlier name, is still read when `K8S_PLATFORM` is unset. |
-| `DBCANVAS_NETWORK_RANGE` | `10.0.0.0/8` | Where the `dbcanvas` command places stack networks (`networkRange` in `~/.dbcanvas/config.yaml`), as CIDRs separated by commas. Each stack gets a /24 found free when its network is created: one that overlaps no Docker network (anyone's), none of the daemon's default address pools (a network inside one would take the whole pool from everyone who lets Docker choose), none of this host's interfaces or routes, and none of the K3D or Kubeadm internal ranges. Users start their search at different points. `dbcanvas network check` shows what is avoided and the next /24 without creating anything. A network reached only through the default gateway (a company LAN, a VPN) cannot be seen: if one is inside the range, set this to a range your network does not use. Existing stack networks keep their subnets. |
-| `GDB_MOUNT_ROOT` | `/srv/coredumps` | The only host directory a Linux Client set up for the [Core Dump Analyzer](CORE_DUMP_ANALYZER.md) may bind-mount from. Mounts are read-only; a path outside it fails validation. |
+| `CONTAINER_BIND_IP` | `127.0.0.1` | The host interface that nodes publish their exported ports on. `0.0.0.0` publishes on all interfaces. |
+| `SSH_FORWARDING_HOST` | *(empty)* | Where this machine answers SSH, as `[user@]IP[:port]`. When set, a running node's menu offers **Copy SSH tunnel command**, an `ssh -L` line forwarding every port the node publishes. Without `user@` the login is your OS login. |
+| `K8S_PLATFORM` | the Docker host's | The platform of Kubernetes nodes (K3D and Kubeadm). It must be the Docker host's own architecture: under emulation a node cannot create pods. |
+| `GDB_MOUNT_ROOT` | `/srv/coredumps` | The only host directory a Linux Client set up for the [Core Dump Analyzer](CORE_DUMP_ANALYZER.md) may bind-mount from, read-only. |
 | `EXPERIMENTAL` | `off` | `on` also offers unfinished features, which are not documented. |
-| `EOL` | `off` | `on` also offers end-of-life releases: **CentOS 7** as a Linux Client release (repositories pointed at vault.centos.org, no systemd) and a **PMM 2** monitoring node (PMM 2.25.0–2.44.1, not connected to other nodes). |
+| `EOL` | `off` | `on` also offers end-of-life releases: CentOS 7 as a Linux Client release and a PMM 2 node. |
+| `SPOCK_REF` | `v5.0.10` | The pgEdge Spock git ref built for Spock clusters. |
+| `DBCANVAS_IDLE_GRACE` | `10m` | How long the service stays up with no stack containers and nothing using it. |
+| `DBCANVAS_CATALOG_URL` | the project's repository | Where `dbcanvas versions update` downloads catalogues from (a fork or a mirror). |
+| the node passwords | generated | See [Node passwords](#node-passwords). |
 
 `EXPERIMENTAL` and `EOL` accept `on`/`off`; `true`, `1` and `yes` also mean on. Turning either
-off again only hides those entries — anything already built with them is left alone.
+off again only hides those entries.
 
-K3D cluster names have the form `<frame>-s<stack>-<instance tag>`, where the tag is
-`DBCANVAS_INSTANCE` without its leading `dbcanvas-` (just `dbcanvas` for the installation of
-that name).
+## Node passwords
 
-### Credentials
+The accounts DBCanvas creates on nodes take their passwords from these settings. On the first run
+each one gets a random password, kept encrypted in the database and never generated again.
+`dbcanvas passwords` lists them, and `dbcanvas passwords NAME` prints one.
 
-**The `dbcanvas` command** generates a random password for each of these on its first run and keeps
-them encrypted in its database (with the other secrets it stores; see the encryption key in
-`~/.dbcanvas`). `dbcanvas passwords` lists them, and `dbcanvas passwords mysql_admin` prints one. To
-choose one yourself, set it under `env:` in `~/.dbcanvas/config.yaml` (or in the environment): it
-applies to the nodes built after, and `dbcanvas passwords` marks it as replacing the generated one,
-which the nodes built before keep until they are rebuilt. The generated passwords are never
-generated again. The Default column is what the app container falls back to.
+To choose one yourself, set it under `env:` in `config.yaml`. It applies to nodes deployed after
+the service restarts; nodes deployed before keep the password they were deployed with until they
+are rebuilt. `dbcanvas passwords` marks a password set this way.
 
-**The app container:** a `.env` created by `make env` gets a random value for each of these
-passwords. Change them before the first deploy: stacks deployed earlier keep the passwords they were
-deployed with.
+| Variable | Used for |
+| --- | --- |
+| `MYSQL_ROOT_PASSWORD` | `root@localhost` on every MySQL-family node. |
+| `MYSQL_ADMIN_PASSWORD` | The network-reachable `admin@'%'` superuser on every MySQL-family node. |
+| `APP_PASSWORD` | The application user on PXC nodes. |
+| `REPL_PASSWORD` | The replication user (MySQL family and PostgreSQL). |
+| `MONITOR_PASSWORD` | The monitoring user for ProxySQL health checks. |
+| `CLUSTER_PASSWORD` | The cluster-admin user for ProxySQL's `proxysql-admin`. |
+| `CLUSTERCHECK_PASSWORD` | `clustercheck@localhost`, behind the PXC health check on port 9200 that HAProxy polls. |
+| `ORCHESTRATOR_PASSWORD` | The `orchestrator@'%'` user that Orchestrator nodes connect as. |
+| `POSTGRES_PASSWORD` | The `postgres` superuser on every PostgreSQL node. |
+| `MONGODB_ADMIN_PASSWORD` | The admin user on every Percona Server for MongoDB node. |
+| `MCLUSTERADMIN_PASSWORD` | The `madmin` account for the MClusterAdmin panel. The panel node's own field overrides it. |
+| `MCLUSTERADMIN_RO_PASSWORD` | The read-only `madmin-ro` account, same. |
+| `VALKEY_PASSWORD` | The default user on every Valkey node. |
+| `PROXYSQL_ADMIN_PASSWORD` | The ProxySQL `admin` user (port 6032). |
+| `PMM_PASSWORD` | The `pmm` monitoring user on nodes monitored by a PMM server. |
+| `PMM_ADMIN_PASSWORD` | The PMM web UI `admin` login. A password set on the PMM node overrides it. |
+| `GRAFANA_PASSWORD` | The `admin` user of the Grafana installed with a CloudNativePG K3D frame. |
+| `EVEREST_PASSWORD` | OpenEverest's initial `admin` password on a K3D frame. |
+| `KEYCLOAK_PASSWORD` | The Keycloak `admin` console user. |
+| `KEYCLOAK_USER_PASSWORD` | The sample Keycloak users created for SSO. |
+| `SAMBA_PASSWORD` | The Samba AD DC administrator. It must meet Active Directory complexity (three of: uppercase, lowercase, digit, symbol). |
+| `VNC_PASSWORD` | The VNC desktop login. VNC uses only the first 8 characters. A password set on the node overrides it. |
 
-Passwords for deployed nodes come only from `.env` — they cannot be set per node on the canvas,
-except where noted — and a redeploy re-reads them. Variables named after an engine apply only to
-that engine.
+## Architecture
 
-| Variable | Default | Used for |
-| --- | --- | --- |
-| `MYSQL_ROOT_PASSWORD` | `root_password` | `root@localhost` on every MySQL-family node (PXC, replication, InnoDB/Group Replication, standalone Percona Server). |
-| `MYSQL_ADMIN_PASSWORD` | `admin_password` | The network-reachable `admin@'%'` superuser on every MySQL-family node. |
-| `APP_PASSWORD` | `app_password` | The application user on PXC nodes. |
-| `REPL_PASSWORD` | `repl_password` | The replication user (MySQL family and PostgreSQL). |
-| `MONITOR_PASSWORD` | `monitor_password` | The monitoring user for ProxySQL health checks. |
-| `CLUSTER_PASSWORD` | `cluster_password` | The cluster-admin user for ProxySQL's `proxysql-admin`. |
-| `CLUSTERCHECK_PASSWORD` | `cluster_password` | `clustercheck@localhost`, behind the PXC health check on port 9200 that HAProxy polls. |
-| `ORCHESTRATOR_PASSWORD` | `orchestrator_password` | The `orchestrator@'%'` user that Percona Orchestrator nodes connect as. |
-| `POSTGRES_PASSWORD` | `postgres_password` | The `postgres` superuser on every PostgreSQL node. |
-| `MONGODB_ADMIN_PASSWORD` | `admin_password` | The admin user on every Percona Server for MongoDB node. |
-| `MCLUSTERADMIN_PASSWORD` | `madmin_password` | The `madmin` account for the MClusterAdmin panel. The panel node's own field overrides it. |
-| `MCLUSTERADMIN_RO_PASSWORD` | `madmin_ro_password` | The read-only `madmin-ro` account, same. |
-| `VALKEY_PASSWORD` | `valkey_password` | The default user on every Valkey node. |
-| `PROXYSQL_ADMIN_PASSWORD` | `admin_password` | The ProxySQL `admin` user (port 6032). |
-| `PMM_PASSWORD` | `pmm_password` | The `pmm` monitoring user on nodes monitored by a PMM server. |
-| `PMM_ADMIN_PASSWORD` | `admin_password` | The PMM web UI `admin` login. A password set on the PMM node overrides it. |
-| `GRAFANA_PASSWORD` | `grafana_password` | The `admin` user of the Grafana installed with a CloudNativePG K3D frame. Shown on the k3s node's panel. |
-| `EVEREST_PASSWORD` | `everest_password` | OpenEverest's initial `admin` password on a K3D frame. Shown on the k3s node's panel. |
-| `KEYCLOAK_PASSWORD` | `keycloak_password` | The Keycloak `admin` console user. |
-| `KEYCLOAK_USER_PASSWORD` | `keycloak_user_password` | The sample Keycloak users created for SSO (`alice` and `bob` for PMM; `jane` and `john` for PostgreSQL and Percona Server). |
-| `SAMBA_PASSWORD` | `SambaPassword2026` | The Samba AD DC administrator. Must meet Active Directory complexity (three of: uppercase, lowercase, digit, symbol). |
-| `VNC_PASSWORD` | `vnc_password` | The VNC desktop login. VNC uses only the first 8 characters. A password set on the node overrides it. |
+DBCanvas asks Docker for its architecture when the service starts. A node on **Automatic** runs as
+that architecture, unless `platform` sets another.
 
-### Advanced
+- A database node or cluster can choose amd64 or arm64: its **Architecture** field on the canvas,
+  `arch=` in a compose entry, `platform:` in a stack file, or `dbcanvas up --platform`. A choice
+  other than the Docker host's runs under emulation, which works, more slowly.
+- Each architecture has its own version catalogue (`versions.yaml` for amd64,
+  `versions-arm64.yaml` for arm64), so the version pickers offer what that architecture
+  publishes.
+- K3D and Kubeadm nodes always run as the Docker host's architecture.
+- PMM 3 runs as arm64 from 3.10.0; PMM 2 and MClusterAdmin are amd64 only.
 
-Set by `docker-compose.yml`, or useful when running DBCanvas on the host:
+`dbcanvas status` and `dbcanvas doctor` show the architecture in use.
 
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `DB_PATH` | `dbcanvas.db` (container: `/data/dbcanvas.db`) | The SQLite database. Shared-session recordings are kept beside it. |
-| `DBCANVAS_ENCRYPTION_KEY_PATH` | beside the database (container: `/keys/dbcanvas-encryption.key`) | The encryption key. |
-| `DOCKER_SOCK` | `/var/run/docker.sock` | The Docker socket. |
-| `VERSIONS_FILE` | `versions.yaml` in the current or parent directory (container: `/etc/dbcanvas/versions.yaml`) | Path to the version catalog. |
-| `IMAGES_FILE` | `images.yaml`, found the same way | Path to the OS image list; falls back to the version catalog. |
-| `SPOCK_REF` | `v5.0.10` | The pgEdge Spock git ref built for Spock clusters. |
+## Stack networks
 
-### Hybrid (Vagrant) backend
+Each stack gets its own Docker network, a /24 that DBCanvas finds free when the network is
+created. It overlaps none of:
 
-Read only when DBCanvas runs on the host with Vagrant available. All optional.
+- the networks on that Docker daemon, whoever created them;
+- Docker's default address pools (a network inside one takes the whole pool from everyone who lets
+  Docker choose);
+- this host's interfaces and, on Linux, its routes;
+- the pod and service ranges inside K3D and Kubeadm clusters.
 
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `DBCANVAS_VAGRANT_ROOT` | `~/.dbcanvas/vagrant` | Working directory for VMs and network state. |
-| `DBCANVAS_VM_CPUS` | `2` | vCPUs for a VM whose node sets none. The node's **CPUs** field wins. |
-| `DBCANVAS_VM_MEMORY` | `2048` | Memory (MB) for a VM whose node sets none. The node's **Memory (GiB)** field wins. |
-| `DBCANVAS_VM_SUBNET_BASE` | `192.168` | First two octets of the host-only networks. VirtualBox allows only `192.168.56.0/21` unless widened in `/etc/vbox/networks.conf` — change both together. |
-| `DBCANVAS_BOX_<OS>_<VER>` | — | Override the Vagrant box for one OS, dots and dashes as underscores, e.g. `DBCANVAS_BOX_UBUNTU_24_04=my/box`. |
-| `DBCANVAS_NO_SUDO` | unset | `1` runs `iptables`/`ip`/`sysctl` directly instead of through `sudo -n` (needs `CAP_NET_ADMIN`). |
-| `DBCANVAS_HOST_MODE` | auto | `1` forces "running on the host" detection. |
+The search covers `10.0.0.0/8`, or `networkRange`, starting at a point derived from the
+instance name so that users of one host spread out. Containers get addresses from the lower half
+of the /24; K3D's MetalLB load-balancer addresses come from the upper half. A network that exists
+keeps its subnet.
 
-## Instance settings (in the app)
+A network reached only through the default gateway (a company LAN, a VPN) cannot be seen from the
+host. If one is inside the search space, set `networkRange` to a range your network does not use.
+`dbcanvas network check` shows what is avoided and where the next stack would go, without creating
+anything.
 
-Administrators change these in **Settings**; they apply to everyone.
+## Node images
+
+Nodes run on DBCanvas's own images: the OS bases (Oracle Linux, Ubuntu, Debian), the Intranet,
+the VNC desktop, the Kubeadm node, the K3D diagnostics collector and the demo applications. Each is
+tagged with the release that uses it. A deploy that needs one this host does not have pulls it from
+`imageRegistry` first; **Validate** says which images it will pull, and one the registry cannot
+provide is an error naming the registry's reason.
+
+The Intranet, VNC and K3D collector images can also be built on this host: Validate offers a
+**Build** button when one is missing. The Dockerfiles are in `~/.dbcanvas/assets/<version>/images`.
+
+## Settings in the app
+
+**Settings** in the browser holds the settings that are kept in the database. Your own preferences
+(theme, look, tabs) are there too.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| **Node file uploads** | 4 GiB | Largest single file drop onto a node. 1 MiB–1 TiB. |
-| **API token lifetime** | 90 days | Longest expiry a non-administrator may give an [API token](API.md). 1–365 days. Longer requests are shortened; existing tokens are not. Only administrators can create a token that never expires. |
+| **Node file uploads** | 4 GiB | Largest single file dropped onto a node. 1 MiB–1 TiB. |
+| **API token lifetime** | 90 days | The longest expiry a token may be given. 1–365 days. Longer requests are shortened; existing tokens are not. |
 | **Writes to internal databases** | off | Whether the [Database Explorer](DATABASE_EXPLORER.md#pmm-server) may write to PMM Server's own databases. |
-| **Registration** | approval required | Whether a newly registered account can sign in at once or waits for an administrator. |
-| **Shared sessions** | off | Whether stack owners may share a live session with guests through a link, and for how long. |
+| **Shared sessions** | off | Whether a stack may be shared with guests through a link, and for how long. See [Shared sessions](SHARED_SESSIONS.md). |
 | **Stack history and alerts** | — | How often deployed stacks are sampled for trend lines, the failover timeline and alerts. Off records none. |
 
 ## The encryption key
 
-Passwords and secrets in the database are encrypted with a key generated on first start and kept
-in its own file: `/keys/dbcanvas-encryption.key` on the app's key volume (or beside the database
-when DBCanvas runs on the host).
+Passwords and other secrets in the database are encrypted with a key generated on the first run,
+`~/.dbcanvas/dbcanvas-encryption.key`.
 
-- **Back the key up separately from the database.** Without it the database cannot be read.
+- **Back the key up.** Without it the database cannot be read.
 - DBCanvas will not start with a missing or different key. Restore the original key file.
-- `docker compose down -v` deletes both volumes — the database and the key.
 
-To re-encrypt everything under a new key:
-
-```sh
-make rotate-key
-```
-
-It stops the app, re-encrypts every value in one transaction (nothing changes on error), keeps
-the old key as `dbcanvas-encryption.key.old`, and starts the app. Delete the `.old` file once the
-new key is backed up.
-
-## Recovering an admin password
-
-Run the reset tool inside the app container. The container is named `<DBCANVAS_INSTANCE>-app-1`:
-
-```sh
-docker exec -it dbcanvas-alex-app-1 dbcanvas_reset_password
-```
-
-It names the admin account it will change, prompts twice for the new password, and signs that
-account out everywhere. With more than one admin, choose one with `-user <name>`.
+`dbcanvas rotate-key` re-encrypts everything under a new key in one transaction (nothing changes on
+error). It stops the service first and keeps the old key as `dbcanvas-encryption.key.old`; delete
+that once the new key is backed up.
 
 ## Troubleshooting
 
+Start with `dbcanvas doctor`: it checks Docker, the images, the catalogues, the data folder, the
+networks, k3d and the service, and says how to fix what fails.
+
+### dbcanvas cannot reach Docker
+
+`dbcanvas doctor` names the socket it tried. If it is the wrong one, set `dockerSocket` in
+`config.yaml`. On Linux, "permission denied" means your user cannot open the socket: add it to the
+`docker` group (then log in again), or use rootless Docker.
+
 ### A version is missing from a picker
 
-The pickers read two files generated on the host:
-
-- **`images.yaml`**, written by `make images` — the OS images that exist, which the **OS**
-  pickers offer. Debian is offered only on the Linux Client; other node types use Oracle Linux
-  or Ubuntu.
-- **`versions.yaml`**, written by `make versions` — what each OS image can install, which the
-  **version** pickers offer. It also holds the PMM, operator, Helm chart and k3s versions.
-
-A release published after the last `make versions` is not in the file yet:
+The version pickers read the version catalogue built into `dbcanvas`. A release published after
+it was built is not in it yet:
 
 ```sh
-make versions          # hours
-make restart           # required — until then every version picker is empty
+dbcanvas versions update
 ```
 
-`make compose` alone does not pick up the new file; `make restart` does. Running stacks and the
-database are not affected.
-
-A whole OS or series missing:
-
-```sh
-make images
-make versions
-make restart
-```
-
-Still empty? Check:
-
-- **`DOCKER_PLATFORM`** — only that platform's images are built and probed.
-- **The series has no packages for that OS** — the list is empty because the repository is
-  (for example Percona Server 5.7 or PXC 8.0 on Oracle Linux 10).
-- **`versions.yaml` or `images.yaml` is a directory.** If a file was missing when the container
-  was created, Docker created a directory in its place. Check with
-  `ls -ld versions.yaml images.yaml`, remove the directory, then `make env && make restart`.
-- **Running on the host:** point `VERSIONS_FILE` and `IMAGES_FILE` at the repository's files.
-  Without a catalog the database version pickers are empty.
-
+A running service uses the new catalogue from its next deploy. If a series is missing for one OS,
+the repository may have no packages for it (for example Percona Server 5.7 on Oracle Linux 10).
 A deployed node keeps its version; the new list applies to nodes you add or redeploy.
 
 ### The node runs a different minor than I picked
@@ -241,17 +217,15 @@ available build is installed and the node's deploy log says so:
 note: MariaDB-server has no 10.11.8 build in this repository — installing the newest it has
 ```
 
-Run `make versions` and `make restart` to bring the pickers in line with the repository.
+`dbcanvas versions update` brings the pickers in line with the repositories.
 
-### A hybrid stack deployed everything as containers
+### A stack network cannot be created
 
-A stack's backend is fixed at its first deploy, and falls back to Docker when Vagrant is not
-available. Check that the stack is new, that DBCanvas runs **on the host** (not through
-`make compose`), and that `vagrant`, `VBoxManage` and `ssh` are on its `PATH`.
+`dbcanvas network check` shows what rules each range out. On a shared host, give this instance
+a range of its own with `networkRange`, and check that no LAN or VPN behind the default gateway
+uses it.
 
-### VM nodes and container nodes cannot reach each other
+### The service does not start
 
-Routing between VMs and containers needs iptables rules on the host — see
-[Deployment backends](STACKS.md#deployment-backends--docker-or-vagrant-hybrid). Without
-`sudo -n`, root, or `DBCANVAS_NO_SUDO=1` with `CAP_NET_ADMIN`, both halves come up but stay
-isolated: DNS lookups against the Intranet time out and PMM shows the VM nodes as down.
+`~/.dbcanvas/dbcanvas.log` has the reason. `dbcanvas status` says whether one runs; only one service
+runs per data folder.

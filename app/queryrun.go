@@ -27,19 +27,10 @@ func qrAppContainerID() string {
 	return h
 }
 
-// appIsContainerized reports whether DBCanvas itself runs inside a container (the
-// pure-Docker deployment) versus on the host (required for hybrid Vagrant stacks —
-// see IMPLEMENTATION.md §§144–148). It gates the self-join in joinStackForDial: only a containerized
-// app can — and must — attach itself to the stack bridge to reach a Docker node's
-// IP. On the host there is no self-container to join, and none is needed: the host
-// already routes to both the Docker bridge and the VM host-only net (vagrant_net.go).
-// DBCANVAS_HOST_MODE=1 forces the host answer (for e2e runs on a host that still has
-// a /.dockerenv lying around).
+// appIsContainerized reports whether dbcanvas itself runs inside a container. Only then
+// can, and must, it attach its own container to a stack network to reach a node's IP
+// (joinStackForDial); on the host there is no container to attach.
 func appIsContainerized() bool {
-	switch os.Getenv("DBCANVAS_HOST_MODE") {
-	case "1", "true":
-		return false
-	}
 	for _, p := range []string{"/.dockerenv", "/run/.containerenv"} {
 		if _, err := os.Stat(p); err == nil {
 			return true
@@ -74,9 +65,9 @@ func (a *App) dialEngine(stackID int64, containerID string) Engine {
 
 // joinStackForDial attaches the app's own container to the stack network so it can
 // dial a Docker node's bridge IP directly (Docker's embedded DNS doesn't resolve the
-// Intranet's *.<domain> names). It is idempotent on the Docker engine and a no-op on
-// the Vagrant engine (VM IPs are host-only-routable). On the host it does nothing:
-// there is no self-container, and the host reaches both networks unaided. Shared by
+// Intranet's *.<domain> names). It is idempotent. On the host it does nothing: there is
+// no container of its own, and nodes are reached directly or through the Docker API
+// (nodedial.go). Shared by
 // the Query Runner, Benchmark (dialNodeDSN) and the Mongo Data Generator.
 func (a *App) joinStackForDial(ctx context.Context, eng Engine, netName string) error {
 	if !appIsContainerized() {

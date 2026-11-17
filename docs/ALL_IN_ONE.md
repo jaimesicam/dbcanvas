@@ -154,7 +154,6 @@ alone. A deploy that failed part-way retries the unfinished instances.
 | TLS for Valkey and the proxies | A dedicated node |
 | InnoDB Cluster mode | Group Replication |
 | PostgreSQL instances on Debian or Ubuntu | An Oracle Linux All-in-One node |
-| Vagrant VMs | All in One always runs in Docker, also in a Vagrant stack |
 
 These options are rejected by validation rather than ignored.
 

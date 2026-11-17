@@ -97,7 +97,7 @@ Also offered:
   Service. A ClusterIP-only database is not listed; use **Expose for tools** in the
   [Database Explorer](DATABASE_EXPLORER.md#expose-for-tools) to give it an address.
 
-Regular users see nodes in their own stacks; admins see all.
+It lists the nodes in your stacks.
 
 ## Notes
 

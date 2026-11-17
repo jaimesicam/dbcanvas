@@ -1,6 +1,5 @@
 # Stacks
-A stack is a topology you draw on a canvas and deploy as real nodes — containers, or VirtualBox
-VMs in hybrid mode. Add nodes and cluster **frames**, connect them, give the stack a **TTL**
+A stack is a topology you draw on a canvas and deploy as real nodes — Docker containers. Add nodes and cluster **frames**, connect them, give the stack a **TTL**
 (time to live), and deploy. Every deployed node gets a management panel with a web terminal,
 credentials, certificates, users and backups.
 
@@ -42,9 +41,10 @@ deploy and connect. This page is the reference behind it.
 7. Click **Deploy**. Nodes are provisioned in dependency order, with every step in the deployment
    console. A node that fails leaves the others running so you can get into it and look.
 
-**Missing images.** If a node needs an image that has not been built on this host, Validate says
-so and an administrator gets a **Build** button under the error. The demo applications are the
-exception: they need a DBCanvas checkout and `make <name>-image` (for example
+**Missing images.** A node image that is not on the Docker host is pulled at deploy from the image
+registry (`imageRegistry` in `~/.dbcanvas/config.yaml`, default `ghcr.io/jaimesicam`). When one is
+missing, Validate says so and offers a **Build** button under the error. The demo applications
+build only from a DBCanvas source checkout, with `make <name>-image` (for example
 `make stocksim-image`).
 
 ## What you can put on the canvas
@@ -60,8 +60,9 @@ exception: they need a DBCanvas checkout and `make <name>-image` (for example
 | Samba AD DC, VNC, Repository | Ubuntu 24.04 |
 | PMM, Keycloak, SeaweedFS, Ceph, MClusterAdmin, simulators | A fixed container image; no OS choice |
 
-Debian is for the Linux Client only, and only on the Docker backend; Validate rejects it on any
-other node. The version pickers list what `make versions` found for each OS.
+Debian is for the Linux Client only; Validate rejects it on any
+other node. The version pickers list what the version catalogue records for each OS;
+`dbcanvas versions update` downloads a newer catalogue.
 
 ### Library at a glance
 
@@ -209,7 +210,7 @@ Only the standalone node offers LDAP, Kerberos and Keycloak sign-in.
 
 | Setting | What the frame does |
 | --- | --- |
-| Replication role | `replicator`, with `REPLICATION`, and a `pg_hba` rule for it. Its password is `REPL_PASSWORD` in `.env`. |
+| Replication role | `replicator`, with `REPLICATION`, and a `pg_hba` rule for it. Its password is `REPL_PASSWORD` (`dbcanvas passwords`). |
 | Standbys | `pg_basebackup -X stream` from the primary, then `standby.signal` and a `primary_conninfo` whose `application_name` is the standby's hostname. |
 | Replication slots | One physical slot per standby on the primary, named after the standby. Untick **A replication slot for every standby** to rely on `wal_keep_size` (512MB) alone. |
 | **Synchronous standbys** | `0` is asynchronous. `N` sets `synchronous_standby_names = 'ANY N (every standby)'` on the primary once the standbys stream, with `synchronous_commit` set to **on**, **remote_write** or **remote_apply**. |
@@ -225,7 +226,7 @@ get there within a minute, the old primary is started again and nothing changes.
 front, each member answers its health check on port 9200 from the `pgrolechk` socket unit. Each member's **Replication** tab has the queries for
 `pg_stat_replication`, `pg_stat_wal_receiver` and the slots, and the commands for a manual promotion
 and a manual rebuild. Compose kind `pg-stream`; `syncStandbys=N` makes it synchronous, and
-`backup` turns on pgBackRest (compose serves the SeaweedFS node's S3 over HTTPS for it).
+`backup` turns on pgBackRest (the entry serves the SeaweedFS node's S3 over HTTPS for it).
 
 ### Patroni standby cluster
 
@@ -239,7 +240,7 @@ a read-only copy with its own failover. Nothing is written to it except what arr
 | Source hosts | Every source member, as libpq's host list (`standby_cluster.host`). Any member serves a base backup and streams WAL, so a failover on the source does not break the standby. |
 | First copy | `pg_basebackup` from the source when the standby cluster is created. A frame deployed with the link is created as a standby. |
 | WAL kept for it | The standby streams without a replication slot, so the source keeps `wal_keep_size = 512MB` (set on it if it has none). |
-| Credentials | The `replicator` user and `REPL_PASSWORD` from `.env`, which both clusters already use. |
+| Credentials | The `replicator` user and `REPL_PASSWORD` (`dbcanvas passwords`), which both clusters already use. |
 | Chains | A standby can be the source of another standby. A loop is refused. |
 
 Both frames need the same PostgreSQL major and the same build (Percona or PGDG). The standby
@@ -255,8 +256,8 @@ On each Deploy the standby is compared with the link:
 - **Deleting the link** promotes the standby: `standby_cluster` is removed and its leader takes writes.
 
 **Promote** on the link's properties panel promotes the standby at once and deletes the link.
-Each member's panel shows *Standby leader* or *Replica* and the cluster it follows. In compose,
-`standbyOf=<name>` on a `patroni` or `patroni-pgdg` entry draws the link.
+Each member's panel shows *Standby leader* or *Replica* and the cluster it follows. In a
+[stack file](CLI.md#compose-entries), `standbyOf=<name>` on a `patroni` or `patroni-pgdg` entry draws the link.
 
 ### Valkey
 
@@ -295,8 +296,8 @@ The upstream repository has every release: 2.4.2 to 2.7.4 and 3.0.1 to 3.0.12 on
 host groups and rules as `proxysql-admin`: writer 10, reader 11, backup writer 12, offline 13. In
 `singlewrite` there is one writer, its backups also take reads, and the app user's `SELECT`s go to the
 readers. In `loadbal` every member is a writer. A MySQL replication backend is configured the same way
-for all three sources. The running node shows where its package came from. In compose:
-`--node 'proxysql,os=el9,source=upstream-native,version=3.0.12'`.
+for all three sources. The running node shows where its package came from. In a
+[stack file](CLI.md#compose-entries): `nodes: ["proxysql,os=el9,source=upstream-native,version=3.0.12"]`.
 
 **PostgreSQL behind ProxySQL.** Upstream ProxySQL 3 also fronts PostgreSQL: link one PostgreSQL node
 or Patroni, repmgr, PostgreSQL Replication or Spock cluster directly to a standalone ProxySQL node
@@ -318,8 +319,8 @@ With Percona or PGDG, **HAProxy version** picks a build, or leaves it on the new
 repository carries its own range of builds. The install tries the linked PostgreSQL cluster's series
 first, then the others, newest first, until one has the build. All three install the same
 `haproxy.service` and `/etc/haproxy/haproxy.cfg`. The running node shows the repository it was
-installed from. In compose: `--node 'haproxy,os=el9,source=pgdg,version=3.2'`. The version lists come
-from `make versions`; `ONLY=haproxy make versions` refreshes only them.
+installed from. In a [stack file](CLI.md#compose-entries): `nodes: ["haproxy,os=el9,source=pgdg,version=3.2"]`.
+The version lists come from the version catalogue.
 
 ### Monitoring
 
@@ -408,7 +409,8 @@ compare drivers and pool settings rather than servers.
 - **Workload controls:** HikariCP settings, isolation level, revenue shards, hot-account share and
   deadlock share. Deadlocks, lock timeouts, retries and errors are counted separately, and a
   **balance check** shows zero on a consistent ledger.
-- Not for MongoDB or Valkey. Build it with `make ledgersim-image` (it downloads from Maven Central).
+- Not for MongoDB or Valkey. Its image is pulled at deploy; in a source checkout,
+  `make ledgersim-image` builds it (it downloads from Maven Central).
 
 **Performance Sim** makes a linked MySQL-family, PostgreSQL, MongoDB or Valkey server or cluster misbehave on purpose and shows
 what each stressor does, to the cluster and to an application running against it. The node has
@@ -418,8 +420,8 @@ no options of its own: link it, deploy it, and choose everything on its dashboar
   (asynchronous replication, Group Replication, PXC, MariaDB Galera), a PostgreSQL node or a Patroni,
   repmgr or Spock cluster, a PS MongoDB node, PSMDB replica set or sharded cluster, a Valkey node,
   Valkey Cluster or Valkey Sentinel, an HAProxy, ProxySQL or PgBouncer node in front of one, or a
-  Kubernetes frame running one of the database operators (see below). Compose builds one with
-  `--node 'perfsim,to=<name>'`. The sim connects to every data member (MySQL as `admin@'%'`,
+  Kubernetes frame running one of the database operators (see below). A stack file builds one with
+  `nodes: ["perfsim,to=<name>"]`. The sim connects to every data member (MySQL as `admin@'%'`,
   PostgreSQL as the superuser, MongoDB as the admin user, Valkey with the default user's password)
   and runs its workload through the write endpoint.
 - **Connection:** *linked* (the association line, above), *All in One* (an instance on an All in One
@@ -546,7 +548,7 @@ no options of its own: link it, deploy it, and choose everything on its dashboar
   recorded in the `perfsim` schema first, so a sim that was killed undoes them when it starts again.
 - **Record run** keeps a stretch of the timeline with its stressors, settings and events, exported
   as JSON. Settings and runs are kept in the `perfsim` schema and survive a redeploy.
-- Build it with `make perfsim-image`.
+- Its image is pulled at deploy; in a source checkout, `make perfsim-image` builds it.
 
 ### Resource limits and network conditions
 Database nodes and cluster members can be limited on **CPU** and **memory**, **disk** read and
@@ -631,7 +633,8 @@ subnet (8 per cluster, so several clusters can share a stack).
 | Cluster add-ons | **cert-manager** (with version picker) |
 | Debugging | *Run the operator under Delve* (Percona operators) |
 
-Database users come from your `.env`, like every other DBCanvas database.
+Database users and their passwords are the node account passwords (`dbcanvas passwords`), like
+every other DBCanvas database.
 
 **Operator-specific options** (shown only when the selected operator version supports them):
 
@@ -645,7 +648,7 @@ Database users come from your `.env`, like every other DBCanvas database.
 **OpenEverest** installs the OpenEverest platform from its Helm chart and the Percona operators you
 tick (PXC, MongoDB, PostgreSQL; all three by default) through OLM. It creates no database — use
 Everest's UI for that, including its backups and PMM. Open it with **Open OpenEverest** on the
-panel and sign in as `admin` with `EVEREST_PASSWORD` from `.env`. Give the frame at least 6 CPU /
+panel and sign in as `admin` with `EVEREST_PASSWORD` (`dbcanvas passwords`). Give the frame at least 6 CPU /
 10 GiB.
 
 ### cert-manager and certificate issuers
@@ -691,14 +694,14 @@ The k3s server node's panel has these tabs (some depend on the operator):
 | **Storage** | Volume sizes and use; grow volumes on Ceph |
 | **Replication** | State of a cross-cluster replication link, and **Re-seed** |
 | **Logical replicas** | Add, remove and re-seed Percona PostgreSQL logical replicas |
-| **Diagnostics** | Capture the cluster with `pt-k8s-debug-collector` (needs `make k8scollector-image`, or pulls it at the first capture) |
+| **Diagnostics** | Capture the cluster with `pt-k8s-debug-collector` (pulls its image at the first capture) |
 
 Also:
 
 - **Enter pod console** (right-click the k3s server node): pick a namespace, pod and container,
   then a shell or the database client (`mysql`, `psql` or `mongosh`) already logged in as an
-  administrator. The list is read live each time. From the CLI: `dbcanvas-cli node pods` and
-  `dbcanvas-cli node console --pod` ([CLI](CLI.md)).
+  administrator. The list is read live each time. From a terminal:
+  `docker exec -it <k3s server container> kubectl exec -it -n <namespace> <pod> -- bash`.
 - **[Kubernetes States](KUBERNETES_STATES.md)**: every pod, workload, claim, service and custom
   resource as a live card.
 - **[Operator Debugger](OPERATOR_DEBUGGER.md)**: with *Run the operator under Delve* ticked, the
@@ -760,9 +763,9 @@ The first node by label is the **control plane**, and it is also the console. Op
 `kubectl` works as root, `etcdctl` and `etcdutl` match the cluster's etcd, and `ssh <worker>`
 reaches every worker without a password. The other nodes are workers.
 
-The nodes need their image: `make kubeadm-image`, or the **Build** button Validate shows when
-it is missing. It is built for `K8S_PLATFORM`, which has to be the Docker host's own architecture
-(`linux/arm64` on Apple Silicon); see [Configuration](CONFIGURATION.md).
+The nodes need their image, pulled at deploy, or built with the **Build** button Validate shows
+when it is missing (`make kubeadm-image` in a source checkout). Kubeadm nodes always run on the
+Docker host's own architecture (`arm64` on Apple Silicon).
 
 ### Frame options
 
@@ -835,7 +838,7 @@ After deploy, the panel also has:
 **CentOS 7** (`EOL=on` only): pick `centos (end of life)` / `7`. Yum points at
 vault.centos.org and `percona-release` is installed. It has no systemd, so services do not run;
 the terminal, file drops, Sample Client Code, kubectl/Helm/cmctl and the database clients
-(MySQL 8.0, psql 13, no ClusterSync) work. No core-dump analysis. Docker backend only. See
+(MySQL 8.0, psql 13, no ClusterSync) work. No core-dump analysis. See
 [Sample Client Code](SAMPLE_CODE.md#centos-7).
 
 ## Vector search on MongoDB (mongot)
@@ -885,7 +888,7 @@ Sample Code.
 | Probe interval | Seconds between checks; default 5 |
 | `server_tls_sslmode` | How the pool connects to PostgreSQL; default `prefer` |
 
-From the CLI: `dbcanvas compose` with `kind=pgbouncer` (`to=` the backend, `mode=` the pool mode).
+In a [stack file](CLI.md#compose-entries): kind `pgbouncer` (`to=` the backend, `mode=` the pool mode).
 
 ## Client authentication on PostgreSQL (pg_hba)
 
@@ -996,7 +999,7 @@ connects to nothing; nothing you open leaves your browser.
 It is an install option, like the other tools: **Install Big Hole** on a MongoDB node, on a replica
 set or sharded cluster (every mongod member serves it; mongos does not), or on a Linux Client (not
 CentOS 7). nginx serves it from the node on port 8070, published to the host, and the node's panel
-links to it. The files are built into the DBCanvas image at a pinned upstream commit, so there is
+links to it. The files are built into the `dbcanvas` binary at a pinned upstream commit, so there is
 no image to build.
 
 > [!NOTE]
@@ -1058,7 +1061,7 @@ pane on another node for copying between them.
 ![The File Manager browsing a node's filesystem](screenshots/file-manager.png)
 
 **Reach a node from your own machine.** When `CONTAINER_BIND_IP` keeps published ports on the
-server's loopback, set `SSH_FORWARDING_HOST` in `.env` to the server's SSH address (`10.0.0.7` or
+server's loopback, set `SSH_FORWARDING_HOST` under `env:` in `~/.dbcanvas/config.yaml` to the server's SSH address (`10.0.0.7` or
 `10.0.0.7:2222`). Right-clicking a running node then offers **Copy SSH tunnel command**, an
 `ssh -L` line forwarding every port the node publishes:
 
@@ -1066,7 +1069,7 @@ server's loopback, set `SSH_FORWARDING_HOST` in `.env` to the server's SSH addre
 ssh -L 8443:127.0.0.1:8443 -L 8080:127.0.0.1:8080 dbuser@10.0.0.7 -p 22
 ```
 
-Without `user@` in the setting, the login is your DBCanvas user name. Ports are read when you
+Without `user@` in the setting, the login is your user name on the DBCanvas machine. Ports are read when you
 click, since they change when a container restarts.
 
 **Add DNS records.** The Intranet's **DNS** tab adds custom **A** (including wildcards such as
@@ -1107,39 +1110,15 @@ Built-in templates can be applied and exported but not edited or deleted.
   reported.
 
 **Save a template:** **Save as template** in the designer toolbar. Passwords and secrets, host
-paths and fixed host ports are not saved; they fall back to this installation's `.env` and
-auto-assigned ports.
+paths and fixed host ports are not saved; they fall back to this installation's node
+passwords and auto-assigned ports.
 
-**Share:** a saved template is private. An admin can publish one to everyone. Any template can be
-**exported** to `.json` and **imported** into another installation.
-
-## Deployment backends — Docker or Vagrant (hybrid)
-
-Pick a **Deployment** backend in **Settings**. It applies to a stack's first deploy and is then
-fixed for that stack; to try the other backend, create a new stack.
-
-| Backend | What it provisions |
-| --- | --- |
-| **Docker** (default) | Every node is a Docker container. |
-| **Vagrant (hybrid)** | Database nodes become VirtualBox VMs; everything else stays a container in the same stack. |
-
-| VirtualBox VM | Docker container |
-| --- | --- |
-| Percona Server, PostgreSQL, PSMDB, Valkey, ProxySQL, HAProxy, PgBouncer, Linux Client (not Debian) | Intranet, K3D, PMM, Keycloak, OpenBao, SeaweedFS, Samba AD, VNC, and the other types |
-| PXC, Percona Server Replication, Percona Server InnoDB / GR, PSMDB Replica Set and Sharded, Patroni, repmgr, PostgreSQL Replication, Spock, Valkey Cluster, ProxySQL Cluster | |
-
-VMs and containers share DNS, the CA, PMM and SeaweedFS. Each VM-capable node has **CPUs** and
-**Memory (GiB)**: VM size on Vagrant (blank → `DBCANVAS_VM_CPUS` / `DBCANVAS_VM_MEMORY`), container
-limits on Docker (blank → unlimited).
-
-Hybrid needs DBCanvas running directly on the host with `vagrant` and `VBoxManage`; otherwise the
-deploy falls back to Docker. See
-[Configuration](CONFIGURATION.md#a-hybrid-stack-deployed-everything-as-containers).
+**Share:** any template can be **exported** to `.json` and **imported** into another installation.
 
 ## Around the stacks
 
 ### Dashboard
-An overview of stacks, nodes, containers and users (admins see everything; users see their own),
+An overview of stacks, nodes and containers,
 plus live CPU, memory, network and disk charts. It samples only while visible.
 
 ![The live Dashboard](screenshots/dashboard.png)
@@ -1193,7 +1172,7 @@ are hidden from guests unless you click the eye on a card.
 
 ### Notifications
 The bell shows node deployment failures, data generation results, stacks destroyed or **expiring
-soon**, completed backups, high resource usage, and (for admins) accounts awaiting approval.
+soon**, completed backups and high resource usage.
 
 ### The desktop
 ![The DBCanvas desktop: a stack on the canvas in a window, the stack's nodes in a folder window, the stacks down the right, and the taskbar](screenshots/desktop.png)
@@ -1235,12 +1214,11 @@ desktop**. Right-click the desktop for **Tile windows** and **Cascade windows**.
 keep running.
 
 ### Settings
-Per-user preferences, saved to your account:
+Preferences, saved in DBCanvas:
 
 | Setting | Choices |
 | --- | --- |
 | Terminal | Docked (default) or undocked |
-| Deployment | [Docker or Vagrant hybrid](#deployment-backends--docker-or-vagrant-hybrid) |
 | Tabs | How many pages can be open at once; 2–40, default 20 |
 | Adding nodes | Canvas menu or docked library |
 | Theme | Glass Light (default), Glass Dark, Light, Dark, Midnight, Solarized, Synthwave, Forest |
@@ -1248,23 +1226,6 @@ Per-user preferences, saved to your account:
 
 Theme, Layout and Look can also be changed from the Appearance menu in the top bar. Every
 typeface ships with DBCanvas, so a lab with no internet access looks the same.
-
-### Manage Users (admin)
-Registration needs admin approval by default: admins approve, reject, disable, re-approve and
-delete accounts. **Settings → Registration** can let new accounts in immediately with the user
-role; admins are notified either way.
-
-Deleting an account deletes its stacks and their containers. Over the API you can first move an
-account's stacks to another owner; see [the API reference](API_REFERENCE.md#users-admin).
-
-**Locked out?** Reset an admin password from the host:
-
-```bash
-docker exec -it dbcanvas-app-1 dbcanvas_reset_password
-```
-
-It prompts for the new password, names the admin it changes, and signs that account out
-everywhere. With more than one admin, add `-user <name>`.
 
 ---
 

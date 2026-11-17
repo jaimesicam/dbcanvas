@@ -63,12 +63,10 @@ but the source pane cannot show the code.
 
 ### Limits on the mounted paths
 
-- `GDB_MOUNT_ROOT` (in `.env`, default `/srv/coredumps`) confines both paths. A path outside it is
+- `GDB_MOUNT_ROOT` (under `env:` in `~/.dbcanvas/config.yaml`, default `/srv/coredumps`) confines both paths. A path outside it is
   refused when the design is validated.
 - Before deploying, DBCanvas checks that both paths exist and fails with the path in the message
   if one does not.
-- Access follows stack ownership (administrators see all stacks), as for the terminal and file
-  manager.
 
 ## Using it
 

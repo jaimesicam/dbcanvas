@@ -63,7 +63,7 @@ state. Finished runs are listed under **History** until DBCanvas restarts.
   A ClusterIP-only database is not listed; use **Expose for tools** in the
   [Database Explorer](DATABASE_EXPLORER.md#expose-for-tools) to give it an address.
 
-Regular users see nodes in their own stacks; admins see all. You never enter an address or
+It lists the nodes in your stacks. You never enter an address or
 password: DBCanvas resolves them, and passwords are not sent to the browser.
 
 ## Limits and notes

@@ -4,8 +4,9 @@ Draw a database topology on a canvas, click **Deploy**, and get running nodes wi
 LDAP, replication, monitoring and backups already set up. Then load them, watch them and
 diagnose them with the tools that come with it.
 
-All of it can also be done from a terminal: [`dbcanvas-cli`](#dbcanvas-cli) composes, deploys,
-loads and diagnoses stacks without opening the browser.
+DBCanvas is one program, `dbcanvas`, that drives the Docker you already have. From a terminal it
+[deploys stacks from a file](#the-dbcanvas-command), and every feature is also an
+[HTTP API](docs/API.md) endpoint for scripts.
 
 Use it for testing, demos, training, troubleshooting, benchmarking and application development.
 
@@ -39,7 +40,7 @@ replicating*. → [Replicate one PXC cluster into another](docs/STACKS.md#replic
 link between them. The frame the arrow points at becomes a read-only standby cluster. Its leader
 streams from every member of the source, so a failover on the source does not break it, and the
 standby has its own failover. Standbys can be chained. **Promote** on the link makes the standby
-writable. From the CLI: `--node 'patroni:3,name=site-a' --node 'patroni:3,name=site-b,standbyOf=site-a'`.
+writable. In a stack file: `nodes: ['patroni:3,name=site-a', 'patroni:3,name=site-b,standbyOf=site-a']`.
 → [Patroni standby cluster](docs/STACKS.md#patroni-standby-cluster)
 
 **A PostgreSQL operator standby on Kubernetes.** Draw the same link between two K3D frames running
@@ -136,7 +137,7 @@ the proxy links to the application behind it:
   `rw-ro`) or per Spock member (`mesh`), and supports `auth_query` and `verify-full` TLS to the
   backend.
 
-From the CLI: `--node 'patroni:3,pgvector,monitor' --node haproxy --node 'pgvectorsim,to=haproxy-01' --node pmm`.
+In a stack file: `nodes: ['patroni:3,pgvector,monitor', haproxy, 'pgvectorsim,to=haproxy-01', pmm]`.
 → [Proxies and HA](docs/STACKS.md#proxies-and-ha), [PgBouncer](docs/STACKS.md#pool-postgresql-connections-with-pgbouncer)
 
 ### Back up and restore
@@ -165,7 +166,7 @@ has to carry every Percona repository a node draws on: Percona Server 8.4 needs 
 **A bad network or a slow disk.** Any database node or member takes CPU and memory limits, disk
 read and write caps, and added latency, jitter, packet loss and a bandwidth cap on its database
 ports. They can be changed without recreating the node:
-`--node 'pxc:3,netLatencyMs=80,netJitterMs=20,netLossPct=1'`.
+`pxc:3,netLatencyMs=80,netJitterMs=20,netLossPct=1` in a stack file.
 → [Resource limits and network conditions](docs/STACKS.md#resource-limits-and-network-conditions)
 
 **Many databases in one container.** An All in One node runs standalones and clusters of one
@@ -173,10 +174,6 @@ MySQL flavor, PostgreSQL (Patroni, repmgr, Spock), PSMDB and Valkey side by side
 HAProxy and Orchestrator. Each instance has its own port, directory and systemd unit, and
 instances can be added to a running node.
 → [All in One](docs/ALL_IN_ONE.md)
-
-**Database nodes as VMs.** The hybrid backend runs database nodes as VirtualBox VMs and everything
-else as containers in the same stack.
-→ [Deployment backends](docs/STACKS.md#deployment-backends--docker-or-vagrant-hybrid)
 
 **A core-dump bench.** A Linux Client mounts a `mysqld` core and the crashed host's libraries
 read-only and installs gdb with the matching debug symbols, for the Core Dump Analyzer.
@@ -199,7 +196,7 @@ operator replication.
 ## Database stacks
 
 Every database runs on Oracle Linux 8, 9 or 10 or on Ubuntu 22.04 or 24.04, unless a row says
-otherwise. The **compose kind** is what `dbcanvas-cli stack compose --node` takes.
+otherwise. The **compose kind** is what a stack file's `nodes:` entries take.
 
 | Engine | Topologies | Versions | Compose kind |
 | --- | --- | --- | --- |
@@ -295,25 +292,41 @@ Also per engine:
 
 Every node also has a console, a file manager, its log, start / stop / restart and rebuild.
 
-## `dbcanvas-cli`
+## The `dbcanvas` command
 
-Everything above, from a terminal. Download it from your installation's **API** page or build it
-with `make cli` (which installs it as `~/.local/bin/dbcanvas-cli`); the command is `dbcanvas-cli`.
+The browser and the terminal drive the same stacks. A stack file describes a stack, as one line
+per node or as a full canvas design, and `dbcanvas up -f` creates and deploys it:
+
+```yaml
+# pxc-lab.yaml
+apiVersion: dbcanvas/v1
+kind: Stack
+name: pxc-lab
+ttl: 8h
+nodes:
+  - pxc:3,version=8.4,os=el9,monitor
+  - proxysql
+  - pmm
+```
+
+```sh
+dbcanvas up -f pxc-lab.yaml --wait   # create and deploy
+dbcanvas ls                          # your stacks
+dbcanvas export pxc-lab -o lab.yaml  # the whole design, to keep or share
+dbcanvas down pxc-lab                # remove the containers, keep the design
+dbcanvas rm pxc-lab                  # remove everything
+```
 
 | Task | Commands |
 | --- | --- |
-| Build a stack from one line per node | `stack kinds`, `stack compose NAME --node 'pxc:3,version=8.4,os=el9,monitor' --node pmm --deploy --wait` |
-| Manage stacks | `stack list`, `get`, `create --template`, `validate`, `deploy --wait`, `destroy`, `delete`, `export` |
-| Work on a node | `node list`, `console`, `exec … -- CMD`, `cp`, `start` / `stop` / `restart`, `tunnel`, `pods` |
-| Share designs | `template list`, `export`, `import` |
-| Load | `datagen run`, `query run` (several nodes at once), `benchmark run` (oltp, olap, rw, ro) |
-| Diagnose | `logs collect`, `capture start` (decoded packets, `.pcap` download), `stalk start` / `analyse`, `ftdc node` |
-| Watch | `dashboard --live`, `notifications`, `updates` |
-| Administer | `login`, `token`, `password`, `user`, `group` |
-| Anything else | `endpoints` to search the API, `api METHOD PATH` to call it |
+| Open the browser, signed in | `dbcanvas`, `dbcanvas open --print` |
+| Stacks | `ls`, `export`, `up -f FILE [--platform amd64\|arm64] [--dry-run] [--wait]`, `down`, `rm` |
+| Scripts and other programs | `token create NAME [--scope read\|write\|admin] [--own-stacks] [--label k=v] [--max-ttl 8h]`, `token ls`, `token rm` |
+| Node passwords | `passwords [NAME]` |
+| The service | `status`, `stop` |
+| Upkeep | `versions [update\|reset]`, `doctor`, `network check`, `rotate-key`, `version` |
 
-Kubernetes, kubeadm and All in One stacks come from a template or a design file rather than
-`stack compose`. Tables accept `--json`. → [`dbcanvas-cli` reference](docs/CLI.md)
+Everything else is in the [HTTP API](docs/API.md), with a token. → [The `dbcanvas` command](docs/CLI.md)
 
 > [!IMPORTANT]
 > **DBCanvas is for testing and learning, not production.** Everything it deploys is disposable:
@@ -326,44 +339,35 @@ Kubernetes, kubeadm and All in One stacks come from a template or a design file 
 
 ## Install
 
-You need **Docker** and access to its daemon socket.
+You need **Docker** and a user that can use it: Docker Engine on Linux, or Docker Desktop,
+Rancher Desktop or OrbStack on macOS (Apple Silicon included).
+
+Download `dbcanvas` for your system from the
+[releases page](https://github.com/jaimesicam/dbcanvas/releases), put it on your `PATH`, and run it:
 
 ```sh
-git clone https://github.com/jaimesicam/dbcanvas.git && cd dbcanvas
-make install-pull
+install -m 0755 dbcanvas-linux-amd64 ~/.local/bin/dbcanvas
+dbcanvas
 ```
 
-DBCanvas starts at **http://localhost:8080**. `make install-pull` pulls this release's node
-images from `ghcr.io/jaimesicam` instead of building them, so it takes minutes. They are
-published for `linux/amd64`, and the Kubeadm node for `linux/amd64` and `linux/arm64`. The demo
-application images are pulled with them.
+`dbcanvas` starts in the background, opens your browser on it signed in, and returns the prompt.
+There is nothing else to install: no containers for DBCanvas itself, no accounts, no services
+to enable. It listens on `127.0.0.1:8080` (a free port when that is taken) and answers only you,
+the tokens you create and the guests you invite. It stops by itself when no stack is deployed
+and nothing has used it for 10 minutes; the next command starts it again.
 
-To build every image yourself instead, for another platform or a changed image, run
-`make install`. It takes a while. If an image fails to build, DBCanvas still starts, and only the
-node types that need that image are unavailable.
-
-Open the URL and create an account. **The first account becomes the administrator**, and an
-administrator must approve later sign-ups.
-
-Every setting has a working default. Before you open DBCanvas to anyone else, change the
-passwords in `.env` (see [Configuration](docs/CONFIGURATION.md)).
+Node images come from `ghcr.io/jaimesicam` the first time a stack needs them. Its data and
+settings are in `~/.dbcanvas`; `dbcanvas doctor` checks the whole setup. To build it from a
+checkout instead: `make dbcanvas`, which writes `dist/dbcanvas`.
 
 ## Upgrade
 
-```sh
-git pull
-make pull-images      # this release's node images, from ghcr.io/jaimesicam
-make compose          # rebuild and restart DBCanvas
-```
+Replace the `dbcanvas` file with the new release. A running service switches to it once no
+deploy is running and no browser tab is open; `dbcanvas stop` makes that happen now. Running
+stacks keep running. The dashboard's **Check for updates** says whether a newer release exists
+and what changed.
 
-Instead of `make pull-images`, `make adopt-images` tags the images you already have for the new
-release, without downloading or rebuilding anything.
-
-Running stacks keep running during the restart.
-
-If you build your own images and the release changed an image definition, rebuild that image. `git diff --stat ORIG_HEAD -- images`
-lists the changes, and the release notes in [CHANGELOG.md](CHANGELOG.md) name the `make` target
-to run. If an image is missing, **Validate** tells you which one.
+`dbcanvas versions update` refreshes the database versions DBCanvas offers between releases.
 
 ## Your first stack
 
@@ -386,7 +390,7 @@ Give each stack a **TTL** (time to live). DBCanvas tears the stack down when it 
 ## Working with nodes
 
 - **Right-click a running node** to open a root console, open a file manager, copy its
-  `docker exec` command, start, stop or restart it, or (on a server install) copy an
+  `docker exec` command, start, stop or restart it, or (when DBCanvas runs on another machine) copy an
   `ssh -L` tunnel command.
 - **Click a node** to see its panel: address, credentials, certificate, and engine-specific
   management such as replication, users, backups and diagnostic captures.
@@ -401,7 +405,7 @@ Ways to connect:
 | **The browser** | Right-click → *Enter root console*. The database client is already installed. |
 | **Another node** | Nodes reach each other by name, for example `mysql -h ps-01.example.net -u root -p`. The **VNC** node gives you a desktop with a browser inside the stack. |
 | **Your machine** | Tick *Export … port to the host* before deploying. The node's panel shows the host port. |
-| **An SSH tunnel** | When DBCanvas runs on a server, set `SSH_FORWARDING_HOST` and copy the command from the node's menu. |
+| **An SSH tunnel** | When DBCanvas runs on another machine, set `SSH_FORWARDING_HOST` under `env:` in `config.yaml` and copy the command from the node's menu. |
 
 ## Around the databases
 
@@ -437,16 +441,16 @@ cluster misbehave on purpose and show the impact live.
 | [**Shared Sessions**](docs/SHARED_SESSIONS.md) | Share a live session through a link; others can follow, chat and take control. |
 | [**Kanban**](docs/KANBAN.md) | Private or shared boards of cards. |
 | [**HTTP API**](docs/API.md) | Every feature as an HTTP endpoint, with tokens you create. |
-| [**`dbcanvas-cli`**](docs/CLI.md) | Compose, deploy and drive stacks from a terminal. |
+| [**The `dbcanvas` command**](docs/CLI.md) | Stack files, tokens and every command. |
 
 ## Documentation
 
 - **[Getting started](docs/GETTING_STARTED.md)**: from install to a running cluster
 - [Feature guides](docs/README.md): one page per tool
-- [Configuration & commands](docs/CONFIGURATION.md): `.env`, `make` targets, troubleshooting
-- [Security model](docs/SECURITY.md): what an account can do to the host, guest sign-in, limits, tokens
+- [Configuration](docs/CONFIGURATION.md): `~/.dbcanvas`, `config.yaml`, node passwords, troubleshooting
+- [Security model](docs/SECURITY.md): what dbcanvas can do to the host, who can reach it, tokens, guests
 - [HTTP API](docs/API.md) and the [API & CLI reference](docs/API_REFERENCE.md)
-- [`dbcanvas-cli`](docs/CLI.md)
+- [The `dbcanvas` command](docs/CLI.md)
 - [Agent Skill](.claude/skills/dbcanvas/SKILL.md) for driving DBCanvas from Claude Code. It loads
   automatically in this checkout. To use it elsewhere:
 
@@ -462,7 +466,6 @@ cluster misbehave on purpose and show the impact live.
   is a privileged capability, so run DBCanvas somewhere you trust.
 - Enough CPU, memory and disk for what you deploy. An HA cluster is several containers.
 - Linux (recommended) or macOS, including Apple Silicon.
-- **Vagrant + VirtualBox**, only if you use the hybrid backend, which runs database nodes as VMs.
 
 ## License
 
@@ -471,8 +474,8 @@ Copyright © 2026 Jaime Sicam. DBCanvas is free software under the
 
 It bundles third-party software, each component under its own licence — all of them
 GPLv3-compatible. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists them. A running
-installation publishes the full texts at `/licenses/` (linked from the sign-in screen and the
-Dashboard), and the container image carries them under `/usr/share/doc/dbcanvas/`.
+installation publishes the full texts at `/licenses/` (linked from the Dashboard), and
+`~/.dbcanvas/assets/<version>/licenses` holds them on disk.
 
 ---
 

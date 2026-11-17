@@ -14,7 +14,7 @@ Open **Database Explorer** from the Menu.
 
 ## What it can reach
 
-Every running database in your stacks (every stack, for an administrator):
+Every running database in your stacks:
 
 | Tree heading | Includes |
 | --- | --- |
@@ -254,7 +254,7 @@ on a read-only connection.
 
 Both of these are needed:
 
-1. An administrator turns on **Settings → Writes to internal databases** (off by default; takes
+1. Turn on **Settings → Writes to internal databases** (off by default; takes
    effect on the next query).
 2. You press **Arm writes…** on the query tab's banner and confirm.
 
@@ -285,8 +285,7 @@ kept. An entry whose stack no longer exists cannot be rerun. Passwords are never
 - Every request is re-authorized against the stack's current state and your access to it.
 - Results are capped and queries time out.
 - Row editing requires an exact row identity, checked on the server.
-- PMM's databases are read-only at the database; writing needs the administrator setting and an
-  armed tab.
+- PMM's databases are read-only at the database; writing needs the setting and an armed tab.
 
 ## TLS
 

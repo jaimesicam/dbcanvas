@@ -3,120 +3,119 @@
 Everything the web UI does goes through this HTTP API, so anything you can click you
 can also script.
 
-The **API** page in the app lists every endpoint on your installation, with a `curl`
-line to copy, and is where you create tokens. For each feature's endpoints and the
-matching `dbcanvas-cli` command, see the [API & CLI reference](API_REFERENCE.md).
+The **API** page in the app lists every endpoint, with a `curl` line to copy, and is
+where you create and revoke tokens. For each feature's endpoints, see the
+[API reference](API_REFERENCE.md).
+
+The examples use `http://127.0.0.1:8080`, the default address. If 8080 is taken, a
+free port is chosen; `port:` in `~/.dbcanvas/config.yaml` sets it.
 
 ## Authenticate
 
+The port listens on `127.0.0.1` only, and every request needs a credential:
+
 | Credential | Sent as | Used by |
 | --- | --- | --- |
-| Session cookie | `Cookie: dbcanvas_session=…`, set by `POST /api/auth/login` | the web UI |
-| API token | `Authorization: Bearer dbc_…` | scripts, `dbcanvas-cli`, CI |
+| Session cookie | `Cookie: dbcanvas_session=…`, set by the one-time start link (`dbcanvas open`) | the web UI |
+| API token | `Authorization: Bearer dbc_…` | scripts, CI, another user of this computer |
+| Guest cookie | set by `POST /api/join/{token}` | a shared session's guests |
+| Join link | `/join/{token}` or `/api/join/{token}/…` in the path, while the session is live | a guest arriving at a shared session |
 
 ```sh
-curl -s -H "Authorization: Bearer $DBCANVAS_TOKEN" http://localhost:8080/api/stacks
+curl -s -H "Authorization: Bearer $DBCANVAS_TOKEN" http://127.0.0.1:8080/api/stacks
 ```
 
-A token acts as your account, with your permissions. It stops working when your
-account is disabled or rejected.
+Without a credential, only the start link, the licence texts and the web app's static
+files answer; every other request gets `401`. The port also answers only requests
+addressed to it by a loopback name (`127.0.0.1`, `localhost`, `[::1]`) or to the
+`publicUrl` in `config.yaml`, and refuses a cross-site write or WebSocket whose
+`Origin` is anywhere else.
 
-### As a guest
+**Signing a browser in.** `dbcanvas` (or `dbcanvas open`) opens the browser signed in.
+`dbcanvas open --print` prints the link instead. A start link, `/start/{token}`, works
+once, for a minute, and sets the session cookie.
 
-When an administrator turns on **Guest sign-in** (Settings → Access & security, off by
-default), `POST /api/auth/guest` creates a guest account of its own, without a password and with
-the user role, and signs it in, and sets the same session cookie as `POST /api/auth/login`. That session
-can create a token (`POST /api/tokens`) like any other, which is what
-`dbcanvas-cli login --guest` does. `GET /api/setup/status` says whether guest sign-in is on
-(`"guestLogin": true`), and `GET /api/me` marks the account (`"guestAccount": true`).
-
-```sh
-curl -s -c jar -X POST http://localhost:8080/api/auth/guest
-curl -s -b jar -H 'Content-Type: application/json' \
-  -d '{"name":"my script","scope":"write","days":7}' http://localhost:8080/api/tokens
-```
-
-Guests need the **API** feature in their security group to create or use a token (see
-[Security groups](#security-groups)); by default they do not have it, so an administrator
-ticks *API* for Guests first.
-
-Every guest shares the account, its stacks and its tokens. A guest token is write scope
-at most; it cannot change the account's password or profile; and it stops working, and
-is revoked, the moment an administrator turns guest sign-in off.
+**The control socket.** The `dbcanvas` command reaches the service through a control
+socket that only the owner can open, so it needs no token. A few endpoints answer on
+the control socket only and refuse the browser port: `POST /api/solo/start-link`,
+`GET /api/solo/status`, `POST /api/solo/stop` and `GET /api/solo/passwords`
+(`dbcanvas open`, `status`, `stop` and `passwords`).
 
 ## Create a token
 
-1. Open **API → Tokens** (or run `dbcanvas-cli login` or `dbcanvas-cli token create`).
-2. Give it a name, a scope and an expiry.
-3. Copy the secret. It is shown **once**: DBCanvas keeps only a hash of it, and the
-   list shows only its first characters (`dbc_` plus eight).
+```sh
+dbcanvas token create ci-runner --scope write --days 30
+```
 
-A token is `dbc_` followed by 43 characters, so secret scanners can find a leaked one.
+Or open **API → Tokens** and give it a name, a scope and an expiry.
+
+The secret is shown **once**: DBCanvas keeps only a hash of it, and the list shows only
+its first characters (`dbc_` plus eight). A token is `dbc_` followed by 43 characters,
+so secret scanners can find a leaked one.
+
+`dbcanvas token ls` lists your tokens; `dbcanvas token rm ID` revokes one.
 
 ### Scopes
 
 | Scope | Can call |
 | --- | --- |
 | `read` | every `GET`, plus `POST`s that change nothing (validate, compare, preview, a lab step check) |
-| `write` | everything your account can do |
-| `admin` | also the administrator endpoints: `/api/users/*`, `/api/admin/*`, `PUT /api/system/settings`, `POST /api/images/{id}/build`, `POST /api/stacks/{id}/owner`. Only an administrator can create one. |
+| `write` | everything the web UI can do, except the endpoints `admin` adds |
+| `admin` | also the owner-only endpoints: `PUT /api/system/settings`, `POST /api/images/{id}/build`, `GET /api/system/doctor` |
 
-A token with too narrow a scope gets `403` naming the scope it needs. A token's scope
-is also capped by its owner's current role: when an administrator is demoted, their
-`admin` tokens act as `write` tokens.
+`dbcanvas token create` uses `write` unless `--scope` says otherwise. A token with too
+narrow a scope gets `403` naming the scope it needs.
 
 ### Expiry
 
-The UI offers 7, 30, 60 or 90 days, and **Never** for administrators. Through the API
-you can send any number of `days`. Every dated token is capped by the instance-wide
-**API token lifetime** in **Settings** (default 90 days, 1–365); a longer request is
-shortened, not refused.
+`dbcanvas token create` sets 30 days unless `--days` says otherwise; `--days 0` never
+expires. The API page offers 7, 30, 60 or 90 days, and **Never**. Every dated token is
+capped by the **API token lifetime** in **Settings** (`maxTokenDays`, default 90 days,
+1–365); a longer request is shortened, not refused.
 
-An expired or revoked token stays in your list, marked as such, for 30 days and is
-then deleted.
+An expired or revoked token stays in the list, marked as such, for 30 days and is then
+deleted.
 
-### Limit a token to some stacks
+### Limit a token
 
-A token can also be limited to the stacks it creates itself, and/or to stacks carrying given
-labels. Pass `"limit": {"ownStacks": true, "labels": {"tool": "ci"}}` to `POST /api/tokens`, or use
-`dbcanvas-cli token create --own-stacks --limit-label tool=ci`.
+A token can be narrowed further:
 
-- **What it can call:** a limited token may call any route of a stack within its limit, list
-  stacks (filtered to its limit), create and compose stacks, and read the catalogues and
-  `/api/me`. Everything else answers `403`, whatever its scope.
-- **Labels on new stacks:** a stack it creates gets its labels, and it cannot set labels that
-  would drop them.
+| Limit | `dbcanvas token create` | `POST /api/tokens` `"limit"` |
+| --- | --- | --- |
+| Only the stacks it creates itself | `--own-stacks` | `"ownStacks": true` |
+| Only stacks carrying these labels | `--label tool=ci` (repeatable) | `"labels": {"tool": "ci"}` |
+| The longest a stack it creates may live | `--max-ttl 8h` | `"maxTtl": "8h"` |
+| Node types it may not deploy | `--deny pmm,k3d` | `"deny": ["pmm", "k3d"]` |
+
+- **What a stack-limited token can call:** any route of a stack within its limit, the
+  stack list (filtered to its limit), creating and composing stacks, and the read-only
+  discovery routes: the version catalogues, the design catalogue, templates, `/api/me`
+  and `/api/meta`. Everything else answers `403`, whatever its scope.
+- **Labels on new stacks:** a stack it creates gets its labels, and it cannot set
+  labels that would drop them.
+- **`maxTtl`:** a stack it creates cannot be set to never expire, and cannot be
+  extended.
 
 ### Revoke a token
 
-Revoking is immediate. You can revoke your own tokens; an administrator can revoke
-anyone's under **API → All tokens**, and the owner is notified. Disabling or rejecting
-an account revokes its tokens and its sessions together.
+Revoking is immediate: `dbcanvas token rm ID`, the API page, or
+`DELETE /api/tokens/{id}`. A revoked token stays listed as revoked.
 
 ## What a token can never do
 
-These endpoints refuse a token, whatever its scope, and need a password sign-in:
+These endpoints refuse a token, whatever its scope. They need the owner's browser
+session or the control socket:
 
-| Endpoint | Why |
+| Endpoint | What it does |
 | --- | --- |
-| `POST /api/tokens` | create a token (`dbcanvas-cli token create` and `dbcanvas-cli login` ask for your password) |
-| `POST /api/me/password` | change your password (`dbcanvas-cli password` asks for the current one) |
-| `POST /api/users`, `POST /api/users/{id}/password`, `POST /api/users/{id}/reset-link` | create an account, or set or reset someone else's password |
+| `POST /api/tokens` | create a token (`dbcanvas token create`) |
 | `POST /api/share/sessions`, `POST /api/stacks/{id}/share`, `POST /api/share/sessions/{sid}/link` | start a shared session or issue its link |
-
-Changing your password needs your **current** password. It signs out every other
-session and keeps yours. API tokens keep working unless you send `revokeTokens`
-(`--revoke-tokens` in the CLI, or **Also revoke my API tokens** on the **Profile**
-page).
-
-An account given a temporary password gets `403` on everything else until it sets
-its own.
 
 ## Find an endpoint
 
 ```sh
 curl -s -H "Authorization: Bearer $DBCANVAS_TOKEN" \
-  http://localhost:8080/api/meta/endpoints | jq '.groups[].name'
+  http://127.0.0.1:8080/api/meta/endpoints | jq '.groups[].name'
 ```
 
 | Endpoint | Returns |
@@ -124,8 +123,7 @@ curl -s -H "Authorization: Bearer $DBCANVAS_TOKEN" \
 | `GET /api/meta/endpoints` | every endpoint, grouped by feature, with a one-line summary, path parameters, the scope it needs and how it is called |
 | `GET /api/meta/openapi.json` | the same, as an OpenAPI 3.1 document for generated clients, Postman or Bruno. Request and response bodies are declared as free-form JSON. |
 | `GET /api/stacks/design/catalog` | every node and cluster type a design can hold, its options, relations and lines — see [the design catalogue](API_REFERENCE.md#the-design-catalogue-and-editing-a-design-one-piece-at-a-time) |
-
-`dbcanvas-cli endpoints` prints the catalogue in a terminal.
+| `GET /api/cli/help` | the `dbcanvas` command's usage, as `dbcanvas help` prints it |
 
 ## Endpoints that are not plain JSON
 
@@ -134,9 +132,9 @@ Most endpoints take and return JSON. The catalogue marks the others:
 | Kind | Examples | How to call it |
 | --- | --- | --- |
 | Upload | `…/fs/upload`, `/api/pktinspect/upload`, `/api/ftdc/upload` | `multipart/form-data`: `curl -F file=@capture.pcap` |
-| Download | `…/download`, `…/export`, `…/raw` | an attachment: `curl -OJ` |
+| Download | `…/download`, `…/export`, `…/stackfile`, `…/raw` | an attachment: `curl -OJ` |
 | Raw bytes | `POST /api/share/recordings/{rid}/chunks` | the request body is the bytes |
-| Event stream | `GET /api/notifications/stream` | `text/event-stream`; each event's data is one notification as JSON |
+| Event stream | `GET /api/notifications/stream`, `GET /api/stacks/events` | `text/event-stream`; each event's data is one JSON object |
 | WebSocket | `…/term`, `…/gdb/ws`, `…/k3d/debug/ws`, `/api/share/sessions/{sid}/ws` | send the `Authorization` header on the handshake; there is no `?token=` parameter. Browsers use the session cookie. |
 
 ## Status codes
@@ -144,120 +142,62 @@ Most endpoints take and return JSON. The catalogue marks the others:
 | Code | Means |
 | --- | --- |
 | `400` | a bad body or parameter; `error` says which |
-| `401` | not signed in, or the token is unknown, expired or revoked |
-| `403` | not permitted: not your stack, not an administrator, a token scope too narrow, or an endpoint that refuses tokens |
+| `401` | no credential, or the token is unknown, expired or revoked |
+| `403` | not permitted: a token scope or limit too narrow, an endpoint that refuses tokens, a control-socket-only endpoint, or a cross-site request |
 | `404` | no such stack, node, capture or token — or no such endpoint (a mistyped path, or the right path with the wrong method) |
-| `409` | wrong state for the request, for example the node is not running, or a stack name you already use |
-| `410` | the stack was deleted: `deleted` says when, by whom and why (`user`, `admin`, `account`, `guest-idle`); kept 30 days |
+| `409` | wrong state for the request, for example the node is not running, or a stack name already in use |
+| `410` | the stack was deleted: `deleted` says when and how; kept 30 days |
+| `421` | the request was addressed to a host name other than the port's own |
 | `502` | an outside service could not be reached (the update check) |
 
 Errors are always `{"error": "…"}`.
 
-## Who can reach what
-
-A stack belongs to the account that created it. You can reach your own stacks; an
-administrator can reach any. A token sees exactly what its owner sees in the UI.
-
-These need no sign-in: `GET /api/setup/status`, `POST /api/setup`,
-`POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/guest`, `POST /api/auth/logout`,
-`GET`/`POST /api/auth/reset/{token}`, and the `/api/join/{token}` endpoints a shared
-session's guests use.
-
-## Security groups
-
-Every account is in one of three groups: **Administrators** (role `admin`), **Regular
-Users** (role `user`) and **Guests** (every guest account). An administrator decides
-which features — the pages of the app — each group may use, under Settings → Security
-groups, with `PUT /api/security/groups`, or with `dbcanvas-cli group set`.
-
-The server enforces it on every request. A route that belongs to a feature the caller's
-group does not have answers `403` with `your security group (Guests) does not have access
-to Kanban`, whether the request came from the browser, a token or `dbcanvas-cli`. A few
-routes belong to no feature and are always allowed: who you are (`/api/me`,
-`/api/setup/status`), your preferences, notifications and signing out.
-
-**API** is the feature that lets a group use API tokens at all. Without it, creating a token
-(and so `dbcanvas-cli login`) is refused, and so is every request made with a token the account
-already holds.
-
-| Group | Default |
-| --- | --- |
-| Administrators | everything |
-| Regular Users | everything but Manage Users |
-| Guests | Dashboard and Database Stacks |
-
-Some cells are fixed. Administrators always keep **Settings** and **Manage Users**, so nobody
-can lock every administrator out. No other group can be given **Manage Users**, because
-managing accounts includes making an administrator. Most tools work on a deployed stack, so
-they need **Database Stacks**: granting one grants Database Stacks, and removing Database
-Stacks removes them.
-
-```sh
-curl -s -H "Authorization: Bearer $ADMIN_TOKEN" http://localhost:8080/api/security/groups
-curl -s -X PUT -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
-  -d '{"allowed":{"guest":{"kanban":true,"api":true}}}' http://localhost:8080/api/security/groups
-```
-
-Cells you leave out keep their value. `GET /api/setup/status` lists the features the caller
-may use (`features`) and their group (`securityGroup`).
-
 ## Stacks for programs
 
-**Names.** An account's stack names are unique, compared without regard to case. Creating,
-renaming or transferring onto a name in use answers `409`, naming the existing stack's id. Every
-route takes the stack's id, which never changes.
+**Names.** Stack names are unique, compared without regard to case. Creating or
+renaming onto a name in use answers `409`, naming the existing stack's id. Every route
+takes the stack's id, which never changes.
 
 **Labels.** Labels are `key=value` tags a program can find its stacks by.
 
-- **Set:** on `POST /api/stacks` or a compose spec as `"labels": {"tool": "ci", "run": "12"}`, or
-  replace them with `PUT /api/stacks/{id}/labels`.
-- **Select:** `GET /api/stacks?label=tool=ci&label=run` keeps the stacks carrying every term (`run`
-  alone means any value).
-- **Rules:** keys are lowercase letters, digits and `. _ / -` (up to 63 characters); values are up
-  to 128 characters. A stack carries at most 32 labels.
-- **CLI:** `stack compose|create --label k=v`, `stack list --label k=v`, `stack label <stack>
-  k=v k-`, and `stack destroy|delete --label k=v` for every match.
-- **Web:** the stack list shows each stack's labels under its name. The pencil beside them edits
-  them, one `key=value` a line.
+- **Set:** on `POST /api/stacks`, a compose spec or a stack file as
+  `"labels": {"tool": "ci", "run": "12"}`, or replace them with
+  `PUT /api/stacks/{id}/labels`.
+- **Select:** `GET /api/stacks?label=tool=ci&label=run` keeps the stacks carrying every
+  term (`run` alone means any value).
+- **Rules:** keys are lowercase letters, digits and `. _ / -` (up to 63 characters);
+  values are up to 128 characters. A stack carries at most 32 labels.
+- **Web:** the stack list shows each stack's labels under its name. The pencil beside
+  them edits them, one `key=value` a line.
 
-**Events.** `GET /api/stacks/events` is a server-sent event stream of your stacks' lifecycle:
-`created`, `deploying`, `destroyed`, `deleted` (with `reason` and `by`), `expired`, `extended` and
-`labels`. Each event carries the stack's id, name, owner and labels. `?label=` narrows it, and an
-administrator's `?all=1` covers every stack. `dbcanvas-cli stack events` follows it. A stack that
-was deleted answers `410` with how it went, instead of `404`.
+**Stack files.** `GET /api/stacks/{id}/stackfile` returns a stack as YAML
+(`dbcanvas export STACK`); `POST /api/stacks/apply` `{"file": "<YAML or JSON>",
+"dryRun": false}` creates the stack or saves the file's design over the one of that
+name (`dbcanvas up -f FILE`, which then deploys).
 
-## Limits and checks (administrators)
+**Events.** `GET /api/stacks/events` is a server-sent event stream of your stacks'
+lifecycle: `created`, `deploying`, `destroyed`, `deleted` (with `reason`), `expired`,
+`extended` and `labels`. Each event carries the stack's id, name and labels. `?label=`
+narrows it. A stack that was deleted answers `410` with how it went, instead of `404`.
 
-**Limits per security group.** `GET`/`PUT /api/security/policies` (`dbcanvas-cli group policy`)
-sets, per group:
+## Doctor
 
-- `maxTtl`: the longest lifetime a stack is created or extended with
-- `maxStacks`: stacks per account
-- `maxContainers`: deployed nodes per account
-- `deniedNodeTypes`: node and cluster types the group may not deploy (refused at validation)
-
-Empty or 0 is no limit. See [Security model](SECURITY.md).
-
-**Doctor.** `GET /api/system/doctor` (`dbcanvas-cli doctor`) checks:
+`GET /api/system/doctor` (admin scope; `dbcanvas doctor` also checks the data folder,
+networks and the service) checks:
 
 - Docker
 - the node images for this release
 - the version catalogue's age
-- passwords still at their `.env.example` value
+- the node account passwords
 - the encryption key
-- exposure and sign-in settings
-- the CLI and Big Hole files
+- the bundled files
 
 Each check is `ok`, `warn` or `fail`, and every one that is not `ok` says what to do.
-
-**The CLI download.** `GET /api/cli/download` sends `X-Checksum-Sha256` (and `Digest`) and
-`X-DBCanvas-Version`. `GET /api/cli/checksums` lists every shipped binary's SHA-256 in `sha256sum`
-format.
 
 ## Example: deploy a stack and wait for it
 
 ```sh
-API=http://localhost:8080
+API=http://127.0.0.1:8080
 AUTH="Authorization: Bearer $DBCANVAS_TOKEN"
 
 # Create a stack from a built-in template, with a 4-hour lifetime
@@ -278,5 +218,4 @@ curl -s -H "$AUTH" $API/api/stacks/$ID | jq '.deployments[] | {nodeId, state}'
 curl -s -H "$AUTH" -X POST $API/api/stacks/$ID/destroy
 ```
 
-`dbcanvas-cli stack create api-demo --template "PXC + ProxySQL + PMM" --ttl 4h --deploy --wait`
-does the same in one line — see [`dbcanvas-cli`](CLI.md).
+With a stack file, `dbcanvas up -f api-demo.yaml --wait` does the same in one line.

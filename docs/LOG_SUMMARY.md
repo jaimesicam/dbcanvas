@@ -447,20 +447,19 @@ The bundle is re-read with the corrected times.
 
 ---
 
-## CLI and API
+## API
 
-From [`dbcanvas-cli`](CLI.md):
+With an API token (`dbcanvas token create`; see [the API](API.md)):
 
+```sh
+API=http://127.0.0.1:8080
+AUTH="Authorization: Bearer $DBCANVAS_TOKEN"
+
+curl -s -H "$AUTH" $API/api/logsummary/targets
+curl -s -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"stackId": 1, "nodeIds": ["<node-id>", "<node-id>"]}' $API/api/logsummary/collect
+curl -s -H "$AUTH" "$API/api/logsummary/bundles/<bundle-id>/events?sev=bad,warn&limit=50"
 ```
-dbcanvas-cli logs targets
-dbcanvas-cli logs collect <stack> --nodes pxc-01,pxc-02,pxc-03
-dbcanvas-cli logs list
-dbcanvas-cli logs get <bundle-id>
-dbcanvas-cli logs events <bundle-id> --severity bad,warn --limit 50
-dbcanvas-cli logs delete <bundle-id>
-```
-
-Without `--nodes`, `logs collect` reads every node in the stack that has logs to read.
 
 | Method | Path | Purpose |
 | --- | --- | --- |

@@ -138,13 +138,17 @@ The **Manifests** pane lists and shows these files.
 ## API
 
 Every action has an endpoint under the frame — see
-[API & CLI reference](API_REFERENCE.md#kubernetes-frames).
+[API reference](API_REFERENCE.md#kubernetes-frames).
 
 ```sh
+API=http://127.0.0.1:8080
+AUTH="Authorization: Bearer $DBCANVAS_TOKEN"   # dbcanvas token create
+
 # take a backup, then watch its state
-dbcanvas-cli api POST /api/stacks/1/frames/k3d-01/k3d/backups --data '{}'
-dbcanvas-cli api GET  /api/stacks/1/frames/k3d-01/k3d/backups | jq '.backups[] | {name, state, destination}'
+curl -s -H "$AUTH" -H 'Content-Type: application/json' -d '{}' \
+  $API/api/stacks/1/frames/k3d-01/k3d/backups
+curl -s -H "$AUTH" $API/api/stacks/1/frames/k3d-01/k3d/backups | jq '.backups[] | {name, state, destination}'
 
 # list the bucket under a prefix
-dbcanvas-cli api GET '/api/stacks/1/frames/k3d-01/k3d/bucket?prefix=cluster1-2026-09-11'
+curl -s -H "$AUTH" "$API/api/stacks/1/frames/k3d-01/k3d/bucket?prefix=cluster1-2026-09-11"
 ```
