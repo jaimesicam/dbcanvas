@@ -1071,15 +1071,6 @@ func (a *App) handleComposeStack(w http.ResponseWriter, r *http.Request) {
 			"ttl must be one of 2h, 4h, 8h, 24h, 2w, infinity")
 		return
 	}
-	// The security group's limits (grouppolicy.go), before anything is resolved.
-	if ok, why := a.policyFor(u).ttlAllowed(ttl); !ok {
-		writeErr(w, http.StatusForbidden, why)
-		return
-	}
-	if ok, why := a.stackCountAllowed(u); !ok {
-		writeErr(w, http.StatusForbidden, why)
-		return
-	}
 
 	doc, pos, resolved, added, err := buildCompose(spec)
 	if err != nil {

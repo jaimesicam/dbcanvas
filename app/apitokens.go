@@ -500,18 +500,11 @@ func (a *App) requireScope(rt apiRoute, next http.HandlerFunc) http.HandlerFunc 
 			return
 		}
 		if bearerToken(r) == "" {
-			// A cookie session is resolved here once, so the password-change gate can
-			// see it, and stashed so the handler's currentUser does not look it up again.
+			// A cookie session is resolved here once, and stashed so the handler's
+			// currentUser does not look it up again.
 			if rt.Auth != authPublic {
 				if c, err := r.Cookie(cookieName); err == nil && c.Value != "" {
 					if u, err := a.store.SessionUser(c.Value); err == nil {
-						if !passwordGateAllows(u, rt) {
-							writeErr(w, http.StatusForbidden, errPasswordChangeRequired)
-							return
-						}
-						if !a.guestGate(w, u, rt) || !a.featureGate(w, u, rt, false) {
-							return
-						}
 						r = withPrincipal(r, principal{User: u})
 					}
 				}
@@ -526,14 +519,7 @@ func (a *App) requireScope(rt apiRoute, next http.HandlerFunc) http.HandlerFunc 
 		}
 		if rt.NoToken {
 			writeErr(w, http.StatusForbidden,
-				"this endpoint cannot be used with an API token — sign in with a password")
-			return
-		}
-		if !passwordGateAllows(u, rt) {
-			writeErr(w, http.StatusForbidden, errPasswordChangeRequired)
-			return
-		}
-		if !a.guestGate(w, u, rt) || !a.featureGate(w, u, rt, true) {
+				"this endpoint cannot be used with an API token — open dbcanvas in the browser")
 			return
 		}
 		if have := effectiveScope(tok, u); !scopeAllows(have, need) {
@@ -719,39 +705,6 @@ func (a *App) handleRevokeToken(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "failed to revoke token")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"status": "revoked"})
-}
-
-func (a *App) handleAdminListTokens(w http.ResponseWriter, r *http.Request) {
-	tokens, err := a.store.ListAllAPITokens()
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "failed to list tokens")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"tokens": tokens})
-}
-
-func (a *App) handleAdminRevokeToken(w http.ResponseWriter, r *http.Request) {
-	id, err := pathID(r)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid token id")
-		return
-	}
-	tok, err := a.store.GetAPIToken(id)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeErr(w, http.StatusNotFound, "token not found")
-			return
-		}
-		writeErr(w, http.StatusInternalServerError, "failed to read token")
-		return
-	}
-	if err := a.store.RevokeAPIToken(id); err != nil {
-		writeErr(w, http.StatusInternalServerError, "failed to revoke token")
-		return
-	}
-	a.notify(Notification{UserID: tok.UserID, Scope: "user", Type: "token.revoked", Severity: "warning",
-		Title: "API token revoked", Body: "An administrator revoked " + tok.Name + "."})
 	writeJSON(w, http.StatusOK, map[string]any{"status": "revoked"})
 }
 

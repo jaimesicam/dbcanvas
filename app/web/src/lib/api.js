@@ -33,52 +33,17 @@ async function request(method, path, body) {
 export const api = {
   status: () => request('GET', '/api/setup/status'),
   // profile: { firstName, lastName, avatar } (app/profile.go)
-  setup: (username, password, profile = {}) => request('POST', '/api/setup', { username, password, ...profile }),
-  register: (username, password, profile = {}) => request('POST', '/api/auth/register', { username, password, ...profile }),
   updateProfile: (profile) => request('PUT', '/api/me/profile', profile),
-  login: (username, password) => request('POST', '/api/auth/login', { username, password }),
-  // Sign in as a guest (a guest account of its own), when an administrator turned it on (app/guestlogin.go).
-  guestLogin: () => request('POST', '/api/auth/guest'),
-  // Security groups (app/secgroups.go): admin only.
-  securityGroups: () => request('GET', '/api/security/groups'),
-  saveSecurityGroups: (allowed) => request('PUT', '/api/security/groups', { allowed }),
-  // Each group's limits (app/grouppolicy.go): admin only.
-  groupPolicies: () => request('GET', '/api/security/policies'),
-  saveGroupPolicies: (policies) => request('PUT', '/api/security/policies', { policies }),
   logout: () => request('POST', '/api/auth/logout'),
   me: () => request('GET', '/api/me'),
   settings: () => request('GET', '/api/me/settings'),
   saveSettings: (s) => request('PUT', '/api/me/settings', s),
-  // Instance-wide settings (app/syssettings.go). Readable by anyone signed in;
-  // saving is admin-only and 403s otherwise.
+  // Instance-wide settings (app/syssettings.go).
   systemSettings: () => request('GET', '/api/system/settings'),
   saveSystemSettings: (s) => request('PUT', '/api/system/settings', s),
-  listUsers: () => request('GET', '/api/users'),
-  setUserStatus: (id, action) => request('POST', `/api/users/${id}/${action}`),
-  deleteUser: (id) => request('DELETE', `/api/users/${id}`),
-  // An admin acting on someone else's account (app/useradmin.go).
-  // body: { username, role, firstName, lastName, email, avatar, password? }
-  createUser: (body) => request('POST', '/api/users', body),
-  updateUser: (id, body) => request('PUT', `/api/users/${id}`, body),
-  setUserRole: (id, role) => request('POST', `/api/users/${id}/role`, { role }),
-  setUserPassword: (id, newPassword, revokeTokens, requireChange) =>
-    request('POST', `/api/users/${id}/password`, { newPassword, revokeTokens, requireChange }),
-  listUserSessions: (id) => request('GET', `/api/users/${id}/sessions`),
-  endUserSessions: (id) => request('DELETE', `/api/users/${id}/sessions`),
-  endUserSession: (id, sid) => request('DELETE', `/api/users/${id}/sessions/${sid}`),
-  clearSignInHistory: (id) => request('DELETE', `/api/users/${id}/sign-ins`),
-  clearAllSignInHistory: () => request('DELETE', '/api/users/sign-ins'),
-  endAllSessions: () => request('DELETE', '/api/users/sessions'),
-  createResetLink: (id) => request('POST', `/api/users/${id}/reset-link`),
-  resetLinkInfo: (token) => request('GET', `/api/auth/reset/${encodeURIComponent(token)}`),
-  useResetLink: (token, newPassword) => request('POST', `/api/auth/reset/${encodeURIComponent(token)}`, { newPassword }),
   // Release notes (app/whatsnew.go). The server decides whether there is anything
   // unread, so the client never has to compare version strings — getting that
   // subtly wrong would re-open the dialog on every page load.
-  // Changing your own password (app/password.go). Deliberately cookie-only on the
-  // server, so this cannot be done with an API token.
-  changePassword: (currentPassword, newPassword, revokeTokens) =>
-    request('POST', '/api/me/password', { currentPassword, newPassword, revokeTokens }),
   whatsNew: () => request('GET', '/api/whatsnew'),
   markWhatsNewSeen: () => request('POST', '/api/whatsnew/seen'),
   // Asks the server to check GitHub for a newer build (app/updatecheck.go). Only

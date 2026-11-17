@@ -90,12 +90,6 @@ func TestCredentialsAreSealedAtRest(t *testing.T) {
 	if ms, err := st.ListShareMessages(sess.ID, 0); err != nil || len(ms) != 1 || ms[0].Body != "the password is hunter2" || ms[0].Author != "Bob" {
 		t.Errorf("messages = %+v, %v", ms, err)
 	}
-	if err := st.SetUserPassword(u.ID, "$2a$10$new"); err != nil {
-		t.Fatal(err)
-	}
-	if _, h, _ := st.CredByUsername("alice"); h != "$2a$10$new" {
-		t.Errorf("after SetUserPassword: %q", h)
-	}
 	if err := st.DeleteSession("tok-abc"); err != nil {
 		t.Fatal(err)
 	}

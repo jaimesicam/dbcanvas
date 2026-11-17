@@ -301,12 +301,8 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id, id DESC);`
 		return nil, err
 	}
 	db.Exec("ALTER TABLE scratchboards ADD COLUMN rev INTEGER NOT NULL DEFAULT 1")
-	// Password reset links an admin issues (useradmin.go).
-	if _, err := db.Exec(passwordResetSchema); err != nil {
-		db.Close()
-		return nil, err
-	}
-	db.Exec("ALTER TABLE password_resets ADD COLUMN purpose TEXT NOT NULL DEFAULT 'reset'")
+	// Password reset links belonged to accounts, which dbcanvas no longer has.
+	db.Exec("DROP TABLE IF EXISTS password_resets")
 	// The watcher's history, timeline and alerts (livewatch.go).
 	if _, err := db.Exec(watchSchema); err != nil {
 		db.Close()

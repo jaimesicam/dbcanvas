@@ -89,22 +89,3 @@ func TestStartLinkWorksOnce(t *testing.T) {
 		t.Errorf("expired link: %d", rec.Code)
 	}
 }
-
-func TestSoloRefusesPasswordRoutes(t *testing.T) {
-	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusTeapot) })
-	h := soloRefusePasswords(ok)
-	for _, c := range []struct {
-		method, path string
-		want         int
-	}{
-		{"POST", "/api/setup", 404}, {"POST", "/api/auth/login", 404}, {"POST", "/api/auth/register", 404},
-		{"POST", "/api/auth/guest", 404}, {"GET", "/api/auth/reset/abc", 404}, {"POST", "/api/join/abc/account", 404},
-		{"GET", "/api/setup/status", 418}, {"POST", "/api/auth/logout", 418}, {"POST", "/api/join/abc", 418},
-	} {
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, httptest.NewRequest(c.method, c.path, nil))
-		if rec.Code != c.want {
-			t.Errorf("%s %s: %d, want %d", c.method, c.path, rec.Code, c.want)
-		}
-	}
-}

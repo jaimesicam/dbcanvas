@@ -37,7 +37,6 @@ import SampleCode from './pages/SampleCode.jsx'
 import StalkSummary from './pages/StalkSummary.jsx'
 import LogSummary from './pages/LogSummary.jsx'
 import FTDCSummary from './pages/FTDCSummary.jsx'
-import ManageUsers from './pages/ManageUsers.jsx'
 import Settings from './pages/Settings.jsx'
 import Api from './pages/Api.jsx'
 import Profile from './pages/Profile.jsx'
@@ -79,11 +78,10 @@ export const NAV = [
   // workspace rather than the height of its own content — see <main> below.
   { id: 'k8s-states', label: 'Kubernetes States', icon: 'K8sStates', page: K8sStates, fill: true, hint: 'A live board of every object in a Kubernetes cluster — red for what is broken, lit for what just changed' },
   { id: 'api', label: 'API', icon: 'Code', page: Api, hint: 'Every endpoint, and the tokens that authenticate against them' },
-  // Your account: name, avatar, password, tokens. Settings is how the app behaves.
-  { id: 'profile', label: 'Profile', icon: 'User', page: Profile, hint: 'Your name, avatar, password and API tokens' },
+  // You: name and avatar (what a shared session's guests see), and API tokens. Settings is how the app behaves.
+  { id: 'profile', label: 'Profile', icon: 'User', page: Profile, hint: 'Your name, avatar and API tokens' },
   { id: 'settings', label: 'Settings', icon: 'Settings', page: Settings, hint: 'Terminal & appearance preferences' },
 ]
-const ADMIN_NAV = { id: 'users', label: 'Manage Users', icon: 'Users', page: ManageUsers, hint: 'Approve & manage accounts' }
 
 // App mounts the providers and Workspace is what lives inside them. They are two
 // components rather than one because a component cannot use a context it renders
@@ -113,10 +111,10 @@ export default function App({ onSessionEnded }) {
 // A shared-session guest acts as the host but never reaches the host's account: these
 // pages are the host's own (their settings, their API tokens, other users), and the
 // server refuses what they would do (app/share.go), so they are not offered.
-const GUEST_HIDDEN = new Set(['settings', 'api', 'users', 'profile'])
+const GUEST_HIDDEN = new Set(['settings', 'api', 'profile'])
 
 function Workspace({ onSessionEnded }) {
-  const { user, logout, guest, features } = useAuth()
+  const { user, logout, guest } = useAuth()
   const session = useSession()
   const { settings, system } = useSettings()
   const isAdmin = user?.role === 'admin'
@@ -124,13 +122,8 @@ function Workspace({ onSessionEnded }) {
   // strip's labels, the pages the tabs mount, and the command palette. A hidden
   // page is therefore not reachable by #hash either — the lookup falls through to
   // the dashboard — which is the point of hiding it.
-  const nav = visible(isAdmin ? [...NAV, ADMIN_NAV] : NAV, showExperimental(system))
+  const nav = visible(NAV, showExperimental(system))
     .filter((n) => !guest || !GUEST_HIDDEN.has(n.id))
-    // Security groups (app/secgroups.go): only the pages this account's group may
-    // use. The server refuses the rest anyway; this keeps them out of sight. Settings
-    // stays for everyone: its preference tabs are every account's own, and the group's
-    // Installation settings decides only whether the installation's tabs show.
-    .filter((n) => !features || features.includes(n.id) || n.id === 'settings')
 
   // Tabs. A tab is { key, id }: the id says which page, the key is what makes two
   // tabs of the *same* page possible — three benchmarks at once was the case that

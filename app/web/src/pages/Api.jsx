@@ -103,7 +103,6 @@ export function Tokens({ isAdmin, onRole }) {
         </Card>
       </div>
 
-      {isAdmin && <AdminTokens onError={setErr} />}
     </div>
   )
 }
@@ -273,22 +272,6 @@ export function TokenTable({ tokens, onRevoke, showOwner = false }) {
         is what tells you why.
       </p>
     </div>
-  )
-}
-
-export function AdminTokens({ onError }) {
-  const [tokens, setTokens] = useState(null)
-  const load = useCallback(() => apiApi.adminTokens().then((d) => setTokens(d.tokens)).catch((e) => onError(e.message)), [onError])
-  useEffect(() => { load() }, [load])
-  useRefresh(load)
-
-  const revoke = async (id) => {
-    try { await apiApi.adminRevokeToken(id); load() } catch (e) { onError(e.message) }
-  }
-  return (
-    <Card title="All tokens" subtitle="Every account on this installation — administrators only">
-      <TokenTable tokens={tokens} onRevoke={revoke} showOwner />
-    </Card>
   )
 }
 

@@ -128,11 +128,11 @@ import { goHighlight, TOKEN_CLS, STATUS_TONE, STATUS_TEXT, shortFrameName } from
 import Api, {
   Tokens as ApiTokens, CreateToken as ApiCreateToken, TokenTable as ApiTokenTable,
   FreshSecret as ApiFreshSecret, Endpoints as ApiEndpoints, EndpointRow as ApiEndpointRow,
-  Snippet as ApiSnippet, GettingStarted as ApiGettingStarted, AdminTokens as ApiAdminTokens,
+  Snippet as ApiSnippet, GettingStarted as ApiGettingStarted,
   CliCommands as ApiCliCommands, CliHelpText as ApiCliHelpText,
 } from '../src/pages/Api.jsx'
 import WhatsNew, { WhatsNewLink } from '../src/components/WhatsNew.jsx'
-import { ChangePassword as SettingsChangePassword, LookOptions, TabLimit, TooltipOptions, TOOLTIP_MODES, TerminalOnTopOptions, TERMINAL_ON_TOP_MODES } from '../src/pages/Settings.jsx'
+import { LookOptions, TabLimit, TooltipOptions, TOOLTIP_MODES, TerminalOnTopOptions, TERMINAL_ON_TOP_MODES } from '../src/pages/Settings.jsx'
 import { windowZ } from '../src/wm/WindowManager.jsx'
 import { LOOKS, THEMES } from '../src/theme/ThemeProvider.jsx'
 import {
@@ -4646,8 +4646,6 @@ check('refresh: every page with server data offers the top-bar Refresh', () => {
     const text = readFileSync(new URL(`../src/pages/${file}.jsx`, import.meta.url), 'utf8')
     if (!/useRefresh\(/.test(text)) missing.push(file)
   }
-  const users = readFileSync(new URL('../src/pages/ManageUsers.jsx', import.meta.url), 'utf8')
-  if (!/useRefresh\(/.test(users)) missing.push('ManageUsers')
   if (missing.length) throw new Error(`these pages register no refresh: ${missing.join(', ')}`)
 
   // Outside a provider the hook is inert, so a page renders anywhere.
@@ -5118,8 +5116,8 @@ check('api page: getting started, with the CLI downloads', () => {
   return html
 })
 
-check('api page: the endpoint browser and the admin token list mount before their fetch lands', () =>
-  renderToString(<ApiEndpoints />) + renderToString(<ApiAdminTokens onError={() => {}} />))
+check('api page: the endpoint browser mounts before its fetch lands', () =>
+  renderToString(<ApiEndpoints />))
 
 check('api page: curl lines suit the media kind', () => {
   const by = Object.fromEntries(apiEndpoints.map((ep) => [`${ep.method} ${ep.path}`, ep]))
@@ -5225,26 +5223,6 @@ check('settings: the look picker', () => {
   // saved preference for one would validate as the other.
   for (const t of THEMES) {
     if (LOOKS.some((l) => l.id === t.id)) throw new Error(`${t.id} is both a theme and a look`)
-  }
-  return html
-})
-
-check('settings: the change-password form', () => {
-  const html = renderToString(<SettingsChangePassword />)
-  // Three password inputs, and the browser told which is which — otherwise a
-  // password manager offers to fill the current one into the new field.
-  if ((html.match(/type="password"/g) || []).length !== 3) {
-    throw new Error('expected three password inputs')
-  }
-  // Matched case-insensitively: the attribute is written autoComplete in JSX and
-  // React's server renderer keeps that casing, which HTML treats as the same
-  // attribute but a case-sensitive regex does not.
-  if (!/autocomplete="current-password"/i.test(html) || !/autocomplete="new-password"/i.test(html)) {
-    throw new Error('the password fields are not labelled for password managers')
-  }
-  if (!/Also revoke my API tokens/.test(html)) throw new Error('no token-revocation opt-in')
-  if (!/dbcanvas_reset_password/.test(html)) {
-    throw new Error('the form should say what to do when the password is forgotten entirely')
   }
   return html
 })

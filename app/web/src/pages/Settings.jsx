@@ -189,90 +189,6 @@ function UploadLimit() {
   )
 }
 
-// ChangePassword — your own password, on the Profile page (pages/Profile.jsx).
-//
-// The current password is required by the server even though the user is signed in,
-// and the form says why: this is the check that stops a stolen session becoming a
-// lockout. Token revocation is opt-in, because a routine rotation should not break a
-// CI job while a leak-driven change should be able to take everything with it.
-export function ChangePassword() {
-  const [current, setCurrent] = useState('')
-  const [next, setNext] = useState('')
-  const [confirm, setConfirm] = useState('')
-  const [revokeTokens, setRevokeTokens] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState('')
-  const [done, setDone] = useState('')
-
-  // Checked here as well as on the server so the mismatch is caught before a round
-  // trip; the server does not see the confirmation field at all.
-  const mismatch = confirm !== '' && next !== confirm
-  const tooShort = next !== '' && next.length < 8
-  const ready = current !== '' && next.length >= 8 && next === confirm && !busy
-
-  const submit = async (e) => {
-    e.preventDefault()
-    setErr(''); setDone(''); setBusy(true)
-    try {
-      const res = await api.changePassword(current, next, revokeTokens)
-      setCurrent(''); setNext(''); setConfirm(''); setRevokeTokens(false)
-      setDone(res?.tokensRevoked
-        ? `Password changed. Other sessions signed out, and ${res.tokensRevoked} API token${res.tokensRevoked === 1 ? '' : 's'} revoked.`
-        : 'Password changed. Every other session was signed out; your API tokens still work.')
-    } catch (e2) {
-      setErr(e2.message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Row scope="you" title="Password" hint="Changing it signs out every other browser and device. This one stays signed in.">
-      <form onSubmit={submit} className="space-y-3">
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Field label="Current password" help={HELP.currentPassword}>
-            <input type="password" autoComplete="current-password" className={inputCls}
-              value={current} onChange={(e) => setCurrent(e.target.value)} required />
-          </Field>
-          <Field label="New password" help={HELP.newPassword}
-            hint={tooShort ? 'At least 8 characters.' : undefined}>
-            <input type="password" autoComplete="new-password" className={inputCls}
-              value={next} onChange={(e) => setNext(e.target.value)} required minLength={8} />
-          </Field>
-          <Field label="Confirm new password"
-            hint={mismatch ? 'These do not match.' : undefined}>
-            <input type="password" autoComplete="new-password" className={inputCls}
-              value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
-          </Field>
-        </div>
-
-        <div className="flex items-center gap-1.5">
-          <Toggle checked={revokeTokens} onChange={setRevokeTokens}
-            label="Also revoke my API tokens" />
-          <Help text={HELP.revokeTokensOnPasswordChange} />
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Button type="submit" disabled={!ready}>{busy ? 'Changing…' : 'Change password'}</Button>
-          <Help text={HELP.passwordSessions} />
-        </div>
-
-        {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
-        {done && (
-          <div className="flex items-start gap-1.5 rounded-lg border border-success/30 bg-success/15 px-3 py-2 text-xs text-success">
-            <Icon.Check size={14} /> <span>{done}</span>
-          </div>
-        )}
-        <div className="text-xs text-muted">
-          Forgotten it entirely, with nobody able to sign in? An administrator runs{' '}
-          <code className="rounded bg-surface2 px-1">dbcanvas_reset_password</code> inside the app
-          container — see Configuration &amp; commands.
-        </div>
-      </form>
-    </Row>
-  )
-}
-
 // TokenLifetime is the other instance-wide setting: the longest expiry a
 // non-administrator may give an API token. Same shape as UploadLimit — everyone can
 // see the limit they are working under, only an admin can move it.
@@ -397,299 +313,6 @@ export function InternalWrites() {
             ? 'PMM\u2019s internal PostgreSQL and ClickHouse are exposed for inspection only, and the databases themselves refuse writes on those sessions. Turn this on to test what a broken PMM inventory does; turn it off again afterwards.'
             : 'Set by an administrator. PMM\u2019s internal databases are read-only for you.'}
       </div>
-    </Row>
-  )
-}
-
-// OpenRegistration is whether a new sign-up can use its account at once (app/auth.go),
-// instead of waiting for an administrator to approve it. Instance-wide and off by default.
-export function OpenRegistration() {
-  const { system, saveSystem } = useSettings()
-  const { user } = useAuth()
-  const isAdmin = user?.role === 'admin'
-  const on = !!system.openRegistration
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState('')
-
-  const apply = async (next) => {
-    setErr(''); setBusy(true)
-    try {
-      await saveSystem({ openRegistration: next })
-    } catch (e) {
-      setErr(e.message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Row
-      scope="everyone" title="Registration"
-      hint="Whether an account somebody registers can be used at once, or waits for an administrator to approve it. Instance-wide, and approval is the default."
-    >
-      <div className="flex flex-wrap items-center gap-2">
-        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
-          on ? 'bg-warning/15 text-warning' : 'bg-muted/15 text-muted'}`}>
-          {on ? <Icon.StatusWarn size={13} /> : <Icon.Check size={13} />}
-          {on ? 'Open: no approval needed' : 'Approval required'}
-        </span>
-        <Help text={HELP.openRegistration} />
-        {isAdmin && (
-          <Button variant={on ? 'subtle' : 'outline'} onClick={() => apply(!on)} disabled={busy}>
-            {busy ? 'Saving…' : on ? 'Require approval' : 'Open registration'}
-          </Button>
-        )}
-      </div>
-      {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
-      <div className="text-xs text-muted">
-        {on
-          ? 'Anyone who can reach the sign-in page can create an account and use it straight away, as a user (not an administrator). Administrators are notified of each one.'
-          : isAdmin
-            ? 'A new account waits under Users until an administrator approves it.'
-            : 'Set by an administrator.'}
-      </div>
-    </Row>
-  )
-}
-
-// GuestLogin is whether the sign-in page offers "Continue as guest" (app/guestlogin.go): a guest
-// account of its own for each guest, with the user role. Instance-wide and off by default. Also
-// whether turning it off keeps existing guests, and how long an unused guest account is kept.
-export function GuestLogin() {
-  const { system, saveSystem } = useSettings()
-  const { user } = useAuth()
-  const isAdmin = user?.role === 'admin'
-  const on = !!system.guestLogin
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState('')
-
-  const apply = async (next) => {
-    setErr(''); setBusy(true)
-    try {
-      await saveSystem(typeof next === 'object' ? next : { guestLogin: next })
-    } catch (e) {
-      setErr(e.message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Row
-      scope="everyone" title="Guest sign-in"
-      hint="Whether people can use DBCanvas without an account, each as a guest account of their own. Instance-wide, and off by default."
-    >
-      <div className="flex flex-wrap items-center gap-2">
-        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
-          on ? 'bg-warning/15 text-warning' : 'bg-muted/15 text-muted'}`}>
-          {on ? <Icon.StatusWarn size={13} /> : <Icon.Close size={13} />}
-          {on ? 'Guests can sign in' : 'Off'}
-        </span>
-        <Help text={HELP.guestLogin} />
-        {isAdmin && (
-          <Button variant={on ? 'subtle' : 'outline'} onClick={() => apply(!on)} disabled={busy}>
-            {busy ? 'Saving…' : on ? (system.guestKeepAccess ? 'Turn off (existing guests stay)' : 'Turn off (signs guests out)') : 'Allow guest sign-in'}
-          </Button>
-        )}
-      </div>
-      {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
-      <div className="text-xs text-muted">
-        {on
-          ? 'Anyone who can reach the sign-in page can press \u201cContinue as guest\u201d and use DBCanvas as a regular user, without a password. Each guest gets an account of its own, and its stacks are its own.'
-          : isAdmin
-            ? 'Only people with an account can sign in.'
-            : 'Set by an administrator.'}
-      </div>
-      {isAdmin && system.exposed && (
-        // app/exposure.go: reachable beyond this machine, a guest is anybody on the network, and
-        // a guest can deploy privileged containers on this Docker host.
-        <div className="space-y-1.5 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
-          <div>
-            DBCanvas is published on <span className="font-mono">{system.publishHost}</span>, so it is reachable beyond this
-            machine. Anyone who can reach the sign-in page could continue as a guest, and a guest can deploy privileged
-            containers on this Docker host — in effect root on it. Prefer <span className="font-mono">APP_HOST=127.0.0.1</span> and
-            an SSH tunnel for people who need it.
-          </div>
-          <label className="flex items-center gap-2 text-fg">
-            <input type="checkbox" checked={!!system.guestExposedAck} disabled={busy}
-              onChange={(e) => apply({ guestExposedAck: e.target.checked })} />
-            <span>I understand: allow guest sign-in on this exposed installation</span>
-          </label>
-        </div>
-      )}
-      {isAdmin && (
-        <div className="flex flex-wrap items-center gap-4 text-sm">
-          <label className="flex items-center gap-2">
-            <input type="checkbox" checked={!!system.guestKeepAccess} disabled={busy}
-              onChange={(e) => apply({ guestKeepAccess: e.target.checked })} />
-            <span>Keep existing guests when turning it off</span>
-          </label>
-          <label className="flex items-center gap-2">
-            <span>Remove guest accounts unused for</span>
-            <input type="number" min="0" max="3650" className={`${inputCls} w-20`} disabled={busy}
-              defaultValue={system.guestIdleDays ?? 7} key={system.guestIdleDays ?? 7}
-              onBlur={(e) => Number(e.target.value) !== (system.guestIdleDays ?? 7) && apply({ guestIdleDays: Math.max(0, Number(e.target.value) || 0) })} />
-            <span>days (0 keeps them)</span>
-          </label>
-        </div>
-      )}
-    </Row>
-  )
-}
-
-// SecurityGroups is the matrix of which pages each security group may use
-// (app/secgroups.go): Administrators, Regular Users, Guests. Administrators only — the
-// server enforces it on every API request, token and dbcanvas-cli included.
-export function SecurityGroups() {
-  const [view, setView] = useState(null) // { features, groups, allowed, locked }
-  const [err, setErr] = useState('')
-  const [busy, setBusy] = useState('')
-  const { refresh } = useAuth()
-
-  useEffect(() => { api.securityGroups().then(setView, (e) => setErr(e.message)) }, [])
-
-  const toggle = async (group, feature, next) => {
-    setErr(''); setBusy(`${group}/${feature}`)
-    try {
-      setView(await api.saveSecurityGroups({ [group]: { [feature]: next } }))
-      // An administrator who changed their own group sees the sidebar follow.
-      if (group === 'admin') refresh()
-    } catch (e) {
-      setErr(e.message)
-    } finally {
-      setBusy('')
-    }
-  }
-
-  return (
-    <Row
-      scope="everyone" title="Security groups"
-      hint="Which pages each group may use. Enforced by the server for the web UI, the API and dbcanvas-cli alike."
-    >
-      <div className="flex items-center gap-2 text-xs text-muted">
-        <Help text={HELP.securityGroups} />
-        <span>Administrators are accounts with the admin role, Regular Users the rest, and Guests every guest account.</span>
-      </div>
-      {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
-      {!view ? (!err && <div className="text-xs text-muted">Loading…</div>) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-muted">
-                <th className="py-1.5 pr-2 font-medium">Page</th>
-                {view.groups.map((g) => <th key={g.id} className="px-2 py-1.5 text-center font-medium">{g.label}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {view.features.map((f) => (
-                <tr key={f.id} className="border-t">
-                  <td className="py-1.5 pr-2">
-                    {f.label}
-                    {f.requires && <span className="block text-xs text-muted">needs {view.features.find((x) => x.id === f.requires)?.label}</span>}
-                  </td>
-                  {view.groups.map((g) => {
-                    const on = !!view.allowed[g.id]?.[f.id]
-                    const locked = !!view.locked[g.id]?.[f.id]
-                    return (
-                      <td key={g.id} className="px-2 py-1.5 text-center">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 disabled:opacity-50"
-                          aria-label={`${g.label}: ${f.label}`}
-                          title={locked ? (g.id === 'admin' ? 'Administrators always keep this' : 'Only administrators can have this') : undefined}
-                          checked={on}
-                          disabled={locked || !!busy}
-                          onChange={(e) => toggle(g.id, f.id, e.target.checked)}
-                        />
-                      </td>
-                    )
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </Row>
-  )
-}
-
-// GroupLimits sets each security group's limits (app/grouppolicy.go): the longest a stack may
-// live, how many stacks and deployed nodes one account may have, and node types it may not
-// deploy. Empty or 0 is no limit. Saved per group on blur or change.
-export function GroupLimits() {
-  const [view, setView] = useState(null) // { policies: {group: policy}, ttls }
-  const [err, setErr] = useState('')
-  const [draft, setDraft] = useState({}) // group → denied types as typed
-
-  useEffect(() => { api.groupPolicies().then(setView, (e) => setErr(e.message)) }, [])
-
-  const save = async (group, patch) => {
-    setErr('')
-    try {
-      setView(await api.saveGroupPolicies({ [group]: { ...view.policies[group], ...patch } }))
-    } catch (e) {
-      setErr(e.message)
-    }
-  }
-  const groups = [['admin', 'Administrators'], ['user', 'Regular Users'], ['guest', 'Guests']]
-
-  return (
-    <Row scope="everyone" title="Security group limits" hint="What each group's accounts may deploy. Empty or 0 means no limit.">
-      <div className="flex items-center gap-2 text-xs text-muted">
-        <Help text={HELP.groupLimits} />
-        <span>Enforced by the server when a stack is created, composed, extended, validated and deployed.</span>
-      </div>
-      {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
-      {!view ? (!err && <div className="text-xs text-muted">Loading…</div>) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-muted">
-                <th className="py-1.5 pr-2 font-medium">Group</th>
-                <th className="px-2 py-1.5 font-medium">Longest lifetime</th>
-                <th className="px-2 py-1.5 font-medium">Stacks</th>
-                <th className="px-2 py-1.5 font-medium">Deployed nodes</th>
-                <th className="px-2 py-1.5 font-medium">Node types it may not deploy</th>
-              </tr>
-            </thead>
-            <tbody>
-              {groups.map(([g, label]) => {
-                const p = view.policies[g] || {}
-                const denied = draft[g] ?? (p.deniedNodeTypes || []).join(', ')
-                return (
-                  <tr key={g} className="border-t">
-                    <td className="py-1.5 pr-2">{label}</td>
-                    <td className="px-2 py-1.5">
-                      <select className={inputCls} aria-label={`${label}: longest lifetime`} value={p.maxTtl || ''}
-                        onChange={(e) => save(g, { maxTtl: e.target.value })}>
-                        <option value="">no limit</option>
-                        {(view.ttls || []).map((t) => <option key={t} value={t}>{t}</option>)}
-                      </select>
-                    </td>
-                    {['maxStacks', 'maxContainers'].map((k) => (
-                      <td key={k} className="px-2 py-1.5">
-                        <input type="number" min="0" className={`${inputCls} w-20`} aria-label={`${label}: ${k}`}
-                          defaultValue={p[k] || 0} key={`${g}-${k}-${p[k] || 0}`}
-                          onBlur={(e) => Number(e.target.value) !== (p[k] || 0) && save(g, { [k]: Math.max(0, Number(e.target.value) || 0) })} />
-                      </td>
-                    ))}
-                    <td className="px-2 py-1.5">
-                      <input className={inputCls} aria-label={`${label}: denied node types`} placeholder="none — e.g. k3d, kubeadm"
-                        value={denied} onChange={(e) => setDraft((d) => ({ ...d, [g]: e.target.value }))}
-                        onBlur={() => {
-                          const list = denied.split(',').map((x) => x.trim()).filter(Boolean)
-                          setDraft((d) => { const n = { ...d }; delete n[g]; return n })
-                          if (list.join(',') !== (p.deniedNodeTypes || []).join(',')) save(g, { deniedNodeTypes: list })
-                        }} />
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
     </Row>
   )
 }
@@ -1058,20 +681,17 @@ export function LookOptions({ value, onPick }) {
 
 export default function Settings() {
   const { settings, save, loaded } = useSettings()
-  const { user, features } = useAuth()
+  const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
   const [err, setErr] = useState('')
-  // What this account's security group may use (app/secgroups.go). The preference tabs
-  // are everyone's; the installation's tabs need Installation settings, and a row that
-  // belongs to another page (Scratchboard, Profile) needs that page.
-  const may = (f) => !features || features.includes(f)
   // Four tabs instead of one long page: how it looks, how you work, who can get in, and what
   // the installation allows. The URL names the tab (#settings/access), so a link opens it; with
   // none, the tab last used in this browser.
   const tabs = [
     ['appearance', 'Appearance'],
     ['workspace', 'Workspace'],
-    ...(may('settings') ? [['access', 'Access & security'], ['system', 'System']] : []),
+    ['access', 'Access & security'],
+    ['system', 'System'],
   ]
   const known = (id) => tabs.some(([t]) => t === id)
   const [tab, setTab] = useState(() => {
@@ -1113,10 +733,7 @@ export default function Settings() {
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
         <span className="inline-flex items-center gap-1"><ScopeBadge scope="you" /> saved to your account; changes nothing for anyone else.</span>
-        {may('settings') && (
-          <span className="inline-flex items-center gap-1"><ScopeBadge scope="everyone" />
-            {isAdmin ? 'applies to every account on this installation.' : 'set by an administrator for the whole installation; shown so you know the limits you work under.'}</span>
-        )}
+        <span className="inline-flex items-center gap-1"><ScopeBadge scope="everyone" /> applies to this dbcanvas as a whole.</span>
       </div>
 
       <div className="flex gap-1 overflow-x-auto border-b text-sm" role="tablist" aria-label="Settings">
@@ -1243,13 +860,7 @@ export default function Settings() {
           <div className="space-y-4">
           <TabLimit value={clampTabs(settings.maxTabs)} onSave={(n) => save({ maxTabs: n })} />
 
-          {may('scratchboard') && <ScratchboardOptions value={settings.scratchboard || 'off'} onPick={(id) => set({ scratchboard: id })} />}
-
-          {may('profile') && <Row scope="you" title="Password" hint="Your password, name and avatar are on your Profile now.">
-            <Button variant="outline" size="sm" onClick={() => { location.hash = 'profile' }}>
-              <Icon.Users size={15} /> Open your profile
-            </Button>
-          </Row>}
+          <ScratchboardOptions value={settings.scratchboard || 'off'} onPick={(id) => set({ scratchboard: id })} />
           </div>
         </div>
       )}
@@ -1257,14 +868,10 @@ export default function Settings() {
       {tab === 'access' && (
         <div className={two}>
           <div className="space-y-4">
-            <OpenRegistration />
-            <GuestLogin />
             <GuestSessions />
-            <TokenLifetime />
           </div>
           <div className="space-y-4">
-            {isAdmin && <SecurityGroups />}
-            {isAdmin && <GroupLimits />}
+            <TokenLifetime />
           </div>
         </div>
       )}

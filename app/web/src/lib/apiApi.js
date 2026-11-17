@@ -25,8 +25,6 @@ export const apiApi = {
   listTokens: () => request('GET', '/api/tokens'),
   createToken: (t) => request('POST', '/api/tokens', t),
   revokeToken: (id) => request('DELETE', `/api/tokens/${id}`),
-  adminTokens: () => request('GET', '/api/admin/tokens'),
-  adminRevokeToken: (id) => request('DELETE', `/api/admin/tokens/${id}`),
 }
 
 // METHOD_TONE colours a method badge. Semantic, not decorative: DELETE reads as the

@@ -862,35 +862,6 @@ export const HELP = {
     'filters and its half-built canvas, which is the whole reason switching tabs is instant. At the ' +
     'limit a page does not open and the window tells you, rather than closing one of yours to make ' +
     'room: a tab can be running a benchmark. Lowering it does not close anything already open.',
-  openRegistration:
-    'Off, an account somebody registers on the sign-in page is created pending, and they cannot sign in ' +
-    'until an administrator approves it under Users. On, the account is approved as it is created and ' +
-    'they are signed in at once, with the user role. Accounts already pending when it is turned on stay ' +
-    'pending. Administrators get a notification for each new account either way. The setting is also ' +
-    'openRegistration on PUT /api/system/settings.',
-  securityGroups:
-    'Every account belongs to one of three groups: Administrators (the admin role), Regular Users (the user role) ' +
-    'and Guests (every guest account). Each page of the app is a feature a group may or may not use. The ' +
-    'sidebar shows only what a group may use, and the server refuses the rest with a 403 \u2014 in the browser, ' +
-    'through the API and from dbcanvas-cli. The API feature is also the key to API tokens: without it a group ' +
-    'cannot create a token, sign in with dbcanvas-cli, or use a token it already has. Most tools need Database ' +
-    'Stacks, so ticking one ticks Database Stacks and unticking Database Stacks unticks them. Administrators ' +
-    'always keep Installation settings and Manage Users, so nobody can lock every administrator out; and Manage Users is never ' +
-    'given to another group, because whoever manages accounts can make one an administrator. The defaults: ' +
-    'Administrators everything, Regular Users everything but Manage Users, Guests the Dashboard and Database ' +
-    'Stacks. Installation settings is the Settings page\'s Access & security and System tabs: every account, whatever ' +
-    'its group, has the page\'s Appearance and Workspace tabs for its own preferences. Also GET and PUT /api/security/groups.',
-  guestLogin:
-    'On, the sign-in page offers \u201cContinue as guest\u201d, which creates a guest account of its own for that ' +
-    'browser, with no password and the user role: a guest designs, deploys and tears down stacks like any registered ' +
-    'user, and its stacks are its own \u2014 other guests neither see nor change them. A guest account cannot be ' +
-    'given a password or made an administrator. The API and the CLI work as a guest too (POST /api/auth/guest, ' +
-    'dbcanvas-cli login --guest), with a user\u2019s token, once the Guests security group has the API feature. What ' +
-    'guests may use and how much they may deploy is set under Security groups and Security group limits. A guest ' +
-    'account unused for the idle period is removed with its stacks. Off refuses new guests and, unless \u201ckeep ' +
-    'existing guests\u201d is on, signs every guest out and revokes their tokens. Guest accounts are listed under Users. ' +
-    'Not to be confused with shared-session guests, who join one live session through a link. The settings are ' +
-    'guestLogin, guestKeepAccess and guestIdleDays on PUT /api/system/settings.',
   internalWrites:
     'DBCanvas exposes PMM Server\u2019s own PostgreSQL (its inventory) and ClickHouse (Query Analytics) ' +
     'read-only, and the databases enforce that themselves \u2014 PostgreSQL inside a READ ONLY transaction, ' +
@@ -957,14 +928,6 @@ export const HELP = {
     'Show only the endpoints a token of a given scope can reach. Filtering to "read" is the quick way ' +
     'to see what a read-only token could actually do before you hand one to a script — and filtering ' +
     'to "admin" shows what it could not.',
-  currentPassword:
-    'Your password as it is now. Required even though you are already signed in: a session somebody ' +
-    'else got hold of should not be able to change your password and lock you out of your own account, ' +
-    'which is exactly what an attacker with a stolen session would do first.',
-  newPassword:
-    'At least 8 characters — the same floor that applies when an account is created. It cannot be your ' +
-    'current password, and it cannot start or end with a space: DBCanvas refuses rather than trimming ' +
-    'one, because a password that silently differs from what you typed is how people lock themselves out.',
   revokeTokensOnPasswordChange:
     'Also revoke every API token on your account. Leave it off for a routine change — revoking would ' +
     'break any script or CI job holding one, for no gain. Turn it on if you are changing your password ' +

@@ -166,30 +166,6 @@ func TestTokenAuthRefusals(t *testing.T) {
 	})
 }
 
-// TestDisablingAUserRevokesTheirTokens is the failure mode worth a test of its own:
-// without this, taking someone's access away would close the browser and leave the
-// API open.
-func TestDisablingAUserRevokesTheirTokens(t *testing.T) {
-	app := newTestApp(t)
-	admin, _ := app.store.CreateUser("admin", "x", RoleAdmin, StatusApproved)
-	victim, _ := app.store.CreateUser("victim", "x", RoleUser, StatusApproved)
-	secret, _ := tokenFor(t, app, victim.ID, ScopeWrite, 30)
-
-	// Through the handler, so the wiring is what is under test, not the store call.
-	r := httptest.NewRequest("POST", "/api/users/"+strconv.FormatInt(victim.ID, 10)+"/disable", nil)
-	r.SetPathValue("id", strconv.FormatInt(victim.ID, 10))
-	r = withPrincipal(r, principal{User: admin})
-	app.handleUserStatus(StatusDisabled)(httptest.NewRecorder(), r)
-
-	if _, _, err := app.tokenAuth(bearerReq("GET", "/api/me", secret)); err == nil {
-		t.Fatal("disabling an account left its API token working")
-	}
-	tokens, _ := app.store.ListAPITokens(victim.ID)
-	if len(tokens) != 1 || tokens[0].State != "revoked" {
-		t.Errorf("token state is %v, want revoked", tokens)
-	}
-}
-
 // ------------------------------------------------------------- scopes
 
 func TestScopeAllows(t *testing.T) {
@@ -309,7 +285,7 @@ func TestTokenCannotMintTokens(t *testing.T) {
 	if w.Code != http.StatusForbidden || reached {
 		t.Errorf("an admin-scope token created a token: %d (reached=%v), want 403", w.Code, reached)
 	}
-	if !strings.Contains(w.Body.String(), "password") {
+	if !strings.Contains(w.Body.String(), "browser") {
 		t.Errorf("the refusal should say what to do instead: %q", w.Body.String())
 	}
 }
@@ -472,58 +448,6 @@ func TestRevokeTokenIsOwnerOnly(t *testing.T) {
 	}
 	if got.RevokedAt == nil {
 		t.Error("the row should stay, marked revoked, rather than disappearing")
-	}
-}
-
-func TestAdminRevokeAnyToken(t *testing.T) {
-	app := newTestApp(t)
-	victim, _ := app.store.CreateUser("victim", "x", RoleUser, StatusApproved)
-	secret, tok := tokenFor(t, app, victim.ID, ScopeWrite, 30)
-
-	r := httptest.NewRequest("DELETE", "/api/admin/tokens/"+strconv.FormatInt(tok.ID, 10), nil)
-	r.SetPathValue("id", strconv.FormatInt(tok.ID, 10))
-	w := httptest.NewRecorder()
-	app.handleAdminRevokeToken(w, r)
-	if w.Code != http.StatusOK {
-		t.Fatalf("admin revoke returned %d: %s", w.Code, w.Body.String())
-	}
-	if _, _, err := app.tokenAuth(bearerReq("GET", "/api/me", secret)); err == nil {
-		t.Error("the token still works after an admin revoked it")
-	}
-	// The owner is told, because a credential vanishing without explanation is
-	// how an afternoon gets lost.
-	notes, _ := app.store.ListNotifications(victim.ID, false, 10)
-	found := false
-	for _, n := range notes {
-		if n.Type == "token.revoked" {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("the owner was not notified that their token was revoked")
-	}
-}
-
-func TestAdminTokenListingCarriesOwners(t *testing.T) {
-	app := newTestApp(t)
-	a, _ := app.store.CreateUser("alice", "x", RoleUser, StatusApproved)
-	b, _ := app.store.CreateUser("bob", "x", RoleUser, StatusApproved)
-	tokenFor(t, app, a.ID, ScopeRead, 30)
-	tokenFor(t, app, b.ID, ScopeWrite, 30)
-
-	all, err := app.store.ListAllAPITokens()
-	if err != nil {
-		t.Fatalf("list: %v", err)
-	}
-	if len(all) != 2 {
-		t.Fatalf("got %d tokens, want 2", len(all))
-	}
-	names := map[string]bool{}
-	for _, tk := range all {
-		names[tk.Username] = true
-	}
-	if !names["alice"] || !names["bob"] {
-		t.Errorf("the admin listing lost the owners: %v", names)
 	}
 }
 

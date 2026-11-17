@@ -257,10 +257,6 @@ func (a *App) serveGuest(rt apiRoute, next http.HandlerFunc, w http.ResponseWrit
 		writeErr(w, http.StatusForbidden, why)
 		return
 	}
-	// A guest can use no more of the app than their host's security group can (secgroups.go).
-	if !a.featureGate(w, host, rt, false) {
-		return
-	}
 	driving := shareHubs.controller(sess.ID) == g.ID
 	have := ScopeRead
 	if driving {
@@ -1036,58 +1032,6 @@ func (a *App) handleJoin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.enterLobby(w, r, sess, invite, joinIdentity{Name: name, Email: email, Avatar: in.Avatar})
-}
-
-// handleJoinAccount is someone with a DBCanvas account joining as themselves: with
-// their username and password, or — useSession — the account this browser is
-// already signed in to. The host still admits them; what changes is that the lobby
-// shows a person the server knows, with their own name and avatar.
-//
-// It does not sign the browser in. The session is the host's workspace, entered
-// through the guest cookie like any guest's, so a password typed here opens a
-// lobby place and nothing else.
-func (a *App) handleJoinAccount(w http.ResponseWriter, r *http.Request) {
-	sess, invite, done := a.joinPreflight(w, r)
-	if done {
-		return
-	}
-	var in struct {
-		Username   string `json:"username"`
-		Password   string `json:"password"`
-		UseSession bool   `json:"useSession"`
-	}
-	if err := decode(r, &in); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	var u User
-	if in.UseSession {
-		c, err := r.Cookie(cookieName)
-		if err != nil || c.Value == "" {
-			writeErr(w, http.StatusUnauthorized, "this browser is not signed in to DBCanvas")
-			return
-		}
-		if u, err = a.store.SessionUser(c.Value); err != nil {
-			writeErr(w, http.StatusUnauthorized, "this browser is not signed in to DBCanvas")
-			return
-		}
-	} else {
-		cu, hash, err := a.store.CredByUsername(strings.TrimSpace(in.Username))
-		if err != nil || !checkPassword(hash, in.Password) {
-			writeErr(w, http.StatusUnauthorized, "invalid username or password")
-			return
-		}
-		u = cu
-	}
-	if u.Status != StatusApproved {
-		writeErr(w, http.StatusForbidden, "that account cannot sign in")
-		return
-	}
-	if u.ID == sess.HostID {
-		writeErr(w, http.StatusConflict, "this is your own session — you host it from DBCanvas itself, not through the link")
-		return
-	}
-	a.enterLobby(w, r, sess, invite, joinIdentity{Name: u.displayName(), Email: u.Email, UserID: u.ID, Account: u.Username, Avatar: u.Avatar})
 }
 
 // enterLobby files the person in the session's lobby, hands their browser the guest

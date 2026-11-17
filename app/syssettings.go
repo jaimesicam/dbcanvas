@@ -27,8 +27,6 @@ const (
 	// settingInternalWrites unlocks writes to the databases DBCanvas exposes
 	// read-only — PMM Server's own PostgreSQL and ClickHouse. See the field below.
 	settingInternalWrites = "internalWrites"
-	// settingOpenRegistration lets a new sign-up use its account at once. See the field.
-	settingOpenRegistration = "openRegistration"
 )
 
 const (
@@ -87,28 +85,9 @@ type SystemSettings struct {
 	// be armed for writes explicitly before one is sent (dexQueryRequest.AllowWrites),
 	// so a tab left open from before the setting changed cannot write into a PMM
 	// database because somebody pressed Run.
-	InternalWrites bool `json:"internalWrites"`
-	// OpenRegistration approves an account the moment somebody registers it, and signs
-	// them in, instead of leaving it pending until an administrator approves it. Off by
-	// default: who can use an installation is the installation's decision. Accounts that
-	// are already pending stay pending; turning it on approves nobody retroactively.
-	OpenRegistration bool `json:"openRegistration"`
-	// GuestLogin offers "Continue as guest" on the sign-in screen, which creates a guest
-	// account of its own for each guest (guestlogin.go). Off by default; turning it off
-	// signs every guest out unless GuestKeepAccess is on.
-	GuestLogin bool `json:"guestLogin"`
-	// GuestKeepAccess keeps existing guests working when GuestLogin is turned off; only new
-	// guests are refused.
-	GuestKeepAccess bool `json:"guestKeepAccess"`
-	// GuestIdleDays removes a guest account, with its stacks, after this many days unused;
-	// 0 keeps them.
-	GuestIdleDays int `json:"guestIdleDays"`
-	// GuestExposedAck is an administrator's confirmation that guest sign-in may be on while
-	// the installation is reachable beyond this machine (exposure.go). Exposed and
-	// PublishHost say whether it is, read-only.
-	GuestExposedAck bool   `json:"guestExposedAck"`
-	Exposed         bool   `json:"exposed"`
-	PublishHost     string `json:"publishHost"`
+	InternalWrites bool   `json:"internalWrites"`
+	Exposed        bool   `json:"exposed"`
+	PublishHost    string `json:"publishHost"`
 	// DefaultSecrets names the .env passwords still at their .env.example value (doctor.go),
 	// for administrators only: the web app shows a notice until they are changed.
 	DefaultSecrets []string             `json:"defaultSecrets,omitempty"`
@@ -212,11 +191,6 @@ func (a *App) systemSettings(appUser string) SystemSettings {
 	if v, err := a.store.AppSetting(settingInternalWrites); err == nil {
 		s.InternalWrites = v == "1"
 	}
-	s.OpenRegistration = a.openRegistration()
-	s.GuestLogin = a.guestLoginEnabled()
-	s.GuestKeepAccess = a.guestKeepAccess()
-	s.GuestIdleDays = a.guestIdleDays()
-	s.GuestExposedAck = a.guestExposedAck()
 	s.Exposed, s.PublishHost = exposed(), publishHost()
 	s.AllowGuestSessions, s.MaxGuestMinutes = a.guestSessionSettings()
 	s.SessionRetentionDays = a.shareRetentionDays()
@@ -235,13 +209,6 @@ func (a *App) maxUploadBytes() int64 { return a.systemSettings("").MaxUploadByte
 
 // maxTokenDays is the configured ceiling on a non-admin API token's lifetime.
 func (a *App) maxTokenDays() int { return a.systemSettings("").MaxTokenDays }
-
-// openRegistration reports whether a new sign-up is approved at once. Anything but an
-// explicit "1" is off, so a missing or hand-edited row keeps registration behind approval.
-func (a *App) openRegistration() bool {
-	v, err := a.store.AppSetting(settingOpenRegistration)
-	return err == nil && v == "1"
-}
 
 // internalWritesAllowed reports whether an administrator has unlocked writes to
 // the internal databases. Read on every request that could write to one — never
@@ -299,63 +266,6 @@ func (a *App) handleUpdateSystemSettings(w http.ResponseWriter, r *http.Request)
 	if err := a.store.SetAppSetting(settingInternalWrites, internal); err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to save settings")
 		return
-	}
-	// A body that leaves openRegistration out keeps what is stored, so a client written
-	// before the setting existed cannot switch it off by omission.
-	if _, ok := present["openRegistration"]; !ok {
-		s.OpenRegistration = a.openRegistration()
-	}
-	open := "0"
-	if s.OpenRegistration {
-		open = "1"
-	}
-	if err := a.store.SetAppSetting(settingOpenRegistration, open); err != nil {
-		writeErr(w, http.StatusInternalServerError, "failed to save settings")
-		return
-	}
-	// Like openRegistration, left out means unchanged.
-	if _, ok := present["guestLogin"]; !ok {
-		s.GuestLogin = a.guestLoginEnabled()
-	}
-	if _, ok := present["guestExposedAck"]; ok {
-		ack := "0"
-		if s.GuestExposedAck {
-			ack = "1"
-		}
-		a.store.SetAppSetting(settingGuestExposedAck, ack)
-	}
-	// Turning guest sign-in on while exposed needs the confirmation (exposure.go).
-	if s.GuestLogin && !a.guestLoginEnabled() {
-		if why := a.guestExposureBlocks(); why != "" {
-			writeErr(w, http.StatusBadRequest, why)
-			return
-		}
-	}
-	guestLogin := "0"
-	if s.GuestLogin {
-		guestLogin = "1"
-	}
-	if err := a.store.SetAppSetting(settingGuestLogin, guestLogin); err != nil {
-		writeErr(w, http.StatusInternalServerError, "failed to save settings")
-		return
-	}
-	// Left out means unchanged, as above.
-	if _, ok := present["guestKeepAccess"]; ok {
-		keep := "0"
-		if s.GuestKeepAccess {
-			keep = "1"
-		}
-		a.store.SetAppSetting(settingGuestKeepAccess, keep)
-	}
-	if _, ok := present["guestIdleDays"]; ok {
-		if s.GuestIdleDays < 0 || s.GuestIdleDays > 3650 {
-			writeErr(w, http.StatusBadRequest, "guestIdleDays is a number of days, 0 (keep) to 3650")
-			return
-		}
-		a.store.SetAppSetting(settingGuestIdleDays, strconv.Itoa(s.GuestIdleDays))
-	}
-	if !s.GuestLogin {
-		a.endGuestAccess()
 	}
 	guests := "0"
 	if s.AllowGuestSessions {

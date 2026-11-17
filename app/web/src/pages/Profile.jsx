@@ -5,7 +5,6 @@ import { Badge, Button } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { Avatar, fullName } from '../components/Avatar.jsx'
 import { ProfileFields, profileComplete } from '../components/ProfileFields.jsx'
-import { ChangePassword } from './Settings.jsx'
 import { useRefresh } from '../lib/useRefresh.jsx'
 
 // Profile — everything about the signed-in person, in one place: who they are (name
@@ -31,8 +30,8 @@ function fmtDate(iso) {
 }
 
 export default function Profile() {
-  const { user, setUser, logout, refresh, features } = useAuth()
-  // Refresh re-reads the account: a name changed in another tab, a role an admin moved.
+  const { user, setUser, logout, refresh } = useAuth()
+  // Refresh re-reads the profile: a name changed in another tab.
   useRefresh(() => refresh())
   const [p, setP] = useState(() => ({ firstName: user?.firstName || '', lastName: user?.lastName || '', email: user?.email || '', avatar: user?.avatar || '' }))
   const [busy, setBusy] = useState(false)
@@ -70,23 +69,7 @@ export default function Profile() {
         <Button variant="outline" size="sm" onClick={logout}><Icon.Logout size={15} /> Sign out</Button>
       </div>
 
-      {user.guestAccount ? (<>
-        <Section title="Guest account" hint="You are signed in as a guest.">
-          <div className="text-sm text-muted">
-            Everyone who continues as a guest shares this account, so its name and password cannot be changed from
-            it. What you build here is visible to the next guest. Register an account of your own to keep your work
-            to yourself.
-          </div>
-        </Section>
-        {(!features || features.includes('api')) && (
-          <Section title="API tokens" hint="Scripts and dbcanvas-cli can work as the guest too (dbcanvas-cli login --guest). Guest tokens stop working when an administrator turns guest sign-in off.">
-            <Button variant="outline" size="sm" onClick={() => { location.hash = 'api' }}>
-              <Icon.Code size={15} /> Manage API tokens
-            </Button>
-          </Section>
-        )}
-      </>) : (<>
-      <Section title="Name, email and avatar" hint="What colleagues see beside your work, on shared boards and in shared sessions. Your name and email are stored encrypted, and no other account can use the same email.">
+      <Section title="Name, email and avatar" hint="What the guests of a shared session see for you, the host. Your name and email are stored encrypted.">
         <form onSubmit={save} className="space-y-3">
           <ProfileFields value={p} onChange={(v) => { setP(v); setMsg(null) }} />
           <div className="flex items-center gap-2">
@@ -97,20 +80,11 @@ export default function Profile() {
         </form>
       </Section>
 
-      <Section title="Username" hint="How you sign in. It cannot be changed — an administrator can create a new account if you need another.">
-        <div className="rounded-lg border bg-bg px-3 py-2 font-mono text-sm">{user.username}</div>
+      <Section title="API tokens" hint="Tokens let a script, or another user of this computer, use dbcanvas within the limits you give each one.">
+        <Button variant="outline" size="sm" onClick={() => { location.hash = 'api' }}>
+          <Icon.Code size={15} /> Manage API tokens
+        </Button>
       </Section>
-
-      <ChangePassword />
-
-      {(!features || features.includes('api')) && (
-        <Section title="API tokens" hint="Tokens let scripts and dbcanvas-cli act as you, with the scope you give each one.">
-          <Button variant="outline" size="sm" onClick={() => { location.hash = 'api' }}>
-            <Icon.Code size={15} /> Manage your API tokens
-          </Button>
-        </Section>
-      )}
-      </>)}
     </div>
   )
 }

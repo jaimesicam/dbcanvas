@@ -220,8 +220,8 @@ func TestSomeThingsNoGuestReaches(t *testing.T) {
 	f.app.hubFor(f.sess).setController(g.ID) // even while driving
 	for _, p := range []string{
 		"GET /api/tokens", "POST /api/tokens", "DELETE /api/tokens/{id}",
-		"GET /api/users", "GET /api/admin/tokens", "PUT /api/system/settings",
-		"PUT /api/me/settings", "POST /api/me/password", "POST /api/auth/logout", "POST /api/auth/login",
+		"PUT /api/system/settings",
+		"PUT /api/me/settings", "POST /api/auth/logout",
 		"GET /api/notifications", "GET /api/notifications/stream",
 		"POST /api/stacks/{id}/share", "POST /api/share/sessions/{sid}/end",
 		"POST /api/share/sessions/{sid}/control", "POST /api/share/sessions/{sid}/guests/{gid}/admit",

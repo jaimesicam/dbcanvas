@@ -75,12 +75,10 @@ func main() {
 		}
 		return
 	}
-	// The app container: the server alone, configured from the environment.
+	// The app container was the 0.0.x edition, with accounts to sign in to. dbcanvas has an
+	// owner who signs in by start link instead, which needs the command on the host.
 	if appIsContainerized() && len(os.Args) == 1 {
-		if err := runServer(serveOpts{ctx: context.Background(), tcp: true}); err != nil {
-			log.Fatal(err)
-		}
-		return
+		log.Fatal("this dbcanvas runs as the dbcanvas command on the host, not as the app container; the container edition is 0.0.x")
 	}
 	os.Exit(runCLI(os.Args[1:]))
 }
@@ -171,9 +169,6 @@ func runServer(o serveOpts) error {
 		mux.HandleFunc("POST /api/solo/start-link", app.handleNewStartLink)
 	}
 	handler := app.browseFallback(mux)
-	if app.solo {
-		handler = soloRefusePasswords(handler)
-	}
 
 	errc := make(chan error, 2)
 	var servers []*http.Server
@@ -346,4 +341,9 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 func decode(r *http.Request, v any) error {
 	defer io.Copy(io.Discard, r.Body)
 	return json.NewDecoder(r.Body).Decode(v)
+}
+
+// pathID parses the {id} path value as an int64.
+func pathID(r *http.Request) (int64, error) {
+	return strconv.ParseInt(r.PathValue("id"), 10, 64)
 }

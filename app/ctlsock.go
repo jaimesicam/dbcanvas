@@ -158,7 +158,13 @@ func (a *App) ensureOwner() (User, error) {
 	if err != nil {
 		return User{}, err
 	}
-	return a.store.CreateUser(name, hash, RoleAdmin, StatusApproved)
+	u, err := a.store.CreateUser(name, hash, RoleAdmin, StatusApproved)
+	if err != nil {
+		return u, err
+	}
+	// A new owner has nothing to catch up on: the release notes start from this version.
+	a.stampWhatsNewSeen(u.ID)
+	return u, nil
 }
 
 // ctlClient is an HTTP client that reaches dbcanvas over the control socket.

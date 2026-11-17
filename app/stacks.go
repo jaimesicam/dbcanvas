@@ -196,15 +196,6 @@ func (a *App) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid ttl")
 		return
 	}
-	// The security group's limits (grouppolicy.go).
-	if ok, why := a.policyFor(u).ttlAllowed(body.TTL); !ok {
-		writeErr(w, http.StatusForbidden, why)
-		return
-	}
-	if ok, why := a.stackCountAllowed(u); !ok {
-		writeErr(w, http.StatusForbidden, why)
-		return
-	}
 	design := []byte(defaultDesign)
 	if len(body.Design) > 0 {
 		design = body.Design
@@ -382,14 +373,13 @@ func (a *App) startReaper() {
 		defer ticker.Stop()
 		a.reapExpiredStacks()
 		a.warnExpiringStacks()
-		lastGuestReap := time.Time{}
+		lastPurge := time.Time{}
 		for range ticker.C {
 			a.reapExpiredStacks()
 			a.warnExpiringStacks()
-			// Idle guest accounts are a slower clock: hourly is plenty (guestlogin.go).
-			if time.Since(lastGuestReap) > time.Hour {
-				lastGuestReap = time.Now()
-				a.reapIdleGuests()
+			// Old tombstones are a slower clock: hourly is plenty.
+			if time.Since(lastPurge) > time.Hour {
+				lastPurge = time.Now()
 				a.store.PurgeStackTombstones()
 			}
 		}
@@ -447,12 +437,6 @@ func (a *App) handleExtendStack(w http.ResponseWriter, r *http.Request) {
 		if st.ExpiresAt == nil {
 			ttl = body.By // it never expired before; now it does, by this much
 		}
-	}
-	// The owner's security group may cap how long a stack lives (grouppolicy.go).
-	policy, _ := a.ownerPolicy(st)
-	if ok, why := policy.expiryAllowed(exp); !ok {
-		writeErr(w, http.StatusForbidden, why)
-		return
 	}
 	if err := a.store.SetStackExpiry(st.ID, ttl, exp); err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to extend the stack")

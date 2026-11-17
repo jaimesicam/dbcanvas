@@ -129,22 +129,3 @@ func loopbackURL(addr string) string {
 	_, port, _ := net.SplitHostPort(addr)
 	return "http://127.0.0.1:" + port
 }
-
-// soloRefusePasswords turns away the password routes: the dbcanvas command has one owner
-// who signs in by start link, and no way to create, sign in to or recover an account.
-// Left open, any local process could run the first-run setup or try passwords.
-func soloRefusePasswords(next http.Handler) http.Handler {
-	refused := map[string]bool{
-		"POST /api/setup": true, "POST /api/auth/register": true, "POST /api/auth/login": true,
-		"POST /api/auth/guest": true,
-	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p := r.URL.Path
-		if refused[r.Method+" "+p] || strings.HasPrefix(p, "/api/auth/reset/") ||
-			(strings.HasPrefix(p, "/api/join/") && strings.HasSuffix(p, "/account")) {
-			writeErr(w, http.StatusNotFound, "not in dbcanvas: run dbcanvas in a terminal to open it signed in")
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}

@@ -190,14 +190,10 @@ func TestSettingsPutCannotBlankWhatsNewSeen(t *testing.T) {
 // TestNewAccountsAreStamped: a first-time user should not be met with a changelog.
 func TestNewAccountsAreStamped(t *testing.T) {
 	app := newTestApp(t)
-	w := httptest.NewRecorder()
-	app.handleSetup(w, httptest.NewRequest("POST", "/api/setup",
-		strings.NewReader(`{"username":"admin","password":"password123","firstName":"Ada","lastName":"Admin","email":"admin@example.com"}`)))
-	if w.Code != http.StatusCreated {
-		t.Fatalf("setup returned %d: %s", w.Code, w.Body.String())
+	u, err := app.ensureOwner()
+	if err != nil {
+		t.Fatal(err)
 	}
-	var u User
-	json.Unmarshal(w.Body.Bytes(), &u)
 	s := app.userSettingsFor(u.ID)
 	if s.WhatsNewSeen != appVersion {
 		t.Errorf("a new admin's whatsNewSeen is %q, want %q", s.WhatsNewSeen, appVersion)

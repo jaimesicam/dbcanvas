@@ -1,8 +1,9 @@
 import { createContext, useContext, useCallback, useEffect, useState } from 'react'
 import { api } from '../lib/api.js'
 
-// phase ∈ {loading, setup, anon, solo, authed}. solo is the dbcanvas command's signed-out
-// state: it has no passwords, and a browser signs in through the link the command opens.
+// phase ∈ {loading, anon, solo, authed}. solo is the signed-out state: there are no
+// passwords, and a browser signs in through the one-time link the dbcanvas command opens.
+// anon is a shared-session guest whose credential stopped working.
 // Exported for the browser smoke check (smoke/browser.jsx), which mounts the stack editor
 // without signing in.
 export const AuthContext = createContext(null)
@@ -13,33 +14,17 @@ export function AuthProvider({ children }) {
   // A shared-session guest (app/share.go): who they are, when the status says this
   // tab is one. user is then the host they act as.
   const [guest, setGuest] = useState(null)
-  // Whether a new sign-up is approved at once (app/auth.go), for the registration form.
-  const [openRegistration, setOpenRegistration] = useState(false)
-  // Whether the sign-in screen offers "Continue as guest" (app/guestlogin.go).
-  const [guestLogin, setGuestLogin] = useState(false)
-  // The pages this account's security group may use (app/secgroups.go), or null
-  // when the server did not say (an older server): then nothing is filtered.
-  const [features, setFeatures] = useState(null)
 
   const refresh = useCallback(async () => {
     try {
       const s = await api.status()
-      setOpenRegistration(!!s.openRegistration)
-      setGuestLogin(!!s.guestLogin)
-      if (s.solo && !s.authenticated) {
-        setUser(null)
-        setPhase('solo')
-      } else if (!s.initialized) {
-        setUser(null)
-        setPhase('setup')
-      } else if (s.authenticated) {
+      if (s.authenticated) {
         setUser(s.user)
         setGuest(s.guest || null)
-        setFeatures(Array.isArray(s.features) ? s.features : null)
         setPhase('authed')
       } else {
         setUser(null)
-        setPhase('anon')
+        setPhase(s.solo ? 'solo' : 'anon')
       }
     } catch {
       setUser(null)
@@ -51,29 +36,6 @@ export function AuthProvider({ children }) {
     refresh()
   }, [refresh])
 
-  const setup = useCallback(async (username, password, profile) => {
-    await api.setup(username, password, profile)
-    await refresh()
-  }, [refresh])
-
-  const login = useCallback(async (username, password) => {
-    await api.login(username, password)
-    await refresh()
-  }, [refresh])
-
-  const loginAsGuest = useCallback(async () => {
-    await api.guestLogin()
-    await refresh()
-  }, [refresh])
-
-  // With open registration the server signs the new account in, so the status is read
-  // again to enter the app.
-  const register = useCallback(async (username, password, profile) => {
-    const res = await api.register(username, password, profile)
-    if (res?.status === 'approved') await refresh()
-    return res
-  }, [refresh])
-
   const logout = useCallback(async () => {
     try {
       await api.logout()
@@ -83,7 +45,7 @@ export function AuthProvider({ children }) {
   }, [refresh])
 
   return (
-    <AuthContext.Provider value={{ phase, user, guest, openRegistration, guestLogin, features, refresh, setup, login, loginAsGuest, register, logout, setUser }}>
+    <AuthContext.Provider value={{ phase, user, guest, refresh, logout, setUser }}>
       {children}
     </AuthContext.Provider>
   )

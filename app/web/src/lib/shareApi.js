@@ -57,9 +57,6 @@ export const shareApi = {
   // guest, before admission
   joinInfo: (token) => request('GET', `/api/join/${enc(token)}`),
   join: (token, name, email, avatar) => request('POST', `/api/join/${enc(token)}`, { name, email, avatar }),
-  // As a DBCanvas account: { username, password }, or { useSession: true } for the
-  // one this browser is signed in to (app/share.go, handleJoinAccount).
-  joinAccount: (token, body) => request('POST', `/api/join/${enc(token)}/account`, body),
   joinStatus: (token) => request('GET', `/api/join/${enc(token)}/status`),
   leave: (token) => request('POST', `/api/join/${enc(token)}/leave`),
 }

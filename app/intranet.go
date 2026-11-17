@@ -1326,8 +1326,6 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 	if err := json.Unmarshal(st.Design, &doc); err != nil {
 		return append(out, issue{Level: "error", Message: "stack design is invalid"})
 	}
-	// Node types the owner's security group may not deploy (grouppolicy.go).
-	out = append(out, a.nodeTypeIssues(st, doc)...)
 	// A member added to a running cluster of a kind that cannot take one yet (join.go).
 	if deps, err := a.store.ListDeployments(st.ID); err == nil && len(deps) > 0 {
 		existing := map[string]Deployment{}
@@ -2504,13 +2502,6 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "issues": issues})
 		return
 	}
-	// The owner's container limit (grouppolicy.go).
-	var limitDoc designDoc
-	json.Unmarshal(st.Design, &limitDoc)
-	if ok, why := a.containerCountAllowed(st, limitDoc); !ok {
-		writeErr(w, http.StatusForbidden, why)
-		return
-	}
 	// An expired stack was torn down at the end of its lifetime. Deploying it again starts that
 	// lifetime over, before anything is built: left past its expiry, the reaper (stacks.go)
 	// would tear the new build straight down.
@@ -2849,16 +2840,10 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]any{"deployments": out, "ttl": st.TTL, "expiresAt": st.ExpiresAt})
 }
 
-// renewExpiredStack gives an expired stack its lifetime again, counted from now: its own TTL,
-// held to the owner's security group's longest (grouppolicy.go). It answers the request
-// itself when it cannot.
+// renewExpiredStack gives an expired stack its lifetime again, counted from now: its own TTL.
+// It answers the request itself when it cannot.
 func (a *App) renewExpiredStack(w http.ResponseWriter, st *Stack, u User) bool {
 	ttl := st.TTL
-	if policy, _ := a.ownerPolicy(*st); policy.MaxTTL != "" {
-		if ok, _ := policy.ttlAllowed(ttl); !ok {
-			ttl = policy.MaxTTL
-		}
-	}
 	var exp *string
 	if ttl != ttlInfinity {
 		dur, ok := ttlDurations[ttl]

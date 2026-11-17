@@ -359,43 +359,6 @@ func (a *App) handleDeleteTemplate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "deleted"})
 }
 
-// handleShareTemplate publishes a template instance-wide. Admin-only: a shared
-// template shows up in every user's picker, which is an instance-wide change, not
-// a personal one.
-func (a *App) handleShareTemplate(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
-	if !ok {
-		writeErr(w, http.StatusUnauthorized, "authentication required")
-		return
-	}
-	if u.Role != RoleAdmin {
-		writeErr(w, http.StatusForbidden, "only an admin can publish a template instance-wide")
-		return
-	}
-	t, ok := a.loadOwnedTemplate(w, r, u)
-	if !ok {
-		return
-	}
-	var body struct {
-		Shared bool `json:"shared"`
-	}
-	if err := decode(r, &body); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if err := a.store.SetStackTemplateShared(mustParseID(t.ID), body.Shared); err != nil {
-		writeErr(w, http.StatusInternalServerError, "failed to update template")
-		return
-	}
-	updated, err := a.store.GetStackTemplate(mustParseID(t.ID))
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "failed to read template")
-		return
-	}
-	templateSummary(&updated)
-	writeJSON(w, http.StatusOK, updated)
-}
-
 // handleExportTemplate serves a template as a downloadable file. Works for
 // built-ins too — exporting one is how you get a starting point to edit offline.
 func (a *App) handleExportTemplate(w http.ResponseWriter, r *http.Request) {

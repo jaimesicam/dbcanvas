@@ -93,35 +93,8 @@ func TestRouteTableIsRegistrable(t *testing.T) {
 // somebody either widened or narrowed access, and it should be on purpose.
 func TestAdminRoutesUnchanged(t *testing.T) {
 	want := map[string]bool{
-		"PUT /api/system/settings":              true,
-		"GET /api/security/groups":              true, // added with security groups
-		"PUT /api/security/groups":              true,
-		"GET /api/system/doctor":                true, // added with the doctor
-		"GET /api/security/policies":            true, // added with group limits
-		"PUT /api/security/policies":            true,
-		"GET /api/users":                        true,
-		"POST /api/users/{id}/approve":          true,
-		"POST /api/users/{id}/reject":           true,
-		"POST /api/users/{id}/disable":          true,
-		"DELETE /api/users/{id}":                true,
-		"POST /api/users/{id}/role":             true, // added with admin role changes
-		"POST /api/users/{id}/password":         true, // added with admin password resets
-		"POST /api/users/{id}/reset-link":       true, // added with admin password resets
-		"POST /api/users":                       true, // added with admin account management
-		"PUT /api/users/{id}":                   true,
-		"GET /api/users/{id}/sessions":          true,
-		"DELETE /api/users/{id}/sessions":       true,
-		"DELETE /api/users/{id}/sessions/{sid}": true,
-		"DELETE /api/users/{id}/sign-ins":       true, // added with clearing sign-in history
-		"DELETE /api/users/sign-ins":            true,
-		"DELETE /api/users/sessions":            true, // added with signing everyone out
-		"GET /api/users/{id}":                   true, // added with the account API
-		"GET /api/users/{id}/stacks":            true,
-		"GET /api/users/{id}/tokens":            true,
-		"DELETE /api/users/{id}/tokens":         true,
-		"POST /api/stacks/{id}/owner":           true,
-		"GET /api/admin/tokens":                 true, // added with API tokens
-		"DELETE /api/admin/tokens/{id}":         true, // added with API tokens
+		"PUT /api/system/settings": true,
+		"GET /api/system/doctor":   true, // added with the doctor
 		// Building an image runs a build on the host's Docker daemon, which is the
 		// installation itself rather than anybody's stack. Admin, deliberately.
 		"POST /api/images/{id}/build": true,
@@ -144,29 +117,18 @@ func TestAdminRoutesUnchanged(t *testing.T) {
 	}
 }
 
-// TestPublicRoutesUnchanged pins the unauthenticated set for the same reason. These
-// are the only five endpoints reachable without a session, because they are the ones
-// an account needs before it has one.
+// TestPublicRoutesUnchanged pins the unauthenticated set for the same reason: the
+// status the sign-in screen reads, signing out, and the shared-session join link,
+// which a guest uses before having any credential but the link itself. The owner signs
+// in by start link (soloweb.go), which is not an API route.
 func TestPublicRoutesUnchanged(t *testing.T) {
 	want := []string{
 		"GET /api/setup/status",
-		"POST /api/setup",
-		"POST /api/auth/register",
-		"POST /api/auth/login",
 		"POST /api/auth/logout",
-		// Guest sign-in: refused unless an administrator turned it on (guestlogin.go).
-		"POST /api/auth/guest",
-		// A reset link an admin issued: its owner has no working password by
-		// definition, so the link is the credential (useradmin.go).
-		"GET /api/auth/reset/{token}",
-		"POST /api/auth/reset/{token}",
 		// A shared-session link: the join page, the lobby and leaving happen before
 		// the guest has any credential but the link itself (share.go).
 		"GET /api/join/{token}",
 		"POST /api/join/{token}",
-		// Joining as an account: the password is checked here, and nothing more is
-		// granted than a guest's lobby place (share.go, handleJoinAccount).
-		"POST /api/join/{token}/account",
 		"GET /api/join/{token}/status",
 		"POST /api/join/{token}/leave",
 	}
@@ -220,7 +182,6 @@ func TestRouteScopes(t *testing.T) {
 		{"POST /api/ftdc/compare", ScopeRead},         // ReadOnly: reads two windows
 		{"POST /api/datagen/stacks/{id}/nodes/{nid}/preview", ScopeRead},
 		{"POST /api/datagen/stacks/{id}/nodes/{nid}/generate", ScopeWrite},
-		{"GET /api/users", ScopeAdmin},
 		{"PUT /api/system/settings", ScopeAdmin},
 		{"GET /api/system/settings", ScopeRead},
 	}
@@ -376,7 +337,6 @@ func TestOperationIDShape(t *testing.T) {
 		"GET /api/stacks/{id}":             "getStacksById",
 		"GET /api/stacks/{id}/nodes/{nid}": "getStacksByIdNodesByNid",
 		"GET /api/meta/openapi.json":       "getMetaOpenapijson",
-		"DELETE /api/admin/tokens/{id}":    "deleteAdminTokensById",
 	} {
 		rt, ok := byPattern[pattern]
 		if !ok {

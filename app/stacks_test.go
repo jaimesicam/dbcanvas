@@ -1,7 +1,11 @@
 package main
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -95,4 +99,20 @@ func TestStackSummaries(t *testing.T) {
 	if s.Types["pg"] != 2 || s.Types["pmm"] != 1 {
 		t.Errorf("types = %v, want pg:2 pmm:1", s.Types)
 	}
+}
+
+// sessionSeq numbers the sessions signedIn makes.
+var sessionSeq int
+
+// signedIn is a request carrying a session of u's, and the session's token.
+func signedIn(t *testing.T, app *App, u User, body string) (*http.Request, string) {
+	t.Helper()
+	sessionSeq++
+	token := fmt.Sprintf("sess-%s-%d", u.Username, sessionSeq)
+	if err := app.store.CreateSession(token, u.ID, time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	r := httptest.NewRequest("POST", "/", strings.NewReader(body))
+	r.AddCookie(&http.Cookie{Name: cookieName, Value: token})
+	return r, token
 }

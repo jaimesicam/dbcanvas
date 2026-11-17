@@ -2,11 +2,8 @@ package main
 
 import (
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
-	"errors"
 	"net/http"
-	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -15,32 +12,7 @@ import (
 const (
 	cookieName = "dbcanvas_session"
 	sessionTTL = 7 * 24 * time.Hour
-	// minPasswordLen is the floor everywhere a password is set — sign-up, first-run
-	// setup, and a change from Settings. Named rather than repeated, because a rule
-	// enforced at sign-up and not at change is not a rule.
-	minPasswordLen = 8
 )
-
-// credentials is the shared shape for setup/register/login bodies.
-type credentials struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-	// The profile a new account is created with (setup, register — profile.go);
-	// a login ignores it.
-	Profile
-}
-
-// validate enforces username 3–32 chars and password ≥ 8.
-func (c credentials) validate() error {
-	u := strings.TrimSpace(c.Username)
-	if len(u) < 3 || len(u) > 32 {
-		return errors.New("username must be 3–32 characters")
-	}
-	if len(c.Password) < minPasswordLen {
-		return errors.New("password must be at least 8 characters")
-	}
-	return nil
-}
 
 // hashPassword hashes a plaintext password with bcrypt.
 func hashPassword(pw string) (string, error) {
@@ -64,7 +36,6 @@ func (a *App) issueSession(w http.ResponseWriter, r *http.Request, userID int64)
 	if err := a.store.CreateSessionFrom(token, userID, expires, remoteHost(r), r.UserAgent()); err != nil {
 		return err
 	}
-	a.store.TouchLastLogin(userID)
 	http.SetCookie(w, &http.Cookie{
 		Name:     cookieName,
 		Value:    token,
@@ -110,10 +81,6 @@ func (a *App) currentUser(r *http.Request) (User, bool) {
 	if err != nil {
 		return User{}, false
 	}
-	// The guest account is signed out the moment guest sign-in is off (guestlogin.go).
-	if !a.guestAccountUsable(u) {
-		return User{}, false
-	}
 	return u, true
 }
 
@@ -152,18 +119,10 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"version": appVersion,
 		// The dbcanvas command: no passwords; a browser signs in by start link (soloweb.go).
 		"solo": a.solo,
-		// Whether a new sign-up is approved at once, for the registration form to say so.
-		"openRegistration": a.openRegistration(),
-		// Whether the sign-in screen offers "Continue as guest" (guestlogin.go).
-		"guestLogin": a.guestLoginEnabled(),
 	}
 	if u, ok := a.currentUser(r); ok {
 		resp["authenticated"] = true
 		resp["user"] = u
-		// The pages this account's security group may use (secgroups.go): the UI
-		// shows only these; the server refuses the rest.
-		resp["features"] = a.allowedFeatures(u)
-		resp["securityGroup"] = groupOf(u)
 		// A shared-session guest is "signed in" as the host they act as; this says who
 		// they really are, so the UI can draw a guest's shell (share.go).
 		if p, ok := principalOf(r); ok && p.Guest != nil {
@@ -173,170 +132,6 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)
-}
-
-func (a *App) handleSetup(w http.ResponseWriter, r *http.Request) {
-	n, err := a.store.CountUsers()
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "failed to read state")
-		return
-	}
-	if n > 0 {
-		writeErr(w, http.StatusConflict, "already initialized")
-		return
-	}
-	var c credentials
-	if err := decode(r, &c); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if err := c.validate(); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if err := c.Profile.clean(true); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	// Checked before the account exists, so a taken address never leaves an account
-	// behind without its profile.
-	if taken, err := a.store.EmailInUse(c.Profile.Email, 0); err != nil || taken {
-		writeErr(w, http.StatusConflict, ErrEmailTaken.Error())
-		return
-	}
-	hash, err := hashPassword(c.Password)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "failed to hash password")
-		return
-	}
-	u, err := a.store.CreateUser(strings.TrimSpace(c.Username), hash, RoleAdmin, StatusApproved)
-	if err != nil {
-		if errors.Is(err, ErrUserExists) {
-			writeErr(w, http.StatusConflict, "username already exists")
-			return
-		}
-		writeErr(w, http.StatusInternalServerError, "failed to create user")
-		return
-	}
-	if err := a.store.SetUserProfile(u.ID, c.Profile); err != nil {
-		writeErr(w, http.StatusInternalServerError, "failed to save the profile")
-		return
-	}
-	if u, err = a.store.GetUser(u.ID); err != nil {
-		writeErr(w, http.StatusInternalServerError, "failed to read the account back")
-		return
-	}
-	a.stampWhatsNewSeen(u.ID)
-	if err := a.issueSession(w, r, u.ID); err != nil {
-		writeErr(w, http.StatusInternalServerError, "failed to create session")
-		return
-	}
-	writeJSON(w, http.StatusCreated, u)
-}
-
-func (a *App) handleRegister(w http.ResponseWriter, r *http.Request) {
-	var c credentials
-	if err := decode(r, &c); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if err := c.validate(); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if err := c.Profile.clean(true); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	// Checked before the account exists, so a taken address never leaves an account
-	// behind without its profile.
-	if taken, err := a.store.EmailInUse(c.Profile.Email, 0); err != nil || taken {
-		writeErr(w, http.StatusConflict, ErrEmailTaken.Error())
-		return
-	}
-	hash, err := hashPassword(c.Password)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "failed to hash password")
-		return
-	}
-	// With open registration the account is approved as it is created, and the person
-	// is signed in; otherwise it waits for an administrator.
-	open := a.openRegistration()
-	status := StatusPending
-	if open {
-		status = StatusApproved
-	}
-	nu, err := a.store.CreateUser(strings.TrimSpace(c.Username), hash, RoleUser, status)
-	if err != nil {
-		if errors.Is(err, ErrUserExists) {
-			writeErr(w, http.StatusConflict, "username already exists")
-			return
-		}
-		writeErr(w, http.StatusInternalServerError, "failed to create user")
-		return
-	}
-	if err := a.store.SetUserProfile(nu.ID, c.Profile); err != nil {
-		writeErr(w, http.StatusInternalServerError, "failed to save the profile")
-		return
-	}
-	a.stampWhatsNewSeen(nu.ID)
-	if open {
-		a.notify(Notification{Scope: "admin", Type: "user.registered", Severity: "info",
-			Title: "New account registered", Body: c.Profile.FirstName + " " + c.Profile.LastName + " (" + nu.Username + ") registered; open registration approved the account."})
-		if err := a.issueSession(w, r, nu.ID); err != nil {
-			writeErr(w, http.StatusInternalServerError, "failed to create session")
-			return
-		}
-		writeJSON(w, http.StatusCreated, map[string]any{
-			"status":  "approved",
-			"message": "Your account was created and you are signed in.",
-			"user":    nu,
-		})
-		return
-	}
-	a.notify(Notification{Scope: "admin", Type: "user.pending", Severity: "warning",
-		Title: "New account awaiting approval", Body: c.Profile.FirstName + " " + c.Profile.LastName + " (" + nu.Username + ") registered and needs approval."})
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"status":  "pending",
-		"message": "Your account was created and is awaiting administrator approval.",
-	})
-}
-
-func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
-	var c credentials
-	if err := decode(r, &c); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	u, hash, err := a.store.CredByUsername(strings.TrimSpace(c.Username))
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeErr(w, http.StatusUnauthorized, "invalid username or password")
-			return
-		}
-		writeErr(w, http.StatusInternalServerError, "failed to read user")
-		return
-	}
-	if !checkPassword(hash, c.Password) {
-		writeErr(w, http.StatusUnauthorized, "invalid username or password")
-		return
-	}
-	switch u.Status {
-	case StatusPending:
-		writeErr(w, http.StatusForbidden, "your account is awaiting approval")
-		return
-	case StatusRejected:
-		writeErr(w, http.StatusForbidden, "your account request was rejected")
-		return
-	case StatusDisabled:
-		writeErr(w, http.StatusForbidden, "your account has been disabled")
-		return
-	}
-	if err := a.issueSession(w, r, u.ID); err != nil {
-		writeErr(w, http.StatusInternalServerError, "failed to create session")
-		return
-	}
-	writeJSON(w, http.StatusOK, u)
 }
 
 func (a *App) handleLogout(w http.ResponseWriter, r *http.Request) {

@@ -127,16 +127,6 @@ func (a *App) doctorChecks(ctx context.Context) []doctorCheck {
 	} else {
 		add("exposure", "ok", "published on "+publishHost()+" only", "")
 	}
-	if a.guestLoginEnabled() {
-		st := "warn"
-		if !exposed() {
-			st = "ok"
-		}
-		add("guest sign-in", st, fmt.Sprintf("on; idle guest accounts removed after %d day(s)", a.guestIdleDays()), "set limits for Guests under Security group limits")
-	}
-	if a.openRegistration() {
-		add("open registration", "warn", "anyone who registers is approved and signed in at once", "turn it off unless everyone who can reach the page should have an account")
-	}
 
 	// What it hands out.
 	if ents, err := os.ReadDir(cliDir()); err == nil && len(ents) > 0 {
