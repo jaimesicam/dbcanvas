@@ -242,7 +242,6 @@ export const templateApi = {
   update: (id, name, description, category, design) =>
     request('PUT', `/api/templates/${encodeURIComponent(id)}`, { name, description, category, design }),
   remove: (id) => request('DELETE', `/api/templates/${encodeURIComponent(id)}`),
-  share: (id, shared) => request('POST', `/api/templates/${encodeURIComponent(id)}/share`, { shared }),
   // The export endpoint sets Content-Disposition, so a plain same-origin link is
   // the whole download — no blob juggling, and the cookie rides along.
   exportUrl: (id) => `/api/templates/${encodeURIComponent(id)}/export`,
@@ -757,8 +756,7 @@ export const k8sPods = (stackId, nodeId) =>
   request('GET', `/api/stacks/${stackId}/nodes/${nodeId}/k8s/pods`)
 
 // imageApi — the images a node needs beyond the operating-system bases, and
-// building a missing one. Listed for anyone signed in (a missing image is why a
-// deploy will not start), built by an admin only, which the server enforces.
+// building a missing one (a missing image is why a deploy will not start).
 export const imageApi = {
   list: () => request('GET', '/api/images'),
   build: (id) => request('POST', `/api/images/${id}/build`),

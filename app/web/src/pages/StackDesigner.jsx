@@ -1811,7 +1811,6 @@ function ExpiryChip({ stack, onExtended }) {
 
 function StackList({ stacks, templates, loading, error, notice, onOpen, onCreated, onChanged, onTemplatesChanged }) {
   const [showNew, setShowNew] = useState(false)
-  const { user } = useAuth()
 
   return (
     <div className="space-y-4">
@@ -1837,10 +1836,10 @@ function StackList({ stacks, templates, loading, error, notice, onOpen, onCreate
           </div>
         </Card>
       ) : (
-        <StackTable stacks={stacks} isAdmin={user?.role === 'admin'} me={user} onOpen={onOpen} onChanged={onChanged} />
+        <StackTable stacks={stacks} onOpen={onOpen} onChanged={onChanged} />
       )}
 
-      <TemplatesPanel templates={templates} isAdmin={user?.role === 'admin'} onChanged={onTemplatesChanged} />
+      <TemplatesPanel templates={templates} onChanged={onTemplatesChanged} />
 
       {showNew && (
         <NewStackModal
@@ -1881,7 +1880,7 @@ const expiresKey = (s) => (s.status === 'expired' ? Number.MAX_SAFE_INTEGER : s.
 // StackTable is the Database Stacks list: one row per stack with how many of its nodes run, what
 // they are, what they use now (the dashboard's sample, app/dashboard.go) and how long they have
 // left — sorted by that last one by default, so what is about to be torn down is at the top.
-function StackTable({ stacks, isAdmin, me, onOpen, onChanged }) {
+function StackTable({ stacks, onOpen, onChanged }) {
   const [q, setQ] = useState('')
   const [only, setOnly] = useState('all') // all | deployed | draft | expired | soon | errors
   const [sort, setSort] = useState({ key: 'expires', dir: 1 })
@@ -2202,7 +2201,7 @@ function TemplateSelect({ templates, value, onChange, blankLabel = 'Blank canvas
 // TemplatesPanel is the management half: what a template is called, who can see
 // it, and getting one in or out of this installation as a file. Applying one
 // happens elsewhere — from the New stack modal, or the designer's toolbar.
-function TemplatesPanel({ templates, isAdmin, onChanged }) {
+function TemplatesPanel({ templates, onChanged }) {
   const [open, setOpen] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
@@ -2224,15 +2223,6 @@ function TemplatesPanel({ templates, isAdmin, onChanged }) {
     }
   }
 
-  async function togglePublish(t) {
-    setError('')
-    try {
-      await templateApi.share(t.id, !t.shared)
-      onChanged()
-    } catch (err) {
-      setError(err.message)
-    }
-  }
 
   const mine = templates.filter((t) => !t.builtin)
 
@@ -2267,7 +2257,6 @@ function TemplatesPanel({ templates, isAdmin, onChanged }) {
                       <div className="flex items-center gap-2">
                         <span className="truncate text-sm font-medium text-fg">{t.name}</span>
                         {t.builtin && <Badge tone="primary">built-in</Badge>}
-                        {t.shared && <Badge tone="success">shared</Badge>}
                       </div>
                       <div className="mt-0.5 text-xs text-muted">{t.description}</div>
                       <div className="mt-0.5 text-xs text-muted">{templateSizeLabel(t)}</div>
@@ -2277,12 +2266,6 @@ function TemplatesPanel({ templates, isAdmin, onChanged }) {
                         className="rounded-lg p-1.5 text-muted hover:bg-surface2 hover:text-fg">
                         <Icon.External size={15} />
                       </a>
-                      {!t.builtin && isAdmin && (
-                        <Button size="sm" variant="ghost" title={t.shared ? 'Unpublish' : 'Publish to everyone'}
-                          onClick={() => togglePublish(t)}>
-                          <Icon.Users size={15} />
-                        </Button>
-                      )}
                       {!t.builtin && (
                         <Button size="sm" variant="ghost" title="Rename" onClick={() => setEditing(t)}>
                           <Icon.Pencil size={15} />
@@ -2648,7 +2631,7 @@ export function podMenuEntries(pods, onPick) {
 // (app/extraimages.go) and its output arrives when the step finishes, so there is
 // nothing to stream until then. What matters while waiting is that it is still
 // going, and how long it has been.
-export function BuildImageRow({ id, isAdmin, onBuilt }) {
+export function BuildImageRow({ id, onBuilt }) {
   const [img, setImg] = useState(null)
   const [err, setErr] = useState('')
   const [asked, setAsked] = useState(false)
@@ -2699,10 +2682,6 @@ export function BuildImageRow({ id, isAdmin, onBuilt }) {
     <div className="mt-1 space-y-1">
       {!img.buildable ? (
         <div className="text-xs text-muted">{img.why}</div>
-      ) : !isAdmin ? (
-        <div className="text-xs text-muted">
-          The owner can build it from here.
-        </div>
       ) : build?.running ? (
         <div className="flex items-center gap-2 text-xs text-muted">
           <span className="h-3 w-3 animate-spin rounded-full border-2 border-surface2 border-t-primary" />
@@ -3007,9 +2986,8 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
   // Building a missing node image is an admin action (the server enforces it); a
   // non-admin is told which make target does it instead of shown a button that
   // would be refused.
-  const { user: authUser, guest } = useAuth()
+  const { guest } = useAuth()
   const { openBrowser, openInDesktop } = useBrowser()
-  const isAdmin = authUser?.role === 'admin'
   const [busy, setBusy] = useState('') // 'validate' | 'deploy' | ''
   const [configNode, setConfigNode] = useState(null) // node whose profile is shown
   const [deployPanel, setDeployPanel] = useState('hidden') // 'open' | 'min' | 'hidden'
@@ -5494,7 +5472,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
                     {/* A missing image DBCanvas can build itself. The server put the
                         catalogue id on the issue (see missingImageIssue), so this is
                         not the front end guessing from the message. */}
-                    {it.image && <BuildImageRow id={it.image} isAdmin={isAdmin} onBuilt={runValidate} />}
+                    {it.image && <BuildImageRow id={it.image} onBuilt={runValidate} />}
                   </span>
                 </li>
               ))}

@@ -100,7 +100,7 @@ Those builds fetch from npm, GitHub, Maven Central and Percona's repositories, s
 for reasons that have nothing to do with the machine running them. A failure is reported, and
 the rest still build.
 
-That is why the owner can build most of them from the web interface at the moment a Validate
+That is why you can build most of them from the web interface at the moment a Validate
 says one is missing (`app/extraimages.go`). It works because no `images/*.Dockerfile` copies
 anything from its build context — every `COPY` is `--from=<stage>` — so the Dockerfile *is* the
 context, and the app carries a copy. The build itself runs in a throwaway `docker:cli` container

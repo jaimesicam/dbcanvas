@@ -24,14 +24,7 @@ import { useRefresh } from '../lib/useRefresh.jsx'
 // on the server.
 
 export default function Api() {
-  // The role comes from GET /api/tokens rather than from AuthProvider. Both know
-  // it, but taking it from the payload keeps this page renderable on its own —
-  // which is what lets the render smoke test mount the whole thing and catch a
-  // missing icon in the tab bar before anybody opens the page.
-  const [isAdmin, setIsAdmin] = useState(false)
   const [tab, setTab] = useState('tokens')
-  // Stable, because Tokens re-reads the list whenever this changes.
-  const onRole = useCallback((r) => setIsAdmin(r === 'admin'), [])
 
   return (
     <div className="space-y-3">
@@ -57,7 +50,7 @@ export default function Api() {
         })}
       </div>
 
-      {tab === 'tokens' && <Tokens isAdmin={isAdmin} onRole={onRole} />}
+      {tab === 'tokens' && <Tokens />}
       {tab === 'endpoints' && <Endpoints />}
       {tab === 'start' && <GettingStarted />}
     </div>
@@ -66,14 +59,14 @@ export default function Api() {
 
 // ------------------------------------------------------------------ tokens
 
-export function Tokens({ isAdmin, onRole }) {
+export function Tokens() {
   const [data, setData] = useState(null)
   const [err, setErr] = useState('')
   const [fresh, setFresh] = useState(null) // the one-time secret, if a token was just made
 
   const load = useCallback(() => apiApi.listTokens()
-    .then((d) => { setData(d); if (onRole) onRole(d.role) })
-    .catch((e) => setErr(e.message)), [onRole])
+    .then((d) => setData(d))
+    .catch((e) => setErr(e.message)), [])
   useEffect(() => { load() }, [load])
   useRefresh(load)
 

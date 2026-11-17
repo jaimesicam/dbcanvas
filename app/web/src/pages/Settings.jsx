@@ -3,13 +3,12 @@ import { Icon } from '../components/Icons.jsx'
 import { Button, Field, Toggle, inputCls } from '../components/ui.jsx'
 import { Help } from '../components/Tooltip.jsx'
 import { HELP } from '../lib/help.js'
-import { useAuth } from '../auth/AuthProvider.jsx'
 import { api } from '../lib/api.js'
 import { useSettings } from '../settings/SettingsProvider.jsx'
 import { LOOKS, THEMES } from '../theme/ThemeProvider.jsx'
 import { TABS_DEFAULT, TABS_MAX, TABS_MIN, clampTabs, hashPage, hashSection } from '../lib/tabs.js'
 
-// Settings — per-user preferences, saved to the account (not the browser) as soon as they are
+// Settings — preferences, saved on the server (not in the browser) as soon as they are
 // changed. Terminal mode applies to consoles opened from here on; existing sessions keep their
 // place (right-click a session to dock/undock it).
 
@@ -62,18 +61,12 @@ function splitSize(bytes) {
   return { value: Math.max(1, Math.round(bytes / SIZE_UNITS[0].bytes)), unit: 'MiB' }
 }
 
-// Row is one setting. scope says whose it is, and the badge in its corner says so:
-// "you" is a preference saved to the signed-in account, which changes nothing for anyone
-// else (app/settings.go); "everyone" is instance-wide (app/syssettings.go), changed only by
-// the owner and shown read-only to everybody else.
-function Row({ title, hint, scope, children }) {
+// Row is one setting: a titled card with a hint.
+function Row({ title, hint, children }) {
   return (
     <div className="space-y-2 rounded-xl border bg-surface p-4">
       <div>
-        <div className="flex items-start justify-between gap-2">
-          <div className="text-sm font-semibold">{title}</div>
-          <ScopeBadge scope={scope} />
-        </div>
+        <div className="text-sm font-semibold">{title}</div>
         <div className="text-xs text-muted">{hint}</div>
       </div>
       {children}
@@ -81,41 +74,9 @@ function Row({ title, hint, scope, children }) {
   )
 }
 
-const SCOPE_TEXT = {
-  you: ['Only you', 'Saved to your account, on every browser you sign in from. Nobody else sees the change.'],
-  everyone: ['Everyone', 'Instance-wide: a change here applies to every account.'],
-  locked: ['Everyone · owner only', 'Instance-wide. Only the owner can change it; you can see what it is set to.'],
-}
-function ScopeBadge({ scope }) {
-  if (scope === 'you') return <Badge kind="you" />
-  if (scope === 'everyone') return <EveryoneBadge />
-  return null
-}
-// EveryoneBadge reads the account to tell the owner from everybody else; a
-// preference's badge does not need it, so a card rendered on its own still mounts.
-function EveryoneBadge() {
-  const { user } = useAuth()
-  return <Badge kind={user?.role === 'admin' ? 'everyone' : 'locked'} />
-}
-function Badge({ kind: key }) {
-  const [text, tip] = SCOPE_TEXT[key]
-  return (
-    <span title={tip} aria-label={`${text}. ${tip}`}
-      className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-medium ${
-        key === 'you' ? 'border-primary/40 bg-primary/10 text-primary' : 'text-muted'}`}>
-      {key === 'you' ? <Icon.User size={11} /> : <Icon.Users size={11} />}
-      {text}
-    </span>
-  )
-}
-
-// UploadLimit is the one instance-wide setting on this page: the ceiling on a
-// file drop onto a node (StackDesigner). Everyone sees it — you cannot work
-// within a limit you cannot see — but only an admin can move it.
+// UploadLimit is the ceiling on a file drop onto a node (StackDesigner).
 function UploadLimit() {
   const { system, saveSystem } = useSettings()
-  const { user } = useAuth()
-  const isAdmin = user?.role === 'admin'
 
   const [draft, setDraft] = useState(() => splitSize(system.maxUploadBytes))
   const [busy, setBusy] = useState(false)
@@ -145,15 +106,15 @@ function UploadLimit() {
 
   return (
     <Row
-      scope="everyone" title="Node file uploads"
-      hint="The largest single drop of host files onto a deployed node, in the Stack Designer. Instance-wide — it applies to every user."
+      title="Node file uploads"
+      hint="The largest single drop of host files onto a deployed node, in the Stack Designer."
     >
       {/* inputCls carries w-full, so the width has to come from a wrapper —
           setting w-28 on the control itself loses to it in the stylesheet. */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="w-24">
           <input
-            type="number" min="1" step="1" disabled={!isAdmin || busy}
+            type="number" min="1" step="1" disabled={busy}
             className={`${inputCls} disabled:cursor-not-allowed disabled:opacity-55`}
             value={draft.value}
             onChange={(e) => setDraft({ ...draft, value: Math.max(1, Number(e.target.value) || 1) })}
@@ -161,7 +122,7 @@ function UploadLimit() {
         </div>
         <div className="w-24">
           <select
-            disabled={!isAdmin || busy}
+            disabled={busy}
             className={`${inputCls} disabled:cursor-not-allowed disabled:opacity-55`}
             value={draft.unit}
             onChange={(e) => setDraft({ ...draft, unit: e.target.value })}
@@ -169,28 +130,20 @@ function UploadLimit() {
             {SIZE_UNITS.map((u) => <option key={u.id} value={u.id}>{u.id}</option>)}
           </select>
         </div>
-        {isAdmin && (
-          <Button onClick={apply} disabled={!dirty || busy}>{busy ? 'Saving…' : 'Save'}</Button>
-        )}
+        <Button onClick={apply} disabled={!dirty || busy}>{busy ? 'Saving…' : 'Save'}</Button>
         {saved && <span className="flex items-center gap-1 text-xs text-success"><Icon.Check size={14} /> Saved</span>}
       </div>
       {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
       <div className="text-xs text-muted">
-        {isAdmin
-          ? 'Default 4 GiB. Between 1 MiB and 1 TiB — the upload streams to the node rather than being held in memory, so the practical bound is temporary disk space, not RAM.'
-          : 'Set by the owner. Ask them to raise it if you need to copy something larger.'}
+        Default 4 GiB. Between 1 MiB and 1 TiB — the upload streams to the node rather than being held in memory, so the practical bound is temporary disk space, not RAM.
       </div>
     </Row>
   )
 }
 
-// TokenLifetime is the other instance-wide setting: the longest expiry a
-// non-administrator may give an API token. Same shape as UploadLimit — everyone can
-// see the limit they are working under, only an admin can move it.
+// TokenLifetime is the longest expiry an API token may have. Same shape as UploadLimit.
 function TokenLifetime() {
   const { system, saveSystem } = useSettings()
-  const { user } = useAuth()
-  const isAdmin = user?.role === 'admin'
 
   const [draft, setDraft] = useState(system.maxTokenDays ?? 90)
   const [busy, setBusy] = useState(false)
@@ -217,13 +170,13 @@ function TokenLifetime() {
 
   return (
     <Row
-      scope="everyone" title="API token lifetime"
-      hint="The longest expiry anyone may give an API token, the owner included. Only the owner can create a token that never expires. Instance-wide."
+      title="API token lifetime"
+      hint="The longest expiry an API token may have."
     >
       <div className="flex flex-wrap items-center gap-2">
         <div className="w-24">
           <input
-            type="number" min="1" max="365" step="1" disabled={!isAdmin || busy}
+            type="number" min="1" max="365" step="1" disabled={busy}
             className={`${inputCls} disabled:cursor-not-allowed disabled:opacity-55`}
             value={draft}
             onChange={(e) => setDraft(Math.min(365, Math.max(1, Number(e.target.value) || 1)))}
@@ -231,16 +184,12 @@ function TokenLifetime() {
         </div>
         <span className="text-sm text-muted">days</span>
         <Help text={HELP.maxTokenDays} />
-        {isAdmin && (
-          <Button onClick={apply} disabled={!dirty || busy}>{busy ? 'Saving…' : 'Save'}</Button>
-        )}
+        <Button onClick={apply} disabled={!dirty || busy}>{busy ? 'Saving…' : 'Save'}</Button>
         {saved && <span className="flex items-center gap-1 text-xs text-success"><Icon.Check size={14} /> Saved</span>}
       </div>
       {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
       <div className="text-xs text-muted">
-        {isAdmin
-          ? 'Default 90 days, between 1 and 365. A request for longer is shortened to this rather than refused, so lowering it never breaks the create form — and it does not shorten tokens that already exist. Only the owner can create a token that never expires.'
-          : 'Set by the owner. Tokens you create are capped at this, whatever you ask for.'}
+        Default 90 days, between 1 and 365. A request for longer is shortened to this rather than refused, so lowering it never breaks the create form — and it does not shorten tokens that already exist.
       </div>
     </Row>
   )
@@ -256,8 +205,6 @@ function TokenLifetime() {
 // scenario you can test at all, without it ever becoming one you reach by accident.
 export function InternalWrites() {
   const { system, saveSystem } = useSettings()
-  const { user } = useAuth()
-  const isAdmin = user?.role === 'admin'
   const on = !!system.internalWrites
 
   const [busy, setBusy] = useState(false)
@@ -284,8 +231,8 @@ export function InternalWrites() {
 
   return (
     <Row
-      scope="everyone" title="Writes to internal databases"
-      hint="Whether the Database Explorer may write to PMM Server's own PostgreSQL and ClickHouse. Instance-wide, and off by default."
+      title="Writes to internal databases"
+      hint="Whether the Database Explorer may write to PMM Server's own PostgreSQL and ClickHouse. Off by default."
     >
       <div className="flex flex-wrap items-center gap-2">
         <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
@@ -294,7 +241,7 @@ export function InternalWrites() {
           {on ? 'Writes allowed' : 'Read only'}
         </span>
         <Help text={HELP.internalWrites} />
-        {isAdmin && (on
+        {(on
           ? <Button variant="subtle" onClick={() => apply(false)} disabled={busy}>{busy ? 'Saving…' : 'Make read-only again'}</Button>
           : armed
             ? <Button variant="danger" onClick={() => apply(true)} disabled={busy}>{busy ? 'Saving…' : 'Yes — allow writes'}</Button>
@@ -304,21 +251,17 @@ export function InternalWrites() {
       <div className={`text-xs ${on ? 'text-danger' : 'text-muted'}`}>
         {on
           ? 'PMM\u2019s internal databases can be written to from the Database Explorer, once a query tab is armed for it. Modifying PMM internal data may corrupt or break the PMM installation \u2014 which is the point when you are testing that, and a hazard the rest of the time.'
-          : isAdmin
-            ? 'PMM\u2019s internal PostgreSQL and ClickHouse are exposed for inspection only, and the databases themselves refuse writes on those sessions. Turn this on to test what a broken PMM inventory does; turn it off again afterwards.'
-            : 'Set by the owner. PMM\u2019s internal databases are read-only for you.'}
+          : 'PMM\u2019s internal PostgreSQL and ClickHouse are exposed for inspection only, and the databases themselves refuse writes on those sessions. Turn this on to test what a broken PMM inventory does; turn it off again afterwards.'}
       </div>
     </Row>
   )
 }
 
-// GuestSessions is the switch for shared sessions (app/share.go): whether a stack's
-// owner may share a live session through a link, and the longest a link may last.
-// Instance-wide and off by default — a link admits people who have no account here.
+// GuestSessions is the switch for shared sessions (app/share.go): whether a live
+// session may be shared through a link, and the longest a link may last. Off by
+// default — a link admits people who have no account here.
 export function GuestSessions() {
   const { system, saveSystem } = useSettings()
-  const { user } = useAuth()
-  const isAdmin = user?.role === 'admin'
   const on = !!system.allowGuestSessions
   const [minutes, setMinutes] = useState(system.maxGuestMinutes ?? 120)
   const [days, setDays] = useState(system.sessionRetentionDays ?? 90)
@@ -339,8 +282,8 @@ export function GuestSessions() {
 
   return (
     <Row
-      scope="everyone" title="Shared sessions"
-      hint="Whether a stack's owner may share a live session with guests through a link, and how long a link may last. Instance-wide, and off by default."
+      title="Shared sessions"
+      hint="Whether you may share a live session with guests through a link, and how long a link may last. Off by default."
     >
       <div className="flex flex-wrap items-center gap-2">
         <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
@@ -349,47 +292,45 @@ export function GuestSessions() {
           {on ? 'Allowed' : 'Off'}
         </span>
         <Help text={HELP.guestSessions} />
-        {isAdmin && (
-          <Button variant={on ? 'subtle' : 'outline'} onClick={() => apply({ allowGuestSessions: !on })} disabled={busy}>
-            {busy ? 'Saving…' : on ? 'Turn off (ends live sessions)' : 'Allow shared sessions'}
-          </Button>
-        )}
+        <Button variant={on ? 'subtle' : 'outline'} onClick={() => apply({ allowGuestSessions: !on })} disabled={busy}>
+          {busy ? 'Saving…' : on ? 'Turn off (ends live sessions)' : 'Allow shared sessions'}
+        </Button>
       </div>
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="text-muted">Longest link</span>
         <input
-          type="number" min="5" max="120" step="5" disabled={!isAdmin || busy}
+          type="number" min="5" max="120" step="5" disabled={busy}
           value={minutes} onChange={(e) => setMinutes(e.target.value)}
           className="w-20 rounded-lg border bg-bg px-2 py-1 text-sm"
         />
         <span className="text-muted">minutes (5 to 120)</span>
-        {isAdmin && dirty && (
+        {dirty && (
           <Button variant="primary" onClick={() => apply({ maxGuestMinutes: Number(minutes) })} disabled={busy}>Save</Button>
         )}
       </div>
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="text-muted">Keep ended sessions</span>
         <input
-          type="number" min="0" max="3650" step="1" disabled={!isAdmin || busy}
+          type="number" min="0" max="3650" step="1" disabled={busy}
           value={days} onChange={(e) => setDays(e.target.value)}
           className="w-20 rounded-lg border bg-bg px-2 py-1 text-sm"
         />
         <span className="text-muted">days (0 keeps them)</span>
         <Help text={HELP.sessionRetention} />
-        {isAdmin && daysDirty && (
+        {daysDirty && (
           <Button variant="primary" onClick={() => apply({ sessionRetentionDays: Math.max(0, Math.round(Number(days) || 0)) })} disabled={busy}>Save</Button>
         )}
       </div>
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="text-muted">Purge recordings after</span>
         <input
-          type="number" min="1" max="3650" step="1" disabled={!isAdmin || busy}
+          type="number" min="1" max="3650" step="1" disabled={busy}
           value={recDays} onChange={(e) => setRecDays(e.target.value)}
           className="w-20 rounded-lg border bg-bg px-2 py-1 text-sm"
         />
         <span className="text-muted">days (the default; a host can move a recording&apos;s date)</span>
         <Help text={HELP.recordingRetention} />
-        {isAdmin && recDirty && (
+        {recDirty && (
           <Button variant="primary" onClick={() => apply({ recordingRetentionDays: Math.max(1, Math.round(Number(recDays) || 30)) })} disabled={busy}>Save</Button>
         )}
       </div>
@@ -404,11 +345,9 @@ export function GuestSessions() {
 }
 
 // LiveWatch is how often the server samples every deployed stack for its history, timeline and
-// alerts (app/livewatch.go). Instance-wide: each pass execs into every database node.
+// alerts (app/livewatch.go). Each pass execs into every database node.
 export function LiveWatch() {
   const { system, saveSystem } = useSettings()
-  const { user } = useAuth()
-  const isAdmin = user?.role === 'admin'
   const [sec, setSec] = useState(system.liveWatchSeconds ?? 30)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
@@ -420,7 +359,7 @@ export function LiveWatch() {
   const on = (system.liveWatchSeconds ?? 30) > 0
   return (
     <Row
-      scope="everyone" title="Stack history and alerts"
+      title="Stack history and alerts"
       hint="How often the server samples every deployed stack: the trend lines of the last day, the timeline of role changes and failovers, and the alerts in the notification bell. Off means none of these are recorded."
     >
       <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -428,11 +367,11 @@ export function LiveWatch() {
           {on ? `Every ${system.liveWatchSeconds}s` : 'Off'}
         </span>
         <span className="text-muted">Sample every</span>
-        <input type="number" min="0" max="600" step="5" disabled={!isAdmin || busy}
+        <input type="number" min="0" max="600" step="5" disabled={busy}
           value={sec} onChange={(e) => setSec(e.target.value)}
           className="w-20 rounded-lg border bg-bg px-2 py-1 text-sm" />
         <span className="text-muted">seconds (15 to 600; 0 switches it off)</span>
-        {isAdmin && Number(sec) !== system.liveWatchSeconds && (
+        {Number(sec) !== system.liveWatchSeconds && (
           <Button variant="primary" onClick={() => apply(Math.max(0, Math.round(Number(sec) || 0)))} disabled={busy}>Save</Button>
         )}
       </div>
@@ -443,7 +382,7 @@ export function LiveWatch() {
 
 // TabLimit is how many pages the main window will keep open at once.
 //
-// A draft plus an explicit Save, like the two instance-wide rows below, rather
+// A draft plus an explicit Save, like the two system rows below, rather
 // than the instant apply the pick-one rows use: a number field commits a value on
 // every keystroke, so typing 12 would save 1 first — and a 1 the server clamps to
 // the floor is a worse answer than the one still being typed.
@@ -479,7 +418,7 @@ export function TabLimit({ value, onSave }) {
 
   return (
     <Row
-      scope="you" title="Tabs"
+      title="Tabs"
       hint="How many pages the main window keeps open at once. Applies to the next page you open."
     >
       <div className="flex flex-wrap items-center gap-2">
@@ -579,7 +518,7 @@ export function TerminalOnTopOptions({ value, onPick }) {
 // render check has to be reachable without one.
 export function TooltipOptions({ value, onPick }) {
   return (
-    <Row scope="you" title="Tooltips" hint="The hover explanations on labels, fields and menu rows, across the whole app.">
+    <Row title="Tooltips" hint="The hover explanations on labels, fields and menu rows, across the whole app.">
       <div className="grid gap-2 sm:grid-cols-2">
         {TOOLTIP_MODES.map((m) => {
           const on = value === m.id
@@ -628,7 +567,7 @@ export function ScratchboardOptions({ value, onPick }) {
     onPick(id)
   }
   return (
-    <Row scope="you" title="Scratchboard" hint="Whether Scratchboard boards can be kept across reloads.">
+    <Row title="Scratchboard" hint="Whether Scratchboard boards can be kept across reloads.">
       <div className="grid gap-2 sm:grid-cols-2">
         {SCRATCHBOARD_MODES.map((m) => {
           const on = value === m.id
@@ -676,8 +615,6 @@ export function LookOptions({ value, onPick }) {
 
 export default function Settings() {
   const { settings, save, loaded } = useSettings()
-  const { user } = useAuth()
-  const isAdmin = user?.role === 'admin'
   const [err, setErr] = useState('')
   // Four tabs instead of one long page: how it looks, how you work, who can get in, and what
   // the installation allows. The URL names the tab (#settings/access), so a link opens it; with
@@ -718,26 +655,17 @@ export default function Settings() {
     setErr('')
     try { await save(patch) } catch (e) { setErr(e.message) }
   }
-  // The tabs that hold only instance-wide settings are view-only for a non-administrator.
-  const adminOnly = new Set(['access', 'system'])
 
   return (
     <div className="max-w-6xl space-y-4">
       {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
       {!loaded && <div className="text-xs text-muted">Loading your settings…</div>}
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
-        <span className="inline-flex items-center gap-1"><ScopeBadge scope="you" /> saved to your account; changes nothing for anyone else.</span>
-        <span className="inline-flex items-center gap-1"><ScopeBadge scope="everyone" /> applies to this dbcanvas as a whole.</span>
-      </div>
-
       <div className="flex gap-1 overflow-x-auto border-b text-sm" role="tablist" aria-label="Settings">
         {tabs.map(([id, text]) => (
           <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => pickTab(id)}
-            title={!isAdmin && adminOnly.has(id) ? 'Instance-wide settings: view only. The owner changes them.' : undefined}
             className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-t-md px-3 py-1.5 ${tab === id ? 'border border-b-0 bg-bg font-semibold text-fg' : 'text-muted hover:text-fg'}`}>
             {text}
-            {!isAdmin && adminOnly.has(id) && <span className="rounded border px-1 text-[10px] font-normal text-muted">view only</span>}
           </button>
         ))}
       </div>
@@ -745,7 +673,7 @@ export default function Settings() {
       {tab === 'appearance' && (
         <div className={two}>
           <div className="space-y-4">
-            <Row scope="you" title="Theme" hint="The colour palette. Applied now and whenever you sign in, on any browser.">
+            <Row title="Theme" hint="The colour palette. Applied now and whenever you sign in, on any browser.">
               <div className="grid gap-2 sm:grid-cols-3">
                 {THEMES.map((t) => {
                   const on = settings.theme === t.id
@@ -764,7 +692,7 @@ export default function Settings() {
           </div>
 
           <Row
-            scope="you" title="Look"
+            title="Look"
             hint="The shape of the UI — corners, border weight, elevation and how tightly rows are packed. Independent of the theme above: every look works in every colour."
           >
             <LookOptions value={settings.look || 'glass'} onPick={(id) => set({ look: id })} />
@@ -775,7 +703,7 @@ export default function Settings() {
       {tab === 'workspace' && (
         <div className={two}>
           <div className="space-y-4">
-          <Row scope="you" title="Terminal" hint="Where a node console opens when you launch one.">
+          <Row title="Terminal" hint="Where a node console opens when you launch one.">
             <div className="grid gap-2 sm:grid-cols-2">
               {TERMINAL_MODES.map((m) => {
                 const on = settings.terminalMode === m.id
@@ -799,11 +727,11 @@ export default function Settings() {
             </div>
           </Row>
 
-          <Row scope="you" title="Terminal stacking" hint="Whether terminals and file managers stay in front when you select another window.">
+          <Row title="Terminal stacking" hint="Whether terminals and file managers stay in front when you select another window.">
             <TerminalOnTopOptions value={settings.terminalsOnTop || 'on'} onPick={(id) => set({ terminalsOnTop: id })} />
           </Row>
 
-          <Row scope="you" title="Adding nodes" hint="How the Stack Designer offers the Infrastructure Library.">
+          <Row title="Adding nodes" hint="How the Stack Designer offers the Infrastructure Library.">
             <div className="grid gap-2 sm:grid-cols-2">
               {NODE_LIBRARIES.map((m) => {
                 const on = (settings.nodeLibrary || 'menu') === m.id

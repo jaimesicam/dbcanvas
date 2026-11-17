@@ -4,8 +4,7 @@ import { Avatar, AvatarPicker } from './Avatar.jsx'
 import { api } from '../lib/api.js'
 
 // ProfileFields — a first name, a last name, an email address and an avatar
-// (app/profile.go): the same fields wherever an account is described — creating the
-// first administrator, registering, the Profile page and the profile dialog.
+// (app/profile.go): the same fields on the Profile page and in the profile dialog.
 
 export function ProfileFields({ value, onChange, autoFocus }) {
   const set = (k) => (e) => onChange({ ...value, [k]: typeof e === 'string' ? e : e.target.value })
@@ -62,8 +61,8 @@ export function ProfileDialog({ user, firstTime, onSaved, onClose }) {
           <h2 className="text-base font-semibold">{firstTime ? 'Tell us who you are' : 'Your profile'}</h2>
           <p className="text-xs text-muted">
             {firstTime
-              ? 'Your name, email and avatar are what colleagues see beside your work and in shared sessions. You can change them any time on your Profile.'
-              : 'Shown beside your work and in shared sessions. Your name and email are stored encrypted.'}
+              ? 'Your name, email and avatar are what guests see when you share a session. You can change them any time on your Profile.'
+              : 'Shown in shared sessions. Your name and email are stored encrypted.'}
           </p>
         </div>
         <ProfileFields value={p} onChange={setP} autoFocus />

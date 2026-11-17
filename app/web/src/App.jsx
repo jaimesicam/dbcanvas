@@ -6,7 +6,7 @@ import { openTab as openTabRule, closeTab as closeTabRule, tabCounts, clampTabs,
 import { useTheme, LOOKS, THEMES } from './theme/ThemeProvider.jsx'
 import { SettingsProvider, useSettings } from './settings/SettingsProvider.jsx'
 import { Icon } from './components/Icons.jsx'
-import { Badge, Button } from './components/ui.jsx'
+import { Button } from './components/ui.jsx'
 import { TerminalProvider } from './terminal/TerminalProvider.jsx'
 import { SessionProvider, useSession } from './session/SessionProvider.jsx'
 import SessionPanel from './components/SessionPanel.jsx'
@@ -113,7 +113,7 @@ export default function App({ onSessionEnded }) {
 }
 
 // A shared-session guest acts as the host but never reaches the host's account: these
-// pages are the host's own (their settings, their API tokens, other users), and the
+// pages are the host's own (their settings, their API tokens, their profile), and the
 // server refuses what they would do (app/share.go), so they are not offered.
 const GUEST_HIDDEN = new Set(['settings', 'api', 'profile'])
 
@@ -121,7 +121,6 @@ function Workspace({ onSessionEnded }) {
   const { user, logout, guest } = useAuth()
   const session = useSession()
   const { settings, system } = useSettings()
-  const isAdmin = user?.role === 'admin'
   // One filtered list, and everything downstream reads it: the sidebar, the tab
   // strip's labels, the pages the tabs mount, and the command palette. A hidden
   // page is therefore not reachable by #hash either — the lookup falls through to
@@ -382,7 +381,7 @@ function Workspace({ onSessionEnded }) {
         <div className="flex min-w-0 flex-1 flex-col">
           {topbar}
           {capped && <TabCapNotice max={capped.max} onDismiss={() => setCapped(null)} />}
-          {isAdmin && <DefaultSecretsNotice names={system?.defaultSecrets} />}
+          <DefaultSecretsNotice names={system?.defaultSecrets} />
           <DesktopSurface nav={nav} onOpen={openTab} />
         </div>
         <PageWindows tabs={tabs} nav={nav} activeKey={activeKey} setActiveKey={setActiveKey} closeTab={closeTab}
@@ -499,7 +498,7 @@ function Workspace({ onSessionEnded }) {
         )}
 
         {capped && <TabCapNotice max={capped.max} onDismiss={() => setCapped(null)} />}
-        {isAdmin && <DefaultSecretsNotice names={system?.defaultSecrets} />}
+        <DefaultSecretsNotice names={system?.defaultSecrets} />
         <main className="flex-1 overflow-auto p-5">
           {/* Every open tab stays mounted and is hidden rather than unmounted, so a
               page keeps its scroll position, its filters and its in-flight view.
@@ -578,8 +577,8 @@ export function TabCapNotice({ max, onDismiss }) {
   )
 }
 
-// DefaultSecretsNotice tells the owner that some node passwords are at a published example
-// value (the server sends the names to the owner only — doctor.go). They are normally generated
+// DefaultSecretsNotice says that some node passwords are at a published example
+// value (doctor.go). They are normally generated
 // on first run (dbcanvas passwords); an example value comes from env: in config.yaml.
 // Dismissing hides it for this browser session; it is back on the next one until they change.
 export function DefaultSecretsNotice({ names }) {
@@ -790,7 +789,6 @@ function NotificationBell() {
 
   const routeFor = (n) => {
     if ((n.type || '').startsWith('datagen')) return 'data-generator'
-    if ((n.type || '').startsWith('user')) return 'users'
     return 'stack-designer'
   }
   const clickItem = async (n) => {
@@ -870,7 +868,6 @@ function AccountMenu({ user, onLogout }) {
               <div className="truncate text-sm font-medium">{fullName(user)}</div>
               <div className="truncate text-xs text-muted">{user?.username}</div>
             </div>
-            <Badge tone={user?.role === 'admin' ? 'primary' : 'muted'}>{user?.role}</Badge>
           </div>
           <Button variant="subtle" size="sm" className="mb-1 w-full" onClick={() => { setOpen(false); location.hash = 'profile' }}>
             <Icon.User size={16} /> Profile
