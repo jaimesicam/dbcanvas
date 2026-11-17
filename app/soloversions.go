@@ -80,10 +80,21 @@ func cliVersions(args []string) error {
 		if path == "" {
 			return errors.New("no version catalogue: this build carries none and none was found (dbcanvas versions update downloads one)")
 		}
-		fmt.Printf("Version catalogue for %s: %s\n", platformArch(), describeCatalog(path))
-		if !strings.HasPrefix(path, embeddedPrefix) {
-			if b := embeddedCatalog(versionsFileName()); b != "" {
-				fmt.Printf("Built in: %s\n", describeCatalog(b))
+		for _, arch := range catalogArches {
+			path := versionsFilePathFor(arch)
+			def := ""
+			if arch == platformArch() {
+				def = " (the default)"
+			}
+			if path == "" {
+				fmt.Printf("%s%s: no catalogue\n", arch, def)
+				continue
+			}
+			fmt.Printf("%s%s: %s\n", arch, def, describeCatalog(path))
+			if !strings.HasPrefix(path, embeddedPrefix) {
+				if b := embeddedCatalog(versionsFileNameFor(arch)); b != "" {
+					fmt.Printf("  built in: %s\n", describeCatalog(b))
+				}
 			}
 		}
 		return nil

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strings"
 )
 
 // stackfile_api.go — the stack file endpoints (stackfile.go): export one stack as a file,
@@ -49,6 +50,8 @@ func (a *App) handleApplyStackFile(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		File   string `json:"file"`
 		DryRun bool   `json:"dryRun"`
+		// Platform overrides the file's platform: (dbcanvas up --platform).
+		Platform string `json:"platform"`
 	}
 	if err := decode(r, &body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
@@ -58,6 +61,12 @@ func (a *App) handleApplyStackFile(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	if strings.TrimSpace(body.Platform) != "" {
+		if sf.Platform, err = normalizePlatform(body.Platform); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 	if code, why := a.tokenMayApply(r, u, &sf); why != "" {
 		writeErr(w, code, why)

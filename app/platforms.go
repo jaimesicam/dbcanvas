@@ -1,6 +1,10 @@
 package main
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+)
 
 // platforms.go — which architecture each node runs on, and what may not.
 //
@@ -74,4 +78,90 @@ func archIssues(doc designDoc, host string) []issue {
 		emulated(what, n.Arch)
 	}
 	return out
+}
+
+// platformFollower reports whether a stack-wide platform (a stack file's `platform:`, `dbcanvas
+// up --platform`) moves a node or cluster of this type: the ones that install a database from
+// the version catalogue. Support nodes — the Intranet, the VNC desktop, PMM, Keycloak and the
+// other pulled or pre-baked images — stay on the host's own architecture, where they are fast,
+// and Kubernetes nodes cannot move. A node's own arch is not touched either way.
+func platformFollower(typ string) bool {
+	if _, ok := amd64Only[typ]; ok {
+		return false
+	}
+	if _, ok := kubernetesFrames[typ]; ok {
+		return false
+	}
+	if typ == "vnc" {
+		return false
+	}
+	if k, ok := composeKindByType(typ); ok && k.ImageOnly {
+		return false
+	}
+	return true
+}
+
+// composeKindByType is the compose kind that builds a design type, if any.
+func composeKindByType(typ string) (composeKind, bool) {
+	for _, k := range composeKinds {
+		if k.Type == typ {
+			return k, true
+		}
+	}
+	return composeKind{}, false
+}
+
+// normalizePlatform turns "linux/amd64", "amd64" (and arm64 likewise) into amd64 or arm64.
+func normalizePlatform(p string) (string, error) {
+	switch p = strings.TrimPrefix(strings.TrimSpace(p), "linux/"); p {
+	case "amd64", "arm64":
+		return p, nil
+	}
+	return "", fmt.Errorf("platform %q: use linux/amd64 or linux/arm64", p)
+}
+
+// stampPlatform gives every follower node and cluster without an arch of its own the stack's
+// platform, keeping every other key of the design as it is. Members follow their cluster.
+func stampPlatform(design json.RawMessage, arch string, skip map[string]bool) (json.RawMessage, error) {
+	var d map[string]any
+	if err := json.Unmarshal(design, &d); err != nil {
+		return nil, err
+	}
+	stamp := func(key string, member bool) {
+		items, _ := d[key].([]any)
+		for _, it := range items {
+			m, ok := it.(map[string]any)
+			if !ok {
+				continue
+			}
+			if member {
+				if f, _ := m["frameId"].(string); f != "" {
+					continue
+				}
+			}
+			typ, _ := m["type"].(string)
+			id, _ := m["id"].(string)
+			if a, _ := m["arch"].(string); a == "" && platformFollower(typ) && !skip[id] {
+				m["arch"] = arch
+			}
+		}
+	}
+	stamp("frames", false)
+	stamp("nodes", true)
+	return json.Marshal(d)
+}
+
+// effectiveArch is what a node or cluster of this type runs as, given its own arch and, for a
+// cluster member, its cluster's.
+func effectiveArch(typ, arch, frameArch string) string {
+	if _, ok := kubernetesFrames[typ]; ok {
+		return k8sArch()
+	}
+	if _, ok := amd64Only[typ]; ok {
+		return "amd64"
+	}
+	if frameArch != "" {
+		return frameArch
+	}
+	return archOr(arch)
 }

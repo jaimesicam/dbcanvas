@@ -50,6 +50,9 @@ type stackFile struct {
 	LabelsSet bool              `json:"-"`
 	Design    json.RawMessage   `json:"design,omitempty"`
 	Nodes     []composeNodeSpec `json:"nodes,omitempty"`
+	// Platform is the architecture (amd64, arm64) of the nodes that do not choose their own
+	// (platforms.go, platformFollower); "" leaves them on Automatic.
+	Platform string `json:"platform,omitempty"`
 }
 
 // parseStackFile reads a stack file, YAML or JSON.
@@ -93,6 +96,12 @@ func parseStackFile(raw []byte) (stackFile, error) {
 				return sf, fmt.Errorf("design: %v", err)
 			}
 			sf.Design = j
+		case "platform":
+			arch, err := normalizePlatform(val.Value)
+			if err != nil {
+				return sf, fmt.Errorf("line %d: %v", val.Line, err)
+			}
+			sf.Platform = arch
 		case "nodes":
 			if val.Kind != yaml.SequenceNode {
 				return sf, fmt.Errorf("line %d: nodes is a list", val.Line)
@@ -105,7 +114,7 @@ func parseStackFile(raw []byte) (stackFile, error) {
 				sf.Nodes = append(sf.Nodes, spec)
 			}
 		default:
-			return sf, fmt.Errorf("line %d: unknown key %q (a stack file has apiVersion, kind, name, ttl, labels, and design or nodes)", m.Content[i].Line, key)
+			return sf, fmt.Errorf("line %d: unknown key %q (a stack file has apiVersion, kind, name, ttl, labels, platform, and design or nodes)", m.Content[i].Line, key)
 		}
 	}
 	// A 0.0.x export has no apiVersion or kind; anything that names them names these.
@@ -245,6 +254,10 @@ type stackPlanItem struct {
 	Type  string `json:"type,omitempty"`
 	// Running is set on a removed or changed node or frame that is deployed now.
 	Running bool `json:"running,omitempty"`
+	// Arch is what an added or changed node or cluster runs as, and Emulated whether that is
+	// not the Docker host's own architecture.
+	Arch     string `json:"arch,omitempty"`
+	Emulated bool   `json:"emulated,omitempty"`
 }
 
 // stackPlan is what applying a stack file does, or did.
@@ -268,11 +281,26 @@ type stackPlan struct {
 }
 
 // stackFileDesign is the design a file asks for: its own, or its compose entries built.
-func stackFileDesign(sf stackFile) (json.RawMessage, []string, error) {
+// The stack's platform goes to the nodes that follow it and have no arch of their own: in a
+// compose entry before its versions are resolved, so they come from that architecture's
+// catalogue; in a design written into each node, leaving deployed ones as they were built.
+func stackFileDesign(sf stackFile, deployed map[string]bool) (json.RawMessage, []string, error) {
 	if len(sf.Design) > 0 {
-		return sf.Design, nil, nil
+		if sf.Platform == "" {
+			return sf.Design, nil, nil
+		}
+		d, err := stampPlatform(sf.Design, sf.Platform, deployed)
+		return d, nil, err
 	}
-	doc, pos, _, added, err := buildCompose(composeSpec{Name: sf.Name, Nodes: sf.Nodes})
+	specs := append([]composeNodeSpec(nil), sf.Nodes...)
+	if sf.Platform != "" {
+		for i := range specs {
+			if k, ok := composeKindByName(specs[i].Kind); ok && specs[i].Arch == "" && platformFollower(k.Type) {
+				specs[i].Arch = sf.Platform
+			}
+		}
+	}
+	doc, pos, _, added, err := buildCompose(composeSpec{Name: sf.Name, Nodes: specs})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -290,13 +318,8 @@ func (a *App) planStackFile(ctx context.Context, ownerID int64, sf stackFile) (s
 	if err := validateLabels(sf.Labels); err != nil {
 		return p, nil, err
 	}
-	design, added, err := stackFileDesign(sf)
-	if err != nil {
-		return p, nil, err
-	}
-	p.Notes = append(p.Notes, added...)
-
 	var old Stack
+	var err error
 	if id := a.store.StackIDByName(ownerID, sf.Name); id != 0 {
 		if old, err = a.store.GetStack(id); err != nil {
 			return p, nil, err
@@ -316,9 +339,15 @@ func (a *App) planStackFile(ctx context.Context, ownerID int64, sf stackFile) (s
 			}
 		}
 	}
+	design, added, err := stackFileDesign(sf, deployedItems(old.Design, running))
+	if err != nil {
+		return p, nil, err
+	}
+	p.Notes = append(p.Notes, added...)
 	if err := diffDesigns(old.Design, design, running, &p); err != nil {
 		return p, nil, err
 	}
+	a.annotateArch(design, &p)
 	for _, c := range p.Changed {
 		if c.Running {
 			p.Notes = append(p.Notes, fmt.Sprintf("%s %s is deployed: its new settings are saved, not applied to what is running; remove it and deploy again to rebuild it", c.What, firstNonEmpty(c.Label, c.ID)))
@@ -484,4 +513,50 @@ func sameLabels(a, b map[string]string) bool {
 		}
 	}
 	return true
+}
+
+// deployedItems is the ids of the nodes that are built and the clusters with a built member,
+// whose architecture a stack platform does not change.
+func deployedItems(design json.RawMessage, running map[string]bool) map[string]bool {
+	out := map[string]bool{}
+	var doc designDoc
+	json.Unmarshal(design, &doc)
+	for _, n := range doc.Nodes {
+		if running[n.ID] {
+			out[n.ID] = true
+			if n.FrameID != "" {
+				out[n.FrameID] = true
+			}
+		}
+	}
+	return out
+}
+
+// annotateArch fills in what each added or changed node and cluster runs as.
+func (a *App) annotateArch(design json.RawMessage, p *stackPlan) {
+	var doc designDoc
+	if json.Unmarshal(design, &doc) != nil {
+		return
+	}
+	arch := map[string]string{}
+	for _, f := range doc.Frames {
+		arch["frame/"+f.ID] = effectiveArch(f.Type, f.Arch, "")
+	}
+	for _, n := range doc.Nodes {
+		frameArch := ""
+		if n.FrameID != "" {
+			frameArch = arch["frame/"+n.FrameID]
+		}
+		arch["node/"+n.ID] = effectiveArch(n.Type, n.Arch, frameArch)
+	}
+	fill := func(items []stackPlanItem) {
+		for i := range items {
+			if v := arch[items[i].What+"/"+items[i].ID]; v != "" {
+				items[i].Arch = v
+				items[i].Emulated = a.hostArch != "" && v != a.hostArch
+			}
+		}
+	}
+	fill(p.Added)
+	fill(p.Changed)
 }

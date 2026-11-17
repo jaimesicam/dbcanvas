@@ -40,8 +40,9 @@ Usage:
   dbcanvas ls                   list your stacks
   dbcanvas export STACK [-o FILE]
                                 write a stack as a stack file (YAML)
-  dbcanvas up -f FILE [--dry-run] [--wait] [--timeout 1h]
-                                create or update the stack in FILE, then deploy it
+  dbcanvas up -f FILE [--platform amd64|arm64] [--dry-run] [--wait] [--timeout 1h]
+                                create or update the stack in FILE, then deploy it;
+                                --platform sets the database nodes' architecture
   dbcanvas down STACK           remove a stack's containers, keep its design
   dbcanvas rm STACK             delete a stack and everything it deployed
   dbcanvas token create NAME [--scope read|write] [--days 30] [--own-stacks]
@@ -441,12 +442,13 @@ func cliUp(args []string) error {
 	dry := fs.Bool("dry-run", false, "show what would change, and change nothing")
 	wait := fs.Bool("wait", false, "wait until every node is running, or one fails")
 	timeout := fs.Duration("timeout", time.Hour, "how long --wait waits")
+	platform := fs.String("platform", "", "amd64 or arm64 for the database nodes that do not choose their own (overrides the file's platform:)")
 	rest, err := parseInterspersed(fs, args)
 	if err != nil {
 		return err
 	}
 	if *file == "" || len(rest) > 0 {
-		return errors.New("usage: dbcanvas up -f FILE [--dry-run] [--wait] [--timeout 1h]")
+		return errors.New("usage: dbcanvas up -f FILE [--platform amd64|arm64] [--dry-run] [--wait] [--timeout 1h]")
 	}
 	var raw []byte
 	if *file == "-" {
@@ -457,13 +459,18 @@ func cliUp(args []string) error {
 	if err != nil {
 		return err
 	}
-	// Refuse a malformed file before starting anything.
+	// Refuse a malformed file or platform before starting anything.
 	if _, err := parseStackFile(raw); err != nil {
 		return fmt.Errorf("%s: %v", *file, err)
 	}
+	if *platform != "" {
+		if _, err := normalizePlatform(*platform); err != nil {
+			return err
+		}
+	}
 	return withDBCanvas(func(c ctl) error {
 		var p stackPlan
-		if err := c.do("POST", "/api/stacks/apply", map[string]any{"file": string(raw), "dryRun": *dry}, &p); err != nil {
+		if err := c.do("POST", "/api/stacks/apply", map[string]any{"file": string(raw), "dryRun": *dry, "platform": *platform}, &p); err != nil {
 			return err
 		}
 		printPlan(p, *dry)
@@ -511,9 +518,19 @@ func printPlan(p stackPlan, dry bool) {
 	fmt.Printf("%s %s\n", verb, p.Name)
 	list := func(sign string, items []stackPlanItem) {
 		for _, it := range items {
-			extra := ""
+			var tags []string
+			if it.Arch != "" {
+				tags = append(tags, it.Arch)
+			}
+			if it.Emulated {
+				tags = append(tags, "emulated")
+			}
 			if it.Running {
-				extra = " (deployed)"
+				tags = append(tags, "deployed")
+			}
+			extra := ""
+			if len(tags) > 0 {
+				extra = " (" + strings.Join(tags, ", ") + ")"
 			}
 			fmt.Printf("  %s %-5s %s%s\n", sign, it.What, firstNonEmpty(it.Label, it.ID), extra)
 		}
