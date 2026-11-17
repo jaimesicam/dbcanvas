@@ -76,8 +76,17 @@ that name).
 
 ### Credentials
 
-A `.env` created by `make env` gets a random value for each of these passwords. Change them before
-the first deploy: stacks deployed earlier keep the passwords they were deployed with.
+**The `dbcanvas` command** generates a random password for each of these on its first run and keeps
+them encrypted in its database (with the other secrets it stores; see the encryption key in
+`~/.dbcanvas`). `dbcanvas passwords` lists them, and `dbcanvas passwords mysql_admin` prints one. To
+choose one yourself, set it under `env:` in `~/.dbcanvas/config.yaml` (or in the environment): it
+applies to the nodes built after, and `dbcanvas passwords` marks it as replacing the generated one,
+which the nodes built before keep until they are rebuilt. The generated passwords are never
+generated again. The Default column is what the app container falls back to.
+
+**The app container:** a `.env` created by `make env` gets a random value for each of these
+passwords. Change them before the first deploy: stacks deployed earlier keep the passwords they were
+deployed with.
 
 Passwords for deployed nodes come only from `.env` — they cannot be set per node on the canvas,
 except where noted — and a redeploy re-reads them. Variables named after an engine apply only to

@@ -49,6 +49,8 @@ Usage:
                      [--label k=v]... [--max-ttl 8h] [--deny TYPE,...]
                                 an API token for a script or another user of this computer
   dbcanvas token ls | token rm ID
+  dbcanvas passwords [NAME]     the passwords of the accounts on nodes (root, admin, …):
+                                generated on first run, or set in config.yaml's env:
   dbcanvas status               whether the dbcanvas service runs, and what keeps it up
   dbcanvas stop                 stop the service (stacks keep running; it starts again
                                 with the next command that needs it)
@@ -109,6 +111,8 @@ func runCLI(args []string) int {
 		err = cliStatus()
 	case "stop":
 		err = cliStop()
+	case "passwords", "password":
+		err = cliPasswords(rest)
 	case "token", "tokens":
 		err = cliToken(rest)
 	case "serve":
@@ -628,4 +632,52 @@ func firstArg(args []string) string {
 		return ""
 	}
 	return args[0]
+}
+
+// cliPasswords lists the node accounts' passwords, or prints one.
+func cliPasswords(args []string) error {
+	if len(args) > 1 {
+		return errors.New("usage: dbcanvas passwords [NAME]")
+	}
+	return withDBCanvas(func(c ctl) error {
+		var out struct {
+			Passwords []nodePasswordInfo `json:"passwords"`
+		}
+		if err := c.do("GET", "/api/solo/passwords", nil, &out); err != nil {
+			return err
+		}
+		if len(args) == 1 {
+			want := strings.ToUpper(strings.TrimSpace(args[0]))
+			if !strings.HasSuffix(want, "_PASSWORD") {
+				want += "_PASSWORD"
+			}
+			for _, p := range out.Passwords {
+				if p.Name == want {
+					fmt.Println(p.Value)
+					return nil
+				}
+			}
+			return fmt.Errorf("no node password setting %s; `dbcanvas passwords` lists them", want)
+		}
+		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		fmt.Fprintln(tw, "SETTING\tPASSWORD\tFROM")
+		replaced := false
+		for _, p := range out.Passwords {
+			from := "generated"
+			if p.Source == "config" {
+				from = "config.yaml or the environment"
+				if p.Replaced {
+					from += " *"
+					replaced = true
+				}
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\n", p.Name, p.Value, from)
+		}
+		tw.Flush()
+		if replaced {
+			fmt.Println("\n* Replaces the generated one: nodes built before keep the generated password until they are rebuilt.")
+		}
+		fmt.Println("\nSet any of them under env: in ~/.dbcanvas/config.yaml; it applies to the nodes built after.")
+		return nil
+	})
 }

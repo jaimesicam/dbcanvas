@@ -133,6 +133,10 @@ func runServer(o serveOpts) error {
 	app := &App{store: store, docker: NewDocker(dockerSocket()), solo: o.dataDir != ""}
 	if app.solo {
 		app.detectPlatforms(context.Background())
+		// The node accounts' passwords: generated once, kept sealed (nodepasswords.go).
+		if err := app.applyNodePasswords(); err != nil {
+			return fmt.Errorf("node passwords: %v", err)
+		}
 		// The owner exists before anything listens, so the first-run setup never offers
 		// to create an administrator.
 		if _, err := app.ensureOwner(); err != nil {
@@ -181,6 +185,7 @@ func runServer(o serveOpts) error {
 		mux.HandleFunc("POST /api/solo/start-link", app.handleNewStartLink)
 		mux.HandleFunc("GET /api/solo/status", app.handleSoloStatus)
 		mux.HandleFunc("POST /api/solo/stop", app.handleSoloStop)
+		mux.HandleFunc("GET /api/solo/passwords", app.handleNodePasswords)
 	}
 	handler := app.browseFallback(mux)
 	if o.service {

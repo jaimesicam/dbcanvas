@@ -58,6 +58,7 @@ var sealedColumns = []sealedColumn{
 	{"kanban_cards", "title", `'kanban_cards.title:' || board_id`},
 	{"kanban_cards", "description", `'kanban_cards.description:' || board_id`},
 	{"scratchboards", "data", `'scratchboards.data:' || owner_id || ':' || board_id`},
+	{"node_passwords", "value", `'node_passwords.value:' || name`},
 }
 
 func aadID(table, col string, id int64) string {

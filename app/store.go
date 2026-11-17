@@ -303,6 +303,14 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id, id DESC);`
 	db.Exec("ALTER TABLE scratchboards ADD COLUMN rev INTEGER NOT NULL DEFAULT 1")
 	// Password reset links belonged to accounts, which dbcanvas no longer has.
 	db.Exec("DROP TABLE IF EXISTS password_resets")
+	// The node accounts' generated passwords (nodepasswords.go), sealed.
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS node_passwords (
+  name  TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+)`); err != nil {
+		db.Close()
+		return nil, err
+	}
 	// The watcher's history, timeline and alerts (livewatch.go).
 	if _, err := db.Exec(watchSchema); err != nil {
 		db.Close()

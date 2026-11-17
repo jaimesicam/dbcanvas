@@ -1,11 +1,11 @@
 package main
 
 import (
-	"os"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 )
 
