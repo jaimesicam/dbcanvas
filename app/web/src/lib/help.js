@@ -18,7 +18,7 @@ const major = (p) => `The ${p} release line, which fixes the package repository 
   `Locked once deployed — an in-place major upgrade is not something DBCanvas does, so build a new node instead.`
 const minor = (p) => `Which ${p} build to install. Leave it on "latest" and the node takes the newest version this ` +
   `installation knows about; pin one to reproduce a customer's exact build, or to stand two nodes side by side on ` +
-  `different patch levels. The list comes from \`make versions\`, so it reflects what was actually published when ` +
+  `different patch levels. The list comes from the version catalogue (\`dbcanvas versions update\` refreshes it), so it reflects what was actually published when ` +
   `this host last probed the repositories.`
 
 export const HELP = {
@@ -179,7 +179,7 @@ export const HELP = {
     'create time: k3s reads the mirror configuration only when it starts.',
   pmm2Version:
     'The PMM 2 server release to deploy — an exact percona/pmm-server tag. PMM 2 is end of life, so the list is ' +
-    'fixed rather than refreshed by `make versions`: 2.44.1 was the last release, and 2.25.0 is as far back as ' +
+    'fixed rather than refreshed by `dbcanvas versions update`: 2.44.1 was the last release, and 2.25.0 is as far back as ' +
     'these have been checked to come up.',
   orchestrator:
     'Point an Orchestrator node at this cluster so it discovers the replication topology and can drive failovers ' +
@@ -252,7 +252,7 @@ export const HELP = {
     'Where to reach this node from the machine running DBCanvas. On a remote install, right-click the node and copy ' +
     'the SSH tunnel command first — these ports are bound to the server, not to your laptop.',
   depPassword:
-    'Generated at deploy, or taken from .env. Click to reveal, and again to copy. Treat every credential in a ' +
+    'Generated at deploy, or taken from the node passwords (dbcanvas passwords). Click to reveal, and again to copy. Treat every credential in a ' +
     'DBCanvas stack as disposable: these are lab databases, not somewhere to keep anything real.',
   depUser:
     'The account to connect as. Its password is on this panel; the root/superuser account generally cannot connect ' +
@@ -273,7 +273,7 @@ export const HELP = {
     'The Helm chart release to install the operator from. Leave it at the default unless you are reproducing ' +
     'behaviour specific to an older operator.',
   k8sCertManagerVersion:
-    'Which cert-manager release to install. "latest" is the newest one `make versions` found, and it is resolved ' +
+    'Which cert-manager release to install. "latest" is the newest one the version catalogue lists, and it is resolved ' +
     'to that exact release when the frame deploys — so a stack you redeploy next month installs the same ' +
     'cert-manager, not whatever is newest then. Pick a specific one when you are reproducing a cluster that runs ' +
     'it: cert-manager is what issues the cluster\'s certificates once the operator finds it, so its version is ' +
@@ -811,18 +811,18 @@ export const HELP = {
     'What this token is for, so that in three months you can tell which one to revoke. The name is ' +
     'the only thing distinguishing two tokens in the list — the secret is never shown again, and the ' +
     'prefix is eight characters of noise. Name it after the machine or the job that will hold it: ' +
-    '"dbcanvas-cli on my laptop", "nightly CI deploy".',
+    '"kb-assistant on my laptop", "nightly CI deploy".',
   tokenScope:
     'How much of the API this token may reach. "read" covers every GET plus the handful of POSTs that ' +
     'compute something without changing anything (validate, compare, preview); "write" covers ' +
-    'everything you can do in the UI; "admin" adds the administrator-only endpoints and can only be ' +
-    'created by an administrator. Pick the narrowest one that does the job — a read token on a laptop ' +
+    'everything you can do in the UI; "admin" adds the owner-only endpoints (settings, tokens, images). ' +
+    'Pick the narrowest one that does the job — a read token on a laptop ' +
     'cannot destroy a stack, however it is misused. Whatever you pick is also capped by your own ' +
     'account: if your role changes, the token narrows with it.',
   tokenExpiry:
     'When this token stops working. Shorter is better: a token you have to renew is one you notice ' +
     'when it is no longer needed, and one forgotten on an old machine stops mattering by itself. The ' +
-    'ceiling is set instance-wide by an administrator; only an administrator can create a token that ' +
+    'ceiling is set instance-wide by the owner; only the owner can create a token that ' +
     'never expires, because a permanent credential against a host that drives Docker should be a ' +
     'deliberate decision. Expiry is checked when the token is used, and an expired token stays in the ' +
     'list marked expired — which is how "why did my script start failing" gets an answer.',
@@ -847,7 +847,7 @@ export const HELP = {
     'wrong password. The passwords are set on the MClusterAdmin node, not here. Ticking this after the database is deployed needs a redeploy of it.',
   mcaAdminPassword: 'The password this stack uses for the MClusterAdmin accounts. It lives on the panel because that is where you log in from, and every ' +
     'MongoDB in the stack that adds the credentials uses this same pair — a lab with three databases should not need three passwords for one account. ' +
-    'Leave it empty for the default (MCLUSTERADMIN_PASSWORD / MCLUSTERADMIN_RO_PASSWORD in .env). Changing it needs a redeploy of the databases that carry ' +
+    'Leave it empty for the default (MCLUSTERADMIN_PASSWORD / MCLUSTERADMIN_RO_PASSWORD, see dbcanvas passwords). Changing it needs a redeploy of the databases that carry ' +
     'the account, not only of this node.',
   mcaAccounts: 'The two accounts a MongoDB in this stack creates for this panel when its "Add MClusterAdmin credentials" box is ticked: madmin for full ' +
     'administration, madmin-ro for the monitoring dashboards. Copy one into the panel\'s own connect box, with the MongoDB node\'s name as the host — the ' +
@@ -874,7 +874,7 @@ export const HELP = {
     'host does across every tab, and chat. A guest the host gives control to can do anything the host can ' +
     'in their workspace \u2014 but never reach the host\u2019s account, API tokens or administration. A link ' +
     'lasts at most the time set here, two hours at most. Turning this off ends every live session at once. ' +
-    'Guests reach DBCanvas at the address in PUBLIC_URL (.env), and APP_HOST must be an interface they can reach (with APP_HOST_OVERRIDE=on).',
+    'DBCanvas listens on this machine only, so guests reach it through a reverse proxy or a tunnel; set publicUrl in ~/.dbcanvas/config.yaml to that address.',
   sessionRetention:
     'How long the record of an ended shared session is kept: its guests (with the names, emails and ' +
     'addresses they gave), the chat and event transcript, and the log of what guests changed. After ' +
@@ -916,7 +916,7 @@ export const HELP = {
     'until its purge date \u2014 this many days after it starts, unless the host moves the date or purges it ' +
     'sooner. Changing this sets the date of new recordings only. Deleting the account deletes its recordings.',
   maxTokenDays:
-    'The longest lifetime anyone who is not an administrator may give an API token. Asking for longer ' +
+    'The longest lifetime anyone other than the owner may give an API token. Asking for longer ' +
     'gets this value rather than an error, so lowering it never breaks the create form. It does not ' +
     'shorten tokens that already exist — revoke those if the point was to shorten them.',
   apiSearch:
@@ -1010,7 +1010,7 @@ export const MENU_HELP = {
     'written once a second with no configuration; the log is what happened to it. Read them in DBCanvas\'s own FTDC Summary page, with the Big Hole option on a MongoDB node, or send ' +
     'the archive to somebody. Both stream, so a multi-gigabyte log costs nothing in memory on the way past, and DBCanvas finds the paths itself: a mongos keeps ' +
     'its FTDC beside its log rather than in a dbPath it does not have. A node with no diagnostic.data yet still gives you the log.',
-  podConsole: 'A shell inside a container of a pod, on the cluster this node runs — the same thing as `kubectl exec -it`, without a kubeconfig or a terminal of your own. Pick the namespace, the pod, the container and the shell; the list is read from the cluster every time you open the menu, so it is what is running now rather than what was deployed. A container that is not running is shown greyed with the reason — a pod stuck in Init is exactly when you want to look inside it. On a database container the last menu also offers that database\'s own client — mysql, psql or mongosh, already logged in as an administrator: the operator mounts the cluster\'s users secret into the pod, so the password is read inside the container and never passes through DBCanvas.',
+  podConsole: 'A shell inside a container of a pod, on the cluster this node runs — the same thing as `kubectl exec -it`, without a kubeconfig or a terminal of your own. Pick the namespace, the pod, the container and the shell; the list is read from the cluster every time you open the menu, so it is what is running now rather than what was deployed. A container that is not running is shown greyed with the reason — a pod stuck in Init is exactly when you want to look inside it. On a database container the last menu also offers that database\'s own client — mysql, psql or mongosh, already logged in as the owner: the operator mounts the cluster\'s users secret into the pod, so the password is read inside the container and never passes through DBCanvas.',
   playPagerPanic: 'Opens the game in a DBCanvas window. Its terminals open inside the game, which only works there.',
   openNewTab: 'Opens this node\'s web UI in a new tab of your own browser, at its published port — the same link its properties panel gives.',
   openVncBrowser: 'Opens this node\'s web UI in Firefox on the stack\'s VNC desktop, and shows that desktop. In a shared session there is one copy of the page, so everyone sees what you see.',
@@ -1190,7 +1190,7 @@ export const DEP_HELP = {
   'Base DN': 'The directory subtree users are looked up under — the base of every LDAP search this node makes.',
   Domain: 'The Active Directory / DNS domain this node belongs to.',
   Workgroup: 'The NetBIOS short name of the domain, which older clients ask for.',
-  'Sample users': 'Demo accounts created at deploy so there is something to log in as. Their password comes from .env.',
+  'Sample users': 'Demo accounts created at deploy so there is something to log in as. Their password is one of the node passwords (dbcanvas passwords).',
   'Group name': 'The directory group whose membership is mapped to a role here.',
   Realm: 'The Keycloak realm this node authenticates against.',
   'Client ID': 'The OIDC client id, and the audience the token must carry for this node to accept it.',

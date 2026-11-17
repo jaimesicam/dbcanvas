@@ -574,9 +574,9 @@ export function TabCapNotice({ max, onDismiss }) {
   )
 }
 
-// DefaultSecretsNotice tells an administrator that .env still holds passwords anybody can read
-// in the repository (the server sends the names to administrators only — doctor.go). The app
-// cannot change them itself: they are the services' passwords, set in .env and read at start.
+// DefaultSecretsNotice tells the owner that some node passwords are at a published example
+// value (the server sends the names to the owner only — doctor.go). They are normally generated
+// on first run (dbcanvas passwords); an example value comes from env: in config.yaml.
 // Dismissing hides it for this browser session; it is back on the next one until they change.
 export function DefaultSecretsNotice({ names }) {
   const key = 'dbcanvas.defaultSecretsDismissed'
@@ -593,9 +593,9 @@ export function DefaultSecretsNotice({ names }) {
     <div role="status" className="flex shrink-0 items-start gap-2 border-b border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
       <span className="mt-px shrink-0"><Icon.StatusWarn size={14} /></span>
       <span className="min-w-0">
-        {names.length} {names.length === 1 ? 'password is' : 'passwords are'} still at the value in <b>.env.example</b>,
+        {names.length} {names.length === 1 ? 'password is' : 'passwords are'} still at a published example value,
         which anybody can read: <span className="font-mono" title={names.join(', ')}>{names.length > 4 ? `${names.slice(0, 4).join(', ')} and ${names.length - 4} more` : names.join(', ')}</span>.
-        On the host, run <span className="font-mono">scripts/gen-secrets.sh .env</span>, then <span className="font-mono">make restart</span>.
+        Remove {names.length === 1 ? 'it' : 'them'} from <span className="font-mono">env:</span> in <span className="font-mono">~/.dbcanvas/config.yaml</span> to use the generated ones, then run <span className="font-mono">dbcanvas stop</span>.
         Stacks deployed before keep their old passwords.
       </span>
       <button onClick={dismiss} title="Hide until the next session" className="ml-auto shrink-0 rounded px-1.5 hover:bg-warning/20">✕</button>

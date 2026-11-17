@@ -143,7 +143,7 @@ export function AllInOneForm({ node: n, nodes, patchNode, deleteNode, dep, deplo
       {/* Per-family versions. One package install serves every instance of a
           family, so these are node-level — except PostgreSQL, whose packages are
           per-major and co-install, so its major lives on each instance. Minors
-          come from the same `make versions` catalog the classic node forms use;
+          come from the same version catalog the classic node forms use;
           blank means "the newest the catalog has". */}
       {familiesUsed.length > 0 && (
         <div className="space-y-2 rounded-lg border border-border bg-surface2 px-3 py-2">
@@ -269,7 +269,7 @@ export function AllInOneForm({ node: n, nodes, patchNode, deleteNode, dep, deplo
 
 // VersionPicker is a catalog-driven major + minor pair for one family.
 //
-// The minors come from the same `make versions` catalog every classic node form
+// The minors come from the same version catalog every classic node form
 // reads, keyed by the node's OS/version/arch — so the list only ever offers what
 // is actually installable on this image. Blank minor means "newest available",
 // which is what the provisioners pass as an empty $VER.
@@ -333,7 +333,7 @@ function VersionPicker({ label, catalog, dist = '', node: n, patchNode, deployed
       {hint && <div className="text-[10px] leading-snug text-muted">{hint}</div>}
       {unavailable && (
         <div className="text-[10px] leading-snug text-warning">
-          No {label} versions catalogued for {n.os} {n.osVersion} — run <code className="font-mono">make versions</code>.
+          No {label} versions catalogued for {n.os} {n.osVersion} — run <code className="font-mono">dbcanvas versions update</code>.
         </div>
       )}
     </div>
@@ -985,7 +985,7 @@ function CredentialsTab({ rows, sec }) {
     <div className="space-y-3">
       <p className="text-xs text-muted">
         Shared across this node&apos;s instances of a family, exactly as a classic multi-node
-        cluster shares them — all from the stack&apos;s <code className="font-mono">.env</code>.
+        cluster shares them — all from the node passwords (<code className="font-mono">dbcanvas passwords</code>).
       </p>
       {creds.length === 0 && <div className="text-xs text-muted">No credentialed instances on this node.</div>}
       {creds.map((c) => (

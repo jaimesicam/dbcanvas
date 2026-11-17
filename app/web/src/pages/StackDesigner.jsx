@@ -537,7 +537,7 @@ export const NODE_TYPES = {
   },
   // VNC — a desktop "jump box" (XFCE over web VNC) with the Percona client
   // tools preinstalled, for ad-hoc troubleshooting. Runs the pre-baked desktop image
-  // dbcanvas-vnc:ubuntu-24.04-<arch> (`make vnc-image`), so the release is pinned and
+  // dbcanvas-vnc:ubuntu-24.04-<arch> (built from the bundled Dockerfile), so the release is pinned and
   // the form asks for the architecture only.
   vnc: {
     label: 'VNC',
@@ -993,7 +993,7 @@ function validBucketName(b) {
   return /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(s) && !/(\.\.|\.-|-\.)/.test(s)
 }
 
-// The Percona operators a K3D frame can install (PostgreSQL is discovered by `make versions` but
+// The Percona operators a K3D frame can install (PostgreSQL is discovered by the version catalogue but
 // not deployable yet).
 // K3D_NO_DATABASE is the operator choices that deploy no database of their own. OpenEverest
 // installs operators and leaves creating databases to its UI, so like a frame with no operator
@@ -2713,7 +2713,7 @@ export function BuildImageRow({ id, isAdmin, onBuilt }) {
         <div className="text-xs text-muted">{img.why}</div>
       ) : !isAdmin ? (
         <div className="text-xs text-muted">
-          An administrator can build it from here, or run <code className="rounded bg-surface2 px-1">make {img.make}</code> in a DBCanvas checkout.
+          The owner can build it from here.
         </div>
       ) : build?.running ? (
         <div className="flex items-center gap-2 text-xs text-muted">
@@ -3567,7 +3567,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       return
     }
     if (!info.enabled) {
-      setFlash({ tone: 'err', text: 'SSH forwarding is not configured \u2014 set SSH_FORWARDING_HOST in .env.' })
+      setFlash({ tone: 'err', text: 'SSH forwarding is not configured \u2014 set SSH_FORWARDING_HOST under env: in ~/.dbcanvas/config.yaml, then dbcanvas stop.' })
       return
     }
     if (!info.command) {
@@ -6918,7 +6918,7 @@ function Row({ k, v }) {
 }
 
 // PMMOptions renders the PMM-only node settings: minor-version picker (from the
-// catalog produced by `make versions`), admin password (auto-generated when
+// version catalogue), admin password (auto-generated when
 // empty), and the Intranet-CA certificate toggle.
 function PMMOptions({ n, nodes = [], patchNode, deployed }) {
   const [cat, setCat] = useState(null)
@@ -6949,13 +6949,13 @@ function PMMOptions({ n, nodes = [], patchNode, deployed }) {
       </Field>
       <Field
         label="Admin password"
-        hint={deployed ? 'Set at deploy time.' : 'Leave empty to use PMM_ADMIN_PASSWORD from .env.'}
+        hint={deployed ? 'Set at deploy time.' : 'Leave empty to use PMM_ADMIN_PASSWORD (dbcanvas passwords).'}
       >
         <input
           className={`${inputCls} ${deployed ? 'opacity-70' : ''}`}
           value={n.adminPassword || ''}
           disabled={deployed}
-          placeholder="(PMM_ADMIN_PASSWORD from .env)"
+          placeholder="(PMM_ADMIN_PASSWORD)"
           onChange={(e) => patchNode(n.id, { adminPassword: e.target.value })}
         />
       </Field>
@@ -8790,7 +8790,7 @@ function VNCForm({ node: n, patchNode, deleteNode, dep, deployed }) {
       <p className="text-xs text-muted">
         XFCE desktop over a browser-based VNC client, with Firefox, the OpenSSH client, the Percona clients
         (MySQL 8.4 with the OpenID Connect plugin, plus PSMDB/Valkey/PostgreSQL), percona-toolkit + ldap-utils
-        already in the image (<code>dbcanvas-vnc:ubuntu-24.04</code>, built by <code>make vnc-image</code>).
+        already in the image (<code>dbcanvas-vnc:ubuntu-24.04</code>).
         The login user has sudo for installing more tools.
       </p>
 
@@ -8802,8 +8802,8 @@ function VNCForm({ node: n, patchNode, deleteNode, dep, deployed }) {
         <input className={`${inputCls} ${lock}`} value={n.vncUser ?? 'dbadmin'} disabled={deployed} onChange={(e) => patchNode(n.id, { vncUser: e.target.value })} />
       </Field>
 
-      <Field label="Password" help={HELP.benchPassword} hint={deployed ? 'Set at deploy.' : 'Desktop + VNC password. Empty = VNC_PASSWORD from .env. VNC uses the first 8 characters.'}>
-        <input className={`${inputCls} ${lock}`} value={n.vncPassword || ''} disabled={deployed} placeholder="(VNC_PASSWORD from .env)" onChange={(e) => patchNode(n.id, { vncPassword: e.target.value })} />
+      <Field label="Password" help={HELP.benchPassword} hint={deployed ? 'Set at deploy.' : 'Desktop + VNC password. Empty = VNC_PASSWORD (dbcanvas passwords). VNC uses the first 8 characters.'}>
+        <input className={`${inputCls} ${lock}`} value={n.vncPassword || ''} disabled={deployed} placeholder="(VNC_PASSWORD)" onChange={(e) => patchNode(n.id, { vncPassword: e.target.value })} />
       </Field>
 
       <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
@@ -8880,7 +8880,7 @@ function PMM2Form({ node: n, patchNode, deleteNode, dep, deployed }) {
       <p className="text-xs text-muted">
         A PMM 2 server, which is end of life (the last release was 2.44.1). It is deployed on its own:
         no node on the canvas can be pointed at it, and it gets no certificate, SMTP or single sign-on.
-        The admin login is <span className="font-mono">admin</span> / <span className="font-mono">PMM_ADMIN_PASSWORD</span> from .env.
+        The admin login is <span className="font-mono">admin</span> / <span className="font-mono">PMM_ADMIN_PASSWORD</span> (dbcanvas passwords).
       </p>
       <Field label="Label" help={HELP.label} hint="Becomes the node hostname; must be unique.">
         <input className={inputCls} value={n.label} disabled={deployed} onChange={(e) => patchNode(n.id, { label: e.target.value })} />
@@ -11564,7 +11564,7 @@ function K3DFrameForm({ frame: f, nodes, frames = [], frameNodes, patchFrame, de
         <input className={inputCls} value={f.label} disabled={deployed} onChange={(e) => patchFrame(f.id, { label: e.target.value })} />
       </Field>
 
-      <Field label="Kubernetes (k3s)" help={HELP.k3sVersion} hint="The k3s image the nodes run. From `make versions`.">
+      <Field label="Kubernetes (k3s)" help={HELP.k3sVersion} hint="The k3s image the nodes run, from the version catalogue.">
         <select className={`${inputCls} ${lock}`} value={f.k3dK3sVersion || ''} disabled={deployed}
           onChange={(e) => patchFrame(f.id, { k3dK3sVersion: e.target.value })}>
           <option value="">latest{k3s?.latest ? ` (${k3s.latest})` : ''}</option>
@@ -11649,7 +11649,7 @@ function K3DFrameForm({ frame: f, nodes, frames = [], frameNodes, patchFrame, de
             named here so "latest" is never the only thing you know about a lab. */}
         {f.k3dCertManager && (
           <Field label="cert-manager version" help={HELP.k8sCertManagerVersion}
-            hint="From `make versions`, which reads the releases charts.jetstack.io publishes. Pick one to reproduce a cluster that runs it.">
+            hint="From the version catalogue, which lists the releases charts.jetstack.io publishes. Pick one to reproduce a cluster that runs it.">
             {cmVersions.length ? (
               <select className={`${inputCls} ${lock}`} value={f.k3dCertManagerVer || ''} disabled={deployed}
                 onChange={(e) => patchFrame(f.id, { k3dCertManagerVer: e.target.value })}>
@@ -11657,10 +11657,10 @@ function K3DFrameForm({ frame: f, nodes, frames = [], frameNodes, patchFrame, de
                 {cmVersions.map((v) => <option key={v} value={v}>{v}</option>)}
               </select>
             ) : (
-              /* No catalog yet (`make versions` never run). The deploy still has a fallback, so
+              /* No catalogue entry. The deploy still has a fallback, so
                  a blank here installs something rather than failing. */
               <input className={`${inputCls} ${lock}`} value={f.k3dCertManagerVer || ''} disabled={deployed}
-                placeholder="latest — run `make versions` to list them"
+                placeholder="latest — dbcanvas versions update lists them"
                 onChange={(e) => patchFrame(f.id, { k3dCertManagerVer: e.target.value })} />
             )}
           </Field>
@@ -11693,9 +11693,9 @@ function K3DFrameForm({ frame: f, nodes, frames = [], frameNodes, patchFrame, de
           <>
             {helmOp ? (
               <Field label="Chart version" help={HELP.k8sChartVersion} hint={pgo
-                ? 'PGO Helm chart version, from `make versions` — the tags Crunchy publishes to their OCI registry. Not the GitHub tags: some of those have no published image.'
-                : everest ? 'OpenEverest Helm chart version, from `make versions`. Each release pins the catalog its operators come from, so the operator versions follow from this one.'
-                : 'CloudNativePG Helm chart version, from `make versions`. Not the operator version it ships \u2014 chart 0.29.0 carries operator 1.30.x.'}>
+                ? 'PGO Helm chart version, from the version catalogue — the tags Crunchy publishes to their OCI registry. Not the GitHub tags: some of those have no published image.'
+                : everest ? 'OpenEverest Helm chart version, from the version catalogue. Each release pins the catalog its operators come from, so the operator versions follow from this one.'
+                : 'CloudNativePG Helm chart version, from the version catalogue. Not the operator version it ships \u2014 chart 0.29.0 carries operator 1.30.x.'}>
                 {chartVersions.length ? (
                   <select className={`${inputCls} ${lock}`} value={f.k3dOperatorVer || ''} disabled={deployed}
                     onChange={(e) => patchFrame(f.id, { k3dOperatorVer: e.target.value })}>
@@ -11703,14 +11703,14 @@ function K3DFrameForm({ frame: f, nodes, frames = [], frameNodes, patchFrame, de
                     {chartVersions.map((v) => <option key={v} value={v}>{v}</option>)}
                   </select>
                 ) : (
-                  /* No catalog yet (`make versions` never run): helm still resolves a blank to latest. */
+                  /* No catalogue entry: helm still resolves a blank to latest. */
                   <input className={`${inputCls} ${lock}`} value={f.k3dOperatorVer || ''} disabled={deployed}
-                    placeholder="latest — run `make versions` to list them"
+                    placeholder="latest — dbcanvas versions update lists them"
                     onChange={(e) => patchFrame(f.id, { k3dOperatorVer: e.target.value })} />
                 )}
               </Field>
             ) : (
-              <Field label="Operator version" help={HELP.k8sChartVersion} hint="From `make versions`. The source is unpacked into /root on the first node.">
+              <Field label="Operator version" help={HELP.k8sChartVersion} hint="From the version catalogue. The source is unpacked into /root on the first node.">
                 <select className={`${inputCls} ${lock}`} value={f.k3dOperatorVer || ''} disabled={deployed}
                   onChange={(e) => patchFrame(f.id, { k3dOperatorVer: e.target.value })}>
                   <option value="">latest{latest ? ` (${latest})` : ''}</option>
@@ -12176,7 +12176,7 @@ function K3DFrameForm({ frame: f, nodes, frames = [], frameNodes, patchFrame, de
             <p className="text-xs text-muted">
               The cluster gets a <span className="font-mono">postgres</span> superuser and an application user named
               after it, both with <span className="font-mono">POSTGRES_PASSWORD</span> from{' '}
-              <span className="font-mono">.env</span>. Connections need{' '}
+              <span className="font-mono">dbcanvas passwords</span>. Connections need{' '}
               <span className="font-mono">sslmode=require</span> — PGO's PostgreSQL and pgBouncer both refuse
               plaintext. Backups use the same pgBackRest as the Percona operator, so S3 needs a SeaweedFS node with
               TLS on; without one the cluster keeps a PVC repo.
@@ -13117,7 +13117,7 @@ function InnoDBFrameForm({ frame: f, nodes, patchFrame, deleteFrame, deployed })
         </Field>
         <Field label="PDPS repository" help={HELP.pdpsRepo} hint={deployed ? 'Locked.' : 'Sets the Percona Server version.'}>
           <select className={`${inputCls} ${lock}`} value={f.pdpsRepo} disabled={deployed} onChange={(e) => patchFrame(f.id, { pdpsRepo: e.target.value })}>
-            {repos.length === 0 && <option value="">(run make versions)</option>}
+            {repos.length === 0 && <option value="">(run dbcanvas versions update)</option>}
             {repos.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
         </Field>
@@ -13343,7 +13343,7 @@ function VectorSearchOption({ f, majors, patchFrame, deployed }) {
               : <>One <span className="font-mono">mongot</span> on the first member; every member&rsquo;s mongod points at it.</>}{' '}
             Enables <span className="font-mono">$vectorSearch</span> and <span className="font-mono">$search</span>. Tech preview.
           </p>
-          {oldMajor && <p className="text-danger">Needs PS MongoDB 8.3 or later{has83 ? ' — choose 8.3 above.' : ' — this image offers no 8.3 packages; run `ONLY=percona make versions`.'}</p>}
+          {oldMajor && <p className="text-danger">Needs PS MongoDB 8.3 or later{has83 ? ' — choose 8.3 above.' : ' — this image offers no 8.3 packages; run `dbcanvas versions update`.'}</p>}
           {!osOK && <p className="text-danger">Vector search needs Oracle Linux 8/9 or Ubuntu 22.04/24.04.</p>}
         </div>
       )}

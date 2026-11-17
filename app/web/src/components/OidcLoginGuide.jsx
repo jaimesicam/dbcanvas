@@ -77,7 +77,7 @@ export default function OidcLoginGuide({ engine, info, secrets }) {
           round-trip still fails.)
         </div>
         <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] text-muted">
-          Sample Keycloak users (password: <span className="font-mono">KEYCLOAK_USER_PASSWORD</span> from <span className="font-mono">.env</span>):
+          Sample Keycloak users (password: <span className="font-mono">KEYCLOAK_USER_PASSWORD</span> from <span className="font-mono">dbcanvas passwords</span>):
           <span className="font-mono"> alice</span> (Admin) · <span className="font-mono">bob</span> (Viewer).
           The built-in <span className="font-mono">admin</span> account still logs in directly.
         </div>

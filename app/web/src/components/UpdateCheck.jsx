@@ -196,7 +196,7 @@ function UpdateDialog({ res, onClose }) {
 
         <div className="flex items-center justify-between gap-3 border-t px-5 py-3">
           <span className="text-xs text-muted">
-            Update with <code className="rounded bg-surface2 px-1">git pull && make compose</code>
+            Update by replacing the dbcanvas binary with the new release; the service restarts itself on it
           </span>
           <Button onClick={onClose}>Close</Button>
         </div>

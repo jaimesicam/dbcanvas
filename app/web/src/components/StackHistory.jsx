@@ -130,7 +130,7 @@ export function StackHistoryPanel({ stackId, nodes, alerts, rules, intervalSec, 
         {err && <div className="mb-3 rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
         {!intervalSec && (
           <div className="mb-3 rounded-lg border bg-surface px-3 py-2 text-xs text-muted">
-            The history sampler is off for this installation, so nothing new is recorded. An administrator switches it on in Settings → Stack history and alerts.
+            The history sampler is off for this installation, so nothing new is recorded. Switch it on in Settings → Stack history and alerts.
           </div>
         )}
         {tab === 'alerts' && <AlertList alerts={alerts} label={label} actions={actions} onSelectNode={onSelectNode} />}

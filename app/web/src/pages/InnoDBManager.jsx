@@ -113,7 +113,7 @@ export default function InnoDBManager({ stackId, nodeId, dep, onDeleteNode }) {
 
       {tab === 'creds' && (
         <div className="space-y-2">
-          <div className="text-[11px] text-muted">App/monitor/cluster passwords come from the host .env.</div>
+          <div className="text-[11px] text-muted">App/monitor/cluster passwords are the node passwords (dbcanvas passwords).</div>
           {[
             { k: 'Root user', v: sec.rootUser || 'root' },
             { k: 'Root password', v: sec.rootPassword, secret: true },

@@ -6,7 +6,7 @@ import { Help } from '../components/Tooltip.jsx'
 import { HELP } from '../lib/help.js'
 import { docURL } from '../lib/repo.js'
 import {
-  apiApi, curlFor, cliFor, matches, samplePath, expiryText, relDate,
+  apiApi, curlFor, matches, samplePath, expiryText, relDate,
   METHOD_TONE, SCOPE_TEXT, MEDIA_TEXT, MEDIA_LABEL, TOKEN_STATE_TONE, EXPIRY_CHOICES,
 } from '../lib/apiApi.js'
 import { useRefresh } from '../lib/useRefresh.jsx'
@@ -177,7 +177,7 @@ export function CreateToken({ scopes, maxDays, canNeverExpire, onCreated, onErro
       <form onSubmit={submit} className="space-y-3">
         <Field label="Name" help={HELP.tokenName} hint="What it is for, so you know later what you are revoking.">
           <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)}
-            placeholder="dbcanvas-cli on my laptop" maxLength={64} required />
+            placeholder="kb-assistant on my laptop" maxLength={64} required />
         </Field>
         <Field label="Scope" help={HELP.tokenScope}>
           <select className={inputCls} value={scope} onChange={(e) => setScope(e.target.value)}>
@@ -402,7 +402,6 @@ export function EndpointRow({ ep }) {
           )}
 
           <Snippet label="curl" text={curlFor(ep, origin)} />
-          <Snippet label="dbcanvas-cli" text={cliFor(ep)} />
           {ep.params?.length > 0 && (
             <p className="text-xs text-muted">
               The examples use placeholder values ({samplePath(ep.path)}) — substitute your own.

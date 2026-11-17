@@ -207,7 +207,7 @@ export const stackApi = {
   ledgersimTest: (id, nid, conn) => request('POST', `/api/stacks/${id}/nodes/${nid}/ledgersim/test`, conn),
   pmmCatalog: () => request('GET', '/api/catalog/pmm'),
   // PMM 2's releases — a fixed list served by app/pmm2.go, since an end-of-life product
-  // has no new version for `make versions` to find.
+  // has no new version for `dbcanvas versions update` to find.
   pmm2Catalog: () => request('GET', '/api/catalog/pmm2'),
   // What a Repository node can carry (OS releases, suggested repositories + versions, operators).
   repositoryCatalog: (arch) => request('GET', catalogURL('/api/catalog/repository', { arch })),

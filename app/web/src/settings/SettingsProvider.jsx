@@ -22,7 +22,7 @@ const DEFAULTS = {
 // ceiling to refuse an over-size drop before sending it. Mirror of
 // defaultSystemSettings() — the server's value wins as soon as it lands.
 // sshForwarding and experimental are env-derived and read-only
-// (SSH_FORWARDING_HOST, EXPERIMENTAL); both off until the server says otherwise, so
+// (SSH_FORWARDING_HOST, EXPERIMENTAL, under env: in config.yaml); both off until the server says otherwise, so
 // the designer never offers a tunnel command the installation cannot produce, and a
 // feature that is not ready never flashes into a menu before the fetch lands.
 const SYSTEM_DEFAULTS = {
@@ -34,7 +34,7 @@ const SYSTEM_DEFAULTS = {
   // Off until the server says otherwise, so a page rendered before the settings
   // land never offers to write to a PMM database.
   internalWrites: false,
-  // Shared sessions (app/share.go): off until an administrator turns them on.
+  // Shared sessions (app/share.go): off until the owner turns them on.
   allowGuestSessions: false, maxGuestMinutes: 120, sessionRetentionDays: 90, recordingRetentionDays: 30, publicUrl: '',
 }
 // Exported for the render checks, which need to mount a component under a chosen

@@ -137,7 +137,7 @@ import { LookOptions, TabLimit, TooltipOptions, TOOLTIP_MODES, TerminalOnTopOpti
 import { windowZ } from '../src/wm/WindowManager.jsx'
 import { LOOKS, THEMES } from '../src/theme/ThemeProvider.jsx'
 import {
-  curlFor, cliFor, matches as epMatches, samplePath, expiryText, relDate,
+  curlFor, matches as epMatches, samplePath, expiryText, relDate,
   METHOD_TONE, SCOPE_TEXT, MEDIA_TEXT, MEDIA_LABEL, TOKEN_STATE_TONE, EXPIRY_CHOICES,
 } from '../src/lib/apiApi.js'
 import SampleCode, { JobLog } from '../src/pages/SampleCode.jsx'
@@ -4442,10 +4442,10 @@ check('tabs: the cap refuses rather than evicting, and says that it did', () => 
   return `capped at ${TABS_DEFAULT} by default, ${TABS_MIN}-${TABS_MAX} by setting`
 })
 
-check('default passwords: administrators are told which and how to change them', () => {
+check('default passwords: the owner is told which and how to change them', () => {
   const one = renderToString(<DefaultSecretsNotice names={['APP_PASSWORD']} />).replaceAll('<!-- -->', '')
   if (!/1 password is still/.test(one) || !/APP_PASSWORD/.test(one)) throw new Error('one name: ' + one)
-  if (!/gen-secrets\.sh/.test(one) || !/make restart/.test(one)) throw new Error('the notice does not say how to fix it')
+  if (!/config\.yaml/.test(one) || !/dbcanvas stop/.test(one)) throw new Error('the notice does not say how to fix it')
   const many = renderToString(<DefaultSecretsNotice names={['A', 'B', 'C', 'D', 'E', 'F']} />).replaceAll('<!-- -->', '')
   if (!/6 passwords are/.test(many) || !/and 2 more/.test(many)) throw new Error('many names: ' + many)
   if (renderToString(<DefaultSecretsNotice names={[]} />) !== '' || renderToString(<DefaultSecretsNotice />) !== '') {
@@ -4984,7 +4984,7 @@ check('settings: the tooltip switch', () => {
 // new) blanking the page the first time somebody opens it.
 
 const apiTokens = [
-  { id: 1, name: 'dbcanvas-cli on thinkpad', prefix: 'dbc_a1b2c3d4', scope: 'write',
+  { id: 1, name: 'kb-assistant on thinkpad', prefix: 'dbc_a1b2c3d4', scope: 'write',
     createdAt: '2026-09-01T10:00:00Z', expiresAt: '2026-12-01T10:00:00Z',
     lastUsedAt: '2026-09-02T08:00:00Z', state: 'active', username: 'jaime' },
   { id: 2, name: 'read-only dashboard', prefix: 'dbc_9f8e7d6c', scope: 'read',
@@ -5120,7 +5120,7 @@ check('api page: every wildcard is substituted in the examples', () => {
   for (const ep of apiEndpoints) {
     // The websocket "example" is a comment naming the endpoint, so it quotes the
     // path verbatim — braces and all — on purpose. Every actual command must not.
-    const lines = ep.media === 'websocket' ? [cliFor(ep)] : [curlFor(ep, 'http://x'), cliFor(ep)]
+    const lines = ep.media === 'websocket' ? [] : [curlFor(ep, 'http://x')]
     for (const line of lines) {
       if (/\{[a-zA-Z0-9_]+\}/.test(line)) throw new Error(`${ep.method} ${ep.path}: ${line}`)
     }
@@ -6047,7 +6047,7 @@ check('explorer: a read-only connection says so, and offers arming only when all
   const off = renderToString(<DbxBanner tab={{ armed: false }} conn={locked} patch={noop} />)
   if (!off.includes('PMM Internal')) throw new Error('the banner names what the connection is')
   if (off.includes('Arm writes')) throw new Error('arming must not be offered when an administrator has not allowed it')
-  if (!off.includes('administrator')) throw new Error('it should say who can unlock it')
+  if (!off.includes('Settings')) throw new Error('it should say who can unlock it')
 
   const allowed = { ...dbxPMM, unlockable: true }
   const ready = renderToString(<DbxBanner tab={{ armed: false }} conn={allowed} patch={noop} />)

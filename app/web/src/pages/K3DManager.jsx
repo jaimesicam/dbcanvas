@@ -884,7 +884,7 @@ kubectl -n ${ns} rollout restart statefulset -l ${isPG
           )}
           <Code label="The source, as applied" text={`ls ${cfg.operatorSrc}/deploy
 # secrets.yaml was applied BEFORE cr.yaml (the operator reads the users while creating
-# the cluster; a secret that arrives later changes nothing). Passwords come from .env.
+# the cluster; a secret that arrives later changes nothing). Passwords are the node passwords (dbcanvas passwords).
 kubectl apply -f ${cfg.operatorSrc}/deploy/secrets.yaml -n ${ns}
 kubectl apply -f ${cfg.operatorSrc}/deploy/cr.yaml -n ${ns}   # re-apply after editing`} />
           {cfg.debugStatus && <IDEAttachGuide cfg={cfg} ns={ns} cr={cr} frameId={frame?.id} stackId={stackId} />}

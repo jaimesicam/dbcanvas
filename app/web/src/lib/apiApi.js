@@ -17,10 +17,8 @@ async function request(method, path, body) {
 
 export const apiApi = {
   endpoints: () => request('GET', '/api/meta/endpoints'),
-  // dbcanvas-cli's own usage text, from the binary this installation ships
-  // (app/clihelp.go). Fetched rather than written into the page so the command list
-  // cannot drift from the CLI, and so it is readable on an installation that cannot
-  // reach GitHub.
+  // The dbcanvas command's usage text, from the running binary (app/clihelp.go).
+  // Fetched rather than written into the page so the command list cannot drift.
   cliHelp: () => request('GET', '/api/cli/help'),
   listTokens: () => request('GET', '/api/tokens'),
   createToken: (t) => request('POST', '/api/tokens', t),
@@ -40,7 +38,7 @@ export const METHOD_TONE = {
 export const SCOPE_TEXT = {
   read: 'Any token can call this — it changes nothing.',
   write: 'Needs a write-scope token.',
-  admin: 'Needs an admin-scope token, which only an administrator can create.',
+  admin: 'Needs an admin-scope token.',
 }
 
 // MEDIA_TEXT explains why an endpoint is not plain JSON. Empty for the majority
@@ -74,7 +72,7 @@ export function curlFor(ep, origin = '') {
   const url = `${origin}${samplePath(ep.path)}`
   const auth = `-H "Authorization: Bearer $DBCANVAS_TOKEN"`
   if (ep.media === 'websocket') {
-    return `# ${ep.method} ${ep.path} upgrades to a WebSocket — use dbcanvas-cli or a WebSocket client,\n`
+    return `# ${ep.method} ${ep.path} upgrades to a WebSocket — use a WebSocket client,\n`
       + `# sending the same Authorization header on the handshake.`
   }
   if (ep.media === 'sse') return `curl -N ${auth} "${url}"`
@@ -85,11 +83,6 @@ export function curlFor(ep, origin = '') {
   return `curl -s -X ${ep.method} ${auth} \\\n  -H 'Content-Type: application/json' \\\n  -d '{}' "${url}"`
 }
 
-// cliFor is the equivalent dbcanvas-cli invocation. The raw `api` form is always
-// correct, which is the point of that command existing.
-export function cliFor(ep) {
-  return `dbcanvas-cli api ${ep.method} ${samplePath(ep.path)}`
-}
 
 // matches filters an endpoint against the search box: the path, the summary and the
 // method, so both "deploy" and "POST /api/stacks" find things.
@@ -125,7 +118,7 @@ export function expiryText(tok) {
 export const TOKEN_STATE_TONE = { active: 'primary', expired: 'warning', revoked: 'muted' }
 
 // EXPIRY_CHOICES are the lifetimes offered. 0 means never, which the server only
-// allows an administrator.
+// allows the owner.
 export const EXPIRY_CHOICES = [
   { days: 7, label: '7 days' },
   { days: 30, label: '30 days' },

@@ -93,7 +93,7 @@ function VersionPickers({ obj, patch, deployed, majorKey, versionKey, majorLabel
       </div>
       {!loading && !majors.length && (
         <p className="text-xs text-warning">
-          No packages for this OS/arch. Pick another combination, or run <code>make versions</code>.
+          No packages for this OS/arch. Pick another combination, or run <code>dbcanvas versions update</code>.
         </p>
       )}
     </>

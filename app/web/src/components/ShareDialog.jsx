@@ -57,7 +57,7 @@ export default function ShareDialog({ stack, onClose }) {
 
         {!system.allowGuestSessions ? (
           <p className="text-sm text-muted">
-            Shared sessions are turned off on this installation. An administrator can turn them on in
+            Shared sessions are turned off. Turn them on in
             <span className="font-medium text-fg"> Settings → Shared sessions</span>.
           </p>
         ) : session.active ? (
@@ -98,7 +98,7 @@ export default function ShareDialog({ stack, onClose }) {
             {unreachable && (
               <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
                 This page is on {location.host}, so the link will be too — guests on other machines cannot open it.
-                Set PUBLIC_URL (and APP_HOST, with APP_HOST_OVERRIDE=on) in .env to an address they can reach.
+                DBCanvas listens on this machine only: put a reverse proxy or a tunnel in front of it, and set publicUrl in ~/.dbcanvas/config.yaml to the address guests reach it on.
               </div>
             )}
             {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}

@@ -2,7 +2,7 @@
 //
 // Tag it. A nav entry, a palette group, an item inside one: anything carrying
 // `experimental: true` is shown only where the installation has asked for
-// experimental features (EXPERIMENTAL in .env, read by app/experimental.go and
+// experimental features (EXPERIMENTAL under env: in config.yaml, read by app/experimental.go and
 // served on the system settings as `experimental`). Off is the default, and it is
 // the default that matters — a half-finished feature can be merged and left hidden
 // instead of waiting for a release, and an installation that wants none of them
@@ -22,7 +22,7 @@
 export const showExperimental = (system) => system?.experimental === true
 
 // showEOL is the same for the second tag, `eol: true` — releases past their end of
-// life (CentOS 7, PMM 2), offered only where EOL is on in .env (app/eol.go). It is a
+// life (CentOS 7, PMM 2), offered only where EOL is on (env: in config.yaml) (app/eol.go). It is a
 // separate switch rather than more experimental entries because the two say opposite
 // things: an experimental feature is not finished yet, an EOL one is finished for good.
 export const showEOL = (system) => system?.eol === true

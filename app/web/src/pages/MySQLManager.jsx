@@ -111,7 +111,7 @@ export default function MySQLManager({ stackId, nodeId, engine = 'ps', dep, onDe
 
       {tab === 'creds' && (
         <div className="space-y-2">
-          <div className="text-[11px] text-muted">App/repl/monitor/cluster passwords come from the host .env.</div>
+          <div className="text-[11px] text-muted">App/repl/monitor/cluster passwords are the node passwords (dbcanvas passwords).</div>
           {[
             { k: 'Root user', v: sec.rootUser || 'root' },
             { k: 'Root password', v: sec.rootPassword, secret: true },

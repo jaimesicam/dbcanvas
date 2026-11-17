@@ -129,7 +129,7 @@ export default function ProxySQLManager({ stackId, nodeId, dep, onDeleteNode }) 
 
       {tab === 'creds' && (
         <div className="space-y-2">
-          <div className="text-[11px] text-muted">App/monitor/cluster credentials come from the linked PXC cluster (passwords from .env).</div>
+          <div className="text-[11px] text-muted">App/monitor/cluster credentials come from the linked PXC cluster (dbcanvas passwords).</div>
           <CopyRow label="Admin user (6032)" value={sec.adminUser || 'admin'} />
           <CopyRow label="Admin password" value={sec.adminPassword} secret />
           <CopyRow label="App user (6033)" value={sec.appUser || 'app'} />

@@ -49,7 +49,7 @@ const newTab = (patch = {}) => {
     queryId: '',
     view: 'results',
     // armed lifts a connection's read-only policy for this tab only, and only where
-    // an administrator has allowed it at all. Per tab and not per connection: the
+    // the owner has allowed it at all. Per tab and not per connection: the
     // whole point is that arming is a deliberate act you can see, next to the editor
     // you are about to press Run in.
     armed: false,
@@ -860,7 +860,7 @@ function ResultSummary({ res }) {
 }
 
 // ReadOnlyBanner is the standing statement that this connection is PMM's own, and —
-// where an administrator has unlocked it — the control that arms this tab for writes.
+// where the owner has unlocked it — the control that arms this tab for writes.
 //
 // It stays on screen while the tab is armed rather than fading, and it is red rather
 // than amber, because an armed tab is a state you should not be able to forget you
@@ -895,8 +895,8 @@ function ReadOnlyBanner({ tab, conn, patch, onArmChange }) {
           <Button size="sm" variant="outline" onClick={() => setConfirming(true)}>Arm writes\u2026</Button>
         )
       ) : (
-        <span className="shrink-0 text-muted" title="An administrator can allow this in Settings \u2192 Writes to internal databases.">
-          read-only \u2014 an administrator can unlock it in Settings
+        <span className="shrink-0 text-muted" title="Allow this in Settings \u2192 Writes to internal databases.">
+          read-only \u2014 unlock it in Settings
         </span>
       )}
     </div>

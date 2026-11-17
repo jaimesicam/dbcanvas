@@ -167,7 +167,7 @@ function PXCAccess({ cfg, host, stats }) {
         only to wsrep-<span className="font-medium text-fg/80">Synced</span> nodes. The <span className="font-medium text-fg/80">write</span> port
         (:5000) sends all traffic to a single active node — the rest are hot backups, promoted on failure — to avoid
         multi-master write conflicts. The <span className="font-medium text-fg/80">read</span> port (:5001) round-robins
-        every Synced node. Use any MySQL user (e.g. the app user from <span className="font-mono">.env</span>).
+        every Synced node. Use any MySQL user (e.g. the app user from <span className="font-mono">dbcanvas passwords</span>).
       </div>
       <div className="space-y-2">
         <div className="text-xs font-medium text-muted">Write (single writer · :5000)</div>

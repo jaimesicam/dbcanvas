@@ -65,7 +65,7 @@ function splitSize(bytes) {
 // Row is one setting. scope says whose it is, and the badge in its corner says so:
 // "you" is a preference saved to the signed-in account, which changes nothing for anyone
 // else (app/settings.go); "everyone" is instance-wide (app/syssettings.go), changed only by
-// an administrator and shown read-only to everybody else.
+// the owner and shown read-only to everybody else.
 function Row({ title, hint, scope, children }) {
   return (
     <div className="space-y-2 rounded-xl border bg-surface p-4">
@@ -84,14 +84,14 @@ function Row({ title, hint, scope, children }) {
 const SCOPE_TEXT = {
   you: ['Only you', 'Saved to your account, on every browser you sign in from. Nobody else sees the change.'],
   everyone: ['Everyone', 'Instance-wide: a change here applies to every account.'],
-  locked: ['Everyone · admins only', 'Instance-wide. Only an administrator can change it; you can see what it is set to.'],
+  locked: ['Everyone · owner only', 'Instance-wide. Only the owner can change it; you can see what it is set to.'],
 }
 function ScopeBadge({ scope }) {
   if (scope === 'you') return <Badge kind="you" />
   if (scope === 'everyone') return <EveryoneBadge />
   return null
 }
-// EveryoneBadge reads the account to tell an administrator from everybody else; a
+// EveryoneBadge reads the account to tell the owner from everybody else; a
 // preference's badge does not need it, so a card rendered on its own still mounts.
 function EveryoneBadge() {
   const { user } = useAuth()
@@ -178,7 +178,7 @@ function UploadLimit() {
       <div className="text-xs text-muted">
         {isAdmin
           ? 'Default 4 GiB. Between 1 MiB and 1 TiB — the upload streams to the node rather than being held in memory, so the practical bound is temporary disk space, not RAM.'
-          : 'Set by an administrator. Ask one to raise it if you need to copy something larger.'}
+          : 'Set by the owner. Ask them to raise it if you need to copy something larger.'}
       </div>
     </Row>
   )
@@ -218,7 +218,7 @@ function TokenLifetime() {
   return (
     <Row
       scope="everyone" title="API token lifetime"
-      hint="The longest expiry anyone may give an API token, administrators included. Only an administrator can create a token that never expires. Instance-wide."
+      hint="The longest expiry anyone may give an API token, the owner included. Only the owner can create a token that never expires. Instance-wide."
     >
       <div className="flex flex-wrap items-center gap-2">
         <div className="w-24">
@@ -239,8 +239,8 @@ function TokenLifetime() {
       {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
       <div className="text-xs text-muted">
         {isAdmin
-          ? 'Default 90 days, between 1 and 365. A request for longer is shortened to this rather than refused, so lowering it never breaks the create form — and it does not shorten tokens that already exist. Only an administrator can create a token that never expires.'
-          : 'Set by an administrator. Tokens you create are capped at this, whatever you ask for.'}
+          ? 'Default 90 days, between 1 and 365. A request for longer is shortened to this rather than refused, so lowering it never breaks the create form — and it does not shorten tokens that already exist. Only the owner can create a token that never expires.'
+          : 'Set by the owner. Tokens you create are capped at this, whatever you ask for.'}
       </div>
     </Row>
   )
@@ -306,7 +306,7 @@ export function InternalWrites() {
           ? 'PMM\u2019s internal databases can be written to from the Database Explorer, once a query tab is armed for it. Modifying PMM internal data may corrupt or break the PMM installation \u2014 which is the point when you are testing that, and a hazard the rest of the time.'
           : isAdmin
             ? 'PMM\u2019s internal PostgreSQL and ClickHouse are exposed for inspection only, and the databases themselves refuse writes on those sessions. Turn this on to test what a broken PMM inventory does; turn it off again afterwards.'
-            : 'Set by an administrator. PMM\u2019s internal databases are read-only for you.'}
+            : 'Set by the owner. PMM\u2019s internal databases are read-only for you.'}
       </div>
     </Row>
   )
@@ -396,8 +396,8 @@ export function GuestSessions() {
       {err && <div className="rounded-lg border border-danger/30 bg-danger/15 px-3 py-2 text-xs text-danger">{err}</div>}
       <div className="text-xs text-muted">
         {system.publicUrl
-          ? <>Links are built on <span className="font-mono text-fg">{system.publicUrl}</span> (PUBLIC_URL).</>
-          : 'Links use the address your browser is on. Set PUBLIC_URL in .env to the address colleagues use, and APP_HOST to an interface they can reach (with APP_HOST_OVERRIDE=on).'}
+          ? <>Links are built on <span className="font-mono text-fg">{system.publicUrl}</span> (publicUrl in ~/.dbcanvas/config.yaml).</>
+          : 'Links use the address your browser is on. DBCanvas listens on this machine only: to share with colleagues, put a reverse proxy or a tunnel in front of it and set publicUrl in ~/.dbcanvas/config.yaml to that address.'}
       </div>
     </Row>
   )
@@ -734,7 +734,7 @@ export default function Settings() {
       <div className="flex gap-1 overflow-x-auto border-b text-sm" role="tablist" aria-label="Settings">
         {tabs.map(([id, text]) => (
           <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => pickTab(id)}
-            title={!isAdmin && adminOnly.has(id) ? 'Instance-wide settings: view only. An administrator changes them.' : undefined}
+            title={!isAdmin && adminOnly.has(id) ? 'Instance-wide settings: view only. The owner changes them.' : undefined}
             className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-t-md px-3 py-1.5 ${tab === id ? 'border border-b-0 bg-bg font-semibold text-fg' : 'text-muted hover:text-fg'}`}>
             {text}
             {!isAdmin && adminOnly.has(id) && <span className="rounded border px-1 text-[10px] font-normal text-muted">view only</span>}
