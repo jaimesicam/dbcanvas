@@ -278,6 +278,9 @@ type stackPlan struct {
 	Issues       []issue  `json:"issues"`
 	OK           bool     `json:"ok"`
 	Stack        *Stack   `json:"stack,omitempty"`
+	// Resolved is what each compose entry became: the exact build of a short version
+	// (8.4 → 8.4.6-6.1), its OS and architecture. Empty for a file with a design.
+	Resolved []composeResolved `json:"resolved,omitempty"`
 }
 
 // stackFileDesign is the design a file asks for: its own, or its compose entries built.
@@ -285,12 +288,18 @@ type stackPlan struct {
 // compose entry before its versions are resolved, so they come from that architecture's
 // catalogue; in a design written into each node, leaving deployed ones as they were built.
 func stackFileDesign(sf stackFile, deployed map[string]bool) (json.RawMessage, []string, error) {
+	d, added, _, err := stackFileDesignResolved(sf, deployed)
+	return d, added, err
+}
+
+// stackFileDesignResolved is stackFileDesign, with what each compose entry resolved to.
+func stackFileDesignResolved(sf stackFile, deployed map[string]bool) (json.RawMessage, []string, []composeResolved, error) {
 	if len(sf.Design) > 0 {
 		if sf.Platform == "" {
-			return sf.Design, nil, nil
+			return sf.Design, nil, nil, nil
 		}
 		d, err := stampPlatform(sf.Design, sf.Platform, deployed)
-		return d, nil, err
+		return d, nil, nil, err
 	}
 	specs := append([]composeNodeSpec(nil), sf.Nodes...)
 	if sf.Platform != "" {
@@ -300,12 +309,12 @@ func stackFileDesign(sf stackFile, deployed map[string]bool) (json.RawMessage, [
 			}
 		}
 	}
-	doc, pos, _, added, err := buildCompose(composeSpec{Name: sf.Name, Nodes: specs})
+	doc, pos, resolved, added, err := buildCompose(composeSpec{Name: sf.Name, Nodes: specs})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	d, err := designJSON(doc, pos)
-	return d, added, err
+	return d, added, resolved, err
 }
 
 // planStackFile works out what applying sf for ownerID would do, without doing it.
@@ -339,7 +348,8 @@ func (a *App) planStackFile(ctx context.Context, ownerID int64, sf stackFile) (s
 			}
 		}
 	}
-	design, added, err := stackFileDesign(sf, deployedItems(old.Design, running))
+	design, added, resolved, err := stackFileDesignResolved(sf, deployedItems(old.Design, running))
+	p.Resolved = resolved
 	if err != nil {
 		return p, nil, err
 	}

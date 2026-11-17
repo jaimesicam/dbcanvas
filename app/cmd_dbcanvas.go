@@ -647,6 +647,16 @@ func printPlan(p stackPlan, dry bool) {
 	list("+", p.Added)
 	list("-", p.Removed)
 	list("~", p.Changed)
+	for _, r := range p.Resolved {
+		v := r.Version
+		if v == "" && r.Major != "" {
+			v = r.Major + " (its newest build at deploy)"
+		}
+		if v == "" {
+			continue
+		}
+		fmt.Printf("  = %s: %s %s on %s %s (%s)\n", r.Name, r.Kind, v, r.OS, r.OSVersion, r.Arch)
+	}
 	if p.TTL != "" && p.Action != "create" {
 		fmt.Printf("  ttl → %s (counted from now)\n", p.TTL)
 	}
