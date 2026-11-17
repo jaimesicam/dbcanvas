@@ -2496,6 +2496,12 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// A token's denied node types (tokenlimit.go): checked here, where containers are made,
+	// whatever way the design got them.
+	if why := tokenDesignRefusal(r, st.Design); why != "" {
+		writeErr(w, http.StatusForbidden, why)
+		return
+	}
 	bg := context.Background()
 	issues := a.validateStack(bg, st)
 	if hasError(issues) {

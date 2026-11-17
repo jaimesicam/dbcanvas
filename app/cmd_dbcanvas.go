@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -13,27 +12,20 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"os/signal"
 	"os/user"
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"text/tabwriter"
 	"time"
 )
 
 // cmd_dbcanvas.go — the dbcanvas command.
 //
-//	dbcanvas                      start dbcanvas and open it in the browser
-//	dbcanvas serve                start it without opening the browser
-//	dbcanvas ls                   list stacks
-//	dbcanvas export STACK         write a stack as a stack file
-//	dbcanvas up -f FILE           create or update a stack from a file, and deploy it
-//
-// A command hands its work to the running dbcanvas over the control socket
-// (ctlsock.go). With none running it runs the engine itself, in this process and under
-// the same lock, for as long as the command takes.
+// Every command returns the prompt at once. One that needs dbcanvas's service starts it
+// in the background when it is not running (soloservice.go) and hands it the work over
+// the control socket (ctlsock.go); the service carries on — a deploy, expiry — after the
+// command has returned, and stops by itself when nothing needs it.
 
 // soloPort is the browser's port when APP_PORT does not set one; a free one is taken
 // when it is busy.
@@ -42,8 +34,9 @@ const soloPort = "7480"
 const cliUsage = `dbcanvas — database labs on Docker
 
 Usage:
-  dbcanvas                      start dbcanvas and open it in the browser
-  dbcanvas serve                start dbcanvas without opening the browser
+  dbcanvas                      open dbcanvas in the browser, signed in
+  dbcanvas open [--print]       the same; --print prints the one-time sign-in link instead
+                                (for another browser, or over an SSH tunnel)
   dbcanvas ls                   list your stacks
   dbcanvas export STACK [-o FILE]
                                 write a stack as a stack file (YAML)
@@ -51,12 +44,23 @@ Usage:
                                 create or update the stack in FILE, then deploy it
   dbcanvas down STACK           remove a stack's containers, keep its design
   dbcanvas rm STACK             delete a stack and everything it deployed
+  dbcanvas token create NAME [--scope read|write] [--days 30] [--own-stacks]
+                     [--label k=v]... [--max-ttl 8h] [--deny TYPE,...]
+                                an API token for a script or another user of this computer
+  dbcanvas token ls | token rm ID
+  dbcanvas status               whether the dbcanvas service runs, and what keeps it up
+  dbcanvas stop                 stop the service (stacks keep running; it starts again
+                                with the next command that needs it)
   dbcanvas versions [update|reset]
                                 show the version catalogue in use; update downloads the
                                 newest into the data folder, reset goes back to the built-in one
   dbcanvas version              print the version
 
-Data folder: %s (DBCANVAS_DATA overrides it). Settings are in its config.yaml.
+Any command that needs the service starts it, in the background, and returns at once.
+It stops by itself when no stack has containers and nothing has used it for 10 minutes.
+
+Data folder: %s (DBCANVAS_DATA overrides it). Settings are in its config.yaml;
+the service's log is dbcanvas.log there.
 `
 
 func runCLI(args []string) int {
@@ -93,10 +97,18 @@ func runCLI(args []string) int {
 	}
 	var err error
 	switch cmd {
-	case "":
-		err = cliServe(true)
+	case serviceArg:
+		return runService()
+	case "", "open":
+		err = cliOpen(rest)
+	case "status":
+		err = cliStatus()
+	case "stop":
+		err = cliStop()
+	case "token", "tokens":
+		err = cliToken(rest)
 	case "serve":
-		err = cliServe(false)
+		err = errors.New("dbcanvas has no serve command any more: any command starts it in the background (dbcanvas opens the browser)")
 	case "ls", "list":
 		err = withDBCanvas(func(c ctl) error { return cliList(c) })
 	case "export":
@@ -129,53 +141,31 @@ func runCLI(args []string) int {
 	return 0
 }
 
-// cliServe runs dbcanvas until interrupted. With one already running, it opens that one.
-func cliServe(open bool) error {
+// cliOpen opens dbcanvas in the browser, signed in, or prints the one-time link.
+func cliOpen(args []string) error {
+	fs := flag.NewFlagSet("dbcanvas open", flag.ContinueOnError)
+	print := fs.Bool("print", false, "print the one-time sign-in link instead of opening a browser")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 	dir, err := ensureDataDir()
 	if err != nil {
 		return err
 	}
-	lock, err := lockEngine(dir)
-	if errors.Is(err, errEngineRunning) {
-		u, err := startLinkFrom(dir)
-		if err != nil {
-			return fmt.Errorf("dbcanvas is already running, but %v", err)
-		}
-		fmt.Println("dbcanvas is already running.")
-		if open {
-			openBrowser(u)
-		} else {
-			fmt.Println("Open it signed in (the link works once, for a minute):", u)
-		}
-		return nil
+	if err := ensureService(dir); err != nil {
+		return err
 	}
+	u, err := startLinkFrom(dir)
 	if err != nil {
 		return err
 	}
-	defer lock.release()
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	ready := make(chan string, 1)
-	done := make(chan error, 1)
-	go func() { done <- runServer(serveOpts{ctx: ctx, tcp: true, dataDir: dir, ready: ready}) }()
-	select {
-	case err := <-done:
-		return err
-	case addr := <-ready:
-		fmt.Printf("dbcanvas is running at %s/ — Ctrl-C stops it.\n", loopbackURL(addr))
-		u, err := startLinkFrom(dir)
-		switch {
-		case err != nil:
-			fmt.Fprintln(os.Stderr, "no start link:", err)
-		case open:
-			openBrowser(u)
-		default:
-			fmt.Println("Open it signed in (the link works once, for a minute):", u)
-			fmt.Println("`dbcanvas` gives a new link at any time.")
-		}
+	if *print {
+		fmt.Println(u)
+		fmt.Fprintln(os.Stderr, "It works once, for a minute.")
+		return nil
 	}
-	return <-done
+	openBrowser(u)
+	return nil
 }
 
 func openBrowser(u string) {
@@ -184,11 +174,79 @@ func openBrowser(u string) {
 		cmd = "open"
 	}
 	if err := exec.Command(cmd, u).Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "could not open a browser (%v); open %s\n", err, u)
+		fmt.Fprintf(os.Stderr, "could not open a browser (%v); open %s (it works once, for a minute)\n", err, u)
 	}
 }
 
-// startLinkFrom asks the running dbcanvas for a one-time sign-in link (soloweb.go).
+// cliStatus says whether the service runs and what keeps it up. It never starts it.
+func cliStatus() error {
+	dir, err := ensureDataDir()
+	if err != nil {
+		return err
+	}
+	if !ctlReachable(dir) {
+		fmt.Println("dbcanvas is not running. Any command that needs it starts it (dbcanvas opens the browser).")
+		return nil
+	}
+	var st struct {
+		PID       int           `json:"pid"`
+		URL       string        `json:"url"`
+		Version   string        `json:"version"`
+		Instance  string        `json:"instance"`
+		StartedAt string        `json:"startedAt"`
+		Grace     int           `json:"idleGraceSeconds"`
+		Keep      soloKeepAlive `json:"keepAlive"`
+	}
+	if err := (ctl{c: ctlClient(dir)}).do("GET", "/api/solo/status", nil, &st); err != nil {
+		return err
+	}
+	fmt.Printf("dbcanvas %s is running (pid %d, since %s) at %s/\n", st.Version, st.PID, st.StartedAt, st.URL)
+	fmt.Printf("Instance %s, data in %s\n", st.Instance, dir)
+	var why []string
+	if st.Keep.Containers > 0 {
+		why = append(why, fmt.Sprintf("%d node(s) with containers", st.Keep.Containers))
+	}
+	if st.Keep.Deploying > 0 {
+		why = append(why, fmt.Sprintf("%d deploy(s) running", st.Keep.Deploying))
+	}
+	if st.Keep.Connections > 0 {
+		why = append(why, fmt.Sprintf("%d open connection(s): a browser, a guest or a waiting command", st.Keep.Connections))
+	}
+	if len(why) > 0 {
+		fmt.Println("Kept up by:", strings.Join(why, "; "))
+	} else {
+		fmt.Printf("Nothing keeps it up: it stops %s after it was last used.\n", time.Duration(st.Grace)*time.Second)
+	}
+	return nil
+}
+
+// cliStop stops the service. It never starts it.
+func cliStop() error {
+	dir, err := ensureDataDir()
+	if err != nil {
+		return err
+	}
+	if !ctlReachable(dir) {
+		fmt.Println("dbcanvas is not running.")
+		return nil
+	}
+	var out struct {
+		Keep soloKeepAlive `json:"keepAlive"`
+	}
+	if err := (ctl{c: ctlClient(dir)}).do("POST", "/api/solo/stop", nil, &out); err != nil {
+		return err
+	}
+	for i := 0; i < 50 && ctlReachable(dir); i++ {
+		time.Sleep(200 * time.Millisecond)
+	}
+	fmt.Println("dbcanvas stopped.")
+	if out.Keep.Containers > 0 {
+		fmt.Printf("Its %d node(s) keep running in Docker; nothing expires them until a dbcanvas command starts it again.\n", out.Keep.Containers)
+	}
+	return nil
+}
+
+// startLinkFrom asks the running service for a one-time sign-in link (soloweb.go).
 func startLinkFrom(dir string) (string, error) {
 	var out struct {
 		URL string `json:"url"`
@@ -199,55 +257,21 @@ func startLinkFrom(dir string) (string, error) {
 	return out.URL, nil
 }
 
-// withDBCanvas runs f against the running dbcanvas, or, with none running, against an
-// engine started in this process for the duration (ctl.inProcess).
+// withDBCanvas runs f against the dbcanvas service, starting it when it is not running.
 func withDBCanvas(f func(c ctl) error) error {
 	dir, err := ensureDataDir()
 	if err != nil {
 		return err
 	}
-	if ctlReachable(dir) {
-		return f(ctl{c: ctlClient(dir)})
-	}
-	lock, err := lockEngine(dir)
-	if errors.Is(err, errEngineRunning) {
-		// Another dbcanvas is starting: give its socket a moment.
-		for i := 0; i < 50 && !ctlReachable(dir); i++ {
-			time.Sleep(200 * time.Millisecond)
-		}
-		if ctlReachable(dir) {
-			return f(ctl{c: ctlClient(dir)})
-		}
-		return errors.New("another dbcanvas holds the engine but does not answer; is it stuck?")
-	}
-	if err != nil {
+	if err := ensureService(dir); err != nil {
 		return err
 	}
-	defer lock.release()
-	// The engine logs to the server log; a command prints only its own output.
-	log.SetOutput(io.Discard)
-	defer log.SetOutput(os.Stderr)
-	ctx, cancel := context.WithCancel(context.Background())
-	ready := make(chan string, 1)
-	done := make(chan error, 1)
-	go func() { done <- runServer(serveOpts{ctx: ctx, dataDir: dir, ready: ready}) }()
-	select {
-	case err := <-done:
-		cancel()
-		return err
-	case <-ready:
-	}
-	ferr := f(ctl{c: ctlClient(dir), inProcess: true})
-	cancel()
-	<-done
-	return ferr
+	return f(ctl{c: ctlClient(dir)})
 }
 
 // ctl calls the API over the control socket.
 type ctl struct {
 	c *http.Client
-	// inProcess is set when the engine runs in this process and stops with the command.
-	inProcess bool
 }
 
 // apiError is an error answer from the API.
@@ -448,12 +472,9 @@ func cliUp(args []string) error {
 		if err := c.do("POST", fmt.Sprintf("/api/stacks/%d/deploy", p.StackID), nil, nil); err != nil {
 			return err
 		}
-		if !*wait && !c.inProcess {
-			fmt.Printf("Deploying %s. `dbcanvas ls` shows it; the browser shows each node.\n", p.Name)
-			return nil
-		}
 		if !*wait {
-			fmt.Println("No dbcanvas is running, so this command runs the deploy and waits for it.")
+			fmt.Printf("Deploying %s in the background. `dbcanvas ls` shows it; the browser shows each node.\n", p.Name)
+			return nil
 		}
 		return waitDeploy(c, p.StackID, p.Name, *timeout)
 	})

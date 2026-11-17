@@ -639,11 +639,9 @@ func (a *App) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "failed to generate a token")
 		return
 	}
-	if in.Limit != nil {
-		if err := validateLabels(in.Limit.Labels); err != nil {
-			writeErr(w, http.StatusBadRequest, "limit: "+err.Error())
-			return
-		}
+	if err := in.Limit.validate(); err != nil {
+		writeErr(w, http.StatusBadRequest, "limit: "+err.Error())
+		return
 	}
 	tok, err := a.store.CreateAPIToken(u.ID, name, hash, prefix, scope, expires)
 	if err != nil {

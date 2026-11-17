@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -93,9 +94,21 @@ func (a *App) handleNewStartLink(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"url": a.soloURL + newStartLink()})
 }
 
-// soloGuard refuses requests the browser port should never serve: one addressed to a
-// name other than its own, and a cross-site write or websocket.
-func soloGuard(port string, next http.Handler) http.Handler {
+// soloGuard is the browser port's door. It refuses a request addressed to a name other
+// than its own, and a cross-site write or websocket (see the file comment); and it answers
+// nothing without a credential. 127.0.0.1 is reachable by every user and every process on
+// this computer, so a request must carry one of:
+//
+//   - the owner's browser session, from a start link;
+//   - an API token (dbcanvas token create), as a bearer token;
+//   - a shared session guest's cookie, or a live join link in the path (/join/<token>,
+//     /api/join/<token>/…), which is how a guest arrives before having the cookie.
+//
+// Without one, only the start link itself and the web app's static files answer: the
+// files are the same public code that is in the binary, and they are what the join page
+// needs to draw. Everything else is a 401 that says how to get in and nothing about what
+// is running.
+func (a *App) soloGuard(port string, next http.Handler) http.Handler {
 	hosts := map[string]bool{}
 	for _, h := range []string{"127.0.0.1", "localhost", "[::1]"} {
 		hosts[h+":"+port] = true
@@ -120,8 +133,81 @@ func soloGuard(port string, next http.Handler) http.Handler {
 				return
 			}
 		}
+		if !a.soloCredential(r) && !soloPublic(r) && !a.liveJoinPath(r) {
+			soloUnauthorized(w, r)
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// soloCredential reports whether the request carries a credential that is still good.
+func (a *App) soloCredential(r *http.Request) bool {
+	if bearerToken(r) != "" {
+		_, _, err := a.tokenAuth(r)
+		return err == nil
+	}
+	if c, err := r.Cookie(cookieName); err == nil && c.Value != "" {
+		if _, err := a.store.SessionUser(c.Value); err == nil {
+			return true
+		}
+	}
+	if c, err := r.Cookie(guestCookieName); err == nil && c.Value != "" {
+		if _, err := a.store.ShareGuestByCookie(hashTokenSecret(c.Value)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// soloPublic is what answers without a credential: the start link and the web app's
+// static files (not its page, which is served only to a credential or a join link).
+func soloPublic(r *http.Request) bool {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return false
+	}
+	p := r.URL.Path
+	if strings.HasPrefix(p, "/start/") || strings.HasPrefix(p, "/licenses/") {
+		return true
+	}
+	if strings.HasPrefix(p, "/api/") || strings.HasPrefix(p, browsePrefix) || p == "/" || p == "/index.html" {
+		return false
+	}
+	return spaStaticFile(strings.TrimPrefix(p, "/"))
+}
+
+// liveJoinPath reports whether the path carries a live shared session's join link.
+func (a *App) liveJoinPath(r *http.Request) bool {
+	rest, ok := strings.CutPrefix(r.URL.Path, "/join/")
+	if !ok {
+		rest, ok = strings.CutPrefix(r.URL.Path, "/api/join/")
+	}
+	if !ok {
+		return false
+	}
+	tok, _, _ := strings.Cut(rest, "/")
+	if tok == "" || len(tok) > 100 {
+		return false
+	}
+	if allowed, _ := a.guestSessionSettings(); !allowed {
+		return false
+	}
+	sess, err := a.store.ShareSessionByToken(hashTokenSecret(tok))
+	return err == nil && sess.live(time.Now())
+}
+
+// soloUnauthorized answers a request without a credential: how to get in, nothing more.
+func soloUnauthorized(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/api/") || isUpgrade(r) {
+		writeErr(w, http.StatusUnauthorized, "sign in: run dbcanvas on this computer, or send an API token (dbcanvas token create)")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusUnauthorized)
+	io.WriteString(w, `<!doctype html><meta charset="utf-8"><title>DBCanvas</title>
+<body style="font:15px system-ui,sans-serif;margin:0;display:flex;align-items:center;justify-content:center;height:100vh">
+<div style="max-width:460px;padding:24px"><h2 style="font-weight:600">Open DBCanvas from the terminal</h2>
+<p>This browser is not signed in. Run <code>dbcanvas</code> in a terminal on this computer: it opens DBCanvas here, signed in.</p></div>`)
 }
 
 // loopbackURL is the browser's address for a listener on addr.

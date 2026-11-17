@@ -196,6 +196,10 @@ func (a *App) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid ttl")
 		return
 	}
+	if why := tokenTTLRefusal(r, body.TTL); why != "" {
+		writeErr(w, http.StatusForbidden, why)
+		return
+	}
 	design := []byte(defaultDesign)
 	if len(body.Design) > 0 {
 		design = body.Design
@@ -210,6 +214,10 @@ func (a *App) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 		// into an *existing* canvas is the case that needs remapping, and that one
 		// runs in the designer (see StackDesigner.jsx's insertTemplate).
 		design = t.Design
+	}
+	if why := tokenDesignRefusal(r, design); why != "" {
+		writeErr(w, http.StatusForbidden, why)
+		return
 	}
 	st, err := a.store.CreateStack(name, u.ID, body.TTL, expiryFor(body.TTL), design)
 	if errors.Is(err, ErrStackNameTaken) {
@@ -416,6 +424,10 @@ func (a *App) handleExtendStack(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<12)).Decode(&body); err != nil || !validTTL(body.By) {
 		writeErr(w, http.StatusBadRequest, "by must be one of the TTLs (2h, 4h, 8h, 24h, 2w, infinity)")
+		return
+	}
+	if why := tokenExtendRefusal(r); why != "" {
+		writeErr(w, http.StatusForbidden, why)
 		return
 	}
 	if st.Status == StackExpired {

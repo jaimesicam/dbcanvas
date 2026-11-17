@@ -1071,6 +1071,10 @@ func (a *App) handleComposeStack(w http.ResponseWriter, r *http.Request) {
 			"ttl must be one of 2h, 4h, 8h, 24h, 2w, infinity")
 		return
 	}
+	if why := tokenTTLRefusal(r, ttl); why != "" {
+		writeErr(w, http.StatusForbidden, why)
+		return
+	}
 
 	doc, pos, resolved, added, err := buildCompose(spec)
 	if err != nil {
@@ -1082,6 +1086,10 @@ func (a *App) handleComposeStack(w http.ResponseWriter, r *http.Request) {
 	design, err := designJSON(doc, pos)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to encode the design")
+		return
+	}
+	if why := tokenDesignRefusal(r, design); why != "" {
+		writeErr(w, http.StatusForbidden, why)
 		return
 	}
 

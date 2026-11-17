@@ -30,6 +30,10 @@ type App struct {
 	// the browser's address then, once it listens.
 	solo    bool
 	soloURL string
+	// activity and soloStop belong to the background service (soloservice.go): what it is
+	// serving, for the idle check, and how it stops itself.
+	activity *soloActivity
+	soloStop func()
 	// vagrant provisions nodes as VirtualBox VMs (the "vagrant" backend). nil
 	// when the host has no vagrant/VirtualBox; App.eng then falls back to docker.
 	vagrant *Vagrant
@@ -86,6 +90,9 @@ func main() {
 // serveOpts is how runServer runs.
 type serveOpts struct {
 	ctx context.Context // the server stops when it is done
+	// stop ends ctx; service runs it as the background service, which stops when idle.
+	stop    func()
+	service bool
 	// tcp listens on the loopback address for the browser; without it only the
 	// control socket listens (a command running the engine itself).
 	tcp bool
@@ -167,8 +174,17 @@ func runServer(o serveOpts) error {
 	if app.solo {
 		mux.HandleFunc("GET /start/{token}", app.handleStartLink)
 		mux.HandleFunc("POST /api/solo/start-link", app.handleNewStartLink)
+		mux.HandleFunc("GET /api/solo/status", app.handleSoloStatus)
+		mux.HandleFunc("POST /api/solo/stop", app.handleSoloStop)
 	}
 	handler := app.browseFallback(mux)
+	if o.service {
+		app.activity = &soloActivity{}
+		app.activity.last.Store(time.Now().UnixNano())
+		app.soloStop = o.stop
+		handler = app.activity.wrap(handler)
+		go app.watchIdle(o.ctx, o.stop)
+	}
 
 	errc := make(chan error, 2)
 	var servers []*http.Server
@@ -191,7 +207,7 @@ func runServer(o serveOpts) error {
 		web := handler
 		if app.solo {
 			_, lport, _ := net.SplitHostPort(addr)
-			web = soloGuard(lport, handler)
+			web = app.soloGuard(lport, handler)
 			app.soloURL = loopbackURL(addr)
 		}
 		srv := &http.Server{Handler: web, ReadHeaderTimeout: 10 * time.Second}
@@ -239,6 +255,19 @@ func dockerSocket() string {
 		return s
 	}
 	return "/var/run/docker.sock"
+}
+
+// spaStaticFile reports whether p is one of the web app's files other than its page.
+func spaStaticFile(p string) bool {
+	if p == "" || p == "index.html" {
+		return false
+	}
+	dist, err := fs.Sub(embeddedFS, "web/dist")
+	if err != nil {
+		return false
+	}
+	fi, err := fs.Stat(dist, p)
+	return err == nil && !fi.IsDir()
 }
 
 // spaHandler serves embedded static files, falling back to index.html for
