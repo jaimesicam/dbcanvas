@@ -418,15 +418,53 @@ func (d *Docker) NetworkEnsure(ctx context.Context, name string) error {
 	if resp.StatusCode == 200 {
 		return nil
 	}
-	resp, err = d.do(ctx, "POST", "/networks/create", map[string]any{"Name": name, "Driver": "bridge"})
+	// A /24 of its own, found free (subnets.go), rather than one of Docker's scarce default pools.
+	space, err := subnetSearchSpace()
 	if err != nil {
 		return err
 	}
-	if resp.StatusCode != 201 {
-		return errBody("create network", resp) // reads the body for Docker's message, so it is not drained first
+	avoid, err := d.stackSubnetAvoid(ctx)
+	if err != nil {
+		return err
 	}
-	drain(resp)
-	return nil
+	for attempt := 0; attempt < 10; attempt++ {
+		subnet, ok := pickSubnet(space, avoid, instanceName)
+		if !ok {
+			return fmt.Errorf("%w: every /%d in %s overlaps a Docker network, one of Docker's default pools, "+
+				"this host's networks or a Kubernetes range — remove unused Docker networks, or name more room "+
+				"in networkRange (~/.dbcanvas/config.yaml)", errNoSubnet, stackPrefix, cidrList(space))
+		}
+		resp, err = d.do(ctx, "POST", "/networks/create", map[string]any{
+			"Name": name, "Driver": "bridge",
+			"IPAM": map[string]any{"Config": []map[string]string{{
+				"Subnet": subnet.String(), "IPRange": lowerHalf(subnet).String(), "Gateway": firstHost(subnet).String(),
+			}}},
+		})
+		if err != nil {
+			return err
+		}
+		if resp.StatusCode == 201 {
+			drain(resp)
+			return nil
+		}
+		err = errBody("create network", resp) // reads the body for Docker's message, so it is not drained first
+		// Another user took it between the look and the create: look further.
+		if strings.Contains(err.Error(), "overlaps") {
+			avoid = append(avoid, subnet)
+			continue
+		}
+		return err
+	}
+	return fmt.Errorf("%w: ten free ranges were each taken before %s could be created", errNoSubnet, name)
+}
+
+// cidrList is a list of ranges for a message.
+func cidrList(ns []*net.IPNet) string {
+	var out []string
+	for _, n := range ns {
+		out = append(out, n.String())
+	}
+	return strings.Join(out, ", ")
 }
 
 // NetworkRemove deletes a network (best-effort).

@@ -33,6 +33,7 @@ type soloConfig struct {
 	Platform          string `yaml:"platform"`          // DOCKER_PLATFORM
 	ImageRegistry     string `yaml:"imageRegistry"`     // IMAGE_REGISTRY
 	DeploymentTimeout string `yaml:"deploymentTimeout"` // DEPLOYMENT_TIMEOUT
+	NetworkRange      string `yaml:"networkRange"`      // DBCANVAS_NETWORK_RANGE
 	// Env sets any other setting by its variable name (a node password, EXPERIMENTAL).
 	Env map[string]string `yaml:"env"`
 }
@@ -63,6 +64,11 @@ const soloConfigTemplate = `# dbcanvas settings. Uncomment a line to set it. A s
 
 # Where node images are pulled from when they are not local (IMAGE_REGISTRY).
 #imageRegistry: ghcr.io/example
+
+# Where stack networks may be placed (DBCANVAS_NETWORK_RANGE), as CIDRs separated by commas.
+# Default: anywhere free in 10.0.0.0/8. Each stack takes a /24 that overlaps no Docker network,
+# none of Docker's default address pools and none of this host's networks.
+#networkRange: 10.20.0.0/16
 
 # How long a node may take to deploy (DEPLOYMENT_TIMEOUT), e.g. 45m.
 #deploymentTimeout: 45m
@@ -121,6 +127,7 @@ func (c soloConfig) vars() map[string]string {
 	set("DOCKER_PLATFORM", c.Platform)
 	set("IMAGE_REGISTRY", c.ImageRegistry)
 	set("DEPLOYMENT_TIMEOUT", c.DeploymentTimeout)
+	set("DBCANVAS_NETWORK_RANGE", c.NetworkRange)
 	return out
 }
 

@@ -57,6 +57,7 @@ Usage:
   dbcanvas versions [update|reset]
                                 show the version catalogue in use; update downloads the
                                 newest into the data folder, reset goes back to the built-in one
+  dbcanvas network check        where the next stack network would go, and what rules ranges out
   dbcanvas version              print the version
 
 Any command that needs the service starts it, in the background, and returns at once.
@@ -83,7 +84,10 @@ func runCLI(args []string) int {
 	}
 	// Everything this dbcanvas creates on the Docker host carries its instance name, so
 	// several people can share one host (instance.go). It is the OS login unless set.
-	if strings.TrimSpace(os.Getenv("DBCANVAS_INSTANCE")) == "" {
+	// Read here, after config.yaml: instanceName was set when the program loaded, before it.
+	if v := strings.TrimSpace(os.Getenv("DBCANVAS_INSTANCE")); v != "" {
+		instanceName = v
+	} else {
 		instanceName = soloInstance()
 	}
 	// Node images for this machine's architecture, and the lab domain, unless set: the
@@ -125,6 +129,8 @@ func runCLI(args []string) int {
 		err = cliUp(rest)
 	case "versions":
 		err = cliVersions(rest)
+	case "network":
+		err = cliNetwork(rest)
 	case "down":
 		err = cliStackAction(rest, "down", "POST", "/destroy", "Removed the containers of %s; its design is kept.")
 	case "rm":

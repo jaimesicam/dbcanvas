@@ -1678,6 +1678,11 @@ func pickMetalLBBlock(cidr string, taken [][2]uint32, mine string, index int) (s
 	}
 	top := ipToU32(bcast) - 2 // leave the broadcast and one address free
 	floor := ipToU32(ip4) + 1 // and the network address itself
+	// A stack network DBCanvas sized itself (a /24, subnets.go) gives containers the lower
+	// half; the blocks stay in the upper one.
+	if ones, _ := ipnet.Mask.Size(); ones == stackPrefix {
+		floor = ipToU32(ip4) + uint32(1)<<(32-ones-1)
+	}
 	// block n counts down from the top of the subnet: 0 is the highest.
 	block := func(n int) (uint32, uint32, bool) {
 		if n < 0 || uint32(n)*k3dPoolSize > top-floor {
