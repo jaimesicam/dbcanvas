@@ -53,7 +53,7 @@ func (s *k3dDebugSession) attachTo(t *testing.T, f *fakeDAP) {
 	t.Helper()
 	ctx := context.Background()
 	events := make(chan dapRawEvent, 64)
-	cli, err := dapDial(ctx, f.addr(), func(name string, body json.RawMessage) {
+	cli, err := dapDial(ctx, nil, f.addr(), func(name string, body json.RawMessage) {
 		select {
 		case events <- dapRawEvent{name, body}:
 		default:

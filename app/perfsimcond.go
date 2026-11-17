@@ -361,7 +361,7 @@ func (a *App) perfSimCall(ctx context.Context, st Stack, containerID string, cap
 	url := "http://" + net.JoinHostPort(ip, strconv.Itoa(perfSimPort)) + "/api/conditions/sync"
 	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	resp, err := a.stackHTTPClient(st.ID, containerID, 5*time.Second).Do(req)
 	if err != nil {
 		return nil, err
 	}

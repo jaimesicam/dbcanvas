@@ -418,7 +418,7 @@ func (s *k3dDebugSession) attach(ctx context.Context) error {
 		return err
 	}
 	events := make(chan dapRawEvent, 64)
-	cli, err := dapDial(ctx, addr, func(name string, body json.RawMessage) {
+	cli, err := dapDial(ctx, s.a.stackDial(tgt.StackID, tgt.ServerID), addr, func(name string, body json.RawMessage) {
 		// Never work in the read loop: fetching a stack trace here would wait for a response
 		// the read loop itself has to deliver. Hand off and return.
 		select {

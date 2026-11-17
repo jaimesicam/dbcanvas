@@ -337,7 +337,7 @@ func (a *App) pagerPanicCall(ctx context.Context, st Stack, containerID, token s
 	hreq, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
 	hreq.Header.Set("Content-Type", "application/json")
 	hreq.Header.Set("X-Pager-Panic-Token", token)
-	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(hreq)
+	resp, err := a.stackHTTPClient(st.ID, containerID, 5*time.Second).Do(hreq)
 	if err != nil {
 		return out, err
 	}

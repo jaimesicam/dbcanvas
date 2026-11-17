@@ -353,7 +353,7 @@ func (a *App) newBrowseProxy(t *browseTarget) *httputil.ReverseProxy {
 			if err != nil {
 				return nil, err
 			}
-			c, err := (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, network, addr)
+			c, err := a.stackNodeDial(t.StackID, t.ContainerID)(ctx, network, addr)
 			if err != nil {
 				t.mu.Lock()
 				t.addr = ""

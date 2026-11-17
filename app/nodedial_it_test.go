@@ -194,3 +194,59 @@ func TestTunnelReachesMongoAndValkey(t *testing.T) {
 	}
 	t.Log("Valkey answered through the tunnel")
 }
+
+// TestTunnelThroughForwarder relays through a container without bash (a k3s node), where
+// the forwarder is copied in and run (noderelay.go). It needs `make relaybin` first:
+//
+//	DOCKER_IT=1 NODEDIAL_IT_SOCK=<docker socket> NODEDIAL_IT_NOBASH_CONTAINER=<container without bash>
+//	NODEDIAL_IT_VALKEY_ADDR=<host:port of a Valkey on its network>
+func TestTunnelThroughForwarder(t *testing.T) {
+	if os.Getenv("DOCKER_IT") == "" || os.Getenv("NODEDIAL_IT_NOBASH_CONTAINER") == "" {
+		t.Skip("integration test; see the comment for the environment it needs")
+	}
+	t.Setenv("DBCANVAS_NODE_DIAL", "tunnel")
+	sock := firstNonEmpty(os.Getenv("NODEDIAL_IT_SOCK"), "/var/run/docker.sock")
+	a := &App{docker: NewDocker(sock)}
+	var err error
+	if a.store, err = OpenStore(t.TempDir() + "/it.db"); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	cid, addr := os.Getenv("NODEDIAL_IT_NOBASH_CONTAINER"), os.Getenv("NODEDIAL_IT_VALKEY_ADDR")
+
+	start := time.Now()
+	v := &dexValkeyAdapter{addr: addr, dial: a.stackNodeDial(0, cid)}
+	if err := v.TestConnection(ctx); err != nil {
+		t.Fatalf("first connection (copies the forwarder in): %v", err)
+	}
+	t.Logf("first connection, forwarder copied in: %s", time.Since(start).Round(time.Millisecond))
+	start = time.Now()
+	for i := 0; i < 10; i++ {
+		if err := v.TestConnection(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Logf("later connections: %s on average", (time.Since(start) / 10).Round(time.Millisecond))
+
+	// A large value both ways.
+	c, err := dexRESPDial(ctx, v.dial, addr, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	big := strings.Repeat("abc", 200000)
+	if _, err := c.do(ctx, "SET", "nodedial-it", big); err != nil {
+		t.Fatal(err)
+	}
+	got, err := c.do(ctx, "GET", "nodedial-it")
+	if err != nil || got.Str != big {
+		t.Fatalf("600 kB value through the forwarder: len %d, err %v", len(got.Str), err)
+	}
+
+	if _, err := a.tunnelDial(ctx, 0, cid, strings.Split(addr, ":")[0]+":1"); err == nil {
+		t.Fatal("a closed port was accepted")
+	} else {
+		t.Logf("closed port: %v", err)
+	}
+}

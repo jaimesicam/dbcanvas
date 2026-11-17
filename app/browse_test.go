@@ -60,6 +60,9 @@ func fakeNodeUI(t *testing.T) (*httptest.Server, int) {
 // browseFixture registers a key pointing straight at the fake node, skipping the
 // stack-network join a real node needs.
 func browseFixture(t *testing.T) (*App, *browseTarget, User, *http.Cookie, *httptest.Server) {
+	// The fake node listens on this host, so it is dialled directly even where the default
+	// is the tunnel (macOS).
+	t.Setenv("DBCANVAS_NODE_DIAL", "direct")
 	app := newTestApp(t)
 	owner, _ := app.store.CreateUser("owner", "x", RoleUser, StatusApproved)
 	srv, port := fakeNodeUI(t)

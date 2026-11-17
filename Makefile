@@ -13,7 +13,7 @@ CLI_PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 # Where `make cli` installs this machine's build as dbcanvas-cli; empty = build only.
 CLI_INSTALL_DIR ?= $(HOME)/.local/bin
 
-.PHONY: doctor tag release-notes github-release pull-images publish-images install-pull install adopt-images compose env build up down logs restart rotate-key clean images versions smoke cli cli-test supportsim-image stocksim-image ledgersim-image perfsim-image pagerpanic-image intranet-image vnc-image kubeadm-image
+.PHONY: doctor tag release-notes github-release pull-images publish-images install-pull install adopt-images compose env build up down logs restart rotate-key clean images versions smoke cli cli-test supportsim-image stocksim-image ledgersim-image perfsim-image pagerpanic-image intranet-image vnc-image kubeadm-image relaybin
 
 ## doctor: check the host side — Docker, compose, buildx, disk, .env passwords and exposure, the
 ## node images, whether the app answers. `dbcanvas-cli doctor` checks the installation itself.
@@ -195,6 +195,15 @@ cli:
 	    fi; \
 	  fi; \
 	fi
+
+## relaybin: build the relay forwarder (app/cmd/dbcanvas-relay) for linux/amd64 and
+## linux/arm64 into app/relaybin, gzipped, where DBCanvas embeds it (app/noderelay.go).
+relaybin:
+	@for arch in amd64 arm64; do \
+	  ( cd app && GOOS=linux GOARCH=$$arch CGO_ENABLED=0 go build -trimpath -buildvcs=false \
+	      -ldflags="-s -w" -o relaybin/dbcanvas-relay-linux-$$arch ./cmd/dbcanvas-relay ) && \
+	  gzip -9f app/relaybin/dbcanvas-relay-linux-$$arch || exit 1; \
+	done; ls -l app/relaybin/*.gz
 
 ## cli-test: build, vet and test the CLI module
 cli-test:

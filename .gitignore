@@ -85,3 +85,6 @@ app/web/.smoke/
 
 # Licence files images/apps.sh stages into a simulator's build context for one build.
 /*/.dbcanvas-build/
+
+# Built relay forwarders, embedded into DBCanvas (app/relaybin/README.md).
+app/relaybin/*.gz

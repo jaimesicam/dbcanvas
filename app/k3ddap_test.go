@@ -124,7 +124,7 @@ func (f *fakeDAP) request(command string) (dapMessage, bool) {
 
 func dialFake(t *testing.T, f *fakeDAP, onEvent func(string, json.RawMessage)) *dapClient {
 	t.Helper()
-	c, err := dapDial(context.Background(), f.addr(), onEvent)
+	c, err := dapDial(context.Background(), nil, f.addr(), onEvent)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}

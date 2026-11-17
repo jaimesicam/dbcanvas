@@ -58,7 +58,7 @@ func TestDelveLiveSession(t *testing.T) {
 	var mu sync.Mutex
 	stops := make(chan dapStoppedEvent, 8)
 	var events []string
-	cli, err := dapDial(ctx, addr, func(name string, body json.RawMessage) {
+	cli, err := dapDial(ctx, nil, addr, func(name string, body json.RawMessage) {
 		mu.Lock()
 		events = append(events, name)
 		mu.Unlock()

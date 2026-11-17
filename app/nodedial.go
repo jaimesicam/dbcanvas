@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"runtime"
 	"strconv"
@@ -35,8 +36,8 @@ import (
 // Intranet's DNS names, MetalLB addresses, a service bound to a container's own IP.
 //
 // The relay is bash's /dev/tcp, which every DBCanvas node image has (the systemd bases,
-// the Intranet, VNC, Kubeadm); a distroless container (a demo application) is never
-// chosen as one. DBCANVAS_NODE_DIAL picks the mode: auto (default), direct, or tunnel —
+// the Intranet, VNC, Kubeadm). A container without bash (a k3s node, a distroless image)
+// runs a small forwarder instead, copied into it through the archive API (noderelay.go). DBCANVAS_NODE_DIAL picks the mode: auto (default), direct, or tunnel —
 // tunnel forces the macOS path anywhere, which is how it is tested on Linux.
 
 const (
@@ -142,6 +143,27 @@ func (a *App) openStackDB(stackID int64, containerID, driver, dsn string) (*sql.
 	return sql.Open(driver, dsn)
 }
 
+// stackTransports keeps one HTTP transport per node reached through the tunnel, so a
+// poll reuses its connection instead of opening (and leaving idle) one per call.
+var stackTransports sync.Map // "<stack>/<container>" → *http.Transport
+
+// stackHTTPClient is an HTTP client for a service on containerID's node.
+func (a *App) stackHTTPClient(stackID int64, containerID string, timeout time.Duration) *http.Client {
+	if nodeDialMode() == nodeDialDirect {
+		return &http.Client{Timeout: timeout}
+	}
+	key := fmt.Sprintf("%d/%s", stackID, containerID)
+	tr, ok := stackTransports.Load(key)
+	if !ok {
+		tr, _ = stackTransports.LoadOrStore(key, &http.Transport{
+			DialContext:     a.stackNodeDial(stackID, containerID).DialContext,
+			MaxIdleConns:    2,
+			IdleConnTimeout: 30 * time.Second,
+		})
+	}
+	return &http.Client{Timeout: timeout, Transport: tr.(*http.Transport)}
+}
+
 // relayScript connects to $H:$P, announces it on stderr (relayOK), and copies both ways:
 // the exec's stdin to the socket and the socket to the exec's stdout. When the caller
 // closes its side, the reader is stopped rather than left waiting on a server that may
@@ -176,12 +198,7 @@ func (a *App) tunnelDial(ctx context.Context, stackID int64, prefer, addr string
 	tried := map[string]bool{}
 	try := func(cid string) (net.Conn, error) {
 		tried[cid] = true
-		c, err := a.docker.StreamExec(ctx, cid, []string{"bash", "-c", relayScript},
-			[]string{"H=" + host, "P=" + port})
-		if err != nil {
-			return nil, err
-		}
-		return c.ready(ctx, addr)
+		return a.relayVia(ctx, cid, host, port, addr)
 	}
 	for _, cid := range []string{prefer, cached} {
 		if cid == "" || tried[cid] {
@@ -207,7 +224,43 @@ func (a *App) tunnelDial(ctx context.Context, stackID int64, prefer, addr string
 			return nil, err
 		}
 	}
-	return nil, fmt.Errorf("tunnel to %s: no running container on the stack network can relay it (one with bash is needed)", addr)
+	return nil, fmt.Errorf("tunnel to %s: no running container on the stack network can relay it", addr)
+}
+
+// noBash remembers the containers where bash is missing, so the forwarder is used at once.
+var noBash sync.Map // container ID → true
+
+// relayVia opens addr through one container: bash's /dev/tcp when it has bash, else the
+// forwarder copied in (noderelay.go).
+func (a *App) relayVia(ctx context.Context, cid, host, port, addr string) (net.Conn, error) {
+	if _, skip := noBash.Load(cid); !skip {
+		c, err := a.docker.StreamExec(ctx, cid, []string{"bash", "-c", relayScript},
+			[]string{"H=" + host, "P=" + port})
+		if err == nil {
+			conn, err := c.ready(ctx, addr)
+			if !errors.Is(err, errRelayUnusable) {
+				return conn, err
+			}
+		} else if !errors.Is(err, errRelayUnusable) {
+			return nil, err
+		}
+		noBash.Store(cid, true)
+	}
+	for attempt := 0; ; attempt++ {
+		if err := a.docker.installRelayBin(ctx, cid); err != nil {
+			return nil, err
+		}
+		c, err := a.docker.StreamExec(ctx, cid, []string{relayBinDir + "/" + relayBinName, net.JoinHostPort(host, port)}, nil)
+		if err != nil {
+			return nil, err
+		}
+		conn, err := c.ready(ctx, addr)
+		if errors.Is(err, errRelayUnusable) && attempt == 0 {
+			forgetRelayBin(cid) // gone since it was copied in: copy it again
+			continue
+		}
+		return conn, err
+	}
 }
 
 func (a *App) rememberRelay(stackID int64, cid string) {
@@ -317,8 +370,9 @@ func (d *Docker) StreamExec(ctx context.Context, containerID string, cmd, env []
 
 // ready waits for the relay to connect or fail. The relay writes relayOK on stderr once
 // its socket is open, so a connection is ready as soon as that arrives, whichever side of
-// the protocol speaks first; a failed connect or a container without bash ends the exec
-// instead, and its exit code and stderr say which.
+// the protocol speaks first (anything the target sent before it is kept). A failed
+// connect or a container without bash ends the exec instead, and its exit code and
+// output say which.
 func (s *execStream) ready(ctx context.Context, addr string) (net.Conn, error) {
 	s.addr = addr
 	deadline := time.Now().Add(relayConnectTimeout)
@@ -335,9 +389,12 @@ func (s *execStream) ready(ctx context.Context, addr string) (net.Conn, error) {
 			_, err = io.ReadFull(s.r, buf)
 			if err == nil {
 				if hdr[0] == 1 {
-					// Output before the announcement can only follow a connect: keep it.
+					// Output before the announcement is either the target's first bytes
+					// (the two streams are copied separately, so they can overtake the
+					// announcement) or Docker's own failure to start the command; the
+					// announcement or the exit tells which.
 					s.pending = append(s.pending, buf...)
-					return s, nil
+					continue
 				}
 				s.stderr.Write(buf)
 				if msg := s.stderr.String(); strings.Contains(msg, relayOK) {
@@ -372,6 +429,9 @@ func (s *execStream) relayFailure(addr string) error {
 		time.Sleep(20 * time.Millisecond)
 	}
 	msg := strings.TrimSpace(s.stderr.String())
+	if msg == "" && len(s.pending) > 0 && len(s.pending) < 4096 {
+		msg = strings.TrimSpace(string(s.pending)) // Docker reports a failed start on stdout
+	}
 	if code == 126 || code == 127 || strings.Contains(msg, "executable file not found") {
 		return fmt.Errorf("%w: %s", errRelayUnusable, firstNonEmpty(msg, "no bash"))
 	}

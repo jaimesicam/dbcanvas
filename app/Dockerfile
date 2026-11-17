@@ -32,6 +32,13 @@ COPY app/internal/ ./internal/
 # Linux Client is pointed at. Not a .go file, so the line above does not bring it.
 COPY app/el7/ ./el7/
 COPY --from=web /web/dist ./web/dist
+# Embedded into the binary (go:embed in noderelay.go): the relay forwarder for containers
+# without bash, built here for both Linux architectures (the Makefile's relaybin target).
+COPY app/relaybin/README.md ./relaybin/
+RUN for arch in amd64 arm64; do \
+      GOOS=linux GOARCH=$arch CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w" \
+        -o relaybin/dbcanvas-relay-linux-$arch ./cmd/dbcanvas-relay && gzip -9 relaybin/dbcanvas-relay-linux-$arch; \
+    done
 # APP_VERSION is stamped in rather than read at runtime: the What's New dialog and
 # the API page both need to say which build this is, and a file the container could
 # be missing is a worse source for that than a linker flag (see app/version.go).

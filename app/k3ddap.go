@@ -179,11 +179,14 @@ type dapClient struct {
 	err      error
 }
 
-// dapDial connects and starts the read loop. onEvent is called from that loop for every event,
-// in order, so it must not block for long — the session hands work off to its own goroutine.
-func dapDial(ctx context.Context, addr string, onEvent func(name string, body json.RawMessage)) (*dapClient, error) {
-	d := net.Dialer{Timeout: 10 * time.Second}
-	conn, err := d.DialContext(ctx, "tcp", addr)
+// dapDial connects (through dial, or a plain TCP dial when nil) and starts the read loop.
+// onEvent is called from that loop for every event, in order, so it must not block for long —
+// the session hands work off to its own goroutine.
+func dapDial(ctx context.Context, dial dialFunc, addr string, onEvent func(name string, body json.RawMessage)) (*dapClient, error) {
+	if dial == nil {
+		dial = (&net.Dialer{Timeout: 10 * time.Second}).DialContext
+	}
+	conn, err := dial(ctx, "tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("connect to the debugger at %s: %w", addr, err)
 	}
