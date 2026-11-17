@@ -465,11 +465,6 @@ func (a *App) applyStackDNS(ctx context.Context, stackID int64) (applied bool, e
 	if err != nil {
 		return false, err
 	}
-	// Cross-engine routing reconciles on the same triggers as DNS (a hybrid stack
-	// needs the host FORWARD path + VM routes open before names resolved here are
-	// reachable). No-op for docker-only stacks; independent of the Intranet below.
-	deps, _ := a.store.ListDeployments(st.ID)
-	a.reconcileStackRouting(ctx, st, deps)
 	p, ok := a.stackDNSPlan(ctx, st)
 	if !ok {
 		return false, nil

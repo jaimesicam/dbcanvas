@@ -5,8 +5,8 @@ package main
 // mongoSizingOptions are the per-node container sizing and network-shaping fields every
 // MongoDB node (standalone or member) offers.
 var mongoSizingOptions = []catalogOption{
-	{Field: "cpus", Desc: "CPUs: the container's --cpus limit on Docker (0 = unlimited) or the VirtualBox VM's CPUs on Vagrant."},
-	{Field: "memoryGb", Desc: "Memory in GiB: the container's --memory limit on Docker (0 = unlimited) or the VirtualBox VM's memory on Vagrant."},
+	{Field: "cpus", Desc: "CPUs: the container's --cpus limit on Docker (0 = unlimited)."},
+	{Field: "memoryGb", Desc: "Memory in GiB: the container's --memory limit on Docker (0 = unlimited)."},
 	{Field: "deviceReadMbps", Desc: "Disk read limit in MB/s (container --device-read-bps); 0 = unlimited. Docker only."},
 	{Field: "deviceWriteMbps", Desc: "Disk write limit in MB/s (container --device-write-bps); 0 = unlimited. Docker only."},
 	{Field: "devicePath", Desc: "Host block device the disk limits apply to; \"\" auto-detects the disk behind Docker's data root.", When: "deviceReadMbps or deviceWriteMbps is set"},

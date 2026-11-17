@@ -11,7 +11,7 @@ func TestUserSettingsNormalize(t *testing.T) {
 	if got := (UserSettings{TerminalMode: "floaty", Theme: "chartreuse", Look: "brutalist", MaxTabs: 0}).normalize(); got != def {
 		t.Fatalf("junk settings = %+v, want defaults %+v", got, def)
 	}
-	want := UserSettings{TerminalMode: TerminalUndocked, Theme: "forest", Look: "industrial", DeploymentBackend: BackendVagrant, NodeLibrary: LibraryDocked, Tooltips: TooltipsOff, TerminalsOnTop: TerminalsOnTopOff, MaxTabs: 12, Scratchboard: ScratchboardStoreOn}
+	want := UserSettings{TerminalMode: TerminalUndocked, Theme: "forest", Look: "industrial", DeploymentBackend: BackendDocker, NodeLibrary: LibraryDocked, Tooltips: TooltipsOff, TerminalsOnTop: TerminalsOnTopOff, MaxTabs: 12, Scratchboard: ScratchboardStoreOn}
 	if got := want.normalize(); got != want {
 		t.Fatalf("valid settings = %+v, want %+v (unchanged)", got, want)
 	}

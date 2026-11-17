@@ -7761,20 +7761,15 @@ function KeycloakOidcFields({ node: n, nodes, patchNode, deployed, label, pin, b
   )
 }
 
-// VMSizeFields edits a node's per-node sizing (CPUs + memory in GiB). Both backends honour it:
-// Vagrant sizes the VirtualBox VM, Docker passes the values as --cpus/--memory on the container.
-// The two differ in what "unset" means, so the fields adapt: Vagrant always sizes a VM and shows
-// the 2/2 engine defaults (DBCANVAS_VM_CPUS/MEMORY), while on Docker a blank field means no limit
-// — which is what every stack designed before these fields existed keeps getting. Locked once the
-// node is deployed, matching the OS/version fields.
+// VMSizeFields edits a node's per-node sizing: CPUs and memory in GiB, passed as --cpus/--memory
+// on its container, where a blank field means no limit. Locked once the node is deployed,
+// matching the OS/version fields.
 //
-// The disk rate limits (--device-read-bps/--device-write-bps) are Docker-only, so they appear
-// only on that backend. They need a host block device, which the server auto-detects from
-// Docker's data root; the override field is revealed once a limit is set, for hosts where that
-// detection picks the wrong disk.
+// The disk rate limits (--device-read-bps/--device-write-bps) need a host block device, which the
+// server auto-detects from Docker's data root; the override field is revealed once a limit is
+// set, for hosts where that detection picks the wrong disk.
 function VMSizeFields({ node: n, patchNode, deployed }) {
-  const { settings } = useSettings()
-  const docker = settings.deploymentBackend !== 'vagrant'
+  const docker = true // Docker is the one backend (a VM backend would size differently)
   const lock = deployed ? 'opacity-70' : ''
   // Blank clears the limit (0), so Docker users can go back to unlimited after typing a value.
   const size = (v) => (v === '' ? 0 : Number(v))

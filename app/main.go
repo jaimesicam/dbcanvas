@@ -38,9 +38,6 @@ type App struct {
 	// serving, for the idle check, and how it stops itself.
 	activity *soloActivity
 	soloStop func()
-	// vagrant provisions nodes as VirtualBox VMs (the "vagrant" backend). nil
-	// when the host has no vagrant/VirtualBox; App.eng then falls back to docker.
-	vagrant *Vagrant
 	// barriers holds the per-stack replication barrier for an in-flight deploy
 	// (stackID -> *deployBarrier). See replication.go.
 	barriers sync.Map
@@ -143,12 +140,6 @@ func runServer(o serveOpts) error {
 			return fmt.Errorf("owner account: %v", err)
 		}
 	}
-	// The vagrant backend is optional: only usable when the host has vagrant +
-	// VirtualBox and DBCanvas runs on that host (not in the distroless container).
-	if v := NewVagrant(); v != nil {
-		app.vagrant = v
-	}
-
 	mux := http.NewServeMux()
 	// Every endpoint is declared in api_routes.go, which is also what the API
 	// page and the OpenAPI document are generated from.

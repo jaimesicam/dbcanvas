@@ -1391,11 +1391,6 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 		if n.OS == "debian" && n.Type != "linuxclient" {
 			out = append(out, issue{Level: "error", Message: "Node " + n.Label + " is set to Debian — Debian base images are supported for Linux Client nodes only"})
 		}
-		// The Debian bases are Docker images; vagrantBoxes maps no box for Debian, so a
-		// Linux Client on a VM-backed stack would fail at box resolution instead.
-		if n.OS == "debian" && n.Type == "linuxclient" && st.Backend == BackendVagrant && a.vagrant != nil {
-			out = append(out, issue{Level: "error", Message: "Linux Client " + n.Label + " is set to Debian, which this stack would provision as a VM — Debian is available on the Docker backend only"})
-		}
 		// CentOS 7 is a Linux Client release and nothing else (linuxclient_el7.go): it is the stock
 		// image with no systemd, which no product's install path could run on. Not checked against
 		// EOL — like EXPERIMENTAL, the switch decides what is offered, and turning it off must not
@@ -1409,9 +1404,6 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			// from an amd64 installation) is refused here rather than half-deployed.
 			if !el7Available() {
 				out = append(out, issue{Level: "error", Message: "Linux Client " + n.Label + ": " + el7UnavailableWhy})
-			}
-			if st.Backend == BackendVagrant && a.vagrant != nil {
-				out = append(out, issue{Level: "error", Message: "Linux Client " + n.Label + " is set to CentOS 7, which this stack would provision as a VM — CentOS 7 is available on the Docker backend only"})
 			}
 			if n.OSVersion != el7OSVersion {
 				out = append(out, issue{Level: "error", Message: "Linux Client " + n.Label + " is set to CentOS " + n.OSVersion + " — the only CentOS release offered is 7"})
@@ -2528,15 +2520,11 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 	var doc designDoc
 	json.Unmarshal(st.Design, &doc)
 
-	// Pick the provisioning backend on the first deploy — from the deploying user's
-	// setting — and pin it to the stack for its whole life, so redeploys, management
-	// and teardown never switch engines under it. A vagrant request on a host with no
-	// vagrant/VirtualBox falls back to docker.
+	// Record the provisioning backend on the first deploy and keep it for the stack's whole
+	// life, so redeploys, management and teardown never switch engines under it. Docker is
+	// the one there is.
 	if st.Backend == "" {
-		backend := a.userBackend(u)
-		if backend == BackendVagrant && a.vagrant == nil {
-			backend = BackendDocker
-		}
+		backend := BackendDocker
 		if err := a.store.SetStackBackend(st.ID, backend); err != nil {
 			writeErr(w, http.StatusInternalServerError, "failed to record backend: "+err.Error())
 			return
@@ -2553,9 +2541,7 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A hybrid stack has nodes on both engines, so ensure the stack network on each
-	// engine it will use: always Docker; also Vagrant (a host-only /24) for a vagrant
-	// stack. ContainerCreate then attaches each node to its own engine's network.
+	// The stack network, on each engine the stack uses.
 	for _, e := range a.stackEngines(st) {
 		if err := e.NetworkEnsure(bg, networkName(st.ID)); err != nil {
 			a.abortDeploy(st.ID, run)
@@ -2563,11 +2549,6 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Open the host FORWARD path between the two subnets now, so Docker→VM traffic
-	// works as soon as nodes come up; VM→Docker routes are added per node once each
-	// VM is running (reconcileStackRouting, via reconcileStackDNS). No-op if not hybrid.
-	a.linkStackNetworks(bg, st)
-
 	deps, _ := a.store.ListDeployments(st.ID)
 	deps = a.reconcileVanished(bg, st, doc, deps)
 	existing := map[string]Deployment{}
@@ -3709,10 +3690,6 @@ func (a *App) teardownStack(stackID int64) {
 	for _, d := range deps {
 		a.removeNodeResources(bg, st, d)
 	}
-	// Remove the host FORWARD rules that bridged this stack's Docker and host-only
-	// subnets (best-effort; no-op for a docker-only stack). Done before NetworkRemove
-	// drops the subnet allocations, though unlink reads the live chain either way.
-	a.unlinkStackNetworks(bg, stackID)
 	// A provisioner cancelled between ContainerCreate and recording the container id on
 	// its deployment row leaves an untracked container/VM behind (whose name would then
 	// collide on the next deploy). Sweep anything still named for this stack, and drop

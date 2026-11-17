@@ -40,7 +40,6 @@ func TestLegacyInstanceNames(t *testing.T) {
 			networkName(12):           "dbcanvas-stack-12",
 			k3dClusterName(12, f):     "k3d-00-s12-dbcanvas",
 			pmmDataVolume(12, "pmm"):  "dbcanvas-pmm-12-pmm",
-			stackRuleComment(12):      "dbcanvas-stack-12",
 		} {
 			if got != want {
 				t.Errorf("got %q, want %q", got, want)
@@ -114,19 +113,6 @@ func TestK3DDeployedCluster(t *testing.T) {
 			t.Errorf("nothing recorded: got %q", got)
 		}
 	})
-}
-
-func TestHasRuleComment(t *testing.T) {
-	line := `-A DOCKER-USER -s 172.20.0.0/16 -m comment --comment dbcanvas-stack-10 -j ACCEPT`
-	if hasRuleComment(line, "dbcanvas-stack-1") {
-		t.Error("stack 1 matched stack 10's rule")
-	}
-	if !hasRuleComment(line, "dbcanvas-stack-10") {
-		t.Error("stack 10 did not match its own rule")
-	}
-	if !hasRuleComment(`-A X -m comment --comment "dbcanvas-stack-1" -j RETURN`, "dbcanvas-stack-1") {
-		t.Error("quoted comment not matched")
-	}
 }
 
 // The scripts that build images and the app that deploys them must agree on the release tag:

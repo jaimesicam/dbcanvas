@@ -17,8 +17,7 @@ const (
 
 // deploymentBackend values: how a stack's nodes are provisioned when the user deploys.
 const (
-	BackendDocker  = "docker"  // Docker containers on the local daemon (default)
-	BackendVagrant = "vagrant" // VirtualBox VMs driven by Vagrant (see vagrant.go)
+	BackendDocker = "docker" // Docker containers on the local daemon (default)
 )
 
 // nodeLibrary values: how nodes get added to the stack canvas.
@@ -129,7 +128,7 @@ func (s UserSettings) normalize() UserSettings {
 	if !validLooks[s.Look] {
 		s.Look = def.Look
 	}
-	if s.DeploymentBackend != BackendDocker && s.DeploymentBackend != BackendVagrant {
+	if s.DeploymentBackend != BackendDocker {
 		s.DeploymentBackend = def.DeploymentBackend
 	}
 	if s.NodeLibrary != LibraryMenu && s.NodeLibrary != LibraryDocked {

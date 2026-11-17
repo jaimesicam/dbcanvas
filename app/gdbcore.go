@@ -751,12 +751,6 @@ func (a *App) gdbNodeIssues(n designNode, st Stack) []issue {
 	var out []issue
 	name := "Linux Client " + n.Label
 
-	// The Vagrant engine ignores Binds entirely, so the two mounts would simply not exist and
-	// nothing would say so.
-	if st.Backend == BackendVagrant && a.vagrant != nil {
-		return []issue{{Level: "error", Message: name + " is set up for core-dump analysis, which needs bind mounts — those are available on the Docker backend only"}}
-	}
-
 	for label, p := range map[string]string{"core-dump directory": n.GDBCoreDir, "library directory": n.GDBLibDir} {
 		if _, err := gdbCleanHostPath(p); err != nil {
 			out = append(out, issue{Level: "error", Message: fmt.Sprintf("%s: the %s %s", name, label, err)})

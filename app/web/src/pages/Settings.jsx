@@ -26,11 +26,6 @@ export const TERMINAL_ON_TOP_MODES = [
   { id: 'off', label: 'Stack normally', hint: 'Whichever window you touch comes to the front, terminals and file managers included.' },
 ]
 
-const DEPLOY_BACKENDS = [
-  { id: 'docker', label: 'Docker', hint: 'Provisions every node as a Docker container on the local daemon.' },
-  { id: 'vagrant', label: 'Vagrant (hybrid)', hint: 'Runs OS/DB nodes (PostgreSQL, MySQL/PXC, MongoDB, Valkey, ProxySQL, HAProxy) as VirtualBox VMs; the Intranet and image-only infra (PMM, Keycloak, etc.) stay on Docker in the same stack. Requires vagrant + VirtualBox on the host.' },
-]
-
 // Tooltips are on for everybody who has not said otherwise: DBCanvas asks for a lot of
 // decisions before anything deploys, and the bubbles are where most of the answers live.
 // The switch is for the other case — somebody who knows this app and would rather the
@@ -806,30 +801,6 @@ export default function Settings() {
 
           <Row scope="you" title="Terminal stacking" hint="Whether terminals and file managers stay in front when you select another window.">
             <TerminalOnTopOptions value={settings.terminalsOnTop || 'on'} onPick={(id) => set({ terminalsOnTop: id })} />
-          </Row>
-
-          <Row scope="you" title="Deployment" hint="How a stack's nodes are provisioned when you deploy. Applies to the next deploy of each stack.">
-            <div className="grid gap-2 sm:grid-cols-2">
-              {DEPLOY_BACKENDS.map((m) => {
-                const on = settings.deploymentBackend === m.id
-                return (
-                  <button key={m.id} onClick={() => set({ deploymentBackend: m.id })}
-                    className={`flex items-start gap-2.5 rounded-lg border p-3 text-left transition ${on ? 'border-primary bg-primary/10' : 'hover:bg-surface2'}`}>
-                    <span className={`mt-0.5 ${on ? 'text-primary' : 'text-muted'}`}>
-                      <Icon.Server size={16} />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="flex items-center gap-1.5 text-sm font-medium">
-                        {m.label}
-                        {m.id === 'docker' && <span className="text-[10px] font-normal text-muted">(default)</span>}
-                        {on && <Icon.Check size={14} />}
-                      </span>
-                      <span className="block text-xs text-muted">{m.hint}</span>
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
           </Row>
 
           <Row scope="you" title="Adding nodes" hint="How the Stack Designer offers the Infrastructure Library.">

@@ -16,8 +16,8 @@ func infraCertTTL(when string) []catalogOption {
 
 // infraVMSize is the per-node sizing block of the VM-capable types.
 var infraVMSize = []catalogOption{
-	{Field: "cpus", Desc: "CPUs: the container --cpus limit on Docker (0 is unlimited), the VM's vCPUs on Vagrant (0 is the engine default)."},
-	{Field: "memoryGb", Desc: "Memory in GiB: the container --memory limit on Docker (0 is unlimited), the VM's memory on Vagrant (0 is the engine default)."},
+	{Field: "cpus", Desc: "CPUs: the container --cpus limit on Docker (0 is unlimited)."},
+	{Field: "memoryGb", Desc: "Memory in GiB: the container --memory limit on Docker (0 is unlimited)."},
 	{Field: "deviceReadMbps", Desc: "Disk read limit in MB/s (container --device-read-bps); 0 is unlimited. Docker backend only."},
 	{Field: "deviceWriteMbps", Desc: "Disk write limit in MB/s (container --device-write-bps); 0 is unlimited. Docker backend only."},
 	{Field: "devicePath", When: "deviceReadMbps or deviceWriteMbps is set",

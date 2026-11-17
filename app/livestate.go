@@ -246,8 +246,7 @@ func (a *App) liveSnapshot(ctx context.Context, st Stack) (map[string]*liveNode,
 		// Docker answers a stats call for a stopped container with zeros rather than an error, and
 		// a running container always holds some memory: a container killed or stopped outside
 		// DBCanvas, whose deployment still says running.
-		_, isVM := a.depEngine(st, dep.NodeID).(*Vagrant) // a VM reports no stats at all
-		if !found || (!isVM && cs.st.MemUsed == 0 && cs.st.MemLimit == 0) {
+		if !found || (cs.st.MemUsed == 0 && cs.st.MemLimit == 0) {
 			out[dep.NodeID] = &liveNode{State: "unreachable"}
 			continue
 		}

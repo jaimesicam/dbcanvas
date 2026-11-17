@@ -81,21 +81,12 @@ type Engine interface {
 	ResizeExec(ctx context.Context, execID string, w, h int) error
 }
 
-// Compile-time proof both backends implement Engine.
-var (
-	_ Engine = (*Docker)(nil)
-	_ Engine = (*Vagrant)(nil)
-)
+// Compile-time proof Docker implements Engine. Docker is the one engine today; the interface
+// stays so that another (VirtualBox VMs) can be added beside it.
+var _ Engine = (*Docker)(nil)
 
-// eng returns the provisioning engine for a stack: the Vagrant backend when the
-// stack was deployed with it (and the host actually has it), else Docker. Empty
-// Backend (stacks predating the toggle, or never deployed) means Docker.
-func (a *App) eng(st Stack) Engine {
-	if st.Backend == BackendVagrant && a.vagrant != nil {
-		return a.vagrant
-	}
-	return a.docker
-}
+// eng returns the provisioning engine for a stack.
+func (a *App) eng(st Stack) Engine { return a.docker }
 
 // intranetEngine is the engine the Intranet always runs on. The Intranet stays on
 // Docker even in a vagrant stack (its bind config forwards to Docker's embedded
@@ -121,42 +112,8 @@ func withEngine(ctx context.Context, e Engine) context.Context {
 	return context.WithValue(ctx, engineKey{}, e)
 }
 
-// userBackend is the deploying user's chosen provisioning backend, normalized
-// (defaults to docker). Used to stamp a stack on its first deploy.
-func (a *App) userBackend(u User) string {
-	js, _ := a.store.UserSettings(u.ID)
-	s := defaultSettings()
-	if js != "" {
-		json.Unmarshal([]byte(js), &s)
-	}
-	return s.normalize().DeploymentBackend
-}
-
-// vagrantVMNode / vagrantVMFrame are the node/frame types that run as VirtualBox
-// VMs in hybrid mode: the OS/DB nodes and their cluster frames. Everything not
-// listed stays on Docker even in a vagrant stack, so those well-tested paths are
-// unchanged — image-only infra (PMM, Keycloak, OpenBao, SeaweedFS, VNC,
-// Samba AD), K3D (k3s-in-Docker), and crucially the **Intranet**: its bind config
-// forwards to Docker's embedded resolver (127.0.0.11), which only exists in a
-// container. VM nodes reach the Docker Intranet's DNS/CA over VirtualBox NAT.
-var vagrantVMNode = map[string]bool{
-	"ps": true, "pg": true, "psm": true,
-	"valkey": true, "proxysql": true, "haproxy": true, "pgbouncer": true, "linuxclient": true,
-}
-var vagrantVMFrame = map[string]bool{
-	"pxc": true, "mysql": true, "innodb": true, "psmdb": true, "psmrs": true,
-	"patroni": true, "repmgr": true, "pgstream": true, "spock": true, "valkeycluster": true, "proxysql": true,
-}
-
-// nodeEngine picks the engine for a node/frame of the given type. In a vagrant
-// (hybrid) stack, VM-capable types run on Vagrant and everything else on Docker; a
-// docker stack (or a host with no vagrant) always uses Docker.
-func (a *App) nodeEngine(st Stack, typ string) Engine {
-	if st.Backend == BackendVagrant && a.vagrant != nil && (vagrantVMNode[typ] || vagrantVMFrame[typ]) {
-		return a.vagrant
-	}
-	return a.docker
-}
+// nodeEngine picks the engine for a node or frame of the given type.
+func (a *App) nodeEngine(st Stack, typ string) Engine { return a.docker }
 
 // depEngine resolves the engine a deployed node runs on, from the stack backend and
 // the node's type in the design. Used by teardown / management / the web terminal,
@@ -173,14 +130,9 @@ func (a *App) depEngine(st Stack, nodeID string) Engine {
 	return a.docker
 }
 
-// stackEngines returns the distinct engines a stack may have provisioned nodes on:
-// always Docker, plus Vagrant for a vagrant/hybrid stack. Teardown sweeps both.
-func (a *App) stackEngines(st Stack) []Engine {
-	if st.Backend == BackendVagrant && a.vagrant != nil {
-		return []Engine{a.docker, a.vagrant}
-	}
-	return []Engine{a.docker}
-}
+// stackEngines returns the engines a stack may have provisioned nodes on; teardown sweeps
+// each.
+func (a *App) stackEngines(st Stack) []Engine { return []Engine{a.docker} }
 
 // engCtx returns the engine carried by ctx, or the Docker engine when none is set
 // (management/request contexts that never entered a deploy scope, and every code
