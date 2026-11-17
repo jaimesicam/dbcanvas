@@ -36,6 +36,60 @@ type releaseNote struct {
 // expanded, and the tests assume the ordering.
 var whatsNewNotes = []releaseNote{
 	{
+		Version: "0.0.30",
+		Date:    "2026-11-17",
+		Title:   "Missing images are pulled at deploy",
+		Body:    "A deploy that needs one of DBCanvas's own images this host does not have pulls it from IMAGE_REGISTRY (ghcr.io/jaimesicam by default, the registry make pull-images uses) instead of failing with a make target to run. Validate says which images the deploy will pull, and one the registry cannot provide is an error with the registry's reason; a pull that fails during the deploy is the node's error, naming what was tried. Nodes that need one image share one pull, and a pulled image must be of the architecture asked for. IMAGE_REGISTRY=off turns the pulls off.",
+		Doc:     "docs/CONFIGURATION.md",
+	},
+	{
+		Version: "0.0.30",
+		Date:    "2026-11-17",
+		Title:   "arm64 installations, published for both architectures",
+		Body:    "Each platform has its own version catalog (versions.yaml for amd64, versions-arm64.yaml for arm64), images.yaml keeps both architectures' base images, and the OS pickers offer only this installation's. Every release image is now published for amd64 and arm64, the demo applications under one multi-architecture tag, and make pull-images checks each pulled image's architecture. The K3D diagnostics collector is built from percona-toolkit's source for both, so a capture runs natively on Apple Silicon instead of emulated. CentOS 7 stays amd64 only.",
+		Doc:     "docs/CONFIGURATION.md",
+	},
+	{
+		Version: "0.0.30",
+		Date:    "2026-11-17",
+		Title:   "Pager Panic: pick a mode, then start",
+		Body:    "Choosing Arcade, Marathon or Practice shows that mode's rules; Practice adds the ticket list with category and difficulty filters, and nothing starts until START (arrow keys and Enter work too). The systems check runs in the background from the title screen, so START usually begins the shift at once; otherwise the check screen shows a progress bar with each step's time, and the shift starts by itself when the check passes. A failed check stays on screen with the failed step, to be checked again.",
+		Doc:     "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.30",
+		Date:    "2026-11-17",
+		Title:   "Pager Panic in a shared session",
+		Body:    "In a shared session the game's terminals open inside the game on every screen instead of as DBCanvas terminals. Whoever has control types; everyone else watches a tab marked WATCHING. Anyone with control can open and close terminals for everyone, a player without control is told to ask for it, and a game page that reloads gets its open terminals back.",
+		Doc:     "docs/SHARED_SESSIONS.md",
+	},
+	{
+		Version: "0.0.30",
+		Date:    "2026-11-17",
+		Title:   "Settings: preferences save again, and say whom they affect",
+		Body:    "The Appearance and Workspace options (theme, look, tooltips, terminal, terminal stacking, deployment, adding nodes, Scratchboard) save again. Every setting is marked Only you, saved to your account, or Everyone, instance-wide and changed only by an administrator. Every account, guests included, now has its own Appearance and Workspace tabs; the security groups' Settings feature, renamed Installation settings, decides only whether the Access & security and System tabs show.",
+	},
+	{
+		Version: "0.0.30",
+		Date:    "2026-11-17",
+		Title:   "Log Summary: MongoDB slow queries and the PRIMARY on the timeline",
+		Body:    "A slow query digest for MongoDB groups slow-query lines by query shape and ranks them by total time, CPU, count, slowest run, documents examined per document returned or bytes read, with p95, a severity and its reasons, the plans and a link to when the shape ran. On the cluster timeline every stripe names its state, the PRIMARY is outlined, and each stretch a member was PRIMARY is shaded across its lane, so a failover shows as the shading moving.",
+		Doc:     "docs/LOG_SUMMARY.md",
+	},
+	{
+		Version: "0.0.30",
+		Date:    "2026-11-17",
+		Title:   "Performance Sim: many tables at once",
+		Body:    "A Many tables section creates a set of small tables (1,000 tables of 10 rows by default) in a database of its own and drops them, as one statement or one table at a time. Both run as jobs with progress and Cancel, shaded on the timeline and written to the event log, so their effect on latency shows on the charts.",
+		Doc:     "docs/STACKS.md",
+	},
+	{
+		Version: "0.0.30",
+		Date:    "2026-11-17",
+		Title:   "Smaller changes",
+		Body:    "The Oracle Linux, Debian and Ubuntu base images and the Kubeadm node install sudo. The version catalog adds Percona Server 8.4.11 and 9.7.2, PSMDB 8.0.38, PostgreSQL 18.7 and the Percona Server operator 1.3.0. A refused Docker call reports Docker's message, not only its status. make adopt-images covers every demo application and the Kubeadm node. Pager Panic's sound is on unless the player turned it off.",
+	},
+	{
 		Version: "0.0.29",
 		Date:    "2026-11-12",
 		Title:   "Pager Panic — an on-call game on a Kubeadm Cluster",
