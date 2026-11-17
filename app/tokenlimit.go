@@ -148,8 +148,6 @@ var tokenLimitOpenPaths = map[string]bool{
 	"GET /api/meta/endpoints":        true,
 	"GET /api/cli/help":              true,
 	"GET /api/meta/openapi.json":     true,
-	"GET /api/cli/checksums":         true,
-	"GET /api/cli/download":          true,
 	"GET /api/setup/status":          true,
 }
 

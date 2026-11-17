@@ -317,25 +317,6 @@ type k3dSecrets struct {
 
 // ---------------------------------------------------------------- the k3d binary
 
-// k3dBinary resolves the k3d executable: $K3D_BIN, else "k3d" on PATH. In the app image the binary
-// is baked in; in local development it is the one installed next to Docker on the host.
-func k3dBinary() (string, error) {
-	if p := strings.TrimSpace(os.Getenv("K3D_BIN")); p != "" {
-		if _, err := os.Stat(p); err == nil {
-			return p, nil
-		}
-		return "", fmt.Errorf("K3D_BIN=%s does not exist", p)
-	}
-	return exec.LookPath("k3d")
-}
-
-// k3dInstalled reports whether the k3d binary is available. validateStack calls this so a design
-// with a K3D frame fails with a clear message instead of dying mid-deploy.
-func k3dInstalled() bool {
-	_, err := k3dBinary()
-	return err == nil
-}
-
 // runK3D executes k3d against the same Docker daemon DBCanvas uses. k3d wants a HOME for its
 // config; it never needs one in our flow, so it gets a scratch dir.
 func (a *App) runK3D(ctx context.Context, logln func(string), args ...string) (string, error) {

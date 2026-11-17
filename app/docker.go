@@ -5,9 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -1611,92 +1609,6 @@ func (d *Docker) ResizeExec(ctx context.Context, execID string, w, h int) error 
 	}
 	drain(resp)
 	return nil
-}
-
-// selfImage is the image of the container the app runs in, when it does: the probe
-// container (hostports.go) is that image, so nothing has to be pulled. The container is
-// found by the hostname Docker gives it, its own id.
-func (d *Docker) selfImage(ctx context.Context) (string, bool) {
-	d.selfOnce.Do(func() {
-		host, err := os.Hostname()
-		if err != nil || host == "" {
-			return
-		}
-		if _, err := os.Stat("/.dockerenv"); err != nil {
-			return
-		}
-		resp, err := d.do(ctx, "GET", "/containers/"+host+"/json", nil)
-		if err != nil {
-			return
-		}
-		if resp.StatusCode != 200 {
-			drain(resp)
-			return
-		}
-		var out struct {
-			Image string `json:"Image"`
-		}
-		if json.Unmarshal(drain(resp), &out) == nil {
-			d.selfImg = out.Image
-		}
-	})
-	return d.selfImg, d.selfImg != ""
-}
-
-// runHostProbe runs the app's binary with args in a throwaway container sharing the
-// host's network namespace, and returns what it printed.
-func (d *Docker) runHostProbe(ctx context.Context, image string, args []string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
-	defer cancel()
-	var nb [6]byte
-	rand.Read(nb[:])
-	name := instancePrefix() + "portprobe-" + hex.EncodeToString(nb[:])
-	body := map[string]any{
-		"Image": image, "Entrypoint": []string{"/dbcanvas"}, "Cmd": args,
-		"Env":        []string{},
-		"HostConfig": map[string]any{"NetworkMode": "host"},
-		"Labels":     map[string]string{"dbcanvas.role": "port-probe"},
-	}
-	resp, err := d.do(ctx, "POST", "/containers/create?name="+url.QueryEscape(name), body)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != 201 {
-		return nil, errBody("create port probe", resp)
-	}
-	var created struct {
-		ID string `json:"Id"`
-	}
-	json.Unmarshal(drain(resp), &created)
-	defer func() {
-		// A fresh context: the probe is removed even when ctx was cancelled.
-		rctx, rcancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer rcancel()
-		if r, err := d.do(rctx, "DELETE", "/containers/"+created.ID+"?force=true", nil); err == nil {
-			drain(r)
-		}
-	}()
-	if err := d.simple(ctx, "POST", "/containers/"+created.ID+"/start", "start port probe", 204, 304); err != nil {
-		return nil, err
-	}
-	resp, err = d.do(ctx, "POST", "/containers/"+created.ID+"/wait", nil)
-	if err != nil {
-		return nil, err
-	}
-	var waited struct {
-		StatusCode int `json:"StatusCode"`
-	}
-	json.Unmarshal(drain(resp), &waited)
-	resp, err = d.do(ctx, "GET", "/containers/"+created.ID+"/logs?stdout=1&stderr=1", nil)
-	if err != nil {
-		return nil, err
-	}
-	stdout, stderr := demuxStream(resp.Body)
-	resp.Body.Close()
-	if waited.StatusCode != 0 {
-		return nil, fmt.Errorf("port probe exited %d: %s", waited.StatusCode, strings.TrimSpace(string(stderr)))
-	}
-	return stdout, nil
 }
 
 // pinnedHostPorts lists, for every container (running or not) whose name starts with

@@ -7,22 +7,19 @@ import (
 	"testing"
 )
 
-// The commit is the version here, and it is written in two places that have to agree: the Go
-// constant the panel reports and app/Dockerfile's BIGHOLE_REF, which builds the files every node
-// serves. Drifting means a node claiming one Big Hole and serving another.
+// The commit is the version here, written once: the Go constant the panel reports, which the
+// Makefile's bundle target reads to build the files every node serves. A second copy could drift,
+// and a node would claim one Big Hole while serving another.
 func TestBigHoleRefIsPinnedEverywhere(t *testing.T) {
 	if len(bigHoleRef) != 40 {
 		t.Fatalf("bigHoleRef = %q, want a full 40-character commit", bigHoleRef)
 	}
-	b, err := os.ReadFile("Dockerfile")
+	mk, err := os.ReadFile("../Makefile")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(b), "ARG BIGHOLE_REF="+bigHoleRef) {
-		t.Errorf("app/Dockerfile does not build Big Hole at %s", bigHoleRef)
-	}
-	if !strings.Contains(string(b), bigHoleTarballDefault) {
-		t.Errorf("app/Dockerfile does not put the files where bighole.go reads them (%s)", bigHoleTarballDefault)
+	if !strings.Contains(string(mk), "bigHoleRef = ") || !strings.Contains(string(mk), "app/bighole.go") {
+		t.Error("the Makefile's bundle target does not read Big Hole's commit from app/bighole.go")
 	}
 }
 
@@ -171,13 +168,10 @@ func TestMakeImagesBuildsEveryImage(t *testing.T) {
 			t.Errorf("`make images` does not run %s:\n%s", want, recipe)
 		}
 	}
-	// And it does not fail the rest of a first run over one image, which is what lets
-	// `make install` finish with DBCanvas running and the missing image reported at Validate.
+	// And it does not fail the rest of the run over one image: the missing one is reported
+	// at Validate, and the rest are built.
 	if strings.Count(recipe, "||") < 2 {
 		t.Errorf("a failed node or application image would abort `make images`:\n%s", recipe)
-	}
-	if !strings.Contains(string(mk), "\ninstall: images compose") {
-		t.Error("`make install` is not `images compose`")
 	}
 }
 

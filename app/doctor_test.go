@@ -11,23 +11,24 @@ import (
 	"testing"
 )
 
-// exampleSecrets must be exactly .env.example's passwords, or the doctor misses one.
-func TestExampleSecretsMatchEnvExample(t *testing.T) {
-	b, err := os.ReadFile("../.env.example")
+// exampleSecrets is every node password setting, generated on first run (nodepasswords.go): the
+// configuration reference must list each, and list no other.
+func TestNodePasswordsAreDocumented(t *testing.T) {
+	b, err := os.ReadFile("../docs/CONFIGURATION.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	re := regexp.MustCompile(`(?m)^([A-Z_]*PASSWORD)=(.*)$`)
+	re := regexp.MustCompile("(?m)^\\| `([A-Z_]*PASSWORD)` \\|")
 	seen := map[string]bool{}
 	for _, m := range re.FindAllStringSubmatch(string(b), -1) {
 		seen[m[1]] = true
-		if exampleSecrets[m[1]] != m[2] {
-			t.Errorf("%s: .env.example has %q, exampleSecrets %q", m[1], m[2], exampleSecrets[m[1]])
+		if _, ok := exampleSecrets[m[1]]; !ok {
+			t.Errorf("docs/CONFIGURATION.md lists %s, which is not a node password setting", m[1])
 		}
 	}
 	for k := range exampleSecrets {
 		if !seen[k] {
-			t.Errorf("exampleSecrets has %s, which .env.example does not", k)
+			t.Errorf("%s is not in docs/CONFIGURATION.md", k)
 		}
 	}
 }

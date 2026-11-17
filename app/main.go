@@ -63,28 +63,6 @@ type App struct {
 }
 
 func main() {
-	// Health-check mode for the container HEALTHCHECK (distroless has no shell).
-	if len(os.Args) > 1 && os.Args[1] == "-healthcheck" {
-		os.Exit(healthcheck())
-	}
-	// Port-probe mode: run in a throwaway container on the host's network to find
-	// host ports that are really free (hostports.go).
-	if len(os.Args) > 2 && os.Args[1] == "-probe-ports" {
-		os.Exit(probePortsMain(os.Args[2]))
-	}
-	// Re-encrypt the database under a fresh key, then exit (encryption.go). Run with the
-	// server stopped: `make rotate-key`.
-	if len(os.Args) > 1 && os.Args[1] == "-rotate-encryption-key" {
-		if err := rotateKey(envOr("DB_PATH", "dbcanvas.db")); err != nil {
-			log.Fatalf("rotate encryption key: %v", err)
-		}
-		return
-	}
-	// The app container was the 0.0.x edition, with accounts to sign in to. dbcanvas has an
-	// owner who signs in by start link instead, which needs the command on the host.
-	if appIsContainerized() && len(os.Args) == 1 {
-		log.Fatal("this dbcanvas runs as the dbcanvas command on the host, not as the app container; the container edition is 0.0.x")
-	}
 	os.Exit(runCLI(os.Args[1:]))
 }
 
@@ -110,10 +88,6 @@ func runServer(o serveOpts) error {
 	if o.dataDir != "" {
 		dbPath = filepath.Join(o.dataDir, "dbcanvas.db")
 	}
-	// Refuse to be reachable beyond this machine unless that was asked for twice (exposure.go).
-	if why := exposureRefusal(); why != "" {
-		return fmt.Errorf("refusing to start: %s", why)
-	}
 	// Refuse a malformed instance name rather than deploy under it: every name this installation
 	// gives a container is built on it, and so is how it tells its own from another's (instance.go).
 	if why := validInstance(instanceName); why != "" {
@@ -129,6 +103,7 @@ func runServer(o serveOpts) error {
 
 	app := &App{store: store, docker: NewDocker(dockerSocket()), solo: o.dataDir != ""}
 	if app.solo {
+		applyBundle(o.dataDir)
 		app.detectPlatforms(context.Background())
 		// The node accounts' passwords: generated once, kept sealed (nodepasswords.go).
 		if err := app.applyNodePasswords(); err != nil {
@@ -192,7 +167,8 @@ func runServer(o serveOpts) error {
 	var servers []*http.Server
 	addr := ""
 	if o.tcp {
-		host := envOr("APP_HOST", "127.0.0.1")
+		// 127.0.0.1 only, always: a browser elsewhere comes through the owner's own tunnel.
+		host := "127.0.0.1"
 		port := envOr("APP_PORT", "8080")
 		if o.dataDir != "" && os.Getenv("APP_PORT") == "" {
 			port = soloPort
@@ -323,22 +299,6 @@ func spaHandler() http.Handler {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		io.Copy(w, index)
 	})
-}
-
-// healthcheck performs GET /api/setup/status against localhost and returns an
-// exit code.
-func healthcheck() int {
-	port := envOr("APP_PORT", "8080")
-	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get("http://127.0.0.1:" + port + "/api/setup/status")
-	if err != nil {
-		return 1
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return 1
-	}
-	return 0
 }
 
 func envOr(key, def string) string {

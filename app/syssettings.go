@@ -91,8 +91,6 @@ type SystemSettings struct {
 	HostArch       string `json:"hostArch"`
 	DefaultArch    string `json:"defaultArch"`
 	KubernetesArch string `json:"kubernetesArch"`
-	Exposed        bool   `json:"exposed"`
-	PublishHost    string `json:"publishHost"`
 	// DefaultSecrets names the .env passwords still at their .env.example value (doctor.go),
 	// for administrators only: the web app shows a notice until they are changed.
 	DefaultSecrets []string             `json:"defaultSecrets,omitempty"`
@@ -196,7 +194,6 @@ func (a *App) systemSettings(appUser string) SystemSettings {
 	if v, err := a.store.AppSetting(settingInternalWrites); err == nil {
 		s.InternalWrites = v == "1"
 	}
-	s.Exposed, s.PublishHost = exposed(), publishHost()
 	s.HostArch, s.DefaultArch, s.KubernetesArch = a.hostArch, platformArch(), k8sArch()
 	s.AllowGuestSessions, s.MaxGuestMinutes = a.guestSessionSettings()
 	s.SessionRetentionDays = a.shareRetentionDays()

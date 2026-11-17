@@ -91,3 +91,7 @@ app/relaybin/*.gz
 
 # The version catalogue's copies, embedded into the dbcanvas binary (app/catalog/README.md).
 app/catalog/*.yaml
+
+# What the dbcanvas binary embeds besides its code, built by `make bundle` (app/bundle/README.md).
+app/bundle/*
+!app/bundle/README.md

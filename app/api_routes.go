@@ -1189,12 +1189,8 @@ func buildAPIRoutes() []apiRoute {
 			Summary: "Record that the caller has read this build's release notes, so the dialog stops opening."},
 
 		// --- API metadata -------------------------------------------------------
-		{Method: "GET", Path: "/api/cli/checksums", Group: gMeta, Media: mediaDownload, Handler: m((*App).handleCLIChecksums),
-			Summary: "SHA-256 of every dbcanvas-cli binary this installation ships, in sha256sum format; the release is in X-DBCanvas-Version. /api/cli/download sends the same digest in X-Checksum-Sha256."},
-		{Method: "GET", Path: "/api/cli/download", Group: gMeta, Media: mediaDownload, Handler: m((*App).handleCLIDownload),
-			Summary: "Download the dbcanvas-cli binary for an ?os= and ?arch=, as shipped in this image."},
 		{Method: "GET", Path: "/api/cli/help", Group: gMeta, Handler: m((*App).handleCLIHelp),
-			Summary: "dbcanvas-cli's own `--help`, from the binary this image ships — every command with what it does."},
+			Summary: "The dbcanvas command's usage: every command and what it does, as `dbcanvas help` prints it."},
 		{Method: "GET", Path: "/api/meta/endpoints", Group: gMeta, Handler: m((*App).handleAPIEndpoints),
 			Summary: "This catalogue: every endpoint, its group, what it does, and the access it needs."},
 		{Method: "GET", Path: "/api/meta/openapi.json", Group: gMeta, Handler: m((*App).handleAPIOpenAPI),

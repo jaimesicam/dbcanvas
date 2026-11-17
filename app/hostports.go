@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -282,43 +281,9 @@ func localPortRange() (int, int) {
 	return 32768, 60999
 }
 
-// probePortsMain is `/dbcanvas -probe-ports '<json request>'`: the probe container's
-// whole job. It prints the result as JSON.
-func probePortsMain(arg string) int {
-	var req probeRequest
-	if err := json.Unmarshal([]byte(arg), &req); err != nil {
-		fmt.Fprintln(os.Stderr, "probe-ports:", err)
-		return 2
-	}
-	res, err := probePorts(req)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "probe-ports:", err)
-		return 1
-	}
-	json.NewEncoder(os.Stdout).Encode(res)
-	return 0
-}
-
-// probeHostPorts answers req for the Docker host: in a probe container when the app
-// itself runs in one, in-process when it runs on the host.
+// probeHostPorts answers req for the Docker host, by binding the candidate ports here.
 func (a *App) probeHostPorts(ctx context.Context, req probeRequest) (probeResult, error) {
-	if a.docker == nil {
-		return probePorts(req)
-	}
-	img, ok := a.docker.selfImage(ctx)
-	if !ok {
-		return probePorts(req)
-	}
-	arg, _ := json.Marshal(req)
-	out, err := a.docker.runHostProbe(ctx, img, []string{"-probe-ports", string(arg)})
-	if err != nil {
-		return probeResult{}, err
-	}
-	var res probeResult
-	if err := json.Unmarshal(out, &res); err != nil {
-		return probeResult{}, fmt.Errorf("probe output: %v: %q", err, strings.TrimSpace(string(out)))
-	}
-	return res, nil
+	return probePorts(req)
 }
 
 // --- store ---

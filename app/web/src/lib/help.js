@@ -937,10 +937,6 @@ export const HELP = {
     'Changing your password signs out every other browser and device, and keeps this one. That is the ' +
     'point of doing it when you suspect somebody else has your password — leaving their session alive ' +
     'would defeat the exercise.',
-  cliDownload:
-    'The `dbcanvas-cli` binary for a platform, served by this installation, so a machine with no ' +
-    'checkout can still get it. It is a single static binary with no dependencies: put it on your ' +
-    'PATH and run `dbcanvas-cli login`. From a checkout, `make cli` builds the same thing.',
 }
 
 // NODE_BLURB — what a palette entry actually gets you, for the tooltip on the button

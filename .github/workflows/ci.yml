@@ -49,10 +49,9 @@ jobs:
           go-version-file: app/go.mod
           cache-dependency-path: |
             app/go.sum
-            cli/go.sum
       - name: gofmt
         run: |
-          out="$(gofmt -l app cli)"
+          out="$(gofmt -l app)"
           if [ -n "$out" ]; then echo "not gofmt-formatted:"; echo "$out"; exit 1; fi
       - name: app — vet
         working-directory: app
@@ -60,11 +59,6 @@ jobs:
       - name: app — test
         working-directory: app
         run: go test -count=1 -timeout 20m ./
-      - name: cli — vet and test
-        working-directory: cli
-        run: |
-          go vet ./
-          go test -count=1 ./
       - name: scripts — syntax
         run: |
           for f in images/*.sh scripts/*.sh; do bash -n "$f" || exit 1; done

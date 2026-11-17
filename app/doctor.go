@@ -121,20 +121,7 @@ func (a *App) doctorChecks(ctx context.Context) []doctorCheck {
 		add("encryption key", "fail", "no key at "+keyPath, "the database cannot be read without it; see docs/CONFIGURATION.md")
 	}
 
-	// Who can get in.
-	if exposed() {
-		add("exposure", "warn", "published on "+publishHost()+" with APP_HOST_OVERRIDE=on: reachable beyond this machine, and an account can deploy privileged containers",
-			"prefer APP_HOST=127.0.0.1 with an SSH tunnel (docs/SECURITY.md)")
-	} else {
-		add("exposure", "ok", "published on "+publishHost()+" only", "")
-	}
-
 	// What it hands out.
-	if ents, err := os.ReadDir(cliDir()); err == nil && len(ents) > 0 {
-		add("CLI downloads", "ok", fmt.Sprintf("%d file(s) in %s", len(ents), cliDir()), "")
-	} else {
-		add("CLI downloads", "warn", "no dbcanvas-cli binaries to download", "they ship in the app image; a development run uses `make cli`")
-	}
 	if _, err := os.Stat(bigHoleTarball()); err == nil {
 		add("Big Hole", "ok", "files present ("+filepath.Base(bigHoleTarball())+")", "")
 	} else {

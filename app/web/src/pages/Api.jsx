@@ -430,17 +430,9 @@ export function Snippet({ label, text }) {
 
 // ------------------------------------------------------------------ getting started
 
-// CliCommands shows the CLI's own usage — the command list, the global flags, the environment
-// variables and the exit codes — fetched from the binary this installation ships (app/clihelp.go).
-//
-// It is fetched rather than written into this page for two reasons, and the second is the one that
-// made it worth an endpoint. A list typed out here drifts from the CLI the first time a command is
-// renamed, and nothing would fail. And the manual is on GitHub: an installation on a private
-// network cannot open it at all, which makes "the full reference is over there" a poor answer to
-// somebody who has just downloaded the binary from this very page.
-//
-// Collapsed, because the four steps above are what most people need. Loaded when it is opened, so
-// a page nobody expands costs nothing.
+// CliCommands shows the dbcanvas command's usage, fetched from this very build (app/clihelp.go)
+// rather than written into the page, so it cannot drift from the commands that exist. Collapsed,
+// and loaded when it is opened.
 export function CliCommands() {
   const [open, setOpen] = useState(false)
   const [state, setState] = useState(null) // { help } | { unavailable } | { error }
@@ -460,7 +452,7 @@ export function CliCommands() {
         className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted hover:text-fg">
         <Icon.Chevron size={13} className={`shrink-0 transition-transform ${open ? '' : '-rotate-90'}`} />
         <span className="font-medium text-fg">Every command</span>
-        <span className="truncate">— what this installation's own binary prints</span>
+        <span className="truncate">— what <code>dbcanvas help</code> prints</span>
       </button>
       {open && <div className="border-t p-2.5"><CliHelpText state={state} /></div>}
     </div>
@@ -470,37 +462,20 @@ export function CliCommands() {
 // CliHelpText is the three things that can come back: not yet, the usage, or a reason there is
 // none. Its own component so each state can be rendered and checked without a server.
 export function CliHelpText({ state }) {
-  if (!state) return <p className="text-xs text-muted">Asking the CLI…</p>
+  if (!state) return <p className="text-xs text-muted">Loading…</p>
   if (state.help) {
     return <pre className="max-h-80 overflow-auto whitespace-pre rounded bg-surface2 p-2.5 font-mono text-[11px] leading-[1.5] text-fg">{state.help}</pre>
   }
-  // No bundled binary (a development checkout) or a failed run: say which, since the download
-  // buttons right above it still work and this would otherwise read as a bug.
-  return <p className="text-xs text-muted">{state.unavailable || state.error || 'The CLI could not be asked.'}</p>
+  return <p className="text-xs text-muted">{state.unavailable || state.error || 'The usage could not be loaded.'}</p>
 }
 
 export function GettingStarted() {
-  const origin = typeof location === 'undefined' ? 'http://localhost:8080' : location.origin
-  // The file the download hands over, for the install line. Named after the platform, so the
-  // command somebody pastes matches what is actually in their Downloads folder — and the browser
-  // is the only thing that knows which one they clicked.
-  const ua = typeof navigator === 'undefined' ? '' : navigator.userAgent
-  const CLI_FILE = /Mac|iPhone|iPad/.test(ua)
-    ? (/Intel/.test(ua) ? 'dbcanvas-cli_darwin_amd64' : 'dbcanvas-cli_darwin_arm64')
-    : /Win/.test(ua) ? 'dbcanvas-cli_windows_amd64.exe'
-      : /aarch64|arm64/.test(ua) ? 'dbcanvas-cli_linux_arm64' : 'dbcanvas-cli_linux_amd64'
-  const PLATFORMS = [
-    { os: 'linux', arch: 'amd64', label: 'Linux · x86-64' },
-    { os: 'linux', arch: 'arm64', label: 'Linux · arm64' },
-    { os: 'darwin', arch: 'arm64', label: 'macOS · Apple silicon' },
-    { os: 'darwin', arch: 'amd64', label: 'macOS · Intel' },
-    { os: 'windows', arch: 'amd64', label: 'Windows · x86-64' },
-  ]
+  const origin = typeof location === 'undefined' ? 'http://127.0.0.1:7480' : location.origin
   return (
     <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-      <Card title="Call it with curl" subtitle="Three lines from a password to JSON">
+      <Card title="Call it with curl" subtitle="A token, then any endpoint">
         <ol className="mb-3 list-decimal space-y-1 pl-5 text-sm text-muted">
-          <li>Create a token on the <b>Tokens</b> tab and copy it.</li>
+          <li>Create a token on the <b>Tokens</b> tab, or with <code className="rounded bg-surface2 px-1">dbcanvas token create</code>.</li>
           <li>Put it in your environment.</li>
           <li>Call anything on the <b>Endpoints</b> tab.</li>
         </ol>
@@ -510,81 +485,32 @@ export function GettingStarted() {
         />
       </Card>
 
-      <Card title="dbcanvas-cli" subtitle="The same API, without writing curl">
-        <ol className="list-decimal space-y-3 pl-5 text-sm text-muted">
-          <li>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-fg">Download it</span>
-              <Help text={HELP.cliDownload} />
-            </div>
-            <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {PLATFORMS.map((p) => (
-                <a
-                  key={`${p.os}-${p.arch}`}
-                  href={`/api/cli/download?os=${p.os}&arch=${p.arch}`}
-                  className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs text-fg hover:bg-surface2"
-                >
-                  <Icon.External size={13} /> {p.label}
-                </a>
-              ))}
-            </div>
-            {/* The binary goes out alone, so its licence, its modules' notices and its source are named here. */}
-            <p className="mt-1.5 text-xs">
-              GPL-3.0-only, no warranty —{' '}
-              <a href="/licenses/LICENSE" target="_blank" rel="noreferrer" className="text-primary hover:underline">licence</a>,{' '}
-              <a href="/licenses/THIRD_PARTY_LICENSES-cli.txt" target="_blank" rel="noreferrer" className="text-primary hover:underline">third-party notices</a>,{' '}
-              <a href={docURL('cli')} target="_blank" rel="noreferrer" className="text-primary hover:underline">source</a>.
-            </p>
-          </li>
-          <li>
-            <span className="text-fg">Put it on your PATH.</span> One static binary, no
-            dependencies — the name it is saved under is the command you type.
-            <Snippet label="shell" text={`cd ~/Downloads\nchmod +x ${CLI_FILE}\nsudo mv ${CLI_FILE} /usr/local/bin/dbcanvas-cli`} />
-          </li>
-          <li>
-            <span className="text-fg">Sign in once.</span> It asks for your password, trades it for
-            a scoped, expiring token and stores only the token — your password is never written to
-            disk. In CI, set <code className="rounded bg-surface2 px-1">DBCANVAS_TOKEN</code> from
-            the <b>Tokens</b> tab instead and skip this.
-            <Snippet label="shell" text={`dbcanvas-cli login --url ${origin}\ndbcanvas-cli whoami`} />
-          </li>
-          <li>
-            <span className="text-fg">Then do something.</span>
-            <Snippet label="shell" text={'dbcanvas-cli stack list\ndbcanvas-cli stack deploy my-pxc-lab --wait\ndbcanvas-cli node list my-pxc-lab'} />
-          </li>
-        </ol>
-        <CliCommands />
-        <p className="mt-3 text-xs text-muted">
-          Worked examples — composing a stack from flags, associations, load, diagnosis:{' '}
-          <a className="inline-flex items-center gap-1 text-primary hover:underline"
-            href={docURL('docs/CLI.md')} target="_blank" rel="noreferrer">
-            docs/CLI.md <Icon.External size={12} />
-          </a>
+      <Card title="The dbcanvas command" subtitle="The same, from a terminal on this computer">
+        <p className="mb-2 text-sm text-muted">
+          The command you started DBCanvas with does the rest too, as you, with no token: it talks to the
+          running DBCanvas over a socket only your account can open, and starts it when it is not running.
         </p>
+        <Snippet label="shell" text={'dbcanvas ls\ndbcanvas up -f lab.yaml --wait\ndbcanvas export lab > lab.yaml\ndbcanvas token create ci --label run=ci --max-ttl 8h'} />
+        <CliCommands />
       </Card>
 
       <Card title="How access works" className="lg:col-span-2">
         <div className="space-y-2.5 text-sm text-muted">
           <p>
-            <b className="text-fg">A token acts as your account.</b> It is not a service account and
-            has no permissions of its own: it reaches the stacks you can reach, and it stops working
-            the moment your account does.
+            <b className="text-fg">DBCanvas listens on 127.0.0.1 only, and answers nothing without a credential:</b>{' '}
+            this browser's session (from the link <code>dbcanvas</code> opens), an API token, or a shared
+            session's join link. Anyone else on this computer gets a 401.
           </p>
           <p>
-            <b className="text-fg">Scope is checked against the endpoint.</b> A <code>read</code> token
-            can call every <code>GET</code>, plus the handful of <code>POST</code>s that compute
-            something without changing anything — validate, compare, preview. Anything else needs{' '}
-            <code>write</code>, and the admin endpoints need <code>admin</code>, which only an
-            administrator can create.
+            <b className="text-fg">A token reaches what you give it.</b> Its scope says what kind of call it may
+            make: a <code>read</code> token can call every <code>GET</code>, plus the few <code>POST</code>s that
+            change nothing (validate, compare, preview); anything else needs <code>write</code>. It can be
+            limited to the stacks it creates or to stacks with given labels, which it puts on every stack it
+            creates; and given a longest lifetime for its stacks, and node types it may not deploy.
           </p>
           <p>
-            <b className="text-fg">Creating a token requires your password.</b> So a token that leaks
-            cannot mint a longer-lived replacement for itself — whoever has it still needs your
-            password to get anything durable.
-          </p>
-          <p>
-            <b className="text-fg">Revoking is immediate</b>, and losing access loses the API with it:
-            disabling an account revokes its tokens in the same breath as its browser sessions.
+            <b className="text-fg">A token cannot make tokens</b>, so one that leaks cannot mint a longer-lived
+            replacement. <b className="text-fg">Revoking is immediate.</b>
           </p>
           <p>
             Full detail in <a className="text-primary hover:underline" href={docURL('docs/API.md')} target="_blank" rel="noreferrer">docs/API.md</a>.

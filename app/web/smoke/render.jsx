@@ -5070,51 +5070,28 @@ check('api page: an endpoint row, collapsed and every media kind', () =>
 check('api page: snippets', () =>
   renderToString(<ApiSnippet label="curl" text={'curl -s http://x/api/stacks'} />))
 
-check('api page: the CLI quick start takes you from a download to a command', () => {
+check('api page: getting started shows a token, the dbcanvas command and how access works', () => {
   const html = renderToString(<ApiGettingStarted />)
-  // The four steps somebody who has never seen this binary needs, in order. Before this the card
-  // was three example lines and a link to a manual on GitHub — which an installation on a private
-  // network cannot even open.
-  for (const step of ['Download it', 'Put it on your PATH', 'Sign in once', 'Then do something']) {
-    if (!html.includes(step)) throw new Error(`the quick start has no "${step}" step`)
+  for (const want of ['Authorization: Bearer', 'dbcanvas token create', 'dbcanvas up -f', '127.0.0.1 only', 'Every command']) {
+    if (!html.includes(want)) throw new Error(`getting started does not mention "${want}"`)
   }
-  // The install line names the file the download actually hands over, and makes it `dbcanvas-cli`.
-  if (!/chmod \+x dbcanvas-cli_/.test(html)) throw new Error('nothing says to make it executable')
-  if (!/\/usr\/local\/bin\/dbcanvas/.test(html)) throw new Error('nothing puts it on the PATH')
-  if (!html.includes('dbcanvas-cli login --url')) throw new Error('the sign-in line is gone')
-  // And the way out of the four steps: the CLI's own command list, and the manual.
-  if (!html.includes('Every command')) throw new Error('the command list is not offered')
-  if (!html.includes('docs/CLI.md')) throw new Error('the manual link is gone')
-  return 'download, PATH, login, run'
+  if (html.includes('dbcanvas-cli') || html.includes('/api/cli/download')) throw new Error('getting started still offers dbcanvas-cli')
+  return 'token, command, access'
 })
 
 check('api page: the command list, in each state it can be in', () => {
-  // Fetched from the running installation's own binary (app/clihelp.go), so the page has to cope
-  // with not having it yet, having it, and there being none — a development checkout has no
-  // bundled CLI, and that must read as an explanation rather than a broken panel.
+  // Fetched from this build (app/clihelp.go): not yet, the usage, or why there is none.
   const loading = renderToString(<ApiCliHelpText state={null} />)
-  if (!/Asking the CLI/.test(loading)) throw new Error('nothing says it is loading')
-
-  const help = renderToString(<ApiCliHelpText state={{ help: 'Usage:\n  dbcanvas-cli <command>\n\nCommands:\n  login  Sign in\n' }} />)
-  if (!help.includes('login') || !help.includes('Usage:')) throw new Error('the usage text is not shown')
-
-  const none = renderToString(<ApiCliHelpText state={{ unavailable: 'no bundled dbcanvas-cli — `make cli` builds it' }} />)
-  if (!none.includes('make cli')) throw new Error('an unavailable CLI does not say why')
+  if (!/Loading/.test(loading)) throw new Error('nothing says it is loading')
+  const help = renderToString(<ApiCliHelpText state={{ help: 'Usage:\n  dbcanvas ls   list your stacks\n' }} />)
+  if (!help.includes('dbcanvas ls') || !help.includes('Usage:')) throw new Error('the usage text is not shown')
   if (!renderToString(<ApiCliHelpText state={{ error: 'network' }} />).includes('network')) {
     throw new Error('a failed fetch says nothing')
   }
   // Collapsed until asked for, so a page nobody expands fetches nothing.
   const collapsed = renderToString(<ApiCliCommands />)
-  if (collapsed.includes('Asking the CLI')) throw new Error('the panel fetches before it is opened')
-  return 'loading, help, unavailable, error'
-})
-
-check('api page: getting started, with the CLI downloads', () => {
-  const html = renderToString(<ApiGettingStarted />)
-  if (!/api\/cli\/download\?os=linux&(amp;)?arch=amd64/.test(html)) {
-    throw new Error('the Linux download link is missing or malformed')
-  }
-  return html
+  if (collapsed.includes('Loading')) throw new Error('the panel fetches before it is opened')
+  return 'loading, help, error'
 })
 
 check('api page: the endpoint browser mounts before its fetch lands', () =>
