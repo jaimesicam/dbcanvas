@@ -145,8 +145,41 @@ func (a *App) insideAddress(ctx context.Context, nl nodeLinkTarget) (string, err
 	return u.String(), nil
 }
 
-// handleBrowseDesktop opens a node link in Firefox on the stack's desktop and says
-// which desktop, so the caller opens (and in a session, shares) a window on it.
+// insidePage is the page a node offers only on the stack network, which no host port
+// reaches: Keycloak's admin console. Keycloak runs with its hostname pinned to the
+// issuer the databases check (keycloak.go), so the page is opened by that name, which
+// the desktop resolves through the Intranet and whose certificate it trusts.
+func (a *App) insidePage(st Stack, nodeID string) (string, error) {
+	var typ string
+	for _, n := range buildDoc(st).Nodes {
+		if n.ID == nodeID {
+			typ = n.Type
+		}
+	}
+	if typ == "" {
+		return "", fmt.Errorf("no node %q in this stack", nodeID)
+	}
+	dep, err := a.store.GetDeployment(st.ID, nodeID)
+	if err != nil || dep.State != DeployRunning {
+		return "", fmt.Errorf("the node is not running")
+	}
+	switch typ {
+	case "keycloak":
+		var cfg keycloakConfig
+		json.Unmarshal(dep.Config, &cfg)
+		host := firstNonEmpty(cfg.FQDN, cfg.Hostname)
+		if host == "" {
+			return "", fmt.Errorf("the Keycloak node has no stack address yet")
+		}
+		return keycloakIssuer(host, cfg.SSL) + "/admin/", nil
+	}
+	return "", fmt.Errorf("a %s node has no page that opens only inside the stack", typ)
+}
+
+// handleBrowseDesktop opens a page in Firefox on the stack's desktop and says which
+// desktop, so the caller opens (and in a session, shares) a window on it. The page is
+// a node link (url), or a node's in-stack page (stackId and nodeId) for a node that
+// publishes none.
 func (a *App) handleBrowseDesktop(w http.ResponseWriter, r *http.Request) {
 	u, ok := a.currentUser(r)
 	if !ok {
@@ -154,35 +187,61 @@ func (a *App) handleBrowseDesktop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		URL string `json:"url"`
+		URL     string `json:"url"`
+		StackID int64  `json:"stackId"`
+		NodeID  string `json:"nodeId"`
 	}
 	if err := decode(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	nl, ok := a.resolveNodeLink(w, r, u, in.URL)
-	if !ok {
-		return
+	var (
+		st     Stack
+		host   string // the host the desktop's own link names
+		inside string
+	)
+	if strings.TrimSpace(in.URL) == "" && in.StackID != 0 && in.NodeID != "" {
+		s, err := a.store.GetStack(in.StackID)
+		if err != nil || (s.OwnerID != u.ID && u.Role != RoleAdmin) {
+			writeErr(w, http.StatusNotFound, "stack not found")
+			return
+		}
+		st = s
+		if host, _, err = net.SplitHostPort(r.Host); err != nil {
+			host = r.Host
+		}
+		if inside, err = a.insidePage(st, in.NodeID); err != nil {
+			writeErr(w, http.StatusConflict, err.Error())
+			return
+		}
+	} else {
+		nl, ok := a.resolveNodeLink(w, r, u, in.URL)
+		if !ok {
+			return
+		}
+		st, host = nl.st, nl.link.Hostname()
+		desk, ok := a.desktopOf(st)
+		if ok && nl.pp.ContainerID == desk.ContainerID {
+			// The link is the desktop itself: nothing to open on it.
+			writeJSON(w, http.StatusOK, map[string]any{"desktopLink": desktopLinkOf(host, desk), "desktop": desk.Label})
+			return
+		}
+		if ok {
+			var err error
+			if inside, err = a.insideAddress(r.Context(), nl); err != nil {
+				writeErr(w, http.StatusBadGateway, err.Error())
+				return
+			}
+		}
 	}
-	desk, ok := a.desktopOf(nl.st)
+	desk, ok := a.desktopOf(st)
 	if !ok {
 		writeErr(w, http.StatusConflict, "this stack has no running VNC desktop — add one to the canvas to share pages through it")
 		return
 	}
-	desktopLink := "http://" + net.JoinHostPort(nl.link.Hostname(), strconv.Itoa(desk.WebPort)) + "/vnc.html"
-	if nl.pp.ContainerID == desk.ContainerID {
-		// The link is the desktop itself: nothing to open on it.
-		writeJSON(w, http.StatusOK, map[string]any{"desktopLink": desktopLink, "desktop": desk.Label})
-		return
-	}
-	inside, err := a.insideAddress(r.Context(), nl)
-	if err != nil {
-		writeErr(w, http.StatusBadGateway, err.Error())
-		return
-	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
-	eng := a.dialEngine(nl.st.ID, desk.ContainerID)
+	eng := a.dialEngine(st.ID, desk.ContainerID)
 	// Best effort: without it a page opens as a window, behind a first-run dialog.
 	eng.ExecAs(ctx, desk.ContainerID, "0", []string{"sh", "-c", deskFirefoxPolicyScript}, nil)
 	res, err := eng.ExecAs(ctx, desk.ContainerID, desk.User, []string{"sh", "-c", deskFirefoxScript},
@@ -198,5 +257,10 @@ func (a *App) handleBrowseDesktop(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadGateway, "could not open the page on the desktop: "+why)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"desktopLink": desktopLink, "desktop": desk.Label, "opened": inside})
+	writeJSON(w, http.StatusOK, map[string]any{"desktopLink": desktopLinkOf(host, desk), "desktop": desk.Label, "opened": inside})
+}
+
+// desktopLinkOf is the desktop's own page, on the host the caller reached DBCanvas by.
+func desktopLinkOf(host string, desk stackDesktop) string {
+	return "http://" + net.JoinHostPort(host, strconv.Itoa(desk.WebPort)) + "/vnc.html"
 }

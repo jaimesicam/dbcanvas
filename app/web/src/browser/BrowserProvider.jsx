@@ -63,12 +63,13 @@ async function resolve(url) {
   return data
 }
 
-// desktopFor opens a node link in Firefox on the stack's VNC desktop and returns the
-// desktop's own link.
-async function desktopFor(url) {
+// desktopFor opens a node link — or, given { stackId, nodeId }, a node's page that only
+// the stack network reaches (lib/nodeLinks.js nodeDesktopPages) — in Firefox on the
+// stack's VNC desktop, and returns the desktop's own link.
+async function desktopFor(target) {
   const res = await fetch('/api/browse/desktop', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-    body: JSON.stringify({ url }),
+    body: JSON.stringify(typeof target === 'string' ? { url: target } : target),
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`)
@@ -365,7 +366,7 @@ export function BrowserProvider({ children }) {
       }
     } catch (e) {
       const id = `err-${Date.now().toString(36)}-${++seq}`
-      setWins((ws) => [...ws, { id, title: 'Could not open in VNC Browser', base: '', link: href, error: e.message }])
+      setWins((ws) => [...ws, { id, title: 'Could not open in VNC Browser', base: '', link: typeof href === 'string' ? href : '', error: e.message }])
     }
   }, [focus, openBrowser])
 

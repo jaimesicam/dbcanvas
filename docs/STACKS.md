@@ -338,7 +338,7 @@ The version lists come from the version catalogue.
 | Type | What you get |
 | --- | --- |
 | **Samba AD DC** | Active Directory domain controller: LDAP and Kerberos for database sign-in. |
-| **Keycloak** | OpenID Connect identity provider. Needs a VNC node, because its admin console is reachable only from inside the stack. |
+| **Keycloak** | OpenID Connect identity provider. Needs a VNC node, because its admin console is reachable only from inside the stack: right-click the node, or use its panel, and choose **Open in VNC Browser** to open the console in Firefox on the desktop. |
 | **OpenBao** | Vault-compatible secrets manager, used as the key store for data-at-rest encryption. Initialized and unsealed at deploy; its 5 unseal keys and root token are on its panel, which can re-unseal it after a restart with one click. Optional **PKI** mount for signing certificates. |
 
 ### Storage and clients

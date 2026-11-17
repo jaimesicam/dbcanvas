@@ -5,7 +5,7 @@ import { Window } from '../wm/WindowManager.jsx'
 import { stackApi, DEPLOY_TONE } from '../lib/stackApi.js'
 import { stackUnavailable, useStacksGone } from '../lib/stackGone.js'
 import { dashApi } from '../lib/dashApi.js'
-import { nodeWebLinks } from '../lib/nodeLinks.js'
+import { nodeDesktopPages, nodeWebLinks } from '../lib/nodeLinks.js'
 import { sendHandoff, nudgeHandoff } from '../lib/handoff.js'
 import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import { useBrowser } from '../browser/BrowserProvider.jsx'
@@ -193,6 +193,15 @@ export function StackFolder({ stack, onClose, onOpen }) {
           items.push({ label: `Open in VNC Browser${name}`, disabled: !vncUp, title: vncUp ? '' : 'Add and deploy a VNC node in this stack first.',
             onClick: () => openInDesktop(l.url) })
         }
+      }
+    }
+    // A page only the stack network reaches (Keycloak's console) opens on the desktop alone.
+    const pages = running && !watcher ? nodeDesktopPages(n.type, dep) : []
+    if (pages.length) {
+      if (!links.length) items.push({ sep: true })
+      for (const p of pages) {
+        items.push({ label: `Open in VNC Browser — ${p.label}`, disabled: !vncUp, title: vncUp ? '' : 'Add and deploy a VNC node in this stack first.',
+          onClick: () => openInDesktop(p.page) })
       }
     }
     items.push({ sep: true })

@@ -66,7 +66,7 @@ import { useAuth } from '../auth/AuthProvider.jsx'
 import { useRefresh } from '../lib/useRefresh.jsx'
 import { useSession } from '../session/SessionProvider.jsx'
 import { useBrowser } from '../browser/BrowserProvider.jsx'
-import { nodeWebLinks } from '../lib/nodeLinks.js'
+import { nodeDesktopPages, nodeWebLinks } from '../lib/nodeLinks.js'
 import { stackRelations, relationPorts, bezierMid, RELATION_KINDS } from '../lib/relations.js'
 import { DIST_MDB, DIST_PGDG, isMDB, isPGDG, distTypeLabel, distNamePrefix, mongoShort } from '../lib/distribution.js'
 import ShareDialog from '../components/ShareDialog.jsx'
@@ -4938,24 +4938,24 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
         // A node with a web UI opens it from here too, the two ways its properties
         // panel's links do. A guest cannot reach the raw port, so no new tab for them
         // (the panel's links open a browser window instead), and a VNC node is the
-        // desktop itself.
+        // desktop itself. A page only the stack network reaches (Keycloak's console)
+        // has no tab to open, only the desktop.
         const links = nodeWebLinks(node?.type, dep)
-        if (links.length) {
-          const one = links.length === 1
-          if (!guest) {
-            const tab = (l) => () => window.open(l.url, '_blank', 'noreferrer')
-            actions.push(one
-              ? { label: 'Open in new tab', help: MENU_HELP.openNewTab, fn: tab(links[0]) }
-              : { label: 'Open in new tab', help: MENU_HELP.openNewTab, items: links.map((l) => ({ label: l.label, fn: tab(l) })) })
-          }
+        const pages = nodeDesktopPages(node?.type, dep)
+        if (links.length && !guest) {
+          const tab = (l) => () => window.open(l.url, '_blank', 'noreferrer')
+          actions.push(links.length === 1
+            ? { label: 'Open in new tab', help: MENU_HELP.openNewTab, fn: tab(links[0]) }
+            : { label: 'Open in new tab', help: MENU_HELP.openNewTab, items: links.map((l) => ({ label: l.label, fn: tab(l) })) })
+        }
+        const onDesk = [...links.map((l) => ({ label: l.label, target: l.url })), ...pages.map((p) => ({ label: p.label, target: p.page }))]
+        if (onDesk.length && node?.type !== 'vnc' && !(session.active && session.isGuest && !session.isDriver)) {
           const vncUp = nodes.some((v) => v.type === 'vnc' && depByNode[v.id]?.state === 'running')
-          if (node?.type !== 'vnc' && !(session.active && session.isGuest && !session.isDriver)) {
-            const desk = (l) => () => openInDesktop(l.url)
-            const help = vncUp ? MENU_HELP.openVncBrowser : 'Add and deploy a VNC node in this stack first.'
-            actions.push(one || !vncUp
-              ? { label: 'Open in VNC Browser', help, disabled: !vncUp, fn: desk(links[0]) }
-              : { label: 'Open in VNC Browser', help, items: links.map((l) => ({ label: l.label, fn: desk(l) })) })
-          }
+          const desk = (d) => () => openInDesktop(d.target)
+          const help = vncUp ? MENU_HELP.openVncBrowser : 'Add and deploy a VNC node in this stack first.'
+          actions.push(onDesk.length === 1 || !vncUp
+            ? { label: 'Open in VNC Browser', help, disabled: !vncUp, fn: desk(onDesk[0]) }
+            : { label: 'Open in VNC Browser', help, items: onDesk.map((d) => ({ label: d.label, fn: desk(d) })) })
         }
         // A replicated cluster's member can take over as primary, or — on the primary — hand the
         // role to a replica the user picks. Who is primary is asked of the servers when the submenu
@@ -8722,6 +8722,7 @@ function SambaForm({ node: n, patchNode, deleteNode, dep, deployed }) {
 // FQDN, a forwarded port never gave a working console from the host machine. The
 // console is opened from the VNC desktop instead (validateStack requires one).
 function KeycloakManager({ dep, onDeleteNode }) {
+  const { openInDesktop } = useBrowser()
   const cfg = dep?.config || {}
   const sec = dep?.secrets || {}
   const consoleURL = cfg.ssl
@@ -8735,10 +8736,14 @@ function KeycloakManager({ dep, onDeleteNode }) {
       </div>
       <p className="text-xs text-muted">OIDC identity provider. Set up the realm/client/groups/users in the console.</p>
       <div className="rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-xs text-primary">
-        The admin console is not published to this machine. Open the{' '}
-        <span className="font-semibold">VNC</span> desktop node and browse to{' '}
-        <span className="break-all font-mono">{consoleURL}</span> — its browser resolves the stack&apos;s
-        DNS names and trusts the Intranet CA.
+        The admin console is not published to this machine. It opens in the browser on the stack&apos;s{' '}
+        <span className="font-semibold">VNC</span> desktop, which resolves the stack&apos;s DNS names and
+        trusts the Intranet CA: <span className="break-all font-mono">{consoleURL}</span>
+        {dep.state === 'running' && (
+          <div className="mt-2">
+            <Button size="sm" onClick={() => openInDesktop({ stackId: dep.stackId, nodeId: dep.nodeId })}>Open in VNC Browser</Button>
+          </div>
+        )}
       </div>
       <div className="space-y-2 rounded-lg bg-surface2 px-3 py-2 text-sm">
         <InfoRow label="Image" help={HELP.depImage}><span className="font-mono text-xs">{cfg.image || 'quay.io/keycloak/keycloak'}</span></InfoRow>

@@ -251,3 +251,31 @@ func TestStackOfContainer(t *testing.T) {
 			"k3d-everest-s12-dbcanvas-serverlb"})
 	})
 }
+
+// Keycloak publishes no host port, so its console is opened on the desktop by the
+// address it is pinned to: the stack name, on 8443 when it serves HTTPS.
+func TestInsidePageIsKeycloaksPinnedAddress(t *testing.T) {
+	app := newTestApp(t)
+	u, err := app.store.CreateUser("owner", "x", RoleAdmin, StatusApproved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	design := `{"nodes":[{"id":"kc","type":"keycloak","label":"keycloak-01"},{"id":"db","type":"ps","label":"ps-01"}]}`
+	st, err := app.store.CreateStack("sso", u.ID, ttlLongest, nil, []byte(design))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.insidePage(st, "kc"); err == nil {
+		t.Fatal("a Keycloak node that is not running has no page to open")
+	}
+	app.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: "kc", State: DeployRunning,
+		Config: []byte(`{"fqdn":"keycloak-01.sso.example.com","ssl":true}`)})
+	got, err := app.insidePage(st, "kc")
+	if want := "https://keycloak-01.sso.example.com:8443/admin/"; err != nil || got != want {
+		t.Fatalf("insidePage = %q, %v; want %q", got, err, want)
+	}
+	app.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: "db", State: DeployRunning})
+	if _, err := app.insidePage(st, "db"); err == nil {
+		t.Fatal("a Percona Server node has no in-stack-only page")
+	}
+}

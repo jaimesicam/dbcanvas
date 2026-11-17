@@ -62,3 +62,17 @@ export function nodeWebLinks(type, dep) {
   }
   return out
 }
+
+// nodeDesktopPages lists the pages a deployed node offers only on the stack network,
+// which no host port reaches, so only "Open in VNC Browser" can show them. Each is
+// { label, page } where page is what POST /api/browse/desktop takes in place of a url.
+export function nodeDesktopPages(type, dep) {
+  if (dep?.state !== 'running' || !dep.stackId) return []
+  const page = { stackId: dep.stackId, nodeId: dep.nodeId }
+  switch (type) {
+    case 'keycloak':
+      return [{ label: 'Admin console', page }]
+    default:
+      return []
+  }
+}
