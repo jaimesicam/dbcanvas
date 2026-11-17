@@ -243,11 +243,10 @@ vnc-image:
 	bash images/service.sh vnc
 
 ## k8scollector-image: rebuild only the K3D diagnostics collector image
-## (dbcanvas-k8scollector:debian-12-amd64) — Debian 12 plus percona-toolkit, which
-## carries pt-k8s-debug-collector along with pt-mysql-summary and
-## pt-mongodb-summary. A K3D node's Diagnostics capture runs one throwaway
-## container from this image against the cluster's kubeconfig. amd64 only:
-## Percona's apt repo has no arm64 percona-toolkit. `make images` builds this too.
+## (dbcanvas-k8scollector:debian-12-<arch>) — Debian 12 with pt-k8s-debug-collector,
+## pt-mysql-summary and pt-mongodb-summary built from percona-toolkit's source, for
+## DOCKER_PLATFORM. A K3D node's Diagnostics capture runs one throwaway
+## container from this image against the cluster's kubeconfig. `make images` builds this too.
 k8scollector-image:
 	bash images/service.sh k8scollector
 

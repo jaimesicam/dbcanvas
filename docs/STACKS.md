@@ -691,7 +691,7 @@ The k3s server node's panel has these tabs (some depend on the operator):
 | **Storage** | Volume sizes and use; grow volumes on Ceph |
 | **Replication** | State of a cross-cluster replication link, and **Re-seed** |
 | **Logical replicas** | Add, remove and re-seed Percona PostgreSQL logical replicas |
-| **Diagnostics** | Capture the cluster with `pt-k8s-debug-collector` (amd64 only; needs `make k8scollector-image`) |
+| **Diagnostics** | Capture the cluster with `pt-k8s-debug-collector` (needs `make k8scollector-image`, or pulls it at the first capture) |
 
 Also:
 

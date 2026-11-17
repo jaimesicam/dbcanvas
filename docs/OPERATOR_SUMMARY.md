@@ -24,8 +24,8 @@ two captures, use [Kubernetes States](KUBERNETES_STATES.md).
 
 The capture runs pt-k8s-debug-collector in a separate container next to the cluster, with
 `-resource` set to the cluster's operator so that the operator's custom resources are
-included. The collector image is linux/amd64 only, so on an arm64 host it runs under
-emulation and is slower.
+included. The collector image is built for the installation's own architecture, amd64
+or arm64, from percona-toolkit's source.
 
 ## What the report shows
 

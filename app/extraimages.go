@@ -115,10 +115,10 @@ func extraImageCatalog() []extraImage {
 		},
 		{
 			ID: "k8scollector", Tag: k8sCollectorImage(), Label: "K3D diagnostics collector",
-			About: "Debian 12 plus percona-toolkit, for pt-k8s-debug-collector. Pinned to amd64: Percona publishes the toolkit for that architecture only.",
+			About: "Debian 12 with pt-k8s-debug-collector, pt-mongodb-summary and pt-mysql-summary built from percona-toolkit's source, and the database clients they use.",
 			Make:  "k8scollector-image", Needs: []string{"k3d"},
 			Dockerfile: "k8scollector.Dockerfile", Buildable: true,
-			Platform: platformAMD64,
+			Platform: "linux/" + platformArch(),
 		},
 		{
 			ID: "kubeadm", Tag: kubeadmImage(), Label: "Kubeadm node",

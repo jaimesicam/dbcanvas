@@ -16,12 +16,15 @@ package main
 // Two things about the tool that its documentation does not say, both found by
 // running it rather than reading about it:
 //
-//   - It shells out to `kubectl`. Without one on PATH it fails at the first step
-//     with `get namespaces: error: exec: "kubectl": executable file not found`.
-//     The image carries one; see images/k8scollector.Dockerfile.
-//   - percona-toolkit 3.6.0's flags are narrower than docs.percona.com describes,
-//     and are single-dash Go flags: -resource, -namespace, -cluster, -kubeconfig,
-//     -forwardport, -version. There is no -skip-pod-summary in this build.
+//   - Up to percona-toolkit 3.6 it shells out to `kubectl`, and without one on PATH
+//     fails at the first step with `get namespaces: error: exec: "kubectl":
+//     executable file not found`; 3.7 uses the Kubernetes API directly. The image
+//     carries kubectl either way; see images/k8scollector.Dockerfile.
+//   - Its flags changed in 3.7: 3.6 took Go flags (-resource, -kubeconfig, …, with
+//     either one dash or two) and had no -skip-pod-summary; 3.7 takes double-dash
+//     flags only, adds --skip-pod-summary and --dump-file, and names its archive
+//     cluster-dump_<timestamp>.tar.gz. A capture uses double dashes and takes
+//     whichever archive appeared, so both work.
 
 import (
 	"context"
@@ -42,15 +45,17 @@ const (
 	k8sDumpPath       = k8sCollectDir + "/cluster-dump.tar.gz"
 	k8sKubeconfigPath = k8sCollectDir + "/kubeconfig.yaml"
 	k8sCollectKind    = "k8scollect"
-	// A capture of a large cluster port-forwards into every database pod in turn,
-	// and on an arm64 host the amd64-only image runs emulated. Generous on purpose.
+	// A capture of a large cluster port-forwards into every database pod in turn.
+	// Generous on purpose.
 	k8sCollectTimeout = 20 * time.Minute
 )
 
-// k8sCollectorImage is the image a capture runs in. Built by
-// `make k8scollector-image`; amd64-only because Percona's apt repo has no arm64
-// percona-toolkit (see the Dockerfile).
-func k8sCollectorImage() string { return "dbcanvas-k8scollector:debian-12-amd64-" + imageRelease() }
+// k8sCollectorImage is the image a capture runs in, for this installation's
+// architecture. Built by `make k8scollector-image`, from percona-toolkit's source
+// (see the Dockerfile).
+func k8sCollectorImage() string {
+	return "dbcanvas-k8scollector:debian-12-" + platformArch() + "-" + imageRelease()
+}
 
 // k8sCollectResource maps a frame's operator to the collector's -resource value.
 // The two community PostgreSQL operators are not Percona's, so the collector has
@@ -196,7 +201,7 @@ func (a *App) runK8sCollect(ctx context.Context, st Stack, frame designFrame, se
 		Cmd:       []string{"sleep", strconv.Itoa(int(k8sCollectTimeout.Seconds()))},
 		Network:   networkName(st.ID),
 		NoRestart: true,
-		Platform:  platformAMD64,
+		Platform:  "linux/" + platformArch(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create the collector container: %w", err)
@@ -215,11 +220,18 @@ func (a *App) runK8sCollect(ctx context.Context, st Stack, frame designFrame, se
 		return nil, fmt.Errorf("write the kubeconfig into the collector: %v %s", err, strings.TrimSpace(res.Stderr))
 	}
 
+	// Double-dash flags: percona-toolkit 3.7 takes only those, and earlier releases
+	// take both. The archive is cluster-dump.tar.gz up to 3.6 and
+	// cluster-dump_<timestamp>.tar.gz from 3.7; whichever was written is moved to the
+	// one name this reads back.
 	res, err := eng.Exec(ctx, cid, []string{"bash", "-c",
 		"cd " + k8sCollectDir + " && pt-k8s-debug-collector" +
-			" -kubeconfig " + k8sKubeconfigPath +
-			" -resource $RESOURCE" +
-			" 2>&1 | tail -40; test -s " + k8sDumpPath},
+			" --kubeconfig " + k8sKubeconfigPath +
+			" --resource $RESOURCE" +
+			" 2>&1 | tail -40;" +
+			" f=$(ls -t cluster-dump*.tar.gz 2>/dev/null | head -1);" +
+			" [ -z \"$f\" ] || [ \"$f\" = cluster-dump.tar.gz ] || mv \"$f\" cluster-dump.tar.gz;" +
+			" test -s " + k8sDumpPath},
 		[]string{"RESOURCE=" + k8sCollectResource(frame.K3DOperator)})
 	if err != nil {
 		return nil, fmt.Errorf("run the collector: %w", err)

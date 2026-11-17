@@ -4,7 +4,7 @@
 #
 #   dbcanvas-intranet:oraclelinux-9-<arch>   (images/intranet.Dockerfile)
 #   dbcanvas-vnc:ubuntu-24.04-<arch>         (images/vnc.Dockerfile)
-#   dbcanvas-k8scollector:debian-12-amd64    (images/k8scollector.Dockerfile)
+#   dbcanvas-k8scollector:debian-12-<arch>   (images/k8scollector.Dockerfile)
 #   dbcanvas-kubeadm:ubuntu-24.04-<k8s arch> (images/kubeadm.Dockerfile)
 #
 # Each is the matching systemd base from `make images` with that node's packages already
@@ -15,9 +15,9 @@
 # still written at deploy (see app/intranet.go and app/vnc.go).
 #
 # The last two are not node images built from a systemd base. The collector is the
-# throwaway container a K3D Diagnostics capture runs pt-k8s-debug-collector in, and
-# it is pinned to linux/amd64 because Percona's apt repo publishes percona-toolkit
-# for that architecture only (see images/k8scollector.Dockerfile).
+# throwaway container a K3D Diagnostics capture runs pt-k8s-debug-collector in, built
+# for DOCKER_PLATFORM like the node images, from percona-toolkit's source (see
+# images/k8scollector.Dockerfile).
 #
 # The kubeadm node image is not baked onto a base either: it is built from ubuntu:24.04 for
 # K8S_PLATFORM, which may not be the platform the bases were built for — a Kubernetes node
@@ -46,11 +46,6 @@ IMAGES_DIR="$ROOT/images"
 INTRANET_BASE_OS="oraclelinux"; INTRANET_BASE_VER="9"
 VNC_BASE_OS="ubuntu";          VNC_BASE_VER="24.04"
 
-# The collector image carries its own platform and tag: it is not built per-arch
-# like the node images, because the package it exists to deliver is amd64-only.
-# Must match k8sCollectorImage() in app/k8sdiag.go.
-K8SCOLLECTOR_PLATFORM="linux/amd64"
-K8SCOLLECTOR_TAG="dbcanvas-k8scollector:debian-12-amd64" # + the release, below
 
 WANT="${1:-all}"
 case "$WANT" in
@@ -60,9 +55,10 @@ esac
 
 # shellcheck source=platform.sh
 . "$IMAGES_DIR/platform.sh"
-K8SCOLLECTOR_TAG="${K8SCOLLECTOR_TAG}-$(image_release "$ROOT")"
 PLATFORM="$(resolve_platform "$ROOT")" || exit 1
 ARCH="${PLATFORM#linux/}"
+# Must match k8sCollectorImage() in app/k8sdiag.go.
+K8SCOLLECTOR_TAG="dbcanvas-k8scollector:debian-12-${ARCH}-$(image_release "$ROOT")"
 
 # The kubeadm node image: its own platform and tag. Must match kubeadmImage() in app/kubeadm.go.
 # .env's K8S_PLATFORM, unless DOCKER_PLATFORM is given on the command line (see run_k8s_platform).
@@ -128,7 +124,7 @@ if [ "$WANT" = "vnc" ] || [ "$WANT" = "all" ]; then
 fi
 
 if [ "$WANT" = "k8scollector" ] || [ "$WANT" = "all" ]; then
-  build_standalone k8scollector.Dockerfile "$K8SCOLLECTOR_TAG" "$K8SCOLLECTOR_PLATFORM"
+  build_standalone k8scollector.Dockerfile "$K8SCOLLECTOR_TAG" "$PLATFORM"
 fi
 
 if [ "$WANT" = "kubeadm" ] || [ "$WANT" = "all" ]; then

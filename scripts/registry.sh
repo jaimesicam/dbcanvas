@@ -19,8 +19,7 @@
 # in either order and from one host or two. A DOCKER_PLATFORM given on the command line also
 # selects the Kubeadm node image's architecture for that run (images/platform.sh
 # run_k8s_platform); without it, the Kubeadm image is .env's K8S_PLATFORM, the one this
-# installation's nodes run, which `pull` takes too. The K3D collector is amd64 only, whatever the
-# run. Every image but the demo applications names its architecture in its tag; those are pushed
+# installation's nodes run, which `pull` takes too. Every image but the demo applications names its architecture in its tag; those are pushed
 # as …:v0.0.30-amd64 and …:v0.0.30-arm64 and joined into one multi-architecture …:v0.0.30,
 # which is what `pull` asks for with this platform.
 #
@@ -58,8 +57,8 @@ MATRIX=(
 ONLY="${ONLY:-}"
 
 # images prints "<local tag>|<platform>|<kind>" for every image of this release this run builds:
-# DOCKER_PLATFORM's, the Kubeadm node image for K8S_PLATFORM (see run_k8s_platform) and the
-# amd64-only collector.
+# DOCKER_PLATFORM's (the K3D collector among them) and the Kubeadm node image for K8S_PLATFORM
+# (see run_k8s_platform).
 images() {
   all_images "${1:-}" | { if [ -n "$ONLY" ]; then grep -E "^[^|]*(${ONLY})" || true; else cat; fi; }
 }
@@ -74,7 +73,7 @@ all_images() {
   # Must match intranetImage, vncImage, k8sCollectorImage and kubeadmImage in app/.
   echo "dbcanvas-intranet:oraclelinux-9-${ARCH}-${REL}|${PLATFORM}|extra"
   echo "dbcanvas-vnc:ubuntu-24.04-${ARCH}-${REL}|${PLATFORM}|extra"
-  echo "dbcanvas-k8scollector:debian-12-amd64-${REL}|linux/amd64|extra"
+  echo "dbcanvas-k8scollector:debian-12-${ARCH}-${REL}|${PLATFORM}|extra"
   echo "dbcanvas-kubeadm:ubuntu-24.04-${K8S_PLATFORM#linux/}-${REL}|${K8S_PLATFORM}|extra"
   # Must match the *SimImage / pagerPanicImage tags in app/; built for DOCKER_PLATFORM like the bases.
   # They are pushed under their architecture tag (…:v0.0.30-arm64) and joined into the plain
