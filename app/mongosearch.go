@@ -88,7 +88,7 @@ func mongoSearchIssues(f designFrame) []issue {
 		out = append(out, issue{Level: "error", Message: "PS MongoDB " + kind + " " + f.Label +
 			" has vector search on, which needs Percona Server for MongoDB " + mongoSearchMinMajor +
 			" or later (mongot cannot attach to " + orDefault(f.PSMDBMajor, "8.0") + ") — choose the " +
-			mongoSearchMinMajor + " series, or run `ONLY=percona make versions` if it is not offered"})
+			mongoSearchMinMajor + " series, or run `dbcanvas versions update` if it is not offered"})
 	}
 	if !mongoSearchOS[f.OS+"/"+f.OSVersion] {
 		out = append(out, issue{Level: "error", Message: "PS MongoDB " + kind + " " + f.Label +

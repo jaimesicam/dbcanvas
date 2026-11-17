@@ -551,7 +551,7 @@ func (a *App) handleCreateAppShare(w http.ResponseWriter, r *http.Request) {
 func (a *App) createShare(w http.ResponseWriter, r *http.Request, u User, stackID int64, stackName string) {
 	allowed, maxMinutes := a.guestSessionSettings()
 	if !allowed {
-		writeErr(w, http.StatusForbidden, "guest sessions are turned off on this installation — an administrator can turn them on in Settings")
+		writeErr(w, http.StatusForbidden, "shared sessions are turned off — turn them on in Settings → Access & security")
 		return
 	}
 	var in struct {

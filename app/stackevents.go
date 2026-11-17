@@ -152,7 +152,7 @@ func (a *App) writeStackGone(w http.ResponseWriter, u User, id int64) bool {
 	case "user":
 		msg += " by its owner"
 	case "admin":
-		msg += " by an administrator"
+		msg += " by the owner"
 	case "account":
 		msg += ", with the account that owned it"
 	case "guest-idle":

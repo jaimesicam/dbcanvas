@@ -277,7 +277,7 @@ func spaHandler() http.Handler {
 		// which a script reads as success and then fails to parse.
 		if r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/") {
 			writeErr(w, http.StatusNotFound, "no endpoint "+r.Method+" "+r.URL.Path+
-				" — GET /api/meta/endpoints (dbcanvas-cli endpoints) lists every one")
+				" — GET /api/meta/endpoints lists every one")
 			return
 		}
 		p := strings.TrimPrefix(r.URL.Path, "/")

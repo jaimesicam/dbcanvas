@@ -1426,13 +1426,13 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			if !seenImg[img] {
 				seenImg[img] = true
 				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
-					out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make intranet-image` first"})
+					out = append(out, issue{Level: "error", Message: "Missing image " + img})
 				}
 			}
 		case "pmm":
 			others++
 			if !pmmCat.validPMMTag(n.Version) {
-				out = append(out, issue{Level: "warning", Message: "Unknown PMM version " + n.Version + " for node " + n.Label + " — run `make versions`"})
+				out = append(out, issue{Level: "warning", Message: "Unknown PMM version " + n.Version + " for node " + n.Label + " — `dbcanvas versions update` gets a newer catalogue"})
 			}
 			out = append(out, oidcIssues(n, keycloakIDs, keycloakSSL)...)
 			out = append(out, dirAuthIssues(n, dirNodes)...)
@@ -1450,7 +1450,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			if !seenImg[img] {
 				seenImg[img] = true
 				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
-					out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+					out = append(out, issue{Level: "error", Message: "Missing image " + img})
 				}
 			}
 			out = append(out, repositoryIssues(n)...)
@@ -1474,7 +1474,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			if !seenImg[img] {
 				seenImg[img] = true
 				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
-					out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+					out = append(out, issue{Level: "error", Message: "Missing image " + img})
 				}
 			}
 		case "sambaad":
@@ -1484,7 +1484,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			if !seenImg[img] {
 				seenImg[img] = true
 				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
-					out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+					out = append(out, issue{Level: "error", Message: "Missing image " + img})
 				}
 			}
 		case "vnc":
@@ -1496,7 +1496,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			if !seenImg[img] {
 				seenImg[img] = true
 				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
-					out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make vnc-image` first"})
+					out = append(out, issue{Level: "error", Message: "Missing image " + img})
 				}
 			}
 		case "valkey":
@@ -1506,7 +1506,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			if !seenImg[img] {
 				seenImg[img] = true
 				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
-					out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+					out = append(out, issue{Level: "error", Message: "Missing image " + img})
 				}
 			}
 			if n.ExportEnabled && n.ExportHostPort > 0 {
@@ -1521,7 +1521,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			if !seenImg[img] {
 				seenImg[img] = true
 				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
-					out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+					out = append(out, issue{Level: "error", Message: "Missing image " + img})
 				}
 			}
 			if _, _, ok := backendFrameForProxySQL(doc, n.ID); !ok {
@@ -1542,7 +1542,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			if !seenImg[img] {
 				seenImg[img] = true
 				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
-					out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+					out = append(out, issue{Level: "error", Message: "Missing image " + img})
 				}
 			}
 			if n.ExportEnabled && n.ExportHostPort > 0 {
@@ -1559,7 +1559,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			if !seenImg[img] {
 				seenImg[img] = true
 				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
-					out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+					out = append(out, issue{Level: "error", Message: "Missing image " + img})
 				}
 			}
 			if n.ExportEnabled && n.ExportHostPort > 0 {
@@ -1581,7 +1581,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			if !seenImg[img] {
 				seenImg[img] = true
 				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
-					out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+					out = append(out, issue{Level: "error", Message: "Missing image " + img})
 				}
 			}
 			if n.ExportEnabled && n.ExportHostPort > 0 {
@@ -1622,7 +1622,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			if !seenImg[img] {
 				seenImg[img] = true
 				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
-					out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+					out = append(out, issue{Level: "error", Message: "Missing image " + img})
 				}
 			}
 			// HAProxy fronts exactly one backend cluster — a Patroni PostgreSQL cluster,
@@ -1644,7 +1644,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			if !seenImg[img] {
 				seenImg[img] = true
 				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
-					out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+					out = append(out, issue{Level: "error", Message: "Missing image " + img})
 				}
 			}
 			// The association rule and every pool option that can only fail at
@@ -1659,7 +1659,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			if !seenImg[img] {
 				seenImg[img] = true
 				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
-					out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+					out = append(out, issue{Level: "error", Message: "Missing image " + img})
 				}
 			}
 			// No "must be linked to a cluster" error, unlike HAProxy — an Orchestrator
@@ -1678,7 +1678,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			if !seenImg[img] {
 				seenImg[img] = true
 				if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
-					out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+					out = append(out, issue{Level: "error", Message: "Missing image " + img})
 				}
 			}
 			_, hostMem := a.engCtx(ctx).HostResources(ctx)
@@ -1856,7 +1856,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 		if !seenImg[img] {
 			seenImg[img] = true
 			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
-				out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+				out = append(out, issue{Level: "error", Message: "Missing image " + img})
 			}
 		}
 		if _, _, ok := backendFrameForProxySQL(doc, f.ID); !ok {
@@ -1906,7 +1906,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 		if !seenImg[img] {
 			seenImg[img] = true
 			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
-				out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+				out = append(out, issue{Level: "error", Message: "Missing image " + img})
 			}
 		}
 		out = append(out, vaultFrameIssues(f, openbaoIDs)...)
@@ -1982,7 +1982,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 		if !seenImg[img] {
 			seenImg[img] = true
 			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
-				out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+				out = append(out, issue{Level: "error", Message: "Missing image " + img})
 			}
 		}
 		out = append(out, upstreamVersionIssues(f.Type, f.Label, f.OS, f.OSVersion, f.Arch,
@@ -2022,7 +2022,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 		if !seenImg[img] {
 			seenImg[img] = true
 			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
-				out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+				out = append(out, issue{Level: "error", Message: "Missing image " + img})
 			}
 		}
 	}
@@ -2057,7 +2057,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 		if !seenImg[img] {
 			seenImg[img] = true
 			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
-				out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+				out = append(out, issue{Level: "error", Message: "Missing image " + img})
 			}
 		}
 	}
@@ -2171,7 +2171,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 		if !seenImg[img] {
 			seenImg[img] = true
 			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
-				out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+				out = append(out, issue{Level: "error", Message: "Missing image " + img})
 			}
 		}
 	}
@@ -2212,7 +2212,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 		if !seenImg[img] {
 			seenImg[img] = true
 			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
-				out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+				out = append(out, issue{Level: "error", Message: "Missing image " + img})
 			}
 		}
 	}
@@ -2263,7 +2263,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 		if !seenImg[img] {
 			seenImg[img] = true
 			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
-				out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+				out = append(out, issue{Level: "error", Message: "Missing image " + img})
 			}
 		}
 	}
@@ -2325,7 +2325,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 		if !seenImg[img] {
 			seenImg[img] = true
 			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
-				out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+				out = append(out, issue{Level: "error", Message: "Missing image " + img})
 			}
 		}
 	}
@@ -2348,7 +2348,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 		if !seenImg[img] {
 			seenImg[img] = true
 			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
-				out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+				out = append(out, issue{Level: "error", Message: "Missing image " + img})
 			}
 		}
 	}
@@ -2388,7 +2388,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 		if !seenImg[img] {
 			seenImg[img] = true
 			if ok, _ := a.engCtx(ctx).ImageExists(ctx, img); !ok {
-				out = append(out, issue{Level: "error", Message: "Missing image " + img + " — run `make images` first"})
+				out = append(out, issue{Level: "error", Message: "Missing image " + img})
 			}
 		}
 	}

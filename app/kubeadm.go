@@ -184,7 +184,7 @@ func kubeadmEmulationIssue(host string) string {
 	if native == k8sArch() {
 		return ""
 	}
-	return fmt.Sprintf("Docker runs on %s, and K8S_PLATFORM is linux/%s — under emulation containerd cannot create a pod (\"seccomp is not supported\"). Set K8S_PLATFORM=linux/%s in .env and restart DBCanvas", native, k8sArch(), native)
+	return fmt.Sprintf("Docker runs on %s, and K8S_PLATFORM is linux/%s — under emulation containerd cannot create a pod (\"seccomp is not supported\"). Set K8S_PLATFORM=linux/%s under env: in ~/.dbcanvas/config.yaml, then dbcanvas stop", native, k8sArch(), native)
 }
 
 // kubeadmShapeIssues are the checks that need nothing but the design.

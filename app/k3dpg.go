@@ -538,7 +538,7 @@ func (a *App) installPGOperator(ctx context.Context, st Stack, frame designFrame
 			return fmt.Errorf("create the %s user secret: %w", user, err)
 		}
 	}
-	pr.logln("user secrets created for " + strings.Join(pgUsers(cfg.ClusterName), ", ") + " (password from .env)")
+	pr.logln("user secrets created for " + strings.Join(pgUsers(cfg.ClusterName), ", ") + " (the node password: dbcanvas passwords)")
 
 	// ---- the certificate issuer, BEFORE cr.yaml: the operator looks it up on its first reconcile ----
 	// Only from pgIssuerMinVer, the first CRD with spec.tls.issuerConf — on an older one the field

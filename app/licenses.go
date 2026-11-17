@@ -59,9 +59,9 @@ var licenseBlurb = map[string]string{
 	"LICENSE":                      "DBCanvas itself — GNU General Public License v3.0",
 	"THIRD_PARTY_NOTICES.md":       "Summary of every third-party component and its licence",
 	"THIRD_PARTY_LICENSES-web.txt": "npm packages and fonts in this web interface",
-	"THIRD_PARTY_LICENSES-go.txt":  "Go modules in the server and dbcanvas_reset_password",
-	"THIRD_PARTY_LICENSES-cli.txt": "Go modules in dbcanvas-cli (the downloads on the API page)",
-	"k3d.LICENSE":                  "k3d, bundled for K3D clusters (MIT)",
+	"THIRD_PARTY_LICENSES-go.txt":  "Go modules in the dbcanvas binary",
+	"k3d.LICENSE":                  "k3d, downloaded for K3D clusters (MIT)",
+	"big-hole.LICENSE":             "Big Hole, the MongoDB FTDC viewer a node can serve (MIT)",
 }
 
 func handleLicenses(w http.ResponseWriter, r *http.Request) {

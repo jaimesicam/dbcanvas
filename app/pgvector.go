@@ -109,7 +109,7 @@ func k3dPgVectorIssues(f designFrame, opCat OperatorCatalog, deployed bool) []is
 	switch {
 	case !ok:
 		return []issue{{Level: lvl, Message: "K3D cluster " + name + " asks for pgvector, which needs a known " +
-			"operator version to check against " + pgVectorK3DMinVer + " — pick one from the list, or run `make versions`" + tail}}
+			"operator version to check against " + pgVectorK3DMinVer + " — pick one from the list, or run `dbcanvas versions update` for a newer catalogue" + tail}}
 	case !pgHasPGVector(ver):
 		return []issue{{Level: lvl, Message: "K3D cluster " + name + " asks for pgvector, which the Percona " +
 			"Operator for PostgreSQL only has from " + pgVectorK3DMinVer + " — this frame pins " + ver + ", whose CRD has no " +

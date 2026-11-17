@@ -95,7 +95,7 @@ var catalogInfra = []catalogEntry{
 		Requires:  []string{"an Intranet node"},
 		Options: []catalogOption{
 			{Field: "version", Desc: "percona/pmm-server image tag; \"\" is the rolling latest. GET /api/catalog/pmm lists the tags."},
-			{Field: "adminPassword", Desc: "Password for PMM's admin account; \"\" uses PMM_ADMIN_PASSWORD from the installation's .env."},
+			{Field: "adminPassword", Desc: "Password for PMM's admin account; \"\" uses PMM_ADMIN_PASSWORD (dbcanvas passwords)."},
 			{Field: "generateCert", Default: false, Desc: "Serve PMM's HTTPS (nginx) with a 365-day certificate from the Intranet CA."},
 			{Field: "ldapAuth", Desc: "Grafana sign-in against an LDAP directory, chosen with the ldap relation."},
 			{Field: "enableOIDC", Desc: "Grafana sign-in through Keycloak (OAuth), chosen with the oidc relation; the Keycloak node must use Intranet CA SSL."},
@@ -212,7 +212,7 @@ var catalogInfra = []catalogEntry{
 		Requires: []string{"an Intranet node"},
 		Options: []catalogOption{
 			{Field: "vncUser", Default: "dbadmin", Desc: "Linux login and VNC user, with passwordless sudo; \"\" is \"dbadmin\"."},
-			{Field: "vncPassword", Desc: "Desktop and VNC password; \"\" uses VNC_PASSWORD from the installation's .env. VNC reads the first 8 characters."},
+			{Field: "vncPassword", Desc: "Desktop and VNC password; \"\" uses VNC_PASSWORD (dbcanvas passwords). VNC reads the first 8 characters."},
 			infraUseProxy,
 		},
 	},

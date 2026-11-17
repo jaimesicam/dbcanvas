@@ -77,7 +77,7 @@ func k3dSearchIssues(f designFrame, opCat OperatorCatalog) []issue {
 	switch {
 	case !ok:
 		return []issue{{Level: "error", Message: "K3D cluster " + name + " asks for vector search, which needs a known " +
-			"operator version to check against " + psmdbSearchMinVer + " — pick one from the list, or run `make versions`"}}
+			"operator version to check against " + psmdbSearchMinVer + " — pick one from the list, or run `dbcanvas versions update` for a newer catalogue"}}
 	case !psmdbHasSearch(ver):
 		return []issue{{Level: "error", Message: "K3D cluster " + name + " asks for vector search, which the Percona " +
 			"Operator for MongoDB only has from " + psmdbSearchMinVer + " — this frame pins " + ver + ", whose CRD has no " +

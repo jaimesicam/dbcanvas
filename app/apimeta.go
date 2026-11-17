@@ -62,7 +62,6 @@ var paramDocByPrefix = map[string]map[string]string{
 		"tid": "A shared terminal's id within the session."},
 	"/api/share/recordings": {"rid": "A session recording's numeric id."},
 	"/api/join":             {"token": "The share link's token — the last part of the link the host sent."},
-	"/api/auth/reset":       {"token": "The reset link's token — the last part of the link an administrator sent."},
 	"/api/kanban/boards":    {"id": "The board's numeric id."},
 	"/api/kanban/columns":   {"cid": "The column's numeric id."},
 	"/api/kanban/cards":     {"kid": "The card's numeric id."},

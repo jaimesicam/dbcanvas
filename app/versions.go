@@ -808,7 +808,7 @@ func upstreamVersionIssues(typ, label, os, osVersion, arch, mdMajor, mdVersion, 
 	// No catalog at all means versions.yaml predates these sections; `make versions`
 	// is the fix, and saying so beats silently accepting anything.
 	if len(images) == 0 {
-		return []issue{{Level: "warning", Message: label + ": no " + product + " version catalog — run `make versions`"}}
+		return []issue{{Level: "warning", Message: label + ": no " + product + " version catalogue — run `dbcanvas versions update`"}}
 	}
 	arch = archOr(arch)
 	for _, im := range images {

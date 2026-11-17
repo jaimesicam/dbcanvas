@@ -550,7 +550,7 @@ func tokenExpiry(days int, role string, maxDays int) (*string, error) {
 	}
 	if days == 0 {
 		if role != RoleAdmin {
-			return nil, errors.New("only an administrator can create a token that never expires")
+			return nil, errors.New("a token that never expires needs the owner's session")
 		}
 		return nil, nil
 	}
@@ -626,7 +626,7 @@ func (a *App) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !scopeAllows(mostScope(u.Role), scope) {
-		writeErr(w, http.StatusForbidden, "only an administrator can create an admin-scope token")
+		writeErr(w, http.StatusForbidden, "an admin-scope token needs the owner's session")
 		return
 	}
 	expires, err := tokenExpiry(in.Days, u.Role, a.maxTokenDays())
@@ -728,15 +728,8 @@ func (s *Store) SetAPITokenLimit(id int64, l *tokenLimit) error {
 }
 
 // scopeRefusal is the 403 for a token whose scope is too narrow, with how to get one that is
-// wide enough — `dbcanvas-cli login` creates a write-scope token unless asked otherwise, so an
-// administrator meets this on the first admin command.
+// wide enough.
 func scopeRefusal(need, have string, u User) string {
-	msg := "this endpoint needs a token with " + need + " scope; this token has " + have
-	switch {
-	case need == ScopeAdmin && u.Role != RoleAdmin:
-		return msg + " — only an administrator's account can have one"
-	case need == ScopeAdmin:
-		return msg + " — sign in for one with `dbcanvas-cli login --scope admin` (add --profile admin to keep this token as the default), or create one on the API page"
-	}
-	return msg + " — sign in for one with `dbcanvas-cli login --scope " + need + "`, or create one on the API page"
+	return "this endpoint needs a token with " + need + " scope; this token has " + have +
+		" — create one with `dbcanvas token create NAME --scope " + need + "`, or on the API page"
 }

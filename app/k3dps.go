@@ -192,7 +192,7 @@ func (a *App) installPSOperator(ctx context.Context, st Stack, frame designFrame
 	if err := a.kubectlApply(ctx, serverID, ns, []byte(newSecrets)); err != nil {
 		return fmt.Errorf("apply secrets.yaml: %w", err)
 	}
-	pr.logln("secrets.yaml applied as " + cfg.ClusterName + "-secrets (passwords from .env)")
+	pr.logln("secrets.yaml applied as " + cfg.ClusterName + "-secrets (the node passwords: dbcanvas passwords)")
 
 	// ---- the certificate issuer, BEFORE cr.yaml: the operator looks it up on its first reconcile ----
 	issuer, err := a.k3dProvisionIssuer(ctx, st, frame, doc, serverID, cfg, pr)

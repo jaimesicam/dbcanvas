@@ -795,12 +795,12 @@ func (a *App) gdbNodeIssues(n designNode, st Stack) []issue {
 	}
 	minors := entry.Versions[strings.TrimSpace(n.GDBMajor)]
 	if len(minors) == 0 {
-		out = append(out, issue{Level: "error", Message: fmt.Sprintf("%s asks for %s %s on %s %s, which the catalog has no builds of — pick one from the list, or run `make versions`",
+		out = append(out, issue{Level: "error", Message: fmt.Sprintf("%s asks for %s %s on %s %s, which the catalog has no builds of — pick one from the list, or run `dbcanvas versions update` for a newer catalogue",
 			name, gdbProductLabel(product), n.GDBMajor, n.OS, n.OSVersion)})
 		return out
 	}
 	if v := strings.TrimSpace(n.GDBVersion); v != "" && !sliceHas(minors, v) {
-		out = append(out, issue{Level: "error", Message: fmt.Sprintf("%s asks for %s %s, which is not in the catalog for %s %s — pick one from the list, or run `make versions`",
+		out = append(out, issue{Level: "error", Message: fmt.Sprintf("%s asks for %s %s, which is not in the catalog for %s %s — pick one from the list, or run `dbcanvas versions update` for a newer catalogue",
 			name, gdbProductLabel(product), v, n.OS, n.OSVersion)})
 	}
 	return out

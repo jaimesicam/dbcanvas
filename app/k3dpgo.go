@@ -510,7 +510,7 @@ func (a *App) installPGOOperator(ctx context.Context, st Stack, frame designFram
 	}
 	cfg.PGOAppUser, cfg.PGOAppDB = cluster, cluster
 	cfg.PGOAppSecret = cluster + "-pguser-" + cluster
-	pr.logln("user secrets created for " + strings.Join(pgoUsers(cluster), ", ") + " (password from .env)")
+	pr.logln("user secrets created for " + strings.Join(pgoUsers(cluster), ", ") + " (the node password: dbcanvas passwords)")
 
 	// ---- backups ----
 	// pgBackRest has no plaintext S3 at all, so a SeaweedFS node with TLS off cannot be a repo.

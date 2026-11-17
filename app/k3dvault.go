@@ -400,7 +400,7 @@ func k3dVaultIssues(f designFrame, doc designDoc, opCat OperatorCatalog, deploye
 		case !ok:
 			out = append(out, issue{Level: lvl, Message: "K3D cluster " + name +
 				" asks for data-at-rest encryption, which needs a known operator version to check against " +
-				psmdbVaultMinVer + " — pick one from the list, or run `make versions`" + tail})
+				psmdbVaultMinVer + " — pick one from the list, or run `dbcanvas versions update` for a newer catalogue" + tail})
 		case !psmdbHasVault(ver):
 			out = append(out, issue{Level: lvl, Message: "K3D cluster " + name +
 				" asks for data-at-rest encryption, which the Percona Operator for MongoDB only has from " +

@@ -129,7 +129,7 @@ func catalogVersionIssues(doc designDoc) []issue {
 		}
 		if why := emptyCatalogReason(imgs, s); why != "" {
 			out = append(out, issue{Level: "error", Message: what + ": " + why +
-				" — the version catalogue is empty for it. Pick another OS or series, or run `make versions` to re-probe"})
+				" — the version catalogue is empty for it. Pick another OS or series, or run `dbcanvas versions update` for a newer catalogue"})
 		}
 	}
 	populated := map[string]bool{}

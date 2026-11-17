@@ -205,7 +205,7 @@ var catalogKubeadm = []catalogEntry{
 		Placement: "frame", MemberType: "kubeadm", DefaultMembers: 3, MinMembers: 1, MaxMembers: 4,
 		Requires: []string{
 			"an Intranet node (the nodes and their pods resolve through it)",
-			"the Kubeadm node image (make kubeadm-image), built for K8S_PLATFORM — which has to be the Docker host's own architecture",
+			"the Kubeadm node image, for K8S_PLATFORM — which has to be the Docker host's own architecture",
 			"2 CPUs on the control plane when CPUs are limited; 2 GB of memory per node is kubeadm's minimum",
 		},
 		Options: []catalogOption{

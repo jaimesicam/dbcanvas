@@ -141,7 +141,7 @@ func (a *App) adoptableImageHints(ctx context.Context, issues []issue) []issue {
 			legacy = m[1] + ":latest"
 		}
 		if ok, _ := a.docker.ImageExists(ctx, legacy); ok {
-			issues[i].Message += " — this host has " + legacy + " from before images were tagged by release; if it was built from this checkout, `make adopt-images` tags it for " + imageRelease() + " without rebuilding"
+			issues[i].Message += " — this host has " + legacy + " from before images were tagged by release; `make adopt-images` in a checkout tags it for " + imageRelease() + " without rebuilding"
 		}
 	}
 	return issues

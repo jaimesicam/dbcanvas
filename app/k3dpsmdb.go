@@ -391,7 +391,7 @@ func (a *App) installPSMDBOperator(ctx context.Context, st Stack, frame designFr
 	if err := a.kubectlApply(ctx, serverID, ns, []byte(newSecrets)); err != nil {
 		return fmt.Errorf("apply secrets.yaml: %w", err)
 	}
-	pr.logln("secrets.yaml applied as " + cfg.ClusterName + "-secrets (passwords from .env)")
+	pr.logln("secrets.yaml applied as " + cfg.ClusterName + "-secrets (the node passwords: dbcanvas passwords)")
 
 	// ---- the certificate issuer, BEFORE cr.yaml ----
 	// Only from psmdbUserIssuerMinVer: an older operator overwrites an Issuer of the configured

@@ -452,7 +452,7 @@ func (a *App) k3dFrameIssues(ctx context.Context, f designFrame, members int, op
 		out = append(out, issue{Level: "error", Message: "K3D cluster " + name + " needs the k3d binary — install k3d on the host (it talks to the same Docker daemon), or rebuild the app image"})
 	}
 	if _, ok := loadK3SCatalog().resolveK3SVersion(f.K3DK3SVersion); !ok {
-		out = append(out, issue{Level: "error", Message: "K3D cluster " + name + " requests an unknown Kubernetes version " + f.K3DK3SVersion + " — pick one from the list, or run `make versions`"})
+		out = append(out, issue{Level: "error", Message: "K3D cluster " + name + " requests an unknown Kubernetes version " + f.K3DK3SVersion + " — pick one from the list, or run `dbcanvas versions update` for a newer catalogue"})
 	}
 	if ns := strings.TrimSpace(f.K3DNamespace); ns != "" && !validNamespace(ns) {
 		out = append(out, issue{Level: "error", Message: "K3D cluster " + name + " has an invalid namespace " + ns + " — use lowercase letters, digits and '-' (a DNS-1123 label)"})
@@ -469,10 +469,10 @@ func (a *App) k3dFrameIssues(ctx context.Context, f designFrame, members int, op
 				out = append(out, issue{Level: "error", Message: "K3D cluster " + name + " pins OpenEverest " +
 					strings.TrimSpace(f.K3DOperatorVer) + ", which cannot be used: " + why + " — pick another chart version"})
 			} else if _, ok := loadChartCatalog().resolveChartVersion(chart, f.K3DOperatorVer); !ok {
-				out = append(out, issue{Level: "error", Message: "K3D cluster " + name + " requests an unknown " + chart + " chart version — pick one from the list, or run `make versions`"})
+				out = append(out, issue{Level: "error", Message: "K3D cluster " + name + " requests an unknown " + chart + " chart version — pick one from the list, or run `dbcanvas versions update` for a newer catalogue"})
 			}
 		} else if _, ok := opCat.resolveOperatorVersion(op, f.K3DOperatorVer); !ok {
-			out = append(out, issue{Level: "error", Message: "K3D cluster " + name + " requests an unknown " + op + " operator version — pick one from the list, or run `make versions`"})
+			out = append(out, issue{Level: "error", Message: "K3D cluster " + name + " requests an unknown " + op + " operator version — pick one from the list, or run `dbcanvas versions update` for a newer catalogue"})
 		}
 	}
 
@@ -481,7 +481,7 @@ func (a *App) k3dFrameIssues(ctx context.Context, f designFrame, members int, op
 	// Only worth saying when the frame actually installs it.
 	if f.K3DCertManager {
 		if _, ok := loadChartCatalog().resolveChartVersion(certManagerChart, f.K3DCertManagerVer); !ok {
-			out = append(out, issue{Level: "error", Message: "K3D cluster " + name + " requests an unknown cert-manager version " + f.K3DCertManagerVer + " — pick one from the list, or run `make versions`"})
+			out = append(out, issue{Level: "error", Message: "K3D cluster " + name + " requests an unknown cert-manager version " + f.K3DCertManagerVer + " — pick one from the list, or run `dbcanvas versions update` for a newer catalogue"})
 		}
 	}
 
@@ -613,7 +613,7 @@ func k3dPGFeatureIssues(f designFrame, doc designDoc, opCat OperatorCatalog, dep
 		// An unresolvable version is already an error of its own (k3dFrameIssues), so this only
 		// adds what that one cannot know: these options are the reason it matters here.
 		out = append(out, issue{Level: lvl, Message: "K3D cluster " + name + " asks for " + asked +
-			", which needs a known operator version to check against " + pgFeatures310 + " — pick one from the list, or run `make versions`" + tail})
+			", which needs a known operator version to check against " + pgFeatures310 + " — pick one from the list, or run `dbcanvas versions update` for a newer catalogue" + tail})
 	case !pgHasClusterFeatures(ver):
 		out = append(out, issue{Level: lvl, Message: "K3D cluster " + name + " asks for " + asked +
 			", which the Percona Operator for PostgreSQL only has from " + pgFeatures310 + " — this frame pins " + ver +
@@ -2162,7 +2162,7 @@ func (a *App) installPXCOperator(ctx context.Context, st Stack, frame designFram
 	if err := a.kubectlApply(ctx, serverID, ns, []byte(newSecrets)); err != nil {
 		return fmt.Errorf("apply secrets.yaml: %w", err)
 	}
-	pr.logln("secrets.yaml applied as " + cfg.ClusterName + "-secrets (passwords from .env)")
+	pr.logln("secrets.yaml applied as " + cfg.ClusterName + "-secrets (the node passwords: dbcanvas passwords)")
 
 	// ---- replication over SSL: certificates from the shared CA, BEFORE cr.yaml ----
 	// Same reason as secrets.yaml: an operator that reconciles first finds no ssl Secrets and

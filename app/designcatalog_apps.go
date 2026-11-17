@@ -12,7 +12,7 @@ const catalogAIOInstancesDesc = "The feature instances the container runs: an ar
 	"Only one MySQL flavour per node: Percona Server kinds (ps, psrepl, innodb), pxc, MySQL Community kinds (mysqlce*) and MariaDB kinds (mariadb*) cannot be mixed. " +
 	"name (string, required) — lowercase letters, digits and dashes, unique within the node; becomes the instance's hostname, directory and systemd unit (the designer proposes <kind>NN, or <kind>-cluster-NN for a cluster kind). " +
 	"members (integer) — cluster kinds only, 1 otherwise: psrepl, pxc, mysqlcerepl, mariadbrepl, patroni, repmgr 2–5 (default 3); spock 2–5 (default 2); innodb, mysqlceinnodb 3–9 odd (default 3); mariadbgalera 3–5 odd (default 3); psmrs 3–7 odd (default 3); psmdbsharded exactly 5 (mongos + 1 config server + 3 one-member shards) or 13 (mongos + 3-member config replica set + 3 three-member shards), default 5; valkeycluster 3–7 (default 3); proxysql 1–3 (default 1). Cluster members are named <name>-n1, <name>-n2, …. " +
-	"rootPassword (string) — \"\" uses the stack's .env credentials. " +
+	"rootPassword (string) — \"\" uses the generated node password (dbcanvas passwords). " +
 	"gtid (boolean, default true) — ps only. " +
 	"replMode (string) — psrepl: \"async\" (default) or \"semisync\"; innodb: \"groupreplication\" (default; \"innodbcluster\" is refused because MySQL Shell is not installed). " +
 	"pgMajor, pgVersion (string) — PostgreSQL kinds: the major per instance (majors co-install) and the minor, \"\" for the newest; spock takes only the majors its patch set supports. " +
@@ -201,7 +201,7 @@ var catalogApps = []catalogEntry{
 		Requires: []string{
 			"an Intranet node",
 			"an association line to a Kubeadm Cluster frame of 3 or more nodes at the Ready stage, used only by the game (its tickets stop services and edit manifests on purpose)",
-			"the dbcanvas-pagerpanic image (make pagerpanic-image)",
+			"the dbcanvas-pagerpanic image (pulled when needed)",
 		},
 		Options: []catalogOption{},
 		Actions: []catalogAction{

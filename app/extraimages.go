@@ -226,7 +226,7 @@ func (a *App) buildExtraImage(ctx context.Context, e extraImage) error {
 	if e.BaseOS[0] != "" {
 		base := pxcImage(e.BaseOS[0], e.BaseOS[1], platformArch())
 		if ok, _ := a.docker.ImageExists(ctx, base); !ok {
-			return fmt.Errorf("the base image %s is not built — run `make images` first (that one is the operating systems, and it cannot be built from here)", base)
+			return fmt.Errorf("the base image %s is not on this host — deploy a node on that operating system, which pulls it, then build again (the operating-system bases cannot be built from here)", base)
 		}
 		args["BASE_IMAGE"] = base
 	}

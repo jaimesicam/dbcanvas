@@ -288,7 +288,8 @@ func (a *App) pullableImageIssues(ctx context.Context, issues []issue) []issue {
 		}
 		src, err := a.remoteImage(ctx, a.docker, ref)
 		if err != nil {
-			issues[i].Message += " — and it cannot be pulled: " + err.Error()
+			issues[i].Message += " — it is not on this host, and it cannot be pulled: " + err.Error() +
+				". Check the network and the registry (IMAGE_REGISTRY), or build it with Build where it is offered"
 			continue
 		}
 		issues[i] = issue{Level: "warning", Image: it.Image,
