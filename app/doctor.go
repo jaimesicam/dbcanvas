@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"net/http"
@@ -56,22 +55,8 @@ func defaultSecrets() []string {
 	return out
 }
 
-// versionsGeneratedAt reads versions.yaml's versions_generated_at.
-func versionsGeneratedAt() (time.Time, bool) {
-	f, err := openCatalog(versionsFilePath())
-	if err != nil {
-		return time.Time{}, false
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	for i := 0; sc.Scan() && i < 40; i++ {
-		if v, ok := strings.CutPrefix(sc.Text(), "versions_generated_at:"); ok {
-			t, err := time.Parse(time.RFC3339, strings.TrimSpace(v))
-			return t, err == nil
-		}
-	}
-	return time.Time{}, false
-}
+// versionsGeneratedAt reads the catalogue in use's versions_generated_at.
+func versionsGeneratedAt() (time.Time, bool) { return catalogGeneratedAt(versionsFilePath()) }
 
 func (a *App) doctorChecks(ctx context.Context) []doctorCheck {
 	var out []doctorCheck

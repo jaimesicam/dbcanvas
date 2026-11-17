@@ -51,6 +51,9 @@ Usage:
                                 create or update the stack in FILE, then deploy it
   dbcanvas down STACK           remove a stack's containers, keep its design
   dbcanvas rm STACK             delete a stack and everything it deployed
+  dbcanvas versions [update|reset]
+                                show the version catalogue in use; update downloads the
+                                newest into the data folder, reset goes back to the built-in one
   dbcanvas version              print the version
 
 Data folder: %s (DBCANVAS_DATA overrides it). Settings are in its config.yaml.
@@ -100,6 +103,8 @@ func runCLI(args []string) int {
 		err = cliExport(rest)
 	case "up":
 		err = cliUp(rest)
+	case "versions":
+		err = cliVersions(rest)
 	case "down":
 		err = cliStackAction(rest, "down", "POST", "/destroy", "Removed the containers of %s; its design is kept.")
 	case "rm":
