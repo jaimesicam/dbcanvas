@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -44,12 +45,22 @@ func TestNetworkConnectNeverTakesTheGateway(t *testing.T) {
 // A refused network create says why: Docker's message, not only its status. The body used to be
 // drained before the error was built from it, leaving "docker create network: (400)".
 func TestNetworkCreateErrorCarriesDockersMessage(t *testing.T) {
-	sock := filepath.Join(t.TempDir(), "d.sock")
+	// A short path: a temp dir under macOS's /var/folders is too long for a Unix socket.
+	dir, err := os.MkdirTemp("/tmp", "dbc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "d.sock")
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Skipf("unix socket: %v", err)
 	}
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" && r.URL.Path == "/networks" {
+			w.Write([]byte(`[]`)) // no networks yet: the subnet picker has the whole range
+			return
+		}
 		if r.Method == "GET" {
 			w.WriteHeader(404)
 			return

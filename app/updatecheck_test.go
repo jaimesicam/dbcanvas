@@ -29,6 +29,11 @@ func TestParseReleaseNotesMatchesCompiledNotes(t *testing.T) {
 }
 
 func TestCheckForUpdates(t *testing.T) {
+	// Another platform's binary, so this machine's only match is the packed one.
+	otherPlatform := "dbcanvas-linux-amd64"
+	if runtime.GOOS == "linux" && runtime.GOARCH == "amd64" {
+		otherPlatform = "dbcanvas-darwin-arm64"
+	}
 	src := []byte(`package main
 var whatsNewNotes = []releaseNote{
 	{Version: "0.0.12", Date: "d", Title: "unreleased", Body: "x"},
@@ -41,7 +46,7 @@ var whatsNewNotes = []releaseNote{
 		switch r.URL.Path {
 		case "/api/releases/latest":
 			w.Write([]byte(`{"tag_name":"v0.0.11","html_url":"https://example.com/r","assets":[` +
-				`{"name":"dbcanvas-linux-amd64","browser_download_url":"https://example.com/l"},` +
+				`{"name":"` + otherPlatform + `","browser_download_url":"https://example.com/l"},` +
 				`{"name":"dbcanvas-` + runtime.GOOS + `-` + runtime.GOARCH + `.tar.gz","browser_download_url":"https://example.com/mine"}]}`))
 		case "/raw/v0.0.11/app/whatsnew.go":
 			w.Write(src)
