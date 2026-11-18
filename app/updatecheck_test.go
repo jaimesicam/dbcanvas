@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -79,5 +80,20 @@ var whatsNewNotes = []releaseNote{
 	}
 	if res, _ = checkForUpdates(context.Background(), devVersion); res.Available || !res.Dev || res.Latest != "0.0.11" {
 		t.Fatalf("dev build reported as %+v", res)
+	}
+}
+
+// The release lists each binary's signature beside it; the update dialog must link the binary.
+func TestReleaseAssetIsTheBinaryNotItsSignature(t *testing.T) {
+	var rel latestRelease
+	json.Unmarshal([]byte(`{"assets":[`+
+		`{"name":"dbcanvas-linux-amd64.sigstore.json","browser_download_url":"https://example.com/sig"},`+
+		`{"name":"dbcanvas-checksums.txt","browser_download_url":"https://example.com/sum"},`+
+		`{"name":"dbcanvas-linux-amd64","browser_download_url":"https://example.com/bin"}]}`), &rel)
+	if name, url := releaseAsset(rel, "linux", "amd64"); name != "dbcanvas-linux-amd64" || url != "https://example.com/bin" {
+		t.Errorf("got %q %q, want the binary", name, url)
+	}
+	if name, _ := releaseAsset(rel, "darwin", "arm64"); name != "" {
+		t.Errorf("a missing platform resolved to %q", name)
 	}
 }

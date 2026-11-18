@@ -128,7 +128,7 @@ func (a *App) handleMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A request made with an API token also gets that token's name, scope and expiry, so a
-	// client can say what it is signed in with (`dbcanvas-cli whoami`) without keeping its own
+	// client can say what it is signed in with without keeping its own
 	// copy of those, which goes stale or was never written.
 	var tok *meToken
 	if p, ok := principalOf(r); ok && p.Token != nil {

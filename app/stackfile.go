@@ -14,8 +14,8 @@ import (
 )
 
 // stackfile.go — a stack as a file: `dbcanvas export` writes one, `dbcanvas up -f` reads
-// one back. The file is YAML (JSON is read too, including a `dbcanvas-cli stack export`
-// file from 0.0.x):
+// one back. The file is YAML (JSON is read too, including a stack export file from
+// 0.0.x):
 //
 //	apiVersion: dbcanvas/v1
 //	kind: Stack

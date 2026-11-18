@@ -17,7 +17,7 @@ import (
 )
 
 // apitokens.go — a revocable, expiring bearer credential that stands in for a
-// password, so a script or `dbcanvas-cli` never has to hold one.
+// password, for a script that calls the API over HTTP.
 //
 // The whole design turns on one asymmetry: a password is the credential that can
 // create credentials, and a token is not. Everything else follows from that —
@@ -46,7 +46,7 @@ const tokenPrefix = "dbc_"
 // SHA-256 rather than bcrypt — there is no dictionary to run against it.
 const tokenBytes = 32
 
-// maxTokenNameLen keeps a name usable as a label in the UI and in `dbcanvas-cli token list`.
+// maxTokenNameLen keeps a name usable as a label in the UI and in `dbcanvas token list`.
 const maxTokenNameLen = 64
 
 // ErrTokenNotFound is returned when no live token matches a secret.

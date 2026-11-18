@@ -10,18 +10,16 @@ import (
 	"strings"
 )
 
-// The licence texts the image ships under /usr/share/doc/dbcanvas (app/Dockerfile),
+// The licence texts the dbcanvas binary carries in its bundle (app/bundle/licenses),
 // served at /licenses/ without a session.
 //
-// The image carries them for whoever runs it, but two other audiences receive
-// DBCanvas code without ever opening the image: every browser that loads the web
-// interface gets React, xterm, rrweb and the fonts (MIT, ISC, BSD, OFL — each wants
-// its notice to travel with the copy), and everyone who downloads dbcanvas-cli from
-// the API page gets a GPL binary plus three BSD/ISC modules. /licenses/ is where both
-// are pointed: the JS bundles' banner comment (web/vite.config.js), the Dashboard's
-// Licences link, and the CLI download section all lead here. It is public because
-// the login screen is a user interface too, and a notice behind a login is not one
-// a recipient can read.
+// Two audiences receive DBCanvas code: everyone who downloads the binary gets the Go
+// modules it is built from, and every browser that loads the web interface gets React,
+// xterm, rrweb and the fonts (MIT, ISC, BSD, OFL — each wants its notice to travel with
+// the copy). /licenses/ is where both are pointed: the JS bundles' banner comment
+// (web/vite.config.js) and the Dashboard's Licences link lead here. It is public because
+// the sign-in screen is a user interface too, and a notice behind a sign-in is not one a
+// recipient can read.
 //
 // The index page is GPLv3's "Appropriate Legal Notices" (§0, §5d): copyright, no
 // warranty, the licence, and where the Corresponding Source is (§6d).

@@ -8,7 +8,7 @@
 # `tag` refuses a dirty tree, an existing tag, and a VERSION file that disagrees, so a tag
 # always names the commit the release was built from. `publish` is the only one that
 # reaches the network: it pushes the tag to origin. That starts .github/workflows/release.yml,
-# which builds dbcanvas-cli for every platform, signs the files with Sigstore and creates the
+# which builds dbcanvas for every platform, signs the files with Sigstore and creates the
 # GitHub release from these notes with them attached.
 set -euo pipefail
 cd "$(dirname "$0")/.."

@@ -86,9 +86,16 @@ type latestRelease struct {
 // releaseAsset is the binary for goos/goarch: dbcanvas-<os>-<arch>, bare or with an
 // archive extension.
 func releaseAsset(rel latestRelease, goos, goarch string) (name, url string) {
+	// The binary itself, never its signature (want.sigstore.json); a packed one
+	// (want.tar.gz) only when there is no bare binary.
 	want := "dbcanvas-" + goos + "-" + goarch
 	for _, a := range rel.Assets {
-		if a.Name == want || strings.HasPrefix(a.Name, want+".") {
+		if a.Name == want {
+			return a.Name, a.URL
+		}
+	}
+	for _, a := range rel.Assets {
+		if strings.HasPrefix(a.Name, want+".") && !strings.HasSuffix(a.Name, ".sigstore.json") {
 			return a.Name, a.URL
 		}
 	}

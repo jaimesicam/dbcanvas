@@ -16,7 +16,7 @@ import (
 // and building one from the web interface.
 //
 // `make images` builds the OS bases and then every image here on top of them, and
-// `make install-pull` fetches them all from the registry. Those builds reach into npm,
+// a deploy pulls them from the registry when this host has none. Those builds reach into npm,
 // GitHub and Percona's repositories, so one can still fail for reasons that have nothing
 // to do with the machine you are on — and that failure is reported, not fatal, which
 // leaves an installation with a node type whose image is missing.

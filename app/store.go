@@ -204,7 +204,7 @@ CREATE TABLE IF NOT EXISTS app_settings (
   value TEXT NOT NULL
 );
 -- API tokens: a revocable, expiring bearer credential that stands in for a password
--- so a script or dbcanvas-cli never has to hold one. See apitokens.go.
+-- for a script that calls the API over HTTP. See apitokens.go.
 --
 -- token_hash is SHA-256, not bcrypt, and that is deliberate. bcrypt exists to make a
 -- LOW-entropy secret expensive to guess; a token here is 32 bytes from crypto/rand,

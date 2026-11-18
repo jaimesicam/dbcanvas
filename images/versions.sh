@@ -8,7 +8,7 @@
 # Two files, two jobs: `make images` writes images.yaml (what was built), this
 # writes versions.yaml (what can be installed on it). This script reads the image
 # matrix out of images.yaml and never writes it, so rebuilding an image no longer
-# throws the catalog away — which is why `make install` does not run this at all.
+# throws the catalog away — which is why `make images` does not run this at all.
 # It is slow (a container and several repository queries per image, hours on a cold
 # cache), so it is run deliberately: after building an OS image that is new, or when
 # the pickers should offer versions released since the last probe.
@@ -732,8 +732,8 @@ crunchy_token() {
 #
 # This check lives here, not in a Go test, because it is a fact about a live registry rather
 # than about this codebase. A test naming version strings can only assert what the registries
-# said when somebody last ran `make versions` — and `make install` runs it, so the file under
-# test is rewritten on every fresh install. Checking at generation time is the only way the
+# said when somebody last ran `make versions`, and the file under test is rewritten every
+# time it runs. Checking at generation time is the only way the
 # answer can be current.
 pgo_chart_discover() {
   command -v curl >/dev/null 2>&1 || { echo "WARN: curl not found; skipping PGO discovery" >&2; return 0; }

@@ -16,7 +16,7 @@ release-notes:
 	@bash scripts/release.sh notes $(VERSION)
 
 ## github-release: push tag v$(VERSION). The release workflow (.github/workflows/release.yml)
-## then builds dbcanvas-cli, signs it with Sigstore and creates the GitHub release from the notes.
+## then builds the dbcanvas binaries, signs them with Sigstore and creates the GitHub release from the notes.
 ## This publishes — the repository is public — so it is never run by another target.
 github-release:
 	@bash scripts/release.sh publish $(VERSION)
@@ -117,10 +117,11 @@ relaybin:
 ## The bases come first because everything else is built on them. After that, a failure
 ## is reported and the rest still builds: those builds reach Percona's repositories, npm,
 ## GitHub and Maven Central, so they can fail for reasons that have nothing to do with this
-## machine, and one missing image should not stop `make install` from ending with DBCanvas
-## up. A node whose image is missing says so at Validate; retry with its own target below
+## machine, and one missing image should not stop the rest from being built. A node whose
+## image is missing says so at Validate; retry with its own target below
 ## (`make vnc-image`, `make stocksim-image`, …) or the Build button DBCanvas shows there.
-## `make install-pull` fetches the same images from the registry instead of building them.
+## `make pull-images` fetches the same images from the registry instead of building them;
+## a dbcanvas binary pulls the ones a deploy needs by itself.
 images:
 	bash images/build.sh
 	@failed=""; \

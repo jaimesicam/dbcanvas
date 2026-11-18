@@ -9,8 +9,8 @@ import (
 //
 // Why a table instead of 206 `mux.HandleFunc` calls. The route list is the app's
 // public surface, and it is the one part of the app a person outside this repo has
-// to be told about: it drives the API page, the OpenAPI document, `dbcanvas-cli`,
-// and the scope a token needs to reach an endpoint. Written as loose registrations
+// to be told about: it drives the API page, the OpenAPI document, the `dbcanvas`
+// command over its socket, and the scope a token needs to reach an endpoint. Written as loose registrations
 // it could only be *described* — in prose, somewhere else, going stale a route at a
 // time. Declared here it is published instead, from the same lines that install the
 // handlers, so the description cannot disagree with what is actually served.

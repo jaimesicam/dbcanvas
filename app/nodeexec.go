@@ -15,7 +15,7 @@ import (
 // its output and exit status.
 //
 // Until this existed the console WebSocket (terminal.go) was the only way in, and
-// `dbcanvas-cli node exec` typed the command into it: the answer came back with the shell's
+// the 0.0.x client typed the command into it: the answer came back with the shell's
 // prompt, the echoed command, terminal-title escapes and a trailing `exit` mixed in, and with no
 // exit status at all. Scripts and agents had to filter all of that out and could not tell a
 // failed command from a working one. This runs the command the way the deploy steps do (the

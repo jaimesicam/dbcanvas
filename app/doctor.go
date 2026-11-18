@@ -14,9 +14,9 @@ import (
 	"dbcanvas/internal/seal"
 )
 
-// doctor.go — GET /api/system/doctor: what an administrator should know about this installation,
-// as checks a person or a program can read. `dbcanvas-cli doctor` prints it; `make doctor` checks
-// the host side (Docker, disk, .env) without needing DBCanvas to be running.
+// doctor.go — GET /api/system/doctor: what you should know about this installation, as checks a
+// person or a program can read. `dbcanvas doctor` prints it, with the data folder, networks and
+// the service added (cmd_doctor.go).
 //
 // Each check is ok, warn or fail with a one-line detail and, when it is not ok, what to do.
 
