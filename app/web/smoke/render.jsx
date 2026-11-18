@@ -5004,8 +5004,8 @@ const apiEndpoints = [
   { method: 'GET', path: '/api/stacks', group: 'Stacks', summary: 'The stacks you own.', auth: 'user', scope: 'read' },
   { method: 'POST', path: '/api/stacks/{id}/deploy', group: 'Stacks', summary: 'Provision every node.',
     auth: 'user', scope: 'write', params: [{ name: 'id', help: "The stack's numeric id." }] },
-  { method: 'DELETE', path: '/api/users/{id}', group: 'Users', summary: 'Delete an account.',
-    auth: 'admin', scope: 'admin', params: [{ name: 'id', help: "The account's numeric id." }] },
+  { method: 'PUT', path: '/api/system/settings', group: 'System', summary: 'Change the system settings.',
+    auth: 'admin', scope: 'admin' },
   { method: 'POST', path: '/api/ftdc/upload', group: 'FTDC Summary', summary: 'Upload diagnostic data.',
     auth: 'user', scope: 'write', media: 'multipart' },
   { method: 'GET', path: '/api/notifications/stream', group: 'Notifications', summary: 'Live events.',
@@ -5037,23 +5037,17 @@ check('api page: a loading token table does not claim to be empty', () => {
   return html
 })
 
-check('api page: the create form, as a user and as an admin', () => {
-  const asUser = renderToString(
-    <ApiCreateToken scopes={['read', 'write']} maxDays={90} canNeverExpire={false}
-      onCreated={() => {}} onError={() => {}} />)
-  if (/>Never</.test(asUser)) throw new Error('a non-admin was offered a never-expiring token')
-  const asAdmin = renderToString(
-    <ApiCreateToken scopes={['read', 'write', 'admin']} maxDays={365} canNeverExpire
-      onCreated={() => {}} onError={() => {}} />)
-  if (!/>Never</.test(asAdmin)) throw new Error('an admin was not offered a never-expiring token')
-  if (!/>admin</.test(asAdmin)) throw new Error('an admin was not offered the admin scope')
-  return asUser + asAdmin
+check('api page: the create form offers every scope and a token that never expires', () => {
+  const html = renderToString(
+    <ApiCreateToken maxDays={365} onCreated={() => {}} onError={() => {}} />)
+  if (!/>Never</.test(html)) throw new Error('a never-expiring token was not offered')
+  if (!/>admin</.test(html)) throw new Error('the admin scope was not offered')
+  return html
 })
 
 check('api page: a low instance ceiling hides the longer lifetimes', () => {
   const html = renderToString(
-    <ApiCreateToken scopes={['read', 'write']} maxDays={14} canNeverExpire={false}
-      onCreated={() => {}} onError={() => {}} />)
+    <ApiCreateToken maxDays={14} onCreated={() => {}} onError={() => {}} />)
   if (/>90 days</.test(html)) throw new Error('offered 90 days when the ceiling is 14')
   if (!/>7 days</.test(html)) throw new Error('did not offer a lifetime under the ceiling')
   return html

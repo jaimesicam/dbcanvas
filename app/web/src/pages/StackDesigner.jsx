@@ -1909,11 +1909,10 @@ function StackTable({ stacks, onOpen, onChanged }) {
   const needle = q.trim().toLowerCase()
   const rows = scoped
     .filter(test[only])
-    .filter((s) => !needle || [s.name, s.owner, ...Object.keys(s.types || {}).map((t) => NODE_TYPES[t]?.label || t),
+    .filter((s) => !needle || [s.name, ...Object.keys(s.types || {}).map((t) => NODE_TYPES[t]?.label || t),
       ...Object.entries(s.labels || {}).map(([k, v]) => `${k}=${v}`)].some((v) => (v || '').toLowerCase().includes(needle)))
   const key = {
     name: (s) => (s.name || '').toLowerCase(),
-    owner: (s) => (s.owner || '').toLowerCase(),
     nodes: (s) => s.nodes?.total || 0,
     cpu: (s) => usage[s.id]?.cpu || 0,
     mem: (s) => usage[s.id]?.mem || 0,
@@ -1926,8 +1925,6 @@ function StackTable({ stacks, onOpen, onChanged }) {
   const sel = rows.filter((s) => picked.has(s.id))
   const toggle = (id) => setPicked((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })
   const allOn = rows.length > 0 && rows.every((s) => picked.has(s.id))
-  // One owner: a row never needs to say whose stack it is.
-  const showOwner = false
   const runBulk = async (what, fn) => {
     setBulk(what)
     if (what === 'delete') sel.forEach((s) => markStackDeleting(s.id))
@@ -1991,7 +1988,6 @@ function StackTable({ stacks, onOpen, onChanged }) {
               <th className="w-8 px-3 py-2"><input type="checkbox" aria-label="Select all stacks" checked={allOn}
                 onChange={() => setPicked(allOn ? new Set() : new Set(rows.map((s) => s.id)))} /></th>
               <Head k="name">Name</Head>
-              {showOwner && <Head k="owner">Owner</Head>}
               <Head>Status</Head>
               <Head k="nodes" right>Nodes</Head>
               <Head>Engines</Head>
@@ -2023,11 +2019,6 @@ function StackTable({ stacks, onOpen, onChanged }) {
                     </button>
                     <StackLabels stack={s} onSaved={onChanged} />
                   </td>
-                  {showOwner && (
-                    <td className="px-3 py-2">
-                      <span className="flex items-center gap-2"><Avatar avatar={s.ownerAvatar} name={s.owner} size={22} /> <span className="text-fg/90">{s.owner || '—'}</span></span>
-                    </td>
-                  )}
                   <td className="px-3 py-2">{dying ? <Badge tone="muted">deleting…</Badge> : <Badge tone={STATUS_TONE[s.status] || 'muted'}>{s.status}</Badge>}</td>
                   <td className="px-3 py-2 text-right tabular-nums">
                     <span className="font-medium">{s.status === 'draft' ? s.nodes?.total ?? 0 : `${s.nodes?.running ?? 0}/${s.nodes?.total ?? 0}`}</span>
@@ -2083,7 +2074,6 @@ function StackTable({ stacks, onOpen, onChanged }) {
         <div className="sticky bottom-3 z-20 flex justify-center">
           <div className="ui-card flex flex-wrap items-center gap-2 rounded-full border bg-surface px-4 py-1.5 text-sm shadow-xl">
             <span className="font-semibold">{sel.length} selected</span>
-            {showOwner && <span className="text-xs text-muted">{[...new Set(sel.map((s) => s.owner))].join(', ')}</span>}
             <Button size="sm" variant="outline" disabled={!!bulk} onClick={() => runBulk('extend', (s) => stackApi.extend(s.id, '2h'))}>
               {bulk === 'extend' ? 'Extending…' : 'Extend by 2 hours'}
             </Button>

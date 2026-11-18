@@ -153,7 +153,7 @@ func publicURL(r *http.Request) string {
 // ------------------------------------------------------------- guest identity
 
 // guestPrincipal rides on a request's principal when a guest sent it. The principal's
-// User is the host (demoted to a plain user; see serveGuest); this says who really
+// User is the host; this says who really
 // clicked, for the audit and for the handlers that need to know — the hub, the
 // shared terminals.
 type guestPrincipal struct {
@@ -162,7 +162,6 @@ type guestPrincipal struct {
 	Name        string
 	Email       string
 	Avatar      string
-	Account     string
 	HideSecrets bool
 	Driving     bool
 }
@@ -193,8 +192,8 @@ func (a *App) guestAuth(r *http.Request) (ShareGuest, ShareSession, User, error)
 	if allowed, _ := a.guestSessionSettings(); !allowed {
 		return ShareGuest{}, ShareSession{}, User{}, errNotAdmitted
 	}
-	host, err := a.store.GetUser(sess.HostID)
-	if err != nil || host.Status != StatusApproved {
+	host, err := a.store.Owner()
+	if err != nil {
 		return ShareGuest{}, ShareSession{}, User{}, errNotAdmitted
 	}
 	return g, sess, host, nil
@@ -267,12 +266,7 @@ func (a *App) serveGuest(rt apiRoute, next http.HandlerFunc, w http.ResponseWrit
 		writeErr(w, http.StatusForbidden, "you are watching — ask the host for control to change things")
 		return
 	}
-	// A guest never inherits admin: an admin host shares their own workspace, not
-	// every stack an admin can see.
-	if host.Role == RoleAdmin {
-		host.Role = RoleUser
-	}
-	gp := &guestPrincipal{GuestID: g.ID, SessionID: sess.ID, Name: g.Name, Email: g.Email, Avatar: g.Avatar, Account: g.Account,
+	gp := &guestPrincipal{GuestID: g.ID, SessionID: sess.ID, Name: g.Name, Email: g.Email, Avatar: g.Avatar,
 		HideSecrets: sess.HideSecrets, Driving: driving}
 	r = withPrincipal(r, principal{User: host, Guest: gp})
 
@@ -509,7 +503,7 @@ func (a *App) loadHostedSession(w http.ResponseWriter, r *http.Request) (ShareSe
 		return ShareSession{}, User{}, false
 	}
 	sess, err := a.store.GetShareSession(sid)
-	if err != nil || sess.HostID != u.ID {
+	if err != nil {
 		writeErr(w, http.StatusNotFound, "shared session not found")
 		return ShareSession{}, User{}, false
 	}
@@ -528,10 +522,6 @@ func newShareToken() (string, error) {
 func (a *App) handleCreateShare(w http.ResponseWriter, r *http.Request) {
 	st, u, ok := a.loadOwnedStack(w, r)
 	if !ok {
-		return
-	}
-	if st.OwnerID != u.ID {
-		writeErr(w, http.StatusForbidden, "only a stack's owner can share it")
 		return
 	}
 	a.createShare(w, r, u, st.ID, st.Name)
@@ -578,7 +568,7 @@ func (a *App) createShare(w http.ResponseWriter, r *http.Request, u User, stackI
 		writeErr(w, http.StatusInternalServerError, "failed to create the link")
 		return
 	}
-	sess, err := a.store.CreateShareSession(u.ID, stackID, hashTokenSecret(token), in.HideSecrets, in.Mirror,
+	sess, err := a.store.CreateShareSession(stackID, hashTokenSecret(token), in.HideSecrets, in.Mirror,
 		time.Now().Add(time.Duration(in.Minutes)*time.Minute))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to create the session")
@@ -620,12 +610,12 @@ func (a *App) handleShareMirror(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleListShares(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	list, err := a.store.ListShareSessions(u.ID)
+	list, err := a.store.ListShareSessions()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to list sessions")
 		return
@@ -949,17 +939,16 @@ func (a *App) handleJoinInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := map[string]any{"hostName": sess.HostName, "stackName": sess.StackName, "expiresAt": sess.ExpiresAt}
-	if host, err := a.store.GetUser(sess.HostID); err == nil {
+	if host, err := a.store.Owner(); err == nil {
 		resp["hostName"], resp["hostAvatar"] = host.displayName(), host.Avatar
 	}
 	if g, ok := a.currentGuestOf(r, sess); ok {
 		resp["guest"] = g
 	}
-	// The account this browser is signed in to, if any, so the join screen can offer
-	// to join as it in one click (handleJoinAccount, useSession).
+	// A browser signed in here is the host's own, so the join screen sends it to the app.
 	if c, err := r.Cookie(cookieName); err == nil && c.Value != "" {
-		if u, err := a.store.SessionUser(c.Value); err == nil && u.Status == StatusApproved {
-			resp["account"] = map[string]any{"username": u.Username, "name": u.displayName(), "avatar": u.Avatar, "isHost": u.ID == sess.HostID}
+		if _, err := a.store.SessionUser(c.Value); err == nil {
+			resp["isHost"] = true
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -991,12 +980,9 @@ func (a *App) joinPreflight(w http.ResponseWriter, r *http.Request) (sess ShareS
 	return sess, invite, false
 }
 
-// joinIdentity is who is asking to come in: typed by a guest, or read from the
-// account they signed in with.
+// joinIdentity is who is asking to come in, as the guest typed it.
 type joinIdentity struct {
-	Name, Email     string
-	UserID          int64
-	Account, Avatar string
+	Name, Email, Avatar string
 }
 
 // handleJoin is a guest asking to join with a name and an email.
@@ -1043,8 +1029,8 @@ func (a *App) enterLobby(w http.ResponseWriter, r *http.Request, sess ShareSessi
 		return
 	}
 	g, err := a.store.CreateShareGuest(sess.ID, id.Name, id.Email, hashTokenSecret(secret), remoteHost(r), invite)
-	if err == nil && (id.UserID != 0 || id.Avatar != "") {
-		if err = a.store.SetShareGuestIdentity(g.ID, id.UserID, id.Account, id.Avatar); err == nil {
+	if err == nil && id.Avatar != "" {
+		if err = a.store.SetShareGuestAvatar(g.ID, id.Avatar); err == nil {
 			g, err = a.store.GetShareGuest(g.ID)
 		}
 	}
@@ -1058,13 +1044,10 @@ func (a *App) enterLobby(w http.ResponseWriter, r *http.Request, sess ShareSessi
 		Expires: sess.expires(), MaxAge: int(time.Until(sess.expires()).Seconds()),
 	})
 	who := g.Email
-	if g.Account != "" {
-		who = "signed in as " + g.Account
-	}
 	h := a.hubFor(sess)
 	h.event("lobby", g.ID, g.Name, fmt.Sprintf("%s (%s, from %s) is waiting in the lobby", g.Name, who, g.RemoteAddr))
 	h.broadcastPresence()
-	a.notify(Notification{UserID: sess.HostID, Scope: "user", Type: "share.lobby", Severity: "info",
+	a.notify(Notification{Type: "share.lobby", Severity: "info",
 		Title:   g.Name + " wants to join your shared session",
 		Body:    fmt.Sprintf("%s (%s) is waiting in the lobby of your shared session.", g.Name, who),
 		StackID: sess.StackID})

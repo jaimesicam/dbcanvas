@@ -32,8 +32,8 @@ func TestPMMArch(t *testing.T) {
 		}
 	}
 	// A deployed PMM keeps what it was built as, whatever its release has now.
-	u, _ := app.ensureOwner()
-	st, _ := app.store.CreateStack("lab", u.ID, "2h", expiryFor("2h"), []byte(defaultDesign))
+	app.ensureOwner()
+	st, _ := app.store.CreateStack("lab", "2h", expiryFor("2h"), []byte(defaultDesign))
 	cfg, _ := json.Marshal(pmmConfig{Arch: "amd64"})
 	app.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: "p", State: DeployRunning, Config: cfg})
 	if arch, _, _ := app.pmmArch(ctx, st.ID, designNode{ID: "p", Type: "pmm", Version: "3.10.0"}); arch != "amd64" {

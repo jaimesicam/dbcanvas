@@ -368,7 +368,7 @@ func (a *App) switchPrimary(ctx context.Context, st Stack, t swTopo, nid string,
 	if err != nil {
 		log.add("failed: %v", err)
 		a.recordStackEvent(st.ID, cand.Node.ID, "action", "error", fmt.Sprintf("Switchover to %s failed", cand.Node.Label), err.Error(), u.Username)
-		a.notify(Notification{UserID: u.ID, Scope: "user", Type: "stack.switchover", Severity: "error",
+		a.notify(Notification{Type: "stack.switchover", Severity: "error",
 			Title: "Switchover failed", Body: fmt.Sprintf("%s: making %s primary failed — %v", st.Name, cand.Node.Label, err)})
 		return log.lines, http.StatusConflict, err
 	}
@@ -378,7 +378,7 @@ func (a *App) switchPrimary(ctx context.Context, st Stack, t swTopo, nid string,
 		log.add("design updated: %s is now marked primary", cand.Node.Label)
 	}
 	a.recordStackEvent(st.ID, cand.Node.ID, "action", "info", fmt.Sprintf("Switchover: %s made primary (was %s)", cand.Node.Label, primary.Node.Label), "", u.Username)
-	a.notify(Notification{UserID: u.ID, Scope: "user", Type: "stack.switchover", Severity: "success",
+	a.notify(Notification{Type: "stack.switchover", Severity: "success",
 		Title: "Primary switched", Body: fmt.Sprintf("%s: %s is now the primary (was %s).", st.Name, cand.Node.Label, primary.Node.Label)})
 	return log.lines, http.StatusOK, nil
 }

@@ -1189,13 +1189,13 @@ type k3dStateTarget struct {
 // running cluster can be watched, because watching it is a read of its own API server and
 // needs nothing to have been deployed specially.
 func (a *App) handleK3DStateTargets(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
 	out := []k3dStateTarget{}
-	stacks, _ := a.store.ListStacks(u.ID, u.Role == RoleAdmin)
+	stacks, _ := a.store.ListStacks()
 	for _, s := range stacks {
 		st, err := a.store.GetStack(s.ID)
 		if err != nil {

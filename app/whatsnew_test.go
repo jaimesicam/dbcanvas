@@ -168,7 +168,7 @@ func TestNormalizePreservesWhatsNewSeen(t *testing.T) {
 // omits the field must leave it alone rather than resetting it.
 func TestSettingsPutCannotBlankWhatsNewSeen(t *testing.T) {
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("jaime", "x", RoleUser, StatusApproved)
+	u, _ := app.store.CreateUser("testuser01")
 	app.saveUserSettings(u.ID, UserSettings{TerminalMode: TerminalDocked, Theme: "dark",
 		DeploymentBackend: BackendDocker, WhatsNewSeen: "0.2.0"})
 
@@ -205,7 +205,7 @@ func TestNewAccountsAreStamped(t *testing.T) {
 
 func TestWhatsNewHandler(t *testing.T) {
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("jaime", "x", RoleUser, StatusApproved)
+	u, _ := app.store.CreateUser("testuser01")
 
 	get := func() map[string]any {
 		r := withPrincipal(httptest.NewRequest("GET", "/api/whatsnew", nil), principal{User: u})

@@ -521,8 +521,7 @@ func (a *App) handlePktServerLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	u, _ := a.currentUser(r)
-	_, containerID, _, dbUser, dbPass, _, err := a.pktResolveTarget(u, c.StackID, c.NodeID)
+	_, containerID, _, dbUser, dbPass, _, err := a.pktResolveTarget(c.StackID, c.NodeID)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return

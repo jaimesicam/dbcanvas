@@ -9,14 +9,14 @@ import (
 
 func TestTokenLimitRoutes(t *testing.T) {
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("ci", "x", RoleUser, StatusApproved)
+	u, _ := app.store.CreateUser("ci")
 	secret, tok := tokenFor(t, app, u.ID, ScopeWrite, 30)
 	app.store.SetAPITokenLimit(tok.ID, &tokenLimit{OwnStacks: true})
 	plainSecret, _ := tokenFor(t, app, u.ID, ScopeWrite, 30)
 
-	mine, _ := app.store.CreateStack("mine", u.ID, "4h", nil, []byte(`{}`))
+	mine, _ := app.store.CreateStack("mine", "4h", nil, []byte(`{}`))
 	app.store.SetStackCreatedByToken(mine.ID, tok.ID)
-	other, _ := app.store.CreateStack("other", u.ID, "4h", nil, []byte(`{}`))
+	other, _ := app.store.CreateStack("other", "4h", nil, []byte(`{}`))
 
 	run := func(rt apiRoute, id int64, secret string) int {
 		w := httptest.NewRecorder()

@@ -19,18 +19,17 @@ const shareSchema = `
 -- only its SHA-256 is kept, so a copy of the database is not a copy of the link.
 -- expires_at is at most two hours after created_at, which share.go enforces on the
 -- way in; ended_at is set by End session, a revoke, or the expiry. A session covers
--- the whole application; stack_id is only the stack it was started from, if any
--- (migrateShareSessions makes it nullable in older databases). mirror is the host's
+-- the whole application; stack_id is only the stack it was started from, if any.
+-- mirror is the host's
 -- "Mirror everything" switch (sharemirror.go); draw is whether guests may draw on
 -- the shared screen (sharedraw.go) — the host always may.
 CREATE TABLE IF NOT EXISTS share_sessions (` + shareSessionsColumns + `);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_share_sessions_token ON share_sessions(token_hash);
-CREATE INDEX IF NOT EXISTS idx_share_sessions_host ON share_sessions(host_id, id DESC);
 CREATE INDEX IF NOT EXISTS idx_share_sessions_stack ON share_sessions(stack_id, id DESC);
 
 -- One row per person who came through a link. Name and email are what they typed:
 -- labels, not identity. The cookie is the credential, stored hashed like the link.
--- invite_hash is the link they came through (store.go adds it to older databases): a
+-- invite_hash is the link they came through: a
 -- guest who left, was removed or was denied cannot come back on that same link, only
 -- on a new one the host issues (share.go, handleJoin).
 CREATE TABLE IF NOT EXISTS share_guests (
@@ -43,6 +42,8 @@ CREATE TABLE IF NOT EXISTS share_guests (
   muted        INTEGER NOT NULL DEFAULT 0,
   draw_off     INTEGER NOT NULL DEFAULT 0, -- the host stopped this guest drawing
   remote_addr  TEXT NOT NULL DEFAULT '',
+  invite_hash  TEXT NOT NULL DEFAULT '',
+  avatar       TEXT NOT NULL DEFAULT '',
   joined_at    TEXT NOT NULL,
   admitted_at  TEXT,
   left_at      TEXT
@@ -88,7 +89,6 @@ CREATE INDEX IF NOT EXISTS idx_share_actions_session ON share_actions(session_id
 CREATE TABLE IF NOT EXISTS share_recordings (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id    INTEGER REFERENCES share_sessions(id) ON DELETE SET NULL,
-  host_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   title         TEXT NOT NULL DEFAULT '',
   mime          TEXT NOT NULL,
   file          TEXT NOT NULL,
@@ -102,12 +102,10 @@ CREATE TABLE IF NOT EXISTS share_recordings (
   purge_at      TEXT NOT NULL,
   transcript    TEXT NOT NULL DEFAULT '' -- a sealed JSON copy of the session's transcript
 );
-CREATE INDEX IF NOT EXISTS idx_share_recordings_host ON share_recordings(host_id, id DESC);
 CREATE INDEX IF NOT EXISTS idx_share_recordings_purge ON share_recordings(purge_at);`
 
 const shareSessionsColumns = `
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
-  host_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   stack_id     INTEGER REFERENCES stacks(id) ON DELETE SET NULL,
   token_hash   TEXT NOT NULL,
   hide_secrets INTEGER NOT NULL DEFAULT 0,
@@ -119,55 +117,9 @@ const shareSessionsColumns = `
   ended_reason TEXT NOT NULL DEFAULT ''
 `
 
-// migrateShareSessions brings an older share_sessions table to the one above: a
-// session was once filed on exactly one stack (stack_id NOT NULL, deleted with it),
-// and had no mirror switch. SQLite cannot drop a NOT NULL, so the table is rebuilt —
-// the documented way: a new table, copy, drop, rename, with foreign keys off so the
-// drop does not cascade to the guests and messages that point at it.
-func migrateShareSessions(db *sql.DB) error {
-	db.Exec("ALTER TABLE share_sessions ADD COLUMN mirror INTEGER NOT NULL DEFAULT 0")
-	db.Exec("ALTER TABLE share_sessions ADD COLUMN draw INTEGER NOT NULL DEFAULT 1")
-	var notNull int
-	if err := db.QueryRow(`SELECT "notnull" FROM pragma_table_info('share_sessions') WHERE name = 'stack_id'`).Scan(&notNull); err != nil || notNull == 0 {
-		return err
-	}
-	if _, err := db.Exec("PRAGMA foreign_keys = OFF"); err != nil {
-		return err
-	}
-	defer db.Exec("PRAGMA foreign_keys = ON")
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	const cols = `id, host_id, stack_id, token_hash, hide_secrets, mirror, draw, created_at, expires_at, ended_at, ended_reason`
-	for _, q := range []string{
-		`CREATE TABLE share_sessions_new (` + shareSessionsColumns + `)`,
-		`INSERT INTO share_sessions_new (` + cols + `) SELECT ` + cols + ` FROM share_sessions`,
-		`DROP TABLE share_sessions`,
-		`ALTER TABLE share_sessions_new RENAME TO share_sessions`,
-	} {
-		if _, err := tx.Exec(q); err != nil {
-			return err
-		}
-	}
-	// The indexes went with the old table.
-	for _, q := range []string{
-		`CREATE UNIQUE INDEX IF NOT EXISTS idx_share_sessions_token ON share_sessions(token_hash)`,
-		`CREATE INDEX IF NOT EXISTS idx_share_sessions_host ON share_sessions(host_id, id DESC)`,
-		`CREATE INDEX IF NOT EXISTS idx_share_sessions_stack ON share_sessions(stack_id, id DESC)`,
-	} {
-		if _, err := tx.Exec(q); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
-}
-
 // ShareSession is one share link and its lifetime.
 type ShareSession struct {
 	ID          int64  `json:"id"`
-	HostID      int64  `json:"hostId"`
 	HostName    string `json:"hostName"`
 	StackID     int64  `json:"stackId"`
 	StackName   string `json:"stackName"`
@@ -209,12 +161,8 @@ type ShareGuest struct {
 	AdmittedAt *string `json:"admittedAt,omitempty"`
 	LeftAt     *string `json:"leftAt,omitempty"`
 	InviteHash string  `json:"-"`
-	// UserID and Account are set when the person signed in with their DBCanvas
-	// account to join, rather than typing a name: who they are is then known, not
-	// claimed. Avatar is theirs either way (profile.go's ids).
-	UserID  int64  `json:"userId,omitempty"`
-	Account string `json:"account,omitempty"`
-	Avatar  string `json:"avatar,omitempty"`
+	// Avatar is the one they picked (profile.go's ids).
+	Avatar string `json:"avatar,omitempty"`
 }
 
 // Guest states.
@@ -252,18 +200,17 @@ type ShareAction struct {
 
 var errShareNotFound = errors.New("shared session not found")
 
-const shareSessionCols = `s.id, s.host_id, COALESCE(u.username,''), COALESCE(s.stack_id,0), COALESCE(st.name,''),
+const shareSessionCols = `s.id, COALESCE((SELECT username FROM users ORDER BY id LIMIT 1),''), COALESCE(s.stack_id,0), COALESCE(st.name,''),
   s.hide_secrets, s.mirror, s.draw, s.created_at, s.expires_at, s.ended_at, s.ended_reason`
 
 const shareSessionFrom = ` FROM share_sessions s
-  LEFT JOIN users u ON u.id = s.host_id
   LEFT JOIN stacks st ON st.id = s.stack_id`
 
 func scanShareSession(row interface{ Scan(...any) error }) (ShareSession, error) {
 	var s ShareSession
 	var hide, mirror, draw int
 	var ended sql.NullString
-	err := row.Scan(&s.ID, &s.HostID, &s.HostName, &s.StackID, &s.StackName, &hide, &mirror, &draw,
+	err := row.Scan(&s.ID, &s.HostName, &s.StackID, &s.StackName, &hide, &mirror, &draw,
 		&s.CreatedAt, &s.ExpiresAt, &ended, &s.EndedReason)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ShareSession{}, errShareNotFound
@@ -282,10 +229,10 @@ func scanShareSession(row interface{ Scan(...any) error }) (ShareSession, error)
 
 // CreateShareSession files a new session. stackID is the stack it was started from,
 // or 0 for one started from anywhere else; it covers the whole application either way.
-func (s *Store) CreateShareSession(hostID, stackID int64, tokenHash string, hideSecrets, mirror bool, expires time.Time) (ShareSession, error) {
+func (s *Store) CreateShareSession(stackID int64, tokenHash string, hideSecrets, mirror bool, expires time.Time) (ShareSession, error) {
 	stack := sql.NullInt64{Int64: stackID, Valid: stackID != 0}
-	res, err := s.db.Exec(`INSERT INTO share_sessions (host_id, stack_id, token_hash, hide_secrets, mirror, created_at, expires_at)
-		VALUES (?,?,?,?,?,?,?)`, hostID, stack, tokenHash, boolInt(hideSecrets), boolInt(mirror), nowRFC3339(), expires.UTC().Format(time.RFC3339))
+	res, err := s.db.Exec(`INSERT INTO share_sessions (stack_id, token_hash, hide_secrets, mirror, created_at, expires_at)
+		VALUES (?,?,?,?,?,?)`, stack, tokenHash, boolInt(hideSecrets), boolInt(mirror), nowRFC3339(), expires.UTC().Format(time.RFC3339))
 	if err != nil {
 		return ShareSession{}, err
 	}
@@ -369,8 +316,8 @@ func (s *Store) ShareSessionTokenHash(id int64) (string, error) {
 }
 
 // ListShareSessions is a host's sessions, newest first.
-func (s *Store) ListShareSessions(hostID int64) ([]ShareSession, error) {
-	return s.listShareSessions("s.host_id = ?", hostID)
+func (s *Store) ListShareSessions() ([]ShareSession, error) {
+	return s.listShareSessions("1 = ?", 1)
 }
 
 // ListStackShareSessions is every session filed on a stack — its transcripts.
@@ -417,14 +364,14 @@ func (s *Store) ExpiredShareSessions(now time.Time) ([]int64, error) {
 	return ids, rows.Err()
 }
 
-const shareGuestCols = `id, session_id, name, email, state, muted, draw_off, remote_addr, joined_at, admitted_at, left_at, invite_hash, user_id, account, avatar`
+const shareGuestCols = `id, session_id, name, email, state, muted, draw_off, remote_addr, joined_at, admitted_at, left_at, invite_hash, avatar`
 
 func (s *Store) scanShareGuest(row interface{ Scan(...any) error }) (ShareGuest, error) {
 	var g ShareGuest
 	var muted, drawOff int
 	var adm, left sql.NullString
 	err := row.Scan(&g.ID, &g.SessionID, &g.Name, &g.Email, &g.State, &muted, &drawOff, &g.RemoteAddr, &g.JoinedAt, &adm, &left, &g.InviteHash,
-		&g.UserID, &g.Account, &g.Avatar)
+		&g.Avatar)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ShareGuest{}, errShareNotFound
 	}
@@ -449,10 +396,9 @@ func (s *Store) scanShareGuest(row interface{ Scan(...any) error }) (ShareGuest,
 	return g, nil
 }
 
-// SetShareGuestIdentity records how a guest joined: their avatar, and the account
-// they signed in with, if they did.
-func (s *Store) SetShareGuestIdentity(id, userID int64, account, avatar string) error {
-	_, err := s.db.Exec(`UPDATE share_guests SET user_id = ?, account = ?, avatar = ? WHERE id = ?`, userID, account, avatar, id)
+// SetShareGuestAvatar records the avatar a guest picked.
+func (s *Store) SetShareGuestAvatar(id int64, avatar string) error {
+	_, err := s.db.Exec(`UPDATE share_guests SET avatar = ? WHERE id = ?`, avatar, id)
 	return err
 }
 
@@ -636,13 +582,13 @@ func boolInt(b bool) int {
 
 // ------------------------------------------------------------- recordings (sharerecord.go)
 
-const shareRecordingCols = `id, COALESCE(session_id,0), host_id, title, mime, file, size, chunks, duration_ms, state,
+const shareRecordingCols = `id, COALESCE(session_id,0), title, mime, file, size, chunks, duration_ms, state,
   started_at, ended_at, last_chunk_at, purge_at`
 
 func scanShareRecording(row interface{ Scan(...any) error }) (ShareRecording, error) {
 	var r ShareRecording
 	var ended, last sql.NullString
-	err := row.Scan(&r.ID, &r.SessionID, &r.HostID, &r.Title, &r.Mime, &r.File, &r.Size, &r.Chunks, &r.DurationMs, &r.State,
+	err := row.Scan(&r.ID, &r.SessionID, &r.Title, &r.Mime, &r.File, &r.Size, &r.Chunks, &r.DurationMs, &r.State,
 		&r.StartedAt, &ended, &last, &r.PurgeAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ShareRecording{}, errShareNotFound
@@ -677,8 +623,8 @@ func (s *Store) listShareRecordings(where string, args ...any) ([]ShareRecording
 }
 
 func (s *Store) CreateShareRecording(r ShareRecording) (ShareRecording, error) {
-	res, err := s.db.Exec(`INSERT INTO share_recordings (session_id, host_id, title, mime, file, state, started_at, purge_at)
-		VALUES (?,?,?,?,?,?,?,?)`, r.SessionID, r.HostID, r.Title, r.Mime, r.File, r.State, nowRFC3339(), r.PurgeAt)
+	res, err := s.db.Exec(`INSERT INTO share_recordings (session_id, title, mime, file, state, started_at, purge_at)
+		VALUES (?,?,?,?,?,?,?)`, r.SessionID, r.Title, r.Mime, r.File, r.State, nowRFC3339(), r.PurgeAt)
 	if err != nil {
 		return r, err
 	}
@@ -693,9 +639,9 @@ func (s *Store) GetShareRecording(id int64) (ShareRecording, error) {
 	return scanShareRecording(s.db.QueryRow(`SELECT `+shareRecordingCols+` FROM share_recordings WHERE id = ?`, id))
 }
 
-// ListShareRecordings is a host's recordings, newest first.
-func (s *Store) ListShareRecordings(hostID int64) ([]ShareRecording, error) {
-	return s.listShareRecordings("host_id = ?", hostID)
+// ListShareRecordings is the recordings, newest first.
+func (s *Store) ListShareRecordings() ([]ShareRecording, error) {
+	return s.listShareRecordings("1 = 1")
 }
 
 // AddShareRecordingChunk records that a chunk was appended: how many there are now,

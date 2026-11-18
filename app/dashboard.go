@@ -34,7 +34,6 @@ func dbEngineOf(t string) string {
 // ------------------------------------------------------------- summary
 
 type dashSummary struct {
-	Scope  string `json:"scope"`
 	Stacks struct {
 		Total    int `json:"total"`
 		Deployed int `json:"deployed"`
@@ -58,21 +57,14 @@ type dashSummary struct {
 }
 
 func (a *App) handleDashboardSummary(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
-	if !ok {
+	if _, ok := a.currentUser(r); !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	admin := u.Role == RoleAdmin
-	stacks, _ := a.store.ListStacks(u.ID, admin)
+	stacks, _ := a.store.ListStacks()
 
-	sum := dashSummary{Scope: "user", ByEngine: map[string]int{}, ByType: map[string]int{}}
-	if admin {
-		sum.Scope = "admin"
-	}
-	ownerOf := map[int64]int64{}
+	sum := dashSummary{ByEngine: map[string]int{}, ByType: map[string]int{}}
 	for _, s := range stacks {
-		ownerOf[s.ID] = s.OwnerID
 		sum.Stacks.Total++
 		switch s.Status {
 		case StackDeployed:
@@ -111,12 +103,9 @@ func (a *App) handleDashboardSummary(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// In-memory data-gen jobs, scoped by owner.
+	// In-memory data-gen jobs.
 	dgJobs.Lock()
 	for _, j := range dgJobs.m {
-		if !admin && ownerOf[j.StackID] != u.ID {
-			continue
-		}
 		switch j.Status {
 		case "running":
 			sum.DataGen.Active++
@@ -128,7 +117,7 @@ func (a *App) handleDashboardSummary(w http.ResponseWriter, r *http.Request) {
 	}
 	dgJobs.Unlock()
 
-	sum.Activity, _ = a.store.ListNotifications(u.ID, admin, 8)
+	sum.Activity, _ = a.store.ListNotifications(8)
 	if sum.Activity == nil {
 		sum.Activity = []Notification{}
 	}
@@ -144,22 +133,20 @@ type containerStatRow struct {
 	State   string `json:"state"`
 	// Stack and Label are what the canvas calls it — "core. dump" / "mysql01" — so a busy
 	// container can be traced to its card. The container name (dbcanvas-10-mysql-mv79p7lz-2) is
-	// built from the stack id and the node's internal id, neither of which is on screen. Owner
-	// is the username of the stack's owner: on a system-wide dashboard, whose load it is.
+	// built from the stack id and the node's internal id, neither of which is on screen.
 	Stack string `json:"stack,omitempty"`
 	Label string `json:"label,omitempty"`
-	Owner string `json:"owner,omitempty"`
 	ContainerStat
 }
 
-// canvasName is what the canvas calls a container: its stack, its node, and whose stack.
-type canvasName struct{ Stack, Label, Owner string }
+// canvasName is what the canvas calls a container: its stack and its node.
+type canvasName struct{ Stack, Label string }
 
 func (row *containerStatRow) name(n canvasName) {
-	row.Stack, row.Label, row.Owner = n.Stack, n.Label, n.Owner
+	row.Stack, row.Label = n.Stack, n.Label
 }
 
-// containerLabels maps container names to their stack's name, node's canvas label and owner, for
+// containerLabels maps container names to their stack's name and node's canvas label, for
 // the given stacks: the deployments say which container is which node, the design says its label.
 //
 // A K3D frame's containers are not on any deployment — k3d names them (k3dNodeContainer) — so
@@ -167,18 +154,10 @@ func (row *containerStatRow) name(n canvasName) {
 // the load balancer k3d puts in front of the servers, which is the frame's own.
 func (a *App) containerLabels(stackIDs map[int64]bool) map[string]canvasName {
 	out := map[string]canvasName{}
-	owners := map[int64]string{}
 	for id := range stackIDs {
 		st, err := a.store.GetStack(id)
 		if err != nil {
 			continue
-		}
-		owner, ok := owners[st.OwnerID]
-		if !ok {
-			if u, err := a.store.GetUser(st.OwnerID); err == nil {
-				owner = u.Username
-			}
-			owners[st.OwnerID] = owner
 		}
 		var doc designDoc
 		_ = json.Unmarshal(st.Design, &doc)
@@ -191,7 +170,7 @@ func (a *App) containerLabels(stackIDs map[int64]bool) map[string]canvasName {
 		for _, d := range deps {
 			depOf[d.NodeID] = d
 			if d.ContainerName != "" {
-				out[d.ContainerName] = canvasName{st.Name, label[d.NodeID], owner}
+				out[d.ContainerName] = canvasName{st.Name, label[d.NodeID]}
 			}
 		}
 		for _, f := range doc.Frames {
@@ -210,9 +189,9 @@ func (a *App) containerLabels(stackIDs map[int64]bool) map[string]canvasName {
 			sort.Slice(members, func(i, j int) bool { return members[i].Label < members[j].Label })
 			cluster := k3dDeployedCluster(id, f, depOf[members[0].ID])
 			for i, m := range members {
-				out[k3dNodeContainer(cluster, i)] = canvasName{st.Name, m.Label, owner}
+				out[k3dNodeContainer(cluster, i)] = canvasName{st.Name, m.Label}
 			}
-			out[k3dContainerPrefix+cluster+"-serverlb"] = canvasName{st.Name, f.Label + " load balancer", owner}
+			out[k3dContainerPrefix+cluster+"-serverlb"] = canvasName{st.Name, f.Label + " load balancer"}
 		}
 	}
 	return out
@@ -336,28 +315,21 @@ func (a *App) checkThresholds(rows []containerStatRow, ci []ContainerInfo) {
 }
 
 func (a *App) handleDashboardStats(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
-	if !ok {
+	if _, ok := a.currentUser(r); !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	admin := u.Role == RoleAdmin
-	// Ownership map for filtering.
-	owner := map[int64]int64{}
-	if stacks, err := a.store.ListStacks(u.ID, admin); err == nil {
+	known := map[int64]bool{}
+	if stacks, err := a.store.ListStacks(); err == nil {
 		for _, s := range stacks {
-			owner[s.ID] = s.OwnerID
+			known[s.ID] = true
 		}
 	}
 	rows := a.sampleStats(r.Context())
 
 	var mine []containerStatRow
 	for _, row := range rows {
-		ownerID, tracked := owner[row.StackID]
-		if !tracked { // skip orphaned containers whose stack no longer exists in the DB
-			continue
-		}
-		if admin || ownerID == u.ID {
+		if known[row.StackID] { // skip orphaned containers whose stack no longer exists in the DB
 			mine = append(mine, row)
 		}
 	}

@@ -33,20 +33,18 @@ import (
 const kanbanSchema = `
 CREATE TABLE IF NOT EXISTS kanban_boards (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  owner_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name       TEXT NOT NULL,
-  shared     INTEGER NOT NULL DEFAULT 0,
   rev        INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_kanban_boards_owner ON kanban_boards(owner_id);
 CREATE TABLE IF NOT EXISTS kanban_columns (
   id        INTEGER PRIMARY KEY AUTOINCREMENT,
   board_id  INTEGER NOT NULL REFERENCES kanban_boards(id) ON DELETE CASCADE,
   name      TEXT NOT NULL,
   position  INTEGER NOT NULL,
-  wip_limit INTEGER NOT NULL DEFAULT 0
+  wip_limit INTEGER NOT NULL DEFAULT 0,
+  color     TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_kanban_columns_board ON kanban_columns(board_id, position);
 CREATE TABLE IF NOT EXISTS kanban_cards (
@@ -56,10 +54,9 @@ CREATE TABLE IF NOT EXISTS kanban_cards (
   title       TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
   labels      TEXT NOT NULL DEFAULT '[]',
-  assignee_id INTEGER NOT NULL DEFAULT 0,
   due         TEXT NOT NULL DEFAULT '',
+  color       TEXT NOT NULL DEFAULT '',
   position    INTEGER NOT NULL,
-  created_by  INTEGER NOT NULL DEFAULT 0,
   created_at  TEXT NOT NULL,
   updated_at  TEXT NOT NULL
 );
@@ -82,10 +79,7 @@ var kanbanLabelColors = map[string]bool{
 
 type KanbanBoard struct {
 	ID        int64  `json:"id"`
-	OwnerID   int64  `json:"ownerId"`
-	OwnerName string `json:"ownerName"`
 	Name      string `json:"name"`
-	Shared    bool   `json:"-"` // an old multi-account flag, kept in the table
 	Rev       int64  `json:"rev"`
 	Cards     int    `json:"cards"`
 	CreatedAt string `json:"createdAt"`
@@ -111,11 +105,9 @@ type KanbanCard struct {
 	Title       string        `json:"title"`
 	Description string        `json:"description"`
 	Labels      []KanbanLabel `json:"labels"`
-	AssigneeID  int64         `json:"-"` // an old multi-account field, kept in the table
 	Due         string        `json:"due"`
 	Color       string        `json:"color"`
 	Position    int           `json:"position"`
-	CreatedBy   int64         `json:"createdBy"`
 	CreatedAt   string        `json:"createdAt"`
 	UpdatedAt   string        `json:"updatedAt"`
 }
@@ -138,11 +130,11 @@ func bumpBoard(tx *sql.Tx, boardID int64) error {
 	return err
 }
 
-// ListKanbanBoards is the boards a user may open: their own and the shared ones.
-func (s *Store) ListKanbanBoards(userID int64) ([]KanbanBoard, error) {
-	rows, err := s.db.Query(`SELECT b.id, b.owner_id, b.name, b.shared, b.rev, b.created_at, b.updated_at,
+// ListKanbanBoards is the boards, most recently changed first.
+func (s *Store) ListKanbanBoards() ([]KanbanBoard, error) {
+	rows, err := s.db.Query(`SELECT b.id, b.name, b.rev, b.created_at, b.updated_at,
 		(SELECT COUNT(*) FROM kanban_cards c WHERE c.board_id = b.id)
-		FROM kanban_boards b WHERE b.owner_id = ? OR b.shared = 1 ORDER BY b.owner_id != ?, b.updated_at DESC`, userID, userID)
+		FROM kanban_boards b ORDER BY b.updated_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -155,21 +147,12 @@ func (s *Store) ListKanbanBoards(userID int64) ([]KanbanBoard, error) {
 		}
 		out = append(out, b)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	for i := range out {
-		if u, err := s.GetUser(out[i].OwnerID); err == nil {
-			out[i].OwnerName = u.displayName()
-		}
-	}
-	return out, nil
+	return out, rows.Err()
 }
 
 func (s *Store) scanKanbanBoard(row interface{ Scan(...any) error }, withCount bool) (KanbanBoard, error) {
 	var b KanbanBoard
-	var shared int
-	dest := []any{&b.ID, &b.OwnerID, &b.Name, &shared, &b.Rev, &b.CreatedAt, &b.UpdatedAt}
+	dest := []any{&b.ID, &b.Name, &b.Rev, &b.CreatedAt, &b.UpdatedAt}
 	if withCount {
 		dest = append(dest, &b.Cards)
 	}
@@ -179,33 +162,25 @@ func (s *Store) scanKanbanBoard(row interface{ Scan(...any) error }, withCount b
 		}
 		return b, err
 	}
-	b.Shared = shared != 0
 	var err error
 	b.Name, err = s.kanbanOpen("kanban_boards", "name", b.ID, b.Name)
 	return b, err
 }
 
 func (s *Store) GetKanbanBoard(id int64) (KanbanBoard, error) {
-	b, err := s.scanKanbanBoard(s.db.QueryRow(`SELECT id, owner_id, name, shared, rev, created_at, updated_at,
+	return s.scanKanbanBoard(s.db.QueryRow(`SELECT id, name, rev, created_at, updated_at,
 		(SELECT COUNT(*) FROM kanban_cards c WHERE c.board_id = kanban_boards.id) FROM kanban_boards WHERE id = ?`, id), true)
-	if err == nil {
-		if u, err := s.GetUser(b.OwnerID); err == nil {
-			b.OwnerName = u.displayName()
-		}
-	}
-	return b, err
 }
 
 // CreateKanbanBoard makes a board with the given columns, left to right.
-func (s *Store) CreateKanbanBoard(ownerID int64, name string, shared bool, columns []string) (KanbanBoard, error) {
+func (s *Store) CreateKanbanBoard(name string, columns []string) (KanbanBoard, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return KanbanBoard{}, err
 	}
 	defer tx.Rollback()
 	now := nowRFC3339()
-	res, err := tx.Exec(`INSERT INTO kanban_boards (owner_id, name, shared, created_at, updated_at) VALUES (?,'',?,?,?)`,
-		ownerID, boolInt(shared), now, now)
+	res, err := tx.Exec(`INSERT INTO kanban_boards (name, created_at, updated_at) VALUES ('',?,?)`, now, now)
 	if err != nil {
 		return KanbanBoard{}, err
 	}
@@ -232,13 +207,13 @@ func (s *Store) CreateKanbanBoard(ownerID int64, name string, shared bool, colum
 	return s.GetKanbanBoard(id)
 }
 
-func (s *Store) UpdateKanbanBoard(id int64, name string, shared bool) error {
+func (s *Store) UpdateKanbanBoard(id int64, name string) error {
 	sealed, err := s.kanbanSeal("kanban_boards", "name", id, name)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`UPDATE kanban_boards SET name = ?, shared = ?, rev = rev + 1, updated_at = ? WHERE id = ?`,
-		sealed, boolInt(shared), nowRFC3339(), id)
+	_, err = s.db.Exec(`UPDATE kanban_boards SET name = ?, rev = rev + 1, updated_at = ? WHERE id = ?`,
+		sealed, nowRFC3339(), id)
 	return err
 }
 
@@ -268,8 +243,8 @@ func (s *Store) KanbanContents(boardID int64) ([]KanbanColumn, []KanbanCard, err
 	}
 	rows.Close()
 	cards := []KanbanCard{}
-	rows, err = s.db.Query(`SELECT k.id, k.column_id, k.title, k.description, k.labels, k.assignee_id, k.due, k.color, k.position,
-		k.created_by, k.created_at, k.updated_at
+	rows, err = s.db.Query(`SELECT k.id, k.column_id, k.title, k.description, k.labels, k.due, k.color, k.position,
+		k.created_at, k.updated_at
 		FROM kanban_cards k JOIN kanban_columns c ON c.id = k.column_id
 		WHERE k.board_id = ? ORDER BY c.position, k.position, k.id`, boardID)
 	if err != nil {
@@ -289,8 +264,8 @@ func (s *Store) KanbanContents(boardID int64) ([]KanbanColumn, []KanbanCard, err
 func (s *Store) scanKanbanCard(row interface{ Scan(...any) error }, boardID int64) (KanbanCard, error) {
 	var c KanbanCard
 	var labels string
-	if err := row.Scan(&c.ID, &c.ColumnID, &c.Title, &c.Description, &labels, &c.AssigneeID, &c.Due, &c.Color, &c.Position,
-		&c.CreatedBy, &c.CreatedAt, &c.UpdatedAt); err != nil {
+	if err := row.Scan(&c.ID, &c.ColumnID, &c.Title, &c.Description, &labels, &c.Due, &c.Color, &c.Position,
+		&c.CreatedAt, &c.UpdatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return c, errKanbanNotFound
 		}
@@ -470,7 +445,7 @@ func (s *Store) MoveKanbanColumn(boardID, colID int64, index int) error {
 }
 
 // AddKanbanCard puts a new card in a column at index (-1: at the bottom).
-func (s *Store) AddKanbanCard(boardID, colID int64, c KanbanCard, index int, by int64) (int64, error) {
+func (s *Store) AddKanbanCard(boardID, colID int64, c KanbanCard, index int) (int64, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return 0, err
@@ -490,9 +465,9 @@ func (s *Store) AddKanbanCard(boardID, colID int64, c KanbanCard, index int, by 
 		return 0, err
 	}
 	now := nowRFC3339()
-	res, err := tx.Exec(`INSERT INTO kanban_cards (board_id, column_id, title, description, labels, assignee_id, due, color, position,
-		created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-		boardID, colID, title, desc, labels, c.AssigneeID, c.Due, c.Color, len(ids), by, now, now)
+	res, err := tx.Exec(`INSERT INTO kanban_cards (board_id, column_id, title, description, labels, due, color, position,
+		created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		boardID, colID, title, desc, labels, c.Due, c.Color, len(ids), now, now)
 	if err != nil {
 		return 0, err
 	}
@@ -532,8 +507,8 @@ func (s *Store) UpdateKanbanCard(boardID, cardID int64, c KanbanCard) error {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`UPDATE kanban_cards SET title = ?, description = ?, labels = ?, assignee_id = ?, due = ?, color = ?, updated_at = ? WHERE id = ?`,
-		title, desc, labels, c.AssigneeID, c.Due, c.Color, nowRFC3339(), cardID); err != nil {
+	if _, err := tx.Exec(`UPDATE kanban_cards SET title = ?, description = ?, labels = ?, due = ?, color = ?, updated_at = ? WHERE id = ?`,
+		title, desc, labels, c.Due, c.Color, nowRFC3339(), cardID); err != nil {
 		return err
 	}
 	if err := bumpBoard(tx, boardID); err != nil {
@@ -598,24 +573,18 @@ func (s *Store) MoveKanbanCard(boardID, cardID, toCol int64, index int) error {
 
 // ------------------------------------------------------------------ handlers
 
-// kanbanBoardFor loads the board a request is about and checks the caller may use it.
-// ownerOnly is for renaming and deleting the board itself.
-func (a *App) kanbanBoardFor(w http.ResponseWriter, r *http.Request, boardID int64, ownerOnly bool) (KanbanBoard, User, bool) {
-	u, ok := a.currentUser(r)
-	if !ok {
+// kanbanBoardFor loads the board a request is about.
+func (a *App) kanbanBoardFor(w http.ResponseWriter, r *http.Request, boardID int64) (KanbanBoard, bool) {
+	if _, ok := a.currentUser(r); !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
-		return KanbanBoard{}, u, false
+		return KanbanBoard{}, false
 	}
 	b, err := a.store.GetKanbanBoard(boardID)
-	if err != nil || (b.OwnerID != u.ID && !b.Shared) {
+	if err != nil {
 		writeErr(w, http.StatusNotFound, "board not found")
-		return KanbanBoard{}, u, false
+		return KanbanBoard{}, false
 	}
-	if ownerOnly && b.OwnerID != u.ID {
-		writeErr(w, http.StatusForbidden, "only the board's owner can do that")
-		return KanbanBoard{}, u, false
-	}
-	return b, u, true
+	return b, true
 }
 
 func kanbanPathID(r *http.Request, name string) int64 {
@@ -635,12 +604,12 @@ func cleanText(s string, max int, what string) (string, error) {
 }
 
 func (a *App) handleKanbanBoards(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	list, err := a.store.ListKanbanBoards(u.ID)
+	list, err := a.store.ListKanbanBoards()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to list boards")
 		return
@@ -649,7 +618,7 @@ func (a *App) handleKanbanBoards(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleKanbanCreateBoard(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -679,7 +648,7 @@ func (a *App) handleKanbanCreateBoard(w http.ResponseWriter, r *http.Request) {
 	if len(cols) > kanbanColsMax {
 		cols = cols[:kanbanColsMax]
 	}
-	b, err := a.store.CreateKanbanBoard(u.ID, name, false, cols)
+	b, err := a.store.CreateKanbanBoard(name, cols)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to create the board")
 		return
@@ -688,7 +657,7 @@ func (a *App) handleKanbanCreateBoard(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleKanbanGetBoard(w http.ResponseWriter, r *http.Request) {
-	b, _, ok := a.kanbanBoardFor(w, r, kanbanPathID(r, "id"), false)
+	b, ok := a.kanbanBoardFor(w, r, kanbanPathID(r, "id"))
 	if !ok {
 		return
 	}
@@ -706,7 +675,7 @@ func (a *App) handleKanbanGetBoard(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleKanbanUpdateBoard(w http.ResponseWriter, r *http.Request) {
-	b, _, ok := a.kanbanBoardFor(w, r, kanbanPathID(r, "id"), true)
+	b, ok := a.kanbanBoardFor(w, r, kanbanPathID(r, "id"))
 	if !ok {
 		return
 	}
@@ -726,7 +695,7 @@ func (a *App) handleKanbanUpdateBoard(w http.ResponseWriter, r *http.Request) {
 		}
 		name = n
 	}
-	if err := a.store.UpdateKanbanBoard(b.ID, name, b.Shared); err != nil {
+	if err := a.store.UpdateKanbanBoard(b.ID, name); err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to save the board")
 		return
 	}
@@ -735,7 +704,7 @@ func (a *App) handleKanbanUpdateBoard(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleKanbanDeleteBoard(w http.ResponseWriter, r *http.Request) {
-	b, _, ok := a.kanbanBoardFor(w, r, kanbanPathID(r, "id"), true)
+	b, ok := a.kanbanBoardFor(w, r, kanbanPathID(r, "id"))
 	if !ok {
 		return
 	}
@@ -747,7 +716,7 @@ func (a *App) handleKanbanDeleteBoard(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleKanbanAddColumn(w http.ResponseWriter, r *http.Request) {
-	b, _, ok := a.kanbanBoardFor(w, r, kanbanPathID(r, "id"), false)
+	b, ok := a.kanbanBoardFor(w, r, kanbanPathID(r, "id"))
 	if !ok {
 		return
 	}
@@ -784,7 +753,7 @@ func (a *App) kanbanColumnFor(w http.ResponseWriter, r *http.Request) (KanbanBoa
 		writeErr(w, http.StatusNotFound, "column not found")
 		return KanbanBoard{}, 0, false
 	}
-	b, _, ok := a.kanbanBoardFor(w, r, bid, false)
+	b, ok := a.kanbanBoardFor(w, r, bid)
 	return b, cid, ok
 }
 
@@ -910,7 +879,6 @@ func (a *App) handleKanbanAddCard(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	u, _ := a.currentUser(r)
 	var in cardInput
 	if err := decode(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
@@ -925,7 +893,7 @@ func (a *App) handleKanbanAddCard(w http.ResponseWriter, r *http.Request) {
 	if in.Index != nil {
 		idx = *in.Index
 	}
-	id, err := a.store.AddKanbanCard(b.ID, cid, c, idx, u.ID)
+	id, err := a.store.AddKanbanCard(b.ID, cid, c, idx)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -941,7 +909,7 @@ func (a *App) kanbanCardFor(w http.ResponseWriter, r *http.Request) (KanbanBoard
 		writeErr(w, http.StatusNotFound, "card not found")
 		return KanbanBoard{}, 0, false
 	}
-	b, _, ok := a.kanbanBoardFor(w, r, bid, false)
+	b, ok := a.kanbanBoardFor(w, r, bid)
 	return b, id, ok
 }
 

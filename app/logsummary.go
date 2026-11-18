@@ -38,7 +38,6 @@ type lsBundleRec struct {
 	Summary lsSummary  `json:"summary"`
 	Note    string     `json:"note,omitempty"`
 
-	owner  int64
 	bundle *lsBundle
 	raw    map[int][]byte // source index → the bytes as supplied
 	mu     *sync.Mutex
@@ -84,7 +83,7 @@ func lsForget(id string) {
 	}
 }
 
-func lsListFor(u User) []*lsBundleRec {
+func lsListFor() []*lsBundleRec {
 	lsBundles.Lock()
 	defer lsBundles.Unlock()
 	out := []*lsBundleRec{}
@@ -93,9 +92,7 @@ func lsListFor(u User) []*lsBundleRec {
 		if rec == nil {
 			continue
 		}
-		if rec.owner == u.ID || u.Role == RoleAdmin {
-			out = append(out, rec)
-		}
+		out = append(out, rec)
 	}
 	return out
 }
@@ -116,7 +113,7 @@ func (rec *lsBundleRec) parsed() *lsBundle {
 }
 
 // lsNewBundle parses a set of inputs and registers the result.
-func lsNewBundle(u User, label, origin string, stackID int64, stack string, inputs []lsInput) *lsBundleRec {
+func lsNewBundle(label, origin string, stackID int64, stack string, inputs []lsInput) *lsBundleRec {
 	b := lsBuild(inputs)
 	raw := map[int][]byte{}
 	for i, in := range inputs {
@@ -128,7 +125,7 @@ func lsNewBundle(u User, label, origin string, stackID int64, stack string, inpu
 		Created: time.Now().UTC().Format(time.RFC3339),
 		Origin:  origin, StackID: stackID, Stack: stack,
 		Sources: b.Sources, Summary: b.Summary,
-		owner: u.ID, bundle: b, raw: raw, mu: &sync.Mutex{},
+		bundle: b, raw: raw, mu: &sync.Mutex{},
 	}
 	lsRemember(rec)
 	return rec
@@ -142,7 +139,7 @@ func lsNewBundle(u User, label, origin string, stackID int64, stack string, inpu
 // list is deliberately the same one: a node worth watching on the wire is a node worth
 // reading the log of, and the two pages then name the same things in the same order.
 func (a *App) handleLogTargets(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -151,7 +148,7 @@ func (a *App) handleLogTargets(w http.ResponseWriter, r *http.Request) {
 	// equivalent for: it captures on a container's interface, and a pod's is not one this
 	// app can reach. Reading a log is one `kubectl` away, so this list is a superset of
 	// that one rather than the same list.
-	writeJSON(w, http.StatusOK, append(a.listPktTargets(u), a.listLogK8sTargets(u)...))
+	writeJSON(w, http.StatusOK, append(a.listPktTargets(), a.listLogK8sTargets()...))
 }
 
 // ---------------------------------------------------------------- collect
@@ -175,7 +172,7 @@ type lsCollectReq struct {
 const lsMaxLines = 200000
 
 func (a *App) handleLogCollect(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -202,10 +199,6 @@ func (a *App) handleLogCollect(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "stack not found")
 		return
 	}
-	if st.OwnerID != u.ID && u.Role != RoleAdmin {
-		writeErr(w, http.StatusForbidden, "not your stack")
-		return
-	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 	defer cancel()
@@ -224,7 +217,7 @@ func (a *App) handleLogCollect(w http.ResponseWriter, r *http.Request) {
 		// pktResolveTarget would resolve to the k3s node itself and then tail the wrong
 		// thing — k3s writes no database log, so the failure would be "no readable log
 		// found" rather than "that is not a database node".
-		if serverID, ns, cr, what, operator, ok := a.lsK8sResolveOp(u, req.StackID, nodeID); ok {
+		if serverID, ns, cr, what, operator, ok := a.lsK8sResolveOp(req.StackID, nodeID); ok {
 			text, path, engine, err := a.lsK8sTail(ctx, serverID, ns, cr, what, operator, lines)
 			if err != nil {
 				failures = append(failures, what+": "+err.Error())
@@ -243,7 +236,7 @@ func (a *App) handleLogCollect(w http.ResponseWriter, r *http.Request) {
 			})
 			continue
 		}
-		engine, containerID, label, _, _, _, err := a.pktResolveTarget(u, req.StackID, nodeID)
+		engine, containerID, label, _, _, _, err := a.pktResolveTarget(req.StackID, nodeID)
 		if err != nil {
 			failures = append(failures, nodeID+": "+err.Error())
 			continue
@@ -267,7 +260,7 @@ func (a *App) handleLogCollect(w http.ResponseWriter, r *http.Request) {
 	if label == "" {
 		label = fmt.Sprintf("%s · %d node(s)", st.Name, len(inputs))
 	}
-	rec := lsNewBundle(u, label, "node", st.ID, st.Name, inputs)
+	rec := lsNewBundle(label, "node", st.ID, st.Name, inputs)
 	if len(failures) > 0 {
 		rec.Note = "could not read: " + strings.Join(failures, "; ")
 	}
@@ -397,7 +390,7 @@ const lsMaxUploadFiles = 12
 
 // handleLogUpload takes several log files at once and makes one bundle of them.
 func (a *App) handleLogUpload(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -444,19 +437,19 @@ func (a *App) handleLogUpload(w http.ResponseWriter, r *http.Request) {
 	if label == "" {
 		label = fmt.Sprintf("%d uploaded log(s)", len(inputs))
 	}
-	writeJSON(w, http.StatusOK, lsNewBundle(u, label, "upload", 0, "", inputs).public())
+	writeJSON(w, http.StatusOK, lsNewBundle(label, "upload", 0, "", inputs).public())
 }
 
 // ---------------------------------------------------------------- read
 
 func (a *App) handleLogList(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
 	out := []lsBundleRec{}
-	for _, rec := range lsListFor(u) {
+	for _, rec := range lsListFor() {
 		out = append(out, rec.public())
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -464,7 +457,7 @@ func (a *App) handleLogList(w http.ResponseWriter, r *http.Request) {
 
 // lsOwned resolves the bundle in the URL and checks the caller may see it.
 func (a *App) lsOwned(w http.ResponseWriter, r *http.Request) (*lsBundleRec, bool) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return nil, false
@@ -473,10 +466,6 @@ func (a *App) lsOwned(w http.ResponseWriter, r *http.Request) (*lsBundleRec, boo
 	if rec == nil {
 		writeErr(w, http.StatusNotFound,
 			"log bundle not found (bundles are kept in memory and do not survive an app restart)")
-		return nil, false
-	}
-	if rec.owner != u.ID && u.Role != RoleAdmin {
-		writeErr(w, http.StatusForbidden, "not your log bundle")
 		return nil, false
 	}
 	return rec, true

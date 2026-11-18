@@ -127,9 +127,8 @@ func parseSSHForwardingHost(v string) (sshForwardTarget, bool) {
 // better guess than a literal "user" they have to notice and edit.
 //
 // It is only a guess, so it is held to the same bar as everything else that reaches
-// the command line. A DBCanvas username is validated for length alone (auth.go), and
-// registration is open where an admin approves accounts — so the name may contain
-// anything at all. One that is not shell-safe degrades to the placeholder rather
+// the command line. The username comes from the OS login (ctlsock.go's ensureOwner), and
+// one that is not shell-safe degrades to the placeholder rather
 // than being quoted or escaped into a line nobody can read.
 func (t sshForwardTarget) withLogin(appUser string) sshForwardTarget {
 	if t.User != "" {

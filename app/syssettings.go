@@ -10,15 +10,13 @@ import (
 	"strings"
 )
 
-// syssettings.go — instance-wide settings, as opposed to settings.go's per-user
-// UI preferences.
+// syssettings.go — the system settings, as opposed to settings.go's UI preferences.
 //
-// The distinction is who the setting belongs to. A theme is yours; the ceiling
-// on how much a file drop may push into a container is the *server's*, because
-// it bounds work the server does on everyone's behalf. So these are stored once
-// (app_settings), readable by any signed-in user — the designer needs the number
-// to refuse an over-size drop before uploading it, and everyone deserves to see
-// the limit they are working under — and writable only by an admin.
+// A theme is a preference; the ceiling on how much a file drop may push into a
+// container is the *server's*, because it bounds work the server does. These are
+// stored in app_settings, readable by a shared-session guest too — the designer needs
+// the number to refuse an over-size drop before uploading it — and changed only
+// through a system endpoint (requireAdmin).
 
 // Keys in the app_settings table.
 const (
@@ -32,7 +30,7 @@ const (
 const (
 	// defaultMaxUploadBytes is the ceiling on one file drop onto a node.
 	defaultMaxUploadBytes int64 = 4 << 30 // 4 GiB
-	// minMaxUploadBytes keeps an admin from setting a limit so low the feature
+	// minMaxUploadBytes keeps a limit from being set so low the feature
 	// is effectively off but still looks configured.
 	minMaxUploadBytes int64 = 1 << 20 // 1 MiB
 	// maxMaxUploadBytes is the largest value accepted. The upload streams rather
@@ -42,21 +40,20 @@ const (
 )
 
 const (
-	// defaultMaxTokenDays is the longest lifetime a non-admin may give an API
-	// token. Ninety days is long enough that nobody re-authenticates weekly, short
+	// defaultMaxTokenDays is the longest lifetime an API token may have unless
+	// Settings says otherwise. Ninety days is long enough that nobody re-authenticates weekly, short
 	// enough that a token forgotten on an old laptop stops mattering.
 	defaultMaxTokenDays = 90
 	minMaxTokenDays     = 1
-	// maxMaxTokenDays caps even an admin's ceiling. Past a year a lifetime is not
-	// really a lifetime; an admin who wants that creates a never-expiring token
-	// deliberately instead, which is a decision the UI makes them make.
+	// maxMaxTokenDays caps the ceiling. Past a year a lifetime is not really a
+	// lifetime; a token that never expires is asked for explicitly instead.
 	maxMaxTokenDays = 365
 )
 
 // SystemSettings is the instance-wide configuration served to the UI.
 //
-// It carries two kinds of value. MaxUploadBytes is stored and an admin can change
-// it from the settings page. SSHForwarding, Experimental and EOL are derived from the
+// It carries two kinds of value. MaxUploadBytes is stored and can be changed from
+// the settings page. SSHForwarding, Experimental and EOL are derived from the
 // environment (SSH_FORWARDING_HOST, EXPERIMENTAL, EOL) and are read-only — they ride
 // along here because the UI already fetches this once and needs both before it
 // draws anything: whether to offer a node's tunnel command, and whether the
@@ -70,8 +67,8 @@ type SystemSettings struct {
 	// otherwise exposes read-only: PMM Server's internal PostgreSQL and its Query
 	// Analytics ClickHouse.
 	//
-	// Off by default, and deliberately an instance-wide administrator setting
-	// rather than something any user can flip. The databases behind it are the
+	// Off by default, and deliberately a system setting rather than a switch on
+	// the page. The databases behind it are the
 	// monitoring system's own, and a stray UPDATE in one is how a PMM installation
 	// stops working — so turning it on is a decision somebody makes for the whole
 	// installation, once, knowingly.
@@ -100,9 +97,8 @@ type SystemSettings struct {
 	// read-only like Experimental, and for the same reason it rides here: the designer needs it
 	// before it draws the node library and the Linux Client's OS picker.
 	EOL bool `json:"eol"`
-	// AllowGuestSessions lets a stack's owner share a live session through a link that
-	// admits people without an account (share.go). Off by default: that is a decision
-	// for the installation, made once, by an administrator.
+	// AllowGuestSessions lets you share a live session through a link that admits
+	// people without an account (share.go). Off by default.
 	AllowGuestSessions bool `json:"allowGuestSessions"`
 	// MaxGuestMinutes is the longest a share link may last, 5 to 120.
 	MaxGuestMinutes int `json:"maxGuestMinutes"`
@@ -115,15 +111,15 @@ type SystemSettings struct {
 	RecordingRetentionDays int `json:"recordingRetentionDays"`
 	// LiveWatchSeconds is how often the watcher samples every deployed stack for its history and
 	// alerts (livewatch.go), 15 to 600; 0 switches it off. Each pass costs one exec per database
-	// node, which is why an administrator, not each user, decides it.
+	// node.
 	LiveWatchSeconds int `json:"liveWatchSeconds"`
 	// PublicURL is the base share links are built on (PUBLIC_URL in .env), or "" when
 	// links use the address the host's browser used. Derived and read-only.
 	PublicURL string `json:"publicUrl"`
 }
 
-// SSHForwardingSetting is where the app is reachable over SSH, if the
-// administrator configured it. Enabled false means the feature is off and every
+// SSHForwardingSetting is where the app is reachable over SSH, if
+// SSH_FORWARDING_HOST is set. Enabled false means the feature is off and every
 // other field is empty (see sshforward.go).
 type SSHForwardingSetting struct {
 	Enabled bool   `json:"enabled"`
@@ -226,7 +222,8 @@ func (a *App) handleGetSystemSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s := a.systemSettings(u.Username)
-	if u.Role == RoleAdmin {
+	// A shared-session guest acts as the host, but is not given the node passwords.
+	if p, ok := principalOf(r); !ok || p.Guest == nil {
 		s.DefaultSecrets = defaultSecrets()
 	}
 	writeJSON(w, http.StatusOK, s)

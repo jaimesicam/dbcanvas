@@ -181,7 +181,7 @@ func (a *App) insidePage(st Stack, nodeID string) (string, error) {
 // a node link (url), or a node's in-stack page (stackId and nodeId) for a node that
 // publishes none.
 func (a *App) handleBrowseDesktop(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -202,7 +202,7 @@ func (a *App) handleBrowseDesktop(w http.ResponseWriter, r *http.Request) {
 	)
 	if strings.TrimSpace(in.URL) == "" && in.StackID != 0 && in.NodeID != "" {
 		s, err := a.store.GetStack(in.StackID)
-		if err != nil || (s.OwnerID != u.ID && u.Role != RoleAdmin) {
+		if err != nil {
 			writeErr(w, http.StatusNotFound, "stack not found")
 			return
 		}
@@ -215,7 +215,7 @@ func (a *App) handleBrowseDesktop(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		nl, ok := a.resolveNodeLink(w, r, u, in.URL)
+		nl, ok := a.resolveNodeLink(w, r, in.URL)
 		if !ok {
 			return
 		}

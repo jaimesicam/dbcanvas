@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../auth/AuthProvider.jsx'
 import { api } from '../lib/api.js'
-import { Badge, Button } from '../components/ui.jsx'
+import { Button } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { Avatar, fullName } from '../components/Avatar.jsx'
 import { ProfileFields, profileComplete } from '../components/ProfileFields.jsx'
@@ -62,8 +62,7 @@ export default function Profile() {
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
             <span>{user.username}</span>
             {user.email && <span>· {user.email}</span>}
-            <Badge tone={user.role === 'admin' ? 'primary' : 'muted'}>{user.role}</Badge>
-            {user.createdAt && <span>· member since {fmtDate(user.createdAt)}</span>}
+            {user.createdAt && <span>· since {fmtDate(user.createdAt)}</span>}
           </div>
         </div>
         <Button variant="outline" size="sm" onClick={logout}><Icon.Logout size={15} /> Sign out</Button>

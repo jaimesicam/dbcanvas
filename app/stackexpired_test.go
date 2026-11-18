@@ -10,8 +10,8 @@ import (
 // left past its expiry, the reaper would tear the new build straight down.
 func TestDeployingAnExpiredStackStartsItsLifetimeOver(t *testing.T) {
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("owner", "x", RoleAdmin, StatusApproved)
-	st, err := app.store.CreateStack("old", u.ID, "2h", nil, []byte(`{"nodes":[],"frames":[],"edges":[]}`))
+	u, _ := app.store.CreateUser("owner")
+	st, err := app.store.CreateStack("old", "2h", nil, []byte(`{"nodes":[],"frames":[],"edges":[]}`))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -456,7 +456,7 @@ async function driveStackEditor() {
   host.id = 'stack-editor'
   host.style.height = '800px'
   document.body.appendChild(host)
-  const auth = { phase: 'authed', user: { id: 1, username: 'owner', role: 'admin' }, guest: null,
+  const auth = { phase: 'authed', user: { id: 1, username: 'owner' }, guest: null,
     refresh: async () => {}, logout: async () => {}, setUser: () => {} }
   createRoot(host).render(
     <StrictMode>

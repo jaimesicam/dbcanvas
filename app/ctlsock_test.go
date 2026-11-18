@@ -22,9 +22,10 @@ func TestCtlSocketActsAsTheOwner(t *testing.T) {
 			t.Fatalf("GET /api/stacks over the socket: %d %s", rec.Code, rec.Body)
 		}
 	}
-	users, _ := app.store.ListUsers()
-	if len(users) != 1 || users[0].Role != RoleAdmin {
-		t.Fatalf("want one owner admin, got %+v", users)
+	var users int
+	app.store.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&users)
+	if users != 1 {
+		t.Fatalf("want one account, got %d", users)
 	}
 	// The same request without the socket is not signed in.
 	rec := httptest.NewRecorder()

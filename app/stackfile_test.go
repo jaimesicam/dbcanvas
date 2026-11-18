@@ -120,7 +120,7 @@ nodes:
 func TestApplyStackFileCreatesThenUpdates(t *testing.T) {
 	app := newTestApp(t)
 	app.docker = NewDocker(filepath.Join(t.TempDir(), "no-docker.sock")) // validation asks it; nothing answers
-	u, _ := app.store.CreateUser("owner", "x", RoleUser, StatusApproved)
+	app.store.CreateUser("owner")
 	ctx := context.Background()
 	design := `{"nodes":[` +
 		`{"id":"i1","type":"intranet","label":"intranet-01","x":0,"y":0},` +
@@ -131,7 +131,7 @@ func TestApplyStackFileCreatesThenUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := app.applyStackFile(ctx, u, sf)
+	p, err := app.applyStackFile(ctx, sf)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestApplyStackFileCreatesThenUpdates(t *testing.T) {
 	}
 
 	// Same file again: nothing to do.
-	if p, err = app.applyStackFile(ctx, u, sf); err != nil || p.Action != "unchanged" {
+	if p, err = app.applyStackFile(ctx, sf); err != nil || p.Action != "unchanged" {
 		t.Fatalf("re-apply: %v %+v", err, p)
 	}
 
@@ -151,7 +151,7 @@ func TestApplyStackFileCreatesThenUpdates(t *testing.T) {
 		`{"id":"p3","type":"ps","label":"ps-03","x":30,"y":30}],"frames":[],"edges":[]}`
 	file, _ = encodeStackFile(Stack{Name: "lab", TTL: "4h", Design: json.RawMessage(edited), Labels: map[string]string{"run": "2"}})
 	sf, _ = parseStackFile(file)
-	dry, _, err := app.planStackFile(ctx, u.ID, sf)
+	dry, _, err := app.planStackFile(ctx, sf)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestApplyStackFileCreatesThenUpdates(t *testing.T) {
 	if st, _ := app.store.GetStack(dry.StackID); strings.Contains(string(st.Design), "ps-03") {
 		t.Fatal("a dry run saved the design")
 	}
-	p, err = app.applyStackFile(ctx, u, sf)
+	p, err = app.applyStackFile(ctx, sf)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,9 +171,4 @@ func TestApplyStackFileCreatesThenUpdates(t *testing.T) {
 		t.Fatalf("after apply: %s %v", st.Design, st.Labels)
 	}
 
-	// Another owner's stack of the same name is theirs: this one creates its own.
-	other, _ := app.store.CreateUser("other", "x", RoleUser, StatusApproved)
-	if p, err := app.applyStackFile(ctx, other, sf); err != nil || p.Action != "create" {
-		t.Fatalf("other owner: %v %+v", err, p)
-	}
 }

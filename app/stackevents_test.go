@@ -11,20 +11,19 @@ import (
 
 func TestDeletedStackAnswersGone(t *testing.T) {
 	app := newTestApp(t)
-	ann, _ := app.store.CreateUser("ann", "x", RoleUser, StatusApproved)
-	bob, _ := app.store.CreateUser("bob", "x", RoleUser, StatusApproved)
-	st, _ := app.store.CreateStack("lab", ann.ID, "4h", nil, []byte(`{}`))
+	ann, _ := app.store.CreateUser("ann")
+	st, _ := app.store.CreateStack("lab", "4h", nil, []byte(`{}`))
 	app.store.SetStackLabels(st.ID, map[string]string{"run": "7"})
 	st, _ = app.store.GetStack(st.ID)
 
 	ch := stackEvents.subscribe()
 	defer stackEvents.unsubscribe(ch)
-	if err := app.deleteStackRecord(st, "user", "ann"); err != nil {
+	if err := app.deleteStackRecord(st); err != nil {
 		t.Fatal(err)
 	}
 	select {
 	case e := <-ch:
-		if e.Type != "deleted" || e.StackID != st.ID || e.Reason != "user" || e.Labels["run"] != "7" {
+		if e.Type != "deleted" || e.StackID != st.ID || e.Labels["run"] != "7" {
 			t.Fatalf("event %+v", e)
 		}
 	case <-time.After(time.Second):
@@ -39,12 +38,8 @@ func TestDeletedStackAnswersGone(t *testing.T) {
 		return w
 	}
 	w := get(ann)
-	if w.Code != http.StatusGone || !strings.Contains(w.Body.String(), "by its owner") || !strings.Contains(w.Body.String(), `"reason":"user"`) {
-		t.Fatalf("owner: %d %s", w.Code, w.Body)
-	}
-	// Somebody else learns nothing beyond "not found".
-	if w := get(bob); w.Code != http.StatusNotFound {
-		t.Fatalf("another account: %d", w.Code)
+	if w.Code != http.StatusGone || !strings.Contains(w.Body.String(), "was deleted") || !strings.Contains(w.Body.String(), `"name":"lab"`) {
+		t.Fatalf("deleted: %d %s", w.Code, w.Body)
 	}
 	// Old records go.
 	app.store.db.Exec("UPDATE stack_tombstones SET deleted_at = '2020-01-01T00:00:00Z'")

@@ -54,13 +54,13 @@ var ftdcDiagDirs = []string{
 // comes from decides what is in it: a mongos has no storage engine and no replica-set
 // status, and a config server's replica set is the cluster's metadata rather than its data.
 func (a *App) handleFTDCTargets(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
 	out := []qrTarget{}
-	for _, t := range a.listPktTargets(u) {
+	for _, t := range a.listPktTargets() {
 		if t.Engine == pktEngineMongoDB {
 			out = append(out, t)
 		}
@@ -116,7 +116,7 @@ func (a *App) ftdcReadNode(ctx context.Context, containerID string) ([]ftdcNamed
 // server merging them: the merge needs the chart definitions, and duplicating those here
 // would be a second place for them to drift.
 func (a *App) handleFTDCCompare(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -152,7 +152,7 @@ func (a *App) handleFTDCCompare(w http.ResponseWriter, r *http.Request) {
 	out := make([]member, 0, len(body.Targets))
 	for _, t := range body.Targets {
 		m := member{StackID: t.StackID, NodeID: t.NodeID, Label: t.NodeID}
-		dep, label, err := a.ftdcTarget(u, t.StackID, t.NodeID)
+		dep, label, err := a.ftdcTarget(t.StackID, t.NodeID)
 		if err != nil {
 			m.Error = err.Error()
 			out = append(out, m)
@@ -197,8 +197,8 @@ const ftdcMaxCompare = 4
 
 // ftdcTarget resolves one node the way the single-node endpoint does, without the HTTP
 // plumbing: same ownership check, same "is it running" check, same engine check.
-func (a *App) ftdcTarget(u User, stackID int64, nodeID string) (Deployment, string, error) {
-	engine, containerID, label, _, _, _, err := a.pktResolveTarget(u, stackID, nodeID)
+func (a *App) ftdcTarget(stackID int64, nodeID string) (Deployment, string, error) {
+	engine, containerID, label, _, _, _, err := a.pktResolveTarget(stackID, nodeID)
 	if err != nil {
 		return Deployment{}, "", err
 	}

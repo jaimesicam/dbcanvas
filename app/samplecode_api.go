@@ -62,9 +62,8 @@ type scJobState struct {
 
 type scJob struct {
 	scJobState
-	ownerID int64
-	cancel  context.CancelFunc
-	mu      sync.Mutex
+	cancel context.CancelFunc
+	mu     sync.Mutex
 }
 
 func (j *scJob) add(kind, text string) {
@@ -266,13 +265,13 @@ type scClientNode struct {
 // tool of its own rather than a tab on one node, so — like the Core Dump Analyzer and the Packet
 // Inspector — it finds its own hosts.
 func (a *App) handleSampleCodeNodes(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
 	out := []scClientNode{}
-	stacks, _ := a.store.ListStacks(u.ID, u.Role == RoleAdmin)
+	stacks, _ := a.store.ListStacks()
 	for _, s := range stacks {
 		st, err := a.store.GetStack(s.ID)
 		if err != nil {
@@ -394,7 +393,6 @@ func (a *App) handleSampleCodeRun(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	u, _ := a.currentUser(r)
 	var req scRequest
 	if err := decode(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
@@ -427,7 +425,6 @@ func (a *App) handleSampleCodeRun(w http.ResponseWriter, r *http.Request) {
 			ID: qrNewID(), StackID: st.ID, NodeID: dep.NodeID, Sample: req.Sample,
 			Action: req.Action, Status: "running", Dir: plan.Dir, Start: time.Now().UTC(),
 		},
-		ownerID: u.ID,
 	}
 	// The job outlives the request, so it runs on a background context carrying the node's
 	// engine — a Vagrant node is not reachable on the Docker engine (see dialEngine).
@@ -465,7 +462,7 @@ func (a *App) handleSampleCodeStop(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) scOwnedJob(w http.ResponseWriter, r *http.Request) (*scJob, bool) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return nil, false
@@ -473,10 +470,6 @@ func (a *App) scOwnedJob(w http.ResponseWriter, r *http.Request) (*scJob, bool) 
 	job := scGetJob(r.PathValue("jid"))
 	if job == nil {
 		writeErr(w, http.StatusNotFound, "job not found — it may have finished long enough ago to be forgotten")
-		return nil, false
-	}
-	if job.ownerID != u.ID && u.Role != RoleAdmin {
-		writeErr(w, http.StatusForbidden, "not your job")
 		return nil, false
 	}
 	return job, true

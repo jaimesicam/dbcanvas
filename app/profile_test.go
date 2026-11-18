@@ -32,7 +32,7 @@ func TestAvatarListsAgree(t *testing.T) {
 
 func TestNamesAreSealedAtRest(t *testing.T) {
 	app := newTestApp(t)
-	u, err := app.store.CreateUser("ada", "x", RoleUser, StatusApproved)
+	u, err := app.store.CreateUser("ada")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,38 +48,34 @@ func TestNamesAreSealedAtRest(t *testing.T) {
 	if err != nil || got.FirstName != "Ada" || got.LastName != "Lovelace" || got.Email != "ada@example.com" || got.Avatar != "owl" || got.displayName() != "Ada Lovelace" {
 		t.Errorf("read back %+v, %v", got, err)
 	}
-	if cu, _, err := app.store.CredByUsername("ada"); err != nil || cu.FirstName != "Ada" {
-		t.Errorf("sign-in lookup lost the profile: %+v %v", cu, err)
-	}
 }
 
 func TestProfileValidation(t *testing.T) {
 	for _, c := range []struct {
 		p    Profile
-		req  bool
 		okay bool
 	}{
-		{Profile{FirstName: "Ada", LastName: "Lovelace", Email: "ada@example.com", Avatar: "fox"}, true, true},
-		{Profile{FirstName: " Ada ", LastName: "Lovelace", Email: " ada@example.com "}, true, true}, // no avatar: initials
-		{Profile{FirstName: "Ada", LastName: "Lovelace"}, true, false},                              // a new account needs an email
-		{Profile{FirstName: "Ada", LastName: "Lovelace", Email: "not an address"}, true, false},
-		{Profile{FirstName: "Ada", LastName: "Lovelace", Email: "Ada <ada@example.com>"}, true, false},
-		{Profile{FirstName: "Ada"}, true, false}, // a new account needs both names
-		{Profile{}, false, true},
-		{Profile{FirstName: "Ada", LastName: "L", Avatar: "../etc"}, true, false},
-		{Profile{FirstName: strings.Repeat("a", 61), LastName: "L"}, true, false},
-		{Profile{FirstName: "Ada\x00", LastName: "L"}, true, false},
+		{Profile{FirstName: "Ada", LastName: "Lovelace", Email: "ada@example.com", Avatar: "fox"}, true},
+		{Profile{FirstName: " Ada ", LastName: "Lovelace", Email: " ada@example.com "}, true}, // no avatar: initials
+		{Profile{FirstName: "Ada", LastName: "Lovelace"}, false},                              // an email is required
+		{Profile{FirstName: "Ada", LastName: "Lovelace", Email: "not an address"}, false},
+		{Profile{FirstName: "Ada", LastName: "Lovelace", Email: "Ada <ada@example.com>"}, false},
+		{Profile{FirstName: "Ada"}, false}, // both names are required
+		{Profile{}, false},
+		{Profile{FirstName: "Ada", LastName: "L", Email: "ada@example.com", Avatar: "../etc"}, false},
+		{Profile{FirstName: strings.Repeat("a", 61), LastName: "L", Email: "ada@example.com"}, false},
+		{Profile{FirstName: "Ada\x00", LastName: "L", Email: "ada@example.com"}, false},
 	} {
 		p := c.p
-		if err := p.clean(c.req); (err == nil) != c.okay {
-			t.Errorf("%+v required=%v: %v", c.p, c.req, err)
+		if err := p.clean(); (err == nil) != c.okay {
+			t.Errorf("%+v: %v", c.p, err)
 		}
 	}
 }
 
 func TestUpdateProfile(t *testing.T) {
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("ada", "x", RoleUser, StatusApproved)
+	u, _ := app.store.CreateUser("ada")
 	w := httptest.NewRecorder()
 	r := withPrincipal(httptest.NewRequest("PUT", "/api/me/profile", strings.NewReader(`{"firstName":"Ada","lastName":"King","email":"ada@example.com","avatar":"cat"}`)), principal{User: u})
 	app.handleUpdateProfile(w, r)
@@ -88,18 +84,10 @@ func TestUpdateProfile(t *testing.T) {
 	if w.Code != http.StatusOK || got.LastName != "King" || got.Avatar != "cat" || got.Email != "ada@example.com" {
 		t.Errorf("update: %d %s", w.Code, w.Body)
 	}
-	// Someone else's address is refused.
-	bob, _ := app.store.CreateUser("bob", "x", RoleUser, StatusApproved)
-	w = httptest.NewRecorder()
-	r = withPrincipal(httptest.NewRequest("PUT", "/api/me/profile", strings.NewReader(`{"firstName":"Bob","lastName":"B","email":"Ada@Example.com"}`)), principal{User: bob})
-	app.handleUpdateProfile(w, r)
-	if w.Code != http.StatusConflict {
-		t.Errorf("bob took ada's email: %d %s", w.Code, w.Body)
-	}
 }
 
 func TestAGuestPicksAnAvatar(t *testing.T) {
-	f := newShareFixture(t, RoleUser)
+	f := newShareFixture(t)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/api/join/"+f.token, strings.NewReader(`{"name":"Jane","email":"jane@example.com","avatar":"fox"}`))
 	r.SetPathValue("token", f.token)
@@ -107,7 +95,7 @@ func TestAGuestPicksAnAvatar(t *testing.T) {
 	f.app.handleJoin(w, r)
 	var g ShareGuest
 	json.Unmarshal(w.Body.Bytes(), &g)
-	if w.Code != http.StatusOK || g.Avatar != "fox" || g.UserID != 0 {
+	if w.Code != http.StatusOK || g.Avatar != "fox" {
 		t.Errorf("join: %d %s", w.Code, w.Body)
 	}
 	w = httptest.NewRecorder()

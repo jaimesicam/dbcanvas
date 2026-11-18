@@ -1,11 +1,9 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -38,7 +36,7 @@ func sentHas(ts []string, t string) bool {
 }
 
 func TestOnlyTheDriversScreenIsMirrored(t *testing.T) {
-	f := newShareFixture(t, RoleUser)
+	f := newShareFixture(t)
 	_, g := f.join(t, "Jane")
 	f.admit(t, g)
 	h := f.app.hubFor(f.sess)
@@ -76,7 +74,7 @@ func TestOnlyTheDriversScreenIsMirrored(t *testing.T) {
 }
 
 func TestTheHostSwitchesMirroring(t *testing.T) {
-	f := newShareFixture(t, RoleUser)
+	f := newShareFixture(t)
 	sid := f.sess.ID
 	post := func(body string) int {
 		w := httptest.NewRecorder()
@@ -97,7 +95,7 @@ func TestTheHostSwitchesMirroring(t *testing.T) {
 }
 
 func TestASessionNeedsNoStack(t *testing.T) {
-	f := newShareFixture(t, RoleUser)
+	f := newShareFixture(t)
 	w := httptest.NewRecorder()
 	f.app.handleCreateAppShare(w, f.asHost(httptest.NewRequest("POST", "/api/share/sessions",
 		strings.NewReader(`{"minutes":30,"mirror":true}`))))
@@ -122,63 +120,5 @@ func TestASessionNeedsNoStack(t *testing.T) {
 	}
 	if _, err := f.app.store.GetShareSession(f.sess.ID); err != nil {
 		t.Errorf("deleting the stack took its session with it: %v", err)
-	}
-}
-
-// An older database filed every session on a stack, NOT NULL; opening it rebuilds
-// the table without losing a session or the guests that point at it.
-func TestOldShareSessionsAreMigrated(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "old.db")
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, q := range []string{
-		`CREATE TABLE users (id INTEGER PRIMARY KEY)`,
-		`CREATE TABLE stacks (id INTEGER PRIMARY KEY)`,
-		`CREATE TABLE share_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT,
-		  host_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-		  stack_id INTEGER NOT NULL REFERENCES stacks(id) ON DELETE CASCADE,
-		  token_hash TEXT NOT NULL, hide_secrets INTEGER NOT NULL DEFAULT 0,
-		  created_at TEXT NOT NULL, expires_at TEXT NOT NULL, ended_at TEXT, ended_reason TEXT NOT NULL DEFAULT '')`,
-		`CREATE TABLE share_guests (id INTEGER PRIMARY KEY AUTOINCREMENT,
-		  session_id INTEGER NOT NULL REFERENCES share_sessions(id) ON DELETE CASCADE, name TEXT NOT NULL)`,
-		`INSERT INTO users (id) VALUES (1)`,
-		`INSERT INTO stacks (id) VALUES (7)`,
-		`INSERT INTO share_sessions (host_id, stack_id, token_hash, created_at, expires_at) VALUES (1, 7, 'tok', 'a', 'b')`,
-		`INSERT INTO share_guests (session_id, name) VALUES (1, 'Jane')`,
-	} {
-		if _, err := db.Exec(q); err != nil {
-			t.Fatal(q, err)
-		}
-	}
-	db.Close()
-
-	db, _ = sql.Open("sqlite", path+"?_pragma=foreign_keys(1)")
-	defer db.Close()
-	db.SetMaxOpenConns(1)
-	if err := migrateShareSessions(db); err != nil {
-		t.Fatal(err)
-	}
-	if err := migrateShareSessions(db); err != nil {
-		t.Fatalf("second run: %v", err)
-	}
-	var stack sql.NullInt64
-	var tok string
-	if err := db.QueryRow(`SELECT stack_id, token_hash FROM share_sessions WHERE id = 1`).Scan(&stack, &tok); err != nil || stack.Int64 != 7 || tok != "tok" {
-		t.Fatalf("session lost: %v %v %q", err, stack, tok)
-	}
-	if _, err := db.Exec(`INSERT INTO share_sessions (host_id, stack_id, token_hash, created_at, expires_at) VALUES (1, NULL, 't2', 'a', 'b')`); err != nil {
-		t.Errorf("stack_id is still NOT NULL: %v", err)
-	}
-	var guests int
-	db.QueryRow(`SELECT COUNT(*) FROM share_guests WHERE session_id = 1`).Scan(&guests)
-	if guests != 1 {
-		t.Error("the rebuild cascaded to the guests")
-	}
-	var ref string
-	db.QueryRow(`SELECT sql FROM sqlite_master WHERE name = 'share_guests'`).Scan(&ref)
-	if !strings.Contains(ref, "REFERENCES share_sessions(id)") {
-		t.Errorf("share_guests no longer points at share_sessions: %s", ref)
 	}
 }

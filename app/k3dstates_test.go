@@ -783,37 +783,32 @@ func TestPodFilesOutOfACapture(t *testing.T) {
 	}
 }
 
-// An uploaded archive is held against the uploader, briefly, and belongs to nobody else.
-func TestUploadedArchivesAreHeldPerUser(t *testing.T) {
+// An uploaded archive is held briefly, and only so many at once.
+func TestUploadedArchivesAreHeldBriefly(t *testing.T) {
 	k3dStateUploads.Range(func(k, _ any) bool { k3dStateUploads.Delete(k); return true })
-	tok := k3dStateUploadKeep(7, "a.tar.gz", []byte("one"))
+	tok := k3dStateUploadKeep("a.tar.gz", []byte("one"))
 	if tok == "" {
 		t.Fatal("no token")
 	}
-	if _, _, ok := k3dStateUploadGet(7, tok); !ok {
-		t.Error("the uploader cannot read their own archive")
+	if _, _, ok := k3dStateUploadGet(tok); !ok {
+		t.Error("the archive cannot be read back")
 	}
-	if _, _, ok := k3dStateUploadGet(8, tok); ok {
-		t.Error("another user read it — an uploaded archive may be a customer's cluster")
-	}
-	if _, _, ok := k3dStateUploadGet(7, "nonsense"); ok {
+	if _, _, ok := k3dStateUploadGet("nonsense"); ok {
 		t.Error("a made-up token resolved")
 	}
-	// Only so many per user: these are whole archives held in memory.
-	for i := 0; i < k3dStateUploadPerUser+1; i++ {
-		k3dStateUploadKeep(7, "b.tar.gz", []byte("two"))
+	// Only so many at once: these are whole archives held in memory.
+	for i := 0; i < k3dStateUploadsHeld+1; i++ {
+		k3dStateUploadKeep("b.tar.gz", []byte("two"))
 	}
 	n := 0
-	k3dStateUploads.Range(func(_, v any) bool {
-		if v.(*k3dStateUpload).Owner == 7 {
-			n++
-		}
+	k3dStateUploads.Range(func(_, _ any) bool {
+		n++
 		return true
 	})
-	if n > k3dStateUploadPerUser {
-		t.Errorf("%d archives held for one user, cap is %d", n, k3dStateUploadPerUser)
+	if n > k3dStateUploadsHeld {
+		t.Errorf("%d archives held, cap is %d", n, k3dStateUploadsHeld)
 	}
-	if _, _, ok := k3dStateUploadGet(7, tok); ok {
+	if _, _, ok := k3dStateUploadGet(tok); ok {
 		t.Error("the oldest archive should have been evicted")
 	}
 }

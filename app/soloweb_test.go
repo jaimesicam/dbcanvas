@@ -13,7 +13,7 @@ func TestSoloGuard(t *testing.T) {
 	t.Setenv("PUBLIC_URL", "https://lab.example.com")
 	app := newTestApp(t)
 	owner, _ := app.ensureOwner()
-	app.store.CreateSession("sess-owner", owner.ID, time.Now().Add(time.Hour))
+	app.store.CreateSession("sess-owner", time.Now().Add(time.Hour))
 	secret, _ := tokenFor(t, app, owner.ID, ScopeRead, 1)
 	session := &http.Cookie{Name: cookieName, Value: "sess-owner"}
 	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusTeapot) })
@@ -83,7 +83,7 @@ func TestSoloGuard(t *testing.T) {
 // A start link signs in once; a second use, an unknown token and an expired one do not.
 func TestStartLinkWorksOnce(t *testing.T) {
 	app := newTestApp(t)
-	app.solo = true
+	app.store.CreateUser("owner")
 	mux := http.NewServeMux()
 	app.registerRoutes(mux)
 	mux.HandleFunc("GET /start/{token}", app.handleStartLink)
@@ -102,7 +102,7 @@ func TestStartLinkWorksOnce(t *testing.T) {
 	r.AddCookie(cookie[0])
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, r)
-	if !strings.Contains(rec.Body.String(), `"authenticated":true`) || !strings.Contains(rec.Body.String(), `"solo":true`) {
+	if !strings.Contains(rec.Body.String(), `"authenticated":true`) {
 		t.Fatalf("status after sign-in: %s", rec.Body)
 	}
 
@@ -126,7 +126,7 @@ func TestStartLinkWorksOnce(t *testing.T) {
 
 // A guest gets in by a live join link, and then by their cookie; an ended link does not.
 func TestSoloGuardLetsGuestsIn(t *testing.T) {
-	f := newShareFixture(t, RoleAdmin)
+	f := newShareFixture(t)
 	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusTeapot) })
 	h := f.app.soloGuard("7480", ok)
 	get := func(method, path string, c *http.Cookie) int {

@@ -48,7 +48,7 @@ func TestSystemSettingsCarryEOL(t *testing.T) {
 // from that list and install nothing on CentOS 7 — and only when EOL is on.
 func TestImagesCatalogOffersCentOS7OnlyWithEOL(t *testing.T) {
 	app := newTestApp(t)
-	u, err := app.store.CreateUser("tester", "x", RoleUser, StatusApproved)
+	u, err := app.store.CreateUser("tester")
 	if err != nil {
 		t.Fatal(err)
 	}

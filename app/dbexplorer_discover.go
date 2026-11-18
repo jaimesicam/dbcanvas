@@ -11,10 +11,10 @@ package main
 // matter here: the account is the administrative one (you cannot browse a schema as
 // an application user), and PMM Server's own internal databases are included.
 //
-// Discovery is also the authorization boundary. A connection id is re-resolved here
-// on every single request, against ListStacks for *this* caller, so an id belonging
-// to somebody else's stack does not resolve — it is not checked against a cache, and
-// it is never taken on trust because the browser sent it back.
+// A connection id is re-resolved here on every single request, against the stacks as
+// they are now, so an id for a stack or node that is gone does not resolve — it is not
+// checked against a cache, and it is never taken on trust because the browser sent it
+// back.
 
 import (
 	"context"
@@ -114,8 +114,8 @@ func dexCapsFor(engine string, readOnly bool) dexCaps {
 // dexConnections is every endpoint the caller may reach, grouped by stack. The
 // ordering is deliberate: the endpoint a client should normally use comes first
 // within its group, then the members, so the obvious choice is the top one.
-func (a *App) dexConnections(ctx context.Context, u User) []dexConnGroup {
-	stacks, _ := a.store.ListStacks(u.ID, u.Role == RoleAdmin)
+func (a *App) dexConnections(ctx context.Context) []dexConnGroup {
+	stacks, _ := a.store.ListStacks()
 	out := []dexConnGroup{}
 	for _, s := range stacks {
 		st, err := a.store.GetStack(s.ID)
@@ -669,30 +669,23 @@ func dexK8sNote(e k8sEndpoint) string {
 
 // ---------------------------------------------------------------- resolution
 
-// dexResolve turns a connection id from the browser into a target, enforcing that
-// the caller may reach it. This is the function every handler calls first, and it is
-// the only place that decides access:
+// dexResolve turns a connection id from the browser into a target. This is the
+// function every handler calls first:
 //
-//   - the stack is loaded through GetStack and checked against the caller's
-//     ownership (an admin passes, anybody else must own it);
+//   - the stack is loaded through GetStack;
 //   - the id is then matched against the endpoints that stack *currently* has, so a
 //     node that has been stopped, removed or renamed stops resolving;
 //   - and the credentials are attached here, not carried from the browser.
 //
-// A forged or stale id therefore fails the same way an unauthorized one does, and
+// A forged or stale id therefore fails the same way a missing one does, and
 // neither reveals whether the stack exists.
-func (a *App) dexResolve(ctx context.Context, u User, id string) (dexTarget, error) {
+func (a *App) dexResolve(ctx context.Context, id string) (dexTarget, error) {
 	ref, err := dexParseID(id)
 	if err != nil {
 		return dexTarget{}, err
 	}
 	st, err := a.store.GetStack(ref.StackID)
 	if err != nil {
-		return dexTarget{}, fmt.Errorf("connection not found")
-	}
-	if st.OwnerID != u.ID && u.Role != RoleAdmin {
-		// Deliberately the same sentence as a missing stack: whether a stack id
-		// exists is not something an unauthorized caller should be able to probe.
 		return dexTarget{}, fmt.Errorf("connection not found")
 	}
 	for _, t := range a.dexStackTargets(ctx, st) {

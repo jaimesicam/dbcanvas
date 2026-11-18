@@ -1,9 +1,9 @@
 import { createContext, useContext, useCallback, useEffect, useState } from 'react'
 import { api } from '../lib/api.js'
 
-// phase ∈ {loading, anon, solo, authed}. solo is the signed-out state: there are no
-// passwords, and a browser signs in through the one-time link the dbcanvas command opens.
-// anon is a shared-session guest whose credential stopped working.
+// phase ∈ {loading, anon, authed}. anon is signed out: there are no passwords, and a
+// browser signs in through the one-time link the dbcanvas command opens. For a
+// shared-session guest it means their credential stopped working.
 // Exported for the browser smoke check (smoke/browser.jsx), which mounts the stack editor
 // without signing in.
 export const AuthContext = createContext(null)
@@ -24,7 +24,7 @@ export function AuthProvider({ children }) {
         setPhase('authed')
       } else {
         setUser(null)
-        setPhase(s.solo ? 'solo' : 'anon')
+        setPhase('anon')
       }
     } catch {
       setUser(null)

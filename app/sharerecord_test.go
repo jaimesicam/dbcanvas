@@ -25,7 +25,7 @@ func recFixture(t *testing.T) *shareFixture {
 	old := recordingsDir
 	recordingsDir = func() string { return dir }
 	t.Cleanup(func() { recordingsDir = old })
-	return newShareFixture(t, RoleUser)
+	return newShareFixture(t)
 }
 
 func (f *shareFixture) startRecording(t *testing.T) ShareRecording {
@@ -206,18 +206,10 @@ func TestARecordingArrivesInOrder(t *testing.T) {
 	}
 }
 
-func TestSomeoneElsesRecordingIsNotFound(t *testing.T) {
+func TestNoGuestReachesTheRecordings(t *testing.T) {
 	f := recFixture(t)
-	rec := f.startRecording(t)
-	other, _ := f.app.store.CreateUser("other", "x", RoleAdmin, StatusApproved)
-	w := httptest.NewRecorder()
-	r := withPrincipal(httptest.NewRequest("GET", "/", nil), principal{User: other})
-	r.SetPathValue("rid", strconv.FormatInt(rec.ID, 10))
-	f.app.handleShareRecordFile(w, r)
-	if w.Code != http.StatusNotFound {
-		t.Errorf("an admin reached another host's recording: %d", w.Code)
-	}
-	// And a guest reaches none of the recording routes.
+	f.startRecording(t)
+	// A guest reaches none of the recording routes.
 	c, g := f.join(t, "Jane")
 	f.admit(t, g)
 	for _, p := range []string{"GET /api/share/recordings", "GET /api/share/recordings/{rid}/file",

@@ -69,12 +69,7 @@ func (a *App) handleStartLink(w http.ResponseWriter, r *http.Request) {
 			"A start link works once, for a minute. Run dbcanvas in a terminal on this computer to open DBCanvas again.")
 		return
 	}
-	owner, err := a.ensureOwner()
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "no owner account: "+err.Error())
-		return
-	}
-	if err := a.issueSession(w, r, owner.ID); err != nil {
+	if err := a.issueSession(w, r); err != nil {
 		writeErr(w, http.StatusInternalServerError, "could not sign in: "+err.Error())
 		return
 	}

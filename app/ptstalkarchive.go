@@ -181,12 +181,12 @@ func (a *App) handlePTStalkArchives(w http.ResponseWriter, r *http.Request) {
 // Summary picker. Enriched with stack and node names, because "ps-01 at 14:32"
 // is what a person recognises and a node id is not.
 func (a *App) handleStalkArchives(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	stacks, err := a.store.ListStacks(u.ID, u.Role == RoleAdmin)
+	stacks, err := a.store.ListStacks()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -311,7 +311,7 @@ func (a *App) handleArchiveDelete(w http.ResponseWriter, r *http.Request) {
 // is gone there is nobody left to check ownership against, so those are visible
 // only to an admin.
 func (a *App) loadOwnedArchive(w http.ResponseWriter, r *http.Request) (ptStalkArchive, bool) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return ptStalkArchive{}, false
@@ -321,36 +321,24 @@ func (a *App) loadOwnedArchive(w http.ResponseWriter, r *http.Request) (ptStalkA
 		writeErr(w, http.StatusBadRequest, "bad archive id")
 		return ptStalkArchive{}, false
 	}
-	return a.ownedArchive(w, u, id)
+	return a.ownedArchive(w, id)
 }
 
 // loadOwnedArchiveByID is the same check for an id that came from a request
 // body rather than the path — the comparison endpoint takes a list of them.
 func (a *App) loadOwnedArchiveByID(w http.ResponseWriter, r *http.Request, id int64) (ptStalkArchive, bool) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return ptStalkArchive{}, false
 	}
-	return a.ownedArchive(w, u, id)
+	return a.ownedArchive(w, id)
 }
 
-func (a *App) ownedArchive(w http.ResponseWriter, u User, id int64) (ptStalkArchive, bool) {
+func (a *App) ownedArchive(w http.ResponseWriter, id int64) (ptStalkArchive, bool) {
 	arch, err := a.store.GetPTStalkArchive(id)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "no such archive")
-		return ptStalkArchive{}, false
-	}
-	st, err := a.store.GetStack(arch.StackID)
-	if err != nil {
-		if u.Role == RoleAdmin {
-			return arch, true
-		}
-		writeErr(w, http.StatusNotFound, "no such archive")
-		return ptStalkArchive{}, false
-	}
-	if st.OwnerID != u.ID && u.Role != RoleAdmin {
-		writeErr(w, http.StatusForbidden, "not your stack")
 		return ptStalkArchive{}, false
 	}
 	return arch, true

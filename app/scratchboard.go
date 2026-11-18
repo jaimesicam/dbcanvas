@@ -14,7 +14,7 @@ import (
 // scratchboard.go — the boards a person chose to keep on the Scratchboard page
 // (web/src/pages/Scratchboard.jsx).
 //
-// Nothing is kept unless the account's "scratchboard" preference is on (settings.go),
+// Nothing is kept unless the "scratchboard" preference is on (settings.go),
 // and it is off by default: a board is a place to paste certificates, Secrets and
 // connection strings, and the default is that none of that outlives the browser tab.
 // With the preference on, each board is still temporary until it is marked to be
@@ -31,24 +31,22 @@ import (
 
 const scratchboardSchema = `
 CREATE TABLE IF NOT EXISTS scratchboards (
-  owner_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  board_id   TEXT NOT NULL,
+  board_id   TEXT PRIMARY KEY,
   data       TEXT NOT NULL,
   rev        INTEGER NOT NULL DEFAULT 1,
-  updated_at TEXT NOT NULL,
-  PRIMARY KEY (owner_id, board_id)
+  updated_at TEXT NOT NULL
 );`
 
 const (
 	scratchboardMaxBytes  = 8 << 20 // one board's document
-	scratchboardMaxBoards = 50      // kept boards per account
+	scratchboardMaxBoards = 50      // kept boards
 )
 
 // The page names its boards; the id is only ever a key.
 var scratchboardIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,40}$`)
 
-func aadScratchboard(ownerID int64, boardID string) string {
-	return aadID("scratchboards", "data", ownerID) + ":" + boardID
+func aadScratchboard(boardID string) string {
+	return "scratchboards.data:" + boardID
 }
 
 // ScratchboardDoc is one kept board: the page's own document, as it sent it.
@@ -61,8 +59,8 @@ type ScratchboardDoc struct {
 
 // ------------------------------------------------------------------ store
 
-func (s *Store) Scratchboards(ownerID int64) ([]ScratchboardDoc, error) {
-	rows, err := s.db.Query(`SELECT board_id, data, rev, updated_at FROM scratchboards WHERE owner_id = ? ORDER BY updated_at`, ownerID)
+func (s *Store) Scratchboards() ([]ScratchboardDoc, error) {
+	rows, err := s.db.Query(`SELECT board_id, data, rev, updated_at FROM scratchboards ORDER BY updated_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +72,7 @@ func (s *Store) Scratchboards(ownerID int64) ([]ScratchboardDoc, error) {
 		if err := rows.Scan(&d.ID, &sealed, &d.Rev, &d.UpdatedAt); err != nil {
 			return nil, err
 		}
-		pt, err := s.openVal(aadScratchboard(ownerID, d.ID), sealed)
+		pt, err := s.openVal(aadScratchboard(d.ID), sealed)
 		if err != nil {
 			return nil, err
 		}
@@ -85,10 +83,10 @@ func (s *Store) Scratchboards(ownerID int64) ([]ScratchboardDoc, error) {
 }
 
 // Scratchboard is one kept board, or ok false when there is none.
-func (s *Store) Scratchboard(ownerID int64, boardID string) (ScratchboardDoc, bool, error) {
+func (s *Store) Scratchboard(boardID string) (ScratchboardDoc, bool, error) {
 	d := ScratchboardDoc{ID: boardID}
 	var sealed string
-	err := s.db.QueryRow(`SELECT data, rev, updated_at FROM scratchboards WHERE owner_id = ? AND board_id = ?`, ownerID, boardID).
+	err := s.db.QueryRow(`SELECT data, rev, updated_at FROM scratchboards WHERE board_id = ?`, boardID).
 		Scan(&sealed, &d.Rev, &d.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return d, false, nil
@@ -96,7 +94,7 @@ func (s *Store) Scratchboard(ownerID int64, boardID string) (ScratchboardDoc, bo
 	if err != nil {
 		return d, false, err
 	}
-	pt, err := s.openVal(aadScratchboard(ownerID, boardID), sealed)
+	pt, err := s.openVal(aadScratchboard(boardID), sealed)
 	if err != nil {
 		return d, false, err
 	}
@@ -104,9 +102,9 @@ func (s *Store) Scratchboard(ownerID int64, boardID string) (ScratchboardDoc, bo
 	return d, true, nil
 }
 
-func (s *Store) countScratchboards(ownerID int64, except string) (int, error) {
+func (s *Store) countScratchboards(except string) (int, error) {
 	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM scratchboards WHERE owner_id = ? AND board_id != ?`, ownerID, except).Scan(&n)
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM scratchboards WHERE board_id != ?`, except).Scan(&n)
 	return n, err
 }
 
@@ -116,8 +114,8 @@ var errScratchboardMoved = errors.New("the board was saved from somewhere else")
 // SaveScratchboard stores a board and returns its new rev. With baseRev >= 0 the save
 // only happens when the stored rev is baseRev (0: no stored board); otherwise it is
 // errScratchboardMoved. baseRev < 0 saves unconditionally.
-func (s *Store) SaveScratchboard(ownerID int64, boardID, data string, baseRev int64) (int64, string, error) {
-	sealed, err := s.sealVal(aadScratchboard(ownerID, boardID), data)
+func (s *Store) SaveScratchboard(boardID, data string, baseRev int64) (int64, string, error) {
+	sealed, err := s.sealVal(aadScratchboard(boardID), data)
 	if err != nil {
 		return 0, "", err
 	}
@@ -127,7 +125,7 @@ func (s *Store) SaveScratchboard(ownerID int64, boardID, data string, baseRev in
 	}
 	defer tx.Rollback()
 	var cur int64
-	err = tx.QueryRow(`SELECT rev FROM scratchboards WHERE owner_id = ? AND board_id = ?`, ownerID, boardID).Scan(&cur)
+	err = tx.QueryRow(`SELECT rev FROM scratchboards WHERE board_id = ?`, boardID).Scan(&cur)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return 0, "", err
 	}
@@ -135,39 +133,40 @@ func (s *Store) SaveScratchboard(ownerID int64, boardID, data string, baseRev in
 		return cur, "", errScratchboardMoved
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	if _, err := tx.Exec(`INSERT INTO scratchboards (owner_id, board_id, data, rev, updated_at) VALUES (?, ?, ?, ?, ?)
-		ON CONFLICT(owner_id, board_id) DO UPDATE SET data = excluded.data, rev = excluded.rev, updated_at = excluded.updated_at`,
-		ownerID, boardID, sealed, cur+1, now); err != nil {
+	if _, err := tx.Exec(`INSERT INTO scratchboards (board_id, data, rev, updated_at) VALUES (?, ?, ?, ?)
+		ON CONFLICT(board_id) DO UPDATE SET data = excluded.data, rev = excluded.rev, updated_at = excluded.updated_at`,
+		boardID, sealed, cur+1, now); err != nil {
 		return 0, "", err
 	}
 	return cur + 1, now, tx.Commit()
 }
 
-func (s *Store) DeleteScratchboard(ownerID int64, boardID string) error {
-	_, err := s.db.Exec(`DELETE FROM scratchboards WHERE owner_id = ? AND board_id = ?`, ownerID, boardID)
+func (s *Store) DeleteScratchboard(boardID string) error {
+	_, err := s.db.Exec(`DELETE FROM scratchboards WHERE board_id = ?`, boardID)
 	return err
 }
 
-// DeleteScratchboards removes every board an account kept.
-func (s *Store) DeleteScratchboards(ownerID int64) error {
-	_, err := s.db.Exec(`DELETE FROM scratchboards WHERE owner_id = ?`, ownerID)
+// DeleteScratchboards removes every kept board.
+func (s *Store) DeleteScratchboards() error {
+	_, err := s.db.Exec(`DELETE FROM scratchboards`)
 	return err
 }
 
 // ------------------------------------------------------------------ handlers
 
-// scratchboardOwner is the signed-in account, and whether it keeps boards at all.
-func (a *App) scratchboardOwner(w http.ResponseWriter, r *http.Request) (int64, bool, bool) {
+// scratchboardKeep is whether boards are kept at all; ok is false when the request is
+// not signed in.
+func (a *App) scratchboardKeep(w http.ResponseWriter, r *http.Request) (keep, ok bool) {
 	u, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
-		return 0, false, false
+		return false, false
 	}
-	return u.ID, a.userSettingsFor(u.ID).Scratchboard == ScratchboardStoreOn, true
+	return a.userSettingsFor(u.ID).Scratchboard == ScratchboardStoreOn, true
 }
 
 func (a *App) handleScratchboards(w http.ResponseWriter, r *http.Request) {
-	uid, keep, ok := a.scratchboardOwner(w, r)
+	keep, ok := a.scratchboardKeep(w, r)
 	if !ok {
 		return
 	}
@@ -175,7 +174,7 @@ func (a *App) handleScratchboards(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"enabled": false, "boards": []ScratchboardDoc{}})
 		return
 	}
-	boards, err := a.store.Scratchboards(uid)
+	boards, err := a.store.Scratchboards()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to read the kept boards")
 		return
@@ -184,7 +183,7 @@ func (a *App) handleScratchboards(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleSaveScratchboard(w http.ResponseWriter, r *http.Request) {
-	uid, keep, ok := a.scratchboardOwner(w, r)
+	keep, ok := a.scratchboardKeep(w, r)
 	if !ok {
 		return
 	}
@@ -210,7 +209,7 @@ func (a *App) handleSaveScratchboard(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "a board is a JSON object")
 		return
 	}
-	if n, err := a.store.countScratchboards(uid, id); err != nil {
+	if n, err := a.store.countScratchboards(id); err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to save the board")
 		return
 	} else if n >= scratchboardMaxBoards {
@@ -226,10 +225,10 @@ func (a *App) handleSaveScratchboard(w http.ResponseWriter, r *http.Request) {
 		}
 		base = n
 	}
-	rev, at, err := a.store.SaveScratchboard(uid, id, string(raw), base)
+	rev, at, err := a.store.SaveScratchboard(id, string(raw), base)
 	if errors.Is(err, errScratchboardMoved) {
 		// The stored copy goes back with the refusal, so the page can offer it.
-		cur, ok, _ := a.store.Scratchboard(uid, id)
+		cur, ok, _ := a.store.Scratchboard(id)
 		body := map[string]any{"error": "this board was saved from another tab or browser since this one loaded it", "conflict": true, "rev": rev}
 		if ok {
 			body["board"] = cur
@@ -246,7 +245,7 @@ func (a *App) handleSaveScratchboard(w http.ResponseWriter, r *http.Request) {
 
 // handleDeleteScratchboard is allowed with keeping off too: deleting is never refused.
 func (a *App) handleDeleteScratchboard(w http.ResponseWriter, r *http.Request) {
-	uid, _, ok := a.scratchboardOwner(w, r)
+	_, ok := a.scratchboardKeep(w, r)
 	if !ok {
 		return
 	}
@@ -255,7 +254,7 @@ func (a *App) handleDeleteScratchboard(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid board id")
 		return
 	}
-	if err := a.store.DeleteScratchboard(uid, id); err != nil {
+	if err := a.store.DeleteScratchboard(id); err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to delete the board")
 		return
 	}

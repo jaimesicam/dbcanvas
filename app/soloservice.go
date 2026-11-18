@@ -183,7 +183,7 @@ func runService() int {
 	go watchDataDir(ctx, lock, dir, stop)
 	log.Printf("dbcanvas %s service starting (pid %d)", appVersion, os.Getpid())
 	recordBinary()
-	if err := runServer(serveOpts{ctx: ctx, stop: stop, tcp: true, dataDir: dir, service: true}); err != nil {
+	if err := runServer(serveOpts{ctx: ctx, stop: stop, dataDir: dir}); err != nil {
 		log.Print(err)
 		return 1
 	}

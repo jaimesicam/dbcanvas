@@ -64,9 +64,9 @@ func browseFixture(t *testing.T) (*App, *browseTarget, User, *http.Cookie, *http
 	// is the tunnel (macOS).
 	t.Setenv("DBCANVAS_NODE_DIAL", "direct")
 	app := newTestApp(t)
-	owner, _ := app.store.CreateUser("owner", "x", RoleUser, StatusApproved)
+	owner, _ := app.store.CreateUser("owner")
 	srv, port := fakeNodeUI(t)
-	tg := &browseTarget{Key: "k1", OwnerID: owner.ID, StackID: 1, ContainerPort: port, HostPort: 32000, Scheme: "http",
+	tg := &browseTarget{Key: "k1", StackID: 1, ContainerPort: port, HostPort: 32000, Scheme: "http",
 		addr: srv.Listener.Addr().String(), lastUsed: time.Now()}
 	tg.proxy = app.newBrowseProxy(tg)
 	browseTargets.Lock()
@@ -75,7 +75,7 @@ func browseFixture(t *testing.T) (*App, *browseTarget, User, *http.Cookie, *http
 	t.Cleanup(func() { browseTargets.Lock(); delete(browseTargets.m, "k1"); browseTargets.Unlock() })
 
 	sess := "sess-owner"
-	if err := app.store.CreateSession(sess, owner.ID, time.Now().Add(time.Hour)); err != nil {
+	if err := app.store.CreateSession(sess, time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	front := httptest.NewServer(app.browseFallback(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -179,16 +179,13 @@ func TestBrowseCarriesWebsockets(t *testing.T) {
 	}
 }
 
-func TestBrowseIsTheOwnersAndTheirGuests(t *testing.T) {
-	app, tg, owner, c, front := browseFixture(t)
+func TestBrowseIsTheSignedInBrowsersAndGuests(t *testing.T) {
+	app, tg, _, c, front := browseFixture(t)
 	if resp := get(t, front, "/_p/k1/", nil, nil); resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("no session: %d, want 401", resp.StatusCode)
 	}
-	other, _ := app.store.CreateUser("other", "x", RoleUser, StatusApproved)
-	os := "sess-other"
-	app.store.CreateSession(os, other.ID, time.Now().Add(time.Hour))
-	if resp := get(t, front, "/_p/k1/", &http.Cookie{Name: cookieName, Value: os}, nil); resp.StatusCode != http.StatusUnauthorized {
-		t.Errorf("somebody else's session: %d, want 401", resp.StatusCode)
+	if resp := get(t, front, "/_p/k1/", &http.Cookie{Name: cookieName, Value: "sess-made-up"}, nil); resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("a made-up session: %d, want 401", resp.StatusCode)
 	}
 	if resp := get(t, front, "/_p/nope/", c, nil); resp.StatusCode != http.StatusNotFound {
 		t.Errorf("an unknown key: %d, want 404", resp.StatusCode)
@@ -196,8 +193,8 @@ func TestBrowseIsTheOwnersAndTheirGuests(t *testing.T) {
 
 	// A guest of the owner's session: watching may look, not act.
 	app.store.SetAppSetting(settingAllowGuestSessions, "1")
-	st, _ := app.store.CreateStack("lab", owner.ID, ttlLongest, nil, []byte(defaultDesign))
-	sess, _ := app.store.CreateShareSession(owner.ID, st.ID, "h", false, false, time.Now().Add(time.Hour))
+	st, _ := app.store.CreateStack("lab", ttlLongest, nil, []byte(defaultDesign))
+	sess, _ := app.store.CreateShareSession(st.ID, "h", false, false, time.Now().Add(time.Hour))
 	g, _ := app.store.CreateShareGuest(sess.ID, "Jane", "j@example.com", hashTokenSecret("gsecret"), "", "")
 	app.store.SetShareGuestState(g.ID, guestAdmitted)
 	gc := &http.Cookie{Name: guestCookieName, Value: "gsecret"}
@@ -256,12 +253,12 @@ func TestStackOfContainer(t *testing.T) {
 // address it is pinned to: the stack name, on 8443 when it serves HTTPS.
 func TestInsidePageIsKeycloaksPinnedAddress(t *testing.T) {
 	app := newTestApp(t)
-	u, err := app.store.CreateUser("owner", "x", RoleAdmin, StatusApproved)
+	_, err := app.store.CreateUser("owner")
 	if err != nil {
 		t.Fatal(err)
 	}
 	design := `{"nodes":[{"id":"kc","type":"keycloak","label":"keycloak-01"},{"id":"db","type":"ps","label":"ps-01"}]}`
-	st, err := app.store.CreateStack("sso", u.ID, ttlLongest, nil, []byte(design))
+	st, err := app.store.CreateStack("sso", ttlLongest, nil, []byte(design))
 	if err != nil {
 		t.Fatal(err)
 	}

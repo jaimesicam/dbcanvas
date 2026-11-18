@@ -95,12 +95,11 @@ type qrQuery struct {
 }
 
 type qrRun struct {
-	id      string
-	ownerID int64
-	app     *App
-	start   time.Time
-	end     time.Time
-	cancel  context.CancelFunc
+	id     string
+	app    *App
+	start  time.Time
+	end    time.Time
+	cancel context.CancelFunc
 
 	mu      sync.Mutex
 	status  string // running|done|stopped

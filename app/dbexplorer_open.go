@@ -39,8 +39,8 @@ import (
 // Three things must all be true, and they are checked in this order because each is
 // cheaper and more specific than the last: the connection has to be one whose
 // read-only-ness is a policy at all (a replica is read-only because it is a replica,
-// and no setting changes that); an administrator has to have unlocked writes for the
-// installation; and this particular submission has to have asked. A tab, a saved
+// and no setting changes that); writes have to be unlocked for the installation in
+// Settings; and this particular submission has to have asked. A tab, a saved
 // query or a replayed request that predates the setting carries no AllowWrites, so
 // none of them can write by accident.
 func (a *App) dexUnlock(t dexTarget, allowWrites bool) bool {
@@ -318,11 +318,8 @@ func (a *App) dexOpenClickHouse(ctx context.Context, t dexTarget) (dexAdapter, e
 
 // ---------------------------------------------------------------- cancellation
 
-// dexRun is one in-flight query, registered so Cancel has something to name. The
-// owner is recorded because a cancel request is authorized the same way everything
-// else here is: you may only cancel your own.
+// dexRun is one in-flight query, registered so Cancel has something to name.
 type dexRun struct {
-	ownerID int64
 	cancel  context.CancelFunc
 	started time.Time
 }
@@ -335,13 +332,13 @@ var dexRuns = struct {
 // dexRegisterRun records an in-flight query under the id the client chose. The id is
 // client-supplied on purpose: the browser needs to be able to cancel a query whose
 // response has not arrived yet, so it cannot wait for the server to name it.
-func dexRegisterRun(id string, ownerID int64, cancel context.CancelFunc) {
+func dexRegisterRun(id string, cancel context.CancelFunc) {
 	if id == "" {
 		return
 	}
 	dexRuns.Lock()
 	defer dexRuns.Unlock()
-	dexRuns.m[id] = &dexRun{ownerID: ownerID, cancel: cancel, started: time.Now()}
+	dexRuns.m[id] = &dexRun{cancel: cancel, started: time.Now()}
 	// A run whose handler died without unregistering would leak a cancel func
 	// forever; anything older than the maximum query timeout cannot still be live.
 	cutoff := time.Now().Add(-2 * dexMaxTimeoutS * time.Second)
@@ -366,10 +363,10 @@ func dexUnregisterRun(id string) {
 // connection, the MySQL driver closes the connection so the server reaps the
 // statement, the MongoDB driver kills the cursor, and the exec transports kill the
 // client process inside the container.
-func dexCancelRun(id string, u User) bool {
+func dexCancelRun(id string) bool {
 	dexRuns.Lock()
 	r := dexRuns.m[id]
-	if r == nil || (r.ownerID != u.ID && u.Role != RoleAdmin) {
+	if r == nil {
 		dexRuns.Unlock()
 		return false
 	}

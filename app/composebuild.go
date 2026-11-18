@@ -1067,7 +1067,7 @@ func leanJSONMap(v any) (map[string]any, error) {
 // ------------------------------------------------------------- handler
 
 func (a *App) handleComposeStack(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -1130,8 +1130,8 @@ func (a *App) handleComposeStack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Checked before the dry run returns, so the plan says so rather than the build.
-	if n := strings.TrimSpace(spec.Name); n != "" && a.store.StackIDByName(u.ID, n) != 0 {
-		a.writeStackNameTaken(w, u.ID, n)
+	if n := strings.TrimSpace(spec.Name); n != "" && a.store.StackIDByName(n) != 0 {
+		a.writeStackNameTaken(w, n)
 		return
 	}
 	if spec.DryRun {
@@ -1143,9 +1143,9 @@ func (a *App) handleComposeStack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	st, err := a.store.CreateStack(strings.TrimSpace(spec.Name), u.ID, ttl, expiryFor(ttl), design)
+	st, err := a.store.CreateStack(strings.TrimSpace(spec.Name), ttl, expiryFor(ttl), design)
 	if errors.Is(err, ErrStackNameTaken) {
-		a.writeStackNameTaken(w, u.ID, strings.TrimSpace(spec.Name))
+		a.writeStackNameTaken(w, strings.TrimSpace(spec.Name))
 		return
 	}
 	if err != nil {

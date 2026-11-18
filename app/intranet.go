@@ -1113,7 +1113,7 @@ type issue struct {
 	Message string `json:"message"`
 	// Image names an extraImageCatalog id when this issue is a missing image that
 	// DBCanvas can build itself (app/extraimages.go). The UI turns it into a Build
-	// button for an admin, which is the whole reason it is a field rather than
+	// button, which is the whole reason it is a field rather than
 	// something the front end greps out of the message: an error that tells you to
 	// go and run a make target is a poor answer when the daemon is right there.
 	Image string `json:"image,omitempty"`
@@ -1687,7 +1687,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			others++
 			// Nothing to check, and no image check either: the panel runs upstream's
 			// published image, which the deploy pulls the way it pulls PMM's, so there
-			// is nothing for an admin to build first. The panel
+			// is nothing to build first. The panel
 			// takes no association line and needs no database to be present, because
 			// which one it opens is a URI typed into its own UI. The MongoDB half that
 			// IS wired — the two accounts — is validated on the MongoDB, where the box
@@ -2515,7 +2515,7 @@ func (a *App) handleDeployStack(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	a.stackEvent(st, "deploying", "", u.Username)
+	a.stackEvent(st, "deploying")
 
 	var doc designDoc
 	json.Unmarshal(st.Design, &doc)
@@ -3626,7 +3626,7 @@ func (a *App) handleDestroyStack(w http.ResponseWriter, r *http.Request) {
 	}
 	a.teardownStack(st.ID)
 	a.store.SetStackStatus(st.ID, StackDraft)
-	a.stackEvent(st, "destroyed", "", "")
+	a.stackEvent(st, "destroyed")
 	writeJSON(w, http.StatusOK, map[string]any{"status": StackDraft, "deployments": []Deployment{}})
 }
 

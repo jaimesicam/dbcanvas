@@ -357,12 +357,12 @@ func (a *App) handleRebuild(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			j.add("failed: %v", err)
 			a.recordStackEvent(st.ID, nid, "action", "error", fmt.Sprintf("Rebuild of %s failed", p.target.Node.Label), err.Error(), u.Username)
-			a.notify(Notification{UserID: u.ID, Scope: "user", Type: "stack.rebuild", Severity: "error", StackID: st.ID, NodeID: nid,
+			a.notify(Notification{Type: "stack.rebuild", Severity: "error", StackID: st.ID, NodeID: nid,
 				Title: "Rebuild failed", Body: fmt.Sprintf("%s: rebuilding %s from %s failed — %v", st.Name, p.target.Node.Label, p.From, err)})
 			return
 		}
 		a.recordStackEvent(st.ID, nid, "action", "success", fmt.Sprintf("%s rebuilt from %s", p.target.Node.Label, p.From), "took "+took.String(), u.Username)
-		a.notify(Notification{UserID: u.ID, Scope: "user", Type: "stack.rebuild", Severity: "success", StackID: st.ID, NodeID: nid,
+		a.notify(Notification{Type: "stack.rebuild", Severity: "success", StackID: st.ID, NodeID: nid,
 			Title: "Replica rebuilt", Body: fmt.Sprintf("%s: %s was rebuilt from %s in %s and is replicating.", st.Name, p.target.Node.Label, p.From, took)})
 	}()
 	writeJSON(w, http.StatusAccepted, map[string]any{"job": j.snapshot()})

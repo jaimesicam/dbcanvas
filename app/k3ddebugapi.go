@@ -156,7 +156,7 @@ func (a *App) k3dDebugContext(w http.ResponseWriter, r *http.Request) (Stack, k3
 // is a tool of its own, not a tab on one cluster, so it has to find its own targets the way the
 // Packet Inspector and the Query Runner do.
 func (a *App) handleK3DDebugTargets(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -168,7 +168,7 @@ func (a *App) handleK3DDebugTargets(w http.ResponseWriter, r *http.Request) {
 		Attached  bool             `json:"attached"`
 	}
 	out := []target{}
-	stacks, _ := a.store.ListStacks(u.ID, u.Role == RoleAdmin)
+	stacks, _ := a.store.ListStacks()
 	for _, s := range stacks {
 		st, err := a.store.GetStack(s.ID)
 		if err != nil {

@@ -64,10 +64,10 @@ func TestDexConnectionIDRejectsNonsense(t *testing.T) {
 
 // seedStack writes a stack with one running PostgreSQL node, which is enough shape
 // for discovery to produce a connection.
-func seedStack(t *testing.T, app *App, owner User, name string) Stack {
+func seedStack(t *testing.T, app *App, name string) Stack {
 	t.Helper()
 	design := `{"nodes":[{"id":"pg1","type":"pg","label":"pg-01"}],"frames":[],"edges":[]}`
-	st, err := app.store.CreateStack(name, owner.ID, ttlLongest, nil, []byte(design))
+	st, err := app.store.CreateStack(name, ttlLongest, nil, []byte(design))
 	if err != nil {
 		t.Fatalf("create stack: %v", err)
 	}
@@ -85,10 +85,10 @@ func seedStack(t *testing.T, app *App, owner User, name string) Stack {
 
 func TestDexDiscoversDeployedNodesWithoutBeingAsked(t *testing.T) {
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("alice", "x", RoleUser, StatusApproved)
-	seedStack(t, app, u, "lab")
+	app.store.CreateUser("alice")
+	seedStack(t, app, "lab")
 
-	groups := app.dexConnections(context.Background(), u)
+	groups := app.dexConnections(context.Background())
 	if len(groups) != 1 {
 		t.Fatalf("want one stack, got %d", len(groups))
 	}
@@ -114,14 +114,14 @@ func TestDexDiscoversDeployedNodesWithoutBeingAsked(t *testing.T) {
 
 func TestDexNeverReturnsCredentialsToTheBrowser(t *testing.T) {
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("alice", "x", RoleUser, StatusApproved)
-	seedStack(t, app, u, "lab")
+	app.store.CreateUser("alice")
+	seedStack(t, app, "lab")
 
 	// The password is in the deployment and the server resolves it — but nothing
 	// that is serialised may carry it. Marshal the whole payload the handler would
 	// write and search it, which catches a field added later as well as the ones
 	// that exist now.
-	blob, err := json.Marshal(map[string]any{"stacks": app.dexConnections(context.Background(), u)})
+	blob, err := json.Marshal(map[string]any{"stacks": app.dexConnections(context.Background())})
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestDexNeverReturnsCredentialsToTheBrowser(t *testing.T) {
 
 	// The resolved target does hold the password — that is its job — but the DTO
 	// inside it does not, so nothing serialisable can reach the browser with one.
-	tgt, err := app.dexResolve(context.Background(), u, app.dexConnections(context.Background(), u)[0].Groups[0].Connections[0].ID)
+	tgt, err := app.dexResolve(context.Background(), app.dexConnections(context.Background())[0].Groups[0].Connections[0].ID)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -146,51 +146,12 @@ func TestDexNeverReturnsCredentialsToTheBrowser(t *testing.T) {
 	}
 }
 
-func TestDexAuthorizationIsolatesUsers(t *testing.T) {
-	app := newTestApp(t)
-	alice, _ := app.store.CreateUser("alice", "x", RoleUser, StatusApproved)
-	bob, _ := app.store.CreateUser("bob", "x", RoleUser, StatusApproved)
-	admin, _ := app.store.CreateUser("root", "x", RoleAdmin, StatusApproved)
-	seedStack(t, app, alice, "alice-lab")
-	seedStack(t, app, bob, "bob-lab")
-
-	ctx := context.Background()
-	aliceConns := app.dexConnections(ctx, alice)
-	bobConns := app.dexConnections(ctx, bob)
-	if len(aliceConns) != 1 || aliceConns[0].StackName != "alice-lab" {
-		t.Fatalf("alice sees %+v", aliceConns)
-	}
-	if len(bobConns) != 1 || bobConns[0].StackName != "bob-lab" {
-		t.Fatalf("bob sees %+v", bobConns)
-	}
-
-	// The id is a token, not a permission. Bob holding alice's id — copied from a
-	// screenshot, guessed, or replayed — must not resolve.
-	aliceID := aliceConns[0].Groups[0].Connections[0].ID
-	if _, err := app.dexResolve(ctx, bob, aliceID); err == nil {
-		t.Fatal("bob resolved alice's connection")
-	} else if !strings.Contains(err.Error(), "not found") {
-		// And the refusal must not confirm that the stack exists.
-		t.Errorf("refusal leaks existence: %v", err)
-	}
-	if _, err := app.dexResolve(ctx, alice, aliceID); err != nil {
-		t.Errorf("alice cannot reach her own connection: %v", err)
-	}
-	// An admin may, which is the documented rule everywhere else in the app.
-	if _, err := app.dexResolve(ctx, admin, aliceID); err != nil {
-		t.Errorf("an admin should reach any stack: %v", err)
-	}
-	if len(app.dexConnections(ctx, admin)) != 2 {
-		t.Errorf("an admin should see both stacks")
-	}
-}
-
 func TestDexStoppedNodeStopsResolving(t *testing.T) {
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("alice", "x", RoleUser, StatusApproved)
-	st := seedStack(t, app, u, "lab")
+	app.store.CreateUser("alice")
+	st := seedStack(t, app, "lab")
 	ctx := context.Background()
-	id := app.dexConnections(ctx, u)[0].Groups[0].Connections[0].ID
+	id := app.dexConnections(ctx)[0].Groups[0].Connections[0].ID
 
 	// Discovery reads the deployment on every request, so a node that was stopped
 	// between two clicks stops being reachable rather than being cached as live.
@@ -198,10 +159,10 @@ func TestDexStoppedNodeStopsResolving(t *testing.T) {
 	dep.State = DeployStopped
 	app.store.UpsertDeployment(dep)
 
-	if _, err := app.dexResolve(ctx, u, id); err == nil {
+	if _, err := app.dexResolve(ctx, id); err == nil {
 		t.Fatal("a stopped node should no longer resolve")
 	}
-	if len(app.dexConnections(ctx, u)) != 0 {
+	if len(app.dexConnections(ctx)) != 0 {
 		t.Error("a stopped node should leave the connection list")
 	}
 }
@@ -276,14 +237,14 @@ func TestDexReadOnlyAllowsReads(t *testing.T) {
 
 func TestDexPMMConnectionsAreReadOnlyAndLabelled(t *testing.T) {
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("alice", "x", RoleUser, StatusApproved)
+	app.store.CreateUser("alice")
 	design := `{"nodes":[{"id":"pmm1","type":"pmm","label":"pmm-01"}],"frames":[],"edges":[]}`
-	st, _ := app.store.CreateStack("lab", u.ID, ttlLongest, nil, []byte(design))
+	st, _ := app.store.CreateStack("lab", ttlLongest, nil, []byte(design))
 	cfg, _ := json.Marshal(map[string]any{"fqdn": "pmm-01.example.net", "version": "3"})
 	app.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: "pmm1", ContainerID: "c-pmm",
 		State: DeployRunning, Config: cfg})
 
-	groups := app.dexConnections(context.Background(), u)
+	groups := app.dexConnections(context.Background())
 	if len(groups) != 1 || len(groups[0].Groups) != 1 {
 		t.Fatalf("want one PMM group, got %+v", groups)
 	}
@@ -347,7 +308,7 @@ func setInternalWrites(t *testing.T, app *App, on bool) {
 func seedPMM(t *testing.T, app *App, owner User) Stack {
 	t.Helper()
 	design := `{"nodes":[{"id":"pmm1","type":"pmm","label":"pmm-01"}],"frames":[],"edges":[]}`
-	st, err := app.store.CreateStack("lab", owner.ID, ttlLongest, nil, []byte(design))
+	st, err := app.store.CreateStack("lab", ttlLongest, nil, []byte(design))
 	if err != nil {
 		t.Fatalf("create stack: %v", err)
 	}
@@ -360,11 +321,11 @@ func seedPMM(t *testing.T, app *App, owner User) Stack {
 
 func dexPMMTarget(t *testing.T, app *App, u User, engine string) dexTarget {
 	t.Helper()
-	for _, g := range app.dexConnections(context.Background(), u) {
+	for _, g := range app.dexConnections(context.Background()) {
 		for _, grp := range g.Groups {
 			for _, c := range grp.Connections {
 				if c.Engine == engine && c.Policy == dexPMMPolicy {
-					tgt, err := app.dexResolve(context.Background(), u, c.ID)
+					tgt, err := app.dexResolve(context.Background(), c.ID)
 					if err != nil {
 						t.Fatalf("resolve %s: %v", c.ID, err)
 					}
@@ -379,7 +340,7 @@ func dexPMMTarget(t *testing.T, app *App, u User, engine string) dexTarget {
 
 func TestDexUnlockNeedsBothTheSettingAndTheRequest(t *testing.T) {
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("alice", "x", RoleUser, StatusApproved)
+	u, _ := app.store.CreateUser("alice")
 	seedPMM(t, app, u)
 	pg := dexPMMTarget(t, app, u, dexPostgres)
 
@@ -415,14 +376,14 @@ func TestDexUnlockNeedsBothTheSettingAndTheRequest(t *testing.T) {
 
 func TestDexUnlockOnlyAppliesToAPolicyReadOnlyConnection(t *testing.T) {
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("alice", "x", RoleUser, StatusApproved)
-	seedStack(t, app, u, "lab")
+	app.store.CreateUser("alice")
+	seedStack(t, app, "lab")
 	setInternalWrites(t, app, true)
 
 	// An ordinary database node is not read-only by policy, so there is nothing for
 	// the unlock to do — and asking must not be treated as meaning anything.
-	conns := app.dexConnections(context.Background(), u)
-	tgt, err := app.dexResolve(context.Background(), u, conns[0].Groups[0].Connections[0].ID)
+	conns := app.dexConnections(context.Background())
+	tgt, err := app.dexResolve(context.Background(), conns[0].Groups[0].Connections[0].ID)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -436,11 +397,11 @@ func TestDexUnlockOnlyAppliesToAPolicyReadOnlyConnection(t *testing.T) {
 
 func TestDexUnlockableIsReportedOnlyWhenAllowed(t *testing.T) {
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("alice", "x", RoleUser, StatusApproved)
+	u, _ := app.store.CreateUser("alice")
 	seedPMM(t, app, u)
 
 	unlockable := func() bool {
-		for _, g := range app.dexConnections(context.Background(), u) {
+		for _, g := range app.dexConnections(context.Background()) {
 			for _, grp := range g.Groups {
 				for _, c := range grp.Connections {
 					if !c.ReadOnly {
@@ -482,7 +443,7 @@ func TestDexUnlockedTransportsDropTheirServerSideReadOnly(t *testing.T) {
 
 func TestDexUnlockedAdapterRegainsEditing(t *testing.T) {
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("alice", "x", RoleUser, StatusApproved)
+	u, _ := app.store.CreateUser("alice")
 	seedPMM(t, app, u)
 	setInternalWrites(t, app, true)
 	pg := dexPMMTarget(t, app, u, dexPostgres)
@@ -1344,33 +1305,19 @@ func TestDexCapabilitiesDescribeWhatAnEngineCanActuallyDo(t *testing.T) {
 
 // ---------------------------------------------------------------- cancellation
 
-func TestDexCancelIsOwnerScoped(t *testing.T) {
-	alice := User{ID: 1, Role: RoleUser}
-	bob := User{ID: 2, Role: RoleUser}
-	admin := User{ID: 3, Role: RoleAdmin}
-
+func TestDexCancel(t *testing.T) {
 	cancelled := false
-	dexRegisterRun("run-1", alice.ID, func() { cancelled = true })
-	if dexCancelRun("run-1", bob) {
-		t.Fatal("bob cancelled alice's query")
-	}
-	if cancelled {
-		t.Fatal("the cancel func ran for the wrong user")
-	}
-	if !dexCancelRun("run-1", alice) {
-		t.Fatal("alice could not cancel her own query")
+	dexRegisterRun("run-1", func() { cancelled = true })
+	if !dexCancelRun("run-1") {
+		t.Fatal("could not cancel the query")
 	}
 	if !cancelled {
 		t.Fatal("cancelling did not call the cancel func")
 	}
 	// Cancelling something that has already finished is not an error, but it is not
 	// a success either — there is nothing to cancel.
-	if dexCancelRun("run-1", alice) {
+	if dexCancelRun("run-1") {
 		t.Error("a finished run should not report as cancelled twice")
-	}
-	dexRegisterRun("run-2", alice.ID, func() {})
-	if !dexCancelRun("run-2", admin) {
-		t.Error("an admin should be able to cancel")
 	}
 	// A client-supplied id is bounded before it is used as a key.
 	if len(dexSafeID(strings.Repeat("x", 5000))) != 64 {
@@ -1382,15 +1329,15 @@ func TestDexCancelIsOwnerScoped(t *testing.T) {
 
 func TestDexHistoryStoresNoCredentialAndPrunes(t *testing.T) {
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("alice", "x", RoleUser, StatusApproved)
+	app.store.CreateUser("alice")
 
-	if _, err := app.store.DexAddHistory(u.ID, dexHistoryEntry{
+	if _, err := app.store.DexAddHistory(dexHistoryEntry{
 		ConnectionID: "1~n~pg1", Connection: "lab · pg-01", Engine: dexPostgres,
 		Database: "shop", Statement: "SELECT 1", DurationMs: 3, RowCount: 1, Success: true,
 	}); err != nil {
 		t.Fatalf("add: %v", err)
 	}
-	got, err := app.store.DexHistory(u.ID, 10)
+	got, err := app.store.DexHistory(10)
 	if err != nil || len(got) != 1 {
 		t.Fatalf("history = %+v (%v)", got, err)
 	}
@@ -1403,43 +1350,36 @@ func TestDexHistoryStoresNoCredentialAndPrunes(t *testing.T) {
 		}
 	}
 
-	// Another user's history is not visible, and not deletable.
-	bob, _ := app.store.CreateUser("bob", "x", RoleUser, StatusApproved)
-	if h, _ := app.store.DexHistory(bob.ID, 10); len(h) != 0 {
-		t.Errorf("bob sees alice's history: %+v", h)
-	}
-	if err := app.store.DexDeleteHistory(bob.ID, got[0].ID); err != nil {
+	if err := app.store.DexDeleteHistory(got[0].ID); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	if h, _ := app.store.DexHistory(u.ID, 10); len(h) != 1 {
-		t.Error("bob deleted alice's history entry")
+	if h, _ := app.store.DexHistory(10); len(h) != 0 {
+		t.Error("the history entry was not deleted")
 	}
 
 	// Retention: the table cannot grow without bound.
 	for i := 0; i < dexHistoryKeep+20; i++ {
-		app.store.DexAddHistory(u.ID, dexHistoryEntry{
+		app.store.DexAddHistory(dexHistoryEntry{
 			ConnectionID: "1~n~pg1", Connection: "lab", Engine: dexPostgres, Statement: "SELECT 2",
 		})
 	}
-	if h, _ := app.store.DexHistory(u.ID, dexHistoryKeep); len(h) > dexHistoryKeep {
+	if h, _ := app.store.DexHistory(dexHistoryKeep); len(h) > dexHistoryKeep {
 		t.Errorf("history kept %d entries, want at most %d", len(h), dexHistoryKeep)
 	}
 }
 
-func TestDexSavedQueriesAreOwnerScoped(t *testing.T) {
+func TestDexSavedQueries(t *testing.T) {
 	app := newTestApp(t)
-	alice, _ := app.store.CreateUser("alice", "x", RoleUser, StatusApproved)
-	bob, _ := app.store.CreateUser("bob", "x", RoleUser, StatusApproved)
-	q, err := app.store.DexSaveQuery(alice.ID, dexSavedQuery{Name: "top", Engine: dexPostgres, Statement: "SELECT 1"})
+	q, err := app.store.DexSaveQuery(dexSavedQuery{Name: "top", Engine: dexPostgres, Statement: "SELECT 1"})
 	if err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	if list, _ := app.store.DexSavedQueries(bob.ID); len(list) != 0 {
-		t.Error("bob sees alice's saved queries")
+	if list, _ := app.store.DexSavedQueries(); len(list) != 1 || list[0].Name != "top" {
+		t.Errorf("saved queries: %+v", list)
 	}
-	app.store.DexDeleteSaved(bob.ID, q.ID)
-	if list, _ := app.store.DexSavedQueries(alice.ID); len(list) != 1 {
-		t.Error("bob deleted alice's saved query")
+	app.store.DexDeleteSaved(q.ID)
+	if list, _ := app.store.DexSavedQueries(); len(list) != 0 {
+		t.Error("the saved query was not deleted")
 	}
 }
 

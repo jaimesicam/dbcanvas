@@ -10,10 +10,10 @@ import (
 func watchFixture(t *testing.T) (*App, Stack) {
 	t.Helper()
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("owner", "x", RoleAdmin, StatusApproved)
+	app.store.CreateUser("owner")
 	design := `{"nodes":[{"id":"a","type":"mysql","label":"db-1","frameId":"f"},{"id":"b","type":"mysql","label":"db-2","frameId":"f"}],
 	  "frames":[{"id":"f","type":"mysql","label":"repl"}],"edges":[]}`
-	st, err := app.store.CreateStack("w", u.ID, "2h", nil, []byte(design))
+	st, err := app.store.CreateStack("w", "2h", nil, []byte(design))
 	if err != nil {
 		t.Fatal(err)
 	}

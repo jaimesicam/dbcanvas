@@ -12,8 +12,7 @@ import (
 
 func TestScratchboardKeepAndForget(t *testing.T) {
 	app := newTestApp(t)
-	ann, _ := app.store.CreateUser("ann", "x", RoleUser, StatusApproved)
-	bob, _ := app.store.CreateUser("bob", "x", RoleUser, StatusApproved)
+	ann, _ := app.store.CreateUser("ann")
 	do := func(u User, method, bid, body string, h func(*App) http.HandlerFunc) *httptest.ResponseRecorder {
 		t.Helper()
 		w := httptest.NewRecorder()
@@ -62,13 +61,9 @@ func TestScratchboardKeepAndForget(t *testing.T) {
 	}
 	// Sealed at rest.
 	var raw string
-	app.store.db.QueryRow(`SELECT data FROM scratchboards WHERE owner_id = ?`, ann.ID).Scan(&raw)
+	app.store.db.QueryRow(`SELECT data FROM scratchboards`).Scan(&raw)
 	if strings.Contains(raw, "secret") || !strings.HasPrefix(raw, "v1:") {
 		t.Fatalf("stored in plaintext: %q", raw)
-	}
-	// Another account sees none of it.
-	if _, b := list(bob); len(b) != 0 {
-		t.Fatalf("bob sees %+v", b)
 	}
 
 	// A save from a tab that has not seen the latest rev is refused, with the stored copy.
@@ -105,14 +100,14 @@ func TestScratchboardKeepAndForget(t *testing.T) {
 		t.Fatalf("turn off: %d", w.Code)
 	}
 	var n int
-	app.store.db.QueryRow(`SELECT COUNT(*) FROM scratchboards WHERE owner_id = ?`, ann.ID).Scan(&n)
+	app.store.db.QueryRow(`SELECT COUNT(*) FROM scratchboards`).Scan(&n)
 	if n != 0 {
 		t.Fatalf("%d boards left after turning keeping off", n)
 	}
 }
 
-// A database whose scratchboards table predates the rev column opens with the column added.
-func TestScratchboardRevColumnAdded(t *testing.T) {
+// A database made by an earlier release is refused with a message, not opened half-working.
+func TestAnEarlierDatabaseIsRefused(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "old.db")
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -128,12 +123,16 @@ func TestScratchboardRevColumnAdded(t *testing.T) {
 		t.Fatal(err)
 	}
 	db.Close()
-	st, err := OpenStore(path)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := OpenStore(path); err == nil || !strings.Contains(err.Error(), "earlier release") {
+		t.Fatalf("an earlier database: %v", err)
 	}
-	defer st.Close()
-	if _, err := st.Scratchboards(1); err != nil {
-		t.Fatalf("list after upgrade: %v", err)
+	// A new one opens, and opens again.
+	fresh := filepath.Join(t.TempDir(), "new.db")
+	for i := 0; i < 2; i++ {
+		st, err := OpenStore(fresh)
+		if err != nil {
+			t.Fatalf("open %d: %v", i, err)
+		}
+		st.Close()
 	}
 }

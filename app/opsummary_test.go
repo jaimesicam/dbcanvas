@@ -831,7 +831,7 @@ func TestOpSummaryBackupLogsDoNotCryWolf(t *testing.T) {
 // taken here, so the timeline is one click away either way.
 func TestOpSummaryRegistersLogsForAnUpload(t *testing.T) {
 	app := newTestApp(t)
-	u, err := app.store.CreateUser("dumper", "x", RoleUser, StatusApproved)
+	_, err := app.store.CreateUser("dumper")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -841,7 +841,7 @@ func TestOpSummaryRegistersLogsForAnUpload(t *testing.T) {
 	}
 
 	// "upload" is the origin an archive from elsewhere carries; it has no stack.
-	m, err := app.opAnalyse(u, data, "customer-cluster.tar.gz", "upload", 0, "")
+	m, err := app.opAnalyse(data, "cluster-dump.tar.gz", "upload", 0, "")
 	if err != nil {
 		t.Fatalf("analyse: %v", err)
 	}
@@ -866,7 +866,7 @@ func TestOpSummaryRegistersLogsForAnUpload(t *testing.T) {
 	// It must be reachable by the account that uploaded it, which is what makes
 	// the handoff work at all.
 	var mine bool
-	for _, r := range lsListFor(u) {
+	for _, r := range lsListFor() {
 		if r.ID == m.Logs.BundleID {
 			mine = true
 		}

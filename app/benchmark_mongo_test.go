@@ -10,7 +10,7 @@ import (
 // The Mongo op buckets must be registered so a run pre-allocates their latAcc — recStmt looks the
 // bucket up by name without a nil check.
 func TestMongoStmtBucketsRegistered(t *testing.T) {
-	run := newBenchRun(&App{}, 1, benchConfig{}, "mongodb", "cid", "m", "admin", "pw")
+	run := newBenchRun(&App{}, benchConfig{}, "mongodb", "cid", "m", "admin", "pw")
 	if run.driver != "mongo" {
 		t.Errorf("engine mongodb should map to driver mongo, got %q", run.driver)
 	}

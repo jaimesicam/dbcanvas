@@ -31,8 +31,7 @@ import (
 type authKind int
 
 const (
-	// authUser — any signed-in account; the handler scopes the result to what
-	// they own (an admin usually sees everything).
+	// authUser — the signed-in browser, the control socket, a token, or a guest.
 	authUser authKind = iota
 	// authPublic — reachable without a session. Only the five endpoints an
 	// account needs before it has one.
@@ -288,7 +287,7 @@ func buildAPIRoutes() []apiRoute {
 		{Method: "POST", Path: "/api/stacks/{id}/extend", Group: gStacks, Handler: m((*App).handleExtendStack),
 			Summary: "Push the stack's expiry out: {\"by\": \"2h\"|\"4h\"|\"8h\"|\"24h\"|\"2w\"|\"30d\"} from the later of now and its current expiry, never more than 30 days from now."},
 		{Method: "GET", Path: "/api/stacks/events", Group: gStacks, Media: mediaSSE, Handler: m((*App).handleStackEvents),
-			Summary: "Server-sent events for your stacks' lifecycle: created, deploying, destroyed, deleted (with the reason), expired, extended, labels. ?label=k=v narrows them. A deleted stack's id answers 410 Gone with how it went."},
+			Summary: "Server-sent events for your stacks' lifecycle: created, deploying, destroyed, deleted, expired, extended, labels. ?label=k=v narrows them. A deleted stack's id answers 410 Gone with when it went."},
 		{Method: "PUT", Path: "/api/stacks/{id}/labels", Group: gStacks, Handler: m((*App).handleSetStackLabels),
 			Summary: "Replace a stack's labels: {\"labels\": {\"tool\": \"ci\", \"run\": \"12\"}}. GET /api/stacks?label=k=v (repeatable; k alone matches any value) selects by them."},
 		{Method: "PUT", Path: "/api/stacks/{id}", Group: gStacks, Handler: m((*App).handleUpdateStack),

@@ -19,8 +19,8 @@ func TestParseSSHForwardingHost(t *testing.T) {
 		// A login may be pinned for everybody, for an installation whose operators
 		// all ssh in under the same account. Without one it is left empty here and
 		// resolved per request — see TestSSHForwardWithLogin.
-		{in: "jaime@10.0.0.7", ok: true, user: "jaime", host: "10.0.0.7", port: 22},
-		{in: "jaime@10.0.0.7:2222", ok: true, user: "jaime", host: "10.0.0.7", port: 2222},
+		{in: "testuser01@10.0.0.7", ok: true, user: "testuser01", host: "10.0.0.7", port: 22},
+		{in: "testuser01@10.0.0.7:2222", ok: true, user: "testuser01", host: "10.0.0.7", port: 2222},
 		{in: "@10.0.0.7", ok: true, user: "", host: "10.0.0.7", port: 22},
 		// IPv6, bracketed as anywhere else a host:port is written — and bare,
 		// which SplitHostPort rejects and we then take whole.
@@ -97,16 +97,16 @@ func TestSSHForwardingSetting(t *testing.T) {
 	if s := sshForwardingSetting(""); s.Enabled {
 		t.Errorf("unset SSH_FORWARDING_HOST should leave the feature off, got %+v", s)
 	}
-	t.Setenv(sshForwardingHostEnv, "jaime@10.0.0.7:2222")
+	t.Setenv(sshForwardingHostEnv, "testuser01@10.0.0.7:2222")
 	s := sshForwardingSetting("")
-	if !s.Enabled || s.User != "jaime" || s.Host != "10.0.0.7" || s.Port != 2222 {
+	if !s.Enabled || s.User != "testuser01" || s.Host != "10.0.0.7" || s.Port != 2222 {
 		t.Errorf("sshForwardingSetting() = %+v, want the parsed target enabled", s)
 	}
 	// With no "user@" the signed-in account is what the payload advertises — this is
 	// the whole point of the login being optional.
 	t.Setenv(sshForwardingHostEnv, "10.0.0.7")
-	if s := sshForwardingSetting("jaime"); !s.Enabled || s.User != "jaime" {
-		t.Errorf(`sshForwardingSetting("jaime") = %+v, want the signed-in account as the login`, s)
+	if s := sshForwardingSetting("testuser01"); !s.Enabled || s.User != "testuser01" {
+		t.Errorf(`sshForwardingSetting("testuser01") = %+v, want the signed-in account as the login`, s)
 	}
 	// Nobody signed in (or an unusable name) falls back to the placeholder rather
 	// than shipping an empty login.
@@ -118,7 +118,7 @@ func TestSSHForwardingSetting(t *testing.T) {
 	// and a configured login are held to the same standard.
 	for _, bad := range []string{"10.0.0.7; id", "bad user@10.0.0.7", "o'brien@10.0.0.7"} {
 		t.Setenv(sshForwardingHostEnv, bad)
-		if s := sshForwardingSetting("jaime"); s.Enabled {
+		if s := sshForwardingSetting("testuser01"); s.Enabled {
 			t.Errorf("SSH_FORWARDING_HOST=%q should leave the feature off, got %+v", bad, s)
 		}
 	}
@@ -131,8 +131,8 @@ func TestSSHForwardWithLogin(t *testing.T) {
 	if !ok || bare.User != "" {
 		t.Fatalf("expected no login from a bare host, got %+v", bare)
 	}
-	if got := bare.withLogin("jaime").User; got != "jaime" {
-		t.Errorf("withLogin(%q) = %q, want the signed-in account", "jaime", got)
+	if got := bare.withLogin("testuser01").User; got != "testuser01" {
+		t.Errorf("withLogin(%q) = %q, want the signed-in account", "testuser01", got)
 	}
 
 	// A configured "user@" wins: an administrator who wrote one meant it for everybody.
@@ -140,7 +140,7 @@ func TestSSHForwardWithLogin(t *testing.T) {
 	if !ok {
 		t.Fatal("parseSSHForwardingHost rejected a pinned login")
 	}
-	if got := pinned.withLogin("jaime").User; got != "deploy" {
+	if got := pinned.withLogin("testuser01").User; got != "deploy" {
 		t.Errorf("withLogin should not override a configured login, got %q", got)
 	}
 
@@ -154,8 +154,8 @@ func TestSSHForwardWithLogin(t *testing.T) {
 	}
 
 	// And the resolved login really does reach the rendered command.
-	cmd := sshForwardCommand(bare.withLogin("jaime"), "127.0.0.1", []sshForwardPort{{Container: 3306, Host: 13306}})
-	if want := "ssh -L 13306:127.0.0.1:13306 jaime@10.0.0.7 -p 22"; cmd != want {
+	cmd := sshForwardCommand(bare.withLogin("testuser01"), "127.0.0.1", []sshForwardPort{{Container: 3306, Host: 13306}})
+	if want := "ssh -L 13306:127.0.0.1:13306 testuser01@10.0.0.7 -p 22"; cmd != want {
 		t.Errorf("sshForwardCommand() = %q, want %q", cmd, want)
 	}
 }

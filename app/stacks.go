@@ -75,7 +75,7 @@ func (a *App) loadOwnedStack(w http.ResponseWriter, r *http.Request) (Stack, Use
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			// Deleted rather than never there: say how (stackevents.go).
-			if !a.writeStackGone(w, u, id) {
+			if !a.writeStackGone(w, id) {
 				writeErr(w, http.StatusNotFound, "stack not found")
 			}
 			return Stack{}, User{}, false
@@ -83,20 +83,16 @@ func (a *App) loadOwnedStack(w http.ResponseWriter, r *http.Request) (Stack, Use
 		writeErr(w, http.StatusInternalServerError, "failed to read stack")
 		return Stack{}, User{}, false
 	}
-	if st.OwnerID != u.ID && u.Role != RoleAdmin {
-		writeErr(w, http.StatusForbidden, "not your stack")
-		return Stack{}, User{}, false
-	}
 	return st, u, true
 }
 
 func (a *App) handleListStacks(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	stacks, err := a.store.ListStacks(u.ID, u.Role == RoleAdmin)
+	stacks, err := a.store.ListStacks()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to list stacks")
 		return
@@ -120,10 +116,8 @@ func (a *App) handleListStacks(w http.ResponseWriter, r *http.Request) {
 // /api/dashboard/stats, the sample the dashboard already makes, rather than this list making one.
 type stackSummary struct {
 	Stack
-	Owner       string         `json:"owner"`
-	OwnerAvatar string         `json:"ownerAvatar,omitempty"`
-	Nodes       stackNodeCount `json:"nodes"`
-	Types       map[string]int `json:"types"` // node type → how many on the canvas
+	Nodes stackNodeCount `json:"nodes"`
+	Types map[string]int `json:"types"` // node type → how many on the canvas
 }
 
 type stackNodeCount struct {
@@ -133,16 +127,9 @@ type stackNodeCount struct {
 }
 
 func (a *App) stackSummaries(stacks []Stack) []stackSummary {
-	users := map[int64]User{}
 	out := make([]stackSummary, 0, len(stacks))
 	for _, s := range stacks {
 		d := stackSummary{Stack: s, Types: map[string]int{}}
-		u, ok := users[s.OwnerID]
-		if !ok {
-			u, _ = a.store.GetUser(s.OwnerID)
-			users[s.OwnerID] = u
-		}
-		d.Owner, d.OwnerAvatar = u.Username, u.Avatar
 		if full, err := a.store.GetStack(s.ID); err == nil {
 			for _, n := range buildDoc(full).Nodes {
 				d.Types[n.Type]++
@@ -164,7 +151,7 @@ func (a *App) stackSummaries(stacks []Stack) []stackSummary {
 }
 
 func (a *App) handleCreateStack(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -190,7 +177,7 @@ func (a *App) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 	}
 	name := strings.TrimSpace(body.Name)
 	if name == "" {
-		name = a.store.FreeStackName(u.ID, orDefault(strings.TrimSpace(body.DefaultName), "Untitled stack"))
+		name = a.store.FreeStackName(orDefault(strings.TrimSpace(body.DefaultName), "Untitled stack"))
 	}
 	if err := validateLabels(body.Labels); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -214,7 +201,7 @@ func (a *App) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 	if len(body.Design) > 0 {
 		design = body.Design
 	} else if body.TemplateID != "" {
-		t, err := a.loadTemplate(body.TemplateID, u)
+		t, err := a.loadTemplate(body.TemplateID)
 		if err != nil {
 			writeTemplateLoadErr(w, err)
 			return
@@ -229,9 +216,9 @@ func (a *App) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, why)
 		return
 	}
-	st, err := a.store.CreateStack(name, u.ID, body.TTL, expiryFor(body.TTL), design)
+	st, err := a.store.CreateStack(name, body.TTL, expiryFor(body.TTL), design)
 	if errors.Is(err, ErrStackNameTaken) {
-		a.writeStackNameTaken(w, u.ID, name)
+		a.writeStackNameTaken(w, name)
 		return
 	}
 	if err != nil {
@@ -244,7 +231,7 @@ func (a *App) handleCreateStack(w http.ResponseWriter, r *http.Request) {
 	}
 	a.recordStackCreator(r, st.ID)
 	if fresh, err := a.store.GetStack(st.ID); err == nil {
-		a.stackEvent(fresh, "created", "", u.Username)
+		a.stackEvent(fresh, "created")
 	}
 	writeJSON(w, http.StatusCreated, st)
 }
@@ -366,18 +353,14 @@ func (a *App) cleanupRemovedNodes(stackID int64, design json.RawMessage) {
 }
 
 func (a *App) handleDeleteStack(w http.ResponseWriter, r *http.Request) {
-	st, u, ok := a.loadOwnedStack(w, r)
+	st, _, ok := a.loadOwnedStack(w, r)
 	if !ok {
 		return
 	}
 	// Tear down any deployed containers before removing the record.
 	a.teardownStack(st.ID)
-	reason := "user"
-	if u.ID != st.OwnerID {
-		reason = "admin"
-	}
 	// Also drops the Intranet DNS tab's records (dnscustom.go) and leaves a tombstone.
-	if err := a.deleteStackRecord(st, reason, u.Username); err != nil {
+	if err := a.deleteStackRecord(st); err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to delete stack")
 		return
 	}
@@ -469,7 +452,7 @@ func (a *App) handleExtendStack(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "failed to extend the stack")
 		return
 	}
-	a.stackEvent(st, "extended", "", u.Username)
+	a.stackEvent(st, "extended")
 	expiryWarned.Delete(st.ID) // warn again before the new end
 	a.recordStackEvent(st.ID, "", "action", "info", "Lifetime extended: expires "+*exp, "", u.Username)
 	writeJSON(w, http.StatusOK, map[string]any{"ttl": ttl, "expiresAt": exp})
@@ -485,15 +468,14 @@ func (a *App) reapExpiredStacks() {
 	for _, st := range expired {
 		a.teardownStack(st.ID)
 		a.store.SetStackStatus(st.ID, StackExpired)
-		a.stackEvent(st, "expired", "", "")
+		a.stackEvent(st, "expired")
 	}
 }
 
-// writeStackNameTaken answers a create, rename or transfer that would give an owner two
-// stacks of one name.
-func (a *App) writeStackNameTaken(w http.ResponseWriter, ownerID int64, name string) {
+// writeStackNameTaken answers a create or rename that would give two stacks one name.
+func (a *App) writeStackNameTaken(w http.ResponseWriter, name string) {
 	msg := fmt.Sprintf("a stack called %q already exists — choose another name", name)
-	if id := a.store.StackIDByName(ownerID, name); id != 0 {
+	if id := a.store.StackIDByName(name); id != 0 {
 		msg = fmt.Sprintf("a stack called %q already exists (id %d) — choose another name", name, id)
 	}
 	writeErr(w, http.StatusConflict, msg)

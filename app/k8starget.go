@@ -859,12 +859,9 @@ func (a *App) k8sBasicAuthSecret(ctx context.Context, serverID, ns, name string)
 // Like every other target resolution in the app, it re-reads the stack and re-derives
 // what is there rather than trusting the id: an endpoint whose Service was deleted, or
 // whose cluster was destroyed, stops resolving.
-func (a *App) k8sFindEndpoint(ctx context.Context, u User, stackID int64, id string) (k8sEndpoint, error) {
+func (a *App) k8sFindEndpoint(ctx context.Context, stackID int64, id string) (k8sEndpoint, error) {
 	st, err := a.store.GetStack(stackID)
 	if err != nil {
-		return k8sEndpoint{}, fmt.Errorf("endpoint not found")
-	}
-	if st.OwnerID != u.ID && u.Role != RoleAdmin {
 		return k8sEndpoint{}, fmt.Errorf("endpoint not found")
 	}
 	for _, e := range a.k8sStackEndpoints(ctx, st) {

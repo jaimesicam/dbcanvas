@@ -360,7 +360,7 @@ export default function SessionPanel({ onClose }) {
                 <div className="min-w-0 flex-1">
                   <div className="truncate font-medium">{g.name}</div>
                   <div className="truncate text-xs text-muted">
-                    {g.account ? <span className="text-success" title="Their password was checked: this is who they say they are">signed in as {g.account}</span> : g.email} · {g.remoteAddr}
+                    {g.email} · {g.remoteAddr}
                   </div>
                 </div>
                 <button className="rounded px-1.5 py-0.5 font-medium text-primary hover:bg-primary/15" onClick={() => s.admit(g.id)}>Admit</button>
@@ -372,8 +372,8 @@ export default function SessionPanel({ onClose }) {
         <div className="space-y-1">
           <Person name={p?.host?.name} badge="host" online={p?.host?.online} driving={controller === 0} avatar={p?.host?.avatar} />
           {inRoom.map((g) => (
-            <Person key={g.id} name={g.name} sub={s.isHost ? (g.account ? `@${g.account}` : g.email) : ''} badge="guest" online={g.online}
-              driving={controller === g.id} muted={g.muted} noDraw={g.drawOff} avatar={g.avatar} verified={g.account}>
+            <Person key={g.id} name={g.name} sub={s.isHost ? g.email : ''} badge="guest" online={g.online}
+              driving={controller === g.id} muted={g.muted} noDraw={g.drawOff} avatar={g.avatar}>
               {s.isHost && (
                 <>
                   {controller !== g.id && <IconBtn title="Give control" onClick={() => s.giveControl(g.id)}><Icon.Pointer size={12} /></IconBtn>}
@@ -498,7 +498,7 @@ export default function SessionPanel({ onClose }) {
   )
 }
 
-function Person({ name, sub, badge, online, driving, muted, noDraw, avatar, verified, children }) {
+function Person({ name, sub, badge, online, driving, muted, noDraw, avatar, children }) {
   return (
     <div className="group flex items-center gap-2 rounded-md px-1 py-1">
       <span className="relative shrink-0">
@@ -509,7 +509,6 @@ function Person({ name, sub, badge, online, driving, muted, noDraw, avatar, veri
         <div className="flex items-center gap-1 truncate">
           <span className="truncate font-medium">{name || '…'}</span>
           <span className={`rounded px-1 text-[11px] ${badge === 'host' ? 'bg-primary/15 text-primary' : 'bg-surface2 text-muted'}`}>{badge}</span>
-          {verified && <span className="rounded bg-success/10 px-1 text-[11px] text-success" title={`Signed in with the DBCanvas account ${verified}`}>account</span>}
           {driving && <span className="rounded bg-success/15 px-1 text-[11px] text-success">driving</span>}
           {muted && <span className="rounded bg-warning/15 px-1 text-[11px] text-warning">muted</span>}
           {noDraw && <span className="rounded bg-warning/15 px-1 text-[11px] text-warning" title="The host stopped them drawing">no drawing</span>}

@@ -24,7 +24,7 @@ func tokenFor(t *testing.T, app *App, userID int64, scope string, days int) (str
 		e := time.Now().Add(time.Duration(days) * 24 * time.Hour).UTC().Format(time.RFC3339)
 		expires = &e
 	}
-	tok, err := app.store.CreateAPIToken(userID, "test", hash, prefix, scope, expires)
+	tok, err := app.store.CreateAPIToken("test", hash, prefix, scope, expires)
 	if err != nil {
 		t.Fatalf("store token: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestBearerTokenParsing(t *testing.T) {
 
 func TestTokenAuthAcceptsALiveToken(t *testing.T) {
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("jaime", "x", RoleUser, StatusApproved)
+	u, _ := app.store.CreateUser("testuser01")
 	secret, tok := tokenFor(t, app, u.ID, ScopeWrite, 30)
 
 	got, gotUser, err := app.tokenAuth(bearerReq("GET", "/api/me", secret))
@@ -118,7 +118,7 @@ func TestTokenAuthAcceptsALiveToken(t *testing.T) {
 
 func TestTokenAuthRefusals(t *testing.T) {
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("jaime", "x", RoleUser, StatusApproved)
+	u, _ := app.store.CreateUser("testuser01")
 
 	t.Run("unknown secret", func(t *testing.T) {
 		if _, _, err := app.tokenAuth(bearerReq("GET", "/api/me", "dbc_nope")); err == nil {
@@ -139,22 +139,11 @@ func TestTokenAuthRefusals(t *testing.T) {
 	t.Run("expired", func(t *testing.T) {
 		secret, hash, prefix, _ := newTokenSecret()
 		past := time.Now().Add(-time.Minute).UTC().Format(time.RFC3339)
-		if _, err := app.store.CreateAPIToken(u.ID, "stale", hash, prefix, ScopeWrite, &past); err != nil {
+		if _, err := app.store.CreateAPIToken("stale", hash, prefix, ScopeWrite, &past); err != nil {
 			t.Fatalf("create: %v", err)
 		}
 		if _, _, err := app.tokenAuth(bearerReq("GET", "/api/me", secret)); err == nil {
 			t.Error("an expired token was accepted")
-		}
-	})
-
-	t.Run("owner disabled", func(t *testing.T) {
-		other, _ := app.store.CreateUser("gone", "x", RoleUser, StatusApproved)
-		secret, _ := tokenFor(t, app, other.ID, ScopeWrite, 30)
-		if _, err := app.store.SetStatus(other.ID, StatusDisabled); err != nil {
-			t.Fatalf("disable: %v", err)
-		}
-		if _, _, err := app.tokenAuth(bearerReq("GET", "/api/me", secret)); err == nil {
-			t.Error("a token whose owner is disabled was accepted")
 		}
 	})
 
@@ -191,36 +180,11 @@ func TestScopeAllows(t *testing.T) {
 	}
 }
 
-// TestEffectiveScopeIsCappedByRole is the reason a scope is not simply trusted: a
-// demoted admin's admin-scope tokens have to narrow by themselves, without anybody
-// remembering to chase them through the table.
-func TestEffectiveScopeIsCappedByRole(t *testing.T) {
-	adminTok := APIToken{Scope: ScopeAdmin}
-	if got := effectiveScope(adminTok, User{Role: RoleAdmin}); got != ScopeAdmin {
-		t.Errorf("an admin's admin token = %q, want %q", got, ScopeAdmin)
-	}
-	if got := effectiveScope(adminTok, User{Role: RoleUser}); got != ScopeWrite {
-		t.Errorf("a demoted admin's admin token = %q, want %q", got, ScopeWrite)
-	}
-	if got := effectiveScope(APIToken{Scope: ScopeRead}, User{Role: RoleAdmin}); got != ScopeRead {
-		t.Error("being an admin must not widen a read token")
-	}
-}
-
-func TestScopesFor(t *testing.T) {
-	if got := scopesFor(RoleUser); len(got) != 2 || got[1] != ScopeWrite {
-		t.Errorf("a user may create %v, want read+write only", got)
-	}
-	if got := scopesFor(RoleAdmin); len(got) != 3 || got[2] != ScopeAdmin {
-		t.Errorf("an admin may create %v, want read+write+admin", got)
-	}
-}
-
 // TestRequireScopeEnforcement drives the wrapper itself across the four outcomes
 // that matter.
 func TestRequireScopeEnforcement(t *testing.T) {
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("jaime", "x", RoleUser, StatusApproved)
+	u, _ := app.store.CreateUser("testuser01")
 	readSecret, _ := tokenFor(t, app, u.ID, ScopeRead, 30)
 	writeSecret, _ := tokenFor(t, app, u.ID, ScopeWrite, 30)
 
@@ -266,7 +230,7 @@ func TestRequireScopeEnforcement(t *testing.T) {
 // TestTokenCannotMintTokens pins the asymmetry the whole design rests on.
 func TestTokenCannotMintTokens(t *testing.T) {
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("jaime", "x", RoleAdmin, StatusApproved)
+	u, _ := app.store.CreateUser("testuser01")
 	secret, _ := tokenFor(t, app, u.ID, ScopeAdmin, 30)
 
 	var create apiRoute
@@ -294,7 +258,7 @@ func TestTokenCannotMintTokens(t *testing.T) {
 
 func TestTokenExpiry(t *testing.T) {
 	// Clamped, not refused: asking for a year when the ceiling is 90 days gets 90.
-	exp, err := tokenExpiry(400, RoleUser, 90)
+	exp, err := tokenExpiry(400, 90)
 	if err != nil {
 		t.Fatalf("tokenExpiry(400): %v", err)
 	}
@@ -306,17 +270,14 @@ func TestTokenExpiry(t *testing.T) {
 		t.Errorf("clamped expiry is %v away, want ~90 days", d)
 	}
 
-	if _, err := tokenExpiry(0, RoleUser, 90); err == nil {
-		t.Error("a non-admin was allowed a token that never expires")
-	}
-	never, err := tokenExpiry(0, RoleAdmin, 90)
+	never, err := tokenExpiry(0, 90)
 	if err != nil || never != nil {
-		t.Errorf("an admin's never-expiring token: %v, %v", never, err)
+		t.Errorf("a never-expiring token: %v, %v", never, err)
 	}
-	if _, err := tokenExpiry(-1, RoleAdmin, 90); err == nil {
+	if _, err := tokenExpiry(-1, 90); err == nil {
 		t.Error("a negative lifetime was accepted")
 	}
-	if exp, err := tokenExpiry(7, RoleUser, 90); err != nil || exp == nil {
+	if exp, err := tokenExpiry(7, 90); err != nil || exp == nil {
 		t.Errorf("a 7-day token: %v, %v", exp, err)
 	}
 }
@@ -362,7 +323,7 @@ func TestSystemSettingsCarryTokenCeiling(t *testing.T) {
 
 func TestCreateTokenHandler(t *testing.T) {
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("jaime", "x", RoleUser, StatusApproved)
+	u, _ := app.store.CreateUser("testuser01")
 
 	post := func(body string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("POST", "/api/tokens", bytes.NewBufferString(body))
@@ -404,9 +365,9 @@ func TestCreateTokenHandler(t *testing.T) {
 	if w := post(`{"scope":"read","days":30}`); w.Code != http.StatusBadRequest {
 		t.Errorf("a nameless token returned %d, want 400", w.Code)
 	}
-	// A non-admin cannot mint an admin-scope token.
-	if w := post(`{"name":"x","scope":"admin","days":30}`); w.Code != http.StatusForbidden {
-		t.Errorf("a user creating an admin token returned %d, want 403", w.Code)
+	// An admin-scope token is asked for by name.
+	if w := post(`{"name":"x","scope":"admin","days":30}`); w.Code != http.StatusCreated {
+		t.Errorf("an admin token returned %d, want 201", w.Code)
 	}
 	// An unknown scope is a typo, not a silent downgrade.
 	if w := post(`{"name":"x","scope":"root","days":30}`); w.Code != http.StatusBadRequest {
@@ -420,10 +381,9 @@ func TestCreateTokenHandler(t *testing.T) {
 	}
 }
 
-func TestRevokeTokenIsOwnerOnly(t *testing.T) {
+func TestRevokeToken(t *testing.T) {
 	app := newTestApp(t)
-	mine, _ := app.store.CreateUser("mine", "x", RoleUser, StatusApproved)
-	theirs, _ := app.store.CreateUser("theirs", "x", RoleAdmin, StatusApproved)
+	mine, _ := app.store.CreateUser("mine")
 	_, tok := tokenFor(t, app, mine.ID, ScopeWrite, 30)
 
 	revoke := func(as User) *httptest.ResponseRecorder {
@@ -435,10 +395,6 @@ func TestRevokeTokenIsOwnerOnly(t *testing.T) {
 		return w
 	}
 
-	// Even an admin is refused here: they use the admin endpoint, which says so.
-	if w := revoke(theirs); w.Code != http.StatusForbidden {
-		t.Errorf("somebody else revoking my token returned %d, want 403", w.Code)
-	}
 	if w := revoke(mine); w.Code != http.StatusOK {
 		t.Errorf("revoking my own token returned %d: %s", w.Code, w.Body.String())
 	}
@@ -455,7 +411,7 @@ func TestRevokeTokenIsOwnerOnly(t *testing.T) {
 
 func TestTokenUsageIsBatched(t *testing.T) {
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("jaime", "x", RoleUser, StatusApproved)
+	u, _ := app.store.CreateUser("testuser01")
 	_, tok := tokenFor(t, app, u.ID, ScopeWrite, 30)
 
 	// Noting a use must not touch the database — the whole point is that a
@@ -474,21 +430,21 @@ func TestTokenUsageIsBatched(t *testing.T) {
 
 func TestPurgeKeepsRecentlyDeadTokens(t *testing.T) {
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("jaime", "x", RoleUser, StatusApproved)
+	app.store.CreateUser("testuser01")
 
 	// Expired yesterday: kept, so "why did my script break" has an answer.
 	_, hash, prefix, _ := newTokenSecret()
 	yesterday := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
-	app.store.CreateAPIToken(u.ID, "recent", hash, prefix, ScopeRead, &yesterday)
+	app.store.CreateAPIToken("recent", hash, prefix, ScopeRead, &yesterday)
 	// Expired a year ago: reaped.
 	_, hash2, prefix2, _ := newTokenSecret()
 	longAgo := time.Now().Add(-365 * 24 * time.Hour).UTC().Format(time.RFC3339)
-	app.store.CreateAPIToken(u.ID, "ancient", hash2, prefix2, ScopeRead, &longAgo)
+	app.store.CreateAPIToken("ancient", hash2, prefix2, ScopeRead, &longAgo)
 
 	if err := app.store.PurgeExpiredAPITokens(30 * 24 * time.Hour); err != nil {
 		t.Fatalf("purge: %v", err)
 	}
-	tokens, _ := app.store.ListAPITokens(u.ID)
+	tokens, _ := app.store.ListAPITokens()
 	if len(tokens) != 1 || tokens[0].Name != "recent" {
 		t.Errorf("after the purge: %v, want just \"recent\"", tokens)
 	}
@@ -525,11 +481,10 @@ func TestTokenStateDerivation(t *testing.T) {
 
 // A too-narrow token is told how to get one that is wide enough.
 func TestScopeRefusalSaysHowToFixIt(t *testing.T) {
-	admin := User{Role: RoleAdmin}
-	if m := scopeRefusal(ScopeAdmin, ScopeWrite, admin); !strings.Contains(m, "dbcanvas token create NAME --scope admin") {
+	if m := scopeRefusal(ScopeAdmin, ScopeWrite); !strings.Contains(m, "dbcanvas token create NAME --scope admin") {
 		t.Errorf("admin route, write token: %s", m)
 	}
-	if m := scopeRefusal(ScopeWrite, ScopeRead, admin); !strings.Contains(m, "--scope write") || !strings.Contains(m, "API page") {
+	if m := scopeRefusal(ScopeWrite, ScopeRead); !strings.Contains(m, "--scope write") || !strings.Contains(m, "API page") {
 		t.Errorf("read token on a write route: %s", m)
 	}
 }

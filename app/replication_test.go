@@ -66,11 +66,11 @@ func TestReplicaApplyOrderPlainPrimary(t *testing.T) {
 // either side is silent: the dot simply goes green while work is still going on.
 func TestConfiguringMarker(t *testing.T) {
 	app := newTestApp(t)
-	u, err := app.store.CreateUser("admin", "x", RoleAdmin, StatusApproved)
+	_, err := app.store.CreateUser("admin")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	st, err := app.store.CreateStack("configuring", u.ID, "2h", nil, []byte(`{}`))
+	st, err := app.store.CreateStack("configuring", "2h", nil, []byte(`{}`))
 	if err != nil {
 		t.Fatalf("create stack: %v", err)
 	}

@@ -146,7 +146,7 @@ Most endpoints take and return JSON. The catalogue marks the others:
 | `403` | not permitted: a token scope or limit too narrow, an endpoint that refuses tokens, a control-socket-only endpoint, or a cross-site request |
 | `404` | no such stack, node, capture or token — or no such endpoint (a mistyped path, or the right path with the wrong method) |
 | `409` | wrong state for the request, for example the node is not running, or a stack name already in use |
-| `410` | the stack was deleted: `deleted` says when and how; kept 30 days |
+| `410` | the stack was deleted: `deleted` says when; kept 30 days |
 | `421` | the request was addressed to a host name other than the port's own |
 | `502` | an outside service could not be reached (the update check) |
 
@@ -176,9 +176,9 @@ takes the stack's id, which never changes.
 name (`dbcanvas up -f FILE`, which then deploys).
 
 **Events.** `GET /api/stacks/events` is a server-sent event stream of your stacks'
-lifecycle: `created`, `deploying`, `destroyed`, `deleted` (with `reason`), `expired`,
-`extended` and `labels`. Each event carries the stack's id, name and labels. `?label=`
-narrows it. A stack that was deleted answers `410` with how it went, instead of `404`.
+lifecycle: `created`, `deploying`, `destroyed`, `deleted`, `expired`, `extended` and
+`labels`. Each event carries the stack's id, name and labels. `?label=` narrows it. A stack
+that was deleted answers `410` with when it went, instead of `404`.
 
 ## Doctor
 

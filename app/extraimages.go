@@ -28,7 +28,7 @@ import (
 // The cost of tolerating a failure is the moment this file exists for: you design a stack,
 // hit Validate, and are told to go back to a terminal, in the repository, and run a
 // make target — which is a poor answer when DBCanvas is already talking to the same
-// Docker daemon that would do the build. So an admin can build one from here.
+// Docker daemon that would do the build. So it can be built from here.
 //
 // WHY THIS CAN WORK AT ALL: not one of images/*.Dockerfile copies anything from its
 // build context (every COPY is --from=<stage>; the sources are cloned inside the
@@ -364,9 +364,8 @@ type extraImageView struct {
 }
 
 // handleListExtraImages lists the catalogue with each image's presence and the
-// state of any build. Readable by any signed-in account — a missing image is why a
-// deploy will not start, and that is not privileged information — while building
-// one is an admin action.
+// state of any build. Readable by a guest too — a missing image is why a deploy will
+// not start — while building one is a system endpoint.
 func (a *App) handleListExtraImages(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	out := []extraImageView{}

@@ -117,7 +117,7 @@ func (a *App) startPagerPanicSync() {
 // pagerPanicPass syncs every running game once. It reports whether one asked for the
 // next sync soon.
 func (a *App) pagerPanicPass(ctx context.Context) (soon bool) {
-	stacks, err := a.store.ListStacks(0, true)
+	stacks, err := a.store.ListStacks()
 	if err != nil {
 		return false
 	}

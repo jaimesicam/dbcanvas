@@ -29,12 +29,12 @@ const ftdcTestDir = "testdata/diagnostic.data"
 func ftdcAuthed(t *testing.T) (*App, *http.Cookie) {
 	t.Helper()
 	app := newTestApp(t)
-	u, err := app.store.CreateUser("alice", "x", RoleAdmin, StatusApproved)
+	_, err := app.store.CreateUser("alice")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
 	tok := "ftdc-test-session"
-	if err := app.store.CreateSession(tok, u.ID, time.Now().Add(time.Hour)); err != nil {
+	if err := app.store.CreateSession(tok, time.Now().Add(time.Hour)); err != nil {
 		t.Fatalf("create session: %v", err)
 	}
 	return app, &http.Cookie{Name: cookieName, Value: tok}

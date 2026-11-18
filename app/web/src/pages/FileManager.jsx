@@ -330,7 +330,7 @@ function Toolbar({ pane, split, busy, dst, labelOf, onUp, onRefresh, onNewFolder
     if (files.length === 0) return
     const total = files.reduce((s, f) => s + f.file.size, 0)
     if (maxUpload > 0 && total > maxUpload) {
-      onError(`That selection is larger than this instance's upload limit. An admin can raise it in Settings.`)
+      onError(`That selection is larger than this instance's upload limit. You can raise it in Settings.`)
       return
     }
     onUpload(files)

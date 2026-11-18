@@ -59,7 +59,7 @@ func TestTooltipsDefaultOn(t *testing.T) {
 	// A stored row that has never heard of the field reads as on, and an account that
 	// turned them off keeps them off across a load.
 	app := newTestApp(t)
-	u, err := app.store.CreateUser("tips", "x", RoleUser, StatusApproved)
+	u, err := app.store.CreateUser("tips")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestTerminalsOnTopDefaultOn(t *testing.T) {
 	}
 
 	app := newTestApp(t)
-	u, err := app.store.CreateUser("ontop", "x", RoleUser, StatusApproved)
+	u, err := app.store.CreateUser("ontop")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestTerminalsOnTopDefaultOn(t *testing.T) {
 // A user's settings persist and are readable back; an untouched user has none.
 func TestUserSettingsRoundTrip(t *testing.T) {
 	app := newTestApp(t)
-	u, err := app.store.CreateUser("jane", "x", RoleUser, StatusApproved)
+	u, err := app.store.CreateUser("jane")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}

@@ -90,9 +90,9 @@ func TestPlanSaysTheArchitecture(t *testing.T) {
 	app := newTestApp(t)
 	app.docker = NewDocker(filepath.Join(t.TempDir(), "none.sock"))
 	app.hostArch = "arm64"
-	u, _ := app.ensureOwner()
+	app.ensureOwner()
 	sf := stackFile{Name: "lab", Platform: "amd64", Nodes: []composeNodeSpec{{Kind: "ps", OS: "el9", Version: "8.0"}}}
-	p, _, err := app.planStackFile(context.Background(), u.ID, sf)
+	p, _, err := app.planStackFile(context.Background(), sf)
 	if err != nil {
 		t.Fatal(err)
 	}

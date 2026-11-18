@@ -317,8 +317,8 @@ func stackFileDesignResolved(sf stackFile, deployed map[string]bool) (json.RawMe
 	return d, added, resolved, err
 }
 
-// planStackFile works out what applying sf for ownerID would do, without doing it.
-func (a *App) planStackFile(ctx context.Context, ownerID int64, sf stackFile) (stackPlan, json.RawMessage, error) {
+// planStackFile works out what applying sf would do, without doing it.
+func (a *App) planStackFile(ctx context.Context, sf stackFile) (stackPlan, json.RawMessage, error) {
 	p := stackPlan{Name: sf.Name, Added: []stackPlanItem{}, Removed: []stackPlanItem{},
 		Changed: []stackPlanItem{}, Notes: []string{}, Issues: []issue{}}
 	if sf.TTL != nil && !validTTL(*sf.TTL) {
@@ -329,7 +329,7 @@ func (a *App) planStackFile(ctx context.Context, ownerID int64, sf stackFile) (s
 	}
 	var old Stack
 	var err error
-	if id := a.store.StackIDByName(ownerID, sf.Name); id != 0 {
+	if id := a.store.StackIDByName(sf.Name); id != 0 {
 		if old, err = a.store.GetStack(id); err != nil {
 			return p, nil, err
 		}
@@ -380,7 +380,7 @@ func (a *App) planStackFile(ctx context.Context, ownerID int64, sf stackFile) (s
 		p.Action = "unchanged"
 	}
 
-	if issues := a.validateStack(ctx, Stack{ID: p.StackID, Name: sf.Name, OwnerID: ownerID, Design: design}); issues != nil {
+	if issues := a.validateStack(ctx, Stack{ID: p.StackID, Name: sf.Name, Design: design}); issues != nil {
 		p.Issues = issues
 	}
 	p.OK = !hasError(p.Issues)
@@ -390,16 +390,16 @@ func (a *App) planStackFile(ctx context.Context, ownerID int64, sf stackFile) (s
 // errStackBusy is a node added or removed while a deployment of the stack is running.
 var errStackBusy = errors.New("cannot add or remove nodes while a deployment is in progress")
 
-// applyStackFile creates or updates the owner's stack from sf. Deploying is the
+// applyStackFile creates or updates the stack from sf. Deploying is the
 // caller's next step, through the deploy endpoint, as after compose.
-func (a *App) applyStackFile(ctx context.Context, owner User, sf stackFile) (stackPlan, error) {
-	p, design, err := a.planStackFile(ctx, owner.ID, sf)
+func (a *App) applyStackFile(ctx context.Context, sf stackFile) (stackPlan, error) {
+	p, design, err := a.planStackFile(ctx, sf)
 	if err != nil {
 		return p, err
 	}
 	switch p.Action {
 	case "create":
-		st, err := a.store.CreateStack(sf.Name, owner.ID, p.TTL, expiryFor(p.TTL), design)
+		st, err := a.store.CreateStack(sf.Name, p.TTL, expiryFor(p.TTL), design)
 		if err != nil {
 			return p, err
 		}
@@ -430,7 +430,7 @@ func (a *App) applyStackFile(ctx context.Context, owner User, sf stackFile) (sta
 		if err != nil {
 			return p, err
 		}
-		a.stackEvent(st, "updated", "stack file", owner.Username)
+		a.stackEvent(st, "updated")
 	}
 	if st, err := a.store.GetStack(p.StackID); err == nil {
 		p.Stack = &st

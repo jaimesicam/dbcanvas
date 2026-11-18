@@ -211,7 +211,7 @@ func (a *App) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	// Switching keeping off deletes what was kept, before the switch is saved, so a
 	// failure leaves the setting on rather than leaving boards behind it.
 	if prev.Scratchboard == ScratchboardStoreOn && s.Scratchboard != ScratchboardStoreOn {
-		if err := a.store.DeleteScratchboards(u.ID); err != nil {
+		if err := a.store.DeleteScratchboards(); err != nil {
 			writeErr(w, http.StatusInternalServerError, "failed to delete the kept Scratchboard boards")
 			return
 		}

@@ -40,8 +40,8 @@ func k8sSplitTarget(target string) (string, bool) {
 
 // listK8sSQLTargets is every operator database a load tool can actually dial, across
 // the stacks this caller may reach.
-func (a *App) listK8sSQLTargets(ctx context.Context, u User) []qrTarget {
-	stacks, _ := a.store.ListStacks(u.ID, u.Role == RoleAdmin)
+func (a *App) listK8sSQLTargets(ctx context.Context) []qrTarget {
+	stacks, _ := a.store.ListStacks()
 	out := []qrTarget{}
 	for _, s := range stacks {
 		st, err := a.store.GetStack(s.ID)
@@ -75,12 +75,12 @@ func (a *App) listK8sSQLTargets(ctx context.Context, u User) []qrTarget {
 // It refuses an endpoint with no network address even though one exists in the tree,
 // because the caller is a tool that needs a socket. The refusal says what to do about
 // it, since "not reachable" on its own reads like a fault rather than a Service type.
-func (a *App) k8sResolveTarget(ctx context.Context, u User, stackID int64, target string) (k8sEndpoint, error) {
+func (a *App) k8sResolveTarget(ctx context.Context, stackID int64, target string) (k8sEndpoint, error) {
 	id, ok := k8sSplitTarget(target)
 	if !ok {
 		return k8sEndpoint{}, fmt.Errorf("not a Kubernetes target")
 	}
-	e, err := a.k8sFindEndpoint(ctx, u, stackID, id)
+	e, err := a.k8sFindEndpoint(ctx, stackID, id)
 	if err != nil {
 		return k8sEndpoint{}, err
 	}

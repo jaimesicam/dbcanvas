@@ -2,8 +2,7 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net"
@@ -147,17 +146,10 @@ func (a *App) ctlSocketHandler(next http.Handler) http.Handler {
 
 var ownerNameRe = regexp.MustCompile(`[^a-z0-9._-]+`)
 
-// ensureOwner returns the owner: the first approved administrator, created on first
-// use and named after the OS login.
+// ensureOwner returns the account, created on first use and named after the OS login.
 func (a *App) ensureOwner() (User, error) {
-	users, err := a.store.ListUsers()
-	if err != nil {
-		return User{}, err
-	}
-	for _, u := range users {
-		if u.Role == RoleAdmin && u.Status == StatusApproved {
-			return u, nil
-		}
+	if u, err := a.store.Owner(); err == nil || !errors.Is(err, sql.ErrNoRows) {
+		return u, err
 	}
 	name := "owner"
 	if cu, err := user.Current(); err == nil {
@@ -165,15 +157,7 @@ func (a *App) ensureOwner() (User, error) {
 			name = n
 		}
 	}
-	// The owner signs in with the start link, never a password: this one is random
-	// and not kept.
-	b := make([]byte, 24)
-	rand.Read(b)
-	hash, err := hashPassword(hex.EncodeToString(b))
-	if err != nil {
-		return User{}, err
-	}
-	u, err := a.store.CreateUser(name, hash, RoleAdmin, StatusApproved)
+	u, err := a.store.CreateUser(name)
 	if err != nil {
 		return u, err
 	}

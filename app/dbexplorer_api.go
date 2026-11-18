@@ -25,7 +25,7 @@ import (
 )
 
 // dexAsked reads the write arm off a GET. Only "1" counts, so a stray parameter
-// cannot unlock anything, and the administrator setting still has to agree.
+// cannot unlock anything, and the system setting still has to agree.
 func dexAsked(r *http.Request) bool { return r.URL.Query().Get("allowWrites") == "1" }
 
 // dexWithConn is the shared preamble: authenticate, authorize, open, and hand the
@@ -38,10 +38,10 @@ func (a *App) dexWithConn(w http.ResponseWriter, r *http.Request, connID string,
 // dexWithConnRW is dexWithConn with the option of lifting a read-only policy. Only
 // the two write paths pass true, and passing it is a request rather than a decision:
 // dexUnlock still has to agree, which it does only for a policy-read-only connection
-// on an installation whose administrator has unlocked writes.
+// on an installation that has unlocked writes in Settings.
 func (a *App) dexWithConnRW(w http.ResponseWriter, r *http.Request, connID string, timeoutS int,
 	allowWrites bool, fn func(ctx context.Context, ad dexAdapter, t dexTarget)) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -53,7 +53,7 @@ func (a *App) dexWithConnRW(w http.ResponseWriter, r *http.Request, connID strin
 	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(dexClampTimeout(timeoutS))*time.Second)
 	defer cancel()
 
-	t, err := a.dexResolve(ctx, u, connID)
+	t, err := a.dexResolve(ctx, connID)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
@@ -83,7 +83,7 @@ func (a *App) dexWithConnRW(w http.ResponseWriter, r *http.Request, connID strin
 
 // GET /api/dbexplorer/connections
 func (a *App) handleDexConnections(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -91,7 +91,7 @@ func (a *App) handleDexConnections(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"stacks": a.dexConnections(ctx, u),
+		"stacks": a.dexConnections(ctx),
 		// The warning travels with the payload rather than being hard-coded in the
 		// frontend, so the sentence a user reads about PMM's databases and the rule
 		// the server enforces about them are written in one place.
@@ -174,7 +174,7 @@ func (a *App) handleDexObjectDetail(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/dbexplorer/query
 func (a *App) handleDexQuery(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -193,16 +193,16 @@ func (a *App) handleDexQuery(w http.ResponseWriter, r *http.Request) {
 	// (r.Context()), and so does an explicit Cancel through the registry.
 	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(timeout)*time.Second)
 	defer cancel()
-	dexRegisterRun(runID, u.ID, cancel)
+	dexRegisterRun(runID, cancel)
 	defer dexUnregisterRun(runID)
 
-	t, err := a.dexResolve(ctx, u, req.ConnectionID)
+	t, err := a.dexResolve(ctx, req.ConnectionID)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
 	// Whether this submission may write to a policy-read-only connection is decided
-	// here, from the administrator setting and the request together — never from the
+	// here, from the system setting and the request together — never from the
 	// connection the browser thinks it has.
 	unlocked := a.dexUnlock(t, req.AllowWrites)
 	open := a.dexOpen
@@ -224,14 +224,14 @@ func (a *App) handleDexQuery(w http.ResponseWriter, r *http.Request) {
 	res.Limit = req.Limit
 	res.Unlocked = unlocked
 	if stmt := dexStatementOf(req); stmt != "" {
-		a.dexRecordHistory(u, t, req, res, stmt)
+		a.dexRecordHistory(t, req, res, stmt)
 	}
 	writeJSON(w, http.StatusOK, res)
 }
 
 // POST /api/dbexplorer/cancel
 func (a *App) handleDexCancel(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -245,12 +245,12 @@ func (a *App) handleDexCancel(w http.ResponseWriter, r *http.Request) {
 	}
 	// A query that has already finished is not an error: the user pressed Cancel and
 	// the thing they wanted (it not running) is true either way.
-	writeJSON(w, http.StatusOK, map[string]any{"cancelled": dexCancelRun(dexSafeID(req.QueryID), u)})
+	writeJSON(w, http.StatusOK, map[string]any{"cancelled": dexCancelRun(dexSafeID(req.QueryID))})
 }
 
 // POST /api/dbexplorer/mutate
 func (a *App) handleDexMutate(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -266,7 +266,7 @@ func (a *App) handleDexMutate(w http.ResponseWriter, r *http.Request) {
 			res.Error = dexAsDexError(t.Conn.Engine, err)
 		}
 		if res.Executed && res.Preview != "" {
-			a.store.DexAddHistory(u.ID, dexHistoryEntry{
+			a.store.DexAddHistory(dexHistoryEntry{
 				ConnectionID: t.Conn.ID, Connection: t.dexSummaryLine(), Engine: t.Conn.Engine,
 				Database: req.Database, Schema: req.Schema, Statement: res.Preview,
 				DurationMs: res.DurationMs, AffectedRows: res.AffectedRows,
@@ -279,13 +279,13 @@ func (a *App) handleDexMutate(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/dbexplorer/history
 func (a *App) handleDexHistory(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	entries, err := a.store.DexHistory(u.ID, limit)
+	entries, err := a.store.DexHistory(limit)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "could not read the history")
 		return
@@ -295,12 +295,12 @@ func (a *App) handleDexHistory(w http.ResponseWriter, r *http.Request) {
 
 // DELETE /api/dbexplorer/history — the whole list
 func (a *App) handleDexClearHistory(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	if err := a.store.DexClearHistory(u.ID); err != nil {
+	if err := a.store.DexClearHistory(); err != nil {
 		writeErr(w, http.StatusInternalServerError, "could not clear the history")
 		return
 	}
@@ -309,7 +309,7 @@ func (a *App) handleDexClearHistory(w http.ResponseWriter, r *http.Request) {
 
 // DELETE /api/dbexplorer/history/{hid} — one entry
 func (a *App) handleDexDeleteHistory(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -321,7 +321,7 @@ func (a *App) handleDexDeleteHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	// Scoped to the caller in the DELETE itself, so another user's id simply
 	// matches nothing rather than being checked and then acted on.
-	if err := a.store.DexDeleteHistory(u.ID, id); err != nil {
+	if err := a.store.DexDeleteHistory(id); err != nil {
 		writeErr(w, http.StatusInternalServerError, "could not delete the entry")
 		return
 	}
@@ -330,12 +330,12 @@ func (a *App) handleDexDeleteHistory(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/dbexplorer/saved
 func (a *App) handleDexSavedList(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	out, err := a.store.DexSavedQueries(u.ID)
+	out, err := a.store.DexSavedQueries()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "could not read the saved queries")
 		return
@@ -345,7 +345,7 @@ func (a *App) handleDexSavedList(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/dbexplorer/saved
 func (a *App) handleDexSaveQuery(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -365,7 +365,7 @@ func (a *App) handleDexSaveQuery(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, fmt.Sprintf("the statement is too long (max %d bytes)", dexMaxStatement))
 		return
 	}
-	saved, err := a.store.DexSaveQuery(u.ID, q)
+	saved, err := a.store.DexSaveQuery(q)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "could not save the query")
 		return
@@ -375,7 +375,7 @@ func (a *App) handleDexSaveQuery(w http.ResponseWriter, r *http.Request) {
 
 // DELETE /api/dbexplorer/saved/{sid}
 func (a *App) handleDexDeleteSaved(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -385,7 +385,7 @@ func (a *App) handleDexDeleteSaved(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid saved-query id")
 		return
 	}
-	if err := a.store.DexDeleteSaved(u.ID, id); err != nil {
+	if err := a.store.DexDeleteSaved(id); err != nil {
 		writeErr(w, http.StatusInternalServerError, "could not delete the saved query")
 		return
 	}
@@ -428,7 +428,7 @@ func dexViewDataRequest(engine string, ref dexObjectRef, limit int) dexQueryRequ
 // its rows. It runs the same query the editor would, through the same adapter, and
 // returns the statement alongside the result so the editor tab can show what it ran.
 func (a *App) handleDexViewData(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -449,7 +449,7 @@ func (a *App) handleDexViewData(w http.ResponseWriter, r *http.Request) {
 		}
 		res.Limit = req.Limit
 		if stmt := dexStatementOf(req); stmt != "" {
-			a.dexRecordHistory(u, t, req, res, stmt)
+			a.dexRecordHistory(t, req, res, stmt)
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"request": req, "result": res})
 	})
@@ -467,7 +467,7 @@ func (a *App) handleDexUnexpose(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) dexExposeAction(w http.ResponseWriter, r *http.Request, on bool) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -484,7 +484,7 @@ func (a *App) dexExposeAction(w http.ResponseWriter, r *http.Request, on bool) {
 
 	// Resolved through the same path as everything else, so this cannot be pointed
 	// at a cluster the caller may not reach.
-	t, err := a.dexResolve(ctx, u, req.ConnectionID)
+	t, err := a.dexResolve(ctx, req.ConnectionID)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return

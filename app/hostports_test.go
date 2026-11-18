@@ -103,8 +103,8 @@ func TestPickHostPorts(t *testing.T) {
 
 func TestHostPortsReleased(t *testing.T) {
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("alice", "x", RoleUser, StatusApproved)
-	st, err := app.store.CreateStack("s", u.ID, "24h", nil, []byte(`{}`))
+	app.store.CreateUser("alice")
+	st, err := app.store.CreateStack("s", "24h", nil, []byte(`{}`))
 	if err != nil {
 		t.Skipf("create stack: %v", err)
 	}

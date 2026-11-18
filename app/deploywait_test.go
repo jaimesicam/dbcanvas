@@ -11,11 +11,11 @@ import (
 func waitFixture(t *testing.T) (*App, Stack) {
 	t.Helper()
 	app := newTestApp(t)
-	u, err := app.store.CreateUser("admin", "x", RoleAdmin, StatusApproved)
+	_, err := app.store.CreateUser("admin")
 	if err != nil {
 		t.Fatal(err)
 	}
-	st, err := app.store.CreateStack("waits", u.ID, ttlLongest, nil, []byte(defaultDesign))
+	st, err := app.store.CreateStack("waits", ttlLongest, nil, []byte(defaultDesign))
 	if err != nil {
 		t.Fatal(err)
 	}

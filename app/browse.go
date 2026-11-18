@@ -58,7 +58,6 @@ const browseIdle = 12 * time.Hour
 
 type browseTarget struct {
 	Key           string
-	OwnerID       int64
 	StackID       int64
 	ContainerID   string
 	ContainerPort int
@@ -140,7 +139,7 @@ type nodeLinkTarget struct {
 
 // resolveNodeLink finds which container publishes a node link's port, and checks it
 // belongs to a stack u may use. It answers the request itself when it cannot.
-func (a *App) resolveNodeLink(w http.ResponseWriter, r *http.Request, u User, raw string) (nodeLinkTarget, bool) {
+func (a *App) resolveNodeLink(w http.ResponseWriter, r *http.Request, raw string) (nodeLinkTarget, bool) {
 	link, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || (link.Scheme != "http" && link.Scheme != "https") || link.Host == "" {
 		writeErr(w, http.StatusBadRequest, "a node link is an http:// or https:// address")
@@ -170,7 +169,7 @@ func (a *App) resolveNodeLink(w http.ResponseWriter, r *http.Request, u User, ra
 		return nodeLinkTarget{}, false
 	}
 	st, err := a.store.GetStack(stackID)
-	if err != nil || (st.OwnerID != u.ID && u.Role != RoleAdmin) {
+	if err != nil {
 		writeErr(w, http.StatusForbidden, "port "+port+" belongs to a stack that is not yours")
 		return nodeLinkTarget{}, false
 	}
@@ -179,7 +178,7 @@ func (a *App) resolveNodeLink(w http.ResponseWriter, r *http.Request, u User, ra
 
 // handleBrowse resolves a node link to a proxied address the browser window opens.
 func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -191,7 +190,7 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	nl, ok := a.resolveNodeLink(w, r, u, in.URL)
+	nl, ok := a.resolveNodeLink(w, r, in.URL)
 	if !ok {
 		return
 	}
@@ -223,16 +222,16 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		vncPassword = "" // the host chose to keep passwords off guests' screens
 	}
 
-	// One key per owner and node port, so reopening a link reuses its cookies.
+	// One key per node port, so reopening a link reuses its cookies.
 	browseTargets.Lock()
 	var t *browseTarget
 	for _, x := range browseTargets.m {
-		if x.OwnerID == st.OwnerID && x.ContainerID == pp.ContainerID && x.ContainerPort == pp.ContainerPort && x.Scheme == link.Scheme {
+		if x.ContainerID == pp.ContainerID && x.ContainerPort == pp.ContainerPort && x.Scheme == link.Scheme {
 			t = x
 		}
 	}
 	if t == nil {
-		t = &browseTarget{Key: newBrowseKey(), OwnerID: st.OwnerID, StackID: stackID, ContainerID: pp.ContainerID,
+		t = &browseTarget{Key: newBrowseKey(), StackID: stackID, ContainerID: pp.ContainerID,
 			ContainerPort: pp.ContainerPort, HostPort: nl.hostPort, Scheme: link.Scheme, Title: label, Kind: kind, lastUsed: time.Now()}
 		t.proxy = a.newBrowseProxy(t)
 		browseTargets.m[t.Key] = t
@@ -257,16 +256,16 @@ func (a *App) handleBrowse(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// browseAuth decides who may use a key: its owner, on their own session, or an
-// admitted guest of a live session the owner hosts. A guest who is only watching may
+// browseAuth decides who may use a key: the signed-in browser, or an admitted guest
+// of a live session. A guest who is only watching may
 // look but not act — no form posts, no websockets — the same line the API draws.
 func (a *App) browseAuth(r *http.Request, t *browseTarget) (allowed, readOnly bool) {
 	if c, err := r.Cookie(cookieName); err == nil && c.Value != "" {
-		if u, err := a.store.SessionUser(c.Value); err == nil && (u.ID == t.OwnerID || u.Role == RoleAdmin) {
+		if _, err := a.store.SessionUser(c.Value); err == nil {
 			return true, false
 		}
 	}
-	if g, sess, host, err := a.guestAuth(r); err == nil && host.ID == t.OwnerID {
+	if g, sess, _, err := a.guestAuth(r); err == nil {
 		return true, shareHubs.controller(sess.ID) != g.ID
 	}
 	return false, false

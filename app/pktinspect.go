@@ -75,7 +75,6 @@ type pktCapture struct {
 	// Decode results.
 	Summary pktSummary `json:"summary"`
 
-	owner      int64
 	raw        []byte
 	logEntries []pktLogEntry
 	decoded    *pktDecoded
@@ -140,7 +139,7 @@ func pktGet(id string) *pktCapture {
 }
 
 // pktList returns the caller's captures, newest first.
-func pktList(u User) []*pktCapture {
+func pktList() []*pktCapture {
 	pktCaptures.Lock()
 	defer pktCaptures.Unlock()
 	out := []*pktCapture{}
@@ -149,9 +148,7 @@ func pktList(u User) []*pktCapture {
 		if c == nil {
 			continue
 		}
-		if c.owner == u.ID || u.Role == RoleAdmin {
-			out = append(out, c)
-		}
+		out = append(out, c)
 	}
 	return out
 }
@@ -166,12 +163,12 @@ func pktList(u User) []*pktCapture {
 // The same list logic serves the Query Runner, so an All-in-One instance shows up
 // with its own slot port rather than 3306 or 5432.
 func (a *App) handlePktTargets(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	writeJSON(w, http.StatusOK, a.listPktTargets(u))
+	writeJSON(w, http.StatusOK, a.listPktTargets())
 }
 
 // listPktTargets is every node a capture can be taken on: the SQL families from
@@ -183,9 +180,9 @@ func (a *App) handlePktTargets(w http.ResponseWriter, r *http.Request) {
 // is true: a shard member is where routed commands arrive with their shard versions, and a
 // config server is where the routing table is read. Those are two of the most interesting
 // vantage points in a sharded cluster, so all of them are offered.
-func (a *App) listPktTargets(u User) []qrTarget {
+func (a *App) listPktTargets() []qrTarget {
 	out := []qrTarget{}
-	for _, t := range a.listSQLTargets(u) {
+	for _, t := range a.listSQLTargets() {
 		switch t.Engine {
 		case pktEngineMySQL, pktEnginePostgres:
 			out = append(out, t)
@@ -193,8 +190,8 @@ func (a *App) listPktTargets(u User) []qrTarget {
 	}
 	// Valkey nodes come from the same walk as MongoDB's below, because neither is in
 	// listSQLTargets — see listPktValkeyTargets.
-	out = append(out, a.listPktValkeyTargets(u)...)
-	stacks, _ := a.store.ListStacks(u.ID, u.Role == RoleAdmin)
+	out = append(out, a.listPktValkeyTargets()...)
+	stacks, _ := a.store.ListStacks()
 	for _, s := range stacks {
 		st, err := a.store.GetStack(s.ID)
 		if err != nil {
@@ -253,8 +250,8 @@ func (a *App) listPktTargets(u User) []qrTarget {
 // neither's target. A capture needs none of that. It needs a container to run tcpdump in
 // and a port to filter on, which is why this wrapper exists rather than a change to a
 // function three features depend on.
-func (a *App) pktResolveTarget(u User, stackID int64, target string) (engine, containerID, label, dbUser, dbPass string, port int, err error) {
-	engine, containerID, label, dbUser, dbPass, port, err = a.resolveNodeCredsPort(u, stackID, target)
+func (a *App) pktResolveTarget(stackID int64, target string) (engine, containerID, label, dbUser, dbPass string, port int, err error) {
+	engine, containerID, label, dbUser, dbPass, port, err = a.resolveNodeCredsPort(stackID, target)
 	if err == nil {
 		return engine, containerID, label, dbUser, dbPass, port, nil
 	}
@@ -262,9 +259,6 @@ func (a *App) pktResolveTarget(u User, stackID int64, target string) (engine, co
 	st, e := a.store.GetStack(stackID)
 	if e != nil {
 		return "", "", "", "", "", 0, err
-	}
-	if st.OwnerID != u.ID && u.Role != RoleAdmin {
-		return "", "", "", "", "", 0, fmt.Errorf("not your stack")
 	}
 	nodeID, inst := aioSplitTarget(target)
 	dep, e2 := a.store.GetDeployment(stackID, nodeID)
@@ -297,9 +291,9 @@ func (a *App) pktResolveTarget(u User, stackID int64, target string) (engine, co
 // member of a cluster is offered, not just one — which member a capture is taken on
 // decides whether it holds the slots being asked for, and therefore whether it holds the
 // MOVED replies that are the most interesting thing on a cluster's client port.
-func (a *App) listPktValkeyTargets(u User) []qrTarget {
+func (a *App) listPktValkeyTargets() []qrTarget {
 	out := []qrTarget{}
-	stacks, _ := a.store.ListStacks(u.ID, u.Role == RoleAdmin)
+	stacks, _ := a.store.ListStacks()
 	for _, s := range stacks {
 		st, err := a.store.GetStack(s.ID)
 		if err != nil {
@@ -359,7 +353,7 @@ func (a *App) listPktValkeyTargets(u User) []qrTarget {
 // An All-in-One instance uses its slot's ports instead of the defaults — several
 // instances share one container, so 4567 or 8008 can only belong to one of them (see
 // aioPortsFor).
-func (a *App) pktTargetRoles(u User, stackID int64, target string, port int, engine string) (map[int]string, string) {
+func (a *App) pktTargetRoles(stackID int64, target string, port int, engine string) (map[int]string, string) {
 	baseRole := pktRoleMySQL
 	switch engine {
 	case pktEnginePostgres:
@@ -447,7 +441,7 @@ type pktStartBody struct {
 }
 
 func (a *App) handlePktStart(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -457,7 +451,7 @@ func (a *App) handlePktStart(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	engine, containerID, label, _, _, port, err := a.pktResolveTarget(u, body.StackID, body.NodeID)
+	engine, containerID, label, _, _, port, err := a.pktResolveTarget(body.StackID, body.NodeID)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -474,7 +468,7 @@ func (a *App) handlePktStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	roles, nodeType := a.pktTargetRoles(u, body.StackID, body.NodeID, port, engine)
+	roles, nodeType := a.pktTargetRoles(body.StackID, body.NodeID, port, engine)
 	req := pktCapRequest{
 		Engine:  engine,
 		Seconds: pktClamp(body.Seconds, 1, pktMaxSeconds, 20),
@@ -496,7 +490,7 @@ func (a *App) handlePktStart(w http.ResponseWriter, r *http.Request) {
 		Engine: engine, Port: port, Filter: pktBPF(req), Source: "node",
 		NodeType: nodeType, Ports: roles,
 		State: "capturing", Start: time.Now().UTC().Format(time.RFC3339), Wanted: req.Seconds,
-		owner: u.ID, mu: &sync.Mutex{},
+		mu: &sync.Mutex{},
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(req.Seconds+120)*time.Second)
@@ -678,13 +672,13 @@ func (a *App) handlePktStop(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------- list / detail
 
 func (a *App) handlePktList(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
 	out := []pktCapture{}
-	for _, c := range pktList(u) {
+	for _, c := range pktList() {
 		out = append(out, c.public())
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -700,7 +694,7 @@ func (a *App) handlePktGet(w http.ResponseWriter, r *http.Request) {
 
 // pktOwned resolves the capture in the URL and checks the caller may see it.
 func (a *App) pktOwned(w http.ResponseWriter, r *http.Request) (*pktCapture, bool) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return nil, false
@@ -708,10 +702,6 @@ func (a *App) pktOwned(w http.ResponseWriter, r *http.Request) (*pktCapture, boo
 	c := pktGet(r.PathValue("id"))
 	if c == nil {
 		writeErr(w, http.StatusNotFound, "capture not found (captures are kept in memory and do not survive an app restart)")
-		return nil, false
-	}
-	if c.owner != u.ID && u.Role != RoleAdmin {
-		writeErr(w, http.StatusForbidden, "not your capture")
 		return nil, false
 	}
 	return c, true
@@ -1170,7 +1160,7 @@ func (a *App) handlePktDownload(w http.ResponseWriter, r *http.Request) {
 // PCAP/TCPDUMP" button. Same decoder, so a file from a production server outside
 // dbcanvas reads exactly like one captured here.
 func (a *App) handlePktUpload(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -1252,7 +1242,7 @@ func (a *App) handlePktUpload(w http.ResponseWriter, r *http.Request) {
 
 	c := &pktCapture{
 		ID: qrNewID(), Label: hdr.Filename, Source: "upload", Engine: engine, Port: port,
-		State: "decoding", Start: time.Now().UTC().Format(time.RFC3339), owner: u.ID, mu: &sync.Mutex{},
+		State: "decoding", Start: time.Now().UTC().Format(time.RFC3339), mu: &sync.Mutex{},
 		Command:  fmt.Sprintf("(uploaded %s, decoded with server port %d)", hdr.Filename, port),
 		LogFile:  logName,
 		LogCount: len(logEntries),

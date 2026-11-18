@@ -131,29 +131,31 @@ func TestRegistryKubeadmOneArchitecturePerRun(t *testing.T) {
 	}
 }
 
-// Administrators are told, on every page, which .env passwords are still the example ones; other
-// accounts are not told anything about the installation's secrets.
-func TestSystemSettingsNameDefaultSecretsToAdminsOnly(t *testing.T) {
+// The owner is told, on every page, which .env passwords are still the example ones; a
+// shared-session guest is not told anything about the installation's secrets.
+func TestSystemSettingsNameDefaultSecretsToTheOwnerOnly(t *testing.T) {
 	app := newTestApp(t)
 	for k := range exampleSecrets {
 		t.Setenv(k, "changed-"+k)
 	}
 	t.Setenv("APP_PASSWORD", exampleSecrets["APP_PASSWORD"])
-	admin, _ := app.store.CreateUser("boss", "x", RoleAdmin, StatusApproved)
-	user, _ := app.store.CreateUser("plain", "x", RoleUser, StatusApproved)
-	get := func(u User) SystemSettings {
-		r, _ := signedIn(t, app, u, "")
+	owner, _ := app.store.CreateUser("boss")
+	get := func(guest bool) SystemSettings {
+		r, _ := signedIn(t, app, owner, "")
+		if guest {
+			r = withPrincipal(r, principal{User: owner, Guest: &guestPrincipal{GuestID: 1}})
+		}
 		w := httptest.NewRecorder()
 		app.handleGetSystemSettings(w, r)
 		var s SystemSettings
 		json.Unmarshal(w.Body.Bytes(), &s)
 		return s
 	}
-	if got := get(admin).DefaultSecrets; len(got) != 1 || got[0] != "APP_PASSWORD" {
-		t.Errorf("admin: %v", got)
+	if got := get(false).DefaultSecrets; len(got) != 1 || got[0] != "APP_PASSWORD" {
+		t.Errorf("owner: %v", got)
 	}
-	if got := get(user).DefaultSecrets; got != nil {
-		t.Errorf("a regular account was told %v", got)
+	if got := get(true).DefaultSecrets; got != nil {
+		t.Errorf("a guest was told %v", got)
 	}
 }
 

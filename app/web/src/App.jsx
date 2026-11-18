@@ -881,12 +881,12 @@ function AccountMenu({ user, onLogout }) {
   )
 }
 
-// ProfilePrompt asks an account from before profiles (app/profile.go) for its name,
-// email and avatar, once per browser session: "Later" means later, not every page load.
+// ProfilePrompt asks for a name, email and avatar (app/profile.go) until they are filled
+// in, once per browser session: "Later" means later, not every page load.
 function ProfilePrompt({ user }) {
   const { setUser } = useAuth()
   const [open, setOpen] = useState(() => {
-    if (!user || user.guestAccount || (user.firstName && user.email)) return false
+    if (!user || (user.firstName && user.email)) return false
     try { return sessionStorage.getItem('dbcanvas-profile-asked') !== String(user.id) } catch { return true }
   })
   if (!open) return null

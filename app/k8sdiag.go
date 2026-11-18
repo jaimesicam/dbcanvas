@@ -364,7 +364,7 @@ func (a *App) handleK8sDumps(w http.ResponseWriter, r *http.Request) {
 // admin — the whole point of keeping captures is that they outlive what they came
 // from — but is not offered to anyone else.
 func (a *App) loadOwnedDump(w http.ResponseWriter, r *http.Request) (k8sDump, []byte, bool) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return k8sDump{}, nil, false
@@ -379,24 +379,12 @@ func (a *App) loadOwnedDump(w http.ResponseWriter, r *http.Request) (k8sDump, []
 		writeErr(w, http.StatusNotFound, "no such capture")
 		return k8sDump{}, nil, false
 	}
-	if !a.ownsDumpStack(u, d) {
-		writeErr(w, http.StatusForbidden, "not your stack")
-		return k8sDump{}, nil, false
-	}
 	data, err := os.ReadFile(d.Path)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "the capture's file is missing from storage")
 		return k8sDump{}, nil, false
 	}
 	return d, data, true
-}
-
-func (a *App) ownsDumpStack(u User, d k8sDump) bool {
-	st, err := a.store.GetStack(d.StackID)
-	if err != nil {
-		return u.Role == RoleAdmin // the stack is gone; the capture outlived it
-	}
-	return st.OwnerID == u.ID || u.Role == RoleAdmin
 }
 
 func (a *App) handleK8sDumpDownload(w http.ResponseWriter, r *http.Request) {
@@ -427,7 +415,7 @@ func (a *App) handleK8sDumpDelete(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------- summary API
 
 func (a *App) handleOpSummaryDumps(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -437,14 +425,7 @@ func (a *App) handleOpSummaryDumps(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "list captures: "+err.Error())
 		return
 	}
-	// Only what the caller owns — AllK8sDumps is installation-wide.
-	mine := []k8sDump{}
-	for _, d := range dumps {
-		if a.ownsDumpStack(u, d) {
-			mine = append(mine, d)
-		}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"dumps": mine})
+	writeJSON(w, http.StatusOK, map[string]any{"dumps": dumps})
 }
 
 func (a *App) handleOpSummaryFromDump(w http.ResponseWriter, r *http.Request) {
@@ -452,8 +433,7 @@ func (a *App) handleOpSummaryFromDump(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	u, _ := a.currentUser(r)
-	m, err := a.opAnalyse(u, data, d.Cluster+" · "+d.CapturedAt, "node", d.StackID, d.Cluster)
+	m, err := a.opAnalyse(data, d.Cluster+" · "+d.CapturedAt, "node", d.StackID, d.Cluster)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -463,7 +443,7 @@ func (a *App) handleOpSummaryFromDump(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleOpSummaryUpload(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -493,7 +473,7 @@ func (a *App) handleOpSummaryUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	// Registered as a Log Summary bundle like any capture: an archive from a
 	// cluster this installation has never seen gets the same timeline.
-	m, err := a.opAnalyse(u, data, name, "upload", 0, "")
+	m, err := a.opAnalyse(data, name, "upload", 0, "")
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -520,8 +500,7 @@ func (a *App) handleOpSummaryNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d, keepErr := a.keepK8sDump(st, frame, dep, data)
-	u, _ := a.currentUser(r)
-	m, err := a.opAnalyse(u, data, k3dDeployedCluster(st.ID, frame, dep), "node", st.ID, st.Name)
+	m, err := a.opAnalyse(data, k3dDeployedCluster(st.ID, frame, dep), "node", st.ID, st.Name)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return

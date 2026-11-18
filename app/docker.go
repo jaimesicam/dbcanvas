@@ -481,7 +481,7 @@ func (d *Docker) NetworkRemove(ctx context.Context, name string) {
 // gateway. Docker publishes a container's ports on its gateway network, so letting a
 // stack network take the gateway (Docker 28+ picks one by priority, then by name, and
 // "dbcanvas-stack-N" sorts before "dbcanvas_default") restarts the docker-proxy behind
-// :8080 — and that cuts every connection open through it: every user's terminals, the
+// :8080 — and that cuts every connection open through it: the terminals, the
 // notification stream, uploads in flight. That was the first benchmark, Query Runner
 // run or Explorer connection against a stack, and again when that stack was torn down.
 // A daemon older than 28 ignores the field.

@@ -89,7 +89,7 @@ type dexConnection struct {
 	Status    string   `json:"status"`
 	ReadOnly  bool     `json:"readOnly"`
 	// Unlockable says this connection is read-only *by policy* rather than by
-	// nature, and that an administrator has allowed that policy to be lifted. The
+	// nature, and that Settings allows that policy to be lifted. The
 	// browser uses it to offer the arming control; it is never itself permission to
 	// write — every write is re-checked server-side against the setting AND against
 	// the request having asked (dexQueryRequest.AllowWrites).
@@ -513,8 +513,8 @@ type dexQueryRequest struct {
 	Explain  bool `json:"explain"`
 	TimeoutS int  `json:"timeoutS"`
 	// AllowWrites arms this one submission against a connection that is read-only
-	// by policy. It is the second of two locks: the first is the instance-wide
-	// administrator setting, and neither alone is enough. A tab left open from
+	// by policy. It is the second of two locks: the first is the system setting,
+	// and neither alone is enough. A tab left open from
 	// before the setting changed does not carry this, so pressing Run in it cannot
 	// write into a PMM database.
 	AllowWrites bool `json:"allowWrites"`

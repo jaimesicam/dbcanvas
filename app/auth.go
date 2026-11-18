@@ -5,8 +5,6 @@ import (
 	"encoding/hex"
 	"net/http"
 	"time"
-
-	"golang.org/x/crypto/bcrypt"
 )
 
 const (
@@ -14,26 +12,15 @@ const (
 	sessionTTL = 7 * 24 * time.Hour
 )
 
-// hashPassword hashes a plaintext password with bcrypt.
-func hashPassword(pw string) (string, error) {
-	b, err := bcrypt.GenerateFromPassword([]byte(pw), bcrypt.DefaultCost)
-	return string(b), err
-}
-
-// checkPassword compares a bcrypt hash against a plaintext password.
-func checkPassword(hash, pw string) bool {
-	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(pw)) == nil
-}
-
-// issueSession creates a session for the user and sets the session cookie.
-func (a *App) issueSession(w http.ResponseWriter, r *http.Request, userID int64) error {
+// issueSession creates a browser session and sets the session cookie.
+func (a *App) issueSession(w http.ResponseWriter, r *http.Request) error {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return err
 	}
 	token := hex.EncodeToString(raw)
 	expires := time.Now().Add(sessionTTL)
-	if err := a.store.CreateSessionFrom(token, userID, expires, remoteHost(r), r.UserAgent()); err != nil {
+	if err := a.store.CreateSession(token, expires); err != nil {
 		return err
 	}
 	http.SetCookie(w, &http.Cookie{
@@ -84,16 +71,16 @@ func (a *App) currentUser(r *http.Request) (User, bool) {
 	return u, true
 }
 
-// requireAdmin wraps a handler, enforcing an authenticated admin.
+// requireAdmin wraps a system endpoint: the owner's browser, the control socket, or a
+// token with the admin scope (requireScope checks the scope), never a shared-session guest.
 func (a *App) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		u, ok := a.currentUser(r)
-		if !ok {
+		if _, ok := a.currentUser(r); !ok {
 			writeErr(w, http.StatusUnauthorized, "authentication required")
 			return
 		}
-		if u.Role != RoleAdmin {
-			writeErr(w, http.StatusForbidden, "admin access required")
+		if p, ok := principalOf(r); ok && p.Guest != nil {
+			writeErr(w, http.StatusForbidden, "only the host can change this")
 			return
 		}
 		next(w, r)
@@ -103,13 +90,7 @@ func (a *App) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 // --- handlers ---
 
 func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
-	n, err := a.store.CountUsers()
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "failed to read state")
-		return
-	}
 	resp := map[string]any{
-		"initialized":   n > 0,
 		"authenticated": false,
 		"user":          nil,
 		// The build, so the UI can show it and decide whether this account has
@@ -117,8 +98,6 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 		// /api/me because the client already calls it on every load, and because
 		// /api/me returns a bare User that nothing should be appended to.
 		"version": appVersion,
-		// The dbcanvas command: no passwords; a browser signs in by start link (soloweb.go).
-		"solo": a.solo,
 	}
 	if u, ok := a.currentUser(r); ok {
 		resp["authenticated"] = true
@@ -128,7 +107,7 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 		if p, ok := principalOf(r); ok && p.Guest != nil {
 			resp["guest"] = map[string]any{"guestId": p.Guest.GuestID, "sessionId": p.Guest.SessionID,
 				"name": p.Guest.Name, "email": p.Guest.Email, "driving": p.Guest.Driving,
-				"avatar": p.Guest.Avatar, "account": p.Guest.Account}
+				"avatar": p.Guest.Avatar}
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)

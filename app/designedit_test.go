@@ -20,11 +20,11 @@ type designEditFixture struct {
 func newDesignEditFixture(t *testing.T, design string) *designEditFixture {
 	t.Helper()
 	app := newTestApp(t)
-	u, err := app.store.CreateUser("ada", "x", RoleUser, StatusApproved)
+	u, err := app.store.CreateUser("ada")
 	if err != nil {
 		t.Fatal(err)
 	}
-	st, err := app.store.CreateStack("s", u.ID, "8h", nil, []byte(design))
+	st, err := app.store.CreateStack("s", "8h", nil, []byte(design))
 	if err != nil {
 		t.Fatal(err)
 	}

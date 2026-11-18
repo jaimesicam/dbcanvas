@@ -14,7 +14,7 @@ import (
 
 func drawClients(t *testing.T) (*shareFixture, *shareHub, *hubClient, *hubClient, ShareGuest) {
 	t.Helper()
-	f := newShareFixture(t, RoleUser)
+	f := newShareFixture(t)
 	_, g := f.join(t, "Jane")
 	f.admit(t, g)
 	h := f.app.hubFor(f.sess)

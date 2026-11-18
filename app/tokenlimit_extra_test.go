@@ -29,7 +29,7 @@ func TestTokenMaxTTL(t *testing.T) {
 			t.Errorf("ttl %s: %d %s, want %d", ttl, w.Code, w.Body, want)
 		}
 	}
-	st, _ := app.store.CreateStack("mine", u.ID, "4h", expiryFor("4h"), []byte(defaultDesign))
+	st, _ := app.store.CreateStack("mine", "4h", expiryFor("4h"), []byte(defaultDesign))
 	w := httptest.NewRecorder()
 	r := asToken(t, app, u, l, "POST", "/api/stacks/x/extend", `{"by":"2h"}`)
 	r.SetPathValue("id", strconv.FormatInt(st.ID, 10))
@@ -60,7 +60,7 @@ func TestTokenApplyStaysInItsStacks(t *testing.T) {
 	app := newTestApp(t)
 	app.docker = NewDocker(t.TempDir() + "/none.sock")
 	u, _ := app.ensureOwner()
-	app.store.CreateStack("lab", u.ID, "4h", expiryFor("4h"), []byte(defaultDesign))
+	app.store.CreateStack("lab", "4h", expiryFor("4h"), []byte(defaultDesign))
 	l := &tokenLimit{Labels: map[string]string{"kb-run": "1"}}
 	file := func(name string) string {
 		b, _ := json.Marshal(map[string]any{"file": "name: " + name + "\nttl: 2h\ndesign:\n  nodes: []\n  edges: []\n"})
@@ -76,7 +76,7 @@ func TestTokenApplyStaysInItsStacks(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("applying a new stack: %d %s", w.Code, w.Body)
 	}
-	id := app.store.StackIDByName(u.ID, "ci-run-1")
+	id := app.store.StackIDByName("ci-run-1")
 	st, _ := app.store.GetStack(id)
 	if st.Labels["kb-run"] != "1" {
 		t.Errorf("the new stack's labels: %v", st.Labels)

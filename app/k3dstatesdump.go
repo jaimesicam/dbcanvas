@@ -504,33 +504,32 @@ func k3dArchiveFile(f opFiles, namespace, pod, file string) (string, bool) {
 // likely to be reading it.
 //
 // In memory, not on disk, and deliberately: a kept capture belongs to a stack, which is what
-// decides who may read it (k8sdiag.go's ownsDumpStack). An uploaded archive belongs to
+// decides who may read it (k8sdiag.go). An uploaded archive belongs to
 // nobody — it may be a customer's cluster that this installation has never seen — so there is
 // no stack to hang permission from, and writing it to the dumps directory would make it look
 // like a capture of something here. Holding it against the uploader's own user id for an hour
 // is the honest lifetime: long enough to click through the board, short enough that a support
 // engineer's archive is not still on the server tomorrow.
 type k3dStateUpload struct {
-	Owner int64
-	Name  string
-	Data  []byte
-	At    time.Time
+	Name string
+	Data []byte
+	At   time.Time
 }
 
 const (
-	k3dStateUploadTTL     = time.Hour
-	k3dStateUploadPerUser = 3
-	k3dStateUploadMax     = 512 << 20 // one upload, uncompressed guard is opArchiveLimit
+	k3dStateUploadTTL   = time.Hour
+	k3dStateUploadsHeld = 3
+	k3dStateUploadMax   = 512 << 20 // one upload, uncompressed guard is opArchiveLimit
 )
 
 // k3dStateUploads: token → *k3dStateUpload.
 var k3dStateUploads sync.Map
 
 // k3dStateUploadKeep stores an archive and returns its token, evicting what has expired and
-// whatever the uploader has too many of. A page that is left open past the hour asks for a
+// the oldest when too many are held. A page that is left open past the hour asks for a
 // log and is told the archive is gone; that is a better failure than an installation that
 // slowly fills its disk with other people's clusters.
-func k3dStateUploadKeep(owner int64, name string, data []byte) string {
+func k3dStateUploadKeep(name string, data []byte) string {
 	now := time.Now()
 	var mine []struct {
 		tok string
@@ -542,16 +541,14 @@ func k3dStateUploadKeep(owner int64, name string, data []byte) string {
 			k3dStateUploads.Delete(k)
 			return true
 		}
-		if u.Owner == owner {
-			mine = append(mine, struct {
-				tok string
-				at  time.Time
-			}{k.(string), u.At})
-		}
+		mine = append(mine, struct {
+			tok string
+			at  time.Time
+		}{k.(string), u.At})
 		return true
 	})
 	sort.Slice(mine, func(i, j int) bool { return mine[i].at.Before(mine[j].at) })
-	for len(mine) >= k3dStateUploadPerUser {
+	for len(mine) >= k3dStateUploadsHeld {
 		k3dStateUploads.Delete(mine[0].tok)
 		mine = mine[1:]
 	}
@@ -562,19 +559,18 @@ func k3dStateUploadKeep(owner int64, name string, data []byte) string {
 		return ""
 	}
 	tok := hex.EncodeToString(raw)
-	k3dStateUploads.Store(tok, &k3dStateUpload{Owner: owner, Name: name, Data: data, At: now})
+	k3dStateUploads.Store(tok, &k3dStateUpload{Name: name, Data: data, At: now})
 	return tok
 }
 
-// k3dStateUploadGet returns an archive if the caller is the one who uploaded it and it has
-// not expired.
-func k3dStateUploadGet(owner int64, tok string) ([]byte, string, bool) {
+// k3dStateUploadGet returns an archive if it has not expired.
+func k3dStateUploadGet(tok string) ([]byte, string, bool) {
 	v, ok := k3dStateUploads.Load(tok)
 	if !ok {
 		return nil, "", false
 	}
 	u := v.(*k3dStateUpload)
-	if u.Owner != owner || time.Since(u.At) > k3dStateUploadTTL {
+	if time.Since(u.At) > k3dStateUploadTTL {
 		return nil, "", false
 	}
 	return u.Data, u.Name, true
@@ -585,7 +581,7 @@ func k3dStateUploadGet(owner int64, tok string) ([]byte, string, bool) {
 // k3dStateArchiveOf resolves the archive a request is about: `?dump=<id>` for a capture kept
 // by Diagnostics, `?upload=<token>` for one held from an upload. Writes the error itself.
 func (a *App) k3dStateArchiveOf(w http.ResponseWriter, r *http.Request) (opFiles, string, bool) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return nil, "", false
@@ -595,7 +591,7 @@ func (a *App) k3dStateArchiveOf(w http.ResponseWriter, r *http.Request) (opFiles
 	switch {
 	case strings.TrimSpace(r.URL.Query().Get("upload")) != "":
 		var got bool
-		data, label, got = k3dStateUploadGet(u.ID, strings.TrimSpace(r.URL.Query().Get("upload")))
+		data, label, got = k3dStateUploadGet(strings.TrimSpace(r.URL.Query().Get("upload")))
 		if !got {
 			writeErr(w, http.StatusGone, "that uploaded archive is no longer held — upload it again")
 			return nil, "", false
@@ -618,7 +614,7 @@ func (a *App) k3dStateArchiveOf(w http.ResponseWriter, r *http.Request) (opFiles
 // loadOwnedDumpID is loadOwnedDump (k8sdiag.go) addressed by a query parameter rather than a
 // path value, which is what lets one endpoint serve both sources.
 func (a *App) loadOwnedDumpID(w http.ResponseWriter, r *http.Request, id string) (k8sDump, []byte, bool) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return k8sDump{}, nil, false
@@ -631,10 +627,6 @@ func (a *App) loadOwnedDumpID(w http.ResponseWriter, r *http.Request, id string)
 	d, err := a.store.K8sDump(n)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "no such capture")
-		return k8sDump{}, nil, false
-	}
-	if !a.ownsDumpStack(u, d) {
-		writeErr(w, http.StatusForbidden, "not your capture")
 		return k8sDump{}, nil, false
 	}
 	data, err := os.ReadFile(d.Path)
@@ -669,7 +661,7 @@ func (a *App) handleK3DStatesFromDump(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleK3DStatesUpload(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -700,7 +692,7 @@ func (a *App) handleK3DStatesUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	// Held only after it has parsed: an upload that is not a cluster-dump never occupies
 	// anything.
-	tok := k3dStateUploadKeep(u.ID, name, data)
+	tok := k3dStateUploadKeep(name, data)
 	objs, nss, kinds, warnings := k3dStatesFromArchive(files)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"objects": objs, "namespaces": nss, "kinds": kinds,

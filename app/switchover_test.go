@@ -79,12 +79,12 @@ func TestPosWaitAndReadOnly(t *testing.T) {
 // The design keeps every canvas field it had; only the two roles swap.
 func TestRecordNewPrimary(t *testing.T) {
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("boss", "x", RoleAdmin, StatusApproved)
+	app.store.CreateUser("boss")
 	design := `{"view":{"x":1,"y":2,"z":1},"frames":[{"id":"f1","type":"mysql","label":"repl","x":10,"gtid":true}],
 "nodes":[{"id":"a","type":"mysql","label":"db-1","frameId":"f1","role":"primary","x":5,"color":"teal"},
 {"id":"b","type":"mysql","label":"db-2","frameId":"f1","role":"secondary","x":6},
 {"id":"c","type":"mysql","label":"db-3","frameId":"f1","role":"secondary","x":7}],"edges":[]}`
-	st, err := app.store.CreateStack("repl", u.ID, "4h", nil, []byte(design))
+	st, err := app.store.CreateStack("repl", "4h", nil, []byte(design))
 	if err != nil {
 		t.Fatalf("create stack: %v", err)
 	}

@@ -99,7 +99,7 @@ func (a *App) startPerfSimConditions() {
 
 // perfSimPass syncs every Performance Sim node of every stack once.
 func (a *App) perfSimPass(ctx context.Context) {
-	stacks, err := a.store.ListStacks(0, true)
+	stacks, err := a.store.ListStacks()
 	if err != nil {
 		return
 	}

@@ -16,12 +16,12 @@ import (
 // scTestStack writes a design and its deployments into a throwaway store and returns the stack.
 func scTestStack(t *testing.T, app *App, doc designDoc, deps []Deployment) Stack {
 	t.Helper()
-	u, err := app.store.CreateUser("owner", "x", RoleAdmin, StatusApproved)
+	_, err := app.store.CreateUser("owner")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
 	design, _ := json.Marshal(doc)
-	st, err := app.store.CreateStack("lab", u.ID, ttlLongest, nil, design)
+	st, err := app.store.CreateStack("lab", ttlLongest, nil, design)
 	if err != nil {
 		t.Fatalf("create stack: %v", err)
 	}

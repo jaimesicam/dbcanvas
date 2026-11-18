@@ -61,10 +61,9 @@ func (l *latAcc) recErr() {
 // ---- run state ----
 
 type benchRun struct {
-	id      string
-	ownerID int64
-	app     *App
-	cfg     benchConfig
+	id  string
+	app *App
+	cfg benchConfig
 
 	engine          string
 	driver          string
@@ -100,7 +99,7 @@ type benchRun struct {
 	sample *crudSample // CRUD workload only — sampled filter-key pool
 }
 
-func newBenchRun(a *App, ownerID int64, cfg benchConfig, engine, containerID, label, user, pass string) *benchRun {
+func newBenchRun(a *App, cfg benchConfig, engine, containerID, label, user, pass string) *benchRun {
 	driver := "pgx"
 	if engine == "mysql" {
 		driver = "mysql"
@@ -108,7 +107,7 @@ func newBenchRun(a *App, ownerID int64, cfg benchConfig, engine, containerID, la
 		driver = "mongo" // informational; the Mongo path uses the driver directly, not database/sql
 	}
 	run := &benchRun{
-		id: qrNewID(), ownerID: ownerID, app: a, cfg: cfg,
+		id: qrNewID(), app: a, cfg: cfg,
 		engine: engine, driver: driver, label: label,
 		dbUser: user, dbPass: pass, nodeContainerID: containerID,
 		phase: "preparing", stmts: map[string]*latAcc{}, txnLat: &latAcc{},
@@ -142,11 +141,11 @@ func benchGet(id string) *benchRun {
 	return benchRuns.m[id]
 }
 
-func benchHistoryFor(u User) []benchRunDTO {
+func benchHistoryFor() []benchRunDTO {
 	benchRuns.Lock()
 	runs := make([]*benchRun, 0, len(benchRuns.order))
 	for i := len(benchRuns.order) - 1; i >= 0; i-- {
-		if r := benchRuns.m[benchRuns.order[i]]; r != nil && (r.ownerID == u.ID || u.Role == RoleAdmin) {
+		if r := benchRuns.m[benchRuns.order[i]]; r != nil {
 			runs = append(runs, r)
 		}
 	}

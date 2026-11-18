@@ -173,12 +173,12 @@ func (a *App) handleRollingRestart(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			j.add("stopped: %v", err)
 			a.recordStackEvent(st.ID, "", "action", "error", "Rolling restart of "+t.Frame.Label+" stopped", err.Error(), u.Username)
-			a.notify(Notification{UserID: u.ID, Scope: "user", Type: "stack.rolling", Severity: "error", StackID: st.ID,
+			a.notify(Notification{Type: "stack.rolling", Severity: "error", StackID: st.ID,
 				Title: "Rolling restart stopped", Body: fmt.Sprintf("%s: %s — %v", st.Name, t.Frame.Label, err)})
 			return
 		}
 		a.recordStackEvent(st.ID, "", "action", "success", "Rolling restart of "+t.Frame.Label+" finished", "took "+took, u.Username)
-		a.notify(Notification{UserID: u.ID, Scope: "user", Type: "stack.rolling", Severity: "success", StackID: st.ID,
+		a.notify(Notification{Type: "stack.rolling", Severity: "success", StackID: st.ID,
 			Title: "Rolling restart finished", Body: fmt.Sprintf("%s: every member of %s was restarted in %s.", st.Name, t.Frame.Label, took)})
 	}()
 	writeJSON(w, http.StatusAccepted, map[string]any{"job": j.snapshot()})

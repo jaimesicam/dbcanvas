@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -16,49 +15,22 @@ import (
 	"dbcanvas/internal/seal"
 )
 
-// Roles and statuses.
-const (
-	RoleAdmin = "admin"
-	RoleUser  = "user"
-
-	StatusPending  = "pending"
-	StatusApproved = "approved"
-	StatusRejected = "rejected"
-	StatusDisabled = "disabled"
-)
-
-// ErrUserExists is returned when a username is already taken.
-var ErrUserExists = errors.New("username already exists")
-
-// ErrStackNameTaken is returned when an owner already has a stack of that name. Names are
+// ErrStackNameTaken is returned when a stack of that name already exists. Names are
 // compared case-insensitively, as the CLI resolves them, so "Lab" and "lab" are one name.
 var ErrStackNameTaken = errors.New("stack name already in use")
 
-// User is the JSON-facing representation of an account (never includes the hash).
+// User is the one account: the person who runs dbcanvas, created on first start and
+// named after the OS login (ctlsock.go). It has no password; a browser signs in by start
+// link (soloweb.go).
 type User struct {
-	ID         int64   `json:"id"`
-	Username   string  `json:"username"`
-	Role       string  `json:"role"`
-	Status     string  `json:"status"`
-	CreatedAt  string  `json:"createdAt"`
-	ApprovedAt *string `json:"approvedAt,omitempty"`
-	// The profile (profile.go): names sealed at rest, avatar an id from a fixed set.
+	ID        int64  `json:"id"`
+	Username  string `json:"username"`
+	CreatedAt string `json:"createdAt"`
+	// The profile (profile.go): names and email sealed at rest, avatar an id from a fixed set.
 	FirstName string `json:"firstName"`
 	LastName  string `json:"lastName"`
 	Email     string `json:"email"`
 	Avatar    string `json:"avatar"`
-	// MustChangePassword is set when an admin set this account's password for it
-	// (useradmin.go): until the owner picks their own, only that is allowed.
-	MustChangePassword bool `json:"mustChangePassword,omitempty"`
-	// LastLoginAt is the last password sign-in; nil means none recorded — never, or
-	// the history was cleared.
-	LastLoginAt *string `json:"lastLoginAt,omitempty"`
-	// InvitePending is an account an admin created with a link that has not been
-	// used yet: a new link for it is an invite, not a reset (useradmin.go).
-	InvitePending bool `json:"invitePending,omitempty"`
-	// GuestAccount marks the one built-in account people sign in to without a
-	// password when guest sign-in is on (guestlogin.go).
-	GuestAccount bool `json:"guestAccount,omitempty"`
 }
 
 // Store wraps the SQLite database.
@@ -73,7 +45,10 @@ type Store struct {
 	seal *seal.Sealer
 }
 
-// OpenStore opens (and migrates) the SQLite database at path, with the encryption
+// schemaVersion is the user_version of a database this release's schema made.
+const schemaVersion = 1
+
+// OpenStore opens (creating it if new) the SQLite database at path, with the encryption
 // key that belongs to it (see encryption.go).
 func OpenStore(path string) (*Store, error) {
 	db, err := sql.Open("sqlite", path)
@@ -96,44 +71,70 @@ func OpenStore(path string) (*Store, error) {
 		}
 	}
 
+	// The schema is created whole on a new database; there is no upgrade path from an
+	// older one. user_version marks a database this schema made, so one from an earlier
+	// release is refused with a message rather than failing on a missing column.
+	var version int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		db.Close()
+		return nil, err
+	}
+	var tables int
+	db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table'").Scan(&tables)
+	if tables > 0 && version != schemaVersion {
+		db.Close()
+		return nil, fmt.Errorf("%s was made by an earlier release of DBCanvas and cannot be opened by this one — move its data folder aside to start fresh", path)
+	}
+
 	schema := `
+-- The one account (ctlsock.go's ensureOwner). Names and email are sealed (profile.go).
 CREATE TABLE IF NOT EXISTS users (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  username      TEXT UNIQUE NOT NULL,
-  password_hash TEXT NOT NULL,
-  role          TEXT NOT NULL,
-  status        TEXT NOT NULL,
+  username      TEXT NOT NULL,
   created_at    TEXT NOT NULL,
-  approved_at   TEXT
+  settings_json TEXT,
+  first_name    TEXT NOT NULL DEFAULT '',
+  last_name     TEXT NOT NULL DEFAULT '',
+  avatar        TEXT NOT NULL DEFAULT '',
+  email         TEXT NOT NULL DEFAULT ''
 );
+-- Browser sessions, by the SHA-256 of the cookie.
 CREATE TABLE IF NOT EXISTS sessions (
   token      TEXT PRIMARY KEY,
-  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   expires_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS stacks (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  name        TEXT NOT NULL,
-  owner_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  ttl         TEXT NOT NULL,        -- '2h'|'4h'|'8h'|'24h'|'2w'|'30d'
-  status      TEXT NOT NULL,        -- 'draft'|'deployed'|'expired'
-  created_at  TEXT NOT NULL,        -- RFC3339
-  expires_at  TEXT,                 -- RFC3339 (NULL only in releases before 0.1.0: infinity)
-  design_json TEXT NOT NULL         -- canvas: {nodes,edges,view}
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  name             TEXT NOT NULL,
+  ttl              TEXT NOT NULL,        -- '2h'|'4h'|'8h'|'24h'|'2w'|'30d'
+  status           TEXT NOT NULL,        -- 'draft'|'deployed'|'expired'
+  created_at       TEXT NOT NULL,        -- RFC3339
+  expires_at       TEXT,                 -- RFC3339
+  design_json      TEXT NOT NULL,        -- canvas: {nodes,edges,view}
+  backend          TEXT,
+  labels_json      TEXT,                 -- stacklabels.go
+  created_by_token INTEGER               -- tokenlimit.go
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_stacks_name ON stacks(name COLLATE NOCASE);
 CREATE TABLE IF NOT EXISTS deployments (
-  stack_id     INTEGER NOT NULL REFERENCES stacks(id) ON DELETE CASCADE,
-  node_id      TEXT NOT NULL,
-  container_id TEXT,
-  state        TEXT NOT NULL,       -- pending|provisioning|running|stopped|error
-  config_json  TEXT,
-  secrets_json TEXT,
+  stack_id      INTEGER NOT NULL REFERENCES stacks(id) ON DELETE CASCADE,
+  node_id       TEXT NOT NULL,
+  container_id  TEXT,
+  state         TEXT NOT NULL,       -- pending|provisioning|running|stopped|error
+  config_json   TEXT,
+  secrets_json  TEXT,
+  progress_json TEXT,
   PRIMARY KEY (stack_id, node_id)
+);
+-- What is left of a deleted stack, for 30 days (stackevents.go).
+CREATE TABLE IF NOT EXISTS stack_tombstones (
+  id          INTEGER PRIMARY KEY,
+  name        TEXT NOT NULL,
+  labels_json TEXT,
+  deleted_at  TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS notifications (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id    INTEGER NOT NULL,       -- owner (0 = admin-only broadcast)
-  scope      TEXT NOT NULL,          -- 'user'|'admin'
   type       TEXT NOT NULL,          -- e.g. node.error, stack.deployed, datagen.done
   severity   TEXT NOT NULL,          -- info|success|warning|error
   title      TEXT NOT NULL,
@@ -144,7 +145,6 @@ CREATE TABLE IF NOT EXISTS notifications (
   read_at    TEXT,
   created_at TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, id DESC);
 -- pt-stalk archives kept by capture time. The tarball itself lives on disk under
 -- the data directory (they are megabytes each, and a blob column would bloat
 -- every backup of this database); this table is the index over them.
@@ -187,22 +187,18 @@ CREATE INDEX IF NOT EXISTS idx_k8sdump_frame ON k8s_dumps(stack_id, frame_id, ca
 --
 -- design_json is sanitized on the way in (see sanitizeTemplateDesign) — no secrets,
 -- no host paths, no fixed host ports — because a template is the one design document
--- meant to be copied between stacks, exported to a file, and shared with other users.
+-- meant to be copied between stacks and exported to a file.
 CREATE TABLE IF NOT EXISTS stack_templates (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   name        TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
   category    TEXT NOT NULL DEFAULT '',
-  owner_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  shared      INTEGER NOT NULL DEFAULT 0,   -- 1 = published instance-wide (admins only)
   design_json TEXT NOT NULL,
   created_at  TEXT NOT NULL,
   updated_at  TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_stack_templates_owner ON stack_templates(owner_id, id DESC);
--- Instance-wide settings, as opposed to users.settings_json which is per account.
--- One row per key so a new knob needs no migration; see syssettings.go for the
--- typed view over it and who may change it.
+-- Settings, one row per key so a new knob needs no schema change; see syssettings.go
+-- for the typed view over it. users.settings_json holds the per-browser preferences.
 CREATE TABLE IF NOT EXISTS app_settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -221,109 +217,29 @@ CREATE TABLE IF NOT EXISTS app_settings (
 -- my script start getting 401s" is answered by the row, not by its absence.
 CREATE TABLE IF NOT EXISTS api_tokens (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  name         TEXT NOT NULL,        -- what it is for: "dbcanvas-cli on thinkpad"
+  name         TEXT NOT NULL,        -- what it is for: "a backup script"
   token_hash   TEXT NOT NULL,        -- hex SHA-256 of the secret
   prefix       TEXT NOT NULL,        -- "dbc_a1b2c3d4", the only displayable part
   scope        TEXT NOT NULL,        -- read | write | admin
   created_at   TEXT NOT NULL,
-  expires_at   TEXT,                 -- RFC3339; NULL = never (admin-created only)
+  expires_at   TEXT,                 -- RFC3339; NULL = never
   last_used_at TEXT,
-  revoked_at   TEXT
+  revoked_at   TEXT,
+  limit_json   TEXT                  -- tokenlimit.go
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
-CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id, id DESC);`
-	if _, err := db.Exec(schema); err != nil {
-		db.Close()
-		return nil, err
-	}
-
-	// Best-effort migrations for columns added after initial release (ignore the
-	// "duplicate column name" error when they already exist).
-	db.Exec("ALTER TABLE deployments ADD COLUMN progress_json TEXT")
-	db.Exec("ALTER TABLE users ADD COLUMN settings_json TEXT")
-	db.Exec("ALTER TABLE users ADD COLUMN first_name TEXT NOT NULL DEFAULT ''")
-	db.Exec("ALTER TABLE users ADD COLUMN last_name TEXT NOT NULL DEFAULT ''")
-	db.Exec("ALTER TABLE users ADD COLUMN avatar TEXT NOT NULL DEFAULT ''")
-	// The email is sealed like the names; email_hash is what keeps two accounts from
-	// sharing one, since a sealed value cannot be compared (profile.go).
-	db.Exec("ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''")
-	db.Exec("ALTER TABLE users ADD COLUMN email_hash TEXT NOT NULL DEFAULT ''")
-	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email_hash) WHERE email_hash != ''")
-	// Account administration (useradmin.go): a password the admin set is temporary
-	// until changed; when the owner last signed in; and, per session, where from and
-	// when it was last used, so an admin can see and end them.
-	db.Exec("ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0")
-	db.Exec("ALTER TABLE users ADD COLUMN last_login_at TEXT")
-	db.Exec("ALTER TABLE users ADD COLUMN invite_pending INTEGER NOT NULL DEFAULT 0")
-	// The built-in guest account (guestlogin.go).
-	db.Exec("ALTER TABLE users ADD COLUMN guest_account INTEGER NOT NULL DEFAULT 0")
-	db.Exec("ALTER TABLE sessions ADD COLUMN created_at TEXT NOT NULL DEFAULT ''")
-	db.Exec("ALTER TABLE sessions ADD COLUMN last_seen_at TEXT NOT NULL DEFAULT ''")
-	db.Exec("ALTER TABLE sessions ADD COLUMN ip TEXT NOT NULL DEFAULT ''")
-	db.Exec("ALTER TABLE sessions ADD COLUMN user_agent TEXT NOT NULL DEFAULT ''")
-	db.Exec("ALTER TABLE stacks ADD COLUMN backend TEXT")
-	db.Exec("ALTER TABLE stacks ADD COLUMN labels_json TEXT")         // stacklabels.go
-	db.Exec("ALTER TABLE stacks ADD COLUMN created_by_token INTEGER") // tokenlimit.go
-	db.Exec("ALTER TABLE api_tokens ADD COLUMN limit_json TEXT")      // tokenlimit.go
-	db.Exec(`CREATE TABLE IF NOT EXISTS stack_tombstones (
-  id INTEGER PRIMARY KEY, name TEXT NOT NULL, owner_id INTEGER NOT NULL, labels_json TEXT,
-  reason TEXT NOT NULL, by_user TEXT NOT NULL DEFAULT '', deleted_at TEXT NOT NULL)`) // stackevents.go
-	ensureStackNameIndex(db)
-
-	// Shared sessions (share_store.go). Kept in their own constant so the feature's
-	// tables read in one place; created here like every other table.
-	if _, err := db.Exec(shareSchema); err != nil {
-		db.Close()
-		return nil, err
-	}
-	// Host-port reservations (hostports.go).
-	if _, err := db.Exec(hostPortsSchema); err != nil {
-		db.Close()
-		return nil, err
-	}
-	db.Exec("ALTER TABLE share_guests ADD COLUMN invite_hash TEXT NOT NULL DEFAULT ''")
-	db.Exec("ALTER TABLE share_guests ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0")
-	db.Exec("ALTER TABLE share_guests ADD COLUMN account TEXT NOT NULL DEFAULT ''")
-	db.Exec("ALTER TABLE share_guests ADD COLUMN avatar TEXT NOT NULL DEFAULT ''")
-	db.Exec("ALTER TABLE share_guests ADD COLUMN draw_off INTEGER NOT NULL DEFAULT 0")
-	db.Exec("ALTER TABLE share_recordings ADD COLUMN transcript TEXT NOT NULL DEFAULT ''")
-	// Kanban boards (kanban.go).
-	if _, err := db.Exec(kanbanSchema); err != nil {
-		db.Close()
-		return nil, err
-	}
-	db.Exec("ALTER TABLE kanban_columns ADD COLUMN color TEXT NOT NULL DEFAULT ''")
-	db.Exec("ALTER TABLE kanban_cards ADD COLUMN color TEXT NOT NULL DEFAULT ''")
-	// Boards kept from the Scratchboard (scratchboard.go).
-	if _, err := db.Exec(scratchboardSchema); err != nil {
-		db.Close()
-		return nil, err
-	}
-	db.Exec("ALTER TABLE scratchboards ADD COLUMN rev INTEGER NOT NULL DEFAULT 1")
-	// Password reset links belonged to accounts, which dbcanvas no longer has.
-	db.Exec("DROP TABLE IF EXISTS password_resets")
-	// The node accounts' generated passwords (nodepasswords.go), sealed.
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS node_passwords (
+-- The node accounts' generated passwords (nodepasswords.go), sealed.
+CREATE TABLE IF NOT EXISTS node_passwords (
   name  TEXT PRIMARY KEY,
   value TEXT NOT NULL
-)`); err != nil {
-		db.Close()
-		return nil, err
-	}
-	// The watcher's history, timeline and alerts (livewatch.go).
-	if _, err := db.Exec(watchSchema); err != nil {
-		db.Close()
-		return nil, err
-	}
-	db.Exec("ALTER TABLE live_events ADD COLUMN actor TEXT NOT NULL DEFAULT ''")
-	// Every stack expires: one kept forever (infinity, before 0.1.0) gets the longest
-	// lifetime, counted from the first start that sees it.
-	db.Exec(`UPDATE stacks SET ttl = ?, expires_at = ? WHERE expires_at IS NULL OR ttl = 'infinity'`,
-		ttlLongest, time.Now().Add(maxStackLife).UTC().Format(time.RFC3339))
-	if err := migrateShareSessions(db); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("migrate share_sessions: %w", err)
+);`
+	// The features' own tables, kept beside their code.
+	for _, q := range []string{schema, shareSchema, hostPortsSchema, kanbanSchema, scratchboardSchema, watchSchema,
+		fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)} {
+		if _, err := db.Exec(q); err != nil {
+			db.Close()
+			return nil, err
+		}
 	}
 
 	s := &Store{db: db}
@@ -339,21 +255,13 @@ func (s *Store) Close() error { return s.db.Close() }
 
 func nowRFC3339() string { return time.Now().UTC().Format(time.RFC3339) }
 
-// scanUser scans a user row, mapping the nullable approved_at column.
+// scanUser scans a user row and unseals its profile.
 func (s *Store) scanUser(row interface {
 	Scan(dest ...any) error
 }) (User, error) {
 	var u User
-	var approved, lastLogin sql.NullString
-	if err := row.Scan(&u.ID, &u.Username, &u.Role, &u.Status, &u.CreatedAt, &approved, &u.FirstName, &u.LastName, &u.Avatar, &u.Email,
-		&u.MustChangePassword, &lastLogin, &u.InvitePending, &u.GuestAccount); err != nil {
+	if err := row.Scan(&u.ID, &u.Username, &u.CreatedAt, &u.FirstName, &u.LastName, &u.Avatar, &u.Email); err != nil {
 		return User{}, err
-	}
-	if approved.Valid {
-		u.ApprovedAt = &approved.String
-	}
-	if lastLogin.Valid {
-		u.LastLoginAt = &lastLogin.String
 	}
 	return s.openProfile(u)
 }
@@ -373,51 +281,16 @@ func (s *Store) openProfile(u User) (User, error) {
 	return u, nil
 }
 
-const userCols = "id, username, role, status, created_at, approved_at, first_name, last_name, avatar, email, must_change_password, last_login_at, invite_pending, guest_account"
+const userCols = "id, username, created_at, first_name, last_name, avatar, email"
 
-// CountUsers returns the total number of user accounts.
-func (s *Store) CountUsers() (int, error) {
-	var n int
-	err := s.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&n)
-	return n, err
-}
-
-// CreateUser inserts a new user. When status is approved, approved_at is set to now.
-func (s *Store) CreateUser(username, hash, role, status string) (User, error) {
-	created := nowRFC3339()
-	var approved sql.NullString
-	if status == StatusApproved {
-		approved = sql.NullString{String: created, Valid: true}
-	}
-	// The hash is sealed to its row, whose id the insert assigns: one transaction
-	// inserts a placeholder and seals into it.
-	tx, err := s.db.Begin()
+// CreateUser inserts the account. There is only ever one (ensureOwner).
+func (s *Store) CreateUser(username string) (User, error) {
+	res, err := s.db.Exec("INSERT INTO users (username, created_at) VALUES (?,?)", username, nowRFC3339())
 	if err != nil {
-		return User{}, err
-	}
-	defer tx.Rollback()
-	res, err := tx.Exec(
-		"INSERT INTO users (username, password_hash, role, status, created_at, approved_at) VALUES (?,'',?,?,?,?)",
-		username, role, status, created, approved,
-	)
-	if err != nil {
-		if isUniqueViolation(err) {
-			return User{}, ErrUserExists
-		}
 		return User{}, err
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
-		return User{}, err
-	}
-	sealed, err := s.sealVal(aadID("users", "password_hash", id), hash)
-	if err != nil {
-		return User{}, err
-	}
-	if _, err := tx.Exec("UPDATE users SET password_hash = ? WHERE id = ?", sealed, id); err != nil {
-		return User{}, err
-	}
-	if err := tx.Commit(); err != nil {
 		return User{}, err
 	}
 	return s.GetUser(id)
@@ -429,78 +302,9 @@ func (s *Store) GetUser(id int64) (User, error) {
 	return s.scanUser(row)
 }
 
-// CredByUsername returns the user plus the stored password hash.
-func (s *Store) CredByUsername(username string) (User, string, error) {
-	row := s.db.QueryRow(
-		"SELECT "+userCols+", password_hash FROM users WHERE username = ?",
-		username,
-	)
-	var u User
-	var approved, lastLogin sql.NullString
-	var hash string
-	if err := row.Scan(&u.ID, &u.Username, &u.Role, &u.Status, &u.CreatedAt, &approved, &u.FirstName, &u.LastName, &u.Avatar, &u.Email,
-		&u.MustChangePassword, &lastLogin, &u.InvitePending, &u.GuestAccount, &hash); err != nil {
-		return User{}, "", err
-	}
-	if approved.Valid {
-		u.ApprovedAt = &approved.String
-	}
-	if lastLogin.Valid {
-		u.LastLoginAt = &lastLogin.String
-	}
-	u, err := s.openProfile(u)
-	if err != nil {
-		return User{}, "", err
-	}
-	hash, err = s.openVal(aadID("users", "password_hash", u.ID), hash)
-	if err != nil {
-		return User{}, "", err
-	}
-	return u, hash, nil
-}
-
-// ListUsers returns all users, pending first, then newest first.
-func (s *Store) ListUsers() ([]User, error) {
-	rows, err := s.db.Query(
-		"SELECT " + userCols + " FROM users " +
-			"ORDER BY (status = 'pending') DESC, created_at DESC, id DESC",
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	users := []User{}
-	for rows.Next() {
-		u, err := s.scanUser(rows)
-		if err != nil {
-			return nil, err
-		}
-		users = append(users, u)
-	}
-	return users, rows.Err()
-}
-
-// SetStatus updates a user's status; approving sets approved_at to now.
-func (s *Store) SetStatus(id int64, status string) (User, error) {
-	if status == StatusApproved {
-		if _, err := s.db.Exec(
-			"UPDATE users SET status = ?, approved_at = ? WHERE id = ?",
-			status, nowRFC3339(), id,
-		); err != nil {
-			return User{}, err
-		}
-	} else {
-		if _, err := s.db.Exec("UPDATE users SET status = ? WHERE id = ?", status, id); err != nil {
-			return User{}, err
-		}
-	}
-	return s.GetUser(id)
-}
-
-// DeleteUser removes a user (cascading to their sessions).
-func (s *Store) DeleteUser(id int64) error {
-	_, err := s.db.Exec("DELETE FROM users WHERE id = ?", id)
-	return err
+// Owner returns the account; sql.ErrNoRows before it is created.
+func (s *Store) Owner() (User, error) {
+	return s.scanUser(s.db.QueryRow("SELECT " + userCols + " FROM users ORDER BY id LIMIT 1"))
 }
 
 // UserSettings returns a user's raw settings JSON ("" when they have never saved any).
@@ -561,36 +365,19 @@ func (s *Store) DeleteAppSetting(key string) error {
 	return err
 }
 
-// CreateSession stores a session token for a user with an expiry. Only its hash is
-// kept, so a copy of the database signs nobody in; every lookup hashes the cookie.
-func (s *Store) CreateSession(token string, userID int64, expires time.Time) error {
-	return s.CreateSessionFrom(token, userID, expires, "", "")
-}
-
-// CreateSessionFrom creates a session recording the address and browser it was
-// signed in from, which is how an admin tells one session from another.
-func (s *Store) CreateSessionFrom(token string, userID int64, expires time.Time, ip, userAgent string) error {
-	now := nowRFC3339()
-	if len(userAgent) > 300 {
-		userAgent = userAgent[:300]
-	}
-	_, err := s.db.Exec(
-		"INSERT INTO sessions (token, user_id, expires_at, created_at, last_seen_at, ip, user_agent) VALUES (?,?,?,?,?,?,?)",
-		seal.HashSecret(token), userID, expires.UTC().Format(time.RFC3339), now, now, ip, userAgent,
-	)
+// CreateSession stores a browser session with an expiry. Only its hash is kept, so a
+// copy of the database signs nobody in; every lookup hashes the cookie.
+func (s *Store) CreateSession(token string, expires time.Time) error {
+	_, err := s.db.Exec("INSERT INTO sessions (token, expires_at) VALUES (?,?)",
+		seal.HashSecret(token), expires.UTC().Format(time.RFC3339))
 	return err
 }
 
-// SessionUser returns the user for a valid, unexpired token. Expired tokens are
+// SessionUser returns the account for a valid, unexpired token. Expired tokens are
 // deleted and treated as missing.
 func (s *Store) SessionUser(token string) (User, error) {
-	var userID int64
-	var expiresStr, seenStr string
-	hashed := seal.HashSecret(token)
-	err := s.db.QueryRow(
-		"SELECT user_id, expires_at, last_seen_at FROM sessions WHERE token = ?", hashed,
-	).Scan(&userID, &expiresStr, &seenStr)
-	if err != nil {
+	var expiresStr string
+	if err := s.db.QueryRow("SELECT expires_at FROM sessions WHERE token = ?", seal.HashSecret(token)).Scan(&expiresStr); err != nil {
 		return User{}, err
 	}
 	expires, err := time.Parse(time.RFC3339, expiresStr)
@@ -598,29 +385,13 @@ func (s *Store) SessionUser(token string) (User, error) {
 		s.DeleteSession(token)
 		return User{}, sql.ErrNoRows
 	}
-	// Last seen to the minute is all an admin needs, and a write on every request
-	// would be a write on every poll.
-	if seen, err := time.Parse(time.RFC3339, seenStr); err != nil || time.Since(seen) > time.Minute {
-		s.db.Exec("UPDATE sessions SET last_seen_at = ? WHERE token = ?", nowRFC3339(), hashed)
-	}
-	return s.GetUser(userID)
+	return s.Owner()
 }
 
 // DeleteSession removes a single session token.
 func (s *Store) DeleteSession(token string) error {
 	_, err := s.db.Exec("DELETE FROM sessions WHERE token = ?", seal.HashSecret(token))
 	return err
-}
-
-// DeleteUserSessions removes all sessions for a user (used to revoke access).
-func (s *Store) DeleteUserSessions(userID int64) error {
-	_, err := s.db.Exec("DELETE FROM sessions WHERE user_id = ?", userID)
-	return err
-}
-
-// isUniqueViolation reports whether err is a SQLite UNIQUE constraint failure.
-func isUniqueViolation(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
 }
 
 // --- stacks ---
@@ -645,7 +416,6 @@ const (
 type Stack struct {
 	ID        int64           `json:"id"`
 	Name      string          `json:"name"`
-	OwnerID   int64           `json:"ownerId"`
 	TTL       string          `json:"ttl"`
 	Status    string          `json:"status"`
 	CreatedAt string          `json:"createdAt"`
@@ -706,23 +476,22 @@ type Deployment struct {
 	ContainerName string `json:"containerName,omitempty"`
 }
 
-// CreateStack inserts a new stack. expiresAt is nil for an infinite TTL. An owner's stack
-// names are unique (ErrStackNameTaken).
-func (s *Store) CreateStack(name string, ownerID int64, ttl string, expiresAt *string, design []byte) (Stack, error) {
+// CreateStack inserts a new stack. Stack names are unique (ErrStackNameTaken).
+func (s *Store) CreateStack(name string, ttl string, expiresAt *string, design []byte) (Stack, error) {
 	created := nowRFC3339()
 	tx, err := s.db.Begin()
 	if err != nil {
 		return Stack{}, err
 	}
 	defer tx.Rollback()
-	if taken, err := stackNameTaken(tx, ownerID, name, 0); err != nil {
+	if taken, err := stackNameTaken(tx, name, 0); err != nil {
 		return Stack{}, err
 	} else if taken {
 		return Stack{}, ErrStackNameTaken
 	}
 	res, err := tx.Exec(
-		"INSERT INTO stacks (name, owner_id, ttl, status, created_at, expires_at, design_json) VALUES (?,?,?,?,?,?,'')",
-		name, ownerID, ttl, StackDraft, created, nullStr(expiresAt),
+		"INSERT INTO stacks (name, ttl, status, created_at, expires_at, design_json) VALUES (?,?,?,?,?,'')",
+		name, ttl, StackDraft, created, nullStr(expiresAt),
 	)
 	if err != nil {
 		return Stack{}, err
@@ -744,16 +513,9 @@ func (s *Store) CreateStack(name string, ownerID int64, ttl string, expiresAt *s
 	return s.GetStack(id)
 }
 
-// ListStacks returns stacks visible to the user (own stacks; all when admin),
-// newest first. Design JSON is omitted to keep the list light.
-func (s *Store) ListStacks(ownerID int64, isAdmin bool) ([]Stack, error) {
-	var rows *sql.Rows
-	var err error
-	if isAdmin {
-		rows, err = s.db.Query("SELECT id, name, owner_id, ttl, status, created_at, expires_at, labels_json, created_by_token FROM stacks ORDER BY created_at DESC, id DESC")
-	} else {
-		rows, err = s.db.Query("SELECT id, name, owner_id, ttl, status, created_at, expires_at, labels_json, created_by_token FROM stacks WHERE owner_id = ? ORDER BY created_at DESC, id DESC", ownerID)
-	}
+// ListStacks returns the stacks, newest first. Design JSON is omitted to keep the list light.
+func (s *Store) ListStacks() ([]Stack, error) {
+	rows, err := s.db.Query("SELECT id, name, ttl, status, created_at, expires_at, labels_json, created_by_token FROM stacks ORDER BY created_at DESC, id DESC")
 	if err != nil {
 		return nil, err
 	}
@@ -763,7 +525,7 @@ func (s *Store) ListStacks(ownerID int64, isAdmin bool) ([]Stack, error) {
 		var st Stack
 		var exp, labels sql.NullString
 		var byTok sql.NullInt64
-		if err := rows.Scan(&st.ID, &st.Name, &st.OwnerID, &st.TTL, &st.Status, &st.CreatedAt, &exp, &labels, &byTok); err != nil {
+		if err := rows.Scan(&st.ID, &st.Name, &st.TTL, &st.Status, &st.CreatedAt, &exp, &labels, &byTok); err != nil {
 			return nil, err
 		}
 		if exp.Valid {
@@ -790,8 +552,8 @@ func (s *Store) GetStack(id int64) (Stack, error) {
 	var byTok sql.NullInt64
 	var design string
 	err := s.db.QueryRow(
-		"SELECT id, name, owner_id, ttl, status, created_at, expires_at, design_json, backend, labels_json, created_by_token FROM stacks WHERE id = ?", id,
-	).Scan(&st.ID, &st.Name, &st.OwnerID, &st.TTL, &st.Status, &st.CreatedAt, &exp, &design, &backend, &labels, &byTok)
+		"SELECT id, name, ttl, status, created_at, expires_at, design_json, backend, labels_json, created_by_token FROM stacks WHERE id = ?", id,
+	).Scan(&st.ID, &st.Name, &st.TTL, &st.Status, &st.CreatedAt, &exp, &design, &backend, &labels, &byTok)
 	if err != nil {
 		return Stack{}, err
 	}
@@ -823,32 +585,12 @@ func (s *Store) UpdateStack(id int64, name string, design []byte) error {
 	if err != nil {
 		return err
 	}
-	var owner int64
-	if err := s.db.QueryRow("SELECT owner_id FROM stacks WHERE id = ?", id).Scan(&owner); err != nil {
-		return err
-	}
-	if taken, err := stackNameTaken(s.db, owner, name, id); err != nil {
+	if taken, err := stackNameTaken(s.db, name, id); err != nil {
 		return err
 	} else if taken {
 		return ErrStackNameTaken
 	}
 	_, err = s.db.Exec("UPDATE stacks SET name = ?, design_json = ? WHERE id = ?", name, sealed, id)
-	return err
-}
-
-// SetStackOwner hands a stack to another account. The design is sealed per stack id,
-// not per owner, so it needs no re-sealing.
-func (s *Store) SetStackOwner(id, ownerID int64) error {
-	var name string
-	if err := s.db.QueryRow("SELECT name FROM stacks WHERE id = ?", id).Scan(&name); err != nil {
-		return err
-	}
-	if taken, err := stackNameTaken(s.db, ownerID, name, id); err != nil {
-		return err
-	} else if taken {
-		return ErrStackNameTaken
-	}
-	_, err := s.db.Exec("UPDATE stacks SET owner_id = ? WHERE id = ?", ownerID, id)
 	return err
 }
 
@@ -872,7 +614,7 @@ func (s *Store) DeleteStack(id int64) error {
 func (s *Store) ListStacksExpiringSoon(within time.Duration) ([]Stack, error) {
 	now := time.Now().UTC()
 	rows, err := s.db.Query(
-		"SELECT id, name, owner_id, ttl, status, created_at, expires_at FROM stacks "+
+		"SELECT id, name, ttl, status, created_at, expires_at FROM stacks "+
 			"WHERE expires_at IS NOT NULL AND expires_at >= ? AND expires_at < ? AND status = ?",
 		now.Format(time.RFC3339), now.Add(within).Format(time.RFC3339), StackDeployed,
 	)
@@ -884,7 +626,7 @@ func (s *Store) ListStacksExpiringSoon(within time.Duration) ([]Stack, error) {
 	for rows.Next() {
 		var st Stack
 		var exp sql.NullString
-		if err := rows.Scan(&st.ID, &st.Name, &st.OwnerID, &st.TTL, &st.Status, &st.CreatedAt, &exp); err != nil {
+		if err := rows.Scan(&st.ID, &st.Name, &st.TTL, &st.Status, &st.CreatedAt, &exp); err != nil {
 			return nil, err
 		}
 		if exp.Valid {
@@ -897,7 +639,7 @@ func (s *Store) ListStacksExpiringSoon(within time.Duration) ([]Stack, error) {
 
 func (s *Store) ListExpiredStacks() ([]Stack, error) {
 	rows, err := s.db.Query(
-		"SELECT id, name, owner_id, ttl, status, created_at, expires_at FROM stacks "+
+		"SELECT id, name, ttl, status, created_at, expires_at FROM stacks "+
 			"WHERE expires_at IS NOT NULL AND expires_at < ? AND status != ?",
 		nowRFC3339(), StackExpired,
 	)
@@ -909,7 +651,7 @@ func (s *Store) ListExpiredStacks() ([]Stack, error) {
 	for rows.Next() {
 		var st Stack
 		var exp sql.NullString
-		if err := rows.Scan(&st.ID, &st.Name, &st.OwnerID, &st.TTL, &st.Status, &st.CreatedAt, &exp); err != nil {
+		if err := rows.Scan(&st.ID, &st.Name, &st.TTL, &st.Status, &st.CreatedAt, &exp); err != nil {
 			return nil, err
 		}
 		if exp.Valid {
@@ -931,8 +673,6 @@ type StackTemplate struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
 	Category    string          `json:"category"`
-	OwnerID     int64           `json:"ownerId,omitempty"`
-	Shared      bool            `json:"shared"`
 	Builtin     bool            `json:"builtin"`
 	CreatedAt   string          `json:"createdAt,omitempty"`
 	UpdatedAt   string          `json:"updatedAt,omitempty"`
@@ -943,7 +683,7 @@ type StackTemplate struct {
 	Frames int `json:"frames"`
 }
 
-const templateCols = "id, name, description, category, owner_id, shared, created_at, updated_at"
+const templateCols = "id, name, description, category, created_at, updated_at"
 
 // scanTemplate reads a row without its design (the list shape).
 func scanTemplate(row interface {
@@ -951,21 +691,19 @@ func scanTemplate(row interface {
 }) (StackTemplate, error) {
 	var t StackTemplate
 	var id int64
-	var shared int
-	if err := row.Scan(&id, &t.Name, &t.Description, &t.Category, &t.OwnerID, &shared, &t.CreatedAt, &t.UpdatedAt); err != nil {
+	if err := row.Scan(&id, &t.Name, &t.Description, &t.Category, &t.CreatedAt, &t.UpdatedAt); err != nil {
 		return StackTemplate{}, err
 	}
 	t.ID = strconv.FormatInt(id, 10)
-	t.Shared = shared != 0
 	return t, nil
 }
 
 // CreateStackTemplate stores a new template and returns it (with its design).
-func (s *Store) CreateStackTemplate(name, description, category string, ownerID int64, design []byte) (StackTemplate, error) {
+func (s *Store) CreateStackTemplate(name, description, category string, design []byte) (StackTemplate, error) {
 	now := nowRFC3339()
 	res, err := s.db.Exec(
-		"INSERT INTO stack_templates (name, description, category, owner_id, shared, design_json, created_at, updated_at) VALUES (?,?,?,?,0,?,?,?)",
-		name, description, category, ownerID, string(design), now, now,
+		"INSERT INTO stack_templates (name, description, category, design_json, created_at, updated_at) VALUES (?,?,?,?,?,?)",
+		name, description, category, string(design), now, now,
 	)
 	if err != nil {
 		return StackTemplate{}, err
@@ -977,16 +715,10 @@ func (s *Store) CreateStackTemplate(name, description, category string, ownerID 
 	return s.GetStackTemplate(id)
 }
 
-// ListStackTemplates returns the templates visible to a user — their own plus any
-// an admin has published — newest first. Designs are omitted to keep the list light.
-func (s *Store) ListStackTemplates(ownerID int64, isAdmin bool) ([]StackTemplate, error) {
-	q := "SELECT " + templateCols + " FROM stack_templates WHERE owner_id = ? OR shared = 1 ORDER BY id DESC"
-	args := []any{ownerID}
-	if isAdmin {
-		q = "SELECT " + templateCols + " FROM stack_templates ORDER BY id DESC"
-		args = nil
-	}
-	rows, err := s.db.Query(q, args...)
+// ListStackTemplates returns the saved templates, newest first. Designs are omitted to
+// keep the list light.
+func (s *Store) ListStackTemplates() ([]StackTemplate, error) {
+	rows, err := s.db.Query("SELECT " + templateCols + " FROM stack_templates ORDER BY id DESC")
 	if err != nil {
 		return nil, err
 	}
@@ -1006,16 +738,14 @@ func (s *Store) ListStackTemplates(ownerID int64, isAdmin bool) ([]StackTemplate
 func (s *Store) GetStackTemplate(id int64) (StackTemplate, error) {
 	var t StackTemplate
 	var rid int64
-	var shared int
 	var design string
 	err := s.db.QueryRow(
 		"SELECT "+templateCols+", design_json FROM stack_templates WHERE id = ?", id,
-	).Scan(&rid, &t.Name, &t.Description, &t.Category, &t.OwnerID, &shared, &t.CreatedAt, &t.UpdatedAt, &design)
+	).Scan(&rid, &t.Name, &t.Description, &t.Category, &t.CreatedAt, &t.UpdatedAt, &design)
 	if err != nil {
 		return StackTemplate{}, err
 	}
 	t.ID = strconv.FormatInt(rid, 10)
-	t.Shared = shared != 0
 	t.Design = json.RawMessage(design)
 	return t, nil
 }
@@ -1026,16 +756,6 @@ func (s *Store) UpdateStackTemplate(id int64, name, description, category string
 		"UPDATE stack_templates SET name = ?, description = ?, category = ?, design_json = ?, updated_at = ? WHERE id = ?",
 		name, description, category, string(design), nowRFC3339(), id,
 	)
-	return err
-}
-
-// SetStackTemplateShared publishes (or unpublishes) a template instance-wide.
-func (s *Store) SetStackTemplateShared(id int64, shared bool) error {
-	v := 0
-	if shared {
-		v = 1
-	}
-	_, err := s.db.Exec("UPDATE stack_templates SET shared = ?, updated_at = ? WHERE id = ?", v, nowRFC3339(), id)
 	return err
 }
 
@@ -1228,81 +948,26 @@ type queryRower interface {
 	QueryRow(query string, args ...any) *sql.Row
 }
 
-// stackNameTaken reports whether an owner has another stack (not exceptID) of this name,
-// compared case-insensitively.
-func stackNameTaken(q queryRower, ownerID int64, name string, exceptID int64) (bool, error) {
+// stackNameTaken reports whether another stack (not exceptID) has this name, compared
+// case-insensitively. The unique index on the name backs it against two racing creates.
+func stackNameTaken(q queryRower, name string, exceptID int64) (bool, error) {
 	var n int
-	err := q.QueryRow("SELECT COUNT(*) FROM stacks WHERE owner_id = ? AND name = ? COLLATE NOCASE AND id != ?",
-		ownerID, name, exceptID).Scan(&n)
+	err := q.QueryRow("SELECT COUNT(*) FROM stacks WHERE name = ? COLLATE NOCASE AND id != ?",
+		name, exceptID).Scan(&n)
 	return n > 0, err
 }
 
-// ensureStackNameIndex makes an owner's stack names unique in the database as well, so two
-// creates racing each other cannot both pass stackNameTaken. A database that already holds
-// duplicates keeps working without the index — the store's own check still refuses new ones —
-// and says which names collide, so they can be renamed.
-func ensureStackNameIndex(db *sql.DB) {
-	if _, err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_stacks_owner_name ON stacks(owner_id, name COLLATE NOCASE)"); err == nil {
-		return
-	}
-	rows, err := db.Query(`SELECT owner_id, name, GROUP_CONCAT(id) FROM stacks
-		GROUP BY owner_id, name COLLATE NOCASE HAVING COUNT(*) > 1`)
-	if err != nil {
-		return
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var owner int64
-		var name, ids string
-		if rows.Scan(&owner, &name, &ids) == nil {
-			log.Printf("stacks: owner %d has several stacks called %q (ids %s); rename all but one so names can be made unique", owner, name, ids)
-		}
-	}
-}
-
-// StackIDByName is the id of an owner's stack of this name (case-insensitive), or 0.
-func (s *Store) StackIDByName(ownerID int64, name string) int64 {
+// StackIDByName is the id of the stack of this name (case-insensitive), or 0.
+func (s *Store) StackIDByName(name string) int64 {
 	var id int64
-	s.db.QueryRow("SELECT id FROM stacks WHERE owner_id = ? AND name = ? COLLATE NOCASE ORDER BY id LIMIT 1", ownerID, name).Scan(&id)
+	s.db.QueryRow("SELECT id FROM stacks WHERE name = ? COLLATE NOCASE", name).Scan(&id)
 	return id
 }
 
-// TransferStackKeepingNames hands a stack to another owner and, when that owner already has
-// one of the same name, renames it "<name> (from <from>)" — numbered when even that is taken —
-// so a bulk handover (an account being deleted) never stops on a name. Returns the name the
-// stack ends up with.
-func (s *Store) TransferStackKeepingNames(id, ownerID int64, from string) (string, error) {
-	var name string
-	if err := s.db.QueryRow("SELECT name FROM stacks WHERE id = ?", id).Scan(&name); err != nil {
-		return "", err
-	}
-	want := name
-	for i := 1; ; i++ {
-		taken, err := stackNameTaken(s.db, ownerID, want, id)
-		if err != nil {
-			return "", err
-		}
-		if !taken {
-			break
-		}
-		want = fmt.Sprintf("%s (from %s)", name, from)
-		if i > 1 {
-			want = fmt.Sprintf("%s (from %s) %d", name, from, i)
-		}
-	}
-	if want != name {
-		if _, err := s.db.Exec("UPDATE stacks SET name = ? WHERE id = ?", want, id); err != nil {
-			return "", err
-		}
-	}
-	_, err := s.db.Exec("UPDATE stacks SET owner_id = ? WHERE id = ?", ownerID, id)
-	return want, err
-}
-
-// FreeStackName is base, or "base 2", "base 3", … — the first name the owner does not have.
-func (s *Store) FreeStackName(ownerID int64, base string) string {
+// FreeStackName is base, or "base 2", "base 3", … — the first name no stack has.
+func (s *Store) FreeStackName(base string) string {
 	name := base
-	for i := 2; s.StackIDByName(ownerID, name) != 0; i++ {
+	for i := 2; s.StackIDByName(name) != 0; i++ {
 		name = fmt.Sprintf("%s %d", base, i)
 	}
 	return name

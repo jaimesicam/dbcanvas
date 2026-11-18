@@ -184,7 +184,7 @@ func opDigestLogs(b *lsBundle) *opLogs {
 // the Log Summary page to open, so a support engineer's cluster-dump from a
 // customer's cluster got the digest and nothing more. Now it gets the timeline,
 // the per-source ranges and the event browser, exactly like a capture taken here.
-func (a *App) opAnalyse(u User, data []byte, source, origin string, stackID int64, stack string) (*opModel, error) {
+func (a *App) opAnalyse(data []byte, source, origin string, stackID int64, stack string) (*opModel, error) {
 	m, err := parseOpDump(data, source)
 	if err != nil {
 		return nil, err
@@ -192,7 +192,7 @@ func (a *App) opAnalyse(u User, data []byte, source, origin string, stackID int6
 	if len(m.logInputs) == 0 {
 		return m, nil
 	}
-	rec := lsNewBundle(u, "Operator Summary · "+source, origin, stackID, stack, m.logInputs)
+	rec := lsNewBundle("Operator Summary · "+source, origin, stackID, stack, m.logInputs)
 	if m.Logs == nil {
 		m.Logs = &opLogs{}
 	}

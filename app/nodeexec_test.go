@@ -91,7 +91,7 @@ func TestUnknownAPIPathIsAJSON404(t *testing.T) {
 // /api/me names the token a request was made with; a session has none.
 func TestMeReportsItsToken(t *testing.T) {
 	app := newTestApp(t)
-	u, err := app.store.CreateUser("ada", "x", RoleUser, StatusApproved)
+	u, err := app.store.CreateUser("ada")
 	if err != nil {
 		t.Fatal(err)
 	}

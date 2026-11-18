@@ -58,8 +58,8 @@ func TestLabelSelector(t *testing.T) {
 }
 
 func TestStackLabelsRoundTrip(t *testing.T) {
-	st, alice, _ := stackNameStore(t)
-	s, _ := st.CreateStack("lab", alice.ID, "4h", nil, []byte(`{}`))
+	st := stackNameStore(t)
+	s, _ := st.CreateStack("lab", "4h", nil, []byte(`{}`))
 	if err := st.SetStackLabels(s.ID, map[string]string{"tool": "ci", "run": "12"}); err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestStackLabelsRoundTrip(t *testing.T) {
 	if labelString(got.Labels) != "run=12,tool=ci" {
 		t.Fatalf("GetStack labels %v", got.Labels)
 	}
-	list, _ := st.ListStacks(alice.ID, false)
+	list, _ := st.ListStacks()
 	if len(list) != 1 || list[0].Labels["run"] != "12" {
 		t.Fatalf("ListStacks labels %v", list)
 	}

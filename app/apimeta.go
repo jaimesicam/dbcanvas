@@ -156,19 +156,14 @@ func groupedEndpoints() []endpointGroup {
 }
 
 func (a *App) handleAPIEndpoints(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
-	if !ok {
+	if _, ok := a.currentUser(r); !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"version": appVersion,
-		// What the caller can reach, so the page can grey out the rest rather than
-		// letting somebody build a curl line that was always going to 403.
-		"role":   u.Role,
-		"scopes": scopesFor(u.Role),
-		"total":  len(apiRoutes()),
-		"groups": groupedEndpoints(),
+		"total":   len(apiRoutes()),
+		"groups":  groupedEndpoints(),
 	})
 }
 

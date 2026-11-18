@@ -78,7 +78,6 @@ export function GuestGate() {
 // of their choosing. The host admits them from the lobby, and they work in the host's
 // workspace. There are no accounts to join with: dbcanvas has one owner, the host.
 function JoinScreen({ token, info, onJoined }) {
-  const acct = info?.account
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [avatar, setAvatar] = useState(randomAvatar)
@@ -98,7 +97,7 @@ function JoinScreen({ token, info, onJoined }) {
   }
   return (
     <Shell title="Join a shared session" subtitle={`${info?.hostName || 'The host'} is sharing ${info?.stackName ? `“${info.stackName}”` : 'their workspace'}`}>
-      {acct?.isHost ? (
+      {info?.isHost ? (
         <div className="mb-3 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-xs text-primary">
           This is your own session — you host it from DBCanvas itself. <a className="font-medium underline" href="/">Open DBCanvas</a>
         </div>

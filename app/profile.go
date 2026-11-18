@@ -6,22 +6,18 @@ import (
 	"net/mail"
 	"strings"
 	"unicode"
-
-	"dbcanvas/internal/seal"
 )
 
 // profile.go — who a person is, beyond a username: a first and last name, an email
 // address and an avatar.
 //
-// The names and the email are a person's own, so they are sealed at rest like a
-// password hash (encryption.go, users.first_name / last_name / email). One email is
-// one account: users.email_hash, a hash of the address in lower case, is unique.
-// The avatar is one of a fixed set of pictures (web/src/components/Avatar.jsx draws
-// them), stored by id: nothing is uploaded, so there is nothing to scan or serve.
+// The names and the email are a person's own, so they are sealed at rest
+// (encryption.go, users.first_name / last_name / email). The avatar is one of a fixed
+// set of pictures (web/src/components/Avatar.jsx draws them), stored by id: nothing is
+// uploaded, so there is nothing to scan or serve.
 //
-// A profile is asked for when an account is created (setup, register). Accounts
-// from before it have none until their owner fills it in; the app asks them once
-// after they sign in, and the username stands in meanwhile.
+// The account starts with no profile; the app asks for one once, and the username
+// stands in meanwhile. It is what guests see when you share a session.
 
 // avatarIDs is every avatar there is. web/src/components/Avatar.jsx lists the same
 // ids, in the same order; profile_test.go checks the two agree.
@@ -58,19 +54,8 @@ type Profile struct {
 
 const profileEmailMax = 254
 
-// ErrEmailTaken is an email address another account already has.
-var ErrEmailTaken = errors.New("that email address belongs to another account")
-
-func emailHash(email string) string {
-	if email == "" {
-		return ""
-	}
-	return seal.HashSecret("dbcanvas-user-email:" + strings.ToLower(email))
-}
-
-// clean trims the fields and checks every one. required makes the names and the
-// email mandatory, as they are for a new account.
-func (p *Profile) clean(required bool) error {
+// clean trims the fields and checks every one. The names and the email are required.
+func (p *Profile) clean() error {
 	p.FirstName = strings.TrimSpace(p.FirstName)
 	p.LastName = strings.TrimSpace(p.LastName)
 	p.Avatar = strings.TrimSpace(p.Avatar)
@@ -85,19 +70,17 @@ func (p *Profile) clean(required bool) error {
 			}
 		}
 	}
-	if required && (p.FirstName == "" || p.LastName == "") {
+	if p.FirstName == "" || p.LastName == "" {
 		return errors.New("first name and last name are required")
 	}
-	if required && p.Email == "" {
+	if p.Email == "" {
 		return errors.New("an email address is required")
 	}
-	if p.Email != "" {
-		if len(p.Email) > profileEmailMax {
-			return errors.New("that email address is too long")
-		}
-		if a, err := mail.ParseAddress(p.Email); err != nil || a.Address != p.Email {
-			return errors.New("that is not a valid email address")
-		}
+	if len(p.Email) > profileEmailMax {
+		return errors.New("that email address is too long")
+	}
+	if a, err := mail.ParseAddress(p.Email); err != nil || a.Address != p.Email {
+		return errors.New("that is not a valid email address")
 	}
 	if !validAvatar(p.Avatar) {
 		return errors.New("unknown avatar")
@@ -114,16 +97,6 @@ func (u User) displayName() string {
 	return u.Username
 }
 
-// EmailInUse reports whether an account other than exceptID has this email.
-func (s *Store) EmailInUse(email string, exceptID int64) (bool, error) {
-	if email == "" {
-		return false, nil
-	}
-	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM users WHERE email_hash = ? AND id != ?`, emailHash(email), exceptID).Scan(&n)
-	return n > 0, err
-}
-
 // SetUserProfile writes a user's names and email (sealed) and avatar.
 func (s *Store) SetUserProfile(id int64, p Profile) error {
 	first, err := s.sealVal(aadID("users", "first_name", id), p.FirstName)
@@ -138,15 +111,12 @@ func (s *Store) SetUserProfile(id int64, p Profile) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec("UPDATE users SET first_name = ?, last_name = ?, email = ?, email_hash = ?, avatar = ? WHERE id = ?",
-		first, last, email, emailHash(p.Email), p.Avatar, id)
-	if isUniqueViolation(err) {
-		return ErrEmailTaken
-	}
+	_, err = s.db.Exec("UPDATE users SET first_name = ?, last_name = ?, email = ?, avatar = ? WHERE id = ?",
+		first, last, email, p.Avatar, id)
 	return err
 }
 
-// handleUpdateProfile is a signed-in user changing their own names, email and avatar.
+// handleUpdateProfile changes the names, email and avatar.
 func (a *App) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 	u, ok := a.currentUser(r)
 	if !ok {
@@ -158,15 +128,11 @@ func (a *App) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if err := p.clean(true); err != nil {
+	if err := p.clean(); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if err := a.store.SetUserProfile(u.ID, p); err != nil {
-		if errors.Is(err, ErrEmailTaken) {
-			writeErr(w, http.StatusConflict, err.Error())
-			return
-		}
 		writeErr(w, http.StatusInternalServerError, "failed to save the profile")
 		return
 	}

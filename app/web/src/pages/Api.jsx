@@ -85,9 +85,7 @@ export function Tokens() {
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         <CreateToken
-          scopes={data?.scopes || ['read', 'write']}
           maxDays={data?.maxDays ?? 90}
-          canNeverExpire={!!data?.canNeverExpire}
           onCreated={(d) => { setFresh(d); load() }}
           onError={setErr}
         />
@@ -132,7 +130,9 @@ export function FreshSecret({ data, onDismiss }) {
   )
 }
 
-export function CreateToken({ scopes, maxDays, canNeverExpire, onCreated, onError }) {
+const SCOPES = ['read', 'write', 'admin']
+
+export function CreateToken({ maxDays, onCreated, onError }) {
   const [name, setName] = useState('')
   const [scope, setScope] = useState('write')
   const [days, setDays] = useState(90)
@@ -143,7 +143,7 @@ export function CreateToken({ scopes, maxDays, canNeverExpire, onCreated, onErro
 
   // The choices offered are clamped to what this account can actually be given, so
   // nobody picks a lifetime the server is going to silently shorten.
-  const choices = EXPIRY_CHOICES.filter((c) => (c.days === 0 ? canNeverExpire : c.days <= maxDays))
+  const choices = EXPIRY_CHOICES.filter((c) => c.days === 0 || c.days <= maxDays)
 
   const submit = async (e) => {
     e.preventDefault()
@@ -174,12 +174,12 @@ export function CreateToken({ scopes, maxDays, canNeverExpire, onCreated, onErro
         </Field>
         <Field label="Scope" help={HELP.tokenScope}>
           <select className={inputCls} value={scope} onChange={(e) => setScope(e.target.value)}>
-            {scopes.map((s) => <option key={s} value={s}>{s}</option>)}
+            {SCOPES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </Field>
         <p className="text-xs text-muted">{SCOPE_TEXT[scope]}</p>
         <Field label="Expires" help={HELP.tokenExpiry}
-          hint={canNeverExpire ? undefined : `This installation allows at most ${maxDays} days.`}>
+          hint={`At most ${maxDays} days, or never.`}>
           <select className={inputCls} value={days} onChange={(e) => setDays(e.target.value)}>
             {choices.map((c) => <option key={c.days} value={c.days}>{c.label}</option>)}
           </select>
@@ -205,7 +205,7 @@ export function CreateToken({ scopes, maxDays, canNeverExpire, onCreated, onErro
   )
 }
 
-export function TokenTable({ tokens, onRevoke, showOwner = false }) {
+export function TokenTable({ tokens, onRevoke }) {
   if (!tokens) return <div className="py-6 text-center text-sm text-muted">Loading…</div>
   if (!tokens.length) {
     return (
@@ -220,7 +220,6 @@ export function TokenTable({ tokens, onRevoke, showOwner = false }) {
         <thead>
           <tr className="border-b text-left text-xs text-muted">
             <th className="pb-2 pr-3 font-medium">Name</th>
-            {showOwner && <th className="pb-2 pr-3 font-medium">Owner</th>}
             <th className="pb-2 pr-3 font-medium">Prefix</th>
             <th className="pb-2 pr-3 font-medium">Scope</th>
             <th className="pb-2 pr-3 font-medium">Expiry</th>
@@ -235,7 +234,6 @@ export function TokenTable({ tokens, onRevoke, showOwner = false }) {
                 <div className="font-medium">{tk.name}</div>
                 <div className="text-xs text-muted">created {relDate(tk.createdAt)}</div>
               </td>
-              {showOwner && <td className="py-2 pr-3">{tk.username || '—'}</td>}
               <td className="py-2 pr-3 font-mono text-xs">{tk.prefix}…</td>
               <td className="py-2 pr-3">
                 <Badge tone={tk.scope === 'admin' ? 'warning' : 'muted'}>{tk.scope}</Badge>
@@ -325,7 +323,7 @@ export function Endpoints() {
           </div>
         </div>
         <p className="mt-3 text-xs text-muted">
-          {shown} of {cat.total} endpoints. Your account can create {(cat.scopes || []).join(', ')} tokens.
+          {shown} of {cat.total} endpoints.
           The full machine-readable version is at{' '}
           <a className="text-primary hover:underline" href="/api/meta/openapi.json" target="_blank" rel="noreferrer">
             /api/meta/openapi.json

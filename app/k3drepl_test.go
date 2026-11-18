@@ -468,13 +468,13 @@ func TestK3DReplTemplateIsALink(t *testing.T) {
 // live run of this code did, and this is the regression test for it.
 func TestK3DReplWaitsForAFrameStillDeploying(t *testing.T) {
 	app := newTestApp(t)
-	u, err := app.store.CreateUser("admin", "x", RoleAdmin, StatusApproved)
+	_, err := app.store.CreateUser("admin")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
 	doc := k3dReplDoc("async")
 	design, _ := json.Marshal(doc)
-	st, err := app.store.CreateStack("k8srepl", u.ID, "2h", nil, design)
+	st, err := app.store.CreateStack("k8srepl", "2h", nil, design)
 	if err != nil {
 		t.Fatalf("create stack: %v", err)
 	}
@@ -512,10 +512,10 @@ func TestK3DReplWaitsForAFrameStillDeploying(t *testing.T) {
 // timeout — the link cannot be made and the log should say so while anyone is still watching.
 func TestK3DReplGivesUpOnAFailedFrame(t *testing.T) {
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("admin", "x", RoleAdmin, StatusApproved)
+	app.store.CreateUser("admin")
 	doc := k3dReplDoc("async")
 	design, _ := json.Marshal(doc)
-	st, _ := app.store.CreateStack("k8srepl", u.ID, "2h", nil, design)
+	st, _ := app.store.CreateStack("k8srepl", "2h", nil, design)
 	app.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: "n1", State: DeployError})
 
 	if _, _, err := app.k3dReplWaitFrame(context.Background(), st, doc, doc.Frames[0]); err == nil {
@@ -652,11 +652,11 @@ func TestK3DReplObjectNameIsRFC1123(t *testing.T) {
 // is the one case this reconcile phase most obviously owes an answer to.
 func TestK3DReplPruneRunsWithNoLinksLeft(t *testing.T) {
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("admin", "x", RoleAdmin, StatusApproved)
+	app.store.CreateUser("admin")
 	doc := k3dReplDoc("async")
 	doc.Edges = nil // the link has been removed from the canvas
 	design, _ := json.Marshal(doc)
-	st, _ := app.store.CreateStack("k8srepl", u.ID, "2h", nil, design)
+	st, _ := app.store.CreateStack("k8srepl", "2h", nil, design)
 
 	// cluster2 still records what the last deploy made it.
 	cfg, _ := json.Marshal(k3dConfig{
@@ -690,11 +690,11 @@ func TestK3DReplPruneRunsWithNoLinksLeft(t *testing.T) {
 // there is nothing to stop on a source or an unlinked cluster.
 func TestK3DReplPruneIgnoresANonReplica(t *testing.T) {
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("admin", "x", RoleAdmin, StatusApproved)
+	app.store.CreateUser("admin")
 	doc := k3dReplDoc("async")
 	doc.Edges = nil
 	design, _ := json.Marshal(doc)
-	st, _ := app.store.CreateStack("k8srepl", u.ID, "2h", nil, design)
+	st, _ := app.store.CreateStack("k8srepl", "2h", nil, design)
 	cfg, _ := json.Marshal(k3dConfig{Operator: "pxc", ClusterName: "cluster1", ReplRole: "source"})
 	app.store.UpsertDeployment(Deployment{StackID: st.ID, NodeID: "n1", State: DeployRunning, Config: cfg})
 

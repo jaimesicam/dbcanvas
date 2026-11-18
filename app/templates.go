@@ -137,8 +137,8 @@ func templateSummary(t *StackTemplate) {
 }
 
 // loadTemplate resolves a wire id to a template — a built-in by slug, or a row by
-// decimal id — and enforces read access on the latter (own, shared, or admin).
-func (a *App) loadTemplate(id string, u User) (StackTemplate, error) {
+// decimal id.
+func (a *App) loadTemplate(id string) (StackTemplate, error) {
 	if templateIsBuiltin(id) {
 		t, ok := findBuiltinTemplate(id)
 		if !ok {
@@ -154,29 +154,20 @@ func (a *App) loadTemplate(id string, u User) (StackTemplate, error) {
 	if err != nil {
 		return StackTemplate{}, err
 	}
-	if t.OwnerID != u.ID && !t.Shared && u.Role != RoleAdmin {
-		return StackTemplate{}, errTemplateForbidden
-	}
 	return t, nil
 }
 
-var errTemplateForbidden = errors.New("not your template")
-
 // loadOwnedTemplate is loadTemplate plus write access: a built-in is never
-// writable, and a row needs ownership (or admin). It writes the error itself.
-func (a *App) loadOwnedTemplate(w http.ResponseWriter, r *http.Request, u User) (StackTemplate, bool) {
+// writable. It writes the error itself.
+func (a *App) loadOwnedTemplate(w http.ResponseWriter, r *http.Request) (StackTemplate, bool) {
 	id := r.PathValue("id")
 	if templateIsBuiltin(id) {
 		writeErr(w, http.StatusBadRequest, "built-in templates cannot be modified — save a copy instead")
 		return StackTemplate{}, false
 	}
-	t, err := a.loadTemplate(id, u)
+	t, err := a.loadTemplate(id)
 	if err != nil {
 		writeTemplateLoadErr(w, err)
-		return StackTemplate{}, false
-	}
-	if t.OwnerID != u.ID && u.Role != RoleAdmin {
-		writeErr(w, http.StatusForbidden, "not your template")
 		return StackTemplate{}, false
 	}
 	return t, true
@@ -186,8 +177,6 @@ func writeTemplateLoadErr(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		writeErr(w, http.StatusNotFound, "template not found")
-	case errors.Is(err, errTemplateForbidden):
-		writeErr(w, http.StatusForbidden, "not your template")
 	default:
 		writeErr(w, http.StatusInternalServerError, "failed to read template")
 	}
@@ -196,7 +185,7 @@ func writeTemplateLoadErr(w http.ResponseWriter, err error) {
 // --- handlers ---
 
 func (a *App) handleListTemplates(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -207,7 +196,7 @@ func (a *App) handleListTemplates(w http.ResponseWriter, r *http.Request) {
 		t.Design = nil // the list stays light; GET one to fetch a design
 		out = append(out, t)
 	}
-	rows, err := a.store.ListStackTemplates(u.ID, u.Role == RoleAdmin)
+	rows, err := a.store.ListStackTemplates()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to list templates")
 		return
@@ -231,12 +220,12 @@ func mustParseID(s string) int64 {
 }
 
 func (a *App) handleGetTemplate(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	t, err := a.loadTemplate(r.PathValue("id"), u)
+	t, err := a.loadTemplate(r.PathValue("id"))
 	if err != nil {
 		writeTemplateLoadErr(w, err)
 		return
@@ -269,7 +258,7 @@ func validTemplateDesign(design []byte) (designDoc, error) {
 }
 
 func (a *App) handleCreateTemplate(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -288,7 +277,7 @@ func (a *App) handleCreateTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t, err := a.store.CreateStackTemplate(name, strings.TrimSpace(body.Description),
-		strings.TrimSpace(body.Category), u.ID, sanitizeTemplateDesign(body.Design))
+		strings.TrimSpace(body.Category), sanitizeTemplateDesign(body.Design))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to save template")
 		return
@@ -298,12 +287,12 @@ func (a *App) handleCreateTemplate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleUpdateTemplate(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	t, ok := a.loadOwnedTemplate(w, r, u)
+	t, ok := a.loadOwnedTemplate(w, r)
 	if !ok {
 		return
 	}
@@ -343,12 +332,12 @@ func (a *App) handleUpdateTemplate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleDeleteTemplate(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	t, ok := a.loadOwnedTemplate(w, r, u)
+	t, ok := a.loadOwnedTemplate(w, r)
 	if !ok {
 		return
 	}
@@ -362,12 +351,12 @@ func (a *App) handleDeleteTemplate(w http.ResponseWriter, r *http.Request) {
 // handleExportTemplate serves a template as a downloadable file. Works for
 // built-ins too — exporting one is how you get a starting point to edit offline.
 func (a *App) handleExportTemplate(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	t, err := a.loadTemplate(r.PathValue("id"), u)
+	t, err := a.loadTemplate(r.PathValue("id"))
 	if err != nil {
 		writeTemplateLoadErr(w, err)
 		return
@@ -412,7 +401,7 @@ func templateFilename(name string) string {
 // template. The design is sanitized again on the way in — the file came from
 // outside this installation and nothing about it can be assumed.
 func (a *App) handleImportTemplate(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -440,7 +429,7 @@ func (a *App) handleImportTemplate(w http.ResponseWriter, r *http.Request) {
 		name = "Imported template"
 	}
 	t, err := a.store.CreateStackTemplate(name, strings.TrimSpace(doc.Description),
-		strings.TrimSpace(doc.Category), u.ID, sanitizeTemplateDesign(doc.Design))
+		strings.TrimSpace(doc.Category), sanitizeTemplateDesign(doc.Design))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to import template")
 		return

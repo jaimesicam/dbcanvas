@@ -69,7 +69,8 @@ CREATE TABLE IF NOT EXISTS live_events (
   kind       TEXT NOT NULL,              -- role|failover|switchover|alert|resolved|action
   severity   TEXT NOT NULL,              -- info|success|warning|error
   title      TEXT NOT NULL,
-  detail     TEXT NOT NULL DEFAULT ''
+  detail     TEXT NOT NULL DEFAULT '',
+  actor      TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_live_events ON live_events(stack_id, id DESC);
 CREATE TABLE IF NOT EXISTS live_alerts (
@@ -462,7 +463,7 @@ func (a *App) startLiveWatch() {
 
 // watchPass samples every deployed stack once.
 func (a *App) watchPass() {
-	stacks, err := a.store.ListStacks(0, true)
+	stacks, err := a.store.ListStacks()
 	if err != nil {
 		return
 	}
@@ -909,7 +910,7 @@ func (a *App) handlePutAlertRules(w http.ResponseWriter, r *http.Request) {
 
 // handleAlertSummary is every visible stack's open alerts by severity, for the stacks list.
 func (a *App) handleAlertSummary(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -919,7 +920,7 @@ func (a *App) handleAlertSummary(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "failed to read alerts")
 		return
 	}
-	stacks, _ := a.store.ListStacks(u.ID, u.Role == RoleAdmin)
+	stacks, _ := a.store.ListStacks()
 	out := map[string]map[string]int{}
 	for _, s := range stacks {
 		if c := counts[s.ID]; c != nil {

@@ -32,8 +32,8 @@ func id(n int64) string { return strconv.FormatInt(n, 10) }
 
 func newKanbanFixture(t *testing.T) *kanbanFixture {
 	app := newTestApp(t)
-	ann, _ := app.store.CreateUser("ann", "x", RoleUser, StatusApproved)
-	bob, _ := app.store.CreateUser("bob", "x", RoleUser, StatusApproved)
+	ann, _ := app.store.CreateUser("ann")
+	bob, _ := app.store.CreateUser("bob")
 	f := &kanbanFixture{app: app, ann: ann, bob: bob, t: t}
 	w := f.do(ann, "POST", "/api/kanban/boards", nil, `{"name":"Release 1.0"}`, m((*App).handleKanbanCreateBoard))
 	if w.Code != http.StatusCreated {
@@ -136,25 +136,10 @@ func TestColumnsReorder(t *testing.T) {
 	}
 }
 
-func TestPrivateBoardsArePrivate(t *testing.T) {
-	f := newKanbanFixture(t)
-	vals := map[string]string{"id": id(f.boardID)}
-	if w := f.do(f.bob, "GET", "/", vals, "", m((*App).handleKanbanGetBoard)); w.Code != http.StatusNotFound {
-		t.Errorf("bob read ann's private board: %d", w.Code)
-	}
-	if w := f.do(f.bob, "POST", "/", map[string]string{"cid": id(f.cols[0])}, `{"title":"x"}`, m((*App).handleKanbanAddCard)); w.Code != http.StatusNotFound {
-		t.Errorf("bob wrote to ann's private board: %d", w.Code)
-	}
-	list, _ := f.app.store.ListKanbanBoards(f.bob.ID)
-	if len(list) != 0 {
-		t.Errorf("bob's list shows %d boards", len(list))
-	}
-}
-
 func TestACardMovesOnlyWithinItsBoard(t *testing.T) {
 	f := newKanbanFixture(t)
 	card := f.addCard(f.cols[0], "A")
-	other, _ := f.app.store.CreateKanbanBoard(f.ann.ID, "Other", false, []string{"X"})
+	other, _ := f.app.store.CreateKanbanBoard("Other", []string{"X"})
 	ocols, _, _ := f.app.store.KanbanContents(other.ID)
 	w := f.do(f.ann, "POST", "/", map[string]string{"kid": id(card)}, `{"columnId":`+id(ocols[0].ID)+`,"index":0}`, m((*App).handleKanbanMoveCard))
 	if w.Code != http.StatusBadRequest {

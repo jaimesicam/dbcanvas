@@ -27,7 +27,7 @@ func debugTestStack(t *testing.T, app *App, ownerID int64, tweak func(cfg *k3dCo
 	if err != nil {
 		t.Fatalf("marshal design: %v", err)
 	}
-	st, err := app.store.CreateStack(app.store.FreeStackName(ownerID, "debug"), ownerID, ttlLongest, nil, design)
+	st, err := app.store.CreateStack(app.store.FreeStackName("debug"), ttlLongest, nil, design)
 	if err != nil {
 		t.Fatalf("create stack: %v", err)
 	}
@@ -58,7 +58,7 @@ func debugTestStack(t *testing.T, app *App, ownerID int64, tweak func(cfg *k3dCo
 // where to dial, what prefix the binary was compiled with, and where its source is on the node.
 func TestDebugResolveTarget(t *testing.T) {
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("owner", "x", RoleAdmin, StatusApproved)
+	u, _ := app.store.CreateUser("owner")
 	st, doc := debugTestStack(t, app, u.ID, nil)
 
 	tgt, err := app.k3dDebugResolveTarget(st, doc, "f1")
@@ -83,7 +83,7 @@ func TestDebugResolveTarget(t *testing.T) {
 // different things done about them.
 func TestDebugResolveTargetExplainsWhyNot(t *testing.T) {
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("owner", "x", RoleAdmin, StatusApproved)
+	u, _ := app.store.CreateUser("owner")
 
 	st, doc := debugTestStack(t, app, u.ID, func(cfg *k3dConfig) { cfg.DebugStatus = "" })
 	if _, err := app.k3dDebugResolveTarget(st, doc, "f1"); err == nil ||
@@ -200,11 +200,11 @@ func TestDebugRunDispatch(t *testing.T) {
 // The targets endpoint only offers frames that are actually debuggable right now.
 func TestDebugTargetsEndpoint(t *testing.T) {
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("owner", "x", RoleAdmin, StatusApproved)
+	u, _ := app.store.CreateUser("owner")
 	debugTestStack(t, app, u.ID, nil)
 	debugTestStack(t, app, u.ID, func(cfg *k3dConfig) { cfg.DebugStatus = "" }) // deployed without it
 
-	if err := app.store.CreateSession("token1", u.ID, time.Now().Add(time.Hour)); err != nil {
+	if err := app.store.CreateSession("token1", time.Now().Add(time.Hour)); err != nil {
 		t.Fatalf("create session: %v", err)
 	}
 	r := httptest.NewRequest("GET", "/api/k3d/debug/targets", nil)

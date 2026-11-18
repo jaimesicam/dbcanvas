@@ -61,7 +61,6 @@ const (
 type ShareRecording struct {
 	ID          int64   `json:"id"`
 	SessionID   int64   `json:"sessionId"`
-	HostID      int64   `json:"hostId"`
 	Title       string  `json:"title"`
 	Mime        string  `json:"mime"`
 	File        string  `json:"-"`
@@ -127,7 +126,7 @@ func recordingExt(mime string) string {
 // handleShareRecordStart is the host starting to record: {mime}. A recording already
 // running in this session — from a tab that was reloaded, say — is finished first.
 func (a *App) handleShareRecordStart(w http.ResponseWriter, r *http.Request) {
-	sess, u, ok := a.loadHostedSession(w, r)
+	sess, _, ok := a.loadHostedSession(w, r)
 	if !ok {
 		return
 	}
@@ -171,7 +170,7 @@ func (a *App) handleShareRecordStart(w http.ResponseWriter, r *http.Request) {
 	}
 	title += " — " + now.Format("2006-01-02 15:04 UTC")
 	rec := ShareRecording{
-		SessionID: sess.ID, HostID: u.ID, Title: title, Mime: mime,
+		SessionID: sess.ID, Title: title, Mime: mime,
 		File:    fmt.Sprintf("session-%d-%s-%s%s", sess.ID, now.Format("20060102-150405"), hex.EncodeToString(raw), recordingExt(mime)),
 		State:   recRecording,
 		PurgeAt: now.Add(time.Duration(a.recordingRetentionDays()) * 24 * time.Hour).Format(time.RFC3339),
@@ -197,7 +196,7 @@ func (a *App) handleShareRecordStart(w http.ResponseWriter, r *http.Request) {
 
 // loadOwnRecording resolves {rid} to a recording the signed-in user made.
 func (a *App) loadOwnRecording(w http.ResponseWriter, r *http.Request) (ShareRecording, bool) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return ShareRecording{}, false
@@ -208,7 +207,7 @@ func (a *App) loadOwnRecording(w http.ResponseWriter, r *http.Request) (ShareRec
 		return ShareRecording{}, false
 	}
 	rec, err := a.store.GetShareRecording(rid)
-	if err != nil || rec.HostID != u.ID {
+	if err != nil {
 		writeErr(w, http.StatusNotFound, "recording not found")
 		return ShareRecording{}, false
 	}
@@ -395,7 +394,7 @@ func (a *App) handleShareRecordTranscript(w http.ResponseWriter, r *http.Request
 		return
 	}
 	name := fmt.Sprintf("dbcanvas-session-%d-transcript", rec.SessionID)
-	if sess, err := a.store.GetShareSession(rec.SessionID); err == nil && sess.HostID == rec.HostID {
+	if sess, err := a.store.GetShareSession(rec.SessionID); err == nil {
 		a.shareTranscriptOf(sess).write(w, r, name)
 		return
 	}
@@ -412,12 +411,12 @@ func (a *App) handleShareRecordTranscript(w http.ResponseWriter, r *http.Request
 }
 
 func (a *App) handleListShareRecordings(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	list, err := a.store.ListShareRecordings(u.ID)
+	list, err := a.store.ListShareRecordings()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "failed to list recordings")
 		return

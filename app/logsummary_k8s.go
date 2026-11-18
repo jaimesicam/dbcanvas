@@ -129,9 +129,9 @@ func lsK8sMemberSelector(operator, cr string) string {
 // records with a PXC page's verdicts underneath it. The member logs of those clusters are
 // a smaller step (they are ordinary PostgreSQL and mongod logs) and the shape here is
 // ready for them.
-func (a *App) listLogK8sTargets(u User) []qrTarget {
+func (a *App) listLogK8sTargets() []qrTarget {
 	out := []qrTarget{}
-	stacks, _ := a.store.ListStacks(u.ID, u.Role == RoleAdmin)
+	stacks, _ := a.store.ListStacks()
 	for _, s := range stacks {
 		st, err := a.store.GetStack(s.ID)
 		if err != nil {
@@ -277,16 +277,13 @@ func (a *App) lsK8sHasPITR(serverID, ns, cr string) bool {
 // node to run kubectl on, the namespace and cluster name, which log was asked for, and
 // which operator the frame runs — the last of these decides where a member's log lives and
 // what the operator's own Deployment is called.
-func (a *App) lsK8sResolveOp(u User, stackID int64, target string) (serverID, ns, cr, what, operator string, ok bool) {
+func (a *App) lsK8sResolveOp(stackID int64, target string) (serverID, ns, cr, what, operator string, ok bool) {
 	nodeID, what := aioSplitTarget(target)
 	if what == "" {
 		return "", "", "", "", "", false
 	}
 	st, err := a.store.GetStack(stackID)
 	if err != nil {
-		return "", "", "", "", "", false
-	}
-	if st.OwnerID != u.ID && u.Role != RoleAdmin {
 		return "", "", "", "", "", false
 	}
 	doc := buildDoc(st)

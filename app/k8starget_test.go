@@ -379,13 +379,13 @@ func TestK8sLoadToolsOnlyOfferWhatTheyCanDial(t *testing.T) {
 	// statement would measure the process. listK8sSQLTargets filters on Reachable(),
 	// and the refusal in k8sResolveTarget says what to do about it.
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("alice", "x", RoleUser, StatusApproved)
+	app.store.CreateUser("alice")
 	// A stack with no Kubernetes frames contributes nothing rather than failing.
-	if got := app.listK8sSQLTargets(context.Background(), u); len(got) != 0 {
+	if got := app.listK8sSQLTargets(context.Background()); len(got) != 0 {
 		t.Errorf("a user with no clusters should have no Kubernetes targets, got %v", got)
 	}
 	// The resolver refuses an id that is not one of ours at all.
-	if _, err := app.k8sResolveTarget(context.Background(), u, 1, "pg-node-1"); err == nil {
+	if _, err := app.k8sResolveTarget(context.Background(), 1, "pg-node-1"); err == nil {
 		t.Error("a plain node id must not resolve as a Kubernetes target")
 	}
 }
@@ -395,9 +395,9 @@ func TestK8sTargetsStayOutOfTheSharedSQLTargetList(t *testing.T) {
 	// tcpdump inside a node's container. A Kubernetes Service has no such container,
 	// so an endpoint in that list would offer a capture that could never start.
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("alice", "x", RoleUser, StatusApproved)
-	seedStack(t, app, u, "lab")
-	for _, tgt := range app.listSQLTargets(u) {
+	app.store.CreateUser("alice")
+	seedStack(t, app, "lab")
+	for _, tgt := range app.listSQLTargets() {
 		if _, ok := k8sSplitTarget(tgt.NodeID); ok {
 			t.Errorf("a Kubernetes endpoint reached listSQLTargets: %s", tgt.NodeID)
 		}
@@ -408,8 +408,8 @@ func TestK8sDataGenOffersOnlyTheEndpointThatTakesWrites(t *testing.T) {
 	// The generator writes. A replica or a pooler would fail in a way that reads like
 	// a DBCanvas fault rather than like pointing an INSERT at a read-only endpoint.
 	app := newTestApp(t)
-	u, _ := app.store.CreateUser("alice", "x", RoleUser, StatusApproved)
-	st := seedStack(t, app, u, "lab")
+	app.store.CreateUser("alice")
+	st := seedStack(t, app, "lab")
 	if got := app.k8sDataGenConnections(context.Background(), st); len(got) != 0 {
 		t.Errorf("a stack with no clusters should contribute nothing, got %v", got)
 	}
@@ -590,7 +590,7 @@ func TestK8sBenchmarkDialsTheServiceNotAContainer(t *testing.T) {
 	app := newTestApp(t)
 	cfg := benchConfig{StackID: 7, Database: "probe", Workload: "crud"}
 
-	run := newBenchRun(app, 1, cfg, "mongodb", "", "k3d-03 · rs0-0", "databaseAdmin", "pw")
+	run := newBenchRun(app, cfg, "mongodb", "", "k3d-03 · rs0-0", "databaseAdmin", "pw")
 	dt := k8sEndpoint{Engine: dexMongoDB, Addr: "172.20.255.246", Port: 27017,
 		User: "databaseAdmin", Pass: "pw"}.dialTarget()
 	run.k8s = &dt
@@ -605,7 +605,7 @@ func TestK8sBenchmarkDialsTheServiceNotAContainer(t *testing.T) {
 
 	// A node on the canvas still resolves its address from its container, and must
 	// not be handed a bare address it would dial instead.
-	node := newBenchRun(app, 1, cfg, "mongodb", "abc123", "mongo-1", "admin", "pw")
+	node := newBenchRun(app, cfg, "mongodb", "abc123", "mongo-1", "admin", "pw")
 	if got := node.mongoConn(); got.Addr != "" || got.ContainerID != "abc123" {
 		t.Errorf("a canvas node should dial through its container, got addr=%q container=%q",
 			got.Addr, got.ContainerID)

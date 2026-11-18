@@ -96,8 +96,8 @@ func qrNewID() string {
 
 // listSQLTargets returns the running MySQL/PXC + PostgreSQL nodes the user may target
 // (owner-scoped; admins see all). Shared by the Query Runner and Benchmark.
-func (a *App) listSQLTargets(u User) []qrTarget {
-	stacks, _ := a.store.ListStacks(u.ID, u.Role == RoleAdmin)
+func (a *App) listSQLTargets() []qrTarget {
+	stacks, _ := a.store.ListStacks()
 	out := []qrTarget{}
 	for _, s := range stacks {
 		st, err := a.store.GetStack(s.ID)
@@ -152,8 +152,8 @@ func (a *App) listSQLTargets(u User) []qrTarget {
 // resolveNodeCreds validates ownership + that the node is a running supported SQL
 // target, returning its engine, container id, label, and network-account credentials
 // (MySQL admin@'%', Postgres superuser). Shared by the Query Runner and Benchmark.
-func (a *App) resolveNodeCreds(u User, stackID int64, target string) (engine, containerID, label, user, pass string, err error) {
-	e2, c, l, us, pw, _, err := a.resolveNodeCredsPort(u, stackID, target)
+func (a *App) resolveNodeCreds(stackID int64, target string) (engine, containerID, label, user, pass string, err error) {
+	e2, c, l, us, pw, _, err := a.resolveNodeCredsPort(stackID, target)
 	return e2, c, l, us, pw, err
 }
 
@@ -161,14 +161,11 @@ func (a *App) resolveNodeCreds(u User, stackID int64, target string) (engine, co
 // node uses its engine's default; an All-in-One instance uses its slot port,
 // which is never a default — so the port has to travel with the credentials
 // rather than being inferred at dial time.
-func (a *App) resolveNodeCredsPort(u User, stackID int64, target string) (engine, containerID, label, user, pass string, port int, err error) {
+func (a *App) resolveNodeCredsPort(stackID int64, target string) (engine, containerID, label, user, pass string, port int, err error) {
 	nodeID, inst := aioSplitTarget(target)
 	st, e := a.store.GetStack(stackID)
 	if e != nil {
 		return "", "", "", "", "", 0, fmt.Errorf("target stack not found")
-	}
-	if st.OwnerID != u.ID && u.Role != RoleAdmin {
-		return "", "", "", "", "", 0, fmt.Errorf("not your stack")
 	}
 	if inst != "" {
 		dep, e2 := a.store.GetDeployment(stackID, nodeID)
@@ -251,7 +248,7 @@ func (a *App) resolveClassicNodeCreds(st Stack, nodeID string) (engine, containe
 
 // handleQueryRunTargets lists the running DB nodes the caller may target.
 func (a *App) handleQueryRunTargets(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -262,8 +259,8 @@ func (a *App) handleQueryRunTargets(w http.ResponseWriter, r *http.Request) {
 	// Service — see k8sqrtarget.go.
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
-	out := a.listSQLTargets(u)
-	for _, t := range a.listK8sSQLTargets(ctx, u) {
+	out := a.listSQLTargets()
+	for _, t := range a.listK8sSQLTargets(ctx) {
 		// listK8sSQLTargets is shared with the Benchmark, which does dial MongoDB.
 		// This tool does not, and refuses one at Run — so offering it here would put
 		// a target in the picker whose only possible outcome is that refusal.
@@ -281,7 +278,7 @@ type qrRunRequest struct {
 
 // handleQueryRunStart validates + resolves every query spec, then launches the run.
 func (a *App) handleQueryRunStart(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -300,9 +297,9 @@ func (a *App) handleQueryRunStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	run := &qrRun{id: qrNewID(), ownerID: u.ID, app: a, status: "running"}
+	run := &qrRun{id: qrNewID(), app: a, status: "running"}
 	for i := range req.Queries {
-		q, err := a.qrBuildQuery(u, req.Queries[i])
+		q, err := a.qrBuildQuery(req.Queries[i])
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, fmt.Sprintf("query %d: %v", i+1, err))
 			return
@@ -322,7 +319,7 @@ func (a *App) handleQueryRunStart(w http.ResponseWriter, r *http.Request) {
 // to run time (see qrRun.dial), keeping the disruptive network attach off the request
 // path. Credentials use the node's network account (MySQL admin@'%', Postgres
 // superuser) — root@localhost / peer-auth accounts can't connect over TCP.
-func (a *App) qrBuildQuery(u User, spec qrQuerySpec) (*qrQuery, error) {
+func (a *App) qrBuildQuery(spec qrQuerySpec) (*qrQuery, error) {
 	if strings.TrimSpace(spec.SQL) == "" {
 		return nil, fmt.Errorf("SQL is required")
 	}
@@ -344,12 +341,12 @@ func (a *App) qrBuildQuery(u User, spec qrQuerySpec) (*qrQuery, error) {
 	// A database inside a Kubernetes cluster resolves through its own path: there is
 	// no deployment row for it, because the operator made it rather than DBCanvas.
 	if _, isK8s := k8sSplitTarget(spec.NodeID); isK8s {
-		return a.qrBuildK8sQuery(u, spec)
+		return a.qrBuildK8sQuery(spec)
 	}
 	// Shared with the Benchmark, and the single place that understands a composite
 	// "<nodeId>#<inst>" target — so the Query Runner gained All-in-One instances
 	// without growing a second copy of this resolution.
-	engine, containerID, label, dbUser, dbPass, port, err := a.resolveNodeCredsPort(u, spec.StackID, spec.NodeID)
+	engine, containerID, label, dbUser, dbPass, port, err := a.resolveNodeCredsPort(spec.StackID, spec.NodeID)
 	if err != nil {
 		return nil, err
 	}
@@ -387,10 +384,10 @@ func (a *App) qrBuildQuery(u User, spec qrQuerySpec) (*qrQuery, error) {
 // qrBuildK8sQuery is qrBuildQuery for a database inside a Kubernetes cluster. The
 // validation is the same — ownership, a running target, a supported engine — asked of
 // the cluster instead of a deployment row.
-func (a *App) qrBuildK8sQuery(u User, spec qrQuerySpec) (*qrQuery, error) {
+func (a *App) qrBuildK8sQuery(spec qrQuerySpec) (*qrQuery, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	e, err := a.k8sResolveTarget(ctx, u, spec.StackID, spec.NodeID)
+	e, err := a.k8sResolveTarget(ctx, spec.StackID, spec.NodeID)
 	if err != nil {
 		return nil, err
 	}
@@ -451,7 +448,7 @@ func (a *App) handleQueryRunStop(w http.ResponseWriter, r *http.Request) {
 
 // handleQueryRunHistory lists finished runs the caller owns (in-memory, this session).
 func (a *App) handleQueryRunHistory(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -460,7 +457,7 @@ func (a *App) handleQueryRunHistory(w http.ResponseWriter, r *http.Request) {
 	ids := append([]string(nil), qrRuns.order...)
 	runs := make([]*qrRun, 0, len(ids))
 	for i := len(ids) - 1; i >= 0; i-- { // newest first
-		if run := qrRuns.m[ids[i]]; run != nil && (run.ownerID == u.ID || u.Role == RoleAdmin) {
+		if run := qrRuns.m[ids[i]]; run != nil {
 			runs = append(runs, run)
 		}
 	}
@@ -473,7 +470,7 @@ func (a *App) handleQueryRunHistory(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) qrOwnedRun(w http.ResponseWriter, r *http.Request) (*qrRun, bool) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return nil, false
@@ -481,10 +478,6 @@ func (a *App) qrOwnedRun(w http.ResponseWriter, r *http.Request) (*qrRun, bool) 
 	run := qrGet(r.PathValue("id"))
 	if run == nil {
 		writeErr(w, http.StatusNotFound, "run not found")
-		return nil, false
-	}
-	if run.ownerID != u.ID && u.Role != RoleAdmin {
-		writeErr(w, http.StatusForbidden, "not your run")
 		return nil, false
 	}
 	return run, true

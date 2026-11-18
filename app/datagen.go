@@ -232,12 +232,12 @@ type dgConnection struct {
 
 // handleDataGenConnections lists running PostgreSQL nodes across the user's stacks.
 func (a *App) handleDataGenConnections(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	stacks, _ := a.store.ListStacks(u.ID, u.Role == RoleAdmin)
+	stacks, _ := a.store.ListStacks()
 	out := []dgConnection{}
 	for _, s := range stacks {
 		// ListStacks omits design_json; reload the full stack so buildDoc sees its nodes.

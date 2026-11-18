@@ -74,7 +74,7 @@ func (a *App) hubFor(sess ShareSession) *shareHub {
 		return h
 	}
 	// The host is shown by name (profile.go); the row only carries the username.
-	if host, err := a.store.GetUser(sess.HostID); err == nil {
+	if host, err := a.store.Owner(); err == nil {
 		sess.HostName = host.displayName()
 	}
 	h := &shareHub{app: a, sess: sess, clients: map[*hubClient]bool{}, terms: map[string]*sharedTerm{},
@@ -224,7 +224,7 @@ func (h *shareHub) presence() map[string]any {
 		}
 	}
 	host := map[string]any{"name": h.sess.HostName, "online": online[0]}
-	if u, err := h.app.store.GetUser(h.sess.HostID); err == nil {
+	if u, err := h.app.store.Owner(); err == nil {
 		host["name"], host["avatar"], host["username"] = u.displayName(), u.Avatar, u.Username
 	}
 	return map[string]any{
@@ -390,10 +390,6 @@ func (a *App) shareCaller(w http.ResponseWriter, r *http.Request) (ShareSession,
 	u, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
-		return ShareSession{}, nil, false
-	}
-	if u.ID != sess.HostID {
-		writeErr(w, http.StatusForbidden, "this is not your session")
 		return ShareSession{}, nil, false
 	}
 	return sess, &hubClient{guestID: 0, name: u.displayName()}, true

@@ -24,7 +24,7 @@ type shareFixture struct {
 	token string
 }
 
-func newShareFixture(t *testing.T, role string) *shareFixture {
+func newShareFixture(t *testing.T) *shareFixture {
 	t.Helper()
 	app := newTestApp(t)
 	app.store.SetAppSetting(settingAllowGuestSessions, "1")
@@ -33,11 +33,11 @@ func newShareFixture(t *testing.T, role string) *shareFixture {
 	joinLimiter.Lock()
 	joinLimiter.seen = map[string][]time.Time{}
 	joinLimiter.Unlock()
-	host, err := app.store.CreateUser("host", "x", role, StatusApproved)
+	host, err := app.store.CreateUser("host")
 	if err != nil {
 		t.Fatal(err)
 	}
-	st, err := app.store.CreateStack("lab", host.ID, ttlLongest, nil, []byte(defaultDesign))
+	st, err := app.store.CreateStack("lab", ttlLongest, nil, []byte(defaultDesign))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,8 +125,8 @@ func (f *shareFixture) call(t *testing.T, pattern string, c *http.Cookie) (int, 
 	w := httptest.NewRecorder()
 	f.app.requireScope(rt, func(w http.ResponseWriter, r *http.Request) {
 		reached = true
-		if p, ok := principalOf(r); !ok || p.Guest == nil || p.User.ID != f.host.ID || p.User.Role == RoleAdmin {
-			t.Errorf("%s: a guest request must carry the host, never as admin: %+v", pattern, p)
+		if p, ok := principalOf(r); !ok || p.Guest == nil || p.User.ID != f.host.ID {
+			t.Errorf("%s: a guest request must carry the host: %+v", pattern, p)
 		}
 		w.WriteHeader(http.StatusOK)
 	})(w, r)
@@ -134,7 +134,7 @@ func (f *shareFixture) call(t *testing.T, pattern string, c *http.Cookie) (int, 
 }
 
 func TestGuestNeedsTheHostsAdmit(t *testing.T) {
-	f := newShareFixture(t, RoleUser)
+	f := newShareFixture(t)
 	c, g := f.join(t, "Jane")
 	if code, reached := f.call(t, "GET /api/stacks", c); code != http.StatusUnauthorized || reached {
 		t.Errorf("a guest in the lobby reached the API: %d", code)
@@ -149,7 +149,7 @@ func TestGuestNeedsTheHostsAdmit(t *testing.T) {
 }
 
 func TestWatcherReadsButNeverWrites(t *testing.T) {
-	f := newShareFixture(t, RoleUser)
+	f := newShareFixture(t)
 	c, g := f.join(t, "Jane")
 	f.admit(t, g)
 	for _, p := range []string{"POST /api/stacks/{id}/deploy", "DELETE /api/stacks/{id}", "PUT /api/stacks/{id}",
@@ -166,7 +166,7 @@ func TestWatcherReadsButNeverWrites(t *testing.T) {
 
 // A watcher may look at the shared desktop, not put pages on it; the driver may.
 func TestOnlyTheDriverOpensPagesOnTheDesktop(t *testing.T) {
-	f := newShareFixture(t, RoleUser)
+	f := newShareFixture(t)
 	c, g := f.join(t, "Jane")
 	f.admit(t, g)
 	if code, reached := f.call(t, "POST /api/browse/desktop", c); code != http.StatusForbidden || reached {
@@ -182,7 +182,7 @@ func TestOnlyTheDriverOpensPagesOnTheDesktop(t *testing.T) {
 }
 
 func TestDriverWritesAndIsAudited(t *testing.T) {
-	f := newShareFixture(t, RoleUser)
+	f := newShareFixture(t)
 	c, g := f.join(t, "Jane")
 	f.admit(t, g)
 	f.app.hubFor(f.sess).setController(g.ID)
@@ -214,7 +214,7 @@ func TestDriverWritesAndIsAudited(t *testing.T) {
 }
 
 func TestSomeThingsNoGuestReaches(t *testing.T) {
-	f := newShareFixture(t, RoleAdmin) // an admin host: nothing of admin may leak
+	f := newShareFixture(t)
 	c, g := f.join(t, "Jane")
 	f.admit(t, g)
 	f.app.hubFor(f.sess).setController(g.ID) // even while driving
@@ -242,7 +242,7 @@ func TestSomeThingsNoGuestReaches(t *testing.T) {
 }
 
 func TestSessionLengthIsCapped(t *testing.T) {
-	f := newShareFixture(t, RoleUser)
+	f := newShareFixture(t)
 	try := func(minutes int) int {
 		w := httptest.NewRecorder()
 		r := f.asHost(httptest.NewRequest("POST", "/", strings.NewReader(`{"minutes":`+strconv.Itoa(minutes)+`}`)))
@@ -267,7 +267,7 @@ func TestSessionLengthIsCapped(t *testing.T) {
 }
 
 func TestExpiryIsTheServersClock(t *testing.T) {
-	f := newShareFixture(t, RoleUser)
+	f := newShareFixture(t)
 	c, g := f.join(t, "Jane")
 	f.admit(t, g)
 	past := time.Now().Add(-time.Minute).UTC().Format(time.RFC3339)
@@ -286,7 +286,7 @@ func TestExpiryIsTheServersClock(t *testing.T) {
 }
 
 func TestSwitchingSessionsOffShutsGuestsOut(t *testing.T) {
-	f := newShareFixture(t, RoleUser)
+	f := newShareFixture(t)
 	c, g := f.join(t, "Jane")
 	f.admit(t, g)
 	f.app.store.SetAppSetting(settingAllowGuestSessions, "0")
@@ -296,7 +296,7 @@ func TestSwitchingSessionsOffShutsGuestsOut(t *testing.T) {
 }
 
 func TestJoinValidatesAndRateLimits(t *testing.T) {
-	f := newShareFixture(t, RoleUser)
+	f := newShareFixture(t)
 	post := func(body, addr string) int {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest("POST", "/", strings.NewReader(body))
@@ -330,7 +330,7 @@ func TestJoinValidatesAndRateLimits(t *testing.T) {
 }
 
 func TestChatLimits(t *testing.T) {
-	f := newShareFixture(t, RoleUser)
+	f := newShareFixture(t)
 	_, g := f.join(t, "Jane")
 	f.admit(t, g)
 	h := f.app.hubFor(f.sess)
@@ -363,7 +363,7 @@ func TestChatLimits(t *testing.T) {
 }
 
 func TestOnlyTheDriverSteers(t *testing.T) {
-	f := newShareFixture(t, RoleUser)
+	f := newShareFixture(t)
 	_, g := f.join(t, "Jane")
 	f.admit(t, g)
 	h := f.app.hubFor(f.sess)
@@ -411,7 +411,7 @@ func TestHiddenSecretsNeverReachAGuest(t *testing.T) {
 }
 
 func TestLeavingDropsControl(t *testing.T) {
-	f := newShareFixture(t, RoleUser)
+	f := newShareFixture(t)
 	c, g := f.join(t, "Jane")
 	f.admit(t, g)
 	f.app.hubFor(f.sess).setController(g.ID)
@@ -449,7 +449,7 @@ func (f *shareFixture) joinStatus(t *testing.T, token string, c *http.Cookie) (i
 // The guest's browser marks every API call as a guest's, Leave included. A watcher
 // may not write, but leaving is not a write to the host's workspace: it must work.
 func TestAWatcherCanLeave(t *testing.T) {
-	f := newShareFixture(t, RoleUser)
+	f := newShareFixture(t)
 	c, g := f.join(t, "Jane")
 	f.admit(t, g)
 	var rt apiRoute
@@ -473,7 +473,7 @@ func TestAWatcherCanLeave(t *testing.T) {
 }
 
 func TestLeavingNeedsANewInvitation(t *testing.T) {
-	f := newShareFixture(t, RoleUser)
+	f := newShareFixture(t)
 	c, g := f.join(t, "Jane")
 	f.admit(t, g)
 	other, og := f.join(t, "Lee")
@@ -546,7 +546,7 @@ func TestLeavingNeedsANewInvitation(t *testing.T) {
 }
 
 func TestADriverWhoDropsLosesControlAfterTheGrace(t *testing.T) {
-	f := newShareFixture(t, RoleUser)
+	f := newShareFixture(t)
 	_, g := f.join(t, "Jane")
 	f.admit(t, g)
 	old := shareDriverGrace
@@ -571,17 +571,17 @@ func TestADriverWhoDropsLosesControlAfterTheGrace(t *testing.T) {
 // Retention: an ended session older than the limit goes, with its guests, transcript
 // and actions; a recent one stays, a live one is never touched, and 0 keeps all.
 func TestEndedSessionsArePurgedAfterTheRetention(t *testing.T) {
-	f := newShareFixture(t, RoleUser)
+	f := newShareFixture(t)
 	_, g := f.join(t, "Jane")
 	f.app.store.AddShareMessage(ShareMessage{SessionID: f.sess.ID, AuthorKind: "guest", GuestID: g.ID, Author: "Jane", Kind: "chat", Body: "hi"})
 	f.app.store.StartShareAction(ShareAction{SessionID: f.sess.ID, GuestID: g.ID, Method: "POST", Path: "/x"}, 0)
 
-	old, _ := f.app.store.CreateShareSession(f.host.ID, f.stack.ID, "old", false, false, time.Now().Add(time.Hour))
-	recent, _ := f.app.store.CreateShareSession(f.host.ID, f.stack.ID, "recent", false, false, time.Now().Add(time.Hour))
+	old, _ := f.app.store.CreateShareSession(f.stack.ID, "old", false, false, time.Now().Add(time.Hour))
+	recent, _ := f.app.store.CreateShareSession(f.stack.ID, "recent", false, false, time.Now().Add(time.Hour))
 	past := time.Now().Add(-100 * 24 * time.Hour).UTC().Format(time.RFC3339)
 	f.app.store.db.Exec(`UPDATE share_sessions SET ended_at = ?, ended_reason = 'ended' WHERE id IN (?, ?)`, past, old.ID, f.sess.ID)
 	f.app.store.EndShareSession(recent.ID, "ended")
-	live, _ := f.app.store.CreateShareSession(f.host.ID, f.stack.ID, "live", false, false, time.Now().Add(time.Hour))
+	live, _ := f.app.store.CreateShareSession(f.stack.ID, "live", false, false, time.Now().Add(time.Hour))
 	f.app.store.db.Exec(`UPDATE share_sessions SET created_at = ? WHERE id = ?`, past, live.ID)
 
 	f.app.store.SetAppSetting(settingShareRetentionDays, "0")
@@ -636,7 +636,7 @@ func TestRetentionSettingSurvivesAPartialSave(t *testing.T) {
 
 // A viewer cannot take a shared window off everyone's screen: closing is the driver's.
 func TestOnlyTheDriverClosesSharedWindows(t *testing.T) {
-	f := newShareFixture(t, RoleUser)
+	f := newShareFixture(t)
 	_, g := f.join(t, "Jane")
 	f.admit(t, g)
 	h := f.app.hubFor(f.sess)

@@ -17,7 +17,7 @@ const DEFAULTS = {
   // Off until the account says otherwise (app/scratchboard.go): no board is kept by default.
   scratchboard: 'off',
 }
-// Instance-wide, not per user (app/syssettings.go). Kept here so the one fetch
+// The system settings (app/syssettings.go). Kept here so the one fetch
 // serves both the settings page and the designer, which needs the upload
 // ceiling to refuse an over-size drop before sending it. Mirror of
 // defaultSystemSettings() — the server's value wins as soon as it lands.
@@ -85,9 +85,9 @@ export function SettingsProvider({ children }) {
     }
   }, [settings, setTheme, setLook])
 
-  // saveSystem persists an instance-wide patch. Unlike save() it is NOT optimistic:
-  // a non-admin's PUT is refused with 403, and briefly showing a limit that the
-  // server never accepted would be worse than a short wait.
+  // saveSystem persists a system-settings patch. Unlike save() it is NOT optimistic:
+  // the server may refuse a value, and briefly showing a limit that it never accepted
+  // would be worse than a short wait.
   const saveSystem = useCallback(async (patch) => {
     setSystem(await api.saveSystemSettings({ ...system, ...patch }))
   }, [system])

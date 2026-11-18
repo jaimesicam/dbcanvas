@@ -42,7 +42,7 @@ func stackFileName(name string) string {
 // handleApplyStackFile takes {"file": "<stack file text>", "dryRun": bool} and answers
 // with the plan: what is (or would be) created, added, removed and changed.
 func (a *App) handleApplyStackFile(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -68,12 +68,12 @@ func (a *App) handleApplyStackFile(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if code, why := a.tokenMayApply(r, u, &sf); why != "" {
+	if code, why := a.tokenMayApply(r, &sf); why != "" {
 		writeErr(w, code, why)
 		return
 	}
 	if body.DryRun {
-		p, _, err := a.planStackFile(r.Context(), u.ID, sf)
+		p, _, err := a.planStackFile(r.Context(), sf)
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
@@ -81,13 +81,13 @@ func (a *App) handleApplyStackFile(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, p)
 		return
 	}
-	p, err := a.applyStackFile(r.Context(), u, sf)
+	p, err := a.applyStackFile(r.Context(), sf)
 	switch {
 	case errors.Is(err, errStackBusy):
 		writeErr(w, http.StatusConflict, err.Error())
 		return
 	case errors.Is(err, ErrStackNameTaken):
-		a.writeStackNameTaken(w, u.ID, sf.Name)
+		a.writeStackNameTaken(w, sf.Name)
 		return
 	case err != nil:
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -103,12 +103,12 @@ func (a *App) handleApplyStackFile(w http.ResponseWriter, r *http.Request) {
 // update only a stack within the token's reach, every stack keeps the token's labels, and
 // the lifetime and node types must be ones the token may give. It answers 0 and "" when
 // the file may be applied, with the token's labels merged into sf.
-func (a *App) tokenMayApply(r *http.Request, u User, sf *stackFile) (int, string) {
+func (a *App) tokenMayApply(r *http.Request, sf *stackFile) (int, string) {
 	l, tokID := limitOf(r)
 	if l == nil {
 		return 0, ""
 	}
-	p, design, err := a.planStackFile(r.Context(), u.ID, *sf)
+	p, design, err := a.planStackFile(r.Context(), *sf)
 	if err != nil {
 		return http.StatusBadRequest, err.Error()
 	}

@@ -25,12 +25,12 @@ func rawCol(t *testing.T, s *Store, q string, args ...any) string {
 func TestCredentialsAreSealedAtRest(t *testing.T) {
 	app := newTestApp(t)
 	st := app.store
-	u, err := st.CreateUser("alice", "$2a$10$hash", RoleAdmin, StatusApproved)
+	u, err := st.CreateUser("alice")
 	if err != nil {
 		t.Fatal(err)
 	}
 	design := `{"nodes":[{"id":"n1","rootPassword":"hunter2"}]}`
-	stack, err := st.CreateStack("s", u.ID, ttlLongest, nil, []byte(design))
+	stack, err := st.CreateStack("s", ttlLongest, nil, []byte(design))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,10 +38,10 @@ func TestCredentialsAreSealedAtRest(t *testing.T) {
 		Secrets: json.RawMessage(`{"vncPassword":"s3cret"}`)}); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.CreateSession("tok-abc", u.ID, time.Now().Add(time.Hour)); err != nil {
+	if err := st.CreateSession("tok-abc", time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	sess, err := st.CreateShareSession(u.ID, stack.ID, "linkhash", false, false, time.Now().Add(time.Hour))
+	sess, err := st.CreateShareSession(stack.ID, "linkhash", false, false, time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,6 @@ func TestCredentialsAreSealedAtRest(t *testing.T) {
 	}
 
 	for _, raw := range []string{
-		rawCol(t, st, "SELECT password_hash FROM users WHERE id = ?", u.ID),
 		rawCol(t, st, "SELECT design_json FROM stacks WHERE id = ?", stack.ID),
 		rawCol(t, st, "SELECT secrets_json FROM deployments WHERE stack_id = ?", stack.ID),
 		rawCol(t, st, "SELECT name FROM share_guests WHERE session_id = ?", sess.ID),
@@ -64,14 +63,11 @@ func TestCredentialsAreSealedAtRest(t *testing.T) {
 			t.Errorf("stored in the clear: %q", raw)
 		}
 	}
-	if raw := rawCol(t, st, "SELECT token FROM sessions WHERE user_id = ?", u.ID); raw != seal.HashSecret("tok-abc") {
+	if raw := rawCol(t, st, "SELECT token FROM sessions"); raw != seal.HashSecret("tok-abc") {
 		t.Errorf("session token stored as %q, want its hash", raw)
 	}
 
 	// …and every read path gives the plaintext back.
-	if _, h, err := st.CredByUsername("alice"); err != nil || h != "$2a$10$hash" {
-		t.Errorf("CredByUsername = %q, %v", h, err)
-	}
 	if got, err := st.GetStack(stack.ID); err != nil || string(got.Design) != design {
 		t.Errorf("GetStack design = %s, %v", got.Design, err)
 	}
@@ -95,57 +91,6 @@ func TestCredentialsAreSealedAtRest(t *testing.T) {
 	}
 	if _, err := st.SessionUser("tok-abc"); err == nil {
 		t.Error("deleted session still signs in")
-	}
-}
-
-// A database written by a version that did not encrypt is sealed on first open, and
-// its sign-ins survive the switch to hashed tokens.
-func TestPlaintextRowsAreSealedOnOpen(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "old.db")
-	st, err := OpenStore(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Turn it back into what an older version left behind.
-	for _, q := range []string{
-		`INSERT INTO users (id, username, password_hash, role, status, created_at) VALUES (7, 'old', '$2a$10$plain', 'admin', 'approved', '2026-01-01T00:00:00Z')`,
-		`INSERT INTO stacks (id, name, owner_id, ttl, status, created_at, design_json) VALUES (3, 's', 7, 'infinity', 'draft', '2026-01-01T00:00:00Z', '{"nodes":[]}')`,
-		`INSERT INTO deployments (stack_id, node_id, state, secrets_json) VALUES (3, 'n1', 'running', '{"p":"x"}')`,
-		`INSERT INTO deployments (stack_id, node_id, state, secrets_json) VALUES (3, 'n2', 'running', NULL)`,
-		`INSERT INTO sessions (token, user_id, expires_at) VALUES ('plaintok', 7, '2099-01-01T00:00:00Z')`,
-		`DELETE FROM app_settings WHERE key = 'sessions_hashed'`,
-	} {
-		if _, err := st.db.Exec(q); err != nil {
-			t.Fatalf("%s: %v", q, err)
-		}
-	}
-	st.Close()
-
-	for i := 0; i < 2; i++ { // the second open must change nothing
-		st, err = OpenStore(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if raw := rawCol(t, st, "SELECT password_hash FROM users WHERE id = 7"); !seal.IsSealed(raw) {
-			t.Fatalf("open %d: hash left as %q", i, raw)
-		}
-		if _, h, err := st.CredByUsername("old"); err != nil || h != "$2a$10$plain" {
-			t.Fatalf("open %d: hash = %q, %v", i, h, err)
-		}
-		if s, err := st.GetStack(3); err != nil || string(s.Design) != `{"nodes":[]}` {
-			t.Fatalf("open %d: design = %s, %v", i, s.Design, err)
-		}
-		if d, err := st.GetDeployment(3, "n1"); err != nil || string(d.Secrets) != `{"p":"x"}` {
-			t.Fatalf("open %d: secrets = %s, %v", i, d.Secrets, err)
-		}
-		if d, err := st.GetDeployment(3, "n2"); err != nil || d.Secrets != nil {
-			t.Fatalf("open %d: NULL secrets = %s, %v", i, d.Secrets, err)
-		}
-		if u, err := st.SessionUser("plaintok"); err != nil || u.ID != 7 {
-			t.Fatalf("open %d: existing session lost: %v", i, err)
-		}
-		st.Close()
 	}
 }
 
@@ -188,8 +133,9 @@ func TestRotateKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	u, _ := st.CreateUser("alice", "$2a$10$hash", RoleAdmin, StatusApproved)
-	stack, _ := st.CreateStack("s", u.ID, ttlLongest, nil, []byte(`{"pw":"x"}`))
+	u, _ := st.CreateUser("alice")
+	st.SetUserProfile(u.ID, Profile{FirstName: "Alice", LastName: "A", Email: "alice@example.com"})
+	stack, _ := st.CreateStack("s", ttlLongest, nil, []byte(`{"pw":"x"}`))
 	old := st.seal.KeyID()
 	st.Close()
 
@@ -208,8 +154,8 @@ func TestRotateKey(t *testing.T) {
 	if st.seal.KeyID() == old {
 		t.Fatal("key did not change")
 	}
-	if _, h, err := st.CredByUsername("alice"); err != nil || h != "$2a$10$hash" {
-		t.Fatalf("after rotation: %q, %v", h, err)
+	if got, err := st.GetUser(u.ID); err != nil || got.Email != "alice@example.com" {
+		t.Fatalf("after rotation: %q, %v", got.Email, err)
 	}
 	if s, err := st.GetStack(stack.ID); err != nil || string(s.Design) != `{"pw":"x"}` {
 		t.Fatalf("after rotation: %s, %v", s.Design, err)

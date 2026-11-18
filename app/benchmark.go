@@ -76,25 +76,25 @@ type benchConfig struct {
 // ------------------------------------------------------------------- handlers
 
 func (a *App) handleBenchTargets(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	writeJSON(w, http.StatusOK, a.listBenchTargets(u))
+	writeJSON(w, http.StatusOK, a.listBenchTargets())
 }
 
 // listBenchTargets is the Query Runner's SQL target list plus running MongoDB nodes (the
 // benchmark can drive Mongo; the Query Runner cannot). A sharded cluster only exposes its mongos
 // router — a config/shard member would reject writes with "not master".
-func (a *App) listBenchTargets(u User) []qrTarget {
-	out := a.listSQLTargets(u)
+func (a *App) listBenchTargets() []qrTarget {
+	out := a.listSQLTargets()
 	// Plus the operator-deployed databases a driver can reach — see k8sqrtarget.go
 	// for why only those, and why they are not in listSQLTargets itself.
 	kctx, kcancel := context.WithTimeout(context.Background(), 60*time.Second)
-	out = append(out, a.listK8sSQLTargets(kctx, u)...)
+	out = append(out, a.listK8sSQLTargets(kctx)...)
 	kcancel()
-	stacks, _ := a.store.ListStacks(u.ID, u.Role == RoleAdmin)
+	stacks, _ := a.store.ListStacks()
 	for _, s := range stacks {
 		st, err := a.store.GetStack(s.ID)
 		if err != nil {
@@ -147,7 +147,7 @@ func (a *App) listBenchTargets(u User) []qrTarget {
 }
 
 func (a *App) handleBenchStart(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -201,22 +201,22 @@ func (a *App) handleBenchStart(w http.ResponseWriter, r *http.Request) {
 		// A database an operator deployed: resolved through the cluster rather than
 		// through a deployment row, because DBCanvas did not create it.
 		rctx, rcancel := context.WithTimeout(r.Context(), 60*time.Second)
-		e, err := a.k8sResolveTarget(rctx, u, cfg.StackID, cfg.NodeID)
+		e, err := a.k8sResolveTarget(rctx, cfg.StackID, cfg.NodeID)
 		rcancel()
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		dt := e.dialTarget()
-		run = newBenchRun(a, u.ID, cfg, e.Engine, "", dt.Label, dt.User, dt.Pass)
+		run = newBenchRun(a, cfg, e.Engine, "", dt.Label, dt.User, dt.Pass)
 		run.k8s = &dt
 	} else {
-		engine, containerID, label, user, pass, port, err := a.resolveNodeCredsPort(u, cfg.StackID, cfg.NodeID)
+		engine, containerID, label, user, pass, port, err := a.resolveNodeCredsPort(cfg.StackID, cfg.NodeID)
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		run = newBenchRun(a, u.ID, cfg, engine, containerID, label, user, pass)
+		run = newBenchRun(a, cfg, engine, containerID, label, user, pass)
 		// Non-zero only for an All-in-One instance, which never uses a default port.
 		run.dbPort = port
 	}
@@ -252,16 +252,16 @@ func (a *App) handleBenchStop(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleBenchHistory(w http.ResponseWriter, r *http.Request) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	writeJSON(w, http.StatusOK, benchHistoryFor(u))
+	writeJSON(w, http.StatusOK, benchHistoryFor())
 }
 
 func (a *App) benchOwnedRun(w http.ResponseWriter, r *http.Request) (*benchRun, bool) {
-	u, ok := a.currentUser(r)
+	_, ok := a.currentUser(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "authentication required")
 		return nil, false
@@ -269,10 +269,6 @@ func (a *App) benchOwnedRun(w http.ResponseWriter, r *http.Request) (*benchRun, 
 	run := benchGet(r.PathValue("id"))
 	if run == nil {
 		writeErr(w, http.StatusNotFound, "run not found")
-		return nil, false
-	}
-	if run.ownerID != u.ID && u.Role != RoleAdmin {
-		writeErr(w, http.StatusForbidden, "not your run")
 		return nil, false
 	}
 	return run, true
