@@ -38,6 +38,20 @@ install -m 0755 dbcanvas-linux-amd64 ~/.local/bin/dbcanvas
 dbcanvas doctor
 ```
 
+On macOS, the binary is not notarized by Apple. One downloaded in a browser is quarantined, and
+macOS refuses to open it ("cannot be opened because Apple cannot check it for malicious
+software"). Clear the flag once after installing it, or download it with `curl`, which does not
+set it:
+
+```sh
+xattr -d com.apple.quarantine ~/.local/bin/dbcanvas
+# or
+curl -fLo dbcanvas https://github.com/jaimesicam/dbcanvas/releases/latest/download/dbcanvas-darwin-arm64
+```
+
+Every file on the release is signed with Sigstore, and `dbcanvas-checksums.txt` lists their
+SHA-256 sums: see [Verifying a download](#verifying-a-download).
+
 To build it from a checkout instead (Go and Node.js needed): `make dbcanvas`, which writes
 `dist/dbcanvas`.
 
@@ -45,6 +59,21 @@ To build it from a checkout instead (Go and Node.js needed): `make dbcanvas`, wh
 data folder, and says how to fix anything that fails. Node images that are not on the host yet
 are pulled from `ghcr.io/jaimesicam` when a stack first needs them, so the first deploy of each
 node type takes longer.
+
+### Verifying a download
+
+Each release lists the SHA-256 of every binary in `dbcanvas-checksums.txt`, and signs every file
+with Sigstore: the signature says the file was built by this repository's release workflow from
+the release's tag, and there is no key to trust or lose. Download the binary's `.sigstore.json`
+beside it and check both:
+
+```sh
+grep ' dbcanvas-darwin-arm64$' dbcanvas-checksums.txt | shasum -a 256 -c -
+cosign verify-blob dbcanvas-darwin-arm64 \
+  --bundle dbcanvas-darwin-arm64.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/jaimesicam/dbcanvas/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
 
 ## Open it
 

@@ -352,6 +352,10 @@ install -m 0755 dbcanvas-linux-amd64 ~/.local/bin/dbcanvas
 dbcanvas
 ```
 
+On macOS, a binary downloaded in a browser is quarantined, because it is not notarized by Apple:
+run `xattr -d com.apple.quarantine ~/.local/bin/dbcanvas` once, or download it with `curl`. See
+[Install](docs/GETTING_STARTED.md#install), which also shows how to verify a download.
+
 `dbcanvas` starts in the background, opens your browser on it signed in, and returns the prompt.
 There is nothing else to install: no containers for DBCanvas itself, no accounts, no services
 to enable. It listens on `127.0.0.1:8080` (a free port when that is taken) and answers only you,
