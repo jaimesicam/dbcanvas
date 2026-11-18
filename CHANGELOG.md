@@ -50,13 +50,31 @@ A stack's network is now a /24 DBCanvas finds free when it creates it, instead o
 <details>
 <summary><b>Scripts: compose on the command line, exec, cp and JSON</b></summary>
 
-dbcanvas up NAME --node SPEC... --ttl 8h creates and deploys a stack from compose entries without a file. dbcanvas exec STACK NODE -- CMD runs a command in a node with the command's own output and exit status, and dbcanvas cp copies a file to or from a node. ls, status, up and exec take --json; dbcanvas kinds lists the compose kinds, and dbcanvas commands --json every command and flag this build accepts. Exit status 2 is a usage error and 3 a failed deploy. See [The dbcanvas command](docs/CLI.md).
+dbcanvas up NAME --node SPEC... --ttl 8h creates and deploys a stack from compose entries without a file. dbcanvas exec STACK NODE -- CMD runs a command in a node with the command's own output and exit status, and dbcanvas cp copies a file to or from a node. dbcanvas ls shows each stack's state from its nodes (running, deploying, failed, not deployed or expired) and how many are running. ls, status, up and exec take --json; dbcanvas kinds lists the compose kinds, and dbcanvas commands --json every command and flag this build accepts. Exit status 2 is a usage error and 3 a failed deploy. See [The dbcanvas command](docs/CLI.md).
+</details>
+
+<details>
+<summary><b>Compose builds Kubernetes clusters with an operator</b></summary>
+
+dbcanvas up NAME --node 'k3d:2,opt.k3dOperator=pxc' composes a K3D cluster of 1 to 3 k3s nodes running an operator, from the same defaults as the canvas. In any compose entry, opt.FIELD=VALUE sets a catalogued field on the node or on a cluster's frame, and member.FIELD=VALUE sets one on every member. A dry run lists the exact build each entry resolved to, with its OS and architecture. See [The dbcanvas command](docs/CLI.md).
+</details>
+
+<details>
+<summary><b>Keycloak's admin console opens in the VNC Browser</b></summary>
+
+Keycloak publishes no host port, so Open in VNC Browser now opens its admin console in Firefox on the stack's desktop, at the address its issuer is pinned to. The canvas menu, the stack folder window and the Keycloak panel offer it. See [Stacks](docs/STACKS.md).
+</details>
+
+<details>
+<summary><b>DBCanvas opens on Database Stacks</b></summary>
+
+The start link, an address with no page named, and the classic shell with every tab closed open the Database Stacks page instead of the Dashboard. A link that names a page still opens that page.
 </details>
 
 <details>
 <summary><b>Every stack expires: 30 days at most</b></summary>
 
-A stack's lifetime is 2 hours, 4 hours, 8 hours, 24 hours, 2 weeks or 30 days; none is kept forever. Extending a stack never takes its end further than 30 days from now. A stack set to never expire in an earlier release gets 30 days, counted from the first start of 0.1.0. See [The dbcanvas command](docs/CLI.md).
+A stack's lifetime is 2 hours, 4 hours, 8 hours, 24 hours, 2 weeks or 30 days; none is kept forever. Extending a stack never takes its end further than 30 days from now. See [The dbcanvas command](docs/CLI.md).
 </details>
 
 <details>
@@ -74,7 +92,7 @@ Database connections, node web pages, VNC, the simulators and the K3D debugger r
 <details>
 <summary><b>Removed: the container install, accounts, dbcanvas-cli and Vagrant</b></summary>
 
-0.1.0 drops the docker-compose installation, user accounts and roles, the separate dbcanvas-cli (its commands are in dbcanvas), and the Vagrant VM backend. Stacks from a 0.0.x installation can be carried over as stack files: export them there and apply them with dbcanvas up -f.
+0.1.0 starts with a new database in ~/.dbcanvas; nothing in a 0.0.x installation is read or changed. It drops the docker-compose installation, user accounts with their roles, approval and owners, sharing between accounts (published templates, shared Kanban boards and assignees), the separate dbcanvas-cli (its commands are in dbcanvas), and the Vagrant VM backend. Stacks can be carried over as stack files: export them from the 0.0.x installation and apply them with dbcanvas up -f.
 </details>
 
 ## 0.0.30

@@ -371,6 +371,11 @@ and what changed.
 
 `dbcanvas versions update` refreshes the database versions DBCanvas offers between releases.
 
+**Coming from 0.0.x** (the docker-compose installation): 0.1.0 is a new install, not an
+upgrade. It starts with a new database in `~/.dbcanvas` and never reads or changes the 0.0.x
+one, so both can stay side by side. To bring a stack along, export it from the 0.0.x
+installation as a stack file and apply it with `dbcanvas up -f FILE`.
+
 ## Your first stack
 
 1. Open **Database Stacks** → **New stack**, name it, and pick a template under **Start from**.
