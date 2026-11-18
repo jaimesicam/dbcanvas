@@ -70,16 +70,22 @@ log is `~/.dbcanvas/dbcanvas.log`.
 one-time start link that works once, within a minute, and sets a session cookie in that
 browser.
 
-`dbcanvas open --print` prints the link instead, for another browser or for a browser on
-another machine that reaches this one through an SSH tunnel:
+On a server with no browser (Linux with no display, or any SSH session), `dbcanvas` opens
+nothing: it prints the SSH tunnel to make from your own computer, with this machine's port, and
+the link to open there. `dbcanvas open --print` prints just a new link, the 127.0.0.1 one first:
 
 ```sh
-# on your laptop
-ssh -L 8080:127.0.0.1:8080 lab-host.example.com
+# on your laptop: the same port number on both ends
+ssh -N -L 8080:127.0.0.1:8080 alex@lab-host.example.com
 # on lab-host
 dbcanvas open --print
-# open the printed link on the laptop
+# open the printed link on the laptop, within a minute
 ```
+
+DBCanvas answers only on `127.0.0.1:<its port>`, so forward the same port number: a tunnel to
+another local port is refused. When you reach it through a tunnel or reverse proxy of your own
+instead, set `publicUrl` in `~/.dbcanvas/config.yaml`; the link is then printed on that address
+too.
 
 The port listens on 127.0.0.1 only and answers nothing without a credential. See
 [Security](SECURITY.md).

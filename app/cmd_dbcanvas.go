@@ -156,17 +156,66 @@ func cliOpen(args []string) error {
 	if err := ensureService(dir); err != nil {
 		return err
 	}
-	u, err := startLinkFrom(dir)
+	link, err := startLinkFrom(dir)
 	if err != nil {
 		return err
 	}
 	if print {
-		fmt.Println(u)
+		// The 127.0.0.1 link first: a program reads the first line.
+		fmt.Println(link.URL)
+		if link.PublicURL != "" {
+			fmt.Println(link.PublicURL)
+		}
 		fmt.Fprintln(os.Stderr, "It works once, for a minute.")
 		return nil
 	}
-	openBrowser(u)
+	if why := noBrowserHere(); why != "" {
+		fmt.Print(remoteSignIn(link, why))
+		return nil
+	}
+	openBrowser(link.URL)
 	return nil
+}
+
+// noBrowserHere says why this terminal has no browser to open, or "" when it may have one:
+// an SSH session (the browser is on the other end), or Linux with no display (a server).
+func noBrowserHere() string {
+	if os.Getenv("SSH_CONNECTION") != "" || os.Getenv("SSH_TTY") != "" {
+		return "this is an SSH session"
+	}
+	if runtime.GOOS == "linux" && os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" {
+		return "this machine has no display"
+	}
+	return ""
+}
+
+// remoteSignIn is what `dbcanvas` prints where it cannot open a browser: how to reach the
+// port from another computer through an SSH tunnel, and the one-time link to open there —
+// also the publicUrl one when a tunnel or reverse proxy of the owner's own is configured.
+// DBCanvas answers only on 127.0.0.1:PORT, so the tunnel keeps the same port on both ends.
+func remoteSignIn(link startLink, why string) string {
+	port := "8080"
+	if u, err := url.Parse(link.URL); err == nil && u.Port() != "" {
+		port = u.Port()
+	}
+	login := "you"
+	if cu, err := user.Current(); err == nil && cu.Username != "" {
+		login = cu.Username
+	}
+	host, _ := os.Hostname()
+	if host == "" {
+		host = "this-machine"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "DBCanvas is running on 127.0.0.1:%s, but %s, so no browser was opened.\n\n", port, why)
+	fmt.Fprintf(&b, "From your own computer, forward the port (the same number on both ends):\n\n")
+	fmt.Fprintf(&b, "  ssh -N -L %s:127.0.0.1:%s %s@%s\n\n", port, port, login, host)
+	fmt.Fprintf(&b, "then open this link there, within a minute:\n\n  %s\n\n", link.URL)
+	if link.PublicURL != "" {
+		fmt.Fprintf(&b, "Or, through publicUrl (your own tunnel or reverse proxy):\n\n  %s\n\n", link.PublicURL)
+	}
+	fmt.Fprintf(&b, "A link works once. `dbcanvas open --print` prints a new one.\n")
+	return b.String()
 }
 
 func openBrowser(u string) {
@@ -278,15 +327,17 @@ func cliStop() error {
 	return nil
 }
 
+// startLink is a one-time sign-in link: on 127.0.0.1, and on publicUrl when one is set.
+type startLink struct {
+	URL       string `json:"url"`
+	PublicURL string `json:"publicUrl,omitempty"`
+}
+
 // startLinkFrom asks the running service for a one-time sign-in link (soloweb.go).
-func startLinkFrom(dir string) (string, error) {
-	var out struct {
-		URL string `json:"url"`
-	}
-	if err := (ctl{c: ctlClient(dir)}).do("POST", "/api/solo/start-link", nil, &out); err != nil {
-		return "", err
-	}
-	return out.URL, nil
+func startLinkFrom(dir string) (startLink, error) {
+	var out startLink
+	err := (ctl{c: ctlClient(dir)}).do("POST", "/api/solo/start-link", nil, &out)
+	return out, err
 }
 
 // withDBCanvas runs f against the dbcanvas service, starting it when it is not running.

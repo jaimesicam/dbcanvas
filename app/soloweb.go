@@ -86,7 +86,14 @@ func (a *App) handleNewStartLink(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "this dbcanvas is not serving a browser")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"url": a.soloURL + newStartLink()})
+	// One token, two addresses: the port on 127.0.0.1, and publicUrl when the owner reaches
+	// DBCanvas through a tunnel or reverse proxy of their own. Whichever is used first spends it.
+	path := newStartLink()
+	out := map[string]string{"url": a.soloURL + path}
+	if pub := strings.TrimRight(strings.TrimSpace(os.Getenv("PUBLIC_URL")), "/"); pub != "" {
+		out["publicUrl"] = pub + path
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // soloGuard is the browser port's door. It refuses a request addressed to a name other

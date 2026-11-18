@@ -46,7 +46,7 @@ var whatsNewNotes = []releaseNote{
 		Version: "0.1.0",
 		Date:    "2026-11-17",
 		Title:   "Signing in with a one-time start link",
-		Body:    "There are no accounts any more: whoever runs dbcanvas owns it. dbcanvas open opens the browser through a one-time start link, which sets a session cookie; the port refuses everything without a credential, so another user on the same host cannot use it. API tokens stay, created with dbcanvas token create or on the API page, and shared sessions still let guests join a stack.",
+		Body:    "There are no accounts any more: whoever runs dbcanvas owns it. dbcanvas open opens the browser through a one-time start link, which sets a session cookie; the port refuses everything without a credential, so another user on the same host cannot use it. On a server with no browser (no display, or an SSH session) it prints the SSH tunnel to make from your own computer and the link to open there, and on publicUrl too when one is set. API tokens stay, created with dbcanvas token create or on the API page, and shared sessions still let guests join a stack.",
 		Doc:     "docs/SECURITY.md",
 	},
 	{

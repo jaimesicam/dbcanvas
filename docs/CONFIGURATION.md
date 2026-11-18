@@ -49,7 +49,7 @@ brackets) uses the environment's value.
 | --- | --- | --- |
 | `instance` (`DBCANVAS_INSTANCE`) | `dbcanvas-<login>` | The prefix of every container, network and K3D cluster this dbcanvas creates, so several people can share one Docker host. Lowercase letters, digits and single dashes, starting with a letter, at most 40 characters. Changing it leaves what the old name created alone. |
 | `port` (`APP_PORT`) | `8080` | The browser's port on 127.0.0.1. When it is taken, a free one is used; `dbcanvas status` shows which. |
-| `publicUrl` (`PUBLIC_URL`) | *(empty)* | The address a reverse proxy or tunnel of yours gives DBCanvas. Shared-session join links are built on it; empty uses the address your browser is on. DBCanvas itself listens on 127.0.0.1 only. |
+| `publicUrl` (`PUBLIC_URL`) | *(empty)* | The address a reverse proxy or tunnel of yours gives DBCanvas. Shared-session join links are built on it, and `dbcanvas` prints your own sign-in link on it too; empty uses the address your browser is on. DBCanvas itself listens on 127.0.0.1 only. |
 | `domain` (`DOMAIN`) | `example.net` | The DNS domain of every stack's nodes (Intranet DNS, LDAP base DN, mail, CA). |
 | `dockerSocket` (`DOCKER_SOCK`) | the current Docker context's | The Docker API socket. |
 | `platform` (`DOCKER_PLATFORM`) | the Docker host's | `linux/amd64` or `linux/arm64`: what a node on Automatic runs as. See [Architecture](#architecture). |

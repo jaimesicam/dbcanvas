@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -162,5 +164,62 @@ func TestSoloGuardLetsGuestsIn(t *testing.T) {
 	f.app.store.SetAppSetting(settingAllowGuestSessions, "0")
 	if code := get("GET", "/join/"+f.token, nil); code != http.StatusUnauthorized {
 		t.Errorf("a join link with shared sessions switched off: %d", code)
+	}
+}
+
+// Where no browser can open — an SSH session, or Linux without a display — dbcanvas says so and
+// prints the tunnel to make and the link to open at its other end.
+func TestNoBrowserOnAServer(t *testing.T) {
+	t.Setenv("DISPLAY", "")
+	t.Setenv("WAYLAND_DISPLAY", "")
+	t.Setenv("SSH_TTY", "")
+	t.Setenv("SSH_CONNECTION", "203.0.113.5 52000 198.51.100.7 22")
+	if noBrowserHere() == "" {
+		t.Error("an SSH session was taken for a desktop")
+	}
+	t.Setenv("SSH_CONNECTION", "")
+	if got := noBrowserHere(); (got == "") != (runtime.GOOS != "linux") {
+		t.Errorf("no display on %s: %q", runtime.GOOS, got)
+	}
+	t.Setenv("DISPLAY", ":0")
+	if got := noBrowserHere(); got != "" {
+		t.Errorf("a desktop with a display: %q", got)
+	}
+
+	msg := remoteSignIn(startLink{URL: "http://127.0.0.1:8123/start/abc"}, "this is an SSH session")
+	for _, want := range []string{"ssh -N -L 8123:127.0.0.1:8123 ", "http://127.0.0.1:8123/start/abc", "dbcanvas open --print"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("message lacks %q:\n%s", want, msg)
+		}
+	}
+	if strings.Contains(msg, "publicUrl") {
+		t.Error("a publicUrl line without a publicUrl")
+	}
+	msg = remoteSignIn(startLink{URL: "http://127.0.0.1:8123/start/abc", PublicURL: "https://dbc.example.com/start/abc"}, "x")
+	if !strings.Contains(msg, "https://dbc.example.com/start/abc") {
+		t.Errorf("the publicUrl link is missing:\n%s", msg)
+	}
+}
+
+// With publicUrl set, the start link is offered on it too, carrying the same one-time token.
+func TestStartLinkOnPublicURL(t *testing.T) {
+	app := newTestApp(t)
+	app.soloURL = "http://127.0.0.1:8123"
+	call := func() map[string]string {
+		w := httptest.NewRecorder()
+		app.handleNewStartLink(w, withPrincipal(httptest.NewRequest("POST", "/api/solo/start-link", nil), principal{Socket: true}))
+		var out map[string]string
+		json.Unmarshal(w.Body.Bytes(), &out)
+		return out
+	}
+	t.Setenv("PUBLIC_URL", "")
+	if out := call(); out["publicUrl"] != "" || !strings.HasPrefix(out["url"], "http://127.0.0.1:8123/start/") {
+		t.Fatalf("without publicUrl: %v", out)
+	}
+	t.Setenv("PUBLIC_URL", "https://dbc.example.com/")
+	out := call()
+	tok := strings.TrimPrefix(out["url"], "http://127.0.0.1:8123")
+	if out["publicUrl"] != "https://dbc.example.com"+tok {
+		t.Fatalf("with publicUrl: %v", out)
 	}
 }

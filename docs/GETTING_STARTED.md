@@ -59,6 +59,9 @@ request without a credential, so other users of the machine cannot use it.
 
 - `dbcanvas open --print` prints the sign-in link instead, for another browser or a browser at
   the end of an SSH tunnel. It works once, for one minute.
+- On a server with no browser (no display, or over SSH), `dbcanvas` prints the
+  `ssh -N -L PORT:127.0.0.1:PORT` tunnel to make from your computer and the link to open there.
+  See [Signing in](CLI.md#signing-in-dbcanvas-and-dbcanvas-open).
 - `dbcanvas status` shows whether it runs and on which port; `dbcanvas stop` stops it. Stacks
   keep running, and any command that needs it starts it again.
 - It stops by itself when no stack is deployed and nothing has used it for 10 minutes.
