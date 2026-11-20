@@ -111,7 +111,7 @@ func (a *App) errorLogWhere(ctx context.Context, st Stack, nid, typ string, dep 
 		var p struct{ F, D string }
 		pc, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		units := []string{"patroni", "postgresql", "postgresql-18", "postgresql-17", "postgresql-16", "postgresql-15", "postgresql-14", "postgresql-13"}
+		units := []string{"patroni", "postgresql", "postgresql-19", "postgresql-18", "postgresql-17", "postgresql-16", "postgresql-15", "postgresql-14", "postgresql-13"}
 		if a.queryJSON(pc, c, "postgres", "SELECT json_build_object('F', pg_current_logfile(), 'D', current_setting('data_directory'))", &p) == nil && p.F != "" {
 			f := p.F
 			if !strings.HasPrefix(f, "/") {

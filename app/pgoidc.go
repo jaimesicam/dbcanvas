@@ -62,7 +62,7 @@ func pgOIDCUsernames() []string {
 }
 
 // oidcIssues validates a pmm/pg/ps node's Keycloak-SSO selection: a linked SSL-enabled
-// Keycloak (HTTPS issuer), plus the per-engine version each validator needs — PostgreSQL 18
+// Keycloak (HTTPS issuer), plus the per-engine version each validator needs — PostgreSQL 18+
 // for pg (pg_oidc_validator) and Percona Server 8.4.11-11 / 9.7.2-2 for ps (auth_openid_connect). For
 // pg there is one more rule: no LDAP alongside OIDC, because both claim the same
 // `host all all` pg_hba catch-all and the first matching line wins, so the two can never both
@@ -184,7 +184,7 @@ func (a *App) stageIntranetCA(ctx context.Context, st Stack, containerID string)
 	return a.engCtx(ctx).PutArchive(ctx, containerID, "/tmp", tarFiles(map[string]fileEntry{"dbca-ca.crt": {0o644, 0, ca}}))
 }
 
-// applyPGOIDC configures PostgreSQL 18 on containerID to accept Keycloak OAuth logins.
+// applyPGOIDC configures PostgreSQL 18 or later on containerID to accept Keycloak OAuth logins.
 func (a *App) applyPGOIDC(ctx context.Context, st Stack, n designNode, doc designDoc, containerID, service string, pr *pxcProg) error {
 	pr.phase("Configuring Keycloak OIDC (pg_oidc_validator)", 96)
 	host, ssl, kcID, adminPW, ok := a.waitKeycloak(ctx, st.ID, n.KeycloakNodeID, deployTimeout())
@@ -209,7 +209,7 @@ func (a *App) applyPGOIDC(ctx context.Context, st Stack, n designNode, doc desig
 		return fmt.Errorf("stage CA: %w", err)
 	}
 	users := pgOIDCUsernames()
-	env := []string{"ISSUER=" + issuer, "SERVICE=" + service, "USERS=" + strings.Join(users, " "), "VER=" + n.PGVersion}
+	env := []string{"ISSUER=" + issuer, "SERVICE=" + service, "USERS=" + strings.Join(users, " "), "VER=" + n.PGVersion, "MAJ=" + ppgMajorOf(n.PGMajor)}
 	script := pgOIDCScript
 	if isDebianOS(n.OS) {
 		script = pgOIDCScriptDebian
@@ -232,19 +232,19 @@ func (a *App) applyPGOIDC(ctx context.Context, st Stack, n designNode, doc desig
 // pgOIDCScript installs the validator + client OAuth libs, trusts the Intranet CA, wires
 // oauth into postgresql.conf + pg_hba, and creates one LOGIN role per sample Keycloak user —
 // the `oauth` hba line authenticates the token, but the mapped role still has to exist.
-// Env: ISSUER, SERVICE, USERS (space-separated role names).
+// Env: ISSUER, SERVICE, USERS (space-separated role names), MAJ (the PostgreSQL major).
 const pgOIDCScript = pinInstallRHEL + `set -e
 # EL8 AppStream's default postgresql module hides the ppg-NN packages; no-op on EL9/EL10.
 dnf -y -q module disable postgresql >/dev/null 2>&1 || true
-percona-release setup -y ppg-18 >/dev/null 2>&1 || true
+percona-release setup -y "ppg-$MAJ" >/dev/null 2>&1 || true
 # pin_install, not a bare dnf: the validator carries its own version, but its dependencies are
 # this node's own PostgreSQL packages, and installing it unpinned invites dnf to upgrade the
 # server out from under the minor that was asked for (see install_pin.go).
-pin_install percona-pg_oidc_validator18 >/dev/null 2>&1
+pin_install "percona-pg_oidc_validator$MAJ" >/dev/null 2>&1
 # client OAuth flow module: Percona's package has a broken (epoch/arch-qualified) dep, so
 # download + rpm --nodeps.
-if ! rpm -q percona-postgresql18-libs-oauth >/dev/null 2>&1; then
-  ( cd /tmp && dnf -y -q download percona-postgresql18-libs-oauth >/dev/null 2>&1 && rpm -Uvh --nodeps /tmp/percona-postgresql18-libs-oauth*.rpm >/dev/null 2>&1 ) || true
+if ! rpm -q "percona-postgresql$MAJ-libs-oauth" >/dev/null 2>&1; then
+  ( cd /tmp && dnf -y -q download "percona-postgresql$MAJ-libs-oauth" >/dev/null 2>&1 && rpm -Uvh --nodeps /tmp/percona-postgresql$MAJ-libs-oauth*.rpm >/dev/null 2>&1 ) || true
 fi
 if [ -f /tmp/dbca-ca.crt ]; then cp -f /tmp/dbca-ca.crt /etc/pki/ca-trust/source/anchors/dbcanvas-ca.crt; update-ca-trust >/dev/null 2>&1 || true; fi
 DATA=$(dirname "$(find /var/lib/pgsql /var/lib/postgresql -name pg_hba.conf 2>/dev/null | head -1)")
@@ -283,16 +283,16 @@ su - postgres -c "psql -q -v ON_ERROR_STOP=1 -f $SQL" || { echo "failed to creat
 echo "pg_oidc_validator configured (issuer $ISSUER, roles $USERS)"`
 
 // pgOIDCScriptDebian is pgOIDCScript for Ubuntu. Same steps, three differences: the packages
-// are percona-pg-oidc-validator18 and libpq-oauth (the client's OAuth flow module) from the same
-// ppg-18 repository, both pinned to the node's minor; the CA goes in through
-// update-ca-certificates; and pg_hba.conf / postgresql.conf live in /etc/postgresql/18/main, not
+// are percona-pg-oidc-validatorNN and libpq-oauth (the client's OAuth flow module) from the same
+// ppg-NN repository, both pinned to the node's minor; the CA goes in through
+// update-ca-certificates; and pg_hba.conf / postgresql.conf live in /etc/postgresql/NN/main, not
 // the data directory. The hba edit is awk rather than python3, which the Ubuntu image lacks.
-// Env: ISSUER, SERVICE, USERS, VER.
+// Env: ISSUER, SERVICE, USERS, VER, MAJ.
 const pgOIDCScriptDebian = pinInstallDebian + `set -e
 export DEBIAN_FRONTEND=noninteractive
-percona-release setup -y ppg-18 >/dev/null 2>&1 || true
+percona-release setup -y "ppg-$MAJ" >/dev/null 2>&1 || true
 apt-get update -qq >/dev/null
-pin_install percona-pg-oidc-validator18 libpq-oauth >/dev/null
+pin_install "percona-pg-oidc-validator$MAJ" libpq-oauth >/dev/null
 if [ -f /tmp/dbca-ca.crt ]; then cp -f /tmp/dbca-ca.crt /usr/local/share/ca-certificates/dbcanvas-ca.crt; update-ca-certificates >/dev/null 2>&1 || true; fi
 DIR=$(dirname "$(find /etc/postgresql -name pg_hba.conf 2>/dev/null | head -1)")
 [ -n "$DIR" ] && [ "$DIR" != "." ] || { echo "pg_hba.conf not found under /etc/postgresql"; exit 1; }

@@ -231,7 +231,7 @@ var catalogInfra = []catalogEntry{
 				Desc: "MySQL client series; \"\" is 8.4. Debian 13 has no 8.0; CentOS 7 has 8.0 only."},
 			{Field: "lcMongosh", Default: false, Desc: "Install mongosh from Percona Server for MongoDB."},
 			{Field: "lcPsql", Default: false, Desc: "Install psql from Percona Distribution for PostgreSQL."},
-			{Field: "lcPsqlMajor", Values: []string{"13", "14", "15", "16", "17", "18"}, When: "lcPsql is on",
+			{Field: "lcPsqlMajor", Values: []string{"13", "14", "15", "16", "17", "18", "19"}, When: "lcPsql is on",
 				Desc: "psql major; \"\" is 17. CentOS 7 has 13 only."},
 			{Field: "lcClusterSync", Default: false, Desc: "Install Percona ClusterSync for MongoDB (pcsm), driven from the node's ClusterSync actions. Not on CentOS 7."},
 			{Field: "lcInnodump", Default: false, Desc: "Install innodump, which reads InnoDB, MyISAM and MyRocks table files offline (latest GitHub release)."},

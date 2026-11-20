@@ -183,7 +183,7 @@ directory, ready for [FTDC Summary](FTDC_SUMMARY.md) or [Big Hole](#big-hole).
 
 | Type | What you get | Members |
 | --- | --- | --- |
-| **PostgreSQL** | Percona Distribution for PostgreSQL 13–18, standalone. | — |
+| **PostgreSQL** | Percona Distribution for PostgreSQL 13–19, standalone. | — |
 | **Patroni Cluster** | Percona PostgreSQL with Patroni and etcd: a leader, streaming replicas, automatic failover. | 3–7, default 3 |
 | **repmgr Cluster** | PGDG PostgreSQL with repmgr and repmgrd. | 3–7, default 3 |
 | **PostgreSQL Replication** | Percona PostgreSQL with PostgreSQL's own physical streaming replication and no failover manager: member 1 is the primary, the others hot standbys made with `pg_basebackup`. | 2–9, default 3 |
@@ -822,7 +822,7 @@ whatever you need, or tick tools to have them installed at deploy:
 | Install mydumper | [`mydumper` and `myloader`](https://github.com/mydumper/mydumper), parallel logical backup and restore, from the package for the node's release (none for arm64 Ubuntu 22.04 or CentOS 7) |
 | MySQL client / MySQL Shell | Percona Server client and `mysqlsh`, series 8.0, 8.4 or 9.7 (8.4 / 9.7 on Debian 13) |
 | mongosh | From Percona Server for MongoDB |
-| psql | Percona Distribution for PostgreSQL client, 13–18 |
+| psql | Percona Distribution for PostgreSQL client, 13–19 |
 | ClusterSync | Percona ClusterSync for MongoDB (`pcsm`), installed but not started |
 | Use this client for core-dump analysis | See [Core Dump Analyzer](CORE_DUMP_ANALYZER.md). Host directories must be under `GDB_MOUNT_ROOT` |
 

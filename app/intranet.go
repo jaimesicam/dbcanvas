@@ -107,7 +107,7 @@ type designNode struct {
 	// Linux Client (bighole.go).
 	BigHole       bool   `json:"bigHole"`
 	LCPsql        bool   `json:"lcPsql"`
-	LCPsqlMajor   string `json:"lcPsqlMajor"` // "13".."18"; "" → 17
+	LCPsqlMajor   string `json:"lcPsqlMajor"` // "13".."19"; "" → 17
 	LCClusterSync bool   `json:"lcClusterSync"`
 	// Offline readers for a MySQL server's files on a Linux Client (Type=="linuxclient"; ignored
 	// elsewhere), from their GitHub releases. See linuxclient_files.go.
@@ -196,7 +196,7 @@ type designNode struct {
 	// optionally backed up to SeaweedFS S3 via pgBackRest). Reuses OS/OSVersion/Arch,
 	// RootPassword (postgres superuser pw), PMMNodeID, UseProxy, GenerateCert/CertTTL,
 	// ExportEnabled/ExportHostPort above.
-	PGMajor         string `json:"pgMajor"`         // Percona PostgreSQL "13".."18"
+	PGMajor         string `json:"pgMajor"`         // Percona PostgreSQL "13".."19"
 	PGVersion       string `json:"pgVersion"`       // minor; "" → latest
 	UsePgBackRest   bool   `json:"usePgBackRest"`   // configure pgBackRest → SeaweedFS S3 backup
 	SeaweedFSNodeID string `json:"seaweedfsNodeId"` // SeaweedFS node id backing pgBackRest
@@ -656,7 +656,7 @@ type designFrame struct {
 	// Patroni PostgreSQL cluster frame config (Type=="patroni"; reuses OS/OSVersion/
 	// Arch, RootPassword (postgres superuser pw), PMMNodeID, UseProxy, GenerateCert/
 	// CertTTL above). Each member co-locates PostgreSQL + Patroni + an etcd member.
-	PGMajor   string `json:"pgMajor"`   // Percona PostgreSQL "13".."18"
+	PGMajor   string `json:"pgMajor"`   // Percona PostgreSQL "13".."19"
 	PGVersion string `json:"pgVersion"` // minor (e.g. 16.4); "" → latest
 	// PGHostAuth is the cluster's client authentication method list, cluster-wide.
 	// See the identical field on designNode (the standalone case).
@@ -1351,6 +1351,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 	}
 	out = append(out, catalogVersionIssues(doc)...)
 	out = append(out, distributionStackIssues(doc)...)
+	out = append(out, repmgrMajorIssues(doc)...)
 	out = append(out, mysqlTuningIssues(doc)...)
 	intranet := 0
 	keycloak := 0

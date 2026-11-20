@@ -155,6 +155,41 @@ func repmgrAllPackages(os, major string) []string {
 	return []string{"postgresql" + major + "-server", "postgresql" + major + "-contrib", "repmgr_" + major}
 }
 
+// repmgrMaxMajor is the newest PostgreSQL major PGDG builds repmgr for. PGDG publishes
+// PostgreSQL 19 but no repmgr_19 / postgresql-19-repmgr (checked on the EL and apt
+// repositories, 2026-11-20), so a repmgr cluster on 19 would fail inside the package
+// install. Raise it once those packages appear.
+const repmgrMaxMajor = 18
+
+// repmgrMajorSupported reports whether PGDG ships repmgr for major ("" is the default series).
+func repmgrMajorSupported(major string) bool {
+	m, err := strconv.Atoi(ppgMajorOf(major))
+	return err != nil || m <= repmgrMaxMajor
+}
+
+// repmgrMajorIssues refuses a repmgr cluster frame, or an All-in-One repmgr instance, on a
+// PostgreSQL major repmgr is not packaged for.
+func repmgrMajorIssues(doc designDoc) []issue {
+	var out []issue
+	why := func(major string) string {
+		return "PostgreSQL " + ppgMajorOf(major) + ", and PGDG publishes repmgr up to PostgreSQL " +
+			strconv.Itoa(repmgrMaxMajor) + " only — choose " + strconv.Itoa(repmgrMaxMajor) + " or earlier"
+	}
+	for _, f := range doc.Frames {
+		if f.Type == "repmgr" && !repmgrMajorSupported(f.PGMajor) {
+			out = append(out, issue{Level: "error", Message: "repmgr cluster " + f.Label + " uses " + why(f.PGMajor)})
+		}
+	}
+	for _, n := range doc.Nodes {
+		for _, in := range n.AIOInstances {
+			if in.Kind == "repmgr" && !repmgrMajorSupported(in.PGMajor) {
+				out = append(out, issue{Level: "error", Message: "All-in-One node " + n.Label + ": repmgr instance " + in.Name + " uses " + why(in.PGMajor)})
+			}
+		}
+	}
+	return out
+}
+
 // barmanServer is the Barman/cloud server (stanza) name for a cluster.
 func barmanServer(label string) string {
 	s := sanitizeName(strings.TrimSpace(label))

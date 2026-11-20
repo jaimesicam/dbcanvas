@@ -1634,7 +1634,7 @@ func (a *App) handleRepositoryCatalog(w http.ResponseWriter, r *http.Request) {
 		{"pt", "Percona Toolkit", "Common", nil},
 		{"prel", "percona-release", "Common", nil},
 	}
-	for _, m := range []string{"13", "14", "15", "16", "17", "18"} {
+	for _, m := range []string{"13", "14", "15", "16", "17", "18", "19"} {
 		sugg = append(sugg, suggestion{"ppg-" + m, "Percona Distribution for PostgreSQL " + m, "PostgreSQL", versionsOf("percona_postgresql", m)})
 	}
 	ops := map[string]any{}

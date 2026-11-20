@@ -18,7 +18,7 @@ import (
 // (handlePPGCatalog) so the form greys out exactly what validation would reject.
 //
 // The majors were read off repo.percona.com/ppg-<major> for every OS release the PostgreSQL
-// forms offer (2026-10-14).
+// forms offer (2026-10-14; ppg-19 on 2026-11-20).
 
 // ppgComponent is one optional component of a Percona PostgreSQL node.
 type ppgComponent struct {
@@ -42,7 +42,7 @@ type ppgComponent struct {
 var ppgComponents = []ppgComponent{
 	{
 		ID: "pg_tde", Label: "pg_tde (transparent data encryption)",
-		Majors: []string{"17", "18"},
+		Majors: []string{"17", "18", "19"},
 		// 17.0 has no pg_tde that loads: not in its server package, and every separate build
 		// fails on it with "undefined symbol: percona_api_version" (installed and tried, OL9,
 		// 2026-10-14). 17.1 was never published, so 17.2 is the first that works.
@@ -56,33 +56,33 @@ var ppgComponents = []ppgComponent{
 		ID: "pg_oidc_validator", Label: "pg_oidc_validator (OAuth/OIDC login)",
 		// PostgreSQL 18 is the first with OAuth validator modules; there is nothing to build
 		// it against before that.
-		Majors: []string{"18"},
+		Majors: []string{"18", "19"},
 		RHEL:   "percona-pg_oidc_validator%s", Debian: "percona-pg-oidc-validator%s",
 	},
 	{
 		ID: "pgaudit", Label: "pgAudit",
-		Majors: []string{"13", "14", "15", "16", "17", "18"},
+		Majors: []string{"13", "14", "15", "16", "17", "18", "19"},
 		RHEL:   "percona-pgaudit%s", Debian: "percona-postgresql-%s-pgaudit",
 	},
 	{
 		ID: "set_user", Label: "set_user",
-		Majors: []string{"13", "14", "15", "16", "17", "18"},
+		Majors: []string{"13", "14", "15", "16", "17", "18", "19"},
 		RHEL:   "percona-pgaudit%s_set_user", Debian: "percona-pgaudit%s-set-user",
 	},
 	{
 		ID: "pg_repack", Label: "pg_repack",
-		Majors: []string{"13", "14", "15", "16", "17", "18"},
+		Majors: []string{"13", "14", "15", "16", "17", "18", "19"},
 		RHEL:   "percona-pg_repack%s", Debian: "percona-postgresql-%s-repack",
 	},
 	{
 		ID: "wal2json", Label: "wal2json",
-		Majors: []string{"13", "14", "15", "16", "17", "18"},
+		Majors: []string{"13", "14", "15", "16", "17", "18", "19"},
 		RHEL:   "percona-wal2json%s", Debian: "percona-postgresql-%s-wal2json",
 	},
 	{
 		ID: "pg_cron", Label: "pg_cron",
 		// ppg-13 has none, on any OS.
-		Majors: []string{"14", "15", "16", "17", "18"},
+		Majors: []string{"14", "15", "16", "17", "18", "19"},
 		RHEL:   "percona-pg_cron_%s", Debian: "percona-postgresql-%s-cron",
 	},
 }

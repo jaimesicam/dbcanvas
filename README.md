@@ -204,8 +204,8 @@ otherwise. The **compose kind** is what a stack file's `nodes:` entries take.
 | **Percona XtraDB Cluster** | Galera cluster of 1–9 members, optional garbd arbitrator | 8.0, 8.4, 9.7 | `pxc` |
 | **MySQL Community** | Standalone · async or semi-sync replication · InnoDB Cluster / Group Replication | 8.0, 8.4, 9.7 | `mysql` · `mysql-repl` · `mysql-innodb` |
 | **MariaDB** | Standalone · async or semi-sync replication · Galera | 10.6, 10.11, 11.4, 11.8, 12.3 | `mariadb` · `mariadb-repl` · `mariadb-galera` |
-| **Percona Distribution for PostgreSQL** | Standalone · streaming replication · Patroni | 13 – 18 | `pg` · `pg-stream` · `patroni` |
-| **PostgreSQL (PGDG)** | Standalone · streaming replication · Patroni · repmgr · Spock active-active (Oracle Linux only) | 13 – 18; Spock 15 – 18 | `pg-pgdg` · `pg-stream-pgdg` · `patroni-pgdg` · `repmgr` · `spock` |
+| **Percona Distribution for PostgreSQL** | Standalone · streaming replication · Patroni | 13 – 19 | `pg` · `pg-stream` · `patroni` |
+| **PostgreSQL (PGDG)** | Standalone · streaming replication · Patroni · repmgr · Spock active-active (Oracle Linux only) | 13 – 19; Spock 15 – 18 | `pg-pgdg` · `pg-stream-pgdg` · `patroni-pgdg` · `repmgr` · `spock` |
 | **Percona Server for MongoDB** | Standalone · replica set · sharded cluster: 1 mongos, 1 config server and 3 single-member shards (5 nodes), or 1 mongos, 3 config servers and 3 shards of 3 (13 nodes) | 6.0, 7.0, 8.0, 8.3 | `psm` · `psmrs` · `psmdb` |
 | **MongoDB Community** | Standalone · replica set · sharded cluster (5 or 13 nodes, as for Percona Server for MongoDB) | 6.0, 7.0, 8.0, 8.2 | `mdb` · `mdb-rs` · `mdb-sharded` |
 | **Valkey** | Standalone · Valkey Cluster (3–7 shards) · Sentinel | 9.1 | `valkey` · `valkey-cluster` · `valkey-sentinel` |

@@ -86,3 +86,8 @@ export const MDB_MAJORS = ['8.2', '8.0', '7.0', '6.0']
 
 export const distAppliesTo = (type, dist) =>
   (dist === DIST_MDB && MONGO_TYPES.has(type)) || (dist === DIST_PGDG && PG_TYPES.has(type))
+
+// REPMGR_MAX_MAJOR mirrors repmgrMaxMajor (app/repmgr.go): PGDG publishes PostgreSQL 19 but no
+// repmgr for it yet, so a repmgr cluster or All-in-One repmgr instance is offered up to 18.
+export const REPMGR_MAX_MAJOR = 18
+export const repmgrMajors = (majors) => majors.filter((m) => Number(m) <= REPMGR_MAX_MAJOR)

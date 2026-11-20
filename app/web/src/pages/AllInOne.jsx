@@ -11,6 +11,7 @@ import {
   MEMBER_CHOICE_LABEL,
 } from '../lib/aioPorts.js'
 import { HELP } from '../lib/help.js'
+import { repmgrMajors } from '../lib/distribution.js'
 import { useFollowedState } from '../session/SessionProvider.jsx'
 
 // AllInOne.jsx — the All-in-One node's designer form and its deployed manager.
@@ -397,7 +398,9 @@ function PGVersionPicker({ inst, node: n, patch, deployed }) {
   const imgs = cat || []
   const lock = deployed ? 'opacity-70' : ''
   const entry = imgs.find((i) => i.os === n.os && i.osVersion === n.osVersion)
-  const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
+  const listed = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
+  // repmgr is not packaged for every major PGDG ships (lib/distribution.js REPMGR_MAX_MAJOR).
+  const majors = inst.kind === 'repmgr' ? repmgrMajors(listed) : listed
   const major = inst.pgMajor || majors[0] || '16'
   const minors = entry?.versions?.[major] || []
 

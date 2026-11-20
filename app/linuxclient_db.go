@@ -76,7 +76,7 @@ func lcPsqlSeries(os string) []string {
 	if isEL7OS(os) {
 		return []string{"13"}
 	}
-	return []string{"13", "14", "15", "16", "17", "18"}
+	return []string{"13", "14", "15", "16", "17", "18", "19"}
 }
 
 // lcClusterSyncOn reports whether Percona publishes ClusterSync for a release.

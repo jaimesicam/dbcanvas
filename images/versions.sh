@@ -203,7 +203,7 @@ echo '@@PSMDB80@@'; elsearch percona-server-mongodb | grep -E '^8\.0\.' | sort -
 percona-release setup psmdb-83 >/dev/null 2>&1
 echo '@@PSMDB83@@'; elsearch percona-server-mongodb | grep -E '^8\.3\.' | sort -rV -u
 # Percona Distribution for PostgreSQL: each ppg-NN repo carries one major series
-# (13..18); on EL the versioned meta package is percona-postgresqlNN (no hyphen;
+# (13..19); on EL the versioned meta package is percona-postgresqlNN (no hyphen;
 # the server is percona-postgresqlNN-server).
 # The PG packages carry an epoch (e.g. percona-postgresql16-1:16.14-2.el9), so
 # strip the leading "N:" that elsearch leaves in place before filtering on the
@@ -220,6 +220,8 @@ percona-release setup ppg-17 >/dev/null 2>&1
 echo '@@PPG17@@'; elsearch percona-postgresql17 | sed -E 's/^[0-9]+://' | grep -E '^17\.' | sort -rV -u
 percona-release setup ppg-18 >/dev/null 2>&1
 echo '@@PPG18@@'; elsearch percona-postgresql18 | sed -E 's/^[0-9]+://' | grep -E '^18\.' | sort -rV -u
+percona-release setup ppg-19 >/dev/null 2>&1
+echo '@@PPG19@@'; elsearch percona-postgresql19 | sed -E 's/^[0-9]+://' | grep -E '^19\.' | sort -rV -u
 # Valkey: percona-valkey-bundle is the meta-package (pulls in the real server
 # plus the bloom/json/ldap/search modules); its own version tracks the set.
 percona-release enable valkey-91 >/dev/null 2>&1 || percona-release setup -y valkey-91 >/dev/null 2>&1
@@ -312,7 +314,7 @@ if /usr/libexec/platform-python -c 'import sys, dnf.rpm; sys.exit(0 if dnf.rpm.d
    && [ -f /etc/yum.repos.d/pgdg-redhat-all.repo ]; then
   sed -i 's/\$releasever_major\.\$releasever_minor/$releasever_major/g' /etc/yum.repos.d/pgdg-redhat-all.repo
 fi
-for M in 13 14 15 16 17 18; do
+for M in 13 14 15 16 17 18 19; do
   echo "@@PGDG${M}@@"
   dnf -q --showduplicates list available "postgresql${M}-server" 2>/dev/null \
     | awk -v p="postgresql${M}-server" 'index($1, p".")==1 {print $2}' \
@@ -337,10 +339,10 @@ EOS
   want_probe haproxy && cat <<'EOS'
 # ---- HAProxy (the HAProxy node's percona and pgdg sources, app/haproxysource.go) ----
 # percona-haproxy is in every ppg-NN repository, each with its own range of builds (2.5 and
-# 2.6 only in ppg-13 to ppg-15; ppg-18 starts at 2.8.16), so the list is the union of all six; the install finds the
+# 2.6 only in ppg-13 to ppg-15; ppg-18 starts at 2.8.16), so the list is the union of all seven; the install finds the
 # series that has the one asked for. Recorded as the HAProxy release alone: 1:2.8.16-1 → 2.8.16.
 : >/tmp/dbc-pha
-for S in 13 14 15 16 17 18; do
+for S in 13 14 15 16 17 18 19; do
   percona-release setup -y "ppg-$S" >/dev/null 2>&1 || continue
   elsearch percona-haproxy | sed -E 's/^[0-9]+://; s/-[^-]*$//' >>/tmp/dbc-pha
 done
@@ -415,6 +417,8 @@ percona-release setup ppg-17 >/dev/null 2>&1; apt-get update >/dev/null 2>&1
 echo '@@PPG17@@'; madison percona-postgresql-17 | grep -E '^17\.' | sort -rV -u
 percona-release setup ppg-18 >/dev/null 2>&1; apt-get update >/dev/null 2>&1
 echo '@@PPG18@@'; madison percona-postgresql-18 | grep -E '^18\.' | sort -rV -u
+percona-release setup ppg-19 >/dev/null 2>&1; apt-get update >/dev/null 2>&1
+echo '@@PPG19@@'; madison percona-postgresql-19 | grep -E '^19\.' | sort -rV -u
 percona-release enable valkey-91 >/dev/null 2>&1 || percona-release setup -y valkey-91 >/dev/null 2>&1; apt-get update >/dev/null 2>&1
 echo '@@VALKEY91@@'; madison percona-valkey-bundle | grep -E '^9\.1\.' | sort -rV -u
 # Percona Orchestrator: see the matching comment in rhel_probe — PDPS only, not
@@ -489,7 +493,7 @@ echo '@@MDB60@@'; madison mongodb-org-server | grep -E '^6\.0\.' | sort -rV -u
 echo '@@MDB70@@'; madison mongodb-org-server | grep -E '^7\.0\.' | sort -rV -u
 echo '@@MDB80@@'; madison mongodb-org-server | grep -E '^8\.0\.' | sort -rV -u
 echo '@@MDB82@@'; madison mongodb-org-server | grep -E '^8\.2\.' | sort -rV -u
-for M in 13 14 15 16 17 18; do
+for M in 13 14 15 16 17 18 19; do
   echo "@@PGDG${M}@@"
   madison "postgresql-${M}" | grep -E "^${M}\..*pgdg" | sed -E 's/-.*$//' | sort -rV -u
 done
@@ -507,7 +511,7 @@ EOS
 # ---- HAProxy: percona-haproxy, as in rhel_probe. apt.postgresql.org has no HAProxy, so
 # there is no PGDG list here. madison() leaves 2.8.18-1; the release is dropped.
 : >/tmp/dbc-pha
-for S in 13 14 15 16 17 18; do
+for S in 13 14 15 16 17 18 19; do
   percona-release setup -y "ppg-$S" >/dev/null 2>&1 || continue
   apt-get update >/dev/null 2>&1
   madison percona-haproxy | sed -E 's/-[^-]*$//' >>/tmp/dbc-pha
@@ -859,13 +863,13 @@ while IFS=$'\t' read -r os version platform arch tag; do
 
   ps80="" ; ps84="" ; ps97="" ; ps57="" ; pxc80="" ; pxc84="" ; pxc97="" ; psql2="" ; psql3=""
   mdb60="" ; mdb70="" ; mdb80="" ; mdb83=""
-  pg13="" ; pg14="" ; pg15="" ; pg16="" ; pg17="" ; pg18=""
+  pg13="" ; pg14="" ; pg15="" ; pg16="" ; pg17="" ; pg18="" ; pg19=""
   vk91=""
   orch=""
   md106="" ; md1011="" ; md114="" ; md118="" ; md123=""
   myc80="" ; myc84="" ; myc97=""
   mc60="" ; mc70="" ; mc80="" ; mc82=""
-  gd13="" ; gd14="" ; gd15="" ; gd16="" ; gd17="" ; gd18=""
+  gd13="" ; gd14="" ; gd15="" ; gd16="" ; gd17="" ; gd18="" ; gd19=""
   pha="" ; gha=""
   ups2="" ; ups3=""
   if [ -n "$probe" ]; then
@@ -889,6 +893,7 @@ while IFS=$'\t' read -r os version platform arch tag; do
       pg16="$(printf '%s\n' "$out" | section PPG16)"
       pg17="$(printf '%s\n' "$out" | section PPG17)"
       pg18="$(printf '%s\n' "$out" | section PPG18)"
+      pg19="$(printf '%s\n' "$out" | section PPG19)"
       vk91="$(printf '%s\n' "$out" | section VALKEY91)"
       orch="$(printf '%s\n' "$out" | section ORCH)"
       md106="$(printf '%s\n' "$out" | section MARIADB106)"
@@ -909,6 +914,7 @@ while IFS=$'\t' read -r os version platform arch tag; do
       gd16="$(printf '%s\n' "$out" | section PGDG16)"
       gd17="$(printf '%s\n' "$out" | section PGDG17)"
       gd18="$(printf '%s\n' "$out" | section PGDG18)"
+      gd19="$(printf '%s\n' "$out" | section PGDG19)"
       ups2="$(printf '%s\n' "$out" | section UPSQL2)"
       ups3="$(printf '%s\n' "$out" | section UPSQL3)"
       pha="$(printf '%s\n' "$out" | section PHAPROXY)"
@@ -936,6 +942,7 @@ while IFS=$'\t' read -r os version platform arch tag; do
   g16=$(printf '%s' "$pg16" | grep -c . || true)
   g17=$(printf '%s' "$pg17" | grep -c . || true)
   g18=$(printf '%s' "$pg18" | grep -c . || true)
+  g19=$(printf '%s' "$pg19" | grep -c . || true)
   vk9=$(printf '%s' "$vk91" | grep -c . || true)
   orc=$(printf '%s' "$orch" | grep -c . || true)
   d106=$(printf '%s' "$md106" | grep -c . || true)
@@ -945,12 +952,12 @@ while IFS=$'\t' read -r os version platform arch tag; do
   d123=$(printf '%s' "$md123" | grep -c . || true)
   c80=$(printf '%s' "$myc80" | grep -c . || true)
   c84=$(printf '%s' "$myc84" | grep -c . || true)
-  echo "    ps: ${n80}+${n84}+${n57}  pxc: ${px0}+${px4}+${px7}  proxysql: ${pq2}+${pq3}  psmdb: ${m6}+${m7}+${m8}+${m83}  ppg: ${g13}+${g14}+${g15}+${g16}+${g17}+${g18}  valkey: ${vk9}  orchestrator: ${orc}" >&2
+  echo "    ps: ${n80}+${n84}+${n57}  pxc: ${px0}+${px4}+${px7}  proxysql: ${pq2}+${pq3}  psmdb: ${m6}+${m7}+${m8}+${m83}  ppg: ${g13}+${g14}+${g15}+${g16}+${g17}+${g18}+${g19}  valkey: ${vk9}  orchestrator: ${orc}" >&2
   cnt() { printf '%s' "$1" | grep -c . || true; }
   echo "    mariadb: ${d106}+${d1011}+${d114}+${d118}+${d123}  mysql_community: ${c80}+${c84}" >&2
   echo "    upstream_proxysql: $(cnt "$ups2")+$(cnt "$ups3")" >&2
   echo "    haproxy: percona $(cnt "$pha")  pgdg $(cnt "$gha")" >&2
-  echo "    mongodb_community: $(cnt "$mc60")+$(cnt "$mc70")+$(cnt "$mc80")+$(cnt "$mc82")  pgdg: $(cnt "$gd13")+$(cnt "$gd14")+$(cnt "$gd15")+$(cnt "$gd16")+$(cnt "$gd17")+$(cnt "$gd18")" >&2
+  echo "    mongodb_community: $(cnt "$mc60")+$(cnt "$mc70")+$(cnt "$mc80")+$(cnt "$mc82")  pgdg: $(cnt "$gd13")+$(cnt "$gd14")+$(cnt "$gd15")+$(cnt "$gd16")+$(cnt "$gd17")+$(cnt "$gd18")+$(cnt "$gd19")" >&2
 
   # emit_series <indent-key> <key1> <list1> [<key2> <list2> ...]: emit a major-series
   # map under `key:` with one or more series (e.g. "8.0"/"8.4", "2"/"3", or the three
@@ -1035,13 +1042,13 @@ while IFS=$'\t' read -r os version platform arch tag; do
     emit_group percona  percona_xtradb_cluster "8.0" "$pxc80" "8.4" "$pxc84" "9.7" "$pxc97"
     emit_group percona  proxysql               "2"   "$psql2" "3"   "$psql3"
     emit_group percona  percona_server_mongodb "6.0" "$mdb60" "7.0" "$mdb70" "8.0" "$mdb80" "8.3" "$mdb83"
-    emit_group percona  percona_postgresql     "13" "$pg13" "14" "$pg14" "15" "$pg15" "16" "$pg16" "17" "$pg17" "18" "$pg18"
+    emit_group percona  percona_postgresql     "13" "$pg13" "14" "$pg14" "15" "$pg15" "16" "$pg16" "17" "$pg17" "18" "$pg18" "19" "$pg19"
     emit_group percona  percona_valkey         "9.1" "$vk91"
     emit_group percona  percona_orchestrator   "3"   "$orch"
     emit_group upstream mariadb                "10.6" "$md106" "10.11" "$md1011" "11.4" "$md114" "11.8" "$md118" "12.3" "$md123"
     emit_group upstream mysql_community        "8.0" "$myc80" "8.4" "$myc84" "9.7" "$myc97"
     emit_group upstream mongodb_community      "6.0" "$mc60" "7.0" "$mc70" "8.0" "$mc80" "8.2" "$mc82"
-    emit_group upstream pgdg_postgresql        "13" "$gd13" "14" "$gd14" "15" "$gd15" "16" "$gd16" "17" "$gd17" "18" "$gd18"
+    emit_group upstream pgdg_postgresql        "13" "$gd13" "14" "$gd14" "15" "$gd15" "16" "$gd16" "17" "$gd17" "18" "$gd18" "19" "$gd19"
     emit_group upstream upstream_proxysql      "2"   "$ups2" "3"   "$ups3"
     emit_branches haproxy percona_haproxy "$pha"
     emit_branches haproxy pgdg_haproxy    "$gha"

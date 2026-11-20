@@ -68,7 +68,7 @@ import { useSession } from '../session/SessionProvider.jsx'
 import { useBrowser } from '../browser/BrowserProvider.jsx'
 import { nodeDesktopPages, nodeWebLinks } from '../lib/nodeLinks.js'
 import { stackRelations, relationPorts, bezierMid, RELATION_KINDS } from '../lib/relations.js'
-import { DIST_MDB, DIST_PGDG, isMDB, isPGDG, distTypeLabel, distNamePrefix, mongoShort } from '../lib/distribution.js'
+import { DIST_MDB, DIST_PGDG, isMDB, isPGDG, distTypeLabel, distNamePrefix, mongoShort, repmgrMajors } from '../lib/distribution.js'
 import ShareDialog from '../components/ShareDialog.jsx'
 import { useDialog } from '../components/Dialog.jsx'
 import { ActivityPanel } from '../components/Activity.jsx'
@@ -7611,8 +7611,9 @@ export function FrameVaultFields({ frame: f, nodes, patchFrame, deployed }) {
 // psOidcMin mirrors mysqlOIDCMinFor (mysqloidc.go): a series newer than 9.7 inherits it.
 const pgOidcOk = (n) => ppgAvailable(ppgComponents(), 'pg_oidc_validator', n)
 const PG_OIDC_PIN = {
-  patch: { pgMajor: '18', pgVersion: '' },
-  note: <>Uses PostgreSQL 18 + <span className="font-mono">pg_oidc_validator</span> (set automatically).</>,
+  // 18 is the first major with OAuth validator modules; a node already on a later one keeps it.
+  patch: (n) => (Number(n.pgMajor) >= 18 ? { pgMajor: n.pgMajor, pgVersion: '' } : { pgMajor: '18', pgVersion: '' }),
+  note: <>Uses PostgreSQL 18 or later + <span className="font-mono">pg_oidc_validator</span> (set automatically).</>,
   warn: (n) => { const v = pgOidcOk(n); return v.ok ? null : <>{v.why} — change it above, or turn this off.</> },
 }
 const verFields = (v) => {
@@ -9013,7 +9014,7 @@ export function lcMysqlSeries(os, osVersion) {
   return ['8.0', '8.4', '9.7']
 }
 export function lcPsqlSeries(os) {
-  return os === 'centos' ? ['13'] : ['13', '14', '15', '16', '17', '18']
+  return os === 'centos' ? ['13'] : ['13', '14', '15', '16', '17', '18', '19']
 }
 export const lcClusterSyncOn = (os) => os !== 'centos'
 // The series a node installs when it picked none — mirrors lcMySQLMajor / lcPsqlMajor.
@@ -14123,7 +14124,7 @@ function RepmgrFrameForm({ frame: f, nodes, frameNodes, patchFrame, deleteFrame,
   const osFamilies = [...new Set(imgs.filter((i) => Object.values(i.versions || {}).some((a) => a.length)).map((i) => i.os))]
   const osVersions = [...new Set(imgs.filter((i) => i.os === f.os).map((i) => i.osVersion))]
   const entry = imgs.find((i) => i.os === f.os && i.osVersion === f.osVersion)
-  const majors = entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : []
+  const majors = repmgrMajors(entry ? Object.keys(entry.versions || {}).filter((m) => (entry.versions[m] || []).length) : [])
   const minors = (entry?.versions?.[f.pgMajor]) || []
 
   return (

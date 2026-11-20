@@ -18,7 +18,8 @@ func TestPGTDEMajors(t *testing.T) {
 		{"18", true},
 		{"16", false},
 		{"13", false},
-		{"19", false}, // not built yet — do not guess forward
+		{"19", true},
+		{"20", false}, // not built yet — do not guess forward
 		{"", false},   // unset defaults to 16
 	} {
 		if got, _ := pgTDEComponent().Available("oraclelinux", tc.major, ""); got != tc.want {

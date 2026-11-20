@@ -92,13 +92,13 @@ func TestHAProxySourceIssues(t *testing.T) {
 }
 
 func TestHAProxyPPGOrder(t *testing.T) {
-	if got := strings.Join(haproxyPPGOrder("16"), " "); got != "16 18 17 15 14 13" {
+	if got := strings.Join(haproxyPPGOrder("16"), " "); got != "16 19 18 17 15 14 13" {
 		t.Fatalf("PG 16 backend: %s", got)
 	}
-	if got := strings.Join(haproxyPPGOrder("16.4"), " "); got != "16 18 17 15 14 13" {
+	if got := strings.Join(haproxyPPGOrder("16.4"), " "); got != "16 19 18 17 15 14 13" {
 		t.Fatalf("a minor is its series: %s", got)
 	}
-	if got := strings.Join(haproxyPPGOrder(""), " "); got != "18 17 16 15 14 13" {
+	if got := strings.Join(haproxyPPGOrder(""), " "); got != "19 18 17 16 15 14 13" {
 		t.Fatalf("a MySQL backend: %s", got)
 	}
 }
@@ -114,7 +114,7 @@ func TestHAProxyInstallStep(t *testing.T) {
 		t.Fatal("OS source on Ubuntu")
 	}
 	n.HAProxySource, n.HAProxyVersion = "percona", "2.5.11"
-	if s, env := haproxyInstallStep(n, "17"); s != haproxyInstallPerconaDebian || envOf(env) != "VER=2.5.11;SERIES=17 18 16 15 14 13" {
+	if s, env := haproxyInstallStep(n, "17"); s != haproxyInstallPerconaDebian || envOf(env) != "VER=2.5.11;SERIES=17 19 18 16 15 14 13" {
 		t.Fatalf("Percona on Ubuntu: %v", env)
 	}
 	n.OS = "oraclelinux"

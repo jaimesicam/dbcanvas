@@ -52,7 +52,7 @@ type patroniConfig struct {
 	OS        string    `json:"os"` // os family (oraclelinux | ubuntu | …) — drives paths
 	Hostname  string    `json:"hostname"`
 	FQDN      string    `json:"fqdn"`
-	PGMajor   string    `json:"pgMajor"`   // "13".."18"
+	PGMajor   string    `json:"pgMajor"`   // "13".."19"
 	PGVersion string    `json:"pgVersion"` // selected minor (display)
 	Role      string    `json:"role"`      // leader | standby leader | replica (best-effort, filled post-bootstrap)
 	// StandbyOf / StandbyOfID name the Patroni cluster this one is a standby of, when it is

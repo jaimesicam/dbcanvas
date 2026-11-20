@@ -33,7 +33,7 @@ const (
 )
 
 // haproxyPPGSeries are the ppg-NN repositories percona-haproxy is looked for in, newest first.
-var haproxyPPGSeries = []string{"18", "17", "16", "15", "14", "13"}
+var haproxyPPGSeries = []string{"19", "18", "17", "16", "15", "14", "13"}
 
 // haproxyRepoMarker is where the install leaves the name of the repository it used, for the
 // deployment's config.
