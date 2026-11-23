@@ -315,7 +315,7 @@ bao token create -policy=postgresql-pg01 -field=token
 # 2) On the PostgreSQL node — the package. From PPG 17.7 pg_tde is its own package; up to 17.6 it
 #    is already inside percona-postgresql17-server and there is nothing to install.
 percona-release setup -y ppg-18
-dnf -y install percona-pg_tde18        # percona-pg_tde17 on 17.7+; skip on <= 17.6
+dnf -y install percona-pg_tde18        # percona-pg_tde19 on 19, percona-pg_tde17 on 17.7+; skip on <= 17.6
 
 # 3) The token file — pg_tde is given a PATH, not the token, and reads it as postgres:
 install -d -o postgres -g postgres -m 0700 /etc/pg_tde
@@ -389,12 +389,12 @@ mongosh --eval 'db.serverStatus().encryptionAtRest'   # -> encryptionEnabled: tr
       </div>
       <Code label="bao CLI (this node, or any node in the stack)" text={cli} />
       <Code label="Percona Server for MySQL — component (8.4) or plugin (5.7 / 8.0)" text={mysql} />
-      <Code label="Percona Distribution for PostgreSQL — pg_tde global key provider (17 / 18)" text={postgres} />
+      <Code label="Percona Distribution for PostgreSQL — pg_tde global key provider (17–19)" text={postgres} />
       <Code label="Percona Server for MongoDB — security.vault (KV v2)" text={mongo} />
       <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] leading-snug text-muted">
         PostgreSQL is the one engine here whose keyring is not a config file — a key provider is registered by
         calling a SQL function, so the server has to be running first. Percona builds{' '}
-        <span className="font-mono">pg_tde</span> for PostgreSQL <span className="font-medium">17 and 18</span> only.
+        <span className="font-mono">pg_tde</span> for PostgreSQL <span className="font-medium">17, 18 and 19</span> only.
         WAL encryption is a separate switch (<span className="font-mono">pg_tde.wal_encrypt</span>) and needs{' '}
         <span className="font-mono">pg_tde_archive_decrypt</span> in <span className="font-mono">archive_command</span>,
         so it does not mix with stock pgBackRest archiving.

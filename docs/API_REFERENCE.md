@@ -296,7 +296,7 @@ option (`monitorWith`, `ldapWith`, …).
 | `ldap` | directory authentication | `intranet`, `sambaad` | `ps`, `pg`, `pg-pgdg`, `psm`, `valkey`, `pxc`, `ps-repl`, `valkey-cluster` |
 | `oidc` | Keycloak single sign-on | `keycloak` | `ps`, `pg`, `psm`, `pmm`, `pxc`, `ps-repl` |
 | `kerberos` | GSSAPI single sign-on | `sambaad` | `pg`, `pg-pgdg`, `psm` |
-| `vault` | data-at-rest keys in OpenBao | `openbao` | `ps`, `pg` (pg_tde: PostgreSQL 17/18), `psm`, `pxc`, `ps-repl`, `patroni` |
+| `vault` | data-at-rest keys in OpenBao | `openbao` | `ps`, `pg` (pg_tde: PostgreSQL 17–19), `psm`, `pxc`, `ps-repl`, `patroni` |
 | `backup` | backups to S3 | `seaweedfs` | `ps`, `pg`, `pg-pgdg`, `pxc`, `ps-repl`, `patroni`, `patroni-pgdg`, `repmgr`, `pg-stream`, `pg-stream-pgdg`, `psmrs`, `mdb-rs`, `psmdb`, `mdb-sharded` |
 | `orchestrator` | topology discovery and failover | `orchestrator` | `ps-repl`, `mariadb-repl`, `mysql-repl` |
 

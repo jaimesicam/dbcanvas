@@ -591,7 +591,7 @@ later without recreating the data.
 | Percona Server | `component_keyring_vault` on 8.4; the `keyring_vault` plugin on 5.7 / 8.0. Not with XtraBackup. |
 | Percona Server Replication, PXC (frame) | Every member, each with its own mount; `default_table_encryption=ON`. |
 | PSMDB (standalone) | `security.vault` |
-| PostgreSQL, Patroni | `pg_tde`, PostgreSQL 17 or 18 only. Tables use `tde_heap` by default (also in `template1`). Optional **Encrypt WAL too**. A Patroni cluster shares one key. |
+| PostgreSQL, Patroni | `pg_tde`, PostgreSQL 17, 18 or 19 only. Tables use `tde_heap` by default (also in `template1`). Optional **Encrypt WAL too**. A Patroni cluster shares one key. |
 
 Not offered on MariaDB or MySQL Community.
 

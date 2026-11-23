@@ -29,7 +29,7 @@ import (
 //     is what makes every database made afterwards inherit it — including the ones DBCanvas's own
 //     Data Generator creates.
 //
-// Percona builds pg_tde for PostgreSQL 17 and 18 only (docs.percona.com/pg-tde), and from PPG
+// Percona builds pg_tde for PostgreSQL 17, 18 and 19 only (docs.percona.com/pg-tde), and from PPG
 // 17.7 it stopped being bundled with the server: it is a package of its own,
 // percona-pg_tde<major> on RHEL and percona-pg-tde<major> on Debian (ppgcomponents.go). Which
 // build of it a server can load is a strict pairing that package metadata does not express —

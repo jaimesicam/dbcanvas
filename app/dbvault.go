@@ -21,7 +21,7 @@ import (
 //     before 8.4): early-plugin-load=keyring_vault.so + keyring_vault_config=<conf> in my.cnf.
 //   - PSMDB → mongod.conf `security.vault`. Encryption is written at the *first* mongod start,
 //     so this is staged into mongod.conf before the server ever runs (mongoPrepareNode).
-//   - PostgreSQL 17 / 18 → **pg_tde**, registered from SQL rather than from a config file:
+//   - PostgreSQL 17–19 → **pg_tde**, registered from SQL rather than from a config file:
 //     pg_tde_add_global_key_provider_vault_v2() names the mount and a FILE holding the token.
 //     See pgtde.go — it is the one engine here whose keyring is set up after the server is
 //     already running, because registering a provider takes a psql connection.
