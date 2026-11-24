@@ -796,7 +796,7 @@ func (s *repoSyncer) fetchUpstream(rel string) ([]byte, error) {
 // (-C -), from the same origin or the other. A stalled connection used to hang the whole sync:
 // it stays ESTABLISHED with nothing arriving, and curl's --retry never fires because nothing
 // failed. Each retry prints a "note:" line, which the sync log shows.
-const repoDownloadScript = `cd "$DEST"
+const repoDownloadScript = `cd "$DEST" || { echo "cannot enter $DEST"; exit 1; }
 fetch_one() {
   rel=$1; f=$2; sum=$3; size=$4
   if [ -f "$f" ] && [ "$(stat -c %s "$f")" = "$size" ]; then exit 0; fi

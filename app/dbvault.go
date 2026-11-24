@@ -80,6 +80,9 @@ type vaultInfo struct {
 	TokenFile  string `json:"tokenFile"`  // PSMDB only (MySQL carries the token inside its conf)
 	// KeyringFile is where a file keyring keeps its master keys (Provider "file" only).
 	KeyringFile string `json:"keyringFile,omitempty"`
+	// Encrypts are the MySQL server variables turned on besides table encryption
+	// (binlog_encryption, innodb_redo_log_encrypt, …; mysqlencryption.go).
+	Encrypts []string `json:"encrypts,omitempty"`
 	// PostgreSQL only: which pg_tde the node ended up with ("percona-pg_tde17 2.1.2-1.el9", or
 	// bundled with the server) — the install chooses it by loading each build (pgtde.go), so it
 	// is worth showing — and, on a Patroni cluster, that the principal key is the cluster's.
@@ -327,7 +330,7 @@ type mysqlVaultPrep struct {
 // the normal time is a keyring that arrives after the data it was needed for.
 func mysqlVaultOptions(major string) string {
 	var b strings.Builder
-	if !mysqlModernMajor(psMajorOf(major)) {
+	if !mysqlKeyringComponent(major) {
 		fmt.Fprintf(&b, "early-plugin-load=keyring_vault.so\n")
 		fmt.Fprintf(&b, "keyring_vault_config=%s\n", mysqlKeyringConf)
 	}
@@ -465,7 +468,7 @@ func (a *App) prepareMySQLVault(ctx context.Context, st Stack, openbaoNodeID, no
 	}
 	script, conf := mysqlKeyringStagePluginScript, mysqlKeyringPluginConf(baoCfg.Addr, mount, token, caFile, kvVersion)
 	prep.Info.Method, prep.Info.ConfFile = "keyring_vault plugin", mysqlKeyringConf
-	if mysqlModernMajor(psMajorOf(major)) {
+	if mysqlKeyringComponent(major) {
 		script, conf = mysqlKeyringStageComponentScript, mysqlKeyringComponentConf(baoCfg.Addr, mount, token, caFile)
 		prep.Info.Method, prep.Info.ConfFile = "component_keyring_vault", "component_keyring_vault.cnf (in plugin_dir)"
 	}
@@ -481,7 +484,7 @@ func (a *App) prepareMySQLVault(ctx context.Context, st Stack, openbaoNodeID, no
 // a replication pair, the node that bootstrapped a cluster.
 func (a *App) verifyMySQLVault(ctx context.Context, containerID, nodeOS, major, mount, rootPW string, smoke bool, pr *pxcProg) error {
 	mode := "plugin"
-	if mysqlModernMajor(psMajorOf(major)) {
+	if mysqlKeyringComponent(major) {
 		mode = "component"
 	}
 	env := []string{"MODE=" + mode, "MOUNT=" + mount, "ROOT_PW=" + rootPW, "LOGERR=" + pxcLogError(nodeOS)}

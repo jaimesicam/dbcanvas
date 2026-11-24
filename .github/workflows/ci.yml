@@ -1,8 +1,10 @@
 # CI: the checks a change is expected to pass before it lands — the same ones run by hand:
 # the web build and its off-browser smoke test, then go vet and go test for the app and the
-# CLI. The sims job does the same for the demo applications: gofmt, go vet and go test for
+# CLI, with every embedded shell script through shellcheck. The container job runs the keyring
+# scripts against real Percona Server binaries in Docker. The sims job does the same for the demo applications: gofmt, go vet and go test for
 # the four Go ones (each its own module), and a compile of Ledger Sim, which is Java and has
-# no tests. No Docker: the tests use fixtures and fake servers, and nothing here deploys.
+# no tests. Apart from the container job, no Docker: the tests use fixtures and fake servers, and
+# nothing here deploys.
 #
 # The app embeds web/dist (//go:embed all:web/dist in app/main.go), so the web build comes
 # first. The headless-Chrome half of `make smoke` is not run here; the off-browser pass is
@@ -56,12 +58,36 @@ jobs:
       - name: app — vet
         working-directory: app
         run: go vet ./
+      # shellcheck is on the runner image; the embedded-scripts test skips without it, so make
+      # sure it is there rather than pass by skipping.
+      - name: shellcheck — present
+        run: shellcheck --version || { sudo apt-get update -q && sudo apt-get install -yq shellcheck; }
       - name: app — test
         working-directory: app
         run: go test -count=1 -timeout 20m ./
       - name: scripts — syntax
         run: |
           for f in images/*.sh scripts/*.sh; do bash -n "$f" || exit 1; done
+
+  # The keyring scripts against real Percona Server binaries (app/keyring_container_test.go):
+  # staged, started, verified and restarted in a throwaway container, for 8.4 (component) and
+  # 8.0 (plugin). Docker is on the runner; nothing else here deploys.
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: app/go.mod
+          cache-dependency-path: |
+            app/go.sum
+      # The package embeds web/dist; an empty one is enough to compile the tests.
+      - name: app — container tests
+        working-directory: app
+        run: |
+          mkdir -p web/dist && touch web/dist/.keep
+          go test -tags containertest -count=1 -timeout 15m -run 'InContainer' ./
 
   sims:
     runs-on: ubuntu-latest

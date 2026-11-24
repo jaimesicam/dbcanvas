@@ -67,6 +67,7 @@ const pinInstallRHEL = `pin_install() {
   if [ ${#pinned[@]} -gt 0 ]; then
     deps=$(dnf -q repoquery --requires --resolve --recursive --qf '%{name}' "${pinned[@]}" 2>/dev/null | sort -u)
     if [ -n "$deps" ]; then
+      # shellcheck disable=SC2046 # one package pattern per word
       avail=" $(dnf -q repoquery --qf '%{name}' $(for d in $deps; do printf '%s-%s* ' "$d" "$VER"; done) 2>/dev/null | sort -u | tr '\n' ' ') "
       for d in $deps; do
         case "$avail" in *" $d "*) ;; *) continue ;; esac

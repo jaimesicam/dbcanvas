@@ -95,7 +95,7 @@ export default function Dashboard() {
       <div className="flex flex-wrap items-center gap-2">
         <span className="flex items-center gap-1.5 text-xs text-muted">
           <span className={`h-2 w-2 rounded-full ${live ? 'animate-pulse bg-primary' : 'bg-muted'}`} />
-          {live ? 'Live · monitoring active' : 'Paused (focus the tab to resume)'}
+          {live ? 'Live · monitoring active' : 'Paused while this tab is hidden'}
         </span>
         <span className="ml-auto flex flex-wrap items-center gap-3">
           <UpdateCheckButton />

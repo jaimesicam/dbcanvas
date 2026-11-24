@@ -112,16 +112,13 @@ func TestXBParseInfo(t *testing.T) {
 
 func TestXBIssues(t *testing.T) {
 	doc := designDoc{Nodes: []designNode{{ID: "sw", Type: "seaweedfs", Label: "seaweedfs-01"}}}
-	if len(xbIssues("x", false, "", "", false, doc)) != 0 {
+	if len(xbIssues("x", false, "", "", doc)) != 0 {
 		t.Error("off reported")
 	}
-	if len(xbIssues("x", true, "", "", false, doc)) != 1 {
+	if len(xbIssues("x", true, "", "", doc)) != 1 {
 		t.Error("no SeaweedFS node not reported")
 	}
-	if len(xbIssues("x", true, "sw", "", true, doc)) != 1 {
-		t.Error("keyring not reported")
-	}
-	if got := xbIssues("x", true, "sw", "", false, doc); len(got) != 0 {
+	if got := xbIssues("x", true, "sw", "", doc); len(got) != 0 {
 		t.Errorf("valid design reported: %v", got)
 	}
 }
@@ -204,5 +201,16 @@ func TestComposeXtraBackupMySQLCommunity(t *testing.T) {
 	}
 	if !seen {
 		t.Error("no mysqlcerepl frame built")
+	}
+}
+
+// A restore waits longer for a server that runs under emulation.
+func TestXBStartWaitScales(t *testing.T) {
+	if !strings.Contains(xbStartScript, `$((180 * ${SCALE:-1}))`) {
+		t.Error("xbStartScript does not scale its wait")
+	}
+	got := archIssues(designDoc{Nodes: []designNode{{ID: "n", Label: "ps57", Type: "ps", Arch: "amd64"}}}, "arm64")
+	if len(got) != 1 || !strings.Contains(got[0].Message, "waits 3 times longer") {
+		t.Errorf("emulated node note: %v", got)
 	}
 }

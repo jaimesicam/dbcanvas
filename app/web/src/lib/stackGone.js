@@ -5,8 +5,8 @@ import { useEffect, useState } from 'react'
 // The stack list, the desktop's stack icons and their folder windows each poll on
 // their own clock, so without this a deleted stack stayed on screen, and could be
 // opened, until the next poll came round. A delete from here marks the stack
-// 'deleting' while the server tears it down, then 'gone'; a read that answers 404
-// (a delete from another tab, the CLI or the expiry reaper) marks it 'gone' too.
+// 'deleting' while the server tears it down, then 'gone'; a read that answers 404 or
+// 410 (a delete from another tab, the CLI or the expiry reaper) marks it 'gone' too.
 // Everything that shows or opens a stack checks here first.
 
 const EVT = 'dbcanvas:stacks-gone'
@@ -28,9 +28,13 @@ export const markStackGone = (id) => set(id, 'gone')
 // A delete that failed: the stack is back.
 export const clearStackGone = (id) => set(id, '')
 
-// noteStackError marks a stack gone when a read of it answered 404.
+// isStackGoneError is true for an answer that says the stack no longer exists: 410 for a
+// stack the server remembers deleting (app/stackevents.go), 404 for one it never knew.
+export const isStackGoneError = (err) => err?.status === 404 || err?.status === 410
+
+// noteStackError marks a stack gone when a read of it answered that it no longer exists.
 export function noteStackError(id, err) {
-  if (err?.status === 404) markStackGone(id)
+  if (isStackGoneError(err)) markStackGone(id)
 }
 
 // useStacksGone re-renders the caller whenever a stack's state here changes, and

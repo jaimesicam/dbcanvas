@@ -66,7 +66,7 @@ import {
   frameHeaderW, layoutFrame, separateFrames, SIM_NODE_TYPES, frameVersionLabel, frameSubLabel,
   podMenuEntries, POD_SHELLS, POD_CLIENTS,
   Spinner, NodeStatus, nodeConfiguring, configPhaseOf, PITRFields,
-  FrameVaultFields, KeyringFileFields, PgBouncerForm, PGHostAuthFields, PGStreamFrameForm, PaletteEntry, loadPalettePrefs,
+  FrameVaultFields, KeyringFileFields, EncryptionExtras, PgBouncerForm, PGHostAuthFields, PGStreamFrameForm, PaletteEntry, loadPalettePrefs,
   KubeadmFrameForm, KubeadmMemberForm, PGQuerySourceField, PGSecurityOptions, labelsText, parseLabels } from '../src/pages/StackDesigner.jsx'
 import { AIO_MENU, instanceKindLabel, addBlockedReason as aioAddBlocked } from '../src/lib/aioPorts.js'
 import PGStreamManager from '../src/pages/PGStreamManager.jsx'
@@ -88,6 +88,7 @@ import { mongoDownloadURL } from '../src/lib/stackApi.js'
 import { TabCount, TabCapNotice, DefaultSecretsNotice, NAV } from '../src/App.jsx'
 import { showEOL, showExperimental, visible, visibleGroups } from '../src/lib/experimental.js'
 import MySQLManager from '../src/pages/MySQLManager.jsx'
+import PXCManager from '../src/pages/PXCManager.jsx'
 import OidcLoginGuide from '../src/components/OidcLoginGuide.jsx'
 import VaultGuide from '../src/components/VaultGuide.jsx'
 import SeaweedFSManager from '../src/pages/SeaweedFSManager.jsx'
@@ -731,6 +732,19 @@ check('cluster encryption: an encrypted PXC member gets the Encryption tab', () 
     },
     secrets: {},
   }
+  // A PXC member on the canvas opens PXCManager, which must offer the tab as MySQLManager does.
+  const pxc = renderToString(
+    <TerminalProvider>
+      <PXCManager stackId={1} nodeId="pxc01" dep={dep} onDeleteNode={noop} />
+    </TerminalProvider>,
+  )
+  if (!pxc.includes('Encryption')) throw new Error('PXCManager has no Encryption tab for an encrypted member')
+  const pxcPlain = renderToString(
+    <TerminalProvider>
+      <PXCManager stackId={1} nodeId="pxc02" dep={{ state: 'running', config: { ...dep.config, vault: undefined }, secrets: {} }} onDeleteNode={noop} />
+    </TerminalProvider>,
+  )
+  if (pxcPlain.includes('Encryption')) throw new Error('PXCManager offers an Encryption tab on an unencrypted member')
   const html = renderToString(
     <TerminalProvider>
       <MySQLManager stackId={1} nodeId="pxc01" engine="pxc" dep={dep} onDeleteNode={noop} />
@@ -767,6 +781,21 @@ check('keyring file: MySQL Community gets the box, and 5.7 does not promise defa
   if (!/Data-at-rest encryption/.test(ce) || !/component_keyring_file/.test(ce)) throw new Error('the Community box is wrong')
   const old = renderToString(<KeyringFileFields obj={{ id: 'n1', keyringFile: true }} patch={noop} deployed={false} major="5.7" />)
   if (/default_table_encryption=ON/.test(old)) throw new Error('5.7 has no default_table_encryption')
+  return 'ok'
+})
+
+check('encryption extras: offered per release and distribution, from the feature table', () => {
+  const ps = renderToString(<EncryptionExtras obj={{ id: 'n1', keyringFile: true }} patch={noop} deployed={false} major="8.4" />)
+  for (const want of ['binlog_encryption', 'innodb_redo_log_encrypt', 'innodb_temp_tablespace_encrypt']) {
+    if (!ps.includes(want)) throw new Error(`Percona Server 8.4 does not offer ${want}`)
+  }
+  if (/needs 8\.0|Percona Server option/.test(ps)) throw new Error('Percona Server 8.4 greys out an option it has')
+  const ce = renderToString(<EncryptionExtras obj={{ id: 'n1', keyringFile: true }} patch={noop} deployed={false} major="8.4" community />)
+  if (!ce.includes('is a Percona Server option')) throw new Error('MySQL Community must say it has no innodb_temp_tablespace_encrypt')
+  const old = renderToString(<EncryptionExtras obj={{ id: 'n1', keyringFile: true }} patch={noop} deployed={false} major="8.0" version="8.0.13-4" />)
+  if (!old.includes('needs 8.0.14 or later')) throw new Error('8.0.13 must say binary log encryption needs 8.0.14')
+  const pitr = renderToString(<EncryptionExtras obj={{ id: 'n1', keyringFile: true, encryptBinlog: true, useXtraBackup: true, xbPitr: true }} patch={noop} deployed={false} major="8.4" />)
+  if (!pitr.includes('point-in-time restore')) throw new Error('binary log encryption with PITR must say why it is refused')
   return 'ok'
 })
 

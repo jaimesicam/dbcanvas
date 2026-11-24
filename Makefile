@@ -4,7 +4,7 @@ SHELL := /bin/bash
 # What's New dialog knows whether the owner has seen these notes.
 VERSION ?= $(shell cat VERSION 2>/dev/null || echo dev)
 
-.PHONY: tag release-notes github-release pull-images publish-images adopt-images images versions smoke supportsim-image stocksim-image ledgersim-image perfsim-image pagerpanic-image intranet-image vnc-image kubeadm-image relaybin catalog dbcanvas bundle
+.PHONY: tag release-notes github-release pull-images publish-images adopt-images images versions smoke test-container e2e supportsim-image stocksim-image ledgersim-image perfsim-image pagerpanic-image intranet-image vnc-image kubeadm-image relaybin catalog dbcanvas bundle
 
 ## tag: create the annotated tag v$(VERSION) on HEAD, the commit this release is built from.
 ## Refuses a dirty tree or a tag that already exists. Local only; github-release publishes.
@@ -54,6 +54,20 @@ adopt-images:
 ## is the hard gate.
 smoke:
 	cd app/web && npm run smoke && npm run smoke:browser
+
+## test-container: the tests that need Docker and the network (build tag containertest): the
+## keyring scripts run against real Percona Server binaries in throwaway containers. CI runs
+## them in their own job.
+test-container:
+	cd app && go test -tags containertest -count=1 -timeout 15m -run 'InContainer' ./
+
+## e2e: live end-to-end tests: build dist/dbcanvas, then deploy the stacks a matrix describes
+## (scripts/e2e/$(MATRIX).sh), run its checks and remove them — `make e2e MATRIX=keyring`. It runs
+## in an instance of its own (a throwaway HOME, DBCANVAS_INSTANCE=dbcanvas-e2e) on the Docker the
+## shell uses, so the DBCanvas you use is not touched. E2E_KEEP=1 leaves the stacks up. See
+## scripts/e2e.sh.
+e2e: dbcanvas
+	MATRIX=$(MATRIX) scripts/e2e.sh
 
 ## catalog: copy the version catalogue (versions.yaml, versions-arm64.yaml) into app/catalog,
 ## where the dbcanvas binary embeds it (app/catalogembed.go).

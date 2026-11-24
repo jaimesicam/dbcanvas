@@ -3,9 +3,59 @@
 What changed in each DBCanvas release, newest first. To upgrade, see
 [Upgrade](README.md#upgrade).
 
-## 0.1.0
+## 0.1.1
 
 <details open>
+<summary><b>XtraBackup backups of encrypted MySQL servers</b></summary>
+
+Percona Server, PXC and MySQL servers encrypted with a keyring file or OpenBao can now be backed up with XtraBackup. A backup carries its tablespace keys under a transition key DBCanvas keeps, sealed with the stack's other secrets, never in the bucket; an incremental uses its base's. A restore writes a new master key into each restored member's own keyring, so a replica restored from the primary's backup, or a PXC member from another's, needs nobody else's keyring. See [Stacks](docs/STACKS.md).
+</details>
+
+<details>
+<summary><b>Encrypt binary logs, redo and undo logs, and temporary tablespaces</b></summary>
+
+With a keyring file or OpenBao, a Percona Server, PXC or MySQL server can also encrypt its binary and relay logs (binlog_encryption, 8.0.14 and later), its InnoDB redo and undo logs, and, on Percona Server and PXC, its temporary tablespaces. The options are set before the server first starts and checked at deploy. Binary log encryption is not offered together with XtraBackup point-in-time restore, whose replay cannot read an encrypted binary log. See [Stacks](docs/STACKS.md).
+</details>
+
+<details>
+<summary><b>The Encryption tab rotates the master key and downloads the keyring file</b></summary>
+
+A running encrypted MySQL-family server's Encryption tab shows its keyring as it is now: the keyring file's size, owner and last write, the keys it holds, the encrypted tablespaces, the encryption variables and the last master-key rotation. Rotate master key rotates the InnoDB master key (and the binary log one with binary log encryption on) on that server; Download keyring file saves a copy of a keyring file. PXC members get the Encryption tab too. See [Stacks](docs/STACKS.md).
+</details>
+
+<details>
+<summary><b>Keyring file encryption for Percona Server, PXC and MySQL</b></summary>
+
+Data-at-rest encryption with a keyring file on the server itself, as an alternative to OpenBao: on standalone Percona Server and MySQL nodes, and on the Percona Server replication, PXC and MySQL replication clusters. 8.4 and 9.7 use component_keyring_file, 5.7 and 8.0 the keyring_file plugin. The keyring is in place before the server first starts, and every cluster member has one of its own. default_table_encryption is now set only where the server has it (8.0.16 and later), for OpenBao too. See [Stacks](docs/STACKS.md).
+</details>
+
+<details>
+<summary><b>The designer shows each node's problems as you edit</b></summary>
+
+The designer asks the server to validate the stack after every change and shows each node's or cluster's errors and warnings at the top of its form, with a red dot on the canvas for anything that has an error. The rules are the server's, so the form and a deploy say the same thing. Which release has which MySQL option comes from one table, also at GET /api/catalog/mysql-features.
+</details>
+
+<details>
+<summary><b>PostgreSQL 19, from Percona and PGDG</b></summary>
+
+The version catalogue lists PostgreSQL 19 for Percona (ppg-19) and PGDG (no EL8 build), with pg_tde, pg_oidc_validator, the psql client and HAProxy for it. PGDG publishes repmgr up to PostgreSQL 18, so repmgr stays at 18; Spock stays at 15 to 18.
+</details>
+
+<details>
+<summary><b>Installing on macOS, and checking a download</b></summary>
+
+The install steps say how to clear the quarantine flag macOS puts on a binary downloaded in a browser, or how to download it with curl instead. Getting started shows how to check a download against dbcanvas-checksums.txt and its Sigstore signature. See [Getting started](docs/GETTING_STARTED.md).
+</details>
+
+<details>
+<summary><b>For contributors: shellcheck, container tests and make e2e</b></summary>
+
+Every shell script embedded in the app goes through shellcheck in go test. make test-container runs the keyring scripts against real Percona Server binaries in throwaway containers, and CI runs them in a job of their own. make e2e MATRIX=keyring builds the binary, deploys the stacks a matrix in scripts/e2e describes, runs its checks and removes them, in an instance of its own that leaves your DBCanvas alone. See [Architecture](docs/ARCHITECTURE.md).
+</details>
+
+## 0.1.0
+
+<details>
 <summary><b>One dbcanvas binary, nothing else to install</b></summary>
 
 DBCanvas is now a single dbcanvas program for macOS and Linux that drives the Docker you already have; there is no container, compose file or checkout to install. A command that needs it starts it in the background when it is not running, and returns the prompt at once. It listens on 127.0.0.1 only, stops by itself once it has been idle for ten minutes with nothing deployed, and switches to a replaced binary once no deploy is running and no tab is open. dbcanvas stop stops it; nothing is installed as a system service. See [Getting started](docs/GETTING_STARTED.md).

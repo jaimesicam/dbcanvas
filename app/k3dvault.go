@@ -248,7 +248,7 @@ func (a *App) k3dProvisionVault(ctx context.Context, st Stack, frame designFrame
 		// Component or plugin, byte for byte the file a standalone node of the same series gets.
 		// Writing the wrong one is not a degraded cluster, it is a crash loop — see the header.
 		conf, method := mysqlKeyringComponentConf(baoCfg.Addr, mount, token, caFile), "component_keyring_vault"
-		if !mysqlModernMajor(serverMajor) {
+		if !mysqlKeyringComponent(serverMajor) {
 			conf, method = mysqlKeyringPluginConf(baoCfg.Addr, mount, token, caFile, "2"), "keyring_vault plugin"
 		}
 		v.Method = method

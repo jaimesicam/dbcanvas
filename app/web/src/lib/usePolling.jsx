@@ -16,11 +16,12 @@ import { createContext, useContext, useEffect, useRef } from 'react'
 //
 // Two gates, and a page has to pass both:
 //
-//   the browser tab   document.visibilityState === 'visible' && document.hasFocus()
+//   the browser tab   document.visibilityState === 'visible'
 //   the app's own tab  PageVisibleProvider, which the shell sets per page
 //
-// The browser half is lifted from Dashboard's useFocusGatedInterval, which had it
-// right and had it alone.
+// Visible, not focused: a window left on screen beside another one, or behind a
+// window that does not cover it, is still being watched, and a page that only
+// updated while it had the keyboard showed stale node states there.
 
 // PageVisibleCtx is what the shell uses to say "this page is on screen". Defaults
 // to true so a page rendered outside any provider — which is every page today —
@@ -38,11 +39,11 @@ export function usePageVisible() {
 // browserActive is the tab-level half of the question.
 function browserActive() {
   if (typeof document === 'undefined') return true
-  return document.visibilityState === 'visible' && document.hasFocus()
+  return document.visibilityState === 'visible'
 }
 
 // usePolling runs cb now and every ms, but only while both gates are open. It
-// stops on blur, on hide, when the shell says this page is not on screen, and on
+// stops when the browser tab is hidden or minimized, when the shell says this page is not on screen, and on
 // unmount — and runs cb once immediately when the gates reopen, so coming back to
 // a page shows current data rather than whatever was true when you left.
 //
@@ -83,14 +84,10 @@ export function usePolling(cb, ms, opts = {}) {
     }
     sync()
     document.addEventListener('visibilitychange', sync)
-    window.addEventListener('focus', sync)
-    window.addEventListener('blur', sync)
     return () => {
       stop()
       if (onActive) onActive(false)
       document.removeEventListener('visibilitychange', sync)
-      window.removeEventListener('focus', sync)
-      window.removeEventListener('blur', sync)
     }
     // onActive is intentionally not a dependency: pages pass an inline setter and
     // re-running this on every render would restart the timer forever.

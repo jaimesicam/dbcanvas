@@ -58,7 +58,7 @@ func mysqlKeyringKind(f designFrame) string {
 // and the same default_table_encryption the vault keyring sets (see mysqlVaultOptions).
 func mysqlKeyringFileOptions(major, version string) string {
 	var b strings.Builder
-	if !mysqlModernMajor(psMajorOf(major)) {
+	if !mysqlKeyringComponent(major) {
 		b.WriteString("early-plugin-load=keyring_file.so\n")
 		b.WriteString("keyring_file_data=" + mysqlKeyringFileData + "\n")
 	}
@@ -70,13 +70,8 @@ func mysqlKeyringFileOptions(major, version string) string {
 // and nothing where it does not: it arrived in 8.0.16, so 5.7 and 8.0.15 would refuse to start on
 // an unknown option. Tables there are encrypted with an explicit ENCRYPTION='Y'.
 func mysqlDefaultTableEncryption(major, version string) string {
-	switch psMajorOf(major) {
-	case "5.7":
+	if !mysqlHas(featDefaultTableEncryption, major, version) {
 		return ""
-	case "8.0":
-		if strings.HasPrefix(version, "8.0.15-") || version == "8.0.15" {
-			return ""
-		}
 	}
 	return "default_table_encryption=ON\n"
 }
@@ -168,14 +163,15 @@ func (a *App) prepareMySQLKeyring(ctx context.Context, st Stack, frame designFra
 		if err != nil {
 			return "", err
 		}
+		prep.Info.Encrypts = frame.mysqlEncryption.variables()
 		a.persistConfigKey(st, nodeID, "vault", prep.Info)
-		return prep.Options, nil
+		return prep.Options + mysqlEncryptionOptions(frame.mysqlEncryption), nil
 	case "file":
 		pr.phase("Configuring keyring (file)", 50)
 		script, env := mysqlKeyringFileStagePluginScript, []string(nil)
 		info := vaultInfo{Enabled: true, Provider: "file", Method: "keyring_file plugin",
 			ConfFile: "my.cnf (early-plugin-load, keyring_file_data)", KeyringFile: mysqlKeyringFileData}
-		if mysqlModernMajor(psMajorOf(major)) {
+		if mysqlKeyringComponent(major) {
 			script, env = mysqlKeyringFileStageComponentScript, []string{"CONF=" + mysqlKeyringFileComponentConf()}
 			info.Method, info.ConfFile, info.KeyringFile = "component_keyring_file",
 				"component_keyring_file.cnf (in plugin_dir)", mysqlKeyringComponentData
@@ -183,9 +179,10 @@ func (a *App) prepareMySQLKeyring(ctx context.Context, st Stack, frame designFra
 		if err := a.runStep(ctx, containerID, script, env, pr.logln); err != nil {
 			return "", err
 		}
+		info.Encrypts = frame.mysqlEncryption.variables()
 		a.persistConfigKey(st, nodeID, "vault", info)
 		pr.logln("keyring: " + info.Method + " → " + info.KeyringFile)
-		return mysqlKeyringFileOptions(major, version), nil
+		return mysqlKeyringFileOptions(major, version) + mysqlEncryptionOptions(frame.mysqlEncryption), nil
 	}
 	return "", nil
 }
@@ -198,18 +195,24 @@ func (a *App) verifyMySQLKeyring(ctx context.Context, frame designFrame, contain
 	case "vault":
 		pr.phase("Verifying keyring (OpenBao)", pct)
 		mount, _, _ := mysqlVaultMount(major, host)
-		return a.verifyMySQLVault(ctx, containerID, frame.OS, major, mount, rootPW, smoke, pr)
+		if err := a.verifyMySQLVault(ctx, containerID, frame.OS, major, mount, rootPW, smoke, pr); err != nil {
+			return err
+		}
+		return a.verifyMySQLEncryption(ctx, frame, containerID, rootPW, pr)
 	case "file":
 		pr.phase("Verifying keyring (file)", pct)
 		mode, keyring := "plugin", mysqlKeyringFileData
-		if mysqlModernMajor(psMajorOf(major)) {
+		if mysqlKeyringComponent(major) {
 			mode, keyring = "component", mysqlKeyringComponentData
 		}
 		env := []string{"MODE=" + mode, "KEYRING=" + keyring, "ROOT_PW=" + rootPW, "LOGERR=" + pxcLogError(frame.OS)}
 		if smoke {
 			env = append(env, "SMOKE=1")
 		}
-		return a.runStep(ctx, containerID, mysqlKeyringFileVerifyScript, env, pr.logln)
+		if err := a.runStep(ctx, containerID, mysqlKeyringFileVerifyScript, env, pr.logln); err != nil {
+			return err
+		}
+		return a.verifyMySQLEncryption(ctx, frame, containerID, rootPW, pr)
 	}
 	return nil
 }

@@ -341,7 +341,8 @@ func (a *App) provisionPerconaServer(st Stack, n designNode, doc designDoc) {
 		// through the shared path, so a standalone server and a replication member are wired
 		// by the same code — which is the only way they stay wired the same way.
 		EnableVault: n.EnableVault, OpenBaoNodeID: n.OpenBaoNodeID, KeyringFile: n.KeyringFile,
-		mysqlTuning: n.mysqlTuning,
+		mysqlEncryption: n.mysqlEncryption,
+		mysqlTuning:     n.mysqlTuning,
 	}
 	major := psMajorOf(n.PSMajor)
 	image := pxcImage(n.OS, n.OSVersion, n.Arch)

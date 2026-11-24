@@ -291,6 +291,8 @@ type designNode struct {
 	// (Type=="ps"|"mysqlce"; see keyringfile.go): component_keyring_file on 8.4 / 9.7, the
 	// keyring_file plugin on 5.7 / 8.0. Exclusive with EnableVault.
 	KeyringFile bool `json:"keyringFile"`
+	// What else the keyring encrypts besides tables (mysqlencryption.go).
+	mysqlEncryption
 	// PKI (Type=="openbao"): turn on the PKI secrets engine at deploy, signing as the Intranet CA
 	// (openbaopki.go). A K3D frame whose cert-manager issuer is OpenBao sets it up on
 	// its own; this is for using it by hand.
@@ -847,6 +849,8 @@ type designFrame struct {
 	// (Type=="pxc" | "mysql" | "mysqlcerepl"; see keyringfile.go). Each member's keyring is its
 	// own. Exclusive with EnableVault.
 	KeyringFile bool `json:"keyringFile"`
+	// What else the keyring encrypts besides tables, on every member (mysqlencryption.go).
+	mysqlEncryption
 	// Directory and Keycloak logins for the PXC and Percona Server replication frames
 	// (Type=="pxc" | "mysql"; see clusterauth.go). The same fields, with the same JSON names, as
 	// on a standalone Percona Server node — authentication_ldap_simple against LdapDirNodeID,
@@ -1125,6 +1129,9 @@ type issue struct {
 	// something the front end greps out of the message: an error that tells you to
 	// go and run a make target is a poor answer when the daemon is right there.
 	Image string `json:"image,omitempty"`
+	// Subject is the id of the node or frame the issue is about, when one can be told from its
+	// message (issueSubjects), so the designer can show it on that node's form.
+	Subject string `json:"subject,omitempty"`
 }
 
 // missingImageIssue is the one place a "you have not built this image" error is
@@ -1323,7 +1330,12 @@ func (a *App) runningFrames(st Stack, doc designDoc) map[string]bool {
 }
 
 func (a *App) validateStack(ctx context.Context, st Stack) []issue {
-	return a.adoptableImageHints(ctx, a.pullableImageIssues(ctx, a.validateStackIssues(ctx, st)))
+	out := a.adoptableImageHints(ctx, a.pullableImageIssues(ctx, a.validateStackIssues(ctx, st)))
+	var doc designDoc
+	if json.Unmarshal(st.Design, &doc) == nil {
+		out = issueSubjects(doc, out)
+	}
+	return out
 }
 
 func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
@@ -1561,7 +1573,9 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 				n.MariaDBMajor, n.MariaDBVersion, n.MySQLCEMajor, n.MySQLCEVersion)...)
 			if n.Type == "mysqlce" {
 				out = append(out, keyringFileIssues("MySQL node "+n.Label, n.Type, n.KeyringFile, false)...)
-				out = append(out, xbIssues("MySQL node "+n.Label, n.UseXtraBackup, n.SeaweedFSNodeID, n.SeaweedFSBucket, n.KeyringFile, doc)...)
+				out = append(out, mysqlEncryptionIssues("MySQL node "+n.Label, n.mysqlEncryption, n.KeyringFile, true,
+					mysqlceMajorOf(n.MySQLCEMajor), n.MySQLCEVersion, n.UseXtraBackup && n.XBPITR)...)
+				out = append(out, xbIssues("MySQL node "+n.Label, n.UseXtraBackup, n.SeaweedFSNodeID, n.SeaweedFSBucket, doc)...)
 			}
 		case "ps", "psm":
 			others++
@@ -1584,7 +1598,9 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			out = append(out, vaultIssues(n, openbaoIDs)...)
 			out = append(out, keyringFileIssues(nodeKindLabel(n.Type)+" node "+n.Label, n.Type, n.KeyringFile, n.EnableVault)...)
 			if n.Type == "ps" {
-				out = append(out, xbIssues("Percona Server node "+n.Label, n.UseXtraBackup, n.SeaweedFSNodeID, n.SeaweedFSBucket, n.EnableVault || n.KeyringFile, doc)...)
+				out = append(out, mysqlEncryptionIssues("Percona Server node "+n.Label, n.mysqlEncryption, n.KeyringFile || n.EnableVault, false,
+					n.PSMajor, n.PSVersion, n.UseXtraBackup && n.XBPITR)...)
+				out = append(out, xbIssues("Percona Server node "+n.Label, n.UseXtraBackup, n.SeaweedFSNodeID, n.SeaweedFSBucket, doc)...)
 			}
 		case "pg":
 			others++
@@ -1836,7 +1852,9 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 		out = append(out, vaultFrameIssues(f, openbaoIDs)...)
 		out = append(out, frameAuthIssues(f, dirNodes, keycloakIDs, keycloakSSL)...)
 		out = append(out, keyringFileIssues("PXC cluster "+f.Label, f.Type, f.KeyringFile, f.EnableVault)...)
-		out = append(out, xbIssues("PXC cluster "+f.Label, f.UseXtraBackup, f.SeaweedFSNodeID, f.SeaweedFSBucket, f.EnableVault || f.KeyringFile, doc)...)
+		out = append(out, mysqlEncryptionIssues("PXC cluster "+f.Label, f.mysqlEncryption, f.KeyringFile || f.EnableVault, false,
+			frameMajor(f), f.PXCVersion, f.UseXtraBackup && f.XBPITR)...)
+		out = append(out, xbIssues("PXC cluster "+f.Label, f.UseXtraBackup, f.SeaweedFSNodeID, f.SeaweedFSBucket, doc)...)
 	}
 	for name, c := range clusterNames {
 		if c > 1 && name != "" {
@@ -1924,7 +1942,9 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 		out = append(out, vaultFrameIssues(f, openbaoIDs)...)
 		out = append(out, frameAuthIssues(f, dirNodes, keycloakIDs, keycloakSSL)...)
 		out = append(out, keyringFileIssues("MySQL replication cluster "+f.Label, f.Type, f.KeyringFile, f.EnableVault)...)
-		out = append(out, xbIssues("MySQL replication cluster "+f.Label, f.UseXtraBackup, f.SeaweedFSNodeID, f.SeaweedFSBucket, f.EnableVault || f.KeyringFile, doc)...)
+		out = append(out, mysqlEncryptionIssues("MySQL replication cluster "+f.Label, f.mysqlEncryption, f.KeyringFile || f.EnableVault, false,
+			f.PSMajor, f.PSVersion, f.UseXtraBackup && f.XBPITR)...)
+		out = append(out, xbIssues("MySQL replication cluster "+f.Label, f.UseXtraBackup, f.SeaweedFSNodeID, f.SeaweedFSBucket, doc)...)
 	}
 	for name, c := range mysqlNames {
 		if c > 1 && name != "" {
@@ -1975,7 +1995,9 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 			}
 			if f.Type == "mysqlcerepl" {
 				out = append(out, keyringFileIssues(pretty+" cluster "+f.Label, f.Type, f.KeyringFile, false)...)
-				out = append(out, xbIssues(pretty+" cluster "+f.Label, f.UseXtraBackup, f.SeaweedFSNodeID, f.SeaweedFSBucket, f.KeyringFile, doc)...)
+				out = append(out, mysqlEncryptionIssues(pretty+" cluster "+f.Label, f.mysqlEncryption, f.KeyringFile, true,
+					mysqlceMajorOf(f.MySQLCEMajor), f.MySQLCEVersion, f.UseXtraBackup && f.XBPITR)...)
+				out = append(out, xbIssues(pretty+" cluster "+f.Label, f.UseXtraBackup, f.SeaweedFSNodeID, f.SeaweedFSBucket, doc)...)
 			}
 		case "mariadbgalera":
 			// Galera needs a majority to hold a primary component, so an even member

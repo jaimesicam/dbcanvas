@@ -53,7 +53,7 @@ var mysqlCatGTID = catalogOption{Field: "gtid", Default: true, Desc: "Enable GTI
 // and the Percona Server replication and PXC frames (mysqlbackup.go). They stay editable on
 // a deployed node or cluster: nothing is set up until the first backup.
 var mysqlCatXtraBackup = []catalogOption{
-	{Field: "useXtraBackup", Desc: "Back up with Percona XtraBackup (full and incremental) to the SeaweedFS node of the backup relation (seaweedfsNodeId). Not allowed together with enableVault or keyringFile."},
+	{Field: "useXtraBackup", Desc: "Back up with Percona XtraBackup (full and incremental) to the SeaweedFS node of the backup relation (seaweedfsNodeId). A keyring-encrypted server (enableVault or keyringFile) is backed up with a transition key DBCanvas keeps, and a restore writes a new master key into each member's own keyring."},
 	{Field: "xbPitr", Desc: "Also ship binary logs to the bucket, for point-in-time restore. The designer turns it on with useXtraBackup.", When: "useXtraBackup is on"},
 	{Field: "seaweedfsBucket", Desc: "Which bucket of the SeaweedFS node backups go to; \"\" is its first (default) bucket.", When: "useXtraBackup is on"},
 }
@@ -65,7 +65,15 @@ func mysqlCatKeyringFile(cluster bool, extra string) catalogOption {
 	if cluster {
 		d += " Every member gets its own keyring file."
 	}
-	return catalogOption{Field: "keyringFile", Desc: d + extra + " Not allowed together with enableVault or useXtraBackup. Locked once deployed."}
+	return catalogOption{Field: "keyringFile", Desc: d + extra + " Not allowed together with enableVault. Locked once deployed."}
+}
+
+// mysqlCatEncryption are what a keyring-encrypted server encrypts besides tables
+// (mysqlencryption.go); each needs a release with the option (GET /api/catalog/mysql-features).
+var mysqlCatEncryption = []catalogOption{
+	{Field: "encryptBinlog", Desc: "binlog_encryption=ON: encrypt binary and relay logs (8.0.14 and later). Needs enableVault or keyringFile; not with xbPitr, whose replay cannot read encrypted binary logs. Locked once deployed.", When: "enableVault or keyringFile is on"},
+	{Field: "encryptRedoUndo", Desc: "innodb_redo_log_encrypt=ON and innodb_undo_log_encrypt=ON: encrypt the InnoDB redo and undo logs (8.0 and later). Needs enableVault or keyringFile. Locked once deployed.", When: "enableVault or keyringFile is on"},
+	{Field: "encryptTemp", Desc: "innodb_temp_tablespace_encrypt=ON: encrypt the session temporary tablespaces (8.0.16 and later; Percona Server and PXC only — MySQL Community has no such option). Needs enableVault or keyringFile. Locked once deployed.", When: "enableVault or keyringFile is on"},
 }
 
 // mysqlCatXtraBackupCE are mysqlCatXtraBackup for a MySQL Community node or replication
@@ -212,9 +220,10 @@ var catalogMySQLFamily = []catalogEntry{
 			mysqlCatPSAuth("Percona Server"),
 			mysqlCatXtraBackup,
 			[]catalogOption{
-				{Field: "enableVault", Desc: "Data-at-rest encryption keyed to the OpenBao node of the vault relation: component_keyring_vault on 8.4, the keyring_vault plugin on 5.7/8.0, with its own KV mount and token. Not allowed together with useXtraBackup or keyringFile. Locked once deployed."},
+				{Field: "enableVault", Desc: "Data-at-rest encryption keyed to the OpenBao node of the vault relation: component_keyring_vault on 8.4, the keyring_vault plugin on 5.7/8.0, with its own KV mount and token. Not allowed together with keyringFile. Locked once deployed."},
 				mysqlCatKeyringFile(false, ""),
 			},
+			mysqlCatEncryption,
 			mysqlCatSizing,
 		),
 		Relations: []string{"monitor", "repository", "ldap", "oidc", "vault", "backup"},
@@ -269,6 +278,7 @@ var catalogMySQLFamily = []catalogEntry{
 			},
 			mysqlCatXtraBackupCE,
 			[]catalogOption{mysqlCatKeyringFile(false, "")},
+			mysqlCatEncryption,
 			mysqlCatSizing,
 		),
 		Relations: []string{"monitor", "backup"},
@@ -426,9 +436,10 @@ var catalogMySQLFamily = []catalogEntry{
 			mysqlCatPSAuth("PXC"),
 			mysqlCatXtraBackup,
 			[]catalogOption{
-				{Field: "enableVault", Desc: "Data-at-rest encryption on every data member, keyed to the OpenBao node of the vault relation, each with its own KV mount; also turns on pxc_encrypt_cluster_traffic with one shared Intranet-CA certificate (per-member certificates are skipped). Not allowed together with useXtraBackup or keyringFile. Locked once deployed."},
+				{Field: "enableVault", Desc: "Data-at-rest encryption on every data member, keyed to the OpenBao node of the vault relation, each with its own KV mount; also turns on pxc_encrypt_cluster_traffic with one shared Intranet-CA certificate (per-member certificates are skipped). Not allowed together with keyringFile. Locked once deployed."},
 				mysqlCatKeyringFile(true, " Turns on pxc_encrypt_cluster_traffic with one shared Intranet-CA certificate, as enableVault does."),
 			},
+			mysqlCatEncryption,
 		),
 		Relations: []string{"monitor", "repository", "ldap", "oidc", "vault", "backup"},
 		Edges: []catalogEdge{mysqlCatProxyEdge,
@@ -457,9 +468,10 @@ var catalogMySQLFamily = []catalogEntry{
 			mysqlCatPSAuth("Percona Server"),
 			mysqlCatXtraBackup,
 			[]catalogOption{
-				{Field: "enableVault", Desc: "Data-at-rest encryption on every member, keyed to the OpenBao node of the vault relation, each with its own KV mount and key. Not allowed together with useXtraBackup or keyringFile. Locked once deployed."},
+				{Field: "enableVault", Desc: "Data-at-rest encryption on every member, keyed to the OpenBao node of the vault relation, each with its own KV mount and key. Not allowed together with keyringFile. Locked once deployed."},
 				mysqlCatKeyringFile(true, ""),
 			},
+			mysqlCatEncryption,
 		),
 		Relations: []string{"monitor", "orchestrator", "repository", "ldap", "oidc", "vault", "backup"},
 		Edges: []catalogEdge{mysqlCatProxyEdge,
@@ -555,6 +567,7 @@ var catalogMySQLFamily = []catalogEntry{
 			mysqlCatTuning,
 			mysqlCatXtraBackupCE,
 			[]catalogOption{mysqlCatKeyringFile(true, "")},
+			mysqlCatEncryption,
 		),
 		Relations: []string{"monitor", "orchestrator", "backup"},
 		Edges: []catalogEdge{mysqlCatProxyEdge,

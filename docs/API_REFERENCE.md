@@ -629,11 +629,14 @@ These act on a cluster (frame) or on one database node.
 | **Patroni standby cluster**: links and live state · promote (and delete the link) | `GET …/frames/{fid}/patroni/standby` · `POST …/patroni/promote` |
 | Run pgbench on a PostgreSQL node · a Patroni leader | `POST …/nodes/{nid}/pg/pgbench` · `POST …/frames/{fid}/patroni/pgbench` |
 | Rotate the pg_tde principal key | `POST …/nodes/{nid}/pg/tde/rotate` · `POST …/frames/{fid}/patroni/tde/rotate` |
+| **MySQL-family keyring** (keyring file or OpenBao): status · rotate the master key · download the keyring file | `GET …/nodes/{nid}/mysql/keyring` · `POST …/mysql/keyring/rotate` · `GET …/mysql/keyring/file` |
 
 XtraBackup backups go to SeaweedFS. `xb/backup` takes `{"type": "full"}` or
 `{"type": "incremental"}`. `xb/restore` takes `{"mode": "backup", "name"}`,
 `{"mode": "latest"}` or `{"mode": "time", "time"}`; `xb/delete` `{"name"}` also deletes
-the incrementals built on it.
+the incrementals built on it. A keyring-encrypted server's backup has `"keyring": "file"` or
+`"vault"`: it was taken with a transition key DBCanvas keeps, and a restore writes a new master
+key into each member's own keyring.
 
 ```sh
 curl -s -H "$AUTH" -H 'Content-Type: application/json' \
@@ -659,6 +662,7 @@ the newest, and `dbcanvas versions reset` goes back to the built-in one.
 | Percona Server for MySQL | `GET /api/catalog/ps` |
 | Percona Distribution for MySQL | `GET /api/catalog/pdps` |
 | MySQL Community | `GET /api/catalog/mysqlce` |
+| MySQL-family features by release | `GET /api/catalog/mysql-features` |
 | MariaDB | `GET /api/catalog/mariadb` |
 | Percona Server for MongoDB | `GET /api/catalog/psmdb` |
 | Percona Distribution for PostgreSQL | `GET /api/catalog/ppg` |

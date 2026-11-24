@@ -121,6 +121,7 @@ if [ "$GROUPS_MAPPER" = "1" ]; then
   $KC get "clients/$CID/protocol-mappers/models" -r "$REALM" --fields name --format csv --noquotes 2>/dev/null | grep -q 'groups-mapper' || \
     $KC create "clients/$CID/protocol-mappers/models" -r "$REALM" -s name=groups-mapper -s protocol=openid-connect -s protocolMapper=oidc-group-membership-mapper -s 'config."claim.name"=groups' -s 'config."full.path"=false' -s 'config."access.token.claim"=true' -s 'config."id.token.claim"=true' -s 'config."userinfo.token.claim"=true' >/dev/null
 fi
+# shellcheck disable=SC2128 # GROUPS is set in the environment, which bash honours
 for g in $GROUPS; do
   $KC get groups -r "$REALM" --fields name --format csv --noquotes 2>/dev/null | grep -q "\"\?$g\"\?" || $KC create groups -r "$REALM" -s name="$g" >/dev/null
 done

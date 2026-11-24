@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -42,7 +43,7 @@ func archIssues(doc designDoc, host string) []issue {
 	}
 	emulated := func(what, arch string) {
 		if host != "" && archOr(arch) != host {
-			out = append(out, issue{Level: "info", Message: fmt.Sprintf("%s runs as %s under emulation on this %s Docker host: it works, more slowly", what, archOr(arch), host)})
+			out = append(out, issue{Level: "info", Message: fmt.Sprintf("%s runs as %s under emulation on this %s Docker host: it works, several times more slowly — expect a longer deploy, and DBCanvas waits %d times longer for its server to come back after a restore", what, archOr(arch), host, emulationWaitScale)})
 		}
 	}
 	frames := map[string]designFrame{}
@@ -163,4 +164,20 @@ func effectiveArch(typ, arch, frameArch string) string {
 		return frameArch
 	}
 	return archOr(arch)
+}
+
+// emulationWaitScale is how many times longer DBCanvas waits for a server running under
+// emulation (an amd64 node on an arm64 host — Percona Server 5.7, which is built for amd64 only,
+// always is one there) where a script waits a fixed time for it, such as the start after an
+// XtraBackup restore. Emulated, mysqld starts and recovers several times more slowly, and a
+// wait sized for a native server fails a restore that was only slow.
+const emulationWaitScale = 3
+
+// waitScale is emulationWaitScale for a node of this architecture that runs under emulation on
+// this Docker host, and 1 otherwise.
+func (a *App) waitScale(ctx context.Context, arch string) int {
+	if _, emu := a.emulatedAmd64(ctx, arch); emu {
+		return emulationWaitScale
+	}
+	return 1
 }

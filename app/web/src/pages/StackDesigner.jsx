@@ -14,6 +14,7 @@ import { Help, Hint } from '../components/Tooltip.jsx'
 import { HELP, MENU_HELP, nodeHelp } from '../lib/help.js'
 import { usePolling } from '../lib/usePolling.jsx'
 import { usePPGComponents, ppgComponents, ppgAvailable } from '../lib/ppgComponents.js'
+import { useMySQLFeatures, mysqlHas } from '../lib/mysqlFeatures.js'
 import { useLiveStates, LIVE_INTERVALS } from '../lib/useLiveStates.js'
 import LiveOverlay, { LiveDetailsBody } from '../components/LiveOverlay.jsx'
 import NodeTable from '../components/NodeTable.jsx'
@@ -1630,6 +1631,10 @@ export default function StackDesigner() {
     loadTemplates()
   }, [load, loadTemplates])
   useRefresh(() => Promise.all([load(), loadTemplates()]))
+  // The list follows what changes elsewhere (another window, the CLI, a stack's expiry)
+  // while it is the view on screen. A failed poll keeps the rows it has.
+  const pollList = useCallback(() => stackApi.listDetail().then(setStacks, () => {}), [])
+  usePolling(pollList, 5000, { enabled: openId == null })
 
   // Follow mode (session/SessionProvider.jsx): the driver says which stack is open,
   // and everyone following opens the same one — or goes back to the list with them.
@@ -2973,6 +2978,23 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
   const [pendingChanges, setPendingChanges] = useState(null)
   const [deployments, setDeployments] = useState([])
   const [issues, setIssues] = useState(null) // validate results panel
+  // The server's issues for the design as last saved, re-asked quietly after every save
+  // (app/issuesubject.go attributes each to its node or frame), so each form shows its own
+  // problems as you edit and the canvas marks the items that have errors.
+  const [liveIssues, setLiveIssues] = useState([])
+  const liveValidateT = useRef(0)
+  const quietValidate = useCallback(() => {
+    clearTimeout(liveValidateT.current)
+    liveValidateT.current = setTimeout(async () => {
+      if (!stackRef.current) return
+      try {
+        const r = await stackApi.validate(stackRef.current.id)
+        setLiveIssues(r.issues || [])
+      } catch { /* keep the last answer */ }
+    }, 800)
+  }, [])
+  useEffect(() => () => clearTimeout(liveValidateT.current), [])
+  const errorSubjects = useMemo(() => new Set(liveIssues.filter((i) => i.level === 'error' && i.subject).map((i) => i.subject)), [liveIssues])
   const { guest } = useAuth()
   const { openBrowser, openInDesktop } = useBrowser()
   const [busy, setBusy] = useState('') // 'validate' | 'deploy' | ''
@@ -3039,6 +3061,8 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
   const stackRef = useRef(null)
   stackRef.current = stack
   const lastSaved = useRef('')
+  // The live issues for the design as it was opened (quietValidate above).
+  useEffect(() => { if (stack?.id) quietValidate() }, [stack?.id, quietValidate])
 
   // load
   useEffect(() => {
@@ -3210,6 +3234,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       try {
         await stackApi.update(stackRef.current.id, stackRef.current.name, { nodes, edges, frames, view })
         lastSaved.current = cur
+        quietValidate()
       } catch { /* keep dirty; will retry on next change */ }
       setSaveState('saved')
     }, 600)
@@ -4621,6 +4646,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       await saveNow()
       const r = await stackApi.validate(stack.id)
       setIssues(r.issues || [])
+      setLiveIssues(r.issues || [])
     } catch (err) {
       setIssues([{ level: 'error', message: err.message }])
     } finally {
@@ -5706,7 +5732,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
                           name is never abbreviated: a name is what you are looking for, and
                           "clust…" answers nothing. Only the description truncates, and only
                           past FRAME_MAX_W — it is also in the frame's own form. */}
-                      <div className="whitespace-nowrap text-xs font-semibold text-fg">{f.label}</div>
+                      <div className="flex items-center gap-1 whitespace-nowrap text-xs font-semibold text-fg">{f.label}{errorSubjects.has(f.id) && <IssueDot />}</div>
                       <div className="truncate text-[10px] text-muted">{frameSubLabel(f, kids, depByNode)}</div>
                     </div>
                     {kids.some((n) => depByNode[n.id]?.state === 'running') && <BackupChip stackId={stackId} frame={f} />}
@@ -5844,7 +5870,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
                         <NodeCode type={n.type} label={def.label} size={32} />
                       </span>
                       <span className="min-w-0 flex-1 leading-tight">
-                        <span className="block truncate text-sm font-semibold text-fg">{n.label}</span>
+                        <span className="flex items-center gap-1 truncate text-sm font-semibold text-fg"><span className="truncate">{n.label}</span>{errorSubjects.has(n.id) && <IssueDot />}</span>
                         <span className="block truncate text-[11px] text-muted">{deployedLabel(n.type, depByNode[n.id]) || distTypeLabel(n.type, n.distribution) || def.label}</span>
                       </span>
                       {liveOn && <ProblemBadge count={problemCount(live[n.id])} title={(live[n.id]?.role?.problems || []).join('\n')} />}
@@ -5968,6 +5994,7 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
       </div>
 
       <StackProperties
+        liveIssues={liveIssues}
         overlay={glass}
         top={topInset}
         host={deployHost}
@@ -7395,8 +7422,10 @@ function DirectoryAuthFields({ node: n, nodes, patchNode, deployed, kerberos, ld
 // is exclusive with one: ticking it clears the OpenBao link, and ticking OpenBao clears it. The
 // series decides the keyring: the keyring_file plugin on 5.7 / 8.0, component_keyring_file on
 // 8.4 / 9.7, where the plugin no longer exists. `patch` takes a partial object.
-export function KeyringFileOption({ obj, patch, deployed, major, cluster = false, pxc = false }) {
-  const modern = major === '8.4' || major === '9.7'
+export function KeyringFileOption({ obj, patch, deployed, major, version = '', cluster = false, pxc = false }) {
+  const features = useMySQLFeatures()
+  const modern = mysqlHas(features, 'keyring_components', major, '').ok
+  const dte = mysqlHas(features, 'default_table_encryption', major, version).ok
   const where = modern ? '/var/lib/mysql-keyring/component_keyring_file' : '/var/lib/mysql-keyring/keyring'
   return (
     <>
@@ -7415,8 +7444,8 @@ export function KeyringFileOption({ obj, patch, deployed, major, cluster = false
             {modern ? ' (declared by the global manifest beside mysqld)' : ' (loaded with early-plugin-load)'}, staged
             before mysqld first starts, with its master keys in <span className="font-mono">{where}</span>
             {cluster ? ' — a keyring of its own, since keys never travel between members' : ''}.{' '}
-            {major === '5.7'
-              ? <>5.7 has no <span className="font-mono">default_table_encryption</span>, so tables are encrypted with an explicit <span className="font-mono">ENCRYPTION=&apos;Y&apos;</span>.</>
+            {!dte
+              ? <>This release has no <span className="font-mono">default_table_encryption</span>, so tables are encrypted with an explicit <span className="font-mono">ENCRYPTION=&apos;Y&apos;</span>.</>
               : <><span className="font-mono">default_table_encryption=ON</span> is set, so new tables are encrypted without asking.</>}
           </p>
           {pxc && (
@@ -7427,12 +7456,54 @@ export function KeyringFileOption({ obj, patch, deployed, major, cluster = false
             </p>
           )}
           <p className="text-xs text-muted">
-            The key file lives on the same disk as the data: it protects a copied data directory, not the host. Not
-            available together with XtraBackup backups.
+            The key file lives on the same disk as the data: it protects a copied data directory, not the host.
+            XtraBackup backups work with it: a backup carries its tablespace keys under a transition key DBCanvas keeps,
+            and a restore writes a new master key into each member&apos;s own keyring.
           </p>
         </>
       )}
     </>
+  )
+}
+
+// MYSQL_ENCRYPTION_EXTRAS are what a keyring-encrypted server can encrypt besides tables
+// (app/mysqlencryption.go). `features` are the mysql-features keys each option needs.
+const MYSQL_ENCRYPTION_EXTRAS = [
+  { field: 'encryptBinlog', label: 'Encrypt binary and relay logs', vars: 'binlog_encryption', features: ['binlog_encryption'] },
+  { field: 'encryptRedoUndo', label: 'Encrypt redo and undo logs', vars: 'innodb_redo_log_encrypt, innodb_undo_log_encrypt', features: ['innodb_redo_log_encrypt', 'innodb_undo_log_encrypt'] },
+  { field: 'encryptTemp', label: 'Encrypt temporary tablespaces', vars: 'innodb_temp_tablespace_encrypt', features: ['innodb_temp_tablespace_encrypt'] },
+]
+
+// EncryptionExtras offers them under a keyring, each greyed out (with the reason) where the
+// release lacks the option, from the server's feature table. Binary log encryption is also
+// refused with XtraBackup point-in-time restore, whose replay reads binary log files with
+// mysqlbinlog; the validator has the last word on both.
+export function EncryptionExtras({ obj, patch, deployed, major, version = '', community = false }) {
+  const features = useMySQLFeatures()
+  const pitr = !!(obj.useXtraBackup && obj.xbPitr)
+  return (
+    <div className="space-y-1">
+      <div className="text-xs text-muted">Also encrypt, with the same keyring:</div>
+      {MYSQL_ENCRYPTION_EXTRAS.map((x) => {
+        const why = x.features.map((k) => mysqlHas(features, k, major, version, community)).find((r) => !r.ok)?.why || ''
+        const clash = x.field === 'encryptBinlog' && pitr
+          ? 'Not with XtraBackup point-in-time restore: its replay cannot read an encrypted binary log file.'
+          : ''
+        const off = deployed || (!!why && !obj[x.field])
+        return (
+          <div key={x.field}>
+            <label className={`flex items-center gap-2 text-sm ${off ? 'opacity-70' : ''}`}>
+              <input type="checkbox" checked={!!obj[x.field]} disabled={off}
+                onChange={(e) => patch({ [x.field]: e.target.checked })} />
+              <span>{x.label}</span>
+              <span className="font-mono text-xs text-muted">{x.vars}</span>
+            </label>
+            {why && <p className="text-xs text-muted">{why}.</p>}
+            {obj[x.field] && clash && <p className="text-xs text-danger">{clash}</p>}
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
@@ -7443,6 +7514,9 @@ export function KeyringFileFields(props) {
     <div className="space-y-2 rounded-lg border border-dashed p-2">
       <div className="text-xs font-medium text-muted">Data-at-rest encryption</div>
       <KeyringFileOption {...props} />
+      {props.obj.keyringFile && (
+        <EncryptionExtras obj={props.obj} patch={props.patch} deployed={props.deployed} major={props.major} version={props.version} community />
+      )}
     </div>
   )
 }
@@ -7461,11 +7535,12 @@ function VaultFields({ node: n, nodes, patchNode, deployed }) {
   const pgOk = !isPg || tde.ok
   const none = deployed || !bao || !pgOk
   const maj = n.psMajor || '8.0'
+  const features = useMySQLFeatures()
   const method = isPg
     ? 'pg_tde, as a global key provider (vault_v2, KV v2)'
     : n.type === 'psm'
       ? 'mongod security.vault (KV v2)'
-      : maj === '8.4'
+      : mysqlHas(features, 'keyring_components', maj, '').ok
         ? 'component_keyring_vault (KV v2)'
         : maj === '5.7'
           ? 'keyring_vault plugin (KV v1 — 5.7 predates the v2 API)'
@@ -7484,7 +7559,10 @@ function VaultFields({ node: n, nodes, patchNode, deployed }) {
       </label>
       {!bao && <p className="text-xs text-muted">Add the OpenBao node to key encryption to it.</p>}
       {n.type === 'ps' && (
-        <KeyringFileOption obj={n} patch={(p) => patchNode(n.id, p)} deployed={deployed} major={maj} />
+        <KeyringFileOption obj={n} patch={(p) => patchNode(n.id, p)} deployed={deployed} major={maj} version={n.psVersion || ''} />
+      )}
+      {n.type === 'ps' && (n.keyringFile || (n.enableVault && bao)) && (
+        <EncryptionExtras obj={n} patch={(p) => patchNode(n.id, p)} deployed={deployed} major={maj} version={n.psVersion || ''} />
       )}
       {isPg && !pgOk && (
         <p className="text-xs text-muted">
@@ -7614,7 +7692,9 @@ export function FrameVaultFields({ frame: f, nodes, patchFrame, deployed }) {
   const none = deployed || !bao
   const isPXC = f.type === 'pxc'
   const maj = (isPXC ? f.pxcMajor : f.psMajor) || '8.0'
-  const method = maj === '8.4' || maj === '9.7'
+  const ver = (isPXC ? f.pxcVersion : f.psVersion) || ''
+  const features = useMySQLFeatures()
+  const method = mysqlHas(features, 'keyring_components', maj, '').ok
     ? 'component_keyring_vault (KV v2)'
     : 'the keyring_vault plugin (KV v2)'
   return (
@@ -7630,7 +7710,10 @@ export function FrameVaultFields({ frame: f, nodes, patchFrame, deployed }) {
         <span>Encrypt with OpenBao</span><Help text={HELP.vault} />
       </label>
       {!bao && <p className="text-xs text-muted">Add the OpenBao node to key encryption to it.</p>}
-      <KeyringFileOption obj={f} patch={(p) => patchFrame(f.id, p)} deployed={deployed} major={maj} cluster pxc={isPXC} />
+      <KeyringFileOption obj={f} patch={(p) => patchFrame(f.id, p)} deployed={deployed} major={maj} version={ver} cluster pxc={isPXC} />
+      {(f.keyringFile || (f.enableVault && bao)) && (
+        <EncryptionExtras obj={f} patch={(p) => patchFrame(f.id, p)} deployed={deployed} major={maj} version={ver} />
+      )}
       {f.enableVault && bao && (
         <>
           <p className="text-xs text-muted">
@@ -16004,7 +16087,7 @@ function loadProps() {
   try { return JSON.parse(localStorage.getItem(PROPS_KEY) || '{}') } catch { return {} }
 }
 
-function StackProperties({ overlay = false, top = 0, host, locked, lockedBy, selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, resizeFrameMembers, rebuildMongoCluster, live, deployOpen, deployments, onDeployMinimize, onWidth }) {
+function StackProperties({ liveIssues = [], overlay = false, top = 0, host, locked, lockedBy, selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, resizeFrameMembers, rebuildMongoCluster, live, deployOpen, deployments, onDeployMinimize, onWidth }) {
   // The Live tab sits above whatever the node's own panel is, so every node type has it without
   // each manager growing a tab of its own. Shown while Live is on and the node has figures.
   const [propTab, setPropTab] = useState('node')
@@ -16078,7 +16161,7 @@ function StackProperties({ overlay = false, top = 0, host, locked, lockedBy, sel
           {liveData.role && <ErrorLogTail stackId={stackId} nodeId={liveNode.id} />}
         </div>
       ) : (
-        <Body selected={selected} stackId={stackId} nodes={nodes} edges={edges} frames={frames} depByNode={depByNode} patchNode={patchNode} patchFrame={patchFrame} patchEdge={patchEdge} deleteNode={deleteNode} deleteEdge={deleteEdge} deleteFrame={deleteFrame} resizeFrameMembers={resizeFrameMembers} rebuildMongoCluster={rebuildMongoCluster} />
+        <Body liveIssues={liveIssues} selected={selected} stackId={stackId} nodes={nodes} edges={edges} frames={frames} depByNode={depByNode} patchNode={patchNode} patchFrame={patchFrame} patchEdge={patchEdge} deleteNode={deleteNode} deleteEdge={deleteEdge} deleteFrame={deleteFrame} resizeFrameMembers={resizeFrameMembers} rebuildMongoCluster={rebuildMongoCluster} />
       )}
     </fieldset>
   )
@@ -16139,9 +16222,10 @@ function StackProperties({ overlay = false, top = 0, host, locked, lockedBy, sel
 // Body is the selected item's form, under the architecture it runs on (components/ArchField.jsx),
 // which every node and cluster has and no form draws itself.
 function Body(props) {
-  const { selected, nodes, frames, depByNode, patchNode, patchFrame } = props
+  const { selected, nodes, frames, depByNode, patchNode, patchFrame, liveIssues } = props
   const form = <BodyForm {...props} />
   if (!selected || (selected.kind !== 'node' && selected.kind !== 'frame')) return form
+  const mine = (liveIssues || []).filter((i) => i.subject === selected.id && i.level !== 'info')
   let arch = null
   if (selected.kind === 'frame') {
     const f = frames.find((x) => x.id === selected.id)
@@ -16157,7 +16241,25 @@ function Body(props) {
         onChange={(a) => patchNode(n.id, { arch: a })} />
     }
   }
-  return <>{arch && <div className="mb-3">{arch}</div>}{form}</>
+  return <>{mine.length > 0 && <SubjectIssues issues={mine} />}{arch && <div className="mb-3">{arch}</div>}{form}</>
+}
+
+// SubjectIssues are the server's validation issues for the selected node or cluster.
+function SubjectIssues({ issues }) {
+  return (
+    <ul className="mb-3 space-y-1" data-subject-issues="">
+      {issues.map((it, i) => (
+        <li key={i} className={`rounded-md border px-2 py-1 text-xs ${it.level === 'error' ? 'border-danger/30 bg-danger/10 text-danger' : 'border-warning/30 bg-warning/10 text-warning'}`}>
+          {it.message}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+// IssueDot marks a canvas item the server's validation has an error for.
+function IssueDot() {
+  return <span aria-label="Has validation errors" title="Has validation errors — select it to see them" className="inline-block h-2 w-2 shrink-0 rounded-full bg-danger" />
 }
 
 function BodyForm({ selected, stackId, nodes, edges, frames, depByNode, patchNode, patchFrame, patchEdge, deleteNode, deleteEdge, deleteFrame, resizeFrameMembers, rebuildMongoCluster }) {
@@ -16188,7 +16290,7 @@ function BodyForm({ selected, stackId, nodes, edges, frames, depByNode, patchNod
     }
     if (f.type === 'mysqlcerepl') {
       return <MySQLCEFrameForm frame={f} stackId={stackId} nodes={nodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} running={running}
-        encryption={<KeyringFileFields obj={f} patch={(p) => patchFrame(f.id, p)} deployed={deployed} major={f.mysqlceMajor || '8.4'} cluster />}
+        encryption={<KeyringFileFields obj={f} patch={(p) => patchFrame(f.id, p)} deployed={deployed} major={f.mysqlceMajor || '8.4'} version={f.mysqlceVersion || ''} cluster />}
         backup={<XtraBackupOptions v={f} nodes={nodes} patch={(p) => patchFrame(f.id, p)} />} />
     }
     if (f.type === 'mysqlceinnodb') {
@@ -16250,7 +16352,7 @@ function BodyForm({ selected, stackId, nodes, edges, frames, depByNode, patchNod
         return <MySQLManager stackId={stackId} nodeId={n.id} engine={n.type} dep={dep} onDeleteNode={() => deleteNode(n.id)} xb={n.useXtraBackup ? { scope: 'nodes', id: n.id } : null} />
       }
       return <MySQLCENodeForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} deployed={deployed}
-        encryption={<KeyringFileFields obj={n} patch={(p) => patchNode(n.id, p)} deployed={deployed} major={n.mysqlceMajor || '8.4'} />}
+        encryption={<KeyringFileFields obj={n} patch={(p) => patchNode(n.id, p)} deployed={deployed} major={n.mysqlceMajor || '8.4'} version={n.mysqlceVersion || ''} />}
         backup={<XtraBackupOptions v={n} nodes={nodes} patch={(p) => patchNode(n.id, p)} />} />
     }
     // Members of the four upstream cluster kinds. Replication members carry a role;

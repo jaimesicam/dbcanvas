@@ -36,6 +36,53 @@ type releaseNote struct {
 // expanded, and the tests assume the ordering.
 var whatsNewNotes = []releaseNote{
 	{
+		Version: "0.1.1",
+		Date:    "2026-11-24",
+		Title:   "XtraBackup backups of encrypted MySQL servers",
+		Body:    "Percona Server, PXC and MySQL servers encrypted with a keyring file or OpenBao can now be backed up with XtraBackup. A backup carries its tablespace keys under a transition key DBCanvas keeps, sealed with the stack's other secrets, never in the bucket; an incremental uses its base's. A restore writes a new master key into each restored member's own keyring, so a replica restored from the primary's backup, or a PXC member from another's, needs nobody else's keyring.",
+		Doc:     "docs/STACKS.md",
+	},
+	{
+		Version: "0.1.1",
+		Date:    "2026-11-24",
+		Title:   "Encrypt binary logs, redo and undo logs, and temporary tablespaces",
+		Body:    "With a keyring file or OpenBao, a Percona Server, PXC or MySQL server can also encrypt its binary and relay logs (binlog_encryption, 8.0.14 and later), its InnoDB redo and undo logs, and, on Percona Server and PXC, its temporary tablespaces. The options are set before the server first starts and checked at deploy. Binary log encryption is not offered together with XtraBackup point-in-time restore, whose replay cannot read an encrypted binary log.",
+		Doc:     "docs/STACKS.md",
+	},
+	{
+		Version: "0.1.1",
+		Date:    "2026-11-24",
+		Title:   "The Encryption tab rotates the master key and downloads the keyring file",
+		Body:    "A running encrypted MySQL-family server's Encryption tab shows its keyring as it is now: the keyring file's size, owner and last write, the keys it holds, the encrypted tablespaces, the encryption variables and the last master-key rotation. Rotate master key rotates the InnoDB master key (and the binary log one with binary log encryption on) on that server; Download keyring file saves a copy of a keyring file. PXC members get the Encryption tab too.",
+		Doc:     "docs/STACKS.md",
+	},
+	{
+		Version: "0.1.1",
+		Date:    "2026-11-24",
+		Title:   "Keyring file encryption for Percona Server, PXC and MySQL",
+		Body:    "Data-at-rest encryption with a keyring file on the server itself, as an alternative to OpenBao: on standalone Percona Server and MySQL nodes, and on the Percona Server replication, PXC and MySQL replication clusters. 8.4 and 9.7 use component_keyring_file, 5.7 and 8.0 the keyring_file plugin. The keyring is in place before the server first starts, and every cluster member has one of its own. default_table_encryption is now set only where the server has it (8.0.16 and later), for OpenBao too.",
+		Doc:     "docs/STACKS.md",
+	},
+	{
+		Version: "0.1.1",
+		Date:    "2026-11-24",
+		Title:   "The designer shows each node's problems as you edit",
+		Body:    "The designer asks the server to validate the stack after every change and shows each node's or cluster's errors and warnings at the top of its form, with a red dot on the canvas for anything that has an error. The rules are the server's, so the form and a deploy say the same thing. Which release has which MySQL option comes from one table, also at GET /api/catalog/mysql-features.",
+	},
+	{
+		Version: "0.1.1",
+		Date:    "2026-11-24",
+		Title:   "PostgreSQL 19, from Percona and PGDG",
+		Body:    "The version catalogue lists PostgreSQL 19 for Percona (ppg-19) and PGDG (no EL8 build), with pg_tde, pg_oidc_validator, the psql client and HAProxy for it. PGDG publishes repmgr up to PostgreSQL 18, so repmgr stays at 18; Spock stays at 15 to 18.",
+	},
+	{
+		Version: "0.1.1",
+		Date:    "2026-11-24",
+		Title:   "Installing on macOS, and checking a download",
+		Body:    "The install steps say how to clear the quarantine flag macOS puts on a binary downloaded in a browser, or how to download it with curl instead. Getting started shows how to check a download against dbcanvas-checksums.txt and its Sigstore signature.",
+		Doc:     "docs/GETTING_STARTED.md",
+	},
+	{
 		Version: "0.1.0",
 		Date:    "2026-11-17",
 		Title:   "One dbcanvas binary, nothing else to install",

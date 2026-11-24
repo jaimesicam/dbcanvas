@@ -1139,7 +1139,7 @@ mkdir -p "$DATADIR" "$RUNDIR" "$(dirname "$LOGERR")"
 : >"$LOGERR" 2>/dev/null || true
 chown -R mysql:mysql "$DATADIR" "$RUNDIR" "$LOGERR" 2>/dev/null || true
 if [ ! -f "$DATADIR/mysql/global_priv.frm" ]; then
-  rm -rf "$DATADIR"/* 2>/dev/null || true
+  rm -rf "${DATADIR:?}"/* 2>/dev/null || true
   mariadb-install-db --user=mysql --datadir="$DATADIR" --auth-root-authentication-method=socket --skip-test-db >/tmp/init-$INST.log 2>&1 \
     || { echo "mariadb-install-db failed for $INST:"; tail -15 /tmp/init-$INST.log; exit 1; }
   chown -R mysql:mysql "$DATADIR"

@@ -7,6 +7,7 @@ import { useTerminals } from '../terminal/TerminalProvider.jsx'
 import DbLoginGuide from '../components/DbLoginGuide.jsx'
 import MySQLCertTab from '../components/MySQLCertTab.jsx'
 import VaultGuide from '../components/VaultGuide.jsx'
+import MySQLKeyringPanel from '../components/MySQLKeyringPanel.jsx'
 import OidcLoginGuide from '../components/OidcLoginGuide.jsx'
 import { SecretValue } from '../components/Secret.jsx'
 import { Help } from '../components/Tooltip.jsx'
@@ -139,7 +140,12 @@ export default function MySQLManager({ stackId, nodeId, engine = 'ps', dep, onDe
       {tab === 'cert' && <MySQLCertTab stackId={stackId} nodeId={nodeId} ttlValue={cfg.certTtlValue} ttlUnit={cfg.certTtlUnit} />}
       {tab === 'dirlogin' && <DbLoginGuide engine="ps" info={cfg.dirAuth} />}
       {tab === 'sso' && <OidcLoginGuide engine="ps" info={cfg.oidc} secrets={sec} />}
-      {tab === 'encryption' && <VaultGuide engine={engine} info={cfg.vault} />}
+      {tab === 'encryption' && (
+        <div className="space-y-3">
+          {dep.state === 'running' && <MySQLKeyringPanel stackId={stackId} nodeId={nodeId} cluster={engine === 'pxc' || engine === 'mysql' || engine === 'mysqlcerepl'} />}
+          <VaultGuide engine={engine} info={cfg.vault} />
+        </div>
+      )}
       {tab === 'backup' && xb && <XtraBackupPanel stackId={stackId} scope={xb.scope} id={xb.id} kind={engine} />}
       {tab === 'diag' && <PTStalkCard stackId={stackId} nodeId={nodeId} />}
     </div>

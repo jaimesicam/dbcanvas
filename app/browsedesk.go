@@ -39,6 +39,7 @@ import (
 const deskFirefoxScript = `set -e
 P=$(pgrep -u "$VNCUSER" -x xfce4-session | head -1)
 [ -n "$P" ] || { echo "the desktop session is not running" >&2; exit 3; }
+# shellcheck disable=SC2046 # one word per VAR=value is the point
 export $(tr '\0' '\n' < /proc/$P/environ | grep -E '^(DBUS_SESSION_BUS_ADDRESS|DISPLAY|HOME|XAUTHORITY)=' | xargs)
 if pgrep -u "$VNCUSER" -x 'firefox|firefox-bin' >/dev/null; then
   timeout 20 firefox --new-tab "$URL" >/dev/null 2>&1 &

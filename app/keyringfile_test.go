@@ -145,8 +145,29 @@ func TestKeyringFileIssues(t *testing.T) {
 	if got := keyringFileIssues("x", "psm", true, false); len(got) == 0 {
 		t.Error("a keyring file on PSMDB was accepted")
 	}
-	// And XtraBackup is refused with a keyring file as it is with OpenBao.
-	if got := xbIssues("x", true, "", "", true, designDoc{}); len(got) == 0 {
-		t.Error("XtraBackup with a keyring was accepted")
+}
+
+// A keyring-encrypted server is backed up with a transition key and restored by writing a new
+// master key into the restoring member's own keyring.
+func TestXBKeyringScripts(t *testing.T) {
+	if !strings.Contains(xbBackupScript, `--transition-key="$TK"`) {
+		t.Error("the backup does not take a transition key")
+	}
+	if !strings.Contains(xbPrepareScript, `tk=(--transition-key="$TK")`) || !strings.Contains(xbPrepareScript, `xtrabackup --prepare "${tk[@]}"`) {
+		t.Error("prepare does not use the transition key")
+	}
+	for _, want := range []string{`--generate-new-master-key`, "--keyring-file-data=" + mysqlKeyringFileData,
+		`component_keyring_${KR%-component}.cnf`, "chown -R mysql:mysql " + mysqlKeyringDir} {
+		if !strings.Contains(xbSwapScript, want) {
+			t.Errorf("swap script is missing %q", want)
+		}
+	}
+	for _, c := range []struct{ kind, major, want string }{
+		{"file", "5.7", "file-plugin"}, {"file", "8.0", "file-plugin"}, {"file", "8.4", "file-component"},
+		{"vault", "8.0", "vault-plugin"}, {"vault", "9.7", "vault-component"},
+	} {
+		if got := xbKeyringMode(c.kind, c.major); got != c.want {
+			t.Errorf("xbKeyringMode(%s, %s) = %s, want %s", c.kind, c.major, got, c.want)
+		}
 	}
 }

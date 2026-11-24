@@ -238,8 +238,22 @@ and stay legible at the sizes the sidebar actually uses.
   survives with the assertion.
 - `make smoke` — renders every React page off-browser and fails on a render error, plus a set
   of checks over the designer's own model.
-- Neither replaces deploying the thing: anything that talks to a real database, operator or
-  package manager is verified on a live stack before it is called done.
+- Every embedded shell script (a `…Script` constant) goes through `shellcheck` at warning
+  severity in `go test` (`scriptlint_test.go`; skipped where shellcheck is not installed, never
+  in CI). A deliberate exception is marked on its line: `# shellcheck disable=SCxxxx # why`.
+- `make test-container` — tests that need Docker (build tag `containertest`): the keyring
+  scripts run against real Percona Server binaries in throwaway containers. CI runs them in a
+  job of their own.
+- `make e2e MATRIX=keyring` — builds `dist/dbcanvas` and deploys the stacks a matrix in
+  `scripts/e2e/` describes, runs its checks (SQL on the nodes, API calls) and removes them. It
+  runs in an instance of its own (a throwaway `HOME`, `DBCANVAS_INSTANCE=dbcanvas-e2e`) on the
+  Docker your shell uses, so your own DBCanvas is not touched; `E2E_KEEP=1` leaves the stacks up.
+  A matrix is a bash file calling the helpers `scripts/e2e.sh` describes.
+- Version-dependent server features live in one table, `app/mysqlfeatures.go`; validation, the
+  deploy and the designer (through a generated `web/src/lib/mysqlFeatures.json`, kept in step
+  by `TestMySQLFeaturesJSON`) all read it.
+- None of these replaces deploying the thing: anything that talks to a real database, operator
+  or package manager is verified on a live stack before it is called done.
 
 ## Local development
 

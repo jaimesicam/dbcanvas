@@ -1,0 +1,43 @@
+[
+  {
+    "key": "default_table_encryption",
+    "label": "default_table_encryption",
+    "since": "8.0.16"
+  },
+  {
+    "key": "binlog_encryption",
+    "label": "binary log encryption (binlog_encryption)",
+    "since": "8.0.14"
+  },
+  {
+    "key": "innodb_redo_log_encrypt",
+    "label": "redo log encryption (innodb_redo_log_encrypt)",
+    "since": "8.0.1"
+  },
+  {
+    "key": "innodb_undo_log_encrypt",
+    "label": "undo log encryption (innodb_undo_log_encrypt)",
+    "since": "8.0.1"
+  },
+  {
+    "key": "innodb_temp_tablespace_encrypt",
+    "label": "temporary tablespace encryption (innodb_temp_tablespace_encrypt)",
+    "since": "8.0.16",
+    "perconaOnly": true
+  },
+  {
+    "key": "clone",
+    "label": "the CLONE plugin",
+    "since": "8.0.17"
+  },
+  {
+    "key": "keyring_plugins",
+    "label": "keyring plugins (keyring_file, keyring_vault)",
+    "until": "8.4"
+  },
+  {
+    "key": "keyring_components",
+    "label": "keyring components (component_keyring_file, component_keyring_vault)",
+    "since": "8.4.0"
+  }
+]

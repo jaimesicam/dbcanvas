@@ -88,6 +88,9 @@ type xbBackup struct {
 	GTID       string `json:"gtid,omitempty"`
 	Size       int64  `json:"size"` // bytes streamed
 	Server     string `json:"server,omitempty"`
+	// Keyring is "file" or "vault" when the server was keyring-encrypted: the backup's tablespace
+	// keys are under a transition key DBCanvas keeps (xbkeyring.go), not in the bucket.
+	Keyring string `json:"keyring,omitempty"`
 }
 
 type xbCatalog struct {
@@ -222,12 +225,13 @@ func (a *App) xbTargetOf(st Stack, doc designDoc, scope, id string) (xbTarget, e
 			return t, errors.New("XtraBackup backups are not enabled for this node")
 		}
 		t.Kind, t.Label, t.SeaweedID, t.Bucket, t.PITR = "ps", n.Label, n.SeaweedFSNodeID, n.SeaweedFSBucket, n.XBPITR
-		t.Frame = designFrame{Type: "mysql", Label: n.Label, OS: n.OS, PSMajor: n.PSMajor, PSVersion: n.PSVersion, GTID: n.GTID}
+		t.Frame = designFrame{Type: "mysql", Label: n.Label, OS: n.OS, PSMajor: n.PSMajor, PSVersion: n.PSVersion, GTID: n.GTID,
+			EnableVault: n.EnableVault, OpenBaoNodeID: n.OpenBaoNodeID, KeyringFile: n.KeyringFile}
 		if n.Type == "mysqlce" {
 			// The frame provisionMySQLCE builds, so the series-dependent steps see the community major.
 			t.Community = true
 			t.Frame = mysqlceSyntheticFrame(designFrame{Type: "mysqlcerepl", Label: n.Label, OS: n.OS,
-				MySQLCEMajor: n.MySQLCEMajor, MySQLCEVersion: n.MySQLCEVersion, GTID: n.GTID})
+				MySQLCEMajor: n.MySQLCEMajor, MySQLCEVersion: n.MySQLCEVersion, GTID: n.GTID, KeyringFile: n.KeyringFile})
 		}
 		members = []designNode{n}
 	default:
@@ -665,6 +669,20 @@ func (a *App) xbTakeBackup(ctx context.Context, t xbTarget, repo *xbRepo, typ st
 	if t.Kind == "pxc" {
 		env = append(env, "GALERA=1")
 	}
+	// A keyring-encrypted server's backup carries its tablespace keys under a transition key
+	// (xbkeyring.go). An incremental keeps its base's, so a whole chain prepares with one.
+	var tk string
+	if t.keyring() != "" {
+		if typ == "incremental" {
+			tk = a.xbTransitionKey(t, base.Name)
+			if tk == "" {
+				return xbBackup{}, fmt.Errorf("the transition key of backup %s is not on record, so an incremental on it could not be restored — take a full backup instead", base.Name)
+			}
+		} else {
+			tk = randHex(24)
+		}
+		env = append(env, "TK="+tk)
+	}
 	out, err := a.xbRun(ctx, t, m, xbBackupScript, env)
 	if err != nil {
 		return xbBackup{}, fmt.Errorf("backup failed on %w", err)
@@ -684,6 +702,10 @@ func (a *App) xbTakeBackup(ctx context.Context, t xbTarget, repo *xbRepo, typ st
 	}
 	if b.ToLSN == "" {
 		return xbBackup{}, errors.New("the backup finished but its LSNs could not be read")
+	}
+	if tk != "" {
+		a.xbRecordTransitionKey(t, name, tk)
+		b.Keyring = t.keyring()
 	}
 	// Re-read: a delete may have happened while the backup ran.
 	if cur, err := repo.catalog(); err == nil {
@@ -832,6 +854,7 @@ func (a *App) handleXBDelete(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	a.xbForgetTransitionKeys(t, gone)
 	names := make([]string, 0, len(gone))
 	for n := range gone {
 		names = append(names, n)
@@ -1036,8 +1059,18 @@ func (a *App) xbRestore(ctx context.Context, t xbTarget, repo *xbRepo, plan xbPl
 	// Download and prepare while the servers still run: that is most of the time a restore takes.
 	var wg sync.WaitGroup
 	errs := make([]error, len(restoreOn))
+	tk := ""
+	if plan.Chain[0].Keyring != "" {
+		if tk = a.xbTransitionKey(t, plan.Chain[0].Name); tk == "" {
+			return log, fmt.Errorf("backup %s was taken of a keyring-encrypted server, and its transition key is not on record — it cannot be decrypted", plan.Chain[0].Name)
+		}
+		say("decrypting with the backup's transition key; each member re-encrypts with a new master key in its own keyring")
+	}
 	for i, m := range restoreOn {
 		env := []string{"CHAIN=" + strings.Join(chain, "\n")}
+		if tk != "" {
+			env = append(env, "TK="+tk)
+		}
 		if m.Host == apply.Host && len(replay) > 0 {
 			env = append(env, "BINLOGS="+strings.Join(replay, "\n"), "BLDIR="+t.prefix()+"/binlog/"+src.Host+"/"+src.Epoch)
 		}
@@ -1057,11 +1090,16 @@ func (a *App) xbRestore(ctx context.Context, t xbTarget, repo *xbRepo, plan xbPl
 
 	epoch := xbEpochNow()
 	swap := func(m xbMember) error {
-		_, err := a.xbRun(ctx, t, m, xbSwapScript, []string{"UNITS=" + t.units(), "EPOCH=" + epoch})
+		env := []string{"UNITS=" + t.units(), "EPOCH=" + epoch}
+		if tk != "" {
+			env = append(env, "TK="+tk, "KR="+xbKeyringMode(t.keyring(), t.major()))
+		}
+		_, err := a.xbRun(ctx, t, m, xbSwapScript, env)
 		return err
 	}
 	start := func(m xbMember, unit string) error {
-		_, err := a.xbRun(ctx, t, m, xbStartScript, []string{"UNIT=" + unit, "LOGERR=" + pxcLogError(t.Frame.OS)})
+		_, err := a.xbRun(ctx, t, m, xbStartScript, []string{"UNIT=" + unit, "LOGERR=" + pxcLogError(t.Frame.OS),
+			fmt.Sprintf("SCALE=%d", a.waitScale(ctx, firstNonEmpty(m.Node.Arch, t.Frame.Arch)))})
 		return err
 	}
 	old := "0"
@@ -1211,16 +1249,14 @@ func (a *App) xbFrameStatus(ctx context.Context, st Stack, doc designDoc, f desi
 
 // ------------------------------------------------------------------ validation
 
-// xbIssues validates a design's XtraBackup option.
-func xbIssues(who string, use bool, seaweedID, bucket string, vault bool, doc designDoc) []issue {
+// xbIssues validates a design's XtraBackup option. A keyring-encrypted server is backed up with a
+// transition key (xbkeyring.go), so encryption is no obstacle.
+func xbIssues(who string, use bool, seaweedID, bucket string, doc designDoc) []issue {
 	if !use {
 		return nil
 	}
 	if seaweedID == "" {
 		return []issue{{Level: "error", Message: who + " has XtraBackup backups enabled but no SeaweedFS node selected"}}
-	}
-	if vault {
-		return []issue{{Level: "error", Message: who + ": XtraBackup backups are not supported together with a keyring (data-at-rest encryption) — the keyring would have to travel with every backup"}}
 	}
 	return seaweedBucketIssues(who, seaweedID, bucket, doc)
 }
@@ -1320,16 +1356,18 @@ AccuracySec=5
 [Install]
 WantedBy=timers.target`
 
-// xbBackupScript streams a backup into the bucket. Env: NAME, INCR_LSN (incremental), GALERA.
+// xbBackupScript streams a backup into the bucket. Env: NAME, INCR_LSN (incremental), GALERA,
+// TK (the transition key, on a keyring-encrypted server).
 // It prints EPOCH= and BYTES=, then xtrabackup_checkpoints and xtrabackup_info.
 const xbBackupScript = `set -o pipefail
 D=/etc/dbcanvas-xb
 . $D/env
 W=/var/lib/dbcanvas-xb/backup
 rm -rf $W && mkdir -p $W
-args=(--backup --stream=xbstream --extra-lsndir=$W --parallel=4)
+args=(--backup --stream=xbstream --extra-lsndir="$W" --parallel=4)
 [ -n "$INCR_LSN" ] && args+=(--incremental-lsn="$INCR_LSN")
 [ "$GALERA" = 1 ] && args+=(--galera-info)
+[ -n "$TK" ] && args+=(--transition-key="$TK")
 xtrabackup --defaults-extra-file=/root/.my.cnf "${args[@]}" 2>$W/xtrabackup.log | tee >(wc -c > $W/bytes) |
   xbcloud --defaults-file=$D/xbcloud.cnf put $XBFLAGS --parallel=4 "$PREFIX/backups/$NAME" 2>$W/xbcloud.log
 if [ $? -ne 0 ]; then
@@ -1344,7 +1382,8 @@ echo "BYTES=$(cat $W/bytes 2>/dev/null)"
 cat $W/xtrabackup_checkpoints $W/xtrabackup_info`
 
 // xbPrepareScript downloads a chain (full first) and prepares it, and the binary logs to replay
-// when BINLOGS is set — all while the server keeps running. Env: CHAIN, BINLOGS, BLDIR.
+// when BINLOGS is set — all while the server keeps running. TK is the chain's transition key
+// when the server was keyring-encrypted. Env: CHAIN, BINLOGS, BLDIR, TK.
 const xbPrepareScript = `set -o pipefail
 D=/etc/dbcanvas-xb
 . $D/env
@@ -1355,7 +1394,9 @@ get() {
   xbcloud --defaults-file=$D/xbcloud.cnf get $XBFLAGS --parallel=4 "$1" 2>$R/xbcloud.log | xbstream -x -C "$2" --parallel=4 ||
     { echo "download of $1 failed:"; tail -5 $R/xbcloud.log; exit 1; }
 }
-prep() { xtrabackup --prepare "$@" >$R/prepare.log 2>&1 || { echo "prepare failed:"; tail -15 $R/prepare.log; exit 1; }; }
+tk=()
+[ -n "$TK" ] && tk=(--transition-key="$TK")
+prep() { xtrabackup --prepare "${tk[@]}" "$@" >$R/prepare.log 2>&1 || { echo "prepare failed:"; tail -15 $R/prepare.log; exit 1; }; }
 mapfile -t chain < <(printf '%s\n' "$CHAIN" | sed '/^$/d')
 n=${#chain[@]}
 get "$PREFIX/backups/${chain[0]}" $R/full
@@ -1385,7 +1426,9 @@ echo "prepared ${chain[*]}"`
 // is this member's own: server_uuid (auto.cnf), SET PERSIST (mysqld-auto.cnf) and TLS files.
 // Galera's state is dropped so a PXC member starts a new cluster (or asks for SST). The shipper
 // stops, and the new epoch is in place before the server starts writing binary logs again.
-// Env: UNITS, EPOCH.
+// With TK (a keyring-encrypted backup) the tablespace keys are re-encrypted under a new master
+// key written to this member's own keyring, which KR names (xbKeyringMode).
+// Env: UNITS, EPOCH, TK, KR.
 const xbSwapScript = `set -e
 R=/var/lib/dbcanvas-xb/restore
 DATA=/var/lib/mysql
@@ -1397,7 +1440,18 @@ rm -rf $K && mkdir -p $K
 for f in auto.cnf mysqld-auto.cnf; do [ -f $DATA/$f ] && cp -p $DATA/$f $K/; done
 cp -p $DATA/*.pem $K/ 2>/dev/null || true
 find $DATA -mindepth 1 -delete
-xtrabackup --move-back --target-dir=$R/full --datadir=$DATA >$R/moveback.log 2>&1 || { echo "move-back failed:"; tail -10 $R/moveback.log; exit 1; }
+kr=()
+if [ -n "$TK" ]; then
+  kr=(--transition-key="$TK" --generate-new-master-key)
+  case "$KR" in
+    file-plugin) kr+=(--keyring-file-data=` + mysqlKeyringFileData + `);;
+    file-component|vault-component)
+      PD=$(mysqld --no-defaults --verbose --help 2>/dev/null | awk '$1=="plugin-dir"{print $2; exit}')
+      kr+=(--component-keyring-config="${PD%/}/component_keyring_${KR%-component}.cnf");;
+  esac
+fi
+xtrabackup --move-back "${kr[@]}" --target-dir=$R/full --datadir=$DATA >$R/moveback.log 2>&1 || { echo "move-back failed:"; tail -10 $R/moveback.log; exit 1; }
+[ -n "$TK" ] && chown -R mysql:mysql ` + mysqlKeyringDir + `
 cp -p $K/* $DATA/ 2>/dev/null || true
 rm -f $DATA/grastate.dat $DATA/galera.cache
 chown -R mysql:mysql $DATA
@@ -1405,10 +1459,11 @@ rm -rf $R/full $K
 printf '%s\n' "$EPOCH" > /etc/dbcanvas-xb/epoch
 echo "datadir replaced"`
 
-// xbStartScript starts a unit and waits until the server answers. Env: UNIT, LOGERR.
+// xbStartScript starts a unit and waits until the server answers: three minutes, times SCALE for
+// a server running under emulation (waitScale). Env: UNIT, LOGERR, SCALE.
 const xbStartScript = `systemctl reset-failed "$UNIT" 2>/dev/null || true
 systemctl start "$UNIT" || true
-for i in $(seq 1 180); do
+for i in $(seq 1 $((180 * ${SCALE:-1}))); do
   mysqladmin --defaults-extra-file=/root/.my.cnf ping >/dev/null 2>&1 && { echo "$UNIT up"; exit 0; }
   sleep 1
 done

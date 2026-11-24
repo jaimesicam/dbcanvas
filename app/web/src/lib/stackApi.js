@@ -1,7 +1,7 @@
 // Stack Designer API wrapper. Same conventions as lib/api.js: same-origin JSON,
 // cookies ride along, throws Error with .status on non-2xx.
 
-import { markStackDeleting, markStackGone, clearStackGone, noteStackError } from './stackGone.js'
+import { markStackDeleting, markStackGone, clearStackGone, noteStackError, isStackGoneError } from './stackGone.js'
 
 async function request(method, path, body) {
   const opts = {
@@ -113,7 +113,7 @@ export const stackApi = {
   // that template's design itself rather than taking a copy from here.
   // defaultName stands in for an empty name; the server numbers it to the first free one.
   create: (name, ttl, design, templateId, defaultName) => request('POST', '/api/stacks', { name, ttl, design, templateId, defaultName }),
-  // A 404 here means the stack was deleted elsewhere; everything showing it is told (lib/stackGone.js).
+  // A 404 or 410 here means the stack was deleted elsewhere; everything showing it is told (lib/stackGone.js).
   get: (id) => request('GET', `/api/stacks/${id}`).catch((e) => { noteStackError(id, e); throw e }),
   // live is the canvas's Live view: per running node, container figures plus the
   // replication role and data size its engine reports (app/livestate.go).
@@ -133,7 +133,7 @@ export const stackApi = {
       markStackGone(id)
       return r
     } catch (e) {
-      if (e.status === 404) markStackGone(id)
+      if (isStackGoneError(e)) markStackGone(id)
       else clearStackGone(id)
       throw e
     }

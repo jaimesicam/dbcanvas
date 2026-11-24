@@ -112,10 +112,11 @@ InnoDB and binary log settings (below) and resource limits.
 | **MariaDB Replication** | Async or semi-sync replication using MariaDB GTIDs. | 2–9, default 3 |
 | **MariaDB Galera** | Galera cluster with `mariabackup` state transfers. | 3–9, default 3 |
 
-These do not offer OpenBao encryption. They do offer the MySQL tools.
+These do not offer OpenBao encryption (Oracle's packages have no vault keyring); MySQL and MySQL
+Replication offer a keyring file instead. They all offer the MySQL tools.
 
 **MySQL** and **MySQL Replication** also offer XtraBackup to SeaweedFS, with the same backups,
-restores and point-in-time recovery as Percona Server. Oracle's packages do not include
+restores and point-in-time recovery as Percona Server, and a keyring file (below). Oracle's packages do not include
 XtraBackup, so the series that matches the server (8.0, 8.4 or 9.7) is installed from Percona's
 repository: at deploy when backups are on, or by the first backup when they are turned on later.
 
@@ -588,7 +589,7 @@ later without recreating the data.
 
 | Target | How it is encrypted |
 | --- | --- |
-| Percona Server | `component_keyring_vault` on 8.4; the `keyring_vault` plugin on 5.7 / 8.0. Not with XtraBackup. |
+| Percona Server | `component_keyring_vault` on 8.4 / 9.7; the `keyring_vault` plugin on 5.7 / 8.0. |
 | Percona Server Replication, PXC (frame) | Every member, each with its own mount; `default_table_encryption=ON`. |
 | PSMDB (standalone) | `security.vault` |
 | PostgreSQL, Patroni | `pg_tde`, PostgreSQL 17, 18 or 19 only. Tables use `tde_heap` by default (also in `template1`). Optional **Encrypt WAL too**. A Patroni cluster shares one key. |
@@ -619,12 +620,46 @@ are encrypted with an explicit `ENCRYPTION='Y'`. Every cluster member gets a key
 A PXC cluster encrypts its cluster traffic exactly as it does with OpenBao, with one shared
 Intranet-CA certificate.
 
-A server has one keyring, so the keyring file and OpenBao exclude each other, and neither is
-offered with XtraBackup backups. The InnoDB Cluster / Group Replication frames and MariaDB do not
-offer it. The deploy runs the same check as for OpenBao (keyring loaded, an encrypted test table,
-and a non-empty keyring file), and the **Encryption** tab names the keyring file. The file sits on
-the same disk as the data, so it protects a copied data directory rather than the host; back it
-up apart from the data.
+A server has one keyring, so the keyring file and OpenBao exclude each other. The InnoDB Cluster /
+Group Replication frames and MariaDB do not offer it. The deploy runs the same check as for
+OpenBao (keyring loaded, an encrypted test table, and a non-empty keyring file), and the
+**Encryption** tab names the keyring file. The file sits on the same disk as the data, so it
+protects a copied data directory rather than the host; back it up apart from the data (the
+Encryption tab downloads it).
+
+### More than tables
+
+With either keyring, a MySQL-family server can also encrypt:
+
+| Option | Server variables | Where |
+| --- | --- | --- |
+| *Encrypt binary and relay logs* | `binlog_encryption` | 8.0.14 and later |
+| *Encrypt redo and undo logs* | `innodb_redo_log_encrypt`, `innodb_undo_log_encrypt` | 8.0 and later |
+| *Encrypt temporary tablespaces* | `innodb_temp_tablespace_encrypt` | Percona Server and PXC, 8.0.16 and later (MySQL Community has no such option) |
+
+Each is written into the config before the server first starts, and the deploy checks it reads
+ON. An option the server's release does not have is greyed out with the reason, from the same
+table validation uses (`GET /api/catalog/mysql-features`). Binary log encryption and XtraBackup
+point-in-time restore exclude each other: the restore replays the shipped binary logs with
+`mysqlbinlog`, which cannot read an encrypted binary log file.
+
+### The Encryption tab
+
+A running MySQL-family server with a keyring shows its keyring as it is now: the keyring file
+(size, owner, last written), how many keys it holds, the encrypted tablespaces, the encryption
+variables and when the master key was last rotated. **Rotate master key** runs `ALTER INSTANCE
+ROTATE INNODB MASTER KEY` (and `ROTATE BINLOG MASTER KEY` with binary log encryption on); every
+cluster member has a keyring of its own, so it rotates that member only. **Download keyring file**
+saves a copy of a keyring file; take a new one after each rotation.
+
+### XtraBackup on an encrypted server
+
+XtraBackup backs up a server with either keyring. The backup carries its tablespace keys under a
+random transition key that DBCanvas keeps (sealed, with the stack's other secrets) rather than in
+the bucket, and an incremental uses its base's. A restore decrypts with it and writes a new master
+key into each restored member's own keyring (`--generate-new-master-key`), so a replica restored
+from the primary's backup, or a PXC member restored from another's, needs no copy of anybody
+else's keyring. Deleting a backup forgets its transition key.
 
 ## Kubernetes (K3D)
 

@@ -222,16 +222,10 @@ func (a *App) planSQLCopy(ctx context.Context, st Stack, p *rebuildPlan, targetU
 	return ""
 }
 
-// cloneCapable: the CLONE plugin arrived in MySQL 8.0.17.
+// cloneCapable: the CLONE plugin arrived in MySQL 8.0.17 (mysqlFeatures).
 func cloneCapable(version string) bool {
-	m := swVersionRe.FindStringSubmatch(version)
-	if m == nil {
-		return false
-	}
-	maj, _ := strconv.Atoi(m[1])
-	min, _ := strconv.Atoi(m[2])
-	patch, _ := strconv.Atoi(m[3])
-	return maj > 8 || (maj == 8 && (min > 0 || patch >= 17))
+	m := swVersionRe.FindString(version)
+	return m != "" && mysqlHas(featClone, "", m)
 }
 
 // mariadbUsesGTID: whether this MariaDB cluster's replicas position by GTID — what any of them

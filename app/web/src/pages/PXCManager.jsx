@@ -12,6 +12,8 @@ import XtraBackupPanel from '../components/XtraBackupPanel.jsx'
 import DbLoginGuide from '../components/DbLoginGuide.jsx'
 import OidcLoginGuide from '../components/OidcLoginGuide.jsx'
 import MySQLCertTab from '../components/MySQLCertTab.jsx'
+import VaultGuide from '../components/VaultGuide.jsx'
+import MySQLKeyringPanel from '../components/MySQLKeyringPanel.jsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -19,6 +21,7 @@ const TABS = [
   { id: 'cert', label: 'Certificate' },
   { id: 'dirlogin', label: 'Directory Login' },
   { id: 'sso', label: 'Keycloak SSO' },
+  { id: 'encryption', label: 'Encryption' },
   { id: 'backup', label: 'Backup' },
   { id: 'diag', label: 'Diagnostics' },
 ]
@@ -66,7 +69,7 @@ export default function PXCManager({ stackId, nodeId, dep, onDeleteNode, xb = nu
       </div>
 
       <div className="flex flex-wrap gap-1 rounded-lg bg-surface2 p-1">
-        {TABS.filter((t) => !(arbiter && t.id !== 'overview') && (t.id !== 'backup' || xb) && (t.id !== 'dirlogin' || cfg.dirAuth?.enabled) && (t.id !== 'sso' || cfg.oidc?.enabled)).map((t) => (
+        {TABS.filter((t) => !(arbiter && t.id !== 'overview') && (t.id !== 'backup' || xb) && (t.id !== 'dirlogin' || cfg.dirAuth?.enabled) && (t.id !== 'sso' || cfg.oidc?.enabled) && (t.id !== 'encryption' || cfg.vault?.enabled)).map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
             className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${tab === t.id ? 'bg-surface text-fg shadow' : 'text-muted'}`}>
             {t.label}
@@ -83,6 +86,12 @@ export default function PXCManager({ stackId, nodeId, dep, onDeleteNode, xb = nu
       {tab === 'cert' && !arbiter && <MySQLCertTab stackId={stackId} nodeId={nodeId} ttlValue={cfg.certTtlValue} ttlUnit={cfg.certTtlUnit} />}
       {tab === 'dirlogin' && !arbiter && <DbLoginGuide engine="ps" info={cfg.dirAuth} />}
       {tab === 'sso' && !arbiter && <OidcLoginGuide engine="ps" info={cfg.oidc} secrets={sec} />}
+      {tab === 'encryption' && !arbiter && (
+        <div className="space-y-3">
+          {dep.state === 'running' && <MySQLKeyringPanel stackId={stackId} nodeId={nodeId} cluster />}
+          <VaultGuide engine="pxc" info={cfg.vault} />
+        </div>
+      )}
       {tab === 'backup' && !arbiter && xb && <XtraBackupPanel stackId={stackId} scope={xb.scope} id={xb.id} kind="pxc" />}
       {tab === 'diag' && !arbiter && <PTStalkCard stackId={stackId} nodeId={nodeId} />}
     </div>
