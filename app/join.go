@@ -327,7 +327,7 @@ func (a *App) joinPXCFrame(st Stack, frame designFrame, doc designDoc, fresh []d
 		}
 		// The running cluster's own TLS material, when it encrypts its traffic.
 		var clusterSSL []string
-		if frame.EnableVault {
+		if mysqlKeyringKind(frame) != "" {
 			src := ""
 			for _, n := range running {
 				if dep, e := a.store.GetDeployment(st.ID, n.ID); e == nil && dep.State == DeployRunning && dep.ContainerID != "" {
@@ -368,12 +368,10 @@ func (a *App) joinPXCFrame(st Stack, frame designFrame, doc designDoc, fresh []d
 					continue
 				}
 			}
-			if frame.EnableVault && n.Role != "arbitrator" {
-				pr.phase("Verifying keyring (OpenBao)", 90)
+			if n.Role != "arbitrator" {
 				dep, _ := a.store.GetDeployment(st.ID, n.ID)
-				mount, _, _ := mysqlVaultMount(frame.PXCMajor, hosts[n.ID])
-				if err := a.verifyMySQLVault(ctx, dep.ContainerID, frame.OS, frame.PXCMajor, mount, sec.RootPassword, false, pr); err != nil {
-					pr.fail("verify keyring_vault: %v", err)
+				if err := a.verifyMySQLKeyring(ctx, frame, dep.ContainerID, frame.PXCMajor, hosts[n.ID], sec.RootPassword, false, 90, pr); err != nil {
+					pr.fail("verify keyring: %v", err)
 					continue
 				}
 			}

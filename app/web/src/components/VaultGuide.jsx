@@ -5,7 +5,8 @@ import { ConfirmButton } from './ui.jsx'
 // VaultGuide — the "Encryption" tab of a deployed Percona Server / PSMDB / PostgreSQL node that
 // was wired to an OpenBao node at deploy. The keyring is already configured; this says what was
 // configured (so it can be audited) and how to actually use it. Driven by dep.config.vault
-// (vaultInfo in app/dbvault.go); `engine` ∈ {ps, psm, pg, pxc, mysql}.
+// (vaultInfo in app/dbvault.go); `engine` ∈ {ps, psm, pg, pxc, mysql}, plus mysqlce and
+// mysqlcerepl for a keyring file (KeyringFileGuide).
 //
 // pxc and mysql are cluster MEMBERS and share the ps guide, plus one paragraph they need and a
 // standalone server does not: this member's mount holds this member's master key and nobody
@@ -149,6 +150,10 @@ psql -U postgres -c "SELECT count(*) FROM my_table;"`} />
     )
   }
 
+  // A MySQL-family server keyed to a keyring FILE rather than OpenBao (app/keyringfile.go):
+  // Percona Server, PXC or MySQL Community, standalone or a cluster member.
+  if (info.provider === 'file') return <KeyringFileGuide engine={engine} info={info} />
+
   // ps — Percona Server for MySQL, standalone or as a cluster member (pxc / mysql)
   const member = engine === 'pxc' || engine === 'mysql'
   return (
@@ -182,6 +187,44 @@ mysql -e "SELECT NAME, ENCRYPTION FROM information_schema.innodb_tablespaces WHE
         table created here is encrypted without the <span className="font-mono">ENCRYPTION=&apos;Y&apos;</span> clause
         above. An explicit clause still wins, in either direction.
       </div>
+      <Code label="Rotate the master key" text={`mysql -e "ALTER INSTANCE ROTATE INNODB MASTER KEY;"`} />
+    </div>
+  )
+}
+
+// KeyringFileGuide is the Encryption tab of a MySQL-family server whose keyring is a file on the
+// node. Same checks as the OpenBao keyring, minus the key server — and plus the one thing a file
+// keyring makes your problem: the file is the key, so it has to be backed up apart from the data.
+function KeyringFileGuide({ engine, info }) {
+  const plugin = info.method === 'keyring_file plugin'
+  const member = engine === 'pxc' || engine === 'mysql' || engine === 'mysqlcerepl'
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
+        This node&apos;s keyring is a file: {plugin
+          ? <>the <span className="font-mono">keyring_file</span> plugin, loaded with <span className="font-mono">early-plugin-load</span></>
+          : <>the <span className="font-mono">component_keyring_file</span> component, declared by the global manifest next to <span className="font-mono">mysqld</span></>}.
+        The master keys are in <span className="font-mono">{info.keyringFile}</span> — MySQL cannot open an encrypted
+        tablespace without that file, so back it up separately from the data, and never only alongside it.
+      </div>
+      <div className="space-y-1.5 rounded-lg border p-2">
+        <KV k="Method" v={info.method} />
+        <KV k="Keyring file" v={info.keyringFile} />
+        <KV k="Config" v={info.confFile} />
+      </div>
+      {member && (
+        <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
+          Every member of this cluster has a keyring file of its own. Keys never travel between members: {engine === 'pxc'
+            ? <>write-sets carry rows, and a joiner&apos;s SST re-encrypts the donor&apos;s tablespace keys under a master key it generates for itself.</>
+            : <>a replica applies the source&apos;s changes and encrypts what it writes with its own master key.</>}
+          {' '}Rotating here rotates this member only.
+        </div>
+      )}
+      <Code label="Confirm the keyring is loaded" text={plugin
+        ? `mysql -e "SELECT PLUGIN_NAME, PLUGIN_STATUS FROM information_schema.plugins WHERE PLUGIN_NAME='keyring_file'"`
+        : `mysql -e "SELECT * FROM performance_schema.keyring_component_status"`} />
+      <Code label="Encrypt a table (and check)" text={`mysql -e "CREATE DATABASE IF NOT EXISTS enc; CREATE TABLE enc.t (id INT PRIMARY KEY) ENCRYPTION='Y';"
+mysql -e "SELECT NAME, ENCRYPTION FROM information_schema.innodb_tablespaces WHERE NAME LIKE 'enc/%'"`} />
       <Code label="Rotate the master key" text={`mysql -e "ALTER INSTANCE ROTATE INNODB MASTER KEY;"`} />
     </div>
   )

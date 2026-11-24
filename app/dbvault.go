@@ -65,8 +65,11 @@ const (
 // vaultInfo is persisted into a ps/psm node's Deployment.Config (key "vault") so the manager can
 // show exactly how the node is encrypted. It never carries the token.
 type vaultInfo struct {
-	Enabled    bool   `json:"enabled"`
-	Method     string `json:"method"`     // component_keyring_vault | keyring_vault plugin | security.vault
+	Enabled bool `json:"enabled"`
+	// Provider is "file" for a MySQL-family keyring file (keyringfile.go); "" is OpenBao, which
+	// every deployment recorded before the file keyring existed is.
+	Provider   string `json:"provider,omitempty"`
+	Method     string `json:"method"`     // component_keyring_vault | keyring_vault plugin | security.vault | component_keyring_file | keyring_file plugin
 	Addr       string `json:"addr"`       // VAULT_ADDR of the OpenBao node
 	OpenBao    string `json:"openbao"`    // OpenBao node FQDN
 	Mount      string `json:"mount"`      // this node's own KV mount (= its policy name)
@@ -75,6 +78,8 @@ type vaultInfo struct {
 	CACert     string `json:"caCert"`     // the Intranet CA in the node's trust store
 	ConfFile   string `json:"confFile"`   // keyring conf / manifest location (MySQL only)
 	TokenFile  string `json:"tokenFile"`  // PSMDB only (MySQL carries the token inside its conf)
+	// KeyringFile is where a file keyring keeps its master keys (Provider "file" only).
+	KeyringFile string `json:"keyringFile,omitempty"`
 	// PostgreSQL only: which pg_tde the node ended up with ("percona-pg_tde17 2.1.2-1.el9", or
 	// bundled with the server) — the install chooses it by loading each build (pgtde.go), so it
 	// is worth showing — and, on a Patroni cluster, that the principal key is the cluster's.
@@ -326,7 +331,7 @@ func mysqlVaultOptions(major string) string {
 		fmt.Fprintf(&b, "early-plugin-load=keyring_vault.so\n")
 		fmt.Fprintf(&b, "keyring_vault_config=%s\n", mysqlKeyringConf)
 	}
-	b.WriteString("default_table_encryption=ON\n")
+	b.WriteString(mysqlDefaultTableEncryption(major, ""))
 	return b.String()
 }
 

@@ -66,7 +66,7 @@ import {
   frameHeaderW, layoutFrame, separateFrames, SIM_NODE_TYPES, frameVersionLabel, frameSubLabel,
   podMenuEntries, POD_SHELLS, POD_CLIENTS,
   Spinner, NodeStatus, nodeConfiguring, configPhaseOf, PITRFields,
-  FrameVaultFields, PgBouncerForm, PGHostAuthFields, PGStreamFrameForm, PaletteEntry, loadPalettePrefs,
+  FrameVaultFields, KeyringFileFields, PgBouncerForm, PGHostAuthFields, PGStreamFrameForm, PaletteEntry, loadPalettePrefs,
   KubeadmFrameForm, KubeadmMemberForm, PGQuerySourceField, PGSecurityOptions, labelsText, parseLabels } from '../src/pages/StackDesigner.jsx'
 import { AIO_MENU, instanceKindLabel, addBlockedReason as aioAddBlocked } from '../src/lib/aioPorts.js'
 import PGStreamManager from '../src/pages/PGStreamManager.jsx'
@@ -746,6 +746,45 @@ check('cluster encryption: an encrypted PXC member gets the Encryption tab', () 
     </TerminalProvider>,
   )
   if (plain.includes('Encryption')) throw new Error('an unencrypted member offers an Encryption tab')
+  return 'ok'
+})
+
+check('keyring file: offered on a cluster frame without OpenBao, and it says what it does', () => {
+  const html = renderToString(<FrameVaultFields frame={{ id: 'f1', type: 'pxc', pxcMajor: '8.4', keyringFile: true }}
+    nodes={[]} patchFrame={noop} deployed={false} />)
+  if (!/Encrypt with a keyring file/.test(html)) throw new Error('the keyring-file option is missing')
+  if (!/component_keyring_file/.test(html)) throw new Error('8.4 must use component_keyring_file')
+  if (!/pxc_encrypt_cluster_traffic=ON/.test(html)) throw new Error('PXC must say cluster traffic is encrypted too')
+  const html80 = renderToString(<FrameVaultFields frame={{ id: 'f1', type: 'mysql', psMajor: '8.0', keyringFile: true }}
+    nodes={[]} patchFrame={noop} deployed={false} />)
+  if (!/keyring_file plugin/.test(html80)) throw new Error('8.0 must use the keyring_file plugin')
+  if (/pxc_encrypt_cluster_traffic/.test(html80)) throw new Error('cluster traffic is a PXC concern')
+  return 'ok'
+})
+
+check('keyring file: MySQL Community gets the box, and 5.7 does not promise default_table_encryption', () => {
+  const ce = renderToString(<KeyringFileFields obj={{ id: 'n1', keyringFile: true }} patch={noop} deployed={false} major="9.7" />)
+  if (!/Data-at-rest encryption/.test(ce) || !/component_keyring_file/.test(ce)) throw new Error('the Community box is wrong')
+  const old = renderToString(<KeyringFileFields obj={{ id: 'n1', keyringFile: true }} patch={noop} deployed={false} major="5.7" />)
+  if (/default_table_encryption=ON/.test(old)) throw new Error('5.7 has no default_table_encryption')
+  return 'ok'
+})
+
+check('keyring file: the manager names the file and the guide says to back it up', () => {
+  const info = { enabled: true, provider: 'file', method: 'component_keyring_file',
+    confFile: 'component_keyring_file.cnf (in plugin_dir)', keyringFile: '/var/lib/mysql-keyring/component_keyring_file' }
+  const dep = { state: 'running', config: { hostname: 'mysql01', fqdn: 'mysql01.example.net', role: 'standalone', vault: info }, secrets: {} }
+  const html = renderToString(
+    <TerminalProvider>
+      <MySQLManager stackId={1} nodeId="mysql01" engine="mysqlce" dep={dep} onDeleteNode={noop} />
+    </TerminalProvider>,
+  )
+  if (!html.includes('Keyring file · component_keyring_file')) throw new Error('the summary row does not say keyring file')
+  if (html.includes('OpenBao ·')) throw new Error('a file keyring was labelled OpenBao')
+  const guide = renderToString(<VaultGuide engine="pxc" info={info} />)
+  if (!guide.includes('/var/lib/mysql-keyring/component_keyring_file')) throw new Error('the keyring file is not named')
+  if (!/back it up/.test(guide)) throw new Error('the guide must say the file has to be backed up')
+  if (/OpenBao/.test(guide)) throw new Error('a file keyring guide mentions OpenBao')
   return 'ok'
 })
 

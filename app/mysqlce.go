@@ -93,8 +93,8 @@ func (a *App) provisionMySQLCE(st Stack, n designNode, doc designDoc) {
 		PSMajor: major, PSVersion: n.MySQLCEVersion,
 		GTID: n.GTID, UseProxy: n.UseProxy, RepositoryNodeID: n.RepositoryNodeID, GenerateCert: n.GenerateCert,
 		CertTTLValue: n.CertTTLValue, CertTTLUnit: n.CertTTLUnit, PMMNodeID: n.PMMNodeID,
-		UseXtraBackup: n.UseXtraBackup,
-		mysqlTuning:   n.mysqlTuning,
+		UseXtraBackup: n.UseXtraBackup, KeyringFile: n.KeyringFile,
+		mysqlTuning: n.mysqlTuning,
 	}
 	image := pxcImage(n.OS, n.OSVersion, n.Arch)
 	sec := mysqlFamilySecrets()
@@ -151,6 +151,10 @@ func (a *App) provisionMySQLCE(st Stack, n designNode, doc designDoc) {
 				pmmUser, pmmPass = u, p
 			}
 			a.pxcPMMExec(ctx, a.containerOf(st.ID, n.ID), n.OS, pxcPMMEnv(monitoredBy, pmmUser, pmmPass, sec, n.Label)) // best-effort
+		}
+		if err := a.verifyMySQLKeyring(ctx, frame, a.containerOf(st.ID, n.ID), major, host, sec.RootPassword, true, 97, pr); err != nil {
+			pr.fail("verify keyring: %v", err)
+			return
 		}
 		pr.phase("Running", 100)
 		pr.p.Message = "provisioned"
@@ -349,6 +353,11 @@ func (a *App) provisionMySQLCEFrame(st Stack, frame designFrame, doc designDoc) 
 				}
 				a.pxcPMMExec(ctx, dep.ContainerID, frame.OS, pxcPMMEnv(monitoredBy, pmmUser, pmmPass, sec, n.Label)) // best-effort
 			}
+			// The primary proves the keyring end to end; secondaries are super_read_only by now.
+			if err := a.verifyMySQLKeyring(ctx, frame, dep.ContainerID, frame.PSMajor, hosts[n.ID], sec.RootPassword, n.ID == primary.ID, 97, pr); err != nil {
+				pr.fail("verify keyring: %v", err)
+				return
+			}
 			pr.phase("Running", 100)
 			pr.p.Message = "provisioned"
 			pr.save()
@@ -538,10 +547,13 @@ func (a *App) mysqlcePrepareNode(ctx context.Context, st Stack, frame designFram
 			return pr.fail("%v", err)
 		}
 	}
-	// No keyring options: keyring_vault is a Percona Server component, and Oracle's community
-	// packages ship component_keyring_file only — so a MySQL Community frame has no OpenBao
-	// option to pass on (see dbvault.go).
-	return a.mysqlWriteNodeCnf(ctx, id, frame.OS, mysqlMyCnf(frame, host, ""), pr)
+	// A keyring file, when asked for (keyringfile.go). There is no OpenBao option here:
+	// keyring_vault is Percona's, and Oracle's community packages ship the file keyring only.
+	keyringOpts, err := a.prepareMySQLKeyring(ctx, st, frame, frame.PSMajor, frame.PSVersion, host, n.ID, id, pr)
+	if err != nil {
+		return pr.fail("configure keyring: %v", err)
+	}
+	return a.mysqlWriteNodeCnf(ctx, id, frame.OS, mysqlMyCnf(frame, host, keyringOpts), pr)
 }
 
 // mysqlceInnoDBPrepareNode is the InnoDB/GR counterpart: it additionally installs

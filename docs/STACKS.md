@@ -603,6 +603,29 @@ The deploy checks every member has its keyring loaded and creates an encrypted t
 member that cannot fails instead of coming up unencrypted. The node's **Encryption** tab shows
 the result.
 
+## Encrypt data at rest with a keyring file
+
+Without an OpenBao node, tick *Encrypt with a keyring file* on a Percona Server node, a Percona
+Server Replication or PXC frame, or a MySQL or MySQL Replication (Community) node or frame. The
+keyring is a file on each server, staged before the server first starts:
+
+| Series | Keyring | Master keys in |
+| --- | --- | --- |
+| 8.4, 9.7 | `component_keyring_file` (global manifest beside `mysqld`, config in `plugin_dir`) | `/var/lib/mysql-keyring/component_keyring_file` |
+| 5.7, 8.0 | `keyring_file` plugin (`early-plugin-load`, `keyring_file_data`) | `/var/lib/mysql-keyring/keyring` |
+
+`default_table_encryption=ON` is set where the server has it (8.0.16 and later); on 5.7 tables
+are encrypted with an explicit `ENCRYPTION='Y'`. Every cluster member gets a keyring of its own.
+A PXC cluster encrypts its cluster traffic exactly as it does with OpenBao, with one shared
+Intranet-CA certificate.
+
+A server has one keyring, so the keyring file and OpenBao exclude each other, and neither is
+offered with XtraBackup backups. The InnoDB Cluster / Group Replication frames and MariaDB do not
+offer it. The deploy runs the same check as for OpenBao (keyring loaded, an encrypted test table,
+and a non-empty keyring file), and the **Encryption** tab names the keyring file. The file sits on
+the same disk as the data, so it protects a copied data directory rather than the host; back it
+up apart from the data.
+
 ## Kubernetes (K3D)
 
 Add a **K3D Cluster** frame to run k3s on the stack network. Pods resolve the Intranet DNS and

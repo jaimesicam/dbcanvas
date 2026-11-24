@@ -86,7 +86,7 @@ export default function MySQLManager({ stackId, nodeId, engine = 'ps', dep, onDe
           <KV k="read_only" help={DEP_HELP.read_only} v={cfg.readOnly ? 'ON' : 'OFF'} />
           <KV k="TLS" help={DEP_HELP.TLS} v={cfg.generateCert ? 'Intranet CA' : 'none'} />
           {cfg.oidc?.enabled && <KV k="Keycloak SSO" help={DEP_HELP['Keycloak SSO']} v={`auth_openid_connect · realm ${cfg.oidc.realm}`} />}
-          {cfg.vault?.enabled && <KV k="Encryption" help={DEP_HELP.Encryption} v={`OpenBao · ${cfg.vault.method}`} />}
+          {cfg.vault?.enabled && <KV k="Encryption" help={DEP_HELP.Encryption} v={`${cfg.vault.provider === 'file' ? 'Keyring file' : 'OpenBao'} · ${cfg.vault.method}`} />}
           <KV k="Monitored by" help={DEP_HELP['Monitored by']} v={cfg.monitoredBy} mono />
           {cfg.serverVersion && <KV k="Version" help={DEP_HELP.Version} v={cfg.serverVersion} mono />}
           <KV k="Image" help={DEP_HELP.Image} v={cfg.image} mono />

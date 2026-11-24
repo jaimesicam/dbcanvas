@@ -312,12 +312,8 @@ func (a *App) mysqlFinishMember(ctx context.Context, st Stack, frame designFrame
 	// loaded. The end-to-end check (writing an encrypted table) runs on the primary
 	// only — a secondary is super_read_only by now, and the primary's write is the
 	// cluster's proof either way.
-	if frame.EnableVault {
-		pr.phase("Verifying keyring (OpenBao)", 97)
-		mount, _, _ := mysqlVaultMount(frame.PSMajor, hosts[n.ID])
-		if err := a.verifyMySQLVault(ctx, dep.ContainerID, frame.OS, frame.PSMajor, mount, sec.RootPassword, isPrimary, pr); err != nil {
-			return pr.fail("verify keyring_vault: %v", err)
-		}
+	if err := a.verifyMySQLKeyring(ctx, frame, dep.ContainerID, frame.PSMajor, hosts[n.ID], sec.RootPassword, isPrimary, 97, pr); err != nil {
+		return pr.fail("verify keyring: %v", err)
 	}
 	pr.phase("Running", 100)
 	pr.p.Message = "provisioned"
@@ -344,7 +340,7 @@ func (a *App) provisionPerconaServer(st Stack, n designNode, doc designDoc) {
 		// The keyring rides on the synthetic frame like everything else this node configures
 		// through the shared path, so a standalone server and a replication member are wired
 		// by the same code — which is the only way they stay wired the same way.
-		EnableVault: n.EnableVault, OpenBaoNodeID: n.OpenBaoNodeID,
+		EnableVault: n.EnableVault, OpenBaoNodeID: n.OpenBaoNodeID, KeyringFile: n.KeyringFile,
 		mysqlTuning: n.mysqlTuning,
 	}
 	major := psMajorOf(n.PSMajor)
@@ -420,14 +416,10 @@ func (a *App) provisionPerconaServer(st Stack, n designNode, doc designDoc) {
 		}
 		// Data-at-rest encryption was staged before the server's first start (mysqlPrepareNode);
 		// what is left is to prove it works — the keyring is loaded, and a master key really
-		// round-trips through OpenBao.
-		if n.EnableVault {
-			pr.phase("Verifying keyring (OpenBao)", 97)
-			mount, _, _ := mysqlVaultMount(n.PSMajor, host)
-			if err := a.verifyMySQLVault(ctx, a.containerOf(st.ID, n.ID), n.OS, n.PSMajor, mount, sec.RootPassword, true, pr); err != nil {
-				pr.fail("verify keyring_vault: %v", err)
-				return
-			}
+		// is stored in the keyring (OpenBao, or the keyring file).
+		if err := a.verifyMySQLKeyring(ctx, frame, a.containerOf(st.ID, n.ID), n.PSMajor, host, sec.RootPassword, true, 97, pr); err != nil {
+			pr.fail("verify keyring: %v", err)
+			return
 		}
 		pr.phase("Running", 100)
 		pr.p.Message = "provisioned"
@@ -786,14 +778,9 @@ func (a *App) mysqlPrepareNode(ctx context.Context, st Stack, frame designFrame,
 	// Data-at-rest encryption, staged before mysqld has ever started: the keyring files go into
 	// the container now and the options it needs go into the config written below, so the server
 	// comes up with a keyring instead of being restarted into one. See dbvault.go.
-	vaultOpts := ""
-	if frame.EnableVault {
-		prep, err := a.prepareMySQLVault(ctx, st, frame.OpenBaoNodeID, frame.OS, frame.PSMajor, host, id, pr)
-		if err != nil {
-			return pr.fail("configure keyring_vault: %v", err)
-		}
-		vaultOpts = prep.Options
-		a.persistConfigKey(st, n.ID, "vault", prep.Info)
+	vaultOpts, err := a.prepareMySQLKeyring(ctx, st, frame, frame.PSMajor, frame.PSVersion, host, n.ID, id, pr)
+	if err != nil {
+		return pr.fail("configure keyring: %v", err)
 	}
 
 	return a.mysqlWriteNodeCnf(ctx, id, frame.OS, mysqlMyCnf(frame, host, vaultOpts), pr)

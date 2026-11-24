@@ -129,6 +129,12 @@ export const HELP = {
     'requires a mount to serve exactly one server — and the keyring is put in place before any member first ' +
     'starts, so nothing has to be restarted into it.',
 
+  keyringFile:
+    'Encrypt data at rest with a keyring file on the server itself instead of a key server: component_keyring_file ' +
+    'on 8.4 and 9.7, the keyring_file plugin on 5.7 and 8.0. Nothing else is needed in the stack. The master key ' +
+    'sits on the same disk as the data, so it guards a copied data directory rather than the host. On a cluster ' +
+    'every member gets a keyring of its own, staged before it first starts.',
+
   // --- monitoring & topology ----------------------------------------------
   pmm:
     'Register this node with a PMM server so it shows up in Percona Monitoring and Management with metrics and ' +

@@ -416,7 +416,7 @@ func (a *App) provisionPXCFrame(st Stack, frame designFrame, doc designDoc) {
 		// rather than per node: per-node certificates are precisely what PXC cannot use for
 		// cluster traffic.
 		var clusterSSL []string
-		if frame.EnableVault {
+		if mysqlKeyringKind(frame) != "" {
 			baseProg.phase("Signing the cluster certificate", 8)
 			clusterSSL, err = a.pxcClusterSSL(ctx, intranetID, frame, gcommHosts)
 			if err != nil {
@@ -489,14 +489,12 @@ func (a *App) provisionPXCFrame(st Stack, frame designFrame, doc designDoc) {
 			pr := a.pxcNewProg(st.ID, n.ID)
 			// The keyring was staged before each member started; confirm it loaded, and prove it
 			// end to end on the node that bootstrapped — an encrypted table there is a master key
-			// stored in OpenBao, and the write replicates to the rest of the cluster.
-			if frame.EnableVault && n.Role != "arbitrator" {
-				pr.phase("Verifying keyring (OpenBao)", 90)
+			// stored in the keyring, and the write replicates to the rest of the cluster.
+			if n.Role != "arbitrator" {
 				dep, _ := a.store.GetDeployment(st.ID, n.ID)
-				mount, _, _ := mysqlVaultMount(frame.PXCMajor, hosts[n.ID])
-				if err := a.verifyMySQLVault(ctx, dep.ContainerID, frame.OS, frame.PXCMajor, mount,
-					sec.RootPassword, n.ID == regulars[0].ID, pr); err != nil {
-					pr.fail("verify keyring_vault: %v", err)
+				if err := a.verifyMySQLKeyring(ctx, frame, dep.ContainerID, frame.PXCMajor, hosts[n.ID],
+					sec.RootPassword, n.ID == regulars[0].ID, 90, pr); err != nil {
+					pr.fail("verify keyring: %v", err)
 					return
 				}
 			}
@@ -640,20 +638,20 @@ func (a *App) pxcPrepareNode(ctx context.Context, st Stack, frame designFrame, n
 		// Data-at-rest encryption, staged before this member has ever started mysqld — which for
 		// a cluster member is not a convenience but the difference between configuring a keyring
 		// and restarting a node out of the cluster to give it one. Every member gets its own KV
-		// mount; see dbvault.go. An arbitrator runs garbd, which has no datadir and no keyring.
+		// mount, or its own keyring file; see dbvault.go and keyringfile.go. An arbitrator runs
+		// garbd, which has no datadir and no keyring.
 		vaultOpts := ""
-		if frame.EnableVault {
+		if mysqlKeyringKind(frame) != "" {
 			// The cluster's shared TLS material first: it is what the SST channel is encrypted
 			// with, and PXC will not transfer state without it once a keyring is configured.
 			if err := a.runStep(ctx, id, pxcClusterSSLScript, clusterSSL, pr.logln); err != nil {
 				return pr.fail("stage cluster TLS material: %v", err)
 			}
-			prep, err := a.prepareMySQLVault(ctx, st, frame.OpenBaoNodeID, frame.OS, frame.PXCMajor, host, id, pr)
+			opts, err := a.prepareMySQLKeyring(ctx, st, frame, frame.PXCMajor, frame.PXCVersion, host, n.ID, id, pr)
 			if err != nil {
-				return pr.fail("configure keyring_vault: %v", err)
+				return pr.fail("configure keyring: %v", err)
 			}
-			vaultOpts = prep.Options
-			a.persistConfigKey(st, n.ID, "vault", prep.Info)
+			vaultOpts = opts
 		}
 		if err := a.mysqlWriteNodeCnf(ctx, id, frame.OS, pxcMyCnf(frame, n, host, domain, clusterAddr, vaultOpts), pr); err != nil {
 			return err
@@ -780,7 +778,7 @@ func pxcMyCnf(frame designFrame, n designNode, host, domain, clusterAddr, vaultO
 	// and can never add a second. The material is one certificate for the whole cluster
 	// (pxcClusterSSL), staged before any member starts, because it is what the transfer itself
 	// is encrypted with.
-	if vaultOptions != "" {
+	if mysqlKeyringKind(frame) != "" {
 		fmt.Fprintf(&b, "pxc_encrypt_cluster_traffic=ON\n")
 		fmt.Fprintf(&b, "ssl-ca=%s/ca.pem\nssl-cert=%s/server-cert.pem\nssl-key=%s/server-key.pem\n",
 			pxcSSLDir, pxcSSLDir, pxcSSLDir)
@@ -804,7 +802,7 @@ func pxcMyCnf(frame designFrame, n designNode, host, domain, clusterAddr, vaultO
 	// SST option rather than a server one. `encrypt=4` is SSL with the server's own certificate
 	// on both ends, which is what makes the keyring's tablespace keys — and the transition key
 	// the joiner re-encrypts them with — private on the wire.
-	if vaultOptions != "" {
+	if mysqlKeyringKind(frame) != "" {
 		fmt.Fprintf(&b, "\n[sst]\nencrypt=4\nssl-ca=%s/ca.pem\nssl-cert=%s/server-cert.pem\nssl-key=%s/server-key.pem\n",
 			pxcSSLDir, pxcSSLDir, pxcSSLDir)
 	}
@@ -835,7 +833,7 @@ func (a *App) pxcBootstrap(ctx context.Context, st Stack, frame designFrame, n d
 	if err := a.engCtx(ctx).CopyFile(ctx, id, "/root", ".my.cnf", 0o600, pxcRootMyCnf(sec)); err != nil {
 		return pr.fail("write /root/.my.cnf: %v", err)
 	}
-	if frame.GenerateCert && !frame.EnableVault {
+	if frame.GenerateCert && mysqlKeyringKind(frame) == "" {
 		pr.phase("Issuing certificate", 80)
 		if err := a.pxcApplyCert(ctx, id, intranetID, fqdnOf(host, domain), "mysql@bootstrap", frame.OS, frame.CertTTLValue, frame.CertTTLUnit, pr.logln, false); err != nil {
 			return pr.fail("%v", err)
@@ -866,7 +864,7 @@ func (a *App) pxcJoin(ctx context.Context, st Stack, frame designFrame, n design
 	if err := a.engCtx(ctx).CopyFile(ctx, id, "/root", ".my.cnf", 0o600, pxcRootMyCnf(sec)); err != nil {
 		return pr.fail("write /root/.my.cnf: %v", err)
 	}
-	if frame.GenerateCert && !frame.EnableVault {
+	if frame.GenerateCert && mysqlKeyringKind(frame) == "" {
 		pr.phase("Issuing certificate", 80)
 		if err := a.pxcApplyCert(ctx, id, intranetID, fqdnOf(host, domain), "mysql", frame.OS, frame.CertTTLValue, frame.CertTTLUnit, pr.logln, false); err != nil {
 			return pr.fail("%v", err)

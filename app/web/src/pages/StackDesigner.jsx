@@ -7390,6 +7390,63 @@ function DirectoryAuthFields({ node: n, nodes, patchNode, deployed, kerberos, ld
 // onto a supported version — the PostgreSQL version is usually the point of the node, so the
 // toggle stays off until the version agrees rather than quietly changing it underneath.
 
+// KeyringFileOption is data-at-rest encryption with a keyring FILE on the server itself
+// (app/keyringfile.go) — Percona Server, PXC and MySQL Community. It needs no OpenBao node, and it
+// is exclusive with one: ticking it clears the OpenBao link, and ticking OpenBao clears it. The
+// series decides the keyring: the keyring_file plugin on 5.7 / 8.0, component_keyring_file on
+// 8.4 / 9.7, where the plugin no longer exists. `patch` takes a partial object.
+export function KeyringFileOption({ obj, patch, deployed, major, cluster = false, pxc = false }) {
+  const modern = major === '8.4' || major === '9.7'
+  const where = modern ? '/var/lib/mysql-keyring/component_keyring_file' : '/var/lib/mysql-keyring/keyring'
+  return (
+    <>
+      <label className={`flex items-center gap-2 text-sm ${deployed ? 'opacity-70' : ''}`}>
+        <input type="checkbox" checked={!!obj.keyringFile} disabled={deployed}
+          onChange={(e) => patch(e.target.checked
+            ? { keyringFile: true, enableVault: false, openbaoNodeId: '' }
+            : { keyringFile: false })} />
+        <span>Encrypt with a keyring file</span><Help text={HELP.keyringFile} />
+      </label>
+      {obj.keyringFile && (
+        <>
+          <p className="text-xs text-muted">
+            {cluster ? 'Every member gets ' : 'The server gets '}
+            <span className="font-mono">{modern ? 'component_keyring_file' : 'the keyring_file plugin'}</span>
+            {modern ? ' (declared by the global manifest beside mysqld)' : ' (loaded with early-plugin-load)'}, staged
+            before mysqld first starts, with its master keys in <span className="font-mono">{where}</span>
+            {cluster ? ' — a keyring of its own, since keys never travel between members' : ''}.{' '}
+            {major === '5.7'
+              ? <>5.7 has no <span className="font-mono">default_table_encryption</span>, so tables are encrypted with an explicit <span className="font-mono">ENCRYPTION=&apos;Y&apos;</span>.</>
+              : <><span className="font-mono">default_table_encryption=ON</span> is set, so new tables are encrypted without asking.</>}
+          </p>
+          {pxc && (
+            <p className="text-xs text-muted">
+              Cluster traffic is encrypted too, as with OpenBao: PXC&apos;s SST refuses an unencrypted channel once a
+              keyring is configured. The cluster gets one shared Intranet-CA certificate and{' '}
+              <span className="font-mono">pxc_encrypt_cluster_traffic=ON</span>; per-node certificates are skipped.
+            </p>
+          )}
+          <p className="text-xs text-muted">
+            The key file lives on the same disk as the data: it protects a copied data directory, not the host. Not
+            available together with XtraBackup backups.
+          </p>
+        </>
+      )}
+    </>
+  )
+}
+
+// KeyringFileFields is KeyringFileOption in the form's encryption box, for the MySQL Community
+// forms, which have no OpenBao option (Oracle's packages ship no vault keyring).
+export function KeyringFileFields(props) {
+  return (
+    <div className="space-y-2 rounded-lg border border-dashed p-2">
+      <div className="text-xs font-medium text-muted">Data-at-rest encryption</div>
+      <KeyringFileOption {...props} />
+    </div>
+  )
+}
+
 // VaultFields renders the "Data-at-rest encryption" block shared by the standalone Percona
 // Server, PSMDB and PostgreSQL forms: a toggle + an OpenBao-node picker. How the engine is wired
 // depends on its version, which is worth saying out loud here — the keyring_vault *component*
@@ -7421,10 +7478,14 @@ function VaultFields({ node: n, nodes, patchNode, deployed }) {
           onChange={(e) => patchNode(n.id, {
             enableVault: e.target.checked,
             openbaoNodeId: e.target.checked ? (bao?.id ?? '') : '',
+            ...(e.target.checked && n.keyringFile ? { keyringFile: false } : {}),
           })} />
         <span>Encrypt with OpenBao</span><Help text={HELP.vault} />
       </label>
       {!bao && <p className="text-xs text-muted">Add the OpenBao node to key encryption to it.</p>}
+      {n.type === 'ps' && (
+        <KeyringFileOption obj={n} patch={(p) => patchNode(n.id, p)} deployed={deployed} major={maj} />
+      )}
       {isPg && !pgOk && (
         <p className="text-xs text-muted">
           Encryption at rest for PostgreSQL is <span className="font-mono">pg_tde</span>: {tde.why}. Change the
@@ -7564,10 +7625,12 @@ export function FrameVaultFields({ frame: f, nodes, patchFrame, deployed }) {
           onChange={(e) => patchFrame(f.id, {
             enableVault: e.target.checked,
             openbaoNodeId: e.target.checked ? (bao?.id ?? '') : '',
+            ...(e.target.checked && f.keyringFile ? { keyringFile: false } : {}),
           })} />
         <span>Encrypt with OpenBao</span><Help text={HELP.vault} />
       </label>
       {!bao && <p className="text-xs text-muted">Add the OpenBao node to key encryption to it.</p>}
+      <KeyringFileOption obj={f} patch={(p) => patchFrame(f.id, p)} deployed={deployed} major={maj} cluster pxc={isPXC} />
       {f.enableVault && bao && (
         <>
           <p className="text-xs text-muted">
@@ -16125,6 +16188,7 @@ function BodyForm({ selected, stackId, nodes, edges, frames, depByNode, patchNod
     }
     if (f.type === 'mysqlcerepl') {
       return <MySQLCEFrameForm frame={f} stackId={stackId} nodes={nodes} patchFrame={patchFrame} deleteFrame={deleteFrame} deployed={deployed} running={running}
+        encryption={<KeyringFileFields obj={f} patch={(p) => patchFrame(f.id, p)} deployed={deployed} major={f.mysqlceMajor || '8.4'} cluster />}
         backup={<XtraBackupOptions v={f} nodes={nodes} patch={(p) => patchFrame(f.id, p)} />} />
     }
     if (f.type === 'mysqlceinnodb') {
@@ -16186,6 +16250,7 @@ function BodyForm({ selected, stackId, nodes, edges, frames, depByNode, patchNod
         return <MySQLManager stackId={stackId} nodeId={n.id} engine={n.type} dep={dep} onDeleteNode={() => deleteNode(n.id)} xb={n.useXtraBackup ? { scope: 'nodes', id: n.id } : null} />
       }
       return <MySQLCENodeForm node={n} nodes={nodes} patchNode={patchNode} deleteNode={deleteNode} deployed={deployed}
+        encryption={<KeyringFileFields obj={n} patch={(p) => patchNode(n.id, p)} deployed={deployed} major={n.mysqlceMajor || '8.4'} />}
         backup={<XtraBackupOptions v={n} nodes={nodes} patch={(p) => patchNode(n.id, p)} />} />
     }
     // Members of the four upstream cluster kinds. Replication members carry a role;
