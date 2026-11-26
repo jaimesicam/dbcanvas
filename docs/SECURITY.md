@@ -34,8 +34,9 @@ one of these credentials:
 | A guest's cookie | Joining a shared session you started. |
 | A live join link | The link of a shared session that is still running, for a guest who has not joined yet. |
 
-Without one, only the start link and the web app's static files answer (the same code that is in
-the binary); everything else is a 401 that says how to get in and nothing about what is running.
+Without one, only the start link, the licence texts under `/licenses/` and the web app's static
+files answer (the same code that is in the binary); everything else is a 401 that says how to get
+in and nothing about what is running.
 
 **Requests from web pages.** A web page anywhere can make a browser send requests to 127.0.0.1,
 through a DNS name that resolves to it or as a cross-site form or fetch. The port answers only
@@ -54,19 +55,22 @@ way, the proxy or tunnel decides who can reach the port, and the credentials abo
 
 ## API tokens
 
-- **Scope.** `read` covers every `GET` and the requests that only compute something; `write`
-  everything the browser can do with stacks; `admin` also instance settings, tokens and image
-  builds.
+- **Scope.** `read` covers every `GET` and the requests that only compute something, except a
+  node's terminal, the Operator Debugger and gdb, which hand over a shell or a debugger and need
+  `write`; `write` covers everything the browser can do with stacks; `admin` also system
+  settings, image builds and the doctor.
 - **Limits.** A token can be limited to the stacks it creates (`--own-stacks`) and/or the stacks
   carrying given labels (`--label tool=ci`). Such a token can use only those stacks, list
   (filtered to them), create stacks and read the catalogues; every other endpoint answers 403.
   Stacks it creates carry its labels, and it cannot remove them. `--max-ttl` caps how long its
   stacks may live, and `--deny` names node types it may not deploy.
 - **Expiry.** 30 days by default (`--days`), capped by **Settings → API token lifetime**.
+  `--days 0` creates a token that never expires.
 - **Use.** Give each program the narrowest token that works, and revoke it with
   `dbcanvas token rm` when it is done.
 
-A token cannot create another token or start a shared session: those need your browser session.
+No token, whatever its scope, can create another token or start a shared session: those need
+your browser session.
 
 ## Shared sessions
 

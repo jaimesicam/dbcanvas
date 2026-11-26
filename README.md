@@ -196,7 +196,7 @@ read-only and installs gdb with the matching debug symbols, for the Core Dump An
 
 → [Application simulators](docs/STACKS.md#application-simulators)
 
-Fourteen built-in templates start from a working design, including PXC with ProxySQL and PMM,
+Fifteen built-in templates start from a working design, including PXC with ProxySQL and PMM,
 Patroni with HAProxy, sharded PSMDB, vector search with the Support Sim and the two-cluster PXC
 operator replication.
 
@@ -387,12 +387,16 @@ brew install qemu        # macOS: only for the other architecture (amd64 VMs on 
 On Linux, install Lima from its releases and QEMU from the distribution, and give your user
 `/dev/kvm`; see [Install Lima](docs/VM_NODES.md#install-lima). dbcanvas finds `limactl` on the
 `PATH` it was started with: after installing Lima, run `dbcanvas stop` so the next command picks
-it up. `dbcanvas doctor` reports Lima and QEMU under *vm nodes*. Pick **Runs on → Virtual
+it up. `dbcanvas doctor` reports Lima under *vm nodes*, QEMU under *vm qemu amd64* and
+*vm qemu arm64*, and on Linux `/dev/kvm` under *kvm*. Pick **Runs on → Virtual
 machine (Lima)** in a design, or `runtime=vm` from the command line and the API:
 
 ```sh
 dbcanvas up pxc-vm --node intranet --node 'pxc:3,version=8.4,runtime=vm' --wait
 ```
+
+A VM that stopped without being asked to, after a reboot for example, is started again when
+the service starts.
 
 ## Upgrade
 

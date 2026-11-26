@@ -15,28 +15,29 @@ two captures, use [Kubernetes States](KUBERNETES_STATES.md).
 - **From a K3D cluster in a stack.** Open the cluster's **server** node, go to its
   **Diagnostics** tab and click **Start capture**. A busy cluster takes a few minutes. Each
   finished capture is kept under the time it was taken, with **Download** and **Operator
-  Summary** buttons.
+  Summary** buttons. The Diagnostics capture is available on K3D clusters only.
 - **From a capture kept here.** **Captures kept here** lists them newest first, with
   **Analyse**, **Download** and **Delete**. Kept captures remain after the cluster is
   deleted.
 - **From any cluster.** Drop a `cluster-dump.tar.gz` on the page, or click **Choose a file**.
-  The collector's output has the same layout wherever it was taken.
+  The collector's output has the same layout wherever it was taken. On a Kubeadm cluster, run
+  pt-k8s-debug-collector yourself and upload the archive.
 
 The capture runs pt-k8s-debug-collector in a separate container next to the cluster, with
-`-resource` set to the cluster's operator so that the operator's custom resources are
+`--resource` set to the cluster's operator so that the operator's custom resources are
 included. The collector image is built for the installation's own architecture, amd64
 or arm64, from percona-toolkit's source.
 
 ## What the report shows
 
-**Verdict.** These questions are always answered, in this order:
+**Verdict.** The questions are answered in this order:
 
 - Are the **nodes** healthy?
-- Are all **workloads** at full replicas?
+- Are all **workloads** at full replicas? (Only when the capture has Deployments or StatefulSets.)
 - What is wrong with the **pods**?
+- Did the **backups** work? (When the capture has backup resources.)
+- Are any **certificates** close to expiry? (When the capture has TLS certificates.)
 - What does the **operator** say?
-
-When the capture contains them, **backups** and **certificates** get a verdict too.
 
 Then, card by card:
 
@@ -67,13 +68,14 @@ Then, card by card:
 - **A crash-looping pod can look healthy.** If the capture landed between restarts, the pod
   is Running and Ready. It is still reported because of its restart count and its last
   termination reason.
-- **Pod logs come from the current container only.** A pod that has just restarted has a
-  short log. Previous containers' logs are not collected.
-- **A pod's log mixes all of its containers' output.** It is labelled `<pod> (stdout)`. When
-  a sidecar writes more than the database, the log may be classified as the sidecar's.
-- **MongoDB and PostgreSQL server logs are not in the archive.** Only PXC captures include
-  the database's own error log. A note is raised for each database pod whose server log is
-  missing.
+- **Which log files are read.** For each pod, the summary reads `<pod>/logs.txt` (labelled
+  `<pod> (stdout)`) and, for the MySQL family, `mysqld-error.log` and
+  `mysqld.post.processing.log`. Other files in the archive are not read here; browse them in
+  [Kubernetes States](KUBERNETES_STATES.md) under **Capture files**.
+- **A pod's `logs.txt` mixes all of its containers' output.** When a sidecar writes more than
+  the database, the log may be classified as the sidecar's.
+- **A note is raised for MongoDB and PostgreSQL pods without a server log** among the files
+  above.
 - **A capture taken while pods are starting has few logs.** The collector cannot read the
   logs of a pod whose containers are still initialising. A warning says how many pods were
   still starting. Take the capture again once the cluster is up.

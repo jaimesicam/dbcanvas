@@ -4,7 +4,8 @@ Stalk Summary turns a **pt-stalk** archive from a MySQL-family server into timel
 verdicts and configuration advice. It also compares captures, for example one taken before
 a change and one taken after.
 
-Open it from the sidebar (**Stalk Summary**).
+Open it from the sidebar (**Stalk Summary**), from **Menu → Diagnose** on the desktop, or at
+`#stalk-summary`.
 
 ![Stalk Summary: verdicts and charts from a pt-stalk capture](screenshots/stalk-summary.png)
 
@@ -14,11 +15,12 @@ Open it from the sidebar (**Stalk Summary**).
   go to its **Diagnostics** tab and click **Start capture**. The capture runs `pt-summary`,
   `pt-mysql-summary` and about 90 seconds of `pt-stalk` sampling. When it finishes, click
   **Stalk Summary** to open it on this page, or **Download (.tar.gz)** to keep the file.
+  Nodes that run as VMs work the same way.
 - **From a node, on this page.** Choose the node under **…or use a node's collected
   capture** and click **Analyze pt-stalk**. This uses the node's most recent capture.
 - **Upload.** Drop a pt-stalk `.tar.gz` on the page, or click to choose one (up to 128 MB).
   Archives from any server work, and missing files are skipped instead of failing the
-  read.
+  read. Each file inside the archive is read up to 64 MB.
 
 Every finished capture from a node is kept under the time it was taken, in **Kept pt-stalk
 captures**. Kept captures remain after the node or stack is deleted. Each one has **Open**,

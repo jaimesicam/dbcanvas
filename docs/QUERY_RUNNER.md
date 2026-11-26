@@ -6,7 +6,7 @@ and online-DDL experiments — for example, "run SELECTs only while an `ALTER TA
 It is not a result browser (use the [Database Explorer](DATABASE_EXPLORER.md)) or a benchmark (use
 [Benchmark](BENCHMARK.md)).
 
-Open it from the sidebar (**Query Runner**) or at `#queryrun`.
+Open **Query Runner** from **Menu → Data and queries** (or the sidebar), or at `#queryrun`.
 
 ![The Query Runner — parallel SQL across a stack, gated on the processlist](screenshots/query-runner.png)
 
@@ -35,7 +35,7 @@ statements (`SHOW PROCESSLIST` on MySQL, `pg_stat_activity` on PostgreSQL).
 | **Pattern (regex)** | A [Go RE2](https://github.com/google/re2/wiki/Syntax) pattern, e.g. `ALTER TABLE\s+orders`. RE2 has no backreferences or lookaround. |
 | **Condition** | **No match running** — run only while nothing matches. **A match IS running** — run only while something matches. |
 | **Check** | **Every iteration** — check before each execution. **Once (gate start)** — wait once, then run the rest ungated. |
-| **Poll (ms)** | How often to re-check while waiting (minimum 100, default 1000). |
+| **Poll (ms)** | How often to re-check while waiting (minimum 100; a lower value uses the default, 1000). |
 
 A query's gate ignores its own statements, but it does see the other queries in the same run.
 While the gate is closed the query waits, up to its time limit.
@@ -62,6 +62,8 @@ state. Finished runs are listed under **History** until DBCanvas restarts.
 - **Databases deployed by an operator in a K3D frame** that have a LoadBalancer or NodePort Service.
   A ClusterIP-only database is not listed; use **Expose for tools** in the
   [Database Explorer](DATABASE_EXPLORER.md#expose-for-tools) to give it an address.
+
+Nodes that run as [virtual machines](VM_NODES.md) work like container nodes.
 
 It lists the nodes in your stacks. You never enter an address or
 password: DBCanvas resolves them, and passwords are not sent to the browser.

@@ -37,8 +37,10 @@ Ubuntu with AppArmor, alone and in a cluster with containers, and across a reboo
 | Kubeadm Cluster (the control plane and workers, alone or beside container nodes) | 0.1.x |
 | All in One (SELinux permissive by default), Linux Client (not one set up for core-dump analysis, which reads its files through bind mounts and runs in a container) | 0.1.x |
 
-A type runs on the operating systems it is offered on as a container: Samba AD DC only on Ubuntu
-24.04 (Oracle Linux's Samba has no AD DC role), OpenBao and Spock only on Oracle Linux.
+VMs run Oracle Linux 8, 9 or 10, Ubuntu 22.04 or 24.04, or Debian 12 or 13. A type runs on those
+of the operating systems it is offered on as a container: Samba AD DC only on Ubuntu 24.04 (Oracle
+Linux's Samba has no AD DC role), OpenBao and Spock only on Oracle Linux. Validation refuses a VM
+on any other operating system, such as a Linux Client on CentOS 7, which runs only in a container.
 
 Nodes that arrive as ready-made images — the Intranet, the VNC desktop, PMM, Keycloak, the
 simulators — and K3D clusters always run in containers. A Kubeadm node that runs as a VM is

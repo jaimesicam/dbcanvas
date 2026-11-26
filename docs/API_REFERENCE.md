@@ -52,13 +52,14 @@ instead (see [HTTP API](API.md#authenticate)).
 
 | To do this | API |
 | --- | --- |
-| Open the app signed in, from a start link that works once, for 3 minutes | `GET /start/{token}` |
+| Open the app signed in, from a start link that works once, for 3 minutes (a used or expired one answers `403` with an HTML page) | `GET /start/{token}` |
 | Who the caller is signed in as | `GET /api/setup/status` |
-| The signed-in account: id, username and role | `GET /api/me` |
+| The signed-in account: `id`, `username`, `createdAt`, `firstName`, `lastName`, `email`, `avatar`, and `token` (its `id`, `name`, `prefix`, `scope`, `createdAt`, `expiresAt`) when called with an API token | `GET /api/me` |
 | Sign the browser out | `POST /api/auth/logout` |
 
 These answer on the control socket only, which the `dbcanvas` command uses; the
-browser port refuses them:
+browser port refuses them with `403`. Like `GET /start/{token}`, they are not in the
+API page or `GET /api/meta/endpoints`:
 
 | To do this | API |
 | --- | --- |
@@ -111,12 +112,14 @@ limits.
 
 | To do this | API |
 | --- | --- |
-| List your tokens: active, expired and revoked (`dbcanvas token ls`) | `GET /api/tokens` |
+| List your tokens: active, expired and revoked, with `maxDays`, the lifetime cap (`dbcanvas token ls`) | `GET /api/tokens` |
 | Create one; refuses a token (`dbcanvas token create NAME`) | `POST /api/tokens` `{"name", "scope", "days", "limit"}` |
 | Revoke one (`dbcanvas token rm ID`) | `DELETE /api/tokens/{id}` |
 
-The secret is returned once, by the create call. `days: 0` means never expires.
-`limit` takes `ownStacks`, `labels`, `maxTtl` and `deny`.
+The secret is returned once, by the create call, which answers `201`
+`{"token", "secret"}`. `days` left out or `0` means never expires (`dbcanvas token
+create` sends 30 unless `--days` says otherwise). `limit` takes `ownStacks`, `labels`,
+`maxTtl` and `deny`.
 
 ## Instance settings
 
@@ -128,7 +131,7 @@ The secret is returned once, by the create call. `days: 0` means never expires.
 | --- | --- |
 | Read the instance settings | `GET /api/system/settings` |
 | Change them (admin scope) | `PUT /api/system/settings` |
-| Check Docker, images, catalogues, passwords, the encryption key and the bundled files (admin scope; `dbcanvas doctor` adds the data folder, networks and the service) | `GET /api/system/doctor` |
+| Check Docker, images, catalogues, the data folder, disk space, the encryption key, passwords, stack networks, k3d, the bundled files and VM nodes (admin scope; `dbcanvas doctor` adds the service; see [HTTP API](API.md#doctor)) | `GET /api/system/doctor` |
 
 ```sh
 curl -s -X PUT -H "$AUTH" -H 'Content-Type: application/json' \
@@ -150,7 +153,11 @@ Read-only fields come from `~/.dbcanvas/config.yaml`: `publicUrl` (its `publicUr
 key), and `sshForwarding`, `experimental` and `eol` (`SSH_FORWARDING_HOST`,
 `EXPERIMENTAL` and `EOL` under `env:`). `hostArch`, `defaultArch` and
 `kubernetesArch` are the Docker host's architecture, what a node on Automatic runs as,
-and what K3D and Kubeadm nodes run as.
+and what K3D and Kubeadm nodes run as. `vmTypes` lists the node and cluster types that
+may run as a VM; `vmUnavailable` says why none can when Lima is not installed;
+`limaHome` is the folder Lima keeps this installation's VMs in (empty without Lima).
+`defaultSecrets` names the node passwords still set to a published example value; it
+is not sent to a shared session's guests.
 
 ---
 
@@ -169,7 +176,7 @@ A stack is a design on the canvas plus the containers it deployed.
 | What compose can build | `GET /api/stacks/compose/kinds` |
 | Create one from a template or a design | `POST /api/stacks` `{"name", "ttl", "templateId" or "design"}` |
 | Export it as a stack file, YAML (`dbcanvas export STACK`) | `GET /api/stacks/{id}/stackfile` |
-| Apply a stack file: create the stack or update its design (`dbcanvas up -f FILE`, which then deploys) | `POST /api/stacks/apply` `{"file", "dryRun"}` |
+| Apply a stack file: create the stack or update its design (`dbcanvas up -f FILE`, which then deploys) | `POST /api/stacks/apply` `{"file", "dryRun", "platform"}` (`platform`, `linux/amd64` or `linux/arm64`, overrides the file's) |
 | Read one, with every node's state | `GET /api/stacks/{id}` |
 | Replace its name, TTL or design | `PUT /api/stacks/{id}` |
 | Replace its labels | `PUT /api/stacks/{id}/labels` `{"labels": {"tool": "ci"}}` |
@@ -257,6 +264,10 @@ PUT /api/stacks/12/design/nodes/proxysql-mvqf0e3f-1
 - Removing a node or cluster also removes its lines and every relation pointing at it,
   and a deployed node's container.
 - Nodes cannot be added or removed while a deploy is running; options can change.
+- Where a node runs is set under `options` like any other setting: `arch` on standalone
+  nodes and clusters (a member runs on its cluster's), and `runtime` and `selinux` on the
+  types that may run as a VM, e.g. `{"type":"ps","options":{"runtime":"vm"}}`. See
+  [Running a node as a VM](#running-a-node-as-a-vm).
 
 ### Composing a stack
 
@@ -340,7 +351,10 @@ connection string when the spec has exactly one MongoDB.
 | `netLatencyMs`, `netJitterMs`, `netLossPct`, `netRateMbit` | delay, jitter, loss and a rate cap on the node's database and cluster ports |
 | `netAllTraffic` | apply those to all of the node's traffic |
 | `deviceReadMbps`, `deviceWriteMbps` | disk throughput limits |
-| `cpus`, `memoryGb` | container limits |
+| `cpus`, `memoryGb` | container limits (a VM's size, on a VM node) |
+| `arch` | `amd64` or `arm64`; left out, the node follows the host it is deployed on |
+| `runtime` | `docker` (default) or `vm`; see [Running a node as a VM](#running-a-node-as-a-vm) |
+| `selinux` | a VM node's SELinux mode: `enforcing` or `permissive`; left out, the kind's default |
 
 **Per-engine choices**: `replMode` (`async`, `semisync`, `innodbcluster`,
 `groupreplication`), `mode` (ProxySQL `singlewrite`/`loadbal`; PgBouncer pool mode
@@ -368,6 +382,7 @@ takes.
 - `oidc` on Percona Server is refused below 8.4.11-11 (9.7.2-2 on the 9.7 series).
 - OpenBao runs only on Oracle Linux 9 and the VNC desktop only on Ubuntu 24.04.
 - Only one each of `intranet`, `keycloak`, `openbao` and `vnc` per stack.
+- Patroni and repmgr clusters need at least 3 members.
 - Not composable: Kubernetes frames, All in One, Stock Market Sim and Linux Client
   nodes. Add them with the design endpoints, or start from a template.
 
@@ -381,9 +396,38 @@ the design endpoints and override the shorthand.
  "memberOptions": {"cpus": 2}}
 ```
 
-**`"dryRun": true`** reports the resolved plan — versions, added nodes and the
-validator's `issues` — without creating anything. Errors name what is available: the
-builds in a series, the OS aliases, the member range, or the node to add.
+**`"dryRun": true`** reports the resolved plan — `design`, `resolved` (versions, OS
+and architecture per entry), `added` and the validator's `issues`, with `ok` false on
+an error — without creating anything. Errors name what is available: the builds in a
+series, the OS aliases, the member range, or the node to add. For VM nodes the issues
+also include an error when the QEMU an architecture's VMs need is missing, and a
+warning when the stack's VMs, with the VMs already running, would not fit in the
+machine's memory.
+
+### Running a node as a VM
+
+A node can run as a virtual machine under [Lima](https://lima-vm.io) instead of in a
+container. `GET /api/system/settings` lists the types that can in `vmTypes`, and says
+in `vmUnavailable` why none can when Lima is not installed. See [VM nodes](VM_NODES.md).
+
+| Field | On | Values |
+| --- | --- | --- |
+| `runtime` | a node or cluster (members follow their cluster) | `docker` (or left out) or `vm` |
+| `arch` | a node or cluster | `amd64` or `arm64`; the other architecture from the host runs under emulation |
+| `selinux` | a VM node or cluster on an OS with SELinux | `enforcing` or `permissive`; left out, the type's default |
+
+Validation refuses:
+
+- a VM node of a type not in `vmTypes`, or when Lima is not installed;
+- VM nodes in a stack without an Intranet node, through which they reach the stack
+  network;
+- a VM node on an OS with no Lima template (VMs run Oracle Linux 8, 9 or 10, Ubuntu
+  22.04 or 24.04, or Debian 12 or 13);
+- a VM node whose architecture needs a QEMU that is not installed;
+- a Linux Client for core-dump analysis as a VM.
+
+Disk read/write limits apply to containers only, and validation warns when a VM node
+has them.
 
 Compose does not deploy; call `POST /api/stacks/{id}/deploy` afterwards.
 
@@ -415,7 +459,7 @@ Saved templates are stripped of secrets, host paths and pinned host ports.
 | A node's panel: type, address, published ports, credentials, certificate | `GET …/nodes/{nid}` |
 | List a stack's nodes | `GET /api/stacks/{id}` |
 | Start · stop · restart | `POST …/nodes/{nid}/start` · `/stop` · `/restart` |
-| Open a root console | `GET …/nodes/{nid}/term` *(WebSocket)* |
+| Open a root console (a token needs `write` scope) | `GET …/nodes/{nid}/term` *(WebSocket)* |
 | Run one command: stdout, stderr and its exit code | `POST …/nodes/{nid}/exec` `{"argv": [...], "stdin", "timeout", "user"}` |
 | List the pods on a Kubernetes server node | `GET …/nodes/{nid}/k8s/pods` |
 | Console inside a pod's container | `GET …/nodes/{nid}/term?namespace=&pod=&container=&shell=` *(WebSocket)* |
@@ -746,6 +790,8 @@ POST …/frames/{fid}/k3d/object
 
 **Backups tab** — see [Operator Backups](OPERATOR_BACKUPS.md). The same calls work for
 every Percona operator: the API finds the cluster and its storage from the frame.
+On a cluster deployed without SeaweedFS, the storage is read from the cluster's own
+`spec.backup.storages`.
 Every write returns the manifest it applied and keeps a copy on the node; `"dryRun":
 true` returns the manifest without applying it.
 
@@ -1111,7 +1157,7 @@ Step through a Kubernetes operator under Delve. See
 | --- | --- |
 | Frames running their operator under Delve | `GET /api/k3d/debug/targets` |
 | The operator's source tree · one file | `GET …/frames/{fid}/k3d/debug/sources` · `GET …/k3d/debug/source?path=` |
-| The live debug session | `GET …/frames/{fid}/k3d/debug/ws` *(WebSocket)* |
+| The live debug session (a token needs `write` scope) | `GET …/frames/{fid}/k3d/debug/ws` *(WebSocket)* |
 | Force a reconcile | `POST …/frames/{fid}/k3d/debug/reconcile` |
 
 ## Core Dump Analyzer
@@ -1125,7 +1171,7 @@ Read a crashed `mysqld`'s core dump and get a diagnosis. See
 | --- | --- |
 | Linux Clients set up as core-dump hosts | `GET /api/gdb/targets` |
 | The cores available, and whether symbols and libraries match | `GET …/nodes/{nid}/gdb/cores` |
-| The live gdb session | `GET …/nodes/{nid}/gdb/ws` *(WebSocket)* |
+| The live gdb session (a token needs `write` scope) | `GET …/nodes/{nid}/gdb/ws` *(WebSocket)* |
 
 The WebSocket takes one JSON command per message, `{"cmd": …}`: `open`, `backtrace`,
 `variables`, `evaluate`, `disassemble`, `source`, `console`, and:

@@ -21,7 +21,11 @@ readable by your user only.
 | `dbcanvas.sock` | The service's control socket. |
 | `versions.yaml`, `versions-arm64.yaml` | A version catalogue downloaded by `dbcanvas versions update`, read ahead of the built-in one. |
 | `assets/<version>/` | Files the binary carries and unpacks on start: node image Dockerfiles, licence texts, Pager Panic banks, Big Hole. |
-| `bin/k3d` | k3d, downloaded and checksum-verified the first time a K3D cluster is deployed. |
+| `bin/k3d-<version>` | k3d, downloaded and checksum-verified the first time a K3D cluster is deployed. |
+| `lima/` | The Lima folder that holds the [VM nodes](VM_NODES.md), apart from your own Lima instances (`DBCANVAS_LIMA_HOME` moves it). |
+| `ptstalk/`, `k8sdumps/`, `recordings/` | pt-stalk archives, Kubernetes diagnostic dumps and shared-session recordings. |
+| `tmp/` | Files being uploaded to nodes. |
+| `engine.lock` | Held by the running service, so only one runs per data folder. |
 
 **Back up** the whole folder with the service stopped (`dbcanvas stop`). The database cannot be
 read without the key, so keep them together, or the key somewhere safer.
@@ -71,6 +75,11 @@ brackets) uses the environment's value.
 | `SPOCK_REF` | `v5.0.10` | The pgEdge Spock git ref built for Spock clusters. |
 | `DBCANVAS_IDLE_GRACE` | `10m` | How long the service stays up with no stack containers and nothing using it. |
 | `DBCANVAS_CATALOG_URL` | the project's repository | Where `dbcanvas versions update` downloads catalogues from (a fork or a mirror). |
+| `DBCANVAS_LIMA_HOME` | `~/.dbcanvas/lima` | Where Lima keeps the VM nodes. Keep it short: Lima's socket paths have a length limit. See [VM nodes](VM_NODES.md). |
+| `DBCANVAS_VM_PREVIEW` | *(empty)* | Node types allowed to run as VMs before their support is verified, comma-separated. See [VM nodes](VM_NODES.md). |
+| `K3D_BIN` | *(empty)* | A k3d binary to use instead of the one downloaded into `bin/`. |
+| `DBCANVAS_NODE_DIAL` | `auto` | How the service reaches node addresses: `direct` (Linux), `tunnel` (through the Docker API, as on macOS) or `auto`. |
+| `DBCANVAS_ENCRYPTION_KEY_PATH` | `~/.dbcanvas/dbcanvas-encryption.key` | Where the encryption key is read from. |
 | the node passwords | generated | See [Node passwords](#node-passwords). |
 
 `EXPERIMENTAL` and `EOL` accept `on`/`off`; `true`, `1` and `yes` also mean on. Turning either
@@ -122,7 +131,7 @@ that architecture, unless `platform` sets another.
 - Each architecture has its own version catalogue (`versions.yaml` for amd64,
   `versions-arm64.yaml` for arm64), so the version pickers offer what that architecture
   publishes.
-- K3D and Kubeadm nodes always run as the Docker host's architecture.
+- K3D and Kubeadm nodes (containers or VMs) always run as the Docker host's architecture.
 - PMM 3 runs as arm64 from 3.10.0; PMM 2 and MClusterAdmin are amd64 only.
 
 `dbcanvas status` and `dbcanvas doctor` show the architecture in use.
@@ -167,7 +176,7 @@ The Intranet, VNC and K3D collector images can also be built on this host: Valid
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | **Node file uploads** | 4 GiB | Largest single file dropped onto a node. 1 MiB–1 TiB. |
-| **API token lifetime** | 90 days | The longest expiry a token may be given. 1–365 days. Longer requests are shortened; existing tokens are not. |
+| **API token lifetime** | 90 days | The longest expiry a token may be given. 1–365 days. Longer requests are shortened; existing tokens are not. A token created to never expire (`--days 0`) is not affected. |
 | **Writes to internal databases** | off | Whether the [Database Explorer](DATABASE_EXPLORER.md#pmm-server) may write to PMM Server's own databases. |
 | **Shared sessions** | off | Whether a stack may be shared with guests through a link, and for how long. See [Shared sessions](SHARED_SESSIONS.md). |
 | **Stack history and alerts** | — | How often deployed stacks are sampled for trend lines, the failover timeline and alerts. Off records none. |
@@ -187,7 +196,7 @@ that once the new key is backed up.
 ## Troubleshooting
 
 Start with `dbcanvas doctor`: it checks Docker, the images, the catalogues, the data folder, the
-networks, k3d and the service, and says how to fix what fails.
+networks, k3d, Lima and the service, and says how to fix what fails.
 
 ### dbcanvas cannot reach Docker
 
@@ -224,6 +233,15 @@ note: MariaDB-server has no 10.11.8 build in this repository — installing the 
 `dbcanvas network check` shows what rules each range out. On a shared host, give this instance
 a range of its own with `networkRange`, and check that no LAN or VPN behind the default gateway
 uses it.
+
+### Virtual machine is not offered under Runs on
+
+The service looks `limactl` up on its `PATH` when it starts. If Lima was installed while the
+service ran, or the service was started from an environment whose `PATH` lacks Lima (a cron job,
+a script), run `dbcanvas stop`; the next command from your shell starts it again and finds Lima.
+`dbcanvas doctor` shows what it found under *vm nodes*. A VM node on an OS that has no Lima template (VMs run
+Oracle Linux 8, 9 or 10, Ubuntu 22.04 or 24.04, or Debian 12 or 13) is refused at validation.
+See [Nodes that run as virtual machines](VM_NODES.md).
 
 ### The service does not start
 

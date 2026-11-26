@@ -5,7 +5,7 @@ test data. It reads the table's structure, picks a generator for each column, le
 them, previews the result, and then inserts as many rows as you ask for.
 
 Engines: **PostgreSQL**, **MySQL** (including PXC, MariaDB and MySQL Community) and **MongoDB**.
-Open it from the sidebar (**Data Generator**) or at `#data-generator`.
+Open **Data Generator** from **Menu → Data and queries** (or the sidebar), or at `#data-generator`.
 
 ![The Data Generator with a table chosen and its column template ready](screenshots/data-generator.png)
 
@@ -30,8 +30,8 @@ many are skipped or filled by the database, and how many foreign-key columns wil
 | Option | Meaning | Default |
 | --- | --- | --- |
 | **Total rows** | Rows (or documents) to insert. | 1000 |
-| **Batch size** | Rows per INSERT statement (max 20,000). | 1000 |
-| **Workers** | Parallel insert workers (1–16). | 4 |
+| **Batch size** | Rows per INSERT statement (max 20,000; a larger value uses the default). | 1000 |
+| **Workers** | Parallel insert workers (1–16; a larger value uses the default). | 4 |
 | **FK sample** | How many values to read from each referenced table (SQL only). | 500 |
 | **Seed (0=random)** | Fixes the generated values so a run can be repeated. | 0 |
 | **On error: stop** | Stop the job at the first failed batch. Off: count the error and continue. | on |
@@ -124,6 +124,8 @@ Also offered:
     servers).
   - MySQL operator clusters are not offered. Use the
     [Database Explorer](DATABASE_EXPLORER.md#kubernetes-clusters), Query Runner or Benchmark for them.
+
+Nodes that run as [virtual machines](VM_NODES.md) work like container nodes.
 
 Write to the primary. Any PXC or Galera member accepts writes; on async replication, Group
 Replication or a MongoDB replica set, pick the primary (a MongoDB secondary rejects the insert).

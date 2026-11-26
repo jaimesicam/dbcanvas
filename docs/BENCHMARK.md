@@ -2,7 +2,7 @@
 
 The **Benchmark** page loads a test dataset into a database and drives it with a workload,
 reporting throughput and latency. It can also run a CRUD mix against one of your own tables or
-collections. Open it from the sidebar (**Benchmark**) or at `#benchmark`.
+collections. Open **Benchmark** from **Menu → Data and queries** (or the sidebar), or at `#benchmark`.
 
 ![An OLTP benchmark mid-run, with live throughput and per-statement latency](screenshots/benchmark.png)
 
@@ -10,7 +10,7 @@ collections. Open it from the sidebar (**Benchmark**) or at `#benchmark`.
 
 1. Pick a **Server** — any running MySQL-family, PostgreSQL-family or MongoDB node you can
    access (see [Targets](#targets)).
-2. Set the **Database**. Tick **create** to create it if it is missing.
+2. Set the **Database**. **create** (on by default) creates it if it is missing.
 3. Pick a **Workload**.
 4. Set **Scale**, **Threads**, **Duration (s)** and **Warmup (s)**.
 5. Press **Run benchmark**. **Stop** ends the run early and keeps what was measured.
@@ -96,6 +96,8 @@ Also offered:
 - **Databases deployed by an operator in a K3D frame**, when they have a LoadBalancer or NodePort
   Service. A ClusterIP-only database is not listed; use **Expose for tools** in the
   [Database Explorer](DATABASE_EXPLORER.md#expose-for-tools) to give it an address.
+
+Nodes that run as [virtual machines](VM_NODES.md) work like container nodes.
 
 It lists the nodes in your stacks.
 

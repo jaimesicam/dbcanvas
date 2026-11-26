@@ -5,7 +5,7 @@ collections and keys; run SQL, MongoDB queries and Valkey commands; view results
 documents or charts. There is nothing to configure: DBCanvas already knows every node's address
 and credentials, and no port has to be published to your host.
 
-Open **Database Explorer** from the Menu.
+Open **Database Explorer** from **Menu → Data and queries** (or the sidebar), or at `#database-explorer`.
 
 ![The Database Explorer — every database on the canvas in one tree, with an editor and results beside it](screenshots/database-explorer.png)
 
@@ -25,7 +25,8 @@ Every running database in your stacks:
 | **PMM Server** | PMM's internal PostgreSQL and its ClickHouse Query Analytics store, read-only — see [PMM Server](#pmm-server) |
 | **Kubernetes operators** | Databases created by an operator in a K3D frame — see [Kubernetes clusters](#kubernetes-clusters) |
 
-All-in-One nodes list each database instance inside them separately.
+All-in-One nodes list each database instance inside them separately. Nodes that run as
+[virtual machines](VM_NODES.md) work like container nodes.
 
 A ★ marks the endpoint an application would use — HAProxy's write port rather than one PXC
 member, the replica set rather than a member, `mongos` rather than a shard. It sorts first.

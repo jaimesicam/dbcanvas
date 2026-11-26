@@ -10,7 +10,7 @@ come from the real deployment, so the program works without edits.
 
 1. Deploy a database, and a **Linux Client** in the same stack (designer group **Storage &
    Clients**).
-2. Open **Sample Client Code** — from **Menu → Data and queries**, at `#sample-code`, or with the
+2. Open **Sample Client Code** — from **Menu → Data and queries** (or the sidebar), at `#sample-code`, or with the
    **Sample Client Code** button in a deployed Linux Client's panel or right-click menu (this
    opens the page on that node).
 3. Pick the **Linux Client**, the **Target**, the **Client** and the **Example**. Adjust **TLS** and
@@ -147,7 +147,9 @@ Shared caches, reused by every sample of the same language and kept by **Reset**
 | C# | `/root/.nuget/packages` |
 
 Linux Client OSes: Oracle Linux 8/9/10, Ubuntu 22.04/24.04, Debian 12/13, and CentOS 7 with
-`EOL=on`.
+`EOL=on`. A Linux Client that runs as a [virtual machine](VM_NODES.md) works like a container
+one, on any of these except CentOS 7, which runs only in a container (validation refuses it as a
+VM).
 
 **.NET:** Oracle Linux and Ubuntu 24.04 install the .NET 10 SDK from the OS; Ubuntu 22.04 installs
 .NET 8. Debian 12 and 13 get .NET SDK 10.0.401 from Microsoft's download archive (pinned,

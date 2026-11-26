@@ -16,7 +16,8 @@ The four Percona operators: **Percona Operator for MySQL (PXC)**, **Percona Oper
 (Percona Server)**, **Percona Operator for MongoDB (PSMDB)** and **Percona Operator for PostgreSQL
 (PGO)**.
 
-CloudNativePG, Crunchy Postgres for Kubernetes and OpenEverest are not supported. The two
+The debugger is available on K3D frames only, not on Kubeadm clusters. CloudNativePG, Crunchy
+Postgres for Kubernetes and OpenEverest are not supported. The two
 community PostgreSQL operators are installed from Helm charts and cannot be debugged. A frame that
 asks for a debugger on one of them gets a designer warning and deploys without one.
 
@@ -93,7 +94,9 @@ reconciled at all. To keep that from lasting:
 Such expressions are refused until you tick **Allow function calls**.
 
 **Access.** A debugger can
-read the operator's memory and run its code, so treat access like a root shell on the node.
+read the operator's memory and run its code, so treat access like a root shell on the node. Over
+the API, opening the debugger session needs a token with write access; a read-only token is
+refused.
 
 ## See also
 

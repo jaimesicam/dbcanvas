@@ -55,10 +55,14 @@ SHA-256 sums: see [Verifying a download](#verifying-a-download).
 To build it from a checkout instead (Go and Node.js needed): `make dbcanvas`, which writes
 `dist/dbcanvas`.
 
-`dbcanvas doctor` checks Docker, the architecture, the images, the version catalogues and the
-data folder, and says how to fix anything that fails. Node images that are not on the host yet
-are pulled from `ghcr.io/jaimesicam` when a stack first needs them, so the first deploy of each
-node type takes longer.
+`dbcanvas doctor` checks Docker, the architecture, the images, the version catalogues, the
+data folder and Lima, and says how to fix anything that fails. Node images that are not on the
+host yet are pulled from `ghcr.io/jaimesicam` when a stack first needs them, so the first deploy
+of each node type takes longer.
+
+Nodes can also run as virtual machines with their own kernel, when [Lima](https://lima-vm.io) is
+installed; without it every node runs in a container. See
+[Nodes that run as virtual machines](VM_NODES.md#install-lima).
 
 ### Verifying a download
 
@@ -182,6 +186,7 @@ options.
 | **Enter root console** | A root shell inside the node, in the browser. |
 | **File manager** | Browse files — upload, download, edit, change permissions. |
 | **Copy docker exec command** | The command for a shell from your own terminal. |
+| **Copy limactl shell command** | On a node that runs as a VM, in place of the docker exec command: a root shell on the VM from your own terminal. See [VM nodes](VM_NODES.md). |
 | **Copy SSH tunnel command** | Only when `SSH_FORWARDING_HOST` is set under `env:` in `config.yaml` — see [Connecting](#connecting-to-your-databases). |
 | **Stop** / **Restart** / **Start** | Lifecycle. Data survives a stop. |
 | **Delete node** | Removes the node and its container, and its data. |
@@ -234,7 +239,7 @@ unless the setting names a fixed `user@`.
 | [**Database Explorer**](DATABASE_EXPLORER.md) | Browse and query any database in your stacks. |
 | [**Query Runner**](QUERY_RUNNER.md) | Runs SQL across nodes in parallel, optionally gated on the processlist. |
 | [**Benchmark**](BENCHMARK.md) | OLTP, OLAP, read-write and read-only workloads with throughput and latency. |
-| **Demo applications** | Canvas nodes that drive continuous traffic — Stock Market Sim, Ledger Sim, Support Sim and pgvector Support Sim. Connect one to a database and it runs on its own. |
+| **Demo applications** | Canvas nodes that drive continuous traffic — Stock Market Sim, Ledger Sim, Support Sim and pgvector Support Sim — and Performance Sim, whose stressors make a database misbehave on purpose. Connect one to a database and it runs on its own. |
 
 ## Watching it work
 

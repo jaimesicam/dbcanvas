@@ -18,7 +18,8 @@ layout:
 | Support repro | Reported, Reproducing, Reproduced, Fix verified, Closed |
 | Blank | One column |
 
-Rename or delete a board by right-clicking it in the list, or with its **⋯**. A board open
+Rename or delete a board by right-clicking it in the list, or with its **⋯**; double-clicking
+a board in the list, or its name above the columns, renames it too. A board open
 in two windows shows the other window's changes within a few seconds.
 
 ## Cards
@@ -33,16 +34,18 @@ in two windows shows the other window's changes within a few seconds.
 - **From the keyboard** — **Tab** to a card, **Space** to pick it up, the arrow keys to move
   it (up and down within a column, left and right across columns), **Space** to drop it,
   **Escape** to cancel. **Enter** opens it.
-- **Open** — click a card for its title, description, due date and labels (a
-  colour, with a word if you like). Closing the card saves it; **⌘/Ctrl+Enter** saves and
-  closes too. A due date shows on the card, amber when it is today or tomorrow and red once
+- **Open** — click a card for its title, description, due date and up to eight labels (a
+  colour, with a word if you like). The column picker beside **in** under the title moves the
+  card to another column. Closing the card saves it; **Done** and **⌘/Ctrl+Enter** save and
+  close too. A due date shows on the card, amber when it is today or tomorrow and red once
   it has passed.
 - **Colour** — right-click a card (or use **Card colour** in the open card) to give it a
   colour: it is tinted, with a stripe down its left edge, so a kind of work stands out.
   The same menu moves a card to the top or the bottom of its column, or deletes it.
 - **Delete** — from the open card, or its right-click menu. **Undo** in the notice that
   follows puts it back where it was.
-- **Filter** — type in **Filter cards** to see only the cards that mention something.
+- **Filter** — type in **Filter cards** to see only the cards whose title, description or label words
+  mention something.
 
 ## Columns
 
@@ -54,6 +57,7 @@ deletes the column, together with its cards once you confirm.
 
 ## What is stored
 
-Board, column and card text — names, titles, descriptions — is encrypted at rest with the
-rest of what you type into DBCanvas (see [Configuration](CONFIGURATION.md)). The
+Board and column names and card titles and descriptions are encrypted at rest with the
+rest of what you type into DBCanvas (see [Configuration](CONFIGURATION.md)). Label words,
+colours and due dates are stored as they are. The
 endpoints are under `/api/kanban/` in the [API reference](API_REFERENCE.md).

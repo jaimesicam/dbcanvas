@@ -1,6 +1,6 @@
 # All in One
 
-An **All in One** node is a single container that runs many database instances side by side — for
+An **All in One** node is a single container (or [virtual machine](VM_NODES.md)) that runs many database instances side by side — for
 example a standalone, a replication set, a cluster and a proxy — without spending a container, IP
 address and hostname on each. It is meant for labs and demos: a container running many daemons is
 slow to deploy and uses a lot of memory.
@@ -26,7 +26,7 @@ its estimated memory exceeds the node's limit or the host.
 | MySQL | Percona Server · Percona Server Replication · InnoDB Cluster / GR · PXC | Replication 2–5; GR 3–9, odd; PXC 2–5 |
 | MySQL Community | MySQL Community · MySQL Replication · MySQL InnoDB / GR | Replication 2–5; GR 3–9, odd |
 | MariaDB | MariaDB · MariaDB Replication · MariaDB Galera | Replication 2–5; Galera 3–5, odd |
-| PostgreSQL | PostgreSQL · PostgreSQL (PGDG) · Patroni Cluster · Patroni Cluster (PGDG) · repmgr Cluster · Spock Cluster | 2–5 each |
+| PostgreSQL | PostgreSQL · PostgreSQL (PGDG) · Patroni Cluster · Patroni Cluster (PGDG) · repmgr Cluster · Spock Cluster | Patroni, repmgr and Spock 2–5 |
 | MongoDB | PSMDB · MDB · PSMDB Replica Set · MDB Replica Set · PSMDB Sharded · MDB Sharded | Replica set 3–7, odd; Sharded 5 or 13 |
 | Valkey | Valkey · Valkey Cluster | Cluster 3–7 |
 | Proxies | ProxySQL · HAProxy | ProxySQL 1–3 |
@@ -147,7 +147,9 @@ alone. A deploy that failed part-way retries the unfinished instances.
 ## Use the instances with other tools
 
 - **Query Runner**, **Benchmark** and **Data Generator** list each database instance separately as
-  `<node> / <instance>`. Valkey, the proxies and Orchestrator are not listed there.
+  `<node> / <instance>`: the Query Runner only MySQL-family and PostgreSQL instances, and a PSMDB
+  Sharded instance only through its `mongos`. Valkey, the proxies and Orchestrator are not listed
+  there.
 - **PMM:** set **Monitored by (PMM)** per instance. It is offered for MySQL, PostgreSQL, MongoDB,
   Valkey, ProxySQL and HAProxy, not Orchestrator. Clustered instances are registered with
   `--cluster=<instance>` (and `--replication-set` for MongoDB members), so PMM groups them the way
@@ -164,7 +166,8 @@ alone. A deploy that failed part-way retries the unfinished instances.
 | InnoDB Cluster mode | Group Replication |
 | PostgreSQL instances on Debian or Ubuntu | An Oracle Linux All-in-One node |
 
-These options are rejected by validation rather than ignored.
+These options are rejected by validation rather than ignored, except PostgreSQL instances on Debian
+or Ubuntu, which the deploy refuses with a message.
 
 ## Troubleshooting
 

@@ -5,13 +5,19 @@ MySQL or Percona XtraDB Cluster — and shows its threads, the crashing stack, e
 source, and what the server was doing at the time. Nothing is installed on the machine that
 crashed; the analysis runs in gdb on a Linux Client in DBCanvas.
 
-Open it from **Menu → Diagnose → Core Dump Analyzer**, at `#core-dump`, or with **Open analyzer** in
-the panel of a Linux Client set up for it.
+Open it from the sidebar (**Core Dump Analyzer**), from **Menu → Diagnose** on the desktop, at
+`#core-dump`, or with **Open analyzer** in the panel of a Linux Client set up for it.
+
+![Core Dump Analyzer: the verdict, the crashing thread's stack and the selected frame's arguments and locals](screenshots/core-dump-analyzer.png)
 
 ## Set up an analysis node
 
 The node is configured at deploy time: the directories are mounted and debug symbols are installed
 while it is built.
+
+The analysis Linux Client runs in a container, because it reads the core and the libraries through
+bind mounts from the Docker host. A Linux Client set to run as a VM with core-dump analysis ticked
+is refused when the design is validated. The server that crashed can run as a VM, or anywhere else.
 
 1. Copy the core file and the crashed host's libraries to the Docker host, under
    **`GDB_MOUNT_ROOT`** (see [Where the files go](#where-the-files-go)).
@@ -80,7 +86,8 @@ but the source pane cannot show the code.
    doing.
 
 Opening a core starts a gdb session on the node; it stays open for three minutes after you leave
-the page, so a reload does not reload the core.
+the page, so a reload does not reload the core. Through the API, opening the gdb session needs a
+token with the `write` scope (see [HTTP API](API.md)).
 
 ### Read the verdict
 
@@ -173,8 +180,10 @@ docker exec -it dbcanvas-12-linuxclient-01 gdb -nx \
 
 ## See what the server was doing (Server state)
 
-The **Server state** tab reads the server's own structures from the core. The first read takes
-tens of seconds; the result is cached, and leaving the tab does not cancel it. Each panel offers
+![Server state: the verdict, the server tiles, the sessions at the crash and the error log](screenshots/core-dump-server-state.png)
+
+The **Server state** tab reads the server's own structures from the core. On a large core the
+first read takes a minute or two; the result is cached, and leaving the tab does not cancel it. Each panel offers
 the gdb commands that produce it, with **Copy**.
 
 - **Verdict band:** one line describing the server's condition — a PXC node outside the Primary

@@ -41,12 +41,14 @@ nothing to install or enable:
 
 - Any command that needs the service starts it when it is not running, in the background,
   and returns the prompt at once. `dbcanvas`, `open`, `ls`, `export`, `up`, `down`, `rm`,
-  `token` and `passwords` need it.
+  `exec`, `cp`, `token` and `passwords` need it.
 - It stops by itself when no stack has containers and nothing has used it for 10 minutes
   (`DBCANVAS_IDLE_GRACE` changes the wait). A stack that is deployed keeps it running until
   the stack's TTL ends.
 - `dbcanvas stop` stops it now. Stacks keep running; the next command starts it again.
-- After a reboot it is not running until a command needs it.
+- After a reboot it is not running until a command needs it. Containers come back with Docker;
+  [VM nodes](VM_NODES.md) reach their stack network only while the service runs, and a VM that
+  stopped without being asked to is started again when the service starts.
 - When the `dbcanvas` file is replaced by a newer build, the service switches to it once no
   deploy is running and no browser tab is open.
 
@@ -60,6 +62,9 @@ Instance dbcanvas-alex, data in /home/alex/.dbcanvas
 Docker runs on amd64; nodes default to amd64, Kubernetes nodes run on amd64
 Kept up by: 3 node(s) with containers
 ```
+
+When some of those nodes run as VMs, the line adds how many, for example `Kept up by: 3 node(s)
+with containers; 1 of them VM(s), which reach their stack network only while dbcanvas runs`.
 
 The service is reached on a socket only your user can open, `~/.dbcanvas/dbcanvas.sock`. Its
 log is `~/.dbcanvas/dbcanvas.log`.
@@ -268,8 +273,13 @@ dbcanvas exec k8s-lab k3d-1 -- kubectl get pods -A
 ```
 
 `dbcanvas kinds` lists the K3D settings that matter most; the design catalogue lists them all.
-Kubeadm, All in One, the Stock Market Sim and core-dump hosts are not built by compose: start
-them from a template in the browser, then `dbcanvas export` the stack and keep the file.
+
+Patroni and repmgr clusters take at least 3 members. A node or cluster with `runtime=vm` runs
+as a virtual machine; see [Nodes that run as virtual machines](VM_NODES.md).
+
+Kubeadm, All in One, the Stock Market Sim, the Ledger Sim and core-dump hosts are not built by
+compose: build them in the browser, on the canvas or from a template, then `dbcanvas export` the
+stack and keep the file.
 
 ## Tokens: `dbcanvas token`
 
@@ -286,10 +296,10 @@ Its secret is shown this once:
 
 | Flag | |
 | --- | --- |
-| `--scope read` | Every `GET`, and the requests that only compute something (validate, compare, preview). |
+| `--scope read` | Every `GET`, and the requests that only compute something (validate, compare, preview). Not a node's terminal, the Operator Debugger or gdb, which need `write`. |
 | `--scope write` | Everything the browser can do with stacks. The default. |
-| `--scope admin` | Also instance settings, tokens and image builds. |
-| `--days 30` | Days until it expires; `0` never expires. |
+| `--scope admin` | Also system settings, image builds and the doctor. No token can create tokens. |
+| `--days 30` | Days until it expires, at most **Settings → API token lifetime**; `0` never expires. |
 | `--own-stacks` | Reach only the stacks this token creates. |
 | `--label k=v` | Reach only stacks with this label, which it puts on every stack it creates. Repeatable. |
 | `--max-ttl 8h` | The longest a stack it creates may live. |
@@ -328,8 +338,8 @@ catalogue from its next deploy.
 
 Checks Docker and access to its socket, the architecture, the base images, both catalogues,
 the data folder's permissions and free space, the encryption key, the node passwords (a
-warning for one set to a published example value), stack networks, k3d, the bundled files
-and the service, and says how to fix each problem:
+warning for one set to a published example value), stack networks, k3d, the bundled files,
+Lima for [VM nodes](VM_NODES.md) and the service, and says how to fix each problem:
 
 ```console
 $ dbcanvas doctor
@@ -338,6 +348,10 @@ ok    architecture       Docker runs on amd64; nodes default to amd64, Kubernete
 ok    stack networks     the next stack gets 10.125.226.0/24 (dbcanvas network check shows why)
 ...
 ```
+
+Lima appears under *vm nodes* (its version and the folder VMs are kept in, or a note that it is
+missing, which is not a failure), QEMU under *vm qemu amd64* and *vm qemu arm64*, and on Linux
+`/dev/kvm` under *kvm* (a warning when it is missing: VMs would then run under emulation).
 
 It exits non-zero when a check fails.
 

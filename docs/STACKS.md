@@ -57,11 +57,12 @@ build only from a DBCanvas source checkout, with `make <name>-image` (for exampl
 | Spock | Oracle Linux 8, 9, 10 |
 | Linux Client | Oracle Linux 8, 9, 10; Ubuntu 22.04, 24.04; Debian 12, 13; CentOS 7 with `EOL=on` |
 | Intranet, OpenBao | Oracle Linux 9 |
-| Samba AD DC, VNC, Repository | Ubuntu 24.04 |
+| Samba AD DC, VNC, Repository, Kubeadm Cluster | Ubuntu 24.04 |
 | PMM, Keycloak, SeaweedFS, Ceph, MClusterAdmin, simulators | A fixed container image; no OS choice |
 
 Debian is for the Linux Client only; Validate rejects it on any
-other node. The version pickers list what the version catalogue records for each OS;
+other node. A Debian or CentOS 7 Linux Client runs in a container, never as a virtual machine.
+The version pickers list what the version catalogue records for each OS;
 `dbcanvas versions update` downloads a newer catalogue.
 
 ### Library at a glance
@@ -78,13 +79,13 @@ other node. The version pickers list what the version catalogue records for each
 | MongoDB Tools | MClusterAdmin |
 | PostgreSQL (Percona) | PostgreSQL · Patroni Cluster · PostgreSQL Replication |
 | PostgreSQL (PGDG) | PostgreSQL (PGDG) · Patroni Cluster (PGDG) · PostgreSQL Replication (PGDG) · repmgr Cluster · Spock Cluster |
-| Valkey | Valkey Cluster · Valkey |
+| Valkey | Valkey Cluster · Valkey Sentinel · Valkey |
 | Kubernetes | K3D Cluster · Kubeadm Cluster |
 | Proxies & HA | ProxySQL · ProxySQL Cluster · HAProxy · PgBouncer · Orchestrator |
 | Monitoring | PMM 3 · PMM 2 (`EOL=on` only) |
 | Identity & Secrets | Samba AD DC · Keycloak · OpenBao |
 | Storage & Clients | SeaweedFS · Ceph · VNC · Linux Client · Repository |
-| App Simulators | Support Sim (Vector Search) · pgvector Support Sim · Stock Market Sim · Ledger Sim |
+| App Simulators | Support Sim (Vector Search) · pgvector Support Sim · Stock Market Sim · Ledger Sim · Performance Sim · Pager Panic |
 
 One per stack: Intranet, Samba AD DC, Keycloak, OpenBao and VNC.
 
@@ -313,8 +314,8 @@ UPDATE/SHARE` and everything else to the primary) or `primary`.
 | Source | Package | Versions | Operating systems |
 | --- | --- | --- | --- |
 | OS repository (default) | `haproxy` from AppStream or the Ubuntu archive | the one the OS release ships | all |
-| Percona | `percona-haproxy` from a `ppg-NN` repository | the 2.8 LTS line; `ppg-13` to `ppg-15` also have 2.5 and 2.6 | Oracle Linux, Ubuntu |
-| PGDG | `haproxy` from PGDG's `pgdg-rhelN-extras` repository | 2.7 to 3.x (3.2 and later on Oracle Linux 10) | Oracle Linux only; apt.postgresql.org has no HAProxy |
+| Percona | `percona-haproxy` from a `ppg-NN` repository | the 2.8 LTS line; on amd64, `ppg-13` to `ppg-15` also have 2.5 and 2.6 | Oracle Linux, Ubuntu |
+| PGDG | `haproxy` from PGDG's `pgdg-rhelN-extras` repository | 2.7 to 3.x (3.2 and later on Oracle Linux 10, and on arm64 Oracle Linux 9) | Oracle Linux only; apt.postgresql.org has no HAProxy |
 
 With Percona or PGDG, **HAProxy version** picks a build, or leaves it on the newest. Each `ppg-NN`
 repository carries its own range of builds. The install tries the linked PostgreSQL cluster's series
@@ -373,6 +374,7 @@ dashboard on a host port. Draw an association line from the simulator to its tar
 | **Stock Market Sim** | A stock-exchange app you operate. See below. | Any database (see below) |
 | **Ledger Sim** | A JDBC order-and-payment ledger. See below. | MySQL-family or PostgreSQL |
 | **Performance Sim** | Stressors that cause replication lag, contention and load, with a live timeline of their effect. See below. | MySQL-family, PostgreSQL, MongoDB or Valkey, on the canvas or in Kubernetes |
+| **Pager Panic** | An on-call game: tickets (a stopped kubelet, a broken static pod, an etcd snapshot to take) arrive over a 60-minute shift, and you fix them on the cluster's nodes from a terminal while DBCanvas checks the result. Arcade, Marathon and Practice modes, and a debrief with each ticket's solution. | A Kubeadm Cluster of 3 or more nodes at the Ready stage, used only by the game |
 
 The templates **PSMDB Vector Search + Support Sim** and **PostgreSQL + pgvector + Support Sim**
 deploy a complete vector-search demo.
@@ -515,7 +517,7 @@ no options of its own: link it, deploy it, and choose everything on its dashboar
   | Stressor | What it does | Where |
   | --- | --- | --- |
   | Connection storm | Opens connections and holds them idle, up to the number chosen; past `max_connections` (`maxclients` on Valkey) the refusals show on the dial | All |
-  | Idle connections | Opens connections (20 unless set otherwise) and leaves them open and idle until the dial is turned off, as an application's pool does between requests; they run nothing but count against `max_connections` (`maxclients` on Valkey). On MongoDB, a driver pool kept at that size | All |
+  | Idle connections | Opens 5, 10, 20 (the default), 50, 100 or 200 connections and leaves them open and idle until the dial is turned off, as an application's pool does between requests; they run nothing but count against `max_connections` (`maxclients` on Valkey). On MongoDB, a driver pool kept at that size | All |
   | Hot-row contention | Workers update the same few rows in short transactions, optionally in opposite orders to cause deadlocks. On MongoDB, multi-document transactions on the same documents, counting write conflicts | MySQL family, PostgreSQL; MongoDB replica sets |
   | Long-running transaction | Holds a consistent snapshot open; the history list length (MySQL) or the oldest snapshot's age (PostgreSQL) climbs while it holds | MySQL family, PostgreSQL |
   | Commit storm | Many single-row autocommit writes from many workers; on MongoDB with `w: "majority", j: true` | MySQL family, PostgreSQL, MongoDB |
@@ -561,9 +563,20 @@ recreating the node. Disk limits apply to containers only; a node that runs as a
 ([Nodes as virtual machines](VM_NODES.md)) takes the CPU, memory and network ones.
 
 ### Where a node runs
-A node runs in a container by default. Every database, proxy and tool node DBCanvas installs from
+A node runs in a container by default. The database, proxy and tool nodes DBCanvas installs from
 packages can run as a Lima VM instead, with a kernel, SELinux or AppArmor of its own, on
-the same stack network: see [Nodes as virtual machines](VM_NODES.md).
+the same stack network: the MySQL, MariaDB, PostgreSQL, MongoDB and Valkey nodes and clusters,
+ProxySQL, HAProxy, PgBouncer, Orchestrator, OpenBao, Samba AD DC, All in One, the Linux Client
+and Kubeadm clusters. Nodes that arrive as ready-made images (Intranet, PMM, Keycloak, SeaweedFS,
+Ceph, the simulators, MClusterAdmin), VNC, the Repository and K3D clusters always run in
+containers. A VM node on Oracle Linux has a **SELinux mode** (enforcing or permissive); see
+[Nodes as virtual machines](VM_NODES.md#selinux-mode).
+
+**Architecture.** Every node and frame has an **Architecture** field: *Automatic* (the Docker
+host's own, so a design follows the host it is deployed on), **amd64** or **arm64**. The one that
+is not the host's runs under emulation, more slowly, and is labelled *emulated*. A cluster member
+runs on its cluster's architecture, Kubernetes nodes (K3D and Kubeadm) on the host's own, and PMM 2
+and MClusterAdmin on amd64 only. A deployed node keeps the architecture it was built with.
 
 ## Sign in with a directory or single sign-on
 
@@ -772,7 +785,7 @@ Also:
 - **[Operator Debugger](OPERATOR_DEBUGGER.md)**: with *Run the operator under Delve* ticked, the
   operator is built from its release source and run under Delve, and you can set breakpoints and
   force a reconcile from the browser. *Also publish the debugger to the host* (on by default)
-  exposes Delve on port 40000 for an external IDE; turn it off if two debugged clusters would
+  exposes Delve on a host port (40000 by default) for an external IDE; turn it off if two debugged clusters would
   collide. Not available for CloudNativePG or Crunchy PGO.
 
 ### Replicate one PXC cluster into another
@@ -891,7 +904,7 @@ whatever you need, or tick tools to have them installed at deploy:
 | mongosh | From Percona Server for MongoDB |
 | psql | Percona Distribution for PostgreSQL client, 13–19 |
 | ClusterSync | Percona ClusterSync for MongoDB (`pcsm`), installed but not started |
-| Use this client for core-dump analysis | See [Core Dump Analyzer](CORE_DUMP_ANALYZER.md). Host directories must be under `GDB_MOUNT_ROOT` |
+| Use this client for core-dump analysis | See [Core Dump Analyzer](CORE_DUMP_ANALYZER.md). Host directories must be under `GDB_MOUNT_ROOT`. The client runs in a container (it reads the core through bind mounts from the Docker host); the server that crashed can run as a VM |
 
 After deploy, the panel also has:
 
@@ -1027,9 +1040,11 @@ Each retry is a line in the Sync log. Before, one connection that went silent mi
 whole sync, and every node waiting on the mirror with it.
 
 **Use it from a node.** Nodes and frames that install from Percona have a **Repository** field.
-In **Fallback** mode (default) anything not mirrored still comes from upstream. In **Strict** mode
-missing packages fail the install, which tests whether a mirror is complete. Repositories added
-later are used on a node's next install.
+By default anything the Repository does not carry still comes from repo.percona.com. Tick
+**Strict** on the Repository node and the nodes using it disable the upstream Percona
+repositories, so a missing package fails the install and is named, which shows whether a mirror
+is complete. OS repositories are left alone. Repositories added later are used on a node's next
+install.
 
 **Use it from a K3D frame.** The frame's Repository field makes k3s pull images through the
 registry. Tick the architecture k3s runs on the Repository; Validate warns if they differ.
@@ -1139,6 +1154,10 @@ ssh -L 8443:127.0.0.1:8443 -L 8080:127.0.0.1:8080 dbuser@10.0.0.7 -p 22
 Without `user@` in the setting, the login is your user name on the DBCanvas machine. Ports are read when you
 click, since they change when a container restarts.
 
+**Open a shell on a VM node from the host.** Right-clicking a running node that runs as a virtual
+machine offers **Copy limactl shell command**: a `LIMA_HOME=… limactl shell <instance> sudo -i`
+line for a root shell from the DBCanvas machine.
+
 **Add DNS records.** The Intranet's **DNS** tab adds custom **A** (including wildcards such as
 `*.apps`), **CNAME** and **PTR** records. A custom record replaces the automatic one with the
 same name or address, survives redeploys, and is removed with the stack. Each has a copyable
@@ -1246,7 +1265,7 @@ soon**, completed backups and high resource usage.
 
 DBCanvas opens as a desktop. Every page opens in its own window; double-click a desktop icon to
 open one. The **Menu** button at the left of the taskbar lists every page in groups (Workspace,
-Data and queries, Diagnose, Learn, System) with a search box. Right-click a page in the Menu, or
+Data and queries, Diagnose, System, and Other for the rest, such as Scratchboard) with a search box. Right-click a page in the Menu, or
 its icon, to open another window of it. ⌘K finds a page from anywhere.
 
 The front window sets the top bar's title, **Refresh** and address (`#benchmark`). A minimized
@@ -1286,8 +1305,11 @@ Preferences, saved in DBCanvas:
 | Setting | Choices |
 | --- | --- |
 | Terminal | Docked (default) or undocked |
+| Terminal stacking | Keep terminals and file managers on top (default), or stack normally |
 | Tabs | How many pages can be open at once; 2–40, default 20 |
 | Adding nodes | Canvas menu or docked library |
+| Tooltips | Shown (default) or hidden |
+| Scratchboard | Temporary only (default) or allow keeping boards |
 | Theme | Glass Light (default), Glass Dark, Light, Dark, Midnight, Solarized, Synthwave, Forest |
 | Look | Glass (default: frosted panels, edge-to-edge canvas), Modern, Industrial (dense, monospace headings), Editorial (serif, spacious), Soft (rounded pills) |
 

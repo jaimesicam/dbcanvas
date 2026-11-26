@@ -8,8 +8,8 @@ to run a stack.
 
 DBCanvas is one Go binary, `dbcanvas`, run by one person (the owner) on their own Mac or Linux
 machine. It serves the embedded React SPA **and** the JSON API on one port, keeps its own
-metadata in SQLite, and talks to the Docker Engine API to provision stack containers. Docker is
-the only engine.
+metadata in SQLite, and talks to the Docker Engine API to provision stack containers. Nodes set
+to run as virtual machines are created with Lima (`limactl`) instead; see [VM nodes](#vm-nodes).
 
 ```
                     ┌──────────────────────────── your machine ───┐
@@ -17,17 +17,22 @@ browser ──HTTP──>  dbcanvas service (127.0.0.1:8080)              │
 dbcanvas ls/up/… ─> ~/.dbcanvas/dbcanvas.sock (control socket)    │
                    ├─ serves embedded React SPA (//go:embed)      │
                    ├─ /api/*  ──> SQLite (~/.dbcanvas/dbcanvas.db)│
-                   └─ Docker Engine API (/var/run/docker.sock)    │
-                          │  creates / execs / monitors           │
+                   ├─ Docker Engine API (/var/run/docker.sock)    │
+                   │      │  creates / execs / monitors           │
+                   │      ▼                                       │
+                   │  stack containers: pg · patroni · pxc ·      │
+                   │  psmdb · valkey · intranet · pmm · proxysql ·│
+                   │  haproxy · seaweedfs · …                     │
+                   └─ limactl + ssh (optional)                    │
                           ▼                                       │
-                   stack containers: pg · patroni · pxc · psmdb ·  │
-                   valkey · intranet · pmm · proxysql · haproxy ·  │
-                   seaweedfs · …                                   │
+                      VM nodes, linked to the stack network       │
+                      through the Intranet                        │
                    └──────────────────────────────────────────────┘
 ```
 
 There is no agent, no message bus and no scheduler. A deploy is the Go process making Docker
-API calls and running commands inside the containers it created; progress is streamed back to
+API calls (and `limactl` and ssh calls for VM nodes) and running commands inside the nodes it
+created; progress is streamed back to
 the browser as it goes.
 
 ### The background service
@@ -49,7 +54,8 @@ runs per data folder: it holds a lock there, and a second one that finds the loc
   deploy is running, nothing is connected (a browser, a shared session's guests, a command
   waiting on a deploy) — and that has lasted 10 minutes (`DBCANVAS_IDLE_GRACE`). After a
   reboot it starts with the next command and catches up, removing what expired while it was
-  down. `dbcanvas status` says what keeps it up; `dbcanvas stop` stops it.
+  down, and starts again the VMs that stopped without being asked to (`resumeVMs`,
+  `app/vmnet.go`). `dbcanvas status` says what keeps it up; `dbcanvas stop` stops it.
 - **Binary updates.** When the file it runs from is replaced, it restarts as the new binary
   once no deploy is running and nothing is connected.
 - **Embedded files.** Besides the web app, the binary carries the version catalogue
@@ -70,7 +76,10 @@ On a Linux host the host routes to Docker's bridge networks, and DBCanvas dials 
 addresses directly. On macOS (Docker Desktop, Rancher Desktop) Docker's networks live inside a
 VM, so a connection is tunnelled through an exec in a container on the stack's network — a relay
 over the Docker API (`app/nodedial.go`, `app/noderelay.go`). Container IPs need not be routable
-from the host.
+from the host. The relay is bash's `/dev/tcp` in a node that has bash; a container without it (a
+k3s node, a distroless image) gets `dbcanvas-relay` (`app/cmd/dbcanvas-relay`), a small static
+forwarder built for linux/amd64 and linux/arm64 by `make relaybin` and embedded in the binary.
+`DBCANVAS_NODE_DIAL` (`auto`, `direct` or `tunnel`) overrides the choice.
 
 ### Stack networks
 
@@ -85,8 +94,8 @@ VM nodes; K3D MetalLB blocks come from the upper half.
 A node can run as a Lima virtual machine instead of a container (`app/lima.go`). A stack with VM
 nodes uses an engine router that creates those nodes on Lima and everything else on Docker
 (`app/engine_router.go`), so provisioning is the same code either way. A VM reaches the stack's
-Docker network through the Intranet: dbcanvas runs the relay's TUN mode in the Intranet and in the
-VM and copies packets between them; the Intranet routes the VM's address and answers ARP for it
+Docker network through the Intranet: dbcanvas runs `dbcanvas-relay tun` in the Intranet and in
+the VM and copies packets between them; the Intranet routes the VM's address and answers ARP for it
 (`app/vmnet.go`). Nothing on the host changes. See [VM_NODES.md](VM_NODES.md).
 
 ## Node images are pre-built, not assembled at deploy
@@ -141,7 +150,8 @@ Two generated files, written by two commands that never overwrite each other's w
 
 They are separate files because they cost two very different things to produce. Rebuilding an
 image is routine; probing every repository on every image takes hours, so `make images` never
-touches the catalogue and `make versions` is run deliberately.
+touches the catalogue and `make versions` is run deliberately. The probe runs several images at
+once, `PROBE_JOBS` at a time (the CPU count by default).
 
 The catalogue committed to the repository is copied into `app/catalog` (`make catalog`) and
 embedded in the binary. `dbcanvas versions update` downloads a newer one into `~/.dbcanvas`,
@@ -206,7 +216,10 @@ Everything is in the data folder, `~/.dbcanvas` (`DBCANVAS_DATA` overrides it).
 | Generated credentials for a deployed node | The deployment row, shown in the node's panel |
 | What a deploy actually applied (K8s manifests) | Archived on the cluster's first node, numbered in apply order |
 | Node images and the version catalogue | The Docker image store; the catalogue embedded in the binary, or an updated one in `~/.dbcanvas` |
-| The bundled files, the service log, the `k3d` binary | `~/.dbcanvas/assets/<version>`, `~/.dbcanvas/dbcanvas.log`, `~/.dbcanvas/bin/k3d` |
+| The bundled files, the service log, the `k3d` binary | `~/.dbcanvas/assets/<version>`, `~/.dbcanvas/dbcanvas.log`, `~/.dbcanvas/bin/k3d-<version>` |
+| VM nodes | Lima's folder, `~/.dbcanvas/lima` (`DBCANVAS_LIMA_HOME` overrides it) |
+| pt-stalk archives, Kubernetes dumps, session recordings, upload staging | `~/.dbcanvas/ptstalk`, `k8sdumps`, `recordings`, `tmp` |
+| The one-service lock | `~/.dbcanvas/engine.lock` |
 
 Everything a stack needs is derived from the design plus the settings and node passwords at
 deploy time, so a redeploy re-reads them. Passwords are not stored per-node on the canvas.
@@ -301,4 +314,5 @@ they agree), rebuild, and run `make adopt-images`.
 ## Tech stack
 
 Go (standard library HTTP, `modernc.org/sqlite`, no ORM) · React + Vite + Tailwind ·
-Docker Engine API over the unix socket, no SDK · k3d/k3s for Kubernetes frames.
+Docker Engine API over the unix socket, no SDK · Lima for VM nodes · k3d/k3s for Kubernetes
+frames.

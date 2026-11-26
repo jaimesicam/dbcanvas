@@ -7,7 +7,8 @@ no setup needed. FTDC Summary decodes that directory and charts it, so you can s
 server was doing at any moment in the recorded period. Most of these numbers, including
 replication lag, never appear in the server log.
 
-Open it from the sidebar (**FTDC Summary**).
+Open it from the sidebar (**FTDC Summary**), from **Menu → Diagnose** on the desktop, or at
+`#ftdc-summary`.
 
 ![FTDC Summary: a decoded capture, with the charts worth looking at called out](screenshots/ftdc-summary.png)
 
@@ -29,7 +30,10 @@ Use any of these:
   set from every member's point of view at once.
 - **Upload.** Choose the `metrics.*` files, a `.tar.gz` or `.zip` of the directory, or the
   whole `diagnostic.data` folder, then click **Chart N file(s)**. When you pick a folder,
-  files that are not `metrics.*` or archives are ignored.
+  files that are not `metrics.*` or archives are ignored. An upload can be up to 256 MB in
+  all.
+
+Nodes that run as VMs work the same way, both for reading a node and for the download below.
 
 To keep the files instead, right-click a MongoDB node in the stack designer and choose
 **Download diagnostic.data with mongod.log** (or **mongos.log** on a router). You get both

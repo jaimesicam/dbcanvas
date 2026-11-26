@@ -37,6 +37,8 @@ single stack; if you pick from more than one, only the first stack's nodes are r
 | MongoDB | the `mongod` / `mongos` log |
 | Valkey | the log file if one exists, otherwise the systemd journal (which also carries systemd's own records, such as a process killed by signal) |
 
+Nodes that run as VMs work the same way: their logs are read from the same places.
+
 ### Kubernetes (K3D) stacks
 
 For a K3D frame running one of the supported operators, the picker lists every log the

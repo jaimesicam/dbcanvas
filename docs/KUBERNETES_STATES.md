@@ -19,7 +19,7 @@ The page only reads. It never scales, deletes, restarts or patches anything.
 
 | Source | What it is |
 | --- | --- |
-| **Live clusters** | Any running Kubernetes frame in your stacks — K3D, or Kubeadm once `kubeadm init` has run — sampled on a timer. |
+| **Live clusters** | Any running Kubernetes frame in your stacks — K3D, or Kubeadm once `kubeadm init` has run, including clusters whose nodes are VMs — sampled on a timer. |
 | **Captures (pt-k8s-debug-collector)** | A `cluster-dump` kept by a cluster's **Diagnostics** tab. Captures remain after the cluster is gone. |
 | **Uploaded** | A `cluster-dump.tar.gz` from your computer, via **Upload a cluster-dump**. It can come from any cluster. Uploads are kept in memory for one hour, visible only to you. |
 
@@ -56,8 +56,11 @@ belongs to, and its contents.
 
 Built-in kinds each get a column: **Nodes**, **Pods**, **StatefulSets**, **Deployments**,
 **ReplicaSets**, **Jobs**, **CronJobs**, **PersistentVolumeClaims**, **PersistentVolumes**,
-**Services**, **PodDisruptionBudgets**, then the operator's custom resources (the cluster, its
-backups and restores). A capture adds everything else it holds — ConfigMaps, Secrets,
+**Services**, **PodDisruptionBudgets**, then the operator's custom resources on a K3D cluster:
+the cluster, its backups and restores for the Percona operators; `clusters.postgresql.cnpg.io` for
+CloudNativePG; `postgresclusters` for Crunchy; and for OpenEverest its
+`databaseclusters.everest.percona.com` plus the Percona clusters it creates. A live Kubernetes
+frame built with Kubeadm shows built-in kinds only; no custom resources are sampled there. A capture adds everything else it holds — ConfigMaps, Secrets,
 StorageClasses, RBAC objects and any other custom resource.
 
 Noisy kinds such as RBAC, ConfigMaps and ReplicaSets start **folded**: their chip shows the count,

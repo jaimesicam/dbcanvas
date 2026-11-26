@@ -6,8 +6,8 @@ one is saved as a file on the node so you can apply it yourself with `kubectl`.
 
 It is available on K3D frames running one of the four Percona operators: **MySQL (PXC)**,
 **MySQL (Percona Server)**, **MongoDB** and **PostgreSQL**. Open the cluster's **server** node and
-choose **Backups** (next to **cr.yaml** and **Secrets & configs**). CloudNativePG and Crunchy PGO
-are not supported.
+choose **Backups** (after **cr.yaml**, **Secrets & configs** and **Certificates**). CloudNativePG
+and Crunchy PGO are not supported, and the tab is not available on Kubeadm clusters.
 
 | Pane | What it shows |
 | --- | --- |
@@ -40,9 +40,11 @@ The state column shows the operator's own state (`Starting`, `Running`, `Succeed
 `Pending` before the operator has picked the object up.
 
 > [!NOTE]
-> Backups go to the storage named in the cluster's `cr.yaml`, which DBCanvas points at the stack's
-> SeaweedFS node when there is one. A cluster without one backs up to the operator's default PVC
-> storage, and the **Bucket** pane is not shown.
+> Backups go to a storage named in the cluster's `cr.yaml`. When the frame has a SeaweedFS node,
+> DBCanvas adds a storage named `seaweedfs` that points at it, and backups use that. A cluster
+> deployed without SeaweedFS keeps the storages its release's `cr.yaml` ships; the tab reads the
+> cluster's `spec.backup.storages` and names `seaweedfs` if it is there, otherwise the first storage
+> listed. The **Bucket** pane is shown only when the cluster has a SeaweedFS store.
 
 ## Delete a backup
 
@@ -50,7 +52,7 @@ Deleting the backup **object** and deleting its **data** are separate actions:
 
 | Button | Effect |
 | --- | --- |
-| **the object** | Deletes the Kubernetes object. The backup files stay in the bucket. |
+| **the object** | Deletes the Kubernetes object. The backup files stay in the bucket. If the object carries the `percona.com/delete-backup` finalizer, it is removed first. |
 | **the object and its data** | Adds the `percona.com/delete-backup` finalizer first, so the operator also deletes the files. |
 
 Turning on **Delete the data with the object** when taking a backup adds the finalizer up front.
@@ -109,7 +111,8 @@ bucket is not touched.
 
 ## Manifests on the node
 
-Every manifest the tab applies is saved in the operator's source directory on the server node:
+Every manifest the tab applies is saved in the operator's source directory on the server node
+(`/root/<operator>-<version>`):
 
 ```
 <operator source>/deploy/backup/
@@ -120,7 +123,7 @@ own `backup.yaml` and `restore.yaml`. Each file starts with the commands to appl
 watch the result:
 
 ```yaml
-#   kubectl apply -n default -f deploy/backup/cluster1-backup-20260911-143002.yaml
+#   kubectl apply -n default -f /root/percona-xtradb-cluster-operator-1.20.0/deploy/backup/cluster1-backup-20260911-143002.yaml
 #   kubectl -n default get pxc-backup -w
 ```
 

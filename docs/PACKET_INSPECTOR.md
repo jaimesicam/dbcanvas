@@ -5,7 +5,8 @@ statements, the responses, the response times and the network problems underneat
 retransmissions, gaps, resets and zero windows. Use it to find out what actually crossed the
 wire and what the server sent back, which the slow log and `SHOW PROCESSLIST` cannot tell you.
 
-Open it from the sidebar (**Packet Inspector**) or at `#packet-inspector`.
+Open it from the sidebar (**Packet Inspector**), from **Menu → Diagnose** on the desktop, or at
+`#packet-inspector`.
 
 ![A finished capture, summarised, and clear about what TLS hides](screenshots/packet-inspector.png)
 
@@ -43,7 +44,7 @@ card lists every port a capture covered.
    | --- | --- | --- |
    | **Duration (s)** | 20 | 1–3600 |
    | **Max packets** (`tcpdump -c`) | 50,000 | 100–100,000 |
-   | **Snaplen** (`tcpdump -s`) | 65535 (whole frame) | 64 and up |
+   | **Snaplen** (`tcpdump -s`) | 65535 (whole frame) | 64–262144 |
    | Size on disk | 192 MB | fixed |
 
 3. Optionally narrow it with an **Extra BPF filter**, for example `host 10.0.0.7`. The filter
@@ -63,6 +64,8 @@ What to know about where the capture runs:
 
 - `tcpdump` runs **inside the database node**, on the interface that holds the node's stack
   address. It is installed on first use.
+- **Nodes that run as VMs work the same way.** On a VM the capture runs on the VM's link to
+  the stack network (`dbc0`), not on Lima's own interface, so the command shows `-i dbc0`.
 - **Clients on the node itself do not appear.** Traffic to the node's own address from inside
   the node goes over loopback. Generate the traffic from another node.
 - **On a busy server the packet limit ends the capture first.** 100,000 packets can arrive
@@ -74,8 +77,9 @@ What to know about where the capture runs:
 ## Decode a capture file you already have
 
 1. Click **Upload a capture**.
-2. Choose the **Capture file** (`.pcap`, `.pcapng` or `.cap`).
-3. Optionally add a **Server log** covering the same period. Its records are shown against
+2. Choose the **Capture file** (`.pcap`, `.pcapng`, `.cap` or `.dmp`, up to 192 MB).
+3. Optionally add a **Server log** (MySQL, PostgreSQL, MongoDB or Valkey, up to 64 MB)
+   covering the same period. Its records are shown against
    the capture's timeline (see [Read the server error log](#read-the-server-error-log)).
 4. Leave **Protocol** on **Detect automatically**, or pick MySQL, PostgreSQL, MongoDB or
    Valkey.
@@ -545,6 +549,7 @@ On PostgreSQL, a server with `ssl = off` answers `SSLRequest` with `N`. Clients 
   want to keep. Uploaded files are not written to disk.
 - **Capture limits:** 3600 s, 100,000 packets and 192 MB. A capture stopped by the size
   limit says so.
+- **Upload limits:** 192 MB for a capture file and 64 MB for a server log.
 - **Decode limit:** 400,000 packets. A capture over the limit reports how many packets were
   skipped.
 - **Dropped packets:** `packets dropped by kernel` in the summary means the traffic
