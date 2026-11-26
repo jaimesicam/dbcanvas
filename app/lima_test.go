@@ -19,7 +19,7 @@ func TestSystemdImageParts(t *testing.T) {
 		{"ghcr.io/jaimesicam/dbcanvas-systemd:ubuntu-22.04-amd64-v0.1.0", "ubuntu", "22.04", "amd64", true},
 		{"dbcanvas-systemd:debian-13-amd64", "debian", "13", "amd64", true},
 		{"dbcanvas-intranet:oraclelinux-9-arm64-v0.1.0", "", "", "", false},
-		{"dbcanvas-kubeadm:ubuntu-24.04-arm64-v0.1.0", "", "", "", false},
+		{"dbcanvas-kubeadm:ubuntu-24.04-arm64-v0.1.0", "ubuntu", "24.04", "arm64", true}, // a Kubeadm node
 		{"dbcanvas-systemd:oraclelinux-9-s390x-v0.1.0", "", "", "", false},
 		{"dbcanvas-systemd", "", "", "", false},
 		{"percona/pmm-server:3", "", "", "", false},
@@ -29,6 +29,12 @@ func TestSystemdImageParts(t *testing.T) {
 		if ok != c.ok || os_ != c.os || ver != c.ver || arch != c.arch {
 			t.Errorf("%s: got %q %q %q %v, want %q %q %q %v", c.image, os_, ver, arch, ok, c.os, c.ver, c.arch, c.ok)
 		}
+	}
+}
+
+func TestIsKubeadmImage(t *testing.T) {
+	if !isKubeadmImage("ghcr.io/x/dbcanvas-kubeadm:ubuntu-24.04-amd64-v0.1.0") || isKubeadmImage("dbcanvas-systemd:ubuntu-24.04-amd64-v0.1.0") {
+		t.Fatal("isKubeadmImage")
 	}
 }
 
@@ -186,5 +192,19 @@ func TestLimaBaselineMatchesImages(t *testing.T) {
 				t.Errorf("%s runs %q, the VM baseline does not", file, step)
 			}
 		}
+	}
+}
+
+// TestLimaPrepareOrder: the boot ordering records the units present when it runs, so it comes after
+// everything the preparation installs — else a Kubeadm VM's containerd waits for a stack link that
+// comes up only once the preparation is over.
+func TestLimaPrepareOrder(t *testing.T) {
+	s := limaPrepareScript(limaMeta{OS: "ubuntu", Hostname: "kube-2", SELinux: "enforcing"}, true)
+	kube, order := strings.Index(s, limaKubeadmBaseline), strings.Index(s, limaBootOrder)
+	if kube < 0 || order < 0 || kube > order || !strings.HasSuffix(s, limaBootOrder) {
+		t.Fatalf("the boot ordering must come last, after the Kubeadm preparation (kubeadm at %d, ordering at %d)", kube, order)
+	}
+	if !strings.HasPrefix(s, "hostnamectl set-hostname 'kube-2'") {
+		t.Fatal("hostname first")
 	}
 }

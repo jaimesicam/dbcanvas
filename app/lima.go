@@ -171,12 +171,12 @@ func limaTemplate(os_, version string) (string, bool) {
 	return t, ok
 }
 
-// systemdImageParts reads os, version and arch from a node image of the dbcanvas-systemd kind:
-// "[registry/…/]dbcanvas-systemd:<os>-<version>-<arch>-<release>". ok is false for any other
-// image, which a VM cannot stand in for.
+// systemdImageParts reads os, version and arch from a node image of the dbcanvas-systemd kind, or
+// the Kubeadm node image built on it: "[registry/…/]dbcanvas-systemd:<os>-<version>-<arch>-<release>".
+// ok is false for any other image, which a VM cannot stand in for.
 func systemdImageParts(image string) (os_, version, arch string, ok bool) {
 	repo, tag, found := strings.Cut(image[strings.LastIndex(image, "/")+1:], ":")
-	if !found || repo != "dbcanvas-systemd" {
+	if !found || (repo != "dbcanvas-systemd" && repo != "dbcanvas-kubeadm") {
 		return "", "", "", false
 	}
 	p := strings.Split(tag, "-")
@@ -314,6 +314,57 @@ GEN
 chmod 755 /etc/systemd/system-generators/dbcanvas-stack-link
 systemctl daemon-reload`
 
+// limaPrepareScript is what a new VM runs to become a node: its hostname, the image's tooling,
+// its SELinux mode, a Kubeadm node's container runtime, and, last, the boot ordering. That comes
+// last because it records the units present when it runs: what the preparation installed
+// (containerd on a Kubeadm node among it) is the VM's own and starts at boot without waiting for
+// the stack network; only what the node's provisioning installs after it waits.
+func limaPrepareScript(m limaMeta, kubeadm bool) string {
+	script := limaBaselineScript(m.OS) + limaSELinuxScript(m.SELinux)
+	if kubeadm {
+		script += limaKubeadmBaseline
+	}
+	script += limaBootOrder
+	if m.Hostname != "" {
+		script = "hostnamectl set-hostname " + shellQuote(m.Hostname) + "\n" + script
+	}
+	return script
+}
+
+// isKubeadmImage reports whether image is the Kubeadm node image.
+func isKubeadmImage(image string) bool {
+	repo, _, _ := strings.Cut(image[strings.LastIndex(image, "/")+1:], ":")
+	return repo == "dbcanvas-kubeadm"
+}
+
+// limaKubeadmBaseline brings a VM to what the Kubeadm node image (images/kubeadm.Dockerfile)
+// holds: containerd with the systemd cgroup driver the kubelet expects, crictl pointed at it, the
+// kubelet ordered after containerd, kubeadm's preflight tools, and the kernel modules and sysctls a
+// node's pod network needs. The Kubernetes packages themselves are installed at deploy, for the
+// cluster's release, as on a container node. The image's container-only boot fixes (cgroup
+// delegation, a stand-in kernel config) have no place on a VM, whose kernel is its own.
+const limaKubeadmBaseline = `
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y --no-install-recommends ca-certificates curl gpg apt-transport-https \
+  containerd conntrack socat ebtables iptables ipset kmod iproute2 iputils-ping net-tools dnsutils \
+  openssh-server openssh-client bash-completion vim less jq sudo
+mkdir -p /etc/containerd /etc/systemd/system/kubelet.service.d
+containerd config default > /etc/containerd/config.toml
+sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+printf 'runtime-endpoint: unix:///run/containerd/containerd.sock\nimage-endpoint: unix:///run/containerd/containerd.sock\n' > /etc/crictl.yaml
+printf '[Unit]\nWants=containerd.service\nAfter=containerd.service\n' > /etc/systemd/system/kubelet.service.d/05-containerd.conf
+printf 'overlay\nbr_netfilter\n' > /etc/modules-load.d/kubernetes.conf
+modprobe overlay
+modprobe br_netfilter
+printf 'net.ipv4.ip_forward = 1\nnet.bridge.bridge-nf-call-iptables = 1\nnet.bridge.bridge-nf-call-ip6tables = 1\n' > /etc/sysctl.d/90-kubernetes.conf
+sysctl --system >/dev/null
+swapoff -a
+sed -i '/[[:space:]]swap[[:space:]]/d' /etc/fstab
+systemctl daemon-reload
+systemctl enable containerd >/dev/null 2>&1
+systemctl restart containerd`
+
 // limaSELinuxScript sets the VM's SELinux mode, now and for every boot, where the OS has
 // SELinux; "" keeps the OS's own (enforcing on Oracle Linux).
 func limaSELinuxScript(mode string) string {
@@ -331,11 +382,14 @@ if [ -f /etc/selinux/config ]; then
 fi`
 }
 
+// limaBaselineScript is the image's tooling for an OS family. limaBootOrder is not part of it: it
+// records the units present when it runs, so it comes last, after everything the VM's preparation
+// installs (see baseline).
 func limaBaselineScript(os_ string) string {
 	if isDebianOS(os_) {
-		return limaBaselineDebian + limaBootOrder
+		return limaBaselineDebian
 	}
-	return limaBaselineRHEL + limaBootOrder
+	return limaBaselineRHEL
 }
 
 // --- running limactl --------------------------------------------------------
@@ -503,7 +557,7 @@ func (l *Lima) ContainerCreate(ctx context.Context, spec ContainerSpec) (string,
 		l.ContainerRemove(ctx, id)
 		return "", err
 	}
-	if err := l.baseline(ctx, id, meta); err != nil {
+	if err := l.baseline(ctx, id, meta, isKubeadmImage(spec.Image)); err != nil {
 		l.ContainerRemove(ctx, id)
 		return "", err
 	}
@@ -522,11 +576,8 @@ func (l *Lima) start(ctx context.Context, id, arch string) error {
 
 // baseline sets the hostname and installs the image's tooling, retrying the way a flaky mirror
 // needs. Idempotent, so a redeploy runs it again harmlessly.
-func (l *Lima) baseline(ctx context.Context, id string, m limaMeta) error {
-	script := limaBaselineScript(m.OS) + limaSELinuxScript(m.SELinux)
-	if m.Hostname != "" {
-		script = "hostnamectl set-hostname " + shellQuote(m.Hostname) + "\n" + script
-	}
+func (l *Lima) baseline(ctx context.Context, id string, m limaMeta, kubeadm bool) error {
+	script := limaPrepareScript(m, kubeadm)
 	var last error
 	for attempt := 1; attempt <= 3; attempt++ {
 		res, err := l.Exec(ctx, id, []string{"bash", "-c", script}, nil)
