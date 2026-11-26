@@ -970,6 +970,12 @@ UNIT
 # Where the package put it: /usr/bin on Oracle Linux, /usr/sbin on Debian and Ubuntu.
 sed -i "s|@PGBOUNCER@|$(command -v pgbouncer)|" /etc/systemd/system/pgbouncer.service
 fi
+# Percona's Debian and Ubuntu package ships its own unit as percona-pgbouncer.service, which runs
+# as another account that cannot read this configuration: with both enabled it fails at every
+# boot. This pooler is the pgbouncer unit.
+if [ -f /etc/systemd/system/pgbouncer.service ] && systemctl cat percona-pgbouncer >/dev/null 2>&1; then
+  systemctl disable --now percona-pgbouncer >/dev/null 2>&1 || true
+fi
 systemctl daemon-reload
 systemctl enable pgbouncer >/dev/null 2>&1 || true
 systemctl reset-failed pgbouncer 2>/dev/null || true
