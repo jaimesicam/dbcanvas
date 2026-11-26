@@ -596,11 +596,6 @@ func (l *Lima) ListManaged(ctx context.Context) ([]ContainerInfo, error) {
 	return out, nil
 }
 
-// ContainerStats has no cheap equivalent yet; zeroes read as "unknown".
-func (l *Lima) ContainerStats(ctx context.Context, id string) (ContainerStat, error) {
-	return ContainerStat{}, nil
-}
-
 // limaTail is the last n bytes of s.
 func limaTail(s string, n int) string {
 	s = strings.TrimSpace(s)

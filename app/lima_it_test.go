@@ -136,6 +136,12 @@ func TestLimaEngineLive(t *testing.T) {
 		t.Errorf("ListManaged: %+v", list)
 	}
 
+	// A resource sample, twice so CPU has a previous one to compare with.
+	l.ContainerStats(ctx, id)
+	if st, err := l.ContainerStats(ctx, id); err != nil || st.MemLimit <= 0 || st.MemUsed <= 0 || st.NetRx <= 0 || st.BlkRead <= 0 {
+		t.Errorf("ContainerStats: %+v %v", st, err)
+	}
+
 	// Stop and start keep the VM and what it holds.
 	if err := l.ContainerStop(ctx, id); err != nil {
 		t.Fatal(err)

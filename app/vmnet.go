@@ -137,6 +137,9 @@ func (a *App) vmAddress(ctx context.Context, stackID int64, id string) (ip, cidr
 
 // --- the link ------------------------------------------------------------------
 
+// vmStackDev is the VM's interface on its stack network.
+const vmStackDev = "dbc0"
+
 // vmRelayPath is where the relay is kept in a VM.
 const vmRelayDir, vmRelayName = "/usr/local/libexec", "dbcanvas-relay"
 
@@ -272,7 +275,7 @@ func (a *App) runVMLink(ctx context.Context, id string, onUp func()) error {
 	vmIn, _ := sess.StdinPipe()
 	vmOut, _ := sess.StdoutPipe()
 	vmErr, _ := sess.StderrPipe()
-	if err := sess.Start(limaRemoteCommand("", []string{vmRelayDir + "/" + vmRelayName, "tun", "dbc0", "vm", m.IP, cidr}, nil)); err != nil {
+	if err := sess.Start(limaRemoteCommand("", []string{vmRelayDir + "/" + vmRelayName, "tun", vmStackDev, "vm", m.IP, cidr}, nil)); err != nil {
 		return err
 	}
 	if err := waitRelayReady(ctx, vmErr); err != nil {
@@ -297,6 +300,7 @@ func (a *App) runVMLink(ctx context.Context, id string, onUp func()) error {
 
 	onUp()
 	a.vmHostsEntry(ctx, id, m)
+	a.vmNetemAgain(ctx, stackID, id, m)
 	done := make(chan error, 2)
 	go func() { _, err := io.Copy(vmIn, conn); done <- err }()
 	go func() { _, err := io.Copy(conn, vmOut); done <- err }()
@@ -373,6 +377,30 @@ func (a *App) vmHostsEntry(ctx context.Context, id string, m limaMeta) {
 	res, err := a.lima.Exec(ctx, id, []string{"bash", "-c", vmHostsScript}, []string{"HOST=" + m.Hostname, "IP=" + m.IP})
 	if err != nil || res.Code != 0 {
 		log.Printf("vm %s: /etc/hosts: %v %s", id, err, limaTail(res.Stderr, 200))
+	}
+}
+
+// vmNetemAgain puts the node's network conditions back on its stack device, which the link
+// creates afresh each time it comes up. A node without conditions is left alone.
+func (a *App) vmNetemAgain(ctx context.Context, stackID int64, id string, m limaMeta) {
+	st, err := a.store.GetStack(stackID)
+	if err != nil {
+		return
+	}
+	var doc designDoc
+	if json.Unmarshal(st.Design, &doc) != nil {
+		return
+	}
+	for _, n := range doc.Nodes {
+		if containerName(stackID, n.ID) != m.Name || !netemSupported(n.Type) {
+			continue
+		}
+		if spec := nodeNetemSpec(n); !spec.Empty() {
+			if _, err := applyNetem(ctx, a.lima, id, spec); err != nil {
+				log.Printf("vm %s: network conditions: %v", id, err)
+			}
+		}
+		return
 	}
 }
 

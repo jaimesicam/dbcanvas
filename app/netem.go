@@ -372,7 +372,13 @@ func (s netemSpec) netemEnv(dev string) []string {
 // is what the deploy log shows — an applied qdisc that reports itself is the
 // difference between shaping and hoping.
 func applyNetem(ctx context.Context, eng Engine, containerID string, s netemSpec) (string, error) {
-	res, err := eng.Exec(ctx, containerID, []string{"sh", "-c", netemScript}, s.netemEnv(""))
+	dev := ""
+	if isLimaID(containerID) {
+		// A VM's stack traffic is on its link to the stack network (vmnet.go); eth0 is Lima's
+		// own interface, which carries none of it.
+		dev = vmStackDev
+	}
+	res, err := eng.Exec(ctx, containerID, []string{"sh", "-c", netemScript}, s.netemEnv(dev))
 	if err != nil {
 		return "", fmt.Errorf("apply network conditions: %w", err)
 	}

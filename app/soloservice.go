@@ -75,6 +75,7 @@ func (s *soloActivity) wrap(next http.Handler) http.Handler {
 // soloKeepAlive is what keeps the service up, for the idle check and `dbcanvas status`.
 type soloKeepAlive struct {
 	Containers  int    `json:"containers"`  // deployed nodes with a container, or still being built
+	VMs         int    `json:"vms"`         // of those, the ones that run as VMs (Lima ids start dbc-)
 	Deploying   int    `json:"deploying"`   // deploys in progress
 	Connections int64  `json:"connections"` // requests in flight: browsers, guests, waiting commands
 	IdleSince   string `json:"idleSince,omitempty"`
@@ -86,6 +87,7 @@ func (a *App) soloKeepAlive() soloKeepAlive {
 	var k soloKeepAlive
 	a.store.db.QueryRow(`SELECT COUNT(*) FROM deployments
 		WHERE COALESCE(container_id, '') <> '' OR state IN ('pending', 'provisioning')`).Scan(&k.Containers)
+	a.store.db.QueryRow(`SELECT COUNT(*) FROM deployments WHERE container_id LIKE ?`, limaPrefix+"%").Scan(&k.VMs)
 	a.deploys.Range(func(_, _ any) bool { k.Deploying++; return true })
 	if a.activity != nil {
 		k.Connections = a.activity.active.Load()

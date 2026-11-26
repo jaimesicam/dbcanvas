@@ -287,6 +287,9 @@ func cliStatus(args []string) error {
 	if st.Keep.Containers > 0 {
 		why = append(why, fmt.Sprintf("%d node(s) with containers", st.Keep.Containers))
 	}
+	if st.Keep.VMs > 0 {
+		why = append(why, fmt.Sprintf("%d of them VM(s), which reach their stack network only while dbcanvas runs", st.Keep.VMs))
+	}
 	if st.Keep.Deploying > 0 {
 		why = append(why, fmt.Sprintf("%d deploy(s) running", st.Keep.Deploying))
 	}
@@ -322,7 +325,10 @@ func cliStop() error {
 	}
 	fmt.Println("dbcanvas stopped.")
 	if out.Keep.Containers > 0 {
-		fmt.Printf("Its %d node(s) keep running in Docker; nothing expires them until a dbcanvas command starts it again.\n", out.Keep.Containers)
+		fmt.Printf("Its %d node(s) keep running; nothing expires them until a dbcanvas command starts it again.\n", out.Keep.Containers)
+	}
+	if out.Keep.VMs > 0 {
+		fmt.Printf("%d of them run as VMs and are cut off from their stack networks until then: dbcanvas carries their link.\n", out.Keep.VMs)
 	}
 	return nil
 }
