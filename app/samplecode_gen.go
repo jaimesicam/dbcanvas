@@ -282,5 +282,5 @@ func scOneLine(s string) string {
 const (
 	scDemoName     = "Alice"
 	scDemoEmail    = "alice@example.com"
-	scDemoNewEmail = "alice@dbcanvas.example"
+	scDemoNewEmail = "alice@example.org"
 )

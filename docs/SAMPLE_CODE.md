@@ -4,7 +4,7 @@
 Linux Client, installs what it needs, and runs it. Host, port, account, password and TLS settings
 come from the real deployment, so the program works without edits.
 
-![Sample Client Code — an endpoint, a driver and an example, generated against the real deployment and run on a Linux Client](screenshots/sample-code.png)
+![Sample Client Code after Run: the project written to the Linux Client, then each install step and the program's CRUD output against the real deployment](screenshots/sample-code.png)
 
 ## Generate and run a sample
 
