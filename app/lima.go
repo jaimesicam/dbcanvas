@@ -260,11 +260,44 @@ apt-get update
 apt-get install -y --no-install-recommends percona-toolkit
 apt-get clean`
 
+// limaBootOrder makes a VM's node services wait for its stack network at boot. A container's
+// network exists before anything in it starts; a VM's link to the stack network comes up only
+// once dbcanvas reaches it over ssh, after boot, so a database starting at boot would find no
+// peers and no DNS and give up. dbcanvas-stack-link.service waits until the stack device has its
+// address (or half an hour), and a systemd generator orders every service enabled after this
+// baseline — the node's own, which its provisioning enables — after it, at every boot. The
+// VM's own services, sshd among them, are left alone, so the link can always come up.
+const limaBootOrder = `
+mkdir -p /etc/dbcanvas /etc/systemd/system-generators
+for f in /etc/systemd/system/*.target.wants/*.service; do [ -e "$f" ] && basename "$f"; done | sort -u > /etc/dbcanvas/base-units
+cat > /etc/systemd/system/dbcanvas-stack-link.service <<'UNIT'
+[Unit]
+Description=Wait for the stack network dbcanvas links this VM to
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=infinity
+ExecStart=/bin/sh -c 'for i in $(seq 1 1800); do ip -4 addr show dev ` + vmStackDev + ` 2>/dev/null | grep -q inet && exit 0; sleep 1; done'
+UNIT
+cat > /etc/systemd/system-generators/dbcanvas-stack-link <<'GEN'
+#!/bin/sh
+# Orders the services enabled after dbcanvas prepared this VM after its stack network.
+for f in /etc/systemd/system/*.target.wants/*.service; do
+  [ -e "$f" ] || continue
+  u=$(basename "$f")
+  grep -qx "$u" /etc/dbcanvas/base-units 2>/dev/null && continue
+  mkdir -p "$1/$u.d"
+  printf '[Unit]\nWants=dbcanvas-stack-link.service\nAfter=dbcanvas-stack-link.service\n' > "$1/$u.d/dbcanvas-stack-link.conf"
+done
+GEN
+chmod 755 /etc/systemd/system-generators/dbcanvas-stack-link
+systemctl daemon-reload`
+
 func limaBaselineScript(os_ string) string {
 	if isDebianOS(os_) {
-		return limaBaselineDebian
+		return limaBaselineDebian + limaBootOrder
 	}
-	return limaBaselineRHEL
+	return limaBaselineRHEL + limaBootOrder
 }
 
 // --- running limactl --------------------------------------------------------
