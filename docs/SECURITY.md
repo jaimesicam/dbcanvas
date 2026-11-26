@@ -29,7 +29,7 @@ one of these credentials:
 
 | Credential | Where it comes from |
 | --- | --- |
-| The owner's browser session | A one-time start link from `dbcanvas` or `dbcanvas open`. It works once, for one minute, and sets a session cookie. A link found later in a browser's history signs no one in. |
+| The owner's browser session | A one-time start link from `dbcanvas` or `dbcanvas open`. It works once, for 3 minutes, and sets a session cookie. A link found later in a browser's history signs no one in. |
 | An API token | `dbcanvas token create`, or the **API** page. Sent as `Authorization: Bearer …`. |
 | A guest's cookie | Joining a shared session you started. |
 | A live join link | The link of a shared session that is still running, for a guest who has not joined yet. |

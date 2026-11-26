@@ -117,7 +117,7 @@ export function SoloSignInScreen() {
         Run <code className="rounded bg-surface2 px-1.5 py-0.5 font-mono text-[13px]">dbcanvas</code> in a terminal on this computer. It opens DBCanvas here, signed in.
       </p>
       <p className="mt-3 text-sm leading-relaxed text-muted">
-        Each link it opens works once and only for a minute, so a link from your history will not sign anyone in.
+        Each link it opens works once and only for 3 minutes, so a link from your history will not sign anyone in.
       </p>
     </Shell>
   )

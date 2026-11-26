@@ -166,7 +166,7 @@ func cliOpen(args []string) error {
 		if link.PublicURL != "" {
 			fmt.Println(link.PublicURL)
 		}
-		fmt.Fprintln(os.Stderr, "It works once, for a minute.")
+		fmt.Fprintln(os.Stderr, "It works once, for 3 minutes.")
 		return nil
 	}
 	if why := noBrowserHere(); why != "" {
@@ -210,7 +210,7 @@ func remoteSignIn(link startLink, why string) string {
 	fmt.Fprintf(&b, "DBCanvas is running on 127.0.0.1:%s, but %s, so no browser was opened.\n\n", port, why)
 	fmt.Fprintf(&b, "From your own computer, forward the port (the same number on both ends):\n\n")
 	fmt.Fprintf(&b, "  ssh -N -L %s:127.0.0.1:%s %s@%s\n\n", port, port, login, host)
-	fmt.Fprintf(&b, "then open this link there, within a minute:\n\n  %s\n\n", link.URL)
+	fmt.Fprintf(&b, "then open this link there, within 3 minutes:\n\n  %s\n\n", link.URL)
 	if link.PublicURL != "" {
 		fmt.Fprintf(&b, "Or, through publicUrl (your own tunnel or reverse proxy):\n\n  %s\n\n", link.PublicURL)
 	}
@@ -224,7 +224,7 @@ func openBrowser(u string) {
 		cmd = "open"
 	}
 	if err := exec.Command(cmd, u).Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "could not open a browser (%v); open %s (it works once, for a minute)\n", err, u)
+		fmt.Fprintf(os.Stderr, "could not open a browser (%v); open %s (it works once, for 3 minutes)\n", err, u)
 	}
 }
 

@@ -17,7 +17,7 @@ import (
 // which requests the browser port accepts.
 //
 // There are no passwords. The command opens a start link, /start/<token>, which works
-// once and for a minute and signs that browser in as the owner with an ordinary
+// once and for 3 minutes and signs that browser in as the owner with an ordinary
 // session. A running dbcanvas hands a fresh link to whoever asks on the control socket,
 // which only the owner can reach; so a second `dbcanvas` opens a signed-in browser, and
 // a link found in a browser's history signs no one in.
@@ -29,7 +29,7 @@ import (
 // a request whose Origin is anywhere else.
 
 // startLinkTTL is how long a start link works.
-const startLinkTTL = time.Minute
+const startLinkTTL = 3 * time.Minute
 
 var startLinks = struct {
 	sync.Mutex
@@ -66,7 +66,7 @@ func useStartLink(tok string) bool {
 func (a *App) handleStartLink(w http.ResponseWriter, r *http.Request) {
 	if !useStartLink(r.PathValue("token")) {
 		browsePage(w, http.StatusForbidden, "This link has expired",
-			"A start link works once, for a minute. Run dbcanvas in a terminal on this computer to open DBCanvas again.")
+			"A start link works once, for 3 minutes. Run dbcanvas in a terminal on this computer to open DBCanvas again.")
 		return
 	}
 	if err := a.issueSession(w, r); err != nil {

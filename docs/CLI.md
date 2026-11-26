@@ -67,7 +67,7 @@ log is `~/.dbcanvas/dbcanvas.log`.
 ## Signing in: `dbcanvas` and `dbcanvas open`
 
 `dbcanvas` (or `dbcanvas open`) opens your browser on DBCanvas, signed in. It does this with a
-one-time start link that works once, within a minute, and sets a session cookie in that
+one-time start link that works once, within 3 minutes, and sets a session cookie in that
 browser.
 
 On a server with no browser (Linux with no display, or any SSH session), `dbcanvas` opens
@@ -79,7 +79,7 @@ the link to open there. `dbcanvas open --print` prints just a new link, the 127.
 ssh -N -L 8080:127.0.0.1:8080 alex@lab-host.example.com
 # on lab-host
 dbcanvas open --print
-# open the printed link on the laptop, within a minute
+# open the printed link on the laptop, within 3 minutes
 ```
 
 DBCanvas answers only on `127.0.0.1:<its port>`, so forward the same port number: a tunnel to

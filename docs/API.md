@@ -33,7 +33,7 @@ addressed to it by a loopback name (`127.0.0.1`, `localhost`, `[::1]`) or to the
 
 **Signing a browser in.** `dbcanvas` (or `dbcanvas open`) opens the browser signed in.
 `dbcanvas open --print` prints the link instead. A start link, `/start/{token}`, works
-once, for a minute, and sets the session cookie.
+once, for 3 minutes, and sets the session cookie.
 
 **The control socket.** The `dbcanvas` command reaches the service through a control
 socket that only the owner can open, so it needs no token. A few endpoints answer on

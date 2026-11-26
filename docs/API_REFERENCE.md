@@ -52,7 +52,7 @@ instead (see [HTTP API](API.md#authenticate)).
 
 | To do this | API |
 | --- | --- |
-| Open the app signed in, from a start link that works once, for a minute | `GET /start/{token}` |
+| Open the app signed in, from a start link that works once, for 3 minutes | `GET /start/{token}` |
 | Who the caller is signed in as | `GET /api/setup/status` |
 | The signed-in account: id, username and role | `GET /api/me` |
 | Sign the browser out | `POST /api/auth/logout` |

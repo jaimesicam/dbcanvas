@@ -394,7 +394,7 @@ exact action.
 | `dbcanvas rotate-key` | Re-keys their database; they must back up the new key. |
 | `dbcanvas versions update` / `reset` | Changes which versions every later deploy offers. |
 | `PUT /api/system/settings` | Instance-wide. |
-| `dbcanvas open --print` | Prints a one-time sign-in link: a credential for a minute. Hand it to the user, nowhere else. |
+| `dbcanvas open --print` | Prints a one-time sign-in link: a credential for 3 minutes. Hand it to the user, nowhere else. |
 
 **Never print a token secret into a transcript, a commit or a log.**
 

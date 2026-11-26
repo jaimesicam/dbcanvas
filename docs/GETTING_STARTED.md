@@ -87,7 +87,7 @@ web app listens on `http://127.0.0.1:8080` (or a free port when 8080 is taken), 
 request without a credential, so other users of the machine cannot use it.
 
 - `dbcanvas open --print` prints the sign-in link instead, for another browser or a browser at
-  the end of an SSH tunnel. It works once, for one minute.
+  the end of an SSH tunnel. It works once, for 3 minutes.
 - On a server with no browser (no display, or over SSH), `dbcanvas` prints the
   `ssh -N -L PORT:127.0.0.1:PORT` tunnel to make from your computer and the link to open there.
   See [Signing in](CLI.md#signing-in-dbcanvas-and-dbcanvas-open).
