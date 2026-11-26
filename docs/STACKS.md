@@ -560,9 +560,8 @@ recreating the node. Disk limits apply to containers only; a node that runs as a
 ([Nodes as virtual machines](VM_NODES.md)) takes the CPU, memory and network ones.
 
 ### Where a node runs
-A node runs in a container by default. Types verified on virtual machines (Percona XtraDB
-Cluster, Percona Server, PostgreSQL, Patroni, repmgr, Percona Server for MongoDB, Valkey and the
-proxies and Orchestrator for now) can run as a Lima VM instead, with a kernel, SELinux or AppArmor of its own, on
+A node runs in a container by default. Every database, proxy and tool node DBCanvas installs from
+packages can run as a Lima VM instead, with a kernel, SELinux or AppArmor of its own, on
 the same stack network: see [Nodes as virtual machines](VM_NODES.md).
 
 ## Sign in with a directory or single sign-on

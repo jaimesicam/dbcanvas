@@ -159,17 +159,36 @@ var vmNodeTypes = map[string]bool{
 	"repmgr":        true, // repmgr: the cluster and its members
 	"valkey":        true, // Valkey, standalone (SELinux permissive by default)
 	"valkeycluster": true, // a Valkey cluster or Valkey with Sentinel, and its members (likewise)
+
+	"mariadb":       true, // MariaDB, standalone
+	"mariadbgalera": true, // MariaDB Galera Cluster: the cluster and its members
+	"mariadbrepl":   true, // MariaDB asynchronous replication: the cluster and its members
+	"mysqlce":       true, // MySQL Community Server, standalone
+	"mysqlcerepl":   true, // MySQL Community asynchronous replication: the cluster and its members
+	"mysqlceinnodb": true, // MySQL Community InnoDB Cluster: the cluster and its members
+	"innodb":        true, // Percona InnoDB Cluster: the cluster and its members
+	"spock":         true, // PostgreSQL with Spock: the cluster and its members
+	"pgstream":      true, // PostgreSQL streaming replication: the cluster and its members
+	"openbao":       true, // OpenBao
+	"sambaad":       true, // Samba AD DC
 }
 
 // vmCapableType reports whether a node or cluster of this type can run as a VM at all: the ones
 // installed from packages on the dbcanvas-systemd OS images. Images that arrive ready-made (the
 // Intranet, the desktop, PMM, Keycloak, the sims) and K3D clusters cannot.
 func vmCapableType(typ string) bool {
-	if _, k8s := kubernetesFrames[typ]; k8s {
+	if _, k8s := kubernetesFrames[typ]; k8s || typ == "vnc" {
 		return false
 	}
-	return typ != "vnc" && platformFollower(typ)
+	if k, ok := composeKindByType(typ); ok {
+		return !k.ImageOnly
+	}
+	// Package-built types that compose does not build.
+	return vmPackageTypes[typ]
 }
+
+// vmPackageTypes are the package-built node types outside compose's kinds that could run as a VM.
+var vmPackageTypes = map[string]bool{"aio": true, "linuxclient": true}
 
 // vmTypeEnabled reports whether a node or cluster of this type may run as a VM now.
 func vmTypeEnabled(typ string) bool {

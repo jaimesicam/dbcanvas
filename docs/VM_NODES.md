@@ -28,6 +28,15 @@ Ubuntu with AppArmor, alone and in a cluster with containers, and across a reboo
 | PgBouncer | 0.1.x |
 | repmgr (cluster and members) | 0.1.x |
 | Valkey: standalone, cluster and Sentinel (SELinux permissive by default) | 0.1.x |
+| MariaDB: standalone, Galera Cluster and asynchronous replication | 0.1.x |
+| MySQL Community: standalone, asynchronous replication and InnoDB Cluster | 0.1.x |
+| Percona InnoDB Cluster | 0.1.x |
+| PostgreSQL streaming replication, and PostgreSQL with Spock | 0.1.x |
+| PostgreSQL and Patroni from PGDG, MongoDB Community Server | 0.1.x |
+| OpenBao, Samba AD DC | 0.1.x |
+
+A type runs on the operating systems it is offered on as a container: Samba AD DC only on Ubuntu
+24.04 (Oracle Linux's Samba has no AD DC role), OpenBao and Spock only on Oracle Linux.
 
 Nodes that arrive as ready-made images — the Intranet, the VNC desktop, PMM, Keycloak, the
 simulators — and K3D clusters always run in containers.
