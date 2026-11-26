@@ -355,6 +355,13 @@ export const HELP = {
   memLimit:
     'A hard memory limit. Blank means unlimited. A database that crosses it is OOM-killed rather than slowed, so ' +
     'leave headroom above the buffer pool or shared_buffers you configured.',
+  cpuVM:
+    'How many virtual CPUs the VM gets, fixed when it is created. Blank means 2. Unlike a container limit this is ' +
+    'the whole machine the node sees: nproc, the database\'s thread sizing and PMM all report this number.',
+  memVM:
+    'How much memory the VM gets, reserved from the host when it is created. Blank means 2 GiB. The node sees it as ' +
+    'its total RAM, so a database that outgrows it swaps or meets the guest\'s OOM killer. Every VM holds its share ' +
+    'of the host\'s memory while it runs, so add them up before deploying several.',
   diskBps:
     'Throttle the node\'s disk throughput to this many MB/s. Blank means unlimited. This is how you reproduce a ' +
     'slow-storage incident — checkpoint stalls, replica lag, a backup that never finishes — on a host with a fast SSD.',

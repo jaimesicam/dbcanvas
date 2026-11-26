@@ -7890,12 +7890,12 @@ function VMSizeFields({ node: n, patchNode, deployed }) {
   const throttled = !!(n.deviceReadMbps || n.deviceWriteMbps)
   return (
     <div className="grid grid-cols-2 gap-2">
-      <Field label="CPUs" help={HELP.cpuLimit} hint={docker ? 'Container --cpus limit; blank = unlimited.' : 'The VM\u2019s CPUs, set when it is created; blank = 2.'}>
+      <Field label="CPUs" help={docker ? HELP.cpuLimit : HELP.cpuVM} hint={docker ? 'Container --cpus limit; blank = unlimited.' : 'The VM\u2019s CPUs, set when it is created; blank = 2.'}>
         <input type="number" min="1" max="64" className={`${inputCls} ${lock}`} disabled={deployed}
           placeholder={docker ? 'unlimited' : '2'}
           value={n.cpus || ''} onChange={(e) => patchNode(n.id, { cpus: size(e.target.value) })} />
       </Field>
-      <Field label="Memory (GiB)" help={HELP.memLimit} hint={docker ? 'Container --memory limit; blank = unlimited.' : 'The VM\u2019s memory, reserved when it is created; blank = 2 GiB.'}>
+      <Field label="Memory (GiB)" help={docker ? HELP.memLimit : HELP.memVM} hint={docker ? 'Container --memory limit; blank = unlimited.' : 'The VM\u2019s memory, reserved when it is created; blank = 2 GiB.'}>
         <input type="number" min="1" max="256" className={`${inputCls} ${lock}`} disabled={deployed}
           placeholder={docker ? 'unlimited' : '2'}
           value={n.memoryGb || ''} onChange={(e) => patchNode(n.id, { memoryGb: size(e.target.value) })} />
