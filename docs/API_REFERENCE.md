@@ -936,7 +936,7 @@ and a scale.
 
 ## Stock Market Sim
 
-![Three Stock Market Sim nodes driving three Kubernetes operators](screenshots/stocksim-operators.png)
+![The Stock Market Sim dashboard, driving a PSMDB replica set](screenshots/stocksim-operators.png)
 
 The sim is configured by deploying it and linking it on the canvas. One endpoint
 tests a hand-entered connection:
