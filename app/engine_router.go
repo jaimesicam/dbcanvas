@@ -86,9 +86,11 @@ func vmPreviewTypes() map[string]bool {
 
 // vmNodeTypes are the node and cluster types whose provisioning is verified on a virtual
 // machine: on Oracle Linux with SELinux enforcing and on Ubuntu with AppArmor, alone and in a
-// cluster with Docker members. A type is added here once it passes; until then a node of it
-// cannot run as a VM.
-var vmNodeTypes = map[string]bool{}
+// cluster with Docker members, and across a reboot. A type is added here once it passes; until
+// then a node of it cannot run as a VM. docs/VM_NODES.md lists them.
+var vmNodeTypes = map[string]bool{
+	"pxc": true, // Percona XtraDB Cluster: the cluster and its members
+}
 
 // vmCapableType reports whether a node or cluster of this type can run as a VM at all: the ones
 // installed from packages on the dbcanvas-systemd OS images. Images that arrive ready-made (the

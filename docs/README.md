@@ -20,6 +20,7 @@ configure it, [Configuration](CONFIGURATION.md); for what it exposes and who can
 | [Stacks](STACKS.md) | The canvas, every node and cluster type, deploying, TTLs, node panels, terminals and files. |
 | [Operator Backups](OPERATOR_BACKUPS.md) | Backups and restores for a Percona operator on Kubernetes. |
 | [All in One](ALL_IN_ONE.md) | Many database instances in one node. |
+| [Nodes as virtual machines](VM_NODES.md) | Running a node as a Lima VM with its own kernel, SELinux or AppArmor, beside the stack's containers. |
 
 ## Load and query them
 

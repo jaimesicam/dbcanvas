@@ -77,7 +77,17 @@ from the host.
 Each stack gets its own Docker network, a free /24 found at creation in 10.0.0.0/8 (or
 `networkRange`), avoiding every network on that Docker, Docker's default address pools, the
 host's own interfaces and routes, and the ranges Kubernetes uses inside a cluster
-(`app/subnets.go`). Containers get the lower half; K3D MetalLB blocks come from the upper half.
+(`app/subnets.go`). Containers get the lower half, less its top 16 addresses, which are kept for
+VM nodes; K3D MetalLB blocks come from the upper half.
+
+### VM nodes
+
+A node can run as a Lima virtual machine instead of a container (`app/lima.go`). A stack with VM
+nodes uses an engine router that creates those nodes on Lima and everything else on Docker
+(`app/engine_router.go`), so provisioning is the same code either way. A VM reaches the stack's
+Docker network through the Intranet: dbcanvas runs the relay's TUN mode in the Intranet and in the
+VM and copies packets between them; the Intranet routes the VM's address and answers ARP for it
+(`app/vmnet.go`). Nothing on the host changes. See [VM_NODES.md](VM_NODES.md).
 
 ## Node images are pre-built, not assembled at deploy
 

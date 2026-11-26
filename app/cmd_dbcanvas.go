@@ -328,7 +328,7 @@ func cliStop() error {
 		fmt.Printf("Its %d node(s) keep running; nothing expires them until a dbcanvas command starts it again.\n", out.Keep.Containers)
 	}
 	if out.Keep.VMs > 0 {
-		fmt.Printf("%d of them run as VMs and are cut off from their stack networks until then: dbcanvas carries their link.\n", out.Keep.VMs)
+		fmt.Printf("%d of them run as VMs, whose link to their stack network is down until then: dbcanvas carries it.\n", out.Keep.VMs)
 	}
 	return nil
 }

@@ -36,15 +36,13 @@ func TestRuntimeIssues(t *testing.T) {
 	}
 	doc := runtimeDoc()
 
-	// No node type is enabled yet: every VM node is refused, a Docker one is not.
+	// PXC is switched on, Percona Server is not: only the PS node is refused.
 	got := msgs(runtimeIssues(doc, ""))
-	for _, want := range []string{"pxc-cluster-01: running this node type as a VM is not available yet", "ps-01: running this node type as a VM is not available yet"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("missing %q in:\n%s", want, got)
-		}
+	if !strings.Contains(got, "ps-01: running this node type as a VM is not available yet") {
+		t.Errorf("a type that is not switched on was accepted:\n%s", got)
 	}
-	if strings.Contains(got, "pxc-1") || strings.Contains(got, "pg-01") {
-		t.Errorf("a container node was flagged:\n%s", got)
+	if strings.Contains(got, "pxc") || strings.Contains(got, "pg-01") {
+		t.Errorf("a switched-on or container node was flagged:\n%s", got)
 	}
 
 	// Enabled for preview, on a machine with Lima: fine.
@@ -85,8 +83,8 @@ func TestRuntimeIssues(t *testing.T) {
 		t.Errorf("a VM node without an Intranet was accepted:\n%s", got)
 	}
 	t.Setenv("DBCANVAS_VM_PREVIEW", "intranet,vnc,k3d,pmm")
-	if vmEnabled() {
-		t.Error("vmEnabled is true with only ready-made types in preview")
+	if got := strings.Join(vmEnabledTypes(), ","); got != "pxc" {
+		t.Errorf("enabled types %q with only ready-made types in preview, want pxc", got)
 	}
 }
 
@@ -145,8 +143,8 @@ func TestVMsOptional(t *testing.T) {
 func TestComposeRuntime(t *testing.T) {
 	composeCatalogFixture(t)
 	spec := composeSpec{Name: "x", Nodes: []composeNodeSpec{{Kind: "intranet"}, {Kind: "pxc", Count: 2, Runtime: runtimeVM}, {Kind: "ps", Runtime: runtimeVM}}}
-	if _, _, _, _, err := buildCompose(spec); err == nil || !strings.Contains(err.Error(), `does not support "runtime"`) {
-		t.Fatalf("runtime=vm accepted before the kind may run as a VM: %v", err)
+	if _, _, _, _, err := buildCompose(spec); err == nil || !strings.Contains(err.Error(), `ps does not support "runtime"`) {
+		t.Fatalf("runtime=vm accepted for a kind not switched on: %v", err)
 	}
 	t.Setenv("DBCANVAS_VM_PREVIEW", "pxc,ps")
 	doc, _, _, _, err := buildCompose(spec)

@@ -556,7 +556,13 @@ Database nodes and cluster members can be limited on **CPU** and **memory**, **d
 write rate (MB/s), and **network**: added latency, jitter, packet loss and a bandwidth cap.
 Network shaping applies only to the node's database and cluster ports (unless you tick shaping
 all traffic), is applied after the cluster forms, and can be changed and redeployed without
-recreating the node. Network conditions are Docker-only.
+recreating the node. Disk limits apply to containers only; a node that runs as a virtual machine
+([Nodes as virtual machines](VM_NODES.md)) takes the CPU, memory and network ones.
+
+### Where a node runs
+A node runs in a container by default. Types verified on virtual machines (Percona XtraDB
+Cluster for now) can run as a Lima VM instead, with a kernel, SELinux or AppArmor of its own, on
+the same stack network: see [Nodes as virtual machines](VM_NODES.md).
 
 ## Sign in with a directory or single sign-on
 
