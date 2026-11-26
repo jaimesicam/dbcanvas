@@ -85,8 +85,11 @@ emulation, which works but boots in minutes and installs packages several times 
   and the node's terminal, files, logs, live stats and network conditions.
 - **Its own boot.** A reboot from inside the VM is a real one; the node's services wait for the
   stack network at boot and start once it is back. When the VM shuts down, its link to the stack
-  network goes early, so the node's services stop without it, as if the network were cut; each
-  has 30 seconds to stop, as a container has when it is stopped.
+  network goes early, so the node's services stop without it, as if the network were cut. Each
+  service keeps the stop timeout its own unit sets (All in One's units allow 120 seconds), so a
+  database is given the time its package asks for to shut down cleanly; one whose unit would wait
+  forever is stopped after 5 minutes, and one that sets nothing gets systemd's default of 90
+  seconds.
 - **Its ports on the host, as a container's.** A node that publishes ports (Export, or a type
   that always does) is reached from your machine the same way: Lima forwards exactly those ports,
   on host ports DBCanvas picks and keeps, at `CONTAINER_BIND_IP`. Every other port the VM listens

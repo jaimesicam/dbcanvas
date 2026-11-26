@@ -336,8 +336,16 @@ for f in /etc/systemd/system/*.target.wants/*.service; do
     systemd-*|sshd*|ssh.service|dbus*|getty@*|serial-getty@*|cloud-*|NetworkManager*|lima-*|firewalld*|auditd*|chrony*|rsyslog*|cron*|dbcanvas-*) continue ;;
   esac
   grep -qx -e "$u" -e "$t" /etc/dbcanvas/base-units 2>/dev/null && continue
+  # The unit's own stop timeout stands: a database given minutes to flush keeps them. Only one
+  # that waits forever (0 or infinity) is bounded, so it cannot hold a shutdown indefinitely.
+  ts=$(cat "/etc/systemd/system/$u" "/usr/lib/systemd/system/$u" "/lib/systemd/system/$u" \
+      "/etc/systemd/system/$t" "/usr/lib/systemd/system/$t" "/lib/systemd/system/$t" \
+      /usr/lib/systemd/system/"$u".d/*.conf /lib/systemd/system/"$u".d/*.conf /etc/systemd/system/"$u".d/*.conf 2>/dev/null |
+    sed -n 's/^[[:space:]]*Timeout\(Stop\)\{0,1\}Sec=[[:space:]]*//p' | tail -n 1)
+  stop=''
+  case "$ts" in 0|0s|infinity) stop='[Service]\nTimeoutStopSec=300\n' ;; esac
   mkdir -p "$1/$u.d"
-  printf '[Unit]\nWants=dbcanvas-stack-link.service\nAfter=dbcanvas-stack-link.service\n[Service]\nTimeoutStopSec=30\n' > "$1/$u.d/dbcanvas-stack-link.conf"
+  printf "[Unit]\nWants=dbcanvas-stack-link.service\nAfter=dbcanvas-stack-link.service\n$stop" > "$1/$u.d/dbcanvas-stack-link.conf"
 done
 GEN
 chmod 755 /etc/systemd/system-generators/dbcanvas-stack-link

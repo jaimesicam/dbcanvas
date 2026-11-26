@@ -7881,7 +7881,8 @@ function KeycloakOidcFields({ node: n, nodes, patchNode, deployed, label, pin, b
 // set, for hosts where that detection picks the wrong disk.
 function VMSizeFields({ node: n, patchNode, deployed }) {
   // A node that runs as a VM (Body provides it) is sized when its VM is created: blank is Lima's
-  // default for DBCanvas (2 CPUs, 2 GiB), and disk limits have no counterpart there.
+  // default for DBCanvas (2 CPUs, 2 GiB), and disk limits have no counterpart there. Network
+  // conditions apply to both.
   const docker = !useContext(RunsAsVMCtx)
   const lock = deployed ? 'opacity-70' : ''
   // Blank clears the limit (0), so Docker users can go back to unlimited after typing a value.
@@ -7924,9 +7925,10 @@ function VMSizeFields({ node: n, patchNode, deployed }) {
               </p>
             </div>
           )}
-          <NetworkConditionFields node={n} patchNode={patchNode} />
         </>
       )}
+      {/* A VM's conditions go on its link to the stack network (applyNetem, vmNetemAgain). */}
+      <NetworkConditionFields node={n} patchNode={patchNode} />
     </div>
   )
 }
