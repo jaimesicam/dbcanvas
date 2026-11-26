@@ -1202,11 +1202,16 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq >/dev/null
 apt-get install -y -qq haproxy >/dev/null`
 
-// haproxyStartScript validates the config, enables, and (re)starts haproxy. SELinux
-// on EL may block binding non-standard ports; the systemd images run permissive,
-// so no extra policy is needed.
+// haproxyStartScript validates the config, enables, and (re)starts haproxy. Where SELinux
+// enforces (an Oracle Linux node that runs as a VM), the haproxy policy lets it bind only its
+// standard ports; its stats page (7000) and the read/write frontends (5000, 5001) need
+// haproxy_connect_any, as on any RHEL server running HAProxy on its own ports. In a container
+// SELinux is off and the step is skipped.
 const haproxyStartScript = `set -e
 haproxy -c -f /etc/haproxy/haproxy.cfg >/dev/null
+if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled && command -v setsebool >/dev/null 2>&1; then
+  setsebool -P haproxy_connect_any 1
+fi
 systemctl enable haproxy >/dev/null 2>&1 || true
 systemctl reset-failed haproxy 2>/dev/null || true
 systemctl restart haproxy
