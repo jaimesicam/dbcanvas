@@ -663,9 +663,15 @@ type ContainerSpec struct {
 	// SELinux is the mode a VM runs SELinux in ("enforcing", "permissive"); Docker ignores it.
 	SELinux string
 	// StopTimeout is how many seconds a stop or restart gives the container's systemd before
-	// Docker kills it; 0 is Docker's default (10).
+	// Docker kills it; 0 is systemdStopTimeout for a node built on the dbcanvas-systemd images, and
+	// Docker's default (10) for any other.
 	StopTimeout int
 }
+
+// systemdStopTimeout is how long a stop or restart gives a node on the dbcanvas-systemd images to
+// shut its services down cleanly: what its VM gives them (lima.go), and well past what a database
+// with a large buffer pool or a Galera member leaving its cluster takes.
+const systemdStopTimeout = 120
 
 // PortMap publishes a container TCP port to a specific host port (HostPort 0
 // lets Docker pick a free ephemeral one).
@@ -712,8 +718,17 @@ func (d *Docker) ContainerCreate(ctx context.Context, spec ContainerSpec) (strin
 		"Hostname": spec.Hostname,
 		"Env":      spec.Env,
 	}
-	if spec.StopTimeout > 0 {
-		body["StopTimeout"] = spec.StopTimeout
+	stop := spec.StopTimeout
+	if stop == 0 {
+		if _, _, _, ok := systemdImageParts(spec.Image); ok {
+			// A database node's systemd needs longer than Docker's 10 s: PXC alone waits 10 s after
+			// a shutdown request before it starts shutting down, so a stop or restart at the default
+			// killed every member mid-shutdown and its next start had to recover.
+			stop = systemdStopTimeout
+		}
+	}
+	if stop > 0 {
+		body["StopTimeout"] = stop
 	}
 	if len(spec.Cmd) > 0 {
 		body["Cmd"] = spec.Cmd

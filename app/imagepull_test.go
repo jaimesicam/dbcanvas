@@ -52,6 +52,7 @@ type fakeDaemon struct {
 	pulls    atomic.Int32
 	tags     []string
 	creates  int
+	stops    map[string]int // image → the StopTimeout it was created with (0 when unset)
 }
 
 func (f *fakeDaemon) serve(t *testing.T) *Docker {
@@ -119,9 +120,16 @@ func (f *fakeDaemon) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		json.NewEncoder(w).Encode(map[string]string{"Architecture": arch})
 	case p == "/containers/create":
-		var body struct{ Image string }
+		var body struct {
+			Image       string
+			StopTimeout int
+		}
 		json.NewDecoder(r.Body).Decode(&body)
 		f.creates++
+		if f.stops == nil {
+			f.stops = map[string]int{}
+		}
+		f.stops[body.Image] = body.StopTimeout
 		if _, ok := f.images[body.Image]; !ok {
 			w.WriteHeader(404)
 			w.Write([]byte(`{"message":"No such image: ` + body.Image + `"}`))
@@ -255,5 +263,22 @@ func TestPullingCanBeTurnedOff(t *testing.T) {
 	err := a.ensureImage(context.Background(), a.docker, ref, nil)
 	if err == nil || !strings.Contains(err.Error(), "IMAGE_REGISTRY=off") || f.pulls.Load() != 0 {
 		t.Fatalf("err = %v, pulls %d", err, f.pulls.Load())
+	}
+}
+
+// TestSystemdNodesStopSlowly: a node on the dbcanvas-systemd images is created with a stop timeout
+// long enough for its database to shut down cleanly (PXC alone waits 10 s first); a type that sets
+// its own keeps it, and any other image is left to Docker's default.
+func TestSystemdNodesStopSlowly(t *testing.T) {
+	sys, own, other := "dbcanvas-systemd:oraclelinux-9-arm64-v9.9.3", "dbcanvas-systemd:ubuntu-24.04-arm64-v9.9.3", "dbcanvas-intranet:oraclelinux-9-arm64-v9.9.3"
+	f := &fakeDaemon{arch: "aarch64", images: map[string]string{sys: "arm64", own: "arm64", other: "arm64"}}
+	d := f.serve(t)
+	for _, spec := range []ContainerSpec{{Name: "a", Image: sys}, {Name: "b", Image: own, StopTimeout: 180}, {Name: "c", Image: other}} {
+		if _, err := d.ContainerCreate(context.Background(), spec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if f.stops[sys] != systemdStopTimeout || f.stops[own] != 180 || f.stops[other] != 0 {
+		t.Fatalf("stop timeouts: %v", f.stops)
 	}
 }
