@@ -268,12 +268,23 @@ apt-get clean`
 // network exists before anything in it starts; a VM's link to the stack network comes up only
 // once dbcanvas reaches it over ssh, after boot, so a database starting at boot would find no
 // peers and no DNS and give up. dbcanvas-stack-link.service waits until the stack device has its
-// address (or half an hour), and a systemd generator orders every service enabled after this
-// baseline — the node's own, which its provisioning enables — after it, at every boot. The
-// VM's own services, sshd among them, are left alone, so the link can always come up.
+// address (or half an hour), and a systemd generator orders the node's own services after it, at
+// every boot.
+//
+// The same drop-in bounds how long the node's own services take to stop, as a container's stop
+// does: the link rides dbcanvas's ssh session, which shutdown ends early, so a service that
+// reaches for its peers while stopping (repmgrd retrying its primary by name) would otherwise
+// hold the VM's shutdown for as long as its unit allows — five minutes, or for ever.
+//
+// A node's own service is one whose unit file did not exist when this baseline ran: the ones its
+// provisioning installs (mysql, postgresql-17, mongod, etcd, …). Every unit file present now is
+// recorded, enabled or not, because a later package update can enable an operating-system unit
+// (systemd-user-sessions, which gates logins, among them) — and holding one of those back would
+// keep sshd's logins, and so the link itself, from ever coming up. The operating system's core
+// units are left alone by name as well.
 const limaBootOrder = `
 mkdir -p /etc/dbcanvas /etc/systemd/system-generators
-for f in /etc/systemd/system/*.target.wants/*.service; do [ -e "$f" ] && basename "$f"; done | sort -u > /etc/dbcanvas/base-units
+systemctl list-unit-files --no-legend --type=service | awk '{print $1}' | sort -u > /etc/dbcanvas/base-units
 cat > /etc/systemd/system/dbcanvas-stack-link.service <<'UNIT'
 [Unit]
 Description=Wait for the stack network dbcanvas links this VM to
@@ -285,13 +296,18 @@ ExecStart=/bin/sh -c 'for i in $(seq 1 1800); do ip -4 addr show dev ` + vmStack
 UNIT
 cat > /etc/systemd/system-generators/dbcanvas-stack-link <<'GEN'
 #!/bin/sh
-# Orders the services enabled after dbcanvas prepared this VM after its stack network.
+# Orders the node's own services — installed after dbcanvas prepared this VM — after its stack
+# network. Units present then, and the operating system's core ones, are never held back.
 for f in /etc/systemd/system/*.target.wants/*.service; do
   [ -e "$f" ] || continue
   u=$(basename "$f")
-  grep -qx "$u" /etc/dbcanvas/base-units 2>/dev/null && continue
+  t=$(echo "$u" | sed 's/@[^.]*\.service$/@.service/')
+  case "$u" in
+    systemd-*|sshd*|ssh.service|dbus*|getty@*|serial-getty@*|cloud-*|NetworkManager*|lima-*|firewalld*|auditd*|chrony*|rsyslog*|cron*|dbcanvas-*) continue ;;
+  esac
+  grep -qx -e "$u" -e "$t" /etc/dbcanvas/base-units 2>/dev/null && continue
   mkdir -p "$1/$u.d"
-  printf '[Unit]\nWants=dbcanvas-stack-link.service\nAfter=dbcanvas-stack-link.service\n' > "$1/$u.d/dbcanvas-stack-link.conf"
+  printf '[Unit]\nWants=dbcanvas-stack-link.service\nAfter=dbcanvas-stack-link.service\n[Service]\nTimeoutStopSec=30\n' > "$1/$u.d/dbcanvas-stack-link.conf"
 done
 GEN
 chmod 755 /etc/systemd/system-generators/dbcanvas-stack-link
