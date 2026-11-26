@@ -5,6 +5,8 @@
 // it on stderr, copy both ways, and stop when the caller closes its side.
 //
 // Usage: dbcanvas-relay <host:port>
+//
+// It also carries a virtual machine's share of a stack network (tun.go): dbcanvas-relay tun …
 package main
 
 import (
@@ -19,6 +21,9 @@ import (
 const ready = "dbcanvas-relay-ok\n"
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "tun" {
+		os.Exit(tunMain(os.Args[2:]))
+	}
 	if len(os.Args) != 2 {
 		fmt.Fprintln(os.Stderr, "usage: dbcanvas-relay <host:port>")
 		os.Exit(2)

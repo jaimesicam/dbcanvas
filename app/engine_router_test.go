@@ -79,6 +79,12 @@ func TestRuntimeIssues(t *testing.T) {
 	if !strings.Contains(got, `x: runtime "kvm" is not docker or vm`) {
 		t.Errorf("unknown runtime accepted:\n%s", got)
 	}
+	t.Setenv("DBCANVAS_VM_PREVIEW", "ps")
+	got = msgs(runtimeIssues(designDoc{Nodes: []designNode{{ID: "ps-01", Type: "ps", Runtime: runtimeVM}}}, ""))
+	if !strings.Contains(got, "add an Intranet node") {
+		t.Errorf("a VM node without an Intranet was accepted:\n%s", got)
+	}
+	t.Setenv("DBCANVAS_VM_PREVIEW", "intranet,vnc,k3d,pmm")
 	if vmEnabled() {
 		t.Error("vmEnabled is true with only ready-made types in preview")
 	}

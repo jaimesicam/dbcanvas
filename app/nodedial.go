@@ -71,6 +71,10 @@ func (f dialFunc) DialContext(ctx context.Context, network, addr string) (net.Co
 // stackDial is the dialer for addresses on stack stackID's network. prefer, when not empty,
 // is the container the address belongs to, tried first as the relay.
 func (a *App) stackDial(stackID int64, prefer string) dialFunc {
+	if isLimaID(prefer) {
+		// A VM is on the stack network through the Intranet; any container there relays to it.
+		prefer = ""
+	}
 	if nodeDialMode() == nodeDialDirect {
 		return (&net.Dialer{Timeout: 10 * time.Second}).DialContext
 	}
@@ -79,10 +83,10 @@ func (a *App) stackDial(stackID int64, prefer string) dialFunc {
 	}
 }
 
-// stackNodeDial is stackDial for a connection to containerID's node. A node on another
-// engine than Docker is dialled directly.
+// stackNodeDial is stackDial for a connection to containerID's node. A VM node is on the
+// stack network like a container (vmnet.go); a node on any other engine is dialled directly.
 func (a *App) stackNodeDial(stackID int64, containerID string) dialFunc {
-	if containerID != "" && nodeDialMode() == nodeDialTunnel {
+	if containerID != "" && !isLimaID(containerID) && nodeDialMode() == nodeDialTunnel {
 		if d := asDocker(a.dialEngine(stackID, containerID), containerID); d != a.docker {
 			return (&net.Dialer{Timeout: 10 * time.Second}).DialContext
 		}

@@ -32,6 +32,8 @@ type App struct {
 	// and limaWhy says why. Everything else works without it.
 	lima    *Lima
 	limaWhy string
+	// vmLinks holds each running VM's link to its stack network (vmnet.go), by VM id.
+	vmLinks sync.Map
 	// soloURL is the browser's address, once it listens; browsers sign in by start link
 	// (soloweb.go).
 	soloURL string
@@ -103,6 +105,8 @@ func runServer(o serveOpts) error {
 	app := &App{store: store, docker: NewDocker(dockerSocket())}
 	if app.lima, app.limaWhy = NewLima(limaHomeFor(o.dataDir)); app.lima == nil {
 		log.Printf("nodes run in containers only: %s", app.limaWhy)
+	} else {
+		go app.resumeVMLinks(context.Background())
 	}
 	applyBundle(o.dataDir)
 	app.detectPlatforms(context.Background())

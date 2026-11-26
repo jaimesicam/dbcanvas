@@ -155,6 +155,15 @@ func runtimeIssues(doc designDoc, limaWhy string) []issue {
 		}
 		check(firstNonEmpty(n.Label, n.ID), n.Type, rt)
 	}
+	if len(vmNodeIDs(doc)) > 0 {
+		hasIntranet := false
+		for _, n := range doc.Nodes {
+			hasIntranet = hasIntranet || n.Type == "intranet"
+		}
+		if !hasIntranet {
+			out = append(out, issue{Level: "error", Message: "nodes that run as VMs reach the stack network through the Intranet: add an Intranet node"})
+		}
+	}
 	return out
 }
 
@@ -169,6 +178,7 @@ func (a *App) vmUnavailable() string {
 // engineRouter is the Engine of a stack with VM nodes. vm holds the container names that run as
 // VMs; nil sends every creation to Docker (the router then only tells ids apart).
 type engineRouter struct {
+	app    *App // joins a new VM to its stack's network and keeps its link (vmnet.go)
 	docker *Docker
 	lima   *Lima
 	vm     map[string]bool
@@ -234,19 +244,61 @@ func (r *engineRouter) VolumeRemove(ctx context.Context, name string) {
 	r.docker.VolumeRemove(ctx, name)
 }
 
+// ContainerCreate makes a VM node's VM and puts it on its stack's network before returning, so
+// the node's provisioning finds it where it would find a container.
 func (r *engineRouter) ContainerCreate(ctx context.Context, spec ContainerSpec) (string, error) {
-	return r.byName(spec.Name).ContainerCreate(ctx, spec)
+	if !r.vm[spec.Name] {
+		return r.docker.ContainerCreate(ctx, spec)
+	}
+	id, err := r.lima.ContainerCreate(ctx, spec)
+	if err != nil {
+		return "", err
+	}
+	if r.app != nil {
+		if err := r.app.joinVM(ctx, id, spec); err != nil {
+			r.app.stopVMLink(id)
+			r.lima.ContainerRemove(ctx, id)
+			return "", err
+		}
+	}
+	return id, nil
 }
+
+// ContainerStart starts a VM and waits for its link to the stack network.
 func (r *engineRouter) ContainerStart(ctx context.Context, id string) error {
-	return r.byID(id).ContainerStart(ctx, id)
+	if !isLimaID(id) {
+		return r.docker.ContainerStart(ctx, id)
+	}
+	if err := r.lima.ContainerStart(ctx, id); err != nil {
+		return err
+	}
+	if r.app == nil {
+		return nil
+	}
+	return r.app.ensureVMLink(id).wait(ctx, 2*time.Minute)
 }
+
 func (r *engineRouter) ContainerStop(ctx context.Context, id string) error {
+	if isLimaID(id) && r.app != nil {
+		r.app.stopVMLink(id)
+	}
 	return r.byID(id).ContainerStop(ctx, id)
 }
+
 func (r *engineRouter) ContainerRestart(ctx context.Context, id string) error {
-	return r.byID(id).ContainerRestart(ctx, id)
+	if !isLimaID(id) {
+		return r.docker.ContainerRestart(ctx, id)
+	}
+	if err := r.ContainerStop(ctx, id); err != nil {
+		return err
+	}
+	return r.ContainerStart(ctx, id)
 }
+
 func (r *engineRouter) ContainerRemove(ctx context.Context, id string) {
+	if isLimaID(id) && r.app != nil {
+		r.app.stopVMLink(id)
+	}
 	r.byID(id).ContainerRemove(ctx, id)
 }
 func (r *engineRouter) ContainerUpdate(ctx context.Context, id string, nanoCPUs, memBytes int64) error {

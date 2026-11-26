@@ -92,7 +92,7 @@ func (a *App) eng(st Stack) Engine {
 		return a.docker
 	}
 	if vm := stackVMNames(st); len(vm) > 0 {
-		return &engineRouter{docker: a.docker, lima: a.lima, vm: vm}
+		return &engineRouter{app: a, docker: a.docker, lima: a.lima, vm: vm}
 	}
 	return a.docker
 }
@@ -103,7 +103,7 @@ func (a *App) anyEngine() Engine {
 	if a.lima == nil {
 		return a.docker
 	}
-	return &engineRouter{docker: a.docker, lima: a.lima}
+	return &engineRouter{app: a, docker: a.docker, lima: a.lima}
 }
 
 // intranetEngine is the engine the Intranet always runs on. The Intranet stays on

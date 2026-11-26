@@ -434,8 +434,10 @@ func (d *Docker) NetworkEnsure(ctx context.Context, name string) error {
 		}
 		resp, err = d.do(ctx, "POST", "/networks/create", map[string]any{
 			"Name": name, "Driver": "bridge",
-			"IPAM": map[string]any{"Config": []map[string]string{{
+			"IPAM": map[string]any{"Config": []map[string]any{{
 				"Subnet": subnet.String(), "IPRange": lowerHalf(subnet).String(), "Gateway": firstHost(subnet).String(),
+				// The top of Docker's half is kept for the stack's VM nodes (vmnet.go).
+				"AuxiliaryAddresses": vmAuxAddresses(subnet),
 			}}},
 		})
 		if err != nil {
