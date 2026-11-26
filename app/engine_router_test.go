@@ -6,6 +6,13 @@ import (
 	"testing"
 )
 
+// vmTypeOff switches a node type's VM support off for one test.
+func vmTypeOff(t *testing.T, typ string) {
+	was := vmNodeTypes[typ]
+	vmNodeTypes[typ] = false
+	t.Cleanup(func() { vmNodeTypes[typ] = was })
+}
+
 func runtimeDoc() designDoc {
 	return designDoc{
 		Frames: []designFrame{{ID: "f1", Type: "pxc", Label: "pxc-cluster-01", Runtime: runtimeVM}},
@@ -35,6 +42,7 @@ func TestRuntimeIssues(t *testing.T) {
 		return strings.Join(b, "\n")
 	}
 	doc := runtimeDoc()
+	vmTypeOff(t, "aio")
 
 	// PXC is switched on, All in One is not: only the All in One node is refused.
 	got := msgs(runtimeIssues(doc, ""))
@@ -83,7 +91,7 @@ func TestRuntimeIssues(t *testing.T) {
 		t.Errorf("a VM node without an Intranet was accepted:\n%s", got)
 	}
 	t.Setenv("DBCANVAS_VM_PREVIEW", "intranet,vnc,k3d,pmm")
-	if got := strings.Join(vmEnabledTypes(), ","); got != "haproxy,innodb,kubeadm,mariadb,mariadbgalera,mariadbrepl,mysql,mysqlce,mysqlceinnodb,mysqlcerepl,openbao,orchestrator,patroni,pg,pgbouncer,pgstream,proxysql,ps,psm,psmdb,psmrs,pxc,repmgr,sambaad,spock,valkey,valkeycluster" {
+	if got := strings.Join(vmEnabledTypes(), ","); got != "haproxy,innodb,kubeadm,linuxclient,mariadb,mariadbgalera,mariadbrepl,mysql,mysqlce,mysqlceinnodb,mysqlcerepl,openbao,orchestrator,patroni,pg,pgbouncer,pgstream,proxysql,ps,psm,psmdb,psmrs,pxc,repmgr,sambaad,spock,valkey,valkeycluster" {
 		t.Errorf("enabled types %q with only ready-made types in preview", got)
 	}
 }

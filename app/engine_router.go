@@ -172,6 +172,8 @@ var vmNodeTypes = map[string]bool{
 	"openbao":       true, // OpenBao
 	"sambaad":       true, // Samba AD DC
 	"kubeadm":       true, // a Kubeadm cluster and its nodes
+	"aio":           true, // All in One (SELinux permissive by default)
+	"linuxclient":   true, // the Linux client
 }
 
 // vmCapableType reports whether a node or cluster of this type can run as a VM at all: the ones

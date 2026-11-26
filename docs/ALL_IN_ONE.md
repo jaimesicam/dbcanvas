@@ -127,6 +127,15 @@ canvas node menu) use `aioctl`:
 The products' own systemd units are masked, so a package upgrade cannot start a server on a
 default port.
 
+
+### On a virtual machine
+
+An All-in-One node can run as a virtual machine instead of a container: **Runs on** in its
+properties ([Nodes as virtual machines](VM_NODES.md)). It runs SELinux permissive by default on
+Oracle Linux, as its many instances use ports and folders no policy knows; set **SELinux** to
+Enforcing to try otherwise. A Galera instance's members stop one after another and start in order,
+so a restart of the node — container or VM — brings the cluster back.
+
 ## Change a deployed node
 
 Add an instance and redeploy: the new one is built in the existing container and the others are left
