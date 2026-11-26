@@ -50,13 +50,56 @@ the machine's own architecture.
 
 ## Requirements
 
-- `limactl` 2.0 or newer on the machine dbcanvas runs on. `dbcanvas doctor` reports it under
-  *vm nodes*, as a note when it is missing, never as a failure.
+- `limactl` 2.0 or newer, and `ssh`, on the `PATH` of the dbcanvas service (see below).
+  `dbcanvas doctor` reports Lima under *vm nodes*, as a note when it is missing, never as a
+  failure.
+- QEMU where a VM runs on it: on Linux every VM does (with KVM for the machine's own
+  architecture), on macOS only a VM of the other architecture does, such as an amd64 VM on Apple
+  Silicon. Validation refuses a VM whose QEMU (`qemu-system-x86_64` for amd64,
+  `qemu-system-aarch64` for arm64) is not installed, and doctor lists each one under
+  *vm qemu*.
 - On Linux, access to `/dev/kvm` (usually membership of the `kvm` group); on a cloud machine,
   nested virtualization. doctor warns when it is missing: VMs would then run under emulation.
-- On macOS, nothing more: Lima uses Apple's Virtualization framework.
 - An Intranet node in the stack: it carries the stack network to the VMs.
-- Memory: a VM reserves all of its memory (2 GiB unless the node sets **Memory**).
+- Memory: a VM reserves all of its memory while it runs (2 GiB unless the node sets **Memory**).
+  Validation warns when a stack's VMs, the VMs already running and, on macOS, the memory given to
+  Docker's VM add up to more than the machine has.
+
+### Install Lima
+
+macOS:
+
+```sh
+brew install lima        # limactl 2.0 or newer
+brew install qemu        # only to run the other architecture (amd64 VMs on Apple Silicon)
+```
+
+Linux (Ubuntu or Debian shown):
+
+```sh
+VERSION=$(curl -fsSL https://api.github.com/repos/lima-vm/lima/releases/latest | jq -r .tag_name)
+curl -fsSL "https://github.com/lima-vm/lima/releases/download/${VERSION}/lima-${VERSION#v}-$(uname -s)-$(uname -m).tar.gz" \
+  | sudo tar Cxzm /usr/local
+sudo apt install qemu-system-x86 qemu-utils    # add qemu-system-arm qemu-efi-aarch64 for arm64 VMs
+sudo usermod -aG kvm $USER                     # then log in again
+```
+
+Lima can also be installed with Homebrew on Linux. On other distributions, use their QEMU
+packages; a QEMU that runs only the machine's own architecture (such as `qemu-kvm` on Oracle
+Linux) runs native VMs only.
+
+### Where dbcanvas finds `limactl`
+
+dbcanvas looks `limactl` up on the `PATH` of its service, when the service starts. The service
+inherits the environment of the `dbcanvas` command that started it, so a service started from a
+normal shell finds a Homebrew or `/usr/local/bin` install. After installing Lima while the
+service runs, run `dbcanvas stop`; the next command starts it again and finds Lima. A service
+started where `PATH` lacks Lima (a cron job, a script with a minimal environment) runs every node
+in a container, and doctor says Lima is missing.
+
+The Lima that Rancher Desktop bundles inside its application is not on the `PATH` and is not
+used. dbcanvas keeps its VMs in a Lima folder of its own (below), so they and your own Lima
+instances do not see each other.
 
 ## Choose where a node runs
 
@@ -72,7 +115,24 @@ dbcanvas up pxc-lab --node intranet --node 'pxc:3,version=8.4,runtime=vm' --wait
 ```
 
 **Architecture** applies too: the machine's own runs natively; the other one runs under QEMU's
-emulation, which works but boots in minutes and installs packages several times more slowly.
+emulation, which works but boots in minutes and installs packages several times more slowly. A
+cluster member runs on its cluster's architecture; set `arch` on the cluster (validation warns
+about a member that names another).
+
+The rest of a node's settings work the same way from the command line and the API, without the
+editor: `cpus=` and `memoryGb=` size the VM when it is created (2 CPUs and 2 GiB when unset), and
+the network conditions (`netLatencyMs=`, `netJitterMs=`, `netLossPct=`, `netRateMbit=`) apply on
+the VM's link to the stack network:
+
+```
+dbcanvas up pxc-amd64 --node intranet \
+  --node 'pxc:3,version=8.4,runtime=vm,arch=amd64,memoryGb=4,netLatencyMs=50' --wait --timeout 90m
+```
+
+Through the API, the same stack is `POST /api/stacks/compose` with
+`{"name":"pxc-amd64","nodes":[{"kind":"intranet"},{"kind":"pxc","count":3,"version":"8.4","runtime":"vm","arch":"amd64","memoryGb":4,"netLatencyMs":50}]}`,
+then `POST /api/stacks/{id}/deploy`; a dry run (`"dryRun":true`) reports a missing QEMU or a
+memory shortfall first. See [HTTP API](API.md).
 
 ## What a VM node is like
 
@@ -122,6 +182,15 @@ The link runs while dbcanvas runs. `dbcanvas stop` says how many nodes are VMs; 
 starts again their link is down. On macOS they are then cut off from the stack; on Linux a VM can
 still open connections to the containers through the host, but nothing reaches the VM. When
 dbcanvas starts, when the Intranet restarts, or when the VM reboots, the link comes back by itself.
+
+## After a restart
+
+When the dbcanvas service starts, it brings its VMs back as Docker's restart policy brings
+containers back: a running VM gets its link to the stack network again, and a VM that stopped
+without being stopped from DBCanvas (the machine restarted, or Lima's host agent was killed) is
+started again, two at a time, when its node is deployed. A node stopped from DBCanvas stays
+stopped. VMs start with the service, so after the machine restarts they come back on the first
+`dbcanvas` command.
 
 ## Where the VMs are
 

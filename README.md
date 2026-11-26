@@ -169,6 +169,13 @@ ports. They can be changed without recreating the node:
 `pxc:3,netLatencyMs=80,netJitterMs=20,netLossPct=1` in a stack file.
 → [Resource limits and network conditions](docs/STACKS.md#resource-limits-and-network-conditions)
 
+**A real kernel under the database.** Most nodes, clusters and members can run as a virtual
+machine instead of a container: SELinux enforcing on Oracle Linux, AppArmor on Ubuntu, sysctls,
+transparent huge pages and real reboots. A cluster can mix the two, one PXC member in a VM and the
+rest in containers, and a VM can run the other architecture under emulation (amd64 on Apple
+Silicon): `pxc:3,runtime=vm,arch=amd64` in a stack file.
+→ [Nodes that run as virtual machines](docs/VM_NODES.md)
+
 **Many databases in one container.** An All in One node runs standalones and clusters of one
 MySQL flavor, PostgreSQL (Patroni, repmgr, Spock), PSMDB and Valkey side by side with ProxySQL,
 HAProxy and Orchestrator. Each instance has its own port, directory and systemd unit, and
@@ -366,6 +373,27 @@ Node images come from `ghcr.io/jaimesicam` the first time a stack needs them. It
 settings are in `~/.dbcanvas`; `dbcanvas doctor` checks the whole setup. To build it from a
 checkout instead: `make dbcanvas`, which writes `dist/dbcanvas`.
 
+### Optional: nodes as virtual machines
+
+A node can run as a virtual machine instead of a container, with its own kernel. DBCanvas runs
+these VMs with [Lima](https://lima-vm.io); without it, every node runs in a container and nothing
+else changes.
+
+```sh
+brew install lima        # macOS: limactl 2.0 or newer
+brew install qemu        # macOS: only for the other architecture (amd64 VMs on Apple Silicon)
+```
+
+On Linux, install Lima from its releases and QEMU from the distribution, and give your user
+`/dev/kvm`; see [Install Lima](docs/VM_NODES.md#install-lima). dbcanvas finds `limactl` on the
+`PATH` it was started with: after installing Lima, run `dbcanvas stop` so the next command picks
+it up. `dbcanvas doctor` reports Lima and QEMU under *vm nodes*. Pick **Runs on → Virtual
+machine (Lima)** in a design, or `runtime=vm` from the command line and the API:
+
+```sh
+dbcanvas up pxc-vm --node intranet --node 'pxc:3,version=8.4,runtime=vm' --wait
+```
+
 ## Upgrade
 
 Replace the `dbcanvas` file with the new release. A running service switches to it once no
@@ -459,6 +487,7 @@ cluster misbehave on purpose and show the impact live.
 - **[Getting started](docs/GETTING_STARTED.md)**: from install to a running cluster
 - [Feature guides](docs/README.md): one page per tool
 - [Configuration](docs/CONFIGURATION.md): `~/.dbcanvas`, `config.yaml`, node passwords, troubleshooting
+- [Nodes that run as virtual machines](docs/VM_NODES.md): Lima, SELinux and AppArmor, mixed clusters
 - [Security model](docs/SECURITY.md): what dbcanvas can do to the host, who can reach it, tokens, guests
 - [HTTP API](docs/API.md) and the [API & CLI reference](docs/API_REFERENCE.md)
 - [The `dbcanvas` command](docs/CLI.md)
@@ -477,6 +506,8 @@ cluster misbehave on purpose and show the impact live.
   is a privileged capability, so run DBCanvas somewhere you trust.
 - Enough CPU, memory and disk for what you deploy. An HA cluster is several containers.
 - Linux (recommended) or macOS, including Apple Silicon.
+- Optional, for nodes that run as VMs: Lima (`limactl` 2.0 or newer), and QEMU on Linux or for
+  the other architecture on macOS. Each VM reserves its memory while it runs, 2 GiB by default.
 
 ## License
 
