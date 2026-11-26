@@ -7964,9 +7964,10 @@ function NetworkConditionFields({ node: n, patchNode }) {
       </summary>
       <div className="mt-2 space-y-2">
         <p className="text-[11px] leading-relaxed text-muted">
-          Degrades this node’s link on purpose, with tc. Applied <em>after</em> the cluster
-          forms — a lossy link fails state transfer, so shaping during provisioning would
-          break the stack instead of degrading it. Only the node’s database and cluster
+          Degrades this node’s link on purpose, with tc. Applied <em>after</em> the node is
+          provisioned (for a cluster member, after the cluster forms) — a lossy link fails
+          state transfer, so shaping during provisioning would break the stack instead of
+          degrading it. Only the node’s database and cluster
           ports are shaped, so DNS and health checks stay clean.
         </p>
         <div className="grid grid-cols-2 gap-2">
@@ -16253,8 +16254,8 @@ function Body(props) {
     const f = frames.find((x) => x.id === selected.id)
     if (f) {
       const deployed = nodes.some((n) => n.frameId === f.id && depByNode[n.id])
-      arch = <ArchField obj={f} deployed={deployed} onChange={(a) => patchFrame(f.id, { arch: a })} />
       runsAsVM = f.runtime === 'vm'
+      arch = <ArchField obj={f} vm={runsAsVM} deployed={deployed} onChange={(a) => patchFrame(f.id, { arch: a })} />
       runtime = <>
         <RuntimeField obj={f} deployed={deployed} onChange={(r) => patchFrame(f.id, { runtime: r })} />
         <SELinuxField obj={f} deployed={deployed} onChange={(m) => patchFrame(f.id, { selinux: m })} />
@@ -16264,9 +16265,9 @@ function Body(props) {
     const n = nodes.find((x) => x.id === selected.id)
     if (n) {
       const f = n.frameId ? frames.find((x) => x.id === n.frameId) : null
-      arch = <ArchField obj={n} member={f ? (f.arch || '') : undefined} deployed={!!depByNode[n.id]}
-        onChange={(a) => patchNode(n.id, { arch: a })} />
       runsAsVM = (n.runtime || (f ? f.runtime : '') || '') === 'vm'
+      arch = <ArchField obj={n} vm={runsAsVM} member={f ? (f.arch || '') : undefined} deployed={!!depByNode[n.id]}
+        onChange={(a) => patchNode(n.id, { arch: a })} />
       runtime = <>
         <RuntimeField obj={n} member={f ? (f.runtime || '') : undefined} deployed={!!depByNode[n.id]}
           onChange={(r) => patchNode(n.id, { runtime: r })} />

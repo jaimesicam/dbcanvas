@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 )
@@ -84,10 +85,12 @@ type SystemSettings struct {
 	// database because somebody pressed Run.
 	InternalWrites bool `json:"internalWrites"`
 	// HostArch is the Docker host's architecture, DefaultArch what a node on Automatic runs
-	// as, KubernetesArch what K3D and Kubeadm nodes run as (platforms.go). Read-only.
+	// as, KubernetesArch what K3D and Kubeadm nodes run as (platforms.go), and VMArch
+	// what a VM node on Automatic runs as: this machine's own (lima.go). Read-only.
 	HostArch       string `json:"hostArch"`
 	DefaultArch    string `json:"defaultArch"`
 	KubernetesArch string `json:"kubernetesArch"`
+	VMArch         string `json:"vmArch"`
 	// VMTypes are the node and cluster types that may run as a VM (engine_router.go), and
 	// VMUnavailable why none can on this machine, when Lima is missing. Read-only; the editor
 	// offers "Runs on" for these types only.
@@ -199,6 +202,7 @@ func (a *App) systemSettings(appUser string) SystemSettings {
 		s.InternalWrites = v == "1"
 	}
 	s.HostArch, s.DefaultArch, s.KubernetesArch = a.hostArch, platformArch(), k8sArch()
+	s.VMArch = runtime.GOARCH
 	s.VMTypes, s.VMUnavailable = vmEnabledTypes(), a.vmUnavailable()
 	if a.lima != nil {
 		s.LimaHome = a.lima.home

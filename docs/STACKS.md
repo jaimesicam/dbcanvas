@@ -558,9 +558,10 @@ no options of its own: link it, deploy it, and choose everything on its dashboar
 Database nodes and cluster members can be limited on **CPU** and **memory**, **disk** read and
 write rate (MB/s), and **network**: added latency, jitter, packet loss and a bandwidth cap.
 Network shaping applies only to the node's database and cluster ports (unless you tick shaping
-all traffic), is applied after the cluster forms, and can be changed and redeployed without
-recreating the node. Disk limits apply to containers only; a node that runs as a virtual machine
-([Nodes as virtual machines](VM_NODES.md)) takes the CPU, memory and network ones.
+all traffic), is applied once the node is provisioned (after the cluster forms, for a cluster
+member), and can be changed and redeployed without recreating the node. Disk limits apply to
+containers only; a node that runs as a virtual machine ([Nodes as virtual
+machines](VM_NODES.md)) takes the CPU, memory and network ones.
 
 ### Where a node runs
 A node runs in a container by default. The database, proxy and tool nodes DBCanvas installs from

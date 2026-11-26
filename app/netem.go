@@ -557,7 +557,7 @@ func netemIssues(n designNode) []issue {
 	if asked && len(out) == 0 {
 		spec := nodeNetemSpec(n)
 		out = append(out, issue{Level: "info", Message: fmt.Sprintf(
-			"Node %s will run with %s, applied after the cluster forms.", n.Label, describeNetem(spec))})
+			"Node %s will run with %s, applied once it is provisioned (after the cluster forms, for a cluster member).", n.Label, describeNetem(spec))})
 	}
 	return out
 }

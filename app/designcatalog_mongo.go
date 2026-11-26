@@ -10,10 +10,10 @@ var mongoSizingOptions = []catalogOption{
 	{Field: "deviceReadMbps", Desc: "Disk read limit in MB/s (container --device-read-bps); 0 = unlimited. Docker only."},
 	{Field: "deviceWriteMbps", Desc: "Disk write limit in MB/s (container --device-write-bps); 0 = unlimited. Docker only."},
 	{Field: "devicePath", Desc: "Host block device the disk limits apply to; \"\" auto-detects the disk behind Docker's data root.", When: "deviceReadMbps or deviceWriteMbps is set"},
-	{Field: "netLatencyMs", Desc: "Added network latency in ms, applied with tc after the cluster forms. Docker only; not locked after deploy."},
-	{Field: "netJitterMs", Desc: "Latency jitter (± ms). Docker only."},
-	{Field: "netLossPct", Desc: "Packet loss in percent. Docker only."},
-	{Field: "netRateMbit", Desc: "Bandwidth cap in Mbit/s. Docker only."},
+	{Field: "netLatencyMs", Desc: "Added network latency in ms, applied with tc once the node is provisioned (after the cluster forms, for a cluster member). Containers and VMs; not locked after deploy."},
+	{Field: "netJitterMs", Desc: "Latency jitter (± ms)."},
+	{Field: "netLossPct", Desc: "Packet loss in percent."},
+	{Field: "netRateMbit", Desc: "Bandwidth cap in Mbit/s."},
 }
 
 // mongoVersionOptions are the catalogue-driven OS and server version fields shared by the

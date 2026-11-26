@@ -16,9 +16,11 @@ const PMM_NOTE = { pmm: 'PMM publishes arm64 images from 3.10.0; an earlier rele
 
 // archFacts is what an item runs as, and whether and why that is fixed. member is set for a
 // cluster member, with its cluster's arch ('' for Automatic).
-export function archFacts(obj, system, member) {
-  const host = system?.hostArch || ''
-  const def = system?.defaultArch || host
+// vm is set when the item runs as a VM: Automatic is then this machine's own architecture
+// (Lima's), not the Docker host's.
+export function archFacts(obj, system, member, vm = false) {
+  const host = (vm ? system?.vmArch : system?.hostArch) || system?.hostArch || ''
+  const def = vm ? host : system?.defaultArch || host
   if (K8S[obj.type]) {
     return { arch: system?.kubernetesArch || host, fixed: `${K8S[obj.type]} nodes run on the Docker host's own architecture: Kubernetes cannot create pods under emulation.`, host, def }
   }
@@ -27,13 +29,14 @@ export function archFacts(obj, system, member) {
   return { arch: obj.arch || def, fixed: '', host, def }
 }
 
-export function ArchField({ obj, member, deployed, onChange }) {
+export function ArchField({ obj, member, vm = false, deployed, onChange }) {
   const { system } = useSettings()
-  const f = archFacts(obj, system, member)
+  const f = archFacts(obj, system, member, vm)
+  const where = vm ? 'machine' : 'Docker host'
   const emulated = (a) => !!f.host && a !== f.host
   const label = (a) => (emulated(a) ? `${a} — emulated` : a)
   const note = emulated(f.arch)
-    ? `Runs under emulation on this ${f.host} Docker host: it works, more slowly.`
+    ? `Runs under ${vm ? 'QEMU ' : ''}emulation on this ${f.host} ${where}: it works, more slowly.`
     : ''
   if (f.fixed) {
     return (
@@ -44,12 +47,12 @@ export function ArchField({ obj, member, deployed, onChange }) {
   }
   const hint = deployed
     ? `Built as ${f.arch}; it cannot change while the node is deployed.${note ? ' ' + note : ''}`
-    : [note || 'Automatic follows the Docker host the stack is deployed on.', PMM_NOTE[obj.type]].filter(Boolean).join(' ')
+    : [note || (vm ? 'Automatic is this machine’s own architecture, which a VM runs natively.' : 'Automatic follows the Docker host the stack is deployed on.'), PMM_NOTE[obj.type]].filter(Boolean).join(' ')
   return (
     <Field label="Architecture" hint={hint}>
       <select className={inputCls} value={obj.arch || ''} disabled={deployed}
         onChange={(e) => onChange(e.target.value)}>
-        <option value="">{`Automatic (${f.def || 'this Docker host'}${f.def && f.def === f.host ? ', this Docker host' : ''})`}</option>
+        <option value="">{`Automatic (${f.def || `this ${where}`}${f.def && f.def === f.host ? `, this ${where}` : ''})`}</option>
         <option value="amd64">{label('amd64')}</option>
         <option value="arm64">{label('arm64')}</option>
       </select>

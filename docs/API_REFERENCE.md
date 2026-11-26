@@ -153,7 +153,8 @@ Read-only fields come from `~/.dbcanvas/config.yaml`: `publicUrl` (its `publicUr
 key), and `sshForwarding`, `experimental` and `eol` (`SSH_FORWARDING_HOST`,
 `EXPERIMENTAL` and `EOL` under `env:`). `hostArch`, `defaultArch` and
 `kubernetesArch` are the Docker host's architecture, what a node on Automatic runs as,
-and what K3D and Kubeadm nodes run as. `vmTypes` lists the node and cluster types that
+and what K3D and Kubeadm nodes run as; `vmArch` is what a VM node on Automatic runs as,
+this machine's own architecture. `vmTypes` lists the node and cluster types that
 may run as a VM; `vmUnavailable` says why none can when Lima is not installed;
 `limaHome` is the folder Lima keeps this installation's VMs in (empty without Lima).
 `defaultSecrets` names the node passwords still set to a published example value; it

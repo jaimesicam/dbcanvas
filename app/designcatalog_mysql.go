@@ -10,11 +10,11 @@ var mysqlCatSizing = []catalogOption{
 	{Field: "deviceReadMbps", Desc: "Disk read limit in MB/s (container --device-read-bps); 0 = unlimited. Docker only."},
 	{Field: "deviceWriteMbps", Desc: "Disk write limit in MB/s (container --device-write-bps); 0 = unlimited. Docker only."},
 	{Field: "devicePath", Desc: "Host block device the disk limits apply to; \"\" auto-detects the disk behind Docker's data root.", When: "deviceReadMbps or deviceWriteMbps is set"},
-	{Field: "netLatencyMs", Desc: "Added one-way latency in ms (0–1000) on the node's database and cluster ports, applied with tc after the cluster forms. Docker only; not locked after deploy (a redeploy re-applies it)."},
-	{Field: "netJitterMs", Desc: "Latency jitter in ± ms, capped at netLatencyMs. Docker only."},
-	{Field: "netLossPct", Desc: "Outbound packet loss in percent (0–100; 100 severs the link while the node stays up). Docker only."},
-	{Field: "netRateMbit", Desc: "Outbound bandwidth cap in Mbit/s; 0 = unlimited. Docker only."},
-	{Field: "netAllTraffic", Desc: "Shape every packet the node sends, not only its database and cluster ports (DNS, LDAP and health checks are impaired too). Docker only."},
+	{Field: "netLatencyMs", Desc: "Added one-way latency in ms (0–1000) on the node's database and cluster ports, applied with tc once the node is provisioned (after the cluster forms, for a cluster member). Containers and VMs; not locked after deploy (a redeploy re-applies it)."},
+	{Field: "netJitterMs", Desc: "Latency jitter in ± ms, capped at netLatencyMs."},
+	{Field: "netLossPct", Desc: "Outbound packet loss in percent (0–100; 100 severs the link while the node stays up)."},
+	{Field: "netRateMbit", Desc: "Outbound bandwidth cap in Mbit/s; 0 = unlimited."},
+	{Field: "netAllTraffic", Desc: "Shape every packet the node sends, not only its database and cluster ports (DNS, LDAP and health checks are impaired too)."},
 }
 
 // mysqlCatCert are the Intranet-CA TLS fields.
