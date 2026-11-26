@@ -1360,6 +1360,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 	}
 	// Each node's architecture (platforms.go).
 	out = append(out, archIssues(doc, a.hostArch)...)
+	out = append(out, packageArchIssues(doc)...)
 	out = append(out, a.pmmArchIssues(ctx, st.ID, doc)...)
 	// Where each node runs: a container, or a VM (engine_router.go).
 	out = append(out, runtimeIssues(doc, a.vmUnavailable())...)

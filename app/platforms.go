@@ -181,3 +181,23 @@ func (a *App) waitScale(ctx context.Context, arch string) int {
 	}
 	return 1
 }
+
+// debianAmd64Only are the node types whose Debian and Ubuntu packages Percona publishes for amd64
+// alone; on Oracle Linux they exist for both architectures.
+var debianAmd64Only = map[string]string{"orchestrator": "Percona Orchestrator"}
+
+// packageArchIssues refuses a node of debianAmd64Only on Debian or Ubuntu as arm64, which would
+// otherwise fail at its package install.
+func packageArchIssues(doc designDoc) []issue {
+	var out []issue
+	for _, n := range doc.Nodes {
+		product, ok := debianAmd64Only[n.Type]
+		if !ok || !isDebianOS(n.OS) || archOr(n.Arch) != "arm64" {
+			continue
+		}
+		out = append(out, issue{Level: "error", Message: fmt.Sprintf(
+			"%s: Percona publishes %s for Debian and Ubuntu on amd64 only — choose Oracle Linux, or amd64 (emulated on this host)",
+			firstNonEmpty(n.Label, n.ID), product)})
+	}
+	return out
+}

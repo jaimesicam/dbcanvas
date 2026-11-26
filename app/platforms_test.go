@@ -76,3 +76,16 @@ func TestComposeLeavesArchOnAutomatic(t *testing.T) {
 		}
 	}
 }
+
+func TestPackageArchIssues(t *testing.T) {
+	doc := designDoc{Nodes: []designNode{
+		{ID: "a", Label: "orch-ubuntu-arm", Type: "orchestrator", OS: "ubuntu", Arch: "arm64"},
+		{ID: "b", Label: "orch-ubuntu-amd", Type: "orchestrator", OS: "ubuntu", Arch: "amd64"},
+		{ID: "c", Label: "orch-ol-arm", Type: "orchestrator", OS: "oraclelinux", Arch: "arm64"},
+		{ID: "d", Label: "ps-ubuntu-arm", Type: "ps", OS: "ubuntu", Arch: "arm64"},
+	}}
+	got := packageArchIssues(doc)
+	if len(got) != 1 || !strings.Contains(got[0].Message, "orch-ubuntu-arm: Percona publishes Percona Orchestrator for Debian and Ubuntu on amd64 only") {
+		t.Fatalf("issues %+v", got)
+	}
+}
