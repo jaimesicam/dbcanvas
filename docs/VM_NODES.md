@@ -18,6 +18,10 @@ Ubuntu with AppArmor, alone and in a cluster with containers, and across a reboo
 | Type | Since |
 |---|---|
 | Percona XtraDB Cluster (cluster and members) | 0.1.x |
+| Percona Server for MySQL, standalone and asynchronous replication | 0.1.x |
+| Percona Distribution for PostgreSQL, standalone | 0.1.x |
+| Patroni with etcd (cluster and members) | 0.1.x |
+| Percona Server for MongoDB: standalone, replica set and sharded cluster | 0.1.x |
 
 Nodes that arrive as ready-made images — the Intranet, the VNC desktop, PMM, Keycloak, the
 simulators — and K3D clusters always run in containers.

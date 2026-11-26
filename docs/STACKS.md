@@ -561,7 +561,8 @@ recreating the node. Disk limits apply to containers only; a node that runs as a
 
 ### Where a node runs
 A node runs in a container by default. Types verified on virtual machines (Percona XtraDB
-Cluster for now) can run as a Lima VM instead, with a kernel, SELinux or AppArmor of its own, on
+Cluster, Percona Server, PostgreSQL, Patroni and Percona Server for MongoDB for now) can run as a
+Lima VM instead, with a kernel, SELinux or AppArmor of its own, on
 the same stack network: see [Nodes as virtual machines](VM_NODES.md).
 
 ## Sign in with a directory or single sign-on

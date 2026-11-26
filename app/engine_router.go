@@ -89,7 +89,14 @@ func vmPreviewTypes() map[string]bool {
 // cluster with Docker members, and across a reboot. A type is added here once it passes; until
 // then a node of it cannot run as a VM. docs/VM_NODES.md lists them.
 var vmNodeTypes = map[string]bool{
-	"pxc": true, // Percona XtraDB Cluster: the cluster and its members
+	"pxc":     true, // Percona XtraDB Cluster: the cluster and its members
+	"ps":      true, // Percona Server for MySQL, standalone
+	"mysql":   true, // Percona Server asynchronous replication: the cluster and its members
+	"pg":      true, // Percona Distribution for PostgreSQL, standalone
+	"patroni": true, // Patroni with etcd: the cluster and its members
+	"psm":     true, // Percona Server for MongoDB, standalone
+	"psmrs":   true, // a PSMDB replica set: the cluster and its members
+	"psmdb":   true, // a sharded PSMDB cluster: the cluster and its members
 }
 
 // vmCapableType reports whether a node or cluster of this type can run as a VM at all: the ones

@@ -13,7 +13,7 @@ func runtimeDoc() designDoc {
 			{ID: "intranet-01", Type: "intranet"},
 			{ID: "pxc-1", Type: "pxc", FrameID: "f1", Runtime: runtimeDocker}, // overrides its cluster
 			{ID: "pxc-2", Type: "pxc", FrameID: "f1"},                         // follows its cluster
-			{ID: "ps-01", Type: "ps", Runtime: runtimeVM},
+			{ID: "valkey-01", Type: "valkey", Runtime: runtimeVM},
 			{ID: "pg-01", Type: "pg"},
 		},
 	}
@@ -21,8 +21,8 @@ func runtimeDoc() designDoc {
 
 func TestVMNodeIDs(t *testing.T) {
 	got := strings.Join(vmNodeIDs(runtimeDoc()), ",")
-	if got != "ps-01,pxc-2" {
-		t.Fatalf("VM nodes %q, want ps-01,pxc-2", got)
+	if got != "pxc-2,valkey-01" {
+		t.Fatalf("VM nodes %q, want pxc-2,valkey-01", got)
 	}
 }
 
@@ -36,9 +36,9 @@ func TestRuntimeIssues(t *testing.T) {
 	}
 	doc := runtimeDoc()
 
-	// PXC is switched on, Percona Server is not: only the PS node is refused.
+	// PXC is switched on, Valkey is not: only the Valkey node is refused.
 	got := msgs(runtimeIssues(doc, ""))
-	if !strings.Contains(got, "ps-01: running this node type as a VM is not available yet") {
+	if !strings.Contains(got, "valkey-01: running this node type as a VM is not available yet") {
 		t.Errorf("a type that is not switched on was accepted:\n%s", got)
 	}
 	if strings.Contains(got, "pxc") || strings.Contains(got, "pg-01") {
@@ -46,7 +46,7 @@ func TestRuntimeIssues(t *testing.T) {
 	}
 
 	// Enabled for preview, on a machine with Lima: fine.
-	t.Setenv("DBCANVAS_VM_PREVIEW", "pxc,ps")
+	t.Setenv("DBCANVAS_VM_PREVIEW", "valkey")
 	if got := runtimeIssues(doc, ""); len(got) != 0 {
 		t.Errorf("enabled types refused: %s", msgs(got))
 	}
@@ -56,7 +56,7 @@ func TestRuntimeIssues(t *testing.T) {
 
 	// Enabled, but Lima is missing: refused with the reason.
 	got = msgs(runtimeIssues(doc, "limactl is not installed (https://lima-vm.io)"))
-	if !strings.Contains(got, "ps-01: cannot run as a VM on this machine: limactl is not installed") {
+	if !strings.Contains(got, "valkey-01: cannot run as a VM on this machine: limactl is not installed") {
 		t.Errorf("no reason given without Lima:\n%s", got)
 	}
 
@@ -77,14 +77,13 @@ func TestRuntimeIssues(t *testing.T) {
 	if !strings.Contains(got, `x: runtime "kvm" is not docker or vm`) {
 		t.Errorf("unknown runtime accepted:\n%s", got)
 	}
-	t.Setenv("DBCANVAS_VM_PREVIEW", "ps")
 	got = msgs(runtimeIssues(designDoc{Nodes: []designNode{{ID: "ps-01", Type: "ps", Runtime: runtimeVM}}}, ""))
 	if !strings.Contains(got, "add an Intranet node") {
 		t.Errorf("a VM node without an Intranet was accepted:\n%s", got)
 	}
 	t.Setenv("DBCANVAS_VM_PREVIEW", "intranet,vnc,k3d,pmm")
-	if got := strings.Join(vmEnabledTypes(), ","); got != "pxc" {
-		t.Errorf("enabled types %q with only ready-made types in preview, want pxc", got)
+	if got := strings.Join(vmEnabledTypes(), ","); got != "mysql,patroni,pg,ps,psm,psmdb,psmrs,pxc" {
+		t.Errorf("enabled types %q with only ready-made types in preview", got)
 	}
 }
 
@@ -108,7 +107,7 @@ func TestEngineChoice(t *testing.T) {
 	if !ok {
 		t.Fatalf("a stack with VM nodes got %T", a.eng(st))
 	}
-	if r.byName(containerName(7, "pxc-2")) != Engine(a.lima) || r.byName(containerName(7, "ps-01")) != Engine(a.lima) {
+	if r.byName(containerName(7, "pxc-2")) != Engine(a.lima) || r.byName(containerName(7, "valkey-01")) != Engine(a.lima) {
 		t.Error("a VM node is not created on Lima")
 	}
 	if r.byName(containerName(7, "pxc-1")) != Engine(a.docker) || r.byName(containerName(7, "intranet-01")) != Engine(a.docker) {
@@ -142,11 +141,11 @@ func TestVMsOptional(t *testing.T) {
 
 func TestComposeRuntime(t *testing.T) {
 	composeCatalogFixture(t)
-	spec := composeSpec{Name: "x", Nodes: []composeNodeSpec{{Kind: "intranet"}, {Kind: "pxc", Count: 2, Runtime: runtimeVM}, {Kind: "ps", Runtime: runtimeVM}}}
-	if _, _, _, _, err := buildCompose(spec); err == nil || !strings.Contains(err.Error(), `ps does not support "runtime"`) {
+	spec := composeSpec{Name: "x", Nodes: []composeNodeSpec{{Kind: "intranet"}, {Kind: "pxc", Count: 2, Runtime: runtimeVM}, {Kind: "mysql", Runtime: runtimeVM}}}
+	if _, _, _, _, err := buildCompose(spec); err == nil || !strings.Contains(err.Error(), `mysql does not support "runtime"`) {
 		t.Fatalf("runtime=vm accepted for a kind not switched on: %v", err)
 	}
-	t.Setenv("DBCANVAS_VM_PREVIEW", "pxc,ps")
+	t.Setenv("DBCANVAS_VM_PREVIEW", "mysqlce")
 	doc, _, _, _, err := buildCompose(spec)
 	if err != nil {
 		t.Fatal(err)
