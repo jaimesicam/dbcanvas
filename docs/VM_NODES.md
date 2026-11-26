@@ -22,6 +22,12 @@ Ubuntu with AppArmor, alone and in a cluster with containers, and across a reboo
 | Percona Distribution for PostgreSQL, standalone | 0.1.x |
 | Patroni with etcd (cluster and members) | 0.1.x |
 | Percona Server for MongoDB: standalone, replica set and sharded cluster | 0.1.x |
+| ProxySQL, standalone and cluster | 0.1.x |
+| Percona Orchestrator | 0.1.x |
+| HAProxy | 0.1.x |
+| PgBouncer | 0.1.x |
+| repmgr (cluster and members) | 0.1.x |
+| Valkey: standalone, cluster and Sentinel (SELinux permissive by default) | 0.1.x |
 
 Nodes that arrive as ready-made images — the Intranet, the VNC desktop, PMM, Keycloak, the
 simulators — and K3D clusters always run in containers.

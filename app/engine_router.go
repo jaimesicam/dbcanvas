@@ -151,6 +151,14 @@ var vmNodeTypes = map[string]bool{
 	"psm":     true, // Percona Server for MongoDB, standalone
 	"psmrs":   true, // a PSMDB replica set: the cluster and its members
 	"psmdb":   true, // a sharded PSMDB cluster: the cluster and its members
+
+	"proxysql":      true, // ProxySQL, standalone or a ProxySQL cluster and its members
+	"orchestrator":  true, // Percona Orchestrator
+	"haproxy":       true, // HAProxy
+	"pgbouncer":     true, // PgBouncer
+	"repmgr":        true, // repmgr: the cluster and its members
+	"valkey":        true, // Valkey, standalone (SELinux permissive by default)
+	"valkeycluster": true, // a Valkey cluster or Valkey with Sentinel, and its members (likewise)
 }
 
 // vmCapableType reports whether a node or cluster of this type can run as a VM at all: the ones
