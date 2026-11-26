@@ -41,6 +41,11 @@ func (e *Engine) loadDials() []core.Dial {
 			Params: []core.Param{{Key: "conns", Label: "Connections", Type: "steps", Opts: []any{100, 500, 1000, 2000, 5000}, Def: 500},
 				{Key: "hold", Label: "Maximum hold, then release", Type: "pills", Opts: []any{30, 60, 120, 300}, Def: 120, Unit: "s"}},
 			SQL: "-- {conns} connections, each idle after PING"},
+		{ID: "idle", Group: groupConns, Name: "Idle connections", Kind: "toggle", Available: true,
+			Desc:   "Opens connections to the primary and leaves them open and idle until the dial is turned off, as an application's connection pool does between requests. They run nothing, but each costs memory for its buffers and counts against maxclients.",
+			Watch:  []string{"Connections"},
+			Params: []core.Param{{Key: "conns", Label: "Connections", Type: "steps", Opts: []any{5, 10, 20, 50, 100, 200}, Def: 20}},
+			SQL:    "-- {conns} connections, idle after PING until the dial is turned off"},
 		{ID: "cpu", Group: groupIO, Name: "Busy Lua script", Kind: "toggle", Available: true,
 			Desc:  "Runs a script that spins for a set time, back to back. Valkey runs scripts on its single thread, so every other command on that primary waits for each one to finish.",
 			Watch: []string{"p99 latency", "p50 latency"},
@@ -55,7 +60,8 @@ func (e *Engine) loadDials() []core.Dial {
 
 func (e *Engine) startLoad(ctx context.Context, id string, p core.Params) (core.Running, bool) {
 	switch id {
-	case "storm":
+	case "storm", "idle":
+		// The idle dial is the storm's connections without its hold limit.
 		return core.NewJob(ctx, p, e.runStorm), true
 	case "cpu":
 		return core.NewJob(ctx, p, e.runBusyScript), true

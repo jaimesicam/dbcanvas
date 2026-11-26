@@ -53,6 +53,11 @@ func (e *Engine) loadDials() []core.Dial {
 			Params: []core.Param{{Key: "conns", Label: "Connections", Type: "steps", Opts: []any{100, 250, 500, 1000, 2000}, Def: 250},
 				{Key: "hold", Label: "Maximum hold, then release", Type: "pills", Opts: []any{30, 60, 120, 300}, Def: 120, Unit: "s"}},
 			SQL: "// {conns} at once, then idle in the pool:\ndb.storm.find().tailable({ awaitData: true }).maxAwaitTimeMS(3000)  // a capped collection"},
+		{ID: "idle", Group: groupConns, Name: "Idle connections", Kind: "toggle", Available: true,
+			Desc:   "Opens connections to the primary (mongos on a sharded cluster) and leaves them open and idle in the driver's pool until the dial is turned off, as an application's connection pool does between requests. They run nothing, but each is a thread and memory on the server.",
+			Watch:  []string{"Connections"},
+			Params: []core.Param{{Key: "conns", Label: "Connections", Type: "steps", Opts: []any{5, 10, 20, 50, 100, 200}, Def: 20}},
+			SQL:    "// a driver pool kept at {conns} idle connections (minPoolSize) until the dial is turned off"},
 		hot,
 		{ID: "commits", Group: groupIO, Name: "Commit storm", Kind: "toggle", Available: true,
 			Desc:   "Many single-document writes from many workers, each acknowledged only once it is journaled on a majority. Every write waits for a journal flush, and on a replica set for the secondaries too.",
@@ -74,6 +79,8 @@ func (e *Engine) startLoad(ctx context.Context, id string, p core.Params, table 
 	switch id {
 	case "storm":
 		run = e.runStorm
+	case "idle":
+		run = e.runIdle
 	case "hotrow":
 		run = e.runHotDocs
 	case "commits":
@@ -176,6 +183,61 @@ func (e *Engine) runStorm(ctx context.Context, j *core.Job) {
 		}
 		j.Set(fmt.Sprintf("Holding a pool of %d connections to %s", want, wid), -1, note)
 		sleep(ctx, 2*time.Second)
+	}
+}
+
+// runIdle keeps a driver pool of idle connections to the primary (mongos on a sharded cluster):
+// with minPoolSize at the number chosen and no idle timeout, the driver opens them and keeps them
+// open, running nothing, as an application's pool does between requests. The driver's own
+// monitoring connections come on top, as they do for any client.
+func (e *Engine) runIdle(ctx context.Context, j *core.Job) {
+	want := j.Param().Int("conns", 20)
+	e.mu.Lock()
+	wid, sharded := e.writerID, e.topology == "sharded"
+	e.mu.Unlock()
+	var host string
+	var port int
+	for _, m := range e.cfg.Members {
+		if m.ID == wid {
+			host, port = m.Host, m.Port
+		}
+	}
+	u := fmt.Sprintf("mongodb://%s:%s@%s:%d/?authSource=admin&directConnection=true",
+		url.QueryEscape(e.cfg.User), url.QueryEscape(e.cfg.Password), host, port)
+	if sharded {
+		u, wid = e.cfg.URI, "mongos"
+	} else if host == "" {
+		j.Finish(fmt.Errorf("no primary to connect to"))
+		return
+	}
+	c, err := mongo.Connect(ctx, options.Client().ApplyURI(u).SetAppName("perfsim-idle").
+		SetMinPoolSize(uint64(want)).SetMaxPoolSize(uint64(want)).SetMaxConnIdleTime(0))
+	if err != nil {
+		j.Finish(err)
+		return
+	}
+	defer func() {
+		dctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		c.Disconnect(dctx)
+		cancel()
+	}()
+	admin := c.Database("admin")
+	for ctx.Err() == nil {
+		var ss struct {
+			Connections struct {
+				Current float64 `bson:"current"`
+			} `bson:"connections"`
+		}
+		note := ""
+		if err := admin.RunCommand(ctx, bson.D{{Key: "serverStatus", Value: 1}}).Decode(&ss); err != nil {
+			if ctx.Err() == nil {
+				note = "last error: " + short(err.Error(), 80)
+			}
+		} else {
+			note = fmt.Sprintf("%s has %.0f connections in all", map[bool]string{true: "the mongos that answered", false: "the primary"}[sharded], ss.Connections.Current)
+		}
+		j.Set(fmt.Sprintf("Holding %d idle connections to %s", want, wid), -1, note)
+		sleep(ctx, 5*time.Second)
 	}
 }
 

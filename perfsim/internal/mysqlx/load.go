@@ -34,6 +34,11 @@ func (e *Engine) loadDials() []core.Dial {
 			Params: []core.Param{{Key: "conns", Label: "Connections", Type: "steps", Opts: []any{100, 250, 500, 1000, 2000}, Def: 250, Unit: ""},
 				{Key: "hold", Label: "Maximum hold, then release", Type: "pills", Opts: []any{30, 60, 120, 300}, Def: 120, Unit: "s"}},
 			SQL: "-- {conns} connections, each idle after connecting"},
+		{ID: "idle", Group: groupConns, Name: "Idle connections", Kind: "toggle", Available: true,
+			Desc:   "Opens connections to the writer and leaves them open and idle until the dial is turned off, as an application's connection pool does between requests. They run nothing, but each holds a thread and its buffers and counts against max_connections.",
+			Watch:  []string{"Connections"},
+			Params: []core.Param{{Key: "conns", Label: "Connections", Type: "steps", Opts: []any{5, 10, 20, 50, 100, 200}, Def: 20}},
+			SQL:    "-- {conns} connections, idle (Sleep) until the dial is turned off"},
 		{ID: "hotrow", Group: groupLocks, Name: "Hot-row contention", Kind: "toggle", Available: true,
 			Desc:  "Workers update the same few rows in short transactions, each holding its row lock for a moment. They queue for the locks; with deadlocks on, they take two rows in opposite orders.",
 			Watch: []string{"Lock waits", "p99 latency"},
@@ -85,6 +90,9 @@ func (e *Engine) loadInit(ctx context.Context) error {
 func (e *Engine) startLoad(ctx context.Context, id string, p core.Params, table string) (core.Running, bool) {
 	switch id {
 	case "storm":
+		return core.NewJob(ctx, p, func(ctx context.Context, j *core.Job) { e.runStorm(ctx, j) }), true
+	case "idle":
+		// The storm's connections, without its hold limit: they stay until the dial is off.
 		return core.NewJob(ctx, p, func(ctx context.Context, j *core.Job) { e.runStorm(ctx, j) }), true
 	case "hotrow":
 		return core.NewJob(ctx, p, func(ctx context.Context, j *core.Job) { e.runHotRows(ctx, j) }), true

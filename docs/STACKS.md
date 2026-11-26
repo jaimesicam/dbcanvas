@@ -515,6 +515,7 @@ no options of its own: link it, deploy it, and choose everything on its dashboar
   | Stressor | What it does | Where |
   | --- | --- | --- |
   | Connection storm | Opens connections and holds them idle, up to the number chosen; past `max_connections` (`maxclients` on Valkey) the refusals show on the dial | All |
+  | Idle connections | Opens connections (20 unless set otherwise) and leaves them open and idle until the dial is turned off, as an application's pool does between requests; they run nothing but count against `max_connections` (`maxclients` on Valkey). On MongoDB, a driver pool kept at that size | All |
   | Hot-row contention | Workers update the same few rows in short transactions, optionally in opposite orders to cause deadlocks. On MongoDB, multi-document transactions on the same documents, counting write conflicts | MySQL family, PostgreSQL; MongoDB replica sets |
   | Long-running transaction | Holds a consistent snapshot open; the history list length (MySQL) or the oldest snapshot's age (PostgreSQL) climbs while it holds | MySQL family, PostgreSQL |
   | Commit storm | Many single-row autocommit writes from many workers; on MongoDB with `w: "majority", j: true` | MySQL family, PostgreSQL, MongoDB |
