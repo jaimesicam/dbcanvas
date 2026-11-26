@@ -72,6 +72,9 @@ type composeNodeSpec struct {
 	// See osAliases. "" → the compose default (Oracle Linux 9).
 	OS   string `json:"os"`
 	Arch string `json:"arch"`
+	// Runtime is where the nodes run: "" or "docker" in containers, "vm" as virtual machines
+	// (engine_router.go). Offered only for the kinds that may run as a VM.
+	Runtime string `json:"runtime"`
 
 	// The relationships. Each is a boolean that resolves to a reference to another
 	// node in the same spec, and each has a "…With" partner for naming which one when

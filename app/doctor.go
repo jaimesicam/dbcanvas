@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"syscall"
@@ -209,6 +210,33 @@ func (a *App) doctorChecks(ctx context.Context) []doctorCheck {
 			}
 		}
 		add(b.name, "warn", "not in this build: "+b.what, "build with make dbcanvas, which bundles it")
+	}
+	out = append(out, a.vmDoctorChecks()...)
+	return out
+}
+
+// vmDoctorChecks reports on running nodes as virtual machines, which is optional: without
+// Lima every node runs in a container as usual, so its absence is a note, never a failure.
+func (a *App) vmDoctorChecks() []doctorCheck {
+	lima, why := a.lima, a.limaWhy
+	if lima == nil && why == "" {
+		if dir, err := dataDir(); err == nil {
+			lima, why = NewLima(limaHomeFor(dir))
+		}
+	}
+	if lima == nil {
+		return []doctorCheck{{Name: "vm nodes", Status: "ok",
+			Detail: "optional, not available: " + firstNonEmpty(why, "limactl is not installed") + " — every node runs in a container; install Lima 2.0 or newer (https://lima-vm.io) to run nodes as VMs"}}
+	}
+	out := []doctorCheck{{Name: "vm nodes", Status: "ok", Detail: "limactl " + lima.version + "; VMs are kept in " + lima.home}}
+	if runtime.GOOS == "linux" {
+		if f, err := os.OpenFile("/dev/kvm", os.O_RDWR, 0); err == nil {
+			f.Close()
+		} else {
+			out = append(out, doctorCheck{Name: "kvm", Status: "warn",
+				Detail: "cannot use /dev/kvm (" + err.Error() + "): VMs of this machine's architecture would run under emulation, many times more slowly",
+				Fix:    "add your user to the kvm group (sudo usermod -aG kvm $USER), then log in again; on a cloud machine, enable nested virtualization"})
+		}
 	}
 	return out
 }

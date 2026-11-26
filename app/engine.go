@@ -9,10 +9,11 @@ import (
 
 // engine.go — the provisioning-engine seam.
 //
-// DBCanvas provisions stack nodes through one of two backends: Docker containers
-// (the default, *Docker) or VirtualBox VMs driven by Vagrant (*Vagrant). Both
-// satisfy the Engine interface below, so provisioning and node-management code can
-// talk to "the engine this stack was deployed with" without caring which it is.
+// DBCanvas provisions stack nodes as Docker containers (*Docker) and, for nodes set to
+// run as virtual machines, as Lima VMs (*Lima, lima.go). Both satisfy the Engine
+// interface below, and a stack with VM nodes uses an engineRouter (engine_router.go)
+// that sends each node to its own engine, so provisioning and node-management code can
+// talk to "the engine this stack runs on" without caring which it is.
 //
 // The method set is exactly what the rest of the app calls on the Docker client
 // today (see `grep -oh '\.docker\.[A-Z]\w*'`). *Docker already implements every
@@ -81,23 +82,40 @@ type Engine interface {
 	ResizeExec(ctx context.Context, execID string, w, h int) error
 }
 
-// Compile-time proof Docker implements Engine. Docker is the one engine today; the interface
-// stays so that another (VirtualBox VMs) can be added beside it.
+// Compile-time proof Docker implements Engine.
 var _ Engine = (*Docker)(nil)
 
-// eng returns the provisioning engine for a stack.
-func (a *App) eng(st Stack) Engine { return a.docker }
+// eng returns the provisioning engine for a stack: Docker for a stack whose nodes all run
+// in containers, an engineRouter when some run as VMs.
+func (a *App) eng(st Stack) Engine {
+	if a.lima == nil {
+		return a.docker
+	}
+	if vm := stackVMNames(st); len(vm) > 0 {
+		return &engineRouter{docker: a.docker, lima: a.lima, vm: vm}
+	}
+	return a.docker
+}
+
+// anyEngine is the engine for an operation that names a container or VM by id without a
+// stack at hand: it tells the two apart by the id.
+func (a *App) anyEngine() Engine {
+	if a.lima == nil {
+		return a.docker
+	}
+	return &engineRouter{docker: a.docker, lima: a.lima}
+}
 
 // intranetEngine is the engine the Intranet always runs on. The Intranet stays on
-// Docker even in a vagrant stack (its bind config forwards to Docker's embedded
+// Docker in a stack with VM nodes too (its bind config forwards to Docker's embedded
 // resolver, 127.0.0.11, which only exists in a container), so every operation on the
 // Intranet container uses Docker regardless of the calling node's engine. VM nodes
-// reach the Docker Intranet's DNS/CA over VirtualBox NAT.
+// reach the Intranet's DNS and CA over the stack network the Intranet carries to them.
 func (a *App) intranetEngine() Engine { return a.docker }
 
 // readIntranetFile reads a file (e.g. the CA cert/key used to sign a node's TLS
 // certificate) from the Intranet container on the Intranet's engine, so a VM node
-// provisioning on Vagrant still reads it from the Docker Intranet.
+// provisioning on Lima still reads it from the Docker Intranet.
 func (a *App) readIntranetFile(ctx context.Context, intranetID, path string) ([]byte, error) {
 	return a.readContainerFile(withEngine(ctx, a.intranetEngine()), intranetID, path)
 }
@@ -112,8 +130,9 @@ func withEngine(ctx context.Context, e Engine) context.Context {
 	return context.WithValue(ctx, engineKey{}, e)
 }
 
-// nodeEngine picks the engine for a node or frame of the given type.
-func (a *App) nodeEngine(st Stack, typ string) Engine { return a.docker }
+// nodeEngine picks the engine for a node or frame of the given type in a stack. The
+// stack's engine sends each node to its own runtime by its container name.
+func (a *App) nodeEngine(st Stack, typ string) Engine { return a.eng(st) }
 
 // depEngine resolves the engine a deployed node runs on, from the stack backend and
 // the node's type in the design. Used by teardown / management / the web terminal,
@@ -127,19 +146,20 @@ func (a *App) depEngine(st Stack, nodeID string) Engine {
 			}
 		}
 	}
-	return a.docker
+	return a.eng(st)
 }
 
 // stackEngines returns the engines a stack may have provisioned nodes on; teardown sweeps
-// each.
-func (a *App) stackEngines(st Stack) []Engine { return []Engine{a.docker} }
+// each. With Lima installed that is the router, which also finds the VM of a node whose
+// runtime changed since it was deployed.
+func (a *App) stackEngines(st Stack) []Engine { return []Engine{a.anyEngine()} }
 
-// engCtx returns the engine carried by ctx, or the Docker engine when none is set
-// (management/request contexts that never entered a deploy scope, and every code
-// path from before the vagrant backend existed — so behaviour is unchanged there).
+// engCtx returns the engine carried by ctx, or, when none is set (management and
+// request contexts that never entered a deploy scope), the one that tells containers
+// and VMs apart by id.
 func (a *App) engCtx(ctx context.Context) Engine {
 	if e, ok := ctx.Value(engineKey{}).(Engine); ok && e != nil {
 		return e
 	}
-	return a.docker
+	return a.anyEngine()
 }

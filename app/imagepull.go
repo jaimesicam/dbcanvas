@@ -201,8 +201,8 @@ func (a *App) ensureImage(ctx context.Context, eng Engine, ref string, note func
 	if ok, _ := eng.ImageExists(ctx, ref); ok {
 		return nil
 	}
-	d, isDocker := eng.(*Docker)
-	if !isDocker || !ownImage(ref) {
+	d := asDocker(eng, "")
+	if d == nil || !ownImage(ref) {
 		return fmt.Errorf("image %s not found — run `make %s` first", ref, imageMakeTarget(ref))
 	}
 	return a.pullOwnImage(ctx, d, ref, note)

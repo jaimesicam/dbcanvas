@@ -253,8 +253,10 @@ func (a *App) liveSnapshot(ctx context.Context, st Stack) (map[string]*liveNode,
 		n := &liveNode{State: "running", ContainerStat: cs.st, liveIO: cs.io}
 		out[dep.NodeID] = n
 		typ := types[dep.NodeID]
-		if d, ok := a.depEngine(st, dep.NodeID).(*Docker); ok && typ != "k3d" {
+		if d := asDocker(a.depEngine(st, dep.NodeID), dep.ContainerID); d != nil && typ != "k3d" {
 			n.IP = a.liveIP(ctx, d, st.ID, dep.ContainerID)
+		} else if isLimaID(dep.ContainerID) && a.lima != nil {
+			n.IP, _ = a.lima.ContainerIP(ctx, dep.ContainerID, networkName(st.ID))
 		}
 		if !liveProbed(typ) {
 			continue

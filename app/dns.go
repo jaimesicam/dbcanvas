@@ -426,8 +426,8 @@ func (a *App) stackDNSPlan(ctx context.Context, st Stack) (dnsPlan, bool) {
 		if h == "" || d.ContainerID == "" {
 			continue
 		}
-		// Each node's IP must be read on that node's engine — a VM node's address is
-		// its host-only IP (from Vagrant), not something the Docker Intranet knows.
+		// Each node's IP must be read on that node's engine — a VM node's address on the
+		// stack network is kept by Lima's engine, not something Docker knows.
 		ip, _ := a.nodeEngine(st, typeByID[d.NodeID]).ContainerIP(ctx, d.ContainerID, netName)
 		if ip == "" {
 			continue

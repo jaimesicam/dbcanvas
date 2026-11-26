@@ -373,6 +373,7 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 		{s.GTID != nil, kind.CanGTID, "gtid"},
 		{s.OS != "" && kind.ImageOnly, false, "os"},
 		{s.Arch != "" && kind.ImageOnly, false, "arch"},
+		{s.Runtime != "" && s.Runtime != runtimeDocker, vmTypeEnabled(kind.Type), "runtime"},
 		// Nine node types never call applyVMSize (vagrant.go), so a CPU or memory
 		// limit on them reaches nothing. Refused for the same reason as the rest.
 		{s.CPUs > 0 || s.MemoryGB > 0, !kind.NoSizing, "cpus/memoryGb"},
@@ -533,7 +534,7 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 		res.Name = b.label(kind, s.Name)
 		fr := designFrame{
 			ID: "c-" + res.Name, Type: kind.Type, Label: res.Name,
-			OS: os_, OSVersion: osVer, Arch: pinned,
+			OS: os_, OSVersion: osVer, Arch: pinned, Runtime: s.Runtime,
 			GTID: true, UseProxy: s.Proxy,
 			CertTTLValue: 365, CertTTLUnit: "days",
 			X: composeFrameX, Y: float64(composeFrameY + b.nextFrame*(composeFrameH+composeFrameGap)),
@@ -637,7 +638,7 @@ func (b *composeBuilder) add(s composeNodeSpec) error {
 		x, y := b.placeNode()
 		n := designNode{
 			ID: "n-" + lbl, Type: kind.Type, Label: lbl,
-			OS: os_, OSVersion: osVer, Arch: pinned,
+			OS: os_, OSVersion: osVer, Arch: pinned, Runtime: s.Runtime,
 			UseProxy: s.Proxy, CPUs: s.CPUs, MemoryGB: s.MemoryGB,
 			ExportEnabled: s.Export, ExportHostPort: s.ExportPort,
 			CertTTLValue: 365, CertTTLUnit: "days",
@@ -1225,6 +1226,9 @@ func composeKindsDoc() map[string]any {
 			// A pulled or pre-baked image has no OS to pick, so offering the option
 			// would be advertising a flag that does nothing.
 			d.Options = append(d.Options, "os", "arch")
+		}
+		if vmTypeEnabled(k.Type) {
+			d.Options = append(d.Options, "runtime")
 		}
 		if k.Catalog != "" || k.PDPSRepo || k.SourceCatalog {
 			d.Options = append(d.Options, "version")

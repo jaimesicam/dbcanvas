@@ -80,11 +80,10 @@ func (a *App) stackDial(stackID int64, prefer string) dialFunc {
 }
 
 // stackNodeDial is stackDial for a connection to containerID's node. A node on another
-// engine than Docker (a Vagrant VM, whose host-only address the host routes itself) is
-// dialled directly.
+// engine than Docker is dialled directly.
 func (a *App) stackNodeDial(stackID int64, containerID string) dialFunc {
 	if containerID != "" && nodeDialMode() == nodeDialTunnel {
-		if d, ok := a.dialEngine(stackID, containerID).(*Docker); !ok || d != a.docker {
+		if d := asDocker(a.dialEngine(stackID, containerID), containerID); d != a.docker {
 			return (&net.Dialer{Timeout: 10 * time.Second}).DialContext
 		}
 	}

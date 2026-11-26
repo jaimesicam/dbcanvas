@@ -368,7 +368,7 @@ func (l *Lima) HostArch(ctx context.Context) string { return limaArch(runtime.GO
 func (l *Lima) HostResources(ctx context.Context) (int, int64) { return 0, 0 }
 
 // Lima downloads a template's image itself when an instance is created, and caches it.
-func (l *Lima) ImageExists(ctx context.Context, ref string) (bool, error)          { return true, nil }
+func (l *Lima) ImageExists(ctx context.Context, ref string) (bool, error)         { return true, nil }
 func (l *Lima) EnsureImage(ctx context.Context, repo, tag, platform string) error { return nil }
 func (l *Lima) ImageRemove(ctx context.Context, ref string)                       {}
 
@@ -377,8 +377,8 @@ func (l *Lima) ImageRemove(ctx context.Context, ref string)                     
 // A VM joins its stack's Docker network through the Intranet, so there is no Lima-side network
 // to create, and a VM keeps its data on its own disk.
 
-func (l *Lima) NetworkEnsure(ctx context.Context, name string) error                 { return nil }
-func (l *Lima) NetworkRemove(ctx context.Context, name string)                       {}
+func (l *Lima) NetworkEnsure(ctx context.Context, name string) error                { return nil }
+func (l *Lima) NetworkRemove(ctx context.Context, name string)                      {}
 func (l *Lima) NetworkConnect(ctx context.Context, network, container string) error { return nil }
 func (l *Lima) NetworkDisconnect(ctx context.Context, network, container string)    {}
 func (l *Lima) NetworkSubnet(ctx context.Context, name string) (string, error) {

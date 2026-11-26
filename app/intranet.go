@@ -27,6 +27,9 @@ type designNode struct {
 	OS           string `json:"os"`
 	OSVersion    string `json:"osVersion"` // OS release (e.g. "9", "24.04") — used by ProxySQL
 	Arch         string `json:"arch"`
+	// Runtime is where the node runs: "" or "docker" in a container, "vm" as a virtual machine
+	// (engine_router.go). A cluster member without one follows its cluster's.
+	Runtime string `json:"runtime,omitempty"`
 	// Per-node sizing: CPU and memory limits on the container; 0 is no limit. See
 	// applyVMSize.
 	// Network conditions applied to this node with tc once it is running —
@@ -46,9 +49,9 @@ type designNode struct {
 	NetLossPct    float64 `json:"netLossPct"`
 	NetRateMbit   int     `json:"netRateMbit"`
 	NetAllTraffic bool    `json:"netAllTraffic"`
-	CPUs          int     `json:"cpus"`     // VirtualBox vCPUs / container --cpus
-	MemoryGB      int     `json:"memoryGb"` // VirtualBox VM memory / container --memory, in GiB
-	// Per-node disk throttling (Docker engine only — Vagrant has no equivalent and
+	CPUs          int     `json:"cpus"`     // container --cpus / VM vCPUs
+	MemoryGB      int     `json:"memoryGb"` // container --memory / VM memory, in GiB
+	// Per-node disk throttling (Docker engine only — a VM has no equivalent and
 	// ignores these). 0 → no limit, which is what stacks designed before these fields
 	// existed keep getting. DevicePath overrides the auto-detected Docker-root block
 	// device; "" → auto-detect. See blkio.go.
@@ -580,14 +583,15 @@ type designFrame struct {
 	W            float64 `json:"w"`
 	H            float64 `json:"h"`
 	// PXC cluster config.
-	OS           string `json:"os"`           // os family: "oraclelinux" | "ubuntu"
-	OSVersion    string `json:"osVersion"`    // e.g. "9" | "24.04"
-	Arch         string `json:"arch"`         // "amd64" | "arm64"
-	PXCMajor     string `json:"pxcMajor"`     // "8.0" | "8.4" | "9.7"
-	PXCVersion   string `json:"pxcVersion"`   // minor (e.g. 8.0.45-36.1); "" → latest
-	RootPassword string `json:"rootPassword"` // "" → auto-generated
-	PMMNodeID    string `json:"pmmNodeId"`    // PMM node that monitors this cluster (optional)
-	UseProxy     bool   `json:"useProxy"`     // route egress via the Intranet Squid proxy
+	OS           string `json:"os"`                // os family: "oraclelinux" | "ubuntu"
+	OSVersion    string `json:"osVersion"`         // e.g. "9" | "24.04"
+	Arch         string `json:"arch"`              // "amd64" | "arm64"
+	Runtime      string `json:"runtime,omitempty"` // "" or "docker", "vm": where its members run
+	PXCMajor     string `json:"pxcMajor"`          // "8.0" | "8.4" | "9.7"
+	PXCVersion   string `json:"pxcVersion"`        // minor (e.g. 8.0.45-36.1); "" → latest
+	RootPassword string `json:"rootPassword"`      // "" → auto-generated
+	PMMNodeID    string `json:"pmmNodeId"`         // PMM node that monitors this cluster (optional)
+	UseProxy     bool   `json:"useProxy"`          // route egress via the Intranet Squid proxy
 	// RepositoryNodeID: the Repository node the members install Percona packages from — or, on a
 	// K3D frame, pull images through (registries.yaml) and take the operator source from.
 	RepositoryNodeID string `json:"repositoryNodeId"`
@@ -1353,6 +1357,8 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 	// Each node's architecture (platforms.go).
 	out = append(out, archIssues(doc, a.hostArch)...)
 	out = append(out, a.pmmArchIssues(ctx, st.ID, doc)...)
+	// Where each node runs: a container, or a VM (engine_router.go).
+	out = append(out, runtimeIssues(doc, a.vmUnavailable())...)
 	// A member added to a running cluster of a kind that cannot take one yet (join.go).
 	if deps, err := a.store.ListDeployments(st.ID); err == nil && len(deps) > 0 {
 		existing := map[string]Deployment{}
@@ -3352,7 +3358,7 @@ func (a *App) handleNodeAction(action string) http.HandlerFunc {
 			return
 		}
 		// start/stop/restart must hit the node's own engine — a VM node's lifecycle is
-		// driven by Vagrant, not Docker.
+		// driven by Lima, not Docker.
 		a.stampEngine(r, st, nid)
 		ctx := r.Context()
 		markNodeAction(st.ID, nid) // the watcher does not alert on what this is about to do
@@ -3419,8 +3425,8 @@ func deployBuilt(d Deployment) bool {
 // marked as an error, which a deploy provisions again. A container that is still
 // there under its name but with a new id (recreated out of band) keeps the node
 // and has its id updated instead. Only a definite answer from the daemon counts:
-// if it cannot be asked, nothing changes. Vagrant VMs are not containers and are
-// left alone.
+// if it cannot be asked, nothing changes. Nodes that run as VMs are not containers and
+// are left alone.
 func (a *App) reconcileVanished(ctx context.Context, st Stack, doc designDoc, deps []Deployment) []Deployment {
 	types := map[string]string{}
 	for _, n := range doc.Nodes {
@@ -3429,8 +3435,8 @@ func (a *App) reconcileVanished(ctx context.Context, st Stack, doc designDoc, de
 	out := make([]Deployment, 0, len(deps))
 	for _, d := range deps {
 		typ, inDesign := types[d.NodeID]
-		docker, isDocker := a.nodeEngine(st, typ).(*Docker)
-		if !inDesign || !isDocker || docker == nil || !deployBuilt(d) {
+		docker := asDocker(a.nodeEngine(st, typ), d.ContainerID)
+		if !inDesign || docker == nil || !deployBuilt(d) {
 			out = append(out, d)
 			continue
 		}

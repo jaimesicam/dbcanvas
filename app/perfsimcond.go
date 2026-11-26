@@ -318,13 +318,14 @@ func (a *App) perfSimCaps(ctx context.Context, st Stack, doc designDoc, cfg perf
 	for _, n := range doc.Nodes {
 		nodes[n.ID] = n
 	}
+	vmNames := stackVMNames(st)
 	for _, id := range cfg.MemberNodes {
 		n := nodes[id]
 		if !netemSupported(n.Type) {
 			c.Net, c.NetWhy = false, fmt.Sprintf("%s nodes cannot have their network shaped.", n.Type)
 		}
-		if _, docker := a.nodeEngine(st, n.Type).(*Docker); !docker {
-			c.Disk, c.DiskWhy = false, "These members run as Vagrant VMs; disk limits apply to Docker containers only."
+		if vmNames[containerName(st.ID, id)] {
+			c.Disk, c.DiskWhy = false, "These members run as virtual machines; disk limits apply to containers only."
 		}
 		if _, emulated := a.emulatedAmd64(ctx, n.Arch); emulated && c.DiskWarn == "" {
 			c.DiskWarn = "These members run under x86-64 emulation. There, a low write cap also slows the translator that starts every program in the member, so the member can stop answering until the cap is released. DBCanvas releases it on time regardless."

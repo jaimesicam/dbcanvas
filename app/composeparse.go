@@ -48,7 +48,7 @@ func parseComposeNode(arg string) (map[string]any, error) {
 		"mca": "mca", "viewonly": "viewOnly",
 	}
 	strOpts := map[string]string{
-		"name": "name", "os": "os", "arch": "arch", "version": "version",
+		"name": "name", "os": "os", "arch": "arch", "version": "version", "runtime": "runtime",
 		// "…With" names which provider, when a spec has more than one.
 		"monitorwith": "monitorWith", "ldapwith": "ldapWith", "oidcwith": "oidcWith",
 		"kerberoswith": "kerberosWith", "vaultwith": "vaultWith",

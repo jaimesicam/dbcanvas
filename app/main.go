@@ -28,6 +28,10 @@ var embeddedFS embed.FS
 type App struct {
 	store  *Store
 	docker *Docker
+	// lima runs the nodes that run as virtual machines; nil when limactl is missing or too old,
+	// and limaWhy says why. Everything else works without it.
+	lima    *Lima
+	limaWhy string
 	// soloURL is the browser's address, once it listens; browsers sign in by start link
 	// (soloweb.go).
 	soloURL string
@@ -97,6 +101,9 @@ func runServer(o serveOpts) error {
 	defer store.Close()
 
 	app := &App{store: store, docker: NewDocker(dockerSocket())}
+	if app.lima, app.limaWhy = NewLima(limaHomeFor(o.dataDir)); app.lima == nil {
+		log.Printf("nodes run in containers only: %s", app.limaWhy)
+	}
 	applyBundle(o.dataDir)
 	app.detectPlatforms(context.Background())
 	// The node accounts' passwords: generated once, kept sealed (nodepasswords.go).
