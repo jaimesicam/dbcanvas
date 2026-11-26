@@ -83,7 +83,7 @@ func TestRuntimeIssues(t *testing.T) {
 		t.Errorf("a VM node without an Intranet was accepted:\n%s", got)
 	}
 	t.Setenv("DBCANVAS_VM_PREVIEW", "intranet,vnc,k3d,pmm")
-	if got := strings.Join(vmEnabledTypes(), ","); got != "haproxy,innodb,mariadb,mariadbgalera,mariadbrepl,mysql,mysqlce,mysqlceinnodb,mysqlcerepl,openbao,orchestrator,patroni,pg,pgbouncer,pgstream,proxysql,ps,psm,psmdb,psmrs,pxc,repmgr,sambaad,spock,valkey,valkeycluster" {
+	if got := strings.Join(vmEnabledTypes(), ","); got != "haproxy,innodb,kubeadm,mariadb,mariadbgalera,mariadbrepl,mysql,mysqlce,mysqlceinnodb,mysqlcerepl,openbao,orchestrator,patroni,pg,pgbouncer,pgstream,proxysql,ps,psm,psmdb,psmrs,pxc,repmgr,sambaad,spock,valkey,valkeycluster" {
 		t.Errorf("enabled types %q with only ready-made types in preview", got)
 	}
 }
@@ -198,5 +198,30 @@ func TestVMSELinuxModes(t *testing.T) {
 	}
 	if limaSELinuxScript("") != "" {
 		t.Error("no mode must leave the OS's own")
+	}
+}
+
+func TestKubeadmHasVM(t *testing.T) {
+	mk := func(rt string) Stack {
+		doc := designDoc{
+			Frames: []designFrame{{ID: "k", Type: "kubeadm"}},
+			Nodes: []designNode{
+				{ID: "kube-1", Type: "kubeadm", FrameID: "k"},
+				{ID: "kube-2", Type: "kubeadm", FrameID: "k", Runtime: rt},
+			},
+		}
+		b, _ := json.Marshal(doc)
+		return Stack{ID: 5, Design: b}
+	}
+	for rt, want := range map[string]bool{runtimeVM: true, "": false} {
+		st := mk(rt)
+		var doc designDoc
+		json.Unmarshal(st.Design, &doc)
+		if got := kubeadmHasVM(st, doc.Frames[0], doc); got != want {
+			t.Errorf("member runtime %q: kubeadmHasVM %v, want %v", rt, got, want)
+		}
+	}
+	if !strings.Contains(kubeadmCNIScript, `encapsulation: $ENCAP`) || !strings.Contains(kubeadmCNIScript, "--iface-can-reach=$REACH") {
+		t.Error("the pod network script lost its stack-network settings")
 	}
 }

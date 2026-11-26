@@ -34,12 +34,18 @@ Ubuntu with AppArmor, alone and in a cluster with containers, and across a reboo
 | PostgreSQL streaming replication, and PostgreSQL with Spock | 0.1.x |
 | PostgreSQL and Patroni from PGDG, MongoDB Community Server | 0.1.x |
 | OpenBao, Samba AD DC | 0.1.x |
+| Kubeadm Cluster (the control plane and workers, alone or beside container nodes) | 0.1.x |
 
 A type runs on the operating systems it is offered on as a container: Samba AD DC only on Ubuntu
 24.04 (Oracle Linux's Samba has no AD DC role), OpenBao and Spock only on Oracle Linux.
 
 Nodes that arrive as ready-made images — the Intranet, the VNC desktop, PMM, Keycloak, the
-simulators — and K3D clusters always run in containers.
+simulators — and K3D clusters always run in containers. A Kubeadm node that runs as a VM is
+prepared as its image is (containerd, the kernel modules and settings a pod network needs) and gets
+its Kubernetes packages at deploy, like a container node. Its pod network carries traffic over the
+stack network: Flannel on the interface that reaches the Intranet, Calico on the node's address
+there, encapsulated in VXLAN between all nodes when the cluster has VM members. Kubeadm VMs run on
+the machine's own architecture.
 
 ## Requirements
 

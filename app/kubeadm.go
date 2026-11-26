@@ -79,6 +79,17 @@ func kubeadmImage() string {
 	return "dbcanvas-kubeadm:" + kubeadmOS + "-" + kubeadmOSVer + "-" + k8sArch() + "-" + imageRelease()
 }
 
+// kubeadmHasVM reports whether any of the cluster's members runs as a VM.
+func kubeadmHasVM(st Stack, frame designFrame, doc designDoc) bool {
+	vm := stackVMNames(st)
+	for _, m := range kubeadmMembers(frame, doc) {
+		if vm[containerName(st.ID, m.ID)] {
+			return true
+		}
+	}
+	return false
+}
+
 // kubeadmStage is the frame's stage with the default spelled out.
 func kubeadmStage(f designFrame) string {
 	if f.KubeadmStage == "" {
@@ -436,7 +447,20 @@ $JOIN
 `
 
 // kubeadmCNIScript installs the pod network from the control plane. Env: CNI, VER (the CNI's
-// release), POD_CIDR.
+// release), POD_CIDR, REACH (the Intranet's address on the stack network), ENCAP (VXLAN when the
+// cluster has members that run as VMs).
+//
+// Both networks carry pod traffic over the interface they pick on each node, by default the one
+// of its default route. On a node that runs as a VM that is the VM's own interface, not the stack
+// network's, so each is told to use the stack network: Calico the node's InternalIP (the kubelet's
+// --node-ip, the stack address), Flannel the interface that reaches the Intranet. On a container
+// node both are eth0, as before.
+//
+// Calico's default, VXLANCrossSubnet, sends pod traffic between nodes of one subnet without
+// encapsulation, addressed to the pod with the other node as next hop — which a bridge delivers,
+// but not the routed link a VM member reaches the stack network through: the Intranet has no route
+// for pod addresses. A cluster with VM members gets VXLAN for all pod traffic (ENCAP=VXLAN), as
+// Flannel always uses; a cluster of containers keeps Calico's default.
 const kubeadmCNIScript = kubeadmCgroupFix + `set -e
 export KUBECONFIG=/etc/kubernetes/admin.conf
 case "$CNI" in
@@ -446,11 +470,19 @@ calico)
   curl -fsSL --retry 3 "$B/operator-crds.yaml" | kubectl apply --server-side --force-conflicts -f - >/dev/null
   curl -fsSL --retry 3 "$B/tigera-operator.yaml" | kubectl apply --server-side --force-conflicts -f - >/dev/null
   kubectl wait --for=condition=Established crd/installations.operator.tigera.io --timeout=120s >/dev/null
-  curl -fsSL --retry 3 "$B/custom-resources.yaml" | sed "s#192.168.0.0/16#$POD_CIDR#" | kubectl apply -f - >/dev/null
+  curl -fsSL --retry 3 "$B/custom-resources.yaml" | sed "s#192.168.0.0/16#$POD_CIDR#" \
+    | if [ -n "$ENCAP" ]; then sed "s#encapsulation: VXLANCrossSubnet#encapsulation: $ENCAP#"; else cat; fi \
+    | kubectl apply -f - >/dev/null
+  kubectl patch installation default --type=merge \
+    -p '{"spec":{"calicoNetwork":{"nodeAddressAutodetectionV4":{"kubernetes":"NodeInternalIP"}}}}' >/dev/null
   ;;
 flannel)
+  REACHARG=""
+  [ -n "$REACH" ] && REACHARG="        - --iface-can-reach=$REACH"
   curl -fsSL --retry 3 "https://github.com/flannel-io/flannel/releases/download/$VER/kube-flannel.yml" \
-    | sed "s#10.244.0.0/16#$POD_CIDR#" | kubectl apply -f - >/dev/null
+    | sed "s#10.244.0.0/16#$POD_CIDR#" \
+    | awk -v add="$REACHARG" '{ print } add != "" && /- --kube-subnet-mgr/ { print add }' \
+    | kubectl apply -f - >/dev/null
   ;;
 *) echo "unknown pod network $CNI" >&2; exit 1 ;;
 esac
@@ -814,7 +846,12 @@ func (a *App) kubeadmProvision(st Stack, frame designFrame, doc designDoc, build
 				cniVer = kubeadmFlannelVersion
 			}
 			cpProg.phase("Installing "+cni+" "+cniVer, 80)
-			if out, err := a.kubeadmExecOnce(ctx, cpCID, kubeadmCNIScript, []string{"CNI=" + cni, "VER=" + cniVer, "POD_CIDR=" + kubeadmPodCIDR}, cpProg); err != nil {
+			_, reach, _ := a.intranetEndpoint(ctx, st.ID)
+			cniEnv := []string{"CNI=" + cni, "VER=" + cniVer, "POD_CIDR=" + kubeadmPodCIDR, "REACH=" + reach}
+			if kubeadmHasVM(st, frame, doc) {
+				cniEnv = append(cniEnv, "ENCAP=VXLAN")
+			}
+			if out, err := a.kubeadmExecOnce(ctx, cpCID, kubeadmCNIScript, cniEnv, cpProg); err != nil {
 				cpProg.logln(kubeadmTail(out, 20))
 				failAll("install %s: %v", cni, err)
 				return

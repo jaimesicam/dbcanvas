@@ -821,7 +821,9 @@ Ubuntu 24.04 container with systemd, containerd, and kubeadm, kubelet and kubect
 `pkgs.k8s.io` at the release you pick. The kubelet and containerd are systemd units, the control
 plane is static pods under `/etc/kubernetes/manifests`, and `apt-mark hold` keeps the packages
 where they are — so `systemctl`, `journalctl -u kubelet`, `crictl` and the manifests all behave as
-they do on a machine.
+they do on a machine. Its nodes, the control plane included, can run as virtual machines
+instead ([Nodes as virtual machines](VM_NODES.md)), on their own kernel, alone or beside container
+nodes.
 
 The first node by label is the **control plane**, and it is also the console. Open its terminal:
 `kubectl` works as root, `etcdctl` and `etcdutl` match the cluster's etcd, and `ssh <worker>`

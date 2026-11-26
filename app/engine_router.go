@@ -171,12 +171,16 @@ var vmNodeTypes = map[string]bool{
 	"pgstream":      true, // PostgreSQL streaming replication: the cluster and its members
 	"openbao":       true, // OpenBao
 	"sambaad":       true, // Samba AD DC
+	"kubeadm":       true, // a Kubeadm cluster and its nodes
 }
 
 // vmCapableType reports whether a node or cluster of this type can run as a VM at all: the ones
 // installed from packages on the dbcanvas-systemd OS images. Images that arrive ready-made (the
 // Intranet, the desktop, PMM, Keycloak, the sims) and K3D clusters cannot.
 func vmCapableType(typ string) bool {
+	if typ == "kubeadm" {
+		return true // installed from packages at deploy, on a VM prepared as its image is
+	}
 	if _, k8s := kubernetesFrames[typ]; k8s || typ == "vnc" {
 		return false
 	}
