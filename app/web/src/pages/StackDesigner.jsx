@@ -5,6 +5,7 @@ import { FileToolChecks, DBFileToolChecks } from '../components/FileTools.jsx'
 import { MySQLTuningFields } from '../components/MySQLTuning.jsx'
 import { Card, Button, Badge, Field, ConfirmButton, InfoRow, inputCls, toneTile, NodeCode } from '../components/ui.jsx'
 import { ArchField, archFacts, archCardLabel } from '../components/ArchField.jsx'
+import { RuntimeField } from '../components/RuntimeField.jsx'
 import { engineOf, engineTone, nodeCode } from '../lib/engines.js'
 import { Avatar } from '../components/Avatar.jsx'
 import { relTime } from '../lib/notifApi.js'
@@ -16219,19 +16220,22 @@ function StackProperties({ liveIssues = [], overlay = false, top = 0, host, lock
   )
 }
 
-// Body is the selected item's form, under the architecture it runs on (components/ArchField.jsx),
-// which every node and cluster has and no form draws itself.
+// Body is the selected item's form, under the architecture it runs on (components/ArchField.jsx)
+// and, for the types that may run as a VM, where it runs (components/RuntimeField.jsx) — which
+// no form draws itself.
 function Body(props) {
   const { selected, nodes, frames, depByNode, patchNode, patchFrame, liveIssues } = props
   const form = <BodyForm {...props} />
   if (!selected || (selected.kind !== 'node' && selected.kind !== 'frame')) return form
   const mine = (liveIssues || []).filter((i) => i.subject === selected.id && i.level !== 'info')
   let arch = null
+  let runtime = null
   if (selected.kind === 'frame') {
     const f = frames.find((x) => x.id === selected.id)
     if (f) {
       const deployed = nodes.some((n) => n.frameId === f.id && depByNode[n.id])
       arch = <ArchField obj={f} deployed={deployed} onChange={(a) => patchFrame(f.id, { arch: a })} />
+      runtime = <RuntimeField obj={f} deployed={deployed} onChange={(r) => patchFrame(f.id, { runtime: r })} />
     }
   } else {
     const n = nodes.find((x) => x.id === selected.id)
@@ -16239,9 +16243,11 @@ function Body(props) {
       const f = n.frameId ? frames.find((x) => x.id === n.frameId) : null
       arch = <ArchField obj={n} member={f ? (f.arch || '') : undefined} deployed={!!depByNode[n.id]}
         onChange={(a) => patchNode(n.id, { arch: a })} />
+      runtime = <RuntimeField obj={n} member={f ? (f.runtime || '') : undefined} deployed={!!depByNode[n.id]}
+        onChange={(r) => patchNode(n.id, { runtime: r })} />
     }
   }
-  return <>{mine.length > 0 && <SubjectIssues issues={mine} />}{arch && <div className="mb-3">{arch}</div>}{form}</>
+  return <>{mine.length > 0 && <SubjectIssues issues={mine} />}{arch && <div className="mb-3">{arch}</div>}{runtime && <div className="mb-3">{runtime}</div>}{form}</>
 }
 
 // SubjectIssues are the server's validation issues for the selected node or cluster.

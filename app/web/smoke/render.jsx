@@ -17,6 +17,7 @@
 import { BigHoleOption, BigHoleLink } from '../src/components/BigHole.jsx'
 import { renderToString } from 'react-dom/server'
 import { ArchField, archFacts, archCardLabel } from '../src/components/ArchField.jsx'
+import { RuntimeField } from '../src/components/RuntimeField.jsx'
 import { DBFileToolChecks } from '../src/components/FileTools.jsx'
 import { MySQLTuningFields, redoOption } from '../src/components/MySQLTuning.jsx'
 import { CARD_TYPES, TlsView, DiffView, GtidView, UnitsView, TimeView, UriView, MongoView, LogFilterView, CompareView, SecretView } from '../src/components/scratch/Cards.jsx'
@@ -6873,6 +6874,28 @@ check('architecture field: Automatic, a choice, emulation, the fixed and the dep
   if (archCardLabel(archFacts({ type: 'ps', arch: 'amd64' }, system)) !== 'amd64 · emulated') throw new Error('the card label')
   if (archCardLabel(archFacts({ type: 'k3d', arch: 'amd64' }, system)) !== 'arm64') throw new Error('a K3D card says its own arch')
   return auto
+})
+
+check('runs-on field: only for enabled types, a member follows its cluster, why not without Lima', () => {
+  const noop = () => {}
+  const field = (system, obj, extra = {}) => renderToString(
+    <SettingsCtx.Provider value={{ settings: {}, save: noop, system, saveSystem: noop, loaded: true }}>
+      <RuntimeField obj={obj} onChange={noop} {...extra} />
+    </SettingsCtx.Provider>,
+  ).replaceAll('<!-- -->', '')
+  const on = { vmTypes: ['pxc'] }
+  if (field({}, { type: 'pxc' }) !== '') throw new Error('offered with no type enabled')
+  if (field(on, { type: 'intranet' }) !== '') throw new Error('offered for a type that is not enabled')
+  const frame = field(on, { type: 'pxc' })
+  if (!frame.includes('Container (Docker)') || !frame.includes('Virtual machine (Lima)') || frame.includes('As its cluster')) {
+    throw new Error('a cluster does not offer container and VM: ' + frame)
+  }
+  const member = field(on, { type: 'pxc' }, { member: 'vm' })
+  if (!member.includes('As its cluster (Virtual machine (Lima))')) throw new Error('a member does not say it follows its cluster: ' + member)
+  const nolima = field({ ...on, vmUnavailable: 'limactl is not installed' }, { type: 'pxc' })
+  if (!/<select[^>]*disabled/.test(nolima) || !nolima.includes('limactl is not installed')) throw new Error('without Lima the choice is open')
+  if (!/<select[^>]*disabled/.test(field(on, { type: 'pxc', runtime: 'vm' }, { deployed: true }))) throw new Error('a deployed node can change')
+  return frame
 })
 
 check('update dialog: links the binary for this machine, or the release page', () => {

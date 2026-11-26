@@ -105,21 +105,25 @@ func vmTypeEnabled(typ string) bool {
 	return vmCapableType(typ) && (vmNodeTypes[typ] || vmPreviewTypes()[typ])
 }
 
+// vmEnabledTypes is the node and cluster types that may run as a VM now, sorted.
+func vmEnabledTypes() []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, set := range []map[string]bool{vmNodeTypes, vmPreviewTypes()} {
+		for t, on := range set {
+			if on && !seen[t] && vmCapableType(t) {
+				seen[t] = true
+				out = append(out, t)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // vmEnabled reports whether any node type may run as a VM; until one may, the runtime setting
 // stays out of the editor.
-func vmEnabled() bool {
-	for t := range vmNodeTypes {
-		if vmCapableType(t) {
-			return true
-		}
-	}
-	for t := range vmPreviewTypes() {
-		if vmCapableType(t) {
-			return true
-		}
-	}
-	return false
-}
+func vmEnabled() bool { return len(vmEnabledTypes()) > 0 }
 
 // runtimeIssues checks every node's and cluster's runtime. limaWhy is why VMs cannot run on this
 // machine, or "" when they can.

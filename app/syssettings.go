@@ -88,6 +88,11 @@ type SystemSettings struct {
 	HostArch       string `json:"hostArch"`
 	DefaultArch    string `json:"defaultArch"`
 	KubernetesArch string `json:"kubernetesArch"`
+	// VMTypes are the node and cluster types that may run as a VM (engine_router.go), and
+	// VMUnavailable why none can on this machine, when Lima is missing. Read-only; the editor
+	// offers "Runs on" for these types only.
+	VMTypes       []string `json:"vmTypes,omitempty"`
+	VMUnavailable string   `json:"vmUnavailable,omitempty"`
 	// DefaultSecrets names the node passwords set to a published example value (doctor.go),
 	// for administrators only: the web app shows a notice until they are changed.
 	DefaultSecrets []string             `json:"defaultSecrets,omitempty"`
@@ -191,6 +196,7 @@ func (a *App) systemSettings(appUser string) SystemSettings {
 		s.InternalWrites = v == "1"
 	}
 	s.HostArch, s.DefaultArch, s.KubernetesArch = a.hostArch, platformArch(), k8sArch()
+	s.VMTypes, s.VMUnavailable = vmEnabledTypes(), a.vmUnavailable()
 	s.AllowGuestSessions, s.MaxGuestMinutes = a.guestSessionSettings()
 	s.SessionRetentionDays = a.shareRetentionDays()
 	s.RecordingRetentionDays = a.recordingRetentionDays()
