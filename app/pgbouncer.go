@@ -960,13 +960,15 @@ Type=simple
 User=pgbouncer
 Group=pgbouncer
 RuntimeDirectory=pgbouncer
-ExecStart=/usr/bin/pgbouncer /etc/pgbouncer/pgbouncer.ini
+ExecStart=@PGBOUNCER@ /etc/pgbouncer/pgbouncer.ini
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=2
 [Install]
 WantedBy=multi-user.target
 UNIT
+# Where the package put it: /usr/bin on Oracle Linux, /usr/sbin on Debian and Ubuntu.
+sed -i "s|@PGBOUNCER@|$(command -v pgbouncer)|" /etc/systemd/system/pgbouncer.service
 fi
 systemctl daemon-reload
 systemctl enable pgbouncer >/dev/null 2>&1 || true
