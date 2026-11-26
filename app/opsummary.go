@@ -16,7 +16,8 @@ package main
 //	                                                 events, persistentvolumeclaims, …
 //	cluster-dump/<namespace>/<plural>.<group>.yaml   operator CRs, e.g.
 //	                                                 perconaxtradbclusters.pxc.percona.com.yaml
-//	cluster-dump/<namespace>/<pod>/logs.txt          one file per pod, all containers
+//	cluster-dump/<namespace>/<pod>/<container>.log   one file per container (current collector)
+//	cluster-dump/<namespace>/<pod>/logs.txt          one file per pod, all containers (older)
 //
 // Every *.yaml is a Kubernetes List: `apiVersion: v1` with an `items:` array. The
 // collector writes every namespace-scoped resource under every namespace it saw,
@@ -335,6 +336,9 @@ type opPod struct {
 	Containers []opContainer `json:"containers,omitempty"`
 	Age        string        `json:"age,omitempty"`
 	LogTail    []string      `json:"logTail,omitempty"`
+	// LogContainer names the container LogTail came from; empty when the capture
+	// kept one log for the whole pod.
+	LogContainer string `json:"logContainer,omitempty"`
 }
 
 type opContainer struct {
@@ -885,8 +889,9 @@ func parseOpPods(m *opModel, f opFiles) {
 				row.Containers = append(row.Containers, c)
 			}
 			// The pod's own log is in the archive; the tail is usually the answer.
-			if log, ok := f[ns+"/"+p.Metadata.Name+"/logs.txt"]; ok {
-				row.LogTail = tailLines(string(log), 12)
+			if log, ok := opPodLogTail(opPodLogs(f, ns, p.Metadata.Name), p.Metadata.Name, row.Containers); ok {
+				row.LogTail = tailLines(string(log.Data), 12)
+				row.LogContainer = log.Container
 			}
 			m.Pods = append(m.Pods, row)
 		}
@@ -1102,15 +1107,8 @@ func opLogNoise(msg string) string {
 }
 
 func parseOpOperatorLogs(m *opModel, f opFiles) {
-	for name, data := range f {
-		if !strings.HasSuffix(name, "/logs.txt") {
-			continue
-		}
-		parts := strings.Split(strings.TrimSuffix(name, "/logs.txt"), "/")
-		if len(parts) != 2 {
-			continue
-		}
-		ns, pod := parts[0], parts[1]
+	for key, logs := range opPodLogIndex(f) {
+		ns, pod := key[0], key[1]
 		kind := ""
 		for hint, k := range opOperatorKinds {
 			if strings.Contains(pod, hint) {
@@ -1124,6 +1122,7 @@ func parseOpOperatorLogs(m *opModel, f opFiles) {
 		if kind == "" && !strings.Contains(pod, "-operator") {
 			continue
 		}
+		data := opOperatorLog(logs)
 		lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
 		op := opOperator{Namespace: ns, Pod: pod, Kind: firstNonEmpty(kind, "unknown"), Lines: len(lines)}
 		groups := map[string]*opLogGroup{}

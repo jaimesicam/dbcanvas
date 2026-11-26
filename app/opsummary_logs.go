@@ -37,8 +37,8 @@ const opLogBundleLimit = 64 << 20
 // opLogInputs picks the log-shaped files out of an archive and labels them the way
 // Log Summary expects. Engine is left empty wherever the sniffers can do better
 // than a filename can: an operator log, a Galera member's log and a plain MySQL
-// error log are all "logs.txt" or "mysqld-error.log", and lsSniffEngine tells them
-// apart by vocabulary.
+// error log are all "logs.txt", "<container>.log" or "mysqld-error.log", and
+// lsSniffEngine tells them apart by vocabulary.
 func opLogInputs(f opFiles) []lsInput {
 	var inputs []lsInput
 	total := 0
@@ -73,8 +73,7 @@ func opLogInputs(f opFiles) []lsInput {
 			}
 			add(ns+"/events", ns, pktEngineK8sEvents, js)
 
-		// A pod's stdout. Named "stdout" rather than after the pod, because that is
-		// what it is: the collector runs
+		// A pod's stdout, in the older layout: the collector ran
 		// `kubectl logs <pod> --namespace <ns> --all-containers` (its own
 		// errors.txt records the command), so this file is EVERY container's
 		// stdout concatenated, with nothing marking where one ends and the next
@@ -82,19 +81,22 @@ func opLogInputs(f opFiles) []lsInput {
 		//
 		// That matters for how it reads. lsSniffEngine classifies the file as a
 		// whole, by dominant vocabulary, so a pod whose sidecars are noisier than
-		// its database gets filed under the sidecar: a PSMDB member came out as
-		// the PBM agent, and of three identical PG instances two sniffed as
-		// patroni and one as neither. Calling it "k3d-01-rs0-0/logs.txt" reads
-		// like the mongod log; it is a mixture that happens to contain it.
+		// its database gets filed under the sidecar. Hence "(stdout)" rather than
+		// a name that reads like the database's own log.
 		case base == "logs.txt" && len(parts) == 3:
 			if isSystemNamespace(ns) {
 				continue
 			}
 			add(parts[1]+" (stdout)", ns+"/"+parts[1], "", f[name])
 
-		// The database's own error log, which is a different document from the pod
-		// log that wraps it: this is where Galera state transfers, crash recovery
-		// and InnoDB complaints are written.
+		// The current layout: one file per container, so each is classified on
+		// its own vocabulary and named after the container it came from.
+		case opIsContainerLog(parts):
+			if isSystemNamespace(ns) {
+				continue
+			}
+			add(parts[1]+"/"+strings.TrimSuffix(base, ".log"), ns+"/"+parts[1], "", f[name])
+
 		// The database's own error log, which is a different document from the pod
 		// stdout that wraps it. The collector copies these off the filesystem — and
 		// only for the MySQL family, which is why a PXC capture carries a real
@@ -198,4 +200,107 @@ func (a *App) opAnalyse(data []byte, source, origin string, stackID int64, stack
 	}
 	m.Logs.BundleID = rec.ID
 	return m, nil
+}
+
+// opPodLog is one stdout log the capture kept for a pod: one container's, or, in the
+// older layout, every container's concatenated (Container empty).
+type opPodLog struct {
+	Container string
+	Data      []byte
+}
+
+// opIsContainerLog reports whether an archive path, split on "/", is
+// <namespace>/<pod>/<container>.log — the current collector's per-container log.
+// Files the collector copied off a container's disk sit deeper (var/lib/mysql/…).
+func opIsContainerLog(parts []string) bool {
+	return len(parts) == 3 && strings.HasSuffix(parts[2], ".log") && parts[2] != ".log"
+}
+
+// opPodLogIndex finds every pod's stdout logs in a capture, whichever layout the
+// collector used: <pod>/logs.txt (older, one per pod) or <pod>/<container>.log.
+func opPodLogIndex(f opFiles) map[[2]string][]opPodLog {
+	idx := map[[2]string][]opPodLog{}
+	for name, data := range f {
+		parts := strings.Split(name, "/")
+		switch {
+		case len(parts) == 3 && parts[2] == "logs.txt":
+			k := [2]string{parts[0], parts[1]}
+			idx[k] = append(idx[k], opPodLog{Data: data})
+		case opIsContainerLog(parts):
+			k := [2]string{parts[0], parts[1]}
+			idx[k] = append(idx[k], opPodLog{Container: strings.TrimSuffix(parts[2], ".log"), Data: data})
+		}
+	}
+	for _, logs := range idx {
+		sort.Slice(logs, func(i, j int) bool { return logs[i].Container < logs[j].Container })
+	}
+	return idx
+}
+
+// opPodLogs is one pod's stdout logs in the capture.
+func opPodLogs(f opFiles, ns, pod string) []opPodLog {
+	if data, ok := f[ns+"/"+pod+"/logs.txt"]; ok {
+		return []opPodLog{{Data: data}}
+	}
+	var logs []opPodLog
+	prefix := ns + "/" + pod + "/"
+	for name, data := range f {
+		if rest, ok := strings.CutPrefix(name, prefix); ok && !strings.Contains(rest, "/") && opIsContainerLog([]string{ns, pod, rest}) {
+			logs = append(logs, opPodLog{Container: strings.TrimSuffix(rest, ".log"), Data: data})
+		}
+	}
+	sort.Slice(logs, func(i, j int) bool { return logs[i].Container < logs[j].Container })
+	return logs
+}
+
+// opPodLogTail picks the log whose tail belongs on a pod's row: a container that is
+// failing first, since that is what the row is about; then the container the pod is
+// named after (pxc in cluster1-pxc-0, haproxy in cluster1-haproxy-0); then the first
+// container that is not an init container; then whatever there is. Init containers'
+// statuses come first and a finished one is not ready, so neither counts as failing.
+func opPodLogTail(logs []opPodLog, pod string, containers []opContainer) (opPodLog, bool) {
+	if len(logs) == 0 {
+		return opPodLog{}, false
+	}
+	if len(logs) == 1 {
+		return logs[0], true
+	}
+	byName := map[string]opPodLog{}
+	for _, l := range logs {
+		byName[l.Container] = l
+	}
+	for _, c := range containers {
+		failing := c.State == "Waiting" || c.RestartCount > 0 || (c.State == "Terminated" && c.Reason != "Completed")
+		if l, ok := byName[c.Name]; ok && failing {
+			return l, true
+		}
+	}
+	for _, seg := range strings.Split(pod, "-") {
+		if l, ok := byName[seg]; ok {
+			return l, true
+		}
+	}
+	for _, c := range containers {
+		if l, ok := byName[c.Name]; ok && c.Name != "init" && !strings.HasSuffix(c.Name, "-init") {
+			return l, true
+		}
+	}
+	return logs[0], true
+}
+
+// opOperatorLog is the operator's own log out of its pod's logs: the container named
+// for the operator or its manager when the capture kept one per container, so a
+// sidecar's chatter is not read as the operator's; otherwise everything there is.
+func opOperatorLog(logs []opPodLog) []byte {
+	var own, all []byte
+	for _, l := range logs {
+		all = append(all, l.Data...)
+		if strings.Contains(l.Container, "operator") || l.Container == "manager" {
+			own = append(own, l.Data...)
+		}
+	}
+	if len(own) > 0 {
+		return own
+	}
+	return all
 }

@@ -1014,3 +1014,60 @@ func TestOpSummaryFlagsACaptureTakenDuringStartup(t *testing.T) {
 		t.Errorf("a complete capture should carry every log: %+v", full.Logs)
 	}
 }
+
+// The current collector writes one log per container, <ns>/<pod>/<container>.log,
+// where an older one wrote a single <pod>/logs.txt. Operator Summary has to read
+// both: the pod row's tail, the operator's own log and the Log Summary sources.
+func TestOpSummaryReadsPerContainerLogs(t *testing.T) {
+	f := opFiles{
+		"db/cluster1-pxc-0/pxc.log":                        []byte("ready\n[ERROR] WSREP: failed to open gcomm backend\n"),
+		"db/cluster1-pxc-0/logs.log":                       []byte("fluentbit noise\n"),
+		"db/cluster1-pxc-0/pxc-init.log":                   []byte("copied entrypoint\n"),
+		"db/cluster1-pxc-0/var/lib/mysql/mysqld-error.log": []byte("2026-11-26T10:00:00Z 0 [Note] mysqld ready\n"),
+		"db/op-1/percona-xtradb-cluster-operator.log":      []byte(`{"level":"error","msg":"reconcile failed"}` + "\n"),
+		"db/op-1/watchdog.log":                             []byte(`{"level":"error","msg":"sidecar noise"}` + "\n"),
+		"kube-system/coredns-1/coredns.log":                []byte("[ERROR] plugin/errors\n"),
+	}
+
+	logs := opPodLogs(f, "db", "cluster1-pxc-0")
+	if len(logs) != 3 {
+		t.Fatalf("pod logs = %d, want 3 containers (the error log off disk is not stdout)", len(logs))
+	}
+	// Named after the pod: pxc, not the alphabetically first sidecar.
+	if l, _ := opPodLogTail(logs, "cluster1-pxc-0", []opContainer{{Name: "logs", Ready: true}, {Name: "pxc", Ready: true}}); l.Container != "pxc" {
+		t.Errorf("tail from %q, want pxc", l.Container)
+	}
+	// A failing sidecar is what the row is about; a finished init container is not failing.
+	if l, _ := opPodLogTail(logs, "cluster1-pxc-0", []opContainer{{Name: "pxc-init", State: "Terminated", Reason: "Completed"}, {Name: "logs", State: "Waiting", Reason: "CrashLoopBackOff"}, {Name: "pxc", Ready: true}}); l.Container != "logs" {
+		t.Errorf("tail from %q, want the failing logs container", l.Container)
+	}
+
+	if got := string(opOperatorLog(opPodLogIndex(f)[[2]string{"db", "op-1"}])); strings.Contains(got, "sidecar") || !strings.Contains(got, "reconcile failed") {
+		t.Errorf("operator log = %q, want the operator container only", got)
+	}
+
+	// A completed backup job: its init container is done, the work is in xtrabackup.
+	backup := []opPodLog{{Container: "backup-init", Data: []byte("i\n")}, {Container: "xtrabackup", Data: []byte("x\n")}}
+	if l, _ := opPodLogTail(backup, "xb-cluster1-backup-1", []opContainer{{Name: "backup-init", State: "Terminated", Reason: "Completed"}, {Name: "xtrabackup", State: "Terminated", Reason: "Completed"}}); l.Container != "xtrabackup" {
+		t.Errorf("backup tail from %q, want xtrabackup", l.Container)
+	}
+
+	names := map[string]bool{}
+	for _, in := range opLogInputs(f) {
+		names[in.Name] = true
+	}
+	for _, want := range []string{"cluster1-pxc-0/pxc", "cluster1-pxc-0/logs", "cluster1-pxc-0/mysqld-error.log", "op-1/percona-xtradb-cluster-operator"} {
+		if !names[want] {
+			t.Errorf("Log Summary sources lack %q: %v", want, names)
+		}
+	}
+	if names["coredns-1/coredns"] {
+		t.Error("a kube-system container log was handed to Log Summary")
+	}
+
+	// The older layout still reads as one log for the pod.
+	old := opFiles{"db/p-0/logs.txt": []byte("x\n"), "db/p-0/summary.txt": []byte("s")}
+	if l := opPodLogs(old, "db", "p-0"); len(l) != 1 || l[0].Container != "" {
+		t.Errorf("older layout = %+v, want one pod-wide log", l)
+	}
+}

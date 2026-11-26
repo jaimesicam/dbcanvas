@@ -68,12 +68,17 @@ Then, card by card:
 - **A crash-looping pod can look healthy.** If the capture landed between restarts, the pod
   is Running and Ready. It is still reported because of its restart count and its last
   termination reason.
-- **Which log files are read.** For each pod, the summary reads `<pod>/logs.txt` (labelled
-  `<pod> (stdout)`) and, for the MySQL family, `mysqld-error.log` and
-  `mysqld.post.processing.log`. Other files in the archive are not read here; browse them in
-  [Kubernetes States](KUBERNETES_STATES.md) under **Capture files**.
-- **A pod's `logs.txt` mixes all of its containers' output.** When a sidecar writes more than
-  the database, the log may be classified as the sidecar's.
+- **Which log files are read.** For each pod, the summary reads each container's log,
+  `<pod>/<container>.log` (labelled `<pod>/<container>`), and, for the MySQL family,
+  `mysqld-error.log` and `mysqld.post.processing.log`. Other files in the archive are not
+  read here; browse them in [Kubernetes States](KUBERNETES_STATES.md) under **Capture files**.
+- **A pod's row shows one container's log tail.** It is the container that is failing, or
+  else the one the pod is named after (`pxc` in `cluster1-pxc-0`); the row names it. The
+  operator panel reads the operator's own container, not its sidecars.
+- **Older collectors kept one log per pod.** An archive from an older pt-k8s-debug-collector
+  has `<pod>/logs.txt` instead, labelled `<pod> (stdout)`. It mixes all of the pod's
+  containers, so when a sidecar writes more than the database, the log may be classified as
+  the sidecar's.
 - **A note is raised for MongoDB and PostgreSQL pods without a server log** among the files
   above.
 - **A capture taken while pods are starting has few logs.** The collector cannot read the

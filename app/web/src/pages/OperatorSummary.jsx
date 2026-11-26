@@ -119,7 +119,10 @@ export function Pods({ pods }) {
             </div>
           )}
           {p.logTail?.length > 0 && (
-            <pre className="mt-1.5 max-h-40 overflow-auto rounded bg-surface2 p-2 text-[11px] leading-snug">{p.logTail.join('\n')}</pre>
+            <>
+              {p.logContainer && <div className="mt-1.5 text-[11px] text-muted">Log of the <span className="font-mono">{p.logContainer}</span> container</div>}
+              <pre className="mt-1.5 max-h-40 overflow-auto rounded bg-surface2 p-2 text-[11px] leading-snug">{p.logTail.join('\n')}</pre>
+            </>
           )}
         </div>
       ))}
