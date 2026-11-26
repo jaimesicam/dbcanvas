@@ -275,6 +275,51 @@ done
 bao status -format=json | grep -q '"sealed": *false' || { echo "still sealed"; bao status; exit 1; }
 echo "unsealed"`
 
+// openbaoAutoUnsealScript makes the node unseal itself whenever it starts — a reboot, a
+// container restart, a restart from the node panel — with the threshold keys DBCanvas already
+// keeps in the node's properties. Databases keeping their encryption keys in OpenBao (pg_tde, a
+// Percona Server keyring) then find it usable after it restarts, as they would a lab server's.
+// The keys sit on the node's own disk, readable by root alone: right for a lab node, and the
+// reason a production server is unsealed by hand or by a KMS instead. The Unseal action in the
+// node panel stays for a node that is sealed on purpose.
+const openbaoAutoUnsealScript = `set -e
+mkdir -p /etc/openbao /usr/local/libexec
+umask 077
+{
+  printf 'BAO_ADDR=%s\nVAULT_ADDR=%s\n' "$BAO_ADDR" "$BAO_ADDR"
+  [ -n "$BAO_CACERT" ] && printf 'BAO_CACERT=%s\nVAULT_CACERT=%s\n' "$BAO_CACERT" "$BAO_CACERT"
+  printf 'KEY1=%s\nKEY2=%s\nKEY3=%s\n' "$KEY1" "$KEY2" "$KEY3"
+} > /etc/openbao/dbcanvas-unseal.env
+chmod 400 /etc/openbao/dbcanvas-unseal.env
+cat > /usr/local/libexec/dbcanvas-openbao-unseal <<'SCRIPT'
+#!/bin/sh
+# Waits for the server to answer, then unseals it with the stored threshold keys.
+for i in $(seq 1 120); do
+  out=$(bao status -format=json 2>/dev/null)
+  echo "$out" | grep -q '"sealed": *false' && exit 0
+  echo "$out" | grep -q '"sealed": *true' && break
+  sleep 5
+done
+for k in "$KEY1" "$KEY2" "$KEY3"; do [ -n "$k" ] && bao operator unseal "$k" >/dev/null; done
+bao status -format=json | grep -q '"sealed": *false'
+SCRIPT
+chmod 755 /usr/local/libexec/dbcanvas-openbao-unseal
+cat > /etc/systemd/system/dbcanvas-openbao-unseal.service <<'UNIT'
+[Unit]
+Description=Unseal OpenBao with the keys DBCanvas stored on this node
+After=openbao.service
+Wants=openbao.service
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/openbao/dbcanvas-unseal.env
+ExecStart=/usr/local/libexec/dbcanvas-openbao-unseal
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable dbcanvas-openbao-unseal >/dev/null 2>&1
+echo "unseals itself at every start"`
+
 // openbaoMountScript enables one KV mount and loads its policy file. Idempotent: an existing
 // mount/policy is left alone (a redeploy must not wipe keys a database is still using).
 const openbaoMountScript = `set -e
@@ -589,6 +634,9 @@ func (a *App) provisionOpenBao(st Stack, n designNode, doc designDoc) {
 			return
 		}
 		cfg.Initted, cfg.Sealed = true, false
+		if err := a.runStep(ctx, id, openbaoAutoUnsealScript, unsealEnv, pr.logln); err != nil {
+			pr.logln("unseal at boot not set up: " + err.Error())
+		}
 
 		// ---- KV mounts + Percona policies (root token) ----
 		pr.phase("Creating KV mounts + Percona policies", 92)
