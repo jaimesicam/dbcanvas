@@ -248,6 +248,10 @@ yum clean all`
 
 const limaBaselineDebian = `set -e
 export DEBIAN_FRONTEND=noninteractive
+# As in the node images (Debian's and Ubuntu's container images ship it): a package does not
+# start its service when it is installed, so a node's provisioning starts it once configured.
+printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d
+chmod 755 /usr/sbin/policy-rc.d
 apt-get update
 apt-get install -y --no-install-recommends net-tools ldap-utils sysstat git iproute2 sudo wget gnupg2 lsb-release ca-certificates
 if ! dpkg -s percona-release >/dev/null 2>&1; then

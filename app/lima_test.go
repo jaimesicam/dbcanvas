@@ -178,6 +178,9 @@ func TestLimaBaselineMatchesImages(t *testing.T) {
 				t.Errorf("%s installs %s, the VM baseline does not", file, p)
 			}
 		}
+		if file == "../images/debian.Dockerfile" && !strings.Contains(script, "/usr/sbin/policy-rc.d") {
+			t.Error("the Debian baseline keeps packages from starting their services, as the image does")
+		}
 		for _, step := range []string{"percona-release setup pt", "percona-toolkit"} {
 			if strings.Contains(text, step) && !strings.Contains(script, step) {
 				t.Errorf("%s runs %q, the VM baseline does not", file, step)
