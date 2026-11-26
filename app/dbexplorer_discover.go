@@ -579,7 +579,10 @@ func (a *App) dexProxySQLTarget(st Stack, doc designDoc, n designNode, dep Deplo
 		return dexTarget{}, false
 	}
 	mdep, _ := running(members[0].ID)
-	user, pass, ok := a.dexCredentials(dexMySQL, mdep)
+	// ProxySQL lets through only the accounts in its mysql_users: the provisioner adds the
+	// cluster's application user there (proxysql.go), not the admin account the Explorer uses on
+	// the members directly — so the client port is opened as the app user, as Sample Code does.
+	user, pass, ok := a.scCredentials(scMySQL, mdep)
 	if !ok {
 		return dexTarget{}, false
 	}
