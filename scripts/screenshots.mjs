@@ -11,7 +11,7 @@
 //
 // Steps: waitFor (a CSS selector, or text=… for the first element whose text contains it),
 // click (the same), eval (JavaScript run in the page), type ({ "into": selector, "text": … }),
-// select ({ "in": selector, "value": … }, for a <select>), rightclick (a selector: its context menu),
+// select ({ "in": selector, "value": … } or { "in": …, "label": text of the option }, for a <select>), rightclick (a selector: its context menu),
 // window (a desktop window's title: closes the others, brings it forward, maximises it),
 // text (typed into whatever has the focus),
 // key (a key name such as "Escape"), wait (milliseconds), scroll (a selector to scroll into view).
@@ -213,7 +213,9 @@ async function run() {
         if (st.select) {
           await waitFor(st.select.in)
           await evaluate(`(() => { const e = ${find(st.select.in)};
-            Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(e, ${JSON.stringify(st.select.value)});
+            const want = ${JSON.stringify(st.select.label || '')};
+            const v = want ? [...e.options].find((o) => o.textContent.includes(want))?.value : ${JSON.stringify(st.select.value)};
+            Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(e, v);
             e.dispatchEvent(new Event('change', { bubbles: true })) })()`)
         }
         if (st.text) await send('Input.insertText', { text: st.text })
