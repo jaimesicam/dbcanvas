@@ -6,6 +6,60 @@ What changed in each DBCanvas release, newest first. To upgrade, see
 ## 0.1.1
 
 <details open>
+<summary><b>Nodes as virtual machines, with Lima</b></summary>
+
+A node can now run as a virtual machine instead of a container: Runs on in the editor, runtime: vm in a stack file, runtime=vm with dbcanvas up --node, or "runtime":"vm" through the API. A VM has its own kernel, systemd and SELinux or AppArmor, and joins the stack network through the Intranet like any container. Percona XtraDB Cluster, Percona Server, MySQL Community, InnoDB Cluster, MariaDB, PostgreSQL, Patroni, repmgr, Spock, pgstream, PSMDB, ProxySQL, HAProxy, PgBouncer, Orchestrator, Valkey, OpenBao, Samba AD, All in One, the Linux Client and Kubeadm clusters can run this way. The machine's own architecture runs natively; the other runs under QEMU emulation, slowly. Lima (limactl) must be installed. See [Nodes as virtual machines](docs/VM_NODES.md).
+</details>
+
+<details>
+<summary><b>VM nodes: SELinux, network conditions, sizes and restarts</b></summary>
+
+Each VM node picks its SELinux mode. CPUs and memory size the VM when it is created, and network conditions (latency, jitter, loss, a bandwidth cap) apply on its link to the stack network, Oracle Linux included. Validation reports a missing QEMU for an emulated architecture, and warns when the VMs would need more memory than the machine has. VMs of a running stack start again after the machine or DBCanvas restarts, and their services keep their own stop timeouts. The node menu copies a limactl shell command for a VM. See [Nodes as virtual machines](docs/VM_NODES.md).
+</details>
+
+<details>
+<summary><b>Performance Sim: idle connections</b></summary>
+
+Performance Sim has an Idle connections stressor for MySQL, PostgreSQL, MongoDB and Valkey: it opens a number of connections (20 by default) that sit there doing nothing, the way an application's idle pool does.
+</details>
+
+<details>
+<summary><b>Operator Summary reads the current collector's logs</b></summary>
+
+pt-k8s-debug-collector now keeps one log per container instead of one per pod. Operator Summary reads both layouts: each pod row shows the tail of its failing container, or of the one the pod is named after, and says which; the operator panel reads the operator's own container rather than its sidecars; and Log Summary gets one source per container. See [Operator Summary](docs/OPERATOR_SUMMARY.md).
+</details>
+
+<details>
+<summary><b>Database containers get 120 seconds to stop</b></summary>
+
+A stop, restart or redeploy gives a database container 120 seconds to shut down instead of Docker's 10, so a PXC member or a busy server finishes its own shutdown instead of being killed and recovering at the next start.
+</details>
+
+<details>
+<summary><b>PMM: password policy and ProxySQL</b></summary>
+
+PMM 3 refuses an admin password without upper and lower case, a digit and a symbol, which made PMM fail to install; DBCanvas now generates one that meets the policy. PMM also registers the ProxySQL nodes it monitors when PMM comes up after them.
+</details>
+
+<details>
+<summary><b>Core Dump Analyzer and the Linux Client</b></summary>
+
+Core Dump Analyzer resolves a crash against a flat directory of libraries copied from the server, not only a tree laid out like the root filesystem, so a VM node's core no longer shows ??. The Linux Client used for core-dump analysis runs in a container: a VM cannot share the dump folder. See [Core Dump Analyzer](docs/CORE_DUMP_ANALYZER.md).
+</details>
+
+<details>
+<summary><b>Read-only tokens no longer open terminals</b></summary>
+
+A node's terminal, the Operator Debugger and gdb are interactive sockets that open with a GET but hand over a shell, so they now need a token with write scope, as they already did for shared-session guests. See [HTTP API](docs/API.md).
+</details>
+
+<details>
+<summary><b>Smaller fixes</b></summary>
+
+Start links from dbcanvas open last 3 minutes. Database Explorer reaches a cluster through ProxySQL as the application user. Packet Inspector captures on a VM node's stack link. OpenBao unseals at every start, MariaDB starts at boot on Oracle Linux, pbm-agent stays off until backups are configured, and InnoDB Cluster defaults to the newest LTS repository. Kubernetes States samples CloudNativePG, Crunchy and OpenEverest resources. The version catalogue is refreshed, and PGDG on Oracle Linux 9 offers every release again.
+</details>
+
+<details>
 <summary><b>XtraBackup backups of encrypted MySQL servers</b></summary>
 
 Percona Server, PXC and MySQL servers encrypted with a keyring file or OpenBao can now be backed up with XtraBackup. A backup carries its tablespace keys under a transition key DBCanvas keeps, sealed with the stack's other secrets, never in the bucket; an incremental uses its base's. A restore writes a new master key into each restored member's own keyring, so a replica restored from the primary's backup, or a PXC member from another's, needs nobody else's keyring. See [Stacks](docs/STACKS.md).
