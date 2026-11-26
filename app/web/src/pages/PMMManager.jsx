@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { isVMNode, nodeHandle, nodeHandleLabel } from '../components/RuntimeField.jsx'
 import { Button, Badge, inputCls } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { pmmApi, DEPLOY_TONE } from '../lib/stackApi.js'
@@ -127,7 +128,7 @@ function Overview({ cfg, dep, onDeleteNode, onRootConsole, onPmmConsole }) {
       <KV k="Network alias" help={DEP_HELP['Network alias']} v={cfg.alias} mono />
       <KV k="Grafana SMTP" help={DEP_HELP['Grafana SMTP']} v={cfg.smtpHost} mono />
       <KV k="TLS certificate" help={DEP_HELP['TLS certificate']} v={cfg.generateCert ? 'Intranet CA-signed' : 'self-signed (default)'} />
-      <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
+      <KV k={nodeHandleLabel(dep)} help={isVMNode(dep) ? DEP_HELP.VM : DEP_HELP.Container} v={nodeHandle(dep)} mono />
       {Array.isArray(cfg.services) && (
         <div className="flex flex-wrap gap-1 pt-1">
           {cfg.services.map((s) => <Badge key={s} tone="primary">{s}</Badge>)}

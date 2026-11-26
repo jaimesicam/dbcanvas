@@ -83,3 +83,14 @@ export function limaShellCommand(limaHome, instance) {
   const quoted = /^[\w./~+-]+$/.test(home) ? home : `'${home.replace(/'/g, `'\\''`)}'`
   return `LIMA_HOME=${quoted} limactl shell ${instance} sudo -i`
 }
+
+// nodeHandleLabel and nodeHandle are a node's handle in its manager panel: a container's short id,
+// or a VM's Lima instance name in full (it is what limactl takes).
+export function nodeHandleLabel(dep) {
+  return isVMNode(dep) ? 'VM (Lima)' : 'Container'
+}
+
+export function nodeHandle(dep) {
+  if (!dep?.containerId) return '—'
+  return isVMNode(dep) ? dep.containerId : dep.containerId.slice(0, 12)
+}

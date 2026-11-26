@@ -91,6 +91,11 @@ func (a *App) eng(st Stack) Engine {
 	if a.lima == nil {
 		return a.docker
 	}
+	if len(st.Design) == 0 {
+		// A stack known only by its id (a lookup that never loaded it) cannot say which nodes run
+		// as VMs; the engine that tells containers and VMs apart by id still finds the right one.
+		return a.anyEngine()
+	}
 	if vm := stackVMNames(st); len(vm) > 0 {
 		return &engineRouter{app: a, docker: a.docker, lima: a.lima, vm: vm, selinux: stackVMSELinux(st)}
 	}

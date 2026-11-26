@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { isVMNode, nodeHandle, nodeHandleLabel } from '../components/RuntimeField.jsx'
 import { Button, Badge } from '../components/ui.jsx'
 import RestorePanel from '../components/RestorePanel.jsx'
 import PGBenchCard from '../components/PGBenchCard.jsx'
@@ -125,7 +126,7 @@ function Overview({ cfg, dep, onDeleteNode }) {
       <KV k="Monitored by" help={DEP_HELP['Monitored by']} v={cfg.monitoredBy || 'none'} mono />
       {cfg.pgVector && <KV k="pgvector" help={DEP_HELP.pgvector} v={cfg.pgVector} mono />}
       <KV k="Host port (5432)" help={DEP_HELP['Host port (5432)']} v={cfg.exportPort ? String(cfg.exportPort) : 'not published'} mono />
-      <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
+      <KV k={nodeHandleLabel(dep)} help={isVMNode(dep) ? DEP_HELP.VM : DEP_HELP.Container} v={nodeHandle(dep)} mono />
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
         <Icon.Trash size={16} /> Delete node
       </Button>

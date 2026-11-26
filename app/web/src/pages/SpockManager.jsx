@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { isVMNode, nodeHandle, nodeHandleLabel } from '../components/RuntimeField.jsx'
 import { Button, Badge } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE } from '../lib/stackApi.js'
@@ -112,7 +113,7 @@ function Overview({ cfg, dep, onDeleteNode }) {
       <KV k="TLS" help={DEP_HELP.TLS} v={cfg.generateCert ? 'Intranet-CA cert' : 'off'} />
       <KV k="Host port (5432)" help={DEP_HELP['Host port (5432)']} v={cfg.exportPort ? String(cfg.exportPort) : 'not published'} mono />
       <KV k="Monitored by" help={DEP_HELP['Monitored by']} v={cfg.monitoredBy} mono />
-      <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
+      <KV k={nodeHandleLabel(dep)} help={isVMNode(dep) ? DEP_HELP.VM : DEP_HELP.Container} v={nodeHandle(dep)} mono />
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
         <Icon.Trash size={16} /> Delete node
       </Button>

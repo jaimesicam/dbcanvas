@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { isVMNode, nodeHandle, nodeHandleLabel } from '../components/RuntimeField.jsx'
 import { Button, Badge } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE } from '../lib/stackApi.js'
@@ -121,7 +122,7 @@ function Overview({ cfg, dep, onDeleteNode }) {
       <KV k="Pool port (6432)" help={DEP_HELP['Exported port']} v={cfg.exportPort ? String(cfg.exportPort) : 'not published'} mono />
       <KV k="Pool mode" v={cfg.poolMode} mono />
       <KV k="Follows the writable member" v={cfg.followRole ? `yes — every ${cfg.watchSeconds}s` : (cfg.backend === 'pg' ? 'n/a — one server' : 'no')} />
-      <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
+      <KV k={nodeHandleLabel(dep)} help={isVMNode(dep) ? DEP_HELP.VM : DEP_HELP.Container} v={nodeHandle(dep)} mono />
       {members.length > 0 && (
         <div className="rounded-lg bg-surface2 px-3 py-2 text-[11px] leading-snug text-muted">
           <div className="mb-1 font-medium text-fg/80">Members behind the pool</div>
@@ -171,7 +172,8 @@ function AccessTab({ cfg }) {
           in any of the commands below. The user name comes from the certificate’s
           <span className="font-mono"> CN</span> — the one minted at deploy is for
           <span className="font-mono"> {role}</span>, in <span className="font-mono">{dir}</span> on this node.
-          Copy it out with <span className="font-mono">docker cp</span> to connect from anywhere else.
+          Copy it out with <span className="font-mono">dbcanvas cp</span> (a container or a VM alike) to connect
+          from anywhere else.
         </div>
       )}
 

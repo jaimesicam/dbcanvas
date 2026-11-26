@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { isVMNode, nodeHandle, nodeHandleLabel } from '../components/RuntimeField.jsx'
 import { Button, Badge } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { PTStalkCard } from '../components/Diagnostics.jsx'
@@ -100,7 +101,7 @@ export default function MySQLManager({ stackId, nodeId, engine = 'ps', dep, onDe
               </div>
             </div>
           ) : null}
-          <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
+          <KV k={nodeHandleLabel(dep)} help={isVMNode(dep) ? DEP_HELP.VM : DEP_HELP.Container} v={nodeHandle(dep)} mono />
           <Button variant="outline" size="sm" className="mt-2 w-full" onClick={() => openTerminal({ stackId, nodeId, title: `${cfg.hostname} · root` })}>
             <Icon.Nodes size={16} /> Open root console
           </Button>

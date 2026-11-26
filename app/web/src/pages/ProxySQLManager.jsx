@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { isVMNode, nodeHandle, nodeHandleLabel } from '../components/RuntimeField.jsx'
 import { Button, Badge } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE } from '../lib/stackApi.js'
@@ -94,7 +95,7 @@ export default function ProxySQLManager({ stackId, nodeId, dep, onDeleteNode }) 
           {cfg.repo && <KV k="Package source" help={DEP_HELP['Package source']} v={cfg.repo + (cfg.source === 'upstream-native' ? ' · native Galera config' : cfg.source === 'upstream-admin' ? ' · proxysql-admin from GitHub' : '')} mono />}
           <KV k="Monitored by" help={DEP_HELP['Monitored by']} v={cfg.monitoredBy} mono />
           <KV k="Ports" help={DEP_HELP.Ports} v={(cfg.ports || []).join(', ')} mono />
-          <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
+          <KV k={nodeHandleLabel(dep)} help={isVMNode(dep) ? DEP_HELP.VM : DEP_HELP.Container} v={nodeHandle(dep)} mono />
           <Button variant="outline" size="sm" className="mt-2 w-full" onClick={() => openTerminal({ stackId, nodeId, title: `${cfg.hostname} · root` })}>
             <Icon.Nodes size={16} /> Open root console
           </Button>

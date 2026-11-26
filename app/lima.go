@@ -53,7 +53,10 @@ type Lima struct {
 	version string // limactl's version, for doctor
 
 	createMu sync.Mutex // one `limactl create` at a time: parallel nodes share image downloads
-	terms    sync.Map   // execID → *limaTerm, for ResizeExec; "ssh/"+id → limaSSHInfo
+	// portGuard pins and records the host ports a node publishes, as for a container
+	// (App.guardPublish); nil leaves them as given.
+	portGuard func(context.Context, *ContainerSpec) error
+	terms     sync.Map // execID → *limaTerm, for ResizeExec; "ssh/"+id → limaSSHInfo
 }
 
 // limaMeta is what dbcanvas keeps in each instance's folder (dbcanvas.json).
@@ -66,6 +69,10 @@ type limaMeta struct {
 	Network  string `json:"network,omitempty"`
 	IP       string `json:"ip,omitempty"`      // the node's address on Network
 	SELinux  string `json:"selinux,omitempty"` // enforcing or permissive, on an OS with SELinux
+	// Ports are the node's published ports, guest port → host port, which Lima forwards from
+	// BindIP on the host, as Docker publishes a container's.
+	Ports  map[int]int `json:"ports,omitempty"`
+	BindIP string      `json:"bindIp,omitempty"`
 }
 
 // NewLima returns a Lima engine when limactl and ssh are installed and limactl is new enough,
@@ -210,25 +217,47 @@ const (
 	limaDefaultMemoryMB = 2048
 )
 
-// limaCreateArgs is the `limactl create` command line for a node.
-func limaCreateArgs(name, template, arch string, cpus, memoryMB int) []string {
+// limaCreateArgs is the `limactl create` command line for a node. A VM that publishes no port is
+// created in Lima's plain mode: no shared folders, no port forwarding, no containerd. One that
+// publishes ports keeps all of that off but forwards exactly those ports, from bindIP on the host,
+// and ignores every other port the guest listens on.
+func limaCreateArgs(name, template, arch string, cpus, memoryMB int, forwards []PortMap, bindIP string) []string {
 	if cpus <= 0 {
 		cpus = limaDefaultCPUs
 	}
 	if memoryMB <= 0 {
 		memoryMB = limaDefaultMemoryMB
 	}
-	args := []string{"create", "--tty=false", "--plain", "--name=" + name,
+	args := []string{"create", "--tty=false", "--name=" + name,
 		"--arch=" + limaArch(arch),
 		"--cpus=" + strconv.Itoa(cpus),
 		"--memory=" + strconv.FormatFloat(float64(memoryMB)/1024, 'f', -1, 64),
 		// The user's own ~/.ssh keys stay out of the VM: dbcanvas reaches it with Lima's key.
 		"--set", ".ssh.loadDotSSHPubKeys = false",
 	}
+	if len(forwards) == 0 {
+		args = append(args, "--plain")
+	} else {
+		args = append(args, "--set", limaForwardsSet(forwards, bindIP))
+	}
 	if vt := limaVMType(arch); vt != "" {
 		args = append(args, "--vm-type="+vt)
 	}
 	return append(args, template)
+}
+
+// limaForwardsSet is the yq expression for a VM that publishes ports: plain mode's settings
+// spelled out (no shared folders, no containerd), the node's ports forwarded, every other port
+// ignored.
+func limaForwardsSet(forwards []PortMap, bindIP string) string {
+	var rules []string
+	for _, f := range forwards {
+		if f.ContainerPort > 0 && f.HostPort > 0 {
+			rules = append(rules, fmt.Sprintf(`{"guestPort": %d, "hostPort": %d, "hostIP": %q}`, f.ContainerPort, f.HostPort, bindIP))
+		}
+	}
+	rules = append(rules, `{"guestPortRange": [1, 65535], "ignore": true}`)
+	return ".mounts = [] | .containerd.system = false | .containerd.user = false | .portForwards = [" + strings.Join(rules, ", ") + "]"
 }
 
 // --- the baseline -----------------------------------------------------------
@@ -541,14 +570,29 @@ func (l *Lima) ContainerCreate(ctx context.Context, spec ContainerSpec) (string,
 		return "", fmt.Errorf("a VM for %s exists already (%s)", spec.Name, id)
 	}
 
+	if l.portGuard != nil {
+		if err := l.portGuard(ctx, &spec); err != nil {
+			return "", err
+		}
+	}
+	bind := bindIP()
+	ports := map[int]int{}
+	for _, m := range spec.PublishMap {
+		if m.ContainerPort > 0 && m.HostPort > 0 {
+			ports[m.ContainerPort] = m.HostPort
+		}
+	}
 	l.createMu.Lock()
-	_, errb, err := l.run(ctx, limaCreateArgs(id, template, arch, spec.CPUs, spec.MemoryMB)...)
+	_, errb, err := l.run(ctx, limaCreateArgs(id, template, arch, spec.CPUs, spec.MemoryMB, spec.PublishMap, bind)...)
 	l.createMu.Unlock()
 	if err != nil {
 		l.ContainerRemove(ctx, id)
 		return "", fmt.Errorf("limactl create %s (%s): %v: %s", spec.Name, template, err, limaTail(errb, 800))
 	}
 	meta := limaMeta{Name: spec.Name, Hostname: spec.Hostname, OS: os_, Version: version, Arch: arch, Network: spec.Network, IP: spec.IPv4Address, SELinux: spec.SELinux}
+	if len(ports) > 0 {
+		meta.Ports, meta.BindIP = ports, bind
+	}
 	if err := l.saveMeta(id, meta); err != nil {
 		l.ContainerRemove(ctx, id)
 		return "", err
@@ -689,15 +733,51 @@ func (l *Lima) ContainerIP(ctx context.Context, id, network string) (string, err
 	return "", fmt.Errorf("VM %s has no address on %s", id, network)
 }
 
-// A VM publishes no ports to the host: dbcanvas reaches it over ssh.
+// ContainerPort is the host port a VM's guest port is forwarded from ("<port>/tcp"), as Docker's
+// ContainerPort returns a container's.
 func (l *Lima) ContainerPort(ctx context.Context, id, portProto string) (string, error) {
+	guest, _, _ := strings.Cut(portProto, "/")
+	g, _ := strconv.Atoi(guest)
+	if m, ok := l.loadMeta(id); ok {
+		if hp := m.Ports[g]; hp > 0 {
+			return strconv.Itoa(hp), nil
+		}
+	}
 	return "", fmt.Errorf("port %s is not published for VM %s", portProto, id)
 }
+
+// ContainerPorts is every forwarded port of one VM, guest port → host port.
 func (l *Lima) ContainerPorts(ctx context.Context, id string) (map[int]int, error) {
-	return map[int]int{}, nil
+	out := map[int]int{}
+	if m, ok := l.loadMeta(id); ok {
+		for g, h := range m.Ports {
+			out[g] = h
+		}
+	}
+	return out, nil
 }
+
+// ListPublishedPorts is every host port a VM is forwarded from, host port → container name.
 func (l *Lima) ListPublishedPorts(ctx context.Context) (map[int]string, error) {
-	return map[int]string{}, nil
+	out := map[int]string{}
+	for _, m := range l.managed() {
+		for _, h := range m.Ports {
+			out[h] = m.Name
+		}
+	}
+	return out, nil
+}
+
+// pinnedPorts is each VM's forwarded host ports by container name, for rebuilding the host port
+// book at start (reseedHostPorts).
+func (l *Lima) pinnedPorts() map[string][]int {
+	out := map[string][]int{}
+	for _, m := range l.managed() {
+		for _, h := range m.Ports {
+			out[m.Name] = append(out[m.Name], h)
+		}
+	}
+	return out
 }
 
 // ListManaged lists every VM this engine made, with its state, by container name.

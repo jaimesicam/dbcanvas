@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { isVMNode, nodeHandle, nodeHandleLabel } from '../components/RuntimeField.jsx'
 import { Button, Badge, Field, ConfirmButton, inputCls } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE, sambaApi } from '../lib/stackApi.js'
@@ -95,7 +96,7 @@ function Overview({ cfg, dep, onDeleteNode }) {
       <KV k="LDAP" help={DEP_HELP.LDAP} v="ldap://:389 (plain binds allowed) · ldaps://:636" />
       <KV k="TLS" help={DEP_HELP.TLS} v={cfg.tls ? 'Intranet-CA cert' : 'self-signed (default)'} />
       <KV k="OS" help={DEP_HELP.OS} v="Ubuntu 24.04" />
-      <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
+      <KV k={nodeHandleLabel(dep)} help={isVMNode(dep) ? DEP_HELP.VM : DEP_HELP.Container} v={nodeHandle(dep)} mono />
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
         <Icon.Trash size={16} /> Delete node
       </Button>

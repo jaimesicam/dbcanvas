@@ -81,7 +81,7 @@ func TestLimaCreateArgs(t *testing.T) {
 	if runtime.GOARCH == "amd64" {
 		other = "arm64"
 	}
-	native := limaCreateArgs("dbc-1", "template:oraclelinux-9", runtime.GOARCH, 0, 0)
+	native := limaCreateArgs("dbc-1", "template:oraclelinux-9", runtime.GOARCH, 0, 0, nil, "127.0.0.1")
 	for _, want := range []string{"--plain", "--tty=false", "--name=dbc-1", "--cpus=2", "--memory=2", "template:oraclelinux-9"} {
 		if !slices.Contains(native, want) {
 			t.Errorf("native args %v lack %s", native, want)
@@ -93,11 +93,40 @@ func TestLimaCreateArgs(t *testing.T) {
 	if native[len(native)-1] != "template:oraclelinux-9" {
 		t.Errorf("the template must come last: %v", native)
 	}
-	emu := limaCreateArgs("dbc-2", "template:ubuntu-24.04", other, 1, 1536)
+	emu := limaCreateArgs("dbc-2", "template:ubuntu-24.04", other, 1, 1536, nil, "127.0.0.1")
 	for _, want := range []string{"--vm-type=qemu", "--arch=" + limaArch(other), "--cpus=1", "--memory=1.5"} {
 		if !slices.Contains(emu, want) {
 			t.Errorf("emulated args %v lack %s", emu, want)
 		}
+	}
+}
+
+// TestLimaForwards: a VM that publishes ports forwards exactly those, from the bind address, and
+// keeps plain mode's other settings off; one that publishes none stays in plain mode.
+func TestLimaForwards(t *testing.T) {
+	args := limaCreateArgs("dbc-3", "template:oraclelinux-9", runtime.GOARCH, 0, 0,
+		[]PortMap{{ContainerPort: 3306, HostPort: 41001}, {ContainerPort: 7000, HostPort: 41002}}, "127.0.0.1")
+	if slices.Contains(args, "--plain") {
+		t.Fatalf("plain mode would drop the forwards: %v", args)
+	}
+	set := ""
+	for i, a := range args {
+		if a == "--set" && strings.Contains(args[i+1], "portForwards") {
+			set = args[i+1]
+		}
+	}
+	for _, want := range []string{
+		`.mounts = []`, `.containerd.system = false`, `.containerd.user = false`,
+		`{"guestPort": 3306, "hostPort": 41001, "hostIP": "127.0.0.1"}`,
+		`{"guestPort": 7000, "hostPort": 41002, "hostIP": "127.0.0.1"}`,
+		`{"guestPortRange": [1, 65535], "ignore": true}`,
+	} {
+		if !strings.Contains(set, want) {
+			t.Errorf("forwards %q lack %s", set, want)
+		}
+	}
+	if strings.Index(set, `"guestPort": 3306`) > strings.Index(set, `"ignore": true`) {
+		t.Error("the ignore-everything rule must come after the node's own ports: Lima takes the first match")
 	}
 }
 
@@ -206,5 +235,30 @@ func TestLimaPrepareOrder(t *testing.T) {
 	}
 	if !strings.HasPrefix(s, "hostnamectl set-hostname 'kube-2'") {
 		t.Fatal("hostname first")
+	}
+}
+
+// TestLimaPublishedPorts: the engine answers for a VM's forwarded ports as Docker does for a
+// container's published ones.
+func TestLimaPublishedPorts(t *testing.T) {
+	l := &Lima{home: t.TempDir()}
+	id := limaInstanceName("dbcanvas-x-1-n-haproxy-01")
+	os.MkdirAll(filepath.Join(l.home, id), 0o700)
+	l.saveMeta(id, limaMeta{Name: "dbcanvas-x-1-n-haproxy-01", Ports: map[int]int{7000: 41002, 5000: 41003}, BindIP: "127.0.0.1"})
+	ctx := t.Context()
+	if hp, err := l.ContainerPort(ctx, id, "7000/tcp"); err != nil || hp != "41002" {
+		t.Errorf("ContainerPort 7000: %q %v", hp, err)
+	}
+	if _, err := l.ContainerPort(ctx, id, "9999/tcp"); err == nil {
+		t.Error("an unpublished port was reported")
+	}
+	if ps, _ := l.ContainerPorts(ctx, id); len(ps) != 2 || ps[5000] != 41003 {
+		t.Errorf("ContainerPorts %v", ps)
+	}
+	if all, _ := l.ListPublishedPorts(ctx); all[41002] != "dbcanvas-x-1-n-haproxy-01" {
+		t.Errorf("ListPublishedPorts %v", all)
+	}
+	if pins := l.pinnedPorts(); len(pins["dbcanvas-x-1-n-haproxy-01"]) != 2 {
+		t.Errorf("pinnedPorts %v", pins)
 	}
 }

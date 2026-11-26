@@ -262,6 +262,11 @@ func runtimeIssues(doc designDoc, limaWhy string) []issue {
 		}
 		check(firstNonEmpty(n.Label, n.ID), n.Type, rt)
 	}
+	for _, n := range doc.Nodes {
+		if nodeRuntime(n, frames) == runtimeVM && (n.DeviceReadMBps > 0 || n.DeviceWriteMBps > 0) {
+			out = append(out, issue{Level: "warning", Message: firstNonEmpty(n.Label, n.ID) + ": disk read/write limits apply to containers; a VM node runs without them"})
+		}
+	}
 	if len(vmNodeIDs(doc)) > 0 {
 		hasIntranet := false
 		for _, n := range doc.Nodes {
@@ -455,7 +460,15 @@ func (r *engineRouter) ContainerPorts(ctx context.Context, id string) (map[int]i
 	return r.byID(id).ContainerPorts(ctx, id)
 }
 func (r *engineRouter) ListPublishedPorts(ctx context.Context) (map[int]string, error) {
-	return r.docker.ListPublishedPorts(ctx)
+	out, err := r.docker.ListPublishedPorts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	vms, _ := r.lima.ListPublishedPorts(ctx)
+	for p, name := range vms {
+		out[p] = name
+	}
+	return out, nil
 }
 func (r *engineRouter) ListManaged(ctx context.Context) ([]ContainerInfo, error) {
 	list, err := r.docker.ListManaged(ctx)

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { isVMNode, nodeHandle, nodeHandleLabel } from '../components/RuntimeField.jsx'
 import { Button, Badge } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE, openbaoApi } from '../lib/stackApi.js'
@@ -127,7 +128,7 @@ export default function OpenBaoManager({ dep, stackId, nodeId, onDeleteNode }) {
             : (cfg.initted ? 'initialized' : 'not initialized')} />
           {cfg.serverVersion && <KV k="Version" help={DEP_HELP.Version} v={cfg.serverVersion} mono />}
           <KV k="Image" help={DEP_HELP.Image} v={cfg.image} mono />
-          <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
+          <KV k={nodeHandleLabel(dep)} help={isVMNode(dep) ? DEP_HELP.VM : DEP_HELP.Container} v={nodeHandle(dep)} mono />
           <p className="pt-1 text-[11px] text-muted">
             The client environment (<span className="font-mono">VAULT_ADDR</span>,
             {tls && <span className="font-mono"> VAULT_CACERT</span>}) is exported from

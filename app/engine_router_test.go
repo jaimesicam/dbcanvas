@@ -112,6 +112,10 @@ func TestEngineChoice(t *testing.T) {
 	if a.eng(Stack{ID: 8, Design: plain}) != Engine(a.docker) {
 		t.Fatal("a container-only stack must use Docker directly")
 	}
+	// A stack known only by its id still tells a VM's id from a container's.
+	if r, ok := a.eng(Stack{ID: 7}).(*engineRouter); !ok || r.byID("dbc-0123456789ab") != Engine(a.lima) {
+		t.Error("a stack without its design must still route a VM's id to Lima")
+	}
 	r, ok := a.eng(st).(*engineRouter)
 	if !ok {
 		t.Fatalf("a stack with VM nodes got %T", a.eng(st))
@@ -231,5 +235,20 @@ func TestKubeadmHasVM(t *testing.T) {
 	}
 	if !strings.Contains(kubeadmCNIScript, `encapsulation: $ENCAP`) || !strings.Contains(kubeadmCNIScript, "--iface-can-reach=$REACH") {
 		t.Error("the pod network script lost its stack-network settings")
+	}
+}
+
+func TestVMDiskLimitsWarned(t *testing.T) {
+	doc := designDoc{Nodes: []designNode{
+		{ID: "intranet-01", Type: "intranet"},
+		{ID: "ps-01", Type: "ps", Runtime: runtimeVM, DeviceWriteMBps: 10},
+		{ID: "ps-02", Type: "ps", DeviceWriteMBps: 10},
+	}}
+	var got []string
+	for _, i := range runtimeIssues(doc, "") {
+		got = append(got, i.Level+": "+i.Message)
+	}
+	if len(got) != 1 || !strings.Contains(got[0], "warning: ps-01: disk read/write limits apply to containers") {
+		t.Fatalf("issues %v", got)
 	}
 }

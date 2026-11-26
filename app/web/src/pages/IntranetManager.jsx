@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { isVMNode, nodeHandle, nodeHandleLabel } from '../components/RuntimeField.jsx'
 import { Button, Badge, Field, ConfirmButton, inputCls } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import DbLdapAuthGuide from '../components/DbLdapAuthGuide.jsx'
@@ -95,7 +96,7 @@ function Overview({ cfg, dep, onDeleteNode, onOpenTerminal }) {
       <KV k="Base DN" help={DEP_HELP['Base DN']} v={cfg.baseDN} mono />
       <KV k="OS / arch" help={DEP_HELP['OS / arch']} v={cfg.os ? `${cfg.os} · ${cfg.arch || ''}` : ''} />
       <KV k="Network alias" help={DEP_HELP['Network alias']} v={cfg.alias} mono />
-      <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
+      <KV k={nodeHandleLabel(dep)} help={isVMNode(dep) ? DEP_HELP.VM : DEP_HELP.Container} v={nodeHandle(dep)} mono />
       {Array.isArray(cfg.services) && (
         <div className="flex flex-wrap gap-1 pt-1">
           {cfg.services.map((s) => <Badge key={s} tone="primary">{s}</Badge>)}

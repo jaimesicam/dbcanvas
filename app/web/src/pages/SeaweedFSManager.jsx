@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { isVMNode, nodeHandle, nodeHandleLabel } from '../components/RuntimeField.jsx'
 import { Button, Badge } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE, seaweedApi } from '../lib/stackApi.js'
@@ -254,7 +255,7 @@ function Overview({ cfg, dep, onDeleteNode }) {
       <KV k={`Bucket${(cfg.buckets || []).length > 1 ? 's' : ''}`} help={HELP.s3Buckets} v={(cfg.buckets || [cfg.bucket]).filter(Boolean).join(', ')} mono />
       <KV k="Region" help={DEP_HELP.Region} v={cfg.region || 'us-east-1'} mono />
       <KV k="S3 TLS" help={DEP_HELP['S3 TLS']} v={cfg.tls ? (cfg.generateCert ? 'HTTPS · Intranet-CA cert' : 'HTTPS · self-signed') : 'disabled (HTTP)'} />
-      <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
+      <KV k={nodeHandleLabel(dep)} help={isVMNode(dep) ? DEP_HELP.VM : DEP_HELP.Container} v={nodeHandle(dep)} mono />
       {web && (
         <a href={web} target="_blank" rel="noreferrer"
           className="mt-2 flex items-center justify-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-sm font-medium text-primary hover:bg-primary/15">

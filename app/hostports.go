@@ -355,6 +355,12 @@ func (a *App) reseedHostPorts(ctx context.Context) {
 		log.Printf("host ports: could not read the containers' published ports: %v", err)
 		return
 	}
+	// VMs' forwarded ports belong in the book as much as containers' published ones.
+	if a.lima != nil {
+		for name, ports := range a.lima.pinnedPorts() {
+			pins[name] = append(pins[name], ports...)
+		}
+	}
 	hostPortBook.Lock()
 	defer hostPortBook.Unlock()
 	owners, _ := a.store.HostPortOwners()

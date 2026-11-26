@@ -126,6 +126,9 @@ func runServer(o serveOpts) error {
 	// Every published host port is chosen on the host, pinned and recorded
 	// (hostports.go); the record is rebuilt from the containers before anything deploys.
 	app.docker.portGuard = app.guardPublish
+	if app.lima != nil {
+		app.lima.portGuard = app.guardPublish
+	}
 	app.docker.pullMissing = app.pullMissing
 	app.reseedHostPorts(context.Background())
 

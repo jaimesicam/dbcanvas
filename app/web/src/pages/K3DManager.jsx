@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { isVMNode, nodeHandle, nodeHandleLabel } from '../components/RuntimeField.jsx'
 import { Button, Badge, Field, ConfirmButton, inputCls } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE, k3dApi } from '../lib/stackApi.js'
@@ -675,7 +676,7 @@ export default function K3DManager({ stackId, nodeId, frame, dep, onDeleteNode }
               but nothing to look at is the state that reads as "monitoring doesn't work". */}
           {cfg.grafanaUrl && <KV k="Grafana dashboard" help={DEP_HELP['Grafana dashboard']} v={cfg.grafanaDashboard || 'none installed'} />}
           {cfg.manifestDir && <KV k="Manifests" help={DEP_HELP.Manifests} v={cfg.manifestDir} mono />}
-          <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
+          <KV k={nodeHandleLabel(dep)} help={isVMNode(dep) ? DEP_HELP.VM : DEP_HELP.Container} v={nodeHandle(dep)} mono />
           {/* The live view of this cluster. Here rather than as another tab because it is a
               whole canvas — every object in the cluster at once — and this panel is a column.
               Server nodes only: the canvas samples through the server's kubectl, which is the

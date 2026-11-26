@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { isVMNode, nodeHandle, nodeHandleLabel } from '../components/RuntimeField.jsx'
 import { Button, Badge } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE } from '../lib/stackApi.js'
@@ -99,7 +100,7 @@ function Overview({ cfg, dep, onDeleteNode }) {
       <KV k={writeLabel} help={DEP_HELP['Exported port']} v={cfg.writePort ? String(cfg.writePort) : 'not published'} mono />
       <KV k={readLabel} help={DEP_HELP['Exported port']} v={cfg.readPort ? String(cfg.readPort) : 'not published'} mono />
       <KV k="Stats port (7000)" help={DEP_HELP['Stats port (7000)']} v={cfg.statsPort ? String(cfg.statsPort) : 'not published'} mono />
-      <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
+      <KV k={nodeHandleLabel(dep)} help={isVMNode(dep) ? DEP_HELP.VM : DEP_HELP.Container} v={nodeHandle(dep)} mono />
       {stats && (
         <a href={stats} target="_blank" rel="noreferrer"
           className="mt-2 flex items-center justify-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-sm font-medium text-primary hover:bg-primary/15">

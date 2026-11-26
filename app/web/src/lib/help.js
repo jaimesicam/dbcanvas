@@ -1126,6 +1126,7 @@ export const MORE_HELP = {
 // DEP_HELP — the label/value rows on a deployed node's management tabs. The value is
 // on screen; what is missing is what to do with it, so that is what these say.
 export const DEP_HELP = {
+  VM: 'The node runs as a virtual machine; this is its Lima instance, the handle limactl takes (with LIMA_HOME set to DBCanvas\'s Lima folder) — `limactl shell`, `limactl stop`, `limactl list`. The node\'s right-click menu copies a ready-made limactl shell line.',
   Container: 'The container name on the Docker host — the handle for `docker logs`, `docker inspect` and `docker exec` from your own shell. The node\'s right-click menu will copy a ready-made exec line (a limactl shell line for a node that runs as a VM).',
   FQDN: 'The node\'s fully-qualified name on the stack network. Use this in a connection string typed on another node or on the VNC desktop; it will not resolve from your own machine.',
   'FQDN (DC / KDC)': 'The domain controller\'s name — also the KDC clients ask for Kerberos tickets from.',

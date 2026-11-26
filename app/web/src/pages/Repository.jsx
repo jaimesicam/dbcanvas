@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { nodeHandle, nodeHandleLabel } from '../components/RuntimeField.jsx'
 import { Button, Badge, Field, inputCls } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { Help } from '../components/Tooltip.jsx'
@@ -456,7 +457,7 @@ function Overview({ stackId, nodeId, cfg, dep, onDeleteNode }) {
         }}>
         <Icon.Refresh size={14} /> Re-sync from upstream
       </Button>
-      <KV k="Container" v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
+      <KV k={nodeHandleLabel(dep)} v={nodeHandle(dep)} mono />
       <Button variant="danger" size="sm" className="w-full" onClick={onDeleteNode}>
         <Icon.Trash size={16} /> Delete node
       </Button>

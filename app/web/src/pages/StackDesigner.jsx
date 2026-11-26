@@ -1,11 +1,11 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from '../components/Icons.jsx'
 import { FileToolChecks, DBFileToolChecks } from '../components/FileTools.jsx'
 import { MySQLTuningFields } from '../components/MySQLTuning.jsx'
 import { Card, Button, Badge, Field, ConfirmButton, InfoRow, inputCls, toneTile, NodeCode } from '../components/ui.jsx'
 import { ArchField, archFacts, archCardLabel } from '../components/ArchField.jsx'
-import { RuntimeField, SELinuxField, isVMNode, limaShellCommand } from '../components/RuntimeField.jsx'
+import { RuntimeField, SELinuxField, isVMNode, limaShellCommand, nodeHandle, nodeHandleLabel } from '../components/RuntimeField.jsx'
 import { engineOf, engineTone, nodeCode } from '../lib/engines.js'
 import { Avatar } from '../components/Avatar.jsx'
 import { relTime } from '../lib/notifApi.js'
@@ -6883,7 +6883,7 @@ function ConfigModal({ dep, onClose }) {
           <Row k="LDAP admin" v={cfg.ldapAdminDN} />
           <Row k="OS / arch" v={cfg.os ? `${cfg.os} · ${cfg.arch || ''}` : ''} />
           <Row k="Network alias" v={cfg.alias} />
-          <Row k="Container" v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} />
+          <Row k={nodeHandleLabel(dep)} v={nodeHandle(dep)} />
         </dl>
         {Array.isArray(cfg.services) && (
           <div className="mt-3">
@@ -7880,7 +7880,9 @@ function KeycloakOidcFields({ node: n, nodes, patchNode, deployed, label, pin, b
 // server auto-detects from Docker's data root; the override field is revealed once a limit is
 // set, for hosts where that detection picks the wrong disk.
 function VMSizeFields({ node: n, patchNode, deployed }) {
-  const docker = true // Docker is the one backend (a VM backend would size differently)
+  // A node that runs as a VM (Body provides it) is sized when its VM is created: blank is Lima's
+  // default for DBCanvas (2 CPUs, 2 GiB), and disk limits have no counterpart there.
+  const docker = !useContext(RunsAsVMCtx)
   const lock = deployed ? 'opacity-70' : ''
   // Blank clears the limit (0), so Docker users can go back to unlimited after typing a value.
   const size = (v) => (v === '' ? 0 : Number(v))
@@ -7888,15 +7890,15 @@ function VMSizeFields({ node: n, patchNode, deployed }) {
   const throttled = !!(n.deviceReadMbps || n.deviceWriteMbps)
   return (
     <div className="grid grid-cols-2 gap-2">
-      <Field label="CPUs" help={HELP.cpuLimit} hint={docker ? 'Container --cpus limit; blank = unlimited.' : 'VirtualBox VM CPUs.'}>
+      <Field label="CPUs" help={HELP.cpuLimit} hint={docker ? 'Container --cpus limit; blank = unlimited.' : 'The VM\u2019s CPUs, set when it is created; blank = 2.'}>
         <input type="number" min="1" max="64" className={`${inputCls} ${lock}`} disabled={deployed}
-          placeholder={docker ? 'unlimited' : undefined}
-          value={docker ? (n.cpus || '') : (n.cpus || 2)} onChange={(e) => patchNode(n.id, { cpus: size(e.target.value) })} />
+          placeholder={docker ? 'unlimited' : '2'}
+          value={n.cpus || ''} onChange={(e) => patchNode(n.id, { cpus: size(e.target.value) })} />
       </Field>
-      <Field label="Memory (GiB)" help={HELP.memLimit} hint={docker ? 'Container --memory limit; blank = unlimited.' : 'VirtualBox VM memory.'}>
+      <Field label="Memory (GiB)" help={HELP.memLimit} hint={docker ? 'Container --memory limit; blank = unlimited.' : 'The VM\u2019s memory, reserved when it is created; blank = 2 GiB.'}>
         <input type="number" min="1" max="256" className={`${inputCls} ${lock}`} disabled={deployed}
-          placeholder={docker ? 'unlimited' : undefined}
-          value={docker ? (n.memoryGb || '') : (n.memoryGb || 2)} onChange={(e) => patchNode(n.id, { memoryGb: size(e.target.value) })} />
+          placeholder={docker ? 'unlimited' : '2'}
+          value={n.memoryGb || ''} onChange={(e) => patchNode(n.id, { memoryGb: size(e.target.value) })} />
       </Field>
       {docker && (
         <>
@@ -16230,6 +16232,10 @@ function StackProperties({ liveIssues = [], overlay = false, top = 0, host, lock
   )
 }
 
+// RunsAsVMCtx says whether the selected node or cluster runs as a VM, for the forms that size or
+// describe it differently then (VMSizeFields). Body provides it.
+const RunsAsVMCtx = createContext(false)
+
 // Body is the selected item's form, under the architecture it runs on (components/ArchField.jsx)
 // and, for the types that may run as a VM, where it runs (components/RuntimeField.jsx) — which
 // no form draws itself.
@@ -16240,11 +16246,13 @@ function Body(props) {
   const mine = (liveIssues || []).filter((i) => i.subject === selected.id && i.level !== 'info')
   let arch = null
   let runtime = null
+  let runsAsVM = false
   if (selected.kind === 'frame') {
     const f = frames.find((x) => x.id === selected.id)
     if (f) {
       const deployed = nodes.some((n) => n.frameId === f.id && depByNode[n.id])
       arch = <ArchField obj={f} deployed={deployed} onChange={(a) => patchFrame(f.id, { arch: a })} />
+      runsAsVM = f.runtime === 'vm'
       runtime = <>
         <RuntimeField obj={f} deployed={deployed} onChange={(r) => patchFrame(f.id, { runtime: r })} />
         <SELinuxField obj={f} deployed={deployed} onChange={(m) => patchFrame(f.id, { selinux: m })} />
@@ -16256,6 +16264,7 @@ function Body(props) {
       const f = n.frameId ? frames.find((x) => x.id === n.frameId) : null
       arch = <ArchField obj={n} member={f ? (f.arch || '') : undefined} deployed={!!depByNode[n.id]}
         onChange={(a) => patchNode(n.id, { arch: a })} />
+      runsAsVM = (n.runtime || (f ? f.runtime : '') || '') === 'vm'
       runtime = <>
         <RuntimeField obj={n} member={f ? (f.runtime || '') : undefined} deployed={!!depByNode[n.id]}
           onChange={(r) => patchNode(n.id, { runtime: r })} />
@@ -16264,7 +16273,7 @@ function Body(props) {
       </>
     }
   }
-  return <>{mine.length > 0 && <SubjectIssues issues={mine} />}{arch && <div className="mb-3">{arch}</div>}{runtime && <div className="mb-3">{runtime}</div>}{form}</>
+  return <>{mine.length > 0 && <SubjectIssues issues={mine} />}{arch && <div className="mb-3">{arch}</div>}{runtime && <div className="mb-3">{runtime}</div>}<RunsAsVMCtx.Provider value={runsAsVM}>{form}</RunsAsVMCtx.Provider></>
 }
 
 // SubjectIssues are the server's validation issues for the selected node or cluster.

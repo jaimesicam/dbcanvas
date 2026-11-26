@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { isVMNode, nodeHandle, nodeHandleLabel } from '../components/RuntimeField.jsx'
 import { Button, Badge } from '../components/ui.jsx'
 import { Icon } from '../components/Icons.jsx'
 import { DEPLOY_TONE } from '../lib/stackApi.js'
@@ -122,7 +123,7 @@ function Overview({ cfg, dep, arbiter, onDeleteNode, onOpenTerminal }) {
           </div>
         </div>
       )}
-      <KV k="Container" help={DEP_HELP.Container} v={dep.containerId ? dep.containerId.slice(0, 12) : '—'} mono />
+      <KV k={nodeHandleLabel(dep)} help={isVMNode(dep) ? DEP_HELP.VM : DEP_HELP.Container} v={nodeHandle(dep)} mono />
       <Button variant="outline" size="sm" className="mt-2 w-full" onClick={onOpenTerminal}>
         <Icon.Nodes size={16} /> Open root console
       </Button>

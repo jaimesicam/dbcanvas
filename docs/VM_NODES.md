@@ -87,7 +87,11 @@ emulation, which works but boots in minutes and installs packages several times 
   stack network at boot and start once it is back. When the VM shuts down, its link to the stack
   network goes early, so the node's services stop without it, as if the network were cut; each
   has 30 seconds to stop, as a container has when it is stopped.
-- Not available on a VM: disk read/write limits, and publishing a port to the host.
+- **Its ports on the host, as a container's.** A node that publishes ports (Export, or a type
+  that always does) is reached from your machine the same way: Lima forwards exactly those ports,
+  on host ports DBCanvas picks and keeps, at `CONTAINER_BIND_IP`. Every other port the VM listens
+  on stays inside.
+- Not available on a VM: disk read/write limits (validation warns when they are set).
 
 ## SELinux mode
 
