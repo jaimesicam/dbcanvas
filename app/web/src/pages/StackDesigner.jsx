@@ -5,7 +5,7 @@ import { FileToolChecks, DBFileToolChecks } from '../components/FileTools.jsx'
 import { MySQLTuningFields } from '../components/MySQLTuning.jsx'
 import { Card, Button, Badge, Field, ConfirmButton, InfoRow, inputCls, toneTile, NodeCode } from '../components/ui.jsx'
 import { ArchField, archFacts, archCardLabel } from '../components/ArchField.jsx'
-import { RuntimeField, SELinuxField } from '../components/RuntimeField.jsx'
+import { RuntimeField, SELinuxField, isVMNode, limaShellCommand } from '../components/RuntimeField.jsx'
 import { engineOf, engineTone, nodeCode } from '../lib/engines.js'
 import { Avatar } from '../components/Avatar.jsx'
 import { relTime } from '../lib/notifApi.js'
@@ -3533,6 +3533,14 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
     setFlash(await copyText(cmd) ? { tone: 'ok', text: `Copied: ${cmd}` } : { tone: 'err', text: `Could not reach the clipboard. Command: ${cmd}` })
   }
 
+  // copyLimaShellCommand is copyExecCommand for a node that runs as a VM: a root shell on its Lima
+  // instance (the deployment's container id, dbc-…), with LIMA_HOME pointing limactl at the folder
+  // this installation keeps its VMs in.
+  async function copyLimaShellCommand(instance) {
+    const cmd = limaShellCommand(system.limaHome, instance)
+    setFlash(await copyText(cmd) ? { tone: 'ok', text: `Copied: ${cmd}` } : { tone: 'err', text: `Could not reach the clipboard. Command: ${cmd}` })
+  }
+
   // copySSHTunnelCommand hands over the `ssh -L` line that brings this node's
   // published ports to the operator's own machine. It exists because a server
   // install binds those ports to the server's loopback (CONTAINER_BIND_IP), so
@@ -5027,7 +5035,9 @@ export function StackEditor({ stackId, templates = [], onTemplatesChanged, onBac
         }
         // The same shell, but from the operator's own terminal: hand them the
         // exact `docker exec` line for this node's container.
-        if (dep.containerName) {
+        if (isVMNode(dep)) {
+          actions.push({ label: 'Copy limactl shell command', help: MENU_HELP.copyLimaShell, fn: () => copyLimaShellCommand(dep.containerId) })
+        } else if (dep.containerName) {
           actions.push({ label: 'Copy docker exec command', help: MENU_HELP.copyExec, fn: () => copyExecCommand(dep.containerName) })
         }
         // Only when this installation says where it is reachable over SSH; on a

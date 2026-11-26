@@ -93,6 +93,9 @@ type SystemSettings struct {
 	// offers "Runs on" for these types only.
 	VMTypes       []string `json:"vmTypes,omitempty"`
 	VMUnavailable string   `json:"vmUnavailable,omitempty"`
+	// LimaHome is the Lima folder this installation keeps its VMs in, for the limactl line the
+	// node menu copies for a VM node; empty without Lima.
+	LimaHome string `json:"limaHome,omitempty"`
 	// DefaultSecrets names the node passwords set to a published example value (doctor.go),
 	// for administrators only: the web app shows a notice until they are changed.
 	DefaultSecrets []string             `json:"defaultSecrets,omitempty"`
@@ -197,6 +200,9 @@ func (a *App) systemSettings(appUser string) SystemSettings {
 	}
 	s.HostArch, s.DefaultArch, s.KubernetesArch = a.hostArch, platformArch(), k8sArch()
 	s.VMTypes, s.VMUnavailable = vmEnabledTypes(), a.vmUnavailable()
+	if a.lima != nil {
+		s.LimaHome = a.lima.home
+	}
 	s.AllowGuestSessions, s.MaxGuestMinutes = a.guestSessionSettings()
 	s.SessionRetentionDays = a.shareRetentionDays()
 	s.RecordingRetentionDays = a.recordingRetentionDays()

@@ -17,7 +17,7 @@
 import { BigHoleOption, BigHoleLink } from '../src/components/BigHole.jsx'
 import { renderToString } from 'react-dom/server'
 import { ArchField, archFacts, archCardLabel } from '../src/components/ArchField.jsx'
-import { RuntimeField, SELinuxField } from '../src/components/RuntimeField.jsx'
+import { RuntimeField, SELinuxField, isVMNode, limaShellCommand } from '../src/components/RuntimeField.jsx'
 import { DBFileToolChecks } from '../src/components/FileTools.jsx'
 import { MySQLTuningFields, redoOption } from '../src/components/MySQLTuning.jsx'
 import { CARD_TYPES, TlsView, DiffView, GtidView, UnitsView, TimeView, UriView, MongoView, LogFilterView, CompareView, SecretView } from '../src/components/scratch/Cards.jsx'
@@ -6905,6 +6905,15 @@ check('runs-on field: only for enabled types, a member follows its cluster, why 
   if (!se({ type: 'valkey', runtime: 'vm' }).includes('Default (Permissive)')) throw new Error('Valkey is not permissive by default')
   if (!se({ type: 'pxc' }, { member: 'permissive', memberRuntime: 'vm' }).includes('As its cluster (Permissive)')) throw new Error('a member does not follow its cluster')
   return frame
+})
+
+check('VM node shell: limactl for a VM, docker exec stays for a container', () => {
+  if (!isVMNode({ containerId: 'dbc-0123456789ab' }) || isVMNode({ containerId: 'a1b2c3' }) || isVMNode({})) throw new Error('isVMNode')
+  const cmd = limaShellCommand('/Users/someone/.dbcanvas/lima', 'dbc-0123456789ab')
+  if (cmd !== 'LIMA_HOME=/Users/someone/.dbcanvas/lima limactl shell dbc-0123456789ab sudo -i') throw new Error('command: ' + cmd)
+  const spaced = limaShellCommand('/srv/my vms', 'dbc-1')
+  if (spaced !== "LIMA_HOME='/srv/my vms' limactl shell dbc-1 sudo -i") throw new Error('quoting: ' + spaced)
+  return cmd
 })
 
 check('update dialog: links the binary for this machine, or the release page', () => {

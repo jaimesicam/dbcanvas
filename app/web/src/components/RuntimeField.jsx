@@ -69,3 +69,17 @@ export function SELinuxField({ obj, member, memberRuntime, deployed, onChange })
     </div>
   )
 }
+
+// isVMNode reports whether a deployment runs as a VM: a Lima instance's id starts with dbc-, a
+// Docker container's id (hexadecimal) never does (app/engine_router.go, isLimaID).
+export function isVMNode(dep) {
+  return !!dep?.containerId && dep.containerId.startsWith('dbc-')
+}
+
+// limaShellCommand is the root shell on a VM node from one's own terminal, the counterpart of
+// `docker exec -it … bash`. LIMA_HOME is quoted when the path needs it.
+export function limaShellCommand(limaHome, instance) {
+  const home = limaHome || '~/.dbcanvas/lima'
+  const quoted = /^[\w./~+-]+$/.test(home) ? home : `'${home.replace(/'/g, `'\\''`)}'`
+  return `LIMA_HOME=${quoted} limactl shell ${instance} sudo -i`
+}
