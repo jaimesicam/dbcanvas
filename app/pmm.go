@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // pmmServerURL builds the URL for `pmm-admin config --server-url`, percent-encoding
@@ -114,10 +115,15 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 			}
 		}
 	}
+	// A node first deployed before the policy fix kept the installation's password unadjusted,
+	// which PMM 3 refuses on every redeploy: adjust it the same way.
+	if strings.TrimSpace(n.AdminPassword) == "" && sec.AdminPassword == envOr("PMM_ADMIN_PASSWORD", "admin_password") {
+		sec.AdminPassword = pmmPolicyPassword(sec.AdminPassword)
+	}
 	if sec.AdminPassword == "" {
 		pw := strings.TrimSpace(n.AdminPassword)
 		if pw == "" {
-			pw = envOr("PMM_ADMIN_PASSWORD", "admin_password")
+			pw = pmmPolicyPassword(envOr("PMM_ADMIN_PASSWORD", "admin_password"))
 		}
 		sec = pmmSecrets{AdminUser: "admin", AdminPassword: pw}
 	}
@@ -472,6 +478,32 @@ func tarFiles(files map[string]fileEntry) []byte {
 	}
 	tw.Close()
 	return buf.Bytes()
+}
+
+// pmmPolicyPassword makes the installation's PMM admin password one PMM 3 accepts. Its Grafana
+// enforces a password policy — at least 12 characters, with upper and lower case, a digit and a
+// symbol — and refuses change-admin-password otherwise. The generated node passwords are letters
+// and digits only (nodepasswords.go), so one without a symbol gets "_", which is safe everywhere
+// the password is written; one too short or missing a kind is padded to meet the rest. A
+// password set on the node itself is used as it is.
+func pmmPolicyPassword(pw string) string {
+	has := func(f func(rune) bool) bool { return strings.IndexFunc(pw, f) >= 0 }
+	if !has(unicode.IsUpper) {
+		pw += "A"
+	}
+	if !has(unicode.IsLower) {
+		pw += "a"
+	}
+	if !has(unicode.IsDigit) {
+		pw += "1"
+	}
+	if !has(func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
+		pw += "_"
+	}
+	for len(pw) < 12 {
+		pw += "0"
+	}
+	return pw
 }
 
 // pmmAdminPasswordScript sets the Grafana/PMM admin password.
