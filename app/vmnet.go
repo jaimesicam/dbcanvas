@@ -220,6 +220,8 @@ func (a *App) superviseVMLink(ctx context.Context, id string, l *vmLink) {
 			return
 		}
 		l.set(false, err)
+		// The VM may have restarted on another ssh port: read Lima's config afresh next time.
+		a.lima.dropSSH(id)
 		if time.Since(start) > time.Minute {
 			backoff = time.Second
 		}

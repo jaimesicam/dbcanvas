@@ -350,18 +350,25 @@ func (r *engineRouter) ContainerCreate(ctx context.Context, spec ContainerSpec) 
 	return id, nil
 }
 
-// ContainerStart starts a VM and waits for its link to the stack network.
+// ContainerStart starts a VM and waits for its link to the stack network. The link is started
+// first, alongside the boot: Lima reports a VM started only once cloud-init has finished, which
+// waits for the node's services, which wait for the link (limaBootOrder) — the link connects as
+// soon as the VM's sshd answers, early in the boot.
 func (r *engineRouter) ContainerStart(ctx context.Context, id string) error {
 	if !isLimaID(id) {
 		return r.docker.ContainerStart(ctx, id)
 	}
+	var link *vmLink
+	if r.app != nil {
+		link = r.app.ensureVMLink(id)
+	}
 	if err := r.lima.ContainerStart(ctx, id); err != nil {
 		return err
 	}
-	if r.app == nil {
+	if link == nil {
 		return nil
 	}
-	return r.app.ensureVMLink(id).wait(ctx, 2*time.Minute)
+	return link.wait(ctx, 2*time.Minute)
 }
 
 func (r *engineRouter) ContainerStop(ctx context.Context, id string) error {
