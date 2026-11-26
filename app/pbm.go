@@ -265,16 +265,20 @@ func (a *App) handleMongoPBMBackup(w http.ResponseWriter, r *http.Request) {
 // ------------------------------------------------------------------ scripts
 
 // pbmInstall{RHEL,Debian} enable the pbm repo and install percona-backup-mongodb.
-// Run on every member node so PBM can be configured later without a reinstall.
+// Run on every member node so PBM can be configured later without a reinstall. The package
+// enables pbm-agent, which without its configuration fails at every start of the node; it is
+// disabled here and enabled by pbmAgentStartScript once backups are configured.
 const pbmInstallRHEL = `set -e
 percona-release enable -y pbm >/dev/null 2>&1 || percona-release enable pbm >/dev/null 2>&1 || percona-release setup -y pbm >/dev/null 2>&1
-dnf -y -q install percona-backup-mongodb >/dev/null`
+dnf -y -q install percona-backup-mongodb >/dev/null
+systemctl disable pbm-agent >/dev/null 2>&1 || true`
 
 const pbmInstallDebian = `set -e
 export DEBIAN_FRONTEND=noninteractive
 percona-release enable -y pbm >/dev/null 2>&1 || percona-release enable pbm >/dev/null 2>&1 || percona-release setup -y pbm >/dev/null 2>&1
 apt-get update -qq >/dev/null
-apt-get install -y -qq percona-backup-mongodb >/dev/null`
+apt-get install -y -qq percona-backup-mongodb >/dev/null
+systemctl disable pbm-agent >/dev/null 2>&1 || true`
 
 // pbmAgentStartScript enables + (re)starts the pbm-agent unit after its
 // EnvironmentFile has been written, and verifies it stays active.
