@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rand"
 	"encoding/pem"
 	"fmt"
@@ -31,6 +33,10 @@ func TestLimaSSHChecksHostKey(t *testing.T) {
 	// An ssh server on 127.0.0.1 presenting vmKey and accepting any client key.
 	cfg := &ssh.ServerConfig{PublicKeyCallback: func(ssh.ConnMetadata, ssh.PublicKey) (*ssh.Permissions, error) { return nil, nil }}
 	cfg.AddHostKey(vmKey)
+	// A second host key of another type, which the client must not settle on: the VM has
+	// several, and Lima pins one.
+	_, ecKey, _ := ecdsaKeyForTest()
+	cfg.AddHostKey(ecKey)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -97,4 +103,13 @@ func TestLimaSSHChecksHostKey(t *testing.T) {
 		c.Close()
 		t.Fatal("connected with no pinned host key at all")
 	}
+}
+
+func ecdsaKeyForTest() (*ecdsa.PrivateKey, ssh.Signer, error) {
+	k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, err
+	}
+	s, err := ssh.NewSignerFromKey(k)
+	return k, s, err
 }

@@ -282,7 +282,8 @@ func (l *Lima) sshClient(id string) (*ssh.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	hostKeys, err := knownhosts.New(filepath.Join(l.dir(id), "ssh.known_hosts"))
+	knownFile := filepath.Join(l.dir(id), "ssh.known_hosts")
+	hostKeys, err := knownhosts.New(knownFile)
 	if err != nil {
 		return nil, fmt.Errorf("VM %s: Lima's pinned host key: %w", id, err)
 	}
@@ -298,7 +299,10 @@ func (l *Lima) sshClient(id string) (*ssh.Client, error) {
 		User:            info.user,
 		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
 		HostKeyCallback: hostKeys,
-		Timeout:         15 * time.Second,
+		// Ask for the key types Lima pinned: a VM has several host keys, and the client would
+		// otherwise settle on whichever type it prefers, then find no pinned key of that type.
+		HostKeyAlgorithms: pinnedHostKeyAlgorithms(knownFile),
+		Timeout:           15 * time.Second,
 	})
 }
 
@@ -339,4 +343,36 @@ func (l *Lima) ResizeExec(ctx context.Context, execID string, w, h int) error {
 		return t.(*limaTerm).session.WindowChange(h, w)
 	}
 	return nil
+}
+
+// pinnedHostKeyAlgorithms is the host key algorithms for the key types a known_hosts file pins,
+// for ssh.ClientConfig.HostKeyAlgorithms; nil (the client's own list) when it pins none it reads.
+func pinnedHostKeyAlgorithms(path string) []string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	add := func(algos ...string) {
+		for _, a := range algos {
+			if !seen[a] {
+				seen[a] = true
+				out = append(out, a)
+			}
+		}
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 3 || strings.HasPrefix(f[0], "#") || strings.HasPrefix(f[0], "@") {
+			continue
+		}
+		if f[1] == ssh.KeyAlgoRSA {
+			// An RSA key signs with SHA-2 on any current server.
+			add(ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256, ssh.KeyAlgoRSA)
+		} else {
+			add(f[1])
+		}
+	}
+	return out
 }
