@@ -63,8 +63,19 @@ func archIssues(doc designDoc, host string) []issue {
 	}
 	for _, n := range doc.Nodes {
 		what := firstNonEmpty(n.Label, n.ID)
-		if bad(what, n.Arch) || n.FrameID != "" {
-			continue // a member runs on its cluster's architecture
+		if bad(what, n.Arch) {
+			continue
+		}
+		if f, ok := frames[n.FrameID]; ok {
+			// A member runs on its cluster's architecture: its image is the cluster's. One that
+			// names another (a stack file can) is told so, rather than ignored without a word.
+			if n.Arch != "" && n.Arch != archOr(f.Arch) {
+				out = append(out, issue{Level: "warning", Message: fmt.Sprintf("%s: a cluster member runs on its cluster's architecture (%s); its arch %s is ignored. Set arch on the cluster", what, archOr(f.Arch), n.Arch)})
+			}
+			continue
+		}
+		if n.FrameID != "" {
+			continue
 		}
 		if product, ok := amd64Only[n.Type]; ok {
 			if n.Arch == "arm64" {

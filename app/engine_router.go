@@ -267,6 +267,24 @@ func runtimeIssues(doc designDoc, limaWhy string) []issue {
 			out = append(out, issue{Level: "warning", Message: firstNonEmpty(n.Label, n.ID) + ": disk read/write limits apply to containers; a VM node runs without them"})
 		}
 	}
+	if limaWhy == "" {
+		// A VM that runs on QEMU needs it installed; said once per architecture, at validation,
+		// rather than as limactl's own error halfway through a deploy.
+		said := map[string]bool{}
+		for _, n := range doc.Nodes {
+			if nodeRuntime(n, frames) != runtimeVM {
+				continue
+			}
+			arch := effectiveArch(n.Type, n.Arch, frames[n.FrameID].Arch)
+			if said[arch] {
+				continue
+			}
+			said[arch] = true
+			if why := limaQEMUMissing(arch); why != "" {
+				out = append(out, issue{Level: "error", Message: firstNonEmpty(n.Label, n.ID) + ": " + why})
+			}
+		}
+	}
 	if len(vmNodeIDs(doc)) > 0 {
 		hasIntranet := false
 		for _, n := range doc.Nodes {

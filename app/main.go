@@ -106,7 +106,7 @@ func runServer(o serveOpts) error {
 	if app.lima, app.limaWhy = NewLima(limaHomeFor(o.dataDir)); app.lima == nil {
 		log.Printf("nodes run in containers only: %s", app.limaWhy)
 	} else {
-		go app.resumeVMLinks(context.Background())
+		go app.resumeVMs(context.Background())
 	}
 	applyBundle(o.dataDir)
 	app.detectPlatforms(context.Background())

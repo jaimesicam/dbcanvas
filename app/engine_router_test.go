@@ -2,9 +2,16 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+// Tests see QEMU as installed, whatever the machine running them has; TestVMNeedsQEMU takes it away.
+func init() {
+	qemuLookPath = func(bin string) (string, error) { return "/usr/bin/" + bin, nil }
+}
 
 // vmTypeOff switches a node type's VM support off for one test.
 func vmTypeOff(t *testing.T, typ string) {
@@ -250,5 +257,59 @@ func TestVMDiskLimitsWarned(t *testing.T) {
 	}
 	if len(got) != 1 || !strings.Contains(got[0], "warning: ps-01: disk read/write limits apply to containers") {
 		t.Fatalf("issues %v", got)
+	}
+}
+
+// TestVMNeedsQEMU: a VM of the architecture Apple's Virtualization framework does not run, and
+// every VM on Linux, needs QEMU; validation says so before a deploy when it is missing.
+func TestVMNeedsQEMU(t *testing.T) {
+	for _, c := range []struct {
+		goos, host, arch string
+		want             bool
+	}{
+		{"darwin", "arm64", "arm64", false},
+		{"darwin", "arm64", "amd64", true},
+		{"darwin", "amd64", "amd64", false},
+		{"linux", "amd64", "amd64", true},
+		{"linux", "amd64", "arm64", true},
+		{"linux", "arm64", "arm64", true},
+	} {
+		if got := limaNeedsQEMU(c.goos, c.host, c.arch); got != c.want {
+			t.Errorf("limaNeedsQEMU(%s, %s, %s) = %v, want %v", c.goos, c.host, c.arch, got, c.want)
+		}
+	}
+	if limaQEMUBinary("amd64") != "qemu-system-x86_64" || limaQEMUBinary("arm64") != "qemu-system-aarch64" {
+		t.Errorf("QEMU binaries: %s, %s", limaQEMUBinary("amd64"), limaQEMUBinary("arm64"))
+	}
+
+	msgs := func(is []issue) string {
+		var b []string
+		for _, i := range is {
+			b = append(b, i.Level+": "+i.Message)
+		}
+		return strings.Join(b, "\n")
+	}
+	was := qemuLookPath
+	qemuLookPath = func(string) (string, error) { return "", errors.New("not found") }
+	t.Cleanup(func() { qemuLookPath = was })
+	other := map[string]string{"arm64": "amd64", "amd64": "arm64"}[runtime.GOARCH]
+	doc := designDoc{
+		Frames: []designFrame{{ID: "f1", Label: "pxc-cluster", Type: "pxc", Runtime: "vm", Arch: other}},
+		Nodes: []designNode{
+			{ID: "i", Type: "intranet"},
+			{ID: "m1", Label: "pxc-1", Type: "pxc", FrameID: "f1"},
+			{ID: "m2", Label: "pxc-2", Type: "pxc", FrameID: "f1"},
+			{ID: "ps", Label: "ps-1", Type: "ps", Arch: other}, // a container: needs nothing
+		},
+	}
+	got := msgs(runtimeIssues(doc, ""))
+	if strings.Count(got, "qemu-system-"+limaArch(other)+" is not installed") != 1 || !strings.Contains(got, "pxc-1: an "+other+" VM") {
+		t.Errorf("a VM on QEMU without QEMU installed, said once:\n%s", got)
+	}
+	if strings.Contains(got, "ps-1") {
+		t.Errorf("a container node was flagged:\n%s", got)
+	}
+	if got := msgs(runtimeIssues(doc, "limactl is not installed")); strings.Contains(got, "qemu") {
+		t.Errorf("QEMU flagged where Lima itself is missing:\n%s", got)
 	}
 }

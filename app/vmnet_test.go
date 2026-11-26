@@ -2,6 +2,7 @@ package main
 
 import (
 	"net"
+	"strings"
 	"testing"
 )
 
@@ -29,5 +30,29 @@ func TestVMAddresses(t *testing.T) {
 	_, small, _ := net.ParseCIDR("10.0.0.0/28")
 	if vmAddresses(small) != nil {
 		t.Fatal("a tiny network gave up addresses")
+	}
+}
+
+// TestVMsToResume: only a stopped VM of a running deployment comes back; one stopped from
+// DBCanvas, a broken one, one off the stack network and one of no deployment stay as they are.
+func TestVMsToResume(t *testing.T) {
+	managed := map[string]limaMeta{
+		"dbc-a": {Name: "a", IP: "10.1.0.240"}, // stopped by the machine's restart: resumed
+		"dbc-b": {Name: "b", IP: "10.1.0.241"}, // running already
+		"dbc-c": {Name: "c", IP: "10.1.0.242"}, // stopped from DBCanvas (deployment stopped)
+		"dbc-d": {Name: "d", IP: "10.1.0.243"}, // broken
+		"dbc-e": {Name: "e"},                   // never joined a stack network
+		"dbc-f": {Name: "f", IP: "10.1.0.244"}, // no deployment
+		"dbc-g": {Name: "g", IP: "10.1.0.245"}, // resumed
+	}
+	all := map[string]limaInstance{
+		"dbc-a": {Status: "Stopped"}, "dbc-b": {Status: "Running"}, "dbc-c": {Status: "Stopped"},
+		"dbc-d": {Status: "Broken"}, "dbc-e": {Status: "Stopped"}, "dbc-f": {Status: "Stopped"},
+		"dbc-g": {Status: "Stopped"},
+	}
+	running := map[string]bool{"dbc-a": true, "dbc-b": true, "dbc-d": true, "dbc-e": true, "dbc-g": true}
+	got := vmsToResume(managed, all, running)
+	if strings.Join(got, ",") != "dbc-a,dbc-g" {
+		t.Fatalf("vmsToResume = %v, want [dbc-a dbc-g]", got)
 	}
 }

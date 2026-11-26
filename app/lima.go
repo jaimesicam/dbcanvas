@@ -211,6 +211,39 @@ func limaVMType(arch string) string {
 	return "qemu"
 }
 
+// qemuLookPath finds a QEMU system emulator; a variable so tests can stand in for the PATH.
+var qemuLookPath = exec.LookPath
+
+// limaQEMUBinary is the QEMU system emulator Lima runs a VM of arch with.
+func limaQEMUBinary(arch string) string { return "qemu-system-" + limaArch(arch) }
+
+// limaNeedsQEMU reports whether a VM of arch runs on QEMU on this host: every VM on Linux (with
+// KVM for the host's own architecture), and on macOS the architecture that Apple's
+// Virtualization framework does not run, under emulation.
+func limaNeedsQEMU(goos, hostArch, arch string) bool {
+	return goos == "linux" || arch != hostArch
+}
+
+// limaQEMUMissing says what is missing to run a VM of arch on this host, or "" when nothing is.
+func limaQEMUMissing(arch string) string {
+	if !limaNeedsQEMU(runtime.GOOS, runtime.GOARCH, arch) {
+		return ""
+	}
+	bin := limaQEMUBinary(arch)
+	if _, err := qemuLookPath(bin); err == nil {
+		return ""
+	}
+	how := "install QEMU (macOS: brew install qemu)"
+	if runtime.GOOS == "linux" {
+		how = "install QEMU (Ubuntu or Debian: sudo apt install qemu-system-x86 qemu-utils, and qemu-system-arm qemu-efi-aarch64 for arm64 VMs)"
+	}
+	what := "an " + arch + " VM"
+	if arch != runtime.GOARCH {
+		what += " on this " + runtime.GOARCH + " machine"
+	}
+	return what + " runs on QEMU, and " + bin + " is not installed: " + how
+}
+
 // Default size of a VM whose node does not set one.
 const (
 	limaDefaultCPUs     = 2
@@ -357,7 +390,7 @@ systemctl daemon-reload`
 // (containerd on a Kubeadm node among it) is the VM's own and starts at boot without waiting for
 // the stack network; only what the node's provisioning installs after it waits.
 func limaPrepareScript(m limaMeta, kubeadm bool) string {
-	script := limaBaselineScript(m.OS) + limaSELinuxScript(m.SELinux)
+	script := limaBaselineScript(m.OS) + limaSELinuxScript(m.SELinux) + limaNetemModule
 	if kubeadm {
 		script += limaKubeadmBaseline
 	}
@@ -367,6 +400,13 @@ func limaPrepareScript(m limaMeta, kubeadm bool) string {
 	}
 	return script
 }
+
+// limaNetemModule loads the netem queueing discipline at every boot, for the node's network
+// conditions (netem.go). Oracle Linux's UEK kernel ships it but denies loading it on demand, so
+// tc cannot add it by itself; a module asked for by name loads all the same.
+const limaNetemModule = `
+echo sch_netem > /etc/modules-load.d/dbcanvas-netem.conf
+modprobe sch_netem 2>/dev/null || true`
 
 // isKubeadmImage reports whether image is the Kubeadm node image.
 func isKubeadmImage(image string) bool {
@@ -466,6 +506,7 @@ func (l *Lima) saveMeta(id string, m limaMeta) error {
 type limaInstance struct {
 	Name   string `json:"name"`
 	Status string `json:"status"` // Running, Stopped, Broken, …
+	Memory int64  `json:"memory"` // bytes the VM is given
 }
 
 // instances lists the instances in the Lima folder by name.

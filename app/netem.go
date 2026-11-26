@@ -255,6 +255,9 @@ if ! command -v tc >/dev/null 2>&1; then
   echo "tc is not installed in this image" >&2
   exit 127
 fi
+# A kernel of the node's own (a VM) may deny loading netem on demand, as Oracle Linux's UEK does;
+# asked for by name it loads. In a container the kernel is the host's, and this fails harmlessly.
+modprobe sch_netem 2>/dev/null || true
 # Resolve the interface actually carrying traffic rather than trusting a name.
 if ! ip link show "$DEV" >/dev/null 2>&1; then
   DEV=$(ip -o route get 1.1.1.1 2>/dev/null | sed -n 's/.* dev \([^ ]*\).*/\1/p' | head -1)

@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -459,18 +460,71 @@ func (a *App) joinVM(ctx context.Context, id string, spec ContainerSpec) error {
 	return nil
 }
 
-// resumeVMLinks starts the links of the running VMs, when dbcanvas starts.
-func (a *App) resumeVMLinks(ctx context.Context) {
+// resumeVMs, when dbcanvas starts, brings its VMs back as Docker's restart policy brings its
+// containers back: a running VM gets its link again, and a VM that stopped without being asked
+// to (the machine restarted, Lima's host agent was killed) is started again when its node is
+// deployed and was not stopped from DBCanvas. Starts run two at a time: each VM reserves its
+// memory, and an emulated one keeps a core busy while it boots.
+func (a *App) resumeVMs(ctx context.Context) {
 	if a.lima == nil {
 		return
 	}
 	all, err := a.lima.instances(ctx)
 	if err != nil {
+		log.Printf("vm: resume: %v", err)
 		return
 	}
-	for id, m := range a.lima.managed() {
+	managed := a.lima.managed()
+	for id, m := range managed {
 		if in, ok := all[id]; ok && in.Status == "Running" && m.IP != "" {
 			a.ensureVMLink(id)
 		}
 	}
+	running := map[string]bool{}
+	if stacks, err := a.store.ListStacks(); err == nil {
+		for _, st := range stacks {
+			deps, _ := a.store.ListDeployments(st.ID)
+			for _, d := range deps {
+				if d.State == DeployRunning && isLimaID(d.ContainerID) {
+					running[d.ContainerID] = true
+				}
+			}
+		}
+	}
+	ids := vmsToResume(managed, all, running)
+	if len(ids) == 0 {
+		return
+	}
+	eng := a.anyEngine()
+	sem := make(chan struct{}, 2)
+	var wg sync.WaitGroup
+	for _, id := range ids {
+		wg.Add(1)
+		go func(id string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			log.Printf("vm %s (%s) stopped while its node is deployed: starting it", id, managed[id].Name)
+			sctx, cancel := context.WithTimeout(ctx, 20*time.Minute)
+			defer cancel()
+			if err := eng.ContainerStart(sctx, id); err != nil {
+				log.Printf("vm %s: start: %v", id, err)
+			}
+		}(id)
+	}
+	wg.Wait()
+}
+
+// vmsToResume picks the VMs resumeVMs starts: made by dbcanvas, stopped (not broken: Lima
+// cannot start those), on the stack network, and the instance of a deployment that is running.
+func vmsToResume(managed map[string]limaMeta, all map[string]limaInstance, running map[string]bool) []string {
+	var out []string
+	for id, m := range managed {
+		in, ok := all[id]
+		if ok && in.Status == "Stopped" && m.IP != "" && running[id] {
+			out = append(out, id)
+		}
+	}
+	sort.Strings(out)
+	return out
 }

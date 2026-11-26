@@ -229,6 +229,19 @@ func (a *App) vmDoctorChecks() []doctorCheck {
 			Detail: "optional, not available: " + firstNonEmpty(why, "limactl is not installed") + " — every node runs in a container; install Lima 2.0 or newer (https://lima-vm.io) to run nodes as VMs"}}
 	}
 	out := []doctorCheck{{Name: "vm nodes", Status: "ok", Detail: "limactl " + lima.version + "; VMs are kept in " + lima.home}}
+	// The QEMU each architecture needs: on Linux every VM runs on it, on macOS only the other
+	// architecture does. A missing one is a note: the architecture it serves is optional.
+	for _, arch := range []string{runtime.GOARCH, map[string]string{"arm64": "amd64", "amd64": "arm64"}[runtime.GOARCH]} {
+		if arch == "" || !limaNeedsQEMU(runtime.GOOS, runtime.GOARCH, arch) {
+			continue
+		}
+		bin := limaQEMUBinary(arch)
+		if p, err := qemuLookPath(bin); err == nil {
+			out = append(out, doctorCheck{Name: "vm qemu " + arch, Status: "ok", Detail: arch + " VMs run on " + p})
+		} else {
+			out = append(out, doctorCheck{Name: "vm qemu " + arch, Status: "ok", Detail: "optional, not available: " + limaQEMUMissing(arch)})
+		}
+	}
 	if runtime.GOOS == "linux" {
 		if f, err := os.OpenFile("/dev/kvm", os.O_RDWR, 0); err == nil {
 			f.Close()

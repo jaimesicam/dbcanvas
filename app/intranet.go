@@ -1364,6 +1364,7 @@ func (a *App) validateStackIssues(ctx context.Context, st Stack) []issue {
 	out = append(out, a.pmmArchIssues(ctx, st.ID, doc)...)
 	// Where each node runs: a container, or a VM (engine_router.go).
 	out = append(out, runtimeIssues(doc, a.vmUnavailable())...)
+	out = append(out, a.vmMemoryIssues(ctx, st.ID, doc)...)
 	// A member added to a running cluster of a kind that cannot take one yet (join.go).
 	if deps, err := a.store.ListDeployments(st.ID); err == nil && len(deps) > 0 {
 		existing := map[string]Deployment{}

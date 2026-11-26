@@ -89,3 +89,27 @@ func TestPackageArchIssues(t *testing.T) {
 		t.Fatalf("issues %+v", got)
 	}
 }
+
+// TestMemberArchIgnoredSaid: a member that names an architecture other than its cluster's is
+// warned about; one that repeats its cluster's, or names none, is not.
+func TestMemberArchIgnoredSaid(t *testing.T) {
+	doc := designDoc{
+		Frames: []designFrame{{ID: "f", Label: "pxc-cluster", Type: "pxc", Arch: "arm64"}},
+		Nodes: []designNode{
+			{ID: "a", Label: "pxc-1", Type: "pxc", FrameID: "f", Arch: "amd64"},
+			{ID: "b", Label: "pxc-2", Type: "pxc", FrameID: "f", Arch: "arm64"},
+			{ID: "c", Label: "pxc-3", Type: "pxc", FrameID: "f"},
+		},
+	}
+	var got []string
+	for _, i := range archIssues(doc, "arm64") {
+		got = append(got, i.Level+": "+i.Message)
+	}
+	all := strings.Join(got, "\n")
+	if !strings.Contains(all, "warning: pxc-1: a cluster member runs on its cluster's architecture (arm64); its arch amd64 is ignored") {
+		t.Errorf("a member's other architecture was not warned about:\n%s", all)
+	}
+	if strings.Contains(all, "pxc-2") || strings.Contains(all, "pxc-3") {
+		t.Errorf("a member following its cluster was flagged:\n%s", all)
+	}
+}
