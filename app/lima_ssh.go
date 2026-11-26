@@ -89,6 +89,12 @@ func parseLimaSSHConfig(cfg string) limaSSHInfo {
 	return info
 }
 
+// limaPath is the PATH a command on a VM gets: a container's default. sudo would otherwise use
+// its secure_path, which on Oracle Linux leaves out /usr/local/bin, where provisioning puts
+// links to the tools it installs elsewhere (psql under /usr/pgsql-<major>/bin, for one). An env
+// entry for PATH still wins, as it comes after.
+const limaPath = "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
 // limaRemoteCommand is the command line run on the VM: sudo, the user, the environment and the
 // command, each argument quoted. user "", "0" or "root" is root.
 func limaRemoteCommand(user string, cmd, env []string) string {
@@ -97,7 +103,7 @@ func limaRemoteCommand(user string, cmd, env []string) string {
 	if user != "" && user != "0" && user != "root" {
 		b.WriteString(" -u " + shellQuote(user))
 	}
-	b.WriteString(" env")
+	b.WriteString(" env " + shellQuote(limaPath))
 	for _, e := range env {
 		b.WriteString(" " + shellQuote(e))
 	}

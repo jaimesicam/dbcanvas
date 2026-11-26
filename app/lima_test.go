@@ -138,13 +138,13 @@ Host lima-dbc-0123456789ab
 }
 
 func TestLimaRemoteCommand(t *testing.T) {
-	if got := limaRemoteCommand("", []string{"sh", "-c", "echo 'hi'"}, []string{"A=b c"}); got != `sudo env 'A=b c' 'sh' '-c' 'echo '\''hi'\'''` {
+	if got := limaRemoteCommand("", []string{"sh", "-c", "echo 'hi'"}, []string{"A=b c"}); got != `sudo env 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' 'A=b c' 'sh' '-c' 'echo '\''hi'\'''` {
 		t.Fatalf("root: %s", got)
 	}
-	if got := limaRemoteCommand("postgres", []string{"psql"}, nil); got != `sudo -u 'postgres' env 'psql'` {
+	if got := limaRemoteCommand("postgres", []string{"psql"}, nil); got != `sudo -u 'postgres' env 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' 'psql'` {
 		t.Fatalf("user: %s", got)
 	}
-	if got := limaRemoteCommand("0", []string{"id"}, nil); got != `sudo env 'id'` {
+	if got := limaRemoteCommand("0", []string{"id"}, nil); got != `sudo env 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' 'id'` {
 		t.Fatalf("uid 0: %s", got)
 	}
 }
