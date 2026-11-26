@@ -335,3 +335,31 @@ func TestGDBClientNotAVM(t *testing.T) {
 		t.Errorf("a plain client VM or an analysis container was flagged:\n%s", all)
 	}
 }
+
+// TestVMNeedsALimaTemplate: a VM node on an OS with no Lima template (CentOS 7) is refused; a
+// member's OS is its cluster's.
+func TestVMNeedsALimaTemplate(t *testing.T) {
+	doc := designDoc{
+		Frames: []designFrame{{ID: "f", Label: "pxc-cluster", Type: "pxc", Runtime: "vm", OS: "oraclelinux", OSVersion: "9"}},
+		Nodes: []designNode{
+			{ID: "i", Type: "intranet"},
+			{ID: "c7", Label: "client-el7", Type: "linuxclient", Runtime: "vm", OS: "centos", OSVersion: "7"},
+			{ID: "u", Label: "client-noble", Type: "linuxclient", Runtime: "vm", OS: "ubuntu", OSVersion: "24.04"},
+			{ID: "m", Label: "pxc-1", Type: "pxc", FrameID: "f", OS: "centos", OSVersion: "7"},
+			{ID: "d", Label: "client-docker", Type: "linuxclient", OS: "centos", OSVersion: "7"},
+		},
+	}
+	var got []string
+	for _, i := range runtimeIssues(doc, "") {
+		got = append(got, i.Message)
+	}
+	all := strings.Join(got, "\n")
+	if !strings.Contains(all, "client-el7: centos 7 cannot run as a VM") {
+		t.Errorf("a CentOS 7 VM was not refused:\n%s", all)
+	}
+	for _, ok := range []string{"client-noble", "pxc-1", "client-docker"} {
+		if strings.Contains(all, ok+":") {
+			t.Errorf("%s was flagged:\n%s", ok, all)
+		}
+	}
+}

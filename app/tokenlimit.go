@@ -59,7 +59,7 @@ func (l *tokenLimit) validate() error {
 	}
 	if l.MaxTTL != "" {
 		if _, ok := ttlDurations[l.MaxTTL]; !ok {
-			return fmt.Errorf("maxTtl %q: use 2h, 4h, 8h, 24h or 2w", l.MaxTTL)
+			return fmt.Errorf("maxTtl %q: use 2h, 4h, 8h, 24h, 2w or 30d", l.MaxTTL)
 		}
 	}
 	for _, t := range l.Deny {

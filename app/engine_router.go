@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"sort"
@@ -261,6 +262,22 @@ func runtimeIssues(doc designDoc, limaWhy string) []issue {
 			continue // a member without its own runtime follows its cluster, checked above
 		}
 		check(firstNonEmpty(n.Label, n.ID), n.Type, rt)
+	}
+	for _, n := range doc.Nodes {
+		if nodeRuntime(n, frames) != runtimeVM {
+			continue
+		}
+		os_, ver := n.OS, n.OSVersion
+		if f, ok := frames[n.FrameID]; ok && f.OS != "" {
+			os_, ver = f.OS, f.OSVersion
+		}
+		if os_ != "" && ver != "" {
+			if _, ok := limaTemplate(os_, ver); !ok {
+				// A VM is made from a Lima template of the node's OS; without one the deploy would
+				// fail at limactl create (CentOS 7, which runs from the stock centos:7 image).
+				out = append(out, issue{Level: "error", Message: fmt.Sprintf("%s: %s %s cannot run as a VM; VMs run Oracle Linux 8, 9 or 10, Ubuntu 22.04 or 24.04, or Debian 12 or 13", firstNonEmpty(n.Label, n.ID), os_, ver)})
+			}
+		}
 	}
 	for _, n := range doc.Nodes {
 		if nodeRuntime(n, frames) == runtimeVM && n.Type == "linuxclient" && n.GDBEnabled {

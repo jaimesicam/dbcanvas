@@ -79,7 +79,7 @@ var cliCommands = []cliCommand{
 	{Name: "token create", Args: "NAME", Service: true,
 		Summary: "an API token for a script or another user of this computer",
 		Flags: []cliFlag{
-			{Name: "scope", Kind: "string", Value: "read|write|admin", Default: ScopeWrite, Help: "read (look only), write (create, deploy, change) or admin (also settings, tokens, images)"},
+			{Name: "scope", Kind: "string", Value: "read|write|admin", Default: ScopeWrite, Help: "read (look only), write (create, deploy, change) or admin (also system settings, images and the doctor); no token can create tokens"},
 			{Name: "days", Kind: "int", Value: "30", Default: "30", Help: "days until it expires; 0 never expires"},
 			{Name: "own-stacks", Kind: "bool", Help: "reach only the stacks this token creates"},
 			{Name: "label", Kind: "list", Value: "k=v", Help: "reach only stacks with this label, which it puts on every stack it creates (repeatable)"},

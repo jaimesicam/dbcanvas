@@ -217,7 +217,7 @@ export default function PacketInspector() {
                 <FilePick id="pkt-upload-cap" accept=".pcap,.cap,.pcapng,.dmp"
                   file={capFile} onPick={setCapFile} placeholder="Choose a capture, or drop it here" />
               </Field>
-              <Field label="Server log" help={TOOL_HELP.piServerLog} hint="optional — MySQL or PostgreSQL, correlated with the timeline">
+              <Field label="Server log" help={TOOL_HELP.piServerLog} hint="optional — MySQL, PostgreSQL, MongoDB or Valkey, correlated with the timeline">
                 <FilePick id="pkt-upload-log" accept=".log,.err,.txt,text/plain"
                   file={logFile} onPick={setLogFile} placeholder="Choose a log, or drop it here" />
               </Field>

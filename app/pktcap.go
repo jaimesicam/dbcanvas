@@ -220,6 +220,11 @@ func pktValidateFilter(f string) error {
 
 // pktResolveIface asks the node which interface carries its stack address.
 func (a *App) pktResolveIface(ctx context.Context, containerID string) (string, error) {
+	if isLimaID(containerID) {
+		// A VM's stack traffic is on its link to the stack network (vmnet.go). Its default route
+		// is Lima's own interface, which carries none of it, so the route cannot tell.
+		return vmStackDev, nil
+	}
 	res, err := a.engCtx(ctx).Exec(ctx, containerID, []string{"bash", "-c", pktIfaceScript}, nil)
 	if err != nil {
 		return "", err

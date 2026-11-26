@@ -316,3 +316,18 @@ func TestBackupStorageFallsBackToWhatCrYamlWrote(t *testing.T) {
 		t.Errorf("PG should fall back to %q, got %q", pgBackRestRepo, got)
 	}
 }
+
+// TestK3DPickStorage: DBCanvas's storage wins when the cluster has it; otherwise the first of the
+// cluster's own; an unreadable answer keeps the default.
+func TestK3DPickStorage(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{`{"seaweedfs":{"type":"s3"},"fs-pvc":{"type":"filesystem"}}`, "seaweedfs"},
+		{`{"s3-us-west":{"type":"s3"},"fs-pvc":{"type":"filesystem"}}`, "fs-pvc"},
+		{``, "seaweedfs"},
+		{`{}`, "seaweedfs"},
+	} {
+		if got := k3dPickStorage(c.in, "seaweedfs"); got != c.want {
+			t.Errorf("k3dPickStorage(%s) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

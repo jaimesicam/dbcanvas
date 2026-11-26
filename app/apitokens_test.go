@@ -488,3 +488,24 @@ func TestScopeRefusalSaysHowToFixIt(t *testing.T) {
 		t.Errorf("read token on a write route: %s", m)
 	}
 }
+
+// TestReadTokenKeptOutOfShells: the interactive sockets (terminal, operator debugger, gdb) need a
+// write token, though they open with a GET; an ordinary GET still needs only read.
+func TestReadTokenKeptOutOfShells(t *testing.T) {
+	need := map[string]string{}
+	for _, rt := range apiRoutes() {
+		need[rt.Method+" "+rt.Path] = routeScope(rt)
+	}
+	for _, p := range []string{
+		"GET /api/stacks/{id}/nodes/{nid}/term",
+		"GET /api/stacks/{id}/frames/{fid}/k3d/debug/ws",
+		"GET /api/stacks/{id}/nodes/{nid}/gdb/ws",
+	} {
+		if need[p] != ScopeWrite {
+			t.Errorf("%s needs %q, want write", p, need[p])
+		}
+	}
+	if need["GET /api/stacks"] != ScopeRead {
+		t.Errorf("GET /api/stacks needs %q, want read", need["GET /api/stacks"])
+	}
+}

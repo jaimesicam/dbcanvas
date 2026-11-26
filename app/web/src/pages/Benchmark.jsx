@@ -205,7 +205,7 @@ export default function Benchmark() {
         )}
 
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {!isCrud && <Field label="Scale" help={TOOL_HELP.bmScale} hint="×½M rows"><input type="number" min="1" max="50" value={cfg.scale} onChange={(e) => set({ scale: e.target.value })} className={inputCls} /></Field>}
+          {!isCrud && <Field label="Scale" help={TOOL_HELP.bmScale} hint="× ~360k rows"><input type="number" min="1" max="50" value={cfg.scale} onChange={(e) => set({ scale: e.target.value })} className={inputCls} /></Field>}
           <Field label="Threads" help={TOOL_HELP.bmThreads}><input type="number" min="1" max="128" value={cfg.threads} onChange={(e) => set({ threads: e.target.value })} className={inputCls} /></Field>
           <Field label="Duration (s)" help={TOOL_HELP.bmDuration}><input type="number" min="1" max="3600" value={cfg.durationS} onChange={(e) => set({ durationS: e.target.value })} className={inputCls} /></Field>
           <Field label="Warmup (s)" help={TOOL_HELP.bmWarmup}><input type="number" min="0" max="600" value={cfg.warmupS} onChange={(e) => set({ warmupS: e.target.value })} className={inputCls} /></Field>

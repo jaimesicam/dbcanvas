@@ -1108,3 +1108,18 @@ func TestPickingAPodsFileForgivesTheLiveBoardsVocabulary(t *testing.T) {
 		}
 	}
 }
+
+// TestStateCRKeysMatchOperators: every operator a K3D frame can run that has custom resources
+// worth sampling is keyed as the frame names it, so its board shows them.
+func TestStateCRKeysMatchOperators(t *testing.T) {
+	for _, op := range []string{"pxc", "ps", "psmdb", "pg", "cnpg", "pgo", "everest"} {
+		if len(k3dStateCRs[op]) == 0 {
+			t.Errorf("no custom resources sampled for operator %q", op)
+		}
+	}
+	for op := range k3dStateCRs {
+		if !k3dDeployableOperator[op] {
+			t.Errorf("custom resources keyed %q, which is not an operator a frame can name", op)
+		}
+	}
+}

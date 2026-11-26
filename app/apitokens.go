@@ -362,6 +362,12 @@ func routeScope(rt apiRoute) string {
 	if rt.Mutates() {
 		return ScopeWrite
 	}
+	// An interactive socket — a node's terminal, the operator debugger, gdb — opens with a GET but
+	// hands over a shell or a debugger, so a read token cannot open one; shared-session guests
+	// are held to the same rule (guestNeed).
+	if rt.Media == mediaWebSocket && rt.Group != gShare {
+		return ScopeWrite
+	}
 	return ScopeRead
 }
 

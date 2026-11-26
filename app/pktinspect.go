@@ -1189,7 +1189,9 @@ func (a *App) handlePktUpload(w http.ResponseWriter, r *http.Request) {
 	// pktSniffEngine, which reads the answer out of the bytes; the port's default
 	// then follows whatever was chosen or asked for.
 	engine := strings.ToLower(strings.TrimSpace(r.FormValue("engine")))
-	if engine != pktEngineMySQL && engine != pktEnginePostgres {
+	switch engine {
+	case pktEngineMySQL, pktEnginePostgres, pktEngineMongoDB, pktEngineValkey:
+	default:
 		engine = ""
 	}
 	// The port's default follows the protocol, so it cannot be chosen until the protocol

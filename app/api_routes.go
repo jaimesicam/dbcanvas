@@ -191,7 +191,7 @@ func buildAPIRoutes() []apiRoute {
 		{Method: "POST", Path: "/api/auth/logout", Group: gAuth, Auth: authPublic, Handler: m((*App).handleLogout),
 			Summary: "Destroy the caller's session and clear the cookie."},
 		{Method: "GET", Path: "/api/me", Group: gAuth, Handler: m((*App).handleMe),
-			Summary: "The owner, as the caller is signed in or holds a token for: id, username and name."},
+			Summary: "The owner, as the caller is signed in or holds a token for: id, username, profile (first and last name, email, avatar), and the token when called with one."},
 
 		// --- preferences --------------------------------------------------------
 		{Method: "GET", Path: "/api/me/settings", Group: gPrefs, Handler: m((*App).handleGetSettings),
@@ -211,7 +211,7 @@ func buildAPIRoutes() []apiRoute {
 		// System settings (the designer reads the upload ceiling to refuse an
 		// over-size drop client-side).
 		{Method: "GET", Path: "/api/system/settings", Group: gPrefs, Handler: m((*App).handleGetSystemSettings),
-			Summary: "System settings: the file-upload ceiling, whether SSH tunnelling is configured, and whether experimental features are shown."},
+			Summary: "System settings: the file-upload ceiling, whether SSH tunnelling is configured, whether experimental features are shown, and which node types may run as VMs (vmTypes, vmUnavailable, limaHome)."},
 		{Method: "PUT", Path: "/api/system/settings", Group: gPrefs, Auth: authAdmin, Handler: m((*App).handleUpdateSystemSettings),
 			Summary: "Change the system settings. Out-of-range values are clamped rather than rejected."},
 

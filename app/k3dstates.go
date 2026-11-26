@@ -76,8 +76,11 @@ var k3dStateCRs = map[string][]string{
 	// The two Helm-installed community PostgreSQL operators. CloudNativePG's Cluster is
 	// the one object worth watching there; Crunchy's postgrescluster is the same shape as
 	// the Percona pg one, which it is upstream of.
-	"cloudnative-pg": {"clusters.postgresql.cnpg.io"},
-	"crunchy":        {"postgresclusters"},
+	// Keyed as a frame's k3dOperator names them (designcatalog_k3d.go).
+	"cnpg": {"clusters.postgresql.cnpg.io"},
+	"pgo":  {"postgresclusters"},
+	// OpenEverest's own database objects, and the Percona operators' clusters it creates.
+	"everest": {"databaseclusters.everest.percona.com", "perconaxtradbclusters", "perconaservermongodbs", "perconapgclusters"},
 }
 
 // Tones. Deliberately four and not a severity number: a canvas paints backgrounds, and

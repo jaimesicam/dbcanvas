@@ -384,6 +384,44 @@ func k3dBackupStorageOf(cfg k3dConfig) string {
 	return crStorageName
 }
 
+// k3dBackupStorage is the storage a new backup should name, asking the cluster when nothing was
+// recorded at deploy. A cluster deployed without a SeaweedFS node keeps the storages its cr.yaml
+// shipped with, so the constant k3dBackupStorageOf falls back to names a storage that cluster does
+// not have: the cluster object's own spec.backup.storages decides then — DBCanvas's storage when it
+// is there, else the first one listed.
+func (a *App) k3dBackupStorage(ctx context.Context, serverID string, cfg k3dConfig) string {
+	def := k3dBackupStorageOf(cfg)
+	if cfg.BackupStorage != "" || cfg.Operator == "pg" {
+		return def
+	}
+	crs := k3dStateCRs[cfg.Operator]
+	if len(crs) == 0 || cfg.ClusterName == "" {
+		return def
+	}
+	out, err := a.kubectl(ctx, serverID, "-n", cfg.Namespace, "get", crs[0], cfg.ClusterName, "-o", "jsonpath={.spec.backup.storages}")
+	if err != nil {
+		return def
+	}
+	return k3dPickStorage(out, def)
+}
+
+// k3dPickStorage reads a storages map (JSON) and picks def when it is there, else the first name.
+func k3dPickStorage(storagesJSON, def string) string {
+	var m map[string]json.RawMessage
+	if json.Unmarshal([]byte(strings.TrimSpace(storagesJSON)), &m) != nil || len(m) == 0 {
+		return def
+	}
+	if _, ok := m[def]; ok {
+		return def
+	}
+	names := make([]string, 0, len(m))
+	for k := range m {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	return names[0]
+}
+
 // handleK3DBackups lists the cluster's backups and its restores in one answer, with the store they
 // go to. One request rather than two: the panel shows both tables at once, and a restore is only
 // meaningful beside the backup it names.
@@ -397,7 +435,7 @@ func (a *App) handleK3DBackups(w http.ResponseWriter, r *http.Request) {
 		"operator": cfg.Operator, "namespace": ns, "cluster": cfg.ClusterName,
 		"backupKind": kind.BackupKind, "backupResource": kind.BackupRes,
 		"restoreKind": kind.RestoreKind, "restoreResource": kind.RestoreRes,
-		"storage": k3dBackupStorageOf(cfg), "storageField": kind.StorageField,
+		"storage": a.k3dBackupStorage(r.Context(), dep.ContainerID, cfg), "storageField": kind.StorageField,
 		"finalizer": kind.Finalizer, "restoreByName": kind.RestoreByName,
 		"repo": cfg.BackupRepo, "bucket": cfg.BackupBucket, "endpoint": cfg.BackupEndpoint,
 		"secret": cfg.BackupSecret, "manifestDir": cfg.OperatorSrc + "/" + k3dBackupDir,
@@ -459,7 +497,7 @@ func (a *App) handleK3DBackupCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	storage := strings.TrimSpace(req.Storage)
 	if storage == "" {
-		storage = k3dBackupStorageOf(cfg)
+		storage = a.k3dBackupStorage(r.Context(), dep.ContainerID, cfg)
 	}
 	if !k3dBackupNameRe.MatchString(storage) {
 		writeErr(w, http.StatusBadRequest, "the storage name must be a Kubernetes name")
@@ -611,7 +649,10 @@ func (a *App) handleK3DRestore(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "the restore name must be a Kubernetes name")
 		return
 	}
-	storage := orDefault(strings.TrimSpace(req.Storage), k3dBackupStorageOf(cfg))
+	storage := strings.TrimSpace(req.Storage)
+	if storage == "" {
+		storage = a.k3dBackupStorage(r.Context(), dep.ContainerID, cfg)
+	}
 	if !k3dBackupNameRe.MatchString(storage) {
 		writeErr(w, http.StatusBadRequest, "the storage name must be a Kubernetes name")
 		return
