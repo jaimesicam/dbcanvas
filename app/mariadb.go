@@ -1054,6 +1054,8 @@ const mariadbBaselineScript = `set -e
 ` + mariadbDatadirInit + `
 ` + mdbRootClient + `
 systemctl is-active --quiet "$UNIT" || { systemctl reset-failed "$UNIT" 2>/dev/null || true; systemctl start "$UNIT" || { say_err "mariadbd failed to start"; exit 1; }; }
+# Started at boot too, as Debian's and Ubuntu's package arranges and RHEL's does not.
+systemctl enable "$UNIT" >/dev/null 2>&1 || true
 # Readiness must accept either auth mode — on a redeploy root already has a password.
 for i in $(seq 1 30); do mdb_root -e "SELECT 1" >/dev/null 2>&1 && break; sleep 2; done
 ` + mariadbRootSQL + `
@@ -1149,6 +1151,8 @@ fi
 if ! systemctl is-active --quiet "$UNIT"; then
   systemctl reset-failed "$UNIT" 2>/dev/null || true
   galera_new_cluster || { say_err "galera_new_cluster failed"; exit 1; }
+  # At boot the seed starts as a plain member and rejoins the others, as a PXC member does.
+  systemctl enable "$UNIT" >/dev/null 2>&1 || true
 fi
 OK=0
 for i in $(seq 1 45); do
@@ -1177,6 +1181,8 @@ say_err() { echo "$1"; [ -f "$LOGERR" ] && grep -iE '\[ERROR\]|WSREP_SST: \[ERRO
 ` + mdbRootClient + `
 wsrep_stat() { mdb_root -N -e "SELECT VARIABLE_VALUE FROM information_schema.GLOBAL_STATUS WHERE VARIABLE_NAME='$1'" 2>/dev/null; }
 systemctl reset-failed "$UNIT" 2>/dev/null || true
+# A member that restarts rejoins the cluster at boot, as a PXC member does.
+systemctl enable "$UNIT" >/dev/null 2>&1 || true
 systemctl restart --no-block "$UNIT" 2>/dev/null || systemctl start --no-block "$UNIT" || true
 OK=0
 for i in $(seq 1 150); do
