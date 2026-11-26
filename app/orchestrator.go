@@ -278,9 +278,17 @@ func (a *App) orchestratorDiscover(ctx context.Context, orchestratorContainerID 
 // frame has an OrchestratorNodeID linked. Resolves the Orchestrator node's
 // container, takes the frame's already-running members (waitMySQLReplMembers and
 // its MariaDB/MySQL CE analogs all return []pxcMember), and seeds discovery. Best-effort — logged via pr, never fails the frame's deploy.
+//
+// The two deploy side by side, and the frame can finish first — a node running as a VM takes
+// minutes longer to come up than a container — so it waits for the Orchestrator node to be
+// running, or to fail, rather than skip the registration.
 func (a *App) registerOrchestrator(ctx context.Context, st Stack, orchestratorNodeID string, members []pxcMember, logln func(string)) {
 	if orchestratorNodeID == "" || len(members) == 0 {
 		return
+	}
+	if dep, err := a.store.GetDeployment(st.ID, orchestratorNodeID); err != nil || dep.State != DeployRunning {
+		logln("waiting for the Orchestrator node to be running")
+		a.waitNodeRunning(st.ID, orchestratorNodeID, deployTimeout())
 	}
 	dep, err := a.store.GetDeployment(st.ID, orchestratorNodeID)
 	if err != nil || dep.ContainerID == "" || dep.State != DeployRunning {
