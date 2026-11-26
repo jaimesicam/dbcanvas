@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -1004,6 +1005,27 @@ func resolvePMMVersion(want string) (string, error) {
 	return "", fmt.Errorf("no PMM %q. Available: %s …", want, strings.Join(show, ", "))
 }
 
+// defaultPDPSRepo is the repository an InnoDB Cluster frame installs from when none was chosen:
+// the newest LTS one (pdps-97-lts over pdps-84-lts), else the catalogue's last, else "".
+func defaultPDPSRepo(repos []string) string {
+	best, bestN := "", -1
+	for _, r := range repos {
+		mid, ok := strings.CutPrefix(r, "pdps-")
+		if !ok {
+			continue
+		}
+		if n, ok := strings.CutSuffix(mid, "-lts"); ok {
+			if v, err := strconv.Atoi(n); err == nil && v > bestN {
+				best, bestN = r, v
+			}
+		}
+	}
+	if best == "" && len(repos) > 0 {
+		best = repos[len(repos)-1]
+	}
+	return best
+}
+
 // resolvePDPSRepo picks a percona-release repository for an InnoDB Cluster frame.
 // Unlike every other engine this is not a major/minor pair from the version
 // catalogue: innodb.go's `enable` verb takes a repo name, and the names are
@@ -1013,16 +1035,20 @@ func resolvePDPSRepo(want string) (string, error) {
 	repos := loadPDPSCatalog()
 	want = strings.TrimSpace(want)
 	if want == "" {
-		return "", nil // "" → the provisioner's own default
+		return defaultPDPSRepo(repos), nil
 	}
 	if slices.Contains(repos, want) {
 		return want, nil
 	}
-	// "8.4" or "84-lts" for pdps-84-lts: a bare version is what people type.
+	// "84-lts" for pdps-84-lts: a bare version is what people type.
 	for _, r := range repos {
 		if strings.TrimPrefix(r, "pdps-") == want || r == "pdps-"+want {
 			return r, nil
 		}
+	}
+	// "8.4" or "9.7": a series means its LTS repository.
+	if lts := "pdps-" + strings.ReplaceAll(want, ".", "") + "-lts"; slices.Contains(repos, lts) {
+		return lts, nil
 	}
 	if len(repos) == 0 {
 		return "", fmt.Errorf("no PDPS repositories in versions.yaml")

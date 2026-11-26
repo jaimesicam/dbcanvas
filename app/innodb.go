@@ -75,6 +75,10 @@ func genUUID() string {
 // member, form the group (manual GR or MySQL-Shell InnoDB Cluster), bootstrap MySQL
 // Router on each member, and optionally apply TLS/PMM.
 func (a *App) provisionInnoDBFrame(st Stack, frame designFrame, doc designDoc) {
+	if frame.PDPSRepo == "" {
+		// A design that names no repository installs from the newest LTS one, as compose does.
+		frame.PDPSRepo = defaultPDPSRepo(loadPDPSCatalog())
+	}
 	domain := envOr("DOMAIN", "example.net")
 	hosts := stackHostnames(doc)
 	mode := innodbReplMode(frame.ReplMode)

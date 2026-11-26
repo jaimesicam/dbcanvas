@@ -1480,3 +1480,16 @@ func TestComposeK3D(t *testing.T) {
 		t.Error("a non-number for an integer option was accepted")
 	}
 }
+
+func TestDefaultPDPSRepo(t *testing.T) {
+	repos := []string{"pdps-8.0", "pdps-8.4.11", "pdps-84-lts", "pdps-8x-innovation", "pdps-9.7.2", "pdps-97-lts"}
+	if got := defaultPDPSRepo(repos); got != "pdps-97-lts" {
+		t.Fatalf("default %q, want the newest LTS repository", got)
+	}
+	if got := defaultPDPSRepo([]string{"pdps-8.0", "pdps-8.4.11"}); got != "pdps-8.4.11" {
+		t.Fatalf("default without an LTS repository %q", got)
+	}
+	if defaultPDPSRepo(nil) != "" {
+		t.Fatal("default from an empty catalogue")
+	}
+}
