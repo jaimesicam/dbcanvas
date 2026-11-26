@@ -294,7 +294,57 @@ func (a *App) provisionPMM(st Stack, n designNode, doc designDoc) {
 		save()
 		a.store.SetDeploymentState(st.ID, n.ID, DeployRunning)
 		log.Printf("stack %d pmm %s: provisioned", st.ID, n.ID)
+		a.pmmRegisterWaitingProxySQL(ctx, st, doc, n.ID)
 	}()
+}
+
+// pmmRegisterWaitingProxySQL registers with a PMM node that has just come up the running ProxySQL
+// nodes it monitors. A ProxySQL node registers while it is built, and one built while its PMM was
+// not running yet — PMM deploying alongside it, or failing and deployed again — would otherwise
+// stay unmonitored: a redeploy leaves running nodes alone. Registering again is harmless (the
+// script replaces what is there).
+func (a *App) pmmRegisterWaitingProxySQL(ctx context.Context, st Stack, doc designDoc, pmmID string) {
+	for _, w := range pmmWatchedProxySQL(doc, pmmID) {
+		dep, err := a.store.GetDeployment(st.ID, w.node.ID)
+		if err != nil || dep.State != DeployRunning || dep.ContainerID == "" {
+			continue
+		}
+		var sec proxysqlSecrets
+		json.Unmarshal(dep.Secrets, &sec)
+		label := w.node.Label
+		a.proxysqlRegisterPMM(ctx, st, w.node.ID, w.os, doc, pmmID, sec, func(line string) {
+			log.Printf("stack %d proxysql %s: %s", st.ID, label, line)
+		})
+	}
+}
+
+// pmmWatched is a ProxySQL node a PMM node monitors, with the OS its registration script is for.
+type pmmWatched struct {
+	node designNode
+	os   string
+}
+
+// pmmWatchedProxySQL lists the ProxySQL nodes a PMM node monitors: a standalone one through its own
+// pmmNodeId, a cluster member through its cluster's.
+func pmmWatchedProxySQL(doc designDoc, pmmID string) []pmmWatched {
+	frames := map[string]designFrame{}
+	for _, f := range doc.Frames {
+		frames[f.ID] = f
+	}
+	var out []pmmWatched
+	for _, m := range doc.Nodes {
+		if m.Type != "proxysql" {
+			continue
+		}
+		watcher, os := m.PMMNodeID, m.OS
+		if f, ok := frames[m.FrameID]; ok {
+			watcher, os = f.PMMNodeID, f.OS
+		}
+		if watcher == pmmID {
+			out = append(out, pmmWatched{node: m, os: os})
+		}
+	}
+	return out
 }
 
 // runStep runs a single bash script in the container with up to 10 retries,
