@@ -231,7 +231,12 @@ arch=$(uname -m)
 rpm -q pgdg-redhat-repo >/dev/null 2>&1 || dnf -y -q install "https://download.postgresql.org/pub/repos/yum/reporpms/EL-${elver}-${arch}/pgdg-redhat-repo-latest.noarch.rpm" >/dev/null
 if /usr/libexec/platform-python -c 'import sys, dnf.rpm; sys.exit(0 if dnf.rpm.detect_releasevers("/")[2] is None else 1)' 2>/dev/null \
    && [ -f /etc/yum.repos.d/pgdg-redhat-all.repo ]; then
-  sed -i 's/\$releasever_major\.\$releasever_minor/$releasever_major/g' /etc/yum.repos.d/pgdg-redhat-all.repo
+  pgdgtree=$(rpm -E %rhel)
+  pgdgos=$(. /etc/os-release 2>/dev/null; echo "$VERSION_ID")
+  case "$pgdgos" in *.*)
+    curl -fsI "https://download.postgresql.org/pub/repos/yum/common/redhat/rhel-${pgdgos}-$(uname -m)/repodata/repomd.xml" >/dev/null 2>&1 && pgdgtree=$pgdgos ;;
+  esac
+  sed -i "s/\$releasever_major\.\$releasever_minor/${pgdgtree}/g" /etc/yum.repos.d/pgdg-redhat-all.repo
 fi
 repo="pgdg-rhel${elver}-extras"
 spec=haproxy

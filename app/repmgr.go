@@ -1093,11 +1093,18 @@ dnf -y -q install "https://download.postgresql.org/pub/repos/yum/reporpms/EL-${e
 # Linux's oraclelinux-release has no such provide, so there the minor is empty, every PGDG URL is
 # rhel-9.-x86_64 (or rhel-10.-), a 404, and the install dies on repo metadata. PGDG's own fallback
 # only covers older dnf, which has no detect_releasevers and does read /etc/dnf/vars. So when dnf
-# detects no minor, the repo file is pointed at the major-version tree (rhel-9, rhel-10), which
-# carries every minor's builds. EL8 keeps an older repo file on rhel-$releasever and is untouched.
+# detects no minor, the repo file is pointed at the OS's own minor tree (rhel-9.8), which carries
+# every release of each major; the major-version tree (rhel-9) now holds only the newest build of
+# each, and is the fallback when PGDG publishes no tree for this minor yet or cannot be reached.
+# EL8 keeps an older repo file on rhel-$releasever and is untouched.
 if /usr/libexec/platform-python -c 'import sys, dnf.rpm; sys.exit(0 if dnf.rpm.detect_releasevers("/")[2] is None else 1)' 2>/dev/null \
    && [ -f /etc/yum.repos.d/pgdg-redhat-all.repo ]; then
-  sed -i 's/\$releasever_major\.\$releasever_minor/$releasever_major/g' /etc/yum.repos.d/pgdg-redhat-all.repo
+  pgdgtree=$(rpm -E %rhel)
+  pgdgos=$(. /etc/os-release 2>/dev/null; echo "$VERSION_ID")
+  case "$pgdgos" in *.*)
+    curl -fsI "https://download.postgresql.org/pub/repos/yum/common/redhat/rhel-${pgdgos}-$(uname -m)/repodata/repomd.xml" >/dev/null 2>&1 && pgdgtree=$pgdgos ;;
+  esac
+  sed -i "s/\$releasever_major\.\$releasever_minor/${pgdgtree}/g" /etc/yum.repos.d/pgdg-redhat-all.repo
 fi
 # The OS-bundled postgresql module masks the PGDG packages; disable it first.
 dnf -qy module disable postgresql >/dev/null 2>&1 || true
