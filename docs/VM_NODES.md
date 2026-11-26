@@ -105,6 +105,8 @@ instances do not see each other.
 
 ## Choose where a node runs
 
+![A Percona Server node set to run on a virtual machine: Runs on, SELinux, the VM's CPUs and memory, and network conditions in its properties](screenshots/vm-node-fields.png)
+
 In the editor, a node or cluster of a type that can run as a VM has **Runs on** under
 Architecture: *Container (Docker)*, the default, or *Virtual machine (Lima)*. A cluster member
 follows its cluster unless it picks its own. It cannot change while the node is deployed.
