@@ -2467,3 +2467,12 @@ func readSrc(t *testing.T, name string) string {
 	}
 	return string(b)
 }
+
+func TestAIOGaleraPredecessor(t *testing.T) {
+	for in, want := range map[string]string{"pxc01-n2": "pxc01-n1", "pxc-cluster-01-n3": "pxc-cluster-01-n2", "pxc01-n1": "", "ps01": "", "mdb-galera-n10": "mdb-galera-n9"} {
+		got, ok := aioGaleraPredecessor(in)
+		if (want == "") == ok || got != want {
+			t.Errorf("%s: got %q %v, want %q", in, got, ok, want)
+		}
+	}
+}

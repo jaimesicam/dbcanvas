@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -376,6 +377,11 @@ func (a *App) aioMySQLPrepare(ctx context.Context, id string, n designNode, m ai
 		Type:        "notify",
 		TimeoutSec:  600, // an SST joiner can take a while
 		EnvFile:     aioMySQLEnvFile(l, m),
+	}
+	if aioMySQLShape(m.Kind) == shapeGalera {
+		if prev, ok := aioGaleraPredecessor(m.Inst); ok {
+			spec.After = append(spec.After, "aio-"+prev+".service")
+		}
 	}
 	if err := a.aioWriteUnit(ctx, id, l, spec); err != nil {
 		return err
@@ -1264,3 +1270,22 @@ const aioMariaDBSemisyncScript = `set -e
 M="mariadb --no-defaults --socket=$SOCK -uroot -p$ROOT_PW"
 $M -e "SET GLOBAL $ENABLEVAR=ON;"
 printf '[mysqld]\n%s=ON\n' "$ENABLEVAR" >"$CNFDIR/zz-semisync.cnf"`
+
+// aioGaleraPredecessor is the member a Galera member is ordered after: pxc01-n2 after pxc01-n1.
+// The chain makes a node's start and stop sequential. All the members of an All-in-One cluster
+// live on one node, so its every restart is a whole-cluster restart: stopped together, no member
+// is the last to leave and Galera marks none safe_to_bootstrap, and at the next start every member
+// waits for a primary component that never forms. Stopped in turn, the first member leaves last,
+// is marked safe to bootstrap, and its start wrapper starts the cluster again at boot, the others
+// joining it in order.
+func aioGaleraPredecessor(inst string) (string, bool) {
+	i := strings.LastIndex(inst, "-n")
+	if i < 0 {
+		return "", false
+	}
+	k, err := strconv.Atoi(inst[i+2:])
+	if err != nil || k < 2 {
+		return "", false
+	}
+	return fmt.Sprintf("%s-n%d", inst[:i], k-1), true
+}

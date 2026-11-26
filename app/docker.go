@@ -662,6 +662,9 @@ type ContainerSpec struct {
 	DevicePath     string
 	// SELinux is the mode a VM runs SELinux in ("enforcing", "permissive"); Docker ignores it.
 	SELinux string
+	// StopTimeout is how many seconds a stop or restart gives the container's systemd before
+	// Docker kills it; 0 is Docker's default (10).
+	StopTimeout int
 }
 
 // PortMap publishes a container TCP port to a specific host port (HostPort 0
@@ -708,6 +711,9 @@ func (d *Docker) ContainerCreate(ctx context.Context, spec ContainerSpec) (strin
 		"Image":    spec.Image,
 		"Hostname": spec.Hostname,
 		"Env":      spec.Env,
+	}
+	if spec.StopTimeout > 0 {
+		body["StopTimeout"] = spec.StopTimeout
 	}
 	if len(spec.Cmd) > 0 {
 		body["Cmd"] = spec.Cmd
@@ -906,12 +912,15 @@ func (d *Docker) ContainerStart(ctx context.Context, id string) error {
 	return d.simple(ctx, "POST", "/containers/"+id+"/start", "start", 204, 304)
 }
 
+// ContainerStop and ContainerRestart give the container's systemd the container's own stop
+// timeout (StopTimeout at create, else Docker's 10 s) to stop its services cleanly before Docker
+// kills it — a node's database included, which a kill leaves to crash recovery.
 func (d *Docker) ContainerStop(ctx context.Context, id string) error {
-	return d.simple(ctx, "POST", "/containers/"+id+"/stop?t=5", "stop", 204, 304)
+	return d.simple(ctx, "POST", "/containers/"+id+"/stop", "stop", 204, 304)
 }
 
 func (d *Docker) ContainerRestart(ctx context.Context, id string) error {
-	return d.simple(ctx, "POST", "/containers/"+id+"/restart?t=5", "restart", 204)
+	return d.simple(ctx, "POST", "/containers/"+id+"/restart", "restart", 204)
 }
 
 // ContainerRemove force-removes a container and its anonymous volumes (best-effort).

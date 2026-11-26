@@ -627,6 +627,9 @@ func (a *App) aioCreateContainer(ctx context.Context, st Stack, n designNode, me
 		Network: networkName(st.ID), Aliases: aliases,
 		DNS: []string{intranetIP}, DNSSearch: []string{domain},
 		PublishMap: pubs,
+		// Its instances stop one after another — a Galera cluster's members in turn, so the
+		// first is left safe to bootstrap the cluster at the next start (aioGaleraPredecessor).
+		StopTimeout: 180,
 	}
 	applyVMSize(&spec, n.limits())
 	id, err := a.engCtx(ctx).ContainerCreate(ctx, spec)
