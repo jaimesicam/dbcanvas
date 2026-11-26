@@ -13,6 +13,7 @@
 // click (the same), eval (JavaScript run in the page), type ({ "into": selector, "text": … }),
 // select ({ "in": selector, "value": … }, for a <select>), rightclick (a selector: its context menu),
 // window (a desktop window's title: closes the others, brings it forward, maximises it),
+// text (typed into whatever has the focus),
 // key (a key name such as "Escape"), wait (milliseconds), scroll (a selector to scroll into view).
 // Pictures are 1600 pixels wide at twice the pixel density, as the existing ones are.
 //
@@ -215,14 +216,21 @@ async function run() {
             Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(e, ${JSON.stringify(st.select.value)});
             e.dispatchEvent(new Event('change', { bubbles: true })) })()`)
         }
+        if (st.text) await send('Input.insertText', { text: st.text })
         if (st.key) {
-          await send('Input.dispatchKeyEvent', { type: 'keyDown', key: st.key })
-          await send('Input.dispatchKeyEvent', { type: 'keyUp', key: st.key })
+          const k = { Enter: { code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' }, Escape: { code: 'Escape', windowsVirtualKeyCode: 27 },
+            Tab: { code: 'Tab', windowsVirtualKeyCode: 9, text: '\t' } }[st.key] || {}
+          await send('Input.dispatchKeyEvent', { type: 'keyDown', key: st.key, ...k })
+          await send('Input.dispatchKeyEvent', { type: 'keyUp', key: st.key, ...k })
         }
         if (st.scroll) await evaluate(`${find(st.scroll)}?.scrollIntoView({ block: 'center' })`)
         if (st.eval) await evaluate(st.eval)
         if (st.wait) await sleep(st.wait)
       }
+      // The mouse is moved out of the way first, so no hover tooltip from the last click lands
+      // in the picture: an empty stretch of the top bar, unless the shot names its own spot.
+      const [mx, my] = s.mouseAway || [1100, 50]
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: mx, y: my })
       await sleep(s.after || 800)
       if (process.env.SHOTS_TRACE) console.error('page', await evaluate('location.href + " | " + document.title + " | " + document.body.innerText.slice(0, 300).replace(/\\s+/g, " ")'))
       const { data } = await send('Page.captureScreenshot', { format: 'png' })
