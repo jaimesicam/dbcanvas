@@ -11,7 +11,8 @@
 //
 // Steps: waitFor (a CSS selector, or text=… for the first element whose text contains it),
 // click (the same), eval (JavaScript run in the page), type ({ "into": selector, "text": … }),
-// select ({ "in": selector, "value": … }, for a <select>),
+// select ({ "in": selector, "value": … }, for a <select>), rightclick (a selector: its context menu),
+// window (a desktop window's title: closes the others, brings it forward, maximises it),
 // key (a key name such as "Escape"), wait (milliseconds), scroll (a selector to scroll into view).
 // Pictures are 1600 pixels wide at twice the pixel density, as the existing ones are.
 //
@@ -130,6 +131,17 @@ function find(sel) {
   return `document.querySelector(${JSON.stringify(sel)})`
 }
 
+// mouse presses a real mouse button at the centre of the element a selector names, through
+// Chrome's input events: a canvas that reacts to pointer presses ignores a script's .click().
+async function mouse(sel, button = 'left') {
+  const r = await evaluate(`(() => { const e = ${find(sel)}; if (!e) return null; e.scrollIntoView({ block: 'nearest' });
+    const b = e.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 } })()`)
+  if (!r) throw new Error(`nothing to click for ${sel}`)
+  await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: r.x, y: r.y })
+  await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: r.x, y: r.y, button, clickCount: 1 })
+  await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: r.x, y: r.y, button, clickCount: 1 })
+}
+
 async function waitFor(sel, ms = 20000) {
   const end = Date.now() + ms
   while (Date.now() < end) {
@@ -151,6 +163,9 @@ async function run() {
   for (const s of shots) {
     const height = s.height || 1000
     await send('Emulation.setDeviceMetricsOverride', { width: 1600, height, deviceScaleFactor: 2, mobile: false })
+    // Through a blank page, so each shot starts from a fresh load: a hash change alone would keep
+    // the previous shot's open menus and panels.
+    await navigate('about:blank', 3000)
     await navigate(origin + (s.path || '/'))
     await sleep(s.settle || 2500)
     try {
@@ -158,13 +173,41 @@ async function run() {
         if (st.waitFor) await waitFor(st.waitFor, st.timeout)
         if (st.click) {
           await waitFor(st.click, st.timeout)
-          await evaluate(`${find(st.click)}.click()`)
+          await mouse(st.click)
         }
         if (st.type) {
           await waitFor(st.type.into)
           await evaluate(`(() => { const e = ${find(st.type.into)}; e.focus();
             const set = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(e), 'value').set;
             set.call(e, ${JSON.stringify(st.type.text)}); e.dispatchEvent(new Event('input', { bubbles: true })) })()`)
+        }
+        if (st.window) {
+          // The desktop keeps every window it had open: close the others, then bring this one
+          // forward and maximise it, so clicks cannot land on a window behind.
+          const has = `[...document.querySelectorAll('[data-wm-window] span.truncate')].some((e) => e.textContent.trim() === ${JSON.stringify(st.window)})`
+          let end = Date.now() + 8000
+          while (Date.now() < end && !(await evaluate(has))) await sleep(300)
+          if (!(await evaluate(has))) {
+            // Not restored with the desktop: open it from its desktop icon, as a person would.
+            await evaluate(`${find('text=' + st.window)}?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))`)
+            end = Date.now() + 8000
+            while (Date.now() < end && !(await evaluate(has))) await sleep(300)
+          }
+          const ok = await evaluate(`(() => { const t = ${JSON.stringify(st.window)};
+            const title = (w) => (w.querySelector('span.truncate')?.textContent || '').trim();
+            const ws = [...document.querySelectorAll('[data-wm-window]')];
+            for (const w of ws) if (title(w) !== t) w.querySelector('button[title=Close]')?.click();
+            const w = ws.find((x) => title(x) === t);
+            if (!w) return false;
+            w.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+            w.querySelector('button[title=Maximize]')?.click();
+            return true })()`)
+          if (!ok) throw new Error(`no window titled ${st.window}`)
+          await sleep(600)
+        }
+        if (st.rightclick) {
+          await waitFor(st.rightclick, st.timeout)
+          await mouse(st.rightclick, 'right')
         }
         if (st.select) {
           await waitFor(st.select.in)
@@ -187,6 +230,9 @@ async function run() {
       console.log(`ok    ${s.file}`)
     } catch (e) {
       console.log(`FAIL  ${s.file}: ${e.message}`)
+      try {
+        console.log('      page: ' + (await evaluate('location.href + " | " + document.body.innerText.slice(0, 240).replace(/\\s+/g, " ")', 5000)))
+      } catch { /* the page is gone too */ }
       process.exitCode = 1
     }
   }

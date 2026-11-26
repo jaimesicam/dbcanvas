@@ -420,7 +420,7 @@ installation as a stack file and apply it with `dbcanvas up -f FILE`.
 
 ![The New stack dialog with the PXC + ProxySQL + PMM template selected](docs/screenshots/getting-started-new-stack.png)
 
-![A deployed stack — Intranet, PMM and a Percona Server node](docs/screenshots/getting-started-deployed.png)
+![A deployed stack — Intranet, Percona Server and VNC](docs/screenshots/getting-started-deployed.png)
 
 To build a stack from scratch, add the **Intranet** node first. It provides the DNS,
 certificate authority, LDAP and package proxy that the other nodes need, so the rest of the

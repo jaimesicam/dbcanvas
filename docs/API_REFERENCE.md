@@ -200,7 +200,7 @@ A stack is a design on the canvas plus the containers it deployed.
 `pending` → `provisioning` → `running`, or `error` (`stopped` when stopped on
 purpose). `dbcanvas up --wait` polls for you.
 
-![A deployed stack — Intranet, PMM and a Percona Server node](screenshots/getting-started-deployed.png)
+![A deployed stack — Intranet, Percona Server and VNC](screenshots/getting-started-deployed.png)
 
 ```sh
 curl -s -H "$AUTH" $API/stacks/12/stackfile > pxc-lab.yaml

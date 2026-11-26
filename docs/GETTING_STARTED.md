@@ -147,7 +147,7 @@ The fastest route is a template.
    step.
 7. Wait for the node cards to show **running**.
 
-![A deployed three-node stack: Intranet, PMM and a Percona Server node, all running](screenshots/getting-started-deployed.png)
+![A deployed three-node stack: Intranet, Percona Server and VNC, all running](screenshots/getting-started-deployed.png)
 
 > *`running` means the container is up and provisioning finished. A node that failed shows
 > `error`, and the deployment console shows the failed step.*
