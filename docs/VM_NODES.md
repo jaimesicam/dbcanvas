@@ -54,8 +54,8 @@ emulation, which works but boots in minutes and installs packages several times 
 
 ## What a VM node is like
 
-- **Operating system defaults are kept.** Oracle Linux runs SELinux enforcing; Ubuntu and
-  Debian run AppArmor with the profiles the packages install (Percona XtraDB Cluster installs its
+- **Operating system defaults are kept.** Oracle Linux runs SELinux enforcing (see below for the
+  exceptions); Ubuntu and Debian run AppArmor with the profiles the packages install (Percona XtraDB Cluster installs its
   `mysqld` profile in complain mode, as it does on any Ubuntu server). firewalld runs, with the
   stack network's interface in its trusted zone, so the stack's nodes reach each other as
   containers do.
@@ -66,6 +66,16 @@ emulation, which works but boots in minutes and installs packages several times 
   network goes early, so the node's services stop without it, as if the network were cut; each
   has 30 seconds to stop, as a container has when it is stopped.
 - Not available on a VM: disk read/write limits, and publishing a port to the host.
+
+## SELinux mode
+
+On Oracle Linux a VM node runs SELinux **enforcing**, except the types that have no SELinux policy
+that fits them, which run **permissive** by default: Valkey (it runs under the redis policy, which
+keeps a cluster node from opening its `nodes.conf`) and All in One (its many instances use ports
+and folders no policy knows). Any VM node can be set either way with **SELinux** under Runs on in
+the editor, `selinux: enforcing|permissive` in a stack file, or `selinux=` in a compose entry; a
+cluster member follows its cluster unless it says otherwise. Ubuntu and Debian have no SELinux,
+so the setting does nothing there.
 
 ## The network
 

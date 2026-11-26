@@ -75,6 +75,8 @@ type composeNodeSpec struct {
 	// Runtime is where the nodes run: "" or "docker" in containers, "vm" as virtual machines
 	// (engine_router.go). Offered only for the kinds that may run as a VM.
 	Runtime string `json:"runtime"`
+	// SELinux is the VM nodes' SELinux mode: enforcing or permissive; "" is the kind's default.
+	SELinux string `json:"selinux"`
 
 	// The relationships. Each is a boolean that resolves to a reference to another
 	// node in the same spec, and each has a "…With" partner for naming which one when

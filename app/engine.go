@@ -92,7 +92,7 @@ func (a *App) eng(st Stack) Engine {
 		return a.docker
 	}
 	if vm := stackVMNames(st); len(vm) > 0 {
-		return &engineRouter{app: a, docker: a.docker, lima: a.lima, vm: vm}
+		return &engineRouter{app: a, docker: a.docker, lima: a.lima, vm: vm, selinux: stackVMSELinux(st)}
 	}
 	return a.docker
 }

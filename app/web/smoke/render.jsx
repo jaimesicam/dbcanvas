@@ -17,7 +17,7 @@
 import { BigHoleOption, BigHoleLink } from '../src/components/BigHole.jsx'
 import { renderToString } from 'react-dom/server'
 import { ArchField, archFacts, archCardLabel } from '../src/components/ArchField.jsx'
-import { RuntimeField } from '../src/components/RuntimeField.jsx'
+import { RuntimeField, SELinuxField } from '../src/components/RuntimeField.jsx'
 import { DBFileToolChecks } from '../src/components/FileTools.jsx'
 import { MySQLTuningFields, redoOption } from '../src/components/MySQLTuning.jsx'
 import { CARD_TYPES, TlsView, DiffView, GtidView, UnitsView, TimeView, UriView, MongoView, LogFilterView, CompareView, SecretView } from '../src/components/scratch/Cards.jsx'
@@ -6895,6 +6895,15 @@ check('runs-on field: only for enabled types, a member follows its cluster, why 
   const nolima = field({ ...on, vmUnavailable: 'limactl is not installed' }, { type: 'pxc' })
   if (!/<select[^>]*disabled/.test(nolima) || !nolima.includes('limactl is not installed')) throw new Error('without Lima the choice is open')
   if (!/<select[^>]*disabled/.test(field(on, { type: 'pxc', runtime: 'vm' }, { deployed: true }))) throw new Error('a deployed node can change')
+  const se = (obj, extra = {}) => renderToString(
+    <SettingsCtx.Provider value={{ settings: {}, save: noop, system: on, saveSystem: noop, loaded: true }}>
+      <SELinuxField obj={obj} onChange={noop} {...extra} />
+    </SettingsCtx.Provider>,
+  ).replaceAll('<!-- -->', '')
+  if (se({ type: 'pxc' }) !== '') throw new Error('SELinux offered for a container node')
+  if (!se({ type: 'pxc', runtime: 'vm' }).includes('Default (Enforcing)')) throw new Error('PXC is not enforcing by default')
+  if (!se({ type: 'valkey', runtime: 'vm' }).includes('Default (Permissive)')) throw new Error('Valkey is not permissive by default')
+  if (!se({ type: 'pxc' }, { member: 'permissive', memberRuntime: 'vm' }).includes('As its cluster (Permissive)')) throw new Error('a member does not follow its cluster')
   return frame
 })
 

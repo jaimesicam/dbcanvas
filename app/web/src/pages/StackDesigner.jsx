@@ -5,7 +5,7 @@ import { FileToolChecks, DBFileToolChecks } from '../components/FileTools.jsx'
 import { MySQLTuningFields } from '../components/MySQLTuning.jsx'
 import { Card, Button, Badge, Field, ConfirmButton, InfoRow, inputCls, toneTile, NodeCode } from '../components/ui.jsx'
 import { ArchField, archFacts, archCardLabel } from '../components/ArchField.jsx'
-import { RuntimeField } from '../components/RuntimeField.jsx'
+import { RuntimeField, SELinuxField } from '../components/RuntimeField.jsx'
 import { engineOf, engineTone, nodeCode } from '../lib/engines.js'
 import { Avatar } from '../components/Avatar.jsx'
 import { relTime } from '../lib/notifApi.js'
@@ -16235,7 +16235,10 @@ function Body(props) {
     if (f) {
       const deployed = nodes.some((n) => n.frameId === f.id && depByNode[n.id])
       arch = <ArchField obj={f} deployed={deployed} onChange={(a) => patchFrame(f.id, { arch: a })} />
-      runtime = <RuntimeField obj={f} deployed={deployed} onChange={(r) => patchFrame(f.id, { runtime: r })} />
+      runtime = <>
+        <RuntimeField obj={f} deployed={deployed} onChange={(r) => patchFrame(f.id, { runtime: r })} />
+        <SELinuxField obj={f} deployed={deployed} onChange={(m) => patchFrame(f.id, { selinux: m })} />
+      </>
     }
   } else {
     const n = nodes.find((x) => x.id === selected.id)
@@ -16243,8 +16246,12 @@ function Body(props) {
       const f = n.frameId ? frames.find((x) => x.id === n.frameId) : null
       arch = <ArchField obj={n} member={f ? (f.arch || '') : undefined} deployed={!!depByNode[n.id]}
         onChange={(a) => patchNode(n.id, { arch: a })} />
-      runtime = <RuntimeField obj={n} member={f ? (f.runtime || '') : undefined} deployed={!!depByNode[n.id]}
-        onChange={(r) => patchNode(n.id, { runtime: r })} />
+      runtime = <>
+        <RuntimeField obj={n} member={f ? (f.runtime || '') : undefined} deployed={!!depByNode[n.id]}
+          onChange={(r) => patchNode(n.id, { runtime: r })} />
+        <SELinuxField obj={n} member={f ? (f.selinux || '') : undefined} memberRuntime={f ? (f.runtime || '') : undefined}
+          deployed={!!depByNode[n.id]} onChange={(m) => patchNode(n.id, { selinux: m })} />
+      </>
     }
   }
   return <>{mine.length > 0 && <SubjectIssues issues={mine} />}{arch && <div className="mb-3">{arch}</div>}{runtime && <div className="mb-3">{runtime}</div>}{form}</>

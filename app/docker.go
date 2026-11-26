@@ -660,6 +660,8 @@ type ContainerSpec struct {
 	DeviceReadBPS  int64
 	DeviceWriteBPS int64
 	DevicePath     string
+	// SELinux is the mode a VM runs SELinux in ("enforcing", "permissive"); Docker ignores it.
+	SELinux string
 }
 
 // PortMap publishes a container TCP port to a specific host port (HostPort 0

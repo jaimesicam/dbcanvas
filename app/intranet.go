@@ -30,6 +30,9 @@ type designNode struct {
 	// Runtime is where the node runs: "" or "docker" in a container, "vm" as a virtual machine
 	// (engine_router.go). A cluster member without one follows its cluster's.
 	Runtime string `json:"runtime,omitempty"`
+	// SELinux is the mode a VM node runs SELinux in on Oracle Linux: "" for its type's default
+	// (vmSELinuxDefault), "enforcing" or "permissive". A member without one follows its cluster.
+	SELinux string `json:"selinux,omitempty"`
 	// Per-node sizing: CPU and memory limits on the container; 0 is no limit. See
 	// applyVMSize.
 	// Network conditions applied to this node with tc once it is running —
@@ -587,6 +590,7 @@ type designFrame struct {
 	OSVersion    string `json:"osVersion"`         // e.g. "9" | "24.04"
 	Arch         string `json:"arch"`              // "amd64" | "arm64"
 	Runtime      string `json:"runtime,omitempty"` // "" or "docker", "vm": where its members run
+	SELinux      string `json:"selinux,omitempty"` // "", "enforcing", "permissive": its VM members' mode
 	PXCMajor     string `json:"pxcMajor"`          // "8.0" | "8.4" | "9.7"
 	PXCVersion   string `json:"pxcVersion"`        // minor (e.g. 8.0.45-36.1); "" → latest
 	RootPassword string `json:"rootPassword"`      // "" → auto-generated

@@ -72,6 +72,60 @@ func stackVMNames(st Stack) map[string]bool {
 	return names
 }
 
+// SELinux modes of a VM node.
+const (
+	selinuxEnforcing  = "enforcing"
+	selinuxPermissive = "permissive"
+)
+
+// vmSELinuxPermissive are the node types whose VMs run SELinux permissive unless set otherwise:
+// All-in-One, whose many instances use ports and folders no policy knows, and Valkey, which ships
+// no SELinux policy of its own — the redis policy it runs under keeps a cluster node from opening
+// its nodes.conf.
+var vmSELinuxPermissive = map[string]bool{"aio": true, "valkey": true, "valkeycluster": true}
+
+// vmSELinuxDefault is the SELinux mode a VM node of this type runs in unless set otherwise.
+func vmSELinuxDefault(typ string) string {
+	if vmSELinuxPermissive[typ] {
+		return selinuxPermissive
+	}
+	return selinuxEnforcing
+}
+
+// nodeSELinux is the SELinux mode a VM node runs in: its own, else its cluster's, else its type's
+// default.
+func nodeSELinux(n designNode, frames map[string]designFrame) string {
+	if n.SELinux != "" {
+		return n.SELinux
+	}
+	if f, ok := frames[n.FrameID]; ok && f.SELinux != "" {
+		return f.SELinux
+	}
+	if f, ok := frames[n.FrameID]; ok {
+		return vmSELinuxDefault(f.Type)
+	}
+	return vmSELinuxDefault(n.Type)
+}
+
+// stackVMSELinux is the SELinux mode of each of a stack's VM nodes, by container name.
+func stackVMSELinux(st Stack) map[string]string {
+	var doc designDoc
+	if json.Unmarshal(st.Design, &doc) != nil {
+		return nil
+	}
+	frames := map[string]designFrame{}
+	for _, f := range doc.Frames {
+		frames[f.ID] = f
+	}
+	out := map[string]string{}
+	for _, n := range doc.Nodes {
+		if nodeRuntime(n, frames) == runtimeVM {
+			out[containerName(st.ID, n.ID)] = nodeSELinux(n, frames)
+		}
+	}
+	return out
+}
+
 // vmPreviewTypes is DBCANVAS_VM_PREVIEW: node types allowed to run as a VM before their own
 // support is switched on (vmNodeTypes), for working on that support.
 func vmPreviewTypes() map[string]bool {
@@ -139,6 +193,11 @@ func vmEnabled() bool { return len(vmEnabledTypes()) > 0 }
 func runtimeIssues(doc designDoc, limaWhy string) []issue {
 	var out []issue
 	frames := map[string]designFrame{}
+	checkSE := func(what, mode string) {
+		if mode != "" && mode != selinuxEnforcing && mode != selinuxPermissive {
+			out = append(out, issue{Level: "error", Message: what + `: selinux "` + mode + `" is not enforcing or permissive`})
+		}
+	}
 	check := func(what, typ, rt string) {
 		switch rt {
 		case "", runtimeDocker:
@@ -160,8 +219,10 @@ func runtimeIssues(doc designDoc, limaWhy string) []issue {
 	for _, f := range doc.Frames {
 		frames[f.ID] = f
 		check(firstNonEmpty(f.Label, f.ID), f.Type, f.Runtime)
+		checkSE(firstNonEmpty(f.Label, f.ID), f.SELinux)
 	}
 	for _, n := range doc.Nodes {
+		checkSE(firstNonEmpty(n.Label, n.ID), n.SELinux)
 		rt := n.Runtime
 		if rt == "" {
 			continue // a member without its own runtime follows its cluster, checked above
@@ -191,10 +252,11 @@ func (a *App) vmUnavailable() string {
 // engineRouter is the Engine of a stack with VM nodes. vm holds the container names that run as
 // VMs; nil sends every creation to Docker (the router then only tells ids apart).
 type engineRouter struct {
-	app    *App // joins a new VM to its stack's network and keeps its link (vmnet.go)
-	docker *Docker
-	lima   *Lima
-	vm     map[string]bool
+	app     *App // joins a new VM to its stack's network and keeps its link (vmnet.go)
+	docker  *Docker
+	lima    *Lima
+	vm      map[string]bool
+	selinux map[string]string // each VM node's SELinux mode, by container name
 }
 
 func isLimaID(id string) bool { return strings.HasPrefix(id, limaPrefix) }
@@ -262,6 +324,9 @@ func (r *engineRouter) VolumeRemove(ctx context.Context, name string) {
 func (r *engineRouter) ContainerCreate(ctx context.Context, spec ContainerSpec) (string, error) {
 	if !r.vm[spec.Name] {
 		return r.docker.ContainerCreate(ctx, spec)
+	}
+	if mode := r.selinux[spec.Name]; mode != "" {
+		spec.SELinux = mode
 	}
 	id, err := r.lima.ContainerCreate(ctx, spec)
 	if err != nil {

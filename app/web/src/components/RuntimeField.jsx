@@ -36,3 +36,36 @@ export function RuntimeField({ obj, member, deployed, onChange }) {
     </Field>
   )
 }
+
+// SELINUX_PERMISSIVE mirrors vmSELinuxPermissive in app/engine_router.go: the types whose VMs run
+// SELinux permissive unless set otherwise.
+export const SELINUX_PERMISSIVE = { aio: 'All in One', valkey: 'Valkey', valkeycluster: 'Valkey' }
+
+// SELinuxField is the SELinux mode of a node that runs as a VM, on an OS with SELinux (Oracle
+// Linux): its type's default (saved as nothing), Enforcing or Permissive. A cluster member
+// follows its cluster unless it says otherwise. It shows only while the node runs as a VM.
+export function SELinuxField({ obj, member, memberRuntime, deployed, onChange }) {
+  const memberOf = member !== undefined
+  const runtime = obj.runtime || (memberOf ? memberRuntime || '' : '')
+  if (runtime !== 'vm') return null
+  const def = SELINUX_PERMISSIVE[obj.type] ? 'permissive' : 'enforcing'
+  const name = (m) => (m === 'permissive' ? 'Permissive' : 'Enforcing')
+  const inherited = memberOf && member ? member : def
+  const hint = deployed
+    ? 'It cannot change while the node is deployed.'
+    : SELINUX_PERMISSIVE[obj.type]
+      ? `${SELINUX_PERMISSIVE[obj.type]} runs permissive by default: there is no SELinux policy for it. Applies on Oracle Linux; Ubuntu and Debian use AppArmor.`
+      : 'Applies on Oracle Linux; Ubuntu and Debian use AppArmor.'
+  return (
+    <div className="mt-3">
+      <Field label="SELinux" hint={hint}>
+        <select className={inputCls} value={obj.selinux || ''} disabled={deployed}
+          data-selinux-field="" onChange={(e) => onChange(e.target.value)}>
+          <option value="">{memberOf ? `As its cluster (${name(inherited)})` : `Default (${name(def)})`}</option>
+          <option value="enforcing">Enforcing</option>
+          <option value="permissive">Permissive</option>
+        </select>
+      </Field>
+    </div>
+  )
+}

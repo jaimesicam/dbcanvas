@@ -157,3 +157,47 @@ func TestComposeRuntime(t *testing.T) {
 		t.Fatal("the Intranet was allowed to run as a VM")
 	}
 }
+
+func TestVMSELinuxModes(t *testing.T) {
+	doc := designDoc{
+		Frames: []designFrame{
+			{ID: "v", Type: "valkeycluster", Runtime: runtimeVM},
+			{ID: "p", Type: "pxc", Runtime: runtimeVM, SELinux: selinuxPermissive},
+		},
+		Nodes: []designNode{
+			{ID: "valkey-1", Type: "valkeycluster", FrameID: "v"},                            // its type's default
+			{ID: "valkey-2", Type: "valkeycluster", FrameID: "v", SELinux: selinuxEnforcing}, // its own
+			{ID: "pxc-1", Type: "pxc", FrameID: "p"},                                         // its cluster's
+			{ID: "ps-01", Type: "ps", Runtime: runtimeVM},                                    // its type's default
+			{ID: "valkey-01", Type: "valkey", Runtime: runtimeVM},
+			{ID: "pg-01", Type: "pg"}, // a container: no mode
+		},
+	}
+	design, _ := json.Marshal(doc)
+	got := stackVMSELinux(Stack{ID: 3, Design: design})
+	want := map[string]string{
+		"valkey-1": selinuxPermissive, "valkey-2": selinuxEnforcing, "pxc-1": selinuxPermissive,
+		"ps-01": selinuxEnforcing, "valkey-01": selinuxPermissive,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("modes %v", got)
+	}
+	for id, mode := range want {
+		if got[containerName(3, id)] != mode {
+			t.Errorf("%s: %q, want %q", id, got[containerName(3, id)], mode)
+		}
+	}
+	if vmSELinuxDefault("aio") != selinuxPermissive || vmSELinuxDefault("patroni") != selinuxEnforcing {
+		t.Error("type defaults")
+	}
+	bad := runtimeIssues(designDoc{Nodes: []designNode{{ID: "ps-01", Type: "ps", SELinux: "disabled"}}}, "")
+	if len(bad) != 1 || !strings.Contains(bad[0].Message, `selinux "disabled" is not enforcing or permissive`) {
+		t.Errorf("an unknown mode was accepted: %+v", bad)
+	}
+	if s := limaSELinuxScript(selinuxPermissive); !strings.Contains(s, "SELINUX=permissive") || !strings.Contains(s, "setenforce 0") {
+		t.Errorf("permissive script: %s", s)
+	}
+	if limaSELinuxScript("") != "" {
+		t.Error("no mode must leave the OS's own")
+	}
+}

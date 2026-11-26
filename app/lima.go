@@ -64,7 +64,8 @@ type limaMeta struct {
 	Version  string `json:"version"`  // 9, 24.04, …
 	Arch     string `json:"arch"`     // amd64, arm64
 	Network  string `json:"network,omitempty"`
-	IP       string `json:"ip,omitempty"` // the node's address on Network
+	IP       string `json:"ip,omitempty"`      // the node's address on Network
+	SELinux  string `json:"selinux,omitempty"` // enforcing or permissive, on an OS with SELinux
 }
 
 // NewLima returns a Lima engine when limactl and ssh are installed and limactl is new enough,
@@ -313,6 +314,23 @@ GEN
 chmod 755 /etc/systemd/system-generators/dbcanvas-stack-link
 systemctl daemon-reload`
 
+// limaSELinuxScript sets the VM's SELinux mode, now and for every boot, where the OS has
+// SELinux; "" keeps the OS's own (enforcing on Oracle Linux).
+func limaSELinuxScript(mode string) string {
+	if mode != selinuxEnforcing && mode != selinuxPermissive {
+		return ""
+	}
+	set := "1"
+	if mode == selinuxPermissive {
+		set = "0"
+	}
+	return `
+if [ -f /etc/selinux/config ]; then
+  sed -i 's/^SELINUX=.*/SELINUX=` + mode + `/' /etc/selinux/config
+  command -v setenforce >/dev/null && setenforce ` + set + ` || true
+fi`
+}
+
 func limaBaselineScript(os_ string) string {
 	if isDebianOS(os_) {
 		return limaBaselineDebian + limaBootOrder
@@ -476,7 +494,7 @@ func (l *Lima) ContainerCreate(ctx context.Context, spec ContainerSpec) (string,
 		l.ContainerRemove(ctx, id)
 		return "", fmt.Errorf("limactl create %s (%s): %v: %s", spec.Name, template, err, limaTail(errb, 800))
 	}
-	meta := limaMeta{Name: spec.Name, Hostname: spec.Hostname, OS: os_, Version: version, Arch: arch, Network: spec.Network, IP: spec.IPv4Address}
+	meta := limaMeta{Name: spec.Name, Hostname: spec.Hostname, OS: os_, Version: version, Arch: arch, Network: spec.Network, IP: spec.IPv4Address, SELinux: spec.SELinux}
 	if err := l.saveMeta(id, meta); err != nil {
 		l.ContainerRemove(ctx, id)
 		return "", err
@@ -505,7 +523,7 @@ func (l *Lima) start(ctx context.Context, id, arch string) error {
 // baseline sets the hostname and installs the image's tooling, retrying the way a flaky mirror
 // needs. Idempotent, so a redeploy runs it again harmlessly.
 func (l *Lima) baseline(ctx context.Context, id string, m limaMeta) error {
-	script := limaBaselineScript(m.OS)
+	script := limaBaselineScript(m.OS) + limaSELinuxScript(m.SELinux)
 	if m.Hostname != "" {
 		script = "hostnamectl set-hostname " + shellQuote(m.Hostname) + "\n" + script
 	}
