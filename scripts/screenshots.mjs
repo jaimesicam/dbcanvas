@@ -14,7 +14,7 @@
 // select ({ "in": selector, "value": … } or { "in": …, "label": text of the option }, for a <select>), rightclick (a selector: its context menu),
 // window (a desktop window's title: closes the others, brings it forward, maximises it),
 // text (typed into whatever has the focus),
-// key (a key name such as "Escape"), wait (milliseconds), scroll (a selector to scroll into view).
+// key (a key name such as "Escape"), drag (a list of [x, y] page points: a pressed-mouse stroke), wait (milliseconds), scroll (a selector to scroll into view).
 // Pictures are 1600 pixels wide at twice the pixel density, as the existing ones are.
 //
 // Take them from an instance whose owner and domains are neutral: a test user (testuser01) and
@@ -50,7 +50,9 @@ const proc = spawn(chrome, [
   '--hide-scrollbars', `--user-data-dir=${profile}`, `--remote-debugging-port=${port}`,
   // A fresh profile on macOS asks the login keychain for "Chrome Safe Storage" on every launch,
   // and the person at the screen gets the prompt: keep this Chrome off the keychain entirely.
-  '--use-mock-keychain', '--password-store=basic', 'about:blank',
+  '--use-mock-keychain', '--password-store=basic',
+  // A session recording captures the host's own tab: accept that share without a picker.
+  '--auto-accept-this-tab-capture', '--use-fake-ui-for-media-stream', 'about:blank',
 ], { stdio: 'ignore' })
 
 let ws
@@ -224,6 +226,18 @@ async function run() {
             Tab: { code: 'Tab', windowsVirtualKeyCode: 9, text: '\t' } }[st.key] || {}
           await send('Input.dispatchKeyEvent', { type: 'keyDown', key: st.key, ...k })
           await send('Input.dispatchKeyEvent', { type: 'keyUp', key: st.key, ...k })
+        }
+        if (st.drag) {
+          // A pressed mouse moved through each [x, y] point (page pixels) and released: a stroke.
+          const [x0, y0] = st.drag[0]
+          await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: x0, y: y0 })
+          await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: x0, y: y0, button: 'left', buttons: 1, clickCount: 1 })
+          for (const [x, y] of st.drag.slice(1)) {
+            await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'left', buttons: 1 })
+            await sleep(16)
+          }
+          const [x1, y1] = st.drag[st.drag.length - 1]
+          await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: x1, y: y1, button: 'left', buttons: 0, clickCount: 1 })
         }
         if (st.scroll) await evaluate(`${find(st.scroll)}?.scrollIntoView({ block: 'center' })`)
         if (st.eval) await evaluate(st.eval)
