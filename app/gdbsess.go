@@ -360,13 +360,14 @@ func (s *gdbSession) open(ctx context.Context, core string) error {
 	s.a.gdbKillStrays(loadCtx, tgt.ContainerID)
 
 	solib := s.a.gdbSolibPath(loadCtx, tgt.ContainerID)
+	sysroot := s.a.gdbSysroot(loadCtx, tgt.ContainerID)
 	// Where debugsource unpacked the code. A recent build's DWARF is absolute and needs none of
 	// this; an older one records a relative path that gdb resolves against exactly this list.
 	srcRoots := s.a.gdbSourceRoots(loadCtx, tgt.ContainerID)
 	conn, err := s.a.engCtx(loadCtx).HijackExec(loadCtx, tgt.ContainerID,
 		[]string{"sh", "-c", gdbStartScript},
 		[]string{
-			"SYSROOT=" + gdbSysrootMount,
+			"SYSROOT=" + sysroot,
 			"SOLIB=" + solib,
 			"BINARY=" + tgt.Binary,
 			"CORE=" + gdbCoreMount + "/" + core,
@@ -391,7 +392,7 @@ func (s *gdbSession) open(ctx context.Context, core string) error {
 	// Built here rather than in the browser because this is where the truth is: the solib path was
 	// just resolved by walking the mount, and a recipe that guessed it would send somebody off to
 	// read a different set of libraries than the page did.
-	s.recipe = gdbRecipe(tgt.Container, tgt.Binary, gdbCoreMount+"/"+core, gdbSysrootMount, solib, srcRoots)
+	s.recipe = gdbRecipe(tgt.Container, tgt.Binary, gdbCoreMount+"/"+core, sysroot, solib, srcRoots)
 	s.mu.Unlock()
 
 	// The first command is also the proof that gdb came up and finished reading the core: MI

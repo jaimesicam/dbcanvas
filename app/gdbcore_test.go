@@ -1,6 +1,9 @@
 package main
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -647,5 +650,37 @@ func TestGDBResolvedSourceStaysInsideTheSourceTrees(t *testing.T) {
 		if gdbSafeSourcePath(c) == nil && !strings.HasPrefix(c, "/usr/") {
 			t.Errorf("candidate %q escaped the source trees and would be read", c)
 		}
+	}
+}
+
+// TestGDBFlatSysroot: a flat library directory (the ldd recipe's) is laid out as a tree of links,
+// so gdb finds <sysroot>/lib64/libc.so.6 among the crashed host's files instead of the analysis
+// node's own; a directory that is already a tree is used as it is.
+func TestGDBFlatSysroot(t *testing.T) {
+	run := func(mount string) (string, string) {
+		root := filepath.Join(t.TempDir(), "tree")
+		script := strings.NewReplacer(gdbSysrootMount, mount, gdbFlatSysroot, root).Replace(gdbSysrootScript)
+		out, err := exec.Command("sh", "-c", script).CombinedOutput()
+		if err != nil {
+			t.Fatalf("script: %v: %s", err, out)
+		}
+		return strings.TrimSpace(string(out)), root
+	}
+	flat := t.TempDir()
+	os.WriteFile(filepath.Join(flat, "libc.so.6"), []byte("x"), 0o644)
+	os.WriteFile(filepath.Join(flat, "mysqld"), []byte("x"), 0o755)
+	got, root := run(flat)
+	if got != root {
+		t.Fatalf("flat directory: sysroot %q, want %q", got, root)
+	}
+	for _, p := range []string{"lib64/libc.so.6", "usr/lib64/libc.so.6", "usr/sbin/mysqld"} {
+		if dst, err := os.Readlink(filepath.Join(root, p)); err != nil || dst != filepath.Join(flat, filepath.Base(p)) {
+			t.Errorf("%s -> %q (%v), want a link to the mounted file", p, dst, err)
+		}
+	}
+	tree := t.TempDir()
+	os.MkdirAll(filepath.Join(tree, "lib64"), 0o755)
+	if got, _ := run(tree); got != tree {
+		t.Errorf("a tree: sysroot %q, want the mount itself", got)
 	}
 }

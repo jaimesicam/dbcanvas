@@ -175,3 +175,36 @@ func TestDesignCatalog(t *testing.T) {
 		}
 	}
 }
+
+// TestPlacementOptions: where a node runs can be set through the design endpoints — the
+// architecture on standalone nodes and clusters, and the runtime and SELinux mode on the types
+// that may run as a VM — but not the architecture of a member or of a fixed-architecture type.
+func TestPlacementOptions(t *testing.T) {
+	c := designCatalog()
+	fields := func(e *catalogEntry) map[string]string {
+		m := map[string]string{}
+		for _, o := range e.Options {
+			m[o.Field] = o.Type
+		}
+		return m
+	}
+	ps, _ := c.node("ps")
+	if f := fields(ps); f["arch"] != "string" || f["runtime"] != "string" || f["selinux"] != "string" {
+		t.Errorf("ps options: arch %q runtime %q selinux %q", f["arch"], f["runtime"], f["selinux"])
+	}
+	if fr, ok := c.frame("pxc"); !ok || fields(fr)["runtime"] == "" || fields(fr)["arch"] == "" {
+		t.Error("the pxc cluster offers no runtime or arch")
+	}
+	for _, e := range c.Nodes {
+		if e.Type == "pxc" && e.Placement == "member" {
+			if f := fields(&e); f["arch"] != "" || f["runtime"] == "" {
+				t.Errorf("a pxc member: arch %q (want none), runtime %q", f["arch"], f["runtime"])
+			}
+		}
+	}
+	if in, ok := c.node("intranet"); ok {
+		if f := fields(in); f["runtime"] != "" {
+			t.Error("the Intranet offers runtime, but always runs in a container")
+		}
+	}
+}

@@ -192,7 +192,7 @@ func designCatalog() *designCatalogIndex {
 				if e.isFrame() {
 					types = frameTypes
 				}
-				e.Options = append([]catalogOption(nil), e.Options...)
+				e.Options = append(append([]catalogOption(nil), e.Options...), placementOptions(e)...)
 				for i := range e.Options {
 					e.Options[i].Type = types[e.Options[i].Field]
 				}
@@ -212,6 +212,36 @@ func designCatalog() *designCatalogIndex {
 		designCatalogIdx = idx
 	})
 	return &designCatalogIdx
+}
+
+// placementOptions are where a node or cluster runs, offered on every type they apply to rather
+// than listed family by family: the architecture (not on a cluster member, which runs on its
+// cluster's, nor on the types whose architecture is fixed), and for the types that may run as a
+// virtual machine, the runtime and the VM's SELinux mode (engine_router.go). An entry that lists
+// one itself keeps its own.
+func placementOptions(e catalogEntry) []catalogOption {
+	has := func(f string) bool {
+		_, ok := e.option(f)
+		return ok
+	}
+	var out []catalogOption
+	_, k8s := kubernetesFrames[e.Type]
+	_, amd64 := amd64Only[e.Type]
+	if !has("arch") && !k8s && !amd64 && e.Placement != "member" {
+		out = append(out, catalogOption{Field: "arch", Values: []string{"", "amd64", "arm64"},
+			Desc: "The architecture it runs as: \"\" the Docker host's own, or amd64 or arm64; the other one runs under emulation, more slowly. A cluster's members run on the cluster's."})
+	}
+	if vmCapableType(e.Type) {
+		if !has("runtime") {
+			out = append(out, catalogOption{Field: "runtime", Values: []string{"", "docker", "vm"},
+				Desc: "Where it runs: \"\" or \"docker\" in a container, \"vm\" as a virtual machine on Lima (docs/VM_NODES.md). A cluster member follows its cluster unless it sets its own; the stack needs an Intranet node."})
+		}
+		if !has("selinux") {
+			out = append(out, catalogOption{Field: "selinux", Values: []string{"", "enforcing", "permissive"},
+				Desc: "The SELinux mode of a VM on Oracle Linux: \"\" the type's default (enforcing; permissive for All in One and Valkey). No effect in a container or on Ubuntu and Debian.", When: "runtime is vm"})
+		}
+	}
+	return out
 }
 
 func (c *designCatalogIndex) node(t string) (*catalogEntry, bool) {

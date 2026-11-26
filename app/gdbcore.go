@@ -648,6 +648,40 @@ done
 // the host gives a tree, which is what sysroot is for. The hand-written recipe sets both to the
 // same path and gets the flat case; walking one level down also gets the tree case, at the cost of
 // one `find`.
+// gdbFlatSysroot is where a flat library directory is laid out as a tree. gdb looks a library up
+// as <sysroot>/<path the core names>, e.g. /sysroot/lib64/libc.so.6, and when the directory is
+// flat — the ldd recipe copies every file into one folder — that lookup misses and gdb settles for
+// the analysis node's own /lib64 copy: right only when the two hosts' libraries happen to be
+// identical, and on any other host a build-id mismatch, an unreadable libc and a stack of ??.
+const gdbFlatSysroot = "/var/tmp/dbcanvas-sysroot"
+
+// gdbSysrootScript prints the sysroot gdb should use: the mount itself when it already holds a
+// tree (lib64, usr …), else gdbFlatSysroot, rebuilt as links into the mount under every library
+// directory a core may name.
+const gdbSysrootScript = `set -e
+M=` + gdbSysrootMount + `
+if [ -d "$M/lib64" ] || [ -d "$M/usr" ] || [ -d "$M/lib" ]; then echo "$M"; exit 0; fi
+R=` + gdbFlatSysroot + `
+rm -rf "$R"
+for d in lib64 lib usr/lib64 usr/lib lib/aarch64-linux-gnu lib/x86_64-linux-gnu usr/lib/aarch64-linux-gnu usr/lib/x86_64-linux-gnu usr/sbin sbin; do
+  mkdir -p "$R/$d"
+  for f in "$M"/*; do [ -f "$f" ] && ln -sf "$f" "$R/$d/"; done
+done
+echo "$R"`
+
+// gdbSysroot is the sysroot for a session on node id (see gdbSysrootScript); the mount when it
+// cannot tell.
+func (a *App) gdbSysroot(ctx context.Context, id string) string {
+	res, err := a.engCtx(ctx).Exec(ctx, id, []string{"sh", "-c", gdbSysrootScript}, nil)
+	if err != nil || res.Code != 0 {
+		return gdbSysrootMount
+	}
+	if p := strings.TrimSpace(res.Stdout); p != "" {
+		return p
+	}
+	return gdbSysrootMount
+}
+
 func (a *App) gdbSolibPath(ctx context.Context, id string) string {
 	res, err := a.engCtx(ctx).Exec(ctx, id, []string{"sh", "-c",
 		`find ` + gdbSysrootMount + ` -name '*.so*' -printf '%h\n' 2>/dev/null | sort -u | head -200`}, nil)
