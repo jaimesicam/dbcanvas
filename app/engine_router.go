@@ -263,6 +263,13 @@ func runtimeIssues(doc designDoc, limaWhy string) []issue {
 		check(firstNonEmpty(n.Label, n.ID), n.Type, rt)
 	}
 	for _, n := range doc.Nodes {
+		if nodeRuntime(n, frames) == runtimeVM && n.Type == "linuxclient" && n.GDBEnabled {
+			// The analysis reads the core and the crashed host's libraries through read-only bind
+			// mounts from the Docker host (gdbcore.go), which a VM has no counterpart for.
+			out = append(out, issue{Level: "error", Message: firstNonEmpty(n.Label, n.ID) + ": a Linux Client for core-dump analysis runs in a container: it reads the core through bind mounts from the Docker host, which a VM does not have. The server that crashed can run as a VM"})
+		}
+	}
+	for _, n := range doc.Nodes {
 		if nodeRuntime(n, frames) == runtimeVM && (n.DeviceReadMBps > 0 || n.DeviceWriteMBps > 0) {
 			out = append(out, issue{Level: "warning", Message: firstNonEmpty(n.Label, n.ID) + ": disk read/write limits apply to containers; a VM node runs without them"})
 		}

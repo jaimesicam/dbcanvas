@@ -35,7 +35,7 @@ Ubuntu with AppArmor, alone and in a cluster with containers, and across a reboo
 | PostgreSQL and Patroni from PGDG, MongoDB Community Server | 0.1.x |
 | OpenBao, Samba AD DC | 0.1.x |
 | Kubeadm Cluster (the control plane and workers, alone or beside container nodes) | 0.1.x |
-| All in One (SELinux permissive by default), Linux Client | 0.1.x |
+| All in One (SELinux permissive by default), Linux Client (not one set up for core-dump analysis, which reads its files through bind mounts and runs in a container) | 0.1.x |
 
 A type runs on the operating systems it is offered on as a container: Samba AD DC only on Ubuntu
 24.04 (Oracle Linux's Samba has no AD DC role), OpenBao and Spock only on Oracle Linux.

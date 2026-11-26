@@ -313,3 +313,25 @@ func TestVMNeedsQEMU(t *testing.T) {
 		t.Errorf("QEMU flagged where Lima itself is missing:\n%s", got)
 	}
 }
+
+// TestGDBClientNotAVM: a Linux Client set up for core-dump analysis is refused as a VM, since its
+// core and libraries arrive through bind mounts; a plain Linux Client VM is fine.
+func TestGDBClientNotAVM(t *testing.T) {
+	doc := designDoc{Nodes: []designNode{
+		{ID: "i", Type: "intranet"},
+		{ID: "a", Label: "gdb-client", Type: "linuxclient", Runtime: "vm", GDBEnabled: true},
+		{ID: "b", Label: "plain-client", Type: "linuxclient", Runtime: "vm"},
+		{ID: "c", Label: "gdb-container", Type: "linuxclient", GDBEnabled: true},
+	}}
+	var got []string
+	for _, i := range runtimeIssues(doc, "") {
+		got = append(got, i.Level+": "+i.Message)
+	}
+	all := strings.Join(got, "\n")
+	if !strings.Contains(all, "error: gdb-client: a Linux Client for core-dump analysis runs in a container") {
+		t.Errorf("an analysis client as a VM was not refused:\n%s", all)
+	}
+	if strings.Contains(all, "plain-client") || strings.Contains(all, "gdb-container") {
+		t.Errorf("a plain client VM or an analysis container was flagged:\n%s", all)
+	}
+}
