@@ -62,7 +62,9 @@ emulation, which works but boots in minutes and installs packages several times 
 - **The same tooling as a container node**: percona-release, Percona Toolkit, `tc`, sysstat,
   and the node's terminal, files, logs, live stats and network conditions.
 - **Its own boot.** A reboot from inside the VM is a real one; the node's services wait for the
-  stack network at boot and start once it is back.
+  stack network at boot and start once it is back. When the VM shuts down, its link to the stack
+  network goes early, so the node's services stop without it, as if the network were cut; each
+  has 30 seconds to stop, as a container has when it is stopped.
 - Not available on a VM: disk read/write limits, and publishing a port to the host.
 
 ## The network
@@ -74,6 +76,8 @@ link dbcanvas carries: one end runs in the Intranet container, the other in the 
 VM's name is in the Intranet's DNS like any node's.
 
 Nothing changes on the host: no routes, firewall rules or listening ports beyond `127.0.0.1`.
+dbcanvas reaches each VM over ssh with the key Lima made for its folder, and checks the VM's host
+key against the one Lima pinned when the VM was created.
 
 The link runs while dbcanvas runs. `dbcanvas stop` says how many nodes are VMs; until dbcanvas
 starts again their link is down. On macOS they are then cut off from the stack; on Linux a VM can

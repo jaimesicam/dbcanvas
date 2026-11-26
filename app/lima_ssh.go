@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 // lima_ssh.go — the half of the Lima engine that runs inside a VM: commands, files and the web
@@ -272,12 +273,18 @@ type limaAddr struct{}
 func (limaAddr) Network() string { return "ssh" }
 func (limaAddr) String() string  { return "lima" }
 
-// sshClient opens an ssh connection to the VM with Lima's key. Lima's VMs listen on 127.0.0.1
-// only and get a new host key on every create, so the host key is not pinned.
+// sshClient opens an ssh connection to the VM with Lima's key, checking the VM's host key
+// against the one Lima pinned for it (<instance>/ssh.known_hosts), as the ssh command does with
+// Lima's config. The VM's port is on 127.0.0.1, where another local user could listen in its
+// place while the VM is down; this connection carries commands, files and stack traffic.
 func (l *Lima) sshClient(id string) (*ssh.Client, error) {
 	info, err := l.sshInfoFor(id)
 	if err != nil {
 		return nil, err
+	}
+	hostKeys, err := knownhosts.New(filepath.Join(l.dir(id), "ssh.known_hosts"))
+	if err != nil {
+		return nil, fmt.Errorf("VM %s: Lima's pinned host key: %w", id, err)
 	}
 	key, err := os.ReadFile(info.identity)
 	if err != nil {
@@ -290,7 +297,7 @@ func (l *Lima) sshClient(id string) (*ssh.Client, error) {
 	return ssh.Dial("tcp", net.JoinHostPort(info.host, strconv.Itoa(info.port)), &ssh.ClientConfig{
 		User:            info.user,
 		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: hostKeys,
 		Timeout:         15 * time.Second,
 	})
 }
